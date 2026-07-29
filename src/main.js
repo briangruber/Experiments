@@ -399,8 +399,10 @@ function frame(now) {
       // The hull's designed waterline sits above its keel, so the origin has to
       // ride proud of the surface or the sea closes over the deck.
       [waveRunner.pos[0], (waveRunner.deckY ?? 0) + params.craftLift, waveRunner.pos[2]],
-      waveRunner.heading, waveRunner.pitchTrim,
-      waveRunner.bank + waveRunner.rollTrim, params.craftScale,
+      waveRunner.heading + params.craftYawOffset,
+      waveRunner.pitchTrim + params.craftPitchOffset,
+      waveRunner.bank + waveRunner.rollTrim + params.craftRollOffset,
+      params.craftScale,
     );
     craft.draw(params, ctx, sky.lut);
   }

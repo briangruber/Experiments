@@ -1,121 +1,45 @@
-// The wave runner itself: a procedurally lofted hull, so third person has
-// something to chase. No mesh file - the whole page still loads no assets.
+// The wave runner: a real mesh, inlined.
+//
+// The GLB the user authored is 7.5 MB, almost all of it four 2048px JPEGs, and
+// the artifact CSP forbids fetching anything at runtime - so the model has to
+// live inside the page. tools/glb.mjs quantises the geometry (Int16 positions
+// over a unit bounding box, Int8 normals, Uint16 UVs) and re-encodes the base
+// colour map at 512px, which lands the whole craft at ~310 kB.
 
-import { program, setUniforms, FS_VERT } from './gl.js';
+import { program, setUniforms } from './gl.js';
 import { mat4 } from './math.js';
+import { CRAFT_MESH } from './craftModel.js';
 
-// One closed cross-section in (half-width, height) units. Runs keel -> chine ->
-// gunwale -> deck centre; the port side is mirrored from it.
-const SECTION = [
-  [0.00, -1.00],  // keel
-  [0.42, -0.86],
-  [0.76, -0.46],
-  [0.98, -0.08],  // chine, where the planing surface breaks away
-  [1.00, 0.22],   // gunwale
-  [0.74, 0.52],
-  [0.34, 0.70],
-  [0.00, 0.76],   // deck centre
-];
-
-// Stations bow -> stern: z along the hull, then width / depth / deck scales.
-const STATIONS = [
-  [-1.00, 0.05, 0.10, 0.86],   // stem: narrow and raked well clear of the water
-  [-0.88, 0.24, 0.34, 0.95],
-  [-0.68, 0.55, 0.62, 1.00],
-  [-0.34, 0.86, 0.82, 0.96],
-  [0.04, 1.00, 0.92, 0.88],
-  [0.42, 0.99, 0.90, 0.82],
-  [0.76, 0.92, 0.80, 0.76],
-  [1.00, 0.80, 0.66, 0.70],    // transom
-];
-
-function buildHull(len, beam, draft, deck) {
-  const ring = [];
-  for (let i = 0; i < SECTION.length; i++) ring.push([SECTION[i][0], SECTION[i][1]]);
-  for (let i = SECTION.length - 2; i >= 1; i--) ring.push([-SECTION[i][0], SECTION[i][1]]);
-  const R = ring.length;
-
-  const pos = [], nrm = [], idx = [];
-  for (const [z, w, d, h] of STATIONS) {
-    for (const [u, v] of ring) {
-      const y = v < 0 ? v * d * draft : v * h * deck;
-      pos.push(u * w * beam * 0.5, y, z * len * 0.5);
-    }
-  }
-  for (let s = 0; s < STATIONS.length - 1; s++) {
-    for (let i = 0; i < R; i++) {
-      const j = (i + 1) % R;
-      const a = s * R + i, b = s * R + j, c = (s + 1) * R + i, d2 = (s + 1) * R + j;
-      idx.push(a, c, b, b, c, d2);
-    }
-  }
-  // Cap the transom so the stern is not an open tube.
-  const base = pos.length / 3;
-  const last = (STATIONS.length - 1) * R;
-  const zc = STATIONS[STATIONS.length - 1][0] * len * 0.5;
-  pos.push(0, 0, zc);
-  for (let i = 0; i < R; i++) idx.push(base, last + i, last + ((i + 1) % R));
-
-  // Area-weighted vertex normals: the cross product of the two triangle edges is
-  // already proportional to twice the area, so summing them unnormalised gives
-  // the smooth normal for free.
-  const n = new Float32Array(pos.length);
-  for (let t = 0; t < idx.length; t += 3) {
-    const [i0, i1, i2] = [idx[t] * 3, idx[t + 1] * 3, idx[t + 2] * 3];
-    const ux = pos[i1] - pos[i0], uy = pos[i1 + 1] - pos[i0 + 1], uz = pos[i1 + 2] - pos[i0 + 2];
-    const vx = pos[i2] - pos[i0], vy = pos[i2 + 1] - pos[i0 + 1], vz = pos[i2 + 2] - pos[i0 + 2];
-    const cx = uy * vz - uz * vy, cy = uz * vx - ux * vz, cz = ux * vy - uy * vx;
-    for (const i of [i0, i1, i2]) { n[i] += cx; n[i + 1] += cy; n[i + 2] += cz; }
-  }
-  for (let i = 0; i < n.length; i += 3) {
-    const l = Math.hypot(n[i], n[i + 1], n[i + 2]) || 1;
-    n[i] /= l; n[i + 1] /= l; n[i + 2] /= l;
-  }
-  nrm.push(...n);
-  return { pos: new Float32Array(pos), nrm: new Float32Array(nrm), idx: new Uint16Array(idx) };
-}
-
-// Axis-aligned box, used for the seat and the handlebar column.
-function box(cx, cy, cz, sx, sy, sz, out) {
-  const base = out.pos.length / 3;
-  const F = [[-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1], [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]];
-  const faces = [[0, 1, 2, 3, 0, 0, -1], [5, 4, 7, 6, 0, 0, 1], [4, 0, 3, 7, -1, 0, 0],
-                 [1, 5, 6, 2, 1, 0, 0], [3, 2, 6, 7, 0, 1, 0], [4, 5, 1, 0, 0, -1, 0]];
-  for (const f of faces) {
-    const start = out.pos.length / 3;
-    for (let k = 0; k < 4; k++) {
-      const v = F[f[k]];
-      out.pos.push(cx + v[0] * sx, cy + v[1] * sy, cz + v[2] * sz);
-      out.nrm.push(f[4], f[5], f[6]);
-    }
-    out.idx.push(start, start + 1, start + 2, start, start + 2, start + 3);
-  }
-  return base;
-}
+const unb64 = (s, T) => {
+  const bin = atob(s);
+  const u8 = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  return new T(u8.buffer);
+};
 
 const CRAFT_VS = /* glsl */`
-layout(location=0) in vec3 aPos;
-layout(location=1) in vec3 aNrm;
-layout(location=2) in float aPart;   // 0 hull, 1 seat, 2 bars
+layout(location=0) in vec3 aPos;     // Int16, unit bbox * 32000
+layout(location=1) in vec3 aNrm;     // Int8, normalised
+layout(location=2) in vec2 aUv;
 uniform mat4 uViewProj, uModel;
+uniform float uMeshScale;
 out vec3 vN, vW;
-out float vPart;
+out vec2 vUv;
 void main(){
-  vec4 w = uModel * vec4(aPos, 1.0);
+  vec4 w = uModel * vec4(aPos * uMeshScale, 1.0);
   vW = w.xyz;
   vN = mat3(uModel) * aNrm;
-  vPart = aPart;
+  vUv = aUv;
   gl_Position = uViewProj * w;
 }
 `;
 
 const CRAFT_FS = /* glsl */`
 in vec3 vN, vW;
-in float vPart;
-uniform sampler2D uSkyLUT;
+in vec2 vUv;
+uniform sampler2D uSkyLUT, uBaseColor;
 uniform vec3 uCamPos, uSunDir, uSunColor;
-uniform vec3 uHullColor, uAccentColor, uSeatColor;
-uniform float uGloss, uWetLine, uAtmoExp;
+uniform float uGloss, uWetLine, uAtmoExp, uHasTex, uWetDarken;
 out vec4 fragColor;
 
 vec2 dirToSkyUv(vec3 d){
@@ -127,13 +51,16 @@ vec2 dirToSkyUv(vec3 d){
 void main(){
   vec3 N = normalize(vN);
   vec3 V = normalize(uCamPos - vW);
+  // The mesh is authored double sided; flipping toward the eye keeps the
+  // lighting sane on whichever side we happen to be looking at.
   if (dot(N, V) < 0.0) N = -N;
   vec3 L = uSunDir;
 
-  vec3 albedo = vPart > 1.5 ? vec3(0.045)
-              : vPart > 0.5 ? uSeatColor
-              : mix(uHullColor, uAccentColor, smoothstep(0.06, -0.06, vW.y - uWetLine));
-  float rough = vPart > 0.5 ? 0.55 : mix(0.14, 0.42, 1.0 - uGloss);
+  vec3 albedo = mix(vec3(0.55, 0.06, 0.05), texture(uBaseColor, vUv).rgb, uHasTex);
+  // Everything below the waterline is permanently wet: darker and glossier.
+  float wet = smoothstep(0.06, -0.06, vW.y - uWetLine);
+  albedo *= mix(1.0, uWetDarken, wet);
+  float rough = mix(mix(0.16, 0.44, 1.0 - uGloss), 0.09, wet);
 
   vec3 sky = textureLod(uSkyLUT, dirToSkyUv(reflect(-V, N)), rough*6.0).rgb;
   vec3 amb = textureLod(uSkyLUT, dirToSkyUv(vec3(0.0,1.0,0.0)), 5.0).rgb * 3.14159;
@@ -142,11 +69,10 @@ void main(){
   float NoV = max(dot(N, V), 1e-3);
   vec3 H = normalize(L + V);
   float a = rough*rough;
-  float d = (dot(N,H)*a - dot(N,H))*dot(N,H) + 1.0;
-  float D = a*a / max(3.14159*d*d, 1e-6);
-  // Grazing Fresnel on a full sky reflection is what made the hull read as dark
-  // glass with the sea showing through it. A gelcoat is a coated dielectric:
-  // cap the rim term and keep the diffuse body dominant.
+  float dd = (dot(N,H)*a - dot(N,H))*dot(N,H) + 1.0;
+  float D = a*a / max(3.14159*dd*dd, 1e-6);
+  // Capped rim term: a full grazing sky reflection turns a curved hull into dark
+  // glass with the sea showing through it.
   float F = 0.04 + 0.36*pow(1.0 - NoV, 5.0);
 
   vec3 col = albedo * (uSunColor*NoL + amb*0.85) * (1.0/3.14159);
@@ -161,38 +87,62 @@ export class Craft {
     this.gl = gl;
     this.model = mat4();
     this.prog = program(gl, CRAFT_VS, CRAFT_FS, 'craft');
+    this.hasTex = 0;
 
-    const len = 3.15, beam = 1.02, draft = 0.38, deck = 0.34;
-    const hull = buildHull(len, beam, draft, deck);
-    const out = { pos: [...hull.pos], nrm: [...hull.nrm], idx: [...hull.idx] };
-    const part = new Array(hull.pos.length / 3).fill(0);
+    const pos = unb64(CRAFT_MESH.pos, Int16Array);
+    const nrm = unb64(CRAFT_MESH.nrm, Int8Array);
+    const uv = unb64(CRAFT_MESH.uv, Uint16Array);
+    const idx = unb64(CRAFT_MESH.idx, Uint16Array);
+    this.count = idx.length;
 
-    const seatStart = out.pos.length / 3;
-    box(0, deck * 0.62, 0.42, beam * 0.24, 0.11, len * 0.20, out);
-    while (part.length < out.pos.length / 3) part.push(1);
-
-    // Handlebar column and crossbar, set forward on the deck.
-    box(0, deck * 1.05, -0.62, 0.042, 0.22, 0.042, out);
-    box(0, deck * 1.42, -0.64, beam * 0.30, 0.030, 0.030, out);
-    while (part.length < out.pos.length / 3) part.push(2);
-
-    this.count = out.idx.length;
     this.vao = gl.createVertexArray();
     gl.bindVertexArray(this.vao);
-    const buf = (data, loc, size) => {
+    const attr = (data, loc, size, type, norm) => {
       const b = gl.createBuffer();
       gl.bindBuffer(gl.ARRAY_BUFFER, b);
       gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
       gl.enableVertexAttribArray(loc);
-      gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0);
+      gl.vertexAttribPointer(loc, size, type, norm, 0, 0);
     };
-    buf(new Float32Array(out.pos), 0, 3);
-    buf(new Float32Array(out.nrm), 1, 3);
-    buf(new Float32Array(part), 2, 1);
+    attr(pos, 0, 3, gl.SHORT, false);
+    attr(nrm, 1, 3, gl.BYTE, true);
+    attr(uv, 2, 2, gl.UNSIGNED_SHORT, true);
     const ibo = gl.createBuffer();
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(out.idx), gl.STATIC_DRAW);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
     gl.bindVertexArray(null);
+
+    this.tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, this.tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
+                  new Uint8Array([140, 16, 14, 255]));
+    this._loadTexture();
+  }
+
+  // createImageBitmap on a Blob decodes the JPEG without ever fetching a URL,
+  // so it works under a CSP that forbids external and data: image sources.
+  async _loadTexture() {
+    const gl = this.gl;
+    try {
+      const bin = atob(CRAFT_MESH.baseColorJpeg);
+      const u8 = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+      const bmp = await createImageBitmap(new Blob([u8], { type: 'image/jpeg' }), {
+        imageOrientation: 'flipY',
+      });
+      gl.bindTexture(gl.TEXTURE_2D, this.tex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bmp);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.generateMipmap(gl.TEXTURE_2D);
+      if (gl.ext.aniso) {
+        gl.texParameterf(gl.TEXTURE_2D, gl.ext.aniso.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(8, gl.maxAniso));
+      }
+      this.hasTex = 1;
+      bmp.close?.();
+    } catch (e) {
+      console.warn('craft texture decode failed, falling back to flat colour', e);
+    }
   }
 
   // Orthonormal basis straight into the matrix columns: local +X starboard,
@@ -202,7 +152,7 @@ export class Craft {
     const cp = Math.cos(pitch), sp = Math.sin(pitch);
     const cr = Math.cos(roll), sr = Math.sin(roll);
     const f = [cp * sy, sp, -cp * cy];
-    let r = [cy, 0, sy];
+    const r = [cy, 0, sy];
     let u = [f[1] * r[2] - f[2] * r[1], f[2] * r[0] - f[0] * r[2], f[0] * r[1] - f[1] * r[0]];
     u = [-u[0], -u[1], -u[2]];
     const r2 = r.map((v, i) => v * cr + u[i] * sr);
@@ -220,19 +170,22 @@ export class Craft {
     gl.enable(gl.DEPTH_TEST);
     gl.depthMask(true);
     gl.disable(gl.BLEND);
-    gl.enable(gl.CULL_FACE);
-    gl.cullFace(gl.BACK);
+    // The source material is double sided and the hull is a closed shell, so
+    // culling would drop faces wherever the exporter wound them the other way.
+    gl.disable(gl.CULL_FACE);
     setUniforms(gl, this.prog, {
       uViewProj: ctx.viewProj, uModel: this.model,
-      uSkyLUT: skyLut, uCamPos: ctx.camPos,
-      uSunDir: ctx.sunDir, uSunColor: p.sunIrradiance,
-      uHullColor: p.craftHullColor, uAccentColor: p.craftAccentColor,
-      uSeatColor: p.craftSeatColor,
-      uGloss: p.craftGloss, uWetLine: this.wetLine ?? 0, uAtmoExp: p.atmoExposure,
+      uSkyLUT: skyLut,
+      uBaseColor: { __tex: true, tex: this.tex, target: gl.TEXTURE_2D },
+      uCamPos: ctx.camPos, uSunDir: ctx.sunDir, uSunColor: p.sunIrradiance,
+      // Positions are Int16 over a bounding box whose longest axis is 1.
+      uMeshScale: p.craftLength / 32000,
+      uGloss: p.craftGloss, uWetLine: this.wetLine ?? 0,
+      uWetDarken: p.craftWetDarken, uAtmoExp: p.atmoExposure,
+      uHasTex: this.hasTex,
     });
     gl.bindVertexArray(this.vao);
     gl.drawElements(gl.TRIANGLES, this.count, gl.UNSIGNED_SHORT, 0);
     gl.bindVertexArray(null);
-    gl.disable(gl.CULL_FACE);
   }
 }

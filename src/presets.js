@@ -268,7 +268,7 @@ export const defaults = {
   wakeArmRate: 2.1,         // lateral speed of the cusp arms, m/s
   wakeArm: 1.0,             // strength of the arms themselves
   wakeCentre: 0.5,          // aerated churn between them
-  craftLift: 0.34,          // rides the hull's designed waterline on the surface
+  craftLift: 0.46,          // rides the hull's designed waterline on the surface
   craftSprayAmount: 1.0,
   hullPush: 0.55,           // depth of the hollow the hull presses, m
   hullRadius: 2.6,          // along-hull extent of that footprint, m
@@ -289,6 +289,14 @@ export const defaults = {
   wrCamMinClear: 0.7,       // the chase rig never sinks into the sea
   wrCamChaseRoll: 0.35,
   craftScale: 1.0,
+  craftLength: 3.2,         // metres bow to transom; the mesh is unit-length
+  // Imported meshes arrive in whatever convention the authoring tool used. These
+  // three rotate the model into the renderer's (bow at -Z, +Y up) without
+  // re-exporting anything.
+  craftYawOffset: 3.1416,
+  craftPitchOffset: 0.0,
+  craftRollOffset: 0.0,
+  craftWetDarken: 0.55,     // how much darker the permanently wet hull is
   craftGloss: 0.45,
   craftHullColor: [0.62, 0.055, 0.045],
   craftAccentColor: [0.03, 0.035, 0.045],
@@ -628,7 +636,11 @@ export const SCHEMA = [
       S('wakeArm', 'Wake arm strength', 0, 3, 0.01),
       S('wakeCentre', 'Wake churn', 0, 2, 0.01),
       S('craftLift', 'Craft ride height (m)', -0.3, 1.2, 0.01),
-      S('craftScale', 'Craft size', 0.4, 2.5, 0.01),
+      S('craftLength', 'Craft length (m)', 1.0, 6, 0.01),
+      S('craftYawOffset', 'Model yaw offset', -3.15, 3.15, 0.01),
+      S('craftPitchOffset', 'Model pitch offset', -3.15, 3.15, 0.01),
+      S('craftRollOffset', 'Model roll offset', -3.15, 3.15, 0.01),
+      S('craftWetDarken', 'Wet hull darkening', 0.2, 1, 0.01),
       S('craftGloss', 'Craft gloss', 0, 1, 0.01),
       C('craftHullColor', 'Hull colour'),
       C('craftAccentColor', 'Hull underside'),
