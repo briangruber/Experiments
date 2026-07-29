@@ -61,6 +61,7 @@ export const defaults = {
   foamDetail: 1.5,
   foamLift: 0.55,
   foamSharp: 1.4,
+  foamCrisp: 0.8,        // resolve coverage against the bubble field up close
   foamStreak: 0.7,
   foamOpacity: 0.92,
   foamFar: 0.55,            // grazing self-hiding of distant rafts
@@ -217,6 +218,36 @@ export const defaults = {
   cirrusCurl: 1.0,          // domain warp that bends the fibres
   cirrusMask: 3.2,          // patchiness scale, in 9 km units
 
+  // ---- wave runner ----
+  wrTopSpeed: 24.0,         // m/s; a real ski tops out near 30
+  wrAccel: 11.0,
+  wrBrake: 14.0,
+  wrBoost: 1.35,
+  wrTurnRate: 1.35,         // rad/s at planing speed
+  wrAirSteer: 0.25,         // a hull in the air has almost nothing to bite on
+  wrBank: 0.55,
+  wrHover: 0.35,            // ride height above the surface, m
+  wrStiffness: 26.0,        // suspension following the water
+  wrDamping: 7.0,
+  wrGravity: 13.0,
+  wrLaunch: 1.0,            // how eagerly it leaves a falling crest
+  wrLaunchThreshold: 3.2,   // surface fall rate (m/s) that throws it clear
+  wrLandingDrag: 0.35,
+  wrAttitudeRate: 9.0,
+  wrLength: 1.6,            // probe spacing bow to centre, m
+  wrBeam: 0.6,
+  wrCamHeight: 1.05,        // eye above the deck
+  wrCamTilt: -0.03,
+  wrCamPitchFollow: 0.75,
+  wrCamRollFollow: 0.6,
+  wrShake: 1.0,
+  wrFovKick: 14.0,          // degrees of field of view bought by speed
+  wrTouchSteer: 1.6,
+
+  // ---- look ----
+  lookSensitivity: 1.0,
+  invertLookY: 0,
+
   // ---- camera ----
   fov: 38,
   minAltitude: 0.6,
@@ -351,6 +382,7 @@ export const SCHEMA = [
       S('foamDrift', 'Downwind drift (m/s)', 0, 3, 0.005),
       S('foamSpread', 'Spread rate', 0, 8, 0.01),
       S('foamDetail', 'Bubble relief', 0, 5, 0.01),
+      S('foamCrisp', 'Bubble-edge crispness', 0, 1, 0.005),
       S('foamSharp', 'Edge erosion', 0.2, 6, 0.01),
       S('foamStreak', 'Downwind streaking', 0, 1, 0.005),
       S('foamOpacity', 'Opacity', 0, 1, 0.005),
@@ -519,12 +551,36 @@ export const SCHEMA = [
     ],
   },
   {
+    group: 'Wave Runner', items: [
+      S('wrTopSpeed', 'Top speed (m/s)', 4, 60, 0.5),
+      S('wrAccel', 'Acceleration', 1, 30, 0.1),
+      S('wrBoost', 'Boost multiplier', 1, 2.5, 0.01),
+      S('wrTurnRate', 'Turn rate', 0.2, 4, 0.01),
+      S('wrBank', 'Bank into turns', 0, 2, 0.01),
+      S('wrHover', 'Ride height (m)', 0, 2, 0.01),
+      S('wrStiffness', 'Suspension', 4, 60, 0.5),
+      S('wrDamping', 'Damping', 1, 20, 0.1),
+      S('wrGravity', 'Gravity', 4, 25, 0.1),
+      S('wrLaunch', 'Jump off crests', 0, 3, 0.01),
+      S('wrLaunchThreshold', 'Launch threshold', 0.5, 10, 0.05),
+      S('wrAirSteer', 'Air control', 0, 1, 0.01),
+      S('wrCamHeight', 'Eye height (m)', 0.2, 3, 0.01),
+      S('wrCamPitchFollow', 'Pitch follow', 0, 1.5, 0.01),
+      S('wrCamRollFollow', 'Roll follow', 0, 1.5, 0.01),
+      S('wrShake', 'Ride shake', 0, 3, 0.01),
+      S('wrFovKick', 'Speed FOV kick', 0, 40, 0.5),
+      S('wrTouchSteer', 'Touch steering', 0, 4, 0.01),
+    ],
+  },
+  {
     group: 'Camera', items: [
       S('fov', 'Field of view', 8, 95, 0.5, { camera: true }),
       S('minAltitude', 'Min altitude (m)', 0.1, 400, 0.1),
       S('handheld', 'Handheld drift', 0, 3, 0.005),
       S('cameraBob', 'Sea bob', 0, 3, 0.005),
       S('moveSpeed', 'Fly speed', 0.5, 200, 0.5, { camera: true }),
+      S('lookSensitivity', 'Look sensitivity', 0.2, 3, 0.01),
+      S('invertLookY', 'Invert look Y', 0, 1, 1, { integer: true }),
     ],
   },
   {

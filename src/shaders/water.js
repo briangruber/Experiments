@@ -109,7 +109,7 @@ uniform float uSSSStrength, uSSSPower, uSSSHeight, uSSSDepth;
 uniform float uBaseRoughness, uRoughnessGain, uRoughnessMax;
 uniform float uWindAniso, uWindSpeed;
 uniform float uFoamAmount, uFoamRoughness, uFoamTint, uFoamDetail, uFoamLift;
-uniform float uFoamSharp, uFoamStreak, uFoamOpacity;
+uniform float uFoamSharp, uFoamStreak, uFoamOpacity, uFoamCrisp;
 uniform vec3  uFoamColor;
 uniform float uSunAngularRadius, uSpecIntensity;
 uniform float uSkyAmbient, uSkyBlur;
@@ -399,8 +399,20 @@ void main(){
   // sits where the field was high a moment ago: a shifted, softer version of the
   // same clumps, which is what draws the streaks out behind the whitecaps.
   float shapeR = clamp(1.0 + (fd - 0.62) * 1.7 * max(uFoamSharp, 0.05), 0.0, 2.4);
-  float maskF = clamp(covF * mix(1.0, shape,  clumpRes), 0.0, 1.0);
-  float maskR = clamp(covR * mix(1.0, shapeR, clumpRes), 0.0, 1.0);
+  // Multiplying a blurry coverage by a detail field keeps the blur: the sim's
+  // foam lives at 1.5 m per texel, so close up the raft was a magnified smudge
+  // with texture painted over it. Resolving the coverage *against* the detail
+  // field instead - foam wherever the field exceeds 1 - coverage - puts the edge
+  // at the bubble scale where it belongs, and because the threshold moves with
+  // the coverage the area it selects still tracks what the sim computed.
+  // Only worth doing while a pixel is narrower than a clump; past that there is
+  // nothing to resolve and the multiplicative mean is the honest answer.
+  float crisp = clumpRes * clamp(uFoamCrisp, 0.0, 1.0);
+  float eF = 0.11, eR = 0.20;
+  float maskF = mix(clamp(covF * mix(1.0, shape,  clumpRes), 0.0, 1.0),
+                    smoothstep(1.0 - covF - eF, 1.0 - covF + eF, fd), crisp);
+  float maskR = mix(clamp(covR * mix(1.0, shapeR, clumpRes), 0.0, 1.0),
+                    smoothstep(1.0 - covR - eR, 1.0 - covR + eR, fd), crisp);
   float foamMask = clamp(maskF + maskR * (1.0 - maskF), 0.0, 1.0);
   // What fraction of the covered area is dense crest foam rather than raft. It
   // drives albedo, opacity and forward scattering below, so it is the single

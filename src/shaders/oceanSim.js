@@ -365,19 +365,22 @@ uniform float uSpreadRate, uWeight, uDrift, uWindDir, uN, uL, uFaceBias, uBreakS
 uniform float uCrestAniso, uRidge, uBreakup;
 out vec4 fragColor;
 
-// Sum of (J-1) over every cascade at one world point. To first order the
-// Jacobian of the summed displacement is 1 + sum(J_c - 1), so the compressions
-// simply add and no per-cascade weighting is needed. Each cascade is fetched at
-// the mip whose footprint is a breaker, because a single folding texel is a
-// wrinkle, not whitewater, and thresholding one texel at a time is what produces
-// pixel confetti that never aggregates into a patch.
+// (J - 1) for THIS cascade at one world point, at the mip whose footprint is a
+// breaker: a single folding texel is a wrinkle, not whitewater, and
+// thresholding one texel at a time produces confetti that never aggregates.
+//
+// It has to be this cascade alone. Summing the fold of every cascade is better
+// physics - the Jacobian of the summed displacement really is 1 + sum(J_c - 1) -
+// but the result is written into a texture the surface shader tiles with period
+// uPatch[uLayer], and a field built from four non-commensurate cascades has no
+// such period. Stamping it out on that grid printed a visible 17 m lattice of
+// whitecaps across the whole sea. Only a function of this cascade shares this
+// cascade's period, so only that can live in this buffer. The cross-scale
+// modulation - short waves breaking on the back of a swell - belongs in the
+// surface shader, where the combined field is available per pixel and unbounded.
 float foldAt(vec2 wpos){
-  float s = 0.0;
-  for (int c = 0; c < 4; c++){
-    if (c >= uCascadeCount) break;
-    s += textureLod(uDisp, vec3(wpos / uPatch[c], float(c)), max(uCompLod[c] - 1.0, 0.0)).w - 1.0;
-  }
-  return s;
+  return textureLod(uDisp, vec3(wpos / uPatch[uLayer], float(uLayer)),
+                    max(uCompLod[uLayer] - 1.0, 0.0)).w - 1.0;
 }
 
 // Offsets of the breaking kernel along the crest line, in units of the breaker
@@ -414,23 +417,18 @@ void main(){
   float xb = -foldAt(world - wd * bs);
   float crestOff = x - max(xf, xb);
 
-  vec2 grad = vec2(0.0);
-  for (int c = 0; c < 4; c++){
-    if (c >= uCascadeCount) break;
-    grad += textureLod(uSlope, vec3(world / uPatch[c], float(c)), max(uCompLod[c] - 1.0, 0.0)).xy;
-  }
+  // Own cascade only, for the same periodicity reason as foldAt.
+  vec2 grad = textureLod(uSlope, vec3(world / uPatch[uLayer], float(uLayer)),
+                         max(uCompLod[uLayer] - 1.0, 0.0)).xy;
 
   // Scale-free threshold. The previous frame wrote x*x into channel w, so the
   // top mip of the foam texture is <x^2> over the whole patch and the cutoff can
   // be expressed in units of the sea's own RMS compression. An absolute
   // Jacobian threshold cannot work: a steeper sea trivially exceeds it
   // everywhere, which is how force 10 became a hundred percent white-out.
-  // Always layer 0: every cascade evaluates the same world-space fold field, but
-  // only the largest tile spans enough of it to estimate its variance. A 17 m
-  // tile sees the swell's compression as a constant offset, divides by a
-  // variance that does not contain it, and foams over completely whenever that
-  // offset happens to be positive.
-  float cvar = textureLod(uPrevFoam, vec3(uv, 0.0), 32.0).w;
+  // Each cascade now folds on its own account, so each normalises by its own
+  // variance: the top mip of this layer's w channel is <x^2> over this tile.
+  float cvar = textureLod(uPrevFoam, vec3(uv, float(uLayer)), 32.0).w;
   float inv  = cvar > 1e-9 ? inversesqrt(cvar) : 0.0;
   float xn   = x * inv;
   // In the same sigma units, so the ridge gate keeps its meaning as the sea
@@ -451,13 +449,12 @@ void main(){
   // internal structure and a ragged edge instead of the smooth convex outline a
   // thresholded low-pass always has - and unlike a procedural noise it is
   // periodic in each cascade's own tile, so it cannot introduce a seam.
-  float rough = 0.0;
-  for (int c = 2; c < 4; c++){
-    if (c >= uCascadeCount) break;
-    vec3 uvc = vec3(world / uPatch[c], float(c));
-    float rms = sqrt(max(textureLod(uSlope, uvc, 32.0).w, 1e-9));
-    rough += dot(textureLod(uSlope, uvc, max(uCompLod[c] - 2.0, 0.0)).xy, wd) / rms;
-  }
+  // Taken from this cascade's own slope at a finer mip than the breaking kernel:
+  // the roughness that trips a crest is the detail riding on it. Reading the
+  // shorter cascades here would reintroduce the lattice.
+  vec3 uvr = vec3(world / uPatch[uLayer], float(uLayer));
+  float rms = sqrt(max(textureLod(uSlope, uvr, 32.0).w, 1e-9));
+  float rough = dot(textureLod(uSlope, uvr, max(uCompLod[uLayer] - 2.5, 0.0)).xy, wd) / rms;
   float cut = uCutoff - uBreakup * rough;
 
   float fold  = smoothstep(cut - uSoft, cut + uSoft, xn) * gate * ridge;

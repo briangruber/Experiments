@@ -51,12 +51,13 @@ export class UI {
       b.addEventListener('click', () => this.onChange({ type }));
       return b;
     };
-    grid.append(mk('New sea', 'reseed'), mk('Photo', 'photo'), mk('Save PNG', 'save'));
+    grid.append(mk('Ride', 'ride'), mk('New sea', 'reseed'), mk('Photo', 'photo'));
     actions.appendChild(grid);
     const grid2 = document.createElement('div');
     grid2.className = 'btns';
     grid2.style.marginTop = '6px';
-    grid2.append(mk('Copy settings', 'copy'), mk('Reset', 'reset'));
+    grid2.append(mk('Save PNG', 'save'), mk('Copy settings', 'copy'), mk('Reset', 'reset'));
+    grid2.className = 'btns three';
     actions.appendChild(grid2);
     root.appendChild(actions);
 

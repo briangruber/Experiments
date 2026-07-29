@@ -18,6 +18,9 @@ export class Camera {
     this.up = v3(0, 1, 0);
     this.fwd = v3(0, 0, -1);
     this.moved = true;
+    this.roll = 0;
+    this._driftY = 0; this._driftP = 0;
+    this.locked = false;
     this.keys = new Set();
     this._bind();
   }
@@ -48,9 +51,12 @@ export class Camera {
       if (!prev) return;
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (pointers.size === 1) {
-        const s = 0.0022 * (this.fov / 45);
-        this.yaw -= (e.clientX - prev.x) * s;
-        this.pitch = clamp(this.pitch - (e.clientY - prev.y) * s, -1.45, 1.45);
+        // Mouse-look convention: dragging right looks right. The two axes used
+        // to disagree - vertical was first-person, horizontal was drag-the-world
+        // - which is what made the controls feel backwards.
+        const s = 0.0022 * (this.fov / 45) * (this.lookSens ?? 1);
+        this.yaw += (e.clientX - prev.x) * s;
+        this.pitch = clamp(this.pitch - (e.clientY - prev.y) * s * (this.invertY ? -1 : 1), -1.45, 1.45);
         this.moved = true;
       } else if (pointers.size === 2 && pinchDist > 0) {
         const d = spread();
@@ -80,6 +86,8 @@ export class Camera {
 
   update(dt, p) {
     const k = this.keys;
+    this.lookSens = p.lookSensitivity ?? 1;
+    this.invertY = !!p.invertLookY;
     const sp = this.speed * (k.has('ShiftLeft') || k.has('ShiftRight') ? 6 : 1) *
                (k.has('AltLeft') ? 0.15 : 1);
     let mx = 0, my = 0, mz = 0;
@@ -97,6 +105,22 @@ export class Camera {
     vCross(this.fwd, v3(0, 1, 0), this.right);
     vNorm(this.right, this.right);
     vCross(this.right, this.fwd, this.up);
+
+    // Roll the basis, not just the view matrix, so anything built from the
+    // camera axes - spray billboards especially - banks with the horizon.
+    if (this.roll) {
+      const cr = Math.cos(this.roll), sr = Math.sin(this.roll);
+      const r0 = [this.right[0], this.right[1], this.right[2]];
+      const u0 = [this.up[0], this.up[1], this.up[2]];
+      for (let i = 0; i < 3; i++) {
+        this.right[i] = r0[i] * cr + u0[i] * sr;
+        this.up[i] = u0[i] * cr - r0[i] * sr;
+      }
+    }
+
+    // Something else is driving this camera; it still needs its basis, but the
+    // flying controls must not fight it.
+    if (this.locked) { this._driftY = 0; this._driftP = 0; return; }
 
     if (mx || my || mz) {
       this.pos[0] += (this.fwd[0] * mz + this.right[0] * mx) * sp * dt;
@@ -131,7 +155,7 @@ export class Camera {
       this.pos[1] + Math.sin(this.pitch + this._driftP),
       this.pos[2] - Math.cos(this.pitch + this._driftP) * Math.cos(this.yaw + this._driftY),
     );
-    lookAt(this.pos, target, v3(0, 1, 0), this.view);
+    lookAt(this.pos, target, this.up, this.view);
     perspective(this.fov * DEG, w / h, this.near, this.far, this.proj);
     this.proj[8] += jitterX * 2 / w;
     this.proj[9] += jitterY * 2 / h;

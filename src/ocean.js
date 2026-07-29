@@ -35,7 +35,12 @@ export const DEFAULT_CASCADES = [3137.0, 397.0, 87.0, 17.3];
 // a 17 m window is too small a sample of a two-percent-coverage field to even
 // contain one reliably. The bulk sits in the 397 m tile for the same reason in
 // reverse: it is the longest period that still resolves a breaker.
-const FOAM_WEIGHTS = [0.22, 0.72, 0.06, 0.00];
+// Each cascade's foam is periodic in that cascade's own tile - unavoidably, it
+// lives in that tile's texture. So no single cascade may dominate, or its period
+// prints a lattice of whitecaps across a sea whose waves do not repeat. Spread
+// across incommensurate periods the sum has no period, exactly as the wave field
+// does not. The bias toward the middle two is where breaking waves actually are.
+const FOAM_WEIGHTS = [0.20, 0.34, 0.30, 0.16];
 
 // Monahan & O'Muircheartaigh's whitecap law, W = 3.84e-6 U10^3.41. It is the one
 // number in the foam model with a boat and a camera behind it, so the breaking

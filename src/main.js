@@ -5,6 +5,7 @@ import { Sky } from './sky.js';
 import { Spray } from './spray.js';
 import { Post } from './post.js';
 import { Camera } from './camera.js';
+import { WaveRunner } from './waverunner.js';
 import { UI, applyPreset } from './ui.js';
 import { defaults, PRESETS } from './presets.js';
 import { DEG, v3, clamp } from './math.js';
@@ -23,6 +24,7 @@ const post = new Post(gl, blit);
 let ocean = new Ocean(gl, { size: params.fftSize, cascades: DEFAULT_CASCADES });
 let spray = new Spray(gl, blit, { size: params.sprayTexSize });
 const pWater = program(gl, WATER_VS, WATER_FS, 'water');
+const waveRunner = new WaveRunner(gl, blit);
 
 // ---------------------------------------------------------------- radial grid
 let grid = null;
@@ -145,11 +147,17 @@ const ui = new UI(document.getElementById('ui'), params, (ev) => {
   }
   if (ev.type === 'reset') { applyPreset(params, ui.presetSelect.value); ocean.dirty = true; ui.syncAll(); resetAccum(); return; }
   if (ev.type === 'photo') { togglePhoto(); return; }
+  if (ev.type === 'ride') { toggleRide(); return; }
   if (ev.type === 'copy') {
     const clean = {};
     for (const k of Object.keys(defaults)) clean[k] = params[k];
-    navigator.clipboard?.writeText(JSON.stringify(clean, null, 2));
-    ui.toast('Settings copied to clipboard');
+    const text = JSON.stringify(clean, null, 2);
+    Promise.resolve(navigator.clipboard?.writeText(text) ?? Promise.reject())
+      .then(() => ui.toast('Settings copied to clipboard'))
+      .catch(() => {
+        console.log(text);
+        ui.toast('Clipboard blocked \u2014 settings printed to the console');
+      });
     return;
   }
   if (ev.type === 'save') { savePng(); return; }
@@ -164,6 +172,24 @@ const ui = new UI(document.getElementById('ui'), params, (ev) => {
   resetAccum();
 });
 ui.presetSelect.value = PRESETS[startPreset] ? startPreset : 'Golden Hour Swell';
+
+function toggleRide() {
+  waveRunner.active = !waveRunner.active;
+  document.body.classList.toggle('riding', waveRunner.active);
+  if (waveRunner.active) {
+    savedView = { pos: [...camera.pos], yaw: camera.yaw, pitch: camera.pitch, fov: camera.fov };
+    waveRunner.reset(camera);
+    if (photo) togglePhoto();
+  } else if (savedView) {
+    camera.pos.set(savedView.pos);
+    camera.yaw = savedView.yaw; camera.pitch = savedView.pitch;
+    camera.fov = savedView.fov; camera.roll = 0;
+  }
+  camera.locked = waveRunner.active;
+  resetAccum();
+  ui.toast(waveRunner.active ? 'Wave runner \u2014 W throttle, A/D steer, Shift boost' : 'Free camera');
+}
+let savedView = null;
 
 function togglePhoto() {
   photo = !photo;
@@ -201,34 +227,49 @@ window.addEventListener('keydown', (e) => {
   if (e.target && /input|select|textarea/i.test(e.target.tagName)) return;
   if (e.code === 'KeyH') setPanel(document.body.classList.contains('panel-hidden'));
   if (e.code === 'KeyP') togglePhoto();
+  if (e.code === 'KeyR') toggleRide();
   if (e.code === 'KeyO') savePng();
 });
 
 // ------------------------------------------------------------------ frame loop
 const hudFps = document.getElementById('hud-fps');
 let last = performance.now(), fpsAvg = 60, simTime = 0, frames = 0;
+let fpsFrames = 0, fpsWindow = 0, hudDue = true;
+// Below 10 fps the integer readout collapses to '0'; a tenth is the difference
+// between 'slow' and 'not running'.
+const fmtFps = (f) => (f < 10 ? f.toFixed(1) : f.toFixed(0));
 
 function frame(now) {
   const dtRaw = (now - last) / 1000;
   last = now;
   const dt = Math.min(dtRaw, 1 / 20);
-  fpsAvg += (1 / Math.max(dtRaw, 1e-4) - fpsAvg) * 0.06;
+  fpsFrames++; fpsWindow += dtRaw;
+  if (fpsWindow >= 0.5) { fpsAvg = fpsFrames / fpsWindow; fpsFrames = 0; fpsWindow = 0; hudDue = true; }
   frames++;
 
   resize();
   derive();
 
   camera.moved = false;
-  // Handheld drift and sea bob nudge the camera every frame, which would reset
-  // the accumulator every frame; photo mode locks the tripod off.
-  camera.update(dt, photo ? { ...params, handheld: 0, cameraBob: 0 } : params);
-  if (camera.moved) resetAccum();
 
   const frozen = photo && accumIndex > 0;
   if (!frozen) simTime += dt;
   const stepDt = frozen ? 0 : dt;
 
   ocean.update(stepDt, params);
+
+  // The craft has to read the surface the ocean just wrote, and the camera has
+  // to be told where the craft ended up, so both sit between the sim and the
+  // basis update rather than at the top of the frame.
+  if (waveRunner.active && !frozen) {
+    waveRunner.probe(params, ocean);
+    waveRunner.update(dt, params, camera.keys, camera);
+  }
+  camera.locked = waveRunner.active;
+  // Handheld drift and sea bob nudge the camera every frame, which would reset
+  // the accumulator every frame; photo mode locks the tripod off.
+  camera.update(dt, photo ? { ...params, handheld: 0, cameraBob: 0 } : params);
+  if (camera.moved) resetAccum();
   sky.updateLUT(params, sunDir, Math.max(camera.pos[1], 1));
 
   const jitter = photo ? HALTON[accumIndex % HALTON.length] : [0, 0];
@@ -278,7 +319,7 @@ function frame(now) {
     uWindSpeed: params.windSpeed,
     uFoamAmount: params.foamAmount, uFoamRoughness: params.foamRoughness,
     uFoamTint: params.foamTint, uFoamDetail: params.foamDetail, uFoamLift: params.foamLift,
-    uFoamSharp: params.foamSharp, uFoamStreak: params.foamStreak,
+    uFoamSharp: params.foamSharp, uFoamCrisp: params.foamCrisp, uFoamStreak: params.foamStreak,
     uFoamOpacity: params.foamOpacity,
     uFoamColor: params.foamColor,
     uSunAngularRadius: params.sunAngularRadius, uSpecIntensity: params.specIntensity,
@@ -311,10 +352,13 @@ function frame(now) {
   }
   post.render(src, params, dt, simTime, { photo, sample: accumIndex });
 
-  if (frames % 12 === 0) {
-    hudFps.textContent = photo
+  if (hudDue) {
+    hudDue = false;
+    hudFps.textContent = waveRunner.active
+      ? `${waveRunner.speedKts.toFixed(0)} kn \u00b7 ${fmtFps(fpsAvg)} fps${waveRunner.airborne ? ' \u00b7 AIR' : ''}`
+      : photo
       ? `photo · ${Math.min(accumIndex, params.photoSamples)}/${Math.round(params.photoSamples)} samples`
-      : `${fpsAvg.toFixed(0)} fps · ${W}×${H} · ${ocean.N}² × ${ocean.cascadeCount}`;
+      : `${fmtFps(fpsAvg)} fps · ${W}×${H} · ${ocean.N}² × ${ocean.cascadeCount}`;
   }
 
   requestAnimationFrame(frame);
