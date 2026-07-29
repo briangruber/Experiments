@@ -92,6 +92,7 @@ export class Spray {
       uCraftSpread: p.craftSpraySpread, uCraftUp: p.craftSprayUp,
       uCraftPlane: p.craftPlaneSpeed, uCraftPlaneFull: p.craftPlaneFull,
       uCraftLife: p.craftSprayLife, uCraftPulse: p.craftSprayPulse,
+      uCraftLoad: ctx.craftLoad ?? 0, uCraftLoadFull: p.craftLoadFull,
       uCraftBeam: p.wrBeam,
     });
     this.blit.draw();

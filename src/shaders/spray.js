@@ -135,6 +135,7 @@ uniform vec3  uCraftPos;
 uniform vec2  uCraftFwd, uCraftRight;
 uniform float uCraftSpeed, uCraftTurn, uCraftAmount, uCraftSpread, uCraftUp, uCraftBeam;
 uniform float uCraftPlane, uCraftPlaneFull, uCraftLife, uCraftPulse;
+uniform float uCraftLoad, uCraftLoadFull;
 uniform float uDt, uTime, uFrame, uTexSize;
 uniform float uSpawnRadius, uSpawnRate, uSpawnFocus;
 uniform float uFoldThreshold, uFoldSoft, uFoamBias;
@@ -174,8 +175,13 @@ void main(){
     // reloads, so the source pulses several times a second; a steady stream is
     // most of why it read as a dust cloud rather than as water.
     float pulse = 0.35 + 0.65 * pow(0.5 + 0.5*sin(uTime*9.1 + hash11(floor(uTime*4.0))*15.0), 1.6);
-    float craftDrive = uCraftAmount * (1.0 - mist) * pulse
-                     * clamp(plane * (0.35 + 0.9 * turnF), 0.0, 1.0) * uCraftPulse;
+    // Two independent sources, summed rather than multiplied. Planing gives the
+    // steady shedding off the chines; hull load gives the burst a carve throws.
+    // Multiplying them, as before, meant the carve could only ever scale
+    // something the carve itself was destroying.
+    float load = smoothstep(2.0, uCraftLoadFull, uCraftLoad);
+    float craftDrive = uCraftAmount * (1.0 - mist) * pulse * uCraftPulse
+                     * clamp(plane * (0.30 + 0.5*turnF) + load * 1.4, 0.0, 1.6);
     if (craftDrive > 0.001 && hash12(vec2(fid*0.0173 + 5.7, ep*0.531)) < craftDrive){
       vec2 h1 = hash22(vec2(fid*0.311 + 1.3, ep*0.617));
       float s1 = h1.x - 0.5, s2 = h1.y;
@@ -186,7 +192,7 @@ void main(){
       vec2 side = uCraftRight * (rooster > 0.5 ? s1 * 0.7
                                 : sign(uCraftTurn == 0.0 ? 1.0 : -uCraftTurn) * (0.5 + 0.5*abs(s1)));
       vec2 back = uCraftFwd * (rooster > 0.5 ? -0.85 - s2*0.8 : -0.15 + s1*0.6);
-      float energy = clamp(plane * 1.1 + abs(uCraftTurn)*1.3, 0.05, 2.2);
+      float energy = clamp(plane * 0.9 + load * 1.6 + abs(uCraftTurn)*0.8, 0.05, 2.6);
       vec3 sp = uCraftPos + vec3(side.x*uCraftBeam + back.x, 0.10 + 0.2*s2,
                                  side.y*uCraftBeam + back.y);
       vec3 v = vec3(-uCraftFwd.x, 0.0, -uCraftFwd.y) * uCraftSpeed * (0.15 + 0.25*s2);

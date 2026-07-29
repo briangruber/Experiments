@@ -266,6 +266,16 @@ export class WaveRunner {
     this.vel[1] = nf[1] * u + latZ;
     this.slip = Math.hypot(latX, latZ);
 
+    // How hard the hull is actually working the water, in m/s^2. Spray is thrown
+    // by force, not by speed: a hard carve is a large lateral acceleration and a
+    // large sideslip, and it *sheds* speed doing it. Driving emission off speed
+    // alone therefore made a hard turn produce LESS spray than a straight run -
+    // the turn scrubbed the very quantity the emitter was reading.
+    const lateral = Math.abs(u * this.yawRate);       // centripetal
+    const decel = Math.max(0, ((this._lastU ?? u) - u) / Math.max(d, 1e-3));
+    this._lastU = u;
+    this.hullLoad = lateral + this.slip * 3.0 + decel * 0.5 + this.impact * 14.0;
+
     // Bank follows the actual rotation rate, not the key, so the lean arrives
     // with the turn and unwinds with it.
     const targetBank = -this.yawRate * p.wrBank * (0.4 + 0.6 * speedT);
@@ -334,6 +344,7 @@ export class WaveRunner {
         speedT * p.wrWakeSpeed +
         Math.abs(this.yawRate) * p.wrWakeTurn +
         this.slip * p.wrWakeSlip +
+        (this.hullLoad ?? 0) * 0.035 +
         this.impact * 1.2,
         0, 2.5,
       );

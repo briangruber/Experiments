@@ -314,6 +314,7 @@ function frame(now) {
     craftSpeed: waveRunner.active ? Math.abs(waveRunner.speed) : 0,
     craftTurn: waveRunner.active ? waveRunner.yawRate : 0,
     craftAmount: waveRunner.active ? params.craftSprayAmount : 0,
+    craftLoad: waveRunner.active ? (waveRunner.hullLoad ?? 0) : 0,
   };
 
   if (!frozen) spray.update(stepDt, params, ctx, ocean);
