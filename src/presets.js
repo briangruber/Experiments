@@ -165,17 +165,19 @@ export const defaults = {
   // Only ever wet while riding: it is the craft's own spray hitting the glass, so
   // the free camera is a tripod on a dry day and pays nothing for any of this.
   lensWater: 1.0,           // master
-  lensDrops: 0.38,          // fraction of cells holding a droplet when soaked
+  lensDrops: 0.15,          // fraction of cells holding a droplet when soaked
   lensSize: 1.0,
-  lensRefract: 1.5,         // how hard a droplet bends the picture behind it
+  lensRefract: 0.8,         // how hard a droplet bends the picture behind it
   lensStreak: 0.55,         // how far it creeps downstream before drying
   lensFlowAngle: 8.0,       // degrees from vertical that the airflow drags it
-  lensRim: 0.30,            // brightness of the meniscus edge
-  lensFilm: 0.45,           // unbroken film before it beads up
-  lensSpray: 1.1,           // how much of the hull's own output reaches the glass
+  lensRim: 0.16,            // brightness of the meniscus edge
+  lensFilm: 0.12,           // unbroken film before it beads up
+  lensSpray: 0.85,          // how much of the hull's own output reaches the glass
   lensReach: 26.0,          // how far aft the plume still reaches, m
   lensWetRate: 7.0,         // how fast it wets, 1/s
-  lensDry: 0.55,            // ...and how slowly it dries
+  lensDry: 0.95,            // ...and how slowly it dries. Faster now, so a hit
+                            // reads as a hit and then clears rather than sitting
+                            // on the glass for the whole ride.
 
   // ---- storm haze ----
   sprayHaze: 0.00040,       // extinction at the sea surface, 1/m
@@ -243,10 +245,12 @@ export const defaults = {
   cirrusMask: 3.2,          // patchiness scale, in 9 km units
 
   // ---- wave runner ----
-  wrTopSpeed: 30.0,         // m/s, about 58 kn. A supercharged ski really does
-                            // do this, and it is where the FOV and chase pull-back
-                            // are calibrated to feel like something.
-  wrAccel: 13.0,            // ...and it has to be able to get there
+  wrTopSpeed: 44.0,         // m/s, about 85 kn. Past what a real ski will do -
+                            // this is the arcade end of the dial - but the field
+                            // of view, the chase pull-back and the jump criterion
+                            // are all normalised by it, so raising it scales all
+                            // three instead of needing them retuned.
+  wrAccel: 19.0,            // ...and it has to be able to get there
   wrBrake: 14.0,
   wrBoost: 1.35,
   wrTurnRate: 0.85,         // rad/s at planing speed, full lock
@@ -345,14 +349,14 @@ export const defaults = {
                             // inside itself, which is what makes real hull spray
                             // read bright white whichever way the sun is
   wrView: 1,                // 0 rider POV, 1 chase
-  wrCamDistance: 8.0,       // at rest
-  wrCamPull: 1.55,          // extra chase distance at top speed, as a fraction.
+  wrCamDistance: 12.0,      // at rest
+  wrCamPull: 1.35,          // extra chase distance at top speed, as a fraction.
                             // The rig falling back as the craft accelerates away
                             // is most of what makes speed read in a chase shot.
-  wrCamRise: 2.4,
-  wrCamDrop: 0.35,          // and it settles lower as it falls back, so the
-                            // camera ends up looking along the water rather than
-                            // down onto it
+  wrCamRise: 4.6,
+  wrCamLift: 0.75,          // ...and climbs as it falls back, so at speed it is
+                            // looking down over the plume instead of straight
+                            // through it
   wrCamLag: 5.0,            // the rig is pulled to its mark, not pinned to it
   wrCamLook: 3.0,           // how far ahead of the craft the rig aims
   wrCamLookRise: 0.75,
@@ -460,7 +464,7 @@ const E = (key, label, options) => ({ key, label, type: 'enum', options });
 
 export const SCHEMA = [
   {
-    group: 'Sea State', open: true, items: [
+    group: 'Sea State', items: [
       S('windSpeed', 'Wind speed (m/s)', 0.5, 40, 0.1, { rebuild: true }),
       S('windDirDeg', 'Wind direction', 0, 360, 1, { rebuild: true }),
       S('fetch', 'Fetch (km)', 1, 1200, 1, { rebuild: true }),
@@ -619,7 +623,7 @@ export const SCHEMA = [
     ],
   },
   {
-    group: 'Sun & Sky', open: true, items: [
+    group: 'Sun & Sky', items: [
       S('sunElevation', 'Sun elevation', -12, 90, 0.05),
       S('sunAzimuth', 'Sun azimuth', 0, 360, 0.5),
       S('sunIntensity', 'Sun intensity', 0, 60, 0.1),
@@ -688,7 +692,7 @@ export const SCHEMA = [
       S('wrCamDistance', 'Chase distance (m)', 1.5, 16, 0.1),
       S('wrCamPull', 'Chase pull-back at speed', 0, 3, 0.01),
       S('wrCamRise', 'Chase height (m)', 0.2, 8, 0.05),
-      S('wrCamDrop', 'Chase settles at speed', 0, 1, 0.01),
+      S('wrCamLift', 'Chase climbs at speed', 0, 3, 0.01),
       S('wrCamLag', 'Chase lag', 0.5, 20, 0.1),
       S('wrCamLook', 'Chase look-ahead (m)', 0, 10, 0.1),
       S('wrCamChaseRoll', 'Chase roll', 0, 1, 0.01),

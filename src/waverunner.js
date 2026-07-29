@@ -439,14 +439,15 @@ export class WaveRunner {
       // Chase. The rig trails the craft in world space and is pulled toward its
       // ideal spot rather than pinned to it, so hard turns swing the camera wide
       // and the craft leads the frame - which is what reads as speed.
-      // The rig falls back as the craft accelerates away from it, and settles a
-      // little lower as it does, so at speed the camera is looking *along* the
-      // water rather than down onto it. That change of framing is most of what
-      // reads as speed in a chase shot - more than the field of view does.
+      // The rig falls back as the craft accelerates away from it, and climbs as it
+      // goes, so at speed it is looking down over the plume rather than straight
+      // through it. That change of framing is most of what reads as speed in a
+      // chase shot - more than the field of view does - and getting above the
+      // spray is the only way to keep the craft visible at full throttle.
       const pull = 1 + fovT * fovT * p.wrCamPull;
       const want = [
         this.pos[0] - fx * p.wrCamDistance * pull,
-        this.deckY + p.wrCamRise * (1 - p.wrCamDrop * fovT * fovT),
+        this.deckY + p.wrCamRise * (1 + p.wrCamLift * fovT * fovT),
         this.pos[2] - fz * p.wrCamDistance * pull,
       ];
       if (!this.camRig) this.camRig = want.slice();
