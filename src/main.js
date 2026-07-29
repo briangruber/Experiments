@@ -366,7 +366,8 @@ function frame(now) {
     uWakeRadius: 40 + params.wakeWidth * 6 + (waveRunner.speed || 0) * params.wakeLife,
     uWakeWidth: params.wakeWidth, uWakeLife: params.wakeLife,
     uWakeStrength: waveRunner.active ? params.wakeStrength : 0,
-    uWakeSpread: params.wakeSpread,
+    uWakeSpread: params.wakeSpread, uWakeArmRate: params.wakeArmRate,
+    uWakeArm: params.wakeArm, uWakeCentre2: params.wakeCentre,
     uInterReflect: params.interReflect, uWaveAO: params.waveAO,
     uWaveShadow: params.waveShadow, uShadowScale: params.shadowScale,
     uCapillary: params.capillary, uCapillaryScale: params.capillaryScale,
@@ -384,7 +385,9 @@ function frame(now) {
     // hull below it, which is why it painted dark and read as glass.
     craft.wetLine = waveRunner.probeH[0];
     craft.setTransform(
-      [waveRunner.pos[0], (waveRunner.deckY ?? 0) - 0.12, waveRunner.pos[2]],
+      // The hull's designed waterline sits above its keel, so the origin has to
+      // ride proud of the surface or the sea closes over the deck.
+      [waveRunner.pos[0], (waveRunner.deckY ?? 0) + params.craftLift, waveRunner.pos[2]],
       waveRunner.heading, waveRunner.pitchTrim,
       waveRunner.bank + waveRunner.rollTrim, params.craftScale,
     );

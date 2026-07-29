@@ -118,6 +118,7 @@ uniform vec4  uWake[28];          // xz position, z-> disturbance, w-> age (s)
 uniform int   uWakeCount;
 uniform vec2  uWakeCentre;
 uniform float uWakeRadius, uWakeWidth, uWakeLife, uWakeStrength, uWakeSpread;
+uniform float uWakeArmRate, uWakeArm, uWakeCentre2;
 uniform vec3  uFoamColor;
 uniform float uSunAngularRadius, uSpecIntensity;
 uniform float uSkyAmbient, uSkyBlur;
@@ -200,6 +201,7 @@ vec3 envFresnel(float NoV, float alpha, float eta){
 }
 
 vec2 windPerp(){ return vec2(-uWindDirV.y, uWindDirV.x); }
+float sqrDist(float x, float w){ float t = x / max(w, 1e-3); return t*t; }
 
 // Sub-cascade facet scintillation. The mip chain averages the finest ripples
 // into the slope variance, which correctly widens the GGX lobe but erases that a
@@ -395,10 +397,20 @@ void main(){
       float dist = distance(vFlat.xz, a.xy + seg * t);
       float age = mix(a.w, b.w, t);
       float stir = mix(a.z, b.z, t);
-      // The scar spreads and thins as it ages, the way a real wake does.
-      float wdt = uWakeWidth * (1.0 + uWakeSpread * age);
-      float fall = exp(-(dist*dist) / max(wdt*wdt, 1e-3));
-      wake = max(wake, fall * stir * max(1.0 - age / max(uWakeLife, 0.1), 0.0));
+      // A real wake is not a widening smear down the middle of the path. It is a
+      // Kelvin pattern: two cusp arms that leave the hull at a fixed angle and
+      // therefore stand at a lateral distance growing linearly with how long ago
+      // the water was disturbed, with churned, aerated water between them. So the
+      // arms are a ridge at |lateral| = rate * age, not a falloff from zero.
+      float arm  = uWakeArmRate * age;
+      float wdt  = uWakeWidth * (1.0 + uWakeSpread * age);
+      float ridge  = exp(-sqrDist(dist - arm, wdt));
+      // The churn between the arms is broad, soft and much shorter lived than
+      // the arms themselves - it is entrained air, not a surface wave.
+      float centre = exp(-sqrDist(dist, wdt * (1.0 + 1.6 * age)))
+                   * uWakeCentre2 * max(1.0 - age / (uWakeLife * 0.45), 0.0);
+      float fade = max(1.0 - age / max(uWakeLife, 0.1), 0.0);
+      wake = max(wake, (ridge * uWakeArm + centre) * stir * fade);
     }
     wake = clamp(wake * uWakeStrength, 0.0, 1.0);
   }

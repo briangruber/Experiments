@@ -255,14 +255,20 @@ export const defaults = {
   wrCarveTurn: 1.9,         // Shift: how much extra rotation a hard lean buys
   wrCarveGrip: 0.45,        // and how much grip it gives up, so the tail slides
   wrCarveDrag: 2.2,         // and how much speed it scrubs
-  wrWakeInterval: 0.07,     // seconds between trail samples
+  wrWakeInterval: 0.22,     // seconds between trail samples. 28 points have to
+                            // span the wake lifetime, or the V is cut off long
+                            // before it has finished spreading.
   wrWakeSpeed: 0.55,
   wrWakeTurn: 0.8,
   wrWakeSlip: 0.10,
   wakeWidth: 1.5,           // half-width of the scar at birth, m
   wakeLife: 7.0,
   wakeStrength: 1.25,
-  wakeSpread: 0.28,         // how fast it widens with age
+  wakeSpread: 0.28,         // how fast each arm thickens with age
+  wakeArmRate: 2.1,         // lateral speed of the cusp arms, m/s
+  wakeArm: 1.0,             // strength of the arms themselves
+  wakeCentre: 0.5,          // aerated churn between them
+  craftLift: 0.34,          // rides the hull's designed waterline on the surface
   craftSprayAmount: 1.0,
   craftSpraySpread: 2.6,
   craftSprayUp: 3.4,
@@ -601,7 +607,11 @@ export const SCHEMA = [
       S('wakeStrength', 'Wake strength', 0, 3, 0.01),
       S('wakeWidth', 'Wake width (m)', 0.2, 6, 0.05),
       S('wakeLife', 'Wake lifetime (s)', 1, 30, 0.1),
-      S('wakeSpread', 'Wake spreading', 0, 1.5, 0.01),
+      S('wakeSpread', 'Wake arm thickening', 0, 1.5, 0.01),
+      S('wakeArmRate', 'Wake V spread (m/s)', 0.2, 8, 0.05),
+      S('wakeArm', 'Wake arm strength', 0, 3, 0.01),
+      S('wakeCentre', 'Wake churn', 0, 2, 0.01),
+      S('craftLift', 'Craft ride height (m)', -0.3, 1.2, 0.01),
       S('craftScale', 'Craft size', 0.4, 2.5, 0.01),
       S('craftGloss', 'Craft gloss', 0, 1, 0.01),
       C('craftHullColor', 'Hull colour'),
