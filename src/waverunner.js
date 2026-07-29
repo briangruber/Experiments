@@ -91,6 +91,9 @@ export class WaveRunner {
     this.shake = 0;
     this.impact = 0;
     this.probeH = [0, 0, 0, 0];
+    this.probeTarget = [0, 0, 0, 0];
+    this.trail = [];
+    this.trailT = 0;
     this.probeFoam = 0;
     this.touchSteer = 0;
     this.touching = false;
@@ -177,7 +180,11 @@ export class WaveRunner {
         gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
         gl.deleteSync(this.fence);
         this.fence = null;
-        for (let i = 0; i < NPROBE; i++) this.probeH[i] = this.readBuf[i * 4];
+        // Latest reading becomes a target, not the value: the readback lands
+        // every few frames and assigning it straight through made the camera
+        // jump each time one arrived.
+        for (let i = 0; i < NPROBE; i++) this.probeTarget[i] = this.readBuf[i * 4];
+        if (!this._primed) { for (let i = 0; i < NPROBE; i++) this.probeH[i] = this.probeTarget[i]; this._primed = true; }
         this.probeFoam = this.readBuf[1];
       }
     }
@@ -195,8 +202,13 @@ export class WaveRunner {
     const k = keys;
     const held = (...codes) => codes.some((c) => k.has(c));
 
+    // Track the probe continuously toward whatever the GPU last reported.
+    const pk = 1 - Math.exp(-p.wrProbeSmooth * d);
+    for (let i = 0; i < NPROBE; i++) this.probeH[i] += (this.probeTarget[i] - this.probeH[i]) * pk;
+
     // ---- throttle and steering ----
-    const boost = held('ShiftLeft', 'ShiftRight') ? p.wrBoost : 1;
+    const carve = held('ShiftLeft', 'ShiftRight');
+    const boost = held('Space') ? p.wrBoost : 1;
     const throttle = this.touching ? 1
       : (held('KeyW', 'ArrowUp') ? 1 : 0) - (held('KeyS', 'ArrowDown') ? 1 : 0);
     const steer = clamp(
@@ -223,7 +235,10 @@ export class WaveRunner {
     // very little steering, and in the air there is none at all.
     const bite = (this.airborne ? p.wrAirSteer : 1) *
                  (throttle > 0 ? 1 : p.wrCoastSteer);
-    const targetYaw = this.steerIn * p.wrTurnRate * bite *
+    // Leaning hard into a turn buys rotation and pays for it in grip and speed,
+    // which is what a carve actually is.
+    const carveGain = carve ? p.wrCarveTurn : 1.0;
+    const targetYaw = this.steerIn * p.wrTurnRate * bite * carveGain *
                       (0.2 + 0.8 * speedT) * Math.sign(along || 1);
     this.yawRate = lerp(this.yawRate, targetYaw, 1 - Math.exp(-p.wrYawInertia * d));
     this.heading += this.yawRate * d;
@@ -235,7 +250,7 @@ export class WaveRunner {
     let u = along + acc * d;
     u -= u * Math.abs(u) * (p.wrAccel / Math.max(top * top, 1)) * d;
     // Hard turns scrub speed, which is what stops a full-lock circle being free.
-    u *= Math.exp(-Math.abs(this.yawRate) * p.wrTurnDrag * d);
+    u *= Math.exp(-Math.abs(this.yawRate) * p.wrTurnDrag * (carve ? p.wrCarveDrag : 1.0) * d);
     u = clamp(u, -p.wrTopSpeed * 0.35, top * 1.25);
 
     // Sideslip: whatever the velocity has that the hull is not pointing along.
@@ -244,7 +259,8 @@ export class WaveRunner {
     const nf = [Math.sin(this.heading), -Math.cos(this.heading)];
     let latX = this.vel[0] - nf[0] * along;
     let latZ = this.vel[1] - nf[1] * along;
-    const gripDecay = Math.exp(-(this.airborne ? p.wrAirGrip : p.wrGrip) * d);
+    const gripDecay = Math.exp(-(this.airborne ? p.wrAirGrip : p.wrGrip *
+                       (carve ? p.wrCarveGrip : 1.0)) * d);
     latX *= gripDecay; latZ *= gripDecay;
     this.vel[0] = nf[0] * u + latX;
     this.vel[1] = nf[1] * u + latZ;
@@ -303,9 +319,28 @@ export class WaveRunner {
     this.rollTrim = lerp(this.rollTrim, tgtRoll, rate);
 
     // ---- ride feel ----
+    this.carving = carve;
     this.impact = Math.max(0, this.impact - d * 2.2);
     const chop = this.airborne ? 0 : speedT * (0.35 + 0.65 * clamp(this.probeFoam, 0, 1));
     this.shake = lerp(this.shake, chop, 1 - Math.exp(-8 * d)) + this.impact * 0.7;
+
+    // Wake trail. Sampled on a timer rather than per frame so its spacing does
+    // not depend on the frame rate, and carrying the disturbance each point was
+    // born with so a hard carve leaves a wider, whiter scar than a straight run.
+    this.trailT += d;
+    if (this.trailT > p.wrWakeInterval) {
+      this.trailT = 0;
+      const stir = clamp(
+        speedT * p.wrWakeSpeed +
+        Math.abs(this.yawRate) * p.wrWakeTurn +
+        this.slip * p.wrWakeSlip +
+        this.impact * 1.2,
+        0, 2.5,
+      );
+      this.trail.unshift([this.pos[0], this.pos[2], stir, 0]);
+      if (this.trail.length > 28) this.trail.pop();
+    }
+    for (const t of this.trail) t[3] += d;
 
     // Where the hull itself sits, which third person needs and the deck the
     // rider sits on is measured from.

@@ -120,6 +120,7 @@ function fadeDistances() {
 }
 
 // -------------------------------------------------------------- photo mode
+const mainWakeBuf = new Float32Array(28 * 4);
 const HALTON = [];
 (function () {
   const h = (i, b) => { let f = 1, r = 0; while (i > 0) { f /= b; r += f * (i % b); i = Math.floor(i / b); } return r; };
@@ -283,10 +284,36 @@ function frame(now) {
   const jitter = photo ? HALTON[accumIndex % HALTON.length] : [0, 0];
   camera.matrices(W, H, jitter[0], jitter[1]);
 
+  // Wake polyline and hull emitter, flattened for the shaders. Ages are relative
+  // to now so the water shader can fade each point without a clock of its own.
+  const WAKE_MAX = 28;
+  const wakeBuf = mainWakeBuf;
+  let wakeCount = 0;
+  if (waveRunner.active) {
+    const tr = waveRunner.trail;
+    wakeCount = Math.min(tr.length, WAKE_MAX);
+    for (let i = 0; i < wakeCount; i++) {
+      const t = tr[i];
+      wakeBuf[i * 4] = t[0]; wakeBuf[i * 4 + 1] = t[1];
+      wakeBuf[i * 4 + 2] = t[2]; wakeBuf[i * 4 + 3] = t[3];
+    }
+  }
+  const cf = waveRunner.active
+    ? [Math.sin(waveRunner.heading), -Math.cos(waveRunner.heading)]
+    : [0, 1];
+
   const ctx = {
     camPos: camera.pos, camRight: camera.right, camUp: camera.up,
     viewProj: camera.viewProj, invViewProj: camera.invViewProj,
     sunDir, moonDir, windVec3, time: simTime,
+    craftPos: waveRunner.active
+      ? new Float32Array([waveRunner.pos[0], waveRunner.deckY ?? 0, waveRunner.pos[2]])
+      : new Float32Array([0, -1e4, 0]),
+    craftFwd: new Float32Array(cf),
+    craftRight: new Float32Array([-cf[1], cf[0]]),
+    craftSpeed: waveRunner.active ? Math.abs(waveRunner.speed) : 0,
+    craftTurn: waveRunner.active ? waveRunner.yawRate : 0,
+    craftAmount: waveRunner.active ? params.craftSprayAmount : 0,
   };
 
   if (!frozen) spray.update(stepDt, params, ctx, ocean);
@@ -336,6 +363,12 @@ function frame(now) {
     uWaterIOR: params.waterIOR, uAerial: params.aerial,
     uWindDirV: new Float32Array([Math.cos(params.windDir), Math.sin(params.windDir)]),
     uSpecClamp: params.specClamp, uHorizonBend: params.horizonBend,
+    uWake: wakeBuf, uWakeCount: wakeCount,
+    uWakeCentre: new Float32Array([waveRunner.pos[0], waveRunner.pos[2]]),
+    uWakeRadius: 40 + params.wakeWidth * 6 + (waveRunner.speed || 0) * params.wakeLife,
+    uWakeWidth: params.wakeWidth, uWakeLife: params.wakeLife,
+    uWakeStrength: waveRunner.active ? params.wakeStrength : 0,
+    uWakeSpread: params.wakeSpread,
     uInterReflect: params.interReflect, uWaveAO: params.waveAO,
     uWaveShadow: params.waveShadow, uShadowScale: params.shadowScale,
     uCapillary: params.capillary, uCapillaryScale: params.capillaryScale,
@@ -349,7 +382,9 @@ function frame(now) {
   // Spray needs the displacement field too: billboards fade against the real
   // water height instead of showing a hard intersection edge.
   if (waveRunner.active) {
-    craft.wetLine = waveRunner.deckY ?? 0;
+    // The waterline is the sea, not the deck: using deckY put almost the whole
+    // hull below it, which is why it painted dark and read as glass.
+    craft.wetLine = waveRunner.probeH[0];
     craft.setTransform(
       [waveRunner.pos[0], (waveRunner.deckY ?? 0) - 0.12, waveRunner.pos[2]],
       waveRunner.heading, waveRunner.pitchTrim,

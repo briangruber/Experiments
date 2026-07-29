@@ -130,10 +130,10 @@ void main(){
   if (dot(N, V) < 0.0) N = -N;
   vec3 L = uSunDir;
 
-  vec3 albedo = vPart > 1.5 ? vec3(0.05)
+  vec3 albedo = vPart > 1.5 ? vec3(0.045)
               : vPart > 0.5 ? uSeatColor
-              : mix(uHullColor, uAccentColor, smoothstep(0.02, -0.02, vW.y - uWetLine));
-  float rough = vPart > 0.5 ? 0.55 : mix(0.08, 0.35, 1.0 - uGloss);
+              : mix(uHullColor, uAccentColor, smoothstep(0.06, -0.06, vW.y - uWetLine));
+  float rough = vPart > 0.5 ? 0.55 : mix(0.14, 0.42, 1.0 - uGloss);
 
   vec3 sky = textureLod(uSkyLUT, dirToSkyUv(reflect(-V, N)), rough*6.0).rgb;
   vec3 amb = textureLod(uSkyLUT, dirToSkyUv(vec3(0.0,1.0,0.0)), 5.0).rgb * 3.14159;
@@ -144,11 +144,14 @@ void main(){
   float a = rough*rough;
   float d = (dot(N,H)*a - dot(N,H))*dot(N,H) + 1.0;
   float D = a*a / max(3.14159*d*d, 1e-6);
-  float F = 0.04 + 0.96*pow(1.0 - NoV, 5.0);
+  // Grazing Fresnel on a full sky reflection is what made the hull read as dark
+  // glass with the sea showing through it. A gelcoat is a coated dielectric:
+  // cap the rim term and keep the diffuse body dominant.
+  float F = 0.04 + 0.36*pow(1.0 - NoV, 5.0);
 
-  vec3 col = albedo * (uSunColor*NoL + amb*0.55) * (1.0/3.14159);
-  col += uSunColor * D * F * NoL * 0.25;
-  col += sky * F;
+  vec3 col = albedo * (uSunColor*NoL + amb*0.85) * (1.0/3.14159);
+  col += uSunColor * D * F * NoL * 0.35;
+  col += sky * F * 0.6;
   fragColor = vec4(col * uAtmoExp, 1.0);
 }
 `;

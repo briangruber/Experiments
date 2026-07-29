@@ -110,6 +110,14 @@ uniform float uBaseRoughness, uRoughnessGain, uRoughnessMax;
 uniform float uWindAniso, uWindSpeed;
 uniform float uFoamAmount, uFoamRoughness, uFoamTint, uFoamDetail, uFoamLift;
 uniform float uFoamSharp, uFoamStreak, uFoamOpacity, uFoamCrisp;
+// Craft wake: a short polyline of where the hull has been, each point carrying
+// how hard it was working when it passed. Cheaper and far more controllable than
+// injecting into the foam sim, which is periodic per cascade and would smear the
+// trail across every tile.
+uniform vec4  uWake[28];          // xz position, z-> disturbance, w-> age (s)
+uniform int   uWakeCount;
+uniform vec2  uWakeCentre;
+uniform float uWakeRadius, uWakeWidth, uWakeLife, uWakeStrength, uWakeSpread;
 uniform vec3  uFoamColor;
 uniform float uSunAngularRadius, uSpecIntensity;
 uniform float uSkyAmbient, uSkyBlur;
@@ -374,6 +382,27 @@ void main(){
   vec3 T = normalize(wind3 - N * dot(N, wind3));
   vec3 B = cross(N, T);
 
+  // ---- craft wake ----------------------------------------------------------
+  float wake = 0.0;
+  if (uWakeCount > 1 && uWakeStrength > 0.001 &&
+      distance(vFlat.xz, uWakeCentre) < uWakeRadius) {
+    for (int i = 0; i < 27; i++) {
+      if (i >= uWakeCount - 1) break;
+      vec4 a = uWake[i], b = uWake[i + 1];
+      vec2 seg = b.xy - a.xy;
+      float ll = max(dot(seg, seg), 1e-4);
+      float t = clamp(dot(vFlat.xz - a.xy, seg) / ll, 0.0, 1.0);
+      float dist = distance(vFlat.xz, a.xy + seg * t);
+      float age = mix(a.w, b.w, t);
+      float stir = mix(a.z, b.z, t);
+      // The scar spreads and thins as it ages, the way a real wake does.
+      float wdt = uWakeWidth * (1.0 + uWakeSpread * age);
+      float fall = exp(-(dist*dist) / max(wdt*wdt, 1e-3));
+      wake = max(wake, fall * stir * max(1.0 - age / max(uWakeLife, 0.1), 0.0));
+    }
+    wake = clamp(wake * uWakeStrength, 0.0, 1.0);
+  }
+
   // ---- foam mask -----------------------------------------------------------
   float bubbles;
   float fd = foamField(vFlat.xz, uTime, foot, bubbles);
@@ -389,7 +418,8 @@ void main(){
   // footprint each one lands; its shaping factor is centred on one and can never
   // inflate the coverage the sim computed.
   float covF = clamp(foamF * uFoamAmount, 0.0, 1.0);
-  float covR = clamp(foamR * uFoamAmount, 0.0, 1.0);
+  float covR = clamp(foamR * uFoamAmount + wake, 0.0, 1.0);
+  covF = clamp(covF + wake * 0.55, 0.0, 1.0);
   // Once the pixel is wider than a clump there is nothing left to resolve and
   // the contrast has to collapse onto the mean, or the far field turns into
   // per-pixel confetti.

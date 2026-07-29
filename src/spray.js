@@ -81,6 +81,16 @@ export class Spray {
       uLaunchSpeed: p.sprayLaunch, uLaunchUp: p.sprayLaunchUp, uLaunchWind: p.sprayLaunchWind,
       uTurbulence: p.sprayTurbulence, uShear: p.sprayShear,
       uHeightScale: p.heightScale, uSeaLevel: p.seaLevel,
+      // Parked far below the sea with zero amount when nobody is riding, so the
+      // emitter costs a branch and nothing else.
+      uCraftPos: ctx.craftPos ?? new Float32Array([0, -1e4, 0]),
+      uCraftFwd: ctx.craftFwd ?? new Float32Array([0, 1]),
+      uCraftRight: ctx.craftRight ?? new Float32Array([1, 0]),
+      uCraftSpeed: ctx.craftSpeed ?? 0,
+      uCraftTurn: ctx.craftTurn ?? 0,
+      uCraftAmount: ctx.craftAmount ?? 0,
+      uCraftSpread: p.craftSpraySpread, uCraftUp: p.craftSprayUp,
+      uCraftBeam: p.wrBeam,
     });
     this.blit.draw();
     this.idx = next;

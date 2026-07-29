@@ -249,6 +249,21 @@ export const defaults = {
   wrShake: 1.0,
   wrFovKick: 14.0,          // degrees of field of view bought by speed
   wrTouchSteer: 1.6,
+  wrProbeSmooth: 16.0,      // tracks the probe readback without following its steps
+  wrCarveTurn: 1.9,         // Shift: how much extra rotation a hard lean buys
+  wrCarveGrip: 0.45,        // and how much grip it gives up, so the tail slides
+  wrCarveDrag: 2.2,         // and how much speed it scrubs
+  wrWakeInterval: 0.07,     // seconds between trail samples
+  wrWakeSpeed: 0.55,
+  wrWakeTurn: 0.8,
+  wrWakeSlip: 0.10,
+  wakeWidth: 1.5,           // half-width of the scar at birth, m
+  wakeLife: 7.0,
+  wakeStrength: 1.25,
+  wakeSpread: 0.28,         // how fast it widens with age
+  craftSprayAmount: 1.0,
+  craftSpraySpread: 2.6,
+  craftSprayUp: 3.4,
   wrView: 1,                // 0 rider POV, 1 chase
   wrCamDistance: 6.4,
   wrCamRise: 2.4,
@@ -586,6 +601,17 @@ export const SCHEMA = [
       S('wrCamLag', 'Chase lag', 0.5, 20, 0.1),
       S('wrCamLook', 'Chase look-ahead (m)', 0, 10, 0.1),
       S('wrCamChaseRoll', 'Chase roll', 0, 1, 0.01),
+      S('wrProbeSmooth', 'Ride smoothing', 2, 40, 0.5),
+      S('wrCarveTurn', 'Carve turn gain (Shift)', 1, 4, 0.01),
+      S('wrCarveGrip', 'Carve grip loss', 0.05, 1, 0.01),
+      S('wrCarveDrag', 'Carve speed scrub', 0.5, 5, 0.01),
+      S('craftSprayAmount', 'Hull spray', 0, 3, 0.01),
+      S('craftSpraySpread', 'Hull spray spread', 0, 8, 0.05),
+      S('craftSprayUp', 'Hull spray lift', 0, 10, 0.05),
+      S('wakeStrength', 'Wake strength', 0, 3, 0.01),
+      S('wakeWidth', 'Wake width (m)', 0.2, 6, 0.05),
+      S('wakeLife', 'Wake lifetime (s)', 1, 30, 0.1),
+      S('wakeSpread', 'Wake spreading', 0, 1.5, 0.01),
       S('craftScale', 'Craft size', 0.4, 2.5, 0.01),
       S('craftGloss', 'Craft gloss', 0, 1, 0.01),
       C('craftHullColor', 'Hull colour'),

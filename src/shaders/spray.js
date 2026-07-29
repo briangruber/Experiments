@@ -128,6 +128,12 @@ ${SPRAY_PARTICLE_GLSL}
 in vec2 vUv;
 uniform sampler2D uPos, uVel;
 uniform vec3  uCamPos, uWind;
+// Hull emitter. The craft throws water on its own account: a plume off the
+// transom, sheets off whichever chine the turn has buried, and far more of both
+// in a hard carve than in a straight run.
+uniform vec3  uCraftPos;
+uniform vec2  uCraftFwd, uCraftRight;
+uniform float uCraftSpeed, uCraftTurn, uCraftAmount, uCraftSpread, uCraftUp, uCraftBeam;
 uniform float uDt, uTime, uFrame, uTexSize;
 uniform float uSpawnRadius, uSpawnRate, uSpawnFocus;
 uniform float uFoldThreshold, uFoldSoft, uFoamBias;
@@ -153,6 +159,33 @@ void main(){
 
   if (P.w <= 0.0){
     // ------------------------------------------------------------------ birth
+    // The hull is a far denser source than the open sea whenever it is working,
+    // so it gets first claim on a dead particle. Droplets, never mist: what the
+    // hull throws is heavy water, not spindrift.
+    float craftDrive = clamp(uCraftSpeed * 0.055 + abs(uCraftTurn) * 1.7, 0.0, 1.0)
+                     * uCraftAmount * (1.0 - mist);
+    if (craftDrive > 0.001 && hash12(vec2(fid*0.0173 + 5.7, ep*0.531)) < craftDrive){
+      vec2 h1 = hash22(vec2(fid*0.311 + 1.3, ep*0.617));
+      float s1 = h1.x - 0.5, s2 = h1.y;
+      float s3 = hash12(vec2(fid*0.719 + 9.1, ep*0.233)) - 0.5;
+      // Two sources: the plume behind the transom, and the sheet peeling off the
+      // buried chine. A straight run is almost all plume; a carve is mostly sheet.
+      float rooster = step(0.35 + 0.45*clamp(abs(uCraftTurn)*2.0, 0.0, 1.0), s2);
+      vec2 side = uCraftRight * (rooster > 0.5 ? s1 * 0.7
+                                : sign(uCraftTurn == 0.0 ? 1.0 : -uCraftTurn) * (0.5 + 0.5*abs(s1)));
+      vec2 back = uCraftFwd * (rooster > 0.5 ? -0.85 - s2*0.8 : -0.15 + s1*0.6);
+      float energy = clamp(uCraftSpeed/16.0 + abs(uCraftTurn)*1.3, 0.05, 2.2);
+      vec3 sp = uCraftPos + vec3(side.x*uCraftBeam + back.x, 0.10 + 0.2*s2,
+                                 side.y*uCraftBeam + back.y);
+      vec3 v = vec3(-uCraftFwd.x, 0.0, -uCraftFwd.y) * uCraftSpeed * (0.15 + 0.25*s2);
+      v += vec3(side.x, 0.0, side.y) * uCraftSpread * energy * (0.5 + s2);
+      v.y += uCraftUp * energy * (0.6 + 0.7*s2);
+      v += vec3(s1, 0.0, s3) * 1.5;
+      oPos = vec4(sp, uLifetime * (0.45 + 0.75*s2));
+      oVel = vec4(v, mix(uSizeMin, uSizeMax, s2) * (0.7 + 0.8*energy));
+      return;
+    }
+
     // Whitecaps start tearing at about F4 and the air is solid spindrift by
     // F10; mist needs a much stronger wind than ballistic droplets do.
     float gate = mix(smoothstep(uWindMin, uWindFull, wind),
