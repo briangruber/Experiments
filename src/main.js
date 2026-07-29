@@ -6,6 +6,7 @@ import { Spray } from './spray.js';
 import { Post } from './post.js';
 import { Camera } from './camera.js';
 import { WaveRunner } from './waverunner.js';
+import { Craft } from './craft.js';
 import { UI, applyPreset } from './ui.js';
 import { defaults, PRESETS } from './presets.js';
 import { DEG, v3, clamp } from './math.js';
@@ -25,6 +26,7 @@ let ocean = new Ocean(gl, { size: params.fftSize, cascades: DEFAULT_CASCADES });
 let spray = new Spray(gl, blit, { size: params.sprayTexSize });
 const pWater = program(gl, WATER_VS, WATER_FS, 'water');
 const waveRunner = new WaveRunner(gl, blit);
+const craft = new Craft(gl);
 
 // ---------------------------------------------------------------- radial grid
 let grid = null;
@@ -187,7 +189,7 @@ function toggleRide() {
   }
   camera.locked = waveRunner.active;
   resetAccum();
-  ui.toast(waveRunner.active ? 'Wave runner \u2014 W throttle, A/D steer, Shift boost' : 'Free camera');
+  ui.toast(waveRunner.active ? 'Wave runner \u2014 W throttle, A/D steer, V view' : 'Free camera');
 }
 let savedView = null;
 
@@ -228,6 +230,12 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyH') setPanel(document.body.classList.contains('panel-hidden'));
   if (e.code === 'KeyP') togglePhoto();
   if (e.code === 'KeyR') toggleRide();
+  if (e.code === 'KeyV' && waveRunner.active) {
+    params.wrView = params.wrView >= 0.5 ? 0 : 1;
+    ui.syncAll();
+    ui.toast(params.wrView >= 0.5 ? 'Chase camera' : 'Rider view');
+    resetAccum();
+  }
   if (e.code === 'KeyO') savePng();
 });
 
@@ -340,6 +348,16 @@ function frame(now) {
 
   // Spray needs the displacement field too: billboards fade against the real
   // water height instead of showing a hard intersection edge.
+  if (waveRunner.active) {
+    craft.wetLine = waveRunner.deckY ?? 0;
+    craft.setTransform(
+      [waveRunner.pos[0], (waveRunner.deckY ?? 0) - 0.12, waveRunner.pos[2]],
+      waveRunner.heading, waveRunner.pitchTrim,
+      waveRunner.bank + waveRunner.rollTrim, params.craftScale,
+    );
+    craft.draw(params, ctx, sky.lut);
+  }
+
   spray.draw(params, ctx, sky.lut, sky.atmosphereUniforms(params), ocean);
 
   gl.disable(gl.DEPTH_TEST);

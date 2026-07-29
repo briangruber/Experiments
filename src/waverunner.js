@@ -78,6 +78,10 @@ export class WaveRunner {
     this.pos = v3(0, 0, 0);
     this.heading = 0;
     this.speed = 0;
+    this.vel = [0, 0];
+    this.yawRate = 0;
+    this.steerIn = 0;
+    this.slip = 0;
     this.vy = 0;
     this.alt = 0;
     this.airborne = false;
@@ -123,7 +127,9 @@ export class WaveRunner {
     this.pos[0] = camera.pos[0];
     this.pos[2] = camera.pos[2];
     this.heading = camera.yaw;
-    this.speed = 0; this.vy = 0; this.alt = 0.4;
+    this.speed = 0; this.vel[0] = 0; this.vel[1] = 0;
+    this.yawRate = 0; this.steerIn = 0; this.slip = 0;
+    this.vy = 0; this.alt = 0.4;
     this.airborne = false; this.bank = 0; this.shake = 0; this.impact = 0;
   }
 
@@ -200,27 +206,58 @@ export class WaveRunner {
     );
 
     const top = p.wrTopSpeed * boost;
-    if (throttle > 0) this.speed += p.wrAccel * boost * d;
-    else if (throttle < 0) this.speed -= p.wrBrake * d;
-    // Quadratic drag gives a real terminal speed and a heavy, planing feel.
-    this.speed -= this.speed * Math.abs(this.speed) * (p.wrAccel / Math.max(top * top, 1)) * d;
-    this.speed = clamp(this.speed, -p.wrTopSpeed * 0.35, top * 1.25);
 
-    // You cannot steer a jet drive with no thrust, and a hull in the air has
-    // nothing to bite on. Both are what make it feel like a boat.
-    const grip = this.airborne ? p.wrAirSteer : 1;
-    const speedT = clamp(Math.abs(this.speed) / Math.max(p.wrTopSpeed * 0.45, 1), 0, 1);
-    const turn = steer * p.wrTurnRate * grip * (0.25 + 0.75 * speedT) * Math.sign(this.speed || 1);
-    this.heading += turn * d;
+    // A hull carries momentum that does not instantly point where the bars do.
+    // Three separate lags stand between the key and the path, and leaving any of
+    // them out is what makes a boat handle like a cursor: the bars take time to
+    // move, the hull takes time to start rotating, and the velocity keeps its
+    // old direction until the hull's grip drags it round.
+    this.steerIn = lerp(this.steerIn, steer, 1 - Math.exp(-p.wrSteerLag * d));
 
-    // Bank into the turn, plus a little outward lean from the speed.
-    const targetBank = -turn * p.wrBank * (0.4 + 0.6 * speedT);
-    this.bank = lerp(this.bank, targetBank, 1 - Math.exp(-6 * d));
+    const fwd = [Math.sin(this.heading), -Math.cos(this.heading)];
+    const along = this.vel[0] * fwd[0] + this.vel[1] * fwd[1];
+    this.speed = along;
+    const speedT = clamp(Math.abs(along) / Math.max(p.wrTopSpeed * 0.45, 1), 0, 1);
+
+    // A jet drive steers by vectoring its own thrust: off the throttle there is
+    // very little steering, and in the air there is none at all.
+    const bite = (this.airborne ? p.wrAirSteer : 1) *
+                 (throttle > 0 ? 1 : p.wrCoastSteer);
+    const targetYaw = this.steerIn * p.wrTurnRate * bite *
+                      (0.2 + 0.8 * speedT) * Math.sign(along || 1);
+    this.yawRate = lerp(this.yawRate, targetYaw, 1 - Math.exp(-p.wrYawInertia * d));
+    this.heading += this.yawRate * d;
+
+    // Thrust and drag act along the hull; quadratic drag sets a real top speed.
+    let acc = 0;
+    if (throttle > 0) acc = p.wrAccel * boost;
+    else if (throttle < 0) acc = -p.wrBrake;
+    let u = along + acc * d;
+    u -= u * Math.abs(u) * (p.wrAccel / Math.max(top * top, 1)) * d;
+    // Hard turns scrub speed, which is what stops a full-lock circle being free.
+    u *= Math.exp(-Math.abs(this.yawRate) * p.wrTurnDrag * d);
+    u = clamp(u, -p.wrTopSpeed * 0.35, top * 1.25);
+
+    // Sideslip: whatever the velocity has that the hull is not pointing along.
+    // Grip bleeds it away over time rather than instantly, so the craft carves
+    // and drifts wide out of a hard turn instead of pivoting on the spot.
+    const nf = [Math.sin(this.heading), -Math.cos(this.heading)];
+    let latX = this.vel[0] - nf[0] * along;
+    let latZ = this.vel[1] - nf[1] * along;
+    const gripDecay = Math.exp(-(this.airborne ? p.wrAirGrip : p.wrGrip) * d);
+    latX *= gripDecay; latZ *= gripDecay;
+    this.vel[0] = nf[0] * u + latX;
+    this.vel[1] = nf[1] * u + latZ;
+    this.slip = Math.hypot(latX, latZ);
+
+    // Bank follows the actual rotation rate, not the key, so the lean arrives
+    // with the turn and unwinds with it.
+    const targetBank = -this.yawRate * p.wrBank * (0.4 + 0.6 * speedT);
+    this.bank = lerp(this.bank, targetBank, 1 - Math.exp(-5 * d));
 
     // ---- surface following and flight ----
-    const fwd = [Math.sin(this.heading), -Math.cos(this.heading)];
-    this.pos[0] += fwd[0] * this.speed * d;
-    this.pos[2] += fwd[1] * this.speed * d;
+    this.pos[0] += this.vel[0] * d;
+    this.pos[2] += this.vel[1] * d;
 
     const hC = this.probeH[0], hF = this.probeH[1], hL = this.probeH[2], hR = this.probeH[3];
     const surf = hC;
@@ -232,7 +269,8 @@ export class WaveRunner {
       if (craftY + this.vy * d <= surf + p.wrHover) {
         // Splashdown. Kill the downward velocity, keep some as a jolt.
         this.impact = Math.min(1, Math.abs(this.vy) / 12);
-        this.speed *= 1 - p.wrLandingDrag * this.impact;
+        const keep = 1 - p.wrLandingDrag * this.impact;
+        this.vel[0] *= keep; this.vel[1] *= keep;
         this.vy = 0;
         this.alt = p.wrHover;
         this.airborne = false;
@@ -269,18 +307,53 @@ export class WaveRunner {
     const chop = this.airborne ? 0 : speedT * (0.35 + 0.65 * clamp(this.probeFoam, 0, 1));
     this.shake = lerp(this.shake, chop, 1 - Math.exp(-8 * d)) + this.impact * 0.7;
 
+    // Where the hull itself sits, which third person needs and the deck the
+    // rider sits on is measured from.
+    this.deckY = surf + this.alt;
+
     // ---- drive the camera ----
     const t = performance.now() * 0.001;
     const sh = this.shake * p.wrShake * 0.02;
-    camera.pos[0] = this.pos[0];
-    camera.pos[2] = this.pos[2];
-    camera.pos[1] = surf + this.alt + p.wrCamHeight;
-    camera.yaw = this.heading + Math.sin(t * 11.0) * sh * 0.6;
-    camera.pitch = clamp(
-      -this.pitchTrim * p.wrCamPitchFollow + p.wrCamTilt + Math.sin(t * 13.7) * sh,
-      -1.2, 1.2,
-    );
-    camera.roll = (this.bank + this.rollTrim * p.wrCamRollFollow) + Math.sin(t * 9.3) * sh * 0.8;
+    const fx = Math.sin(this.heading), fz = -Math.cos(this.heading);
+
+    if (p.wrView >= 0.5) {
+      // Chase. The rig trails the craft in world space and is pulled toward its
+      // ideal spot rather than pinned to it, so hard turns swing the camera wide
+      // and the craft leads the frame - which is what reads as speed.
+      const want = [
+        this.pos[0] - fx * p.wrCamDistance,
+        this.deckY + p.wrCamRise,
+        this.pos[2] - fz * p.wrCamDistance,
+      ];
+      if (!this.camRig) this.camRig = want.slice();
+      const k = 1 - Math.exp(-p.wrCamLag * d);
+      for (let i = 0; i < 3; i++) this.camRig[i] += (want[i] - this.camRig[i]) * k;
+      // Never let the rig sink into the sea it is flying over.
+      this.camRig[1] = Math.max(this.camRig[1], surf + p.wrCamMinClear);
+
+      const look = [
+        this.pos[0] + fx * p.wrCamLook,
+        this.deckY + p.wrCamLookRise,
+        this.pos[2] + fz * p.wrCamLook,
+      ];
+      const dx = look[0] - this.camRig[0], dy = look[1] - this.camRig[1], dz = look[2] - this.camRig[2];
+      const len = Math.hypot(dx, dy, dz) || 1;
+      camera.pos[0] = this.camRig[0]; camera.pos[1] = this.camRig[1]; camera.pos[2] = this.camRig[2];
+      camera.yaw = Math.atan2(dx / len, -dz / len) + Math.sin(t * 11.0) * sh * 0.35;
+      camera.pitch = clamp(Math.asin(clamp(dy / len, -1, 1)) + Math.sin(t * 13.7) * sh * 0.5, -1.2, 1.2);
+      camera.roll = this.bank * p.wrCamChaseRoll + Math.sin(t * 9.3) * sh * 0.4;
+    } else {
+      this.camRig = null;
+      camera.pos[0] = this.pos[0];
+      camera.pos[2] = this.pos[2];
+      camera.pos[1] = this.deckY + p.wrCamHeight;
+      camera.yaw = this.heading + Math.sin(t * 11.0) * sh * 0.6;
+      camera.pitch = clamp(
+        -this.pitchTrim * p.wrCamPitchFollow + p.wrCamTilt + Math.sin(t * 13.7) * sh,
+        -1.2, 1.2,
+      );
+      camera.roll = (this.bank + this.rollTrim * p.wrCamRollFollow) + Math.sin(t * 9.3) * sh * 0.8;
+    }
     // Speed reads on the lens, not just in the numbers.
     camera.fov = p.fov + speedT * p.wrFovKick + this.impact * 4.0;
     camera.moved = true;

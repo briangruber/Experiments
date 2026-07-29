@@ -121,30 +121,30 @@ export const defaults = {
   sprayShred: 1.6,          // downwind length of a sheet at the moment it tears
   sprayTurbulence: 2.0,
   sprayShear: 0.35,         // log wind gradient with height
-  spraySizeMin: 0.05,      // billboards are parcels of spray, not single drops
-  spraySizeMax: 0.55,
+  spraySizeMin: 0.018,     // billboards are parcels of spray, not single drops
+  spraySizeMax: 0.15,
   spraySize: 1.0,
   sprayStretch: 0.030,      // shutter the motion smear is integrated over, s
-  sprayOpacity: 1.15,
+  sprayOpacity: 0.85,
   sprayFadeNear: 0.4,
-  sprayMinPixels: 2.2,     // sub-pixel droplets are grown and dimmed, not dropped
+  sprayMinPixels: 1.15,    // sub-pixel droplets are grown and dimmed, not dropped
   sprayFarSoft: 1.6,       // extra edge softness once held at the pixel floor
   spraySurfFade: 0.30,      // soft fade as a billboard enters the water, m
   sprayAerial: 0.0012,
   sprayGrain: 0.85,         // how far each parcel is broken up into droplet texture
-  sprayGrainScale: 3.4,     // droplet clumps across one billboard
+  sprayGrainScale: 5.2,     // droplet clumps across one billboard
   sprayGrainAniso: 3.0,     // that texture drawn out along the direction of flight
 
   // ---- spindrift & sea mist ----
   sprayMist: 0.45,          // share of the budget spent on spindrift
   sprayMistWind: 7.0,       // U10 where a mist veil first hangs over the crests
   sprayMistLife: 7.0,
-  sprayMistSize: 1.1,
+  sprayMistSize: 0.55,
   sprayMistRadius: 2.5,     // the veil works over a far larger disc than droplets do
   sprayMistDrag: 4.0,
   sprayMistFall: 0.06,      // gravity felt by mist, relative to droplets
   sprayMistRise: 0.6,
-  sprayMistGrow: 3.0,
+  sprayMistGrow: 2.0,
   sprayMistStretch: 0.30,   // a spindrift filament is a real object, not a blur
   sprayMistOpacity: 0.13,
   sprayMistGrain: 0.55,     // spindrift is torn into streaks, not smooth puffs
@@ -223,7 +223,13 @@ export const defaults = {
   wrAccel: 11.0,
   wrBrake: 14.0,
   wrBoost: 1.35,
-  wrTurnRate: 1.35,         // rad/s at planing speed
+  wrTurnRate: 0.85,         // rad/s at planing speed, full lock
+  wrSteerLag: 5.0,          // how fast the bars themselves move
+  wrYawInertia: 3.0,        // how fast the hull starts rotating once they do
+  wrGrip: 2.1,              // lateral velocity bleed; lower drifts wider
+  wrAirGrip: 0.25,
+  wrTurnDrag: 0.30,         // speed scrubbed by hard turning
+  wrCoastSteer: 0.30,       // a jet drive off the throttle barely steers
   wrAirSteer: 0.25,         // a hull in the air has almost nothing to bite on
   wrBank: 0.55,
   wrHover: 0.35,            // ride height above the surface, m
@@ -243,6 +249,19 @@ export const defaults = {
   wrShake: 1.0,
   wrFovKick: 14.0,          // degrees of field of view bought by speed
   wrTouchSteer: 1.6,
+  wrView: 1,                // 0 rider POV, 1 chase
+  wrCamDistance: 6.4,
+  wrCamRise: 2.4,
+  wrCamLag: 5.0,            // the rig is pulled to its mark, not pinned to it
+  wrCamLook: 2.2,           // how far ahead of the craft the rig aims
+  wrCamLookRise: 0.75,
+  wrCamMinClear: 0.7,       // the chase rig never sinks into the sea
+  wrCamChaseRoll: 0.35,
+  craftScale: 1.0,
+  craftGloss: 0.45,
+  craftHullColor: [0.62, 0.055, 0.045],
+  craftAccentColor: [0.03, 0.035, 0.045],
+  craftSeatColor: [0.05, 0.05, 0.055],
 
   // ---- look ----
   lookSensitivity: 1.0,
@@ -555,7 +574,22 @@ export const SCHEMA = [
       S('wrTopSpeed', 'Top speed (m/s)', 4, 60, 0.5),
       S('wrAccel', 'Acceleration', 1, 30, 0.1),
       S('wrBoost', 'Boost multiplier', 1, 2.5, 0.01),
-      S('wrTurnRate', 'Turn rate', 0.2, 4, 0.01),
+      E('wrView', 'View', ['Rider', 'Chase']),
+      S('wrTurnRate', 'Turn rate', 0.05, 2.5, 0.01),
+      S('wrSteerLag', 'Steering response', 0.5, 15, 0.05),
+      S('wrYawInertia', 'Hull yaw inertia', 0.3, 12, 0.05),
+      S('wrGrip', 'Grip (lower drifts)', 0.2, 8, 0.02),
+      S('wrTurnDrag', 'Turn speed scrub', 0, 1.5, 0.01),
+      S('wrCoastSteer', 'Off-throttle steering', 0, 1, 0.01),
+      S('wrCamDistance', 'Chase distance (m)', 1.5, 16, 0.1),
+      S('wrCamRise', 'Chase height (m)', 0.2, 8, 0.05),
+      S('wrCamLag', 'Chase lag', 0.5, 20, 0.1),
+      S('wrCamLook', 'Chase look-ahead (m)', 0, 10, 0.1),
+      S('wrCamChaseRoll', 'Chase roll', 0, 1, 0.01),
+      S('craftScale', 'Craft size', 0.4, 2.5, 0.01),
+      S('craftGloss', 'Craft gloss', 0, 1, 0.01),
+      C('craftHullColor', 'Hull colour'),
+      C('craftAccentColor', 'Hull underside'),
       S('wrBank', 'Bank into turns', 0, 2, 0.01),
       S('wrHover', 'Ride height (m)', 0, 2, 0.01),
       S('wrStiffness', 'Suspension', 4, 60, 0.5),
