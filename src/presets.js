@@ -238,8 +238,17 @@ export const defaults = {
   wrStiffness: 26.0,        // suspension following the water
   wrDamping: 7.0,
   wrGravity: 13.0,
-  wrLaunch: 1.0,            // how eagerly it leaves a falling crest
+  wrLaunch: 1.0,            // overall gain on both launch triggers
   wrLaunchThreshold: 3.2,   // surface fall rate (m/s) that throws it clear
+  // Jumping a wave face. v_up = v_forward * slope, so how far it flies is set by
+  // how fast it hit the face - which is what makes charging a swell worthwhile.
+  wrJumpSpeed: 5.0,         // forward speed (m/s) below which it never leaves
+  wrLaunchG: 0.72,          // fraction of gravity the water has to beat to shake
+                            // the hull off it. 1.0 is the exact physical value;
+                            // a little under compensates for the probe filter
+                            // flattening the peak of the acceleration.
+  wrJumpGain: 1.35,         // how much of the face's lift becomes airtime
+  wrSurfFilter: 22.0,       // low-pass on the surface velocity and acceleration
   wrLandingDrag: 0.35,
   wrAttitudeRate: 9.0,
   wrLength: 1.6,            // probe spacing bow to centre, m
@@ -251,7 +260,10 @@ export const defaults = {
   wrCamPitchFollow: 0.75,
   wrCamRollFollow: 0.6,
   wrShake: 1.0,
-  wrFovKick: 14.0,          // degrees of field of view bought by speed
+  wrFovKick: 18.0,          // degrees of field of view bought by speed, at the
+                            // top of the range rather than at 45% of it
+  wrBoostFov: 7.0,          // extra degrees the moment the boost is held
+  wrFovLag: 2.6,            // how fast the lens breathes into it
   wrTouchSteer: 1.6,
   wrProbeSmooth: 16.0,      // tracks the probe readback without following its steps
   wrCarveTurn: 1.9,         // Shift: how much extra rotation a hard lean buys
@@ -302,6 +314,10 @@ export const defaults = {
   craftCurtain: 1.15,       // the wall a sideways-sliding hull shovels up
   craftCurtainSpeed: 1.8,   // per m/s of sideslip
   craftBurst: 0.9,          // bow crown on landing or punching a crest
+  craftSprayOpacity: 1.45,  // hull water is a dense sheet, not a few droplets
+  craftSprayMulti: 0.55,    // ...and a dense sheet scatters light many times
+                            // inside itself, which is what makes real hull spray
+                            // read bright white whichever way the sun is
   wrView: 1,                // 0 rider POV, 1 chase
   wrCamDistance: 6.4,
   wrCamRise: 2.4,
@@ -663,6 +679,8 @@ export const SCHEMA = [
       S('craftCurtain', 'Carve curtain', 0, 3, 0.01),
       S('craftCurtainSpeed', 'Carve curtain speed', 0, 6, 0.05),
       S('craftBurst', 'Bow burst', 0, 3, 0.01),
+      S('craftSprayOpacity', 'Hull spray density', 0, 3, 0.01),
+      S('craftSprayMulti', 'Hull spray glow', 0, 2, 0.01),
       S('wakeStrength', 'Wake strength', 0, 3, 0.01),
       S('wakeWidth', 'Wake arm width (m)', 0.2, 6, 0.05),
       S('wakeLife', 'Wake lifetime (s)', 1, 40, 0.1),
@@ -691,12 +709,18 @@ export const SCHEMA = [
       S('wrGravity', 'Gravity', 4, 25, 0.1),
       S('wrLaunch', 'Jump off crests', 0, 3, 0.01),
       S('wrLaunchThreshold', 'Launch threshold', 0.5, 10, 0.05),
+      S('wrJumpSpeed', 'Jump: min speed (m/s)', 0, 25, 0.1),
+      S('wrLaunchG', 'Jump: separation (g)', 0.2, 2, 0.01),
+      S('wrJumpGain', 'Jump: airtime', 0, 3, 0.01),
+      S('wrSurfFilter', 'Jump: surface filter', 4, 60, 0.5),
       S('wrAirSteer', 'Air control', 0, 1, 0.01),
       S('wrCamHeight', 'Eye height (m)', 0.2, 3, 0.01),
       S('wrCamPitchFollow', 'Pitch follow', 0, 1.5, 0.01),
       S('wrCamRollFollow', 'Roll follow', 0, 1.5, 0.01),
       S('wrShake', 'Ride shake', 0, 3, 0.01),
       S('wrFovKick', 'Speed FOV kick', 0, 40, 0.5),
+      S('wrBoostFov', 'Boost FOV punch', 0, 30, 0.1),
+      S('wrFovLag', 'FOV response', 0.3, 12, 0.05),
       S('wrTouchSteer', 'Touch steering', 0, 4, 0.01),
     ],
   },

@@ -148,6 +148,9 @@ export class WaveRunner {
     this.yawRate = 0; this.steerIn = 0; this.slip = 0;
     this.vy = 0; this.alt = 0.4;
     this.airborne = false; this.bank = 0; this.shake = 0; this.impact = 0;
+    this.airTime = 0; this.worldY = 0;
+    this.surfVel = 0; this.surfAcc = 0;
+    this._lastSurf = undefined;
   }
 
   // Local offsets of the four probes, rotated into world space.
@@ -312,10 +315,28 @@ export class WaveRunner {
     const surf = hC;
     const craftY = surf + this.alt;
 
+    // How the water under the hull is moving, and how hard it is accelerating.
+    // Riding up a face at speed v over a slope s means the surface under the hull
+    // rises at v*s, so this vertical velocity already *is* the ramp: no separate
+    // slope term is needed. Two stages of filtering, because a second difference
+    // of a probe that is itself smoothed is otherwise mostly noise.
+    const dhdtRaw = (surf - (this._lastSurf ?? surf)) / Math.max(d, 1e-3);
+    const kf = 1 - Math.exp(-p.wrSurfFilter * d);
+    const prevVel = this.surfVel ?? dhdtRaw;
+    this.surfVel = prevVel + (dhdtRaw - prevVel) * kf;
+    const accRaw = (this.surfVel - prevVel) / Math.max(d, 1e-3);
+    this.surfAcc = (this.surfAcc ?? 0) + (accRaw - (this.surfAcc ?? 0)) * kf;
+    const dhdt = dhdtRaw;
+
     if (this.airborne) {
       this.vy -= p.wrGravity * d;
-      this.alt += this.vy * d;
-      if (craftY + this.vy * d <= surf + p.wrHover) {
+      // In the air the hull follows a parabola in *world* space. Integrating its
+      // height above the surface instead made it ride the swell while airborne -
+      // so a long jump tracked the wave underneath it rather than flying over it,
+      // and a landing could never happen on the back of the wave it left.
+      this.worldY += this.vy * d;
+      this.alt = this.worldY - surf;
+      if (this.vy < 0.0 && this.worldY <= surf + p.wrHover) {
         // Splashdown. Kill the downward velocity, keep some as a jolt.
         this.impact = Math.min(1, Math.abs(this.vy) / 12);
         const keep = 1 - p.wrLandingDrag * this.impact;
@@ -323,6 +344,9 @@ export class WaveRunner {
         this.vy = 0;
         this.alt = p.wrHover;
         this.airborne = false;
+        this.airTime = 0;
+      } else {
+        this.airTime = (this.airTime ?? 0) + d;
       }
     } else {
       // Ride the surface with a spring so the hull does not snap to every ripple.
@@ -331,13 +355,35 @@ export class WaveRunner {
       this.vy += (target - this.alt) * kSpring * d;
       this.vy *= Math.exp(-p.wrDamping * d);
       this.alt += this.vy * d;
-      // Launch off a crest: if the water is falling away faster than the hull can
-      // follow, it leaves the surface. That is the jump, and it comes free from
-      // the wave field rather than from a scripted trigger.
-      const dhdt = (surf - (this._lastSurf ?? surf)) / Math.max(d, 1e-3);
-      if (dhdt * p.wrLaunch < -p.wrLaunchThreshold && this.speed > p.wrTopSpeed * 0.25) {
+
+      // A hull can only stay on the water while the water's own downward
+      // acceleration is gentler than gravity. Past that, the surface is dropping
+      // away faster than gravity can pull the hull after it and the two separate -
+      // which is exactly what launching off a wave is, and it needs no threshold
+      // invented for the purpose.
+      //
+      // The point of writing it this way is that speed enters squared: the
+      // vertical acceleration a hull feels crossing a wave of amplitude A and
+      // wavenumber k at speed v is A*k^2*v^2, so doubling the speed quadruples it.
+      // That is why charging a swell throws you clear and idling over the same
+      // swell does not, and it comes out of the criterion rather than being
+      // tuned in.
+      const fast = Math.abs(this.speed) > Math.max(p.wrJumpSpeed, 0.1);
+      const separates = this.surfAcc < -p.wrGravity * p.wrLaunchG;
+      // The short steep chop is the other case: the water simply fell away faster
+      // than the suspension could follow it.
+      const dropped = dhdt * p.wrLaunch < -p.wrLaunchThreshold;
+      if (fast && (separates || dropped)) {
         this.airborne = true;
-        this.vy = Math.max(this.vy, -dhdt * 0.35 * p.wrLaunch);
+        // It leaves with the vertical velocity it actually had. Halfway up a face
+        // that is most of v*slope and the jump is real; right at the crest it is
+        // nearly nothing and the hull just gets light as the water runs out from
+        // under it. Both are things that happen.
+        this.vy = Math.max(this.vy,
+                           this.surfVel * p.wrJumpGain,
+                           -dhdt * 0.35 * p.wrLaunch);
+        this.worldY = surf + this.alt;
+        this.airTime = 0;
       }
     }
     this._lastSurf = surf;
@@ -408,8 +454,19 @@ export class WaveRunner {
       );
       camera.roll = (this.bank + this.rollTrim * p.wrCamRollFollow) + Math.sin(t * 9.3) * sh * 0.8;
     }
-    // Speed reads on the lens, not just in the numbers.
-    camera.fov = p.fov + speedT * p.wrFovKick + this.impact * 4.0;
+    // Speed reads on the lens, not just in the numbers. speedT saturates at 45%
+    // of top speed - it exists to fade the handling terms in - so driving the
+    // lens off it meant the field of view was already pegged by the time you were
+    // half way up the range and the last two thirds of the throttle did nothing
+    // to the picture. This tracks the whole range, squared so the first few knots
+    // leave the framing alone and the top end opens up hard, and it is lagged so
+    // the lens breathes into it instead of snapping.
+    const fovT = clamp(Math.abs(this.speed) / Math.max(p.wrTopSpeed, 1), 0, 1.2);
+    const want = p.wrFovKick * fovT * fovT
+               + (boost > 1 ? p.wrBoostFov : 0)
+               + this.impact * 4.0;
+    this.fovKick = lerp(this.fovKick ?? 0, want, 1 - Math.exp(-p.wrFovLag * d));
+    camera.fov = p.fov + this.fovKick;
     camera.moved = true;
   }
 

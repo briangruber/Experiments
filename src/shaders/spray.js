@@ -334,7 +334,12 @@ void main(){
       v += (uWind - hullVel) * 0.08;
 
       oPos = vec4(uCraftPos + org, uCraftLife * (0.35 + 0.80*hC.y) * lifeK);
-      oVel = vec4(v, clamp(energy, 0.05, 1.35));
+      // Negative energy marks this as hull water rather than sea spray. It costs
+      // no channel - the draw pass reads the magnitude and the sign separately -
+      // and it is what lets a dense sheet thrown by a hull be lit as the thick
+      // multiple-scattering whitewater it is, rather than as a few wind-torn
+      // droplets that happen to be in the same place.
+      oVel = vec4(v, -clamp(energy, 0.05, 1.35));
       return;
     }
 
@@ -473,7 +478,7 @@ uniform float uTexSize, uSizeScale, uStretch, uMistStretch;
 uniform float uFadeNear, uFadeFar, uMistGrow, uViewportH, uMinPixels, uFarSoft;
 uniform float uHeightScale, uSeaLevel;
 out vec2 vCorner;
-out float vFade, vMist, vEnergy, vSoft, vSeed, vSize, vShape, vTex, vSurfDelta;
+out float vFade, vMist, vEnergy, vSoft, vSeed, vSize, vShape, vTex, vSurfDelta, vHull;
 out vec3 vWorld, vSun, vAmb;
 
 void main(){
@@ -493,7 +498,7 @@ void main(){
   if (P.w <= 0.0){
     gl_Position = vec4(2.0,2.0,2.0,1.0);
     vFade=0.0; vCorner=aCorner; vWorld=vec3(0.0); vMist=0.0; vEnergy=0.0;
-    vSoft=1.0; vSeed=0.0; vSize=0.0; vShape=0.0; vTex=0.0; vSurfDelta=1.0;
+    vSoft=1.0; vSeed=0.0; vSize=0.0; vShape=0.0; vTex=0.0; vSurfDelta=1.0; vHull=0.0;
     return;
   }
 
@@ -573,7 +578,8 @@ void main(){
   vCorner = aCorner;
   vFade   = fade;
   vMist   = mist;
-  vEnergy = V.w;
+  vEnergy = abs(V.w);
+  vHull   = step(V.w, 0.0);
   vSize   = size;
   vSeed   = fract(fid*0.618034);
   // Mist has no edge at all, and anything too small to resolve must be a smooth
@@ -591,13 +597,14 @@ ${NOISE_GLSL}
 ${ATMOSPHERE_GLSL}
 ${SKY_LUT_MAP_GLSL}
 in vec2 vCorner;
-in float vFade, vMist, vEnergy, vSoft, vSeed, vSize, vShape, vTex, vSurfDelta;
+in float vFade, vMist, vEnergy, vSoft, vSeed, vSize, vShape, vTex, vSurfDelta, vHull;
 in vec3 vWorld, vSun, vAmb;
 uniform sampler2D uSkyLUT;
 uniform vec3 uSunDir, uCamPos;
 uniform float uOpacity, uMistOpacity, uScatter, uAmbient, uMulti;
 uniform float uForwardG, uBackG, uSurfFade, uAerial;
 uniform float uGrain, uMistGrain, uGrainScale, uGrainAniso;
+uniform float uHullOpacity, uHullMulti;
 out vec4 fragColor;
 
 void main(){
@@ -612,7 +619,7 @@ void main(){
   // that spray production is continuous in how hard the crest is breaking rather
   // than a switch, and the birth energy has to carry that gradation through to
   // the opacity.
-  float a = pow(1.0 - d, vSoft) * vFade * mix(uOpacity, uMistOpacity, vMist)
+  float a = pow(1.0 - d, vSoft) * vFade * mix(uOpacity, uMistOpacity, vMist) * mix(1.0, uHullOpacity, vHull)
           * mix(0.08 + 0.92*pow(max(vEnergy,0.0), 0.6), 0.25 + 0.75*vEnergy, vMist);
 
   // The one thing that separates spray from cotton wool. A parcel of spray is a
@@ -658,9 +665,15 @@ void main(){
   // is what keeps front-lit spray white rather than grey.
   // sun is irradiance in LUT units, phase is per steradian, so the product is
   // already an outgoing radiance - no 4pi anywhere.
+  // Water thrown by a hull is a dense sheet, and a dense sheet scatters light
+  // many times inside itself before it leaves. That multiple scattering is what
+  // makes real hull spray read as bright white from any direction, front-lit or
+  // not - the single-scattering Mie lobe alone only lights it when the sun is
+  // behind it, which left it a dull grey wash in every other shot.
+  float multi = uMulti * mix(1.0, 1.7, vMist) + uHullMulti * vHull;
   vec3 col = sun * phase * uScatter
-           + sun * uMulti * mix(1.0, 1.7, vMist)
-           + amb * uAmbient;
+           + sun * multi
+           + amb * uAmbient * mix(1.0, 1.5, vHull);
 
   // Distant spray has to sit back into the air like everything else.
   vec3 far = texture(uSkyLUT, dirToSkyUv(-V)).rgb;

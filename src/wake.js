@@ -185,7 +185,9 @@ export class Wake {
     const speedT = Math.min(Math.abs(wr.speed) / Math.max(p.wrTopSpeed * 0.45, 1), 1);
     // Same reading the spray emitter uses: a hard carve is a large load that
     // *sheds* speed, so anything driven off speed alone gets a turn backwards.
-    const stir = Math.min(
+    // A hull in the air is not touching the water, so it leaves nothing behind
+    // it - which is what makes the gap in the wake read as a jump.
+    const stir = wr.airborne ? 0 : Math.min(
       speedT * p.wrWakeSpeed +
       Math.abs(wr.yawRate) * p.wrWakeTurn +
       wr.slip * p.wrWakeSlip +

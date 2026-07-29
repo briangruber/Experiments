@@ -51,8 +51,19 @@ export class UI {
       b.addEventListener('click', () => this.onChange({ type }));
       return b;
     };
-    grid.append(mk('Ride', 'ride'), mk('New sea', 'reseed'), mk('Photo', 'photo'));
+    this.rideBtn = mk('Ride', 'ride');
+    // The view switch has to be reachable without a keyboard - V is not a control
+    // on a phone - and it belongs next to Ride rather than buried in a slider
+    // group. It names the view it will switch *to*, and only appears while riding.
+    this.viewBtn = mk('Rider view', 'view');
+    this.viewBtn.style.display = 'none';
+    grid.append(this.rideBtn, mk('New sea', 'reseed'), mk('Photo', 'photo'));
     actions.appendChild(grid);
+    const viewRow = document.createElement('div');
+    viewRow.className = 'btns';
+    viewRow.style.marginTop = '6px';
+    viewRow.append(this.viewBtn);
+    actions.appendChild(viewRow);
     const grid2 = document.createElement('div');
     grid2.className = 'btns';
     grid2.style.marginTop = '6px';
@@ -146,6 +157,14 @@ export class UI {
 
   syncAll() {
     for (const [key, w] of this.widgets) w.set(this.params[key]);
+    if (this.viewBtn) {
+      const riding = document.body.classList.contains('riding');
+      this.viewBtn.style.display = riding ? '' : 'none';
+      this.viewBtn.textContent = this.params.wrView >= 0.5 ? 'Rider view' : 'Chase view';
+    }
+    if (this.rideBtn) {
+      this.rideBtn.textContent = document.body.classList.contains('riding') ? 'Exit ride' : 'Ride';
+    }
   }
 
   toast(msg) {

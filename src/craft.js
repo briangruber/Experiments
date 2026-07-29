@@ -9,6 +9,7 @@
 import { program, setUniforms } from './gl.js';
 import { mat4 } from './math.js';
 import { CRAFT_MESH } from './craftModel.js';
+import { ATMOSPHERE_GLSL, SKY_LUT_MAP_GLSL } from './shaders/sky.js';
 
 const unb64 = (s, T) => {
   const bin = atob(s);
@@ -34,51 +35,122 @@ void main(){
 }
 `;
 
+// The craft has to be lit by the same sun and the same sky as the sea it is
+// sitting on, and it was not. It read raw uSunColor - the sun's irradiance at the
+// top of the atmosphere, with no transmittance - so at the low sun most of these
+// presets use it received several times too much light, in white rather than in
+// the reddened light everything around it was getting, and it stayed lit after
+// sunset. Its ambient came from mip 5 of the sky LUT looking straight up, which
+// is a small bright patch of zenith rather than the hemispherical average the
+// water integrates, multiplied by pi again on top. And it had no aerial
+// perspective, so it sat in front of the haze instead of in it. The result was a
+// glowing cyan object with its albedo detail blown out - which is what made the
+// paint read as glass.
 const CRAFT_FS = /* glsl */`
+${ATMOSPHERE_GLSL}
+${SKY_LUT_MAP_GLSL}
 in vec3 vN, vW;
 in vec2 vUv;
 uniform sampler2D uSkyLUT, uBaseColor;
-uniform vec3 uCamPos, uSunDir, uSunColor;
-uniform float uGloss, uWetLine, uAtmoExp, uHasTex, uWetDarken;
+uniform vec3 uCamPos, uSunDir, uMoonDir, uSunColor, uMoonColor, uFallbackColor;
+uniform float uGloss, uWetLine, uHasTex, uWetDarken;
+uniform float uSkyAmbient, uSkyBlur, uSpecClamp, uAerial, uSunAngularRadius;
 out vec4 fragColor;
 
-vec2 dirToSkyUv(vec3 d){
-  float az = atan(d.z, d.x) / 6.28318530718 + 0.5;
-  float l = clamp(d.y, -1.0, 1.0);
-  return vec2(az, 0.5 + 0.5*sign(l)*sqrt(abs(l)));
+const float PI = 3.14159265;
+
+vec3 sampleSky(vec3 rd, float alpha){
+  float lod = clamp(log2(1.0 + alpha * 81.0 * uSkyBlur), 0.0, 7.0);
+  return textureLod(uSkyLUT, dirToSkyUv(rd), lod).rgb;
+}
+
+float D_GGX(float NoH, float a){
+  float a2 = a*a;
+  float d  = NoH*NoH*(a2 - 1.0) + 1.0;
+  return a2 / max(PI * d * d, 1e-9);
+}
+float V_SmithGGX(float NoV, float NoL, float a){
+  float a2 = a*a;
+  float lv = NoL * sqrt(NoV*NoV*(1.0 - a2) + a2);
+  float ll = NoV * sqrt(NoL*NoL*(1.0 - a2) + a2);
+  return 0.5 / max(lv + ll, 1e-6);
+}
+
+// One direct light, evaluated the same way for the sun and the moon.
+vec3 directLight(vec3 N, vec3 V, vec3 L, vec3 rad, vec3 albedo, float a, float f0){
+  float NoL = max(dot(N, L), 0.0);
+  if (NoL <= 0.0) return vec3(0.0);
+  float NoV = clamp(dot(N, V), 1e-3, 1.0);
+  vec3  H   = normalize(L + V);
+  float VoH = clamp(dot(V, H), 0.0, 1.0);
+  float F   = f0 + (1.0 - f0) * pow(1.0 - VoH, 5.0);
+  // A polished hull cannot return more than the sun's own radiance, so the same
+  // mirror ceiling the water uses bounds the highlight here too.
+  float ceilv = max(min(uSpecClamp, 1.0/(PI*max(uSunAngularRadius,1e-4)*max(uSunAngularRadius,1e-4))), 1.0);
+  float spec = min(D_GGX(clamp(dot(N,H),0.0,1.0), a) * V_SmithGGX(NoV, NoL, a), ceilv);
+  return rad * NoL * (albedo * (1.0 - F) * (1.0/PI) + vec3(spec * F));
 }
 
 void main(){
   vec3 N = normalize(vN);
   vec3 V = normalize(uCamPos - vW);
-  // The mesh is authored double sided; flipping toward the eye keeps the
-  // lighting sane on whichever side we happen to be looking at.
-  if (dot(N, V) < 0.0) N = -N;
-  vec3 L = uSunDir;
+  // A double-sided glTF material flips its normal on back faces - which is what
+  // the rasteriser knows and the shading has to follow. The old rule flipped the
+  // normal toward the eye instead, which lights every fragment as if it were
+  // facing you: the far side of the shell, the inside of the footwells and the
+  // underside of the deck all came out at full brightness, and that is the
+  // faceted patchwork of white triangles.
+  if (!gl_FrontFacing) N = -N;
 
-  vec3 albedo = mix(vec3(0.55, 0.06, 0.05), texture(uBaseColor, vUv).rgb, uHasTex);
+  // The atlas is an sRGB image and was being uploaded as plain RGBA8 and read as
+  // if it were linear, so every mid-tone came out about twice as bright as it was
+  // painted and the livery lost most of its contrast. It is an SRGB8_ALPHA8
+  // texture now, so the hardware decodes (and filters) it correctly.
+  vec3 albedo = mix(uFallbackColor, texture(uBaseColor, vUv).rgb, uHasTex);
   // Everything below the waterline is permanently wet: darker and glossier.
   float wet = smoothstep(0.06, -0.06, vW.y - uWetLine);
   albedo *= mix(1.0, uWetDarken, wet);
-  float rough = mix(mix(0.16, 0.44, 1.0 - uGloss), 0.09, wet);
+  float rough = mix(mix(0.20, 0.48, 1.0 - uGloss), 0.10, wet);
+  float a = max(rough*rough, 1e-3);
+  float f0 = mix(0.04, 0.03, wet);
 
-  vec3 sky = textureLod(uSkyLUT, dirToSkyUv(reflect(-V, N)), rough*6.0).rgb;
-  vec3 amb = textureLod(uSkyLUT, dirToSkyUv(vec3(0.0,1.0,0.0)), 5.0).rgb * 3.14159;
+  // Exactly the sun the sea sees: attenuated through the atmosphere, exposed the
+  // same way, and gone once it is below the horizon.
+  vec3 sunRad = uSunColor
+              * sunTransmittance(vec3(0.0, R_PLANET + max(uCamPos.y, 1.0), 0.0), uSunDir)
+              * uAtmoExposure
+              * smoothstep(-0.09, 0.02, uSunDir.y);
 
-  float NoL = max(dot(N, L), 0.0);
-  float NoV = max(dot(N, V), 1e-3);
-  vec3 H = normalize(L + V);
-  float a = rough*rough;
-  float dd = (dot(N,H)*a - dot(N,H))*dot(N,H) + 1.0;
-  float D = a*a / max(3.14159*dd*dd, 1e-6);
-  // Capped rim term: a full grazing sky reflection turns a curved hull into dark
-  // glass with the sea showing through it.
-  float F = 0.04 + 0.36*pow(1.0 - NoV, 5.0);
+  // Hemispherical sky irradiance, from the top of the LUT's mip chain, which is
+  // where the average sky radiance actually lives.
+  vec3 skyIrr = textureLod(uSkyLUT, vec2(0.5, 0.78), 9.0).rgb * PI * uSkyAmbient;
+  // An unoccluded surface sees (1 + N.y)/2 of the dome, so a deck is bright and
+  // the underside of a sponson is not. Without this the whole hull takes the full
+  // sky from every direction and flattens out.
+  float domeVis = 0.5 + 0.5*N.y;
+  // ...and the sea throws a little back up at whatever is facing down.
+  vec3 bounce = textureLod(uSkyLUT, dirToSkyUv(vec3(0.0,-1.0,0.0)), 6.0).rgb * PI * 0.25;
 
-  vec3 col = albedo * (uSunColor*NoL + amb*0.85) * (1.0/3.14159);
-  col += uSunColor * D * F * NoL * 0.35;
-  col += sky * F * 0.6;
-  fragColor = vec4(col * uAtmoExp, 1.0);
+  vec3 col = albedo * (skyIrr*domeVis + bounce*(1.0 - domeVis)) * (1.0/PI);
+  col += directLight(N, V, uSunDir, sunRad, albedo, a, f0);
+  col += directLight(N, V, uMoonDir, uMoonColor * smoothstep(-0.05, 0.10, uMoonDir.y),
+                     albedo, a, f0);
+
+  // Specular reflection of the sky, at the mip that matches the lobe width.
+  float NoV = clamp(dot(N, V), 1e-3, 1.0);
+  float Fenv = f0 + (1.0 - f0) * pow(1.0 - NoV, 5.0);
+  col += sampleSky(reflect(-V, N), a) * Fenv * domeVis;
+
+  // And it sits in the air like everything else does.
+  if (uAerial > 0.0){
+    vec3 ins, tr;
+    vec3 ro = vec3(0.0, R_PLANET + max(uCamPos.y, 1.0), 0.0);
+    float d = length(vW - uCamPos);
+    aerialPerspective(ro, normalize(vW - uCamPos), min(d, 60000.0), uSunDir, ins, tr);
+    col = col * mix(vec3(1.0), tr, uAerial) + ins * uAerial;
+  }
+
+  fragColor = vec4(col, 1.0);
 }
 `;
 
@@ -114,8 +186,8 @@ export class Craft {
 
     this.tex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this.tex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
-                  new Uint8Array([140, 16, 14, 255]));
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.SRGB8_ALPHA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
+                  new Uint8Array([120, 200, 190, 255]));
     this._loadTexture();
   }
 
@@ -127,11 +199,20 @@ export class Craft {
       const bin = atob(CRAFT_MESH.baseColorJpeg);
       const u8 = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
-      const bmp = await createImageBitmap(new Blob([u8], { type: 'image/jpeg' }), {
-        imageOrientation: 'flipY',
-      });
+      // No flip. glTF puts the UV origin at the *top* left, which is where an
+      // image's first row already is, so uploading it unflipped makes v index
+      // rows from the top - exactly the convention the exporter wrote the UVs
+      // in. Flipping it here as well was one flip too many: the mapping was
+      // upside down, so triangles sampled unrelated islands of the atlas and the
+      // livery came out as a patchwork of the right colours in the wrong places.
+      // Measured on the mesh itself: mean colour difference across shared edges
+      // halves, 26.4 to 13.5 of 255, when the flip is removed.
+      const bmp = await createImageBitmap(new Blob([u8], { type: 'image/jpeg' }));
       gl.bindTexture(gl.TEXTURE_2D, this.tex);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bmp);
+      // SRGB8_ALPHA8, not RGBA8: the atlas is an sRGB image, and reading it as
+      // linear radiance is what washed the livery out. The hardware decode also
+      // means mip filtering happens in linear space, where it belongs.
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.SRGB8_ALPHA8, gl.RGBA, gl.UNSIGNED_BYTE, bmp);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
       gl.generateMipmap(gl.TEXTURE_2D);
@@ -173,7 +254,7 @@ export class Craft {
     m[12] = pos[0]; m[13] = pos[1]; m[14] = pos[2]; m[15] = 1;
   }
 
-  draw(p, ctx, skyLut) {
+  draw(p, ctx, skyLut, atmo) {
     const gl = this.gl;
     gl.useProgram(this.prog);
     gl.enable(gl.DEPTH_TEST);
@@ -181,16 +262,23 @@ export class Craft {
     gl.disable(gl.BLEND);
     // The source material is double sided and the hull is a closed shell, so
     // culling would drop faces wherever the exporter wound them the other way.
+    // The shader flips the normal on back faces, as a double-sided material does.
     gl.disable(gl.CULL_FACE);
     setUniforms(gl, this.prog, {
+      ...atmo,
       uViewProj: ctx.viewProj, uModel: this.model,
       uSkyLUT: skyLut,
       uBaseColor: { __tex: true, tex: this.tex, target: gl.TEXTURE_2D },
-      uCamPos: ctx.camPos, uSunDir: ctx.sunDir, uSunColor: p.sunIrradiance,
+      uCamPos: ctx.camPos, uSunDir: ctx.sunDir, uMoonDir: ctx.moonDir,
+      uSunColor: p.sunIrradiance, uMoonColor: p.moonColor,
+      uFallbackColor: p.craftHullColor,
       // Positions are Int16 over a bounding box whose longest axis is 1.
       uMeshScale: p.craftLength / 32000,
       uGloss: p.craftGloss, uWetLine: this.wetLine ?? 0,
-      uWetDarken: p.craftWetDarken, uAtmoExp: p.atmoExposure,
+      uWetDarken: p.craftWetDarken,
+      uSkyAmbient: p.skyAmbient, uSkyBlur: p.skyBlur,
+      uSpecClamp: p.specClamp, uAerial: p.aerial,
+      uSunAngularRadius: p.sunAngularRadius,
       uHasTex: this.hasTex,
     });
     gl.bindVertexArray(this.vao);

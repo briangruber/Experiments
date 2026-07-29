@@ -152,6 +152,7 @@ const ui = new UI(document.getElementById('ui'), params, (ev) => {
   if (ev.type === 'reset') { applyPreset(params, ui.presetSelect.value); ocean.dirty = true; ui.syncAll(); resetAccum(); return; }
   if (ev.type === 'photo') { togglePhoto(); return; }
   if (ev.type === 'ride') { toggleRide(); return; }
+  if (ev.type === 'view') { toggleView(); return; }
   if (ev.type === 'copy') {
     const clean = {};
     for (const k of Object.keys(defaults)) clean[k] = params[k];
@@ -192,10 +193,19 @@ function toggleRide() {
     camera.fov = savedView.fov; camera.roll = 0;
   }
   camera.locked = waveRunner.active;
+  ui.syncAll();
   resetAccum();
   ui.toast(waveRunner.active ? 'Wave runner \u2014 W throttle, A/D steer, V view' : 'Free camera');
 }
 let savedView = null;
+
+function toggleView() {
+  if (!waveRunner.active) return;
+  params.wrView = params.wrView >= 0.5 ? 0 : 1;
+  ui.syncAll();
+  ui.toast(params.wrView >= 0.5 ? 'Chase camera' : 'Rider view');
+  resetAccum();
+}
 
 function togglePhoto() {
   photo = !photo;
@@ -234,12 +244,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyH') setPanel(document.body.classList.contains('panel-hidden'));
   if (e.code === 'KeyP') togglePhoto();
   if (e.code === 'KeyR') toggleRide();
-  if (e.code === 'KeyV' && waveRunner.active) {
-    params.wrView = params.wrView >= 0.5 ? 0 : 1;
-    ui.syncAll();
-    ui.toast(params.wrView >= 0.5 ? 'Chase camera' : 'Rider view');
-    resetAccum();
-  }
+  if (e.code === 'KeyV') toggleView();
   if (e.code === 'KeyO') savePng();
 });
 
@@ -417,7 +422,7 @@ function frame(now) {
       waveRunner.bank + waveRunner.rollTrim + params.craftRollOffset,
       params.craftScale, params.craftYawOffset,
     );
-    craft.draw(params, ctx, sky.lut);
+    craft.draw(params, ctx, sky.lut, sky.atmosphereUniforms(params));
   }
 
   // Sky after the sea: its triangle sits on the far plane under a LEQUAL test,
@@ -440,7 +445,8 @@ function frame(now) {
   if (hudDue) {
     hudDue = false;
     hudFps.textContent = waveRunner.active
-      ? `${waveRunner.speedKts.toFixed(0)} kn \u00b7 ${fmtFps(fpsAvg)} fps${waveRunner.airborne ? ' \u00b7 AIR' : ''}`
+      ? `${waveRunner.speedKts.toFixed(0)} kn \u00b7 ${fmtFps(fpsAvg)} fps${
+          waveRunner.airborne ? ` \u00b7 AIR ${(waveRunner.airTime ?? 0).toFixed(1)}s` : ''}`
       : photo
       ? `photo · ${Math.min(accumIndex, params.photoSamples)}/${Math.round(params.photoSamples)} samples`
       : `${fmtFps(fpsAvg)} fps · ${W}×${H} · ${ocean.N}² × ${ocean.cascadeCount}`;

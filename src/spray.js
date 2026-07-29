@@ -164,6 +164,7 @@ export class Spray {
       uScatter: p.sprayScatter, uAmbient: p.sprayAmbient, uMulti: p.sprayMulti,
       uForwardG: p.sprayForwardG, uBackG: p.sprayBackG,
       uGrain: p.sprayGrain, uMistGrain: p.sprayMistGrain,
+      uHullOpacity: p.craftSprayOpacity, uHullMulti: p.craftSprayMulti,
       uGrainScale: p.sprayGrainScale, uGrainAniso: p.sprayGrainAniso,
       uSurfFade: p.spraySurfFade, uAerial: p.sprayAerial,
       uHeightScale: p.heightScale, uSeaLevel: p.seaLevel,
