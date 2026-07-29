@@ -257,19 +257,28 @@ export const defaults = {
   wrCarveTurn: 1.9,         // Shift: how much extra rotation a hard lean buys
   wrCarveGrip: 0.45,        // and how much grip it gives up, so the tail slides
   wrCarveDrag: 2.2,         // and how much speed it scrubs
-  wrWakeInterval: 0.22,     // seconds between trail samples. 28 points have to
-                            // span the wake lifetime, or the V is cut off long
-                            // before it has finished spreading.
   wrWakeSpeed: 0.55,
   wrWakeTurn: 0.8,
   wrWakeSlip: 0.10,
-  wakeWidth: 1.5,           // half-width of the scar at birth, m
-  wakeLife: 7.0,
-  wakeStrength: 1.25,
-  wakeSpread: 0.28,         // how fast each arm thickens with age
-  wakeArmRate: 2.1,         // lateral speed of the cusp arms, m/s
+  wakeExtent: 320,          // metres across the world-space wake buffer. This is
+                            // the only thing bounding how much of your own path
+                            // the sea still remembers.
+  wakeTexSize: 512,         // ...and how finely, at extent/size metres per texel
+  wakeWidth: 1.5,           // half-width of a cusp arm where it leaves the hull
+  wakeSpread: 0.22,         // how much it thickens per second as it travels out
+  wakeLife: 14.0,           // how long a patch of water stays disturbed
+  wakeStrength: 1.15,
+  wakeArmRate: 1.0,         // multiplier on the Kelvin half-angle spread rate
   wakeArm: 1.0,             // strength of the arms themselves
   wakeCentre: 0.5,          // aerated churn between them
+  wakeDepth: 0.45,          // how far the wake actually deforms the surface, m
+  wakeSlick: 0.8,           // how completely the churn wipes out the sea's own
+                            // ripples and wind foam inside the track
+  wakeRelief: 1.0,          // ...and how much of that deformation lights up. The
+                            // vertex shader moves the surface; without this the
+                            // ridge would be a silhouette with a flat sea's
+                            // shading normal painted on it.
+  wakeProbe: 0.8,           // how much of that the hull feels when it crosses it
   craftLift: 0.46,          // rides the hull's designed waterline on the surface
   craftSprayAmount: 1.0,
   hullPush: 0.55,           // depth of the hollow the hull presses, m
@@ -635,10 +644,15 @@ export const SCHEMA = [
       S('craftSpraySpread', 'Hull spray spread', 0, 8, 0.05),
       S('craftSprayUp', 'Hull spray lift', 0, 10, 0.05),
       S('wakeStrength', 'Wake strength', 0, 3, 0.01),
-      S('wakeWidth', 'Wake width (m)', 0.2, 6, 0.05),
-      S('wakeLife', 'Wake lifetime (s)', 1, 30, 0.1),
+      S('wakeWidth', 'Wake arm width (m)', 0.2, 6, 0.05),
+      S('wakeLife', 'Wake lifetime (s)', 1, 40, 0.1),
       S('wakeSpread', 'Wake arm thickening', 0, 1.5, 0.01),
-      S('wakeArmRate', 'Wake V spread (m/s)', 0.2, 8, 0.05),
+      S('wakeDepth', 'Wake surface relief (m)', 0, 2, 0.01),
+      S('wakeRelief', 'Wake relief shading', 0, 3, 0.01),
+      S('wakeSlick', 'Wake slick', 0, 1, 0.01),
+      S('wakeExtent', 'Wake memory (m)', 80, 800, 5),
+      S('wakeProbe', 'Ride your own wake', 0, 2, 0.01),
+      S('wakeArmRate', 'Wake V spread', 0, 3, 0.01),
       S('wakeArm', 'Wake arm strength', 0, 3, 0.01),
       S('wakeCentre', 'Wake churn', 0, 2, 0.01),
       S('craftLift', 'Craft ride height (m)', -0.3, 1.2, 0.01),

@@ -1,6 +1,7 @@
 // Ocean surface: displaced radial grid + physically-motivated water BRDF.
 
 import { NOISE_GLSL, ATMOSPHERE_GLSL, SKY_LUT_MAP_GLSL } from './sky.js';
+import { WAKE_SAMPLE_GLSL } from '../wake.js';
 
 const CASCADE_COMMON = /* glsl */`
 uniform sampler2DArray uDisp, uSlope, uFoam;
@@ -24,6 +25,7 @@ float cascadeWeight(int c, float dist){
 
 export const WATER_VS = /* glsl */`
 ${CASCADE_COMMON}
+${WAKE_SAMPLE_GLSL}
 layout(location=0) in vec2 aRT;      // x: radial parameter 0..1, y: angle 0..1
 
 uniform mat4  uViewProj;
@@ -39,6 +41,9 @@ uniform float uSeaLevel;
 uniform vec3  uHullPos;
 uniform vec2  uHullFwd;
 uniform float uHullPush, uHullRadius, uHullBow, uHullPlane;
+// ...and everything the hull has *already* done to the sea, which outlives it by
+// tens of seconds. wakeAt() comes from wake.js, so the surface is displaced by
+// exactly the pattern the fragment shader lights.
 
 out vec3  vWorld;
 out vec3  vFlat;
@@ -99,6 +104,16 @@ void main(){
     }
   }
 
+  if (uWakeOn > 0.5) {
+    // The radial grid's rings stretch to metres wide long before the field runs
+    // out, and a metre-wide ridge sampled by a six-metre triangle only crawls
+    // and pops. So the geometry is faded out well inside the buffer and the far
+    // half of the wake lives on as foam alone, which the fragment shader can
+    // resolve at any distance.
+    float wf = 1.0 - smoothstep(uWakeExtent * 0.16, uWakeExtent * 0.42, r);
+    if (wf > 0.002) pos.y += wakeAt(xz).y * wf;
+  }
+
   // Planet curvature drops the far surface away, which is what actually puts
   // the horizon at the right place and hides the end of the grid.
   pos.y -= uEarthCurve * (r*r) / (2.0 * R_EARTH);
@@ -113,6 +128,7 @@ void main(){
 
 export const WATER_FS = /* glsl */`
 ${CASCADE_COMMON}
+${WAKE_SAMPLE_GLSL}
 ${NOISE_GLSL}
 ${ATMOSPHERE_GLSL}
 ${SKY_LUT_MAP_GLSL}
@@ -137,15 +153,8 @@ uniform float uBaseRoughness, uRoughnessGain, uRoughnessMax;
 uniform float uWindAniso, uWindSpeed;
 uniform float uFoamAmount, uFoamRoughness, uFoamTint, uFoamDetail, uFoamLift;
 uniform float uFoamSharp, uFoamStreak, uFoamOpacity, uFoamCrisp;
-// Craft wake: a short polyline of where the hull has been, each point carrying
-// how hard it was working when it passed. Cheaper and far more controllable than
-// injecting into the foam sim, which is periodic per cascade and would smear the
-// trail across every tile.
-uniform vec4  uWake[28];          // xz position, z-> disturbance, w-> age (s)
-uniform int   uWakeCount;
-uniform vec2  uWakeCentre;
-uniform float uWakeRadius, uWakeWidth, uWakeLife, uWakeStrength, uWakeSpread;
-uniform float uWakeArmRate, uWakeArm, uWakeCentre2;
+// Craft wake: wakeAt() above. The rest of the knobs are how it is shaded.
+uniform float uWakeRelief, uWakeSlick;
 uniform vec3  uFoamColor;
 uniform float uSunAngularRadius, uSpecIntensity;
 uniform float uSkyAmbient, uSkyBlur;
@@ -228,7 +237,6 @@ vec3 envFresnel(float NoV, float alpha, float eta){
 }
 
 vec2 windPerp(){ return vec2(-uWindDirV.y, uWindDirV.x); }
-float sqrDist(float x, float w){ float t = x / max(w, 1e-3); return t*t; }
 
 // Sub-cascade facet scintillation. The mip chain averages the finest ripples
 // into the slope variance, which correctly widens the GGX lobe but erases that a
@@ -379,6 +387,45 @@ void main(){
     slope += capillarySlope(vFlat.xz, uTime, amp);
   }
 
+  // ---- craft wake ----------------------------------------------------------
+  // A Kelvin wedge is not a smear down the middle of the path: it is two cusp
+  // arms leaving the hull at a fixed half-angle with churned, aerated water
+  // between them, and once the hull has gone the arms keep travelling outward.
+  // All of that lives in the world-space field wake.js maintains, so here it is
+  // a fetch rather than a loop over the last few seconds of path.
+  //
+  // It has to be read before the normal is built: the wake deforms the surface
+  // for real (the vertex shader displaces by the same field), and a ridge whose
+  // shading normal does not know it is a ridge reads as a decal on flat water.
+  float wake = 0.0;
+  if (uWakeOn > 0.5) {
+    // Once a pixel is wider than the pattern there is nothing left to resolve
+    // and point-sampling it is pure aliasing, exactly as for the foam sim above.
+    float k = 1.0 - smoothstep(1.2, 6.0, foot);
+    if (k > 0.004) {
+      vec3 wk = wakeAt(vFlat.xz);
+      wake = wk.x * k;
+      // A wake leaves a slick. Churned water has lost the short ripples and the
+      // wind foam that were riding on it, and that smooth lane is most of why a
+      // boat's path stays legible on a broken sea long after the white water
+      // behind it has gone. Without it the wake is just more foam among foam.
+      float slick = clamp(wk.z * k * uWakeSlick, 0.0, 1.0);
+      foamF *= 1.0 - slick;
+      foamR *= 1.0 - slick;
+      msq   *= 1.0 - 0.6 * slick;
+      // The ridge is real geometry - the vertex shader displaced by wk.y - so it
+      // needs a normal that knows it is a ridge, or it reads as a decal lying on
+      // flat water. Central differences at half a metre, which is inside the arm
+      // width and wide enough not to be lost in the record's own quantisation.
+      if (uWakeRelief > 0.0){
+        const float e = 0.5;
+        float hx = wakeAt(vFlat.xz + vec2(e, 0.0)).y - wakeAt(vFlat.xz - vec2(e, 0.0)).y;
+        float hz = wakeAt(vFlat.xz + vec2(0.0, e)).y - wakeAt(vFlat.xz - vec2(0.0, e)).y;
+        slope += vec2(hx, hz) / (2.0 * e) * uWakeRelief * k;
+      }
+    }
+  }
+
   vec3 N = normalize(vec3(-slope.x, 1.0, -slope.y));
   float var = max(msq - dot(slope, slope), 0.0) + lost;
 
@@ -411,37 +458,6 @@ void main(){
   vec3 T = normalize(wind3 - N * dot(N, wind3));
   vec3 B = cross(N, T);
 
-  // ---- craft wake ----------------------------------------------------------
-  float wake = 0.0;
-  if (uWakeCount > 1 && uWakeStrength > 0.001 &&
-      distance(vFlat.xz, uWakeCentre) < uWakeRadius) {
-    for (int i = 0; i < 27; i++) {
-      if (i >= uWakeCount - 1) break;
-      vec4 a = uWake[i], b = uWake[i + 1];
-      vec2 seg = b.xy - a.xy;
-      float ll = max(dot(seg, seg), 1e-4);
-      float t = clamp(dot(vFlat.xz - a.xy, seg) / ll, 0.0, 1.0);
-      float dist = distance(vFlat.xz, a.xy + seg * t);
-      float age = mix(a.w, b.w, t);
-      float stir = mix(a.z, b.z, t);
-      // A real wake is not a widening smear down the middle of the path. It is a
-      // Kelvin pattern: two cusp arms that leave the hull at a fixed angle and
-      // therefore stand at a lateral distance growing linearly with how long ago
-      // the water was disturbed, with churned, aerated water between them. So the
-      // arms are a ridge at |lateral| = rate * age, not a falloff from zero.
-      float arm  = uWakeArmRate * age;
-      float wdt  = uWakeWidth * (1.0 + uWakeSpread * age);
-      float ridge  = exp(-sqrDist(dist - arm, wdt));
-      // The churn between the arms is broad, soft and much shorter lived than
-      // the arms themselves - it is entrained air, not a surface wave.
-      float centre = exp(-sqrDist(dist, wdt * (1.0 + 1.6 * age)))
-                   * uWakeCentre2 * max(1.0 - age / (uWakeLife * 0.45), 0.0);
-      float fade = max(1.0 - age / max(uWakeLife, 0.1), 0.0);
-      wake = max(wake, (ridge * uWakeArm + centre) * stir * fade);
-    }
-    wake = clamp(wake * uWakeStrength, 0.0, 1.0);
-  }
-
   // ---- foam mask -----------------------------------------------------------
   float bubbles;
   float fd = foamField(vFlat.xz, uTime, foot, bubbles);
@@ -457,8 +473,7 @@ void main(){
   // footprint each one lands; its shaping factor is centred on one and can never
   // inflate the coverage the sim computed.
   float covF = clamp(foamF * uFoamAmount, 0.0, 1.0);
-  float covR = clamp(foamR * uFoamAmount + wake, 0.0, 1.0);
-  covF = clamp(covF + wake * 0.55, 0.0, 1.0);
+  float covR = clamp(foamR * uFoamAmount, 0.0, 1.0);
   // Once the pixel is wider than a clump there is nothing left to resolve and
   // the contrast has to collapse onto the mean, or the far field turns into
   // per-pixel confetti.
@@ -493,6 +508,18 @@ void main(){
   // geometric loss on top of the areal averaging, and it is what stops the
   // grazing band just under the horizon painting itself solid.
   foamMask *= 1.0 - clamp(uFoamFar, 0.0, 1.0) * smoothstep(0.5, 9.0, foot);
+
+  // Wake foam is not wind foam, and running it through the machinery above is
+  // what made forty metres of churned water indistinguishable from the sea it
+  // was churned out of: the clump noise that breaks whitecaps into a field of
+  // separate caps is exactly the wrong shaping for a coherent band with an edge.
+  // So it composites over the top, only lightly textured, and it is fresh - a
+  // hull aerates water far more thoroughly than a collapsing crest does.
+  if (wake > 0.002){
+    float wakeMask = clamp(wake * (0.80 + 0.40 * (fd - 0.5)), 0.0, 1.0);
+    fresh = mix(fresh, 0.9, wakeMask);
+    foamMask = foamMask + wakeMask * (1.0 - foamMask);
+  }
 
   vec3 Nfoam = N;
   if (foamMask > 0.003){

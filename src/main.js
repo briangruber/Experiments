@@ -6,6 +6,7 @@ import { Spray } from './spray.js';
 import { Post } from './post.js';
 import { Camera } from './camera.js';
 import { WaveRunner } from './waverunner.js';
+import { Wake } from './wake.js';
 import { Craft } from './craft.js';
 import { UI, applyPreset } from './ui.js';
 import { defaults, PRESETS } from './presets.js';
@@ -26,6 +27,7 @@ let ocean = new Ocean(gl, { size: params.fftSize, cascades: DEFAULT_CASCADES });
 let spray = new Spray(gl, blit, { size: params.sprayTexSize });
 const pWater = program(gl, WATER_VS, WATER_FS, 'water');
 const waveRunner = new WaveRunner(gl, blit);
+let wake = new Wake(gl, blit, { size: params.wakeTexSize });
 const craft = new Craft(gl);
 
 // ---------------------------------------------------------------- radial grid
@@ -120,7 +122,6 @@ function fadeDistances() {
 }
 
 // -------------------------------------------------------------- photo mode
-const mainWakeBuf = new Float32Array(28 * 4);
 const HALTON = [];
 (function () {
   const h = (i, b) => { let f = 1, r = 0; while (i > 0) { f /= b; r += f * (i % b); i = Math.floor(i / b); } return r; };
@@ -170,6 +171,7 @@ const ui = new UI(document.getElementById('ui'), params, (ev) => {
   if (it.rebuildSim) { ocean = new Ocean(gl, { size: params.fftSize, cascades: DEFAULT_CASCADES }); ocean.setSeed(params.seed); }
   if (it.rebuildGrid) buildGrid();
   if (it.rebuildSpray) spray = new Spray(gl, blit, { size: params.sprayTexSize });
+  if (it.rebuildWake) wake = new Wake(gl, blit, { size: params.wakeTexSize });
   if (it.resize) resize();
   derive();
   resetAccum();
@@ -182,6 +184,7 @@ function toggleRide() {
   if (waveRunner.active) {
     savedView = { pos: [...camera.pos], yaw: camera.yaw, pitch: camera.pitch, fov: camera.fov };
     waveRunner.reset(camera);
+    wake.clear();
     if (photo) togglePhoto();
   } else if (savedView) {
     camera.pos.set(savedView.pos);
@@ -290,8 +293,11 @@ function frame(now) {
   // to be told where the craft ended up, so both sit between the sim and the
   // basis update rather than at the top of the frame.
   if (waveRunner.active && !frozen) {
-    waveRunner.probe(params, ocean);
+    waveRunner.probe(params, ocean, wake);
     waveRunner.update(dt, params, camera.keys, camera);
+    // The wake field has to be stamped before anything reads it, and it reads
+    // the hull state the update just produced.
+    wake.update(dt, params, waveRunner);
   }
   camera.locked = waveRunner.active;
   // Handheld drift and sea bob nudge the camera every frame, which would reset
@@ -303,20 +309,6 @@ function frame(now) {
   const jitter = photo ? HALTON[accumIndex % HALTON.length] : [0, 0];
   camera.matrices(W, H, jitter[0], jitter[1]);
 
-  // Wake polyline and hull emitter, flattened for the shaders. Ages are relative
-  // to now so the water shader can fade each point without a clock of its own.
-  const WAKE_MAX = 28;
-  const wakeBuf = mainWakeBuf;
-  let wakeCount = 0;
-  if (waveRunner.active) {
-    const tr = waveRunner.trail;
-    wakeCount = Math.min(tr.length, WAKE_MAX);
-    for (let i = 0; i < wakeCount; i++) {
-      const t = tr[i];
-      wakeBuf[i * 4] = t[0]; wakeBuf[i * 4 + 1] = t[1];
-      wakeBuf[i * 4 + 2] = t[2]; wakeBuf[i * 4 + 3] = t[3];
-    }
-  }
   const cf = waveRunner.active
     ? [Math.sin(waveRunner.heading), -Math.cos(waveRunner.heading)]
     : [0, 1];
@@ -381,11 +373,8 @@ function frame(now) {
     uWaterIOR: params.waterIOR, uAerial: params.aerial,
     uWindDirV: new Float32Array([Math.cos(params.windDir), Math.sin(params.windDir)]),
     uSpecClamp: params.specClamp, uHorizonBend: params.horizonBend,
-    uWake: wakeBuf, uWakeCount: wakeCount,
-    uWakeCentre: new Float32Array([waveRunner.pos[0], waveRunner.pos[2]]),
-    uWakeRadius: 40 + params.wakeWidth * 6 + (waveRunner.speed || 0) * params.wakeLife,
-    uWakeWidth: params.wakeWidth, uWakeLife: params.wakeLife,
-    uWakeStrength: waveRunner.active ? params.wakeStrength : 0,
+    ...wake.uniforms(params, waveRunner.active),
+    uWakeRelief: params.wakeRelief, uWakeSlick: params.wakeSlick,
     uHullPos: waveRunner.active
       ? new Float32Array([waveRunner.pos[0], waveRunner.deckY ?? 0, waveRunner.pos[2]])
       : new Float32Array([0, -1e4, 0]),
@@ -396,8 +385,6 @@ function frame(now) {
     uHullPlane: waveRunner.active
       ? Math.min(1, 0.35 + 0.65 * Math.abs(waveRunner.speed) / Math.max(params.craftPlaneFull, 1))
       : 0,
-    uWakeSpread: params.wakeSpread, uWakeArmRate: params.wakeArmRate,
-    uWakeArm: params.wakeArm, uWakeCentre2: params.wakeCentre,
     uInterReflect: params.interReflect, uWaveAO: params.waveAO,
     uWaveShadow: params.waveShadow, uShadowScale: params.shadowScale,
     uCapillary: params.capillary, uCapillaryScale: params.capillaryScale,
@@ -463,4 +450,9 @@ ocean.update(1 / 60, params);
 document.getElementById('boot').classList.add('gone');
 requestAnimationFrame(frame);
 
-window.abyssal = { params, ocean, camera, ui, gl, get spray() { return spray; }, get frames() { return frames; } };
+window.abyssal = {
+  params, ocean, camera, ui, gl, waveRunner,
+  get spray() { return spray; },
+  get wake() { return wake; },
+  get frames() { return frames; },
+};

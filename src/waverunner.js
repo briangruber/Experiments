@@ -8,17 +8,23 @@
 // frame or two late and extrapolates, and the GPU never waits.
 
 import { program, setUniforms, texture2D, framebuffer, FS_VERT } from './gl.js';
+import { WAKE_SAMPLE_GLSL } from './wake.js';
 import { clamp, lerp, v3 } from './math.js';
 
 // Probe points, in hull-local metres: centre, bow, port, starboard.
 const NPROBE = 4;
 
 const PROBE_FS = /* glsl */`
+${WAKE_SAMPLE_GLSL}
 uniform sampler2DArray uDisp, uFoam;
 uniform float uPatch[4];
 uniform int   uCascadeCount;
 uniform vec2  uProbe[${NPROBE}];
 uniform float uHeightScale, uHorizScale, uSeaLevel;
+// The craft's own wake field, so crossing your own path is something you feel
+// and not just something you see. wakeAt() is shared with the water shaders.
+uniform vec2  uCraftXZ;
+uniform float uWakeProbe, uWakeNear;
 out vec4 fragColor;
 
 // Displacement is Lagrangian: the texture says where the water at reference
@@ -42,6 +48,15 @@ vec4 surfaceAt(vec2 p){
     vec3 uvc = vec3(x / uPatch[c], float(c));
     h += texture(uDisp, uvc).y * uHeightScale;
     foam += texture(uFoam, uvc).x;
+  }
+  // Everything the hull has already done to the sea - but only beyond a few
+  // hull lengths. The stamp directly under the craft is the hollow it is making
+  // right now, and letting the craft read that back would be a hull sinking
+  // into a trough it deepens by sinking. Past the exclusion there is no such
+  // loop: that water was disturbed seconds ago and the craft has left it.
+  if (uWakeProbe > 0.001) {
+    float gate = smoothstep(uWakeNear, uWakeNear * 2.4, distance(x, uCraftXZ));
+    if (gate > 0.001) h += wakeAt(x).y * gate * uWakeProbe;
   }
   return vec4(h + uSeaLevel, foam, x - p);
 }
@@ -92,8 +107,7 @@ export class WaveRunner {
     this.impact = 0;
     this.probeH = [0, 0, 0, 0];
     this.probeTarget = [0, 0, 0, 0];
-    this.trail = [];
-    this.trailT = 0;
+    this.speedT = 0;
     this.probeFoam = 0;
     this.touchSteer = 0;
     this.touching = false;
@@ -152,7 +166,7 @@ export class WaveRunner {
   }
 
   // Probe pass + non-blocking fetch of whatever the GPU has finished.
-  probe(p, ocean) {
+  probe(p, ocean, wake) {
     const gl = this.gl;
     const pts = this._probePoints(p);
 
@@ -167,6 +181,10 @@ export class WaveRunner {
       uCascadeCount: new Int32Array([ocean.cascadeCount]),
       uProbe: pts,
       uHeightScale: p.heightScale, uHorizScale: p.horizScale, uSeaLevel: p.seaLevel,
+      ...wake.uniforms(p, this.active),
+      uCraftXZ: new Float32Array([this.pos[0], this.pos[2]]),
+      uWakeProbe: p.wakeProbe,
+      uWakeNear: Math.max(p.wrLength, 0.5) * 2.5,
     });
     this.blit.draw();
 
@@ -334,24 +352,9 @@ export class WaveRunner {
     const chop = this.airborne ? 0 : speedT * (0.35 + 0.65 * clamp(this.probeFoam, 0, 1));
     this.shake = lerp(this.shake, chop, 1 - Math.exp(-8 * d)) + this.impact * 0.7;
 
-    // Wake trail. Sampled on a timer rather than per frame so its spacing does
-    // not depend on the frame rate, and carrying the disturbance each point was
-    // born with so a hard carve leaves a wider, whiter scar than a straight run.
-    this.trailT += d;
-    if (this.trailT > p.wrWakeInterval) {
-      this.trailT = 0;
-      const stir = clamp(
-        speedT * p.wrWakeSpeed +
-        Math.abs(this.yawRate) * p.wrWakeTurn +
-        this.slip * p.wrWakeSlip +
-        (this.hullLoad ?? 0) * 0.035 +
-        this.impact * 1.2,
-        0, 2.5,
-      );
-      this.trail.unshift([this.pos[0], this.pos[2], stir, 0]);
-      if (this.trail.length > 28) this.trail.pop();
-    }
-    for (const t of this.trail) t[3] += d;
+    // The wake itself is stamped into a world-space field by wake.js, which
+    // reads speedT off the craft rather than being handed a list of points.
+    this.speedT = speedT;
 
     // Where the hull itself sits, which third person needs and the deck the
     // rider sits on is measured from.
