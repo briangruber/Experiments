@@ -126,7 +126,10 @@ export const defaults = {
   spraySize: 1.0,
   sprayStretch: 0.014,      // shutter the motion smear is integrated over, s
   sprayOpacity: 0.85,
-  sprayFadeNear: 0.4,
+  sprayFadeNear: 0.95,      // billboards this close to the lens fade out: at
+                            // chase range the near plume was a wall of white over
+                            // the craft, and the water on the glass says the same
+                            // thing without hiding what you are steering
   sprayMinPixels: 1.15,    // sub-pixel droplets are grown and dimmed, not dropped
   sprayFarSoft: 1.6,       // extra edge softness once held at the pixel floor
   spraySurfFade: 0.30,      // soft fade as a billboard enters the water, m
@@ -157,6 +160,22 @@ export const defaults = {
   sprayBackG: 0.35,
   sprayAmbient: 0.6,
   sprayMulti: 0.05,
+
+  // ---- water on the lens ----
+  // Only ever wet while riding: it is the craft's own spray hitting the glass, so
+  // the free camera is a tripod on a dry day and pays nothing for any of this.
+  lensWater: 1.0,           // master
+  lensDrops: 0.38,          // fraction of cells holding a droplet when soaked
+  lensSize: 1.0,
+  lensRefract: 1.5,         // how hard a droplet bends the picture behind it
+  lensStreak: 0.55,         // how far it creeps downstream before drying
+  lensFlowAngle: 8.0,       // degrees from vertical that the airflow drags it
+  lensRim: 0.30,            // brightness of the meniscus edge
+  lensFilm: 0.45,           // unbroken film before it beads up
+  lensSpray: 1.1,           // how much of the hull's own output reaches the glass
+  lensReach: 26.0,          // how far aft the plume still reaches, m
+  lensWetRate: 7.0,         // how fast it wets, 1/s
+  lensDry: 0.55,            // ...and how slowly it dries
 
   // ---- storm haze ----
   sprayHaze: 0.00040,       // extinction at the sea surface, 1/m
@@ -304,7 +323,9 @@ export const defaults = {
   craftPlaneSpeed: 6.0,     // m/s the hull starts to plane; below this, no spray
   craftPlaneFull: 14.0,     // m/s where shedding saturates
   craftSprayLife: 0.85,     // thrown water falls straight back; it must not hang
-  craftSprayPulse: 0.45,    // overall share of the budget the hull may claim
+  craftSprayPulse: 0.30,    // overall share of the budget the hull may claim. Any
+                            // higher and the plume is a white ball with the craft
+                            // somewhere inside it.
   craftLoadFull: 22.0,      // hull load (m/s^2) at which carve spray saturates
   craftSpraySpread: 1.0,    // multiplier on every source's cone width
   craftSprayUp: 1.0,        // ...and on how much of each launch is aimed upward
@@ -319,13 +340,13 @@ export const defaults = {
   craftCurtain: 1.15,       // the wall a sideways-sliding hull shovels up
   craftCurtainSpeed: 1.8,   // per m/s of sideslip
   craftBurst: 0.9,          // bow crown on landing or punching a crest
-  craftSprayOpacity: 1.45,  // hull water is a dense sheet, not a few droplets
-  craftSprayMulti: 0.55,    // ...and a dense sheet scatters light many times
+  craftSprayOpacity: 1.0,   // hull water is a dense sheet, not a few droplets
+  craftSprayMulti: 0.28,    // ...and a dense sheet scatters light many times
                             // inside itself, which is what makes real hull spray
                             // read bright white whichever way the sun is
   wrView: 1,                // 0 rider POV, 1 chase
-  wrCamDistance: 6.4,       // at rest
-  wrCamPull: 1.35,          // extra chase distance at top speed, as a fraction.
+  wrCamDistance: 8.0,       // at rest
+  wrCamPull: 1.55,          // extra chase distance at top speed, as a fraction.
                             // The rig falling back as the craft accelerates away
                             // is most of what makes speed read in a chase shot.
   wrCamRise: 2.4,
@@ -333,7 +354,7 @@ export const defaults = {
                             // camera ends up looking along the water rather than
                             // down onto it
   wrCamLag: 5.0,            // the rig is pulled to its mark, not pinned to it
-  wrCamLook: 2.2,           // how far ahead of the craft the rig aims
+  wrCamLook: 3.0,           // how far ahead of the craft the rig aims
   wrCamLookRise: 0.75,
   wrCamMinClear: 0.7,       // the chase rig never sinks into the sea
   wrCamChaseRoll: 0.35,
@@ -784,6 +805,17 @@ export const SCHEMA = [
       S('chromatic', 'Chromatic aberration (px)', 0, 8, 0.05),
       S('distortion', 'Lens distortion', -0.3, 0.3, 0.002),
       S('vignette', 'Vignette', 0, 1.5, 0.005),
+      S('lensWater', 'Lens water', 0, 2, 0.01),
+      S('lensDrops', 'Lens droplet density', 0, 1, 0.01),
+      S('lensSize', 'Lens droplet size', 0.2, 3, 0.01),
+      S('lensRefract', 'Lens refraction', 0, 5, 0.01),
+      S('lensStreak', 'Lens streaking', 0, 2, 0.01),
+      S('lensFlowAngle', 'Lens flow angle', -180, 180, 1),
+      S('lensRim', 'Lens droplet rim', 0, 1.5, 0.01),
+      S('lensFilm', 'Lens film', 0, 2, 0.01),
+      S('lensSpray', 'Lens hit rate', 0, 3, 0.01),
+      S('lensReach', 'Plume reach (m)', 2, 80, 0.5),
+      S('lensDry', 'Lens dry-off (1/s)', 0.05, 4, 0.01),
       S('vignetteRound', 'Vignette oval', 0, 1, 0.005),
       S('grain', 'Film grain', 0, 0.08, 0.0005),
       S('grainSize', 'Grain size (px)', 0.5, 6, 0.05),

@@ -137,6 +137,10 @@ const vGrid = new Float32Array(2), vWind2 = new Float32Array(2);
 const vHullPos = new Float32Array(3), vHullFwd = new Float32Array(2);
 const vCraftPos = new Float32Array(3), vCraftFwd = new Float32Array(2);
 const vCraftRight = new Float32Array(2), vFade = new Float32Array(4);
+const smoothstep01 = (a, b, x) => {
+  const t = clamp((x - a) / Math.max(b - a, 1e-5), 0, 1);
+  return t * t * (3 - 2 * t);
+};
 const set2 = (a, x, y) => { a[0] = x; a[1] = y; return a; };
 const set3 = (a, x, y, z) => { a[0] = x; a[1] = y; a[2] = z; return a; };
 
@@ -146,6 +150,11 @@ const HALTON = [];
   const h = (i, b) => { let f = 1, r = 0; while (i > 0) { f /= b; r += f * (i % b); i = Math.floor(i / b); } return r; };
   for (let i = 1; i <= 256; i++) HALTON.push([h(i, 2) - 0.5, h(i, 3) - 0.5]);
 })();
+// Water on the lens. It arrives when the camera is inside the plume - which in
+// chase view is exactly where the rooster tail goes - and dries off on its own
+// clock afterwards, so a hard burst lingers for a second or two the way it does
+// on a real housing.
+let lensWet = 0;
 let photo = false, accumIndex = 0;
 function resetAccum() { accumIndex = 0; }
 camera.moved = true;
@@ -483,7 +492,44 @@ function frame(now) {
     accumIndex++;
     src = post.accumulate(hdr, accumIndex);
   }
-  post.render(src, params, dt, simTime, { photo, sample: accumIndex });
+  // How much of the hull's own output is reaching the glass. Driven by the same
+  // readings the spray emitter uses, and falling off with how far the camera is
+  // sitting behind the emitter - so pulling the chase rig back genuinely clears
+  // the lens as well as the frame.
+  if (!frozen) {
+    let src2 = 0;
+    if (waveRunner.active) {
+      const dx = camera.pos[0] - waveRunner.pos[0];
+      const dy = camera.pos[1] - (waveRunner.deckY ?? 0);
+      const dz = camera.pos[2] - waveRunner.pos[2];
+      const flat = Math.hypot(dx, dz) || 1e-3;
+      // What matters is whether the camera is sitting *in* the plume, not how
+      // close it is to the nozzle. The jet throws water aft at fifteen to twenty
+      // metres a second and it hangs there, so a chase rig twenty metres directly
+      // astern is squarely in the path while one the same distance off to the side
+      // is in clean air. Modelling it as a simple radius meant that pulling the
+      // camera back to see past the spray also dried the lens off completely,
+      // which is the opposite of what happens.
+      const aft = -(dx * cf[0] + dz * cf[1]) / flat;      // 1 = directly astern
+      const lat = Math.abs(-dx * cf[1] + dz * cf[0]);
+      const wide = 2.0 + 0.22 * flat;                     // the plume spreads aft
+      const far = Math.hypot(flat, dy);
+      let inPlume = smoothstep01(-0.15, 0.55, aft)
+                  * Math.exp(-((lat / wide) ** 2))
+                  * (1 - smoothstep01(params.lensReach, params.lensReach * 2.2, far))
+                  * Math.exp(-Math.max(dy - 1.5, 0) / 4);
+      // Riding it, you are inside the plume by definition.
+      inPlume = Math.max(inPlume, 1 - smoothstep01(1.5, 5.0, far));
+      const spd = clamp(Math.abs(waveRunner.speed) / Math.max(params.wrTopSpeed, 1), 0, 1);
+      src2 = clamp((spd * params.lensSpray
+                  + (waveRunner.hullLoad ?? 0) * 0.018
+                  + waveRunner.impact * 1.6) * inPlume, 0, 1);
+      if (waveRunner.airborne) src2 *= 0.15;
+    }
+    const rate = src2 > lensWet ? params.lensWetRate : params.lensDry;
+    lensWet += (src2 - lensWet) * (1 - Math.exp(-rate * dt));
+  }
+  post.render(src, params, dt, simTime, { photo, sample: accumIndex, lensWet });
 
   if (hudDue) {
     hudDue = false;
@@ -510,5 +556,7 @@ window.abyssal = {
   params, ocean, camera, ui, gl, waveRunner,
   get spray() { return spray; },
   get wake() { return wake; },
+  get lensWet() { return lensWet; },
+  post,
   get frames() { return frames; },
 };

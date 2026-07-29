@@ -188,6 +188,9 @@ uniform vec3  uBloomTint;
 uniform float uVignette, uVignetteRound;
 uniform float uTime;
 uniform float uChromatic, uDistortion;
+uniform float uLensWet, uLensDrops, uLensSize, uLensRefract, uLensStreak;
+uniform float uLensRim, uLensFilm;
+uniform vec2  uLensFlow;
 uniform float uContrast, uSaturation, uPostSaturation, uSplit;
 uniform float uBlackPoint, uToe, uToeRange, uChromaRestore;
 uniform vec3  uLift, uGammaCC, uGain, uWhiteBalance, uSplitShadow, uSplitHigh;
@@ -252,6 +255,77 @@ vec3 reinhardJodie(vec3 c){
 
 float hash12(vec2 p){ vec3 p3 = fract(vec3(p.xyx)*0.1031); p3 += dot(p3, p3.yzx+33.33); return fract((p3.x+p3.y)*p3.z); }
 
+vec4 hash14(vec2 p){
+  vec4 p4 = fract(vec4(p.xyxy) * vec4(0.1031, 0.1030, 0.0973, 0.1099));
+  p4 += dot(p4, p4.wzxy + 33.33);
+  return fract((p4.xxyz + p4.yzzw) * p4.zywx);
+}
+
+// ---------------------------------------------------------- water on the lens
+//
+// A droplet sitting on the front element is nowhere near the focal plane, so it
+// does not behave like a little magnifier with a sharp picture inside it: it
+// smears whatever is behind it and picks up a bright rim off the grazing light.
+// That, plus the fact that they arrive in bursts and then creep outward under the
+// airflow before drying, is the whole of the effect.
+//
+// A droplet and the streak it has been drawn into together make an ellipse
+// elongated along the airflow, so cellularising in a frame stretched along that
+// direction lets one cell hold one whole droplet - which is one hash per layer
+// instead of a nine-cell neighbourhood search, and this runs on every pixel of
+// the composite.
+//
+// The flow direction has to be constant across the frame. Deriving it per pixel
+// from the radial direction seemed more physical - water is dragged outward from
+// wherever the camera is pointed - but normalize(p) is perpendicular to its own
+// perpendicular by construction, so the lattice's second coordinate came out
+// identically zero and the whole field collapsed into concentric rings with no
+// droplets in them at all. The radial character is put back below as a streak
+// length that grows toward the edges, where the airflow is faster.
+void lensLayer(vec2 p, float rn, float scale, float stretch, float sizeK,
+               float seed, float wet,
+               inout vec2 off, inout float blur, inout float rim, inout float cover){
+  vec2 fl = uLensFlow;
+  vec2 perp = vec2(-fl.y, fl.x);
+  vec2 q = vec2(dot(p, fl) / max(stretch, 0.2), dot(p, perp)) * scale + seed;
+  vec2 cell = floor(q);
+  vec4 h = hash14(cell);
+  // Only some cells ever hold a droplet, and the fraction rises with how wet the
+  // lens is - so drying off thins the field rather than just fading it out.
+  if (h.x > wet) return;
+
+  // Its own clock: lands fast, sits, creeps, dries slowly.
+  float life = 1.6 + 3.4 * h.y;
+  float age  = fract(uTime / life + h.z);
+  float amp  = smoothstep(0.0, 0.05, age) * (1.0 - smoothstep(0.5, 1.0, age));
+  if (amp < 0.01) return;
+
+  vec2 local = fract(q) - 0.5;
+  vec2 c = (vec2(h.w, fract(h.x * 71.3)) - 0.5) * 0.44;
+  // It creeps a little, and draws out into a tail as it goes. Expressing the
+  // streak as elongation rather than as bodily translation is what keeps the
+  // droplet inside the cell that owns it - sliding it out culls most of them
+  // against the cell test before they are ever drawn.
+  float tail = 1.0 + age * uLensStreak * 3.0 * (1.0 + 0.9 * rn);
+  c.x += (age - 0.5) * uLensStreak * 0.30;
+  float rad = (0.17 + 0.20 * h.y) * sizeK;
+  vec2 dv = (local - c) / vec2(tail, 1.0);
+  float dd = length(dv) / max(rad, 1e-3);
+  if (dd > 1.06) return;
+
+  // A spherical cap's slope grows toward its edge, which is why a droplet bends
+  // the picture hardest around its rim and barely at all through its middle.
+  float prof = max(1.0 - dd * dd, 0.0);
+  vec2 dir = dv / max(length(dv), 1e-4);
+  // Back into lens space: the offset has to point where the geometry does, not
+  // where the stretched cell frame does.
+  vec2 dirL = normalize(fl * dir.x * max(stretch, 0.2) + perp * dir.y + vec2(1e-6));
+  off  -= dirL * dd * prof * uLensRefract * rad * amp;
+  blur  = max(blur, amp * prof);
+  rim  += amp * smoothstep(0.72, 0.99, dd) * (1.0 - smoothstep(1.0, 1.06, dd));
+  cover = max(cover, amp * (1.0 - smoothstep(0.92, 1.04, dd)));
+}
+
 void main(){
   vec2 d = vUv - 0.5;
   vec2 asp = vec2(uRes.x/uRes.y, 1.0);
@@ -271,19 +345,51 @@ void main(){
   // channels. uChromatic is the red-to-blue separation AT THE CORNER, in
   // pixels, so it stays a ~1px optical detail instead of tracking feature size
   // and painting rainbows onto every sub-pixel glint.
+  // Water on the front element, in lens space - it belongs to the glass, so it
+  // must not move with the radial distortion applied to the scene below.
+  vec2  lensOff = vec2(0.0);
+  float lensBlur = 0.0, lensRim = 0.0, lensCover = 0.0;
+  if (uLensWet > 0.003){
+    // The airflow over a housing at speed carries water up and off the glass.
+    lensLayer(p, rn2,  5.0, 2.4, 1.00 * uLensSize,  0.0, uLensWet * uLensDrops,
+              lensOff, lensBlur, lensRim, lensCover);
+    lensLayer(p, rn2, 12.5, 1.8, 0.55 * uLensSize, 41.7, uLensWet * uLensDrops * 1.25,
+              lensOff, lensBlur, lensRim, lensCover);
+    // Before it beads up it is an unbroken film, which does not draw shapes - it
+    // just softens and slightly swims.
+    float fw = uLensWet * uLensFilm;
+    if (fw > 0.002){
+      lensOff += vec2(sin(p.y*8.5 + uTime*1.7), cos(p.x*10.5 - uTime*2.1)) * 0.004 * fw;
+      lensBlur = max(lensBlur, fw * 0.40);
+    }
+  }
+  vec2 lensUv = lensOff / asp;
+
   vec3 col;
   float caPx = uChromatic * rn2;
   if (caPx > 0.02){
     float len = max(length(pd), 1e-6);
     vec2 caStep = (pd/len) * (0.5 * caPx / uRes.y) / asp;
-    col.r = texture(uSrc, 0.5 + base + caStep).r;
-    col.g = texture(uSrc, 0.5 + base).g;
-    col.b = texture(uSrc, 0.5 + base - caStep).b;
+    col.r = texture(uSrc, 0.5 + base + lensUv + caStep).r;
+    col.g = texture(uSrc, 0.5 + base + lensUv).g;
+    col.b = texture(uSrc, 0.5 + base + lensUv - caStep).b;
   } else {
-    col = texture(uSrc, 0.5 + base).rgb;
+    col = texture(uSrc, 0.5 + base + lensUv).rgb;
   }
 
-  vec2 buv = 0.5 + base;
+  // Whatever is behind a droplet is thrown far out of focus, so it has to be
+  // sampled wide rather than sharp - a sharp image inside a droplet is the single
+  // thing that makes this read as a decal stuck on the picture.
+  if (lensBlur > 0.02){
+    vec2 e = vec2(lensBlur * 0.012, 0.0) / asp;
+    vec3 sm = texture(uSrc, 0.5 + base + lensUv + e).rgb
+            + texture(uSrc, 0.5 + base + lensUv - e).rgb
+            + texture(uSrc, 0.5 + base + lensUv + e.yx).rgb
+            + texture(uSrc, 0.5 + base + lensUv - e.yx).rgb;
+    col = mix(col, sm * 0.25, clamp(lensBlur, 0.0, 1.0) * 0.85);
+  }
+
+  vec2 buv = 0.5 + base + lensUv;
   vec3 bloom = texture(uBloom, buv).rgb;
   vec3 glare = texture(uGlare, buv).rgb;
   bloom = mix(bloom, bloom * uBloomTint, uBloomTintAmount);
@@ -291,6 +397,13 @@ void main(){
   // The wide tail, kept separate: a low, broad lift around every bright area
   // rather than a ring hugging the highlight.
   col += glare * uGlareIntensity;
+  // The bright edge of each droplet: grazing light caught by the meniscus. Scaled
+  // by what is actually behind it, so a droplet against a dark sea stays dark
+  // instead of glowing on its own.
+  if (lensRim > 0.001){
+    vec3 around = texture(uBloom, buv).rgb + col;
+    col += around * lensRim * uLensRim;
+  }
   // Halation is the red-weighted back-scatter off the film base / sensor stack.
   col += glare * uHalationTint * uHalation;
 

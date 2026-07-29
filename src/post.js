@@ -117,6 +117,14 @@ export class Post {
     };
   }
 
+  // Direction the airflow drags water across the glass, normalised.
+  _lensFlow(p) {
+    if (!this._flow) this._flow = new Float32Array(2);
+    const a = p.lensFlowAngle * Math.PI / 180;
+    this._flow[0] = Math.sin(a); this._flow[1] = Math.cos(a);
+    return this._flow;
+  }
+
   render(src, p, dt, time, opts = {}) {
     const gl = this.gl;
     const [w, h] = this.size;
@@ -226,6 +234,11 @@ export class Post {
       uTonemap: new Int32Array([p.tonemap]),
       uHighlightRoll: p.highlightRoll,
       uHalation: p.halation, uHalationTint: p.halationTint,
+      uLensWet: (opts.lensWet ?? 0) * p.lensWater,
+      uLensDrops: p.lensDrops, uLensSize: p.lensSize,
+      uLensRefract: p.lensRefract, uLensStreak: p.lensStreak,
+      uLensRim: p.lensRim, uLensFilm: p.lensFilm,
+      uLensFlow: this._lensFlow(p),
     });
     this.blit.draw();
 
