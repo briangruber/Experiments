@@ -2,6 +2,12 @@ import { program, setUniforms, texture2D, framebuffer, FS_VERT } from './gl.js';
 import { SKY_LUT_FS, SKY_BG_FS } from './shaders/sky.js';
 
 const LUT_W = 512, LUT_H = 256;
+const D2R = Math.PI / 180;
+
+function moonDirOf(p) {
+  const el = p.moonElevation * D2R, az = p.moonAzimuth * D2R;
+  return new Float32Array([Math.cos(el) * Math.sin(az), Math.sin(el), -Math.cos(el) * Math.cos(az)]);
+}
 
 export class Sky {
   constructor(gl, blit) {
@@ -28,6 +34,9 @@ export class Sky {
       uSunIrradiance: p.sunIrradiance,
       uMieG: p.mieG,
       uAtmoExposure: p.atmoExposure,
+      uMultiScatter: p.skyMultiScatter,
+      uMSFloor: p.skyMSFloor,
+      uMSHeight: p.skyMSHeight,
     };
   }
 
@@ -42,6 +51,11 @@ export class Sky {
       ...this.atmosphereUniforms(p),
       uSunDir: sunDir,
       uEyeHeight: eyeHeight,
+      // Moonlight scatters through the same atmosphere; baking it into the LUT
+      // is what keeps a night sky blue-dark and gives the water something to
+      // reflect after sunset.
+      uMoonDir: moonDirOf(p),
+      uMoonColor: p.moonColor,
     });
     this.blit.draw();
     gl.bindTexture(gl.TEXTURE_2D, this.lut.tex);
@@ -74,6 +88,31 @@ export class Sky {
       uCirrus: p.cirrus,
       uStars: p.stars,
       uCloudSteps: p.cloudSteps,
+      uCloudScale: p.cloudScale,
+      uCloudShape: p.cloudShape,
+      uCloudExtinction: p.cloudExtinction,
+      uCloudAnvil: p.cloudAnvil,
+      uCloudMS: p.cloudMultiScatter,
+      uCloudPowder: p.cloudPowder,
+      uCloudAmbient: p.cloudAmbient,
+      uCloudSilver: p.cloudSilver,
+      uCloudAmbFloor: p.cloudAmbientFloor,
+      uCloudMaxDist: p.cloudDistance,
+      uStarSize: p.starSize,
+      // The knob reads as "how much of the field shows"; the shader wants the
+      // hash cutoff, which runs the other way.
+      uStarCutoff: 1.0 - 0.05 * p.starDensity,
+      uStarColorTemp: p.starColorTemp,
+      uSunLimb: p.sunLimbDarkening,
+      uDiscFlatten: p.sunRefractFlatten,
+      uDiscCap: p.sunDiscCap,
+      uCloudHaze: p.cloudHaze,
+      uCloudFade: p.cloudFade,
+      uCirrusAlt: p.cirrusAltitude,
+      uCirrusCurl: p.cirrusCurl,
+      uCirrusMask: p.cirrusMask,
+      uSkyDither: p.skyDither,
+      uMoonColor: p.moonColor,
       uWindDirV: ctx.windVec3,
     });
     this.blit.draw();

@@ -1,11 +1,35 @@
 // HDR post chain: prefilter -> progressive bloom -> composite/tonemap -> FXAA.
+//
+// Convention for this file: every tonemap returns DISPLAY-LINEAR values and the
+// composite applies the OETF exactly once, at the very end. AgX's sigmoid is
+// already display-encoded, so agx() undoes that encoding before returning --
+// without it the frame gets gamma applied twice and washes out to milk.
+
+const LUMA = 'const vec3 LW = vec3(0.2126, 0.7152, 0.0722);\n';
+
+// Shared exposure resolution: the bloom prefilter has to agree with the
+// composite about the working stop, or a threshold in scene units becomes
+// meaningless the moment auto exposure moves.
+const EXPOSURE_FN = /* glsl */`
+uniform sampler2D uAdapt;
+uniform float uExposure, uAutoExposure, uExposureBias, uExposureTarget;
+float resolveExposure(){
+  float ev = uExposure;
+  if (uAutoExposure > 0.0){
+    float avg = max(texelFetch(uAdapt, ivec2(0), 0).r, 1e-5);
+    ev = mix(ev, ev * (uExposureTarget / avg), uAutoExposure);
+  }
+  return ev * exp2(uExposureBias);
+}
+`;
 
 export const PREFILTER_FS = /* glsl */`
 in vec2 vUv;
 uniform sampler2D uSrc;
 uniform vec2 uTexel;
-uniform float uThreshold, uKnee, uClamp;
+uniform float uThreshold, uKnee, uClamp, uVeil;
 out vec4 fragColor;
+` + LUMA + EXPOSURE_FN + /* glsl */`
 
 vec3 tap(vec2 uv){ return min(texture(uSrc, uv).rgb, vec3(uClamp)); }
 
@@ -19,11 +43,16 @@ void main(){
   vec3 l = tap(vUv + t*vec2(-1, 1)), m = tap(vUv + t*vec2(1, 1));
   vec3 col = (j+k+l+m)*0.5*0.25 + (a+c+g+i)*0.125*0.25 + (b+d+f+h)*0.25*0.25 + e*0.125;
 
-  float lum = dot(col, vec3(0.2126,0.7152,0.0722));
+  // Threshold in *exposed* units so the bloom looks the same at dawn and noon.
+  float lum = dot(col, LW) * resolveExposure();
   float soft = clamp(lum - uThreshold + uKnee, 0.0, 2.0*uKnee);
   soft = soft*soft / (4.0*uKnee + 1e-5);
   float w = max(soft, lum - uThreshold) / max(lum, 1e-5);
-  fragColor = vec4(col * w, 1.0);
+
+  // Veiling glare is not a threshold effect: glass and the sensor stack scatter
+  // a little of *all* the light in the frame, which is what fills shadows next
+  // to a bright sky and keeps the image from looking synthetically clean.
+  fragColor = vec4(col * (w + uVeil), 1.0);
 }
 `;
 
@@ -43,11 +72,14 @@ void main(){
 }
 `;
 
+// Each octave is added with weight uWeight^level. Equal weight per octave (1.0)
+// spreads equal energy over 4x the area each step, i.e. an intensity falloff of
+// 1/r^2 -- the actual point spread function of a lens. Below 1 tightens it.
 export const UP_FS = /* glsl */`
 in vec2 vUv;
 uniform sampler2D uSrc, uPrev;
 uniform vec2 uTexel;
-uniform float uRadius, uAnamorphic;
+uniform float uRadius, uAnamorphic, uWeight;
 out vec4 fragColor;
 void main(){
   vec2 t = uTexel * uRadius * vec2(1.0 + uAnamorphic*3.0, 1.0);
@@ -55,31 +87,83 @@ void main(){
     texture(uSrc, vUv + t*vec2(-1,-1)).rgb*1.0 + texture(uSrc, vUv + t*vec2(0,-1)).rgb*2.0 + texture(uSrc, vUv + t*vec2(1,-1)).rgb*1.0 +
     texture(uSrc, vUv + t*vec2(-1, 0)).rgb*2.0 + texture(uSrc, vUv                 ).rgb*4.0 + texture(uSrc, vUv + t*vec2(1, 0)).rgb*2.0 +
     texture(uSrc, vUv + t*vec2(-1, 1)).rgb*1.0 + texture(uSrc, vUv + t*vec2(0, 1)).rgb*2.0 + texture(uSrc, vUv + t*vec2(1, 1)).rgb*1.0;
-  fragColor = vec4(texture(uPrev, vUv).rgb + s/16.0, 1.0);
+  fragColor = vec4(texture(uPrev, vUv).rgb + (s/16.0) * uWeight, 1.0);
 }
 `;
 
+// Metering pass. Two populations are measured at once, both area weighted:
+//   rg -- a robust key (outliers discounted), i.e. "what is the midtone?"
+//   ba -- the first two central moments of the *undiscounted* distribution,
+//         from which the adaptation pass recovers a percentile. A percentile is
+//         what a highlight-weighted meter actually protects; a "count the
+//         bright pixels" mass term cannot tell a frame that is 3 stops over
+//         from one that is 9 stops over, so it under-protects exactly the
+//         bimodal frames (storm sea, sun glitter) that need it most.
+// Everything is in log2, so the units of every meter knob are stops.
 export const LUM_FS = /* glsl */`
 in vec2 vUv;
-uniform sampler2D uSrc;
+uniform sampler2D uSrc, uPrev;
+uniform float uMeterCenter, uMeterHi, uMeterLo;
 out vec4 fragColor;
+` + LUMA + /* glsl */`
 void main(){
   vec3 c = texture(uSrc, vUv).rgb;
-  float l = dot(c, vec3(0.2126,0.7152,0.0722));
-  fragColor = vec4(log(max(l, 1e-4)), 0.0, 0.0, 1.0);
+  float lg = log2(max(dot(c, LW), 1e-4));
+  float key = texelFetch(uPrev, ivec2(0), 0).b;   // last frame's robust key, log2
+  float rel = lg - key;                           // stops away from it
+
+  // Centre weighting: the sea occupies the middle of frame and is what has to
+  // be correctly exposed; the sky is allowed to go where it goes.
+  vec2 d = vUv - 0.5;
+  float cw = mix(1.0, exp(-4.0*dot(d,d)), uMeterCenter);
+
+  // Soft histogram weighting around the running key. Specular glitter and a
+  // blown sky are outliers by definition, so they get discounted instead of
+  // dragging the whole frame down; deep troughs are discounted more gently.
+  float w = cw / ((1.0 + uMeterHi*max(rel, 0.0)) * (1.0 + uMeterLo*max(-rel, 0.0)));
+
+  // Moments are taken about the running key rather than about zero: the mip
+  // reduction happens in half float, and E[x^2] - E[x]^2 with x ~ -8 would lose
+  // the entire variance to cancellation.
+  fragColor = vec4(w*lg, w, cw*rel, cw*rel*rel);
 }
 `;
 
+// Adaptation. rgb = (linear effective key, log2 of it, log2 robust key); the
+// robust key is fed back to the metering pass, the effective one drives exposure.
 export const ADAPT_FS = /* glsl */`
 uniform sampler2D uLum, uPrev;
-uniform float uDt, uSpeed, uMinLog, uMaxLog;
+uniform float uDt, uSpeed, uSpeedUp, uMinLog, uMaxLog, uHiHeadroom, uSigma, uCwMean;
 out vec4 fragColor;
 void main(){
-  float cur = exp(clamp(textureLod(uLum, vec2(0.5), 20.0).r, uMinLog, uMaxLog));
-  float prev = texelFetch(uPrev, ivec2(0), 0).r;
-  if (prev <= 0.0) prev = cur;
-  float t = 1.0 - exp(-uDt * uSpeed);
-  fragColor = vec4(mix(prev, cur, t), 0.0, 0.0, 1.0);
+  vec4 s = textureLod(uLum, vec2(0.5), 8.0);
+  float key = s.x / max(s.y, 1e-4);
+  float prevKey = texelFetch(uPrev, ivec2(0), 0).b;
+
+  // Percentile from moments. Log luminance of a lit scene is close to normal,
+  // so key + sigma*sd tracks a high percentile without a histogram: sigma 1.65
+  // is the 95th, 2.05 the 98th. Unlike a mean it scales with how blown the
+  // frame is, so a flat scene is left alone and a bimodal one is stopped down.
+  float m1 = s.z / max(uCwMean, 1e-4);
+  float sd = sqrt(max(s.w / max(uCwMean, 1e-4) - m1*m1, 0.0));
+  float hi = prevKey + m1 + uSigma*sd;
+
+  // Highlight priority. Raising the key by whatever the bright percentile
+  // overshoots is what a camera's highlight-weighted mode does, and it is the
+  // only honest fix for a bimodal frame: the midtone target is a preference,
+  // clipping is not.
+  float eff = max(key, hi - uHiHeadroom);
+  eff = clamp(eff, uMinLog, uMaxLog);
+  key = clamp(key, uMinLog, uMaxLog);
+
+  vec3 prev = texelFetch(uPrev, ivec2(0), 0).rgb;
+  if (prev.r <= 0.0) prev = vec3(exp2(eff), eff, key);
+  // An iris (and an eye) stops down faster than it opens up; matching that
+  // asymmetry is what stops the image pumping when a wave throws a highlight.
+  float t = 1.0 - exp(-uDt * uSpeed * (eff > prev.y ? uSpeedUp : 1.0));
+  float e = mix(prev.y, eff, t);
+  float k = mix(prev.z, key, 1.0 - exp(-uDt * uSpeed));
+  fragColor = vec4(exp2(e), e, k, 1.0);
 }
 `;
 
@@ -97,22 +181,25 @@ void main(){
 
 export const COMPOSITE_FS = /* glsl */`
 in vec2 vUv;
-uniform sampler2D uSrc, uBloom, uAdapt;
+uniform sampler2D uSrc, uBloom, uGlare;
 uniform vec2 uRes;
-uniform float uExposure, uAutoExposure, uExposureBias, uExposureTarget;
-uniform float uBloomIntensity, uBloomTintAmount;
+uniform float uBloomIntensity, uBloomTintAmount, uGlareIntensity;
 uniform vec3  uBloomTint;
 uniform float uVignette, uVignetteRound;
-uniform float uGrain, uTime;
-uniform float uChromatic;
-uniform float uContrast, uSaturation;
-uniform vec3  uLift, uGammaCC, uGain;
+uniform float uTime;
+uniform float uChromatic, uDistortion;
+uniform float uContrast, uSaturation, uPostSaturation, uSplit;
+uniform float uBlackPoint, uToe, uToeRange, uChromaRestore;
+uniform vec3  uLift, uGammaCC, uGain, uWhiteBalance, uSplitShadow, uSplitHigh;
 uniform int   uTonemap;
 uniform float uHighlightRoll;
 uniform float uHalation;
+uniform vec3  uHalationTint;
 out vec4 fragColor;
+` + LUMA + EXPOSURE_FN + /* glsl */`
 
 // ------------------------------------------------------------------ tonemaps
+// AGX_IN folds sRGB->Rec.2020 into the AgX inset; AGX_OUT is its inverse.
 const mat3 AGX_IN = mat3(
   0.842479062253094, 0.0423282422610123, 0.0423756549057051,
   0.0784335999999992, 0.878468636469772,  0.0784336,
@@ -122,6 +209,8 @@ const mat3 AGX_OUT = mat3(
   -0.0980208811401368, 1.15190312990417,   -0.0980434501171241,
   -0.0990297440797205,-0.0989611768448433,  1.15107367264116);
 
+// 6th-order fit to the AgX sigmoid; f(0.5) = 0.5 and f(log2(0.18) mapped) sits
+// at 0.4967, i.e. middle grey lands on middle grey in display code values.
 vec3 agxContrast(vec3 x){
   vec3 x2 = x*x, x4 = x2*x2;
   return 15.5*x4*x2 - 40.14*x4*x + 31.96*x4 - 6.868*x2*x + 0.4298*x2 + 0.1191*x - 0.00232;
@@ -132,23 +221,31 @@ vec3 agx(vec3 c){
   c = clamp(log2(max(c, 1e-10)), minEv, maxEv);
   c = (c - minEv)/(maxEv - minEv);
   c = agxContrast(c);
-  // Gentle look: keep some saturation in the highlights.
-  vec3 lw = vec3(0.2126,0.7152,0.0722);
-  float l = dot(c, lw);
+  // The "look" belongs here, on the sigmoid output and before the outset -- a
+  // touch of saturation back into highlights that the per-channel curve ate.
+  float l = dot(c, LW);
   c = l + (c - l) * (1.0 + 0.18*uHighlightRoll);
-  return clamp(AGX_OUT * c, 0.0, 1.0);
+  c = clamp(AGX_OUT * c, 0.0, 1.0);
+  // Undo AgX's built-in display encoding: this function owes its caller LINEAR.
+  return pow(c, vec3(2.2));
 }
 
 const mat3 ACES_IN = mat3(0.59719,0.07600,0.02840, 0.35458,0.90834,0.13383, 0.04823,0.01566,0.83777);
 const mat3 ACES_OUT = mat3(1.60475,-0.10208,-0.00327, -0.53108,1.10813,-0.07276, -0.07367,-0.00605,1.07602);
 vec3 aces(vec3 c){
+  // The fitted RRT clips hot colours to hard primaries; bleeding the brightest
+  // values toward their own luminance first is the cheap stand-in for the glow
+  // module and keeps the sun path from turning into a magenta hole.
+  float l = dot(c, LW);
+  float hot = 1.0 - 1.0/(1.0 + 0.06*max(l - 2.0, 0.0));
+  c = mix(c, vec3(l), hot * clamp(uHighlightRoll, 0.0, 1.5) * 0.8);
   c = ACES_IN * c;
   vec3 a = c*(c+0.0245786) - 0.000090537;
   vec3 b = c*(0.983729*c + 0.4329510) + 0.238081;
   return clamp(ACES_OUT * (a/b), 0.0, 1.0);
 }
 vec3 reinhardJodie(vec3 c){
-  float l = dot(c, vec3(0.2126,0.7152,0.0722));
+  float l = dot(c, LW);
   vec3 tc = c/(c+1.0);
   return clamp(mix(c/(l+1.0), tc, tc), 0.0, 1.0);
 }
@@ -156,74 +253,172 @@ vec3 reinhardJodie(vec3 c){
 float hash12(vec2 p){ vec3 p3 = fract(vec3(p.xyx)*0.1031); p3 += dot(p3, p3.yzx+33.33); return fract((p3.x+p3.y)*p3.z); }
 
 void main(){
-  vec2 uv = vUv;
-  vec2 d = uv - 0.5;
-  float r2 = dot(d,d);
+  vec2 d = vUv - 0.5;
+  vec2 asp = vec2(uRes.x/uRes.y, 1.0);
+  // Aspect-corrected image-circle coordinates: one unit of p.y is one unit of
+  // p.x is one unit of picture height, so "pixels" means the same thing in both.
+  vec2 p = d * asp;
+  float r2max = dot(0.5*asp, 0.5*asp);
+  float rn2 = dot(p, p) / r2max;              // 0 at centre, 1 at the corner
 
-  // Chromatic aberration grows toward the frame edge like a real lens.
+  // Radial distortion, normalised so the corners stay pinned to the corners --
+  // otherwise the frame samples outside the render target and smears.
+  float kd = (1.0 + uDistortion * rn2) / (1.0 + uDistortion);
+  vec2 pd = p * kd;
+  vec2 base = pd / asp;
+
+  // Lateral chromatic aberration: a pure radial scale difference between the
+  // channels. uChromatic is the red-to-blue separation AT THE CORNER, in
+  // pixels, so it stays a ~1px optical detail instead of tracking feature size
+  // and painting rainbows onto every sub-pixel glint.
   vec3 col;
-  if (uChromatic > 0.0001){
-    vec2 off = d * uChromatic * r2 * 0.006;
-    col.r = texture(uSrc, uv + off).r;
-    col.g = texture(uSrc, uv).g;
-    col.b = texture(uSrc, uv - off).b;
+  float caPx = uChromatic * rn2;
+  if (caPx > 0.02){
+    float len = max(length(pd), 1e-6);
+    vec2 caStep = (pd/len) * (0.5 * caPx / uRes.y) / asp;
+    col.r = texture(uSrc, 0.5 + base + caStep).r;
+    col.g = texture(uSrc, 0.5 + base).g;
+    col.b = texture(uSrc, 0.5 + base - caStep).b;
   } else {
-    col = texture(uSrc, uv).rgb;
+    col = texture(uSrc, 0.5 + base).rgb;
   }
 
-  vec3 bloom = texture(uBloom, uv).rgb;
+  vec2 buv = 0.5 + base;
+  vec3 bloom = texture(uBloom, buv).rgb;
+  vec3 glare = texture(uGlare, buv).rgb;
   bloom = mix(bloom, bloom * uBloomTint, uBloomTintAmount);
   col += bloom * uBloomIntensity;
-  // Halation: red-weighted glow bleeding out of the hottest highlights.
-  col += bloom * vec3(1.0, 0.32, 0.12) * uHalation;
+  // The wide tail, kept separate: a low, broad lift around every bright area
+  // rather than a ring hugging the highlight.
+  col += glare * uGlareIntensity;
+  // Halation is the red-weighted back-scatter off the film base / sensor stack.
+  col += glare * uHalationTint * uHalation;
 
-  float ev = uExposure;
-  if (uAutoExposure > 0.0){
-    float avg = max(texelFetch(uAdapt, ivec2(0), 0).r, 1e-5);
-    float autoEv = uExposureTarget / avg;
-    ev = mix(ev, ev * autoEv, uAutoExposure);
-  }
-  col *= ev * exp2(uExposureBias);
+  col *= resolveExposure();
 
-  // Colour grade in linear before the transform.
-  col = col * uGain + uLift * (1.0 - col);
+  // Natural (optical) vignetting belongs in scene-linear, ahead of the curve:
+  // corners then lose exposure and roll off, instead of being painted grey.
+  // Normalised so vd2 == 1 exactly at the corner, whatever the aspect ratio.
+  float vr = mix(1.0, uRes.x/uRes.y, uVignetteRound);
+  vec2 vv = vec2(d.x*vr, d.y);
+  float vd2 = dot(vv, vv) / dot(vec2(0.5*vr, 0.5), vec2(0.5*vr, 0.5));
+  float fall = 1.0 / ((1.0 + 0.55*vd2) * (1.0 + 0.55*vd2));   // ~ -1.3 stops at full
+  col *= max(mix(1.0, fall, uVignette), 0.0);
+
+  // Black point, subtracted in scene-linear the way a densitometer defines it.
+  // Doing this before the curve means the shadows lose *exposure* and fall down
+  // the toe; doing it after the curve would only paint the low end darker and
+  // flatten it. Negative is the useful other direction -- flare on the print.
+  col = max(col - uBlackPoint*0.02, vec3(0.0));
+
+  // ---- grade, scene-referred, ahead of the tone curve ----
+  col *= uWhiteBalance;
+  col = col * uGain + uLift * max(1.0 - col, vec3(0.0));
   col = pow(max(col, vec3(0.0)), 1.0/max(uGammaCC, vec3(0.05)));
-  float l0 = dot(col, vec3(0.2126,0.7152,0.0722));
-  col = mix(vec3(l0), col, uSaturation);
-  col = max((col - 0.18)*uContrast + 0.18, vec3(0.0));
+  float l0 = dot(col, LW);
+  col = max(mix(vec3(l0), col, uSaturation), vec3(0.0));
+  // Contrast about middle grey in log2 -- the axis a film curve works on. Doing
+  // it linearly (as this used to) shears the highlights and fights the tonemap,
+  // which is the other half of why the frame read flat.
+  vec3 t = log2(max(col, vec3(1e-6))/0.18) * uContrast;
 
+  // Film toe. Extra density that is zero at middle grey, ramps in over the
+  // shadows and then saturates, so the wave backs gain weight without the
+  // midtones moving. A Gaussian ramp keeps dD/dlogE positive everywhere, i.e.
+  // the curve stays monotone and never inverts however hard it is driven --
+  // which a plain shadow gamma does not.
+  vec3 sh = max(-t, vec3(0.0)) / max(uToeRange, 0.25);
+  t -= uToe * (1.0 - exp(-sh*sh));
+  col = 0.18 * exp2(t);
+
+  vec3 pre = col;
   if      (uTonemap == 0) col = agx(col);
   else if (uTonemap == 1) col = aces(col);
   else                    col = reinhardJodie(col);
 
-  // Vignette (anamorphic-ish oval).
-  float vr = mix(1.0, uRes.x/uRes.y, uVignetteRound);
-  float vd = length(vec2(d.x*vr, d.y));
-  col *= mix(1.0, smoothstep(0.95, 0.28, vd), uVignette);
+  // Per-channel tone curves are what give film its highlight rolloff, but they
+  // also drag every hot colour toward white -- the reason a lit sea can come out
+  // of the shoulder as monochrome sepia. Steering part of the way back to the
+  // scene chromaticity at the *displayed* luminance restores the hue without
+  // undoing the rolloff. This is the same idea as AgX's outset, applied as a
+  // continuously dialable amount.
+  if (uChromaRestore > 0.0){
+    float lp = dot(pre, LW), lt = dot(col, LW);
+    col = clamp(mix(col, pre * (lt / max(lp, 1e-5)), uChromaRestore), 0.0, 1.0);
+  }
 
-  // Film grain, luminance weighted so shadows stay clean-ish.
-  float g = hash12(gl_FragCoord.xy + fract(uTime)*941.0) - 0.5;
-  float lum = dot(col, vec3(0.2126,0.7152,0.0722));
-  col += g * uGrain * (0.35 + 0.65*sqrt(max(lum,0.0)));
+  // Split toning. Every film stock and every graded photograph carries a
+  // different hue in the toe than in the shoulder; a perfectly neutral ramp is
+  // one of the tells that an image was rendered rather than shot.
+  if (uSplit > 0.0){
+    // The selector has to be perceptual, not linear: 0.5 in linear is 73% of
+    // the way up the display ramp, so a linear crossover calls almost the whole
+    // picture "shadow" and the highlight tint never arrives.
+    float ls = pow(clamp(dot(col, LW), 0.0, 1.0), 1.0/2.2);
+    col *= mix(vec3(1.0), uSplitShadow, (1.0 - smoothstep(0.0, 0.55, ls)) * uSplit);
+    col *= mix(vec3(1.0), uSplitHigh,   smoothstep(0.45, 1.0, ls) * uSplit);
+  }
 
-  // Ordered dither to kill 8-bit banding in the sky gradient.
-  float dth = hash12(gl_FragCoord.xy*1.7 + 13.0) - 0.5;
-  col += dth / 255.0;
+  // Print saturation, after the curve, where it behaves like a film stock.
+  float l1 = dot(col, LW);
+  col = max(mix(vec3(l1), col, uPostSaturation), vec3(0.0));
 
-  fragColor = vec4(pow(clamp(col, 0.0, 1.0), vec3(1.0/2.2)), 1.0);
+  vec3 disp = pow(clamp(col, 0.0, 1.0), vec3(1.0/2.2));
+
+  // Dither in display space, where the 8-bit quantisation actually happens.
+  // (Grain is deliberately NOT here -- see FXAA_FS.)
+  disp += (hash12(gl_FragCoord.xy*1.7 + fract(uTime)*13.0) - 0.5) / 255.0;
+
+  fragColor = vec4(clamp(disp, 0.0, 1.0), 1.0);
 }
 `;
 
+// Grain is added here, after the edge filter, not in the composite: an
+// antialiaser cannot tell grain from aliasing and will happily average away
+// most of it, which is why the frame ends up looking like clean video with a
+// faint dirty overlay instead of like film.
 export const FXAA_FS = /* glsl */`
 in vec2 vUv;
 uniform sampler2D uSrc;
 uniform vec2 uTexel;
 uniform float uAmount;
+uniform float uGrain, uGrainSize, uGrainChroma, uGrainShadow, uTime;
 out vec4 fragColor;
+` + LUMA + /* glsl */`
 float lum(vec3 c){ return dot(c, vec3(0.299,0.587,0.114)); }
+float hash12(vec2 p){ vec3 p3 = fract(vec3(p.xyx)*0.1031); p3 += dot(p3, p3.yzx+33.33); return fract((p3.x+p3.y)*p3.z); }
+float vnoise(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  f = f*f*(3.0-2.0*f);
+  float a = hash12(i), b = hash12(i+vec2(1,0)), c = hash12(i+vec2(0,1)), d = hash12(i+vec2(1,1));
+  return mix(mix(a,b,f.x), mix(c,d,f.x), f.y);
+}
+
+// Grain lives in density space, so it goes on after the OETF. It peaks in the
+// midtones: film has almost no visible grain in the toe or a blown highlight.
+vec3 filmGrain(vec3 disp){
+  if (uGrain <= 0.0) return disp;
+  // Resample the grain field once per 24fps frame, at a decorrelated offset,
+  // so it flickers like film rather than crawling along a diagonal.
+  float fr = floor(uTime*24.0);
+  vec2 gp = gl_FragCoord.xy / max(uGrainSize, 0.35)
+          + vec2(hash12(vec2(fr, 1.7)), hash12(vec2(fr, 9.3))) * 512.0;
+  float mono = vnoise(gp) - 0.5;
+  vec3 chroma = vec3(vnoise(gp + 31.7), vnoise(gp + 71.3), vnoise(gp + 117.1)) - 0.5;
+  vec3 g = mix(vec3(mono), chroma, uGrainChroma);
+  float ld = dot(disp, LW);
+  // Two different noises share this knob because both are real and they live in
+  // opposite places: silver-halide granularity peaks in the midtones, while
+  // sensor read noise is loudest where there is least signal. uGrainShadow
+  // slides between "shot on film" and "shot at high ISO".
+  float shape = mix(sqrt(clamp(4.0*ld*(1.0 - ld), 0.0, 1.0)),
+                    1.0/(1.0 + 7.0*ld), uGrainShadow);
+  return disp + g * (uGrain * 1.7) * (0.12 + 0.88*shape);
+}
+
 void main(){
   vec3 rgbM = texture(uSrc, vUv).rgb;
-  if (uAmount <= 0.0){ fragColor = vec4(rgbM,1.0); return; }
+  if (uAmount <= 0.0){ fragColor = vec4(clamp(filmGrain(rgbM), 0.0, 1.0), 1.0); return; }
   vec3 rgbNW = texture(uSrc, vUv + uTexel*vec2(-1,-1)).rgb;
   vec3 rgbNE = texture(uSrc, vUv + uTexel*vec2( 1,-1)).rgb;
   vec3 rgbSW = texture(uSrc, vUv + uTexel*vec2(-1, 1)).rgb;
@@ -238,6 +433,6 @@ void main(){
   vec3 rgbA = 0.5*(texture(uSrc, vUv + dir*(1.0/3.0-0.5)).rgb + texture(uSrc, vUv + dir*(2.0/3.0-0.5)).rgb);
   vec3 rgbB = rgbA*0.5 + 0.25*(texture(uSrc, vUv + dir*-0.5).rgb + texture(uSrc, vUv + dir*0.5).rgb);
   vec3 res = (lum(rgbB) < lMin || lum(rgbB) > lMax) ? rgbA : rgbB;
-  fragColor = vec4(mix(rgbM, res, uAmount), 1.0);
+  fragColor = vec4(clamp(filmGrain(mix(rgbM, res, uAmount)), 0.0, 1.0), 1.0);
 }
 `;

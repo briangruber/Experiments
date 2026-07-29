@@ -204,7 +204,9 @@ function frame(now) {
   derive();
 
   camera.moved = false;
-  camera.update(dt, params);
+  // Handheld drift and sea bob nudge the camera every frame, which would reset
+  // the accumulator every frame; photo mode locks the tripod off.
+  camera.update(dt, photo ? { ...params, handheld: 0, cameraBob: 0 } : params);
   if (camera.moved) resetAccum();
 
   const frozen = photo && accumIndex > 0;
@@ -255,21 +257,34 @@ function frame(now) {
     uScatterColor: params.scatterColor, uAbsorption: params.absorption,
     uScatterAmount: params.scatterAmount,
     uSSSStrength: params.sssStrength, uSSSPower: params.sssPower, uSSSHeight: params.sssHeight,
+    uSSSDepth: params.sssDepth,
     uBaseRoughness: params.baseRoughness, uRoughnessGain: params.roughnessGain,
+    uRoughnessMax: params.roughnessMax, uWindAniso: params.windAniso,
+    uWindSpeed: params.windSpeed,
     uFoamAmount: params.foamAmount, uFoamRoughness: params.foamRoughness,
     uFoamTint: params.foamTint, uFoamDetail: params.foamDetail, uFoamLift: params.foamLift,
+    uFoamSharp: params.foamSharp, uFoamStreak: params.foamStreak,
+    uFoamOpacity: params.foamOpacity,
     uFoamColor: params.foamColor,
     uSunAngularRadius: params.sunAngularRadius, uSpecIntensity: params.specIntensity,
-    uSkyAmbient: params.skyAmbient, uGlitter: params.glitter,
+    uSkyAmbient: params.skyAmbient, uSkyBlur: params.skyBlur,
+    uGlitter: params.glitter, uGlitterScale: params.glitterScale,
     uWaterIOR: params.waterIOR, uAerial: params.aerial,
     uWindDirV: new Float32Array([Math.cos(params.windDir), Math.sin(params.windDir)]),
     uSpecClamp: params.specClamp, uHorizonBend: params.horizonBend,
+    uInterReflect: params.interReflect, uWaveAO: params.waveAO,
+    uWaveShadow: params.waveShadow, uShadowScale: params.shadowScale,
+    uCapillary: params.capillary, uCapillaryScale: params.capillaryScale,
+    uSpecAA: params.specAA, uGrazeFocus: params.grazeFocus,
+    uSSSBias: params.sssBias, uFoamFar: params.foamFar,
   });
   gl.bindVertexArray(grid.vao);
   gl.drawElements(gl.TRIANGLES, grid.count, gl.UNSIGNED_INT, 0);
   gl.bindVertexArray(null);
 
-  spray.draw(params, ctx, sky.lut, sky.atmosphereUniforms(params));
+  // Spray needs the displacement field too: billboards fade against the real
+  // water height instead of showing a hard intersection edge.
+  spray.draw(params, ctx, sky.lut, sky.atmosphereUniforms(params), ocean);
 
   gl.disable(gl.DEPTH_TEST);
 
@@ -279,7 +294,7 @@ function frame(now) {
     accumIndex++;
     src = post.accumulate(hdr, accumIndex);
   }
-  post.render(src, params, dt, simTime);
+  post.render(src, params, dt, simTime, { photo, sample: accumIndex });
 
   if (frames % 12 === 0) {
     hudFps.textContent = photo
@@ -298,4 +313,4 @@ ocean.update(1 / 60, params);
 document.getElementById('boot').classList.add('gone');
 requestAnimationFrame(frame);
 
-window.abyssal = { params, ocean, camera, ui, gl, get frames() { return frames; } };
+window.abyssal = { params, ocean, camera, ui, gl, get spray() { return spray; }, get frames() { return frames; } };

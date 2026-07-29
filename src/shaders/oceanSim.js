@@ -7,10 +7,14 @@
 //     -> assemble    : displacement + slope + Jacobian
 //     -> foam        : temporal accumulation of wave folding
 //
-// Field packing through the IFFT (two real signals ride one complex transform,
-// which is valid because each transform output is real):
+// Field packing through the IFFT (two real signals ride one complex transform):
 //   c0 = D_x  + i D_z          c1 = D_y      + i dD_y/dx
 //   c2 = dD_y/dz + i dD_x/dx   c3 = dD_z/dz  + i dD_x/dz
+// That packing is only valid if every transform output is exactly real, which in
+// turn requires h(-k) = conj(h(k)) at *every* mode. h0 therefore has to draw its
+// negative-frequency partner from the mirrored texel of the same noise field --
+// two independent draws leave an imaginary residue that leaks D_z into D_x and
+// dD_y/dx into the height itself.
 
 export const COMMON = /* glsl */`
 const float PI  = 3.14159265358979;
@@ -37,15 +41,24 @@ uniform float uFetch;          // km
 uniform float uWindDir;        // radians
 uniform float uDepth;          // m
 uniform float uSpread;         // directional spread multiplier (1 = Donelan)
+uniform float uSpreadTail;     // extra narrowing of the equilibrium range
 uniform float uAlignment;      // 0 = fully isotropic, 1 = fully wind aligned
-uniform float uSwellAmount;    // 0..1
+uniform float uGamma;          // JONSWAP peak enhancement
+uniform float uTailSat;        // saturation floor of the equilibrium range
+uniform float uSwellAmount;    // significant swell height (m)
 uniform float uSwellPeriod;    // s
 uniform float uSwellDir;       // radians
 uniform float uSwellSpread;    // narrowness, larger = tighter
+uniform float uSwellWidth;     // relative bandwidth of the swell peak
 uniform float uAmplitude;      // global gain
-uniform float uShortWaveFade;  // suppresses capillary end (0..1)
+uniform float uShortWaveFade;  // rolls the band off below this cascade's Nyquist
 
 out vec4 fragColor;
+
+// Fetch stops growing the sea once it is fully developed; past that point the
+// JONSWAP alpha/omega_p laws drift away from the measured energy, so the
+// non-dimensional fetch is clamped and everything else derived from the clamp.
+const float CHI_FULL = 2.2e4;
 
 // Kitaigorodskii depth attenuation (TMA).
 float tmaDepth(float w){
@@ -55,14 +68,30 @@ float tmaDepth(float w){
   return 1.0;
 }
 
-// JONSWAP frequency spectrum (m^2 s / rad).
-float jonswap(float w, float wp){
-  float U = max(uWindSpeed, 0.05);
-  float F = max(uFetch, 0.1) * 1000.0;
-  float alpha = 0.076 * pow(clamp(U*U/(F*G), 1e-8, 1.0), 0.22);
+// JONSWAP frequency spectrum (m^2 s / rad), energy-normalised. eScale reconciles
+// the shape with the fetch law (see below); it multiplies the peak but not the
+// saturated tail, which is set by Phillips' constant and not by the fetch.
+float jonswap(float w, float wp, float alpha, float eScale, float satLevel){
+  float gam   = max(uGamma, 1.0);
+  // Goda's normaliser: keeps m0 fixed as the peak is sharpened, so gamma is a
+  // pure shape control and does not secretly double the wave height.
+  float norm  = 1.0 - 0.287 * log(gam);
   float sigma = w <= wp ? 0.07 : 0.09;
-  float r = exp(-sqr(w - wp) / (2.0 * sqr(sigma * wp)));
-  return alpha * G*G / pow(w, 5.0) * exp(-1.25 * pow(wp/w, 4.0)) * pow(3.3, r);
+  float r     = exp(-sqr(w - wp) / (2.0 * sqr(sigma * wp)));
+  // The short-gravity range is where every bit of the mean square slope lives,
+  // and it is NOT the same population as the peak: its level is set by the wind
+  // forcing it, not by the fetch that grew the swell. It therefore gets its own
+  // floor. The knee is placed well above the peak (2.2-3.2 wp, i.e. five to ten
+  // times the peak wavenumber) for a hard energetic reason: only three percent of
+  // m0 lives above 2.5 wp, so the floor can lift that band by whatever the slope
+  // statistics demand while the significant wave height stays on the fetch law.
+  // Putting the knee at the peak instead - which is what "the tail is saturated
+  // above wp" naively gives you - lifts the band that carries m0 and silently
+  // inflates the sea by twenty percent.
+  float shape = norm * pow(gam, r) * eScale;
+  float floorLvl = satLevel * smoothstep(2.2, 3.2, w / wp);
+  float a = alpha * max(shape, floorLvl);
+  return a * G*G / pow(w, 5.0) * exp(-1.25 * pow(wp/w, 4.0));
 }
 
 // Donelan-Banner directional spreading: 0.5*b*sech^2(b*theta), integrates to 1.
@@ -76,28 +105,51 @@ float spreading(float w, float wp, float theta){
     float eps = -0.4 + 0.8393 * exp(-0.567 * log(r*r));
     b = pow(10.0, eps);
   }
+  // Donelan's tail measurements come from a wave staff, which sees the short
+  // waves averaged over every long wave they ride. In a photograph they are not
+  // that isotropic: the wind-driven chop lies in visible rows across the swell,
+  // and letting b fall to ~0.4 above 1.6 wp is what makes the sea read as
+  // tinfoil crinkle rather than a wind sea with a direction.
+  b *= mix(1.0, max(uSpreadTail, 0.1), smoothstep(1.4, 5.0, r));
   b = max(b * uSpread, 0.05);
-  float t = theta;
-  t = atan(sin(t), cos(t));            // wrap to (-pi, pi]
+  float t = atan(sin(theta), cos(theta));   // wrap to (-pi, pi]
   float d = 0.5 * b * sech2(b * t);
   // Blend toward isotropic so the sea can be made confused / cross-swell.
   return mix(1.0/TAU, d, clamp(uAlignment, 0.0, 1.0));
 }
 
-// Narrow-band swell riding on top of the wind sea.
+// Narrow-band swell riding on top of the wind sea. Both the frequency band and
+// the directional lobe are normalised to unit integral, so uSwellAmount is
+// literally the significant height of the swell train in metres.
 float swell(float w, float theta){
   if (uSwellAmount <= 1e-4) return 0.0;
   float ws = TAU / max(uSwellPeriod, 1.0);
-  float band = exp(-sqr(w - ws) / (2.0 * sqr(0.035 * ws)));
+  // A 14 s swell in the 1789 m patch sits near mode 6, where one cell of the
+  // wavenumber grid is ~0.04 rad/s wide - broader than the swell band itself.
+  // Left alone the Gaussian falls between samples, so the train is carried by
+  // one or two modes: no groups, and a variance that depends on where the peak
+  // happens to land. Widening it to the cell keeps the integral (the band is
+  // normalised) while giving the swell enough modes to beat against itself.
+  // The cap matters: in the short cascades one cell is wider than the swell
+  // frequency itself, and widening to it would spray swell energy across the
+  // whole equilibrium range instead of leaving those cascades alone.
+  float dwCell = min((TAU / uL) * G / (2.0 * max(ws, 0.05)), 0.25 * ws);
+  float sw = max(max(uSwellWidth, 0.005) * ws, 0.8 * dwCell);
+  float band = exp(-sqr(w - ws) / (2.0 * sqr(sw))) / (sw * sqrt(TAU));
   float dt = atan(sin(theta - uSwellDir), cos(theta - uSwellDir));
-  float dir = exp(-sqr(dt) * uSwellSpread);
-  // Amplitude scaled so the knob reads as "swell height in metres".
-  return uSwellAmount * uSwellAmount * 0.22 * band * dir / max(w, 1e-3);
+  float s  = max(uSwellSpread, 0.25);
+  float dir = exp(-s * dt * dt) * sqrt(s / PI);
+  return sqr(uSwellAmount * 0.25) * band * dir;   // m0 = (Hs/4)^2
 }
 
 void main(){
-  vec2 id = floor(gl_FragCoord.xy);
-  vec2 nm = id - uN * 0.5;
+  ivec2 id = ivec2(gl_FragCoord.xy);
+  int   Ni = int(uN);
+  // Column/row 0 is the unpaired Nyquist line: it has no partner at -k, so
+  // leaving it populated would inject a non-real mode.
+  if (id.x == 0 || id.y == 0){ fragColor = vec4(0.0); return; }
+
+  vec2 nm = vec2(id) - uN * 0.5;
   vec2 k  = TAU * nm / uL;
   float kk = length(k);
 
@@ -109,35 +161,72 @@ void main(){
   float w   = sqrt(G * kk * cap * tanh(min(kk * uDepth, 20.0)));
   float dwdk = G * (cap + 2.0*sqr(kk/km)) * 0.5 / max(w, 1e-4);
 
-  float U  = max(uWindSpeed, 0.05);
-  float F  = max(uFetch, 0.1) * 1000.0;
-  float wp = 22.0 * pow(G*G / (U*F), 1.0/3.0);
+  float U   = max(uWindSpeed, 0.05);
+  float chi = min(G * max(uFetch, 0.1) * 1000.0 / (U*U), CHI_FULL);
+  float Fe  = chi * U * U / G;                        // fetch after the clamp
+  float alpha = 0.076 * pow(chi, -0.22);
+  float wp    = 22.0 * pow(G*G / (U * Fe), 1.0/3.0);
 
-  float theta = atan(k.y, k.x) - uWindDir;
-  float S = jonswap(w, wp) * tmaDepth(w);
-  float D = spreading(w, wp, theta);
+  // Hasselmann's alpha(chi) and wp(chi) fits and the Hs(chi) fit are three
+  // independent regressions through the same JONSWAP data and they do not close:
+  // integrating alpha g^2 w^-5 exp(-1.25 (wp/w)^4) analytically gives
+  // m0 = alpha g^2 / (5 wp^4), which at full development sits about 26% above
+  // (0.0016 sqrt(chi) U^2/g / 4)^2. Left alone the sea comes out systematically
+  // steeper than the wind that is supposed to have raised it. Scaling the peak
+  // to close the gap is the honest fix: the wave height then obeys the fetch law
+  // at every fetch, and the equilibrium tail - which is a property of Phillips'
+  // constant, not of the fetch - keeps its own level via the floor above.
+  float m0pm  = alpha * G*G / (5.0 * sqr(sqr(wp)));
+  float hsFit = 0.0016 * sqrt(chi) * U * U / G;
+  float eScale = sqr(hsFit * 0.25) / max(m0pm, 1e-12);
+
+  // Cox-Munk's mean square slope grows linearly with wind speed; Phillips'
+  // constant does not grow at all. Both cannot be right, and the slope
+  // measurements are the ones with a sun glitter photograph behind them: the
+  // short-gravity range is not truly saturated, its level rises with the wind.
+  // Pinning it to a constant alpha leaves the sea roughly half as rough as any
+  // slick-free measurement of the real thing, which is exactly what a rendered
+  // ocean that looks like poured resin is missing. The floor is set so that a
+  // Phillips-shaped range running from the spectral peak out to the 8 mm
+  // capillary cutoff carries the Cox-Munk variance; each cascade then resolves
+  // whatever share of that range it owns.
+  float kPeak = wp * wp / G;
+  float octaves = log(max(800.0 / max(kPeak, 1e-4), 2.0));
+  float satLevel = uTailSat * (0.003 + 5.12e-3 * U) / max(0.5 * alpha * octaves, 1e-6);
+
+  float S = jonswap(w, wp, alpha, eScale, satLevel) * tmaDepth(w);
+  float th = atan(k.y, k.x);
 
   // Directional wavenumber spectrum: Psi(kx,kz) = S(w) D(th) (dw/dk) / k
-  float psi = (S * D + swell(w, atan(k.y, k.x))) * dwdk / kk;
+  float psi  = (S * spreading(w, wp, th - uWindDir) + swell(w, th)) * dwdk / kk;
+  // The same mode seen from -k: the magnitude is shared but the direction is not.
+  float psiM = (S * spreading(w, wp, th + PI - uWindDir) + swell(w, th + PI)) * dwdk / kk;
 
-  // Roll off the very shortest waves so capillary ripple does not alias.
-  psi *= exp(-sqr(kk / (km * mix(2.0, 0.02, uShortWaveFade))));
+  // Roll the band off before this cascade's own Nyquist. A mode two texels per
+  // wavelength cannot be shaded: it aliases in the displacement map, in the
+  // slope map and again in the grid it is sampled onto, and that is what turns
+  // the sea into crumpled foil. The knee is placed a little over half of Nyquist
+  // (four texels per wave) and the fourth power keeps the octave below it intact
+  // instead of thinning the whole band.
+  float nyq = PI * uN / uL;
+  float kc = nyq * (0.92 - 0.52 * clamp(uShortWaveFade, 0.0, 1.0));
+  float roll = exp(-sqr(sqr(kk / kc)));
+  psi *= roll; psiM *= roll;
 
   float dk = TAU / uL;
-  float amp = uAmplitude * sqrt(max(2.0 * psi, 0.0) * dk * dk);
+  // Each Hermitian partner carries half the variance of the mode:
+  // <|h0|^2> = Psi dk^2 / 2, so that sum_k <|h~|^2> = integral Psi d2k = m0.
+  float amp  = uAmplitude * dk * sqrt(max(psi,  0.0) * 0.5);
+  float ampM = uAmplitude * dk * sqrt(max(psiM, 0.0) * 0.5);
 
-  vec4 g = texture(uNoise, (id + 0.5) / uN);
-  vec2 h0  = amp * g.xy * 0.70710678;
+  ivec2 idm = (ivec2(Ni) - id) & (Ni - 1);            // the texel holding -k
+  vec4 g  = texelFetch(uNoise, id,  0);
+  vec4 gm = texelFetch(uNoise, idm, 0);
 
-  // Conjugate partner at -k, evaluated with the same spectrum (isotropic in |k|
-  // but the directional term differs, so it must be recomputed).
-  float theta2 = atan(-k.y, -k.x) - uWindDir;
-  float psi2 = (S * spreading(w, wp, theta2) + swell(w, atan(-k.y, -k.x))) * dwdk / kk;
-  psi2 *= exp(-sqr(kk / (km * mix(2.0, 0.02, uShortWaveFade))));
-  float amp2 = uAmplitude * sqrt(max(2.0 * psi2, 0.0) * dk * dk);
-  vec2 h0c = amp2 * g.zw * 0.70710678;
+  vec2 h0  = amp  * g.xy  * 0.70710678;
+  vec2 h0m = ampM * gm.xy * 0.70710678;               // = h0 evaluated at -k
 
-  fragColor = vec4(h0, h0c);
+  fragColor = vec4(h0, h0m);
 }
 `;
 
@@ -220,6 +309,8 @@ ${COMMON}
 uniform sampler2DArray uS0, uS1;
 uniform int uLayer;
 uniform float uChoppy;
+uniform float uKChar;     // energy-centre wavenumber of this cascade's band
+uniform float uStokes;    // gain on the bound second harmonic
 layout(location=0) out vec4 oDisp;    // xyz displacement, w Jacobian
 layout(location=1) out vec4 oSlope;   // xy slope, z Jacobian, w |slope|^2
 
@@ -234,6 +325,20 @@ void main(){
   float Dx = a.x, Dz = a.y, Dy = a.z, dYx = a.w;
   float dYz = b.x, dXx = b.y, dZz = b.z, dXz = b.w;
 
+  // Bound second harmonic. A linear spectrum is symmetric about the mean plane -
+  // the crest and the trough have the same curvature - and that symmetry is the
+  // single loudest tell that a rendered sea is a sum of sinusoids. To second
+  // order a Stokes wave carries eta2 = k(eta1^2 - <eta1^2>), which peaks the
+  // crest and broadens the trough while adding almost nothing to the variance.
+  // The correction is a pointwise function of the height, so its own derivative
+  // is exact: d/dx (k eta^2) = 2 k eta eta_x, and the slope map stays consistent
+  // with the geometry the vertex shader builds. Clamped because the expansion is
+  // only valid while ka stays small and a steep cascade would otherwise fold.
+  float corr = clamp(uStokes * uKChar * Dy, -0.45, 0.45);
+  Dy  += corr * Dy;
+  dYx *= 1.0 + 2.0 * corr;
+  dYz *= 1.0 + 2.0 * corr;
+
   float Jxx = 1.0 + dXx;
   float Jzz = 1.0 + dZz;
   float J   = Jxx * Jzz - dXz * dXz;
@@ -241,7 +346,8 @@ void main(){
   oDisp  = vec4(Dx, Dy, Dz, J);
   // The fourth channel carries the second moment of the slope. Mip filtering it
   // gives <|grad h|^2> over a footprint, which the surface shader turns into
-  // filtered microfacet roughness instead of aliasing sparkle.
+  // filtered microfacet roughness instead of aliasing sparkle, and whose top mip
+  // is the cascade's contribution to the total mean square slope.
   oSlope = vec4(dYx, dYz, J, dYx*dYx + dYz*dYz);
 }
 `;
@@ -250,38 +356,162 @@ void main(){
 
 export const FOAM_FS = /* glsl */`
 ${COMMON}
-uniform sampler2DArray uSlope, uPrevFoam, uDisp;
-uniform int uLayer;
-uniform float uDt, uThreshold, uDecay, uInject, uSpreadRate, uN, uL;
+uniform sampler2DArray uPrevFoam, uDisp, uSlope;
+uniform float uPatch[4];
+uniform float uCompLod[4];
+uniform int   uLayer, uCascadeCount;
+uniform float uDt, uCutoff, uSoft, uDecay, uFreshDecay, uInject, uThin;
+uniform float uSpreadRate, uWeight, uDrift, uWindDir, uN, uL, uFaceBias, uBreakScale;
+uniform float uCrestAniso, uRidge, uBreakup;
 out vec4 fragColor;
 
-// Cheap 4-tap blur that lets foam bleed outward from breaking crests.
-float neighbourFoam(ivec2 id){
-  float o = 0.0;
-  o += texelFetch(uPrevFoam, ivec3((id + ivec2( 1, 0)) & (int(uN)-1), uLayer), 0).r;
-  o += texelFetch(uPrevFoam, ivec3((id + ivec2(-1, 0)) & (int(uN)-1), uLayer), 0).r;
-  o += texelFetch(uPrevFoam, ivec3((id + ivec2( 0, 1)) & (int(uN)-1), uLayer), 0).r;
-  o += texelFetch(uPrevFoam, ivec3((id + ivec2( 0,-1)) & (int(uN)-1), uLayer), 0).r;
-  return o * 0.25;
+// Sum of (J-1) over every cascade at one world point. To first order the
+// Jacobian of the summed displacement is 1 + sum(J_c - 1), so the compressions
+// simply add and no per-cascade weighting is needed. Each cascade is fetched at
+// the mip whose footprint is a breaker, because a single folding texel is a
+// wrinkle, not whitewater, and thresholding one texel at a time is what produces
+// pixel confetti that never aggregates into a patch.
+float foldAt(vec2 wpos){
+  float s = 0.0;
+  for (int c = 0; c < 4; c++){
+    if (c >= uCascadeCount) break;
+    s += textureLod(uDisp, vec3(wpos / uPatch[c], float(c)), max(uCompLod[c] - 1.0, 0.0)).w - 1.0;
+  }
+  return s;
 }
+
+// Offsets of the breaking kernel along the crest line, in units of the breaker
+// scale times the crest anisotropy.
+const float CT[5] = float[5](-1.0, -0.5, 0.0, 0.5, 1.0);
 
 void main(){
   ivec2 id = ivec2(gl_FragCoord.xy);
-  vec4 sl = texelFetch(uSlope, ivec3(id, uLayer), 0);
-  float J = sl.z;
+  vec2 uv  = (vec2(id) + 0.5) / uN;
+  vec2 world = uv * uL;
+  vec2 wd = vec2(cos(uWindDir), sin(uWindDir));
+  vec2 wn = vec2(-wd.y, wd.x);
+  float bs = max(uBreakScale, 0.2);
 
-  float prev = texelFetch(uPrevFoam, ivec3(id, uLayer), 0).r;
-  float blur = neighbourFoam(id);
+  // A breaker is a LINE event, not a disc: the tumbling region runs tens of
+  // metres along the crest and only a fraction of a wavelength across it. An
+  // isotropic low-pass of the fold field therefore answers the wrong question,
+  // and thresholding its broad round maxima is exactly why the whitecaps came
+  // out as identical circular rafts with no crest alignment. Averaging along the
+  // crest and testing across it turns the same statistics into crest-aligned
+  // strips. The offsets are taken perpendicular to the wind because that is the
+  // direction the dominant crests run.
+  float comp = 0.0;
+  for (int t = 0; t < 5; t++)
+    comp += foldAt(world + wn * (CT[t] * bs * uCrestAniso));
+  comp *= 0.2;
+  float x = -comp;                            // positive where the surface folds
+
+  // Ridge test across the crest. Water only tumbles where the fold is at its
+  // maximum in the direction the wave is travelling; a metre either side of that
+  // the same surface is merely steep. Without it the strip above is as wide as
+  // the kernel and the raft still reads as a slab.
+  float xf = -foldAt(world + wd * bs);
+  float xb = -foldAt(world - wd * bs);
+  float crestOff = x - max(xf, xb);
+
+  vec2 grad = vec2(0.0);
+  for (int c = 0; c < 4; c++){
+    if (c >= uCascadeCount) break;
+    grad += textureLod(uSlope, vec3(world / uPatch[c], float(c)), max(uCompLod[c] - 1.0, 0.0)).xy;
+  }
+
+  // Scale-free threshold. The previous frame wrote x*x into channel w, so the
+  // top mip of the foam texture is <x^2> over the whole patch and the cutoff can
+  // be expressed in units of the sea's own RMS compression. An absolute
+  // Jacobian threshold cannot work: a steeper sea trivially exceeds it
+  // everywhere, which is how force 10 became a hundred percent white-out.
+  // Always layer 0: every cascade evaluates the same world-space fold field, but
+  // only the largest tile spans enough of it to estimate its variance. A 17 m
+  // tile sees the swell's compression as a constant offset, divides by a
+  // variance that does not contain it, and foams over completely whenever that
+  // offset happens to be positive.
+  float cvar = textureLod(uPrevFoam, vec3(uv, 0.0), 32.0).w;
+  float inv  = cvar > 1e-9 ? inversesqrt(cvar) : 0.0;
+  float xn   = x * inv;
+  // In the same sigma units, so the ridge gate keeps its meaning as the sea
+  // state changes.
+  float ridge = mix(1.0, smoothstep(-0.25, 0.30, crestOff * inv), clamp(uRidge, 0.0, 1.0));
+
+  // Spilling breakers live on the forward face, where the surface falls away
+  // along the direction of travel. The compression on the back of a wave is the
+  // horizontal displacement piling water up against the next crest and it makes
+  // no foam, so without this half the whitecaps sit in the wrong place.
+  float face = -dot(grad, wd) * inversesqrt(dot(grad, grad) + 1e-8);
+  float gate = mix(1.0, smoothstep(-0.4, 0.5, face), clamp(uFaceBias, 0.0, 1.0));
+
+  // What actually trips a crest into breaking is the metre-scale roughness
+  // riding on it, so the threshold is modulated by the wind-projected slope of
+  // the two shortest cascades, normalised by their own RMS (the top mip of the
+  // slope map is <|grad h|^2>, which is exactly that). This is what gives a raft
+  // internal structure and a ragged edge instead of the smooth convex outline a
+  // thresholded low-pass always has - and unlike a procedural noise it is
+  // periodic in each cascade's own tile, so it cannot introduce a seam.
+  float rough = 0.0;
+  for (int c = 2; c < 4; c++){
+    if (c >= uCascadeCount) break;
+    vec3 uvc = vec3(world / uPatch[c], float(c));
+    float rms = sqrt(max(textureLod(uSlope, uvc, 32.0).w, 1e-9));
+    rough += dot(textureLod(uSlope, uvc, max(uCompLod[c] - 2.0, 0.0)).xy, wd) / rms;
+  }
+  float cut = uCutoff - uBreakup * rough;
+
+  float fold  = smoothstep(cut - uSoft, cut + uSoft, xn) * gate * ridge;
+  float birth = clamp(uInject * fold, 0.0, 1.0);
+
+  // Foam lives in undisplaced (Lagrangian) coordinates, so it already rides the
+  // water particle it was born on. What still has to be advected is the surface
+  // drift - Stokes plus wind shear - and that is what draws foam into windrows.
+  vec2 duv = wd * (uDrift * uDt / uL);
+  // Diffusion lengths are metres of sea, not texels. Expressed in texels the
+  // same code smeared a raft over eight metres in the 397 m cascade and over
+  // thirty centimetres in the 17 m one, so each cascade grew a differently
+  // shaped foam and the sum was a soft halo around a hard core.
+  float alongUV  = 0.9 * bs / uL;
+  float acrossUV = 0.16 * bs / uL;
+
+  vec4 prev = textureLod(uPrevFoam, vec3(uv - duv, float(uLayer)), 0.0);
+  // Anisotropic diffusion: a foam raft smears far further along the wind than
+  // across it, which is what turns blobs into streaks.
+  vec4 blur = 0.25 * (
+      textureLod(uPrevFoam, vec3(uv - duv + wd*alongUV,  float(uLayer)), 0.0)
+    + textureLod(uPrevFoam, vec3(uv - duv - wd*alongUV,  float(uLayer)), 0.0)
+    + textureLod(uPrevFoam, vec3(uv - duv + wn*acrossUV, float(uLayer)), 0.0)
+    + textureLod(uPrevFoam, vec3(uv - duv - wn*acrossUV, float(uLayer)), 0.0));
   prev = mix(prev, blur, clamp(uSpreadRate * uDt, 0.0, 1.0));
 
-  // Folding (J below threshold) injects whitewater; steep faces inject a little.
-  float fold = clamp((uThreshold - J) / max(uThreshold, 1e-3), 0.0, 1.0);
-  float inject = uInject * pow(fold, 1.35);
+  // The buffer is stored pre-multiplied by this cascade's share of the foam
+  // budget, but the physics below is a fraction of the texel's own area and has
+  // to saturate at one. Left in the weighted frame the raft saturated at one per
+  // cascade instead of one in total, and four cascades summing to two is how
+  // twenty percent whitecap coverage became a white-out.
+  float iw = 1.0 / max(uWeight, 1e-3);
+  float pFresh = prev.y * iw, pRes = prev.z * iw;
 
-  float foam = max(prev - uDecay * uDt, 0.0);
-  foam = max(foam, inject);
-  foam = min(foam, 1.6);
+  // Two-stage life. Stage one is the dense, bright crest foam that appears the
+  // instant the crest folds and is gone within a couple of seconds.
+  float fresh = min(max(pFresh * exp(-uFreshDecay * uDt), birth), 1.0);
+  // Stage two is the thin dissipated raft it decays into, which lingers, spreads
+  // and streaks long after the wave that made it has passed. In steady state it
+  // covers freshDecay/decay times the area of the crest foam feeding it, which
+  // is why the raft and not the breaker sets the coverage a photograph shows.
+  // Exponential decay alone never reaches zero, so the raft leaves a film of a
+  // few percent over most of the sea. That film is invisible in a photograph but
+  // it is not invisible to a shader that multiplies it by a foam radiance, and
+  // it is what turns a two percent whitecap coverage into a white sheet. Bubbles
+  // burst at a rate per unit area, not per unit foam, so the sink is linear and
+  // the raft clears in finite time.
+  float residue = pRes * exp(-uDecay * uDt) + fresh * uFreshDecay * uDt;
+  residue = clamp(residue - uThin * uDt, 0.0, 1.0);
 
-  fragColor = vec4(foam, fold, 0.0, 1.0);
+  // These are area fractions of the same texel, so they composite. Taking the
+  // max threw the raft away wherever a crest was breaking, which pinned the
+  // fresh/aged ratio the shading pass reads at exactly one.
+  float total = clamp(fresh + residue * (1.0 - fresh), 0.0, 1.0);
+  fragColor = vec4(vec3(total, fresh, residue) * uWeight, x * x);
 }
 `;
