@@ -33,6 +33,12 @@ uniform float uRMin, uRMax;
 uniform float uHeightScale, uHorizScale;
 uniform float uEarthCurve;
 uniform float uSeaLevel;
+// The craft displaces real water, not just foam: the hull presses a hollow into
+// the surface and the water it moves stands up as a bow wave ahead of it and as
+// shoulders either side. Geometry, so it catches light and shadow like the sea.
+uniform vec3  uHullPos;
+uniform vec2  uHullFwd;
+uniform float uHullPush, uHullRadius, uHullBow, uHullPlane;
 
 out vec3  vWorld;
 out vec3  vFlat;
@@ -71,6 +77,27 @@ void main(){
   }
   vSwellH = swellH;
   pos += disp;
+
+  if (uHullPush > 0.0005) {
+    vec2 rel = xz - uHullPos.xz;
+    float d2 = dot(rel, rel);
+    float R = max(uHullRadius, 0.5);
+    if (d2 < R*R*4.0) {
+      float along = dot(rel, uHullFwd);
+      float lat   = dot(rel, vec2(-uHullFwd.y, uHullFwd.x));
+      // Anisotropic footprint: a hull is long and narrow, so the hollow it makes
+      // is too. Squashing across the beam is what keeps this from reading as a
+      // round dent following the craft.
+      float g = exp(-(along*along/(R*R) + lat*lat/(R*R*0.30)));
+      // Pressed down under and just aft of the hull...
+      float press = -g * smoothstep(1.2, -1.6, along);
+      // ...and the displaced water has to go somewhere: up at the bow and out
+      // to the sides, which is the shoulder the wake arms grow out of.
+      float bow  = g * smoothstep(-0.1, 1.3, along) * uHullBow;
+      float side = g * smoothstep(0.25, 1.0, abs(lat)/R) * uHullBow * 0.5;
+      pos.y += (press + bow + side) * uHullPush * uHullPlane;
+    }
+  }
 
   // Planet curvature drops the far surface away, which is what actually puts
   // the horizon at the right place and hides the end of the grid.

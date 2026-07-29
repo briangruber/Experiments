@@ -124,7 +124,7 @@ export const defaults = {
   spraySizeMin: 0.018,     // billboards are parcels of spray, not single drops
   spraySizeMax: 0.15,
   spraySize: 1.0,
-  sprayStretch: 0.030,      // shutter the motion smear is integrated over, s
+  sprayStretch: 0.014,      // shutter the motion smear is integrated over, s
   sprayOpacity: 0.85,
   sprayFadeNear: 0.4,
   sprayMinPixels: 1.15,    // sub-pixel droplets are grown and dimmed, not dropped
@@ -133,7 +133,7 @@ export const defaults = {
   sprayAerial: 0.0012,
   sprayGrain: 0.85,         // how far each parcel is broken up into droplet texture
   sprayGrainScale: 5.2,     // droplet clumps across one billboard
-  sprayGrainAniso: 3.0,     // that texture drawn out along the direction of flight
+  sprayGrainAniso: 1.5,     // that texture drawn out along the direction of flight
 
   // ---- spindrift & sea mist ----
   sprayMist: 0.0,           // spindrift removed: it read as grey smear and every
@@ -270,6 +270,9 @@ export const defaults = {
   wakeCentre: 0.5,          // aerated churn between them
   craftLift: 0.34,          // rides the hull's designed waterline on the surface
   craftSprayAmount: 1.0,
+  hullPush: 0.55,           // depth of the hollow the hull presses, m
+  hullRadius: 2.6,          // along-hull extent of that footprint, m
+  hullBow: 0.9,             // how much of it stands back up as bow wave
   craftPlaneSpeed: 6.0,     // m/s the hull starts to plane; below this, no spray
   craftPlaneFull: 14.0,     // m/s where shedding saturates
   craftSprayLife: 0.85,     // thrown water falls straight back; it must not hang
@@ -606,6 +609,9 @@ export const SCHEMA = [
       S('wrCarveGrip', 'Carve grip loss', 0.05, 1, 0.01),
       S('wrCarveDrag', 'Carve speed scrub', 0.5, 5, 0.01),
       S('craftSprayAmount', 'Hull spray', 0, 3, 0.01),
+      S('hullPush', 'Hull displaces water (m)', 0, 2, 0.01),
+      S('hullRadius', 'Hull footprint (m)', 0.5, 10, 0.05),
+      S('hullBow', 'Bow wave', 0, 3, 0.01),
       S('craftPlaneSpeed', 'Planing speed (m/s)', 0, 20, 0.1),
       S('craftPlaneFull', 'Full shedding (m/s)', 2, 30, 0.1),
       S('craftSprayLife', 'Hull spray lifetime (s)', 0.1, 4, 0.01),

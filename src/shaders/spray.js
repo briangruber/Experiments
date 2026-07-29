@@ -192,7 +192,17 @@ void main(){
       vec3 v = vec3(-uCraftFwd.x, 0.0, -uCraftFwd.y) * uCraftSpeed * (0.15 + 0.25*s2);
       v += vec3(side.x, 0.0, side.y) * uCraftSpread * energy * (0.5 + s2);
       v.y += uCraftUp * energy * (0.6 + 0.7*s2);
-      v += vec3(s1, 0.0, s3) * 1.5;
+      // Every hull droplet inherited nearly the same velocity, and the billboard
+      // is stretched along its own velocity - so they all became parallel sticks
+      // pointing the same way. Real thrown water fans out hard. Scatter the
+      // direction properly: a wide cone, not a jitter on a common vector.
+      float a1 = hash12(vec2(fid*1.77 + 2.9, ep*0.907)) * 6.2831853;
+      float a2 = hash12(vec2(fid*2.31 + 7.3, ep*0.113));
+      float sp2 = length(v);
+      vec3 cone = vec3(cos(a1), 0.0, sin(a1)) * (0.55 + 0.85*a2);
+      cone.y = 0.35 + 1.25*a2;
+      v = mix(v, normalize(cone + vec3(0.0, 0.2, 0.0)) * sp2, 0.55 + 0.35*a2);
+      v += vec3(s1, s3*0.6, s3) * 2.2;
       oPos = vec4(sp, uCraftLife * (0.35 + 0.75*s2));
       oVel = vec4(v, mix(uSizeMin, uSizeMax, s2) * (0.7 + 0.8*energy));
       return;

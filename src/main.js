@@ -366,6 +366,16 @@ function frame(now) {
     uWakeRadius: 40 + params.wakeWidth * 6 + (waveRunner.speed || 0) * params.wakeLife,
     uWakeWidth: params.wakeWidth, uWakeLife: params.wakeLife,
     uWakeStrength: waveRunner.active ? params.wakeStrength : 0,
+    uHullPos: waveRunner.active
+      ? new Float32Array([waveRunner.pos[0], waveRunner.deckY ?? 0, waveRunner.pos[2]])
+      : new Float32Array([0, -1e4, 0]),
+    uHullFwd: new Float32Array(cf),
+    uHullPush: waveRunner.active ? params.hullPush : 0,
+    uHullRadius: params.hullRadius, uHullBow: params.hullBow,
+    // The hollow only exists once the hull is actually loading the water.
+    uHullPlane: waveRunner.active
+      ? Math.min(1, 0.35 + 0.65 * Math.abs(waveRunner.speed) / Math.max(params.craftPlaneFull, 1))
+      : 0,
     uWakeSpread: params.wakeSpread, uWakeArmRate: params.wakeArmRate,
     uWakeArm: params.wakeArm, uWakeCentre2: params.wakeCentre,
     uInterReflect: params.interReflect, uWaveAO: params.waveAO,
