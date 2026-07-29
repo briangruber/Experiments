@@ -244,6 +244,24 @@ window.addEventListener('keydown', (e) => {
 const hudFps = document.getElementById('hud-fps');
 let last = performance.now(), fpsAvg = 60, simTime = 0, frames = 0;
 let fpsFrames = 0, fpsWindow = 0, hudDue = true;
+// Adaptive resolution. A fixed mobile budget cannot know whether it is on an
+// iPhone 12 or a 16 Pro, so the renderer measures itself and trims pixels until
+// it hits the target. Coarse steps on a one-second cadence: every change
+// reallocates the HDR targets, so thrashing would cost more than it saves.
+let qAccum = 0, qFrames = 0;
+function adaptQuality(dtRaw) {
+  if (!params.adaptiveQuality) return;
+  qAccum += dtRaw; qFrames++;
+  if (qAccum < 1.0) return;
+  const fps = qFrames / qAccum;
+  qAccum = 0; qFrames = 0;
+  const lo = params.renderScaleMin, hi = params.renderScaleMax;
+  if (fps < params.targetFps * 0.9 && params.renderScale > lo) {
+    params.renderScale = Math.max(lo, params.renderScale - 0.08);
+  } else if (fps > params.targetFps * 1.25 && params.renderScale < hi) {
+    params.renderScale = Math.min(hi, params.renderScale + 0.04);
+  }
+}
 // Below 10 fps the integer readout collapses to '0'; a tenth is the difference
 // between 'slow' and 'not running'.
 const fmtFps = (f) => (f < 10 ? f.toFixed(1) : f.toFixed(0));
@@ -256,6 +274,7 @@ function frame(now) {
   if (fpsWindow >= 0.5) { fpsAvg = fpsFrames / fpsWindow; fpsFrames = 0; fpsWindow = 0; hudDue = true; }
   frames++;
 
+  adaptQuality(dtRaw);
   resize();
   derive();
 
@@ -399,10 +418,10 @@ function frame(now) {
       // The hull's designed waterline sits above its keel, so the origin has to
       // ride proud of the surface or the sea closes over the deck.
       [waveRunner.pos[0], (waveRunner.deckY ?? 0) + params.craftLift, waveRunner.pos[2]],
-      waveRunner.heading + params.craftYawOffset,
+      waveRunner.heading,
       waveRunner.pitchTrim + params.craftPitchOffset,
       waveRunner.bank + waveRunner.rollTrim + params.craftRollOffset,
-      params.craftScale,
+      params.craftScale, params.craftYawOffset,
     );
     craft.draw(params, ctx, sky.lut);
   }

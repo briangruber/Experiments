@@ -7,6 +7,15 @@
   --line: rgba(255,255,255,.075);
 }
 *{box-sizing:border-box}
+/* iOS turns a long press into a text selection and a callout menu, which is
+   exactly the gesture used to hold the throttle. Suppress it everywhere except
+   the controls a person actually needs to type into or drag. */
+html,body,#hud,#ui,#panel-toggle,canvas{
+  -webkit-touch-callout:none;
+  -webkit-user-select:none;user-select:none;
+  -webkit-tap-highlight-color:transparent;
+}
+input,select,textarea{-webkit-user-select:auto;user-select:auto}
 html,body{margin:0;height:100%;overflow:hidden;background:#05070a;
   font:12px/1.45 ui-sans-serif,-apple-system,"SF Pro Text",Inter,Segoe UI,Roboto,sans-serif;
   color:var(--fg);-webkit-font-smoothing:antialiased}

@@ -147,7 +147,7 @@ export class Craft {
 
   // Orthonormal basis straight into the matrix columns: local +X starboard,
   // +Y up, +Z aft, so the bow sits at -Z and world forward is -Z local.
-  setTransform(pos, yaw, pitch, roll, scale) {
+  setTransform(pos, yaw, pitch, roll, scale, modelYaw = 0) {
     const cy = Math.cos(yaw), sy = Math.sin(yaw);
     const cp = Math.cos(pitch), sp = Math.sin(pitch);
     const cr = Math.cos(roll), sr = Math.sin(roll);
@@ -157,10 +157,19 @@ export class Craft {
     u = [-u[0], -u[1], -u[2]];
     const r2 = r.map((v, i) => v * cr + u[i] * sr);
     const u2 = u.map((v, i) => v * cr - r[i] * sr);
+    // The model's own yaw correction has to be applied INSIDE the craft frame.
+    // Folding it into the craft's heading instead also rotates the roll axis, so
+    // a 180-degree correction silently swaps port and starboard and the hull
+    // banks the wrong way out of every turn.
+    const b = [-f[0], -f[1], -f[2]];
+    const cf = Math.cos(modelYaw), sf = Math.sin(modelYaw);
+    const rr = r2.map((v, i) => v * cf - b[i] * sf);
+    const bb = r2.map((v, i) => v * sf + b[i] * cf);
+
     const m = this.model;
-    m[0] = r2[0] * scale; m[1] = r2[1] * scale; m[2] = r2[2] * scale; m[3] = 0;
+    m[0] = rr[0] * scale; m[1] = rr[1] * scale; m[2] = rr[2] * scale; m[3] = 0;
     m[4] = u2[0] * scale; m[5] = u2[1] * scale; m[6] = u2[2] * scale; m[7] = 0;
-    m[8] = -f[0] * scale; m[9] = -f[1] * scale; m[10] = -f[2] * scale; m[11] = 0;
+    m[8] = bb[0] * scale; m[9] = bb[1] * scale; m[10] = bb[2] * scale; m[11] = 0;
     m[12] = pos[0]; m[13] = pos[1]; m[14] = pos[2]; m[15] = 1;
   }
 

@@ -374,6 +374,10 @@ export const defaults = {
   gridAngular: 640,
   sprayTexSize: 160,
   renderScale: 1.0,
+  adaptiveQuality: 1,       // trim resolution until the target frame rate is met
+  targetFps: 40,
+  renderScaleMin: 0.4,
+  renderScaleMax: 1.0,
   photoSamples: 24,
 };
 
@@ -735,6 +739,9 @@ export const SCHEMA = [
       S('gridAngular', 'Grid angular', 64, 1536, 16, { rebuildGrid: true, integer: true }),
       E('sprayTexSize', 'Spray particles', [64, 128, 192, 256, 384], { rebuildSpray: true }),
       S('renderScale', 'Render scale', 0.35, 2, 0.05, { resize: true }),
+      S('adaptiveQuality', 'Adaptive resolution', 0, 1, 1, { integer: true }),
+      S('targetFps', 'Target frame rate', 20, 120, 1),
+      S('renderScaleMin', 'Min render scale', 0.25, 1, 0.05),
       S('photoSamples', 'Photo mode samples', 1, 128, 1, { integer: true }),
     ],
   },
