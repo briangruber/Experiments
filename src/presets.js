@@ -270,6 +270,10 @@ export const defaults = {
   wakeCentre: 0.5,          // aerated churn between them
   craftLift: 0.34,          // rides the hull's designed waterline on the surface
   craftSprayAmount: 1.0,
+  craftPlaneSpeed: 6.0,     // m/s the hull starts to plane; below this, no spray
+  craftPlaneFull: 14.0,     // m/s where shedding saturates
+  craftSprayLife: 0.85,     // thrown water falls straight back; it must not hang
+  craftSprayPulse: 0.45,    // overall share of the budget the hull may claim
   craftSpraySpread: 2.6,
   craftSprayUp: 3.4,
   wrView: 1,                // 0 rider POV, 1 chase
@@ -602,6 +606,10 @@ export const SCHEMA = [
       S('wrCarveGrip', 'Carve grip loss', 0.05, 1, 0.01),
       S('wrCarveDrag', 'Carve speed scrub', 0.5, 5, 0.01),
       S('craftSprayAmount', 'Hull spray', 0, 3, 0.01),
+      S('craftPlaneSpeed', 'Planing speed (m/s)', 0, 20, 0.1),
+      S('craftPlaneFull', 'Full shedding (m/s)', 2, 30, 0.1),
+      S('craftSprayLife', 'Hull spray lifetime (s)', 0.1, 4, 0.01),
+      S('craftSprayPulse', 'Hull spray density', 0, 1.5, 0.01),
       S('craftSpraySpread', 'Hull spray spread', 0, 8, 0.05),
       S('craftSprayUp', 'Hull spray lift', 0, 10, 0.05),
       S('wakeStrength', 'Wake strength', 0, 3, 0.01),
