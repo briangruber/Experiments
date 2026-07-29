@@ -326,6 +326,13 @@ function frame(now) {
     craftTurn: waveRunner.active ? waveRunner.yawRate : 0,
     craftAmount: waveRunner.active ? params.craftSprayAmount : 0,
     craftLoad: waveRunner.active ? (waveRunner.hullLoad ?? 0) : 0,
+    // The rider's inputs and the hull's attitude, which is what the spray
+    // emitter needs to know to point the water anywhere sensible.
+    craftSteer: waveRunner.active ? waveRunner.steerIn : 0,
+    craftThrottle: waveRunner.active ? (waveRunner.throttle ?? 0) : 0,
+    craftSlip: waveRunner.active ? (waveRunner.slipSigned ?? 0) : 0,
+    craftAir: waveRunner.active && waveRunner.airborne ? 1 : 0,
+    craftImpact: waveRunner.active ? waveRunner.impact : 0,
   };
 
   if (!frozen) spray.update(stepDt, params, ctx, ocean);

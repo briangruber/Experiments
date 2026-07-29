@@ -128,14 +128,19 @@ ${SPRAY_PARTICLE_GLSL}
 in vec2 vUv;
 uniform sampler2D uPos, uVel;
 uniform vec3  uCamPos, uWind;
-// Hull emitter. The craft throws water on its own account: a plume off the
-// transom, sheets off whichever chine the turn has buried, and far more of both
-// in a hard carve than in a straight run.
+// Hull emitter - see the birth block below. A wave runner has four separate
+// sources, not one, and each has its own geometry.
 uniform vec3  uCraftPos;
 uniform vec2  uCraftFwd, uCraftRight;
-uniform float uCraftSpeed, uCraftTurn, uCraftAmount, uCraftSpread, uCraftUp, uCraftBeam;
+uniform float uCraftSpeed, uCraftTurn, uCraftAmount, uCraftSpread, uCraftUp;
+uniform float uCraftBeam, uCraftLen;
 uniform float uCraftPlane, uCraftPlaneFull, uCraftLife, uCraftPulse;
 uniform float uCraftLoad, uCraftLoadFull;
+uniform float uCraftSteer, uCraftThrottle, uCraftSlip, uCraftAir, uCraftImpact;
+uniform float uCraftJet, uCraftJetSpeed, uCraftJetAngle, uCraftJetRise;
+uniform float uCraftSheet, uCraftSheetSpeed;
+uniform float uCraftCurtain, uCraftCurtainSpeed;
+uniform float uCraftBurst;
 uniform float uDt, uTime, uFrame, uTexSize;
 uniform float uSpawnRadius, uSpawnRate, uSpawnFocus;
 uniform float uFoldThreshold, uFoldSoft, uFoamBias;
@@ -164,53 +169,172 @@ void main(){
     // The hull is a far denser source than the open sea whenever it is working,
     // so it gets first claim on a dead particle. Droplets, never mist: what the
     // hull throws is heavy water, not spindrift.
+    //
+    // A wave runner does not have "a spray". It has four sources, each with its
+    // own place on the hull, its own launch direction and its own shape, and
+    // which of them is loud depends entirely on what the rider is doing:
+    //
+    //   1  the pump jet, leaving the steering nozzle wherever the bars point
+    //   2  the chine sheets, peeled off the planing surfaces and thrown out flat
+    //   3  the slip curtain, shovelled up by a hull sliding sideways out of a turn
+    //   4  the bow burst, thrown forward when the hull lands or punches a crest
+    //
+    // The previous emitter had one point, one direction, and a wide random cone
+    // laid over the top to break up the parallel streaks that direction produced.
+    // The cone worked, but it is isotropic: it threw away every bit of directional
+    // information the launch had, which is exactly why a hard turn looked the same
+    // as a straight run. Each source now gets a cone of its own, oriented along
+    // something physical, and its own weight in the mix.
+    //
     // A displacement hull throws almost nothing: below planing speed a ski just
-    // pushes a bow wave and a little wash. Spray is what happens once the hull
-    // climbs onto its own bow wave and the chines start shedding. Emission
-    // therefore has a threshold, not a slope through the origin - the old linear
-    // term meant a permanent plume at idle.
+    // pushes a bow wave and a little wash, so the terms below have thresholds
+    // rather than slopes through the origin.
     float plane = smoothstep(uCraftPlane, uCraftPlaneFull, uCraftSpeed);
-    float turnF = clamp(abs(uCraftTurn) * 1.9, 0.0, 1.0);
-    // Water does not shed at a constant rate. The chine bites, sheds a sheet and
-    // reloads, so the source pulses several times a second; a steady stream is
-    // most of why it read as a dust cloud rather than as water.
-    float pulse = 0.35 + 0.65 * pow(0.5 + 0.5*sin(uTime*9.1 + hash11(floor(uTime*4.0))*15.0), 1.6);
-    // Two independent sources, summed rather than multiplied. Planing gives the
-    // steady shedding off the chines; hull load gives the burst a carve throws.
-    // Multiplying them, as before, meant the carve could only ever scale
-    // something the carve itself was destroying.
-    float load = smoothstep(2.0, uCraftLoadFull, uCraftLoad);
-    float craftDrive = uCraftAmount * (1.0 - mist) * pulse * uCraftPulse
-                     * clamp(plane * (0.30 + 0.5*turnF) + load * 1.4, 0.0, 1.6);
+    float load  = smoothstep(2.0, uCraftLoadFull, uCraftLoad);
+    float slipS = uCraftSlip;                 // signed, m/s, positive to starboard
+    float slipA = abs(slipS);
+    float wet   = 1.0 - uCraftAir;            // out of the water, out of water
+    // Water does not shed at a constant rate: a chine bites, sheds a sheet and
+    // reloads. Each source runs on its own clock, because one shared pulse made
+    // the whole plume breathe as a single object rather than as several.
+    float pJet   = 0.72 + 0.28*sin(uTime*19.7);
+    float pSheet = 0.28 + 0.72*pow(0.5 + 0.5*sin(uTime*8.7 + hash11(floor(uTime*3.0))*13.0), 1.7);
+    float pCurt  = 0.34 + 0.66*pow(0.5 + 0.5*sin(uTime*5.9 + 2.1), 1.4);
+
+    // The pump runs off throttle, not off speed - which is why a ski standing
+    // still on full lock still throws a tail, and why a carve that has scrubbed
+    // all its speed does not go quiet.
+    float wJet   = uCraftJet * uCraftThrottle * (0.30 + 0.70*plane) * pJet * wet;
+    float wSheet = uCraftSheet * plane * pSheet * wet;
+    // Sideslip and hull load are what a carve actually is, and both survive the
+    // speed a carve destroys.
+    float wCurt  = uCraftCurtain * clamp(slipA*0.40 + load*0.95, 0.0, 2.0) * pCurt * wet;
+    float wBurst = uCraftBurst * uCraftImpact * 3.2;
+    float wTot   = wJet + wSheet + wCurt + wBurst;
+
+    float craftDrive = uCraftAmount * (1.0 - mist) * uCraftPulse * clamp(wTot, 0.0, 2.2);
     if (craftDrive > 0.001 && hash12(vec2(fid*0.0173 + 5.7, ep*0.531)) < craftDrive){
-      vec2 h1 = hash22(vec2(fid*0.311 + 1.3, ep*0.617));
-      float s1 = h1.x - 0.5, s2 = h1.y;
-      float s3 = hash12(vec2(fid*0.719 + 9.1, ep*0.233)) - 0.5;
-      // Two sources: the plume behind the transom, and the sheet peeling off the
-      // buried chine. A straight run is almost all plume; a carve is mostly sheet.
-      float rooster = step(0.35 + 0.45*clamp(abs(uCraftTurn)*2.0, 0.0, 1.0), s2);
-      vec2 side = uCraftRight * (rooster > 0.5 ? s1 * 0.7
-                                : sign(uCraftTurn == 0.0 ? 1.0 : -uCraftTurn) * (0.5 + 0.5*abs(s1)));
-      vec2 back = uCraftFwd * (rooster > 0.5 ? -0.85 - s2*0.8 : -0.15 + s1*0.6);
-      float energy = clamp(plane * 0.9 + load * 1.6 + abs(uCraftTurn)*0.8, 0.05, 2.6);
-      vec3 sp = uCraftPos + vec3(side.x*uCraftBeam + back.x, 0.10 + 0.2*s2,
-                                 side.y*uCraftBeam + back.y);
-      vec3 v = vec3(-uCraftFwd.x, 0.0, -uCraftFwd.y) * uCraftSpeed * (0.15 + 0.25*s2);
-      v += vec3(side.x, 0.0, side.y) * uCraftSpread * energy * (0.5 + s2);
-      v.y += uCraftUp * energy * (0.6 + 0.7*s2);
-      // Every hull droplet inherited nearly the same velocity, and the billboard
-      // is stretched along its own velocity - so they all became parallel sticks
-      // pointing the same way. Real thrown water fans out hard. Scatter the
-      // direction properly: a wide cone, not a jitter on a common vector.
-      float a1 = hash12(vec2(fid*1.77 + 2.9, ep*0.907)) * 6.2831853;
-      float a2 = hash12(vec2(fid*2.31 + 7.3, ep*0.113));
-      float sp2 = length(v);
-      vec3 cone = vec3(cos(a1), 0.0, sin(a1)) * (0.55 + 0.85*a2);
-      cone.y = 0.35 + 1.25*a2;
-      v = mix(v, normalize(cone + vec3(0.0, 0.2, 0.0)) * sp2, 0.55 + 0.35*a2);
-      v += vec3(s1, s3*0.6, s3) * 2.2;
-      oPos = vec4(sp, uCraftLife * (0.35 + 0.75*s2));
-      oVel = vec4(v, mix(uSizeMin, uSizeMax, s2) * (0.7 + 0.8*energy));
+      vec2 hA = hash22(vec2(fid*0.311 + 1.3, ep*0.617));   // where on the hull
+      vec2 hB = hash22(vec2(fid*0.719 + 9.1, ep*0.233));   // where in the cone
+      vec2 hC = hash22(vec2(fid*1.093 + 3.7, ep*0.409));   // how fast, how long
+      float pick = hash12(vec2(fid*1.31 + 4.4, ep*0.751)) * max(wTot, 1e-5);
+      float u = sprayShred(fid);         // 0 leading edge, 1 shredded tail
+      // A cheap hash does not have a mean of exactly 0.5, and a cone built as
+      // (h*2 - 1) turns that small offset into a systematic sideways lean of the
+      // entire plume: a dead straight run measurably sprayed more to starboard
+      // than to port. Taking the *sign* from the particle index and only the
+      // magnitude from the hash is symmetric whatever the hash's mean is, and it
+      // costs nothing. Two independent bit planes, so the two cone axes do not
+      // end up correlated into a diagonal.
+      float sgnW = mod(fid, 2.0) * 2.0 - 1.0;
+      float sgnN = mod(floor(fid*0.5), 2.0) * 2.0 - 1.0;
+      float coin = mod(floor(fid*0.25), 2.0) * 2.0 - 1.0;   // exact 50/50 side
+
+      vec3 F = vec3(uCraftFwd.x, 0.0, uCraftFwd.y);
+      vec3 Rt = vec3(uCraftRight.x, 0.0, uCraftRight.y);
+      const vec3 UP = vec3(0.0, 1.0, 0.0);
+      vec3 hullVel = F * uCraftSpeed + Rt * slipS;
+      float spreadK = max(uCraftSpread, 0.0);
+      float liftK   = max(uCraftUp, 0.0);
+
+      vec3  org  = vec3(0.0);   // launch point, hull-relative
+      vec3  axis = -F;          // centre of the launch cone
+      float relV = 1.0;         // launch speed relative to the hull
+      float inherit = 0.4;      // how much of the hull's own motion it keeps
+      float aWide = 0.3, aNar = 0.3;   // cone half-angles, in and across the sheet
+      float energy = 0.5;
+      float lifeK = 1.0;    // heavy parcels hang around longer than fine ones
+
+      if (pick < wJet){
+        // 1. Pump jet. The nozzle steers with the bars, and that single fact is
+        // what makes a rooster tail sweep across a turn instead of always
+        // trailing the hull's own heading. It is also aimed slightly up, which is
+        // what stands the tail up behind the craft rather than firing it flat.
+        float na = uCraftJetAngle * clamp(uCraftSteer, -1.0, 1.0);
+        axis = normalize(-F*cos(na) + Rt*sin(na) + UP*uCraftJetRise*liftK);
+        org  = -F*uCraftLen*0.95 + Rt*coin*hA.x*uCraftBeam*0.25
+             + UP*(0.10 + 0.26*hA.y);
+        // A jet is coherent where it leaves and torn apart further along, so the
+        // tail of each burst opens out far wider than its head.
+        aWide = (0.09 + 0.44*u) * spreadK;
+        aNar  = (0.06 + 0.34*u) * spreadK;
+        relV  = uCraftJetSpeed * (0.60 + 0.55*hC.x) * (0.35 + 0.65*uCraftThrottle);
+        // The jet leaves at roughly the speed the hull is doing, in the opposite
+        // direction, so in world terms the tail hangs almost still behind the
+        // craft. Inheriting the hull's velocity here would fire it forwards.
+        inherit = 0.16;
+        energy  = 0.45 + 0.85*uCraftThrottle;
+        lifeK   = 1.2;
+      } else if (pick < wJet + wSheet){
+        // 2. Chine sheets. A planing hull's deadrise deflects water sideways and
+        // slightly forward, leaving as a thin flat sheet - so this cone is wide
+        // in the horizontal and almost closed in the vertical. Anything else and
+        // the wings either side of a planing hull come out as a cloud.
+        float buried = uCraftTurn >= 0.0 ? 1.0 : -1.0;
+        float turnAmt = clamp(abs(uCraftTurn)*1.6, 0.0, 0.85);
+        // The buried rail does most of the work; the one the bank has lifted
+        // clear does almost none. With no turn the exact coin splits the two
+        // chines evenly, and the hash only ever biases *towards* the buried side.
+        float sd = mix(coin, buried, step(hA.y, turnAmt));
+        float isB = step(0.5, sd*buried*0.5 + 0.5);
+        float sideGain = mix(1.0 - 0.80*turnAmt, 1.0 + turnAmt, isB);
+        org  = F*(hA.x - 0.45)*uCraftLen*1.1 + Rt*sd*uCraftBeam*0.95 + UP*0.05;
+        axis = normalize(Rt*sd*0.86 + F*0.42 + UP*0.16*liftK);
+        aWide = (0.22 + 0.26*u) * spreadK;
+        aNar  = (0.045 + 0.075*u) * spreadK;
+        relV  = uCraftSpeed * uCraftSheetSpeed * (0.70 + 0.50*hC.x);
+        inherit = 0.50;
+        energy  = (0.30 + 0.85*plane) * sideGain;
+        lifeK   = 0.85;
+      } else if (pick < wJet + wSheet + wCurt){
+        // 3. Slip curtain. In a carve the velocity lags the heading, so the hull
+        // is travelling partly sideways and shovelling water with its flank. That
+        // wall goes up and out on the side it is sliding towards - the outside of
+        // the turn - which is the opposite side to the chine sheet above, and
+        // getting the two on the correct sides is most of what makes a hard turn
+        // read as a hard turn.
+        float side = slipA > 0.05 ? sign(slipS) : coin;
+        org  = -F*uCraftLen*(0.10 + 0.70*hA.x)
+             + Rt*side*uCraftBeam*(0.80 + 0.40*hA.y) + UP*0.06;
+        axis = normalize(Rt*side*0.72 + UP*0.62*liftK - F*0.14);
+        aWide = (0.30 + 0.32*u) * spreadK;
+        aNar  = (0.18 + 0.26*u) * spreadK;
+        relV  = (slipA*uCraftCurtainSpeed + load*4.5 + uCraftSpeed*0.10)
+              * (0.60 + 0.60*hC.x);
+        inherit = 0.45;
+        energy  = clamp(0.40 + slipA*0.22 + load*1.10, 0.0, 2.2);
+        lifeK   = 1.3;
+      } else {
+        // 4. Bow burst. Landing off a crest or punching through one throws water
+        // forward and up in a crown, and it is left behind almost at once.
+        org  = F*uCraftLen*(0.60 + 0.50*hA.x)
+             + Rt*coin*hA.y*uCraftBeam*0.8 + UP*0.04;
+        axis = normalize(F*0.42 + UP*0.86*liftK);
+        aWide = (0.70 + 0.30*u) * spreadK;
+        aNar  = (0.50 + 0.30*u) * spreadK;
+        relV  = (uCraftSpeed*0.35 + uCraftImpact*9.0) * (0.50 + 0.80*hC.x);
+        inherit = 0.35;
+        energy  = 0.55 + 1.35*uCraftImpact;
+        lifeK   = 1.1;
+      }
+
+      // The cone, oriented on the source's own axis. One tangent is horizontal
+      // and the other carries the vertical, so a sheet can be broad and flat
+      // while a splash is broad both ways - which one isotropic cone cannot do.
+      vec3 wide = cross(UP, axis);
+      float wl = length(wide);
+      wide = wl > 1e-3 ? wide/wl : vec3(1.0, 0.0, 0.0);
+      vec3 nar = cross(axis, wide);
+      vec3 dir = normalize(axis
+               + wide * tan(min(aWide, 1.25)) * sgnW * hB.x
+               + nar  * tan(min(aNar,  1.25)) * sgnN * hB.y);
+
+      vec3 v = hullVel * inherit + dir * relV;
+      // Whatever leaves the hull immediately meets the craft's own apparent wind.
+      v += (uWind - hullVel) * 0.08;
+
+      oPos = vec4(uCraftPos + org, uCraftLife * (0.35 + 0.80*hC.y) * lifeK);
+      oVel = vec4(v, clamp(energy, 0.05, 1.35));
       return;
     }
 

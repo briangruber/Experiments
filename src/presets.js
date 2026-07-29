@@ -289,8 +289,19 @@ export const defaults = {
   craftSprayLife: 0.85,     // thrown water falls straight back; it must not hang
   craftSprayPulse: 0.45,    // overall share of the budget the hull may claim
   craftLoadFull: 22.0,      // hull load (m/s^2) at which carve spray saturates
-  craftSpraySpread: 2.6,
-  craftSprayUp: 3.4,
+  craftSpraySpread: 1.0,    // multiplier on every source's cone width
+  craftSprayUp: 1.0,        // ...and on how much of each launch is aimed upward
+  // The four hull sources. Weights are relative, so raising one steals share
+  // from the others rather than adding particles on top.
+  craftJet: 1.0,            // pump jet out of the steering nozzle
+  craftJetSpeed: 17.0,      // nozzle exit speed, m/s
+  craftJetAngle: 0.60,      // nozzle deflection at full lock, radians
+  craftJetRise: 0.42,       // nozzle trim: what stands the rooster tail up
+  craftSheet: 0.85,         // sheets peeling off the planing chines
+  craftSheetSpeed: 0.42,    // as a fraction of hull speed
+  craftCurtain: 1.15,       // the wall a sideways-sliding hull shovels up
+  craftCurtainSpeed: 1.8,   // per m/s of sideslip
+  craftBurst: 0.9,          // bow crown on landing or punching a crest
   wrView: 1,                // 0 rider POV, 1 chase
   wrCamDistance: 6.4,
   wrCamRise: 2.4,
@@ -641,8 +652,17 @@ export const SCHEMA = [
       S('craftSprayLife', 'Hull spray lifetime (s)', 0.1, 4, 0.01),
       S('craftSprayPulse', 'Hull spray density', 0, 1.5, 0.01),
       S('craftLoadFull', 'Carve spray saturation', 4, 60, 0.5),
-      S('craftSpraySpread', 'Hull spray spread', 0, 8, 0.05),
-      S('craftSprayUp', 'Hull spray lift', 0, 10, 0.05),
+      S('craftSpraySpread', 'Hull spray spread', 0, 3, 0.01),
+      S('craftSprayUp', 'Hull spray lift', 0, 3, 0.01),
+      S('craftJet', 'Jet: rooster tail', 0, 3, 0.01),
+      S('craftJetSpeed', 'Jet: nozzle speed (m/s)', 0, 40, 0.5),
+      S('craftJetAngle', 'Jet: nozzle deflection', 0, 1.4, 0.01),
+      S('craftJetRise', 'Jet: nozzle trim', 0, 1.5, 0.01),
+      S('craftSheet', 'Chine sheets', 0, 3, 0.01),
+      S('craftSheetSpeed', 'Chine sheet speed', 0, 1.5, 0.01),
+      S('craftCurtain', 'Carve curtain', 0, 3, 0.01),
+      S('craftCurtainSpeed', 'Carve curtain speed', 0, 6, 0.05),
+      S('craftBurst', 'Bow burst', 0, 3, 0.01),
       S('wakeStrength', 'Wake strength', 0, 3, 0.01),
       S('wakeWidth', 'Wake arm width (m)', 0.2, 6, 0.05),
       S('wakeLife', 'Wake lifetime (s)', 1, 40, 0.1),

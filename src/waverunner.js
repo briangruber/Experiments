@@ -283,6 +283,11 @@ export class WaveRunner {
     this.vel[0] = nf[0] * u + latX;
     this.vel[1] = nf[1] * u + latZ;
     this.slip = Math.hypot(latX, latZ);
+    // Which way it is sliding, not just how fast. The spray emitter needs the
+    // sign: a hull shovelling water with its port flank throws that water to
+    // port, and a magnitude cannot say which flank.
+    this.slipSigned = -latX * nf[1] + latZ * nf[0];   // dot(lateral, right)
+    this.throttle = Math.max(throttle, 0);
 
     // How hard the hull is actually working the water, in m/s^2. Spray is thrown
     // by force, not by speed: a hard carve is a large lateral acceleration and a

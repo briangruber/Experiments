@@ -93,7 +93,18 @@ export class Spray {
       uCraftPlane: p.craftPlaneSpeed, uCraftPlaneFull: p.craftPlaneFull,
       uCraftLife: p.craftSprayLife, uCraftPulse: p.craftSprayPulse,
       uCraftLoad: ctx.craftLoad ?? 0, uCraftLoadFull: p.craftLoadFull,
-      uCraftBeam: p.wrBeam,
+      uCraftBeam: p.wrBeam, uCraftLen: p.wrLength,
+      // What the rider is doing, which is what decides where the water goes.
+      uCraftSteer: ctx.craftSteer ?? 0,
+      uCraftThrottle: ctx.craftThrottle ?? 0,
+      uCraftSlip: ctx.craftSlip ?? 0,
+      uCraftAir: ctx.craftAir ?? 0,
+      uCraftImpact: ctx.craftImpact ?? 0,
+      uCraftJet: p.craftJet, uCraftJetSpeed: p.craftJetSpeed,
+      uCraftJetAngle: p.craftJetAngle, uCraftJetRise: p.craftJetRise,
+      uCraftSheet: p.craftSheet, uCraftSheetSpeed: p.craftSheetSpeed,
+      uCraftCurtain: p.craftCurtain, uCraftCurtainSpeed: p.craftCurtainSpeed,
+      uCraftBurst: p.craftBurst,
     });
     this.blit.draw();
     this.idx = next;
