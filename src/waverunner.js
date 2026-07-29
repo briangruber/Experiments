@@ -107,6 +107,10 @@ export class WaveRunner {
     this.impact = 0;
     this.probeH = [0, 0, 0, 0];
     this.probeTarget = [0, 0, 0, 0];
+    // Where the craft is, expressed in the frame the FFT fields are indexed by.
+    this.lag = [0, 0];
+    this.lagTarget = [0, 0];
+    this.lagXZ = new Float32Array(2);
     this.speedT = 0;
     this.probeFoam = 0;
     this.touchSteer = 0;
@@ -150,6 +154,7 @@ export class WaveRunner {
     this.airborne = false; this.bank = 0; this.shake = 0; this.impact = 0;
     this.airTime = 0; this.worldY = 0;
     this.surfVel = 0; this.surfAcc = 0;
+    this.lag[0] = 0; this.lag[1] = 0; this._lagPrimed = false;
     this._lastSurf = undefined;
   }
 
@@ -185,7 +190,7 @@ export class WaveRunner {
       uProbe: pts,
       uHeightScale: p.heightScale, uHorizScale: p.horizScale, uSeaLevel: p.seaLevel,
       ...wake.uniforms(p, this.active),
-      uCraftXZ: new Float32Array([this.pos[0], this.pos[2]]),
+      uCraftXZ: this.surfXZ(),
       uWakeProbe: p.wakeProbe,
       uWakeNear: Math.max(p.wrLength, 0.5) * 2.5,
     });
@@ -207,6 +212,14 @@ export class WaveRunner {
         for (let i = 0; i < NPROBE; i++) this.probeTarget[i] = this.readBuf[i * 4];
         if (!this._primed) { for (let i = 0; i < NPROBE; i++) this.probeH[i] = this.probeTarget[i]; this._primed = true; }
         this.probeFoam = this.readBuf[1];
+        // The probe also returns x - p: how far the Lagrangian coordinate the
+        // water shaders index by is from the world point the craft is actually
+        // at. On the default sea that is 1.3 to 1.7 m, and it swings with the
+        // wave phase - so anything the craft writes into a field indexed that
+        // way has to be written at x, not at p.
+        this.lagTarget[0] = this.readBuf[2];
+        this.lagTarget[1] = this.readBuf[3];
+        if (!this._lagPrimed) { this.lag[0] = this.lagTarget[0]; this.lag[1] = this.lagTarget[1]; this._lagPrimed = true; }
       }
     }
     if (!this.fence) {
@@ -226,6 +239,8 @@ export class WaveRunner {
     // Track the probe continuously toward whatever the GPU last reported.
     const pk = 1 - Math.exp(-p.wrProbeSmooth * d);
     for (let i = 0; i < NPROBE; i++) this.probeH[i] += (this.probeTarget[i] - this.probeH[i]) * pk;
+    this.lag[0] += (this.lagTarget[0] - this.lag[0]) * pk;
+    this.lag[1] += (this.lagTarget[1] - this.lag[1]) * pk;
 
     // ---- throttle and steering ----
     const carve = held('ShiftLeft', 'ShiftRight');
@@ -416,14 +431,23 @@ export class WaveRunner {
     const sh = this.shake * p.wrShake * 0.02;
     const fx = Math.sin(this.heading), fz = -Math.cos(this.heading);
 
+    // How fast it is going as a fraction of what it can do. Drives both the
+    // framing and the lens, so it has to be known before either.
+    const fovT = clamp(Math.abs(this.speed) / Math.max(p.wrTopSpeed, 1), 0, 1.2);
+
     if (p.wrView >= 0.5) {
       // Chase. The rig trails the craft in world space and is pulled toward its
       // ideal spot rather than pinned to it, so hard turns swing the camera wide
       // and the craft leads the frame - which is what reads as speed.
+      // The rig falls back as the craft accelerates away from it, and settles a
+      // little lower as it does, so at speed the camera is looking *along* the
+      // water rather than down onto it. That change of framing is most of what
+      // reads as speed in a chase shot - more than the field of view does.
+      const pull = 1 + fovT * fovT * p.wrCamPull;
       const want = [
-        this.pos[0] - fx * p.wrCamDistance,
-        this.deckY + p.wrCamRise,
-        this.pos[2] - fz * p.wrCamDistance,
+        this.pos[0] - fx * p.wrCamDistance * pull,
+        this.deckY + p.wrCamRise * (1 - p.wrCamDrop * fovT * fovT),
+        this.pos[2] - fz * p.wrCamDistance * pull,
       ];
       if (!this.camRig) this.camRig = want.slice();
       const k = 1 - Math.exp(-p.wrCamLag * d);
@@ -461,13 +485,22 @@ export class WaveRunner {
     // to the picture. This tracks the whole range, squared so the first few knots
     // leave the framing alone and the top end opens up hard, and it is lagged so
     // the lens breathes into it instead of snapping.
-    const fovT = clamp(Math.abs(this.speed) / Math.max(p.wrTopSpeed, 1), 0, 1.2);
     const want = p.wrFovKick * fovT * fovT
                + (boost > 1 ? p.wrBoostFov : 0)
                + this.impact * 4.0;
     this.fovKick = lerp(this.fovKick ?? 0, want, 1 - Math.exp(-p.wrFovLag * d));
     camera.fov = p.fov + this.fovKick;
     camera.moved = true;
+  }
+
+  // The craft's position in the frame the ocean's own fields live in. Everything
+  // the craft writes into those fields - the hull footprint, the wake record -
+  // has to be placed here rather than at pos, or it sits a metre or two away from
+  // the craft and slides about as the waves go under it.
+  surfXZ() {
+    this.lagXZ[0] = this.pos[0] + this.lag[0];
+    this.lagXZ[1] = this.pos[2] + this.lag[1];
+    return this.lagXZ;
   }
 
   get speedKts() { return this.speed * 1.94384; }

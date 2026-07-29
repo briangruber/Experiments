@@ -104,7 +104,7 @@ export class Sky {
       uCloudDetail: p.cloudDetail,
       uCirrus: p.cirrus,
       uStars: p.stars,
-      uCloudSteps: p.cloudSteps,
+      uCloudSteps: Math.max(8, Math.round(p.cloudSteps * (p.cloudStepScale ?? 1))),
       uCloudScale: p.cloudScale,
       uCloudShape: p.cloudShape,
       uCloudExtinction: p.cloudExtinction,

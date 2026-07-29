@@ -204,6 +204,9 @@ export const defaults = {
   cloudDetail: 0.6,
   cirrus: 0.28,
   cloudSteps: 48,
+  cloudStepScale: 1.0,      // adaptive multiplier - the cloud march is the
+                            // largest single item in a riding frame
+  cloudStepMin: 0.4,
   cloudScale: 16000.0,      // weather-map cluster size, m
   cloudShape: 1300.0,       // base billow size, m
   cloudExtinction: 0.045,   // 1/m at full density
@@ -221,8 +224,10 @@ export const defaults = {
   cirrusMask: 3.2,          // patchiness scale, in 9 km units
 
   // ---- wave runner ----
-  wrTopSpeed: 24.0,         // m/s; a real ski tops out near 30
-  wrAccel: 11.0,
+  wrTopSpeed: 30.0,         // m/s, about 58 kn. A supercharged ski really does
+                            // do this, and it is where the FOV and chase pull-back
+                            // are calibrated to feel like something.
+  wrAccel: 13.0,            // ...and it has to be able to get there
   wrBrake: 14.0,
   wrBoost: 1.35,
   wrTurnRate: 0.85,         // rad/s at planing speed, full lock
@@ -319,8 +324,14 @@ export const defaults = {
                             // inside itself, which is what makes real hull spray
                             // read bright white whichever way the sun is
   wrView: 1,                // 0 rider POV, 1 chase
-  wrCamDistance: 6.4,
+  wrCamDistance: 6.4,       // at rest
+  wrCamPull: 1.35,          // extra chase distance at top speed, as a fraction.
+                            // The rig falling back as the craft accelerates away
+                            // is most of what makes speed read in a chase shot.
   wrCamRise: 2.4,
+  wrCamDrop: 0.35,          // and it settles lower as it falls back, so the
+                            // camera ends up looking along the water rather than
+                            // down onto it
   wrCamLag: 5.0,            // the rig is pulled to its mark, not pinned to it
   wrCamLook: 2.2,           // how far ahead of the craft the rig aims
   wrCamLookRise: 0.75,
@@ -408,6 +419,8 @@ export const defaults = {
 
   // ---- quality ----
   fftSize: 256,
+  gridScale: 1.0,           // adaptive multiplier on both grid dimensions
+  gridScaleMin: 0.45,       // how far the adaptive controller may thin it
   gridRadial: 400,
   gridAngular: 640,
   sprayTexSize: 160,
@@ -636,6 +649,7 @@ export const SCHEMA = [
       S('cirrusCurl', 'Cirrus curl', 0, 2, 0.01),
       S('cirrusMask', 'Cirrus patchiness', 0.5, 12, 0.05),
       S('cloudSteps', 'March steps', 8, 128, 1, { integer: true }),
+      S('cloudStepMin', 'Min march scale', 0.2, 1, 0.01),
     ],
   },
   {
@@ -651,7 +665,9 @@ export const SCHEMA = [
       S('wrTurnDrag', 'Turn speed scrub', 0, 1.5, 0.01),
       S('wrCoastSteer', 'Off-throttle steering', 0, 1, 0.01),
       S('wrCamDistance', 'Chase distance (m)', 1.5, 16, 0.1),
+      S('wrCamPull', 'Chase pull-back at speed', 0, 3, 0.01),
       S('wrCamRise', 'Chase height (m)', 0.2, 8, 0.05),
+      S('wrCamDrop', 'Chase settles at speed', 0, 1, 0.01),
       S('wrCamLag', 'Chase lag', 0.5, 20, 0.1),
       S('wrCamLook', 'Chase look-ahead (m)', 0, 10, 0.1),
       S('wrCamChaseRoll', 'Chase roll', 0, 1, 0.01),
@@ -795,6 +811,7 @@ export const SCHEMA = [
   {
     group: 'Quality', items: [
       E('fftSize', 'FFT resolution', [64, 128, 256, 512], { rebuildSim: true }),
+      S('gridScaleMin', 'Min grid scale', 0.25, 1, 0.01),
       S('gridRadial', 'Grid radial', 48, 900, 8, { rebuildGrid: true, integer: true }),
       S('gridAngular', 'Grid angular', 64, 1536, 16, { rebuildGrid: true, integer: true }),
       E('sprayTexSize', 'Spray particles', [64, 128, 192, 256, 384], { rebuildSpray: true }),

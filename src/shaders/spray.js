@@ -51,6 +51,22 @@ float heightAt(vec2 q){
 
 float oceanHeight(vec2 world){ return heightAt(toLagrange(world)); }
 
+// The same answer to within a few centimetres for a third of the fetches, which
+// is what both callers here actually need: one decides whether a droplet has
+// drowned and the other fades a billboard out over a 30 cm band. The short
+// cascades contribute millimetres of *horizontal* displacement, so inverting the
+// mapping over the two longest ones and doing it once is plenty - and this runs
+// per particle in the sim and per vertex in the draw pass, six times per
+// billboard, which made it the most expensive thing in the whole spray system.
+float oceanHeightFast(vec2 world){
+  vec2 d = vec2(0.0);
+  for (int c=0;c<2;c++){
+    if (c >= uCascadeCount) break;
+    d += textureLod(uDisp, vec3(world/uPatch[c], float(c)), 0.0).xz;
+  }
+  return heightAt(world - d);
+}
+
 // x: height, y: fresh whitecap fraction (water tumbling this instant),
 // z: total whitecap fraction (tumbling plus the raft it leaves behind).
 //
@@ -455,7 +471,7 @@ void main(){
   vec3 p = P.xyz + v*uDt;
   float life = P.w - uDt;
 
-  float surf = oceanHeight(p.xz)*uHeightScale + uSeaLevel;
+  float surf = oceanHeightFast(p.xz)*uHeightScale + uSeaLevel;
   if (p.y < surf) life = 0.0;
   if (distance(p.xz, uCamPos.xz) > reach*1.7) life = 0.0;
 
@@ -573,7 +589,7 @@ void main(){
   // so interpolating the clearance across the quad gives the same soft
   // waterline for a twelfth of the texture fetches. Inverting the Lagrangian
   // mapping is not cheap and the fragment stage runs it millions of times.
-  vSurfDelta = world.y - (oceanHeight(P.xz)*uHeightScale + uSeaLevel);
+  vSurfDelta = world.y - (oceanHeightFast(P.xz)*uHeightScale + uSeaLevel);
   vWorld  = world;
   vCorner = aCorner;
   vFade   = fade;

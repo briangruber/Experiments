@@ -174,12 +174,19 @@ export class Wake {
     // an exact copy: an unsnapped buffer resamples itself every frame and the
     // whole record dissolves into mush in a couple of seconds.
     const texel = this.extent / this.size;
+    // Everything here is in the frame the ocean's displacement fields are indexed
+    // by, not in world space. The water shaders look this buffer up with the
+    // undisplaced grid coordinate, so a record stamped at the craft's *world*
+    // position lands a metre or two off the craft and slides around as the waves
+    // pass - which is exactly what a wake must not do, since a wake belongs to
+    // the water rather than to the sea floor.
+    const cxz = wr.surfXZ();
     this.prevOrigin[0] = this.origin[0]; this.prevOrigin[1] = this.origin[1];
-    this.origin[0] = Math.round(wr.pos[0] / texel) * texel;
-    this.origin[1] = Math.round(wr.pos[2] / texel) * texel;
+    this.origin[0] = Math.round(cxz[0] / texel) * texel;
+    this.origin[1] = Math.round(cxz[1] / texel) * texel;
 
-    const a = this.prevPos || [wr.pos[0], wr.pos[2]];
-    const b = [wr.pos[0], wr.pos[2]];
+    const a = this.prevPos || [cxz[0], cxz[1]];
+    const b = [cxz[0], cxz[1]];
     this.prevPos = b;
 
     const speedT = Math.min(Math.abs(wr.speed) / Math.max(p.wrTopSpeed * 0.45, 1), 1);

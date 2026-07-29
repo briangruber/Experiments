@@ -34,7 +34,14 @@ const craft = new Craft(gl);
 let grid = null;
 function buildGrid() {
   if (grid) { gl.deleteVertexArray(grid.vao); gl.deleteBuffer(grid.vbo); gl.deleteBuffer(grid.ibo); }
-  const R = Math.round(params.gridRadial), A = Math.round(params.gridAngular);
+  // gridScale is the adaptive controller's second lever - see adaptQuality. At
+  // full quality this is 400 x 640, which is a quarter of a million vertices and
+  // half a million triangles submitted every frame, each one doing four cascade
+  // fetches. On a phone that is often the binding cost rather than fill rate, and
+  // trimming pixels alone cannot touch it.
+  const g = clamp(params.gridScale ?? 1, 0.25, 1);
+  const R = Math.max(24, Math.round(params.gridRadial * g));
+  const A = Math.max(24, Math.round(params.gridAngular * g));
   const verts = new Float32Array((R + 1) * A * 2);
   let o = 0;
   for (let i = 0; i <= R; i++) {
@@ -118,8 +125,20 @@ function derive() {
 // Cascade fade distances: a patch stops contributing once its texels are far
 // smaller than a pixel, which is also where its energy becomes pure roughness.
 function fadeDistances() {
-  return new Float32Array(ocean.L.map((L) => clamp(L * 38, 200, 60000)));
+  for (let i = 0; i < 4; i++) vFade[i] = clamp((ocean.L[i] ?? 1) * 38, 200, 60000);
+  return vFade;
 }
+
+// Scratch vectors for the per-frame uniform block. Allocating a fresh
+// Float32Array per uniform per frame is a dozen short-lived objects every frame,
+// which is exactly the sort of thing that shows up as jitter on a phone rather
+// than as a lower average frame rate.
+const vGrid = new Float32Array(2), vWind2 = new Float32Array(2);
+const vHullPos = new Float32Array(3), vHullFwd = new Float32Array(2);
+const vCraftPos = new Float32Array(3), vCraftFwd = new Float32Array(2);
+const vCraftRight = new Float32Array(2), vFade = new Float32Array(4);
+const set2 = (a, x, y) => { a[0] = x; a[1] = y; return a; };
+const set3 = (a, x, y, z) => { a[0] = x; a[1] = y; a[2] = z; return a; };
 
 // -------------------------------------------------------------- photo mode
 const HALTON = [];
@@ -263,11 +282,31 @@ function adaptQuality(dtRaw) {
   if (qAccum < 1.0) return;
   const fps = qFrames / qAccum;
   qAccum = 0; qFrames = 0;
+  // Three levers, spent in the order a measured frame says they are worth. On a
+  // riding frame the volumetric cloud march is the largest single item - about a
+  // fifth of it - the spray draw is next, and the water grid is third; trimming
+  // pixels touches all of them at once, so it goes first and furthest.
   const lo = params.renderScaleMin, hi = params.renderScaleMax;
-  if (fps < params.targetFps * 0.9 && params.renderScale > lo) {
-    params.renderScale = Math.max(lo, params.renderScale - 0.08);
-  } else if (fps > params.targetFps * 1.25 && params.renderScale < hi) {
-    params.renderScale = Math.min(hi, params.renderScale + 0.04);
+  if (fps < params.targetFps * 0.9) {
+    if (params.renderScale > lo) {
+      params.renderScale = Math.max(lo, params.renderScale - 0.08);
+    } else if (params.cloudStepScale > params.cloudStepMin) {
+      params.cloudStepScale = Math.max(params.cloudStepMin, params.cloudStepScale - 0.15);
+    } else if (params.gridScale > params.gridScaleMin) {
+      params.gridScale = Math.max(params.gridScaleMin, params.gridScale - 0.12);
+      buildGrid();
+    }
+  } else if (fps > params.targetFps * 1.25) {
+    // Given back in the reverse order, cheapest first, so quality returns without
+    // immediately spending the headroom that allowed it.
+    if (params.gridScale < 1) {
+      params.gridScale = Math.min(1, params.gridScale + 0.06);
+      buildGrid();
+    } else if (params.cloudStepScale < 1) {
+      params.cloudStepScale = Math.min(1, params.cloudStepScale + 0.08);
+    } else if (params.renderScale < hi) {
+      params.renderScale = Math.min(hi, params.renderScale + 0.04);
+    }
   }
 }
 // Below 10 fps the integer readout collapses to '0'; a tenth is the difference
@@ -323,10 +362,10 @@ function frame(now) {
     viewProj: camera.viewProj, invViewProj: camera.invViewProj,
     sunDir, moonDir, windVec3, time: simTime,
     craftPos: waveRunner.active
-      ? new Float32Array([waveRunner.pos[0], waveRunner.deckY ?? 0, waveRunner.pos[2]])
-      : new Float32Array([0, -1e4, 0]),
-    craftFwd: new Float32Array(cf),
-    craftRight: new Float32Array([-cf[1], cf[0]]),
+      ? set3(vCraftPos, waveRunner.pos[0], waveRunner.deckY ?? 0, waveRunner.pos[2])
+      : set3(vCraftPos, 0, -1e4, 0),
+    craftFwd: set2(vCraftFwd, cf[0], cf[1]),
+    craftRight: set2(vCraftRight, -cf[1], cf[0]),
     craftSpeed: waveRunner.active ? Math.abs(waveRunner.speed) : 0,
     craftTurn: waveRunner.active ? waveRunner.yawRate : 0,
     craftAmount: waveRunner.active ? params.craftSprayAmount : 0,
@@ -360,7 +399,7 @@ function frame(now) {
     uPatch: ocean.patchSizes, uFade: fadeDistances(),
     uCascadeCount: ocean.cascadeCount, uDetailScale: params.detailScale,
     uViewProj: camera.viewProj, uCamPos: camera.pos,
-    uGridCenter: new Float32Array([camera.pos[0], camera.pos[2]]),
+    uGridCenter: set2(vGrid, camera.pos[0], camera.pos[2]),
     uRMin: params.rMin, uRMax: params.rMax,
     uHeightScale: params.heightScale, uHorizScale: params.horizScale,
     uEarthCurve: params.earthCurve, uSeaLevel: params.seaLevel,
@@ -383,14 +422,18 @@ function frame(now) {
     uSkyAmbient: params.skyAmbient, uSkyBlur: params.skyBlur,
     uGlitter: params.glitter, uGlitterScale: params.glitterScale,
     uWaterIOR: params.waterIOR, uAerial: params.aerial,
-    uWindDirV: new Float32Array([Math.cos(params.windDir), Math.sin(params.windDir)]),
+    uWindDirV: set2(vWind2, Math.cos(params.windDir), Math.sin(params.windDir)),
     uSpecClamp: params.specClamp, uHorizonBend: params.horizonBend,
     ...wake.uniforms(params, waveRunner.active),
     uWakeRelief: params.wakeRelief, uWakeSlick: params.wakeSlick,
+    // In the frame the displacement fields are indexed by, not in world space -
+    // see WaveRunner.surfXZ. Placed at the world position instead, the hollow and
+    // bow wave sat 1.3 to 1.7 m off the craft on the default sea and slid about as
+    // the waves went under it, which read as a ripple hanging off the bow.
     uHullPos: waveRunner.active
-      ? new Float32Array([waveRunner.pos[0], waveRunner.deckY ?? 0, waveRunner.pos[2]])
-      : new Float32Array([0, -1e4, 0]),
-    uHullFwd: new Float32Array(cf),
+      ? set3(vHullPos, waveRunner.surfXZ()[0], waveRunner.deckY ?? 0, waveRunner.surfXZ()[1])
+      : set3(vHullPos, 0, -1e4, 0),
+    uHullFwd: set2(vHullFwd, cf[0], cf[1]),
     uHullPush: waveRunner.active ? params.hullPush : 0,
     uHullRadius: params.hullRadius, uHullBow: params.hullBow,
     // The hollow only exists once the hull is actually loading the water.

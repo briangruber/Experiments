@@ -417,7 +417,11 @@ void main(){
       // needs a normal that knows it is a ridge, or it reads as a decal lying on
       // flat water. Central differences at half a metre, which is inside the arm
       // width and wide enough not to be lost in the record's own quantisation.
-      if (uWakeRelief > 0.0){
+      // Four extra fetches for the gradient, so only where there is actually a
+      // wake to shade. Gating on the disturbance rather than on the buffer bounds
+      // skips this for every water pixel that merely happens to be inside a
+      // 320 m square, which is most of them.
+      if (uWakeRelief > 0.0 && wk.z > 0.02){
         const float e = 0.5;
         float hx = wakeAt(vFlat.xz + vec2(e, 0.0)).y - wakeAt(vFlat.xz - vec2(e, 0.0)).y;
         float hz = wakeAt(vFlat.xz + vec2(0.0, e)).y - wakeAt(vFlat.xz - vec2(0.0, e)).y;
