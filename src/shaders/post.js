@@ -191,6 +191,7 @@ uniform float uChromatic, uDistortion;
 uniform float uLensWet, uLensDrops, uLensSize, uLensRefract, uLensStreak;
 uniform float uLensRim, uLensFilm;
 uniform vec2  uLensFlow;
+uniform float uLensBody;
 uniform float uContrast, uSaturation, uPostSaturation, uSplit;
 uniform float uBlackPoint, uToe, uToeRange, uChromaRestore;
 uniform vec3  uLift, uGammaCC, uGain, uWhiteBalance, uSplitShadow, uSplitHigh;
@@ -322,7 +323,7 @@ void lensLayer(vec2 p, float rn, float scale, float stretch, float sizeK,
   vec2 dirL = normalize(fl * dir.x * max(stretch, 0.2) + perp * dir.y + vec2(1e-6));
   off  -= dirL * dd * prof * uLensRefract * rad * amp;
   blur  = max(blur, amp * prof);
-  rim  += amp * smoothstep(0.72, 0.99, dd) * (1.0 - smoothstep(1.0, 1.06, dd));
+  rim  += amp * smoothstep(0.55, 0.97, dd) * (1.0 - smoothstep(1.0, 1.06, dd));
   cover = max(cover, amp * (1.0 - smoothstep(0.92, 1.04, dd)));
 }
 
@@ -403,6 +404,17 @@ void main(){
   if (lensRim > 0.001){
     vec3 around = texture(uBloom, buv).rgb + col;
     col += around * lensRim * uLensRim;
+  }
+  // A droplet has a body, not just an outline. Without this the rim was the only
+  // thing marking it and the middle stayed as clear as the air around it, so they
+  // read as soft rings drawn on the picture rather than as beads of water sitting
+  // on the glass. Water absorbs a little and scatters the rest, so the body is a
+  // slight darkening and a slight loss of saturation - both small, because the
+  // thing is a millimetre of water and not a filter.
+  if (lensCover > 0.002){
+    float k = lensCover * uLensBody;
+    float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
+    col = mix(col, mix(col, vec3(lum), 0.35) * 0.88, k);
   }
   // Halation is the red-weighted back-scatter off the film base / sensor stack.
   col += glare * uHalationTint * uHalation;

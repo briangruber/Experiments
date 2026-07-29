@@ -166,11 +166,12 @@ export const defaults = {
   // the free camera is a tripod on a dry day and pays nothing for any of this.
   lensWater: 1.0,           // master
   lensDrops: 0.15,          // fraction of cells holding a droplet when soaked
-  lensSize: 1.0,
+  lensSize: 0.60,           // beads, not blobs
   lensRefract: 0.8,         // how hard a droplet bends the picture behind it
   lensStreak: 0.55,         // how far it creeps downstream before drying
   lensFlowAngle: 8.0,       // degrees from vertical that the airflow drags it
-  lensRim: 0.16,            // brightness of the meniscus edge
+  lensRim: 0.09,            // brightness of the meniscus edge
+  lensBody: 0.55,           // how much the water itself darkens what it covers
   lensFilm: 0.12,           // unbroken film before it beads up
   lensSpray: 0.85,          // how much of the hull's own output reaches the glass
   lensReach: 26.0,          // how far aft the plume still reaches, m
@@ -816,6 +817,7 @@ export const SCHEMA = [
       S('lensStreak', 'Lens streaking', 0, 2, 0.01),
       S('lensFlowAngle', 'Lens flow angle', -180, 180, 1),
       S('lensRim', 'Lens droplet rim', 0, 1.5, 0.01),
+      S('lensBody', 'Lens droplet body', 0, 2, 0.01),
       S('lensFilm', 'Lens film', 0, 2, 0.01),
       S('lensSpray', 'Lens hit rate', 0, 3, 0.01),
       S('lensReach', 'Plume reach (m)', 2, 80, 0.5),

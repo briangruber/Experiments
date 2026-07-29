@@ -238,7 +238,7 @@ export class Post {
       uLensDrops: p.lensDrops, uLensSize: p.lensSize,
       uLensRefract: p.lensRefract, uLensStreak: p.lensStreak,
       uLensRim: p.lensRim, uLensFilm: p.lensFilm,
-      uLensFlow: this._lensFlow(p),
+      uLensFlow: this._lensFlow(p), uLensBody: p.lensBody,
     });
     this.blit.draw();
 
