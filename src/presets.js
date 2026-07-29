@@ -244,7 +244,9 @@ export const defaults = {
   wrAttitudeRate: 9.0,
   wrLength: 1.6,            // probe spacing bow to centre, m
   wrBeam: 0.6,
-  wrCamHeight: 1.05,        // eye above the deck
+  wrCamHeight: 1.42,        // eye above the deck. The imported hull sits higher
+                            // than the procedural one it replaced, so the rider was
+                            // left looking along the deck rather than over it.
   wrCamTilt: -0.03,
   wrCamPitchFollow: 0.75,
   wrCamRollFollow: 0.6,
