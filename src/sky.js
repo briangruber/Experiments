@@ -1,4 +1,4 @@
-import { program, setUniforms, texture2D, framebuffer, FS_VERT } from './gl.js';
+import { program, setUniforms, texture2D, framebuffer, FS_VERT, FS_VERT_FAR } from './gl.js';
 import { SKY_LUT_FS, SKY_BG_FS } from './shaders/sky.js';
 
 const LUT_W = 512, LUT_H = 256;
@@ -23,7 +23,7 @@ export class Sky {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     this.fbo = framebuffer(gl, [this.lut]);
     this.pLut = program(gl, FS_VERT, SKY_LUT_FS, 'sky.lut');
-    this.pBg = program(gl, FS_VERT, SKY_BG_FS, 'sky.bg');
+    this.pBg = program(gl, FS_VERT_FAR, SKY_BG_FS, 'sky.bg');
   }
 
   // Uniform block shared by every shader that evaluates the atmosphere.
@@ -42,6 +42,21 @@ export class Sky {
 
   updateLUT(p, sunDir, eyeHeight) {
     const gl = this.gl;
+    // The LUT is a 512x256 raymarch with an 8-step transmittance integral at
+    // every texel, and it depends on nothing that changes while you fly around.
+    // Rebuilding it every frame was pure waste; it only has to follow the sun,
+    // the atmosphere and (weakly) the eye height.
+    const md = moonDirOf(p);
+    const sig = [
+      sunDir[0], sunDir[1], sunDir[2], md[0], md[1], md[2],
+      p.turbidity, p.ozone, p.mieG, p.atmoExposure,
+      p.skyMultiScatter, p.skyMSFloor, p.skyMSHeight,
+      p.sunIrradiance[0], p.sunIrradiance[1], p.sunIrradiance[2],
+      p.moonColor[0], p.moonColor[1], p.moonColor[2],
+      Math.round(Math.log2(Math.max(eyeHeight, 1)) * 4),
+    ];
+    if (this._sig && this._sig.every((v, i) => v === sig[i])) return;
+    this._sig = sig;
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
     gl.viewport(0, 0, LUT_W, LUT_H);
     gl.disable(gl.DEPTH_TEST);
@@ -65,7 +80,9 @@ export class Sky {
 
   drawBackground(p, ctx) {
     const gl = this.gl;
-    gl.disable(gl.DEPTH_TEST);
+    // Depth-tested against the ocean that was already drawn, writing nothing.
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LEQUAL);
     gl.depthMask(false);
     gl.disable(gl.BLEND);
     gl.useProgram(this.pBg);

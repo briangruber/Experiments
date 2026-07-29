@@ -325,8 +325,6 @@ function frame(now) {
   gl.clearDepth(1);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-  sky.drawBackground(params, ctx);
-
   gl.enable(gl.DEPTH_TEST);
   gl.depthFunc(gl.LEQUAL);
   gl.depthMask(true);
@@ -392,6 +390,11 @@ function frame(now) {
     );
     craft.draw(params, ctx, sky.lut);
   }
+
+  // Sky after the sea: its triangle sits on the far plane under a LEQUAL test,
+  // so the volumetric cloud march - the most expensive shading in the frame -
+  // only runs on pixels the ocean left empty.
+  sky.drawBackground(params, ctx);
 
   spray.draw(params, ctx, sky.lut, sky.atmosphereUniforms(params), ocean);
 

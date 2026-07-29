@@ -191,6 +191,16 @@ export class Blitter {
   }
 }
 
+// Same triangle, pinned to the far plane. Drawn after the ocean with a LEQUAL
+// depth test, a sky pass using this shades only the pixels the sea did not
+// already cover - which on a typical seascape is most of the frame saved, and
+// the cloud raymarch is by far the most expensive thing per pixel.
+export const FS_VERT_FAR = /* glsl */`
+layout(location=0) in vec2 a_pos;
+out vec2 vUv;
+void main(){ vUv = a_pos*0.5+0.5; gl_Position = vec4(a_pos, 1.0, 1.0); }
+`;
+
 export const FS_VERT = /* glsl */`
 layout(location=0) in vec2 a_pos;
 out vec2 vUv;

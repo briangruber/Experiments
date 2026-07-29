@@ -136,7 +136,9 @@ export const defaults = {
   sprayGrainAniso: 3.0,     // that texture drawn out along the direction of flight
 
   // ---- spindrift & sea mist ----
-  sprayMist: 0.45,          // share of the budget spent on spindrift
+  sprayMist: 0.0,           // spindrift removed: it read as grey smear and every
+                            // mist parcel is a large, long-lived, overdraw-heavy
+                            // billboard. The whole budget now goes to droplets.
   sprayMistWind: 7.0,       // U10 where a mist veil first hangs over the crests
   sprayMistLife: 7.0,
   sprayMistSize: 0.55,
@@ -146,7 +148,7 @@ export const defaults = {
   sprayMistRise: 0.6,
   sprayMistGrow: 2.0,
   sprayMistStretch: 0.30,   // a spindrift filament is a real object, not a blur
-  sprayMistOpacity: 0.13,
+  sprayMistOpacity: 0.0,
   sprayMistGrain: 0.55,     // spindrift is torn into streaks, not smooth puffs
 
   // ---- spray optics ----
@@ -348,7 +350,7 @@ export const defaults = {
   fftSize: 256,
   gridRadial: 400,
   gridAngular: 640,
-  sprayTexSize: 192,
+  sprayTexSize: 160,
   renderScale: 1.0,
   photoSamples: 24,
 };
@@ -498,18 +500,6 @@ export const SCHEMA = [
   },
   {
     group: 'Spindrift', items: [
-      S('sprayMist', 'Mist share', 0, 1, 0.005),
-      S('sprayMistOpacity', 'Mist opacity', 0, 1, 0.002),
-      S('sprayMistWind', 'Mist onset (m/s)', 0, 40, 0.1),
-      S('sprayMistLife', 'Mist lifetime (s)', 0.5, 30, 0.1),
-      S('sprayMistSize', 'Mist size (m)', 0.1, 8, 0.05),
-      S('sprayMistRadius', 'Mist reach (x)', 1, 8, 0.05),
-      S('sprayMistDrag', 'Mist wind coupling', 0.1, 20, 0.05),
-      S('sprayMistFall', 'Mist settling', 0, 0.6, 0.002),
-      S('sprayMistRise', 'Mist updraft', 0, 4, 0.01),
-      S('sprayMistGrow', 'Mist dispersion', 1, 8, 0.01),
-      S('sprayMistStretch', 'Mist streaking (s)', 0, 2, 0.005),
-      S('sprayMistGrain', 'Mist texture', 0, 1, 0.005),
       S('sprayHaze', 'Haze extinction (1/m)', 0, 0.004, 0.00002),
       S('sprayHazeWind', 'Haze onset (m/s)', 0, 45, 0.1),
       S('sprayHazeHeight', 'Haze depth (m)', 1, 80, 0.5),
