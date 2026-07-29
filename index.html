@@ -4,9 +4,17 @@
 <link rel="stylesheet" href="./src/ui.css">
 <canvas id="gl"></canvas>
 <div id="ui"></div>
+<button id="panel-toggle" type="button" aria-controls="ui" aria-expanded="true">
+  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <path d="M4 7h7M17.5 7H20M4 12h9M19.5 12H20M4 17h7M17.5 17H20"/>
+    <circle cx="14.5" cy="7" r="2.3"/><circle cx="16.5" cy="12" r="2.3"/><circle cx="14.5" cy="17" r="2.3"/>
+  </svg>
+  <span class="open-label">Controls</span><span class="close-label">Hide</span>
+</button>
 <div id="hud">
   <div id="hud-fps">—</div>
-  <div id="hud-hint">drag&nbsp;·&nbsp;look &nbsp; wheel&nbsp;·&nbsp;zoom &nbsp; W/A/S/D&nbsp;·&nbsp;fly &nbsp; H&nbsp;·&nbsp;hide UI &nbsp; P&nbsp;·&nbsp;photo</div>
+  <div id="hud-hint" class="pointer-fine">drag&nbsp;·&nbsp;look &nbsp; wheel&nbsp;·&nbsp;zoom &nbsp; W/A/S/D&nbsp;·&nbsp;fly &nbsp; H&nbsp;·&nbsp;hide UI &nbsp; P&nbsp;·&nbsp;photo</div>
+  <div id="hud-hint-touch" class="pointer-coarse">drag&nbsp;·&nbsp;look &nbsp; pinch&nbsp;·&nbsp;zoom &nbsp; Controls&nbsp;·&nbsp;presets</div>
 </div>
 <div id="boot">
   <div class="boot-title">ABYSSAL</div>

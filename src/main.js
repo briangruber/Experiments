@@ -182,9 +182,24 @@ function savePng() {
   ui.toast('Frame saved');
 }
 
+// The panel must be dismissable without a keyboard, so the button is the
+// primary control and the H shortcut just drives the same state.
+const panelToggle = document.getElementById('panel-toggle');
+function setPanel(open) {
+  document.body.classList.toggle('panel-hidden', !open);
+  document.getElementById('ui').classList.toggle('hidden', !open);
+  panelToggle?.setAttribute('aria-expanded', String(open));
+}
+panelToggle?.addEventListener('click', () => {
+  setPanel(document.body.classList.contains('panel-hidden'));
+});
+// On a phone the panel is a bottom sheet; open it by default and the visitor
+// arrives at a wall of sliders instead of the sea.
+setPanel(!window.matchMedia('(max-width: 760px), (pointer: coarse)').matches);
+
 window.addEventListener('keydown', (e) => {
   if (e.target && /input|select|textarea/i.test(e.target.tagName)) return;
-  if (e.code === 'KeyH') document.getElementById('ui').classList.toggle('hidden');
+  if (e.code === 'KeyH') setPanel(document.body.classList.contains('panel-hidden'));
   if (e.code === 'KeyP') togglePhoto();
   if (e.code === 'KeyO') savePng();
 });

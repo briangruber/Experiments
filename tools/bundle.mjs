@@ -81,6 +81,16 @@ for (const [id, mod] of modules) {
 // A standalone page has no console to check, so a missing WebGL2 or float-buffer
 // extension has to explain itself on screen instead of leaving a black rectangle.
 out += `
+// The host supplies <head>, and a <meta> in the body is not reliably honoured,
+// so the viewport is declared from script. Without it a phone lays the page out
+// at ~980px, the mobile breakpoints never match, and the desktop control panel
+// is scaled down onto the screen covering most of the view.
+if (!document.querySelector('meta[name="viewport"]')) {
+  var vp = document.createElement('meta');
+  vp.name = 'viewport';
+  vp.content = 'width=device-width,initial-scale=1,viewport-fit=cover';
+  document.head.appendChild(vp);
+}
 try {
   __req(${JSON.stringify(ENTRY)});
 } catch (err) {

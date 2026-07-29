@@ -157,6 +157,24 @@ export class UI {
   }
 }
 
+// A phone runs the same shaders at three times the pixel density. Left on the
+// desktop defaults it renders single-digit frames per second, so the device
+// budget is clamped here - in the one place every preset change flows through -
+// rather than trusting each preset to remember.
+const MOBILE_QUALITY = {
+  fftSize: 128,
+  gridRadial: 200,
+  gridAngular: 320,
+  cloudSteps: 22,
+  sprayTexSize: 96,
+  renderScale: 0.65,
+};
+
+export const isHandheld = () =>
+  typeof window !== 'undefined' &&
+  window.matchMedia('(max-width: 760px), (pointer: coarse)').matches;
+
 export function applyPreset(params, name) {
   Object.assign(params, structuredClone(defaults), structuredClone(PRESETS[name] || {}));
+  if (isHandheld()) Object.assign(params, MOBILE_QUALITY);
 }

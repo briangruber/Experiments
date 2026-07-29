@@ -24,20 +24,46 @@ export class Camera {
 
   _bind() {
     const c = this.canvas;
-    let dragging = false, lx = 0, ly = 0;
-    const down = (e) => { dragging = true; lx = e.clientX; ly = e.clientY; c.setPointerCapture?.(e.pointerId); };
-    const up = (e) => { dragging = false; c.releasePointerCapture?.(e.pointerId); };
+    // Tracking every active pointer rather than a single drag is what lets one
+    // finger look and two fingers pinch. Touch has no wheel, so without this
+    // there is no way to zoom at all on a phone.
+    const pointers = new Map();
+    let pinchDist = 0;
+    const spread = () => {
+      const [a, b] = [...pointers.values()];
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    };
+    const down = (e) => {
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size === 2) pinchDist = spread();
+      c.setPointerCapture?.(e.pointerId);
+    };
+    const up = (e) => {
+      pointers.delete(e.pointerId);
+      if (pointers.size < 2) pinchDist = 0;
+      c.releasePointerCapture?.(e.pointerId);
+    };
     const move = (e) => {
-      if (!dragging) return;
-      const dx = e.clientX - lx, dy = e.clientY - ly;
-      lx = e.clientX; ly = e.clientY;
-      const s = 0.0022 * (this.fov / 45);
-      this.yaw -= dx * s;
-      this.pitch = clamp(this.pitch - dy * s, -1.45, 1.45);
-      this.moved = true;
+      const prev = pointers.get(e.pointerId);
+      if (!prev) return;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size === 1) {
+        const s = 0.0022 * (this.fov / 45);
+        this.yaw -= (e.clientX - prev.x) * s;
+        this.pitch = clamp(this.pitch - (e.clientY - prev.y) * s, -1.45, 1.45);
+        this.moved = true;
+      } else if (pointers.size === 2 && pinchDist > 0) {
+        const d = spread();
+        if (d > 1) {
+          this.fov = clamp(this.fov * (pinchDist / d), 8, 95);
+          pinchDist = d;
+          this.moved = true;
+        }
+      }
     };
     c.addEventListener('pointerdown', down);
     window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
     window.addEventListener('pointermove', move);
     c.addEventListener('wheel', (e) => {
       e.preventDefault();

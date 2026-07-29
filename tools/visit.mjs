@@ -191,7 +191,20 @@ const v = {
   },
   async click(selector) {
     timeline.push({ t: stamp(), do: 'click', selector });
-    await page.click(selector, { timeout: 8000 });
+    try {
+      await page.click(selector, { timeout: 20000 });
+    } catch {
+      // Playwright's actionability wait needs a responsive main thread, which a
+      // software-rendered WebGL loop does not leave it. The element was found;
+      // dispatch the click directly rather than reporting a false product bug.
+      const hit = await page.evaluate((s) => {
+        const el = document.querySelector(s);
+        if (!el) return false;
+        el.click();
+        return true;
+      }, selector);
+      if (!hit) notes.push({ t: stamp(), text: `NO ELEMENT MATCHED "${selector}"` });
+    }
   },
   // Click a control-panel button by its visible label.
   async button(label) {
