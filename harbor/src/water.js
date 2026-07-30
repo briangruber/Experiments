@@ -294,11 +294,11 @@ export function createReefProps({ count = 180 } = {}) {
     const z = Math.sin(a) * r + 20;
     const y = seabedHeight(x, z);
     // Stay fully submerged — props that breach the surface read as buoys.
-    if (y > -2.4 || y < -12) continue;
+    if (y > -3.2 || y < -12) continue;
     const shape = shapes[i % shapes.length];
-    const s = 0.55 + hash(i, 3) * 1.1;
+    const s = 0.45 + hash(i, 3) * 0.9;
     const top = y + shape.h * s * 0.55;
-    if (top > -0.6) continue;
+    if (top > -1.2) continue;
     const mesh = new THREE.Mesh(
       shape.geo,
       new THREE.MeshStandardMaterial({
