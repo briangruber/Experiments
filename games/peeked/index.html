@@ -108,6 +108,40 @@ h1 svg{flex:none;display:block}
 .act[disabled]{opacity:.35;cursor:default}
 .hint{font-size:12px;color:var(--dim);margin-top:11px;text-align:center}
 
+/* ---------- rules ---------- */
+.hgroup{display:flex;align-items:center;gap:10px}
+#helpBtn{
+  width:26px;height:26px;flex:none;border-radius:50%;cursor:pointer;
+  border:1px solid var(--line);background:transparent;color:var(--dim);
+  font:600 13px/1 inherit;display:flex;align-items:center;justify-content:center;padding:0;
+}
+#helpBtn:hover{color:var(--fg);border-color:var(--dim)}
+.rulehead{font-size:19px;line-height:1.5;text-align:center;text-wrap:balance}
+.rulehead.sm{font-size:16px;line-height:1.5}
+.rulehead b{font-weight:700}
+.rulebox{
+  width:100%;border:1px solid var(--line);border-radius:13px;background:var(--card);
+  padding:15px;display:flex;flex-direction:column;gap:11px;
+}
+.rulebox.alt{border-style:dashed}
+.rulecap{font-size:12.5px;color:var(--dim);line-height:1.6;text-align:center}
+.exrow{max-width:250px;margin:0 auto;width:100%}
+.exrow .tile{font-size:22px;border-radius:8px}
+.legend{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+/* grid, not flex: the swatch holds its own column so the description
+   wraps as ordinary prose instead of breaking away from its label */
+.legend li{display:grid;grid-template-columns:15px 1fr;align-items:start;gap:10px;font-size:13.5px;line-height:1.45}
+.legend li .sw{margin-top:3px}
+.legend b{font-weight:600}
+.sw{width:15px;height:15px;flex:none;border-radius:4px;display:inline-block}
+.sw.G{background:var(--green)} .sw.Y{background:var(--yellow)} .sw.B{background:var(--black)}
+.legend.inline{
+  flex-direction:row;justify-content:center;flex-wrap:wrap;column-gap:14px;row-gap:5px;
+  margin-top:12px;width:100%;
+}
+.legend.inline li{font-size:11.5px;color:var(--dim);gap:5px}
+.legend.inline .sw{width:11px;height:11px;border-radius:3px}
+
 /* ---------- the button ---------- */
 #peekSlotTop,#peekSlotBottom{width:100%;display:flex;justify-content:center}
 #peekSlotTop{margin-bottom:11px}
@@ -184,10 +218,34 @@ h1 svg{flex:none;display:block}
             fill="none" stroke="currentColor" stroke-width="1.6"/>
       <circle cx="13" cy="7.5" r="3.1" fill="currentColor"/>
     </svg>PEEKED</h1>
-    <span id="timer"></span>
+    <div class="hgroup"><span id="timer"></span><button id="helpBtn" title="how to play">?</button></div>
   </header>
   <div class="day" id="dayLabel" style="width:100%;text-align:left;margin-bottom:8px"></div>
   <div class="hr"></div>
+
+  <!-- RULES -->
+  <div class="panel hidden" id="rules">
+    <div class="rulehead">a secret code of <b>5 emoji</b> is hidden.<br>you get <b>6 guesses</b> to find it.</div>
+
+    <div class="rulebox">
+      <div class="rulecap">say you guess this</div>
+      <div class="row exrow" id="exRow"></div>
+      <ul class="legend">
+        <li><span class="sw G"></span><span><b>🌙 green</b> — in the code, in the right spot</span></li>
+        <li><span class="sw Y"></span><span><b>🐙 yellow</b> — in the code, wrong spot</span></li>
+        <li><span class="sw B"></span><span><b>🍎 dark</b> — not in the code at all</span></li>
+      </ul>
+      <div class="rulecap">no emoji repeats inside the code.</div>
+    </div>
+
+    <div class="rulebox alt">
+      <div class="rulehead sm">there is also a button that just shows you the answer.</div>
+      <div class="rulecap">it works. instantly. no penalty, no warning. but it is written
+      into the link you pass on — everyone you send it to sees that you pressed it, and how fast.</div>
+    </div>
+
+    <button class="big" id="rulesPlay">PLAY</button>
+  </div>
 
   <!-- LANDING -->
   <div class="panel hidden" id="landing">
@@ -204,12 +262,17 @@ h1 svg{flex:none;display:block}
     <div id="peekSlotTop"></div>
     <div id="board"></div>
     <div class="rowlabel" id="rowlabel"></div>
+    <ul class="legend inline">
+      <li><span class="sw G"></span>right spot</li>
+      <li><span class="sw Y"></span>wrong spot</li>
+      <li><span class="sw B"></span>not in code</li>
+    </ul>
     <div id="palette"></div>
     <div id="actions">
       <button class="act" id="delBtn">DELETE</button>
       <button class="act" id="entBtn" disabled>ENTER</button>
     </div>
-    <div class="hint">5 emoji, no repeats, 6 guesses</div>
+    <div class="hint">tap 5 emoji, then ENTER · no repeats</div>
     <div id="peekSlotBottom"></div>
   </div>
 
@@ -481,7 +544,7 @@ function repaint(){
   S.guesses.forEach((g,r) => paintRow(r, g, score(g.map(x=>POOL[x]), SECRET)));
   if (!S.done && S.guesses.length < MAXG) paintRow(S.guesses.length, S.cur, null);
   syncPalette();
-  $("rowlabel").textContent = S.done ? "" : (MAXG - S.guesses.length) + " left";
+  $("rowlabel").textContent = S.done ? "" : "guess " + (S.guesses.length + 1) + " of " + MAXG;
 }
 
 /* ================== TIMER ================== */
@@ -653,7 +716,30 @@ function fallback(text){
 
 /* ================== SCREENS ================== */
 function show(which){
-  ["landing","game","result"].forEach(id => $(id).classList.toggle("hidden", id !== which));
+  ["rules","landing","game","result"].forEach(id => $(id).classList.toggle("hidden", id !== which));
+}
+
+/* First-run explanation. The board teaches nothing on its own — a cold visitor
+   has no way to know a code is hidden, what the colours mean, or that the
+   button is recorded. So say all three, once, by worked example. */
+function seenRules(){ try { return !!localStorage.getItem("peeked.seen"); } catch(e){ return false; } }
+function markSeen(){ try { localStorage.setItem("peeked.seen","1"); } catch(e){} }
+
+function buildExample(){
+  const demo = ["🍎","🌙","🔥","🐙","💎"], fb = ["B","G","B","Y","B"];
+  const row = $("exRow"); row.innerHTML = "";
+  demo.forEach((em,i) => {
+    const t = document.createElement("div");
+    t.className = "tile " + fb[i]; t.textContent = em;
+    row.appendChild(t);
+  });
+}
+let afterRules = enterGame;
+function showRules(next){
+  afterRules = next || enterGame;
+  buildExample();
+  $("rulesPlay").textContent = S.done ? "BACK" : "PLAY DAY " + DAY;
+  show("rules");
 }
 function showLanding(){
   const box = $("landChainBox");
@@ -709,7 +795,13 @@ $("dayLabel").textContent = "day " + DAY + (FUTURE ? " · that link is from the 
 buildPalette();
 $("delBtn").addEventListener("click", del);
 $("entBtn").addEventListener("click", enter);
-$("playBtn").addEventListener("click", () => { enterGame(); });
+$("playBtn").addEventListener("click", () => { seenRules() ? enterGame() : showRules(enterGame); });
+$("rulesPlay").addEventListener("click", () => { markSeen(); afterRules(); });
+$("helpBtn").addEventListener("click", () => {
+  if (!$("rules").classList.contains("hidden")) return;
+  const back = S.done ? finish : (INCHAIN.length && !$("landing").classList.contains("hidden") ? showLanding : enterGame);
+  showRules(back);
+});
 $("nameIn").addEventListener("input", e => { e.target.value = cleanName(e.target.value); setName(e.target.value); });
 $("shareBtn").addEventListener("click", () => copy(shareText()));
 $("linkBtn").addEventListener("click", () => { const t = fullChain(); copy(buildURL(DAY, t.chain, t.x)); });
@@ -725,11 +817,11 @@ function enterGame(){
 
 if (S.done){
   // completed this day already — show the record, allow appending
-  if (S.outcome === "failed" || S.outcome === "solved" || S.outcome === "peeked"){
-    buildBoard(MAXG); repaint(); finish();
-  }
+  buildBoard(MAXG); repaint(); finish();
 } else if (INCHAIN.length){
-  showLanding();
+  showLanding();          // the chain card is the hook; rules come after PLAY
+} else if (!seenRules()){
+  showRules(enterGame);   // cold first visit — explain before the board
 } else {
   enterGame();
 }

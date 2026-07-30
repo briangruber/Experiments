@@ -15,6 +15,16 @@ const ok = (name, cond, extra) => { cond ? pass++ : fail++; console.log((cond?' 
     const p = await b.newPage(Object.assign({ viewport:{width:390,height:844} }, opts||{}));
     p.on('pageerror', e => errs.push(e.message));
     p.on('console', m => { if (m.type()==='error') errs.push(m.text()); });
+    await p.addInitScript(() => { try{ localStorage.clear(); localStorage.setItem('peeked.seen','1'); }catch(e){} });
+    await p.goto(BASE + (hash||''));
+    return p;
+  };
+
+  // a visitor who has never seen the rules
+  const coldPage = async (hash) => {
+    const p = await b.newPage({ viewport:{width:390,height:844} });
+    p.on('pageerror', e => errs.push(e.message));
+    p.on('console', m => { if (m.type()==='error') errs.push(m.text()); });
     await p.addInitScript(() => { try{ localStorage.clear(); }catch(e){} });
     await p.goto(BASE + (hash||''));
     return p;
@@ -81,7 +91,7 @@ const ok = (name, cond, extra) => { cond ? pass++ : fail++; console.log((cond?' 
   const p4 = await b.newPage({ viewport:{width:390,height:844} });
   p4.on('pageerror', e => errs.push(e.message));
   await p4.goto(BASE);
-  await p4.evaluate(()=>localStorage.clear());
+  await p4.evaluate(()=>{localStorage.clear();localStorage.setItem('peeked.seen','1')});
   await p4.goto(BASE);
   await p4.click('.key:has-text("🍎")'); await p4.waitForTimeout(1100);
   await p4.click('#peekBtn');
@@ -93,7 +103,7 @@ const ok = (name, cond, extra) => { cond ? pass++ : fail++; console.log((cond?' 
 
   // mid-game guesses must also survive
   const p5 = await b.newPage({ viewport:{width:390,height:844} });
-  await p5.goto(BASE); await p5.evaluate(()=>localStorage.clear()); await p5.goto(BASE);
+  await p5.goto(BASE); await p5.evaluate(()=>{localStorage.clear();localStorage.setItem('peeked.seen','1')}); await p5.goto(BASE);
   const g5 = await p5.evaluate(()=>POOL.slice(0,5));
   for (const e of g5) await p5.click(`.key:has-text("${e}")`);
   await p5.click('#entBtn'); await p5.waitForTimeout(800);
@@ -143,6 +153,42 @@ const ok = (name, cond, extra) => { cond ? pass++ : fail++; console.log((cond?' 
   const th = await page(null, {colorScheme:'light'});
   await th.evaluate(()=>document.documentElement.setAttribute('data-theme','dark'));
   ok('data-theme overrides OS preference', await th.evaluate(()=>getComputedStyle(document.body).backgroundColor)==='rgb(15, 17, 20)');
+
+
+  console.log('\nOnboarding');
+  const c1 = await coldPage();
+  ok('cold first visit shows the rules first', await c1.isVisible('#rules'));
+  ok('rules explain the hidden code', /secret code/i.test(await c1.textContent('#rules')));
+  ok('rules explain all three colours', (await c1.textContent('#rules')).includes('right spot')
+      && (await c1.textContent('#rules')).includes('wrong spot')
+      && (await c1.textContent('#rules')).includes('not in the code'));
+  ok('rules explain that peeking is recorded', /link you pass on/i.test(await c1.textContent('#rules')));
+  ok('worked example renders 5 coloured tiles', await c1.evaluate(()=>{
+      const t=[...document.querySelectorAll('#exRow .tile')];
+      return t.length===5 && t.every(x=>/\b[GYB]\b/.test(x.className));
+  }));
+  await c1.click('#rulesPlay');
+  ok('PLAY from rules reaches the board', await c1.isVisible('#game'));
+  ok('legend stays visible during play', await c1.isVisible('.legend.inline'));
+  ok('row label counts guesses', (await c1.textContent('#rowlabel')).trim()==='guess 1 of 6');
+
+  const c2 = await b.newPage({viewport:{width:390,height:844}});
+  c2.on('pageerror', e => errs.push(e.message));
+  await c2.goto(BASE); await c2.evaluate(()=>localStorage.clear()); await c2.goto(BASE);
+  await c2.click('#rulesPlay'); await c2.goto(BASE);
+  ok('returning player skips the rules', await c2.isVisible('#game'));
+  await c2.click('#helpBtn');
+  ok('? reopens the rules on demand', await c2.isVisible('#rules'));
+  await c2.click('#rulesPlay');
+  ok('leaving the rules returns to the board', await c2.isVisible('#game'));
+
+  const u3 = await mk(['sam.c4','priya.c5']);
+  const c3 = await coldPage(u3.slice(u3.indexOf('#')));
+  ok('link arrival shows the chain card first', await c3.isVisible('#landing'));
+  await c3.click('#playBtn');
+  ok('then the rules, for a first-timer from a link', await c3.isVisible('#rules'));
+  await c3.click('#rulesPlay');
+  ok('then the board', await c3.isVisible('#game'));
 
   ok('no JS errors anywhere', errs.length === 0, errs.join(' | '));
   console.log(`\n${pass} passed, ${fail} failed\n`);
