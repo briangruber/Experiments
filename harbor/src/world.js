@@ -257,18 +257,23 @@ export function createWorld() {
   // Wooden harbour piers reaching into clear water.
   const jettyMat = mat(0x9a7d58);
   const pilingMat = mat(0x5a4632);
+  // Curved harbour arms — continuous planks, no floating gaps.
   for (const side of [-1, 1]) {
-    for (let i = 0; i < 8; i++) {
-      const t = i / 7;
-      const plank = new THREE.Mesh(new THREE.BoxGeometry(5.2, 1.0, 4.2), jettyMat);
-      plank.position.set(side * (18 + t * 24), 1.4, 78 + t * 52);
-      plank.rotation.y = side * 0.4;
+    for (let i = 0; i < 10; i++) {
+      const t = i / 9;
+      const x = side * (10 + t * 32);
+      const z = 70 + t * 58;
+      const plank = new THREE.Mesh(new THREE.BoxGeometry(5.8, 1.0, 5.0), jettyMat);
+      plank.position.set(x, 1.4, z);
+      plank.rotation.y = side * (0.55 - t * 0.15);
       plank.castShadow = true;
       plank.receiveShadow = true;
       group.add(plank);
-      const pile = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.55, 7, 6), pilingMat);
-      pile.position.set(side * (18 + t * 24), -1.8, 78 + t * 52);
-      group.add(pile);
+      for (const ps of [-1, 1]) {
+        const pile = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.5, 7, 6), pilingMat);
+        pile.position.set(x + ps * 1.8, -1.8, z);
+        group.add(pile);
+      }
     }
   }
   for (let i = 0; i < 12; i++) {

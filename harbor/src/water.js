@@ -188,12 +188,13 @@ export function createSeabed({ segments = 100, spokes = 110 } = {}) {
 
   for (let ring = 0; ring <= segments; ring++) {
     const t = ring / segments;
-    const r = 30 + Math.pow(t, 1.65) * (outer - 30);
+    // Start at the origin so there is never a dark hole under the lagoon.
+    const r = Math.pow(t, 1.55) * outer;
     for (let s = 0; s < spokes; s++) {
       const a = (s / spokes) * Math.PI * 2;
       const x = Math.cos(a) * r;
       const z = Math.sin(a) * r + 20;
-      const y = seabedHeight(x, z);
+      const y = r < 8 ? -0.4 : seabedHeight(x, z);
       positions.push(x, y, z);
       const c = new THREE.Color();
       const depth = -y;

@@ -26,9 +26,10 @@ float clouds(vec3 dir, float t) {
   vec2 uv = dir.xz / max(dir.y, 0.02) * 1.35 + vec2(t * 0.010, t * 0.005);
   float base = skyFbm(uv * 0.48);
   float detail = skyFbm(uv * 1.6 + base);
-  float d = base * 0.72 + detail * 0.28;
-  float mask = smoothstep(0.46, 0.68, d);
-  return mask * smoothstep(0.012, 0.18, dir.y);
+  float d = base * 0.68 + detail * 0.32;
+  // Soft painterly puffs with room for blue between them.
+  float mask = smoothstep(0.44, 0.62, d) * (1.0 - smoothstep(0.78, 0.95, d) * 0.25);
+  return mask * smoothstep(0.015, 0.20, dir.y);
 #endif
 }
 
@@ -97,7 +98,7 @@ export function createSky({ segments = 48 } = {}) {
 }
 
 export function createLights(scene, { shadows = true, shadowMap = 2048, shadowSpan = 180 } = {}) {
-  const sun = new THREE.DirectionalLight(0xfff2d8, 2.8);
+  const sun = new THREE.DirectionalLight(0xfff2d8, 2.6);
   sun.position.copy(SUN_DIR).multiplyScalar(320);
   scene.add(sun);
   scene.add(sun.target);
@@ -105,13 +106,14 @@ export function createLights(scene, { shadows = true, shadowMap = 2048, shadowSp
   if (shadows) {
     sun.castShadow = true;
     sun.shadow.mapSize.set(shadowMap, shadowMap);
+    sun.shadow.intensity = 0.55;
     const c = sun.shadow.camera;
     c.left = -shadowSpan; c.right = shadowSpan;
     c.top = shadowSpan; c.bottom = -shadowSpan;
     c.near = 1; c.far = 900;
     c.updateProjectionMatrix();
-    sun.shadow.bias = -0.0004;
-    sun.shadow.normalBias = 0.85;
+    sun.shadow.bias = -0.00035;
+    sun.shadow.normalBias = 1.1;
   }
 
   const hemi = new THREE.HemisphereLight(0xa8d4f0, 0x1a4050, 0.85);
