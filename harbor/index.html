@@ -1,0 +1,54 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Salty Fin Bay — a fishing prototype</title>
+<link rel="stylesheet" href="./style.css">
+
+<canvas id="gl" oncontextmenu="return false"></canvas>
+
+<div id="hud">
+  <div class="hud-top">
+    <div class="pill coins"><span class="ico">◉</span><b id="coins">0</b><span class="dim">coins</span></div>
+    <div class="goalwrap">
+      <div class="goalbar"><i id="goalfill"></i></div>
+      <span class="goaltext">new boat fund · <b id="goalnum">0</b>/<span id="goalmax">400</span></span>
+    </div>
+    <div class="pill hold"><span class="ico">≈</span><b id="hold">0</b><span class="dim">/8 in the hold</span></div>
+  </div>
+
+  <div id="fight" class="hidden">
+    <div class="gauge">
+      <div class="track"><i id="hookwin"></i><i id="fishmark"></i></div>
+      <div class="prog"><i id="progfill"></i></div>
+    </div>
+    <div class="gauge-label">hold <b>SPACE</b> to reel</div>
+  </div>
+
+  <div id="card" class="hidden">
+    <div class="card-fish" id="cardswatch"></div>
+    <div class="card-body"><b id="cardname">Herring</b><span id="cardmeta">2.4 kg · 8 coins</span></div>
+  </div>
+
+  <div id="toast" class="hidden"></div>
+  <div id="prompt" class="hidden"></div>
+  <div id="fps"></div>
+</div>
+
+<div id="intro">
+  <div class="intro-card">
+    <h1>Salty Fin Bay</h1>
+    <p class="sub">Take the dinghy out, find a shoal, and bring the catch back to the shop.</p>
+    <div class="keys">
+      <div><kbd>W</kbd><kbd>S</kbd><span>throttle</span></div>
+      <div><kbd>A</kbd><kbd>D</kbd><span>steer</span></div>
+      <div><kbd>Shift</kbd><span>boost</span></div>
+      <div><kbd>Space</kbd><span>cast · hook · reel</span></div>
+      <div><kbd>drag</kbd><span>look around</span></div>
+      <div><kbd>H</kbd><span>hide the interface</span></div>
+    </div>
+    <button id="start">Cast off</button>
+  </div>
+</div>
+
+<div id="boot"><span>charting the bay…</span></div>
+
+<script type="module" src="./main.js"></script>
