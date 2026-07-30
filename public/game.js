@@ -15,6 +15,12 @@
   const INTERP = 90;   // ms of deliberate lag, so movement is smooth not jittery
 
   const FLAG = { ALIVE: 1, BOMB: 2, DASH: 4, SHIELD: 8, BOOST: 16, FALL: 32 };
+
+  // localStorage throws outright in some sandboxed contexts, so it stays optional.
+  const store = {
+    get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
+    set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* no-op */ } },
+  };
   const EMOTES = [null, '😂', '😱', '😎', '🤡', '🔥', '💀'];
 
   /* ------------------------------------------------------------- state */
@@ -203,13 +209,14 @@
       if (m.t === 'welcome') {
         G.id = m.id;
         G.code = m.code;
-        history.replaceState(null, '', '/' + m.code);
+        // Sandboxed frames reject both of these; neither is worth a crash.
+        try { history.replaceState(null, '', '/' + m.code); } catch { /* no-op */ }
         $('#roomcode').textContent = m.code;
         $('#lobbycode').textContent = m.code;
         $('#start').classList.add('hidden');
         $('#hud').classList.remove('hidden');
-        localStorage.setItem('bb_name', name);
-        localStorage.setItem('bb_emoji', emoji);
+        store.set('bb_name', name);
+        store.set('bb_emoji', emoji);
       } else if (m.t === 'meta') {
         G.meta.clear();
         G.order = m.players.map((p) => p.id);
@@ -873,7 +880,7 @@
     '🍕', '💀', '🤡', '👻', '🐙', '🦄', '🔥', '🌮'];
 
   const pickEl = $('#emojipick');
-  let chosen = localStorage.getItem('bb_emoji') || FACES[(Math.random() * FACES.length) | 0];
+  let chosen = store.get('bb_emoji') || FACES[(Math.random() * FACES.length) | 0];
   pickEl.innerHTML = FACES.map((f) => `<button type="button" data-f="${f}">${f}</button>`).join('');
   function syncPick() {
     pickEl.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.f === chosen));
@@ -886,7 +893,7 @@
   });
   syncPick();
 
-  $('#name').value = localStorage.getItem('bb_name') || '';
+  $('#name').value = store.get('bb_name') || '';
   const urlCode = location.pathname.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 6);
   if (urlCode) $('#code').value = urlCode;
 

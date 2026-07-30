@@ -112,6 +112,22 @@ matches. Scaling past one box would mean pinning a room code to an instance.
 
 ---
 
+## Playing without a server
+
+```
+npm run build:solo   # → dist/solo.html
+```
+
+Produces one self-contained HTML file you can open straight off disk (or drop on
+any static host) and play against bots. It isn't a second implementation of the
+game — the build inlines `server/game.js` and `public/game.js` verbatim and slots
+a fake WebSocket between them, so the real simulation runs in a timer in the same
+tab and feeds the real client the exact `meta` and `s` messages the real server
+would have sent. One source of truth for physics, so it can't drift.
+
+Useful for trying the feel, tuning constants, or handing someone the game when
+you don't have anywhere to deploy it.
+
 ## Tests
 
 ```

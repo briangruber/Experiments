@@ -5,10 +5,19 @@
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
-    "test": "node test/smoke.js"
+    "test": "node test/smoke.js",
+    "build:solo": "node tools/build-solo.js"
   },
-  "keywords": ["game", "multiplayer", "websocket", "party", "browser"],
-  "engines": { "node": ">=18" },
+  "keywords": [
+    "game",
+    "multiplayer",
+    "websocket",
+    "party",
+    "browser"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "ws": "^8.18.0"
   },
