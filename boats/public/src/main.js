@@ -13,6 +13,7 @@ import { createInput } from './input.js';
 import { Net } from './net.js';
 import { Audio } from './audio.js';
 import { detectTier, AdaptiveResolution, goImmersive } from './quality.js';
+import { attachSoloWorld } from './solo.js';
 
 const canvas = document.getElementById('gl');
 const { tier } = detectTier();
@@ -912,28 +913,42 @@ addEventListener('orientationchange', () => setTimeout(relayout, 250));
 const startBtn = document.getElementById('start-btn');
 const nameInput = document.getElementById('name-input');
 const statusEl = document.getElementById('start-status');
-nameInput.value = localStorage.getItem('hh-name') || '';
+try { nameInput.value = localStorage.getItem('hh-name') || ''; } catch { /* private mode */ }
+
+// A published single file has no server to talk to, and neither does a page
+// opened straight off disk. Both play solo, with the world running in the tab.
+const SOLO = window.__SOLO_BUILD__ === true
+  || new URLSearchParams(location.search).has('solo')
+  || location.protocol === 'file:';
 
 async function begin() {
   const name = (nameInput.value || '').trim().slice(0, 16);
   startBtn.disabled = true;
   statusEl.textContent = '';
-  localStorage.setItem('hh-name', name);
-  try {
-    await net.connect(name);
-  } catch (err) {
-    statusEl.textContent = 'Could not reach the server. Is it running?';
-    startBtn.disabled = false;
-    return;
+  try { localStorage.setItem('hh-name', name); } catch { /* private mode */ }
+
+  let solo = SOLO;
+  if (!solo) {
+    try {
+      await net.connect(name);
+    } catch {
+      // Nobody answered. Rather than dead-ending the player on an error
+      // message, put them to sea on their own.
+      solo = true;
+    }
   }
+  if (solo) await net.connectSolo(name, attachSoloWorld);
   audio.start();
-  await goImmersive(document.documentElement);
+  // Fire and forget: fullscreen and the wake lock are courtesies, and on some
+  // browsers the wake-lock promise simply never settles on a hidden page.
+  goImmersive(document.documentElement).then(relayout, relayout);
   relayout();
   document.getElementById('start').hidden = true;
   hud.show();
   game.playing = true;
   relock();
   hud.log('Weigh anchor. Something is out there.', 'info');
+  if (net.solo) hud.log('Solo sea — the world is running in this tab', 'info');
 }
 
 startBtn.onclick = begin;

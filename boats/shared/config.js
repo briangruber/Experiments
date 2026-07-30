@@ -131,6 +131,11 @@ export const HARPOON = {
 
 export const CREW = { hireCost: 55, repairPerPoint: 1.6 };
 
+/** What one more hand costs on a given hull. */
+export function crewCost(tier) {
+  return Math.round(CREW.hireCost * (1 + tier * 0.9));
+}
+
 /** Deaths are expensive but never terminal: the widows take a cut, not all of it. */
 export const SINK_GOLD_PENALTY = 0.4;
 

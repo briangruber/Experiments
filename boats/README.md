@@ -106,7 +106,19 @@ Trading up credits 30% of your current hull.
 
 ## How to actually play it
 
-The game needs a server — even solo, because the monsters live there. It ships
+**Just want to try it?** Build the single file and open it — no server, no
+install, works from a phone's browser or straight off disk:
+
+```
+node tools/bundle.mjs          # → dist/harpoon-and-hold.html
+```
+
+That one file contains the game, three.js and the world simulation. It plays
+solo: `shared/sim.js` is transport-free, so the same server code that runs
+behind a WebSocket runs inside the page instead. You can email it, drop it on
+any static host, or open it with `file://`.
+
+Everything below is for playing *together*, which does need a server — it ships
 with one, and it starts in a single command with nothing to install.
 
 **On your own machine.** `node server.js`, then open `http://localhost:8080`.
@@ -157,8 +169,9 @@ play in an evening, not a database.
 ## Layout
 
 ```
-server.js            HTTP + game loop: spawning, monster AI, damage, economy
+server.js            transport only: static files + websockets + a 20 Hz tick
 lib/ws.js            RFC 6455 server, ~200 lines, no dependencies
+shared/sim.js        the game: spawning, monster AI, damage, gold, sinking
 shared/config.js     boats, monsters, prices, XP — imported by BOTH sides
 shared/waves.js      the wave field, and the GLSL generated from it
 public/src/
@@ -170,11 +183,12 @@ public/src/
   harpoon.js         projectiles, rope meshes, tether state
   town.js            Port Kelder
   fx.js              pooled particles, wake ribbons
+  solo.js            runs shared/sim.js in the page when there is no server
   hud.js  minimap.js  input.js  net.js  audio.js
 Dockerfile, fly.toml  one-command deploy for playing with people elsewhere
 ```
 
-Two details worth knowing if you change things:
+Three details worth knowing if you change things:
 
 **One wave table.** `shared/waves.js` holds the Gerstner parameters, a CPU
 sampler, and a function that emits the equivalent GLSL. The ocean shader is
@@ -185,6 +199,12 @@ on cannot drift apart.
 server. The price in the shipwright's window is the price the server charges,
 because it is the same number.
 
+**One simulation.** `shared/sim.js` never mentions a socket — it talks to
+players through objects with a `send()` method. `server.js` hands it WebSocket
+connections; `public/src/solo.js` hands it a two-line fake one and runs the
+identical world inside the browser tab. Solo play is not a reduced mode, it is
+the same game with one player in it.
+
 ## Tools
 
 ```
@@ -194,6 +214,7 @@ node tools/bestiary.mjs --out shots/b.png  # every monster in a line on the real
 node tools/bestiary.mjs --boats            # every hull, for judging the upgrade ramp
 node tools/bestiary.mjs --only frost       # one model, close up
 node tools/mobile-check.mjs --shots shots/mobile   # emulated phones, thumbs only
+node tools/bundle.mjs --check              # one self-contained .html, no external refs
 ```
 
 `mobile-check` is the one that earns its keep: it runs the game in an emulated

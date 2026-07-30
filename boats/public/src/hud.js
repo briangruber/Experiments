@@ -1,4 +1,4 @@
-import { BOATS, MONSTER_BY_ID, CREW } from '/shared/config.js';
+import { BOATS, MONSTER_BY_ID, CREW, crewCost } from '/shared/config.js';
 
 // All DOM in one place. The 3D layer never touches innerHTML.
 
@@ -210,7 +210,7 @@ export class Hud {
       ? `${Math.round(missing)} points of hull to make good`
       : 'Hull is sound';
 
-    const hireCost = Math.round(CREW.hireCost * (1 + s.tier * 0.9));
+    const hireCost = crewCost(s.tier);
     const needCrew = s.crewMax - s.crew;
     this.el.crewBtn.textContent = needCrew > 0 ? `${hireCost.toLocaleString()}g` : 'Full';
     this.el.crewBtn.disabled = needCrew <= 0 || s.gold < hireCost;
