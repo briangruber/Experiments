@@ -16,6 +16,8 @@ export function createInput(canvas) {
     touch: false,
     stick: { x: 0, y: 0 },
     typing: false,
+    aimAssist: false,
+    setDockPrompt: null,
     down: (code) => keys.has(code),
     once(code) {
       if (!pressed.has(code)) return false;
@@ -96,63 +98,114 @@ export function createInput(canvas) {
 }
 
 function buildTouchUI(input, canvas) {
+  // Aiming with one thumb while steering with the other is not a thing a human
+  // can do, so touch play gets a lock-on instead of a crosshair.
+  input.aimAssist = true;
+
   const layer = document.createElement('div');
   layer.id = 'touch';
   layer.innerHTML = `
-    <div id="stick"><i></i></div>
-    <button class="tbtn" id="t-fire">throw</button>
-    <button class="tbtn" id="t-reel">winch</button>
-    <button class="tbtn" id="t-cut">cut</button>`;
+    <div id="stick-zone"><div id="stick" hidden><i></i></div></div>
+    <div id="touch-actions">
+      <button class="tbtn throw" id="t-throw" aria-label="throw harpoon"><b>THROW</b><small>hold</small></button>
+      <button class="tbtn" id="t-winch" aria-label="winch"><b>WINCH</b></button>
+      <button class="tbtn small" id="t-cut" aria-label="cut rope"><b>CUT</b></button>
+    </div>
+    <button class="tchip" id="t-dock" hidden>⚓ Dock</button>
+    <div id="touch-chips">
+      <button class="tchip" id="t-crews" aria-label="crews at sea">Crews</button>
+      <button class="tchip" id="t-talk" aria-label="talk">Talk</button>
+    </div>`;
   document.body.appendChild(layer);
 
+  /* ------------------------------------------------- floating left stick */
+
+  const zone = layer.querySelector('#stick-zone');
   const stick = layer.querySelector('#stick');
   const knob = stick.querySelector('i');
+  const R = 54;
   let stickId = null;
-  const R = 52;
 
-  stick.addEventListener('pointerdown', (e) => {
+  zone.addEventListener('pointerdown', (e) => {
+    if (stickId !== null) return;
     stickId = e.pointerId;
-    stick.setPointerCapture(e.pointerId);
+    // The stick appears under the thumb rather than making the thumb find it.
+    stick.hidden = false;
+    stick.style.left = `${e.clientX}px`;
+    stick.style.top = `${e.clientY}px`;
+    zone.setPointerCapture(e.pointerId);
+    e.preventDefault();
   });
-  stick.addEventListener('pointermove', (e) => {
+  zone.addEventListener('pointermove', (e) => {
     if (e.pointerId !== stickId) return;
-    const r = stick.getBoundingClientRect();
-    let dx = e.clientX - (r.left + r.width / 2);
-    let dy = e.clientY - (r.top + r.height / 2);
+    const cx = parseFloat(stick.style.left);
+    const cy = parseFloat(stick.style.top);
+    let dx = e.clientX - cx;
+    let dy = e.clientY - cy;
     const len = Math.hypot(dx, dy) || 1;
     const s = Math.min(1, len / R) / len;
     dx *= s * R; dy *= s * R;
     knob.style.transform = `translate(${dx}px, ${dy}px)`;
-    input.stick.x = dx / R;
-    input.stick.y = -dy / R;
+    // Small deadzone so resting a thumb does not creep the boat.
+    input.stick.x = Math.abs(dx) < 8 ? 0 : dx / R;
+    input.stick.y = Math.abs(dy) < 8 ? 0 : -dy / R;
   });
   const endStick = (e) => {
     if (e.pointerId !== stickId) return;
     stickId = null;
+    stick.hidden = true;
     knob.style.transform = '';
     input.stick.x = 0; input.stick.y = 0;
   };
-  stick.addEventListener('pointerup', endStick);
-  stick.addEventListener('pointercancel', endStick);
+  zone.addEventListener('pointerup', endStick);
+  zone.addEventListener('pointercancel', endStick);
 
-  const fire = layer.querySelector('#t-fire');
-  fire.addEventListener('pointerdown', () => { input.firing = true; });
-  fire.addEventListener('pointerup', () => { input.firing = false; input.fireReleased = true; });
-  const reel = layer.querySelector('#t-reel');
-  reel.addEventListener('pointerdown', () => { input.reeling = true; });
-  reel.addEventListener('pointerup', () => { input.reeling = false; });
-  layer.querySelector('#t-cut').addEventListener('pointerdown', () => input.pressed.add('KeyC'));
+  /* ----------------------------------------------------------- actions */
 
-  // Dragging anywhere on the canvas swings the camera.
+  const hold = (el, down, up) => {
+    el.addEventListener('pointerdown', (e) => { e.preventDefault(); el.classList.add('on'); down(); });
+    const release = () => { el.classList.remove('on'); up?.(); };
+    el.addEventListener('pointerup', release);
+    el.addEventListener('pointercancel', release);
+    el.addEventListener('pointerleave', release);
+  };
+
+  hold(layer.querySelector('#t-throw'),
+    () => { input.firing = true; },
+    () => { if (input.firing) { input.firing = false; input.fireReleased = true; } });
+  hold(layer.querySelector('#t-winch'),
+    () => { input.reeling = true; },
+    () => { input.reeling = false; });
+
+  const tap = (el, code) => el.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    input.pressed.add(code);
+  });
+  tap(layer.querySelector('#t-cut'), 'KeyC');
+  tap(layer.querySelector('#t-dock'), 'KeyE');
+  tap(layer.querySelector('#t-talk'), 'KeyT');
+  tap(layer.querySelector('#t-crews'), 'Tab');
+
+  input.dockButton = layer.querySelector('#t-dock');
+  input.setDockPrompt = (on) => { input.dockButton.hidden = !on; };
+
+  /* -------------------------------------------------------------- look */
+
+  // Only the right of the screen swings the camera; the left belongs to the
+  // stick, and the buttons swallow their own touches before they reach here.
   let lookId = null, lx = 0, ly = 0;
-  canvas.addEventListener('pointerdown', (e) => { lookId = e.pointerId; lx = e.clientX; ly = e.clientY; });
-  canvas.addEventListener('pointermove', (e) => {
-    if (e.pointerId !== lookId) return;
-    input.look.x += (e.clientX - lx) * 1.6;
-    input.look.y += (e.clientY - ly) * 1.6;
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.clientX < innerWidth * 0.42) return;
+    lookId = e.pointerId;
     lx = e.clientX; ly = e.clientY;
   });
-  const endLook = () => { lookId = null; };
+  canvas.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== lookId) return;
+    input.look.x += (e.clientX - lx) * 1.5;
+    input.look.y += (e.clientY - ly) * 1.5;
+    lx = e.clientX; ly = e.clientY;
+  });
+  const endLook = (e) => { if (e.pointerId === lookId) lookId = null; };
   canvas.addEventListener('pointerup', endLook);
   canvas.addEventListener('pointercancel', endLook);
 }

@@ -12,11 +12,15 @@ import { Minimap, depthLabel } from './minimap.js';
 import { createInput } from './input.js';
 import { Net } from './net.js';
 import { Audio } from './audio.js';
+import { detectTier, AdaptiveResolution, goImmersive } from './quality.js';
 
 const canvas = document.getElementById('gl');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
-renderer.setSize(innerWidth, innerHeight);
+const { tier } = detectTier();
+
+const renderer = new THREE.WebGLRenderer({
+  canvas, antialias: tier.antialias, powerPreference: 'high-performance',
+});
+const resolution = new AdaptiveResolution(renderer, tier);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.02;
@@ -28,18 +32,19 @@ scene.background = HORIZON_COLOR.clone();
 const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.4, 9000);
 camera.position.set(0, 14, 130);
 
-const quality = Math.min(devicePixelRatio || 1, 2) > 1.5 && !matchMedia('(pointer: coarse)').matches ? 1 : 0;
-const ocean = createOcean({ quality });
+const ocean = createOcean({
+  segments: tier.oceanSegments, half: tier.oceanHalf, detail: tier.waveDetail,
+});
 scene.add(ocean.mesh);
-scene.add(createSky());
+scene.add(createSky({ segments: tier.skySegments }));
 createLights(scene);
 const edge = createWorldEdge();
 scene.add(edge.mesh);
 
-const town = createTown();
+const town = createTown({ lamp: tier.townLight });
 scene.add(town.group);
 
-const particles = new Particles(scene);
+const particles = new Particles(scene, { max: tier.particles });
 const input = createInput(canvas);
 const audio = new Audio();
 const net = new Net();
@@ -100,7 +105,11 @@ const hud = new Hud({
   chatClosed: () => { input.typing = false; relock(); },
 });
 
-const minimap = new Minimap(document.getElementById('minimap'));
+// Smaller chart on a phone: it competes with two thumbs for the corners.
+const minimap = new Minimap(document.getElementById('minimap'), {
+  size: input.touch ? Math.min(104, Math.round(Math.min(innerWidth, innerHeight) * 0.27)) : 220,
+  range: input.touch ? 600 : 700,
+});
 
 /* ---------------------------------------------------------- own vessel */
 
@@ -115,7 +124,7 @@ function buildOwnBoat(tier) {
     speed: 0, throttle: 0, rudder: 0,
     extVx: 0, extVz: 0,
     roll: 0, pitch: 0, tier,
-    wake: prev ? prev.wake : new Wake(scene, { length: 110, width: 1.4 }),
+    wake: prev ? prev.wake : new Wake(scene, { length: tier.wakeLength, width: 1.4 }),
   };
   if (prev) { scene.remove(prev.view.group); prev.view.dispose(); }
   game.boat = boat;
@@ -138,6 +147,48 @@ function aimDirection() {
   return camera.getWorldDirection(_fwd).clone().normalize();
 }
 
+/**
+ * Where to throw to actually hit `point` from `origin` at `speed`, allowing for
+ * the drop. Two iterations is plenty at harpoon ranges.
+ */
+const _aim = new THREE.Vector3();
+function ballisticAim(origin, point, speed) {
+  _aim.copy(point).sub(origin);
+  let flat = Math.hypot(_aim.x, _aim.z);
+  let rise = _aim.y;
+  for (let i = 0; i < 2; i++) {
+    const t = flat / Math.max(1, speed);
+    rise = (point.y - origin.y) + 0.5 * HARPOON.gravity * t * t;
+    flat = Math.hypot(_aim.x, _aim.z);
+  }
+  _aim.y = rise;
+  return _aim.normalize();
+}
+
+/**
+ * The monster a touch player means. Generous by design: a thumb cannot place a
+ * crosshair, and the fun is in the rope, not the reticle.
+ */
+function assistTarget(maxRange) {
+  const t = harpoons.tether;
+  if (t) return t.view;
+  const dir = aimDirection();
+  const origin = camera.position;
+  let best = null, bestScore = -1;
+  for (const view of game.monsters.values()) {
+    if (view.dying) continue;
+    const to = _tmp.copy(view.hitSpheresWorld[0].pos).sub(origin);
+    const dist = to.length();
+    if (dist > maxRange) continue;
+    const aligned = to.normalize().dot(dir);
+    if (aligned < 0.72) continue;               // roughly a 44-degree cone
+    // Prefer what you are looking at, then what is close.
+    const score = aligned * 2 + (1 - dist / maxRange);
+    if (score > bestScore) { bestScore = score; best = view; }
+  }
+  return best;
+}
+
 function updateCamera(dt) {
   const b = game.boat;
   if (!b) return;
@@ -145,6 +196,12 @@ function updateCamera(dt) {
   const sens = input.touch ? 0.0022 : 0.0026;
   cam.yaw -= look.x * sens;
   cam.pitch = Math.max(-0.28, Math.min(0.85, cam.pitch + look.y * sens));
+  if (input.touch && look.x === 0 && look.y === 0) {
+    // One thumb is on the stick and the other is on THROW; nobody is free to
+    // fly the camera, so it eases back behind the bow on its own.
+    cam.yaw *= Math.pow(0.22, dt);
+    cam.pitch += (0.20 - cam.pitch) * Math.min(1, dt * 0.7);
+  }
   cam.dist = Math.max(0.55, Math.min(2.6, cam.dist + input.consumeWheel() * 0.14));
 
   const spec = BOATS[b.tier];
@@ -306,7 +363,14 @@ function updateHarpoon(dt) {
   if (input.consumeFire() && canFire && game.charge > 0.06) {
     const charge = game.charge;
     const origin = bowPoint().clone().add(new THREE.Vector3(0, 0.6, 0));
-    const dir = aimDirection();
+    const speed = HARPOON.minSpeed + (HARPOON.maxSpeed - HARPOON.minSpeed) * charge;
+    let dir = aimDirection();
+    if (input.aimAssist) {
+      const locked = assistTarget(spec.rope * 1.15);
+      // Aim at the nearest part of the body, not its head: on a serpent the
+      // head is often the one bit under water.
+      if (locked) dir = ballisticAim(origin, locked.nearestSphere(origin).pos, speed).clone();
+    }
     const damage = spec.harpoonDamage * (0.62 + 0.38 * charge);
     harpoons.fire({ origin, dir, charge, damage, maxRope: spec.rope });
     net.send({
@@ -387,7 +451,7 @@ function syncPlayers(list) {
       rec = {
         view, label, tier: p.t, name: p.n,
         x: p.x, z: p.z, h: p.h, tx: p.x, tz: p.z, th: p.h, sp: p.sp,
-        wake: new Wake(scene, { length: 60, width: 1.2 }),
+        wake: new Wake(scene, { length: Math.round(tier.wakeLength * 0.6), width: 1.2 }),
       };
       game.players.set(p.id, rec);
     }
@@ -694,6 +758,11 @@ function frame(now) {
     updateCarcasses();
   }
 
+  // Distant monsters cost a lot of CPU animation for a few pixels; on a phone
+  // the horizon ones are not worth it.
+  const cullSq = tier.monsterDistance * tier.monsterDistance;
+  const camX = camera.position.x, camZ = camera.position.z;
+
   for (const view of game.monsters.values()) {
     if (view.dying) {
       view.dying += dt * 0.5;
@@ -704,6 +773,11 @@ function frame(now) {
         continue;
       }
     }
+    const dx = view.x - camX, dz = view.z - camZ;
+    const far = dx * dx + dz * dz > cullSq;
+    view.root.visible = !far;
+    // Still stepped if it is on our rope, because the tether reads its body.
+    if (far && !harpoons.tethers.some((t) => t.view === view)) continue;
     view.update(dt, game.time);
   }
   updateRemoteRopes();
@@ -714,6 +788,7 @@ function frame(now) {
   town.update(dt, game.time, particles);
   particles.update(dt, game.time);
 
+  resolution.update(dt);
   hudTimer += dt;
   if (game.playing && hudTimer > 0.1) {
     hudTimer = 0;
@@ -725,6 +800,9 @@ function frame(now) {
     window.__debug.distance = game.travelled;
     window.__debug.speed = game.peakSpeed;
     window.__debug.tethered = harpoons.tethers.length;
+    window.__debug.tier = tier.name;
+    window.__debug.pixelScale = +resolution.scale.toFixed(2);
+    window.__debug.touch = input.touch;
     window.__debug.self = game.self;
   }
 
@@ -762,7 +840,10 @@ function updateHudSlow() {
 
   document.getElementById('minimap-depth').textContent = depthLabel(d);
 
+  input.setDockPrompt?.(inTown && !game.self.dead && !hud.dockOpen);
+
   if (game.self.dead) hud.setPrompt(null);
+  else if (input.touch) hud.setPrompt(null);
   else if (inTown) hud.setPrompt('<b>E</b> — the fish market, the chandler, the shipwright');
   else if (harpoons.tether) hud.setPrompt('<b>R</b> or right-click — winch it in &nbsp; <b>C</b> — cut it loose');
   else if (game.self.cargo.length) hud.setPrompt('Hold has catch — <b>sail home</b> to sell it');
@@ -770,12 +851,13 @@ function updateHudSlow() {
 
   // Target readout for whatever is on the rope, or whatever we are aiming at.
   const t = harpoons.tether;
-  let show = t ? t.view : nearestAimed();
+  const spec = BOATS[b.tier];
+  let show = t ? t.view : (input.aimAssist ? assistTarget(spec.rope * 1.15) : nearestAimed());
   if (show) {
     const head = show.hitSpheresWorld[0].pos;
     const screen = toScreen(_tmp.copy(head).add(new THREE.Vector3(0, show.type.size * 3.4, 0)));
     hud.setTarget(show.type.name, show.hp, screen);
-    hud.setLocked(!!t);
+    hud.setLocked(!!t || (input.aimAssist && !!show));
   } else {
     hud.setTarget('', 0, null);
     hud.setLocked(false);
@@ -817,12 +899,15 @@ function nearestAimed() {
 
 /* --------------------------------------------------------------- boot */
 
-addEventListener('resize', () => {
+function relayout() {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
+  resolution.apply();
   particles.resize(innerHeight);
-});
+}
+addEventListener('resize', relayout);
+// Phones fire this on rotation before the new size has settled.
+addEventListener('orientationchange', () => setTimeout(relayout, 250));
 
 const startBtn = document.getElementById('start-btn');
 const nameInput = document.getElementById('name-input');
@@ -842,6 +927,8 @@ async function begin() {
     return;
   }
   audio.start();
+  await goImmersive(document.documentElement);
+  relayout();
   document.getElementById('start').hidden = true;
   hud.show();
   game.playing = true;

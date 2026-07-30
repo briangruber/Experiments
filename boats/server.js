@@ -10,6 +10,7 @@
 // harpoon range, purchases).
 
 import http from 'node:http';
+import os from 'node:os';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -732,10 +733,23 @@ setInterval(() => {
 // Seed a sea that already has monsters in it before anyone arrives.
 for (let i = 0; i < 14; i++) spawnMonster();
 
+function localAddresses() {
+  const out = [];
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const net of list || []) {
+      if (net.family === 'IPv4' && !net.internal) out.push(net.address);
+    }
+  }
+  return out;
+}
+
 server.listen(PORT, HOST, () => {
-  console.log(`\n  Harpoon & Hold`);
-  console.log(`  http://localhost:${PORT}\n`);
-  console.log(`  ${MONSTERS.length} monster types, ${BOATS.length} hulls, ${monsters.size} beasts already circling.\n`);
+  console.log(`\n  Harpoon & Hold — ${MONSTERS.length} monsters, ${BOATS.length} hulls, ${monsters.size} beasts already circling.\n`);
+  console.log(`  You:        http://localhost:${PORT}`);
+  for (const ip of localAddresses()) {
+    console.log(`  Same wifi:  http://${ip}:${PORT}   <- phones and friends type this`);
+  }
+  console.log('');
 });
 
 process.on('SIGINT', () => { server.close(); process.exit(0); });

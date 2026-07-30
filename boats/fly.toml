@@ -1,0 +1,21 @@
+# One-command deploy:  fly launch --copy-config --now
+#
+# A single small machine is plenty: the server is one Node process holding a few
+# dozen monsters in memory. Keep it to ONE machine — players only meet each
+# other if they land on the same process, and game state is in memory.
+app = "harpoon-and-hold"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

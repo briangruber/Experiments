@@ -25,8 +25,8 @@ export const FOG_DENSITY = 0.00105;
 
 /* --------------------------------------------------------------------- sky */
 
-export function createSky() {
-  const geo = new THREE.SphereGeometry(6000, 48, 32);
+export function createSky({ segments = 48 } = {}) {
+  const geo = new THREE.SphereGeometry(6000, segments, Math.max(12, segments * 0.66));
   const mat = new THREE.ShaderMaterial({
     side: THREE.BackSide,
     depthWrite: false,
@@ -95,9 +95,8 @@ function makeGrid(segments, half, power) {
   return geo;
 }
 
-export function createOcean({ quality = 1 } = {}) {
-  const segments = quality >= 1 ? 224 : 136;
-  const geo = makeGrid(segments, 2600, 1.55);
+export function createOcean({ segments = 224, half = 2600, detail = 6 } = {}) {
+  const geo = makeGrid(segments, half, 1.55);
 
   const uniforms = {
     uTime: { value: 0 },
@@ -105,7 +104,7 @@ export function createOcean({ quality = 1 } = {}) {
     uSun: { value: SUN_DIR },
     uCamera: { value: new THREE.Vector3() },
     uFog: { value: FOG_DENSITY },
-    uDetail: { value: quality >= 1 ? 6.0 : 4.0 },
+    uDetail: { value: detail },
   };
 
   const mat = new THREE.ShaderMaterial({

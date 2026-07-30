@@ -5,10 +5,10 @@ import { waterHeight } from '/shared/waves.js';
 // column of smoke from a burning hull. Cheaper than five systems and it keeps
 // the sorting honest.
 
-const MAX = 1400;
-
 export class Particles {
-  constructor(scene) {
+  constructor(scene, { max = 1400 } = {}) {
+    const MAX = max;
+    this.max = MAX;
     this.count = MAX;
     this.pos = new Float32Array(MAX * 3);
     this.col = new Float32Array(MAX * 3);
@@ -68,6 +68,7 @@ export class Particles {
   }
 
   spawn(x, y, z, vx, vy, vz, opts = {}) {
+    const MAX = this.max;
     const i = this.cursor;
     this.cursor = (this.cursor + 1) % MAX;
     const c = opts.color ?? 0xffffff;
@@ -85,7 +86,8 @@ export class Particles {
   }
 
   splash(p, strength = 1, color = 0xdff0f6) {
-    const n = Math.min(40, Math.round(6 + strength * 14));
+    const budget = this.max / 1400;
+    const n = Math.max(4, Math.round(Math.min(40, 6 + strength * 14) * budget));
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2;
       const r = Math.random() * 1.4 * strength;
@@ -98,6 +100,7 @@ export class Particles {
   }
 
   burst(p, color, n = 24, spread = 4, opts = {}) {
+    n = Math.max(4, Math.round(n * (this.max / 1400)));
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2;
       const b = Math.random() * Math.PI - Math.PI / 2;
@@ -122,7 +125,7 @@ export class Particles {
   }
 
   update(dt, time) {
-    const { pos, vel, life, maxLife, alpha, grav, drag, buoy, size } = this;
+    const { pos, vel, life, maxLife, alpha, grav, drag, buoy, size, max: MAX } = this;
     for (let i = 0; i < MAX; i++) {
       if (life[i] <= 0) { alpha[i] = 0; continue; }
       life[i] -= dt;

@@ -23,7 +23,9 @@ html, body {
   overscroll-behavior: none;
 }
 
-#gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+/* The canvas owns its gestures: no pinch-zoom, no pull-to-refresh, no
+   double-tap zoom while you are steering. Panels keep normal scrolling. */
+#gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
 
 kbd {
   display: inline-block; padding: 1px 6px; margin: 0 1px;
@@ -90,6 +92,13 @@ button.ghost { background: transparent; }
 .briefing p { margin: 0; font-size: 13px; line-height: 1.55; color: var(--dim); }
 
 .keys { font-size: 12px; color: var(--dim); line-height: 2.1; border-top: 1px solid var(--edge); padding-top: 14px; }
+.touch-keys { display: none; }
+body.touch .keys { display: none; }
+body.touch .touch-keys {
+  display: grid; gap: 7px; font-size: 13px; line-height: 1.5; color: var(--dim);
+  border-top: 1px solid var(--edge); padding-top: 14px;
+}
+body.touch .touch-keys b { color: var(--text); }
 .status { margin-top: 10px; font-size: 12px; color: var(--blood); min-height: 16px; }
 
 /* ----------------------------------------------------------------- hud */
@@ -262,26 +271,170 @@ button.ghost { background: transparent; }
 
 #touch { position: fixed; inset: 0; z-index: 25; pointer-events: none; display: none; }
 body.touch #touch { display: block; }
-#stick {
-  position: absolute; left: 24px; bottom: 24px; width: 128px; height: 128px;
-  border-radius: 50%; border: 1px solid var(--edge); background: rgba(4, 20, 30, 0.45);
-  pointer-events: auto;
-}
-#stick i { position: absolute; left: 50%; top: 50%; width: 52px; height: 52px; margin: -26px 0 0 -26px; border-radius: 50%; background: rgba(126, 197, 219, 0.35); border: 1px solid var(--edge); }
-.tbtn {
-  position: absolute; right: 24px; width: 74px; height: 74px; border-radius: 50%;
-  display: grid; place-items: center; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
-  background: rgba(4, 20, 30, 0.55); border: 1px solid var(--edge); color: var(--text);
-  pointer-events: auto;
-}
-#t-fire { bottom: 118px; background: rgba(216, 80, 63, 0.3); }
-#t-reel { bottom: 30px; right: 112px; }
-#t-cut { bottom: 30px; }
+body.touch #reticle { display: none; }        /* lock-on replaces the crosshair */
+body.touch button { padding: 12px 16px; font-size: 14px; }
+body.touch .tbtn, body.touch .tchip { padding: 0; }
+body.touch .tchip { padding: 10px 14px; }
+body.touch #prompt { display: none; }
 
-@media (max-width: 720px) {
-  .dock-cols { grid-template-columns: 1fr; }
-  #minimap { width: 140px; height: 140px; }
-  .vitals { min-width: 180px; }
-  #event-log { max-width: 210px; }
-  .start-card { padding: 22px 20px; }
+/* The left of the screen is the helm. The stick is drawn wherever the thumb
+   lands rather than in a fixed corner. */
+#stick-zone {
+  position: absolute; left: 0; top: 12%; bottom: 0; width: 42%;
+  pointer-events: auto; touch-action: none;
+}
+#stick {
+  position: fixed; width: 0; height: 0;
+  transform: translate(-50%, -50%);
+}
+#stick::before {
+  content: ''; position: absolute; left: -62px; top: -62px; width: 124px; height: 124px;
+  border-radius: 50%; border: 1.5px solid rgba(126, 197, 219, 0.5);
+  background: rgba(4, 20, 30, 0.32);
+}
+#stick i {
+  position: absolute; left: -27px; top: -27px; width: 54px; height: 54px;
+  border-radius: 50%; background: rgba(126, 197, 219, 0.42);
+  border: 1px solid rgba(223, 240, 246, 0.5);
+}
+
+#touch-actions {
+  position: absolute;
+  right: max(18px, env(safe-area-inset-right));
+  bottom: max(18px, env(safe-area-inset-bottom));
+  display: grid; gap: 10px;
+  grid-template-columns: auto auto;
+  grid-template-areas: "cut cut" "winch throw";
+  align-items: end; justify-items: end;
+}
+.tbtn {
+  width: 88px; height: 88px; border-radius: 50%;
+  display: grid; place-items: center; gap: 1px; line-height: 1;
+  background: rgba(6, 26, 38, 0.62); border: 1.5px solid var(--edge); color: var(--text);
+  pointer-events: auto; touch-action: none;
+  backdrop-filter: blur(6px);
+}
+.tbtn b { font-size: 12px; letter-spacing: 0.09em; font-weight: 800; }
+.tbtn small { font-size: 9px; color: var(--dim); letter-spacing: 0.06em; }
+.tbtn.on { background: rgba(126, 197, 219, 0.4); transform: scale(0.94); }
+.tbtn.throw { grid-area: throw; width: 104px; height: 104px; background: rgba(216, 80, 63, 0.34); border-color: rgba(255, 150, 130, 0.5); }
+.tbtn.throw.on { background: rgba(242, 192, 87, 0.55); color: #2a1c04; }
+#t-winch { grid-area: winch; }
+.tbtn.small { grid-area: cut; width: 62px; height: 62px; }
+.tbtn.small b { font-size: 10px; }
+
+.tchip {
+  pointer-events: auto; padding: 9px 14px; border-radius: 18px; font-size: 12px;
+  background: rgba(6, 26, 38, 0.62); border: 1px solid var(--edge); color: var(--text);
+  backdrop-filter: blur(6px);
+}
+#touch-chips {
+  position: absolute; display: flex; gap: 8px;
+  left: max(14px, env(safe-area-inset-left));
+  bottom: max(14px, env(safe-area-inset-bottom));
+}
+#t-dock {
+  /* Low and central on a wide screen, where the thumb cluster is far to the
+     right; pushed higher on narrow ones, where it would land under a thumb. */
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: calc(env(safe-area-inset-bottom) + 96px);
+  background: linear-gradient(180deg, #f7d07a, var(--gold)); color: #2a1c04;
+  font-weight: 800; padding: 12px 22px; font-size: 14px; border-color: #ffe0a0;
+}
+#t-dock[hidden] { display: none; }
+
+/* ------------------------------------------------------------- compact */
+
+/* Phone-sized HUD: the panels shrink and the minimap moves to the top right,
+   which keeps the bottom corners free for thumbs. */
+body.touch .corner { gap: 6px; }
+body.touch .panel { padding: 7px 9px; border-radius: 9px; }
+body.touch .top-left { top: max(8px, env(safe-area-inset-top)); left: max(8px, env(safe-area-inset-left)); }
+body.touch .ident { min-width: 0; }
+body.touch #hud-name { font-size: 13px; }
+body.touch .ident .xp { height: 12px; margin: 5px 0 4px; }
+body.touch .ident .gold { font-size: 13px; }
+
+body.touch .bottom-right {
+  top: max(8px, env(safe-area-inset-top));
+  right: max(8px, env(safe-area-inset-right));
+  bottom: auto;
+}
+body.touch .minimap-legend { font-size: 9px; }
+
+body.touch .top-right {
+  top: calc(max(8px, env(safe-area-inset-top)) + 132px);
+  right: max(8px, env(safe-area-inset-right));
+}
+body.touch #event-log { max-width: 46vw; }
+body.touch .ev { font-size: 11px; padding: 5px 8px; }
+
+body.touch .bottom-left {
+  left: max(8px, env(safe-area-inset-left));
+  bottom: max(66px, calc(env(safe-area-inset-bottom) + 66px));
+}
+body.touch .vitals { min-width: 0; width: 42vw; max-width: 220px; }
+body.touch .bar { height: 16px; }
+body.touch .stats { font-size: 11px; gap: 9px; }
+body.touch #chat-log { max-width: 46vw; }
+body.touch #chat-input { width: min(70vw, 320px); }
+
+/* Charge and strain sit above the throw button, where the thumb already is. */
+body.touch .bottom-center {
+  left: auto; transform: none;
+  right: max(18px, env(safe-area-inset-right));
+  bottom: calc(max(18px, env(safe-area-inset-bottom)) + 208px);
+  align-items: flex-end;
+}
+body.touch #charge, body.touch #strain { width: 168px; }
+body.touch #strain { margin-top: 16px; }
+
+body.touch #leaderboard { min-width: 260px; font-size: 12px; }
+body.touch .dmg-num { font-size: 13px; }
+body.touch #target-tag { font-size: 11px; }
+
+@media (max-width: 760px) {
+  .dock-cols { grid-template-columns: 1fr; gap: 16px; }
+  .dock-card { padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); border-radius: 14px; max-height: 100vh; }
+  .dock-card h2 { font-size: 21px; }
+  .dock-card header { gap: 10px; flex-wrap: wrap; }
+  .list.boats { grid-template-columns: 1fr 1fr; }
+  .hull-card { padding: 9px 10px; }
+  .hull-card .blurb { display: none; }
+  .screen { padding: 0; }
+  .start-card { padding: 20px 18px calc(20px + env(safe-area-inset-bottom)); border-radius: 0; max-height: 100vh; }
+  .briefing { grid-template-columns: 1fr; gap: 10px; margin: 16px 0 12px; }
+  .keys { display: none; }
+  button { padding: 12px 16px; font-size: 14px; }   /* thumb-sized targets */
+  .svc button { min-width: 84px; }
+}
+
+@media (max-width: 480px) {
+  .list.boats { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 560px) {
+  body.touch .bottom-left {
+    bottom: calc(env(safe-area-inset-bottom) + 208px);
+  }
+  /* Stacked, not side by side: a portrait phone has no room for a row of
+     chips beside the thumb cluster. */
+  body.touch #touch-chips {
+    flex-direction: column;
+    left: max(8px, env(safe-area-inset-left));
+    bottom: calc(env(safe-area-inset-bottom) + 150px);
+  }
+  body.touch .tchip { padding: 9px 12px; font-size: 11px; }
+  body.touch .vitals { width: 48vw; }
+  body.touch #event-log { max-width: 52vw; }
+  body.touch .bottom-center { bottom: calc(env(safe-area-inset-bottom) + 200px); }
+  #t-dock { bottom: calc(env(safe-area-inset-bottom) + 268px); }
+}
+
+/* Landscape phones are short: give the vertical space back. */
+@media (max-height: 460px) {
+  .start-card h1 { font-size: 30px; }
+  .tag { margin-bottom: 12px; font-size: 13px; }
+  .briefing { display: none; }
+  .dock-card header { margin-bottom: 10px; }
 }

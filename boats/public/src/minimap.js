@@ -6,14 +6,17 @@ import { WORLD, MONSTERS, MONSTER_BY_ID } from '/shared/config.js';
 const ZONE_COLOURS = ['#6fa8b8', '#8d7bd0', '#c46a5e', '#7f95a8', '#5ec9b4', '#9fd8ea', '#ff8a3d'];
 
 export class Minimap {
-  constructor(canvas, { range = 700 } = {}) {
+  /** `size` is the on-screen size in CSS pixels; the backing store is scaled
+   *  for the display. It is set here rather than in CSS because the canvas
+   *  needs the same number for its own coordinate system. */
+  constructor(canvas, { range = 700, size = 220 } = {}) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.range = range;
     const dpr = Math.min(2, devicePixelRatio || 1);
-    this.size = canvas.width;
-    canvas.width = canvas.height = this.size * dpr;
-    canvas.style.width = canvas.style.height = `${this.size}px`;
+    this.size = size;
+    canvas.width = canvas.height = size * dpr;
+    canvas.style.width = canvas.style.height = `${size}px`;
     this.ctx.scale(dpr, dpr);
   }
 

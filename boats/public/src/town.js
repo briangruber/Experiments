@@ -78,7 +78,7 @@ function house(w, d, h, wallColor, roofColor) {
   return g;
 }
 
-export function createTown() {
+export function createTown({ lamp: withLamp = true } = {}) {
   const group = new THREE.Group();
   const R = 104;
 
@@ -187,9 +187,13 @@ export function createTown() {
   lh.position.set(-52, 14, -30);
   group.add(lh);
 
-  const lamp = new THREE.PointLight(0xffc357, 220, 260, 2);
-  lamp.position.set(-52, 47, -30);
-  group.add(lamp);
+  // A real point light is the single most expensive thing in the scene on a
+  // phone, and the lamp already glows via emissive.
+  if (withLamp) {
+    const lamp = new THREE.PointLight(0xffc357, 220, 260, 2);
+    lamp.position.set(-52, 47, -30);
+    group.add(lamp);
+  }
 
   // A ring of buoys marking the calm water where monsters will not follow.
   const buoyMat = mat(0xd8503f, { emissive: 0x581a12, emissiveIntensity: 0.4 });

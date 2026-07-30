@@ -53,8 +53,30 @@ monster is still out there.
 | `Tab` | who else is at sea |
 | `T` | talk |
 
-Touch devices get a stick, a throw button, a winch button and a cut button; drag
-anywhere to look.
+### On a phone
+
+The touch build is not the desktop build with bigger buttons — the input problem
+is different, so the answers are:
+
+- **Left thumb, anywhere on the left of the screen**, is the helm. The stick is
+  drawn where your thumb lands rather than in a fixed corner you have to find.
+- **Right thumb** gets THROW (hold to charge, release), WINCH and CUT, sized and
+  placed for a thumb arc, plus a **Dock** button that appears in the harbour.
+- **The harpoon locks on.** You cannot place a crosshair and steer at the same
+  time, so on touch the throw auto-aims at whatever is roughly in front of you
+  and solves the drop for you. Point the boat, press THROW.
+- **The camera drives itself.** Let go and it eases back behind the bow, so
+  nobody has to spend a thumb on the camera. Drag the right of the screen if you
+  want to look around anyway.
+- The HUD reflows: the chart moves to the top corner and the panels shrink, so
+  both bottom corners belong to your thumbs. Safe areas are respected, and
+  pinch-zoom, double-tap zoom and pull-to-refresh are disabled over the canvas.
+
+Quality is chosen from the device and then corrected continuously from measured
+frame time — render resolution scales between 55% and 100% to hold the frame
+rate, and the wave mesh, particle budget, wake length and monster draw distance
+all step down on low-end hardware. Force a tier with `?quality=low|medium|high`
+if you want to see the difference.
 
 ## The fleet
 
@@ -82,6 +104,39 @@ Trading up credits 30% of your current hull.
 | Frost Leviathan | 1900–3000 m | 5,200 | 12,500 | Bigger than a brigantine |
 | Maelstrom Wyrm | 2400 m+ | 12,000 | 31,000 | Bring friends |
 
+## How to actually play it
+
+The game needs a server — even solo, because the monsters live there. It ships
+with one, and it starts in a single command with nothing to install.
+
+**On your own machine.** `node server.js`, then open `http://localhost:8080`.
+
+**On your phone, and with friends in the room.** Start the server on a laptop
+and it prints your LAN address:
+
+```
+  You:        http://localhost:8080
+  Same wifi:  http://192.168.1.24:8080   <- phones and friends type this
+```
+
+Anyone on the same wifi types that into a browser and they are in your sea. No
+app, no install. This is the fastest way to try it on a phone.
+
+**With friends who are not in the room.** Two options:
+
+- *Tunnel your laptop*, for an evening: `cloudflared tunnel --url http://localhost:8080`
+  (or `ngrok http 8080`) prints a public https URL. Send it to people. It dies
+  when you close the laptop.
+- *Deploy it*, for something that stays up. A `Dockerfile` and `fly.toml` are
+  included: `fly launch --copy-config --now` puts it on a shared-cpu machine for
+  a few dollars a month. Render, Railway, a $5 VPS — anything that runs Node 18+
+  and allows WebSockets works the same way; the server reads `PORT` from the
+  environment.
+
+One caveat if you deploy: run **one** machine, not an autoscaling pool. Players
+only meet each other if they land on the same process, and the world lives in
+that process's memory.
+
 ## Multiplayer
 
 Everyone shares one sea. Monsters, gold, levels and the consequences of sinking
@@ -108,6 +163,7 @@ shared/config.js     boats, monsters, prices, XP — imported by BOTH sides
 shared/waves.js      the wave field, and the GLSL generated from it
 public/src/
   main.js            wiring, boat physics, the game loop
+  quality.js         device tier + adaptive render resolution
   sea.js             ocean shader, sky, fog, the edge of the world
   boat.js            all seven hulls, lofted from one section sweep
   monster.js         three body plans: serpent, kraken, leviathan
@@ -115,6 +171,7 @@ public/src/
   town.js            Port Kelder
   fx.js              pooled particles, wake ribbons
   hud.js  minimap.js  input.js  net.js  audio.js
+Dockerfile, fly.toml  one-command deploy for playing with people elsewhere
 ```
 
 Two details worth knowing if you change things:
@@ -136,7 +193,13 @@ node tools/protocol-test.mjs               # end-to-end wire test: hit → kill 
 node tools/bestiary.mjs --out shots/b.png  # every monster in a line on the real ocean
 node tools/bestiary.mjs --boats            # every hull, for judging the upgrade ramp
 node tools/bestiary.mjs --only frost       # one model, close up
+node tools/mobile-check.mjs --shots shots/mobile   # emulated phones, thumbs only
 ```
+
+`mobile-check` is the one that earns its keep: it runs the game in an emulated
+iPhone SE, Pixel 5 and iPad Mini with real touch events, drives it with the
+floating stick and the THROW button, and fails if a control does not move the
+boat or if any HUD element lands under a thumb or off the edge of the screen.
 
 The bestiary tool is how the models were iterated on — it drops the given
 monsters in front of your own boat so you can judge scale against something
