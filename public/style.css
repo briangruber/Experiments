@@ -1,0 +1,390 @@
+:root {
+  --bg: #0b0a1a;
+  --ink: #f4f2ff;
+  --dim: #9a94c7;
+  --hot: #ff4d6d;
+  --cool: #4dd4ff;
+  --gold: #ffd93d;
+  --panel: rgba(20, 17, 46, 0.92);
+  --edge: rgba(255, 255, 255, 0.09);
+  --safe: env(safe-area-inset-bottom, 0px);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none;
+  overscroll-behavior: none;
+}
+
+#stage { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+.hidden { display: none !important; }
+
+/* ------------------------------------------------------------- overlays */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: radial-gradient(120% 90% at 50% 0%, rgba(90, 60, 200, 0.35), rgba(6, 5, 18, 0.92));
+  backdrop-filter: blur(6px);
+  z-index: 20;
+  overflow-y: auto;
+}
+
+/* The lobby is deliberately non-blocking: you can wander the empty arena and
+   mess with dash while you wait for someone to show up. */
+#lobby {
+  background: none;
+  backdrop-filter: none;
+  place-items: end center;
+  padding-bottom: calc(28px + var(--safe));
+  pointer-events: none;
+}
+#lobby .panel {
+  pointer-events: auto;
+  background: rgba(20, 17, 46, 0.86);
+  backdrop-filter: blur(10px);
+  width: min(400px, 100%);
+  padding: 20px;
+}
+#lobby h2 { font-size: 21px; }
+#lobby .bigcode { font-size: clamp(34px, 11vw, 48px); margin: 2px 0 14px; }
+
+.panel {
+  width: min(440px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 22px;
+  padding: 26px 24px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+  text-align: center;
+}
+
+.logo {
+  font-size: clamp(38px, 11vw, 58px);
+  line-height: 0.92;
+  letter-spacing: -2px;
+  font-weight: 900;
+  color: var(--ink);
+  text-shadow: 0 0 30px rgba(255, 77, 109, 0.5);
+}
+.logo span { display: block; color: var(--hot); }
+
+.tagline { color: var(--dim); margin: 10px 0 22px; font-size: 15px; }
+
+h2 { font-size: 26px; font-weight: 800; letter-spacing: -0.5px; }
+.sub { color: var(--dim); font-size: 14px; margin: 6px 0 18px; }
+
+.field { display: block; text-align: left; margin: 0 0 16px; }
+.field > span {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 7px;
+}
+.field.small { margin-top: 16px; }
+
+input {
+  width: 100%;
+  padding: 13px 15px;
+  font: inherit;
+  font-size: 16px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  outline: none;
+}
+input:focus { border-color: var(--cool); box-shadow: 0 0 0 3px rgba(77, 212, 255, 0.15); }
+#code { text-transform: uppercase; letter-spacing: 5px; font-weight: 700; }
+
+.emojipick { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; }
+.emojipick button {
+  aspect-ratio: 1;
+  font-size: 20px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: transform 0.1s, background 0.15s;
+}
+.emojipick button:hover { background: rgba(255, 255, 255, 0.12); transform: translateY(-2px); }
+.emojipick button.on { background: rgba(255, 77, 109, 0.25); border-color: var(--hot); }
+
+.btn {
+  display: block;
+  width: 100%;
+  padding: 14px;
+  font: inherit;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  border: none;
+  border-radius: 14px;
+  cursor: pointer;
+  transition: transform 0.08s, filter 0.15s;
+}
+.btn:active { transform: scale(0.97); }
+.btn.primary { background: linear-gradient(135deg, var(--hot), #ff8a3d); color: #200a12; }
+.btn.primary:hover { filter: brightness(1.1); }
+.btn.big { font-size: 20px; padding: 17px; margin-top: 4px; }
+.btn.ghost {
+  margin-top: 10px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--ink);
+  border: 1px solid var(--edge);
+}
+.btn.ghost:hover { background: rgba(255, 255, 255, 0.14); }
+
+.rules {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--edge);
+  color: var(--dim);
+  font-size: 13px;
+  line-height: 1.6;
+  text-align: left;
+}
+.rules b { color: var(--ink); }
+
+.bigcode {
+  font-size: clamp(40px, 14vw, 64px);
+  font-weight: 900;
+  letter-spacing: 10px;
+  color: var(--gold);
+  margin: 6px 0 18px;
+  text-shadow: 0 0 40px rgba(255, 217, 61, 0.4);
+}
+
+.roster { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 18px; }
+.roster div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px 6px 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* ----------------------------------------------------------------- HUD */
+
+#hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
+#hud button { pointer-events: auto; }
+
+#topbar {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(340px, 60vw);
+  text-align: center;
+}
+
+.fuse-label {
+  font-size: 10px;
+  letter-spacing: 3px;
+  color: var(--dim);
+  margin-bottom: 5px;
+  font-weight: 700;
+}
+.fuse-bar {
+  height: 9px;
+  background: rgba(255, 255, 255, 0.09);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.fuse-bar i {
+  display: block;
+  height: 100%;
+  width: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--gold), var(--hot));
+  transition: width 0.1s linear;
+}
+
+#bigmsg {
+  margin-top: 10px;
+  font-size: clamp(20px, 5vw, 34px);
+  font-weight: 900;
+  letter-spacing: -0.5px;
+  text-shadow: 0 4px 24px rgba(0, 0, 0, 0.8);
+  min-height: 40px;
+}
+
+#board {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  max-width: 42vw;
+}
+#board div {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 9px;
+  background: rgba(10, 8, 26, 0.6);
+  border-radius: 8px;
+  border-left: 3px solid transparent;
+}
+#board .dead { opacity: 0.4; }
+#board .me { background: rgba(255, 255, 255, 0.14); }
+#board b { margin-left: auto; color: var(--gold); }
+
+#feed {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 600;
+  max-width: 44vw;
+}
+#feed div {
+  padding: 5px 10px;
+  background: rgba(10, 8, 26, 0.65);
+  border-radius: 8px;
+  animation: pop 0.25s ease-out;
+}
+@keyframes pop { from { opacity: 0; transform: translateX(-14px); } }
+
+#bottomleft {
+  position: absolute;
+  left: 14px;
+  bottom: calc(14px + var(--safe));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font: inherit;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: var(--ink);
+  background: rgba(10, 8, 26, 0.7);
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.chip-k { font-size: 10px; letter-spacing: 2px; color: var(--dim); }
+.chip-copy { font-size: 10px; letter-spacing: 1px; color: var(--cool); }
+.chip:hover { background: rgba(30, 25, 60, 0.9); }
+.hint { font-size: 11px; color: var(--dim); letter-spacing: 0.4px; }
+
+#emotes {
+  position: absolute;
+  right: 14px;
+  bottom: calc(14px + var(--safe));
+  display: flex;
+  gap: 6px;
+}
+#emotes button {
+  width: 42px;
+  height: 42px;
+  font-size: 20px;
+  background: rgba(10, 8, 26, 0.7);
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  cursor: pointer;
+}
+#emotes button:active { transform: scale(0.9); }
+
+/* ------------------------------------------------------- touch controls */
+
+#touch { position: absolute; inset: 0; pointer-events: none; }
+#stick {
+  position: absolute;
+  left: 22px;
+  bottom: calc(80px + var(--safe));
+  width: 118px;
+  height: 118px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--edge);
+  pointer-events: auto;
+  touch-action: none;
+}
+#stick i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 52px;
+  height: 52px;
+  margin: -26px 0 0 -26px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+}
+#dashbtn {
+  position: absolute;
+  right: 22px;
+  bottom: calc(80px + var(--safe));
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  font: inherit;
+  font-weight: 900;
+  letter-spacing: 1px;
+  color: #200a12;
+  background: linear-gradient(135deg, var(--cool), #7c7cff);
+  border: none;
+  pointer-events: auto;
+}
+#dashbtn:active { transform: scale(0.92); }
+#dashbtn:disabled { opacity: 0.35; }
+
+/* ---------------------------------------------------------------- misc */
+
+#toast {
+  position: fixed;
+  left: 50%;
+  bottom: 40px;
+  transform: translate(-50%, 20px);
+  padding: 11px 18px;
+  background: var(--ink);
+  color: #14112e;
+  font-weight: 800;
+  font-size: 14px;
+  border-radius: 10px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s, transform 0.2s;
+  z-index: 40;
+}
+#toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+@media (max-width: 560px) {
+  #board { font-size: 11px; }
+  #feed { font-size: 11px; max-width: 38vw; }
+  .hint { display: none; }
+  /* Stack the invite chip above the emote row so neither sits under a thumb. */
+  #emotes { bottom: calc(196px + var(--safe)); gap: 5px; }
+  #emotes button { width: 38px; height: 38px; font-size: 18px; }
+  #bottomleft { bottom: calc(248px + var(--safe)); }
+  .chip { padding: 7px 10px; }
+  .chip-copy { display: none; }
+}

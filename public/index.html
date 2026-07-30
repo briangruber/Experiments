@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>BOMB BLOBS — pass the bomb, don't be holding it</title>
+<meta name="description" content="A chaotic hot-potato battle royale you play in the browser. Send a link, get a lobby.">
+<meta name="theme-color" content="#0b0a1a">
+<meta property="og:title" content="BOMB BLOBS">
+<meta property="og:description" content="Pass the bomb. Don't be holding it. Free 4-player chaos in your browser.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💣</text></svg>">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<canvas id="stage"></canvas>
+
+<!-- ------------------------------------------------------------ in-game HUD -->
+<div id="hud" class="hidden">
+  <div id="feed"></div>
+
+  <div id="topbar">
+    <div id="fuse" class="hidden">
+      <div class="fuse-label">FUSE</div>
+      <div class="fuse-bar"><i></i></div>
+    </div>
+    <div id="bigmsg"></div>
+  </div>
+
+  <div id="board"></div>
+
+  <div id="bottomleft">
+    <button id="invite" class="chip" title="Copy the invite link">
+      <span class="chip-k">ROOM</span><span id="roomcode">----</span><span class="chip-copy">copy link</span>
+    </button>
+    <div id="hint" class="hint">WASD / arrows to move &middot; SPACE to dash</div>
+  </div>
+
+  <div id="emotes">
+    <button data-e="1">😂</button>
+    <button data-e="2">😱</button>
+    <button data-e="3">😎</button>
+    <button data-e="4">🤡</button>
+  </div>
+
+  <div id="touch" class="hidden">
+    <div id="stick"><i></i></div>
+    <button id="dashbtn">DASH</button>
+  </div>
+</div>
+
+<!-- --------------------------------------------------------------- lobby -->
+<div id="lobby" class="overlay hidden">
+  <div class="panel">
+    <h2 id="lobbytitle">Waiting for blobs…</h2>
+    <p class="sub" id="lobbysub">Send the link. Roll around while you wait.</p>
+    <div class="bigcode" id="lobbycode">----</div>
+    <button class="btn primary" id="lobbycopy">Copy invite link</button>
+    <button class="btn ghost" id="addbot">Add a bot 🤖</button>
+    <div class="roster" id="lobbyroster"></div>
+  </div>
+</div>
+
+<!-- ---------------------------------------------------------------- start -->
+<div id="start" class="overlay">
+  <div class="panel">
+    <h1 class="logo">BOMB<span>BLOBS</span></h1>
+    <p class="tagline">Pass the bomb. Don't be holding it.</p>
+
+    <label class="field">
+      <span>Your name</span>
+      <input id="name" maxlength="14" placeholder="Blob" autocomplete="off" spellcheck="false">
+    </label>
+
+    <div class="field">
+      <span>Your face</span>
+      <div class="emojipick" id="emojipick"></div>
+    </div>
+
+    <button class="btn primary big" id="play">PLAY</button>
+
+    <label class="field small">
+      <span>Got a room code?</span>
+      <input id="code" maxlength="6" placeholder="ABCD" autocomplete="off" spellcheck="false">
+    </label>
+
+    <div class="rules">
+      <b>How it works.</b> Everyone is a blob. One blob is holding a live bomb.
+      Touch someone to give it away. When the fuse runs out, whoever is holding it
+      pops. Get shoved off the edge and you're out too. Last blob standing wins.
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="/game.js"></script>
+</body>
+</html>

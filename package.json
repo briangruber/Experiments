@@ -1,0 +1,16 @@
+{
+  "name": "bomb-blobs",
+  "version": "1.0.0",
+  "description": "Pass the bomb. Don't be holding it. A chaotic hot-potato battle royale you play in the browser with a link.",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node test/smoke.js"
+  },
+  "keywords": ["game", "multiplayer", "websocket", "party", "browser"],
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "license": "MIT"
+}
