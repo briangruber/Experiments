@@ -1,0 +1,142 @@
+<title>ONE FLICK</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="Flick a ball once. Wherever it stops becomes the target. Dare a friend to land closer.">
+<script>
+/* When embedded, the meta above can land outside <head>, where it is not
+   reliably honored and phones render at ~980px. Guarantee it either way. */
+(function(){
+  if (!document.querySelector('head meta[name=viewport]')){
+    var m = document.createElement('meta');
+    m.name = 'viewport';
+    m.content = 'width=device-width,initial-scale=1,viewport-fit=cover';
+    document.head.appendChild(m);
+  }
+})();
+</script>
+<style>
+/* Commits to a single dark visual world on purpose: the game is a neon
+   arena in a void, and a light theme would be a different, worse game. */
+:root{
+  --void:#05070b; --ink:#eaf4f6; --dim:#7b8ea3;
+  --cy:#36e0d0; --hot:#ff4d6d; --warm:#ffc857; --edge:#16202e;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono","Cascadia Mono","Roboto Mono",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;height:100%;overflow:hidden;background:var(--void)}
+body{
+  color:var(--ink);
+  font:16px/1.5 ui-rounded,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  overscroll-behavior:none;
+}
+#stage{position:fixed;inset:0}
+#stage canvas{display:block;width:100%;height:100%;touch-action:none}
+
+/* ---------- hud ---------- */
+#hud{position:fixed;inset:0;pointer-events:none;display:flex;flex-direction:column}
+#top{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:calc(12px + env(safe-area-inset-top)) 16px 0;
+}
+.brand{
+  font:700 14px/1 inherit;letter-spacing:.3em;display:flex;align-items:center;gap:8px;
+  text-shadow:0 0 18px rgba(54,224,208,.5);
+}
+.brand svg{display:block}
+#warn{
+  font-family:var(--mono);font-size:10.5px;color:var(--warm);
+  border:1px solid rgba(255,200,87,.35);border-radius:6px;padding:3px 7px;
+}
+#prompt{
+  margin-top:auto;text-align:center;font-size:13.5px;color:var(--dim);
+  padding:0 20px calc(26px + env(safe-area-inset-bottom));
+  transition:opacity .3s;
+}
+#prompt b{color:var(--cy);font-weight:600}
+#powerWrap{
+  width:min(230px,60vw);height:5px;border-radius:3px;background:rgba(255,255,255,.1);
+  margin:0 auto 12px;overflow:hidden;transition:opacity .18s;
+}
+#power{height:100%;width:0;background:linear-gradient(90deg,var(--cy),var(--hot));border-radius:3px}
+.hide{opacity:0 !important}
+
+/* ---------- overlay ---------- */
+.overlay{
+  position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+  padding:20px;background:rgba(3,5,9,.72);backdrop-filter:blur(7px);
+  opacity:0;pointer-events:none;transition:opacity .25s;z-index:5;
+}
+.overlay.show{opacity:1;pointer-events:auto}
+#card{
+  width:100%;max-width:340px;max-height:88dvh;overflow-y:auto;
+  background:linear-gradient(#0c141f,#080d15);
+  border:1px solid var(--edge);border-radius:18px;
+  padding:24px 22px;text-align:center;
+  box-shadow:0 24px 70px rgba(0,0,0,.65),0 0 0 1px rgba(54,224,208,.07);
+}
+.overlay.wide #card{max-width:370px}
+#card h2{
+  margin:0 0 12px;font-size:26px;line-height:1.2;font-weight:700;text-wrap:balance;
+  text-shadow:0 0 24px rgba(54,224,208,.28);
+}
+#card p{margin:0 0 12px;font-size:14.5px;line-height:1.6;text-wrap:pretty}
+#card p.dim{color:var(--dim);font-size:13.5px}
+#card p.big{font-family:var(--mono);font-size:15px;letter-spacing:.05em;color:var(--cy)}
+#card b{font-weight:700}
+.hot{color:var(--hot)}
+#card label{display:block;font-size:11.5px;color:var(--dim);letter-spacing:.09em;text-align:left;margin:16px 0 6px}
+#card input{
+  width:100%;min-height:46px;padding:0 14px;font:15px/1 var(--mono);
+  color:var(--ink);background:#060a11;border:1px solid var(--edge);border-radius:11px;
+}
+#card input:focus{outline:2px solid var(--cy);outline-offset:-2px}
+button{font-family:inherit;cursor:pointer}
+.go{
+  width:100%;min-height:52px;margin-top:14px;border:none;border-radius:12px;
+  background:linear-gradient(135deg,var(--cy),#1fb9c9);color:#03151a;
+  font:700 13.5px/1 inherit;letter-spacing:.14em;
+  box-shadow:0 6px 26px rgba(54,224,208,.32);
+}
+.go:active{transform:scale(.985)}
+.alt{
+  width:100%;min-height:44px;margin-top:9px;border-radius:11px;
+  background:transparent;border:1px solid var(--edge);color:var(--dim);
+  font:600 11.5px/1 inherit;letter-spacing:.13em;
+}
+.alt:active{color:var(--ink)}
+.tiny{font-family:var(--mono);font-size:11px;color:var(--dim);margin-top:11px;word-break:break-all;line-height:1.5}
+
+/* ---------- leaderboard ---------- */
+.board{list-style:none;margin:14px 0 0;padding:0;display:flex;flex-direction:column;gap:2px}
+.board li{
+  display:grid;grid-template-columns:22px 1fr auto;align-items:center;gap:10px;
+  padding:9px 11px;border-radius:9px;font-family:var(--mono);font-size:13px;
+  background:rgba(255,255,255,.025);
+}
+.board li.me{background:rgba(54,224,208,.11);box-shadow:inset 0 0 0 1px rgba(54,224,208,.28)}
+.board .rk{color:var(--dim);font-size:11px}
+.board .nm{text-align:left;overflow:hidden;text-overflow:ellipsis}
+.board .ds{font-variant-numeric:tabular-nums;color:var(--cy)}
+.board li.me .ds{font-weight:700}
+:focus-visible{outline:2px solid var(--cy);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{transition-duration:.001ms !important}}
+</style>
+
+<div id="stage"></div>
+<div id="hud">
+  <div id="top">
+    <div class="brand">
+      <svg width="17" height="17" viewBox="0 0 17 17" aria-hidden="true">
+        <circle cx="8.5" cy="8.5" r="7.2" fill="none" stroke="#36e0d0" stroke-width="1.3" opacity=".55"/>
+        <circle cx="8.5" cy="8.5" r="3.4" fill="none" stroke="#ff4d6d" stroke-width="1.5"/>
+        <circle cx="8.5" cy="8.5" r="1" fill="#ff4d6d"/>
+      </svg>ONE FLICK
+    </div>
+    <div id="warn" class="hide">link edited 🫠</div>
+  </div>
+  <div id="prompt" class="hide">
+    <div id="powerWrap" class="hide"><div id="power"></div></div>
+    <b>drag</b> anywhere to aim · <b>release</b> to flick
+  </div>
+</div>
+<div class="overlay" id="overlay"><div id="card"></div></div>
+<script>/*BUNDLE*/</script>

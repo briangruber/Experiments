@@ -3,7 +3,17 @@
   "private": true,
   "scripts": {
     "serve": "python3 -m http.server 8000",
-    "test:peeked": "node games/peeked/test.js"
+    "build:oneflick": "node games/oneflick/build.mjs",
+    "test:peeked": "node games/peeked/test.js",
+    "test:oneflick": "node games/oneflick/test-logic.mjs && node games/oneflick/build.mjs && node games/oneflick/test.js"
   },
-  "devDependencies": { "playwright": "^1.56.0" }
+  "devDependencies": {
+    "esbuild": "^0.27.0",
+    "playwright": "^1.56.0",
+    "three": "^0.181.0"
+  },
+  "dependencies": {
+    "esbuild": "^0.28.1",
+    "three": "^0.185.1"
+  }
 }
