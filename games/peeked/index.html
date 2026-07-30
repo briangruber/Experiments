@@ -1,0 +1,736 @@
+<title>PEEKED</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="A daily emoji deduction puzzle with a button that shows you the answer. Pressing it is recorded forever.">
+<script>
+/* When this page is embedded, the meta above can land outside <head>, where it is
+   not reliably honored and phones render at ~980px. Guarantee it either way. */
+(function(){
+  var m = document.querySelector('head meta[name=viewport]');
+  if (!m){
+    m = document.createElement('meta');
+    m.name = 'viewport';
+    m.content = 'width=device-width,initial-scale=1,viewport-fit=cover';
+    document.head.appendChild(m);
+  }
+})();
+</script>
+<style>
+/* ── palette: cool institutional. neutrals biased blue-grey so the one
+   red — reserved exclusively for the button — carries all the heat. ── */
+:root{
+  --bg:#f6f7f9; --fg:#14161a; --dim:#70757e; --line:#dbdee3;
+  --tile:#ffffff; --tileline:#c6cad1;
+  --green:#4f8a52; --yellow:#b3962f; --black:#454a52;
+  --card:#eceef1; --confess:#d7382f;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#0f1114; --fg:#e8eaed; --dim:#767b83; --line:#252930;
+    --tile:#16191d; --tileline:#333840;
+    --green:#4f8a52; --yellow:#9d8430; --black:#333840;
+    --card:#16191d; --confess:#d7382f;
+  }
+}
+/* the viewer's theme toggle stamps data-theme on :root and must win both ways */
+:root[data-theme="dark"]{
+  --bg:#0f1114; --fg:#e8eaed; --dim:#767b83; --line:#252930;
+  --tile:#16191d; --tileline:#333840;
+  --green:#4f8a52; --yellow:#9d8430; --black:#333840;
+  --card:#16191d; --confess:#d7382f;
+}
+:root[data-theme="light"]{
+  --bg:#f6f7f9; --fg:#14161a; --dim:#70757e; --line:#dbdee3;
+  --tile:#ffffff; --tileline:#c6cad1;
+  --green:#4f8a52; --yellow:#b3962f; --black:#454a52;
+  --card:#eceef1; --confess:#d7382f;
+}
+/* the ledger face — everything that is *a record* is set in mono */
+:root{
+  --mono:ui-monospace,SFMono-Regular,"SF Mono","Cascadia Mono","Roboto Mono",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--fg);
+  font:16px/1.45 ui-rounded,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  display:flex; flex-direction:column; align-items:center;
+  min-height:100dvh; padding:10px 12px calc(20px + env(safe-area-inset-bottom));
+  overflow-x:hidden;
+}
+.wrap{width:100%;max-width:400px;display:flex;flex-direction:column;align-items:center}
+header{width:100%;display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+h1{font-size:19px;letter-spacing:.26em;margin:0;font-weight:700;display:flex;align-items:center;gap:8px}
+h1 svg{flex:none;display:block}
+.day{font-family:var(--mono);font-size:11.5px;color:var(--dim);letter-spacing:.06em}
+#timer{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:13px;color:var(--dim);min-width:42px;text-align:right}
+.hr{width:100%;height:1px;background:var(--line);margin:2px 0 12px}
+
+/* ---------- board ---------- */
+#board{display:grid;grid-template-rows:repeat(6,1fr);gap:6px;width:100%;margin-bottom:4px}
+#board.has7{grid-template-rows:repeat(7,1fr)}
+.row{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.tile{
+  aspect-ratio:1; display:flex; align-items:center; justify-content:center;
+  font-size:clamp(20px,7.2vw,30px); line-height:1;
+  border:2px solid var(--tileline); border-radius:9px; background:var(--tile);
+  transition:transform .18s ease, background-color .18s, border-color .18s;
+  user-select:none;
+}
+.tile.filled{border-color:var(--dim)}
+.tile.flip{transform:rotateX(90deg)}
+.tile.G{background:var(--green);border-color:var(--green);color:#fff}
+.tile.Y{background:var(--yellow);border-color:var(--yellow);color:#fff}
+.tile.B{background:var(--black);border-color:var(--black);color:#fff;opacity:.85}
+.tile.eye{background:var(--card);border-color:var(--line);opacity:.5}
+.row.answer .tile{border-color:var(--fg);border-style:dashed;background:transparent}
+.rowlabel{font-size:11px;color:var(--dim);text-align:center;margin-top:-2px;margin-bottom:6px}
+
+/* ---------- palette ---------- */
+#palette{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;width:100%;margin-top:12px}
+.key{
+  min-height:52px; font-size:clamp(22px,7.5vw,30px); line-height:1;
+  border:1px solid var(--tileline); border-radius:11px; background:var(--tile); color:var(--fg);
+  display:flex;align-items:center;justify-content:center;cursor:pointer;
+  transition:opacity .12s, transform .06s; position:relative;
+}
+.key:active{transform:scale(.94)}
+.key[disabled]{opacity:.28;cursor:default}
+.key.gone::after{
+  content:"";position:absolute;left:22%;right:22%;top:50%;height:2px;
+  background:var(--fg);opacity:.55;transform:rotate(-14deg);
+}
+#actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;width:100%;margin-top:7px}
+.act{
+  min-height:46px;border:1px solid var(--tileline);border-radius:11px;background:var(--tile);color:var(--fg);
+  font:600 13px/1 inherit;letter-spacing:.13em;cursor:pointer;
+}
+.act:active{transform:scale(.97)}
+.act[disabled]{opacity:.35;cursor:default}
+.hint{font-size:12px;color:var(--dim);margin-top:11px;text-align:center}
+
+/* ---------- the button ---------- */
+#peekSlotTop,#peekSlotBottom{width:100%;display:flex;justify-content:center}
+#peekSlotTop{margin-bottom:11px}
+#peekSlotBottom{margin-top:16px}
+#peekBtn{
+  font-family:inherit;font-weight:500;cursor:pointer;text-align:center;
+  border-radius:10px;width:auto;max-width:100%;
+  transition:none;
+}
+@keyframes throb{0%,100%{opacity:.82;transform:scale(1)}50%{opacity:1;transform:scale(1.045)}}
+#peekBtn.throb{animation:throb 1.4s ease-in-out infinite}
+
+/* ---------- banner ---------- */
+#cleanBanner{
+  width:100%;border:1px solid var(--line);border-radius:11px;padding:11px 13px;
+  margin-bottom:12px;background:var(--card);
+}
+#cleanBanner b{font-size:14px;font-weight:600}
+#cleanBanner .names{font-family:var(--mono);font-size:11.5px;color:var(--dim);margin-top:4px;word-break:break-word;line-height:1.6}
+
+/* ---------- chain card / result ---------- */
+.panel{width:100%;display:flex;flex-direction:column;align-items:center;gap:14px;padding-top:6px}
+.chainbox{
+  width:100%;border:1px solid var(--line);border-radius:13px;background:var(--card);padding:15px;
+}
+.chainbox.broken{opacity:.55;text-decoration:line-through}
+.chain{font-family:var(--mono);font-size:13px;line-height:1.95;word-break:break-word}
+.chain .me{font-weight:700;border-bottom:2px solid var(--fg)}
+.chain .arrow{color:var(--dim);margin:0 1px}
+.verdict{margin-top:11px;padding-top:11px;border-top:1px solid var(--line);font-size:14.5px;line-height:1.5}
+.big{
+  width:100%;min-height:54px;border-radius:12px;border:none;
+  background:var(--fg);color:var(--bg);font:700 14px/1 inherit;letter-spacing:.14em;cursor:pointer;
+}
+.big:active{transform:scale(.985)}
+.ghost{background:transparent;color:var(--fg);border:1px solid var(--line);font-weight:600;letter-spacing:.1em}
+.outcome{font-size:23px;font-weight:700;text-align:center;line-height:1.3}
+.sub{font-size:14px;color:var(--dim);text-align:center;margin-top:-6px;line-height:1.5}
+.grid{
+  font-size:19px;line-height:1.34;letter-spacing:1px;text-align:center;font-family:var(--mono);
+  white-space:pre;                      /* rows are rows — never reflow them */
+  max-width:100%;overflow-x:auto;
+}
+.moral{font-size:13.5px;color:var(--dim);text-align:center;line-height:1.6;font-style:italic;padding:0 4px}
+#nameRow{width:100%;display:flex;flex-direction:column;gap:7px}
+#nameRow label{font-size:12.5px;color:var(--dim);letter-spacing:.04em}
+#nameIn{
+  width:100%;min-height:48px;padding:0 14px;font:16px/1 inherit;
+  border:1px solid var(--line);border-radius:11px;background:var(--tile);color:var(--fg);
+}
+#nameIn:focus{outline:2px solid var(--fg);outline-offset:-2px}
+#copyArea{width:100%;min-height:150px;padding:11px;font:12px/1.45 ui-monospace,monospace;
+  border:1px solid var(--line);border-radius:11px;background:var(--tile);color:var(--fg);display:none}
+.stats{font-family:var(--mono);font-size:11.5px;color:var(--dim);text-align:center;letter-spacing:.04em}
+
+/* accessibility */
+:focus-visible{outline:2px solid var(--fg);outline-offset:2px;border-radius:6px}
+@media (prefers-reduced-motion:reduce){
+  *{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important}
+}
+.toast{
+  position:fixed;left:50%;transform:translateX(-50%);bottom:26px;
+  background:var(--fg);color:var(--bg);padding:11px 19px;border-radius:9px;
+  font-size:13.5px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .2s;z-index:9;
+}
+.toast.on{opacity:1}
+.hidden{display:none !important}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1><svg width="26" height="15" viewBox="0 0 26 15" aria-hidden="true">
+      <path d="M1 7.5C1 7.5 5.5 1 13 1s12 6.5 12 6.5-4.5 6.5-12 6.5S1 7.5 1 7.5Z"
+            fill="none" stroke="currentColor" stroke-width="1.6"/>
+      <circle cx="13" cy="7.5" r="3.1" fill="currentColor"/>
+    </svg>PEEKED</h1>
+    <span id="timer"></span>
+  </header>
+  <div class="day" id="dayLabel" style="width:100%;text-align:left;margin-bottom:8px"></div>
+  <div class="hr"></div>
+
+  <!-- LANDING -->
+  <div class="panel hidden" id="landing">
+    <div class="chainbox" id="landChainBox">
+      <div class="chain" id="landChain"></div>
+      <div class="verdict" id="landVerdict"></div>
+    </div>
+    <button class="big" id="playBtn">PLAY</button>
+  </div>
+
+  <!-- GAME -->
+  <div id="game" class="hidden" style="width:100%;display:flex;flex-direction:column;align-items:center">
+    <div id="cleanBanner" class="hidden"></div>
+    <div id="peekSlotTop"></div>
+    <div id="board"></div>
+    <div class="rowlabel" id="rowlabel"></div>
+    <div id="palette"></div>
+    <div id="actions">
+      <button class="act" id="delBtn">DELETE</button>
+      <button class="act" id="entBtn" disabled>ENTER</button>
+    </div>
+    <div class="hint">5 emoji, no repeats, 6 guesses</div>
+    <div id="peekSlotBottom"></div>
+  </div>
+
+  <!-- RESULT -->
+  <div class="panel hidden" id="result">
+    <div class="outcome" id="resOutcome"></div>
+    <div class="sub" id="resSub"></div>
+    <div class="grid" id="resGrid"></div>
+    <div class="moral" id="resMoral"></div>
+    <div class="chainbox"><div class="chain" id="resChain"></div></div>
+    <div id="nameRow">
+      <label for="nameIn">first name?</label>
+      <input id="nameIn" maxlength="12" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="someone">
+    </div>
+    <button class="big" id="shareBtn">COPY SHARE TEXT</button>
+    <button class="big ghost" id="linkBtn">COPY LINK ONLY</button>
+    <textarea id="copyArea" readonly></textarea>
+    <div class="stats" id="stats"></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+
+/* ============================================================
+   NEVER CHANGE — changing these rewrites every past day
+   and kills every live link.
+   ============================================================ */
+function xmur3(str){
+  let h = 1779033703 ^ str.length;
+  for (let i = 0; i < str.length; i++){
+    h = Math.imul(h ^ str.charCodeAt(i), 3432918353);
+    h = (h << 13) | (h >>> 19);
+  }
+  return function(){
+    h = Math.imul(h ^ (h >>> 16), 2246822507);
+    h = Math.imul(h ^ (h >>> 13), 3266489909);
+    h ^= h >>> 16;
+    return h >>> 0;
+  };
+}
+function mulberry32(a){
+  return function(){
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const POOL = ["🍎","🌙","🔥","🐙","💎","🎈","🧊","🍄","🌵"];  // 9 — NEVER CHANGE
+const LEN = 5, MAXG = 6, EPOCH = Date.UTC(2026,0,1), CAP = 20;
+
+function todayIndex(){
+  const t = new Date();
+  return Math.floor((Date.UTC(t.getFullYear(), t.getMonth(), t.getDate()) - EPOCH) / 86400000);
+}
+function secretFor(day){
+  const rng = mulberry32(xmur3("peeked-v1-" + day)());
+  const a = POOL.slice();
+  for (let i = a.length - 1; i > 0; i--){
+    const j = Math.floor(rng() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a.slice(0, LEN);
+}
+function score(guess, secret){
+  return guess.map((g,i) => g === secret[i] ? "G" : (secret.indexOf(g) >= 0 ? "Y" : "B"));
+}
+
+/* ================== URL STATE ================== */
+function checksum(d, c, x){
+  return (xmur3(d + "|" + c + "|" + x)() % 1296).toString(36).padStart(2,"0");
+}
+function cleanName(s){
+  return (s||"").toLowerCase().replace(/[^a-z0-9]/g,"").slice(0,12);
+}
+function encodeEntry(e){
+  let code;
+  if (e.kind === "solved") code = "c" + e.n;
+  else if (e.kind === "failed") code = "f";
+  else code = "p" + Math.min(999, Math.max(0, e.secs|0));
+  return e.name + "." + code;
+}
+function parseEntry(s){
+  const i = s.lastIndexOf(".");
+  if (i < 1) return null;
+  const name = cleanName(s.slice(0,i));
+  const code = s.slice(i+1);
+  if (!name) return null;
+  let m;
+  if ((m = /^c([1-6])$/.exec(code)))      return {name, kind:"solved", n:+m[1]};
+  if (code === "f")                        return {name, kind:"failed"};
+  if ((m = /^p(\d{1,3})$/.exec(code)))     return {name, kind:"peeked", secs:+m[1]};
+  return null;
+}
+function buildURL(day, chain, x){
+  const d = day.toString(36);
+  const c = chain.map(encodeEntry).join("~");
+  const xs = x > 0 ? String(x) : "";
+  let f = "#d=" + d + "&c=" + c;
+  if (xs) f += "&x=" + xs;
+  f += "&k=" + checksum(d, c, xs);
+  return location.origin + location.pathname + f;
+}
+function parseURL(){
+  const raw = location.hash.replace(/^#/,"");
+  const out = {day:null, chain:[], x:0, tampered:false, had:false};
+  if (!raw) return out;
+  const q = {};
+  for (const part of raw.split("&")){
+    const i = part.indexOf("=");
+    if (i > 0) q[part.slice(0,i)] = part.slice(i+1);
+  }
+  if (!q.d) return out;
+  const day = parseInt(q.d, 36);
+  if (!Number.isFinite(day) || day < 0) return out;
+  const c = q.c || "", xs = q.x || "";
+  const chain = c ? c.split("~").map(parseEntry).filter(Boolean) : [];
+  out.had = true;
+  out.day = day;
+  out.chain = chain;
+  out.x = parseInt(xs || "0", 10) || 0;
+  out.tampered = (q.k || "") !== checksum(q.d, c, xs);
+  return out;
+}
+function trimChain(chain, x){
+  let c = chain.slice(), xx = x;
+  while (c.length > CAP){
+    const dropped = c.shift();
+    if (dropped.kind === "peeked") xx = 0; else xx++;
+  }
+  return {chain:c, x:xx};
+}
+
+/* ================== CHAIN ANALYSIS ================== */
+function peekRatio(chain){
+  if (!chain.length) return 0;
+  return chain.filter(e => e.kind === "peeked").length / chain.length;
+}
+// consecutive clean entries at the END of the chain
+function tailStreak(chain, x){
+  if (TAMPERED) return 0;   // a broken chain asserts nothing
+  let s = 0;
+  for (let i = chain.length - 1; i >= 0; i--){
+    if (chain[i].kind === "peeked") return s;
+    s++;
+  }
+  return s + (x||0);   // unbroken all the way to the visible start
+}
+function entryGlyph(e){
+  if (e.kind === "solved") return "✅" + e.n;
+  if (e.kind === "failed") return "🪦";
+  const m = Math.floor(e.secs/60), s = e.secs%60;
+  return "👁" + m + ":" + String(s).padStart(2,"0");
+}
+function chainText(chain){
+  return chain.map(e => e.name + " " + entryGlyph(e)).join(" → ");
+}
+function renderChain(el, chain, meIndex){
+  el.innerHTML = "";
+  chain.forEach((e,i) => {
+    if (i) { const a = document.createElement("span"); a.className="arrow"; a.textContent=" → "; el.appendChild(a); }
+    const s = document.createElement("span");
+    if (i === meIndex) s.className = "me";
+    s.textContent = e.name + " " + entryGlyph(e);
+    el.appendChild(s);
+  });
+}
+
+/* ================== STATE ================== */
+const inc = parseURL();
+let DAY = inc.day === null ? todayIndex() : Math.min(inc.day, todayIndex());
+const FUTURE = inc.day !== null && inc.day > todayIndex();
+let SECRET = secretFor(DAY);
+let INCHAIN = inc.chain, INX = inc.x, TAMPERED = inc.tampered;
+const R = TAMPERED ? 0 : peekRatio(INCHAIN);   // tampered chains exert no pressure
+
+const SKEY = () => "peeked.state." + DAY;
+let S = load() || {guesses:[], cur:[], peeked:false, peekSecs:null, startedAt:null, done:false, outcome:null};
+
+function load(){
+  try {
+    const v = JSON.parse(localStorage.getItem(SKEY()));
+    return (v && Array.isArray(v.guesses)) ? v : null;
+  } catch(e){ return null; }
+}
+function save(){ try { localStorage.setItem(SKEY(), JSON.stringify(S)); } catch(e){} }
+function getName(){ try { return cleanName(localStorage.getItem("peeked.name")); } catch(e){ return ""; } }
+function setName(n){ try { localStorage.setItem("peeked.name", n); } catch(e){} }
+
+function recordStat(){
+  try {
+    const k = "peeked.log";
+    const log = JSON.parse(localStorage.getItem(k) || "{}");
+    if (log[DAY]) return;
+    log[DAY] = S.outcome;
+    localStorage.setItem(k, JSON.stringify(log));
+  } catch(e){}
+}
+function statLine(){
+  try {
+    const log = JSON.parse(localStorage.getItem("peeked.log") || "{}");
+    const v = Object.values(log);
+    if (!v.length) return "";
+    const clean = v.filter(o => o !== "peeked").length;
+    return "you: " + clean + "/" + v.length + " clean";
+  } catch(e){ return ""; }
+}
+
+/* ================== DOM ================== */
+const $ = id => document.getElementById(id);
+const board = $("board"), palette = $("palette");
+let tiles = [];
+
+function buildBoard(rows){
+  board.innerHTML = ""; tiles = [];
+  board.classList.toggle("has7", rows > 6);
+  for (let r = 0; r < rows; r++){
+    const row = document.createElement("div");
+    row.className = "row";
+    const rt = [];
+    for (let c = 0; c < LEN; c++){
+      const t = document.createElement("div");
+      t.className = "tile";
+      row.appendChild(t); rt.push(t);
+    }
+    board.appendChild(row); tiles.push(rt);
+  }
+  return board;
+}
+function buildPalette(){
+  palette.innerHTML = "";
+  POOL.forEach((em, i) => {
+    const b = document.createElement("button");
+    b.className = "key"; b.textContent = em; b.dataset.i = i;
+    b.addEventListener("click", () => tap(i));
+    palette.appendChild(b);
+  });
+}
+function usedThisRow(i){ return S.cur.indexOf(i) >= 0; }
+function knownAbsent(i){
+  return S.guesses.some(g => {
+    const fb = score(g.map(x => POOL[x]), SECRET);
+    return g.some((gi,pos) => gi === i && fb[pos] === "B");
+  });
+}
+function syncPalette(){
+  [...palette.children].forEach((b,i) => {
+    b.disabled = S.done || usedThisRow(i);
+    b.classList.toggle("gone", knownAbsent(i));
+  });
+  $("delBtn").disabled = S.done || !S.cur.length;
+  $("entBtn").disabled = S.done || S.cur.length !== LEN;
+}
+function paintRow(r, arr, fb){
+  arr.forEach((idx, c) => {
+    const t = tiles[r][c];
+    t.textContent = POOL[idx];
+    t.classList.toggle("filled", !fb);
+    if (fb) t.className = "tile " + fb[c];
+  });
+  for (let c = arr.length; c < LEN; c++){
+    const t = tiles[r][c];
+    t.textContent = ""; t.className = "tile";
+  }
+}
+function repaint(){
+  S.guesses.forEach((g,r) => paintRow(r, g, score(g.map(x=>POOL[x]), SECRET)));
+  if (!S.done && S.guesses.length < MAXG) paintRow(S.guesses.length, S.cur, null);
+  syncPalette();
+  $("rowlabel").textContent = S.done ? "" : (MAXG - S.guesses.length) + " left";
+}
+
+/* ================== TIMER ================== */
+function elapsed(){
+  if (!S.startedAt) return 0;
+  return Math.min(999, Math.floor((Date.now() - S.startedAt) / 1000));
+}
+function fmt(s){ return Math.floor(s/60) + ":" + String(s%60).padStart(2,"0"); }
+let timerH = null;
+function tickTimer(){
+  $("timer").textContent = S.startedAt ? fmt(elapsed()) : "";
+}
+function startTimer(){
+  if (timerH) return;
+  timerH = setInterval(tickTimer, 250); tickTimer();
+}
+
+/* ================== PLAY ================== */
+function tap(i){
+  if (S.done || S.cur.length >= LEN || usedThisRow(i)) return;
+  if (!S.startedAt){ S.startedAt = Date.now(); startTimer(); }
+  S.cur.push(i); save(); repaint();
+}
+function del(){
+  if (S.done || !S.cur.length) return;
+  S.cur.pop(); save(); repaint();
+}
+function enter(){
+  if (S.done || S.cur.length !== LEN) return;
+  const g = S.cur.slice();
+  const fb = score(g.map(x=>POOL[x]), SECRET);
+  const r = S.guesses.length;
+  S.guesses.push(g); S.cur = []; save();
+
+  // staggered flip reveal
+  g.forEach((idx, c) => {
+    const t = tiles[r][c];
+    t.textContent = POOL[idx];
+    setTimeout(() => {
+      t.classList.add("flip");
+      setTimeout(() => { t.className = "tile " + fb[c]; t.textContent = POOL[idx]; }, 90);
+    }, c * 90);
+  });
+
+  const win = fb.every(x => x === "G");
+  const lose = !win && S.guesses.length >= MAXG;
+  setTimeout(() => {
+    if (win){ S.done = true; S.outcome = "solved"; save(); finish(); }
+    else if (lose){ S.done = true; S.outcome = "failed"; save(); finish(); }
+    else repaint();
+  }, LEN * 90 + 260);
+}
+function peek(){
+  if (S.done) return;
+  S.done = true; S.outcome = "peeked";
+  S.peeked = true;
+  S.peekSecs = elapsed();
+  S.cur = [];
+  save();
+  finish();
+}
+
+/* ================== THE BUTTON ================== */
+function lastPeeker(){
+  for (let i = INCHAIN.length - 1; i >= 0; i--) if (INCHAIN[i].kind === "peeked") return INCHAIN[i].name;
+  return null;
+}
+function peekCopy(){
+  const n = INCHAIN.length, p = INCHAIN.filter(e => e.kind==="peeked").length;
+  if (TAMPERED || !n || !p) return "show me the answer";
+  if (p === 1) return lastPeeker() + " already peeked. nobody will know.";
+  if (p === n && n >= 3) return "everyone peeked. you'd be the weird one.";
+  return p + " of " + n + " already peeked. it's basically allowed.";
+}
+function mixHsl(r){
+  // grey (0,0%,92%) -> red (0,78%,55%)
+  return "hsl(0," + (r*78).toFixed(1) + "%," + (92 - r*37).toFixed(1) + "%)";
+}
+function renderPeekButton(){
+  const r = R;
+  const b = document.createElement("button");
+  b.id = "peekBtn";
+  b.textContent = peekCopy();
+  b.style.fontSize = (14 + 22*r).toFixed(1) + "px";
+  b.style.padding = (6 + 18*r).toFixed(1) + "px 18px";
+  b.style.background = mixHsl(r);
+  b.style.color = r >= 0.5 ? "#fff" : "#999";
+  if (r >= 0.999){
+    b.style.border = "2px solid hsl(0,78%,45%)";
+    b.style.boxShadow = "0 0 18px hsl(0,78%,50%)";
+  } else if (r > 0){
+    b.style.border = "1px solid hsl(0," + (r*70).toFixed(0) + "%," + (80 - r*30).toFixed(0) + "%)";
+    b.style.boxShadow = r > .5 ? "0 0 " + (18*r).toFixed(0) + "px hsla(0,78%,50%,.7)" : "none";
+  } else {
+    b.style.border = "1px dashed var(--line)";
+  }
+  if (r >= 0.6) b.classList.add("throb");
+  b.addEventListener("click", peek);
+  (r >= 0.34 ? $("peekSlotTop") : $("peekSlotBottom")).appendChild(b);
+}
+function renderCleanBanner(){
+  const n = INCHAIN.length;
+  if (TAMPERED || !n || peekRatio(INCHAIN) > 0 || n < 3) return;
+  const el = $("cleanBanner");
+  el.classList.remove("hidden");
+  const total = n + (INX||0);
+  el.innerHTML = "<b>" + total + " people in a row have not peeked.</b>" +
+                 "<div class='names'>" + INCHAIN.map(e=>e.name).join(", ") + "</div>";
+}
+
+/* ================== SHARE ================== */
+function myEntry(){
+  const name = getName() || "someone";
+  if (S.outcome === "solved") return {name, kind:"solved", n:S.guesses.length};
+  if (S.outcome === "failed") return {name, kind:"failed"};
+  return {name, kind:"peeked", secs:S.peekSecs|0};
+}
+function fullChain(){
+  const t = trimChain(INCHAIN.concat([myEntry()]), INX);
+  return t;
+}
+function gridText(){
+  const rows = S.guesses.map(g => score(g.map(x=>POOL[x]), SECRET)
+    .map(c => c === "G" ? "🟩" : c === "Y" ? "🟨" : "⬛").join(""));
+  if (S.outcome === "peeked"){
+    while (rows.length < MAXG) rows.push("👁👁👁👁👁");
+  }
+  let out = rows.join("\n");
+  if (S.outcome === "failed") out += "\n" + SECRET.join("") + "  ← it was right there";
+  return out;
+}
+function shareText(){
+  const t = fullChain();
+  const url = buildURL(DAY, t.chain, t.x);
+  const streak = tailStreak(INCHAIN, INX);
+  let head, tail;
+  if (S.outcome === "peeked"){
+    head = "i pressed the button at " + fmt(S.peekSecs|0);
+    tail = (streak >= 2 ? "i broke a " + streak + "-person clean streak in " + fmt(S.peekSecs|0) + "\n" : "")
+         + "the button was right there the whole time. it always is.";
+  } else if (S.outcome === "solved"){
+    head = "solved clean in " + S.guesses.length;
+    const ns = tailStreak(t.chain, t.x);
+    tail = ns >= 2 ? ns + " clean in a row. don't be the one." : "clean. the button went unpressed.";
+  } else {
+    head = "failed in 6. never touched the button. no regrets.";
+    const ns = tailStreak(t.chain, t.x);
+    tail = ns >= 2 ? "streak survives. " + ns + " clean in a row." : "streak survives.";
+  }
+  return "🕳 PEEKED — day " + DAY + "\n" + head + "\n\n" + gridText() + "\n\n"
+       + chainText(t.chain) + "\n" + tail + "\n" + url;
+}
+
+function toast(msg){
+  const el = $("toast"); el.textContent = msg; el.classList.add("on");
+  setTimeout(() => el.classList.remove("on"), 1500);
+}
+function copy(text){
+  if (navigator.clipboard && window.isSecureContext){
+    navigator.clipboard.writeText(text).then(() => toast("copied"), () => fallback(text));
+  } else fallback(text);
+}
+function fallback(text){
+  const a = $("copyArea");
+  a.style.display = "block"; a.value = text;
+  a.focus(); a.select(); a.setSelectionRange(0, text.length);
+  toast("tap and hold to copy");
+}
+
+/* ================== SCREENS ================== */
+function show(which){
+  ["landing","game","result"].forEach(id => $(id).classList.toggle("hidden", id !== which));
+}
+function showLanding(){
+  const box = $("landChainBox");
+  box.classList.toggle("broken", TAMPERED);
+  renderChain($("landChain"), INCHAIN, -1);
+  const n = INCHAIN.length, p = INCHAIN.filter(e=>e.kind==="peeked").length;
+  const streak = tailStreak(INCHAIN, INX);
+  let v;
+  if (TAMPERED) v = "chain integrity: broken 🫠";
+  else if (n && INCHAIN[n-1].kind === "peeked"){
+    let k = 0;
+    for (let i = n-2; i >= 0 && INCHAIN[i].kind !== "peeked"; i--) k++;
+    v = k >= 1 ? INCHAIN[n-1].name + " broke a " + (k + (k===n-1?(INX||0):0)) + "-person clean streak."
+               : INCHAIN[n-1].name + " peeked.";
+  }
+  else if (streak >= 3) v = streak + " clean in a row. don't be the one.";
+  else v = p + " of " + n + " peeked.";
+  $("landVerdict").textContent = v;
+  $("playBtn").textContent = "PLAY DAY " + DAY;
+  show("landing");
+}
+function finish(){
+  recordStat();
+  if (timerH){ clearInterval(timerH); timerH = null; }
+  $("timer").textContent = "";   // the clock's job is done; the record holds the time now
+  const t = fullChain();
+  const already = INCHAIN.some(e => e.name === (getName() || "someone"));
+
+  if (S.outcome === "solved"){
+    $("resOutcome").textContent = "solved clean in " + S.guesses.length;
+    $("resSub").textContent = "you never touched the button.";
+  } else if (S.outcome === "failed"){
+    $("resOutcome").textContent = "🪦 failed in 6";
+    $("resSub").textContent = "and never touched the button. respect.";
+  } else {
+    $("resOutcome").textContent = "👁 peeked at " + fmt(S.peekSecs|0);
+    const st = tailStreak(INCHAIN, INX);
+    $("resSub").textContent = st >= 2 ? "you broke a " + st + "-person clean streak." : "it is recorded.";
+  }
+  $("resGrid").textContent = gridText() + (S.outcome !== "failed" ? "\n\n" + SECRET.join("") : "");
+  $("resMoral").textContent = "you were going to see the answer either way. the only thing you lost was the record.";
+  renderChain($("resChain"), t.chain, t.chain.length - 1);
+  $("nameIn").value = getName();
+  $("stats").textContent = statLine();
+  $("nameRow").classList.toggle("hidden", already);
+  $("shareBtn").classList.toggle("hidden", already);
+  if (already) $("resMoral").textContent = "you're already in this chain.";
+  show("result");
+}
+
+/* ================== BOOT ================== */
+$("dayLabel").textContent = "day " + DAY + (FUTURE ? " · that link is from the future. here's today." : "");
+buildPalette();
+$("delBtn").addEventListener("click", del);
+$("entBtn").addEventListener("click", enter);
+$("playBtn").addEventListener("click", () => { enterGame(); });
+$("nameIn").addEventListener("input", e => { e.target.value = cleanName(e.target.value); setName(e.target.value); });
+$("shareBtn").addEventListener("click", () => copy(shareText()));
+$("linkBtn").addEventListener("click", () => { const t = fullChain(); copy(buildURL(DAY, t.chain, t.x)); });
+
+function enterGame(){
+  buildBoard(MAXG);
+  repaint();
+  renderCleanBanner();
+  renderPeekButton();
+  if (S.startedAt) startTimer();
+  show("game");
+}
+
+if (S.done){
+  // completed this day already — show the record, allow appending
+  if (S.outcome === "failed" || S.outcome === "solved" || S.outcome === "peeked"){
+    buildBoard(MAXG); repaint(); finish();
+  }
+} else if (INCHAIN.length){
+  showLanding();
+} else {
+  enterGame();
+}
+</script>
