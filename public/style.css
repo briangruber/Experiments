@@ -190,7 +190,9 @@ input:focus { border-color: var(--cool); box-shadow: 0 0 0 3px rgba(77, 212, 255
   top: 14px;
   left: 50%;
   transform: translateX(-50%);
-  width: min(340px, 60vw);
+  /* Wide enough that the longest status line stays on one line — a wrap here
+     collides with the subtitle underneath it. */
+  width: min(520px, 78vw);
   text-align: center;
 }
 
@@ -220,9 +222,38 @@ input:focus { border-color: var(--cool); box-shadow: 0 0 0 3px rgba(77, 212, 255
   margin-top: 10px;
   font-size: clamp(20px, 5vw, 34px);
   font-weight: 900;
+  line-height: 1.1;
   letter-spacing: -0.5px;
   text-shadow: 0 4px 24px rgba(0, 0, 0, 0.8);
   min-height: 40px;
+  white-space: nowrap;
+}
+
+#submsg {
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--dim);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.9);
+  min-height: 16px;
+}
+
+/* Which round modifier is in play, parked where it won't fight the action. */
+#modchip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(14px + var(--safe));
+  transform: translateX(-50%);
+  padding: 6px 13px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 2.5px;
+  color: var(--gold);
+  background: rgba(10, 8, 26, 0.72);
+  border: 1px solid rgba(255, 217, 61, 0.28);
+  border-radius: 999px;
+  white-space: nowrap;
 }
 
 #board {
@@ -387,4 +418,13 @@ input:focus { border-color: var(--cool); box-shadow: 0 0 0 3px rgba(77, 212, 255
   #bottomleft { bottom: calc(248px + var(--safe)); }
   .chip { padding: 7px 10px; }
   .chip-copy { display: none; }
+  /* Threads the gap between the stick and the dash button. */
+  #modchip {
+    font-size: 9px;
+    letter-spacing: 1.6px;
+    padding: 5px 9px;
+    bottom: calc(10px + var(--safe));
+  }
+  #topbar { width: 74vw; }
+  #bigmsg { font-size: clamp(17px, 5.6vw, 30px); }
 }

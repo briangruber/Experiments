@@ -35,6 +35,35 @@ Pickups spawn during a round: **⚡ speed** for a few seconds of extra thrust, a
 **🛡 shield**, which lets you survive one explosion — including the one you're
 holding. A shield save is the single best comeback in the game.
 
+### Dying isn't the end
+
+Get eliminated and you come back immediately as a **ghost** hovering just outside
+the rim. Steer around the ring and press dash to launch a **spook** — a slow,
+dodgeable orb that shoves whoever it hits. It hits hard enough to knock someone
+into the void, so the blob you just eliminated can absolutely take you with them.
+
+Nobody sits and watches. That's the whole point: a party game where death means
+twenty seconds of staring is a party game people quit.
+
+### Every round is different
+
+One modifier is drawn per round and announced during the countdown. Round one is
+always plain, so nobody's first impression is a gimmick, and the same one never
+comes up twice in a row.
+
+| | |
+|---|---|
+| **CLASSIC** | Straight up. |
+| **BUTTERED FLOOR** | Drag is halved. Nobody can stop. |
+| **SHORT FUSE** | Half the thinking time. |
+| **CROWDED HOUSE** | The floor starts at two-thirds size. |
+| **DOUBLE TROUBLE** | Two bombs at once. |
+| **SUGAR RUSH** | Everything accelerates, dash barely cools down. |
+
+When two blobs are left it goes to **sudden death**: the floor starts collapsing
+fast and fuses get shorter, so the endgame can't stall into two people politely
+circling each other.
+
 ### Controls
 
 | | |
@@ -131,12 +160,24 @@ you don't have anywhere to deploy it.
 ## Tests
 
 ```
-npm test
+npm test            # both suites
+npm run test:rules  # rules only, ~1s
+npm run test:e2e    # the networked one
 ```
 
-Boots the real server, joins with two real websocket clients, adds bots, mashes
-inputs, and asserts a whole round plays out — roster sync, countdown, a live
-bomb, an explosion, an elimination, a winner, and a clean restart.
+`test/sim.js` drives the `Room` directly with no server and no sockets, asserting
+the rules themselves: fuses detonate, a pass carries the *remaining* time rather
+than resetting it, a shield eats your own explosion, elimination produces a
+ghost, a spook connects and shoves hard enough to ring someone out, walking pace
+can't take you off the edge but being thrown can, sudden death triggers on the
+last two, and modifiers apply and never repeat back to back.
+
+`test/smoke.js` boots the real server, joins with two real websocket clients,
+adds bots, mashes inputs, and asserts a whole round plays out over the wire.
+
+The split matters: the end-to-end test waits on emergent behaviour, so anything
+asserted purely there gets flaky the moment balance changes. Rules belong in the
+deterministic suite.
 
 ---
 

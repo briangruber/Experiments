@@ -5,8 +5,10 @@
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
-    "test": "node test/smoke.js",
-    "build:solo": "node tools/build-solo.js"
+    "test": "node test/sim.js && node test/smoke.js",
+    "build:solo": "node tools/build-solo.js",
+    "test:rules": "node test/sim.js",
+    "test:e2e": "node test/smoke.js"
   },
   "keywords": [
     "game",

@@ -14,7 +14,7 @@
   const DRAG = 4.0;
   const INTERP = 90;   // ms of deliberate lag, so movement is smooth not jittery
 
-  const FLAG = { ALIVE: 1, BOMB: 2, DASH: 4, SHIELD: 8, BOOST: 16, FALL: 32 };
+  const FLAG = { ALIVE: 1, BOMB: 2, DASH: 4, SHIELD: 8, BOOST: 16, FALL: 32, GHOST: 64 };
 
   // localStorage throws outright in some sandboxed contexts, so it stays optional.
   const store = {
@@ -36,6 +36,12 @@
     state: 'lobby',
     arena: ARENA_START,
     bombT: 0,
+    fuseMax: 13,
+    sudden: false,
+    mod: '',
+    modBlurb: '',
+    accelMult: 1,
+    dragMult: 1,
     timer: 0,
     winner: null,
     scale: 1,
@@ -247,6 +253,12 @@
     const prevState = G.state;
     G.state = s.st;
     G.bombT = s.bt;
+    G.fuseMax = s.bx || 13;
+    G.sudden = !!s.sd;
+    G.mod = s.md || '';
+    G.modBlurb = s.mb || '';
+    G.accelMult = (s.mv && s.mv[0]) || 1;
+    G.dragMult = (s.mv && s.mv[1]) || 1;
     G.timer = s.tm;
     G.winner = s.w;
 
@@ -280,7 +292,23 @@
       case 'out':
         if (e.how === 'boom') feed(`${who(e.id)} went 💥`);
         else feed(`${who(e.id)} fell into the void 🕳`);
-        if (e.id === G.id) G.shake = Math.min(1, G.shake + 0.5);
+        if (e.id === G.id) {
+          G.shake = Math.min(1, G.shake + 0.5);
+          floatText(0, 0, 'HAUNT THEM', '#c9c3ff');
+        }
+        break;
+      case 'spook':
+        burst(e.x, e.y, 18, '#c9c3ff', 240, 0.5);
+        if (e.id === G.id) G.shake = Math.min(1, G.shake + 0.35);
+        if (e.by === G.id) floatText(0, 0, 'DIRECT HIT', '#c9c3ff');
+        blip(180, 0.18, 'sine', 0.07, 240);
+        break;
+      case 'orb':
+        blip(520, 0.14, 'sine', 0.05, -280);
+        break;
+      case 'sudden':
+        feed('⚡ <b>SUDDEN DEATH</b> — the floor is going');
+        blip(160, 0.5, 'sawtooth', 0.09, 90);
         break;
       case 'fall':
         burst(e.x, e.y, 14, '#6b6b9a', 120, 0.6);
@@ -306,11 +334,17 @@
       case 'win': {
         const m = G.meta.get(e.id);
         feed(`🏆 ${who(e.id)} takes the round!`);
+        if (e.streak >= 2) feed(`🔥 ${who(e.id)} is on ${e.streak} in a row`);
+        if (e.mvp) feed(`🥔 ${who(e.mvp.id)} passed it ${e.mvp.passes} times`);
         popConfetti();
         jingle();
         if (m) toast(e.id === G.id ? 'YOU WIN! 🏆' : `${m.name} wins the round`);
         break;
       }
+      case 'draw':
+        feed('☠️ Everybody died. Nobody wins.');
+        if (e.mvp) feed(`🥔 ${who(e.mvp.id)} passed it ${e.mvp.passes} times`);
+        break;
       case 'round':
         feedEl.innerHTML = '';
         G.confetti.length = 0;
@@ -487,9 +521,11 @@
         f: pb[5],
         emote: pb[6],
         dash: pb[7] / 100,
+        bombT: (pb[8] || 0) / 10,
+        orb: (pb[9] || 0) / 100,
       });
     }
-    return { players: out, arena: lerp(a.ar, b.ar, t), pickups: b.u };
+    return { players: out, arena: lerp(a.ar, b.ar, t), pickups: b.u, orbs: b.o || [] };
   }
 
   /**
@@ -499,16 +535,20 @@
    */
   function predict(me, dt) {
     if (!me) { G.pred = null; return me; }
-    const playing = G.state === 'playing' && (me.f & FLAG.ALIVE) && !(me.f & FLAG.FALL);
+    const ghost = me.f & FLAG.GHOST;
+    const playing = (G.state === 'playing' || ghost) &&
+      (ghost || ((me.f & FLAG.ALIVE) && !(me.f & FLAG.FALL)));
     if (!playing) { G.pred = { x: me.x, y: me.y, vx: me.vx, vy: me.vy }; return me; }
 
     if (!G.pred) G.pred = { x: me.x, y: me.y, vx: me.vx, vy: me.vy };
     const p = G.pred;
 
-    const boost = (me.f & FLAG.BOOST) ? 1.7 : 1;
+    // Mirror whatever the round modifier is doing, or prediction fights the server.
+    const boost = ghost ? 0.8
+      : ((me.f & FLAG.BOOST) ? 1.7 : 1) * G.accelMult * ((me.f & FLAG.BOMB) ? 1.15 : 1);
     p.vx += input.x * ACCEL * boost * dt;
     p.vy += input.y * ACCEL * boost * dt;
-    const drag = Math.exp(-DRAG * dt);
+    const drag = Math.exp(-DRAG * (ghost ? 1 : G.dragMult) * dt);
     p.vx *= drag;
     p.vy *= drag;
     p.x += p.vx * dt;
@@ -574,41 +614,68 @@
   // fuse ticking
   let tickTimer = 0;
   function updateHUD(dt) {
+    const me = G.latest && G.latest.p.find((p) => p[0] === G.id);
+    const myFuse = me ? (me[8] || 0) / 10 : 0;
+    const iAmGhost = !!(me && (me[5] & FLAG.GHOST));
+
+    // Your own fuse if you're holding one, otherwise the most urgent in play.
+    const shown = myFuse > 0 ? myFuse : G.bombT;
     const fuse = $('#fuse');
     const playing = G.state === 'playing';
-    fuse.classList.toggle('hidden', !playing || G.bombT <= 0);
+    fuse.classList.toggle('hidden', !playing || shown <= 0);
 
-    if (playing && G.bombT > 0) {
-      fuse.querySelector('i').style.width = clamp(G.bombT / 13, 0, 1) * 100 + '%';
+    if (playing && shown > 0) {
+      const bar = fuse.querySelector('i');
+      bar.style.width = clamp(shown / G.fuseMax, 0, 1) * 100 + '%';
+      fuse.querySelector('.fuse-label').textContent = myFuse > 0 ? 'YOUR FUSE' : 'FUSE';
+      // Only tick in your ear when it's your problem, or nobody can hear anything.
       tickTimer -= dt;
       if (tickTimer <= 0) {
-        tickTimer = clamp(G.bombT * 0.11, 0.085, 0.55);
-        blip(G.bombT < 3 ? 1200 : 760, 0.05, 'square', G.bombT < 3 ? 0.07 : 0.04);
+        tickTimer = clamp(shown * 0.11, 0.085, 0.55);
+        const mine = myFuse > 0;
+        blip(shown < 3 ? 1200 : 760, 0.05, 'square',
+          (shown < 3 ? 0.07 : 0.04) * (mine ? 1 : 0.45));
       }
     }
 
     const msg = $('#bigmsg');
+    const sub = $('#submsg');
+    let subText = '';
+
     if (G.state === 'countdown') {
-      const n = Math.ceil(G.timer - 0.2);
+      const n = Math.ceil(G.timer - 0.4);
       msg.textContent = n > 0 ? String(n) : 'GO!';
       msg.style.color = n > 0 ? '#f4f2ff' : '#7cff6b';
+      subText = G.mod ? `${G.mod} — ${G.modBlurb}` : '';
     } else if (G.state === 'over') {
       const w = G.meta.get(G.winner);
       msg.textContent = w ? (G.winner === G.id ? '🏆 YOU WIN' : `🏆 ${w.name}`) : 'EVERYBODY DIED';
       msg.style.color = '#ffd93d';
     } else if (G.state === 'playing') {
-      const me = G.latest && G.latest.p.find((p) => p[0] === G.id);
-      if (me && !(me[5] & FLAG.ALIVE)) { msg.textContent = 'SPECTATING'; msg.style.color = '#9a94c7'; }
-      else if (me && (me[5] & FLAG.BOMB)) { msg.textContent = 'PASS IT!'; msg.style.color = '#ff4d6d'; }
-      else msg.textContent = '';
+      if (iAmGhost) {
+        msg.textContent = '👻 GHOST';
+        msg.style.color = '#c9c3ff';
+        subText = me[9] >= 100 ? 'SPACE — LAUNCH A SPOOK' : 'RECHARGING…';
+      } else if (me && (me[5] & FLAG.BOMB)) {
+        msg.textContent = 'PASS IT!';
+        msg.style.color = '#ff4d6d';
+      } else {
+        msg.textContent = G.sudden ? 'SUDDEN DEATH' : '';
+        msg.style.color = '#ff4d6d';
+      }
     } else {
       msg.textContent = '';
     }
+    sub.textContent = subText;
+
+    const chip = $('#modchip');
+    chip.classList.toggle('hidden', !G.mod || G.state === 'lobby');
+    chip.textContent = G.mod;
 
     const db = $('#dashbtn');
     if (db) {
-      const me = G.latest && G.latest.p.find((p) => p[0] === G.id);
-      db.disabled = !me || me[7] < 100;
+      db.disabled = !me || (iAmGhost ? me[9] : me[7]) < 100;
+      db.textContent = iAmGhost ? 'SPOOK' : 'DASH';
     }
   }
 
@@ -638,6 +705,7 @@
 
     drawArena(arena);
     for (const u of world.pickups) drawPickup(u);
+    for (const o of world.orbs) drawOrb(o);
 
     const players = world.players.slice().sort((a, b) => a.y - b.y);
     const meRaw = players.find((p) => p.id === G.id);
@@ -652,8 +720,27 @@
     drawVignette();
   }
 
+  function drawOrb(o) {
+    const [, x, y, color] = o;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.shadowBlur = 24;
+    ctx.shadowColor = color || '#c9c3ff';
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = color || '#c9c3ff';
+    ctx.beginPath();
+    ctx.arc(0, 0, 13 + Math.sin(time * 14) * 2, 0, TAU);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.beginPath();
+    ctx.arc(0, 0, 5, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+  }
+
   function drawArena(arena) {
-    const danger = arena < 260;
+    const danger = arena < 260 || G.sudden;
 
     ctx.save();
     ctx.shadowBlur = 60;
@@ -712,6 +799,7 @@
     const alive = p.f & FLAG.ALIVE;
     const falling = p.f & FLAG.FALL;
 
+    if (p.f & FLAG.GHOST) return drawGhost(p, isMe, meta);
     if (!alive && !falling) return; // eliminated: gone from the floor
 
     const speed = Math.hypot(p.vx, p.vy);
@@ -823,6 +911,65 @@
       ctx.fillText(EMOTES[p.emote] || '❓', 0, -PLAYER_R - 46 + Math.sin(time * 6) * 3);
     }
 
+    ctx.restore();
+  }
+
+  /** Eliminated players hover outside the rim, waiting to ruin someone's day. */
+  function drawGhost(p, isMe, meta) {
+    const bob = Math.sin(time * 2.4 + p.x * 0.02) * 6;
+    const charged = p.orb >= 1;
+
+    ctx.save();
+    ctx.translate(p.x, p.y + bob);
+    ctx.globalAlpha = isMe ? 0.85 : 0.5;
+
+    if (charged) {
+      ctx.shadowBlur = 22;
+      ctx.shadowColor = meta.color;
+    }
+
+    // wispy body: a dome with a ragged hem
+    ctx.fillStyle = meta.color;
+    ctx.beginPath();
+    ctx.arc(0, 0, PLAYER_R * 0.8, Math.PI, 0);
+    const hem = PLAYER_R * 0.8;
+    ctx.lineTo(hem, hem * 0.7);
+    for (let i = 0; i < 4; i++) {
+      const x0 = hem - (i * 2 + 1) * (hem / 4);
+      ctx.quadraticCurveTo(x0 + hem / 8, hem * 0.7 + 7, x0, hem * 0.7);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    ctx.globalAlpha = isMe ? 1 : 0.7;
+    ctx.font = '20px serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(meta.emoji, 0, -2);
+
+    // Aim line. The server fires along your last steering direction, so read it
+    // straight off local input rather than guessing from velocity.
+    if (isMe) {
+      const im = Math.hypot(input.x, input.y);
+      const rad = Math.hypot(p.x, p.y) || 1;
+      const fx = im > 0.05 ? input.x / im : -p.x / rad;
+      const fy = im > 0.05 ? input.y / im : -p.y / rad;
+      ctx.globalAlpha = charged ? 0.5 : 0.18;
+      ctx.strokeStyle = meta.color;
+      ctx.lineWidth = 3;
+      ctx.setLineDash([6, 8]);
+      ctx.beginPath();
+      ctx.moveTo(fx * 34, fy * 34);
+      ctx.lineTo(fx * 120, fy * 120);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    ctx.globalAlpha = 0.55;
+    ctx.font = '700 13px system-ui, sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(meta.name, 0, PLAYER_R + 10);
     ctx.restore();
   }
 

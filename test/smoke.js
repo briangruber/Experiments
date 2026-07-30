@@ -14,7 +14,7 @@ const WebSocket = require('ws');
 
 const PORT = process.env.TEST_PORT || 3999;
 const BASE = `http://127.0.0.1:${PORT}`;
-const DEADLINE = 75_000;
+const DEADLINE = 190_000;
 
 const checks = [];
 const ok = (name, pass, detail = '') => {
@@ -129,8 +129,9 @@ function client(room, name, emoji) {
 
     await waitFor('bomb holder in snapshots',
       () => a.lastSnap && a.lastSnap.p.some((p) => (p[5] & 2) !== 0), 15_000);
-    ok('exactly one blob holds the bomb',
-      a.lastSnap.p.filter((p) => (p[5] & 2) !== 0).length === 1);
+    const holders = a.lastSnap.p.filter((p) => (p[5] & 2) !== 0).length;
+    // DOUBLE TROUBLE rounds run two at once, so the range is the invariant.
+    ok('a sane number of bombs are in play', holders >= 1 && holders <= 2, `${holders} holder(s)`);
 
     const moved = await (async () => {
       const first = a.lastSnap.p.find((p) => p[0] === a.id);
@@ -141,11 +142,18 @@ function client(room, name, emoji) {
     })();
     ok('inputs actually move a blob', moved);
 
-    await waitFor('an explosion', () => a.events.some((e) => e.e === 'boom'), 30_000);
+    await waitFor('an explosion', () => a.events.some((e) => e.e === 'boom'), 60_000);
     ok('the fuse burns down and detonates', true);
 
     await waitFor('an elimination', () => a.events.some((e) => e.e === 'out'), 5_000);
     ok('explosions eliminate blobs', true);
+
+    const outId = a.events.find((e) => e.e === 'out').id;
+    await waitFor('a ghost', () => {
+      const row = a.lastSnap.p.find((p) => p[0] === outId);
+      return row && (row[5] & 64) !== 0;
+    }, 5_000);
+    ok('eliminated players become ghosts, not spectators', true);
 
     await waitFor('a winner', () => a.events.some((e) => e.e === 'win' || e.e === 'draw'), 45_000);
     const win = a.events.find((e) => e.e === 'win');
