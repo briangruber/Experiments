@@ -1,0 +1,12 @@
+{
+  "name": "harpoon-and-hold",
+  "version": "1.0.0",
+  "description": "A multiplayer sea-monster hunting game. Three.js client, zero-dependency Node server.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "smoke": "node tools/smoke.mjs"
+  },
+  "engines": { "node": ">=18" }
+}

@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Harpoon &amp; Hold</title>
+<link rel="stylesheet" href="./styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>&#128031;</text></svg>">
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.min.js" } }
+</script>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<!-- ------------------------------------------------------------- start -->
+<div id="start" class="screen">
+  <div class="start-card">
+    <h1>Harpoon <span>&amp;</span> Hold</h1>
+    <p class="tag">A little boat. A very large sea. Something down there is bigger than both.</p>
+    <label class="field">
+      <span>Name on the ship's papers</span>
+      <input id="name-input" maxlength="16" autocomplete="off" spellcheck="false" placeholder="Deckhand">
+    </label>
+    <button id="start-btn" class="primary">Put to sea</button>
+    <div class="briefing">
+      <div>
+        <h3>The work</h3>
+        <p>Sail out, harpoon a monster, hold the rope while it runs, and winch it in.
+           Tow the carcass back to town and sell it.</p>
+      </div>
+      <div>
+        <h3>The ladder</h3>
+        <p>Gold buys a bigger hull. A bigger hull survives further out.
+           Further out is where the real monsters are.</p>
+      </div>
+      <div>
+        <h3>The risk</h3>
+        <p>They bite back. They eat crew. If your hull goes under you wake up in a
+           rowboat with a lighter purse — and they are still out there.</p>
+      </div>
+    </div>
+    <div class="keys">
+      <kbd>W</kbd><kbd>S</kbd> throttle &nbsp; <kbd>A</kbd><kbd>D</kbd> steer &nbsp;
+      <kbd>Mouse</kbd> aim &nbsp; <kbd>Click</kbd>/<kbd>Space</kbd> hold to charge, release to throw &nbsp;
+      <kbd>R</kbd> winch &nbsp; <kbd>C</kbd> cut rope &nbsp; <kbd>E</kbd> dock &nbsp;
+      <kbd>Tab</kbd> crews &nbsp; <kbd>T</kbd> talk
+    </div>
+    <div id="start-status" class="status"></div>
+  </div>
+</div>
+
+<!-- --------------------------------------------------------------- hud -->
+<div id="hud" hidden>
+  <div id="reticle"><span class="dot"></span><span class="ring"></span></div>
+
+  <div class="corner top-left">
+    <div class="panel ident">
+      <div class="row1"><span id="hud-name">—</span><span id="hud-boat" class="boat">Rowboat</span></div>
+      <div class="xp"><div id="hud-xp-fill"></div><span id="hud-level">Lv 1</span></div>
+      <div class="gold"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/></svg><span id="hud-gold">0</span></div>
+    </div>
+  </div>
+
+  <div class="corner top-right">
+    <div id="event-log"></div>
+  </div>
+
+  <div class="corner bottom-left">
+    <div class="panel vitals">
+      <div class="bar hull"><div id="hull-fill"></div><span id="hull-text">60 / 60</span></div>
+      <div class="stats">
+        <span id="crew-stat" title="Crew — they work the winch">👤 2</span>
+        <span id="hold-stat" title="Hold — space for catch">📦 0/1</span>
+        <span id="speed-stat" title="Speed">⚓ 0 kn</span>
+      </div>
+      <div id="cargo-list"></div>
+    </div>
+    <div id="chat-log"></div>
+    <input id="chat-input" maxlength="120" placeholder="say something…" hidden>
+  </div>
+
+  <div class="corner bottom-center">
+    <div id="charge"><div id="charge-fill"></div><span>harpoon</span></div>
+    <div id="strain" hidden><div id="strain-fill"></div><span id="strain-text">rope</span></div>
+    <div id="prompt" hidden></div>
+  </div>
+
+  <div class="corner bottom-right">
+    <canvas id="minimap" width="220" height="220"></canvas>
+    <div class="minimap-legend"><span id="minimap-depth">home waters</span></div>
+  </div>
+
+  <div id="leaderboard" hidden>
+    <h3>Crews at sea</h3>
+    <table><tbody id="leaderboard-body"></tbody></table>
+  </div>
+
+  <div id="target-tag" hidden><span id="target-name"></span><div class="tbar"><div id="target-fill"></div></div></div>
+</div>
+
+<!-- --------------------------------------------------------------- town -->
+<div id="dock" class="screen" hidden>
+  <div class="dock-card">
+    <header>
+      <h2>Port Kelder</h2>
+      <div class="purse"><span id="dock-gold">0</span> gold</div>
+      <button id="dock-close" class="ghost">Cast off (E)</button>
+    </header>
+    <div class="dock-cols">
+      <section>
+        <h3>The fish market</h3>
+        <div id="dock-cargo" class="list"></div>
+        <button id="sell-btn" class="primary wide">Sell the hold</button>
+      </section>
+      <section>
+        <h3>Ship's chandler</h3>
+        <div class="svc">
+          <div><strong>Repair hull</strong><small id="repair-note">Hull is sound</small></div>
+          <button id="repair-btn">—</button>
+        </div>
+        <div class="svc">
+          <div><strong>Hire a hand</strong><small id="crew-note">Crew turn the winch faster</small></div>
+          <button id="crew-btn">—</button>
+        </div>
+      </section>
+      <section class="yard">
+        <h3>Shipwright</h3>
+        <div id="dock-boats" class="list boats"></div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<!-- -------------------------------------------------------------- death -->
+<div id="death" class="screen" hidden>
+  <div class="death-card">
+    <h2>Your ship is gone</h2>
+    <p id="death-detail">Something took it.</p>
+    <ul id="death-losses"></ul>
+    <p class="small">The harbourmaster leaves a rowboat tied at the steps. Try again.</p>
+    <button id="respawn-btn" class="primary">Take the rowboat</button>
+  </div>
+</div>
+
+<div id="boot" class="screen"><div class="boot-inner">raising the mainsail…</div></div>
+<div id="fatal" class="screen" hidden><div class="death-card"><h2>Adrift</h2><p id="fatal-detail"></p></div></div>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
