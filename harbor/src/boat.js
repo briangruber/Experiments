@@ -102,12 +102,7 @@ export function createBoat() {
     rail.position.set(0.05, 0.58, side * (beam * 0.48));
     rail.castShadow = true;
     mesh.add(rail);
-    // Short forward return toward the stem.
-    const cheek = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.1, 0.1), wood);
-    cheek.position.set(len * 0.38, 0.58, side * (beam * 0.28));
-    cheek.rotation.y = side * -0.55;
-    mesh.add(cheek);
-  }
+    }
   // Transom wood cap.
   const transom = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.14, beam * 0.85), wood);
   transom.position.set(-len * 0.48, 0.55, 0);
