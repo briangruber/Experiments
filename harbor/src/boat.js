@@ -91,7 +91,8 @@ export function createBoat() {
   const { geo, len, beam } = hullGeometry();
 
   const hull = new THREE.Mesh(geo, mat(0xf7f8fa, { roughness: 0.32 }));
-  hull.castShadow = true;
+  // No cast shadow: on transparent water a hull shadow reads as a dark
+  // lagoon-hole under the boat rather than a soft contact.
   hull.receiveShadow = true;
   mesh.add(hull);
 

@@ -72,6 +72,7 @@ boat.x = world.spawn.x;
 boat.z = world.spawn.z;
 boat.heading = world.spawn.heading;
 boat.root.position.set(boat.x, 0, boat.z);
+boat.root.traverse((o) => { if (o.isMesh) o.castShadow = false; });
 scene.add(boat.root);
 
 const wake = createWake();
