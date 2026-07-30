@@ -7,6 +7,7 @@ import {
   WORLD, BOATS, MONSTERS, MONSTER_BY_ID, CREW, HARPOON,
   SINK_GOLD_PENALTY, crewCost, xpForLevel, levelFromXp, monstersForDistance,
 } from './config.js';
+import { FISH_BY_ID, fishValue, BASKET } from './fish.js';
 
 /**
  * @param {object} [opts]
@@ -35,7 +36,7 @@ export function createWorld() {
       tier: 0, hull: boat.hull, crew: boat.crew,
       gold: 0, xp: 0, level: 1,
       cargo: [],
-      x: rand(-40, 40), z: rand(60, 110), h: Math.PI, sp: 0,
+      x: rand(-24, 24) + 11, z: rand(132, 158), h: 0.2, sp: 0,
       dead: false, docked: true,
       tethers: new Set(),
       reelBudget: 0, hitAt: 0,
@@ -62,7 +63,10 @@ export function createWorld() {
       crew: p.crew, crewMax: boat.crew,
       gold: Math.round(p.gold), xp: Math.round(p.xp), level: p.level,
       xpNext: xpForLevel(p.level), xpPrev: p.level > 1 ? xpForLevel(p.level - 1) : 0,
-      cargo: p.cargo.map((c) => ({ id: c.id, name: c.name, bounty: Math.round(c.bounty), slots: c.slots })),
+  cargo: p.cargo.map((c) => ({
+      id: c.id, name: c.name, bounty: Math.round(c.bounty), slots: c.slots,
+      fish: c.fish || undefined, kg: c.kg,
+    })),
       hold: boat.hold, dead: p.dead,
     };
   }
@@ -484,8 +488,33 @@ export function createWorld() {
         p.tier = 0;
         p.hull = BOATS[0].hull;
         p.crew = BOATS[0].crew;
-        p.x = rand(-40, 40); p.z = rand(60, 110); p.sp = 0;
+        p.x = rand(-24, 24) + 11; p.z = rand(132, 158); p.sp = 0;
         p.conn.send({ t: 'respawn', x: p.x, z: p.z, state: selfState(p) });
+        return;
+      }
+
+      case 'fish': {
+        // Fishing is played out on the client; the server checks the species is
+        // real, the weight is possible, and that nobody is landing one a
+        // second.
+        if (p.dead) return;
+        const sp = FISH_BY_ID[msg.id];
+        if (!sp) return;
+        const now = Date.now();
+        if (now - (p.fishAt || 0) < 3000) return;
+        p.fishAt = now;
+        const kg = clamp(+msg.kg || 0, sp.kg[0], sp.kg[1]);
+        const basket = p.cargo.reduce((a, c) => a + (c.fish ? 1 : 0), 0);
+        if (basket >= BASKET) {
+          p.conn.send({ t: 'ev', kind: 'warn', text: 'The basket is full — sell at the market' });
+          return;
+        }
+        p.cargo.push({
+          id: sp.id, name: sp.name, bounty: fishValue(sp, kg),
+          slots: 0, fish: true, kg,
+        });
+        grantXp(p, Math.round(5 + kg * 2.5));
+        p.conn.send({ t: 'you', ...selfState(p) });
         return;
       }
 

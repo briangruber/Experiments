@@ -97,7 +97,7 @@ for (const c of CASES) {
     const layer = await page.evaluate(() => !!document.getElementById('touch'));
     check(c.name, 'the touch controls are built', layer);
 
-    // Drive with the left thumb: press in the stick zone and drag up-right.
+    // You start ashore, so the left thumb walks and THROW casts a line.
     const size = page.viewportSize();
     const sx = size.width * 0.18, sy = size.height * 0.62;
     await page.touchscreen.tap(sx, sy);            // wakes the zone
@@ -111,15 +111,25 @@ for (const c of CASES) {
       send('pointermove', sx + 30, sy - 60);
       await new Promise((r) => setTimeout(r, 2500));
       const d = window.__debug;
-      const out = { stick: { ...d.game.stickEcho }, speed: d.speed ?? 0, travelled: d.distance ?? 0 };
+      const out = {
+        mode: d.game.mode,
+        walkSpeed: d.avatar.speed,
+        boatSpeed: d.speed ?? 0,
+      };
       send('pointerup', sx + 30, sy - 60);
       return out;
     }, { sx, sy });
-    check(c.name, 'the stick drives the boat', drag.speed > 0.4,
-      `peak speed ${drag.speed.toFixed(2)}`);
+    check(c.name, 'the stick walks the player', drag.walkSpeed > 0.4,
+      `${drag.mode}, ${drag.walkSpeed.toFixed(2)} m/s`);
 
-    // Right thumb: hold THROW to charge, release to throw.
+    // Right thumb: hold THROW to charge, release to cast.
     const threw = await page.evaluate(async () => {
+      const d = window.__debug;
+      // Stand at the end of the pier facing open water.
+      const spot = d.town.places.fishing;
+      d.avatar.pos.set(spot.x, spot.y, spot.z);
+      d.cam.yaw = 0;
+      await new Promise((r) => setTimeout(r, 400));
       const btn = document.getElementById('t-throw');
       const at = btn.getBoundingClientRect();
       const send = (type) => btn.dispatchEvent(new PointerEvent(type, {
@@ -128,14 +138,34 @@ for (const c of CASES) {
       }));
       send('pointerdown');
       await new Promise((r) => setTimeout(r, 1400));
-      const charge = window.__debug.game.charge;
+      const charge = d.fishing.charge;
       send('pointerup');
-      await new Promise((r) => setTimeout(r, 500));
-      return { charge, inAir: window.__debug.harpoons.flights.length, cooling: window.__debug.game.cooldown };
+      await new Promise((r) => setTimeout(r, 900));
+      return { charge, phase: d.fishing.phase };
     });
-    check(c.name, 'THROW charges and releases a harpoon',
-      threw.charge > 0.2 && (threw.inAir > 0 || threw.cooling > 0),
-      `charge=${threw.charge.toFixed(2)} inAir=${threw.inAir}`);
+    check(c.name, 'THROW winds up and casts',
+      threw.charge > 0.2 && threw.phase !== 'idle',
+      `charge=${threw.charge.toFixed(2)} phase=${threw.phase}`);
+
+    // The Dock button boards the boat, and then the stick is a helm.
+    const sailed = await page.evaluate(async () => {
+      const d = window.__debug;
+      d.fishing.stop();
+      const s = d.town.places.step;
+      d.avatar.pos.set(s.x, s.y, s.z);
+      await new Promise((r) => setTimeout(r, 300));
+      const dock = document.getElementById('t-dock');
+      dock.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 9, pointerType: 'touch', bubbles: true }));
+      await new Promise((r) => setTimeout(r, 600));
+      const mode = d.game.mode;
+      d.input.keys.add('KeyW');
+      await new Promise((r) => setTimeout(r, 2200));
+      d.input.keys.delete('KeyW');
+      return { mode, speed: d.game.boat.speed };
+    });
+    check(c.name, 'the Dock button boards, and the boat sails',
+      sailed.mode === 'sail' && sailed.speed > 0.4,
+      `${sailed.mode}, ${sailed.speed.toFixed(2)} m/s`);
 
     // Nothing should hang off the edge of the screen.
     const overflow = await page.evaluate(() => {

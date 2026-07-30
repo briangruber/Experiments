@@ -13,6 +13,23 @@ function hash2(x, y) {
   return s - Math.floor(s);
 }
 
+export const ISLAND_RADIUS = 104;
+
+/**
+ * The shape of the island, as a function rather than a mesh. The terrain, the
+ * buildings and the person walking around all read this, so nobody ever stands
+ * a foot above the ground.
+ */
+export function islandHeight(x, z) {
+  const r = Math.hypot(x, z);
+  const a = Math.atan2(z, x);
+  const wob = 0.86 + hash2(Math.cos(a) * 3, Math.sin(a) * 3) * 0.28;
+  const t = Math.min(1.2, r / (ISLAND_RADIUS * wob));
+  const fall = Math.pow(Math.max(0, 1 - t), 1.7);
+  const bumps = (hash2(Math.cos(a) * 7 + t * 5, Math.sin(a) * 7) - 0.5) * 5 * Math.max(0, 1 - t);
+  return -3.5 + fall * 26 + bumps;
+}
+
 function islandMesh(radius) {
   const RINGS = 26, SPOKES = 56;
   const positions = [];
@@ -29,10 +46,9 @@ function islandMesh(radius) {
       // A wobbly coastline reads as land; a perfect circle reads as a plate.
       const wob = 0.86 + hash2(Math.cos(a) * 3, Math.sin(a) * 3) * 0.28;
       const rr = t * radius * wob;
-      const fall = Math.pow(Math.max(0, 1 - t), 1.7);
-      const bumps = (hash2(Math.cos(a) * 7 + t * 5, Math.sin(a) * 7) - 0.5) * 5 * (1 - t);
-      const y = -3.5 + fall * 26 + bumps;
-      positions.push(Math.cos(a) * rr, y, Math.sin(a) * rr);
+      const x = Math.cos(a) * rr, z = Math.sin(a) * rr;
+      const y = islandHeight(x, z);
+      positions.push(x, y, z);
       const c = y < 1.6 ? sand : y > 17 ? rock : grass;
       const shade = 0.86 + hash2(rr, a * 4) * 0.28;
       colors.push(c.r * shade, c.g * shade, c.b * shade);
@@ -80,7 +96,12 @@ function house(w, d, h, wallColor, roofColor) {
 
 export function createTown({ lamp: withLamp = true } = {}) {
   const group = new THREE.Group();
-  const R = 104;
+  const R = ISLAND_RADIUS;
+
+  // Flat surfaces a person can stand on, collected as the town is built so the
+  // walking code never has to guess where the planks are.
+  const decks = [];
+  const deck = (x, z, w, d, top) => decks.push({ x, z, w: w / 2 + 0.4, d: d / 2 + 0.4, top });
 
   const island = islandMesh(R);
   group.add(island);
@@ -93,26 +114,68 @@ export function createTown({ lamp: withLamp = true } = {}) {
     for (let i = 0; i < 9; i++) {
       const t = i / 8;
       const plank = new THREE.Mesh(new THREE.BoxGeometry(5.5, 1.1, 4.4), jettyMat);
-      plank.position.set(side * (18 + t * 24), 1.4 - t * 0.2, 46 + t * 30);
+      plank.position.set(side * (20 + t * 26), 1.5, 82 + t * 58);
       plank.rotation.y = side * 0.42;
       arm.add(plank);
+      deck(plank.position.x, plank.position.z, 5.5, 4.4, plank.position.y + 0.55);
       const pile = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.6, 7, 6), pilingMat);
-      pile.position.set(side * (18 + t * 24), -1.6, 46 + t * 30);
+      pile.position.set(side * (20 + t * 26), -1.6, 82 + t * 58);
       arm.add(pile);
     }
     group.add(arm);
   }
 
   // Main pier straight out of the market square.
-  for (let i = 0; i < 7; i++) {
+  // The main pier runs from the beach out to water deep enough to fish.
+  for (let i = 0; i < 13; i++) {
+    const z = 68 + i * 6.4;
     const plank = new THREE.Mesh(new THREE.BoxGeometry(9, 1.1, 6.4), jettyMat);
-    plank.position.set(0, 1.5, 34 + i * 6.4);
+    plank.position.set(0, 1.5, z);
     group.add(plank);
+    deck(0, z, 9, 6.4, 2.05);
     for (const s of [-1, 1]) {
-      const pile = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.6, 8, 6), pilingMat);
-      pile.position.set(s * 3.6, -1.4, 34 + i * 6.4);
+      const pile = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.6, 9, 6), pilingMat);
+      pile.position.set(s * 3.6, -2.2, z);
       group.add(pile);
     }
+  }
+  // A wider head to stand on, with a rail on three sides.
+  {
+    const head = new THREE.Mesh(new THREE.BoxGeometry(14, 1.1, 8), jettyMat);
+    head.position.set(0, 1.5, 150);
+    group.add(head);
+    deck(0, 150, 14, 8, 2.05);
+    for (const [rx, rz, rw, rd] of [[0, 154.2, 14, 0.4], [-7, 150, 0.4, 8], [7, 150, 0.4, 8]]) {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(rw, 0.9, rd), mat(0x6b5a45));
+      rail.position.set(rx, 2.5, rz);
+      group.add(rail);
+    }
+  }
+
+  // Pier furniture: bollards to tie up to, a bench, and a rack of rods. Small
+  // props, but they are what makes the end of the dock feel like somewhere you
+  // are meant to stand.
+  for (const [bx, bz] of [[-3.6, 96], [3.6, 96], [-5.2, 146], [5.2, 146]]) {
+    const bollard = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.5, 1.5, 8), mat(0x6b5a45));
+    bollard.position.set(bx, 2.6, bz);
+    group.add(bollard);
+    const rope = new THREE.Mesh(new THREE.TorusGeometry(0.45, 0.09, 5, 10), mat(0xbfae8c));
+    rope.rotation.x = Math.PI / 2;
+    rope.position.set(bx, 2.9, bz);
+    group.add(rope);
+  }
+  {
+    const bench = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.24, 0.9), mat(0x8a6a45));
+    bench.position.set(-3.4, 2.9, 138);
+    const legs = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.7, 0.2), mat(0x6b5a45));
+    legs.position.set(-3.4, 2.4, 138);
+    group.add(bench, legs);
+    const crate = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.1, 1.2), mat(0x8b6f4a));
+    crate.position.set(3.4, 2.6, 132);
+    group.add(crate);
+    const bucket = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.34, 0.7, 9), mat(0x50606e));
+    bucket.position.set(3.2, 2.4, 141);
+    group.add(bucket);
   }
 
   // Town: a market row facing the water, plus houses climbing the hill.
@@ -126,8 +189,7 @@ export function createTown({ lamp: withLamp = true } = {}) {
   ];
   plots.forEach(([x, z, w, d, h], i) => {
     const b = house(w, d, h, wallColours[i % 4], roofColours[i % 4]);
-    const t = Math.hypot(x, z) / R;
-    b.position.set(x, -3.5 + Math.pow(Math.max(0, 1 - t), 1.7) * 26 - 0.6, z);
+    b.position.set(x, islandHeight(x, z) - 0.6, z);
     b.rotation.y = Math.atan2(-x, -z) + (hash2(x, z) - 0.5) * 0.5;
     group.add(b);
     chimneys.push(b.localToWorld(b.userData.chimney.clone()));
@@ -147,8 +209,7 @@ export function createTown({ lamp: withLamp = true } = {}) {
       ? new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 2.1, 8), mat(0x7a5b3a))
       : new THREE.Mesh(new THREE.BoxGeometry(1.9, 1.7, 1.9), mat(0x8b6f4a));
     const x = Math.cos(a) * r, z = Math.abs(Math.sin(a) * r) * 0.8 + 12;
-    const t = Math.hypot(x, z) / R;
-    item.position.set(x, -3.5 + Math.pow(Math.max(0, 1 - t), 1.7) * 26 + 1, z);
+    item.position.set(x, islandHeight(x, z) + 1, z);
     item.rotation.y = hash2(i, 13) * 3;
     group.add(item);
   }
@@ -216,6 +277,18 @@ export function createTown({ lamp: withLamp = true } = {}) {
     group,
     chimneys,
     buoys,
+    decks,
+    // The three places the village asks something of you.
+    places: {
+      // The head of the main pier: deep enough to hold fish, clear enough to
+      // watch them come to the bait.
+      fishing: new THREE.Vector3(0, 2.05, 150),
+      // Where your boat is tied up, and the plank you step off onto.
+      mooring: new THREE.Vector3(11, 0, 140),
+      step: new THREE.Vector3(4, 2.05, 140),
+      // The market shed door, back up the hill.
+      market: new THREE.Vector3(0, 0, 30),
+    },
     update(dt, time, particles) {
       beamPivot.rotation.y -= dt * 0.42;
       // The harbour buoys ride the same water everything else does.

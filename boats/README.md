@@ -18,6 +18,10 @@ you are hunting together.
 
 ## The loop
 
+0. **Start on the dock.** You begin as a person standing on the pier of Port
+   Kelder, not as a boat. The lagoon here is shallow and clear — you can see the
+   sand, the reef, and the fish moving over it. Fish off the end of the pier
+   until you can afford to leave.
 1. **Sail out.** The further from Port Kelder you go, the bigger what lives
    there. The minimap's rings are the actual spawn bands from the config, so it
    doubles as a difficulty map.
@@ -39,17 +43,46 @@ If your hull reaches zero you sink: you lose the ship, everything in the hold,
 and 40% of your purse to the crew's families. You wake up in a rowboat. The
 monster is still out there.
 
+## Fishing
+
+The calm half of the game, and the way you buy your first real boat. Three
+skills, in order:
+
+**Place the cast.** Hold the throw button to wind up, release to cast. Land it
+in water deep enough to hold fish — a float on the sand catches nothing.
+
+**Read the take.** The float twitches before it goes under. Those are nibbles;
+strike on one and you spook the fish. The real take is unmistakable and you have
+about six-tenths of a second to answer it. In clear water you can watch the
+shape come up to the bait, which is most of the fun of fishing the lagoon.
+
+**Play the fish.** Holding the reel gains line but loads the rod. The fish runs
+in bursts — telegraphed about half a second early, if you are watching — and the
+line parts at full tension. Reeling with the tension *high* gains line nearly
+twice as fast, so the skilful play is to sit just under the limit and let go the
+instant it bolts. It rhymes with the harpoon deliberately: same two gauges, same
+question of how hard you dare pull.
+
+Ten species across three depths, from the Silver Sprat off the dock to the
+Oarfish, which sailors take as a warning. Bigger fish are rarer, fight harder,
+and are worth more per kilo. Fish ride in a basket, not the hold, so a full
+catch never costs you monster space.
+
+Press `F` on the boat to get the rod out (you have to be nearly stopped), or
+just walk to the end of the pier.
+
 ## Controls
 
 | | |
 |---|---|
-| `W` `S` | throttle / reverse |
+| `W` `A` `S` `D` | walk, ashore — throttle and rudder, afloat |
+| `E` | board your boat, step ashore, or open the market |
+| `F` | rod out / stowed, on the boat |
 | `A` `D` | rudder |
 | mouse | look and aim — the reticle is the harpoon |
-| click / `Space` | hold to charge, release to throw |
-| `R` / right-click | winch the rope in |
-| `C` | cut the rope |
-| `E` | dock (inside the harbour) |
+| click / `Space` | hold to charge, release — harpoon, or cast |
+| `R` / right-click | winch the rope, or reel the line |
+| `C` | cut the rope / reel in |
 | `Tab` | who else is at sea |
 | `T` | talk |
 
@@ -91,6 +124,24 @@ if you want to see the difference.
 | Leviathan-Class | 46,000 | 22 | 2,600 | 26 | 225 | 380 m | 8 |
 
 Trading up credits 30% of your current hull.
+
+## The water
+
+Depth is the game's mood ring, and it is one shared function
+(`shared/seabed.js`) read by the floor mesh, the water shader and the fishing.
+
+- **The lagoon** (out to ~230 m): sand, reef and coral under four metres of
+  gin-clear water. The reef shelters it, so the swell here is a sixth of what it
+  is outside — the harbour is visibly calm.
+- **The reef and the brink** (~300 m): the bottom falls away from two metres to
+  twenty in the space of a boat length.
+- **Past that**: absorption climbs, the floor stops coming back, and you are
+  looking at a surface rather than through it.
+
+Monsters know this too. Far from town they lurk *below* — a slow dark shape
+under the water and nothing else — and only rise when something takes their
+interest, which is usually you. The moment one breaks the surface it takes the
+sea with it.
 
 ## The bestiary
 

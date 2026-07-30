@@ -13,7 +13,12 @@ export class Hud {
       hullFill: $('hull-fill'), hullText: $('hull-text'),
       crew: $('crew-stat'), hold: $('hold-stat'), speed: $('speed-stat'),
       cargo: $('cargo-list'), log: $('event-log'), chatLog: $('chat-log'), chatInput: $('chat-input'),
-      charge: $('charge-fill'), strain: $('strain'), strainFill: $('strain-fill'), strainText: $('strain-text'),
+      charge: $('charge-fill'), chargeLabel: $('charge-label'),
+      strain: $('strain'), strainFill: $('strain-fill'), strainText: $('strain-text'),
+      fishBar: $('fish-progress'), fishFill: $('fish-progress-fill'),
+      strike: $('strike'), catchCard: $('catch-card'),
+      catchName: $('catch-name'), catchKg: $('catch-kg'),
+      catchValue: $('catch-value'), catchBlurb: $('catch-blurb'),
       prompt: $('prompt'), reticle: $('reticle'),
       dock: $('dock'), dockGold: $('dock-gold'), dockCargo: $('dock-cargo'), dockBoats: $('dock-boats'),
       repairBtn: $('repair-btn'), repairNote: $('repair-note'),
@@ -59,9 +64,10 @@ export class Hud {
     this.setHull(s.hull, s.hullMax);
     this.el.crew.textContent = `👤 ${s.crew}/${s.crewMax}`;
     const used = s.cargo.reduce((a, c) => a + c.slots, 0);
-    this.el.hold.textContent = `📦 ${used}/${s.hold}`;
+    const fish = s.cargo.reduce((a, c) => a + (c.fish ? 1 : 0), 0);
+    this.el.hold.textContent = fish ? `📦 ${used}/${s.hold}  🐟 ${fish}` : `📦 ${used}/${s.hold}`;
     this.el.cargo.replaceChildren(
-      ...s.cargo.map((c) => {
+      ...s.cargo.filter((c) => !c.fish).map((c) => {
         const d = document.createElement('div');
         d.textContent = `${c.name} · ${c.bounty.toLocaleString()}g`;
         return d;
@@ -96,6 +102,51 @@ export class Hud {
     this.el.strainText.textContent = v > 0.72
       ? 'ROPE STRAINING — ease off'
       : `rope ${Math.round(tether.dist)}m · ${Math.round(tether.length)}m out`;
+  }
+
+  /**
+   * Fishing borrows the harpoon's two gauges on purpose: the charge bar is the
+   * cast, the strain bar is the line. One vocabulary for "hold it, but not too
+   * hard".
+   */
+  setFishing(f) {
+    if (!f || !f.active) {
+      this.el.fishBar.hidden = true;
+      this.el.strike.hidden = true;
+      if (this.fishingWasActive) {
+        this.el.chargeLabel.textContent = 'harpoon';
+        this.el.strain.hidden = true;
+      }
+      this.fishingWasActive = false;
+      return;
+    }
+    this.fishingWasActive = true;
+    this.el.chargeLabel.textContent = 'cast';
+    this.setCharge(f.charge);
+
+    const fighting = f.fighting;
+    this.el.strain.hidden = !fighting;
+    this.el.fishBar.hidden = !fighting;
+    if (fighting) {
+      const t = f.tension;
+      this.el.strainFill.style.right = `${(1 - t) * 100}%`;
+      this.el.strainFill.classList.toggle('crit', t > 0.82);
+      this.el.strainText.textContent = f.running
+        ? 'IT IS RUNNING — let it go'
+        : t > 0.62 ? 'holding hard — good' : 'line';
+      this.el.fishFill.style.right = `${(1 - f.progress) * 100}%`;
+    }
+    this.el.strike.hidden = f.phase !== 'bite';
+  }
+
+  showCatch(species, kg, value) {
+    this.el.catchName.textContent = species.name;
+    this.el.catchKg.textContent = kg.toFixed(2);
+    this.el.catchValue.textContent = value.toLocaleString();
+    this.el.catchBlurb.textContent = species.blurb || '';
+    this.el.catchCard.hidden = false;
+    clearTimeout(this._catchTimer);
+    this._catchTimer = setTimeout(() => { this.el.catchCard.hidden = true; }, 2600);
   }
 
   setPrompt(html) {
@@ -182,12 +233,34 @@ export class Hud {
     this.el.dockGold.textContent = s.gold.toLocaleString();
 
     if (s.cargo.length) {
-      this.el.dockCargo.replaceChildren(...s.cargo.map((c) => {
+      // Monsters get a row each; fish are grouped by species with a count.
+      const rows = [];
+      const fishGroups = new Map();
+      for (const c of s.cargo) {
+        if (c.fish) {
+          const g = fishGroups.get(c.id) || { name: c.name, n: 0, gold: 0, kg: 0 };
+          g.n++; g.gold += c.bounty; g.kg += c.kg || 0;
+          fishGroups.set(c.id, g);
+        } else {
+          const type = MONSTER_BY_ID[c.id];
+          rows.push({ label: type ? type.name : c.name, gold: c.bounty, note: '' });
+        }
+      }
+      for (const g of fishGroups.values()) {
+        rows.push({ label: `${g.name} ×${g.n}`, gold: g.gold, note: `${g.kg.toFixed(1)} kg` });
+      }
+      this.el.dockCargo.replaceChildren(...rows.map((r) => {
         const row = document.createElement('div');
         row.className = 'catch';
-        const type = MONSTER_BY_ID[c.id];
-        row.innerHTML = `<span>${type ? type.name : c.name}</span>
-          <span class="val">${c.bounty.toLocaleString()}g</span>`;
+        const name = document.createElement('span');
+        name.textContent = r.label;
+        const note = document.createElement('small');
+        note.textContent = r.note;
+        note.style.color = 'var(--dim)';
+        const val = document.createElement('span');
+        val.className = 'val';
+        val.textContent = `${r.gold.toLocaleString()}g`;
+        row.append(name, note, val);
         return row;
       }));
       const total = s.cargo.reduce((a, c) => a + c.bounty, 0);

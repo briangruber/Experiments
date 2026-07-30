@@ -32,12 +32,25 @@ const W = WAVES.map((w) => {
  * Displace a point on the flat reference grid. Returns the world position and
  * the surface normal at that position.
  */
+/**
+ * The reef takes the sea out of the lagoon. Inside it the water is barely
+ * moving, which is most of why the village feels safe; outside, the full swell.
+ */
+export function shelter(px, pz) {
+  const r = Math.hypot(px, pz);
+  const t = Math.max(0, Math.min(1, (r - 170) / 260));
+  return 0.16 + 0.84 * (t * t * (3 - 2 * t));
+}
+
 export function waveDisplace(px, pz, t, out = {}) {
+  const shel = shelter(px, pz);
   let x = px, y = 0, z = pz;
   let tx = 0, ty = 0, tz = 0; // d/dx tangent accumulator
   let bx = 0, by = 0, bz = 0; // d/dz binormal accumulator
   for (let i = 0; i < W.length; i++) {
-    const [dx, dz, k, amp, qa, omega] = W[i];
+    const [dx, dz, k, amp0, qa0, omega] = W[i];
+    const amp = amp0 * shel;
+    const qa = qa0 * shel;
     const phase = k * (dx * px + dz * pz) - omega * t;
     const c = Math.cos(phase);
     const s = Math.sin(phase);
@@ -106,7 +119,12 @@ ${W.map(([, , , , qa, omega]) => `  vec2(${f(qa)}, ${f(omega)})`).join(',\n')}
 
 // Returns the displaced position; writes the analytic normal and a 0..1
 // "crest sharpness" useful for foam.
+float waveShelter(vec2 p) {
+  return 0.16 + 0.84 * smoothstep(170.0, 430.0, length(p));
+}
+
 vec3 waveField(vec2 p, float t, float detail, out vec3 nrm, out float crest) {
+  float shel = waveShelter(p);
   vec3 pos = vec3(p.x, 0.0, p.y);
   vec3 tang = vec3(1.0, 0.0, 0.0);
   vec3 bino = vec3(0.0, 0.0, 1.0);
@@ -114,7 +132,7 @@ vec3 waveField(vec2 p, float t, float detail, out vec3 nrm, out float crest) {
   for (int i = 0; i < WAVE_COUNT; i++) {
     vec4 a = WAVE_A[i];
     vec2 b = WAVE_B[i];
-    float fade = clamp((detail - float(i) + 2.0) * 0.5, 0.0, 1.0);
+    float fade = clamp((detail - float(i) + 2.0) * 0.5, 0.0, 1.0) * shel;
     float amp = a.w * fade;
     float qa = b.x * fade;
     float phase = a.z * dot(a.xy, p) - b.y * t;

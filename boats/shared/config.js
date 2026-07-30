@@ -5,7 +5,7 @@
 export const WORLD = {
   radius: 3200,          // hard edge of the playable sea
   town: { x: 0, z: 0 },
-  townRadius: 130,       // inside this you are docked (calm water, no monsters)
+  townRadius: 200,       // inside this you are docked (calm water, no monsters)
   safeRadius: 240,       // monsters will not spawn or hunt inside this
   monsterCap: 46,
   tickRate: 20,          // server simulation hz

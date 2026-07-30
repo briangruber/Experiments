@@ -7,6 +7,10 @@ import { MonsterView, createCarcass } from './monster.js';
 import { HarpoonSystem, Rope, disposeGroup } from './harpoon.js';
 import { Particles, Wake } from './fx.js';
 import { createTown } from './town.js';
+import { createSeabed, createReefProps, createFishSchools } from './lagoon.js';
+import { Avatar } from './avatar.js';
+import { Fishing, PHASE } from './fishing.js';
+import { FISH_BY_ID } from '/shared/fish.js';
 import { Hud } from './hud.js';
 import { Minimap, depthLabel } from './minimap.js';
 import { createInput } from './input.js';
@@ -45,6 +49,13 @@ scene.add(edge.mesh);
 const town = createTown({ lamp: tier.townLight });
 scene.add(town.group);
 
+// The lagoon: a floor you can see, a reef, and fish over it.
+const seabed = createSeabed({ segments: tier.oceanSegments >= 152 ? 120 : 80 });
+scene.add(seabed.mesh);
+scene.add(createReefProps({ count: tier.particles >= 900 ? 220 : 110 }));
+const schools = createFishSchools({ schools: tier.particles >= 900 ? 7 : 4 });
+scene.add(schools.mesh);
+
 const particles = new Particles(scene, { max: tier.particles });
 const input = createInput(canvas);
 const audio = new Audio();
@@ -65,7 +76,9 @@ const game = {
   reelTimer: 0,
   shake: 0,
   time: 0,
+  mode: 'shore',        // 'shore' while ashore in the village, 'sail' in a boat
   playing: false,
+  rodOut: false,
   travelled: 0,
   peakSpeed: 0,
 };
@@ -107,6 +120,23 @@ const hud = new Hud({
 });
 
 // Smaller chart on a phone: it competes with two thumbs for the corners.
+const avatar = new Avatar(scene, town);
+avatar.pos.set(town.places.fishing.x, town.places.fishing.y, town.places.fishing.z - 14);
+
+const fishing = new Fishing(scene, {
+  onSplash: (p, s) => { particles.splash(p, s); audio.splash(s * 0.6); },
+  onCatch: ({ species, kg, value }) => {
+    net.send({ t: 'fish', id: species.id, kg: +kg.toFixed(2) });
+    hud.showCatch(species, kg, value);
+    hud.log(`${species.name}, ${kg.toFixed(2)} kg`, 'gold');
+    audio.gold();
+  },
+  onLost: (reason) => { hud.log(reason, 'warn'); hud.setFishing(null); },
+  onPhase: () => {},
+  onSfx: (name) => audio.fish?.(name),
+  onTelegraph: () => { game.shake = Math.max(game.shake, 0.12); },
+});
+
 const minimap = new Minimap(document.getElementById('minimap'), {
   size: input.touch ? Math.min(104, Math.round(Math.min(innerWidth, innerHeight) * 0.27)) : 220,
   range: input.touch ? 600 : 700,
@@ -188,6 +218,31 @@ function assistTarget(maxRange) {
     if (score > bestScore) { bestScore = score; best = view; }
   }
   return best;
+}
+
+/** Third-person rig for walking around the village. */
+function updateShoreCamera(dt) {
+  const look = input.consumeLook();
+  const sens = input.touch ? 0.0026 : 0.0026;
+  cam.yaw -= look.x * sens;
+  cam.pitch = Math.max(-0.15, Math.min(0.9, cam.pitch + look.y * sens));
+  cam.dist = Math.max(0.6, Math.min(2.2, cam.dist + input.consumeWheel() * 0.12));
+
+  const range = 7.5 * cam.dist;
+  const target = _tmp.set(avatar.pos.x, avatar.pos.y + 1.5, avatar.pos.z);
+  const want = new THREE.Vector3(
+    target.x - Math.sin(cam.yaw) * range * Math.cos(cam.pitch),
+    target.y + 1.6 + Math.sin(cam.pitch) * range,
+    target.z - Math.cos(cam.yaw) * range * Math.cos(cam.pitch)
+  );
+  // Do not let the camera drop through the planks or the hillside.
+  want.y = Math.max(want.y, avatar.groundAt(want.x, want.z) + 1.1, 1.2);
+
+  const k = 1 - Math.pow(0.0008, dt);
+  cam.pos.lerp(want, k);
+  camera.position.copy(cam.pos);
+  cam.look.lerp(target, 1 - Math.pow(0.0002, dt));
+  camera.lookAt(cam.look);
 }
 
 function updateCamera(dt) {
@@ -348,11 +403,168 @@ function updateBoat(dt) {
   net.sendState(b.x, b.z, b.h, b.speed);
 }
 
+/** While you are ashore your boat sits at the mooring, bobbing. */
+function moorBoat(dt) {
+  const b = game.boat;
+  if (!b) return;
+  const m = town.places.mooring;
+  b.x = m.x; b.z = m.z; b.speed = 0; b.throttle = 0;
+  b.h = Math.PI * 0.5;
+  sampleWater(b.x, b.z, game.time, _water);
+  const g = b.view.group;
+  g.position.set(b.x, _water.y + b.view.floatY, b.z);
+  g.rotation.set(0, -b.h, 0, 'YXZ');
+  g.rotateZ(Math.asin(Math.max(-1, Math.min(1, _water.nz))) * 0.35);
+  g.updateMatrixWorld();
+}
+
+function board() {
+  game.mode = 'sail';
+  avatar.setVisible(false);
+  fishing.stop();
+  const m = town.places.mooring;
+  const b = game.boat;
+  b.x = m.x; b.z = m.z; b.h = 0.2; b.speed = 0;
+  b.extVx = b.extVz = 0;
+  cam.yaw = 0; cam.pitch = 0.2;
+  hud.log('Cast off. Mind the reef.', 'ok');
+  audio.bell();
+}
+
+function goAshore() {
+  game.mode = 'shore';
+  avatar.setVisible(true);
+  fishing.stop();
+  const s = town.places.step;
+  avatar.pos.set(s.x, s.y, s.z);
+  avatar.heading = Math.PI;
+  cam.pitch = 0.2;
+  hud.log('Ashore at Port Kelder.', 'ok');
+}
+
+/* ------------------------------------------------------------ ashore */
+
+const _rodTip = new THREE.Vector3();
+let shorePrompt = null;
+
+function updateShore(dt) {
+  const move = { x: 0, y: 0 };
+  const busy = hud.dockOpen || input.typing;
+  if (!busy && !fishing.fighting && fishing.phase !== PHASE.CAST) {
+    if (input.down('KeyW') || input.down('ArrowUp')) move.y += 1;
+    if (input.down('KeyS') || input.down('ArrowDown')) move.y -= 1;
+    if (input.down('KeyA') || input.down('ArrowLeft')) move.x -= 1;
+    if (input.down('KeyD') || input.down('ArrowRight')) move.x += 1;
+    if (input.touch) { move.x += input.stick.x; move.y += input.stick.y; }
+  }
+  avatar.update(dt, move, cam.yaw, { running: input.down('ShiftLeft') || input.down('ShiftRight') });
+  avatar.showRod(fishing.active || nearWater());
+  avatar.setRodBend(fishing.fighting ? 0.3 + fishing.tension * 0.7 : fishing.active ? 0.12 : 0);
+
+  // Fishing, from wherever you are standing.
+  avatar.rodTip(_rodTip);
+  const townDistance = Math.hypot(avatar.pos.x, avatar.pos.z);
+  fishing.update(dt, {
+    rodTip: _rodTip,
+    reeling: input.reeling || input.down('KeyR'),
+    townDistance,
+    time: game.time,
+  });
+
+  handleFishingInput(() => {
+    camera.getWorldDirection(_fwd);
+    avatar.faceTowards(avatar.pos.x + _fwd.x, avatar.pos.z + _fwd.z);
+    return { origin: _rodTip.clone(), dir: _fwd.clone() };
+  });
+
+  // What can you do from here?
+  const p = town.places;
+  const dMoor = Math.hypot(avatar.pos.x - p.mooring.x, avatar.pos.z - p.mooring.z);
+  const dMarket = Math.hypot(avatar.pos.x - p.market.x, avatar.pos.z - p.market.z);
+  shorePrompt = null;
+  if (fishing.active) shorePrompt = null;
+  else if (dMarket < 16) shorePrompt = { key: 'KeyE', text: 'the market', act: 'market' };
+  else if (dMoor < 12) shorePrompt = { key: 'KeyE', text: 'board your boat', act: 'board' };
+  else if (nearWater()) shorePrompt = { key: 'Click', text: 'hold to cast', act: null };
+
+  input.setDockPrompt?.(!!shorePrompt && shorePrompt.act !== null);
+}
+
+/**
+ * Is there fishable water within a rod's length of where we stand? Probed
+ * along the ground, not along the camera's line of sight -- looking down at
+ * the water should not shorten your reach -- and sampled at several distances
+ * so standing at the very edge of the planks still counts.
+ */
+function nearWater() {
+  camera.getWorldDirection(_fwd);
+  const len = Math.hypot(_fwd.x, _fwd.z) || 1;
+  const dx = _fwd.x / len, dz = _fwd.z / len;
+  for (const ahead of [3, 5, 7, 9]) {
+    if (!avatar.standable(avatar.pos.x + dx * ahead, avatar.pos.z + dz * ahead)) return true;
+  }
+  return false;
+}
+
+/** Cast, strike and reel share the fire/reel controls with the harpoon. */
+function handleFishingInput(getCast) {
+  if (hud.dockOpen || input.typing) return;
+
+  if (input.firing && fishing.phase === PHASE.IDLE && nearWaterOrBoat()) fishing.beginCast();
+  if (input.firing && fishing.phase === PHASE.CAST) { /* charging */ }
+
+  if (input.consumeFire()) {
+    if (fishing.phase === PHASE.CAST) {
+      const { origin, dir } = getCast();
+      fishing.releaseCast(origin, dir);
+    } else if (fishing.phase !== PHASE.IDLE) {
+      fishing.strike();
+    }
+  }
+  if (input.once('KeyC') && fishing.active) fishing.reelIn();
+  hud.setFishing(fishing);
+}
+
+function nearWaterOrBoat() {
+  return game.mode === 'sail' ? true : nearWater();
+}
+
 /* --------------------------------------------------------- the harpoon */
+
+const _boatRod = new THREE.Vector3();
+
+/** Fishing from the deck: F gets the rod out, but only once you have stopped. */
+function updateBoatFishing(dt) {
+  const b = game.boat;
+  if (!b) return false;
+  const slow = Math.abs(b.speed) < 2.2;
+  if (input.once('KeyF') && !hud.dockOpen && !input.typing) {
+    if (game.rodOut) { game.rodOut = false; fishing.stop(); }
+    else if (slow) { game.rodOut = true; hud.log('Rod out. Hold to cast.', 'info'); }
+    else hud.log('Too fast to fish — ease off first', 'warn');
+  }
+  if (game.rodOut && !slow && !fishing.fighting) {
+    game.rodOut = false;
+    fishing.stop();
+  }
+  if (!game.rodOut) { if (!fishing.active) hud.setFishing(null); return false; }
+
+  _boatRod.copy(b.view.bowPoint).applyMatrix4(b.view.group.matrixWorld);
+  _boatRod.y += 1.2;
+  fishing.update(dt, {
+    rodTip: _boatRod,
+    reeling: input.reeling || input.down('KeyR'),
+    townDistance: Math.hypot(b.x, b.z),
+    time: game.time,
+  });
+  handleFishingInput(() => ({ origin: _boatRod.clone(), dir: aimDirection() }));
+  return true;
+}
 
 function updateHarpoon(dt) {
   const b = game.boat;
   if (!b || !game.self || game.self.dead) return;
+  if (updateBoatFishing(dt)) return;      // rod out: the throw button is the cast
   const spec = BOATS[b.tier];
 
   game.cooldown = Math.max(0, game.cooldown - dt);
@@ -674,7 +886,9 @@ net.on('respawn', (msg) => {
   applySelf(msg.state);
   const b = game.boat;
   if (b) { b.x = msg.x; b.z = msg.z; b.h = Math.PI; b.speed = 0; b.extVx = b.extVz = 0; }
-  hud.log('A rowboat, an oar, and your reputation. Off you go.', 'info');
+  // You wake up in the village, not bobbing in open water.
+  goAshore();
+  hud.log('A rowboat at the steps, and your reputation. Off you go.', 'info');
   relock();
 });
 
@@ -741,7 +955,7 @@ let frames = 0;
 let fpsAcc = 0;
 
 // Exposed for the headless smoke test in tools/smoke.mjs.
-window.__debug = { get frames() { return frames; }, game, camera, scene, harpoons, cam, net, hud };
+window.__debug = { get frames() { return frames; }, game, camera, scene, harpoons, cam, net, hud, avatar, fishing, town, input };
 
 function frame(now) {
   requestAnimationFrame(frame);
@@ -753,10 +967,15 @@ function frame(now) {
 
   if (game.playing) {
     handleHotkeys();
-    updateBoat(dt);
-    updateHarpoon(dt);
+    if (game.mode === 'shore') {
+      updateShore(dt);
+      moorBoat(dt);
+    } else {
+      updateBoat(dt);
+      updateHarpoon(dt);
+      updateCarcasses();
+    }
     updatePlayers(dt);
-    updateCarcasses();
   }
 
   // Distant monsters cost a lot of CPU animation for a few pixels; on a phone
@@ -779,12 +998,26 @@ function frame(now) {
     view.root.visible = !far;
     // Still stepped if it is on our rope, because the tether reads its body.
     if (far && !harpoons.tethers.some((t) => t.view === view)) continue;
-    view.update(dt, game.time);
+    view.update(dt, game.time, game.mode === 'sail' && game.boat ? game.boat : null);
+
+    // The moment it breaks the surface deserves a wave and a noise.
+    if (view.consumeBreach()) {
+      _tmp.set(view.x, sampleWater(view.x, view.z, game.time, {}).y, view.z);
+      particles.splash(_tmp, 1.6 + view.type.size * 0.35);
+      const near = game.boat && Math.hypot(view.x - game.boat.x, view.z - game.boat.z) < 260;
+      if (near) {
+        audio.roar(view.type.tier);
+        if (view.type.tier >= 3) game.shake = Math.max(game.shake, 0.35);
+      }
+    }
   }
   updateRemoteRopes();
 
-  updateCamera(dt);
+  if (game.playing && game.mode === 'shore') updateShoreCamera(dt);
+  else updateCamera(dt);
   ocean.update(game.time, camera);
+  seabed.update(game.time, camera);
+  schools.update(game.time);
   edge.uniforms.uTime.value = game.time;
   town.update(dt, game.time, particles);
   particles.update(dt, game.time);
@@ -823,7 +1056,18 @@ function handleHotkeys() {
   }
   if (input.once('KeyE')) {
     if (hud.dockOpen) { hud.closeDock(); relock(); }
-    else if (inTown && !game.self?.dead) { hud.openDock(); audio.bell(); }
+    else if (game.self?.dead) { /* nothing to do while sunk */ }
+    else if (game.mode === 'shore') {
+      if (shorePrompt?.act === 'market') { hud.openDock(); audio.bell(); }
+      else if (shorePrompt?.act === 'board') board();
+    } else if (inTown) {
+      // In the harbour: step ashore if you are close to the mooring, otherwise
+      // trade from the deck.
+      const b = game.boat;
+      const near = Math.hypot(b.x - town.places.mooring.x, b.z - town.places.mooring.z) < 26;
+      if (near && Math.abs(b.speed) < 2.5) goAshore();
+      else { hud.openDock(); audio.bell(); }
+    }
   }
 }
 
@@ -831,8 +1075,24 @@ function updateHudSlow() {
   const b = game.boat;
   if (!b || !game.self) return;
 
-  hud.setCharge(game.charge);
-  hud.setSpeed(Math.abs(b.speed) * 1.94);
+  const ashore = game.mode === 'shore';
+  if (!fishing.active && !game.rodOut) hud.setCharge(game.charge);
+  hud.setSpeed(ashore ? 0 : Math.abs(b.speed) * 1.94);
+
+  if (ashore) {
+    document.getElementById('minimap-depth').textContent = 'port kelder';
+    inTown = true;
+    if (fishing.active) hud.setPrompt(null);
+    else if (shorePrompt?.act) hud.setPrompt(`<b>E</b> — ${shorePrompt.text}`);
+    else if (shorePrompt) hud.setPrompt('<b>Hold click</b> to cast &nbsp; <b>R</b> to reel');
+    else hud.setPrompt('<b>W A S D</b> — walk the village');
+    minimap.draw({
+      me: { x: avatar.pos.x, z: avatar.pos.z }, heading: avatar.heading,
+      monsters: [], players: [], tetherId: -1,
+    });
+    hud.setTarget('', 0, null);
+    return;
+  }
 
   const d = Math.hypot(b.x, b.z);
   const wasInTown = inTown;
@@ -844,11 +1104,12 @@ function updateHudSlow() {
   input.setDockPrompt?.(inTown && !game.self.dead && !hud.dockOpen);
 
   if (game.self.dead) hud.setPrompt(null);
+  else if (game.rodOut) hud.setPrompt('<b>Hold click</b> to cast &nbsp; <b>R</b> reel &nbsp; <b>F</b> stow the rod');
   else if (input.touch) hud.setPrompt(null);
-  else if (inTown) hud.setPrompt('<b>E</b> — the fish market, the chandler, the shipwright');
+  else if (inTown) hud.setPrompt('<b>E</b> — step ashore or trade');
   else if (harpoons.tether) hud.setPrompt('<b>R</b> or right-click — winch it in &nbsp; <b>C</b> — cut it loose');
   else if (game.self.cargo.length) hud.setPrompt('Hold has catch — <b>sail home</b> to sell it');
-  else hud.setPrompt(null);
+  else hud.setPrompt('<b>F</b> — get the rod out');
 
   // Target readout for whatever is on the rope, or whatever we are aiming at.
   const t = harpoons.tether;

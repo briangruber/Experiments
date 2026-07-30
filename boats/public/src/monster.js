@@ -378,6 +378,18 @@ export class MonsterView {
     this.dying = 0;
     this.hitSpheresWorld = this.body.spheres.map(() => ({ pos: new THREE.Vector3(), r: 1 }));
     this.flash = 0;
+
+    // Out in the dark water a monster is a shape under the surface long before
+    // it is a monster. `rise` runs 0 (lurking) to 1 (fully up).
+    this.rise = 0;
+    this.breached = false;
+    this.shadow = new THREE.Mesh(
+      new THREE.CircleGeometry(1, 24),
+      new THREE.MeshBasicMaterial({ color: 0x03070c, transparent: true, opacity: 0, depthWrite: false })
+    );
+    this.shadow.rotation.x = -Math.PI / 2;
+    this.shadow.renderOrder = -5;      // under the water surface
+    this.root.add(this.shadow);
   }
 
   /** Server snapshot: we lerp toward it rather than snapping. */
@@ -390,7 +402,7 @@ export class MonsterView {
     if (this.x === 0 && this.z === 0) { this.x = m.x; this.z = m.z; this.h = m.h; }
   }
 
-  update(dt, time) {
+  update(dt, time, playerPos = null) {
     const k = 1 - Math.pow(0.0015, dt);
     this.x += (this.tx - this.x) * k;
     this.z += (this.tz - this.z) * k;
@@ -399,13 +411,29 @@ export class MonsterView {
 
     sampleWater(this.x, this.z, time, _water);
     const rage = this.state === 2 ? 1 : this.state === 1 ? 0.55 : 0.15;
-    // A hunting monster rides high and visible; a calm one mostly lurks. Each
-    // body plan has its own waterline -- a serpent loops through the surface,
-    // a whale shows a back, a kraken shows arms.
     const ride = RIDE[this.type.model];
     const breathe = Math.sin(time * 0.28 + this.id * 1.7) * this.size * ride.bob;
+
+    // Lurk deeper the further from town you are: near the reef you can watch
+    // them swim, in black water you get a shadow and a bad feeling.
+    const fromTown = Math.hypot(this.x, this.z);
+    const remoteness = Math.min(1, Math.max(0, (fromTown - 420) / 900));
+    const lurkDepth = this.size * (1.1 + remoteness * 3.4);
+
+    // It comes up when it takes an interest -- which is also when you are close
+    // enough for it to have noticed you.
+    let want = this.state > 0 ? 1 : 0;
+    if (!want && playerPos) {
+      const d = Math.hypot(this.x - playerPos.x, this.z - playerPos.z);
+      if (d < this.type.aggro * 1.35) want = 1;
+    }
+    const wasUp = this.rise > 0.55;
+    this.rise += (want - this.rise) * (1 - Math.pow(want ? 0.10 : 0.5, dt));
+    if (!wasUp && this.rise > 0.55) this.breached = true;
+
+    const surfaced = -this.size * (ride.base - rage * ride.rage) + breathe;
     const submerge = this.dying ? -this.size * (1.4 + this.dying * 2.2)
-      : -this.size * (ride.base - rage * ride.rage) + breathe;
+      : lurkDepth * -(1 - this.rise) + surfaced * this.rise;
 
     this.root.position.set(this.x, _water.y + submerge, this.z);
     this.root.rotation.y = -this.h;
@@ -426,6 +454,19 @@ export class MonsterView {
       });
     }
 
+    // The shadow on the surface: strongest when the body is deepest.
+    const hidden = 1 - this.rise;
+    const shadowMat = this.shadow.material;
+    shadowMat.opacity = hidden * 0.46 * (0.6 + 0.4 * Math.sin(time * 0.9 + this.id));
+    this.shadow.visible = shadowMat.opacity > 0.01;
+    if (this.shadow.visible) {
+      // Positioned in the root's local frame, level with the water above it.
+      this.shadow.position.set(0, _water.y - this.root.position.y + 0.12, -this.size * 1.2);
+      const spread = this.size * (2.6 + hidden * 1.8);
+      this.shadow.scale.set(spread, this.size * (3.4 + hidden * 2.6), 1);
+      this.shadow.rotation.z = 0;
+    }
+
     // World-space hit spheres for the harpoon test.
     for (let i = 0; i < this.body.spheres.length; i++) {
       const s = this.body.spheres[i];
@@ -434,6 +475,13 @@ export class MonsterView {
       this.body.group.localToWorld(w.pos);
       w.r = s.r;
     }
+  }
+
+  /** True once, on the frame it breaks the surface. */
+  consumeBreach() {
+    if (!this.breached) return false;
+    this.breached = false;
+    return true;
   }
 
   /** Point on the body nearest to a world position -- where the rope bites. */

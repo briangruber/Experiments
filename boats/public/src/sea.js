@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { waveGLSL } from '/shared/waves.js';
+import { seabedGLSL, LAGOON } from '/shared/seabed.js';
 import { WORLD } from '/shared/config.js';
 
 export const SUN_DIR = new THREE.Vector3(0.46, 0.30, -0.83).normalize();
@@ -110,6 +111,12 @@ export function createOcean({ segments = 224, half = 2600, detail = 6 } = {}) {
   const mat = new THREE.ShaderMaterial({
     uniforms,
     fog: false,
+    // The lagoon is the whole reason for the opening: you have to be able to
+    // see the sand and the fish through the surface. That means real alpha over
+    // the seabed mesh, with absorption doing the work instead of a flat colour.
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
     vertexShader: /* glsl */`
       precision highp float;
       uniform float uTime;
@@ -142,6 +149,7 @@ export function createOcean({ segments = 224, half = 2600, detail = 6 } = {}) {
       varying vec3 vNormal;
       varying float vCrest;
       ${SKY_GLSL}
+      ${seabedGLSL()}
 
       float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float noise(vec2 p) {
@@ -161,11 +169,23 @@ export function createOcean({ segments = 224, half = 2600, detail = 6 } = {}) {
                   + (noise(vWorld.xz * 2.7 - uTime * 0.6) - 0.5) * 0.5;
         n = normalize(n + vec3(rip, 0.0, rip * 0.8) * 0.16 * smoothstep(700.0, 40.0, dist));
 
-        // Water gets colder and deeper the further you sail from town: the
-        // colour is the map legend for "here be bigger things".
-        float far = smoothstep(600.0, 2400.0, length(vWorld.xz));
-        vec3 deep = mix(vec3(0.012, 0.075, 0.115), vec3(0.008, 0.035, 0.075), far);
-        vec3 shallow = mix(vec3(0.055, 0.31, 0.36), vec3(0.04, 0.22, 0.32), far);
+        // How much water is under this point, and therefore how much of it we
+        // are looking through.
+        float bed = seabedHeight(vWorld.xz);
+        float depth = max(0.0, vWorld.y - bed);
+        float r = length(vWorld.xz);
+
+        // Clarity is a story beat, not just optics: the lagoon is gin-clear,
+        // and the water turns to ink at the drop-off.
+        float murk = mix(0.040, 0.34, smoothstep(LAGOON_REEF, LAGOON_DEEP, r));
+        float absorb = 1.0 - exp(-depth * murk);
+
+        float far = smoothstep(600.0, 2400.0, r);
+        vec3 deep = mix(vec3(0.012, 0.075, 0.115), vec3(0.006, 0.028, 0.062), far);
+        vec3 lagoon = vec3(0.16, 0.62, 0.60);
+        // Tint the shallows toward turquoise, then hand over to open water.
+        vec3 tint = mix(lagoon, mix(vec3(0.055, 0.31, 0.36), vec3(0.04, 0.22, 0.32), far),
+                        smoothstep(LAGOON_FLAT, LAGOON_BRINK, r));
 
         float fres = pow(1.0 - max(dot(n, view), 0.0), 5.0);
         fres = mix(0.028, 1.0, fres);
@@ -173,7 +193,7 @@ export function createOcean({ segments = 224, half = 2600, detail = 6 } = {}) {
         vec3 refl = skyColor(reflect(-view, n), uSun);
         // Subsurface glow where the crest is thin and the sun is behind it.
         float sss = pow(clamp(vCrest, 0.0, 1.0), 1.6) * pow(max(dot(view, -uSun), 0.0) * 0.5 + 0.5, 2.0);
-        vec3 body = mix(deep, shallow, clamp(vWorld.y * 0.42 + 0.42, 0.0, 1.0));
+        vec3 body = mix(tint, deep, absorb);
         body += vec3(0.10, 0.36, 0.30) * sss * 0.75;
 
         vec3 col = mix(body, refl, fres);
@@ -192,7 +212,12 @@ export function createOcean({ segments = 224, half = 2600, detail = 6 } = {}) {
         vec3 fogDir = normalize(vec3(-view.x, 0.015, -view.z));
         col = mix(col, skyColor(fogDir, uSun), clamp(fog, 0.0, 1.0));
 
-        gl_FragColor = vec4(col, 1.0);
+        // Opaque where the water swallows the light, glassy where it does not.
+        // The reflection always survives, which is what keeps the lagoon from
+        // looking like coloured cellophane.
+        float alpha = clamp(fres + (1.0 - fres) * absorb, 0.0, 1.0);
+        alpha = max(alpha, fog);
+        gl_FragColor = vec4(col, alpha);
       }`,
   });
 

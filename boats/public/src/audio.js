@@ -122,6 +122,41 @@ export class Audio {
     this.tone({ freq: 220, to: 40, duration: 2.2, gain: 0.3, type: 'sawtooth' });
     this.noise({ duration: 2.0, gain: 0.28, freq: 700, sweep: -650, q: 0.4 });
   }
+  /** The little sounds of the dock. Kept quiet — this is the calm half. */
+  fish(name) {
+    switch (name) {
+      case 'cast':
+        this.noise({ duration: 0.34, gain: 0.14, freq: 2200, sweep: -1700, q: 0.6 });
+        break;
+      case 'plop':
+        this.tone({ freq: 420, to: 150, duration: 0.14, gain: 0.16, type: 'sine' });
+        this.noise({ duration: 0.16, gain: 0.09, freq: 1100, sweep: -600 });
+        break;
+      case 'nibble':
+        this.tone({ freq: 780, to: 640, duration: 0.07, gain: 0.07, type: 'triangle' });
+        break;
+      case 'bite':
+        this.tone({ freq: 300, to: 120, duration: 0.22, gain: 0.2, type: 'sine' });
+        this.tone({ freq: 900, duration: 0.08, gain: 0.12, type: 'triangle', delay: 0.02 });
+        break;
+      case 'hook':
+        this.tone({ freq: 220, to: 480, duration: 0.2, gain: 0.2, type: 'sawtooth' });
+        break;
+      case 'run':
+        // The drag giving line: a reel whirring against a fish that wants out.
+        this.noise({ duration: 0.7, gain: 0.16, freq: 900, q: 7, sweep: 500 });
+        this.tone({ freq: 160, to: 240, duration: 0.5, gain: 0.08, type: 'square' });
+        break;
+      case 'land':
+        this.noise({ duration: 0.3, gain: 0.16, freq: 1500, sweep: -900 });
+        [660, 880].forEach((f, i) => this.tone({ freq: f, duration: 0.3, gain: 0.12, type: 'sine', delay: i * 0.08 }));
+        break;
+      case 'spook':
+        this.tone({ freq: 380, to: 180, duration: 0.28, gain: 0.1, type: 'sine' });
+        break;
+    }
+  }
+
   bell() {
     this.tone({ freq: 784, duration: 1.6, gain: 0.13, type: 'sine' });
     this.tone({ freq: 1176, duration: 1.1, gain: 0.06, type: 'sine' });

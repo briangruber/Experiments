@@ -175,6 +175,41 @@ body.touch .touch-keys b { color: var(--text); }
 #strain-fill { position: absolute; inset: 0 100% 0 0; background: linear-gradient(90deg, #4d9a76, #e8bb4d); transition: right 90ms; }
 #strain-fill.crit { background: linear-gradient(90deg, #c04a34, #ff8a6a); animation: flash 0.4s steps(2) infinite; }
 
+#fish-progress {
+  position: relative; width: 240px; height: 7px; margin-top: 16px;
+  border-radius: 4px; background: rgba(0, 0, 0, 0.5); border: 1px solid var(--edge); overflow: hidden;
+}
+#fish-progress span {
+  position: absolute; top: 9px; left: 0; right: 0; text-align: center;
+  font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim);
+}
+#fish-progress-fill { position: absolute; inset: 0 100% 0 0; background: linear-gradient(90deg, #2f8f6a, #6ad3a0); transition: right 120ms; }
+
+/* The strike prompt is the one moment in fishing that is pure reaction. */
+#strike {
+  position: fixed; left: 50%; top: 38%; transform: translate(-50%, -50%);
+  font-size: clamp(34px, 7vw, 62px); font-weight: 900; letter-spacing: 0.14em;
+  color: #ffe6a3; text-shadow: 0 0 26px rgba(242, 192, 87, 0.75), 0 3px 10px #000;
+  pointer-events: none; z-index: 22;
+  animation: strike-pulse 0.28s ease-out infinite alternate;
+}
+#strike[hidden] { display: none; }
+@keyframes strike-pulse { from { transform: translate(-50%, -50%) scale(1); } to { transform: translate(-50%, -50%) scale(1.09); } }
+
+#catch-card {
+  position: fixed; left: 50%; top: 34%; transform: translate(-50%, -50%);
+  z-index: 23; pointer-events: none; text-align: center;
+  background: var(--panel); border: 1px solid rgba(242, 192, 87, 0.55);
+  border-radius: 14px; padding: 16px 26px; backdrop-filter: blur(10px);
+  animation: catch-in 320ms cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+#catch-card[hidden] { display: none; }
+@keyframes catch-in { from { opacity: 0; transform: translate(-50%, -30%) scale(0.9); } }
+#catch-card .fish-name { font-size: 20px; font-weight: 800; color: var(--gold); }
+#catch-card .fish-weight { font-size: 15px; margin-top: 3px; font-variant-numeric: tabular-nums; }
+#catch-card .fish-value { font-size: 12px; color: var(--dim); margin-top: 5px; }
+#catch-card .fish-blurb { font-size: 12px; color: var(--dim); font-style: italic; margin-top: 8px; max-width: 260px; }
+
 #prompt {
   margin-top: 20px; padding: 8px 16px; border-radius: 20px;
   background: var(--panel); border: 1px solid var(--edge); font-size: 13px;
@@ -275,7 +310,42 @@ body.touch #reticle { display: none; }        /* lock-on replaces the crosshair 
 body.touch button { padding: 12px 16px; font-size: 14px; }
 body.touch .tbtn, body.touch .tchip { padding: 0; }
 body.touch .tchip { padding: 10px 14px; }
-body.touch #prompt { display: none; }
+body.touch #fish-progress {
+  position: relative; width: 240px; height: 7px; margin-top: 16px;
+  border-radius: 4px; background: rgba(0, 0, 0, 0.5); border: 1px solid var(--edge); overflow: hidden;
+}
+#fish-progress span {
+  position: absolute; top: 9px; left: 0; right: 0; text-align: center;
+  font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim);
+}
+#fish-progress-fill { position: absolute; inset: 0 100% 0 0; background: linear-gradient(90deg, #2f8f6a, #6ad3a0); transition: right 120ms; }
+
+/* The strike prompt is the one moment in fishing that is pure reaction. */
+#strike {
+  position: fixed; left: 50%; top: 38%; transform: translate(-50%, -50%);
+  font-size: clamp(34px, 7vw, 62px); font-weight: 900; letter-spacing: 0.14em;
+  color: #ffe6a3; text-shadow: 0 0 26px rgba(242, 192, 87, 0.75), 0 3px 10px #000;
+  pointer-events: none; z-index: 22;
+  animation: strike-pulse 0.28s ease-out infinite alternate;
+}
+#strike[hidden] { display: none; }
+@keyframes strike-pulse { from { transform: translate(-50%, -50%) scale(1); } to { transform: translate(-50%, -50%) scale(1.09); } }
+
+#catch-card {
+  position: fixed; left: 50%; top: 34%; transform: translate(-50%, -50%);
+  z-index: 23; pointer-events: none; text-align: center;
+  background: var(--panel); border: 1px solid rgba(242, 192, 87, 0.55);
+  border-radius: 14px; padding: 16px 26px; backdrop-filter: blur(10px);
+  animation: catch-in 320ms cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+#catch-card[hidden] { display: none; }
+@keyframes catch-in { from { opacity: 0; transform: translate(-50%, -30%) scale(0.9); } }
+#catch-card .fish-name { font-size: 20px; font-weight: 800; color: var(--gold); }
+#catch-card .fish-weight { font-size: 15px; margin-top: 3px; font-variant-numeric: tabular-nums; }
+#catch-card .fish-value { font-size: 12px; color: var(--dim); margin-top: 5px; }
+#catch-card .fish-blurb { font-size: 12px; color: var(--dim); font-style: italic; margin-top: 8px; max-width: 260px; }
+
+#prompt { display: none; }
 
 /* The left of the screen is the helm. The stick is drawn wherever the thumb
    lands rather than in a fixed corner. */
@@ -428,6 +498,7 @@ body.touch #target-tag { font-size: 11px; }
   body.touch .vitals { width: 48vw; }
   body.touch #event-log { max-width: 52vw; }
   body.touch .bottom-center { bottom: calc(env(safe-area-inset-bottom) + 200px); }
+  body.touch #fish-progress, body.touch #charge, body.touch #strain { width: 168px; }
   #t-dock { bottom: calc(env(safe-area-inset-bottom) + 268px); }
 }
 
