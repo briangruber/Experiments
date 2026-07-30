@@ -58,7 +58,10 @@ let orbitYaw = 0, orbitPitch = 0, dragging = false, lastPt = null, uiHidden = fa
 addEventListener('keydown', (e) => {
   if (e.repeat) return;
   keys.add(e.code);
-  if (e.code === 'Space') { input.action = true; e.preventDefault(); }
+  if (e.code === 'Space') input.action = true;
+  // Space and the arrows scroll the host document; embedded in a panel that
+  // yanks the page out from under the boat.
+  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
   if (e.code === 'KeyH') { uiHidden = !uiHidden; document.body.classList.toggle('hide-ui', uiHidden); }
   startGame();
 });
