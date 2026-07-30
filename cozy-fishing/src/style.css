@@ -1,0 +1,67 @@
+html, body { margin: 0; height: 100%; overflow: hidden; background: #1c1626; }
+#scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+:root {
+  --cream: #fff3dc;
+  --cream-dim: rgba(255, 243, 220, 0.75);
+  --serif: Georgia, 'Iowan Old Style', 'Times New Roman', serif;
+}
+
+#title, #tally, #toast, #hint, #bang, #mute {
+  position: fixed; z-index: 10; font-family: var(--serif); color: var(--cream);
+  text-shadow: 0 1px 8px rgba(40, 16, 8, 0.55), 0 0 2px rgba(40, 16, 8, 0.7);
+  user-select: none; -webkit-user-select: none; pointer-events: none;
+}
+
+#title {
+  top: 20px; left: 24px; font-size: 19px; letter-spacing: 0.34em;
+  text-transform: uppercase; opacity: 0.9;
+}
+#title span {
+  display: block; font-size: 11px; letter-spacing: 0.12em; text-transform: none;
+  font-style: italic; opacity: 0.7; margin-top: 3px;
+}
+
+#tally { top: 22px; right: 24px; font-size: 16px; opacity: 0.9; }
+
+#hint {
+  bottom: 26px; left: 50%; transform: translateX(-50%); font-size: 15px;
+  font-style: italic; animation: breathe 3.2s ease-in-out infinite;
+  transition: opacity 0.8s;
+}
+#hint.gone { animation: none; opacity: 0; }
+@keyframes breathe { 0%, 100% { opacity: 0.5; } 50% { opacity: 0.95; } }
+
+#toast {
+  bottom: 11%; left: 50%; transform: translateX(-50%); text-align: center;
+  opacity: 0; transition: opacity 0.35s ease;
+}
+#toast.show { opacity: 1; }
+#toast-name { font-size: 22px; }
+#toast-name .stars { color: #ffd98c; letter-spacing: 0.1em; margin-left: 8px; }
+#toast-sub { font-size: 13px; font-style: italic; opacity: 0.72; margin-top: 5px; }
+
+#bang {
+  font-size: 30px; font-weight: bold; color: #ffdf8a;
+  transform: translate(-50%, -100%);
+  animation: bangpop 0.45s cubic-bezier(0.2, 2.4, 0.4, 1) both,
+             bangbob 0.7s 0.45s ease-in-out infinite alternate;
+}
+@keyframes bangpop { from { scale: 0.2; opacity: 0; } to { scale: 1; opacity: 1; } }
+@keyframes bangbob { from { margin-top: 0; } to { margin-top: -7px; } }
+
+#mute {
+  bottom: 20px; right: 22px; pointer-events: auto; cursor: pointer;
+  width: 38px; height: 38px; border-radius: 50%;
+  border: 1px solid rgba(255, 243, 220, 0.35);
+  background: rgba(46, 26, 30, 0.35); color: var(--cream);
+  font-size: 17px; line-height: 1; backdrop-filter: blur(3px);
+}
+#mute.muted { opacity: 0.45; text-decoration: line-through; }
+
+#vignette {
+  position: fixed; inset: 0; z-index: 5; pointer-events: none;
+  background:
+    radial-gradient(ellipse 78% 68% at 50% 44%, transparent 58%, rgba(34, 14, 24, 0.38) 100%),
+    linear-gradient(rgba(70, 30, 14, 0.10), transparent 22%);
+}

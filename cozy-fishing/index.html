@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Dockside — a cozy fishing prototype</title>
+<link rel="stylesheet" href="./src/style.css">
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/three.module.js",
+    "three/addons/": "./vendor/three/addons/"
+  }
+}
+</script>
+</head>
+<body>
+<canvas id="scene"></canvas>
+
+<div id="title">Dockside<span>a cozy fishing prototype</span></div>
+<div id="tally" hidden></div>
+<div id="toast" hidden><div id="toast-name"></div><div id="toast-sub"></div></div>
+<div id="hint">click the water to cast</div>
+<div id="bang" hidden>!</div>
+<button id="mute" title="toggle sound">♪</button>
+<div id="vignette"></div>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
