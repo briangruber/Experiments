@@ -108,18 +108,19 @@ export function createOcean({ segments = 200, half = 2200, detail = 6 } = {}) {
         float depth = max(0.0, vWorld.y - bed);
         float r = length(vWorld.xz - vec2(0.0, 20.0));
 
-        float murk = mix(0.032, 0.30, smoothstep(LAGOON_REEF, LAGOON_DEEP, r));
+        // Gin-clear over sand; ink past the drop-off.
+        float murk = mix(0.018, 0.28, smoothstep(LAGOON_REEF, LAGOON_DEEP, r));
         float absorb = 1.0 - exp(-depth * murk);
 
         // Crystal turquoise near the boat → sapphire at the horizon.
         float far = smoothstep(500.0, 2000.0, r);
-        vec3 deep = mix(vec3(0.02, 0.14, 0.38), vec3(0.01, 0.06, 0.22), far);
-        vec3 lagoon = vec3(0.08, 0.78, 0.72);
-        vec3 open = mix(vec3(0.04, 0.48, 0.62), vec3(0.025, 0.28, 0.50), far);
+        vec3 deep = mix(vec3(0.02, 0.16, 0.42), vec3(0.01, 0.07, 0.24), far);
+        vec3 lagoon = vec3(0.12, 0.82, 0.76);
+        vec3 open = mix(vec3(0.05, 0.52, 0.66), vec3(0.03, 0.30, 0.52), far);
         vec3 tint = mix(lagoon, open, smoothstep(LAGOON_FLAT, LAGOON_BRINK, r));
 
         float fres = pow(1.0 - max(dot(n, view), 0.0), 5.0);
-        fres = mix(0.025, 1.0, fres);
+        fres = mix(0.018, 1.0, fres);
 
         vec3 refl = skyColor(reflect(-view, n), uSun);
         float sss = pow(clamp(vCrest, 0.0, 1.0), 1.6) * pow(max(dot(view, -uSun), 0.0) * 0.5 + 0.5, 2.0);
@@ -139,8 +140,10 @@ export function createOcean({ segments = 200, half = 2200, detail = 6 } = {}) {
         vec3 fogDir = normalize(vec3(-view.x, 0.02, -view.z));
         col = mix(col, skyColor(fogDir, uSun), clamp(fog, 0.0, 1.0));
 
-        float alpha = clamp(fres + (1.0 - fres) * absorb, 0.0, 1.0);
-        alpha = max(alpha, fog);
+        // Keep the shallows glassy so the reef and sand stay readable.
+        float alpha = clamp(fres + (1.0 - fres) * absorb * 0.92, 0.0, 1.0);
+        alpha = max(alpha, fog * 0.85);
+        alpha = min(alpha, mix(0.55, 1.0, smoothstep(2.0, 14.0, depth)));
         gl_FragColor = vec4(col, alpha);
       }`,
   });
@@ -285,12 +288,16 @@ export function createReefProps({ count = 180 } = {}) {
 
   for (let i = 0; i < count; i++) {
     const a = hash(i, 1) * Math.PI * 2;
-    const r = LAGOON.flat - 20 + hash(i, 2) * (LAGOON.brink - LAGOON.flat + 40);
+    const r = LAGOON.flat - 10 + hash(i, 2) * (LAGOON.brink - LAGOON.flat + 30);
     const x = Math.cos(a) * r;
     const z = Math.sin(a) * r + 20;
     const y = seabedHeight(x, z);
-    if (y > -0.8 || y < -14) continue;
+    // Stay fully submerged — props that breach the surface read as buoys.
+    if (y > -2.4 || y < -12) continue;
     const shape = shapes[i % shapes.length];
+    const s = 0.55 + hash(i, 3) * 1.1;
+    const top = y + shape.h * s * 0.55;
+    if (top > -0.6) continue;
     const mesh = new THREE.Mesh(
       shape.geo,
       new THREE.MeshStandardMaterial({
@@ -299,7 +306,6 @@ export function createReefProps({ count = 180 } = {}) {
         flatShading: true,
       })
     );
-    const s = 0.6 + hash(i, 3) * 1.4;
     mesh.scale.set(s, s * (0.8 + hash(i, 4) * 0.6), s);
     mesh.position.set(x, y + shape.h * s * 0.35, z);
     mesh.rotation.y = hash(i, 5) * 6.28;
@@ -307,20 +313,18 @@ export function createReefProps({ count = 180 } = {}) {
     mesh.receiveShadow = true;
     group.add(mesh);
 
-    // Sea grass tufts near coral.
     if (hash(i, 6) > 0.55) {
       for (let g = 0; g < 3; g++) {
+        const bladeH = 0.9 + hash(i + g, 7) * 0.7;
         const blade = new THREE.Mesh(
-          new THREE.ConeGeometry(0.08, 1.2 + hash(i + g, 7) * 0.8, 4),
+          new THREE.ConeGeometry(0.07, bladeH, 4),
           new THREE.MeshStandardMaterial({ color: 0x3a7a42, flatShading: true })
         );
-        blade.position.set(
-          x + (hash(i, 8 + g) - 0.5) * 1.6,
-          y + 0.5,
-          z + (hash(i, 11 + g) - 0.5) * 1.6
-        );
-        blade.rotation.z = (hash(i, 14 + g) - 0.5) * 0.4;
-        group.add(blade);
+        const bx = x + (hash(i, 8 + g) - 0.5) * 1.6;
+        const bz = z + (hash(i, 11 + g) - 0.5) * 1.6;
+        blade.position.set(bx, y + bladeH * 0.4, bz);
+        blade.rotation.z = (hash(i, 14 + g) - 0.5) * 0.35;
+        if (blade.position.y + bladeH * 0.4 < -0.4) group.add(blade);
       }
     }
   }

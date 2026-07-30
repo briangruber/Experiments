@@ -9,28 +9,28 @@ const mat = (color, extra = {}) =>
   });
 
 function hullGeometry() {
-  const NS = 18, NP = 11;
-  const len = 5.2, beam = 2.0, depth = 0.85;
+  const NS = 20, NP = 12;
+  const len = 5.4, beam = 2.15, depth = 0.78;
   const positions = [];
   const indices = [];
-  const smoothstep = (t) => {
-    const c = t < 0 ? 0 : t > 1 ? 1 : t;
-    return c * c * (3 - 2 * c);
-  };
+  const clamp01 = (t) => (t < 0 ? 0 : t > 1 ? 1 : t);
+  const smoothstep = (t) => { const c = clamp01(t); return c * c * (3 - 2 * c); };
 
   for (let i = 0; i < NS; i++) {
     const t = i / (NS - 1); // 0 = stern, 1 = bow
     let f;
-    if (t < 0.35) f = 0.78 + 0.22 * smoothstep(t / 0.35);
-    else f = 0.12 + 0.88 * Math.pow(Math.max(0, 1 - (t - 0.35) / 0.65), 0.75);
+    if (t < 0.38) f = 0.82 + 0.18 * smoothstep(t / 0.38);
+    else f = 0.08 + 0.92 * Math.pow(clamp01(1 - (t - 0.38) / 0.62), 0.7);
     const w = (beam / 2) * f;
-    const d = depth * (1 - 0.35 * smoothstep((t - 0.55) / 0.45));
-    const sheer = depth * (0.12 + 0.22 * Math.pow(Math.abs(t - 0.4) / 0.6, 1.8));
+    const d = depth * (1 - 0.28 * smoothstep((t - 0.55) / 0.45));
+    const sheer = 0.52 + 0.18 * Math.pow(Math.abs(t - 0.42) / 0.58, 1.6);
     const x = (t - 0.5) * len;
     for (let j = 0; j < NP; j++) {
       const s = (j / (NP - 1)) * 2 - 1;
       const z = w * s;
-      const y = sheer - d * (1 - Math.pow(Math.abs(s), 2.4));
+      // Rounded bilge: flatter bottom, soft turn at the chines.
+      const bilge = Math.pow(Math.abs(s), 2.8);
+      const y = sheer - d * (1 - bilge * 0.92);
       positions.push(x, y, z);
     }
   }
@@ -40,120 +40,126 @@ function hullGeometry() {
       indices.push(a, b, c, b, d, c);
     }
   }
-  // Transom fill.
   const centre = positions.length / 3;
-  positions.push(-len / 2, 0.15, 0);
+  positions.push(-len / 2, 0.2, 0);
   for (let j = 0; j < NP - 1; j++) indices.push(centre, j + 1, j);
 
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geo.setIndex(indices);
   geo.computeVertexNormals();
-  return geo;
+  return { geo, len, beam };
 }
 
 function createCharacter() {
   const g = new THREE.Group();
-  // Dark blue jacket.
-  const body = new THREE.Mesh(
-    new THREE.CapsuleGeometry(0.28, 0.45, 4, 8),
-    mat(0x1e3a5f, { roughness: 0.85 })
-  );
-  body.position.y = 0.55;
-  // Head.
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 8), mat(0xf0c8a8, { roughness: 0.9 }));
-  head.position.y = 1.05;
-  // Bright green beanie — the silhouette cue from the reference.
+  const jacket = mat(0x1a3558, { roughness: 0.88 });
+  const skin = mat(0xf0c8a8, { roughness: 0.92 });
+  const green = mat(0x3ec24c, { roughness: 0.96 });
+
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.26, 0.42, 4, 8), jacket);
+  body.position.y = 0.52;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 10, 8), skin);
+  head.position.y = 1.0;
+  // Bright green knit beanie — the read-from-behind cue in the reference.
   const beanie = new THREE.Mesh(
-    new THREE.SphereGeometry(0.24, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.55),
-    mat(0x3db84a, { roughness: 0.95 })
+    new THREE.SphereGeometry(0.23, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.58),
+    green
   );
-  beanie.position.y = 1.14;
-  beanie.rotation.x = 0.15;
-  const pom = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 6), mat(0x2f9a3a));
-  pom.position.y = 1.32;
-  // Simple arms resting on gunwales.
-  const armM = mat(0x1e3a5f, { roughness: 0.85 });
+  beanie.position.y = 1.08;
+  beanie.rotation.x = 0.12;
+  const brim = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.035, 6, 14), green);
+  brim.rotation.x = Math.PI / 2;
+  brim.position.y = 1.02;
+  const pom = new THREE.Mesh(new THREE.SphereGeometry(0.065, 6, 6), mat(0x2f9a3a));
+  pom.position.y = 1.28;
+
   for (const side of [-1, 1]) {
-    const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.08, 0.35, 3, 6), armM);
-    arm.position.set(0.05, 0.65, side * 0.38);
-    arm.rotation.z = side * 0.9;
-    arm.rotation.x = 0.3;
+    const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.07, 0.32, 3, 6), jacket);
+    arm.position.set(0.02, 0.62, side * 0.36);
+    arm.rotation.z = side * 0.85;
+    arm.rotation.x = 0.25;
     g.add(arm);
   }
-  g.add(body, head, beanie, pom);
+  g.add(body, head, beanie, brim, pom);
   return g;
 }
 
 export function createBoat() {
   const root = new THREE.Group();
   const mesh = new THREE.Group();
+  const { geo, len, beam } = hullGeometry();
 
-  const hull = new THREE.Mesh(hullGeometry(), mat(0xf4f6f8, { roughness: 0.35 }));
+  const hull = new THREE.Mesh(geo, mat(0xf7f8fa, { roughness: 0.32 }));
   hull.castShadow = true;
   hull.receiveShadow = true;
   mesh.add(hull);
 
-  // Wood gunwale trim.
-  const trim = new THREE.Mesh(
-    new THREE.TorusGeometry(1.85, 0.07, 6, 28, Math.PI),
-    mat(0xb8894a, { roughness: 0.7 })
-  );
-  trim.rotation.x = Math.PI / 2;
-  trim.rotation.z = Math.PI / 2;
-  trim.position.set(0.15, 0.55, 0);
-  trim.scale.set(1.35, 0.55, 1);
-  mesh.add(trim);
+  // Wood gunwales as two rails along the sheer — not a torus (those read as oars).
+  const wood = mat(0xc4894a, { roughness: 0.72 });
+  for (const side of [-1, 1]) {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(len * 0.88, 0.1, 0.12), wood);
+    rail.position.set(0.05, 0.58, side * (beam * 0.48));
+    rail.castShadow = true;
+    mesh.add(rail);
+    // Short forward return toward the stem.
+    const cheek = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.1, 0.1), wood);
+    cheek.position.set(len * 0.38, 0.58, side * (beam * 0.28));
+    cheek.rotation.y = side * -0.55;
+    mesh.add(cheek);
+  }
+  // Transom wood cap.
+  const transom = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.14, beam * 0.85), wood);
+  transom.position.set(-len * 0.48, 0.55, 0);
+  mesh.add(transom);
 
-  // Flat cockpit floor.
   const floor = new THREE.Mesh(
-    new THREE.BoxGeometry(3.6, 0.08, 1.5),
-    mat(0xc4a06a, { roughness: 0.8 })
+    new THREE.BoxGeometry(3.4, 0.08, 1.45),
+    mat(0xd2aa6e, { roughness: 0.82 })
   );
-  floor.position.set(-0.1, 0.22, 0);
+  floor.position.set(-0.15, 0.28, 0);
   mesh.add(floor);
 
-  // Bench seats.
-  for (const x of [-0.9, 0.5]) {
-    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.12, 1.4), mat(0xa87840));
-    seat.position.set(x, 0.42, 0);
+  for (const x of [-0.95, 0.45]) {
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.12, 1.35), mat(0xb07a3e));
+    seat.position.set(x, 0.46, 0);
     mesh.add(seat);
   }
 
-  // Bow deck plate.
-  const bow = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.1, 1.5), mat(0xeceff2, { roughness: 0.4 }));
-  bow.position.set(1.7, 0.48, 0);
+  const bow = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.08, 1.35), mat(0xf0f2f4, { roughness: 0.4 }));
+  bow.position.set(1.75, 0.54, 0);
   mesh.add(bow);
 
-  // Outboard motor.
+  // Cleat on the bow.
+  const cleat = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.1, 0.12), wood);
+  cleat.position.set(2.05, 0.62, 0);
+  mesh.add(cleat);
+
   const motor = new THREE.Group();
   const cowling = new THREE.Mesh(
-    new THREE.BoxGeometry(0.55, 0.7, 0.5),
-    mat(0x2a2e34, { roughness: 0.45, metalness: 0.2 })
+    new THREE.BoxGeometry(0.5, 0.62, 0.42),
+    mat(0x22262c, { roughness: 0.4, metalness: 0.25 })
   );
-  cowling.position.y = 0.55;
+  cowling.position.y = 0.52;
   const shaft = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.06, 0.08, 0.9, 6),
-    mat(0x3a4048, { metalness: 0.4, roughness: 0.4 })
+    new THREE.CylinderGeometry(0.055, 0.07, 0.85, 6),
+    mat(0x3a4048, { metalness: 0.45, roughness: 0.4 })
   );
-  shaft.position.y = -0.15;
+  shaft.position.y = -0.12;
   const prop = new THREE.Mesh(
-    new THREE.BoxGeometry(0.08, 0.35, 0.5),
-    mat(0xb0b8c0, { metalness: 0.5, roughness: 0.35 })
+    new THREE.BoxGeometry(0.07, 0.32, 0.42),
+    mat(0xb0b8c0, { metalness: 0.55, roughness: 0.35 })
   );
-  prop.position.set(0, -0.55, 0);
+  prop.position.set(0, -0.5, 0);
   motor.add(cowling, shaft, prop);
-  motor.position.set(-2.55, 0.15, 0);
+  motor.position.set(-2.65, 0.18, 0);
   mesh.add(motor);
-  mesh.userData.prop = prop;
 
-  // Character in the aft seat.
   const character = createCharacter();
-  character.position.set(-0.85, 0.35, 0);
-  character.rotation.y = Math.PI / 2; // facing forward (+X)
+  character.position.set(-0.9, 0.38, 0);
+  character.rotation.y = Math.PI / 2;
   mesh.add(character);
 
-  // Forward is +X in boat local space; heading 0 faces +Z world after yaw.
   mesh.rotation.y = -Math.PI / 2;
   root.add(mesh);
 

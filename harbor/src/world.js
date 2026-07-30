@@ -33,8 +33,8 @@ function islandMesh(radius) {
   const sand = new THREE.Color(0xe8d5a4);
   const grass = new THREE.Color(0x4f9a42);
   const grassDark = new THREE.Color(0x3a7a34);
-  const rock = new THREE.Color(0x8a8378);
-  const rockDark = new THREE.Color(0x5e5950);
+  const rock = new THREE.Color(0xb09870);
+  const rockDark = new THREE.Color(0x6e5844);
 
   for (let r = 0; r <= RINGS; r++) {
     const t = r / RINGS;
@@ -159,8 +159,9 @@ export function createCliff(seed, radius, height) {
   const pos = [];
   const col = [];
   const idx = [];
-  const rock = new THREE.Color(0x9a9184);
-  const rockDark = new THREE.Color(0x625c52);
+  // Warmer sandstone/tan cliffs like the reference, not cool grey.
+  const rock = new THREE.Color(0xb8a078);
+  const rockDark = new THREE.Color(0x7a6550);
   const grass = new THREE.Color(0x4f9a42);
 
   for (let r = 0; r <= RINGS; r++) {
@@ -393,7 +394,7 @@ export function createWorld() {
 
   return {
     group,
-    spawn: { x: 8, z: 210, heading: Math.PI }, // facing the harbour
+    spawn: { x: 12, z: 195, heading: Math.PI }, // clear sand shelf, facing the harbour
     lighthouse: { x: 72, z: 40 },
   };
 }
