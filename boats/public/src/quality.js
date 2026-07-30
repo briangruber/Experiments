@@ -10,18 +10,21 @@ const TIERS = [
     oceanSegments: 96, oceanHalf: 2000, waveDetail: 3.5,
     particles: 460, wakeLength: 42, skySegments: 24,
     monsterDistance: 520, townLight: false, antialias: false, basePixelRatio: 1.25,
+    shadows: false, shadowMap: 1024, shadowSpan: 110, post: false, bloom: false, postAA: false,
   },
   { // medium
     name: 'medium',
     oceanSegments: 152, oceanHalf: 2300, waveDetail: 5,
     particles: 900, wakeLength: 72, skySegments: 32,
     monsterDistance: 750, townLight: true, antialias: false, basePixelRatio: 1.5,
+    shadows: true, shadowMap: 1024, shadowSpan: 130, post: true, bloom: false, postAA: true,
   },
   { // high
     name: 'high',
     oceanSegments: 224, oceanHalf: 2600, waveDetail: 6,
     particles: 1400, wakeLength: 110, skySegments: 48,
     monsterDistance: 1100, townLight: true, antialias: true, basePixelRatio: 2,
+    shadows: true, shadowMap: 2048, shadowSpan: 150, post: true, bloom: true, postAA: true,
   },
 ];
 

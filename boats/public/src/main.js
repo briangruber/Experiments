@@ -17,6 +17,7 @@ import { createInput } from './input.js';
 import { Net } from './net.js';
 import { Audio } from './audio.js';
 import { detectTier, AdaptiveResolution, goImmersive } from './quality.js';
+import { createPost, skyEnvironment } from './post.js';
 import { attachSoloWorld } from './solo.js';
 
 const canvas = document.getElementById('gl');
@@ -26,6 +27,8 @@ const renderer = new THREE.WebGLRenderer({
   canvas, antialias: tier.antialias, powerPreference: 'high-performance',
 });
 const resolution = new AdaptiveResolution(renderer, tier);
+renderer.shadowMap.enabled = tier.shadows;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.02;
@@ -37,17 +40,28 @@ scene.background = HORIZON_COLOR.clone();
 const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.4, 9000);
 camera.position.set(0, 14, 130);
 
+const skyMesh = createSky({ segments: tier.skySegments });
+scene.add(skyMesh);
+// Image-based lighting taken from our own sky, so metal and varnish pick up
+// the same horizon the player is looking at.
+scene.environment = skyEnvironment(renderer, skyMesh);
+// Kept low on purpose: the hemisphere light below is being cut back to make
+// room for this, and between them they should read as one sky, not two.
+scene.environmentIntensity = 0.38;
+
 const ocean = createOcean({
   segments: tier.oceanSegments, half: tier.oceanHalf, detail: tier.waveDetail,
 });
 scene.add(ocean.mesh);
-scene.add(createSky({ segments: tier.skySegments }));
-createLights(scene);
+const lights = createLights(scene, {
+  shadows: tier.shadows, shadowMap: tier.shadowMap, shadowSpan: tier.shadowSpan,
+});
 const edge = createWorldEdge();
 scene.add(edge.mesh);
 
 const town = createTown({ lamp: tier.townLight });
 scene.add(town.group);
+shadowify(town.group);
 
 // The lagoon: a floor you can see, a reef, and fish over it.
 const seabed = createSeabed({ segments: tier.oceanSegments >= 152 ? 120 : 80 });
@@ -57,6 +71,9 @@ const schools = createFishSchools({ schools: tier.particles >= 900 ? 7 : 4 });
 scene.add(schools.mesh);
 
 const particles = new Particles(scene, { max: tier.particles });
+const post = tier.post
+  ? createPost(renderer, scene, camera, { bloom: tier.bloom, aa: tier.postAA })
+  : null;
 const input = createInput(canvas);
 const audio = new Audio();
 const net = new Net();
@@ -121,6 +138,7 @@ const hud = new Hud({
 
 // Smaller chart on a phone: it competes with two thumbs for the corners.
 const avatar = new Avatar(scene, town);
+shadowify(avatar.group);
 avatar.pos.set(town.places.fishing.x, town.places.fishing.y, town.places.fishing.z - 14);
 
 const fishing = new Fishing(scene, {
@@ -142,11 +160,22 @@ const minimap = new Minimap(document.getElementById('minimap'), {
   range: input.touch ? 600 : 700,
 });
 
+/** Mark a subtree as taking part in the sun's shadows. */
+function shadowify(root, { cast = true, receive = true } = {}) {
+  root.traverse((o) => {
+    if (!o.isMesh && !o.isInstancedMesh) return;
+    o.castShadow = cast;
+    o.receiveShadow = receive;
+  });
+  return root;
+}
+
 /* ---------------------------------------------------------- own vessel */
 
 function buildOwnBoat(tier) {
   const prev = game.boat;
   const view = createBoat(tier, { color: 0xf2c057 });
+  shadowify(view.group);
   scene.add(view.group);
   const boat = {
     view,
@@ -658,6 +687,7 @@ function syncPlayers(list) {
     if (!rec || rec.tier !== p.t) {
       if (rec) { scene.remove(rec.view.group); rec.view.dispose(); rec.label.parent?.remove(rec.label); }
       const view = createBoat(p.t, { color: 0x7ee0ff });
+      shadowify(view.group);
       scene.add(view.group);
       const label = createLabel(p.n, `Lv ${p.lv}`);
       scene.add(label);
@@ -803,6 +833,7 @@ function upsertMonster(m) {
   let view = game.monsters.get(m.id);
   if (!view) {
     view = new MonsterView(m.k, m.id);
+    shadowify(view.root, { receive: false });
     scene.add(view.root);
     game.monsters.set(m.id, view);
   }
@@ -1022,6 +1053,11 @@ function frame(now) {
   town.update(dt, game.time, particles);
   particles.update(dt, game.time);
 
+  // The shadow box follows whoever the camera is watching.
+  if (tier.shadows) {
+    const focus = game.mode === 'shore' ? avatar.pos : (game.boat || camera.position);
+    lights.follow(focus.x, focus.z);
+  }
   resolution.update(dt);
   hudTimer += dt;
   if (game.playing && hudTimer > 0.1) {
@@ -1040,7 +1076,8 @@ function frame(now) {
     window.__debug.self = game.self;
   }
 
-  renderer.render(scene, camera);
+  if (post) post.render();
+  else renderer.render(scene, camera);
   input.endFrame();
 }
 
@@ -1165,6 +1202,7 @@ function relayout() {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
   resolution.apply();
+  post?.resize();
   particles.resize(innerHeight);
 }
 addEventListener('resize', relayout);

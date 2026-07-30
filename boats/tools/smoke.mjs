@@ -43,13 +43,18 @@ const browser = await chromium.launch({
 });
 
 const errors = [];
-async function openPlayer(name) {
+// Quality is pinned to the cheapest tier here. Two software-rendered WebGL
+// contexts running shadow maps and a bloom chain will exhaust swiftshader and
+// take the page down with them, and this suite is about game logic anyway --
+// the render tiers are covered by tools/mobile-check.mjs and by high-quality
+// screenshot runs.
+async function openPlayer(name, quality = 'medium') {
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   page.on('console', (m) => {
     if (m.type() === 'error') errors.push(`[${name}] ${m.text()}`);
   });
   page.on('pageerror', (e) => errors.push(`[${name}] ${e.message}`));
-  await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'load' });
+  await page.goto(`http://127.0.0.1:${PORT}/?quality=${quality}`, { waitUntil: 'load' });
   await page.fill('#name-input', name);
   await page.click('#start-btn');
   await page.waitForFunction(() => !document.getElementById('hud').hidden, { timeout: 15000 });
@@ -59,8 +64,8 @@ async function openPlayer(name) {
 const village = {};
 
 try {
-  const a = await openPlayer('Ahab');
-  const b = await openPlayer('Ishmael');
+  const a = await openPlayer('Ahab', 'low');
+  const b = await openPlayer('Ishmael', 'low');
 
   // You start ashore, on the dock. Walk a few paces first.
   village.startedAshore = await a.evaluate(() => window.__debug.game.mode);

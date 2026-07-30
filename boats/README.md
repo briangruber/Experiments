@@ -106,7 +106,8 @@ is different, so the answers are:
   pinch-zoom, double-tap zoom and pull-to-refresh are disabled over the canvas.
 
 Quality is chosen from the device and then corrected continuously from measured
-frame time — render resolution scales between 55% and 100% to hold the frame
+frame time — shadows, the post chain and bloom switch on by tier, so a phone
+gets the flat, cheap version and a desktop gets the lot — render resolution scales between 55% and 100% to hold the frame
 rate, and the wave mesh, particle budget, wake length and monster draw distance
 all step down on low-end hardware. Force a tier with `?quality=low|medium|high`
 if you want to see the difference.
@@ -124,6 +125,27 @@ if you want to see the difference.
 | Leviathan-Class | 46,000 | 22 | 2,600 | 26 | 225 | 380 m | 8 |
 
 Trading up credits 30% of your current hull.
+
+## Light
+
+Three things do most of the visual work, all of them tier-gated:
+
+**Shadows.** One orthographic box that follows whoever the camera is watching,
+snapped to whole shadow-map texels so the edges do not crawl as the world slides
+past. The pier's shadow lying across the lagoon floor is the shot the whole
+opening was built for, which is why the seabed is a standard material with the
+caustics injected into it rather than a bespoke shader — it has to receive.
+
+**Its own sky as an environment map.** Rather than shipping an HDRI, the game
+runs PMREM over the sky dome it already draws. It costs nothing to download and
+it cannot disagree with the sky you are looking at; the winch brass and the
+varnish pick up the same horizon.
+
+**A restrained post chain.** Bloom thresholded high enough that only the sun's
+glitter, the lighthouse and a monster's eyes ever bleed, then a grade that cools
+the shadows and warms the highlights, a light vignette, and an edge-aware
+smooth. No lens dirt, no chromatic aberration — this is a stylised game and the
+job is to tie the frame together, not to decorate it.
 
 ## The water
 
@@ -228,6 +250,7 @@ shared/waves.js      the wave field, and the GLSL generated from it
 public/src/
   main.js            wiring, boat physics, the game loop
   quality.js         device tier + adaptive render resolution
+  post.js            bloom, grade, cheap AA, and the sky-derived environment
   sea.js             ocean shader, sky, fog, the edge of the world
   boat.js            all seven hulls, lofted from one section sweep
   monster.js         three body plans: serpent, kraken, leviathan

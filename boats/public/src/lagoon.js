@@ -71,77 +71,64 @@ export function createSeabed({ segments = 120, spokes = 128 } = {}) {
 
   const uniforms = {
     uTime: { value: 0 },
-    uSun: { value: SUN_DIR },
     uCamera: { value: new THREE.Vector3() },
   };
 
-  const mat = new THREE.ShaderMaterial({
-    uniforms,
-    vertexShader: /* glsl */`
-      precision highp float;
-      varying vec3 vWorld;
-      varying vec3 vNormal;
-      varying vec3 vColor;
-      void main() {
-        vColor = color;
-        vNormal = normalize(normalMatrix * normal);
-        vec4 world = modelMatrix * vec4(position, 1.0);
-        vWorld = world.xyz;
-        gl_Position = projectionMatrix * viewMatrix * world;
-      }`,
-    fragmentShader: /* glsl */`
-      precision highp float;
-      uniform float uTime;
-      uniform vec3 uSun;
-      uniform vec3 uCamera;
-      varying vec3 vWorld;
-      varying vec3 vNormal;
-      varying vec3 vColor;
-      ${seabedGLSL()}
-
-      // Sunlight focused by the moving surface. Two counter-rotating layers of
-      // cheap cellular noise get most of the way there.
-      float caustic(vec2 p, float t) {
-        float v = 0.0;
-        for (int i = 0; i < 2; i++) {
-          float fi = float(i);
-          vec2 q = p * (0.9 + fi * 0.55) + vec2(t * (0.35 + fi * 0.2), -t * (0.28 - fi * 0.12));
-          float a = sin(q.x + sin(q.y * 1.3)) * cos(q.y - cos(q.x * 1.1));
-          v += a * a;
-        }
-        return pow(clamp(v * 0.5, 0.0, 1.0), 2.2);
-      }
-
-      void main() {
-        vec3 n = normalize(vNormal);
-        float depth = max(0.0, -vWorld.y);
-        float lambert = max(dot(n, uSun), 0.0) * 0.7 + 0.3;
-
-        // Light that reaches this depth at all.
-        float light = exp(-depth * 0.055);
-        vec3 col = vColor * lambert * mix(0.30, 1.35, light);
-
-        // Caustics only where the water is shallow enough to focus them.
-        float caus = caustic(vWorld.xz * 0.5, uTime) * light * 1.5;
-        col += vec3(0.60, 0.92, 0.84) * caus * 0.7;
-
-        // Water column between the eye and the floor. Kept deliberately thin
-        // in the shallows: the whole point of the lagoon is that you can count
-        // the fish from the pier, so this only really bites once the bottom
-        // drops away.
-        float dist = length(uCamera - vWorld);
-        float haze = 1.0 - exp(-dist * mix(0.048, 0.0075, light));
-        vec3 water = mix(vec3(0.11, 0.45, 0.46), vec3(0.02, 0.09, 0.15), 1.0 - light);
-        col = mix(col, water, clamp(haze, 0.0, 0.92));
-
-        gl_FragColor = vec4(col, 1.0);
-      }`,
+  // A standard material rather than a bespoke one, so the sea floor receives
+  // the sun's shadows -- the pier's shadow lying across the sand is most of
+  // what makes the lagoon feel like a real place. The caustics and the water
+  // column are injected on top of the lighting three already does.
+  const mat = new THREE.MeshStandardMaterial({
     vertexColors: true,
+    roughness: 0.94,
+    metalness: 0,
   });
+
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = uniforms.uTime;
+    shader.uniforms.uCamera = uniforms.uCamera;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;')
+      .replace('#include <begin_vertex>',
+        '#include <begin_vertex>\n  vWPos = (modelMatrix * vec4(position, 1.0)).xyz;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+        varying vec3 vWPos;
+        uniform float uTime;
+        uniform vec3 uCamera;
+
+        // Sunlight focused by the moving surface, from two counter-rotating
+        // layers of cheap cellular noise.
+        float caustic(vec2 p, float t) {
+          float v = 0.0;
+          for (int i = 0; i < 2; i++) {
+            float fi = float(i);
+            vec2 q = p * (0.9 + fi * 0.55) + vec2(t * (0.35 + fi * 0.2), -t * (0.28 - fi * 0.12));
+            float a = sin(q.x + sin(q.y * 1.3)) * cos(q.y - cos(q.x * 1.1));
+            v += a * a;
+          }
+          return pow(clamp(v * 0.5, 0.0, 1.0), 2.2);
+        }`)
+      .replace('#include <opaque_fragment>', `#include <opaque_fragment>
+        {
+          float depth = max(0.0, -vWPos.y);
+          float light = exp(-depth * 0.055);
+          vec3 col = gl_FragColor.rgb * mix(0.45, 1.25, light);
+          col += vec3(0.60, 0.92, 0.84) * caustic(vWPos.xz * 0.5, uTime) * light * 1.05;
+
+          // The water between the eye and the floor. Thin in the shallows on
+          // purpose: you are meant to be able to count the fish from the pier.
+          float dist = length(uCamera - vWPos);
+          float haze = 1.0 - exp(-dist * mix(0.048, 0.0075, light));
+          vec3 water = mix(vec3(0.11, 0.45, 0.46), vec3(0.02, 0.09, 0.15), 1.0 - light);
+          gl_FragColor.rgb = mix(col, water, clamp(haze, 0.0, 0.92));
+        }`);
+  };
 
   const mesh = new THREE.Mesh(geo, mat);
   mesh.renderOrder = -20;          // under the transparent water
   mesh.frustumCulled = false;
+  mesh.receiveShadow = true;
 
   return {
     mesh,
@@ -171,6 +158,8 @@ export function createReefProps({ count = 220 } = {}) {
     const inst = new THREE.InstancedMesh(shape.geo, mat, Math.ceil(count / shapes.length));
     inst.frustumCulled = false;
     inst.count = 0;
+    inst.castShadow = true;
+    inst.receiveShadow = true;
     inst.userData.h = shape.h;
     group.add(inst);
     return inst;

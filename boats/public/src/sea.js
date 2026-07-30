@@ -243,20 +243,51 @@ export function createOcean({ segments = 224, half = 2600, detail = 6 } = {}) {
 
 /* ------------------------------------------------------------------ lights */
 
-export function createLights(scene) {
+export function createLights(scene, { shadows = true, shadowMap = 2048, shadowSpan = 150 } = {}) {
   const sun = new THREE.DirectionalLight(0xfff0d6, 2.6);
   sun.position.copy(SUN_DIR).multiplyScalar(300);
   scene.add(sun);
   scene.add(sun.target);
 
-  const sky = new THREE.HemisphereLight(0x9ec8dd, 0x0a2634, 1.5);
+  if (shadows) {
+    // One tight ortho box that follows the player. Anything further away than
+    // this is fogged or under water, so a cascade would be paying for nothing.
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(shadowMap, shadowMap);
+    const c = sun.shadow.camera;
+    c.left = -shadowSpan; c.right = shadowSpan;
+    c.top = shadowSpan; c.bottom = -shadowSpan;
+    c.near = 1; c.far = 900;
+    c.updateProjectionMatrix();
+    sun.shadow.bias = -0.0004;
+    sun.shadow.normalBias = 0.9;      // stops the sand self-striping
+  }
+
+  // Ambient now comes mostly from the environment map generated off the sky
+  // dome; this is only the fill under it.
+  const sky = new THREE.HemisphereLight(0x9ec8dd, 0x123040, 0.8);
   scene.add(sky);
 
-  const fill = new THREE.DirectionalLight(0x7fb4cc, 0.5);
+  const fill = new THREE.DirectionalLight(0x7fb4cc, 0.32);
   fill.position.set(-SUN_DIR.x, 0.4, -SUN_DIR.z).multiplyScalar(200);
   scene.add(fill);
 
-  return { sun, sky, fill };
+  return {
+    sun, sky, fill, shadowSpan,
+    /**
+     * Keep the shadow box over the player, snapped to whole texels so the
+     * shadow edges do not crawl as the world slides underneath.
+     */
+    follow(x, z) {
+      const texel = (shadowSpan * 2) / shadowMap;
+      const sx = Math.round(x / texel) * texel;
+      const sz = Math.round(z / texel) * texel;
+      sun.target.position.set(sx, 0, sz);
+      sun.position.set(sx + SUN_DIR.x * 320, SUN_DIR.y * 320, sz + SUN_DIR.z * 320);
+      sun.target.updateMatrixWorld();
+      sun.updateMatrixWorld();
+    },
+  };
 }
 
 /** The wall of dark water that marks the edge of the charted sea. */
