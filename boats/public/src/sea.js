@@ -3,26 +3,80 @@ import { waveGLSL } from '/shared/waves.js';
 import { seabedGLSL, LAGOON } from '/shared/seabed.js';
 import { WORLD } from '/shared/config.js';
 
-export const SUN_DIR = new THREE.Vector3(0.46, 0.30, -0.83).normalize();
+// Midday, not golden hour. The reference art is a bright blue afternoon: high
+// sun, short shadows, everything legible and cheerful.
+export const SUN_DIR = new THREE.Vector3(0.34, 0.66, -0.67).normalize();
 
 // One analytic sky, sampled by the dome, by the water's reflection, and by the
 // fog. If they disagree the horizon splits and the illusion dies.
 const SKY_GLSL = /* glsl */`
+float skyHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float skyNoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(skyHash(i), skyHash(i + vec2(1, 0)), f.x),
+             mix(skyHash(i + vec2(0, 1)), skyHash(i + vec2(1, 1)), f.x), f.y);
+}
+float skyFbm(vec2 p) {
+  float v = 0.0, a = 0.5;
+  for (int i = 0; i < 5; i++) { v += a * skyNoise(p); p *= 2.03; a *= 0.5; }
+  return v;
+}
+
+/**
+ * Cumulus on a flat plane above the world, sampled by projecting the view
+ * direction onto it. Cheap, and it gives the horizon somewhere to be.
+ */
+/**
+ * Only the sky dome pays for weather. The ocean calls skyColor twice per
+ * fragment -- once for the reflection, once for the fog -- and a five-octave
+ * fbm on every water pixel is enough to hang a software renderer, never mind a
+ * phone. Reflections get a clean sky, which at grazing angles nobody misses.
+ */
+float clouds(vec3 dir, float t) {
+#ifndef SKY_CLOUDS
+  return 0.0;
+#else
+  if (dir.y < 0.015) return 0.0;
+  // Scale matters more than it looks: too small and the entire sky lands
+  // inside one noise cell, which is a flat grey field, not weather.
+  vec2 uv = dir.xz / max(dir.y, 0.02) * 1.5 + vec2(t * 0.012, t * 0.006);
+  float base = skyFbm(uv * 0.5);
+  float detail = skyFbm(uv * 1.7 + base);
+  float d = base * 0.72 + detail * 0.28;
+  // Sharp-edged puffs rather than fog: the reference is a picture-book sky.
+  // Wide gap between the thresholds keeps plenty of blue between the puffs.
+  float mask = smoothstep(0.47, 0.70, d);
+  // Fade them out at the horizon so the plane projection never shows its edge.
+  return mask * smoothstep(0.012, 0.16, dir.y);
+#endif
+}
+
 vec3 skyColor(vec3 dir, vec3 sunDir) {
   float y = dir.y;
-  vec3 zenith  = vec3(0.055, 0.20, 0.40);
-  vec3 horizon = vec3(0.62, 0.73, 0.80);
-  vec3 col = mix(horizon, zenith, pow(clamp(y, 0.0, 1.0), 0.48));
+  vec3 zenith  = vec3(0.045, 0.28, 0.80);
+  vec3 horizon = vec3(0.48, 0.74, 0.93);
+  vec3 col = mix(horizon, zenith, pow(clamp(y, 0.0, 1.0), 0.42));
+
   float sd = max(dot(dir, sunDir), 0.0);
-  col += vec3(1.0, 0.66, 0.36) * pow(sd, 7.0) * 0.42;
-  col += vec3(1.0, 0.88, 0.70) * smoothstep(0.9994, 0.99975, sd) * 9.0;
-  col = mix(col, vec3(0.90, 0.80, 0.68), pow(1.0 - clamp(abs(y) * 3.2, 0.0, 1.0), 3.0) * 0.55);
-  if (y < 0.0) col = mix(col, vec3(0.016, 0.075, 0.115), clamp(-y * 5.0, 0.0, 1.0));
+  col += vec3(1.0, 0.86, 0.62) * pow(sd, 9.0) * 0.30;
+  col += vec3(1.0, 0.96, 0.86) * smoothstep(0.9992, 0.99972, sd) * 8.0;
+
+  float c = clouds(dir, uSkyTime);
+  if (c > 0.001) {
+    // Lit from the sun side, blue-shadowed underneath.
+    float lit = 0.55 + 0.45 * max(dot(normalize(dir + sunDir * 0.4), sunDir), 0.0);
+    vec3 cloud = mix(vec3(0.62, 0.70, 0.84), vec3(1.0, 0.99, 0.96), lit);
+    col = mix(col, cloud, c * 0.94);
+  }
+
+  col = mix(col, vec3(0.74, 0.86, 0.96), pow(1.0 - clamp(abs(y) * 3.4, 0.0, 1.0), 3.0) * 0.22);
+  if (y < 0.0) col = mix(col, vec3(0.02, 0.14, 0.30), clamp(-y * 5.0, 0.0, 1.0));
   return col;
 }`;
 
-export const HORIZON_COLOR = new THREE.Color(0.66, 0.74, 0.78);
-export const FOG_DENSITY = 0.00105;
+export const HORIZON_COLOR = new THREE.Color(0.60, 0.80, 0.93);
+export const FOG_DENSITY = 0.00034;
 
 /* --------------------------------------------------------------------- sky */
 
@@ -32,7 +86,7 @@ export function createSky({ segments = 48 } = {}) {
     side: THREE.BackSide,
     depthWrite: false,
     fog: false,
-    uniforms: { uSun: { value: SUN_DIR } },
+    uniforms: { uSun: { value: SUN_DIR }, uSkyTime: { value: 0 } },
     vertexShader: /* glsl */`
       varying vec3 vDir;
       void main() {
@@ -42,7 +96,9 @@ export function createSky({ segments = 48 } = {}) {
       }`,
     fragmentShader: /* glsl */`
       precision highp float;
+      #define SKY_CLOUDS 1
       uniform vec3 uSun;
+      uniform float uSkyTime;
       varying vec3 vDir;
       ${SKY_GLSL}
       void main() {
@@ -55,6 +111,7 @@ export function createSky({ segments = 48 } = {}) {
   const mesh = new THREE.Mesh(geo, mat);
   mesh.frustumCulled = false;
   mesh.renderOrder = -100;
+  mesh.userData.uniforms = mat.uniforms;
   return mesh;
 }
 
@@ -105,6 +162,7 @@ export function createOcean({ segments = 224, half = 2600, detail = 6 } = {}) {
     uSun: { value: SUN_DIR },
     uCamera: { value: new THREE.Vector3() },
     uFog: { value: FOG_DENSITY },
+    uSkyTime: { value: 0 },
     uDetail: { value: detail },
   };
 
@@ -145,6 +203,7 @@ export function createOcean({ segments = 224, half = 2600, detail = 6 } = {}) {
       uniform vec3 uCamera;
       uniform float uFog;
       uniform float uTime;
+      uniform float uSkyTime;
       varying vec3 vWorld;
       varying vec3 vNormal;
       varying float vCrest;
@@ -180,12 +239,13 @@ export function createOcean({ segments = 224, half = 2600, detail = 6 } = {}) {
         float murk = mix(0.040, 0.34, smoothstep(LAGOON_REEF, LAGOON_DEEP, r));
         float absorb = 1.0 - exp(-depth * murk);
 
+        // A postcard palette: emerald over the sand, turquoise over the reef,
+        // and a saturated cobalt once the bottom is gone.
         float far = smoothstep(600.0, 2400.0, r);
-        vec3 deep = mix(vec3(0.012, 0.075, 0.115), vec3(0.006, 0.028, 0.062), far);
-        vec3 lagoon = vec3(0.16, 0.62, 0.60);
-        // Tint the shallows toward turquoise, then hand over to open water.
-        vec3 tint = mix(lagoon, mix(vec3(0.055, 0.31, 0.36), vec3(0.04, 0.22, 0.32), far),
-                        smoothstep(LAGOON_FLAT, LAGOON_BRINK, r));
+        vec3 deep = mix(vec3(0.015, 0.10, 0.30), vec3(0.008, 0.045, 0.17), far);
+        vec3 lagoon = vec3(0.10, 0.74, 0.66);
+        vec3 open = mix(vec3(0.055, 0.42, 0.55), vec3(0.03, 0.26, 0.44), far);
+        vec3 tint = mix(lagoon, open, smoothstep(LAGOON_FLAT, LAGOON_BRINK, r));
 
         float fres = pow(1.0 - max(dot(n, view), 0.0), 5.0);
         fres = mix(0.028, 1.0, fres);
@@ -194,13 +254,13 @@ export function createOcean({ segments = 224, half = 2600, detail = 6 } = {}) {
         // Subsurface glow where the crest is thin and the sun is behind it.
         float sss = pow(clamp(vCrest, 0.0, 1.0), 1.6) * pow(max(dot(view, -uSun), 0.0) * 0.5 + 0.5, 2.0);
         vec3 body = mix(tint, deep, absorb);
-        body += vec3(0.10, 0.36, 0.30) * sss * 0.75;
+        body += vec3(0.12, 0.48, 0.36) * sss * 0.9;
 
         vec3 col = mix(body, refl, fres);
 
         // Sun glitter.
         vec3 h = normalize(uSun + view);
-        col += vec3(1.0, 0.90, 0.74) * pow(max(dot(n, h), 0.0), 620.0) * 1.7;
+        col += vec3(1.0, 0.94, 0.82) * pow(max(dot(n, h), 0.0), 520.0) * 2.1;
 
         // Foam: where the Gerstner crest sharpens past the point of breaking.
         float foam = smoothstep(0.66, 0.98, vCrest);

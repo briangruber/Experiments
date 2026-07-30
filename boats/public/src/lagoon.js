@@ -6,10 +6,10 @@ import { SUN_DIR } from './sea.js';
 // light moving on the bottom, and the fish that make the lagoon feel alive
 // rather than merely clear.
 
-const SAND = new THREE.Color(0xe4d3a6);
-const SAND_DEEP = new THREE.Color(0xb9ab86);
-const CORAL = new THREE.Color(0xc9705c);
-const WEED = new THREE.Color(0x4f6b4a);
+const SAND = new THREE.Color(0xf2e3b8);
+const SAND_DEEP = new THREE.Color(0xc9bd8e);
+const CORAL = new THREE.Color(0xdc7a52);
+const WEED = new THREE.Color(0x3f7a46);
 const ROCK = new THREE.Color(0x50565c);
 const ABYSS = new THREE.Color(0x080d14);
 
@@ -120,7 +120,7 @@ export function createSeabed({ segments = 120, spokes = 128 } = {}) {
           // purpose: you are meant to be able to count the fish from the pier.
           float dist = length(uCamera - vWPos);
           float haze = 1.0 - exp(-dist * mix(0.048, 0.0075, light));
-          vec3 water = mix(vec3(0.11, 0.45, 0.46), vec3(0.02, 0.09, 0.15), 1.0 - light);
+          vec3 water = mix(vec3(0.10, 0.58, 0.55), vec3(0.02, 0.12, 0.26), 1.0 - light);
           gl_FragColor.rgb = mix(col, water, clamp(haze, 0.0, 0.92));
         }`);
   };

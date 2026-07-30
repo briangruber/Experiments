@@ -8,6 +8,7 @@ import { HarpoonSystem, Rope, disposeGroup } from './harpoon.js';
 import { Particles, Wake } from './fx.js';
 import { createTown } from './town.js';
 import { createSeabed, createReefProps, createFishSchools } from './lagoon.js';
+import { createIslets, createGulls, createPerchedGull } from './scenery.js';
 import { Avatar } from './avatar.js';
 import { Fishing, PHASE } from './fishing.js';
 import { FISH_BY_ID } from '/shared/fish.js';
@@ -69,6 +70,12 @@ scene.add(seabed.mesh);
 scene.add(createReefProps({ count: tier.particles >= 900 ? 220 : 110 }));
 const schools = createFishSchools({ schools: tier.particles >= 900 ? 7 : 4 });
 scene.add(schools.mesh);
+
+// Somewhere to look: rock stacks with pines on them, and gulls over the harbour.
+scene.add(createIslets({ count: tier.monsterDistance > 600 ? 10 : 6 }));
+const gulls = createGulls({ count: tier.particles >= 900 ? 14 : 7, centre: new THREE.Vector3(0, 0, 120) });
+scene.add(gulls.mesh);
+scene.add(createPerchedGull(-5.2, 3.3, 146, 2.6), createPerchedGull(3.6, 2.55, 96, -1.1));
 
 const particles = new Particles(scene, { max: tier.particles });
 const post = tier.post
@@ -1051,6 +1058,9 @@ function frame(now) {
   schools.update(game.time);
   edge.uniforms.uTime.value = game.time;
   town.update(dt, game.time, particles);
+  gulls.update(game.time);
+  skyMesh.userData.uniforms.uSkyTime.value = game.time;
+  ocean.uniforms.uSkyTime.value = game.time;
   particles.update(dt, game.time);
 
   // The shadow box follows whoever the camera is watching.

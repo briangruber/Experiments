@@ -58,6 +58,10 @@ const GradeShader = {
       col = mix(col, col * vec3(1.0 + uWarmth, 1.0, 1.0 - uWarmth * 0.7), smoothstep(0.45, 1.0, l2));
       col = mix(col, col * vec3(0.93, 0.99, 1.08), smoothstep(0.35, 0.0, l2));
 
+      // Push saturation: the palette is doing the storytelling here.
+      float g = luma(col);
+      col = clamp(mix(vec3(g), col, 1.22), 0.0, 4.0);
+
       vec2 d = vUv - 0.5;
       col *= 1.0 - uVignette * dot(d, d) * 1.6;
 

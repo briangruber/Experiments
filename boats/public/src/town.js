@@ -180,15 +180,15 @@ export function createTown({ lamp: withLamp = true } = {}) {
 
   // Town: a market row facing the water, plus houses climbing the hill.
   const chimneys = [];
-  const wallColours = [0xd9cbb0, 0xc9b79a, 0xbfae95, 0xd2c3a6];
-  const roofColours = [0x8c4a3a, 0x6d4331, 0x9a5a42, 0x5f4a3c];
+  const wallColours = [0xf0e4c8, 0xe4d5b4, 0xf3ead2, 0xdfceac];
+  const roofColours = [0xb4503a, 0x3f7f86, 0x4a6a9c, 0xc26a45, 0x2f6b62];
   const plots = [
     [-24, 26, 9, 8, 7], [-10, 30, 8, 7, 6], [8, 29, 10, 8, 7], [24, 24, 9, 7, 6],
     [-34, 8, 8, 7, 6], [32, 10, 9, 8, 8], [-16, 2, 10, 9, 8], [12, -2, 11, 9, 9],
     [-6, -18, 9, 8, 7], [20, -16, 8, 7, 6], [-28, -12, 9, 8, 7],
   ];
   plots.forEach(([x, z, w, d, h], i) => {
-    const b = house(w, d, h, wallColours[i % 4], roofColours[i % 4]);
+    const b = house(w, d, h, wallColours[i % 4], roofColours[i % 5]);
     b.position.set(x, islandHeight(x, z) - 0.6, z);
     b.rotation.y = Math.atan2(-x, -z) + (hash2(x, z) - 0.5) * 0.5;
     group.add(b);
