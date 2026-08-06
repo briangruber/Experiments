@@ -863,6 +863,31 @@ export const SCHEMA = [
 ];
 
 export const PRESETS = {
+  'Cozy Harbor Sunset': {
+    // Gentle, saturated water and a low warm sun give the procedural harbor the
+    // painterly concept-art read without throwing away the physical ocean.
+    windSpeed: 5.2, fetch: 95, windDirDeg: 34, amplitude: 0.72, choppiness: 0.92,
+    choppyLong: 1.05, crestSharpen: 0.72, shortWaveFade: 0.62,
+    swellAmount: 0.32, swellPeriod: 11.5, swellDirDeg: 20, swellSpread: 9,
+    sunElevation: 5.0, sunAzimuth: 106, sunIntensity: 25, turbidity: 1.65,
+    cloudCoverage: 0.46, cloudDensity: 1.05, cloudAltitude: 1850,
+    cloudThickness: 2100, cloudDetail: 0.42, cloudSilver: 1.15, cirrus: 0.28,
+    scatterColor: [0.045, 0.34, 0.39], absorption: [0.34, 0.065, 0.042],
+    scatterAmount: 0.13, sssStrength: 1.65, sssPower: 3.2,
+    foamAmount: 0.52, foamCoverage: 0.6, sprayRate: 0.08, sprayOpacity: 0.18,
+    craftSprayAmount: 0.28, craftJet: 0.0, craftSheet: 0.35, craftCurtain: 0.25,
+    wrTopSpeed: 13.0, wrAccel: 5.5, wrFovKick: 4.0, wrBoostFov: 1.5,
+    wrLength: 3.2, wrBeam: 1.45, hullRadius: 4.0, hullPush: 0.32, hullBow: 0.45,
+    wrCamDistance: 16.5, wrCamPull: 0.28, wrCamRise: 5.3, wrCamLift: 0.28,
+    wrCamLook: 7.0, wrCamLookRise: 2.5, wrCamChaseRoll: 0.16,
+    lensWater: 0.18, lensSpray: 0.12,
+    exposureBias: 0.22, saturation: 1.14, postSaturation: 1.08,
+    temperature: 0.08, contrast: 1.05, toeStrength: 0.32,
+    bloomIntensity: 0.105, bloomThreshold: 0.82, bloomKnee: 0.8,
+    bloomTint: [1.0, 0.66, 0.38], bloomTintAmount: 0.48,
+    halation: 0.018, chromatic: 0.18, vignette: 0.38, grain: 0.008,
+    fov: 38, handheld: 0.16, cameraBob: 0.04,
+  },
   'Golden Hour Swell': {
     windSpeed: 9.5, fetch: 320, windDirDeg: 42, amplitude: 1.0, choppiness: 1.3,
     swellAmount: 0.75, swellPeriod: 14, swellDirDeg: 24,

@@ -7,7 +7,7 @@ import { Post } from './post.js';
 import { Camera } from './camera.js';
 import { WaveRunner } from './waverunner.js';
 import { Wake } from './wake.js';
-import { Craft } from './craft.js';
+import { CozyScene } from './cozyScene.js';
 import { UI, applyPreset } from './ui.js';
 import { defaults, PRESETS } from './presets.js';
 import { DEG, v3, clamp } from './math.js';
@@ -18,7 +18,7 @@ const blit = new Blitter(gl);
 
 const params = structuredClone(defaults);
 const startPreset = new URLSearchParams(location.search).get('preset');
-applyPreset(params, PRESETS[startPreset] ? startPreset : 'Golden Hour Swell');
+applyPreset(params, PRESETS[startPreset] ? startPreset : 'Cozy Harbor Sunset');
 
 const camera = new Camera(canvas);
 const sky = new Sky(gl, blit);
@@ -28,7 +28,7 @@ let spray = new Spray(gl, blit, { size: params.sprayTexSize });
 const pWater = program(gl, WATER_VS, WATER_FS, 'water');
 const waveRunner = new WaveRunner(gl, blit);
 let wake = new Wake(gl, blit, { size: params.wakeTexSize });
-const craft = new Craft(gl);
+const cozyScene = new CozyScene(gl);
 
 // ---------------------------------------------------------------- radial grid
 let grid = null;
@@ -205,7 +205,7 @@ const ui = new UI(document.getElementById('ui'), params, (ev) => {
   derive();
   resetAccum();
 });
-ui.presetSelect.value = PRESETS[startPreset] ? startPreset : 'Golden Hour Swell';
+ui.presetSelect.value = PRESETS[startPreset] ? startPreset : 'Cozy Harbor Sunset';
 
 function toggleRide() {
   waveRunner.active = !waveRunner.active;
@@ -263,9 +263,9 @@ function setPanel(open) {
 panelToggle?.addEventListener('click', () => {
   setPanel(document.body.classList.contains('panel-hidden'));
 });
-// On a phone the panel is a bottom sheet; open it by default and the visitor
-// arrives at a wall of sliders instead of the sea.
-setPanel(!window.matchMedia('(max-width: 760px), (pointer: coarse)').matches);
+// This now opens as a game scene rather than a rendering workbench. The full
+// simulator controls remain one click away for art direction and benchmarking.
+setPanel(false);
 
 window.addEventListener('keydown', (e) => {
   if (e.target && /input|select|textarea/i.test(e.target.tagName)) return;
@@ -386,6 +386,8 @@ function frame(now) {
     craftSlip: waveRunner.active ? (waveRunner.slipSigned ?? 0) : 0,
     craftAir: waveRunner.active && waveRunner.airborne ? 1 : 0,
     craftImpact: waveRunner.active ? waveRunner.impact : 0,
+    sunColor: params.sunIrradiance,
+    moonColor: params.moonColor,
   };
 
   if (!frozen) spray.update(stepDt, params, ctx, ocean);
@@ -459,22 +461,14 @@ function frame(now) {
   gl.drawElements(gl.TRIANGLES, grid.count, gl.UNSIGNED_INT, 0);
   gl.bindVertexArray(null);
 
+  // Land is drawn after the sea so the shared depth buffer naturally clips the
+  // cliffs at the moving waterline. It still precedes the far-plane sky pass.
+  cozyScene.drawHarbor(ctx);
+
   // Spray needs the displacement field too: billboards fade against the real
   // water height instead of showing a hard intersection edge.
   if (waveRunner.active) {
-    // The waterline is the sea, not the deck: using deckY put almost the whole
-    // hull below it, which is why it painted dark and read as glass.
-    craft.wetLine = waveRunner.probeH[0];
-    craft.setTransform(
-      // The hull's designed waterline sits above its keel, so the origin has to
-      // ride proud of the surface or the sea closes over the deck.
-      [waveRunner.pos[0], (waveRunner.deckY ?? 0) + params.craftLift, waveRunner.pos[2]],
-      waveRunner.heading,
-      waveRunner.pitchTrim + params.craftPitchOffset,
-      waveRunner.bank + waveRunner.rollTrim + params.craftRollOffset,
-      params.craftScale, params.craftYawOffset,
-    );
-    craft.draw(params, ctx, sky.lut, sky.atmosphereUniforms(params));
+    cozyScene.drawBoat(ctx, waveRunner, 0.15);
   }
 
   // Sky after the sea: its triangle sits on the far plane under a LEQUAL test,
@@ -549,6 +543,8 @@ resize();
 ocean.buildSpectrum(params);
 // Two warm-up steps so the very first presented frame already has foam history.
 ocean.update(1 / 60, params);
+// Put the player in the boat immediately; free-flight remains available with R.
+toggleRide();
 document.getElementById('boot').classList.add('gone');
 requestAnimationFrame(frame);
 
