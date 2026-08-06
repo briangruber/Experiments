@@ -1,6 +1,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
-<title>Abyssal — Cinematic Ocean Simulator</title>
+<title>Abyssal — Greenwake Harbor</title>
 <link rel="stylesheet" href="./src/ui.css">
 <canvas id="gl" oncontextmenu="return false"></canvas>
 <div id="ui"></div>
@@ -11,6 +11,22 @@
   </svg>
   <span class="open-label">Controls</span><span class="close-label">Hide</span>
 </button>
+<div id="game-hud" aria-hidden="true">
+  <div class="compass">
+    <span>NW</span><i></i><span>330</span><i></i><strong>N</strong><i></i><span>30</span><i></i><span>NE</span>
+    <b class="compass-mark">◆</b>
+    <small>GREENWAKE HARBOR · 780m</small>
+  </div>
+  <div class="quest">
+    <b><span>◆</span> A Strange Disturbance</b>
+    <p>Follow the lanterns into Greenwake Harbor.</p>
+  </div>
+  <div class="status">
+    <div><b>♥</b><i><span></span></i></div>
+    <div><b>ϟ</b><i><span></span></i></div>
+  </div>
+  <div class="location"><small>THE GREENWATER COAST</small><strong>Greenwake Harbor</strong></div>
+</div>
 <div id="hud">
   <div id="hud-fps">—</div>
   <div id="hud-hint" class="pointer-fine">drag&nbsp;·&nbsp;look &nbsp; wheel&nbsp;·&nbsp;zoom &nbsp; W/A/S/D&nbsp;·&nbsp;fly &nbsp; H&nbsp;·&nbsp;hide UI &nbsp; P&nbsp;·&nbsp;photo</div>
@@ -18,7 +34,7 @@
   <div id="hud-hint-touch" class="pointer-coarse">drag&nbsp;·&nbsp;look &nbsp; pinch&nbsp;·&nbsp;zoom &nbsp; Controls&nbsp;·&nbsp;presets</div>
 </div>
 <div id="boot">
-  <div class="boot-title">ABYSSAL</div>
-  <div class="boot-sub">building spectra…</div>
+  <div class="boot-title">GREENWAKE</div>
+  <div class="boot-sub">raising the tide…</div>
 </div>
 <script type="module" src="./src/main.js"></script>

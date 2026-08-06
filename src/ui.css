@@ -89,6 +89,49 @@ body.riding #hud-hint-ride{display:block}
   .pointer-coarse{display:block}
 }
 
+/* Lightweight game HUD: restrained enough to keep the scene cinematic, but it
+   gives the harbor a destination and the boat a purpose instead of presenting
+   the renderer as an empty technical demo. */
+#game-hud{position:fixed;inset:0;z-index:8;pointer-events:none;
+  font-family:ui-sans-serif,-apple-system,"SF Pro Display",Inter,Segoe UI,sans-serif;
+  color:#f5e9d0;text-shadow:0 2px 5px rgba(3,10,15,.9)}
+.compass{position:absolute;top:16px;left:50%;transform:translateX(-50%);
+  width:min(560px,52vw);height:58px;display:flex;justify-content:space-around;align-items:flex-start;
+  padding-top:10px;border-top:1px solid rgba(236,222,187,.32);
+  color:rgba(238,227,204,.62);font-size:10px;letter-spacing:.12em}
+.compass::before,.compass::after{content:"";position:absolute;top:-3px;width:7px;height:7px;
+  border-top:1px solid rgba(236,222,187,.32)}
+.compass::before{left:0;border-left:1px solid rgba(236,222,187,.32);transform:rotate(-45deg)}
+.compass::after{right:0;border-right:1px solid rgba(236,222,187,.32);transform:rotate(45deg)}
+.compass i{height:6px;width:1px;background:rgba(236,222,187,.28)}
+.compass strong{color:#fff3d6;font-size:13px;line-height:10px}
+.compass-mark{position:absolute;top:-11px;left:50%;transform:translateX(-50%) rotate(45deg);
+  color:#ef7658;font-size:17px;filter:drop-shadow(0 0 7px rgba(239,118,88,.7))}
+.compass small{position:absolute;top:32px;color:#ef8367;font-size:9px;letter-spacing:.09em}
+.quest{position:absolute;right:18px;top:78px;width:250px;padding:13px 15px 12px;
+  border-left:2px solid #e29b4a;border-radius:4px;
+  background:linear-gradient(100deg,rgba(11,28,39,.88),rgba(11,28,39,.60));
+  box-shadow:0 8px 30px rgba(0,0,0,.18);backdrop-filter:blur(8px)}
+.quest b{display:block;color:#f1b45e;font-size:12px;letter-spacing:.025em}
+.quest b span{font-size:9px;margin-right:7px}.quest p{margin:5px 0 0;color:#f3ead9;font-size:11px;line-height:1.45}
+.status{position:absolute;left:18px;bottom:44px;display:grid;gap:8px}
+.status>div{display:flex;align-items:center;gap:8px}
+.status b{display:grid;place-items:center;width:30px;height:30px;border:1px solid rgba(226,190,136,.52);
+  border-radius:50%;background:rgba(10,25,34,.7);font-size:16px}
+.status>div:first-child b{color:#ef5f58}.status>div:last-child b{color:#f4bd51}
+.status i{display:block;width:118px;height:9px;padding:2px;border:1px solid rgba(220,207,176,.42);
+  border-radius:8px;background:rgba(4,17,24,.68)}
+.status i span{display:block;width:92%;height:100%;border-radius:4px;background:#49aa70;
+  box-shadow:0 0 6px rgba(73,170,112,.45)}
+.status>div:last-child i span{width:70%;background:#e7b54d;box-shadow:0 0 6px rgba(231,181,77,.35)}
+.location{position:absolute;left:50%;top:62%;transform:translate(-50%,-50%);text-align:center;
+  animation:location-reveal 6s ease both}
+.location small{display:block;color:rgba(242,229,200,.72);font-size:9px;letter-spacing:.32em}
+.location strong{display:block;margin-top:5px;font-family:Georgia,serif;font-size:25px;font-weight:400;
+  letter-spacing:.04em;color:#fff1cf}
+@keyframes location-reveal{0%,8%{opacity:0;transform:translate(-50%,-40%)}18%,65%{opacity:1;
+  transform:translate(-50%,-50%)}100%{opacity:0}}
+
 #boot{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
   background:#05070a;z-index:50;transition:opacity .6s;gap:10px}
 #boot.gone{opacity:0;pointer-events:none}
@@ -147,6 +190,10 @@ body.panel-hidden #panel-toggle .close-label{display:none}
     width:34px;height:4px;border-radius:2px;background:rgba(255,255,255,.22)}
   .brand{padding-top:20px}
   #hud{left:12px;bottom:calc(10px + env(safe-area-inset-bottom,0px))}
+  .compass{width:70vw;top:13px}.compass span:nth-of-type(2),.compass span:nth-of-type(4){display:none}
+  .quest{top:68px;right:10px;width:215px;padding:10px 12px}.quest p{font-size:10px}
+  .status{left:10px;bottom:48px}.status i{width:82px}
+  .location strong{font-size:20px}
 }
 
 /* Touch targets. A 11px slider thumb is not operable with a thumb. */
@@ -162,4 +209,5 @@ body.panel-hidden #panel-toggle .close-label{display:none}
 
 @media (prefers-reduced-motion:reduce){
   #ui,#panel-toggle{transition:none}
+  .location{animation:none;opacity:0}
 }
