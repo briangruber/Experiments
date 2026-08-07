@@ -1,0 +1,3 @@
+/* STUB — replaced by the HUD owner. */
+#hud { position: fixed; inset: 0; pointer-events: none; }
+#hud.hidden { display: none; }
