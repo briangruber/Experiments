@@ -186,7 +186,9 @@ export function createPost({ renderer, targets, makeTarget }) {
     vignette: { value: 0.25 }, grain: { value: 0.012 }, time: { value: 0 },
     lift: { value: new THREE.Vector3() }, gain: { value: new THREE.Vector3(1, 1, 1) },
     underwater: { value: 0 }, underwaterTint: { value: new THREE.Vector3(0.2, 0.6, 0.8) },
-    chroma: { value: 0.35 },
+    // Barely there on purpose: enough to soften the frame edge, not enough to
+    // put a red fringe on the boat.
+    chroma: { value: 0.16 },
   });
 
   const LEVELS = 6;

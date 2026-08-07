@@ -94,6 +94,11 @@ scene.add(hemi);
 const fillLight = new THREE.DirectionalLight(0xffffff, 0.22);
 scene.add(fillLight);
 
+// Lights are layer-tested against the camera exactly like meshes are, so a
+// light on layer 0 alone drops out of the refraction and reflection passes and
+// everything in them renders black. Every light lives on every layer.
+for (const l of [keyLight, hemi, fillLight]) l.layers.enableAll();
+
 // --- world ------------------------------------------------------------------
 
 const ctx = {
@@ -146,6 +151,12 @@ ctx.monster = monster;
 const wildlife = build(createWildlife, { terrain });
 
 const boatController = createBoatController({ ctx, input, water: () => ctx.water, terrain });
+if (params.has('boat')) {
+  const p = params.get('boat').split(',').map(Number);
+  if (p.length >= 2 && p.every(Number.isFinite)) {
+    boatController.teleport(p[0], p[1], THREE.MathUtils.degToRad(p[2] || 0));
+  }
+}
 const chaseCamera = createChaseCamera({ ctx, camera, input });
 const quest = createQuest({ ctx, monster });
 ctx.quest = quest;
@@ -155,6 +166,14 @@ const modules = [
   sky, clouds, celestial, seabed, coral, islands, vegetation,
   village, dock, lighthouse, props, water, boat, fisher, monster, wildlife,
 ];
+
+// Modules add their own practicals — the lantern, the dock lamps, the lighthouse
+// — and setLayers() on their group will have narrowed those lights to whatever
+// layers the geometry wanted. Put every light back on every layer.
+function normalizeLights() {
+  scene.traverse((o) => { if (o.isLight) o.layers.enableAll(); });
+}
+normalizeLights();
 
 // --- passes -----------------------------------------------------------------
 
@@ -307,6 +326,7 @@ function frame() {
   input.endFrame();
   frames++;
   api.frames = frames;
+  if (frames % 120 === 1) normalizeLights();   // catches lights added late
 }
 
 // --- keys -------------------------------------------------------------------
