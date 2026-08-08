@@ -68,36 +68,59 @@ export function createPost({ renderer, targets, makeTarget }) {
     return vec4(c.mul(w), 1);
   })();
 
-  // --- downsample: 13-tap Karis, no fireflies, no aliasing crawl -----------
-  const downSrc = texture(targets.scene.texture);
-  const downMat = mat();
-  downMat.fragmentNode = Fn(() => {
-    const t = vec2(1, 1).div(vec2(textureSize(downSrc, 0))).toVar();
-    const at = (x, y) => downSrc.sample(uv().add(t.mul(vec2(x, y)))).rgb;
-    const a = at(-2, 2), b = at(0, 2), c = at(2, 2);
-    const d = at(-2, 0), e = at(0, 0), f = at(2, 0);
-    const g = at(-2, -2), h = at(0, -2), i = at(2, -2);
-    const j = at(-1, 1), k = at(1, 1), l = at(-1, -1), m = at(1, -1);
-    const o = e.mul(0.125)
-      .add(a.add(c).add(g).add(i).mul(0.03125))
-      .add(b.add(d).add(f).add(h).mul(0.0625))
-      .add(j.add(k).add(l).add(m).mul(0.125));
-    return vec4(o, 1);
-  })();
+  // --- the mip chain --------------------------------------------------------
+  //
+  // Every level gets its OWN material, with its source texture and its texel
+  // size baked into the graph. The obvious shape — one downsample material
+  // whose texture node and texel uniform are re-pointed between levels — does
+  // not work on the node renderer: state changed between draws inside a single
+  // frame does not reach the passes, so every level ended up blurring with the
+  // same texel and the pyramid kept its energy instead of spreading it, which
+  // at night turned the moon path into a floodlight. A dozen small materials
+  // cost nothing and remove the whole class of problem.
 
-  // --- upsample: tent filter, accumulating down the pyramid ----------------
-  const upSrc = texture(targets.scene.texture);
-  const upPrev = texture(targets.scene.texture);
   const uUpRadius = uniform(1.0);
-  const upMat = mat();
-  upMat.fragmentNode = Fn(() => {
-    const r = vec2(1, 1).div(vec2(textureSize(upSrc, 0))).mul(uUpRadius).toVar();
-    const at = (x, y) => upSrc.sample(uv().add(vec2(r.x.mul(x), r.y.mul(y)))).rgb;
-    const s = at(-1, 1).add(at(0, 1).mul(2)).add(at(1, 1))
-      .add(at(-1, 0).mul(2)).add(at(0, 0).mul(4)).add(at(1, 0).mul(2))
-      .add(at(-1, -1)).add(at(0, -1).mul(2)).add(at(1, -1));
-    return vec4(s.div(16).add(upPrev.sample(uv()).rgb), 1);
-  })();
+  let downMats = [];
+  let upMats = [];
+
+  const makeDownMat = (srcTex, w, h) => {
+    const src = texture(srcTex);
+    const m = mat();
+    const t = vec2(1 / w, 1 / h);
+    m.fragmentNode = Fn(() => {
+      const at = (x, y) => src.sample(uv().add(t.mul(vec2(x, y)))).rgb;
+      // 13-tap Karis-weighted downsample: no fireflies, no aliasing crawl.
+      const a = at(-2, 2), b = at(0, 2), c = at(2, 2);
+      const d = at(-2, 0), e = at(0, 0), f = at(2, 0);
+      const g = at(-2, -2), h2 = at(0, -2), i = at(2, -2);
+      const j = at(-1, 1), k = at(1, 1), l = at(-1, -1), n = at(1, -1);
+      return vec4(
+        e.mul(0.125)
+          .add(a.add(c).add(g).add(i).mul(0.03125))
+          .add(b.add(d).add(f).add(h2).mul(0.0625))
+          .add(j.add(k).add(l).add(n).mul(0.125)),
+        1,
+      );
+    })();
+    return m;
+  };
+
+  const makeUpMat = (srcTex, prevTex, w, h) => {
+    const src = texture(srcTex);
+    const prev = texture(prevTex);
+    const m = mat();
+    const t = vec2(1 / w, 1 / h);
+    m.fragmentNode = Fn(() => {
+      const r = t.mul(uUpRadius).toVar();
+      const at = (x, y) => src.sample(uv().add(vec2(r.x.mul(x), r.y.mul(y)))).rgb;
+      // Tent filter, accumulating the level below as it walks back up.
+      const s2 = at(-1, 1).add(at(0, 1).mul(2)).add(at(1, 1))
+        .add(at(-1, 0).mul(2)).add(at(0, 0).mul(4)).add(at(1, 0).mul(2))
+        .add(at(-1, -1)).add(at(0, -1).mul(2)).add(at(1, -1));
+      return vec4(s2.div(16).add(prev.sample(uv()).rgb), 1);
+    })();
+    return m;
+  };
 
   // --- composite: chroma, bloom, tonemap, grade, vignette, dither ----------
   const compScene = texture(targets.scene.texture);
@@ -116,8 +139,8 @@ export function createPost({ renderer, targets, makeTarget }) {
   const uChroma = uniform(1.6);
   const uResolution = uniform(new THREE.Vector2(1280, 720));
 
-  // `?post=bloom` shows the bloom buffer on its own, `?post=threshold` the
-  // thresholded frame. Cheaper than guessing why a chain like this is hot.
+  // `?post=bloom` shows the bloom buffer on its own. Cheaper than guessing why
+  // a chain like this is hot.
   const DEBUG = new URLSearchParams(location.search).get('post');
 
   const compositeMat = mat();
@@ -166,7 +189,9 @@ export function createPost({ renderer, targets, makeTarget }) {
 
   function resize(w, h) {
     for (const l of chain) { l.down.dispose(); l.up.dispose(); }
-    chain = [];
+    for (const m of downMats) if (m) m.dispose();
+    for (const m of upMats) if (m) m.dispose();
+    chain = []; downMats = []; upMats = [];
     let lw = w, lh = h;
     for (let i = 0; i < LEVELS; i++) {
       lw = Math.max(2, lw >> 1); lh = Math.max(2, lh >> 1);
@@ -178,6 +203,19 @@ export function createPost({ renderer, targets, makeTarget }) {
       if (lw <= 4 || lh <= 4) break;
     }
     uResolution.value.set(w, h);
+
+    // One material per level, every binding baked in.
+    for (let i = 1; i < chain.length; i++) {
+      downMats[i] = makeDownMat(chain[i - 1].down.texture, chain[i - 1].w, chain[i - 1].h);
+    }
+    const last = chain.length - 1;
+    upMats[last] = makeUpMat(chain[last].down.texture, chain[last].down.texture, chain[last].w, chain[last].h);
+    for (let i = last - 1; i >= 0; i--) {
+      upMats[i] = makeUpMat(chain[i + 1].up.texture, chain[i].down.texture, chain[i + 1].w, chain[i + 1].h);
+    }
+    thrSrc.value = targets.scene.texture;
+    compScene.value = targets.scene.texture;
+    compBloom.value = chain[0].up.texture;
   }
 
   function draw(material, target) {
@@ -191,31 +229,14 @@ export function createPost({ renderer, targets, makeTarget }) {
   }
 
   function render(env, { time = 0, underwater = 0, underwaterTint = null } = {}) {
-    thrSrc.value = targets.scene.texture;
     uThreshold.value = env.bloomThreshold;
     uExposureThr.value = env.exposure;
+    uUpRadius.value = env.bloomRadius * 2.0 + 0.5;
     draw(thresholdMat, chain[0].down);
 
-    for (let i = 1; i < chain.length; i++) {
-      downSrc.value = chain[i - 1].down.texture;
-      draw(downMat, chain[i].down);
-    }
+    for (let i = 1; i < chain.length; i++) draw(downMats[i], chain[i].down);
+    for (let i = chain.length - 1; i >= 0; i--) draw(upMats[i], chain[i].up);
 
-    const last = chain.length - 1;
-    uUpRadius.value = env.bloomRadius * 2.0 + 0.5;
-    // Seed the top of the pyramid with itself, then walk down accumulating.
-    upSrc.value = chain[last].down.texture;
-    upPrev.value = chain[last].down.texture;
-    draw(upMat, chain[last].up);
-
-    for (let i = last - 1; i >= 0; i--) {
-      upSrc.value = chain[i + 1].up.texture;
-      upPrev.value = chain[i].down.texture;
-      draw(upMat, chain[i].up);
-    }
-
-    compScene.value = targets.scene.texture;
-    compBloom.value = chain[0].up.texture;
     uExposure.value = env.exposure;
     uBloomStrength.value = env.bloomStrength;
     uSaturation.value = env.saturation;
@@ -233,7 +254,9 @@ export function createPost({ renderer, targets, makeTarget }) {
 
   function dispose() {
     for (const l of chain) { l.down.dispose(); l.up.dispose(); }
-    thresholdMat.dispose(); downMat.dispose(); upMat.dispose(); compositeMat.dispose();
+    for (const m of downMats) m.dispose();
+    for (const m of upMats) m.dispose();
+    thresholdMat.dispose(); compositeMat.dispose();
   }
 
   return { resize, render, dispose, materials: { compositeMat } };
