@@ -14,6 +14,7 @@ import * as THREE from 'three';
 import { createRenderer } from './core/renderer.js';
 import { createPost } from './core/post.js';
 import { createInput } from './core/input.js';
+import { createTouchControls } from './core/touch.js';
 import { LAYER } from './core/layers.js';
 import { createTimeOfDay, PRESET_HOURS } from './world/timeOfDay.js';
 
@@ -44,7 +45,11 @@ const str = (k, d) => (params.get(k) ?? d);
 const flag = (k, d = false) => (params.has(k) ? params.get(k) !== '0' : d);
 
 const SEED = num('seed', 20260807) | 0;
-const TIER = str('quality', 'high');
+// A phone gets the mobile tier unless the URL says otherwise. Coarse pointer is
+// the reliable signal; screen size alone catches a small laptop window too.
+const COARSE = typeof matchMedia === 'function'
+  && (matchMedia('(pointer: coarse)').matches || (navigator.maxTouchPoints || 0) > 0);
+const TIER = str('quality', COARSE ? 'mobile' : 'high');
 const START_HOUR = params.has('t') ? num('t', 12)
   : (PRESET_HOURS[str('preset', 'day')] ?? 12);
 const FIXED_STEP = params.has('step') ? num('step', 1 / 60) : 0;   // deterministic capture
@@ -71,6 +76,10 @@ const env = time.env;
 time.setRate(DAY_RATE);
 
 const input = createInput(window);
+const touch = createTouchControls({
+  input,
+  onTimePreset: (code) => window.dispatchEvent(new KeyboardEvent('keydown', { code })),
+});
 const post = createPost({ renderer, targets, makeTarget });
 
 // --- lights -----------------------------------------------------------------
@@ -406,8 +415,14 @@ const api = {
   setHour(h) { time.set(h); },
   setBoat(x, z, heading) { boatController.teleport(x, z, heading); },
   setCamera(spec) { chaseCamera.setSpec(spec); },
-  hideHud() { document.getElementById('hud')?.classList.add('hidden'); },
-  showHud() { document.getElementById('hud')?.classList.remove('hidden'); },
+  hideHud() {
+    document.getElementById('hud')?.classList.add('hidden');
+    document.getElementById('touch')?.classList.add('hidden');
+  },
+  showHud() {
+    document.getElementById('hud')?.classList.remove('hidden');
+    document.getElementById('touch')?.classList.remove('hidden');
+  },
   stop() { running = false; },
 };
 window.saltyfin = api;

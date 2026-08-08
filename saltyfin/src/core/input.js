@@ -7,6 +7,7 @@ export function createInput(target = window) {
   const released = new Set();
   const pointer = { x: 0, y: 0, dx: 0, dy: 0, down: false, locked: false, wheel: 0 };
   let enabled = true;
+  let touchHeld = false;
 
   const onKeyDown = (e) => {
     if (!enabled) return;
@@ -37,6 +38,9 @@ export function createInput(target = window) {
   target.addEventListener('mouseup', onUp);
   target.addEventListener('wheel', onWheel, { passive: true });
 
+  // Touch fills these in; keyboard wins when both are active.
+  const touch = { fwd: 0, turn: 0 };
+
   const AXES = {
     forward: [['KeyW', 'ArrowUp'], ['KeyS', 'ArrowDown']],
     turn: [['KeyD', 'ArrowRight'], ['KeyA', 'ArrowLeft']],
@@ -48,13 +52,24 @@ export function createInput(target = window) {
     wasPressed: (code) => pressed.has(code),
     wasReleased: (code) => released.has(code),
     any: (...codes) => codes.some((c) => down.has(c)),
-    /** -1..1 from a named axis. */
+    /** -1..1 from a named axis, from the keyboard or the on-screen stick. */
     axis(name) {
       const [pos, neg] = AXES[name];
-      return (pos.some((c) => down.has(c)) ? 1 : 0) - (neg.some((c) => down.has(c)) ? 1 : 0);
+      const key = (pos.some((c) => down.has(c)) ? 1 : 0) - (neg.some((c) => down.has(c)) ? 1 : 0);
+      if (key !== 0) return key;
+      return name === 'forward' ? touch.fwd : touch.turn;
     },
+
+    /** Called by core/touch.js. */
+    setTouchAxes(fwd, turn) { touch.fwd = fwd; touch.turn = turn; },
+    addTouchLook(dx, dy) { pointer.dx += dx; pointer.dy += dy; pointer.down = true; touchHeld = true; },
+    addTouchZoom(d) { pointer.wheel += d; },
     setEnabled(v) { enabled = v; if (!v) down.clear(); },
-    endFrame() { pressed.clear(); released.clear(); pointer.dx = 0; pointer.dy = 0; pointer.wheel = 0; },
+    endFrame() {
+      pressed.clear(); released.clear();
+      pointer.dx = 0; pointer.dy = 0; pointer.wheel = 0;
+      if (touchHeld) { pointer.down = false; touchHeld = false; }
+    },
     dispose() {
       target.removeEventListener('keydown', onKeyDown);
       target.removeEventListener('keyup', onKeyUp);

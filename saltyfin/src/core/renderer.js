@@ -10,6 +10,11 @@ export const TIERS = {
   high: { refractionScale: 0.75, reflectionScale: 0.5, shadows: true, shadowSize: 3072, maxPixelRatio: 2, reflections: true, waterSegments: 320, cloudSteps: 24 },
   med: { refractionScale: 0.55, reflectionScale: 0.38, shadows: true, shadowSize: 2048, maxPixelRatio: 1.5, reflections: true, waterSegments: 224, cloudSteps: 14 },
   low: { refractionScale: 0.42, reflectionScale: 0.30, shadows: false, shadowSize: 512, maxPixelRatio: 1, reflections: false, waterSegments: 144, cloudSteps: 8 },
+  // Phones are fill-rate bound, not triangle bound: three full-screen passes at
+  // a 3x device pixel ratio is what kills them, not the geometry. So keep the
+  // reflection and the shadows — they are most of the look — and spend the
+  // budget by capping the backing store to 1x instead.
+  mobile: { refractionScale: 0.45, reflectionScale: 0.30, shadows: true, shadowSize: 1024, maxPixelRatio: 1, reflections: true, waterSegments: 160, cloudSteps: 8 },
 };
 
 export function createRenderer({ canvas, tier = 'high', pixelRatio } = {}) {
