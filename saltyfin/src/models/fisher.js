@@ -48,6 +48,9 @@ const EYE = C(0x2A1D16);
 const JACKET = C(0x3F6E99);
 const JACKET_DK = C(0x2E5279);
 const JACKET_LT = C(0x5386AF);
+// Sleeves sit a shade under the body so the arms read as arms against the
+// barrel of the jacket instead of melting into it at a distance.
+const SLEEVE = C(0x35608A);
 const HOOD = C(0x36618A);
 const TROUSER = C(0x2C3444);
 const TROUSER_LT = C(0x394356);
@@ -196,7 +199,7 @@ const P = (x, y, z) => new THREE.Vector3(x, y, z);
 
 const HIP_Y = 0.100;       // the lean pivot, above the thwart
 const HIP_Z = 0.030;
-const NECK_Y = 0.442;      // head pivot, in lean space
+const NECK_Y = 0.456;      // head pivot, in lean space
 const NECK_Z = 0.015;
 const SH_Y = 0.330;        // shoulder joint, in lean space
 const SH_X = 0.170;
@@ -299,8 +302,8 @@ export function createFisher(opts = {}) {
     const sh = P(-SH_X, SH_Y, SH_Z);
     const el = P(-0.212, 0.130, -0.055);
     const hd = P(-0.170, 0.040, -0.240);
-    limb(bm, sh, el, 0.075, jit(JACKET, 0.05));
-    limb(bm, el, hd, 0.064, jit(JACKET, 0.05));
+    limb(bm, sh, el, 0.075, jit(SLEEVE, 0.05));
+    limb(bm, el, hd, 0.064, jit(SLEEVE, 0.05));
     bm.addGeo(new THREE.TorusGeometry(0.060, 0.017, 4, 12),
       xf(hd.x + 0.010, hd.y + 0.024, hd.z + 0.052, 1.30, 0, 0.25), JACKET_DK);
     mitten(bm, hd, _v.copy(hd).sub(el), 0.070, jit(TROUSER_LT, 0.06));
@@ -334,8 +337,8 @@ export function createFisher(opts = {}) {
     const sh = P(0, 0, 0);
     const el = P(0.175, -0.100, 0.070);
     const hd = P(0.415, -0.245, 0.115);
-    limb(am, sh, el, 0.075, jit(JACKET, 0.05));
-    limb(am, el, hd, 0.064, jit(JACKET, 0.05));
+    limb(am, sh, el, 0.075, jit(SLEEVE, 0.05));
+    limb(am, el, hd, 0.064, jit(SLEEVE, 0.05));
     _a.copy(hd).sub(el).normalize();
     am.addGeo(new THREE.TorusGeometry(0.060, 0.017, 4, 12),
       (() => {
@@ -369,7 +372,7 @@ export function createFisher(opts = {}) {
     const H = () => jit(rng.chance(0.4) ? HAIR_LT : HAIR, 0.14);
     hm.addGeo(sph(0.105, 12, 8), xf(0, 0.078, 0.085, -0.10, 0, 0, 1.20, 0.80, 0.74), H());
     for (let s = -1; s <= 1; s += 2) {
-      hm.addGeo(sph(0.068, 10, 8), xf(s * 0.112, 0.098, 0.010, 0, 0, s * 0.10, 0.72, 1.05, 1.10), H());
+      hm.addGeo(sph(0.062, 10, 8), xf(s * 0.110, 0.100, 0.018, 0, 0, s * 0.10, 0.68, 1.00, 1.05), H());
       hm.addGeo(sph(0.048, 8, 6), xf(s * 0.072, 0.032, 0.092, 0.2, 0, 0, 1.10, 0.80, 0.90), H());
       hm.addGeo(sph(0.042, 8, 6), xf(s * 0.078, 0.150, -0.074, 0, 0, s * 0.2, 1.35, 0.42, 0.72), H());
     }
