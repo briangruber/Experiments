@@ -33,16 +33,17 @@ export function hasWebGPU() {
  * and a device before anything can compile — every caller must await this.
  */
 export async function createRenderer({ canvas, tier = 'high', pixelRatio, forceWebGL = false } = {}) {
-  const wantGPU = hasWebGPU() && !forceWebGL;
+  // The fps badge toggles this and reloads — an artifact URL cannot carry a
+  // query string, so the backend A/B has to survive in storage.
+  let stored = null;
+  try { stored = localStorage.getItem('saltyfin-backend'); } catch { /* sandboxed */ }
+  const wantGPU = hasWebGPU() && !forceWebGL && stored !== 'webgl';
 
   const renderer = new THREE.WebGPURenderer({
     canvas,
     antialias: false,          // we resolve in post; MSAA on an HDR target is expensive
     alpha: false,
     forceWebGL: !wantGPU,
-    // The capture harness reads the canvas back after the frame has ended, and
-    // both backends hand back a cleared buffer without this.
-    preserveDrawingBuffer: true,
   });
 
   await renderer.init();
@@ -56,10 +57,13 @@ export async function createRenderer({ canvas, tier = 'high', pixelRatio, forceW
   renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
   renderer.toneMapping = THREE.NoToneMapping;   // post does it
   renderer.shadowMap.enabled = TIERS[tier].shadows;
-  // Unlike the WebGL renderer, the node path's soft shadow filtering is done in
-  // the node graph rather than by a comparison sampler, so the smearing that
-  // forced BasicShadowMap on the WebGL build does not apply here.
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // Soft shadows on desktop — the node path filters in the graph, so the
+  // comparison-sampler smearing that forced BasicShadowMap on the WebGL build
+  // does not apply. On the phone tiers, match the WebGL build's single hard
+  // tap: nine filtered taps across every lit pixel is real money on mobile,
+  // and a fair A/B against the other artifact needs the same shadow cost.
+  renderer.shadowMap.type = (tier === 'mobile' || tier === 'low')
+    ? THREE.BasicShadowMap : THREE.PCFSoftShadowMap;
   renderer.autoClear = false;
 
   const quality = { tier, ...TIERS[tier] };

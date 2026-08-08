@@ -218,6 +218,28 @@ ctx.quest = quest;
 const hud = createHud({ ctx, time });
 const intro = createIntro({ touch: !!touch.root, backend: quality.backend });
 
+// A live readout of which backend is running and what it actually costs, and a
+// tap toggles to the other one and reloads — an artifact URL cannot carry
+// ?forcegl=1, so the A/B has to live on the page itself.
+const fpsBadge = document.createElement('div');
+fpsBadge.id = 'fps';
+fpsBadge.style.cssText = 'position:fixed;left:10px;bottom:calc(10px + env(safe-area-inset-bottom));'
+  + 'z-index:45;font:600 10px/1.6 ui-sans-serif,system-ui,sans-serif;letter-spacing:.12em;'
+  + 'text-transform:uppercase;color:rgba(214,236,255,.75);background:rgba(8,20,36,.45);'
+  + 'border:1px solid rgba(206,232,255,.2);border-radius:999px;padding:4px 10px;'
+  + 'cursor:pointer;-webkit-user-select:none;user-select:none';
+fpsBadge.title = 'Tap to switch renderer';
+fpsBadge.textContent = quality.backend;
+fpsBadge.addEventListener('pointerdown', () => {
+  try {
+    localStorage.setItem('saltyfin-backend', quality.backend === 'webgpu' ? 'webgl' : 'webgpu');
+  } catch { /* storage may be sandboxed; the tap just does nothing */ }
+  location.reload();
+});
+document.body.appendChild(fpsBadge);
+let fpsMark = performance.now() / 1000;
+let fpsCount = 0;
+
 const modules = [
   sky, clouds, celestial, seabed, coral, islands, vegetation,
   village, dock, lighthouse, props, water, boat, fisher, monster, wildlife,
@@ -261,8 +283,14 @@ function renderRefraction() {
   renderer.setRenderTarget(targets.refraction);
   clearColorLinear.copy(env.waterDeep);
   renderer.setClearColor(clearColorLinear, 1);
-  renderer.clear(true, true, false);
+  // autoClear rather than renderer.clear(): an explicit clear is its own render
+  // pass, and on the tile-based GPUs every phone has, an extra pass per target
+  // is a full tile load/store round trip. Folding the clear into the pass's
+  // load operation is close to free. autoClear stays off globally because the
+  // wake sim draws twice into one target and must not clear in between.
+  renderer.autoClear = true;
   renderer.render(scene, camera);
+  renderer.autoClear = false;
 }
 
 function renderReflection() {
@@ -290,8 +318,9 @@ function renderReflection() {
   renderer.setRenderTarget(targets.reflection);
   clearColorLinear.copy(env.skyHorizon);
   renderer.setClearColor(clearColorLinear, 1);
-  renderer.clear(true, true, false);
+  renderer.autoClear = true;
   renderer.render(scene, reflectCamera);
+  renderer.autoClear = false;
 }
 
 // `?nopost=1` renders the beauty pass straight to the canvas, which separates a
@@ -326,8 +355,9 @@ function renderBeauty() {
   renderer.setRenderTarget(NOPOST ? null : targets.scene);
   clearColorLinear.copy(env.fogColor);
   renderer.setClearColor(clearColorLinear, 1);
-  renderer.clear(true, true, false);
+  renderer.autoClear = true;
   renderer.render(scene, camera);
+  renderer.autoClear = false;
 }
 
 // --- loop -------------------------------------------------------------------
@@ -438,6 +468,12 @@ function frame() {
   renderer.setRenderTarget(null);
   mirrorFrame();
 
+  fpsCount++;
+  if (now - fpsMark >= 0.5) {
+    fpsBadge.textContent = quality.backend + ' \u00b7 ' + Math.round(fpsCount / (now - fpsMark)) + ' fps';
+    fpsMark = now; fpsCount = 0;
+  }
+
   input.endFrame();
   frames++;
   api.frames = frames;
@@ -474,12 +510,14 @@ const api = {
   hideHud() {
     document.getElementById('hud')?.classList.add('hidden');
     document.getElementById('touch')?.classList.add('hidden');
+    fpsBadge.style.display = 'none';
     intro.dismiss?.();
     document.getElementById('intro')?.remove();
   },
   showHud() {
     document.getElementById('hud')?.classList.remove('hidden');
     document.getElementById('touch')?.classList.remove('hidden');
+    fpsBadge.style.display = '';
   },
   stop() { running = false; },
 };

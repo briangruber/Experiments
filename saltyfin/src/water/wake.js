@@ -54,7 +54,11 @@ const PENDING_MAX = 48;
  */
 export function createWake({ renderer, size = 256, worldSize = 128 } = {}) {
   const texelWorld = worldSize / size;
-  const useCompute = renderer?.backend?.isWebGPUBackend === true;
+    // Compute is opt-in (?compute=1) until it has been timed on real hardware —
+  // it is the one path no headless capture here can exercise, and an untested
+  // dispatch per frame is exactly where an unexplained slowdown would hide.
+  const useCompute = renderer?.backend?.isWebGPUBackend === true
+    && new URLSearchParams(location.search).get('compute') === '1';
 
   // --- uniforms, shared by both paths --------------------------------------
   const uTexel = uniform(vec2(1 / size, 1 / size));

@@ -104,7 +104,11 @@ const causticField = (p, t, seed) => {
  * @param {number} [opts.seed]
  */
 export function createCaustics({ renderer, size = 256, fps = 30, seed = 1 } = {}) {
-  const useCompute = renderer?.backend?.isWebGPUBackend === true;
+    // Compute is opt-in (?compute=1) until it has been timed on real hardware —
+  // it is the one path no headless capture here can exercise, and an untested
+  // dispatch per frame is exactly where an unexplained slowdown would hide.
+  const useCompute = renderer?.backend?.isWebGPUBackend === true
+    && new URLSearchParams(location.search).get('compute') === '1';
 
   const uTime = uniform(0.0);
   const uSeed = uniform((seed % 97) * 0.37);

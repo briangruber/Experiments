@@ -221,11 +221,13 @@ export function createPost({ renderer, targets, makeTarget }) {
   function draw(material, target) {
     quad.material = material;
     renderer.setRenderTarget(target ?? null);
-    // No explicit clear: the quad covers the whole target and writes every
-    // texel, and on the node renderer a clear between setRenderTarget and the
-    // draw was leaving the pass writing somewhere other than the target it had
-    // just been given.
+    // autoClear, never renderer.clear(): a manual clear on this renderer left
+    // the pass writing somewhere other than the target it had just been given,
+    // and on tile-based GPUs a folded clear is also cheaper than loading the
+    // old contents only to overwrite every texel.
+    renderer.autoClear = true;
     quad.render(renderer);
+    renderer.autoClear = false;
   }
 
   function render(env, { time = 0, underwater = 0, underwaterTint = null } = {}) {
