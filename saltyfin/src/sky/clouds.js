@@ -76,7 +76,7 @@ const mat2 CROT = mat2(0.80, -0.60, 0.60, 0.80);
 
 const float CLOUD_H = 1500.0;   // deck height above the water, metres
 const float SHELL_R = 34000.0;  // curvature of the deck; smaller = tighter horizon
-const float SCALE   = 0.0011;   // world metres -> noise units (~900 m per cluster)
+const float SCALE   = 0.00082;  // world metres -> noise units (~1200 m per cluster)
 const float FAR_T   = 9990.0;   // distance to the deck at grazing incidence
 
 float fbmBig(vec2 p){
@@ -144,14 +144,19 @@ void main(){
   vec3  pc  = puffCell(q * 1.5 + vec2(4.3, -1.7));
   float puff = mix(0.55, 1.0 - sat(pc.z * 1.05), 1.0 - far * 0.85);
   float med = fbmMed(q * 3.1 + vec2(21.7, -8.3) + uEvolve);
-  float dens = big*0.68 + puff*0.32 + (med - 0.5) * (0.26 * det);
+  // The puffs are GATED by the big field rather than added to it. Added, every
+  // cell in the sky bulges and the deck becomes an even carpet of identical
+  // blobs; gated, puffs only form where a cluster already exists and the gaps
+  // between clusters stay open sky.
+  float cluster = smoothstep(0.34, 0.66, big);
+  float dens = big*0.60 + puff*0.40*cluster + (med - 0.5) * (0.26 * det);
   // Renormalise back onto the same mean/spread the coverage curve expects.
-  dens = 0.5 + (dens - 0.516) * 1.13;
+  dens = 0.5 + (dens - 0.470) * 1.22;
 
   float thr = 1.03 - uCover;
   // Narrow band, not a lazy fade: cumulus have edges. It only widens far away,
   // where a hard edge would crawl.
-  float band = mix(0.042, 0.110, far);
+  float band = mix(0.058, 0.125, far);
   float a = smoothstep(thr - band * 0.19, thr + band, dens);
   if (a <= 0.002) discard;
 
@@ -168,16 +173,25 @@ void main(){
   float ds = fbmSha(q + lh * (off * SCALE));
   float shade = sat((ds - thr) / 0.12);
 
-  // Each puff is a dome; its normal comes free out of puffCell.
-  float hh = sqrt(max(1.0 - dot(pc.xy, pc.xy), 0.05));
-  vec3 nrm = normalize(vec3(-pc.x, hh, -pc.y));
-  float ndlRaw = sat(dot(nrm, uLightDir));
-  float ndl = ndlRaw * 0.62 + 0.38;
+  // How deep into the cloud this pixel sits. 0 at the silhouette, 1 in the core.
+  float thick = sat((dens - thr) / 0.30);
 
-  float light = ndl * exp(-shade * 1.15);
-  // Thick cores sit in their own shadow — the soft grey underside.
-  light *= mix(0.62, 1.0, 1.0 - sat((dens - thr) / 0.22));
-  light = sat(light * 1.18);
+  // Each puff is a dome; its normal comes free out of puffCell. The vertical
+  // component is deliberately squashed: at full height every puff on a flat
+  // deck faces a high sun equally, ndl pins to 1 everywhere and the deck comes
+  // back as flat white paper. Flattening it lets the light's horizontal
+  // direction separate a lit side from a shaded one.
+  float hh = sqrt(max(1.0 - dot(pc.xy, pc.xy), 0.05));
+  vec3 nrm = normalize(vec3(-pc.x, hh * 0.5, -pc.y));
+  float ndlRaw = sat(dot(nrm, uLightDir));
+  float ndl = ndlRaw * 0.78 + 0.22;
+
+  float light = ndl * exp(-shade * 1.25);
+  // We are underneath this deck looking up, so the thick middle of a cumulus is
+  // its own shadowed base and the thin edges are where light gets through. That
+  // inversion — bright rim, grey belly — is what makes it read as a cloud.
+  light *= mix(1.0, 0.40, thick);
+  light = sat(light);
 
   // --- sun-facing rim ------------------------------------------------------
   // Only the thin outer band, only where it faces the light and nothing is
