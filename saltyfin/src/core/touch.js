@@ -35,6 +35,7 @@ const CSS = `
   font: 600 10px/1 ui-sans-serif, system-ui, sans-serif; letter-spacing: .12em;
   text-transform: uppercase; }
 #touch .times button:active { background: rgba(122,178,232,.34); color: #fff; }
+#touch .times button:focus-visible { outline: 2px solid #ff9a3c; outline-offset: 2px; }
 #touch.hidden { display: none; }
 @media (min-width: 900px) and (pointer: fine) { #touch { display: none; } }
 

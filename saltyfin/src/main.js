@@ -38,6 +38,7 @@ import { createBoatController } from './gameplay/boatController.js';
 import { createChaseCamera } from './gameplay/chaseCamera.js';
 import { createQuest } from './gameplay/quest.js';
 import { createHud } from './hud/hud.js';
+import { createIntro } from './hud/intro.js';
 
 const params = new URLSearchParams(location.search);
 const num = (k, d) => (params.has(k) ? parseFloat(params.get(k)) : d);
@@ -197,6 +198,7 @@ const chaseCamera = createChaseCamera({ ctx, camera, input });
 const quest = createQuest({ ctx, monster });
 ctx.quest = quest;
 const hud = createHud({ ctx, time });
+const intro = createIntro({ touch: !!touch.root });
 
 const modules = [
   sky, clouds, celestial, seabed, coral, islands, vegetation,
@@ -418,6 +420,8 @@ const api = {
   hideHud() {
     document.getElementById('hud')?.classList.add('hidden');
     document.getElementById('touch')?.classList.add('hidden');
+    intro.dismiss?.();
+    document.getElementById('intro')?.remove();
   },
   showHud() {
     document.getElementById('hud')?.classList.remove('hidden');
