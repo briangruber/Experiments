@@ -358,10 +358,16 @@ void main(){
   vec2 cuv = bedWorld.xz * uCausticScale;
   vec3 c1 = texture2D(tCaustic, cuv).rgb;
   vec3 c2 = texture2D(tCaustic, CAUSTIC_ROT * cuv * 0.61 + vec2(0.37, 0.11)).rgb;
-  vec3 caus = ((c1 + c2) * 0.5 + c1 * c2 * 1.8) * 2.5;
+  // Caustics MODULATE the seabed, they do not add to it. Written as a gain
+  // around 1.0: the bright filaments roughly double the sand, the gaps darken
+  // it slightly, and the mean stays put. Adding an unbounded product instead
+  // (which is the obvious way to write this) multiplies the reef by three or
+  // four and the whole bay comes back as a sheet of white lace.
+  vec3 caus = (c1 + c2) * 0.5 + c1 * c2 * 1.4;
   float causFade = hasBed * (1.0 - smoothstep(1.5, 13.0, column)) * sat(L.y * 2.4);
-  caus *= uCaustic * causFade;
-  refr += refr * caus * 1.6 + caus * uKeyColor * 0.16;
+  vec3 causGain = 1.0 + (caus - 0.42) * (1.35 * uCaustic * causFade);
+  refr *= max(causGain, vec3(0.55));
+  refr += max(caus - 0.55, vec3(0.0)) * uKeyColor * (0.10 * uCaustic * causFade);
 
   // --- the water column ----------------------------------------------------
   vec3 trans = exp(-uAbsorb * (path + column * 0.65));
@@ -392,14 +398,17 @@ void main(){
   // --- foam ----------------------------------------------------------------
   float colEff = column - vCrest * 0.8;
   float shore = 1.0 - smoothstep(0.0, uShoreFoamDepth, colEff);
-  shore = smoothstep(0.28, 0.80, shore * 1.2 - breakup * 0.5 + 0.14);
-  shore += exp(-abs(colEff - 0.07) * 9.0) * 0.55;
+  shore = smoothstep(0.42, 0.88, shore * 1.2 - breakup * 0.5 + 0.14);
+  // The bright line right at the waterline. Narrow — it is an edge, not a band.
+  shore += exp(-abs(colEff - 0.06) * 16.0) * 0.42;
   shore *= hasBed;
 
   // The Jacobian of this (gentle, sheltered-bay) train only dips to about 0.87,
-  // so the threshold has to sit inside that range or crest foam never fires.
-  float crest = 1.0 - smoothstep(0.88, 0.97, vJac);
-  crest = smoothstep(0.22, 0.82, crest * 1.15 - breakup * 0.55 + 0.16);
+  // so the threshold has to sit inside that range or crest foam never fires —
+  // but sitting too low fires it across the whole bay and the water turns to
+  // milk. Only the sharpest few per cent of crests get foam.
+  float crest = 1.0 - smoothstep(0.905, 0.975, vJac);
+  crest = smoothstep(0.38, 0.92, crest * 1.15 - breakup * 0.55 + 0.16) * 0.75;
 
   // Churn is the persistent trail, arms are the current V. Both are cut into
   // curls by the world-space noise rather than filled — the art has a lace of

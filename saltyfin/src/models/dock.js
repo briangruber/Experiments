@@ -117,7 +117,7 @@ function makeGlowMaterial(uniforms, baseHex) {
   float gfl = 1.0 + step(0.001, gph) * (
       0.13 * sin(uGlowTime * (1.9 + gph * 3.1) + gph * 29.0)
     + 0.07 * sin(uGlowTime * (6.3 + gph * 1.7) + gph * 13.0));
-  totalEmissiveRadiance += uGlowColor * (uGlowI * vGlow.x * gfl) * vColor;`,
+  totalEmissiveRadiance += uGlowColor * (uGlowI * vGlow.x * gfl) * vColor.rgb;`,
     );
   };
   return m;

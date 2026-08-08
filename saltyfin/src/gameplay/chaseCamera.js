@@ -12,8 +12,10 @@ const SPECS = {
   chase: { distance: 12.5, height: 5.0, lookAhead: 7.0, lookHeight: 1.1, fov: 46 },
   close: { distance: 8.5, height: 3.1, lookAhead: 5.0, lookHeight: 1.0, fov: 48 },
   wide: { distance: 20.0, height: 9.5, lookAhead: 10.0, lookHeight: 0.4, fov: 44 },
-  // The harbour establishing shot from the first piece of concept art.
-  harbor: { distance: 26.0, height: 14.0, lookAhead: 6.0, lookHeight: -2.0, fov: 42 },
+  // The harbour establishing shot from the first piece of concept art: high and
+  // wide, but only about ten degrees of downward pitch — steeper than that and
+  // the horizon leaves the frame and it stops being a seascape.
+  harbor: { distance: 30.0, height: 11.0, lookAhead: 16.0, lookHeight: 2.2, fov: 58 },
   // Straight down over the boat — the shot where the leviathan's shadow shows.
   overhead: { distance: 7.0, height: 26.0, lookAhead: -2.0, lookHeight: -6.0, fov: 38 },
 };

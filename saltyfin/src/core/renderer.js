@@ -7,8 +7,8 @@
 import * as THREE from 'three';
 
 export const TIERS = {
-  high: { refractionScale: 0.75, reflectionScale: 0.5, shadows: true, shadowSize: 2048, maxPixelRatio: 2, reflections: true, waterSegments: 320, cloudSteps: 24 },
-  med: { refractionScale: 0.55, reflectionScale: 0.38, shadows: true, shadowSize: 1024, maxPixelRatio: 1.5, reflections: true, waterSegments: 224, cloudSteps: 14 },
+  high: { refractionScale: 0.75, reflectionScale: 0.5, shadows: true, shadowSize: 3072, maxPixelRatio: 2, reflections: true, waterSegments: 320, cloudSteps: 24 },
+  med: { refractionScale: 0.55, reflectionScale: 0.38, shadows: true, shadowSize: 2048, maxPixelRatio: 1.5, reflections: true, waterSegments: 224, cloudSteps: 14 },
   low: { refractionScale: 0.42, reflectionScale: 0.30, shadows: false, shadowSize: 512, maxPixelRatio: 1, reflections: false, waterSegments: 144, cloudSteps: 8 },
 };
 
@@ -27,7 +27,13 @@ export function createRenderer({ canvas, tier = 'high', pixelRatio } = {}) {
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.NoToneMapping;   // post does it
   renderer.shadowMap.enabled = TIERS[tier].shadows;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // Basic, not PCF. Both PCF paths go through a comparison sampler, which the
+  // software rasteriser this is captured on resolves into feathered brown
+  // smears several metres wide regardless of radius or map size; the depth map
+  // itself is fine, and a single tap reads it back as crisp chimney and gable
+  // shadows. Hard-edged suits the stylised art anyway — the concept paintings
+  // have crisp shadows, not soft ones.
+  renderer.shadowMap.type = THREE.BasicShadowMap;
   renderer.autoClear = false;
 
   const quality = { tier, ...TIERS[tier] };

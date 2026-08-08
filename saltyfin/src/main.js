@@ -75,14 +75,33 @@ const post = createPost({ renderer, targets, makeTarget });
 
 // --- lights -----------------------------------------------------------------
 
+// How far in front of the camera the shadow box sits, and how wide it is. A
+// tighter box means sharper shadows; too tight and the far side of the village
+// falls out of it. 110 m at 2048 is about 10 cm a texel.
+const SHADOW_LEAD = 62;
+const SHADOW_EXTENT = 110;
+const shadowFocus = new THREE.Vector3();
+const shadowFwd = new THREE.Vector3();
+
 const keyLight = new THREE.DirectionalLight(0xffffff, 1);
 keyLight.castShadow = quality.shadows;
 if (quality.shadows) {
   const s = keyLight.shadow;
   s.mapSize.set(quality.shadowSize, quality.shadowSize);
-  s.camera.near = 1; s.camera.far = 420;
-  s.camera.left = -110; s.camera.right = 110; s.camera.top = 110; s.camera.bottom = -110;
-  s.bias = -0.0012; s.normalBias = 0.5; s.radius = 2.4;
+  s.camera.near = 1; s.camera.far = 620;
+  s.camera.left = -SHADOW_EXTENT; s.camera.right = SHADOW_EXTENT;
+  s.camera.top = SHADOW_EXTENT; s.camera.bottom = -SHADOW_EXTENT;
+  // normalBias is in world metres along the surface normal, so it has to be
+  // read against the shadow map's footprint: at 155 m across a 2048 map that is
+  // 0.15 m per texel. Half a metre walks the sample clean off a house wall and
+  // the village fills with black blobs; 0.05 m is under one texel and the
+  // terrain fills with smeared acne instead. One texel is the right answer.
+  s.bias = -0.0006; s.normalBias = 0.09; s.radius = 3.0;
+  // The shadow camera's projection is built once at construction and three
+  // never rebuilds it, so without this the box above is ignored and the light
+  // keeps three's default ten-metre frustum — which lands the whole village on
+  // the edge of a map that covers a puddle around the boat.
+  s.camera.updateProjectionMatrix();
 }
 const keyTarget = new THREE.Object3D();
 scene.add(keyLight, keyTarget);
@@ -90,6 +109,14 @@ keyLight.target = keyTarget;
 
 const hemi = new THREE.HemisphereLight(0xffffff, 0x224455, 1);
 scene.add(hemi);
+
+// `?shadows=0` turns the shadow map off without dropping to the low tier, so a
+// capture can tell a shadow artefact apart from everything else `low` changes.
+if (params.get('shadows') === '0') {
+  keyLight.castShadow = false;
+  renderer.shadowMap.enabled = false;
+  quality.shadows = false;
+}
 
 const fillLight = new THREE.DirectionalLight(0xffffff, 0.22);
 scene.add(fillLight);
@@ -174,6 +201,20 @@ function normalizeLights() {
   scene.traverse((o) => { if (o.isLight) o.layers.enableAll(); });
 }
 normalizeLights();
+
+// A transparent mesh still casts a fully opaque shadow unless it is given an
+// alpha-tested depth material, so every glow quad, lamp halo and additive beam
+// in the scene was stamping a solid black slab onto the terrain. Nothing that
+// does not write depth should cast.
+function normalizeShadowCasters() {
+  scene.traverse((o) => {
+    if (!o.isMesh || !o.castShadow) return;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    const ghost = mats.some((m) => m && (m.transparent === true || m.depthWrite === false));
+    if (ghost) o.castShadow = false;
+  });
+}
+normalizeShadowCasters();
 
 // --- passes -----------------------------------------------------------------
 
@@ -304,10 +345,19 @@ function frame() {
   quest.update(ctx);
   hud.update(ctx);
 
-  // Keep the key light's shadow box on the boat so the village and the dinghy
-  // both get a shadow map worth having.
-  keyLight.position.copy(env.keyDir).multiplyScalar(220).add(ctx.boat.position);
-  keyTarget.position.copy(ctx.boat.position);
+  // Aim the shadow box at what the camera is looking at, not at the boat. On
+  // the chase camera those are the same place, but an establishing shot of the
+  // village puts the town 150 m off the boat — half outside the frustum, where
+  // its casters get culled and the ones that survive smear across the terrain.
+  camera.getWorldDirection(shadowFwd);
+  shadowFocus.copy(camera.position).addScaledVector(shadowFwd, SHADOW_LEAD);
+  shadowFocus.y = THREE.MathUtils.clamp(shadowFocus.y, 0, 45);
+  // Snap to whole shadow texels so the map does not crawl as the camera moves.
+  const texel = (SHADOW_EXTENT * 2) / quality.shadowSize;
+  shadowFocus.x = Math.round(shadowFocus.x / texel) * texel;
+  shadowFocus.z = Math.round(shadowFocus.z / texel) * texel;
+  keyLight.position.copy(env.keyDir).multiplyScalar(260).add(shadowFocus);
+  keyTarget.position.copy(shadowFocus);
   keyTarget.updateMatrixWorld(true);
 
   const surfaceY = ctx.water?.sampleHeight ? ctx.water.sampleHeight(camera.position.x, camera.position.z, ctx.time) : 0;
@@ -345,6 +395,7 @@ window.addEventListener('keydown', (e) => {
 
 const api = {
   THREE, scene, camera, renderer, ctx, env, time, quality, post,
+  lights: { keyLight, hemi, fillLight },
   modules: {
     sky, clouds, celestial, seabed, coral, islands, vegetation, village, dock,
     lighthouse, props, water, boat, fisher, monster, wildlife, hud, quest,

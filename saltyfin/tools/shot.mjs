@@ -36,7 +36,7 @@ const WIDTH = +opt('w', 1280);
 const HEIGHT = +opt('h', 720);
 const WAIT = +opt('wait', 7000);
 const QUERY = [];
-for (const k of ['preset', 't', 'quality', 'seed', 'cam', 'boat', 'fov', 'pr', 'rate', 'step']) {
+for (const k of ['preset', 't', 'quality', 'seed', 'cam', 'boat', 'fov', 'pr', 'rate', 'step', 'shadows']) {
   const v = opt(k, null);
   if (v !== null) QUERY.push(`${k}=${encodeURIComponent(v)}`);
 }
@@ -96,6 +96,16 @@ if (!errors.length) {
   } catch {
     errors.push('no frames rendered within 60s');
   }
+}
+
+// `--eval "<js>"` runs inside the page once the scene is up and before the
+// capture settles. For poking at the live scene without an edit/rebuild cycle.
+const EVAL = opt('eval', null);
+if (EVAL) {
+  const r = await page.evaluate((e) => {
+    try { return String(eval(e)); } catch (err) { return 'EVAL ERROR: ' + err.message; }
+  }, EVAL);
+  if (r && r !== 'undefined') process.stderr.write('eval -> ' + r + '\n');
 }
 
 await page.waitForTimeout(WAIT);
