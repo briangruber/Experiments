@@ -121,6 +121,7 @@ uniform float uDepthMax;
 varying vec3  vWorld;
 varying vec2  vFlat;
 varying float vShore;
+varying float vBedDepth;
 varying float vJac;
 varying float vCrest;
 varying float vDist;
@@ -140,6 +141,7 @@ void main(){
   depth = mix(depth, uDepthMax, max(outside.x, outside.y));
   float shore = 0.10 + 0.90 * smoothstep(0.20, 3.0, depth);
   vShore = shore;
+  vBedDepth = depth;
 
   vec3 g = gerstner(p, uTime, uWind, shore);
   vec3 world = vec3(p.x + g.x, g.y, p.y + g.z);
@@ -240,6 +242,7 @@ uniform float uShoreFoamDepth;
 varying vec3  vWorld;
 varying vec2  vFlat;
 varying float vShore;
+varying float vBedDepth;
 varying float vJac;
 varying float vCrest;
 varying float vDist;
@@ -396,7 +399,11 @@ void main(){
   col += uScatter * (sss * uScatterStrength * (0.5 + 0.7 * uKeyIntensity));
 
   // --- foam ----------------------------------------------------------------
-  float colEff = column - vCrest * 0.8;
+  // Shore foam asks the SEABED how deep it is here, not the refraction buffer.
+  // The refraction pass contains the boat's own submerged hull, so a column
+  // reconstructed from it reads a few centimetres deep right around the
+  // waterline and every hull in the bay wore a white foam blob.
+  float colEff = vBedDepth - vCrest * 0.8;
   float shore = 1.0 - smoothstep(0.0, uShoreFoamDepth, colEff);
   shore = smoothstep(0.42, 0.88, shore * 1.2 - breakup * 0.5 + 0.14);
   // The bright line right at the waterline. Narrow — it is an edge, not a band.
