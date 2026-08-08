@@ -56,7 +56,7 @@ export function createIntro({ touch = false, backend = null } = {}) {
       <p>Clear water over a living reef, a harbour that lights up at dusk,
          and something very large moving underneath it.</p>
       <div class="keys">${controls.map((c) => `<span>${c}</span>`).join('')}</div>
-      ${backend ? `<div class="backend">Renderer &mdash; ${backend === 'webgpu' ? 'WebGPU' : 'WebGL fallback'}</div>` : ''}
+      ${backend ? `<div class="backend">Renderer &mdash; ${backend === 'webgpu' ? 'WebGPU' : 'WebGL'}</div>` : ''}
       <div class="go">${touch ? 'Tap to begin' : 'Click to begin'}</div>
     </div>`;
   document.body.appendChild(el);

@@ -33,11 +33,19 @@ export function hasWebGPU() {
  * and a device before anything can compile — every caller must await this.
  */
 export async function createRenderer({ canvas, tier = 'high', pixelRatio, forceWebGL = false } = {}) {
-  // The fps badge toggles this and reloads — an artifact URL cannot carry a
-  // query string, so the backend A/B has to survive in storage.
+  // WebGPU is opt-in now, not the default. Measured on an iPhone: 7 fps with
+  // the CPU at 4ms a frame and a 3/4 resolution cut barely moving it — pure
+  // GPU time, which points at Safari's brand-new WGSL compiler doing badly on
+  // these very large generated shaders. That is their compiler's problem to
+  // grow out of, not this code's to code around, so the same node renderer
+  // runs its WebGL backend by default and the fps badge (or ?webgpu=1) opts a
+  // session into WebGPU to re-check as Safari updates. The choice survives in
+  // storage because an artifact URL cannot carry a query string.
   let stored = null;
   try { stored = localStorage.getItem('saltyfin-backend'); } catch { /* sandboxed */ }
-  const wantGPU = hasWebGPU() && !forceWebGL && stored !== 'webgl';
+  let urlOptIn = false;
+  try { urlOptIn = new URLSearchParams(location.search).get('webgpu') === '1'; } catch { /* no window */ }
+  const wantGPU = hasWebGPU() && !forceWebGL && (stored === 'webgpu' || (urlOptIn && stored !== 'webgl'));
 
   const renderer = new THREE.WebGPURenderer({
     canvas,
