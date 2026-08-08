@@ -442,8 +442,11 @@ void main(){
 
   float keyUp = sat(L.y * 8.0);
   float grazing = mix(0.35, 1.0, F);
-  vec3 spec = uKeyColor * (core * uSpecular * 0.30)
-            + uGlitterColor * ((broad * (0.16 + sparkle * 5.0) + sheen * 0.05) * uGlitter);
+  // Trimmed hard from where this started. The glitter has to survive being
+  // pushed above 1.0 for the bloom, but at grazing angles the far half of the
+  // bay is all glitter and it burns out into a white sheet.
+  vec3 spec = uKeyColor * (core * uSpecular * 0.20)
+            + uGlitterColor * ((broad * (0.12 + sparkle * 3.1) + sheen * 0.035) * uGlitter);
   spec *= uKeyIntensity * keyUp * grazing * (1.0 - foam * 0.3);
 
   // --- horizon -------------------------------------------------------------

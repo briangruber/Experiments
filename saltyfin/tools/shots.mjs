@@ -14,23 +14,28 @@ import { fileURLToPath } from 'node:url';
 const run = promisify(execFile);
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
+// The checkpoint set: one framing per thing the concept art is about.
 export const SETS = {
-  day: ['--preset', 'day', '--cam', 'harbor', '--boat', '-40,0,10', '--wait', '9000'],
-  gameplay: ['--preset', 'day', '--cam', 'chase', '--wait', '9000', '--hud'],
-  sunset: ['--preset', 'sunset', '--cam', 'harbor', '--boat', '-40,0,6', '--wait', '9000'],
-  night: ['--preset', 'night', '--cam', 'harbor', '--boat', '-40,0,6', '--wait', '9000'],
-  monster: ['--preset', 'afternoon', '--cam', 'overhead', '--wait', '11000'],
-  reef: ['--preset', 'day', '--cam', 'close', '--wait', '9000'],
+  harbor: ['--preset', 'day', '--cam', 'harbor', '--boat', '-62,14,-18', '--wait', '12000'],
+  reef: ['--preset', 'day', '--cam', 'chase', '--boat', '-10,40,4', '--wait', '12000'],
+  gameplay: ['--preset', 'afternoon', '--cam', 'chase', '--boat', '30,-60,18', '--wait', '12000', '--hud'],
+  sunset: ['--preset', 'sunset', '--cam', 'harbor', '--boat', '-62,14,-14', '--wait', '12000'],
+  night: ['--preset', 'night', '--cam', 'harbor', '--boat', '-20,-30,58', '--wait', '12000'],
+  village: ['--preset', 'golden', '--cam', '-95,34,26,-150,26,-58,44', '--wait', '12000'],
+  monster: ['--preset', 'afternoon', '--cam', 'overhead', '--boat', '60,-150,20', '--wait', '14000'],
 };
 
 const args = process.argv.slice(2);
-const pi = args.indexOf('--prefix');
-const prefix = pi >= 0 ? args[pi + 1] + '-' : '';
-const names = args.filter((a, i) => !a.startsWith('--') && i !== pi + 1);
+// Anything that is not a flag and not the value of a flag is a shot name.
+const FLAGS = new Set(['--prefix', '--w', '--h', '--quality']);
+const opt = (n, d) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : d; };
+const names = args.filter((a, i) => !a.startsWith('--') && !(i > 0 && FLAGS.has(args[i - 1])));
+const prefix = opt('--prefix', null) ? opt('--prefix') + '-' : '';
 const want = names.length ? names : Object.keys(SETS);
 
-const w = args.includes('--w') ? args[args.indexOf('--w') + 1] : '1280';
-const h = args.includes('--h') ? args[args.indexOf('--h') + 1] : '720';
+const w = opt('--w', '1280');
+const h = opt('--h', '720');
+const quality = opt('--quality', 'med');
 
 let failed = 0;
 for (const name of want) {
@@ -40,7 +45,7 @@ for (const name of want) {
   process.stdout.write(`\n=== ${name} -> ${out}\n`);
   try {
     const { stdout } = await run(process.execPath,
-      [join(ROOT, 'tools/shot.mjs'), '--out', out, '--w', w, '--h', h, ...extra],
+      [join(ROOT, 'tools/shot.mjs'), '--out', out, '--w', w, '--h', h, '--quality', quality, ...extra],
       { cwd: ROOT, maxBuffer: 1 << 24 });
     const r = JSON.parse(stdout);
     console.log(`ok  luma ${r.meanLuma} +-${r.stdLuma}  sat ${r.meanSat}  frames ${r.frames}  hour ${r.hour}`);

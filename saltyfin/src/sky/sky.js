@@ -105,8 +105,12 @@ void main(){
   // --- gradient ------------------------------------------------------------
   // Two falloffs: a broad one that carries zenith into mid, and a tight one
   // that slams the horizon colour into the last few degrees.
-  float wMid = pow(max(1.0 - ay, 0.0), 1.35);
-  float wHor = pow(max(1.0 - ay, 0.0), 9.0);
+  // The zenith has to hold most of the way down. At an exponent near 1 the mid
+  // tone takes over within ten degrees of the top and the whole sky above the
+  // horizon reads as pale wash — which is what a gameplay camera, pointed
+  // almost level, spends all its time looking at.
+  float wMid = pow(max(1.0 - ay, 0.0), 2.7);
+  float wHor = pow(max(1.0 - ay, 0.0), 15.0);
   vec3 col = mix(uZenith, uMid, wMid);
   col = mix(col, uHorizon, wHor);
 

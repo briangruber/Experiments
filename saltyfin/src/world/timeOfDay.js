@@ -23,7 +23,7 @@ const KEYS = [
   // ---------------------------------------------------------------- night --
   {
     hour: 0.0, key: 'night',
-    sun: { az: 250, el: -58 }, moon: { az: 58, el: 46 },
+    sun: { az: 250, el: -58 }, moon: { az: 58, el: 27 },
     sunColor: 0x2A3A66, sunIntensity: 0.0,
     moonColor: 0xC8DCFF, moonIntensity: 0.95, moonPhase: 1.0,
     skyZenith: 0x04091E, skyMid: 0x0A1740, skyHorizon: 0x152C58,
@@ -153,16 +153,16 @@ const KEYS = [
     sunDiscColor: 0xFFF0BC, sunHalo: 0xFFB264, sunHaloSize: 0.17,
     cloudLit: 0xFFC894, cloudShadow: 0x6E5C9A, cloudRim: 0xFFE0A8,
     cloudCover: 0.52, cloudOpacity: 0.97,
-    ambientSky: 0x7E7CB4, ambientGround: 0x33324E, ambientIntensity: 0.72,
-    fogColor: 0xE0A487, fogNear: 150, fogFar: 1700, hazeStrength: 0.55, horizonGlow: 0.95,
-    waterShallow: 0x3CB4B0, waterMid: 0x1A8098, waterDeep: 0x0D3468,
-    waterAbsorption: V(0.36, 0.10, 0.055), waterScatter: 0x1C7C90,
+    ambientSky: 0x6E74BE, ambientGround: 0x2C2E48, ambientIntensity: 0.74,
+    fogColor: 0xC98E82, fogNear: 175, fogFar: 1750, hazeStrength: 0.46, horizonGlow: 0.95,
+    waterShallow: 0x33A0A6, waterMid: 0x156E8C, waterDeep: 0x0B2C5C,
+    waterAbsorption: V(0.41, 0.115, 0.062), waterScatter: 0x186C86,
     causticStrength: 0.72, foamBrightness: 0.95, foamTint: 0xFFE8D4,
     specularStrength: 1.1, roughness: 0.05, glitterStrength: 1.0, glitterSize: 1.15,
     reflectionStrength: 0.98, sunGlitterColor: 0xFFB25A,
     windowIntensity: 0.55, lanternIntensity: 0.75, lighthouseIntensity: 0.55, beamOpacity: 0.15,
     exposure: 1.02, bloomStrength: 0.52, bloomThreshold: 0.88, bloomRadius: 0.72,
-    saturation: 1.18, contrast: 1.06, vignette: 0.30, grainStrength: 0.013,
+    saturation: 1.18, contrast: 1.09, vignette: 0.30, grainStrength: 0.013,
     lift: 0x0A0810, gain: 0xFFF4E6,
   },
   // --------------------------------------------------------------- sunset --
@@ -175,22 +175,26 @@ const KEYS = [
     starOpacity: 0.05,
     cloudLit: 0xFFA874, cloudShadow: 0x54356A, cloudRim: 0xFFCE86,
     cloudCover: 0.56, cloudOpacity: 0.96,
-    ambientSky: 0x6E4890, ambientGround: 0x2A1E38, ambientIntensity: 0.56,
-    fogColor: 0xC4666E, fogNear: 110, fogFar: 1550, hazeStrength: 0.62, horizonGlow: 1.05,
-    waterShallow: 0x2E9C9C, waterMid: 0x166C86, waterDeep: 0x0C2A54,
-    waterAbsorption: V(0.38, 0.115, 0.062), waterScatter: 0x156A82,
+    // The ambient stays violet-blue while the key goes orange. That split is the
+    // whole trick of ref/02: lit faces burn warm, shaded faces fall to cool
+    // twilight. A warm ambient collapses the two and the town turns into one
+    // red silhouette.
+    ambientSky: 0x5C4C9E, ambientGround: 0x241C3A, ambientIntensity: 0.66,
+    fogColor: 0xA05A72, fogNear: 130, fogFar: 1600, hazeStrength: 0.50, horizonGlow: 1.05,
+    waterShallow: 0x247E88, waterMid: 0x115A78, waterDeep: 0x0A2148,
+    waterAbsorption: V(0.42, 0.135, 0.075), waterScatter: 0x125C74,
     causticStrength: 0.5, foamBrightness: 0.9, foamTint: 0xFFDCC8,
     specularStrength: 1.2, roughness: 0.048, glitterStrength: 1.05, glitterSize: 1.25,
     reflectionStrength: 1.0, sunGlitterColor: 0xFFA23C,
     windowIntensity: 1.0, lanternIntensity: 1.05, lighthouseIntensity: 0.95, beamOpacity: 0.24,
     exposure: 1.04, bloomStrength: 0.64, bloomThreshold: 0.80, bloomRadius: 0.76,
-    saturation: 1.20, contrast: 1.07, vignette: 0.33, grainStrength: 0.015,
+    saturation: 1.20, contrast: 1.10, vignette: 0.33, grainStrength: 0.015,
     lift: 0x0B0812, gain: 0xFFF0E2,
   },
   // ----------------------------------------------------------------- dusk --
   {
     hour: 20.4, key: 'dusk',
-    sun: { az: 66, el: -6 }, moon: { az: 58, el: 34 },
+    sun: { az: 66, el: -6 }, moon: { az: 58, el: 22 },
     sunColor: 0xE0603E, sunIntensity: 0.5,
     moonColor: 0xC6D8FA, moonIntensity: 0.35,
     skyZenith: 0x1A1C4E, skyMid: 0x6B3A72, skyHorizon: 0xE4713F,
@@ -198,8 +202,8 @@ const KEYS = [
     starOpacity: 0.45, milkyWayOpacity: 0.12,
     cloudLit: 0xB4708A, cloudShadow: 0x2A2350, cloudRim: 0xFF9C6A,
     cloudCover: 0.50, cloudOpacity: 0.94,
-    ambientSky: 0x3A3A72, ambientGround: 0x151228, ambientIntensity: 0.48,
-    fogColor: 0x6E4560, fogNear: 90, fogFar: 1400, hazeStrength: 0.58, horizonGlow: 0.72,
+    ambientSky: 0x35407E, ambientGround: 0x131024, ambientIntensity: 0.56,
+    fogColor: 0x5A4064, fogNear: 110, fogFar: 1450, hazeStrength: 0.50, horizonGlow: 0.72,
     waterShallow: 0x1C7480, waterMid: 0x0F4E70, waterDeep: 0x081C40,
     waterAbsorption: V(0.39, 0.125, 0.07), waterScatter: 0x0E526A,
     causticStrength: 0.36, foamBrightness: 0.7, foamTint: 0xD8CCDC,
@@ -212,7 +216,7 @@ const KEYS = [
   // ---------------------------------------------------------------- night --
   {
     hour: 22.0, key: 'night',
-    sun: { az: 200, el: -40 }, moon: { az: 58, el: 44 },
+    sun: { az: 200, el: -40 }, moon: { az: 58, el: 28 },
     sunIntensity: 0.0, sunColor: 0x2A3A66,
     moonColor: 0xC8DCFF, moonIntensity: 0.95, moonPhase: 1.0,
     skyZenith: 0x04091E, skyMid: 0x0A1740, skyHorizon: 0x152C58,
