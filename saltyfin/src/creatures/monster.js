@@ -32,8 +32,14 @@
 // investigate. `api.disturbance` is the public handle for it.
 
 import * as THREE from 'three';
+import {
+  Fn, uniform, attribute, varying, uv, materialOpacity,
+  positionLocal, positionGeometry, positionWorld, positionViewDirection,
+  normalLocal, transformNormalToView, transformedNormalView, cameraPosition,
+  vec2, vec3, vec4, float, floor, fract, mod, sin, cos, atan, abs, dot, mix,
+  step, smoothstep, clamp as tslClamp, max as tslMax, length, oneMinus,
+} from 'three/tsl';
 import { LAYER, setLayers } from '../core/layers.js';
-import { GLSL } from '../core/glsl.js';
 import { makeRng, clamp } from '../core/rng.js';
 
 const TAU = Math.PI * 2;
@@ -453,210 +459,210 @@ function buildMonster(rng) {
 
 // --- shading ----------------------------------------------------------------
 
-const MON_VERT_HEAD = /* glsl */`
-attribute vec2 aFin;
-uniform float uMTime;
-uniform float uSwimAmp;
-uniform float uSwimRate;
-uniform float uSwimWaves;
-uniform float uFinAmp;
-uniform float uFinRate;
-varying vec3 vMonW;
-varying float vMonShade;
+// core/glsl.js's hash12 / vnoise / fbmV, as node graphs. Same constants, so the
+// churn on the disturbance patch boils in exactly the same places it did.
+const hash12 = Fn(([p]) => {
+  const p3 = fract(vec3(p.x, p.y, p.x).mul(0.1031)).toVar();
+  p3.addAssign(vec3(dot(p3, p3.yzx.add(33.33))));
+  return fract(p3.x.add(p3.y).mul(p3.z));
+});
 
-const float MON_HALF = ${HALF.toFixed(1)};
-const float MON_LEN  = ${LEN.toFixed(1)};
+const vnoise = Fn(([p]) => {
+  const i = floor(p).toVar();
+  const f = fract(p).toVar();
+  const u = f.mul(f).mul(f.mul(-2.0).add(3.0)).toVar();
+  return mix(
+    mix(hash12(i), hash12(i.add(vec2(1, 0))), u.x),
+    mix(hash12(i.add(vec2(0, 1))), hash12(i.add(vec2(1, 1))), u.x),
+    u.y,
+  );
+});
 
-float monSway(float z, float t){
-  float s = clamp((z + MON_HALF) / MON_LEN, 0.0, 1.0);
-  float amp = uSwimAmp * smoothstep(0.12, 0.96, s) * (0.18 + 0.82 * s * s);
-  return sin(t * uSwimRate - s * uSwimWaves * 6.283185307) * amp;
-}
+/** FBM_ROT * p * 2.03 — the octave twist, so the lattice never lines up. */
+const fbmTwist = (p) => vec2(
+  p.x.mul(0.8).add(p.y.mul(0.6)),
+  p.x.mul(-0.6).add(p.y.mul(0.8)),
+).mul(2.03);
 
-// Finite difference rather than the analytic derivative: three sines is cheap,
-// and the section yaw stays correct if the amplitude ramp is ever retuned.
-float monAngle(float z, float t){
-  const float e = 0.7;
-  return atan((monSway(z + e, t) - monSway(z - e, t)) * (0.5 / e));
-}
-`;
+/** fbmV(p, 3): the loop is unrolled because the octave count is a constant. */
+const fbmV3 = Fn(([p0]) => {
+  const p = p0.toVar();
+  const s = vnoise(p).mul(0.5).toVar();
+  p.assign(fbmTwist(p));
+  s.addAssign(vnoise(p).mul(0.25));
+  p.assign(fbmTwist(p));
+  s.addAssign(vnoise(p).mul(0.125));
+  return s.div(0.875);
+});
 
-const MON_FRAG_HEAD = /* glsl */`
-uniform vec3 uBodyWater;
-uniform vec3 uBodyAir;
-uniform vec3 uRim;
-uniform float uLitMix;
-varying vec3 vMonW;
-varying float vMonShade;
-`;
-
+// The leviathan's own shading. Every scrap of motion is still in the vertex
+// stage; what used to be three GLSL injections is now `positionNode`,
+// `normalNode` and a wrap around `setupOutput` (which is where the old
+// `#include <opaque_fragment>` patch sat — before fog, after lighting).
 function decorateMonsterMaterial(mat, uni) {
-  mat.onBeforeCompile = (shader) => {
-    shader.uniforms.uMTime = uni.uMTime;
-    shader.uniforms.uSwimAmp = uni.uSwimAmp;
-    shader.uniforms.uSwimRate = uni.uSwimRate;
-    shader.uniforms.uSwimWaves = uni.uSwimWaves;
-    shader.uniforms.uFinAmp = uni.uFinAmp;
-    shader.uniforms.uFinRate = uni.uFinRate;
-    shader.uniforms.uBodyWater = uni.uBodyWater;
-    shader.uniforms.uBodyAir = uni.uBodyAir;
-    shader.uniforms.uRim = uni.uRim;
-    shader.uniforms.uLitMix = uni.uLitMix;
+  const aFin = attribute('aFin', 'vec2');
 
-    shader.vertexShader = MON_VERT_HEAD + shader.vertexShader;
+  const monSway = Fn(([z, t]) => {
+    const s = tslClamp(z.add(HALF).div(LEN), 0, 1).toVar();
+    const amp = uni.uSwimAmp
+      .mul(smoothstep(0.12, 0.96, s))
+      .mul(s.mul(s).mul(0.82).add(0.18));
+    return sin(t.mul(uni.uSwimRate).sub(s.mul(uni.uSwimWaves).mul(6.283185307))).mul(amp);
+  });
 
-    shader.vertexShader = shader.vertexShader.replace('#include <beginnormal_vertex>', /* glsl */`
-      #include <beginnormal_vertex>
-      {
-        float ma = monAngle(position.z, uMTime);
-        float mc = cos(ma), ms = sin(ma);
-        objectNormal = vec3(objectNormal.x * mc + objectNormal.z * ms,
-                            objectNormal.y,
-                           -objectNormal.x * ms + objectNormal.z * mc);
-      }
-    `);
+  // Finite difference rather than the analytic derivative: three sines is cheap,
+  // and the section yaw stays correct if the amplitude ramp is ever retuned.
+  const monAngle = Fn(([z, t]) => atan(
+    monSway(z.add(0.7), t).sub(monSway(z.sub(0.7), t)).mul(0.5 / 0.7),
+  ));
 
-    shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', /* glsl */`
-      #include <begin_vertex>
-      {
-        float kind = aFin.x;
-        float span = aFin.y;
-        float isP = step(0.5, kind) * step(kind, 1.5);
-        float isV = step(1.5, kind) * step(kind, 2.5);
-        float f = span * span;
-        float w = sin(uMTime * uFinRate);
-        transformed.y += w * f * uFinAmp * (isP + isV * 0.5);
-        transformed.z += (1.0 - cos(uMTime * uFinRate)) * f * uFinAmp * 0.20 * isP;
+  mat.positionNode = Fn(() => {
+    const kind = aFin.x;
+    const span = aFin.y;
+    const isP = step(0.5, kind).mul(step(kind, 1.5));
+    const isV = step(1.5, kind).mul(step(kind, 2.5));
+    const f = span.mul(span);
+    const w = sin(uni.uMTime.mul(uni.uFinRate));
 
-        float ma = monAngle(position.z, uMTime);
-        float mc = cos(ma), ms = sin(ma);
-        float ox = transformed.x;
-        transformed.x = ox * mc + monSway(position.z, uMTime);
-        transformed.z = transformed.z - ox * ms;
+    const ox = positionLocal.x.toVar();
+    const py = positionLocal.y
+      .add(w.mul(f).mul(uni.uFinAmp).mul(isP.add(isV.mul(0.5)))).toVar();
+    const pz = positionLocal.z
+      .add(oneMinus(cos(uni.uMTime.mul(uni.uFinRate))).mul(f).mul(uni.uFinAmp).mul(0.20).mul(isP))
+      .toVar();
 
-        vMonShade = 0.78 + 0.34 * smoothstep(-1.6, 2.4, position.y) + 0.10 * span;
-      }
-    `);
+    const ma = monAngle(positionGeometry.z, uni.uMTime).toVar();
+    const mc = cos(ma).toVar();
+    const ms = sin(ma).toVar();
 
-    shader.vertexShader = shader.vertexShader.replace('#include <project_vertex>', /* glsl */`
-      #include <project_vertex>
-      vMonW = (modelMatrix * vec4(transformed, 1.0)).xyz;
-    `);
+    return vec3(
+      ox.mul(mc).add(monSway(positionGeometry.z, uni.uMTime)),
+      py,
+      pz.sub(ox.mul(ms)),
+    );
+  })();
 
-    shader.fragmentShader = MON_FRAG_HEAD + shader.fragmentShader;
+  // The section yaw has to turn the normal with it or the tail lights as if it
+  // were still straight. Computed per vertex, exactly as `beginnormal_vertex`
+  // did, then handed to the shading normal in view space.
+  const monNormal = Fn(() => {
+    const ma = monAngle(positionGeometry.z, uni.uMTime).toVar();
+    const mc = cos(ma).toVar();
+    const ms = sin(ma).toVar();
+    return vec3(
+      normalLocal.x.mul(mc).add(normalLocal.z.mul(ms)),
+      normalLocal.y,
+      normalLocal.x.mul(ms).negate().add(normalLocal.z.mul(mc)),
+    );
+  })();
+  mat.normalNode = transformNormalToView(varying(monNormal));
 
-    shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', /* glsl */`
-      #include <color_fragment>
-      {
-        float above = smoothstep(-1.8, 2.6, vMonW.y);
-        diffuseColor.rgb = mix(uBodyWater, uBodyAir, above) * vMonShade;
-      }
-    `);
+  const vMonShade = varying(
+    smoothstep(-1.6, 2.4, positionGeometry.y).mul(0.34).add(aFin.y.mul(0.10)).add(0.78),
+  );
 
-    // The lit result is dragged most of the way back to the flat body colour: a
-    // leviathan under fifteen metres of water is a silhouette, not a shaded
-    // model. Above the waterline it is allowed to light properly, which is what
-    // gives ref/05 its wet slate armour.
-    shader.fragmentShader = shader.fragmentShader.replace('#include <opaque_fragment>', /* glsl */`
-      #include <opaque_fragment>
-      {
-        float above = smoothstep(-1.8, 2.6, vMonW.y);
-        vec3 base = mix(uBodyWater, uBodyAir, above) * vMonShade;
-        gl_FragColor.rgb = mix(base, gl_FragColor.rgb, mix(uLitMix, 0.88, above));
-        vec3 mv = normalize(vViewPosition);
-        float fres = 1.0 - clamp(dot(normalize(normal), mv), 0.0, 1.0);
-        fres = fres * fres * fres;
-        gl_FragColor.rgb += uRim * fres * (0.40 + 0.60 * above);
-      }
-    `);
-  };
-  mat.customProgramCacheKey = () => 'saltyfin-leviathan-1';
+  mat.colorNode = Fn(() => {
+    const above = smoothstep(-1.8, 2.6, positionWorld.y);
+    return mix(uni.uBodyWater, uni.uBodyAir, above).mul(vMonShade);
+  })();
+
+  // The lit result is dragged most of the way back to the flat body colour: a
+  // leviathan under fifteen metres of water is a silhouette, not a shaded
+  // model. Above the waterline it is allowed to light properly, which is what
+  // gives ref/05 its wet slate armour.
+  const monOutput = Fn(([lit]) => {
+    const above = smoothstep(-1.8, 2.6, positionWorld.y).toVar();
+    const base = mix(uni.uBodyWater, uni.uBodyAir, above).mul(vMonShade);
+    const c = mix(base, lit, mix(uni.uLitMix, float(0.88), above)).toVar();
+    const fres = oneMinus(
+      tslClamp(dot(transformedNormalView, positionViewDirection), 0, 1),
+    ).toVar();
+    fres.assign(fres.mul(fres).mul(fres));
+    c.addAssign(uni.uRim.mul(fres).mul(above.mul(0.60).add(0.40)));
+    return c;
+  });
+
+  const superSetupOutput = mat.setupOutput.bind(mat);
+  mat.setupOutput = (builder, outputNode) =>
+    superSetupOutput(builder, vec4(monOutput(outputNode.rgb), outputNode.a));
 }
 
 // --- the disturbance --------------------------------------------------------
 
-const PATCH_VERT = /* glsl */`
-varying vec2 vLocal;
-varying vec3 vWorld;
-void main(){
-  vLocal = (uv - 0.5) * 2.0;
-  vec4 wp = modelMatrix * vec4(position, 1.0);
-  vWorld = wp.xyz;
-  gl_Position = projectionMatrix * viewMatrix * wp;
-}
-`;
-
-const PATCH_FRAG = /* glsl */`
-${GLSL.constants}
-${GLSL.util}
-${GLSL.hash}
-${GLSL.noise}
-${GLSL.fbm}
-varying vec2 vLocal;
-varying vec3 vWorld;
-uniform float uTime;
-uniform vec3  uFoam;
-uniform float uOpacity;
-uniform vec3  uFogColor;
-uniform float uFogNear;
-uniform float uFogFar;
-
-void main(){
-  float r = length(vLocal);
-  if (r > 1.0) discard;
-
-  // A slow rotation on the coarse octave and an outward drift on the fine one:
-  // the patch boils rather than scrolls.
-  vec2 q = rot2(uTime * 0.055) * vLocal;
-  float coarse = fbmV(q * 2.3 + vec2(uTime * 0.021, -uTime * 0.017), 3);
-  float fine   = fbmV(vLocal * 6.5 + vec2(-uTime * 0.06, uTime * 0.045) + 17.3, 3);
-  float churn = coarse * 0.62 + fine * 0.38;
-
-  float ring = smoothstep(0.20, 0.62, r) * (1.0 - smoothstep(0.72, 1.0, r));
-  float core = 1.0 - smoothstep(0.0, 0.66, r);
-  float mask = max(ring, core * 0.55);
-
-  float a = mask * smoothstep(0.40, 0.78, churn + 0.10 * core) * uOpacity;
-  if (a < 0.004) discard;
-
-  vec3 c = uFoam * (0.80 + 0.45 * churn);
-  float d = length(vWorld - cameraPosition);
-  float fog = sat((d - uFogNear) / max(1.0, uFogFar - uFogNear));
-  c = mix(c, uFogColor, fog * 0.85);
-  gl_FragColor = vec4(c, a);
-}
-`;
-
 const BUBBLE_RISE = 13.0;
 
+// The churned patch. Was a ShaderMaterial; now a NodeMaterial with a fragment
+// node, which needs no vertex shader of its own — `uv()` gives the old `vLocal`
+// and `positionWorld` the old `vWorld`.
+//
+// The two `discard`s are gone. Both were pure fill savings: outside r = 1 the
+// ring and core masks are already zero, and the a < 0.004 cut is below what an
+// 8-bit blend can carry, so dropping them changes no pixel.
+function makePatchMaterial(uni) {
+  const m = new THREE.NodeMaterial();
+  m.fragmentNode = Fn(() => {
+    const vLocal = uv().sub(0.5).mul(2.0).toVar();
+    const r = length(vLocal).toVar();
+
+    // A slow rotation on the coarse octave and an outward drift on the fine one:
+    // the patch boils rather than scrolls.
+    const ra = uni.uTime.mul(0.055).toVar();
+    const rs = sin(ra).toVar();
+    const rc = cos(ra).toVar();
+    const q = vec2(
+      vLocal.x.mul(rc).add(vLocal.y.mul(rs)),
+      vLocal.x.mul(rs).negate().add(vLocal.y.mul(rc)),
+    );
+    const coarse = fbmV3(q.mul(2.3).add(vec2(uni.uTime.mul(0.021), uni.uTime.mul(-0.017))));
+    const fine = fbmV3(
+      vLocal.mul(6.5).add(vec2(uni.uTime.mul(-0.06), uni.uTime.mul(0.045))).add(17.3),
+    );
+    const churn = coarse.mul(0.62).add(fine.mul(0.38)).toVar();
+
+    const ring = smoothstep(0.20, 0.62, r).mul(oneMinus(smoothstep(0.72, 1.0, r)));
+    const core = oneMinus(smoothstep(0.0, 0.66, r)).toVar();
+    const mask = tslMax(ring, core.mul(0.55));
+
+    const a = mask.mul(smoothstep(0.40, 0.78, churn.add(core.mul(0.10)))).mul(uni.uOpacity).toVar();
+
+    const c = uni.uFoam.mul(churn.mul(0.45).add(0.80)).toVar();
+    const d = length(positionWorld.sub(cameraPosition));
+    const fog = tslClamp(d.sub(uni.uFogNear).div(tslMax(float(1.0), uni.uFogFar.sub(uni.uFogNear))), 0, 1);
+    c.assign(mix(c, uni.uFogColor, fog.mul(0.85)));
+    return vec4(c, a);
+  })();
+  return m;
+}
+
+// The bubbles. `aBub` is (phase, speed, size) per instance.
+//
+// `positionNode` is evaluated after the node renderer has folded the instance
+// matrix into `positionLocal`, so the old object-space `transformed *= aBub.z`
+// has to be re-expressed. Every bubble's instance matrix here is a pure
+// translation, so `positionLocal - positionGeometry` is exactly the instance
+// origin and scaling the geometry about it is the same rescale the GLSL did.
 function decorateBubbleMaterial(mat, uni) {
-  mat.onBeforeCompile = (shader) => {
-    shader.uniforms.uBTime = uni.uBTime;
-    shader.vertexShader = /* glsl */`
-attribute vec3 aBub;          // phase, speed, size
-uniform float uBTime;
-varying float vBubA;
-const float BUB_RISE = ${BUBBLE_RISE.toFixed(1)};
-` + shader.vertexShader;
-    shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', /* glsl */`
-      #include <begin_vertex>
-      {
-        transformed *= aBub.z;
-        float bh = mod(uBTime * aBub.y + aBub.x, BUB_RISE);
-        transformed.y += bh;
-        float wob = bh * 0.45 + aBub.x * 7.0;
-        transformed.x += sin(uBTime * 1.3 + wob) * 0.30 * (bh / BUB_RISE);
-        transformed.z += cos(uBTime * 1.1 + wob * 1.3) * 0.30 * (bh / BUB_RISE);
-        vBubA = smoothstep(0.0, 1.4, bh) * (1.0 - smoothstep(BUB_RISE * 0.80, BUB_RISE, bh));
-      }
-    `);
-    shader.fragmentShader = 'varying float vBubA;\n' + shader.fragmentShader;
-    shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', /* glsl */`
-      #include <color_fragment>
-      diffuseColor.a *= vBubA;
-    `);
-  };
-  mat.customProgramCacheKey = () => 'saltyfin-bubble-1';
+  const aBub = attribute('aBub', 'vec3');
+  const bhNode = mod(uni.uBTime.mul(aBub.y).add(aBub.x), BUBBLE_RISE);
+
+  mat.positionNode = Fn(() => {
+    const bh = bhNode.toVar();
+    const wob = bh.mul(0.45).add(aBub.x.mul(7.0)).toVar();
+    const t = bh.div(BUBBLE_RISE).toVar();
+    const p = positionLocal.add(positionGeometry.mul(aBub.z.sub(1.0))).toVar();
+    return vec3(
+      p.x.add(sin(uni.uBTime.mul(1.3).add(wob)).mul(0.30).mul(t)),
+      p.y.add(bh),
+      p.z.add(cos(uni.uBTime.mul(1.1).add(wob.mul(1.3))).mul(0.30).mul(t)),
+    );
+  })();
+
+  const vBubA = varying(
+    smoothstep(0.0, 1.4, bhNode)
+      .mul(oneMinus(smoothstep(BUBBLE_RISE * 0.80, BUBBLE_RISE, bhNode))),
+  );
+  // `diffuseColor.a *= vBubA`, with the material's own opacity still in play.
+  mat.opacityNode = materialOpacity.mul(vBubA);
 }
 
 // --- quest handshake --------------------------------------------------------
@@ -699,17 +705,17 @@ export function createMonster(opts = {}) {
     };
 
   const uni = {
-    uMTime: { value: 0 },
-    uSwimAmp: { value: 1.45 },
-    uSwimRate: { value: 0.62 },
-    uSwimWaves: { value: 0.85 },
-    uFinAmp: { value: 0.95 },
-    uFinRate: { value: 0.34 },
-    uBodyWater: { value: new THREE.Color(0.010, 0.020, 0.050) },
-    uBodyAir: { value: new THREE.Color(0.020, 0.060, 0.100) },
-    uRim: { value: new THREE.Color(0.030, 0.090, 0.120) },
-    uLitMix: { value: 0.46 },
-    uBTime: { value: 0 },
+    uMTime: uniform(0),
+    uSwimAmp: uniform(1.45),
+    uSwimRate: uniform(0.62),
+    uSwimWaves: uniform(0.85),
+    uFinAmp: uniform(0.95),
+    uFinRate: uniform(0.34),
+    uBodyWater: uniform(new THREE.Color(0.010, 0.020, 0.050)),
+    uBodyAir: uniform(new THREE.Color(0.020, 0.060, 0.100)),
+    uRim: uniform(new THREE.Color(0.030, 0.090, 0.120)),
+    uLitMix: uniform(0.46),
+    uBTime: uniform(0),
   };
 
   // ---- the animal --------------------------------------------------------
@@ -718,7 +724,7 @@ export function createMonster(opts = {}) {
   // so the shading comes out right either way.
 
   const geo = buildMonster(rng);
-  const mat = new THREE.MeshStandardMaterial({
+  const mat = new THREE.MeshStandardNodeMaterial({
     color: 0xffffff,
     roughness: 0.94,
     metalness: 0.0,
@@ -763,23 +769,20 @@ export function createMonster(opts = {}) {
   const disturbPos = new THREE.Vector3(DISTURB_X, 0, DISTURB_Z);
 
   const patchUni = {
-    uTime: { value: 0 },
-    uFoam: { value: new THREE.Color(0.80, 0.90, 1.00) },
-    uOpacity: { value: 0.6 },
-    uFogColor: { value: new THREE.Color(0.5, 0.6, 0.7) },
-    uFogNear: { value: 200 },
-    uFogFar: { value: 2000 },
+    uTime: uniform(0),
+    uFoam: uniform(new THREE.Color(0.80, 0.90, 1.00)),
+    uOpacity: uniform(0.6),
+    uFogColor: uniform(new THREE.Color(0.5, 0.6, 0.7)),
+    uFogNear: uniform(200),
+    uFogFar: uniform(2000),
   };
   const patchGeo = new THREE.CircleGeometry(DISTURB_R, 44);
   patchGeo.rotateX(-Math.PI / 2);
-  const patchMat = new THREE.ShaderMaterial({
-    vertexShader: PATCH_VERT,
-    fragmentShader: PATCH_FRAG,
-    uniforms: patchUni,
-    transparent: true,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-  });
+  const patchMat = makePatchMaterial(patchUni);
+  patchMat.transparent = true;
+  patchMat.depthWrite = false;
+  patchMat.side = THREE.DoubleSide;
+  patchMat.fog = false;           // it fogs itself, against the world position
   const patch = new THREE.Mesh(patchGeo, patchMat);
   patch.position.y = 0.16;
   patch.castShadow = false;
@@ -790,7 +793,7 @@ export function createMonster(opts = {}) {
   const bubbleCount = tierName === 'low' ? 42 : tierName === 'med' ? 76 : 118;
   const bubbleGeo = new THREE.IcosahedronGeometry(1, 0);
   const bubBase = clamp(seabed(DISTURB_X, DISTURB_Z) + 0.8, -BUBBLE_RISE - 4, -3);
-  const bubMat = new THREE.MeshStandardMaterial({
+  const bubMat = new THREE.MeshStandardNodeMaterial({
     color: 0xffffff,
     roughness: 0.35,
     metalness: 0.0,

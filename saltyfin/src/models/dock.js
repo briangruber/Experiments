@@ -11,6 +11,7 @@
 // refraction pass's clip plane trims them at the waterline for free.
 
 import * as THREE from 'three';
+import { Fn, uniform, attribute, vertexColor, float, sin, step } from 'three/tsl';
 import { LAYER, setLayers, addLayers } from '../core/layers.js';
 import { makeRng } from '../core/rng.js';
 
@@ -98,28 +99,27 @@ function makeBuilder(extras) {
   };
 }
 
+// The lamp glass. `aGlow.x` is how lit the pane is, `aGlow.y` a flicker seed
+// (0 = steady); the pane tint is the vertex colour. The old build injected this
+// into `totalEmissiveRadiance`; here it is the material's `emissiveNode`, which
+// replaces the (unused) `emissive` term outright.
+//
+// `vertexColor()` is a vec4 — instancing can supply a fourth channel — so the
+// multiply has to take `.rgb` or the emissive picks up an alpha it has no
+// business seeing.
 function makeGlowMaterial(uniforms, baseHex) {
-  const m = new THREE.MeshStandardMaterial({
+  const m = new THREE.MeshStandardNodeMaterial({
     color: C(baseHex), roughness: 0.30, metalness: 0.0, vertexColors: true, fog: true,
   });
-  m.onBeforeCompile = (shader) => {
-    shader.uniforms.uGlowTime = uniforms.time;
-    shader.uniforms.uGlowColor = uniforms.color;
-    shader.uniforms.uGlowI = uniforms.intensity;
-    shader.vertexShader = 'attribute vec2 aGlow;\nvarying vec2 vGlow;\n' + shader.vertexShader.replace(
-      '#include <begin_vertex>',
-      '#include <begin_vertex>\n  vGlow = aGlow;',
-    );
-    shader.fragmentShader = 'uniform float uGlowTime;\nuniform vec3 uGlowColor;\nuniform float uGlowI;\nvarying vec2 vGlow;\n' + shader.fragmentShader.replace(
-      'vec3 totalEmissiveRadiance = emissive;',
-      `vec3 totalEmissiveRadiance = emissive;
-  float gph = vGlow.y;
-  float gfl = 1.0 + step(0.001, gph) * (
-      0.13 * sin(uGlowTime * (1.9 + gph * 3.1) + gph * 29.0)
-    + 0.07 * sin(uGlowTime * (6.3 + gph * 1.7) + gph * 13.0));
-  totalEmissiveRadiance += uGlowColor * (uGlowI * vGlow.x * gfl) * vColor.rgb;`,
-    );
-  };
+  m.emissiveNode = Fn(() => {
+    const glow = attribute('aGlow', 'vec2');
+    const gph = glow.y.toVar();
+    const gfl = float(1).add(step(0.001, gph).mul(
+      sin(uniforms.time.mul(gph.mul(3.1).add(1.9)).add(gph.mul(29.0))).mul(0.13)
+        .add(sin(uniforms.time.mul(gph.mul(1.7).add(6.3)).add(gph.mul(13.0))).mul(0.07)),
+    ));
+    return uniforms.color.mul(uniforms.intensity.mul(glow.x).mul(gfl)).mul(vertexColor().rgb);
+  })();
   return m;
 }
 
@@ -452,9 +452,9 @@ export function createDock(opts = {}) {
   // --- assemble -------------------------------------------------------------
 
   const uniforms = {
-    time: { value: 0 },
-    color: { value: new THREE.Color(1, 0.72, 0.36) },
-    intensity: { value: 0 },
+    time: uniform(0),
+    color: uniform(new THREE.Color(1, 0.72, 0.36)),
+    intensity: uniform(0),
   };
 
   const matDeck = new THREE.MeshStandardMaterial({

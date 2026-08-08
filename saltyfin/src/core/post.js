@@ -15,7 +15,7 @@
 import * as THREE from 'three';
 import {
   Fn, texture, uniform, uv, vec2, vec3, vec4, float,
-  max, min, clamp, mix, pow, dot, step, smoothstep, fract, screenCoordinate,
+  max, min, clamp, mix, pow, dot, step, smoothstep, fract, screenCoordinate, textureSize,
 } from 'three/tsl';
 
 const LUMA = vec3(0.2126, 0.7152, 0.0722);
@@ -70,10 +70,9 @@ export function createPost({ renderer, targets, makeTarget }) {
 
   // --- downsample: 13-tap Karis, no fireflies, no aliasing crawl -----------
   const downSrc = texture(targets.scene.texture);
-  const uDownTexel = uniform(vec2(1, 1));
   const downMat = mat();
   downMat.fragmentNode = Fn(() => {
-    const t = uDownTexel;
+    const t = vec2(1, 1).div(vec2(textureSize(downSrc, 0))).toVar();
     const at = (x, y) => downSrc.sample(uv().add(t.mul(vec2(x, y)))).rgb;
     const a = at(-2, 2), b = at(0, 2), c = at(2, 2);
     const d = at(-2, 0), e = at(0, 0), f = at(2, 0);
@@ -89,11 +88,10 @@ export function createPost({ renderer, targets, makeTarget }) {
   // --- upsample: tent filter, accumulating down the pyramid ----------------
   const upSrc = texture(targets.scene.texture);
   const upPrev = texture(targets.scene.texture);
-  const uUpTexel = uniform(vec2(1, 1));
   const uUpRadius = uniform(1.0);
   const upMat = mat();
   upMat.fragmentNode = Fn(() => {
-    const r = uUpTexel.mul(uUpRadius).toVar();
+    const r = vec2(1, 1).div(vec2(textureSize(upSrc, 0))).mul(uUpRadius).toVar();
     const at = (x, y) => upSrc.sample(uv().add(vec2(r.x.mul(x), r.y.mul(y)))).rgb;
     const s = at(-1, 1).add(at(0, 1).mul(2)).add(at(1, 1))
       .add(at(-1, 0).mul(2)).add(at(0, 0).mul(4)).add(at(1, 0).mul(2))
@@ -111,15 +109,20 @@ export function createPost({ renderer, targets, makeTarget }) {
   const uVignette = uniform(0.25);
   const uGrain = uniform(0.012);
   const uTime = uniform(0.0);
-  const uLift = uniform(vec3(0, 0, 0));
-  const uGain = uniform(vec3(1, 1, 1));
+  const uLift = uniform(new THREE.Vector3(0, 0, 0));
+  const uGain = uniform(new THREE.Vector3(1, 1, 1));
   const uUnderwater = uniform(0.0);
-  const uUnderwaterTint = uniform(vec3(0.2, 0.6, 0.8));
+  const uUnderwaterTint = uniform(new THREE.Vector3(0.2, 0.6, 0.8));
   const uChroma = uniform(1.6);
-  const uResolution = uniform(vec2(1280, 720));
+  const uResolution = uniform(new THREE.Vector2(1280, 720));
+
+  // `?post=bloom` shows the bloom buffer on its own, `?post=threshold` the
+  // thresholded frame. Cheaper than guessing why a chain like this is hot.
+  const DEBUG = new URLSearchParams(location.search).get('post');
 
   const compositeMat = mat();
   compositeMat.fragmentNode = Fn(() => {
+    if (DEBUG === 'bloom') return vec4(compBloom.sample(uv()).rgb, 1);
     const suv = uv().toVar();
     const c2 = suv.sub(0.5).toVar();
     const r2 = dot(c2, c2).toVar();
@@ -180,7 +183,10 @@ export function createPost({ renderer, targets, makeTarget }) {
   function draw(material, target) {
     quad.material = material;
     renderer.setRenderTarget(target ?? null);
-    renderer.clear(true, true, false);
+    // No explicit clear: the quad covers the whole target and writes every
+    // texel, and on the node renderer a clear between setRenderTarget and the
+    // draw was leaving the pass writing somewhere other than the target it had
+    // just been given.
     quad.render(renderer);
   }
 
@@ -192,7 +198,6 @@ export function createPost({ renderer, targets, makeTarget }) {
 
     for (let i = 1; i < chain.length; i++) {
       downSrc.value = chain[i - 1].down.texture;
-      uDownTexel.value.set(1 / chain[i - 1].w, 1 / chain[i - 1].h);
       draw(downMat, chain[i].down);
     }
 
@@ -201,13 +206,11 @@ export function createPost({ renderer, targets, makeTarget }) {
     // Seed the top of the pyramid with itself, then walk down accumulating.
     upSrc.value = chain[last].down.texture;
     upPrev.value = chain[last].down.texture;
-    uUpTexel.value.set(1 / chain[last].w, 1 / chain[last].h);
     draw(upMat, chain[last].up);
 
     for (let i = last - 1; i >= 0; i--) {
       upSrc.value = chain[i + 1].up.texture;
       upPrev.value = chain[i].down.texture;
-      uUpTexel.value.set(1 / chain[i + 1].w, 1 / chain[i + 1].h);
       draw(upMat, chain[i].up);
     }
 

@@ -9,15 +9,19 @@
 // clump mask so the reef forms patches with clean sand between them. Nothing is
 // placed by guessing a height: every instance asks terrain.seabedHeight().
 //
-// Two shared MeshStandardMaterials carry the whole reef:
+// Two shared MeshStandardNodeMaterials carry the whole reef:
 //   matRigid  front-faced, still      brain / table / staghorn / bush / urchin / rubble
 //   matSoft   double-sided, swaying   sea fan / kelp
-// Both get a cheap caustic ripple injected through onBeforeCompile so the reef
+// Both get a cheap caustic ripple folded into the lit result so the reef
 // shimmers with the same light the seabed does.
 
 import * as THREE from 'three';
+import {
+  Fn, uniform, attribute, positionLocal, positionGeometry, positionWorld, normalWorld,
+  vec2, vec3, vec4, floor, fract, dot, mix, abs, sin, oneMinus,
+  clamp as tslClamp, smoothstep as tslSmoothstep,
+} from 'three/tsl';
 import { LAYER, setLayers } from '../core/layers.js';
-import { GLSL } from '../core/glsl.js';
 import { makeRng, fbm2D, worley2D, smoothstep, clamp } from '../core/rng.js';
 
 // --- module scope scratch (never allocate in update, never in a hot loop) ----
@@ -319,71 +323,69 @@ const PALETTE = {
 
 // ------------------------------------------------------------------- shading
 
-const REEF_CAUSTIC = /* glsl */`
-float reefCaustic(vec2 p, float t){
-  float a = vnoise(p + vec2(t * 0.055, -t * 0.041));
-  float b = vnoise(p * 1.63 + vec2(-t * 0.047, t * 0.062));
-  float v = 1.0 - clamp(abs(a - b) * 3.4, 0.0, 1.0);
-  return v * v * v;
-}
-`;
+// core/glsl.js's hash12 / vnoise, as node graphs. Identical constants, so the
+// ripple lands in exactly the same places it did in GLSL.
+const hash12 = Fn(([p]) => {
+  const p3 = fract(vec3(p.x, p.y, p.x).mul(0.1031)).toVar();
+  p3.addAssign(vec3(dot(p3, p3.yzx.add(33.33))));
+  return fract(p3.x.add(p3.y).mul(p3.z));
+});
 
+const vnoise = Fn(([p]) => {
+  const i = floor(p).toVar();
+  const f = fract(p).toVar();
+  const u = f.mul(f).mul(f.mul(-2.0).add(3.0)).toVar();
+  return mix(
+    mix(hash12(i), hash12(i.add(vec2(1, 0))), u.x),
+    mix(hash12(i.add(vec2(0, 1))), hash12(i.add(vec2(1, 1))), u.x),
+    u.y,
+  );
+});
+
+const reefCaustic = Fn(([p, t]) => {
+  const a = vnoise(p.add(vec2(t.mul(0.055), t.mul(-0.041))));
+  const b = vnoise(p.mul(1.63).add(vec2(t.mul(-0.047), t.mul(0.062))));
+  const v = oneMinus(tslClamp(abs(a.sub(b)).mul(3.4), 0, 1)).toVar();
+  return v.mul(v).mul(v);
+});
+
+// The GLSL used to reach `instanceMatrix` directly; `positionNode` runs after
+// the node renderer has already folded the instance transform into
+// `positionLocal`, so the three things the sway needs out of that matrix ride
+// along as per-instance attributes instead. `aReefOrigin` is the instance's
+// world x/z (the phase decorrelator), `aReefAxisX` / `aReefAxisZ` are the
+// matrix's X and Z columns, which is what carries the instance's yaw, tilt and
+// scale into the displacement exactly as the multiply used to.
 function decorateReefMaterial(mat, uni, sway) {
-  mat.onBeforeCompile = (shader) => {
-    shader.uniforms.uReefTime = uni.uReefTime;
-    shader.uniforms.uCausticColor = uni.uCausticColor;
-    shader.uniforms.uCausticStrength = uni.uCausticStrength;
-    shader.uniforms.uReefSway = uni.uReefSway;
+  if (sway) {
+    mat.positionNode = Fn(() => {
+      const origin = attribute('aReefOrigin', 'vec2');
+      const reefAmp = tslSmoothstep(0.03, 1.0, positionGeometry.y).mul(uni.uReefSway);
+      const reefPh = uni.uReefTime.mul(0.85)
+        .add(origin.x.mul(0.29)).add(origin.y.mul(0.21)).toVar();
+      return positionLocal
+        .add(attribute('aReefAxisX', 'vec3').mul(sin(reefPh).mul(reefAmp).mul(0.17)))
+        .add(attribute('aReefAxisZ', 'vec3').mul(sin(reefPh.mul(1.41).add(1.7)).mul(reefAmp).mul(0.13)));
+    })();
+  }
 
-    shader.vertexShader =
-      'varying vec3 vReefW;\nvarying float vReefUp;\nuniform float uReefTime;\nuniform float uReefSway;\n' +
-      shader.vertexShader;
+  // The shimmer multiplies the *lit* colour and has to land before fog, which is
+  // where `#include <opaque_fragment>` used to put it. `setupOutput` is the node
+  // material's fog hook, so wrapping it drops the caustic in at the same point
+  // in the chain rather than on top of the fogged result.
+  const causticGain = Fn(() => {
+    const reefUp = tslClamp(normalWorld.y.mul(0.5).add(0.5), 0, 1).toVar();
+    reefUp.mulAssign(reefUp);
+    const reefFade = tslSmoothstep(-19.0, -1.5, positionWorld.y);
+    const reefC = reefCaustic(positionWorld.xz.mul(0.42), uni.uReefTime);
+    return uni.uCausticColor
+      .mul(reefC.mul(uni.uCausticStrength).mul(reefUp).mul(reefFade))
+      .add(1.0);
+  })();
 
-    if (sway) {
-      shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', /* glsl */`
-        #include <begin_vertex>
-        {
-          #ifdef USE_INSTANCING
-            vec3 reefOrigin = instanceMatrix[3].xyz;
-          #else
-            vec3 reefOrigin = vec3(0.0);
-          #endif
-          float reefAmp = smoothstep(0.03, 1.0, transformed.y) * uReefSway;
-          float reefPh = uReefTime * 0.85 + reefOrigin.x * 0.29 + reefOrigin.z * 0.21;
-          transformed.x += sin(reefPh) * reefAmp * 0.17;
-          transformed.z += sin(reefPh * 1.41 + 1.7) * reefAmp * 0.13;
-        }
-      `);
-    }
-
-    shader.vertexShader = shader.vertexShader.replace('#include <project_vertex>', /* glsl */`
-      #include <project_vertex>
-      #ifdef USE_INSTANCING
-        vReefW = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;
-        vReefUp = normalize(mat3(instanceMatrix) * objectNormal).y;
-      #else
-        vReefW = (modelMatrix * vec4(transformed, 1.0)).xyz;
-        vReefUp = objectNormal.y;
-      #endif
-    `);
-
-    shader.fragmentShader =
-      'varying vec3 vReefW;\nvarying float vReefUp;\nuniform float uReefTime;\n' +
-      'uniform vec3 uCausticColor;\nuniform float uCausticStrength;\n' +
-      GLSL.hash + GLSL.noise + REEF_CAUSTIC + shader.fragmentShader;
-
-    shader.fragmentShader = shader.fragmentShader.replace('#include <opaque_fragment>', /* glsl */`
-      #include <opaque_fragment>
-      {
-        float reefUp = clamp(vReefUp * 0.5 + 0.5, 0.0, 1.0);
-        reefUp *= reefUp;
-        float reefFade = smoothstep(-19.0, -1.5, vReefW.y);
-        float reefC = reefCaustic(vReefW.xz * 0.42, uReefTime);
-        gl_FragColor.rgb *= 1.0 + uCausticColor * (reefC * uCausticStrength * reefUp * reefFade);
-      }
-    `);
-  };
-  mat.customProgramCacheKey = () => (sway ? 'saltyfin-reef-soft' : 'saltyfin-reef-rigid');
+  const superSetupOutput = mat.setupOutput.bind(mat);
+  mat.setupOutput = (builder, outputNode) =>
+    superSetupOutput(builder, vec4(outputNode.rgb.mul(causticGain), outputNode.a));
 }
 
 // ---------------------------------------------------------------- the module
@@ -394,10 +396,10 @@ export function createCoral(opts = {}) {
 
   const terrain = opts.terrain;
   const uni = {
-    uReefTime: { value: 0 },
-    uCausticColor: { value: new THREE.Color(0.5, 0.8, 0.85) },
-    uCausticStrength: { value: 0.55 },
-    uReefSway: { value: 1 },
+    uReefTime: uniform(0),
+    uCausticColor: uniform(new THREE.Color(0.5, 0.8, 0.85)),
+    uCausticStrength: uniform(0.55),
+    uReefSway: uniform(1),
   };
 
   if (!terrain || typeof terrain.seabedHeight !== 'function') {
@@ -527,11 +529,11 @@ export function createCoral(opts = {}) {
 
   // --- materials ------------------------------------------------------------
 
-  const matRigid = new THREE.MeshStandardMaterial({
+  const matRigid = new THREE.MeshStandardNodeMaterial({
     color: 0xffffff, vertexColors: true, roughness: 0.86, metalness: 0.0,
     flatShading: false, side: THREE.FrontSide, fog: true, dithering: true,
   });
-  const matSoft = new THREE.MeshStandardMaterial({
+  const matSoft = new THREE.MeshStandardNodeMaterial({
     color: 0xffffff, vertexColors: true, roughness: 0.78, metalness: 0.0,
     side: THREE.DoubleSide, fog: true, dithering: true,
   });
@@ -550,6 +552,11 @@ export function createCoral(opts = {}) {
     mesh.castShadow = false;
     mesh.receiveShadow = false;
     mesh.frustumCulled = true;
+
+    // Only the swaying archetypes need the instance-matrix crib sheet.
+    const swayO = A.soft ? new Float32Array(n * 2) : null;
+    const swayX = A.soft ? new Float32Array(n * 3) : null;
+    const swayZ = A.soft ? new Float32Array(n * 3) : null;
 
     for (let i = 0; i < n; i++) {
       const o = i * 8;
@@ -572,6 +579,13 @@ export function createCoral(opts = {}) {
       _m4.compose(_p, _qa, _s);
       mesh.setMatrixAt(i, _m4);
 
+      if (swayO) {
+        const me = _m4.elements;
+        swayO[i * 2] = me[12]; swayO[i * 2 + 1] = me[14];
+        swayX[i * 3] = me[0]; swayX[i * 3 + 1] = me[1]; swayX[i * 3 + 2] = me[2];
+        swayZ[i * 3] = me[8]; swayZ[i * 3 + 1] = me[9]; swayZ[i * 3 + 2] = me[10];
+      }
+
       // Per-instance albedo: pick from the archetype palette, jitter in HSL,
       // then bias warm because the water eats red long before it eats blue.
       _c.copy(A.palette[Math.min(A.palette.length - 1, Math.floor(r1 * A.palette.length))]);
@@ -579,6 +593,11 @@ export function createCoral(opts = {}) {
       _c.r = Math.min(1, _c.r * 1.10);
       _c.b = _c.b * 0.94;
       mesh.setColorAt(i, _c);
+    }
+    if (swayO) {
+      A.geo.setAttribute('aReefOrigin', new THREE.InstancedBufferAttribute(swayO, 2));
+      A.geo.setAttribute('aReefAxisX', new THREE.InstancedBufferAttribute(swayX, 3));
+      A.geo.setAttribute('aReefAxisZ', new THREE.InstancedBufferAttribute(swayZ, 3));
     }
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;

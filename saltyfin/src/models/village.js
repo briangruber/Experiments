@@ -17,6 +17,7 @@
 // constellation of warm rectangles and nothing else about the module changes.
 
 import * as THREE from 'three';
+import { Fn, uniform, attribute, vertexColor, float, sin, step } from 'three/tsl';
 import { LAYER, setLayers } from '../core/layers.js';
 import { makeRng } from '../core/rng.js';
 
@@ -176,33 +177,29 @@ function makePrism() {
 
 // --- the emissive-window material -------------------------------------------
 //
-// One MeshStandardMaterial with a two-line injection: a per-vertex vec2 where
+// One MeshStandardNodeMaterial with an `emissiveNode`: a per-vertex vec2 where
 // x is "how lit is this pane" and y is a flicker seed (0 = steady). The pane
 // tint comes from the vertex colour so a candle-lit attic can be warmer than a
 // tavern window without another material.
+//
+// `emissiveNode` stands in for the whole `totalEmissiveRadiance` term the GLSL
+// used to add to; the material's own `emissive` is black and unused either way.
+// `vertexColor()` is a vec4 — instancing can supply a fourth channel — so the
+// multiply must take `.rgb` or the windows pick up an alpha they never had.
 
 function makeGlowMaterial(uniforms, baseHex) {
-  const m = new THREE.MeshStandardMaterial({
+  const m = new THREE.MeshStandardNodeMaterial({
     color: C(baseHex), roughness: 0.28, metalness: 0.0, vertexColors: true, fog: true,
   });
-  m.onBeforeCompile = (shader) => {
-    shader.uniforms.uGlowTime = uniforms.time;
-    shader.uniforms.uGlowColor = uniforms.color;
-    shader.uniforms.uGlowI = uniforms.intensity;
-    shader.vertexShader = 'attribute vec2 aGlow;\nvarying vec2 vGlow;\n' + shader.vertexShader.replace(
-      '#include <begin_vertex>',
-      '#include <begin_vertex>\n  vGlow = aGlow;',
-    );
-    shader.fragmentShader = 'uniform float uGlowTime;\nuniform vec3 uGlowColor;\nuniform float uGlowI;\nvarying vec2 vGlow;\n' + shader.fragmentShader.replace(
-      'vec3 totalEmissiveRadiance = emissive;',
-      `vec3 totalEmissiveRadiance = emissive;
-  float gph = vGlow.y;
-  float gfl = 1.0 + step(0.001, gph) * (
-      0.16 * sin(uGlowTime * (1.7 + gph * 3.3) + gph * 37.0)
-    + 0.09 * sin(uGlowTime * (5.9 + gph * 2.1) + gph * 11.0));
-  totalEmissiveRadiance += uGlowColor * (uGlowI * vGlow.x * gfl) * vColor.rgb;`,
-    );
-  };
+  m.emissiveNode = Fn(() => {
+    const glow = attribute('aGlow', 'vec2');
+    const gph = glow.y.toVar();
+    const gfl = float(1).add(step(0.001, gph).mul(
+      sin(uniforms.time.mul(gph.mul(3.3).add(1.7)).add(gph.mul(37.0))).mul(0.16)
+        .add(sin(uniforms.time.mul(gph.mul(2.1).add(5.9)).add(gph.mul(11.0))).mul(0.09)),
+    ));
+    return uniforms.color.mul(uniforms.intensity.mul(glow.x).mul(gfl)).mul(vertexColor().rgb);
+  })();
   return m;
 }
 
@@ -1009,9 +1006,9 @@ export function createVillage(opts = {}) {
   // --- assemble -------------------------------------------------------------
 
   const uniforms = {
-    time: { value: 0 },
-    color: { value: new THREE.Color(1, 0.72, 0.36) },
-    intensity: { value: 0 },
+    time: uniform(0),
+    color: uniform(new THREE.Color(1, 0.72, 0.36)),
+    intensity: uniform(0),
   };
 
   const matSolid = new THREE.MeshStandardMaterial({

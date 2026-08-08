@@ -23,6 +23,11 @@
 // `env.beamOpacity`, which is zero by day and 0.34 at night.
 
 import * as THREE from 'three';
+import {
+  Fn, uniform, attribute, vertexColor, varying,
+  normalView, positionViewDirection, positionGeometry,
+  vec4, float, sin, step, pow, abs, dot, clamp, smoothstep,
+} from 'three/tsl';
 import { LAYER, setLayers } from '../core/layers.js';
 import { makeRng } from '../core/rng.js';
 
@@ -169,27 +174,18 @@ function makePrism() {
 // --- the emissive-window material (same two-line injection as the village) -----
 
 function makeGlowMaterial(uniforms, baseHex) {
-  const m = new THREE.MeshStandardMaterial({
+  const m = new THREE.MeshStandardNodeMaterial({
     color: C(baseHex), roughness: 0.28, metalness: 0.0, vertexColors: true, fog: true,
   });
-  m.onBeforeCompile = (shader) => {
-    shader.uniforms.uGlowTime = uniforms.time;
-    shader.uniforms.uGlowColor = uniforms.color;
-    shader.uniforms.uGlowI = uniforms.intensity;
-    shader.vertexShader = 'attribute vec2 aGlow;\nvarying vec2 vGlow;\n' + shader.vertexShader.replace(
-      '#include <begin_vertex>',
-      '#include <begin_vertex>\n  vGlow = aGlow;',
-    );
-    shader.fragmentShader = 'uniform float uGlowTime;\nuniform vec3 uGlowColor;\nuniform float uGlowI;\nvarying vec2 vGlow;\n' + shader.fragmentShader.replace(
-      'vec3 totalEmissiveRadiance = emissive;',
-      `vec3 totalEmissiveRadiance = emissive;
-  float gph = vGlow.y;
-  float gfl = 1.0 + step(0.001, gph) * (
-      0.15 * sin(uGlowTime * (1.6 + gph * 3.1) + gph * 31.0)
-    + 0.08 * sin(uGlowTime * (5.7 + gph * 2.3) + gph * 17.0));
-  totalEmissiveRadiance += uGlowColor * (uGlowI * vGlow.x * gfl) * vColor.rgb;`,
-    );
-  };
+  m.emissiveNode = Fn(() => {
+    const glow = attribute('aGlow', 'vec2');
+    const gph = glow.y.toVar();
+    const gfl = float(1).add(step(0.001, gph).mul(
+      sin(uniforms.time.mul(gph.mul(3.1).add(1.6)).add(gph.mul(31.0))).mul(0.15)
+        .add(sin(uniforms.time.mul(gph.mul(2.3).add(5.7)).add(gph.mul(17.0))).mul(0.08)),
+    ));
+    return uniforms.color.mul(uniforms.intensity.mul(glow.x).mul(gfl)).mul(vertexColor().rgb);
+  })();
   return m;
 }
 
@@ -202,63 +198,36 @@ function makeGlowMaterial(uniforms, baseHex) {
 // what stops it reading as a hard-edged triangle. `vT` fades it in off the lamp
 // and out toward the tip.
 
-const BEAM_VERT = /* glsl */`
-uniform float uLen;
-varying vec3 vN;
-varying vec3 vV;
-varying float vT;
-void main() {
-  vT = clamp(position.z / uLen, 0.0, 1.0);
-  vec4 mv = modelViewMatrix * vec4(position, 1.0);
-  vV = -mv.xyz;
-  vN = normalMatrix * normal;
-  gl_Position = projectionMatrix * mv;
+// `normalView` is the interpolated view-space normal and `positionViewDirection`
+// the normalised fragment-to-camera vector, which is exactly what the old
+// `normalize(vN)` / `normalize(vV)` pair was. `vT` still has to be computed per
+// *vertex* off the raw geometry, so it goes through `varying()`.
+function makeBeamMaterial(uni) {
+  const m = new THREE.NodeMaterial();
+  m.fragmentNode = Fn(() => {
+    const facing = abs(dot(normalView, positionViewDirection));
+    const core = pow(facing, 1.7);
+    const vT = varying(clamp(positionGeometry.z.div(uni.uLen), 0, 1)).toVar();
+    const near = smoothstep(0.0, 0.055, vT);
+    const far = float(1).sub(smoothstep(0.30, 1.0, vT));
+    const a = uni.uOpacity.mul(core).mul(near).mul(far).toVar();
+    return vec4(uni.uColor.mul(a), a);
+  })();
+  return m;
 }
-`;
-
-const BEAM_FRAG = /* glsl */`
-uniform vec3 uColor;
-uniform float uOpacity;
-varying vec3 vN;
-varying vec3 vV;
-varying float vT;
-void main() {
-  vec3 N = normalize(vN);
-  vec3 V = normalize(vV);
-  float facing = abs(dot(N, V));
-  float core = pow(facing, 1.7);
-  float near = smoothstep(0.0, 0.055, vT);
-  float far = 1.0 - smoothstep(0.30, 1.0, vT);
-  float a = uOpacity * core * near * far;
-  gl_FragColor = vec4(uColor * a, a);
-}
-`;
 
 // The lamp's own halo: the same trick on a sphere, but un-inverted, so the alpha
 // peaks dead centre. Small, additive, and the only reason the lantern still
 // blooms from four hundred metres away.
-const HALO_VERT = /* glsl */`
-varying vec3 vN;
-varying vec3 vV;
-void main() {
-  vec4 mv = modelViewMatrix * vec4(position, 1.0);
-  vV = -mv.xyz;
-  vN = normalMatrix * normal;
-  gl_Position = projectionMatrix * mv;
+function makeHaloMaterial(uni) {
+  const m = new THREE.NodeMaterial();
+  m.fragmentNode = Fn(() => {
+    const f = clamp(dot(normalView, positionViewDirection), 0, 1);
+    const a = uni.uOpacity.mul(pow(f, 2.6)).toVar();
+    return vec4(uni.uColor.mul(a), a);
+  })();
+  return m;
 }
-`;
-
-const HALO_FRAG = /* glsl */`
-uniform vec3 uColor;
-uniform float uOpacity;
-varying vec3 vN;
-varying vec3 vV;
-void main() {
-  float f = clamp(dot(normalize(vN), normalize(vV)), 0.0, 1.0);
-  float a = uOpacity * pow(f, 2.6);
-  gl_FragColor = vec4(uColor * a, a);
-}
-`;
 
 // ==============================================================================
 
@@ -752,9 +721,9 @@ export function createLighthouse(opts = {}) {
   // =========================================================================
 
   const uniforms = {
-    time: { value: 0 },
-    color: { value: new THREE.Color(1, 0.72, 0.36) },
-    intensity: { value: 0 },
+    time: uniform(0),
+    color: uniform(new THREE.Color(1, 0.72, 0.36)),
+    intensity: uniform(0),
   };
 
   const matSolid = new THREE.MeshStandardMaterial({
@@ -836,19 +805,15 @@ export function createLighthouse(opts = {}) {
   // The halo. Alpha peaks dead centre, so it reads as a soft ball of light
   // rather than a sphere, and it is what survives the bloom threshold at 400 m.
   const haloUniforms = {
-    uColor: { value: new THREE.Color(1, 0.88, 0.7) },
-    uOpacity: { value: 0.0 },
+    uColor: uniform(new THREE.Color(1, 0.88, 0.7)),
+    uOpacity: uniform(0.0),
   };
-  const haloMat = new THREE.ShaderMaterial({
-    uniforms: haloUniforms,
-    vertexShader: HALO_VERT,
-    fragmentShader: HALO_FRAG,
-    transparent: true,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-    side: THREE.FrontSide,
-    fog: false,
-  });
+  const haloMat = makeHaloMaterial(haloUniforms);
+  haloMat.transparent = true;
+  haloMat.depthWrite = false;
+  haloMat.blending = THREE.AdditiveBlending;
+  haloMat.side = THREE.FrontSide;
+  haloMat.fog = false;
   const haloGeo = new THREE.SphereGeometry(2.9, 20, 14);
   const halo = new THREE.Mesh(haloGeo, haloMat);
   halo.position.set(TX, lampWorldY, TZ);
@@ -869,21 +834,17 @@ export function createLighthouse(opts = {}) {
   const BEAM_R = 15.5;
 
   const beamUniforms = {
-    uColor: { value: new THREE.Color(1, 0.9, 0.74) },
-    uOpacity: { value: 0.0 },
-    uLen: { value: BEAM_LEN },
+    uColor: uniform(new THREE.Color(1, 0.9, 0.74)),
+    uOpacity: uniform(0.0),
+    uLen: uniform(BEAM_LEN),
   };
-  const beamMat = new THREE.ShaderMaterial({
-    uniforms: beamUniforms,
-    vertexShader: BEAM_VERT,
-    fragmentShader: BEAM_FRAG,
-    transparent: true,
-    depthWrite: false,
-    depthTest: true,
-    blending: THREE.AdditiveBlending,
-    side: THREE.DoubleSide,
-    fog: false,
-  });
+  const beamMat = makeBeamMaterial(beamUniforms);
+  beamMat.transparent = true;
+  beamMat.depthWrite = false;
+  beamMat.depthTest = true;
+  beamMat.blending = THREE.AdditiveBlending;
+  beamMat.side = THREE.DoubleSide;
+  beamMat.fog = false;
 
   // ConeGeometry puts its apex at +Y; slide it so the apex is at the origin and
   // then lay it down the +Z axis, which is the axis the shader measures `vT` on.

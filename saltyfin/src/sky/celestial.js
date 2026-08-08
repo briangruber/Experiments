@@ -10,9 +10,17 @@
 // line at sunset. The moon is dimmer, carries a phase terminator, very low
 // contrast maria and a soft halo ring. Both fade with their own intensity so
 // they cross-dissolve through dusk.
+//
+// Ported from GLSL to TSL. The old `varying vec2 vUv` is just `uv()`; the maria
+// fbm is the shared value noise from sky.js, same hash constants as the WebGL
+// build so the moon has the same face.
 
 import * as THREE from 'three';
-import { GLSL } from '../core/glsl.js';
+import {
+  Fn, uniform, uv, vec4, float,
+  max, clamp, pow, dot, smoothstep, sqrt, length,
+} from 'three/tsl';
+import { fbmValue2 } from './sky.js';
 import { LAYER, setLayers } from '../core/layers.js';
 
 const DIST = 4200;
@@ -26,88 +34,6 @@ const MOON_ANG = 0.0225;
 // for the glow to fall off in.
 const SUN_FILL = 0.32;
 const MOON_FILL = 0.30;
-
-const VERT = /* glsl */`
-varying vec2 vUv;
-void main(){
-  vUv = uv;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-}
-`;
-
-const SUN_FRAG = /* glsl */`
-varying vec2 vUv;
-uniform vec3  uColor;
-uniform vec3  uHalo;
-uniform float uBright;
-uniform float uGlow;
-uniform float uSoft;
-uniform float uOpacity;
-
-${GLSL.util}
-
-void main(){
-  vec2 p = vUv * 2.0 - 1.0;
-  float r = length(p);
-
-  float disc = 1.0 - smoothstep(${SUN_FILL.toFixed(3)} - uSoft, ${SUN_FILL.toFixed(3)} + uSoft, r);
-  // A touch of limb softening inside the disc so the edge is not a hard cut.
-  disc *= 0.86 + 0.14 * (1.0 - sat(r / ${SUN_FILL.toFixed(3)}));
-
-  float glow = pow(sat(1.0 - r), 3.2);
-
-  vec3 c = uColor * (uBright * disc) + uHalo * (glow * uGlow);
-  gl_FragColor = vec4(c * uOpacity, 1.0);
-}
-`;
-
-const MOON_FRAG = /* glsl */`
-varying vec2 vUv;
-uniform vec3  uColor;
-uniform float uBright;
-uniform float uGlow;
-uniform float uSoft;
-uniform float uPhase;
-uniform float uOpacity;
-
-${GLSL.util}
-${GLSL.hash}
-${GLSL.noise}
-
-const mat2 MROT = mat2(0.80, -0.60, 0.60, 0.80);
-float mfbm(vec2 p){
-  float s = 0.0, a = 0.5, n = 0.0;
-  for(int i=0;i<3;i++){ s += a*vnoise(p); n += a; a *= 0.5; p = MROT*p*2.07; }
-  return s/max(n, 1e-4);
-}
-
-void main(){
-  vec2 p = vUv * 2.0 - 1.0;
-  float r = length(p);
-
-  float fill = ${MOON_FILL.toFixed(3)};
-  float disc = 1.0 - smoothstep(fill - uSoft, fill + uSoft, r);
-
-  // Unit-disc coordinates, and the height of the sphere at that point.
-  vec2 q = p / fill;
-  float z = sqrt(max(1.0 - dot(q, q), 0.0));
-
-  // Phase terminator: an ellipse sweeping across the face. 1 = full.
-  float k = 2.0 * uPhase - 1.0;
-  float xt = -k * sqrt(max(1.0 - q.y*q.y, 0.0));
-  float lit = smoothstep(xt - 0.09, xt + 0.09, q.x);
-
-  // Faint maria. Low contrast on purpose — it should read as texture, not map.
-  float m = mfbm(q * 1.9 + 4.0);
-  float maria = 1.0 - 0.15 * smoothstep(0.42, 0.70, m);
-  float limb = 0.80 + 0.20 * pow(z, 0.45);
-
-  float glow = pow(sat(1.0 - r), 3.0);
-
-  vec3 c = uColor * (uBright * disc * lit * maria * limb) + uColor * (glow * uGlow);
-  gl_FragColor = vec4(c * uOpacity, 1.0);
-}
-`;
 
 const _dir = new THREE.Vector3();
 const _neg = new THREE.Vector3();
@@ -124,41 +50,78 @@ function place(mesh, dir) {
 export function createCelestial() {
   const geo = new THREE.PlaneGeometry(1, 1);
 
-  const sunMat = new THREE.ShaderMaterial({
-    vertexShader: VERT,
-    fragmentShader: SUN_FRAG,
-    transparent: true,
-    depthWrite: false,
-    depthTest: true,
-    blending: THREE.AdditiveBlending,
-    fog: false,
-    uniforms: {
-      uColor: { value: new THREE.Color(1, 1, 1) },
-      uHalo: { value: new THREE.Color(1, 1, 1) },
-      uBright: { value: 10 },
-      uGlow: { value: 0.6 },
-      uSoft: { value: 0.02 },
-      uOpacity: { value: 1 },
-    },
-  });
+  const bodyMat = () => {
+    const m = new THREE.NodeMaterial();
+    m.transparent = true;
+    m.depthWrite = false;
+    m.depthTest = true;
+    m.blending = THREE.AdditiveBlending;
+    m.fog = false;
+    return m;
+  };
 
-  const moonMat = new THREE.ShaderMaterial({
-    vertexShader: VERT,
-    fragmentShader: MOON_FRAG,
-    transparent: true,
-    depthWrite: false,
-    depthTest: true,
-    blending: THREE.AdditiveBlending,
-    fog: false,
-    uniforms: {
-      uColor: { value: new THREE.Color(0.8, 0.88, 1) },
-      uBright: { value: 3.4 },
-      uGlow: { value: 0.32 },
-      uSoft: { value: 0.02 },
-      uPhase: { value: 1 },
-      uOpacity: { value: 1 },
-    },
-  });
+  // --- sun -------------------------------------------------------------------
+  const sunColor = uniform(new THREE.Vector3(1, 1, 1));
+  const sunHalo = uniform(new THREE.Vector3(1, 1, 1));
+  const sunBright = uniform(10);
+  const sunGlow = uniform(0.6);
+  const sunSoft = uniform(0.02);
+  const sunOpacity = uniform(1);
+
+  const sunMat = bodyMat();
+  sunMat.fragmentNode = Fn(() => {
+    const p = uv().mul(2.0).sub(1.0).toVar();
+    const r = length(p).toVar();
+
+    const disc = smoothstep(
+      float(SUN_FILL).sub(sunSoft), float(SUN_FILL).add(sunSoft), r,
+    ).oneMinus().toVar();
+    // A touch of limb softening inside the disc so the edge is not a hard cut.
+    disc.mulAssign(clamp(r.div(SUN_FILL), 0, 1).oneMinus().mul(0.14).add(0.86));
+
+    const glow = pow(clamp(r.oneMinus(), 0, 1), 3.2).toVar();
+
+    const c = sunColor.mul(sunBright.mul(disc)).add(sunHalo.mul(glow.mul(sunGlow))).toVar();
+    return vec4(c.mul(sunOpacity), 1.0);
+  })();
+
+  // --- moon ------------------------------------------------------------------
+  const moonColor = uniform(new THREE.Vector3(0.8, 0.88, 1));
+  const moonBright = uniform(3.4);
+  const moonGlow = uniform(0.32);
+  const moonSoft = uniform(0.02);
+  const moonPhase = uniform(1);
+  const moonOpacity = uniform(1);
+
+  const moonMat = bodyMat();
+  moonMat.fragmentNode = Fn(() => {
+    const p = uv().mul(2.0).sub(1.0).toVar();
+    const r = length(p).toVar();
+
+    const disc = smoothstep(
+      float(MOON_FILL).sub(moonSoft), float(MOON_FILL).add(moonSoft), r,
+    ).oneMinus().toVar();
+
+    // Unit-disc coordinates, and the height of the sphere at that point.
+    const q = p.div(MOON_FILL).toVar();
+    const z = sqrt(max(float(1.0).sub(dot(q, q)), 0.0)).toVar();
+
+    // Phase terminator: an ellipse sweeping across the face. 1 = full.
+    const k = moonPhase.mul(2.0).sub(1.0).toVar();
+    const xt = k.negate().mul(sqrt(max(float(1.0).sub(q.y.mul(q.y)), 0.0))).toVar();
+    const lit = smoothstep(xt.sub(0.09), xt.add(0.09), q.x).toVar();
+
+    // Faint maria. Low contrast on purpose — it should read as texture, not map.
+    const m = fbmValue2(q.mul(1.9).add(4.0), 3).toVar();
+    const maria = smoothstep(0.42, 0.70, m).mul(0.15).oneMinus().toVar();
+    const limb = pow(z, 0.45).mul(0.20).add(0.80).toVar();
+
+    const glow = pow(clamp(r.oneMinus(), 0, 1), 3.0).toVar();
+
+    const c = moonColor.mul(moonBright.mul(disc).mul(lit).mul(maria).mul(limb))
+      .add(moonColor.mul(glow.mul(moonGlow))).toVar();
+    return vec4(c.mul(moonOpacity), 1.0);
+  })();
 
   const sun = new THREE.Mesh(geo, sunMat);
   const moon = new THREE.Mesh(geo, moonMat);
@@ -185,15 +148,14 @@ export function createCelestial() {
       if (sun.visible) {
         _dir.copy(env.sunDir);
         place(sun, _dir);
-        const su = sunMat.uniforms;
-        su.uColor.value.copy(env.sunDiscColor);
-        su.uHalo.value.copy(env.sunHalo);
+        sunColor.value.set(env.sunDiscColor.r, env.sunDiscColor.g, env.sunDiscColor.b);
+        sunHalo.value.set(env.sunHalo.r, env.sunHalo.g, env.sunHalo.b);
         // Hot and small when it is high, gold and fat when it is on the water.
         const high = clamp01(env.sunDir.y * 2.2);
-        su.uBright.value = 1.8 + 2.0 * clamp01(env.sunIntensity / 3.7) + 7.5 * high;
-        su.uGlow.value = 0.35 + 0.85 * (1.0 - high);
-        su.uSoft.value = 0.012 + 0.045 * (1.0 - clamp01(env.sunDir.y * 3.0));
-        su.uOpacity.value = sunVis;
+        sunBright.value = 1.8 + 2.0 * clamp01(env.sunIntensity / 3.7) + 7.5 * high;
+        sunGlow.value = 0.35 + 0.85 * (1.0 - high);
+        sunSoft.value = 0.012 + 0.045 * (1.0 - clamp01(env.sunDir.y * 3.0));
+        sunOpacity.value = sunVis;
       }
 
       // --- moon --------------------------------------------------------------
@@ -202,13 +164,12 @@ export function createCelestial() {
       if (moon.visible) {
         _dir.copy(env.moonDir);
         place(moon, _dir);
-        const mu = moonMat.uniforms;
-        mu.uColor.value.copy(env.moonColor);
-        mu.uBright.value = 0.85 + 0.85 * clamp01(env.moonIntensity);
-        mu.uGlow.value = 0.12 + 0.12 * clamp01(env.moonIntensity);
-        mu.uSoft.value = 0.014;
-        mu.uPhase.value = env.moonPhase;
-        mu.uOpacity.value = moonVis;
+        moonColor.value.set(env.moonColor.r, env.moonColor.g, env.moonColor.b);
+        moonBright.value = 0.85 + 0.85 * clamp01(env.moonIntensity);
+        moonGlow.value = 0.12 + 0.12 * clamp01(env.moonIntensity);
+        moonSoft.value = 0.014;
+        moonPhase.value = env.moonPhase;
+        moonOpacity.value = moonVis;
       }
     },
 

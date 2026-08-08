@@ -15,6 +15,10 @@
 // belong in the reflection target and never in the refraction target.
 
 import * as THREE from 'three';
+import {
+  Fn, uniform, attribute, positionLocal, positionGeometry,
+  clamp as tslClamp, pow, sin, cos,
+} from 'three/tsl';
 import { LAYER, setLayers } from '../core/layers.js';
 import { makeRng, fbm2D, smoothstep, clamp } from '../core/rng.js';
 
@@ -271,44 +275,42 @@ function makeGrass(rng, baseColor, tipColor) {
 
 // ------------------------------------------------------------------- shading
 
-function decorateVegMaterial(mat, uni, swayHeight, swayAmp, key) {
-  const local = {
-    uVegTime: uni.uVegTime,
-    uVegWind: uni.uVegWind,
-    uVegSwayH: { value: swayHeight },
-    uVegSwayAmp: { value: swayAmp },
-  };
-  mat.userData.vegSway = local;
-  mat.onBeforeCompile = (shader) => {
-    shader.uniforms.uVegTime = local.uVegTime;
-    shader.uniforms.uVegWind = local.uVegWind;
-    shader.uniforms.uVegSwayH = local.uVegSwayH;
-    shader.uniforms.uVegSwayAmp = local.uVegSwayAmp;
+// The wind sway. This used to be an injection into `begin_vertex`; on the node
+// renderer it is the material's `positionNode`.
+//
+// One wrinkle the GLSL did not have: by the time `positionNode` is evaluated the
+// instance transform has *already* been folded into `positionLocal`, so the
+// object-space quantities the sway needs are no longer there. Three small
+// per-instance attributes carry them instead — `aVegOrigin` is the instance's
+// world x/z (the phase decorrelator that used to be `instanceMatrix[3].xyz`),
+// and `aVegAxisX` / `aVegAxisZ` are instanceMatrix's X and Z columns, so the
+// displacement still rides the instance's own yaw, tilt and scale exactly as it
+// did when it was added before the matrix multiply.
+function decorateVegMaterial(mat, uni, swayHeight, swayAmp) {
+  const uVegSwayH = uniform(swayHeight);
+  const uVegSwayAmp = uniform(swayAmp);
 
-    shader.vertexShader =
-      'uniform float uVegTime;\nuniform float uVegWind;\nuniform float uVegSwayH;\nuniform float uVegSwayAmp;\n' +
-      shader.vertexShader;
+  mat.positionNode = Fn(() => {
+    const origin = attribute('aVegOrigin', 'vec2');
 
     // Amplitude is scaled by height above the instance base, so trunks and root
     // clumps stay planted while the canopy moves.
-    shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', /* glsl */`
-      #include <begin_vertex>
-      {
-        #ifdef USE_INSTANCING
-          vec3 vegOrigin = instanceMatrix[3].xyz;
-        #else
-          vec3 vegOrigin = vec3(0.0);
-        #endif
-        float vegH = clamp(transformed.y / uVegSwayH, 0.0, 1.0);
-        float vegAmp = pow(vegH, 1.7) * uVegSwayAmp * uVegWind;
-        float vegPh = uVegTime * 1.10 + vegOrigin.x * 0.085 + vegOrigin.z * 0.127;
-        float vegGust = 0.62 + 0.38 * sin(uVegTime * 0.29 + vegOrigin.x * 0.011 + vegOrigin.z * 0.009);
-        transformed.x += (sin(vegPh) + 0.40 * sin(vegPh * 2.7 + 1.3)) * vegAmp * vegGust * 0.75;
-        transformed.z += (cos(vegPh * 0.83) * 0.55 + 0.28 * sin(vegPh * 2.1)) * vegAmp * vegGust * 0.75;
-      }
-    `);
-  };
-  mat.customProgramCacheKey = () => 'saltyfin-veg-' + key;
+    const vegH = tslClamp(positionGeometry.y.div(uVegSwayH), 0, 1);
+    const vegAmp = pow(vegH, 1.7).mul(uVegSwayAmp).mul(uni.uVegWind);
+    const vegPh = uni.uVegTime.mul(1.10)
+      .add(origin.x.mul(0.085)).add(origin.y.mul(0.127)).toVar();
+    const vegGust = sin(
+      uni.uVegTime.mul(0.29).add(origin.x.mul(0.011)).add(origin.y.mul(0.009)),
+    ).mul(0.38).add(0.62);
+    const k = vegAmp.mul(vegGust).mul(0.75).toVar();
+
+    const dx = sin(vegPh).add(sin(vegPh.mul(2.7).add(1.3)).mul(0.40)).mul(k);
+    const dz = cos(vegPh.mul(0.83)).mul(0.55).add(sin(vegPh.mul(2.1)).mul(0.28)).mul(k);
+
+    return positionLocal
+      .add(attribute('aVegAxisX', 'vec3').mul(dx))
+      .add(attribute('aVegAxisZ', 'vec3').mul(dz));
+  })();
 }
 
 // ---------------------------------------------------------------- the module
@@ -318,7 +320,7 @@ export function createVegetation(opts = {}) {
   group.name = 'vegetation';
 
   const terrain = opts.terrain;
-  const uni = { uVegTime: { value: 0 }, uVegWind: { value: 1 } };
+  const uni = { uVegTime: uniform(0), uVegWind: uniform(1) };
 
   if (!terrain || typeof terrain.isLand !== 'function' || typeof terrain.landHeight !== 'function') {
     return { group, update() {}, applyEnv() {}, dispose() {} };
@@ -450,16 +452,16 @@ export function createVegetation(opts = {}) {
 
   // --- materials ------------------------------------------------------------
 
-  const matTree = new THREE.MeshStandardMaterial({
+  const matTree = new THREE.MeshStandardNodeMaterial({
     color: 0xffffff, vertexColors: true, roughness: 0.94, metalness: 0,
     side: THREE.DoubleSide, fog: true, dithering: true,
   });
-  const matUnder = new THREE.MeshStandardMaterial({
+  const matUnder = new THREE.MeshStandardNodeMaterial({
     color: 0xffffff, vertexColors: true, roughness: 0.96, metalness: 0,
     side: THREE.DoubleSide, fog: true, dithering: true,
   });
-  decorateVegMaterial(matTree, uni, 9.0, 0.19, 'tree');
-  decorateVegMaterial(matUnder, uni, 0.45, 0.055, 'under');
+  decorateVegMaterial(matTree, uni, 9.0, 0.19);
+  decorateVegMaterial(matUnder, uni, 0.45, 0.055);
 
   // --- geometry -------------------------------------------------------------
 
@@ -503,6 +505,12 @@ export function createVegetation(opts = {}) {
       counts[k] > 0 ? new THREE.InstancedMesh(geo, material, counts[k]) : null);
     const cursor = new Array(variants.length).fill(0);
 
+    // What the sway shader needs out of each instance matrix; see
+    // decorateVegMaterial.
+    const swayO = counts.map((c) => (c > 0 ? new Float32Array(c * 2) : null));
+    const swayX = counts.map((c) => (c > 0 ? new Float32Array(c * 3) : null));
+    const swayZ = counts.map((c) => (c > 0 ? new Float32Array(c * 3) : null));
+
     for (let i = 0; i < n; i++) {
       const o = i * 7;
       const x = list[o], y = list[o + 1], z = list[o + 2];
@@ -531,6 +539,11 @@ export function createVegetation(opts = {}) {
       const idx = cursor[v]++;
       mesh.setMatrixAt(idx, _m4);
 
+      const me = _m4.elements;
+      swayO[v][idx * 2] = me[12]; swayO[v][idx * 2 + 1] = me[14];
+      swayX[v][idx * 3] = me[0]; swayX[v][idx * 3 + 1] = me[1]; swayX[v][idx * 3 + 2] = me[2];
+      swayZ[v][idx * 3] = me[8]; swayZ[v][idx * 3 + 1] = me[9]; swayZ[v][idx * 3 + 2] = me[10];
+
       // instanceColor is a tint on top of the baked vertex albedo, so the same
       // geometry gives a stand of trees that are not all the identical green.
       const t = (r3 - 0.5);
@@ -545,6 +558,9 @@ export function createVegetation(opts = {}) {
     for (let k = 0; k < built.length; k++) {
       const mesh = built[k];
       if (!mesh) { variants[k].dispose(); continue; }
+      mesh.geometry.setAttribute('aVegOrigin', new THREE.InstancedBufferAttribute(swayO[k], 2));
+      mesh.geometry.setAttribute('aVegAxisX', new THREE.InstancedBufferAttribute(swayX[k], 3));
+      mesh.geometry.setAttribute('aVegAxisZ', new THREE.InstancedBufferAttribute(swayZ[k], 3));
       mesh.count = cursor[k];
       mesh.name = cfg.name + '-' + k;
       mesh.castShadow = !!cfg.castShadow;

@@ -48,7 +48,12 @@ export async function createRenderer({ canvas, tier = 'high', pixelRatio, forceW
   await renderer.init();
 
   renderer.setClearColor(0x000000, 1);
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  // Linear, NOT sRGB. core/post.js encodes to sRGB itself, at the end of the
+  // composite, and the WebGL build got away with declaring the output sRGB
+  // because a RawShaderMaterial bypasses three's output-encoding injection. A
+  // NodeMaterial does not, so leaving this as sRGB encodes the frame twice and
+  // the whole scene comes back two to three stops bright and washed toward grey.
+  renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
   renderer.toneMapping = THREE.NoToneMapping;   // post does it
   renderer.shadowMap.enabled = TIERS[tier].shadows;
   // Unlike the WebGL renderer, the node path's soft shadow filtering is done in
