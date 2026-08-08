@@ -23,6 +23,7 @@
 
 import * as THREE from 'three';
 import { GLSL } from '../core/glsl.js';
+import { makeRng } from '../core/rng.js';
 import { LAYER, setLayers } from '../core/layers.js';
 
 const RADIUS = 4500;
@@ -37,7 +38,7 @@ void main(){
 
 function buildFragment(quality) {
   const steps = quality?.cloudSteps ?? 24;
-  const mwOct = steps >= 20 ? 4 : (steps >= 12 ? 3 : 2);
+  const mwOct = steps >= 20 ? 3 : 2;
 
   return /* glsl */`
 varying vec3 vDir;
@@ -57,6 +58,8 @@ uniform float uHaze;
 uniform float uStars;
 uniform float uMilky;
 uniform float uTime;
+uniform vec3  uStarSeed;
+uniform vec3  uMwAxis;
 
 ${GLSL.constants}
 ${GLSL.util}
@@ -76,7 +79,7 @@ float mwFbm(vec3 p){
 // A jittered point per lattice cell on a shell of the given resolution. Small,
 // varied in size and brightness, faintly warm or cool, gently twinkling.
 vec3 starLayer(vec3 d, float cell, float density, float radius, float gain, float t){
-  vec3 p = d * cell;
+  vec3 p = d * cell + uStarSeed;
   vec3 i = floor(p);
   vec3 f = p - i - 0.5;
   float sel = hash13(i + 0.5);
@@ -90,7 +93,7 @@ vec3 starLayer(vec3 d, float cell, float density, float radius, float gain, floa
   float tw = 0.72 + 0.44 * sin(t * (0.8 + 2.4 * mag) + mag * 41.0);
   float hue = hash13(i + 27.33);
   vec3 tint = mix(vec3(0.74, 0.83, 1.00), vec3(1.00, 0.90, 0.74), hue*hue);
-  return tint * (s * keep * tw * gain * (0.25 + mag * 1.15));
+  return tint * (s * keep * tw * gain * (0.12 + mag * mag * 1.45));
 }
 
 void main(){
@@ -103,7 +106,7 @@ void main(){
   // Two falloffs: a broad one that carries zenith into mid, and a tight one
   // that slams the horizon colour into the last few degrees.
   float wMid = pow(max(1.0 - ay, 0.0), 1.35);
-  float wHor = pow(max(1.0 - ay, 0.0), 7.0);
+  float wHor = pow(max(1.0 - ay, 0.0), 9.0);
   vec3 col = mix(uZenith, uMid, wMid);
   col = mix(col, uHorizon, wHor);
 
@@ -113,42 +116,55 @@ void main(){
   hz = sat(hz * 0.88);
   col = mix(col, uFog, hz);
 
-  // --- stars ---------------------------------------------------------------
-  if (uStars > 0.002 || uMilky > 0.002) {
-    float vis = sat(y * 7.0) * (1.0 - hz);
-    if (vis > 0.001) {
-      vec3 s = vec3(0.0);
-      if (uMilky > 0.002) {
-        vec3 axis = normalize(vec3(0.47, 0.34, -0.81));
-        float band = 1.0 - smoothstep(0.03, 0.40, abs(dot(d, axis)));
-        float n = mwFbm(d * 4.6 + 9.0);
-        float lanes = mwFbm(d * 11.0 - 3.0);
-        float mw = band * (0.30 + 1.05 * n) * (0.42 + 0.86 * smoothstep(0.30, 0.68, lanes));
-        s += mix(vec3(0.62, 0.70, 1.00), vec3(1.00, 0.94, 0.86), 0.35) * mw * 0.11 * uMilky;
-        // The band is where the sky actually gets grainy with faint stars.
-        s += starLayer(d, 300.0, 0.16, 0.26, 0.85, uTime) * band * uMilky;
-      }
-      if (uStars > 0.002) {
-        s += starLayer(d, 210.0, 0.070, 0.30, 1.00, uTime) * uStars;
-        s += starLayer(d,  96.0, 0.045, 0.34, 2.20, uTime * 0.77) * uStars;
-      }
-      col += s * vis;
-    }
-  }
-
   // --- key-body halo -------------------------------------------------------
+  // A tight core plus a much wider, weaker skirt. sunHaloSize runs 0.06 at noon
+  // to 0.30 at night, so the same pair of exponentials gives a hard little
+  // flare around the midday sun and a broad soft bloom around the moon.
   float ang = acos(clamp(dot(d, uKeyDir), -1.0, 1.0));
   float hs = max(uHaloSize, 0.02);
-  float halo = exp(-ang / hs) * 1.15 + exp(-ang / (hs * 3.5)) * 0.42;
-  col += uHalo * (halo * uHaloAmt);
+  float halo = exp(-ang / (hs * 0.30)) * 1.15 + exp(-ang / (hs * 0.95)) * 0.20;
 
   // --- horizon glow on the sun's side --------------------------------------
+  // Wide, weak, hugging the horizon. This is the term that wraps ref/02's
+  // orange most of the way around the frame.
   vec3 sunH = normalize(vec3(uSunDir.x, 0.0, uSunDir.z) + vec3(1e-5, 0.0, 0.0));
   vec3 dH   = normalize(vec3(d.x, 0.0, d.z) + vec3(1e-5, 0.0, 0.0));
   float az = sat(dot(dH, sunH) * 0.5 + 0.5);
   float lift = exp(-max(y, 0.0) * 2.6);
-  float glow = uHorizonGlow * az * az * lift * uSunBelow;
-  col += uHalo * (glow * 0.52);
+  float glow = pow(uHorizonGlow, 1.4) * az * az * lift * uSunBelow;
+
+  // Blend toward the halo colour rather than adding it. Adding drives most of
+  // the frame past post's bloom threshold and the sky comes back as pale wash;
+  // screening lifts the weak channels and desaturates. Mixing keeps sunHalo's
+  // saturation and only goes over 1.0 in the small core, which is exactly what
+  // should bloom.
+  float fl = sat(halo * 0.42 * uHaloAmt + glow * 0.60);
+  col = mix(col, uHalo * (0.85 + 0.85 * fl), fl);
+
+  // --- stars ---------------------------------------------------------------
+  // After the flare so a bright star keeps its HDR headroom, but washed out
+  // near the moon by that same flare.
+  if (uStars > 0.002 || uMilky > 0.002) {
+    float vis = sat(y * 7.0) * (1.0 - hz) * (1.0 - sat(fl * 2.2));
+    if (vis > 0.001) {
+      vec3 s = vec3(0.0);
+      if (uMilky > 0.002) {
+        // Narrow, faint and grainy. A wide bright band reads as fog, not sky.
+        float band = 1.0 - smoothstep(0.015, 0.22, abs(dot(d, uMwAxis)));
+        float n = mwFbm(d * 9.0 + 9.0);
+        float lanes = mwFbm(d * 21.0 - 3.0);
+        float mw = band * (0.25 + 1.10 * n) * (0.35 + 0.90 * smoothstep(0.30, 0.68, lanes));
+        s += mix(vec3(0.62, 0.70, 1.00), vec3(1.00, 0.94, 0.86), 0.35) * mw * 0.018 * uMilky;
+        // The band is where the sky actually gets grainy with faint stars.
+        s += starLayer(d, 300.0, 0.070, 0.32, 0.75, uTime) * band * uMilky;
+      }
+      if (uStars > 0.002) {
+        s += starLayer(d, 210.0, 0.030, 0.38, 1.05, uTime) * uStars;
+        s += starLayer(d,  96.0, 0.020, 0.44, 2.00, uTime * 0.77) * uStars;
+      }
+      col += s * vis;
+    }
+  }
 
   // A gradient this smooth over 1400 px bands without help. Scale the dither
   // with sqrt(colour) so it stays near one output LSB across the whole range
@@ -173,7 +189,17 @@ const _keyDir = new THREE.Vector3();
 export function createSky(opts = {}) {
   const quality = opts.quality ?? {};
 
-  const geo = new THREE.SphereGeometry(RADIUS, 48, 32);
+  // The only randomness in the sky: where the star lattice starts and which way
+  // the Milky Way crosses the dome. Seeded, so a given seed is a given sky.
+  const rng = makeRng((opts.seed ?? 1) ^ 0x5c1f5c1f);
+  const starSeed = new THREE.Vector3(rng.range(0, 97), rng.range(0, 97), rng.range(0, 97));
+  const mwAxis = new THREE.Vector3(
+    rng.range(0.30, 0.62) * rng.sign(),
+    rng.range(0.26, 0.46),
+    rng.range(0.60, 0.88) * rng.sign(),
+  ).normalize();
+
+  const geo = new THREE.SphereGeometry(RADIUS, 64, 40);
   const mat = new THREE.ShaderMaterial({
     side: THREE.BackSide,
     depthWrite: false,
@@ -198,6 +224,8 @@ export function createSky(opts = {}) {
       uStars: { value: 0 },
       uMilky: { value: 0 },
       uTime: { value: 0 },
+      uStarSeed: { value: starSeed },
+      uMwAxis: { value: mwAxis },
     },
   });
 

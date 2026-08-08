@@ -8,18 +8,25 @@
 // each fragment intersects its view ray with a *curved* shell (a sphere of
 // radius SHELL_R tangent to a plane CLOUD_H above the water). A flat sky plane
 // sends the intersection to infinity at the horizon and smears; the curved
-// shell keeps it finite (~3.3 km at grazing) so the clouds pile up, flatten and
+// shell keeps it finite (~10 km at grazing) so the clouds pile up, flatten and
 // thin toward the horizon the way the concept art does.
 //
-// Density is a 2.5D field rather than a raymarch: a big fbm for the cluster
-// shapes plus a smaller one for the puffs, and a second lookup offset toward
-// the key light for the self-shadow term. `quality.cloudSteps` picks the octave
-// counts and how much of the detail layer survives — the loops are constant
-// bound (ESSL 1.00) and baked at build time, so a lower tier really is cheaper
-// rather than just masked out.
+// Density is a 2.5D field rather than a raymarch, which SwiftShader would never
+// survive: a big fbm places the clusters, a jittered cell layer bulges them into
+// individual puffs, a small fbm frays the edges. The cell layer also hands back
+// a per-puff surface normal, so the tops still light up when the sun is high and
+// the deck does not read as flat paper. A second density lookup offset toward
+// the key light gives the self-shadow, and the length of that offset falls out
+// of the sun's elevation — which is why sunset throws long violet shadows and a
+// hot rim, for free.
+//
+// quality.cloudSteps picks the octave counts and how much of the detail layer
+// survives. The loops are constant bound (ESSL 1.00) and baked at build time, so
+// a lower tier really is cheaper rather than just masked out.
 
 import * as THREE from 'three';
 import { GLSL } from '../core/glsl.js';
+import { makeRng } from '../core/rng.js';
 import { LAYER, setLayers } from '../core/layers.js';
 
 const RADIUS = 4000;
@@ -50,6 +57,8 @@ uniform vec3  uFog;
 uniform vec3  uLightDir;
 uniform vec2  uOrigin;
 uniform vec2  uDrift;
+uniform vec2  uEvolve;
+uniform vec2  uSeed;
 uniform float uCover;
 uniform float uOpacity;
 uniform float uHaze;
@@ -65,9 +74,10 @@ ${GLSL.noise}
 
 const mat2 CROT = mat2(0.80, -0.60, 0.60, 0.80);
 
-const float CLOUD_H = 780.0;    // deck height above the water, metres
-const float SHELL_R = 5200.0;   // curvature of the deck; smaller = tighter horizon
-const float SCALE   = 0.00062;  // world metres -> noise units (~1.6 km per cell)
+const float CLOUD_H = 1500.0;   // deck height above the water, metres
+const float SHELL_R = 34000.0;  // curvature of the deck; smaller = tighter horizon
+const float SCALE   = 0.0011;   // world metres -> noise units (~900 m per cluster)
+const float FAR_T   = 9990.0;   // distance to the deck at grazing incidence
 
 float fbmBig(vec2 p){
   float s = 0.0, a = 0.5, n = 0.0;
@@ -85,6 +95,25 @@ float fbmSha(vec2 p){
   return s/max(n, 1e-4);
 }
 
+// Nearest jittered feature point: xy is the offset from the sample toward that
+// point, z the distance. It gives rounded blobs to add to the density *and* a
+// usable per-blob surface normal, which is what stops a high sun leaving the
+// whole deck flat and papery.
+vec3 puffCell(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  float best = 8.0;
+  vec2 bo = vec2(0.0);
+  for(int y=-1;y<=1;y++){
+    for(int x=-1;x<=1;x++){
+      vec2 g = vec2(float(x), float(y));
+      vec2 r = g + hash22(i+g) - f;
+      float d2 = dot(r, r);
+      if(d2 < best){ best = d2; bo = r; }
+    }
+  }
+  return vec3(bo, sqrt(best));
+}
+
 // Distance along the view ray to the curved cloud deck.
 float shellT(float dy){
   float k = SHELL_R - CLOUD_H;
@@ -99,19 +128,31 @@ void main(){
   if (fade <= 0.0005) discard;
 
   float t = shellT(d.y);
-  vec2 world = uOrigin + d.xz * t;
-  vec2 q = world * SCALE + uDrift;
+  vec2 world = uOrigin + d.xz * t + uDrift;
+  vec2 q = world * SCALE + uSeed;
 
-  // Kill the small scale before it aliases into a shimmer at the horizon.
-  float det = uDetail * (1.0 - smoothstep(1000.0, 2700.0, t));
+  // Everything small has to die off with distance or the horizon turns into a
+  // field of aliasing speckle — one texel of deck covers hundreds of metres out
+  // there. The far term drives detail amplitude and widens the silhouette band.
+  float far = smoothstep(3200.0, 8600.0, t);
+  float det = uDetail * (1.0 - far);
 
+  // Three scales: the big fbm decides where a cluster is, the cell layer bulges
+  // it into individual puffs, the small fbm frays the edges. The detail term is
+  // zero-mean so turning it down on a lower tier does not change coverage.
   float big = fbmBig(q);
-  float med = fbmMed(q * 3.1 + vec2(21.7, -8.3) + uDrift * 0.7);
-  float dens = mix(big, big*0.66 + med*0.34, det);
+  vec3  pc  = puffCell(q * 1.5 + vec2(4.3, -1.7));
+  float puff = mix(0.55, 1.0 - sat(pc.z * 1.05), 1.0 - far * 0.85);
+  float med = fbmMed(q * 3.1 + vec2(21.7, -8.3) + uEvolve);
+  float dens = big*0.68 + puff*0.32 + (med - 0.5) * (0.26 * det);
+  // Renormalise back onto the same mean/spread the coverage curve expects.
+  dens = 0.5 + (dens - 0.516) * 1.13;
 
   float thr = 1.03 - uCover;
-  // Narrow band, not a lazy fade: cumulus have edges.
-  float a = smoothstep(thr - 0.015, thr + 0.085, dens);
+  // Narrow band, not a lazy fade: cumulus have edges. It only widens far away,
+  // where a hard edge would crawl.
+  float band = mix(0.042, 0.110, far);
+  float a = smoothstep(thr - band * 0.19, thr + band, dens);
   if (a <= 0.002) discard;
 
   // --- self shadow ---------------------------------------------------------
@@ -121,26 +162,39 @@ void main(){
   vec2 lh = uLightDir.xz;
   lh /= max(length(lh), 1e-4);
   float el = max(uLightDir.y, 0.05);
-  float off = min(190.0 / el, 1250.0);
+  // Keep the offset inside half a cell: beyond that the lookup decorrelates
+  // from the cloud it is meant to be shadowing and the whole deck turns to mush.
+  float off = min(340.0 / el, 480.0);
   float ds = fbmSha(q + lh * (off * SCALE));
-  float shade = sat((ds - thr) / 0.17);
-  float light = exp(-shade * 2.1);
-  light *= mix(0.68, 1.0, 1.0 - sat((dens - thr) / 0.34));
+  float shade = sat((ds - thr) / 0.12);
+
+  // Each puff is a dome; its normal comes free out of puffCell.
+  float hh = sqrt(max(1.0 - dot(pc.xy, pc.xy), 0.05));
+  vec3 nrm = normalize(vec3(-pc.x, hh, -pc.y));
+  float ndlRaw = sat(dot(nrm, uLightDir));
+  float ndl = ndlRaw * 0.62 + 0.38;
+
+  float light = ndl * exp(-shade * 1.15);
+  // Thick cores sit in their own shadow — the soft grey underside.
+  light *= mix(0.62, 1.0, 1.0 - sat((dens - thr) / 0.22));
+  light = sat(light * 1.18);
 
   // --- sun-facing rim ------------------------------------------------------
-  float rimStr = 0.30 + 1.55 * (1.0 - sat(uLightDir.y * 1.7));
-  float edge = a * (1.0 - smoothstep(thr + 0.045, thr + 0.170, dens));
-  float rim = edge * sat(1.0 - shade * 1.7) * rimStr;
+  // Only the thin outer band, only where it faces the light and nothing is
+  // between it and the light. Strongest when the key is low — ref/02.
+  float rimStr = 0.18 + 0.80 * (1.0 - sat(uLightDir.y * 1.7));
+  float edge = a * (1.0 - smoothstep(thr + band * 0.45, thr + band * 2.30, dens));
+  float rim = edge * ndlRaw * sat(1.0 - shade * 1.5) * rimStr;
 
   vec3 c = mix(uShadow, uLit, light);
   c += uRim * rim;
 
   // Distant decks sit back into the atmosphere.
-  float fa = sat(smoothstep(700.0, 3050.0, t) * (0.30 + 0.62 * uHaze));
+  float fa = sat(smoothstep(2200.0, FAR_T, t) * (0.30 + 0.62 * uHaze));
   c = mix(c, uFog, fa);
 
   a *= uOpacity * fade;
-  a *= mix(1.0, 0.66, smoothstep(1400.0, 3100.0, t));
+  a *= mix(1.0, 0.58, smoothstep(4000.0, FAR_T, t));
 
   c += (ign(gl_FragCoord.xy) - 0.5) * (1.5 / 255.0) * sqrt(max(c, vec3(0.0)));
 
@@ -161,10 +215,12 @@ const _light = new THREE.Vector3();
 
 export function createClouds(opts = {}) {
   const quality = opts.quality ?? {};
+  const rng = makeRng((opts.seed ?? 1) ^ 0x2b7e1516);
+  const seedOffset = new THREE.Vector2(rng.range(0, 24), rng.range(0, 24));
 
   // Cap only — the dome stops a little below the horizon, which is all the
   // deck the shell intersection produces anything useful for.
-  const geo = new THREE.SphereGeometry(RADIUS, 64, 24, 0, Math.PI * 2, 0, Math.PI * 0.55);
+  const geo = new THREE.SphereGeometry(RADIUS, 96, 48, 0, Math.PI * 2, 0, Math.PI * 0.55);
   const mat = new THREE.ShaderMaterial({
     side: THREE.BackSide,
     transparent: true,
@@ -181,6 +237,8 @@ export function createClouds(opts = {}) {
       uLightDir: { value: new THREE.Vector3(0, 1, 0) },
       uOrigin: { value: new THREE.Vector2() },
       uDrift: { value: new THREE.Vector2() },
+      uEvolve: { value: new THREE.Vector2() },
+      uSeed: { value: seedOffset },
       uCover: { value: 0.42 },
       uOpacity: { value: 1 },
       uHaze: { value: 0.35 },
@@ -197,9 +255,10 @@ export function createClouds(opts = {}) {
   setLayers(group, LAYER.MAIN, LAYER.REFLECTED);
 
   const u = mat.uniforms;
-  // Slow trade-wind drift. Accumulated on the CPU so the noise never sees a
-  // large time value and loses precision.
-  const WIND_X = 2.6, WIND_Z = -1.15;
+  // Slow trade-wind drift, metres per second, plus a much slower evolution of
+  // the small scale so a cluster does not read as a rigid stencil sliding past.
+  const WIND_X = 3.4, WIND_Z = -1.5;
+  const EVOLVE_X = 0.0022, EVOLVE_Z = -0.0014;
 
   return {
     group,
@@ -220,8 +279,8 @@ export function createClouds(opts = {}) {
       const c = ctx.camera.position;
       group.position.set(c.x, 0, c.z);
       u.uOrigin.value.set(c.x, c.z);
-      // 0.00062 noise units per metre; keep the drift in noise units directly.
-      u.uDrift.value.set(ctx.time * WIND_X * 0.00062, ctx.time * WIND_Z * 0.00062);
+      u.uDrift.value.set(ctx.time * WIND_X, ctx.time * WIND_Z);
+      u.uEvolve.value.set(ctx.time * EVOLVE_X, ctx.time * EVOLVE_Z);
     },
 
     dispose() {

@@ -112,11 +112,12 @@ void main(){
   vec2 c2 = uv - 0.5;
   float r2 = dot(c2, c2);
 
-  // A hair of lateral chromatic aberration at the frame edge. Below ~0.4 px in
-  // the middle third, so it reads as lens rather than as an effect.
+  // A hair of lateral chromatic aberration at the frame edge. The uniform is in
+  // pixels at the very corner, not in UV: c2*r2 peaks around 0.25, so a UV
+  // offset that looks tiny is in fact twenty pixels wide.
   vec3 col;
   if (chroma > 0.0001) {
-    vec2 off = c2 * r2 * chroma;
+    vec2 off = c2 * r2 * (chroma * 4.0 / resolution);
     col = vec3(sampleScene(uv - off).r, sampleScene(uv).g, sampleScene(uv + off).b);
   } else {
     col = sampleScene(uv);
@@ -186,9 +187,8 @@ export function createPost({ renderer, targets, makeTarget }) {
     vignette: { value: 0.25 }, grain: { value: 0.012 }, time: { value: 0 },
     lift: { value: new THREE.Vector3() }, gain: { value: new THREE.Vector3(1, 1, 1) },
     underwater: { value: 0 }, underwaterTint: { value: new THREE.Vector3(0.2, 0.6, 0.8) },
-    // Barely there on purpose: enough to soften the frame edge, not enough to
-    // put a red fringe on the boat.
-    chroma: { value: 0.16 },
+    // Pixels of R/B separation at the frame corner. Barely there on purpose.
+    chroma: { value: 1.6 },
   });
 
   const LEVELS = 6;
