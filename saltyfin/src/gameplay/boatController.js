@@ -51,7 +51,10 @@ export function createBoatController({ ctx, input, water, terrain }) {
       // can still swing on the outboard, just slowly.
       const authority = TURN_AT_REST + (TURN_RATE - TURN_AT_REST) * Math.min(1, Math.abs(b.speed) / 4.5);
       const dir = b.speed < -0.05 ? -1 : 1;
-      b.turnRate += (-turnIn * authority * dir - b.turnRate) * Math.min(1, dt * 4.5);
+      // Heading grows clockwise and forward is (sin h, 0, -cos h), so a positive
+      // heading rate IS a turn to starboard. Negating the input here put the
+      // helm the wrong way round: pressing right turned left.
+      b.turnRate += (turnIn * authority * dir - b.turnRate) * Math.min(1, dt * 4.5);
       b.heading += b.turnRate * dt;
 
       b.forward.set(Math.sin(b.heading), 0, -Math.cos(b.heading));

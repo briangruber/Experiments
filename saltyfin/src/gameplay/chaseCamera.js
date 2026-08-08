@@ -78,8 +78,10 @@ export function createChaseCamera({ ctx, camera, input }) {
         return;
       }
 
+      // Drag right, look right — the same sense as the helm, so the two never
+      // disagree about which way is starboard.
       if (input?.pointer.down) {
-        orbit -= input.pointer.dx * 0.0035;
+        orbit += input.pointer.dx * 0.0035;
         orbitPitch = THREE.MathUtils.clamp(orbitPitch - input.pointer.dy * 0.0025, -0.5, 0.9);
       }
       if (input?.pointer.wheel) zoom = THREE.MathUtils.clamp(zoom + input.pointer.wheel * 0.08, 0.55, 2.4);

@@ -71,6 +71,7 @@ camera.position.set(0, 8, 16);
 
 const reflectCamera = new THREE.PerspectiveCamera();
 reflectCamera.matrixAutoUpdate = false;
+reflectCamera.matrixWorldAutoUpdate = false;
 
 const time = createTimeOfDay({ hour: START_HOUR, seed: SEED });
 const env = time.env;
@@ -247,11 +248,20 @@ function renderRefraction() {
 }
 
 function renderReflection() {
-  reflectCamera.copy(camera);
-  reflectCamera.matrixAutoUpdate = false;
+  // Deliberately NOT camera.copy(). copy() brings across the real camera's
+  // local `matrix` and leaves matrixWorldNeedsUpdate set, and three's render
+  // then rebuilds matrixWorld from that local matrix — throwing the mirror away
+  // on every frame the camera actually moved. The reflection would look right
+  // while standing still and swim as soon as you turned. Both auto-update flags
+  // are off (set once at construction) and every matrix is written by hand.
+  reflectCamera.fov = camera.fov;
+  reflectCamera.aspect = camera.aspect;
+  reflectCamera.near = camera.near;
+  reflectCamera.far = camera.far;
   tmpMat.copy(reflectMatrix).multiply(camera.matrixWorld);
   reflectCamera.matrixWorld.copy(tmpMat);
   reflectCamera.matrixWorldInverse.copy(tmpMat).invert();
+  reflectCamera.matrixWorldNeedsUpdate = false;
   reflectCamera.projectionMatrix.copy(camera.projectionMatrix);
   // Negate the clip-space X row so the mirrored view keeps its winding.
   const e = reflectCamera.projectionMatrix.elements;
@@ -405,7 +415,7 @@ window.addEventListener('keydown', (e) => {
 // --- public handle for the capture harness ----------------------------------
 
 const api = {
-  THREE, scene, camera, renderer, ctx, env, time, quality, post,
+  THREE, scene, camera, reflectCamera, renderer, ctx, env, time, quality, post,
   lights: { keyLight, hemi, fillLight },
   modules: {
     sky, clouds, celestial, seabed, coral, islands, vegetation, village, dock,
