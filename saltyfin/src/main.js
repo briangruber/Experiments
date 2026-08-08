@@ -239,6 +239,7 @@ fpsBadge.addEventListener('pointerdown', () => {
 document.body.appendChild(fpsBadge);
 let fpsMark = performance.now() / 1000;
 let fpsCount = 0;
+let renderCpuMs = 0;
 
 const modules = [
   sky, clouds, celestial, seabed, coral, islands, vegetation,
@@ -457,6 +458,7 @@ function frame() {
   const surfaceY = ctx.water?.sampleHeight ? ctx.water.sampleHeight(camera.position.x, camera.position.z, ctx.time) : 0;
   ctx.cameraUnderwater = THREE.MathUtils.clamp((surfaceY - camera.position.y) * 1.5, 0, 1);
 
+  const renderStart = performance.now();
   if (quality.reflections) renderReflection();
   renderRefraction();
   renderBeauty();
@@ -466,12 +468,19 @@ function frame() {
     underwaterTint: env.waterMid,
   });
   renderer.setRenderTarget(null);
+  renderCpuMs += performance.now() - renderStart;
   mirrorFrame();
 
   fpsCount++;
   if (now - fpsMark >= 0.5) {
-    fpsBadge.textContent = quality.backend + ' \u00b7 ' + Math.round(fpsCount / (now - fpsMark)) + ' fps';
-    fpsMark = now; fpsCount = 0;
+    // fps and the main-thread cost of encoding the frame, side by side. The
+    // pair is the diagnosis: low fps with low cpu means the GPU is the wall
+    // (the render scale lever helps); low fps with high cpu means the encode
+    // path is (it will not).
+    fpsBadge.textContent = quality.backend
+      + ' \u00b7 ' + Math.round(fpsCount / (now - fpsMark)) + ' fps'
+      + ' \u00b7 cpu ' + Math.round(renderCpuMs / fpsCount) + 'ms';
+    fpsMark = now; fpsCount = 0; renderCpuMs = 0;
   }
 
   input.endFrame();

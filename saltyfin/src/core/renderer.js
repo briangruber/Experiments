@@ -69,6 +69,12 @@ export async function createRenderer({ canvas, tier = 'high', pixelRatio, forceW
   const quality = { tier, ...TIERS[tier] };
   quality.pixelRatio = Math.min(pixelRatio ?? window.devicePixelRatio ?? 1, quality.maxPixelRatio);
   quality.backend = renderer.backend?.isWebGPUBackend ? 'webgpu' : 'webgl';
+  // If the phone is GPU-bound on the WGSL water shader, fewer pixels is the
+  // one lever that helps immediately: render the whole frame at 3/4 scale and
+  // let the browser stretch the canvas to CSS size. The HUD is DOM, so it
+  // stays crisp. Harmless if the real cost turns out to be CPU encode time —
+  // the badge's cpu readout is what tells those two apart.
+  quality.renderScale = (quality.backend === 'webgpu' && (tier === 'mobile' || tier === 'low')) ? 0.75 : 1;
 
   const size = new THREE.Vector2(1, 1);
 
@@ -105,7 +111,7 @@ export async function createRenderer({ canvas, tier = 'high', pixelRatio, forceW
   const targets = { scene, refraction, reflection };
 
   function setSize(w, h) {
-    const pr = quality.pixelRatio;
+    const pr = quality.pixelRatio * quality.renderScale;
     size.set(w, h);
     const bw = Math.max(2, Math.round(w * pr));
     const bh = Math.max(2, Math.round(h * pr));
