@@ -53,7 +53,7 @@ uniform vec3  uSunDir;
 uniform float uHaloSize;
 uniform float uHaloAmt;
 uniform float uHorizonGlow;
-uniform float uSunBelow;
+uniform float uKeyLow;
 uniform float uHaze;
 uniform float uStars;
 uniform float uMilky;
@@ -135,7 +135,7 @@ void main(){
   vec3 dH   = normalize(vec3(d.x, 0.0, d.z) + vec3(1e-5, 0.0, 0.0));
   float az = sat(dot(dH, sunH) * 0.5 + 0.5);
   float lift = exp(-max(y, 0.0) * 2.6);
-  float glow = pow(uHorizonGlow, 1.4) * az * az * lift * uSunBelow;
+  float glow = pow(uHorizonGlow, 1.4) * az * az * lift * uKeyLow;
 
   // Blend toward the halo colour rather than adding it. Adding drives most of
   // the frame past post's bloom threshold and the sky comes back as pale wash;
@@ -223,7 +223,7 @@ export function createSky(opts = {}) {
       uHaloSize: { value: 0.1 },
       uHaloAmt: { value: 1 },
       uHorizonGlow: { value: 0.5 },
-      uSunBelow: { value: 1 },
+      uKeyLow: { value: 1 },
       uHaze: { value: 0.35 },
       uStars: { value: 0 },
       uMilky: { value: 0 },
@@ -262,7 +262,11 @@ export function createSky(opts = {}) {
       lightDirInto(env, _keyDir);
       u.uKeyDir.value.copy(_keyDir);
       u.uHaloAmt.value = THREE.MathUtils.clamp((_keyDir.y + 0.14) / 0.20, 0, 1);
-      u.uSunBelow.value = THREE.MathUtils.smoothstep(env.sunDir.y, -0.42, -0.01);
+      // How low the key light is, not whether it has set: the horizon wrap is a
+      // long-path-through-the-atmosphere effect, so it belongs to a sun near the
+      // horizon and should be almost gone at noon. Written the other way round
+      // this read 1.0 at midday and bleached the whole horizon band white.
+      u.uKeyLow.value = 0.15 + 0.85 * (1.0 - THREE.MathUtils.smoothstep(env.sunDir.y, 0.0, 0.42));
     },
 
     update(ctx) {

@@ -37,9 +37,11 @@ const SEEK_Z = -199;
 
 // --- the tower ----------------------------------------------------------------
 
+// 23.6 m to the finial on a 5.1 m base — a little under five diameters, which is
+// the proportion the concept art's tower reads at from across the bay.
 const SHAFT_H = 17.30;
-const R_BASE = 2.78;
-const R_TOP = 1.84;
+const R_BASE = 2.55;
+const R_TOP = 1.72;
 
 /** Slight batter with a touch of entasis — a straight cone reads as a traffic cone. */
 const radiusAt = (y) => R_BASE + (R_TOP - R_BASE) * Math.pow(Math.max(0, y) / SHAFT_H, 0.86);
@@ -316,19 +318,23 @@ export function createLighthouse(opts = {}) {
 
   // Find the highest reasonably level shelf near the summit. Scoring the *floor*
   // of the pad and penalising its spread finds a terrace rather than the tip of a
-  // ridged spike, which is where a keeper would actually have built.
+  // ridged spike, which is where a keeper would actually have built. The last
+  // term pulls the answer back toward the nominated high point so the search
+  // cannot wander off to a flatter but lower shoulder halfway down the island.
   let TX = SEEK_X;
   let TZ = SEEK_Z;
   let TY = 32;
   {
     let best = -1e9;
-    for (let i = -18; i <= 18; i += 1.5) {
-      for (let j = -18; j <= 18; j += 1.5) {
+    for (let i = -14; i <= 14; i += 1.0) {
+      for (let j = -14; j <= 14; j += 1.0) {
         const x = SEEK_X + i;
         const z = SEEK_Z + j;
         pad(x, z, 4.4, _pad);
         if (_pad.lo < -1000) continue;
-        const score = _pad.lo - (_pad.hi - _pad.lo) * 1.7;
+        const score = _pad.lo
+          - (_pad.hi - _pad.lo) * 1.7
+          - Math.hypot(i, j) * 0.14;
         if (score > best) { best = score; TX = x; TZ = z; TY = _pad.hi; }
       }
     }
@@ -443,37 +449,40 @@ export function createLighthouse(opts = {}) {
   {
     const white = C(WHITE);
     const stone = C(STONE[1]);
-    // three stepped rings flaring out from the shaft
+    // Three stepped rings flaring out from the shaft. They overlap each other
+    // and the deck above by a few centimetres — the shaft stops at 17.30 and a
+    // ring that only just met the deck would leave a hairline of daylight
+    // showing between the brackets.
     const corbels = [
-      [16.45, 2.02], [16.82, 2.32], [17.19, 2.66],
+      [16.45, 1.90], [16.85, 2.16], [17.26, 2.46],
     ];
     for (let i = 0; i < corbels.length; i++) {
       const [y, r] = corbels[i];
-      put(bSolid, CYL24, Wtower, 0, y, 0, r * 2, 0.40, r * 2, 0, 0, 0,
+      put(bSolid, CYL24, Wtower, 0, y, 0, r * 2, 0.46, r * 2, 0, 0, 0,
         i === 1 ? stone : white);
     }
     // little brackets between the corbel and the deck
     for (let i = 0; i < 12; i++) {
       const a = (i / 12) * Math.PI * 2;
-      put(bSolid, BOX, Wtower, Math.cos(a) * 2.62, 17.30, Math.sin(a) * 2.62,
-        0.30, 0.62, 0.72, 0, Math.atan2(Math.cos(a), Math.sin(a)), 0, stone);
+      put(bSolid, BOX, Wtower, Math.cos(a) * 2.42, 17.30, Math.sin(a) * 2.42,
+        0.28, 0.62, 0.70, 0, Math.atan2(Math.cos(a), Math.sin(a)), 0, stone);
     }
     // gallery deck
-    put(bSolid, CYL24, Wtower, 0, GALLERY_Y, 0, 6.20, 0.30, 6.20, 0, 0, 0, stone);
-    put(bSolid, CYL24, Wtower, 0, GALLERY_Y + 0.17, 0, 6.30, 0.10, 6.30, 0, 0, 0, C(STONE[3]));
+    put(bSolid, CYL24, Wtower, 0, GALLERY_Y, 0, 5.76, 0.30, 5.76, 0, 0, 0, stone);
+    put(bSolid, CYL24, Wtower, 0, GALLERY_Y + 0.17, 0, 5.86, 0.10, 5.86, 0, 0, 0, C(STONE[3]));
 
-    // black railing: stanchions plus two hoops
+    // black railing: stanchions plus three hoops
     const iron = C(IRON);
     for (let i = 0; i < 18; i++) {
       const a = (i / 18) * Math.PI * 2;
-      put(bSolid, BOX, Wtower, Math.cos(a) * 2.92, GALLERY_Y + 0.72, Math.sin(a) * 2.92,
+      put(bSolid, BOX, Wtower, Math.cos(a) * 2.70, GALLERY_Y + 0.72, Math.sin(a) * 2.70,
         0.09, 1.16, 0.09, 0, 0, 0, iron);
     }
-    put(bSolid, RAIL, Wtower, 0, GALLERY_Y + 1.26, 0, 5.90, 5.90, 5.90,
+    put(bSolid, RAIL, Wtower, 0, GALLERY_Y + 1.26, 0, 5.46, 5.46, 5.46,
       Math.PI * 0.5, 0, 0, iron);
-    put(bSolid, RAIL, Wtower, 0, GALLERY_Y + 0.74, 0, 5.86, 5.86, 5.86,
+    put(bSolid, RAIL, Wtower, 0, GALLERY_Y + 0.74, 0, 5.42, 5.42, 5.42,
       Math.PI * 0.5, 0, 0, iron);
-    put(bSolid, RAIL, Wtower, 0, GALLERY_Y + 0.32, 0, 5.84, 5.84, 5.84,
+    put(bSolid, RAIL, Wtower, 0, GALLERY_Y + 0.32, 0, 5.40, 5.40, 5.40,
       Math.PI * 0.5, 0, 0, iron);
   }
 
@@ -609,6 +618,10 @@ export function createLighthouse(opts = {}) {
     const stone = C(STONE[0]);
     const CW = 7.2, CD = 5.4, CH = 3.05, PLINTH = 0.85;
 
+    // The pad under the cottage runs to a metre and a half of fall corner to
+    // corner, so the footing is sunk well below the low side rather than the
+    // plinth being left hanging in the air on the downhill end.
+    put(bSolid, BOX, Wcot, 0, -1.1, 0, CW + 0.10, 2.3, CD + 0.10, 0, 0, 0, C(STONE[2]));
     put(bSolid, BOX, Wcot, 0, PLINTH * 0.5, 0, CW + 0.36, PLINTH, CD + 0.36, 0, 0, 0, stone);
     put(bSolid, BOX, Wcot, 0, PLINTH + 0.05, 0, CW + 0.50, 0.16, CD + 0.50, 0, 0, 0, C(STONE[3]));
     put(bSolid, BOX, Wcot, 0, PLINTH + CH * 0.5, 0, CW, CH, CD, 0, 0, 0, stucco);
@@ -689,10 +702,11 @@ export function createLighthouse(opts = {}) {
 
   // --- drystone wall, an arc of blocks following the ground -----------------
   {
-    const a0 = CA - 1.55;
-    const a1 = CA + 1.55;
-    const R = 16.5;
-    const n = 40;
+    // 19.5 m out — three metres clear behind the cottage, whose eaves reach 16.7.
+    const a0 = CA - 1.5;
+    const a1 = CA + 1.5;
+    const R = 19.5;
+    const n = 46;
     for (let i = 0; i <= n; i++) {
       const a = a0 + (a1 - a0) * (i / n);
       const x = TX + Math.cos(a) * R;
@@ -802,6 +816,22 @@ export function createLighthouse(opts = {}) {
     prisms.add(t);
   }
   group.add(prisms);
+
+  // The glazing behind the astragals. Barely there, but it is what gives the
+  // lantern room a hard specular glint off the key light at midday, when the
+  // lamp itself is switched off and the tower is pure silhouette.
+  const glassMat = new THREE.MeshStandardMaterial({
+    color: C(GLASS_DARK), roughness: 0.06, metalness: 0.0,
+    transparent: true, opacity: 0.30, depthWrite: false,
+    side: THREE.DoubleSide, fog: true,
+  });
+  const glassGeo = new THREE.CylinderGeometry(1.58, 1.58, 2.25, 20, 1, true);
+  const glazing = new THREE.Mesh(glassGeo, glassMat);
+  glazing.position.set(TX, BASE_Y + LAMP_Y + 0.13, TZ);
+  glazing.castShadow = false;
+  glazing.receiveShadow = false;
+  glazing.renderOrder = 2;
+  group.add(glazing);
 
   // The halo. Alpha peaks dead centre, so it reads as a soft ball of light
   // rather than a sphere, and it is what survives the bloom threshold at 400 m.
@@ -951,6 +981,7 @@ export function createLighthouse(opts = {}) {
       for (const g of SOURCES) g.dispose();
       lensGeo.dispose();
       prismGeo.dispose();
+      glassGeo.dispose();
       haloGeo.dispose();
       beamGeo.dispose();
       matSolid.dispose();
@@ -958,6 +989,7 @@ export function createLighthouse(opts = {}) {
       matGlow.dispose();
       lensMat.dispose();
       prismMat.dispose();
+      glassMat.dispose();
       haloMat.dispose();
       beamMat.dispose();
     },

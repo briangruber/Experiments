@@ -152,7 +152,7 @@ function islandOne(isl, x, z, out) {
   // Below the waterline the rock mesh dives away fast (it ends up buried inside
   // the seabed), while the seabed apron shelves out slowly.
   const beach = 3.0 * smoothstep(0.99, 1.16, t);
-  out.land = h - beach - 34.0 * smoothstep(1.18, 1.50, t);
+  out.land = h - beach - 46.0 * smoothstep(1.14, 1.52, t);
   out.floor = h - beach - 0.45 - 22.0 * smoothstep(1.16, 1.80, t);
   return true;
 }
@@ -218,6 +218,10 @@ const C_GRASS = lin(0x7CB444);
 const C_GRASS_DK = lin(0x4C7A30);
 const C_SAND = lin(0xE8D6A8);
 const C_WET = lin(0x4E4C42);
+// The submerged apron. Not beach and not cliff — dark reef rock with weed on
+// it. Sand-bright vertices down here read straight through the clear water as
+// a tan shelf spread across half the bay.
+const C_SUBMERGED = lin(0x2E4038);
 
 const _c3 = [0, 0, 0];
 const _col2 = [0, 0, 0];
@@ -232,7 +236,11 @@ function mixC(dst, src, t) {
 
 // --- island mesh -------------------------------------------------------------
 
-const T_MAX = 1.30;
+// The mesh has to run out far enough for the underwater dive below to actually
+// finish. At 1.30 the rim stopped around eleven metres down — still bright
+// enough through clear water to read as a tan shelf with a hard edge cutting
+// across the bay.
+const T_MAX = 1.58;
 
 /** Ring parameter: coarse over the summit, fine through the cliff and shore. */
 function ringT(s) {
@@ -315,13 +323,18 @@ function buildIslandGeometry(isl) {
     mixC(_col2, C_GRASS_DK, 0.25 + 0.6 * patch);
     mixC(_c3, _col2, gm);
 
-    // Pale sand where the soft faces meet the water.
-    const sm = smoothstep(3.4, 0.2, y) * smoothstep(0.30, 0.72, flat) * (0.25 + 0.75 * face);
+    // Pale sand where the soft faces meet the water. It has to die off just
+    // under the surface — the beach strip is only ever a metre or two deep.
+    const sm = smoothstep(3.4, 0.2, y) * smoothstep(0.30, 0.72, flat)
+             * (0.25 + 0.75 * face) * smoothstep(-2.2, 0.1, y);
     mixC(_c3, C_SAND, sm * 0.92);
 
     // Wet, darker rock below the waterline — but not so high up the beach that
     // it eats the pale sand strip, which is half the silhouette.
     mixC(_c3, C_WET, smoothstep(-0.2, -2.8, y) * 0.62 * (1 - 0.6 * sm));
+
+    // Deeper still and it is submerged reef, which the water then tints for us.
+    mixC(_c3, C_SUBMERGED, smoothstep(-1.0, -11.0, y) * 0.90);
 
     const shade = (0.90 + 0.20 * mottle) * (0.86 + 0.14 * flat);
     col[v * 3] = _c3[0] * shade;

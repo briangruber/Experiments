@@ -262,9 +262,14 @@ function gradedAxis(innerHalf, innerStep, half, growth) {
 
 export function createSeabed(opts = {}) {
   const tier = opts.quality?.tier ?? 'high';
-  const axis = tier === 'low' ? gradedAxis(62, 3.2, HALF, 1.045)
-    : tier === 'med' ? gradedAxis(62, 2.2, HALF, 1.034)
-      : gradedAxis(62, 1.6, HALF, 1.028);
+  // The fine band has to cover the whole reef, not just the water around the
+  // boat. At 62 m the grid was already 5–12 m a cell across the middle distance,
+  // and since the sand and reef colours live in the vertex stream that came back
+  // through the clear water as a patchwork quilt with a hard edge where the
+  // ramp began. The reef runs to about 200 m, so the fine band does too.
+  const axis = tier === 'low' ? gradedAxis(190, 4.0, HALF, 1.060)
+    : tier === 'med' ? gradedAxis(300, 2.8, HALF, 1.052)
+      : gradedAxis(330, 2.2, HALF, 1.046);
 
   const N = axis.length;
   const vcount = N * N;

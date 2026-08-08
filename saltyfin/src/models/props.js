@@ -253,19 +253,24 @@ function loftHull(B, stations, bandCol, capCol) {
     }
   }
 
-  // Transom fan (+z outward) and stem fan (-z outward).
+  // Transom fan (+z outward) and stem fan (-z outward). The fan takes the
+  // topsides colour above the waterline and the bottom paint below it, so the
+  // antifoul band carries round the transom instead of stopping at the corner.
+  const below = bandCol[0];
   const last = ns - 1;
   const kx = gx(last, PN - 1), ky = gy(last, PN - 1), kz = gz(last, PN - 1);
   for (let j = 0; j < RINGN - 1; j++) {
+    const my = (ky + gy(last, j) + gy(last, j + 1)) / 3;
     B.tri(kx, ky, kz,
       gx(last, j), gy(last, j), gz(last, j),
-      gx(last, j + 1), gy(last, j + 1), gz(last, j + 1), capCol);
+      gx(last, j + 1), gy(last, j + 1), gz(last, j + 1), my > 0 ? capCol : below);
   }
   const sx = gx(0, PN - 1), sy = gy(0, PN - 1), sz = gz(0, PN - 1);
   for (let j = 0; j < RINGN - 1; j++) {
+    const my = (sy + gy(0, j) + gy(0, j + 1)) / 3;
     B.tri(sx, sy, sz,
       gx(0, j + 1), gy(0, j + 1), gz(0, j + 1),
-      gx(0, j), gy(0, j), gz(0, j), capCol);
+      gx(0, j), gy(0, j), gz(0, j), my > 0 ? capCol : below);
   }
 
   return { pts, gx, gy, gz, ns };
@@ -457,11 +462,15 @@ export function createProps(opts = {}) {
     const rope = C(ROPE);
     const dark = C(TIMBER_DK);
 
-    // Deck: a cambered skin from each rail to a crown on the centreline.
+    // Deck: a cambered skin from the sheer on each side up to a crown on the
+    // centreline. It attaches at profile index 6 (the sheer), not index 7, so the
+    // toe rail is left standing proud of the deck the way it should be.
     const A = [0, 0, 0], Bv = [0, 0, 0], Cv = [0, 0, 0], D = [0, 0, 0];
-    const crown = (s) => SAIL_STATIONS[s][3] * 1.15 + 0.10;
+    const jPort = PN - 1 - 6;
+    const jStbd = 6 + (PN - 1);
+    const crown = (s) => SAIL_STATIONS[s][3] + 0.055;
     for (let s = 0; s < hull.ns - 1; s++) {
-      for (const j of [RINGN - 1, 0]) {
+      for (const j of [jStbd, jPort]) {
         A[0] = hull.gx(s, j); A[1] = hull.gy(s, j) - 0.02; A[2] = hull.gz(s, j);
         Bv[0] = 0; Bv[1] = crown(s); Bv[2] = SAIL_STATIONS[s][0];
         Cv[0] = 0; Cv[1] = crown(s + 1); Cv[2] = SAIL_STATIONS[s + 1][0];
@@ -511,12 +520,17 @@ export function createProps(opts = {}) {
     put(B, BOX, I4, 0, boomY + 0.04, boomZ0 - 0.08, 0.18, 0.18, 0.22, 0, 0, 0, C(IRON));
     strut(B, I4, 0, headY - 0.20, headZ, 0, boomY - 0.06, boomZ1 - 0.1, 0.016, rope);
 
-    // Forestay with the jib furled on it, backstay, two shrouds.
-    const bowX = 0, bowY = 0.62, bowZ = -3.42;
-    strut(B, I4, bowX, bowY, bowZ, 0, headY - 0.05, headZ, 0.018, rope);
-    put(B, CYLT, I4, 0, (bowY + headY * 0.52) * 0.5 + 0.1, (bowZ + headZ * 0.52) * 0.5,
-      0.34, 4.05, 0.30,
-      Math.atan2(headZ - bowZ, headY - bowY), 0, 0, cloth);
+    // Forestay with the jib furled on its lower half, backstay, two shrouds.
+    const bowY = 0.62, bowZ = -3.42;
+    strut(B, I4, 0, bowY, bowZ, 0, headY - 0.05, headZ, 0.018, rope);
+    {
+      const jt = 0.54;
+      const jy = bowY + (headY - bowY) * jt;
+      const jz = bowZ + (headZ - bowZ) * jt;
+      put(B, CYLT, I4, 0, (bowY + jy) * 0.5, (bowZ + jz) * 0.5,
+        0.36, Math.hypot(jy - bowY, jz - bowZ), 0.30,
+        Math.atan2(jz - bowZ, jy - bowY), 0, 0, cloth);
+    }
     strut(B, I4, 0, headY - 0.05, headZ, 0, 0.56, 3.44, 0.016, rope);
     for (let s = -1; s <= 1; s += 2) {
       strut(B, I4, s * 0.86, 0.50, -0.30, 0, headY - 0.55, headZ, 0.016, rope);
@@ -534,10 +548,11 @@ export function createProps(opts = {}) {
       strut(B, I4, s * 0.92, 0.42, 0.9 + s * 0.5, s * 0.99, 0.30, 0.9 + s * 0.5, 0.014, rope);
     }
     strut(B, I4, 0, 0.58, -3.38, 0.35, -0.55, -4.60, 0.020, rope);
-    // a coil of rope on the foredeck
+    // A coil of rope on the foredeck. The torus is born in the XY plane, so a
+    // quarter turn about X is what lays it flat instead of standing it on edge.
     for (let k = 0; k < 3; k++) {
-      put(B, TORUS, I4, -0.26, 0.66 + k * 0.055, -2.05, 0.62 - k * 0.10, 0.62 - k * 0.10, 0.28,
-        0, 0, 0, rope);
+      put(B, TORUS, I4, -0.26, crown(3) + 0.06 + k * 0.055, -2.05,
+        0.62 - k * 0.10, 0.62 - k * 0.10, 0.28, Math.PI * 0.5, 0, 0, rope);
     }
 
     const g = B.build();
@@ -606,13 +621,13 @@ export function createProps(opts = {}) {
     put(B, CYL12, I4, 0.24, -0.02, -0.85, 0.24, 0.22, 0.24, 0, 0, 0.30, C(0xB8C0BA));
     for (let k = 0; k < 3; k++) {
       put(B, TORUS, I4, -0.22, -0.06 + k * 0.05, 0.95, 0.56 - k * 0.09, 0.56 - k * 0.09, 0.24,
-        0, 0, 0, rope);
+        Math.PI * 0.5, 0, 0, rope);
     }
     put(B, BOX, I4, 0.15, 0.02, -1.35, 0.44, 0.30, 0.38, 0, 0.4, 0, C(CRATE[seedOff % 3]));
-    // Painter made off at the stem and trailing.
+    // Painter made off at the stem and trailing into the water.
     strut(B, I4, 0, 0.36, -1.92, 0.22, -0.30, -2.70, 0.018, rope);
-    // Bow and stern ring bolts.
-    put(B, TORUS, I4, 0, 0.40, -1.86, 0.34, 0.34, 0.16, Math.PI * 0.5, 0, 0, C(IRON));
+    // Bow ring bolt — upright, in the plane of the stem.
+    put(B, TORUS, I4, 0, 0.40, -1.88, 0.34, 0.34, 0.16, 0, 0, 0, C(IRON));
 
     const g = B.build();
     geos.push(g);
@@ -636,20 +651,39 @@ export function createProps(opts = {}) {
     return holder;
   }
 
+  // The pier frame, so the dories can be placed alongside it in (across, along)
+  // metres instead of in world coordinates nobody can check by eye.
+  const PIER_DX = DOCK_HEAD.x - DOCK_SHORE.x;
+  const PIER_DZ = DOCK_HEAD.y - DOCK_SHORE.y;
+  const PIER_LEN = Math.hypot(PIER_DX, PIER_DZ);
+  const PUX = PIER_DX / PIER_LEN, PUZ = PIER_DZ / PIER_LEN;
+  const PRX = -PUZ, PRZ = PUX;
+  const PIER_YAW = Math.atan2(PUX, PUZ);
+  const _pier = { x: 0, z: 0 };
+  const pierPoint = (u, v) => {
+    _pier.x = DOCK_SHORE.x + PUX * v + PRX * u;
+    _pier.z = DOCK_SHORE.y + PUZ * v + PRZ * u;
+    return _pier;
+  };
+
   {
     const sb = floatSpot(-16, -52, 2.0);
     addFloater(buildSailboat(), sb.x, sb.z, 0.72, 2.9, 0.95, 0.55, 0.0);
   }
 
   {
+    // (u, v) in pier metres: u across (positive = east side), v along from the
+    // shore. The finger piers sit at v = 16.6 and v = 29.3 and the landing stage
+    // at v = 36.6, so these three slots are clear of the decking overhead.
     const specs = [
-      { x: -73.8, z: 9.5, yaw: 2.11, hex: HULL_WHITE },
-      { x: -70.0, z: -8.6, yaw: 1.38, hex: HULL_GREEN },
-      { x: -64.9, z: -13.7, yaw: 1.93, hex: HULL_BLUE },
+      { u: 7.2, v: 20.0, yaw: PIER_YAW + 0.16, hex: HULL_WHITE },
+      { u: -8.8, v: 30.0, yaw: PIER_YAW - 0.55, hex: HULL_GREEN },
+      { u: -11.6, v: 36.4, yaw: PIER_YAW, hex: HULL_BLUE },   // tied alongside
     ];
     for (let i = 0; i < specs.length; i++) {
       const sp = specs[i];
-      const p = floatSpot(sp.x, sp.z, 1.1);
+      const q = pierPoint(sp.u, sp.v);
+      const p = floatSpot(q.x, q.z, 1.1);
       addFloater(buildDory(sp.hex, i * 2 + 1), p.x, p.z, sp.yaw, 1.6, 0.66, 0.8, 0.0);
     }
   }
@@ -880,16 +914,18 @@ export function createProps(opts = {}) {
 
     // Everything sits on the beach face south-east of the village, either side
     // of where the dock walks ashore.
+    // The dock walks ashore on the 52° bearing, so the clutter is parked either
+    // side of it rather than under the apron.
     const cluster = [
-      { a: 44, h: 2.2, kind: 'pots' },
-      { a: 47.5, h: 1.5, kind: 'rack' },
-      { a: 50, h: 2.8, kind: 'crates' },
-      { a: 53, h: 1.8, kind: 'barrels' },
-      { a: 56, h: 2.6, kind: 'boxes' },
-      { a: 59, h: 1.6, kind: 'pots' },
-      { a: 62, h: 3.1, kind: 'rack' },
-      { a: 65, h: 2.0, kind: 'barrels' },
       { a: 41, h: 3.0, kind: 'boxes' },
+      { a: 44, h: 2.2, kind: 'pots' },
+      { a: 46.5, h: 1.5, kind: 'rack' },
+      { a: 48.5, h: 2.8, kind: 'crates' },
+      { a: 56.0, h: 1.8, kind: 'barrels' },
+      { a: 58.5, h: 2.6, kind: 'boxes' },
+      { a: 61, h: 1.6, kind: 'pots' },
+      { a: 64, h: 3.1, kind: 'rack' },
+      { a: 67, h: 2.0, kind: 'barrels' },
     ];
     for (let i = 0; i < cluster.length; i++) {
       const c = cluster[i];
@@ -905,7 +941,7 @@ export function createProps(opts = {}) {
         crabPot(W, 0.55, 0.84, 0.18, rng.range(0, 1.4));
         for (let k = 0; k < 3; k++) {
           put(bShore, TORUS, W, -0.9, 0.10 + k * 0.09, 0.5, 1.0 - k * 0.16, 1.0 - k * 0.16,
-            0.5, 0, 0, 0, rope);
+            0.5, Math.PI * 0.5, 0, 0, rope);
         }
       } else if (c.kind === 'barrels') {
         barrel(W, 0, 0, 0, rng.range(0, 1.4));
