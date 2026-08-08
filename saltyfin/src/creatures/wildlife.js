@@ -468,7 +468,7 @@ export function createWildlife(opts = {}) {
       const z = Math.sin(a) * r - 8;
       if (isLand(x, z)) continue;
       const d = -seabed(x, z);
-      if (d < 4.2 || d > 13) continue;
+      if (d < 5.0 || d > 13) continue;
       out.set(x, 0, z);
       return true;
     }
@@ -495,7 +495,7 @@ export function createWildlife(opts = {}) {
 
     // The shoal shape: a flattened ellipsoid, denser toward the middle.
     const rx = rng.range(3.4, 6.2);
-    const ry = rng.range(0.9, 1.7);
+    const ry = rng.range(0.7, 1.3);
     const rz = rng.range(4.5, 8.0);
     for (let i = 0; i < PER_SCHOOL; i++) {
       const u = rng.range(-1, 1), v = rng.range(-1, 1), w = rng.range(-1, 1);
@@ -649,9 +649,22 @@ export function createWildlife(opts = {}) {
   const _prevPos = new THREE.Vector3();
   const _nowPos = new THREE.Vector3();
 
+  /**
+   * Where a school is at time t. The Lissajous wanders up to fifty metres from
+   * the vetted centre, which is enough to walk it onto a reef head or a beach —
+   * so the point is pulled back toward the centre in proportion to how thin the
+   * water under it has become. The pull is a smooth function of position, so the
+   * shoal eases away from the shallows instead of snapping.
+   */
   function schoolPoint(sc, t, out) {
-    const x = sc.cx + sc.ax * Math.sin(sc.w1 * t + sc.p1) + sc.ax * 0.42 * Math.sin(sc.w3 * t + sc.p3);
-    const z = sc.cz + sc.az * Math.cos(sc.w2 * t + sc.p2) + sc.az * 0.42 * Math.sin(sc.w4 * t + sc.p4);
+    let x = sc.cx + sc.ax * Math.sin(sc.w1 * t + sc.p1) + sc.ax * 0.42 * Math.sin(sc.w3 * t + sc.p3);
+    let z = sc.cz + sc.az * Math.cos(sc.w2 * t + sc.p2) + sc.az * 0.42 * Math.sin(sc.w4 * t + sc.p4);
+    const sb = seabed(x, z);
+    if (!(sb < -4.6)) {
+      const k = clamp((Number.isFinite(sb) ? sb : 0) + 4.6, 0, 3.4) / 3.4;
+      x += (sc.cx - x) * k;
+      z += (sc.cz - z) * k;
+    }
     const y = -(sc.depth + sc.depthAmp * Math.sin(sc.w5 * t + sc.p5));
     return out.set(x, y, z);
   }
@@ -703,13 +716,15 @@ export function createWildlife(opts = {}) {
       schoolPoint(sc, t, _nowPos);
       schoolPoint(sc, t + 0.35, _prevPos);          // a look-ahead, not a history
 
-      // Stay off the seabed and out of the air. The clamp is applied after the
-      // heading is taken so the shoal does not snap round when it rides up a
-      // reef head.
-      const floor = seabed(_nowPos.x, _nowPos.z) + sc.halfHeight + 0.5;
-      let y = _nowPos.y;
-      if (y < floor) y = floor;
-      if (y > -1.6 - sc.halfHeight) y = -1.6 - sc.halfHeight;
+      // Stay off the seabed and out of the air. If the column is too thin to
+      // hold the shoal at all the two limits cross, and clamping in either order
+      // would bury it — so that case centres the school in whatever water there
+      // is and lets it thin out rather than sink into the sand.
+      const sb = seabed(_nowPos.x, _nowPos.z);
+      const lo = (Number.isFinite(sb) ? sb : -30) + sc.halfHeight + 0.4;
+      const hi = -1.3 - sc.halfHeight;
+      const y = lo > hi ? ((Number.isFinite(sb) ? sb : -30) - 1.3) * 0.5
+        : clamp(_nowPos.y, lo, hi);
       sc.group.position.set(_nowPos.x, y, _nowPos.z);
       faceAlong(sc.group, _prevPos.x - _nowPos.x, _prevPos.y - _nowPos.y, _prevPos.z - _nowPos.z);
     }
