@@ -29,10 +29,10 @@ const CSS = `
   text-transform: uppercase; color: rgba(214,236,255,.5); white-space: nowrap; }
 #touch .times { position: absolute; left: 50%; bottom: max(14px, env(safe-area-inset-bottom));
   transform: translateX(-50%); display: flex; gap: 6px; pointer-events: auto; }
-#touch .times button { appearance: none; border: 1px solid rgba(206,232,255,.24);
-  background: rgba(8,20,36,.46); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
-  color: rgba(226,242,255,.82); border-radius: 999px; padding: 7px 12px;
-  font: 600 10px/1 ui-sans-serif, system-ui, sans-serif; letter-spacing: .12em;
+#touch .times button { appearance: none; border: 1px solid rgba(206,232,255,.20);
+  background: rgba(8,20,36,.40); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  color: rgba(226,242,255,.74); border-radius: 999px; padding: 5px 9px;
+  font: 600 9px/1 ui-sans-serif, system-ui, sans-serif; letter-spacing: .10em;
   text-transform: uppercase; }
 #touch .times button:active { background: rgba(122,178,232,.34); color: #fff; }
 #touch .times button:focus-visible { outline: 2px solid #ff9a3c; outline-offset: 2px; }
@@ -43,17 +43,15 @@ const CSS = `
    These live here rather than in hud.css so the HUD module stays the single
    owner of its own layout and this file stays the single owner of touch. */
 @media (pointer: coarse) {
-  /* Keyboard shortcuts are noise on a phone, and the game's own time-of-day
-     hint row is replaced by the buttons above. */
-  #hud .sf-keys, #hud .sf-tod { display: none !important; }
-  /* Lift the bars clear of the time row and shrink the minimap so the two
-     bottom corners stop meeting in the middle on a narrow screen. */
-  #hud .sf-bars { bottom: calc(56px + env(safe-area-inset-bottom)) !important; }
-  #hud .sf-mm { width: 104px !important; height: 104px !important;
-    bottom: calc(56px + env(safe-area-inset-bottom)) !important; }
-  #hud .sf-quest { max-width: min(60vw, 260px) !important; }
+  /* The on-screen buttons replace the keyboard hint row. */
+  #hud .sf-tod { display: none !important; }
+  /* Small, and clear of the button row. */
+  #hud .sf-mm { width: 88px !important; height: 88px !important;
+    right: max(10px, env(safe-area-inset-right)) !important;
+    bottom: calc(54px + env(safe-area-inset-bottom)) !important; }
+  #hud .sf-quest { max-width: min(58vw, 250px) !important; }
   #hud .sf-compass { top: max(8px, env(safe-area-inset-top)) !important;
-    width: min(88vw, 460px) !important; }
+    width: min(88vw, 440px) !important; }
 }
 @media (pointer: coarse) and (orientation: portrait) {
   #touch .stick { width: 108px; height: 108px; margin: -54px 0 0 -54px; }

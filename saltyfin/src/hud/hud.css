@@ -204,89 +204,9 @@
 
 /* --------------------------------------------------------------- keybinds -- */
 
-.sf-keys {
-  position: absolute;
-  left: 30px;
-  top: 54%;
-  transform: translateY(-50%);
-  display: flex;
-  flex-direction: column;
-  gap: 11px;
-  text-shadow: var(--sf-ts);
-}
-.sf-key { display: flex; align-items: center; gap: 11px; }
-.sf-cap-key {
-  display: grid;
-  place-items: center;
-  width: 22px; height: 22px;
-  border-radius: 6px;
-  border: 1px solid rgba(206, 230, 250, .42);
-  background: rgba(8, 16, 28, .40);
-  -webkit-backdrop-filter: blur(6px);
-          backdrop-filter: blur(6px);
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: .04em;
-  color: var(--sf-ink);
-}
-.sf-cap-glyph {
-  display: grid;
-  place-items: center;
-  width: 22px; height: 22px;
-}
-.sf-cap-glyph svg { width: 19px; height: 19px; fill: var(--sf-red); }
-.sf-key-label {
-  font-size: 12.5px;
-  font-weight: 500;
-  letter-spacing: .035em;
-  color: rgba(238, 247, 255, .95);
-}
 
 /* ------------------------------------------------------------------- bars -- */
 
-.sf-bars {
-  position: absolute;
-  left: 30px;
-  bottom: 34px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.sf-barrow { display: flex; align-items: center; gap: 12px; }
-.sf-badge {
-  display: grid;
-  place-items: center;
-  width: 26px; height: 26px;
-  border-radius: 50%;
-  border: 1px solid rgba(206, 230, 250, .34);
-  background: rgba(8, 16, 28, .48);
-  -webkit-backdrop-filter: blur(6px);
-          backdrop-filter: blur(6px);
-  box-shadow: var(--sf-drop);
-}
-.sf-badge svg { width: 14px; height: 14px; }
-.sf-bar {
-  position: relative;
-  width: 182px;
-  height: 9px;
-  border-radius: 5px;
-  border: 1px solid rgba(206, 230, 250, .18);
-  background: rgba(6, 13, 23, .58);
-  overflow: hidden;
-  box-shadow: var(--sf-drop);
-}
-.sf-fill {
-  position: absolute;
-  left: 0; top: 0; bottom: 0;
-  border-radius: 5px;
-  transition: width .35s cubic-bezier(.3, .8, .3, 1);
-}
-.sf-hp   .sf-badge svg { fill: var(--sf-red); }
-.sf-hp   .sf-fill { background: linear-gradient(180deg, #7DE38A, var(--sf-green)); }
-.sf-en   .sf-badge svg { fill: var(--sf-yellow); }
-.sf-en   .sf-fill { background: linear-gradient(180deg, #FFD873, var(--sf-yellow)); }
-.sf-ct   .sf-badge svg { fill: rgba(214, 234, 250, .9); }
-.sf-ct   .sf-fill { background: linear-gradient(180deg, #7ACFF3, var(--sf-blue)); }
 
 /* ---------------------------------------------------------------- minimap -- */
 
@@ -363,3 +283,8 @@
 .sf-tod .sf-tk.sf-on { color: var(--sf-ink); }
 .sf-tod .sf-tk.sf-on em { color: var(--sf-orange); }
 .sf-tod .sf-dot { color: rgba(198, 222, 246, .22); }
+
+/* The quest card is read once and then folds away; on a phone a permanent card
+   in the corner is a third of the usable screen. */
+.sf-quest { transition: opacity .45s ease, transform .45s ease; }
+.sf-quest.sf-away { opacity: 0; transform: translateX(14px); pointer-events: none; }

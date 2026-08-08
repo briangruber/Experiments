@@ -61,17 +61,8 @@ const SVG_WARN = '<svg viewBox="0 0 24 24" aria-hidden="true">'
   + '<rect x="11" y="8.6" width="2" height="6.2" rx="1" fill="#0B1420"/>'
   + '<rect x="11" y="16.2" width="2" height="2.2" rx="1" fill="#0B1420"/></svg>';
 
-const SVG_HEART = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.6'
-  + 'C6.6 16.9 3.2 13.6 3.2 10.1 3.2 7.4 5.3 5.3 7.9 5.3c1.7 0 3.2.8 4.1 2.1'
-  + '.9-1.3 2.4-2.1 4.1-2.1 2.6 0 4.7 2.1 4.7 4.8 0 3.5-3.4 6.8-8.8 10.5Z"/></svg>';
 
-const SVG_BOLT = '<svg viewBox="0 0 24 24" aria-hidden="true">'
-  + '<path d="M13.9 1.8 5 13.9h5.4L9.5 22.2l8.9-12.1h-5.3l.8-8.3Z"/></svg>';
 
-const SVG_FISH = '<svg viewBox="0 0 24 24" aria-hidden="true">'
-  + '<path d="M1.6 12c2.8-3.9 6.8-6 10.9-6 3.4 0 6.2 1.4 8 3.3l2.9-2.4v10.2l-2.9-2.4'
-  + 'c-1.8 1.9-4.6 3.3-8 3.3-4.1 0-8.1-2.1-10.9-6Z"/>'
-  + '<circle cx="7.4" cy="10.4" r="1" fill="#0B1420"/></svg>';
 
 const SVG_MARKER = '<svg viewBox="0 0 52 30" aria-hidden="true">'
   + '<path class="sf-arch-fill" d="M3 27A25 24 0 0 1 49 27Z"/>'
@@ -162,6 +153,7 @@ export function createHud({ ctx, time } = {}) {
 
   // === quest card ============================================================
 
+  let awayTimer = 0;
   const questCard = el('div', 'sf-quest', box);
   const questHead = el('div', 'sf-quest-head', questCard, SVG_WARN);
   const questTitle = el('div', 'sf-quest-title', questHead);
@@ -169,7 +161,8 @@ export function createHud({ ctx, time } = {}) {
 
   let settleTimer = 0;
   function announce() {
-    questCard.classList.remove('sf-in', 'sf-settled');
+    clearTimeout(awayTimer);
+    questCard.classList.remove('sf-in', 'sf-settled', 'sf-away');
     // Force a reflow so the entrance animation restarts on a new objective.
     void questCard.offsetWidth;
     questCard.classList.add('sf-in');
@@ -177,38 +170,16 @@ export function createHud({ ctx, time } = {}) {
     settleTimer = setTimeout(() => {
       settleTimer = 0;
       questCard.classList.add('sf-settled');
+      // Read it once, then give the screen back.
+      awayTimer = setTimeout(() => questCard.classList.add('sf-away'), 7000);
     }, 5200);
   }
 
-  // === keybinds ==============================================================
-
-  const keys = el('div', 'sf-keys', box);
-  function keyRow(glyph, label) {
-    const row = el('div', 'sf-key', keys);
-    if (glyph === null) el('div', 'sf-cap-glyph', row, SVG_MONSTER);
-    else el('div', 'sf-cap-key', row).textContent = glyph;
-    el('div', 'sf-key-label', row).textContent = label;
-  }
-  keyRow('M', 'Map');
-  keyRow(null, 'Monster Log');
-  keyRow('E', 'Equip');
-
-  // === status bars ===========================================================
-
-  const bars = el('div', 'sf-bars', box);
-  function barRow(cls, icon) {
-    const row = el('div', 'sf-barrow ' + cls, bars);
-    el('div', 'sf-badge', row, icon);
-    const track = el('div', 'sf-bar', row);
-    return el('div', 'sf-fill', track);
-  }
-  const fillHp = barRow('sf-hp', SVG_HEART);
-  const fillEn = barRow('sf-en', SVG_BOLT);
-  const fillCt = barRow('sf-ct', SVG_FISH);
-
-  let hp = 0.88;
-  let energy = 0.72;
-  let creel = 0.74;
+  // The keybind list and the three status bars used to live here. The bars were
+  // wired to nothing that could kill you and the keybinds duplicate the opening
+  // card, and on a phone the two of them together ate the bottom third of the
+  // screen. What is left is what the game actually asks you to read: which way
+  // the leviathan is and how far.
 
   // === minimap ===============================================================
 
@@ -308,10 +279,9 @@ export function createHud({ ctx, time } = {}) {
   // the number before building the string is what keeps a still frame free of
   // both a DOM write and a string allocation.
   let qStrip = NaN, qMark = NaN, qRot = NaN, qPanX = NaN, qPanY = NaN;
-  let qMonX = NaN, qMonY = NaN, qEnergy = -1, qCreel = -1;
+  let qMonX = NaN, qMonY = NaN;
 
   // Health does not move, so it is written exactly once.
-  fillHp.style.width = (hp * 100).toFixed(1) + '%';
 
   function measure() {
     const w = compass.clientWidth;
@@ -378,17 +348,6 @@ export function createHud({ ctx, time } = {}) {
     } else {
       txt(questBody, body);
     }
-
-    // --- bars ----------------------------------------------------------------
-    const drive = clamp(Math.abs(fin(b && b.throttle, 0)), 0, 1);
-    energy = clamp(energy + (drive > 0.05 ? -0.055 * drive : 0.075) * dt, 0.12, 1);
-    const stage = clamp(fin(qs && qs.stage, 0), 0, 4);
-    const creelTarget = clamp(0.74 + 0.08 * stage, 0, 0.98);
-    creel += (creelTarget - creel) * Math.min(1, dt * 1.2);
-    const en = Math.round(energy * 200);          // half-percent steps
-    if (en !== qEnergy) { qEnergy = en; fillEn.style.width = (en * 0.5) + '%'; }
-    const ct = Math.round(creel * 200);
-    if (ct !== qCreel) { qCreel = ct; fillCt.style.width = (ct * 0.5) + '%'; }
 
     // --- minimap -------------------------------------------------------------
     // Heading-up: the map counter-rotates under a fixed arrowhead and cone.
