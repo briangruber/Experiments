@@ -10,13 +10,21 @@
 // it is written before anything can observe a half-finished frame.
 //
 // The marker the HUD pins to is `state.targetPosition`. Until the creature is
-// worth tracking that is the fixed patch of water; once it is awake the quest
-// hands the HUD the creature's own position instead, so the compass pip and the
-// range readout follow the thing you are actually chasing.
+// worth tracking that is the patch of water; once it is awake the quest hands
+// the HUD the creature's own position instead, so the compass pip and the range
+// readout follow the thing you are actually chasing.
+//
+// The creature module publishes the patch of water it intends to haunt, as
+// `monster.disturbance.position`. If it is there, that is the objective — two
+// modules disagreeing about where the disturbance is would send the player to an
+// empty stretch of sea. `MARK_*` below is only the fallback for a stub monster.
+// Alongside the numeric `stage` the quest also raises the plain booleans the
+// creature's handshake looks for, so the two agree without either one having to
+// know the other's stage numbering.
 
 import * as THREE from 'three';
 
-// The patch of water: out past the reef edge, off the boat's bow on the
+// Fallback patch of water: out past the reef edge, off the boat's bow on the
 // lighthouse side of north. From the start at (-6, 0, 24) that reads exactly
 // 184 m a few degrees east of N, which is the framing in ref/05.
 const MARK_X = 38.5;
@@ -47,6 +55,14 @@ const RAD2DEG = 180 / Math.PI;
 /** Finite-number guard — another module may hand us a half-built state. */
 function fin(v, d) { return typeof v === 'number' && Number.isFinite(v) ? v : d; }
 
+/** Where the creature module says its disturbance is, or null. */
+function disturbanceOf(monster) {
+  if (!monster) return null;
+  const p = (monster.disturbance && monster.disturbance.position) || monster.disturbancePosition;
+  if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.z)) return null;
+  return p;
+}
+
 /** The creature's position, or null if the module has not published one yet. */
 function creaturePos(monster) {
   const s = monster && monster.state;
@@ -70,12 +86,29 @@ export function createQuest({ ctx, monster } = {}) {
     stageTime: 0,
     active: true,
     arrived: false,
+
+    // --- handshake, for the creature module ---------------------------------
+    // Plain booleans, so neither module has to know the other's numbering.
+    reachedDisturbance: false,
+    monsterApproach: false,
   };
 
   let dwell = 0;
+  let markLocked = false;
+
+  /** Adopt the creature's own disturbance point the moment it publishes one. */
+  function syncMark() {
+    if (markLocked) return;
+    const d = disturbanceOf(monster);
+    if (!d) return;
+    markLocked = true;
+    state.markPosition.set(d.x, 0, d.z);
+  }
+  syncMark();
 
   // Seed the readouts so the first HUD frame is not a zero.
   {
+    state.targetPosition.copy(state.markPosition);
     const b = ctx && ctx.boat && ctx.boat.position;
     const bx = fin(b && b.x, 0);
     const bz = fin(b && b.z, 0);
@@ -102,6 +135,7 @@ export function createQuest({ ctx, monster } = {}) {
     update(c) {
       const dt = fin(c && c.dt, 0);
       state.stageTime += dt;
+      syncMark();
 
       const b = c && c.boat && c.boat.position;
       const bx = fin(b && b.x, 0);
@@ -132,9 +166,16 @@ export function createQuest({ ctx, monster } = {}) {
       } else if (state.stage === 1) {
         const ms = monster && monster.state;
         const surfaced = fin(ms && ms.surfaced, 0);
-        const breached = ms && ms.breaching === true;
+        const phase = ms && ms.phase;
+        const breached = ms && (ms.breaching === true || phase === 'breach');
         if (surfaced > SURFACE_TRIGGER || breached || state.stageTime > RISE_TIMEOUT) advance(2);
       }
+
+      // The handshake the creature reads. `reachedDisturbance` is momentary —
+      // it is true whenever the boat is sitting on the mark — while
+      // `monsterApproach` latches once the encounter has actually started.
+      state.reachedDisturbance = state.arrived;
+      state.monsterApproach = state.stage >= 1;
     },
 
     dispose() {},

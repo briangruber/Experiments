@@ -6,8 +6,8 @@
 // Two rules shape the whole file:
 //
 //   1. `update()` runs every frame, so it must not touch the DOM for a value
-//      that has not changed. Every writer below (`txt`, `tr`, `wid`, `vis`)
-//      caches its last value on the node and returns early. In the steady state
+//      that has not changed. Text and visibility go through cached writers;
+//      every transform is compared as a quantised number first. In the steady state
 //      — boat still, nothing moving — this module performs zero DOM writes.
 //   2. The compass is one strip built once at construction and moved with a
 //      single `translate3d`. It never rebuilds, never re-measures, and the
@@ -89,7 +89,7 @@ const SVG_CONE = '<svg viewBox="0 0 92 64" aria-hidden="true">'
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const fin = (v, d) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 const norm360 = (d) => ((d % 360) + 360) % 360;
-/** Shortest signed difference in degrees, in (-180, 180]. */
+/** Shortest signed difference in degrees, in [-180, 180). */
 const wrap180 = (d) => ((((d + 180) % 360) + 360) % 360) - 180;
 
 function el(tag, cls, parent, html) {
@@ -107,7 +107,6 @@ function el(tag, cls, parent, html) {
 function txt(n, v) { if (n.__t !== v) { n.__t = v; n.textContent = v; } }
 function vis(n, on) { if (n.__v !== on) { n.__v = on; n.style.display = on ? '' : 'none'; } }
 
-const _bytes = [0, 0, 0];
 /** sRGB bytes for a linear THREE.Color, with a safe fallback. */
 function toBytes(color, out) {
   if (!color || typeof color.getHexString !== 'function') { out[0] = out[1] = out[2] = 110; return out; }

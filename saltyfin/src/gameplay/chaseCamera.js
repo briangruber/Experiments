@@ -16,8 +16,10 @@ const SPECS = {
   // wide, but only about ten degrees of downward pitch — steeper than that and
   // the horizon leaves the frame and it stops being a seascape.
   harbor: { distance: 30.0, height: 11.0, lookAhead: 16.0, lookHeight: 2.2, fov: 58 },
-  // Straight down over the boat — the shot where the leviathan's shadow shows.
-  overhead: { distance: 7.0, height: 26.0, lookAhead: -2.0, lookHeight: -6.0, fov: 38 },
+  // The shot where the leviathan's shadow shows. High and steep, but not
+  // vertical: ref/04 is about 50 degrees down, which also keeps the rig clear of
+  // the straight-down case where lookAt has no up vector to work with.
+  overhead: { distance: 26.0, height: 34.0, lookAhead: 12.0, lookHeight: -12.0, fov: 48 },
 };
 
 export function createChaseCamera({ ctx, camera, input }) {
@@ -25,6 +27,7 @@ export function createChaseCamera({ ctx, camera, input }) {
   const look = new THREE.Vector3();
   const desired = new THREE.Vector3();
   const target = new THREE.Vector3();
+  const up = new THREE.Vector3();
 
   let spec = { ...SPECS.chase };
   let orbit = 0;          // extra yaw from the mouse
@@ -110,7 +113,14 @@ export function createChaseCamera({ ctx, camera, input }) {
       look.lerp(target, first ? 1 : Math.min(1, ctx.dt * 5.0));
 
       camera.position.copy(pos);
-      camera.up.set(0, 1, 0);
+      // Looking straight down, the view direction is parallel to +Y and lookAt
+      // has no basis to build a rotation from — the framing snaps somewhere
+      // arbitrary. Near vertical, roll the up vector onto the boat's heading so
+      // the overhead shot stays pointed at the boat and keeps north up-frame.
+      up.subVectors(look, pos);
+      const steep = Math.abs(up.y) / Math.max(up.length(), 1e-5);
+      if (steep > 0.975) camera.up.set(fx, 0, fz);
+      else camera.up.set(0, 1, 0);
       camera.lookAt(look);
       first = false;
     },

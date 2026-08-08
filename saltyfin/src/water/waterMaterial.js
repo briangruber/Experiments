@@ -379,6 +379,21 @@ void main(){
   vec3 inScatter = mix(body, uScatter, 0.28);
   vec3 col = refr * trans + inScatter * (1.0 - trans);
 
+  // A body the size of the leviathan blocks the light coming up through the
+  // column, so the water directly above it scatters less back at the camera.
+  // Without this the animal is physically correct and dramatically useless:
+  // twenty metres of water absorbs ninety per cent of its silhouette and ref/04
+  // never happens. The test is deliberately narrow — it fires only where the
+  // thing under the water is far darker than the water itself, which is true of
+  // the creature and of nothing else in the bay. Sand and reef sit well above
+  // the deep-water body colour and never trip it.
+  float refrL = dot(refr, vec3(0.2126, 0.7152, 0.0722));
+  float scatL = dot(inScatter, vec3(0.2126, 0.7152, 0.0722));
+  float bodyDark = sat(1.0 - refrL / max(scatL, 1e-4));
+  float bodyOcc = smoothstep(0.42, 0.86, bodyDark) * hasBed
+                * (1.0 - smoothstep(24.0, 46.0, column));
+  col *= 1.0 - 0.60 * bodyOcc;
+
   // --- reflection ----------------------------------------------------------
   vec3 R = reflect(-V, N);
   R.y = max(R.y, 0.010);

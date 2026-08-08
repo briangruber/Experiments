@@ -728,11 +728,18 @@ export function createMonster(opts = {}) {
   });
   decorateMonsterMaterial(mat, uni);
 
+  // `group` is the static root main.js adds to the scene. Only `body` moves —
+  // the disturbance hangs off the root, not off the animal, or it would be
+  // dragged round the bay on the leviathan's back.
+  const body = new THREE.Group();
+  body.name = 'leviathan-body';
+  group.add(body);
+
   const mesh = new THREE.Mesh(geo, mat);
   mesh.name = 'leviathan';
   mesh.castShadow = false;
   mesh.receiveShadow = false;
-  group.add(mesh);
+  body.add(mesh);
 
   // Eyes. Small, unlit, warm — the one thing in the silhouette that is not a
   // hole in the water. They sit forward of where the spine sway begins, so they
@@ -745,7 +752,7 @@ export function createMonster(opts = {}) {
   eyeR.position.set(1.58, 0.75, -14.10);
   eyeL.castShadow = false;
   eyeR.castShadow = false;
-  group.add(eyeL, eyeR);
+  body.add(eyeL, eyeR);
 
   setLayers(group, LAYER.MAIN, LAYER.UNDERWATER, LAYER.REFLECTED);
 
@@ -931,7 +938,17 @@ export function createMonster(opts = {}) {
     const ex = surfaceX + _dir.x * 46;
     const ez = surfaceZ + _dir.z * 46;
     brP2.set(ex, Math.max(-15, floorLimit(ex, ez)), ez);
-    brP1.set((brP0.x + brP2.x) * 0.5, (brP0.y + brP2.y) * 0.5 + 60, (brP0.z + brP2.z) * 0.5);
+    // Solve the control point for a *chosen* apex rather than adding a fixed
+    // lift: a quadratic through B(0.5) = (P0 + 2*P1 + P2)/4 means P1 has to
+    // start from where the ends actually are. Adding a constant instead let a
+    // breach that began near the surface throw thirty metres of leviathan into
+    // the sky.
+    const apex = 9.5 + rng.range(0, 3.5);
+    brP1.set(
+      (brP0.x + brP2.x) * 0.5,
+      2 * apex - 0.5 * (brP0.y + brP2.y),
+      (brP0.z + brP2.z) * 0.5,
+    );
     brT = 0;
     ringDone = false;
     setPhase('breach');
@@ -951,7 +968,7 @@ export function createMonster(opts = {}) {
     _q.setFromRotationMatrix(_m4);
     _qr.setFromAxisAngle(_AXIS_Z, bank);
     _q.multiply(_qr);
-    group.quaternion.slerp(_q, Math.min(1, dt * 2.4));
+    body.quaternion.slerp(_q, Math.min(1, dt * 2.4));
   }
 
   /**
@@ -1089,9 +1106,13 @@ export function createMonster(opts = {}) {
           }
         }
       } else if (phase === 'approach') {
-        // Rises toward the boat, quicker and shallower every second.
+        // Rises toward the boat, quicker and shallower every second. It has to
+        // get genuinely shallow to be worth anything: at twenty metres the
+        // water column absorbs ninety-odd per cent of the silhouette and a
+        // thirty-four metre animal reads as a faint smudge. Around seven, it
+        // reads as the shadow in ref/04.
         const rise = clamp(phaseT / 12, 0, 1);
-        const depthWant = 20 - 9 * rise;
+        const depthWant = 19 - 12.5 * rise;
         _dir.set(bx - position.x, 0, bz - position.z);
         const away = _dir.length();
         if (away < 1) _dir.copy(velocity).setY(0);
@@ -1106,7 +1127,7 @@ export function createMonster(opts = {}) {
           stampT = 0;
           water.disturb(position.x, position.z, 0.55, 7.0);
         }
-        if (phaseT > 15 || (away < 46 && phaseT > 7)) {
+        if (phaseT > 27 || (away < 26 && phaseT > 17)) {
           _dir.set(bx - position.x, 0, bz - position.z);
           if (_dir.lengthSq() < 1e-4) _dir.set(0, 0, -1);
           _dir.normalize();
@@ -1128,17 +1149,31 @@ export function createMonster(opts = {}) {
         if (phaseT > 20) { state.alerted = false; nearDisturbT = 0; setPhase('cruise'); }
       }
 
+      // Shallow-water bail-out. It runs after whatever the phase wanted and
+      // overrides it, because a phase only ever vets its *target*: the line the
+      // animal takes to get there can still cross the reef, and 34 m of
+      // leviathan aground on a coral head is the one thing that must never
+      // happen. The bathymetry is radial, so "outward" is "deeper".
+      const floorHere = seabed(position.x, position.z);
+      if (Number.isFinite(floorHere) && floorHere > MIN_FLOOR) {
+        const r = Math.hypot(position.x, position.z) || 1;
+        const urgency = clamp((floorHere - MIN_FLOOR) / 6, 0, 1);
+        desired.set(position.x / r * 6.5, -1.4, position.z / r * 6.5);
+        velocity.lerp(desired, Math.min(1, dt * (0.9 + 3.6 * urgency)));
+      }
+
       position.addScaledVector(velocity, dt);
-      // Never surface by accident, and never saw through the floor, whatever the
-      // steering wanted. Ceiling first, so the floor always has the last word.
-      if (position.y > -3.5) { position.y = -3.5; if (velocity.y > 0) velocity.y *= 0.2; }
+      // Floor first, ceiling last: if the water is too thin for both, the
+      // ceiling wins. A dark shape clipping a reef head for a couple of seconds
+      // is invisible; a leviathan standing in the shallows is not.
       const lim = floorLimit(position.x, position.z);
       if (position.y < lim) { position.y = lim; if (velocity.y < 0) velocity.y *= 0.2; }
+      if (position.y > -3.5) { position.y = -3.5; if (velocity.y > 0) velocity.y *= 0.2; }
       lastY = position.y;
     }
 
     orient(dt);
-    group.position.copy(position);
+    body.position.copy(position);
 
     // The tail beats harder the faster it swims; the fins keep their own, much
     // longer cycle so the two never lock into one rhythm.
@@ -1151,7 +1186,9 @@ export function createMonster(opts = {}) {
     state.heading = Math.atan2(velocity.x, -velocity.z);
     state.depth = Math.max(0, -position.y);
     state.distance = Math.hypot(position.x - bx, position.z - bz);
-    state.surfaced = clamp((position.y + 4.0) / 9.0, 0, 1);
+    // 0 while it is anywhere near its cruising ceiling, 1 once the head and
+    // shoulders are clear — the HUD reads this to decide it has been sighted.
+    state.surfaced = clamp((position.y + 2.0) / 8.0, 0, 1);
     state.phase = phase;
 
     // Keep the disturbance boiling when the boat is close enough for the ripple
@@ -1221,7 +1258,7 @@ export function createMonster(opts = {}) {
 
   // Prime the exported state so the HUD and the quest have sane numbers on the
   // very first frame, before update() has ever run.
-  group.position.copy(position);
+  body.position.copy(position);
   state.heading = Math.atan2(velocity.x, -velocity.z);
   state.depth = Math.max(0, -position.y);
 
