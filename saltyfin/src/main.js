@@ -57,11 +57,28 @@ const FIXED_STEP = params.has('step') ? num('step', 1 / 60) : 0;   // determinis
 const DAY_RATE = num('rate', 0);        // hours per second; 0 freezes the sky
 
 const canvas = document.getElementById('gl');
-const { renderer, quality, targets, setSize, makeTarget } = createRenderer({
-  canvas, tier: TIER, pixelRatio: params.has('pr') ? num('pr', 1) : undefined,
+
+// The node renderer has to request an adapter and a device before it can
+// compile anything, so the whole scene is built inside an async boot rather
+// than at module scope. `?forcegl=1` runs the same node materials through the
+// renderer's WebGL backend, which is also the automatic fallback on a browser
+// with no WebGPU adapter.
+boot().catch((err) => {
+  const el = document.getElementById('boot');
+  if (el) {
+    el.textContent = 'Salty Fin could not start: ' + (err?.message || err);
+    el.style.textTransform = 'none';
+    el.style.letterSpacing = '0';
+  }
+  throw err;
 });
-const gl = renderer.getContext();
-renderer.localClippingEnabled = true;
+
+async function boot() {
+const { renderer, quality, targets, setSize, makeTarget } = await createRenderer({
+  canvas, tier: TIER,
+  pixelRatio: params.has('pr') ? num('pr', 1) : undefined,
+  forceWebGL: params.get('forcegl') === '1',
+});
 
 const scene = new THREE.Scene();
 scene.background = null;
@@ -230,21 +247,22 @@ normalizeShadowCasters();
 
 // --- passes -----------------------------------------------------------------
 
-const REFLECT_PLANE = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0.06);
-const REFRACT_PLANE = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0.12);
+// The WebGL build cut the refraction and reflection passes at the waterline
+// with renderer.clippingPlanes, which the node renderer does not have. The
+// layer split (UNDERWATER / REFLECTED) already does most of that work; what it
+// cannot do is trim a mesh that straddles y=0, so water/clip.js hands the node
+// materials a plane to discard against instead.
 const reflectMatrix = new THREE.Matrix4().makeScale(1, -1, 1);
 const tmpMat = new THREE.Matrix4();
 const clearColorLinear = new THREE.Color();
 
 function renderRefraction() {
   camera.layers.set(LAYER.UNDERWATER);
-  renderer.clippingPlanes = [REFRACT_PLANE];
   renderer.setRenderTarget(targets.refraction);
   clearColorLinear.copy(env.waterDeep);
   renderer.setClearColor(clearColorLinear, 1);
   renderer.clear(true, true, false);
   renderer.render(scene, camera);
-  renderer.clippingPlanes = [];
 }
 
 function renderReflection() {
@@ -269,18 +287,43 @@ function renderReflection() {
   reflectCamera.projectionMatrixInverse.copy(reflectCamera.projectionMatrix).invert();
   reflectCamera.layers.set(LAYER.REFLECTED);
 
-  renderer.clippingPlanes = [REFLECT_PLANE];
   renderer.setRenderTarget(targets.reflection);
   clearColorLinear.copy(env.skyHorizon);
   renderer.setClearColor(clearColorLinear, 1);
   renderer.clear(true, true, false);
   renderer.render(scene, reflectCamera);
-  renderer.clippingPlanes = [];
+}
+
+// `?nopost=1` renders the beauty pass straight to the canvas, which separates a
+// scene problem from a post problem in one capture.
+const NOPOST = params.get('nopost') === '1';
+
+// The node renderer has no preserveDrawingBuffer, so anything that reads the
+// canvas after the frame has ended gets a cleared buffer. `?capture=1` mirrors
+// the finished frame into a 2D canvas from inside the render loop — the same
+// task as the draw, which is the only moment the pixels exist — and that canvas
+// sits under the HUD so an ordinary page screenshot picks up both.
+const CAPTURE = params.get('capture') === '1';
+let grab = null;
+if (CAPTURE) {
+  grab = document.createElement('canvas');
+  grab.id = 'grab';
+  grab.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;z-index:5';
+  document.body.insertBefore(grab, document.getElementById('hud'));
+  grab.ctx = grab.getContext('2d');
+}
+
+function mirrorFrame() {
+  if (!grab) return;
+  if (grab.width !== canvas.width || grab.height !== canvas.height) {
+    grab.width = canvas.width; grab.height = canvas.height;
+  }
+  grab.ctx.drawImage(canvas, 0, 0);
 }
 
 function renderBeauty() {
   camera.layers.set(LAYER.MAIN);
-  renderer.setRenderTarget(targets.scene);
+  renderer.setRenderTarget(NOPOST ? null : targets.scene);
   clearColorLinear.copy(env.fogColor);
   renderer.setClearColor(clearColorLinear, 1);
   renderer.clear(true, true, false);
@@ -387,12 +430,13 @@ function frame() {
   if (quality.reflections) renderReflection();
   renderRefraction();
   renderBeauty();
-  post.render(env, {
+  if (!NOPOST) post.render(env, {
     time: ctx.time,
     underwater: ctx.cameraUnderwater,
     underwaterTint: env.waterMid,
   });
   renderer.setRenderTarget(null);
+  mirrorFrame();
 
   input.endFrame();
   frames++;
@@ -449,3 +493,4 @@ for (const m of modules) m.applyEnv?.(env);
 hud.applyEnv?.(env);
 api.ready = true;
 requestAnimationFrame(frame);
+}

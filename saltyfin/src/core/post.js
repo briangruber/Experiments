@@ -1,198 +1,165 @@
 // Post: threshold, a small mip pyramid of blurs, then a composite that does the
 // tonemap, the grade and the vignette in one pass.
 //
-// The bloom is the Unreal-style downsample/upsample chain rather than a single
-// wide gaussian, because the thing it has to sell is a lantern and a row of
-// village windows at night — small, very bright, and they need a long soft
+// Same algorithm and the same tuning as the WebGL build, rewritten as TSL node
+// graphs. The bloom is the Unreal-style downsample/upsample chain rather than a
+// single wide gaussian, because the thing it has to sell is a lantern and a row
+// of village windows at night — small, very bright, and they need a long soft
 // falloff without an obvious kernel edge.
+//
+// Each pass is one QuadMesh whose material is a NodeMaterial with a fragment
+// node. The source texture of a pass changes between mip levels, so every pass
+// keeps a TextureNode and swaps its `.value` — that is a uniform rebind, not a
+// recompile.
 
 import * as THREE from 'three';
-import { GLSL } from './glsl.js';
+import {
+  Fn, texture, uniform, uv, vec2, vec3, vec4, float,
+  max, min, clamp, mix, pow, dot, step, smoothstep, fract, screenCoordinate,
+} from 'three/tsl';
 
-const QUAD_VERT = /* glsl */`
-out vec2 vUv;
-void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }
-`;
+const LUMA = vec3(0.2126, 0.7152, 0.0722);
 
-const THRESHOLD_FRAG = /* glsl */`
-precision highp float;
-in vec2 vUv;
-uniform sampler2D tSrc;
-uniform float threshold;
-uniform float softKnee;
-uniform float exposure;
-out vec4 fragColor;
-${GLSL.color}
-void main(){
-  vec3 c = texture(tSrc, vUv).rgb * exposure;
-  float l = max(max(c.r, c.g), c.b);
-  float knee = threshold * softKnee + 1e-5;
-  float soft = clamp(l - threshold + knee, 0.0, 2.0*knee);
-  soft = soft*soft/(4.0*knee);
-  float w = max(soft, l - threshold) / max(l, 1e-5);
-  fragColor = vec4(c * w, 1.0);
-}
-`;
+/** Interleaved gradient noise — the good cheap dither. */
+const ign = Fn(([p]) => fract(
+  float(52.9829189).mul(fract(dot(p, vec2(0.06711056, 0.00583715)))),
+));
 
-const DOWN_FRAG = /* glsl */`
-precision highp float;
-in vec2 vUv;
-uniform sampler2D tSrc;
-uniform vec2 texel;
-out vec4 fragColor;
-void main(){
-  // 13-tap Karis-weighted downsample: no fireflies, no aliasing crawl.
-  vec3 a = texture(tSrc, vUv + texel*vec2(-2,  2)).rgb;
-  vec3 b = texture(tSrc, vUv + texel*vec2( 0,  2)).rgb;
-  vec3 c = texture(tSrc, vUv + texel*vec2( 2,  2)).rgb;
-  vec3 d = texture(tSrc, vUv + texel*vec2(-2,  0)).rgb;
-  vec3 e = texture(tSrc, vUv).rgb;
-  vec3 f = texture(tSrc, vUv + texel*vec2( 2,  0)).rgb;
-  vec3 g = texture(tSrc, vUv + texel*vec2(-2, -2)).rgb;
-  vec3 h = texture(tSrc, vUv + texel*vec2( 0, -2)).rgb;
-  vec3 i = texture(tSrc, vUv + texel*vec2( 2, -2)).rgb;
-  vec3 j = texture(tSrc, vUv + texel*vec2(-1,  1)).rgb;
-  vec3 k = texture(tSrc, vUv + texel*vec2( 1,  1)).rgb;
-  vec3 l = texture(tSrc, vUv + texel*vec2(-1, -1)).rgb;
-  vec3 m = texture(tSrc, vUv + texel*vec2( 1, -1)).rgb;
-  vec3 o = e*0.125 + (a+c+g+i)*0.03125 + (b+d+f+h)*0.0625 + (j+k+l+m)*0.125;
-  fragColor = vec4(o, 1.0);
-}
-`;
+/** ACES, softened at the shoulder so a saturated sunset does not go white. */
+const tonemapFilmic = Fn(([x]) => {
+  const c = max(x, vec3(0)).toVar();
+  const a = c.mul(c.mul(2.51).add(0.03));
+  const b = c.mul(c.mul(2.43).add(0.59)).add(0.14);
+  const aces = clamp(a.div(b), 0, 1);
+  const l = dot(c, LUMA);
+  const reinhard = c.div(l.add(1));
+  return mix(aces, reinhard, 0.25);
+});
 
-const UP_FRAG = /* glsl */`
-precision highp float;
-in vec2 vUv;
-uniform sampler2D tSrc;
-uniform sampler2D tPrev;
-uniform vec2 texel;
-uniform float radius;
-out vec4 fragColor;
-void main(){
-  vec2 r = texel * radius;
-  vec3 s = texture(tSrc, vUv + vec2(-r.x,  r.y)).rgb * 1.0
-         + texture(tSrc, vUv + vec2( 0.0,  r.y)).rgb * 2.0
-         + texture(tSrc, vUv + vec2( r.x,  r.y)).rgb * 1.0
-         + texture(tSrc, vUv + vec2(-r.x,  0.0)).rgb * 2.0
-         + texture(tSrc, vUv).rgb * 4.0
-         + texture(tSrc, vUv + vec2( r.x,  0.0)).rgb * 2.0
-         + texture(tSrc, vUv + vec2(-r.x, -r.y)).rgb * 1.0
-         + texture(tSrc, vUv + vec2( 0.0, -r.y)).rgb * 2.0
-         + texture(tSrc, vUv + vec2( r.x, -r.y)).rgb * 1.0;
-  fragColor = vec4(s / 16.0 + texture(tPrev, vUv).rgb, 1.0);
-}
-`;
-
-const COMPOSITE_FRAG = /* glsl */`
-precision highp float;
-in vec2 vUv;
-uniform sampler2D tScene;
-uniform sampler2D tBloom;
-uniform vec2 resolution;
-uniform float exposure;
-uniform float bloomStrength;
-uniform float saturation;
-uniform float contrast;
-uniform float vignette;
-uniform float grain;
-uniform float time;
-uniform vec3 lift;
-uniform vec3 gain;
-uniform float underwater;
-uniform vec3 underwaterTint;
-uniform float chroma;
-out vec4 fragColor;
-${GLSL.color}
-${GLSL.util}
-
-vec3 sampleScene(vec2 uv){ return texture(tScene, uv).rgb; }
-
-void main(){
-  vec2 uv = vUv;
-  vec2 c2 = uv - 0.5;
-  float r2 = dot(c2, c2);
-
-  // A hair of lateral chromatic aberration at the frame edge. The uniform is in
-  // pixels at the very corner, not in UV: c2*r2 peaks around 0.25, so a UV
-  // offset that looks tiny is in fact twenty pixels wide.
-  vec3 col;
-  if (chroma > 0.0001) {
-    vec2 off = c2 * r2 * (chroma * 4.0 / resolution);
-    col = vec3(sampleScene(uv - off).r, sampleScene(uv).g, sampleScene(uv + off).b);
-  } else {
-    col = sampleScene(uv);
-  }
-
-  col *= exposure;
-  col += texture(tBloom, uv).rgb * bloomStrength;
-
-  if (underwater > 0.001) {
-    float d = underwater;
-    col = mix(col, col * underwaterTint, d * 0.85);
-    col += underwaterTint * d * 0.05;
-  }
-
-  col = tonemapFilmic(col);
-
-  // Grade in display-referred space: lift/gain then contrast around 0.5.
-  col = col * gain + lift * (1.0 - col);
-  col = (col - 0.5) * contrast + 0.5;
-  col = saturateColor(col, saturation);
-  col = max(col, vec3(0.0));
-
-  float v = 1.0 - vignette * smoothstep(0.15, 0.85, r2 * 2.0);
-  col *= v;
-
-  col = linearToSrgb(col);
-  col += (ign(gl_FragCoord.xy + fract(time)*137.0) - 0.5) * (grain + 1.0/255.0);
-
-  fragColor = vec4(col, 1.0);
-}
-`;
+const linearToSrgb = Fn(([c]) => mix(
+  c.mul(12.92),
+  pow(max(c, vec3(1e-5)), vec3(1 / 2.4)).mul(1.055).sub(0.055),
+  step(vec3(0.0031308), c),
+));
 
 export function createPost({ renderer, targets, makeTarget }) {
-  const quadGeo = new THREE.BufferGeometry();
-  quadGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3));
-  quadGeo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array([0, 0, 2, 0, 0, 2]), 2));
+  const quad = new THREE.QuadMesh();
 
-  const quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-  const quadScene = new THREE.Scene();
-  const quadMesh = new THREE.Mesh(quadGeo, null);
-  quadMesh.frustumCulled = false;
-  quadScene.add(quadMesh);
+  const mat = () => {
+    const m = new THREE.NodeMaterial();
+    m.depthTest = false;
+    m.depthWrite = false;
+    return m;
+  };
 
-  // RawShaderMaterial + GLSL3: three prepends `#version 300 es` itself, but
-  // declares nothing else, so the attributes are spelled out here.
-  const mat = (frag, uniforms) => new THREE.RawShaderMaterial({
-    glslVersion: THREE.GLSL3,
-    vertexShader: 'precision highp float;\nin vec3 position;\nin vec2 uv;\n' + QUAD_VERT,
-    fragmentShader: frag,
-    uniforms,
-    depthTest: false, depthWrite: false,
-  });
+  // --- threshold -----------------------------------------------------------
+  const thrSrc = texture(targets.scene.texture);
+  const uThreshold = uniform(1.0);
+  const uSoftKnee = uniform(0.6);
+  const uExposureThr = uniform(1.0);
+  const thresholdMat = mat();
+  thresholdMat.fragmentNode = Fn(() => {
+    const c = thrSrc.sample(uv()).rgb.mul(uExposureThr).toVar();
+    const l = max(max(c.r, c.g), c.b).toVar();
+    const knee = uThreshold.mul(uSoftKnee).add(1e-5).toVar();
+    const soft = clamp(l.sub(uThreshold).add(knee), 0, knee.mul(2)).toVar();
+    soft.assign(soft.mul(soft).div(knee.mul(4)));
+    const w = max(soft, l.sub(uThreshold)).div(max(l, 1e-5));
+    return vec4(c.mul(w), 1);
+  })();
 
-  const thresholdMat = mat(THRESHOLD_FRAG, {
-    tSrc: { value: null }, threshold: { value: 1.0 }, softKnee: { value: 0.6 }, exposure: { value: 1 },
-  });
-  const downMat = mat(DOWN_FRAG, { tSrc: { value: null }, texel: { value: new THREE.Vector2() } });
-  const upMat = mat(UP_FRAG, {
-    tSrc: { value: null }, tPrev: { value: null },
-    texel: { value: new THREE.Vector2() }, radius: { value: 1 },
-  });
-  const compositeMat = mat(COMPOSITE_FRAG, {
-    tScene: { value: null }, tBloom: { value: null },
-    resolution: { value: new THREE.Vector2() },
-    exposure: { value: 1 }, bloomStrength: { value: 0.4 },
-    saturation: { value: 1.1 }, contrast: { value: 1.05 },
-    vignette: { value: 0.25 }, grain: { value: 0.012 }, time: { value: 0 },
-    lift: { value: new THREE.Vector3() }, gain: { value: new THREE.Vector3(1, 1, 1) },
-    underwater: { value: 0 }, underwaterTint: { value: new THREE.Vector3(0.2, 0.6, 0.8) },
-    // Pixels of R/B separation at the frame corner. Barely there on purpose.
-    chroma: { value: 1.6 },
-  });
+  // --- downsample: 13-tap Karis, no fireflies, no aliasing crawl -----------
+  const downSrc = texture(targets.scene.texture);
+  const uDownTexel = uniform(vec2(1, 1));
+  const downMat = mat();
+  downMat.fragmentNode = Fn(() => {
+    const t = uDownTexel;
+    const at = (x, y) => downSrc.sample(uv().add(t.mul(vec2(x, y)))).rgb;
+    const a = at(-2, 2), b = at(0, 2), c = at(2, 2);
+    const d = at(-2, 0), e = at(0, 0), f = at(2, 0);
+    const g = at(-2, -2), h = at(0, -2), i = at(2, -2);
+    const j = at(-1, 1), k = at(1, 1), l = at(-1, -1), m = at(1, -1);
+    const o = e.mul(0.125)
+      .add(a.add(c).add(g).add(i).mul(0.03125))
+      .add(b.add(d).add(f).add(h).mul(0.0625))
+      .add(j.add(k).add(l).add(m).mul(0.125));
+    return vec4(o, 1);
+  })();
+
+  // --- upsample: tent filter, accumulating down the pyramid ----------------
+  const upSrc = texture(targets.scene.texture);
+  const upPrev = texture(targets.scene.texture);
+  const uUpTexel = uniform(vec2(1, 1));
+  const uUpRadius = uniform(1.0);
+  const upMat = mat();
+  upMat.fragmentNode = Fn(() => {
+    const r = uUpTexel.mul(uUpRadius).toVar();
+    const at = (x, y) => upSrc.sample(uv().add(vec2(r.x.mul(x), r.y.mul(y)))).rgb;
+    const s = at(-1, 1).add(at(0, 1).mul(2)).add(at(1, 1))
+      .add(at(-1, 0).mul(2)).add(at(0, 0).mul(4)).add(at(1, 0).mul(2))
+      .add(at(-1, -1)).add(at(0, -1).mul(2)).add(at(1, -1));
+    return vec4(s.div(16).add(upPrev.sample(uv()).rgb), 1);
+  })();
+
+  // --- composite: chroma, bloom, tonemap, grade, vignette, dither ----------
+  const compScene = texture(targets.scene.texture);
+  const compBloom = texture(targets.scene.texture);
+  const uExposure = uniform(1.0);
+  const uBloomStrength = uniform(0.4);
+  const uSaturation = uniform(1.1);
+  const uContrast = uniform(1.05);
+  const uVignette = uniform(0.25);
+  const uGrain = uniform(0.012);
+  const uTime = uniform(0.0);
+  const uLift = uniform(vec3(0, 0, 0));
+  const uGain = uniform(vec3(1, 1, 1));
+  const uUnderwater = uniform(0.0);
+  const uUnderwaterTint = uniform(vec3(0.2, 0.6, 0.8));
+  const uChroma = uniform(1.6);
+  const uResolution = uniform(vec2(1280, 720));
+
+  const compositeMat = mat();
+  compositeMat.fragmentNode = Fn(() => {
+    const suv = uv().toVar();
+    const c2 = suv.sub(0.5).toVar();
+    const r2 = dot(c2, c2).toVar();
+
+    // A hair of lateral chromatic aberration at the frame edge. The uniform is
+    // in pixels at the very corner, not in UV: c2*r2 peaks around 0.25, so a UV
+    // offset that looks tiny is in fact twenty pixels wide.
+    const off = c2.mul(r2).mul(uChroma.mul(4).div(uResolution)).toVar();
+    const col = vec3(
+      compScene.sample(suv.sub(off)).r,
+      compScene.sample(suv).g,
+      compScene.sample(suv.add(off)).b,
+    ).toVar();
+
+    col.mulAssign(uExposure);
+    col.addAssign(compBloom.sample(suv).rgb.mul(uBloomStrength));
+
+    // Under the surface, tint toward the water body colour and lift the floor.
+    col.assign(mix(col, col.mul(uUnderwaterTint), uUnderwater.mul(0.85)));
+    col.addAssign(uUnderwaterTint.mul(uUnderwater).mul(0.05));
+
+    col.assign(tonemapFilmic(col));
+
+    // Grade in display-referred space: lift/gain then contrast around 0.5.
+    col.assign(col.mul(uGain).add(uLift.mul(col.oneMinus())));
+    col.assign(col.sub(0.5).mul(uContrast).add(0.5));
+    col.assign(mix(vec3(dot(col, LUMA)), col, uSaturation));
+    col.assign(max(col, vec3(0)));
+
+    col.mulAssign(uVignette.mul(smoothstep(0.15, 0.85, r2.mul(2))).oneMinus());
+    col.assign(linearToSrgb(col));
+    col.addAssign(
+      ign(screenCoordinate.xy.add(fract(uTime).mul(137))).sub(0.5)
+        .mul(uGrain.add(1 / 255)),
+    );
+    return vec4(col, 1);
+  })();
 
   const LEVELS = 6;
-  let chain = [];      // { down, up } per level
+  let chain = [];
 
   function resize(w, h) {
     for (const l of chain) { l.down.dispose(); l.up.dispose(); }
@@ -207,71 +174,62 @@ export function createPost({ renderer, targets, makeTarget }) {
       });
       if (lw <= 4 || lh <= 4) break;
     }
-    compositeMat.uniforms.resolution.value.set(w, h);
+    uResolution.value.set(w, h);
   }
 
   function draw(material, target) {
-    quadMesh.material = material;
+    quad.material = material;
     renderer.setRenderTarget(target ?? null);
     renderer.clear(true, true, false);
-    renderer.render(quadScene, quadCam);
+    quad.render(renderer);
   }
 
-  const tmpLift = new THREE.Vector3();
-  const tmpGain = new THREE.Vector3();
-
   function render(env, { time = 0, underwater = 0, underwaterTint = null } = {}) {
-    const src = targets.scene.texture;
-
-    thresholdMat.uniforms.tSrc.value = src;
-    thresholdMat.uniforms.threshold.value = env.bloomThreshold;
-    thresholdMat.uniforms.exposure.value = env.exposure;
+    thrSrc.value = targets.scene.texture;
+    uThreshold.value = env.bloomThreshold;
+    uExposureThr.value = env.exposure;
     draw(thresholdMat, chain[0].down);
 
     for (let i = 1; i < chain.length; i++) {
-      downMat.uniforms.tSrc.value = chain[i - 1].down.texture;
-      downMat.uniforms.texel.value.set(1 / chain[i - 1].w, 1 / chain[i - 1].h);
+      downSrc.value = chain[i - 1].down.texture;
+      uDownTexel.value.set(1 / chain[i - 1].w, 1 / chain[i - 1].h);
       draw(downMat, chain[i].down);
     }
 
     const last = chain.length - 1;
-    upMat.uniforms.radius.value = env.bloomRadius * 2.0 + 0.5;
+    uUpRadius.value = env.bloomRadius * 2.0 + 0.5;
     // Seed the top of the pyramid with itself, then walk down accumulating.
-    upMat.uniforms.tSrc.value = chain[last].down.texture;
-    upMat.uniforms.tPrev.value = chain[last].down.texture;
-    upMat.uniforms.texel.value.set(1 / chain[last].w, 1 / chain[last].h);
+    upSrc.value = chain[last].down.texture;
+    upPrev.value = chain[last].down.texture;
+    uUpTexel.value.set(1 / chain[last].w, 1 / chain[last].h);
     draw(upMat, chain[last].up);
 
     for (let i = last - 1; i >= 0; i--) {
-      upMat.uniforms.tSrc.value = chain[i + 1].up.texture;
-      upMat.uniforms.tPrev.value = chain[i].down.texture;
-      upMat.uniforms.texel.value.set(1 / chain[i + 1].w, 1 / chain[i + 1].h);
+      upSrc.value = chain[i + 1].up.texture;
+      upPrev.value = chain[i].down.texture;
+      uUpTexel.value.set(1 / chain[i + 1].w, 1 / chain[i + 1].h);
       draw(upMat, chain[i].up);
     }
 
-    const u = compositeMat.uniforms;
-    u.tScene.value = src;
-    u.tBloom.value = chain[0].up.texture;
-    u.exposure.value = env.exposure;
-    u.bloomStrength.value = env.bloomStrength;
-    u.saturation.value = env.saturation;
-    u.contrast.value = env.contrast;
-    u.vignette.value = env.vignette;
-    u.grain.value = env.grainStrength;
-    u.time.value = time;
-    u.underwater.value = underwater;
-    if (underwaterTint) u.underwaterTint.value.set(underwaterTint.r, underwaterTint.g, underwaterTint.b);
-    tmpLift.set(env.lift.r, env.lift.g, env.lift.b);
-    tmpGain.set(env.gain.r, env.gain.g, env.gain.b);
-    u.lift.value.copy(tmpLift);
-    u.gain.value.copy(tmpGain);
+    compScene.value = targets.scene.texture;
+    compBloom.value = chain[0].up.texture;
+    uExposure.value = env.exposure;
+    uBloomStrength.value = env.bloomStrength;
+    uSaturation.value = env.saturation;
+    uContrast.value = env.contrast;
+    uVignette.value = env.vignette;
+    uGrain.value = env.grainStrength;
+    uTime.value = time;
+    uUnderwater.value = underwater;
+    if (underwaterTint) uUnderwaterTint.value.set(underwaterTint.r, underwaterTint.g, underwaterTint.b);
+    uLift.value.set(env.lift.r, env.lift.g, env.lift.b);
+    uGain.value.set(env.gain.r, env.gain.g, env.gain.b);
 
     draw(compositeMat, null);
   }
 
   function dispose() {
     for (const l of chain) { l.down.dispose(); l.up.dispose(); }
-    quadGeo.dispose();
     thresholdMat.dispose(); downMat.dispose(); upMat.dispose(); compositeMat.dispose();
   }
 

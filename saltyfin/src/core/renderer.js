@@ -1,5 +1,11 @@
 // The renderer, the render targets, and the quality tiers.
 //
+// This branch runs three's node renderer. One code path, two backends: WebGPU
+// where the browser has it, and the same renderer's WebGL backend where it does
+// not. That is not a compatibility shim bolted on the side — it is the same
+// node materials compiled to a different language, so the fallback looks
+// identical rather than merely similar.
+//
 // The beauty pass renders into a half-float target so the sun path, the lantern
 // and the village windows can go well above 1.0 and still bloom properly;
 // core/post.js is what finally tonemaps to the canvas.
@@ -17,37 +23,48 @@ export const TIERS = {
   mobile: { refractionScale: 0.45, reflectionScale: 0.30, shadows: true, shadowSize: 1024, maxPixelRatio: 1, reflections: true, waterSegments: 160, cloudSteps: 8 },
 };
 
-export function createRenderer({ canvas, tier = 'high', pixelRatio } = {}) {
-  const renderer = new THREE.WebGLRenderer({
+/** Does this browser actually have a WebGPU adapter? Cheap and synchronous. */
+export function hasWebGPU() {
+  return typeof navigator !== 'undefined' && !!navigator.gpu;
+}
+
+/**
+ * Build the renderer. Async because the node renderer has to request an adapter
+ * and a device before anything can compile — every caller must await this.
+ */
+export async function createRenderer({ canvas, tier = 'high', pixelRatio, forceWebGL = false } = {}) {
+  const wantGPU = hasWebGPU() && !forceWebGL;
+
+  const renderer = new THREE.WebGPURenderer({
     canvas,
     antialias: false,          // we resolve in post; MSAA on an HDR target is expensive
     alpha: false,
-    powerPreference: 'high-performance',
-    stencil: false,
-    depth: true,
-    preserveDrawingBuffer: true, // screenshots
+    forceWebGL: !wantGPU,
+    // The capture harness reads the canvas back after the frame has ended, and
+    // both backends hand back a cleared buffer without this.
+    preserveDrawingBuffer: true,
   });
+
+  await renderer.init();
 
   renderer.setClearColor(0x000000, 1);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.NoToneMapping;   // post does it
   renderer.shadowMap.enabled = TIERS[tier].shadows;
-  // Basic, not PCF. Both PCF paths go through a comparison sampler, which the
-  // software rasteriser this is captured on resolves into feathered brown
-  // smears several metres wide regardless of radius or map size; the depth map
-  // itself is fine, and a single tap reads it back as crisp chimney and gable
-  // shadows. Hard-edged suits the stylised art anyway — the concept paintings
-  // have crisp shadows, not soft ones.
-  renderer.shadowMap.type = THREE.BasicShadowMap;
+  // Unlike the WebGL renderer, the node path's soft shadow filtering is done in
+  // the node graph rather than by a comparison sampler, so the smearing that
+  // forced BasicShadowMap on the WebGL build does not apply here.
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.autoClear = false;
 
   const quality = { tier, ...TIERS[tier] };
   quality.pixelRatio = Math.min(pixelRatio ?? window.devicePixelRatio ?? 1, quality.maxPixelRatio);
+  quality.backend = renderer.backend?.isWebGPUBackend ? 'webgpu' : 'webgl';
 
   const size = new THREE.Vector2(1, 1);
 
   const makeTarget = (w, h, opts = {}) => {
-    const t = new THREE.WebGLRenderTarget(Math.max(2, w | 0), Math.max(2, h | 0), {
+    const t = new THREE.RenderTarget(Math.max(2, w | 0), Math.max(2, h | 0), {
       type: THREE.HalfFloatType,
       format: THREE.RGBAFormat,
       minFilter: THREE.LinearFilter,
@@ -81,10 +98,9 @@ export function createRenderer({ canvas, tier = 'high', pixelRatio } = {}) {
   function setSize(w, h) {
     const pr = quality.pixelRatio;
     size.set(w, h);
-    renderer.setPixelRatio(1);           // we manage resolution ourselves
-    renderer.setSize(w, h, false);
     const bw = Math.max(2, Math.round(w * pr));
     const bh = Math.max(2, Math.round(h * pr));
+    renderer.setPixelRatio(1);           // we manage resolution ourselves
     renderer.setSize(bw, bh, false);
     canvas.style.width = w + 'px';
     canvas.style.height = h + 'px';
