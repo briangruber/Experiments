@@ -29,12 +29,14 @@ const CSS = `
 #intro .keys span { border: 1px solid rgba(206,232,255,.22); border-radius: 999px;
   padding: 6px 12px; font-size: 10px; letter-spacing: .14em; text-transform: uppercase;
   color: rgba(214,236,255,.76); background: rgba(9,22,40,.44); }
+#intro .backend { font-size: 10px; letter-spacing: .22em; text-transform: uppercase;
+  color: rgba(150,190,225,.66); }
 #intro .go { margin-top: 6px; font-size: 11px; letter-spacing: .26em;
   text-transform: uppercase; color: #ff9a3c; }
 @media (prefers-reduced-motion: reduce) { #intro { transition: none; } }
 `;
 
-export function createIntro({ touch = false } = {}) {
+export function createIntro({ touch = false, backend = null } = {}) {
   if (document.getElementById('intro')) return { dispose() {} };
 
   const style = document.createElement('style');
@@ -54,6 +56,7 @@ export function createIntro({ touch = false } = {}) {
       <p>Clear water over a living reef, a harbour that lights up at dusk,
          and something very large moving underneath it.</p>
       <div class="keys">${controls.map((c) => `<span>${c}</span>`).join('')}</div>
+      ${backend ? `<div class="backend">Renderer &mdash; ${backend === 'webgpu' ? 'WebGPU' : 'WebGL fallback'}</div>` : ''}
       <div class="go">${touch ? 'Tap to begin' : 'Click to begin'}</div>
     </div>`;
   document.body.appendChild(el);

@@ -28,6 +28,7 @@ const opt = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i
 const ROOT = resolve(opt('root', join(HERE, '..')));
 const OUT = resolve(opt('out', join(ROOT, 'dist/saltyfin.html')));
 const ENTRY = opt('entry', 'src/main.js');
+const TITLE = opt('title', 'Salty Fin');
 const VENDOR = join(ROOT, 'vendor/three');
 // id -> file. The specifier map below points 'three' and 'three/webgpu' at the
 // same module, which is what three's own package exports do.
@@ -220,7 +221,7 @@ const NON_ASCII = /[\u0080-\uffff]/g;
 const escJs = (s) => s.replace(NON_ASCII, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
 const escCss = (s) => s.replace(NON_ASCII, (c) => '\\' + c.charCodeAt(0).toString(16) + ' ');
 
-const page = `<title>Salty Fin</title>
+const page = `<title>${TITLE}</title>
 <style>
 html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #05070f;
   overscroll-behavior: none; }

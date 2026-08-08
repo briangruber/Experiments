@@ -216,7 +216,7 @@ const chaseCamera = createChaseCamera({ ctx, camera, input });
 const quest = createQuest({ ctx, monster });
 ctx.quest = quest;
 const hud = createHud({ ctx, time });
-const intro = createIntro({ touch: !!touch.root });
+const intro = createIntro({ touch: !!touch.root, backend: quality.backend });
 
 const modules = [
   sky, clouds, celestial, seabed, coral, islands, vegetation,
