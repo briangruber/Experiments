@@ -61,14 +61,17 @@ page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text().slice
 page.on('pageerror', (e) => errors.push('pageerror: ' + (e.stack || e.message).slice(0, 600)));
 page.on('requestfailed', (r) => { if (!r.url().includes('127.0.0.1')) external.push(r.url()); });
 
-await page.goto(`http://127.0.0.1:${server.address().port}/`, { waitUntil: 'load' });
+// capture=1 mirrors the finished frame into a 2D canvas from inside the render
+// loop; the node renderer has no preserveDrawingBuffer, so reading the WebGL
+// canvas after the frame returns a cleared buffer.
+await page.goto(`http://127.0.0.1:${server.address().port}/?capture=1`, { waitUntil: 'load' });
 try {
   await page.waitForFunction(() => window.saltyfin?.frames > 1, null, { timeout: 90000 });
 } catch { errors.push('no frames rendered within 90s'); }
 await page.waitForTimeout(WAIT);
 
 const stats = await page.evaluate(() => {
-  const c = document.getElementById('gl');
+  const c = document.getElementById('grab') || document.getElementById('gl');
   const s = document.createElement('canvas');
   s.width = 200; s.height = Math.max(1, Math.round(200 * c.height / c.width));
   const g = s.getContext('2d');
@@ -84,6 +87,7 @@ const stats = await page.evaluate(() => {
     frames: window.saltyfin?.frames ?? 0,
     tier: window.saltyfin?.quality?.tier ?? '?',
     touch: !!document.getElementById('touch'),
+    backend: window.saltyfin?.quality?.backend ?? '?',
     hud: !!document.querySelector('#hud *'),
   };
 });

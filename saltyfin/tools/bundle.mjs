@@ -8,10 +8,12 @@
 // so module scope survives; concatenating them flat would collide (several
 // modules define `C`, `_v`, `TAU`).
 //
-// three.js comes in as the CommonJS build, which is the only single-file one:
-// the ESM build is split across three.module.js and three.core.js, and merging
-// two minified module scopes into one risks a top-level name collision. The CJS
-// file is self-contained and only needs a four-line `module.exports` shim.
+// three's node renderer has no CommonJS build, so it comes in as its three ESM
+// pieces — core, webgpu, tsl — each wrapped in the same module registry as the
+// game's own files. They are minified onto single lines, so their import and
+// export statements need a laxer transform than the line-anchored one below;
+// vendorModule() does that. Merging them into one scope is not an option: two
+// minified module scopes will collide on short top-level names.
 //
 // The output is a FRAGMENT, not a document: the Artifact host supplies
 // <!doctype>, <html>, <head> and <body>.
@@ -26,7 +28,20 @@ const opt = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i
 const ROOT = resolve(opt('root', join(HERE, '..')));
 const OUT = resolve(opt('out', join(ROOT, 'dist/saltyfin.html')));
 const ENTRY = opt('entry', 'src/main.js');
-const THREE_CJS = resolve(opt('three', join(ROOT, 'vendor/three/three.cjs')));
+const VENDOR = join(ROOT, 'vendor/three');
+// id -> file. The specifier map below points 'three' and 'three/webgpu' at the
+// same module, which is what three's own package exports do.
+const VENDOR_FILES = {
+  'vendor:core': join(VENDOR, 'three.core.min.js'),
+  'vendor:three': join(VENDOR, 'three.webgpu.min.js'),
+  'vendor:tsl': join(VENDOR, 'three.tsl.min.js'),
+};
+const VENDOR_SPECIFIER = {
+  three: 'vendor:three',
+  'three/webgpu': 'vendor:three',
+  'three/tsl': 'vendor:tsl',
+  './three.core.min.js': 'vendor:core',
+};
 
 const NAMED_RE = /^\s*import\s*\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]\s*;?\s*$/gm;
 const NS_RE = /^\s*import\s*\*\s*as\s+([A-Za-z0-9_$]+)\s+from\s*['"]([^'"]+)['"]\s*;?\s*$/gm;
@@ -34,7 +49,7 @@ const NS_RE = /^\s*import\s*\*\s*as\s+([A-Za-z0-9_$]+)\s+from\s*['"]([^'"]+)['"]
 /** `export const A = 1, B = 2;` is legal, so collect every declarator name. */
 function exportedNames(src) {
   const names = new Set();
-  for (const m of src.matchAll(/^export\s+(?:function|class)\s+([A-Za-z0-9_$]+)/gm)) names.add(m[1]);
+  for (const m of src.matchAll(/^export\s+(?:async\s+)?(?:function|class)\s+([A-Za-z0-9_$]+)/gm)) names.add(m[1]);
   for (const m of src.matchAll(/^export\s+(?:const|let|var)\s+(.+)$/gm)) {
     let depth = 0, cur = '';
     for (const ch of m[1]) {
@@ -57,7 +72,7 @@ async function load(id) {
   const deps = [];
 
   const specToId = (spec, fromId) => {
-    if (spec === 'three') return 'three';
+    if (VENDOR_SPECIFIER[spec]) return VENDOR_SPECIFIER[spec];
     return relative(ROOT, resolve(dirname(join(ROOT, fromId)), spec)).split('\\').join('/');
   };
 
@@ -87,21 +102,71 @@ async function load(id) {
     return '';
   });
   const leftover = body.match(/^\s*(import|export)\s+.*$/gm)
-    ?.filter((l) => !/^\s*export\s+(function|class|const|let|var)\s/.test(l));
+    ?.filter((l) => !/^\s*export\s+(async\s+)?(function|class|const|let|var)\s/.test(l));
   if (leftover?.length) throw new Error(`${id}: unsupported module syntax\n  ${leftover.join('\n  ')}`);
 
   body = body.replace(/^export\s+/gm, '');
   body += `\nObject.assign(__x, { ${[...names, ...reexport].join(', ')} });\n`;
   modules.set(id, { body, deps: [...new Set(deps)], names });
-  for (const d of deps) if (d !== 'three') await load(d);
+  for (const d of deps) if (!d.startsWith('vendor:')) await load(d);
 }
 
 await load(ENTRY);
 
-const threeSrc = await readFile(THREE_CJS, 'utf8');
+/**
+ * Wrap one of three's minified ESM files as a registry module. They are single
+ * enormous lines, so the line-anchored transform used on the game's own sources
+ * does not apply: match the statements wherever they sit, and assert the counts
+ * rather than trusting a regex against two megabytes of minified code.
+ */
+async function vendorModule(id) {
+  let src = await readFile(VENDOR_FILES[id], 'utf8');
+  const bind = (list, isImport) => list.split(',').map((t) => t.trim()).filter(Boolean)
+    .map((t) => {
+      const m = t.split(/\s+as\s+/).map((x) => x.trim());
+      if (m.length === 1) return m[0];
+      // import { a as b } -> { a: b };  export { a as b } -> { b: a }
+      return isImport ? `${m[0]}: ${m[1]}` : `${m[1]}: ${m[0]}`;
+    }).join(', ');
+
+  let imports = 0;
+  src = src.replace(/import\{([^}]*)\}from"([^"]+)";?/g, (_all, list, spec) => {
+    const dep = VENDOR_SPECIFIER[spec];
+    if (!dep) throw new Error(`${id}: unmapped vendor import "${spec}"`);
+    imports++;
+    return `const { ${bind(list, true)} } = __req(${JSON.stringify(dep)});`;
+  });
+
+  let exports = 0;
+  // Re-export first: `export{A,B as C}from"./x.js"` has to pull the names out of
+  // that module. Matching the plain form first would eat the braces and leave
+  // `from"./x.js"` sitting there as a bare string.
+  src = src.replace(/export\{([^}]*)\}from"([^"]+)";?/g, (_all, list, spec) => {
+    const dep = VENDOR_SPECIFIER[spec];
+    if (!dep) throw new Error(`${id}: unmapped re-export source "${spec}"`);
+    exports++;
+    const from = `__req(${JSON.stringify(dep)})`;
+    const pairs = list.split(',').map((t) => t.trim()).filter(Boolean).map((t) => {
+      const m = t.split(/\s+as\s+/).map((x) => x.trim());
+      return m.length === 1 ? `${m[0]}: ${from}.${m[0]}` : `${m[1]}: ${from}.${m[0]}`;
+    }).join(', ');
+    return `Object.assign(__x, { ${pairs} });`;
+  });
+
+  src = src.replace(/export\{([^}]*)\};?/g, (_all, list) => {
+    exports++;
+    return `Object.assign(__x, { ${bind(list, false)} });`;
+  });
+
+  if (exports === 0) throw new Error(`${id}: no export block found`);
+  return { src, imports, exports };
+}
+
+const vendor = {};
+for (const id of Object.keys(VENDOR_FILES)) vendor[id] = await vendorModule(id);
 const css = await readFile(join(ROOT, 'src/hud/hud.css'), 'utf8');
 
-const runtime = `
+let out = `
 (function(){
 "use strict";
 var __defs = {}, __cache = {};
@@ -111,15 +176,12 @@ function __req(id){
   __defs[id](x, __req);
   return x;
 }
-// three ships a single-file CommonJS build; give it the two globals it expects.
-__defs["three"] = function(__x, __req){
-  var module = { exports: __x }, exports = __x;
-${threeSrc}
-  if (module.exports !== __x) Object.assign(__x, module.exports);
-};
 `;
 
-let out = runtime;
+for (const [id, mod] of Object.entries(vendor)) {
+  out += `\n__defs[${JSON.stringify(id)}] = function(__x, __req){\n${mod.src}\n};\n`;
+}
+
 for (const [id, mod] of modules) {
   if (!mod) continue;
   out += `\n__defs[${JSON.stringify(id)}] = function(__x, __req){\n${mod.body}\n};\n`;
