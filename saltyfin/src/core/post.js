@@ -83,10 +83,19 @@ export function createPost({ renderer, targets, makeTarget }) {
   let downMats = [];
   let upMats = [];
 
+  // The texel size is a uniform, not a number folded into the graph. It was
+  // `vec2(1 / w, 1 / h)` written straight into the shader, which meant a resize
+  // could only be served by building new materials — and a new material is a
+  // new node graph, a new WGSL module and a synchronous
+  // device.createRenderPipeline apiece. Measured on this scene: 11 pipelines,
+  // 11 node builds, 14 programs and 79 kB of regenerated shader source per
+  // window resize, every time, forever. iOS Safari fires a resize every time
+  // the URL bar collapses.
   const makeDownMat = (srcTex, w, h) => {
     const src = texture(srcTex);
     const m = mat();
-    const t = vec2(1 / w, 1 / h);
+    const t = uniform(new THREE.Vector2(1 / w, 1 / h));
+    m.texel = t;
     m.fragmentNode = Fn(() => {
       const at = (x, y) => src.sample(uv().add(t.mul(vec2(x, y)))).rgb;
       // 13-tap Karis-weighted downsample: no fireflies, no aliasing crawl.
@@ -109,7 +118,8 @@ export function createPost({ renderer, targets, makeTarget }) {
     const src = texture(srcTex);
     const prev = texture(prevTex);
     const m = mat();
-    const t = vec2(1 / w, 1 / h);
+    const t = uniform(new THREE.Vector2(1 / w, 1 / h));
+    m.texel = t;
     m.fragmentNode = Fn(() => {
       const r = t.mul(uUpRadius).toVar();
       const at = (x, y) => src.sample(uv().add(vec2(r.x.mul(x), r.y.mul(y)))).rgb;
@@ -223,22 +233,63 @@ export function createPost({ renderer, targets, makeTarget }) {
   const LEVELS = 6;
   let chain = [];
 
+  /** The mip pyramid's dimensions for a given canvas size. Shape only. */
+  function levelSizes(w, h) {
+    const out = [];
+    let lw = w, lh = h;
+    for (let i = 0; i < LEVELS; i++) {
+      lw = Math.max(2, lw >> 1); lh = Math.max(2, lh >> 1);
+      out.push({ w: lw, h: lh });
+      if (lw <= 4 || lh <= 4) break;
+    }
+    return out;
+  }
+
   function resize(w, h) {
+    const sizes = levelSizes(w, h);
+    uResolution.value.set(w, h);
+
+    // The common case, and the only one iOS produces in normal use: the canvas
+    // changed size but the pyramid still has the same number of levels. Resize
+    // the targets in place and move the texel uniforms. Nothing is disposed, so
+    // no material is rebuilt, so no WGSL is regenerated and no pipeline is
+    // created. RenderTarget.setSize keeps the same Texture instances, so every
+    // texture() node in the chain stays bound to the thing it was bound to.
+    if (chain.length === sizes.length) {
+      for (let i = 0; i < sizes.length; i++) {
+        const l = chain[i];
+        l.down.setSize(sizes[i].w, sizes[i].h);
+        l.up.setSize(sizes[i].w, sizes[i].h);
+        l.w = sizes[i].w; l.h = sizes[i].h;
+      }
+      for (let i = 1; i < chain.length; i++) {
+        downMats[i].texel.value.set(1 / chain[i - 1].w, 1 / chain[i - 1].h);
+      }
+      const last = chain.length - 1;
+      upMats[last].texel.value.set(1 / chain[last].w, 1 / chain[last].h);
+      for (let i = last - 1; i >= 0; i--) {
+        upMats[i].texel.value.set(1 / chain[i + 1].w, 1 / chain[i + 1].h);
+      }
+      thrSrc.value = targets.scene.texture;
+      compScene.value = targets.scene.texture;
+      compBloom.value = chain[0].up.texture;
+      if (SHOW && targets[SHOW]) showSrc.value = targets[SHOW].texture;
+      return;
+    }
+
+    // Level count changed (first call, or a viewport small enough to lose a
+    // level). Only here do the materials have to be built again.
     for (const l of chain) { l.down.dispose(); l.up.dispose(); }
     for (const m of downMats) if (m) m.dispose();
     for (const m of upMats) if (m) m.dispose();
     chain = []; downMats = []; upMats = [];
-    let lw = w, lh = h;
-    for (let i = 0; i < LEVELS; i++) {
-      lw = Math.max(2, lw >> 1); lh = Math.max(2, lh >> 1);
+    for (const s of sizes) {
       chain.push({
-        down: makeTarget(lw, lh, { depth: false }),
-        up: makeTarget(lw, lh, { depth: false }),
-        w: lw, h: lh,
+        down: makeTarget(s.w, s.h, { depth: false }),
+        up: makeTarget(s.w, s.h, { depth: false }),
+        w: s.w, h: s.h,
       });
-      if (lw <= 4 || lh <= 4) break;
     }
-    uResolution.value.set(w, h);
 
     // One material per level, every binding baked in.
     for (let i = 1; i < chain.length; i++) {
