@@ -146,6 +146,15 @@ export function createProfiler({ renderer, quality, targets, passes, makeTarget 
     { name: 'beauty+refr+refl', run: () => {
       passes.reflection(); passes.refraction(); passes.beauty(true);
     } },
+    // The rung above draws beauty to the CANVAS; the full frame draws it to the
+    // HDR target and then runs post. Without this one in between, the step from
+    // one to the other changes two things at once and the ladder can only infer
+    // which of them cost the money. This isolates the target switch.
+    { name: '3 passes -> rt', run: () => {
+      if (quality.reflections) passes.reflection();
+      passes.refraction();
+      passes.beauty(false);
+    } },
     { name: 'FULL FRAME', run: fullFrame },
   ];
 
@@ -156,6 +165,7 @@ export function createProfiler({ renderer, quality, targets, passes, makeTarget 
   let started = 0;
   let last = 0;
   const samples = [];
+  const cpuSamples = [];
   const results = [];
   let gpuMs = null;
   let banner = null;
@@ -217,7 +227,9 @@ export function createProfiler({ renderer, quality, targets, passes, makeTarget 
 
     if (enough) {
       const counts = probing ? readGpuProbe(samples.length) : null;
-      const row = { name: rung.name, ms: median(samples), counts, gpuMs: null };
+      const row = {
+        name: rung.name, ms: median(samples), cpuMs: median(cpuSamples), counts, gpuMs: null,
+      };
       if (!rung.drop) results.push(row);
       // Resolving drains every timestamp taken since the last resolve, so the
       // number that comes back belongs to the rung that just ended — but it
@@ -230,6 +242,7 @@ export function createProfiler({ renderer, quality, targets, passes, makeTarget 
       }
       index++; n = 0; last = 0;
       samples.length = 0;
+      cpuSamples.length = 0;
       started = performance.now();
       if (probing) markGpuProbe();
       if (index >= rungs.length) {
@@ -240,7 +253,19 @@ export function createProfiler({ renderer, quality, targets, passes, makeTarget 
     }
 
     showBanner(`profiling ${index + 1}/${rungs.length} — ${rungs[index].name}`);
-    return rungs[index].run;
+
+    // Time the rung on the main thread as well as wall-clock. The pair is what
+    // settles where a slow frame is actually spent: cpu tracking ms means the
+    // work blocks JavaScript (a synchronous pipeline compile would), while cpu
+    // near zero against a long frame means the cost is in the browser's GPU
+    // process and only presentation feels it.
+    const fn = rungs[index].run;
+    const measured = n > WARM_FRAMES;
+    return () => {
+      const t0 = performance.now();
+      fn();
+      if (measured) cpuSamples.push(performance.now() - t0);
+    };
   }
 
   // --- report ---------------------------------------------------------------
@@ -265,7 +290,7 @@ export function createProfiler({ renderer, quality, targets, passes, makeTarget 
     // monospace characters across at this size, and a table that needs
     // sideways scrolling is a table nobody reads.
     const pad = (s, w) => String(s).padStart(w);
-    L.push('rung                ms   fps    +ms   gpu');
+    L.push('rung                ms   fps    +ms   cpu   gpu');
     let prev = 0;
     for (const r of results) {
       L.push(
@@ -273,10 +298,12 @@ export function createProfiler({ renderer, quality, targets, passes, makeTarget 
         + pad(r.ms.toFixed(1), 6)
         + pad((1000 / r.ms).toFixed(0), 6)
         + pad((r.ms - prev).toFixed(1), 7)
+        + pad(r.cpuMs.toFixed(1), 6)
         + pad(r.gpuMs == null ? '-' : r.gpuMs.toFixed(1), 6),
       );
       prev = r.ms;
     }
+    L.push('cpu = main-thread ms inside the rung; gpu = summed render-pass time.');
 
     L.push('');
     if (probing) {

@@ -129,23 +129,38 @@ export async function createRenderer({
       colorSpace: THREE.NoColorSpace,
       ...opts,
     });
+    // Every depth-buffered target built here shares ONE of three's
+    // RenderContexts, because three hashes a context on the COLOUR signature
+    // alone — `textures.length:format:type:samples:depthBuffer:stencilBuffer`.
+    // The depth attachment is not in that key, but WebGPU's pipeline cache key
+    // *is* built partly from the context's depth-stencil format. So a target
+    // that leaves three to invent its own depth buffer (depth24plus) standing
+    // next to targets carrying an explicit FloatType one (depth32float) makes
+    // the shared context's format flip from pass to pass, and since the
+    // render-object chain key is [object, material, context, lightsNode] — no
+    // camera, no target — the same render object re-keys twice a frame and
+    // every one of its pipelines is compiled again. That cost is invisible on
+    // the WebGL backend, whose getRenderCacheKey() returns "" and whose
+    // needsRenderUpdate() returns false, which is exactly why this read as a
+    // WebGPU problem. Attaching depth here, once, keeps the three in step.
+    if (t.depthBuffer) {
+      t.depthTexture = new THREE.DepthTexture(t.width, t.height, THREE.FloatType);
+      t.depthTexture.minFilter = THREE.NearestFilter;
+      t.depthTexture.magFilter = THREE.NearestFilter;
+    }
     t.texture.wrapS = t.texture.wrapT = THREE.ClampToEdgeWrapping;
     return t;
   };
 
-  // Beauty pass, with a depth texture so post and the water can read scene depth.
+  // Beauty pass. Its depth texture is what post and the water read scene depth
+  // from; makeTarget attached it.
   const scene = makeTarget(2, 2);
-  scene.depthTexture = new THREE.DepthTexture(2, 2, THREE.FloatType);
-  scene.depthTexture.minFilter = THREE.NearestFilter;
-  scene.depthTexture.magFilter = THREE.NearestFilter;
 
   // What the water sees looking down: seabed, coral, monster.
   const refraction = makeTarget(2, 2);
-  refraction.depthTexture = new THREE.DepthTexture(2, 2, THREE.FloatType);
-  refraction.depthTexture.minFilter = THREE.NearestFilter;
-  refraction.depthTexture.magFilter = THREE.NearestFilter;
 
-  // What the water sees looking up: sky, islands, village, boat.
+  // What the water sees looking up: sky, islands, village, boat. Nothing samples
+  // this one's depth — it just has to match its siblings' format.
   const reflection = makeTarget(2, 2);
 
   const targets = { scene, refraction, reflection };

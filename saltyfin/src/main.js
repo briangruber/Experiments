@@ -556,7 +556,7 @@ window.addEventListener('keydown', (e) => {
 // --- public handle for the capture harness ----------------------------------
 
 const api = {
-  THREE, scene, camera, reflectCamera, renderer, ctx, env, time, quality, post,
+  THREE, scene, camera, reflectCamera, renderer, ctx, env, time, quality, post, targets,
   lights: { keyLight, hemi, fillLight },
   modules: {
     sky, clouds, celestial, seabed, coral, islands, vegetation, village, dock,
