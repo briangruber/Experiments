@@ -779,7 +779,13 @@ export function createBoat(opts = {}) {
       lanternLight.color.copy(warmLight);
       lanternBase = li * 2.6;
       glassBase = 0.35 + li * 2.2;
-      lanternLight.visible = li > 0.02;
+      // Never toggle a LIGHT's visibility. three keys every render object on
+      // [object, material, renderContext, lightsNode], so changing which
+      // lights exist builds a different lights node, every render object in
+      // the scene misses the chain map, and all of them are disposed and
+      // recompiled — synchronously, on WebGPU. Measured: one 8.5-second
+      // frame at the hour this crossed. Intensity 0 costs one dead light
+      // loop per fragment and nothing else.
       glass.visible = true;
       glassMat.emissive.copy(warmLight);
       glassMat.emissiveIntensity = glassBase;

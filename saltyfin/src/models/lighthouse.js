@@ -925,8 +925,14 @@ export function createLighthouse(opts = {}) {
       prismMat.emissiveIntensity = lampBase * 0.42;
 
       lampLight.color.copy(warm);
+      // Never toggle a LIGHT's visibility. three keys every render object on
+      // [object, material, renderContext, lightsNode], so changing which
+      // lights exist builds a different lights node, every render object in
+      // the scene misses the chain map, and all of them are disposed and
+      // recompiled — synchronously, on WebGPU. Measured: one 8.5-second
+      // frame at the hour this crossed. Intensity 0 costs one dead light
+      // loop per fragment and nothing else.
       lampLight.intensity = li * 26.0;
-      lampLight.visible = li > 0.02;
 
       haloUniforms.uColor.value.copy(warm);
       haloUniforms.uOpacity.value = li * 0.55;

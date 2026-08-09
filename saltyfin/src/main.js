@@ -424,6 +424,28 @@ function renderBeauty(toScreen = NOPOST) {
   renderer.autoClear = false;
 }
 
+// Aim the shadow box at what the camera is looking at, not at the boat. On the
+// chase camera those are the same place, but an establishing shot of the village
+// puts the town 150 m off the boat — half outside the frustum, where its casters
+// get culled and the ones that survive smear across the terrain.
+//
+// A function rather than inline in frame() because the boot warm-up has to run
+// it too: it decides which casters the shadow camera can see, and a warm-up that
+// skips it renders the shadow map from the wrong place and compiles the wrong
+// depth materials.
+function aimShadowBox() {
+  camera.getWorldDirection(shadowFwd);
+  shadowFocus.copy(camera.position).addScaledVector(shadowFwd, SHADOW_LEAD);
+  shadowFocus.y = THREE.MathUtils.clamp(shadowFocus.y, 0, 45);
+  // Snap to whole shadow texels so the map does not crawl as the camera moves.
+  const texel = (SHADOW_EXTENT * 2) / quality.shadowSize;
+  shadowFocus.x = Math.round(shadowFocus.x / texel) * texel;
+  shadowFocus.z = Math.round(shadowFocus.z / texel) * texel;
+  keyLight.position.copy(env.keyDir).multiplyScalar(260).add(shadowFocus);
+  keyTarget.position.copy(shadowFocus);
+  keyTarget.updateMatrixWorld(true);
+}
+
 function renderPost() {
   post.render(env, {
     time: ctx.time,
@@ -515,16 +537,7 @@ function frame() {
   // the chase camera those are the same place, but an establishing shot of the
   // village puts the town 150 m off the boat — half outside the frustum, where
   // its casters get culled and the ones that survive smear across the terrain.
-  camera.getWorldDirection(shadowFwd);
-  shadowFocus.copy(camera.position).addScaledVector(shadowFwd, SHADOW_LEAD);
-  shadowFocus.y = THREE.MathUtils.clamp(shadowFocus.y, 0, 45);
-  // Snap to whole shadow texels so the map does not crawl as the camera moves.
-  const texel = (SHADOW_EXTENT * 2) / quality.shadowSize;
-  shadowFocus.x = Math.round(shadowFocus.x / texel) * texel;
-  shadowFocus.z = Math.round(shadowFocus.z / texel) * texel;
-  keyLight.position.copy(env.keyDir).multiplyScalar(260).add(shadowFocus);
-  keyTarget.position.copy(shadowFocus);
-  keyTarget.updateMatrixWorld(true);
+  aimShadowBox();
 
   const surfaceY = ctx.water?.sampleHeight ? ctx.water.sampleHeight(camera.position.x, camera.position.z, ctx.time) : 0;
   ctx.cameraUnderwater = THREE.MathUtils.clamp((surfaceY - camera.position.y) * 1.5, 0, 1);
@@ -615,12 +628,75 @@ const api = {
 };
 window.saltyfin = api;
 
-const boot = document.getElementById('boot');
-if (boot) boot.remove();
-
 applyEnvToLights();
 for (const m of modules) m.applyEnv?.(env);
 hud.applyEnv?.(env);
+
+// Compile every pipeline the scene will ever need, before the first frame.
+//
+// A material's pipeline is built the first time it is actually drawn, and in
+// three's WebGPU backend that call is synchronous — createRenderPipelineAsync
+// exists but is only reached from compileAsync. So a material that first
+// appears mid-way through a time-of-day glide compiles *during* the glide and
+// stalls it. Measured on the way from noon to night: one frame of 9.5 seconds
+// at hour 16.6 as two fragment programs were built, another at 19.9. Sampling
+// the endpoints finds nothing, because the objects involved are not visible at
+// noon or at night — only somewhere in between. That is why the freeze was
+// specific to transitions that pass through the afternoon: golden, sunset and
+// night sit within three hours of each other and cross nothing new.
+//
+// Rather than guess which hours matter, force everything visible and compile
+// against each pass. Visibility is the only thing gating these materials, and
+// the render target has to be bound first because the pipeline cache key
+// carries the context's colour and depth format — PassNode.compileAsync does
+// the same thing for the same reason. The three water targets share one
+// context, so one binding covers all of them; the canvas is the second.
+async function warmUpClock() {
+  const hour0 = time.hour;
+  const bootEl = document.getElementById('boot');
+  try {
+    // Whole hours, not compileAsync. compileAsync only reaches the materials a
+    // camera can see and never touches the shadow depth materials, and the
+    // shadow map is most of what changes here: the sun swings through a huge
+    // arc between noon and dusk, and each new angle pulls casters the shadow
+    // camera has never drawn before into its frustum. Rendering real frames is
+    // the only warm-up that produces exactly the render objects, contexts and
+    // cache keys the real frames will ask for.
+    for (let h = 0; h < 24; h += 1) {
+      time.set(h);
+      applyEnvToLights();
+      for (const m of modules) m.applyEnv?.(env);
+      camera.updateMatrixWorld(true);
+      aimShadowBox();
+      if (quality.reflections) renderReflection();
+      renderRefraction();
+      renderBeauty();
+      renderPost();
+      // Yield between hours. Twenty-four frames back to back is a second on a
+      // phone and much longer while the shaders are still compiling, and a
+      // wholly blocked main thread means no loading screen and a browser that
+      // thinks the page has hung.
+      if (bootEl) bootEl.textContent = 'Warming shaders ' + Math.round((h + 1) / 24 * 100) + '%';
+      await new Promise((r) => requestAnimationFrame(r));
+    }
+  } catch (err) {
+    // Never let the warm-up stop the game starting. Worst case without it is
+    // the stall it exists to remove.
+    console.warn('clock warm-up skipped:', err?.message || err);
+  } finally {
+    renderer.setRenderTarget(null);
+    time.set(hour0);
+    applyEnvToLights();
+    for (const m of modules) m.applyEnv?.(env);
+    hud.applyEnv?.(env);
+  }
+}
+// `?warm=0` skips it, so a capture can measure what it is actually buying.
+if (params.get('warm') !== '0') await warmUpClock();
+
+const boot = document.getElementById('boot');
+if (boot) boot.remove();
+
 api.ready = true;
 
 const profiler = createProfiler({
