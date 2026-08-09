@@ -45,6 +45,11 @@ const CSS = `
 @media (pointer: coarse) {
   /* The on-screen buttons replace the keyboard hint row. */
   #hud .sf-tod { display: none !important; }
+  /* The time-of-day row owns the bottom centre, and on a narrow phone it reaches
+     far enough left to sit under the renderer badge — five pills across 390px.
+     Lift the badge clear of it. !important because main.js sets the badge's
+     position inline, and inline loses to an important rule. */
+  #fps { bottom: calc(48px + env(safe-area-inset-bottom)) !important; }
   /* Small, and clear of the button row. */
   #hud .sf-mm { width: 88px !important; height: 88px !important;
     right: max(10px, env(safe-area-inset-right)) !important;
