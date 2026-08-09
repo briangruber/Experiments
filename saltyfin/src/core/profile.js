@@ -305,6 +305,21 @@ export function createProfiler({ renderer, quality, targets, passes, makeTarget 
     }
     L.push('cpu = main-thread ms inside the rung; gpu = summed render-pass time.');
 
+    // The "clear only" rung draws nothing at all. If even that reads 33 ms, the
+    // page is not what is limiting the frame rate — something outside it is
+    // handing out vsyncs at 30 Hz, and no amount of work removed from the frame
+    // will move the number. Worth saying outright, because every other row then
+    // reads as "capped" rather than "slow".
+    const floor = results[0];
+    if (floor && floor.ms > 20 && floor.cpuMs < 2 && (floor.gpuMs ?? 0) < 2) {
+      L.push('');
+      L.push(`NOTE: an empty frame measures ${floor.ms.toFixed(1)} ms with `
+        + `${floor.cpuMs.toFixed(1)} ms cpu and ${(floor.gpuMs ?? 0).toFixed(1)} ms gpu.`);
+      L.push(`The display cadence itself is capped at ~${Math.round(1000 / floor.ms)} fps.`);
+      L.push('On iOS that is usually Low Power Mode, or thermal throttling on a hot');
+      L.push('or nearly flat battery. Nothing in the page can raise it.');
+    }
+
     L.push('');
     if (probing) {
       L.push('per frame, as the WebGPU API saw it:');

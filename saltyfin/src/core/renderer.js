@@ -31,7 +31,12 @@ export const TIERS = {
   // a geometry budget that fell through to desktop density. With both fixed
   // there is room to spend on pixels, so a 3x phone screen renders at 2x rather
   // than 1x — the single biggest thing the eye notices on a Retina display.
-  mobile: { refractionScale: 0.45, reflectionScale: 0.30, shadows: true, shadowSize: 1024, maxPixelRatio: 2, reflections: true, waterSegments: 160, cloudSteps: 8, geometry: 0.5 },
+  //
+  // The reflection buffer is the second: at 0.30 against a 1x cap it was 91 px
+  // across, magnified over the whole sea, and the clouds in it broke into
+  // visible stair-steps. It matches the desktop 0.5 now. Shadows likewise — see
+  // shadowMap.type below.
+  mobile: { refractionScale: 0.60, reflectionScale: 0.50, shadows: true, shadowSize: 2048, maxPixelRatio: 2, reflections: true, waterSegments: 160, cloudSteps: 8, geometry: 0.5 },
 };
 
 /** Does this browser actually have a WebGPU adapter? Cheap and synchronous. */
@@ -96,12 +101,14 @@ export async function createRenderer({
   renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
   renderer.toneMapping = THREE.NoToneMapping;   // post does it
   renderer.shadowMap.enabled = TIERS[tier].shadows;
-  // Soft shadows on desktop — the node path filters in the graph, so the
-  // comparison-sampler smearing that forced BasicShadowMap on the WebGL build
-  // does not apply. On the phone tiers, match the WebGL build's single hard
-  // tap: nine filtered taps across every lit pixel is real money on mobile,
-  // and a fair A/B against the other artifact needs the same shadow cost.
-  renderer.shadowMap.type = (tier === 'mobile' || tier === 'low')
+  // Soft everywhere except the low tier. The node path filters in the graph, so
+  // the comparison-sampler smearing that forced BasicShadowMap on the WebGL
+  // build does not apply. The phone used to get BasicShadowMap — one hard tap,
+  // no filtering — because nine taps across every lit pixel looked like real
+  // money on mobile. It is not: the device profile puts the entire frame at
+  // 0.2 ms of GPU time. One hard tap at 1024 is exactly what a stair-stepped
+  // shadow edge looks like, so the phone gets the same filter as the desktop.
+  renderer.shadowMap.type = tier === 'low'
     ? THREE.BasicShadowMap : THREE.PCFSoftShadowMap;
   renderer.autoClear = false;
 

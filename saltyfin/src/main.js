@@ -16,7 +16,7 @@ import { createPost } from './core/post.js';
 import { createInput } from './core/input.js';
 import { createTouchControls } from './core/touch.js';
 import { LAYER } from './core/layers.js';
-import { CLIP, setWaterClip } from './water/clip.js';
+import { CLIP, setWaterClip, clipUniforms } from './water/clip.js';
 import { createTimeOfDay, PRESET_HOURS } from './world/timeOfDay.js';
 
 import { createSky } from './sky/sky.js';
@@ -587,6 +587,7 @@ window.addEventListener('keydown', (e) => {
 
 const api = {
   THREE, scene, camera, reflectCamera, renderer, ctx, env, time, quality, post, targets,
+  clip: clipUniforms,
   lights: { keyLight, hemi, fillLight },
   modules: {
     sky, clouds, celestial, seabed, coral, islands, vegetation, village, dock,
