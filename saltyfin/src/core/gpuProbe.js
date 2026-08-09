@@ -32,6 +32,7 @@ const KEYS = [
 const zero = () => KEYS.reduce((o, k) => (o[k] = 0, o), {});
 
 let live = zero();     // accumulating since the last mark
+let labels = new Map();
 let installed = false;
 
 function wrap(proto, name, key, size = null) {
@@ -63,9 +64,21 @@ export function installGpuProbe() {
   wrap(GPUQueue.prototype, 'submit', 'submit');
   wrap(GPUQueue.prototype, 'writeBuffer', 'writeBuffer', 'writeBytes');
   wrap(GPUDevice.prototype, 'createCommandEncoder', 'encoders');
-  wrap(GPUDevice.prototype, 'createRenderPipeline', 'pipelines');
-  wrap(GPUDevice.prototype, 'createRenderPipelineAsync', 'pipelines');
-  wrap(GPUDevice.prototype, 'createComputePipeline', 'pipelines');
+  // Pipelines get their own wrapper so the descriptor's label comes with them.
+  // three labels every render pipeline `renderPipeline_<material name or
+  // type>_<material id>`, which turns "92 pipelines a frame" into a list of
+  // culprits — and tells apart one material recompiled 92 times from 92
+  // materials compiled once each, which is a completely different bug.
+  for (const name of ['createRenderPipeline', 'createRenderPipelineAsync', 'createComputePipeline']) {
+    const orig = GPUDevice.prototype[name];
+    if (typeof orig !== 'function') continue;
+    GPUDevice.prototype[name] = function (desc, ...rest) {
+      live.pipelines++;
+      const l = (desc && desc.label) || '(unlabelled)';
+      labels.set(l, (labels.get(l) || 0) + 1);
+      return orig.call(this, desc, ...rest);
+    };
+  }
   wrap(GPUDevice.prototype, 'createShaderModule', 'shaders');
   wrap(GPUDevice.prototype, 'createBindGroup', 'bindGroups');
   wrap(GPUDevice.prototype, 'createBuffer', 'buffers');
@@ -81,12 +94,16 @@ export function installGpuProbe() {
 export function gpuProbeActive() { return installed; }
 
 /** Zero the counters and start a new window. */
-export function markGpuProbe() { live = zero(); }
+export function markGpuProbe() { live = zero(); labels = new Map(); }
 
 /** Totals since the last mark, optionally divided by a frame count. */
 export function readGpuProbe(frames = 1) {
   const n = Math.max(1, frames);
   const out = {};
   for (const k of KEYS) out[k] = live[k] / n;
+  out.topPipelines = [...labels.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([label, count]) => ({ label, perFrame: count / n }));
   return out;
 }

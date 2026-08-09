@@ -199,9 +199,15 @@ export function createProfiler({ renderer, quality, targets, passes, makeTarget 
     if (!active) return null;
     const rung = rungs[index];
 
+    // Zero the API counters at the moment the warm-up ends, not at the rung's
+    // start. Marking at the start put ten warm-up frames into the numerator and
+    // divided by the measured count alone, which inflated every count — the
+    // first device run reported 8 render passes for a rung that draws one.
+    if (n === WARM_FRAMES && probing) markGpuProbe();
+
     if (last > 0) {
       const dt = nowMs - last;
-      if (n >= WARM_FRAMES) samples.push(dt);
+      if (n > WARM_FRAMES) samples.push(dt);
     }
     last = nowMs;
     n++;
@@ -292,6 +298,18 @@ export function createProfiler({ renderer, quality, targets, passes, makeTarget 
       L.push('');
       L.push('pipe/shdr must be 0 here. Anything else is WGSL being recompiled');
       L.push('mid-flight, which is tens of ms a go on a phone.');
+
+      // Which pipelines. three labels them renderPipeline_<material>_<id>, so a
+      // repeated label means one material is being recompiled over and over,
+      // while a run of distinct ids means the materials themselves are being
+      // rebuilt. The fix is completely different in the two cases.
+      for (const r of results) {
+        const top = r.counts?.topPipelines;
+        if (!top || !top.length) continue;
+        L.push('');
+        L.push(`${r.name} — pipelines rebuilt per frame:`);
+        for (const t of top) L.push(`  ${t.perFrame.toFixed(1)}x  ${t.label.slice(0, 46)}`);
+      }
       const kb = results.map((r) => Math.round((r.counts?.writeBytes ?? 0) / 1024));
       L.push('uniform upload kB/frame: ' + kb.join(' '));
       const mapped = results.reduce((a, r) => a + (r.counts?.mapAsync ?? 0), 0);
