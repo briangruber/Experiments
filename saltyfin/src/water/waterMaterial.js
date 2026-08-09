@@ -214,6 +214,9 @@ export function createWaterMaterial({
   depthTexture = null, depthExtent = 1120, depthMax = 64,
   wakeSize = 256, wakeWorld = 128, detailSize = 256,
 } = {}) {
+  // Same predicate surface.js uses to size the wake sim — a geometry budget, not
+  // a tier name, so an unlisted tier cannot fall through into the rich branch.
+  const lean = (quality?.geometry ?? 1) < 0.6;
   const detail = buildDetailTexture(detailSize, seed ^ 0x5f3a91);
   // The node renderer answers getMaxAnisotropy() itself; the classic
   // `renderer.capabilities` object does not exist on it.
@@ -287,10 +290,50 @@ export function createWaterMaterial({
   const uWakeCenter = uniform(new THREE.Vector2());
   const uWakeWorld = uniform(wakeWorld);
   const uWakeTexel = uniform(1 / wakeSize);
-  const uWakeSlope = uniform(5.5);
-  const uWakeArmSlope = uniform(1.6);
-  const uWakeFoam = uniform(1.25);
-  const uWakeArmFoam = uniform(0.32);
+  // Central differences of the wake field are raw texel-to-texel deltas, and a
+  // texel is 0.5 m at high/med and 1.0 m at low/mobile (surface.js:153). Divide
+  // by the span so every gain below is "per metre" and reads the same on a
+  // phone as on a desktop; without it the low tier got twice the slope and twice
+  // the foam-rim gain for free.
+  const uWakeGrad = uniform(1 / (2 * (wakeWorld / wakeSize)));
+  // 5.5 and 1.6 on the RAW delta was a 79 degree surface tilt at the worst
+  // measured point, with 20% of the wake footprint past 45 degrees — for scale
+  // the whole six-wave Gerstner train contributes 0.14 of tangent and the three
+  // detail layers at most 0.38. That is where the mirrored tan/blue plates and
+  // the onion-ring contours around the boat came from: the reflection and
+  // refraction lookups were being thrown a fifth of the screen sideways. These
+  // land the wake's peak added slope near 1.0, still ~2.5x the detail layers.
+  // The ripple channel's tilt, and the ceiling it saturates against. Scaling
+  // this down was how the mirrored tan/blue plates behind the boat were killed,
+  // but the R channel is also where water.disturb() writes — a breaching
+  // leviathan, a jumping fish, the quest's churned patch — so a flat 16x cut
+  // silenced all of those to fix an artefact only the boat produced. A soft
+  // limit does both jobs: a distant low-amplitude ring keeps the full gain, and
+  // the boat's own near-field, which is an order of magnitude steeper, folds
+  // over into the ceiling instead of turning the surface into onion rings.
+  const uWakeSlope = uniform(2.4);
+  const uWakeSlopeMax = uniform(0.16);
+  const uWakeArmSlope = uniform(0.12);
+  // Gains on the two foam LOCATORS below — |grad B| for the trail rims and the
+  // compressed A for the Kelvin arms. Not the same quantities the old 1.25/0.32
+  // multiplied, so the numbers are not comparable to the ones they replace.
+  const uWakeFoam = uniform(0.85);
+  const uWakeArmFoam = uniform(1.35);
+  // Erosion depth, coarse threshold wander, and the threshold itself. Coverage
+  // is the thing to retune here, never brightness: the paintings have no grey
+  // foam anywhere, only fewer and shorter white strokes.
+  const uWakeErode = uniform(6.0);
+  const uWakeVary = uniform(0.30);
+  const uWakeThresh = uniform(0.34);
+  // How opaque the wake foam is allowed to get. foamCol lands near 2.25 in
+  // linear at the day preset, so a fully opaque strand reads as 96% sRGB after
+  // the tonemap and feeds the bloom; measured on ref/01 the foam's p99 is 75%
+  // and its p99.9 is 85%, and solving mix(water, target, a) per channel against
+  // the painting gives alpha 0.35 at the strand edges and 0.72-0.96 at the very
+  // hottest cores — the water colour reads through everywhere. This caps the
+  // wake alone rather than trimming foamCol, which shore and crest foam share
+  // and which is tuned where it is for them.
+  const uWakeBright = uniform(0.55);
 
   const uDetailStrength = uniform(0.22);
   const uRefractDistort = uniform(0.26);
@@ -308,7 +351,8 @@ export function createWaterMaterial({
     uKeyDir, uKeyColor, uKeyIntensity, uAmbient, uAmbIntensity, uDayFactor,
     uSpecular, uRoughness, uGlitter, uGlitterSize, uGlitterColor,
     uReflStrength, uReflEnabled, uCaustic, uCausticScale, uFoamTint, uFoamBright,
-    uWakeCenter, uWakeWorld, uWakeTexel, uWakeSlope, uWakeArmSlope, uWakeFoam, uWakeArmFoam,
+    uWakeCenter, uWakeWorld, uWakeTexel, uWakeGrad, uWakeSlope, uWakeSlopeMax, uWakeArmSlope,
+    uWakeFoam, uWakeArmFoam, uWakeErode, uWakeVary, uWakeThresh, uWakeBright,
     uDetailStrength, uRefractDistort, uReflDistort, uScatterStrength, uShoreFoamDepth,
   };
 
@@ -428,8 +472,14 @@ export function createWaterMaterial({
     const wR = tWake.sample(wuv.add(vec2(uWakeTexel, 0.0))).toVar();
     const wD = tWake.sample(wuv.sub(vec2(0.0, uWakeTexel))).toVar();
     const wU = tWake.sample(wuv.add(vec2(0.0, uWakeTexel))).toVar();
-    ng.addAssign(vec2(wR.r.sub(wL.r), wU.r.sub(wD.r)).mul(uWakeSlope.mul(wmask)));
-    ng.addAssign(vec2(wR.a.sub(wL.a), wU.a.sub(wD.a)).mul(uWakeArmSlope.mul(wmask)));
+    // Per-metre, so the low tier's 1 m texels do not silently double the tilt.
+    const wgrad = uWakeGrad.mul(wmask).toVar();
+    // Soft limit, not a clamp: g / (1 + |g| / max) is smooth everywhere, so a
+    // ripple that grows past the ceiling flattens instead of developing a hard
+    // rim where it crosses it.
+    const rip = vec2(wR.r.sub(wL.r), wU.r.sub(wD.r)).mul(uWakeSlope.mul(wgrad)).toVar();
+    ng.addAssign(rip.div(length(rip).div(uWakeSlopeMax).add(1.0)));
+    ng.addAssign(vec2(wR.a.sub(wL.a), wU.a.sub(wD.a)).mul(uWakeArmSlope.mul(wgrad)));
 
     N.assign(normalize(vec3(ng.x.negate(), 1.0, ng.y.negate())));
     // Filtered normal: flatten and roughen with distance or the far water boils.
@@ -459,7 +509,12 @@ export function createWaterMaterial({
     const gloom = vec3(uDeep.mul(0.70).add(uScatter.mul(0.30))).toVar();
     const under = vec3(mix(gloom, through.mul(1.15), win)).toVar();
     under.addAssign(uKeyColor.mul(uKeyIntensity).mul(pow(sat(dot(up, L)), 60.0)).mul(win).mul(1.2));
-    const wf = sat(wC.b.mul(uWakeFoam).add(wC.a.mul(uWakeArmFoam))).mul(wmask).toVar();
+    // Seen from below, the wake is a bright ceiling patch and nothing more — so
+    // it takes the channel VALUES with their own constants. It deliberately does
+    // not share uWakeFoam/uWakeArmFoam any more: those now scale a gradient and
+    // a compressed ridge, and reusing them here silently gave the underside a
+    // different wake shape than the top surface every time the top was retuned.
+    const wf = sat(wC.b.mul(0.80).add(wC.a.mul(0.60))).mul(wmask).toVar();
     under.assign(mix(under, foamCol.mul(0.5), sat(wf).mul(0.55)));
     under.assign(mix(under, gloom.mul(0.55), smoothstep(10.0, 140.0, dist)));
     // Modulate after the distance blend, or the far ceiling reads as a flat wall.
@@ -565,18 +620,111 @@ export function createWaterMaterial({
     const crest = smoothstep(0.905, 0.975, vJac).oneMinus().toVar();
     crest.assign(smoothstep(0.38, 0.92, crest.mul(1.15).sub(breakup.mul(0.55)).add(0.16)).mul(0.75));
 
-    // Churn is the persistent trail, arms are the current V. Both are cut into
-    // curls by the world-space noise rather than filled — the art has a lace of
-    // fine white loops behind the transom, never a solid streak.
-    const lace = float(0.40).add(breakup.mul(1.25)).toVar();
-    const churn = wC.b.mul(uWakeFoam).mul(wmask).toVar();
-    const arms = wC.a.mul(uWakeArmFoam).mul(wmask).toVar();
-    const wake = smoothstep(0.32, 1.10, churn.mul(lace)).mul(0.9)
-      .add(smoothstep(0.26, 0.80, arms.mul(lace))).toVar();
+    // --- the wake -----------------------------------------------------------
+    // The wake field is a WHERE and never a WHAT. It is 0.5 m per texel on
+    // desktop and 1.0 m on mobile, and the foam flakes measured in ref/01 are
+    // 10-15 cm across with 10-20 cm of clear water between them — so the field
+    // can carry the envelope and the filament has to be cut out of it with
+    // world-space noise. Locate, erode, threshold. Never multiply.
+    //
+    // What this replaces, and what it looked like:
+    //   smoothstep(0.32, 1.10, B*1.25*lace)*0.9 + smoothstep(0.26, 0.80, A*0.32*lace)
+    // Read back off the GPU, B reaches 1.43 near the transom, so the first term
+    // ran 2-3x past the top of its own smoothstep for the first ~25 m of trail.
+    // A gain cannot break a plateau: the noise it was multiplied by had nothing
+    // to bite on and the trail rendered as one flat 205-237 luma lozenge welded
+    // to the transom, 46% of the region behind the boat painted white where the
+    // paintings paint 7%. The second term's LOWER edge, 0.26, sat above A*0.32
+    // everywhere except the arm vertex where A peaks at 1.05 — the Kelvin V was
+    // rebuilt correctly by wake.js every single frame and then thresholded to
+    // nothing. Zeroing uWakeFoam and leaving the arms on left no white on screen
+    // at all. The two terms were mistuned in opposite directions by about 3x.
+    // Shore foam twenty lines up already does it the right way round (subtract
+    // the noise, then threshold) and that is the vocabulary borrowed here.
 
-    const foam = sat(sat(shore).add(crest).add(sat(wake))).toVar();
-    // Texture inside the foam, so a splash reads as churned water and not a plate.
-    col.assign(mix(col, foamCol.mul(float(0.70).add(breakup.mul(0.58))), foam));
+    // (1) LOCATE. B is a filled ~7 m ribbon dragged along the track — its value
+    // IS the blob. Its gradient is the two rims of that ribbon, which is what
+    // the art shows: clean water directly astern of the transom and foam on the
+    // flanks. A is already a thin ridge, so it is used directly.
+    const gradB = length(vec2(wR.b.sub(wL.b), wU.b.sub(wD.b)).mul(uWakeGrad)).toVar();
+
+    // (2) COMPRESS the age fade instead of thresholding it. wake.js squares the
+    // arm's fade, so A runs 1.05 at the vertex down to 0.02 at the tail — 50:1,
+    // which no single threshold can span: set it for the far arm and the near
+    // arm floods, set it for the near arm and the V stops after four metres. A
+    // Reinhard rolloff holds the ribbon at roughly constant amplitude so the
+    // fade arrives as strokes getting shorter and sparser, which is how the
+    // paintings actually kill a wake (coverage halves per hull length; the
+    // strand width does not measurably change).
+    // The noise floor is subtracted BEFORE the rolloff, and that subtraction is
+    // load-bearing. A Reinhard curve compresses everything it is given, the
+    // smooth bilinear halo of overlapping stamp tails included — that halo sits
+    // around A = 0.02-0.05, and with k = 0.06 and no floor it came back as
+    // 0.14-0.45 of field, so the V rendered as a filled triangle of speckle
+    // instead of two arms. The floors sit just above the halo.
+    const rimD = max(gradB.sub(0.05), 0.0).toVar();
+    const armD = max(wC.a.sub(0.06), 0.0).toVar();
+    const rim = rimD.div(rimD.add(0.30)).mul(uWakeFoam).toVar();
+    const arms = armD.div(armD.add(0.22)).mul(uWakeArmFoam).toVar();
+    const field = max(rim, arms).mul(wmask).toVar();
+
+    // (3) CUT. ONE octave, world-anchored — no uTime term, because the trail is
+    // standing water that the boat leaves behind, and a drifting cut makes the
+    // lace swim upstream through it. One and not a sum: summing octaves narrows
+    // the distribution toward Gaussian (p10..p90 of 0.21..0.69 for a single
+    // octave against 0.43..0.68 for the three-octave `breakup`) and a threshold
+    // on a narrow distribution behaves like a step — solid or nothing, never
+    // partial cover. That is a second reason the old `lace` could not work; the
+    // first is that its finest octave is 1.2 m and the flakes in ref/01 are
+    // 10-15 cm.
+    // The tile here is 1.67 m against `breakup`'s 3.5-23 m. Warped by d2's
+    // analytic gradient, which is already in a register, so the strand meanders
+    // across several of its own widths the way the reference arm does rather
+    // than running dead straight. On the lean tier that extra fetch is dropped
+    // and d0.b stands in: it is sampled at :411 and read nowhere else in the
+    // shader, so it costs nothing, at a 3.5 m tile instead of 1.67 m.
+    const cut = lean
+      ? d0.b.toVar()
+      : tDetail.sample(vFlat.mul(0.60).add(d2.rg.mul(2.0).sub(1.0).mul(0.42))).b.toVar();
+
+    // (4) RIDGE the cut, and this is the difference between lace and milk.
+    // Thresholding a smooth 1/f^1.3 octave near its PEAKS gives round blobs
+    // about a third of a tile across — half a metre here — and that is exactly
+    // what the first version of this looked like at 2x zoom: soft milky patches,
+    // no strand anywhere. The same octave's HALF-LEVEL CONTOUR is a set of thin
+    // meandering curves whose width is set by uWakeErode and the field's own
+    // gradient rather than by the tile, so a 1.67 m octave draws a 10 cm
+    // filament. Curves are what ref/01 has: one sinuous ribbon that swells,
+    // pinches, splits in two and breaks outright — foam DISPLACED by
+    // low-frequency noise, not foam chopped by high-frequency noise.
+    // The one thing to know about this form: where the octave mips out toward
+    // flat grey, `bite` goes to zero and the cut stops cutting. In practice the
+    // trail dies of its own age fade (TRAIL_LIFE 5 s, ~42 m at full throttle)
+    // well before the octave is gone, so it has never been reached — but drop
+    // the scale below ~0.4 and the far end of the wake will fill in solid.
+    const bite = abs(cut.sub(0.5)).mul(uWakeErode).toVar();
+
+    // (5) THRESHOLD, narrow. The band is 0.12 wide, not the 0.78 of the version
+    // this replaces: a wide band DIMS foam toward grey, and there is no grey
+    // foam anywhere in any of the five paintings — only fewer, shorter, whiter
+    // strokes. d2.a slides the threshold over its 23 m tile so coverage clumps
+    // into patches instead of dithering evenly along the whole trail.
+    const wake = smoothstep(uWakeThresh.sub(0.06), uWakeThresh.add(0.06),
+      field.sub(bite).sub(d2.a.mul(uWakeVary))).toVar();
+    // Fade the strands out with distance. The threshold band is 0.12 wide, so
+    // what it produces is essentially binary — and a one-pixel binary pattern
+    // held at full contrast to the horizon aliases into isolated bright dots
+    // that post's chromatic aberration then paints magenta and green. The
+    // glitter above already fades for the same reason; the wake needs it more,
+    // because its strands are thinner than a glitter cell.
+    wake.mulAssign(smoothstep(80.0, 320.0, dist).oneMinus());
+
+    const foam = sat(sat(shore).add(crest).add(sat(wake).mul(uWakeBright))).toVar();
+    // Texture inside the foam, so a splash reads as churned water and not a
+    // plate. Capped below 1: solving mix(water, target, a) against ref/01 gives
+    // a = 0.35 at the strand edges and 0.72-0.96 at the hottest cores, so the
+    // water colour reads through everywhere — foam is never fully opaque.
+    col.assign(mix(col, foamCol.mul(float(0.70).add(breakup.mul(0.58))), foam.mul(0.92)));
 
     // --- the light path -----------------------------------------------------
     const H = normalize(V.add(L)).toVar();
@@ -595,6 +743,14 @@ export function createWaterMaterial({
       .mul(0.5).add(0.5).toVar();
     const sparkle = pow(smoothstep(0.0, 0.20, cell.x).oneMinus(), 7.0).mul(tw).mul(tw).mul(tw).toVar();
     sparkle.mulAssign(smoothstep(140.0, 620.0, dist).oneMinus());
+    // The water immediately around a wake is visibly rougher than open water in
+    // every painting — fine bright filigree that never crosses the foam
+    // threshold. `field` is the wake locator already sitting in a register, so
+    // buying that is one multiply-add and no new mechanism. Kept small: at 0.9
+    // the glitter — which the old blob used to suppress and which now runs right
+    // up to the foam edge — took the whole wedge over and the wake read as a fan
+    // of sparks rather than as foam.
+    sparkle.mulAssign(field.mul(0.35).add(1.0));
 
     const keyUp = sat(L.y.mul(8.0)).toVar();
     const grazing = mix(float(0.35), float(1.0), F).toVar();

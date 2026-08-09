@@ -44,6 +44,11 @@ const TRAIL_MAX = 64;
 const TRAIL_LIFE = 5.0;        // seconds an arm keeps sweeping outward
 const TRAIL_STEP = 0.62;       // metres of travel between trail samples
 const KELVIN_TAN = 0.3536;     // tan(19.47 deg) — the half-angle of the wedge
+// Half-width of the wedge where a trail sample is laid. The apex is the bow and
+// the arm leaves the hull at its widest point, so w(d) = halfBeam + tan*d with d
+// measured aft of the bow: 0.95 m of half-beam plus 4.4 m from the bow to the
+// stamp point at (centre - 2.1 m forward).
+const ARM_ORIGIN = 0.95 + KELVIN_TAN * 4.4;   // 2.51 m
 const PENDING_MAX = 48;
 
 /**
@@ -450,10 +455,23 @@ export function createWake({ renderer, size = 256, worldSize = 128 } = {}) {
       const age = now - trail[i * 6 + 5];
       if (age < 0 || age > TRAIL_LIFE) continue;
       const v0 = trail[i * 6 + 4];
-      const spread = KELVIN_TAN * v0 * age;
+      // The wedge springs from the BOW, not from the transom, and it leaves the
+      // hull at the hull's own half-beam. Measured off ref/01 by solving three
+      // points on the starboard filament back to the ground plane, the foam
+      // sits 2.1-2.4 m off the centreline as it passes the stern — about one
+      // hull length across, 2.7 beams. Trail samples are laid at the transom,
+      // ARM_ORIGIN metres aft of the bow, so an arm is already that wide the
+      // instant it is born; starting it at zero buried the entire near-field V
+      // inside the churn stamps (which are 1.9 m in radius) and the V only
+      // emerged 5 m astern, by which point the age fade had eaten it.
+      const spread = ARM_ORIGIN + KELVIN_TAN * v0 * age;
       const fade = 1 - age / TRAIL_LIFE;
       const amp = fade * fade;
-      const radius = 0.42 + 0.055 * spread + 0.03 * v0;
+      // Floored against the texel: on the lean tier the window is 1 m per texel
+      // and a 0.42 m stamp is sub-texel, which resamples into a flickering
+      // dotted line instead of an arm. 1.2 texels is the smallest disc that
+      // survives the bilinear fetch on the far side.
+      const radius = Math.max(1.2 * texelWorld, 0.42 + 0.055 * spread + 0.03 * v0);
       const arm = 1.0 * amp * Math.min(1, v0 / 5.0);
       const px = trail[i * 6], pz = trail[i * 6 + 1];
       const ux = trail[i * 6 + 2], uz = trail[i * 6 + 3];
