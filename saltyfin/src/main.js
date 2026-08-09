@@ -215,6 +215,11 @@ ctx.monster = monster;
 const wildlife = build(createWildlife, { terrain });
 
 const boatController = createBoatController({ ctx, input, water: () => ctx.water, terrain });
+// `?drive=0.9` or `?drive=0.9,0.3` pins the helm for a capture.
+if (params.has('drive')) {
+  const d = params.get('drive').split(',').map(Number);
+  if (Number.isFinite(d[0])) input.setTouchAxes(d[0], Number.isFinite(d[1]) ? d[1] : 0);
+}
 if (params.has('boat')) {
   const p = params.get('boat').split(',').map(Number);
   if (p.length >= 2 && p.every(Number.isFinite)) {
@@ -611,6 +616,12 @@ const api = {
   ready: false,
   setHour(h) { time.set(h); },
   setBoat(x, z, heading) { boatController.teleport(x, z, heading); },
+  /**
+   * Hold the helm from outside. The capture harness has no hands, so without
+   * this every screenshot is of a boat sitting still — and a boat sitting still
+   * has no wake, which is most of what the water is supposed to be doing.
+   */
+  drive(fwd = 0, turn = 0) { input.setTouchAxes(fwd, turn); },
   setCamera(spec) { chaseCamera.setSpec(spec); },
   hideHud() {
     document.getElementById('hud')?.classList.add('hidden');
