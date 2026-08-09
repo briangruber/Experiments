@@ -12,6 +12,13 @@ const DRAG = 0.72;
 const TURN_RATE = 1.15;       // rad/s at speed
 const TURN_AT_REST = 0.30;
 
+// How much water she needs under her, and the fastest she will ever be refloated.
+// The cap is the important one: it is what keeps a grounding a nudge rather than a
+// teleport, and a teleport resamples the seabed gradient somewhere unrelated, which
+// is what made a grounded boat shake itself apart.
+const DRAFT = 1.1;
+const REFLOAT_MAX = 4.0;      // m/s
+
 export function createBoatController({ ctx, input, water, terrain }) {
   const b = ctx.boat;
   b.position.set(-6, 0, 24);
@@ -64,17 +71,51 @@ export function createBoatController({ ctx, input, water, terrain }) {
       b.position.z += b.forward.z * b.speed * dt;
 
       // Keep her off the beach.
+      //
+      // seabedHeight is NEGATIVE below water and positive on dry land, so its
+      // gradient points UPHILL — toward the sand. The first version of this
+      // pushed along +gradient, which drove her further aground the instant she
+      // touched, and the shove was unbounded, so once the seabed rose above
+      // water it grew with every metre she climbed. Measured by driving her
+      // north into the village island: she touched sand at z=33 and was 26 m
+      // inland twelve frames later, after which she jittered twenty metres a
+      // frame across the hilltop with her speed pinned near zero and reverse
+      // doing nothing. That is the "stuck on a shallow area, shakes violently,
+      // cannot move" a player reported.
+      //
+      // So: downhill, bounded, and the damping only bites when she is actually
+      // driving into the shallows — otherwise backing off is impossible, which
+      // is the half of the bug that turns a grounding into a dead end.
       if (terrain?.seabedHeight) {
         const depth = -terrain.seabedHeight(b.position.x, b.position.z);
-        if (depth < 1.1) {
-          const eps = 1.5;
+        if (depth < DRAFT) {
+          // Widen the baseline the further aground she is. A 1.5 m sample reads
+          // the bump she is sitting on, and a hillside has plenty of local
+          // basins for that to settle into — dropped in the middle of the
+          // village island she walked four metres downhill and then stopped
+          // dead on a shelf. At 24 m the gradient is the shape of the island
+          // rather than the shape of the ground under her, and that always
+          // leads to water.
+          const eps = depth < 0 ? Math.min(24, 1.5 + (-depth) * 0.8) : 1.5;
           const gx = terrain.seabedHeight(b.position.x + eps, b.position.z) - terrain.seabedHeight(b.position.x - eps, b.position.z);
           const gz = terrain.seabedHeight(b.position.x, b.position.z + eps) - terrain.seabedHeight(b.position.x, b.position.z - eps);
-          const l = Math.hypot(gx, gz) || 1;
-          const push = (1.1 - depth) * 2.2;
-          b.position.x += (gx / l) * push * dt * 8;
-          b.position.z += (gz / l) * push * dt * 8;
-          b.speed *= 1 - Math.min(0.9, (1.1 - depth) * dt * 6);
+          const l = Math.hypot(gx, gz);
+          // A flat shoal has no downhill to offer. Backing her out the way she
+          // came is always available and always right, so it is the fallback.
+          const nx = l > 1e-4 ? -gx / l : -b.forward.x;
+          const nz = l > 1e-4 ? -gz / l : -b.forward.z;
+          // Metres per second, capped. Uncapped, a boat somehow placed inland
+          // teleports rather than refloats, and a teleport resamples the
+          // gradient somewhere unrelated — which is the shaking.
+          const shove = Math.min((DRAFT - depth) * 3.0, REFLOAT_MAX);
+          b.position.x += nx * shove * dt;
+          b.position.z += nz * shove * dt;
+          // Only scrub way off if she is still headed uphill. Sign here is what
+          // lets the player reverse out under their own power.
+          const uphill = l > 1e-4 ? (b.forward.x * gx + b.forward.z * gz) / l : 0;
+          if (uphill * b.speed > 0) {
+            b.speed *= 1 - Math.min(0.7, (DRAFT - depth) * Math.abs(uphill) * 2.5 * dt);
+          }
         }
       }
 
