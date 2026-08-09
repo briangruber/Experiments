@@ -23,6 +23,7 @@
 
 import * as THREE from 'three';
 import { LAYER, setLayers } from '../core/layers.js';
+import { applyWaterClip } from '../water/clip.js';
 import { GLSL } from '../core/glsl.js';
 import { makeRng, clamp } from '../core/rng.js';
 
@@ -635,6 +636,10 @@ export function createWildlife(opts = {}) {
   jumper.frustumCulled = false;
   group.add(jumper);
   setLayers(jumper, LAYER.MAIN, LAYER.REFLECTED);
+  // Crosses the waterline twice a leap, flashing an upside-down fish into the
+  // reflection at each end of the arc. Shares its material with the schools,
+  // which want the same clip anyway.
+  applyWaterClip(jumper);
 
   const jump = {
     active: false,

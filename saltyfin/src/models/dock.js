@@ -13,6 +13,7 @@
 import * as THREE from 'three';
 import { Fn, uniform, attribute, vertexColor, float, sin, step } from 'three/tsl';
 import { LAYER, setLayers, addLayers } from '../core/layers.js';
+import { applyWaterClip } from '../water/clip.js';
 import { makeRng } from '../core/rng.js';
 
 const C = (hex) => new THREE.Color().setHex(hex, THREE.SRGBColorSpace);
@@ -482,6 +483,9 @@ export function createDock(opts = {}) {
 
   setLayers(group, LAYER.MAIN, LAYER.REFLECTED);
   addLayers(postMesh, LAYER.UNDERWATER);
+  // addLayers only adds, so the pilings were in the reflection pass as well as
+  // the refraction one, untrimmed in both.
+  applyWaterClip(group);
   for (const l of lights) l.layers.enableAll();
 
   return {

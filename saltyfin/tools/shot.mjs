@@ -3,6 +3,7 @@
 //
 //   node tools/shot.mjs --out shots/day.png --preset day --w 1280 --h 720
 //   node tools/shot.mjs --out shots/n.png --t 22.5 --cam "orbit,140,26" --wait 9000
+//   node tools/shot.mjs --out shots/refl.png --show reflection   (one pass on its own)
 //
 // Exits non-zero on any console error, on a frame that never arrived, or on a
 // flat image, so it doubles as the build check. Prints a JSON report.
@@ -36,7 +37,7 @@ const WIDTH = +opt('w', 1280);
 const HEIGHT = +opt('h', 720);
 const WAIT = +opt('wait', 7000);
 const QUERY = [];
-for (const k of ['preset', 't', 'quality', 'seed', 'cam', 'boat', 'fov', 'pr', 'rate', 'step', 'shadows', 'nopost', 'forcegl', 'post']) {
+for (const k of ['preset', 't', 'quality', 'seed', 'cam', 'boat', 'fov', 'pr', 'rate', 'step', 'shadows', 'nopost', 'forcegl', 'post', 'show']) {
   const v = opt(k, null);
   if (v !== null) QUERY.push(`${k}=${encodeURIComponent(v)}`);
 }

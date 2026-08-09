@@ -16,6 +16,7 @@ import { createPost } from './core/post.js';
 import { createInput } from './core/input.js';
 import { createTouchControls } from './core/touch.js';
 import { LAYER } from './core/layers.js';
+import { CLIP, setWaterClip } from './water/clip.js';
 import { createTimeOfDay, PRESET_HOURS } from './world/timeOfDay.js';
 
 import { createSky } from './sky/sky.js';
@@ -329,7 +330,12 @@ function renderRefraction() {
   // load operation is close to free. autoClear stays off globally because the
   // wake sim draws twice into one target and must not clear in between.
   renderer.autoClear = true;
+  // Keep only what is under the water. LAYER.UNDERWATER sorts whole objects
+  // into this pass but cannot trim one, and the seabed heightfield carries the
+  // dry land too — so without the clip the water was sampling hillsides.
+  setWaterClip(CLIP.BELOW);
   renderer.render(scene, camera);
+  setWaterClip(CLIP.OFF);
   renderer.autoClear = false;
 }
 
@@ -359,7 +365,12 @@ function renderReflection() {
   clearColorLinear.copy(env.skyHorizon);
   renderer.setClearColor(clearColorLinear, 1);
   renderer.autoClear = true;
+  // Keep only what is above the water. The mirror is applied to the CAMERA, so
+  // positionWorld.y inside this pass is still true world Y and the test needs no
+  // sign flip. Reset unconditionally after — nothing downstream wants a clip.
+  setWaterClip(CLIP.ABOVE);
   renderer.render(scene, reflectCamera);
+  setWaterClip(CLIP.OFF);
   renderer.autoClear = false;
 }
 
@@ -380,6 +391,19 @@ if (CAPTURE) {
   grab.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;z-index:5';
   document.body.insertBefore(grab, document.getElementById('hud'));
   grab.ctx = grab.getContext('2d');
+}
+
+// A debug view must never be mistakable for a real frame, so `?show=` labels
+// itself. Outside the HUD, so hideHud() leaves it on a capture.
+if (post.showing) {
+  const tag = document.createElement('div');
+  tag.id = 'showtag';
+  tag.textContent = 'debug · targets.' + post.showing;
+  tag.style.cssText = 'position:fixed;top:8px;left:8px;z-index:50;pointer-events:none;'
+    + 'font:600 10px/1 ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase;'
+    + 'color:#ffd27a;background:rgba(8,20,36,.7);'
+    + 'border:1px solid rgba(255,210,122,.5);border-radius:6px;padding:5px 8px';
+  document.body.appendChild(tag);
 }
 
 function mirrorFrame() {
@@ -520,6 +544,12 @@ function frame() {
     if (!NOPOST) renderPost();
     renderer.setRenderTarget(null);
   }
+  // `?show=reflection|refraction|scene` overwrites the canvas with one pass's
+  // target. It runs after the whole frame, so every pass draws exactly as it
+  // normally would and what lands on screen is the buffer its consumer sampled
+  // — and it must sit BEFORE mirrorFrame(), or `?capture=1` grabs the composite
+  // that this just painted over.
+  post.showDebugTarget?.(env);
   renderCpuMs += performance.now() - renderStart;
   mirrorFrame();
 

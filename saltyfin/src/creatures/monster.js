@@ -11,7 +11,10 @@
 //   * It lives on LAYER.MAIN + LAYER.UNDERWATER, so the water's refraction pass
 //     picks it up and the surface veils it with its own absorption. That veil is
 //     the softening in ref/04; nothing here fakes it. LAYER.REFLECTED is on too,
-//     but the reflection pass clips at the waterline, so only a breach reflects.
+//     but water/clip.js trims the reflection pass at the waterline, so only a
+//     breach reflects. Naming the module matters: this comment used to claim the
+//     pass clipped by itself, which is how the animal ended up on REFLECTED with
+//     nothing trimming it, painting a dark smear across open water.
 //   * Its colour is `env.waterDeep` crushed to about a third. The refraction
 //     target is *cleared* to waterDeep, so anything darker than that is a hole
 //     in the water. Never a picked black — at night waterDeep is nearly black
@@ -40,6 +43,7 @@ import {
   step, smoothstep, clamp as tslClamp, max as tslMax, length, oneMinus,
 } from 'three/tsl';
 import { LAYER, setLayers } from '../core/layers.js';
+import { applyWaterClip } from '../water/clip.js';
 import { makeRng, clamp } from '../core/rng.js';
 
 const TAU = Math.PI * 2;
@@ -762,6 +766,9 @@ export function createMonster(opts = {}) {
   body.add(eyeL, eyeR);
 
   setLayers(group, LAYER.MAIN, LAYER.UNDERWATER, LAYER.REFLECTED);
+  // Submerged almost always, so without a waterline clip its mirror image
+  // lands above the reflected horizon and smears across open water.
+  applyWaterClip(group);
 
   // ---- the disturbance ---------------------------------------------------
 

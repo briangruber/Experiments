@@ -22,6 +22,7 @@
 
 import * as THREE from 'three';
 import { LAYER, setLayers } from '../core/layers.js';
+import { applyWaterClip } from '../water/clip.js';
 import { makeRng, fbm2D, ridged2D, value2D, hash2, hash3, smoothstep, clamp } from '../core/rng.js';
 
 const DEG = Math.PI / 180;
@@ -578,6 +579,10 @@ export function createIslands(opts = {}) {
   group.add(stackMesh);
 
   setLayers(group, LAYER.MAIN, LAYER.REFLECTED, LAYER.UNDERWATER);
+  // The islands run from summit to seabed and their submerged half is tinted
+  // nearly black, so unclipped they stood up into the reflected sky as a wall
+  // of black along the whole shoreline. Biggest single leak of the lot.
+  applyWaterClip(group);
 
   // --- horizon -------------------------------------------------------------
   const distantGeo = makeDistantGeometry();
@@ -610,6 +615,7 @@ export function createIslands(opts = {}) {
   distantMesh.renderOrder = -1;
   group.add(distantMesh);
   setLayers(distantMesh, LAYER.MAIN, LAYER.REFLECTED);
+  applyWaterClip(distantMesh);
 
   // --- env -----------------------------------------------------------------
   const _lift = new THREE.Color();

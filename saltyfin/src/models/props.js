@@ -24,6 +24,7 @@
 
 import * as THREE from 'three';
 import { LAYER, setLayers, addLayers } from '../core/layers.js';
+import { applyWaterClip } from '../water/clip.js';
 import { makeRng } from '../core/rng.js';
 
 const C = (hex) => new THREE.Color().setHex(hex, THREE.SRGBColorSpace);
@@ -994,6 +995,9 @@ export function createProps(opts = {}) {
   addLayers(markerMesh, LAYER.UNDERWATER);
   for (const f of floaters) addLayers(f.obj, LAYER.UNDERWATER);
   for (const m of instMeshes) addLayers(m, LAYER.UNDERWATER);
+  // Marker poles driven into the seabed, buoys riding the surface, moored
+  // hulls — all of them cross the waterline.
+  applyWaterClip(group);
 
   // =========================================================================
 

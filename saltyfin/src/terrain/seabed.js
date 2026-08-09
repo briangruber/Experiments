@@ -26,6 +26,7 @@
 
 import * as THREE from 'three';
 import { LAYER, setLayers } from '../core/layers.js';
+import { applyWaterClip } from '../water/clip.js';
 import { fbm2D, noise2D, value2D, worley2D, hash2, smoothstep, clamp } from '../core/rng.js';
 import { islandFloor } from './island.js';
 
@@ -384,6 +385,10 @@ export function createSeabed(opts = {}) {
   group.name = 'seabed';
   group.add(mesh);
   setLayers(group, LAYER.MAIN, LAYER.UNDERWATER);
+  // One heightfield carries both the seabed and the dry land above it, so the
+  // refraction pass was sampling whole hillsides as though they were under
+  // water. The clip is what makes LAYER.UNDERWATER mean what it says here.
+  applyWaterClip(group);
 
   const _lift = new THREE.Color();
 

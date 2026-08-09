@@ -184,6 +184,42 @@ export function createPost({ renderer, targets, makeTarget }) {
     return vec4(col, 1);
   })();
 
+  // --- debug: show one pass's render target --------------------------------
+  //
+  // `?show=reflection|refraction|scene` blits the named target over the finished
+  // frame. Same precedent as `?post=bloom` above — a URL flag read once, and
+  // when it is absent nothing here runs and nothing else changes.
+  //
+  // It exists because the reflection pass is otherwise unlookable-at: it renders
+  // through a camera mirrored in y=0 and its only consumer is a projective
+  // sample buried in the water shader, so anything wrong in it arrives as a
+  // smear on the water with no way to tell what drew it. Showing the target
+  // answers that directly.
+  //
+  // The U flip is not cosmetic. water/waterMaterial.js samples this target as
+  // `tReflection.sample(vec2(rv.x.oneMinus(), rv.y))`, because mirroring the
+  // camera flips the winding and main.js negates the projection's X row to flip
+  // it back. `?show=reflection` applies the same flip, so what is on screen is
+  // in the orientation the water reads it in.
+  //
+  // Uniform-driven, one draw, its own material: it cannot perturb the passes it
+  // is meant to be reporting on.
+  const SHOW = new URLSearchParams(location.search).get('show');
+  const showSrc = texture(targets.scene.texture);
+  const uShowFlipU = uniform(0);
+  const uShowExposure = uniform(1);
+  const showMat = mat();
+  showMat.fragmentNode = Fn(() => {
+    const suv = uv().toVar();
+    suv.x.assign(mix(suv.x, suv.x.oneMinus(), uShowFlipU));
+    // The targets are half-float and linear, so tonemap and encode exactly as
+    // the composite does — otherwise a debug view of an HDR sky is solid white
+    // and reads as a broken pass.
+    const col = showSrc.sample(suv).rgb.mul(uShowExposure).toVar();
+    col.assign(tonemapFilmic(col));
+    return vec4(linearToSrgb(col), 1);
+  })();
+
   const LEVELS = 6;
   let chain = [];
 
@@ -216,6 +252,10 @@ export function createPost({ renderer, targets, makeTarget }) {
     thrSrc.value = targets.scene.texture;
     compScene.value = targets.scene.texture;
     compBloom.value = chain[0].up.texture;
+    // Rebound here rather than per frame: a target's texture can be replaced by
+    // setSize, and nothing that changes between draws inside one frame reaches
+    // the passes anyway (see the mip chain above).
+    if (SHOW && targets[SHOW]) showSrc.value = targets[SHOW].texture;
   }
 
   function draw(material, target) {
@@ -254,12 +294,28 @@ export function createPost({ renderer, targets, makeTarget }) {
     draw(compositeMat, null);
   }
 
+  /**
+   * `?show=…` debug blit. Call it after the frame is otherwise finished — and,
+   * under `?capture=1`, before main.js mirrors the canvas. Returns true when it
+   * drew, i.e. when the canvas no longer holds the composited image.
+   */
+  function showDebugTarget(env) {
+    if (!SHOW || !targets[SHOW]) return false;
+    uShowFlipU.value = SHOW === 'reflection' ? 1 : 0;
+    uShowExposure.value = env?.exposure ?? 1;
+    draw(showMat, null);
+    return true;
+  }
+
   function dispose() {
     for (const l of chain) { l.down.dispose(); l.up.dispose(); }
     for (const m of downMats) m.dispose();
     for (const m of upMats) m.dispose();
-    thresholdMat.dispose(); compositeMat.dispose();
+    thresholdMat.dispose(); compositeMat.dispose(); showMat.dispose();
   }
 
-  return { resize, render, dispose, materials: { compositeMat } };
+  return {
+    resize, render, dispose, showDebugTarget, showing: SHOW,
+    materials: { compositeMat },
+  };
 }

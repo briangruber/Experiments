@@ -197,6 +197,7 @@ allocation-free.
 | `src/water/waterMaterial.js` | the surface shader |
 | `src/water/wake.js` | boat wake ripple simulation and trail |
 | `src/water/caustics.js` | caustic texture used by the seabed |
+| `src/water/clip.js` | the waterline clip the reflection and refraction passes run under |
 | `src/terrain/seabed.js` | sand + reef heightfield |
 | `src/terrain/coral.js` | instanced coral, kelp, urchins, sunken rock |
 | `src/terrain/island.js` | cliff islands, beaches, grass caps |

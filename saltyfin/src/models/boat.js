@@ -17,6 +17,7 @@
 
 import * as THREE from 'three';
 import { LAYER, setLayers } from '../core/layers.js';
+import { applyWaterClip } from '../water/clip.js';
 import { GLSL } from '../core/glsl.js';
 import { makeRng } from '../core/rng.js';
 
@@ -750,6 +751,9 @@ export function createBoat(opts = {}) {
 
   setLayers(group, LAYER.MAIN, LAYER.REFLECTED);
   setLayers(underGroup, LAYER.UNDERWATER);
+  // Without this the boat reflected its own hull bottom and propeller instead
+  // of its topsides. One call on `group` reaches underGroup too.
+  applyWaterClip(group);
 
   // ---- state --------------------------------------------------------------
 
