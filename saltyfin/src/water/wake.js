@@ -50,6 +50,10 @@ const KELVIN_TAN = 0.3536;     // tan(19.47 deg) — the half-angle of the wedge
 // stamp point at (centre - 2.1 m forward).
 const ARM_ORIGIN = 0.95 + KELVIN_TAN * 4.4;   // 2.51 m
 const PENDING_MAX = 48;
+// The arm-only queue is separate and smaller. It exists so a caller can write
+// the crisp one-frame layer WITHOUT the accumulating churn that disturb()
+// unavoidably drags along with it — see disturbArm().
+const PENDING_ARM_MAX = 32;
 
 /**
  * @param {object} opts
@@ -88,6 +92,8 @@ export function createWake({ renderer, size = 256, worldSize = 128 } = {}) {
   // outside disturbances waiting for the next step: x, z, strength, radius
   const pending = new Float32Array(PENDING_MAX * 4);
   let pendingCount = 0;
+  const pendingArm = new Float32Array(PENDING_ARM_MAX * 4);
+  let pendingArmCount = 0;
 
   // this frame's stamps, in the same layout the instanced attributes want
   const centers = new Float32Array(MAX_STAMPS * 2);
@@ -364,11 +370,45 @@ export function createWake({ renderer, size = 256, worldSize = 128 } = {}) {
     pending[i * 4 + 3] = Math.max(0.4, radius);
   }
 
+  /**
+   * Stamp the ARM channel and nothing else.
+   *
+   * disturb() writes all three of R, B and A at once, in a fixed ratio. That is
+   * right for a one-shot event and wrong for anything that has to be re-stamped
+   * every frame: B is conservative under the diffusion kernel (wake.js:160-162
+   * sums to exactly 1.0) and only decays on a 4.2 s time constant, so a ring
+   * re-stamped for a second piles B up past 10 and turns the whole bay white.
+   * That was measured, on a leviathan's landing, and it is why this exists.
+   *
+   * A has the opposite behaviour: the sim zeroes it every step (the `0.0` in
+   * the vec4 at :172), so it costs a stamp a frame to hold and it can never
+   * stain. It also has its own knee and gain in the water shader — uWakeArmSoft
+   * and uWakeArmFoam, NOT the boat-body ones — and `armEdge` there gives it a
+   * bright rim in the band A ~ 0.30..5.2, peaking at A ~ 0.92. So a ring of
+   * arm-only stamps at that value draws an expanding, thinning, bright-edged
+   * band for free.
+   *
+   * The Kelvin arms already use exactly this channel this way (:453-480); this
+   * is the same idea with a public door on it.
+   *
+   * @param {number} arm  peak A at the centre of the stamp. ~0.9 sits on the
+   *   crest of armEdge; above ~5 the rim has passed and it reads as a flat plate.
+   */
+  function disturbArm(x, z, arm = 1, radius = 2.5) {
+    if (pendingArmCount >= PENDING_ARM_MAX) return;
+    const i = pendingArmCount++;
+    pendingArm[i * 4] = x;
+    pendingArm[i * 4 + 1] = z;
+    pendingArm[i * 4 + 2] = arm;
+    pendingArm[i * 4 + 3] = Math.max(0.4, radius);
+  }
+
   function reset() {
     trailCount = 0;
     trailHead = 0;
     travel = 0;
     pendingCount = 0;
+    pendingArmCount = 0;
     clearBuffers();
   }
 
@@ -402,6 +442,13 @@ export function createWake({ renderer, size = 256, worldSize = 128 } = {}) {
       push(pending[i * 4], pending[i * 4 + 1], r, -0.30 * s, 0.16 * s, 0.30 * s);
     }
     pendingCount = 0;
+
+    // Arm-only stamps. No height, no churn — see disturbArm().
+    for (let i = 0; i < pendingArmCount; i++) {
+      push(pendingArm[i * 4], pendingArm[i * 4 + 1], pendingArm[i * 4 + 3],
+        0, 0, pendingArm[i * 4 + 2]);
+    }
+    pendingArmCount = 0;
 
     if (boat) {
       const speed = Math.abs(boat.speed || 0);
@@ -525,6 +572,7 @@ export function createWake({ renderer, size = 256, worldSize = 128 } = {}) {
     texelWorld,
     backend: useCompute ? 'compute' : 'fragment',
     disturb,
+    disturbArm,
     update,
     reset,
     dispose() {

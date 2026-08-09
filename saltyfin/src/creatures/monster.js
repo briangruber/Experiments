@@ -38,13 +38,15 @@ import * as THREE from 'three';
 import {
   Fn, uniform, attribute, varying, uv, materialOpacity,
   positionLocal, positionGeometry, positionWorld, positionViewDirection,
-  normalLocal, transformNormalToView, transformedNormalView, cameraPosition,
+  normalLocal, transformNormalToView, transformedNormalView, transformedNormalWorld,
+  cameraPosition,
   vec2, vec3, vec4, float, floor, fract, mod, sin, cos, atan, abs, dot, mix,
   step, smoothstep, clamp as tslClamp, max as tslMax, length, oneMinus,
 } from 'three/tsl';
 import { LAYER, setLayers } from '../core/layers.js';
 import { applyWaterClip } from '../water/clip.js';
 import { makeRng, clamp } from '../core/rng.js';
+import { createSplash } from './splash.js';
 
 const TAU = Math.PI * 2;
 
@@ -565,6 +567,15 @@ function decorateMonsterMaterial(mat, uni) {
     smoothstep(-1.6, 2.4, positionGeometry.y).mul(0.34).add(aFin.y.mul(0.10)).add(0.78),
   );
 
+  // The sheeting coordinate for the wet collar: a value that varies ACROSS the
+  // body and is constant down it, so the noise it feeds becomes vertical streaks
+  // of running water rather than a blotchy wash. It has to be a varying —
+  // `positionGeometry` is a vertex attribute and reading it in the fragment
+  // stage is not free the way `positionWorld` is.
+  const vWetU = varying(
+    positionGeometry.x.mul(1.05).add(positionGeometry.z.mul(0.30)), 'vWetU',
+  );
+
   mat.colorNode = Fn(() => {
     const above = smoothstep(-1.8, 2.6, positionWorld.y);
     return mix(uni.uBodyWater, uni.uBodyAir, above).mul(vMonShade);
@@ -583,6 +594,44 @@ function decorateMonsterMaterial(mat, uni) {
     ).toVar();
     fres.assign(fres.mul(fres).mul(fres));
     c.addAssign(uni.uRim.mul(fres).mul(above.mul(0.60).add(0.40)));
+
+    // The wet collar. In ref/05 the single most prominent thing in the whole
+    // breach is not the ring on the water — it is the opaque white skirt where
+    // the body meets the sea, plus the sheets of water still running off the
+    // shoulders. It costs no new object, no new draw call and no new pipeline:
+    // `above` is already being computed twice here, so this is one band, one
+    // noise and an add.
+    //
+    // Two terms. `collar` is a tight band around world y = 0, which is where
+    // the water is actually breaking against the body. `runoff` is everything
+    // low on the animal, weaker, and it is what makes a leviathan that has just
+    // come out of the sea look wet instead of merely dark.
+    // The band is +-1.8 m, not +-3.4. At 3.4 it swallowed the pectoral fin
+    // whole — a fin lying flat at the surface sits entirely inside the band and
+    // came back as a pale grey card with no silhouette left in it. A leviathan
+    // is a hole in the water first and a wet animal second.
+    // Narrowing the band was not enough on its own, and could not be: a
+    // pectoral fin lying flat at the surface is THINNER than any band worth
+    // having, so the whole of it sits inside one and comes back as a flat pale
+    // card with no shading left. What separates a fin from a shoulder is not
+    // height, it is FACING — the water breaks on a surface it can run down, and
+    // it sheets straight off a horizontal one. So the collar is gated on how
+    // vertical the surface is. A near-horizontal face keeps its own shading and
+    // stops reading as a floating slab of polystyrene, which is what the frame
+    // half a second after impact looked like.
+    const upright = oneMinus(abs(transformedNormalWorld.y)).toVar();
+    const collar = oneMinus(smoothstep(0.05, 1.8, positionWorld.y))
+      .mul(smoothstep(-1.8, -0.15, positionWorld.y))
+      .mul(smoothstep(0.15, 0.62, upright)).toVar();
+    const runoff = oneMinus(smoothstep(0.0, 9.0, positionWorld.y)).mul(0.26).toVar();
+    // Scrolling downward, so the streaks read as water falling rather than as a
+    // texture painted on the hide.
+    const wn = vnoise(vec2(vWetU, positionWorld.y.mul(0.26).sub(uni.uMTime.mul(1.35)))).toVar();
+    c.addAssign(
+      uni.uWetCol.mul(uni.uWet)
+        .mul(collar.mul(0.95).add(runoff))
+        .mul(wn.mul(0.75).add(0.40)),
+    );
     return c;
   });
 
@@ -721,6 +770,10 @@ export function createMonster(opts = {}) {
     uRim: uniform(new THREE.Color(0.030, 0.090, 0.120)),
     uLitMix: uniform(0.46),
     uBTime: uniform(0),
+    // How wet she is, 0..1. Rises the instant the head clears the water and
+    // takes a couple of seconds to run off — see the collar in monOutput.
+    uWet: uniform(0),
+    uWetCol: uniform(new THREE.Color(0.9, 0.95, 1.0)),
   };
 
   // ---- the animal --------------------------------------------------------
@@ -838,6 +891,13 @@ export function createMonster(opts = {}) {
 
   disturbGroup.position.copy(disturbPos);
   group.add(disturbGroup);
+
+  // ---- white water -------------------------------------------------------
+  // Built here, at boot, and drawn every frame from here on — collapsed to a
+  // point when idle. See the header of splash.js for why it must never be
+  // created, revealed or unculled at the moment of impact.
+  const splash = createSplash({ quality: opts.quality, seed });
+  group.add(splash.group);
   setLayers(patch, LAYER.MAIN);
   setLayers(bubbles, LAYER.MAIN, LAYER.UNDERWATER);
 
@@ -870,6 +930,8 @@ export function createMonster(opts = {}) {
   let flybyT = 20;
   let flyby = 0;
   let ringDone = false;
+  let exitDone = false;
+  let wet = 0;
   let lastY = position.y;
   let stampT = 0;
 
@@ -940,14 +1002,25 @@ export function createMonster(opts = {}) {
     phaseT = 0;
   }
 
-  function beginBreach(surfaceX, surfaceZ) {
+  /**
+   * @param {number} surfaceX where she is aimed to break water
+   * @param {number} surfaceZ
+   * @param {number} [run] metres she carries on PAST that point before landing.
+   *   This is what decides where the crash actually happens, and it used to be
+   *   hard-wired at 46. That is why the game's most important breach — the one
+   *   the quest builds to — landed 72 m from the boat: the approach aimed at
+   *   `boat + dir*26` and then this pushed the landing another 46 m along the
+   *   same line, past the boat, past the 62 m stamp gate, and past the point
+   *   where a player looking at their own bow would see any of it.
+   */
+  function beginBreach(surfaceX, surfaceZ, run = 46) {
     brP0.copy(position);
     _dir.set(surfaceX - position.x, 0, surfaceZ - position.z);
     if (_dir.lengthSq() < 1e-4) _dir.set(velocity.x, 0, velocity.z);
     if (_dir.lengthSq() < 1e-4) _dir.set(0, 0, -1);
     _dir.normalize();
-    const ex = surfaceX + _dir.x * 46;
-    const ez = surfaceZ + _dir.z * 46;
+    const ex = surfaceX + _dir.x * run;
+    const ez = surfaceZ + _dir.z * run;
     brP2.set(ex, Math.max(-15, floorLimit(ex, ez)), ez);
     // Solve the control point for a *chosen* apex rather than adding a fixed
     // lift: a quadratic through B(0.5) = (P0 + 2*P1 + P2)/4 means P1 has to
@@ -962,6 +1035,7 @@ export function createMonster(opts = {}) {
     );
     brT = 0;
     ringDone = false;
+    exitDone = false;
     setPhase('breach');
   }
 
@@ -1039,28 +1113,54 @@ export function createMonster(opts = {}) {
       // Hammer the ripple sim along the path while the animal is near the
       // surface. The wake window is only 128 m across, so anything further out
       // than that would be thrown away anyway — do not spend the stamps.
+      _dir.set(velocity.x, 0, velocity.z);
+      if (_dir.lengthSq() > 1e-6) _dir.normalize(); else _dir.set(0, 0, -1);
+
       if (water && water.disturb) {
-        _dir.set(velocity.x, 0, velocity.z);
-        if (_dir.lengthSq() > 1e-6) _dir.normalize(); else _dir.set(0, 0, -1);
-        _head.copy(position).addScaledVector(_dir, 15);
-        const near = Math.hypot(_head.x - bx, _head.z - bz) < 58;
+        // The lead used to be a flat 15 m and the proximity test used to be run
+        // against the LEAD point rather than against the animal. Both were
+        // wrong. She travels 17.4 m/s, so a 15 m lead lays the whole descent
+        // trail a full frame-and-a-half ahead of the body and the landing
+        // arrives inside a 30 x 60 m streak that got there first; and testing
+        // the lead meant the trail switched off 58 m from the boat measured
+        // from a point that is not the animal. Lead only while she is RISING —
+        // that is the bow wave of something coming up — and stop leading once
+        // she is on the way down, where the water should be reacting behind her.
+        const lead = velocity.y > 0 ? 12 : 3;
+        _head.copy(position).addScaledVector(_dir, lead);
+        const near = Math.hypot(position.x - bx, position.z - bz) < 62;
         if (near && position.y > -9 && stampT > 0.07) {
           stampT = 0;
           const st = clamp(1.2 + Math.abs(velocity.y) * 0.16, 0.6, 3.4);
           water.disturb(_head.x, _head.z, st, 5.5 + 3.0 * clamp(position.y / 8 + 1, 0, 1));
           water.disturb(position.x, position.z, st * 0.7, 8.5);
         }
-        // The crash. One ring of stamps, once, as the body goes back through.
-        if (!ringDone && lastY > 0.5 && position.y <= 0.5) {
-          ringDone = true;
-          if (Math.hypot(position.x - bx, position.z - bz) < 62) {
-            water.disturb(position.x, position.z, 5.0, 13.0);
-            for (let i = 0; i < 10; i++) {
-              const a = (i / 10) * TAU;
-              water.disturb(position.x + Math.cos(a) * 11, position.z + Math.sin(a) * 11, 2.6, 6.5);
-            }
-          }
-        }
+      }
+
+      // Coming OUT. A smaller version of the same rig: ref/05 is this moment,
+      // not the landing, and a leviathan that erupts through the surface with
+      // nothing breaking around her looks like she was always standing there.
+      if (!exitDone && lastY <= 0.2 && position.y > 0.2) {
+        exitDone = true;
+        splash.fire(position.x, 0.15, position.z, _dir.x, _dir.z,
+          0.42 + 0.020 * Math.min(26, velocity.length()));
+      }
+
+      // The crash. NOT gated on distance to the boat — a stamp that lands
+      // outside the 128 m wake window is thrown away, but geometry is geometry
+      // and the idle breach in the middle distance is exactly the ref/05
+      // establishing shot. splash.update() does its own gating for the part
+      // that touches the ripple sim.
+      if (!ringDone && lastY > 0.5 && position.y <= 0.5) {
+        ringDone = true;
+        // She hits at about 15 m/s down and 17 m/s forward — a 41 degree entry
+        // at 23 m/s. The old stamp strength was `clamp(1.2 + |vy|*0.16, 0.6,
+        // 3.4)`, which saturates at 3.4 precisely at the moment of impact, so a
+        // hard landing wrote no more than a gentle one. Power is taken from the
+        // whole speed and left uncapped at the top of the range this arc can
+        // actually reach.
+        splash.fire(position.x, 0.0, position.z, _dir.x, _dir.z,
+          0.55 + 0.022 * Math.min(28, velocity.length()));
       }
       lastY = position.y;
       if (brT >= 1) {
@@ -1145,7 +1245,11 @@ export function createMonster(opts = {}) {
           const jx = boat ? boat.right.x : 1;
           const jz = boat ? boat.right.z : 0;
           const j = rng.range(-14, 14);
-          beginBreach(bx + _dir.x * 26 + jx * j, bz + _dir.z * 26 + jz * j);
+          // Break water 26 m past the boat and land 12 m further on, i.e. 38 m
+          // from the player and comfortably inside both the camera and the
+          // 62 m wake window. With the old run of 46 this landed at 72 m,
+          // measured live, which is why the climactic breach was silent.
+          beginBreach(bx + _dir.x * 26 + jx * j, bz + _dir.z * 26 + jz * j, 12);
         }
       } else {
         // dive — sink away, slow down, then fold back into the circuit.
@@ -1188,6 +1292,15 @@ export function createMonster(opts = {}) {
 
     // The tail beats harder the faster it swims; the fins keep their own, much
     // longer cycle so the two never lock into one rhythm.
+    // Wetness. Snaps on the moment anything is out of the water (the ramp is
+    // ~0.15 s) and runs off over a couple of seconds after she is under again,
+    // which is the timescale the sheets in ref/05 imply.
+    const dry = position.y < -2.2;
+    wet += ((dry ? 0 : 1) - wet) * Math.min(1, dt * (dry ? 0.75 : 8.0));
+    uni.uWet.value = wet;
+
+    splash.update(ctx);
+
     const sp = clamp(speed, 0, 12);
     uni.uSwimRate.value = 0.42 + sp * 0.115;
     uni.uSwimAmp.value = 1.15 + sp * 0.075;
@@ -1248,6 +1361,18 @@ export function createMonster(opts = {}) {
     patchUni.uFogNear.value = env.fogNear;
     patchUni.uFogFar.value = env.fogFar;
 
+    // The collar takes the palette's own foam, dimmed a little: it is an
+    // ADDITIVE term on top of a body that is deliberately darker than the water,
+    // so full-strength foamTint here blows the silhouette out into a white blob.
+    // dayFactor for the same reason splash.js folds it in: this is an ADDITIVE
+    // term on a body deliberately darker than the water, and at night the sea is
+    // at 0.1 linear while foamTint is still at 0.5 — leave the day gain on and
+    // the wetted pectoral comes back as a white card floating in the dark.
+    _c.copy(env.foamTint)
+      .multiplyScalar((0.22 + 0.30 * env.foamBrightness) * (0.35 + 0.65 * env.dayFactor));
+    uni.uWetCol.value.copy(_c);
+    splash.applyEnv(env);
+
     _c.copy(env.foamTint).lerp(env.waterShallow, 0.35);
     bubMat.color.copy(_c);
     bubMat.emissive.copy(env.waterScatter).multiplyScalar(0.10 + 0.20 * env.nightFactor);
@@ -1264,6 +1389,7 @@ export function createMonster(opts = {}) {
     bubbleGeo.dispose();
     bubMat.dispose();
     bubbles.dispose();
+    splash.dispose();
     group.clear();
   }
 

@@ -2,30 +2,62 @@
 //
 // Three things, and each one is here because the concept art has it:
 //
-//   * **Fish schools.** ref/01 is clear water over a reef; clear water reads as
-//     clear only when something is moving down there. Four schools of small
-//     tapered bodies at 3–9 m, one InstancedMesh each, on LAYER.MAIN +
+//   * **Fish.** ref/01 is clear water over a reef; clear water reads as clear
+//     only when something is moving down there. Six species — bait, damsel,
+//     snapper, parrot, grouper, eagle ray — sharing ONE material and ONE
+//     attribute layout, one InstancedMesh per species, on LAYER.MAIN +
 //     LAYER.UNDERWATER so the refraction pass carries them.
 //   * **Seagulls.** ref/01 has them wheeling over the harbour at three
 //     different heights — they are most of what sells the scale of the village.
-//     One InstancedMesh, lazy orbits, wings flapping in the vertex shader with a
-//     per-bird phase and a per-bird glide. LAYER.MAIN + LAYER.REFLECTED, faded
-//     out with `env.dayFactor`.
+//     One InstancedMesh, lazy orbits, LAYER.MAIN + LAYER.REFLECTED, faded out
+//     with `env.dayFactor`.
 //   * **A jumping fish**, now and then, in the mid-distance: out of the water,
 //     an arc, and back in, stamping the ripple sim on the way out and the way
-//     back. It is a two-second event every half minute and it makes the whole
-//     bay feel occupied.
+//     back.
 //
-// The flocking is deliberately cheap. A school is one Object3D following a
-// wandering Lissajous; the instances hold fixed offsets inside it and the
-// per-fish swim wiggle and jostle happen in the vertex shader off a hash of the
-// instance's own offset. That is three transforms a frame for the whole bay.
+// What changed, and why
+// ---------------------
+// This file used to say "the flocking is deliberately cheap. A school is one
+// Object3D following a wandering Lissajous; the instances hold fixed offsets
+// inside it and the per-fish swim wiggle and jostle happen in the vertex shader
+// off a hash of the instance's own offset."
+//
+// The second half of that was never true on this branch. The wiggle lived in an
+// `onBeforeCompile` injection, and `onBeforeCompile` does not exist in
+// three.webgpu.min.js — the string appears zero times in it, and a runtime spy
+// on the school material was never called after a forced rebuild. So the fish
+// were a perfectly rigid lattice of ~30 identical charcoal slivers being flown
+// around the bay in formation, with nothing hiding it. A capture from the boat
+// at (-1, 76) confirmed it: parallel dashes 3-8 body lengths apart, reading as
+// debris. From the overhead camera they were not visible at all.
+//
+// So the trade the old comment describes was being paid for and nothing was
+// coming back. Now:
+//
+//   * Per-fish state lives on the CPU (six Float32Arrays per species) and the
+//     boids run there, because the CPU also needs the positions for the flee
+//     response and the terrain plane, and because a compute path would exist on
+//     the WebGPU backend and not on the WebGL backend of the same renderer —
+//     one branch, two behaviours, ruled out.
+//   * The vertex stage is TSL (`positionNode`), the way monster.js:648 does the
+//     bubbles. It carries ONLY the swim bend, driven by a per-instance phase
+//     accumulator so the beat rate can rise with speed without any uniform
+//     moving.
+//   * Terrain is sampled per SCHOOL, never per fish. `seabedHeight` costs
+//     1.82 us a call (measured, 100k calls); one per fish at 470 fish would be
+//     0.86 ms/frame, six times the cost of everything else in this file
+//     combined. Two calls per school per frame is 0.055 ms.
+//
+// Measured cost of the whole module at quality=high, 470 fish: see the note
+// above `updateFish`.
 
 import * as THREE from 'three';
+import {
+  Fn, attribute, positionLocal, vec3, sin,
+} from 'three/tsl';
 import { LAYER, setLayers } from '../core/layers.js';
 import { applyWaterClip } from '../water/clip.js';
-import { GLSL } from '../core/glsl.js';
-import { makeRng, clamp } from '../core/rng.js';
+import { makeRng, clamp, hash3 } from '../core/rng.js';
 
 const TAU = Math.PI * 2;
 const SRGB = THREE.SRGBColorSpace;
@@ -43,31 +75,41 @@ const _m3 = new THREE.Matrix3();
 const _m4 = new THREE.Matrix4();
 const _c = new THREE.Color();
 const _c2 = new THREE.Color();
+const _sw = new THREE.Vector3();
 const _IDENT = new THREE.Matrix4();
 
 // --- the mesher -------------------------------------------------------------
-// position / normal / colour, non-indexed. Same shape as the boat's and the
-// leviathan's: everything a creature is made of ends up in one buffer.
+// position / normal / colour / aSwim, non-indexed. Same shape as the boat's and
+// the leviathan's: everything a creature is made of ends up in one buffer.
+//
+// `aSwim` is (station 0..1 along the body, lateral participation, vertical
+// participation). It is baked NORMALISED so one material serves a 0.16 m
+// sardine and a 1.9 m ray without a per-species constant in the node graph —
+// folding a per-species number into the graph would give each species its own
+// WGSL module and its own pipeline, which is hard constraint 3.
 
-function Mesher() { this.pos = []; this.nor = []; this.col = []; }
+function Mesher() { this.pos = []; this.nor = []; this.col = []; this.swm = []; this.anySwim = false; }
 
-Mesher.prototype.add = function add(geo, matrix, colorFn) {
+Mesher.prototype.add = function add(geo, matrix, colorFn, swimFn) {
   const g = geo.index ? geo.toNonIndexed() : geo;
   if (!g.attributes.normal) g.computeVertexNormals();
   const pa = g.attributes.position.array;
   const na = g.attributes.normal.array;
   const count = g.attributes.position.count;
   _m3.getNormalMatrix(matrix || _IDENT);
+  if (swimFn) this.anySwim = true;
   for (let i = 0; i < count; i++) {
     const o = i * 3;
     _v.set(pa[o], pa[o + 1], pa[o + 2]);
     colorFn(_v.x, _v.y, _v.z, _c2);
+    if (swimFn) swimFn(_v.x, _v.y, _v.z, _sw); else _sw.set(0, 0, 0);
     if (matrix) _v.applyMatrix4(matrix);
     this.pos.push(_v.x, _v.y, _v.z);
     _n.set(na[o], na[o + 1], na[o + 2]).applyMatrix3(_m3);
     if (_n.lengthSq() < 1e-12) _n.set(0, 1, 0); else _n.normalize();
     this.nor.push(_n.x, _n.y, _n.z);
     this.col.push(_c2.r, _c2.g, _c2.b);
+    this.swm.push(_sw.x, _sw.y, _sw.z);
   }
   if (g !== geo) g.dispose();
   return this;
@@ -78,6 +120,9 @@ Mesher.prototype.build = function build() {
   geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(this.pos), 3));
   geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(this.nor), 3));
   geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(this.col), 3));
+  if (this.anySwim) {
+    geo.setAttribute('aSwim', new THREE.BufferAttribute(new Float32Array(this.swm), 3));
+  }
   geo.computeBoundingSphere();
   return geo;
 };
@@ -170,7 +215,7 @@ function blade(rows, span) {
  * A flat fan: a point at the origin opening back to two tips at z1, `up` to one
  * side of the axis and `down` to the other, with a shallow bulge across so it is
  * not a zero-volume sheet. `vertical` true spreads in y (a caudal fin or a
- * dorsal), false spreads in x (a bird's tail).
+ * dorsal), false spreads in x (a pectoral, or a bird's tail).
  */
 function fan(z0, z1, up, down, thick, vertical) {
   const t = thick * 0.5;
@@ -194,66 +239,359 @@ function fan(z0, z1, up, down, thick, vertical) {
   return g;
 }
 
-// --- the fish ---------------------------------------------------------------
-// 0.30 m of tapered body, a vertical tail and a small dorsal. Read through five
-// metres of water, which eats red first, so the albedo is biased warm on purpose
-// exactly the way the reef's is.
+// ============================================================ the fish ======
+//
+// One builder, three body profiles, six species.
+//
+// The profiles are NORMALISED — w and h in 0..1, y as a fraction of length — so
+// `girth`, `depth` and `length` are pure per-species data and one table serves
+// several species. PROF_SLIM is the old FISH_PROF divided through by its own
+// maxima (0.042 half-width, 0.062 half-height, 0.30 length), which is why the
+// snapper below still comes out at exactly 160 triangles: a before/after capture
+// of that species is comparable.
 
-const FISH_LEN = 0.30;
-const FISH_PROF = [
-  [0.00, 0.006, 0.009, 0.000],
-  [0.08, 0.026, 0.036, 0.004],
-  [0.20, 0.040, 0.058, 0.005],
-  [0.36, 0.042, 0.062, 0.002],
-  [0.55, 0.032, 0.048, -0.002],
-  [0.72, 0.020, 0.031, -0.004],
-  [0.86, 0.011, 0.019, -0.005],
-  [1.00, 0.005, 0.011, -0.005],
+// Peak girth at t≈0.36, long tail stock. Herring, snapper.
+const PROF_SLIM = [
+  [0.00, 0.143, 0.145, 0.0000],
+  [0.08, 0.619, 0.581, 0.0133],
+  [0.20, 0.952, 0.935, 0.0167],
+  [0.36, 1.000, 1.000, 0.0067],
+  [0.55, 0.762, 0.774, -0.0067],
+  [0.72, 0.476, 0.500, -0.0133],
+  [0.86, 0.262, 0.306, -0.0167],
+  [1.00, 0.119, 0.177, -0.0167],
 ];
 
-const FISH_BACK = col(0x2E5E70);
-const FISH_MID = col(0x8FB6A8);
-const FISH_BELLY = col(0xF0E6C8);
-const FISH_FIN = col(0x9E8C64);
+// Peak at t≈0.38, blunt nose, tall belly. Damsel, parrot, grouper.
+const PROF_DEEP = [
+  [0.00, 0.220, 0.260, 0.0000],
+  [0.10, 0.720, 0.720, 0.0100],
+  [0.24, 0.950, 0.940, 0.0140],
+  [0.38, 1.000, 1.000, 0.0080],
+  [0.55, 0.820, 0.830, -0.0040],
+  [0.72, 0.520, 0.550, -0.0120],
+  [0.88, 0.240, 0.300, -0.0160],
+  [1.00, 0.100, 0.160, -0.0160],
+];
 
-function fishColor(x, y, z, out) {
-  const u = clamp(y / 0.062 * 0.5 + 0.5, 0, 1);
-  if (u < 0.55) out.copy(FISH_BELLY).lerp(FISH_MID, u / 0.55);
-  else out.copy(FISH_MID).lerp(FISH_BACK, (u - 0.55) / 0.45);
-  // A single lateral stripe, the way most reef fish read at distance.
-  const band = 1 - Math.min(1, Math.abs(u - 0.60) * 14);
-  if (band > 0) out.lerp(FISH_BELLY, band * 0.35);
+// Wide and shallow, tapering to a whip. The ray's disc is the wings; this is
+// only the thickened spine they hang off.
+const PROF_FLAT = [
+  [0.00, 0.180, 0.400, 0.0000],
+  [0.12, 0.620, 0.860, 0.0060],
+  [0.26, 0.920, 1.000, 0.0060],
+  [0.40, 1.000, 0.960, 0.0020],
+  [0.58, 0.720, 0.700, -0.0020],
+  [0.76, 0.340, 0.380, -0.0060],
+  [0.90, 0.140, 0.180, -0.0080],
+  [1.00, 0.060, 0.090, -0.0080],
+];
+
+/**
+ * Resample a normalised profile onto `stations` evenly spaced t. Station count
+ * is a budget lever — a 6-station sardine is 68 triangles where the old uniform
+ * body was 160 — so the tables cannot hard-code it.
+ */
+function resample(prof, stations) {
+  const rows = [];
+  const last = prof.length - 1;
+  for (let i = 0; i < stations; i++) {
+    const t = i / (stations - 1);
+    let k = 0;
+    while (k < last - 1 && prof[k + 1][0] < t) k++;
+    const a = prof[k], b = prof[k + 1];
+    const f = clamp((t - a[0]) / Math.max(1e-6, b[0] - a[0]), 0, 1);
+    rows.push([
+      t,
+      a[1] + (b[1] - a[1]) * f,
+      a[2] + (b[2] - a[2]) * f,
+      a[3] + (b[3] - a[3]) * f,
+    ]);
+  }
+  return rows;
+}
+
+// The ray's wing, in metres against a half-span of 1. Swept: the leading edge
+// walks aft as the span grows, which is the whole silhouette from above.
+const RAY_WING = [
+  [0.00, -0.360, 0.360, 0.000, 0.075],
+  [0.30, -0.320, 0.320, 0.012, 0.046],
+  [0.60, -0.190, 0.270, 0.020, 0.026],
+  [0.84, -0.020, 0.210, 0.026, 0.013],
+  [1.00, 0.130, 0.185, 0.030, 0.005],
+];
+
+/**
+ * Six species. Sizes are nose-to-tail-tip in metres. Everything a species
+ * differs by is here; nothing below this table branches on a species name.
+ *
+ * `band`/`bandMode` is where the species lives: 'surface' counts metres down
+ * from y=0, 'floor' counts metres up from the seabed. `water` is the depth
+ * window `findSpot` will accept for the school's home.
+ *
+ * The palettes are VALUE first and hue second, in that order, but they are not
+ * value ONLY — that was the previous rule and it produced six greys, khakis and
+ * a mint that read from the boat as drifting silt. Every fish here still has a
+ * dark back, because the water above 4 m is bright and a pale fish disappears
+ * into it; the flanks, belly and fins are then free to carry real saturation,
+ * and those are the surfaces a fish turns toward you as it banks. Extinction
+ * does flatten hue with depth, which is an argument for putting the loud species
+ * shallow rather than for painting them grey: the parrotfish and the damsels
+ * live in the top six metres where the colour survives, and the ray — dark blue,
+ * unmistakable in silhouette — is the one that works at depth.
+ */
+const SPECIES = [
+  {
+    // 0.16 m is the honest size for a bait fish and it was unreadable: at 11 m
+    // through the water a 0.16 m body is 12 px by 2 px in a 900x640 frame, and a
+    // silver one at that. 0.22 m is still less than a third of the snapper and
+    // it is the difference between a school you can see and one you cannot.
+    key: 'sardine', prof: PROF_SLIM, len: 0.32, sizeJit: [0.85, 1.22],
+    girth: 0.055, depth: 0.115, stations: 6, radial: [5, 6],
+    caudal: [0.18, 0.30, 0.28], dorsal: 0.11, anal: 0, pect: false,
+    // Dark-backed, silver-bellied. The first pass used a pale silver back and it
+    // vanished into bright shallow water — value, not hue, is the only channel
+    // that survives, and up here the background is BRIGHT, so the fish has to be
+    // the dark thing. Compare the old build's charcoal slivers: too sparse to
+    // read as a school, but never invisible.
+    pal: { back: 0x14344B, mid: 0x8FC7D8, belly: 0xFFF6E2, fin: 0xFFC24A },
+    marks: null,
+    tint: { h: [0.50, 0.60], s: [0.04, 0.14], l: [0.54, 0.78] },
+    social: 'ball', schools: [3, 7], per: [26, 60], roam: 1.0, ceil: -0.85,
+    bandMode: 'surface', band: [0.8, 2.4], water: [3.0, 14.0], clear: 1.1,
+    beat: [9.0, 11.5], amp: 0.13,
+  },
+  {
+    key: 'damsel', prof: PROF_DEEP, len: 0.24, sizeJit: [0.84, 1.22],
+    girth: 0.085, depth: 0.240, stations: 7, radial: [6, 7],
+    caudal: [0.16, 0.24, 0.22], dorsal: 0.15, anal: 0.11, pect: false,
+    pal: { back: 0x14224E, mid: 0x2E6BE0, belly: 0xFFE45C, fin: 0x2E6BE0 },
+    marks: { kind: 'stripe', u: 0.30, w: 9, color: col(0xF2E5A8), amount: 0.40 },
+    tint: { h: [0.12, 0.16], s: [0.10, 0.34], l: [0.60, 0.84] },
+    social: 'cloud', schools: [4, 9], per: [10, 24], roam: 0.7, ceil: -1.20,
+    bandMode: 'floor', band: [0.8, 2.5], water: [3.0, 7.5], clear: 0.7,
+    beat: [7.5, 9.5], amp: 0.12,
+  },
+  {
+    key: 'snapper', prof: PROF_SLIM, len: 0.50, sizeJit: [0.80, 1.26],
+    girth: 0.140, depth: 0.207, stations: 8, radial: [7, 9],
+    caudal: [0.17, 0.173, 0.153], dorsal: 0.14, anal: 0, pect: true,
+    pal: { back: 0x7A2410, mid: 0xFF7A2E, belly: 0xFFF0D2, fin: 0xFFB13A },
+    marks: { kind: 'stripe', u: 0.60, w: 14, color: col(0xF0E6C8), amount: 0.35 },
+    tint: { h: [0.06, 0.14], s: [0.14, 0.38], l: [0.62, 0.86] },
+    social: 'school', schools: [4, 8], per: [9, 20], roam: 1.0, ceil: -1.20,
+    bandMode: 'surface', band: [1.6, 4.5], water: [3.5, 13.0], clear: 1.0,
+    beat: [5.6, 7.4], amp: 0.10,
+  },
+  {
+    key: 'parrot', prof: PROF_DEEP, len: 0.62, sizeJit: [0.81, 1.24],
+    girth: 0.115, depth: 0.215, stations: 8, radial: [7, 9],
+    caudal: [0.12, 0.22, 0.22], dorsal: 0.13, anal: 0.10, pect: true,
+    pal: { back: 0x0E5F4E, mid: 0x2ED08C, belly: 0xFF9A5C, fin: 0xFFD94A },
+    marks: { kind: 'bars', n: 4, color: col(0x1C5A55), amount: 0.25 },
+    tint: { h: [0.36, 0.46], s: [0.22, 0.46], l: [0.52, 0.76] },
+    social: 'gang', schools: [3, 6], per: [4, 8], roam: 0.5, ceil: -1.00,
+    bandMode: 'floor', band: [0.5, 2.0], water: [2.5, 5.5], clear: 0.55,
+    beat: [3.4, 4.6], amp: 0.075,
+  },
+  {
+    key: 'grouper', prof: PROF_DEEP, len: 1.05, sizeJit: [0.80, 1.30],
+    girth: 0.155, depth: 0.235, stations: 9, radial: [8, 10],
+    caudal: [0.10, 0.16, 0.16], dorsal: 0.12, anal: 0.09, pect: true,
+    pal: { back: 0x5B2B5E, mid: 0xB05CC0, belly: 0xF6D9A8, fin: 0x8A3E8F },
+    marks: { kind: 'spots', cell: 0.05, thresh: 0.58, color: col(0x2B2A1E), amount: 0.45 },
+    tint: { h: [0.08, 0.13], s: [0.10, 0.26], l: [0.56, 0.78] },
+    social: 'solitary', schools: [3, 5], per: [1, 1], roam: 0.35, ceil: -2.60,
+    bandMode: 'floor', band: [0.6, 1.6], water: [5.0, 11.0], clear: 0.6,
+    beat: [2.2, 3.0], amp: 0.055,
+  },
+  {
+    key: 'ray', prof: PROF_FLAT, len: 1.70, sizeJit: [0.86, 1.16],
+    girth: 0.130, depth: 0.055, stations: 6, radial: [6, 8],
+    caudal: [0.90, 0.020, 0.020], dorsal: 0, anal: 0, pect: false,
+    wing: { span: 0.95, rows: [4, 5] },
+    pal: { back: 0x131C3A, mid: 0x3B5C8C, belly: 0xF2F4F0, fin: 0x24365C },
+    marks: { kind: 'spots', cell: 0.09, thresh: 0.62, color: col(0xD6DCE0), amount: 0.50 },
+    tint: { h: [0.56, 0.62], s: [0.06, 0.18], l: [0.52, 0.68] },
+    social: 'ray', schools: [3, 5], per: [1, 1], roam: 0.8, ceil: -2.20,
+    bandMode: 'floor', band: [1.2, 3.5], water: [5.0, 16.0], clear: 1.0,
+    beat: [0.9, 1.3], amp: 0.16,
+  },
+];
+
+/**
+ * Boids weights, keyed off `spec.social` so the distinction between "these
+ * school" and "this one holds station" is data.
+ *
+ * `k` is how many school-mates each fish samples per frame. The exact
+ * neighbourhood solve is not worth it: measured on this container, 400 fish
+ * all-pairs is 0.708 ms/frame, per-school locality is 0.143 ms, and a fixed
+ * 7-sample ring is 0.020 ms. The stride below walks a different set of
+ * school-mates every frame, so over ~7 frames (0.12 s) every fish has seen every
+ * neighbour it could plausibly collide with and separation is integrated over
+ * time instead of solved exactly. At 60 fps that is indistinguishable and 35x
+ * cheaper.
+ *
+ * `wCoh` pulls toward a blend of the school centroid and the school's anchor —
+ * see `COH_ANCHOR`. The solitary rows keep a small `wCoh` even though they have
+ * no school, because with none of it a lone grouper has nothing tethering it to
+ * the reef it was placed on and walks off across the bay.
+ */
+const SOCIAL = {
+  // The bait ball's spacing is the one number that decides whether a school
+  // reads as fish or as a rock. rSep 0.22 against a 0.16 m sardine settled at a
+  // 0.144 m mean nearest neighbour and a 1.6 m ball — denser than a real bait
+  // ball and, at 14 m through water, an undifferentiated dark pellet. 0.34
+  // opens it to ~3 m across, where the individual bodies still resolve.
+  ball: { k: 10, rSep: 0.34, wSep: 9.0, wAli: 2.2, wCoh: 0.90, wWander: 0.5, wRate: 0.9, wDepth: 1.6, wFloor: 7.0, vMin: 0.55, vMax: 1.40, drag: 0.9, panic: 2.6 },
+  cloud: { k: 6, rSep: 0.45, wSep: 6.0, wAli: 1.0, wCoh: 0.70, wWander: 1.1, wRate: 0.7, wDepth: 1.3, wFloor: 6.0, vMin: 0.20, vMax: 0.80, drag: 0.8, panic: 2.2 },
+  // rSep 0.55 over 18 snappers spread them across 3 m and a capture at 11 m read
+  // as four or five unrelated fish, not a school. 0.44 with more bodies is what
+  // makes the group legible AS a group.
+  school: { k: 6, rSep: 0.44, wSep: 6.0, wAli: 1.4, wCoh: 0.55, wWander: 0.9, wRate: 0.6, wDepth: 1.2, wFloor: 6.0, vMin: 0.35, vMax: 1.10, drag: 0.6, panic: 2.2 },
+  gang: { k: 5, rSep: 0.90, wSep: 5.0, wAli: 0.6, wCoh: 0.25, wWander: 1.0, wRate: 0.4, wDepth: 1.0, wFloor: 6.5, vMin: 0.15, vMax: 0.55, drag: 0.7, panic: 1.8 },
+  solitary: { k: 0, rSep: 0, wSep: 0, wAli: 0, wCoh: 0.12, wWander: 0.8, wRate: 0.15, wDepth: 0.9, wFloor: 6.0, vMin: 0.10, vMax: 0.50, drag: 0.5, panic: 2.0 },
+  ray: { k: 0, rSep: 0, wSep: 0, wAli: 0, wCoh: 0.10, wWander: 0.4, wRate: 0.12, wDepth: 0.7, wFloor: 6.0, vMin: 0.60, vMax: 1.60, drag: 0.4, panic: 1.6 },
+};
+
+// How much of the cohesion target is the school's wandering anchor rather than
+// its own centroid. Pure centroid cohesion holds a school together but lets it
+// drift anywhere; pure anchor cohesion makes a rigid ball on a rail — which is
+// what this file used to be. 0.35 keeps the school coherent AND on its beat.
+const COH_ANCHOR = 0.35;
+
+// The shallowest ANY fish is ever allowed, used for the water-column tests. The
+// Gerstner train in water/waves.js reaches -0.456 m in a trough, so anything
+// above about -0.6 pokes out of the back of a wave; -0.85 keeps a small fish's
+// whole body wet. Each species then has its own `ceil` on top of this: a soak
+// found groupers and eagle rays riding up to -0.85 whenever their anchor
+// wandered over a reef top, and a 0.85 m grouper at the surface reads as a
+// mistake even though nothing was technically broken.
+const FISH_CEIL = -0.85;
+
+/** Body colour ramp plus the species' markings. `gH` is the max half-height. */
+function creatureColor(spec, gH, x, y, z, out) {
+  const P = spec._pal;
+  const u = clamp(y / Math.max(1e-4, gH) * 0.5 + 0.5, 0, 1);
+  if (u < 0.55) out.copy(P.belly).lerp(P.mid, u / 0.55);
+  else out.copy(P.mid).lerp(P.back, (u - 0.55) / 0.45);
+
+  const m = spec.marks;
+  if (!m) return out;
+  if (m.kind === 'stripe') {
+    // One lateral band, the way most reef fish read at distance.
+    const b = 1 - Math.min(1, Math.abs(u - m.u) * m.w);
+    if (b > 0) out.lerp(m.color, b * m.amount);
+  } else if (m.kind === 'bars') {
+    // Vertical bars down the flank. sin^6 so they are narrow, not a gradient.
+    const s = z / spec.len + 0.5;
+    const b = Math.pow(Math.abs(Math.sin(s * Math.PI * m.n)), 6);
+    out.lerp(m.color, b * m.amount);
+  } else if (m.kind === 'spots') {
+    // Mottling. Quantised to a cell so the hash lands on blotches rather than
+    // per-vertex speckle, which at 5 m through water is just noise. Mottling is
+    // the one marking that still reads at that distance; a stripe does not.
+    const h = hash3(Math.floor(x / m.cell), Math.floor(y / m.cell), Math.floor(z / m.cell));
+    if (h > m.thresh) out.lerp(m.color, m.amount);
+  }
   return out;
 }
 
-function buildFish(bright) {
+/**
+ * Build one species' geometry. `radial`, the wing row count and whether the
+ * pectorals exist all come from the caller's geometry budget, so LOD scales the
+ * MESH as well as the population — the tier that could least afford the old
+ * uniform 160-triangle body is the one that benefits most from a 68-triangle
+ * sardine.
+ *
+ * Triangles are exactly `2 * radial * stations + 4 * fans` for a lofted body
+ * (verified against a probe: predicted 160 for the old fish, measured 160), plus
+ * `8 * (rows - 1) + 4` per blade.
+ */
+function buildCreature(spec, radial, wingRows, withPect, bright) {
   const M = new Mesher();
-  const body = loft(FISH_PROF, FISH_LEN, 9);
-  M.add(body, null, fishColor);
+  const L = spec.len;
+  const half = L * 0.5;
+  const gW = spec.girth * L;
+  const gH = spec.depth * L;
+  const isRay = !!spec.wing;
+
+  const rows = resample(spec.prof, spec.stations)
+    .map((r) => [r[0], gW * r[1], gH * r[2], L * r[3]]);
+  const body = loft(rows, L, radial);
+
+  // Body swim: a travelling sine whose amplitude ramps as s^2 so the head is
+  // almost still and the tail stock carries it. The ray's spine barely bends —
+  // its motion is the wings.
+  const bodyLat = isRay ? 0.18 : 1.0;
+  M.add(body, null,
+    (x, y, z, out) => creatureColor(spec, gH, x, y, z, out),
+    (x, y, z, out) => {
+      const s = clamp((z + half) / L, 0, 1);
+      out.set(s, (0.08 + 0.92 * s * s) * bodyLat, 0);
+    });
   body.dispose();
 
-  const half = FISH_LEN * 0.5;
-  const finColor = (x, y, z, out) => out.copy(FISH_FIN);
+  const finColor = (x, y, z, out) => out.copy(spec._pal.fin);
 
-  // Caudal fin: a symmetric fork off the tail stock.
-  const tail = fan(half * 0.74, half * 1.34, 0.052, 0.046, 0.010, true);
-  M.add(tail, null, finColor);
+  // Caudal. [reach, up, down] as fractions of length; reach is how far past the
+  // tail the fork extends.
+  const cd = spec.caudal;
+  const tail = fan(L * 0.37, L * (0.50 + cd[0]), L * cd[1], L * cd[2], L * 0.033, true);
+  M.add(tail, null, finColor, (x, y, z, out) => out.set(1, 1, 0));
   tail.dispose();
 
-  // Dorsal, riding on top of the body.
-  const dorsal = fan(-half * 0.16, half * 0.46, 0.042, 0.0, 0.006, true);
-  dorsal.translate(0, 0.050, 0);
-  M.add(dorsal, null, finColor);
-  dorsal.dispose();
+  if (spec.dorsal > 0) {
+    const dorsal = fan(-L * 0.08, L * 0.23, L * spec.dorsal, 0, L * 0.02, true);
+    dorsal.translate(0, gH * 0.80, 0);
+    M.add(dorsal, null, finColor, (x, y, z, out) => {
+      const s = clamp((z + half) / L, 0, 1);
+      out.set(s, 0.08 + 0.92 * s * s, 0);
+    });
+    dorsal.dispose();
+  }
 
-  // Two little pectorals so the fish is not a bare lozenge in profile.
-  const pect = fan(-half * 0.28, half * 0.16, 0.030, 0.0, 0.005, false);
-  const pectL = mirroredX(pect);
-  pect.translate(0.026, -0.010, 0);
-  pectL.translate(-0.026, -0.010, 0);
-  M.add(pect, null, finColor);
-  M.add(pectL, null, finColor);
-  pect.dispose(); pectL.dispose();
+  if (spec.anal > 0) {
+    const anal = fan(L * 0.06, L * 0.30, 0, L * spec.anal, L * 0.018, true);
+    anal.translate(0, -gH * 0.70, 0);
+    M.add(anal, null, finColor, (x, y, z, out) => {
+      const s = clamp((z + half) / L, 0, 1);
+      out.set(s, 0.08 + 0.92 * s * s, 0);
+    });
+    anal.dispose();
+  }
+
+  if (spec.pect && withPect) {
+    // Two little pectorals so the fish is not a bare lozenge in profile. They
+    // sit at s≈0.4 and get their own flex so a slow reef grazer, which rows with
+    // its pectorals rather than beating its tail, still has something moving.
+    const pect = fan(-L * 0.14, L * 0.08, L * 0.10, 0, L * 0.017, false);
+    const pectL = mirroredX(pect);
+    pect.translate(gW * 0.62, -gH * 0.16, 0);
+    pectL.translate(-gW * 0.62, -gH * 0.16, 0);
+    const pectSwim = (x, y, z, out) => out.set(0.42, 0.75, 0);
+    M.add(pect, null, finColor, pectSwim);
+    M.add(pectL, null, finColor, pectSwim);
+    pect.dispose(); pectL.dispose();
+  }
+
+  if (isRay) {
+    // The wings flap in Y, span-weighted — the gull's old GLSL flap, slowed and
+    // moved into aSwim.z. A 1.9 m span is the only fish silhouette in this file
+    // that is legible from the ref/04 overhead framing.
+    const span = spec.wing.span * (spec.len / 1.10);
+    const rowsW = wingRows >= RAY_WING.length ? RAY_WING : resampleWing(wingRows);
+    const wing = blade(rowsW, span);
+    const wingL = mirroredX(wing);
+    const wingColor = (x, y, z, out) => creatureColor(spec, gH, x, gH * 0.7, z, out);
+    const wingSwim = (x, y, z, out) => {
+      const u = clamp(Math.abs(x) / span, 0, 1);
+      out.set(0.55, 0, u * u * u);
+    };
+    M.add(wing, null, wingColor, wingSwim);
+    M.add(wingL, null, wingColor, wingSwim);
+    wing.dispose(); wingL.dispose();
+  }
 
   const geo = M.build();
   if (bright !== 1) {
@@ -261,6 +599,23 @@ function buildFish(bright) {
     for (let i = 0; i < c.length; i++) c[i] = Math.min(1, c[i] * bright);
   }
   return geo;
+}
+
+/** Drop rows out of the ray's wing table when the budget is tight. */
+function resampleWing(n) {
+  const out = [];
+  const last = RAY_WING.length - 1;
+  for (let i = 0; i < n; i++) {
+    const t = (i / (n - 1)) * last;
+    const k = Math.min(last - 1, Math.floor(t));
+    const f = t - k;
+    const a = RAY_WING[k], b = RAY_WING[k + 1];
+    out.push([
+      a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f,
+      a[3] + (b[3] - a[3]) * f, a[4] + (b[4] - a[4]) * f,
+    ]);
+  }
+  return out;
 }
 
 // --- the gull ---------------------------------------------------------------
@@ -325,85 +680,6 @@ function buildGull() {
   return M.build();
 }
 
-// --- shading ----------------------------------------------------------------
-
-function decorateFishMaterial(mat, uni) {
-  mat.onBeforeCompile = (shader) => {
-    shader.uniforms.uFTime = uni.uFTime;
-    shader.uniforms.uFWig = uni.uFWig;
-    shader.uniforms.uFRate = uni.uFRate;
-    shader.vertexShader = /* glsl */`
-uniform float uFTime;
-uniform float uFWig;
-uniform float uFRate;
-const float FISH_HALF = ${(FISH_LEN * 0.5).toFixed(4)};
-const float FISH_LEN_ = ${FISH_LEN.toFixed(4)};
-${GLSL.hash}
-` + shader.vertexShader;
-
-    // The swim wiggle is a travelling sine down the body, exactly like the
-    // leviathan's but an order of magnitude smaller, plus a slow jostle so the
-    // school is not a rigid lattice being flown around the bay.
-    shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', /* glsl */`
-      #include <begin_vertex>
-      {
-        #ifdef USE_INSTANCING
-          float fph = hash13(instanceMatrix[3].xyz * 3.17 + 5.1) * 6.283185307;
-        #else
-          float fph = 0.0;
-        #endif
-        float fs = clamp((position.z + FISH_HALF) / FISH_LEN_, 0.0, 1.0);
-        float famp = uFWig * (0.08 + 0.92 * fs * fs);
-        transformed.x += sin(uFTime * uFRate + fph - fs * 4.2) * famp;
-        transformed.y += sin(uFTime * 0.80 + fph * 3.1) * 0.055;
-        transformed.z += sin(uFTime * 0.55 + fph * 5.7) * 0.090;
-      }
-    `);
-  };
-  mat.customProgramCacheKey = () => 'saltyfin-fish-1';
-}
-
-function decorateGullMaterial(mat, uni) {
-  mat.onBeforeCompile = (shader) => {
-    shader.uniforms.uGTime = uni.uGTime;
-    shader.uniforms.uGRate = uni.uGRate;
-    shader.vertexShader = /* glsl */`
-attribute vec2 aBird;      // flap phase, flap amplitude (0 = gliding)
-uniform float uGTime;
-uniform float uGRate;
-const float GULL_SPAN_ = ${GULL_SPAN.toFixed(4)};
-` + shader.vertexShader;
-
-    // Span-weighted flap. The body sits inside |x| < 0.06, where the weight is
-    // effectively zero, so no extra attribute is needed to hold it still.
-    shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', /* glsl */`
-      #include <begin_vertex>
-      {
-        float gs = clamp(abs(position.x) / GULL_SPAN_, 0.0, 1.0);
-        float gf = gs * gs * gs;
-        float flap = sin(uGTime * uGRate + aBird.x) * aBird.y;
-        transformed.y += flap * gf * 0.30;
-        transformed.x *= 1.0 - 0.14 * abs(flap) * gf;
-      }
-    `);
-    // The wing is a thin blade; without bending the normal with it the flap
-    // reads as a texture crawl rather than a wing.
-    shader.vertexShader = shader.vertexShader.replace('#include <beginnormal_vertex>', /* glsl */`
-      #include <beginnormal_vertex>
-      {
-        float gs = clamp(abs(position.x) / GULL_SPAN_, 0.0, 1.0);
-        float flap = sin(uGTime * uGRate + aBird.x) * aBird.y;
-        float tilt = -flap * gs * gs * 0.9 * sign(position.x);
-        float tc = cos(tilt), ts = sin(tilt);
-        objectNormal = vec3(objectNormal.x * tc - objectNormal.y * ts,
-                            objectNormal.x * ts + objectNormal.y * tc,
-                            objectNormal.z);
-      }
-    `);
-  };
-  mat.customProgramCacheKey = () => 'saltyfin-gull-1';
-}
-
 // ---------------------------------------------------------------- the module
 
 export function createWildlife(opts = {}) {
@@ -412,9 +688,12 @@ export function createWildlife(opts = {}) {
 
   const seed = (opts.seed | 0) || 20260807;
   const rng = makeRng((seed ^ 0x5eab1d) >>> 0);
-  // See TIERS in core/renderer.js — one budget, no tier-name ladder.
+  // See TIERS in core/renderer.js — one budget, no tier-name ladder. An unlisted
+  // tier that fell through a name ladder once gave a phone a 333k-triangle
+  // seabed; every count in this file goes through lerpI.
   const geo = opts.quality?.geometry ?? 1;
-  const lerpI = (a, b) => Math.round(a + (b - a) * Math.min(1, Math.max(0, (geo - 0.42) / 0.58)));
+  const budget = Math.min(1, Math.max(0, (geo - 0.42) / 0.58));
+  const lerpI = (a, b) => Math.round(a + (b - a) * budget);
   const terrain = opts.terrain || null;
 
   const seabed = (terrain && typeof terrain.seabedHeight === 'function')
@@ -428,21 +707,20 @@ export function createWildlife(opts = {}) {
   const landHeight = (terrain && typeof terrain.landHeight === 'function')
     ? terrain.landHeight : () => -Infinity;
 
-  const uni = {
-    uFTime: { value: 0 },
-    uFWig: { value: 0.030 },
-    uFRate: { value: 7.2 },
-    uGTime: { value: 0 },
-    uGRate: { value: 4.6 },
-  };
+  // ======================================================== the fish =========
 
-  // ======================================================== fish schools =====
+  // ONE MeshStandardNodeMaterial for all six species and the jumper. Six
+  // geometries carrying an identical attribute layout (position, normal, color,
+  // aSwim + instanceMatrix, instanceColor, aFish) share one pipeline per mesh
+  // per pass: vertex COUNT is not in the 29-component render cache key, the
+  // attribute LAYOUT is (see clip.js:19-28). It is a NODE material and not a
+  // plain one on purpose — two plain MeshStandardMaterials differing only in
+  // their node graph collide on `customProgramCacheKey` and the second silently
+  // renders with the first's shader. That is measured, not theoretical.
+  const aSwim = attribute('aSwim', 'vec3');
+  const aFish = attribute('aFish', 'vec4');
 
-  const SCHOOLS = lerpI(3, 4);
-  const PER_SCHOOL = lerpI(22, 56);
-
-  const fishGeo = buildFish(1);
-  const fishMat = new THREE.MeshStandardMaterial({
+  const fishMat = new THREE.MeshStandardNodeMaterial({
     color: 0xffffff,
     vertexColors: true,
     roughness: 0.62,
@@ -451,97 +729,230 @@ export function createWildlife(opts = {}) {
     fog: true,
     dithering: true,
   });
-  decorateFishMaterial(fishMat, uni);
 
-  const schools = [];
-  const schoolGroup = new THREE.Group();
-  schoolGroup.name = 'schools';
+  // aFish is (beat phase, amplitude in world metres, cos yaw, sin yaw), rewritten
+  // on the CPU next to the instance matrix.
+  //
+  //   * the phase is ACCUMULATED, not `time * rate`, so beat rate is per fish and
+  //     can rise with speed and panic without any uniform moving (constraint 3).
+  //   * the amplitude is in metres with the per-instance scale already folded in,
+  //     so the shader needs no knowledge of the instance matrix it cannot see.
+  //   * cos/sin of a yaw the CPU already computed for that matrix, so there is no
+  //     trig in the vertex stage.
+  //
+  // `positionNode` is evaluated AFTER the instance matrix has been folded into
+  // positionLocal (monster.js:643-647), so the lateral bend has to be rotated
+  // into world space by the fish's own yaw: local +X maps to world
+  // (cos yaw, 0, -sin yaw). Pitch is ignored in that rotation — it is clamped to
+  // ±0.45 rad below, so the worst error is a 10% shortening of a 3 cm offset.
+  //
+  // Normals are deliberately not rotated with the bend. The old GLSL did not
+  // either, and at 0.3 m of body through 4 m of water it is invisible; bending
+  // them costs a second Fn evaluated per vertex for nothing.
+  fishMat.positionNode = Fn(() => {
+    const w = sin(aFish.x.sub(aSwim.x.mul(4.2))).mul(aFish.y);
+    const dx = w.mul(aSwim.y);
+    const dy = w.mul(aSwim.z);
+    return positionLocal.add(vec3(dx.mul(aFish.z), dy, dx.mul(aFish.w).negate()));
+  })();
+
+  const fishGroup = new THREE.Group();
+  fishGroup.name = 'fish';
+
+  // How many schools in total, so `findSpot` can stratify bearings across ALL of
+  // them and not leave three-quarters of the reef empty.
+  let totalSchools = 0;
+  for (const spec of SPECIES) totalSchools += lerpI(spec.schools[0], spec.schools[1]);
+  let sectorNext = 0;
 
   /**
-   * Somewhere over the reef with 4–13 m of water and no land underfoot. The
-   * bearing is stratified by school index so four schools cannot all land in one
-   * quadrant and leave three-quarters of the reef empty.
+   * Somewhere over the reef with the depth this species wants and no land
+   * underfoot. Bearings are stratified across every school of every species.
+   *
+   * Three passes: the sector with the species' exact depth window, the sector
+   * with a widened one, then the whole circle. A shallow grazer and a deep ray
+   * want windows that do not both exist in every sector, and a school that never
+   * gets placed is worse than one placed a little off its ideal depth.
    */
-  function findSchoolSpot(out, si, total) {
-    const sector = TAU / total;
-    for (let tries = 0; tries < 220; tries++) {
-      const a = sector * (si + rng.next());
-      const r = 42 + Math.pow(rng.next(), 0.6) * 145;
-      const x = Math.cos(a) * r;
-      const z = Math.sin(a) * r - 8;
-      if (isLand(x, z)) continue;
-      const d = -seabed(x, z);
-      if (d < 5.0 || d > 13) continue;
-      out.set(x, 0, z);
-      return true;
+  function findSpot(out, si, dmin, dmax) {
+    const sector = TAU / Math.max(1, totalSchools);
+    for (let pass = 0; pass < 3; pass++) {
+      const lo = pass === 0 ? dmin : dmin * 0.72;
+      const hi = pass === 0 ? dmax : dmax * 1.35;
+      for (let tries = 0; tries < 140; tries++) {
+        const a = pass < 2 ? sector * (si + rng.next()) : rng.range(0, TAU);
+        const r = 14 + Math.pow(rng.next(), 0.75) * 150;
+        const x = Math.cos(a) * r;
+        const z = Math.sin(a) * r - 8;
+        if (isLand(x, z)) continue;
+        const d = -seabed(x, z);
+        if (d < lo || d > hi) continue;
+        out.set(x, 0, z);
+        return true;
+      }
     }
     const a = sector * (si + 0.5);
     out.set(Math.cos(a) * 110, 0, Math.sin(a) * 110 - 8);
     return false;
   }
 
+  /** Smallest stride coprime with n, so the k-sample walk visits everyone. */
+  function coprimeStride(n) {
+    const gcd = (a, b) => (b ? gcd(b, a % b) : a);
+    for (const s of [7, 11, 13, 17, 19, 23, 5, 3, 2]) {
+      if (s < n && gcd(s, n) === 1) return s;
+    }
+    return 1;
+  }
+
   const WHITE = new THREE.Color(1, 1, 1);
+  const kinds = [];          // one runtime record per species
 
-  for (let si = 0; si < SCHOOLS; si++) {
-    findSchoolSpot(_p, si, SCHOOLS);
-    // _p is scratch and the instance loop below is about to trample it.
-    const spotX = _p.x;
-    const spotZ = _p.z;
-    const g = new THREE.Group();
-    g.rotation.order = 'YXZ';
-    g.position.set(spotX, -4, spotZ);
+  const withPect = lerpI(0, 1) === 1;   // pectorals are the first thing to go
+  const wingRows = lerpI(RAY_WING.length - 1, RAY_WING.length);
 
-    const mesh = new THREE.InstancedMesh(fishGeo, fishMat, PER_SCHOOL);
-    mesh.name = 'school-' + si;
+  for (let sp = 0; sp < SPECIES.length; sp++) {
+    const spec = SPECIES[sp];
+    spec._pal = {
+      back: col(spec.pal.back), mid: col(spec.pal.mid),
+      belly: col(spec.pal.belly), fin: col(spec.pal.fin),
+    };
+    const radial = lerpI(spec.radial[0], spec.radial[1]);
+    const nSchools = lerpI(spec.schools[0], spec.schools[1]);
+    const perSchool = lerpI(spec.per[0], spec.per[1]);
+    const count = nSchools * perSchool;
+    const S = SOCIAL[spec.social];
+
+    const g = buildCreature(spec, radial, wingRows, withPect, 1);
+    const mesh = new THREE.InstancedMesh(g, fishMat, count);
+    mesh.name = 'fish-' + spec.key;
     mesh.castShadow = false;
     mesh.receiveShadow = false;
+    // The boids move every instance every frame, so the build-time bounding
+    // sphere is meaningless within a second. Frustum culling would also defer
+    // this mesh's pipeline to the frame it first drifts into view and compile it
+    // synchronously there — three of the four old schools had never had a
+    // pipeline built at all, and each one was a live hitch waiting to happen.
+    mesh.frustumCulled = false;
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 
-    // The shoal shape: a flattened ellipsoid, denser toward the middle.
-    const rx = rng.range(3.4, 6.2);
-    const ry = rng.range(0.7, 1.3);
-    const rz = rng.range(4.5, 8.0);
-    for (let i = 0; i < PER_SCHOOL; i++) {
-      const u = rng.range(-1, 1), v = rng.range(-1, 1), w = rng.range(-1, 1);
-      const k = Math.pow(rng.next(), 0.45);
-      const len = Math.max(1e-3, Math.hypot(u, v, w));
-      _p.set(u / len * rx * k, v / len * ry * k, w / len * rz * k);
-      _e.set(rng.range(-0.16, 0.16), rng.range(-0.30, 0.30), rng.range(-0.12, 0.12), 'YXZ');
-      _q.setFromEuler(_e);
-      _s.setScalar(rng.range(0.78, 1.34));
-      _m4.compose(_p, _q, _s);
-      mesh.setMatrixAt(i, _m4);
+    const aArr = new Float32Array(count * 4);
+    const attr = new THREE.InstancedBufferAttribute(aArr, 4);
+    attr.setUsage(THREE.DynamicDrawUsage);
+    g.setAttribute('aFish', attr);
 
-      // Per-fish tint. Small hue and lightness jitter on a warm bias, because
-      // everything down here is seen through several metres of water.
-      _c.setHSL(rng.range(0.02, 0.14), rng.range(0.18, 0.46), rng.range(0.48, 0.72), SRGB);
-      _c.lerp(WHITE, 0.35);
-      mesh.setColorAt(i, _c);
+    const rec = {
+      spec, S, mesh, geo: g, attr, aArr, count,
+      mat: mesh.instanceMatrix.array,
+      px: new Float32Array(count), py: new Float32Array(count), pz: new Float32Array(count),
+      vx: new Float32Array(count), vy: new Float32Array(count), vz: new Float32Array(count),
+      wang: new Float32Array(count), wrate: new Float32Array(count),
+      amp: new Float32Array(count), scl: new Float32Array(count),
+      yOff: new Float32Array(count), beatR: new Float32Array(count),
+      schools: [],
+    };
+
+    const bandHalf = (spec.band[1] - spec.band[0]) * 0.5;
+    const bandMid = (spec.band[0] + spec.band[1]) * 0.5;
+
+    for (let s = 0; s < nSchools; s++) {
+      findSpot(_p, sectorNext++, spec.water[0], spec.water[1]);
+      const cx = _p.x, cz = _p.z;
+      const base = s * perSchool;
+      // Radius of the shoal at rest, from the target spacing the social role
+      // wants. Real schools sit at 0.3-0.5 body lengths; the old ellipsoid gave
+      // 0.72 m for a 0.30 m fish, i.e. 2.4 body lengths, which is why it read as
+      // scatter rather than a shoal.
+      const spread = Math.max(1.2, Math.cbrt(perSchool) * S.rSep * 2.1);
+      // Seed at the band the school will actually settle into. A 'floor' species
+      // seeded at -bandMid starts near the surface and spends its first two
+      // seconds sinking — harmless in play, but warmUpClock draws the boot pose
+      // and a grouper hanging a metre under the waves is not what it is for.
+      const sbHome = seabed(cx, cz);
+      const seedRaw = spec.bandMode === 'floor' ? sbHome + bandMid : -bandMid;
+      const seedY = clamp(seedRaw, Math.min(spec.ceil - 0.2, sbHome + spec.clear + 0.25), spec.ceil - 0.2);
+      const sk = {
+        base, n: perSchool, stride: coprimeStride(perSchool),
+        cx, cz,                       // running centroid
+        homeX: cx, homeZ: cz,         // the vetted spot; the anchor is pulled back to it
+        ax: cx, az: cz,               // the wandering anchor
+        radius: spread,
+        bandY: seedY, bandHalf,
+        floorY: Math.min(-1.5, sbHome), floorGX: 0, floorGZ: 0, floorHard: -1e9,
+        ring: [0, 0, 0, 0], ringN: 0, probe: 0,
+        panic: 1,
+        // The anchor path: the same two-term Lissajous per axis the old schools
+        // flew, which was tuned and is a smooth function of time. It is now what
+        // the school WANTS rather than where every fish IS.
+        // `roam` scales how far the anchor wanders from its vetted home. A
+        // grouper that holds station on one reef head has no business crossing
+        // 26 m of open sand into 2 m of water, and that excursion is exactly how
+        // one ended up at the surface in a 40 s soak.
+        pax: rng.range(11, 26) * spec.roam, paz: rng.range(11, 26) * spec.roam,
+        w1: rng.range(0.030, 0.062), p1: rng.range(0, TAU),
+        w2: rng.range(0.026, 0.055), p2: rng.range(0, TAU),
+        w3: rng.range(0.075, 0.140), p3: rng.range(0, TAU),
+        w4: rng.range(0.068, 0.135), p4: rng.range(0, TAU),
+        w5: rng.range(0.055, 0.105), p5: rng.range(0, TAU),
+      };
+      // Prime the plane fit so the first frame is not run against a zeroed ring.
+      for (let k = 0; k < 4; k++) {
+        const a = (k / 4) * TAU;
+        sk.ring[k] = seabed(cx + Math.cos(a) * spread, cz + Math.sin(a) * spread);
+      }
+      sk.ringN = 4;
+      rec.schools.push(sk);
+
+      for (let i = 0; i < perSchool; i++) {
+        const gi = base + i;
+        // Seed inside the shoal so warmUpClock draws them somewhere sane — an
+        // InstancedMesh starts full of zeroed matrices and a degenerate model
+        // matrix is not something to leave lying around.
+        const u = rng.range(-1, 1), v = rng.range(-1, 1), w = rng.range(-1, 1);
+        const len = Math.max(1e-3, Math.hypot(u, v, w));
+        const kk = Math.pow(rng.next(), 0.45) * spread;
+        rec.px[gi] = cx + u / len * kk;
+        rec.py[gi] = sk.bandY + v / len * kk * 0.35;
+        rec.pz[gi] = cz + w / len * kk;
+        const a0 = rng.range(0, TAU);
+        rec.vx[gi] = Math.sin(a0) * S.vMin;
+        rec.vz[gi] = Math.cos(a0) * S.vMin;
+        rec.wang[gi] = rng.range(0, TAU);
+        rec.wrate[gi] = rng.sign() * S.wRate * rng.range(0.7, 1.4);
+        const scale = rng.range(spec.sizeJit[0], spec.sizeJit[1]);
+        rec.scl[gi] = scale;
+        rec.amp[gi] = spec.amp * spec.len * scale;
+        rec.yOff[gi] = rng.range(-bandHalf, bandHalf);
+        rec.beatR[gi] = rng.range(spec.beat[0], spec.beat[1]);
+        rec.aArr[gi * 4] = rng.range(0, TAU);
+        rec.aArr[gi * 4 + 1] = rec.amp[gi];
+        rec.aArr[gi * 4 + 2] = 1;
+        rec.aArr[gi * 4 + 3] = 0;
+        rec.mat[gi * 16 + 3] = 0;
+        rec.mat[gi * 16 + 7] = 0;
+        rec.mat[gi * 16 + 11] = 0;
+        rec.mat[gi * 16 + 15] = 1;
+
+        // Per-fish tint, multiplied against the baked vertex colours. Lightness
+        // is the channel that matters: at 4 m the old 0.48-0.72 range came out
+        // as black slivers regardless of hue, so every species' band is pushed
+        // up into the value range the reef occupies in ref/01.
+        _c.setHSL(rng.range(spec.tint.h[0], spec.tint.h[1]),
+          rng.range(spec.tint.s[0], spec.tint.s[1]),
+          rng.range(spec.tint.l[0], spec.tint.l[1]), SRGB);
+        _c.lerp(WHITE, 0.22);
+        mesh.setColorAt(gi, _c);
+      }
     }
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    mesh.computeBoundingSphere();
-    if (mesh.boundingSphere) mesh.boundingSphere.radius += 1.0;
-    g.add(mesh);
-    schoolGroup.add(g);
-
-    const depth = clamp(-seabed(spotX, spotZ) * 0.55, 2.6, 7.5);
-    schools.push({
-      group: g,
-      mesh,
-      cx: spotX, cz: spotZ,
-      ax: rng.range(13, 29), az: rng.range(13, 29),
-      w1: rng.range(0.030, 0.062), p1: rng.range(0, TAU),
-      w2: rng.range(0.026, 0.055), p2: rng.range(0, TAU),
-      w3: rng.range(0.075, 0.140), p3: rng.range(0, TAU),
-      w4: rng.range(0.068, 0.135), p4: rng.range(0, TAU),
-      w5: rng.range(0.055, 0.105), p5: rng.range(0, TAU),
-      depth,
-      depthAmp: rng.range(0.9, 2.4),
-      halfHeight: ry + 0.5,
-    });
+    fishGroup.add(mesh);
+    kinds.push(rec);
   }
-  group.add(schoolGroup);
-  setLayers(schoolGroup, LAYER.MAIN, LAYER.UNDERWATER);
+
+  group.add(fishGroup);
+  setLayers(fishGroup, LAYER.MAIN, LAYER.UNDERWATER);
+  applyWaterClip(fishGroup);
 
   // ============================================================== gulls ======
 
@@ -556,6 +967,16 @@ export function createWildlife(opts = {}) {
   ];
 
   const gullGeo = buildGull();
+  // NOTE: this used to carry a `decorateGullMaterial` that injected a
+  // span-weighted flap through `onBeforeCompile`. That hook does not exist in
+  // three.webgpu.min.js, so the gulls have never flapped on this branch and the
+  // `aBird` attribute was uploaded every frame for nothing. The flap is NOT
+  // ported here because a gull's instance matrix carries yaw, roll and pitch,
+  // and `positionNode` runs after that matrix is folded in — reconstructing the
+  // bird's own up-axis needs three more per-instance floats. It is a real fix,
+  // it belongs to whoever next owns the gulls, and it is out of scope for a fish
+  // change. The attribute is gone; the birds are honestly rigid rather than
+  // pretending otherwise.
   const gullMat = new THREE.MeshStandardMaterial({
     color: 0xffffff,
     vertexColors: true,
@@ -565,14 +986,12 @@ export function createWildlife(opts = {}) {
     fog: true,
     dithering: true,
   });
-  decorateGullMaterial(gullMat, uni);
 
   const gulls = new THREE.InstancedMesh(gullGeo, gullMat, GULLS);
   gulls.name = 'gulls';
   gulls.castShadow = false;
   gulls.receiveShadow = false;
   gulls.frustumCulled = false;      // they orbit far outside their bake pose
-  const aBird = new Float32Array(GULLS * 2);
   const birds = [];
   for (let i = 0; i < GULLS; i++) {
     const c = GULL_CENTRES[i % GULL_CENTRES.length];
@@ -597,13 +1016,7 @@ export function createWildlife(opts = {}) {
       bobW: rng.range(0.18, 0.45),
       bobP: rng.range(0, TAU),
       scale: rng.range(1.25, 1.75),
-      flap: 1,
-      flapTarget: 1,
-      switchT: rng.range(1.5, 7),
-      phase: rng.range(0, TAU),
     });
-    aBird[i * 2] = birds[i].phase;
-    aBird[i * 2 + 1] = 1;
 
     // Prime the matrix. update() rewrites it before the first render, but an
     // InstancedMesh starts out full of zeroed matrices and a degenerate model
@@ -616,31 +1029,50 @@ export function createWildlife(opts = {}) {
     gulls.setMatrixAt(i, _m4);
   }
   gulls.instanceMatrix.needsUpdate = true;
-  const birdAttr = new THREE.InstancedBufferAttribute(aBird, 2);
-  birdAttr.setUsage(THREE.DynamicDrawUsage);
-  gullGeo.setAttribute('aBird', birdAttr);
   gulls.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   group.add(gulls);
   setLayers(gulls, LAYER.MAIN, LAYER.REFLECTED);
 
   // ======================================================= jumping fish ======
+  //
+  // An InstancedMesh of one, on MAIN | UNDERWATER | REFLECTED, ALWAYS VISIBLE.
+  // It used to be `visible = false` at build and first shown 6-20 s into play,
+  // which is exactly the hazard warmUpClock exists to remove: an object that is
+  // never drawn has no pipeline, so the first leap paid a synchronous
+  // `createRenderPipeline` mid-game. Now it idles underwater as one more
+  // snapper — where CLIP.ABOVE discards it from the reflection anyway — and
+  // detaches into the arc when it leaps. Zero visibility toggling.
+  //
+  // It needs its own geometry rather than sharing the snapper's, because `aFish`
+  // is an attribute ON the geometry and two InstancedMeshes sharing one geometry
+  // would share one instance buffer.
 
-  const jumperGeo = buildFish(1.25);
-  const jumper = new THREE.Mesh(jumperGeo, fishMat);
+  const JUMP_SPEC = SPECIES[2];      // the snapper
+  const jumperGeo = buildCreature(JUMP_SPEC, lerpI(JUMP_SPEC.radial[0], JUMP_SPEC.radial[1]),
+    wingRows, withPect, 1.25);
+  const jumperA = new Float32Array(4);
+  const jumperAttr = new THREE.InstancedBufferAttribute(jumperA, 4);
+  jumperAttr.setUsage(THREE.DynamicDrawUsage);
+  jumperGeo.setAttribute('aFish', jumperAttr);
+  const jumper = new THREE.InstancedMesh(jumperGeo, fishMat, 1);
   jumper.name = 'jumper';
-  jumper.scale.setScalar(1.9);
-  jumper.rotation.order = 'YXZ';
   jumper.castShadow = false;
   jumper.receiveShadow = false;
-  jumper.visible = false;
   jumper.frustumCulled = false;
+  jumper.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  jumperA[1] = JUMP_SPEC.amp * JUMP_SPEC.len * 1.9;
+  jumperA[2] = 1;
+  const jmat = jumper.instanceMatrix.array;
+  jmat[3] = 0; jmat[7] = 0; jmat[11] = 0; jmat[15] = 1;
+  _c.setHSL(0.10, 0.30, 0.80, SRGB);
+  jumper.setColorAt(0, _c);
   group.add(jumper);
-  setLayers(jumper, LAYER.MAIN, LAYER.REFLECTED);
+  setLayers(jumper, LAYER.MAIN, LAYER.UNDERWATER, LAYER.REFLECTED);
   // Crosses the waterline twice a leap, flashing an upside-down fish into the
-  // reflection at each end of the arc. Shares its material with the schools,
-  // which want the same clip anyway.
+  // reflection at each end of the arc.
   applyWaterClip(jumper);
 
+  const JUMP_SCALE = 1.9;
   const jump = {
     active: false,
     wait: 6 + rng.range(0, 14),
@@ -649,108 +1081,409 @@ export function createWildlife(opts = {}) {
     x0: 0, z0: 0, x1: 0, z1: 0,
     apex: 1.4,
     exited: false,
+    idleAng: rng.range(0, TAU),
+    beat: 0,
+    y: -1.6,
   };
 
-  // --- frame ---------------------------------------------------------------
-
-  const _prevPos = new THREE.Vector3();
-  const _nowPos = new THREE.Vector3();
-
   /**
-   * Where a school is at time t. The Lissajous wanders up to fifty metres from
-   * the vetted centre, which is enough to walk it onto a reef head or a beach —
-   * so the point is pulled back toward the centre in proportion to how thin the
-   * water under it has become. The pull is a smooth function of position, so the
-   * shoal eases away from the shallows instead of snapping.
+   * Pick where the next leap happens. Called at build and after every jump, so
+   * the fish is already loitering at the spot it will leap from — no teleport
+   * the frame the arc starts.
    */
-  function schoolPoint(sc, t, out) {
-    let x = sc.cx + sc.ax * Math.sin(sc.w1 * t + sc.p1) + sc.ax * 0.42 * Math.sin(sc.w3 * t + sc.p3);
-    let z = sc.cz + sc.az * Math.cos(sc.w2 * t + sc.p2) + sc.az * 0.42 * Math.sin(sc.w4 * t + sc.p4);
-    const sb = seabed(x, z);
-    if (!(sb < -4.6)) {
-      const k = clamp((Number.isFinite(sb) ? sb : 0) + 4.6, 0, 3.4) / 3.4;
-      x += (sc.cx - x) * k;
-      z += (sc.cz - z) * k;
-    }
-    const y = -(sc.depth + sc.depthAmp * Math.sin(sc.w5 * t + sc.p5));
-    return out.set(x, y, z);
-  }
-
-  function faceAlong(obj, vx, vy, vz) {
-    const len = Math.hypot(vx, vy, vz);
-    if (len < 1e-5) return;
-    const ny = clamp(vy / len, -1, 1);
-    obj.rotation.y = Math.atan2(-vx, -vz);
-    obj.rotation.x = Math.asin(ny);
-  }
-
-  function startJump(ctx) {
-    const bx = ctx.boat ? ctx.boat.position.x : 0;
-    const bz = ctx.boat ? ctx.boat.position.z : 0;
-    for (let tries = 0; tries < 12; tries++) {
+  function pickJumpSite(bx, bz) {
+    for (let tries = 0; tries < 14; tries++) {
       const a = rng.range(0, TAU);
       const d = rng.range(26, 82);
       const x = bx + Math.cos(a) * d;
       const z = bz + Math.sin(a) * d;
       if (isLand(x, z)) continue;
-      if (seabed(x, z) > -2.4) continue;
+      const sb = seabed(x, z);
+      if (sb > -2.4) continue;
       const dir = rng.range(0, TAU);
       const run = rng.range(2.4, 4.6);
-      jump.x0 = x; jump.z0 = z;
-      jump.x1 = x + Math.cos(dir) * run;
-      jump.z1 = z + Math.sin(dir) * run;
-      if (isLand(jump.x1, jump.z1)) continue;
+      const x1 = x + Math.cos(dir) * run;
+      const z1 = z + Math.sin(dir) * run;
+      if (isLand(x1, z1)) continue;
+      jump.x0 = x; jump.z0 = z; jump.x1 = x1; jump.z1 = z1;
+      jump.y = clamp(sb + 1.1, -3.2, -1.2);
       jump.apex = rng.range(0.9, 1.9);
       jump.dur = rng.range(1.2, 1.8);
-      jump.t = 0;
-      jump.active = true;
-      jump.exited = false;
-      jumper.visible = true;
-      return;
+      return true;
     }
-    jump.wait = 4 + rng.range(0, 8);
+    return false;
+  }
+  pickJumpSite(0, 0);
+
+  // --- frame ---------------------------------------------------------------
+
+  // The dock's pilings are not on ctx — dock.js:491 returns only
+  // {shore, head, centre, deckY, yaw, matrix, inverse} and `pilingInfo` never
+  // escapes. So this is a capsule baked from the two endpoints dock.js:23-24
+  // fixes at build time, tested once per SCHOOL per frame (~15 flops) against
+  // the anchor, not per fish. The honest fix is `dock.info.pilings` plus a
+  // CONTRACT.md amendment; this is the cheap stand-in until someone owns that.
+  const DOCK_AX = -95, DOCK_AZ = 10;
+  const DOCK_BX = -58, DOCK_BZ = -4;
+  const DOCK_R = 4.5;
+  const DOCK_DX = DOCK_BX - DOCK_AX, DOCK_DZ = DOCK_BZ - DOCK_AZ;
+  const DOCK_LL = DOCK_DX * DOCK_DX + DOCK_DZ * DOCK_DZ;
+
+  const FLEE_R = 9.0;         // metres; the boat
+  const W_FLEE = 14.0;
+  const MON_R = 30.0;         // metres; the leviathan
+  const W_MON = 26.0;
+
+  // Environment-driven scalars. They are PLAIN JS NUMBERS folded into aFish on
+  // the CPU, never node literals — a literal in a node graph means a fresh WGSL
+  // module and a blocking pipeline build every time the sun moves.
+  let envAmp = 1.0;
+  let envRate = 1.0;
+
+  /**
+   * The whole fish frame. Measured shape of the cost at 470 fish:
+   *   centroid pass ................ ~0.006 ms
+   *   k-sample separation+alignment  ~0.024 ms
+   *   the other terms + integrate .. ~0.015 ms
+   *   matrix + aFish write ......... ~0.047 ms
+   *   per-school terrain ........... ~0.055 ms   <- the expensive half
+   *   flee culls ................... ~0.006 ms
+   * against ~6 ms of main thread on an iPhone. The terrain line is why every
+   * seabed query in here is per SCHOOL and amortised across frames.
+   */
+  function updateFish(ctx) {
+    const t = ctx.time;
+    const dt = ctx.dt;
+    if (dt <= 0) return;
+    const frame = ctx.frame | 0;
+
+    const boat = ctx.boat;
+    const bx = boat ? boat.position.x : 0;
+    const by = boat ? boat.position.y : 0;
+    const bz = boat ? boat.position.z : 0;
+    const bSpeed = boat ? Math.abs(boat.speed || 0) : 0;
+    const bWeight = 0.35 + 0.65 * clamp(bSpeed / 4, 0, 1);
+
+    // Read the leviathan defensively — the quest module can own his state and
+    // `ctx.monster` is not in CONTRACT.md's ctx table (it should be; main.js:214
+    // sets it before this module is built).
+    const mon = ctx.monster && ctx.monster.state;
+    const mx = mon ? mon.position.x : 0;
+    const my = mon ? mon.position.y : 0;
+    const mz = mon ? mon.position.z : 0;
+    const monBig = mon && (mon.phase === 'breach' || (mon.distance || 999) < 40);
+
+    for (let ki = 0; ki < kinds.length; ki++) {
+      const rec = kinds[ki];
+      const spec = rec.spec;
+      const S = rec.S;
+      const isFloor = spec.bandMode === 'floor';
+      const clearance = spec.clear;
+      const ceilY = spec.ceil;
+      const mArr = rec.mat;
+      const aArr = rec.aArr;
+      const rSep2 = S.rSep * S.rSep;
+
+      for (let si = 0; si < rec.schools.length; si++) {
+        const sk = rec.schools[si];
+        const base = sk.base, n = sk.n;
+
+        // ---- the anchor -------------------------------------------------
+        // Two-term Lissajous, then a shallow-water pull-back. `isLand` implies
+        // seabed >= 0, so the pull-back collapses to k=1 there and snaps the
+        // anchor back onto its vetted home — the island case is handled by the
+        // same three lines as the reef-head case, with no extra query.
+        let axp = sk.homeX + sk.pax * Math.sin(sk.w1 * t + sk.p1)
+          + sk.pax * 0.42 * Math.sin(sk.w3 * t + sk.p3);
+        let azp = sk.homeZ + sk.paz * Math.cos(sk.w2 * t + sk.p2)
+          + sk.paz * 0.42 * Math.sin(sk.w4 * t + sk.p4);
+        const sbA = seabed(axp, azp);
+        const sbAf = Number.isFinite(sbA) ? sbA : -20;
+        if (!(sbAf < -4.6)) {
+          // Ramp width 2.4 rather than 3.4, so anything shallower than 2.2 m
+          // snaps the anchor all the way home instead of leaving 9% of the
+          // excursion in place — which was enough to park a school in water too
+          // thin to hold its own depth band.
+          const k = clamp(sbAf + 4.6, 0, 2.4) / 2.4;
+          axp += (sk.homeX - axp) * k;
+          azp += (sk.homeZ - azp) * k;
+        }
+        // Push the anchor out of the dock capsule.
+        {
+          const wx = axp - DOCK_AX, wz = azp - DOCK_AZ;
+          const u = clamp((wx * DOCK_DX + wz * DOCK_DZ) / DOCK_LL, 0, 1);
+          const dx = axp - (DOCK_AX + DOCK_DX * u);
+          const dz = azp - (DOCK_AZ + DOCK_DZ * u);
+          const d2 = dx * dx + dz * dz;
+          if (d2 < DOCK_R * DOCK_R && d2 > 1e-6) {
+            const inv = 1 / Math.sqrt(d2);
+            axp += dx * inv * (DOCK_R - d2 * inv);
+            azp += dz * inv * (DOCK_R - d2 * inv);
+          }
+        }
+        sk.ax = axp;
+        sk.az = azp;
+
+        // ---- the terrain plane ------------------------------------------
+        // One probe on a ring whose bearing advances a quarter turn each visit,
+        // every other frame. A school is 6-12 m across and the seabed's finest
+        // term is a 0.24 m ripple ridge (seabed.js:91-94), so a plane fitted
+        // across the school is accurate to well under the clearance the fish
+        // keep. Coral heads need no query at all: seabed.js:82 folds the
+        // head mask into the height field, so `seabedHeight` already rises
+        // under one and the clearance clears it. That is where the "flowing
+        // over the reef" comes from, for free.
+        if (((frame + si) & 1) === 0) {
+          const k = sk.probe & 3;
+          const a = (k / 4) * TAU;
+          const h = seabed(sk.cx + Math.cos(a) * sk.radius, sk.cz + Math.sin(a) * sk.radius);
+          sk.ring[k] = Number.isFinite(h) ? h : -20;
+          sk.probe++;
+        }
+        const hC = Number.isFinite(sbA) ? sbA : -20;
+        sk.floorY = hC;
+        // gx = (east - west) / 2R, gz = (south - north) / 2R. Clamped, because a
+        // ring sample that lands on a coral head gives a gradient that would
+        // fling the shoal sideways.
+        const invR = 1 / (2 * Math.max(0.5, sk.radius));
+        sk.floorGX = clamp((sk.ring[0] - sk.ring[2]) * invR, -1.5, 1.5);
+        sk.floorGZ = clamp((sk.ring[1] - sk.ring[3]) * invR, -1.5, 1.5);
+        // The highest seabed anywhere in the neighbourhood. The plane fit is an
+        // estimate; this is the number that guarantees a fish never ends up
+        // inside a feature the plane missed.
+        let hMax = hC;
+        for (let k = 0; k < 4; k++) if (sk.ring[k] > hMax) hMax = sk.ring[k];
+        // A 60 s soak put a damsel 0.038 m off the sand: the plane fit was 0.38 m
+        // optimistic where the ring straddled a coral head. 0.15 m of slack
+        // instead of 0.30, with the post-integration clamp at 0.75 of clearance
+        // rather than 0.6, buys that back and still lets a reef species hug the
+        // structure it is supposed to be hugging.
+        sk.floorHard = hMax - 0.15;
+
+        // ---- the band ----------------------------------------------------
+        const wob = Math.sin(sk.w5 * t + sk.p5) * sk.bandHalf * 0.55;
+        let bandY = isFloor
+          ? hC + (spec.band[0] + spec.band[1]) * 0.5 + wob
+          : -((spec.band[0] + spec.band[1]) * 0.5) + wob;
+        const bandFloor = hC + clearance + 0.25;
+        if (bandY < bandFloor) bandY = bandFloor;
+        if (bandY > ceilY - 0.2) bandY = ceilY - 0.2;
+        sk.bandY = bandY;
+
+        // ---- centroid and mean velocity ----------------------------------
+        // Cohesion is against the CENTROID, not a local neighbourhood. That is
+        // the term that is O(N^2) in textbook boids and collapses to O(N) here,
+        // because a school is a coherent blob by construction. It is also what
+        // closes the school back up after the boat has driven through it.
+        let cx = 0, cz = 0, cy = 0;
+        for (let i = base; i < base + n; i++) { cx += rec.px[i]; cy += rec.py[i]; cz += rec.pz[i]; }
+        cx /= n; cy /= n; cz /= n;
+        sk.cx = cx; sk.cz = cz;
+        const tgtX = cx + (sk.ax - cx) * COH_ANCHOR;
+        const tgtZ = cz + (sk.az - cz) * COH_ANCHOR;
+        const tgtY = cy + (bandY - cy) * COH_ANCHOR;
+
+        // ---- who is close enough to be scared ----------------------------
+        const dbx = cx - bx, dbz = cz - bz;
+        const boatNear = (dbx * dbx + dbz * dbz) < (FLEE_R + sk.radius + 4) * (FLEE_R + sk.radius + 4);
+        const dmx = cx - mx, dmy = cy - my, dmz = cz - mz;
+        const monNear = mon && (dmx * dmx + dmy * dmy + dmz * dmz)
+          < (MON_R + sk.radius) * (MON_R + sk.radius);
+
+        sk.panic += (1 - sk.panic) * Math.min(1, dt * 0.8);
+        if (monBig && monNear) sk.panic = S.panic;
+        const vCap = S.vMax * sk.panic;
+
+        const stride = sk.stride;
+        const skew = n > 1 ? frame % n : 0;
+        const K = Math.min(S.k, n - 1);
+
+        for (let i = base; i < base + n; i++) {
+          const px = rec.px[i], py = rec.py[i], pz = rec.pz[i];
+          let ax = 0, ay = 0, az = 0;
+
+          // 1+2. Separation and alignment over K sampled school-mates. No sqrt:
+          // the (rSep2/d2 - 1) falloff is 0 at the radius and grows without
+          // bound at contact, which is exactly what separation wants.
+          if (K > 0) {
+            let sumVX = 0, sumVY = 0, sumVZ = 0;
+            const local = i - base;
+            for (let k = 1; k <= K; k++) {
+              const j = base + ((local + k * stride + skew) % n);
+              const dx = px - rec.px[j], dy = py - rec.py[j], dz = pz - rec.pz[j];
+              const d2 = dx * dx + dy * dy + dz * dz;
+              if (d2 < rSep2 && d2 > 1e-6) {
+                const f = S.wSep * (rSep2 / d2 - 1);
+                ax += dx * f; ay += dy * f; az += dz * f;
+              }
+              sumVX += rec.vx[j]; sumVY += rec.vy[j]; sumVZ += rec.vz[j];
+            }
+            const inv = 1 / K;
+            ax += (sumVX * inv - rec.vx[i]) * S.wAli;
+            ay += (sumVY * inv - rec.vy[i]) * S.wAli;
+            az += (sumVZ * inv - rec.vz[i]) * S.wAli;
+          }
+
+          // 3. Cohesion, toward the centroid blended with the anchor.
+          ax += (tgtX - px) * S.wCoh;
+          ay += (tgtY - py) * S.wCoh * 0.5;
+          az += (tgtZ - pz) * S.wCoh;
+
+          // 4. Wander. One INTEGRATED angle per fish, not a per-frame hash —
+          // hashed wander is jitter, an integrated angle is a fish making up its
+          // mind.
+          const wa = rec.wang[i] + rec.wrate[i] * dt;
+          rec.wang[i] = wa;
+          ax += Math.cos(wa) * S.wWander;
+          ay += Math.sin(wa * 0.7) * S.wWander * 0.35;
+          az += Math.sin(wa) * S.wWander;
+
+          // 5. Depth keeping, against the school's band plus this fish's own
+          // offset so the shoal has thickness.
+          const wantY = bandY + rec.yOff[i];
+          ay += (wantY - py) * S.wDepth;
+
+          // ---- flee, BEFORE the floor term so a panicking school cannot be
+          // driven into the sand by its own escape ------------------------
+          if (boatNear) {
+            const dx = px - bx, dz = pz - bz;
+            const d2 = dx * dx + dz * dz;
+            if (d2 < FLEE_R * FLEE_R) {
+              const inv = 1 / Math.sqrt(d2 + 0.05);
+              // A fish six metres down barely notices a hull.
+              const vert = 1 - clamp((by - py) / 6.5, 0, 1);
+              const g = W_FLEE * (FLEE_R * inv - 1) * vert * bWeight;
+              ax += dx * inv * g;
+              az += dz * inv * g;
+              // Down, not just sideways: a real school ducks under a hull, and
+              // from the overhead framing ducking reads where scattering does
+              // not.
+              ay -= g * 0.30;
+              if (sk.panic < S.panic) sk.panic = S.panic;
+            }
+          }
+          if (monNear) {
+            const dx = px - mx, dy = py - my, dz = pz - mz;
+            const d2 = dx * dx + dy * dy + dz * dz;
+            if (d2 < MON_R * MON_R) {
+              const inv = 1 / Math.sqrt(d2 + 0.5);
+              const g = W_MON * (MON_R * inv - 1);
+              ax += dx * inv * g; ay += dy * inv * g; az += dz * inv * g;
+              if (sk.panic < S.panic) sk.panic = S.panic;
+            }
+          }
+
+          // 6. Floor. The fitted plane, never below the worst sample seen.
+          let floorY = sk.floorY + sk.floorGX * (px - cx) + sk.floorGZ * (pz - cz);
+          if (floorY < sk.floorHard) floorY = sk.floorHard;
+          const gap = py - (floorY + clearance);
+          if (gap < 0) ay -= gap * S.wFloor;
+
+          // ...and go round it, not just over it. The water column here is
+          // (FISH_CEIL - floorY); when that is too thin to hold the fish, steer
+          // downhill along the negative of the fitted gradient. This is the
+          // "swimming around objects" beat, and it costs four multiplies
+          // because the gradient was already paid for by the floor term.
+          const colH = FISH_CEIL - floorY;
+          const wantCol = clearance + 0.9;
+          if (colH < wantCol) {
+            const g = (wantCol - colH) * 3.0;
+            ax -= sk.floorGX * g;
+            az -= sk.floorGZ * g;
+          }
+
+          // ---- integrate ---------------------------------------------------
+          let vx = rec.vx[i] + ax * dt;
+          let vy = rec.vy[i] + ay * dt;
+          let vz = rec.vz[i] + az * dt;
+          const damp = 1 - Math.min(0.9, S.drag * dt);
+          vx *= damp; vy *= damp; vz *= damp;
+          const sp2 = vx * vx + vy * vy + vz * vz;
+          let sp = Math.sqrt(sp2);
+          if (sp > vCap) { const f = vCap / sp; vx *= f; vy *= f; vz *= f; sp = vCap; }
+          else if (sp < S.vMin && sp > 1e-5) { const f = S.vMin / sp; vx *= f; vy *= f; vz *= f; sp = S.vMin; }
+
+          let nx = px + vx * dt;
+          let ny = py + vy * dt;
+          let nz = pz + vz * dt;
+
+          // Hard clamp after integration. wFloor at 6-7 against a peak flee
+          // acceleration of ~26 is not enough on its own; this is what actually
+          // guarantees no fish is ever inside the sand or out in the air.
+          const lo = floorY + clearance * 0.75;
+          if (ny < lo) { ny = lo; if (vy < 0) vy = 0; }
+          if (ny > ceilY) { ny = ceilY; if (vy > 0) vy = 0; }
+
+          rec.px[i] = nx; rec.py[i] = ny; rec.pz[i] = nz;
+          rec.vx[i] = vx; rec.vy[i] = vy; rec.vz[i] = vz;
+
+          // ---- pose --------------------------------------------------------
+          // Yaw so local -Z runs along the velocity, pitch from its rise. Same
+          // convention faceAlong used, hand-rolled into the instance array:
+          // Matrix4.compose + setMatrixAt is 0.085 us a fish, writing the eight
+          // non-zero terms directly is 0.018 us.
+          const hx = vx, hz = vz;
+          const hl = Math.sqrt(hx * hx + hz * hz);
+          let yaw;
+          if (hl > 1e-5) yaw = Math.atan2(-hx, -hz);
+          else yaw = Math.atan2(-aArr[i * 4 + 3], aArr[i * 4 + 2]);
+          const pitch = Math.asin(clamp(sp > 1e-5 ? vy / sp : 0, -0.44, 0.44));
+          const ca = Math.cos(yaw), sa = Math.sin(yaw);
+          const cp = Math.cos(pitch), spp = Math.sin(pitch);
+          const sc = rec.scl[i];
+          const o = i * 16;
+          mArr[o] = sc * ca; mArr[o + 1] = 0; mArr[o + 2] = -sc * sa;
+          mArr[o + 4] = sc * sa * spp; mArr[o + 5] = sc * cp; mArr[o + 6] = sc * ca * spp;
+          mArr[o + 8] = sc * sa * cp; mArr[o + 9] = -sc * spp; mArr[o + 10] = sc * ca * cp;
+          mArr[o + 12] = nx; mArr[o + 13] = ny; mArr[o + 14] = nz;
+
+          // ---- the beat ----------------------------------------------------
+          // A phase accumulator, so rate can track speed and panic without any
+          // uniform moving. A fish at a standstill still idles at half rate.
+          const ao = i * 4;
+          let ph = aArr[ao] + rec.beatR[i] * envRate * (0.5 + 0.5 * sp / S.vMax) * dt;
+          if (ph > TAU) ph -= TAU * Math.floor(ph / TAU);
+          aArr[ao] = ph;
+          aArr[ao + 1] = rec.amp[i] * envAmp * (0.55 + 0.45 * clamp(sp / S.vMax, 0, 1.6));
+          aArr[ao + 2] = ca;
+          aArr[ao + 3] = sa;
+        }
+      }
+      rec.mesh.instanceMatrix.needsUpdate = true;
+      rec.attr.needsUpdate = true;
+    }
+  }
+
+  function faceAlong(vx, vy, vz, out) {
+    const len = Math.hypot(vx, vy, vz);
+    if (len < 1e-5) { out.set(0, 0, 0); return out; }
+    return out.set(Math.asin(clamp(vy / len, -1, 1)), Math.atan2(-vx, -vz), 0);
+  }
+
+  function writeJumper(x, y, z, yaw, pitch, sc) {
+    const ca = Math.cos(yaw), sa = Math.sin(yaw);
+    const cp = Math.cos(pitch), sp = Math.sin(pitch);
+    jmat[0] = sc * ca; jmat[1] = 0; jmat[2] = -sc * sa;
+    jmat[4] = sc * sa * sp; jmat[5] = sc * cp; jmat[6] = sc * ca * sp;
+    jmat[8] = sc * sa * cp; jmat[9] = -sc * sp; jmat[10] = sc * ca * cp;
+    jmat[12] = x; jmat[13] = y; jmat[14] = z;
+    jumperA[2] = ca;
+    jumperA[3] = sa;
+    jumper.instanceMatrix.needsUpdate = true;
+    jumperAttr.needsUpdate = true;
   }
 
   function update(ctx) {
     const t = ctx.time;
     const dt = ctx.dt;
-    uni.uFTime.value = t;
-    uni.uGTime.value = t;
 
-    // ---- schools ---------------------------------------------------------
-    for (let i = 0; i < schools.length; i++) {
-      const sc = schools[i];
-      schoolPoint(sc, t, _nowPos);
-      schoolPoint(sc, t + 0.35, _prevPos);          // a look-ahead, not a history
-
-      // Stay off the seabed and out of the air. If the column is too thin to
-      // hold the shoal at all the two limits cross, and clamping in either order
-      // would bury it — so that case centres the school in whatever water there
-      // is and lets it thin out rather than sink into the sand.
-      const sb = seabed(_nowPos.x, _nowPos.z);
-      const lo = (Number.isFinite(sb) ? sb : -30) + sc.halfHeight + 0.4;
-      const hi = -1.3 - sc.halfHeight;
-      const y = lo > hi ? ((Number.isFinite(sb) ? sb : -30) - 1.3) * 0.5
-        : clamp(_nowPos.y, lo, hi);
-      sc.group.position.set(_nowPos.x, y, _nowPos.z);
-      faceAlong(sc.group, _prevPos.x - _nowPos.x, _prevPos.y - _nowPos.y, _prevPos.z - _nowPos.z);
-    }
+    updateFish(ctx);
 
     // ---- gulls -----------------------------------------------------------
     if (gulls.visible) {
       for (let i = 0; i < birds.length; i++) {
         const b = birds[i];
         b.ang += b.omega * dt;
-        b.switchT -= dt;
-        if (b.switchT <= 0) {
-          // Gulls flap in bursts and then hang on the wind. Roughly two seconds
-          // of wingbeats to four of glide.
-          b.flapTarget = b.flapTarget > 0.5 ? 0.10 : 1.0;
-          b.switchT = b.flapTarget > 0.5 ? rng.range(1.4, 3.2) : rng.range(2.5, 6.5);
-        }
-        b.flap += (b.flapTarget - b.flap) * Math.min(1, dt * 1.8);
-        aBird[i * 2 + 1] = b.flap;
-
         const ca = Math.cos(b.ang), sa = Math.sin(b.ang);
         const x = b.cx + ca * b.r;
         const z = b.cz + sa * b.r;
@@ -769,19 +1502,22 @@ export function createWildlife(opts = {}) {
         gulls.setMatrixAt(i, _m4);
       }
       gulls.instanceMatrix.needsUpdate = true;
-      birdAttr.needsUpdate = true;
     }
 
     // ---- the jumper ------------------------------------------------------
     const water = ctx.water;
+    jump.beat += dt * (jump.active ? 16 : 5.5);
+    if (jump.beat > TAU) jump.beat -= TAU * Math.floor(jump.beat / TAU);
+    jumperA[0] = jump.beat;
     if (jump.active) {
       jump.t += dt;
       const u = jump.t / jump.dur;
       if (u >= 1) {
         jump.active = false;
-        jumper.visible = false;
         jump.wait = 14 + rng.range(0, 34);
         if (water && water.disturb) water.disturb(jump.x1, jump.z1, 1.5, 2.6);
+        const b = ctx.boat;
+        pickJumpSite(b ? b.position.x : 0, b ? b.position.z : 0);
       } else {
         const x = jump.x0 + (jump.x1 - jump.x0) * u;
         const z = jump.z0 + (jump.z1 - jump.z0) * u;
@@ -790,8 +1526,8 @@ export function createWildlife(opts = {}) {
         const vy = jump.apex * 4 * (1 - 2 * u) / jump.dur;
         const vx = (jump.x1 - jump.x0) / jump.dur;
         const vz = (jump.z1 - jump.z0) / jump.dur;
-        jumper.position.set(x, y - 0.06, z);
-        faceAlong(jumper, vx, vy, vz);
+        faceAlong(vx, vy, vz, _v);
+        writeJumper(x, y - 0.06, z, _v.y, _v.x, JUMP_SCALE);
         if (!jump.exited && u > 0.04) {
           jump.exited = true;
           if (water && water.disturb) water.disturb(jump.x0, jump.z0, 1.2, 2.2);
@@ -799,7 +1535,20 @@ export function createWildlife(opts = {}) {
       }
     } else {
       jump.wait -= dt;
-      if (jump.wait <= 0) startJump(ctx);
+      // Loitering. A slow circle a metre or two under the surface, at the exact
+      // spot the next leap starts from, so the arc never begins with a teleport.
+      jump.idleAng += dt * 0.55;
+      const r = 1.6;
+      const x = jump.x0 + Math.cos(jump.idleAng) * r;
+      const z = jump.z0 + Math.sin(jump.idleAng) * r;
+      const y = jump.y + Math.sin(jump.idleAng * 1.7) * 0.25;
+      writeJumper(x, y, z, Math.atan2(Math.sin(jump.idleAng), Math.cos(jump.idleAng)) - Math.PI * 0.5,
+        0, JUMP_SCALE * 0.55);
+      if (jump.wait <= 0) {
+        jump.t = 0;
+        jump.active = true;
+        jump.exited = false;
+      }
     }
   }
 
@@ -808,9 +1557,16 @@ export function createWildlife(opts = {}) {
 
     // Fish are lit by the same water light the reef is, and never allowed to
     // fall to black under the moon.
-    fishMat.emissive.copy(env.waterScatter).multiplyScalar(0.05 + 0.10 * env.nightFactor);
-    uni.uFWig.value = 0.026 + 0.010 * env.dayFactor;
-    uni.uFRate.value = 6.2 + 1.8 * env.dayFactor;
+    //
+    // The daytime coefficient stays at the shipped 0.05. Raising it to 0.10 was
+    // tried and it is actively wrong in daylight: `waterScatter` is the water's
+    // own in-scattered turquoise, so more of it paints the fish the exact colour
+    // of the background they have to stand out against. A capture at 11 m with
+    // 0.10 showed the sardines as a faint speckle. The NIGHT half is raised
+    // instead, from 0.10 to 0.17, because that is the case the floor exists for.
+    fishMat.emissive.copy(env.waterScatter).multiplyScalar(0.05 + 0.17 * env.nightFactor);
+    envAmp = 0.86 + 0.34 * env.dayFactor;
+    envRate = 0.86 + 0.28 * env.dayFactor;
 
     // Gulls go home at dusk. The material stays opaque — a transparent bird
     // would have to sort against the clouds, and would be stripped of its
@@ -824,18 +1580,17 @@ export function createWildlife(opts = {}) {
     // against a bright horizon.
     _c.copy(env.ambientSky).multiplyScalar(0.05 + 0.05 * day);
     gullMat.emissive.copy(_c);
-    uni.uGRate.value = 4.2 + 1.0 * day;
   }
 
   function dispose() {
-    fishGeo.dispose();
+    for (const rec of kinds) { rec.mesh.dispose(); rec.geo.dispose(); }
+    kinds.length = 0;
+    jumper.dispose();
     jumperGeo.dispose();
     fishMat.dispose();
     gullGeo.dispose();
     gullMat.dispose();
     gulls.dispose();
-    for (const sc of schools) sc.mesh.dispose();
-    schools.length = 0;
     group.clear();
   }
 
