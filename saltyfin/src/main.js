@@ -39,6 +39,7 @@ import { createChaseCamera } from './gameplay/chaseCamera.js';
 import { createQuest } from './gameplay/quest.js';
 import { createHud } from './hud/hud.js';
 import { createIntro } from './hud/intro.js';
+import { createProfiler, installGpuProbe, profileRequested, requestProfileRun } from './core/profile.js';
 
 const params = new URLSearchParams(location.search);
 const num = (k, d) => (params.has(k) ? parseFloat(params.get(k)) : d);
@@ -74,10 +75,17 @@ boot().catch((err) => {
 });
 
 async function boot() {
+// Both of these have to happen before the renderer asks for a device: the probe
+// patches the WebGPU prototypes three is about to call, and timestamp queries
+// are a device feature that must be requested at creation time.
+const PROFILE = profileRequested();
+installGpuProbe();
+
 const { renderer, quality, targets, setSize, makeTarget } = await createRenderer({
   canvas, tier: TIER,
   pixelRatio: params.has('pr') ? num('pr', 1) : undefined,
   forceWebGL: params.get('forcegl') === '1',
+  trackTimestamp: PROFILE,
 });
 
 const scene = new THREE.Scene();
@@ -228,15 +236,46 @@ fpsBadge.style.cssText = 'position:fixed;left:10px;bottom:calc(10px + env(safe-a
   + 'text-transform:uppercase;color:rgba(214,236,255,.75);background:rgba(8,20,36,.45);'
   + 'border:1px solid rgba(206,232,255,.2);border-radius:999px;padding:4px 10px;'
   + 'cursor:pointer;-webkit-user-select:none;user-select:none';
-fpsBadge.title = 'Tap to switch renderer';
+fpsBadge.title = 'Tap for renderer options';
 fpsBadge.textContent = quality.backend;
-fpsBadge.addEventListener('pointerdown', () => {
-  try {
-    localStorage.setItem('saltyfin-backend', quality.backend === 'webgpu' ? 'webgl' : 'webgpu');
-  } catch { /* storage may be sandboxed; the tap just does nothing */ }
-  location.reload();
-});
 document.body.appendChild(fpsBadge);
+
+// Tapping the badge used to switch backend outright. It now opens a two-item
+// menu, because the profiler needs a way in and a long-press is a bad gesture
+// to hang a diagnostic off on iOS — Safari puts its own selection UI there.
+let menu = null;
+function closeMenu() { menu?.remove(); menu = null; }
+fpsBadge.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  if (menu) { closeMenu(); return; }
+  menu = document.createElement('div');
+  menu.style.cssText = 'position:fixed;left:10px;bottom:calc(40px + env(safe-area-inset-bottom));'
+    + 'z-index:60;display:flex;flex-direction:column;gap:6px;'
+    + 'font:600 10px/1 ui-sans-serif,system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase';
+  const item = (label, fn) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.style.cssText = 'appearance:none;text-align:left;border:1px solid rgba(206,232,255,.24);'
+      + 'background:rgba(8,20,36,.86);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);'
+      + 'color:#dceaf7;border-radius:8px;padding:9px 12px;font:inherit';
+    b.addEventListener('click', fn);
+    return b;
+  };
+  menu.appendChild(item(
+    quality.backend === 'webgpu' ? 'Switch to WebGL' : 'Switch to WebGPU',
+    () => {
+      try {
+        localStorage.setItem('saltyfin-backend', quality.backend === 'webgpu' ? 'webgl' : 'webgpu');
+      } catch { /* storage may be sandboxed */ }
+      location.reload();
+    },
+  ));
+  // Reloads rather than starting in place: the GPU-timestamp feature has to be
+  // requested when the device is created, so a profile has to begin at boot.
+  menu.appendChild(item('Run GPU profile', () => { requestProfileRun(); location.reload(); }));
+  menu.appendChild(item('Cancel', closeMenu));
+  document.body.appendChild(menu);
+});
 let fpsMark = performance.now() / 1000;
 let fpsCount = 0;
 let renderCpuMs = 0;
@@ -351,14 +390,22 @@ function mirrorFrame() {
   grab.ctx.drawImage(canvas, 0, 0);
 }
 
-function renderBeauty() {
+function renderBeauty(toScreen = NOPOST) {
   camera.layers.set(LAYER.MAIN);
-  renderer.setRenderTarget(NOPOST ? null : targets.scene);
+  renderer.setRenderTarget(toScreen ? null : targets.scene);
   clearColorLinear.copy(env.fogColor);
   renderer.setClearColor(clearColorLinear, 1);
   renderer.autoClear = true;
   renderer.render(scene, camera);
   renderer.autoClear = false;
+}
+
+function renderPost() {
+  post.render(env, {
+    time: ctx.time,
+    underwater: ctx.cameraUnderwater,
+    underwaterTint: env.waterMid,
+  });
 }
 
 // --- loop -------------------------------------------------------------------
@@ -458,16 +505,21 @@ function frame() {
   const surfaceY = ctx.water?.sampleHeight ? ctx.water.sampleHeight(camera.position.x, camera.position.z, ctx.time) : 0;
   ctx.cameraUnderwater = THREE.MathUtils.clamp((surfaceY - camera.position.y) * 1.5, 0, 1);
 
+  // While a profile is running the ladder owns the frame: it hands back the
+  // rung to draw and we draw exactly that, so the timings compare like with
+  // like instead of with whatever the real frame happens to be doing.
+  const override = profiler ? profiler.step(now * 1000) : null;
+
   const renderStart = performance.now();
-  if (quality.reflections) renderReflection();
-  renderRefraction();
-  renderBeauty();
-  if (!NOPOST) post.render(env, {
-    time: ctx.time,
-    underwater: ctx.cameraUnderwater,
-    underwaterTint: env.waterMid,
-  });
-  renderer.setRenderTarget(null);
+  if (override) {
+    override();
+  } else {
+    if (quality.reflections) renderReflection();
+    renderRefraction();
+    renderBeauty();
+    if (!NOPOST) renderPost();
+    renderer.setRenderTarget(null);
+  }
   renderCpuMs += performance.now() - renderStart;
   mirrorFrame();
 
@@ -539,5 +591,24 @@ applyEnvToLights();
 for (const m of modules) m.applyEnv?.(env);
 hud.applyEnv?.(env);
 api.ready = true;
+
+const profiler = createProfiler({
+  renderer, quality, targets, makeTarget,
+  passes: {
+    reflection: renderReflection,
+    refraction: renderRefraction,
+    beauty: renderBeauty,
+    post: renderPost,
+  },
+});
+api.profiler = profiler;
+if (PROFILE) {
+  // Two seconds of ordinary play first. Every pipeline in the scene compiles
+  // on the frame its material is first drawn, and profiling that would only
+  // ever measure the compiler.
+  intro.dismiss?.();
+  setTimeout(() => profiler.start(), 2000);
+}
+
 requestAnimationFrame(frame);
 }

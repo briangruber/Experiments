@@ -328,8 +328,8 @@ export function createVegetation(opts = {}) {
 
   const seed = (opts.seed | 0) || 20260807;
   const rng = makeRng((seed ^ 0x7E9E7A) >>> 0);
-  const tierName = (opts.quality && opts.quality.tier) || 'high';
-  const q = tierName === 'low' ? 0.40 : tierName === 'med' ? 0.68 : 1.0;
+  // See TIERS in core/renderer.js — one budget, no tier-name ladder.
+  const q = opts.quality?.geometry ?? 1;
 
   const isLand = terrain.isLand;
   const landHeight = terrain.landHeight;

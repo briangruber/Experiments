@@ -438,8 +438,12 @@ const _tint = new THREE.Color();
 export function createIslands(opts = {}) {
   const seed = (opts.seed ?? 1) | 0;
   const rng = makeRng((seed ^ 0x151A4D) >>> 0);
-  const tier = opts.quality?.tier ?? 'high';
-  const lod = tier === 'low' ? 0.6 : tier === 'med' ? 0.8 : 1.0;
+  // See TIERS in core/renderer.js — one budget, no tier-name ladder. `lerpQ`
+  // maps it onto whatever range a given piece of scatter wants.
+  const geo = opts.quality?.geometry ?? 1;
+  const t01 = Math.min(1, Math.max(0, (geo - 0.42) / 0.58));
+  const lerpQ = (a, b) => Math.round(a + (b - a) * t01);
+  const lod = 0.6 + (1.0 - 0.6) * t01;
 
   const group = new THREE.Group();
   group.name = 'islands';
@@ -479,7 +483,7 @@ export function createIslands(opts = {}) {
   const stackGeo = makeRockGeometry(131, 1, 1.0);
   geoms.push(stackGeo);
 
-  const BOULDERS = tier === 'low' ? 54 : 96;
+  const BOULDERS = lerpQ(54, 96);
   const boulderMesh = new THREE.InstancedMesh(rockGeos[0], rockMat, BOULDERS);
   const boulderMesh2 = new THREE.InstancedMesh(rockGeos[1], rockMat, BOULDERS);
   const boulderMesh3 = new THREE.InstancedMesh(rockGeos[2], rockMat, Math.round(BOULDERS * 0.6));
@@ -503,7 +507,7 @@ export function createIslands(opts = {}) {
 
   // Around each island's shoreline...
   for (const isl of ISLANDS) {
-    const n = Math.round((isl.R / 108) * 34 * (tier === 'low' ? 0.6 : 1));
+    const n = Math.round((isl.R / 108) * 34 * (0.6 + 0.4 * t01));
     for (let i = 0; i < n; i++) {
       const ang = rng.range(0, TAU);
       const rr = shoreRadius(isl, ang);
@@ -517,7 +521,7 @@ export function createIslands(opts = {}) {
     }
   }
   // ...and a scatter out on the reef flats, where they break the sand up.
-  for (let i = 0; i < (tier === 'low' ? 26 : 46); i++) {
+  for (let i = 0, drift = lerpQ(26, 46); i < drift; i++) {
     const a = rng.range(0, TAU);
     const r = 40 + 190 * Math.sqrt(rng.next());
     const x = Math.cos(a) * r, z = Math.sin(a) * r;
@@ -545,7 +549,7 @@ export function createIslands(opts = {}) {
   }
 
   // Sea stacks: the tall thin ones standing off the headlands.
-  const STACKS = tier === 'low' ? 8 : 15;
+  const STACKS = lerpQ(8, 15);
   const stackMesh = new THREE.InstancedMesh(stackGeo, rockMat, STACKS);
   for (let i = 0; i < STACKS; i++) {
     const isl = ISLANDS[rng.int(0, ISLANDS.length - 1)];

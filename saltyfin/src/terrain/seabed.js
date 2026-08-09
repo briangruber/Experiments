@@ -261,15 +261,22 @@ function gradedAxis(innerHalf, innerStep, half, growth) {
 // --- module ------------------------------------------------------------------
 
 export function createSeabed(opts = {}) {
-  const tier = opts.quality?.tier ?? 'high';
   // The fine band has to cover the whole reef, not just the water around the
   // boat. At 62 m the grid was already 5–12 m a cell across the middle distance,
   // and since the sand and reef colours live in the vertex stream that came back
   // through the clear water as a patchwork quilt with a hard edge where the
   // ramp began. The reef runs to about 200 m, so the fine band does too.
-  const axis = tier === 'low' ? gradedAxis(190, 4.0, HALF, 1.060)
-    : tier === 'med' ? gradedAxis(300, 2.8, HALF, 1.052)
-      : gradedAxis(330, 2.2, HALF, 1.046);
+  //
+  // Density comes off quality.geometry rather than the tier name: this is by
+  // some way the heaviest single mesh in the scene, and a tier that matched no
+  // branch of a name ladder used to land on the finest grid of the three.
+  // Reach stays near the reef edge at every budget — it is the cell size that
+  // gives, so what coarsens is the detail, not the extent of the seabed.
+  const g = opts.quality?.geometry ?? 1;
+  const cell = THREE.MathUtils.lerp(4.0, 2.2, THREE.MathUtils.clamp((g - 0.42) / 0.58, 0, 1));
+  const ramp = THREE.MathUtils.lerp(1.060, 1.046, THREE.MathUtils.clamp((g - 0.42) / 0.58, 0, 1));
+  const reach = THREE.MathUtils.lerp(190, 330, THREE.MathUtils.clamp((g - 0.42) / 0.58, 0, 1));
+  const axis = gradedAxis(reach, cell, HALF, ramp);
 
   const N = axis.length;
   const vcount = N * N;

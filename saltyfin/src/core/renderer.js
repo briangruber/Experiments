@@ -12,15 +12,25 @@
 
 import * as THREE from 'three';
 
+// `geometry` is a 0–1 budget every module that generates its own geometry
+// scales against — seabed grid density, coral and vegetation instance counts,
+// fish and bubbles. It exists because those five modules each used to branch on
+// the tier NAME, with a `low ? … : med ? … : high` ladder. When the mobile tier
+// was added it matched none of them and fell through to the high branch, so a
+// phone was quietly building a 333k-triangle seabed, the full 211k of coral and
+// the full 168k of vegetation — 2.18 M triangles a frame across the passes, at
+// desktop density, on the one device that could least afford it. A number the
+// tier owns cannot fall through; a name ladder in five files always can.
 export const TIERS = {
-  high: { refractionScale: 0.75, reflectionScale: 0.5, shadows: true, shadowSize: 3072, maxPixelRatio: 2, reflections: true, waterSegments: 320, cloudSteps: 24 },
-  med: { refractionScale: 0.55, reflectionScale: 0.38, shadows: true, shadowSize: 2048, maxPixelRatio: 1.5, reflections: true, waterSegments: 224, cloudSteps: 14 },
-  low: { refractionScale: 0.42, reflectionScale: 0.30, shadows: false, shadowSize: 512, maxPixelRatio: 1, reflections: false, waterSegments: 144, cloudSteps: 8 },
-  // Phones are fill-rate bound, not triangle bound: three full-screen passes at
-  // a 3x device pixel ratio is what kills them, not the geometry. So keep the
-  // reflection and the shadows — they are most of the look — and spend the
-  // budget by capping the backing store to 1x instead.
-  mobile: { refractionScale: 0.45, reflectionScale: 0.30, shadows: true, shadowSize: 1024, maxPixelRatio: 1, reflections: true, waterSegments: 160, cloudSteps: 8 },
+  high: { refractionScale: 0.75, reflectionScale: 0.5, shadows: true, shadowSize: 3072, maxPixelRatio: 2, reflections: true, waterSegments: 320, cloudSteps: 24, geometry: 1.0 },
+  med: { refractionScale: 0.55, reflectionScale: 0.38, shadows: true, shadowSize: 2048, maxPixelRatio: 1.5, reflections: true, waterSegments: 224, cloudSteps: 14, geometry: 0.68 },
+  low: { refractionScale: 0.42, reflectionScale: 0.30, shadows: false, shadowSize: 512, maxPixelRatio: 1, reflections: false, waterSegments: 144, cloudSteps: 8, geometry: 0.42 },
+  // Phones pay for fill rate AND for triangles, and the triangles are the half
+  // that a smaller backing store cannot buy back — which is exactly why cutting
+  // the render scale to 3/4 on the phone barely moved the frame rate. Keep the
+  // reflection and the shadows, since they are most of the look, and spend the
+  // budget on 1x pixels and half the geometry instead.
+  mobile: { refractionScale: 0.45, reflectionScale: 0.30, shadows: true, shadowSize: 1024, maxPixelRatio: 1, reflections: true, waterSegments: 160, cloudSteps: 8, geometry: 0.5 },
 };
 
 /** Does this browser actually have a WebGPU adapter? Cheap and synchronous. */
@@ -32,26 +42,47 @@ export function hasWebGPU() {
  * Build the renderer. Async because the node renderer has to request an adapter
  * and a device before anything can compile — every caller must await this.
  */
-export async function createRenderer({ canvas, tier = 'high', pixelRatio, forceWebGL = false } = {}) {
-  // WebGPU is opt-in now, not the default. Measured on an iPhone: 7 fps with
-  // the CPU at 4ms a frame and a 3/4 resolution cut barely moving it — pure
-  // GPU time, which points at Safari's brand-new WGSL compiler doing badly on
-  // these very large generated shaders. That is their compiler's problem to
-  // grow out of, not this code's to code around, so the same node renderer
-  // runs its WebGL backend by default and the fps badge (or ?webgpu=1) opts a
-  // session into WebGPU to re-check as Safari updates. The choice survives in
-  // storage because an artifact URL cannot carry a query string.
+export async function createRenderer({
+  canvas, tier = 'high', pixelRatio, forceWebGL = false, trackTimestamp = false,
+} = {}) {
+  // WebGPU is opt-in, not the default: measured on an iPhone it runs at 7 fps
+  // where the WebGL backend is playable. What that 7 fps is made of is still
+  // open — the badge's `cpu` figure only ever wrapped the encode, and on this
+  // renderer render() returns as soon as the commands are written, so a low
+  // number there proved the encode was cheap and nothing more. core/profile.js
+  // exists to answer it properly on the device, since there is no WebGPU in
+  // the headless browser this is developed against. Until it has, the WebGL
+  // backend ships and the badge (or ?webgpu=1) opts a session into WebGPU. The
+  // choice survives in storage because an artifact URL cannot carry a query.
   let stored = null;
   try { stored = localStorage.getItem('saltyfin-backend'); } catch { /* sandboxed */ }
   let urlOptIn = false;
   try { urlOptIn = new URLSearchParams(location.search).get('webgpu') === '1'; } catch { /* no window */ }
   const wantGPU = hasWebGPU() && !forceWebGL && (stored === 'webgpu' || (urlOptIn && stored !== 'webgl'));
 
+  // three's WebGPU backend builds its timestamp query set the moment
+  // trackTimestamp is set, with no check that the adapter actually has
+  // timestamp-query — and an invalid query set poisons every render pass that
+  // references it. So ask the adapter first. Requesting one here is cheap and
+  // the backend requests its own regardless.
+  let timestamps = false;
+  if (trackTimestamp && wantGPU) {
+    try {
+      const adapter = await navigator.gpu.requestAdapter({ featureLevel: 'compatibility' });
+      timestamps = !!adapter?.features?.has('timestamp-query');
+    } catch { timestamps = false; }
+  }
+
   const renderer = new THREE.WebGPURenderer({
     canvas,
     antialias: false,          // we resolve in post; MSAA on an HDR target is expensive
     alpha: false,
     forceWebGL: !wantGPU,
+    // Real GPU timing, off by default: it writes a timestamp either side of
+    // every pass, which is cheap but not free, and it only exists at all if the
+    // adapter exposes timestamp-query. three asks for every feature the adapter
+    // has, so this flag is the whole opt-in.
+    trackTimestamp: timestamps,
   });
 
   await renderer.init();
@@ -77,6 +108,7 @@ export async function createRenderer({ canvas, tier = 'high', pixelRatio, forceW
   const quality = { tier, ...TIERS[tier] };
   quality.pixelRatio = Math.min(pixelRatio ?? window.devicePixelRatio ?? 1, quality.maxPixelRatio);
   quality.backend = renderer.backend?.isWebGPUBackend ? 'webgpu' : 'webgl';
+  quality.timestamps = timestamps;
   // If the phone is GPU-bound on the WGSL water shader, fewer pixels is the
   // one lever that helps immediately: render the whole frame at 3/4 scale and
   // let the browser stretch the canvas to CSS size. The HUD is DOM, so it

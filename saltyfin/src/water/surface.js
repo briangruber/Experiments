@@ -142,23 +142,25 @@ function buildDepthMap(terrain, n, half) {
 export function createWater(opts = {}) {
   const { renderer, quality, terrain, scene } = opts;
   const seed = (opts.seed ?? 1) | 0;
-  const tier = quality?.tier ?? 'high';
 
   const segments = quality?.waterSegments ?? 320;
   const sectors = Math.max(48, Math.round(segments * 0.75));
   const rings = Math.max(32, Math.round(segments * 0.50));
 
-  const wakeSize = tier === 'low' ? 128 : 256;
+  // Off the tier's budget rather than its name: a phone was getting the
+  // desktop 256² simulation textures because 'mobile' matched neither branch.
+  const lean = (quality?.geometry ?? 1) < 0.6;
+  const wakeSize = lean ? 128 : 256;
   const wakeWorld = 128;
-  const causticSize = tier === 'low' ? 128 : 256;
-  const detailSize = tier === 'low' ? 128 : 256;
+  const causticSize = lean ? 128 : 256;
+  const detailSize = lean ? 128 : 256;
 
   // --- seabed map ----------------------------------------------------------
   const depthMap = buildDepthMap(terrain, DEPTH_TEX, DEPTH_HALF);
 
   // --- pieces --------------------------------------------------------------
   const caustics = createCaustics({
-    renderer, size: causticSize, seed, fps: tier === 'low' ? 20 : 30,
+    renderer, size: causticSize, seed, fps: lean ? 20 : 30,
   });
   const wake = createWake({ renderer, size: wakeSize, worldSize: wakeWorld });
 

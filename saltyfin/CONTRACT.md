@@ -68,7 +68,11 @@ ctx = {
   frame,       // integer frame counter
   scene, camera, renderer,
   env,         // see below
-  quality,     // { tier:'high'|'med'|'low', reflections, refractionScale, shadows, pixelRatio }
+  quality,     // { tier:'high'|'med'|'low'|'mobile', geometry, reflections,
+               //   refractionScale, shadows, pixelRatio, backend, renderScale }
+               // A module that scales its own detail MUST branch on the
+               // `geometry` budget (0..1), never on the tier NAME — a name
+               // ladder silently gives an unlisted tier the richest branch.
   boat: {      // written by gameplay/boatController before anything else reads it
     position,  // THREE.Vector3, hull centre at the waterline
     forward,   // THREE.Vector3, unit, points out the bow

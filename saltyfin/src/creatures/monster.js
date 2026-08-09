@@ -692,7 +692,8 @@ export function createMonster(opts = {}) {
 
   const seed = (opts.seed | 0) || 20260807;
   const rng = makeRng((seed ^ 0x1ea71a) >>> 0);
-  const tierName = (opts.quality && opts.quality.tier) || 'high';
+  // See TIERS in core/renderer.js — one budget, no tier-name ladder.
+  const geoBudget = opts.quality?.geometry ?? 1;
   const terrain = opts.terrain || null;
 
   // Fall back to the layout in CONTRACT.md if the terrain module is not
@@ -790,7 +791,7 @@ export function createMonster(opts = {}) {
   patch.renderOrder = 4;
   disturbGroup.add(patch);
 
-  const bubbleCount = tierName === 'low' ? 42 : tierName === 'med' ? 76 : 118;
+  const bubbleCount = Math.round(42 + (118 - 42) * Math.min(1, Math.max(0, (geoBudget - 0.42) / 0.58)));
   const bubbleGeo = new THREE.IcosahedronGeometry(1, 0);
   const bubBase = clamp(seabed(DISTURB_X, DISTURB_Z) + 0.8, -BUBBLE_RISE - 4, -3);
   const bubMat = new THREE.MeshStandardNodeMaterial({

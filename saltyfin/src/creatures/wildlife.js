@@ -411,7 +411,9 @@ export function createWildlife(opts = {}) {
 
   const seed = (opts.seed | 0) || 20260807;
   const rng = makeRng((seed ^ 0x5eab1d) >>> 0);
-  const tierName = (opts.quality && opts.quality.tier) || 'high';
+  // See TIERS in core/renderer.js — one budget, no tier-name ladder.
+  const geo = opts.quality?.geometry ?? 1;
+  const lerpI = (a, b) => Math.round(a + (b - a) * Math.min(1, Math.max(0, (geo - 0.42) / 0.58)));
   const terrain = opts.terrain || null;
 
   const seabed = (terrain && typeof terrain.seabedHeight === 'function')
@@ -435,8 +437,8 @@ export function createWildlife(opts = {}) {
 
   // ======================================================== fish schools =====
 
-  const SCHOOLS = tierName === 'low' ? 3 : tierName === 'med' ? 4 : 4;
-  const PER_SCHOOL = tierName === 'low' ? 22 : tierName === 'med' ? 36 : 56;
+  const SCHOOLS = lerpI(3, 4);
+  const PER_SCHOOL = lerpI(22, 56);
 
   const fishGeo = buildFish(1);
   const fishMat = new THREE.MeshStandardMaterial({
@@ -542,7 +544,7 @@ export function createWildlife(opts = {}) {
 
   // ============================================================== gulls ======
 
-  const GULLS = tierName === 'low' ? 6 : tierName === 'med' ? 8 : 11;
+  const GULLS = lerpI(6, 11);
 
   // Over the harbour water, over the village slope, and a pair further out —
   // the three heights ref/01 stacks its birds at.
