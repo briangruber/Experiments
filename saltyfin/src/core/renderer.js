@@ -25,12 +25,13 @@ export const TIERS = {
   high: { refractionScale: 0.75, reflectionScale: 0.5, shadows: true, shadowSize: 3072, maxPixelRatio: 2, reflections: true, waterSegments: 320, cloudSteps: 24, geometry: 1.0 },
   med: { refractionScale: 0.55, reflectionScale: 0.38, shadows: true, shadowSize: 2048, maxPixelRatio: 1.5, reflections: true, waterSegments: 224, cloudSteps: 14, geometry: 0.68 },
   low: { refractionScale: 0.42, reflectionScale: 0.30, shadows: false, shadowSize: 512, maxPixelRatio: 1, reflections: false, waterSegments: 144, cloudSteps: 8, geometry: 0.42 },
-  // Phones pay for fill rate AND for triangles, and the triangles are the half
-  // that a smaller backing store cannot buy back — which is exactly why cutting
-  // the render scale to 3/4 on the phone barely moved the frame rate. Keep the
-  // reflection and the shadows, since they are most of the look, and spend the
-  // budget on 1x pixels and half the geometry instead.
-  mobile: { refractionScale: 0.45, reflectionScale: 0.30, shadows: true, shadowSize: 1024, maxPixelRatio: 1, reflections: true, waterSegments: 160, cloudSteps: 8, geometry: 0.5 },
+  // Phones were never fill-rate bound here — that was a guess, and the device
+  // profile killed it: 0.2 ms of GPU time a frame with the whole scene drawn.
+  // What actually cost money was a pipeline recompile loop (see makeTarget) and
+  // a geometry budget that fell through to desktop density. With both fixed
+  // there is room to spend on pixels, so a 3x phone screen renders at 2x rather
+  // than 1x — the single biggest thing the eye notices on a Retina display.
+  mobile: { refractionScale: 0.45, reflectionScale: 0.30, shadows: true, shadowSize: 1024, maxPixelRatio: 2, reflections: true, waterSegments: 160, cloudSteps: 8, geometry: 0.5 },
 };
 
 /** Does this browser actually have a WebGPU adapter? Cheap and synchronous. */
@@ -45,15 +46,14 @@ export function hasWebGPU() {
 export async function createRenderer({
   canvas, tier = 'high', pixelRatio, forceWebGL = false, trackTimestamp = false,
 } = {}) {
-  // WebGPU is opt-in, not the default: measured on an iPhone it runs at 7 fps
-  // where the WebGL backend is playable. What that 7 fps is made of is still
-  // open — the badge's `cpu` figure only ever wrapped the encode, and on this
-  // renderer render() returns as soon as the commands are written, so a low
-  // number there proved the encode was cheap and nothing more. core/profile.js
-  // exists to answer it properly on the device, since there is no WebGPU in
-  // the headless browser this is developed against. Until it has, the WebGL
-  // backend ships and the badge (or ?webgpu=1) opts a session into WebGPU. The
-  // choice survives in storage because an artifact URL cannot carry a query.
+  // WebGPU is opt-in. It was made opt-in because it ran at 7 fps on an iPhone,
+  // and that reason is gone: the cause was the depth-format mismatch fixed in
+  // makeTarget below, and the same phone now runs the whole scene at its 30 fps
+  // display cadence with 6 ms of main thread and 0.2 ms of GPU time. What keeps
+  // the default on WebGL is only that WebGL is the path with mileage on it —
+  // one device says WebGPU is healthy, not that it is better. The badge menu
+  // (or ?webgpu=1) switches, and the choice survives in storage because an
+  // artifact URL cannot carry a query string.
   let stored = null;
   try { stored = localStorage.getItem('saltyfin-backend'); } catch { /* sandboxed */ }
   let urlOptIn = false;
@@ -109,12 +109,14 @@ export async function createRenderer({
   quality.pixelRatio = Math.min(pixelRatio ?? window.devicePixelRatio ?? 1, quality.maxPixelRatio);
   quality.backend = renderer.backend?.isWebGPUBackend ? 'webgpu' : 'webgl';
   quality.timestamps = timestamps;
-  // If the phone is GPU-bound on the WGSL water shader, fewer pixels is the
-  // one lever that helps immediately: render the whole frame at 3/4 scale and
-  // let the browser stretch the canvas to CSS size. The HUD is DOM, so it
-  // stays crisp. Harmless if the real cost turns out to be CPU encode time —
-  // the badge's cpu readout is what tells those two apart.
-  quality.renderScale = (quality.backend === 'webgpu' && (tier === 'mobile' || tier === 'low')) ? 0.75 : 1;
+  // This used to cut the phone to 3/4 scale on WebGPU, on the theory that it
+  // was GPU-bound. It was not — it was recompiling pipelines, and with that
+  // fixed the device measures 0.2 ms of GPU time a frame inside a 33 ms budget.
+  // A whole-frame downscale bought nothing and cost a great deal: at 3/4 scale
+  // against maxPixelRatio 1 on a 3x screen, the phone was rendering a quarter
+  // of the linear resolution it displays and the compositor was stretching a
+  // 302px frame across 1208 physical pixels. Render at full CSS size again.
+  quality.renderScale = 1;
 
   const size = new THREE.Vector2(1, 1);
 
