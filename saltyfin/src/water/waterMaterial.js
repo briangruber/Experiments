@@ -335,8 +335,8 @@ export function createWaterMaterial({
   // Gains on the two foam LOCATORS below — |grad B| for the trail rims and the
   // compressed A for the Kelvin arms. Not the same quantities the old 1.25/0.32
   // multiplied, so the numbers are not comparable to the ones they replace.
-  const uWakeFoam = uniform(0.85);
-  const uWakeArmFoam = uniform(0.70);
+  const uWakeFoam = uniform(1.05);
+  const uWakeArmFoam = uniform(0.44);
   // Erosion depth, coarse threshold wander, and the threshold itself. Coverage
   // is the thing to retune here, never brightness: the paintings have no grey
   // foam anywhere, only fewer and shorter white strokes.
@@ -427,7 +427,11 @@ export function createWaterMaterial({
   // stays glassy and the offshore water breaks.
   const uCrestNorm = uniform(0.28);
 
-  const uDetailStrength = uniform(0.22);
+  // 0.22 was tuned when the finest octave was 3.5 m across, where more of it
+  // just made the big soft shapes bigger and softer. With a 0.9 m octave in the
+  // sum there is something worth turning up.
+  const uDetailStrength = uniform(0.44);
+  const uFineChop = uniform(0.95);
   const uRefractDistort = uniform(0.26);
   const uReflDistort = uniform(0.12);
   const uScatterStrength = uniform(0.85);
@@ -436,7 +440,7 @@ export function createWaterMaterial({
   // 0.74 leaves only the top of the octave above the line. The first pass sat
   // at 0.62 with three times the gain and painted the whole sea — open water is
   // mostly water, and this layer is a suggestion of old foam, not a covering.
-  const uAmbFoam = uniform(0.055);
+  const uAmbFoam = uniform(0.028);
   const uAmbFoamScale = uniform(0.028);
   const uAmbFoamThresh = uniform(0.82);
 
@@ -453,7 +457,7 @@ export function createWaterMaterial({
     uWakeCenter, uWakeWorld, uWakeTexel, uWakeGrad, uWakeSlope, uWakeSlopeMax, uWakeArmSlope,
     uWakeFoam, uWakeArmFoam, uWakeSoft, uWakeArmSoft, uWakeMottle, uWakeBright,
     uWakeRim, uWakeChurnScale, uWakeHalo,
-    uDetailStrength, uRefractDistort, uReflDistort, uScatterStrength, uShoreFoamDepth,
+    uDetailStrength, uFineChop, uRefractDistort, uReflDistort, uScatterStrength, uShoreFoamDepth,
     uAmbFoam, uAmbFoamScale, uAmbFoamThresh,
     uReflBedMin, uReflBedNear, uReflBedFar,
     uSwellGain, uSwellDeepA, uSwellDeepB, uCrestNorm,
@@ -592,11 +596,24 @@ export function createWaterMaterial({
     const N = normalize(vec3(gradX.negate(), 1.0, gradZ.negate())).toVar();
     const ng = vec2(N.x.negate(), N.z.negate()).div(max(N.y, 1e-3)).toVar();
 
+    // A fourth, much finer octave — a 0.9 m tile against the previous finest of
+    // 3.5 m. This is the one that decides whether water reads as water. Without
+    // it the surface carries nothing smaller than a car, so every reflection
+    // lands on it soft and unbroken and the sea looks like a sheet of glass with
+    // a picture painted on it. Real chop is 30 cm to a metre, it is what breaks
+    // the sky reflection into thousands of pieces, and it is what the specular
+    // has to bite on to give the glitter anywhere to live.
+    const dF = tDetail.sample(vFlat.mul(1.10).add(vec2(0.041, -0.052).mul(uTime))).toVar();
     const d0 = tDetail.sample(vFlat.mul(0.285).add(vec2(0.021, -0.034).mul(uTime))).toVar();
     const d1 = tDetail.sample(vFlat.mul(0.110).add(vec2(-0.016, 0.012).mul(uTime))).toVar();
     const d2 = tDetail.sample(vFlat.mul(0.043).add(vec2(0.008, 0.006).mul(uTime))).toVar();
     const ripFade = smoothstep(140.0, 900.0, dist).oneMinus().toVar();
-    const grad = d0.rg.mul(2.0).sub(1.0).mul(0.85)
+    // The fine octave fades out much sooner than the rest. A 0.9 m ripple is
+    // well under a pixel by forty metres, and left in it turns the middle
+    // distance into a boiling mess of aliasing rather than into chop.
+    const fineFade = smoothstep(18.0, 95.0, dist).oneMinus().toVar();
+    const grad = dF.rg.mul(2.0).sub(1.0).mul(uFineChop.mul(fineFade))
+      .add(d0.rg.mul(2.0).sub(1.0).mul(0.85))
       .add(d1.rg.mul(2.0).sub(1.0).mul(0.55))
       .add(d2.rg.mul(2.0).sub(1.0).mul(0.34)).toVar();
     ng.addAssign(grad.mul(uDetailStrength.mul(ripFade)));
