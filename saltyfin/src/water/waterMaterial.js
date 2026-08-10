@@ -268,7 +268,12 @@ export function createWaterMaterial({
   const uNear = uniform(0.35);
   const uFar = uniform(6000);
 
-  const uAbsorb = uniform(new THREE.Vector3(0.33, 0.07, 0.042));
+  // Extinction per metre, per channel. Red goes first, which is what makes
+  // clear water turquoise rather than grey. Lowered from (0.33, 0.07, 0.042):
+  // that was a defensible number for real seawater and it put the sand out of
+  // reach by about four metres, which is most of the lagoon. The whole promise
+  // of this bay is that you can see the bottom of it.
+  const uAbsorb = uniform(new THREE.Vector3(0.255, 0.054, 0.033));
   const uScatter = uniform(new THREE.Color(0x22acbc));
   const uShallow = uniform(new THREE.Color(0x63e2d4));
   const uMid = uniform(new THREE.Color(0x23bec6));
@@ -344,6 +349,7 @@ export function createWaterMaterial({
   const uWakeMottle = uniform(0.70);
   // The breaking crest along the arm's outer edge, and how fine the churn is.
   const uWakeRim = uniform(0.55);
+  const uWakeHalo = uniform(0.30);
   const uWakeChurnScale = uniform(1.60);
   // How opaque the wake foam is allowed to get. foamCol lands near 2.25 in
   // linear at the day preset, so a fully opaque strand reads as 96% sRGB after
@@ -430,7 +436,7 @@ export function createWaterMaterial({
     uReflStrength, uReflEnabled, uCaustic, uCausticScale, uFoamTint, uFoamBright,
     uWakeCenter, uWakeWorld, uWakeTexel, uWakeGrad, uWakeSlope, uWakeSlopeMax, uWakeArmSlope,
     uWakeFoam, uWakeArmFoam, uWakeSoft, uWakeArmSoft, uWakeMottle, uWakeBright,
-    uWakeRim, uWakeChurnScale,
+    uWakeRim, uWakeChurnScale, uWakeHalo,
     uDetailStrength, uRefractDistort, uReflDistort, uScatterStrength, uShoreFoamDepth,
     uReflBedMin, uReflBedNear, uReflBedFar,
     uSwellGain, uSwellDeepA, uSwellDeepB, uCrestNorm,
@@ -679,9 +685,15 @@ export function createWaterMaterial({
 
     // --- the water column ---------------------------------------------------
     const trans = exp(uAbsorb.negate().mul(path.add(column.mul(0.65)))).toVar();
-    const body = mix(mix(uShallow, uMid, smoothstep(0.15, 2.4, column)),
-      uDeep, smoothstep(2.4, 14.0, column)).toVar();
-    const inScatter = vec3(mix(body, uScatter, 0.28)).toVar();
+    // Hold the bright shallow colour further out before the mid and deep bands
+    // take over. At 0.15-2.4 m the lagoon had turned to mid-blue by the time it
+    // was waist deep, so the turquoise the whole place is built around only
+    // existed in a narrow ring around the sand.
+    const body = mix(mix(uShallow, uMid, smoothstep(0.40, 3.6, column)),
+      uDeep, smoothstep(3.6, 18.0, column)).toVar();
+    // Less of the scatter colour mixed into the shallow body, so what comes back
+    // out of a metre of water is mostly the SAND, not the water's own tint.
+    const inScatter = vec3(mix(body, uScatter, 0.22)).toVar();
     const col = vec3(refr.mul(trans).add(inScatter.mul(trans.oneMinus()))).toVar();
 
     // A body the size of the leviathan blocks the light coming up through the
@@ -810,8 +822,13 @@ export function createWaterMaterial({
     // The lower edge sits above where the bilinear halo of overlapping stamp
     // tails lands (B and A both sit around 0.02-0.05 out there); below it that
     // halo comes back as a faint triangle of haze behind the boat.
-    const bodyF = smoothstep(0.12, 0.55, wakeBody).mul(uWakeFoam).toVar();
-    const armF = smoothstep(0.15, 0.60, armv).mul(uWakeArmFoam).toVar();
+    // Wider bands than a threshold wants. A narrow band is the crisp, graphic
+    // answer and it is what a renderer reaches for; a painter lays foam down
+    // with a loaded brush and the edge of the stroke is where the paint thins,
+    // not where it stops. Widening these is the difference between a decal with
+    // a clean rim and a mark that was made.
+    const bodyF = smoothstep(0.11, 0.57, wakeBody).mul(uWakeFoam).toVar();
+    const armF = smoothstep(0.13, 0.61, armv).mul(uWakeArmFoam).toVar();
     // A brighter rim along the outside of each arm. A wake's crest is where the
     // water is actually breaking, and without it the arms read as two smooth
     // painted ribbons — correct in shape, dead in the water. Taking the band
@@ -836,11 +853,22 @@ export function createWaterMaterial({
     // magenta and green — the glitter above fades for the same reason.
     wake.mulAssign(smoothstep(90.0, 340.0, dist).oneMinus());
 
+    // The bloom of disturbed water around the foam, well below the foam's own
+    // threshold. Water beside a wake is not the water further out — it is
+    // lighter, milkier and it has no edge at all, and every painting of a boat
+    // shows that halo before it shows a single white stroke. This is the term
+    // that stops the wake sitting ON the sea and starts it belonging to it.
+    const wakeHalo = smoothstep(0.02, 0.36, max(wakeBody, armv))
+      .mul(uWakeHalo).mul(wmask)
+      .mul(smoothstep(90.0, 340.0, dist).oneMinus()).toVar();
+
     const foam = sat(sat(shore).add(crest).add(sat(wake).mul(uWakeBright))).toVar();
     // Texture inside the foam, so a splash reads as churned water and not a
     // plate. Capped below 1: solving mix(water, target, a) against ref/01 gives
     // a = 0.35 at the strand edges and 0.72-0.96 at the hottest cores, so the
     // water colour reads through everywhere — foam is never fully opaque.
+    // Halo first, under the foam, so the foam sits in its own disturbed water.
+    col.assign(mix(col, mix(col, foamCol, 0.62), wakeHalo));
     col.assign(mix(col, foamCol.mul(float(0.70).add(breakup.mul(0.58))), foam.mul(0.92)));
 
     // --- the light path -----------------------------------------------------
