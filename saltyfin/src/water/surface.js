@@ -8,9 +8,12 @@
 // nothing swims.
 //
 // A coarse seabed depth map is baked once from terrain.seabedHeight. The vertex
-// shader reads it to flatten the swell as it runs up the reef, and the CPU
-// sampler reads the same field, so sampleHeight agrees with the GPU to within a
-// couple of centimetres and the hull floats on the crest you can see.
+// shader reads it for two things — flattening the swell as it runs up the reef,
+// and scaling each wave component up as the water deepens, which is what makes
+// the open sea rougher than the lagoon — and the CPU sampler reproduces the
+// GPU's read byte for byte (bilinear the encoded values, then square), so
+// sampleHeight agrees with the shader to within the encoding's own
+// quantisation and the hull floats on the crest you can see.
 //
 // LAYER.MAIN only. The surface must never appear in its own refraction or
 // reflection.
@@ -18,7 +21,7 @@
 import * as THREE from 'three';
 import { LAYER, setLayers, addLayers } from '../core/layers.js';
 import { smoothstep } from '../core/rng.js';
-import { waveHeight, waveNormal } from './waves.js';
+import { waveHeight, waveNormal, waveWeights, WAVE_COUNT } from './waves.js';
 import { createWaterMaterial } from './waterMaterial.js';
 import { createWake } from './wake.js';
 import { createCaustics } from './caustics.js';
@@ -32,6 +35,12 @@ const DEPTH_HALF = 560;            // metres from the origin it covers
 const DEPTH_MAX = 64;              // metres encoded in the sqrt ramp
 
 const _scratchNormal = new THREE.Vector3();
+// Two, not one: sampleHeight and sampleNormal are called back to back by
+// props.js and boat.js, and sharing a single buffer between them would work
+// today only by luck of the call order.
+const _wH = new Float32Array(WAVE_COUNT);
+const _wN = new Float32Array(WAVE_COUNT);
+const _deep = new Float32Array(WAVE_COUNT);
 
 // The layout in CONTRACT.md, used only if the terrain module is not answering.
 function fallbackSeabed(x, z) {
@@ -93,11 +102,22 @@ function buildDiscGeometry(rings, sectors, radius, falloff) {
   return geo;
 }
 
-/** Bake the seabed into a float grid plus a sqrt-encoded byte texture. */
+/**
+ * Bake the seabed into a sqrt-encoded byte texture plus the same values as
+ * floats, so the CPU sampler can reproduce the GPU's read exactly.
+ *
+ * Sample points are TEXEL CENTRES: x = -half + (i + 0.5) * (2*half/n). The
+ * bake used to step (2*half)/(n-1) from edge to edge, which put every baked
+ * value 1.75 m away from where the sampler thinks it lives — a systematic half
+ * texel of skew between the boat's depth and the shader's. That was worth up
+ * to 0.4 m of disagreement in depth and 0.126 of shore before the depth ramp;
+ * with the ramp multiplying amplitude, the same error would scale with it.
+ */
 function buildDepthMap(terrain, n, half) {
   const depths = new Float32Array(n * n);
+  const enc = new Float32Array(n * n);       // exactly what the sampler reads back
   const data = new Uint8Array(n * n * 4);
-  const step = (half * 2) / (n - 1);
+  const step = (half * 2) / n;
 
   let fn = null;
   if (terrain && typeof terrain.seabedHeight === 'function') {
@@ -108,9 +128,9 @@ function buildDepthMap(terrain, n, half) {
   }
 
   for (let j = 0; j < n; j++) {
-    const z = -half + j * step;
+    const z = -half + (j + 0.5) * step;
     for (let i = 0; i < n; i++) {
-      const x = -half + i * step;
+      const x = -half + (i + 0.5) * step;
       let h;
       if (fn) {
         h = fn(x, z);
@@ -122,7 +142,9 @@ function buildDepthMap(terrain, n, half) {
       const k = j * n + i;
       depths[k] = d;
       const e = Math.sqrt(Math.min(d, DEPTH_MAX) / DEPTH_MAX);
-      data[k * 4] = Math.max(0, Math.min(255, Math.round(e * 255)));
+      const byte = Math.max(0, Math.min(255, Math.round(e * 255)));
+      enc[k] = byte / 255;
+      data[k * 4] = byte;
       data[k * 4 + 1] = 0;
       data[k * 4 + 2] = 0;
       data[k * 4 + 3] = 255;
@@ -136,7 +158,7 @@ function buildDepthMap(terrain, n, half) {
   tex.generateMipmaps = false;
   tex.colorSpace = THREE.NoColorSpace;
   tex.needsUpdate = true;
-  return { texture: tex, depths, n, half, step };
+  return { texture: tex, depths, enc, n, half, step };
 }
 
 export function createWater(opts = {}) {
@@ -191,22 +213,51 @@ export function createWater(opts = {}) {
   setLayers(group, LAYER.MAIN);
 
   // --- CPU side of the shore damp -----------------------------------------
-  // Bilinear on the same field the vertex shader reads, so both sides agree.
+  // The GPU does: bilinear the sqrt-ENCODED bytes, square, scale by DEPTH_MAX,
+  // and force DEPTH_MAX outside the map. Doing the same arithmetic in the same
+  // order here is what makes sampleHeight agree with the vertex shader; the old
+  // version bilineared the raw float depths instead, and squaring a filtered
+  // encode is not the same thing as filtering squared values — worst measured
+  // disagreement 0.399 m of depth, 0.126 of shore. That mattered little while
+  // the train was flat; it scales with the depth ramp's amplitude gain.
   function depthAtCpu(x, z) {
-    const n = depthMap.n;
-    const fx = (x + depthMap.half) / depthMap.step;
-    const fz = (z + depthMap.half) / depthMap.step;
-    if (fx <= 0 || fz <= 0 || fx >= n - 1 || fz >= n - 1) return DEPTH_MAX;
-    const i = fx | 0, j = fz | 0;
+    const n = depthMap.n, half = depthMap.half;
+    // The shader's own outside test, on the unclamped uv: |uv - 0.5| * 2 >= 1.
+    if (x <= -half || x >= half || z <= -half || z >= half) return DEPTH_MAX;
+    // Texel coordinates, the sampler's convention: texel i is centred at
+    // (i + 0.5) / n in uv, so uv * n - 0.5 lands on the grid the bake wrote.
+    let fx = ((x + half) / (half * 2)) * n - 0.5;
+    let fz = ((z + half) / (half * 2)) * n - 0.5;
+    // Clamp-to-edge, exactly as the texture's wrap mode does.
+    if (fx < 0) fx = 0; else if (fx > n - 1) fx = n - 1;
+    if (fz < 0) fz = 0; else if (fz > n - 1) fz = n - 1;
+    let i = fx | 0, j = fz | 0;
+    if (i > n - 2) i = n - 2;
+    if (j > n - 2) j = n - 2;
     const tx = fx - i, tz = fz - j;
-    const d = depthMap.depths;
+    const d = depthMap.enc;
     const a = d[j * n + i], b = d[j * n + i + 1];
     const c = d[(j + 1) * n + i], e = d[(j + 1) * n + i + 1];
-    return (a + (b - a) * tx) + ((c + (e - c) * tx) - (a + (b - a) * tx)) * tz;
+    const top = a + (b - a) * tx;
+    const bot = c + (e - c) * tx;
+    const s = top + (bot - top) * tz;
+    return s * s * DEPTH_MAX;
   }
 
-  function shoreAt(x, z) {
-    return 0.10 + 0.90 * smoothstep(0.20, 3.0, depthAtCpu(x, z));
+  /**
+   * The six per-wave amplitude weights at a point — the shore damp and the
+   * depth ramp, in that order, exactly as the vertex stage builds them. The
+   * deep-water multipliers and the master gain are read back out of the
+   * uniforms rather than off the table, so a soak.mjs sweep moves the water the
+   * boat floats on at the same time as the water it can see.
+   */
+  function weightsAt(x, z, out) {
+    const d = depthAtCpu(x, z);
+    const a = u.uSwellDeepA.value, b = u.uSwellDeepB.value;
+    _deep[0] = a.x; _deep[1] = a.y; _deep[2] = a.z;
+    _deep[3] = b.x; _deep[4] = b.y; _deep[5] = b.z;
+    return waveWeights(d, 0.10 + 0.90 * smoothstep(0.20, 3.0, d),
+      out, u.uSwellGain.value, _deep);
   }
 
   // --- module surface ------------------------------------------------------
@@ -290,14 +341,14 @@ export function createWater(opts = {}) {
     dispose,
     setTargets,
 
-    /** Surface height at a world point. Same train, same shore damp, as the GPU. */
+    /** Surface height at a world point. Same train, same weights, as the GPU. */
     sampleHeight(x, z, time) {
-      return waveHeight(x, z, time ?? 0, WIND, shoreAt(x, z));
+      return waveHeight(x, z, time ?? 0, WIND, weightsAt(x, z, _wH));
     },
 
     /** Analytic normal of that same field. */
     sampleNormal(x, z, time, out) {
-      return waveNormal(x, z, time ?? 0, out || _scratchNormal, WIND, shoreAt(x, z));
+      return waveNormal(x, z, time ?? 0, out || _scratchNormal, WIND, weightsAt(x, z, _wN));
     },
 
     /** Water depth over the seabed at a world point, in metres. */

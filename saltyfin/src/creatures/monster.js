@@ -28,11 +28,42 @@
 // spines, two huge swept pectorals, small pelvic fins and a vertical fluke, all
 // merged into a single vertex buffer with one extra attribute (`aFin`) telling
 // the shader which vertices belong to which fin and how far out along it they
-// sit. Two draw calls: the animal, and its eyes.
+// sit.
+//
+// TWO draw calls per animal — the body and the eyes — and that took a fix. The
+// eyes were two Meshes sharing one geometry and one material, so a single
+// animal was THREE meshes; on layers MAIN|UNDERWATER|REFLECTED, drawn by
+// main.js:559-561 in three passes, that is nine draw calls for one leviathan.
+// Merging the eyes into one two-sphere buffer at build time takes it to six.
+//
+// THE POD. There are now two to four of them, because the deep water was empty
+// and the player asked for it not to be. Everything about "several" is in
+// `makeAnimal` and in three rules learned from pictures rather than from code:
+//
+//   * ONE geometry family, ONE material. Every body is a separate Mesh over a
+//     BufferGeometry that shares position/normal/aFin by reference; only the
+//     tiny constant `aLev` differs. Identical attribute layout and an identical
+//     material object mean one WGSL module and one pipeline for all of them
+//     (clip.js:19-28). Measured: three extra bodies cost +9 draw calls and
+//     +21,492 triangles when all are in frame, and +0 when they sit at their
+//     real anchors, because per-mesh frustum culling removes them.
+//   * THEY DO NOT SCHOOL. Each owns one lobe of the deep annulus, at least
+//     160 m from its neighbours. What makes the deep feel inhabited is that
+//     something lives at the north-west drop and something ELSE lives off the
+//     lighthouse — not four animals in one place.
+//   * AT CRUISE DEPTH IN THE DEEP THEY ARE INVISIBLE. That is measured: at
+//     20 m down and 70 m out a 34 m leviathan is indistinguishable from cloud
+//     mottle; at 12 m it is a smudge; at 7-9 m it is unmistakable. So "more
+//     monsters in deeper water" is not delivered by parking silhouettes at
+//     25 m. It is delivered by the SOUNDING — drive out to one of their homes
+//     and it comes up to 8.5 m and crosses your bow — and by breaches, which
+//     are legible at any range.
 //
 // The module also owns the **disturbance** — the churned patch and rising
 // bubbles out toward the lighthouse island that the quest sends the player to
-// investigate. `api.disturbance` is the public handle for it.
+// investigate. `api.disturbance` is the public handle for it. There is exactly
+// ONE of those however many animals there are: quest.js:99-107 latches it on
+// its first read, inside createQuest, before any update has run.
 
 import * as THREE from 'three';
 import {
@@ -75,6 +106,64 @@ const HOME_Z = -300;
 // so -13.5 leaves roughly four metres of water over its back. Any less and a
 // 34 m leviathan is wading.
 const MIN_FLOOR = -13.5;
+
+// DEEP water, which is a stricter thing than "not aground", and the difference
+// is the whole point of the pod. Probed on sixteen bearings against
+// terrain.seabedHeight: the reef flats run to r ~ 200, the shelf edge crosses
+// MIN_FLOOR at r 234-240, -20 m at r 256-262, -25 m at r 274-284, and the deep
+// proper (-27 to -33) starts around r 300 north and r 400 elsewhere.
+//
+// The radius alone is NOT a depth test and must never be used as one: (-300, 0)
+// is at r = 300, is 161 m from the village-island keep-out centre and therefore
+// passes every circle below, and sits in 6.9 m of water — the island's sand
+// apron (seabed.js:103-105) reaches well past its keep-out radius. So the
+// radius is only the cheap pre-filter and the seabed height is the authority.
+//
+// -24 is chosen so a spine at -19 still has clearance under it with a metre in
+// hand. Anchors AND circuit targets are both vetted against it — today only the
+// anchor was, and a primary circuit point landed at (140, -204) in 15.6 m.
+const DEEP_MIN_R = 300;
+const DEEP_FLOOR = -24;
+
+// Where the pod lives. Every one of these was probed before it was written
+// down; the depth in the comment is terrain.seabedHeight at that point.
+//
+// The ORDER is the order they are populated in as the geometry budget rises, so
+// the low tiers get the two that are most likely to be found. Pairwise
+// separation is at least 160 m by construction (the closest pair is L1-L3 at
+// 178 m), which is why nothing has to enforce separation per frame.
+//
+// `band` is the cruise depth range in metres. It is deliberately different per
+// animal and deliberately deeper for the far ones: L3 lives at 26-30 m five
+// hundred metres offshore and the only thing that will ever reveal it is the
+// player going out there and it rising to meet him. Invisibility is the water
+// column, not a visibility flag — nothing here is ever hidden or revealed.
+const POD = [
+  // x     z      scale band          circuit  stretch rate    speed
+  { x: 140, z: -300, s: 1.00, d0: 13.5, d1: 24.5, r: 96, k: 1.25, u: 0.032, v: 4.2 },  // -30.8  the quest's animal
+  { x: -20, z: -380, s: 0.88, d0: 14.0, d1: 18.0, r: 84, k: 1.30, u: 0.026, v: 3.6 },  // -33    due north, over the drop
+  { x: -250, z: -290, s: 1.15, d0: 20.0, d1: 24.0, r: 108, k: 1.15, u: 0.020, v: 3.4 }, // -31.5  the north-west deep
+  { x: 90, z: -520, s: 1.08, d0: 26.0, d1: 30.0, r: 124, k: 1.20, u: 0.038, v: 5.2 },  // -42    the one you have to go and find
+];
+
+// The sounding — the reward for driving out to where one of them lives, and the
+// only thing that makes a deep animal legible at all.
+//
+// The numbers come from photographs, not from taste. At 20 m depth / 70 m range
+// I could not tell a leviathan from a cloud reflection. At 12 m it is a distinct
+// dark shape but it sits directly behind the boat hull, which the chase framing
+// keeps low-centre. At 7 m and 22 m it spans ~440 px against a ~110 px hull.
+// So: come up to 8.5 m, and cross the BOW rather than coming down the
+// centreline — the primary's own flyby aims at `boat + dir * 70`, straight
+// through the boat, which is exactly the framing that hides it.
+const SOUND_R = 140;        // how close to its home the boat has to come
+const SOUND_RISE = 14;      // seconds from the cruise band up to SOUND_Y
+const SOUND_HOLD = 20;      // seconds at depth, i.e. two or three crossings
+const SOUND_FALL = 12;      // and back down
+const SOUND_Y = 8.5;
+const SOUND_LOCK = 90;      // before that animal will do it again
+const SOUND_ABEAM = 60;     // metres to the side of the boat it aims for
+const SOUND_AHEAD = 30;     // and ahead, so the crossing happens off the bow
 
 // --- scratch (module scope; update() allocates nothing) ---------------------
 
@@ -508,6 +597,36 @@ const fbmV3 = Fn(([p0]) => {
 function decorateMonsterMaterial(mat, uni) {
   const aFin = attribute('aFin', 'vec2');
 
+  // Per-ANIMAL individuality, and the only reason the pod is not one animal
+  // rendered four times.
+  //
+  // There are now several leviathans on this ONE material, and a material owns
+  // exactly one `uni.uMTime`. Feed that straight into the swim and four animals
+  // beat their tails in perfect lockstep — a fleet, not wildlife. A second
+  // uniform cannot fix it (a uniform is per material, not per mesh) and a
+  // rebuilt graph per animal is four blocking pipeline builds (constraint 3).
+  //
+  // So the clock is bent per animal by a constant vertex attribute, exactly the
+  // trick wildlife.js:733-747 uses for `aFish`: `aLev` is (phase offset in
+  // seconds, rate scale), identical across every vertex of one animal and
+  // different between animals. Each body gets its own BufferGeometry that
+  // SHARES position/normal/aFin by reference and adds its own 57 KB aLev buffer
+  // — 8 useful floats blown up to a vertex attribute, which is ugly, but the
+  // attribute LAYOUT is identical so all of them still compile ONE pipeline
+  // (clip.js:19-28, wildlife.js:714-719), and it costs zero CPU per frame.
+  //
+  // EVERY animal carries aLev, the primary included. A mixed attribute layout
+  // would be two pipelines, which is the thing this whole file is built to
+  // avoid.
+  const aLev = attribute('aLev', 'vec2');
+  const mTime = uni.uMTime.mul(aLev.y).add(aLev.x);
+
+  // The fragment stage needs the same bent clock for the wet-collar streaks.
+  // It has to come across as a varying: `aLev` is a vertex attribute and
+  // reading one in the fragment stage is not free the way `positionWorld` is —
+  // the same argument vWetU below is built on. One interpolated float.
+  const vLevTime = varying(mTime, 'vLevTime');
+
   const monSway = Fn(([z, t]) => {
     const s = tslClamp(z.add(HALF).div(LEN), 0, 1).toVar();
     const amp = uni.uSwimAmp
@@ -528,21 +647,21 @@ function decorateMonsterMaterial(mat, uni) {
     const isP = step(0.5, kind).mul(step(kind, 1.5));
     const isV = step(1.5, kind).mul(step(kind, 2.5));
     const f = span.mul(span);
-    const w = sin(uni.uMTime.mul(uni.uFinRate));
+    const w = sin(mTime.mul(uni.uFinRate));
 
     const ox = positionLocal.x.toVar();
     const py = positionLocal.y
       .add(w.mul(f).mul(uni.uFinAmp).mul(isP.add(isV.mul(0.5)))).toVar();
     const pz = positionLocal.z
-      .add(oneMinus(cos(uni.uMTime.mul(uni.uFinRate))).mul(f).mul(uni.uFinAmp).mul(0.20).mul(isP))
+      .add(oneMinus(cos(mTime.mul(uni.uFinRate))).mul(f).mul(uni.uFinAmp).mul(0.20).mul(isP))
       .toVar();
 
-    const ma = monAngle(positionGeometry.z, uni.uMTime).toVar();
+    const ma = monAngle(positionGeometry.z, mTime).toVar();
     const mc = cos(ma).toVar();
     const ms = sin(ma).toVar();
 
     return vec3(
-      ox.mul(mc).add(monSway(positionGeometry.z, uni.uMTime)),
+      ox.mul(mc).add(monSway(positionGeometry.z, mTime)),
       py,
       pz.sub(ox.mul(ms)),
     );
@@ -552,7 +671,7 @@ function decorateMonsterMaterial(mat, uni) {
   // were still straight. Computed per vertex, exactly as `beginnormal_vertex`
   // did, then handed to the shading normal in view space.
   const monNormal = Fn(() => {
-    const ma = monAngle(positionGeometry.z, uni.uMTime).toVar();
+    const ma = monAngle(positionGeometry.z, mTime).toVar();
     const mc = cos(ma).toVar();
     const ms = sin(ma).toVar();
     return vec3(
@@ -626,7 +745,7 @@ function decorateMonsterMaterial(mat, uni) {
     const runoff = oneMinus(smoothstep(0.0, 9.0, positionWorld.y)).mul(0.26).toVar();
     // Scrolling downward, so the streaks read as water falling rather than as a
     // texture painted on the hide.
-    const wn = vnoise(vec2(vWetU, positionWorld.y.mul(0.26).sub(uni.uMTime.mul(1.35)))).toVar();
+    const wn = vnoise(vec2(vWetU, positionWorld.y.mul(0.26).sub(vLevTime.mul(1.35)))).toVar();
     c.addAssign(
       uni.uWetCol.mul(uni.uWet)
         .mul(collar.mul(0.95).add(runoff))
@@ -736,6 +855,46 @@ function questWantsApproach(ctx) {
     || k.indexOf('confront') >= 0 || k.indexOf('breach') >= 0
     || k.indexOf('leviathan') >= 0 || k.indexOf('monster') >= 0;
 }
+/**
+ * Both eyes in ONE buffer.
+ *
+ * They were two Meshes sharing one SphereGeometry and one MeshBasicMaterial,
+ * which reads as free and is not: a Mesh is a draw call per pass, and the animal
+ * is on three passes, so the pair cost six draws. Merged, they cost three. At
+ * four animals that is twelve draw calls saved for ten lines at build time —
+ * more than instancing the bodies would have saved, and without the
+ * positionNode/normalNode rewrite instancing would have forced.
+ */
+function buildEyes() {
+  const src = new THREE.SphereGeometry(0.23, 8, 6);
+  const sp = src.attributes.position.array;
+  const sn = src.attributes.normal.array;
+  const si = src.index.array;
+  const n = src.attributes.position.count;
+  const P = new Float32Array(sp.length * 2);
+  const N = new Float32Array(sn.length * 2);
+  const I = new Uint16Array(si.length * 2);
+  for (let s = 0; s < 2; s++) {
+    const ox = s === 0 ? -1.58 : 1.58;
+    const vo = s * n;
+    for (let i = 0; i < n; i++) {
+      P[(vo + i) * 3] = sp[i * 3] + ox;
+      P[(vo + i) * 3 + 1] = sp[i * 3 + 1] + 0.75;
+      P[(vo + i) * 3 + 2] = sp[i * 3 + 2] - 14.10;
+      N[(vo + i) * 3] = sn[i * 3];
+      N[(vo + i) * 3 + 1] = sn[i * 3 + 1];
+      N[(vo + i) * 3 + 2] = sn[i * 3 + 2];
+    }
+    for (let k = 0; k < si.length; k++) I[s * si.length + k] = si[k] + vo;
+  }
+  src.dispose();
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(P, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(N, 3));
+  g.setIndex(new THREE.BufferAttribute(I, 1));
+  g.computeBoundingSphere();
+  return g;
+}
 
 // ---------------------------------------------------------------- the module
 
@@ -772,16 +931,22 @@ export function createMonster(opts = {}) {
     uBTime: uniform(0),
     // How wet she is, 0..1. Rises the instant the head clears the water and
     // takes a couple of seconds to run off — see the collar in monOutput.
+    // Shared by the whole pod, and honest because the breach token below
+    // guarantees only one animal is ever out of the water.
     uWet: uniform(0),
     uWetCol: uniform(new THREE.Color(0.9, 0.95, 1.0)),
   };
 
-  // ---- the animal --------------------------------------------------------
+  // ---- the shared parts bin ----------------------------------------------
   // DoubleSide on purpose: a hand-lofted shell has a couple of caps whose
   // winding is not worth arguing with, and three flips the normal on back faces
   // so the shading comes out right either way.
+  //
+  // `geoTemplate` is never drawn. It is where the position/normal/aFin buffers
+  // live, and every animal's geometry points at those same three
+  // BufferAttributes — one upload, one GPU buffer each, however many animals.
 
-  const geo = buildMonster(rng);
+  const geoTemplate = buildMonster(rng);
   const mat = new THREE.MeshStandardNodeMaterial({
     color: 0xffffff,
     roughness: 0.94,
@@ -792,38 +957,42 @@ export function createMonster(opts = {}) {
   });
   decorateMonsterMaterial(mat, uni);
 
-  // `group` is the static root main.js adds to the scene. Only `body` moves —
-  // the disturbance hangs off the root, not off the animal, or it would be
-  // dragged round the bay on the leviathan's back.
-  const body = new THREE.Group();
-  body.name = 'leviathan-body';
-  group.add(body);
-
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.name = 'leviathan';
-  mesh.castShadow = false;
-  mesh.receiveShadow = false;
-  body.add(mesh);
-
   // Eyes. Small, unlit, warm — the one thing in the silhouette that is not a
   // hole in the water. They sit forward of where the spine sway begins, so they
   // ride the body transform and need no shader of their own.
-  const eyeGeo = new THREE.SphereGeometry(0.23, 8, 6);
+  const eyeGeo = buildEyes();
   const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffb755, fog: true });
-  const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
-  const eyeR = new THREE.Mesh(eyeGeo, eyeMat);
-  eyeL.position.set(-1.58, 0.75, -14.10);
-  eyeR.position.set(1.58, 0.75, -14.10);
-  eyeL.castShadow = false;
-  eyeR.castShadow = false;
-  body.add(eyeL, eyeR);
 
-  setLayers(group, LAYER.MAIN, LAYER.UNDERWATER, LAYER.REFLECTED);
-  // Submerged almost always, so without a waterline clip its mirror image
-  // lands above the reflected horizon and smears across open water.
-  applyWaterClip(group);
+  // ---- how many ----------------------------------------------------------
+  // The house ramp, `lerpI` in splash.js:122, branching on the geometry BUDGET
+  // and never on a tier name. geometry 1.00 -> 4, 0.68 -> 3, 0.50 -> 2,
+  // 0.42 -> 2. Never fewer than two: one is what there was before the player
+  // asked for more.
+  const podCount = Math.min(
+    POD.length,
+    Math.round(2 + 2 * clamp((geoBudget - 0.42) / 0.58, 0, 1)),
+  );
+
+  const podGeos = [];
+  function levGeometry(phase, rate) {
+    const g = new THREE.BufferGeometry();
+    // Shared by REFERENCE. Same buffers, same layout, one pipeline.
+    g.setAttribute('position', geoTemplate.attributes.position);
+    g.setAttribute('normal', geoTemplate.attributes.normal);
+    g.setAttribute('aFin', geoTemplate.attributes.aFin);
+    const n = geoTemplate.attributes.position.count;
+    const a = new Float32Array(n * 2);
+    for (let i = 0; i < n; i++) { a[i * 2] = phase; a[i * 2 + 1] = rate; }
+    g.setAttribute('aLev', new THREE.BufferAttribute(a, 2));
+    g.boundingSphere = geoTemplate.boundingSphere.clone();
+    podGeos.push(g);
+    return g;
+  }
 
   // ---- the disturbance ---------------------------------------------------
+  // Exactly one, whatever the pod is doing. It is a quest LOCATION, and
+  // quest.js:99-107 latches it permanently the first time it reads it — inside
+  // createQuest (main.js:230), before a single update has run.
 
   const disturbGroup = new THREE.Group();
   disturbGroup.name = 'disturbance';
@@ -889,61 +1058,39 @@ export function createMonster(opts = {}) {
   }
   disturbGroup.add(bubbles);
 
-  disturbGroup.position.copy(disturbPos);
-  group.add(disturbGroup);
-
   // ---- white water -------------------------------------------------------
-  // Built here, at boot, and drawn every frame from here on — collapsed to a
-  // point when idle. See the header of splash.js for why it must never be
-  // created, revealed or unculled at the moment of impact.
-  const splash = createSplash({ quality: opts.quality, seed });
-  group.add(splash.group);
-  setLayers(patch, LAYER.MAIN);
-  setLayers(bubbles, LAYER.MAIN, LAYER.UNDERWATER);
+  // Two rigs, built here at boot and drawn every frame from here on —
+  // collapsed to a point when idle. See the header of splash.js for why they
+  // must never be created, revealed or unculled at the moment of impact.
+  //
+  // Why TWO and not one, and why not four. A rig is one set of
+  // uT/uOrigin/uDir/uPower uniforms, so it can carry exactly one splash at a
+  // time. The primary gets its own, because `api.breach()` is the quest's and
+  // the capture harness's entry point and must never have to queue behind an
+  // idle breach happening two hundred metres away. The rest of the pod share
+  // the second, which is safe because the breach token below lets only one of
+  // them be airborne at once. Four rigs would cost 2,840 idle triangles and
+  // four idle draw calls each for nothing.
+  const splashA = createSplash({ quality: opts.quality, seed });
+  const splashB = createSplash({ quality: opts.quality, seed: seed ^ 0x51a5 });
 
-  // ---- state -------------------------------------------------------------
+  // Only one animal may be off the bottom of a breach arc at a time, and there
+  // is an eight-second lockout after one ends. Two 34 m animals erupting
+  // together reads as a cutscene rather than as wildlife, it would need a third
+  // splash rig, and it would make the shared `uni.uWet` a lie.
+  let airborne = 0;
+  let breachLock = 0;
 
-  const position = new THREE.Vector3(HOME_X * 0.5, -21, HOME_Z - 40);
-  const velocity = new THREE.Vector3(0, 0, -4);
-  const anchor = new THREE.Vector3(HOME_X, 0, HOME_Z);
-  const desired = new THREE.Vector3();
+  // ---- steering shared by every animal ------------------------------------
 
-  const state = {
-    position,
-    heading: 0,
-    depth: 21,
-    distance: 260,
-    surfaced: 0,
-    phase: 'cruise',
-    alerted: false,
-    disturbance: disturbPos,
-  };
-
-  let phase = 'cruise';
-  let phaseT = 0;
-  let circuitU = 0;
-  let bank = 0;
-  let speed = 4.0;
-  let nearDisturbT = 0;
-  let breachCooldown = 30;
-  let approachLock = 0;
-  let flybyT = 20;
-  let flyby = 0;
-  let ringDone = false;
-  let exitDone = false;
-  let wet = 0;
-  let lastY = position.y;
-  let stampT = 0;
-
-  const brP0 = new THREE.Vector3();
-  const brP1 = new THREE.Vector3();
-  const brP2 = new THREE.Vector3();
-  let brT = 0;
-  const BREACH_TIME = 4.6;
-
-  // Keep the circuit anchor out of the islands. The bathymetry is essentially
-  // radial, so pushing away from the origin buys the depth; these three circles
-  // buy the clearance.
+  /**
+   * Drag a circuit CENTRE out into water an animal actually fits in.
+   *
+   * Radius first because it is free, then the island keep-outs, then — and this
+   * is the part that was missing — an actual depth test. The three circles do
+   * not describe the islands' sand aprons: (-300, 0) clears all of them and is
+   * in 6.9 m of water.
+   */
   const KEEP_OUT = [
     [-150, -60, 150],     // village island
     [215, -195, 108],     // lighthouse island
@@ -965,13 +1112,22 @@ export function createMonster(opts = {}) {
         else v.x = k[0] + k[2];
       }
     }
-    return v;
+    return pushDeep(v, DEEP_FLOOR);
   }
 
-  /** Walk a target point outward until the animal actually fits under it. */
-  function pushDeep(v) {
+  /**
+   * Walk a target point outward until the animal actually fits under it. The
+   * bathymetry is radial, so "outward" is "deeper" on every bearing.
+   *
+   * `floor` is a parameter and not MIN_FLOOR because the two callers want
+   * different things: a circuit target has to be in DEEP water (-24) or the
+   * player's "put them in the deep" is not delivered, while a flyby target is
+   * allowed anywhere the animal physically fits (-13.5 x its scale), because
+   * the whole point of a flyby is that it comes to the boat.
+   */
+  function pushDeep(v, floor) {
     for (let i = 0; i < 8; i++) {
-      if (seabed(v.x, v.z) < MIN_FLOOR) break;
+      if (seabed(v.x, v.z) < floor) break;
       const r = Math.hypot(v.x, v.z);
       if (r > 720) break;
       if (r > 1e-3) { const f = (r + 34) / r; v.x *= f; v.z *= f; } else v.z = -60;
@@ -979,101 +1135,582 @@ export function createMonster(opts = {}) {
     return v;
   }
 
-  /** Deepest the spine may sit at (x, z): a body-height clear of the floor. */
-  function floorLimit(x, z) {
-    const h = seabed(x, z);
-    return (Number.isFinite(h) ? h : -30) + 4.6;
-  }
-
-  function bezier(out, t) {
-    const it = 1 - t;
-    const a = it * it, b = 2 * it * t, c = t * t;
-    out.set(
-      brP0.x * a + brP1.x * b + brP2.x * c,
-      brP0.y * a + brP1.y * b + brP2.y * c,
-      brP0.z * a + brP1.z * b + brP2.z * c,
-    );
-    return out;
-  }
-
-  function setPhase(next) {
-    phase = next;
-    state.phase = next;
-    phaseT = 0;
-  }
+  // ---- one animal ---------------------------------------------------------
 
   /**
-   * @param {number} surfaceX where she is aimed to break water
-   * @param {number} surfaceZ
-   * @param {number} [run] metres she carries on PAST that point before landing.
-   *   This is what decides where the crash actually happens, and it used to be
-   *   hard-wired at 46. That is why the game's most important breach — the one
-   *   the quest builds to — landed 72 m from the boat: the approach aimed at
-   *   `boat + dir*26` and then this pushed the landing another 46 m along the
-   *   same line, past the boat, past the 62 m stamp gate, and past the point
-   *   where a player looking at their own bow would see any of it.
+   * Everything that makes a leviathan an individual. All of this was already
+   * per-closure before there was a pod; the only genuinely shared things are the
+   * shader clock (bent per animal by `aLev`), the one disturbance, and the two
+   * splash rigs.
    */
-  function beginBreach(surfaceX, surfaceZ, run = 46) {
-    brP0.copy(position);
-    _dir.set(surfaceX - position.x, 0, surfaceZ - position.z);
-    if (_dir.lengthSq() < 1e-4) _dir.set(velocity.x, 0, velocity.z);
-    if (_dir.lengthSq() < 1e-4) _dir.set(0, 0, -1);
-    _dir.normalize();
-    const ex = surfaceX + _dir.x * run;
-    const ez = surfaceZ + _dir.z * run;
-    brP2.set(ex, Math.max(-15, floorLimit(ex, ez)), ez);
-    // Solve the control point for a *chosen* apex rather than adding a fixed
-    // lift: a quadratic through B(0.5) = (P0 + 2*P1 + P2)/4 means P1 has to
-    // start from where the ends actually are. Adding a constant instead let a
-    // breach that began near the surface throw thirty metres of leviathan into
-    // the sky.
-    const apex = 9.5 + rng.range(0, 3.5);
-    brP1.set(
-      (brP0.x + brP2.x) * 0.5,
-      2 * apex - 0.5 * (brP0.y + brP2.y),
-      (brP0.z + brP2.z) * 0.5,
-    );
-    brT = 0;
-    ringDone = false;
-    exitDone = false;
-    setPhase('breach');
+  function makeAnimal(index, spec) {
+    const isPrimary = index === 0;
+    const scale = spec.s;
+    // Every clearance scales with the animal or a big one grounds. The
+    // derivation at MIN_FLOOR above is per-metre-of-leviathan: spine 4.6 m off
+    // the bottom, ridge 4.2 m above the spine, four metres of water over the
+    // back.
+    const clearance = 4.6 * scale;
+    const minFloor = MIN_FLOOR * scale;
+    const ceiling = -3.5 * scale;
+    const rig = isPrimary ? splashA : splashB;
+
+    // Its own geometry: shared buffers, its own two-float clock bend. Phase is
+    // wide enough that no two tails are ever near each other; the rate scale is
+    // narrow because past about ±20% the swim stops looking like the same
+    // species.
+    const geo = levGeometry(rng.range(0, TAU * 2), rng.range(0.86, 1.18));
+
+    const body = new THREE.Group();
+    body.name = isPrimary ? 'leviathan-body' : `leviathan-body-${index}`;
+    body.scale.setScalar(scale);
+    group.add(body);
+
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.name = isPrimary ? 'leviathan' : `leviathan-${index}`;
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    const eyes = new THREE.Mesh(eyeGeo, eyeMat);
+    eyes.name = isPrimary ? 'leviathan-eyes' : `leviathan-eyes-${index}`;
+    eyes.castShadow = false;
+    eyes.receiveShadow = false;
+    body.add(mesh, eyes);
+
+    // THE PRIMARY IS NEVER CULLED, THE REST ALWAYS MAY BE.
+    //
+    // splash.js:45-48 forbids culling outright, and the reason is exact: a
+    // culled object is never reached by renderObject(), so its pipeline is not
+    // compiled, and warmUpClock's frames all come from one camera pose — culling
+    // defers a first draw exactly like `visible = false` does. That argument
+    // applies to an object whose pipeline NOTHING ELSE compiles. It does not
+    // apply here: every animal shares one material and one attribute layout, so
+    // the primary compiles the pipeline for all of them.
+    //
+    // The primary is pinned because it must not be left to luck. Probed at boot:
+    // the animal is at (70, -21, -340) and the default camera at (-6.6, 5.1,
+    // 36.5) does have it in frustum — but `?boat=x,z,heading` (main.js:223-228)
+    // teleports the boat BEFORE warmUpClock runs, and a start pose facing south
+    // would leave the pipeline uncompiled until the first time the player turned
+    // round. Pinning 7,164 vertices through three passes costs nothing and makes
+    // the warm-up deterministic.
+    mesh.frustumCulled = !isPrimary;
+    eyes.frustumCulled = !isPrimary;
+
+    // Where it lives. Vetted here, once, against the real seabed — not trusted
+    // from the table.
+    const anchor = new THREE.Vector3(spec.x, 0, spec.z);
+    deepenAnchor(anchor);
+
+    const position = isPrimary
+      ? new THREE.Vector3(HOME_X * 0.5, -21, HOME_Z - 40)
+      : new THREE.Vector3(anchor.x + spec.r * spec.k * 0.6, -(spec.d0 + spec.d1) * 0.5, anchor.z);
+    if (!isPrimary) pushDeep(position, DEEP_FLOOR);
+    const velocity = new THREE.Vector3(0, 0, -spec.v);
+    const desired = new THREE.Vector3();
+
+    const state = {
+      position,
+      heading: 0,
+      depth: Math.max(0, -position.y),
+      distance: 260,
+      surfaced: 0,
+      phase: 'cruise',
+      alerted: false,
+    };
+    if (isPrimary) state.disturbance = disturbPos;
+
+    let phase = 'cruise';
+    let phaseT = 0;
+    // Never phase-locked: a quarter turn apart round the circuit at boot, plus
+    // a per-animal rate, means the pod never falls into formation.
+    let circuitU = index * 0.27 + rng.range(0, 0.14);
+    let bank = 0;
+    let speed = spec.v;
+    let nearDisturbT = 0;
+    // Measured, and then lengthened. With the primary's 34 + 0..22 s on all four
+    // animals, a boat parked in the middle of the annulus saw two breaches in
+    // eighty seconds — one at 236 m and one at 169 m — and a leviathan erupting
+    // every half-minute is a fairground attraction, not a sighting. The primary
+    // keeps its own cadence because the player is usually nowhere near it and
+    // because the quest breach does not go through this gate at all; the rest of
+    // the pod wait two to three minutes each, which with three of them is one
+    // breach somewhere in the deep every minute or so at the very most.
+    let breachCooldown = (isPrimary ? 30 : 70) + index * 24;
+    let approachLock = 0;
+    let flybyT = 20;
+    let flyby = 0;
+    let soundLock = 25 + index * 9;
+    let soundSide = index & 1 ? 1 : -1;
+    let ringDone = false;
+    let exitDone = false;
+    let lastY = position.y;
+    let stampT = 0;
+    let mine = false;               // does this animal hold the breach token
+
+    const brP0 = new THREE.Vector3();
+    const brP1 = new THREE.Vector3();
+    const brP2 = new THREE.Vector3();
+    let brT = 0;
+    const BREACH_TIME = 4.6;
+
+    /** Deepest the spine may sit at (x, z): a body-height clear of the floor. */
+    function floorLimit(x, z) {
+      const h = seabed(x, z);
+      return (Number.isFinite(h) ? h : -30) + clearance;
+    }
+
+    function bezier(out, t) {
+      const it = 1 - t;
+      const a = it * it, b = 2 * it * t, c = t * t;
+      out.set(
+        brP0.x * a + brP1.x * b + brP2.x * c,
+        brP0.y * a + brP1.y * b + brP2.y * c,
+        brP0.z * a + brP1.z * b + brP2.z * c,
+      );
+      return out;
+    }
+
+    function setPhase(next) {
+      phase = next;
+      state.phase = next;
+      phaseT = 0;
+    }
+
+    /**
+     * @param {number} surfaceX where she is aimed to break water
+     * @param {number} surfaceZ
+     * @param {number} [run] metres she carries on PAST that point before landing.
+     *   This is what decides where the crash actually happens, and it used to be
+     *   hard-wired at 46. That is why the game's most important breach — the one
+     *   the quest builds to — landed 72 m from the boat: the approach aimed at
+     *   `boat + dir*26` and then this pushed the landing another 46 m along the
+     *   same line, past the boat, past the 62 m stamp gate, and past the point
+     *   where a player looking at their own bow would see any of it.
+     */
+    function beginBreach(surfaceX, surfaceZ, run = 46) {
+      brP0.copy(position);
+      _dir.set(surfaceX - position.x, 0, surfaceZ - position.z);
+      if (_dir.lengthSq() < 1e-4) _dir.set(velocity.x, 0, velocity.z);
+      if (_dir.lengthSq() < 1e-4) _dir.set(0, 0, -1);
+      _dir.normalize();
+      const ex = surfaceX + _dir.x * run;
+      const ez = surfaceZ + _dir.z * run;
+      brP2.set(ex, Math.max(-15 * scale, floorLimit(ex, ez)), ez);
+      // Solve the control point for a *chosen* apex rather than adding a fixed
+      // lift: a quadratic through B(0.5) = (P0 + 2*P1 + P2)/4 means P1 has to
+      // start from where the ends actually are. Adding a constant instead let a
+      // breach that began near the surface throw thirty metres of leviathan into
+      // the sky.
+      const apex = (9.5 + rng.range(0, 3.5)) * scale;
+      brP1.set(
+        (brP0.x + brP2.x) * 0.5,
+        2 * apex - 0.5 * (brP0.y + brP2.y),
+        (brP0.z + brP2.z) * 0.5,
+      );
+      brT = 0;
+      ringDone = false;
+      exitDone = false;
+      if (!mine) { mine = true; airborne++; }
+      setPhase('breach');
+    }
+
+    function releaseToken() {
+      if (mine) { mine = false; airborne--; breachLock = 8; }
+    }
+
+    function orient(dt) {
+      if (velocity.lengthSq() < 1e-6) return;
+      _look.copy(velocity).normalize();
+      _az.copy(_look).multiplyScalar(-1);           // object +Z runs down the tail
+      _v.copy(_UP);
+      if (Math.abs(_v.dot(_az)) > 0.985) _v.set(0, 0, _az.y > 0 ? 1 : -1);
+      _ax.crossVectors(_v, _az).normalize();
+      _ay.crossVectors(_az, _ax).normalize();
+      _m4.makeBasis(_ax, _ay, _az);
+      _q.setFromRotationMatrix(_m4);
+      _qr.setFromAxisAngle(_AXIS_Z, bank);
+      _q.multiply(_qr);
+      body.quaternion.slerp(_q, Math.min(1, dt * 2.4));
+    }
+
+    /**
+     * Slow, heavy steering: the velocity takes a couple of seconds to come round,
+     * which is what gives the long lazy arcs the art has. The yaw rate falls out
+     * of the turn and drives the bank.
+     */
+    function steerTo(tx, ty, tz, want, dt) {
+      desired.set(tx - position.x, ty - position.y, tz - position.z);
+      const d = desired.length();
+      if (d > 1e-4) desired.multiplyScalar(want / d);
+      else desired.copy(velocity);
+      const prevYaw = Math.atan2(velocity.x, -velocity.z);
+      velocity.lerp(desired, Math.min(1, dt * 0.55));
+      let dyaw = Math.atan2(velocity.x, -velocity.z) - prevYaw;
+      while (dyaw > Math.PI) dyaw -= TAU;
+      while (dyaw < -Math.PI) dyaw += TAU;
+      const rate = dt > 1e-5 ? dyaw / dt : 0;
+      bank += (clamp(rate * 2.6, -0.55, 0.55) - bank) * Math.min(1, dt * 1.6);
+    }
+
+    /** @returns {number} the animal's y, so the caller can drive the shared uWet. */
+    function update(ctx, atDisturbance) {
+      const dt = ctx.dt;
+      const t = ctx.time;
+      const boat = ctx.boat;
+      const bx = boat ? boat.position.x : 0;
+      const bz = boat ? boat.position.z : 0;
+      const water = ctx.water;
+
+      phaseT += dt;
+      breachCooldown -= dt;
+      approachLock -= dt;
+      flybyT -= dt;
+      soundLock -= dt;
+      stampT += dt;
+
+      // --- triggers -------------------------------------------------------
+      // ONLY THE PRIMARY KNOWS THE BOAT EXISTS in this sense. If all four
+      // responded to the quest the climactic breach becomes four breaches and
+      // the beat is destroyed; if all four eased their circuits onto the player
+      // he would be permanently mobbed and none of it would mean anything.
+      if (isPrimary) {
+        nearDisturbT = atDisturbance ? nearDisturbT + dt : 0;
+        const wantApproach = questWantsApproach(ctx) || nearDisturbT > 2.4 || state.alerted;
+        if (phase === 'cruise' && wantApproach && approachLock <= 0) setPhase('approach');
+      }
+
+      // --- behaviour ------------------------------------------------------
+      if (phase === 'breach') {
+        brT += dt / BREACH_TIME;
+        _prev.copy(position);
+        bezier(position, clamp(brT, 0, 1));
+        if (dt > 1e-5) velocity.copy(position).sub(_prev).multiplyScalar(1 / dt);
+        bank += (0 - bank) * Math.min(1, dt * 1.2);
+        speed = velocity.length();
+
+        // Hammer the ripple sim along the path while the animal is near the
+        // surface. The wake window is only 128 m across, so anything further out
+        // than that would be thrown away anyway — do not spend the stamps.
+        _dir.set(velocity.x, 0, velocity.z);
+        if (_dir.lengthSq() > 1e-6) _dir.normalize(); else _dir.set(0, 0, -1);
+
+        if (water && water.disturb) {
+          // The lead used to be a flat 15 m and the proximity test used to be run
+          // against the LEAD point rather than against the animal. Both were
+          // wrong. She travels 17.4 m/s, so a 15 m lead lays the whole descent
+          // trail a full frame-and-a-half ahead of the body and the landing
+          // arrives inside a 30 x 60 m streak that got there first; and testing
+          // the lead meant the trail switched off 58 m from the boat measured
+          // from a point that is not the animal. Lead only while she is RISING —
+          // that is the bow wave of something coming up — and stop leading once
+          // she is on the way down, where the water should be reacting behind her.
+          const lead = velocity.y > 0 ? 12 : 3;
+          _head.copy(position).addScaledVector(_dir, lead);
+          const near = Math.hypot(position.x - bx, position.z - bz) < 62;
+          if (near && position.y > -9 && stampT > 0.07) {
+            stampT = 0;
+            const st = clamp(1.2 + Math.abs(velocity.y) * 0.16, 0.6, 3.4);
+            water.disturb(_head.x, _head.z, st, 5.5 + 3.0 * clamp(position.y / 8 + 1, 0, 1));
+            water.disturb(position.x, position.z, st * 0.7, 8.5);
+          }
+        }
+
+        // Coming OUT. A smaller version of the same rig: ref/05 is this moment,
+        // not the landing, and a leviathan that erupts through the surface with
+        // nothing breaking around her looks like she was always standing there.
+        if (!exitDone && lastY <= 0.2 && position.y > 0.2) {
+          exitDone = true;
+          rig.fire(position.x, 0.15, position.z, _dir.x, _dir.z,
+            (0.42 + 0.020 * Math.min(26, velocity.length())) * scale);
+        }
+
+        // The crash. NOT gated on distance to the boat — a stamp that lands
+        // outside the 128 m wake window is thrown away, but geometry is geometry
+        // and the idle breach in the middle distance is exactly the ref/05
+        // establishing shot. splash.update() does its own gating for the part
+        // that touches the ripple sim.
+        if (!ringDone && lastY > 0.5 && position.y <= 0.5) {
+          ringDone = true;
+          // She hits at about 15 m/s down and 17 m/s forward — a 41 degree entry
+          // at 23 m/s. The old stamp strength was `clamp(1.2 + |vy|*0.16, 0.6,
+          // 3.4)`, which saturates at 3.4 precisely at the moment of impact, so a
+          // hard landing wrote no more than a gentle one. Power is taken from the
+          // whole speed and left uncapped at the top of the range this arc can
+          // actually reach.
+          rig.fire(position.x, 0.0, position.z, _dir.x, _dir.z,
+            (0.55 + 0.022 * Math.min(28, velocity.length())) * scale);
+        }
+        lastY = position.y;
+        if (brT >= 1) {
+          breachCooldown = isPrimary ? 34 + rng.range(0, 22) : 95 + rng.range(0, 75);
+          approachLock = 65;
+          releaseToken();
+          setPhase('dive');
+        }
+      } else {
+        if (mine) releaseToken();       // anything that interrupts a breach
+
+        // Where the circuit is centred. The primary's eases onto the boat while
+        // the boat is somewhere the animal fits; every other animal's is fixed
+        // at its own lobe of the annulus and never moves, which is what stops
+        // the pod converging into a fleet. Separation is guaranteed at build
+        // time by the POD table (closest pair 178 m apart), so nothing has to be
+        // tested per frame.
+        if (isPrimary) {
+          if (seabed(bx, bz) < minFloor) _tgt.set(bx, 0, bz);
+          else _tgt.set(HOME_X, 0, HOME_Z);
+          deepenAnchor(_tgt);
+          anchor.lerp(_tgt, 1 - Math.exp(-dt / 22));
+        }
+
+        if (phase === 'cruise') {
+          if (flyby > 0) {
+            // A deliberate pass under the boat. This is the ref/04 shot and it is
+            // not left to chance — but it is only ever attempted while the boat is
+            // floating over water deep enough to hide 34 m of leviathan.
+            flyby -= dt;
+            const away = Math.hypot(position.x - bx, position.z - bz);
+            _dir.set(bx - position.x, 0, bz - position.z);
+            if (_dir.lengthSq() < 1) _dir.copy(velocity).setY(0);
+            _dir.normalize();
+            _tgt.set(bx + _dir.x * 70, 0, bz + _dir.z * 70);
+            pushDeep(_tgt, minFloor);
+            const lim = floorLimit(_tgt.x, _tgt.z);
+            steerTo(_tgt.x, Math.min(-11, Math.max(-20, lim)), _tgt.z, 5.4, dt);
+            if (flyby <= 0 || away > 340 || seabed(bx, bz) > minFloor) {
+              flyby = 0;
+              flybyT = 46 + rng.range(0, 34);
+            }
+          } else {
+            circuitU += dt * spec.u;
+            const ca = Math.cos(circuitU * TAU), sa = Math.sin(circuitU * TAU);
+            _tgt.set(anchor.x + ca * spec.r * spec.k, 0, anchor.z + sa * spec.r);
+            // The circuit TARGET is vetted, not just the anchor. Without this
+            // the primary's own circuit reached (140, -204) — r 247, 15.6 m of
+            // water, three metres off the reef edge and nowhere near "the deep".
+            pushDeep(_tgt, DEEP_FLOOR);
+            const depthWant = (spec.d0 + spec.d1) * 0.5
+              + (spec.d1 - spec.d0) * 0.5 * Math.sin(t * 0.052 + 1.3 + index);
+            const lim = floorLimit(_tgt.x, _tgt.z);
+            steerTo(_tgt.x, Math.min(-9 * scale, Math.max(-depthWant, lim)), _tgt.z, spec.v, dt);
+            if (isPrimary && flybyT <= 0 && seabed(bx, bz) < minFloor
+              && Math.hypot(position.x - bx, position.z - bz) < 340) flyby = 42;
+          }
+          speed = velocity.length();
+
+          // THE SOUNDING. The reward for driving out to where one of them
+          // lives, and the only thing that makes a deep animal legible. The
+          // primary does not do it — it already has the flyby and the quest
+          // approach, and it is the one animal that follows the player around.
+          if (!isPrimary && soundLock <= 0 && flyby <= 0
+            && Math.hypot(bx - anchor.x, bz - anchor.z) < SOUND_R
+            && seabed(bx, bz) < DEEP_FLOOR) {
+            setPhase('sound');
+          }
+
+          // The idle breach in the middle distance — ref/05's establishing shot.
+          // The far pod animals are allowed a longer leash than the primary: a
+          // breach is legible at any range and an eruption on the horizon is
+          // precisely what an empty deep was missing.
+          if (breachCooldown <= 0) {
+            const d = Math.hypot(position.x - bx, position.z - bz);
+            const near = isPrimary ? 80 : 90;
+            const far = isPrimary ? 300 : 380;
+            if (d > near && d < far && airborne === 0 && breachLock <= 0) {
+              _dir.set(bx - position.x, 0, bz - position.z).normalize();
+              beginBreach(position.x + _dir.x * 34, position.z + _dir.z * 34);
+            } else {
+              breachCooldown = 12;
+            }
+          }
+        } else if (phase === 'sound') {
+          // Up to 8.5 m over fourteen seconds, hold twenty, sink back over
+          // twelve. And aim ACROSS the bow — `boat + right*60 + forward*30`,
+          // flipping sides each time it gets there — rather than straight down
+          // the centreline, where the hull the framing keeps low-centre is
+          // exactly what it hides behind.
+          const cruiseY = (spec.d0 + spec.d1) * 0.5;
+          let depthWant = SOUND_Y;
+          if (phaseT < SOUND_RISE) {
+            depthWant = cruiseY + (SOUND_Y - cruiseY) * (phaseT / SOUND_RISE);
+          } else if (phaseT > SOUND_RISE + SOUND_HOLD) {
+            const f = clamp((phaseT - SOUND_RISE - SOUND_HOLD) / SOUND_FALL, 0, 1);
+            depthWant = SOUND_Y + (cruiseY - SOUND_Y) * f;
+          }
+          const rx = boat ? boat.right.x : 1;
+          const rz = boat ? boat.right.z : 0;
+          const fx = boat ? boat.forward.x : 0;
+          const fz = boat ? boat.forward.z : -1;
+          _tgt.set(
+            bx + rx * SOUND_ABEAM * soundSide + fx * SOUND_AHEAD, 0,
+            bz + rz * SOUND_ABEAM * soundSide + fz * SOUND_AHEAD,
+          );
+          pushDeep(_tgt, minFloor);
+          if (Math.hypot(position.x - _tgt.x, position.z - _tgt.z) < 45) soundSide = -soundSide;
+          const lim = floorLimit(_tgt.x, _tgt.z);
+          steerTo(_tgt.x, Math.min(-7.0 * scale, Math.max(-depthWant, lim)), _tgt.z, 5.6, dt);
+          speed = velocity.length();
+
+          // A shallow animal moving fast drags the surface with it. Same stamp
+          // the primary's approach uses.
+          if (water && water.disturb && position.y > -13 && stampT > 0.22
+            && Math.hypot(position.x - bx, position.z - bz) < 70) {
+            stampT = 0;
+            water.disturb(position.x, position.z, 0.55, 7.0);
+          }
+
+          // Bail out if the player drives off the deep, or the whole pass is
+          // over: either way it goes back down and will not do it again for a
+          // minute and a half.
+          if (seabed(bx, bz) > DEEP_FLOOR) { soundLock = 30; setPhase('dive'); }
+          else if (phaseT > SOUND_RISE + SOUND_HOLD + SOUND_FALL) {
+            soundLock = SOUND_LOCK;
+            setPhase('dive');
+          }
+        } else if (phase === 'approach') {
+          // Rises toward the boat, quicker and shallower every second. It has to
+          // get genuinely shallow to be worth anything: at twenty metres the
+          // water column absorbs ninety-odd per cent of the silhouette and a
+          // thirty-four metre animal reads as a faint smudge. Around seven, it
+          // reads as the shadow in ref/04.
+          const rise = clamp(phaseT / 12, 0, 1);
+          const depthWant = 19 - 12.5 * rise;
+          _dir.set(bx - position.x, 0, bz - position.z);
+          const away = _dir.length();
+          if (away < 1) _dir.copy(velocity).setY(0);
+          _dir.normalize();
+          _tgt.set(bx + _dir.x * 40, 0, bz + _dir.z * 40);
+          pushDeep(_tgt, minFloor);
+          const lim = floorLimit(_tgt.x, _tgt.z);
+          steerTo(_tgt.x, Math.min(-7.5, Math.max(-depthWant, lim)), _tgt.z, 4.6 + 2.6 * rise, dt);
+          speed = velocity.length();
+
+          if (water && water.disturb && away < 55 && position.y > -13 && stampT > 0.22) {
+            stampT = 0;
+            water.disturb(position.x, position.z, 0.55, 7.0);
+          }
+          if (phaseT > 27 || (away < 26 && phaseT > 17)) {
+            _dir.set(bx - position.x, 0, bz - position.z);
+            if (_dir.lengthSq() < 1e-4) _dir.set(0, 0, -1);
+            _dir.normalize();
+            const jx = boat ? boat.right.x : 1;
+            const jz = boat ? boat.right.z : 0;
+            const j = rng.range(-14, 14);
+            // Break water 26 m past the boat and land 12 m further on, i.e. 38 m
+            // from the player and comfortably inside both the camera and the
+            // 62 m wake window. With the old run of 46 this landed at 72 m,
+            // measured live, which is why the climactic breach was silent.
+            //
+            // NOT gated on the breach token: this is the quest's beat, the
+            // primary has its own splash rig, and it must never be swallowed
+            // because something two hundred metres away happened to be in the
+            // air.
+            beginBreach(bx + _dir.x * 26 + jx * j, bz + _dir.z * 26 + jz * j, 12);
+          }
+        } else {
+          // dive — sink away, slow down, then fold back into the circuit.
+          const lim = floorLimit(position.x, position.z);
+          const depthWant = Math.min(-14 * scale, Math.max(-25 * scale, lim));
+          _dir.copy(velocity).setY(0);
+          if (_dir.lengthSq() < 1) _dir.set(0, 0, -1);
+          _dir.normalize();
+          steerTo(position.x + _dir.x * 90, depthWant, position.z + _dir.z * 90,
+            5.0 - 2.0 * clamp(phaseT / 14, 0, 1), dt);
+          speed = velocity.length();
+          if (phaseT > 20) { state.alerted = false; nearDisturbT = 0; setPhase('cruise'); }
+        }
+
+        // Shallow-water bail-out. It runs after whatever the phase wanted and
+        // overrides it, because a phase only ever vets its *target*: the line the
+        // animal takes to get there can still cross the reef, and 34 m of
+        // leviathan aground on a coral head is the one thing that must never
+        // happen. The bathymetry is radial, so "outward" is "deeper".
+        const floorHere = seabed(position.x, position.z);
+        if (Number.isFinite(floorHere) && floorHere > minFloor) {
+          const r = Math.hypot(position.x, position.z) || 1;
+          const urgency = clamp((floorHere - minFloor) / 6, 0, 1);
+          desired.set(position.x / r * 6.5, -1.4, position.z / r * 6.5);
+          velocity.lerp(desired, Math.min(1, dt * (0.9 + 3.6 * urgency)));
+        }
+
+        position.addScaledVector(velocity, dt);
+        // Floor first, ceiling last: if the water is too thin for both, the
+        // ceiling wins. A dark shape clipping a reef head for a couple of seconds
+        // is invisible; a leviathan standing in the shallows is not.
+        const lim = floorLimit(position.x, position.z);
+        if (position.y < lim) { position.y = lim; if (velocity.y < 0) velocity.y *= 0.2; }
+        if (position.y > ceiling) { position.y = ceiling; if (velocity.y > 0) velocity.y *= 0.2; }
+        lastY = position.y;
+      }
+
+      orient(dt);
+      body.position.copy(position);
+
+      // ---- exported state ------------------------------------------------
+      state.heading = Math.atan2(velocity.x, -velocity.z);
+      state.depth = Math.max(0, -position.y);
+      state.distance = Math.hypot(position.x - bx, position.z - bz);
+      // 0 while it is anywhere near its cruising ceiling, 1 once the head and
+      // shoulders are clear — the HUD reads this to decide it has been sighted.
+      state.surfaced = clamp((position.y + 2.0) / 8.0, 0, 1);
+      state.phase = phase;
+
+      return position.y;
+    }
+
+    // Prime the exported state so the HUD and the quest have sane numbers on the
+    // very first frame, before update() has ever run.
+    body.position.copy(position);
+    state.heading = Math.atan2(velocity.x, -velocity.z);
+
+    return {
+      state,
+      anchor,
+      update,
+      get speed() { return speed; },
+      get phase() { return phase; },
+      alert() { state.alerted = true; approachLock = 0; if (phase === 'cruise') setPhase('approach'); },
+      calm() { state.alerted = false; if (phase === 'approach') setPhase('dive'); },
+      forceBreach(x, z) {
+        if (phase === 'breach') return;
+        if (typeof x === 'number' && typeof z === 'number') { beginBreach(x, z); return; }
+        _dir.copy(velocity).setY(0);
+        if (_dir.lengthSq() < 1) _dir.set(0, 0, -1);
+        _dir.normalize();
+        beginBreach(position.x + _dir.x * 34, position.z + _dir.z * 34);
+      },
+    };
   }
+
+  // ---- build the pod ------------------------------------------------------
+  // Every animal exists and is drawn from boot. Nothing is ever created,
+  // revealed, hidden or LOD-swapped later — constraint 4, and the reason a
+  // distant animal is a full-detail body rather than a cheap one.
+
+  const pod = [];
+  for (let i = 0; i < podCount; i++) pod.push(makeAnimal(i, POD[i]));
+  const primary = pod[0];
+  // The SAME object, never a copy: quest.js:67-73/147, hud.js:311-313 and
+  // wildlife.js:1170-1173 all hold `monster.state` and `state.position` by
+  // reference across frames.
+  const state = primary.state;
+
+  setLayers(group, LAYER.MAIN, LAYER.UNDERWATER, LAYER.REFLECTED);
+  // Submerged almost always, so without a waterline clip its mirror image
+  // lands above the reflected horizon and smears across open water.
+  applyWaterClip(group);
+
+  disturbGroup.position.copy(disturbPos);
+  group.add(disturbGroup);
+  group.add(splashA.group);
+  group.add(splashB.group);
+  setLayers(patch, LAYER.MAIN);
+  setLayers(bubbles, LAYER.MAIN, LAYER.UNDERWATER);
 
   // ---- the frame ---------------------------------------------------------
 
-  function orient(dt) {
-    if (velocity.lengthSq() < 1e-6) return;
-    _look.copy(velocity).normalize();
-    _az.copy(_look).multiplyScalar(-1);           // object +Z runs down the tail
-    _v.copy(_UP);
-    if (Math.abs(_v.dot(_az)) > 0.985) _v.set(0, 0, _az.y > 0 ? 1 : -1);
-    _ax.crossVectors(_v, _az).normalize();
-    _ay.crossVectors(_az, _ax).normalize();
-    _m4.makeBasis(_ax, _ay, _az);
-    _q.setFromRotationMatrix(_m4);
-    _qr.setFromAxisAngle(_AXIS_Z, bank);
-    _q.multiply(_qr);
-    body.quaternion.slerp(_q, Math.min(1, dt * 2.4));
-  }
-
-  /**
-   * Slow, heavy steering: the velocity takes a couple of seconds to come round,
-   * which is what gives the long lazy arcs the art has. The yaw rate falls out
-   * of the turn and drives the bank.
-   */
-  function steerTo(tx, ty, tz, want, dt) {
-    desired.set(tx - position.x, ty - position.y, tz - position.z);
-    const d = desired.length();
-    if (d > 1e-4) desired.multiplyScalar(want / d);
-    else desired.copy(velocity);
-    const prevYaw = Math.atan2(velocity.x, -velocity.z);
-    velocity.lerp(desired, Math.min(1, dt * 0.55));
-    let dyaw = Math.atan2(velocity.x, -velocity.z) - prevYaw;
-    while (dyaw > Math.PI) dyaw -= TAU;
-    while (dyaw < -Math.PI) dyaw += TAU;
-    const rate = dt > 1e-5 ? dyaw / dt : 0;
-    bank += (clamp(rate * 2.6, -0.55, 0.55) - bank) * Math.min(1, dt * 1.6);
-  }
+  let wet = 0;
+  let disturbStampT = 0;
 
   function update(ctx) {
     const dt = ctx.dt;
@@ -1087,238 +1724,47 @@ export function createMonster(opts = {}) {
     const bz = boat ? boat.position.z : 0;
     const water = ctx.water;
 
-    phaseT += dt;
-    breachCooldown -= dt;
-    approachLock -= dt;
-    flybyT -= dt;
-    stampT += dt;
+    breachLock -= dt;
+    disturbStampT += dt;
 
-    // --- triggers ---------------------------------------------------------
     const dxq = bx - DISTURB_X, dzq = bz - DISTURB_Z;
     const atDisturbance = (dxq * dxq + dzq * dzq) < 48 * 48;
-    nearDisturbT = atDisturbance ? nearDisturbT + dt : 0;
-    const wantApproach = questWantsApproach(ctx) || nearDisturbT > 2.4 || state.alerted;
 
-    if (phase === 'cruise' && wantApproach && approachLock <= 0) setPhase('approach');
-
-    // --- behaviour --------------------------------------------------------
-    if (phase === 'breach') {
-      brT += dt / BREACH_TIME;
-      _prev.copy(position);
-      bezier(position, clamp(brT, 0, 1));
-      if (dt > 1e-5) velocity.copy(position).sub(_prev).multiplyScalar(1 / dt);
-      bank += (0 - bank) * Math.min(1, dt * 1.2);
-      speed = velocity.length();
-
-      // Hammer the ripple sim along the path while the animal is near the
-      // surface. The wake window is only 128 m across, so anything further out
-      // than that would be thrown away anyway — do not spend the stamps.
-      _dir.set(velocity.x, 0, velocity.z);
-      if (_dir.lengthSq() > 1e-6) _dir.normalize(); else _dir.set(0, 0, -1);
-
-      if (water && water.disturb) {
-        // The lead used to be a flat 15 m and the proximity test used to be run
-        // against the LEAD point rather than against the animal. Both were
-        // wrong. She travels 17.4 m/s, so a 15 m lead lays the whole descent
-        // trail a full frame-and-a-half ahead of the body and the landing
-        // arrives inside a 30 x 60 m streak that got there first; and testing
-        // the lead meant the trail switched off 58 m from the boat measured
-        // from a point that is not the animal. Lead only while she is RISING —
-        // that is the bow wave of something coming up — and stop leading once
-        // she is on the way down, where the water should be reacting behind her.
-        const lead = velocity.y > 0 ? 12 : 3;
-        _head.copy(position).addScaledVector(_dir, lead);
-        const near = Math.hypot(position.x - bx, position.z - bz) < 62;
-        if (near && position.y > -9 && stampT > 0.07) {
-          stampT = 0;
-          const st = clamp(1.2 + Math.abs(velocity.y) * 0.16, 0.6, 3.4);
-          water.disturb(_head.x, _head.z, st, 5.5 + 3.0 * clamp(position.y / 8 + 1, 0, 1));
-          water.disturb(position.x, position.z, st * 0.7, 8.5);
-        }
-      }
-
-      // Coming OUT. A smaller version of the same rig: ref/05 is this moment,
-      // not the landing, and a leviathan that erupts through the surface with
-      // nothing breaking around her looks like she was always standing there.
-      if (!exitDone && lastY <= 0.2 && position.y > 0.2) {
-        exitDone = true;
-        splash.fire(position.x, 0.15, position.z, _dir.x, _dir.z,
-          0.42 + 0.020 * Math.min(26, velocity.length()));
-      }
-
-      // The crash. NOT gated on distance to the boat — a stamp that lands
-      // outside the 128 m wake window is thrown away, but geometry is geometry
-      // and the idle breach in the middle distance is exactly the ref/05
-      // establishing shot. splash.update() does its own gating for the part
-      // that touches the ripple sim.
-      if (!ringDone && lastY > 0.5 && position.y <= 0.5) {
-        ringDone = true;
-        // She hits at about 15 m/s down and 17 m/s forward — a 41 degree entry
-        // at 23 m/s. The old stamp strength was `clamp(1.2 + |vy|*0.16, 0.6,
-        // 3.4)`, which saturates at 3.4 precisely at the moment of impact, so a
-        // hard landing wrote no more than a gentle one. Power is taken from the
-        // whole speed and left uncapped at the top of the range this arc can
-        // actually reach.
-        splash.fire(position.x, 0.0, position.z, _dir.x, _dir.z,
-          0.55 + 0.022 * Math.min(28, velocity.length()));
-      }
-      lastY = position.y;
-      if (brT >= 1) {
-        breachCooldown = 34 + rng.range(0, 22);
-        approachLock = 65;
-        setPhase('dive');
-      }
-    } else {
-      // Where the circuit is centred. It eases onto the boat only while the boat
-      // is somewhere the animal fits; otherwise it falls back to deep water.
-      if (seabed(bx, bz) < MIN_FLOOR) _tgt.set(bx, 0, bz);
-      else _tgt.set(HOME_X, 0, HOME_Z);
-      deepenAnchor(_tgt);
-      anchor.lerp(_tgt, 1 - Math.exp(-dt / 22));
-
-      if (phase === 'cruise') {
-        if (flyby > 0) {
-          // A deliberate pass under the boat. This is the ref/04 shot and it is
-          // not left to chance — but it is only ever attempted while the boat is
-          // floating over water deep enough to hide 34 m of leviathan.
-          flyby -= dt;
-          const away = Math.hypot(position.x - bx, position.z - bz);
-          _dir.set(bx - position.x, 0, bz - position.z);
-          if (_dir.lengthSq() < 1) _dir.copy(velocity).setY(0);
-          _dir.normalize();
-          _tgt.set(bx + _dir.x * 70, 0, bz + _dir.z * 70);
-          pushDeep(_tgt);
-          const lim = floorLimit(_tgt.x, _tgt.z);
-          steerTo(_tgt.x, Math.min(-11, Math.max(-20, lim)), _tgt.z, 5.4, dt);
-          if (flyby <= 0 || away > 340 || seabed(bx, bz) > MIN_FLOOR) {
-            flyby = 0;
-            flybyT = 46 + rng.range(0, 34);
-          }
-        } else {
-          circuitU += dt * 0.032;
-          const ca = Math.cos(circuitU * TAU), sa = Math.sin(circuitU * TAU);
-          _tgt.set(anchor.x + ca * CIRCUIT_R * 1.25, 0, anchor.z + sa * CIRCUIT_R);
-          const depthWant = 19 + 5.5 * Math.sin(t * 0.052 + 1.3);
-          const lim = floorLimit(_tgt.x, _tgt.z);
-          steerTo(_tgt.x, Math.min(-9, Math.max(-depthWant, lim)), _tgt.z, 4.2, dt);
-          if (flybyT <= 0 && seabed(bx, bz) < MIN_FLOOR
-            && Math.hypot(position.x - bx, position.z - bz) < 340) flyby = 42;
-        }
-        speed = velocity.length();
-
-        // The idle breach in the middle distance — ref/05's establishing shot.
-        if (breachCooldown <= 0) {
-          const d = Math.hypot(position.x - bx, position.z - bz);
-          if (d > 80 && d < 300) {
-            _dir.set(bx - position.x, 0, bz - position.z).normalize();
-            beginBreach(position.x + _dir.x * 34, position.z + _dir.z * 34);
-          } else {
-            breachCooldown = 12;
-          }
-        }
-      } else if (phase === 'approach') {
-        // Rises toward the boat, quicker and shallower every second. It has to
-        // get genuinely shallow to be worth anything: at twenty metres the
-        // water column absorbs ninety-odd per cent of the silhouette and a
-        // thirty-four metre animal reads as a faint smudge. Around seven, it
-        // reads as the shadow in ref/04.
-        const rise = clamp(phaseT / 12, 0, 1);
-        const depthWant = 19 - 12.5 * rise;
-        _dir.set(bx - position.x, 0, bz - position.z);
-        const away = _dir.length();
-        if (away < 1) _dir.copy(velocity).setY(0);
-        _dir.normalize();
-        _tgt.set(bx + _dir.x * 40, 0, bz + _dir.z * 40);
-        pushDeep(_tgt);
-        const lim = floorLimit(_tgt.x, _tgt.z);
-        steerTo(_tgt.x, Math.min(-7.5, Math.max(-depthWant, lim)), _tgt.z, 4.6 + 2.6 * rise, dt);
-        speed = velocity.length();
-
-        if (water && water.disturb && away < 55 && position.y > -13 && stampT > 0.22) {
-          stampT = 0;
-          water.disturb(position.x, position.z, 0.55, 7.0);
-        }
-        if (phaseT > 27 || (away < 26 && phaseT > 17)) {
-          _dir.set(bx - position.x, 0, bz - position.z);
-          if (_dir.lengthSq() < 1e-4) _dir.set(0, 0, -1);
-          _dir.normalize();
-          const jx = boat ? boat.right.x : 1;
-          const jz = boat ? boat.right.z : 0;
-          const j = rng.range(-14, 14);
-          // Break water 26 m past the boat and land 12 m further on, i.e. 38 m
-          // from the player and comfortably inside both the camera and the
-          // 62 m wake window. With the old run of 46 this landed at 72 m,
-          // measured live, which is why the climactic breach was silent.
-          beginBreach(bx + _dir.x * 26 + jx * j, bz + _dir.z * 26 + jz * j, 12);
-        }
-      } else {
-        // dive — sink away, slow down, then fold back into the circuit.
-        const lim = floorLimit(position.x, position.z);
-        const depthWant = Math.min(-14, Math.max(-25, lim));
-        _dir.copy(velocity).setY(0);
-        if (_dir.lengthSq() < 1) _dir.set(0, 0, -1);
-        _dir.normalize();
-        steerTo(position.x + _dir.x * 90, depthWant, position.z + _dir.z * 90,
-          5.0 - 2.0 * clamp(phaseT / 14, 0, 1), dt);
-        speed = velocity.length();
-        if (phaseT > 20) { state.alerted = false; nearDisturbT = 0; setPhase('cruise'); }
-      }
-
-      // Shallow-water bail-out. It runs after whatever the phase wanted and
-      // overrides it, because a phase only ever vets its *target*: the line the
-      // animal takes to get there can still cross the reef, and 34 m of
-      // leviathan aground on a coral head is the one thing that must never
-      // happen. The bathymetry is radial, so "outward" is "deeper".
-      const floorHere = seabed(position.x, position.z);
-      if (Number.isFinite(floorHere) && floorHere > MIN_FLOOR) {
-        const r = Math.hypot(position.x, position.z) || 1;
-        const urgency = clamp((floorHere - MIN_FLOOR) / 6, 0, 1);
-        desired.set(position.x / r * 6.5, -1.4, position.z / r * 6.5);
-        velocity.lerp(desired, Math.min(1, dt * (0.9 + 3.6 * urgency)));
-      }
-
-      position.addScaledVector(velocity, dt);
-      // Floor first, ceiling last: if the water is too thin for both, the
-      // ceiling wins. A dark shape clipping a reef head for a couple of seconds
-      // is invisible; a leviathan standing in the shallows is not.
-      const lim = floorLimit(position.x, position.z);
-      if (position.y < lim) { position.y = lim; if (velocity.y < 0) velocity.y *= 0.2; }
-      if (position.y > -3.5) { position.y = -3.5; if (velocity.y > 0) velocity.y *= 0.2; }
-      lastY = position.y;
+    // SEQUENTIALLY. The nineteen module-scope scratch vectors are transient
+    // inside one call, which is exactly what makes N animals safe here and what
+    // would break the moment anything interleaved them.
+    let topY = -1e3;
+    for (let i = 0; i < pod.length; i++) {
+      const y = pod[i].update(ctx, atDisturbance);
+      if (y > topY) topY = y;
     }
 
-    orient(dt);
-    body.position.copy(position);
-
-    // The tail beats harder the faster it swims; the fins keep their own, much
-    // longer cycle so the two never lock into one rhythm.
-    // Wetness. Snaps on the moment anything is out of the water (the ramp is
-    // ~0.15 s) and runs off over a couple of seconds after she is under again,
-    // which is the timescale the sheets in ref/05 imply.
-    const dry = position.y < -2.2;
+    // Wetness. Snaps on the moment ANY animal is out of the water (the ramp is
+    // ~0.15 s) and runs off over a couple of seconds after it is under again,
+    // which is the timescale the sheets in ref/05 imply. One uniform for the
+    // whole pod, which is honest because the breach token lets only one of them
+    // be airborne — and the collar is masked by world height anyway, so a
+    // submerged animal at -19 m gets nothing from it either way.
+    const dry = topY < -2.2;
     wet += ((dry ? 0 : 1) - wet) * Math.min(1, dt * (dry ? 0.75 : 8.0));
     uni.uWet.value = wet;
 
-    splash.update(ctx);
+    splashA.update(ctx);
+    splashB.update(ctx);
 
-    const sp = clamp(speed, 0, 12);
+    // The tail beats harder the faster it swims; the fins keep their own, much
+    // longer cycle so the two never lock into one rhythm. These are ONE
+    // material's uniforms, so they are driven by the primary — the per-animal
+    // `aLev` rate scale is what stops the pod beating in lockstep.
+    const sp = clamp(primary.speed, 0, 12);
     uni.uSwimRate.value = 0.42 + sp * 0.115;
     uni.uSwimAmp.value = 1.15 + sp * 0.075;
     uni.uFinRate.value = 0.28 + sp * 0.030;
 
-    // ---- exported state --------------------------------------------------
-    state.heading = Math.atan2(velocity.x, -velocity.z);
-    state.depth = Math.max(0, -position.y);
-    state.distance = Math.hypot(position.x - bx, position.z - bz);
-    // 0 while it is anywhere near its cruising ceiling, 1 once the head and
-    // shoulders are clear — the HUD reads this to decide it has been sighted.
-    state.surfaced = clamp((position.y + 2.0) / 8.0, 0, 1);
-    state.phase = phase;
-
     // Keep the disturbance boiling when the boat is close enough for the ripple
     // sim to see it at all.
-    if (water && water.disturb && atDisturbance && stampT > 0.30) {
-      stampT = 0;
+    if (water && water.disturb && atDisturbance && disturbStampT > 0.30) {
+      disturbStampT = 0;
       const a = rng.range(0, TAU);
       const rr = rng.range(0, DISTURB_R * 0.8);
       water.disturb(DISTURB_X + Math.cos(a) * rr, DISTURB_Z + Math.sin(a) * rr, 0.75, 3.6);
@@ -1371,7 +1817,8 @@ export function createMonster(opts = {}) {
     _c.copy(env.foamTint)
       .multiplyScalar((0.22 + 0.30 * env.foamBrightness) * (0.35 + 0.65 * env.dayFactor));
     uni.uWetCol.value.copy(_c);
-    splash.applyEnv(env);
+    splashA.applyEnv(env);
+    splashB.applyEnv(env);
 
     _c.copy(env.foamTint).lerp(env.waterShallow, 0.35);
     bubMat.color.copy(_c);
@@ -1380,7 +1827,8 @@ export function createMonster(opts = {}) {
   }
 
   function dispose() {
-    geo.dispose();
+    for (let i = 0; i < podGeos.length; i++) podGeos[i].dispose();
+    geoTemplate.dispose();
     mat.dispose();
     eyeGeo.dispose();
     eyeMat.dispose();
@@ -1389,15 +1837,10 @@ export function createMonster(opts = {}) {
     bubbleGeo.dispose();
     bubMat.dispose();
     bubbles.dispose();
-    splash.dispose();
+    splashA.dispose();
+    splashB.dispose();
     group.clear();
   }
-
-  // Prime the exported state so the HUD and the quest have sane numbers on the
-  // very first frame, before update() has ever run.
-  body.position.copy(position);
-  state.heading = Math.atan2(velocity.x, -velocity.z);
-  state.depth = Math.max(0, -position.y);
 
   return {
     group,
@@ -1410,18 +1853,24 @@ export function createMonster(opts = {}) {
     disturbance: { position: disturbPos, radius: DISTURB_R },
     disturbancePosition: disturbPos,
 
-    /** Let the quest drive the encounter explicitly if it would rather. */
-    alert() { state.alerted = true; approachLock = 0; if (phase === 'cruise') setPhase('approach'); },
-    calm() { state.alerted = false; if (phase === 'approach') setPhase('dive'); },
+    /**
+     * The whole pod, read-only, `pod[0]` being the animal `state` aliases. This
+     * is ADDITIVE — nothing that existed changed shape — and it is here so that
+     * wildlife.js can one day flee all of them instead of only the primary,
+     * which is the one thing this change leaves on the table.
+     */
+    pod,
+    primary,
 
-    /** Force a breach at a surface point, or straight ahead if none is given. */
-    breach(x, z) {
-      if (phase === 'breach') return;
-      if (typeof x === 'number' && typeof z === 'number') { beginBreach(x, z); return; }
-      _dir.copy(velocity).setY(0);
-      if (_dir.lengthSq() < 1) _dir.set(0, 0, -1);
-      _dir.normalize();
-      beginBreach(position.x + _dir.x * 34, position.z + _dir.z * 34);
-    },
+    /** Let the quest drive the encounter explicitly if it would rather. */
+    alert() { primary.alert(); },
+    calm() { primary.calm(); },
+
+    /**
+     * Force a breach at a surface point, or straight ahead if none is given.
+     * THE PRIMARY, always: this is the quest's climax and the capture harness's
+     * entry point, and it has its own splash rig so it can never be blocked.
+     */
+    breach(x, z) { primary.forceBreach(x, z); },
   };
 }

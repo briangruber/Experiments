@@ -14,6 +14,23 @@
 //   * **A jumping fish**, now and then, in the mid-distance: out of the water,
 //     an arc, and back in, stamping the ripple sim on the way out and the way
 //     back.
+//   * **Skitter** — a surface baitfish that scatters off the bow. See the block
+//     above `SPECIES` and `startle` below. It is the only species here that is
+//     designed for the CHASE CAMERA rather than for the water: everything about
+//     it is sized against 848.1/d pixels per metre from an eye 12.5 m astern at
+//     5 m (chaseCamera.js:12), where the nearest water on screen is 8.8 m away
+//     and a 0.34 m fish can never be more than 33 px. So the thing that has to
+//     be big is the EVENT and not the animal.
+//
+// Determinism note (CONTRACT.md: "All randomness goes through core/rng.js with
+// an explicit seed, so the world is identical between runs"). The skitter
+// shoals RECYCLE: a shoal that ends up more than `recycle.far` metres from the
+// boat is re-vetted ahead of it (see `findSpotNear`). Every draw still comes
+// from the seeded stream, so a fixed drive path is reproducible frame for
+// frame — but two DIFFERENT drive paths put the shoals in different places, and
+// a screenshot taken after driving is only comparable to one taken after the
+// same drive. Captures that use `--boat` to teleport stay deterministic,
+// because the recycler only fires on a shoal that is genuinely `far` away.
 //
 // What changed, and why
 // ---------------------
@@ -344,8 +361,17 @@ const SPECIES = [
   {
     // 0.16 m is the honest size for a bait fish and it was unreadable: at 11 m
     // through the water a 0.16 m body is 12 px by 2 px in a 900x640 frame, and a
-    // silver one at that. 0.22 m is still less than a third of the snapper and
-    // it is the difference between a school you can see and one you cannot.
+    // silver one at that. 0.32 m is still less than two-thirds of the snapper
+    // and it is the difference between a school you can see and one you cannot.
+    // (This comment said "0.22" for one build after the size bump landed in the
+    // data and not in the prose. 0.22 x 1.45 = 0.319.)
+    //
+    // The school COUNT came down from 7x60 to 4x40 when `skitter` arrived. Those
+    // seven shoals sat at x 52..131, 60+ m from the boat's spawn, and a 4x crop
+    // of the chase frame showed them as fine dark pepper — 420 sardines were
+    // paying 33,600 triangles for something nobody could see. The species keeps
+    // its 0.8-2.4 m mid-water band because that IS legible from the ref/04
+    // overhead framing; it is only the population that was speculative.
     key: 'sardine', prof: PROF_SLIM, len: 0.32, sizeJit: [0.85, 1.22],
     girth: 0.055, depth: 0.115, stations: 6, radial: [5, 6],
     caudal: [0.18, 0.30, 0.28], dorsal: 0.11, anal: 0, pect: false,
@@ -357,9 +383,106 @@ const SPECIES = [
     pal: { back: 0x14344B, mid: 0x8FC7D8, belly: 0xFFF6E2, fin: 0xFFC24A },
     marks: null,
     tint: { h: [0.50, 0.60], s: [0.04, 0.14], l: [0.54, 0.78] },
-    social: 'ball', schools: [3, 7], per: [26, 60], roam: 1.0, ceil: -0.85,
+    social: 'ball', schools: [2, 4], per: [20, 40], roam: 1.0, ceil: -0.85,
     bandMode: 'surface', band: [0.8, 2.4], water: [3.0, 14.0], clear: 1.1,
     beat: [9.0, 11.5], amp: 0.13,
+  },
+  {
+    // ---- the skitter --------------------------------------------------------
+    // A hardyhead/whitebait shoal, and the only species in this file aimed at
+    // the driving seat instead of at the water.
+    //
+    // Why it exists. The chase camera sits 12.5 m behind the boat at 5 m
+    // (chaseCamera.js:12) on an axis 11.3 deg down. That puts the nearest water
+    // on screen 8.8 m from the eye, so at 848.1/d px per metre a 0.34 m fish
+    // tops out at 33 px and is 22 px where it actually matters (13 m, abeam the
+    // hull). An INDIVIDUAL fish can never read at this camera; measured, on the
+    // best case the old design could offer — 0.62 m parrotfish at 18.7 m, 26 px,
+    // spread across 750 px of unoccluded frame, in 2.5 m of clear water — I
+    // could not pick out one animal at 1:1. So this species is built so that
+    // what reads is the EVENT: a 1.9 m ballistic arc is 124 px, an expanding
+    // ripple ring is ~100 px, and a shoal splitting into two arms 6 m apart
+    // sweeps 450 px of screen in a second. Five to twenty times the animal.
+    //
+    // Cheapest fish in the file: 2*radial*stations + 4 = 54 tris at budget 1.0,
+    // 44 at the floor, against the sardine's 80. `dorsal: 0` because at 11-20
+    // deg of depression you never see one edge-on and a dorsal is the one
+    // surface that would poke through a wave as a stray sliver.
+    key: 'skitter', prof: PROF_SLIM, len: 0.34, sizeJit: [0.80, 1.15],
+    girth: 0.050, depth: 0.130, stations: 5, radial: [4, 5],
+    caudal: [0.20, 0.26, 0.24], dorsal: 0, anal: 0, pect: false,
+    // The palette is the second half of the fix and it is INVERTED against the
+    // rule at the top of this block. "The fish has to be the dark thing" holds
+    // when a fish is silhouetted against a bright water column from below. At
+    // this camera the background behind a fish a metre under the surface is the
+    // REEF, which seabed.js:130-131 paints 0x849070 / 0xA08A63 broken by dark
+    // worley patches — the same value as the sardine's 0x14344B back. Dark on
+    // dark has no contrast boundary at any size. So: olive-black back, which
+    // reads as shadow-on-water rather than as a navy chip on a navy reef, and a
+    // near-white flank, which is what you see when the fish banks and when it
+    // leaves the water. Near-field water in a day frame tops out around 0.80-
+    // 0.85 of white, so the flank has to clear that; `bright` below carries it
+    // the rest of the way.
+    pal: { back: 0x2A4A3E, mid: 0xE8F0F2, belly: 0xFFFFFF, fin: 0xCFE4EC },
+    // No markings. A stripe on a 22 px fish is 2 px, i.e. noise.
+    marks: null,
+    tint: { h: [0.48, 0.56], s: [0.02, 0.07], l: [0.80, 0.92] },
+    // Baked into the vertex colour buffer at build (buildCreature's `bright`),
+    // which is a geometry attribute and touches no material property — hard
+    // constraint 1 — and needs no light, which is hard constraint 2. The jumper
+    // already uses the same door at 1.25.
+    bright: 1.30,
+    // `roam` is deliberately the lowest of any schooling species here. The
+    // recycler vets a spot on the boat's track and the whole encounter rate
+    // depends on the shoal still being there when the bow arrives 10-15 s
+    // later; at the sardine's roam of 1.0 the anchor wanders up to 37 m, which
+    // is four times the corridor's half-width and would throw most of the
+    // interceptions away. 0.45 holds it inside ~12 m — and a baitfish shoal
+    // working one patch of flat is what it should be doing anyway.
+    social: 'skitter', schools: [4, 8], per: [16, 34], roam: 0.45, ceil: -0.28,
+    // 'ride' = the band FOLLOWS the water surface. See RIDE_MARGIN.
+    bandMode: 'ride', band: [0.28, 0.66], water: [1.6, 6.5], clear: 0.8,
+    // Base beat is deliberately below the 12-15 Hz a real baitfish tail runs at:
+    // the rate multiplier in the beat accumulator reaches 2.0 at a burst, and
+    // 12 x 2.0 = 24 Hz is already close to what 60 fps can carry without the
+    // tail strobing backwards.
+    beat: [9.0, 12.0], amp: 0.15,
+    reflected: true,     // see the LAYER note where the meshes are built
+    // The scatter. Everything here is metres, seconds and m/s^2; the reasoning
+    // is at `startleBlock` in updateFish.
+    startle: {
+      lead: [2.3, 1.15],   // corridor length = lead[0] + lead[1] * |speed|
+      half: 3.2,           // corridor half-width
+      decay: 0.55,         // seconds; impulse e-folding
+      imp: 26.0,           // m/s^2 at startle = 1
+      side: 0.86, ahead: 0.28, up: 0.42,
+      // Fraction that leaves the water. The spec for this species said 0.30 and
+      // "all of them is popcorn", which is right — but a capture settled the
+      // other end of it. At 900x640 a SUBMERGED bolter 20 m from the eye is a
+      // 2-3 px pale sliver and I could not find one at 1:1 in a frame where the
+      // probe put 34 of them across 700 px of screen. The intact shoal reads
+      // (dense dark stipple, unmistakably not reef mottle) and the AIRBORNE
+      // fish read (13-15 px, near-white, against surface water), and nothing in
+      // between does. So the shower carries the whole event and 0.30 was too
+      // thin: 0.36 puts 12 of 34 up at once, which in the capture is a spray
+      // and still not popcorn.
+      jumpP: 0.36,
+      jumpV: [3.90, 0.50], // m/s up, from the band — not from the surface
+      jumpRun: [3.1, 1.0], // m/s along the escape, so the arc is 1.7-2.1 m
+      minSpeed: 1.6,       // boat m/s below which nothing jumps
+      // The shower is a SECOND, closer trigger than the bolt — 0.55 s of
+      // warning against the bolt's 1.15 — and it is wider, because by then the
+      // fish it is testing have already bolted 2-3 m off the centreline. See
+      // the jump block in updateFish for the measurement that forced this.
+      jumpLead: [1.2, 0.55], jumpHalf: 4.6,
+    },
+    // Recycling, so the encounter rate does not depend on where findSpot
+    // happened to put eight shoals at boot.
+    // far: a shoal this far astern is worth nothing — 0.34 m at 95 m is 3.0 px
+    // through ~78% reflective water — so it is the one to move. near: where it
+    // is put, far enough that it fades up over the 10-18 s it takes to drive
+    // there rather than popping in. cone: half-angle around the heading.
+    recycle: { far: 95, near: [50, 88], cone: 1.22 },
   },
   {
     key: 'damsel', prof: PROF_DEEP, len: 0.24, sizeJit: [0.84, 1.22],
@@ -444,6 +567,21 @@ const SOCIAL = {
   // ball and, at 14 m through water, an undifferentiated dark pellet. 0.34
   // opens it to ~3 m across, where the individual bodies still resolve.
   ball: { k: 10, rSep: 0.34, wSep: 9.0, wAli: 2.2, wCoh: 0.90, wWander: 0.5, wRate: 0.9, wDepth: 1.6, wFloor: 7.0, vMin: 0.55, vMax: 1.40, drag: 0.9, panic: 2.6 },
+  // TIGHTER than the bait ball on purpose, and that is not a contradiction of
+  // the note above. Opening the ball to 0.34 was right for a school seen at 14 m
+  // through 4 m of water, where the goal is that individuals resolve. Here the
+  // shoal is at 12-16 m in clear surface water and the goal is a MASS that then
+  // breaks: the tight ball is the "before" and the scatter is the "after".
+  // cbrt(34) * 0.26 * 2.1 = 1.77 m across, which at 13 m from the eye projects
+  // to ~230 x 110 px carrying 34 fish at 22 x 5 px — 19% coverage, a dark patch.
+  // Below ~20 fish that is pepper again; above ~45 the separation term costs
+  // real time and it stops looking like more.
+  //
+  // vMax 1.50 x panic 3.6 = 5.4 m/s, about 16 body lengths/s. Over-scaled like
+  // everything else here, and it HAS to beat the boat's top speed or the arms
+  // never get clear of the hull. wDepth is nearly double the ball's because a
+  // surface shoal that sags out of its band is back to being invisible.
+  skitter: { k: 8, rSep: 0.26, wSep: 9.5, wAli: 2.6, wCoh: 1.10, wWander: 0.6, wRate: 1.1, wDepth: 2.4, wFloor: 7.0, vMin: 0.50, vMax: 1.50, drag: 0.9, panic: 3.6 },
   cloud: { k: 6, rSep: 0.45, wSep: 6.0, wAli: 1.0, wCoh: 0.70, wWander: 1.1, wRate: 0.7, wDepth: 1.3, wFloor: 6.0, vMin: 0.20, vMax: 0.80, drag: 0.8, panic: 2.2 },
   // rSep 0.55 over 18 snappers spread them across 3 m and a capture at 11 m read
   // as four or five unrelated fish, not a school. 0.44 with more bodies is what
@@ -468,6 +606,42 @@ const COH_ANCHOR = 0.35;
 // wandered over a reef top, and a 0.85 m grouper at the surface reads as a
 // mistake even though nothing was technically broken.
 const FISH_CEIL = -0.85;
+
+/**
+ * How far under the LOCAL water surface a `bandMode: 'ride'` shoal is kept.
+ *
+ * FISH_CEIL exists because the wave train troughs to -0.456 m in open water, so
+ * a fish pinned at a fixed y anywhere near 0 spends part of every wave cycle in
+ * open air at random. The answer for a surface species is not a deeper band —
+ * that is what made the sardines invisible — it is to make the band follow the
+ * surface, one `ctx.water.sampleHeight` call per SHOAL per frame. That is the
+ * same discipline the terrain probe already runs under (`seabedHeight` costs
+ * 1.82 us a call, so nothing in this file samples per fish); eight extra calls
+ * a frame is ~0.016 ms. It MUST go through `ctx.water.sampleHeight` rather than
+ * re-deriving the wave sum, because that function is the CPU half of the shared
+ * evaluation in water/waves.js and it carries the `shore` damping.
+ *
+ * The margin is measured, not guessed. Over the 1.6-6.5 m reef flats this
+ * species lives on, sampleHeight troughs to -0.199 m at 2.0 m of depth and
+ * -0.508 m at 5.9 m (11 sites, 20 s each). More to the point, the surface
+ * height 2 m away from the sample point differs from the sample by up to
+ * 0.218 m — a shoal is 1.8 m across, so the fish at its edge is under a surface
+ * the shoal centre never saw. 0.26 m of margin keeps that fish ~0.04 m wet at
+ * the worst measured case.
+ *
+ * The species' own `ceil` (-0.28) is then an ABSOLUTE cap on top of that, and
+ * it is set by the reflection clip, not by the waves: CLIP.ABOVE keeps
+ * worldY >= -0.12 (clip.js SEAM), and a swimming fish that crosses that line
+ * gets drawn upside-down into the reflection target in exactly the band where
+ * Fresnel has driven the reflection term to ~1. -0.28, plus a 0.06 m swim bend
+ * and 0.022 m of half-body, leaves the topmost vertex at about -0.20. Only a
+ * JUMPING fish crosses the seam, which is the entire point of the jump.
+ */
+const RIDE_MARGIN = 0.26;
+
+/** Per-frame ceiling on ripple stamps from this module. See `stampBudget`. */
+const STAMP_MAX = 6;
+const ARM_MAX = 2;
 
 /** Body colour ramp plus the species' markings. `gH` is the max half-height. */
 function creatureColor(spec, gH, x, y, z, out) {
@@ -796,6 +970,62 @@ export function createWildlife(opts = {}) {
     return false;
   }
 
+  /**
+   * The recycler's placer: somewhere ahead of the boat, in water this species
+   * wants, on land nowhere.
+   *
+   * This is the answer to the half of the brief that is not about one shoal.
+   * `findSpot` puts every school in a fixed 14-164 m annulus around (0,-8) and
+   * they roam at most 11-26 m from where they land, so drive north past 200 m
+   * and there are no fish at all — and even inside the annulus, 44 schools over
+   * ~80,000 m^2 means the nearest one is usually 60 m away, i.e. 5 px per fish.
+   * Placing a hundred static shoals to fix that is not affordable. The same
+   * eight shoals, always near the player, are worth more than 44 mostly nowhere
+   * near them.
+   *
+   * `cone` is the half-angle around the boat's heading, and the bearing inside
+   * it is drawn u*|u| rather than uniformly. Both halves of that matter. A
+   * NARROW cone would put every new shoal on the centreline and the player
+   * would learn that fish only ever appear dead ahead; a UNIFORM draw across
+   * 70 deg puts almost none of them on the track, because the corridor is
+   * 6.4 m wide plus a 1.8 m shoal and at 70 m that subtends 0.14 rad out of
+   * 2.44 — one interception in every seventeen re-vets. The shaped draw keeps
+   * the full 70 deg of spread but lands 29% of shoals within 0.1 rad of the
+   * heading, which at a re-vet every couple of seconds is an encounter every
+   * ten seconds or so of driving. That is the number the brief is actually
+   * about: the same eight shoals, always near the player.
+   *
+   * At the 50-88 m the re-vet uses, a 0.34 m fish is 3.3-5.8 px through 60-80%
+   * reflective water, so nothing pops in; the shoal fades up over the ten to
+   * eighteen seconds it takes to drive there.
+   *
+   * @param {number} hx,hz unit heading; the boat's own direction of travel
+   */
+  function findSpotNear(out, bx, bz, hx, hz, rmin, rmax, cone, dmin, dmax) {
+    for (let pass = 0; pass < 2; pass++) {
+      const lo = pass === 0 ? dmin : dmin * 0.72;
+      const hi = pass === 0 ? dmax : dmax * 1.35;
+      for (let tries = 0; tries < 48; tries++) {
+        const u = rng.range(-1, 1);
+        const a = Math.atan2(hz, hx) + cone * u * Math.abs(u);
+        const r = rmin + rng.next() * (rmax - rmin);
+        const x = bx + Math.cos(a) * r;
+        const z = bz + Math.sin(a) * r;
+        if (isLand(x, z)) continue;
+        const d = -seabed(x, z);
+        if (d < lo || d > hi) continue;
+        out.set(x, 0, z);
+        return true;
+      }
+    }
+    // Nothing suitable inside the cone — the boat is pointed at a beach, or out
+    // over deep water. Leave the shoal exactly where it is and try again next
+    // time this one comes up in the round robin; a failed re-vet costs 96
+    // rejected candidates once every nShoals frames, and a shoal parked 110 m
+    // astern is invisible anyway.
+    return false;
+  }
+
   /** Smallest stride coprime with n, so the k-sample walk visits everyone. */
   function coprimeStride(n) {
     const gcd = (a, b) => (b ? gcd(b, a % b) : a);
@@ -807,6 +1037,40 @@ export function createWildlife(opts = {}) {
 
   const WHITE = new THREE.Color(1, 1, 1);
   const kinds = [];          // one runtime record per species
+
+  /**
+   * Scatter a school's bodies inside its own radius, at its band, with a random
+   * heading each. Everything here is POSITIONAL, so the recycler can call it to
+   * move a shoal that has fallen 110 m astern without creating or destroying
+   * anything (hard constraint 4) — the instances are the same instances, they
+   * are simply somewhere else. The per-fish constants (scale, beat rate, tint,
+   * the aFish amplitude) are drawn once at build and never touched again.
+   *
+   * `k^0.45` biases toward the rim: a uniform radius draw piles a third of the
+   * shoal into the middle 10% of the volume and the separation term then spends
+   * the first second pushing them apart, which reads as an explosion at boot.
+   */
+  function placeSchoolBodies(rec, sk) {
+    const S = rec.S;
+    for (let i = sk.base; i < sk.base + sk.n; i++) {
+      const u = rng.range(-1, 1), v = rng.range(-1, 1), w = rng.range(-1, 1);
+      const len = Math.max(1e-3, Math.hypot(u, v, w));
+      const kk = Math.pow(rng.next(), 0.45) * sk.radius;
+      rec.px[i] = sk.cx + u / len * kk;
+      rec.py[i] = sk.bandY + v / len * kk * 0.35;
+      rec.pz[i] = sk.cz + w / len * kk;
+      const a0 = rng.range(0, TAU);
+      rec.vx[i] = Math.sin(a0) * S.vMin;
+      rec.vy[i] = 0;
+      rec.vz[i] = Math.cos(a0) * S.vMin;
+      rec.wang[i] = rng.range(0, TAU);
+      rec.wrate[i] = rng.sign() * S.wRate * rng.range(0.7, 1.4);
+      // A recycled shoal must arrive calm. Carrying a half-spent impulse or a
+      // mid-air ballistic flag across a 100 m teleport would hurl the whole
+      // shoal sideways the instant it lands in front of the player.
+      if (rec.st) { rec.st[i] = 0; rec.ex[i] = 0; rec.ey[i] = 0; rec.ez[i] = 0; rec.air[i] = 0; }
+    }
+  }
 
   const withPect = lerpI(0, 1) === 1;   // pectorals are the first thing to go
   const wingRows = lerpI(RAY_WING.length - 1, RAY_WING.length);
@@ -823,7 +1087,10 @@ export function createWildlife(opts = {}) {
     const count = nSchools * perSchool;
     const S = SOCIAL[spec.social];
 
-    const g = buildCreature(spec, radial, wingRows, withPect, 1);
+    // `bright` writes the colour attribute at build. Free, and invisible to
+    // getMaterialCacheKey — which is the whole reason the skitter's silver
+    // flank is a geometry fact and not a light or a material property.
+    const g = buildCreature(spec, radial, wingRows, withPect, spec.bright || 1);
     const mesh = new THREE.InstancedMesh(g, fishMat, count);
     mesh.name = 'fish-' + spec.key;
     mesh.castShadow = false;
@@ -850,6 +1117,17 @@ export function createWildlife(opts = {}) {
       amp: new Float32Array(count), scl: new Float32Array(count),
       yOff: new Float32Array(count), beatR: new Float32Array(count),
       schools: [],
+      // --- the scatter, only for a species that declares `startle` -----------
+      // Two Float32Arrays and a Uint8Array per rec, 2.2 kB at 272 fish. `st` is
+      // the impulse envelope, `ex/ey/ez` the escape direction fixed once on
+      // entry (the boat turns; re-deriving it from boat.right every frame would
+      // swing the escape round with the helm), `air` is the ballistic state:
+      //   0 = swimming, 1 = launched and still under the surface, 2 = airborne.
+      st: spec.startle ? new Float32Array(count) : null,
+      ex: spec.startle ? new Float32Array(count) : null,
+      ey: spec.startle ? new Float32Array(count) : null,
+      ez: spec.startle ? new Float32Array(count) : null,
+      air: spec.startle ? new Uint8Array(count) : null,
     };
 
     const bandHalf = (spec.band[1] - spec.band[0]) * 0.5;
@@ -878,6 +1156,11 @@ export function createWildlife(opts = {}) {
         ax: cx, az: cz,               // the wandering anchor
         radius: spread,
         bandY: seedY, bandHalf,
+        // Local water surface under the shoal centroid, refreshed once a frame
+        // for a 'ride' species and left at 0 for everyone else. Declared here so
+        // every school record has the same shape — a shoal that grew a property
+        // in updateFish would deoptimise the hot loop for all of them.
+        surfY: 0,
         floorY: Math.min(-1.5, sbHome), floorGX: 0, floorGZ: 0, floorHard: -1e9,
         ring: [0, 0, 0, 0], ringN: 0, probe: 0,
         panic: 1,
@@ -902,23 +1185,13 @@ export function createWildlife(opts = {}) {
       }
       sk.ringN = 4;
       rec.schools.push(sk);
+      // Seed inside the shoal so warmUpClock draws them somewhere sane — an
+      // InstancedMesh starts full of zeroed matrices and a degenerate model
+      // matrix is not something to leave lying around.
+      placeSchoolBodies(rec, sk);
 
       for (let i = 0; i < perSchool; i++) {
         const gi = base + i;
-        // Seed inside the shoal so warmUpClock draws them somewhere sane — an
-        // InstancedMesh starts full of zeroed matrices and a degenerate model
-        // matrix is not something to leave lying around.
-        const u = rng.range(-1, 1), v = rng.range(-1, 1), w = rng.range(-1, 1);
-        const len = Math.max(1e-3, Math.hypot(u, v, w));
-        const kk = Math.pow(rng.next(), 0.45) * spread;
-        rec.px[gi] = cx + u / len * kk;
-        rec.py[gi] = sk.bandY + v / len * kk * 0.35;
-        rec.pz[gi] = cz + w / len * kk;
-        const a0 = rng.range(0, TAU);
-        rec.vx[gi] = Math.sin(a0) * S.vMin;
-        rec.vz[gi] = Math.cos(a0) * S.vMin;
-        rec.wang[gi] = rng.range(0, TAU);
-        rec.wrate[gi] = rng.sign() * S.wRate * rng.range(0.7, 1.4);
         const scale = rng.range(spec.sizeJit[0], spec.sizeJit[1]);
         rec.scl[gi] = scale;
         rec.amp[gi] = spec.amp * spec.len * scale;
@@ -952,6 +1225,17 @@ export function createWildlife(opts = {}) {
 
   group.add(fishGroup);
   setLayers(fishGroup, LAYER.MAIN, LAYER.UNDERWATER);
+  // ...then widen the one species that leaves the water. A fish in the air with
+  // no reflection under it reads as a decal stuck on the frame; this is the
+  // jumper's exact recipe. It costs a third draw call for that mesh and a third
+  // triangle submission, and NOT a third pipeline — the clip is a uniform, not a
+  // material property (clip.js), and the reflection pass draws the same
+  // 29-component cache key as the beauty pass does. `setLayers` walks the
+  // subtree and must run AFTER the group-wide call above, which would otherwise
+  // overwrite it.
+  for (const rec of kinds) {
+    if (rec.spec.reflected) setLayers(rec.mesh, LAYER.MAIN, LAYER.UNDERWATER, LAYER.REFLECTED);
+  }
   applyWaterClip(fishGroup);
 
   // ============================================================== gulls ======
@@ -1140,6 +1424,62 @@ export function createWildlife(opts = {}) {
   let envAmp = 1.0;
   let envRate = 1.0;
 
+  // How many ripple stamps this module has left this frame. `water.disturb` is
+  // the public door into the wake sim (surface.js -> wake.js) and it holds a
+  // pending queue of PENDING_MAX = 48 a frame that the BOAT WAKE also draws
+  // from. A shoal of 34 fish hitting the water at once could ask for 34 stamps
+  // and starve the wake, which is hard constraint 5. Six is enough: a stamp is
+  // a ~1.5 m ring that lives for several seconds, so six a frame at 60 fps is
+  // 360 rings a second and the shoal cannot use them all anyway.
+  let stampBudget = STAMP_MAX;
+  let armBudget = ARM_MAX;
+
+  /**
+   * Instance matrix + `aFish`, for one fish, from a position and a velocity.
+   *
+   * Yaw so local -Z runs along the velocity, pitch from its rise. Same
+   * convention `faceAlong` uses, hand-rolled into the instance array:
+   * Matrix4.compose + setMatrixAt is 0.085 us a fish, writing the eight
+   * non-zero terms directly is 0.018 us — at 866 fish that difference is
+   * 0.058 ms a frame, which is a third of this module's whole budget.
+   *
+   * `pitchLimit` is 0.44 rad for a swimming fish, because positionNode rotates
+   * the lateral bend by yaw only and ignores pitch (the worst error at 0.44 is
+   * a 10% shortening of a 3 cm offset), and 1.15 for a fish in the air, where
+   * nose-up-out / nose-down-in is most of what makes an arc read as a fish.
+   */
+  function writePose(rec, mArr, aArr, i, nx, ny, nz, vx, vy, vz, sp, pitchLimit, S, dt) {
+    const hl = Math.sqrt(vx * vx + vz * vz);
+    let yaw;
+    if (hl > 1e-5) yaw = Math.atan2(-vx, -vz);
+    else yaw = Math.atan2(-aArr[i * 4 + 3], aArr[i * 4 + 2]);
+    const pitch = Math.asin(clamp(sp > 1e-5 ? vy / sp : 0, -pitchLimit, pitchLimit));
+    const ca = Math.cos(yaw), sa = Math.sin(yaw);
+    const cp = Math.cos(pitch), spp = Math.sin(pitch);
+    const sc = rec.scl[i];
+    const o = i * 16;
+    mArr[o] = sc * ca; mArr[o + 1] = 0; mArr[o + 2] = -sc * sa;
+    mArr[o + 4] = sc * sa * spp; mArr[o + 5] = sc * cp; mArr[o + 6] = sc * ca * spp;
+    mArr[o + 8] = sc * sa * cp; mArr[o + 9] = -sc * spp; mArr[o + 10] = sc * ca * cp;
+    mArr[o + 12] = nx; mArr[o + 13] = ny; mArr[o + 14] = nz;
+
+    // ---- the beat --------------------------------------------------------
+    // A phase accumulator, so rate can track speed and panic without any
+    // uniform moving. A fish at a standstill still idles at half rate.
+    //
+    // The rate multiplier is clamped at 2.0. It never used to be, because the
+    // fastest species could only reach 1.8 (vCap = vMax * panic 2.6); the
+    // skitter's panic of 3.6 takes it to 2.3, and 12 Hz x 2.3 = 27.6 Hz is past
+    // what a 60 fps sample of a sine can carry — the tail strobes backwards.
+    const ao = i * 4;
+    let ph = aArr[ao] + rec.beatR[i] * envRate * clamp(0.5 + 0.5 * sp / S.vMax, 0, 2.0) * dt;
+    if (ph > TAU) ph -= TAU * Math.floor(ph / TAU);
+    aArr[ao] = ph;
+    aArr[ao + 1] = rec.amp[i] * envAmp * (0.55 + 0.45 * clamp(sp / S.vMax, 0, 1.6));
+    aArr[ao + 2] = ca;
+    aArr[ao + 3] = sa;
+  }
+
   /**
    * The whole fish frame. Measured shape of the cost at 470 fish:
    *   centroid pass ................ ~0.006 ms
@@ -1164,6 +1504,28 @@ export function createWildlife(opts = {}) {
     const bSpeed = boat ? Math.abs(boat.speed || 0) : 0;
     const bWeight = 0.35 + 0.65 * clamp(bSpeed / 4, 0, 1);
 
+    // Boat-local basis for the swept corridor. `dirX/dirZ` is the direction of
+    // TRAVEL, not the bow: astern, the bow wave is behind the transom and the
+    // corridor has to be there too, or backing off a shoal walks the hull
+    // through it with nothing happening.
+    const sgnSpeed = boat && (boat.speed || 0) < 0 ? -1 : 1;
+    const dirX = boat ? boat.forward.x * sgnSpeed : 0;
+    const dirZ = boat ? boat.forward.z * sgnSpeed : -1;
+    const rgtX = boat ? boat.right.x : 1;
+    const rgtZ = boat ? boat.right.z : 0;
+
+    // The water module's public doors, read defensively: `wildlife` is built
+    // before nothing in particular and a harness can render a frame with no
+    // water module at all. `disturbArm` is NOT in CONTRACT.md's water API — it
+    // exists on wake.js and surface.js does not currently re-export it, so this
+    // feature-detects and silently does without.
+    const water = ctx.water;
+    const fDisturb = water && typeof water.disturb === 'function' ? water.disturb : null;
+    const fArm = water && typeof water.disturbArm === 'function' ? water.disturbArm : null;
+    const fSurf = water && typeof water.sampleHeight === 'function' ? water.sampleHeight : null;
+    stampBudget = STAMP_MAX;
+    armBudget = ARM_MAX;
+
     // Read the leviathan defensively — the quest module can own his state and
     // `ctx.monster` is not in CONTRACT.md's ctx table (it should be; main.js:214
     // sets it before this module is built).
@@ -1178,11 +1540,64 @@ export function createWildlife(opts = {}) {
       const spec = rec.spec;
       const S = rec.S;
       const isFloor = spec.bandMode === 'floor';
+      const isRide = spec.bandMode === 'ride';
       const clearance = spec.clear;
       const ceilY = spec.ceil;
       const mArr = rec.mat;
       const aArr = rec.aArr;
       const rSep2 = S.rSep * S.rSep;
+      // Non-null only for a species that declares `startle`. Hoisted out of the
+      // school loop so the branch is one property read per species per frame.
+      const stArr = rec.st, exArr = rec.ex, eyArr = rec.ey, ezArr = rec.ez, airArr = rec.air;
+      const K_ST = spec.startle;
+      // Corridor length is a TIME, not a distance. The existing FLEE_R = 9.0 is
+      // backwards: at 1 m/s it gives a shoal nine seconds of warning, so it is
+      // always already gone by the time you arrive and you never see it intact;
+      // at 8 m/s it gives 1.1 s. Seeing it whole and THEN seeing it go is the
+      // causality — it is what makes the player feel they did it. 1.15 s of
+      // warning at any speed: 2.3 m at rest (you have to nudge them), 8.1 m at
+      // 5 m/s, 11.5 m at 8 m/s.
+      const lead = K_ST ? K_ST.lead[0] + K_ST.lead[1] * bSpeed : 0;
+      const half2 = K_ST ? K_ST.half * K_ST.half : 0;
+      // e^(-dt/decay), one exp per species per frame instead of one per fish.
+      const stDecay = K_ST ? Math.exp(-dt / K_ST.decay) : 0;
+      // What the player feels across ONE throttle press: drifting past makes
+      // them ease aside, driving at them blows the shoal up.
+      const stGate = K_ST ? 0.10 + 0.90 * clamp(bSpeed / 3.2, 0, 1) : 0;
+      const canJump = K_ST ? bSpeed > K_ST.minSpeed : false;
+      const jumpLead = K_ST ? K_ST.jumpLead[0] + K_ST.jumpLead[1] * bSpeed : 0;
+      const jumpHalf2 = K_ST ? K_ST.jumpHalf * K_ST.jumpHalf : 0;
+
+      // ---- recycle one shoal a frame, round robin ------------------------
+      // Nothing is created or destroyed (hard constraint 4): these are the same
+      // instances on a different pair of coordinates. Cost is at most one
+      // findSpotNear per frame against the 44 findSpots the build already pays
+      // in one go.
+      const RC = spec.recycle;
+      if (RC && boat && rec.schools.length > 0) {
+        const si = frame % rec.schools.length;
+        const skR = rec.schools[si];
+        const ddx = skR.cx - bx, ddz = skR.cz - bz;
+        if (ddx * ddx + ddz * ddz > RC.far * RC.far) {
+          if (findSpotNear(_p, bx, bz, dirX, dirZ, RC.near[0], RC.near[1], RC.cone,
+            spec.water[0], spec.water[1])) {
+            skR.homeX = _p.x; skR.homeZ = _p.z;
+            skR.cx = _p.x; skR.cz = _p.z;
+            skR.ax = _p.x; skR.az = _p.z;
+            const sb = seabed(_p.x, _p.z);
+            skR.floorY = Number.isFinite(sb) ? sb : -20;
+            skR.floorHard = skR.floorY - 0.15;
+            for (let k = 0; k < 4; k++) {
+              const a = (k / 4) * TAU;
+              const h = seabed(_p.x + Math.cos(a) * skR.radius, _p.z + Math.sin(a) * skR.radius);
+              skR.ring[k] = Number.isFinite(h) ? h : -20;
+            }
+            skR.bandY = (fSurf ? fSurf(_p.x, _p.z, t) : 0) - (spec.band[0] + spec.band[1]) * 0.5;
+            skR.panic = 1;
+            placeSchoolBodies(rec, skR);
+          }
+        }
+      }
 
       for (let si = 0; si < rec.schools.length; si++) {
         const sk = rec.schools[si];
@@ -1261,13 +1676,29 @@ export function createWildlife(opts = {}) {
         sk.floorHard = hMax - 0.15;
 
         // ---- the band ----------------------------------------------------
+        // ONE sampleHeight per shoal per frame for a 'ride' species — see
+        // RIDE_MARGIN for why the band follows the surface instead of sitting
+        // at a fixed y, and for where the 0.26 came from. Everyone else pays
+        // nothing: `isRide` is false and the call never happens.
+        let surfY = 0;
+        let ceilNow = ceilY;
+        if (isRide) {
+          surfY = fSurf ? fSurf(sk.cx, sk.cz, t) : 0;
+          sk.surfY = surfY;
+          const rideCeil = surfY - RIDE_MARGIN;
+          ceilNow = rideCeil < ceilY ? rideCeil : ceilY;
+        }
         const wob = Math.sin(sk.w5 * t + sk.p5) * sk.bandHalf * 0.55;
-        let bandY = isFloor
-          ? hC + (spec.band[0] + spec.band[1]) * 0.5 + wob
-          : -((spec.band[0] + spec.band[1]) * 0.5) + wob;
+        const bandMid = (spec.band[0] + spec.band[1]) * 0.5;
+        let bandY = isFloor ? hC + bandMid + wob
+          : (isRide ? surfY - bandMid + wob : -bandMid + wob);
         const bandFloor = hC + clearance + 0.25;
         if (bandY < bandFloor) bandY = bandFloor;
-        if (bandY > ceilY - 0.2) bandY = ceilY - 0.2;
+        // The pad under the ceiling is 0.2 m for a species whose band is 1.6-3.9 m
+        // deep and 0.06 for one whose whole band is 0.38 m — 0.2 there would
+        // collapse the band onto its own floor every time a crest went past.
+        const ceilPad = isRide ? 0.06 : 0.2;
+        if (bandY > ceilNow - ceilPad) bandY = ceilNow - ceilPad;
         sk.bandY = bandY;
 
         // ---- centroid and mean velocity ----------------------------------
@@ -1285,7 +1716,12 @@ export function createWildlife(opts = {}) {
 
         // ---- who is close enough to be scared ----------------------------
         const dbx = cx - bx, dbz = cz - bz;
-        const boatNear = (dbx * dbx + dbz * dbz) < (FLEE_R + sk.radius + 4) * (FLEE_R + sk.radius + 4);
+        const dBoat2 = dbx * dbx + dbz * dbz;
+        // A startle species uses the corridor, whose reach is `lead` and whose
+        // width is `half`; the classic species use the fixed FLEE_R disc. Both
+        // culls are the same shape, so this is one radius that depends on which.
+        const nearR = K_ST ? (lead + sk.radius + K_ST.half) : (FLEE_R + sk.radius + 4);
+        const boatNear = dBoat2 < nearR * nearR;
         const dmx = cx - mx, dmy = cy - my, dmz = cz - mz;
         const monNear = mon && (dmx * dmx + dmy * dmy + dmz * dmz)
           < (MON_R + sk.radius) * (MON_R + sk.radius);
@@ -1294,6 +1730,24 @@ export function createWildlife(opts = {}) {
         if (monBig && monNear) sk.panic = S.panic;
         const vCap = S.vMax * sk.panic;
 
+        // ---- nervous water over a shoal the boat is bearing down on -------
+        // This is the part that makes the event legible at ranges where the
+        // ANIMAL is not, because it sits on the boundary the eye is already
+        // reading. wake.js zeroes the arm field every sim step, so an arm stamp
+        // can never stain the way a re-stamped height/foam ring would, and its
+        // `armEdge` term gives it a bright thinning rim — a moving patch of
+        // bright-edged nervous water over the shoal for two array writes.
+        // Capped at ARM_MAX = 2 a frame against wake.js's PENDING_ARM_MAX = 32,
+        // so the boat's own arms keep their headroom (hard constraint 5).
+        // Only AHEAD, though: the disc above is centred on the boat, and a
+        // patch of nervous water appearing over a shoal the boat has already
+        // gone past reads as a wake artefact rather than as a cause.
+        if (fArm && K_ST && boatNear && armBudget > 0 && bSpeed > 0.6
+          && (dbx * dirX + dbz * dirZ) > -3) {
+          fArm(sk.cx, sk.cz, 0.85, sk.radius * 1.3);
+          armBudget--;
+        }
+
         const stride = sk.stride;
         const skew = n > 1 ? frame % n : 0;
         const K = Math.min(S.k, n - 1);
@@ -1301,6 +1755,67 @@ export function createWildlife(opts = {}) {
         for (let i = base; i < base + n; i++) {
           const px = rec.px[i], py = rec.py[i], pz = rec.pz[i];
           let ax = 0, ay = 0, az = 0;
+          let vx, vy, vz, nx, ny, nz, sp;
+          // Airborne fish pitch nose-up on the way out and nose-down on the way
+          // in, and that reading is worth more than any amount of texture — so
+          // they get 1.15 rad of pitch where a swimming fish gets the 0.44 the
+          // lateral-bend approximation in positionNode is only valid to.
+          let pitchLimit = 0.44;
+
+          // ================= the ballistic branch ==========================
+          // A fish that has left the shoal on a jump integrates under gravity
+          // ONLY: no separation, no alignment, no cohesion, no floor, no depth
+          // keeping, no wander. One branch, and it takes the fish out of the
+          // expensive inner loop for half a second.
+          // 1 = launched and still under the surface, 2 = airborne. 3 is a
+          // SWIMMING state — "jump already spent" — and must not take the
+          // ballistic path.
+          const airState = airArr ? airArr[i] : 0;
+          if (airState === 1 || airState === 2) {
+            vx = rec.vx[i];
+            vy = rec.vy[i] - 9.81 * dt;
+            vz = rec.vz[i];
+            nx = px + vx * dt; ny = py + vy * dt; nz = pz + vz * dt;
+            // The surface the shoal is riding. Using the shoal's sample rather
+            // than the fish's own is the same per-SCHOOL discipline as the
+            // terrain plane, and the worst measured disagreement over a 2 m
+            // offset is 0.218 m — under a wave crest, not enough to make an
+            // exit look like it happened in mid-air.
+            if (airState === 1) {
+              // Launched, still climbing through the water. Breaking the
+              // surface is what stamps the ring.
+              if (ny >= surfY) {
+                airArr[i] = 2;
+                if (fDisturb && stampBudget > 0) { fDisturb(nx, nz, 0.30, 0.55); stampBudget--; }
+              } else if (vy < 0 && ny <= surfY - RIDE_MARGIN) {
+                // Never made it out — the shoal was in a trough, or the fish
+                // launched into the back of a crest. Hand it back rather than
+                // leaving it falling in state 1 forever. Still counts as spent,
+                // or it re-rolls the same hash next frame and pogos under the
+                // surface.
+                airArr[i] = 3;
+              }
+            } else if (ny <= surfY) {
+              // Re-entry. Stamp again, kill the plunge so the fish does not
+              // porpoise straight down through its own shoal, and put it back
+              // at the ride ceiling rather than just under the surface — one
+              // frame above -0.12 is one frame of an upside-down fish in the
+              // reflection target (clip.js SEAM).
+              airArr[i] = 3;
+              if (fDisturb && stampBudget > 0) { fDisturb(nx, nz, 0.30, 0.55); stampBudget--; }
+              if (vy < -1.4) vy = -1.4;
+              ny = surfY - RIDE_MARGIN;
+            }
+            if (airArr[i] === 1 || airArr[i] === 2) pitchLimit = 1.15;
+            sp = Math.sqrt(vx * vx + vy * vy + vz * vz);
+            // The impulse keeps decaying while the fish is in the air, so it
+            // lands already coasting instead of bolting a second time.
+            if (stArr) stArr[i] *= stDecay;
+            rec.px[i] = nx; rec.py[i] = ny; rec.pz[i] = nz;
+            rec.vx[i] = vx; rec.vy[i] = vy; rec.vz[i] = vz;
+            writePose(rec, mArr, aArr, i, nx, ny, nz, vx, vy, vz, sp, pitchLimit, S, dt);
+            continue;
+          }
 
           // 1+2. Separation and alignment over K sampled school-mates. No sqrt:
           // the (rSep2/d2 - 1) falloff is 0 at the radius and grows without
@@ -1345,7 +1860,118 @@ export function createWildlife(opts = {}) {
 
           // ---- flee, BEFORE the floor term so a panicking school cannot be
           // driven into the sand by its own escape ------------------------
-          if (boatNear) {
+          //
+          // startleBlock. A species that declares `startle` does NOT also run
+          // the radial flee below: running both gives a fish two escape
+          // directions that partially cancel, and the radial one is actively
+          // wrong up here. `ay -= g * 0.30` ducks the fish DOWNWARD, which is
+          // right for a school at four metres — from the ref/04 overhead
+          // framing ducking reads where scattering does not — and catastrophic
+          // for a surface shoal, because down is out of the only band where it
+          // is visible at all. The other half of the failure is that a radial
+          // push from the boat CENTRE accelerates a fish dead ahead straight
+          // down the bow line, so it stays ahead, is caught again next frame,
+          // and gets bulldozed forward for as long as the throttle is held.
+          // That is why nothing ever comes down the side.
+          //
+          // So: a swept CORRIDOR in boat-local coordinates with a LATERAL
+          // escape. A fish leaves by the shortest route and is never
+          // re-triggered.
+          if (K_ST) {
+            let s0 = stArr[i];
+            if (boatNear && s0 < 0.05) {
+              const rx = px - bx, rz = pz - bz;
+              const f = rx * dirX + rz * dirZ;              // + = ahead
+              const sL = rx * rgtX + rz * rgtZ;             // + = to starboard
+              // half 3.2 m is the 1.9 m beam plus about 1.5 m of bow wave each
+              // side. Narrower and the arms pass under the hull; wider and they
+              // break before the player is close enough to own it.
+              if (f > 0 && f < lead && sL * sL < half2) {
+                s0 = 1;
+                // Ties on the centreline are broken by a hash of the instance
+                // index, so a fish exactly ahead picks a side instead of
+                // dithering between two equal escapes for a frame each.
+                const side = Math.abs(sL) < 0.05
+                  ? (hash3(i, 7, 13) < 0.5 ? -1 : 1)
+                  : (sL >= 0 ? 1 : -1);
+                // The small forward term matters. A purely lateral throw reads
+                // as a plough shoving things aside; a little forward reads as
+                // fleeing. The up term is what lifts them into the top 20 cm.
+                let ex = rgtX * K_ST.side * side + dirX * K_ST.ahead;
+                let ez = rgtZ * K_ST.side * side + dirZ * K_ST.ahead;
+                const el = Math.max(1e-4, Math.hypot(ex, ez));
+                ex /= el; ez /= el;
+                exArr[i] = ex; eyArr[i] = K_ST.up; ezArr[i] = ez;
+                if (sk.panic < S.panic) sk.panic = S.panic;
+              }
+            }
+
+            // ---- and about a third of them leave the water ----------------
+            // The element that clears every legibility problem at once. A 1.9 m
+            // arc at 13 m from the eye is 124 px long and 23 px high against a
+            // 22 px fish: FIVE TIMES THE ANIMAL. `jumpV` is measured from the
+            // BAND, not from the surface — the fish is ~0.47 m down and has to
+            // climb that before any of the arc is visible, so 3.90 m/s here is
+            // 2.64 m/s at the surface, a 0.36 m apex and 0.54 s of airtime.
+            //
+            // This is a SEPARATE, LATER trigger than the bolt above, and that
+            // is measured. Rolling the jump at the moment a fish enters the
+            // bolt corridor put the whole shower 8.6 m ahead of the boat at
+            // 5.5 m/s — 21 m from the eye, where the arc is 68 px instead of
+            // 100 and the boat is nowhere near it. `jumpLead` is half the bolt
+            // lead, so the shower goes up 3-4 m off the bow: 16-17 m from the
+            // eye, the peak-legibility band, and unmistakably caused by the
+            // hull that is about to arrive. `jumpHalf` is WIDER than the bolt
+            // corridor because the fish being tested bolted 2-3 m sideways a
+            // second ago and a 3.2 m box would no longer contain them.
+            //
+            // Not all of them — see `jumpP` for the measurement that set the
+            // fraction. The bolters are the shoal; the jumpers are what the
+            // player actually sees.
+            //
+            // `air === 3` is "swimming, jump already spent". Without it a fish
+            // that lands still inside the box re-rolls the same hash the next
+            // frame and pogos.
+            if (canJump && airArr[i] === 0 && boatNear && hash3(i, 31, 5) < K_ST.jumpP) {
+              const rx = px - bx, rz = pz - bz;
+              const f = rx * dirX + rz * dirZ;
+              const sL = rx * rgtX + rz * rgtZ;
+              if (f > -1.0 && f < jumpLead && sL * sL < jumpHalf2) {
+                const side = Math.abs(sL) < 0.05
+                  ? (hash3(i, 7, 13) < 0.5 ? -1 : 1)
+                  : (sL >= 0 ? 1 : -1);
+                let ex = rgtX * K_ST.side * side + dirX * K_ST.ahead;
+                let ez = rgtZ * K_ST.side * side + dirZ * K_ST.ahead;
+                const el = Math.max(1e-4, Math.hypot(ex, ez));
+                const h = hash3(i, 3, 91);
+                const run = (K_ST.jumpRun[0] + K_ST.jumpRun[1] * h) / el;
+                rec.vx[i] = ex * run;
+                rec.vz[i] = ez * run;
+                rec.vy[i] = K_ST.jumpV[0] + K_ST.jumpV[1] * h;
+                airArr[i] = 1;
+                if (sk.panic < S.panic) sk.panic = S.panic;
+              }
+            } else if (!boatNear && airArr[i] === 3) {
+              // Out of range again: re-arm for the next boat.
+              airArr[i] = 0;
+            }
+            // Impulse, not force. A sustained force ties escape speed to how
+            // long you loiter, so idling beside a shoal accelerates it forever;
+            // an impulse with a 0.55 s e-fold gives snap-then-coast and lets
+            // the cohesion term close the school back up astern, which is half
+            // the pleasure. 26 m/s^2 reaches the 5.4 m/s cap in ~0.21 s and
+            // displaces ~3.5 m in the first second — comfortably out of a 3.2 m
+            // half-corridor from anywhere inside it.
+            if (s0 > 1e-3) {
+              const g = K_ST.imp * s0 * stGate;
+              ax += exArr[i] * g;
+              ay += eyArr[i] * g;
+              az += ezArr[i] * g;
+              stArr[i] = s0 * stDecay;
+            } else if (s0 !== 0) {
+              stArr[i] = 0;
+            }
+          } else if (boatNear) {
             const dx = px - bx, dz = pz - bz;
             const d2 = dx * dx + dz * dz;
             if (d2 < FLEE_R * FLEE_R) {
@@ -1370,7 +1996,37 @@ export function createWildlife(opts = {}) {
               const g = W_MON * (MON_R * inv - 1);
               ax += dx * inv * g; ay += dy * inv * g; az += dz * inv * g;
               if (sk.panic < S.panic) sk.panic = S.panic;
+              // The leviathan gets the shoal for free: a surface shoal showering
+              // as he passes underneath welds two systems the player already
+              // connects, and it is the same impulse the bow uses. Jumping needs
+              // no boat speed here — the trigger IS the monster.
+              if (K_ST && stArr[i] < 0.05) {
+                const hl2 = Math.max(1e-4, Math.hypot(dx, dz));
+                stArr[i] = 1;
+                exArr[i] = dx / hl2; eyArr[i] = K_ST.up * 1.4; ezArr[i] = dz / hl2;
+                if (monBig && hash3(i, 17, 41) < K_ST.jumpP) {
+                  const h = hash3(i, 3, 91);
+                  rec.vx[i] = dx / hl2 * (K_ST.jumpRun[0] + K_ST.jumpRun[1] * h);
+                  rec.vz[i] = dz / hl2 * (K_ST.jumpRun[0] + K_ST.jumpRun[1] * h);
+                  rec.vy[i] = K_ST.jumpV[0] + K_ST.jumpV[1] * h;
+                  airArr[i] = 1;
+                }
+              }
             }
+          }
+
+          // Launched THIS frame, by the bow or by the leviathan. Everything
+          // above computed accelerations for a fish that is no longer in the
+          // shoal, so drop them on the floor and go ballistic from here — in
+          // particular the surface clamp at the bottom of this loop would
+          // otherwise slam the fish straight back under before the arc began.
+          if (airArr && airArr[i] === 1) {
+            vx = rec.vx[i]; vy = rec.vy[i]; vz = rec.vz[i];
+            nx = px + vx * dt; ny = py + vy * dt; nz = pz + vz * dt;
+            sp = Math.sqrt(vx * vx + vy * vy + vz * vz);
+            rec.px[i] = nx; rec.py[i] = ny; rec.pz[i] = nz;
+            writePose(rec, mArr, aArr, i, nx, ny, nz, vx, vy, vz, sp, 1.15, S, dt);
+            continue;
           }
 
           // 6. Floor. The fitted plane, never below the worst sample seen.
@@ -1384,7 +2040,11 @@ export function createWildlife(opts = {}) {
           // downhill along the negative of the fitted gradient. This is the
           // "swimming around objects" beat, and it costs four multiplies
           // because the gradient was already paid for by the floor term.
-          const colH = FISH_CEIL - floorY;
+          // The reference ceiling is the species', not the global one: a 'ride'
+          // species' own ceiling is ~0.6 m higher than FISH_CEIL, so using
+          // FISH_CEIL here would make it think the column was thinner than it
+          // is and steer it downhill off perfectly good reef flats.
+          const colH = (isRide ? ceilNow : FISH_CEIL) - floorY;
           const wantCol = clearance + 0.9;
           if (colH < wantCol) {
             const g = (wantCol - colH) * 3.0;
@@ -1393,60 +2053,35 @@ export function createWildlife(opts = {}) {
           }
 
           // ---- integrate ---------------------------------------------------
-          let vx = rec.vx[i] + ax * dt;
-          let vy = rec.vy[i] + ay * dt;
-          let vz = rec.vz[i] + az * dt;
+          vx = rec.vx[i] + ax * dt;
+          vy = rec.vy[i] + ay * dt;
+          vz = rec.vz[i] + az * dt;
           const damp = 1 - Math.min(0.9, S.drag * dt);
           vx *= damp; vy *= damp; vz *= damp;
           const sp2 = vx * vx + vy * vy + vz * vz;
-          let sp = Math.sqrt(sp2);
+          sp = Math.sqrt(sp2);
           if (sp > vCap) { const f = vCap / sp; vx *= f; vy *= f; vz *= f; sp = vCap; }
           else if (sp < S.vMin && sp > 1e-5) { const f = S.vMin / sp; vx *= f; vy *= f; vz *= f; sp = S.vMin; }
 
-          let nx = px + vx * dt;
-          let ny = py + vy * dt;
-          let nz = pz + vz * dt;
+          nx = px + vx * dt;
+          ny = py + vy * dt;
+          nz = pz + vz * dt;
 
           // Hard clamp after integration. wFloor at 6-7 against a peak flee
           // acceleration of ~26 is not enough on its own; this is what actually
           // guarantees no fish is ever inside the sand or out in the air.
+          // `ceilNow` is the species' ceiling for everyone except a 'ride'
+          // species, where it is the local water surface less RIDE_MARGIN —
+          // this line is what actually keeps a surface shoal wet through a
+          // trough that the band term only aims at.
           const lo = floorY + clearance * 0.75;
           if (ny < lo) { ny = lo; if (vy < 0) vy = 0; }
-          if (ny > ceilY) { ny = ceilY; if (vy > 0) vy = 0; }
+          if (ny > ceilNow) { ny = ceilNow; if (vy > 0) vy = 0; }
 
           rec.px[i] = nx; rec.py[i] = ny; rec.pz[i] = nz;
           rec.vx[i] = vx; rec.vy[i] = vy; rec.vz[i] = vz;
 
-          // ---- pose --------------------------------------------------------
-          // Yaw so local -Z runs along the velocity, pitch from its rise. Same
-          // convention faceAlong used, hand-rolled into the instance array:
-          // Matrix4.compose + setMatrixAt is 0.085 us a fish, writing the eight
-          // non-zero terms directly is 0.018 us.
-          const hx = vx, hz = vz;
-          const hl = Math.sqrt(hx * hx + hz * hz);
-          let yaw;
-          if (hl > 1e-5) yaw = Math.atan2(-hx, -hz);
-          else yaw = Math.atan2(-aArr[i * 4 + 3], aArr[i * 4 + 2]);
-          const pitch = Math.asin(clamp(sp > 1e-5 ? vy / sp : 0, -0.44, 0.44));
-          const ca = Math.cos(yaw), sa = Math.sin(yaw);
-          const cp = Math.cos(pitch), spp = Math.sin(pitch);
-          const sc = rec.scl[i];
-          const o = i * 16;
-          mArr[o] = sc * ca; mArr[o + 1] = 0; mArr[o + 2] = -sc * sa;
-          mArr[o + 4] = sc * sa * spp; mArr[o + 5] = sc * cp; mArr[o + 6] = sc * ca * spp;
-          mArr[o + 8] = sc * sa * cp; mArr[o + 9] = -sc * spp; mArr[o + 10] = sc * ca * cp;
-          mArr[o + 12] = nx; mArr[o + 13] = ny; mArr[o + 14] = nz;
-
-          // ---- the beat ----------------------------------------------------
-          // A phase accumulator, so rate can track speed and panic without any
-          // uniform moving. A fish at a standstill still idles at half rate.
-          const ao = i * 4;
-          let ph = aArr[ao] + rec.beatR[i] * envRate * (0.5 + 0.5 * sp / S.vMax) * dt;
-          if (ph > TAU) ph -= TAU * Math.floor(ph / TAU);
-          aArr[ao] = ph;
-          aArr[ao + 1] = rec.amp[i] * envAmp * (0.55 + 0.45 * clamp(sp / S.vMax, 0, 1.6));
-          aArr[ao + 2] = ca;
-          aArr[ao + 3] = sa;
+          writePose(rec, mArr, aArr, i, nx, ny, nz, vx, vy, vz, sp, pitchLimit, S, dt);
         }
       }
       rec.mesh.instanceMatrix.needsUpdate = true;

@@ -6,14 +6,20 @@
 // distance fade, so it needs neither of three's.
 //
 // What happens per pixel, in order:
-//   normal      shared Gerstner train + three drifting layers of a tiling
-//               gradient map + the boat's ripple field, flattened with distance
+//   normal      shared Gerstner train, each component weighted by its own
+//               depth ramp so the sea gets rougher as it deepens, + three
+//               drifting layers of a tiling gradient map + the boat's ripple
+//               field, flattened with distance
 //   refraction  screen-space, offset by the view-space normal, rejected when
 //               the offset lands on something nearer than the surface
 //   column      the seabed's world position reconstructed from the refraction
 //               depth buffer -> a real water-column length for Beer-Lambert and
 //               a real world XZ to project the caustics onto
-//   reflection  the mirrored-camera target, U-flipped, blended by Schlick
+//   reflection  the mirrored-camera target, U-flipped, blended by Schlick and
+//               then by how deep the water is: a metre of water over sand
+//               returns light from the bottom that a single-interface Fresnel
+//               term knows nothing about, and without that the shallows mirror
+//               the sky harder than the deeps do
 //   light path  a specular lobe toward the key plus a world-anchored stochastic
 //               glitter that twinkles as the wave passes under it
 //   foam        shore (thin column), crest (Gerstner Jacobian), wake
@@ -39,7 +45,7 @@ import {
   screenUV, frontFacing, cameraPosition, cameraViewMatrix, cameraProjectionMatrix,
   modelWorldMatrix, positionGeometry, varyingProperty,
 } from 'three/tsl';
-import { WAVE_COUNT, packWaves } from './waves.js';
+import { WAVE_COUNT, packWaves, WAVE_DEEP, WAVE_RAMP, WAVE_Q_REF } from './waves.js';
 import { makeRng } from '../core/rng.js';
 
 // ---------------------------------------------------------------------------
@@ -191,6 +197,13 @@ for (let i = 0; i < WAVE_COUNT; i++) {
     dx: packed.a[i * 4 + 0], dz: packed.a[i * 4 + 1],
     k: packed.a[i * 4 + 2], amp: packed.a[i * 4 + 3],
     steep: packed.b[i * 4 + 0], omega: packed.b[i * 4 + 1],
+    // Each wave's own L/20 and L/2 — the depths at which it is fully
+    // shallow-water and at which it stops feeling the bottom. Literals in the
+    // graph because they come from the same baked table k and omega do.
+    rampLo: WAVE_RAMP[i][0], rampHi: WAVE_RAMP[i][1],
+    // How much taller this component is in deep water. The DEFAULT only; the
+    // live value is a uniform component so the whole spectrum can be swept.
+    deep: WAVE_DEEP[i],
   });
 }
 
@@ -342,6 +355,63 @@ export function createWaterMaterial({
   // and which is tuned where it is for them.
   const uWakeBright = uniform(0.62);
 
+  // --- how much sky the shallows are allowed to mirror ---------------------
+  // The single-interface Fresnel term above assumes nothing comes back from
+  // below the surface. Over two metres of water on bright sand that is simply
+  // false: light that reflects off the UNDERSIDE of the surface bounces off the
+  // seabed and comes back up, and that bottom-coupled term is missing from this
+  // shader entirely. It scales with the round trip exp(-2*absorb*d) — with the
+  // day preset's green absorption of 0.07 that is 0.87 / 0.66 / 0.43 / 0.25 /
+  // 0.14 at 1 / 3 / 6 / 10 / 14 m, which a smoothstep over 0.8-9.0 m tracks to
+  // within about 0.1 without an exp per pixel. So this is an approximation of a
+  // real missing term, not a fudge.
+  //
+  // Measured before it existed: F is IDENTICAL over 1.4 m and over 36 m of
+  // water at matched grazing angles (0.636 / 0.437 / 0.288 at 4.2 / 8.0 / 11.8
+  // degrees in both), and because the shallow flats are the FAR half of a chase
+  // frame while the deep water is under the bow, the shallowest water in a
+  // frame was carrying thirteen times the reflection of the deepest. That is
+  // the player's "I can't see into the shallow water" stated as a number.
+  //
+  // 0.8 m at the near end: uShoreFoamDepth is 0.72 and the waterline spike is
+  // dead by 0.35 m, so the floor sits just outside the foam band. 9.0 m at the
+  // far end: the reef flats are 2.6 m at the origin and 5.6-7.8 m at r=200
+  // while the shelf edge is already 12.6-18.7 m by r=250, so 9 puts the whole
+  // reef inside the ramp and the shelf outside it — and it lines up with the
+  // caustic fade (1.5-13.0) and the body-colour ramp (2.4-14.0), so "shallow"
+  // ends at one depth in colour, caustics and reflection instead of three.
+  // 0.22 is off ref/01: sky fraction -0.08..+0.14 in the shallow foreground
+  // against 0.29 in the deep midground, i.e. the shallows carry about a fifth
+  // of the deep water's sky. Usable band 0.15-0.30.
+  const uReflBedMin = uniform(0.22);
+  const uReflBedNear = uniform(0.8);
+  const uReflBedFar = uniform(9.0);
+
+  // --- rougher as it deepens ------------------------------------------------
+  // Master gain on the per-wave depth ramp defined in waves.js. 0 reproduces
+  // the flat train exactly, 1 is the shipped curve; it is a uniform so the
+  // whole spectrum can be A/B'd from one page load. The per-wave deep-water
+  // multipliers ride in two vec3s for the same reason — the six numbers are the
+  // shape of the sea and wanting to try another set must not cost a pipeline.
+  const uSwellGain = uniform(1);
+  const uSwellDeepA = uniform(new THREE.Vector3(WAVE_DEEP[0], WAVE_DEEP[1], WAVE_DEEP[2]));
+  const uSwellDeepB = uniform(new THREE.Vector3(WAVE_DEEP[3], WAVE_DEEP[4], WAVE_DEEP[5]));
+  // Partial normalisation of the Gerstner Jacobian by the local steepness
+  // budget, exponent p in (Qref/Q)^p, clamped so it can only ever REDUCE foam.
+  // Crest foam is effectively absent today — the true minimum of vJac on the
+  // shipped train is 0.9368 against a 0.905-0.975 threshold, so the comment
+  // claiming "about 0.87" was wrong by a factor of two in (1-jac) — and the
+  // depth ramp brings the deep-water train to exactly the 0.87 the threshold
+  // assumes, about 10% coverage offshore. Photographed at (0,-380) in 34 m of
+  // water, wide camera: p=0 is a broad milky wash over half the frame (mean
+  // luma 156 against 131 for the water it replaces); p=0.20 is still a haze;
+  // p=0.28 gives a handful of thin white dashes lying along the near crests,
+  // which is what ref/04 and ref/05 show; p=0.35 is clean blue with no foam
+  // visible at all. 0.35 is the default because a cosy sea that reads as milk
+  // is a worse regression than a sea with no whitecaps, and 0.28 is the knob
+  // to reach for if the swell wants more bite.
+  const uCrestNorm = uniform(0.35);
+
   const uDetailStrength = uniform(0.22);
   const uRefractDistort = uniform(0.26);
   const uReflDistort = uniform(0.12);
@@ -362,12 +432,20 @@ export function createWaterMaterial({
     uWakeFoam, uWakeArmFoam, uWakeSoft, uWakeArmSoft, uWakeMottle, uWakeBright,
     uWakeRim, uWakeChurnScale,
     uDetailStrength, uRefractDistort, uReflDistort, uScatterStrength, uShoreFoamDepth,
+    uReflBedMin, uReflBedNear, uReflBedFar,
+    uSwellGain, uSwellDeepA, uSwellDeepB, uCrestNorm,
   };
 
   // --- what the vertex stage hands the fragment stage ----------------------
   const vWorld = varyingProperty('vec3', 'vWaterWorld');
   const vFlat = varyingProperty('vec2', 'vWaterFlat');
-  const vShore = varyingProperty('float', 'vWaterShore');
+  // The six per-wave amplitude weights, `shore` already folded in. This
+  // replaces the old scalar vShore varying: the depth ramp needs a different
+  // multiplier per component, and interpolating the WEIGHTS rather than the
+  // depth is what keeps the fragment stage's shading normal consistent with the
+  // geometry the vertex stage actually displaced — the precedent vShore set.
+  const vWeightA = varyingProperty('vec3', 'vWaterWeightA');
+  const vWeightB = varyingProperty('vec3', 'vWaterWeightB');
   const vBedDepth = varyingProperty('float', 'vWaterBedDepth');
   const vJac = varyingProperty('float', 'vWaterJac');
   const vCrest = varyingProperty('float', 'vWaterCrest');
@@ -403,8 +481,23 @@ export function createWaterMaterial({
     const outside = step(vec2(1.0), abs(duv.sub(0.5)).mul(2.0)).toVar();
     depth.assign(mix(depth, uDepthMax, max(outside.x, outside.y)));
     const shore = float(0.10).add(smoothstep(0.20, 3.0, depth).mul(0.90)).toVar();
-    vShore.assign(shore);
     vBedDepth.assign(depth);
+
+    // Per-wave depth ramp. Each component ramps between its own L/20 and L/2 —
+    // the depths at which it is fully shallow-water and at which it stops
+    // feeling the bottom — so the long swell, which is what the shelf kills,
+    // is what comes back offshore. waves.js:waveWeights() computes exactly this
+    // for the CPU: same table, same smoothstep, same order.
+    const deepMul = [uSwellDeepA.x, uSwellDeepA.y, uSwellDeepA.z,
+      uSwellDeepB.x, uSwellDeepB.y, uSwellDeepB.z];
+    const wgt = [];
+    for (let i = 0; i < WAVES.length; i++) {
+      const w = WAVES[i];
+      const ramp = smoothstep(float(w.rampLo), float(w.rampHi), depth).toVar();
+      wgt.push(shore.mul(float(1.0).add(deepMul[i].sub(1.0).mul(ramp).mul(uSwellGain))).toVar());
+    }
+    vWeightA.assign(vec3(wgt[0], wgt[1], wgt[2]));
+    vWeightB.assign(vec3(wgt[3], wgt[4], wgt[5]));
 
     // Horizontal pinch plus vertical displacement — the crest sharpening that
     // makes a swell read as water rather than as a sine sheet. Alongside it, the
@@ -412,8 +505,14 @@ export function createWaterMaterial({
     // a point, and that is where a real wave throws foam.
     let accX = float(0.0), accY = float(0.0), accZ = float(0.0);
     let jxx = float(1.0), jzz = float(1.0), jxz = float(0.0);
-    for (const w of WAVES) {
-      const a = float(w.amp).mul(uWind).mul(shore).toVar();
+    // The local steepness budget sum(a*steep*k), for the crest-foam
+    // normalisation below. Accumulated here because every term is already in a
+    // register; recomputing it in the fragment stage would cost six more sines.
+    let qAcc = float(0.0);
+    for (let i = 0; i < WAVES.length; i++) {
+      const w = WAVES[i];
+      const a = float(w.amp).mul(uWind).mul(wgt[i]).toVar();
+      qAcc = qAcc.add(a.mul(w.steep * w.k));
       const phase = wavePhase(w, p, uTime);
       const s = sin(phase).toVar();
       const c = cos(phase).toVar();
@@ -431,7 +530,13 @@ export function createWaterMaterial({
 
     const world = vec3(p.x.add(gx), gy, p.y.add(gz)).toVar();
     vCrest.assign(gy);
-    vJac.assign(jx.mul(jz).sub(jc.mul(jc)));
+    // The Jacobian, partially normalised by how much steeper this water is than
+    // the water the foam threshold downstream was tuned against. The ratio is
+    // clamped to 1 so this can only ever REMOVE foam: inshore the shore damp
+    // drives Q toward zero, and an unclamped ratio would paint the flats white.
+    const qScale = pow(min(float(WAVE_Q_REF).div(max(qAcc, 1e-5)), 1.0), uCrestNorm).toVar();
+    const jac = jx.mul(jz).sub(jc.mul(jc)).toVar();
+    vJac.assign(float(1.0).sub(float(1.0).sub(jac).mul(qScale)));
     vWorld.assign(world);
     vDist.assign(length(world.sub(cameraPosition)));
 
@@ -449,10 +554,14 @@ export function createWaterMaterial({
     const dist = vDist.toVar();
 
     // --- surface normal ---------------------------------------------------
-    // gerstnerNormal(vFlat, uTime, uWind, vShore), unrolled.
+    // gerstnerNormal(vFlat, uTime, uWind, weights), unrolled. The weights are
+    // the interpolated per-wave depth ramp from the vertex stage, so the normal
+    // is the analytic normal of the surface that was actually displaced.
+    const wgt = [vWeightA.x, vWeightA.y, vWeightA.z, vWeightB.x, vWeightB.y, vWeightB.z];
     let gradX = float(0.0), gradZ = float(0.0);
-    for (const w of WAVES) {
-      const a = float(w.amp).mul(uWind).mul(vShore);
+    for (let i = 0; i < WAVES.length; i++) {
+      const w = WAVES[i];
+      const a = float(w.amp).mul(uWind).mul(wgt[i]);
       const slope = a.mul(w.k).mul(cos(wavePhase(w, vFlat, uTime))).toVar();
       gradX = gradX.add(slope.mul(w.dx));
       gradZ = gradZ.add(slope.mul(w.dz));
@@ -602,7 +711,26 @@ export function createWaterMaterial({
     refl.assign(mix(sky, refl, uReflEnabled.mul(uReflStrength)));
 
     const F = fresnelSchlick(max(dot(N, V), 0.0), float(0.02)).toVar();
-    col.assign(mix(col, refl, F));
+    // Bottom coupling: how much of the reflection the water column is deep
+    // enough to justify. See uReflBedMin. This is applied HERE and nowhere else
+    // — the raw F still drives `grazing` down at the light path, because
+    // ramping that too would cut the sun glitter over the reef by 37% and the
+    // paintings keep their sparkle right across the flats.
+    //
+    // Two alternatives were measured and rejected. Scaling uReflStrength only
+    // crossfades the reflection TARGET toward skyAt(R), which at grazing R is
+    // 71% uSkyHorizon — the brightest part of the sky — so the shallows would
+    // keep the same sheen with cloud shapes swapped for a flat wash. And
+    // lifting the refracted term needs ~2.2x to restore contrast under F=0.55,
+    // which drives the caustic gain past 1.0 into the bloom and still leaves
+    // the cloud shapes lying on top, because a lerp's structure does not go
+    // away when you brighten the other side.
+    //
+    // vBedDepth is READ, never written: colEff below, the shore foam band and
+    // the waterline spike are all bit-identical to before.
+    const gBed = uReflBedMin.add(uReflBedMin.oneMinus()
+      .mul(smoothstep(uReflBedNear, uReflBedFar, vBedDepth))).toVar();
+    col.assign(mix(col, refl, F.mul(gBed)));
 
     // --- back-lit crests: the jade glow inside a wave ----------------------
     const wrap = sat(dot(V, L.negate()).mul(0.6).add(0.4)).toVar();
@@ -621,10 +749,16 @@ export function createWaterMaterial({
     shore.addAssign(exp(abs(colEff.sub(0.06)).mul(-16.0)).mul(0.42));
     shore.mulAssign(hasBed);
 
-    // The Jacobian of this (gentle, sheltered-bay) train only dips to about 0.87,
-    // so the threshold has to sit inside that range or crest foam never fires —
-    // but sitting too low fires it across the whole bay and the water turns to
-    // milk. Only the sharpest few per cent of crests get foam.
+    // The threshold has to sit inside the range the Jacobian actually reaches
+    // or crest foam never fires, and too low fires it across the whole bay and
+    // the water turns to milk. Careful: the old comment here claimed the
+    // sheltered train "only dips to about 0.87" — searching three million
+    // random (x, z, t) says the true minimum was 0.9368, so 0.905 sat almost
+    // entirely below it and crest foam fired essentially nowhere. The depth
+    // ramp is what makes this line do anything at all: offshore the train
+    // reaches jac 0.869, i.e. exactly the 0.87 the threshold was written for.
+    // uCrestNorm above is the brake if that reads as milk rather than as the
+    // handful of thin streaks ref/04 and ref/05 show on near crests.
     const crest = smoothstep(0.905, 0.975, vJac).oneMinus().toVar();
     crest.assign(smoothstep(0.38, 0.92, crest.mul(1.15).sub(breakup.mul(0.55)).add(0.16)).mul(0.75));
 
