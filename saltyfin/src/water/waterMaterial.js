@@ -425,7 +425,7 @@ export function createWaterMaterial({
   // crests and nowhere else, which is what ref/04 and ref/05 actually show, and
   // it only fires where the depth ramp has let the swell grow — so the lagoon
   // stays glassy and the offshore water breaks.
-  const uCrestNorm = uniform(0.28);
+  const uCrestNorm = uniform(0.26);
 
   // 0.22 was tuned when the finest octave was 3.5 m across, where more of it
   // just made the big soft shapes bigger and softer. With a 0.9 m octave in the
@@ -440,9 +440,14 @@ export function createWaterMaterial({
   // 0.74 leaves only the top of the octave above the line. The first pass sat
   // at 0.62 with three times the gain and painted the whole sea — open water is
   // mostly water, and this layer is a suggestion of old foam, not a covering.
-  const uAmbFoam = uniform(0.028);
-  const uAmbFoamScale = uniform(0.028);
-  const uAmbFoamThresh = uniform(0.82);
+  const uAmbFoam = uniform(0.13);
+  // A 3 m tile, stretched to about 1.2 m across a streak by 4.5 m along it.
+  // At 0.028 the features were FIFTY metres long, which is not foam at any
+  // scale — real streaks are a few metres of filament.
+  const uAmbFoamScale = uniform(0.22);
+  const uAmbFoamThresh = uniform(0.87);
+  // How hard the wave's own steepness pulls foam onto its face.
+  const uAmbFoamSteep = uniform(0.9);
 
   const uniforms = {
     uTime, uWind,
@@ -458,7 +463,7 @@ export function createWaterMaterial({
     uWakeFoam, uWakeArmFoam, uWakeSoft, uWakeArmSoft, uWakeMottle, uWakeBright,
     uWakeRim, uWakeChurnScale, uWakeHalo,
     uDetailStrength, uFineChop, uRefractDistort, uReflDistort, uScatterStrength, uShoreFoamDepth,
-    uAmbFoam, uAmbFoamScale, uAmbFoamThresh,
+    uAmbFoam, uAmbFoamScale, uAmbFoamThresh, uAmbFoamSteep,
     uReflBedMin, uReflBedNear, uReflBedFar,
     uSwellGain, uSwellDeepA, uSwellDeepB, uCrestNorm,
   };
@@ -928,6 +933,20 @@ export function createWaterMaterial({
     // stuff is older than the wave it is lying on. Thresholded hard so it reads
     // as streaks and not as haze, and keyed on the SAME swell the whitecaps use
     // so the lagoon stays glass and only the offshore water gets a skin on it.
+    // ANISOTROPIC, because ocean foam is not spots. Foam is torn off a breaking
+    // crest and then dragged by the same orbital motion that made it, so it ends
+    // up in long filaments lying ALONG the wave train and pooling in the troughs
+    // behind it. An isotropic lookup gives blobs — which is what the first
+    // version did, and why it read as scattered litter rather than as sea.
+    // Stretching the sample five to one along the swell axis costs nothing and
+    // is the whole difference between spots and streaks.
+    // Isotropic again. Stretching the lookup to make filaments produced exactly
+    // what stretching a tiling noise always produces: a regular diagonal comb
+    // across the whole sea, reading as scratches or rain. The reference's
+    // streaks come from an FFT simulation SPAWNING foam where a wave breaks and
+    // then advecting it, and no static lookup imitates that — what it can do is
+    // sit where the wave is steep, which is the term below. Foam that follows
+    // the water beats foam that is shaped like foam.
     const driftUv = vFlat.mul(uAmbFoamScale).add(vec2(0.013, -0.009).mul(uTime));
     // Modulated by the much coarser d2 octave before thresholding. One octave on
     // its own draws its own tile: at 18 m the first attempt laid a regular
@@ -937,8 +956,14 @@ export function createWaterMaterial({
     // metres, and the repeat stops being findable.
     const drift = tDetail.sample(driftUv).a.mul(d2.a.mul(0.9).add(0.55)).toVar();
     const swellHere = smoothstep(3.0, 13.0, vBedDepth).toVar();
-    const ambient = smoothstep(uAmbFoamThresh, uAmbFoamThresh.add(0.14), drift)
-      .mul(swellHere).mul(uAmbFoam).toVar();
+    // And it collects where the surface is being COMPRESSED. vJac is the
+    // Gerstner Jacobian: below one means the surface is bunching, which is the
+    // front face of a wave about to break and exactly where the sea is white in
+    // the reference. Without this the streaks lie across crests and troughs
+    // alike and the foam has no relationship to the water carrying it.
+    const steepF = sat(float(1.0).sub(vJac).mul(uAmbFoamSteep)).toVar();
+    const ambient = smoothstep(uAmbFoamThresh, uAmbFoamThresh.add(0.20),
+      drift.add(steepF)).mul(swellHere).mul(uAmbFoam).toVar();
 
     const foam = sat(sat(shore).add(crest).add(ambient).add(sat(wake).mul(uWakeBright))).toVar();
     // Texture inside the foam, so a splash reads as churned water and not a
