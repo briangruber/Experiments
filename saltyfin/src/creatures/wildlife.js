@@ -474,7 +474,13 @@ const SPECIES = [
       // warning against the bolt's 1.15 — and it is wider, because by then the
       // fish it is testing have already bolted 2-3 m off the centreline. See
       // the jump block in updateFish for the measurement that forced this.
-      jumpLead: [1.2, 0.55], jumpHalf: 4.6,
+      // 5.2 m, not 4.6: a 26 s soak driving straight through the flats at
+      // 6.7 m/s never once got the nearest fish inside 6.2 m, because a shoal
+      // the recycler puts on the track still usually passes a few metres to one
+      // side. At 4.6 that whole run produced no shower at all. 5.2 m from a
+      // 1.9 m beam is still unambiguously the boat's doing, and it turns the
+      // common near-miss into an event instead of nothing.
+      jumpLead: [1.2, 0.55], jumpHalf: 5.2,
     },
     // Recycling, so the encounter rate does not depend on where findSpot
     // happened to put eight shoals at boot.
