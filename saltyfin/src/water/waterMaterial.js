@@ -346,11 +346,15 @@ export function createWaterMaterial({
   // How much of the foam's alpha the churn texture is allowed to take away. At
   // 1.0 the noise reaches zero and the trail breaks into filaments again, which
   // is the thing this is not.
-  const uWakeMottle = uniform(0.70);
+  const uWakeMottle = uniform(0.88);
   // The breaking crest along the arm's outer edge, and how fine the churn is.
-  const uWakeRim = uniform(0.55);
-  const uWakeHalo = uniform(0.30);
-  const uWakeChurnScale = uniform(1.60);
+  const uWakeRim = uniform(0.80);
+  const uWakeHalo = uniform(0.42);
+  // 1.60 put the churn's features at about 60 cm, which is under a pixel of
+  // variation by the time the trail is 25 m from the eye — the distance the
+  // chase camera actually sits at. Coarser reads as brushwork; finer reads as
+  // noise, and then as nothing.
+  const uWakeChurnScale = uniform(0.70);
   // How opaque the wake foam is allowed to get. foamCol lands near 2.25 in
   // linear at the day preset, so a fully opaque strand reads as 96% sRGB after
   // the tonemap and feeds the bloom; measured on ref/01 the foam's p99 is 75%
@@ -827,8 +831,13 @@ export function createWaterMaterial({
     // with a loaded brush and the edge of the stroke is where the paint thins,
     // not where it stops. Widening these is the difference between a decal with
     // a clean rim and a mark that was made.
-    const bodyF = smoothstep(0.11, 0.57, wakeBody).mul(uWakeFoam).toVar();
-    const armF = smoothstep(0.13, 0.61, armv).mul(uWakeArmFoam).toVar();
+    // Back to a band tight enough to keep a shape. Widening it softened the
+    // edge and took the form with it — the arms came back as featureless white
+    // lozenges, which is blurry, not painterly. What makes a mark read as
+    // painted is VALUE VARIATION INSIDE it and a soft fringe at its edge, not a
+    // soft everything: see uWakeMottle below and the halo further down.
+    const bodyF = smoothstep(0.12, 0.55, wakeBody).mul(uWakeFoam).toVar();
+    const armF = smoothstep(0.15, 0.60, armv).mul(uWakeArmFoam).toVar();
     // A brighter rim along the outside of each arm. A wake's crest is where the
     // water is actually breaking, and without it the arms read as two smooth
     // painted ribbons — correct in shape, dead in the water. Taking the band
@@ -858,7 +867,17 @@ export function createWaterMaterial({
     // lighter, milkier and it has no edge at all, and every painting of a boat
     // shows that halo before it shows a single white stroke. This is the term
     // that stops the wake sitting ON the sea and starts it belonging to it.
-    const wakeHalo = smoothstep(0.02, 0.36, max(wakeBody, armv))
+    // A FRINGE, not a wash. The first version keyed the halo on the field being
+    // present at all, and the churn ribbon is seven metres wide — so it milked
+    // the whole lane between the arms and the wake came back as a flat pale
+    // sheet with two edges. Multiplying by (1 - wake) confines it to where
+    // there is disturbance but no white: the fringe around each stroke, which
+    // is where a painter would soften into the water. The arm channel is
+    // weighted over the churn for the same reason — armv is the thin ridge,
+    // wakeBody is the ribbon.
+    const haloSrc = max(armv, wakeBody.mul(0.45)).toVar();
+    const wakeHalo = smoothstep(0.03, 0.34, haloSrc)
+      .mul(wake.oneMinus())
       .mul(uWakeHalo).mul(wmask)
       .mul(smoothstep(90.0, 340.0, dist).oneMinus()).toVar();
 
