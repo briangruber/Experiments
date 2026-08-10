@@ -432,6 +432,13 @@ export function createWaterMaterial({
   const uReflDistort = uniform(0.12);
   const uScatterStrength = uniform(0.85);
   const uShoreFoamDepth = uniform(0.72);
+  // Ambient surface foam: how much, how fine, and where its threshold sits.
+  // 0.74 leaves only the top of the octave above the line. The first pass sat
+  // at 0.62 with three times the gain and painted the whole sea — open water is
+  // mostly water, and this layer is a suggestion of old foam, not a covering.
+  const uAmbFoam = uniform(0.055);
+  const uAmbFoamScale = uniform(0.028);
+  const uAmbFoamThresh = uniform(0.82);
 
   const uniforms = {
     uTime, uWind,
@@ -447,6 +454,7 @@ export function createWaterMaterial({
     uWakeFoam, uWakeArmFoam, uWakeSoft, uWakeArmSoft, uWakeMottle, uWakeBright,
     uWakeRim, uWakeChurnScale, uWakeHalo,
     uDetailStrength, uRefractDistort, uReflDistort, uScatterStrength, uShoreFoamDepth,
+    uAmbFoam, uAmbFoamScale, uAmbFoamThresh,
     uReflBedMin, uReflBedNear, uReflBedFar,
     uSwellGain, uSwellDeepA, uSwellDeepB, uCrestNorm,
   };
@@ -890,7 +898,32 @@ export function createWaterMaterial({
       .mul(uWakeHalo).mul(wmask)
       .mul(smoothstep(90.0, 340.0, dist).oneMinus()).toVar();
 
-    const foam = sat(sat(shore).add(crest).add(sat(wake).mul(uWakeBright))).toVar();
+    // --- ambient surface foam ------------------------------------------------
+    // The third foam layer, and the one this water did not have. Whitecaps mark
+    // where a wave is breaking NOW and shore foam marks where the land is; open
+    // ocean is neither, and without a third term it renders as an unbroken
+    // sheet however good the waves under it are. What is actually out there is
+    // the residue of everything that broke minutes ago — long streaks drawn out
+    // along the swell, drifting, dissolving, never bright.
+    //
+    // Built from the coarse detail octave already in a register, at a long tile
+    // and crawling with the wind rather than with the wave phase, because this
+    // stuff is older than the wave it is lying on. Thresholded hard so it reads
+    // as streaks and not as haze, and keyed on the SAME swell the whitecaps use
+    // so the lagoon stays glass and only the offshore water gets a skin on it.
+    const driftUv = vFlat.mul(uAmbFoamScale).add(vec2(0.013, -0.009).mul(uTime));
+    // Modulated by the much coarser d2 octave before thresholding. One octave on
+    // its own draws its own tile: at 18 m the first attempt laid a regular
+    // lattice of streaks across the whole sea, which reads as a texture error
+    // rather than as foam and is worse than having none. Multiplying by a
+    // second, far longer octave means coverage itself varies over tens of
+    // metres, and the repeat stops being findable.
+    const drift = tDetail.sample(driftUv).a.mul(d2.a.mul(0.9).add(0.55)).toVar();
+    const swellHere = smoothstep(3.0, 13.0, vBedDepth).toVar();
+    const ambient = smoothstep(uAmbFoamThresh, uAmbFoamThresh.add(0.14), drift)
+      .mul(swellHere).mul(uAmbFoam).toVar();
+
+    const foam = sat(sat(shore).add(crest).add(ambient).add(sat(wake).mul(uWakeBright))).toVar();
     // Texture inside the foam, so a splash reads as churned water and not a
     // plate. Capped below 1: solving mix(water, target, a) against ref/01 gives
     // a = 0.35 at the strand edges and 0.72-0.96 at the hottest cores, so the
