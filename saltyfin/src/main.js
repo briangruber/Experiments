@@ -40,6 +40,8 @@ import { createChaseCamera } from './gameplay/chaseCamera.js';
 import { createQuest } from './gameplay/quest.js';
 import { createHud } from './hud/hud.js';
 import { createIntro } from './hud/intro.js';
+import { createOceanPanel } from './hud/oceanPanel.js';
+import { oceanSettings } from './water/settings.js';
 import { createProfiler, installGpuProbe, profileRequested, requestProfileRun } from './core/profile.js';
 
 const params = new URLSearchParams(location.search);
@@ -231,6 +233,10 @@ const quest = createQuest({ ctx, monster });
 ctx.quest = quest;
 const hud = createHud({ ctx, time });
 const intro = createIntro({ touch: !!touch.root, backend: quality.backend });
+// Sliders for the sea. Built now so `?ocean=1` and the O key work before the
+// warm-up finishes; it starts hidden and costs nothing until it is opened.
+const oceanPanel = createOceanPanel();
+if (params.get('ocean') === '1') oceanPanel.open();
 
 // A live readout of which backend is running and what it actually costs, and a
 // tap toggles to the other one and reloads — an artifact URL cannot carry
@@ -242,7 +248,7 @@ fpsBadge.style.cssText = 'position:fixed;left:10px;bottom:calc(10px + env(safe-a
   + 'text-transform:uppercase;color:rgba(214,236,255,.75);background:rgba(8,20,36,.45);'
   + 'border:1px solid rgba(206,232,255,.2);border-radius:999px;padding:4px 10px;'
   + 'cursor:pointer;-webkit-user-select:none;user-select:none';
-fpsBadge.title = 'Tap for renderer options';
+fpsBadge.title = 'Ocean settings, renderer, profiler';
 fpsBadge.textContent = quality.backend;
 document.body.appendChild(fpsBadge);
 
@@ -254,7 +260,7 @@ const radar = document.querySelector('#hud .sf-mm');
 if (radar) {
   radar.style.pointerEvents = 'auto';
   radar.style.cursor = 'pointer';
-  radar.title = 'Tap for renderer options';
+  radar.title = 'Tap for ocean settings';
   radar.addEventListener('pointerdown', (e) => {
     if (getComputedStyle(fpsBadge).display !== 'none') return;   // desktop: badge owns it
     e.preventDefault();
@@ -283,6 +289,9 @@ fpsBadge.addEventListener('pointerdown', (e) => {
     b.addEventListener('click', fn);
     return b;
   };
+  // First, because it is the one a player has a reason to open twice. The
+  // other two are diagnostics that cost a reload.
+  menu.appendChild(item('Ocean settings', () => { closeMenu(); oceanPanel.open(); }));
   menu.appendChild(item(
     quality.backend === 'webgpu' ? 'Switch to WebGL' : 'Switch to WebGPU',
     () => {
@@ -622,6 +631,10 @@ window.addEventListener('keydown', (e) => {
 const api = {
   THREE, scene, camera, reflectCamera, renderer, ctx, env, time, quality, post, targets,
   clip: clipUniforms,
+  // The same object the panel drives, so a capture can pin a look without
+  // touching a slider: saltyfin.ocean.set('reflect', 0.4).
+  ocean: oceanSettings,
+  oceanPanel,
   lights: { keyLight, hemi, fillLight },
   modules: {
     sky, clouds, celestial, seabed, coral, islands, vegetation, village, dock,
@@ -643,6 +656,7 @@ const api = {
     document.getElementById('hud')?.classList.add('hidden');
     document.getElementById('touch')?.classList.add('hidden');
     fpsBadge.style.display = 'none';
+    oceanPanel.close();
     intro.dismiss?.();
     document.getElementById('intro')?.remove();
   },

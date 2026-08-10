@@ -25,6 +25,7 @@ import { waveHeight, waveNormal, waveWeights, WAVE_COUNT } from './waves.js';
 import { createWaterMaterial } from './waterMaterial.js';
 import { createWake } from './wake.js';
 import { createCaustics } from './caustics.js';
+import { oceanSettings } from './settings.js';
 
 const WIND = 1.0;
 const SNAP = 0.25;                 // metres the disc is allowed to move by
@@ -269,8 +270,15 @@ export function createWater(opts = {}) {
     if (t.resolution) u.uResolution.value.set(t.resolution.x, t.resolution.y);
   }
 
+  // The last environment handed in, kept so a settings change can replay it.
+  let lastEnv = null;
+
   function applyEnv(env) {
-    if (!env) return;
+    env = env || lastEnv;
+    // No preset yet — apply the player's settings alone, so anything declared
+    // `set` (which owns its uniform outright) is live before the first tick.
+    if (!env) { oceanSettings.apply(u); return; }
+    lastEnv = env;
     u.uAbsorb.value.copy(env.waterAbsorption);
     u.uScatter.value.copy(env.waterScatter);
     u.uShallow.value.copy(env.waterShallow);
@@ -300,7 +308,22 @@ export function createWater(opts = {}) {
     u.uCaustic.value = env.causticStrength;
     u.uFoamTint.value.copy(env.foamTint);
     u.uFoamBright.value = env.foamBrightness;
+
+    // Last, and only here. Everything above is the time of day writing its
+    // preset over the top of whatever was in the uniform; the player's settings
+    // have to land after that or a sunset would silently undo them. Several of
+    // them multiply what the lines above just wrote, which is why this is a
+    // re-application rather than a one-time init — see water/settings.js.
+    oceanSettings.apply(u);
   }
+
+  // Moving a slider must take effect on the frame it is moved, and applyEnv
+  // only runs when the clock's version changes — which, with the clock paused,
+  // is never. Re-running the whole thing is the cheapest correct answer: it is
+  // thirty uniform writes and it keeps one code path for "how the water is
+  // configured" instead of two that can drift apart.
+  const unsubscribe = oceanSettings.subscribe(() => applyEnv(null));
+  applyEnv(null);
 
   let litPasses = false;
 
@@ -322,6 +345,7 @@ export function createWater(opts = {}) {
   }
 
   function dispose() {
+    unsubscribe();
     geometry.dispose();
     built.dispose();
     wake.dispose();

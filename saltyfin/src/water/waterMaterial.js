@@ -364,6 +364,15 @@ export function createWaterMaterial({
   // wake alone rather than trimming foamCol, which shore and crest foam share
   // and which is tuned where it is for them.
   const uWakeBright = uniform(0.62);
+  // Master switch on the wake's VISIBLE foam, and the only thing that turns it
+  // off. Everything above stays wired: the ripple channel that bends the normal
+  // is a separate term (uWakeSlope, forty lines up) and water.disturb() writes
+  // into it, so a breaching leviathan, a jumping fish and the quest's churned
+  // patch all still dent the surface with the foam at zero. Off by default —
+  // four rebuilds in and the trail still read as a decal rather than as water,
+  // and no wake is better than a bad one — but it is a uniform rather than a
+  // deletion so the ocean panel can bring it back without a rebuild.
+  const uWakeVisible = uniform(0);
 
   // --- how much sky the shallows are allowed to mirror ---------------------
   // The single-interface Fresnel term above assumes nothing comes back from
@@ -461,7 +470,7 @@ export function createWaterMaterial({
     uReflStrength, uReflEnabled, uCaustic, uCausticScale, uFoamTint, uFoamBright,
     uWakeCenter, uWakeWorld, uWakeTexel, uWakeGrad, uWakeSlope, uWakeSlopeMax, uWakeArmSlope,
     uWakeFoam, uWakeArmFoam, uWakeSoft, uWakeArmSoft, uWakeMottle, uWakeBright,
-    uWakeRim, uWakeChurnScale, uWakeHalo,
+    uWakeRim, uWakeChurnScale, uWakeHalo, uWakeVisible,
     uDetailStrength, uFineChop, uRefractDistort, uReflDistort, uScatterStrength, uShoreFoamDepth,
     uAmbFoam, uAmbFoamScale, uAmbFoamThresh, uAmbFoamSteep,
     uReflBedMin, uReflBedNear, uReflBedFar,
@@ -884,7 +893,8 @@ export function createWaterMaterial({
     // matters because a derivative of this field is what produced filaments.
     const armEdge = smoothstep(0.26, 0.52, armv)
       .mul(smoothstep(0.52, 0.86, armv).oneMinus()).toVar();
-    const wake = max(bodyF, armF).add(armEdge.mul(uWakeRim)).mul(wmask).toVar();
+    const wake = max(bodyF, armF).add(armEdge.mul(uWakeRim))
+      .mul(wmask).mul(uWakeVisible).toVar();
 
     // Mottle it. Two scales, because one gives an obvious repeating pattern at
     // the size of its own tile: the coarse one breaks the trail into patches
@@ -917,7 +927,7 @@ export function createWaterMaterial({
     const haloSrc = max(armv, wakeBody.mul(0.45)).toVar();
     const wakeHalo = smoothstep(0.03, 0.34, haloSrc)
       .mul(wake.oneMinus())
-      .mul(uWakeHalo).mul(wmask)
+      .mul(uWakeHalo).mul(wmask).mul(uWakeVisible)
       .mul(smoothstep(90.0, 340.0, dist).oneMinus()).toVar();
 
     // --- ambient surface foam ------------------------------------------------
