@@ -475,10 +475,21 @@ export function createWake({ renderer, size = 256, worldSize = 128 } = {}) {
 
         travel += speed * dt;
         if (travel >= TRAIL_STEP) {
-          travel = 0;
+          // Carry the remainder instead of zeroing it. Zeroing quantised the
+          // spacing to whole frames: at 8.4 m/s and 60 fps the boat covers
+          // 0.14 m a frame, so a 0.62 m step landed every four OR five frames
+          // depending on where the remainder happened to sit, and the arm's
+          // beads were laid 0.56-0.70 m apart at random. That irregular spacing,
+          // sliding as the speed changed, is the jitter — the arm shimmered
+          // because its dots kept rearranging themselves.
+          travel -= TRAIL_STEP;
+          // And lay the sample where the boat WAS when it crossed the step, not
+          // where it is now. Without this the exact spacing above is thrown away
+          // again by up to a frame of travel.
+          const back = travel;
           const i = trailHead;
-          trail[i * 6] = bx - fx * 2.1;
-          trail[i * 6 + 1] = bz - fz * 2.1;
+          trail[i * 6] = bx - fx * (2.1 + back);
+          trail[i * 6 + 1] = bz - fz * (2.1 + back);
           trail[i * 6 + 2] = rx;
           trail[i * 6 + 3] = rz;
           trail[i * 6 + 4] = speed;
@@ -518,7 +529,13 @@ export function createWake({ renderer, size = 256, worldSize = 128 } = {}) {
       // and a 0.42 m stamp is sub-texel, which resamples into a flickering
       // dotted line instead of an arm. 1.2 texels is the smallest disc that
       // survives the bilinear fetch on the far side.
-      const radius = Math.max(1.2 * texelWorld, 0.42 + 0.055 * spread + 0.03 * v0);
+      // Also floored against the TRAIL STEP. Beads 0.62 m apart with a 0.42 m
+      // radius do not touch, so the near arm was a dotted line rather than a
+      // filament — and a dotted line whose dots slide is exactly what reads as
+      // jitter. At 0.8 of the step consecutive stamps overlap by a third of
+      // their width and fuse into one continuous ribbon.
+      const radius = Math.max(1.2 * texelWorld, TRAIL_STEP * 0.8,
+        0.42 + 0.055 * spread + 0.03 * v0);
       const arm = 1.0 * amp * Math.min(1, v0 / 5.0);
       const px = trail[i * 6], pz = trail[i * 6 + 1];
       const ux = trail[i * 6 + 2], uz = trail[i * 6 + 3];

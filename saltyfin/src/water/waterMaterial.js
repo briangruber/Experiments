@@ -417,10 +417,15 @@ export function createWaterMaterial({
   // luma 156 against 131 for the water it replaces); p=0.20 is still a haze;
   // p=0.28 gives a handful of thin white dashes lying along the near crests,
   // which is what ref/04 and ref/05 show; p=0.35 is clean blue with no foam
-  // visible at all. 0.35 is the default because a cosy sea that reads as milk
-  // is a worse regression than a sea with no whitecaps, and 0.28 is the knob
-  // to reach for if the swell wants more bite.
-  const uCrestNorm = uniform(0.35);
+  // visible at all. 0.35 shipped as the cautious default — a cosy sea that
+  // reads as milk being the worse regression — and it turned out to be too
+  // cautious: it is the value with NO whitecaps anywhere, so the open sea read
+  // as a flat sheet and the only white in the frame was the boat's own wake.
+  // 0.28 is the measured point where thin white dashes lie along the near
+  // crests and nowhere else, which is what ref/04 and ref/05 actually show, and
+  // it only fires where the depth ramp has let the swell grow — so the lagoon
+  // stays glassy and the offshore water breaks.
+  const uCrestNorm = uniform(0.28);
 
   const uDetailStrength = uniform(0.22);
   const uRefractDistort = uniform(0.26);
@@ -776,7 +781,11 @@ export function createWaterMaterial({
     // uCrestNorm above is the brake if that reads as milk rather than as the
     // handful of thin streaks ref/04 and ref/05 show on near crests.
     const crest = smoothstep(0.905, 0.975, vJac).oneMinus().toVar();
-    crest.assign(smoothstep(0.38, 0.92, crest.mul(1.15).sub(breakup.mul(0.55)).add(0.16)).mul(0.75));
+    // Break the crest harder than the shore foam is broken. A shoreline's foam
+    // is a continuous band because the beach holds it there; a whitecap is torn
+    // apart by the same wave that made it, so it wants to read as separate
+    // flecks lying along the crest rather than as a stripe painted on it.
+    crest.assign(smoothstep(0.34, 0.90, crest.mul(1.22).sub(breakup.mul(0.72)).add(0.13)).mul(0.80));
 
     // --- the wake -----------------------------------------------------------
     // The wake field is a WHERE and never a WHAT. It is 0.5 m per texel on
