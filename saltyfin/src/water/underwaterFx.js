@@ -41,22 +41,11 @@
 import * as THREE from 'three';
 import {
   Fn, texture, textureLevel, uniform, uv, vec2, vec3, vec4, float,
-  max, min, mix, pow, dot, exp, smoothstep, fract, sin, floor, clamp, log2,
+  max, min, mix, pow, dot, exp, smoothstep, fract, sin, floor, clamp, log2, step,
   normalize, length, cross, dFdx, dFdy, If, select, saturate, sign, screenCoordinate,
 } from 'three/tsl';
 
 const DEBUG = new URLSearchParams(location.search).get('uw');
-
-// Raymarch steps for the shafts, per tier's geometry budget. Each step is one
-// texture fetch and a handful of ALU; the count is what buys smoothness of the
-// beams against banding. Dithering the start offset does most of the work, so
-// eight is already usable — the counts above that are buying the softness of a
-// beam's edge rather than its existence.
-function shaftSteps(geometry) {
-  if (geometry >= 0.9) return 20;
-  if (geometry >= 0.6) return 14;
-  return 9;
-}
 
 // How far along the view ray shafts are gathered. Past this the medium has
 // eaten them anyway (exp(-0.108 * 40) = 1.3%), and every extra metre costs
@@ -79,8 +68,11 @@ const HG_G = 0.66;
  * the beauty buffer.
  */
 export function createUnderwaterFx({ targets, quality } = {}) {
-  const geometry = quality?.geometry ?? 1;
-  const STEPS = shaftSteps(geometry);
+  // Each step is one texture fetch and a little ALU. The count buys the
+  // smoothness of a beam's edge, not its existence — the dithered start offset
+  // does most of that work — and it is affordable at all only because the march
+  // is drawn once into a small buffer rather than twice at full resolution.
+  const STEPS = Math.max(6, Math.round(quality?.shaftSteps ?? 20));
 
   // --- inputs --------------------------------------------------------------
   const blankDepth = new THREE.DepthTexture(1, 1, THREE.FloatType);
@@ -134,9 +126,16 @@ export function createUnderwaterFx({ targets, quality } = {}) {
   // Kept strictly separate from the env-derived uniforms above, which update()
   // rewrites every frame. Anything a capture wants to sweep has to live here or
   // the next frame stamps over it, which cost an afternoon the first time.
-  const uBodyGain = uniform(0.22);   // in-scattered radiance, not an albedo
-  const uSigmaGain = uniform(0.55);  // how thick the water is, against physical
-  const uShaft = uniform(2.6);
+  // In-scattered radiance, not an albedo — but a bright one. The long path is
+  // at the HORIZONTAL, so that is where the column colour is purest and where
+  // any mismatch between it and the lit scene shows as a band along the eye
+  // line. Too dark and that band is a dark stripe; at 0.42 the veil sits at
+  // about the brightness of the water either side of it and stops reading as a
+  // feature. The band is physically real — it is the longest sightline in the
+  // frame — it just must not be the darkest thing in the shot.
+  const uBodyGain = uniform(0.42);
+  const uSigmaGain = uniform(0.38);  // how thick the water is, against physical
+  const uShaft = uniform(4.0);
   const uShaftSharp = uniform(2.4);  // how narrow a beam is; the pow exponent
   const uCausticGain = uniform(1);
   const uCausticSharp = uniform(1.6);
@@ -212,21 +211,104 @@ export function createUnderwaterFx({ targets, quality } = {}) {
   // --- the pass ------------------------------------------------------------
 
   /**
-   * @param col   vec3 node: the scene colour at this pixel
-   * @param suv   vec2 node: the screen uv it was sampled at
-   * @param steps how many shaft samples; defaults to the tier's count
+   * The reconstruction every part of this pass starts from: a world position
+   * from the depth buffer, the view ray that reached it, and a surface normal
+   * with a confidence.
    */
-  function apply(col, suv, steps = STEPS) {
-    const out = vec3(col).toVar();
-    if (DEBUG === 'off') return out;
-
-    // Derivatives must sit in uniform control flow, so the position and the
-    // normal are reconstructed unconditionally and only the expensive part is
-    // branched. The branch is on a uniform, which WGSL is happy with.
+  function reconstruct(suv) {
     const ray = mix(mix(uRay00, uRay10, suv.x), mix(uRay01, uRay11, suv.x), suv.y).toVar();
     const rd = normalize(ray).toVar();
     const zLin = linearZ(tDepth.sample(suv)).toVar();
     const P = uCamPos.add(ray.mul(zLin)).toVar();
+    const dist = min(length(ray).mul(zLin), 260.0).toVar();
+
+    // The water surface is a lie in the depth buffer, and this is the one
+    // place it matters. Its disc runs out to forty kilometres and its vertex
+    // shader CLAMPS gl_Position.z to keep the far rings inside the far plane —
+    // so every fragment of the distant ceiling reports a depth far nearer than
+    // it is. Extinction then barely touched it and the frame grew a hard band
+    // of raw surface colour along the horizon, immune to every tuning attempt
+    // because the tuning was not where the bug was.
+    //
+    // Where the reconstruction lands at or above the waterline we are looking
+    // at the ceiling, and its distance is exactly a ray-plane intersection —
+    // no buffer needed, and it goes correctly to infinity as the ray levels
+    // out, which is what makes the band dissolve instead of moving.
+    const isCeil = step(uSurfaceY.sub(0.05), P.y).toVar();
+    const tCeil = min(uSurfaceY.sub(uCamPos.y).div(max(rd.y, 1e-3)), 260.0).toVar();
+    dist.assign(mix(dist, max(tCeil, 0.0), isCeil));
+    return { ray, rd, zLin, P, dist };
+  }
+
+  /**
+   * The shaft march ALONE, as a scalar. Drawn once a frame into a small buffer
+   * — see post.js — rather than evaluated in both of the passes that read the
+   * beauty target. It is the only expensive thing here (one texture fetch a
+   * step) and the only one whose result survives being computed at a third of
+   * the resolution: it is a soft, jittered, additive term with no edges of its
+   * own, so bilinear upsampling costs nothing visible and buys back enough
+   * budget to nearly double the step count.
+   */
+  function shaft(suv, steps = STEPS) {
+    const outv = float(0).toVar();
+    If(uAmount.greaterThan(0.002), () => {
+      const { rd, dist } = reconstruct(suv);
+      const g = HG_G;
+      const cosT = dot(rd, uSunDir).toVar();
+      const denom = float(1.0 + g * g).sub(cosT.mul(2.0 * g)).toVar();
+      // Normalised against isotropic (1/4pi) so the number is a MULTIPLIER on
+      // an even scatter rather than a per-steradian radiance, then soft-clamped
+      // to an asymptote near 2.9. Left raw, the lobe swings 14x across the
+      // framings the game actually uses.
+      const phase = float(1 - g * g).div(max(pow(denom, 1.5), 1e-4)).toVar();
+      const phaseC = phase.div(phase.mul(0.35).add(1.0)).toVar();
+
+      const marchLen = min(dist, SHAFT_RANGE).toVar();
+      const dt = marchLen.div(steps).toVar();
+      // Screen PIXELS, not uv: interleaved gradient noise is built around a
+      // pixel lattice, and a 0..1 coordinate scaled by a guessed constant gave
+      // a coarse diagonal hatch instead of a dither.
+      const jitter = ign(screenCoordinate.xy.add(fract(uTime).mul(71.0))).toVar();
+      const acc = float(0).toVar();
+      // Unrolled in JS rather than looped: the graph is built in JS so a fixed
+      // count costs nothing to spell out, and a texture fetch inside a dynamic
+      // loop is the one thing WGSL's uniformity rules make awkward.
+      for (let i = 0; i < steps; i++) {
+        const t = dt.mul(float(i).add(jitter)).toVar();
+        const Q = uCamPos.add(rd.mul(t)).toVar();
+        // A floor of 0.75 rather than 0: at mip 0 the per-pixel jitter makes
+        // neighbouring samples land on different filaments and the beams come
+        // back cross-hatched. One level up is still filaments, with enough
+        // less variance between neighbours that the dither reads as grain.
+        const lod = clamp(log2(t.mul(0.30).add(1.0)).add(0.75), 0.75, 4.5).toVar();
+        const c = causticAt(Q, lod).toVar();
+        const att = exp(uSigma.mul(uSigmaGain).y.mul(c.y.add(t)).negate()).toVar();
+        // Kill anything above the surface: a ray that leaves the water inside
+        // the march must not keep gathering.
+        const inWater = saturate(uSurfaceY.sub(Q.y).mul(3.0)).toVar();
+        acc.addAssign(pow(c.x, uShaftSharp).mul(att).mul(inWater));
+      }
+      // MEAN, not integral. acc*dt is an optical path length in metres, so it
+      // scaled with the sightline — 5 m at the fishing camera against 42 m
+      // offshore. Bring the path back as a term that saturates instead.
+      outv.assign(acc.div(steps).mul(saturate(marchLen.div(16.0))).mul(phaseC));
+    });
+    return outv;
+  }
+
+  /**
+   * @param col       vec3 node: the scene colour at this pixel
+   * @param suv       vec2 node: the screen uv it was sampled at
+   * @param shaftNode float node: the marched shaft term, from the small buffer
+   */
+  function apply(col, suv, shaftNode) {
+    const out = vec3(col).toVar();
+    if (DEBUG === 'off') return out;
+
+    // Derivatives must sit in uniform control flow, so the position and the
+    // normal are reconstructed unconditionally and only the rest is branched.
+    // The branch is on a uniform, which WGSL is happy with.
+    const { ray, rd, zLin, P, dist } = reconstruct(suv);
 
     // The surface normal, from the screen-space gradient of the reconstructed
     // world position. Two things this needs that a naive cross product does
@@ -241,56 +323,46 @@ export function createUnderwaterFx({ targets, quality } = {}) {
     //   A CONFIDENCE. Across a silhouette the two neighbouring pixels are
     //   metres apart in world space and the gradient is meaningless, which
     //   draws a bright rim around every object. Comparing the gradient's size
-    //   against the distance catches that: a facing surface has a roughly
-    //   constant ratio, an edge has an enormous one.
+    //   against the distance catches that.
     const dPx = dFdx(P).toVar();
     const dPy = dFdy(P).toVar();
     const rawN = cross(dPx, dPy).toVar();
     const nLen = length(rawN).toVar();
     const N = select(nLen.greaterThan(1e-8), rawN.div(max(nLen, 1e-8)), vec3(0.0, 1.0, 0.0)).toVar();
-    // Arithmetic rather than select(): a visible surface has dot(N, rd) < 0,
-    // so multiplying by -sign(dot) flips exactly the ones pointing away. The
-    // conditional form of this came out inverted — the sand read as facing
-    // DOWN and every caustic landed on the coral stems instead of the floor —
-    // and a branch whose truth table has to be rediscovered from a screenshot
-    // is not worth keeping over one multiply.
     N.assign(N.mul(sign(dot(N, rd)).negate()));
-    const nOk = smoothstep(0.13, 0.03,
-      length(dPx).add(length(dPy)).div(max(length(ray).mul(zLin), 1.0))).toVar();
+    const nOk = smoothstep(0.13, 0.03, length(dPx).add(length(dPy)).div(max(dist, 1.0))).toVar();
 
     If(uAmount.greaterThan(DEBUG ? -1.0 : 0.002), () => {
-      // Metres of water between the eye and whatever was drawn. Clamped: past
-      // sixty metres the transmittance is under one percent in every channel,
-      // and the sky — which is what the depth buffer holds when nothing was
-      // drawn — must land firmly on the far side of that.
-      const dist = min(length(ray).mul(zLin), 260.0).toVar();
       const sigma = uSigma.mul(uSigmaGain).toVar();
 
       // ---- the column ----------------------------------------------------
-      // Bright toward the ceiling, dark toward the deep, with the transition
-      // sharpened around the horizontal because that is where a diver's eye
-      // reads the boundary. The point sampled is the far end of the ray, so a
-      // pixel looking down a long way into deep water gets the deep colour
-      // even if the ray started shallow.
-      // How much ceiling this ray is pointed at. Widened from 1.35 to 0.8:
-      // the tighter curve saturated at 21 degrees below horizontal, so every
-      // ray steeper than that got the full deep colour at once and the frame
-      // grew a hard blue band exactly along the horizon.
-      const upness = saturate(rd.y.mul(0.80).add(0.55)).toVar();
+      // How much ceiling this ray is pointed at, and it is deliberately biased
+      // upward. A level gaze underwater does not look into the dark — the dark
+      // is what you get looking DOWN — so upness is 0.70 at the horizontal and
+      // only reaches zero forty degrees below it. Centred on the horizontal, as
+      // it was, the frame grew a dark band exactly along the eye line.
+      // One smooth ramp across the WHOLE vertical, not a curve centred on the
+      // eye line. Anything that changes quickly near rd.y = 0 draws a band
+      // along the horizon, and the horizon is already where the extinction
+      // steps — the reef at forty metres still shows through, the ceiling two
+      // hundred metres out does not — so a second feature in the same place
+      // reads as an error even when both halves are individually right.
+      const upness = smoothstep(-1.05, 0.65, rd.y).toVar();
       // And how deep the water it is looking THROUGH is. Sampled at a bounded
-      // distance rather than at the far end of the ray: with no geometry the
-      // reconstruction lands 260 m out, so a ray a few degrees below level
-      // reported 30 m of depth and darkened as though it were pointing at the
-      // abyss. 45 m is past where anything is visible anyway.
+      // distance: with no geometry the reconstruction lands 260 m out, so a
+      // ray a few degrees below level reported 30 m of depth and darkened as
+      // though it were pointing at the abyss.
       const sampleY = uCamPos.y.add(rd.y.mul(min(dist, 45.0))).toVar();
-      const depthOf = saturate(uSurfaceY.sub(sampleY).div(26.0)).toVar();
-      const body = mix(uBodyDeep, uBodyNear, smoothstep(0.0, 1.0, upness))
-        .mul(mix(float(1.0), float(0.42), depthOf)).toVar();
+      const depthOf = saturate(uSurfaceY.sub(sampleY).div(34.0)).toVar();
+      const body = mix(uBodyDeep, uBodyNear, upness)
+        .mul(mix(float(1.0), float(0.52), depthOf)).toVar();
 
-      // A soft bloom of light around the sun's bearing, which is what actually
+      // A soft bloom of light around the sun's bearing, which is most of what
       // gives an underwater frame its direction.
       const toSun = saturate(dot(rd, uSunDir)).toVar();
-      body.addAssign(uSunColor.mul(pow(toSun, 7.0).mul(uSunGlow).mul(uSunPower).mul(saturate(uSunDir.y.mul(3.0)))));
+      body.addAssign(uSunColor.mul(
+        pow(toSun, 7.0).mul(uSunGlow).mul(uSunPower).mul(saturate(uSunDir.y.mul(3.0))),
+      ));
       body.mulAssign(uMurk.mul(uBodyGain));
 
       // ---- extinction ------------------------------------------------------
@@ -298,12 +370,10 @@ export function createUnderwaterFx({ targets, quality } = {}) {
       out.assign(mix(body, out, T));
 
       // ---- surface caustics ------------------------------------------------
-      // Only where the surface actually faces the light, and only on things
-      // near enough for the dapple to still have contrast — at range the
-      // pattern is below a pixel and adding it is just noise the bloom eats.
+      // Only where the surface faces the light, and only on things near enough
+      // for the dapple to still have contrast — at range the pattern is below a
+      // pixel and adding it is noise for the bloom to eat.
       const lit = saturate(dot(N, uSunDir)).mul(nOk).toVar();
-      // On geometry the footprint is smooth, so the level comes from distance
-      // alone and stays low in the near field where the dapple has to be crisp.
       const cs = causticAt(P, clamp(log2(dist.mul(0.22).add(1.0)), 0.0, 4.0)).toVar();
       const causticFade = smoothstep(26.0, 4.0, dist).mul(saturate(uSunDir.y.mul(2.4))).toVar();
       const causticAtt = exp(sigma.mul(cs.y).negate()).toVar();
@@ -314,59 +384,7 @@ export function createUnderwaterFx({ targets, quality } = {}) {
       );
 
       // ---- the shafts ------------------------------------------------------
-      // Single-scattering march. Unrolled in JS rather than looped: the graph
-      // is built in JS so a fixed count costs nothing to spell out, and a
-      // texture fetch inside a dynamic loop is the one thing WGSL's uniformity
-      // rules make awkward.
-      const g = HG_G;
-      const cosT = dot(rd, uSunDir).toVar();
-      const denom = float(1.0 + g * g).sub(cosT.mul(2.0 * g)).toVar();
-      // Normalised against isotropic (1/4pi) so the number is a MULTIPLIER on
-      // an even scatter rather than a per-steradian radiance. Left in
-      // per-steradian units the whole term arrives around 0.04 and no sane
-      // gain recovers it without blowing out the forward lobe.
-      const phase = float(1 - g * g)
-        .div(max(pow(denom, 1.5), 1e-4)).toVar();
-
-      const marchLen = min(dist, SHAFT_RANGE).toVar();
-      const dt = marchLen.div(steps).toVar();
-      // Screen PIXELS, not uv. Interleaved gradient noise is designed around a
-      // pixel lattice; feeding it a 0..1 coordinate scaled by a guessed
-      // constant gave a coarse diagonal hatch across the whole frame instead
-      // of a dither, which is worse than the banding it was hiding.
-      const jitter = ign(screenCoordinate.xy.add(fract(uTime).mul(71.0))).toVar();
-      const acc = float(0).toVar();
-      for (let i = 0; i < steps; i++) {
-        const t = dt.mul(float(i).add(jitter)).toVar();
-        const Q = uCamPos.add(rd.mul(t)).toVar();
-        // A floor of 0.75 rather than 0: at mip 0 the per-pixel jitter makes
-        // neighbouring samples land on different filaments and the beams come
-        // back cross-hatched. One level up is still filaments and the variance
-        // between adjacent pixels drops enough for the dither to read as grain.
-        const lod = clamp(log2(t.mul(0.30).add(1.0)).add(0.75), 0.75, 4.5).toVar();
-        const c = causticAt(Q, lod).toVar();
-        // Attenuation down the shaft and back along the view ray, on the green
-        // channel only. Per-channel here would be three exps a step for a tint
-        // that the sun colour below already supplies.
-        const att = exp(sigma.y.mul(c.y.add(t)).negate()).toVar();
-        // Kill the contribution above the surface, which happens on any ray
-        // that leaves the water inside the march.
-        const inWater = saturate(uSurfaceY.sub(Q.y).mul(3.0)).toVar();
-        acc.addAssign(pow(c.x, uShaftSharp).mul(att).mul(inWater));
-      }
-      // MEAN, not integral. `acc * dt` is an optical path length in metres, so
-      // it scales with the sightline: 5 m at the fishing camera against 42 m
-      // offshore is 8x before anything else, and the raw HG lobe swings another
-      // 14x between looking across the sun and into it. Measured on the shipped
-      // build, the same uShaft gave a mean luma of 0.5 in one framing and a
-      // clipped 179 in the other — a 360x range no single constant can serve.
-      //
-      // So: normalise to a mean radiance, bring the path length back as a term
-      // that saturates, and soft-clamp the phase to an asymptote near 2.9.
-      const shaftRaw = acc.div(steps).toVar();
-      const pathTerm = saturate(marchLen.div(16.0)).toVar();
-      const phaseC = phase.div(phase.mul(0.35).add(1.0)).toVar();
-      const shafts = shaftRaw.mul(pathTerm).mul(phaseC).mul(uShaft).mul(uSunPower)
+      const shafts = shaftNode.mul(uShaft).mul(uSunPower)
         .mul(saturate(uSunDir.y.mul(2.2))).toVar();
       out.addAssign(uSunColor.mul(shafts));
 
@@ -382,12 +400,7 @@ export function createUnderwaterFx({ targets, quality } = {}) {
       if (DEBUG === 'lit') out.assign(vec3(lit));
       if (DEBUG === 'py') out.assign(vec3(saturate(P.y.negate().mul(0.15))));
       if (DEBUG === 'dist') out.assign(vec3(saturate(dist.mul(0.02))));
-      if (DEBUG === 'acc') out.assign(vec3(acc.mul(0.15)));
-      if (DEBUG === 'phase') out.assign(vec3(phase.mul(0.25)));
-      if (DEBUG === 'march') out.assign(vec3(marchLen.mul(0.024)));
-      if (DEBUG === 'shaftraw') out.assign(vec3(shaftRaw.mul(3.0)));
-      if (DEBUG === 'phasec') out.assign(vec3(phaseC.mul(0.34)));
-      if (DEBUG === 'raw') out.assign(vec3(tDepth.sample(suv).r.oneMinus().mul(400.0)));
+      if (DEBUG === 'rawshaft') out.assign(vec3(shaftNode.mul(3.0)));
       if (DEBUG === 'z') out.assign(vec3(saturate(zLin.mul(0.02))));
     });
 
@@ -467,7 +480,7 @@ export function createUnderwaterFx({ targets, quality } = {}) {
       // The column: the shallow tone lifted toward the scattering colour for
       // the ceiling end, and the deep tone crushed for the other.
       _bodyNear.copy(env.waterShallow).lerp(env.waterScatter, 0.55);
-      _bodyDeep.copy(env.waterDeep).lerp(env.waterMid, 0.35);
+      _bodyDeep.copy(env.waterDeep).lerp(env.waterMid, 0.80);
       uBodyNear.value.copy(_bodyNear);
       uBodyDeep.value.copy(_bodyDeep);
       uMurk.value = 0.30 + 0.70 * env.dayFactor;
@@ -480,10 +493,11 @@ export function createUnderwaterFx({ targets, quality } = {}) {
 
   return {
     apply,
+    shaft,
+    steps: STEPS,
     debug: DEBUG || null,
     update,
     setTargets,
-    steps: STEPS,
     uniforms: {
       uBodyGain, uSigmaGain, uShaft, uShaftSharp, uCausticGain, uCausticSharp, uSunGlow,
       uAmount, uSigma, uBodyNear, uBodyDeep, uMurk, uSurfaceY, uSunDir, uSunPower,

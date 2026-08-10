@@ -53,14 +53,6 @@ const MOTE_COUNT = 260;
 const MOTE_BOX = 22;          // metres, cube edge
 const MOTE_SIZE = [0.012, 0.052];
 
-// Light shafts. Six long, soft, additive blades hanging from the ceiling along
-// the sun's bearing. Not a volumetric — a volumetric at this budget is a grey
-// smear — but six blades with a strong vertical gradient and a slow sway read
-// as god rays at every framing I have shot them at, and they cost six quads.
-const SHAFT_COUNT = 7;
-const SHAFT_SPAN = 15.0;      // metres the fan is spread across
-const SHAFT_LEN = 26.0;
-
 /** Cheap 2D hash, matched between the mote geometry and its shader. */
 function buildMotes(rng) {
   const geo = new THREE.BufferGeometry();
@@ -98,39 +90,6 @@ function buildMotes(rng) {
   return geo;
 }
 
-function buildShafts() {
-  const geo = new THREE.BufferGeometry();
-  const pos = new Float32Array(SHAFT_COUNT * 4 * 3);
-  const uvs = new Float32Array(SHAFT_COUNT * 4 * 2);
-  const seed = new Float32Array(SHAFT_COUNT * 4);
-  const idx = new Uint16Array(SHAFT_COUNT * 6);
-  for (let i = 0; i < SHAFT_COUNT; i++) {
-    const t = SHAFT_COUNT === 1 ? 0.5 : i / (SHAFT_COUNT - 1);
-    const x = (t - 0.5) * SHAFT_SPAN;
-    // Blades widen as they fall, like a beam through a rough ceiling does.
-    const w0 = 0.28 + 0.42 * ((i * 7919) % 13) / 13;
-    const w1 = w0 * 2.6;
-    const quad = [[x - w0, 0], [x + w0, 0], [x + w1, -SHAFT_LEN], [x - w1, -SHAFT_LEN]];
-    for (let c = 0; c < 4; c++) {
-      const v = i * 4 + c;
-      pos[v * 3] = quad[c][0];
-      pos[v * 3 + 1] = quad[c][1];
-      pos[v * 3 + 2] = 0;
-      uvs[v * 2] = c === 0 || c === 3 ? 0 : 1;
-      uvs[v * 2 + 1] = c < 2 ? 1 : 0;
-      seed[v] = i * 1.37;
-    }
-    const b = i * 4;
-    idx.set([b, b + 1, b + 2, b, b + 2, b + 3], i * 6);
-  }
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
-  geo.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1));
-  geo.setIndex(new THREE.BufferAttribute(idx, 1));
-  geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), SHAFT_LEN * 1.5);
-  return geo;
-}
-
 export function createUnderwater({ ctx, scene, lights, seed = 1 } = {}) {
   const group = new THREE.Group();
   group.name = 'underwater';
@@ -140,8 +99,6 @@ export function createUnderwater({ ctx, scene, lights, seed = 1 } = {}) {
   const uAmount = uniform(0);
   const uWaterTint = uniform(new THREE.Color(0x2fa8bd));
   const uMoteBright = uniform(1);
-  const uShaftDir = uniform(new THREE.Vector2(0, -1));
-  const uShaftBright = uniform(1);
 
   // --- motes ---------------------------------------------------------------
   // Billboarded in the vertex shader against the view matrix's basis rather
@@ -210,56 +167,15 @@ export function createUnderwater({ ctx, scene, lights, seed = 1 } = {}) {
   motes.renderOrder = 6;
   group.add(motes);
 
-  // --- light shafts --------------------------------------------------------
-  const shaftMat = new THREE.NodeMaterial();
-  shaftMat.name = 'UnderwaterShafts';
-  shaftMat.transparent = true;
-  shaftMat.depthWrite = false;
-  shaftMat.blending = THREE.AdditiveBlending;
-  shaftMat.side = THREE.DoubleSide;
-  shaftMat.fog = false;
-  shaftMat.lights = false;
-
-  const vShaftUv = varyingProperty('vec2', 'vShaftUv');
-  const vShaftSeed = varyingProperty('float', 'vShaftSeed');
-
-  shaftMat.vertexNode = Fn(() => {
-    const p = positionGeometry.toVar();
-    const s = attribute('aSeed', 'float').toVar();
-    // Sway. The ceiling is moving, so the beams coming through it wander; a
-    // static beam is the thing that gives a fake volumetric away instantly.
-    p.x.addAssign(sin(uTime.mul(0.36).add(s.mul(2.1))).mul(0.85)
-      .mul(p.y.negate().div(SHAFT_LEN).add(0.15)));
-    // Billboard about the vertical only — a shaft is a vertical sheet, and
-    // spinning it to face the camera fully makes it lie down as you look up.
-    const dir = vec3(uShaftDir.x, 0.0, uShaftDir.y).toVar();
-    const rightW = normalize(vec3(dir.z, 0.0, dir.x.negate())).toVar();
-    const world = cameraPosition
-      .add(dir.mul(9.0))
-      .add(rightW.mul(p.x))
-      .add(vec3(0.0, p.y, 0.0)).toVar();
-    vShaftUv.assign(vec2(p.x, p.y));
-    vShaftSeed.assign(s);
-    return cameraProjectionMatrix.mul(cameraViewMatrix.mul(vec4(world, 1.0)));
-  })();
-
-  shaftMat.fragmentNode = Fn(() => {
-    // Falls off down its length and across its width, with a flicker that is
-    // slower than the motes' — the ceiling ripple that makes it is metres wide.
-    const down = smoothstep(0.0, 1.0, vShaftUv.y.negate().div(SHAFT_LEN)).oneMinus().toVar();
-    const across = smoothstep(1.0, 0.0, abs(vShaftUv.x).div(1.5)).toVar();
-    const flick = float(0.55)
-      .add(sin(uTime.mul(0.9).add(vShaftSeed.mul(4.3))).mul(0.25))
-      .add(sin(uTime.mul(1.7).add(vShaftSeed.mul(9.1))).mul(0.20)).toVar();
-    const a = down.mul(down).mul(across).mul(flick).mul(uAmount).mul(uShaftBright).toVar();
-    return vec4(mix(uWaterTint, vec3(1.0), 0.72).mul(a.mul(0.30)), a.mul(0.30));
-  })();
-
-  const shafts = new THREE.Mesh(buildShafts(), shaftMat);
-  shafts.name = 'shafts';
-  shafts.frustumCulled = false;
-  shafts.renderOrder = 5;
-  group.add(shafts);
+  // The light shafts that used to live here are gone.
+  //
+  // Seven additive blades hung nine metres in front of the camera, swaying.
+  // They were never once visible in a capture, and the reason is structural:
+  // they are geometry, so they depth-test against the reef, and in two to five
+  // metres of lagoon there is always reef between the eye and anything nine
+  // metres away. A shaft has to be computed along the VIEW RAY against the
+  // scene's depth to survive that, which is what water/underwaterFx.js does.
+  // Deleting them removes a material, a pipeline and a potential double-count.
 
   // Underwater props belong in the beauty pass only: they must not appear in
   // the refraction texture (which is a view from ABOVE the water and would get
@@ -336,12 +252,6 @@ export function createUnderwater({ ctx, scene, lights, seed = 1 } = {}) {
       fillLight.intensity = (0.18 + 0.22 * env.dayFactor) * (1 + 1.6 * a);
     }
 
-    // Shafts hang along the sun's bearing and die with it. keyDir points FROM
-    // the origin TOWARD the sun, so the shafts want the opposite in plan.
-    const kx = env.keyDir.x, kz = env.keyDir.z;
-    const kl = Math.hypot(kx, kz) || 1;
-    uShaftDir.value.set(kx / kl, kz / kl);
-    uShaftBright.value = Math.max(0, env.keyDir.y) * env.dayFactor * 1.25;
     uMoteBright.value = 0.35 + 0.85 * env.dayFactor;
   }
 
@@ -349,12 +259,10 @@ export function createUnderwater({ ctx, scene, lights, seed = 1 } = {}) {
     group,
     update,
     /** Uniforms, so a capture or the ocean panel can push these around. */
-    uniforms: { uAmount, uMoteBright, uShaftBright, uWaterTint },
+    uniforms: { uAmount, uMoteBright, uWaterTint },
     dispose() {
       motes.geometry.dispose();
-      shafts.geometry.dispose();
       moteMat.dispose();
-      shaftMat.dispose();
       group.clear();
     },
   };

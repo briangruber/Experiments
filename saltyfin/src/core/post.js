@@ -61,6 +61,45 @@ export function createPost({ renderer, targets, makeTarget, quality }) {
     return m;
   };
 
+  // --- the god-ray march ----------------------------------------------------
+  //
+  // Its own pass, into its own small buffer, drawn once. The march is the only
+  // expensive thing in the underwater term — one texture fetch per step per
+  // pixel — and it was being evaluated twice a frame, at full resolution in the
+  // composite and again in the threshold. Everything else in that term is a
+  // closed form: one depth tap, an exp, two caustic taps.
+  //
+  // A shaft is a soft, jittered, additive scalar with no edges of its own, so a
+  // third of the resolution costs nothing visible and the bilinear upsample IS
+  // the anti-aliasing. Trading it buys the step count back with change: on a
+  // phone this is 16 steps at 1/9 the pixels against 9 steps at full rate.
+  //
+  // depth: false, exactly like the twelve bloom targets — so it adds no depth
+  // format to the renderer's context and cannot re-key the pipelines the way a
+  // mismatched depth attachment does.
+  const uwScale = Math.min(1, Math.max(0.2, quality?.uwScale ?? 0.5));
+  const shaftTarget = makeTarget(2, 2, { depth: false });
+  const shaftMat = mat();
+  shaftMat.fragmentNode = Fn(() => vec4(vec3(underwaterFx.shaft(uv())), 1))();
+  const shaftTex = texture(shaftTarget.texture);
+  // Texel size as a UNIFORM, never folded in — the rule this file learned at a
+  // cost of 11 pipelines and 79 kB of regenerated WGSL per window resize.
+  const uShaftTexel = uniform(new THREE.Vector2(1 / 64, 1 / 64));
+  // Four bilinear taps at half a texel, i.e. a 3x3 tent over the small buffer.
+  // The march dithers its start offset per pixel to kill banding, and at a
+  // third of the resolution that dither reads as a diagonal hatch across the
+  // beams once it is upscaled. Blurring the SHAFT buffer costs four fetches of
+  // a tiny texture and removes it; blurring the composite would soften the
+  // caustics, which are the one thing that must stay crisp.
+  const shaftAt = (suv) => {
+    const o = uShaftTexel.mul(0.5);
+    return shaftTex.sample(suv.add(vec2(o.x, o.y))).r
+      .add(shaftTex.sample(suv.add(vec2(o.x.negate(), o.y))).r)
+      .add(shaftTex.sample(suv.add(vec2(o.x, o.y.negate()))).r)
+      .add(shaftTex.sample(suv.add(vec2(o.x.negate(), o.y.negate()))).r)
+      .mul(0.25);
+  };
+
   // --- threshold -----------------------------------------------------------
   const thrSrc = texture(targets.scene.texture);
   const uThreshold = uniform(1.0);
@@ -71,10 +110,9 @@ export function createPost({ renderer, targets, makeTarget, quality }) {
     const tuv = uv().toVar();
     // The water goes on BEFORE the bright pass, so the shafts and the caustic
     // highlights are what bloom. Doing it only in the composite would give a
-    // frame whose brightest feature is the one thing with no glow on it.
-    // Half the marching steps: this buffer is a quarter of the pixels and
-    // everything drawn from it is about to be blurred six times.
-    const c = underwaterFx.apply(thrSrc.sample(tuv).rgb, tuv, Math.max(5, underwaterFx.steps >> 1))
+    // frame whose brightest feature is the one thing with no glow on it. The
+    // march itself is not repeated here — it is read out of the small buffer.
+    const c = underwaterFx.apply(thrSrc.sample(tuv).rgb, tuv, shaftAt(tuv))
       .mul(uExposureThr).toVar();
     const l = max(max(c.r, c.g), c.b).toVar();
     const knee = uThreshold.mul(uSoftKnee).add(1e-5).toVar();
@@ -190,8 +228,9 @@ export function createPost({ renderer, targets, makeTarget, quality }) {
     // what lands in the canvas is the number the pass computed rather than a
     // graded picture of it. Reading a value off a screenshot is the only way
     // to check a depth reconstruction, and it has to be the raw value.
-    if (underwaterFx.debug) return vec4(underwaterFx.apply(col, suv), 1);
-    col.assign(underwaterFx.apply(col, suv));
+    const shaftHere = shaftAt(suv).toVar();
+    if (underwaterFx.debug) return vec4(underwaterFx.apply(col, suv, shaftHere), 1);
+    col.assign(underwaterFx.apply(col, suv, shaftHere));
     col.mulAssign(uExposure);
     col.addAssign(compBloom.sample(suv).rgb.mul(uBloomStrength));
 
@@ -285,6 +324,12 @@ export function createPost({ renderer, targets, makeTarget, quality }) {
   function resize(w, h) {
     const sizes = levelSizes(w, h);
     uResolution.value.set(w, h);
+    // Resized in place like the mip chain, so no material is rebuilt and no
+    // WGSL is regenerated — the rule this file learned the hard way.
+    const sw = Math.max(2, Math.round(w * uwScale));
+    const sh = Math.max(2, Math.round(h * uwScale));
+    shaftTarget.setSize(sw, sh);
+    uShaftTexel.value.set(1 / sw, 1 / sh);
 
     // The common case, and the only one iOS produces in normal use: the canvas
     // changed size but the pyramid still has the same number of levels. Resize
@@ -340,6 +385,7 @@ export function createPost({ renderer, targets, makeTarget, quality }) {
     thrSrc.value = targets.scene.texture;
     compScene.value = targets.scene.texture;
     compBloom.value = chain[0].up.texture;
+    shaftTex.value = shaftTarget.texture;
     underwaterFx.setTargets(targets);
     // Rebound here rather than per frame: a target's texture can be replaced by
     // setSize, and nothing that changes between draws inside one frame reaches
@@ -363,6 +409,13 @@ export function createPost({ renderer, targets, makeTarget, quality }) {
     uThreshold.value = env.bloomThreshold;
     uExposureThr.value = env.exposure;
     uUpRadius.value = env.bloomRadius * 2.0 + 0.5;
+    // First, and unconditionally. Skipping it above water would leave its
+    // pipeline uncompiled until the player first dives, and on this renderer
+    // that is a synchronous device.createRenderPipeline mid-game — the exact
+    // stall warmUpClock exists to remove. The march itself is behind a uniform
+    // branch, so above water the pass costs one quarter-res quad and a depth
+    // tap and writes zero.
+    draw(shaftMat, shaftTarget);
     draw(thresholdMat, chain[0].down);
 
     for (let i = 1; i < chain.length; i++) draw(downMats[i], chain[i].down);
@@ -397,6 +450,9 @@ export function createPost({ renderer, targets, makeTarget, quality }) {
   }
 
   function dispose() {
+    shaftTarget.dispose();
+    shaftMat.dispose();
+    underwaterFx.dispose();
     for (const l of chain) { l.down.dispose(); l.up.dispose(); }
     for (const m of downMats) if (m) m.dispose();
     for (const m of upMats) m.dispose();

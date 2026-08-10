@@ -520,7 +520,6 @@ function resize() {
       refraction: targets.refraction,
       refractionDepth: targets.refraction.depthTexture,
       reflection: targets.reflection,
-      sceneDepth: targets.scene.depthTexture,
       resolution: new THREE.Vector2(width, height),
     });
   }

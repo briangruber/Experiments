@@ -36,7 +36,7 @@ const smooth = (t) => t * t * (3 - 2 * t);
 
 // --- the rig -----------------------------------------------------------------
 
-const DEPTH_MIN = 0.9;          // metres below the surface the lure can rise to
+const DEPTH_MIN = 1.4;          // metres below the surface the lure can rise to
 const DEPTH_MAX = 11.0;         // and the deepest it will ever go
 const BED_CLEAR = 0.55;         // it never touches the sand
 const JIG_RATE = 3.4;           // m/s the control moves the lure at full deflection
@@ -52,8 +52,14 @@ const JIG_HOT = 2.30;
 // --- the camera --------------------------------------------------------------
 
 const CAM_DIST = 2.45;
-const CAM_ELEV = 0.20;          // radians above the lure
-const CAM_LEAD = 0.55;          // metres the framing sits above the lure
+// The eye sits barely above the lure and looks slightly up at it. The first
+// rig put the camera 0.85 m under the surface with a level gaze, which is the
+// one depth at which none of the underwater light works: there is no column
+// above the march to build a shaft out of and the ceiling is off the top of
+// the frame. Deeper, and pitched up, puts the window, the beams and the lure
+// in one shot.
+const CAM_ELEV = 0.06;          // radians above the lure
+const CAM_LEAD = 0.18;          // metres the framing sits above the lure
 const DIVE_TIME = 1.7;
 const RISE_TIME = 1.25;
 
@@ -365,7 +371,7 @@ export function createFishing(opts = {}) {
     // midpoint of the two when the water is too thin to hold the camera.
     const lo = bed + 0.65, hi = surf - 0.75;
     outPos.y = lo > hi ? (lo + hi) * 0.5 : clamp(outPos.y, lo, hi);
-    outLook.set(_focus.x, _focus.y + 0.10, _focus.z);
+    outLook.set(_focus.x, _focus.y + 0.26, _focus.z);
   }
 
   // --- fish ----------------------------------------------------------------
@@ -797,7 +803,7 @@ export function createFishing(opts = {}) {
     state.active = true;
     state.message = 'Bringing her to a stop…';
     state.lost = '';
-    state.depth = 2.4;
+    state.depth = 3.4;
     camOrbit = 0;
     transition = 0;
     savedFov = camera.fov;

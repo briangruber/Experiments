@@ -12,6 +12,13 @@
 
 import * as THREE from 'three';
 
+// `uwScale` and `shaftSteps` size the underwater god-ray march (see
+// water/underwaterFx.js). They are their OWN knobs rather than derived from
+// `geometry`, because that budget also sizes coral instancing and seabed grids
+// — a fill-rate effect and a vertex-count effect have no business sharing a
+// number, and deriving one from the other handed the phone 9 march steps for
+// reasons that had nothing to do with its fill rate.
+//
 // `geometry` is a 0–1 budget every module that generates its own geometry
 // scales against — seabed grid density, coral and vegetation instance counts,
 // fish and bubbles. It exists because those five modules each used to branch on
@@ -22,9 +29,9 @@ import * as THREE from 'three';
 // desktop density, on the one device that could least afford it. A number the
 // tier owns cannot fall through; a name ladder in five files always can.
 export const TIERS = {
-  high: { refractionScale: 0.75, reflectionScale: 0.5, shadows: true, shadowSize: 3072, maxPixelRatio: 2, reflections: true, waterSegments: 320, cloudSteps: 24, geometry: 1.0 },
-  med: { refractionScale: 0.55, reflectionScale: 0.38, shadows: true, shadowSize: 2048, maxPixelRatio: 1.5, reflections: true, waterSegments: 224, cloudSteps: 14, geometry: 0.68 },
-  low: { refractionScale: 0.42, reflectionScale: 0.30, shadows: false, shadowSize: 512, maxPixelRatio: 1, reflections: false, waterSegments: 144, cloudSteps: 8, geometry: 0.42 },
+  high: { refractionScale: 0.75, reflectionScale: 0.5, shadows: true, shadowSize: 3072, maxPixelRatio: 2, reflections: true, waterSegments: 320, cloudSteps: 24, geometry: 1.0, uwScale: 0.50, shaftSteps: 28 },
+  med: { refractionScale: 0.55, reflectionScale: 0.38, shadows: true, shadowSize: 2048, maxPixelRatio: 1.5, reflections: true, waterSegments: 224, cloudSteps: 14, geometry: 0.68, uwScale: 0.45, shaftSteps: 20 },
+  low: { refractionScale: 0.42, reflectionScale: 0.30, shadows: false, shadowSize: 512, maxPixelRatio: 1, reflections: false, waterSegments: 144, cloudSteps: 8, geometry: 0.42, uwScale: 0.30, shaftSteps: 12 },
   // Phones were never fill-rate bound here — that was a guess, and the device
   // profile killed it: 0.2 ms of GPU time a frame with the whole scene drawn.
   // What actually cost money was a pipeline recompile loop (see makeTarget) and
@@ -36,7 +43,7 @@ export const TIERS = {
   // across, magnified over the whole sea, and the clouds in it broke into
   // visible stair-steps. It matches the desktop 0.5 now. Shadows likewise — see
   // shadowMap.type below.
-  mobile: { refractionScale: 0.60, reflectionScale: 0.50, shadows: true, shadowSize: 2048, maxPixelRatio: 2, reflections: true, waterSegments: 160, cloudSteps: 8, geometry: 0.5 },
+  mobile: { refractionScale: 0.60, reflectionScale: 0.50, shadows: true, shadowSize: 2048, maxPixelRatio: 2, reflections: true, waterSegments: 160, cloudSteps: 8, geometry: 0.5, uwScale: 0.33, shaftSteps: 16 },
 };
 
 /** Does this browser actually have a WebGPU adapter? Cheap and synchronous. */
@@ -161,8 +168,10 @@ export async function createRenderer({
     return t;
   };
 
-  // Beauty pass. Its depth texture is what post and the water read scene depth
-  // from; makeTarget attached it.
+  // Beauty pass. Its depth texture is what water/underwaterFx.js reads scene
+  // depth from, through post; makeTarget attached it. Nothing else samples it —
+  // the water surface uses the REFRACTION target's depth, which is a different
+  // buffer for a different job.
   const scene = makeTarget(2, 2);
 
   // What the water sees looking down: seabed, coral, monster.
