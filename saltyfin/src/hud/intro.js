@@ -46,15 +46,18 @@ export function createIntro({ touch = false, backend = null } = {}) {
   const el = document.createElement('div');
   el.id = 'intro';
   const controls = touch
-    ? ['Left thumb &mdash; steer &amp; throttle', 'Right thumb &mdash; look', 'Pinch &mdash; zoom']
-    : ['W A S D &mdash; helm', 'Drag &mdash; look', '1 2 3 4 &mdash; time of day'];
+    ? ['Left thumb &mdash; steer &amp; throttle', 'Right thumb &mdash; look', 'Pinch &mdash; zoom',
+      '<b>Fish</b> &mdash; stop and go under']
+    : ['W A S D &mdash; helm', 'Drag &mdash; look', '1 2 3 4 &mdash; time of day',
+      '<b>F</b> &mdash; stop and go under'];
   el.innerHTML = `
     <div class="wrap">
       <div class="eyebrow">Greenwake Island</div>
       <h1>Salty Fin</h1>
       <div class="rule"></div>
       <p>Clear water over a living reef, a harbour that lights up at dusk,
-         and something very large moving underneath it.</p>
+         and something very large moving underneath it. Stop anywhere to drop
+         a line and work it.</p>
       <div class="keys">${controls.map((c) => `<span>${c}</span>`).join('')}</div>
       ${backend ? `<div class="backend">Renderer &mdash; ${backend === 'webgpu' ? 'WebGPU' : 'WebGL'}</div>` : ''}
       <div class="go">${touch ? 'Tap to begin' : 'Click to begin'}</div>

@@ -40,9 +40,14 @@ export function createBoatController({ ctx, input, water, terrain }) {
 
     update(ctx) {
       const dt = ctx.dt;
-      const throttleIn = input.axis('forward');
-      const turnIn = input.axis('turn');
-      const boost = input.isDown('ShiftLeft') || input.isDown('ShiftRight') ? 1.35 : 1;
+      // The helm stands down while fishing. This is a flag read here rather
+      // than the fishing module writing throttle from outside, because there
+      // has to be ONE owner of the hull — and W/S mean "work the lure" down
+      // there, so without this a jig would also drive the boat off the fish.
+      const hold = !!ctx.fishingHold;
+      const throttleIn = hold ? 0 : input.axis('forward');
+      const turnIn = hold ? 0 : input.axis('turn');
+      const boost = !hold && (input.isDown('ShiftLeft') || input.isDown('ShiftRight')) ? 1.35 : 1;
 
       b.throttle += (throttleIn - b.throttle) * Math.min(1, dt * 3.2);
       const target = b.throttle >= 0

@@ -41,6 +41,8 @@ import { createQuest } from './gameplay/quest.js';
 import { createHud } from './hud/hud.js';
 import { createIntro } from './hud/intro.js';
 import { createOceanPanel } from './hud/oceanPanel.js';
+import { createFishing } from './gameplay/fishing.js';
+import { createFishingHud } from './hud/fishingHud.js';
 import { createUnderwater } from './world/underwater.js';
 import { oceanSettings } from './water/settings.js';
 import { createProfiler, installGpuProbe, profileRequested, requestProfileRun } from './core/profile.js';
@@ -239,7 +241,13 @@ if (params.has('boat')) {
 const chaseCamera = createChaseCamera({ ctx, camera, input });
 const quest = createQuest({ ctx, monster });
 ctx.quest = quest;
+const fishing = createFishing({
+  ctx, scene, input, boat, wildlife, terrain, camera, chaseCamera,
+  water: () => ctx.water, seed: SEED,
+});
+ctx.fishing = fishing;
 const hud = createHud({ ctx, time });
+const fishingHud = createFishingHud({ fishing, ctx });
 const intro = createIntro({ touch: !!touch.root, backend: quality.backend });
 // Sliders for the sea. Built now so `?ocean=1` and the O key work before the
 // warm-up finishes; it starts hidden and costs nothing until it is opened.
@@ -563,15 +571,21 @@ function frame() {
     for (const m of modules) m.applyEnv?.(env);
     chaseCamera.applyEnv?.(env);
     hud.applyEnv?.(env);
+    fishing.applyEnv?.(env);
   }
 
   boatController.update(ctx);
-  chaseCamera.update(ctx);
+  // Fishing may take the camera. It runs before the chase rig rather than
+  // after so only one of them ever writes the transform in a frame — two rigs
+  // fighting over it is a jitter nobody can debug from a screenshot.
+  fishing.update(ctx);
+  if (!fishing.state.ownsCamera) chaseCamera.update(ctx);
   camera.updateMatrixWorld(true);
 
   for (const m of modules) m.update?.(ctx);
   quest.update(ctx);
   hud.update(ctx);
+  fishingHud.update();
 
   // Aim the shadow box at what the camera is looking at, not at the boat. On
   // the chase camera those are the same place, but an establishing shot of the
@@ -648,11 +662,34 @@ const api = {
   // touching a slider: saltyfin.ocean.set('reflect', 0.4).
   ocean: oceanSettings,
   oceanPanel,
+  // The capture harness has no thumbs: ?fish=1 casts on load, and these drive
+  // the beats so a screenshot can be taken at any of them.
+  fish: {
+    start: (instant) => fishing.start(instant),
+    stop: () => fishing.stop(),
+    press: () => fishing.press(),
+    hold: (v) => fishing.setHold(v),
+    jig: (v) => fishing.setJig(v),
+    // Step the minigame without rendering. Under a software rasteriser the
+    // capture harness gets about a frame a second, so a test that needs two
+    // hundred frames of fish behaviour is otherwise a three-minute run.
+    tick(seconds, dt = 1 / 60) {
+      const n = Math.max(1, Math.round(seconds / dt));
+      for (let i = 0; i < n; i++) {
+        ctx.time += dt;
+        ctx.dt = dt;
+        // The real ctx, not a stub: the surfacing branch hands control back to
+        // the chase rig, which reads the whole thing.
+        fishing.update(ctx);
+      }
+    },
+    state: fishing.state,
+  },
   lights: { keyLight, hemi, fillLight },
   modules: {
     sky, clouds, celestial, seabed, coral, islands, vegetation, village, dock,
     lighthouse, props, water, boat, fisher, monster, wildlife, hud, quest,
-    boatController, chaseCamera,
+    boatController, chaseCamera, fishing, underwater,
   },
   frames: 0,
   ready: false,
@@ -679,12 +716,36 @@ const api = {
     fpsBadge.style.display = '';
   },
   stop() { running = false; },
+  /**
+   * One frame, on demand, with the loop stopped. A capture that wants to
+   * photograph a specific beat of the fishing minigame has to step the sim
+   * with fish.tick() and then draw — and under a software rasteriser the real
+   * loop delivers about one frame a second, so waiting for rAF between steps
+   * moves the state on before the shutter opens.
+   */
+  renderFrame() {
+    camera.updateMatrixWorld(true);
+    aimShadowBox();
+    const sY = ctx.water?.sampleHeight
+      ? ctx.water.sampleHeight(camera.position.x, camera.position.z, ctx.time) : 0;
+    ctx.cameraUnderwater = THREE.MathUtils.clamp((sY - camera.position.y) * 1.5, 0, 1);
+    underwater.update(env, ctx.cameraUnderwater, ctx.time);
+    if (quality.reflections) renderReflection();
+    renderRefraction();
+    renderBeauty();
+    if (!NOPOST) renderPost();
+    renderer.setRenderTarget(null);
+    hud.update(ctx);
+    fishingHud.update();
+    mirrorFrame();
+  },
 };
 window.saltyfin = api;
 
 applyEnvToLights();
 for (const m of modules) m.applyEnv?.(env);
 hud.applyEnv?.(env);
+fishing.applyEnv?.(env);
 
 // Compile every pipeline the scene will ever need, before the first frame.
 //
@@ -743,6 +804,7 @@ async function warmUpClock() {
     applyEnvToLights();
     for (const m of modules) m.applyEnv?.(env);
     hud.applyEnv?.(env);
+    fishing.applyEnv?.(env);
   }
 }
 // `?warm=0` skips it, so a capture can measure what it is actually buying.
@@ -750,6 +812,10 @@ if (params.get('warm') !== '0') await warmUpClock();
 
 const boot = document.getElementById('boot');
 if (boot) boot.remove();
+
+// `?fish=1` drops straight into the jig for a capture; `?fish=cast` plays
+// the whole stop-and-dive so the transition can be photographed too.
+if (params.has('fish') && params.get('fish') !== '0') fishing.start(params.get('fish') !== 'cast');
 
 api.ready = true;
 

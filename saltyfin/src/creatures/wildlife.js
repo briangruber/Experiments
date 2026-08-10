@@ -2193,6 +2193,110 @@ export function createWildlife(opts = {}) {
     }
   }
 
+  // ======================================================== actors ===========
+  //
+  // A pool of fish that somebody ELSE poses, frame by frame. The fishing game
+  // needs animals it can steer — turn one toward a lure, make it circle,
+  // spook it, drag it up on a line — and none of that belongs in a boids
+  // module whose whole job is that nothing steers an individual.
+  //
+  // What it does NOT do is build a second kind of fish. Same SPECIES table,
+  // same buildCreature, same fishMat, same aFish convention, same layers and
+  // the same waterline clip — so a fish on the end of a line is one of the
+  // animals swimming past it, not a lookalike that has to be kept in sync by
+  // hand. The pool is built at boot and drawn from the first frame for the
+  // reason the jumper is (see its comment): an InstancedMesh that is never
+  // drawn has no pipeline, and building one mid-game is a synchronous compile
+  // on the WebGPU backend. They idle parked far below the seabed where nothing
+  // occludes them into view, at a cost of `count` degenerate instances.
+  const PARK_Y = -140;
+  const actorPools = [];
+
+  function createActors(key, count) {
+    const spec = SPECIES.find((s) => s.key === key) || SPECIES[0];
+    const geo = buildCreature(
+      spec, lerpI(spec.radial[0], spec.radial[1]), wingRows, withPect, spec.bright || 1,
+    );
+    const arr = new Float32Array(count * 4);
+    const attr = new THREE.InstancedBufferAttribute(arr, 4);
+    attr.setUsage(THREE.DynamicDrawUsage);
+    geo.setAttribute('aFish', attr);
+
+    const mesh = new THREE.InstancedMesh(geo, fishMat, count);
+    mesh.name = 'actor-' + spec.key;
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    mesh.frustumCulled = false;
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    const m = mesh.instanceMatrix.array;
+    for (let i = 0; i < count; i++) {
+      const o = i * 16;
+      m[o] = 1; m[o + 5] = 1; m[o + 10] = 1; m[o + 15] = 1;
+      m[o + 13] = PARK_Y;
+      // Beat amplitude in world metres, with the instance scale folded in — the
+      // shader cannot see the matrix. Rewritten by setScale below.
+      arr[i * 4 + 1] = spec.amp * spec.len;
+      arr[i * 4 + 2] = 1;
+      _c.setHSL(
+        rng.range(spec.tint.h[0], spec.tint.h[1]),
+        rng.range(spec.tint.s[0], spec.tint.s[1]),
+        rng.range(spec.tint.l[0], spec.tint.l[1]), SRGB,
+      );
+      mesh.setColorAt(i, _c);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    group.add(mesh);
+    setLayers(mesh, LAYER.MAIN, LAYER.UNDERWATER, LAYER.REFLECTED);
+    // A hooked fish comes out of the water at the end, so it crosses the
+    // waterline exactly like the jumper does.
+    applyWaterClip(mesh);
+    const pool = {
+      key: spec.key,
+      len: spec.len,
+      count,
+      spec,
+      /** Beat rate this species swims at, for the caller's phase accumulator. */
+      beatRate: (spec.beat[0] + spec.beat[1]) * 0.5,
+      /** Pose one fish. Angles in radians, `sc` a multiplier on spec.len. */
+      set(i, x, y, z, yaw, pitch, sc, beatPhase, amp) {
+        const o = i * 16;
+        const ca = Math.cos(yaw), sa = Math.sin(yaw);
+        const cp = Math.cos(pitch), sp = Math.sin(pitch);
+        m[o] = sc * ca; m[o + 1] = 0; m[o + 2] = -sc * sa;
+        m[o + 4] = sc * sa * sp; m[o + 5] = sc * cp; m[o + 6] = sc * ca * sp;
+        m[o + 8] = sc * sa * cp; m[o + 9] = -sc * sp; m[o + 10] = sc * ca * cp;
+        m[o + 12] = x; m[o + 13] = y; m[o + 14] = z;
+        const a = i * 4;
+        arr[a] = beatPhase;
+        arr[a + 1] = (amp ?? spec.amp) * spec.len * sc * envAmp;
+        arr[a + 2] = ca;
+        arr[a + 3] = sa;
+      },
+      /** Send one back to the car park. Cheaper than toggling visibility. */
+      park(i) {
+        const o = i * 16;
+        m[o] = 1; m[o + 1] = 0; m[o + 2] = 0;
+        m[o + 4] = 0; m[o + 5] = 1; m[o + 6] = 0;
+        m[o + 8] = 0; m[o + 9] = 0; m[o + 10] = 1;
+        m[o + 12] = 0; m[o + 13] = PARK_Y; m[o + 14] = 0;
+      },
+      /** Once per frame, after the last set()/park(). */
+      flush() {
+        mesh.instanceMatrix.needsUpdate = true;
+        attr.needsUpdate = true;
+      },
+      mesh,
+      dispose() {
+        group.remove(mesh);
+        mesh.dispose();
+        geo.dispose();
+      },
+    };
+    actorPools.push(pool);
+    return pool;
+  }
+
   function applyEnv(env) {
     if (!env) return;
 
@@ -2224,6 +2328,8 @@ export function createWildlife(opts = {}) {
   }
 
   function dispose() {
+    for (const pool of actorPools) pool.dispose();
+    actorPools.length = 0;
     for (const rec of kinds) { rec.mesh.dispose(); rec.geo.dispose(); }
     kinds.length = 0;
     jumper.dispose();
@@ -2235,5 +2341,5 @@ export function createWildlife(opts = {}) {
     group.clear();
   }
 
-  return { group, update, applyEnv, dispose };
+  return { group, update, applyEnv, dispose, createActors, species: SPECIES };
 }
