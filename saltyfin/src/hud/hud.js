@@ -130,7 +130,14 @@ export function createHud({ ctx, time } = {}) {
 
   // === compass ===============================================================
 
-  const compass = el('div', 'sf-compass', box);
+  // The compass strip and the quest card are built but never parented. The
+  // player asked for a HUD that is a radar and nothing else, and the radar
+  // already carries both things they were for: heading, on its own ring, and
+  // the creature, as a dot. Building them detached rather than deleting the
+  // code keeps every reference below alive — update() writes to them each
+  // frame and writing to an orphan costs nothing and reads no worse than
+  // twenty null checks would.
+  const compass = el('div', 'sf-compass', null);
   const marker = el('div', 'sf-marker', compass, SVG_MARKER);
   const rule = el('div', 'sf-rule', compass);
   el('div', 'sf-rule-line', rule);
@@ -154,7 +161,7 @@ export function createHud({ ctx, time } = {}) {
   // === quest card ============================================================
 
   let awayTimer = 0;
-  const questCard = el('div', 'sf-quest', box);
+  const questCard = el('div', 'sf-quest', null);
   const questHead = el('div', 'sf-quest-head', questCard, SVG_WARN);
   const questTitle = el('div', 'sf-quest-title', questHead);
   const questBody = el('div', 'sf-quest-body', questCard);
@@ -184,6 +191,25 @@ export function createHud({ ctx, time } = {}) {
   // === minimap ===============================================================
 
   const mm = el('div', 'sf-mm', box);
+  // The heading ring. It sits OUTSIDE mmRot so it can counter-rotate on its own
+  // — the map under it is heading-up, so the letters have to turn against the
+  // boat to keep pointing at true north.
+  const mmRing = el('div', 'sf-mm-ring', mm);
+  // Each mark is a full-size box that gets rotated, with the glyph pinned to the
+  // top of it in CSS. Placing them by a pixel radius off MM_R looked right on
+  // the 138 px desktop radar and put every letter outside the 88 px touch one,
+  // where the map's own overflow clipped them away — the ring was invisible on
+  // the only device it was asked for.
+  for (const [deg, label] of [[0, 'N'], [90, 'E'], [180, 'S'], [270, 'W']]) {
+    const t = el('div', 'sf-mm-card', mmRing);
+    t.dataset.c = label;
+    t.style.transform = 'rotate(' + deg + 'deg)';
+  }
+  for (let d = 0; d < 360; d += 30) {
+    if (d % 90 === 0) continue;
+    const t = el('div', 'sf-mm-tick', mmRing);
+    t.style.transform = 'rotate(' + d + 'deg)';
+  }
   const mmRot = el('div', 'sf-mm-rot', mm);
   const mmPan = el('div', 'sf-mm-pan', mmRot);
   const mmCanvas = document.createElement('canvas');
@@ -195,7 +221,14 @@ export function createHud({ ctx, time } = {}) {
   el('div', 'sf-mm-vig', mm);
   el('div', 'sf-mm-cone', mm, SVG_CONE);
   el('div', 'sf-mm-me', mm, SVG_ARROW);
-  const mmMon = el('div', 'sf-mm-mon', mm, SVG_MONSTER);
+  // One dot per leviathan. There is a pod out in the deep now, and a radar that
+  // shows one of them is worse than useless — it tells you the sea is empty
+  // everywhere the primary animal is not. Pooled at build time because nothing
+  // may be created after boot.
+  const MON_DOTS = 8;
+  const mmMons = [];
+  for (let i = 0; i < MON_DOTS; i++) mmMons.push(el('div', 'sf-mm-mon', mm, SVG_MONSTER));
+  const mmMon = mmMons[0];
 
   // Sample the bay exactly once. `isLand` and `depthAt` are cheap but not free,
   // and 37k calls is not something to repeat on a frame — the samples are kept
@@ -361,17 +394,40 @@ export function createHud({ ctx, time } = {}) {
       mmPan.style.transform = 'translate(' + (-mx * 0.1) + 'px,' + (-my * 0.1) + 'px)';
     }
 
-    vis(mmMon, inRange);
-    if (inRange) {
+    // The ring turns against the heading so N keeps pointing north.
+    mmRing.style.transform = 'rotate(' + (rot * 0.05) + 'deg)';
+
+    // A dot for every animal in range, the primary included. Anything the pod
+    // does not fill is hidden rather than left where it last was.
+    const pod = (c && c.monster && c.monster.pod) || null;
+    let shown = 0;
+    if (pod && pod.length) {
+      for (let i = 0; i < pod.length && shown < MON_DOTS; i++) {
+        const st = pod[i] && pod[i].state;
+        const pp = st && st.position;
+        if (!pp || !Number.isFinite(pp.x) || !Number.isFinite(pp.z)) continue;
+        const dx = pp.x - bx, dz = pp.z - bz;
+        const d = Math.sqrt(dx * dx + dz * dz);
+        if (d >= MONSTER_RANGE) continue;
+        const a = Math.atan2(dx, -dz) - headingDeg / RAD2DEG;
+        const r = Math.min(d * MM_PPM, MM_R - 10);
+        const dot = mmMons[shown++];
+        vis(dot, true);
+        dot.style.transform = 'translate(' + (Math.sin(a) * r).toFixed(1) + 'px,'
+          + (-Math.cos(a) * r).toFixed(1) + 'px)';
+      }
+    } else if (inRange) {
       const r = Math.min(dist * MM_PPM, MM_R - 10);
       const a = rel / RAD2DEG;
-      const px = Math.round(Math.sin(a) * r * 10);
-      const py = Math.round(-Math.cos(a) * r * 10);
-      if (px !== qMonX || py !== qMonY) {
-        qMonX = px; qMonY = py;
-        mmMon.style.transform = 'translate(' + (px * 0.1) + 'px,' + (py * 0.1) + 'px)';
-      }
+      vis(mmMon, true);
+      dotFallback(mmMon, Math.sin(a) * r, -Math.cos(a) * r);
+      shown = 1;
     }
+    for (let i = shown; i < MON_DOTS; i++) vis(mmMons[i], false);
+  }
+
+  function dotFallback(node, px, py) {
+    node.style.transform = 'translate(' + px.toFixed(1) + 'px,' + py.toFixed(1) + 'px)';
   }
 
   function applyEnv(env) {

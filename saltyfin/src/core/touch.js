@@ -49,7 +49,11 @@ const CSS = `
      far enough left to sit under the renderer badge — five pills across 390px.
      Lift the badge clear of it. !important because main.js sets the badge's
      position inline, and inline loses to an important rule. */
-  #fps { bottom: calc(48px + env(safe-area-inset-bottom)) !important; }
+  /* The player asked for a HUD that is the radar and nothing else, and the
+     badge is a HUD element however small. It is also the only way into the
+     renderer switch and the GPU profiler, so it does not just get deleted —
+     tapping the radar opens the same menu. See main.js. */
+  #fps { display: none !important; }
   /* Small, and clear of the button row. */
   #hud .sf-mm { width: 88px !important; height: 88px !important;
     right: max(10px, env(safe-area-inset-right)) !important;

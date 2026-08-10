@@ -22,6 +22,26 @@ const SPECS = {
   overhead: { distance: 26.0, height: 34.0, lookAhead: 12.0, lookHeight: -12.0, fov: 48 },
 };
 
+// Touch and mouse want different numbers, and the difference is not taste. A
+// thumb's drag is coarser and there is no way to nudge a view back with the
+// other hand, so on a phone the camera is gentler, its pitch is fenced in more
+// tightly, and it returns behind the boat by itself.
+const TOUCH = typeof matchMedia === 'function'
+  && (matchMedia('(pointer: coarse)').matches || (navigator.maxTouchPoints || 0) > 0);
+
+const ORBIT_GAIN = TOUCH ? 0.0021 : 0.0035;
+const PITCH_GAIN = TOUCH ? 0.0016 : 0.0025;
+// A phone screen is tall, so a camera that can dip toward the horizon puts the
+// boat in the bottom eighth of it and the sea in the other seven. Keeping the
+// low end higher is what makes the water the subject.
+const PITCH_MIN = TOUCH ? -0.22 : -0.5;
+const PITCH_MAX = TOUCH ? 0.75 : 0.9;
+const PITCH_REST = TOUCH ? 0.06 : 0;
+const ZOOM_MIN = TOUCH ? 0.70 : 0.55;
+const ZOOM_MAX = TOUCH ? 1.9 : 2.4;
+const RECENTRE_WAIT = TOUCH ? 1.1 : 2.6;
+const RECENTRE_RATE = TOUCH ? 1.5 : 0.9;
+
 export function createChaseCamera({ ctx, camera, input }) {
   const pos = new THREE.Vector3(0, 6, 18);
   const look = new THREE.Vector3();
@@ -33,6 +53,7 @@ export function createChaseCamera({ ctx, camera, input }) {
   let orbit = 0;          // extra yaw from the mouse
   let orbitPitch = 0;
   let zoom = 1;
+  let idle = 0;          // seconds since the last drag, for the auto-recentre
   let first = true;
   let fixed = null;       // { position, target } for reproducible captures
 
@@ -80,11 +101,35 @@ export function createChaseCamera({ ctx, camera, input }) {
 
       // Drag right, look right — the same sense as the helm, so the two never
       // disagree about which way is starboard.
-      if (input?.pointer.down) {
-        orbit += input.pointer.dx * 0.0035;
-        orbitPitch = THREE.MathUtils.clamp(orbitPitch - input.pointer.dy * 0.0025, -0.5, 0.9);
+      //
+      // A thumb is not a mouse. On a phone the same gain that feels precise
+      // under a cursor sends the camera spinning, because a thumb travels
+      // further and lands with more slop; and there is no second hand free to
+      // put the view back, so wherever a drag leaves it is where it stays. That
+      // is the whole problem with the old rig on mobile — one careless swipe
+      // and you are driving blind, sideways, permanently.
+      const dragging = !!input?.pointer.down;
+      if (dragging) {
+        orbit += input.pointer.dx * ORBIT_GAIN;
+        orbitPitch = THREE.MathUtils.clamp(
+          orbitPitch - input.pointer.dy * PITCH_GAIN, PITCH_MIN, PITCH_MAX);
+        idle = 0;
+      } else {
+        idle += ctx.dt;
       }
-      if (input?.pointer.wheel) zoom = THREE.MathUtils.clamp(zoom + input.pointer.wheel * 0.08, 0.55, 2.4);
+      if (input?.pointer.wheel) zoom = THREE.MathUtils.clamp(zoom + input.pointer.wheel * 0.08, ZOOM_MIN, ZOOM_MAX);
+
+      // Ease back behind the boat once the thumb has been off the glass for a
+      // moment. RECENTRE_WAIT is long enough to look at something deliberately
+      // and short enough that you never have to think about undoing a swipe.
+      // It also eases rather than snaps, and it eases FASTER the further out of
+      // true it is, so a small deliberate offset survives noticeably longer
+      // than a wild one.
+      if (!dragging && idle > RECENTRE_WAIT) {
+        const t = Math.min(1, ctx.dt * (RECENTRE_RATE + Math.abs(orbit) * 0.9));
+        orbit -= orbit * t;
+        orbitPitch -= (orbitPitch - PITCH_REST) * t;
+      }
 
       const yaw = b.heading + orbit;
       const fx = Math.sin(yaw), fz = -Math.cos(yaw);
@@ -104,7 +149,7 @@ export function createChaseCamera({ ctx, camera, input }) {
       const surface = ctx.water?.sampleHeight?.(desired.x, desired.z, ctx.time) ?? 0;
       desired.y = Math.max(desired.y, surface + 1.4);
 
-      const k = first ? 1 : Math.min(1, ctx.dt * 3.4);
+      const k = first ? 1 : Math.min(1, ctx.dt * (TOUCH ? 2.6 : 3.4));
       pos.lerp(desired, k);
 
       target.set(

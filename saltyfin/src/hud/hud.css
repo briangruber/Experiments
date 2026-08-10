@@ -248,6 +248,37 @@
   stroke-width: 1;
   stroke-linejoin: round;
 }
+/* The heading ring. Outside the map's rotation so it can turn against it and
+   keep N pointing at true north — a chart, not a windscreen. */
+.sf-mm-ring {
+  position: absolute; inset: 0;
+  pointer-events: none;
+  will-change: transform;
+}
+/* Each mark fills the ring and is rotated about its own centre; the glyph is
+   pinned to the top edge. That way the radius is the radar's radius whatever
+   size the radar is, which is what the fixed-pixel version got wrong. */
+.sf-mm-card, .sf-mm-tick {
+  position: absolute; inset: 0;
+  transform-origin: 50% 50%;
+  pointer-events: none;
+}
+.sf-mm-card::before {
+  content: attr(data-c);
+  position: absolute; left: 50%; top: 5px;
+  transform: translateX(-50%);
+  font: 700 9px/1 ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: .06em;
+  color: rgba(226, 242, 255, .86);
+  text-shadow: 0 1px 3px rgba(2, 8, 18, .9);
+}
+.sf-mm-tick::before {
+  content: '';
+  position: absolute; left: 50%; top: 3px;
+  width: 1px; height: 4px; margin-left: -.5px;
+  background: rgba(206, 232, 255, .40);
+}
+
 .sf-mm-mon {
   position: absolute; left: 50%; top: 50%;
   width: 0; height: 0;

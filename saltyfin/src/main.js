@@ -246,6 +246,22 @@ fpsBadge.title = 'Tap for renderer options';
 fpsBadge.textContent = quality.backend;
 document.body.appendChild(fpsBadge);
 
+// On a phone the badge is hidden — the player asked for a HUD that is the radar
+// and nothing else — so the radar itself opens the menu. Without this the
+// renderer switch and the GPU profiler would be unreachable on the one device
+// they were built to diagnose.
+const radar = document.querySelector('#hud .sf-mm');
+if (radar) {
+  radar.style.pointerEvents = 'auto';
+  radar.style.cursor = 'pointer';
+  radar.title = 'Tap for renderer options';
+  radar.addEventListener('pointerdown', (e) => {
+    if (getComputedStyle(fpsBadge).display !== 'none') return;   // desktop: badge owns it
+    e.preventDefault();
+    fpsBadge.dispatchEvent(new PointerEvent('pointerdown', { bubbles: false }));
+  });
+}
+
 // Tapping the badge used to switch backend outright. It now opens a two-item
 // menu, because the profiler needs a way in and a long-press is a bad gesture
 // to hang a diagnostic off on iOS — Safari puts its own selection UI there.
