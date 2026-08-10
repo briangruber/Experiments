@@ -17,6 +17,7 @@ import {
   Fn, texture, uniform, uv, vec2, vec3, vec4, float,
   max, min, clamp, mix, pow, dot, step, smoothstep, fract, screenCoordinate, textureSize,
 } from 'three/tsl';
+import { createUnderwaterFx } from '../water/underwaterFx.js';
 
 const LUMA = vec3(0.2126, 0.7152, 0.0722);
 
@@ -42,7 +43,15 @@ const linearToSrgb = Fn(([c]) => mix(
   step(vec3(0.0031308), c),
 ));
 
-export function createPost({ renderer, targets, makeTarget }) {
+export function createPost({ renderer, targets, makeTarget, quality }) {
+  // The water column, its extinction, its caustics and its god rays, as a
+  // screen-space term over the beauty buffer. It lives here rather than as a
+  // pass of its own because it has to SAMPLE targets.scene.depthTexture, and
+  // WebGPU will not let a texture be a render attachment and a sampled
+  // resource at the same time — so it cannot be drawn back into the target it
+  // reads. The two passes below already read that target while it is unbound.
+  // See water/underwaterFx.js.
+  const underwaterFx = createUnderwaterFx({ targets, quality });
   const quad = new THREE.QuadMesh();
 
   const mat = () => {
@@ -59,7 +68,14 @@ export function createPost({ renderer, targets, makeTarget }) {
   const uExposureThr = uniform(1.0);
   const thresholdMat = mat();
   thresholdMat.fragmentNode = Fn(() => {
-    const c = thrSrc.sample(uv()).rgb.mul(uExposureThr).toVar();
+    const tuv = uv().toVar();
+    // The water goes on BEFORE the bright pass, so the shafts and the caustic
+    // highlights are what bloom. Doing it only in the composite would give a
+    // frame whose brightest feature is the one thing with no glow on it.
+    // Half the marching steps: this buffer is a quarter of the pixels and
+    // everything drawn from it is about to be blurred six times.
+    const c = underwaterFx.apply(thrSrc.sample(tuv).rgb, tuv, Math.max(5, underwaterFx.steps >> 1))
+      .mul(uExposureThr).toVar();
     const l = max(max(c.r, c.g), c.b).toVar();
     const knee = uThreshold.mul(uSoftKnee).add(1e-5).toVar();
     const soft = clamp(l.sub(uThreshold).add(knee), 0, knee.mul(2)).toVar();
@@ -170,6 +186,12 @@ export function createPost({ renderer, targets, makeTarget }) {
       compScene.sample(suv.add(off)).b,
     ).toVar();
 
+    // A `?uw=` debug view returns here, before the tonemap and the grade, so
+    // what lands in the canvas is the number the pass computed rather than a
+    // graded picture of it. Reading a value off a screenshot is the only way
+    // to check a depth reconstruction, and it has to be the raw value.
+    if (underwaterFx.debug) return vec4(underwaterFx.apply(col, suv), 1);
+    col.assign(underwaterFx.apply(col, suv));
     col.mulAssign(uExposure);
     col.addAssign(compBloom.sample(suv).rgb.mul(uBloomStrength));
 
@@ -318,6 +340,7 @@ export function createPost({ renderer, targets, makeTarget }) {
     thrSrc.value = targets.scene.texture;
     compScene.value = targets.scene.texture;
     compBloom.value = chain[0].up.texture;
+    underwaterFx.setTargets(targets);
     // Rebound here rather than per frame: a target's texture can be replaced by
     // setSize, and nothing that changes between draws inside one frame reaches
     // the passes anyway (see the mip chain above).
@@ -375,13 +398,14 @@ export function createPost({ renderer, targets, makeTarget }) {
 
   function dispose() {
     for (const l of chain) { l.down.dispose(); l.up.dispose(); }
-    for (const m of downMats) m.dispose();
+    for (const m of downMats) if (m) m.dispose();
     for (const m of upMats) m.dispose();
     thresholdMat.dispose(); compositeMat.dispose(); showMat.dispose();
   }
 
   return {
     resize, render, dispose, showDebugTarget, showing: SHOW,
+    underwater: underwaterFx,
     materials: { compositeMat },
   };
 }

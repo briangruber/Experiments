@@ -444,6 +444,14 @@ export function createWaterMaterial({
   // stays glassy and the offshore water breaks.
   const uCrestNorm = uniform(0.26);
 
+  // --- the ceiling, from below ---------------------------------------------
+  // How far the surface slope swings the refracted sky inside Snell's window,
+  // how bright the caustic web on the underside gets, and the ring at the
+  // critical angle. All three only ever run when uSubmerged is up.
+  const uWinDistort = uniform(0.55);
+  const uUnderWeb = uniform(0.85);
+  const uWinRim = uniform(0.30);
+
   // 0.22 was tuned when the finest octave was 3.5 m across, where more of it
   // just made the big soft shapes bigger and softer. With a 0.9 m octave in the
   // sum there is something worth turning up.
@@ -483,6 +491,7 @@ export function createWaterMaterial({
     uAmbFoam, uAmbFoamScale, uAmbFoamThresh, uAmbFoamSteep,
     uReflBedMin, uReflBedNear, uReflBedFar,
     uSwellGain, uSwellDeepA, uSwellDeepB, uCrestNorm,
+    uWinDistort, uUnderWeb, uWinRim,
   };
 
   // --- what the vertex stage hands the fragment stage ----------------------
@@ -683,8 +692,18 @@ export function createWaterMaterial({
     // Snell's window: the whole sky squeezed into a 97 degree cone, and outside
     // it the underside of the surface turns into a mirror of the gloom below.
     const up = V.negate().toVar();
-    const win = smoothstep(0.52, 0.80, sat(dot(up, N))).toVar();
-    const through = vec3(skyAt(normalize(mix(vec3(0.0, 1.0, 0.0), up, 0.6)))).toVar();
+    const cw = sat(dot(up, N)).toVar();
+    const win = smoothstep(0.52, 0.80, cw).toVar();
+    // The sky inside the window, WAVE-DISTORTED. The lookup used to be a fixed
+    // blend toward straight up with no N in it at all, so the window's contents
+    // were frozen while its rim wobbled — which is the tell that gives a fake
+    // one away. Refraction through a tilted surface swings the apparent
+    // direction by roughly the surface slope, so feeding N.xz in is both the
+    // cheap fix and the physical one.
+    const winDir = normalize(
+      mix(vec3(0.0, 1.0, 0.0), up, 0.6).add(vec3(N.x, 0.0, N.z).mul(uWinDistort)),
+    ).toVar();
+    const through = vec3(skyAt(winDir)).toVar();
     // The colour of the ceiling outside Snell's window. It is a MIRROR of the
     // water below it, not a hole into the deep — total internal reflection
     // sends the seabed's own light back down at you — so it is built from the
@@ -694,6 +713,34 @@ export function createWaterMaterial({
     const gloom = vec3(uMid.mul(0.62).add(uScatter.mul(0.72)).add(uShallow.mul(0.18))).toVar();
     const under = vec3(mix(gloom, through.mul(1.15), win)).toVar();
     under.addAssign(uKeyColor.mul(uKeyIntensity).mul(pow(sat(dot(up, L)), 60.0)).mul(win).mul(1.2));
+
+    // --- what the ceiling was missing -------------------------------------
+    // All of it behind a uniform branch. `under` is computed for EVERY water
+    // fragment whether the eye is below the surface or not — TSL evaluates both
+    // sides of the select at the end of this function — so without the gate
+    // these taps would be paid on the whole above-water sea for a term nobody
+    // can see. The condition is a uniform, which is what WGSL needs for a
+    // texture read inside control flow.
+    If(uSubmerged.greaterThan(0.001), () => {
+      // The caustic web, on the underside. This is the single biggest thing
+      // the ceiling did not have, and it costs nothing to place: vFlat is
+      // already a varying, so there is no depth read and no reconstruction.
+      // It is also the SAME field the shafts march through and the same one
+      // the sand is dappled with, so the web overhead, the beams hanging from
+      // it and the pattern on the floor all agree — that coherence is what
+      // reads as one body of water rather than three effects.
+      const w0 = tCaustic.sample(vFlat.mul(uCausticScale)).r.toVar();
+      const w1 = tCaustic.sample(causticRot(vFlat).mul(uCausticScale).mul(0.63)).r.toVar();
+      const web = sat(w0.mul(2.5).mul(float(0.6).add(w1.mul(2.5).mul(0.7)))).toVar();
+      under.mulAssign(float(1.0).add(pow(web, 1.6).mul(uUnderWeb)));
+
+      // The bright ring at the critical angle. A real Snell window has one —
+      // grazing rays from just inside the cone arrive along the rim and pile
+      // up there — and it is the detail that turns a pale disc into a hole in
+      // the ceiling. Two smoothsteps, no derivative, no extra tap.
+      const rim = smoothstep(0.46, 0.53, cw).mul(smoothstep(0.66, 0.55, cw)).toVar();
+      under.addAssign(mix(uSkyHorizon, vec3(1.0), 0.35).mul(rim).mul(uWinRim));
+    });
     // Seen from below, the wake is a bright ceiling patch and nothing more — so
     // it takes the channel VALUES with their own constants. It deliberately does
     // not share uWakeFoam/uWakeArmFoam any more: those now scale a gradient and

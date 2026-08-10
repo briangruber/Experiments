@@ -113,7 +113,7 @@ const touch = createTouchControls({
   input,
   onTimePreset: (code) => window.dispatchEvent(new KeyboardEvent('keydown', { code })),
 });
-const post = createPost({ renderer, targets, makeTarget });
+const post = createPost({ renderer, targets, makeTarget, quality });
 
 // --- lights -----------------------------------------------------------------
 
@@ -598,6 +598,10 @@ function frame() {
   // After applyEnvToLights and after the camera has moved: this is a modifier
   // on the preset's own lights and fog, so it has to run once both are final.
   underwater.update(env, ctx.cameraUnderwater, ctx.time);
+  post.underwater?.update({
+    camera, env, amount: ctx.cameraUnderwater, time: ctx.time,
+    water: ctx.water, surfaceY,
+  });
 
   // While a profile is running the ladder owns the frame: it hands back the
   // rung to draw and we draw exactly that, so the timings compare like with
@@ -662,6 +666,9 @@ const api = {
   // touching a slider: saltyfin.ocean.set('reflect', 0.4).
   ocean: oceanSettings,
   oceanPanel,
+  // The underwater screen-space pass, so a capture can sweep its uniforms
+  // without a reload. Tuning this by rebuilding is eight minutes a value.
+  uw: post.underwater,
   // The capture harness has no thumbs: ?fish=1 casts on load, and these drive
   // the beats so a screenshot can be taken at any of them.
   fish: {
@@ -693,7 +700,18 @@ const api = {
   },
   frames: 0,
   ready: false,
-  setHour(h) { time.set(h); },
+  setHour(h) {
+    time.set(h);
+    // Push it through immediately. The frame loop normally does this when
+    // time.version changes, but a capture stops the loop and draws on demand —
+    // without this every deferred-render shot came back lit at the boot hour.
+    lastEnvVersion = time.version;
+    applyEnvToLights();
+    for (const m of modules) m.applyEnv?.(env);
+    chaseCamera.applyEnv?.(env);
+    hud.applyEnv?.(env);
+    fishing.applyEnv?.(env);
+  },
   setBoat(x, z, heading) { boatController.teleport(x, z, heading); },
   /**
    * Hold the helm from outside. The capture harness has no hands, so without
@@ -707,6 +725,8 @@ const api = {
     document.getElementById('touch')?.classList.add('hidden');
     fpsBadge.style.display = 'none';
     oceanPanel.close();
+    const fishGo = document.getElementById('sf-fish-go');
+    if (fishGo) fishGo.style.display = 'none';
     intro.dismiss?.();
     document.getElementById('intro')?.remove();
   },
@@ -714,6 +734,8 @@ const api = {
     document.getElementById('hud')?.classList.remove('hidden');
     document.getElementById('touch')?.classList.remove('hidden');
     fpsBadge.style.display = '';
+    const fishGo = document.getElementById('sf-fish-go');
+    if (fishGo) fishGo.style.display = '';
   },
   stop() { running = false; },
   /**
@@ -730,6 +752,10 @@ const api = {
       ? ctx.water.sampleHeight(camera.position.x, camera.position.z, ctx.time) : 0;
     ctx.cameraUnderwater = THREE.MathUtils.clamp((sY - camera.position.y) * 1.5, 0, 1);
     underwater.update(env, ctx.cameraUnderwater, ctx.time);
+    post.underwater?.update({
+      camera, env, amount: ctx.cameraUnderwater, time: ctx.time,
+      water: ctx.water, surfaceY: sY,
+    });
     if (quality.reflections) renderReflection();
     renderRefraction();
     renderBeauty();

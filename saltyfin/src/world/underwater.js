@@ -273,7 +273,6 @@ export function createUnderwater({ ctx, scene, lights, seed = 1 } = {}) {
   // blend always runs from the environment's own values rather than from
   // yesterday's blend. Re-read every frame from the light itself for the same
   // reason: main.js writes them from the preset on every clock tick.
-  const surfaceFogColor = new THREE.Color();
   const waterFogColor = new THREE.Color();
   const keyColor = new THREE.Color();
   const hemiSky = new THREE.Color();
@@ -304,16 +303,16 @@ export function createUnderwater({ ctx, scene, lights, seed = 1 } = {}) {
     waterFogColor.copy(env.waterMid).lerp(env.waterScatter, 0.45);
     uWaterTint.value.copy(waterFogColor).multiplyScalar(1.9);
 
-    // Fog. This is the one that matters. Night has almost no ambient light in
-    // the water at all, so visibility collapses — which is both true and the
-    // reason a night dive is its own thing.
-    const vis = 0.34 + 0.66 * env.dayFactor;
-    if (scene.fog) {
-      surfaceFogColor.copy(env.fogColor);
-      scene.fog.color.copy(surfaceFogColor).lerp(waterFogColor, a);
-      scene.fog.near = env.fogNear + (FOG_NEAR - env.fogNear) * a;
-      scene.fog.far = env.fogFar + (FOG_FAR * vis - env.fogFar) * a;
-    }
+    // Fog is deliberately NOT touched any more.
+    //
+    // It used to be pushed to a 3-46 m ramp on the water colour, and that was
+    // the right instinct with the wrong tool: THREE.Fog is one colour and a
+    // linear ramp, and what water actually does is exp(-sigma*d) with sigma
+    // six times larger in red than in blue — the SEPARATION between the
+    // channels with distance is the entire depth cue. water/underwaterFx.js
+    // now does that per pixel from the scene depth buffer, and leaving this
+    // here as well double-counted the haze: the reef went to a flat wash at
+    // eight metres and the pass had nothing left to work with.
 
     // Light. The key comes through a rough ceiling: dimmer, greener, and much
     // softer, while the ambient dome goes UP because the water itself is the
