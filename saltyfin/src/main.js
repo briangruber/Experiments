@@ -41,6 +41,7 @@ import { createQuest } from './gameplay/quest.js';
 import { createHud } from './hud/hud.js';
 import { createIntro } from './hud/intro.js';
 import { createOceanPanel } from './hud/oceanPanel.js';
+import { createUnderwater } from './world/underwater.js';
 import { oceanSettings } from './water/settings.js';
 import { createProfiler, installGpuProbe, profileRequested, requestProfileRun } from './core/profile.js';
 
@@ -215,6 +216,13 @@ const fisher = build(createFisher, { boat });
 const monster = build(createMonster, { terrain });
 ctx.monster = monster;
 const wildlife = build(createWildlife, { terrain });
+// Fog, light and suspended matter for when the camera goes under. Not a
+// `module` — it is not driven by applyEnv/update like the rest, it runs after
+// them as a modifier on what they produced. See world/underwater.js.
+const underwater = createUnderwater({
+  ctx, scene, seed: SEED, lights: { keyLight, hemi, fillLight },
+});
+scene.add(underwater.group);
 
 const boatController = createBoatController({ ctx, input, water: () => ctx.water, terrain });
 // `?drive=0.9` or `?drive=0.9,0.3` pins the helm for a capture.
@@ -243,6 +251,7 @@ if (params.get('ocean') === '1') oceanPanel.open();
 // ?forcegl=1, so the A/B has to live on the page itself.
 const fpsBadge = document.createElement('div');
 fpsBadge.id = 'fps';
+fpsBadge.dataset.sfUi = '';
 fpsBadge.style.cssText = 'position:fixed;left:10px;bottom:calc(10px + env(safe-area-inset-bottom));'
   + 'z-index:45;font:600 10px/1.6 ui-sans-serif,system-ui,sans-serif;letter-spacing:.12em;'
   + 'text-transform:uppercase;color:rgba(214,236,255,.75);background:rgba(8,20,36,.45);'
@@ -277,6 +286,7 @@ fpsBadge.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   if (menu) { closeMenu(); return; }
   menu = document.createElement('div');
+  menu.dataset.sfUi = '';
   menu.style.cssText = 'position:fixed;left:10px;bottom:calc(40px + env(safe-area-inset-bottom));'
     + 'z-index:60;display:flex;flex-direction:column;gap:6px;'
     + 'font:600 10px/1 ui-sans-serif,system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase';
@@ -571,6 +581,9 @@ function frame() {
 
   const surfaceY = ctx.water?.sampleHeight ? ctx.water.sampleHeight(camera.position.x, camera.position.z, ctx.time) : 0;
   ctx.cameraUnderwater = THREE.MathUtils.clamp((surfaceY - camera.position.y) * 1.5, 0, 1);
+  // After applyEnvToLights and after the camera has moved: this is a modifier
+  // on the preset's own lights and fog, so it has to run once both are final.
+  underwater.update(env, ctx.cameraUnderwater, ctx.time);
 
   // While a profile is running the ladder owns the frame: it hands back the
   // rung to draw and we draw exactly that, so the timings compare like with

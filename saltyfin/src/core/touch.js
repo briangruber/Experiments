@@ -86,7 +86,7 @@ export function createTouchControls({ input, onTimePreset } = {}) {
     <div class="zone drive"></div>
     <div class="zone look"></div>
     <div class="stick"><div class="nub"></div><div class="hint">drive</div></div>
-    <div class="times">
+    <div class="times" data-sf-ui>
       <button data-code="Digit1">Day</button>
       <button data-code="Digit2">Golden</button>
       <button data-code="Digit3">Sunset</button>

@@ -173,9 +173,24 @@ export function createPost({ renderer, targets, makeTarget }) {
     col.mulAssign(uExposure);
     col.addAssign(compBloom.sample(suv).rgb.mul(uBloomStrength));
 
-    // Under the surface, tint toward the water body colour and lift the floor.
-    col.assign(mix(col, col.mul(uUnderwaterTint), uUnderwater.mul(0.85)));
-    col.addAssign(uUnderwaterTint.mul(uUnderwater).mul(0.05));
+    // Under the surface: a HUE shift and a lifted floor, not an exposure cut.
+    //
+    // This used to multiply the frame by the water's body colour at 0.85, which
+    // is a filter over a scene still lit as though it were in air. It was doing
+    // the whole job on its own and doing it wrongly — a dark blue times an
+    // unchanged image is a dark image, and everything below the boat came back
+    // near-black with a blue cast. world/underwater.js now does the physical
+    // part (fog, key falloff, ambient lift), so this only has to finish the
+    // look. Normalising the tint by its own maximum channel is what makes it a
+    // shift rather than a dimmer: the brightest channel passes at 1.0 and only
+    // red is pulled down, which is exactly what water does to the spectrum.
+    const wt = uUnderwaterTint.div(max(max(uUnderwaterTint.r, uUnderwaterTint.g),
+      max(uUnderwaterTint.b, 1e-3))).toVar();
+    col.assign(mix(col, col.mul(mix(vec3(1.0), wt, 0.80)), uUnderwater.mul(0.55)));
+    // The floor lift is the water between the eye and the subject glowing. It
+    // is what stops the shadows going to true black, which never happens in
+    // daylight under two metres of anything.
+    col.addAssign(uUnderwaterTint.mul(uUnderwater).mul(0.10));
 
     col.assign(tonemapFilmic(col));
 

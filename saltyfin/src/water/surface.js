@@ -332,6 +332,7 @@ export function createWater(opts = {}) {
     const t = ctx.time;
     u.uTime.value = t;
     u.uNear.value = ctx.camera.near;
+    u.uSubmerged.value = ctx.cameraUnderwater || 0;
     u.uFar.value = ctx.camera.far;
 
     caustics.update(t);

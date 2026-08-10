@@ -374,6 +374,14 @@ export function createWaterMaterial({
   // deletion so the ocean panel can bring it back without a rebuild.
   const uWakeVisible = uniform(0);
 
+  // 1 when the eye is under the surface. Two things in this shader have to know
+  // — see the gloom and the horizon below — and neither can work it out for
+  // itself: `frontFacing` tells you which side of a TRIANGLE you are on, and on
+  // a wave field a long way off you are looking at the tops of the far faces
+  // even though your head is underwater. surface.js writes it from
+  // ctx.cameraUnderwater, so it ramps with the same curve post.js uses.
+  const uSubmerged = uniform(0);
+
   // --- how much sky the shallows are allowed to mirror ---------------------
   // The single-interface Fresnel term above assumes nothing comes back from
   // below the surface. Over two metres of water on bright sand that is simply
@@ -470,7 +478,7 @@ export function createWaterMaterial({
     uReflStrength, uReflEnabled, uCaustic, uCausticScale, uFoamTint, uFoamBright,
     uWakeCenter, uWakeWorld, uWakeTexel, uWakeGrad, uWakeSlope, uWakeSlopeMax, uWakeArmSlope,
     uWakeFoam, uWakeArmFoam, uWakeSoft, uWakeArmSoft, uWakeMottle, uWakeBright,
-    uWakeRim, uWakeChurnScale, uWakeHalo, uWakeVisible,
+    uWakeRim, uWakeChurnScale, uWakeHalo, uWakeVisible, uSubmerged,
     uDetailStrength, uFineChop, uRefractDistort, uReflDistort, uScatterStrength, uShoreFoamDepth,
     uAmbFoam, uAmbFoamScale, uAmbFoamThresh, uAmbFoamSteep,
     uReflBedMin, uReflBedNear, uReflBedFar,
@@ -677,7 +685,13 @@ export function createWaterMaterial({
     const up = V.negate().toVar();
     const win = smoothstep(0.52, 0.80, sat(dot(up, N))).toVar();
     const through = vec3(skyAt(normalize(mix(vec3(0.0, 1.0, 0.0), up, 0.6)))).toVar();
-    const gloom = vec3(uDeep.mul(0.70).add(uScatter.mul(0.30))).toVar();
+    // The colour of the ceiling outside Snell's window. It is a MIRROR of the
+    // water below it, not a hole into the deep — total internal reflection
+    // sends the seabed's own light back down at you — so it is built from the
+    // mid tone and the scattering colour and it is bright. Built from uDeep at
+    // 0.7 it was near-black, which put a navy lid over every underwater frame
+    // and made two metres of clear lagoon read as a flooded cellar.
+    const gloom = vec3(uMid.mul(0.62).add(uScatter.mul(0.72)).add(uShallow.mul(0.18))).toVar();
     const under = vec3(mix(gloom, through.mul(1.15), win)).toVar();
     under.addAssign(uKeyColor.mul(uKeyIntensity).mul(pow(sat(dot(up, L)), 60.0)).mul(win).mul(1.2));
     // Seen from below, the wake is a bright ceiling patch and nothing more — so
@@ -687,7 +701,7 @@ export function createWaterMaterial({
     // different wake shape than the top surface every time the top was retuned.
     const wf = sat(wC.b.mul(0.80).add(wC.a.mul(0.60))).mul(wmask).toVar();
     under.assign(mix(under, foamCol.mul(0.5), sat(wf).mul(0.55)));
-    under.assign(mix(under, gloom.mul(0.55), smoothstep(10.0, 140.0, dist)));
+    under.assign(mix(under, gloom.mul(0.86), smoothstep(10.0, 140.0, dist)));
     // Modulate after the distance blend, or the far ceiling reads as a flat wall.
     under.mulAssign(float(0.78).add(sat(N.y.mul(0.4).add(vCrest.mul(1.8)).add(0.45)).mul(0.52)));
 
@@ -1026,7 +1040,12 @@ export function createWaterMaterial({
     // --- horizon ------------------------------------------------------------
     const fog = sat(dist.sub(uFogNear).div(max(uFogFar.sub(uFogNear), 1.0))).toVar();
     fog.assign(fog.mul(fog).mul(float(3.0).sub(fog.mul(2.0))));
-    col.assign(mix(col, mix(uFogColor, uSkyHorizon, 0.42), fog));
+    // Fog to the sky at the surface, to the water body from under it. Without
+    // the second case the far water — whose wave faces are tilted enough that a
+    // submerged eye sees their TOPS, so `frontFacing` picks this branch — was
+    // fogged to the bright sky horizon and drew a hard white band right across
+    // every underwater shot.
+    col.assign(mix(col, mix(mix(uFogColor, uSkyHorizon, 0.42), gloom.mul(0.9), uSubmerged), fog));
     col.addAssign(spec.mul(fog.mul(0.55).oneMinus()));
 
     return vec4(max(select(frontFacing, col, under), vec3(0.0)), 1.0);

@@ -10,8 +10,8 @@
 // phone and sits as a column on the right on a desktop, and it never covers the
 // bottom third of the screen — that is where the water the player is judging
 // is, and a settings panel that hides the thing being set is useless. It closes
-// on Escape, on the backdrop, and on its own button; it does NOT close when a
-// slider is released, because the whole point is to drag one and watch.
+// on Escape and on Done, and on nothing else — not on a tap outside, because a
+// thumb reaching for the helm must not throw it away mid-adjustment.
 //
 // Like touch.js, this module owns its own markup and its own stylesheet and
 // reaches into nothing else's.
@@ -114,6 +114,11 @@ export function createOceanPanel({ settings = oceanSettings } = {}) {
 
   const root = document.createElement('div');
   root.id = 'sf-ocean';
+  // See core/input.js: anything inside this attribute is UI, and a drag that
+  // starts here must never reach the camera. Without it, dragging a slider on a
+  // phone orbited the view under the panel — a touch nobody preventDefaults
+  // replays itself as a mouse drag on window.
+  root.dataset.sfUi = '';
   root.innerHTML = '<div class="sf-sheet"></div>';
   const sheet = root.querySelector('.sf-sheet');
 

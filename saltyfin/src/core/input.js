@@ -1,5 +1,21 @@
 // Keyboard + pointer state. Polled, not evented, so the sim reads a consistent
 // snapshot for the whole frame.
+//
+// One rule about where a drag is allowed to come from, and it is not cosmetic.
+// A touch that nobody calls preventDefault() on produces COMPATIBILITY MOUSE
+// EVENTS — mousedown, mousemove, mouseup — and they bubble to window like any
+// other. core/touch.js preventDefaults its own zones so they never emit any;
+// every other overlay does not, so dragging an ocean-settings slider on a phone
+// arrived here as a mouse drag and orbited the camera under the panel. The fix
+// is not to patch that one panel: any overlay marked `data-sf-ui` is off limits
+// for camera input, and the flag latches on the PRESS, so a drag that starts on
+// the water keeps orbiting when the pointer crosses a HUD element mid-gesture.
+
+/** Did this event start on something that is UI rather than the world? */
+function onUi(e) {
+  const t = e.target;
+  return !!(t && typeof t.closest === 'function' && t.closest('[data-sf-ui]'));
+}
 
 export function createInput(target = window) {
   const down = new Set();
@@ -8,6 +24,7 @@ export function createInput(target = window) {
   const pointer = { x: 0, y: 0, dx: 0, dy: 0, down: false, locked: false, wheel: 0 };
   let enabled = true;
   let touchHeld = false;
+  let dragging = false;    // a mouse drag that began on the world, not on UI
 
   const onKeyDown = (e) => {
     if (!enabled) return;
@@ -17,18 +34,28 @@ export function createInput(target = window) {
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
   };
   const onKeyUp = (e) => { down.delete(e.code); released.add(e.code); };
-  const onBlur = () => { down.clear(); pointer.down = false; };
+  const onBlur = () => { down.clear(); pointer.down = false; dragging = false; };
   const onMove = (e) => {
-    if (pointer.locked) { pointer.dx += e.movementX || 0; pointer.dy += e.movementY || 0; }
-    else {
-      pointer.dx += e.clientX - pointer.x;
-      pointer.dy += e.clientY - pointer.y;
-    }
+    // Always track where the pointer IS — that is not a drag and something may
+    // want to pick with it. Only a latched drag contributes dx/dy.
+    const px = pointer.x, py = pointer.y;
     pointer.x = e.clientX; pointer.y = e.clientY;
+    if (!dragging && !pointer.locked) return;
+    if (pointer.locked) { pointer.dx += e.movementX || 0; pointer.dy += e.movementY || 0; } else {
+      pointer.dx += e.clientX - px;
+      pointer.dy += e.clientY - py;
+    }
   };
-  const onDown = () => { pointer.down = true; };
-  const onUp = () => { pointer.down = false; };
-  const onWheel = (e) => { pointer.wheel += Math.sign(e.deltaY); };
+  const onDown = (e) => {
+    if (onUi(e)) return;
+    dragging = true;
+    pointer.down = true;
+  };
+  const onUp = () => { pointer.down = false; dragging = false; };
+  const onWheel = (e) => {
+    if (onUi(e)) return;
+    pointer.wheel += Math.sign(e.deltaY);
+  };
 
   target.addEventListener('keydown', onKeyDown);
   target.addEventListener('keyup', onKeyUp);
