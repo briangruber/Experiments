@@ -31,6 +31,7 @@ import { createBoat } from './models/boat.js';
 import { createFisher } from './models/fisher.js';
 import { createVillage } from './models/village.js';
 import { createDock } from './models/dock.js';
+import { createHarbour, setStair } from './world/harbour.js';
 import { createLighthouse } from './models/lighthouse.js';
 import { createProps } from './models/props.js';
 import { createMonster } from './creatures/monster.js';
@@ -42,7 +43,9 @@ import { createHud } from './hud/hud.js';
 import { createIntro } from './hud/intro.js';
 import { createOceanPanel } from './hud/oceanPanel.js';
 import { createFishing } from './gameplay/fishing.js';
+import { createShoreLeave } from './gameplay/shoreLeave.js';
 import { createFishingHud } from './hud/fishingHud.js';
+import { createShoreHud } from './hud/shoreHud.js';
 import { createUnderwater } from './world/underwater.js';
 import { createWakeRibbon } from './water/wakeRibbon.js';
 import { oceanSettings } from './water/settings.js';
@@ -210,6 +213,13 @@ const coral = build(createCoral, { terrain });
 const vegetation = build(createVegetation, { terrain });
 const village = build(createVillage, { terrain });
 const dock = build(createDock, { terrain });
+// The quay you can stand on. Built after the dock so it takes the dock's own
+// deck height rather than a second copy of the constant that produced it.
+const harbour = build(createHarbour, { terrain, seed: SEED, deckY: dock.info.deckY });
+// The town's stone stair becomes the street you climb. village.js solved that
+// polyline against the terrain to lay its steps; handing the same points to the
+// harbour means the walkable corridor and the drawn steps cannot disagree.
+setStair(village.stair, terrain.landHeight);
 const lighthouse = build(createLighthouse, { terrain });
 const props = build(createProps, { terrain });
 const water = build(createWater, { terrain });
@@ -253,8 +263,14 @@ const fishing = createFishing({
   water: () => ctx.water, seed: SEED,
 });
 ctx.fishing = fishing;
+// Going ashore. Built after the chase rig because it borrows its fov when it
+// takes the frame, and after fishing because the two must never both own it.
+const shoreLeave = createShoreLeave({ ctx, scene, input, camera, chaseCamera, harbour, terrain });
+ctx.shore = shoreLeave;
+
 const hud = createHud({ ctx, time });
 const fishingHud = createFishingHud({ fishing, ctx });
+const shoreHud = createShoreHud({ shore: shoreLeave, ctx });
 const intro = createIntro({ touch: !!touch.root, backend: quality.backend });
 // Sliders for the sea. Built now so `?ocean=1` and the O key work before the
 // warm-up finishes; it starts hidden and costs nothing until it is opened.
@@ -338,7 +354,7 @@ let renderCpuMs = 0;
 
 const modules = [
   sky, clouds, celestial, seabed, coral, islands, vegetation,
-  village, dock, lighthouse, props, water, boat, fisher, monster, wildlife,
+  village, dock, harbour, lighthouse, props, water, boat, fisher, monster, wildlife,
   wakeRibbon,
 ];
 
@@ -586,13 +602,15 @@ function frame() {
   // after so only one of them ever writes the transform in a frame — two rigs
   // fighting over it is a jitter nobody can debug from a screenshot.
   fishing.update(ctx);
-  if (!fishing.state.ownsCamera) chaseCamera.update(ctx);
+  shoreLeave.update(ctx);
+  if (!fishing.state.ownsCamera && !shoreLeave.ownsCamera) chaseCamera.update(ctx);
   camera.updateMatrixWorld(true);
 
   for (const m of modules) m.update?.(ctx);
   quest.update(ctx);
   hud.update(ctx);
   fishingHud.update();
+  shoreHud.update();
 
   // Aim the shadow box at what the camera is looking at, not at the boat. On
   // the chase camera those are the same place, but an establishing shot of the
@@ -669,6 +687,9 @@ window.addEventListener('keydown', (e) => {
 const api = {
   THREE, scene, camera, reflectCamera, renderer, ctx, env, time, quality, post, targets,
   clip: clipUniforms,
+  harbour,
+  shore: shoreLeave,
+  villageStair: village.stair,
   // The same object the panel drives, so a capture can pin a look without
   // touching a slider: saltyfin.ocean.set('reflect', 0.4).
   ocean: oceanSettings,
@@ -767,7 +788,7 @@ const api = {
       ctx.frame = frames++;
       boatController.update(ctx);
       fishing.update(ctx);
-      if (!fishing.state.ownsCamera) chaseCamera.update(ctx);
+      if (!fishing.state.ownsCamera && !shoreLeave.ownsCamera) chaseCamera.update(ctx);
       camera.updateMatrixWorld(true);
       for (const m of modules) m.update?.(ctx);
       quest.update(ctx);
@@ -793,6 +814,7 @@ const api = {
     renderer.setRenderTarget(null);
     hud.update(ctx);
     fishingHud.update();
+  shoreHud.update();
     mirrorFrame();
   },
 };
@@ -872,6 +894,28 @@ if (boot) boot.remove();
 // `?fish=1` drops straight into the jig for a capture; `?fish=cast` plays
 // the whole stop-and-dive so the transition can be photographed too.
 if (params.has('fish') && params.get('fish') !== '0') fishing.start(params.get('fish') !== 'cast');
+
+// `?shore=1` moors and steps ashore on load, so a capture can photograph the
+// quay without driving there. It teleports the boat to the berth first,
+// because `dock()` refuses unless you are actually near it — and a debug hook
+// that bypasses the rule it is meant to exercise tests nothing.
+if ((params.get('shore') || '').match(/^(1|walk:)/)) {
+  const b = new THREE.Vector3();
+  harbour.berthWorld(b);
+  boatController.teleport(b.x, b.z, harbour.yaw);
+  shoreLeave.update({ ...ctx, dt: 0 });
+  shoreLeave.dock();
+  for (let i = 0; i < 120; i++) shoreLeave.update({ ...ctx, dt: 1 / 60 });
+  // `?shore=walk:8` then strolls inland for eight seconds, which is how a
+  // capture photographs the stair without a pair of hands on the keyboard.
+  const walkFor = /^walk:([\d.]+)$/.exec(params.get('shore') || '');
+  if (walkFor) {
+    shoreLeave.setWalkAxes(0, 1);
+    const n = Math.round(Number(walkFor[1]) * 60);
+    for (let i = 0; i < n; i++) shoreLeave.update({ ...ctx, dt: 1 / 60 });
+    shoreLeave.setWalkAxes(0, 0);
+  }
+}
 
 api.ready = true;
 

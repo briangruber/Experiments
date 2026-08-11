@@ -972,33 +972,76 @@ export function createVillage(opts = {}) {
   }
 
   // --- the stone stair ------------------------------------------------------
+  // `stairPts` escapes the block: world/harbour.js turns it into a walkable
+  // corridor, so the street you climb on foot is the same polyline the steps
+  // were laid along and cannot drift from it.
+  const stairPts = [];
   {
-    const pts = [];
+    // The waypoints, solved against the terrain as before.
+    const way = [];
     for (const [aDeg, h] of PATH) {
       const a = aDeg * DEG;
       const rad = radiusFor(a, h);
-      pts.push(new THREE.Vector3(ISLE_X + Math.cos(a) * rad, 0, ISLE_Z + Math.sin(a) * rad));
+      way.push(new THREE.Vector3(ISLE_X + Math.cos(a) * rad, 0, ISLE_Z + Math.sin(a) * rad));
     }
-    const Wp = new THREE.Matrix4();
-    for (let i = 0; i < pts.length - 1; i++) {
-      const a = pts[i], b = pts[i + 1];
-      const dx = b.x - a.x, dz = b.z - a.z;
-      const len = Math.hypot(dx, dz);
-      const n = Math.max(2, Math.round(len / 1.15));
-      const yaw = Math.atan2(dx, dz);
+
+    // Sample the whole run at half-metre spacing, then LIMIT THE GRADIENT.
+    //
+    // Laying each step at raw `landAt` made the flight follow every lump of
+    // the hill, and the hill here is a 50 degree face: measured along the
+    // drawn centreline, eleven risers were over 0.70 m and the worst was
+    // 1.12 m. Nobody climbs a 1.1 m step, and neither does the walk
+    // controller — the flood fill from the quay died at 20.9 m of a 43 m
+    // climb, every time, at whichever spike came first.
+    //
+    // A flight of stairs is a constant pitch, not a terrain follower. Two
+    // sweeps clamp the rise between neighbours to RISE_MAX, forward then
+    // backward, which is the cheapest way to get a monotone-ish profile that
+    // still sits on the ground wherever the ground is gentle enough to allow
+    // it. The result is what gets drawn AND what world/harbour.js walks on —
+    // the same array, so the steps you see and the surface you stand on are
+    // one object by construction.
+    const STEP_LEN = 0.5;
+    const RISE_MAX = 0.34;              // per STEP_LEN: about a 34 degree flight
+    for (let i = 0; i < way.length - 1; i++) {
+      const a = way[i], b = way[i + 1];
+      const len = Math.hypot(b.x - a.x, b.z - a.z);
+      const n = Math.max(2, Math.round(len / STEP_LEN));
       for (let k = 0; k < n; k++) {
-        const t = (k + 0.5) / n;
-        const x = a.x + dx * t;
-        const z = a.z + dz * t;
+        const t = k / n;
+        const x = a.x + (b.x - a.x) * t;
+        const z = a.z + (b.z - a.z) * t;
         const y = landAt(x, z);
         if (y < -3) continue;
-        compose(Wp, x, y, z, 1, 1, 1, 0, yaw, 0);
-        put(bSolid, BOX, Wp, 0, -0.12, 0, 2.5, 0.44, 1.30, 0, 0, 0,
-          C(STONE[(i + k) % STONE.length]));
-        if (k % 3 === 0) {
-          put(bSolid, BOX, Wp, 1.45, 0.12, 0, 0.55, 0.7, 1.3, 0, 0, 0, C(STONE[(k + 2) % 4]));
-          put(bSolid, BOX, Wp, -1.45, 0.10, 0, 0.55, 0.6, 1.3, 0, 0, 0, C(STONE[(k + 1) % 4]));
-        }
+        stairPts.push(new THREE.Vector3(x, y, z));
+      }
+    }
+    for (let i = 1; i < stairPts.length; i++) {
+      const d = stairPts[i].y - stairPts[i - 1].y;
+      if (d > RISE_MAX) stairPts[i].y = stairPts[i - 1].y + RISE_MAX;
+      else if (d < -RISE_MAX) stairPts[i].y = stairPts[i - 1].y - RISE_MAX;
+    }
+    for (let i = stairPts.length - 2; i >= 0; i--) {
+      const d = stairPts[i].y - stairPts[i + 1].y;
+      if (d > RISE_MAX) stairPts[i].y = stairPts[i + 1].y + RISE_MAX;
+    }
+
+    // Lay a step box at every sample, along the local run direction.
+    const Wp = new THREE.Matrix4();
+    for (let i = 0; i < stairPts.length; i++) {
+      const p = stairPts[i];
+      const q = stairPts[Math.min(stairPts.length - 1, i + 1)];
+      const r = stairPts[Math.max(0, i - 1)];
+      const yaw = Math.atan2(q.x - r.x, q.z - r.z);
+      compose(Wp, p.x, p.y, p.z, 1, 1, 1, 0, yaw, 0);
+      // Deeper than the sample spacing so consecutive treads overlap; a stair
+      // built from non-overlapping boxes shows daylight between every step
+      // wherever the run is not axis-aligned.
+      put(bSolid, BOX, Wp, 0, -0.14, 0, 2.5, 0.46, 0.86, 0, 0, 0,
+        C(STONE[i % STONE.length]));
+      if (i % 4 === 0) {
+        put(bSolid, BOX, Wp, 1.45, 0.12, 0, 0.55, 0.7, 0.9, 0, 0, 0, C(STONE[(i + 2) % 4]));
+        put(bSolid, BOX, Wp, -1.45, 0.10, 0, 0.55, 0.6, 0.9, 0, 0, 0, C(STONE[(i + 1) % 4]));
       }
     }
   }
@@ -1065,6 +1108,13 @@ export function createVillage(opts = {}) {
 
   return {
     group,
+
+    /**
+     * The stone stair's centreline, shore end first. The steps sit on the
+     * terrain, so a walker on this polyline should take its height from
+     * `terrain.landHeight` rather than from the y in these points (which is 0).
+     */
+    stair: stairPts,
 
     update(ctx) {
       state.t = ctx.time;

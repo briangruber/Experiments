@@ -37,7 +37,7 @@ const WIDTH = +opt('w', 1280);
 const HEIGHT = +opt('h', 720);
 const WAIT = +opt('wait', 7000);
 const QUERY = [];
-for (const k of ['preset', 't', 'quality', 'seed', 'cam', 'boat', 'fov', 'pr', 'rate', 'step', 'shadows', 'nopost', 'forcegl', 'post', 'show', 'drive', 'warm', 'ocean', 'fish', 'uw']) {
+for (const k of ['preset', 't', 'quality', 'seed', 'cam', 'boat', 'fov', 'pr', 'rate', 'step', 'shadows', 'nopost', 'forcegl', 'post', 'show', 'drive', 'warm', 'ocean', 'fish', 'uw', 'shore']) {
   const v = opt(k, null);
   if (v !== null) QUERY.push(`${k}=${encodeURIComponent(v)}`);
 }
