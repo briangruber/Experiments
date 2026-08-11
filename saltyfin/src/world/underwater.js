@@ -234,15 +234,28 @@ export function createUnderwater({ ctx, scene, lights, seed = 1 } = {}) {
     // softer, while the ambient dome goes UP because the water itself is the
     // source down here. Without the ambient lift every hull and every coral
     // head is a black cut-out and the frame reads as a cave.
+    //
+    // The three lerps below were 0.55 / 0.72 / 0.55, and at those values the
+    // reef was one colour. Every light in the frame was ~three-quarters water
+    // cyan and lifted 2.15x, so albedo was being multiplied by a colour with
+    // almost no red left in it: a magenta gorgonian at three metres and an
+    // olive one at three metres resolved to the same teal. That is the same
+    // double-count the paragraph above describes, one channel over —
+    // underwaterFx does per-pixel per-channel extinction against the depth
+    // buffer, so hue loss WITH DISTANCE is already paid for, and tinting the
+    // light as well charges it again at zero distance where there is no water
+    // to charge for. Pulled back far enough that the near field keeps its
+    // colour and left alone beyond that; the water still owns the far field,
+    // which is where the depth cue actually lives.
     const { keyLight, hemi, fillLight } = lights;
     if (keyLight) {
-      keyColor.copy(env.keyColor).lerp(waterFogColor, 0.55 * a);
+      keyColor.copy(env.keyColor).lerp(waterFogColor, 0.34 * a);
       keyLight.color.copy(keyColor);
       keyLight.intensity = env.keyIntensity * (1 - 0.62 * a);
     }
     if (hemi) {
-      hemiSky.copy(env.ambientSky).lerp(waterFogColor, 0.72 * a);
-      hemiGround.copy(env.ambientGround).lerp(waterFogColor, 0.55 * a);
+      hemiSky.copy(env.ambientSky).lerp(waterFogColor, 0.50 * a);
+      hemiGround.copy(env.ambientGround).lerp(waterFogColor, 0.40 * a);
       hemi.color.copy(hemiSky);
       hemi.groundColor.copy(hemiGround);
       hemi.intensity = env.ambientIntensity * (1 + 1.15 * a);

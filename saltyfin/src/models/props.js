@@ -23,7 +23,7 @@
 // dark lumps of iron, at night they are the only warm points out on the reef.
 
 import * as THREE from 'three';
-import { Fn, attribute, uniform, float, sin, step } from 'three/tsl';
+import { Fn, attribute, uniform, float, sin, step, vertexColor } from 'three/tsl';
 import { LAYER, setLayers, addLayers } from '../core/layers.js';
 import { applyWaterClip } from '../water/clip.js';
 import { makeRng } from '../core/rng.js';
@@ -312,9 +312,13 @@ function makeGlowMaterial(uniforms, baseHex) {
       sin(uniforms.time.mul(gph.mul(2.7).add(2.1)).add(gph.mul(23.0))).mul(0.14)
         .add(sin(uniforms.time.mul(gph.mul(1.3).add(6.9)).add(gph.mul(41.0))).mul(0.06)),
     )).toVar();
+    // `vertexColor()`, not `attribute('color', 'vec3')`. Three's own
+    // vertexColors path declares that attribute as a VEC4 (VertexColorNode's
+    // constructor pins the node type), and two declarations of one attribute
+    // name at different widths in the same module is at best luck.
     return uniforms.color
       .mul(uniforms.intensity.mul(aGlow.x).mul(gfl))
-      .mul(attribute('color', 'vec3'));
+      .mul(vertexColor().rgb);
   })();
   return m;
 }
