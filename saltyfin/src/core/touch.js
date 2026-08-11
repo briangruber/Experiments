@@ -35,6 +35,13 @@ const CSS = `
   font: 600 9px/1 ui-sans-serif, system-ui, sans-serif; letter-spacing: .10em;
   text-transform: uppercase; }
 #touch .times button:active { background: rgba(122,178,232,.34); color: #fff; }
+/* The settings key, set apart from the four time presets because it opens a
+   sheet rather than setting the hour. On a phone this is the ONLY way in: the
+   panel was bound to the O key and nothing else, so every slider in it was
+   unreachable without a keyboard. */
+#touch .times button.cfg { border-color: rgba(255,196,120,.42); color: #ffdcae;
+  margin-left: 8px; }
+#touch .times button.cfg:active { background: rgba(255,170,90,.34); color: #fff; }
 #touch .times button:focus-visible { outline: 2px solid #ff9a3c; outline-offset: 2px; }
 #touch.hidden { display: none; }
 @media (min-width: 900px) and (pointer: fine) { #touch { display: none; } }
@@ -92,6 +99,7 @@ export function createTouchControls({ input, onTimePreset } = {}) {
       <button data-code="Digit3">Sunset</button>
       <button data-code="Digit4">Night</button>
       <button data-code="KeyT">Cycle</button>
+      <button data-code="KeyO" class="cfg">Ocean</button>
     </div>`;
   document.body.appendChild(root);
 
