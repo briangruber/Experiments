@@ -85,9 +85,12 @@ const DECKS = [
   // The dock deck itself, so you can walk out to the boat. Its half-width is
   // dock.js's MAIN_W / 2 = 4.5; 4.1 keeps you off the very edge.
   { id: 'pier', u0: -4.1, u1: 4.1, v0: 0.0, v1: RUN - 1.5, y: QUAY_Y },
-  // The two finger piers, at dock.js's own offsets.
-  { id: 'finger-a', u0: -12.5, u1: -4.5, v0: 12.0, v1: 16.6, y: QUAY_Y },
-  { id: 'finger-b', u0: 4.5, u1: 11.3, v0: 22.0, v1: 26.2, y: QUAY_Y },
+  // The two finger piers, at dock.js's own offsets. Their inner edges OVERLAP
+  // the main deck rather than abutting it: dock.js has them meeting the deck
+  // exactly at |u| = 4.5, and insetting both by 0.4 m for safety left a 0.4 m
+  // gap that the walk controller reads as a hole in the middle of a pier.
+  { id: 'finger-a', u0: -12.5, u1: -3.8, v0: 12.0, v1: 16.6, y: QUAY_Y },
+  { id: 'finger-b', u0: 3.8, u1: 11.3, v0: 22.0, v1: 26.2, y: QUAY_Y },
 ];
 
 // The town's own street, as a walkable corridor. village.js lays its stone
@@ -240,12 +243,22 @@ export function unblock(x, z, radius, out) {
 // that the hull does not clip the pilings and near enough that the gangway is
 // believable. The landing is the deck point you appear at, one step inboard.
 
-export const BERTH = { u: -6.6, v: 9.0, yaw: DOCK_YAW };
-// On the STONE, not on the planks. Stepping off onto the pier put the square
-// behind the camera and a palm in front of it; landing in the middle of the
-// quay puts the town in frame and the boat over your shoulder, which is the
-// shot the whole feature exists for.
-export const LANDING = { u: 2.0, v: -5.0 };
+// Alongside the outer finger pier, in water that is actually there.
+//
+// This was u = -6.6 — "alongside the main deck on the landward side" — and
+// landward of this dock is the ISLAND. Measured: that point is dry land at
+// 4.56 m, `isLand` true, and every cell around it for fifteen metres reads
+// land too. The prompt could never arm, so there was never a dock button, on
+// a phone or anywhere else. The depth map says water exists only on the +u
+// side; the deepest spot touching a walkable deck is beside finger-b at about
+// 2.7 m, which is also the first part of the dock you meet coming in off the
+// sea.
+export const BERTH = { u: 13.2, v: 24.0, yaw: DOCK_YAW };
+// On the finger pier beside the boat — you step off where you tied up, and
+// the walk down the pier and into the square is the arrival. Landing on the
+// quay itself was tried while the berth was (wrongly) at the shore end; with
+// the berth out here, teleporting ashore would skip the best part.
+export const LANDING = { u: 9.4, v: 24.0 };
 
 /** The landing, in world space — where you appear when you step off. */
 export function landingWorld(out) {
@@ -258,7 +271,7 @@ export function berthWorld(out) {
 }
 
 /** How close the boat has to be to the berth before the prompt appears. */
-export const DOCK_RANGE = 13.0;
+export const DOCK_RANGE = 16.0;
 
 /** Is the boat near enough to tie up? `bx`/`bz` are world. */
 export function nearBerth(bx, bz) {

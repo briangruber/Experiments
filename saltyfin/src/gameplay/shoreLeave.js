@@ -99,6 +99,9 @@ export function createShoreLeave(opts = {}) {
     ctx, scene, input, camera, chaseCamera, harbour, terrain,
   } = opts;
 
+  const TOUCH = typeof matchMedia === 'function'
+    && (matchMedia('(pointer: coarse)').matches || (navigator.maxTouchPoints || 0) > 0);
+
   const walker = buildWalker();
   const group = new THREE.Group();
   group.name = 'shore-leave';
@@ -239,12 +242,14 @@ export function createShoreLeave(opts = {}) {
   }
 
   function updateWalk(dt) {
-    const kx = (input?.isDown?.('KeyD') || input?.isDown?.('ArrowRight') ? 1 : 0)
-      - (input?.isDown?.('KeyA') || input?.isDown?.('ArrowLeft') ? 1 : 0);
-    const ky = (input?.isDown?.('KeyW') || input?.isDown?.('ArrowUp') ? 1 : 0)
-      - (input?.isDown?.('KeyS') || input?.isDown?.('ArrowDown') ? 1 : 0);
-    let ax = kx || padX;
-    let ay = ky || padY;
+    // `input.axis` already merges the keyboard with core/touch.js's thumbstick,
+    // and the helm is held while you are ashore, so the same stick that drove
+    // the boat walks the walker. Reading raw key codes here instead meant there
+    // was NO way to move on a phone: the stick was live, the boat ignored it
+    // because ctx.shoreHold was set, and nothing else was listening.
+    let ax = input?.axis ? input.axis('turn') : 0;
+    let ay = input?.axis ? input.axis('forward') : 0;
+    if (!ax && !ay) { ax = padX; ay = padY; }
     const mag = Math.hypot(ax, ay);
     if (mag > 1) { ax /= mag; ay /= mag; }
 
@@ -326,7 +331,9 @@ export function createShoreLeave(opts = {}) {
 
     if (state.mode === 'afloat') {
       const b = ctx.boat;
-      const slow = Math.abs(b.speed || 0) < 2.6;
+      // Generous, because the helm is a thumbstick on a phone and coasting to
+      // an exact stop alongside is not the game.
+      const slow = Math.abs(b.speed || 0) < 3.2;
       state.canDock = slow && harbour.nearBerth(b.position.x, b.position.z);
       state.prompt = state.canDock ? 'Tie up at the quay' : '';
       state.hint = '';
@@ -355,7 +362,9 @@ export function createShoreLeave(opts = {}) {
       camera.updateProjectionMatrix();
       if (transition >= 1) {
         state.mode = 'ashore';
-        state.hint = 'WASD to walk · E to board the boat';
+        state.hint = TOUCH
+          ? 'Drag the left of the screen to walk'
+          : 'WASD to walk · E to board the boat';
       }
       return;
     }
