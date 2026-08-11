@@ -46,9 +46,9 @@ export function createIntro({ touch = false, backend = null } = {}) {
   const el = document.createElement('div');
   el.id = 'intro';
   const controls = touch
-    ? ['Left thumb &mdash; steer &amp; throttle', 'Right thumb &mdash; look', 'Pinch &mdash; zoom',
+    ? ['Left thumb &mdash; drive; let go and she cruises', 'Pull back &mdash; brake', 'Right thumb &mdash; look',
       '<b>Fish</b> &mdash; stop and go under']
-    : ['W A S D &mdash; helm', 'Drag &mdash; look', '1 2 3 4 &mdash; time of day',
+    : ['W &mdash; throttle up, and it holds', 'S &mdash; brake &middot; A D &mdash; steer', 'Drag &mdash; look',
       '<b>F</b> &mdash; stop and go under'];
   el.innerHTML = `
     <div class="wrap">

@@ -33,6 +33,10 @@ export function createBoatController({ ctx, input, water, terrain }) {
     return w?.sampleHeight ? w.sampleHeight(x, z, t) : waveHeight(x, z, t);
   }
 
+  // The latched throttle setpoint, 0..1. Forward only: reverse is a
+  // manoeuvring gear and stays held-only.
+  let cruise = 0;
+
   return {
     teleport(x, z, heading = b.heading) {
       b.position.x = x; b.position.z = z; b.heading = heading; b.speed = 0;
@@ -47,7 +51,37 @@ export function createBoatController({ ctx, input, water, terrain }) {
       // a jig would also drive the boat off the fish and a stroll across the
       // square would take the boat with it.
       const hold = !!ctx.fishingHold || !!ctx.shoreHold;
-      const throttleIn = hold ? 0 : input.axis('forward');
+
+      // CRUISE. The throttle latches where you leave it, so the boat can be
+      // set to a lazy putter and steered with one thumb while the other holds
+      // a drink. The old helm was momentary — release W or the stick and the
+      // boat sighed to a stop — which turns "gently boating around" into a
+      // dead-man's switch you hold for the whole voyage.
+      //
+      //   push forward   the setpoint chases the stick (or walks up under W,
+      //                  which always reads 1), so a half-deflection cruises
+      //                  at half and a tap of W nudges the speed up a notch
+      //   release        the setpoint stays — that is the whole feature
+      //   pull back      brakes NOW (the negative goes straight to the prop)
+      //                  while the setpoint unwinds; let go early and you
+      //                  keep the lower cruise, hold on through zero and you
+      //                  are in reverse — which is momentary, never latched,
+      //                  because nobody means to cruise backwards
+      //
+      // The fishing and shore holds also clear the setpoint: coming back from
+      // a catch or a walk ashore to a boat that quietly takes off on its own
+      // remembered throttle is a horror film, not a convenience.
+      const raw = hold ? 0 : input.axis('forward');
+      if (hold) cruise = 0;
+      else if (raw > 0.02) cruise += (raw - cruise) * Math.min(1, dt * 1.1);
+      // The unwind is deliberately slower than the brake. The brake itself is
+      // immediate — the negative goes straight to the prop above — so this
+      // rate only decides how much CRUISE a moment of braking costs. At 0.9/s
+      // a one-second pull-back erased a 0.66 setpoint entirely (measured);
+      // 0.45/s leaves about a third of it, which is what "ease off a little"
+      // should mean. Stopping outright is just holding the brake on.
+      else if (raw < -0.02) cruise = Math.max(0, cruise - dt * 0.45);
+      const throttleIn = raw < -0.02 ? raw : cruise;
       const turnIn = hold ? 0 : input.axis('turn');
       // Shift is the throttle wide open. It was 1.35x, which on a hull that
       // already accelerates over about three seconds is a change you have to
