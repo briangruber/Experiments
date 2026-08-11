@@ -28,7 +28,10 @@ const KEY = 'saltyfin-ocean';
 // Bumped to 2 when the wake came back: a stored `wake: 0` from the version
 // where it was off would have kept it off for anyone who had ever opened the
 // panel, which is the one setting a player would not think to go looking for.
-const VERSION = 2;
+// Bumped to 3 when the ocean foam got a usable range and the wake became a
+// particle system — three defaults moved and a stored copy of the old ones
+// would have hidden every one of the changes.
+const VERSION = 3;
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
@@ -110,9 +113,18 @@ export const GROUPS = [
         apply: (u, v) => { u.uCrestNorm.value = 0.42 - 0.32 * v; },
       },
       {
-        key: 'drift', label: 'Drift foam', min: 0, max: 0.4, step: 0.005, def: 0.13,
+        // Was 'Drift foam', 0..0.4, default 0.13 — a layer nobody could find
+        // under a name nobody would look for, whose FULL travel was fainter
+        // than the thing it was meant to draw. Renamed, and the range opened up
+        // so the top of the slider is a properly foamy sea.
+        key: 'drift', label: 'Ocean foam', min: 0, max: 1.0, step: 0.01, def: 0.38,
         mode: 'set', hint: 'Old foam lying in the troughs, long after the wave broke.',
         apply: (u, v) => { u.uAmbFoam.value = v; },
+      },
+      {
+        key: 'foamSize', label: 'Foam patch size', min: 0.4, max: 3.0, step: 0.02, def: 1,
+        mode: 'set', hint: 'Bigger patches, fewer of them. The knob runs opposite the shader.',
+        apply: (u, v) => { u.uAmbFoamScale.value = 0.22 / v; },
       },
       {
         key: 'shoreFoam', label: 'Shore foam', min: 0, max: 2, step: 0.02, def: 0.72,
@@ -125,10 +137,23 @@ export const GROUPS = [
         apply: (u, v) => { u.uFoamBright.value *= v; },
       },
       {
+        // This drives TWO things now: the water's own depression behind the
+        // hull (a uniform, here) and the foam puffs (a particle system, which
+        // subscribes to this module directly — see water/wakeFoam.js). It used
+        // to drive only the first, so moving it did nothing you could see,
+        // because the thing you were looking at had been replaced.
         key: 'wake', label: 'Boat wake', min: 0, max: 1.6, step: 0.02, def: 1,
         mode: 'set',
-        hint: 'The V and the trail behind the hull. The water it pushes is there either way.',
+        hint: 'The foam trail behind the hull. The water it pushes is there either way.',
         apply: (u, v) => { u.uWakeVisible.value = v; },
+      },
+      {
+        key: 'bubbles', label: 'Prop bubbles', min: 0, max: 2, step: 0.02, def: 1,
+        mode: 'set',
+        hint: 'The wash off the propeller. Best seen looking down over the transom.',
+        // No uniform of its own: wakeFoam.js reads this straight off the
+        // settings object, the same way the wake puffs do.
+        apply: () => {},
       },
     ],
   },

@@ -49,9 +49,15 @@ export function createBoatController({ ctx, input, water, terrain }) {
       const hold = !!ctx.fishingHold || !!ctx.shoreHold;
       const throttleIn = hold ? 0 : input.axis('forward');
       const turnIn = hold ? 0 : input.axis('turn');
-      const boost = !hold && (input.isDown('ShiftLeft') || input.isDown('ShiftRight')) ? 1.35 : 1;
+      // Shift is the throttle wide open. It was 1.35x, which on a hull that
+      // already accelerates over about three seconds is a change you have to
+      // look at the speed readout to notice — and a "go faster" key you cannot
+      // feel is a key that does not exist. 1.9x is 17.5 m/s, fast enough that
+      // the boat plainly picks up its skirts, and it drives the wake and the
+      // prop wash harder along with it because both key off speed.
+      const boost = !hold && (input.isDown('ShiftLeft') || input.isDown('ShiftRight')) ? 1.9 : 1;
 
-      b.throttle += (throttleIn - b.throttle) * Math.min(1, dt * 3.2);
+      b.throttle += (throttleIn - b.throttle) * Math.min(1, dt * (boost > 1 ? 4.6 : 3.2));
       const target = b.throttle >= 0
         ? b.throttle * MAX_SPEED * boost
         : b.throttle * REVERSE_SPEED;

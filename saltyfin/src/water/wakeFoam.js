@@ -37,6 +37,7 @@ import {
 } from 'three/tsl';
 import { LAYER, setLayers } from '../core/layers.js';
 import { makeRng } from '../core/rng.js';
+import { oceanSettings } from './settings.js';
 
 const TAU = Math.PI * 2;
 
@@ -78,6 +79,18 @@ export function createWakeFoam(opts = {}) {
   const water = opts.water || (() => null);
   const quality = opts.quality || {};
   const rng = makeRng(0x5EAF0A);
+
+  // The player's sliders. Read straight off the settings object rather than
+  // through the water's uniform block, because these are not uniforms — they
+  // scale how many particles are BORN, which is a CPU decision. The wake
+  // slider used to write only the water's depression uniform, so moving it did
+  // nothing to the thing on screen once the trail became a particle system.
+  let sWake = oceanSettings.get('wake') ?? 1;
+  let sBubbles = oceanSettings.get('bubbles') ?? 1;
+  const unsubscribe = oceanSettings.subscribe(() => {
+    sWake = oceanSettings.get('wake') ?? 1;
+    sBubbles = oceanSettings.get('bubbles') ?? 1;
+  });
 
   const budget = Math.min(1, Math.max(0.35, quality.geometry ?? 1));
   const nPuff = Math.max(48, Math.round(MAX_PUFFS * budget));
@@ -334,9 +347,9 @@ export function createWakeFoam(opts = {}) {
     // Two at a time, offset either side of the track and pushed OUTWARD, which
     // is what makes the trail spread without a width function and without the
     // two hard lines a Kelvin wedge draws.
-    if (strength > 0) {
-      puffAcc += dt * SPAWN_HZ * (0.35 + 0.65 * strength);
-      while (puffAcc >= 1) {
+    if (strength > 0 && (sWake > 0.001 || sBubbles > 0.001)) {
+      puffAcc += dt * SPAWN_HZ * (0.35 + 0.65 * strength) * Math.min(1.6, sWake);
+      while (puffAcc >= 1 && sWake > 0.001) {
         puffAcc -= 1;
         for (const side of [-1, 1]) {
           // Anywhere across the band, not at a fixed offset: two fixed offsets
@@ -356,8 +369,8 @@ export function createWakeFoam(opts = {}) {
       // ---- and the prop wash -------------------------------------------
       // From the gearcase, which sits about 0.42 m under and 0.5 m aft of the
       // transom mount. Blown backwards and down, then buoyancy takes over.
-      bubAcc += dt * BUB_HZ * strength;
-      while (bubAcc >= 1) {
+      bubAcc += dt * BUB_HZ * strength * Math.min(2, sBubbles);
+      while (bubAcc >= 1 && sBubbles > 0.001) {
         bubAcc -= 1;
         spawnBubble(
           sx - b.forward.x * 0.45 + lx * -0.30,
@@ -390,7 +403,7 @@ export function createWakeFoam(opts = {}) {
       pA[o + 1] = surfaceAt(p.x, p.z, t) + PUFF_LIFT;
       pA[o + 2] = p.z;
       pA[o + 3] = r;
-      pB[o] = fade * (0.45 + 0.55 * p.str);
+      pB[o] = fade * (0.45 + 0.55 * p.str) * Math.min(1.25, sWake);
       pB[o + 1] = p.seed;
       pB[o + 2] = p.spin + p.age * 0.25;      // a slow tumble
       pB[o + 3] = p.squash;
@@ -417,7 +430,7 @@ export function createWakeFoam(opts = {}) {
       // Fades as it nears the surface as well as with age, so they pop rather
       // than sliding through the ceiling.
       const near = Math.min(1, (surf - bb.y) / 0.35);
-      bB[o] = Math.min(1, (1 - u) * 1.6) * near;
+      bB[o] = Math.min(1, (1 - u) * 1.6) * near * Math.min(1.3, sBubbles);
       bB[o + 1] = bb.seed;
     }
 
@@ -443,6 +456,7 @@ export function createWakeFoam(opts = {}) {
     applyEnv,
     uniforms: { uColor, uOpacity, uBubColor },
     dispose() {
+      unsubscribe();
       quad.dispose();
       puffGeo.dispose(); bubGeo.dispose();
       puffMat.dispose(); bubMat.dispose();

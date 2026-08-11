@@ -482,7 +482,7 @@ export function createWaterMaterial({
   // 0.74 leaves only the top of the octave above the line. The first pass sat
   // at 0.62 with three times the gain and painted the whole sea — open water is
   // mostly water, and this layer is a suggestion of old foam, not a covering.
-  const uAmbFoam = uniform(0.13);
+  const uAmbFoam = uniform(0.38);
   // A 3 m tile, stretched to about 1.2 m across a streak by 4.5 m along it.
   // At 0.028 the features were FIFTY metres long, which is not foam at any
   // scale — real streaks are a few metres of filament.
@@ -1057,7 +1057,13 @@ export function createWaterMaterial({
     // it climbs by uFoamDie over the phase, and the last of the patch is the
     // brightest few percent of the noise under it.
     const cut = (ph) => uAmbFoamThresh.add(ph.mul(uFoamDie));
-    const swellHere = smoothstep(3.0, 13.0, vBedDepth).toVar();
+    // Was smoothstep(3, 13) — fully off in under three metres and not fully ON
+    // until thirteen, which is most of the way out to sea. The player spends
+    // almost all of their time in a lagoon two to seven metres deep, so the
+    // foam layer was invisible exactly where it was being looked for. It still
+    // fades out on the bar, because foam on ankle-deep water over sand is the
+    // shore band's job and not this one's.
+    const swellHere = smoothstep(1.2, 6.5, vBedDepth).toVar();
     // Where the surface is being COMPRESSED, which is the front face of a wave
     // about to break and exactly where the sea is white. vJac is the Gerstner
     // Jacobian; below one means the surface is bunching. Without it the foam
