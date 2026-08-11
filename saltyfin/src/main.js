@@ -218,7 +218,7 @@ const boat = build(createBoat);
 // The wake, as geometry rather than as foam painted into the water shader. It
 // is a module like any other — group in the scene, update and applyEnv per
 // frame — and it is built after the water so it can borrow its detail field.
-const wakeRibbon = createWakeRibbon({ water: () => ctx.water, quality });
+const wakeRibbon = createWakeRibbon({ water: () => ctx.water, terrain, quality });
 wakeRibbon.setFoamTexture(water.detailTexture);
 scene.add(wakeRibbon.group);
 const fisher = build(createFisher, { boat });
