@@ -31,7 +31,8 @@ import { createBoat } from './models/boat.js';
 import { createFisher } from './models/fisher.js';
 import { createVillage } from './models/village.js';
 import { createDock } from './models/dock.js';
-import { createTown } from './world/town.js';
+import { createTown, sanitizeLayout, TOWN_LAYOUT_KEY } from './world/town.js';
+import { createTownEditor } from './gameplay/townEditor.js';
 import { createLighthouse } from './models/lighthouse.js';
 import { createProps } from './models/props.js';
 import { createMonster } from './creatures/monster.js';
@@ -225,7 +226,14 @@ const heroTavern = await loadGlb('tavern');
 const heroDolphin = await loadGlb('dolphin');
 const heroCharacter = await loadGlb('character');
 const heroIdle = await loadGlb('idle-anim');
-const town = build(createTown, { terrain, seed: SEED, tavern: heroTavern?.scene });
+// The town builds from whatever layout the player saved in the editor, or its
+// shipped default. sanitizeLayout owns all trust decisions; a corrupt store
+// falls back whole rather than half-loading.
+let storedLayout = null;
+try {
+  storedLayout = sanitizeLayout(JSON.parse(localStorage.getItem(TOWN_LAYOUT_KEY)));
+} catch { /* absent, corrupt, or storage sandboxed — the default town it is */ }
+const town = build(createTown, { terrain, seed: SEED, tavern: heroTavern?.scene, layout: storedLayout });
 const lighthouse = build(createLighthouse, { terrain });
 const props = build(createProps, { terrain });
 // Fireflies on the shore after dark — one instanced draw, hidden by alpha so
@@ -297,6 +305,10 @@ const shoreLeave = createShoreLeave({
   hero: heroCharacter, heroIdle,
 });
 ctx.shore = shoreLeave;
+// The town editor: orbit the town, drag its buildings around, and the layout
+// persists on this device. Entered from the badge menu or F2; while active it
+// owns the camera and holds the helm and the walker still via ctx.editorHold.
+const townEditor = build(createTownEditor, { town, camera, input });
 
 const hud = createHud({ ctx, time });
 const fishingHud = createFishingHud({ fishing, ctx });
@@ -363,6 +375,10 @@ fpsBadge.addEventListener('pointerdown', (e) => {
   // First, because it is the one a player has a reason to open twice. The
   // other two are diagnostics that cost a reload.
   menu.appendChild(item('Ocean settings', () => { closeMenu(); oceanPanel.open(); }));
+  menu.appendChild(item('Edit town', () => {
+    closeMenu();
+    if (!fishing.state.ownsCamera) townEditor.toggle();
+  }));
   menu.appendChild(item(
     quality.backend === 'webgpu' ? 'Switch to WebGL' : 'Switch to WebGPU',
     () => {
@@ -633,7 +649,12 @@ function frame() {
   // fighting over it is a jitter nobody can debug from a screenshot.
   fishing.update(ctx);
   shoreLeave.update(ctx);
-  if (!fishing.state.ownsCamera && !shoreLeave.ownsCamera) chaseCamera.update(ctx);
+  if (!fishing.state.ownsCamera && !shoreLeave.ownsCamera && !townEditor.active) {
+    chaseCamera.update(ctx);
+  }
+  // Last word on the camera: the editor writes the full transform, so running
+  // after every other rig means there is never a frame two of them share.
+  townEditor.update(ctx);
   camera.updateMatrixWorld(true);
 
   for (const m of modules) m.update?.(ctx);
@@ -710,6 +731,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Digit3') time.glideTo('sunset', 1.5);
   if (e.code === 'Digit4') time.glideTo('night', 1.5);
   if (e.code === 'KeyT') time.setRate(time.rate === 0 ? 0.35 : 0);
+  if (e.code === 'F2' && !fishing.state.ownsCamera) townEditor.toggle();
 });
 
 // --- public handle for the capture harness ----------------------------------
@@ -719,6 +741,8 @@ const api = {
   clip: clipUniforms,
   town,
   shore: shoreLeave,
+  editor: townEditor,
+  TOWN_LAYOUT_KEY,
   // The same object the panel drives, so a capture can pin a look without
   // touching a slider: saltyfin.ocean.set('reflect', 0.4).
   ocean: oceanSettings,
@@ -817,7 +841,10 @@ const api = {
       ctx.frame = frames++;
       boatController.update(ctx);
       fishing.update(ctx);
-      if (!fishing.state.ownsCamera && !shoreLeave.ownsCamera) chaseCamera.update(ctx);
+      if (!fishing.state.ownsCamera && !shoreLeave.ownsCamera && !townEditor.active) {
+        chaseCamera.update(ctx);
+      }
+      townEditor.update(ctx);
       camera.updateMatrixWorld(true);
       for (const m of modules) m.update?.(ctx);
       quest.update(ctx);

@@ -50,7 +50,7 @@ export function createBoatController({ ctx, input, water, terrain }) {
       // "work the lure" down there and "walk" up on the quay, so without this
       // a jig would also drive the boat off the fish and a stroll across the
       // square would take the boat with it.
-      const hold = !!ctx.fishingHold || !!ctx.shoreHold;
+      const hold = !!ctx.fishingHold || !!ctx.shoreHold || !!ctx.editorHold;
 
       // CRUISE. The throttle latches where you leave it, so the boat can be
       // set to a lazy putter and steered with one thumb while the other holds

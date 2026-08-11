@@ -473,6 +473,16 @@ export function createShoreLeave(opts = {}) {
     }
 
     if (state.mode === 'ashore') {
+      // While the town editor is open the stick belongs to it: the walker
+      // stands still (speed zeroed so the mixer crossfades to idle) and the
+      // walk camera stops writing — the editor does a full camera write after
+      // this module every frame, but a rig that KEEPS writing would snap the
+      // view for one frame on every editor exit.
+      if (c.editorHold) {
+        state.speed = 0;
+        poseWalker(dt);
+        return;
+      }
       updateWalk(dt);
       poseWalker(dt);
       walkCamera(camPos, camLook);
