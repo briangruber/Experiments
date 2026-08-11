@@ -452,6 +452,19 @@ export const defaults = {
   sprayTexSize: 160,
   renderScale: 1.0,
   adaptiveQuality: 1,       // trim resolution until the target frame rate is met
+  // ---- duty cycle ----
+  // How hard this is allowed to work the machine, as opposed to how good it is
+  // allowed to look. The quality knobs below trade picture for frame rate, which
+  // is not the same thing: a laptop gets hot because of work per second, and only
+  // capping the frame rate or the pixel count reduces that.
+  fpsCap: 60,               // 0 = uncapped (runs at the display's refresh rate)
+  fpsCapIdle: 10,           // ...and when the window is not in front
+  dprCap: 1.75,             // ceiling on device pixel ratio. A Retina panel at 2
+                            // is 4x the pixels of 1 for a difference you have to
+                            // look for.
+  powerPref: 'default',     // 'high-performance' explicitly asks a switchable-
+                            // graphics laptop for its discrete GPU. Reload to
+                            // apply - the context cannot change it afterwards.
   targetFps: 40,
   renderScaleMin: 0.4,
   renderScaleMax: 1.0,
@@ -461,7 +474,10 @@ export const defaults = {
 const C = (key, label, opts = {}) => ({ key, label, type: 'color', ...opts });
 const S = (key, label, min, max, step = 0.001, opts = {}) => ({ key, label, type: 'range', min, max, step, ...opts });
 const B = (key, label) => ({ key, label, type: 'bool' });
-const E = (key, label, options) => ({ key, label, type: 'enum', options });
+// The fourth argument was being dropped, so E('fftSize', ..., { rebuildSim: true })
+// and E('sprayTexSize', ..., { rebuildSpray: true }) set the parameter and never
+// rebuilt anything - changing either in the UI did nothing at all.
+const E = (key, label, options, opts = {}) => ({ key, label, type: 'enum', options, ...opts });
 
 export const SCHEMA = [
   {
@@ -855,6 +871,9 @@ export const SCHEMA = [
       E('sprayTexSize', 'Spray particles', [64, 128, 192, 256, 384], { rebuildSpray: true }),
       S('renderScale', 'Render scale', 0.35, 2, 0.05, { resize: true }),
       S('adaptiveQuality', 'Adaptive resolution', 0, 1, 1, { integer: true }),
+      S('fpsCap', 'Frame rate cap (0 = off)', 0, 144, 1),
+      S('fpsCapIdle', 'Cap when not in front', 1, 60, 1),
+      S('dprCap', 'Pixel ratio cap', 0.5, 3, 0.05, { resize: true }),
       S('targetFps', 'Target frame rate', 20, 120, 1),
       S('renderScaleMin', 'Min render scale', 0.25, 1, 0.05),
       S('photoSamples', 'Photo mode samples', 1, 128, 1, { integer: true }),

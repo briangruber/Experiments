@@ -13,7 +13,12 @@ import { defaults, PRESETS } from './presets.js';
 import { DEG, v3, clamp } from './math.js';
 
 const canvas = document.getElementById('gl');
-const gl = getContext(canvas);
+// The GPU preference is fixed at context creation and cannot be changed
+// afterwards, so it comes straight from the defaults (or ?gpu= for a one-off)
+// rather than from the live parameter set.
+const gl = getContext(canvas, {
+  powerPref: new URLSearchParams(location.search).get('gpu') || defaults.powerPref,
+});
 const blit = new Blitter(gl);
 
 const params = structuredClone(defaults);
@@ -76,7 +81,7 @@ buildGrid();
 // --------------------------------------------------------------- render target
 let hdr = null, hdrFbo = null, depthRb = null, W = 1, H = 1;
 function resize() {
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const dpr = Math.min(window.devicePixelRatio || 1, Math.max(params.dprCap, 0.5));
   const w = Math.max(2, Math.round(canvas.clientWidth * dpr * params.renderScale));
   const h = Math.max(2, Math.round(canvas.clientHeight * dpr * params.renderScale));
   if (w === W && h === H && hdr) return;
@@ -194,6 +199,7 @@ const ui = new UI(document.getElementById('ui'), params, (ev) => {
     return;
   }
   if (ev.type === 'save') { savePng(); return; }
+  if (ev.type === 'quiet') { toggleQuiet(); return; }
 
   const it = ev.item;
   if (it.rebuild) ocean.dirty = true;
@@ -235,13 +241,37 @@ function toggleView() {
   resetAccum();
 }
 
+// One switch for everything that costs power rather than picture. Everything it
+// touches is a normal parameter, so it is a starting point rather than a mode -
+// move any of them afterwards and they stay moved.
+const LOUD = { fpsCap: 60, dprCap: 1.75, targetFps: 40, renderScaleMax: 1.0, cloudSteps: 48 };
+const QUIET = { fpsCap: 30, dprCap: 1.15, targetFps: 30, renderScaleMax: 0.8, cloudSteps: 32 };
+let quiet = false;
+function toggleQuiet() {
+  quiet = !quiet;
+  Object.assign(params, quiet ? QUIET : LOUD);
+  ui.syncAll();
+  resize();
+  derive();
+  resetAccum();
+  ui.toast(quiet ? 'Quiet mode \u2014 half the frames, fewer pixels' : 'Full quality');
+}
+
 function togglePhoto() {
   photo = !photo;
   resetAccum();
   ui.toast(photo ? 'Photo mode — accumulating' : 'Photo mode off');
 }
 
-function savePng() {
+// preserveDrawingBuffer is off - it costs a full-frame copy on every single frame
+// to serve a button pressed a handful of times a session - so the backbuffer is
+// only readable inside the task that drew it. Flag it here and grab it at the end
+// of the next frame instead.
+let pngPending = false;
+function savePng() { pngPending = true; }
+
+function writePng() {
+  pngPending = false;
   canvas.toBlob((b) => {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(b);
@@ -285,6 +315,14 @@ let fpsFrames = 0, fpsWindow = 0, hudDue = true;
 // it hits the target. Coarse steps on a one-second cadence: every change
 // reallocates the HDR targets, so thrashing would cost more than it saves.
 let qAccum = 0, qFrames = 0;
+// True when the frame rate is being held down by the cap rather than by the GPU.
+// Without this the controller reads "we have headroom" from a frame rate the cap
+// itself is setting, and climbs quality until it has spent exactly the power the
+// cap was meant to save.
+function cappedOut(fps) {
+  return params.fpsCap > 0 && fps >= params.fpsCap * 0.92;
+}
+
 function adaptQuality(dtRaw) {
   if (!params.adaptiveQuality) return;
   qAccum += dtRaw; qFrames++;
@@ -305,7 +343,7 @@ function adaptQuality(dtRaw) {
       params.gridScale = Math.max(params.gridScaleMin, params.gridScale - 0.12);
       buildGrid();
     }
-  } else if (fps > params.targetFps * 1.25) {
+  } else if (fps > params.targetFps * 1.25 && !cappedOut(fps)) {
     // Given back in the reverse order, cheapest first, so quality returns without
     // immediately spending the headroom that allowed it.
     if (params.gridScale < 1) {
@@ -322,7 +360,31 @@ function adaptQuality(dtRaw) {
 // between 'slow' and 'not running'.
 const fmtFps = (f) => (f < 10 ? f.toFixed(1) : f.toFixed(0));
 
+// The renderer's duty cycle. Left uncapped it runs at the display's refresh -
+// 120 Hz on a recent laptop - and the adaptive controller below then raises
+// quality until it is *just* missing the target, so between them they consume
+// every watt the machine will give. That is the right behaviour for a benchmark
+// and the wrong one for something you leave open.
+//
+// Capping has to SKIP frames rather than lower quality: quality knobs trade
+// picture for frame rate, and neither of those is what makes a laptop hot. Only
+// doing less work per second does.
+let lastPresent = 0;
+function shouldSkip(now) {
+  if (params.fpsCap <= 0) return false;
+  // A visible but unfocused window keeps getting rAF at full rate; only a hidden
+  // tab is throttled by the browser. Idling here is what stops it heating the
+  // machine behind whatever you switched to.
+  const cap = document.hasFocus() ? params.fpsCap : Math.min(params.fpsCap, params.fpsCapIdle);
+  // A hair under the period, or a cap equal to the refresh rate lands just the
+  // wrong side of every other vsync and halves the frame rate instead.
+  if (now - lastPresent < 1000 / cap - 1.2) return true;
+  lastPresent = now;
+  return false;
+}
+
 function frame(now) {
+  if (!pngPending && shouldSkip(now)) { requestAnimationFrame(frame); return; }
   const dtRaw = (now - last) / 1000;
   last = now;
   const dt = Math.min(dtRaw, 1 / 20);
@@ -540,6 +602,10 @@ function frame(now) {
       ? `photo · ${Math.min(accumIndex, params.photoSamples)}/${Math.round(params.photoSamples)} samples`
       : `${fmtFps(fpsAvg)} fps · ${W}×${H} · ${ocean.N}² × ${ocean.cascadeCount}`;
   }
+
+  // Last thing in the frame: the backbuffer is still intact here, and is not once
+  // this task yields.
+  if (pngPending) writePng();
 
   requestAnimationFrame(frame);
 }

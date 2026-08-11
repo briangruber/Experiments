@@ -51,6 +51,7 @@ export class UI {
       b.addEventListener('click', () => this.onChange({ type }));
       return b;
     };
+    this.quietBtn = mk('Quiet mode', 'quiet');
     this.rideBtn = mk('Ride', 'ride');
     // The view switch has to be reachable without a keyboard - V is not a control
     // on a phone - and it belongs next to Ride rather than buried in a slider
@@ -62,7 +63,8 @@ export class UI {
     const viewRow = document.createElement('div');
     viewRow.className = 'btns';
     viewRow.style.marginTop = '6px';
-    viewRow.append(this.viewBtn);
+    viewRow.className = 'btns';
+    viewRow.append(this.quietBtn, this.viewBtn);
     actions.appendChild(viewRow);
     const grid2 = document.createElement('div');
     grid2.className = 'btns';
@@ -116,10 +118,11 @@ export class UI {
       const sel = document.createElement('select');
       sel.innerHTML = item.options.map((o, i) => `<option value="${i}">${o}</option>`).join('');
       const cur = item.options.indexOf(p[item.key]);
-      sel.value = String(cur >= 0 ? cur : p[item.key]);
+      sel.value = String(Math.max(cur, 0));
       sel.addEventListener('change', () => {
-        const o = item.options[+sel.value];
-        p[item.key] = typeof o === 'number' ? o : +sel.value;
+        // Store the option itself. Storing the index worked only because every
+        // enum happened to be numeric; a string one would have stored 0, 1, 2.
+        p[item.key] = item.options[+sel.value];
         this.onChange({ type: 'param', item });
       });
       wrap.appendChild(sel);
@@ -161,6 +164,10 @@ export class UI {
       const riding = document.body.classList.contains('riding');
       this.viewBtn.style.display = riding ? '' : 'none';
       this.viewBtn.textContent = this.params.wrView >= 0.5 ? 'Rider view' : 'Chase view';
+    }
+    if (this.quietBtn) {
+      this.quietBtn.textContent = this.params.fpsCap > 0 && this.params.fpsCap <= 30
+        ? 'Full quality' : 'Quiet mode';
     }
     if (this.rideBtn) {
       this.rideBtn.textContent = document.body.classList.contains('riding') ? 'Exit ride' : 'Ride';
