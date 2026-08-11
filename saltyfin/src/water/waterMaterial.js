@@ -341,17 +341,9 @@ export function createWaterMaterial({
   // put most of the arm's width past the top of its own ramp, so it came back
   // as two solid white bands a metre and a half across. They are uniforms so
   // the next person can find the edge of that cliff without a rebuild.
-  const uWakeArmLo = uniform(0.52);
-  const uWakeArmHi = uniform(0.95);
-  const uWakeTrailLo = uniform(0.62);
-  const uWakeTrailHi = uniform(1.45);
-  const uWakeFoam = uniform(0.60);
-  const uWakeArmFoam = uniform(0.60);
   // How much of the foam's alpha the churn texture is allowed to take away. At
   // 1.0 the noise reaches zero and the trail breaks into filaments again, which
   // is the thing this is not.
-  const uWakeMottle = uniform(0.35);
-  const uWakeHalo = uniform(0.34);
   // How opaque the wake foam is allowed to get. foamCol lands near 2.25 in
   // linear at the day preset, so a fully opaque strand reads as 96% sRGB after
   // the tonemap and feeds the bloom; measured on ref/01 the foam's p99 is 75%
@@ -360,7 +352,6 @@ export function createWaterMaterial({
   // hottest cores — the water colour reads through everywhere. This caps the
   // wake alone rather than trimming foamCol, which shore and crest foam share
   // and which is tuned where it is for them.
-  const uWakeBright = uniform(0.34);
   // Master switch on the wake's VISIBLE foam, and the only thing that turns it
   // off. Everything above stays wired: the ripple channel that bends the normal
   // is a separate term (uWakeSlope, forty lines up) and water.disturb() writes
@@ -482,9 +473,7 @@ export function createWaterMaterial({
     uSpecular, uRoughness, uGlitter, uGlitterSize, uGlitterColor,
     uReflStrength, uReflEnabled, uCaustic, uCausticScale, uFoamTint, uFoamBright,
     uWakeCenter, uWakeWorld, uWakeTexel, uWakeGrad, uWakeSlope, uWakeSlopeMax, uWakeArmSlope,
-    uWakeFoam, uWakeArmFoam, uWakeMottle, uWakeBright,
-    uWakeArmLo, uWakeArmHi, uWakeTrailLo, uWakeTrailHi,
-    uWakeHalo, uWakeVisible, uSubmerged,
+    uWakeVisible, uSubmerged,
     uDetailStrength, uFineChop, uRefractDistort, uReflDistort, uScatterStrength, uShoreFoamDepth,
     uAmbFoam, uAmbFoamScale, uAmbFoamThresh, uAmbFoamSteep,
     uReflBedMin, uReflBedNear, uReflBedFar,
@@ -741,9 +730,9 @@ export function createWaterMaterial({
     });
     // Seen from below, the wake is a bright ceiling patch and nothing more — so
     // it takes the channel VALUES with their own constants. It deliberately does
-    // not share uWakeFoam/uWakeArmFoam any more: those now scale a gradient and
-    // a compressed ridge, and reusing them here silently gave the underside a
-    // different wake shape than the top surface every time the top was retuned.
+    // not share the top surface's constants: it is a different quantity seen
+    // from a different side, and reusing them silently gave the underside a
+    // different wake shape every time the top was retuned.
     const wf = sat(wC.b.mul(0.80).add(wC.a.mul(0.60))).mul(wmask).toVar();
     under.assign(mix(under, foamCol.mul(0.5), sat(wf).mul(0.55)));
     under.assign(mix(under, gloom.mul(0.86), smoothstep(10.0, 140.0, dist)));
@@ -886,55 +875,27 @@ export function createWaterMaterial({
     crest.assign(smoothstep(0.34, 0.90, crest.mul(1.22).sub(breakup.mul(0.72)).add(0.13)).mul(0.80));
 
     // --- the wake -------------------------------------------------------------
+    // There is none here any more, and there never will be again.
     //
-    // Four rebuilds of this ended in the bin, and every one of them died the
-    // same way: it was TOO CLEVER. A lace cut out of contour noise came back as
-    // scribbles. A painterly version with an eroded body, a rim band, a mottle
-    // and a halo came back as a decal welded to the transom. What survives is
-    // the shortest thing that reads as a boat's wake at all.
+    // Five versions of a wake were painted into this shader from the wake field
+    // and all five were wrong in the same way, which is how you know it was the
+    // mechanism and not the tuning. The field is 0.5 m per texel on desktop and
+    // 1.0 m on a phone. Real wake foam has structure at 10-20 cm. You cannot cut
+    // a crisp mark out of a field four times coarser than the mark, so every
+    // attempt collapsed into the same two outcomes: threshold low and it floods
+    // into ski tracks, threshold high and it vanishes. Contour noise gave
+    // scribbles, Reinhard knees gave a lozenge, erosion gave filaments.
     //
-    // Two marks, and nothing else.
+    // The wake is GEOMETRY now — a ribbon that follows the boat's path with real
+    // UVs and therefore real resolution at any distance. See water/wakeRibbon.js.
     //
-    //   THE V.  wake.js rewrites the A channel every frame into the Kelvin
-    //           arms, so it is already a crisp one-frame ridge in exactly the
-    //           right place. A narrow threshold on it IS the V. It gets the
-    //           higher alpha because it is the mark the eye actually reads —
-    //           two clean diverging lines behind a moving hull.
-    //   THE TRAIL. The B channel accumulates at the transom and decays over a
-    //           few seconds, which is the churned water dragging astern. Wide
-    //           threshold, low alpha, so it is a soft band and never an edge.
-    //
-    // The only texture on either is one octave of the detail field at 0.75-1.0,
-    // which takes the flatness off without ever reaching zero — anything that
-    // reaches zero starts breaking the mark into filaments, and filaments are
-    // what the first three attempts all turned into.
-    //
-    // Measured channel ranges, so the thresholds below are not guesses: B peaks
-    // near 1.43 at the transom and is 0.15 at the tail of the trail; A peaks
-    // near 1.05 at the arm vertex and sits at 0.02-0.05 in the bilinear halo of
-    // overlapping stamps, which is what the lower edges have to clear.
-    const armv = wC.a.toVar();
-    const churnv = wC.b.toVar();
-
-    const armF = smoothstep(uWakeArmLo, uWakeArmHi, armv).mul(uWakeArmFoam).toVar();
-    const trailF = smoothstep(uWakeTrailLo, uWakeTrailHi, churnv).mul(uWakeFoam).toVar();
-
-    const wake = max(armF, trailF).mul(wmask).mul(uWakeVisible).toVar();
-    // One octave, gently. See above.
-    wake.mulAssign(d0.b.mul(uWakeMottle).add(float(1.0).sub(uWakeMottle)));
-    // Foam held at full contrast to the horizon aliases into bright dots that
-    // post's chromatic aberration paints magenta and green; the glitter above
-    // fades for the same reason.
-    wake.mulAssign(smoothstep(70.0, 260.0, dist).oneMinus());
-
-    // A whisper of disturbed water around it. Not a second mark — it is under
-    // the foam threshold everywhere and confined by (1 - wake) to the fringe,
-    // which is the difference between a wake that sits ON the sea and one that
-    // belongs to it.
-    const wakeHalo = smoothstep(0.05, 0.40, max(armv, churnv.mul(0.5)))
-      .mul(wake.oneMinus())
-      .mul(uWakeHalo).mul(wmask).mul(uWakeVisible)
-      .mul(smoothstep(70.0, 260.0, dist).oneMinus()).toVar();
+    // What stays here is the RIPPLE, which is a different thing and always was:
+    // the R channel bends the surface normal (uWakeSlope, far above), and that
+    // is what a hull, a breaching leviathan, a jumping fish and a dropped lure
+    // all disturb through water.disturb(). Foam is a mark on the water; a ripple
+    // is the water moving. Only the first one was ever wrong.
+    const wake = float(0).toVar();
+    const wakeHalo = float(0).toVar();
 
     // --- ambient surface foam ------------------------------------------------
     // The third foam layer, and the one this water did not have. Whitecaps mark
@@ -990,18 +951,6 @@ export function createWaterMaterial({
     col.assign(mix(col, mix(col, foamCol, 0.62), wakeHalo));
     col.assign(mix(col, foamCol.mul(float(0.70).add(breakup.mul(0.58))), foam.mul(0.92)));
 
-    // The wake gets its own COLOUR, not a share of the foam alpha.
-    //
-    // foamCol is an HDR value near 2.25 in linear, tuned for shore foam and
-    // whitecaps — things that really are white. Folding the wake into the same
-    // alpha meant even a thirty percent mix landed near 0.95 after the tonemap,
-    // so every attempt to make the trail subtle by lowering its alpha produced
-    // exactly the same solid white bands, and the numbers looked like they
-    // should have worked. Giving it a dimmer target instead lets the ALPHA do
-    // what alpha is for: bright and opaque in the churn right at the transom
-    // where the field is strongest, pale and see-through out along the arms.
-    col.assign(mix(col, foamCol.mul(uWakeBright).mul(float(0.72).add(breakup.mul(0.5))),
-      sat(wake)));
 
     // --- the light path -----------------------------------------------------
     const H = normalize(V.add(L)).toVar();

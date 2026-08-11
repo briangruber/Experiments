@@ -359,6 +359,8 @@ export function createWater(opts = {}) {
     group,
     material,
     uniforms: u,
+    /** The tiling detail field, so the wake ribbon can foam with the same one. */
+    detailTexture: built.detailTexture,
     wake,
     caustics,
     update,

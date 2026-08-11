@@ -44,6 +44,7 @@ import { createOceanPanel } from './hud/oceanPanel.js';
 import { createFishing } from './gameplay/fishing.js';
 import { createFishingHud } from './hud/fishingHud.js';
 import { createUnderwater } from './world/underwater.js';
+import { createWakeRibbon } from './water/wakeRibbon.js';
 import { oceanSettings } from './water/settings.js';
 import { createProfiler, installGpuProbe, profileRequested, requestProfileRun } from './core/profile.js';
 
@@ -214,6 +215,12 @@ const props = build(createProps, { terrain });
 const water = build(createWater, { terrain });
 ctx.water = water;
 const boat = build(createBoat);
+// The wake, as geometry rather than as foam painted into the water shader. It
+// is a module like any other — group in the scene, update and applyEnv per
+// frame — and it is built after the water so it can borrow its detail field.
+const wakeRibbon = createWakeRibbon({ water: () => ctx.water, quality });
+wakeRibbon.setFoamTexture(water.detailTexture);
+scene.add(wakeRibbon.group);
 const fisher = build(createFisher, { boat });
 const monster = build(createMonster, { terrain });
 ctx.monster = monster;
@@ -332,6 +339,7 @@ let renderCpuMs = 0;
 const modules = [
   sky, clouds, celestial, seabed, coral, islands, vegetation,
   village, dock, lighthouse, props, water, boat, fisher, monster, wildlife,
+  wakeRibbon,
 ];
 
 // Modules add their own practicals — the lantern, the dock lamps, the lighthouse
@@ -695,7 +703,7 @@ const api = {
   modules: {
     sky, clouds, celestial, seabed, coral, islands, vegetation, village, dock,
     lighthouse, props, water, boat, fisher, monster, wildlife, hud, quest,
-    boatController, chaseCamera, fishing, underwater,
+    boatController, chaseCamera, fishing, underwater, wakeRibbon,
   },
   frames: 0,
   ready: false,
