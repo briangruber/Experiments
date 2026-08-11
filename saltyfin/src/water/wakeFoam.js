@@ -329,6 +329,25 @@ export function createWakeFoam(opts = {}) {
     b.wob = rng.range(0, TAU);
   }
 
+  /**
+   * Stamp a handful of puffs at a point that is not the boat — a dolphin
+   * breaking the surface, a landed fish, anything that ought to leave the same
+   * hand-drawn marks the hull does. Costs nothing new: it borrows slots from
+   * the same pool, so a leaping pod during a hard turn steals a little tail
+   * from the wake rather than allocating anything.
+   */
+  function burst(x, z, count = 3, strength = 0.8) {
+    for (let i = 0; i < count; i++) {
+      const a = rng.range(0, TAU);
+      const d = rng.range(0, 0.55);
+      spawnPuff(
+        x + Math.cos(a) * d, z + Math.sin(a) * d,
+        Math.cos(a) * rng.range(0.2, 0.7), Math.sin(a) * rng.range(0.2, 0.7),
+        Math.min(1, strength),
+      );
+    }
+  }
+
   function update(ctx) {
     const b = ctx.boat;
     const t = ctx.time;
@@ -454,6 +473,7 @@ export function createWakeFoam(opts = {}) {
     group,
     update,
     applyEnv,
+    burst,
     uniforms: { uColor, uOpacity, uBubColor },
     dispose() {
       unsubscribe();

@@ -48,6 +48,9 @@ import { createFishingHud } from './hud/fishingHud.js';
 import { createShoreHud } from './hud/shoreHud.js';
 import { createUnderwater } from './world/underwater.js';
 import { createWakeFoam } from './water/wakeFoam.js';
+import { createDolphins } from './creatures/dolphins.js';
+import { createFireflies } from './world/fireflies.js';
+import { createAudio } from './core/audio.js';
 import { oceanSettings } from './water/settings.js';
 import { createProfiler, installGpuProbe, profileRequested, requestProfileRun } from './core/profile.js';
 
@@ -218,6 +221,9 @@ const dock = build(createDock, { terrain });
 const town = build(createTown, { terrain, seed: SEED });
 const lighthouse = build(createLighthouse, { terrain });
 const props = build(createProps, { terrain });
+// Fireflies on the shore after dark — one instanced draw, hidden by alpha so
+// its pipeline compiles at warm-up. See world/fireflies.js.
+const fireflies = build(createFireflies, { terrain });
 const water = build(createWater, { terrain });
 ctx.water = water;
 const boat = build(createBoat);
@@ -230,6 +236,24 @@ const fisher = build(createFisher, { boat });
 const monster = build(createMonster, { terrain });
 ctx.monster = monster;
 const wildlife = build(createWildlife, { terrain });
+// The pod that joins a gentle cruise. Built after wildlife because it drives
+// an actor pool that lives inside wildlife's meshes; its splashes are
+// wakeFoam's puffs, so the whole feature adds zero draws and zero pipelines.
+const dolphins = createDolphins({
+  wildlife, terrain, water: () => ctx.water, burst: wakeFoam.burst,
+});
+// The soundscape. Synthesized from nothing on the first tap or keypress —
+// see core/audio.js. The spots are where the harbour bell lives.
+const audioBerth = new THREE.Vector3();
+town.berthWorld(audioBerth);
+const audio = createAudio({
+  water: () => ctx.water,
+  camera,
+  spots: [
+    { x: audioBerth.x, z: audioBerth.z, name: 'town' },
+    { x: -77, z: 3, name: 'harbour' },
+  ],
+});
 // Fog, light and suspended matter for when the camera goes under. Not a
 // `module` — it is not driven by applyEnv/update like the rest, it runs after
 // them as a modifier on what they produced. See world/underwater.js.
@@ -350,7 +374,7 @@ let renderCpuMs = 0;
 const modules = [
   sky, clouds, celestial, seabed, coral, islands, vegetation,
   village, dock, town, lighthouse, props, water, boat, fisher, monster, wildlife,
-  wakeFoam,
+  wakeFoam, dolphins, fireflies, audio,
 ];
 
 // Modules add their own practicals — the lantern, the dock lamps, the lighthouse
@@ -718,7 +742,7 @@ const api = {
   modules: {
     sky, clouds, celestial, seabed, coral, islands, vegetation, village, dock,
     lighthouse, props, water, boat, fisher, monster, wildlife, hud, quest,
-    boatController, chaseCamera, fishing, underwater, wakeFoam,
+    boatController, chaseCamera, fishing, underwater, wakeFoam, dolphins, fireflies, audio,
   },
   frames: 0,
   ready: false,

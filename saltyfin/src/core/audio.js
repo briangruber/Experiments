@@ -1,0 +1,453 @@
+// The lagoon, for the ears. Everything here is synthesized — noise buffers
+// filled in JS, oscillators, biquads — because the project ships no assets and
+// fetches none, and because a lagoon is mostly broadband hush anyway: filtered
+// noise IS the sound of water, not an approximation of it.
+//
+// The register is COZY. Every level in this file was arrived at by turning it
+// down: the first motor was a chainsaw at 0.2, the first gulls a mugging. A
+// soundscape you stop noticing after a minute is the goal — it is allowed to
+// disappear, it is not allowed to startle.
+//
+// Three rules, learned from the renderer's version of the same problems:
+//
+//   1. The graph is built ONCE, at unlock, and never rebuilt. Layers that are
+//      silent right now sit at gain 0 with their sources running — starting a
+//      source mid-play is the audio equivalent of compiling a pipeline mid-
+//      frame. Only the one-shots (gulls, bell) create nodes on demand, and
+//      those are a few oscillators every ten seconds.
+//   2. Every continuous parameter is moved with setTargetAtTime, which is the
+//      one AudioParam verb that composes with being called again next frame.
+//      Per-frame linear ramps stack cancel events and click; direct .value
+//      writes zipper.
+//   3. Nothing here may ever throw. Audio is garnish: a browser with no
+//      AudioContext, a sandboxed localStorage, a device that suspends the
+//      context behind our back — all of it degrades to silence, never to a
+//      broken game.
+//
+// The context itself is created lazily on the first user gesture, because
+// autoplay policy means one created at boot arrives suspended and stays that
+// way; the same gesture that starts it also fades the master in, so the world
+// swells up rather than switching on.
+
+import { makeRng } from './rng.js';
+
+const MASTER = 0.45;               // full mix, reached over ~1.5 s at unlock
+const LP_DAY = 18000;              // master lowpass wide open
+const LP_NIGHT = 8000;             // night darkens the whole mix a shade
+const LP_UNDER = 320;              // ears full of water
+const BELL_RANGE = 70;             // metres from a spot before the harbour rings
+const STORAGE_KEY = 'saltyfin-audio';
+const GLYPH_ON = '\u{1F50A}';
+const GLYPH_OFF = '\u{1F507}';
+
+const clamp01 = (v) => Math.min(1, Math.max(0, v));
+
+// Same placement grammar as the fps badge below it: a fixed round chip in the
+// bottom-left utility corner, data-sf-ui so a tap on it never reaches the
+// chase camera.
+const CSS = `
+#sf-audio { position: fixed; left: 10px; bottom: calc(34px + env(safe-area-inset-bottom));
+  z-index: 45; width: 34px; height: 34px; border-radius: 999px;
+  display: flex; align-items: center; justify-content: center; padding: 0;
+  font: 600 15px/1 ui-sans-serif, system-ui, sans-serif;
+  color: rgba(214,236,255,.85); background: rgba(8,20,36,.45);
+  border: 1px solid rgba(206,232,255,.2); cursor: pointer;
+  -webkit-user-select: none; user-select: none; }
+#sf-audio:active { background: rgba(30,52,72,.7); }
+`;
+
+export function createAudio(opts = {}) {
+  const water = opts.water || (() => null);
+  const camera = opts.camera || null;
+  const spots = Array.isArray(opts.spots) ? opts.spots : [];
+  const rng = makeRng(0x0C0A57);
+
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return { update() {}, applyEnv() {}, dispose() {} };
+  }
+
+  let ac = null;          // AudioContext, once the first gesture arrives
+  let dead = false;       // no context available: every method is a no-op
+  let muted = false;
+  try { muted = localStorage.getItem(STORAGE_KEY) === '0'; } catch { /* sandboxed */ }
+
+  // From applyEnv, read every update. The gull/cricket gates and the night
+  // lowpass live in update() rather than here because they blend with the
+  // underwater duck, and one place doing the mixing beats two disagreeing.
+  let day = 1;
+  let night = 0;
+
+  let sub = 0;            // smoothed submergence, 0 surface .. 1 under
+  let motorGate = 0;      // smoothed |throttle| >= 0.05, ~0.3 s
+  let nextGull = -1;
+  let nextBell = -1;
+  let wasNear = false;
+
+  // Node handles and their movers, filled in by unlock().
+  let masterGain, masterLP, gullBus;
+  let mvLap, mvMotorG, mvMotorF, mvPutter, mvWind, mvGull, mvCricket, mvBub, mvCut;
+  const loops = [];       // the always-running sources, for dispose()
+
+  // A mover is setTargetAtTime plus a memory of the last target, so a value
+  // that has not changed writes nothing: sixty timeline events a second per
+  // param is exactly the event-list churn setTargetAtTime was chosen to avoid.
+  const mover = (param, tc) => {
+    let last = NaN;
+    return (v) => {
+      if (Math.abs(v - last) < 1e-4 + Math.abs(last) * 0.004) return;
+      last = v;
+      param.setTargetAtTime(v, ac.currentTime, tc);
+    };
+  };
+
+  // Looped noise, built rather than fetched. `soften` runs a one-pole lowpass
+  // over the samples as they are written (~350 Hz at 48 k), which turns hiss
+  // into the dull slosh a hull actually makes; the x3.2 puts back the RMS the
+  // pole ate. The tail is crossfaded into the head so the 4 s loop has no
+  // seam tick — a click every four seconds is a metronome, and you cannot
+  // unhear a metronome.
+  function makeNoise(seconds, soften) {
+    const len = Math.floor(ac.sampleRate * seconds);
+    const buf = ac.createBuffer(1, len, ac.sampleRate);
+    const d = buf.getChannelData(0);
+    let y = 0;
+    for (let i = 0; i < len; i++) {
+      const w = rng.next() * 2 - 1;
+      if (soften) { y += (w - y) * 0.045; d[i] = y * 3.2; } else d[i] = w * 0.5;
+    }
+    const F = Math.floor(ac.sampleRate * 0.05);
+    for (let i = 0; i < F; i++) {
+      const t = i / F;
+      d[i] = d[i] * t + d[len - F + i] * (1 - t);
+    }
+    return buf;
+  }
+
+  function loopSource(buf) {
+    const src = ac.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+    src.start();
+    loops.push(src);
+    return src;
+  }
+
+  function biquad(type, freq, q) {
+    const f = ac.createBiquadFilter();
+    f.type = type;
+    f.frequency.value = freq;
+    if (q !== undefined) f.Q.value = q;
+    return f;
+  }
+
+  const gain = (v) => { const g = ac.createGain(); g.gain.value = v; return g; };
+
+  // An LFO into a gain PARAM: the param's own value is the resting point and
+  // the oscillator sums onto it, so base 0.82 + depth 0.18 breathes 0.64..1.
+  function lfo(hz, depth, param) {
+    const o = ac.createOscillator();
+    o.frequency.value = hz;
+    const d = gain(depth);
+    o.connect(d);
+    d.connect(param);
+    o.start();
+    loops.push(o);
+    return o;
+  }
+
+  const chain = (...nodes) => {
+    for (let i = 0; i < nodes.length - 1; i++) nodes[i].connect(nodes[i + 1]);
+    return nodes[nodes.length - 1];
+  };
+
+  function panner(v) {
+    if (!ac.createStereoPanner) return gain(1);      // old Safari: centred is fine
+    const p = ac.createStereoPanner();
+    p.pan.value = Math.max(-0.9, Math.min(0.9, v));
+    return p;
+  }
+
+  function unlock() {
+    if (ac || dead) return;
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) { dead = true; return; }
+      ac = new AC();
+
+      // master: everything -> gain -> lowpass -> out. The lowpass at the END
+      // is what makes night and submersion feel global for one param each.
+      masterGain = gain(0);
+      masterLP = biquad('lowpass', LP_DAY);
+      chain(masterGain, masterLP, ac.destination);
+      mvCut = mover(masterLP.frequency, 0.18);
+
+      const soft = loopSource(makeNoise(4, true));    // lapping, bubbles
+      const white = loopSource(makeNoise(4, false));  // wind, crickets
+
+      // LAPPING — the floor of the whole mix, the sound of being on water at
+      // all. The 0.23 Hz wobble is the swell period; without it the loop is a
+      // steady hiss and reads as tape, with it the water breathes.
+      const lapAM = gain(0.82);
+      lfo(0.23, 0.18, lapAM.gain);
+      const lapGain = gain(0);
+      soft.connect(biquad('bandpass', 340, 0.9)).connect(lapAM);
+      chain(lapAM, lapGain, masterGain);
+      mvLap = mover(lapGain.gain, 0.25);
+
+      // MOTOR — a small four-stroke at walking pace, not an outboard at full
+      // chat. The chug is the putter LFO amplitude-modulating a triangle that
+      // the lowpass has already rounded off; depth 0.45 on base 0.55 lets each
+      // beat nearly die between fires, which is what putter means.
+      const motorOsc = ac.createOscillator();
+      motorOsc.type = 'triangle';
+      motorOsc.frequency.value = 62;
+      motorOsc.start();
+      loops.push(motorOsc);
+      const motorAM = gain(0.55);
+      const putter = lfo(7, 0.45, motorAM.gain);
+      const motorGain = gain(0);
+      chain(motorOsc, biquad('lowpass', 480), motorAM, motorGain, masterGain);
+      mvMotorG = mover(motorGain.gain, 0.12);
+      mvMotorF = mover(motorOsc.frequency, 0.10);
+      mvPutter = mover(putter.frequency, 0.15);
+
+      // WIND — only exists above ~4 kn, squared so it arrives late and soft.
+      const windGain = gain(0);
+      chain(white, biquad('highpass', 900), windGain, masterGain);
+      mvWind = mover(windGain.gain, 0.3);
+
+      // GULLS route through a bus so the underwater duck catches a cry that is
+      // already in flight — you cannot un-schedule an envelope, but you can
+      // close the door it comes through.
+      gullBus = gain(1);
+      gullBus.connect(masterGain);
+      mvGull = mover(gullBus.gain, 0.1);
+
+      // CRICKETS — a single patient insect somewhere ashore. Narrowband from
+      // white noise is quiet by construction (Q 16 keeps a sliver of the
+      // spectrum), hence the x4 makeup ahead of the 0.02 layer gain; the
+      // 4.6 Hz sine pulse is the chirp train.
+      const cricketAM = gain(0.5);
+      lfo(4.6, 0.5, cricketAM.gain);
+      const cricketGain = gain(0);
+      chain(white, biquad('bandpass', 4300, 16), gain(4), cricketAM, cricketGain, masterGain);
+      mvCricket = mover(cricketGain.gain, 0.4);
+
+      // BUBBLES — the underwater bed. Slow AM on already-soft noise; the
+      // burble is the modulation, not the noise.
+      const bubAM = gain(0.62);
+      lfo(0.45, 0.38, bubAM.gain);
+      const bubGain = gain(0);
+      chain(soft, biquad('lowpass', 480), bubAM, bubGain, masterGain);
+      mvBub = mover(bubGain.gain, 0.15);
+
+      // Some browsers still hand a fresh context back suspended even inside a
+      // gesture; resume is idempotent and free when it is already running.
+      if (ac.state !== 'running') ac.resume().catch(() => {});
+      masterGain.gain.setTargetAtTime(muted ? 0 : MASTER, ac.currentTime, 0.5);
+    } catch {
+      dead = true;
+      ac = null;
+    }
+  }
+
+  // --- one-shots -------------------------------------------------------------
+
+  // A cry is a sawtooth swooping 1250 -> 820 Hz through a resonant bandpass:
+  // the swoop is the gull, the bandpass is the distance. Two or three to a
+  // phrase because a lone cry sounds like a sound effect and four is a squabble.
+  function gullCry() {
+    const t0 = ac.currentTime + 0.03;
+    const n = rng.int(2, 3);
+    const pan = panner(rng.range(-0.8, 0.8));
+    pan.connect(gullBus);
+    for (let i = 0; i < n; i++) {
+      const t = t0 + i * 0.25;
+      const o = ac.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(1250, t);
+      o.frequency.exponentialRampToValueAtTime(820, t + 0.28);
+      const g = ac.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.05, t + 0.06);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.30);
+      chain(o, biquad('bandpass', 1400, 4), g, pan);
+      o.start(t);
+      o.stop(t + 0.34);
+      if (i === n - 1) o.onended = () => { try { pan.disconnect(); } catch { /* torn down */ } };
+    }
+  }
+
+  // Two detuned sines are the cheapest thing that reads as bronze — the beat
+  // between 620 and 933 is the shimmer a single sine cannot fake. tc 0.54
+  // puts the tail at ~-40 dB by 2.5 s.
+  function ringBell(pan) {
+    const t = ac.currentTime + 0.02;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.04, t + 0.008);
+    g.gain.setTargetAtTime(0, t + 0.02, 0.54);
+    const p = panner(pan);
+    chain(g, p, masterGain);
+    const parts = [[620, 1], [933, 0.6]];
+    for (let i = 0; i < parts.length; i++) {
+      const o = ac.createOscillator();
+      o.frequency.value = parts[i][0];
+      chain(o, gain(parts[i][1]), g);
+      o.start(t);
+      o.stop(t + 3.5);
+      if (i === parts.length - 1) o.onended = () => { try { p.disconnect(); } catch { /* torn down */ } };
+    }
+  }
+
+  // Which way the bell is, in the listener's frame: dot of the flat bearing
+  // against the camera's world right axis (column 0 of matrixWorld — unit
+  // length, the rig never scales).
+  function bearingPan(spot) {
+    if (!camera || !camera.matrixWorld || !camera.position) return 0;
+    const e = camera.matrixWorld.elements;
+    const dx = spot.x - camera.position.x;
+    const dz = spot.z - camera.position.z;
+    const len = Math.hypot(dx, dz) || 1;
+    return (dx * e[0] + dz * e[2]) / len;
+  }
+
+  // --- the mute chip ---------------------------------------------------------
+
+  const style = document.createElement('style');
+  style.textContent = CSS;
+  document.head.appendChild(style);
+  const btn = document.createElement('button');
+  btn.id = 'sf-audio';
+  btn.setAttribute('data-sf-ui', '');
+  btn.textContent = muted ? GLYPH_OFF : GLYPH_ON;
+  btn.title = 'Sound on/off';
+  document.body.appendChild(btn);
+
+  function setMuted(m) {
+    muted = m;
+    try { localStorage.setItem(STORAGE_KEY, m ? '0' : '1'); } catch { /* sandboxed */ }
+    btn.textContent = m ? GLYPH_OFF : GLYPH_ON;
+    // Fade rather than suspend: a suspended context resumes with a pop, and a
+    // master at 0 costs nothing worth chasing.
+    if (ac) masterGain.gain.setTargetAtTime(m ? 0 : MASTER, ac.currentTime, 0.25);
+  }
+  const onBtn = (e) => { e.preventDefault(); setMuted(!muted); };
+  btn.addEventListener('click', onBtn);
+
+  // The unlock gesture. The chip's own tap bubbles to window, so unmuting is
+  // itself a valid unlock even if it is the first thing the player touches.
+  const onGesture = () => unlock();
+  window.addEventListener('pointerdown', onGesture, { once: true, passive: true });
+  window.addEventListener('keydown', onGesture, { once: true, passive: true });
+  window.addEventListener('touchstart', onGesture, { once: true, passive: true });
+  // iOS suspends (or "interrupts") the context when the tab backgrounds and
+  // does not always bring it back; a visible tab with a non-running context is
+  // the one state worth poking.
+  const onVis = () => {
+    if (!document.hidden && ac && ac.state !== 'running') ac.resume().catch(() => {});
+  };
+  document.addEventListener('visibilitychange', onVis);
+
+  // --- per frame -------------------------------------------------------------
+
+  function update(ctx) {
+    if (!ac || dead) return;
+    try {
+      const t = ctx.time || 0;
+      const dt = Math.min(0.1, Math.max(0.0001, ctx.dt || 0.016));
+      const boat = ctx.boat || {};
+      const speed = Math.abs(boat.speed || 0);
+
+      // Submergence is computed here rather than trusted from ctx: the module
+      // contract is water()/camera in, sound out, and the flag main.js keeps
+      // for the post pass has its own shaping.
+      let subT = 0;
+      const w = water();
+      if (w && w.sampleHeight && camera && camera.position) {
+        subT = camera.position.y < w.sampleHeight(camera.position.x, camera.position.z, t) ? 1 : 0;
+      }
+      sub += (subT - sub) * (1 - Math.exp(-dt / 0.25));
+
+      // Lapping fades as speed rises — under way, the hull noise and wind own
+      // the mix and the shoreline slosh belongs to being stopped.
+      mvLap(0.16 / (1 + speed * 0.25));
+
+      // The gate smooths in JS at ~0.3 s so blipping the throttle swells the
+      // motor instead of clicking it.
+      motorGate += ((Math.abs(boat.throttle || 0) >= 0.05 ? 1 : 0) - motorGate)
+        * (1 - Math.exp(-dt / 0.3));
+      mvMotorG(motorGate * (0.06 + 0.05 * Math.min(1, speed / 9)));
+      mvMotorF(62 + speed * 7);
+      mvPutter(7 + speed * 1.1);
+
+      mvWind(0.10 * clamp01((speed - 4) / 10) ** 2 * (1 - sub));
+
+      // Ducks and beds driven by submergence.
+      mvGull(1 - sub);
+      mvBub(0.05 * sub);
+      // Crickets duck under too: the shore has no business being audible from
+      // under the lagoon, nightFactor or not.
+      mvCricket(0.02 * night * (1 - sub));
+
+      // One lowpass carries both moods: night darkens the top end a shade,
+      // going under closes it to a murmur.
+      const surf = LP_DAY + (LP_NIGHT - LP_DAY) * night;
+      mvCut(surf + (LP_UNDER - surf) * sub);
+
+      // One-shots only when there is a running clock to schedule against and
+      // someone to hear them.
+      if (ac.state === 'running' && !muted) {
+        if (day > 0.35 && sub < 0.5) {
+          if (nextGull < 0) nextGull = t + rng.range(4, 12);
+          if (t >= nextGull) { gullCry(); nextGull = t + rng.range(9, 26); }
+        }
+
+        if (spots.length && boat.position) {
+          let nearest = null;
+          let best = BELL_RANGE * BELL_RANGE;
+          for (const s of spots) {
+            const dx = s.x - boat.position.x;
+            const dz = s.z - boat.position.z;
+            const d2 = dx * dx + dz * dz;
+            if (d2 < best) { best = d2; nearest = s; }
+          }
+          // A first ring shortly after arriving, then the slow cadence: on the
+          // full 40-70 s clock a short visit could come and go unrung, and the
+          // bell is the harbour saying hello.
+          if (nearest && !wasNear) nextBell = t + rng.range(8, 18);
+          if (nearest && t >= nextBell) {
+            ringBell(bearingPan(nearest));
+            nextBell = t + rng.range(40, 70);
+          }
+          wasNear = !!nearest;
+        }
+      }
+    } catch { /* silence over stack traces, always */ }
+  }
+
+  function applyEnv(env) {
+    if (!env) return;
+    day = env.dayFactor ?? day;
+    night = env.nightFactor ?? night;
+  }
+
+  function dispose() {
+    try {
+      window.removeEventListener('pointerdown', onGesture);
+      window.removeEventListener('keydown', onGesture);
+      window.removeEventListener('touchstart', onGesture);
+      document.removeEventListener('visibilitychange', onVis);
+      btn.removeEventListener('click', onBtn);
+      btn.remove();
+      style.remove();
+      for (const s of loops) { try { s.stop(); } catch { /* already stopped */ } }
+      loops.length = 0;
+      if (ac) ac.close().catch(() => {});
+      ac = null;
+      dead = true;
+    } catch { /* never throw, even on the way out */ }
+  }
+
+  return { update, applyEnv, dispose };
+}

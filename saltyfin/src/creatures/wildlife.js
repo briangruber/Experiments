@@ -591,6 +591,24 @@ const SPECIES = [
     // Deep-bodied and short, so the silhouette is a disc — the one shape on
     // this reef that is neither a sliver (every schooling fish) nor a diamond
     // (the ray), and therefore the one that is identifiable at 20 px.
+    // ---- the dolphin --------------------------------------------------------
+    // Never spawned as scenery: schools [0,0] keeps it out of the ambient
+    // population entirely, and it is not in the fishing QUARRY either. It
+    // exists solely for creatures/dolphins.js, which drives a 3-strong actor
+    // pool through createActors the same way the fishing minigame drives its
+    // quarry — so the pod that porpoises beside the boat is built by the same
+    // kit, wears the same material, and costs zero pipelines of its own.
+    key: 'dolphin', prof: PROF_SLIM, len: 1.9, sizeJit: [0.92, 1.08],
+    girth: 0.155, depth: 0.235, stations: 8, radial: [7, 8],
+    caudal: [0.24, 0.34, 0.30], dorsal: 0.22, anal: 0.06, pect: true,
+    pal: { back: 0x46626F, mid: 0x7E97A6, belly: 0xE8EEF2, fin: 0x5A7482 },
+    marks: null,
+    tint: { h: [0.55, 0.60], s: [0.06, 0.14], l: [0.60, 0.74] },
+    social: 'gang', schools: [0, 0], per: [0, 0], roam: 0, ceil: -0.5,
+    bandMode: 'surface', band: [0.5, 3.0], water: [4.0, 30.0], clear: 1.0,
+    beat: [1.5, 2.2], amp: 0.11,
+  },
+  {
     key: 'butterfly', prof: PROF_DEEP, len: 0.30, sizeJit: [0.86, 1.14],
     girth: 0.070, depth: 0.330, stations: 7, radial: [6, 7],
     caudal: [0.13, 0.20, 0.19], dorsal: 0.20, anal: 0.16, pect: true,
@@ -1215,6 +1233,11 @@ export function createWildlife(opts = {}) {
     const nSchools = lerpI(spec.schools[0], spec.schools[1]);
     const perSchool = lerpI(spec.per[0], spec.per[1]);
     const count = nSchools * perSchool;
+    // An actor-only species (the dolphin: schools [0,0]) still needs its _pal
+    // built above, because createActors builds geometry from the same spec —
+    // but a zero-instance school mesh is a degenerate draw in four passes for
+    // nothing, so it never gets one.
+    if (count === 0) continue;
     const S = SOCIAL[spec.social];
 
     // `bright` writes the colour attribute at build. Free, and invisible to
