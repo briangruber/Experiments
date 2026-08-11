@@ -21,6 +21,8 @@
 // The same actions are on the keyboard: W/S or the arrows jig, Space strikes
 // and reels, F leaves.
 
+import { JIG_BAND } from '../gameplay/fishing.js';
+
 const CSS = `
 #sf-fish { position: fixed; inset: 0; z-index: 55; pointer-events: none;
   font: 600 11px/1.3 ui-sans-serif, system-ui, sans-serif;
@@ -249,11 +251,16 @@ export function createFishingHud({ fishing, ctx } = {}) {
   const lineFill = el('.bar.line i');
   const lineV = el('.linev');
 
-  // The jig band, in the same 0..1 of the bar the fill uses. JIG_HOT in
-  // fishing.js is the full-scale end, so the band lands at 13%..37%.
-  const BAR_MAX = 2.3;
-  jigBand.style.left = `${(0.30 / BAR_MAX) * 100}%`;
-  jigBand.style.width = `${((1.45 - 0.30) / BAR_MAX) * 100}%`;
+  // The jig band, in the same 0..1 of the bar the fill uses — read from
+  // fishing.js rather than copied. The copy that used to live here painted
+  // 0.30..1.45 on a 0..2.3 scale while the simulation scored 0.30..2.30, so the
+  // meter drew the target in the wrong place, and the fill pinned at 100%
+  // whenever a key was held because the lure could reach 3.4 m/s off the end of
+  // the scale. A meter that disagrees with the thing it measures is worse than
+  // no meter.
+  const BAR_MAX = JIG_BAND.max;
+  jigBand.style.left = `${(JIG_BAND.dead / BAR_MAX) * 100}%`;
+  jigBand.style.width = `${((JIG_BAND.hot - JIG_BAND.dead) / BAR_MAX) * 100}%`;
 
   // --- input ---------------------------------------------------------------
   // The pad is a relative drag, not an absolute position: wherever the thumb
@@ -367,8 +374,10 @@ export function createFishingHud({ fishing, ctx } = {}) {
     if (s.mode === 'jig') {
       const w = clamp(s.jigSpeed / BAR_MAX, 0, 1);
       set('jw', Math.round(w * 200), () => { jigFill.style.width = `${w * 100}%`; });
-      const cold = s.jig <= 0.02 && s.jigSpeed < 0.9;
-      const hot = s.jig < 0;
+      // Both tests come off the band now. `cold` used to carry a second
+      // condition (`jigSpeed < 0.9`) that could disagree with the first.
+      const cold = s.jigSpeed < JIG_BAND.dead;
+      const hot = s.jigSpeed > JIG_BAND.hot;
       set('jc', `${cold}${hot}`, () => {
         jigBar.classList.toggle('cold', cold);
         jigBar.classList.toggle('hot', hot);
@@ -384,7 +393,9 @@ export function createFishingHud({ fishing, ctx } = {}) {
         tenBar.classList.toggle('mid', v === 1);
         tenBar.classList.toggle('warn', v === 2);
       });
-      set('tv', t > 0.86 ? 'ease off!' : t < 0.1 ? 'slack' : '', (v) => { tenV.textContent = v; });
+      // "slack" is advice, not a warning — it no longer drops the hook, it just
+      // means no line is coming in. Only the top of the gauge can lose a fish.
+      set('tv', t > 0.86 ? 'ease off!' : t < 0.1 ? 'slack — reel' : '', (v) => { tenV.textContent = v; });
       const lw = clamp(1 - s.line / Math.max(s.lineMax, 0.001), 0, 1);
       set('lw', Math.round(lw * 200), () => { lineFill.style.width = `${lw * 100}%`; });
       set('lv', `${s.line.toFixed(1)} m`, (v) => { lineV.textContent = v; });
@@ -400,7 +411,9 @@ export function createFishingHud({ fishing, ctx } = {}) {
       msg.textContent = v;
       msg.classList.toggle('on', !!v);
     });
-    set('hint', s.mode === 'jig' ? (s.hint || '') : '', (v) => {
+    // The prompt now follows the mode instead of being a one-time jig tip that
+    // vanished exactly when the two unfamiliar controls started mattering.
+    set('hint', s.hint || '', (v) => {
       hint.textContent = v;
       hint.classList.toggle('on', !!v);
     });

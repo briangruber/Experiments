@@ -2,21 +2,24 @@
 //
 // Four beats, and each one asks for a different thing:
 //
-//   JIG     Move the lure. Fish notice movement, not presence — hold it still
-//           and nothing looks at you, snatch it about and they scatter. There
-//           is a speed band that reads as a wounded baitfish and you have to
-//           find it and stay in it while a fish closes.
+//   JIG     Hold one key. The lure yo-yos between two stops at a speed that
+//           reads as a wounded baitfish, and fish notice movement rather than
+//           presence. Let go and nothing looks at you; wrench it about and they
+//           scatter. Holding is the right answer and it is the obvious one.
 //   STRIKE  One fish commits and comes in. A ring closes on the lure; set the
-//           hook when the fish reaches it, not when you first see it move.
-//           Early and it bolts, late and it spits.
+//           hook as it closes. The window is a bit over half the ring and an
+//           early press is buffered rather than spent.
 //   FIGHT   Line in against a fish that runs. Reeling adds tension, a run adds
 //           more, and the line parts at the top of the gauge. Pump between the
-//           runs, give when it goes — and never sit on a slack line, because a
-//           hook with no weight on it falls out.
+//           runs and give when it goes. A slack line costs you progress and
+//           nothing else.
 //   LANDED  It comes up past the camera, and you get its name and its length.
 //
-// The skill is in three different currencies on purpose — rhythm, timing, then
-// nerve — so none of them is the whole game.
+// Each beat asks for one thing and says which thing on screen. It used to ask
+// for three different currencies — rhythm, timing, nerve — with two-sided
+// invisible bands on all three, and the rhythm one could not be satisfied by
+// any input a player would try. See the notes at JIG_RATE, at `hookWindow` and
+// at TENSION_SLACK for what each of those actually was.
 //
 // What this module owns: the state machine, the lure and its line, the fish
 // that swim past, and the camera while it is under. What it does NOT own is
@@ -39,15 +42,32 @@ const smooth = (t) => t * t * (3 - 2 * t);
 const DEPTH_MIN = 1.4;          // metres below the surface the lure can rise to
 const DEPTH_MAX = 11.0;         // and the deepest it will ever go
 const BED_CLEAR = 0.55;         // it never touches the sand
-const JIG_RATE = 3.4;           // m/s the control moves the lure at full deflection
 
 // The speed band that reads as a wounded fish. Under `JIG_DEAD` the lure is
-// furniture; over `JIG_HOT` it is a threat. The band is wide enough to hold
-// without staring at a meter and narrow enough that idle wobbling does not
-// clear it.
-const JIG_DEAD = 0.30;
+// furniture; over `JIG_HOT` it is a threat.
+//
+// JIG_RATE was 3.4 m/s at full deflection against a band of 0.30..2.30, which
+// meant HOLDING A KEY SCORED BELOW ZERO. Down was 3.4, up was 3.4, nothing was
+// 0, and `state.jig` goes negative past JIG_HOT — so the two obvious inputs
+// were "spook every fish in the water" and "be furniture", and the only
+// winning move was tapping at a duty cycle that happened to average the
+// smoothed speed into the band. Nobody guesses that. It also parked the lure
+// against DEPTH_MIN in 2.8 seconds of holding, after which the measured speed
+// was zero anyway.
+//
+// Now full deflection is 1.15 m/s — just above JIG_GOOD, comfortably inside
+// the band — so holding one key IS the correct action, and `jigFlip` below
+// turns it into a yo-yo instead of letting it park against a limit. The band
+// is exported because the HUD used to paint its own copy of these numbers and
+// the copy was wrong (0.30..1.45), so the meter drew "good" in a place the
+// simulation did not agree with.
+const JIG_RATE = 1.15;
+const JIG_DEAD = 0.20;
 const JIG_GOOD = 0.85;          // centre of the band
-const JIG_HOT = 2.30;
+const JIG_HOT = 3.00;
+
+/** The jig meter's ground truth. hud/fishingHud.js paints from this. */
+export const JIG_BAND = { dead: JIG_DEAD, good: JIG_GOOD, hot: JIG_HOT, max: JIG_HOT * 1.15 };
 
 // --- the camera --------------------------------------------------------------
 
@@ -143,11 +163,20 @@ const REEL_RATE = 1.55;         // m/s of line recovered, before the tension bon
 // 1.2 seconds after the hook set, which is not a mistake anyone can see
 // themselves make. This is 1.7 s of continuous reeling for a snapper, 2.8 for
 // a damsel and 1.1 for the grouper, against runs of 0.6-2.6 s.
-const TENSION_REEL = 0.13;      // per second of holding the reel at all
-const TENSION_RUN = 0.48;       // times the fish's pull, while it is running
-const TENSION_SLACK = 0.62;     // shed per second of not holding it
+//
+// Re-tuned, and one of the two ways to lose is gone. The fight asked the
+// player to stay off BOTH ends of the gauge — part the line at the top, drop
+// the hook off the bottom — which is two opposed invisible constraints in a
+// beat whose whole job is "let go when it runs". Losing a fish by not touching
+// anything reads as a bug, not as a lesson, and it punished exactly the
+// instinct the beat is trying to teach. Slack is now merely unproductive: the
+// fish rests, you recover nothing, and it is still there when you take up
+// again. The line parting is the only failure, and it is the one the gauge
+// actually shows.
+const TENSION_REEL = 0.10;      // per second of holding the reel at all
+const TENSION_RUN = 0.33;       // times the fish's pull, while it is running
+const TENSION_SLACK = 0.90;     // shed per second of not holding it
 const SNAP_AT = 1.0;
-const SLACK_GRACE = 2.1;        // seconds of a dead line before the hook drops out
 const LAND_AT = 0.7;            // metres of line left that counts as landed
 
 // -----------------------------------------------------------------------------
@@ -251,6 +280,7 @@ export function createFishing(opts = {}) {
     ring: 0,              // 1 -> 0 during the strike
     hookWindow: false,    // true while a press would set the hook
     tension: 0,
+    slack: 0,        // seconds the line has been dead, for the HUD only
     line: 0,
     lineMax: 1,
     stamina: 1,
@@ -271,10 +301,15 @@ export function createFishing(opts = {}) {
 
   const TOUCH = typeof matchMedia === 'function'
     && (matchMedia('(pointer: coarse)').matches || (navigator.maxTouchPoints || 0) > 0);
-  const HINT = TOUCH
-    ? 'Drag the left of the screen up and down to work the lure'
-    : 'W / S works the lure · Space sets the hook and reels';
-  let taught = false;
+  const PROMPT = TOUCH ? {
+    jig: 'Hold the pad on the left — the lure works up and down on its own',
+    strike: 'Tap HOOK as the ring closes on the lure',
+    fight: 'Hold REEL — let go while it runs',
+  } : {
+    jig: 'Hold W or S to work the lure',
+    strike: 'Space as the ring closes on the lure',
+    fight: 'Hold Space to reel — let go while it runs',
+  };
 
   // Personal bests, kept next to the ocean settings for the same reason: the
   // artifact reloads and a tally that resets every time is not a tally.
@@ -324,6 +359,19 @@ export function createFishing(opts = {}) {
     const maxD = Math.max(DEPTH_MIN, Math.min(DEPTH_MAX, surf - bed - BED_CLEAR));
     state.depth = clamp(state.depth, DEPTH_MIN, maxD);
     return out.set(sx, surf - state.depth, sz);
+  }
+
+  /**
+   * The deepest the lure may go here — the same bound `lurePosition` clamps
+   * to, exposed so the jig can bounce off it rather than be silently stopped
+   * by it. Over a shallow reef this is DEPTH_MIN and the yo-yo has no room, so
+   * the caller must tolerate lo >= hi.
+   */
+  function jigFloor() {
+    const b = ctx.boat;
+    const sx = b.position.x + b.right.x * 1.85 + b.forward.x * 0.55;
+    const sz = b.position.z + b.right.z * 1.85 + b.forward.z * 0.55;
+    return Math.max(DEPTH_MIN + 0.6, Math.min(DEPTH_MAX, surfaceAt(sx, sz) - bedAt(sx, sz) - BED_CLEAR));
   }
 
   /** Rod tip in world space, from the boat's own anchor. */
@@ -448,7 +496,10 @@ export function createFishing(opts = {}) {
       } else if (d < f.q.notice) {
         const near = 1 - d / f.q.notice;
         if (state.jig > 0) {
-          f.interest = Math.min(1, f.interest + dt * state.jig * f.q.curious * near * 0.62);
+          // 0.62 put a fish on the hook every 2.7 seconds once holding the
+          // jig actually worked, which turns the whole beat into a 3-second
+          // pause between button presses. 0.42 gives it about four and a half.
+          f.interest = Math.min(1, f.interest + dt * state.jig * f.q.curious * near * 0.42);
         } else {
           // Too still, or too violent. Violent also scares.
           f.interest = Math.max(0, f.interest + dt * state.jig * f.q.spook * 1.4);
@@ -562,14 +613,14 @@ export function createFishing(opts = {}) {
   // --- beats ---------------------------------------------------------------
 
   function beginStrike(f) {
-    taught = true;
-    state.hint = '';
     state.hooked = f;
     state.mode = 'strike';
     state.ring = 1;
     state.hookWindow = false;
     state.message = 'Set the hook!';
     strikeT = 0;
+    buffered = 0;
+    bufferUsed = false;
     // Where it started from, so the run at the lure is an interpolation and
     // arrives exactly when the ring closes rather than whenever a steering
     // force happens to get it there.
@@ -578,13 +629,43 @@ export function createFishing(opts = {}) {
   let strikeT = 0;
   const strikeFrom = new THREE.Vector3();
 
+  // Seconds before ANOTHER fish may commit after one has just been missed,
+  // lost or landed. Without it, holding a good jig keeps several fish pinned at
+  // interest 1.0 at once and the next one commits on the frame the last one
+  // resolves — a scripted masher drew 706 strikes in five minutes, one every
+  // 0.4 s, which reads as a broken machine rather than as a mistake. The pause
+  // is also just where the beat wants to breathe.
+  let commitLock = 0;
+
+  // How long an early press is held before it counts as a miss, and the latch
+  // that stops it being re-armed.
+  //
+  // At 0.45 s this was an exploit rather than a courtesy: a player holding the
+  // button re-armed the buffer every frame, so it never expired and the timing
+  // beat disappeared entirely — a scripted masher landed 24 of 25. And even a
+  // single 0.45 s buffer covers 0.33..0.63 of a ring, which on top of a window
+  // that opens at 0.55 is most of the ring. 0.18 s forgives a press a shade
+  // early and nothing else, and `bufferUsed` spends it once per strike.
+  const BUFFER = 0.18;
+  let buffered = 0;
+  let bufferUsed = false;
+
   function missStrike(why) {
     const f = state.hooked;
-    if (f) { f.spooked = rng.range(3.5, 6.0); f.interest = 0; }
+    // Was 3.5-6.0 s. A missed strike already costs the fish; making it also
+    // cost most of the next ten seconds of the beat turned one mistimed tap
+    // into a long silence, and a long silence after a mistake is how a game
+    // teaches you to stop pressing the button.
+    if (f) { f.spooked = rng.range(1.2, 2.2); f.interest = 0; }
+    // Everything that watched that happen thinks twice. Without this the queue
+    // of already-interested fish simply serves up the next one instantly.
+    for (const other of fish) if (other !== f && other.live) other.interest *= 0.45;
+    commitLock = 1.4;
     state.hooked = null;
     state.mode = 'jig';
     state.message = why;
     messageT = 1.6;
+    buffered = 0;
   }
   let messageT = 0;
 
@@ -610,6 +691,8 @@ export function createFishing(opts = {}) {
     messageT = 2.2;
     const f = state.hooked;
     if (f) { f.spooked = rng.range(4, 7); f.interest = 0; }
+    for (const other of fish) if (other !== f && other.live) other.interest *= 0.4;
+    commitLock = 2.0;
     state.hooked = null;
     state.tension = 0;
   }
@@ -635,6 +718,7 @@ export function createFishing(opts = {}) {
       other.interest = 0;
       if (d < 7) other.spooked = rng.range(1.6, 3.4);
     }
+    commitLock = 1.2;
     state.mode = 'landed';
     landT = 0;
     state.message = '';
@@ -645,6 +729,15 @@ export function createFishing(opts = {}) {
 
   function updateJig(dt) {
     const bestF = updateFish(dt);
+    // A press with nothing to press AT is discarded here. Only updateStrike
+    // ever consumed `pressQueued`, so a tap during the jig — which is what
+    // anyone does while waiting, and what the action button invites on touch
+    // by sitting there saying "Jig" — stayed latched and fired on the FIRST
+    // FRAME of the next strike, at ring ~1.0. Every fish you had been waiting
+    // for was missed before you saw it, by a button you pressed ten seconds
+    // earlier.
+    pressQueued = false;
+    if (commitLock > 0) { commitLock -= dt; return; }
     if (bestF && bestF.interest >= 0.995 && bestF.spooked <= 0) beginStrike(bestF);
   }
 
@@ -671,16 +764,34 @@ export function createFishing(opts = {}) {
     updateFish(dt);
 
     // The window sits at the END of the ring, where the fish's mouth is on the
-    // lure. `strike when you see it move` fails; `strike when it gets there`
-    // works. That is the whole lesson of the beat and it is worth being strict
-    // about — 0.26 s at the snapper's tempo.
-    state.hookWindow = state.ring <= 0.30 && state.ring > 0.02;
+    // lure. `strike when it gets there`, not `strike when you see it move`.
+    //
+    // It was `ring <= 0.30`, which is 0.28 of a strikeTime — 0.20 s on the
+    // silverside, 0.29 s on the damsel — with one press, no buffer, and a miss
+    // that spooked the fish for four to six seconds. A quarter-second window
+    // is a reaction test, and this is not a reaction game. 0.55 roughly doubles
+    // it without removing the beat: press the moment the ring appears and you
+    // still miss.
+    state.hookWindow = state.ring <= 0.55 && state.ring > 0.02;
 
+    // An early press is REMEMBERED rather than spent. Pressing a shade before
+    // the window is the single most common way to feel cheated by a timing
+    // beat, and buffering it costs the player nothing they earned — they still
+    // have to be within `BUFFER` of the window, they just do not have to be
+    // late-biased to be safe.
     if (pressQueued) {
       pressQueued = false;
-      if (state.hookWindow) beginFight(f);
-      else missStrike(state.ring > 0.30 ? 'Too early — it bolted.' : 'Too late — it spat the lure.');
-      return;
+      if (state.hookWindow) { beginFight(f); return; }
+      if (state.ring > 0.55 && !bufferUsed) { bufferUsed = true; buffered = BUFFER; }
+      else if (buffered <= 0) {
+        missStrike(state.ring > 0.55 ? 'Too early — it shied off.' : 'Too late — it spat the lure.');
+        return;
+      }
+    }
+    if (buffered > 0) {
+      buffered -= dt;
+      if (state.hookWindow) { buffered = 0; beginFight(f); return; }
+      if (buffered <= 0) { missStrike('Too early — it shied off.'); return; }
     }
     if (strikeT > dur + 0.10) missStrike('Too late — it spat the lure.');
   }
@@ -728,12 +839,12 @@ export function createFishing(opts = {}) {
     state.stamina = clamp(state.stamina, 0, 1);
     state.line = Math.min(state.line, state.lineMax * 1.6);
 
-    // ---- the two ways to lose ----------------------------------------------
+    // ---- the one way to lose -----------------------------------------------
     if (state.tension >= SNAP_AT) { loseFish('The line parted.'); return; }
-    if (state.tension < 0.055) {
-      slackT += dt;
-      if (slackT > SLACK_GRACE) { loseFish('Slack line — the hook fell out.'); return; }
-    } else slackT = 0;
+    // Slack is tracked only so the HUD can say the line has gone dead. It no
+    // longer drops the hook; see the note at TENSION_SLACK.
+    slackT = state.tension < 0.055 ? slackT + dt : 0;
+    state.slack = slackT;
 
     // ---- drag the fish along the line --------------------------------------
     // Its position is derived from how much line is out, so the gauge and the
@@ -840,7 +951,6 @@ export function createFishing(opts = {}) {
       state.mode = 'jig';
       state.message = 'Work the lure.';
       messageT = 2.6;
-      if (!taught) state.hint = HINT;
       lurePosition(lureWorld);
       fishingCamera(camPos, camLook);
       camera.position.copy(camPos);
@@ -881,6 +991,7 @@ export function createFishing(opts = {}) {
 
   let lastDepth = 2.4;
   let jigSmooth = 0;
+  let jigFlip = 1;              // which way a held key is currently working
 
   function update(c) {
     const dt = Math.min(0.05, c.dt || 0);
@@ -901,7 +1012,22 @@ export function createFishing(opts = {}) {
       const keyAxis = (input?.isDown?.('KeyS') || input?.isDown?.('ArrowDown') ? 1 : 0)
         - (input?.isDown?.('KeyW') || input?.isDown?.('ArrowUp') ? 1 : 0);
       const axis = keyAxis !== 0 ? keyAxis : jigAxis;
-      state.depth += axis * JIG_RATE * dt;
+      // Held against a limit the lure used to stop dead, and a stopped lure
+      // scores zero — so the reward for committing to the control was to be
+      // punished about three seconds later, with nothing on screen saying why.
+      // `jigFlip` turns a held key into a yo-yo between the two stops, which is
+      // both what the score wants and what jigging actually looks like.
+      const lo = DEPTH_MIN + 0.05, hi = jigFloor() - 0.05;
+      if (axis !== 0) {
+        if (jigFlip * axis > 0) {
+          if (state.depth >= hi && axis > 0) jigFlip = -1;
+          else if (state.depth <= lo && axis < 0) jigFlip = 1;
+        }
+        const dir = axis * jigFlip;
+        state.depth += dir * JIG_RATE * dt;
+        if (state.depth > hi) { state.depth = hi; jigFlip = -jigFlip; }
+        if (state.depth < lo) { state.depth = lo; jigFlip = -jigFlip; }
+      }
       lurePosition(lureWorld);
     }
 
@@ -916,7 +1042,15 @@ export function createFishing(opts = {}) {
       ? smooth(clamp((jigSmooth - JIG_DEAD) / (JIG_GOOD - JIG_DEAD), 0, 1))
       : jigSmooth < JIG_HOT
         ? 1 - 0.7 * smooth(clamp((jigSmooth - JIG_GOOD) / (JIG_HOT - JIG_GOOD), 0, 1))
-        : -clamp((jigSmooth - JIG_HOT) / 1.6, 0, 1);
+        : -clamp((jigSmooth - JIG_HOT) / 2.4, 0, 1);
+
+    // The prompt is per-mode and it does NOT go away. It used to be one line
+    // that vanished the moment the first fish committed, which is the exact
+    // moment two controls the player has never used become the whole game —
+    // the beat that most needed telling was the one beat with nothing on
+    // screen. It costs a line of text and it is the difference between a
+    // minigame and a puzzle about what the buttons do.
+    state.hint = PROMPT[state.mode] || '';
 
     // Once a fish is on, the lure is IN it: it rides at the fish's mouth and
     // the line runs from the rod to there. Leaving it hanging at the set depth
@@ -971,8 +1105,7 @@ export function createFishing(opts = {}) {
           state.mode = 'jig';
           state.message = 'Work the lure.';
           messageT = 2.6;
-          if (!taught) state.hint = HINT;
-          seedFish();
+              seedFish();
         }
         break;
       }
