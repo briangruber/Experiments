@@ -167,9 +167,15 @@ export function createDolphins(opts = {}) {
       const bed = -depthAt(d.x, d.z);
       if (d.y < bed + 0.5) d.y = bed + 0.5;
 
-      // Face the way it is going; pitch follows the arc's slope, clamped to a
-      // relaxed angle so the crest is a lean, not a missile launch.
-      if (sp > 0.2) d.yaw = Math.atan2(d.vx, d.vz);
+      // Face the way it is going — with the kit's OWN convention. The creature
+      // geometry carries its head on the -Z side of the body, so the yaw that
+      // swims head-first is atan2(-vx, -vz); fishing.js's pose() and the
+      // jumper both say so. This was atan2(vx, vz), which is exactly pi off,
+      // and the whole pod escorted the boat tail-first — a fact no numeric
+      // probe caught, because a probe checks positions and a backwards
+      // dolphin's positions are perfect. Pitch follows the arc's slope,
+      // clamped to a relaxed angle so the crest is a lean, not a launch.
+      if (sp > 0.2) d.yaw = Math.atan2(-d.vx, -d.vz);
       const dy = Math.cos(d.phase) * (CREST_Y - DIVE_Y) * 0.5 * (TAU / 2.6);
       d.pitch = clamp(Math.atan2(dy, Math.max(sp, 1.5)), -0.75, 0.75);
 
