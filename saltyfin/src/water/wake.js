@@ -534,8 +534,14 @@ export function createWake({ renderer, size = 256, worldSize = 128 } = {}) {
       // filament — and a dotted line whose dots slide is exactly what reads as
       // jitter. At 0.8 of the step consecutive stamps overlap by a third of
       // their width and fuse into one continuous ribbon.
-      const radius = Math.max(1.2 * texelWorld, TRAIL_STEP * 0.8,
-        0.42 + 0.055 * spread + 0.03 * v0);
+      // Barely growing. At 0.055 per metre of spread the stamp reached 1.7 m
+      // of radius by the tail of a five-second trail, and because consecutive
+      // stamps overlap that made the arm a three-metre plateau — two solid
+      // white ski tracks rather than a foam line. A real Kelvin arm widens
+      // slowly; 0.018 is that, and the floors below are what actually set the
+      // near-field width anyway.
+      const radius = Math.max(1.15 * texelWorld, TRAIL_STEP * 0.8,
+        0.36 + 0.018 * spread + 0.02 * v0);
       const arm = 1.0 * amp * Math.min(1, v0 / 5.0);
       const px = trail[i * 6], pz = trail[i * 6 + 1];
       const ux = trail[i * 6 + 2], uz = trail[i * 6 + 3];

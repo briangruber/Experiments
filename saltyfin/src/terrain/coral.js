@@ -17,8 +17,8 @@
 
 import * as THREE from 'three';
 import {
-  Fn, uniform, attribute, positionLocal, positionGeometry, positionWorld, normalWorld,
-  vec2, vec3, vec4, floor, fract, dot, mix, abs, sin, oneMinus,
+  Fn, uniform, attribute, positionLocal, positionGeometry, positionWorld, normalWorld, float,
+  vec2, vec3, vec4, floor, fract, dot, mix, abs, sin, cos, oneMinus, max as tslMax,
   clamp as tslClamp, smoothstep as tslSmoothstep,
 } from 'three/tsl';
 import { LAYER, setLayers } from '../core/layers.js';
@@ -356,7 +356,63 @@ const reefCaustic = Fn(([p, t]) => {
 // world x/z (the phase decorrelator), `aReefAxisX` / `aReefAxisZ` are the
 // matrix's X and Z columns, which is what carries the instance's yaw, tilt and
 // scale into the displacement exactly as the multiply used to.
+// --- the surface itself ------------------------------------------------------
+//
+// Coral has no usable UVs. The merged geometry does carry a `uv` attribute, but
+// mergeGeos concatenates each source primitive's own untransformed 0..1 set with
+// no atlas, so all three staghorn branches occupy the same square — a uv-based
+// texture would compile happily and look wrong, which is the worst kind of
+// wrong. And there is no per-head identifier on the six rigid archetypes:
+// instanceColor is already spent on the albedo.
+//
+// So the texture is procedural, in GEOMETRY space. `positionGeometry` is the
+// raw attribute — before the sway displaces it and before the instance matrix
+// is folded in — so it is stable, it is free, and it is the same field on every
+// head of an archetype. That last part sounds like a flaw and is not: two brain
+// corals with identical corallites are indistinguishable at any distance you
+// ever see them from, whereas a WORLD-space field would make neighbouring heads
+// share a pattern where they overlap, which reads as a smear across both.
+//
+// Three sines multiplied is a lumpy periodic lattice for the price of three
+// transcendentals — no hash, no texture fetch, no gradient noise. Two octaves of
+// it at an irrational ratio give the coarse corallite bumps and the fine pitting
+// between them, and the ratio keeps the beat frequency far longer than any head.
+const uReefFreq = uniform(6.0);
+const uReefFine = uniform(2.73);
+const uReefAmp = uniform(1.5);
+
+const reefSurface = Fn(([p, freq, soft]) => {
+  const q = p.mul(freq).mul(uReefFreq).toVar();
+  // The coarse lattice. Slightly different frequency per axis so the lumps are
+  // not a cubic grid — a cubic grid reads instantly as a checkerboard.
+  const a = sin(q.x).mul(sin(q.y.mul(1.31).add(1.7))).mul(sin(q.z.mul(0.92).add(3.1))).toVar();
+  const r = q.mul(uReefFine).toVar();
+  const b = sin(r.x.add(0.9)).mul(sin(r.y.mul(1.19))).mul(sin(r.z.mul(1.07).add(2.2))).toVar();
+
+  // Soft corals are FIBROUS, not pitted: a blade or a fan is ribbed along its
+  // length. Same cost, one different combination — the vertical term is kept
+  // and the two lateral ones are collapsed into a single fine rib.
+  const fib = sin(q.y.mul(3.4)).mul(0.5).add(sin(q.x.add(q.z).mul(1.6)).mul(0.5)).toVar();
+  const lumps = mix(a.mul(0.62).add(b.mul(0.38)), fib, soft).toVar();
+
+  // Deep pits go slightly BLUER as well as darker, because a pit is shaded by
+  // its own walls and what reaches it is the water's own light, not the sun's.
+  const shade = lumps.mul(0.5).add(0.5).sub(0.5).mul(uReefAmp).add(0.5).toVar();
+  return vec3(
+    float(0.72).add(shade.mul(0.46)),
+    float(0.75).add(shade.mul(0.40)),
+    float(0.84).add(shade.mul(0.26)),
+  );
+});
+
 function decorateReefMaterial(mat, uni, sway) {
+  // Frequency in cycles per metre of GEOMETRY space. The archetypes are built at
+  // roughly life size before instancing, so 26 puts a corallite about 12 cm
+  // across on a brain head and the fine octave at 4 cm — which is coarse for a
+  // real coral and right for one that is usually eight metres away through
+  // water. Soft corals get a longer rib.
+  mat.colorNode = reefSurface(positionGeometry, sway ? 0.58 : 1.0, sway ? 1.0 : 0.0);
+
   if (sway) {
     mat.positionNode = Fn(() => {
       const origin = attribute('aReefOrigin', 'vec2');
@@ -614,6 +670,8 @@ export function createCoral(opts = {}) {
 
   return {
     group,
+    // The surface-texture knobs, so a capture can sweep them without a rebuild.
+    tex: { uReefFreq, uReefFine, uReefAmp },
 
     update(ctx) {
       uni.uReefTime.value = ctx.time;

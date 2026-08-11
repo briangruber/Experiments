@@ -25,7 +25,10 @@
 // in it and can be driven from the console: saltyfin.ocean.set('reflect', 0.4).
 
 const KEY = 'saltyfin-ocean';
-const VERSION = 1;
+// Bumped to 2 when the wake came back: a stored `wake: 0` from the version
+// where it was off would have kept it off for anyone who had ever opened the
+// panel, which is the one setting a player would not think to go looking for.
+const VERSION = 2;
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
@@ -122,10 +125,9 @@ export const GROUPS = [
         apply: (u, v) => { u.uFoamBright.value *= v; },
       },
       {
-        key: 'wake', label: 'Boat wake foam', min: 0, max: 1, step: 0.02, def: 0,
+        key: 'wake', label: 'Boat wake', min: 0, max: 1.6, step: 0.02, def: 1,
         mode: 'set',
-        hint: 'Off. Four passes in it still read as a decal stuck to the transom — '
-          + 'the water the boat pushes is still there either way.',
+        hint: 'The V and the trail behind the hull. The water it pushes is there either way.',
         apply: (u, v) => { u.uWakeVisible.value = v; },
       },
     ],

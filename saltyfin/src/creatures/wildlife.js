@@ -70,7 +70,8 @@
 
 import * as THREE from 'three';
 import {
-  Fn, attribute, positionLocal, vec3, sin,
+  Fn, attribute, uniform, positionLocal, positionGeometry, vec2, vec3, float,
+  sin, fract, floor, length, mix, smoothstep as tslSmoothstep,
 } from 'three/tsl';
 import { LAYER, setLayers } from '../core/layers.js';
 import { applyWaterClip } from '../water/clip.js';
@@ -929,6 +930,70 @@ export function createWildlife(opts = {}) {
   // Normals are deliberately not rotated with the bend. The old GLSL did not
   // either, and at 0.3 m of body through 4 m of water it is invisible; bending
   // them costs a second Fn evaluated per vertex for nothing.
+  // --- scales ---------------------------------------------------------------
+  //
+  // No UVs anywhere on a creature — the Mesher writes position, normal, colour
+  // and aSwim and nothing else — so the scales are procedural, in GEOMETRY
+  // space. `positionGeometry` is the raw attribute: before the swim bend, before
+  // the instance matrix, and identical for every instance of a species, which is
+  // exactly what is wanted. A fish is built at its real length, so one frequency
+  // gives a 0.24 m damsel small scales and a 1.7 m ray large ones without a
+  // per-species constant — and a per-species constant is precisely what hard
+  // constraint 3 forbids, because it would give each species its own WGSL
+  // module and its own pipeline.
+  //
+  // A BRICK lattice, not a square one. Scales overlap in staggered rows, so the
+  // row offset is half a cell — without it the pattern reads as graph paper the
+  // moment it is bigger than a few pixels. The cell is stretched 1:1.55 along
+  // the body because a scale is wider than it is tall.
+  //
+  // `colorNode` replaces the material's `color` (which is white) and three
+  // multiplies vertexColors and instanceColor on top of it, so this modulates
+  // the palette rather than replacing it. emissiveNode is deliberately NOT
+  // touched: applyEnv writes fishMat.emissive every frame for the night floor,
+  // and a node there would silently win.
+  // Cycles per metre of body. Uniforms, because the only way to pick this is to
+  // look at a fish on screen at the distance the game actually shows one, and
+  // that is a sweep rather than a calculation: at 46 a sardine got fifteen rows
+  // of two pixels each and the whole thing averaged out to flat blue.
+  const uScaleFreq = uniform(18.0);
+  const uScaleAmp = uniform(1.4);
+  const scaleField = Fn(() => {
+    const p = positionGeometry.mul(uScaleFreq).toVar();
+    // Rows run around the body (y), columns along it (z).
+    const row = p.y.toVar();
+    // The stagger has to be constant WITHIN a row, so it comes off floor(row).
+    // Using fract(row * 0.5) directly is a sawtooth along the row instead of a
+    // step between rows, which shears every column continuously — the first
+    // version came out as wavy horizontal stripes rather than scales, and it
+    // looked deliberate enough that it took a close-up to catch.
+    const col = p.z.add(fract(floor(row).mul(0.5))).toVar();
+    const c = vec2(fract(col).sub(0.5), fract(row).sub(0.5)).toVar();
+    const d = length(vec2(c.x.mul(0.64), c.y)).toVar();
+    // A scale is a soft disc with a bright leading rim, which is the bit that
+    // actually catches light on a real fish.
+    const body = tslSmoothstep(0.48, 0.16, d).toVar();
+    const rim = tslSmoothstep(0.30, 0.44, d).mul(tslSmoothstep(0.52, 0.42, d)).toVar();
+    return body.mul(0.55).add(rim.mul(1.0)).mul(uScaleAmp).toVar();
+  });
+
+  fishMat.colorNode = Fn(() => {
+    const s = scaleField().toVar();
+    // Held tight around 1: the palette is already doing the work, and anything
+    // wider turns a 20-pixel fish into noise. The blue channel moves least, so
+    // the pattern reads as sheen rather than as a colour change.
+    return vec3(
+      float(0.82).add(s.mul(0.40)),
+      float(0.84).add(s.mul(0.34)),
+      float(0.89).add(s.mul(0.22)),
+    );
+  })();
+
+  // And the scales are SMOOTHER than the skin between them, which is what makes
+  // them catch the sun as a fish banks. roughnessNode replaces the material's
+  // 0.62 outright, so the base value is spelled out here.
+  fishMat.roughnessNode = Fn(() => float(0.62).sub(scaleField().mul(0.26)))();
+
   fishMat.positionNode = Fn(() => {
     const w = sin(aFish.x.sub(aSwim.x.mul(4.2))).mul(aFish.y);
     const dx = w.mul(aSwim.y);
@@ -2341,5 +2406,6 @@ export function createWildlife(opts = {}) {
     group.clear();
   }
 
-  return { group, update, applyEnv, dispose, createActors, species: SPECIES };
+  return { group, update, applyEnv, dispose, createActors, species: SPECIES,
+    tex: { uScaleFreq, uScaleAmp } };
 }

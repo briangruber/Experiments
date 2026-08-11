@@ -744,6 +744,29 @@ const api = {
    * loop delivers about one frame a second, so waiting for rAF between steps
    * moves the state on before the shutter opens.
    */
+  /**
+   * Advance the whole simulation without drawing the four big passes, then draw
+   * one frame. A wake needs the boat to have BEEN somewhere — the trail is laid
+   * down over seconds of travel — and under a software rasteriser a real-time
+   * capture gets about a dozen frames in fifteen seconds, which is half a metre
+   * of boat. The module loop still runs, so the wake's own GPU sim steps.
+   */
+  simulate(seconds, dt = 1 / 60) {
+    const n = Math.max(1, Math.round(seconds / dt));
+    for (let i = 0; i < n; i++) {
+      ctx.dt = dt;
+      ctx.time += dt;
+      ctx.frame = frames++;
+      boatController.update(ctx);
+      fishing.update(ctx);
+      if (!fishing.state.ownsCamera) chaseCamera.update(ctx);
+      camera.updateMatrixWorld(true);
+      for (const m of modules) m.update?.(ctx);
+      quest.update(ctx);
+      input.endFrame();
+    }
+    api.renderFrame();
+  },
   renderFrame() {
     camera.updateMatrixWorld(true);
     aimShadowBox();
