@@ -99,6 +99,23 @@ const QUARRY = [
     strikeTime: 0.72, stamina: 0.58, pull: 0.72, runs: [0.6, 1.1],
   },
   {
+    // The two colourful ones. `rate` is an independent per-slot probability and
+    // not a normalised share (see the spawn test in updateFish), so these are
+    // additive: the water gets busier rather than the ladder getting diluted.
+    // Both sit at the easy end deliberately — they are here to be looked at,
+    // and a fish you fight for twenty seconds is a fish you stop looking at.
+    key: 'anthias', name: 'Sunset Anthias', pool: 3, rate: 0.24,
+    band: [0.8, 4.2], speed: [0.75, 1.25],
+    curious: 1.10, spook: 0.95, notice: 6.0,
+    strikeTime: 0.90, stamina: 0.22, pull: 0.26, runs: [0.4, 0.8],
+  },
+  {
+    key: 'butterfly', name: 'Banded Butterfly', pool: 2, rate: 0.15,
+    band: [1.2, 5.5], speed: [0.45, 0.80],
+    curious: 0.80, spook: 0.70, notice: 6.8,
+    strikeTime: 1.10, stamina: 0.40, pull: 0.44, runs: [0.8, 1.4],
+  },
+  {
     key: 'grouper', name: 'Old Man Grouper', pool: 2, rate: 0.09,
     band: [3.5, 10.5], speed: [0.40, 0.70],
     curious: 0.46, spook: 0.55, notice: 8.4,
