@@ -23,6 +23,9 @@
 // re-deriving "stay beside the boat and undulate", badly.
 
 import * as THREE from 'three';
+import { Fn, vec3, normalLocal, smoothstep, mix, float } from 'three/tsl';
+import { LAYER, setLayers } from '../core/layers.js';
+import { applyWaterClip } from '../water/clip.js';
 import { makeRng } from '../core/rng.js';
 
 const TAU = Math.PI * 2;
@@ -46,13 +49,86 @@ const JOIN_DIST = 26;              // spawn this far out, converge from there
 const DIVE_Y = -1.35;
 const CREST_Y = 0.62;
 
+const DOLPHIN_LEN = 1.9;
+
+/**
+ * Turn the generated GLB into three game-ready clones. The generator's texture
+ * came back as rainbow soup, so the mesh keeps only its SHAPE: the shading is
+ * ours — a belly-to-back ramp off the local normal, in the palette the rest of
+ * the bay wears. Nose detection is geometric rather than guessed: a dolphin's
+ * nose is the NARROW end and the tail fluke the wide one, so measure the x
+ * spread in a slice at each end of the long axis and rotate the geometry so
+ * the nose is always on -Z — the same convention as the creature kit and as
+ * three's own "forward".
+ */
+function buildHeroPod(scene, scratch) {
+  let src = null;
+  scene.traverse((o) => { if (o.isMesh && !src) src = o; });
+  if (!src) return null;
+  const geo = src.geometry.clone();
+  geo.applyMatrix4(src.matrixWorld);
+  geo.computeBoundingBox();
+  const bb = geo.boundingBox;
+  const size = bb.getSize(new THREE.Vector3());
+  const ctr = bb.getCenter(new THREE.Vector3());
+  geo.translate(-ctr.x, -ctr.y, -ctr.z);
+  // Long axis to Z if it is not already.
+  if (size.x > size.z) { geo.rotateY(Math.PI / 2); geo.computeBoundingBox(); size.set(size.z, size.y, size.x); }
+  const kk = DOLPHIN_LEN / Math.max(size.z, 1e-3);
+  geo.scale(kk, kk, kk);
+  geo.computeBoundingBox();
+  // Which end is the nose?
+  const pos = geo.attributes.position;
+  const zMin = geo.boundingBox.min.z, zMax = geo.boundingBox.max.z;
+  const band = (zMax - zMin) * 0.12;
+  let wMin = 0, wMax = 0;
+  for (let i = 0; i < pos.count; i++) {
+    const z = pos.getZ(i), ax = Math.abs(pos.getX(i));
+    if (z < zMin + band) wMin = Math.max(wMin, ax);
+    if (z > zMax - band) wMax = Math.max(wMax, ax);
+  }
+  // Nose = narrow end. It must sit on -Z.
+  if (wMin > wMax) geo.rotateY(Math.PI);
+
+  const mat = new THREE.MeshStandardNodeMaterial({
+    roughness: 0.42, metalness: 0.0, fog: true,
+  });
+  mat.colorNode = Fn(() => {
+    const belly = vec3(0.91, 0.93, 0.95);
+    const back = vec3(0.27, 0.38, 0.44);
+    const t = smoothstep(float(-0.55), float(0.45), normalLocal.y).toVar();
+    return mix(belly, back, t);
+  })();
+
+  const pod = [];
+  for (let i = 0; i < 3; i++) {
+    const m = new THREE.Mesh(geo, mat);
+    m.castShadow = true;
+    m.receiveShadow = false;
+    m.frustumCulled = false;
+    m.rotation.order = 'YXZ';
+    m.position.y = -140;
+    setLayers(m, LAYER.MAIN, LAYER.UNDERWATER, LAYER.REFLECTED);
+    applyWaterClip(m);
+    scratch.add(m);
+    pod.push(m);
+  }
+  return pod;
+}
+
 export function createDolphins(opts = {}) {
-  const { wildlife, terrain } = opts;
+  const { wildlife, terrain, scene } = opts;
   const water = opts.water || (() => null);
   const burst = opts.burst || null;         // wakeFoam.burst(x, z, n, strength)
   const rng = makeRng(0xD0F1);
 
-  const pool = wildlife && typeof wildlife.createActors === 'function'
+  // The generated dolphin, when it loaded; the creature-kit pool otherwise.
+  const heroGroup = new THREE.Group();
+  heroGroup.name = 'dolphin-pod';
+  const hero = (opts.hero && scene) ? buildHeroPod(opts.hero, heroGroup) : null;
+  if (hero) scene.add(heroGroup);
+
+  const pool = !hero && wildlife && typeof wildlife.createActors === 'function'
     ? wildlife.createActors('dolphin', POD)
     : null;
 
@@ -82,6 +158,7 @@ export function createDolphins(opts = {}) {
   const depthAt = (x, z) => (terrain?.depthAt ? terrain.depthAt(x, z) : 10);
 
   function parkAll() {
+    if (hero) { for (const m of hero) m.position.y = -140; return; }
     if (!pool) return;
     for (let i = 0; i < POD; i++) pool.park(i);
     pool.flush();
@@ -105,7 +182,7 @@ export function createDolphins(opts = {}) {
   }
 
   function update(ctx) {
-    if (!pool) return;
+    if (!pool && !hero) return;
     const b = ctx.boat;
     const dt = Math.min(0.05, ctx.dt || 0);
     const t = ctx.time;
@@ -188,10 +265,24 @@ export function createDolphins(opts = {}) {
       }
       d.wasAbove = above;
 
-      d.beat += dt * pool.beatRate * (0.8 + 0.4 * clamp(sp / 6, 0, 1));
-      pool.set(i, d.x, d.y, d.z, d.yaw, d.pitch, 1, d.beat);
+      if (hero) {
+        const m = hero[i];
+        m.position.set(d.x, d.y, d.z);
+        // The kit's yaw formula IS three's: an Object3D at rotation.y = yaw
+        // faces (-sin yaw, 0, -cos yaw), which is why atan2(-vx, -vz) drops
+        // straight in, and positive rotation.x pitches the -Z nose upward.
+        m.rotation.y = d.yaw;
+        m.rotation.x = d.pitch;
+        // A slow roll into the turn, from the lateral acceleration the spring
+        // is applying: it is the one degree of freedom a rigid mesh has that
+        // the swim-bent kit fish did not, so use it.
+        m.rotation.z = clamp((d.vx * Math.cos(d.yaw) - d.vz * Math.sin(d.yaw)) * -0.04, -0.35, 0.35);
+      } else {
+        d.beat += dt * pool.beatRate * (0.8 + 0.4 * clamp(sp / 6, 0, 1));
+        pool.set(i, d.x, d.y, d.z, d.yaw, d.pitch, 1, d.beat);
+      }
     }
-    pool.flush();
+    if (!hero) pool.flush();
 
     if (mode === 'leave' && maxDist > 40) {
       parkAll();
@@ -206,6 +297,9 @@ export function createDolphins(opts = {}) {
     // wildlife.applyEnv already owns that.
     applyEnv() {},
     get mode() { return mode; },
-    dispose() { if (pool) pool.dispose(); },
+    dispose() {
+      if (pool) pool.dispose();
+      if (hero) for (const m of hero) { m.geometry.dispose(); m.material.dispose(); }
+    },
   };
 }

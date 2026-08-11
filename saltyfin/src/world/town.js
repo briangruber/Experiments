@@ -241,6 +241,11 @@ function makeGlowMaterial(uniforms, baseHex) {
 
 export function createTown(opts = {}) {
   const terrain = opts.terrain || null;
+  // The hero tavern, a generated GLB passed in ready-parsed. When present it
+  // takes the north-west corner and that corner's procedural shop is never
+  // built; when absent (asset failed, dev server without assets) the town
+  // falls back to yesterday's all-procedural self.
+  const heroTavern = opts.tavern || null;
   const rng = makeRng(((opts.seed | 0) ^ 0x70774E) >>> 0);
 
   const group = new THREE.Group();
@@ -433,8 +438,47 @@ export function createTown(opts = {}) {
   shop(15.0, 0.0, -Math.PI * 0.5, 7.0, 5.6, 3.6);          // east side
   shop(-8.6, -13.6, 0, 6.4, 5.0, 3.3);                     // south-west corner
   shop(8.6, -13.6, 0, 6.4, 5.0, 3.5);                      // south-east
-  shop(-8.6, 13.6, Math.PI, 6.6, 5.2, 3.9);                // north-west
+  if (!heroTavern) shop(-8.6, 13.6, Math.PI, 6.6, 5.2, 3.9);   // north-west
   shop(8.6, 13.6, Math.PI, 6.6, 5.2, 3.4);                 // north-east
+
+  // --- the hero tavern -------------------------------------------------------
+  // Scaled from its own bounding box rather than trusted: generated models
+  // arrive at whatever size the generator dreamt, and a tavern the height of
+  // the lighthouse is funnier than it is useful. The SOLIDS circle goes in
+  // BEFORE the deck bake below, so the boards darken under it like under
+  // everything else — that shared contact shadow is most of why a generated
+  // asset reads as part of the town instead of pasted on.
+  if (heroTavern) {
+    const T_X = -9.6, T_Z = 14.2, T_W = 10.5;
+    const box = new THREE.Box3().setFromObject(heroTavern);
+    const size = box.getSize(new THREE.Vector3());
+    const k = T_W / Math.max(size.x, size.z, 1e-3);
+    heroTavern.scale.setScalar(k);
+    // Rotate FIRST, then measure, then place: the bbox of the rotated object
+    // is what has to land on the pad, and rotating about a GLB's arbitrary
+    // origin moves it — positioning from the pre-rotation box left the first
+    // attempt half a building sideways.
+    heroTavern.rotation.y = TOWN_YAW + Math.PI;
+    heroTavern.updateMatrixWorld(true);
+    // Two passes: measure-and-move, then re-measure-and-correct. The first
+    // landed the building a hand's width in the air — Box3.setFromObject on a
+    // GLB with its own baked node transforms is only exact once every matrix
+    // has been updated in place, and chasing WHY is worth less than one more
+    // cheap correction.
+    for (let pass = 0; pass < 2; pass++) {
+      heroTavern.updateMatrixWorld(true);
+      box.setFromObject(heroTavern);
+      const c = box.getCenter(new THREE.Vector3());
+      heroTavern.position.x += worldX(T_X, T_Z) - c.x;
+      heroTavern.position.z += worldZ(T_X, T_Z) - c.z;
+      heroTavern.position.y += DECK_Y - box.min.y;
+    }
+    heroTavern.traverse((o) => {
+      if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
+    });
+    group.add(heroTavern);
+    SOLIDS.push({ x: T_X, z: T_Z, r: 5.2 });
+  }
 
   // --- street furniture -----------------------------------------------------
 
@@ -455,15 +499,25 @@ export function createTown(opts = {}) {
   // Bunting strung between the lamps down the street: little triangles on a
   // line. This is the single cheapest thing in the file and it does more for
   // the place than any of the geometry above it.
+  // A pennant is small and it hangs from something. The first pass drew
+  // 30 cm cones floating on an invisible line — traffic cones levitating down
+  // the street. The line is now drawn (a sagging run of thin segments between
+  // lamp heads) and the flags are pennant-sized, tucked under it.
   for (let z = -22; z < 20; z += 7.5) {
     for (const side of [-1, 1]) {
       const x = side * 4.3;
-      for (let k = 0; k < 9; k++) {
-        const t = (k + 0.5) / 9;
+      const N = 12;
+      for (let k = 0; k < N; k++) {
+        const t = (k + 0.5) / N;
         const zz = z + t * 7.5;
-        const sag = Math.sin(t * Math.PI) * 0.55;
-        put(bWall, CONE, x, DECK_Y + 3.05 - sag, zz, 0.30, 0.36, 0.06, Math.PI, 0, 0,
-          C(BUNTING[k % BUNTING.length]));
+        const sag = Math.sin(t * Math.PI) * 0.5;
+        const drop = Math.sin((t + 0.5 / N) * Math.PI) - Math.sin((t - 0.5 / N) * Math.PI);
+        put(bWall, BOX, x, DECK_Y + 3.06 - sag, zz, 0.035, 0.035, 7.5 / N + 0.02,
+          -Math.atan2(drop * 0.5, 7.5 / N), 0, 0, C(0xE8E0CE));
+        if (k % 2 === 0) {
+          put(bWall, CONE, x, DECK_Y + 2.92 - sag, zz, 0.15, 0.22, 0.04, Math.PI, 0, 0,
+            C(BUNTING[(k >> 1) % BUNTING.length]));
+        }
       }
     }
   }
@@ -521,11 +575,46 @@ export function createTown(opts = {}) {
   });
   const matGlow = makeGlowMaterial(uniforms, 0x1A1C22);
 
+  // --- baked contact shadow --------------------------------------------------
+  //
+  // The concept-art look is mostly THIS: things sitting IN their world instead
+  // of on it. Real AO is a bake nobody here can afford, but the town already
+  // knows exactly where everything heavy stands — SOLIDS, the same circles the
+  // walk controller slides you around — so the deck darkens toward each one,
+  // and every wall darkens in its bottom half-metre where it meets the boards.
+  // Vertex colours, written once at build, zero runtime cost.
+  const smoothstep01 = (t) => { const k = Math.max(0, Math.min(1, t)); return k * k * (3 - 2 * k); };
+  function bakeContact(geo, kind) {
+    const pos = geo.attributes.position;
+    const col = geo.attributes.color;
+    for (let i = 0; i < pos.count; i++) {
+      const wx = pos.getX(i), wy = pos.getY(i), wz = pos.getZ(i);
+      let k = 1;
+      if (kind === 'deck') {
+        const lx = localX(wx, wz), lz = localZ(wx, wz);
+        for (let j = 0; j < SOLIDS.length; j++) {
+          const so = SOLIDS[j];
+          const reach = so.r + 1.1;
+          const d = Math.hypot(lx - so.x, lz - so.z);
+          if (d < reach) k = Math.min(k, 0.52 + 0.48 * smoothstep01(d / reach));
+        }
+      } else {
+        // The grounding skirt: the bottom of every wall, post, crate and
+        // barrel eases toward shadow where it meets the deck.
+        const h = wy - DECK_Y;
+        if (h < 0.6 && h > -0.4) k = Math.min(k, 0.70 + 0.30 * smoothstep01(h / 0.6));
+      }
+      if (k < 1) col.setXYZ(i, col.getX(i) * k, col.getY(i) * k, col.getZ(i) * k);
+    }
+  }
+
   const geos = [];
   for (const [b, mat, name] of [[bDeck, matDeck, 'town-deck'],
     [bWall, matWall, 'town-walls'], [bGlow, matGlow, 'town-glow']]) {
     if (!b.count) continue;
     const g = b.build();
+    if (name === 'town-deck') bakeContact(g, 'deck');
+    if (name === 'town-walls') bakeContact(g, 'walls');
     geos.push(g);
     const m = new THREE.Mesh(g, mat);
     m.name = name;

@@ -18,7 +18,7 @@
 // The output is a FRAGMENT, not a document: the Artifact host supplies
 // <!doctype>, <html>, <head> and <body>.
 
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import { dirname, join, resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -199,6 +199,7 @@ if (!document.querySelector('meta[name="viewport"]')) {
   document.head.appendChild(vp);
 }
 try {
+  window.__SF_ASSETS = __SF_ASSETS__;
   __req(${JSON.stringify(ENTRY)});
 } catch (err) {
   var boot = document.getElementById('boot');
@@ -221,6 +222,23 @@ const NON_ASCII = /[\u0080-\uffff]/g;
 const escJs = (s) => s.replace(NON_ASCII, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
 const escCss = (s) => s.replace(NON_ASCII, (c) => '\\' + c.charCodeAt(0).toString(16) + ' ');
 
+// Hero GLB assets, baked in as base64 — the Artifact host blocks every
+// external request, so bytes that are not in this file do not exist.
+let assetJs = '{}';
+try {
+  const files = (await readdir(join(ROOT, 'assets'))).filter((f) => f.endsWith('.glb'));
+  const entries = [];
+  let assetBytes = 0;
+  for (const f of files) {
+    const buf = await readFile(join(ROOT, 'assets', f));
+    assetBytes += buf.length;
+    entries.push(`${JSON.stringify(f.replace(/\.glb$/, ''))}:${JSON.stringify(buf.toString('base64'))}`);
+  }
+  assetJs = '{' + entries.join(',') + '}';
+  if (files.length) console.log(`assets: ${files.length} glb, ${(assetBytes / 1024).toFixed(0)} kB raw`);
+} catch { /* no assets dir — fine */ }
+const outWithAssets = out.replace('__SF_ASSETS__', assetJs);
+
 const page = `<title>${TITLE}</title>
 <style>
 html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #05070f;
@@ -235,7 +253,7 @@ ${escCss(css)}
 <div id="hud" aria-hidden="true"></div>
 <div id="boot">Salty Fin</div>
 <script>
-${escJs(out)}
+${escJs(outWithAssets)}
 </script>
 `;
 

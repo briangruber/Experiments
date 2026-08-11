@@ -189,8 +189,10 @@ export function createShoreLeave(opts = {}) {
     town.landingWorld(_tmp);
     state.x = _tmp.x;
     state.z = _tmp.z;
-    // Face inland — at the town, which is the thing worth looking at.
-    state.yaw = town.yaw + Math.PI;
+    // Face up the street into town. town.yaw IS that direction — the street's
+    // +z axis aims at the harbour — and the +pi here had you arriving with
+    // your back to the whole place, staring at open water.
+    state.yaw = town.yaw;
     camYaw = state.yaw;
     footY = null;
     fromPos.copy(camera.position);

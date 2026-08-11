@@ -49,6 +49,7 @@ import { createShoreHud } from './hud/shoreHud.js';
 import { createUnderwater } from './world/underwater.js';
 import { createWakeFoam } from './water/wakeFoam.js';
 import { createDolphins } from './creatures/dolphins.js';
+import { loadGlb } from './core/assets.js';
 import { createFireflies } from './world/fireflies.js';
 import { createAudio } from './core/audio.js';
 import { oceanSettings } from './water/settings.js';
@@ -218,7 +219,11 @@ const village = build(createVillage, { terrain });
 const dock = build(createDock, { terrain });
 // The town you can walk in: a boardwalk village on piles, out in the shallows,
 // at one flat deck height. See world/town.js for why it is not on the island.
-const town = build(createTown, { terrain, seed: SEED });
+// Hero assets, awaited before the modules that mount them. Each resolves to
+// null on any failure and the town/pod fall back to their procedural selves.
+const heroTavern = await loadGlb('tavern');
+const heroDolphin = await loadGlb('dolphin');
+const town = build(createTown, { terrain, seed: SEED, tavern: heroTavern?.scene });
 const lighthouse = build(createLighthouse, { terrain });
 const props = build(createProps, { terrain });
 // Fireflies on the shore after dark — one instanced draw, hidden by alpha so
@@ -240,7 +245,8 @@ const wildlife = build(createWildlife, { terrain });
 // an actor pool that lives inside wildlife's meshes; its splashes are
 // wakeFoam's puffs, so the whole feature adds zero draws and zero pipelines.
 const dolphins = createDolphins({
-  wildlife, terrain, water: () => ctx.water, burst: wakeFoam.burst,
+  wildlife, terrain, scene, water: () => ctx.water, burst: wakeFoam.burst,
+  hero: heroDolphin?.scene,
 });
 // The soundscape. Synthesized from nothing on the first tap or keypress —
 // see core/audio.js. The spots are where the harbour bell lives.
