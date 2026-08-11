@@ -188,6 +188,32 @@ const causticRot = (v) => vec2(
   v.x.mul(CAUSTIC_ROT[1]).add(v.y.mul(CAUSTIC_ROT[3])),
 );
 
+// --- breaking the tile -------------------------------------------------------
+//
+// The detail field is one 256-texel image and the chop was four samples of it at
+// four zooms, all axis-aligned: 0.91 m, 3.5 m, 9.1 m and 23 m. Every one of
+// those lattices is square, they all share an origin, and the octaves are the
+// SAME PICTURE at different scales — so the sea grew a visible grid at the
+// coarsest of them and the finer ones did nothing to hide it. Zooming a texture
+// is not decorrelating it.
+//
+// Two fixes, both free. Each octave is ROTATED by its own angle, so no two
+// lattices line up and there is no common period to find. And the fine octaves
+// are DOMAIN-WARPED by the coarse one — the sample position is displaced by a
+// long-wavelength offset, which bends the straight rows of a tile into
+// something organic. Warping is the single biggest anti-tiling trick there is
+// and it costs one multiply-add on a value that is already in a register.
+const ROTS = [
+  [0.8253, -0.5647, 0.5647, 0.8253],     // ~34 deg
+  [0.3624, 0.9320, -0.9320, 0.3624],     // ~69 deg
+  [0.9781, 0.2081, -0.2081, 0.9781],     // ~12 deg
+  [-0.5136, 0.8580, -0.8580, -0.5136],   // ~121 deg
+];
+const rot2 = (v, m) => vec2(
+  v.x.mul(m[0]).add(v.y.mul(m[2])),
+  v.x.mul(m[1]).add(v.y.mul(m[3])),
+);
+
 // The six waves, resolved once. dir is already unit; k, amplitude, steepness and
 // omega are exactly what the GLSL read out of uWaveA/uWaveB.
 const packed = packWaves(1, 1);
@@ -443,6 +469,9 @@ export function createWaterMaterial({
   // 0.22 was tuned when the finest octave was 3.5 m across, where more of it
   // just made the big soft shapes bigger and softer. With a 0.9 m octave in the
   // sum there is something worth turning up.
+  // How far the coarse octave drags the fine ones, in texture units. 0 is the
+  // old axis-aligned grid; past about 0.5 the field folds over itself.
+  const uWarp = uniform(0.22);
   const uDetailStrength = uniform(0.44);
   const uFineChop = uniform(0.95);
   const uRefractDistort = uniform(0.26);
@@ -461,6 +490,13 @@ export function createWaterMaterial({
   const uAmbFoamThresh = uniform(0.87);
   // How hard the wave's own steepness pulls foam onto its face.
   const uAmbFoamSteep = uniform(0.9);
+  // The foam's clock: how many birth-and-die cycles a second, how far the
+  // threshold climbs across one (which is how completely a patch dissolves),
+  // and how much the surface slope drags it about while it lives.
+  const uFoamRate = uniform(0.085);
+  const uFoamDie = uniform(0.26);
+  const uFoamFlow = uniform(0.10);
+  const uFoamLace = uniform(0.16);
 
   const uniforms = {
     uTime, uWind,
@@ -474,8 +510,9 @@ export function createWaterMaterial({
     uReflStrength, uReflEnabled, uCaustic, uCausticScale, uFoamTint, uFoamBright,
     uWakeCenter, uWakeWorld, uWakeTexel, uWakeGrad, uWakeSlope, uWakeSlopeMax, uWakeArmSlope,
     uWakeVisible, uSubmerged,
-    uDetailStrength, uFineChop, uRefractDistort, uReflDistort, uScatterStrength, uShoreFoamDepth,
+    uDetailStrength, uFineChop, uWarp, uRefractDistort, uReflDistort, uScatterStrength, uShoreFoamDepth,
     uAmbFoam, uAmbFoamScale, uAmbFoamThresh, uAmbFoamSteep,
+    uFoamRate, uFoamDie, uFoamFlow, uFoamLace,
     uReflBedMin, uReflBedNear, uReflBedFar,
     uSwellGain, uSwellDeepA, uSwellDeepB, uCrestNorm,
     uWinDistort, uUnderWeb, uWinRim,
@@ -621,10 +658,28 @@ export function createWaterMaterial({
     // a picture painted on it. Real chop is 30 cm to a metre, it is what breaks
     // the sky reflection into thousands of pieces, and it is what the specular
     // has to bite on to give the glitter anywhere to live.
-    const dF = tDetail.sample(vFlat.mul(1.10).add(vec2(0.041, -0.052).mul(uTime))).toVar();
-    const d0 = tDetail.sample(vFlat.mul(0.285).add(vec2(0.021, -0.034).mul(uTime))).toVar();
-    const d1 = tDetail.sample(vFlat.mul(0.110).add(vec2(-0.016, 0.012).mul(uTime))).toVar();
-    const d2 = tDetail.sample(vFlat.mul(0.043).add(vec2(0.008, 0.006).mul(uTime))).toVar();
+    // Coarsest FIRST, because everything finer is warped by it. Same four
+    // scales as before, each on its own rotation — see ROTS.
+    const d2 = tDetail.sample(
+      rot2(vFlat, ROTS[3]).mul(0.043).add(vec2(0.008, 0.006).mul(uTime)),
+    ).toVar();
+    // The warp. d2's gradient channels are a smooth vector field at a 23 m
+    // wavelength; displacing the finer lookups by it drags their tiles into
+    // curves. The amounts are in TEXTURE space and deliberately under half a
+    // tile each — past that the warp starts folding the field over itself and
+    // reads as a smear rather than as water.
+    const warp = d2.rg.mul(2.0).sub(1.0).mul(uWarp).toVar();
+    const d1 = tDetail.sample(
+      rot2(vFlat, ROTS[2]).mul(0.110).add(vec2(-0.016, 0.012).mul(uTime)).add(warp.mul(0.35)),
+    ).toVar();
+    const d0 = tDetail.sample(
+      rot2(vFlat, ROTS[1]).mul(0.285).add(vec2(0.021, -0.034).mul(uTime))
+        .add(warp.mul(0.55)).add(d1.rg.mul(2.0).sub(1.0).mul(uWarp.mul(0.45))),
+    ).toVar();
+    const dF = tDetail.sample(
+      rot2(vFlat, ROTS[0]).mul(1.10).add(vec2(0.041, -0.052).mul(uTime))
+        .add(warp.mul(0.9)).add(d0.rg.mul(2.0).sub(1.0).mul(uWarp.mul(0.8))),
+    ).toVar();
     const ripFade = smoothstep(140.0, 900.0, dist).oneMinus().toVar();
     // The fine octave fades out much sooner than the rest. A 0.9 m ripple is
     // well under a pixel by forty metres, and left in it turns the middle
@@ -924,23 +979,72 @@ export function createWaterMaterial({
     // then advecting it, and no static lookup imitates that — what it can do is
     // sit where the wave is steep, which is the term below. Foam that follows
     // the water beats foam that is shaped like foam.
-    const driftUv = vFlat.mul(uAmbFoamScale).add(vec2(0.013, -0.009).mul(uTime));
-    // Modulated by the much coarser d2 octave before thresholding. One octave on
-    // its own draws its own tile: at 18 m the first attempt laid a regular
-    // lattice of streaks across the whole sea, which reads as a texture error
-    // rather than as foam and is worse than having none. Multiplying by a
-    // second, far longer octave means coverage itself varies over tens of
-    // metres, and the repeat stops being findable.
-    const drift = tDetail.sample(driftUv).a.mul(d2.a.mul(0.9).add(0.55)).toVar();
+    // FOAM WITH A LIFE, rather than a static field crawling sideways.
+    //
+    // What was here was one noise lookup, translated at a constant velocity,
+    // through a fixed threshold. Nothing was ever born and nothing ever died:
+    // the same patches slid across the sea for ever, which is why it read as a
+    // texture on the water instead of as something the water was doing.
+    //
+    // Real foam appears where a wave breaks, spreads, thins into lace and goes.
+    // That is a lifecycle, and a lifecycle normally means state — a simulation
+    // buffer, a spawn pass, an advection pass. There is a stateless trick that
+    // gets most of the way there and costs one extra sample:
+    //
+    //   Two PHASES, half a cycle apart, cross-faded. Each phase samples the
+    //   field at its own offset, so when a phase restarts it lands somewhere
+    //   completely different — patches vanish and new ones appear elsewhere
+    //   rather than sliding.
+    //
+    //   The THRESHOLD RISES across a phase's life. That is the part that makes
+    //   it dissolve rather than dim: as the cut climbs, a patch loses its
+    //   thinnest parts first, breaks into islands, and the islands shrink to
+    //   nothing. It is exactly how a real foam raft goes, and it is one lerp.
+    const cyc = uTime.mul(uFoamRate).toVar();
+    const ph0 = fract(cyc).toVar();
+    const ph1 = fract(cyc.add(0.5)).toVar();
+    // Triangle weights that sum to 1, so total coverage never pulses.
+    const w0 = abs(ph0.mul(2.0).sub(1.0)).toVar();
+    const w1 = w0.oneMinus().toVar();
+    // Each phase gets its own jump, big enough that consecutive cycles have no
+    // visual relationship. Not a hash — a plain irrational stride, because the
+    // field tiles and any offset lands somewhere valid.
+    const j0 = floor(cyc).mul(vec2(0.7548776, 0.5698403)).toVar();
+    const j1 = floor(cyc.add(0.5)).mul(vec2(0.5698403, 0.7548776)).toVar();
+
+    // Advected by the surface's own slope, so a patch drifts down the face of
+    // the wave carrying it rather than across the whole sea at one velocity.
+    const flow = ng.mul(uFoamFlow).toVar();
+    const fUv = rot2(vFlat, ROTS[2]).mul(uAmbFoamScale).add(flow).toVar();
+    const f0 = tDetail.sample(fUv.add(j0)).a.toVar();
+    const f1 = tDetail.sample(fUv.add(j1)).a.toVar();
+    // Coverage itself varies over tens of metres, so the repeat of the foam
+    // field is never findable even before the phases scramble it.
+    const cover = d2.a.mul(0.9).add(0.55).toVar();
+
+    // The rising cut, one per phase. `uAmbFoamThresh` is where a patch is born;
+    // it climbs by uFoamDie over the phase, and the last of the patch is the
+    // brightest few percent of the noise under it.
+    const cut = (ph) => uAmbFoamThresh.add(ph.mul(uFoamDie));
     const swellHere = smoothstep(3.0, 13.0, vBedDepth).toVar();
-    // And it collects where the surface is being COMPRESSED. vJac is the
-    // Gerstner Jacobian: below one means the surface is bunching, which is the
-    // front face of a wave about to break and exactly where the sea is white in
-    // the reference. Without this the streaks lie across crests and troughs
-    // alike and the foam has no relationship to the water carrying it.
+    // Where the surface is being COMPRESSED, which is the front face of a wave
+    // about to break and exactly where the sea is white. vJac is the Gerstner
+    // Jacobian; below one means the surface is bunching. Without it the foam
+    // lies across crests and troughs alike and has no relationship to the water.
     const steepF = sat(float(1.0).sub(vJac).mul(uAmbFoamSteep)).toVar();
-    const ambient = smoothstep(uAmbFoamThresh, uAmbFoamThresh.add(0.20),
-      drift.add(steepF)).mul(swellHere).mul(uAmbFoam).toVar();
+
+    // Lace at the edges. The fine octave is SUBTRACTED before the threshold
+    // rather than multiplied after it, which is the difference between a patch
+    // with a torn edge and a patch with a clean rim that has been dimmed. Shore
+    // foam does it the same way round for the same reason: subtracted, the
+    // noise decides where the boundary IS; multiplied, it only shades a
+    // boundary something else already drew.
+    const lace = dF.a.mul(uFoamLace).toVar();
+    const p0 = smoothstep(cut(ph0), cut(ph0).add(0.20),
+      f0.mul(cover).add(steepF).sub(lace)).toVar();
+    const p1 = smoothstep(cut(ph1), cut(ph1).add(0.20),
+      f1.mul(cover).add(steepF).sub(lace)).toVar();
+    const ambient = p0.mul(w1).add(p1.mul(w0)).mul(swellHere).mul(uAmbFoam).toVar();
 
     const foam = sat(sat(shore).add(crest).add(ambient)).toVar();
     // Texture inside the foam, so a splash reads as churned water and not a
