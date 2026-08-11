@@ -31,7 +31,7 @@ import { createBoat } from './models/boat.js';
 import { createFisher } from './models/fisher.js';
 import { createVillage } from './models/village.js';
 import { createDock } from './models/dock.js';
-import { createHarbour, setStair } from './world/harbour.js';
+import { createTown } from './world/town.js';
 import { createLighthouse } from './models/lighthouse.js';
 import { createProps } from './models/props.js';
 import { createMonster } from './creatures/monster.js';
@@ -213,13 +213,9 @@ const coral = build(createCoral, { terrain });
 const vegetation = build(createVegetation, { terrain });
 const village = build(createVillage, { terrain });
 const dock = build(createDock, { terrain });
-// The quay you can stand on. Built after the dock so it takes the dock's own
-// deck height rather than a second copy of the constant that produced it.
-const harbour = build(createHarbour, { terrain, seed: SEED, deckY: dock.info.deckY });
-// The town's stone stair becomes the street you climb. village.js solved that
-// polyline against the terrain to lay its steps; handing the same points to the
-// harbour means the walkable corridor and the drawn steps cannot disagree.
-setStair(village.stair, terrain.landHeight);
+// The town you can walk in: a boardwalk village on piles, out in the shallows,
+// at one flat deck height. See world/town.js for why it is not on the island.
+const town = build(createTown, { terrain, seed: SEED });
 const lighthouse = build(createLighthouse, { terrain });
 const props = build(createProps, { terrain });
 const water = build(createWater, { terrain });
@@ -265,7 +261,7 @@ const fishing = createFishing({
 ctx.fishing = fishing;
 // Going ashore. Built after the chase rig because it borrows its fov when it
 // takes the frame, and after fishing because the two must never both own it.
-const shoreLeave = createShoreLeave({ ctx, scene, input, camera, chaseCamera, harbour, terrain });
+const shoreLeave = createShoreLeave({ ctx, scene, input, camera, chaseCamera, town, terrain });
 ctx.shore = shoreLeave;
 
 const hud = createHud({ ctx, time });
@@ -354,7 +350,7 @@ let renderCpuMs = 0;
 
 const modules = [
   sky, clouds, celestial, seabed, coral, islands, vegetation,
-  village, dock, harbour, lighthouse, props, water, boat, fisher, monster, wildlife,
+  village, dock, town, lighthouse, props, water, boat, fisher, monster, wildlife,
   wakeRibbon,
 ];
 
@@ -687,9 +683,8 @@ window.addEventListener('keydown', (e) => {
 const api = {
   THREE, scene, camera, reflectCamera, renderer, ctx, env, time, quality, post, targets,
   clip: clipUniforms,
-  harbour,
+  town,
   shore: shoreLeave,
-  villageStair: village.stair,
   // The same object the panel drives, so a capture can pin a look without
   // touching a slider: saltyfin.ocean.set('reflect', 0.4).
   ocean: oceanSettings,
@@ -901,8 +896,8 @@ if (params.has('fish') && params.get('fish') !== '0') fishing.start(params.get('
 // that bypasses the rule it is meant to exercise tests nothing.
 if ((params.get('shore') || '').match(/^(1|walk:)/)) {
   const b = new THREE.Vector3();
-  harbour.berthWorld(b);
-  boatController.teleport(b.x, b.z, harbour.yaw);
+  town.berthWorld(b);
+  boatController.teleport(b.x, b.z, town.yaw);
   shoreLeave.update({ ...ctx, dt: 0 });
   shoreLeave.dock();
   for (let i = 0; i < 120; i++) shoreLeave.update({ ...ctx, dt: 1 / 60 });

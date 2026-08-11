@@ -11,7 +11,7 @@
 //   boarding  the reverse, and it hands the helm back.
 //
 // What this owns: the walker, its camera, and the boat's pose while moored.
-// What it does NOT own: the ground. `world/harbour.js` answers `ground(x, z)`
+// What it does NOT own: the ground. `world/town.js` answers `ground(x, z)`
 // from the same rectangles it drew the quay from, so the walker can never be
 // standing on something that is not there — which is the failure mode every
 // raycast-against-the-mesh version of this has.
@@ -96,7 +96,7 @@ function buildWalker() {
 
 export function createShoreLeave(opts = {}) {
   const {
-    ctx, scene, input, camera, chaseCamera, harbour, terrain,
+    ctx, scene, input, camera, chaseCamera, town, terrain,
   } = opts;
 
   const TOUCH = typeof matchMedia === 'function'
@@ -120,7 +120,7 @@ export function createShoreLeave(opts = {}) {
     hint: '',
     x: 0,
     z: 0,
-    yaw: harbour.yaw,
+    yaw: town.yaw,
     speed: 0,
   };
 
@@ -137,7 +137,7 @@ export function createShoreLeave(opts = {}) {
   // The boat's pose when moored, solved once so the hull sits parallel to the
   // quay rather than wherever it happened to be pointing when you pressed.
   const berth = new THREE.Vector3();
-  harbour.berthWorld(berth);
+  town.berthWorld(berth);
 
   let moorFrom = { x: 0, z: 0, heading: 0 };
 
@@ -145,7 +145,7 @@ export function createShoreLeave(opts = {}) {
   // stone stair is a world-space polyline and half of "walk into town" is
   // climbing it. `ground` answers for the quay, the pier and the stair alike.
   function worldOf(x, z, out) {
-    return out.set(x, harbour.ground(x, z) ?? harbour.deckY, z);
+    return out.set(x, town.ground(x, z) ?? town.deckY, z);
   }
 
   // --- the camera -----------------------------------------------------------
@@ -154,7 +154,7 @@ export function createShoreLeave(opts = {}) {
   // size a free orbit spends most of its time looking at a wall, and the one
   // thing you want in frame is where you are about to walk.
 
-  let camYaw = harbour.yaw;
+  let camYaw = town.yaw;
   let footY = null;
 
   const landAt = (x, z) => {
@@ -163,25 +163,15 @@ export function createShoreLeave(opts = {}) {
     return Number.isFinite(h) ? h : -1e4;
   };
 
-  // The hillside comes down to the quay at about fifty degrees, so an
-  // uncollided trail camera spends most of its life inside it — the first
-  // capture of this feature was two thirds dark green. Walk the boom in from
-  // the ideal distance until it is clear of the land, then hold it above
-  // whatever it ended up over. Six samples, no raycast, no allocation.
+  // The town stands in open water, so there is no hillside for the boom to
+  // bury itself in and the camera can simply trail. It still clears the island
+  // in case you walk somewhere with land behind you.
   function walkCamera(outPos, outLook) {
     worldOf(state.x, state.z, _tmp);
     const fx = -Math.sin(camYaw), fz = -Math.cos(camYaw);
-    let dist = CAM_DIST;
-    for (let i = 0; i < 6; i++) {
-      const cx = _tmp.x + fx * dist, cz = _tmp.z + fz * dist;
-      const h = landAt(cx, cz);
-      if (h < _tmp.y + CAM_HEIGHT - 0.7) break;
-      dist -= CAM_DIST / 6;
-      if (dist < 1.6) { dist = 1.6; break; }
-    }
-    const cx = _tmp.x + fx * dist, cz = _tmp.z + fz * dist;
+    const cx = _tmp.x + fx * CAM_DIST, cz = _tmp.z + fz * CAM_DIST;
     const gh = landAt(cx, cz);
-    outPos.set(cx, Math.max(_tmp.y + CAM_HEIGHT, gh + 1.5), cz);
+    outPos.set(cx, Math.max(_tmp.y + CAM_HEIGHT, gh + 1.6), cz);
     outLook.set(_tmp.x, _tmp.y + CAM_LOOK, _tmp.z);
   }
 
@@ -196,11 +186,11 @@ export function createShoreLeave(opts = {}) {
     ctx.boat.throttle = 0;
     ctx.boat.speed = 0;
     ctx.shoreHold = true;
-    harbour.landingWorld(_tmp);
+    town.landingWorld(_tmp);
     state.x = _tmp.x;
     state.z = _tmp.z;
     // Face inland — at the town, which is the thing worth looking at.
-    state.yaw = harbour.yaw + Math.PI;
+    state.yaw = town.yaw + Math.PI;
     camYaw = state.yaw;
     footY = null;
     fromPos.copy(camera.position);
@@ -255,9 +245,19 @@ export function createShoreLeave(opts = {}) {
 
     // Input is camera-relative, which is the only scheme that does not need
     // explaining: push the stick the way you want to go on screen.
+    //
+    // Derived, not guessed — guessing produced two wrong versions in a row,
+    // the second of which was the first rewritten into an algebraically
+    // IDENTICAL form, which changed nothing and looked like a fix.
+    //
+    // The camera sits behind the walker and looks along F = (sin cy, 0, cos cy).
+    // Screen-right is cross(F, up) with up = +Y, which is (-cos cy, 0, sin cy).
+    // Check it against three's default camera, F = (0, 0, -1), where
+    // cross(F, up) = (1, 0, 0) = +X, as it must be. So the stick pushed right
+    // has to produce (-cos, +sin), and pushed forward (sin, cos).
     const cs = Math.sin(camYaw), cc = Math.cos(camYaw);
-    const wx = ax * cc + ay * cs;      // world-ish x from camera basis
-    const wz = -ax * cs + ay * cc;
+    const wx = ay * cs - ax * cc;
+    const wz = ay * cc + ax * cs;
     const speed = Math.min(1, Math.hypot(wx, wz)) * WALK_SPEED;
     state.speed = speed;
 
@@ -271,9 +271,9 @@ export function createShoreLeave(opts = {}) {
       // controller that feels good and one that feels broken. It is also what
       // makes the 2.3 m stair walkable at all: without it, every wobble off
       // the centreline is a full stop.
-      const here = harbour.ground(state.x, state.z) ?? harbour.deckY;
+      const here = town.ground(state.x, state.z) ?? town.deckY;
       const ok = (px, pz) => {
-        const g = harbour.ground(px, pz);
+        const g = town.ground(px, pz);
         return g !== null && Math.abs(g - here) <= MAX_STEP;
       };
       if (!ok(nx, nz)) {
@@ -281,7 +281,7 @@ export function createShoreLeave(opts = {}) {
         else if (ok(state.x, nz)) nx = state.x;
         else { nx = state.x; nz = state.z; }
       }
-      harbour.unblock(nx, nz, BODY_R, _uv);
+      town.unblock(nx, nz, BODY_R, _uv);
       if (ok(_uv.x, _uv.z)) { nx = _uv.x; nz = _uv.z; }
       state.x = nx; state.z = nz;
 
@@ -304,12 +304,10 @@ export function createShoreLeave(opts = {}) {
 
   function poseWalker() {
     worldOf(state.x, state.z, _tmp);
-    // Ease the height rather than snapping it. The quay meets the town's stair
-    // at a half-metre step and the stone steps above it are 0.35 m each;
-    // taking those instantly makes the walker strobe up the hill. The ground
-    // query stays exact — only the drawn height lags.
-    footY = footY === null ? _tmp.y : lerp(footY, _tmp.y, Math.min(1, (ctx.dt || 0.016) * 12));
-    _tmp.y = footY;
+    // No smoothing: the town is one flat deck, so the ground query is exact
+    // and constant. The previous version blended toward it to survive a stair,
+    // and a blend against a surface that never changes is just a way to be
+    // briefly wrong after a teleport.
     walker.group.position.copy(_tmp);
     walker.group.rotation.y = state.yaw;
     const swing = Math.sin(bob) * Math.min(0.62, 0.16 + state.speed * 0.13);
@@ -334,7 +332,7 @@ export function createShoreLeave(opts = {}) {
       // Generous, because the helm is a thumbstick on a phone and coasting to
       // an exact stop alongside is not the game.
       const slow = Math.abs(b.speed || 0) < 3.2;
-      state.canDock = slow && harbour.nearBerth(b.position.x, b.position.z);
+      state.canDock = slow && town.nearBerth(b.position.x, b.position.z);
       state.prompt = state.canDock ? 'Tie up at the quay' : '';
       state.hint = '';
       return;
@@ -346,7 +344,7 @@ export function createShoreLeave(opts = {}) {
       const b = ctx.boat;
       b.position.x = lerp(moorFrom.x, berth.x, t);
       b.position.z = lerp(moorFrom.z, berth.z, t);
-      let d = harbour.yaw - moorFrom.heading;
+      let d = town.yaw - moorFrom.heading;
       while (d > Math.PI) d -= TAU;
       while (d < -Math.PI) d += TAU;
       b.heading = moorFrom.heading + d * t;
@@ -376,9 +374,9 @@ export function createShoreLeave(opts = {}) {
       camera.position.lerp(camPos, Math.min(1, dt * 6.5));
       camera.lookAt(camLook);
       // Close enough to the boat to step back aboard?
-      const du = harbour.localU(state.x, state.z) - harbour.BERTH.u;
-      const dv = harbour.localV(state.x, state.z) - harbour.BERTH.v;
-      const near = du * du + dv * dv < 42;
+      const du = town.localX(state.x, state.z) - town.BERTH.x;
+      const dv = town.localZ(state.x, state.z) - town.BERTH.z;
+      const near = du * du + dv * dv < 64;
       state.canDock = near;
       state.prompt = near ? 'Cast off' : '';
       return;
