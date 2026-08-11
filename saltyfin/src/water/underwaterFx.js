@@ -134,7 +134,12 @@ export function createUnderwaterFx({ targets, quality } = {}) {
   // feature. The band is physically real — it is the longest sightline in the
   // frame — it just must not be the darkest thing in the shot.
   const uBodyGain = uniform(0.42);
-  const uSigmaGain = uniform(0.38);  // how thick the water is, against physical
+  const uSigmaGain = uniform(0.30);  // how thick the water is, against physical
+  // How far the three extinction channels are pulled toward the green one
+  // before the gain scales them — the lagoon's white balance. 0 is the raw
+  // coefficients (correct, and monochrome); 1 is grey water with no hue cue at
+  // all. See the long note at `sigma` in `apply` for the measurement.
+  const uSigmaBalance = uniform(0.50);
   const uShaft = uniform(4.0);
   const uShaftSharp = uniform(2.4);  // how narrow a beam is; the pow exponent
   const uCausticGain = uniform(1);
@@ -333,7 +338,25 @@ export function createUnderwaterFx({ targets, quality } = {}) {
     const nOk = smoothstep(0.13, 0.03, length(dPx).add(length(dPy)).div(max(dist, 1.0))).toVar();
 
     If(uAmount.greaterThan(DEBUG ? -1.0 : 0.002), () => {
-      const sigma = uSigma.mul(uSigmaGain).toVar();
+      // `uSigmaBalance` pulls the three channels toward the green one before
+      // the gain scales them, and it exists because the honest coefficients
+      // make a lagoon impossible to look at in colour.
+      //
+      // Measured, on the reef at 30,-60 in five metres of water: mean red over
+      // the whole reef band was 5.5 of 255 against green's 150 — R/G = 0.036,
+      // with 4.5% of reef pixels carrying ANY red above 40, and a hue spread of
+      // 0.045, which is one colour. That is what 0.46/m of red extinction does:
+      // half the red is gone in four metres and 97% of it by twenty. It is also
+      // roughly what a camera with no white balance records, and it is not what
+      // a diver sees, because a diver adapts. This is the white balance.
+      //
+      // The RATIO is what carries the depth cue, not the magnitude, so the
+      // balance keeps red leaving first — at ten metres red still transmits 0.43
+      // against green's 0.72 — while leaving enough of it that a magenta
+      // gorgonian and an olive one are different objects. Tinting the lights
+      // (world/underwater.js) was tried first and moved R/G from 0.036 to 0.039;
+      // this is the term that actually holds the colour down.
+      const sigma = mix(uSigma, vec3(uSigma.y), uSigmaBalance).mul(uSigmaGain).toVar();
 
       // ---- the column ----------------------------------------------------
       // How much ceiling this ray is pointed at, and it is deliberately biased
@@ -499,7 +522,7 @@ export function createUnderwaterFx({ targets, quality } = {}) {
     update,
     setTargets,
     uniforms: {
-      uBodyGain, uSigmaGain, uShaft, uShaftSharp, uCausticGain, uCausticSharp, uSunGlow,
+      uBodyGain, uSigmaGain, uSigmaBalance, uShaft, uShaftSharp, uCausticGain, uCausticSharp, uSunGlow,
       uAmount, uSigma, uBodyNear, uBodyDeep, uMurk, uSurfaceY, uSunDir, uSunPower,
     },
     dispose() {
