@@ -488,6 +488,10 @@ export function createWaterMaterial({
   // scale — real streaks are a few metres of filament.
   const uAmbFoamScale = uniform(0.22);
   const uAmbFoamThresh = uniform(0.87);
+  // How far the foam lookup is displaced by the long-wavelength warp, in uv.
+  // 0.34 is about a third of a tile: enough that neighbouring repeats cannot
+  // line up, small enough that a patch still holds together.
+  const uAmbFoamWarp = uniform(0.34);
   // How hard the wave's own steepness pulls foam onto its face.
   const uAmbFoamSteep = uniform(0.9);
   // The foam's clock: how many birth-and-die cycles a second, how far the
@@ -511,7 +515,7 @@ export function createWaterMaterial({
     uWakeCenter, uWakeWorld, uWakeTexel, uWakeGrad, uWakeSlope, uWakeSlopeMax, uWakeArmSlope,
     uWakeVisible, uSubmerged,
     uDetailStrength, uFineChop, uWarp, uRefractDistort, uReflDistort, uScatterStrength, uShoreFoamDepth,
-    uAmbFoam, uAmbFoamScale, uAmbFoamThresh, uAmbFoamSteep,
+    uAmbFoam, uAmbFoamScale, uAmbFoamThresh, uAmbFoamSteep, uAmbFoamWarp,
     uFoamRate, uFoamDie, uFoamFlow, uFoamLace,
     uReflBedMin, uReflBedNear, uReflBedFar,
     uSwellGain, uSwellDeepA, uSwellDeepB, uCrestNorm,
@@ -1015,12 +1019,39 @@ export function createWaterMaterial({
     // Advected by the surface's own slope, so a patch drifts down the face of
     // the wave carrying it rather than across the whole sea at one velocity.
     const flow = ng.mul(uFoamFlow).toVar();
-    const fUv = rot2(vFlat, ROTS[2]).mul(uAmbFoamScale).add(flow).toVar();
-    const f0 = tDetail.sample(fUv.add(j0)).a.toVar();
-    const f1 = tDetail.sample(fUv.add(j1)).a.toVar();
+
+    // DOMAIN WARP, and it is the whole reason this no longer reads as a grid.
+    //
+    // The foam was one octave of a tiling texture through a hard threshold, at
+    // 0.22 cycles per metre — so the field repeated every four and a half
+    // metres and the threshold turned that repeat into a lattice of identical
+    // white blobs marching across the mid-distance. Phase jumps and drifting
+    // coverage do not help: both move the whole tile at once, so the pattern
+    // slides but never stops being a pattern.
+    //
+    // Warping the LOOKUP with a much longer-wavelength field is what breaks it.
+    // Neighbouring tiles get pushed in different directions by up to a third of
+    // a tile each, so the repeat never lines up with itself and there is no
+    // spacing left for the eye to lock onto. The warp source is sampled at
+    // 0.19 of the foam scale — about a 24 m wavelength, long compared with the
+    // 4.5 m tile it is displacing, which is the condition for this to work at
+    // all. Warping with a field FINER than the tile just adds jitter.
+    //
+    // One extra texture fetch, and it does double duty: its alpha replaces the
+    // old coverage lookup, so the net cost against the previous version is a
+    // single sample.
+    const fLow = tDetail.sample(rot2(vFlat, ROTS[1]).mul(uAmbFoamScale.mul(0.19))).toVar();
+    const fWarp = fLow.rg.mul(2.0).sub(1.0).mul(uAmbFoamWarp).toVar();
+    // The two phases also get DIFFERENT rotations and warp gains, so a patch
+    // that dies and a patch that is born do not share a lattice orientation
+    // either — without this the grid is still legible in the cross-fade.
+    const fUv0 = rot2(vFlat, ROTS[2]).mul(uAmbFoamScale).add(flow).add(fWarp).toVar();
+    const fUv1 = rot2(vFlat, ROTS[3]).mul(uAmbFoamScale).add(flow).add(fWarp.mul(1.37)).toVar();
+    const f0 = tDetail.sample(fUv0.add(j0)).a.toVar();
+    const f1 = tDetail.sample(fUv1.add(j1)).a.toVar();
     // Coverage itself varies over tens of metres, so the repeat of the foam
     // field is never findable even before the phases scramble it.
-    const cover = d2.a.mul(0.9).add(0.55).toVar();
+    const cover = fLow.a.mul(0.9).add(0.55).toVar();
 
     // The rising cut, one per phase. `uAmbFoamThresh` is where a patch is born;
     // it climbs by uFoamDie over the phase, and the last of the patch is the

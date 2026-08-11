@@ -52,40 +52,27 @@ const MAX_SAMPLES = Math.ceil(LENGTH / STEP) + 2;
 // shape the profile itself — but five lets the geometry itself carry the
 // widening, which keeps the texture from stretching on the outer half.
 const CROSS = 5;
-const STRIPS = 3;              // lane, port arm, starboard arm
+const STRIPS = 1;              // just the lane. See below.
 
-// The textbook Kelvin half-angle, arcsin(1/3), and the one this used to assume
-// everywhere. It is right only in DEEP water.
-const KELVIN_TAN = 0.3536;     // tan(19.47 deg)
-const KELVIN_RAD = 0.34;       // 19.47 deg
-// In finite depth the wedge is governed by the depth Froude number
-// Fr = U / sqrt(g*h), and above Fr = 1 the transverse waves cannot exist at all
-// while the half-angle OPENS OUT: sin(beta) = 1/Fr. This lagoon is 2.7 to 7.5 m
-// deep and the boat does 9 m/s, so Fr reaches 1.1 to 1.7 over the reef — a 37 to
-// 64 degree half-angle, not 19.47. Drawing the textbook V here was drawing a
-// deep-ocean wake in three metres of water, which is part of why the arms
-// looked pasted on however they were shaded.
+// The Kelvin V is GONE, and with it wedgeTan, the depth Froude number, the
+// cusp beat and the two arm strips that carried them.
 //
-// Capped, because the true angle passes through 90 degrees at Fr = 1 and a
-// wedge that wide stops reading as a wake at all.
-const G = 9.81;
-const FR_DEEP = 0.72;          // below this it is effectively deep water
-const BETA_MAX = 0.90;         // radians, about 51 degrees
-const HALF_BEAM = 0.95;
+// It was correct and it looked wrong. Two narrow filaments held at a computed
+// angle off the hull read as two painted lines no matter how they were shaded
+// — the angle is right, the physics behind it is right, and the eye still sees
+// a decal. What a small boat actually leaves at a glance is one churned lane
+// that spreads, breaks into lace and dissolves, so that is all this draws now.
+//
 // Centimetres above the surface. Enough to clear the water's own depth without
 // reading as a floating sheet at a grazing angle.
 const LIFT = 0.045;
 
-// Widths in metres. The lane is the churned water directly astern — it starts
-// at about the beam and spreads slowly. The arms are the two foam filaments and
-// they stay narrow, because that is what makes them read as lines.
-// The turbulent lane starts at about the hull beam and then widens as roughly
-// the FIFTH ROOT of distance — white water spreads fast at first and then
-// almost stops, which is nothing like the straight line this used to draw.
-const LANE_W0 = 1.05;
-const LANE_GROW = 0.62;        // metres of half-width per x^(1/5)
-const ARM_W0 = 0.42;
-const ARM_GROW = 0.010;
+// The lane starts about a beam wide and spreads as the FIFTH ROOT of distance
+// — white water widens fast at first and then almost stops. It is wider than
+// it was because it is now the whole wake rather than the middle third of one:
+// 1.25 m at the transom out to about 3.7 m of half-width at the tail.
+const LANE_W0 = 1.25;
+const LANE_GROW = 1.05;        // metres of half-width per x^(1/5)
 
 const MIN_SPEED = 0.6;         // m/s below which nothing new is laid
 // Seconds a section of wake stays on the water.
@@ -98,30 +85,6 @@ const MIN_SPEED = 0.6;         // m/s below which nothing new is laid
 // out of ribbon.
 const LIFE = 10.0;
 
-/**
- * The wedge half-angle, from the depth Froude number.
- *
- *   Fr < 0.72   deep enough that the classical arcsin(1/3) holds
- *   Fr ~ 1      trans-critical; the wedge opens toward 90 degrees
- *   Fr > 1      supercritical; sin(beta) = 1/Fr, so it narrows again
- *
- * Returns the TANGENT, because that is what the offset wants.
- */
-function wedgeTan(speed, depth) {
-  if (!(depth > 0.2) || !(speed > 0.2)) return KELVIN_TAN;
-  const fr = speed / Math.sqrt(G * depth);
-  if (fr <= FR_DEEP) return KELVIN_TAN;
-  let beta;
-  if (fr >= 1) beta = Math.asin(Math.min(1, 1 / fr));
-  else {
-    // Between deep and critical the angle runs away toward 90; a smooth ramp
-    // to the cap is both close enough and the only version that does not put
-    // a discontinuity right in the speed band the boat spends its life in.
-    const t = (fr - FR_DEEP) / (1 - FR_DEEP);
-    beta = KELVIN_RAD + (BETA_MAX - KELVIN_RAD) * (t * t * (3 - 2 * t));
-  }
-  return Math.tan(Math.min(BETA_MAX, beta));
-}
 
 export function createWakeRibbon({ water, terrain, quality } = {}) {
   const group = new THREE.Group();
@@ -130,7 +93,7 @@ export function createWakeRibbon({ water, terrain, quality } = {}) {
   // --- geometry -------------------------------------------------------------
   const vertCount = STRIPS * MAX_SAMPLES * CROSS;
   const pos = new Float32Array(vertCount * 3);
-  // (u across -1..1, metres astern, strength at birth, cusp feather 0..1)
+  // (u across -1..1, metres astern, strength at birth, unused)
   const aWake = new Float32Array(vertCount * 4);
 
   const quads = STRIPS * (MAX_SAMPLES - 1) * (CROSS - 1);
@@ -188,7 +151,8 @@ export function createWakeRibbon({ water, terrain, quality } = {}) {
   const uOpacity = uniform(1);
   const uCoarse = uniform(0.20);   // world cycles/m of the big foam patches
   const uFine = uniform(1.20);     // and of the flecks inside them
-  const uFeather = uniform(0.55);  // how much of the cusp beat reaches the alpha
+  // How far the foam threshold climbs from transom to tail. This is the fade.
+  const uErode = uniform(0.30);
   const uThreshLo = uniform(0.44);
   const uThreshHi = uniform(0.62);
 
@@ -207,13 +171,12 @@ export function createWakeRibbon({ water, terrain, quality } = {}) {
     const u = w.x.toVar();              // -1..1 across the strip
     const along = w.y.toVar();          // metres astern
     const born = w.z.toVar();           // 0..1 strength when this section was laid
-    const feather = w.w.toVar();        // the cusp beat along an arm; 1 on the lane
 
-    // --- the profile across the strip ---------------------------------------
-    // A soft-shouldered band rather than a hard edge: the geometry gives the
-    // ribbon its width, this gives it its softness, and the two together are
-    // what stop it reading as tape.
-    const edge = smoothstep(1.0, 0.42, abs(u)).toVar();
+    // --- the profile across the lane ----------------------------------------
+    // Soft-shouldered, and softer at the outside than it was: the lane is the
+    // whole wake now, so its edge is where the mark meets clear water and a
+    // crisp one reads as tape.
+    const edge = smoothstep(1.0, 0.30, abs(u)).toVar();
 
     // --- foam, in WORLD space ------------------------------------------------
     // Nailed to the water, not to the ribbon. If this were sampled in ribbon UV
@@ -221,25 +184,35 @@ export function createWakeRibbon({ water, terrain, quality } = {}) {
     // which is the single most obvious tell of a fake wake.
     const p = positionWorld.xz.toVar();
     // Three octaves at irrational ratios, from different channels of the same
-    // tiling field so no two of them share a repeat. One octave on its own
-    // draws its own tile — the first pass used two and came back as a regular
-    // dotted pattern, which reads as a printed texture rather than as foam.
+    // tiling field so no two of them share a repeat. The finest one CRAWLS —
+    // a slow drift, not a scroll — which is what makes the lace boil in place
+    // instead of sitting there like a decal. Static noise on a static mark is
+    // the difference between foam and a printed texture, and it costs one add.
+    const drift = vec2(uTime.mul(0.021), uTime.mul(-0.014)).toVar();
     const c0 = tFoam.sample(p.mul(uCoarse)).r.toVar();
     const c1 = tFoam.sample(p.mul(uCoarse.mul(2.37)).add(vec2(0.37, 0.11))).g.toVar();
-    const c2 = tFoam.sample(p.mul(uFine).add(vec2(0.71, 0.53))).b.toVar();
-    const n = c0.mul(0.52).add(c1.mul(0.31)).add(c2.mul(0.17)).toVar();
-    // Thresholded into CLUMPS with clear water between them. A wide ramp gives
-    // a haze; this is narrow enough to have edges and wide enough that the
-    // edges are soft.
-    const foam = smoothstep(uThreshLo, uThreshHi, n).toVar();
-    // And the lace at the edge of a clump: the band just under the threshold,
-    // where a real foam patch breaks into flecks. It costs one more smoothstep
-    // and it is most of what stops the mark reading as a cut-out.
-    const lace = smoothstep(uThreshLo.sub(0.14), uThreshLo, n)
-      .mul(smoothstep(uThreshLo.add(0.05), uThreshLo, n))
-      .mul(smoothstep(0.55, 0.85, c2)).toVar();
+    const c2 = tFoam.sample(p.mul(uFine).add(vec2(0.71, 0.53)).add(drift)).b.toVar();
+    const n = c0.mul(0.46).add(c1.mul(0.30)).add(c2.mul(0.24)).toVar();
 
-    // --- how long it lasts ---------------------------------------------------
+    // --- how long it lasts, and HOW it goes ----------------------------------
+    // The fade is not an opacity ramp. Foam does not dim — it breaks up. So the
+    // threshold RISES along the trail: near the transom almost everything is
+    // above it and the mark is solid white water; by the tail only the very
+    // brightest flecks clear it, and what is left is a scatter of lace that
+    // then runs out. The alpha ramp still exists underneath, but the erosion is
+    // what the eye actually reads as "dissolving".
+    const decay = smoothstep(0.0, LENGTH * 0.85, along).toVar();
+    const lo = uThreshLo.add(decay.mul(uErode)).toVar();
+    const hi = uThreshHi.add(decay.mul(uErode)).toVar();
+
+    // Clumps, and the lace at their edges: the band just under the threshold,
+    // where a real foam patch breaks into flecks. The lace is weighted UP as
+    // the clumps erode away, so the tail is all lace and no body.
+    const foam = smoothstep(lo, hi, n).toVar();
+    const lace = smoothstep(lo.sub(0.16), lo, n)
+      .mul(smoothstep(lo.add(0.06), lo, n))
+      .mul(smoothstep(0.42, 0.80, c2)).toVar();
+
     // Fast in for the first half metre so nothing pops at the transom, then a
     // long tail. Squared, because foam dies by dissolving rather than by
     // dimming evenly.
@@ -251,15 +224,19 @@ export function createWakeRibbon({ water, terrain, quality } = {}) {
     // still boils, so it is a high floor under the noise rather than a plate.
     // A flat plate welded to the stern is what the painted versions all ended
     // up as and it is the single most recognisable way to get this wrong.
-    const solid = smoothstep(6.0, 0.3, along).toVar();
-    const body = max(foam.add(lace.mul(0.55)), solid.mul(n.mul(0.5).add(0.55))).toVar();
-    // The cusps. A wake's arms are not continuous lines — they are a row of
-    // feathers, one per cusp wave, spaced (2/3) * 2*pi*V^2/g apart, which at
-    // 6 m/s is fifteen metres. Kept as a gentle beat and never a chop: the
-    // rhythm is what reads, and anything that cuts an arm into separate pieces
-    // is straight back to the filaments the painted versions kept producing.
-    const a = edge.mul(born).mul(age).mul(body)
-      .mul(mix(float(1.0), feather, uFeather)).mul(uOpacity).toVar();
+    // Shorter and much more broken than it was. At 5 m long with a 0.55 floor
+    // under the noise this came out as a hard white slab welded to the transom
+    // — the exact failure the paragraph above is about, reintroduced by me the
+    // moment the arms were removed and the lane became the whole wake. 2.6 m,
+    // and the noise now carries almost all of it, so the churn boils instead
+    // of being a plate.
+    const solid = smoothstep(2.6, 0.2, along).toVar();
+    const body = max(
+      foam.add(lace.mul(mix(float(0.7), float(1.9), decay))),
+      solid.mul(n.mul(0.9).add(0.16)),
+    ).toVar();
+
+    const a = edge.mul(born).mul(age).mul(body).mul(uOpacity).toVar();
 
     return vec4(uColor, a);
   })();
@@ -286,10 +263,7 @@ export function createWakeRibbon({ water, terrain, quality } = {}) {
   const nx = new Float32Array(MAX_SAMPLES);
   const nz = new Float32Array(MAX_SAMPLES);
   const str = new Float32Array(MAX_SAMPLES);
-  const tanB = new Float32Array(MAX_SAMPLES);
-  const fea = new Float32Array(MAX_SAMPLES);
   const bt = new Float32Array(MAX_SAMPLES);
-  let cusp = 0;                  // running cusp phase, in cycles
   let head = 0;
   let count = 0;
   let lastX = 0, lastZ = 0;
@@ -300,20 +274,6 @@ export function createWakeRibbon({ water, terrain, quality } = {}) {
     nx[head] = sx; nz[head] = sz;
     str[head] = strength;
     bt[head] = now;
-
-    const depth = terrain?.depthAt ? terrain.depthAt(x, z) : 6;
-    tanB[head] = wedgeTan(speed, depth);
-
-    // The cusp wavelength, (2/3) * 2*pi*V^2/g. Accumulated as a phase per
-    // sample rather than evaluated from `along` in the shader, because `along`
-    // is the distance from the boat NOW and the wavelength was set by the speed
-    // THEN — a fast burst followed by a drift would otherwise re-space feathers
-    // that are already lying on the water.
-    const lam = Math.max(3.5, (2 / 3) * (2 * Math.PI * speed * speed) / G);
-    cusp += STEP / lam;
-    // Shaped: a soft trough and a broad crest, so the arm pulses rather than
-    // dashing. 0.42 at the trough keeps the line continuous.
-    fea[head] = 0.42 + 0.58 * (0.5 + 0.5 * Math.cos(cusp * Math.PI * 2)) ** 0.7;
 
     head = (head + 1) % MAX_SAMPLES;
     if (count < MAX_SAMPLES) count++;
@@ -369,7 +329,6 @@ export function createWakeRibbon({ water, terrain, quality } = {}) {
     // it at frac = 0, the hand-off is seamless.
     const frac = Math.min(1, Math.hypot(sternX - lastX, sternZ - lastZ) / STEP);
     const nowStr = speed < MIN_SPEED ? 0 : Math.min(1, (speed - MIN_SPEED) / 3.4);
-    const nowTan = wedgeTan(speed, terrain?.depthAt ? terrain.depthAt(sternX, sternZ) : 6);
 
     // --- rebuild the strips ---------------------------------------------------
     for (let i = 0; i < MAX_SAMPLES; i++) {
@@ -377,14 +336,12 @@ export function createWakeRibbon({ water, terrain, quality } = {}) {
       // head of the ribbon to a sample that is up to a step behind the boat is
       // the other half of the stutter: the join would drift back from the hull
       // and then snap forward every time a sample was laid.
-      let live, sx, sz, lx, lz, strength, feather, tanHere, along, born;
+      let live, sx, sz, lx, lz, strength, along, born;
       if (i === 0) {
         live = true;
         sx = sternX; sz = sternZ;
         lx = -b.forward.z; lz = b.forward.x;
         strength = nowStr;
-        feather = 1;
-        tanHere = nowTan;
         along = 0;
         born = 1;
       } else {
@@ -395,8 +352,6 @@ export function createWakeRibbon({ water, terrain, quality } = {}) {
         sx = live ? px[s] : 0; sz = live ? pz[s] : 0;
         lx = live ? nx[s] : 1; lz = live ? nz[s] : 0;
         strength = live ? str[s] : 0;
-        feather = live ? fea[s] : 1;
-        tanHere = live ? tanB[s] : KELVIN_TAN;
         // Foam dissolves on a clock, not on a distance. Held for the first
         // third of its life and gone by the end of it, so a wake left behind by
         // a boat that has stopped still goes away.
@@ -405,32 +360,20 @@ export function createWakeRibbon({ water, terrain, quality } = {}) {
         born = live ? 1 - q * q * (3 - 2 * q) : 0;
       }
 
-      // The wedge is anchored at the bow and opens at an angle that is a
-      // property of the WATER, not a constant — see wedgeTan.
-      const wedge = HALF_BEAM + tanHere * along;
+      const half = LANE_W0 + LANE_GROW * Math.pow(along, 0.2);
 
-      for (let strip = 0; strip < STRIPS; strip++) {
-        // 0 = lane on the path, 1 = port arm, 2 = starboard arm.
-        const side = strip === 0 ? 0 : strip === 1 ? -1 : 1;
-        const centre = side * wedge;
-        const half = strip === 0
-          ? LANE_W0 + LANE_GROW * Math.pow(along, 0.2)
-          : ARM_W0 + ARM_GROW * along;
-
-        for (let c = 0; c < CROSS; c++) {
-          const u = (c / (CROSS - 1)) * 2 - 1;
-          const off = centre + u * half;
-          const x = sx + lx * off;
-          const z = sz + lz * off;
-          const v = ((strip * MAX_SAMPLES + i) * CROSS + c);
-          pos[v * 3] = x;
-          pos[v * 3 + 1] = live ? surfaceAt(x, z, t) + LIFT : -400;
-          pos[v * 3 + 2] = z;
-          aWake[v * 4 + 1] = along;
-          aWake[v * 4 + 2] = live ? strength * born : 0;
-          // The lane has no cusps — they are a property of the divergent waves.
-          aWake[v * 4 + 3] = strip === 0 ? 1 : feather;
-        }
+      for (let c = 0; c < CROSS; c++) {
+        const u = (c / (CROSS - 1)) * 2 - 1;
+        const off = u * half;
+        const x = sx + lx * off;
+        const z = sz + lz * off;
+        const v = (i * CROSS + c);
+        pos[v * 3] = x;
+        pos[v * 3 + 1] = live ? surfaceAt(x, z, t) + LIFT : -400;
+        pos[v * 3 + 2] = z;
+        aWake[v * 4 + 1] = along;
+        aWake[v * 4 + 2] = live ? strength * born : 0;
+        aWake[v * 4 + 3] = 1;
       }
     }
     posAttr.needsUpdate = true;
@@ -453,7 +396,7 @@ export function createWakeRibbon({ water, terrain, quality } = {}) {
     applyEnv,
     /** The foam texture, swapped in once the water has built its detail field. */
     setFoamTexture(tex) { if (tex) tFoam.value = tex; },
-    uniforms: { uColor, uOpacity, uCoarse, uFine, uThreshLo, uThreshHi, uFeather },
+    uniforms: { uColor, uOpacity, uCoarse, uFine, uThreshLo, uThreshHi, uErode },
     dispose() {
       geo.dispose();
       mat.dispose();
