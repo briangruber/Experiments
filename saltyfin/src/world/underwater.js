@@ -247,22 +247,35 @@ export function createUnderwater({ ctx, scene, lights, seed = 1 } = {}) {
     // to charge for. Pulled back far enough that the near field keeps its
     // colour and left alone beyond that; the water still owns the far field,
     // which is where the depth cue actually lives.
+    // The BALANCE matters as much as the tints. At key x0.38 and dome x2.15 the
+    // dome outvoted the sun five to one, and a dome that is water-coloured
+    // multiplies every albedo toward its own hue no matter what the albedo is:
+    // a magenta gorgonian (0.70, 0.25, 0.50) under a cyan dome (0.30, 0.90,
+    // 1.00) resolves to (0.21, 0.23, 0.50), which is blue-grey. Measured on the
+    // reef at 54,-54 after the extinction rebalance: red was back — R/G 0.24,
+    // 34% of pixels carrying it — and still only 0.70% of the frame was WARMER
+    // than the water it sat in. Nothing was warm; there was just more red in
+    // the teal.
+    //
+    // So the sun keeps more of its throw and the dome less of its lift. Sunlight
+    // is the only warm source down here and it is also the only one that models
+    // shape; the dome's job is to stop crevices going black, not to be the light.
     const { keyLight, hemi, fillLight } = lights;
     if (keyLight) {
-      keyColor.copy(env.keyColor).lerp(waterFogColor, 0.34 * a);
+      keyColor.copy(env.keyColor).lerp(waterFogColor, 0.20 * a);
       keyLight.color.copy(keyColor);
-      keyLight.intensity = env.keyIntensity * (1 - 0.62 * a);
+      keyLight.intensity = env.keyIntensity * (1 - 0.45 * a);
     }
     if (hemi) {
-      hemiSky.copy(env.ambientSky).lerp(waterFogColor, 0.50 * a);
-      hemiGround.copy(env.ambientGround).lerp(waterFogColor, 0.40 * a);
+      hemiSky.copy(env.ambientSky).lerp(waterFogColor, 0.28 * a);
+      hemiGround.copy(env.ambientGround).lerp(waterFogColor, 0.24 * a);
       hemi.color.copy(hemiSky);
       hemi.groundColor.copy(hemiGround);
-      hemi.intensity = env.ambientIntensity * (1 + 1.15 * a);
+      hemi.intensity = env.ambientIntensity * (1 + 0.75 * a);
     }
     if (fillLight) {
       fillLight.color.copy(hemiSky);
-      fillLight.intensity = (0.18 + 0.22 * env.dayFactor) * (1 + 1.6 * a);
+      fillLight.intensity = (0.18 + 0.22 * env.dayFactor) * (1 + 1.05 * a);
     }
 
     uMoteBright.value = 0.35 + 0.85 * env.dayFactor;

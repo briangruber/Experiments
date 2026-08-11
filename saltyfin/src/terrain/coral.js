@@ -517,14 +517,14 @@ export function createCoral(opts = {}) {
 
   const ARCH = [
     { key: 'bush', geo: makeBush(rng), soft: false, budget: 640, w: 1.70, dMin: 0.8, dMax: 13, sMin: 0.85, sMax: 2.40, sink: 0.18, tilt: 0.55, flat: 0.30 },
-    { key: 'brain', geo: makeBrain(rng), soft: false, budget: 235, w: 0.58, dMin: 1.0, dMax: 10, sMin: 0.70, sMax: 1.90, sink: 0.26, tilt: 0.70, flat: 0.22 },
-    { key: 'staghorn', geo: makeStaghorn(rng), soft: false, budget: 210, w: 0.52, dMin: 1.2, dMax: 11, sMin: 0.95, sMax: 2.10, sink: 0.12, tilt: 0.45, flat: 0.25 },
+    { key: 'brain', geo: makeBrain(rng), soft: false, budget: 330, w: 0.86, dMin: 1.0, dMax: 10, sMin: 0.70, sMax: 1.90, sink: 0.26, tilt: 0.70, flat: 0.22 },
+    { key: 'staghorn', geo: makeStaghorn(rng), soft: false, budget: 320, w: 0.82, dMin: 1.2, dMax: 11, sMin: 0.95, sMax: 2.10, sink: 0.12, tilt: 0.45, flat: 0.25 },
     { key: 'table', geo: makeTable(rng), soft: false, budget: 130, w: 0.28, dMin: 2.2, dMax: 13, sMin: 0.75, sMax: 1.65, sink: 0.10, tilt: 0.40, flat: 0.18 },
     { key: 'kelp', geo: makeKelp(rng), soft: true, budget: 305, w: 0.78, dMin: 2.0, dMax: 12, sMin: 1.15, sMax: 2.90, sink: 0.08, tilt: 0.30, flat: 0.35 },
     // dMin was 3.0, which put every sea fan outside the lagoon — the fans are
     // the most saturated thing on the reef and none of them were anywhere the
     // player swims. 1.8 m still keeps them off the bar and out of the surf.
-    { key: 'fan', geo: makeFan(rng), soft: true, budget: 190, w: 0.30, dMin: 1.8, dMax: 17, sMin: 0.95, sMax: 2.10, sink: 0.06, tilt: 0.35, flat: 0.20 },
+    { key: 'fan', geo: makeFan(rng), soft: true, budget: 330, w: 0.62, dMin: 1.8, dMax: 17, sMin: 0.95, sMax: 2.10, sink: 0.06, tilt: 0.35, flat: 0.20 },
     { key: 'urchin', geo: makeUrchin(rng), soft: false, budget: 195, w: 0.44, dMin: 0.8, dMax: 13, sMin: 0.40, sMax: 0.88, sink: 0.12, tilt: 0.60, flat: 0.20 },
     { key: 'rubble', geo: makeRubble(rng), soft: false, budget: 320, w: 0.78, dMin: 0.6, dMax: 30, sMin: 0.45, sMax: 2.05, sink: 0.34, tilt: 0.85, flat: 0.45 },
   ];
