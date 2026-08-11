@@ -88,6 +88,15 @@ const ARM_W0 = 0.42;
 const ARM_GROW = 0.010;
 
 const MIN_SPEED = 0.6;         // m/s below which nothing new is laid
+// Seconds a section of wake stays on the water.
+//
+// The first version had no clock in it at all: the fade was a function of
+// distance astern, and distance astern only grows while the boat is moving. So
+// the moment you throttled off, the whole trail froze exactly as it was and sat
+// there for ever. Foam dissolves on its own schedule — this is what makes it go
+// away when the boat stops, and what makes the tail end rather than simply run
+// out of ribbon.
+const LIFE = 10.0;
 
 /**
  * The wedge half-angle, from the depth Froude number.
@@ -256,7 +265,7 @@ export function createWakeRibbon({ water, terrain, quality } = {}) {
   })();
 
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.name = 'wake-ribbon';
+  mesh.name = 'wake-ribbon-mesh';
   mesh.frustumCulled = false;
   mesh.castShadow = false;
   mesh.receiveShadow = false;
@@ -279,16 +288,18 @@ export function createWakeRibbon({ water, terrain, quality } = {}) {
   const str = new Float32Array(MAX_SAMPLES);
   const tanB = new Float32Array(MAX_SAMPLES);
   const fea = new Float32Array(MAX_SAMPLES);
+  const bt = new Float32Array(MAX_SAMPLES);
   let cusp = 0;                  // running cusp phase, in cycles
   let head = 0;
   let count = 0;
   let lastX = 0, lastZ = 0;
   let seeded = false;
 
-  function pushSample(x, z, sx, sz, strength, speed) {
+  function pushSample(x, z, sx, sz, strength, speed, now) {
     px[head] = x; pz[head] = z;
     nx[head] = sx; nz[head] = sz;
     str[head] = strength;
+    bt[head] = now;
 
     const depth = terrain?.depthAt ? terrain.depthAt(x, z) : 6;
     tanB[head] = wedgeTan(speed, depth);
@@ -337,29 +348,66 @@ export function createWakeRibbon({ water, terrain, quality } = {}) {
           lastZ + (sternZ - lastZ) * f,
           -dz, dx,
           speed < MIN_SPEED ? 0 : Math.min(1, (speed - MIN_SPEED) / 3.4),
-          speed,
+          speed, t,
         );
       }
       lastX += (sternX - lastX) * ((n * STEP) / moved);
       lastZ += (sternZ - lastZ) * ((n * STEP) / moved);
     }
 
+    // How far past the last stored sample the boat is, as a fraction of a step.
+    // THIS IS THE WHOLE FIX FOR THE STUTTER.
+    //
+    // `along` used to be `i * STEP` — a per-index constant. A new sample is only
+    // stored every 0.45 m, and the instant one is, every existing section's
+    // index goes up by one and its `along` jumps by a whole 0.45 m at once. Every
+    // quantity derived from it jumped with it: the wedge offset, the lane width,
+    // the fade, the cusp spacing. At nine metres a second that is a discrete
+    // shove twenty times a second, which is exactly the stepping. Carrying the
+    // fraction makes `along` slide continuously between samples, and because a
+    // section at frac = 1 lands on precisely the position the next index gives
+    // it at frac = 0, the hand-off is seamless.
+    const frac = Math.min(1, Math.hypot(sternX - lastX, sternZ - lastZ) / STEP);
+    const nowStr = speed < MIN_SPEED ? 0 : Math.min(1, (speed - MIN_SPEED) / 3.4);
+    const nowTan = wedgeTan(speed, terrain?.depthAt ? terrain.depthAt(sternX, sternZ) : 6);
+
     // --- rebuild the strips ---------------------------------------------------
     for (let i = 0; i < MAX_SAMPLES; i++) {
-      // i = 0 is the newest sample, at the transom.
-      const live = i < count;
-      const s = live ? (head - 1 - i + MAX_SAMPLES * 2) % MAX_SAMPLES : 0;
-      const along = i * STEP;
-      const sx = live ? px[s] : 0, sz = live ? pz[s] : 0;
-      const lx = live ? nx[s] : 1, lz = live ? nz[s] : 0;
-      const strength = live ? str[s] : 0;
-      const feather = live ? fea[s] : 1;
+      // Row 0 is the LIVE transom, not the newest stored sample. Pinning the
+      // head of the ribbon to a sample that is up to a step behind the boat is
+      // the other half of the stutter: the join would drift back from the hull
+      // and then snap forward every time a sample was laid.
+      let live, sx, sz, lx, lz, strength, feather, tanHere, along, born;
+      if (i === 0) {
+        live = true;
+        sx = sternX; sz = sternZ;
+        lx = -b.forward.z; lz = b.forward.x;
+        strength = nowStr;
+        feather = 1;
+        tanHere = nowTan;
+        along = 0;
+        born = 1;
+      } else {
+        const j = i - 1;
+        live = j < count;
+        const s = live ? (head - 1 - j + MAX_SAMPLES * 2) % MAX_SAMPLES : 0;
+        along = (frac + j) * STEP;
+        sx = live ? px[s] : 0; sz = live ? pz[s] : 0;
+        lx = live ? nx[s] : 1; lz = live ? nz[s] : 0;
+        strength = live ? str[s] : 0;
+        feather = live ? fea[s] : 1;
+        tanHere = live ? tanB[s] : KELVIN_TAN;
+        // Foam dissolves on a clock, not on a distance. Held for the first
+        // third of its life and gone by the end of it, so a wake left behind by
+        // a boat that has stopped still goes away.
+        const age = live ? (t - bt[s]) / LIFE : 1;
+        const q = Math.min(1, Math.max(0, (age - 0.30) / 0.70));
+        born = live ? 1 - q * q * (3 - 2 * q) : 0;
+      }
 
       // The wedge is anchored at the bow and opens at an angle that is a
-      // property of the WATER, not a constant — see wedgeTan. The offset grows
-      // with distance ASTERN rather than with age: age-based spreading drifts
-      // a stopped boat's wake outward forever and makes every curve wobble.
-      const wedge = HALF_BEAM + (live ? tanB[s] : KELVIN_TAN) * along;
+      // property of the WATER, not a constant — see wedgeTan.
+      const wedge = HALF_BEAM + tanHere * along;
 
       for (let strip = 0; strip < STRIPS; strip++) {
         // 0 = lane on the path, 1 = port arm, 2 = starboard arm.
@@ -379,7 +427,7 @@ export function createWakeRibbon({ water, terrain, quality } = {}) {
           pos[v * 3 + 1] = live ? surfaceAt(x, z, t) + LIFT : -400;
           pos[v * 3 + 2] = z;
           aWake[v * 4 + 1] = along;
-          aWake[v * 4 + 2] = live ? strength : 0;
+          aWake[v * 4 + 2] = live ? strength * born : 0;
           // The lane has no cusps — they are a property of the divergent waves.
           aWake[v * 4 + 3] = strip === 0 ? 1 : feather;
         }
