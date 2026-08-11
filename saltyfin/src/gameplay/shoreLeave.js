@@ -30,7 +30,7 @@ const lerp = (a, b, t) => a + (b - a) * t;
 const smooth = (t) => t * t * (3 - 2 * t);
 const TAU = Math.PI * 2;
 
-const WALK_SPEED = 3.5;         // m/s, a strolling pace and not a sprint
+const WALK_SPEED = 2.4;         // m/s, a strolling pace and not a sprint
 const TURN_RATE = 9.0;          // rad/s the body swings to face travel
 const BODY_R = 0.42;            // how fat the walker is, for the push-out
 // The tallest rise a step may take. Without it `ground()` is a teleporter:
@@ -113,9 +113,18 @@ export function createShoreLeave(opts = {}) {
   let heroMixer = null;
   let walkAction = null;
   let idleAction = null;
+  let heroStride = 1.4;         // m/s the walk clip covers at timeScale 1
   function buildHeroWalker() {
     if (!heroGltf || !heroGltf.scene || !heroGltf.animations?.length) return null;
     const rig = heroGltf.scene;
+    // The generated rig faces +X — its bind bbox is twice as deep (z) as it
+    // is wide (x), and the walk clip's root motion runs along +X. The walker
+    // convention is forward = local +Z (updateWalk moves along
+    // (sin yaw, cos yaw) and poseWalker sets rotation.y = yaw), so turn the
+    // model into convention first; unrotated it crab-walks with the camera
+    // on its flank and every stick direction lands 90 degrees wrong.
+    rig.rotation.y = -Math.PI / 2;
+    rig.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(rig);
     const size = box.getSize(new THREE.Vector3());
     const k = 1.68 / Math.max(size.y, 1e-3);
@@ -136,6 +145,42 @@ export function createShoreLeave(opts = {}) {
     const g = new THREE.Group();
     g.name = 'walker';
     g.add(rig);
+
+    // The preset walk is NOT in place: its Hip position track slides the
+    // whole body a stride per loop (measured: 1.0 rig-units over the 1.9 s
+    // clip) and snaps back on repeat — in game the character glided away
+    // from its own group origin and teleported home twice a second. Remove
+    // the secular drift by subtracting the first->last linear ramp from
+    // every position track: a no-op for the 41 constant bone-offset tracks,
+    // and for the Hip it turns the clip into a seamless in-place cycle.
+    // The removed drift is exactly the ground one loop covers, so it also
+    // calibrates playback: timeScale = speed / heroStride plants the feet.
+    // Running twice is safe — after the first pass first == last, so the
+    // ramp is zero.
+    const walkClip = heroGltf.animations[0];
+    let drift = 0;
+    for (const tr of walkClip.tracks) {
+      if (!tr.name.endsWith('.position') || tr.times.length < 2) continue;
+      const t = tr.times;
+      const v = tr.values;
+      const n = t.length;
+      const span = Math.max(t[n - 1] - t[0], 1e-6);
+      const dx = v[(n - 1) * 3] - v[0];
+      const dy = v[(n - 1) * 3 + 1] - v[1];
+      const dz = v[(n - 1) * 3 + 2] - v[2];
+      const len = Math.hypot(dx, dy, dz);
+      if (len < 0.02) continue;
+      drift = Math.max(drift, len);
+      for (let i = 0; i < n; i++) {
+        const f = (t[i] - t[0]) / span;
+        v[i * 3] -= dx * f;
+        v[i * 3 + 1] -= dy * f;
+        v[i * 3 + 2] -= dz * f;
+      }
+    }
+    const stride = (drift * k) / Math.max(walkClip.duration, 1e-3);
+    if (stride > 0.3) heroStride = stride;
+
     heroMixer = new THREE.AnimationMixer(rig);
     walkAction = heroMixer.clipAction(heroGltf.animations[0]);
     walkAction.play();
@@ -360,12 +405,12 @@ export function createShoreLeave(opts = {}) {
 
     if (heroMixer) {
       // Crossfade by speed, and clock the walk cycle to the ground actually
-      // covered so the feet do not skate: the preset walk covers roughly its
-      // own stride at timeScale 1 around 1.4 m/s.
+      // covered so the feet do not skate: heroStride is measured off the
+      // clip's own root motion at build time, not guessed.
       const w = clamp(state.speed / 1.2, 0, 1);
       walkAction.setEffectiveWeight(w);
       if (idleAction) idleAction.setEffectiveWeight(1 - w);
-      walkAction.setEffectiveTimeScale(clamp(state.speed / 1.4, 0.5, 2.2));
+      walkAction.setEffectiveTimeScale(clamp(state.speed / heroStride, 0.55, 3.0));
       heroMixer.update(dt);
       return;
     }

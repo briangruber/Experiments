@@ -3303,6 +3303,43 @@ class GLTFParser {
 		let sourceURI = sourceDef.uri || '';
 		let isObjectURL = false;
 
+		if ( sourceDef.bufferView !== undefined && loader.isImageBitmapLoader === true && typeof createImageBitmap !== 'undefined' ) {
+
+			// Patched for Salty Fin: decode embedded images in-memory instead of
+			// round-tripping through URL.createObjectURL + loader.load. The stock
+			// path has ImageBitmapLoader fetch() the blob: URL, and a host CSP
+			// with no blob:/connect-src allowance (the Artifact sandbox) rejects
+			// that fetch — which fails the texture, which rejects the entire GLB
+			// parse, which silently drops every hero asset to its procedural
+			// fallback. createImageBitmap on a Blob never touches the network
+			// stack, so no CSP directive applies. Options mirror what
+			// ImageBitmapLoader.load would have passed.
+
+			const promise = parser.getDependency( 'bufferView', sourceDef.bufferView ).then( function ( bufferView ) {
+
+				const blob = new Blob( [ bufferView ], { type: sourceDef.mimeType } );
+				return createImageBitmap( blob, Object.assign( {}, loader.options, { colorSpaceConversion: 'none' } ) );
+
+			} ).then( function ( imageBitmap ) {
+
+				const texture = new Texture( imageBitmap );
+				texture.needsUpdate = true;
+				assignExtrasToUserData( texture, sourceDef );
+				texture.userData.mimeType = sourceDef.mimeType;
+				return texture;
+
+			} ).catch( function ( error ) {
+
+				console.error( 'THREE.GLTFLoader: Couldn\'t decode embedded texture', sourceIndex );
+				throw error;
+
+			} );
+
+			this.sourceCache[ sourceIndex ] = promise;
+			return promise;
+
+		}
+
 		if ( sourceDef.bufferView !== undefined ) {
 
 			// Load binary image data from bufferView, if provided.
