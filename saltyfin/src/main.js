@@ -223,6 +223,8 @@ const dock = build(createDock, { terrain });
 // null on any failure and the town/pod fall back to their procedural selves.
 const heroTavern = await loadGlb('tavern');
 const heroDolphin = await loadGlb('dolphin');
+const heroCharacter = await loadGlb('character');
+const heroIdle = await loadGlb('idle-anim');
 const town = build(createTown, { terrain, seed: SEED, tavern: heroTavern?.scene });
 const lighthouse = build(createLighthouse, { terrain });
 const props = build(createProps, { terrain });
@@ -290,7 +292,10 @@ const fishing = createFishing({
 ctx.fishing = fishing;
 // Going ashore. Built after the chase rig because it borrows its fov when it
 // takes the frame, and after fishing because the two must never both own it.
-const shoreLeave = createShoreLeave({ ctx, scene, input, camera, chaseCamera, town, terrain });
+const shoreLeave = createShoreLeave({
+  ctx, scene, input, camera, chaseCamera, town, terrain,
+  hero: heroCharacter, heroIdle,
+});
 ctx.shore = shoreLeave;
 
 const hud = createHud({ ctx, time });

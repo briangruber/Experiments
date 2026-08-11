@@ -98,11 +98,58 @@ export function createShoreLeave(opts = {}) {
   const {
     ctx, scene, input, camera, chaseCamera, town, terrain,
   } = opts;
+  // The generated fisher: a skinned GLB with a walk clip, plus an
+  // animation-only GLB carrying idle. Either missing -> the box walker.
+  const heroGltf = opts.hero || null;
+  const heroIdleGltf = opts.heroIdle || null;
 
   const TOUCH = typeof matchMedia === 'function'
     && (matchMedia('(pointer: coarse)').matches || (navigator.maxTouchPoints || 0) > 0);
 
-  const walker = buildWalker();
+  // --- the hero walker -------------------------------------------------------
+  // The character is wrapped so its group origin is BETWEEN ITS FEET: scale to
+  // game height, then lift the rig by its own min.y. Everything downstream
+  // positions feet-on-deck and never needs to know which asset is inside.
+  let heroMixer = null;
+  let walkAction = null;
+  let idleAction = null;
+  function buildHeroWalker() {
+    if (!heroGltf || !heroGltf.scene || !heroGltf.animations?.length) return null;
+    const rig = heroGltf.scene;
+    const box = new THREE.Box3().setFromObject(rig);
+    const size = box.getSize(new THREE.Vector3());
+    const k = 1.68 / Math.max(size.y, 1e-3);
+    rig.scale.setScalar(k);
+    rig.updateMatrixWorld(true);
+    box.setFromObject(rig);
+    const c = box.getCenter(new THREE.Vector3());
+    rig.position.x -= c.x;
+    rig.position.z -= c.z;
+    rig.position.y -= box.min.y;
+    rig.traverse((o) => {
+      if (o.isMesh || o.isSkinnedMesh) {
+        o.castShadow = true;
+        o.receiveShadow = false;
+        o.frustumCulled = false;      // a skinned bbox lies; culling pops limbs
+      }
+    });
+    const g = new THREE.Group();
+    g.name = 'walker';
+    g.add(rig);
+    heroMixer = new THREE.AnimationMixer(rig);
+    walkAction = heroMixer.clipAction(heroGltf.animations[0]);
+    walkAction.play();
+    walkAction.setEffectiveWeight(0);
+    const idleClip = heroIdleGltf?.animations?.[0];
+    if (idleClip) {
+      idleAction = heroMixer.clipAction(idleClip);
+      idleAction.play();
+      idleAction.setEffectiveWeight(1);
+    }
+    return { group: g, pivots: [] };
+  }
+
+  const walker = buildHeroWalker() || buildWalker();
   const group = new THREE.Group();
   group.name = 'shore-leave';
   group.add(walker.group);
@@ -304,14 +351,25 @@ export function createShoreLeave(opts = {}) {
     camYaw += cd * Math.min(1, dt * 3.4);
   }
 
-  function poseWalker() {
+  function poseWalker(dt = 0) {
     worldOf(state.x, state.z, _tmp);
     // No smoothing: the town is one flat deck, so the ground query is exact
-    // and constant. The previous version blended toward it to survive a stair,
-    // and a blend against a surface that never changes is just a way to be
-    // briefly wrong after a teleport.
+    // and constant.
     walker.group.position.copy(_tmp);
     walker.group.rotation.y = state.yaw;
+
+    if (heroMixer) {
+      // Crossfade by speed, and clock the walk cycle to the ground actually
+      // covered so the feet do not skate: the preset walk covers roughly its
+      // own stride at timeScale 1 around 1.4 m/s.
+      const w = clamp(state.speed / 1.2, 0, 1);
+      walkAction.setEffectiveWeight(w);
+      if (idleAction) idleAction.setEffectiveWeight(1 - w);
+      walkAction.setEffectiveTimeScale(clamp(state.speed / 1.4, 0.5, 2.2));
+      heroMixer.update(dt);
+      return;
+    }
+
     const swing = Math.sin(bob) * Math.min(0.62, 0.16 + state.speed * 0.13);
     const p = walker.pivots;
     if (p.length >= 4) {
@@ -353,7 +411,7 @@ export function createShoreLeave(opts = {}) {
       b.speed = 0;
       b.throttle = 0;
 
-      poseWalker();
+      poseWalker(dt);
       walkCamera(camPos, camLook);
       camera.position.lerpVectors(fromPos, camPos, t);
       _tmp.lerpVectors(fromLook, camLook, t);
@@ -371,7 +429,7 @@ export function createShoreLeave(opts = {}) {
 
     if (state.mode === 'ashore') {
       updateWalk(dt);
-      poseWalker();
+      poseWalker(dt);
       walkCamera(camPos, camLook);
       camera.position.lerp(camPos, Math.min(1, dt * 6.5));
       camera.lookAt(camLook);
@@ -387,7 +445,7 @@ export function createShoreLeave(opts = {}) {
     if (state.mode === 'boarding') {
       transition = Math.min(1, transition + dt / BOARD_TIME);
       const t = smooth(transition);
-      poseWalker();
+      poseWalker(dt);
       // Hand the frame back to the chase rig by aiming at where it wants to be.
       chaseCamera?.update?.(c);
       if (transition >= 1) finishBoarding();
