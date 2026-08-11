@@ -498,7 +498,7 @@ const SPECIES = [
     pal: { back: 0x14224E, mid: 0x2E6BE0, belly: 0xFFE45C, fin: 0x2E6BE0 },
     marks: { kind: 'stripe', u: 0.30, w: 9, color: col(0xF2E5A8), amount: 0.40 },
     tint: { h: [0.12, 0.16], s: [0.10, 0.34], l: [0.60, 0.84] },
-    social: 'cloud', schools: [4, 9], per: [10, 24], roam: 0.7, ceil: -1.20,
+    social: 'cloud', schools: [6, 12], per: [14, 30], roam: 0.7, ceil: -1.20,
     bandMode: 'floor', band: [0.8, 2.5], water: [3.0, 7.5], clear: 0.7,
     beat: [7.5, 9.5], amp: 0.12,
   },
@@ -520,7 +520,7 @@ const SPECIES = [
     pal: { back: 0x0E5F4E, mid: 0x2ED08C, belly: 0xFF9A5C, fin: 0xFFD94A },
     marks: { kind: 'bars', n: 4, color: col(0x1C5A55), amount: 0.25 },
     tint: { h: [0.36, 0.46], s: [0.22, 0.46], l: [0.52, 0.76] },
-    social: 'gang', schools: [3, 6], per: [4, 8], roam: 0.5, ceil: -1.00,
+    social: 'gang', schools: [4, 8], per: [5, 10], roam: 0.5, ceil: -1.00,
     bandMode: 'floor', band: [0.5, 2.0], water: [2.5, 5.5], clear: 0.55,
     beat: [3.4, 4.6], amp: 0.075,
   },
@@ -546,6 +546,65 @@ const SPECIES = [
     social: 'ray', schools: [3, 5], per: [1, 1], roam: 0.8, ceil: -2.20,
     bandMode: 'floor', band: [1.2, 3.5], water: [5.0, 16.0], clear: 1.0,
     beat: [0.9, 1.3], amp: 0.16,
+  },
+  {
+    // ---- the lagoon's colour ------------------------------------------------
+    // Two species that exist for one reason: the shallow reef was structurally
+    // busy and chromatically grey. Everything already living in 2-6 m was
+    // either dark-backed on purpose (sardine, skitter) or muted by the
+    // extinction argument at the head of this table — which is correct at
+    // depth and is exactly wrong HERE. The whole point of the note above is
+    // that hue survives in the top six metres, and nothing was spending it.
+    //
+    // Anthias: the magenta-and-tangerine cloud that hangs a metre over a coral
+    // head and pours back into it when anything passes. Dense and small rather
+    // than large and sparse, because what reads at 8-15 m through clear water
+    // is the CLOUD — a 200-fish shimmer of hot colour over one bommie — and
+    // not the animal. 0.20 m is honest for the fish and gets away with it only
+    // because they are never seen alone.
+    //
+    // `clear: 0.6` keeps them off the sand and on the reef, and the tight
+    // `band` pins them just above it. `bright` lifts the baked vertex colour
+    // the same way the skitter's does: it is a geometry attribute, so it costs
+    // no material property and no second pipeline.
+    key: 'anthias', prof: PROF_DEEP, len: 0.20, sizeJit: [0.80, 1.24],
+    girth: 0.078, depth: 0.230, stations: 6, radial: [5, 6],
+    caudal: [0.19, 0.32, 0.28], dorsal: 0.14, anal: 0.11, pect: false,
+    pal: { back: 0xB81E63, mid: 0xFF5A32, belly: 0xFFCE6B, fin: 0xFF8C3A },
+    marks: null,
+    // Hue 0.92-0.99 is the magenta-to-red arc; saturation runs well past every
+    // other species here because this one is the exception the table is for.
+    tint: { h: [0.92, 0.99], s: [0.34, 0.60], l: [0.60, 0.84] },
+    bright: 1.15,
+    social: 'cloud', schools: [5, 10], per: [16, 34], roam: 0.5, ceil: -0.70,
+    bandMode: 'floor', band: [0.4, 2.0], water: [2.0, 6.5], clear: 0.6,
+    beat: [10.0, 13.0], amp: 0.14,
+  },
+  {
+    // Butterflyfish: lemon flanks, a dark bar, and they move in PAIRS — which
+    // is the whole reason to have them next to the anthias. A cloud reads as a
+    // texture; two fish holding a fixed 0.4 m apart across the frame read as
+    // animals, and the reef needs both to look inhabited rather than swarmed.
+    // `social: 'gang'` is the loosest flock in BOIDS and is what gives the pair
+    // its slow drift; `per: [2, 3]` is what makes it a pair.
+    //
+    // Deep-bodied and short, so the silhouette is a disc — the one shape on
+    // this reef that is neither a sliver (every schooling fish) nor a diamond
+    // (the ray), and therefore the one that is identifiable at 20 px.
+    key: 'butterfly', prof: PROF_DEEP, len: 0.30, sizeJit: [0.86, 1.14],
+    girth: 0.070, depth: 0.330, stations: 7, radial: [6, 7],
+    caudal: [0.13, 0.20, 0.19], dorsal: 0.20, anal: 0.16, pect: true,
+    pal: { back: 0xF2B024, mid: 0xFFD84A, belly: 0xFFF3C4, fin: 0xFFE066 },
+    // `n: 2` puts the sin^6 peaks at a quarter and three-quarters of the body:
+    // an eye bar and a rear bar, which is the real fish's pattern and the two
+    // marks the silhouette can least afford to lose. 0.55 is heavy on purpose —
+    // a 20 px fish needs a mark that survives being 3 px wide.
+    marks: { kind: 'bars', n: 2, color: col(0x241C2E), amount: 0.55 },
+    tint: { h: [0.11, 0.15], s: [0.42, 0.68], l: [0.66, 0.88] },
+    bright: 1.10,
+    social: 'gang', schools: [5, 10], per: [2, 3], roam: 0.65, ceil: -0.90,
+    bandMode: 'floor', band: [0.5, 2.4], water: [2.0, 7.0], clear: 0.55,
+    beat: [4.6, 6.2], amp: 0.085,
   },
 ];
 
@@ -1402,7 +1461,11 @@ export function createWildlife(opts = {}) {
   // is an attribute ON the geometry and two InstancedMeshes sharing one geometry
   // would share one instance buffer.
 
-  const JUMP_SPEC = SPECIES[2];      // the snapper
+  // By key, not by index. This read `SPECIES[2]` — which is the DAMSEL, three
+  // entries after the comment was written — so the fish that leapt out of the
+  // water was a 0.24 m damsel and not the snapper the whole block describes.
+  // Appending species to the table would have moved it again.
+  const JUMP_SPEC = SPECIES.find((s) => s.key === 'snapper');
   const jumperGeo = buildCreature(JUMP_SPEC, lerpI(JUMP_SPEC.radial[0], JUMP_SPEC.radial[1]),
     wingRows, withPect, 1.25);
   const jumperA = new Float32Array(4);

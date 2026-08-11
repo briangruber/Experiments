@@ -310,12 +310,24 @@ function makeRubble(rng) {
 // read through several metres of water, which eats red first, so the albedo is
 // biased warm on purpose.
 
+// The vivid entries are a deliberate minority, not a recolour. The instance
+// picker is uniform over each array, so one hot swatch in six paints ~17% of
+// that archetype and leaves the rest doing the structural work — which is what
+// a real reef looks like from above: olive and ochre, punctuated. Every added
+// colour is one a soft coral or an encrusting plate actually is (magenta and
+// violet gorgonians, coral pink, the aqua tips on staghorn), and they are
+// concentrated in the archetypes that live SHALLOW, because that is where the
+// water has not yet eaten the red out of them.
 const PALETTE = {
-  brain: [0xA0714E, 0xAC8259, 0x94665F, 0x9A7846, 0x866E48, 0x6E7A4C, 0xA87C66],
-  table: [0xA6824C, 0x95764D, 0x8A6C3E, 0x7C824A, 0x976E52],
-  staghorn: [0x8E6C72, 0x7A6478, 0xA07C5E, 0x5E8478, 0x6E7A4A, 0x8A7060],
-  bush: [0x466833, 0x3A5A2A, 0x55702F, 0x2C4A2A, 0x44603A, 0x5C7638, 0x33502A, 0x4E6A2C],
-  fan: [0x8E6062, 0x745C76, 0x8E7046, 0x5E7E78, 0x86605A],
+  brain: [0xA0714E, 0xAC8259, 0x94665F, 0x9A7846, 0x866E48, 0x6E7A4C, 0xA87C66,
+    0xC25A6E, 0xB8734E],
+  table: [0xA6824C, 0x95764D, 0x8A6C3E, 0x7C824A, 0x976E52, 0xC08A5E],
+  staghorn: [0x8E6C72, 0x7A6478, 0xA07C5E, 0x5E8478, 0x6E7A4A, 0x8A7060,
+    0xB86E90, 0x5FA6A0],
+  bush: [0x466833, 0x3A5A2A, 0x55702F, 0x2C4A2A, 0x44603A, 0x5C7638, 0x33502A, 0x4E6A2C,
+    0x8A4E7A, 0x6E9A3C],
+  fan: [0x8E6062, 0x745C76, 0x8E7046, 0x5E7E78, 0x86605A,
+    0xC2447E, 0x8E4CA8, 0xD2685A, 0x3E9E9A],
   kelp: [0x3E5C2C, 0x314C28, 0x486A30, 0x2A4226, 0x536E33],
   urchin: [0x40304A, 0x33283C, 0x482E44, 0x2A2434],
   rubble: [0x847A6A, 0x746C60, 0x8E8070, 0x6C6A5E, 0x7E765E],
@@ -509,7 +521,10 @@ export function createCoral(opts = {}) {
     { key: 'staghorn', geo: makeStaghorn(rng), soft: false, budget: 210, w: 0.52, dMin: 1.2, dMax: 11, sMin: 0.95, sMax: 2.10, sink: 0.12, tilt: 0.45, flat: 0.25 },
     { key: 'table', geo: makeTable(rng), soft: false, budget: 130, w: 0.28, dMin: 2.2, dMax: 13, sMin: 0.75, sMax: 1.65, sink: 0.10, tilt: 0.40, flat: 0.18 },
     { key: 'kelp', geo: makeKelp(rng), soft: true, budget: 305, w: 0.78, dMin: 2.0, dMax: 12, sMin: 1.15, sMax: 2.90, sink: 0.08, tilt: 0.30, flat: 0.35 },
-    { key: 'fan', geo: makeFan(rng), soft: true, budget: 120, w: 0.26, dMin: 3.0, dMax: 17, sMin: 0.95, sMax: 2.10, sink: 0.06, tilt: 0.35, flat: 0.20 },
+    // dMin was 3.0, which put every sea fan outside the lagoon — the fans are
+    // the most saturated thing on the reef and none of them were anywhere the
+    // player swims. 1.8 m still keeps them off the bar and out of the surf.
+    { key: 'fan', geo: makeFan(rng), soft: true, budget: 190, w: 0.30, dMin: 1.8, dMax: 17, sMin: 0.95, sMax: 2.10, sink: 0.06, tilt: 0.35, flat: 0.20 },
     { key: 'urchin', geo: makeUrchin(rng), soft: false, budget: 195, w: 0.44, dMin: 0.8, dMax: 13, sMin: 0.40, sMax: 0.88, sink: 0.12, tilt: 0.60, flat: 0.20 },
     { key: 'rubble', geo: makeRubble(rng), soft: false, budget: 320, w: 0.78, dMin: 0.6, dMax: 30, sMin: 0.45, sMax: 2.05, sink: 0.34, tilt: 0.85, flat: 0.45 },
   ];

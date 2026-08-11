@@ -16,9 +16,12 @@
 // stem on `ctx.boat.forward`.
 
 import * as THREE from 'three';
+import {
+  Fn, positionGeometry, float, vec2, vec3, floor, fract, dot, mix, mod,
+  smoothstep as tslSmoothstep,
+} from 'three/tsl';
 import { LAYER, setLayers } from '../core/layers.js';
 import { applyWaterClip } from '../water/clip.js';
-import { GLSL } from '../core/glsl.js';
 import { makeRng } from '../core/rng.js';
 
 const C = (hex) => new THREE.Color().setHex(hex, THREE.SRGBColorSpace);
@@ -274,52 +277,88 @@ function buildHullGeometry() {
 }
 
 // --- shader: painted planking, boot line, bottom paint ----------------------
+//
+// This used to be an `onBeforeCompile` patch against the MeshStandardMaterial
+// chunk graph. `onBeforeCompile` DOES NOT EXIST in the WebGPU build — grep the
+// vendored bundle, it is zero hits — so for the whole life of the TSL port the
+// hook was never called and the hull rendered as its base material: flat
+// `color: 0xffffff`, roughness 0.56. Against bright tropical water, through the
+// bloom, a pure-white unbroken shell washes out to nearly the value of the
+// water behind it, which is what "the boat is see-through" was describing.
+// Nothing about it was transparent; it had no albedo left to be opaque with.
+//
+// Same field, as a node graph. `positionGeometry` is the raw local attribute —
+// the old `position.xyz` varying — so the planking is pinned to the hull and
+// not to the world, and every constant below is the one the GLSL used.
+//
+// It is a MeshStandardNodeMaterial, not a plain MeshStandardMaterial with a
+// colorNode hung on it, for the reason spelled out at wildlife.js:895: two
+// plain standard materials that differ only in their node graph collide on
+// `customProgramCacheKey` and the second silently renders with the first's
+// shader. The old `customProgramCacheKey` override here was exactly that trap.
+
+// core/glsl.js's hash12 / vnoise as node graphs — the same port coral.js uses,
+// so the planking grain lands where it did in GLSL.
+const hullHash12 = Fn(([p]) => {
+  const p3 = fract(vec3(p.x, p.y, p.x).mul(0.1031)).toVar();
+  p3.addAssign(vec3(dot(p3, p3.yzx.add(33.33))));
+  return fract(p3.x.add(p3.y).mul(p3.z));
+});
+
+const hullNoise = Fn(([p]) => {
+  const i = floor(p).toVar();
+  const f = fract(p).toVar();
+  const u = f.mul(f).mul(f.mul(-2.0).add(3.0)).toVar();
+  return mix(
+    mix(hullHash12(i), hullHash12(i.add(vec2(1, 0))), u.x),
+    mix(hullHash12(i.add(vec2(0, 1))), hullHash12(i.add(vec2(1, 1))), u.x),
+    u.y,
+  );
+});
+
+const tsl = (c) => vec3(c.r, c.g, c.b);
 
 function makeHullMaterial() {
-  const mat = new THREE.MeshStandardMaterial({
+  const mat = new THREE.MeshStandardNodeMaterial({
     color: 0xffffff,
     roughness: 0.56,
     metalness: 0.0,
     side: THREE.DoubleSide,
   });
-  mat.onBeforeCompile = (shader) => {
-    shader.uniforms.uCream = { value: CREAM.clone() };
-    shader.uniforms.uBoot = { value: BOOT.clone() };
-    shader.uniforms.uBottom = { value: BOTTOM.clone() };
-    shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vHullP;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vHullP = position.xyz;');
-    shader.fragmentShader = shader.fragmentShader
-      .replace(
-        '#include <common>',
-        `#include <common>
-varying vec3 vHullP;
-uniform vec3 uCream;
-uniform vec3 uBoot;
-uniform vec3 uBottom;
-${GLSL.hash}
-${GLSL.noise}`,
-      )
-      .replace(
-        '#include <color_fragment>',
-        `#include <color_fragment>
-{
-  float hy = vHullP.y;
-  float plank = (hy - 0.055) / 0.118;
-  float pf = fract(plank);
-  float lip = smoothstep(0.0, 0.07, pf) * (1.0 - smoothstep(0.90, 1.0, pf));
-  float alt = mod(floor(plank), 2.0);
-  vec3 hc = uCream * (0.90 + 0.10 * lip) * (0.975 + 0.05 * alt);
-  float hn = vnoise(vec2(vHullP.x * 4.0 + vHullP.z * 1.7, vHullP.y * 11.0));
-  hc *= 0.955 + 0.085 * hn;
-  hc = mix(hc, uCream * 0.78, smoothstep(0.34, 0.10, hy) * 0.55);
-  hc = mix(hc, uBoot, smoothstep(0.118, 0.086, hy));
-  hc = mix(hc, uBottom, smoothstep(-0.015, -0.055, hy));
-  diffuseColor.rgb = hc;
-}`,
-      );
-  };
-  mat.customProgramCacheKey = () => 'saltyfin-hull-1';
+
+  // Plank index, shared by the albedo and the roughness so the caulk seam is
+  // dark AND matte, which is what actually reads as a lapped seam at 20 px.
+  const plankLip = Fn(() => {
+    const pf = fract(positionGeometry.y.sub(0.055).div(0.118)).toVar();
+    return tslSmoothstep(0.0, 0.07, pf).mul(tslSmoothstep(0.90, 1.0, pf).oneMinus());
+  });
+
+  mat.colorNode = Fn(() => {
+    const hy = positionGeometry.y.toVar();
+    const plank = hy.sub(0.055).div(0.118).toVar();
+    const lip = plankLip().toVar();
+    const alt = mod(floor(plank), 2.0).toVar();
+    const hc = tsl(CREAM)
+      .mul(float(0.90).add(lip.mul(0.10)))
+      .mul(float(0.975).add(alt.mul(0.05)))
+      .toVar();
+    const hn = hullNoise(vec2(
+      positionGeometry.x.mul(4.0).add(positionGeometry.z.mul(1.7)),
+      hy.mul(11.0),
+    )).toVar();
+    hc.mulAssign(float(0.955).add(hn.mul(0.085)));
+    hc.assign(mix(hc, tsl(CREAM).mul(0.78), tslSmoothstep(0.34, 0.10, hy).mul(0.55)));
+    hc.assign(mix(hc, tsl(BOOT), tslSmoothstep(0.118, 0.086, hy)));
+    hc.assign(mix(hc, tsl(BOTTOM), tslSmoothstep(-0.015, -0.055, hy)));
+    return hc;
+  })();
+
+  // Topsides are painted and semi-gloss; the antifouled bottom is chalky. The
+  // seam between planks holds a little more roughness than the plank face.
+  mat.roughnessNode = Fn(() => float(0.62)
+    .sub(plankLip().mul(0.10))
+    .add(tslSmoothstep(0.02, -0.05, positionGeometry.y).mul(0.28)))();
+
   return mat;
 }
 

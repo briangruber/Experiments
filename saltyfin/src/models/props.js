@@ -23,6 +23,7 @@
 // dark lumps of iron, at night they are the only warm points out on the reef.
 
 import * as THREE from 'three';
+import { Fn, attribute, uniform, float, sin, step } from 'three/tsl';
 import { LAYER, setLayers, addLayers } from '../core/layers.js';
 import { applyWaterClip } from '../water/clip.js';
 import { makeRng } from '../core/rng.js';
@@ -290,30 +291,31 @@ function strutAngles(dx, dy, dz, out) {
 }
 const _st = [0, 0, 0];
 
-// --- the emissive-lamp material (the dock's, unchanged) -------------------------
+// --- the emissive-lamp material -------------------------------------------------
+//
+// This was an `onBeforeCompile` patch, and `onBeforeCompile` does not exist in
+// the WebGPU build (zero hits in the vendored bundle), so since the TSL port
+// every lamp on the dock, every channel marker and every buoy has been a dull
+// grey cylinder — at night as well as by day. Same maths as a node graph.
+//
+// `aGlow` is (glow strength, flicker phase). Phase 0 means "do not flicker",
+// which is why the `step` is kept rather than folded away.
 
 function makeGlowMaterial(uniforms, baseHex) {
-  const m = new THREE.MeshStandardMaterial({
+  const m = new THREE.MeshStandardNodeMaterial({
     color: C(baseHex), roughness: 0.30, metalness: 0.0, vertexColors: true, fog: true,
   });
-  m.onBeforeCompile = (shader) => {
-    shader.uniforms.uGlowTime = uniforms.time;
-    shader.uniforms.uGlowColor = uniforms.color;
-    shader.uniforms.uGlowI = uniforms.intensity;
-    shader.vertexShader = 'attribute vec2 aGlow;\nvarying vec2 vGlow;\n' + shader.vertexShader.replace(
-      '#include <begin_vertex>',
-      '#include <begin_vertex>\n  vGlow = aGlow;',
-    );
-    shader.fragmentShader = 'uniform float uGlowTime;\nuniform vec3 uGlowColor;\nuniform float uGlowI;\nvarying vec2 vGlow;\n' + shader.fragmentShader.replace(
-      'vec3 totalEmissiveRadiance = emissive;',
-      `vec3 totalEmissiveRadiance = emissive;
-  float gph = vGlow.y;
-  float gfl = 1.0 + step(0.001, gph) * (
-      0.14 * sin(uGlowTime * (2.1 + gph * 2.7) + gph * 23.0)
-    + 0.06 * sin(uGlowTime * (6.9 + gph * 1.3) + gph * 41.0));
-  totalEmissiveRadiance += uGlowColor * (uGlowI * vGlow.x * gfl) * vColor.rgb;`,
-    );
-  };
+  const aGlow = attribute('aGlow', 'vec2');
+  m.emissiveNode = Fn(() => {
+    const gph = aGlow.y.toVar();
+    const gfl = float(1.0).add(step(0.001, gph).mul(
+      sin(uniforms.time.mul(gph.mul(2.7).add(2.1)).add(gph.mul(23.0))).mul(0.14)
+        .add(sin(uniforms.time.mul(gph.mul(1.3).add(6.9)).add(gph.mul(41.0))).mul(0.06)),
+    )).toVar();
+    return uniforms.color
+      .mul(uniforms.intensity.mul(aGlow.x).mul(gfl))
+      .mul(attribute('color', 'vec3'));
+  })();
   return m;
 }
 
@@ -406,10 +408,13 @@ export function createProps(opts = {}) {
 
   // --- shared materials -----------------------------------------------------
 
+  // TSL uniform nodes, not plain `{value}` objects — they carry the same
+  // `.value` so `applyEnv`/`update` below are unchanged, and the node graph in
+  // makeGlowMaterial can reference them directly.
   const uniforms = {
-    time: { value: 0 },
-    color: { value: new THREE.Color(1, 0.72, 0.36) },
-    intensity: { value: 0 },
+    time: uniform(0),
+    color: uniform(new THREE.Color(1, 0.72, 0.36)),
+    intensity: uniform(0),
   };
 
   // Boats are open shells — the inside of a dory is as visible as the outside —
