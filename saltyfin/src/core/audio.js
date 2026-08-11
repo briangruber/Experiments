@@ -31,7 +31,23 @@
 
 import { makeRng } from './rng.js';
 
-const MASTER = 0.45;               // full mix, reached over ~1.5 s at unlock
+// A phone speaker is a different instrument. The 0.45 desktop mix that reads
+// as "cozy" through laptop speakers is borderline inaudible from a phone held
+// at arm's length outdoors — the speaker is tiny, the lapping layer is
+// broadband hush that it reproduces worst, and there is no volume slider to
+// reach for. So the master runs hotter on coarse pointers.
+const TOUCHY = typeof matchMedia === 'function'
+  && (matchMedia('(pointer: coarse)').matches || (navigator.maxTouchPoints || 0) > 0);
+const MASTER = TOUCHY ? 0.8 : 0.5; // full mix, reached over ~1.5 s at unlock
+
+// The smallest valid WAV there is — 44 bytes of header and one silent sample.
+// Playing it through an HTML <audio> element is not decoration: on iOS,
+// Web Audio routes through the RINGER channel, so a phone with the mute
+// switch on plays nothing however correctly the context was unlocked. An
+// HTMLMediaElement that is actually playing flips the audio session to the
+// playback category, which ignores the ringer switch — it is the difference
+// between "works on my phone" and works on phones.
+const SILENT_WAV = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
 const LP_DAY = 18000;              // master lowpass wide open
 const LP_NIGHT = 8000;             // night darkens the whole mix a shade
 const LP_UNDER = 320;              // ears full of water
@@ -168,7 +184,18 @@ export function createAudio(opts = {}) {
   }
 
   function unlock() {
-    if (ac || dead) return;
+    if (dead) return;
+    // Re-entry is the POINT, not an accident. iOS grants user activation on
+    // touchend/click, not touchstart — so the first gesture event we hear may
+    // create a context that resume() cannot yet start, and a later event in
+    // the same tap (or the next tap) has to be able to finish the job. The
+    // old version returned early whenever `ac` existed, which stranded a
+    // suspended context forever: that is the "no sound on mobile" bug.
+    if (ac) {
+      if (ac.state !== 'running') ac.resume().catch(() => {});
+      masterGain.gain.setTargetAtTime(muted ? 0 : MASTER, ac.currentTime, 0.5);
+      return;
+    }
     try {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) { dead = true; return; }
@@ -335,12 +362,40 @@ export function createAudio(opts = {}) {
   const onBtn = (e) => { e.preventDefault(); setMuted(!muted); };
   btn.addEventListener('click', onBtn);
 
-  // The unlock gesture. The chip's own tap bubbles to window, so unmuting is
-  // itself a valid unlock even if it is the first thing the player touches.
-  const onGesture = () => unlock();
-  window.addEventListener('pointerdown', onGesture, { once: true, passive: true });
-  window.addEventListener('keydown', onGesture, { once: true, passive: true });
-  window.addEventListener('touchstart', onGesture, { once: true, passive: true });
+  // The iOS ringer-switch bypass: a silent looping <audio> element, started
+  // inside a real gesture. See SILENT_WAV. Kept playing for the life of the
+  // page — it is one decoded sample on loop, and stopping it hands the session
+  // back to the ringer.
+  let htmlKick = null;
+  function kickPlayback() {
+    try {
+      if (!htmlKick) {
+        htmlKick = document.createElement('audio');
+        htmlKick.setAttribute('playsinline', '');
+        htmlKick.loop = true;
+        htmlKick.src = SILENT_WAV;
+      }
+      const pr = htmlKick.play();
+      if (pr && pr.catch) pr.catch(() => {});
+    } catch { /* an <audio> that will not play is just absent */ }
+  }
+
+  // The unlock gestures. NOT once-handlers, and covering the activation set
+  // rather than three guesses at it: iOS counts touchend and click, Chrome
+  // counts pointerdown and keydown, and the first version listened to
+  // touchstart — which iOS does NOT count for audio — with { once: true },
+  // so a phone's very first tap consumed the listener while the context
+  // stayed suspended, permanently. These stay attached until everything is
+  // demonstrably running, then remove themselves.
+  const GESTURES = ['pointerdown', 'pointerup', 'touchstart', 'touchend', 'mousedown', 'click', 'keydown'];
+  const onGesture = () => {
+    unlock();
+    kickPlayback();
+    if (ac && ac.state === 'running' && htmlKick && !htmlKick.paused) {
+      for (const g of GESTURES) window.removeEventListener(g, onGesture);
+    }
+  };
+  for (const g of GESTURES) window.addEventListener(g, onGesture, { passive: true });
   // iOS suspends (or "interrupts") the context when the tab backgrounds and
   // does not always bring it back; a visible tab with a non-running context is
   // the one state worth poking.
@@ -434,9 +489,8 @@ export function createAudio(opts = {}) {
 
   function dispose() {
     try {
-      window.removeEventListener('pointerdown', onGesture);
-      window.removeEventListener('keydown', onGesture);
-      window.removeEventListener('touchstart', onGesture);
+      for (const g of GESTURES) window.removeEventListener(g, onGesture);
+      if (htmlKick) { try { htmlKick.pause(); } catch { /* fine */ } htmlKick = null; }
       document.removeEventListener('visibilitychange', onVis);
       btn.removeEventListener('click', onBtn);
       btn.remove();
