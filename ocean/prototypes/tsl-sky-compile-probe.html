@@ -32,6 +32,7 @@ import * as THREE from 'three/webgpu';
 import { uv, vec3, vec4, float, screenCoordinate } from 'three/tsl';
 import { skyLutFragment } from '../src/gpu/tsl/sky-lut.js';
 import { marchClouds } from '../src/gpu/tsl/cloud-march.js';
+import { skyBackground } from '../src/gpu/tsl/sky-background.js';
 
 const results = [];
 const log = (name, ok, detail = '') => {
@@ -49,6 +50,9 @@ const GRAPHS = {
     vec3(0.4, 0.5, 0.7), vec3(0.3, 0.35, 0.45),
     vec3(1, 1, 1), screenCoordinate,
   ),
+  // The whole background pass: discs, stars, cirrus, the LUT fetch and the
+  // deck, composed. This is the graph the driver actually renders.
+  'sky background': () => skyBackground(),
 };
 
 async function compileOn(forceWebGL) {
