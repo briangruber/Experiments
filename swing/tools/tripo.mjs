@@ -27,9 +27,32 @@ const has = (name) => args.includes('--' + name);
 
 const headers = { authorization: `Bearer ${KEY}`, 'content-type': 'application/json' };
 
+/**
+ * Fetch and parse JSON, retrying transient failures. Generation takes minutes,
+ * and a single DNS blip or HTML error page part-way through should not throw
+ * away a task that is still running on the far end.
+ */
+async function fetchJson(url, opts = {}, tries = 5) {
+  let last;
+  for (let i = 0; i < tries; i++) {
+    try {
+      const res = await fetch(url, opts);
+      const text = await res.text();
+      try {
+        return JSON.parse(text);
+      } catch {
+        throw new Error(`non-JSON response (${res.status}): ${text.slice(0, 120)}`);
+      }
+    } catch (err) {
+      last = err;
+      await new Promise((r) => setTimeout(r, 2000 * 2 ** i));
+    }
+  }
+  throw last;
+}
+
 async function post(body) {
-  const res = await fetch(`${API}/task`, { method: 'POST', headers, body: JSON.stringify(body) });
-  const json = await res.json();
+  const json = await fetchJson(`${API}/task`, { method: 'POST', headers, body: JSON.stringify(body) });
   if (json.code !== 0) throw new Error(`task rejected (${json.code}): ${json.message || JSON.stringify(json)}`);
   return json.data.task_id;
 }
@@ -37,8 +60,7 @@ async function post(body) {
 async function poll(taskId, label) {
   let last = -1;
   for (;;) {
-    const res = await fetch(`${API}/task/${taskId}`, { headers });
-    const json = await res.json();
+    const json = await fetchJson(`${API}/task/${taskId}`, { headers });
     if (json.code !== 0) throw new Error(`poll failed (${json.code}): ${json.message}`);
     const d = json.data;
     if (d.progress !== last) {
@@ -98,9 +120,16 @@ if (cmd === 'status') {
   const style = flag('style', '');
   if (style) body.style = style;
 
-  console.log(`[${name}] submitting…`);
-  const taskId = await post(body);
-  console.log(`[${name}] task ${taskId}`);
+  // --from resumes a task that was already submitted, so a dropped connection
+  // costs a reconnect rather than another generation.
+  let taskId = flag('from', '');
+  if (taskId) {
+    console.log(`[${name}] resuming task ${taskId}`);
+  } else {
+    console.log(`[${name}] submitting…`);
+    taskId = await post(body);
+    console.log(`[${name}] task ${taskId}`);
+  }
   let data = await poll(taskId, name);
   let sourceTask = taskId;
 

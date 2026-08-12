@@ -24,10 +24,11 @@
     },
     {
       "name": "hero",
-      "prompt": "stylized comic-book superhero in a sleek crimson and charcoal suit with glowing cyan piping, full face mask, lean athletic build, standing straight with arms down at sides, game-ready character, clean smooth surfaces",
-      "task": "a778e3df-dcf4-4237-8490-d0d3fbd9a487",
+      "prompt": "athletic superhero in a skintight crimson and charcoal bodysuit with glowing cyan trim lines and a smooth full-face mask with angular cyan visor lenses, standing in a symmetrical T-pose with both arms straight out horizontally to the sides, legs straight and slightly apart, full body, game character, clean topology",
+      "task": "81f25b3f-b28a-460b-9f7f-3bd5e2959f9e",
       "rigged": true,
-      "bytes": 1291780
+      "bytes": 1251724,
+      "note": "T-pose bind pose: avatar.js solves bone directions, which is cleanest from a symmetric rest pose"
     },
     {
       "name": "water_tower",

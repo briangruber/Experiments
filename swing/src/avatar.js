@@ -11,7 +11,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clamp, damp, smoothstep } from './util.js';
-import { asset } from './assets.js';
+import { loadGLB } from './assets.js';
 
 const HEIGHT = 1.95;                 // metres, hips-to-head normalised
 
@@ -111,7 +111,7 @@ export class Avatar {
   }
 
   async load(url = './assets/hero.glb') {
-    const gltf = await new GLTFLoader().loadAsync(asset(url));
+    const gltf = await loadGLB(new GLTFLoader(), url);
     const model = gltf.scene;
 
     model.traverse((o) => {
@@ -142,7 +142,39 @@ export class Avatar {
 
     for (const [, b] of this.bones) this.rest.set(b.name, b.quaternion.clone());
     this.ready = this.bones.size > 0;
+    if (!this.ready) this.buildStandIn();
     return this;
+  }
+
+  /**
+   * A blocky figure, used when the mesh cannot be loaded at all. It has no
+   * skeleton, so it only takes the body orientation — but a player who can see
+   * where they are and which way they are pointing has a game, and one staring
+   * at an invisible character does not.
+   */
+  buildStandIn() {
+    if (this.model) return;
+    const suit = new THREE.MeshStandardMaterial({ color: 0xc8213f, roughness: 0.55, metalness: 0.1 });
+    const dark = new THREE.MeshStandardMaterial({ color: 0x1b2030, roughness: 0.7, metalness: 0.15 });
+    const figure = new THREE.Group();
+    const part = (geo, mat, x, y, z) => {
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(x, y, z);
+      m.frustumCulled = false;
+      figure.add(m);
+      return m;
+    };
+    part(new THREE.CapsuleGeometry(0.28, 0.62, 4, 10), suit, 0, 1.25, 0);
+    part(new THREE.SphereGeometry(0.22, 12, 10), suit, 0, 1.82, 0);
+    for (const s of [-1, 1]) {
+      part(new THREE.CapsuleGeometry(0.1, 0.52, 3, 8), suit, s * 0.34, 1.34, 0);
+      part(new THREE.CapsuleGeometry(0.12, 0.66, 3, 8), dark, s * 0.15, 0.5, 0);
+    }
+    this.root.add(figure);
+    this.model = figure;
+    this.ready = true;
+    this.standIn = true;
+    console.warn('avatar: using the procedural stand-in');
   }
 
   /** Rotate `bone` so the direction to `child` matches a world-space vector. */
@@ -261,6 +293,8 @@ export class Avatar {
       if (rest) b.quaternion.copy(rest);
     }
     this.root.updateMatrixWorld(true);
+
+    if (this.standIn) return;                          // no skeleton to solve
 
     for (const [bone, child] of CHAIN) {
       const v = this.blend[bone];

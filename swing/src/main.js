@@ -153,7 +153,10 @@ async function boot() {
 
   // Assets are optional dressing — the game is playable before they land.
   const assets = Promise.all([
-    avatar.load().catch((err) => console.warn('avatar unavailable —', err.message)),
+    avatar.load().catch((err) => {
+      console.warn('avatar mesh unavailable —', err.message);
+      avatar.buildStandIn();
+    }),
     buildProps(city).then((g) => { scene.add(g); return g; }).catch((err) => {
       console.warn('props unavailable —', err.message);
       return null;
@@ -274,17 +277,24 @@ async function boot() {
     }
   };
 
-  /** Cheap reticle feedback: one ray up-forward, a few times a second. */
+  /**
+   * Reticle feedback, a few times a second: run the same search each trigger
+   * would run and light that hand's pip. Showing the mapping is the only way it
+   * is learnable — otherwise which button to press is a guess.
+   */
   const checkReticle = (dt) => {
-    if (player.web.active) { hud.setReticle('held'); return; }
+    if (player.web.active) {
+      hud.setReticle('held');
+      hud.setSides(player.web.side < 0, player.web.side > 0);
+      return;
+    }
     reticleCd -= dt;
     if (reticleCd > 0) return;
-    reticleCd = 0.08;
-    _dir.copy(cam.basis.forward);
-    _dir.y += 0.42;
-    _dir.normalize();
-    const hit = city.raycast(player.pos, _dir, 105, _hit);
-    hud.setReticle(hit && hit.point.y > player.pos.y + 3 ? 'live' : '');
+    reticleCd = 0.11;
+    const left = !!player.probe(-1, cam.basis);
+    const right = !!player.probe(1, cam.basis);
+    hud.setSides(left, right);
+    hud.setReticle(left || right ? 'live' : '');
   };
 
   /**

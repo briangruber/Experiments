@@ -16,13 +16,19 @@ python3 -m http.server 8000     # or any static server
 
 | | desktop | touch |
 | --- | --- | --- |
-| fire a web | hold left / right mouse (or `Q` / `E`) | hold **WEB L** / **WEB R** |
+| swing left | hold left mouse (or `Q`) | hold **WEB L** |
+| swing right | hold right mouse (or `E`) | hold **WEB R** |
 | aim and steer | move the mouse (pointer lock) | drag anywhere |
 | reel in | `W` | **DIVE** |
 | dive | `Shift` | **DIVE** |
 | boost / jump | `Space` | **BOOST** |
 | respawn | `R` | — |
 | hide HUD / mute / pause | `H` / `M` / `Esc` | — |
+
+Each trigger is a side, not just a hand: the left web searches to your left and
+swings you around that way, the right web to your right. The `L` and `R` pips
+either side of the reticle light up when that side has something to grab, so the
+mapping is visible before you commit to it.
 
 The camera lines itself up with your velocity after a moment of no steering, so
 one thumb on a phone is enough: hold a web, let go, hold the other.
@@ -61,6 +67,7 @@ src/
   hud.js          DOM HUD
 tools/
   shot.mjs        headless capture + smoke test
+  preview.mjs     contact sheet of generated meshes
   bundle.mjs      fold everything into one self-contained HTML file
   tripo.mjs       Tripo3D asset pipeline
 assets/           generated meshes + manifest.json (prompt and task id each)

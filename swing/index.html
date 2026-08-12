@@ -21,10 +21,14 @@
 <canvas id="gl" oncontextmenu="return false"></canvas>
 
 <div id="hud" hidden>
-  <div id="reticle"><svg viewBox="0 0 40 40" aria-hidden="true">
-    <circle class="ring" cx="20" cy="20" r="9"/>
-    <path class="tick" d="M20 3v6M20 31v6M3 20h6M31 20h6"/>
-  </svg></div>
+  <div id="reticle">
+    <span class="pip" id="pip-l">L</span>
+    <svg viewBox="0 0 40 40" aria-hidden="true">
+      <circle class="ring" cx="20" cy="20" r="9"/>
+      <path class="tick" d="M20 3v6M20 31v6M3 20h6M31 20h6"/>
+    </svg>
+    <span class="pip" id="pip-r">R</span>
+  </div>
 
   <div id="stat-speed"><b>0</b><span>km/h</span></div>
 
@@ -54,14 +58,14 @@
     <div class="horizon"></div>
     <p class="tag">swing the city · chase the rings</p>
     <div class="keys pointer-fine">
-      <span><kbd>hold</kbd> left / right mouse — fire a web</span>
+      <span><kbd>left mouse</kbd> swings you left · <kbd>right mouse</kbd> swings you right</span>
       <span><kbd>move</kbd> or drag the mouse — aim &amp; steer</span>
       <span><kbd>W</kbd> reel in &nbsp; <kbd>Shift</kbd> dive &nbsp; <kbd>Space</kbd> boost / jump</span>
       <span><kbd>R</kbd> respawn &nbsp; <kbd>H</kbd> hide HUD &nbsp; <kbd>Esc</kbd> pause</span>
     </div>
     <div class="keys pointer-coarse">
       <span>drag anywhere — aim &amp; steer</span>
-      <span>hold <kbd>WEB L / R</kbd> — swing</span>
+      <span><kbd>WEB L</kbd> swings you left · <kbd>WEB R</kbd> swings you right</span>
       <span><kbd>BOOST</kbd> to launch, <kbd>DIVE</kbd> to gain speed</span>
     </div>
     <button id="play" type="button" disabled>building the city…</button>

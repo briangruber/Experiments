@@ -16,8 +16,10 @@ export class Hud {
     this.fps = el('tape-fps');
     this.feed = el('feed');
     this.reticle = el('reticle');
+    this.pipL = el('pip-l');
+    this.pipR = el('pip-r');
 
-    this.last = { speed: -1, score: -1, combo: -1, alt: -1, fps: -1, ret: '' };
+    this.last = { speed: -1, score: -1, combo: -1, alt: -1, fps: -1, ret: '', pips: '' };
     this.frames = 0;
     this.acc = 0;
     this.visible = true;
@@ -83,5 +85,14 @@ export class Hud {
     if (state === this.last.ret) return;
     this.last.ret = state;
     this.reticle.className = state;
+  }
+
+  /** Light the hand pips for the sides that currently have something to grab. */
+  setSides(left, right) {
+    const key = `${left}${right}`;
+    if (key === this.last.pips) return;
+    this.last.pips = key;
+    this.pipL.classList.toggle('on', left);
+    this.pipR.classList.toggle('on', right);
   }
 }

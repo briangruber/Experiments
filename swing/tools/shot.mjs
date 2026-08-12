@@ -252,6 +252,19 @@ const report = await page.evaluate(async ({ wait, keep, freeze, sim, trace, foll
       ringGateWorks = rings.collected === before + 1;
     }
 
+    // Does each trigger actually reach to its own side? Project each hand's
+    // chosen anchor onto the camera's right vector: the left web should land
+    // negative, the right web positive.
+    const handSpread = [];
+    for (const side of [-1, 1]) {
+      const found = p.probe(side, cam.basis);
+      if (!found) { handSpread.push(`${side < 0 ? 'left' : 'right'}: none`); continue; }
+      const rel = found.point.clone().sub(p.pos);
+      const lateral = rel.dot(cam.basis.right);
+      const ahead = rel.dot(cam.basis.flat);
+      handSpread.push(`${side < 0 ? 'left' : 'right'}: lateral ${lateral.toFixed(0)}m, ahead ${ahead.toFixed(0)}m`);
+    }
+
     // Ask the anchor search itself, from wherever the run ended.
     const heading = [cam.basis.flat.x, cam.basis.flat.y, cam.basis.flat.z].map((v) => +v.toFixed(2));
     const attachWorks = p.tryAttach(-1, cam.basis);
@@ -262,6 +275,7 @@ const report = await page.evaluate(async ({ wait, keep, freeze, sim, trace, foll
       simSeconds: sim,
       endedAt,
       endedGrounded,
+      handSpread,
       endedHeading: heading,
       attachFromHere: attachWorks,
       anchorFound: anchor,
@@ -315,9 +329,11 @@ const report = await page.evaluate(async ({ wait, keep, freeze, sim, trace, foll
     back.y = 0;
     if (back.lengthSq() < 1) back.set(0, 0, 1);
     back.normalize();
-    s.camera.position.copy(p0.pos).addScaledVector(back, -16).setY(p0.pos.y + 7);
+    s.camera.fov = 42;
+    s.camera.updateProjectionMatrix();
+    s.camera.position.copy(p0.pos).addScaledVector(back, -7).setY(p0.pos.y + 2.2);
     s.camera.up.set(0, 1, 0);
-    s.camera.lookAt(p0.pos.x, p0.pos.y, p0.pos.z);
+    s.camera.lookAt(p0.pos.x, p0.pos.y - 0.6, p0.pos.z);
     s.camera.updateMatrixWorld(true);
   }
   await s.draw();

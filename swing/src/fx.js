@@ -64,7 +64,7 @@ export class Fx {
     tg.setIndex(idx);
     tg.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e4);
     this.trail = new THREE.Mesh(tg, new THREE.MeshBasicMaterial({
-      color: 0x9fe8ff, transparent: true, opacity: 0.34, depthWrite: false,
+      color: 0x9fe8ff, transparent: true, opacity: 0.2, depthWrite: false,
       blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
     }));
     this.trail.frustumCulled = false;
@@ -188,15 +188,21 @@ export class Fx {
       if (_axis.lengthSq() < 1e-8) _axis.set(0, 0, 1);
       _axis.normalize();
       _fwd.subVectors(_view, a).normalize();
-      _right.crossVectors(_axis, _fwd).normalize().multiplyScalar(
-        (1 - i / TRAIL) * (0.28 + wide * 0.85),
-      );
+      // Pinch the ribbon shut at the head as well as the tail. Starting it at
+      // full width on the player's own position drapes a translucent sheet over
+      // the character — from a chase camera that reads as having no character at
+      // all, which is exactly how it was reported.
+      const t = i / TRAIL;
+      const taper = Math.min(1, i / 5) * (1 - t) * (1 - t);
+      _right.crossVectors(_axis, _fwd);
+      if (_right.lengthSq() < 1e-8) _right.set(1, 0, 0);
+      _right.normalize().multiplyScalar(taper * (0.16 + wide * 0.5));
       const o = i * 6;
       arr[o] = a.x - _right.x; arr[o + 1] = a.y - _right.y; arr[o + 2] = a.z - _right.z;
       arr[o + 3] = a.x + _right.x; arr[o + 4] = a.y + _right.y; arr[o + 5] = a.z + _right.z;
     }
     this.trail.geometry.attributes.position.needsUpdate = true;
-    this.trail.material.opacity = 0.1 + wide * 0.3;
+    this.trail.material.opacity = 0.07 + wide * 0.2;
 
     // --------------------------------------------------------------- shadow --
     const hit = this.city.raycast(player.pos, _down, 260, _hit);

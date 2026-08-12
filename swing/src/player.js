@@ -34,20 +34,34 @@ const STREET_CLEAR = 14;             // no web anchors below this height
  * down, and a fan hung off that direction can only ever find the street.
  */
 const PITCHES = [28, 16, 40, 6, 54, 68];
+
+/**
+ * Yaw offsets are measured *outward* from the heading, on the firing hand's own
+ * side — the right trigger sweeps to your right, the left trigger to your left.
+ * A small negative entry lets each hand reach a little across the centre line so
+ * a grip dead ahead is still catchable, but the bulk of the cone is committed to
+ * one side. That commitment is the whole control scheme: the hand you press is
+ * the side you swing around.
+ *
+ * Note the sign. Rotating the heading about +Y by a positive angle turns it
+ * toward −X, while `basis.right` is +X, so an outward angle becomes a rotation
+ * of `-side * outward`.
+ */
+const OUTWARD = [-8, 6, 20, 34, 50, 68];
 const FAN = [];
 for (const pitch of PITCHES) {
-  for (const yaw of [0, 12, -12, 26, -26, 40, -40, 56, -56]) FAN.push([yaw, pitch]);
+  for (const out of OUTWARD) FAN.push([out, pitch]);
 }
 /**
- * Fallback sweep, used only when the forward fan comes up empty. Standing with
- * your nose against a facade, every forward ray hits it a couple of metres out
- * and there is nothing to grab — while a perfectly good tower sits behind you.
- * Players read that as the web being broken, so widen the search rather than
- * make them turn on the spot.
+ * Fallback sweep, used only when the hand's own cone comes up empty: behind, and
+ * across to the other side. Standing with your nose against a facade every
+ * forward ray hits it a couple of metres out and there is nothing to grab, while
+ * a perfectly good tower sits behind you. Players read that as the web being
+ * broken, so widen the search rather than make them turn on the spot.
  */
 const FAN_WIDE = [];
 for (const pitch of PITCHES) {
-  for (const yaw of [80, -80, 110, -110, 145, -145, 180]) FAN_WIDE.push([yaw, pitch]);
+  for (const out of [88, 110, 140, 170, -30, -55, -85]) FAN_WIDE.push([out, pitch]);
 }
 
 const _n = new THREE.Vector3();
@@ -104,9 +118,9 @@ export class Player {
     const origin = _tmp.copy(this.pos);
     let best = null, bestScore = -Infinity;
 
-    for (const [yawDeg, pitchDeg] of fan) {
-      // Bias the fan toward the requested hand so the two triggers feel distinct.
-      const yaw = THREE.MathUtils.degToRad(yawDeg + side * 10);
+    for (const [outDeg, pitchDeg] of fan) {
+      // Outward angle on the firing hand's side, converted to a heading rotation.
+      const yaw = THREE.MathUtils.degToRad(-side * outDeg);
       const pitch = THREE.MathUtils.degToRad(pitchDeg);
       _dir.copy(basis.flat);
       _q.setFromAxisAngle(this.up, yaw);
@@ -144,11 +158,12 @@ export class Player {
       // Prefer anchors that give a long, high arc, roughly where the player aims.
       const heightScore = smoothstep(-8, 55, dy) * (1 - 0.3 * smoothstep(80, 130, dy));
       const distScore = 1 - Math.abs(hit.distance - 46) / 90;
-      const aimScore = 1 - Math.abs(yawDeg) / 110;
-      const sideScore = Math.sign(yawDeg) === side ? 0.12 : 0;
+      // Favour a grip out to the side over one dead ahead: that is what bends the
+      // arc around the building and makes the two triggers read differently.
+      const spreadScore = 1 - Math.abs(outDeg - 30) / 90;
       const topScore = hit.normal.y > 0.5 ? 0.5 : 0;      // straight onto a roof
       const score = clearScore * 1.6 + heightScore * 1.2 + distScore * 0.8
-        + aimScore * 0.7 + sideScore + topScore;
+        + spreadScore * 0.9 + topScore;
 
       if (score > bestScore) {
         bestScore = score;
@@ -158,9 +173,18 @@ export class Player {
     return best;
   }
 
-  /** Fire a web: forward fan first, then the wide sweep if it found nothing. */
+  /**
+   * What this hand would grab right now, without firing. The HUD uses it to
+   * light the side pips, so the mapping between trigger and direction is
+   * visible before you commit to it.
+   */
+  probe(side, basis) {
+    return this.searchFan(FAN, side, basis) || this.searchFan(FAN_WIDE, side, basis);
+  }
+
+  /** Fire a web: the hand's own cone first, then the wide sweep. */
   tryAttach(side, basis) {
-    const best = this.searchFan(FAN, side, basis) || this.searchFan(FAN_WIDE, side, basis);
+    const best = this.probe(side, basis);
 
     if (!best) {
       this.missCd = 0.28;                              // stop re-firing the fan every frame
