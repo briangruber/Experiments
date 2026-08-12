@@ -9,12 +9,23 @@ import { boot, wantedBackend } from './three-main.js';
 const statusEl = () => document.getElementById( 'status' );
 const want = wantedBackend();
 
-function setStatus( html, cls ) {
+function setStatus( text, cls ) {
 
 	const el = statusEl();
 	if ( ! el ) return;
+	el.className = 'v' + ( cls ? ' ' + cls : '' );
+	el.textContent = text;
+
+}
+
+// The amber line under the readout. Empty means no note, and CSS hides it, so
+// there is never a stray gap.
+function setNote( text, cls ) {
+
+	const el = document.getElementById( 'note' );
+	if ( ! el ) return;
 	el.className = cls || '';
-	el.innerHTML = html;
+	el.textContent = text || '';
 
 }
 
@@ -158,10 +169,17 @@ bootWithFallback().then( ( app ) => {
 
 	}
 
+	// The segmented control above says what was asked for; this says what is
+	// actually running. They differ exactly when a fallback fired, and that is
+	// the one piece of state this app exists to show, so it is stated plainly
+	// rather than implied by a button.
 	const label = app.backend === 'webgpu' ? 'WebGPU' : 'WebGL2';
-	setStatus( `running on <b>${ label }</b>` +
-		( app.fellBack ? ' <span class="warn">— WebGPU unavailable, fell back</span>' : '' ) +
-		( app.fallbackReason ? `<div class="warn" style="margin-top:4px;font-size:10px">${ app.fallbackReason }</div>` : '' ) );
+	setStatus( label, app.fellBack ? 'warn' : 'live' );
+	if ( app.fellBack ) {
+
+		setNote( app.fallbackReason || 'WebGPU was unavailable, so this fell back to WebGL2.' );
+
+	}
 
 	// The page runs in an iframe when it is hosted as an artifact, so a console
 	// opened against the top frame cannot see this. The FPS readout below is what
@@ -175,7 +193,11 @@ bootWithFallback().then( ( app ) => {
 		const now = performance.now();
 		const fps = frames * 1000 / ( now - t0 );
 		frames = 0; t0 = now;
-		if ( fpsEl ) fpsEl.textContent = `${ fps.toFixed( 0 ) } fps · ${ app.renderer.domElement.width }×${ app.renderer.domElement.height }`;
+		const c = app.renderer.domElement;
+		// A software rasteriser can genuinely sit under one frame a second, and
+		// "0 fps" reads as broken rather than as slow.
+		const shown = fps >= 1 ? fps.toFixed( 0 ) : fps > 0 ? '<1' : '—';
+		if ( fpsEl ) fpsEl.textContent = `${ shown } fps  ${ c.width }×${ c.height }`;
 
 	}, 1000 );
 	app.onFrame = () => { frames ++; };
@@ -184,12 +206,10 @@ bootWithFallback().then( ( app ) => {
 
 	window.abyssalError = err;
 	const msg = String( err?.message || err );
-	setStatus(
-		msg + ( want === 'webgpu'
-			? '<br><br>This browser or machine has no usable WebGPU device. Press <b>Auto</b> to fall back to WebGL2.'
-			: '' ),
-		'err',
-	);
+	setStatus( 'failed', 'err' );
+	setNote( msg + ( want === 'webgpu'
+		? ' Press Auto to fall back to WebGL2.'
+		: '' ), 'err' );
 	throw err;
 
 } );

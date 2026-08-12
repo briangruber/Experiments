@@ -1,52 +1,184 @@
 <!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Abyssal — three.js / WebGPU</title>
+<title>Abyssal Ocean</title>
 <style>
-  html, body { margin: 0; height: 100%; background: #05080c; overflow: hidden;
-               -webkit-text-size-adjust: 100%; }
-  #view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  /* Single theme by commitment, not omission: this page is a full-bleed night
+     sea. A light variant would mean painting a panel for a ground that does not
+     exist here. So there is no media query and no theme stamp - but every colour
+     is painted explicitly and body carries its own background, so the page holds
+     whatever ground the host puts behind it. */
+  :root {
+    --abyss:  #060d14;   /* panel ground - deep water */
+    --hull:   #0d1a25;   /* raised control ground */
+    --hull-2: #12222f;   /* hover */
+    --rule:   #1d3243;   /* hairlines, blue-biased rather than grey */
+    --spume:  #dceaf2;   /* primary text - cold foam */
+    --haze:   #7b9cb2;   /* secondary text - sea haze */
+    --dim:    #4d6c82;   /* tertiary */
+    --glint:  #52d6c4;   /* accent: light through a wave face. Live state only. */
+    --amber:  #e8b455;   /* semantic warning. Not the accent. */
+    --coral:  #e8735a;   /* semantic error */
+
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0; height: 100%;
+    background: var(--abyss);
+    overflow: hidden;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  #view {
+    position: fixed; inset: 0;
+    width: 100%; height: 100%;
+    display: block;
+    touch-action: none;         /* drag-to-look, not scroll */
+    cursor: grab;
+  }
+  #view:active { cursor: grabbing; }
+
+  /* ---- the instrument panel ---------------------------------------------- */
+
   #hud {
-    position: fixed; top: 12px; left: 12px; z-index: 10;
-    font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    color: #cfe4f5; background: rgba(6,12,20,.74); border: 1px solid #23384c;
-    border-radius: 10px; padding: 11px 13px; backdrop-filter: blur(8px);
-    width: 15.5rem; max-width: calc(100vw - 24px);
+    position: fixed; top: 14px; left: 14px; z-index: 10;
+    display: flex; flex-direction: column; gap: 10px;
+    width: 15.5rem; max-width: calc(100vw - 28px);
+    padding: 12px 13px 11px;
+    font: 400 12px/1.5 var(--mono);
+    color: var(--spume);
+    background: color-mix(in srgb, var(--abyss) 88%, transparent);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    backdrop-filter: blur(10px) saturate(1.2);
+    -webkit-backdrop-filter: blur(10px) saturate(1.2);
   }
-  #hud h1 { margin: 0; font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
-            color: #8fb8d8; font-weight: 600; }
-  #hint { margin: 4px 0 0; color: #63859f; font-size: 11px; }
-  #backend { display: flex; gap: 5px; margin: 9px 0 0; }
+  #hud[data-collapsed="true"] > :not(#hud-head) { display: none; }
+  #hud[data-collapsed="true"] { gap: 0; padding-bottom: 12px; }
+
+  #hud-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  h1 {
+    margin: 0;
+    font: 600 10px/1 var(--mono);
+    letter-spacing: .18em; text-transform: uppercase;
+    color: var(--haze);
+  }
+  #toggle {
+    font: 600 11px/1 var(--mono);
+    color: var(--dim); background: none; border: 0; padding: 2px 4px;
+    cursor: pointer; border-radius: 4px;
+  }
+  #toggle:hover { color: var(--spume); }
+
+  #hint {
+    margin: 0;
+    font: 400 11px/1.45 var(--sans);
+    color: var(--dim);
+  }
+
+  /* The segmented control shows what was REQUESTED. What is actually running is
+     the status line below - the two differ whenever a fallback fires, and this
+     app exists to exercise exactly that, so the difference is shown, not hidden. */
+  #backend { display: flex; gap: 4px; }
   #backend button {
-    flex: 1; font: inherit; font-size: 11px; color: #cfe4f5; background: #0e1a26;
-    border: 1px solid #2a4257; border-radius: 6px; padding: 5px 4px; cursor: pointer;
+    flex: 1;
+    font: 500 11px/1 var(--mono);
+    color: var(--haze);
+    background: var(--hull);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 6px 4px;
+    cursor: pointer;
     -webkit-appearance: none;
+    transition: background .12s ease, color .12s ease, border-color .12s ease;
   }
-  #backend button:hover { border-color: #3d6a8f; }
-  #backend button[aria-pressed="true"] { background: #17364f; border-color: #4d7ea8; color: #eaf4ff; }
-  select { font: inherit; font-size: 11px; width: 100%; margin-top: 7px; background: #0e1a26;
-           color: #cfe4f5; border: 1px solid #2a4257; border-radius: 6px; padding: 5px 6px;
-           -webkit-appearance: none; }
-  #status { margin-top: 8px; color: #7fa6c4; font-size: 11px; word-break: break-word; }
-  #status b { color: #cfe4f5; font-weight: 600; }
-  #fps { margin-top: 3px; color: #55748c; font-size: 11px; }
-  .warn { color: #e8b455; }
-  .err { color: #e8735a; }
+  #backend button:hover { background: var(--hull-2); color: var(--spume); }
+  #backend button[aria-pressed="true"] {
+    color: var(--abyss);
+    background: var(--glint);
+    border-color: var(--glint);
+  }
+
+  select {
+    font: 400 11px/1 var(--mono);
+    width: 100%;
+    color: var(--spume);
+    background: var(--hull);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 7px 8px;
+    -webkit-appearance: none; appearance: none;
+    cursor: pointer;
+  }
+  select:hover { background: var(--hull-2); }
+
+  /* Readouts. Row of label + value, hairline between, digits aligned. */
+  #readout { display: flex; flex-direction: column; gap: 6px; padding-top: 9px; border-top: 1px solid var(--rule); }
+  .row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .k { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); }
+  .v { font-size: 11px; color: var(--spume); font-variant-numeric: tabular-nums; text-align: right; }
+  .v.live { color: var(--glint); }
+  .v.warn { color: var(--amber); }
+  #note { margin: 0; font: 400 10px/1.45 var(--sans); color: var(--amber); }
+  #note:empty { display: none; }
+  .err { color: var(--coral); }
+
+  :where(button, select):focus-visible {
+    outline: 2px solid var(--glint);
+    outline-offset: 2px;
+  }
+
+  /* The sea is the content and keeps moving; only the panel's transitions go. */
+  @media (prefers-reduced-motion: reduce) {
+    #backend button { transition: none; }
+  }
+
+  @media (max-width: 520px) {
+    #hud { width: calc(100vw - 28px); }
+  }
 </style>
 
 <canvas id="view"></canvas>
 
-<div id="hud">
-  <h1>Abyssal · three.js</h1>
-  <p id="hint">WASD / drag to look</p>
-  <div id="backend">
+<div id="hud" data-collapsed="false">
+  <div id="hud-head">
+    <h1>Abyssal</h1>
+    <button id="toggle" aria-expanded="true" aria-controls="hud" title="Collapse panel">—</button>
+  </div>
+
+  <p id="hint">Drag to look · W A S D to move · scroll to zoom</p>
+
+  <div id="backend" role="group" aria-label="Renderer backend">
     <button id="btn-auto"   aria-pressed="false" title="Prefer WebGPU, fall back to WebGL2">Auto</button>
-    <button id="btn-webgpu" aria-pressed="false" title="Require WebGPU">WebGPU</button>
+    <button id="btn-webgpu" aria-pressed="false" title="Request WebGPU">WebGPU</button>
     <button id="btn-webgl"  aria-pressed="false" title="Force the WebGL2 fallback">WebGL2</button>
   </div>
-  <select id="preset" aria-label="Preset"></select>
-  <div id="status">starting…</div>
-  <div id="fps"></div>
+
+  <select id="preset" aria-label="Sea state preset"></select>
+
+  <div id="readout">
+    <div class="row"><span class="k">Running</span><span class="v" id="status">starting…</span></div>
+    <div class="row"><span class="k">Frame</span><span class="v" id="fps">—</span></div>
+  </div>
+  <p id="note"></p>
 </div>
+
+<script>
+  (function () {
+    var hud = document.getElementById('hud');
+    var t = document.getElementById('toggle');
+    t.addEventListener('click', function () {
+      var next = hud.getAttribute('data-collapsed') !== 'true';
+      hud.setAttribute('data-collapsed', String(next));
+      t.setAttribute('aria-expanded', String(!next));
+      t.textContent = next ? '+' : '—';
+      t.title = next ? 'Expand panel' : 'Collapse panel';
+    });
+  })();
+</script>
 
 <script>/*__BUNDLE__*/</script>
