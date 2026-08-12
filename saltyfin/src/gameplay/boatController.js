@@ -80,7 +80,13 @@ export function createBoatController({ ctx, input, water, terrain }) {
       // a catch or a walk ashore to a boat that quietly takes off on its own
       // remembered throttle is a horror film, not a convenience.
       const raw = hold ? 0 : input.axis('forward');
-      if (hold) cruise = 0;
+      // A physical lever is already a latch: where the thumb leaves it is the
+      // order, neutral means neutral, and running the cruise logic on top of
+      // it would mean pulling back to neutral kept the boat cruising — which
+      // is not what a throttle does on any boat ever built.
+      if (input.hasLever) {
+        cruise = hold ? 0 : Math.max(0, raw);
+      } else if (hold) cruise = 0;
       else if (raw > 0.02) cruise += (raw - cruise) * Math.min(1, dt * 1.1);
       // The unwind is deliberately slower than the brake. The brake itself is
       // immediate — the negative goes straight to the prop above — so this

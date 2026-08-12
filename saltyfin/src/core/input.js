@@ -71,7 +71,7 @@ export function createInput(target = window) {
   target.addEventListener('wheel', onWheel, { passive: true });
 
   // Touch fills these in; keyboard wins when both are active.
-  const touch = { fwd: 0, turn: 0 };
+  const touch = { fwd: 0, turn: 0, lever: false };
 
   const AXES = {
     forward: [['KeyW', 'ArrowUp'], ['KeyS', 'ArrowDown']],
@@ -94,6 +94,19 @@ export function createInput(target = window) {
 
     /** Called by core/touch.js. */
     setTouchAxes(fwd, turn) { touch.fwd = fwd; touch.turn = turn; },
+    /** The helm alone — the throttle lever owns the other axis. */
+    setTouchTurn(turn) { touch.turn = Math.max(-1, Math.min(1, Number(turn) || 0)); },
+    /**
+     * The physical throttle lever, if this device has one. A lever IS its own
+     * latch — it stays where your thumb leaves it — so the boat must follow it
+     * directly rather than running the cruise-latch logic on top of it, and
+     * `lever` is how boatController knows which of the two it is reading.
+     */
+    setThrottleLever(v) {
+      touch.lever = true;
+      touch.fwd = Math.max(-1, Math.min(1, Number(v) || 0));
+    },
+    get hasLever() { return !!touch.lever; },
     addTouchLook(dx, dy) { pointer.dx += dx; pointer.dy += dy; pointer.down = true; touchHeld = true; },
     addTouchZoom(d) { pointer.wheel += d; },
     setEnabled(v) { enabled = v; if (!v) down.clear(); },

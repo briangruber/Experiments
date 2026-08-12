@@ -132,21 +132,23 @@ export function createChaseCamera({ ctx, camera, input }) {
         orbitPitch -= (orbitPitch - PITCH_REST) * t;
       }
 
-      // The gentle-cruise frame. Under about 3.5 m/s the rig eases lower and
-      // closer and the fov tightens a touch, so pottering around the lagoon is
-      // shot like pottering — the boat large, the water at eye level — while
-      // opening the throttle pulls the camera back up into the travelling
-      // shot. `cruise` is smoothed so crossing the threshold never bumps the
-      // frame, and a slow breathing sway rides on top of it, too small to
-      // notice directly and just enough that a stopped frame is never dead still.
+      // The gentle-cruise frame — now the other way round. Under about
+      // 3.5 m/s the rig eases BACK and UP, so a boat sitting still is shot
+      // wide: you can see the water she is drifting on, what is under it and
+      // what is coming, which is what a player stopped in the middle of a
+      // lagoon actually wants. Opening the throttle draws the camera back in
+      // behind her, where a travelling shot belongs. `cruise` is smoothed so
+      // crossing the threshold never bumps the frame, and a slow breathing
+      // sway rides on top of it, too small to notice directly and just enough
+      // that a stopped frame is never dead still.
       const cruiseWant = 1 - THREE.MathUtils.smoothstep(Math.abs(b.speed), 1.2, 3.8);
       cruise += (cruiseWant - cruise) * Math.min(1, ctx.dt * 0.8);
 
       const yaw = b.heading + orbit;
       const fx = Math.sin(yaw), fz = -Math.cos(yaw);
-      const dist = spec.distance * zoom - cruise * 2.6;
+      const dist = spec.distance * zoom + cruise * 6.5;
       const height = spec.height * (0.55 + 0.45 * zoom) + orbitPitch * dist * 0.5
-        - cruise * (1.4 - Math.sin(ctx.time * 0.31) * 0.14);
+        + cruise * (3.0 + Math.sin(ctx.time * 0.31) * 0.14);
 
       // Lead the camera a little in the direction of travel so accelerating
       // feels like accelerating.

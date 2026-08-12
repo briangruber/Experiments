@@ -43,10 +43,14 @@ const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const RANGE = 60;            // m, boat to creature, for the call-to-action
 // The arm gate and the spear's underwater run MUST agree: offering a shot the
 // dart cannot physically reach is a guaranteed miss sold as an opportunity.
-// The spear dies 12 m under; the button arms at 12. The animals cruise deeper
-// than this — the shot is for the moments they come UP: the quest approach,
-// a flyby, a pod sounding, the seconds around a breach.
-const DEPTH_MAX = 12;
+//
+// Twelve metres was honest about the old spear and miserable to play: the pod
+// CRUISES at sixteen to twenty-one, so the button spent almost all its time
+// reading TOO DEEP and the shot existed only in the few seconds around a
+// rise. The dart now keeps travelling once it is wet (SPEAR_DRAG below), so
+// the gate moves to where it can actually reach — which turns a cruising
+// leviathan from scenery into a target.
+const DEPTH_MAX = 20;
 const COOLDOWN = 2.4;        // s between throws
 // --- the spear ---------------------------------------------------------------
 // Slow enough to WATCH. At 40 m/s the throw was over in half a second of
@@ -55,7 +59,12 @@ const COOLDOWN = 2.4;        // s between throws
 // something you can see paying off, and the entry splash marks the miss.
 const SPEAR_V = 27;          // m/s off the bow
 const SPEAR_G = 7.5;         // m/s^2 of drop; a harpoon is not a bullet
-const FLIGHT_MAX = 2.6;      // s before it is called a miss
+const FLIGHT_MAX = 3.6;      // s before it is called a miss
+// Under water it slows rather than stopping: e^(-1.15 t) still carries the
+// dart the twenty-odd metres down to a cruising animal in about a second and
+// a half, which is a throw you can watch land.
+const SPEAR_DRAG = 1.15;     // per second, once wet
+const SPEAR_SINK = 2.2;      // m/s^2 it settles at, once wet
 // --- the rope ----------------------------------------------------------------
 const REST_MIN = 13, REST_MAX = 42;
 const K = 0.95;              // accel per metre of stretch, boat side
@@ -445,7 +454,16 @@ export function createHarpoon(opts = {}) {
 
     function stepFlight(dt) {
       flightT += dt;
-      spearVel.y -= SPEAR_G * dt;
+      if (spearWet) {
+        // Wet: it keeps going, just not for free. Drag on the whole velocity
+        // and a slow settle, so the run down to a cruising leviathan is a
+        // visible glide rather than a bullet or a brick.
+        const k = Math.exp(-SPEAR_DRAG * dt);
+        spearVel.multiplyScalar(k);
+        spearVel.y -= SPEAR_SINK * dt;
+      } else {
+        spearVel.y -= SPEAR_G * dt;
+      }
       spearPos.addScaledVector(spearVel, dt);
 
       // Strike test against EVERY animal in the pod: the spear does not care
@@ -487,7 +505,10 @@ export function createHarpoon(opts = {}) {
         burst(spearPos.x, spearPos.z, 12, 0.7);
         if (w?.disturb) w.disturb(spearPos.x, spearPos.z, 0.9, 2.4);
       }
-      if (spearPos.y < surf - 12 || flightT > FLIGHT_MAX) {
+      // Spent when it has run out of way or out of time — deep enough to
+      // reach a cruising animal, and no deeper.
+      if (spearPos.y < surf - 26 || flightT > FLIGHT_MAX
+        || (spearWet && spearVel.lengthSq() < 9)) {
         beginReel('Missed - hauling the line back in.');
       }
     }
