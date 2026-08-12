@@ -123,7 +123,86 @@ const strafeArc = await page.evaluate((a) => {
 }, strafeStart);
 check('strafing travels instead of circling', strafeArc > 40, `${strafeArc} degrees in 3s`);
 
-// 4. Walk onto every spark in turn. Each one must register.
+// 4. The gloom. Walking into one costs a spark you had banked; coming down on
+//    one from above dispels it. Both the mercy window and the gloom's own
+//    cooldown have to be cleared first or the hit is silently swallowed.
+const gloom = await page.evaluate(() => window.tinyWorlds.planets[window.tinyWorlds.state.worldIndex].gloom?.mobs.length ?? 0);
+if (gloom) {
+  await page.evaluate(() => {
+    const tw = window.tinyWorlds;
+    const p = tw.planets[tw.state.worldIndex];
+    const mob = p.gloom.mobs[0];
+    tw.player.invuln = 0;
+    mob.cooldown = 0;
+    p.motes.forEach((m) => { m.taken = false; m.hold = 0; m.obj.visible = true; });
+    p.motes[0].taken = true;
+    p.motes[0].obj.visible = false;
+    tw.state.sparks = 1;
+    tw.player.local.copy(mob.root.position).normalize().multiplyScalar(p.groundRadius(mob.dir));
+    tw.player.vel.set(0, 0, 0);
+  });
+  await frames(6);
+  const hit = await page.evaluate(() => ({
+    sparks: window.tinyWorlds.state.sparks,
+    knocked: window.tinyWorlds.state.lastHit?.knocked,
+    airborne: !window.tinyWorlds.player.grounded,
+    scattered: window.tinyWorlds.planets[window.tinyWorlds.state.worldIndex].motes.some((m) => m.hold > 0),
+  }));
+  check('a gloom knocks you down and scatters a spark',
+    hit.knocked && hit.airborne && hit.sparks === 0 && hit.scattered, JSON.stringify(hit));
+
+  await page.evaluate(() => {
+    const tw = window.tinyWorlds;
+    const mob = tw.planets[tw.state.worldIndex].gloom.mobs[1] ?? tw.planets[tw.state.worldIndex].gloom.mobs[0];
+    tw.player.invuln = 0;
+    mob.cooldown = 0;
+    mob.root.visible = true;
+    mob.dead = 0;
+    tw.player.local.copy(mob.dir).multiplyScalar(mob.root.position.length() + 2.2);
+    tw.player.vel.copy(mob.dir).multiplyScalar(-6);
+  });
+  await frames(14);
+  check('landing on a gloom from above dispels it',
+    await page.evaluate(() => {
+      const g = window.tinyWorlds.planets[window.tinyWorlds.state.worldIndex].gloom;
+      return g.mobs.some((m) => !m.root.visible && m.dead > 0);
+    }));
+} else {
+  check('a gloom knocks you down and scatters a spark', true, 'no gloom on this world');
+}
+
+// 5. Meteors, where the world has them: the marker is where it lands.
+const hasMeteors = await page.evaluate(() => !!window.tinyWorlds.planets[window.tinyWorlds.state.worldIndex].meteors);
+if (hasMeteors) {
+  await page.evaluate(() => {
+    const tw = window.tinyWorlds;
+    const p = tw.planets[tw.state.worldIndex];
+    tw.player.invuln = 0;
+    p.meteors.spawn(tw.player.up.clone());
+    p.meteors.live[p.meteors.live.length - 1].target.copy(tw.player.up);
+  });
+  await frames(4);
+  const falling = await page.evaluate(() => {
+    const m = window.tinyWorlds.planets[window.tinyWorlds.state.worldIndex].meteors;
+    return { live: m.live.length, marked: m.live.some((x) => x.marker.material.opacity > 0) };
+  });
+  check('a meteor falls with a marker under it', falling.live > 0 && falling.marked, JSON.stringify(falling));
+  await frames(70);
+  check('the meteor lands and knocks you off your feet',
+    await page.evaluate(() => window.tinyWorlds.state.lastHit?.source === 'meteor'
+      && window.tinyWorlds.player.invuln > 0));
+} else {
+  check('a meteor falls with a marker under it', true, 'no meteors on this world');
+}
+
+// 6. Walk onto every spark in turn. Each one must register.
+await page.evaluate(() => {
+  const tw = window.tinyWorlds;
+  const p = tw.planets[tw.state.worldIndex];
+  p.motes.forEach((m) => { m.taken = false; m.hold = 0; m.obj.visible = true; });
+  tw.state.sparks = 0;
+  tw.player.invuln = 999;    // the threats are not what this section is testing
+});
 const total = await page.evaluate(() => window.tinyWorlds.planets[window.tinyWorlds.state.worldIndex].moteTotal);
 let collected = 0;
 for (let i = 0; i < total; i++) {
@@ -141,7 +220,7 @@ for (let i = 0; i < total; i++) {
 }
 check('every spark can be collected', collected === total, `${collected}/${total}`);
 
-// 5. Collecting the last one blooms the world and lights the beacon.
+// 7. Collecting the last one blooms the world and lights the beacon.
 await frames(4);
 const bloomed = await page.evaluate(() => {
   const tw = window.tinyWorlds;
@@ -151,7 +230,7 @@ const bloomed = await page.evaluate(() => {
 check('the world blooms', bloomed.bloomed && bloomed.wave, JSON.stringify(bloomed));
 check('the beacon lights', bloomed.beacon);
 
-// 6. Standing at the beacon offers the launch, and E takes it.
+// 8. Standing at the beacon offers the launch, and E takes it.
 await page.evaluate(() => {
   const tw = window.tinyWorlds;
   const p = tw.planets[tw.state.worldIndex];
@@ -164,7 +243,7 @@ await page.keyboard.press('KeyE');
 await frames(3);
 check('the launch starts', await page.evaluate(() => window.tinyWorlds.state.mode === 'flight'));
 
-// 7. The flight lands on the next world.
+// 9. The flight lands on the next world.
 const before = await page.evaluate(() => window.tinyWorlds.state.worldIndex);
 await page.waitForFunction((i) => window.tinyWorlds.state.worldIndex > i || window.tinyWorlds.state.mode !== 'flight',
   before, { timeout: 300000 }).catch(() => {});

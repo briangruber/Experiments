@@ -171,6 +171,24 @@ export class Audio {
     this.tone(130.81, { type: 'sine', decay: 1.0, peak: 0.12 });
   }
 
+  hurt() {
+    this.noise({ decay: 0.35, peak: 0.16, type: 'lowpass', freq: 1400, sweepTo: 180 });
+    this.tone(180, { type: 'square', decay: 0.22, peak: 0.09 });
+    this.tone(120, { type: 'sawtooth', decay: 0.3, peak: 0.07, delay: 0.04 });
+  }
+
+  impact() {
+    this.noise({ decay: 0.7, peak: 0.22, type: 'lowpass', freq: 900, sweepTo: 90 });
+    this.tone(54, { type: 'sine', decay: 0.6, peak: 0.2 });
+    this.tone(96, { type: 'triangle', decay: 0.3, peak: 0.08, delay: 0.02 });
+  }
+
+  stomp() {
+    this.noise({ decay: 0.22, peak: 0.12, type: 'bandpass', freq: 900, sweepTo: 2600 });
+    this.tone(320, { type: 'triangle', decay: 0.25, peak: 0.12 });
+    this.tone(640, { type: 'sine', decay: 0.18, peak: 0.06, delay: 0.05 });
+  }
+
   finale() {
     if (!this.ready || this.muted) return;
     [261.63, 311.13, 392, 466.16, 523.25, 622.25, 783.99].forEach((f, i) => {

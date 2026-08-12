@@ -7,6 +7,8 @@
 
 import * as THREE from 'three';
 import { Noise, clamp, lerp, smoothstep, rng } from './noise.js';
+import { SUN_POSITION } from './engine.js';
+import { MeteorStorm, Gloom } from './threats.js';
 
 const TAU = Math.PI * 2;
 const _v = new THREE.Vector3();
@@ -40,6 +42,23 @@ function glowSprite() {
   _glowSprite = new THREE.CanvasTexture(c);
   _glowSprite.colorSpace = THREE.SRGBColorSpace;
   return _glowSprite;
+}
+
+// Merge a few small parts into one geometry. mergeGeometries refuses a mix of
+// indexed and non-indexed inputs, and the polyhedra come back non-indexed.
+function mergeParts(parts) {
+  const list = parts.map((g) => g.toNonIndexed());
+  const total = list.reduce((n, g) => n + g.attributes.position.count, 0);
+  const out = new THREE.BufferGeometry();
+  const pos = new Float32Array(total * 3);
+  let o = 0;
+  for (const g of list) {
+    pos.set(g.attributes.position.array, o);
+    o += g.attributes.position.array.length;
+  }
+  out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  out.computeVertexNormals();
+  return out;
 }
 
 // Two tangents for a direction, for finite-difference normals and yaw frames.
@@ -99,6 +118,8 @@ export class Planet {
     this.pickLandingSite();
     this.scatterProps();
     this.buildGrass();
+    this.buildFlowers();
+    this.buildClouds();
     this.placeMotes();
     this.buildBeacon();
     if (def.islets) this.buildIslets();
@@ -109,10 +130,22 @@ export class Planet {
 
   elevation(dir) {
     const t = this.def.terrain, n = this.noise, f = t.freq;
-    const base = n.fbm(dir.x * f, dir.y * f, dir.z * f, 5, 2.1, 0.5);
+    // Domain warp: sample the height field at a point that has itself been
+    // pushed around by a lower-frequency field. Plain fbm gives blobby, evenly
+    // spaced islands; warping bends them into coastlines that wander.
+    const w = t.warp ?? 0.4;
+    const wf = f * 0.6;
+    const px = dir.x * f + n.noise3(dir.x * wf + 5.2, dir.y * wf + 1.3, dir.z * wf - 2.7) * w;
+    const py = dir.y * f + n.noise3(dir.x * wf - 3.1, dir.y * wf + 7.9, dir.z * wf + 4.4) * w;
+    const pz = dir.z * f + n.noise3(dir.x * wf + 9.6, dir.y * wf - 6.2, dir.z * wf + 0.8) * w;
+
+    const base = n.fbm(px, py, pz, 6, 2.15, 0.5);
     const land = smoothstep(-0.16, 0.34, base);
-    const r = n.ridge(dir.x * f * 2.1 + 13.7, dir.y * f * 2.1 - 5.2, dir.z * f * 2.1 + 2.4, 4);
-    return base * t.amp + (r - 0.45) * t.ridgeAmp * land;
+    const r = n.ridge(px * 2.1 + 13.7, py * 2.1 - 5.2, pz * 2.1 + 2.4, 5);
+    // Fine relief only above water, so sea floors stay smooth and beaches read
+    // as beaches.
+    const detail = n.fbm(px * 3.4, py * 3.4, pz * 3.4, 3) * 0.05 * land;
+    return base * t.amp + (r - 0.45) * t.ridgeAmp * land + detail * t.amp;
   }
 
   surfaceRadius(dir) {
@@ -171,12 +204,39 @@ export class Planet {
     for (let i = 0; i < count; i++) {
       _v.fromBufferAttribute(pos, i).normalize();
       pos.setXYZ(i, _v.x * (def.radius + heights[i]), _v.y * (def.radius + heights[i]), _v.z * (def.radius + heights[i]));
+    }
+
+    // Steepness per triangle, straight off the displaced positions — the face
+    // normal is free here, where sampling the height field three more times
+    // per vertex would triple the build.
+    const steep = new Float32Array(count / 3);
+    for (let f = 0; f < count; f += 3) {
+      _p0.fromBufferAttribute(pos, f);
+      _p1.fromBufferAttribute(pos, f + 1).sub(_p0);
+      _p2.fromBufferAttribute(pos, f + 2).sub(_p0);
+      _v.crossVectors(_p1, _p2).normalize();
+      steep[f / 3] = 1 - Math.abs(_v.dot(_p0.normalize()));
+    }
+
+    const rockCol = new THREE.Color(def.rock ?? 0x6d675e).convertSRGBToLinear();
+    const foamCol = new THREE.Color(def.foam ?? 0xdfe8ea).convertSRGBToLinear();
+
+    for (let i = 0; i < count; i++) {
       const e = clamp((heights[i] - hMin) / Math.max(1e-4, hMax - hMin), 0, 1);
       // One jitter value per triangle keeps facets reading as distinct plates.
-      const j = i % 3 === 0 ? (this._j = 0.92 + rand() * 0.16) : this._j;
+      const j = i % 3 === 0 ? (this._j = 0.94 + rand() * 0.12) : this._j;
+      // Cliffs are bare stone whether or not the world has woken up, and the
+      // surf line sits just above the water on both.
+      const bare = smoothstep(0.34, 0.72, steep[(i / 3) | 0]);
+      const land = clamp((e - this.seaE) / Math.max(1e-4, 1 - this.seaE), 0, 1);
+      const surf = (1 - smoothstep(0, 0.05, land)) * (1 - bare);
+
       sampleRamp(dryStops, e, this.seaE, col);
+      col.lerp(rockCol, bare * 0.85).lerp(foamCol, surf * 0.45);
       dry[i * 3] = col.r * j; dry[i * 3 + 1] = col.g * j; dry[i * 3 + 2] = col.b * j;
+
       sampleRamp(lushStops, e, this.seaE, col);
+      col.lerp(rockCol, bare * 0.8).lerp(foamCol, surf * 0.7);
       lush[i * 3] = col.r * j; lush[i * 3 + 1] = col.g * j; lush[i * 3 + 2] = col.b * j;
     }
 
@@ -197,13 +257,23 @@ export class Planet {
         .replace('#include <common>', `#include <common>
           attribute vec3 aLush;
           uniform vec3 uBloomOrigin;
-          uniform float uBloomRadius;`)
+          uniform float uBloomRadius;
+          varying float vEdge;`)
         .replace('#include <color_vertex>', `#include <color_vertex>
           {
             float ang = acos(clamp(dot(normalize(position), uBloomOrigin), -1.0, 1.0));
             float w = 1.0 - smoothstep(uBloomRadius - 0.22, uBloomRadius, ang);
             vColor = mix(vColor, aLush, w);
-          }`);
+            // A band of light riding the front, so the change looks like it is
+            // being carried across the world rather than switched on.
+            vEdge = (1.0 - smoothstep(0.0, 0.20, abs(ang - uBloomRadius)))
+                  * step(0.001, uBloomRadius) * (1.0 - step(3.2, uBloomRadius));
+          }`)
+;
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\nvarying float vEdge;')
+        .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+          totalEmissiveRadiance += vec3(1.0, 0.86, 0.5) * vEdge * 2.2;`);
     };
     mat.customProgramCacheKey = () => 'terrain-bloom';
 
@@ -282,7 +352,10 @@ export class Planet {
 
   // Rejection sampling for a spot that is dry land, not too steep, and not on
   // top of something we already placed.
-  findSpot(rand, { minSlope = 0, maxSlope = 0.35, minSep = 0.18, taken = [], aboveSea = 0.15, tries = 260 } = {}) {
+  findSpot(rand, {
+    minSlope = 0, maxSlope = 0.35, minSep = 0.18, taken = [], aboveSea = 0.15,
+    tries = 260, prefer = null, preferWeight = 0, minPrefer = -1,
+  } = {}) {
     let best = null, bestScore = -Infinity;
     for (let i = 0; i < tries; i++) {
       randomDir(rand, _v);
@@ -290,20 +363,29 @@ export class Planet {
       if (r < this.seaRadius + aboveSea) continue;
       const slope = this.slopeAt(_v);
       if (slope > maxSlope || slope < minSlope) continue;
+      const facing = prefer ? _v.dot(prefer) : 0;
+      if (facing < minPrefer) continue;
       let sep = Infinity;
       for (const t of taken) sep = Math.min(sep, _v.angleTo(t));
       if (sep < minSep) continue;
-      const score = sep - slope * 2;
+      const score = sep - slope * 2 + facing * preferWeight;
       if (score > bestScore) { bestScore = score; best = _v.clone(); }
-      if (sep > minSep * 2.2) break; // good enough, stop burning samples
+      if (!prefer && sep > minSep * 2.2) break; // good enough, stop burning samples
     }
     return best;
   }
 
   pickLandingSite() {
     const rand = rng(this.def.seed + 991);
-    this.landingDir = this.findSpot(rand, { maxSlope: 0.18, minSep: 0, aboveSea: 0.4 })
-      || new THREE.Vector3(0, 1, 0);
+    // Arrive in daylight. The sun is fixed in the solar system, so half of
+    // every world is night; landing there means stepping off the beacon into a
+    // world you cannot see.
+    this.sunDirLocal = _v.copy(SUN_POSITION).sub(this.group.position).normalize().clone();
+    this.landingDir = this.findSpot(rand, {
+      maxSlope: 0.18, minSep: 0, aboveSea: 0.4, tries: 700,
+      prefer: this.sunDirLocal, preferWeight: 3, minPrefer: 0.35,
+    }) || this.findSpot(rand, { maxSlope: 0.3, minSep: 0, aboveSea: 0.2 })
+      || this.sunDirLocal.clone();
     this.bloomOrigin.copy(this.landingDir);
     this.occupied = [this.landingDir.clone()];
   }
@@ -352,7 +434,7 @@ export class Planet {
       this.trees.instanceColor.setUsage(THREE.DynamicDrawUsage);
     }
     for (let i = 0; i < def.props.trees; i++) {
-      const dir = this.findSpot(rand, { maxSlope: 0.3, minSep: 0.12, taken: this.occupied, aboveSea: 0.25 });
+      const dir = this.findSpot(rand, { maxSlope: 0.48, minSep: 0.1, taken: this.occupied, aboveSea: 0.2, tries: 420 });
       if (!dir) break;
       this.occupied.push(dir);
       const item = {
@@ -369,7 +451,7 @@ export class Planet {
 
     this.rocks = makeInstanced(A.rock, def.props.rocks, 'rock');
     for (let i = 0; i < def.props.rocks; i++) {
-      const dir = this.findSpot(rand, { maxSlope: 0.55, minSep: 0.09, taken: this.occupied, aboveSea: 0.0 });
+      const dir = this.findSpot(rand, { maxSlope: 0.7, minSep: 0.08, taken: this.occupied, aboveSea: 0.0, tries: 380 });
       if (!dir) break;
       this.occupied.push(dir);
       const s = (0.7 + rand() * 1.05) * (def.radius / 11);
@@ -378,7 +460,7 @@ export class Planet {
 
     this.crystals = makeInstanced(A.crystal, def.props.crystals, 'crystal');
     for (let i = 0; i < def.props.crystals; i++) {
-      const dir = this.findSpot(rand, { maxSlope: 0.6, minSep: 0.11, taken: this.occupied, aboveSea: 0.1 });
+      const dir = this.findSpot(rand, { maxSlope: 0.75, minSep: 0.1, taken: this.occupied, aboveSea: 0.1, tries: 380 });
       if (!dir) break;
       this.occupied.push(dir);
       const s = (0.8 + rand() * 0.8) * (def.radius / 11);
@@ -392,7 +474,7 @@ export class Planet {
 
     this.houses = [];
     for (let i = 0; i < (def.props.houses || 0); i++) {
-      const dir = this.findSpot(rand, { maxSlope: 0.14, minSep: 0.5, taken: this.occupied, aboveSea: 0.35 });
+      const dir = this.findSpot(rand, { maxSlope: 0.26, minSep: 0.45, taken: this.occupied, aboveSea: 0.3, tries: 500 });
       if (!dir) break;
       this.occupied.push(dir);
       const obj = A.house.object.clone(true);
@@ -409,9 +491,167 @@ export class Planet {
     }
   }
 
+  // Everything that springs up behind the bloom front shares this: scale in as
+  // the front passes, overshoot slightly, then sway.
+  waveScale(mat, uniforms, { sway = 0.10, feather = 0.30, pop = 0.45 } = {}) {
+    mat.onBeforeCompile = (shader) => {
+      Object.assign(shader.uniforms, uniforms);
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', `#include <common>
+          uniform vec3 uBloomOrigin;
+          uniform float uBloomRadius;
+          uniform float uTime;`)
+        .replace('#include <begin_vertex>', `#include <begin_vertex>
+          vec3 iPos = vec3(instanceMatrix[3]);
+          float ang = acos(clamp(dot(normalize(iPos), uBloomOrigin), -1.0, 1.0));
+          float g = 1.0 - smoothstep(uBloomRadius - ${feather}, uBloomRadius, ang);
+          g *= 1.0 + ${pop} * exp(-pow((uBloomRadius - ang) * 5.0 - 1.0, 2.0));
+          float sway = sin(uTime * 1.9 + iPos.x * 2.3 + iPos.z * 1.7) * ${sway};
+          transformed.xz += sway * transformed.y;
+          transformed *= g;`);
+    };
+    mat.customProgramCacheKey = () => `wave-${feather}-${pop}-${sway}`;
+    return mat;
+  }
+
+  // Flowers only exist after the bloom, and they are the clearest read on it:
+  // colour that was not there a second ago, at eye level rather than underfoot.
+  buildFlowers() {
+    const def = this.def;
+    const count = Math.round((def.grass || 0) * 0.16);
+    if (!count) return;
+    const rand = rng(def.seed + 6161);
+
+    const stem = new THREE.CylinderGeometry(0.012, 0.016, 0.17, 4);
+    stem.translate(0, 0.085, 0);
+    const head = new THREE.IcosahedronGeometry(0.075, 0);
+    head.scale(1, 0.62, 1);
+    head.translate(0, 0.2, 0);
+    const geo = mergeParts([stem, head]);
+    const cols = [];
+    const gp = geo.attributes.position;
+    for (let i = 0; i < gp.count; i++) {
+      const petal = gp.getY(i) > 0.15;
+      cols.push(petal ? 1 : 0.28, petal ? 1 : 0.42, petal ? 1 : 0.24);
+    }
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+
+    const mat = new THREE.MeshStandardMaterial({
+      vertexColors: true, roughness: 0.85, metalness: 0, side: THREE.DoubleSide,
+    });
+    this.waveScale(mat, this.grassUniforms, { sway: 0.06, feather: 0.26, pop: 0.7 });
+
+    const mesh = new THREE.InstancedMesh(geo, mat, count);
+    mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3);
+    mesh.frustumCulled = false;
+    mesh.castShadow = false;
+    mesh.receiveShadow = true;
+
+    const hues = (def.flowers ?? ['#ffd6e8', '#fff2b0', '#d9c2ff']).map((c) => new THREE.Color(c));
+    const scaleFor = def.radius / 11;
+    let n = 0;
+    for (let i = 0; i < count * 4 && n < count; i++) {
+      randomDir(rand, _v);
+      if (this.surfaceRadius(_v) < this.seaRadius + 0.25) continue;
+      if (this.slopeAt(_v) > 0.46) continue;
+      this.matrixOnSurface(_v, rand() * TAU, (0.9 + rand() * 0.7) * scaleFor, -0.02, _m);
+      mesh.setMatrixAt(n, _m);
+      mesh.setColorAt(n, _col.copy(hues[(rand() * hues.length) | 0]));
+      n++;
+    }
+    mesh.count = n;
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.instanceColor.needsUpdate = true;
+    this.flowers = mesh;
+    this.group.add(mesh);
+  }
+
+  // A drifting cloud deck. Nothing sells "planet" like weather you can see
+  // moving over the ground from orbit.
+  buildClouds() {
+    const def = this.def;
+    if (def.clouds === false) return;
+    this.cloudUniforms = {
+      uTime: { value: 0 },
+      uSun: { value: new THREE.Vector3(0, 1, 0) },
+      uCover: { value: def.cloudCover ?? 0.52 },
+      uTint: { value: new THREE.Color(def.cloudTint ?? 0xffffff) },
+      uShade: { value: new THREE.Color(def.dark ? 0x2a2338 : 0x8fa2bd) },
+    };
+    const mat = new THREE.ShaderMaterial({
+      uniforms: this.cloudUniforms,
+      transparent: true,
+      depthWrite: false,
+      side: THREE.FrontSide,
+      vertexShader: `
+        varying vec3 vN;
+        void main() {
+          vN = normalize(position);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }`,
+      fragmentShader: `
+        uniform float uTime; uniform vec3 uSun; uniform float uCover;
+        uniform vec3 uTint; uniform vec3 uShade;
+        varying vec3 vN;
+        // Value noise: a fifth the instructions of simplex and indistinguishable
+        // once four octaves of it are being used as cloud cover.
+        float hash(vec3 p) {
+          p = fract(p * 0.3183099 + vec3(0.71, 0.113, 0.419));
+          p *= 17.0;
+          return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+        }
+        float vnoise(vec3 x) {
+          vec3 i = floor(x), f = fract(x);
+          f = f * f * (3.0 - 2.0 * f);
+          return mix(mix(mix(hash(i), hash(i + vec3(1,0,0)), f.x),
+                         mix(hash(i + vec3(0,1,0)), hash(i + vec3(1,1,0)), f.x), f.y),
+                     mix(mix(hash(i + vec3(0,0,1)), hash(i + vec3(1,0,1)), f.x),
+                         mix(hash(i + vec3(0,1,1)), hash(i + vec3(1,1,1)), f.x), f.y), f.z);
+        }
+        float fbm(vec3 p) {
+          float a = 0.5, s = 0.0, norm = 0.0;
+          for (int i = 0; i < 4; i++) { s += a * vnoise(p); norm += a; p *= 2.07; a *= 0.5; }
+          return s / norm;   // normalised, so uCover means the same on every world
+        }
+        void main() {
+          vec3 p = vN * 3.1 + vec3(uTime * 0.012, uTime * 0.005, -uTime * 0.009);
+          float d = fbm(p);
+          float a = smoothstep(uCover, uCover + 0.19, d) * 0.62;
+          if (a < 0.02) discard;
+          float lit = max(dot(vN, normalize(uSun)), 0.0);
+          vec3 col = mix(uShade, uTint, lit * 0.85 + 0.15);
+          gl_FragColor = vec4(col, a);
+        }`,
+    });
+    this.clouds = new THREE.Mesh(new THREE.SphereGeometry(def.radius * 1.09, 64, 40), mat);
+    this.clouds.renderOrder = 2;
+    this.group.add(this.clouds);
+  }
+
+  // Threats are built on first arrival, not at world-build time: five worlds
+  // of skinned monsters up front is memory nobody is looking at yet.
+  spawnThreats() {
+    if (this.threatsReady) return;
+    this.threatsReady = true;
+    const t = this.def.threats;
+    if (!t) return;
+    if (t.meteors) this.meteors = new MeteorStorm(this, t.meteors);
+    if (t.gloom) this.gloom = new Gloom(this, this.assets, t.gloom);
+  }
+
+  updateThreats(dt, time, player, ctx) {
+    this.meteors?.update(dt, time, player, ctx);
+    this.gloom?.update(dt, time, player, ctx);
+  }
+
   buildGrass() {
     const def = this.def;
     const count = def.grass || 0;
+    this.grassUniforms = {
+      uBloomOrigin: { value: this.bloomOrigin },
+      uBloomRadius: { value: 0 },
+      uTime: { value: 0 },
+    };
     if (!count) return;
     const rand = rng(def.seed + 313);
 
@@ -439,29 +679,7 @@ export class Planet {
       color: tint, vertexColors: true, side: THREE.DoubleSide, roughness: 1.0,
       metalness: 0.0,
     });
-    this.grassUniforms = {
-      uBloomOrigin: { value: this.bloomOrigin },
-      uBloomRadius: { value: 0 },
-      uTime: { value: 0 },
-    };
-    mat.onBeforeCompile = (shader) => {
-      Object.assign(shader.uniforms, this.grassUniforms);
-      shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', `#include <common>
-          uniform vec3 uBloomOrigin;
-          uniform float uBloomRadius;
-          uniform float uTime;`)
-        .replace('#include <begin_vertex>', `#include <begin_vertex>
-          vec3 iPos = vec3(instanceMatrix[3]);
-          float ang = acos(clamp(dot(normalize(iPos), uBloomOrigin), -1.0, 1.0));
-          float g = 1.0 - smoothstep(uBloomRadius - 0.30, uBloomRadius, ang);
-          // Overshoot just behind the wavefront so the grass springs up.
-          g *= 1.0 + 0.45 * exp(-pow((uBloomRadius - ang) * 5.0 - 1.0, 2.0));
-          float sway = sin(uTime * 1.9 + iPos.x * 2.3 + iPos.z * 1.7) * 0.10;
-          transformed.xz += sway * transformed.y;
-          transformed *= g;`);
-    };
-    mat.customProgramCacheKey = () => 'grass-bloom';
+    this.waveScale(mat, this.grassUniforms);
 
     const mesh = new THREE.InstancedMesh(geo, mat, count);
     mesh.frustumCulled = false;
@@ -472,7 +690,7 @@ export class Planet {
       randomDir(rand, _v);
       const r = this.surfaceRadius(_v);
       if (r < this.seaRadius + 0.12) continue;
-      if (this.slopeAt(_v) > 0.5) continue;
+      if (this.slopeAt(_v) > 0.62) continue;
       mesh.setMatrixAt(n++, this.matrixOnSurface(_v, rand() * TAU, (1.05 + rand() * 0.8) * scaleFor, -0.02, _m));
     }
     mesh.count = n;
@@ -506,7 +724,7 @@ export class Planet {
       // the prop occupancy list starved them of spots and quietly shrank the
       // count the HUD promised.
       const dir = this.findSpot(rand, {
-        maxSlope: high ? 0.75 : 0.4, minSep: 0.5, taken: moteSpots, aboveSea: 0.2, tries: 420,
+        maxSlope: high ? 0.85 : 0.55, minSep: 0.5, taken: moteSpots, aboveSea: 0.2, tries: 600,
       });
       if (!dir) break;
       moteSpots.push(dir);
@@ -638,6 +856,14 @@ export class Planet {
     this.group.rotation.y += (def.spin || 0) * dt;
     if (this.waterUniforms) this.waterUniforms.uTime.value = time;
     if (this.grassUniforms) this.grassUniforms.uTime.value = time;
+    if (this.cloudUniforms) {
+      this.cloudUniforms.uTime.value = time;
+      // The sun in this planet's own frame, since the group is turning.
+      _v.copy(SUN_POSITION).sub(this.group.position).normalize();
+      _m.copy(this.group.matrixWorld).invert();
+      this.cloudUniforms.uSun.value.copy(_v).transformDirection(_m).normalize();
+      this.clouds.rotation.y += dt * 0.008;
+    }
 
     if (this.waveActive) {
       this.waveRadius += dt * 1.5;
@@ -695,8 +921,10 @@ export class Planet {
         : this.groundRadius(m.dir) + m.lift;
       const bob = Math.sin(time * 1.7 + m.phase) * 0.16;
       m.obj.position.copy(m.dir).multiplyScalar(bobBase + bob);
-      // Main sets `attract` when the keeper is close, so sparks lean in.
-      if (m.attract) m.obj.position.lerp(m.attract, m.attractT ?? 0.3);
+      // Main sets `attract` when the keeper is close, so sparks lean in. The
+      // rate is per second, not per frame: as a raw lerp factor this pulled
+      // four times harder at 240Hz than at 60.
+      if (m.attract) m.obj.position.lerp(m.attract, 1 - Math.exp(-(m.attractRate ?? 2) * dt));
       m.obj.rotation.y += dt * 1.3;
       m.obj.rotation.x += dt * 0.7;
       const pulse = 1.75 + 0.35 * Math.sin(time * 3.4 + m.phase);

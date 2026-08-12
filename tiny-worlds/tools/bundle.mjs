@@ -18,6 +18,7 @@
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import { dirname, join, resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { stripToAnimation, isClipOnly } from './strip-anim.mjs';
 
 const args = process.argv.slice(2);
 const opt = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i + 1] : d; };
@@ -121,9 +122,14 @@ const files = (await readdir(assetDir)).filter((f) => f.endsWith('.glb') && !SKI
 const used = files.filter((f) => f !== 'keeper-rig.glb');
 const assetEntries = [];
 let assetBytes = 0;
+let strippedBytes = 0;
 for (const f of used) {
-  const buf = await readFile(join(assetDir, f));
-  assetBytes += buf.length;
+  const raw = await readFile(join(assetDir, f));
+  // Clip-only retargets ship as keyframes alone; their mesh and textures are a
+  // duplicate of the idle model's and would roughly double the page.
+  const buf = isClipOnly(f) ? stripToAnimation(raw) : raw;
+  assetBytes += raw.length;
+  strippedBytes += buf.length;
   assetEntries.push(`${JSON.stringify(f)}: "${buf.toString('base64')}"`);
 }
 
@@ -220,5 +226,5 @@ ${escJs(out)}
 await mkdir(dirname(OUT), { recursive: true });
 await writeFile(OUT, page);
 console.log(`bundled ${modules.size} modules + ${used.length} models `
-  + `(${(assetBytes / 1e6).toFixed(1)} MB raw) -> ${relative(ROOT, OUT)} `
-  + `(${(page.length / 1e6).toFixed(2)} MB)`);
+  + `(${(assetBytes / 1e6).toFixed(1)} MB raw, ${(strippedBytes / 1e6).toFixed(1)} MB after stripping `
+  + `clip-only retargets) -> ${relative(ROOT, OUT)} (${(page.length / 1e6).toFixed(2)} MB)`);

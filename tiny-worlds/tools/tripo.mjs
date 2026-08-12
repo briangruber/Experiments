@@ -36,6 +36,14 @@ const MANIFEST = {
     rig: true,
     animations: ['idle', 'walk', 'run', 'jump'],
   },
+  gloom: {
+    prompt: `A small round grumpy shadow creature standing in a T-pose, two`
+      + ` stubby legs, two short arms, one big round glowing eye, fluffy dark`
+      + ` fur, cute not scary, ${LOOK}`,
+    faceLimit: 10000,
+    rig: true,
+    animations: ['idle', 'walk'],
+  },
   house: {
     prompt: `A tiny round mushroom cottage with a round door, one window and a`
       + ` curved chimney, cosy fairytale home, ${LOOK}`,

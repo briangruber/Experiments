@@ -15,6 +15,7 @@ import { Input } from './input.js';
 import { Hud } from './hud.js';
 import { Audio } from './audio.js';
 import { loadAssets } from './assets.js';
+import { offsetDir } from './threats.js';
 import { clamp } from './noise.js';
 
 const params = new URLSearchParams(location.search);
@@ -30,6 +31,7 @@ const _right = new THREE.Vector3();
 const _move = new THREE.Vector3();
 const _m = new THREE.Matrix4();
 const SPARK = new THREE.Color(0xffd98a);
+const PETAL = new THREE.Color(0xffe6f2);
 
 const hud = new Hud();
 const engine = new Engine(canvas);
@@ -103,6 +105,7 @@ function enterWorld(index, { lift = 0 } = {}) {
   audio.setWorld(index, { dark: planet.def.dark });
   chase.targetDistance = planet.def.radius * 1.15 + 4;
   chase.snap();
+  planet.spawnThreats();
   // The Heart has nothing to collect: arriving is the ending.
   if (planet.def.finale && !planet.bloomed) startFinale();
 }
@@ -156,17 +159,86 @@ function emitBeacon(dt) {
   }
 }
 
+// Everything the threats need that a planet has no business owning.
+const threatCtx = {
+  particles,
+  audio,
+  active: false,
+  emberColor: new THREE.Color(0xff8a3a),
+  gloomColor: new THREE.Color(0x9a7ad8),
+  onHit: (hit) => onThreatHit(hit),
+  onStomp: () => {
+    chase.shake = 0.4;
+    hud.toast('gloom scattered', 1600);
+  },
+};
+
+// Getting hit never kills. It knocks you flying and shakes loose a spark you
+// had already caught, which lands nearby — a setback you can walk back.
+function onThreatHit({ push, strength, source }) {
+  const knocked = player.knock(push, strength);
+  // Recorded for the harness: whether the mercy window swallowed this one is
+  // invisible from the outside otherwise.
+  state.lastHit = { source, knocked };
+  if (!knocked) return;
+  audio.hurt();
+  chase.shake = 1.0;
+  hud.flash();
+
+  const planet = current();
+  const held = planet.motes.filter((m) => m.taken && !m.islet);
+  if (!held.length || planet.bloomed) {
+    hud.toast(source === 'meteor' ? 'a meteor came down' : 'the gloom found you', 2200);
+    return;
+  }
+  const mote = held[held.length - 1];
+  mote.taken = false;
+  mote.attract = null;
+  mote.obj.visible = true;
+  // Thrown clear of where you are standing, so it cannot be re-caught by
+  // accident while you are still tumbling.
+  offsetDir(player.up, 0.30 + Math.random() * 0.16, Math.random() * Math.PI * 2, mote.dir);
+  mote.up.copy(mote.dir);
+  mote.hold = 1.6;
+  state.sparks = Math.max(0, state.sparks - 1);
+  hud.setSparks(state.sparks, planet.moteTotal);
+  hud.toast(source === 'meteor' ? 'a meteor scattered a spark' : 'the gloom stole a spark', 2600);
+
+  planet.group.localToWorld(_a.copy(mote.dir).multiplyScalar(planet.groundRadius(mote.dir) + 1));
+  _b.copy(mote.dir).transformDirection(planet.group.matrixWorld);
+  particles.burst(_a, { count: 20, color: SPARK, speed: 4, size: 0.45, life: 0.9, up: _b });
+}
+
+// Petals thrown up along the bloom front while it travels.
+function emitBloomFront(planet, dt) {
+  if (!planet.waveActive) return;
+  planet.frontEmit = (planet.frontEmit ?? 0) + dt;
+  while (planet.frontEmit > 0.03) {
+    planet.frontEmit -= 0.03;
+    offsetDir(planet.bloomOrigin, planet.waveRadius, Math.random() * Math.PI * 2, _c);
+    planet.group.localToWorld(_a.copy(_c).multiplyScalar(planet.groundRadius(_c) + 0.3));
+    _b.copy(_c).transformDirection(planet.group.matrixWorld);
+    _d.copy(_b).multiplyScalar(2.2 + Math.random() * 2.2);
+    _d.x += (Math.random() - 0.5) * 1.6;
+    _d.z += (Math.random() - 0.5) * 1.6;
+    particles.spawn(_a, _d, PETAL, 0.4, 1.6, { drag: 0.7 });
+  }
+}
+
 function checkMotes(dt) {
   const planet = current();
   const pickup = 1.35;
   for (const m of planet.motes) {
     if (m.taken) continue;
+    // A spark just shaken loose stays cold for a moment. Without this the
+    // magnet below hauls it straight back and the hit costs you nothing.
+    if (m.hold > 0) { m.hold -= dt; m.attract = null; continue; }
     const d = m.obj.position.distanceTo(player.local);
     // Sparks lean toward you before they are caught; it makes the collection
     // forgiving without moving the pickup radius somewhere dishonest.
-    if (d < 3.4) {
+    if (d < 2.6) {
       m.attract = player.local;
-      m.attractT = clamp((3.4 - d) / 3.4, 0, 1) * 0.55;
+      m.attractRate = clamp((2.6 - d) / 2.6, 0, 1) * 3.5;
     } else {
       m.attract = null;
     }
@@ -380,6 +452,9 @@ function frame(now) {
   else if (state.mode !== 'play') input.takeInteract();
 
   for (const p of planets) p.update(dt, state.time);
+  threatCtx.active = playing && state.mode !== 'flight';
+  current().updateThreats(dt, state.time, player, threatCtx);
+  emitBloomFront(current(), dt);
   particles.update(dt);
   engine.update(dt);
   if (state.mode !== 'flight') updatePrompt();

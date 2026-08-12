@@ -20,6 +20,7 @@ export class Hud {
       cardBody: $('card-body'),
       cardButton: $('card-button'),
       fps: $('fps'),
+      flash: $('flash'),
       hint: $('hint'),
       progress: $('progress'),
     };
@@ -106,6 +107,15 @@ export class Hud {
   hideCard() { this.el.card.classList.remove('visible'); }
 
   setFps(v) { this.el.fps.textContent = `${v} fps`; }
+
+  // A single red pulse on being hit — cheaper to read than a health bar, and
+  // there is no health to report.
+  flash() {
+    const el = this.el.flash;
+    el.classList.remove('on');
+    void el.offsetWidth;
+    el.classList.add('on');
+  }
 
   toggleChrome(hidden) { document.body.classList.toggle('no-chrome', hidden); }
 }

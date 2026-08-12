@@ -31,7 +31,7 @@ export class Player {
     // to shoulder) than it is deep. The root frame below treats +Z as forward,
     // so turn the model a quarter turn to match. Verified by rendering the
     // keeper at fixed angles: tools/assets.html?rot=-1.5708 shows its face.
-    this.model.rotation.y = -Math.PI / 2;
+    this.model.rotation.y = assets.keeper.faceOffset ?? 0;
     this.root.add(this.model);
 
     this.mixer = new THREE.AnimationMixer(this.model);
@@ -64,6 +64,25 @@ export class Player {
     this.onStep = null;
     this.stepTimer = 0;
     this.platform = null;
+    this.invuln = 0;
+  }
+
+  // Knocked off your feet: a shove along the surface plus real air, and a
+  // moment of mercy so a meteor and a gloom cannot bill you twice for one
+  // mistake.
+  knock(pushWorld, strength = 1) {
+    if (this.invuln > 0 || !this.planet) return false;
+    _v.copy(pushWorld).transformDirection(_m.copy(this.planet.group.matrixWorld).invert());
+    _v.addScaledVector(this.up, -_v.dot(this.up));
+    if (_v.lengthSq() < 1e-6) _v.copy(this.facing);
+    _v.normalize();
+    this.vel.addScaledVector(_v, 7 + 5 * strength);
+    this.vel.addScaledVector(this.up, 7 + 3 * strength);
+    this.grounded = false;
+    this.airTime = 0.2;
+    this.squash = 1.25;
+    this.invuln = 1.4;
+    return true;
   }
 
   attachTo(planet, dir, { lift = 0 } = {}) {
@@ -190,6 +209,11 @@ export class Player {
     planet.normalAt(this.up, _n);
     _f.copy(this.up).lerp(_n, this.grounded ? 0.55 : 0.12).normalize();
     this.syncTransform(_f);
+
+    this.invuln = Math.max(0, this.invuln - dt);
+    // Blink while the mercy window is open.
+    const hidden = this.invuln > 0 && Math.floor(this.invuln * 12) % 2 === 0;
+    if (this.model.visible === hidden) this.model.visible = !hidden;
 
     this.squash = damp(this.squash, 1, 9, dt);
     const sq = this.height * this.squash;

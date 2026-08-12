@@ -16,13 +16,21 @@ All five planets exist in one scene from the first frame. The ones you have not
 reached yet are hanging in the sky the whole time, and the flight between them
 is a real trip across the same space you were looking at.
 
-| world | the twist |
-| --- | --- |
-| Verdance | the tutorial hill — ordinary gravity, ordinary grip |
-| Amaranth | light gravity and bobbing floating islets to jump between |
-| Glacia | almost no ground friction; you steer early and never brake |
-| Ember | night world, lit only by the lantern on the keeper's back |
-| The Heart | tiny, and it blooms on arrival |
+A dormant world is not a safe one. **Gloom** patrol the surface and charge when
+you come near; walking into one costs a spark you had already banked, and it
+lands a few paces off for you to fetch back. Come down on one from above and it
+bursts. On some worlds the sky falls too: a ring of light marks the ground where
+a **meteor** will land, and it closes as the rock comes down. Nothing here can
+kill you — you get knocked off your feet, you lose ground, you go again. Bloom
+the world and it all stops: the light drives the gloom out and the sky settles.
+
+| world | the twist | what it throws at you |
+| --- | --- | --- |
+| Verdance | ordinary gravity, ordinary grip | a couple of gloom |
+| Amaranth | light gravity, bobbing floating islets | gloom, and a falling sky |
+| Glacia | almost no ground friction | fewer gloom, heavier bombardment |
+| Ember | night, lit only by your lantern | thick with gloom |
+| The Heart | tiny, and it blooms on arrival | nothing at all |
 
 ## Running it
 
@@ -50,7 +58,8 @@ index.html        entry point and import map
 src/
   main.js         boot, game state machine, the loop
   worlds.js       the five worlds as data — gravity, grip, palette, light
-  planet.js       terrain, sea, props, sparks, the bloom wavefront
+  planet.js       terrain, sea, clouds, props, sparks, the bloom wavefront
+  threats.js      meteors and gloom — everything a dormant world throws
   player.js       the keeper: radial gravity, sphere walking, animation state
   camera.js       chase camera that survives running over the poles
   engine.js       renderer, post chain, the shared sun and starfield
@@ -95,8 +104,11 @@ Emits one self-contained HTML file — three.js, every module, and every model
 inlined — for hosting somewhere that blocks external requests entirely (an
 Artifact page cannot fetch a sibling script, and cannot fetch a `data:` URL
 either, so the models ride along as base64 that `src/assets.js` hands straight
-to `GLTFLoader.parse`). Roughly 11 MB, most of it the keeper's four animation
-clips. `--skip keeper-run.glb` drops a model if you need it smaller.
+to `GLTFLoader.parse`). Roughly 11 MB. Tripo returns every retargeted clip as a complete model — the
+same mesh and the same three JPEGs as every other clip of that character — so
+`tools/strip-anim.mjs` reduces those files to their keyframes alone during the
+build, which is the difference between 7 MB of models and 11. `--skip <file>`
+drops a model entirely if you need it smaller still.
 
 Both harnesses below take `--page dist/tiny-worlds.html` to run against the
 bundle instead of the source tree, which is how the build gets tested.
@@ -120,5 +132,6 @@ blooms, the beacon lights, the launch is offered, and the flight lands on the
 next planet.
 
 ```
-node tools/playthrough.mjs            # 8 checks, non-zero exit on any failure
+node tools/playthrough.mjs            # 13 checks, non-zero exit on any failure
+node tools/playthrough.mjs --world 2  # 14, including the meteor storm
 ```

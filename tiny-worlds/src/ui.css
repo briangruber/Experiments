@@ -136,6 +136,21 @@ body.no-chrome #hud, body.menu #hud { opacity: 0; }
 
 #toast.visible { opacity: 1; transform: translate(-50%, 0); }
 
+#flash {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(ellipse at center, rgba(200, 40, 30, 0) 35%, rgba(210, 50, 35, .55) 100%);
+}
+
+#flash.on { animation: hit .45s ease-out; }
+
+@keyframes hit {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
 #controls-hint {
   margin-top: 12px;
   text-align: center;

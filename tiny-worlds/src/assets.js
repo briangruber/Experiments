@@ -18,7 +18,13 @@ const FILES = {
   keeperWalk: 'keeper-walk.glb',
   keeperRun: 'keeper-run.glb',
   keeperJump: 'keeper-jump.glb',
+  gloomIdle: 'gloom-idle.glb',
+  gloomWalk: 'gloom-walk.glb',
 };
+
+// Both Tripo rigs come back facing along their own +X. The scene frames treat
+// +Z as forward, so every rigged model gets the same quarter turn.
+export const RIG_FACE_OFFSET = -Math.PI / 2;
 
 // Resolved against this module, not the page, so the loader works from any
 // entry point (the game, the asset contact sheet, an embed).
@@ -224,6 +230,25 @@ function makeRevivable(material) {
   return material;
 }
 
+function fallbackGloom() {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.IcosahedronGeometry(0.4, 1), clay(0x3a3348, 0.95));
+  body.position.y = 0.42;
+  body.scale.y = 0.9;
+  const eye = new THREE.Mesh(new THREE.SphereGeometry(0.14, 14, 12),
+    new THREE.MeshStandardMaterial({ color: 0xffe08a, emissive: 0xffb03a, emissiveIntensity: 2, roughness: 0.4 }));
+  eye.position.set(0, 0.5, 0.34);
+  const footL = new THREE.Mesh(new THREE.SphereGeometry(0.11, 10, 8), clay(0x2a2436, 0.95));
+  footL.position.set(-0.16, 0.1, 0.04);
+  const footR = footL.clone();
+  footR.position.x = 0.16;
+  g.add(body, eye, footL, footR);
+  g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  const outer = new THREE.Group();
+  outer.add(g);
+  return outer;
+}
+
 // ---------------------------------------------------------------- loading
 
 export async function loadAssets(onProgress = () => {}) {
@@ -253,26 +278,29 @@ export async function loadAssets(onProgress = () => {}) {
   out.house = { object: loaded.house ? unitObject(loaded.house.scene) : fallbackHouse() };
   out.lantern = { object: loaded.lantern ? unitObject(loaded.lantern.scene) : fallbackLantern() };
 
-  // Keeper: mesh from the idle file, clips gathered from all four. Tripo
+  // Mesh from the idle file, clips gathered from every retarget of it. Tripo
   // retargets share one skeleton, so the clips are interchangeable.
-  if (loaded.keeperIdle) {
-    const object = unitObject(loaded.keeperIdle.scene, { clone: false });
+  const rigged = (files, fallback) => {
+    const base = files[0][1];
+    if (!base) return { object: fallback(), clips: {}, rigged: false, faceOffset: 0 };
+    const object = unitObject(base.scene, { clone: false });
     const clips = {};
-    const grab = (gltf, name) => {
+    for (const [name, gltf] of files) {
       const clip = gltf?.animations?.[0];
       if (clip) { clip.name = name; clips[name] = clip; }
-    };
-    grab(loaded.keeperIdle, 'idle');
-    grab(loaded.keeperWalk, 'walk');
-    grab(loaded.keeperRun, 'run');
-    grab(loaded.keeperJump, 'jump');
+    }
     object.traverse((o) => {
       if (o.isMesh || o.isSkinnedMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; }
     });
-    out.keeper = { object, clips, rigged: true };
-  } else {
-    out.keeper = { object: fallbackKeeper(), clips: {}, rigged: false };
-  }
+    return { object, clips, rigged: true, faceOffset: RIG_FACE_OFFSET };
+  };
+
+  out.keeper = rigged([
+    ['idle', loaded.keeperIdle], ['walk', loaded.keeperWalk],
+    ['run', loaded.keeperRun], ['jump', loaded.keeperJump],
+  ], fallbackKeeper);
+
+  out.gloom = rigged([['idle', loaded.gloomIdle], ['walk', loaded.gloomWalk]], fallbackGloom);
 
   return out;
 }
