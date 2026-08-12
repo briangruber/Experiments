@@ -43,7 +43,7 @@ export function facadeTextures(seed = 7) {
   const S = 1024, CELLS = 8, P = S / CELLS;      // 128 px per window cell
 
   const base = canvas(S);
-  base.g.fillStyle = '#3b4150';
+  base.g.fillStyle = '#4a5062';
   base.g.fillRect(0, 0, S, S);
 
   // Concrete mottling and vertical grime streaks between the window columns.
@@ -69,10 +69,11 @@ export function facadeTextures(seed = 7) {
       // Glass recess on the colour map.
       base.g.fillStyle = '#171b26';
       base.g.fillRect(ox - 3, oy - 3, w + 6, h + 6);
+      // Unlit glass still catches the sky; pure black panes look like holes.
       const glass = base.g.createLinearGradient(ox, oy, ox, oy + h);
-      glass.addColorStop(0, '#243044');
-      glass.addColorStop(0.55, '#131826');
-      glass.addColorStop(1, '#1b2334');
+      glass.addColorStop(0, '#38455e');
+      glass.addColorStop(0.5, '#1c2436');
+      glass.addColorStop(1, '#2a3550');
       base.g.fillStyle = glass;
       base.g.fillRect(ox, oy, w, h);
       // Mullion.
@@ -86,12 +87,22 @@ export function facadeTextures(seed = 7) {
       if (!rng.chance(0.52)) continue;                  // most windows stay dark
       const col = rng.chance(0.78) ? rng.pick(WARM) : rng.pick(COLD);
       const strength = rng.range(0.35, 1);
-      lit.g.globalAlpha = strength;
-      lit.g.fillStyle = col;
-      // Occasionally only half the pane is lit — reads as rooms, not a grid.
+      // A lit pane is not a solid rectangle. Split it at the mullion, let the
+      // two halves differ, and drop a brighter band at the sill — without that
+      // structure the whole facade reads as flat coloured tiles up close.
       const cut = rng.chance(0.28) ? rng.range(0.3, 0.7) : 1;
-      lit.g.fillRect(ox, oy, w * cut, h);
-      lit.g.globalAlpha = strength * 0.1;
+      const halfW = w / 2 - 2;
+      lit.g.fillStyle = col;
+      for (let pane = 0; pane < 2; pane++) {
+        const px = ox + pane * (w / 2 + 1);
+        const pw = Math.max(0, Math.min(halfW, w * cut - pane * (w / 2)));
+        if (pw <= 0) continue;
+        lit.g.globalAlpha = strength * (pane ? rng.range(0.75, 1) : 1);
+        lit.g.fillRect(px, oy, pw, h);
+        lit.g.globalAlpha = strength * 0.55;            // shadowed head of the pane
+        lit.g.fillRect(px, oy, pw, h * 0.18);
+      }
+      lit.g.globalAlpha = strength * 0.09;
       lit.g.fillRect(ox - 6, oy - 6, w + 12, h + 12);   // soft spill onto concrete
       lit.g.globalAlpha = 1;
     }

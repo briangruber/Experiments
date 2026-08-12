@@ -25,7 +25,8 @@ async function loadPlaywright() {
 const args = process.argv.slice(2);
 const opt = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i + 1] : d; };
 const OUT = opt('out', 'shots/preview.png');
-const names = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--out');
+const POSE = opt('pose', '');
+const names = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--out' && args[i - 1] !== '--pose');
 if (!names.length) { console.error('usage: preview.mjs [--out file.png] <name> [name…]'); process.exit(2); }
 
 const CELL = 300;
@@ -44,7 +45,30 @@ const PAGE = `<!doctype html><meta charset="utf-8">
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
+import { Avatar } from '/src/avatar.js';
+
 const NAMES = __NAMES__;
+const POSE = __POSE__;
+
+/** Fake just enough player state to drive the avatar's pose solver. */
+function fakePlayer(kind) {
+  const V = (x, y, z) => new THREE.Vector3(x, y, z);
+  const base = {
+    pos: V(0, 0, 0), vel: V(0, 0, 14), speed: 14, grounded: false, diving: false,
+    web: { active: false, side: 1, anchor: V(0, 0, 0) },
+  };
+  if (kind === 'swing') {
+    base.web = { active: true, side: 1, anchor: V(14, 26, 10) };
+    base.vel = V(4, -6, 22); base.speed = 24;
+  } else if (kind === 'dive') {
+    base.diving = true; base.vel = V(0, -40, 30); base.speed = 50;
+  } else if (kind === 'run') {
+    base.grounded = true; base.vel = V(0, 0, 9); base.speed = 9;
+  } else if (kind === 'idle') {
+    base.grounded = true; base.vel = V(0, 0, 0); base.speed = 0;
+  }
+  return base;
+}
 const CELL = __CELL__;
 const VIEWS = [[0, 0], [Math.PI * 0.3, 0], [Math.PI * 0.6, 0], [Math.PI, 0]];
 const sheet = document.getElementById('sheet');
@@ -61,12 +85,48 @@ for (const name of NAMES) {
   row.appendChild(label);
   sheet.appendChild(row);
 
-  let gltf;
-  try {
-    gltf = await new GLTFLoader().loadAsync('/assets/' + name + '.glb');
-  } catch (err) {
-    label.textContent = name + ' \u2014 failed';
-    continue;
+  let model = null;
+  let avatar = null;
+  if (POSE) {
+    // Drive the real Avatar class so the contact sheet shows what the game
+    // shows, bind pose included or not.
+    avatar = new Avatar();
+    try {
+      await avatar.load('/assets/' + name + '.glb');
+    } catch (err) {
+      label.textContent = name + ' \u2014 failed: ' + err.message;
+      continue;
+    }
+    const p = fakePlayer(POSE);
+    for (let i = 0; i < 40; i++) avatar.update(1 / 30, p);   // let the blend settle
+    model = avatar.root;
+
+    // How far did each bone actually move off its bind pose? A solver that is
+    // silently doing nothing looks exactly like a T-pose.
+    window.__POSE_DEBUG = window.__POSE_DEBUG || {};
+    const deltas = {};
+    for (const [boneName] of avatar.constructor.CHAIN || []) { /* noop */ }
+    for (const [key, bone] of avatar.bones) {
+      const rest = avatar.rest.get(bone.name);
+      if (!rest) continue;
+      const dot = Math.min(1, Math.abs(bone.quaternion.dot(rest)));
+      deltas[key] = +(2 * Math.acos(dot) * 180 / Math.PI).toFixed(1);
+    }
+    window.__POSE_DEBUG[name] = {
+      bones: avatar.bones.size,
+      ready: avatar.ready,
+      standIn: !!avatar.standIn,
+      blendSample: avatar.blend.LeftArm ? avatar.blend.LeftArm.toArray().map((v) => +v.toFixed(2)) : null,
+      movedDegrees: deltas,
+    };
+  } else {
+    try {
+      const gltf = await new GLTFLoader().loadAsync('/assets/' + name + '.glb');
+      model = gltf.scene;
+    } catch (err) {
+      label.textContent = name + ' \u2014 failed';
+      continue;
+    }
   }
 
   const renderer = new THREE.WebGPURenderer({ antialias: true, forceWebGL: true, alpha: false });
@@ -90,7 +150,6 @@ for (const name of NAMES) {
   fill.position.set(3, -1, 4);
   scene.add(fill);
 
-  const model = gltf.scene;
   model.traverse((o) => { if (o.isMesh || o.isSkinnedMesh) o.frustumCulled = false; });
   const pivot = new THREE.Group();
   pivot.add(model);
@@ -123,13 +182,13 @@ const server = createServer(async (req, res) => {
     const url = decodeURIComponent(req.url.split('?')[0]);
     if (url === '/' || url === '/index.html') {
       res.writeHead(200, { 'content-type': 'text/html' });
-      res.end(PAGE.replace('__NAMES__', JSON.stringify(names)).replace('__CELL__', String(CELL)));
+      res.end(PAGE.replace('__NAMES__', JSON.stringify(names)).replace('__CELL__', String(CELL)).replace('__POSE__', JSON.stringify(POSE)));
       return;
     }
     const path = join(ROOT, url);
     if (!path.startsWith(ROOT)) { res.writeHead(403).end(); return; }
     const body = await readFile(path);
-    const mime = { '.js': 'text/javascript', '.glb': 'model/gltf-binary' }[extname(path)] || 'application/octet-stream';
+    const mime = { '.js': 'text/javascript', '.mjs': 'text/javascript', '.glb': 'model/gltf-binary', '.css': 'text/css' }[extname(path)] || 'application/octet-stream';
     res.writeHead(200, { 'content-type': mime });
     res.end(body);
   } catch {
@@ -150,8 +209,8 @@ await page.waitForFunction(() => window.__PREVIEW_READY === true, null, { timeou
 
 await mkdir(dirname(join(ROOT, OUT)), { recursive: true });
 await page.screenshot({ path: join(ROOT, OUT), type: 'png', timeout: 120000 });
+const debug = await page.evaluate(() => window.__POSE_DEBUG || null).catch(() => null);
 await browser.close();
 server.close();
-
-console.log(JSON.stringify({ out: OUT, models: names, errors }, null, 2));
+console.log(JSON.stringify({ out: OUT, models: names, debug, errors }, null, 2));
 if (errors.length) process.exit(1);

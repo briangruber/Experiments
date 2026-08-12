@@ -140,14 +140,24 @@ async function boot() {
   // pipeline refuses on this device we simply render the scene straight.
   let post = null;
   try {
-    const { pass } = await import('three/tsl');
+    const tsl = await import('three/tsl');
+    const { pass, uv, vec2, vec3, float, mix, dot } = tsl;
     const { bloom } = await import('three/addons/tsl/display/BloomNode.js');
     post = new THREE.PostProcessing(renderer);
     const scenePass = pass(scene, camera);
     const color = scenePass.getTextureNode();
-    post.outputNode = color.add(bloom(color, 0.42, 0.6, 0.85));
+    const lit = color.add(bloom(color, 0.5, 0.65, 0.8));
+
+    // Grade: pull a little saturation up and corners down. The city is mostly
+    // warm window light against a cold sky, and the vignette keeps the eye on
+    // the character rather than the busiest part of the skyline.
+    const radius = uv().sub(vec2(0.5, 0.5)).length();
+    const vignette = float(1).sub(radius.mul(radius).mul(float(0.62)));
+    const luma = dot(lit.rgb, vec3(0.2126, 0.7152, 0.0722));
+    const graded = mix(vec3(luma), lit.rgb, float(1.16));
+    post.outputNode = graded.mul(vignette);
   } catch (err) {
-    console.warn('bloom unavailable —', err?.message || err);
+    console.warn('post-processing unavailable —', err?.message || err);
     post = null;
   }
 

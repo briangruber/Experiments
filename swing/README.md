@@ -104,7 +104,16 @@ TRIPO_API_KEY=... node tools/tripo.mjs gen hero "…" --faces 18000 --rig
 ```
 
 `--rig` runs Tripo's rigging pass, which returns the mesh with a Mixamo-named
-skeleton but no animation clips. Rather than retargeting canned clips,
+skeleton but no animation clips. Ask for a **T-pose**: the solver below works
+from whatever bind pose it is given, but a symmetric one keeps the blends clean.
+
+Note that three's GLTFLoader sanitises node names on import, so `mixamorig:Hips`
+arrives as `mixamorigHips` — matching only the colon form finds nothing, and a
+character then renders in its bind pose with no error anywhere. `avatar.js`
+strips either form and warns loudly if the expected bones are missing.
+
+`tools/preview.mjs --pose swing <name>` renders a mesh through the real pose
+solver, which is how that failure was caught. Rather than retargeting canned clips,
 `avatar.js` authors each pose as a set of *directions* — for every bone, where
 its child should point in character space — and solves the rotation that gets it
 there. That is independent of whatever bind pose the generator produced, and it

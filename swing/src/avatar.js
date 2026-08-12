@@ -15,7 +15,14 @@ import { loadGLB } from './assets.js';
 
 const HEIGHT = 1.95;                 // metres, hips-to-head normalised
 
-const B = (n) => `mixamorig:${n}`;
+/**
+ * Strip the rig's namespace prefix. Tripo names its bones `mixamorig:Hips`, but
+ * three's GLTFLoader sanitises node names on the way in and the colon does not
+ * survive — so the same bone arrives as `mixamorigHips`. Matching only the
+ * colon form silently finds nothing, every aim() bails out, and the character
+ * renders in its bind pose with no error anywhere.
+ */
+const boneKey = (name) => name.replace(/^mixamorig[:_\s]?/i, '');
 const CHAIN = [
   ['Spine', 'Spine1'], ['Spine1', 'Spine2'], ['Spine2', 'Neck'], ['Neck', 'Head'],
   ['LeftShoulder', 'LeftArm'], ['LeftArm', 'LeftForeArm'], ['LeftForeArm', 'LeftHand'],
@@ -63,8 +70,8 @@ const POSES = {
     Spine: [0, 0.96, 0.28], Spine1: [0, 0.97, 0.24], Spine2: [0, 0.98, 0.2],
     Neck: [0, 0.92, 0.38], Head: [0, 0.9, 0.44],
     LeftShoulder: [0.95, 0.3, 0], RightShoulder: [-0.95, 0.3, 0],
-    LeftArm: [0.55, -0.6, 0.58], LeftForeArm: [0.4, -0.2, 0.9],
-    RightArm: [-0.55, -0.6, -0.58], RightForeArm: [-0.4, -0.2, -0.9],
+    LeftArm: [0.24, -0.72, 0.65], LeftForeArm: [0.18, -0.3, 0.94],
+    RightArm: [-0.24, -0.72, -0.65], RightForeArm: [-0.18, -0.3, -0.94],
     LeftUpLeg: [0.1, -0.8, 0.6], LeftLeg: [0.06, -0.94, -0.34],
     RightUpLeg: [-0.1, -0.94, -0.34], RightLeg: [-0.06, -0.7, 0.72],
     LeftFoot: [0, -0.5, 0.86], RightFoot: [0, -0.5, 0.86],
@@ -115,7 +122,7 @@ export class Avatar {
     const model = gltf.scene;
 
     model.traverse((o) => {
-      if (o.isBone) this.bones.set(o.name.replace('mixamorig:', ''), o);
+      if (o.isBone) this.bones.set(boneKey(o.name), o);
       if (o.isMesh || o.isSkinnedMesh) {
         o.frustumCulled = false;          // the skeleton moves far from its bind box
         const mats = Array.isArray(o.material) ? o.material : [o.material];
@@ -141,6 +148,16 @@ export class Avatar {
     this.model = model;
 
     for (const [, b] of this.bones) this.rest.set(b.name, b.quaternion.clone());
+
+    // Fail loudly on an unfamiliar rig rather than rendering a bind pose.
+    const missing = CHAIN.map(([a]) => a).filter((n) => !this.bones.has(n));
+    if (missing.length) {
+      console.warn(
+        `avatar: ${missing.length} expected bones missing (${missing.slice(0, 4).join(', ')}…). ` +
+        `Rig has: ${[...this.bones.keys()].slice(0, 8).join(', ')}…`,
+      );
+    }
+    this.posable = missing.length < CHAIN.length / 2;
     this.ready = this.bones.size > 0;
     if (!this.ready) this.buildStandIn();
     return this;

@@ -261,11 +261,16 @@ export function buildCity(seed = 1337) {
     attach(ck.rp, ck.rn, ck.ru, ck.rc, roofMat);
   }
 
-  // Streets. One quad, three city-widths across, so the grid runs past the fog.
+  // Streets. The quad has to run *past* the fog, not merely past the city: at
+  // three city-widths its own edge sits well inside visible range and reads as
+  // the plate of ground it is. Twelve puts the edge beyond where fog has gone
+  // opaque, so what you see at the horizon is haze. An even multiple keeps the
+  // road tiles aligned with the lot grid.
   const ground = groundTextures(seed + 9, ROAD_FRAC);
-  const span = EXTENT * 3;
-  ground.map.repeat.set(N * 3, N * 3);
-  ground.emissive.repeat.set(N * 3, N * 3);
+  const TILES = 12;
+  const span = EXTENT * TILES;
+  ground.map.repeat.set(N * TILES, N * TILES);
+  ground.emissive.repeat.set(N * TILES, N * TILES);
   const groundMesh = new THREE.Mesh(
     new THREE.PlaneGeometry(span, span),
     new THREE.MeshStandardMaterial({
