@@ -157,3 +157,41 @@ but it will mislead anyone writing a test.
 5. `Spray`, `Wake`, `Post` — all optional, all the same shape of work.
 6. Keep `src/` (WebGL2) and the adapter working throughout. The demo runs on
    the WebGL2 path and should not regress.
+
+
+---
+
+## Confirmed on real hardware
+
+The whole simulation, both backends, on an M4 Max — not a microbenchmark of the
+FFT but the actual spectrum, evolution, butterflies and assembly, run through
+`prototypes/backend-compare.html`:
+
+```
+128² x 4 cascades, 8 steps       WebGL2 fragment   27.10 ms
+                                 WebGPU compute     4.50 ms   ->  6.02x
+worst relative deviation                            1.40e-5
+texels beyond 1e-3                                  0 / 65536, every cascade
+```
+
+Two things to take from it.
+
+**The translation is correct on real Metal**, not merely on a software
+rasteriser. Every cascade agrees and the difference image is black.
+
+**6.02× is larger than either earlier estimate** — the FFT microbenchmark said
+3.96×, SwiftShader said 4.16×. Real hardware gives compute more room than either
+predicted, because the full simulation is more dispatch-bound than the isolated
+FFT was.
+
+It does not change the decision, and the arithmetic is worth doing rather than
+assuming. 6.02× removes 83% of the simulation, the simulation is 3.0% of a
+frame, so the saving is 2.5% of one:
+
+```
+0.80 ms -> 0.13 ms   ->   26.56 ms frame becomes 25.89 ms   ->   37.7 fps becomes 38.6 fps
+```
+
+Still under one frame per second, from a speedup half again larger than the one
+the estimate was built on. That is the point of measuring the share as well as
+the ratio: a 6x on 3% of the work is a 2.5% saving no matter how good the 6x is.
