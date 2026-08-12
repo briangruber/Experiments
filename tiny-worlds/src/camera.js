@@ -28,6 +28,7 @@ export class ChaseCamera {
     this.look = new THREE.Vector3();
     this.initialised = false;
     this.shake = 0;
+    this.clearDistance = this.distance;
   }
 
   // Direction the player should treat as "forward" for input, in world space.
@@ -104,21 +105,36 @@ export class ChaseCamera {
     this.camera.lookAt(this.look);
   }
 
-  // Never let the ground get between the camera and the player.
-  avoidTerrain(planet) {
-    if (!planet) return;
-    _v.copy(this.camera.position);
-    planet.group.worldToLocal(_v);
-    const dir = _v.clone().normalize();
-    const floor = planet.groundRadius(dir) + 0.9;
-    if (_v.length() < floor) {
-      _v.copy(dir).multiplyScalar(floor);
-      planet.group.localToWorld(_v);
+  // Keep the ground out from between the camera and the keeper.
+  //
+  // The old version shoved the camera radially outward the instant it clipped,
+  // and wrote the result back into the smoothing state — so the next frame
+  // pulled it straight back into the hill and the view buzzed. This walks in
+  // along the orbit instead, finds the furthest point that is clear, and eases
+  // to it: the camera slides over a ridge rather than fighting it.
+  avoidTerrain(planet, dt = 0.016) {
+    if (!planet || !this.initialised) return;
+    const MARGIN = 0.85;
+    const STEPS = 6;
+    let free = this.distance;
+    for (let i = 0; i <= STEPS; i++) {
+      const d = this.distance * (1 - i / STEPS) + this.minDistance * (i / STEPS);
+      _v.copy(this.look).addScaledVector(this.orbit, d);
+      planet.group.worldToLocal(_v);
+      const dir = _desired.copy(_v).normalize();
+      if (_v.length() > planet.groundRadius(dir) + MARGIN) { free = d; break; }
+      free = d;
+    }
+    // Snap in fast so a ridge never crosses the view; ease back out slowly so
+    // clearing it does not fling the camera.
+    const rate = free < this.clearDistance ? 26 : 3.5;
+    this.clearDistance = damp(this.clearDistance ?? free, free, rate, dt);
+    if (this.clearDistance < this.distance - 0.01) {
+      _v.copy(this.look).addScaledVector(this.orbit, this.clearDistance);
       this.camera.position.copy(_v);
-      this.pos.copy(_v);
       this.camera.lookAt(this.look);
     }
   }
 
-  snap() { this.initialised = false; }
+  snap() { this.initialised = false; this.clearDistance = this.targetDistance; }
 }

@@ -28,7 +28,7 @@ the world and it all stops: the light drives the gloom out and the sky settles.
 | world | the twist | what it throws at you |
 | --- | --- | --- |
 | Verdance | ordinary gravity, ordinary grip | a couple of gloom |
-| Amaranth | light gravity, bobbing floating islets | gloom, and a falling sky |
+| Amaranth | barely any gravity — a running jump nearly leaves the world | gloom, and a falling sky |
 | Glacia | almost no ground friction | fewer gloom, heavier bombardment |
 | Ember | night, lit only by your lantern | thick with gloom |
 | The Heart | tiny, and it blooms on arrival | nothing at all |
@@ -73,7 +73,7 @@ src/
   threats.js      meteors and gloom — everything a dormant world throws
   portal.js       the way out of a world you have woken
   debug.js        the ` panel: jump to a world, force any event, watch state
-  player.js       the keeper: radial gravity, sphere walking, animation state
+  player.js       the keeper: radial gravity, sphere walking, blended animation
   camera.js       chase camera that survives running over the poles
   engine.js       renderer, post chain, the shared sun and starfield
   assets.js       GLB loading, normalisation, procedural fallbacks
@@ -145,6 +145,6 @@ blooms, the beacon lights, the launch is offered, and the flight lands on the
 next planet.
 
 ```
-node tools/playthrough.mjs            # 16 checks, non-zero exit on any failure
-node tools/playthrough.mjs --world 2  # 17, including the meteor storm
+node tools/playthrough.mjs            # 17 checks, non-zero exit on any failure
+node tools/playthrough.mjs --world 2  # 18, including the meteor storm
 ```

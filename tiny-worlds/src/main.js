@@ -476,6 +476,13 @@ function frame(now) {
 
     player.worldPosition(_a);
     player.worldUp(_b);
+    // The higher you get, the further back the camera sits — on the light
+    // worlds a full-speed jump nearly leaves the planet, and that only reads
+    // if you can see the planet.
+    const planetNow = current();
+    const altitude = Math.max(0, player.local.length() - planetNow.groundRadius(player.up));
+    chase.targetDistance = planetNow.def.radius * 1.15 + 4 + Math.min(altitude * 1.5, planetNow.def.radius * 1.4);
+
     chase.update(dt, {
       target: _a,
       up: _b,
@@ -490,7 +497,7 @@ function frame(now) {
       followStrength: Math.max(0, input.move.y) * (1 - Math.min(1, Math.abs(input.move.x))),
       heightOffset: 1.6,
     });
-    chase.avoidTerrain(current());
+    chase.avoidTerrain(current(), dt);
   }
 
   if (playing && input.takeInteract() && state.promptAction === 'launch') startFlight();

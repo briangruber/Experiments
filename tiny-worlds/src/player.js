@@ -20,6 +20,8 @@ const COYOTE = 0.12;
 // How far the ground may fall away beneath a running keeper before they are
 // genuinely airborne rather than just going downhill.
 const STICK = 0.42;
+// Steepness (1 - cos) past which the ground is a cliff, not a hill.
+const MAX_STAND = 0.46;
 const BUFFER = 0.16;
 
 export class Player {
@@ -114,11 +116,25 @@ export class Player {
     return this.planet ? out.transformDirection(this.planet.group.matrixWorld) : out;
   }
 
+  // Ease one clip's weight toward a target. Actions all stay playing; only
+  // their weights move, which is what makes the transitions seamless.
+  blend(name, target, dt, rate = 9) {
+    const action = this.actions[name];
+    if (!action) return;
+    const w = damp(action.getEffectiveWeight(), target, rate, dt);
+    action.setEffectiveWeight(w < 0.002 ? 0 : w);
+    if (w > 0.002 && !action.isRunning()) action.play();
+    // `current` is only a label now, for the debug panel and the harness.
+    if (target > 0.5) this.current = name;
+  }
+
+  // Kept for the flight, which wants one pose held outright.
   setAnim(name, fade = 0.18) {
-    if (this.current === name || !this.actions[name]) return;
-    const next = this.actions[name];
-    next.reset().play().setEffectiveTimeScale(next.timeScale || 1).fadeIn(fade);
-    this.actions[this.current]?.fadeOut(fade);
+    if (!this.actions[name]) return;
+    for (const [key, action] of Object.entries(this.actions)) {
+      action.setEffectiveWeight(key === name ? 1 : 0);
+      if (key === name && !action.isRunning()) action.play();
+    }
     this.current = name;
   }
 
@@ -151,7 +167,14 @@ export class Player {
       _v.x = damp(_v.x, _target.x, grip, dt);
       _v.y = damp(_v.y, _target.y, grip, dt);
       _v.z = damp(_v.z, _target.z, grip, dt);
-      this.vel.copy(_v).addScaledVector(this.up, radial - (def.gravity ?? 24) * dt);
+      // Platformer hang: lighter on the way up than on the way down, which
+      // makes a leap feel deliberate instead of ballistic. And a hard pull
+      // back if anything ever throws the keeper properly clear of the world.
+      const g = def.gravity ?? 24;
+      const rising = radial > 0;
+      const far = Math.max(0, this.local.length() / planet.def.radius - 1.9);
+      const gravity = g * (rising ? (def.hang ?? 0.86) : 1.06) * (1 + far * 4);
+      this.vel.copy(_v).addScaledVector(this.up, radial - gravity * dt);
 
       this.jumpBuffer = jump ? BUFFER : Math.max(0, this.jumpBuffer - dt);
       const canJump = this.grounded || this.airTime < COYOTE;
@@ -194,6 +217,29 @@ export class Player {
       this.grounded = this.landOnIslet(r, dt) || false;
     }
 
+    // Faces steeper than this cannot be stood on: the keeper slides. Without it
+    // they walk straight up cliffs, and being shoved into one leaves them
+    // buried, snapped back to the surface every frame — which is the jitter
+    // that reads as being stuck.
+    if (this.grounded) {
+      planet.normalAt(this.up, _n);
+      const steep = 1 - clamp(_n.dot(this.up), 0, 1);
+      if (steep > MAX_STAND) {
+        // Downhill is the part of the surface normal that points sideways.
+        _v.copy(_n).addScaledVector(this.up, -_n.dot(this.up));
+        if (_v.lengthSq() > 1e-6) {
+          _v.normalize();
+          const slide = (def.gravity ?? 24) * (steep - MAX_STAND) * 2.2;
+          this.vel.addScaledVector(_v, slide * dt);
+        }
+        this.sliding = true;
+      } else {
+        this.sliding = false;
+      }
+    } else {
+      this.sliding = false;
+    }
+
     if (this.grounded) {
       if (!wasGrounded && this.airTime > 0.18) {
         this.squash = clamp(1 - Math.min(0.4, this.fallSpeed / 40), 0.6, 1);
@@ -231,19 +277,36 @@ export class Player {
     const sq = this.height * this.squash;
     this.model.scale.set(this.height / Math.sqrt(this.squash), sq, this.height / Math.sqrt(this.squash));
 
-    // ---- animation
-    const moving = this.speed > 0.5;
-    if (!this.grounded && this.airTime > 0.14) this.setAnim('jump', 0.12);
-    else if (moving && this.speed > (def.moveSpeed ?? 6.5) * 1.12) this.setAnim('run');
-    else if (moving) this.setAnim('walk');
-    else this.setAnim('idle', 0.25);
+    // Lean into a turn and into acceleration. Costs nothing and is most of the
+    // difference between a model sliding around and one that is running.
+    _v.copy(this.vel).addScaledVector(this.up, -this.vel.dot(this.up));
+    const turn = _r.crossVectors(this.up, this.facing).dot(_v) / Math.max(1, this.speed);
+    this.lean = damp(this.lean ?? 0, clamp(-turn * 0.5, -0.42, 0.42), 7, dt);
+    this.pitch = damp(this.pitch ?? 0, clamp(this.speed / (def.moveSpeed ?? 6.5), 0, 1.4) * 0.1, 5, dt);
+    this.model.rotation.z = this.lean;
+    this.model.rotation.x = this.pitch;
 
-    const cadence = clamp(this.speed / (def.moveSpeed ?? 6.5), 0.55, 1.9);
-    if (this.actions.walk) this.actions.walk.setEffectiveTimeScale(cadence * 1.15);
-    if (this.actions.run) this.actions.run.setEffectiveTimeScale(clamp(cadence, 0.8, 1.5));
+    // ---- animation
+    //
+    // Blended by speed rather than switched at thresholds. Crossfading on a
+    // threshold pops every time you brush past it — dead obvious when you are
+    // running just under the walk/run line — and it cannot express the middle.
+    const base = def.moveSpeed ?? 6.5;
+    const airborne = !this.grounded && this.airTime > 0.14;
+    const jog = clamp((this.speed - 0.6) / (base * 0.9), 0, 1);
+    const dash = clamp((this.speed - base * 0.95) / (base * 0.6), 0, 1);
+    this.blend('idle', airborne ? 0 : (1 - jog), dt);
+    this.blend('walk', airborne ? 0 : jog * (1 - dash), dt);
+    this.blend('run', airborne ? 0 : jog * dash, dt);
+    this.blend('jump', airborne ? 1 : 0, dt);
+
+    // Stride matched to ground speed, so the feet stop skating.
+    const cadence = clamp(this.speed / base, 0.55, 1.9);
+    this.actions.walk?.setEffectiveTimeScale(cadence * 1.15);
+    this.actions.run?.setEffectiveTimeScale(clamp(cadence, 0.8, 1.5));
     this.mixer.update(dt);
 
-    if (this.grounded && moving) {
+    if (this.grounded && this.speed > 0.5) {
       this.stepTimer -= dt * cadence;
       if (this.stepTimer <= 0) { this.stepTimer = 0.34; this.onStep?.(this.speed); }
     }
