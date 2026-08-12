@@ -1,0 +1,156 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — do the TSL simulation graphs compile on both backends?</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}</style>
+<pre id="out">running…</pre>
+
+<!--
+  src/gpu/tsl/ocean-sim.js is five node graphs and src/gpu/tsl/sim-driver.js
+  builds THIRTEEN materials out of them. Several of the ways this port can be
+  wrong are compile failures on exactly one backend - porting rule 2's
+  min(int, float) is the one that has already bitten - and a material that fails
+  to compile renders black and says nothing.
+
+  So: build the real driver, run a real rebuild frame plus two steady frames on
+  each backend, and assert two things.
+
+    1. No shader error reached the console.
+    2. Every one of the thirteen materials was actually DRAWN. A probe that
+       compiles twelve of them and reports "no errors" is worthless, and the two
+       foam parities and the two publish parities only appear on the right
+       frames - which is exactly the sort of thing that goes untested.
+
+  Confirm this probe can fail before trusting it: break one of the graphs (a
+  .mix() for a mix(), an int fed to min) and re-run.
+
+    node tools/run-probe.mjs prototypes/tsl-sim-compile-probe.html
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { TslOceanSim } from '../src/gpu/tsl/sim-driver.js';
+import { DEFAULT_CASCADES } from '../src/ocean.js';
+import { newParams } from '../src/presets.js';
+import { createDerived, derive } from '../src/derive.js';
+import { installWebGPUSwizzleShim } from './webgpu-shim.js';
+
+installWebGPUSwizzleShim();
+
+const q = new URLSearchParams(location.search);
+const N = +(q.get('n') || 32);
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+// The thirteen. Named rather than counted, so a material that quietly stops
+// being drawn is a named failure and not a number that drifted.
+const EXPECTED = [
+  'abyssal.oceanSim.prime1',
+  'abyssal.oceanSim.prime2',
+  'abyssal.oceanSim.spectrum',
+  'abyssal.oceanSim.evolve',
+  'abyssal.oceanSim.fft.h.ping',
+  'abyssal.oceanSim.fft.h.pong',
+  'abyssal.oceanSim.fft.v.ping',
+  'abyssal.oceanSim.fft.v.pong',
+  'abyssal.oceanSim.assemble',
+  'abyssal.oceanSim.foam.0',
+  'abyssal.oceanSim.foam.1',
+  'abyssal.oceanSim.publish.0',
+  'abyssal.oceanSim.publish.1',
+];
+
+async function runOn(forceWebGL) {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 32;
+  const renderer = new THREE.WebGPURenderer({ canvas, forceWebGL, antialias: false });
+  await renderer.init();
+  const backend = renderer.backend?.isWebGPUBackend ? 'WebGPU' : 'WebGL2';
+
+  // Console is where a GLSL/WGSL compile error surfaces; a failed material
+  // otherwise renders black and reports nothing.
+  const errs = [];
+  const realError = console.error;
+  console.error = (...a) => { errs.push(a.join(' ')); realError(...a); };
+
+  const drawn = new Set();
+  let error = null;
+  let float32Filterable = null;
+
+  // Patch the PROTOTYPE, not the instance: the two priming materials are drawn
+  // by the constructor, so an instance-level hook installed afterwards would
+  // miss exactly the two passes that allocate and zero the mip chains.
+  const realDraw = TslOceanSim.prototype._draw;
+  TslOceanSim.prototype._draw = function (target, layer, material) {
+    drawn.add(material.name);
+    realDraw.call(this, target, layer, material);
+  };
+
+  try {
+    const p = newParams('Golden Hour Swell');
+    p.fftSize = N;
+    derive(p, createDerived());
+
+    const sim = new TslOceanSim(renderer, { size: N, cascades: DEFAULT_CASCADES });
+    float32Filterable = sim.float32Filterable;
+
+    sim.buildSpectrum(p);
+    // Frame 1 is the spin-up frame (31 foam steps, so foamIdx ends odd and
+    // publish.1 runs); frame 2 is a steady frame (one step, foamIdx back to
+    // even, publish.0 runs). Both parities of both alternating materials.
+    sim.update(1 / 60, p);
+    sim.update(1 / 60, p);
+
+    sim.dispose();
+  } catch (e) {
+    const msg = String(e.message || e);
+    error = /swizzle|GPUTextureViewDescriptor/.test(msg) ? 'sandbox-render-bug' : (e.stack || msg);
+  }
+
+  console.error = realError;
+  TslOceanSim.prototype._draw = realDraw;
+  renderer.dispose();
+
+  const shaderErrs = errs.filter((e) => /shader|compil|link|GLSL|WGSL|ERROR:/i.test(e));
+  return { backend, drawn, shaderErrs, error, float32Filterable };
+}
+
+for (const [label, force] of [['WebGPU', false], ['WebGL2', true]]) {
+  let r;
+  try { r = await runOn(force); } catch (e) { log(`${label}: renderer`, false, String(e.message || e)); continue; }
+
+  if (r.error === 'sandbox-render-bug') {
+    log(`${r.backend}: simulation runs`, false,
+        'blocked by the sandbox Chromium createView bug even with the shim installed');
+    continue;
+  }
+
+  log(`${r.backend}: simulation runs end to end`, r.error === null, r.error ? String(r.error).slice(0, 600) : `N=${N}`);
+  log(`${r.backend}: no shader errors`, r.shaderErrs.length === 0,
+      r.shaderErrs.length ? r.shaderErrs[0].slice(0, 600) : `${EXPECTED.length} materials`);
+
+  const missing = EXPECTED.filter((n) => !r.drawn.has(n));
+  const extra = [...r.drawn].filter((n) => !EXPECTED.includes(n));
+  log(`${r.backend}: all 13 materials drawn`, missing.length === 0 && extra.length === 0,
+      missing.length ? 'never drawn: ' + missing.join(', ')
+        : extra.length ? 'unexpected: ' + extra.join(', ') : [...r.drawn].length + ' distinct');
+
+  // Not a pass/fail: a WebGL2 context without OES_texture_float_linear is a real
+  // configuration, and this is the number to know before reading a mismatch.
+  log(`${r.backend}: float32 filtering available`, true, String(r.float32Filterable));
+}
+
+window.probeResult = { results, allOk: results.every((r) => r.ok) };
+</script>

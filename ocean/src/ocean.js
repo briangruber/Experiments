@@ -40,7 +40,7 @@ export const DEFAULT_CASCADES = [3137.0, 397.0, 87.0, 17.3];
 // prints a lattice of whitecaps across a sea whose waves do not repeat. Spread
 // across incommensurate periods the sum has no period, exactly as the wave field
 // does not. The bias toward the middle two is where breaking waves actually are.
-const FOAM_WEIGHTS = [0.20, 0.34, 0.30, 0.16];
+export const FOAM_WEIGHTS = [0.20, 0.34, 0.30, 0.16];
 
 // Monahan & O'Muircheartaigh's whitecap law, W = 3.84e-6 U10^3.41. It is the one
 // number in the foam model with a boat and a camera behind it, so the breaking
@@ -61,7 +61,7 @@ export function whitecapFraction(U10, gain = 1, windMin = 4.0) {
 // 5e-4 over the range of coverages we ask for. The low-passed compression is a
 // linear functional of a Gaussian wave field, so its own tail is Gaussian too
 // and this converts "I want W of the surface breaking" into a cutoff in sigmas.
-function probit(p) {
+export function probit(p) {
   const q = Math.min(Math.max(p, 1e-6), 0.5);
   const t = Math.sqrt(-2 * Math.log(q));
   return t - (2.30753 + 0.27061 * t) / (1 + 0.99229 * t + 0.04481 * t * t);
@@ -70,14 +70,22 @@ function probit(p) {
 // Share of the total whitecap coverage that is *actively* folding at any
 // instant; the rest of W is the dissipating raft the breaker leaves behind.
 // Calibrated against the measured mean of the foam texture.
-const ACTIVE_SHARE = 0.38;
+export const ACTIVE_SHARE = 0.38;
 
 // The breaking test is gated after the threshold - on the forward face and on
 // the ridge of the fold field - and the injection gain then re-saturates
 // whatever survives, so the area that ends up white is not the area of the
 // Gaussian tail the probit sized. Measured against the mean of the foam texture
 // across the preset range.
-const GATE_PASS = 0.85;
+export const GATE_PASS = 0.85;
+
+// The breaking threshold, in sigmas of the low-passed compression, for a target
+// whitecap coverage. Hoisted out of Ocean._foamStep so there is exactly ONE
+// spelling of `probit(W * ACTIVE_SHARE / GATE_PASS)` and the TSL driver
+// (src/gpu/tsl/sim-driver.js) cannot drift from this one.
+export function foamCutoffOf(whitecap) {
+  return probit(whitecap * ACTIVE_SHARE / GATE_PASS);
+}
 
 export function butterflyData(N) {
   const stages = Math.round(Math.log2(N));
@@ -148,6 +156,41 @@ export function kCharOf(L, C, N, c) {
 export function choppinessOf(C, c, p) {
   const t = C > 1 ? (C - 1 - c) / (C - 1) : 1;
   return p.choppiness * (1 + (p.choppyLong - 1) * t);
+}
+
+// Per-cascade weight of the folding test that drives spray. Droplets tear off
+// waves that can carry a plunging crest; anything shorter than `scale` metres
+// just wrinkles. Rolls off over two octaves above that.
+//
+// Hoisted verbatim out of Ocean.breakWeights so a simulation that is not this
+// class - src/gpu/tsl/sim-driver.js - can reuse it rather than re-derive it.
+export function breakWeightsOf(L, C, N, scale) {
+  const kb = 2 * Math.PI / Math.max(scale, 0.2);
+  const w = new Float32Array(4);
+  for (let c = 0; c < C; c++) {
+    const [lo, hi] = bandLimitsOf(L, C, c);
+    const nyq = Math.PI * N / L[c];
+    const kMid = c === 0 ? Math.min(hi, nyq) * 0.3 : Math.sqrt(lo * Math.min(hi, nyq));
+    const t = Math.log(kMid / kb) / Math.log(4.0);
+    w[c] = 1 - Math.min(Math.max(t, 0), 1);
+  }
+  return w;
+}
+
+// Mip level per cascade whose footprint is `scale` metres across, i.e. the
+// level at which the breaking test sees a breaker-sized patch of surface
+// rather than one texel of ripple. Cascades whose texels are already coarser
+// than a breaker clamp to level 0.
+//
+// Hoisted verbatim out of Ocean.breakLods, same reason as breakWeightsOf.
+export function breakLodsOf(L, C, N, scale) {
+  const lods = new Float32Array(4);
+  const maxLod = Math.log2(N) - 2;
+  for (let c = 0; c < C; c++) {
+    const texel = L[c] / N;
+    lods[c] = Math.min(Math.max(Math.log2(Math.max(scale, 0.05) / texel), 0), maxLod);
+  }
+  return lods;
 }
 
 export class Ocean {
@@ -264,35 +307,12 @@ export class Ocean {
   // from the top of the band, which is where the JONSWAP peak sits.
   kChar(c) { return kCharOf(this.L, this.C, this.N, c); }
 
-  // Per-cascade weight of the folding test that drives spray. Droplets tear off
-  // waves that can carry a plunging crest; anything shorter than `scale` metres
-  // just wrinkles. Rolls off over two octaves above that.
-  breakWeights(scale) {
-    const kb = 2 * Math.PI / Math.max(scale, 0.2);
-    const w = new Float32Array(4);
-    for (let c = 0; c < this.C; c++) {
-      const [lo, hi] = this.bandLimits(c);
-      const nyq = Math.PI * this.N / this.L[c];
-      const kMid = c === 0 ? Math.min(hi, nyq) * 0.3 : Math.sqrt(lo * Math.min(hi, nyq));
-      const t = Math.log(kMid / kb) / Math.log(4.0);
-      w[c] = 1 - Math.min(Math.max(t, 0), 1);
-    }
-    return w;
-  }
+  // See breakWeightsOf / breakLodsOf above; the bodies were hoisted so the TSL
+  // simulation can share them. These stay as methods because that is the shape
+  // every caller already holds.
+  breakWeights(scale) { return breakWeightsOf(this.L, this.C, this.N, scale); }
 
-  // Mip level per cascade whose footprint is `scale` metres across, i.e. the
-  // level at which the breaking test sees a breaker-sized patch of surface
-  // rather than one texel of ripple. Cascades whose texels are already coarser
-  // than a breaker clamp to level 0.
-  breakLods(scale) {
-    const lods = new Float32Array(4);
-    const maxLod = Math.log2(this.N) - 2;
-    for (let c = 0; c < this.C; c++) {
-      const texel = this.L[c] / this.N;
-      lods[c] = Math.min(Math.max(Math.log2(Math.max(scale, 0.05) / texel), 0), maxLod);
-    }
-    return lods;
-  }
+  breakLods(scale) { return breakLodsOf(this.L, this.C, this.N, scale); }
 
   buildSpectrum(p) {
     const gl = this.gl, N = this.N;
@@ -402,7 +422,7 @@ export class Ocean {
     const patch = this.patchSizes;
     const lods = this.breakLods(p.foamBreakScale);
     this.whitecap = whitecapFraction(p.windSpeed, p.foamCoverage, p.foamWindMin);
-    const cutoff = probit(this.whitecap * ACTIVE_SHARE / GATE_PASS);
+    const cutoff = foamCutoffOf(this.whitecap);
     for (let c = 0; c < this.C; c++) {
       gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo.foam[nextFoam][c]);
       setUniforms(gl, this.pFoam, {

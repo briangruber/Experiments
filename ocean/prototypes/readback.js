@@ -40,7 +40,20 @@ export async function readPixelsBottomUp( renderer, target, w, h ) {
 	// Every real target here clears the bar (the sky/water references are 160
 	// wide = 2560 bytes; the FFT is 128 or 256), so this is a guard against a
 	// probe author picking a small size and chasing a phantom for an hour.
-	const bytesPerRow = w * 4 * ( target.texture?.type === 1015 /* FloatType */ ? 4 : 2 );
+	//
+	// The per-channel size has to cover THREE types, not two. The `? 4 : 2` this
+	// used to be reported an 8-bit target's row as twice its real width, so a
+	// 160-wide RGBA8 target - a 640-byte row, and 640 % 256 = 128 - was computed as
+	// 1280 and sailed through the guard, which is exactly the case the guard exists
+	// for. (An 8-bit target also comes back as a Uint8Array, which the Float32Array
+	// view below would reinterpret rather than convert; blit through a float
+	// staging target rather than reading RGBA8 back directly.)
+	const BYTES_PER_CHANNEL = {
+		1015: 4,   // FloatType
+		1016: 2,   // HalfFloatType
+		1009: 1,   // UnsignedByteType
+	};
+	const bytesPerRow = w * 4 * ( BYTES_PER_CHANNEL[ target.texture?.type ] ?? 2 );
 	if ( renderer.backend?.isWebGPUBackend && bytesPerRow % 256 !== 0 ) {
 
 		throw new Error(
