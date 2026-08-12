@@ -1,0 +1,48 @@
+{
+  "name": "abyssal-ocean",
+  "version": "0.1.0",
+  "description": "Photoreal FFT ocean and volumetric sky for WebGL2, droppable into a Three.js scene.",
+  "type": "module",
+  "license": "MIT",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.js",
+    "./three": "./src/three/index.js",
+    "./presets": "./src/presets.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "docs",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "ocean", "water", "sea", "waves", "fft", "tessendorf",
+    "sky", "atmosphere", "clouds", "volumetric",
+    "webgl", "webgl2", "threejs", "three", "shader", "glsl"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/briangruber/Experiments.git",
+    "directory": "ocean"
+  },
+  "homepage": "https://github.com/briangruber/Experiments/tree/main/ocean#readme",
+  "bugs": "https://github.com/briangruber/Experiments/issues",
+  "scripts": {
+    "start": "node tools/serve.mjs",
+    "build": "node tools/bundle.mjs --root . --out dist/abyssal.html",
+    "check": "node tools/shot.mjs --out shots/check.png --w 640 --h 400 --wait 9000",
+    "check:examples": "node tools/check-examples.mjs",
+    "docs:params": "node tools/gen-params.mjs > docs/parameters.md"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "playwright": "^1.40.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

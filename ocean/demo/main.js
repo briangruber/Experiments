@@ -1,16 +1,17 @@
-import { getContext, program, setUniforms, texture2D, framebuffer, depthBuffer, Blitter } from './gl.js';
-import { WATER_VS, WATER_FS } from './shaders/water.js';
-import { Ocean, DEFAULT_CASCADES } from './ocean.js';
-import { Sky } from './sky.js';
-import { Spray } from './spray.js';
-import { Post } from './post.js';
+import { getContext, texture2D, framebuffer, depthBuffer, Blitter } from '../src/gl.js';
+import { WaterSurface } from '../src/water.js';
+import { Ocean, DEFAULT_CASCADES } from '../src/ocean.js';
+import { Sky } from '../src/sky.js';
+import { Spray } from '../src/spray.js';
+import { Post } from '../src/post.js';
 import { Camera } from './camera.js';
 import { WaveRunner } from './waverunner.js';
-import { Wake } from './wake.js';
+import { Wake } from '../src/wake.js';
 import { Craft } from './craft.js';
 import { UI, applyPreset } from './ui.js';
-import { defaults, PRESETS } from './presets.js';
-import { DEG, v3, clamp } from './math.js';
+import { defaults, PRESETS } from '../src/presets.js';
+import { createDerived, derive as deriveScene } from '../src/derive.js';
+import { clamp } from '../src/math.js';
 
 const canvas = document.getElementById('gl');
 // The GPU preference is fixed at context creation and cannot be changed
@@ -31,53 +32,10 @@ const sky = new Sky(gl, blit);
 const post = new Post(gl, blit);
 let ocean = new Ocean(gl, { size: params.fftSize, cascades: DEFAULT_CASCADES });
 let spray = new Spray(gl, blit, { size: params.sprayTexSize });
-const pWater = program(gl, WATER_VS, WATER_FS, 'water');
+const water = new WaterSurface(gl, params);
 const waveRunner = new WaveRunner(gl, blit);
 let wake = new Wake(gl, blit, { size: params.wakeTexSize });
 const craft = new Craft(gl);
-
-// ---------------------------------------------------------------- radial grid
-let grid = null;
-function buildGrid() {
-  if (grid) { gl.deleteVertexArray(grid.vao); gl.deleteBuffer(grid.vbo); gl.deleteBuffer(grid.ibo); }
-  // gridScale is the adaptive controller's second lever - see adaptQuality. At
-  // full quality this is 400 x 640, which is a quarter of a million vertices and
-  // half a million triangles submitted every frame, each one doing four cascade
-  // fetches. On a phone that is often the binding cost rather than fill rate, and
-  // trimming pixels alone cannot touch it.
-  const g = clamp(params.gridScale ?? 1, 0.25, 1);
-  const R = Math.max(24, Math.round(params.gridRadial * g));
-  const A = Math.max(24, Math.round(params.gridAngular * g));
-  const verts = new Float32Array((R + 1) * A * 2);
-  let o = 0;
-  for (let i = 0; i <= R; i++) {
-    const t = i / R;
-    for (let j = 0; j < A; j++) { verts[o++] = t; verts[o++] = j / A; }
-  }
-  const idx = new Uint32Array(R * A * 6);
-  let k = 0;
-  for (let i = 0; i < R; i++) {
-    for (let j = 0; j < A; j++) {
-      const j1 = (j + 1) % A;
-      const a = i * A + j, b = i * A + j1, c = (i + 1) * A + j, d = (i + 1) * A + j1;
-      idx[k++] = a; idx[k++] = c; idx[k++] = b;
-      idx[k++] = b; idx[k++] = c; idx[k++] = d;
-    }
-  }
-  const vao = gl.createVertexArray();
-  gl.bindVertexArray(vao);
-  const vbo = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-  gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
-  gl.enableVertexAttribArray(0);
-  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
-  const ibo = gl.createBuffer();
-  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
-  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
-  gl.bindVertexArray(null);
-  grid = { vao, vbo, ibo, count: idx.length };
-}
-buildGrid();
 
 // --------------------------------------------------------------- render target
 let hdr = null, hdrFbo = null, depthRb = null, W = 1, H = 1;
@@ -101,48 +59,22 @@ function resize() {
 window.addEventListener('resize', () => { resize(); resetAccum(); });
 
 // ----------------------------------------------------------------- derived sim
-const sunDir = v3(), moonDir = v3(), windVec3 = v3();
+const derived = createDerived();
+const { sunDir, moonDir, windVec3 } = derived;
 function derive() {
-  const el = params.sunElevation * DEG, az = params.sunAzimuth * DEG;
-  sunDir[0] = Math.cos(el) * Math.sin(az);
-  sunDir[1] = Math.sin(el);
-  sunDir[2] = -Math.cos(el) * Math.cos(az);
-  const mel = params.moonElevation * DEG, maz = params.moonAzimuth * DEG;
-  moonDir[0] = Math.cos(mel) * Math.sin(maz);
-  moonDir[1] = Math.sin(mel);
-  moonDir[2] = -Math.cos(mel) * Math.cos(maz);
-  const wd = params.windDirDeg * DEG;
-  windVec3[0] = Math.cos(wd) * params.windSpeed;
-  windVec3[1] = 0;
-  windVec3[2] = Math.sin(wd) * params.windSpeed;
-
-  params.windDir = wd;
-  params.swellDir = params.swellDirDeg * DEG;
-  params.sunIrradiance = new Float32Array([
-    params.sunTint[0] * params.sunIntensity,
-    params.sunTint[1] * params.sunIntensity,
-    params.sunTint[2] * params.sunIntensity,
-  ]);
-  params.moonColor = new Float32Array([0.55, 0.68, 1.0].map((c) => c * params.moonIntensity * 2.4));
+  deriveScene(params, derived);
   camera.fov = params.fov;
   camera.speed = params.moveSpeed;
-}
-
-// Cascade fade distances: a patch stops contributing once its texels are far
-// smaller than a pixel, which is also where its energy becomes pure roughness.
-function fadeDistances() {
-  for (let i = 0; i < 4; i++) vFade[i] = clamp((ocean.L[i] ?? 1) * 38, 200, 60000);
-  return vFade;
 }
 
 // Scratch vectors for the per-frame uniform block. Allocating a fresh
 // Float32Array per uniform per frame is a dozen short-lived objects every frame,
 // which is exactly the sort of thing that shows up as jitter on a phone rather
 // than as a lower average frame rate.
-const vGrid = new Float32Array(2), vWind2 = new Float32Array(2);
-const vHullPos = new Float32Array(3), vHullFwd = new Float32Array(2);
 const vCraftPos = new Float32Array(3), vCraftFwd = new Float32Array(2);
-const vCraftRight = new Float32Array(2), vFade = new Float32Array(4);
+const vCraftRight = new Float32Array(2);
+// The hull's footprint on the water, handed to WaterSurface each frame.
+const hull = { pos: new Float32Array(3), fwd: new Float32Array(2), push: 0, plane: 0 };
 const smoothstep01 = (a, b, x) => {
   const t = clamp((x - a) / Math.max(b - a, 1e-5), 0, 1);
   return t * t * (3 - 2 * t);
@@ -205,7 +137,7 @@ const ui = new UI(document.getElementById('ui'), params, (ev) => {
   const it = ev.item;
   if (it.rebuild) ocean.dirty = true;
   if (it.rebuildSim) { ocean = new Ocean(gl, { size: params.fftSize, cascades: DEFAULT_CASCADES }); ocean.setSeed(params.seed); }
-  if (it.rebuildGrid) buildGrid();
+  if (it.rebuildGrid) water.buildGrid(params);
   if (it.rebuildSpray) spray = new Spray(gl, blit, { size: params.sprayTexSize });
   if (it.rebuildWake) wake = new Wake(gl, blit, { size: params.wakeTexSize });
   if (it.resize) resize();
@@ -342,14 +274,14 @@ function adaptQuality(dtRaw) {
       params.cloudStepScale = Math.max(params.cloudStepMin, params.cloudStepScale - 0.15);
     } else if (params.gridScale > params.gridScaleMin) {
       params.gridScale = Math.max(params.gridScaleMin, params.gridScale - 0.12);
-      buildGrid();
+      water.buildGrid(params);
     }
   } else if (fps > params.targetFps * 1.25 && !cappedOut(fps)) {
     // Given back in the reverse order, cheapest first, so quality returns without
     // immediately spending the headroom that allowed it.
     if (params.gridScale < 1) {
       params.gridScale = Math.min(1, params.gridScale + 0.06);
-      buildGrid();
+      water.buildGrid(params);
     } else if (params.cloudStepScale < 1) {
       params.cloudStepScale = Math.min(1, params.cloudStepScale + 0.08);
     } else if (params.renderScale < hi) {
@@ -460,67 +392,25 @@ function frame(now) {
   gl.clearDepth(1);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-  gl.enable(gl.DEPTH_TEST);
-  gl.depthFunc(gl.LEQUAL);
-  gl.depthMask(true);
-  gl.disable(gl.CULL_FACE);
-  gl.useProgram(pWater);
-  setUniforms(gl, pWater, {
-    ...sky.atmosphereUniforms(params),
-    uDisp: ocean.disp, uSlope: ocean.slope, uFoam: ocean.foamTex,
-    uPatch: ocean.patchSizes, uFade: fadeDistances(),
-    uCascadeCount: ocean.cascadeCount, uDetailScale: params.detailScale,
-    uViewProj: camera.viewProj, uCamPos: camera.pos,
-    uGridCenter: set2(vGrid, camera.pos[0], camera.pos[2]),
-    uRMin: params.rMin, uRMax: params.rMax,
-    uHeightScale: params.heightScale, uHorizScale: params.horizScale,
-    uEarthCurve: params.earthCurve, uSeaLevel: params.seaLevel,
-    uSkyLUT: sky.lut, uSunDir: sunDir, uMoonDir: moonDir,
-    uSunColor: params.sunIrradiance, uMoonColor: params.moonColor,
-    uTime: simTime,
-    uScatterColor: params.scatterColor, uAbsorption: params.absorption,
-    uScatterAmount: params.scatterAmount,
-    uSSSStrength: params.sssStrength, uSSSPower: params.sssPower, uSSSHeight: params.sssHeight,
-    uSSSDepth: params.sssDepth,
-    uBaseRoughness: params.baseRoughness, uRoughnessGain: params.roughnessGain,
-    uRoughnessMax: params.roughnessMax, uWindAniso: params.windAniso,
-    uWindSpeed: params.windSpeed,
-    uFoamAmount: params.foamAmount, uFoamRoughness: params.foamRoughness,
-    uFoamTint: params.foamTint, uFoamDetail: params.foamDetail, uFoamLift: params.foamLift,
-    uFoamSharp: params.foamSharp, uFoamCrisp: params.foamCrisp, uFoamStreak: params.foamStreak,
-    uFoamOpacity: params.foamOpacity,
-    uFoamColor: params.foamColor,
-    uSunAngularRadius: params.sunAngularRadius, uSpecIntensity: params.specIntensity,
-    uSkyAmbient: params.skyAmbient, uSkyBlur: params.skyBlur,
-    uGlitter: params.glitter, uGlitterScale: params.glitterScale,
-    uWaterIOR: params.waterIOR, uAerial: params.aerial,
-    uWindDirV: set2(vWind2, Math.cos(params.windDir), Math.sin(params.windDir)),
-    uSpecClamp: params.specClamp, uHorizonBend: params.horizonBend,
-    ...wake.uniforms(params, waveRunner.active),
-    uWakeRelief: params.wakeRelief, uWakeSlick: params.wakeSlick,
-    // In the frame the displacement fields are indexed by, not in world space -
-    // see WaveRunner.surfXZ. Placed at the world position instead, the hollow and
-    // bow wave sat 1.3 to 1.7 m off the craft on the default sea and slid about as
-    // the waves went under it, which read as a ripple hanging off the bow.
-    uHullPos: waveRunner.active
-      ? set3(vHullPos, waveRunner.surfXZ()[0], waveRunner.deckY ?? 0, waveRunner.surfXZ()[1])
-      : set3(vHullPos, 0, -1e4, 0),
-    uHullFwd: set2(vHullFwd, cf[0], cf[1]),
-    uHullPush: waveRunner.active ? params.hullPush : 0,
-    uHullRadius: params.hullRadius, uHullBow: params.hullBow,
+  // The hull footprint. Placed in the frame the displacement fields are indexed
+  // by, not in world space - see WaveRunner.surfXZ. At the world position instead,
+  // the hollow and bow wave sat 1.3 to 1.7 m off the craft on the default sea and
+  // slid about as the waves went under it, which read as a ripple hanging off the
+  // bow.
+  if (waveRunner.active) {
+    const s = waveRunner.surfXZ();
+    set3(hull.pos, s[0], waveRunner.deckY ?? 0, s[1]);
+    hull.push = params.hullPush;
     // The hollow only exists once the hull is actually loading the water.
-    uHullPlane: waveRunner.active
-      ? Math.min(1, 0.35 + 0.65 * Math.abs(waveRunner.speed) / Math.max(params.craftPlaneFull, 1))
-      : 0,
-    uInterReflect: params.interReflect, uWaveAO: params.waveAO,
-    uWaveShadow: params.waveShadow, uShadowScale: params.shadowScale,
-    uCapillary: params.capillary, uCapillaryScale: params.capillaryScale,
-    uSpecAA: params.specAA, uGrazeFocus: params.grazeFocus,
-    uSSSBias: params.sssBias, uFoamFar: params.foamFar,
-  });
-  gl.bindVertexArray(grid.vao);
-  gl.drawElements(gl.TRIANGLES, grid.count, gl.UNSIGNED_INT, 0);
-  gl.bindVertexArray(null);
+    hull.plane = Math.min(1, 0.35 + 0.65 * Math.abs(waveRunner.speed) / Math.max(params.craftPlaneFull, 1));
+  } else {
+    set3(hull.pos, 0, -1e4, 0);
+    hull.push = 0;
+    hull.plane = 0;
+  }
+  set2(hull.fwd, cf[0], cf[1]);
+
+  water.render(params, ctx, ocean, sky, { wake, wakeActive: waveRunner.active, hull });
 
   // Spray needs the displacement field too: billboards fade against the real
   // water height instead of showing a hard intersection edge.

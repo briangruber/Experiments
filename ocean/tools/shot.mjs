@@ -11,21 +11,9 @@ import { createServer } from 'node:http';
 import { readFile, mkdir, stat } from 'node:fs/promises';
 import { dirname, join, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { launchChromium } from './browser.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-
-async function loadPlaywright() {
-  const candidates = [
-    'playwright',
-    '/opt/node22/lib/node_modules/playwright/index.mjs',
-    '/usr/lib/node_modules/playwright/index.mjs',
-    process.env.PLAYWRIGHT_PATH,
-  ].filter(Boolean);
-  for (const c of candidates) {
-    try { return await import(c); } catch { /* try next */ }
-  }
-  throw new Error('playwright not found; set PLAYWRIGHT_PATH');
-}
 
 const args = process.argv.slice(2);
 const opt = (name, dflt) => {
@@ -63,14 +51,7 @@ const server = createServer(async (req, res) => {
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const port = server.address().port;
 
-const { chromium } = await loadPlaywright();
-const browser = await chromium.launch({
-  args: [
-    '--enable-unsafe-swiftshader', '--use-angle=swiftshader',
-    '--ignore-gpu-blocklist', '--enable-webgl', '--disable-gpu-sandbox',
-    '--disable-dev-shm-usage',
-  ],
-});
+const browser = await launchChromium();
 const page = await browser.newPage({ viewport: { width: WIDTH, height: HEIGHT }, deviceScaleFactor: 1 });
 
 const errors = [];

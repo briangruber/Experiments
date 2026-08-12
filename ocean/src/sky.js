@@ -1,5 +1,6 @@
 import { program, setUniforms, texture2D, framebuffer, FS_VERT, FS_VERT_FAR } from './gl.js';
 import { SKY_LUT_FS, SKY_BG_FS } from './shaders/sky.js';
+import { LDR_OUTPUT_GLSL } from './shaders/output.js';
 
 const LUT_W = 512, LUT_H = 256;
 const D2R = Math.PI / 180;
@@ -10,9 +11,14 @@ function moonDirOf(p) {
 }
 
 export class Sky {
-  constructor(gl, blit) {
+  // output: 'hdr' (default) writes linear radiance, for a float target with a
+  // tonemapping pass after it. 'ldr' applies exposure and an ACES fit in the
+  // shader, for drawing straight to a display-referred canvas.
+  constructor(gl, blit, { output = 'hdr' } = {}) {
     this.gl = gl;
     this.blit = blit;
+    this.output = output;
+    this.outExposure = 1.0;
     this.lut = texture2D(gl, {
       width: LUT_W, height: LUT_H,
       internalFormat: gl.RGBA16F, format: gl.RGBA, type: gl.HALF_FLOAT,
@@ -23,7 +29,7 @@ export class Sky {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     this.fbo = framebuffer(gl, [this.lut]);
     this.pLut = program(gl, FS_VERT, SKY_LUT_FS, 'sky.lut');
-    this.pBg = program(gl, FS_VERT_FAR, SKY_BG_FS, 'sky.bg');
+    this.pBg = program(gl, FS_VERT_FAR, SKY_BG_FS, 'sky.bg', output === 'ldr' ? LDR_OUTPUT_GLSL : '');
   }
 
   // Uniform block shared by every shader that evaluates the atmosphere.
@@ -131,6 +137,7 @@ export class Sky {
       uSkyDither: p.skyDither,
       uMoonColor: p.moonColor,
       uWindDirV: ctx.windVec3,
+      uOutExposure: this.outExposure,
     });
     this.blit.draw();
     gl.depthMask(true);

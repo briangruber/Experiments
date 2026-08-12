@@ -6,10 +6,10 @@
 // over a unit bounding box, Int8 normals, Uint16 UVs) and re-encodes the base
 // colour map at 512px, which lands the whole craft at ~310 kB.
 
-import { program, setUniforms } from './gl.js';
-import { mat4 } from './math.js';
+import { program, setUniforms } from '../src/gl.js';
+import { mat4 } from '../src/math.js';
 import { CRAFT_MESH } from './craftModel.js';
-import { ATMOSPHERE_GLSL, SKY_LUT_MAP_GLSL } from './shaders/sky.js';
+import { ATMOSPHERE_GLSL, SKY_LUT_MAP_GLSL } from '../src/shaders/sky.js';
 
 const unb64 = (s, T) => {
   const bin = atob(s);

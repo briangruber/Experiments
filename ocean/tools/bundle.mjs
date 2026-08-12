@@ -15,7 +15,7 @@ const args = process.argv.slice(2);
 const opt = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i + 1] : d; };
 const ROOT = resolve(opt('root', '.'));
 const OUT = resolve(opt('out', 'dist/abyssal.html'));
-const ENTRY = opt('entry', 'src/main.js');
+const ENTRY = opt('entry', 'demo/main.js');
 
 const IMPORT_RE = /^\s*import\s*\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]\s*;?\s*$/gm;
 
@@ -116,7 +116,7 @@ const escJs   = (s) => s.replace(NON_ASCII, (c) => '\\u' + c.charCodeAt(0).toStr
 const escHtml = (s) => s.replace(NON_ASCII, (c) => '&#' + c.charCodeAt(0) + ';');
 const escCss  = (s) => s.replace(NON_ASCII, (c) => '\\' + c.charCodeAt(0).toString(16) + ' ');
 
-const css = await readFile(join(ROOT, 'src/ui.css'), 'utf8');
+const css = await readFile(join(ROOT, 'demo/ui.css'), 'utf8');
 const html = await readFile(join(ROOT, 'index.html'), 'utf8');
 
 // Keep the app's own markup; drop the tags the Artifact wrapper supplies and the

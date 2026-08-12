@@ -7,9 +7,9 @@
 // pulled back through a pixel buffer object guarded by a fence: the CPU reads a
 // frame or two late and extrapolates, and the GPU never waits.
 
-import { program, setUniforms, texture2D, framebuffer, FS_VERT } from './gl.js';
-import { WAKE_SAMPLE_GLSL } from './wake.js';
-import { clamp, lerp, v3 } from './math.js';
+import { program, setUniforms, texture2D, framebuffer, FS_VERT } from '../src/gl.js';
+import { WAKE_SAMPLE_GLSL } from '../src/wake.js';
+import { clamp, lerp, v3 } from '../src/math.js';
 
 // Probe points, in hull-local metres: centre, bow, port, starboard.
 const NPROBE = 4;

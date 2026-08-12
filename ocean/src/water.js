@@ -1,0 +1,199 @@
+// The sea surface itself: a radial grid centred on the camera, displaced by the
+// Ocean simulation's cascades and shaded by the water BRDF.
+//
+// This is deliberately separate from Ocean. Ocean owns the *fields* - a set of
+// displacement, slope and foam textures that describe a patch of sea and know
+// nothing about a camera. WaterSurface owns the *view* of them. Anything that
+// wants the sea's geometry without our shading (a physics probe, a custom
+// material, a different renderer) uses Ocean alone and never touches this file.
+
+import { program, setUniforms, texture2D } from './gl.js';
+import { clamp } from './math.js';
+import { WATER_VS, WATER_FS } from './shaders/water.js';
+import { LDR_OUTPUT_GLSL } from './shaders/output.js';
+
+// A hull that is nowhere near the water. Passing this is how you say "no boat":
+// the shader's hull terms all scale by uHullPush and uHullPlane, and the
+// position is far enough below the sea that nothing can reach it.
+const NO_HULL = {
+  pos: new Float32Array([0, -1e4, 0]),
+  fwd: new Float32Array([0, 1]),
+  push: 0,
+  plane: 0,
+};
+
+export class WaterSurface {
+  // output: 'hdr' (default) writes linear radiance, for a float target with a
+  // tonemapping pass after it. 'ldr' applies exposure and an ACES fit in the
+  // shader, for drawing straight to a display-referred canvas.
+  constructor(gl, params, { output = 'hdr' } = {}) {
+    this.gl = gl;
+    this.output = output;
+    this.outExposure = 1.0;
+    this.prog = program(gl, WATER_VS, WATER_FS, 'water', output === 'ldr' ? LDR_OUTPUT_GLSL : '');
+    this.grid = null;
+    // Scratch for the per-frame uniform block. A fresh Float32Array per uniform
+    // per frame is a dozen short-lived objects every frame, which shows up as
+    // jitter on a phone rather than as a lower average frame rate.
+    this._vGrid = new Float32Array(2);
+    this._vWind = new Float32Array(2);
+    this._vFade = new Float32Array(4);
+    this._dummyWake = null;
+    this.buildGrid(params);
+  }
+
+  // Cascade fade distances: a patch stops contributing once its texels are far
+  // smaller than a pixel, which is also where its energy becomes pure roughness.
+  fadeDistances(ocean) {
+    for (let i = 0; i < 4; i++) this._vFade[i] = clamp((ocean.L[i] ?? 1) * 38, 200, 60000);
+    return this._vFade;
+  }
+
+  // A wake texture has to be bound even when there is no wake, because the
+  // sampler exists in the compiled program either way. uWakeOn = 0 makes the
+  // shader ignore whatever it reads.
+  _inertWake() {
+    const gl = this.gl;
+    if (!this._dummyWake) {
+      this._dummyWake = texture2D(gl, {
+        width: 1, height: 1,
+        internalFormat: gl.RGBA16F, format: gl.RGBA, type: gl.HALF_FLOAT,
+        filter: gl.LINEAR, wrap: gl.CLAMP_TO_EDGE,
+      });
+    }
+    return {
+      uWakeTex: this._dummyWake,
+      uWakeOrigin: new Float32Array([0, 0]),
+      uWakeExtent: 1,
+      uWakeOn: 0,
+      uWakeLife: 1, uWakeArmW: 1, uWakeArm: 0, uWakeChurn: 0, uWakeSpread: 1,
+      uWakeBeam: 1, uWakeDepth: 0, uWakeStrength: 0,
+    };
+  }
+
+  // gridScale is the adaptive quality controller's coarsest lever. At full
+  // quality the default is 400 x 640, a quarter of a million vertices and half a
+  // million triangles submitted every frame, each doing four cascade fetches. On
+  // a phone that is often the binding cost rather than fill rate, and trimming
+  // pixels alone cannot touch it.
+  buildGrid(p) {
+    const gl = this.gl;
+    if (this.grid) {
+      gl.deleteVertexArray(this.grid.vao);
+      gl.deleteBuffer(this.grid.vbo);
+      gl.deleteBuffer(this.grid.ibo);
+    }
+    const g = clamp(p.gridScale ?? 1, 0.25, 1);
+    const R = Math.max(24, Math.round(p.gridRadial * g));
+    const A = Math.max(24, Math.round(p.gridAngular * g));
+    const verts = new Float32Array((R + 1) * A * 2);
+    let o = 0;
+    for (let i = 0; i <= R; i++) {
+      const t = i / R;
+      for (let j = 0; j < A; j++) { verts[o++] = t; verts[o++] = j / A; }
+    }
+    const idx = new Uint32Array(R * A * 6);
+    let k = 0;
+    for (let i = 0; i < R; i++) {
+      for (let j = 0; j < A; j++) {
+        const j1 = (j + 1) % A;
+        const a = i * A + j, b = i * A + j1, c = (i + 1) * A + j, d = (i + 1) * A + j1;
+        idx[k++] = a; idx[k++] = c; idx[k++] = b;
+        idx[k++] = b; idx[k++] = c; idx[k++] = d;
+      }
+    }
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+    const vbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    const ibo = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+    gl.bindVertexArray(null);
+    this.grid = { vao, vbo, ibo, count: idx.length, radial: R, angular: A };
+  }
+
+  // p     parameter set (see presets.js `defaults`)
+  // ctx   { camPos, viewProj, sunDir, moonDir, time }
+  // ocean an Ocean whose update() has already run this frame
+  // sky   a Sky whose updateLUT() has already run this frame
+  // opts  { wake, wakeActive, hull } - all optional
+  render(p, ctx, ocean, sky, opts = {}) {
+    const gl = this.gl;
+    const hull = opts.hull || NO_HULL;
+    const wake = opts.wake
+      ? opts.wake.uniforms(p, opts.wakeActive !== false)
+      : this._inertWake();
+
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LEQUAL);
+    gl.depthMask(true);
+    gl.disable(gl.CULL_FACE);
+    gl.disable(gl.BLEND);
+    gl.useProgram(this.prog);
+    setUniforms(gl, this.prog, {
+      ...sky.atmosphereUniforms(p),
+      uDisp: ocean.disp, uSlope: ocean.slope, uFoam: ocean.foamTex,
+      uPatch: ocean.patchSizes, uFade: this.fadeDistances(ocean),
+      uCascadeCount: ocean.cascadeCount, uDetailScale: p.detailScale,
+      uViewProj: ctx.viewProj, uCamPos: ctx.camPos,
+      uGridCenter: set2(this._vGrid, ctx.camPos[0], ctx.camPos[2]),
+      uRMin: p.rMin, uRMax: p.rMax,
+      uHeightScale: p.heightScale, uHorizScale: p.horizScale,
+      uEarthCurve: p.earthCurve, uSeaLevel: p.seaLevel,
+      uSkyLUT: sky.lut, uSunDir: ctx.sunDir, uMoonDir: ctx.moonDir,
+      uSunColor: p.sunIrradiance, uMoonColor: p.moonColor,
+      uTime: ctx.time,
+      uScatterColor: p.scatterColor, uAbsorption: p.absorption,
+      uScatterAmount: p.scatterAmount,
+      uSSSStrength: p.sssStrength, uSSSPower: p.sssPower, uSSSHeight: p.sssHeight,
+      uSSSDepth: p.sssDepth,
+      uBaseRoughness: p.baseRoughness, uRoughnessGain: p.roughnessGain,
+      uRoughnessMax: p.roughnessMax, uWindAniso: p.windAniso,
+      uWindSpeed: p.windSpeed,
+      uFoamAmount: p.foamAmount, uFoamRoughness: p.foamRoughness,
+      uFoamTint: p.foamTint, uFoamDetail: p.foamDetail, uFoamLift: p.foamLift,
+      uFoamSharp: p.foamSharp, uFoamCrisp: p.foamCrisp, uFoamStreak: p.foamStreak,
+      uFoamOpacity: p.foamOpacity,
+      uFoamColor: p.foamColor,
+      uSunAngularRadius: p.sunAngularRadius, uSpecIntensity: p.specIntensity,
+      uSkyAmbient: p.skyAmbient, uSkyBlur: p.skyBlur,
+      uGlitter: p.glitter, uGlitterScale: p.glitterScale,
+      uWaterIOR: p.waterIOR, uAerial: p.aerial,
+      uWindDirV: set2(this._vWind, Math.cos(p.windDir), Math.sin(p.windDir)),
+      uSpecClamp: p.specClamp, uHorizonBend: p.horizonBend,
+      ...wake,
+      uWakeRelief: p.wakeRelief, uWakeSlick: p.wakeSlick,
+      uHullPos: hull.pos, uHullFwd: hull.fwd,
+      uHullPush: hull.push,
+      uHullRadius: p.hullRadius, uHullBow: p.hullBow,
+      uHullPlane: hull.plane,
+      uInterReflect: p.interReflect, uWaveAO: p.waveAO,
+      uWaveShadow: p.waveShadow, uShadowScale: p.shadowScale,
+      uCapillary: p.capillary, uCapillaryScale: p.capillaryScale,
+      uSpecAA: p.specAA, uGrazeFocus: p.grazeFocus,
+      uSSSBias: p.sssBias, uFoamFar: p.foamFar,
+      uOutExposure: this.outExposure,
+    });
+    gl.bindVertexArray(this.grid.vao);
+    gl.drawElements(gl.TRIANGLES, this.grid.count, gl.UNSIGNED_INT, 0);
+    gl.bindVertexArray(null);
+  }
+
+  dispose() {
+    const gl = this.gl;
+    if (this.grid) {
+      gl.deleteVertexArray(this.grid.vao);
+      gl.deleteBuffer(this.grid.vbo);
+      gl.deleteBuffer(this.grid.ibo);
+      this.grid = null;
+    }
+    if (this._dummyWake) gl.deleteTexture(this._dummyWake.tex);
+    gl.deleteProgram(this.prog);
+  }
+}
+
+function set2(a, x, y) { a[0] = x; a[1] = y; return a; }

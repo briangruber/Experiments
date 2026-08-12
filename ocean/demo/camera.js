@@ -1,4 +1,4 @@
-import { v3, mat4, mul, perspective, lookAt, invert, vNorm, vCross, clamp, DEG } from './math.js';
+import { v3, mat4, mul, perspective, lookAt, invert, vNorm, vCross, clamp, DEG } from '../src/math.js';
 
 export class Camera {
   constructor(canvas) {

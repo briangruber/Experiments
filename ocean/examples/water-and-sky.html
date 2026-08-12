@@ -1,0 +1,156 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Abyssal in Three.js — water and sky</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #05080c; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #hud {
+    position: fixed; top: 12px; left: 12px; z-index: 2;
+    font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #cfe4f5; text-shadow: 0 1px 3px #000a; pointer-events: none;
+  }
+  #presets { position: fixed; top: 12px; right: 12px; z-index: 2; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  #presets button {
+    font: 12px ui-monospace, monospace; color: #cfe4f5; background: #0b1520cc;
+    border: 1px solid #2b435a; border-radius: 5px; padding: 5px 9px; cursor: pointer;
+  }
+  #presets button:hover { background: #16283acc; }
+</style>
+
+<canvas id="c"></canvas>
+<div id="hud">drag to look · scroll to zoom<br><span id="fps">—</span></div>
+<div id="presets"></div>
+
+<!-- Abyssal itself has no dependencies. Three is here because this page is a
+     Three.js scene; swap the URL for your own copy or a bundler specifier. -->
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.185.1/build/three.module.js" } }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { AbyssalWater, AbyssalSky } from '../src/three/index.js';
+import { newParams, PRESETS } from '../src/presets.js';
+
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+// Abyssal draws the sea before your scene and the sky after it, so the renderer
+// must not clear in between.
+renderer.autoClear = false;
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.5, 40000);
+
+// ---------------------------------------------------------------- Abyssal ----
+// One parameter set shared by both components: they agree about the sun, the
+// wind and the air, and the sky's radiance table is built once instead of twice.
+const params = newParams('Golden Hour Swell');
+const sky = new AbyssalSky(renderer, { params });
+const water = new AbyssalWater(renderer, { params, sky });
+
+// ------------------------------------------------------------ your scene -----
+// Ordinary Three.js objects. Nothing here knows about Abyssal; they are lit by a
+// normal directional light and depth-test against the real wave surface.
+const sun = new THREE.DirectionalLight(0xffffff, 3.0);
+scene.add(sun);
+scene.add(new THREE.HemisphereLight(0x9fc4e8, 0x223344, 1.2));
+
+// Pilings, driven into the sea bed and standing well clear of the crests. Watch
+// the waterline on each one as a wave goes past: that is the depth buffer being
+// shared, not a trick.
+const pileGeo = new THREE.CylinderGeometry(0.7, 0.8, 26, 16);
+const pileMat = new THREE.MeshStandardMaterial({ color: 0x6b5643, roughness: 0.85 });
+for (let i = 0; i < 7; i++) {
+  const pile = new THREE.Mesh(pileGeo, pileMat);
+  pile.position.set(-18 + i * 6, 1.5, -10 - (i % 2) * 7);
+  scene.add(pile);
+}
+const deck = new THREE.Mesh(
+  new THREE.BoxGeometry(46, 0.8, 9),
+  new THREE.MeshStandardMaterial({ color: 0x8a705a, roughness: 0.8 }),
+);
+deck.position.set(0, 12, -13.5);
+scene.add(deck);
+
+const buoy = new THREE.Mesh(
+  new THREE.SphereGeometry(1.6, 32, 20),
+  new THREE.MeshStandardMaterial({ color: 0xd8451f, roughness: 0.45, metalness: 0.1 }),
+);
+buoy.position.set(9, 0.4, 14);
+scene.add(buoy);
+
+// ------------------------------------------------------------ camera rig -----
+let yaw = 0.35, pitch = -0.12, dist = 46, dragging = false, px = 0, py = 0;
+canvas.addEventListener('pointerdown', (e) => { dragging = true; px = e.clientX; py = e.clientY; canvas.setPointerCapture(e.pointerId); });
+canvas.addEventListener('pointerup', (e) => { dragging = false; canvas.releasePointerCapture(e.pointerId); });
+canvas.addEventListener('pointermove', (e) => {
+  if (!dragging) return;
+  yaw -= (e.clientX - px) * 0.004;
+  pitch = Math.max(-0.9, Math.min(0.55, pitch - (e.clientY - py) * 0.003));
+  px = e.clientX; py = e.clientY;
+});
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  dist = Math.max(8, Math.min(300, dist * (1 + Math.sign(e.deltaY) * 0.12)));
+}, { passive: false });
+
+function placeCamera() {
+  const h = Math.cos(pitch) * dist;
+  camera.position.set(Math.sin(yaw) * h, 9 + Math.sin(-pitch) * dist, Math.cos(yaw) * h);
+  camera.lookAt(0, 4, 0);
+}
+
+// -------------------------------------------------------------- presets ------
+const bar = document.getElementById('presets');
+for (const name of Object.keys(PRESETS)) {
+  const b = document.createElement('button');
+  b.textContent = name;
+  b.onclick = () => {
+    // applyPreset mutates the shared object in place, so both components see it.
+    Object.assign(params, newParams(name));
+    water.rebuild();        // the sea state changed, so the spectrum must be rebuilt
+    water.rebuildGrid();
+  };
+  bar.appendChild(b);
+}
+
+// ---------------------------------------------------------------- resize -----
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// ----------------------------------------------------------------- frame -----
+const clock = new THREE.Clock();
+const fpsEl = document.getElementById('fps');
+let acc = 0, n = 0;
+
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 1 / 20);
+  placeCamera();
+
+  // 1. advance the simulation and the atmosphere
+  water.update(dt, camera);
+  sky.update(dt, camera);
+
+  // 2. light your own objects with the same sun the sea is using
+  sun.position.set(...water.sunDirection).multiplyScalar(500);
+  sun.color.setRGB(...water.sunColor);
+
+  // 3. sea, then scene, then sky
+  renderer.clear();
+  water.render(camera);
+  renderer.render(scene, camera);
+  sky.render(camera);
+
+  acc += dt; n++;
+  if (acc > 0.5) { fpsEl.textContent = (n / acc).toFixed(0) + ' fps'; acc = 0; n = 0; }
+});
+
+// Expose for the headless check and for poking at in the console.
+window.abyssalExample = { renderer, scene, camera, water, sky, params };
+</script>

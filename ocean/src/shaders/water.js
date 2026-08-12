@@ -2,6 +2,7 @@
 
 import { NOISE_GLSL, ATMOSPHERE_GLSL, SKY_LUT_MAP_GLSL } from './sky.js';
 import { WAKE_SAMPLE_GLSL } from '../wake.js';
+import { HDR_OUTPUT_GUARD } from './output.js';
 
 const CASCADE_COMMON = /* glsl */`
 uniform sampler2DArray uDisp, uSlope, uFoam;
@@ -127,6 +128,7 @@ void main(){
 `;
 
 export const WATER_FS = /* glsl */`
+${HDR_OUTPUT_GUARD}
 ${CASCADE_COMMON}
 ${WAKE_SAMPLE_GLSL}
 ${NOISE_GLSL}
@@ -778,6 +780,6 @@ void main(){
     col = col * mix(vec3(1.0), tr, uAerial) + ins * uAerial;
   }
 
-  fragColor = vec4(col, 1.0);
+  fragColor = ABYSSAL_OUT(col);
 }
 `;

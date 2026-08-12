@@ -1,3 +1,5 @@
+import { HDR_OUTPUT_GUARD } from './output.js';
+
 // Atmosphere, clouds and celestial bodies.
 //
 // The expensive scattering integral is evaluated into a small lat-long LUT with
@@ -284,6 +286,7 @@ void main(){
 
 // Full-quality background: LUT gradient + sun/moon discs + volumetric clouds.
 export const SKY_BG_FS = /* glsl */`
+${HDR_OUTPUT_GUARD}
 ${ATMOSPHERE_GLSL}
 ${SKY_LUT_MAP_GLSL}
 ${NOISE_GLSL}
@@ -858,6 +861,6 @@ void main(){
   vec4 cl = marchClouds(uCamPos, rd, uSunDir, sunCol, uMoonDir, moonCol, skyTop, skyLow);
   col = col*(1.0 - cl.a) + cl.rgb;
 
-  fragColor = vec4(col, 1.0);
+  fragColor = ABYSSAL_OUT(col);
 }
 `;
