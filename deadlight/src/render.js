@@ -41,12 +41,15 @@ export class Renderer {
    * that can be checked anywhere. It is not a player-facing fallback: the
    * game asks for WebGPU and says so when it is missing.
    */
-  constructor(canvas, { forceWebGL = false } = {}) {
+  constructor(canvas, { forceWebGL = false, quality } = {}) {
     this.canvas = canvas;
     this.forceWebGL = forceWebGL;
+    this.quality = quality;
     this.renderer = new WebGPURenderer({
       canvas,
-      antialias: true,
+      // MSAA is a per-sample cost on a device that is already fill-bound, and
+      // the post chain's grain hides the aliasing it would have removed.
+      antialias: quality.tier === 'desktop',
       powerPreference: 'high-performance',
       forceWebGL,
     });
@@ -99,7 +102,7 @@ export class Renderer {
    */
   setScene(scene) {
     this.scene = scene;
-    this.post = new Post(this.renderer, scene, this.camera);
+    this.post = new Post(this.renderer, scene, this.camera, this.quality);
     this.resize();
     return this.post;
   }
@@ -109,7 +112,10 @@ export class Renderer {
     const height = window.innerHeight;
     // Cap the device pixel ratio: this is a fragment-heavy scene and a 3x
     // phone screen would spend its whole budget on pixels nobody can see.
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.75);
+    // Two separate knobs: the pixel-ratio cap is what the device claims it
+    // wants, and `renderScale` is how much of that this scene can afford.
+    const dpr = Math.min(window.devicePixelRatio || 1, this.quality.maxPixelRatio)
+      * this.quality.renderScale;
 
     this.renderer.setPixelRatio(dpr);
     this.renderer.setSize(width, height, false);

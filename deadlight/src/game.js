@@ -29,15 +29,13 @@ import { Rng } from './rng.js';
 
 /** How close, and how centred, the player must be to use something. */
 const REACH = 2.6;
-/** Watchers placed at level build. They are scenery until they are not. */
-const WATCHER_COUNT = 3;
-
 export class Game {
-  constructor({ renderer, assets, audio, hud }) {
+  constructor({ renderer, assets, audio, hud, quality }) {
     this.renderer = renderer;
     this.assets = assets;
     this.audio = audio;
     this.hud = hud;
+    this.quality = quality ?? { mannequins: 8, watchers: 3 };
 
     this.running = false;
     this.over = false;
@@ -52,7 +50,7 @@ export class Game {
     this.audioRng = this.rng.fork('ambience');
 
     this.level = new Level(this.rng.fork('level'));
-    this.world = new World(this.level, this.rng).build(this.assets);
+    this.world = new World(this.level, this.rng, this.quality).build(this.assets);
 
     // The post chain is bound to a specific scene, so it has to exist before
     // anything that writes to its uniforms — the director, below.
@@ -64,7 +62,7 @@ export class Game {
     await this.#spawnMonsters();
 
     this.mannequins = new Mannequins(this.level, this.player, this.audio, this.rng);
-    this.mannequins.populate(this.world.scene, this.assets, 8);
+    this.mannequins.populate(this.world.scene, this.assets, this.quality.mannequins ?? 8);
 
     this.director = new Director({
       level: this.level,
@@ -151,7 +149,7 @@ export class Game {
     this.watchers = [];
     const rooms = this.rng.shuffle([...this.level.rooms])
       .filter((r) => r !== this.level.startRoom);
-    for (let i = 0; i < WATCHER_COUNT; i++) {
+    for (let i = 0; i < (this.quality.watchers ?? 3); i++) {
       const watcher = await make('watcher', 'watcher');
       if (!watcher) break;
       const room = rooms[i % rooms.length];

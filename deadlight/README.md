@@ -16,7 +16,9 @@ node tools/serve.mjs      # then open http://localhost:8080
 ```
 
 WebGPU needs a secure context, so it has to be served — opening `index.html`
-off the filesystem will not work. Chrome/Edge 113+ or Safari 18+.
+off the filesystem will not work. Chrome/Edge 113+ or Safari 18+ get WebGPU;
+anything older falls back to WebGL, which runs the same scene and post chain
+and says so on the menu.
 
 ## Controls
 
@@ -31,6 +33,23 @@ off the filesystem will not work. Chrome/Edge 113+ or Safari 18+.
 | `Space` | skip a cutscene |
 | `M` | mute |
 | `Esc` | release the mouse |
+
+## On a phone
+
+Landscape only — it asks you to rotate, because a first-person game in
+portrait is a letterbox with a thumb over it. Left thumb anywhere on the left
+of the screen summons a movement stick; the right half is the look pad; torch,
+use, run and crouch are buttons under the right thumb. USE only appears when
+there is something to use, so there is no dead button to fumble for while
+something walks toward you. Starting a run asks for fullscreen and a landscape
+lock, both of which are improvements where the browser allows them and nothing
+where it does not.
+
+Phones get their own quality tier (`src/quality.js`): a smaller shadow map, no
+bloom, a lower render scale, denser fog and about half the dressing. Same
+monsters, same puzzles, same scares — the tier only ever changes quantities,
+because a cut-down horror game is not worth shipping. Force one with
+`?quality=phone|tablet|desktop`.
 
 ## For streamers
 
@@ -199,9 +218,18 @@ node tools/shot.mjs --out shots/frame.png --play 8
 Boots the real game in headless Chromium, waits for assets, starts a run,
 drives it, fires the director's entire catalogue, and exits non-zero on any
 page exception, console error, failed request or lost graphics device. Useful
-flags: `--pose creature|mannequin` stages an asset in front of the camera,
-`--report` captures the end-of-run card, `--scare-shot` keeps a frame
-mid-scare, `--seed`.
+flags: `--pose creature|watcher|crawler|mannequin` stages an asset in front of
+the camera, `--solve` drives both puzzles end to end, `--watcher` proves the
+torch-wakes-it mechanic, `--report` captures the end-of-run card,
+`--scare-shot` keeps a frame mid-scare, `--intro` captures the opening.
+
+`--device phone|tablet|portrait` emulates a touch device — viewport, touch,
+mobile user agent, quality tier — and drives the game with synthetic pointer
+events rather than a keyboard, because a keyboard the device does not have
+proves nothing. It is emulation, not a phone: it cannot tell you whether a
+given iPhone's Safari has WebGPU, or how hot the thing gets. It does answer
+everything that was actually broken — layout, controls, and whether the game
+runs at all once the desktop assumptions are removed.
 
 By default it captures through three's **WebGL** backend running the identical
 scene, materials and TSL post chain. That is a property of the harness, not
@@ -227,6 +255,8 @@ src/
   player.js                 controller, and how much noise it makes
   assets.js                 GLB loading and normalisation
   materials.js              procedural concrete, tile and plaster
+  quality.js                device tier, and what the game costs on it
+  touch.js                  virtual stick, look pad and thumb buttons
   audio.js                  every sound, synthesised
   post.js                   TSL post chain
   render.js                 WebGPU renderer

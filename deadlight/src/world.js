@@ -22,16 +22,19 @@ const TORCH_CANDELA = 46;
 const PRACTICAL_CANDELA = 9.5;
 
 export class World {
-  constructor(level, rng) {
+  constructor(level, rng, quality = {}) {
     this.level = level;
     this.rng = rng.fork('world');
+    this.quality = quality;
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x000000);
     // Exponential fog is what stops the corridors reading as infinite, and
     // what hides the far wall of a long sight-line so the creature can be
     // heard before it can be seen.
-    this.scene.fog = new THREE.FogExp2(0x05070a, 0.075);
+    // Denser fog on weaker devices does double duty: it hides the shorter
+    // draw distance and it buys back fill rate by darkening what is left.
+    this.scene.fog = new THREE.FogExp2(0x05070a, quality.fogDensity ?? 0.075);
 
     this.practicals = [];
     this.props = [];
@@ -101,11 +104,13 @@ export class World {
    * inside the beam still occlude it plausibly.
    */
   #buildTorch() {
+    const far = this.quality.shadowDistance ?? 30;
+    const shadowSize = this.quality.shadowMapSize ?? 1024;
     const torch = new THREE.SpotLight(0xffe9c4, 0, 30, Math.PI * 0.19, 0.46, 1.25);
     torch.castShadow = true;
-    torch.shadow.mapSize.set(1024, 1024);
+    torch.shadow.mapSize.set(shadowSize, shadowSize);
     torch.shadow.camera.near = 0.15;
-    torch.shadow.camera.far = 30;
+    torch.shadow.camera.far = far;
     torch.shadow.bias = -0.0016;
     torch.shadow.normalBias = 0.022;
     // The light and its target are parented to the camera holder so the beam
@@ -142,7 +147,7 @@ export class World {
     // Dust in the beam. Motes are parked in a fixed cloud in front of the
     // lens and re-randomised as they fall out of it, so a handful of sprites
     // reads as a whole room's worth of air.
-    const moteCount = 130;
+    const moteCount = this.quality.motes ?? 130;
     const positions = new Float32Array(moteCount * 3);
     for (let i = 0; i < moteCount; i++) {
       positions[i * 3] = this.rng.float(-1.6, 1.6);
@@ -221,7 +226,8 @@ export class World {
     const hasLamp = assets.has('lamp');
     const rooms = this.rng.shuffle([...this.level.rooms]);
 
-    for (let i = 0; i < Math.min(PRACTICAL_COUNT, rooms.length); i++) {
+    const wanted = this.quality.practicals ?? PRACTICAL_COUNT;
+    for (let i = 0; i < Math.min(wanted, rooms.length); i++) {
       const room = rooms[i];
       const at = this.level.tileToWorld(room.cx, room.cy, CEILING - 0.16);
 
@@ -361,12 +367,13 @@ export class World {
       return null;
     };
 
-    for (let i = 0; i < 22; i++) place(large, nextWallTile(), { hugWall: true });
-    for (let i = 0; i < 10; i++) place(wallProps, nextWallTile(), { hugWall: true });
-    for (let i = 0; i < 16; i++) place(medium, nextWallTile(), { hugWall: true });
+    const counts = this.quality.dressing ?? { large: 22, wall: 10, medium: 16, small: 12 };
+    for (let i = 0; i < counts.large; i++) place(large, nextWallTile(), { hugWall: true });
+    for (let i = 0; i < counts.wall; i++) place(wallProps, nextWallTile(), { hugWall: true });
+    for (let i = 0; i < counts.medium; i++) place(medium, nextWallTile(), { hugWall: true });
 
     let openCursor = 0;
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < counts.small; i++) {
       while (openCursor < openTiles.length && (used.has(keyOf(openTiles[openCursor])) || nearSpawn(openTiles[openCursor]))) {
         openCursor++;
       }

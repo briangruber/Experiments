@@ -6,6 +6,8 @@ import { Game } from './game.js';
 import { Hud } from './hud.js';
 import { Renderer, webgpuProblem } from './render.js';
 import { randomSeed } from './rng.js';
+import { detectQuality } from './quality.js';
+import { TouchControls } from './touch.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -24,7 +26,11 @@ const el = {
   seedCopy: $('seed-copy'),
   reportCopy: $('report-copy'),
   report: $('report'),
+  rotate: $('rotate'),
 };
+
+const quality = detectQuality();
+let touch = null;
 
 const hud = new Hud();
 const audio = new Audio();
@@ -109,27 +115,48 @@ function refuse(message) {
   el.gpuNote.textContent = message;
   el.gpuNote.classList.add('bad');
   el.start.disabled = true;
-  el.start.textContent = 'WEBGPU REQUIRED';
+  el.start.textContent = 'UNSUPPORTED';
 }
 
 async function boot() {
-  // `?backend=webgl` is a verification escape hatch for headless capture, not
-  // a fallback — see Renderer's constructor.
-  const forceWebGL = new URLSearchParams(location.search).get('backend') === 'webgl';
+  let requested = null;
+  try {
+    requested = new URLSearchParams(location.search).get('backend');
+  } catch { /* sandboxed */ }
 
-  const problem = forceWebGL ? null : webgpuProblem();
-  if (problem) {
-    refuse(problem);
-    return;
-  }
+  // WebGPU is what this was built for, but refusing to run without it strands
+  // every phone whose browser has not shipped it yet — and the WebGL backend
+  // runs the identical scene, materials and TSL post chain, which is how this
+  // game has been verified all along. So it is a fallback now rather than a
+  // dead end, and the menu says which one is running.
+  const problem = webgpuProblem();
+  let forceWebGL = requested === 'webgl' || Boolean(problem);
 
   el.loadNote.textContent = forceWebGL ? 'starting WebGL…' : 'starting WebGPU…';
-  renderer = new Renderer(el.canvas, { forceWebGL });
+  renderer = new Renderer(el.canvas, { forceWebGL, quality });
   try {
     await renderer.init();
   } catch (err) {
-    refuse(err.message);
-    return;
+    if (forceWebGL) {
+      refuse(`No usable graphics backend: ${err.message}`);
+      return;
+    }
+    // WebGPU said yes and then failed. Try the other one before giving up.
+    console.warn('WebGPU failed, falling back to WebGL:', err.message);
+    forceWebGL = true;
+    renderer = new Renderer(el.canvas, { forceWebGL: true, quality });
+    try {
+      await renderer.init();
+    } catch (fallbackErr) {
+      refuse(`No usable graphics backend: ${fallbackErr.message}`);
+      return;
+    }
+  }
+
+  if (forceWebGL) {
+    el.gpuNote.textContent = problem
+      ? `${problem} Running on WebGL instead — same game, slightly softer light.`
+      : 'Running on WebGL.';
   }
 
   assets = new AssetLibrary('./assets/');
@@ -152,7 +179,23 @@ async function boot() {
 
   el.boot.hidden = true;
   el.menu.hidden = false;
+  if (quality.touch) el.start.textContent = 'TAP TO ENTER THE DARK';
+  updateOrientation();
 }
+
+/**
+ * A first-person game in portrait is a letterbox with a thumb over it. Rather
+ * than let someone conclude the page is broken, say what to do — and only on a
+ * touch device, because a narrow desktop window is still perfectly playable.
+ */
+function updateOrientation() {
+  if (!el.rotate) return;
+  const portrait = quality.touch && window.innerHeight > window.innerWidth * 1.05;
+  el.rotate.hidden = !portrait;
+}
+
+window.addEventListener('resize', updateOrientation);
+window.addEventListener('orientationchange', () => setTimeout(updateOrientation, 250));
 
 // ------------------------------------------------------------- run control
 
@@ -175,12 +218,13 @@ async function startRun(seed) {
 
   // Game.start builds the scene and hands it to the renderer itself, because
   // the post chain has to exist before the director that writes to it.
-  game = new Game({ renderer, assets, audio, hud });
+  game = new Game({ renderer, assets, audio, hud, quality });
   await game.start(seed);
 
   game.onEnd = (result) => {
     lastResult = result;
     hud.hide();
+    touch?.disable();
     document.exitPointerLock?.();
     hud.showReport(result);
   };
@@ -189,7 +233,25 @@ async function startRun(seed) {
   el.loadFill.style.width = '100%';
   el.boot.hidden = true;
 
-  await acquireLook();
+  if (quality.touch) {
+    // Fullscreen reclaims the browser chrome, which on a phone in landscape is
+    // a third of the screen. It can only be asked for from a gesture, and the
+    // tap that started the run is one.
+    await requestFullscreen();
+    touch ??= new TouchControls({
+      player: game.player,
+      hud,
+      onInteract: () => game?.interact(),
+    });
+    touch.player = game.player;
+    touch.enable();
+    hud.setLookMode(true);
+    // The USE button appears only when there is something to use, so it
+    // tracks the same prompt the desktop build shows.
+    hud.onPrompt = (visible) => touch.setUseVisible(visible);
+  } else {
+    await acquireLook();
+  }
 
   lastTime = performance.now();
   cancelAnimationFrame(raf);
@@ -253,6 +315,21 @@ el.reportCopy.addEventListener('click', () => {
     el.reportCopy,
   );
 });
+
+async function requestFullscreen() {
+  try {
+    const root = document.documentElement;
+    if (!document.fullscreenElement && root.requestFullscreen) {
+      await root.requestFullscreen({ navigationUI: 'hide' });
+    }
+    // iOS Safari has no Fullscreen API on the document; the orientation lock
+    // below is a no-op there too. Both are improvements when present and
+    // nothing when absent, which is why neither is awaited for correctness.
+    await screen.orientation?.lock?.('landscape').catch(() => {});
+  } catch {
+    // Refused — an embedded frame without `allow="fullscreen"`, or iOS.
+  }
+}
 
 /**
  * Ask for pointer lock, and find out whether we got it.

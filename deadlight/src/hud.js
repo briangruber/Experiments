@@ -146,8 +146,10 @@ export class Hud {
     this._whisperTimer = WHISPER_MS / 1000;
   }
 
-  /** The "press E" affordance. Passing null hides it. */
+  /** The "press E" affordance. Passing null hides it.
+   *  `onPrompt` lets the touch layer show its USE button in step. */
   prompt(text) {
+    this.onPrompt?.(Boolean(text));
     if (!text) {
       this.el.prompt.classList.remove('show');
       this.el.crosshair.classList.remove('hot');

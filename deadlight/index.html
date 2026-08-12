@@ -1,6 +1,6 @@
 <!doctype html>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
 <title>DEADLIGHT</title>
 <!-- Inline, so the page makes no request the game does not need. -->
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23050506'/%3E%3Ccircle cx='16' cy='13' r='7' fill='%23b41c22'/%3E%3Crect x='14' y='18' width='4' height='10' fill='%23b41c22'/%3E%3C/svg%3E">
@@ -35,6 +35,29 @@
     <div id="cine-sub"></div>
   </div>
   <div id="cine-skip">SPACE · skip</div>
+</div>
+
+<!-- Touch controls. Hidden until src/touch.js decides this is a finger. -->
+<div id="touch" hidden>
+  <div id="touch-stick"><i id="touch-knob"></i></div>
+  <div id="touch-buttons">
+    <button id="touch-use" class="tbtn use" data-touch="use" type="button">USE</button>
+    <button id="touch-crouch" class="tbtn small" data-touch="crouch" type="button">CROUCH</button>
+    <button id="touch-run" class="tbtn small" data-touch="run" type="button">RUN</button>
+    <button id="touch-torch" class="tbtn torch" data-touch="torch" type="button">TORCH</button>
+  </div>
+</div>
+
+<!-- Portrait is unplayable for a first-person game; say so rather than let
+     someone conclude it is broken. -->
+<div id="rotate" hidden>
+  <div class="rotate-inner">
+    <svg viewBox="0 0 48 48" aria-hidden="true">
+      <rect x="16" y="4" width="16" height="40" rx="3"/>
+      <path d="M8 30a16 16 0 0 0 12 12"/>
+    </svg>
+    <p>TURN YOUR PHONE SIDEWAYS</p>
+  </div>
 </div>
 
 <!-- Readable documents and the lift keypad. -->

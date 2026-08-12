@@ -36,6 +36,23 @@ const WIDTH = Number(flag('w', 1280));
 const HEIGHT = Number(flag('h', 720));
 const PORT = Number(flag('port', 8123));
 
+/**
+ * `--device phone|tablet` emulates a touch device: viewport, touch support and
+ * a mobile user agent, plus `?quality=` so the game picks that tier.
+ *
+ * It is emulation, not a phone — it cannot tell you whether an iPhone's Safari
+ * has WebGPU or how hot the device gets. What it does answer is everything
+ * that has actually been broken here: does the layout fit, do the touch
+ * controls exist and respond, does the stick move the player, does the game
+ * run at all when the desktop assumptions are removed.
+ */
+const DEVICES = {
+  phone: { width: 844, height: 390, dpr: 3, quality: 'phone' },
+  tablet: { width: 1180, height: 820, dpr: 2, quality: 'tablet' },
+  portrait: { width: 390, height: 844, dpr: 3, quality: 'phone' },
+};
+const DEVICE = DEVICES[flag('device')] ?? null;
+
 /** Playwright's default headless *shell* exposes no WebGPU at all, so the full
  *  Chromium binary and `--headless=new` are both required. */
 const CHROME = process.env.CHROME_PATH
@@ -95,7 +112,18 @@ async function main() {
   });
 
   const problems = [];
-  const page = await browser.newPage({ viewport: { width: WIDTH, height: HEIGHT } });
+  const page = await browser.newPage({
+    viewport: DEVICE
+      ? { width: DEVICE.width, height: DEVICE.height }
+      : { width: WIDTH, height: HEIGHT },
+    deviceScaleFactor: DEVICE?.dpr ?? 1,
+    hasTouch: Boolean(DEVICE),
+    isMobile: Boolean(DEVICE),
+    userAgent: DEVICE
+      ? 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15'
+        + ' (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1'
+      : undefined,
+  });
 
   // Compatibility shim for the Chromium that ships with Playwright, which
   // implements an early draft of WebGPU's component swizzle where the value is
@@ -130,6 +158,7 @@ async function main() {
   try {
     const query = new URLSearchParams({ seed: SEED });
     if (!USE_WEBGPU) query.set('backend', 'webgl');
+    if (DEVICE) query.set('quality', DEVICE.quality);
     // `--page` points at an alternative entry — the single-file build lives at
     // dist/deadlight.html and has to be verified the same way as the served one.
     const entry = flag('page', '/');
@@ -144,6 +173,16 @@ async function main() {
     const blocked = await page.$eval('#start', (b) => (b.disabled ? b.textContent : null));
     if (blocked) throw new Error(`start button disabled: ${blocked}`);
     console.log('· assets loaded, menu up');
+
+    // In portrait the game deliberately refuses to start and asks for a
+    // rotate. Verifying that is the whole point of the portrait device, so
+    // check the gate is up and stop rather than trying to click through it.
+    const gated = await page.$eval('#rotate', (r) => !r.hidden).catch(() => false);
+    if (gated) {
+      await page.screenshot({ path: OUT });
+      console.log(`· portrait: rotate gate up, wrote ${path.relative(ROOT, OUT)}`);
+      return;
+    }
 
     await page.click('#start');
 
@@ -172,15 +211,76 @@ async function main() {
         await page.waitForTimeout(800);
       });
 
-    // Drive it: walk forward, look around, and take a fuse if one is offered.
+    // Drive it. On a touch device that means the touch controls, because a
+    // keyboard the device does not have proves nothing about whether the game
+    // is playable on it.
     const deadline = Date.now() + PLAY_SECONDS * 1000;
-    await page.keyboard.down('KeyW');
-    while (Date.now() < deadline) {
-      await page.mouse.move(WIDTH / 2 + (Math.random() - 0.5) * 260, HEIGHT / 2);
-      await page.keyboard.press('KeyE');
-      await page.waitForTimeout(320);
+
+    if (DEVICE) {
+      const before = await page.evaluate(() => {
+        const p = window.deadlight.game.player;
+        return { x: p.position.x, z: p.position.z, yaw: p.yaw };
+      });
+
+      // Synthetic PointerEvents rather than Playwright's mouse: the game reads
+      // pointer events, and this exercises exactly the path a finger takes,
+      // including two fingers at once.
+      const drive = (seconds) => page.evaluate(async ({ w, h, seconds: secs }) => {
+        const fire = (type, id, x, y) => window.dispatchEvent(new PointerEvent(type, {
+          pointerId: id, pointerType: 'touch', isPrimary: id === 1,
+          clientX: x, clientY: y, bubbles: true, cancelable: true,
+        }));
+
+        // Left thumb: push the stick forward. Right thumb: drag to look.
+        fire('pointerdown', 1, w * 0.2, h * 0.7);
+        fire('pointerdown', 2, w * 0.75, h * 0.5);
+        fire('pointermove', 1, w * 0.2, h * 0.7 - 70);
+
+        const until = performance.now() + secs * 1000;
+        let angle = 0;
+        while (performance.now() < until) {
+          angle += 0.4;
+          fire('pointermove', 2, w * 0.75 + Math.sin(angle) * 40, h * 0.5);
+          await new Promise((r) => setTimeout(r, 90));
+        }
+        fire('pointerup', 1, w * 0.2, h * 0.7 - 70);
+        fire('pointerup', 2, w * 0.75, h * 0.5);
+      }, { w: DEVICE.width, h: DEVICE.height, seconds });
+
+      await drive(PLAY_SECONDS);
+
+      const after = await page.evaluate(() => {
+        const p = window.deadlight.game.player;
+        return { x: p.position.x, z: p.position.z, yaw: p.yaw, axis: p.peakAxis ?? 0 };
+      });
+      const moved = Math.hypot(after.x - before.x, after.z - before.z);
+      const turned = Math.abs(after.yaw - before.yaw);
+      console.log(`· touch: stick axis ${after.axis.toFixed(2)},` +
+        ` player moved ${moved.toFixed(2)}m, look turned ${turned.toFixed(2)}rad`);
+      // Assert on the axis, not the distance: the stick's job is to ask for
+      // forward, and a wall two steps away is a legitimate reason for the
+      // player not to have gone anywhere.
+      if (after.axis < 0.4) problems.push('touch stick did not drive the move axis');
+      if (turned < 0.05) problems.push('touch look did not turn the view');
+
+      // And a button: the torch, which is the one pressed most.
+      const lit = await page.evaluate(() => window.deadlight.game.player.torchOn);
+      await page.touchscreen.tap(DEVICE.width - 60, DEVICE.height - 60);
+      await page.waitForTimeout(250);
+      const afterTap = await page.evaluate(() => window.deadlight.game.player.torchOn);
+      console.log(`· touch: torch button ${lit} → ${afterTap}`);
+      if (lit === afterTap) problems.push('torch button did nothing');
+      // Leave the light on so the capture shows the level rather than the dark.
+      await page.evaluate(() => { window.deadlight.game.player.torchOn = true; });
+    } else {
+      await page.keyboard.down('KeyW');
+      while (Date.now() < deadline) {
+        await page.mouse.move(WIDTH / 2 + (Math.random() - 0.5) * 260, HEIGHT / 2);
+        await page.keyboard.press('KeyE');
+        await page.waitForTimeout(320);
+      }
+      await page.keyboard.up('KeyW');
     }
-    await page.keyboard.up('KeyW');
 
     // Drive the puzzles directly. The random walk above will not find a tag
     // in eight seconds, and "the puzzles work" is exactly the thing a smoke

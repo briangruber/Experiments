@@ -483,6 +483,139 @@ canvas#gl {
   .code-display .digit.at { animation: none; }
 }
 
+/* --------------------------------------------------------- touch controls */
+
+#touch {
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+  /* The layer itself must not eat taps — the look region is the bare screen.
+     Only the buttons below opt back in. */
+  pointer-events: none;
+  /* Keep controls clear of notches and home indicators. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+           env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+#touch[hidden] { display: none; }
+
+/* The stick is positioned under whichever thumb summoned it, so it starts
+   invisible and centred on nothing. */
+#touch-stick {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 116px;
+  height: 116px;
+  margin: -58px 0 0 -58px;
+  border-radius: 50%;
+  border: 1px solid rgba(216, 212, 204, 0.16);
+  background: rgba(0, 0, 0, 0.22);
+  opacity: 0;
+  transition: opacity 0.16s;
+}
+
+#touch-stick.active { opacity: 1; }
+
+#touch-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 46px;
+  height: 46px;
+  margin: -23px 0 0 -23px;
+  border-radius: 50%;
+  background: rgba(239, 236, 228, 0.26);
+  border: 1px solid rgba(239, 236, 228, 0.4);
+}
+
+/* Two columns, not one. A four-high stack of thumb-sized buttons reached all
+   the way up into the counters on a landscape phone — 390 CSS pixels of height
+   does not have room for a column of them and a HUD. */
+#touch-buttons {
+  position: absolute;
+  right: calc(16px + env(safe-area-inset-right));
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: end;
+  gap: 10px;
+  pointer-events: none;
+}
+
+/* Torch is the one pressed most and in the most hurry, so it gets the corner
+   the thumb rests on and the whole right column. */
+#touch-torch { grid-column: 2; grid-row: 1 / span 2; align-self: end; }
+#touch-crouch { grid-column: 1; grid-row: 1; }
+#touch-run { grid-column: 1; grid-row: 2; }
+#touch-use { grid-column: 1; grid-row: 1; }
+
+.tbtn {
+  pointer-events: auto;
+  font-family: var(--hud-font);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: var(--ink);
+  background: rgba(10, 11, 13, 0.55);
+  border: 1px solid var(--edge);
+  border-radius: 50%;
+  /* 72px is above the 44px minimum by a wide margin on purpose: these are
+     pressed in a panic, one-handed, by someone who is not looking at them. */
+  width: 72px;
+  height: 72px;
+  padding: 0;
+  transition: background 0.1s, transform 0.1s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tbtn.small { width: 60px; height: 60px; font-size: 9px; }
+.tbtn.torch { width: 84px; height: 84px; border-color: rgba(213, 154, 60, 0.45); color: var(--amber); }
+.tbtn.down { background: rgba(213, 154, 60, 0.32); transform: scale(0.94); }
+.tbtn.latched { border-color: var(--amber); color: var(--amber); }
+
+/* USE only exists when there is something to use, and it takes crouch's slot
+   while it does: reaching past a live button for a dead one is how a player
+   fumbles an interaction with something walking toward them. */
+.tbtn.use { opacity: 0; pointer-events: none; transition: opacity 0.14s; }
+.tbtn.use.show { opacity: 1; pointer-events: auto; }
+#touch-use.show ~ #touch-crouch { visibility: hidden; }
+
+/* ------------------------------------------------------------- portrait */
+
+#rotate {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  background: #000;
+  text-align: center;
+}
+
+#rotate[hidden] { display: none; }
+
+#rotate svg {
+  width: 64px;
+  height: 64px;
+  fill: none;
+  stroke: var(--dim);
+  stroke-width: 2;
+  animation: tip 2.4s ease-in-out infinite;
+}
+
+@keyframes tip {
+  0%, 55%, 100% { transform: rotate(0deg); }
+  75%, 90% { transform: rotate(-90deg); }
+}
+
+#rotate p {
+  font-family: var(--hud-font);
+  font-size: 12px;
+  letter-spacing: 0.24em;
+  color: var(--dim);
+  margin-top: 22px;
+}
+
 /* --------------------------------------------------------------- screens */
 
 .screen {
@@ -701,7 +834,59 @@ kbd {
   transition: width 0.35s ease-out;
 }
 
+/* ------------------------------------------------------------ small screens */
+
+/* The HUD was sized for a monitor across the room. On a phone held at arm's
+   length the same numbers eat a third of the screen — and the screen is the
+   only thing standing between the player and the dark. */
+@media (max-width: 900px), (pointer: coarse) {
+  #hud-left { left: calc(14px + env(safe-area-inset-left)); bottom: auto; top: calc(52px + env(safe-area-inset-top)); gap: 7px; }
+  #hud-right { right: calc(14px + env(safe-area-inset-right)); top: calc(52px + env(safe-area-inset-top)); bottom: auto; gap: 8px; }
+  .bar { width: 96px; height: 5px; }
+  .gauge-label, .hud-title { font-size: 8px; margin-bottom: 3px; }
+  #hud-right .count { font-size: 24px; }
+  #hud-right .count span { font-size: 12px; }
+  #scare-tally .count { font-size: 17px; }
+
+  /* The heart moves off the bottom centre, where the left thumb lives. */
+  #hud-heart { left: auto; right: calc(14px + env(safe-area-inset-right)); bottom: auto; top: calc(14px + env(safe-area-inset-top)); transform: none; }
+  #hud-heart svg { width: 20px; height: 19px; }
+  .bpm b { font-size: 20px; }
+
+  #seed-tag { display: none; }
+  #fps { top: calc(14px + env(safe-area-inset-top)); left: calc(14px + env(safe-area-inset-left)); }
+  #objective { top: calc(14px + env(safe-area-inset-top)); font-size: 11px; max-width: 54vw; }
+  #prompt { top: 62%; font-size: 12px; }
+  #subtitle { bottom: 120px; font-size: 14px; max-width: 74vw; }
+  #lookhint { display: none; }
+
+  .logo { font-size: clamp(38px, 13vw, 62px); }
+  .tag { font-size: 12px; margin-bottom: 22px; }
+  .controls { display: none; }
+  .screen-inner { width: min(520px, 94vw); }
+  button.big { padding: 16px 32px; }
+
+  /* Keypad digits are finger targets here, not mouse targets. */
+  .code-pad span { padding: 16px 0; font-size: 18px; }
+  .code-display .digit { width: 40px; height: 50px; font-size: 26px; }
+  .panel-card { padding: 20px 18px 16px; }
+  .panel-body { font-size: 12px; line-height: 1.85; }
+
+  #cine-title { font-size: clamp(20px, 6vw, 34px); }
+  #cine-skip { right: 14px; }
+}
+
+/* Landscape phones are short, not narrow: claw back vertical space. */
+@media (pointer: coarse) and (max-height: 460px) {
+  #letterbox .cine-bar { height: 7vh; }
+  #cine-text { bottom: 11vh; }
+  .tbtn { width: 60px; height: 60px; }
+  .tbtn.small { width: 50px; height: 50px; font-size: 8px; }
+  .tbtn.torch { width: 68px; height: 68px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   #hud-heart svg { animation: none; }
   .screen-inner { animation: none; }
+  #rotate svg { animation: none; }
 }

@@ -51,6 +51,12 @@ export class Player {
     this.cinematic = false;
 
     this.keys = new Set();
+    /** Movement from a source that is not the keyboard, each −1..1.
+     *  y is forward, x is strafe. Written by src/touch.js. */
+    this._axis = { x: 0, y: 0 };
+    /** Held/latched by touch buttons; the keyboard sets these per frame. */
+    this.wantRun = false;
+    this.wantCrouch = false;
     this._bobPhase = 0;
     this._bobAmount = 0;
     this._stepPhase = 0;
@@ -74,6 +80,11 @@ export class Player {
     this.crouching = false;
     this.alive = true;
     this.cinematic = false;
+    this.wantRun = false;
+    this.wantCrouch = false;
+    this._axis.x = 0;
+    this._axis.y = 0;
+    this.peakAxis = 0;
     this._shake = 0;
   }
 
@@ -105,17 +116,17 @@ export class Player {
 
     this._onMouse = (e) => {
       const locked = document.pointerLockElement === dom;
-      if (this.frozen || (!locked && !this._dragging)) return;
-      const sens = 0.0022;
-      this.yaw -= e.movementX * sens;
-      this.pitch -= e.movementY * sens;
-      this.pitch = THREE.MathUtils.clamp(this.pitch, -1.45, 1.45);
+      if (!locked && !this._dragging) return;
+      this.applyLook(e.movementX, e.movementY);
     };
 
     // Losing focus mid-sprint would otherwise leave the key latched down.
     this._onBlur = () => {
       this.keys.clear();
       this._dragging = false;
+      this.wantRun = false;
+      this._axis.x = 0;
+      this._axis.y = 0;
     };
 
     window.addEventListener('keydown', this._onKeyDown);
@@ -146,6 +157,27 @@ export class Player {
   /** Kick the view — used by scares and by taking a hit. */
   shake(amount = 1) {
     this._shake = Math.min(2.5, this._shake + amount);
+  }
+
+  /**
+   * Turn the view. One entry point for every device: the mouse, a dragged
+   * finger and the drag-to-look fallback all arrive here, so sensitivity and
+   * the pitch clamp exist in exactly one place.
+   */
+  applyLook(dx, dy, sensitivity = 0.0022) {
+    if (this.frozen) return;
+    this.yaw -= dx * sensitivity;
+    this.pitch = THREE.MathUtils.clamp(this.pitch - dy * sensitivity, -1.45, 1.45);
+  }
+
+  /** Movement from a virtual stick, each −1..1. */
+  setMoveAxis(x, y) {
+    this._axis.x = x;
+    this._axis.y = y;
+    // Peak magnitude ever requested. Only diagnostics reads this: it lets a
+    // test distinguish a stick that was ignored from a stick that worked and
+    // pushed the player into a wall.
+    this.peakAxis = Math.max(this.peakAxis ?? 0, Math.hypot(x, y));
   }
 
   /** Wrench the view by a fixed offset, in radians. */
@@ -187,11 +219,18 @@ export class Player {
     }
 
     const k = this.keys;
-    const forward = (k.has('KeyW') ? 1 : 0) - (k.has('KeyS') ? 1 : 0);
-    const strafe = (k.has('KeyD') ? 1 : 0) - (k.has('KeyA') ? 1 : 0);
+    // Keyboard and stick are summed, then clamped: a device with both should
+    // not have one silently win, and holding W while nudging a gamepad-style
+    // stick should not produce double speed.
+    const forward = THREE.MathUtils.clamp(
+      (k.has('KeyW') ? 1 : 0) - (k.has('KeyS') ? 1 : 0) + this._axis.y, -1, 1);
+    const strafe = THREE.MathUtils.clamp(
+      (k.has('KeyD') ? 1 : 0) - (k.has('KeyA') ? 1 : 0) + this._axis.x, -1, 1);
 
-    this.crouching = k.has('ControlLeft') || k.has('ControlRight') || k.has('KeyC');
-    const wantsRun = (k.has('ShiftLeft') || k.has('ShiftRight')) && !this.crouching;
+    this.crouching = k.has('ControlLeft') || k.has('ControlRight') || k.has('KeyC')
+      || this.wantCrouch;
+    const wantsRun = ((k.has('ShiftLeft') || k.has('ShiftRight')) || this.wantRun)
+      && !this.crouching;
     const canRun = wantsRun && this.stamina > 0.02 && forward > 0;
     this.running = canRun;
 
@@ -206,8 +245,10 @@ export class Player {
       0,
       -cos * forward - sin * strafe,
     );
-    const intensity = wish.length();
-    if (intensity > 0) wish.divideScalar(intensity).multiplyScalar(speed);
+    // `intensity` is how hard the player is asking to move — a stick pushed
+    // halfway walks at half speed, where a key is always all the way.
+    const intensity = Math.min(1, wish.length());
+    if (intensity > 0) wish.normalize().multiplyScalar(speed * intensity);
 
     // Accelerate toward the wish velocity, decelerate to a stop otherwise.
     const rate = intensity > 0 ? ACCEL : FRICTION;

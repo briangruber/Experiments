@@ -17,7 +17,7 @@ import {
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 
 export class Post {
-  constructor(renderer, scene, camera) {
+  constructor(renderer, scene, camera, quality = { bloom: true }) {
     // Every scare parameter, in one place. `.value` is written directly by
     // the director each frame.
     this.params = {
@@ -47,7 +47,12 @@ export class Post {
     // Bloom on the torch hotspot and the practical lights only — a low
     // threshold here would fog the whole frame and destroy the blacks, which
     // are the only reason the dark reads as dark.
-    const glow = bloom(colour, 0.62, 0.72, 0.86);
+    //
+    // It is also a mip pyramid and several extra full-screen passes, which is
+    // the single most expensive thing in this chain. The phone tier drops it
+    // and loses the halo around the torch: a real loss, and a better trade
+    // than halving the frame rate.
+    const glow = quality.bloom ? bloom(colour, 0.62, 0.72, 0.86) : null;
 
     const composite = Fn(() => {
       const centred = uv().sub(0.5);
@@ -66,7 +71,8 @@ export class Post {
       const r = colour.sample(rolled.add(split)).r;
       const g = colour.sample(rolled).g;
       const b = colour.sample(rolled.sub(split)).b;
-      let colour3 = vec3(r, g, b).add(glow.rgb);
+      let colour3 = vec3(r, g, b);
+      if (glow) colour3 = colour3.add(glow.rgb);
 
       // Desaturate toward luminance.
       colour3 = mix(colour3, vec3(luminance(colour3)), this.params.desaturate);
