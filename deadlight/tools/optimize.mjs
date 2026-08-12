@@ -29,7 +29,7 @@ import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { copyToDocument, dedup, prune, resample, textureCompress, weld } from '@gltf-transform/functions';
 import sharp from 'sharp';
 
-import { ALL_MESHES, CREATURE } from './assets.manifest.mjs';
+import { ALL_MESHES, MONSTERS } from './assets.manifest.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const RAW = path.join(ROOT, 'assets', 'raw');
@@ -41,7 +41,7 @@ const io = new NodeIO().registerExtensions(ALL_EXTENSIONS);
  *  close enough to inspect; the mannequins are second because the whole point
  *  of them is being stared at. Everything else lives in torchlight at four
  *  metres and 512 is generous. */
-const TEXTURE_SIZE = { creature: 1024, mannequin: 1024, prop: 512 };
+const TEXTURE_SIZE = { monster: 1024, mannequin: 1024, prop: 512 };
 
 const kb = (n) => `${(n / 1024).toFixed(0)}kb`;
 
@@ -249,11 +249,12 @@ async function optimizeStatic(entry, role) {
  * reported — silently keeping it would leave a track bound to a stray node
  * that the game then animates into the floor.
  */
-async function optimizeCreature() {
-  const clips = Object.keys(CREATURE.animations);
+async function optimizeMonster(monster) {
+  const CREATURE = monster;
+  const clips = Object.keys(monster.animations);
   const baseName = clips.find((c) => existsSync(path.join(RAW, `${CREATURE.key}_${c}.glb`)));
   if (!baseName) {
-    console.warn('  creature: no animated source found, skipping');
+    console.warn(`  ${monster.key}: no animated source found, skipping`);
     return null;
   }
 
@@ -319,7 +320,7 @@ async function optimizeCreature() {
   if (orphans) console.log(`  ${''.padEnd(14)} dropped ${orphans} orphan node(s)`);
 
   const motion = derootAnimations(doc);
-  await squeeze(doc, TEXTURE_SIZE.creature);
+  await squeeze(doc, TEXTURE_SIZE.monster);
 
   const dest = path.join(OUT, `${CREATURE.key}.glb`);
   await io.write(dest, doc);
@@ -335,7 +336,8 @@ async function optimizeCreature() {
 
   return {
     file: `${CREATURE.key}.glb`,
-    role: 'creature',
+    role: 'monster',
+    behaviour: monster.behaviour,
     height: CREATURE.scale,
     clips: clipNames,
     motion,
@@ -362,8 +364,10 @@ async function main() {
     else console.warn(`  ${entry.key.padEnd(14)} missing, skipped`);
   }
 
-  const creature = await optimizeCreature();
-  if (creature) manifest.assets[CREATURE.key] = creature;
+  for (const monster of MONSTERS) {
+    const meta = await optimizeMonster(monster);
+    if (meta) manifest.assets[monster.key] = meta;
+  }
 
   // Carry the Tripo task ids through so a shipped asset can be traced back to
   // the prompt and job that produced it.

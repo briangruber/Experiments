@@ -1,9 +1,9 @@
 # DEADLIGHT
 
 A first-person jump-scare game that runs in the browser on WebGPU. Sublevel
-three of a decommissioned hospital: find six fuses, start the generator, reach
-the lift. Something else is down here, and the mannequins are not where you
-left them.
+three of a decommissioned hospital: throw three breakers in an order printed
+somewhere else, find four ward tags that spell a lift code, and get out.
+Three monsters are down here, and the mannequins are not where you left them.
 
 **Every mesh in the game is generated** — props, mannequins and the creature
 all come out of [Tripo](https://developers.tripo3d.ai) from text prompts, and
@@ -28,6 +28,7 @@ off the filesystem will not work. Chrome/Edge 113+ or Safari 18+.
 | `F` | torch |
 | `E` | take / use |
 | `1`–`6` | trigger a specific scare — see below |
+| `Space` | skip a cutscene |
 | `M` | mute |
 | `Esc` | release the mouse |
 
@@ -52,12 +53,31 @@ The parts built specifically for playing this in front of an audience:
 
 ## How it plays
 
-Light is the whole economy. The torch is the only thing that makes the level
-legible, and it is also the loudest thing you can do — the creature hears it
-from across the level. Running is fast and loud, crouching is quiet and slow,
-and the torch battery only recharges while it is off. Every fuse you collect
-raises the pressure: the creature gets faster, the mannequins take longer
-strides, and the director gets impatient.
+Light is the whole economy, and every threat in the game is attached to a
+control the player is already holding.
+
+**The puzzles are information, not objects.** Nothing is carried. The breaker
+order is printed on a maintenance diagram in one room and executed on three
+switches in others; the lift code is four digits, one per ward tag, scattered.
+So the player is always crossing the level holding something in their head,
+and everything the dark does to them is now interfering with the task rather
+than merely happening near it. Forgetting the code is a real failure state,
+and re-walking a corridor you already survived to re-read a tag is the most
+reliable fear this game produces. Guessing has teeth: a wrong breaker trips
+the floor, a wrong code sounds an alarm, and both are heard everywhere.
+
+**Three monsters, and they hunt by different senses**, so no single posture is
+safe:
+
+| | wakes on | notes |
+| --- | --- | --- |
+| **watcher** | your torch touching it | stands perfectly still until then. Already in the level when you start — some of the figures in the dark are furniture and some are not |
+| **hunter** | sound, and torchlight at range | patrols, investigates, follows. Arrives with the first objective |
+| **crawler** | sound only, blind | very fast. Joins when the power comes back, which flips every habit built up to that point |
+
+Torch on and moving wakes watchers and draws hunters; torch off and running
+feeds crawlers; torch off and crouched is safe and takes all night, which is
+its own kind of pressure once something is already awake.
 
 The mannequins never move while you can see them. That is the entire
 mechanic — you never witness the movement, only the difference between where
@@ -67,6 +87,13 @@ Nothing is placed by hand. A **scare director** watches the run and picks its
 moments, refusing to fire while you are already frightened, so the quiet
 stretches are as designed as the loud ones. Roughly four scares in five cannot
 hurt you.
+
+**Cutscenes** are short, skippable and run on the live frame loop rather than
+as video — so a scripted shot can stage a real monster in the real level and
+hand back a world that actually changed while you were watching. There are
+three: the opening drift through the room you wake in, the moment the power
+comes back and the corridor is fully lit for the only time in the game, and
+the lift doors closing on whatever nearly got there first.
 
 ## Generating the assets
 
@@ -80,10 +107,9 @@ npm run assets            # generate.mjs, then optimize.mjs
 ```
 
 `tools/generate.mjs` submits every prompt in `tools/assets.manifest.mjs`,
-auto-rigs the creature as a biped and retargets preset animations onto it,
-resuming from `assets/generation.json` if interrupted. The full set is 16
-assets, about 400 credits and seven minutes wall-clock at eight jobs in
-parallel.
+auto-rigs each monster as a biped and retargets preset animations onto it,
+resuming from `assets/generation.json` if interrupted. The full set is 22
+assets — 16 props, 3 mannequins, 3 rigged monsters — at roughly 900 credits.
 
 `tools/optimize.mjs` then does the work that makes the output shippable:
 
@@ -122,8 +148,12 @@ human proportions and mitten hands, and put the horror in the head and skin.
 
 **The rigger is not deterministic.** The same prompt run three times produced
 skeletons of 52, 62 and 78 bones. The 62-bone one animated beautifully; the
-others tore or crumpled. Generating a creature is therefore a *sampling*
-problem, not a one-shot one.
+others tore or crumpled. Generating a monster is therefore a *sampling*
+problem, not a one-shot one — which is what `tools/monster-bakeoff.mjs` is:
+it generates every candidate prompt in the manifest, rigs each, gives each two
+test clips, poses them all, and promotes the best. It earned its keep on the
+first run, throwing out a 78-bone creature that had a flawless bind pose and
+folded in half the moment it moved.
 
 **Preset names are not promises.** On rig v2.5, `preset:run` retargets to a
 horizontal superman dive and `preset:slash` to a mid-air backflip — with the
@@ -134,7 +164,7 @@ clips, and `src/creature.js` resolves the rest through a fallback chain.
 Three tools exist for this:
 
 ```
-node tools/creature-bakeoff.mjs                 # candidate prompts, in parallel
+node tools/monster-bakeoff.mjs --promote        # sample, verify, pin the winners
 node tools/verify-rig.mjs --all                 # pose every rig and measure it
 open .../tools/inspect.html?file=../assets/creature.glb&clip=walk   # look at one
 ```
@@ -149,8 +179,16 @@ will miss:
   *collapsed* retarget, where the skeleton is sound but the model ends up
   folded on the floor with entirely ordinary bounds.
 
-It exits non-zero on either, so `npm run assets` will not quietly ship a
-creature that falls apart the moment it takes a step.
+The height check is applied per clip role, and that distinction was paid for:
+locomotion has to stay upright, but a *reaction* clip is supposed to double the
+character over. `preset:hurt` — which every monster here uses as its lunge —
+ends in a deep crouch that measures 0.4 of bind height with every limb
+perfectly intact. Judging both by the strict floor flagged three healthy
+monsters in a row, which is the failure a checker can least afford: a test
+that cries wolf gets widened until it stops catching anything.
+
+It exits non-zero on either failure, so `npm run assets` will not quietly ship
+a monster that falls apart the moment it takes a step.
 
 ## Verifying it
 
@@ -181,7 +219,9 @@ src/
   game.js                   objectives, interaction, escalation, end of run
   level.js                  seeded rooms + corridors, collision, pathing, geometry
   world.js                  scene, dressing, torch, practical lights
-  creature.js               AI state machine over the Tripo clips
+  monster.js                one state machine, three sense profiles
+  puzzles.js                breaker sequence, lift code, and the read panel
+  cutscene.js               scripted camera, and the three scripts
   mannequins.js             the ones that move when you are not looking
   director.js               scare scheduling, heart rate, jumpscares
   player.js                 controller, and how much noise it makes
@@ -196,7 +236,7 @@ tools/
   tripo.mjs                 Tripo v3 client
   generate.mjs              prompts → assets/raw/
   optimize.mjs              assets/raw/ → assets/
-  creature-bakeoff.mjs      compare candidate creature prompts
+  monster-bakeoff.mjs       sample candidate prompts, verify, promote winners
   verify-rig.mjs            pose every rig and measure it (exits non-zero)
   rigcheck.html             the CPU-skinning harness verify-rig drives
   vendor.mjs                copy three into vendor/

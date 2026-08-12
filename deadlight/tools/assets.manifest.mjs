@@ -104,6 +104,38 @@ export const PROPS = [
     prompt: `a filthy porcelain hospital sink, chipped enamel, rust stains ` +
       `under the taps, exposed pipes, ${LOOK}`,
   },
+
+  // Puzzle hardware. Tagged `fixture` so the level dresser leaves them alone —
+  // these are placed by the puzzle, and a decorative second keypad on a
+  // corridor wall would be a lie the player wastes real time on.
+  {
+    key: 'keypad',
+    scale: 0.34,
+    tag: 'fixture',
+    prompt: `a grimy wall-mounted industrial keypad access panel, worn rubber ` +
+      `number buttons, small dark LCD strip, metal housing, ${LOOK}`,
+  },
+  {
+    key: 'breaker',
+    scale: 0.75,
+    tag: 'fixture',
+    prompt: `an open industrial electrical breaker panel, three large black ` +
+      `throw switches in a row, exposed wiring, scorched contacts, ${LOOK}`,
+  },
+  {
+    key: 'clipboard',
+    scale: 0.4,
+    tag: 'fixture',
+    prompt: `a battered clipboard holding a stained handwritten paper form, ` +
+      `bent metal clip, curled damp paper, ${LOOK}`,
+  },
+  {
+    key: 'drawer',
+    scale: 0.9,
+    tag: 'fixture',
+    prompt: `a stainless steel morgue drawer front, heavy latch handle, card ` +
+      `label holder, dented and streaked with rust, ${LOOK}`,
+  },
 ];
 
 /**
@@ -137,54 +169,103 @@ export const MANNEQUINS = [
 ];
 
 /**
- * The creature. Generated as a standing A-pose humanoid, auto-rigged as a
- * biped, then retargeted onto the presets below.
+ * The monsters.
  *
- * This prompt is not the obvious one, and the wording is load-bearing. The
- * first attempt asked for what a horror creature actually looks like —
- * "elongated spindly limbs, long clawed fingers" — and Tripo generated it
- * beautifully and then rigged it into spaghetti. The rigger is fitting a human
- * skeleton to a silhouette it has to segment into limbs, and thin separated
- * geometry gives it nothing to attach to. Worse, it fails invisibly: the bind
- * pose is perfect and the skin only tears once a bone moves.
+ * Every one is generated as a standing A-pose humanoid, auto-rigged as a
+ * biped, then retargeted onto preset clips. The prompts are not the obvious
+ * ones, and the wording is load-bearing.
  *
- * So: solid connected limbs of even thickness, mitten hands, human
- * proportions, and the horror carried by the head and the skin rather than by
- * the skeleton. `tools/creature-bakeoff.mjs` is how this was chosen, and it
- * is still there to choose the next one.
+ * The first creature this project made asked for what a horror creature
+ * actually looks like — "elongated spindly limbs, long clawed fingers" — and
+ * Tripo generated it beautifully and then rigged it into spaghetti. The rigger
+ * fits a human skeleton to a silhouette it has to segment into limbs, and thin
+ * separated geometry gives it nothing to attach to. Worse, it fails invisibly:
+ * the bind pose is perfect and the skin only tears once a bone moves.
  *
- * `animations` maps the game's state names to Tripo rig-v2.5 preset ids.
- * Keep `idle` first: it is the clip the game falls back to if a retarget
- * fails, and a creature standing still is still frightening.
+ * So every prompt here obeys the same rule — solid connected limbs of even
+ * thickness, mitten hands, human proportions, A-pose — and spends all of its
+ * horror on the *surface*: the head, the skin, what is wrong with the face.
+ * Geometry keeps the rigger happy; texture does the frightening. That split is
+ * the single most useful thing learned building this.
  *
- * Not every v2.5 preset is what its name suggests, and the two that are not
- * are the two an action game most wants. On this rig `preset:run` retargets
- * to a horizontal superman dive, and `preset:slash` to a mid-air backflip —
- * both with the mesh perfectly intact, so they pass every integrity check and
- * fail only when you look at them. Neither is in this list as a result: the
- * creature runs on `walk` at a higher playback rate (src/creature.js resolves
- * missing clips through a fallback chain, and matches rate to ground speed),
- * and lunges with `preset:hurt`, which is a far better strike than the one
- * named after striking.
+ * `candidates` exists because the rigger is not deterministic: the same prompt
+ * run three times produced 52, 62 and 78-bone skeletons, of which one animated.
+ * tools/monster-bakeoff.mjs generates every candidate, verifies each by posing
+ * it, and promotes the winner. Generating a monster is a sampling problem.
+ *
+ * `animations` maps game state names to rig-v2.5 preset ids. Not every preset
+ * is what its name suggests — `preset:run` retargets to a horizontal superman
+ * dive and `preset:slash` to a mid-air backflip, both with the mesh perfectly
+ * intact. `preset:hurt` makes a far better lunge than the preset named after
+ * striking. src/monster.js resolves anything missing through a fallback chain.
  */
-export const CREATURE = {
-  key: 'creature',
-  scale: 2.15,
-  faceLimit: 30000,
-  rigModel: 'v2.5-20260210',
-  prompt:
-    'a tall gaunt humanoid horror creature standing upright in an A-pose, ' +
-    'arms hanging down and slightly away from the body, solid connected ' +
-    'limbs of even thickness, smooth featureless head, no separated ' +
-    'fingers, closed simple hands, ashen grey skin, full body character ' +
-    'model, symmetrical, clean topology, game character, T-pose reference, ' +
-    'no base, no pedestal',
-  animations: {
-    idle: 'preset:idle',
-    walk: 'preset:walk',
-    lunge: 'preset:hurt',
+
+/** Shared geometry rules. Changing these is how you break the rigger. */
+const RIGGABLE = 'standing upright in an A-pose, arms hanging down and ' +
+  'slightly away from the body, solid connected limbs of even thickness, ' +
+  'mitten hands with no separated fingers, human proportions, single ' +
+  'connected body mesh, clean topology, full body game character, ' +
+  'photoreal PBR, no base, no pedestal';
+
+const CLIPS = { idle: 'preset:idle', walk: 'preset:walk', lunge: 'preset:hurt' };
+
+export const MONSTERS = [
+  {
+    key: 'creature',
+    // The hunter. Patrols, investigates, chases, kills.
+    behaviour: 'hunter',
+    scale: 2.15,
+    faceLimit: 30000,
+    rigModel: 'v2.5-20260210',
+    animations: CLIPS,
+    candidates: [
+      `a tall gaunt humanoid horror creature, eyeless head with a vertically ` +
+      `split jaw hanging open far too wide, wet grey-green flesh, blackened ` +
+      `veins under translucent skin, exposed sinew across the ribs, slick ` +
+      `with dark fluid, ${RIGGABLE}`,
+      `an emaciated corpse-grey humanoid monster, hollow eye sockets, mouth ` +
+      `stitched shut with black thread, sagging waterlogged skin, dark ` +
+      `bruising down the chest, ${RIGGABLE}`,
+    ],
   },
-};
+  {
+    key: 'watcher',
+    // Stands perfectly still in the dark until torchlight touches it.
+    behaviour: 'watcher',
+    scale: 1.95,
+    faceLimit: 26000,
+    rigModel: 'v2.5-20260210',
+    animations: CLIPS,
+    candidates: [
+      `a tall thin figure in a filthy blood-soaked nurse uniform and apron, ` +
+      `head entirely wrapped in stained bandages with no face, dried blood ` +
+      `down the front, grey skin on the forearms, ${RIGGABLE}`,
+      `a gaunt standing figure wearing a stained hospital gown, head covered ` +
+      `by a soaked canvas hood tied at the neck, no visible face, mottled ` +
+      `grey limbs, dark stains spreading from the chest, ${RIGGABLE}`,
+    ],
+  },
+  {
+    key: 'crawler',
+    // Deaf to light, hunts sound, very fast.
+    behaviour: 'crawler',
+    scale: 1.7,
+    faceLimit: 26000,
+    rigModel: 'v2.5-20260210',
+    animations: CLIPS,
+    candidates: [
+      `a hunched emaciated humanoid with a heavily curved spine and long ` +
+      `thick arms, small eyeless head sunken between high shoulders, bloated ` +
+      `grey torso, wet mottled skin, ${RIGGABLE}`,
+      `a stunted crouching humanoid horror with an oversized ribcage and long ` +
+      `heavy arms, no eyes, wide lipless mouth, greasy pallid skin stretched ` +
+      `over bone, ${RIGGABLE}`,
+    ],
+  },
+];
+
+/** The hunter, by name — the game and the optimizer both want it directly. */
+export const CREATURE = MONSTERS[0];
 
 /** Everything that needs a plain text-to-model pass. */
 export const ALL_MESHES = [...PROPS, ...MANNEQUINS];

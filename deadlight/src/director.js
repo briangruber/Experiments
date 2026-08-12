@@ -99,7 +99,7 @@ export class Director {
         weight: 2.4,
         cost: 5,
         harmless: true,
-        test: () => !this.creature.visibleToPlayer,
+        test: () => !this.creature?.visibleToPlayer,
         run: () => {
           this.audio.breath();
           this.post.params.aberration.value = 0.02;
@@ -168,7 +168,7 @@ export class Director {
         weight: 2.2,
         cost: 18,
         harmless: true,
-        test: () => !this.creature.active || this.creature.distanceToPlayer > 16,
+        test: () => !this.creature?.active || this.creature.distanceToPlayer > 16,
         run: () => this.#apparition(),
       },
       {
@@ -191,7 +191,7 @@ export class Director {
         harmless: false,
         // The real one: only when it is already close and behind you.
         test: () =>
-          this.creature.active &&
+          Boolean(this.creature?.active) &&
           this.creature.distanceToPlayer < 13 &&
           !this.creature.visibleToPlayer &&
           this.pressure > 0.3,
@@ -251,9 +251,9 @@ export class Director {
     // Baseline tension from the situation: how close the creature is, whether
     // it is hunting, how dark it is, how much battery is left.
     let situational = this.pressure * 0.22;
-    if (this.creature.active) {
+    if (this.creature?.active) {
       const d = this.creature.distanceToPlayer;
-      situational += Math.max(0, 1 - d / 22) * (this.creature.state === 'hunt' ? 0.75 : 0.3);
+      situational += Math.max(0, 1 - d / 22) * (this.creature.hunting ? 0.75 : 0.3);
     }
     if (!this.player.torchOn) situational += 0.12;
     if (this.player.battery < 0.2) situational += 0.1;
@@ -323,7 +323,7 @@ export class Director {
    * so this can fire while the real one is across the level.
    */
   #apparition() {
-    if (!this.creature.root) return false;
+    if (!this.creature?.root) return false;
 
     // Look for a spot straight ahead with a clear line to it.
     const forward = this.player.forward();

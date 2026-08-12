@@ -25,6 +25,27 @@
 <div id="blood"></div>
 <div id="vignette"></div>
 
+<!-- Cutscene furniture. Bars and titles live outside #hud so they survive the
+     HUD being hidden during a scripted shot. -->
+<div id="letterbox" hidden>
+  <i class="cine-bar top"></i>
+  <i class="cine-bar bottom"></i>
+  <div id="cine-text">
+    <div id="cine-title"></div>
+    <div id="cine-sub"></div>
+  </div>
+  <div id="cine-skip">SPACE · skip</div>
+</div>
+
+<!-- Readable documents and the lift keypad. -->
+<div id="panel" hidden>
+  <div class="panel-card">
+    <div class="panel-title" id="panel-title"></div>
+    <div class="panel-body" id="panel-body"></div>
+    <div class="panel-footer" id="panel-footer"></div>
+  </div>
+</div>
+
 <!-- In-world HUD -->
 <div id="hud" hidden>
   <div id="crosshair"></div>
@@ -48,9 +69,13 @@
   </div>
 
   <div id="hud-right">
-    <div id="fuses">
-      <div class="hud-title">FUSES</div>
-      <div class="count"><b id="fuse-have">0</b><span id="fuse-need">/6</span></div>
+    <div id="tags">
+      <div class="hud-title">WARD TAGS</div>
+      <div class="count"><b id="tag-have">0</b><span id="tag-need">/4</span></div>
+    </div>
+    <div id="power">
+      <div class="hud-title">BREAKERS</div>
+      <div class="count"><b id="power-have">0</b><span id="power-need">/3</span></div>
     </div>
     <div id="scare-tally">
       <div class="hud-title">SCARES</div>
@@ -70,7 +95,7 @@
 <section id="menu" class="screen" hidden>
   <div class="screen-inner">
     <h1 class="logo">DEAD<span>LIGHT</span></h1>
-    <p class="tag">Sublevel three. Six fuses. Something else is down here.</p>
+    <p class="tag">Sublevel three. Three breakers, four ward tags, one lift.<br>Do not point the light at them.</p>
 
     <div class="seed-row">
       <label for="seed-input">RUN SEED</label>
@@ -87,6 +112,7 @@
       <li><kbd>F</kbd> torch</li>
       <li><kbd>E</kbd> take / use</li>
       <li><kbd>Ctrl</kbd> crouch</li>
+      <li><kbd>Space</kbd> skip scene</li>
     </ul>
 
     <p class="warn">Flashing imagery, sudden loud noise. Headphones recommended —

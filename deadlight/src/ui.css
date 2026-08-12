@@ -82,6 +82,22 @@ canvas#gl {
 
 #hud[hidden] { display: none; }
 
+/* During a cutscene the instrument panels go, and the heart stays — it is the
+   one readout that should never stop while the player is alive.
+   Fading `#hud` itself does not work: opacity creates a stacking context and
+   a child cannot be more opaque than its parent, so the heart would go with
+   everything else. Each panel is faded individually instead. */
+#hud.cine #hud-left,
+#hud.cine #hud-right,
+#hud.cine #seed-tag,
+#hud.cine #fps,
+#hud.cine #prompt,
+#hud.cine #objective,
+#hud.cine #crosshair,
+#hud.cine #lookhint { opacity: 0; }
+
+#hud-left, #hud-right, #seed-tag, #fps { transition: opacity 0.4s; }
+
 #crosshair {
   position: absolute;
   left: 50%;
@@ -261,6 +277,210 @@ canvas#gl {
   font-size: 10px;
   color: var(--dim);
   letter-spacing: 0.16em;
+}
+
+/* ------------------------------------------------------------- cutscenes */
+
+/* Bars, title and skip hint. Above the washes so a scare during a scripted
+   shot still reads, below the menus so the report card covers everything. */
+#letterbox {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  pointer-events: none;
+}
+
+#letterbox[hidden] { display: none; }
+
+/* Named `cine-bar`, not `bar`: `.bar` is the HUD gauge track, and an
+   element-level `width: 172px` there beat the `left/right: 0` here — the
+   letterbox rendered as two small black rectangles in the corners. */
+#letterbox .cine-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 11vh;
+  background: #000;
+  /* Bars slide in rather than appear — a hard cut to letterbox reads as a
+     rendering glitch, and the slide is the signal that control has been
+     taken away on purpose. */
+  transition: transform 0.55s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+#letterbox .cine-bar.top { top: 0; transform: translateY(-100%); }
+#letterbox .cine-bar.bottom { bottom: 0; transform: translateY(100%); }
+#letterbox.show .cine-bar { transform: none; }
+
+#cine-text {
+  position: absolute;
+  left: 50%;
+  bottom: 17vh;
+  transform: translateX(-50%);
+  text-align: center;
+  max-width: 76vw;
+}
+
+#cine-title {
+  font-family: var(--hud-font);
+  font-size: clamp(26px, 5.2vw, 52px);
+  letter-spacing: 0.22em;
+  color: var(--bone);
+  text-shadow: 0 2px 26px #000;
+  opacity: 0;
+  transition: opacity 0.7s;
+}
+
+#cine-sub {
+  font-family: var(--body-font);
+  font-size: 14px;
+  letter-spacing: 0.05em;
+  color: var(--dim);
+  margin-top: 10px;
+  opacity: 0;
+  transition: opacity 0.7s;
+}
+
+#cine-title.show, #cine-sub.show { opacity: 1; }
+
+#cine-skip {
+  position: absolute;
+  right: 24px;
+  bottom: calc(11vh + 16px);
+  font-family: var(--hud-font);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: #56534f;
+}
+
+#letterbox.no-skip #cine-skip { display: none; }
+
+/* ------------------------------------------------------------ read panel */
+
+/* Documents and the keypad. Deliberately looks like a thing held up in front
+   of the torch rather than a window: warm paper light, hard shadow, and the
+   game still visible and still running behind it. */
+#panel {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(2px);
+}
+
+#panel[hidden] { display: none; }
+
+.panel-card {
+  width: min(420px, 86vw);
+  padding: 26px 28px 22px;
+  background: linear-gradient(160deg, #1a1815, #0e0d0c);
+  border: 1px solid rgba(213, 154, 60, 0.3);
+  box-shadow: 0 26px 70px rgba(0, 0, 0, 0.85);
+  animation: rise 0.22s ease-out;
+}
+
+.panel-title {
+  font-family: var(--hud-font);
+  font-size: 11px;
+  letter-spacing: 0.24em;
+  color: var(--amber);
+  text-transform: uppercase;
+  padding-bottom: 12px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid rgba(213, 154, 60, 0.22);
+}
+
+.panel-body {
+  font-family: var(--hud-font);
+  font-size: 13px;
+  letter-spacing: 0.11em;
+  line-height: 2;
+  color: var(--ink);
+  text-transform: uppercase;
+}
+
+.panel-body b { color: var(--bone); font-weight: 500; }
+.panel-body .big {
+  display: inline-block;
+  font-size: 30px;
+  letter-spacing: 0.2em;
+  color: var(--amber);
+  line-height: 1.5;
+}
+
+.panel-footer {
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(216, 212, 204, 0.1);
+  font-family: var(--hud-font);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: var(--dim);
+  text-transform: uppercase;
+}
+
+/* Keypad */
+.code-display {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+.code-display .digit {
+  width: 46px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  font-family: var(--hud-font);
+  font-size: 30px;
+  color: var(--bone);
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid var(--edge);
+}
+
+/* The caret. It is the only moving thing on the card, so it reads instantly
+   as "type here" without a line of instructions. */
+.code-display .digit.at {
+  border-color: var(--amber);
+  animation: caret 1s steps(2, end) infinite;
+}
+
+@keyframes caret {
+  0%, 50% { background: rgba(213, 154, 60, 0.16); }
+  50.01%, 100% { background: rgba(0, 0, 0, 0.55); }
+}
+
+.code-pad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.code-pad span {
+  padding: 11px 0;
+  text-align: center;
+  font-family: var(--hud-font);
+  font-size: 15px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid var(--edge);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.code-pad span:hover { background: rgba(213, 154, 60, 0.2); }
+.code-pad .wide { grid-column: 1 / -1; }
+
+.note-line { min-height: 1em; }
+
+@media (prefers-reduced-motion: reduce) {
+  /* Named `cine-bar`, not `bar`: `.bar` is the HUD gauge track, and an
+   element-level `width: 172px` there beat the `left/right: 0` here — the
+   letterbox rendered as two small black rectangles in the corners. */
+#letterbox .cine-bar { transition: none; }
+  .code-display .digit.at { animation: none; }
 }
 
 /* --------------------------------------------------------------- screens */

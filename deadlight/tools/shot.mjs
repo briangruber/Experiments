@@ -1,7 +1,8 @@
 // Headless smoke test and screenshot harness.
 //
 //   node tools/shot.mjs --out shots/frame.png [--seed ABCDE] [--play 12]
-//                       [--pose creature|mannequin] [--webgpu] [--scare-shot]
+//                       [--pose creature|watcher|crawler|mannequin]
+//                       [--webgpu] [--scare-shot] [--intro] [--report]
 //
 // Boots the real game in headless Chromium on SwiftShader, drives it, and
 // exits non-zero on any WebGPU error, page exception, failed request or
@@ -153,6 +154,24 @@ async function main() {
     );
     console.log('· run started');
 
+    // Skip the opening shot unless we are capturing it: the drive loop below
+    // would otherwise spend its whole budget with the player frozen.
+    if (has('intro')) {
+      await page.waitForTimeout(1800);
+      await page.screenshot({ path: OUT.replace(/(\.png)$/, '-intro$1') });
+      console.log(`· wrote ${path.relative(ROOT, OUT.replace(/(\.png)$/, '-intro.png'))}`);
+    }
+    // Wait for the opening shot to *finish*, not merely to be absent. The
+    // cutscene only starts after `Game.start` resolves, so both "no game yet"
+    // and "game built, intro not started" answer "no cutscene playing" — and
+    // every capture landed in the middle of the intro.
+    await page.waitForFunction(() => window.deadlight?.game?.introPlayed === true,
+      { timeout: 30_000 })
+      .catch(async () => {
+        await page.keyboard.press('Space');
+        await page.waitForTimeout(800);
+      });
+
     // Drive it: walk forward, look around, and take a fuse if one is offered.
     const deadline = Date.now() + PLAY_SECONDS * 1000;
     await page.keyboard.down('KeyW');
@@ -162,6 +181,78 @@ async function main() {
       await page.waitForTimeout(320);
     }
     await page.keyboard.up('KeyW');
+
+    // Drive the puzzles directly. The random walk above will not find a tag
+    // in eight seconds, and "the puzzles work" is exactly the thing a smoke
+    // test has to answer now.
+    if (has('solve')) {
+      const solved = await page.evaluate(async () => {
+        const g = window.deadlight.game;
+        const out = { tags: 0, breakers: 0, powered: false, escaped: false };
+
+        // Read every ward tag, closing each panel as it opens.
+        for (const item of g.code.interactables) {
+          const opened = item.use();
+          await new Promise((r) => setTimeout(r, 60));
+          g.ui.close();
+          await opened?.catch(() => {});
+        }
+        out.tags = g.code.foundCount;
+
+        // Throw the breakers in the order the diagram gives.
+        for (const label of g.breakers.order) g.breakers.throw(label);
+        out.breakers = g.breakers.progress;
+        await new Promise((r) => setTimeout(r, 5200));
+        out.powered = g.powered;
+
+        // And the lift, with the code the tags spelled out.
+        if (g.powered) {
+          const entry = g.code.enter();
+          await new Promise((r) => setTimeout(r, 80));
+          for (const digit of g.code.code) {
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: digit, code: `Digit${digit}` }));
+          }
+          await entry;
+          await new Promise((r) => setTimeout(r, 4200));
+          out.escaped = g.escaped;
+        }
+        return out;
+      });
+      console.log(`· puzzles: ${solved.tags} tags read, ${solved.breakers} breakers,` +
+        ` power ${solved.powered ? 'on' : 'off'}, escaped ${solved.escaped}`);
+      if (!solved.powered) problems.push('breaker sequence did not restore power');
+      if (!solved.escaped) problems.push('lift code did not open the lift');
+    }
+
+    // The watcher is the game's new headline mechanic and it is entirely
+    // invisible to a smoke test that only walks around: a watcher nobody
+    // shines a torch at is indistinguishable from a broken one.
+    if (has('watcher')) {
+      const woke = await page.evaluate(async () => {
+        const g = window.deadlight.game;
+        const watcher = g.monsters.find((m) => m.behaviour === 'watcher');
+        if (!watcher) return { found: false };
+
+        const p = g.player;
+        const ahead = p.forward().multiplyScalar(4).add(p.position);
+        g.level.collide(ahead, 0.5);
+        watcher.spawn(ahead);
+
+        p.torchOn = false;
+        await new Promise((r) => setTimeout(r, 700));
+        const darkState = watcher.state;
+
+        p.torchOn = true;
+        await new Promise((r) => setTimeout(r, 1600));
+        return { found: true, darkState, litState: watcher.state, hunting: watcher.hunting };
+      });
+      if (!woke.found) problems.push('no watcher in the level');
+      else {
+        console.log(`· watcher: dark → ${woke.darkState}, lit → ${woke.litState}`);
+        if (woke.darkState !== 'still') problems.push(`watcher moved in the dark (${woke.darkState})`);
+        if (!woke.hunting && woke.litState === 'still') problems.push('watcher ignored the torch');
+      }
+    }
 
     // Level the view. The drive loop above leaves the camera wherever the
     // last mouse jitter put it, and a capture of the ceiling is not evidence
@@ -179,17 +270,30 @@ async function main() {
         const ahead = p.forward().multiplyScalar(3.4).add(p.position);
         g.level.collide(ahead, 0.5);
         p.frozen = true;
-        if (which === 'creature') {
-          g.creature.spawn(ahead);
-          g.creature.root.position.copy(ahead);
-          g.creature.root.rotation.y = Math.atan2(p.position.x - ahead.x, p.position.z - ahead.z);
-        } else {
+        const face = Math.atan2(p.position.x - ahead.x, p.position.z - ahead.z);
+        if (which === 'mannequin') {
           const m = g.mannequins.items[0];
           if (m) {
             m.object.position.copy(ahead);
-            m.object.rotation.y = Math.atan2(p.position.x - ahead.x, p.position.z - ahead.z);
+            m.object.rotation.y = face;
           }
+          return;
         }
+        const monster = g.monsters.find((m) => m.key === which) ?? g.monsters[0];
+        if (!monster) return;
+        monster.spawn(ahead);
+        monster.root.position.copy(ahead);
+        monster.root.rotation.y = face;
+        // A portrait wants the monster standing, not mid-lunge: `--watcher`
+        // may have just woken this one, and `spawn` leaves a hunter walking.
+        monster.state = 'still';
+        monster.velocity.set(0, 0, 0);
+        // Point the player at it, torch on. A portrait of a dark wall with
+        // something in it is not evidence that the something loaded.
+        p.yaw = Math.atan2(-(ahead.x - p.position.x), -(ahead.z - p.position.z));
+        p.pitch = -0.02;
+        p.torchOn = true;
+        p.battery = 1;
       }, pose);
       await page.waitForTimeout(900);
     }
@@ -253,13 +357,21 @@ async function main() {
     if (lost) problems.push(`graphics device lost: ${lost}`);
 
     const state = await page.evaluate(() => {
-      const bpm = document.getElementById('bpm-value').textContent;
-      const fps = document.getElementById('fps').textContent;
-      const scares = document.getElementById('scare-count').textContent;
-      const fuses = document.getElementById('fuse-have').textContent;
-      return { bpm, fps, scares, fuses };
+      const text = (id) => document.getElementById(id)?.textContent ?? '?';
+      const g = window.deadlight?.game;
+      return {
+        bpm: text('bpm-value'),
+        fps: text('fps'),
+        scares: text('scare-count'),
+        tags: text('tag-have'),
+        breakers: text('power-have'),
+        monsters: g ? g.monsters.filter((m) => m.active).length : 0,
+        awake: g ? g.monsters.filter((m) => m.hunting).length : 0,
+      };
     });
-    console.log(`· ${state.fps} · ${state.bpm} bpm · ${state.scares} scares · ${state.fuses} fuses`);
+    console.log(`· ${state.fps} · ${state.bpm} bpm · ${state.scares} scares` +
+      ` · ${state.tags} tags · ${state.breakers} breakers` +
+      ` · ${state.monsters} monsters (${state.awake} hunting)`);
   } finally {
     await browser.close();
     server.kill();

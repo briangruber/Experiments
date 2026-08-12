@@ -229,6 +229,82 @@
       },
       "taskId": "5b8990db-a29b-4bf5-bfa1-97935ef83ffe"
     },
+    "keypad": {
+      "file": "keypad.glb",
+      "role": "prop",
+      "height": 0.34,
+      "tag": "fixture",
+      "bounds": {
+        "min": [
+          -0.1407,
+          -0.5,
+          -0.3816
+        ],
+        "max": [
+          0.1407,
+          0.5,
+          0.3816
+        ]
+      },
+      "taskId": "115e8cf9-875e-4b8d-9dca-17ba4ee30483"
+    },
+    "breaker": {
+      "file": "breaker.glb",
+      "role": "prop",
+      "height": 0.75,
+      "tag": "fixture",
+      "bounds": {
+        "min": [
+          -0.2354,
+          -0.4826,
+          -0.5
+        ],
+        "max": [
+          0.2354,
+          0.4826,
+          0.5
+        ]
+      },
+      "taskId": "65d4b791-8ff9-4afb-bb87-0fca39373ba3"
+    },
+    "clipboard": {
+      "file": "clipboard.glb",
+      "role": "prop",
+      "height": 0.4,
+      "tag": "fixture",
+      "bounds": {
+        "min": [
+          -0.3062,
+          -0.5,
+          -0.4051
+        ],
+        "max": [
+          0.3062,
+          0.5,
+          0.4051
+        ]
+      },
+      "taskId": "2f1d717b-97c2-4075-9ee5-5cd046cf3c1c"
+    },
+    "drawer": {
+      "file": "drawer.glb",
+      "role": "prop",
+      "height": 0.9,
+      "tag": "fixture",
+      "bounds": {
+        "min": [
+          -0.5,
+          -0.393,
+          -0.4413
+        ],
+        "max": [
+          0.5,
+          0.393,
+          0.4413
+        ]
+      },
+      "taskId": "e1ae1baa-247a-4e61-b8ef-fd489571d493"
+    },
     "mannequin_a": {
       "file": "mannequin_a.glb",
       "role": "mannequin",
@@ -288,7 +364,8 @@
     },
     "creature": {
       "file": "creature.glb",
-      "role": "creature",
+      "role": "monster",
+      "behaviour": "hunter",
       "height": 2.15,
       "clips": [
         "idle",
@@ -301,28 +378,106 @@
           "yaw": null
         },
         "walk": {
-          "speed": 0.6499,
-          "yaw": 4.6208
+          "speed": 0.7695,
+          "yaw": 4.7124
         },
         "lunge": {
           "speed": 0,
           "yaw": null
         }
       },
-      "forwardYaw": 4.6208,
+      "forwardYaw": 4.7124,
       "bounds": {
         "min": [
-          -0.078,
+          -0.1341,
           0,
-          -0.1639
+          -0.4036
         ],
         "max": [
-          0.078,
+          0.1341,
           1,
-          0.1639
+          0.4036
         ]
       },
-      "taskId": "2db263ed-bf1c-4b0c-8015-caa4bb61ff16"
+      "taskId": "ac03ab65-52bb-4e0a-83b0-0eb562945766"
+    },
+    "watcher": {
+      "file": "watcher.glb",
+      "role": "monster",
+      "behaviour": "watcher",
+      "height": 1.95,
+      "clips": [
+        "idle",
+        "walk",
+        "lunge"
+      ],
+      "motion": {
+        "idle": {
+          "speed": 0,
+          "yaw": null
+        },
+        "walk": {
+          "speed": 0.6577,
+          "yaw": 1.5708
+        },
+        "lunge": {
+          "speed": 0,
+          "yaw": null
+        }
+      },
+      "forwardYaw": 1.5708,
+      "bounds": {
+        "min": [
+          -0.0913,
+          0,
+          -0.3283
+        ],
+        "max": [
+          0.0913,
+          1,
+          0.3283
+        ]
+      },
+      "taskId": "faeac292-b544-430b-ad50-27e6d32bd52b"
+    },
+    "crawler": {
+      "file": "crawler.glb",
+      "role": "monster",
+      "behaviour": "crawler",
+      "height": 1.7,
+      "clips": [
+        "idle",
+        "walk",
+        "lunge"
+      ],
+      "motion": {
+        "idle": {
+          "speed": 0,
+          "yaw": null
+        },
+        "walk": {
+          "speed": 0.7333,
+          "yaw": 1.5708
+        },
+        "lunge": {
+          "speed": 0,
+          "yaw": null
+        }
+      },
+      "forwardYaw": 1.5708,
+      "bounds": {
+        "min": [
+          -0.1405,
+          0,
+          -0.43
+        ],
+        "max": [
+          0.1405,
+          1,
+          0.43
+        ]
+      },
+      "taskId": "19a19028-3bf0-4fc5-93f1-cb587518df7f"
     }
   }
 }

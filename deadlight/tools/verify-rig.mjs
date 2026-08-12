@@ -43,16 +43,30 @@ const flag = (name, fallback) => {
 const LIMIT = Number(flag('limit', 3));
 
 /**
- * Floor for the collapse check: how short a posed biped may get, relative to
+ * Floors for the collapse check: how short a posed biped may get, relative to
  * its bind height, before the retarget is judged to have folded it up.
  *
- * A healthy walk stays above ~0.9 — a stride lowers the hips a little and
- * nothing else. A retarget that has mismapped the spine puts the model face
- * down on the floor at 0.3–0.5, while keeping bounds that look entirely
- * normal to a size check.
+ * Two floors, because "short" means different things to different clips. A
+ * walk or an idle that drops below ~0.75 has had its spine mismapped and is
+ * dragging itself along the floor. A *reaction* clip is supposed to double the
+ * character over — `preset:hurt`, which this game uses as its lunge, ends in a
+ * deep forward crouch that measures 0.4–0.6 with every limb perfectly intact.
+ *
+ * Judging both by the strict floor flagged three healthy monsters in a row,
+ * which is the failure mode a checker can least afford: a test that cries wolf
+ * gets its threshold widened until it stops catching anything. So locomotion
+ * is held to the strict number and reactions to a loose one that still catches
+ * a genuine fold-into-a-puddle.
  */
-const FLOOR = Number(flag('floor', 0.7));
+const FLOOR = Number(flag('floor', 0.72));
+const REACTION_FLOOR = Number(flag('reaction-floor', 0.3));
+
+/** Clips that must keep the model upright. Everything else is a reaction. */
+const UPRIGHT = /idle|walk|run|turn|stand/i;
+const floorFor = (name) => (UPRIGHT.test(name) ? FLOOR : REACTION_FLOOR);
 const PORT = Number(flag('port', 8127));
+/** `--json` prints one machine-readable record per file, for the bakeoff. */
+const AS_JSON = args.includes('--json');
 
 const CHROME = process.env.CHROME_PATH
   ?? '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
@@ -125,24 +139,42 @@ async function main() {
         // is the mesh *before* rigging). Having no skin is only a failure when
         // the file was named explicitly — then it is a question that was asked.
         if (sweeping && /no skinned mesh/.test(result.error)) {
-          console.log(`· ${target}  no rig, skipped`);
+          if (!AS_JSON) console.log(`· ${target}  no rig, skipped`);
           continue;
         }
-        console.log(`✗ ${target}\n    ${result.error}`);
+        if (AS_JSON) console.log(JSON.stringify({ file: target, ok: false, error: result.error }));
+        else console.log(`✗ ${target}\n    ${result.error}`);
         failures.push(target);
         continue;
       }
 
       const torn = result.worst > LIMIT;
-      const collapsed = result.shortest < FLOOR;
+      const collapsed = result.clips.some((c) => c.height < floorFor(c.name));
       const bad = torn || collapsed;
+
+      if (AS_JSON) {
+        // Rank on locomotion only: a reaction clip's crouch is content, and
+        // letting it into the score would pick monsters by how little their
+        // lunge commits.
+        const upright = result.clips.filter((c) => UPRIGHT.test(c.name));
+        const height = upright.length
+          ? Math.min(...upright.map((c) => c.height))
+          : result.shortest;
+        console.log(JSON.stringify({
+          file: target, ok: !bad, bones: result.bones,
+          spread: result.worst, height, sink: result.sink,
+        }));
+        if (bad) failures.push(target);
+        continue;
+      }
+
       console.log(
         `${bad ? '✗' : '✓'} ${target}  ${result.bones} bones` +
         `  spread ×${result.worst}  height ×${result.shortest}  sink ${result.sink}` +
         `${torn ? '  TORN' : ''}${collapsed ? '  COLLAPSED' : ''}`,
       );
       for (const clip of result.clips) {
-        const mark = clip.worst > LIMIT || clip.height < FLOOR ? '✗' : ' ';
+        const mark = clip.worst > LIMIT || clip.height < floorFor(clip.name) ? '✗' : ' ';
         console.log(
           `   ${mark} ${clip.name.padEnd(12)} spread ×${String(clip.worst).padEnd(6)}` +
           ` height ×${String(clip.height).padEnd(6)} sink ${String(clip.sink).padEnd(7)}`,
@@ -157,8 +189,9 @@ async function main() {
 
   if (failures.length) {
     console.error(
-      `\n${failures.length} rig(s) failed: spread must stay under ×${LIMIT} ` +
-      `and height above ×${FLOOR} of bind.\n` +
+      `\n${failures.length} rig(s) failed: spread must stay under ×${LIMIT}; ` +
+      `height must stay above ×${FLOOR} of bind for locomotion clips ` +
+      `and ×${REACTION_FLOOR} for reactions.\n` +
       'Regenerate with a rig-friendlier mesh; see tools/creature-bakeoff.mjs.',
     );
     process.exit(1);

@@ -45,6 +45,10 @@ export class Player {
 
     /** Set by the game while a scare has control of the camera. */
     this.frozen = false;
+    /** Set while a cutscene owns the camera outright — see src/cutscene.js.
+     *  `frozen` only stops input; this stops the camera being written at all,
+     *  which is what lets a scripted shot fly somewhere the player is not. */
+    this.cinematic = false;
 
     this.keys = new Set();
     this._bobPhase = 0;
@@ -69,6 +73,7 @@ export class Player {
     this.torchOn = true;
     this.crouching = false;
     this.alive = true;
+    this.cinematic = false;
     this._shake = 0;
   }
 
@@ -245,6 +250,14 @@ export class Player {
   }
 
   #applyCamera(dt, moving) {
+    // A cutscene is driving. Keep the bob and shake state ticking so the
+    // handover back is not a jolt, but do not touch the transform.
+    if (this.cinematic) {
+      this._shake = Math.max(0, this._shake - dt * 1.7);
+      this._bobAmount *= Math.max(0, 1 - 4 * dt);
+      return;
+    }
+
     // Head bob, and the footstep it implies. Driving steps off the bob phase
     // rather than a timer keeps the sound locked to the visible stride at any
     // speed, including while accelerating.

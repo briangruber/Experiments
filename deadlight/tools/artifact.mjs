@@ -26,7 +26,7 @@ import { fileURLToPath } from 'node:url';
 import esbuild from 'esbuild';
 import { NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import { dedup, prune, textureCompress } from '@gltf-transform/functions';
+import { dedup, prune, quantize, textureCompress } from '@gltf-transform/functions';
 import sharp from 'sharp';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -134,6 +134,12 @@ async function embedAsset(file, size) {
   await doc.transform(
     dedup(),
     textureCompress({ encoder: sharp, targetFormat: 'webp', resize: [size, size], quality: 78 }),
+    // Quantization halves the geometry, which is what dominates this build
+    // once the textures are down — and unlike meshopt or Draco it needs no
+    // decoder in the page, because three reads KHR_mesh_quantization natively.
+    // Positions stay at 14 bits: the monsters are skinned, and coarser
+    // quantization shows up as a mesh that shimmers as it animates.
+    quantize({ quantizePosition: 14, quantizeNormal: 10, quantizeTexcoord: 12 }),
     prune({ keepAttributes: false, keepLeaves: false }),
   );
 

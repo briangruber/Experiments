@@ -12,7 +12,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { ALL_MESHES, CREATURE } from './assets.manifest.mjs';
+import { ALL_MESHES, MONSTERS } from './assets.manifest.mjs';
 import { download, modelUrls, pollTask, retarget, rig, textToModel } from './tripo.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -115,7 +115,7 @@ async function meshJob(entry) {
 }
 
 /**
- * The creature: generate → auto-rig → one retarget per animation.
+ * A monster: generate → auto-rig → one retarget per animation.
  *
  * Each retarget is exported with geometry, so every clip arrives as a
  * self-contained skinned GLB. That is more bytes over the wire than asking
@@ -123,8 +123,13 @@ async function meshJob(entry) {
  * lets `optimize.mjs` merge the clips onto one mesh by node name — and it
  * degrades well: one failed animation costs one animation, not the creature.
  */
-async function creatureJob() {
-  const { key, prompt, animations, rigModel, faceLimit } = CREATURE;
+async function monsterJob(monster) {
+  const { key, animations, rigModel, faceLimit } = monster;
+  // Candidate 0 is the fallback prompt; in practice the mesh and rig tasks are
+  // already pinned here by tools/monster-bakeoff.mjs, which picks between
+  // candidates by posing them. Generating straight from a prompt is a coin
+  // flip on the rigger — see the manifest.
+  const prompt = monster.prompt ?? monster.candidates[0];
 
   await step(key, () => textToModel(prompt, { faceLimit: faceLimit ?? 20000 }));
   await fetchTo(key, `${key}.glb`);
@@ -148,7 +153,7 @@ async function creatureJob() {
       console.warn(`  ! ${name} (${preset}) failed: ${err.message}`);
     }
   }
-  record(key, { scale: CREATURE.scale, clips, prompt });
+  record(key, { scale: monster.scale, behaviour: monster.behaviour, clips, prompt });
   log(key, `clips: ${clips.join(', ') || 'none'}`);
 }
 
@@ -196,13 +201,16 @@ async function main() {
       name: m.key,
       run: () => meshJob(m),
     })),
-    ...(wanted(CREATURE.key) ? [{ name: CREATURE.key, run: creatureJob }] : []),
+    ...MONSTERS.filter((m) => wanted(m.key)).map((m) => ({
+      name: m.key,
+      run: () => monsterJob(m),
+    })),
   ];
 
   console.log(`generating ${jobs.length} asset(s), ${JOBS} at a time\n`);
   const started = Date.now();
-  // The creature is a three-stage chain and by far the longest job, so it goes
-  // first and runs alongside the props rather than after them.
+  // Monsters are three-stage chains and by far the longest jobs, so they go
+  // first and run alongside the props rather than after them.
   jobs.reverse();
   const failures = await pool(jobs, JOBS);
   await flushState();

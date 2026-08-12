@@ -22,8 +22,17 @@ export class Hud {
       staminaBar: $('gauge-stamina').querySelector('i'),
       heart: $('hud-heart'),
       bpm: $('bpm-value'),
-      fuseHave: $('fuse-have'),
-      fuseNeed: $('fuse-need'),
+      tagHave: $('tag-have'),
+      tagNeed: $('tag-need'),
+      powerHave: $('power-have'),
+      powerNeed: $('power-need'),
+      letterbox: $('letterbox'),
+      cineTitle: $('cine-title'),
+      cineSub: $('cine-sub'),
+      panel: $('panel'),
+      panelTitle: $('panel-title'),
+      panelBody: $('panel-body'),
+      panelFooter: $('panel-footer'),
       scares: $('scare-count'),
       objective: $('objective'),
       lookhint: $('lookhint'),
@@ -52,6 +61,7 @@ export class Hud {
 
   hide() {
     this.el.hud.hidden = true;
+    this.setTitle(null);
     this.el.flash.style.opacity = '0';
     this.el.blood.style.opacity = '0';
   }
@@ -65,9 +75,58 @@ export class Hud {
     this.el.seed.textContent = seed;
   }
 
-  setFuses(have, need) {
-    this.el.fuseHave.textContent = String(have);
-    this.el.fuseNeed.textContent = `/${need}`;
+  setTags(have, need) {
+    this.el.tagHave.textContent = String(have);
+    this.el.tagNeed.textContent = `/${need}`;
+  }
+
+  setBreakers(have, need) {
+    this.el.powerHave.textContent = String(have);
+    this.el.powerNeed.textContent = `/${need}`;
+  }
+
+  // ------------------------------------------------------------ cutscenes
+
+  setLetterbox(on, skippable = true) {
+    const el = this.el.letterbox;
+    el.classList.toggle('no-skip', !skippable);
+    // The HUD is the player's instrument panel; during a scripted shot they
+    // are not flying. It also stops the gauges colliding with the title.
+    this.el.hud.classList.toggle('cine', on);
+    if (on) {
+      el.hidden = false;
+      // One frame between unhiding and adding the class, or the bars have no
+      // start state to transition from and simply appear.
+      requestAnimationFrame(() => el.classList.add('show'));
+    } else {
+      el.classList.remove('show');
+      setTimeout(() => { el.hidden = true; }, 560);
+    }
+  }
+
+  /** Cutscene caption. Passing null clears both lines. */
+  setTitle(title, subtitle = null) {
+    this.el.cineTitle.textContent = title ?? '';
+    this.el.cineSub.textContent = subtitle ?? '';
+    this.el.cineTitle.classList.toggle('show', Boolean(title));
+    this.el.cineSub.classList.toggle('show', Boolean(subtitle));
+  }
+
+  // --------------------------------------------------------- read panel
+
+  showPanel({ title, body, footer }) {
+    this.el.panelTitle.textContent = title ?? '';
+    this.el.panelBody.innerHTML = body ?? '';
+    this.el.panelFooter.textContent = footer ?? '';
+    this.el.panel.hidden = false;
+  }
+
+  updatePanel(body) {
+    this.el.panelBody.innerHTML = body;
+  }
+
+  hidePanel() {
+    this.el.panel.hidden = true;
   }
 
   setScares(n) {
@@ -159,10 +218,10 @@ export class Hud {
     const cells = [
       ['Seed', result.seed],
       ['Time', formatTime(result.seconds)],
-      ['Fuses', `${result.fuses}/${result.fusesNeeded}`],
+      ['Tags', `${result.tags}/${result.tagsNeeded}`],
+      ['Power', result.power ? 'ON' : 'OFF'],
       ['Scares', result.scares],
       ['Peak BPM', Math.round(result.peakBpm)],
-      ['Closest', `${result.closest.toFixed(1)}m`],
     ];
     el.grid.innerHTML = cells
       .map(([k, v]) => `<div class="cell"><div class="k">${k}</div><div class="v">${v}</div></div>`)

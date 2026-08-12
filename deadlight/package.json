@@ -10,7 +10,9 @@
     "assets": "node tools/generate.mjs && node tools/optimize.mjs && node tools/verify-rig.mjs assets/creature.glb",
     "serve": "node tools/serve.mjs",
     "shot": "node tools/shot.mjs",
-    "verify": "node tools/verify-rig.mjs --all"
+    "verify": "node tools/verify-rig.mjs --all",
+    "bakeoff": "node tools/monster-bakeoff.mjs",
+    "artifact": "node tools/artifact.mjs"
   },
   "devDependencies": {
     "@gltf-transform/core": "^4.4.2",

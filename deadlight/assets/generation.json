@@ -136,59 +136,150 @@
       "prompt": "a wall-mounted industrial fuse box, corroded steel door hanging open, ceramic fuses and frayed wiring inside, grimy horror survival game asset, desaturated, water damaged, photoreal PBR, single object, no ground plane, no base, no pedestal"
     },
     "creature": {
-      "taskId": "2db263ed-bf1c-4b0c-8015-caa4bb61ff16",
+      "taskId": "ac03ab65-52bb-4e0a-83b0-0eb562945766",
       "done": true,
-      "note": "adopted from tools/creature-bakeoff.mjs candidate 'solid' (verified by tools/verify-rig.mjs)",
+      "note": "bakeoff candidate creature1, verified by tools/verify-rig.mjs",
       "file": "creature.glb",
       "scale": 2.15,
       "clips": [
         "idle",
         "walk",
         "lunge"
-      ],
-      "prompt": "a tall gaunt humanoid horror creature standing upright in an A-pose, arms hanging down and slightly away from the body, solid connected limbs of even thickness, smooth featureless head, no separated fingers, closed simple hands, ashen grey skin, full body character model, symmetrical, clean topology, game character, T-pose reference, no base, no pedestal"
+      ]
     },
     "creature:rig": {
-      "taskId": "ddec83fd-19dd-447d-adc8-97ae9e3b47a3",
+      "taskId": "377378c4-20d1-4bda-bdc4-a487415ec579",
       "done": true,
       "file": "creature_rigged.glb"
     },
+    "breaker": {
+      "taskId": "65d4b791-8ff9-4afb-bb87-0fca39373ba3",
+      "done": true,
+      "credits": 20,
+      "file": "breaker.glb",
+      "scale": 0.75,
+      "tag": "fixture",
+      "prompt": "an open industrial electrical breaker panel, three large black throw switches in a row, exposed wiring, scorched contacts, grimy horror survival game asset, desaturated, water damaged, photoreal PBR, single object, no ground plane, no base, no pedestal"
+    },
+    "drawer": {
+      "taskId": "e1ae1baa-247a-4e61-b8ef-fd489571d493",
+      "done": true,
+      "credits": 20,
+      "file": "drawer.glb",
+      "scale": 0.9,
+      "tag": "fixture",
+      "prompt": "a stainless steel morgue drawer front, heavy latch handle, card label holder, dented and streaked with rust, grimy horror survival game asset, desaturated, water damaged, photoreal PBR, single object, no ground plane, no base, no pedestal"
+    },
+    "keypad": {
+      "taskId": "115e8cf9-875e-4b8d-9dca-17ba4ee30483",
+      "done": true,
+      "credits": 20,
+      "file": "keypad.glb",
+      "scale": 0.34,
+      "tag": "fixture",
+      "prompt": "a grimy wall-mounted industrial keypad access panel, worn rubber number buttons, small dark LCD strip, metal housing, grimy horror survival game asset, desaturated, water damaged, photoreal PBR, single object, no ground plane, no base, no pedestal"
+    },
+    "clipboard": {
+      "taskId": "2f1d717b-97c2-4075-9ee5-5cd046cf3c1c",
+      "done": true,
+      "credits": 20,
+      "file": "clipboard.glb",
+      "scale": 0.4,
+      "tag": "fixture",
+      "prompt": "a battered clipboard holding a stained handwritten paper form, bent metal clip, curled damp paper, grimy horror survival game asset, desaturated, water damaged, photoreal PBR, single object, no ground plane, no base, no pedestal"
+    },
+    "watcher": {
+      "taskId": "faeac292-b544-430b-ad50-27e6d32bd52b",
+      "done": true,
+      "note": "bakeoff candidate watcher1, verified by tools/verify-rig.mjs",
+      "file": "watcher.glb",
+      "scale": 1.95,
+      "behaviour": "watcher",
+      "clips": [
+        "idle",
+        "walk",
+        "lunge"
+      ],
+      "prompt": "a tall thin figure in a filthy blood-soaked nurse uniform and apron, head entirely wrapped in stained bandages with no face, dried blood down the front, grey skin on the forearms, standing upright in an A-pose, arms hanging down and slightly away from the body, solid connected limbs of even thickness, mitten hands with no separated fingers, human proportions, single connected body mesh, clean topology, full body game character, photoreal PBR, no base, no pedestal"
+    },
+    "watcher:rig": {
+      "taskId": "7fa032ab-10f1-41c3-9ebf-eff540b5d47d",
+      "done": true,
+      "file": "watcher_rigged.glb"
+    },
+    "crawler": {
+      "taskId": "19a19028-3bf0-4fc5-93f1-cb587518df7f",
+      "done": true,
+      "note": "bakeoff candidate crawler1, verified by tools/verify-rig.mjs",
+      "file": "crawler.glb",
+      "scale": 1.7,
+      "behaviour": "crawler",
+      "clips": [
+        "idle",
+        "walk",
+        "lunge"
+      ],
+      "prompt": "a hunched emaciated humanoid with a heavily curved spine and long thick arms, small eyeless head sunken between high shoulders, bloated grey torso, wet mottled skin, standing upright in an A-pose, arms hanging down and slightly away from the body, solid connected limbs of even thickness, mitten hands with no separated fingers, human proportions, single connected body mesh, clean topology, full body game character, photoreal PBR, no base, no pedestal"
+    },
+    "crawler:rig": {
+      "taskId": "42b6aac2-5b7b-4041-b273-c23b4cd45daf",
+      "done": true,
+      "file": "crawler_rigged.glb"
+    },
     "creature:anim:idle": {
-      "taskId": "a0c0cec6-443b-4ec1-aad3-eccebd50c5d4",
+      "taskId": "76ef2fcc-04eb-4bab-b911-1dd922a32561",
       "done": true,
       "credits": 10,
       "file": "creature_idle.glb"
     },
     "creature:anim:walk": {
-      "taskId": "81e94c9e-9bf3-48f5-9fab-7142738e407d",
+      "taskId": "6b5f61ca-2257-4a23-b7bb-9ac045c2dd25",
       "done": true,
       "credits": 10,
       "file": "creature_walk.glb"
     },
-    "creature:anim:run": {
-      "taskId": "65841c02-b01a-4989-b6b8-fba9f2a9aa82",
-      "done": true,
-      "credits": 10,
-      "file": "creature_run.glb"
-    },
-    "creature:anim:attack": {
-      "taskId": "8191e523-8723-43ae-b1af-622538c26603",
-      "done": true,
-      "credits": 10,
-      "file": "creature_attack.glb"
-    },
-    "creature:anim:scream": {
-      "taskId": "44312e8f-8901-4fe5-a055-ab40a8752469",
-      "done": true,
-      "credits": 10,
-      "file": "creature_scream.glb"
-    },
     "creature:anim:lunge": {
-      "taskId": "963b7446-57c5-4505-87e7-f48cbf8c1714",
+      "taskId": "15340438-0ef6-4b7a-a594-035390990d2e",
       "done": true,
       "credits": 10,
       "file": "creature_lunge.glb"
+    },
+    "watcher:anim:idle": {
+      "taskId": "5f9bdc68-e43c-42d8-94ec-23e9709a865b",
+      "done": true,
+      "credits": 10,
+      "file": "watcher_idle.glb"
+    },
+    "crawler:anim:idle": {
+      "taskId": "785a3fe6-843e-4162-9542-87e512f2586d",
+      "done": true,
+      "credits": 10,
+      "file": "crawler_idle.glb"
+    },
+    "watcher:anim:walk": {
+      "taskId": "72ba2ec1-b08d-4e26-bd98-21238a9c7fd4",
+      "done": true,
+      "credits": 10,
+      "file": "watcher_walk.glb"
+    },
+    "crawler:anim:walk": {
+      "taskId": "8ee5aeed-9616-4f89-8f7b-75d425783d8c",
+      "done": true,
+      "credits": 10,
+      "file": "crawler_walk.glb"
+    },
+    "watcher:anim:lunge": {
+      "taskId": "760ca363-48e4-4c51-9fe1-032fcf616574",
+      "done": true,
+      "credits": 10,
+      "file": "watcher_lunge.glb"
+    },
+    "crawler:anim:lunge": {
+      "taskId": "b9d0ae98-3869-4824-a507-7b76f623405f",
+      "done": true,
+      "credits": 10,
+      "file": "crawler_lunge.glb"
     }
   },
-  "updated": "2026-08-12T03:07:03.015Z"
+  "updated": "2026-08-12T17:49:17.671Z"
 }

@@ -194,6 +194,11 @@ async function startRun(seed) {
   lastTime = performance.now();
   cancelAnimationFrame(raf);
   raf = requestAnimationFrame(frame);
+
+  // The opening shot runs on the live frame loop, so it needs the loop going
+  // first — otherwise its first frame is also the frame that compiles every
+  // shader in the level, and the camera move starts with a two-second stutter.
+  game.playIntro();
 }
 
 function frame(now) {
@@ -241,7 +246,7 @@ el.reportCopy.addEventListener('click', () => {
     [
       `DEADLIGHT · seed ${r.seed}`,
       r.won ? `escaped in ${mins}:${secs}` : `died after ${mins}:${secs}`,
-      `${r.fuses}/${r.fusesNeeded} fuses · ${r.scares} scares · ${Math.round(r.peakBpm)} peak BPM`,
+      `${r.tags}/${r.tagsNeeded} tags · power ${r.power ? 'on' : 'off'} · ${r.scares} scares · ${Math.round(r.peakBpm)} peak BPM`,
       r.topScare ? `worst moment: ${r.topScare}` : '',
       shareLink(r.seed),
     ].filter(Boolean).join('\n'),
@@ -275,6 +280,11 @@ el.canvas.addEventListener('click', () => {
 });
 
 window.addEventListener('keydown', (e) => {
+  if (e.code === 'Space' && game?.cutscene?.active) {
+    e.preventDefault();
+    game.cutscene.skip();
+    return;
+  }
   if (e.code === 'KeyE') game?.interact();
   if (e.code === 'KeyM') audio.setMuted(!audio.muted);
 
