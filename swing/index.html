@@ -1,0 +1,78 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#10131f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Skyline — Web Swinging</title>
+<link rel="stylesheet" href="./src/ui.css">
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/three.webgpu.min.js",
+    "three/webgpu": "./vendor/three/three.webgpu.min.js",
+    "three/tsl": "./vendor/three/three.tsl.min.js",
+    "three/addons/": "./vendor/three/addons/"
+  }
+}
+</script>
+
+<canvas id="gl" oncontextmenu="return false"></canvas>
+
+<div id="hud" hidden>
+  <div id="reticle"><svg viewBox="0 0 40 40" aria-hidden="true">
+    <circle class="ring" cx="20" cy="20" r="9"/>
+    <path class="tick" d="M20 3v6M20 31v6M3 20h6M31 20h6"/>
+  </svg></div>
+
+  <div id="stat-speed"><b>0</b><span>km/h</span></div>
+
+  <div id="stat-score">
+    <div class="score-row"><b id="score-value">0</b><span>pts</span></div>
+    <div id="combo" hidden><em id="combo-x">x2</em><i id="combo-bar"><u></u></i></div>
+  </div>
+
+  <div id="feed"></div>
+
+  <div id="tape">
+    <div id="tape-alt">0<span>m</span></div>
+    <div id="tape-fps">—</div>
+  </div>
+
+  <div id="touch" class="pointer-coarse">
+    <button id="btn-web-l" class="pad" type="button">WEB<span>L</span></button>
+    <button id="btn-web-r" class="pad" type="button">WEB<span>R</span></button>
+    <button id="btn-boost" class="pad small" type="button">BOOST</button>
+    <button id="btn-dive" class="pad small" type="button">DIVE</button>
+  </div>
+</div>
+
+<div id="title">
+  <div class="title-card">
+    <h1>SKYLINE</h1>
+    <p class="tag">swing the city · chase the rings</p>
+    <div class="keys pointer-fine">
+      <span><kbd>hold</kbd> left / right mouse — fire a web</span>
+      <span><kbd>move mouse</kbd> — aim &amp; steer</span>
+      <span><kbd>W</kbd> reel in &nbsp; <kbd>Shift</kbd> dive &nbsp; <kbd>Space</kbd> boost / jump</span>
+      <span><kbd>R</kbd> respawn &nbsp; <kbd>H</kbd> hide HUD &nbsp; <kbd>Esc</kbd> pause</span>
+    </div>
+    <div class="keys pointer-coarse">
+      <span>drag anywhere — aim &amp; steer</span>
+      <span>hold <kbd>WEB L / R</kbd> — swing</span>
+      <span><kbd>BOOST</kbd> to launch, <kbd>DIVE</kbd> to gain speed</span>
+    </div>
+    <button id="play" type="button" disabled>building the city…</button>
+    <p class="renderer" id="renderer-note"></p>
+  </div>
+</div>
+
+<div id="fail" hidden>
+  <div class="title-card">
+    <h1>no renderer</h1>
+    <p class="tag" id="fail-msg"></p>
+  </div>
+</div>
+
+<script type="module" src="./src/main.js"></script>

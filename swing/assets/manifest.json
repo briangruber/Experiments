@@ -1,0 +1,40 @@
+{
+  "generator": "tripo3d",
+  "assets": [
+    {
+      "name": "ac_unit",
+      "prompt": "industrial rooftop HVAC air conditioning unit, rectangular sheet metal box with a large circular fan grille on top, rusty panels, isolated object",
+      "task": "50e012f9-0dba-4cde-a04b-38b1e4d5ec6d",
+      "rigged": false,
+      "bytes": 1037384
+    },
+    {
+      "name": "antenna",
+      "prompt": "rooftop communications mast, steel lattice tower with satellite dishes and antennae, thin tall structure, isolated object",
+      "task": "422a9932-e68b-4d39-9f88-4f165951aff1",
+      "rigged": false,
+      "bytes": 848776
+    },
+    {
+      "name": "blimp",
+      "prompt": "sleek retro airship blimp, smooth silver envelope with tail fins and a small gondola, side view, isolated object",
+      "task": "4ea5f037-7076-4a61-ae9f-a8011909cd74",
+      "rigged": false,
+      "bytes": 766152
+    },
+    {
+      "name": "hero",
+      "prompt": "stylized comic-book superhero in a sleek crimson and charcoal suit with glowing cyan piping, full face mask, lean athletic build, standing straight with arms down at sides, game-ready character, clean smooth surfaces",
+      "task": "a778e3df-dcf4-4237-8490-d0d3fbd9a487",
+      "rigged": true,
+      "bytes": 1291780
+    },
+    {
+      "name": "water_tower",
+      "prompt": "old wooden rooftop water tower on a steel lattice frame, weathered planks, conical roof, city rooftop prop, isolated object",
+      "task": "14b124c6-3c90-477c-a62c-d2d16cec990f",
+      "rigged": false,
+      "bytes": 805500
+    }
+  ]
+}
