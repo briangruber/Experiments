@@ -51,11 +51,15 @@
     padding: 12px 13px 11px;
     font: 400 12px/1.5 var(--mono);
     color: var(--spume);
-    background: color-mix(in srgb, var(--abyss) 88%, transparent);
+    /* No backdrop-filter. It looked better and it cost the canvas: over a WebGPU
+       canvas, Chromium would not composite the render until the panel was
+       collapsed - the page came up blank and the sea only appeared once the
+       filtered element shrank. It also keeps the compositor busy forever, which
+       is why a screenshot of this page never reaches a stable frame. A solid
+       ground is legible on any sea state and does not touch the canvas. */
+    background: rgba(6, 13, 20, 0.93);
     border: 1px solid var(--rule);
     border-radius: 10px;
-    backdrop-filter: blur(10px) saturate(1.2);
-    -webkit-backdrop-filter: blur(10px) saturate(1.2);
   }
   #hud[data-collapsed="true"] > :not(#hud-head) { display: none; }
   #hud[data-collapsed="true"] { gap: 0; padding-bottom: 12px; }

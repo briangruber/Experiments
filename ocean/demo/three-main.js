@@ -186,6 +186,19 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 
 		resize();
 		camera.update( dt, params );
+
+		// THIS IS NOT OPTIONAL, and leaving it out is invisible until you look up.
+		//
+		// camera.update() advances the position and the fwd/right/up basis, but
+		// viewProj and invViewProj are only built by matrices(). Without this call
+		// they stay at the identity they were constructed with - and the SEA still
+		// draws correctly, because it is rasterised through the three camera built
+		// from pos and fwd below. Only the sky notices: its background pass takes a
+		// ray from invViewProj, and through an identity matrix every ray points
+		// somewhere near straight down, so the sky renders as though the camera were
+		// buried. The frame looks like a sea with no sky above it.
+		camera.matrices( canvas.width, canvas.height );
+
 		derive( params, derived );
 
 		// The rig, in the shape every driver takes.

@@ -21,6 +21,13 @@ const opt = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i
 const FILE = resolve(opt('file', 'dist/abyssal-three.html'));
 const BACKEND = opt('backend', 'webgl');
 const SETTLE = +(opt('settle', '3500'));
+// Small by default. Now that the sky renders, the cloud raymarch covers half the
+// frame, and on the software rasteriser in CI a 900x560 frame can take several
+// seconds - long enough that the capture below times out and the page looks dead
+// when it is merely slow.
+const VW = +(opt('width', '480'));
+const VH = +(opt('height', '300'));
+const CAP_MS = +(opt('capms', '60000'));
 
 const html = await readFile(FILE, 'utf8');
 
@@ -32,7 +39,8 @@ await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const port = server.address().port;
 
 const browser = await launchChromium();
-const page = await browser.newPage({ viewport: { width: 900, height: 560 } });
+const page = await browser.newPage({ viewport: { width: VW, height: VH } });
+page.setDefaultTimeout(CAP_MS + 20000);
 
 const consoleErrors = [];
 const pageErrors = [];
@@ -56,20 +64,24 @@ await page.waitForTimeout(SETTLE);
 // a live, correct page then looks like a dead one. This project has already lost
 // time to exactly that. app.onFrame fires at the end of the app's own frame,
 // before compositing, which is the one moment the pixels are readable.
-await page.evaluate(() => new Promise((resolve) => {
-  if (!window.abyssal) return resolve();
-  const prev = window.abyssal.onFrame;
-  window.abyssal.onFrame = () => {
-    const canvas = document.getElementById('view');
-    const c2 = document.createElement('canvas');
-    c2.width = canvas.width; c2.height = canvas.height;
-    c2.getContext('2d').drawImage(canvas, 0, 0);
-    window.__cap = c2.getContext('2d').getImageData(0, 0, c2.width, c2.height).data;
-    window.abyssal.onFrame = prev;
-    resolve();
-  };
-  setTimeout(resolve, 4000);
-}));
+await page.evaluate((ms) => { window.__capMs = ms; }, CAP_MS);
+await page.evaluate(function () {
+  return new Promise(function (resolve) {
+    if (!window.abyssal) return resolve();
+    var prev = window.abyssal.onFrame;
+    window.abyssal.onFrame = function () {
+      var canvas = document.getElementById('view');
+      var c2 = document.createElement('canvas');
+      c2.width = canvas.width; c2.height = canvas.height;
+      var g = c2.getContext('2d', { willReadFrequently: true });
+      g.drawImage(canvas, 0, 0);
+      window.__cap = g.getImageData(0, 0, c2.width, c2.height).data;
+      window.abyssal.onFrame = prev;
+      resolve();
+    };
+    setTimeout(resolve, window.__capMs);
+  });
+});
 
 const result = await page.evaluate(() => {
   const canvas = document.getElementById('view');
