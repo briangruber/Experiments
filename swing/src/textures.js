@@ -91,7 +91,7 @@ export function facadeTextures(seed = 7) {
       // Occasionally only half the pane is lit — reads as rooms, not a grid.
       const cut = rng.chance(0.28) ? rng.range(0.3, 0.7) : 1;
       lit.g.fillRect(ox, oy, w * cut, h);
-      lit.g.globalAlpha = strength * 0.25;
+      lit.g.globalAlpha = strength * 0.1;
       lit.g.fillRect(ox - 6, oy - 6, w + 12, h + 12);   // soft spill onto concrete
       lit.g.globalAlpha = 1;
     }

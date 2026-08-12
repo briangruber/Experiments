@@ -15,6 +15,7 @@ collide, and a branch can be merged without reading it first.
 | folder | what it is |
 | --- | --- |
 | `ocean/` | Abyssal — a real-time cinematic ocean simulator with a rideable wave runner. Multi-cascade FFT sea, volumetric clouds, GPU spray, persistent Kelvin wake. |
+| `swing/` | Skyline — a web-swinging game for browser and phone. Procedural city, pendulum swing physics, ring courses. three.js on WebGPU with a WebGL2 fallback; character and rooftop props generated with Tripo3D. |
 
 Other prototypes currently live on their own branches and follow the same
 convention (`harbor/`, `boats/`, `cozy-fishing/`). They can be merged here as

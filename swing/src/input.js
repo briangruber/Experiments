@@ -1,0 +1,138 @@
+// One input state for mouse+keyboard and touch alike. The game reads fields,
+// never events, so adding a control surface never touches the simulation.
+
+const KEYS = {
+  KeyW: 'reel', ArrowUp: 'reel',
+  KeyS: 'back', ArrowDown: 'back',
+  KeyA: 'left', ArrowLeft: 'left',
+  KeyD: 'right', ArrowRight: 'right',
+  ShiftLeft: 'dive', ShiftRight: 'dive',
+  Space: 'boost',
+  KeyQ: 'webLeft', KeyE: 'webRight',
+};
+
+export class Input {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.held = new Set();
+
+    this.lookX = 0; this.lookY = 0;   // radians accumulated since last frame
+    this.steer = 0; this.throttle = 0;
+    this.webLeft = false; this.webRight = false;
+    this.dive = false; this.reel = false;
+    this.boost = false;                // edge triggered, cleared each frame
+    this.enabled = false;
+    this.locked = false;
+    this.touch = matchMedia('(pointer: coarse)').matches;
+    this.sensitivity = this.touch ? 0.0055 : 0.0022;
+    this.onPause = () => {};
+    this.onKey = () => {};
+
+    this.dragId = -1;
+    this.dragX = 0; this.dragY = 0;
+    this.padPointers = new Map();
+  }
+
+  attach() {
+    const c = this.canvas;
+
+    addEventListener('keydown', (e) => {
+      if (e.repeat) return;
+      if (e.code === 'Escape') { this.onPause(); return; }
+      const k = KEYS[e.code];
+      this.onKey(e.code);
+      if (!k) return;
+      e.preventDefault();
+      this.held.add(k);
+      if (k === 'boost') this.boost = true;
+    });
+    addEventListener('keyup', (e) => {
+      const k = KEYS[e.code];
+      if (k) this.held.delete(k);
+    });
+    addEventListener('blur', () => { this.held.clear(); this.dragId = -1; });
+
+    // ---- desktop: pointer lock, buttons fire webs -------------------------
+    c.addEventListener('mousedown', (e) => {
+      if (!this.enabled || this.touch) return;
+      if (!this.locked) { c.requestPointerLock?.(); return; }
+      if (e.button === 0) this.webLeft = true;
+      if (e.button === 2) this.webRight = true;
+      if (e.button === 1) this.boost = true;
+      e.preventDefault();
+    });
+    addEventListener('mouseup', (e) => {
+      if (e.button === 0) this.webLeft = false;
+      if (e.button === 2) this.webRight = false;
+    });
+    document.addEventListener('pointerlockchange', () => {
+      this.locked = document.pointerLockElement === c;
+      if (!this.locked) { this.webLeft = this.webRight = false; this.held.clear(); }
+    });
+    addEventListener('mousemove', (e) => {
+      if (!this.locked) return;
+      this.lookX -= e.movementX * this.sensitivity;
+      this.lookY -= e.movementY * this.sensitivity;
+    });
+
+    // ---- touch: drag anywhere to look ------------------------------------
+    c.addEventListener('pointerdown', (e) => {
+      if (!this.enabled || e.pointerType === 'mouse') return;
+      if (this.dragId >= 0) return;
+      this.dragId = e.pointerId;
+      this.dragX = e.clientX; this.dragY = e.clientY;
+      c.setPointerCapture(e.pointerId);
+    });
+    c.addEventListener('pointermove', (e) => {
+      if (e.pointerId !== this.dragId) return;
+      this.lookX -= (e.clientX - this.dragX) * this.sensitivity;
+      this.lookY -= (e.clientY - this.dragY) * this.sensitivity;
+      this.dragX = e.clientX; this.dragY = e.clientY;
+    });
+    const endDrag = (e) => { if (e.pointerId === this.dragId) this.dragId = -1; };
+    c.addEventListener('pointerup', endDrag);
+    c.addEventListener('pointercancel', endDrag);
+  }
+
+  /** Wire an on-screen pad to a field; `edge` fields latch for one frame. */
+  bindPad(el, field, edge = false) {
+    if (!el) return;
+    const on = (e) => {
+      e.preventDefault();
+      el.classList.add('on');
+      el.setPointerCapture?.(e.pointerId);
+      if (edge) this[field] = true; else this.padPointers.set(field, true);
+    };
+    const off = (e) => {
+      e?.preventDefault();
+      el.classList.remove('on');
+      if (!edge) this.padPointers.delete(field);
+    };
+    el.addEventListener('pointerdown', on);
+    el.addEventListener('pointerup', off);
+    el.addEventListener('pointercancel', off);
+    el.addEventListener('pointerleave', off);
+  }
+
+  /** Fold held keys and pads into the analogue fields. Call once per frame. */
+  sample() {
+    const h = this.held;
+    this.steer = (h.has('right') ? 1 : 0) - (h.has('left') ? 1 : 0);
+    this.throttle = (h.has('reel') ? 1 : 0) - (h.has('back') ? 1 : 0);
+    this.reel = h.has('reel') || this.padPointers.has('reel');
+    this.dive = h.has('dive') || this.padPointers.has('dive');
+    if (h.has('webLeft')) this.webLeft = true;
+    if (h.has('webRight')) this.webRight = true;
+    if (this.padPointers.has('webLeft')) this.webLeft = true;
+    if (this.padPointers.has('webRight')) this.webRight = true;
+    if (this.touch) {
+      if (!this.padPointers.has('webLeft') && !h.has('webLeft')) this.webLeft = false;
+      if (!this.padPointers.has('webRight') && !h.has('webRight')) this.webRight = false;
+    }
+  }
+
+  endFrame() {
+    this.lookX = 0; this.lookY = 0;
+    this.boost = false;
+  }
+}
