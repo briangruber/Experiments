@@ -71,8 +71,8 @@ terms, and an analytic multiple-scattering tail.
 `Wake` (a persistent Kelvin wake that remembers where you have been), and `Post`
 (HDR bloom, auto-exposure, tonemap, grain).
 
-Eight presets, from `Glass Calm` through `North Atlantic Storm` to `Moonlit
-Midnight`, and about 380 parameters — all of it plain-object state you can read
+Eight presets, from `Glassy Dawn` through `North Atlantic Storm` to `Moonlit
+Passage`, and about 380 parameters — all of it plain-object state you can read
 and write.
 
 ## Using it
@@ -158,5 +158,5 @@ integration usually produces a blank frame rather than an exception.
 MIT — see [LICENSE](LICENSE).
 
 The wave-runner model used by the demo (`demo/craftModel.js`) was generated with
-Meshy.ai and is **not** covered by that grant; its terms depend on the plan it was
-generated under. The published library contains no third-party assets.
+Meshy.ai under a paid plan carrying commercial use rights. The published library
+contains no third-party assets.

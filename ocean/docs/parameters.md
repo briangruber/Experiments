@@ -486,7 +486,7 @@ value behind.
 | `North Atlantic Storm` | 46 |
 | `Glassy Dawn` | 27 |
 | `Tropical Noon` | 26 |
-| `Moonlit Passage` | 30 |
+| `Moonlit Passage` | 31 |
 | `Trade Winds` | 22 |
 | `Hurricane Sea` | 46 |
 | `Deep Blue Afternoon` | 21 |

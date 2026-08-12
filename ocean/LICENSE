@@ -22,16 +22,15 @@ SOFTWARE.
 
 ---
 
-Third-party content
--------------------
+Attribution
+-----------
 
-The MIT grant above covers the source in this repository. It does not purport
-to grant rights in the wave-runner asset used by the demo:
+The wave-runner asset used by the demo:
 
   demo/craftModel.js   mesh and inlined base-colour texture, generated with
-                       Meshy.ai and converted by tools/glb.mjs
+                       Meshy.ai under a paid plan (which carries commercial use
+                       rights) and converted by tools/glb.mjs
 
-Whether that asset may be redistributed, and under what terms, depends on the
-plan it was generated under. It is used only by the demo application; the
-library published as the `abyssal-ocean` package (the `src/` directory) contains
-no third-party assets, no bundled models and no bundled textures.
+It is used only by the demo application. The library published as the
+`abyssal-ocean` package (the `src/` directory) contains no third-party assets,
+no bundled models and no bundled textures.

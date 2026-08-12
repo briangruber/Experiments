@@ -527,7 +527,14 @@ export const PRESETS = {
     cloudCoverage: 0.34, cloudAltitude: 1900, cirrus: 0.22,
     scatterColor: [0.035, 0.135, 0.200], absorption: [0.55, 0.16, 0.10],
     skyAmbient: 1.3, glitter: 0.35, foamAmount: 1.1,
-    sprayOpacity: 0.6, exposureBias: 0.6, saturation: 0.9, contrast: 1.08,
+    // The only preset with the sun below the horizon, and the only one where a
+    // fully automatic iris is wrong. autoExposure blends towards
+    // exposureTarget/avg, so at 1.0 it normalises *any* scene to the same average
+    // brightness - which lands a moonlit sea on exactly the same mid-grey as noon
+    // and gives you daylight with stars pasted over it. Trimming it to 0.3 keeps
+    // enough adaptation to follow moonIntensity without erasing the night.
+    autoExposure: 0.3,
+    sprayOpacity: 0.6, exposureBias: 0.1, saturation: 0.9, contrast: 1.08,
     bloomIntensity: 0.09, vignette: 0.7, grain: 0.022, fov: 40,
   },
   'Trade Winds': {
@@ -583,6 +590,12 @@ export const isHandheld = () =>
 // Presets are sparse: everything they do not mention comes back from `defaults`,
 // so switching presets can never leave a stray value behind from the last one.
 export function applyPreset(params, name) {
+  // A misspelt name used to fall through to bare defaults and return a perfectly
+  // valid daylight sea, so the only symptom was a preset that did not look like
+  // itself. Say so instead.
+  if (name && !PRESETS[name]) {
+    console.warn(`Abyssal: no preset named "${name}". Known presets: ${Object.keys(PRESETS).join(', ')}`);
+  }
   Object.assign(params, structuredClone(defaults), structuredClone(PRESETS[name] || {}));
   if (isHandheld()) Object.assign(params, MOBILE_QUALITY);
   return params;
