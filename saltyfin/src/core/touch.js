@@ -257,8 +257,8 @@ export function createTouchControls({ input, onTimePreset } = {}) {
   let lever = 0;               // the commanded position, latched
   let thrId = null;
   let thrY = 0;                // last touch y
-  let thrRaw = 0;              // lever position before the detent is applied
-  let caught = 0;              // px travelled since the detent grabbed; 0 = free
+  let thrRaw = 0;              // where the thumb has actually dragged to
+  let caught = false;          // is the detent holding this drag at neutral?
 
   const thrEl = root.querySelector('.thr');
   const thrLever = root.querySelector('.thr-lever');
@@ -294,18 +294,17 @@ export function createTouchControls({ input, onTimePreset } = {}) {
       thrY = t.clientY;
       const was = thrRaw;
       thrRaw = Math.max(-1, Math.min(1, thrRaw - dy / travel));
-      // Coming down out of ahead: catch at neutral, and hold there until the
-      // thumb has pushed DETENT_PX further down.
-      if (was > NEUTRAL && thrRaw <= NEUTRAL && caught === 0) caught = 1e-6;
-      if (caught > 0) {
-        caught += Math.max(0, dy);
-        thrRaw = Math.max(thrRaw, 0);
-        if (caught < DETENT_PX) { lever = 0; commitLever(); continue; }
-        caught = 0;             // released from the detent; astern is allowed
-        // Just PAST the band, not on its edge: landing exactly on NEUTRAL
-        // would still command zero and the detent would read as a dead zone
-        // the lever could never escape.
-        thrRaw = -(NEUTRAL + 0.02);
+      // Coming down out of ahead: the detent grabs at neutral.
+      if (was > NEUTRAL && thrRaw <= NEUTRAL) caught = true;
+      if (caught) {
+        // It lets go when the LEVER is deliberately past the band — measured
+        // in lever travel, not in how far the thumb has wandered since the
+        // grab. Counting accumulated motion released the catch while the
+        // thumb was still above centre, which is the detent failing at the
+        // one job it has.
+        const escape = NEUTRAL + DETENT_PX / travel;
+        if (thrRaw > -escape) { lever = 0; commitLever(); continue; }
+        caught = false;         // deliberate: astern is allowed now
       }
       lever = thrRaw;
       commitLever();
