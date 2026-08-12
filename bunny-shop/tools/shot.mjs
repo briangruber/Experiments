@@ -40,6 +40,7 @@ const SIM = +opt('sim', 0);
 const EVAL = opt('eval', '');
 const CAM = opt('cam', '');
 const LOOK = opt('look', '');
+const TOUCH = args.includes('--touch');
 const OPEN = args.includes('--open') || PLAY > 0 || SIM > 0;
 const W = +opt('w', 1440);
 const H = +opt('h', 810);
@@ -81,7 +82,13 @@ const browser = await chromium.launch({
   ...(CHROME ? { executablePath: CHROME } : {}),
   args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--no-sandbox'],
 });
-const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 1 });
+// --touch makes Chromium report a coarse pointer, which is what the layout
+// switch keys off; without it a phone-sized window still looks like a desktop.
+const page = await browser.newPage({
+  viewport: { width: W, height: H },
+  deviceScaleFactor: 1,
+  ...(TOUCH ? { hasTouch: true, isMobile: true } : {}),
+});
 
 const errors = [];
 const logs = [];

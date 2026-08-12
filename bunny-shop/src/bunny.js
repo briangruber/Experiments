@@ -44,21 +44,21 @@ export class Customer {
    * @param {object} spec
    * @param {object} spec.gltf     the rigged base model
    * @param {object} spec.clips    named AnimationClips sharing that rig
-   * @param {string} spec.type     'bunny_round' | 'bunny_lanky'
-   * @param {object} [spec.coat]   { trenchcoat } for the special customer
+   * @param {string} spec.type      'bunny_round' | 'bunny_lanky'
+   * @param {boolean} [spec.stack]   build three of them in a coat
+   * @param {number} [spec.sizeScale] overall size, for the very small customer
    */
-  constructor({ gltf, clips, type, special = null, extras = {} }) {
+  constructor({ gltf, clips, type, stack = false, sizeScale = 1, extras = {} }) {
     this.type = type;
-    this.special = special;
     this.root = new THREE.Group();
     this.mixers = [];
     this.actions = {};
     this.current = null;
 
-    const height = TWEAKS[type].height * (0.92 + Math.random() * 0.2);
+    const height = TWEAKS[type].height * (0.92 + Math.random() * 0.2) * sizeScale;
     const tint = new THREE.Color(COATS[Math.floor(Math.random() * COATS.length)]);
 
-    if (special === 'trenchcoat') {
+    if (stack) {
       this.buildTrenchcoat({ gltf, clips, height, extras });
     } else {
       const body = this.buildBody({ gltf, clips, height, tint, primary: true });
@@ -66,7 +66,7 @@ export class Customer {
       this.addScarf(body, height);
     }
 
-    this.height = height * (special === 'trenchcoat' ? 2.1 : 1);
+    this.height = height * (stack ? 2.1 : 1);
 
     // Movement state.
     this.pos = new THREE.Vector2(0, 0);

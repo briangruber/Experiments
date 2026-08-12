@@ -19,7 +19,10 @@
     </script>
   </head>
   <body>
-    <canvas id="stage"></canvas>
+    <!-- The canvas is sized by this box rather than the window, so the control
+         pad on touch layouts takes space away from the 3D view instead of
+         covering it. -->
+    <div id="viewport"><canvas id="stage"></canvas></div>
 
     <div id="ui">
       <header class="hud">
@@ -28,6 +31,7 @@
           <div class="stat" id="stat-day"><span class="ico">📅</span><b>Day 1</b></div>
         </div>
         <div class="hud-group">
+          <div class="stat streak" id="stat-streak" hidden><span class="ico">🔥</span><b>0</b></div>
           <div class="stat stars" id="stat-stars" title="Warren reputation">★★★★★</div>
         </div>
       </header>
@@ -49,11 +53,20 @@
           <p class="tag">A very small grocery for very demanding rabbits.</p>
           <ol class="how">
             <li>Rabbits hop in, browse, and queue at your counter.</li>
-            <li>Read the order, then <b>click the crates</b> on the counter to bag their produce.</li>
-            <li>Ring the <b>brass bell</b> to take their money. Be quick — rabbits are not patient.</li>
-            <li>Click a rabbit to <b>pet</b> it. This is scientifically calming. Once each.</li>
+            <li>
+              Read the order, then
+              <b><span class="if-mouse">click the crates</span><span class="if-touch">tap the produce</span></b>
+              to bag it.
+            </li>
+            <li>
+              Ring the <b>bell</b> to take their money. Be quick — rabbits are not patient.
+            </li>
+            <li>
+              <span class="if-mouse">Click</span><span class="if-touch">Tap</span> a rabbit to
+              <b>pet</b> it. This is scientifically calming. Once each.
+            </li>
           </ol>
-          <button id="start" disabled>Loading the shop…</button>
+          <button id="start" type="button" disabled>Loading the shop…</button>
           <p class="fineprint" id="loadnote">Unpacking rabbits</p>
         </div>
       </div>
@@ -63,9 +76,16 @@
           <h1 id="over-title">Closed for the Day</h1>
           <p class="tag" id="over-line">—</p>
           <div class="score" id="over-score"></div>
-          <button id="again">Open Up Again</button>
+          <button id="again" type="button">Open Up Again</button>
         </div>
       </div>
+    </div>
+
+    <!-- Touch controls. Hidden on pointer devices, where the crates in the shop
+         are the buttons. Populated from the stock list in main.js. -->
+    <div id="pad" hidden>
+      <div id="pad-stock"></div>
+      <button id="pad-bell" type="button">Ring up <span aria-hidden="true">🔔</span></button>
     </div>
 
     <script type="module" src="src/main.js"></script>

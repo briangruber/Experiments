@@ -535,6 +535,84 @@ export function dressShop(scene, gltf) {
 
 // ---------------------------------------------------------------- assembly
 
+const lerp = (a, b, t) => a + (b - a) * t;
+const clamp01 = (v) => Math.max(0, Math.min(1, v));
+
+// Hand-tuned compositions, blended by the shape of the canvas.
+//
+// Each stop is described by the half-height it wants to see, not the width:
+// visible width follows from the aspect, but it is wasted *vertical* space —
+// blank wall above, empty counter below — that makes a framing look wrong, and
+// half-height is the number that controls it. There is no single camera that
+// suits all of these:
+//
+//   tall    a phone upright — no room for a ten-metre counter, so close in on
+//           the customer's face; the produce lives on the control pad anyway
+//   normal  a laptop — the whole shop, rabbits browsing at the back
+//   wide    a phone on its side — plenty of width, almost no height, so aim the
+//           shallow band at the counter instead of the middle of the room
+const FRAMINGS = [
+  { aspect: 0.55, fov: 52, x: 2.75, y: 1.32, z: 0.3, halfHeight: 2.2, pitch: 0.14 },
+  { aspect: 0.95, fov: 52, x: 2.3, y: 1.25, z: 0.2, halfHeight: 2.5, pitch: 0.2 },
+  { aspect: 1.6, fov: 50, x: 0.0, y: 1.15, z: -0.8, halfHeight: 5.38, pitch: 0.355 },
+  { aspect: 2.6, fov: 50, x: 1.2, y: 1.05, z: 0.4, halfHeight: 2.46, pitch: 0.26 },
+];
+
+function framingFor(aspect) {
+  let lo = FRAMINGS[0];
+  let hi = FRAMINGS[FRAMINGS.length - 1];
+  for (let i = 0; i < FRAMINGS.length - 1; i++) {
+    if (aspect <= FRAMINGS[i + 1].aspect) {
+      lo = FRAMINGS[i];
+      hi = FRAMINGS[i + 1];
+      break;
+    }
+    lo = hi = FRAMINGS[i + 1];
+  }
+  const t = lo === hi ? 0 : clamp01((aspect - lo.aspect) / (hi.aspect - lo.aspect));
+  const mix = {};
+  for (const k of ['fov', 'x', 'y', 'z', 'halfHeight', 'pitch']) mix[k] = lerp(lo[k], hi[k], t);
+  return mix;
+}
+
+/**
+ * Frame the shop for whatever shape the viewport is.
+ *
+ * A phone held upright cannot show a ten-metre counter: at that aspect, fitting
+ * the counter across the frame puts the camera further away than the room is
+ * deep. So the framing slides between two compositions. Wide screens see the
+ * whole shop, counter to back wall. Narrow ones close in on the customer being
+ * served, and the produce moves out of the scene and onto the control pad,
+ * where a thumb can actually hit it.
+ *
+ * The distance is solved from the horizontal extent that has to be visible,
+ * rather than hard-coded, so nothing important slides off the edge at any
+ * aspect in between.
+ */
+export function frameCamera(camera, aspect) {
+  const f = framingFor(aspect);
+
+  camera.fov = f.fov;
+  const focus = new THREE.Vector3(f.x, f.y, f.z);
+  const pitch = f.pitch;
+
+  const dist = f.halfHeight / Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+
+  const eye = new THREE.Vector3(
+    focus.x,
+    // Keep the eye under the ceiling; from above it, the ceiling is all you see.
+    Math.min(focus.y + Math.sin(pitch) * dist, ROOM.height - 0.7),
+    focus.z + Math.cos(pitch) * dist,
+  );
+
+  camera.position.copy(eye);
+  camera.aspect = aspect;
+  camera.lookAt(focus);
+  camera.updateProjectionMatrix();
+
+  return { eye, focus };
+}
+
 export function createWorld(canvas) {
   const renderer = createRenderer(canvas);
 
@@ -542,9 +620,8 @@ export function createWorld(canvas) {
   scene.background = new THREE.Color(0x2a1f1a);
   scene.fog = new THREE.Fog(0x3a2c22, 18, 38);
 
-  const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 90);
-  camera.position.set(0, 4.75, 8.9);
-  camera.lookAt(0, 1.15, -0.8);
+  const camera = new THREE.PerspectiveCamera(50, 1.777, 0.1, 90);
+  frameCamera(camera, 1.777);
 
   buildRoom(scene);
   const sun = buildLights(scene);

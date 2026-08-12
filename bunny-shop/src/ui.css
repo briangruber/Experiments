@@ -27,13 +27,22 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-#stage {
+/* The 3D view. On touch layouts the bottom edge lifts to make room for the
+   control pad, and the canvas is resized to match — the pad never covers the
+   shop. */
+#viewport {
   position: fixed;
   inset: 0;
+  bottom: var(--pad-h, 0px);
+}
+
+#stage {
   width: 100%;
   height: 100%;
   display: block;
   cursor: default;
+  /* Stop the browser treating drags and double taps as scroll and zoom. */
+  touch-action: none;
 }
 
 #stage.pointing {
@@ -45,6 +54,7 @@ body {
   content: '';
   position: fixed;
   inset: 0;
+  bottom: var(--pad-h, 0px);
   pointer-events: none;
   background: radial-gradient(ellipse at 50% 45%, transparent 42%, rgba(38, 22, 12, 0.42) 100%);
 }
@@ -52,8 +62,23 @@ body {
 #ui {
   position: fixed;
   inset: 0;
+  z-index: 10;
   pointer-events: none;
   user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Instructions that differ by input device. */
+.if-touch {
+  display: none;
+}
+
+html.touch .if-mouse {
+  display: none;
+}
+
+html.touch .if-touch {
+  display: inline;
 }
 
 /* ------------------------------------------------------------------ hud */
@@ -530,14 +555,16 @@ button:focus-visible {
   .card h1 {
     font-size: 34px;
   }
-  .ticket {
-    width: 190px;
-    left: 12px;
-    bottom: 12px;
+  .card {
+    padding: 22px 20px 20px;
+  }
+  .how {
+    font-size: 14px;
   }
   .bubble {
-    max-width: 190px;
+    max-width: 62vw;
     font-size: 13px;
+    padding: 7px 10px;
   }
 }
 
@@ -565,5 +592,219 @@ button:focus-visible {
 
   .float.go {
     translate: 0;
+  }
+}
+
+/* ==================================================================== pad
+   Touch controls. A phone cannot reliably hit a crate the size of a thumbnail
+   in a 3D scene, and the shop is too wide to fit a portrait frame at all — so
+   on touch devices the produce moves out of the scene and onto real buttons,
+   and the camera closes in on whoever is at the counter. */
+
+#pad {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  height: var(--pad-h);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+  background: linear-gradient(180deg, #3a2a20, #241a15 42%);
+  box-shadow: 0 -8px 24px rgba(20, 12, 6, 0.5);
+  pointer-events: auto;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#pad[hidden] {
+  display: none;
+}
+
+#pad-stock {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+}
+
+/* One tall column of produce plus the bell reads badly on a short landscape
+   screen; six across and a bell beside them fits. */
+html.pad-wide #pad {
+  flex-direction: row;
+  align-items: stretch;
+}
+
+html.pad-wide #pad-stock {
+  grid-template-columns: repeat(6, 1fr);
+}
+
+html.pad-wide #pad-bell {
+  width: 132px;
+  flex: none;
+}
+
+.stock-btn {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  min-height: 46px;
+  padding: 4px 2px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.32);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: 0.1px;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 0.09s, box-shadow 0.09s, background 0.18s, opacity 0.18s;
+}
+
+.stock-btn .glyph {
+  font-size: 22px;
+  line-height: 1.05;
+}
+
+.stock-btn:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.32);
+}
+
+/* Wanted right now: the button carries the count, which is why the touch
+   layout can drop the itemised receipt entirely. */
+.stock-btn .need {
+  position: absolute;
+  top: -6px;
+  right: -4px;
+  min-width: 26px;
+  padding: 1px 5px;
+  border-radius: 99px;
+  background: var(--green);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.28);
+}
+
+.stock-btn:not(.wanted) {
+  opacity: 0.44;
+}
+
+.stock-btn:not(.wanted) .need {
+  display: none;
+}
+
+.stock-btn.filled {
+  background: #d6ecd2;
+}
+
+.stock-btn.filled .need {
+  background: #4f7657;
+}
+
+#pad-bell {
+  flex: none;
+  height: 50px;
+  padding: 0 20px;
+  font-size: 17px;
+  border-radius: 14px;
+  background: #6b5a4a;
+  box-shadow: 0 4px 0 #3f342a;
+  touch-action: manipulation;
+}
+
+#pad-bell:active:not(:disabled) {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 #3f342a;
+}
+
+#pad-bell.ready {
+  background: var(--green);
+  box-shadow: 0 4px 0 #4f7657;
+  animation: pulse 0.85s ease-in-out infinite;
+}
+
+/* ------------------------------------------------- ticket on touch layouts */
+
+/* Name and patience only — the counts live on the produce buttons, so nothing
+   has to sit on top of the shop. */
+html.touch .ticket {
+  left: 8px;
+  right: 8px;
+  bottom: calc(var(--pad-h) + 8px);
+  width: auto;
+  padding: 8px 12px 9px;
+  clip-path: none;
+  border-radius: 12px;
+  background: rgba(255, 250, 240, 0.94);
+}
+
+html.touch .ticket-items,
+html.touch .ticket.ready::after {
+  display: none;
+}
+
+html.touch .ticket-head {
+  gap: 5px;
+  margin-bottom: 0;
+}
+
+html.touch .ticket-name {
+  font-size: 13.5px;
+}
+
+/* The HUD shrinks so it never crowds a phone's status bar. */
+html.touch .hud {
+  padding: 9px 10px;
+}
+
+html.touch .stat {
+  padding: 5px 10px;
+  font-size: 14px;
+}
+
+html.touch .stars {
+  font-size: 15px;
+  letter-spacing: 1px;
+}
+
+html.touch #toasts {
+  top: 58px;
+}
+
+html.touch .banner {
+  padding: 9px 20px;
+}
+
+html.touch .banner b {
+  font-size: 20px;
+}
+
+html.touch .banner span {
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.streak b {
+  font-variant-numeric: tabular-nums;
+}
+
+.streak[hidden] {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #pad-bell.ready {
+    animation: none;
   }
 }

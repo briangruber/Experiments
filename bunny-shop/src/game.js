@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { place } from './assets.js';
 import { Customer } from './bunny.js';
 import { BAG, COUNTER, CRATE_X, DOOR, OUTSIDE, QUEUE, RULES, SHELVES, STOCK, STOCK_BY_ID, orderShape } from './config.js';
-import { SPECIALS, bunnyName, describeOrder, pick, review, say } from './dialogue.js';
+import { DAY_REVIEWS, SPECIALS, STREAK_LINES, bunnyName, describeOrder, pick, review, say } from './dialogue.js';
 import { TWEAKS } from './scene.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -14,7 +14,8 @@ class Shopper {
   constructor(body, { special = null } = {}) {
     this.body = body;
     this.special = special;
-    this.name = special ? SPECIALS[special].name() : bunnyName();
+    this.spec = special ? SPECIALS[special] : null;
+    this.name = this.spec ? this.spec.name() : bunnyName();
     this.phase = 'entering';
     this.timer = 0;
     this.order = null;
@@ -74,6 +75,9 @@ export class Game {
     this.spawnIn = 1.6;
     this.served = 0;
     this.lost = 0;
+    this.streak = 0;
+    this.best = 0;
+    this.petted = 0;
     this.running = false;
     this.over = false;
     this.bellReady = false;
@@ -81,6 +85,7 @@ export class Game {
     this.ui.setCoins(0);
     this.ui.setDay(1);
     this.ui.setHearts(this.hearts);
+    this.ui.setStreak(0);
     this.ui.hideTicket();
     this.ui.clearBubbles();
   }
@@ -108,17 +113,16 @@ export class Game {
     // crowd cap the shop floor fills up with rabbits who never get in line.
     if (this.freeQueueSlot() < 0 || this.shoppers.length >= RULES.maxQueue + 2) return;
 
-    // The trenchcoat only shows up once the shop is busy enough to sell it.
-    const spec = SPECIALS.trenchcoat;
-    const special = this.day >= spec.minDay && Math.random() < spec.weight ? 'trenchcoat' : null;
-    // The trenchcoat is a stack of round rabbits; otherwise pick a body type.
-    const type = special ? 'bunny_round' : Math.random() < 0.62 ? 'bunny_round' : 'bunny_lanky';
+    const special = this.rollSpecial();
+    const spec = special ? SPECIALS[special] : null;
+    const type = spec?.body ?? (Math.random() < 0.62 ? 'bunny_round' : 'bunny_lanky');
 
     const body = new Customer({
       gltf: this.gltf[type],
       clips: this.clips[type],
       type,
-      special,
+      stack: spec?.build === 'stack',
+      sizeScale: spec?.scale ?? 1,
       extras: { trenchcoat: this.gltf.trenchcoat },
     });
     body.setPosition(OUTSIDE.x + rand(-0.5, 0.5), OUTSIDE.z);
@@ -130,6 +134,15 @@ export class Game {
     body.goTo(DOOR.x, DOOR.z + 1.2);
     shopper.phase = 'entering';
     this.audio?.doorbell();
+  }
+
+  // At most one special per customer, each gated on the day and its own weight.
+  rollSpecial() {
+    for (const [id, spec] of Object.entries(SPECIALS)) {
+      if (this.day < spec.minDay) continue;
+      if (Math.random() < spec.weight) return id;
+    }
+    return null;
   }
 
   makeOrder(shopper) {
@@ -145,13 +158,22 @@ export class Game {
     // the whole payoff of the joke, so it is worth the extra patience it buys.
     if (shopper.special === 'trenchcoat') for (const i of items) i.count *= 3;
 
+    // The very small one has planned exactly one purchase all week.
+    if (shopper.special === 'tiny') return [{ id: items[0].id, count: 1 }];
+
+    // The inspector checks the range, not the volume: three different things.
+    if (shopper.special === 'inspector') {
+      const pool = [...STOCK].sort(() => Math.random() - 0.5).slice(0, 3);
+      return pool.map((item) => ({ id: item.id, count: 1 }));
+    }
+
     return items;
   }
 
-  patienceFor(order) {
+  patienceFor(order, shopper) {
     const total = order.reduce((n, i) => n + i.count, 0);
     const base = (RULES.patienceBase + total * RULES.patiencePerItem) * Math.pow(RULES.patienceDayFalloff, this.day - 1);
-    return Math.max(12, base);
+    return Math.max(12, base * (shopper.spec?.patienceScale ?? 1));
   }
 
   // ---------------------------------------------------------------- queue
@@ -203,7 +225,8 @@ export class Game {
       s.mistakes++;
       s.patience = Math.max(0, s.patience - RULES.wrongItemPenalty);
       s.body.playOnce('hurt');
-      this.ui.bubble(s, say.wrong(), { mood: 'cross', ttl: 2000 });
+      this.ui.bubble(s, s.spec?.wrong ? pick(s.spec.wrong) : say.wrong(), { mood: 'cross', ttl: 2000 });
+      this.breakStreak();
       this.audio?.wrong();
       this.ui.shakeTicket();
       return;
@@ -235,7 +258,10 @@ export class Game {
   clickShopper(shopper) {
     if (shopper.petted || shopper.phase === 'leaving' || shopper.phase === 'gone') return;
     shopper.petted = true;
-    shopper.patience = Math.min(shopper.patienceMax, shopper.patience + RULES.petBoost);
+    this.petted++;
+    // The very small one is disproportionately affected by kindness.
+    const boost = RULES.petBoost * (shopper.special === 'tiny' ? 2 : 1);
+    shopper.patience = Math.min(shopper.patienceMax, shopper.patience + boost);
     shopper.body.playOnce('jump');
     this.ui.bubble(shopper, say.pet(), { mood: 'happy', ttl: 2600 });
     this.ui.heart(shopper);
@@ -247,20 +273,36 @@ export class Game {
   finishOrder(s) {
     const fraction = s.patience / s.patienceMax;
     const items = s.order.reduce((n, i) => n + i.count, 0);
+    const clean = s.mistakes === 0;
+
+    if (clean) this.extendStreak();
+    else this.breakStreak();
 
     const base = items * RULES.coinPerItem;
     const speed = Math.min(1, fraction / RULES.speedTipWindow);
-    const tip = Math.round(RULES.tipMax * speed * Math.max(0, 1 - s.mistakes * 0.34));
+    // A run of flawless orders is worth more than any single one of them.
+    const runBonus = 1 + Math.min(RULES.streakTipCap, this.streak * RULES.streakTipStep);
+    const tip = Math.round(
+      RULES.tipMax * speed * Math.max(0, 1 - s.mistakes * 0.34) * runBonus * (s.spec?.tipScale ?? 1),
+    );
     const total = base + tip;
 
     this.coins += total;
     this.served++;
     this.ui.setCoins(this.coins);
-    this.ui.coinBurst(s, total);
+    this.ui.coinBurst(s, total, s.special === 'tiny' && tip === 0 ? 'and a button' : '');
 
-    const stars = s.mistakes === 0 && fraction > 0.5 ? 5 : s.mistakes <= 1 && fraction > 0.25 ? 4 : 3;
-    const line = s.special ? pick(SPECIALS[s.special].thanks) : review(stars);
-    this.ui.bubble(s, line, { mood: 'happy', ttl: 3200 });
+    const stars = clean && fraction > 0.5 ? 5 : s.mistakes <= 1 && fraction > 0.25 ? 4 : 3;
+    const line = s.spec ? pick(s.spec.thanks) : review(stars);
+    this.ui.bubble(s, clean || !s.spec?.failLine ? line : s.spec.failLine, { mood: 'happy', ttl: 3200 });
+
+    // A flawless inspection buys back a star.
+    const reward = clean ? s.spec?.reward : null;
+    if (reward?.hearts && this.hearts < RULES.maxHearts) {
+      this.hearts = Math.min(RULES.maxHearts, this.hearts + reward.hearts);
+      this.ui.setHearts(this.hearts);
+      this.ui.banner(...reward.banner);
+    }
 
     s.body.playOnce('jump');
     s.phase = 'paying';
@@ -273,7 +315,27 @@ export class Game {
     this.audio?.cash();
   }
 
+  // ---------------------------------------------------------------- streak
+
+  extendStreak() {
+    this.streak++;
+    this.best = Math.max(this.best, this.streak);
+    this.ui.setStreak(this.streak);
+    const milestone = STREAK_LINES[this.streak];
+    if (milestone) {
+      this.ui.banner(...milestone);
+      this.audio?.fanfare(this.streak);
+    }
+  }
+
+  breakStreak() {
+    if (this.streak >= 5) this.ui.banner('Streak over', `${this.streak} in a row. It was good while it lasted.`);
+    this.streak = 0;
+    this.ui.setStreak(0);
+  }
+
   loseCustomer(s) {
+    this.breakStreak();
     s.phase = 'storming';
     s.timer = 1.0;
     this.lost++;
@@ -429,7 +491,7 @@ export class Game {
       case 'greeting':
         if (s.timer <= 0) {
           s.order = this.makeOrder(s);
-          s.patienceMax = this.patienceFor(s.order);
+          s.patienceMax = this.patienceFor(s.order, s);
           s.patience = s.patienceMax;
           s.phase = 'counter';
           this.ui.setTicket(s);
@@ -475,20 +537,31 @@ export class Game {
   }
 
   nextDay() {
+    // The day's own numbers make the joke, so the banner is written from them.
+    const summary = pick(DAY_REVIEWS)(this);
     this.day++;
     this.dayClock = RULES.dayLength;
     this.ui.setDay(this.day);
-    this.ui.banner(`Day ${this.day}`, pick([
-      'Word is getting around.',
-      'The warren is awake.',
-      'More rabbits. Always more rabbits.',
-      'Someone left a review. It was mostly kind.',
-    ]));
+    this.ui.banner(`Day ${this.day}`, summary);
   }
 
   endGame(reason) {
     this.running = false;
     this.over = true;
-    this.ui.gameOver({ reason, coins: this.coins, day: this.day, served: this.served, lost: this.lost });
+    this.ui.gameOver({
+      reason,
+      line:
+        reason === 'fired'
+          ? 'Three rabbits left unhappy. Word travels fast in a field.'
+          : 'A good day. Everyone got a carrot, roughly speaking.',
+      rows: [
+        ['Coins earned', this.coins],
+        ['Days survived', this.day],
+        ['Rabbits served', this.served],
+        ['Rabbits lost', this.lost],
+        ['Rabbits petted', this.petted],
+        ['Best clean run', this.best],
+      ],
+    });
   }
 }

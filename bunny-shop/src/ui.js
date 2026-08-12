@@ -24,8 +24,18 @@ export class UI {
     this.dayEl = $('#stat-day b');
     this.starsEl = $('#stat-stars');
 
+    this.streakEl = $('#stat-streak');
+    this.padButtons = [];
+    this.padBell = null;
+
     this.live = new Map(); // shopper -> { el, until, anchor }
     this._v = new THREE.Vector3();
+  }
+
+  // The touch pad is built in main.js from the stock list; the UI just drives it.
+  bindPad(stockEl, bellEl) {
+    this.padButtons = [...stockEl.querySelectorAll('.stock-btn')];
+    this.padBell = bellEl;
   }
 
   // ---------------------------------------------------------------- hud
@@ -41,8 +51,14 @@ export class UI {
     this.dayEl.textContent = `Day ${n}`;
   }
 
-  setHearts(n) {
-    this.starsEl.textContent = '★'.repeat(Math.max(0, n)) + '☆'.repeat(Math.max(0, 3 - n));
+  setStreak(n) {
+    this.streakEl.hidden = n < 2;
+    this.streakEl.querySelector('b').textContent = n;
+  }
+
+  setHearts(n, max = 3) {
+    const shown = Math.max(n, max);
+    this.starsEl.textContent = '★'.repeat(Math.max(0, n)) + '☆'.repeat(Math.max(0, shown - n));
     this.starsEl.classList.toggle('low', n <= 1);
   }
 
@@ -64,6 +80,7 @@ export class UI {
   // ---------------------------------------------------------------- ticket
 
   setTicket(shopper) {
+    this.setPad(shopper);
     this.ticket.hidden = false;
     this.ticketName.textContent = shopper.name;
     this.ticketItems.replaceChildren(
@@ -95,10 +112,24 @@ export class UI {
 
   hideTicket() {
     this.ticket.hidden = true;
+    this.setPad(null);
+  }
+
+  // On a phone the produce buttons carry the counts, which is what lets the
+  // touch layout drop the itemised receipt off the screen entirely.
+  setPad(shopper) {
+    for (const btn of this.padButtons) {
+      const want = shopper?.order?.find((o) => o.id === btn.dataset.id);
+      const have = shopper?.bagged.get(btn.dataset.id) ?? 0;
+      btn.classList.toggle('wanted', !!want);
+      btn.classList.toggle('filled', !!want && have >= want.count);
+      btn.querySelector('.need').textContent = want ? `${have}/${want.count}` : '';
+    }
   }
 
   hintBell(on) {
     this.ticket.classList.toggle('ready', on);
+    this.padBell?.classList.toggle('ready', on);
   }
 
   // ---------------------------------------------------------------- bubbles
@@ -107,6 +138,9 @@ export class UI {
     // Idle chatter is decoration; three overlapping thought bubbles in the
     // middle of the shop is not. The rabbit being served always gets through.
     if (mood === 'think') {
+      // A phone frames the counter closely — the browsers muttering to
+      // themselves are off-screen, so their bubbles are pure clutter.
+      if (document.documentElement.classList.contains('touch')) return;
       let thinking = 0;
       for (const [, e] of this.live) if (e.el.classList.contains('think')) thinking++;
       if (thinking >= 2) return;
@@ -150,8 +184,8 @@ export class UI {
     setTimeout(() => el.remove(), 1300);
   }
 
-  coinBurst(shopper, amount) {
-    this.float(shopper, `+${amount} 🪙`, 'coin');
+  coinBurst(shopper, amount, note = '') {
+    this.float(shopper, note ? `+${amount} 🪙 ${note}` : `+${amount} 🪙`, 'coin');
   }
 
   heart(shopper) {
@@ -164,8 +198,8 @@ export class UI {
     const v = world.clone().project(this.camera);
     const r = this.canvas.getBoundingClientRect();
     return {
-      x: (v.x * 0.5 + 0.5) * r.width,
-      y: (-v.y * 0.5 + 0.5) * r.height,
+      x: r.left + (v.x * 0.5 + 0.5) * r.width,
+      y: r.top + (-v.y * 0.5 + 0.5) * r.height,
       behind: v.z > 1,
     };
   }
@@ -185,20 +219,12 @@ export class UI {
 
   // ---------------------------------------------------------------- curtains
 
-  gameOver({ reason, coins, day, served, lost }) {
+  gameOver({ reason, line, rows }) {
     const el = $('#gameover');
     $('#over-title').textContent = reason === 'fired' ? 'The Warren Has Spoken' : 'Closed for the Day';
-    $('#over-line').textContent =
-      reason === 'fired'
-        ? 'Three rabbits left unhappy. Word travels fast in a field.'
-        : 'A good day. Everyone got a carrot, roughly speaking.';
+    $('#over-line').textContent = line;
     $('#over-score').innerHTML = '';
-    for (const [label, value] of [
-      ['Coins earned', coins],
-      ['Days survived', day],
-      ['Rabbits served', served],
-      ['Rabbits lost', lost],
-    ]) {
+    for (const [label, value] of rows) {
       const row = document.createElement('div');
       row.className = 'score-row';
       row.innerHTML = `<span></span><b></b>`;

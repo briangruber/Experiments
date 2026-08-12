@@ -9,6 +9,13 @@ You can pet them, which helps.
 
 ![The shop, mid-morning](screenshot.png)
 
+It plays on a phone. Upright, the camera closes in on whoever is at the counter
+and the produce moves to a control pad under the shop, because no camera can fit
+a ten-metre counter into a portrait frame and no thumb can hit a crate the size
+of a thumbnail.
+
+<img src="screenshot-phone.png" alt="The same shop on a phone" width="300" />
+
 Every model in `assets/` — the rabbits, their walk cycles, the produce, the
 fixtures — was generated with the Tripo text-to-3D API and is rebuildable from
 `tools/assets.config.mjs`.
@@ -21,17 +28,24 @@ Serve the folder and open `index.html`. There is no build step.
 python3 -m http.server 8000     # or any static server
 ```
 
-- **Click a crate** on the counter to put one of that item in the bag. Number
-  keys `1`–`6` do the same.
-- **Click the bell** (or press space) to ring the order up. Ringing early is
-  free, but the rabbit will comment.
+- **Click a crate** on the counter — or tap the produce on the pad — to put one
+  of that item in the bag. Number keys `1`–`6` do the same.
+- **Ring the bell** (or press space) to close the sale. Ringing early is free,
+  but the rabbit will comment.
 - **Click a rabbit** to pet it. Worth seven seconds of patience, once each.
 - Bagging the wrong thing costs patience and part of the tip.
+- Flawless sales in a row build a **streak**, and the streak multiplies the tip.
+  One mistake ends it.
 - Three rabbits leaving unhappy and the warren stops coming.
 
 Days get busier: shorter gaps between customers, longer orders, less patience.
-From day two there is a chance of a customer who is very clearly three rabbits
-in a trench coat, and who orders accordingly.
+Three customers are not like the others:
+
+| who | from | the bit |
+| --- | --- | --- |
+| A Normal Adult Rabbit | day 2 | Three rabbits in a trench coat. Orders three rabbits' worth, insists it is a normal amount for one rabbit. |
+| A Very Small Rabbit | day 2 | Orders exactly one thing, has planned it all week, is very hard to upset, tips in buttons. |
+| Warren Health Inspector | day 3 | Wants one of three different things and is timing you. Serve it flawlessly and you get a lost star back. |
 
 ## How it is put together
 
@@ -44,7 +58,7 @@ src/
   bunny.js            one customer: rig, clips, walking, the trench coat stack
   game.js             the rules — spawning, queueing, orders, scoring
   dialogue.js         everything the rabbits say
-  ui.js / ui.css      HUD, tickets and the speech bubbles
+  ui.js / ui.css      HUD, tickets, speech bubbles and the touch pad
   audio.js            synthesised sound; no audio files
 vendor/three/         pinned three.js runtime, so the folder runs offline
 assets/               generated models (committed) and the task ledger
@@ -63,6 +77,15 @@ generated one became a back counter where its detail is visible.
 carry a little residual root travel; `bunny.js` strips horizontal motion from
 the root track and keeps the vertical bounce, so walking is driven by the game
 and the hop still looks like a hop.
+
+**Screen shape picks the composition.** The visible vertical span of a
+perspective camera is `2 * halfHeight / aspect` whatever the field of view, so
+no single camera suits a phone upright, a laptop and a phone on its side.
+`frameCamera` in `scene.js` blends between hand-tuned stops — described by the
+half-height each wants to see, since wasted vertical space is what makes a
+framing look wrong — and solves the camera distance from that. Below 760px wide
+or 520px tall, or on any coarse pointer, the canvas also gives up its bottom
+edge to a control pad rather than having one float on top of the shop.
 
 ## Rebuilding the assets
 
@@ -112,15 +135,16 @@ The bundle is about 7.5MB and is not committed; `dist/` is ignored.
 ## Tests
 
 ```
-npm test                 # 22 assertions over the actual game rules
+npm test                 # 36 assertions over the actual game rules
 npm run shot             # a screenshot of the shop
 ```
 
 `tools/playtest.mjs` steps the simulation directly rather than waiting on
 wall-clock time, so a full day of trading takes about a second and the results
 are deterministic. It covers a clean sale end to end, wrong items, petting,
-patience running out, the day rolling over, losing, restarting, and four
-unattended minutes without the shop floor filling up.
+patience running out, the day rolling over, losing, restarting, streaks, each
+special customer's rules, the touch pad's counts, and four unattended minutes
+without the shop floor filling up.
 
 `tools/shot.mjs` serves the folder, drives a headless browser and exits non-zero
 on any page error, so it doubles as a smoke test. Useful flags:
@@ -131,7 +155,12 @@ node tools/shot.mjs --out shots/b.png --cam 2.6,2.3,6.2 --look 2.8,1,1.3
 node tools/shot.mjs --out shots/c.png --eval "window.__game.day = 5"
 node tools/shot.mjs --out shots/d.png --play 25000      # random clicking
 node tools/shot.mjs --page dist/hop-and-shop.html --out shots/e.png --sim 30
+node tools/shot.mjs --out shots/f.png --w 390 --h 844 --touch --sim 20   # phone
 ```
+
+`--touch` makes Chromium report a coarse pointer. Without it a phone-sized
+window still gets the desktop layout, which is exactly the bug it exists to
+catch.
 
 `--sim` exists because software rendering runs at a few frames a second, and the
 frame loop clamps `dt`, so waiting ten real seconds advances the game by about

@@ -62,7 +62,7 @@ export const STOCK_BY_ID = Object.fromEntries(STOCK.map((s) => [s.id, s]));
 // Crates sit on the counter top, evenly spaced across the left of it. The bag
 // and the bell live on the right, next to whoever is being served.
 export const CRATE_X = STOCK.map((_, i) => -4.6 + i * 1.2);
-export const BAG = { x: 2.9, y: COUNTER.top, z: COUNTER.z - 0.15 };
+export const BAG = { x: 2.05, y: COUNTER.top, z: COUNTER.z - 0.15 };
 export const BELL = { x: 4.2, y: COUNTER.top, z: COUNTER.z - 0.1 };
 
 // ---------------------------------------------------------------- rules
@@ -70,6 +70,7 @@ export const RULES = {
   dayLength: 105, // seconds of trading per day
   maxQueue: QUEUE.length,
   startHearts: 3,
+  maxHearts: 5, // a flawless inspection can buy one back
 
   // Patience only burns while a customer is actually at the counter waiting to
   // be served — browsing and queueing are free, so the shop stays relaxed.
@@ -87,6 +88,8 @@ export const RULES = {
   coinPerItem: 3,
   tipMax: 12, // full tip for a fast, flawless order
   speedTipWindow: 0.55, // fraction of patience left that still earns a full tip
+  streakTipStep: 0.12, // extra tip per flawless order in a row
+  streakTipCap: 1.2, // ...up to this much again on top
 };
 
 // How many distinct items and how many of each, as the days get busier.

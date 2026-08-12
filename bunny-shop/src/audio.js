@@ -97,6 +97,15 @@ export class Audio {
     this.tone(880, { at: 0.1, dur: 0.24, type: 'sine', gain: 0.16, to: 1320 });
   }
 
+  // Climbs a little with each streak milestone, so eight in a row sounds like
+  // more of an achievement than three.
+  fanfare(step) {
+    const root = 392 * Math.pow(2, Math.min(4, Math.floor(step / 4)) / 12);
+    [0, 4, 7, 12].forEach((semi, i) =>
+      this.tone(root * Math.pow(2, semi / 12), { at: i * 0.075, dur: 0.4, type: 'triangle', gain: 0.26 }),
+    );
+  }
+
   storm() {
     this.tone(330, { dur: 0.4, type: 'square', gain: 0.16, to: 110 });
     this.noise({ dur: 0.3, gain: 0.14, freq: 500 });
