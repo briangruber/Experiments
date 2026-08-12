@@ -156,7 +156,13 @@ export class Spray {
       uWind: ctx.windVec3,
       uSizeScale: p.spraySize, uStretch: p.sprayStretch, uMistStretch: p.sprayMistStretch,
       uMistGrow: p.sprayMistGrow,
-      uFadeNear: p.sprayFadeNear, uFadeFar: p.sprayRadius * 1.6,
+      // The fade has to END where spawning ends. At 1.6x the spawn radius its
+      // window ran 134 m to 192 m while particles were only ever created out to
+      // 120 m, so it never touched the boundary it existed to soften: spray drew
+      // at full opacity right up to 120 m and then stopped. That is a hard step
+      // in density on a disc centred on the camera, which is a full-width
+      // horizontal line across the sea that travels with you.
+      uFadeNear: p.sprayFadeNear, uFadeFar: p.sprayRadius,
       uViewportH: gl.drawingBufferHeight, uMinPixels: p.sprayMinPixels,
       uFarSoft: p.sprayFarSoft,
       uSkyLUT: skyLut, uSunDir: ctx.sunDir, uSunColor: p.sunIrradiance,

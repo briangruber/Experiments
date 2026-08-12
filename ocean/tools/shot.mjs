@@ -82,7 +82,7 @@ page.on('console', (m) => {
 });
 page.on('pageerror', (e) => errors.push('pageerror: ' + (e.stack || e.message)));
 
-await page.goto(`http://127.0.0.1:${port}/?preset=${encodeURIComponent(PRESET)}`, { waitUntil: 'load' });
+await page.goto(`http://127.0.0.1:${port}/?keepbuffer=1&preset=${encodeURIComponent(PRESET)}`, { waitUntil: 'load' });
 
 // Wait for the module to publish its handle (or fail loudly).
 try {

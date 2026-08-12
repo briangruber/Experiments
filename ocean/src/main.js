@@ -18,6 +18,7 @@ const canvas = document.getElementById('gl');
 // rather than from the live parameter set.
 const gl = getContext(canvas, {
   powerPref: new URLSearchParams(location.search).get('gpu') || defaults.powerPref,
+  keepBuffer: new URLSearchParams(location.search).has('keepbuffer'),
 });
 const blit = new Blitter(gl);
 

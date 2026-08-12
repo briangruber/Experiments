@@ -14,7 +14,12 @@ export function getContext(canvas, opts = {}) {
     // disables some compositor fast paths, and it existed solely so canvas.toBlob
     // would work for the Save PNG button. main.js now reads the buffer inside the
     // frame that drew it instead, which needs no copy at all.
-    preserveDrawingBuffer: false,
+    //
+    // The headless harness is the exception: it screenshots the page from
+    // outside the frame callback, so without the copy it reads a cleared
+    // buffer and every capture comes back black. ?keepbuffer=1 turns it on
+    // for that one caller.
+    preserveDrawingBuffer: !!opts.keepBuffer,
     // 'high-performance' is an explicit request for the DISCRETE GPU on any
     // laptop with switchable graphics - asked for unconditionally, including
     // while sitting still on a calm preset. 'default' lets the machine decide;

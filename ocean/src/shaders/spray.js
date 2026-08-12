@@ -473,7 +473,10 @@ void main(){
 
   float surf = oceanHeightFast(p.xz)*uHeightScale + uSeaLevel;
   if (p.y < surf) life = 0.0;
-  if (distance(p.xz, uCamPos.xz) > reach*1.7) life = 0.0;
+  // Just past the fade rather than well past it: a particle out at 1.7x the
+  // spawn radius has been invisible for a long time and is still costing a
+  // simulation slot that a visible one could have had.
+  if (distance(p.xz, uCamPos.xz) > reach*1.15) life = 0.0;
 
   oPos = vec4(p, max(life, 0.0));
   oVel = vec4(v, V.w);
