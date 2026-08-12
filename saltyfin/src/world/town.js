@@ -44,6 +44,7 @@ import { Fn, uniform, attribute, vertexColor, float, sin, step } from 'three/tsl
 import { LAYER, setLayers } from '../core/layers.js';
 import { applyWaterClip } from '../water/clip.js';
 import { makeRng } from '../core/rng.js';
+import { LIBRARY } from './assetLibrary.js';
 
 const C = (hex) => new THREE.Color().setHex(hex, THREE.SRGBColorSpace);
 
@@ -173,12 +174,19 @@ const KIND = {
   crate: { label: 'Crate', yaw: true, fp: () => 0.75 },
   barrel: { label: 'Barrel', yaw: false, fp: () => 0.75 },
   planter: { label: 'Planter', yaw: false, fp: () => 0.75 },
+  // A generated prop from the library: `a` names the assetLibrary entry.
+  asset: {
+    label: 'Asset',
+    yaw: true,
+    fp: (it) => (Object.prototype.hasOwnProperty.call(LIBRARY, it.a) ? LIBRARY[it.a].fp : 0.8),
+  },
 };
 
-/** Kinds the editor's add-palette offers. One tavern exists; it moves, it is
- *  not minted. */
+/** Procedural kinds the editor's add-palette offers. One tavern exists; it
+ *  moves, it is not minted. 'asset' is added through the library UI with a
+ *  specific `a`, never as a bare kind. */
 export const KIND_LIST = Object.keys(KIND)
-  .filter((k) => k !== 'tavern')
+  .filter((k) => k !== 'tavern' && k !== 'asset')
   .map((k) => ({ k, label: KIND[k].label, yaw: KIND[k].yaw }));
 
 /** Selection / collision radius for an item, metres. */
@@ -214,6 +222,18 @@ const DEFAULT_ITEMS = [
   { k: 'lamp', x: 3.4, z: -30.0, seed: 66 },
   { k: 'lamp', x: -8.2, z: 26.5, seed: 67 },
   { k: 'lamp', x: 8.2, z: 26.5, seed: 68 },
+  // A first pass of the generated props, placed where a working harbour
+  // would drop them: rope and anchor by the jetty, an umbrella at the stall,
+  // torches framing the lookout, greenery by the tavern.
+  { k: 'asset', a: 'ropecoil', x: -3.2, z: -31.0, yaw: 0, seed: 81 },
+  { k: 'asset', a: 'anchor', x: 2.8, z: -32.2, yaw: 2.2, seed: 82 },
+  { k: 'asset', a: 'umbrella', x: 2.6, z: 2.4, yaw: 0.5, seed: 83 },
+  { k: 'asset', a: 'netrack', x: 4.2, z: -10.8, yaw: -1.4, seed: 84 },
+  { k: 'asset', a: 'torch', x: -7.5, z: 24.5, yaw: 0, seed: 85 },
+  { k: 'asset', a: 'torch', x: 7.5, z: 24.5, yaw: 0, seed: 86 },
+  { k: 'asset', a: 'palm', x: -7.2, z: 22.0, yaw: 1.1, seed: 87 },
+  { k: 'asset', a: 'dinghy', x: 9.3, z: -6.8, yaw: 1.2, seed: 88 },
+  { k: 'asset', a: 'traps', x: -11.3, z: -1.2, yaw: 0.3, seed: 89 },
   // Crates and barrels tucked against the rails, never in the middle.
   { k: 'crate', x: -4.2, z: -18, yaw: 0.2, seed: 71 },
   { k: 'barrel', x: 4.2, z: -14, seed: 72 },
@@ -271,6 +291,13 @@ export function sanitizeLayout(raw) {
       o.w = clampNum(it.w, 4, 10, 6.4);
       o.d = clampNum(it.d, 3.5, 8, 5.0);
       o.h = clampNum(it.h, 2.6, 5.5, 3.4);
+    }
+    if (it.k === 'asset') {
+      // Same discipline as the kind itself: a string, and an own-property of
+      // the library table, or the item does not exist.
+      if (typeof it.a !== 'string'
+        || !Object.prototype.hasOwnProperty.call(LIBRARY, it.a)) continue;
+      o.a = it.a;
     }
     items.push(o);
     if (items.length >= 140) break;
@@ -384,6 +411,11 @@ export function createTown(opts = {}) {
   // layout's tavern item mounts it; when absent (asset failed, dev server
   // without assets) the tavern item builds as a big procedural shop instead.
   const heroTavern = opts.tavern || null;
+  // Library prop templates: { name: Object3D } for whichever assetLibrary
+  // entries actually loaded. A placed item whose template is missing simply
+  // does not appear this session — it stays in the layout, so it comes back
+  // the moment the asset does.
+  const assetTemplates = opts.assets || {};
   const SEED = ((opts.seed | 0) ^ 0x70774E) >>> 0;
 
   const group = new THREE.Group();
@@ -419,6 +451,53 @@ export function createTown(opts = {}) {
   meshGlow.name = 'town-glow';
   for (const m of [meshDeck, meshWall]) { m.castShadow = true; m.receiveShadow = true; }
   group.add(meshDeck, meshWall, meshGlow);
+
+  // Placed library props live in their own group so a rebuild can sweep them
+  // wholesale. Clones share the template's geometry and materials, so removal
+  // disposes nothing and costs nothing.
+  const instanceGroup = new THREE.Group();
+  instanceGroup.name = 'town-assets';
+  group.add(instanceGroup);
+
+  // Per-template scale factor, measured once from the raw model — the same
+  // memo discipline as the tavern's, for the same compounding reason.
+  const assetScale = {};
+  for (const [name, tpl] of Object.entries(assetTemplates)) {
+    if (!tpl || !LIBRARY[name]) continue;
+    // Wire the water clip into the template's materials now, before first
+    // render; every clone shares them, so this covers all future instances.
+    applyWaterClip(tpl);
+    tpl.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(tpl);
+    const size = box.getSize(new THREE.Vector3());
+    const def = LIBRARY[name];
+    const raw = def.axis === 'xz' ? Math.max(size.x, size.z) : size.y;
+    assetScale[name] = def.size / Math.max(raw, 1e-3);
+  }
+
+  /** Clone a library template, fit it, and stand it at a layout item's spot. */
+  function mountAsset(item) {
+    const tpl = assetTemplates[item.a];
+    const k = assetScale[item.a];
+    if (!tpl || !k) return null;
+    const inst = tpl.clone(true);
+    inst.scale.setScalar(k);
+    inst.rotation.y = TOWN_YAW + (item.yaw || 0);
+    const box = new THREE.Box3();
+    for (let pass = 0; pass < 2; pass++) {
+      inst.updateMatrixWorld(true);
+      box.setFromObject(inst);
+      const c = box.getCenter(new THREE.Vector3());
+      inst.position.x += worldX(item.x, item.z) - c.x;
+      inst.position.z += worldZ(item.x, item.z) - c.z;
+      inst.position.y += DECK_Y - box.min.y;
+    }
+    inst.traverse((o) => {
+      if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
+    });
+    instanceGroup.add(inst);
+    return inst;
+  }
 
   // The tavern's scale is measured once, from the raw GLB, and memoised: a
   // rebuild re-measuring an already-scaled object would compound the factor.
@@ -483,6 +562,11 @@ export function createTown(opts = {}) {
 
   function buildAll(items) {
     SOLIDS.length = 0;
+    // Sweep the placed props; clones share the templates' resources, so this
+    // is pure scene-graph surgery with nothing to dispose.
+    for (let i = instanceGroup.children.length - 1; i >= 0; i--) {
+      instanceGroup.remove(instanceGroup.children[i]);
+    }
     const rng = makeRng(SEED);            // the FIXED part's stream: same seed,
     const bDeck = makeBuilder();          // same planks, every rebuild
     const bWall = makeBuilder();
@@ -722,6 +806,9 @@ export function createTown(opts = {}) {
         case 'crate': crate(it.x, it.z, it.yaw || 0, r); break;
         case 'barrel': barrel(it.x, it.z, r); break;
         case 'planter': planter(it.x, it.z, r); break;
+        case 'asset':
+          if (mountAsset(it)) SOLIDS.push({ x: it.x, z: it.z, r: footprint(it) });
+          break;
       }
     }
 
@@ -845,6 +932,23 @@ export function createTown(opts = {}) {
     ghostTavern = true;
   }
 
+  // The same warm-up argument covers the prop library: any template the boot
+  // layout does not place gets one ghost clone on the lookout deck, drawn
+  // through the 24 warm hours and dismissed with the tavern's ghost. Without
+  // this, the first time a player adds a never-yet-placed prop the frame
+  // would stop to compile its pipelines.
+  const ghostAssets = [];
+  {
+    const placed = new Set(current.items.filter((i) => i.k === 'asset').map((i) => i.a));
+    let gx = -8;
+    for (const name of Object.keys(assetTemplates)) {
+      if (!assetTemplates[name] || !assetScale[name] || placed.has(name)) continue;
+      const g = mountAsset({ a: name, x: gx, z: 24, yaw: 0 });
+      if (g) ghostAssets.push(g);
+      gx += 2.4;
+    }
+  }
+
   setLayers(group, LAYER.MAIN, LAYER.REFLECTED);
   applyWaterClip(group);
 
@@ -865,18 +969,21 @@ export function createTown(opts = {}) {
     yaw: TOWN_YAW,
     decks: DECKS,
     KIND_LIST,
+    LIBRARY,
     footprint,
     defaultLayout,
 
     /** A deep copy of the layout the town is currently built from. */
     layout() { return copyLayout(current); },
 
-    /** Dismiss the warm-up ghost (see above). Called once, after warmUpClock. */
+    /** Dismiss the warm-up ghosts (see above). Called once, after warmUpClock. */
     warmupDone() {
       if (ghostTavern && heroTavern) {
         group.remove(heroTavern);
         ghostTavern = false;
       }
+      for (const g of ghostAssets) g.parent?.remove(g);
+      ghostAssets.length = 0;
     },
 
     /**

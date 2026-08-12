@@ -33,6 +33,7 @@ import { createVillage } from './models/village.js';
 import { createDock } from './models/dock.js';
 import { createTown, sanitizeLayout, TOWN_LAYOUT_KEY } from './world/town.js';
 import { createTownEditor } from './gameplay/townEditor.js';
+import { LIBRARY_NAMES } from './world/assetLibrary.js';
 import { createLighthouse } from './models/lighthouse.js';
 import { createProps } from './models/props.js';
 import { createMonster } from './creatures/monster.js';
@@ -226,6 +227,13 @@ const heroTavern = await loadGlb('tavern');
 const heroDolphin = await loadGlb('dolphin');
 const heroCharacter = await loadGlb('character');
 const heroIdle = await loadGlb('idle-anim');
+// The prop library: every entry in assetLibrary.js, loaded in parallel. Each
+// resolves to a scene template or null; the town clones templates per placed
+// item and quietly skips items whose asset failed to load.
+const libAssets = {};
+await Promise.all(LIBRARY_NAMES.map(async (n) => {
+  libAssets[n] = (await loadGlb('lib-' + n))?.scene ?? null;
+}));
 // The town builds from whatever layout the player saved in the editor, or its
 // shipped default. sanitizeLayout owns all trust decisions; a corrupt store
 // falls back whole rather than half-loading.
@@ -233,7 +241,9 @@ let storedLayout = null;
 try {
   storedLayout = sanitizeLayout(JSON.parse(localStorage.getItem(TOWN_LAYOUT_KEY)));
 } catch { /* absent, corrupt, or storage sandboxed — the default town it is */ }
-const town = build(createTown, { terrain, seed: SEED, tavern: heroTavern?.scene, layout: storedLayout });
+const town = build(createTown, {
+  terrain, seed: SEED, tavern: heroTavern?.scene, layout: storedLayout, assets: libAssets,
+});
 const lighthouse = build(createLighthouse, { terrain });
 const props = build(createProps, { terrain });
 // Fireflies on the shore after dark — one instanced draw, hidden by alpha so

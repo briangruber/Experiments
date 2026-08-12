@@ -30,6 +30,8 @@ import { uniform, vec3, sin } from 'three/tsl';
 import { LAYER, setLayers } from '../core/layers.js';
 import { applyWaterClip } from '../water/clip.js';
 import { TOWN_LAYOUT_KEY } from '../world/town.js';
+import { LIBRARY } from '../world/assetLibrary.js';
+import { THUMBS } from '../world/assetThumbs.js';
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const smooth = (t) => t * t * (3 - 2 * t);
@@ -82,12 +84,12 @@ const CSS = `
 #sf-edit .status { letter-spacing: .14em; text-transform: uppercase; font-size: 9px;
   color: rgba(196,222,244,.72); text-shadow: 0 1px 4px rgba(0,0,0,.6);
   white-space: nowrap; }
-#sf-edit button, #sf-edit-io button { appearance: none;
+#sf-edit button, #sf-edit-io button, #sf-edit-lib button { appearance: none;
   border: 1px solid rgba(206,232,255,.24); background: rgba(12,28,48,.7);
   color: #dceaf7; border-radius: 8px; min-height: 40px; padding: 6px 12px;
   cursor: pointer; font: 600 10px/1 ui-sans-serif, system-ui, sans-serif;
   letter-spacing: .12em; text-transform: uppercase; }
-#sf-edit button:active, #sf-edit-io button:active {
+#sf-edit button:active, #sf-edit-io button:active, #sf-edit-lib button:active {
   background: rgba(122,178,232,.34); color: #fff; }
 #sf-edit button:disabled { opacity: .35; cursor: default; }
 #sf-edit button:disabled:active { background: rgba(12,28,48,.7); color: #dceaf7; }
@@ -109,6 +111,40 @@ const CSS = `
   font: 500 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
 #sf-edit-io .row { display: flex; gap: 6px; justify-content: flex-end;
   margin-top: 10px; }
+#sf-edit-lib { position: fixed; inset: 0; z-index: 80; display: none;
+  align-items: center; justify-content: center; background: rgba(4,10,20,.55);
+  font: 600 10px/1.4 ui-sans-serif, system-ui, sans-serif; color: #dceaf7; }
+#sf-edit-lib.on { display: flex; }
+#sf-edit-lib .card { width: 92vw; max-width: 560px; box-sizing: border-box;
+  background: rgba(8,20,36,.92); border: 1px solid rgba(206,232,255,.24);
+  border-radius: 10px; padding: 14px;
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+#sf-edit-lib .title { letter-spacing: .18em; text-transform: uppercase;
+  font-size: 10px; color: rgba(214,236,255,.82); margin-bottom: 8px; }
+#sf-edit-lib input { display: block; width: 100%; box-sizing: border-box;
+  background: rgba(4,12,24,.8); color: #cfe4f6; margin-bottom: 10px;
+  border: 1px solid rgba(206,232,255,.18); border-radius: 8px; padding: 9px 10px;
+  font: 500 13px/1.2 ui-sans-serif, system-ui, sans-serif; }
+#sf-edit-lib .grid { display: grid; gap: 8px; overflow-y: auto;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  max-height: 52vh; overscroll-behavior: contain; }
+#sf-edit-lib .item { display: flex; flex-direction: column; align-items: center;
+  gap: 6px; padding: 8px 4px; text-align: center; text-transform: none;
+  letter-spacing: .03em; line-height: 1.35; font-size: 11px; }
+#sf-edit-lib .item img, #sf-edit-lib .item .sw { width: 68px; height: 68px;
+  border-radius: 8px; background: rgba(6,14,26,.9); object-fit: cover;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 19px; letter-spacing: .04em; color: rgba(170,205,235,.75);
+  pointer-events: none; }
+#sf-edit-lib .row { display: flex; gap: 6px; justify-content: space-between;
+  margin-top: 10px; }
+#sf-edit-lib .hint { font-size: 10px; letter-spacing: .02em; line-height: 1.55;
+  text-transform: none; font-weight: 500; color: rgba(196,222,244,.8);
+  margin-bottom: 10px; }
+#sf-edit-lib textarea { display: block; width: 100%; box-sizing: border-box;
+  resize: vertical; background: rgba(4,12,24,.8); color: #cfe4f6;
+  border: 1px solid rgba(206,232,255,.18); border-radius: 8px; padding: 8px;
+  font: 500 13px/1.45 ui-sans-serif, system-ui, sans-serif; }
 `;
 
 export function createTownEditor(opts = {}) {
@@ -148,8 +184,12 @@ export function createTownEditor(opts = {}) {
   // is selectable and it does rotate, so it is folded in by hand.
   const yawKinds = new Set(town.KIND_LIST.filter((e) => e.yaw).map((e) => e.k));
   yawKinds.add('tavern');
+  yawKinds.add('asset');
   const labels = new Map(town.KIND_LIST.map((e) => [e.k, e.label]));
-  const labelOf = (k) => labels.get(k) || (k.charAt(0).toUpperCase() + k.slice(1));
+  const itemLabel = (item) => {
+    if (item.k === 'asset') return LIBRARY[item.a]?.label || 'Asset';
+    return labels.get(item.k) || (item.k.charAt(0).toUpperCase() + item.k.slice(1));
+  };
 
   // --- the selection ring ---------------------------------------------------
   //
@@ -208,11 +248,8 @@ export function createTownEditor(opts = {}) {
   root.id = 'sf-edit';
   root.dataset.sfUi = '';
 
-  const chips = town.KIND_LIST
-    .map((e) => `<button data-add="${e.k}">${e.label}</button>`)
-    .join('');
   root.innerHTML = `
-    <div class="bar top"><span class="lbl">Add</span>${chips}</div>
+    <div class="bar top"><button id="sf-edit-addbtn">Add to town</button></div>
     <div class="dock">
       <div class="status"></div>
       <div class="bar bottom">
@@ -259,6 +296,62 @@ export function createTownEditor(opts = {}) {
   const btnApply = io.querySelector('#sf-edit-apply');
   const btnClose = io.querySelector('#sf-edit-close');
 
+  // --- the library ----------------------------------------------------------
+  //
+  // One overlay, two faces. The BROWSE face is a searchable grid: the
+  // procedural kinds first (a lettered swatch each), then every generated
+  // prop from assetLibrary.js with its rendered thumbnail. The COMMISSION
+  // face is the honest version of "type text, get a model": the page itself
+  // cannot reach the generator -- it is a sealed offline artifact, and the
+  // API key must never ship inside it -- so the wish is written here, copied,
+  // and pasted to Claude in the chat, where the real pipeline runs and ships
+  // the asset back in the next update of this page.
+
+  const lib = document.createElement('div');
+  lib.id = 'sf-edit-lib';
+  lib.dataset.sfUi = '';
+  const kindCards = town.KIND_LIST.map((e) =>
+    `<button class="item" data-addk="${e.k}" data-search="${e.label.toLowerCase()} ${e.k}">
+      <span class="sw">${e.label.slice(0, 2)}</span><span>${e.label}</span></button>`).join('');
+  const assetCards = Object.entries(LIBRARY).map(([name, def]) => {
+    const face = THUMBS[name]
+      ? `<img src="${THUMBS[name]}" alt="">`
+      : `<span class="sw">${def.label.slice(0, 2)}</span>`;
+    const search = (def.label + ' ' + def.tags + ' ' + name).toLowerCase();
+    return `<button class="item" data-adda="${name}" data-search="${search}">${face}<span>${def.label}</span></button>`;
+  }).join('');
+  lib.innerHTML = `
+    <div class="card" data-face="browse">
+      <div class="title">Add to the town</div>
+      <input id="sf-edit-search" type="search" placeholder="Search props..." autocomplete="off">
+      <div class="grid" id="sf-edit-grid">${kindCards}${assetCards}</div>
+      <div class="row">
+        <button id="sf-edit-new">Describe a new asset</button>
+        <button id="sf-edit-libclose">Close</button>
+      </div>
+    </div>
+    <div class="card" data-face="wish" style="display:none">
+      <div class="title">Commission an asset</div>
+      <div class="hint">Describe the prop you want and copy the request below,
+        then paste it to Claude in the chat that builds this game. A reference
+        image pasted straight into that chat works too. The generated asset
+        arrives in the library with the next update of this page.</div>
+      <textarea id="sf-edit-wishtext" rows="3"
+        placeholder="e.g. a weathered wooden mermaid figurehead"></textarea>
+      <div class="row">
+        <button id="sf-edit-wishcopy">Copy request</button>
+        <button id="sf-edit-wishback">Back</button>
+      </div>
+    </div>`;
+  document.body.appendChild(lib);
+
+  const libBrowse = lib.querySelector('[data-face="browse"]');
+  const libWish = lib.querySelector('[data-face="wish"]');
+  const searchEl = lib.querySelector('#sf-edit-search');
+  const gridEl = lib.querySelector('#sf-edit-grid');
+  const wishText = lib.querySelector('#sf-edit-wishtext');
+  const btnWishCopy = lib.querySelector('#sf-edit-wishcopy');
+
   // A button that answers with its own label for a moment -- Copied, Invalid --
   // then goes back to being itself. One timer per button so a double-tap
   // cannot strand the temporary text.
@@ -284,7 +377,7 @@ export function createTownEditor(opts = {}) {
     btnDup.disabled = !item || item.k === 'tavern';
     btnDel.disabled = !item;
     statusEl.textContent = item
-      ? labelOf(item.k) + ' selected'
+      ? itemLabel(item) + ' selected'
       : 'Tap a building to select it - drag to move';
   }
 
@@ -370,6 +463,17 @@ export function createTownEditor(opts = {}) {
     commit();
   }
 
+  // A generated prop from the library: same landing spot, but the item names
+  // its assetLibrary entry and the town does the cloning.
+  function addAsset(name) {
+    if (!Object.prototype.hasOwnProperty.call(LIBRARY, name)) return;
+    const lx = clamp(town.localX(target.x, target.z), -EDIT_X, EDIT_X);
+    const lz = clamp(town.localZ(target.x, target.z), -EDIT_Z, EDIT_Z);
+    working.items.push({ k: 'asset', a: name, x: lx, z: lz, yaw: 0, seed: (Math.random() * 1e9) | 0 });
+    selected = working.items.length - 1;
+    commit();
+  }
+
   function rotate(sign) {
     const item = selected >= 0 ? working.items[selected] : null;
     if (!item || !yawKinds.has(item.k)) return;
@@ -427,19 +531,21 @@ export function createTownEditor(opts = {}) {
   }
   function closeIo() { io.classList.remove('on'); }
 
-  function doCopy() {
-    const text = ta.value;
+  // Copy `text` and flash `btn`; on clipboard-API refusal fall back to
+  // selecting `el` (whose raw content is close enough to the wrapped text).
+  function copyText(text, el, btn) {
     const legacy = () => {
       try {
-        ta.select();
+        el.select();
         document.execCommand('copy');
-        flash(btnCopy, 'Copied');
+        flash(btn, 'Copied');
       } catch { /* nothing left to fall back to */ }
     };
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(() => flash(btnCopy, 'Copied'), legacy);
+      navigator.clipboard.writeText(text).then(() => flash(btn, 'Copied'), legacy);
     } else legacy();
   }
+  function doCopy() { copyText(ta.value, ta, btnCopy); }
 
   function doApply() {
     let parsed;
@@ -456,9 +562,45 @@ export function createTownEditor(opts = {}) {
     if (!commit()) flash(btnApply, 'Invalid');
   }
 
-  root.querySelector('.bar.top').addEventListener('click', (e) => {
-    const k = e.target?.dataset?.add;
-    if (k) addItem(k);
+  function openLib() {
+    libBrowse.style.display = '';
+    libWish.style.display = 'none';
+    searchEl.value = '';
+    filterGrid('');
+    lib.classList.add('on');
+  }
+  function closeLib() { lib.classList.remove('on'); }
+
+  function filterGrid(q) {
+    const needle = q.trim().toLowerCase();
+    for (const card of gridEl.children) {
+      card.style.display = !needle || card.dataset.search.includes(needle) ? '' : 'none';
+    }
+  }
+
+  root.querySelector('#sf-edit-addbtn').addEventListener('click', openLib);
+  lib.querySelector('#sf-edit-libclose').addEventListener('click', closeLib);
+  searchEl.addEventListener('input', () => filterGrid(searchEl.value));
+  gridEl.addEventListener('click', (e) => {
+    const card = e.target?.closest?.('[data-addk],[data-adda]');
+    if (!card) return;
+    closeLib();
+    if (card.dataset.addk) addItem(card.dataset.addk);
+    else addAsset(card.dataset.adda);
+  });
+  lib.querySelector('#sf-edit-new').addEventListener('click', () => {
+    libBrowse.style.display = 'none';
+    libWish.style.display = '';
+    wishText.focus();
+  });
+  lib.querySelector('#sf-edit-wishback').addEventListener('click', () => {
+    libWish.style.display = 'none';
+    libBrowse.style.display = '';
+  });
+  btnWishCopy.addEventListener('click', () => {
+    const desc = wishText.value.trim();
+    if (!desc) { flash(btnWishCopy, 'Describe it'); return; }
+    copyText('Salty Fin asset request: ' + desc, wishText, btnWishCopy);
   });
   btnRotL.addEventListener('click', () => rotate(-1));
   btnRotR.addEventListener('click', () => rotate(1));
@@ -665,8 +807,10 @@ export function createTownEditor(opts = {}) {
     const t = e.target;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
     if (e.code === 'Escape') {
-      // Two layers of "get me out": the overlay first, then the editor.
-      if (io.classList.contains('on')) closeIo();
+      // Layers of "get me out": whichever overlay is open first, then the
+      // editor itself.
+      if (lib.classList.contains('on')) closeLib();
+      else if (io.classList.contains('on')) closeIo();
       else exit();
     } else if (e.code === 'Delete' || e.code === 'Backspace') {
       e.preventDefault();
@@ -780,6 +924,7 @@ export function createTownEditor(opts = {}) {
     select(-1);
     disarmReset();
     closeIo();
+    closeLib();
     root.classList.remove('on');
     pointers.clear();
     mode = 'idle';
@@ -831,6 +976,7 @@ export function createTownEditor(opts = {}) {
     flashTimers.clear();
     root.remove();
     io.remove();
+    lib.remove();
     style.remove();
     ringGeo.dispose();
     ringMat.dispose();
