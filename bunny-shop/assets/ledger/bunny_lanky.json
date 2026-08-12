@@ -1,0 +1,30 @@
+{
+  "model": {
+    "key": "100bd60162fe",
+    "task": "687d0c54-118e-40a8-a193-a07afbe9c19b"
+  },
+  "rig": {
+    "key": "33038dbf8cd8",
+    "task": "a0373268-ca8f-40f3-9e70-6e36e10b25ea"
+  },
+  "anim:idle": {
+    "key": "efeffc0f6d54",
+    "task": "1678ee11-badb-442b-ade0-51a1d53ad05f"
+  },
+  "anim:walk": {
+    "key": "b66ef0e4743a",
+    "task": "bd943ef2-bb04-40bb-9281-bd703b75e5fc"
+  },
+  "anim:jump": {
+    "key": "c6c311631582",
+    "task": "7c5a8f6a-9feb-4aa5-85d8-0bc5cc11bcac"
+  },
+  "anim:run": {
+    "key": "961f99768d4b",
+    "task": "2455a28e-c5da-4fa7-9a2a-5c3d25a8e049"
+  },
+  "anim:hurt": {
+    "key": "28712e244e2b",
+    "task": "8b4d8e76-5c80-435b-952e-8ee55e0d89a9"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "hop-and-shop",
+  "private": true,
+  "type": "module",
+  "description": "A tiny grocery for very demanding rabbits.",
+  "scripts": {
+    "assets": "node tools/tripo.mjs run",
+    "assets:list": "node tools/tripo.mjs list",
+    "optimize": "node tools/optimize.mjs",
+    "shot": "node tools/shot.mjs --out shots/shop.png --open",
+    "test": "node tools/shot.mjs --out shots/smoke.png --play 25000"
+  },
+  "devDependencies": {
+    "@gltf-transform/core": "^4.2.1",
+    "@gltf-transform/extensions": "^4.2.1",
+    "@gltf-transform/functions": "^4.2.1",
+    "playwright": "^1.56.0",
+    "sharp": "^0.34.4",
+    "three": "^0.185.1"
+  }
+}

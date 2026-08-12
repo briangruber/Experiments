@@ -15,6 +15,7 @@ collide, and a branch can be merged without reading it first.
 | folder | what it is |
 | --- | --- |
 | `ocean/` | Abyssal — a real-time cinematic ocean simulator with a rideable wave runner. Multi-cascade FFT sea, volumetric clouds, GPU spray, persistent Kelvin wake. |
+| `bunny-shop/` | Hop & Shop — a shopkeeper game for very demanding rabbits. Every model, rig and animation generated through the Tripo text-to-3D API. |
 
 Other prototypes currently live on their own branches and follow the same
 convention (`harbor/`, `boats/`, `cozy-fishing/`). They can be merged here as
