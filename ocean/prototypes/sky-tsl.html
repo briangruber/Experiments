@@ -20,10 +20,12 @@
   A mirrored LUT, a dropped scattering term or a phase function off by a
   constant all compile perfectly.
 
-  ?backend=webgl forces the WebGL2 backend. WebGPU cannot render in this sandbox
-  (Chromium 141 rejects the swizzle property three r185 passes to createView),
-  so WebGL2 is the backend this comparison can actually run on here - which is
-  the useful one anyway, because it is the fallback that has to match.
+  ?backend=webgl (default) forces the WebGL2 backend; ?backend=webgpu uses the
+  real WebGPU one. Both run here: WebGPU is present as a SwiftShader adapter,
+  and prototypes/webgpu-shim.js works around the one incompatibility that used
+  to block it (three r185 passes swizzle:'rgba' as a string where Chromium 141
+  wants a GPUTextureComponentSwizzle dictionary - 'rgba' is the identity, so the
+  shim drops a no-op). Both backends are verified against the same reference.
 -->
 
 <script type="importmap">
@@ -36,6 +38,8 @@
 
 <script type="module">
 import * as THREE from 'three/webgpu';
+import { installWebGPUSwizzleShim } from './webgpu-shim.js';
+import { readPixelsBottomUp } from './readback.js';
 import { TslSky } from '../src/gpu/tsl/sky-driver.js';
 import { newParams } from '../src/presets.js';
 import { createDerived, derive } from '../src/derive.js';
@@ -45,6 +49,8 @@ const q = new URLSearchParams(location.search);
 const W = +(q.get('w') || 160), H = +(q.get('h') || 100);
 const PRESET = q.get('preset') || 'Golden Hour Swell';
 const FORCE_WEBGL = (q.get('backend') || 'webgl') === 'webgl';
+
+installWebGPUSwizzleShim();
 
 const results = [];
 const log = (name, ok, detail = '') => {
@@ -110,8 +116,9 @@ try {
   });
   renderer.setRenderTarget(null);
 
-  const raw = await renderer.readRenderTargetPixelsAsync(target, 0, 0, W, H);
-  const px = new Float32Array(raw.buffer ? raw.buffer : raw);
+  // Bottom-up on both backends - see readback.js. The two disagree and the
+  // difference does not move the statistics, only every individual pixel.
+  const px = await readPixelsBottomUp(renderer, target, W, H);
 
   const view2d = document.getElementById('view').getContext('2d');
   const img = view2d.createImageData(W, H);
