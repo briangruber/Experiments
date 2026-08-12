@@ -53,10 +53,10 @@ await page.route('https://unpkg.com/**', async (route) => {
   } catch { route.fulfill({ status: 404, body: 'not vendored: ' + rel }); }
 });
 
-await page.goto(`http://127.0.0.1:${port}/${PAGE}`, { waitUntil: 'load' });
+await page.goto(`http://127.0.0.1:${port}/${PAGE}`, { waitUntil: 'domcontentloaded' });
 let result = null;
 try {
-  await page.waitForFunction(() => !!window.probeResult, null, { timeout: 60000 });
+  await page.waitForFunction(() => !!window.probeResult, null, { timeout: 240000 });
   result = await page.evaluate(() => window.probeResult);
 } catch {
   result = { error: 'window.probeResult never appeared', pageErrors };

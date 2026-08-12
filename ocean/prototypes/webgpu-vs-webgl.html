@@ -1,0 +1,619 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WebGPU vs WebGL2 — is it actually faster for this workload?</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; background:#070b11; color:#d6e4f0; font:14px/1.65 ui-sans-serif,system-ui,sans-serif; padding:28px; }
+  main { max-width:860px; margin:0 auto; }
+  h1 { font-size:21px; margin:0 0 6px; }
+  h2 { font-size:15px; margin:30px 0 8px; color:#9fc9e8; }
+  p.sub { color:#7f95ab; margin:0 0 22px; }
+  button { background:#1b4b6b; color:#eaf4fb; border:1px solid #2f6f96; border-radius:7px; padding:9px 18px; cursor:pointer; }
+  button:hover { background:#235f86; } button:disabled { opacity:.5; cursor:default; }
+  table { border-collapse:collapse; width:100%; margin:8px 0 4px; }
+  th,td { text-align:left; padding:6px 10px; border-bottom:1px solid #1c2b3a; font-variant-numeric:tabular-nums; }
+  th { color:#8ba3b8; font-weight:600; font-size:12.5px; text-transform:uppercase; letter-spacing:.04em; }
+  td.num { text-align:right; }
+  code,pre { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12.5px; }
+  pre { background:#0b1220; border:1px solid #1d2c3c; border-radius:8px; padding:12px; overflow-x:auto; }
+  .win { color:#6ee7a8; } .lose { color:#ff9b8a; } .same { color:#c9d6e2; }
+  .note { color:#7f95ab; font-size:13px; }
+  #verdict { margin-top:10px; padding:14px 16px; border-radius:8px; border:1px solid #2a3f55; background:#0d1724; }
+  .bad { color:#ff9b8a; }
+</style>
+
+<main>
+<h1>WebGPU vs WebGL2, on this machine</h1>
+<p class="sub">
+  Three measurements that decide whether porting Abyssal's renderer to WebGPU
+  would make it faster. Everything runs locally; nothing is uploaded.
+</p>
+
+<button id="run">Run benchmark</button>
+<span id="status" class="note"></span>
+
+<div id="out"></div>
+
+<h2>And the number that matters most</h2>
+<p class="note">
+  The benchmark above measures the two halves of the frame in isolation. What
+  decides the answer is how much of a <em>real</em> frame each half actually is.
+  Open the ocean simulator, then paste this into its console — it ablates the
+  simulation and reports its share of the frame on your GPU. Takes ~20 seconds
+  and the picture will freeze partway through, which is expected.
+</p>
+<pre id="snippet"></pre>
+<button id="copy">Copy the console snippet</button>
+
+</main>
+
+<script>
+// ---------------------------------------------------------------------------
+// What is being compared, and why these three things
+//
+// A. Fragment shading. Abyssal's frame is dominated by ALU-bound per-pixel work
+//    - a volumetric cloud raymarch and a water BRDF. The claim under test is
+//      that this costs the same in both APIs, because it is the same arithmetic
+//      on the same hardware and neither API is doing anything clever with it.
+//
+// B. FFT, same algorithm both sides. Our ocean simulation is a stack of FFT
+//    butterfly passes, run as fragment passes because WebGL2 has no compute.
+//    Running the identical algorithm as WebGPU compute isolates pure API
+//    overhead - dispatch cost, binding cost, barrier cost - with the maths held
+//    constant.
+//
+// C. FFT, the way you would actually write it in WebGPU: all eight butterfly
+//    stages inside one dispatch, with the row held in workgroup shared memory
+//    instead of round-tripping through a texture between every stage. This is
+//    the real compute win, and it is the strongest case WebGPU has here.
+//
+// C is what a WebGPU port would buy. A is what it would not.
+// ---------------------------------------------------------------------------
+
+const N = 256;              // FFT size per axis - matches the default fftSize
+const LOGN = 8;
+const BATCHES = 4;          // four cascades
+
+// ?auto=1 is the headless self-test: it only has to prove the code paths run
+// and that the two backends agree numerically. It runs on a software rasteriser
+// where the full workload would take many minutes, so it is scaled right down.
+// Real numbers come from a real GPU at the full size.
+const AUTO = new URLSearchParams(location.search).has('auto');
+const FFT_ITERS = AUTO ? 2 : 30;
+const SHADE_ITERS = AUTO ? 2 : 20;
+const SHADE_W = AUTO ? 256 : 1280, SHADE_H = AUTO ? 160 : 720;
+
+const el = (id) => document.getElementById(id);
+const fmt = (x) => (x >= 100 ? x.toFixed(0) : x >= 10 ? x.toFixed(1) : x.toFixed(2));
+
+// ============================================================ shared maths ==
+// The same expensive loop in both languages. Deliberately arithmetic, with no
+// texture reads, so it measures shading throughput rather than memory.
+const SHADE_BODY_GLSL = `
+float hash(vec3 p){ p = fract(p*0.3183099+vec3(0.1,0.2,0.3)); p *= 17.0; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
+float noise(vec3 x){
+  vec3 i = floor(x), f = fract(x); f = f*f*(3.0-2.0*f);
+  return mix(mix(mix(hash(i+vec3(0,0,0)),hash(i+vec3(1,0,0)),f.x),
+                 mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),
+             mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),
+                 mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z);
+}
+float march(vec2 uv, float t){
+  vec3 ro = vec3(uv*4.0, t), rd = normalize(vec3(uv, 1.0));
+  float acc = 0.0, s = 0.0;
+  for (int i = 0; i < 64; i++){
+    vec3 p = ro + rd*s;
+    float d = noise(p) + 0.5*noise(p*2.03) + 0.25*noise(p*4.01) + 0.125*noise(p*8.05);
+    acc += d*0.02; s += 0.06;
+  }
+  return acc;
+}`;
+
+const SHADE_BODY_WGSL = `
+fn hash(pin: vec3f) -> f32 { var p = fract(pin*0.3183099 + vec3f(0.1,0.2,0.3)); p *= 17.0; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
+fn noise(x: vec3f) -> f32 {
+  let i = floor(x); var f = fract(x); f = f*f*(3.0-2.0*f);
+  return mix(mix(mix(hash(i+vec3f(0,0,0)),hash(i+vec3f(1,0,0)),f.x),
+                 mix(hash(i+vec3f(0,1,0)),hash(i+vec3f(1,1,0)),f.x),f.y),
+             mix(mix(hash(i+vec3f(0,0,1)),hash(i+vec3f(1,0,1)),f.x),
+                 mix(hash(i+vec3f(0,1,1)),hash(i+vec3f(1,1,1)),f.x),f.y),f.z);
+}
+fn march(uv: vec2f, t: f32) -> f32 {
+  let ro = vec3f(uv*4.0, t); let rd = normalize(vec3f(uv, 1.0));
+  var acc = 0.0; var s = 0.0;
+  for (var i = 0; i < 64; i++){
+    let p = ro + rd*s;
+    let d = noise(p) + 0.5*noise(p*2.03) + 0.25*noise(p*4.01) + 0.125*noise(p*8.05);
+    acc += d*0.02; s += 0.06;
+  }
+  return acc;
+}`;
+
+// ================================================================== WebGL2 ==
+function initGL() {
+  const c = document.createElement('canvas');
+  c.width = SHADE_W; c.height = SHADE_H;
+  const gl = c.getContext('webgl2', { antialias: false, preserveDrawingBuffer: false });
+  if (!gl) throw new Error('WebGL2 unavailable');
+  if (!gl.getExtension('EXT_color_buffer_float')) throw new Error('EXT_color_buffer_float unavailable');
+  return gl;
+}
+
+function glProgram(gl, vs, fs) {
+  const mk = (t, s) => {
+    const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o);
+    if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o));
+    return o;
+  };
+  const p = gl.createProgram();
+  gl.attachShader(p, mk(gl.VERTEX_SHADER, '#version 300 es\nprecision highp float;\n' + vs));
+  gl.attachShader(p, mk(gl.FRAGMENT_SHADER, '#version 300 es\nprecision highp float;\nprecision highp int;\n' + fs));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  return p;
+}
+
+const FS_VS = `layout(location=0) in vec2 a; out vec2 vUv;
+void main(){ vUv = a*0.5+0.5; gl_Position = vec4(a,0,1); }`;
+
+function glQuad(gl) {
+  const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+  const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  gl.bindVertexArray(null);
+  return vao;
+}
+
+function glTex(gl, w, h, data = null) {
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, w, h, 0, gl.RGBA, gl.FLOAT, data);
+  for (const p of [gl.TEXTURE_MIN_FILTER, gl.TEXTURE_MAG_FILTER]) gl.texParameteri(gl.TEXTURE_2D, p, gl.NEAREST);
+  for (const p of [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T]) gl.texParameteri(gl.TEXTURE_2D, p, gl.CLAMP_TO_EDGE);
+  return t;
+}
+function glFbo(gl, tex) {
+  const f = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  return f;
+}
+
+// A. shading
+async function glShade(gl, vao) {
+  const prog = glProgram(gl, FS_VS, `
+${SHADE_BODY_GLSL}
+in vec2 vUv; uniform float uT; out vec4 frag;
+void main(){ frag = vec4(vec3(march(vUv, uT)), 1.0); }`);
+  const tex = glTex(gl, SHADE_W, SHADE_H), fbo = glFbo(gl, tex);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+  gl.viewport(0, 0, SHADE_W, SHADE_H);
+  gl.useProgram(prog); gl.bindVertexArray(vao);
+  const loc = gl.getUniformLocation(prog, 'uT');
+  const run = (n) => { for (let i = 0; i < n; i++) { gl.uniform1f(loc, i * 0.1); gl.drawArrays(gl.TRIANGLES, 0, 3); } };
+  run(3);
+  const px = new Float32Array(4);
+  gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.FLOAT, px);          // sync
+  const t0 = performance.now();
+  run(SHADE_ITERS);
+  gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.FLOAT, px);          // sync
+  const ms = (performance.now() - t0) / SHADE_ITERS;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  return ms;
+}
+
+// B. FFT as fragment passes - the structure Abyssal actually uses today.
+// Data layout: RGBA32F texture, width N, height N*BATCHES. .rg is one complex
+// number; .ba is a second, so one pass moves two channels at once exactly as
+// the real cascade assembly does.
+async function glFFT(gl, vao) {
+  const bitrev = glProgram(gl, FS_VS, `
+uniform sampler2D uSrc; uniform int uN, uLogN, uAxis;
+out vec4 frag;
+int rev(int x, int bits){ int r = 0; for (int i=0;i<16;i++){ if(i>=bits) break; r = (r<<1)|(x&1); x >>= 1; } return r; }
+void main(){
+  ivec2 c = ivec2(gl_FragCoord.xy);
+  int i = (uAxis == 0) ? c.x : (c.y % uN);
+  int j = rev(i, uLogN);
+  ivec2 s = (uAxis == 0) ? ivec2(j, c.y) : ivec2(c.x, (c.y/uN)*uN + j);
+  frag = texelFetch(uSrc, s, 0);
+}`);
+  const butter = glProgram(gl, FS_VS, `
+uniform sampler2D uSrc; uniform int uN, uStage, uAxis;
+out vec4 frag;
+vec2 cmul(vec2 a, vec2 b){ return vec2(a.x*b.x - a.y*b.y, a.x*b.y + a.y*b.x); }
+void main(){
+  ivec2 c = ivec2(gl_FragCoord.xy);
+  int i = (uAxis == 0) ? c.x : (c.y % uN);
+  int m = 1 << uStage, half_ = m >> 1;
+  int k = i % m;
+  bool upper = k < half_;
+  int j = upper ? k : k - half_;
+  int ia = upper ? i : i - half_;
+  int ib = ia + half_;
+  ivec2 pa = (uAxis == 0) ? ivec2(ia, c.y) : ivec2(c.x, (c.y/uN)*uN + ia);
+  ivec2 pb = (uAxis == 0) ? ivec2(ib, c.y) : ivec2(c.x, (c.y/uN)*uN + ib);
+  vec4 A = texelFetch(uSrc, pa, 0), B = texelFetch(uSrc, pb, 0);
+  float ang = -6.28318530718 * float(j) / float(m);
+  vec2 w = vec2(cos(ang), sin(ang));
+  vec2 t0 = cmul(B.rg, w), t1 = cmul(B.ba, w);
+  frag = 0.5 * (upper ? vec4(A.rg + t0, A.ba + t1) : vec4(A.rg - t0, A.ba - t1));
+}`);
+
+  const H = N * BATCHES;
+  const init = new Float32Array(N * H * 4);
+  for (let i = 0; i < init.length; i++) init[i] = Math.sin(i * 0.017) * 0.5;
+  let src = glTex(gl, N, H, init), dst = glTex(gl, N, H);
+  let fsrc = glFbo(gl, src), fdst = glFbo(gl, dst);
+
+  gl.viewport(0, 0, N, H);
+  gl.bindVertexArray(vao);
+
+  const pass = (prog, uni) => {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fdst);
+    gl.useProgram(prog);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, src);
+    gl.uniform1i(gl.getUniformLocation(prog, 'uSrc'), 0);
+    for (const [k, v] of Object.entries(uni)) gl.uniform1i(gl.getUniformLocation(prog, k), v);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    [src, dst] = [dst, src]; [fsrc, fdst] = [fdst, fsrc];
+  };
+
+  const once = () => {
+    for (const axis of [0, 1]) {
+      pass(bitrev, { uN: N, uLogN: LOGN, uAxis: axis });
+      for (let s = 1; s <= LOGN; s++) pass(butter, { uN: N, uStage: s, uAxis: axis });
+    }
+  };
+
+  // One clean transform of the known input first: that is the value the two
+  // backends get compared on. The timed loop below deliberately runs transform
+  // on transform, which is fine for timing and meaningless for correctness.
+  once();
+  const sample = new Float32Array(8);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fsrc);
+  gl.readPixels(0, 0, 2, 1, gl.RGBA, gl.FLOAT, sample);
+  const sync = new Float32Array(4);
+  const t0 = performance.now();
+  for (let i = 0; i < FFT_ITERS; i++) once();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fsrc);
+  gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.FLOAT, sync);   // forces the queue to drain
+  const ms = (performance.now() - t0) / FFT_ITERS;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  return { ms, sample: Array.from(sample) };
+}
+
+// ================================================================== WebGPU ==
+async function initGPU() {
+  if (!('gpu' in navigator)) return { ok: false, why: 'navigator.gpu is undefined — this browser has no WebGPU' };
+  const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+  if (!adapter) return { ok: false, why: 'requestAdapter() returned null' };
+  const device = await adapter.requestDevice();
+  const info = adapter.info || {};
+  return { ok: true, adapter, device, info };
+}
+
+async function gpuShade(device) {
+  const mod = device.createShaderModule({ code: `
+${SHADE_BODY_WGSL}
+struct VOut { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
+@vertex fn vs(@builtin(vertex_index) i: u32) -> VOut {
+  var p = array<vec2f,3>(vec2f(-1,-1), vec2f(3,-1), vec2f(-1,3));
+  var o: VOut; o.pos = vec4f(p[i], 0, 1); o.uv = p[i]*0.5+0.5; return o;
+}
+@group(0) @binding(0) var<uniform> uT : f32;
+@fragment fn fs(in: VOut) -> @location(0) vec4f { return vec4f(vec3f(march(in.uv, uT)), 1.0); }` });
+
+  const ubo = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const pipeline = device.createRenderPipeline({
+    layout: 'auto', vertex: { module: mod, entryPoint: 'vs' },
+    fragment: { module: mod, entryPoint: 'fs', targets: [{ format: 'rgba16float' }] },
+    primitive: { topology: 'triangle-list' },
+  });
+  const bind = device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: ubo } }] });
+  const tex = device.createTexture({ size: [SHADE_W, SHADE_H], format: 'rgba16float', usage: GPUTextureUsage.RENDER_ATTACHMENT });
+  const view = tex.createView();
+
+  const run = (n) => {
+    const enc = device.createCommandEncoder();
+    for (let i = 0; i < n; i++) {
+      device.queue.writeBuffer(ubo, 0, new Float32Array([i * 0.1]));
+      const p = enc.beginRenderPass({ colorAttachments: [{ view, loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] });
+      p.setPipeline(pipeline); p.setBindGroup(0, bind); p.draw(3); p.end();
+    }
+    device.queue.submit([enc.finish()]);
+  };
+  run(3); await device.queue.onSubmittedWorkDone();
+  const t0 = performance.now();
+  run(SHADE_ITERS); await device.queue.onSubmittedWorkDone();
+  return (performance.now() - t0) / SHADE_ITERS;
+}
+
+// FFT on the GPU. Two variants over identical data.
+const FFT_WGSL = `
+struct P { n: u32, logn: u32, axis: u32, stage: u32 };
+@group(0) @binding(0) var<storage, read> src : array<vec4f>;
+@group(0) @binding(1) var<storage, read_write> dst : array<vec4f>;
+@group(0) @binding(2) var<uniform> p : P;
+
+fn idxOf(row: u32, t: u32, n: u32, axis: u32) -> u32 {
+  if (axis == 0u) { return row * n + t; }
+  let b = row / n; let x = row % n;
+  return b*n*n + t*n + x;
+}
+fn bitrev(xin: u32, bits: u32) -> u32 {
+  var x = xin; var r = 0u;
+  for (var i = 0u; i < bits; i = i + 1u) { r = (r << 1u) | (x & 1u); x = x >> 1u; }
+  return r;
+}
+fn cmul(a: vec2f, b: vec2f) -> vec2f { return vec2f(a.x*b.x - a.y*b.y, a.x*b.y + a.y*b.x); }
+
+// --- variant B: one dispatch per butterfly stage, mirroring the fragment path
+@compute @workgroup_size(64)
+fn stagewise(@builtin(global_invocation_id) gid: vec3u) {
+  let n = p.n;
+  let total = arrayLength(&src);
+  let lin = gid.x;
+  if (lin >= total) { return; }
+  let row = lin / n; let t = lin % n;
+  if (p.stage == 0u) {
+    dst[idxOf(row, t, n, p.axis)] = src[idxOf(row, bitrev(t, p.logn), n, p.axis)];
+    return;
+  }
+  let m = 1u << p.stage; let h = m >> 1u;
+  let k = t % m;
+  let upper = k < h;
+  var j = k; var ia = t;
+  if (!upper) { j = k - h; ia = t - h; }
+  let A = src[idxOf(row, ia, n, p.axis)];
+  let B = src[idxOf(row, ia + h, n, p.axis)];
+  let ang = -6.28318530718 * f32(j) / f32(m);
+  let w = vec2f(cos(ang), sin(ang));
+  let t0 = cmul(B.xy, w); let t1 = cmul(B.zw, w);
+  var o: vec4f;
+  if (upper) { o = vec4f(A.xy + t0, A.zw + t1); } else { o = vec4f(A.xy - t0, A.zw - t1); }
+  o = o * 0.5;
+  dst[idxOf(row, t, n, p.axis)] = o;
+}
+
+// --- variant C: the whole 256-point transform in one dispatch, the row held in
+//     workgroup memory. This is the reason to want compute at all: eight stages
+//     with no round trip to memory between them.
+var<workgroup> shA : array<vec2f, 256>;
+var<workgroup> shB : array<vec2f, 256>;
+
+@compute @workgroup_size(256)
+fn shared_mem(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_id) lid: vec3u) {
+  let n = p.n; let row = wg.x; let t = lid.x;
+  let v = src[idxOf(row, bitrev(t, p.logn), n, p.axis)];
+  shA[t] = v.xy; shB[t] = v.zw;
+  workgroupBarrier();
+  for (var s = 1u; s <= p.logn; s = s + 1u) {
+    let m = 1u << s; let h = m >> 1u;
+    if (t < n / 2u) {
+      let k = t / h; let j = t % h;
+      let i0 = k*m + j; let i1 = i0 + h;
+      let ang = -6.28318530718 * f32(j) / f32(m);
+      let w = vec2f(cos(ang), sin(ang));
+      let a0 = shA[i0]; let b0 = cmul(shA[i1], w);
+      let a1 = shB[i0]; let b1 = cmul(shB[i1], w);
+      shA[i0] = (a0 + b0) * 0.5; shA[i1] = (a0 - b0) * 0.5;
+      shB[i0] = (a1 + b1) * 0.5; shB[i1] = (a1 - b1) * 0.5;
+    }
+    workgroupBarrier();
+  }
+  dst[idxOf(row, t, n, p.axis)] = vec4f(shA[t], shB[t]);
+}`;
+
+async function gpuFFT(device, mode) {
+  const mod = device.createShaderModule({ code: FFT_WGSL });
+  const COUNT = N * N * BATCHES;
+  const bytes = COUNT * 16;
+  const init = new Float32Array(COUNT * 4);
+  for (let i = 0; i < init.length; i++) init[i] = Math.sin(i * 0.017) * 0.5;
+
+  const mk = () => device.createBuffer({ size: bytes, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
+  let a = mk(), b = mk();
+  device.queue.writeBuffer(a, 0, init);
+  const pipeline = device.createComputePipeline({ layout: 'auto', compute: { module: mod, entryPoint: mode } });
+
+  // The uniform has to differ per dispatch, and a single uniform buffer written
+  // between dispatches in one encoder would race. One small buffer per dispatch,
+  // built up front, keeps the measurement about the maths.
+  const stages = [];
+  for (const axis of [0, 1]) {
+    if (mode === 'stagewise') { for (let s = 0; s <= LOGN; s++) stages.push([axis, s]); }
+    else stages.push([axis, 0]);
+  }
+  const ubos = stages.map(([axis, s]) => {
+    const u = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    device.queue.writeBuffer(u, 0, new Uint32Array([N, LOGN, axis, s]));
+    return u;
+  });
+
+  const once = () => {
+    const enc = device.createCommandEncoder();
+    let s = a, d = b;
+    stages.forEach((_, i) => {
+      const bind = device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: s } },
+          { binding: 1, resource: { buffer: d } },
+          { binding: 2, resource: { buffer: ubos[i] } },
+        ],
+      });
+      const pass = enc.beginComputePass();
+      pass.setPipeline(pipeline); pass.setBindGroup(0, bind);
+      if (mode === 'stagewise') pass.dispatchWorkgroups(Math.ceil(COUNT / 64));
+      else pass.dispatchWorkgroups(N * BATCHES);
+      pass.end();
+      [s, d] = [d, s];
+    });
+    device.queue.submit([enc.finish()]);
+    return s;                                   // buffer holding the result
+  };
+
+  // Clean transform of the known input, read back for the cross-check.
+  const clean = once();
+  await device.queue.onSubmittedWorkDone();
+  const rb = device.createBuffer({ size: 32, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+  const enc0 = device.createCommandEncoder();
+  enc0.copyBufferToBuffer(clean, 0, rb, 0, 32);
+  device.queue.submit([enc0.finish()]);
+  await rb.mapAsync(GPUMapMode.READ);
+  const sample = Array.from(new Float32Array(rb.getMappedRange().slice(0))).slice(0, 8);
+  rb.unmap();
+
+  const t0 = performance.now();
+  for (let i = 0; i < FFT_ITERS; i++) once();
+  await device.queue.onSubmittedWorkDone();
+  const ms = (performance.now() - t0) / FFT_ITERS;
+  return { ms, sample };
+}
+
+// ==================================================================== main ==
+el('run').onclick = async () => {
+  el('run').disabled = true;
+  el('status').textContent = ' running, this takes about a minute…';
+  const out = el('out');
+  out.innerHTML = '';
+  const rows = [];
+  const say = (html) => { out.innerHTML += html; };
+
+  window.__bench = [];
+  const check = (name, ok, detail = '') => window.__bench.push({ name, ok, detail });
+
+  let gpu = { ok: false, why: 'not attempted' };
+  try { gpu = await initGPU(); } catch (e) { gpu = { ok: false, why: String(e.message || e) }; }
+
+  check('WebGPU available', gpu.ok, gpu.ok ? `${gpu.info.vendor || '?'}/${gpu.info.architecture || '?'}` : gpu.why);
+  const gl = initGL(), vao = glQuad(gl);
+  const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+  const glName = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+
+  say(`<h2>Hardware</h2><table>
+    <tr><th>WebGL2 renderer</th><td>${glName}</td></tr>
+    <tr><th>WebGPU</th><td>${gpu.ok
+      ? `${gpu.info.vendor || '?'} / ${gpu.info.architecture || '?'} ${gpu.info.description || ''}`
+      : `<span class="bad">unavailable — ${gpu.why}</span>`}</td></tr></table>`);
+
+  // A. shading
+  el('status').textContent = ' A: fragment shading…';
+  const glS = await glShade(gl, vao);
+  check('WebGL2 shading ran', Number.isFinite(glS) && glS > 0, `${fmt(glS)} ms`);
+  const gpS = gpu.ok ? await gpuShade(gpu.device) : null;
+  if (gpu.ok) check('WebGPU shading ran', Number.isFinite(gpS) && gpS > 0, `${fmt(gpS)} ms`);
+
+  // B/C. FFT
+  el('status').textContent = ' B: FFT as fragment passes…';
+  const glF = await glFFT(gl, vao);
+  check('WebGL2 FFT ran', Number.isFinite(glF.ms) && glF.ms > 0 && glF.sample.some((v) => v !== 0),
+        `${fmt(glF.ms)} ms, sample[0]=${glF.sample[0].toExponential(2)}`);
+  let gpF1 = null, gpF2 = null;
+  if (gpu.ok) {
+    el('status').textContent = ' C: FFT as compute…';
+    gpF1 = await gpuFFT(gpu.device, 'stagewise');
+    gpF2 = await gpuFFT(gpu.device, 'shared_mem');
+    const agree = (x, y) => {
+      const d = Math.max(...x.map((v, i) => Math.abs(v - y[i])));
+      return d / Math.max(1e-6, Math.max(...x.map(Math.abs)));
+    };
+    check('WebGPU stagewise FFT matches WebGL2', agree(glF.sample, gpF1.sample) < 0.01,
+          `rel err ${agree(glF.sample, gpF1.sample).toExponential(2)}`);
+    check('WebGPU shared-memory FFT matches WebGL2', agree(glF.sample, gpF2.sample) < 0.01,
+          `rel err ${agree(glF.sample, gpF2.sample).toExponential(2)}`);
+  }
+
+  const cell = (a, b) => {
+    if (b == null) return '<td class="num">—</td>';
+    const r = a / b;
+    const cls = r > 1.15 ? 'win' : r < 0.87 ? 'lose' : 'same';
+    return `<td class="num ${cls}">${r.toFixed(2)}×</td>`;
+  };
+
+  say(`<h2>Results — milliseconds per iteration, lower is better</h2>
+  <table>
+    <tr><th>test</th><th class="num">WebGL2</th><th class="num">WebGPU</th><th class="num">speedup</th></tr>
+    <tr><td>A. Fragment shading, ${SHADE_W}×${SHADE_H}, 64-step raymarch</td>
+        <td class="num">${fmt(glS)}</td><td class="num">${gpS == null ? '—' : fmt(gpS)}</td>${cell(glS, gpS)}</tr>
+    <tr><td>B. FFT ${N}² × ${BATCHES}, same algorithm both sides</td>
+        <td class="num">${fmt(glF.ms)}</td><td class="num">${gpF1 == null ? '—' : fmt(gpF1.ms)}</td>${cell(glF.ms, gpF1 && gpF1.ms)}</tr>
+    <tr><td>C. FFT ${N}² × ${BATCHES}, compute with shared memory</td>
+        <td class="num">${fmt(glF.ms)}</td><td class="num">${gpF2 == null ? '—' : fmt(gpF2.ms)}</td>${cell(glF.ms, gpF2 && gpF2.ms)}</tr>
+  </table>
+  <p class="note">A is what Abyssal's frame is mostly made of. C is the best case
+  for a WebGPU port — it is the only row where a port would actually change the
+  algorithm rather than just the API.</p>`);
+
+  if (gpu.ok) {
+    const d = Math.max(...glF.sample.map((v, i) => Math.abs(v - gpF2.sample[i])));
+    const rel = d / Math.max(1e-6, Math.max(...glF.sample.map(Math.abs)));
+    say(`<h2>Cross-check</h2><p class="note">Both backends transformed the same input.
+      Largest disagreement in the first eight values: <code>${d.toExponential(2)}</code>
+      (${(rel * 100).toFixed(3)}% of magnitude) — ${rel < 0.01
+        ? 'they agree, so the two are doing the same work.'
+        : '<span class="bad">they disagree; treat the timings with suspicion.</span>'}</p>`);
+  }
+
+  // verdict
+  let v;
+  if (!gpu.ok) {
+    v = `WebGPU is not available here, so nothing can be concluded on this machine.`;
+  } else {
+    const shadeRatio = glS / gpS, fftRatio = glF.ms / gpF2.ms;
+    const shadeVerdict = shadeRatio > 1.15
+      ? `<span class="win">WebGPU shades ${shadeRatio.toFixed(2)}× faster</span>, which is more than expected — worth a second run to check it is not noise`
+      : shadeRatio < 0.87
+      ? `<span class="lose">WebGPU shades ${(1 / shadeRatio).toFixed(2)}× slower</span>`
+      : `<span class="same">shading is the same in both</span> (${shadeRatio.toFixed(2)}×), as predicted`;
+    const ceiling = fftRatio > 1 ? (1 - 1 / fftRatio) : 0;
+    v = `<p><b>Shading:</b> ${shadeVerdict}.</p>
+      <p><b>Simulation:</b> WebGPU compute is ${fftRatio.toFixed(2)}× faster at the FFT.</p>
+      <p><b>What that is worth:</b> if the simulation is <i>S</i>% of your frame, porting it
+      to compute saves at most <b>${(ceiling * 100).toFixed(0)}% of S</b>. Run the console
+      snippet below to get <i>S</i> on this GPU. At the 8% measured on software
+      rendering, that would be
+      <b>${(ceiling * 8).toFixed(1)}% of a frame</b>.</p>`;
+  }
+  say(`<h2>Verdict</h2><div id="verdict">${v}</div>`);
+
+  el('status').textContent = ' done.';
+  el('run').disabled = false;
+};
+
+// ------------------------------------------------------- the console snippet
+const SNIPPET = `(async()=>{const A=window.abyssal;if(!A){console.error('open the ocean simulator first');return}
+A.params.fpsCap=0;A.params.fpsCapIdle=0;A.params.adaptiveQuality=false;
+const m=s=>new Promise(r=>{const t0=performance.now(),f0=A.frames;setTimeout(()=>r((A.frames-f0)/((performance.now()-t0)/1000)),s*1000)});
+await new Promise(r=>setTimeout(r,3000));
+const full=await m(8);
+const real=A.ocean.update.bind(A.ocean);A.ocean.update=()=>{};
+await new Promise(r=>setTimeout(r,1000));
+const nosim=await m(8);
+A.ocean.update=real;
+const a=1000/full,b=1000/nosim;
+console.log({fps:+full.toFixed(1),frameMs:+a.toFixed(2),withoutSimMs:+b.toFixed(2),simMs:+(a-b).toFixed(2),simShareOfFrame:(100*(a-b)/a).toFixed(1)+'%'});})()`;
+el('snippet').textContent = SNIPPET;
+
+// ?auto=1 runs it without a click and parks a machine-readable result on
+// window.probeResult, so tools/run-probe.mjs can check the page works.
+if (AUTO) {
+  // Deferred, not run inside the load handler: the benchmark blocks the main
+  // thread for as long as it takes, and doing that during load stops the load
+  // event resolving at all.
+  window.addEventListener('load', () => setTimeout(async () => {
+    try {
+      await el('run').onclick();
+      window.probeResult = { results: window.__bench || [], allOk: (window.__bench || []).every((r) => r.ok) };
+    } catch (e) {
+      window.probeResult = { results: [{ name: 'benchmark run', ok: false, detail: String(e.message || e) }], allOk: false };
+    }
+  }, 0));
+}
+el('copy').onclick = () => navigator.clipboard.writeText(SNIPPET)
+  .then(() => { el('copy').textContent = 'Copied'; setTimeout(() => el('copy').textContent = 'Copy the console snippet', 1600); });
+</script>

@@ -19,6 +19,10 @@ export const GL_ARGS = [
   '--enable-unsafe-swiftshader', '--use-angle=swiftshader',
   '--ignore-gpu-blocklist', '--enable-webgl', '--disable-gpu-sandbox',
   '--disable-dev-shm-usage',
+  // WebGPU is off by default in headless Chromium. Without these,
+  // requestAdapter() returns null and a page cannot tell "this browser has no
+  // WebGPU" from "this launch did not ask for it".
+  '--enable-unsafe-webgpu', '--enable-features=Vulkan,WebGPU',
 ];
 
 export async function launchChromium(opts = {}) {
