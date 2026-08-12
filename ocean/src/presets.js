@@ -165,7 +165,9 @@ export const defaults = {
   // Only ever wet while riding: it is the craft's own spray hitting the glass, so
   // the free camera is a tripod on a dry day and pays nothing for any of this.
   lensWater: 1.0,           // master
-  lensDrops: 0.15,          // fraction of cells holding a droplet when soaked
+  lensDrops: 0.30,          // fraction of cells holding a droplet when soaked. The
+                            // lattice is four times finer than it was, so the same
+                            // count needs a higher fraction of a smaller cell.
   lensSize: 0.60,           // beads, not blobs
   lensRefract: 0.8,         // how hard a droplet bends the picture behind it
   lensStreak: 0.55,         // how far it creeps downstream before drying

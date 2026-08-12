@@ -114,7 +114,16 @@ void main(){
     float alo = dot(d, uFwd);
     // Abeam of that segment - the projection landed inside it - is the moment
     // this patch of water gets disturbed, and the moment its clock starts.
-    bool abeam = abs(alo) < 1.0 && abs(lat) < uReach;
+    //
+    // Strictly at or behind it, never in front. A symmetric window stamped a
+    // metre of record ahead of the bow, so the foam ran at full strength up to
+    // +1.0 m and hit zero at +1.25 m: a hard edge perpendicular to the heading,
+    // travelling with the craft, its exact position set by sub-texel alignment
+    // and therefore shimmering. That is the wavy line in front of the craft, and
+    // it should never have been there at all - a wake is what is behind you.
+    // Ending the record at the craft's own origin puts the discontinuity under
+    // the middle of the hull, where the hull covers it.
+    bool abeam = alo < 0.1 && alo > -1.5 && abs(lat) < uReach;
     // Keep whichever passage came closest. The stamp has to reach out as far as
     // the arms will ever travel, and without this a second lap would reset the
     // clock on a strip 150 m wide and wipe the history it was supposed to be
