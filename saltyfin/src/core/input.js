@@ -29,6 +29,11 @@ export function createInput(target = window) {
   const onKeyDown = (e) => {
     if (!enabled) return;
     if (e.repeat) return;
+    // A key typed into a text field is prose, not helm input. Without this,
+    // Space and the arrows were preventDefault-ed at the window and the town
+    // editor's JSON textarea could not be edited at all.
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
     down.add(e.code);
     pressed.add(e.code);
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();

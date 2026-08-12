@@ -377,7 +377,7 @@ fpsBadge.addEventListener('pointerdown', (e) => {
   menu.appendChild(item('Ocean settings', () => { closeMenu(); oceanPanel.open(); }));
   menu.appendChild(item('Edit town', () => {
     closeMenu();
-    if (!fishing.state.ownsCamera) townEditor.toggle();
+    editorToggleSafe();   // hoisted; defined with the key handlers below
   }));
   menu.appendChild(item(
     quality.backend === 'webgpu' ? 'Switch to WebGL' : 'Switch to WebGPU',
@@ -723,7 +723,23 @@ function frame() {
 
 // --- keys -------------------------------------------------------------------
 
+// Entering the editor is gated: never over the fishing camera, and never in
+// the middle of a mooring/boarding transition — those write camera fov and
+// advance the walk state machine, and finishing one UNDER the editor strands
+// the player somewhere they never watched themselves go. Leaving is never
+// gated; toggle() on an active editor is always an exit.
+function editorToggleSafe() {
+  const mode = shoreLeave.state.mode;
+  if (townEditor.active || (!fishing.state.ownsCamera && (mode === 'afloat' || mode === 'ashore'))) {
+    townEditor.toggle();
+  }
+}
+
 window.addEventListener('keydown', (e) => {
+  // Keys typed into a text field (the editor's JSON textarea) are prose:
+  // without this, typing "2" glided the clock and "t" set time running.
+  const t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
   if (e.code === 'BracketLeft') time.glideTo(time.hour - 2, 1.2);
   if (e.code === 'BracketRight') time.glideTo(time.hour + 2, 1.2);
   if (e.code === 'Digit1') time.glideTo('day', 1.5);
@@ -731,7 +747,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Digit3') time.glideTo('sunset', 1.5);
   if (e.code === 'Digit4') time.glideTo('night', 1.5);
   if (e.code === 'KeyT') time.setRate(time.rate === 0 ? 0.35 : 0);
-  if (e.code === 'F2' && !fishing.state.ownsCamera) townEditor.toggle();
+  if (e.code === 'F2') editorToggleSafe();
 });
 
 // --- public handle for the capture harness ----------------------------------
@@ -943,6 +959,11 @@ async function warmUpClock() {
 }
 // `?warm=0` skips it, so a capture can measure what it is actually buying.
 if (params.get('warm') !== '0') await warmUpClock();
+// If the saved layout has no tavern, the town mounted the GLB anyway purely
+// so the warm-up above could compile its pipelines. Dismiss it now —
+// unconditionally, because with ?warm=0 the ghost would otherwise just stand
+// there in a town its layout says it left.
+town.warmupDone?.();
 
 const boot = document.getElementById('boot');
 if (boot) boot.remove();

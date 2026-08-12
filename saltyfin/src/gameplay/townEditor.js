@@ -278,7 +278,10 @@ export function createTownEditor(opts = {}) {
     const canRotate = !!(item && yawKinds.has(item.k));
     btnRotL.disabled = !canRotate;
     btnRotR.disabled = !canRotate;
-    btnDup.disabled = !item;
+    // No duplicating the tavern: sanitize keeps at most one, so the copy
+    // would be silently dropped, the ring would jump to whatever item is
+    // last, and an undo slot would be burned on nothing.
+    btnDup.disabled = !item || item.k === 'tavern';
     btnDel.disabled = !item;
     statusEl.textContent = item
       ? labelOf(item.k) + ' selected'
@@ -357,12 +360,11 @@ export function createTownEditor(opts = {}) {
     const lz = clamp(town.localZ(target.x, target.z), -EDIT_Z, EDIT_Z);
     const item = { k, x: lx, z: lz };
     if (def.yaw) item.yaw = 0;
-    if (k === 'shop') {
-      item.w = 6.4; item.d = 5.0; item.h = 3.4;
-      // A fresh seed per shop, taken at tap time, so two added shops are two
-      // different buildings rather than twins.
-      item.seed = (Math.random() * 1e9) | 0;
-    }
+    // A fresh seed for EVERY added item, taken at tap time — the seed is what
+    // varies a barrel's height and a planter's foliage, so seedless additions
+    // all sanitized to seed 1 and came out identical clones.
+    item.seed = (Math.random() * 1e9) | 0;
+    if (k === 'shop') { item.w = 6.4; item.d = 5.0; item.h = 3.4; }
     working.items.push(item);
     selected = working.items.length - 1;
     commit();
@@ -377,7 +379,7 @@ export function createTownEditor(opts = {}) {
 
   function duplicate() {
     const item = selected >= 0 ? working.items[selected] : null;
-    if (!item) return;
+    if (!item || item.k === 'tavern') return;
     const copy = deepCopy(item);
     copy.x = clamp(copy.x + 1.5, -EDIT_X, EDIT_X);
     if (copy.k === 'shop') copy.seed = (Math.random() * 1e9) | 0;
@@ -634,9 +636,12 @@ export function createTownEditor(opts = {}) {
       return;
     }
     if (mode === 'pinch') {
+      // Two or more fingers still down keep pinching (lifting one of THREE
+      // was stranding mode at idle with two live pointers); one finger left
+      // keeps working as an orbit -- lifting one of two fingers and dragging
+      // on is a gesture people make without thinking.
+      if (pointers.size >= 2) { pinchDist = spread(); return; }
       pinchDist = 0;
-      // One finger left keeps working as an orbit -- lifting one of two
-      // fingers and dragging on is a gesture people make without thinking.
       mode = pointers.size === 1 ? 'orbit' : 'idle';
       return;
     }
@@ -671,6 +676,16 @@ export function createTownEditor(opts = {}) {
     }
   };
 
+  // A pointerup can simply never arrive -- release outside the window, an OS
+  // gesture stealing the touch, alt-tab mid-drag. Losing focus resets the
+  // whole pointer machine; an in-flight drag is abandoned, not committed.
+  const onWindowBlur = () => {
+    if (mode === 'drag') cancelDrag();
+    pointers.clear();
+    dragId = -1;
+    mode = 'idle';
+  };
+
   function addListeners() {
     window.addEventListener('pointerdown', onPointerDown);
     window.addEventListener('pointermove', onPointerMove);
@@ -679,6 +694,7 @@ export function createTownEditor(opts = {}) {
     window.addEventListener('wheel', onWheel, { passive: false });
     window.addEventListener('contextmenu', onContextMenu);
     window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('blur', onWindowBlur);
   }
   function removeListeners() {
     window.removeEventListener('pointerdown', onPointerDown);
@@ -688,6 +704,7 @@ export function createTownEditor(opts = {}) {
     window.removeEventListener('wheel', onWheel);
     window.removeEventListener('contextmenu', onContextMenu);
     window.removeEventListener('keydown', onKeyDown);
+    window.removeEventListener('blur', onWindowBlur);
   }
 
   // --- enter / exit ---------------------------------------------------------
@@ -701,10 +718,14 @@ export function createTownEditor(opts = {}) {
 
     document.getElementById('touch')?.classList.add('hidden');
     document.getElementById('hud')?.classList.add('hidden');
-    // The fishing call-to-action lives outside #hud (it survives hideHud for
-    // captures) and would float over the editor otherwise.
+    // The fishing call-to-action and the shore prompt pill live outside #hud
+    // (they survive hideHud for captures) and would float over the editor
+    // otherwise. dock()/board() are also hard-gated on editorHold — hiding
+    // the pill is cosmetics, the gate is the safety.
     const fishGo = document.getElementById('sf-fish-go');
     if (fishGo) fishGo.style.display = 'none';
+    const shorePill = document.getElementById('sf-shore');
+    if (shorePill) shorePill.style.display = 'none';
 
     // The canvas normally allows the browser's own pan/zoom outside the touch
     // zones; while editing, every gesture belongs to the editor.
@@ -750,6 +771,8 @@ export function createTownEditor(opts = {}) {
     document.getElementById('hud')?.classList.remove('hidden');
     const fishGo = document.getElementById('sf-fish-go');
     if (fishGo) fishGo.style.display = '';
+    const shorePill = document.getElementById('sf-shore');
+    if (shorePill) shorePill.style.display = '';
 
     const gl = document.getElementById('gl');
     if (gl) gl.style.touchAction = savedTouchAction;

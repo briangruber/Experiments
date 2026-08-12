@@ -270,6 +270,10 @@ export function createShoreLeave(opts = {}) {
   // --- transitions ----------------------------------------------------------
 
   function dock() {
+    // The shore pill and the E key stay wired while the town editor is open;
+    // the frozen prompt state must not let them advance the state machine
+    // under a view that is not watching it.
+    if (ctx.editorHold) return;
     if (state.mode !== 'afloat' || !state.canDock) return;
     state.mode = 'mooring';
     state.ashore = true;
@@ -296,6 +300,7 @@ export function createShoreLeave(opts = {}) {
   }
 
   function board() {
+    if (ctx.editorHold) return;
     if (state.mode !== 'ashore') return;
     state.mode = 'boarding';
     transition = 0;

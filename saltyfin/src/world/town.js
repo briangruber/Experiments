@@ -246,7 +246,11 @@ export function sanitizeLayout(raw) {
   const items = [];
   let tavernSeen = false;
   for (const it of raw.items) {
-    if (!it || typeof it !== 'object' || !KIND[it.k]) continue;
+    // hasOwnProperty, not a truthy lookup: KIND is a plain object literal, so
+    // KIND['constructor'] is truthy and an item of kind "constructor" would
+    // sail through, persist, and then blow up footprint() on every tap.
+    if (!it || typeof it !== 'object' || typeof it.k !== 'string'
+      || !Object.prototype.hasOwnProperty.call(KIND, it.k)) continue;
     if (it.k === 'tavern') {
       if (tavernSeen) continue;
       tavernSeen = true;
@@ -419,6 +423,46 @@ export function createTown(opts = {}) {
   // The tavern's scale is measured once, from the raw GLB, and memoised: a
   // rebuild re-measuring an already-scaled object would compound the factor.
   let tavernScale = 0;
+  // True while the tavern is mounted ONLY so the boot warm-up can compile its
+  // pipelines — see the ghost mount after the first build below.
+  let ghostTavern = false;
+
+  // Scale, rotate and set the hero tavern down at an item's spot. SOLIDS is
+  // the caller's business — the warm-up ghost must not block walking.
+  function mountTavern(item) {
+    if (heroTavern.parent !== group) group.add(heroTavern);
+    const box = new THREE.Box3();
+    if (!tavernScale) {
+      // Measure the raw model exactly once. Re-measuring after a scale has
+      // been applied would compound it on every rebuild.
+      heroTavern.rotation.y = 0;
+      heroTavern.scale.setScalar(1);
+      heroTavern.updateMatrixWorld(true);
+      box.setFromObject(heroTavern);
+      const size = box.getSize(new THREE.Vector3());
+      tavernScale = 10.5 / Math.max(size.x, size.z, 1e-3);
+    }
+    heroTavern.scale.setScalar(tavernScale);
+    // Rotate FIRST, then measure, then place: the bbox of the rotated object
+    // is what has to land on the pad, and rotating about a GLB's arbitrary
+    // origin moves it.
+    heroTavern.rotation.y = TOWN_YAW + (item.yaw ?? Math.PI);
+    // Two passes: measure-and-move, then re-measure-and-correct.
+    // Box3.setFromObject on a GLB with its own baked node transforms is only
+    // exact once every matrix has been updated in place, and chasing WHY is
+    // worth less than one more cheap correction.
+    for (let pass = 0; pass < 2; pass++) {
+      heroTavern.updateMatrixWorld(true);
+      box.setFromObject(heroTavern);
+      const c = box.getCenter(new THREE.Vector3());
+      heroTavern.position.x += worldX(item.x, item.z) - c.x;
+      heroTavern.position.z += worldZ(item.x, item.z) - c.z;
+      heroTavern.position.y += DECK_Y - box.min.y;
+    }
+    heroTavern.traverse((o) => {
+      if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
+    });
+  }
 
   const pickWith = (r, a) => C(a[r.int(0, a.length - 1)]);
   const seabedAt = (x, z) => {
@@ -688,42 +732,14 @@ export function createTown(opts = {}) {
     // shared contact shadow is most of why a generated asset reads as part of
     // the town instead of pasted on.
     if (heroTavern && tavernItem) {
-      if (heroTavern.parent !== group) group.add(heroTavern);
-      const box = new THREE.Box3();
-      if (!tavernScale) {
-        // Measure the raw model exactly once. Re-measuring after a scale has
-        // been applied would compound it on every rebuild.
-        heroTavern.rotation.y = 0;
-        heroTavern.scale.setScalar(1);
-        heroTavern.updateMatrixWorld(true);
-        box.setFromObject(heroTavern);
-        const size = box.getSize(new THREE.Vector3());
-        tavernScale = 10.5 / Math.max(size.x, size.z, 1e-3);
-      }
-      heroTavern.scale.setScalar(tavernScale);
-      // Rotate FIRST, then measure, then place: the bbox of the rotated
-      // object is what has to land on the pad, and rotating about a GLB's
-      // arbitrary origin moves it.
-      heroTavern.rotation.y = TOWN_YAW + (tavernItem.yaw ?? Math.PI);
-      // Two passes: measure-and-move, then re-measure-and-correct.
-      // Box3.setFromObject on a GLB with its own baked node transforms is only
-      // exact once every matrix has been updated in place, and chasing WHY is
-      // worth less than one more cheap correction.
-      for (let pass = 0; pass < 2; pass++) {
-        heroTavern.updateMatrixWorld(true);
-        box.setFromObject(heroTavern);
-        const c = box.getCenter(new THREE.Vector3());
-        heroTavern.position.x += worldX(tavernItem.x, tavernItem.z) - c.x;
-        heroTavern.position.z += worldZ(tavernItem.x, tavernItem.z) - c.z;
-        heroTavern.position.y += DECK_Y - box.min.y;
-      }
-      heroTavern.traverse((o) => {
-        if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
-      });
+      mountTavern(tavernItem);
+      ghostTavern = false;
       SOLIDS.push({ x: tavernItem.x, z: tavernItem.z, r: 5.2 });
-    } else if (heroTavern && heroTavern.parent === group) {
-      // The layout has no tavern; the object leaves the scene. Its materials
-      // keep their compiled pipelines, so putting it back later costs nothing.
+    } else if (heroTavern && heroTavern.parent === group && !ghostTavern) {
+      // The layout has no tavern; the object leaves the scene. Within one
+      // session its materials keep their compiled pipelines, and across a
+      // reload the warm-up ghost below keeps them compiled too, so putting it
+      // back later costs a rebuild and nothing else.
       group.remove(heroTavern);
     }
 
@@ -817,6 +833,18 @@ export function createTown(opts = {}) {
 
   applyGeos(buildAll(current.items));
 
+  // The warm-up ghost: if the saved layout has no tavern (the player deleted
+  // it in the editor), the GLB would never be in the scene during the boot
+  // warm-up, none of its pipelines would compile, and the first Reset or
+  // Apply that brings it back would stall the frame for however long its
+  // shaders take. So it is mounted regardless for warm-up — at the default
+  // spot, with no SOLIDS circle — and main dismisses it (warmupDone) the
+  // moment the warm-up has rendered its 24 hours.
+  if (heroTavern && heroTavern.parent !== group) {
+    mountTavern({ k: 'tavern', x: -9.6, z: 14.2, yaw: Math.PI });
+    ghostTavern = true;
+  }
+
   setLayers(group, LAYER.MAIN, LAYER.REFLECTED);
   applyWaterClip(group);
 
@@ -842,6 +870,14 @@ export function createTown(opts = {}) {
 
     /** A deep copy of the layout the town is currently built from. */
     layout() { return copyLayout(current); },
+
+    /** Dismiss the warm-up ghost (see above). Called once, after warmUpClock. */
+    warmupDone() {
+      if (ghostTavern && heroTavern) {
+        group.remove(heroTavern);
+        ghostTavern = false;
+      }
+    },
 
     /**
      * Rebuild the town from a new layout. Sanitizes first; returns a deep

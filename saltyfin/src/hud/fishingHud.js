@@ -320,6 +320,11 @@ export function createFishingHud({ fishing, ctx } = {}) {
 
   const onKey = (e) => {
     if (e.repeat) return;
+    // Not while typing in a text field, and not while the town editor holds
+    // the world — F in the editor was silently starting the minigame under it.
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    if (ctx?.editorHold) return;
     if (e.code === 'KeyF') { fishing.toggle(); return; }
     if (!fishing.state.active) return;
     if (e.code === 'Escape') { fishing.stop(); return; }
