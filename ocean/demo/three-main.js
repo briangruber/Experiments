@@ -26,6 +26,7 @@
 // and the craft mesh, not the water's side of it.
 
 import * as THREE from 'three/webgpu';
+import { texture, uv, vec4, float } from 'three/tsl';
 
 import { TslOceanSim } from '../src/gpu/tsl/sim-driver.js';
 import { TslSky } from '../src/gpu/tsl/sky-driver.js';
@@ -139,6 +140,67 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	// waterPosition() returns world space and three builds the MVP from it.
 	const cam3 = new THREE.PerspectiveCamera( camera.fov, 1, camera.near, camera.far );
 
+	// ---- frame diagnostic -----------------------------------------------------
+	//
+	// The WebGPU render path cannot be checked where this was written: the sandbox
+	// draws into render targets correctly but cannot present to a canvas at all.
+	// So the app measures its own output and reports it, and the reader's machine
+	// becomes the probe.
+	//
+	// Two horizontal bands of the finished HDR frame are averaged into a 64x1
+	// target and read back once a second. Which band is "sky" depends on the
+	// backend's framebuffer orientation, so both are reported and neither is
+	// labelled - a sea-and-sky frame has one bright band and one darker one,
+	// whatever the order. Two dark bands means nothing was drawn.
+	//
+	// 64 texels x 16 bytes is a 1024-byte row, which clears WebGPU's 256-byte
+	// readback pitch rule. A narrower target would silently return padding.
+	const diagRT = new THREE.RenderTarget( 64, 1, {
+		type: THREE.FloatType, format: THREE.RGBAFormat,
+		minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false,
+	} );
+	const diagSrc = texture( new THREE.DataTexture(
+		new Float32Array( [ 0, 0, 0, 1 ] ), 1, 1, THREE.RGBAFormat, THREE.FloatType ) );
+	diagSrc.value.minFilter = diagSrc.value.magFilter = THREE.LinearFilter;
+	diagSrc.value.needsUpdate = true;
+
+	const LUMA = ( c ) => c.r.mul( 0.2126 ).add( c.g.mul( 0.7152 ) ).add( c.b.mul( 0.0722 ) );
+	const diagMat = new THREE.NodeMaterial();
+	diagMat.fragmentNode = vec4(
+		LUMA( diagSrc.sample( vec4( uv().x, 0.85, 0, 0 ).xy ) ),
+		LUMA( diagSrc.sample( vec4( uv().x, 0.15, 0, 0 ).xy ) ),
+		0, 1,
+	);
+	diagMat.depthTest = false; diagMat.depthWrite = false;
+	const diagQuad = new THREE.QuadMesh( diagMat );
+
+	let diagBusy = false;
+	let diagAt = 0;
+	const readDiag = async () => {
+
+		if ( diagBusy ) return;
+		diagBusy = true;
+		try {
+
+			const prev = renderer.getRenderTarget();
+			renderer.setRenderTarget( diagRT );
+			diagQuad.render( renderer );
+			renderer.setRenderTarget( prev );
+			const raw = await renderer.readRenderTargetPixelsAsync( diagRT, 0, 0, 64, 1 );
+			const px = raw instanceof Float32Array ? raw : new Float32Array( raw.buffer ?? raw );
+			let a = 0, b = 0;
+			for ( let i = 0; i < 64; i ++ ) { a += px[ i * 4 ]; b += px[ i * 4 + 1 ]; }
+			api.diag = { bandA: a / 64, bandB: b / 64 };
+
+		} catch ( e ) {
+
+			api.diag = { error: String( e?.message || e ).slice( 0, 80 ) };
+
+		}
+		diagBusy = false;
+
+	};
+
 	let hdr = null;
 	const sizeTo = ( w, h ) => {
 
@@ -154,6 +216,7 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			generateMipmaps: false,
 		} );
 		hdr.texture.name = 'abyssal.hdr';
+		diagSrc.value = hdr.texture;
 		cam3.aspect = w / h;
 		cam3.updateProjectionMatrix();
 
@@ -257,6 +320,9 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		post.render( hdr.texture, params, dt, time, output ? { output } : {} );
 
 		api.onFrame?.();
+
+		// Once a second, and never overlapping itself.
+		if ( now - diagAt > 1000 ) { diagAt = now; readDiag(); }
 
 		requestAnimationFrame( frame );
 

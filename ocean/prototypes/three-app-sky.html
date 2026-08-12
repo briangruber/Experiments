@@ -1,0 +1,112 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — is there a sky, on each backend, in the real app?</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}</style>
+<pre id="out">running…</pre>
+
+<!--
+  The sky renders on WebGL2 and not on WebGPU - reported from a real browser,
+  after the missing camera.matrices() call was fixed. Every per-pass check says
+  the sky is correct on BOTH backends, so whatever this is lives in the app's
+  frame, not in a shader.
+
+  This boots the real boot() from demo/three-main.js on one backend, renders into
+  a capture target (WebGPU cannot present here, but it draws into targets
+  correctly), and reports the luminance of each image row. A sky shows up as a
+  bright upper half; its absence shows up as a dark one. Same numbers, both
+  backends, one code path.
+
+    node tools/run-probe.mjs "prototypes/three-app-sky.html?backend=webgl"
+    node tools/run-probe.mjs "prototypes/three-app-sky.html?backend=webgpu"
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { installWebGPUSwizzleShim } from './webgpu-shim.js';
+import { readPixelsBottomUp } from './readback.js';
+import { boot } from '../demo/three-main.js';
+
+installWebGPUSwizzleShim();
+
+const q = new URLSearchParams(location.search);
+const WANT = (q.get('backend') || 'webgl').toLowerCase();
+const W = +(q.get('w') || 128), H = +(q.get('h') || 80);
+const FRAMES = +(q.get('frames') || 3);
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+let backend = '?';
+let rows = null;
+try {
+  const canvas = document.createElement('canvas');
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  document.body.appendChild(canvas);
+
+  const capture = new THREE.RenderTarget(W, H, {
+    type: THREE.FloatType, format: THREE.RGBAFormat,
+    minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false,
+  });
+
+  const app = await boot({
+    canvas, backend: WANT, output: capture,
+    // Small enough that a software rasteriser can carry the cloud march.
+    // ?full=1 runs the preset's own values. The reduced set below is only so a
+    // software rasteriser can finish; if the sky depends on any of them, that is
+    // itself the finding.
+    overrides: q.get('full') ? {} : { fftSize: 64, sprayTexSize: 16, cloudSteps: 8, gridScale: 0.25 },
+  });
+  backend = app.backend;
+  log(`${backend}: booted`, true, app.fellBack ? 'FELL BACK' : `asked for ${WANT}`);
+
+  let n = 0;
+  await new Promise((res) => {
+    const tick = () => { if (++n >= FRAMES) return res(); requestAnimationFrame(tick); };
+    requestAnimationFrame(tick);
+  });
+
+  const px = await readPixelsBottomUp(app.renderer, capture, W, H);
+  // readPixelsBottomUp gives row 0 = BOTTOM, so reverse for a top-down profile.
+  rows = [];
+  for (let y = H - 1; y >= 0; y--) {
+    let s = 0;
+    for (let x = 0; x < W; x++) {
+      const i = (y * W + x) * 4;
+      s += 0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2];
+    }
+    rows.push(+(s / W).toFixed(4));
+  }
+
+  const third = Math.floor(H / 3);
+  const top = rows.slice(0, third).reduce((a, b) => a + b, 0) / third;
+  const bot = rows.slice(-third).reduce((a, b) => a + b, 0) / third;
+
+  const bars = rows.filter((_, i) => i % Math.max(1, Math.floor(H / 20)) === 0)
+    .map((v, i) => `${String(i).padStart(2)} ${'#'.repeat(Math.min(40, Math.round(v * 40)))} ${v}`)
+    .join('\n        ');
+
+  log(`${backend}: profile, top of image first`, true, '\n        ' + bars);
+  log(`${backend}: upper third is sky, not black`, top > 0.15,
+      `upper ${top.toFixed(4)}  lower ${bot.toFixed(4)}`);
+  log(`${backend}: sky is brighter than sea`, top > bot,
+      `${top.toFixed(4)} vs ${bot.toFixed(4)}`);
+  log(`${backend}: all finite`, px.every(Number.isFinite));
+} catch (e) {
+  log(`${backend}: run`, false, String(e.stack || e.message || e).slice(0, 900));
+}
+
+window.probeResult = { results, allOk: results.every((r) => r.ok), rows, backend };
+</script>

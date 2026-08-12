@@ -34,9 +34,18 @@ const server = createServer(async (req, res) => {
     const url = decodeURIComponent(req.url.split('?')[0]);
     const path = join(ROOT, url === '/' ? 'index.html' : url);
     if (!path.startsWith(ROOT)) { res.writeHead(403).end(); return; }
+    // Read BEFORE writing the header. Writing 200 first and then failing the read
+    // makes the catch call writeHead again, which throws ERR_HTTP_HEADERS_SENT and
+    // takes the whole harness down with a stack that names the server rather than
+    // the missing file - so a simple 404 in a probe looked like a broken tool.
+    const body = await readFile(path);
     res.writeHead(200, { 'content-type': MIME[extname(path)] || 'application/octet-stream' });
-    res.end(await readFile(path));
-  } catch { res.writeHead(404).end('not found'); }
+    res.end(body);
+  } catch (e) {
+    if (!res.headersSent) res.writeHead(404, { 'content-type': 'text/plain' });
+    res.end('not found: ' + req.url);
+    console.error('404', req.url);
+  }
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const port = server.address().port;

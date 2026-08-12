@@ -193,6 +193,20 @@ bootWithFallback().then( ( app ) => {
 		const now = performance.now();
 		const fps = frames * 1000 / ( now - t0 );
 		frames = 0; t0 = now;
+		// The app measures its own output once a second (see three-main.js). Two
+		// horizontal bands of the finished frame: a sea-and-sky frame has one
+		// bright and one darker, whichever way round the backend orients it. Two
+		// dark numbers means nothing was drawn.
+		const bandsEl = document.getElementById( 'bands' );
+		if ( bandsEl ) {
+
+			const d = app.diag;
+			bandsEl.textContent = ! d ? '—'
+				: d.error ? d.error
+				: `${ d.bandA.toFixed( 3 ) } / ${ d.bandB.toFixed( 3 ) }`;
+
+		}
+
 		const c = app.renderer.domElement;
 		// A software rasteriser can genuinely sit under one frame a second, and
 		// "0 fps" reads as broken rather than as slow.
