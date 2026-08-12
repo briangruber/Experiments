@@ -75,7 +75,12 @@ const ROLL_DECAY = 0.5, SINK_DECAY = 0.45;
 const SCOPE_FOV = 26;
 const AIM_YAW_LIMIT = 1.25;  // rad either side of the bow; you cannot throw
                              // back over your own transom
-const AIM_PITCH_MIN = -0.22, AIM_PITCH_MAX = 0.62;
+// You have to be able to aim DOWN at her. She swims up to twelve metres under
+// the surface and the shot is taken from twenty-five out, which is 25 degrees
+// below horizontal before the spear's own drop is counted; the first cut
+// stopped at -12.6 and pinned every reticle to its floor, unable to point at
+// the animal it was aiming at. -40 degrees covers the whole envelope.
+const AIM_PITCH_MIN = -0.72, AIM_PITCH_MAX = 0.62;
 const LOCK_ANGLE = 0.085;    // rad between the aim ray and an animal to read
                              // as ON TARGET
 // The auto-reel. A miss used to cost a 2.4 s cooldown and a hunt for the
