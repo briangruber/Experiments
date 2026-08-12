@@ -30,6 +30,13 @@ const MM_SAMPLES = 160;        // minimap grid resolution, sampled once
 const MM_HALF = 400;           // metres — half-extent of the sampled square
 const MM_CX = 30, MM_CZ = -90; // world centre of that square
 const MM_PPM = 0.235;          // minimap pixels per metre on screen
+// Desktop default only. The REAL radius is measured off the element every
+// resize (see mmR): core/touch.js shrinks the dial to 88 px on a phone, and
+// this constant used to be the one the pips were pinned to. The dial clips
+// its overflow, so every leviathan past ~187 m plotted outside the visible
+// 44 px disc and vanished — on mobile the pod was never on the map at all,
+// which is exactly what a player reported while my desktop captures showed
+// the pips fine.
 const MM_R = 68;               // visible radius in pixels, matches .sf-mm
 const MM_PX = MM_HALF * 2 * MM_PPM;
 
@@ -301,6 +308,7 @@ export function createHud({ ctx, time } = {}) {
   // === frame state ===========================================================
 
   let halfW = 320;                 // half the compass width in px, from resize()
+  let mmR = MM_R;                  // half the radar's width in px, from resize()
   let lastTitle = null;
   let lastRange = -1;
   let lastTod = null;
@@ -319,6 +327,11 @@ export function createHud({ ctx, time } = {}) {
   function measure() {
     const w = compass.clientWidth;
     if (w > 0) halfW = w * 0.5;
+    // The dial's true radius, whatever CSS (or the touch layer's !important
+    // override) has made it. Read here rather than per frame: clientWidth
+    // forces a synchronous layout.
+    const mw = mm.clientWidth;
+    if (mw > 0) mmR = mw * 0.5;
   }
   measure();
 
@@ -410,14 +423,16 @@ export function createHud({ ctx, time } = {}) {
         const d = Math.sqrt(dx * dx + dz * dz);
         if (d >= MONSTER_RANGE) continue;
         const a = Math.atan2(dx, -dz) - headingDeg / RAD2DEG;
-        const r = Math.min(d * MM_PPM, MM_R - 10);
+        // 9 px is the pip glyph's own half-width, so a rim-pinned animal sits
+        // fully inside the dial instead of half-clipped by its edge.
+        const r = Math.min(d * MM_PPM, mmR - 9);
         const dot = mmMons[shown++];
         vis(dot, true);
         dot.style.transform = 'translate(' + (Math.sin(a) * r).toFixed(1) + 'px,'
           + (-Math.cos(a) * r).toFixed(1) + 'px)';
       }
     } else if (inRange) {
-      const r = Math.min(dist * MM_PPM, MM_R - 10);
+      const r = Math.min(dist * MM_PPM, mmR - 9);
       const a = rel / RAD2DEG;
       vis(mmMon, true);
       dotFallback(mmMon, Math.sin(a) * r, -Math.cos(a) * r);
