@@ -180,3 +180,58 @@ under 1 fps.
 The shared-memory FFT stays WebGPU-only regardless. That was always true:
 `var<workgroup>` has no WebGL2 equivalent, and the stage-wise kernel is the
 portable one.
+
+
+---
+
+## Direction change: TSL, not raw WGSL
+
+Asked for: fully Three.js, WebGPU when available, WebGL2 otherwise, done the way
+Three intends. That is TSL, and it reverses the two-implementations decision
+above.
+
+The reasoning that led here was sound and the conclusion was too narrow. Raw
+WGSL cannot be driven through TSL, so raw WGSL forces a second simulation for
+the fallback. But the premise was that the physics had to *stay* raw WGSL. If it
+is authored in TSL instead, Three compiles it to WGSL on WebGPU and to GLSL on
+WebGL2, and the fallback covers the shaders as well as the renderer.
+
+The earlier probe already established the property that makes this work, and it
+is worth restating because it is the whole argument: **TSL compute runs on the
+WebGL2 backend too**, numerically identical to WebGPU. Three emulates it. One
+authored source, both backends, no second implementation to keep in step.
+
+### What this costs
+
+The five WGSL kernels stop being the shipping path. That is a real cost and
+worth being straight about, but they are not wasted:
+
+- They are a **verified-correct specification** of each pass. The compute driver
+  reproduces the reference field to 1.40e-5 on an M4 Max, so any TSL rewrite has
+  a known-good implementation to be checked against, in the same language family,
+  already reviewed expression by expression.
+- `src/gpu/ocean-compute.js` and the equivalence harness are unchanged in value:
+  the fingerprint, the comparator and its negative controls test whatever
+  produces a wave field, however it was authored.
+
+The shared cascade maths extracted from `src/ocean.js` — `butterflyData`,
+`cascadeNoise`, the band formulas — matter more under this plan, not less. They
+are the setup every implementation has to agree on before its physics can be
+compared.
+
+### The plan, restated
+
+1. `src/gpu/renderer.js` — backend selection, override and honest reporting.
+   **Done and verified**: auto prefers WebGPU, `?backend=webgl` forces the
+   fallback, `?backend=webgpu` refuses to fall back silently rather than making a
+   later comparison meaningless.
+2. Simulation in TSL, stage by stage, each checked against
+   `test/golden/ocean-256.json` on **both** backends.
+3. Water surface as a `NodeMaterial`.
+4. Sky, spray, wake, post.
+5. The demo runs on `WebGPURenderer` with the backend switch.
+
+Steps 2 to 4 are a re-expression of the physics, not a translation of it, and
+that is the honest scale of what is left: the largest body of work in this
+project so far. The WGSL kernels being correct is what makes it tractable —
+every stage has a reference to be wrong against.

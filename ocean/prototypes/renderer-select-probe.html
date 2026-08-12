@@ -1,0 +1,78 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — backend selection and fallback</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}</style>
+<pre id="out">running…</pre>
+
+<!--
+  Three's automatic fallback is the easy half. This checks the parts that are
+  ours: that auto lands on WebGPU where there is one, that a forced WebGL run
+  really is WebGL, that a forced WebGPU run refuses to silently fall back, and
+  that the WebGPU path hands back a device the simulation can dispatch on.
+
+  The refusal matters most. A backend switch that quietly gives you WebGL when
+  you asked for WebGPU makes every comparison after it meaningless.
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { createRenderer, requestedBackend, webgpuAvailable, BACKENDS } from '../src/gpu/renderer.js';
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+const have = await webgpuAvailable();
+log('WebGPU adapter present', have, String(have));
+
+log('requestedBackend parses the override', (() => {
+  const a = requestedBackend('?backend=webgl') === 'webgl';
+  const b = requestedBackend('?backend=webgpu') === 'webgpu';
+  const c = requestedBackend('?backend=nonsense') === 'auto';
+  const d = requestedBackend('') === 'auto';
+  return a && b && c && d;
+})(), BACKENDS.join(', '));
+
+async function make(backend) {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 32;
+  return createRenderer(THREE, { canvas, backend, antialias: false });
+}
+
+try {
+  const r = await make('auto');
+  log('auto selects a backend', true, `${r.describe()}${r.fellBack ? ' (fell back)' : ''}`);
+  log('auto prefers WebGPU when available', !have || r.backend === 'webgpu', `got ${r.backend}`);
+  log('WebGPU exposes a device for compute', !have || !!r.device, r.device ? 'GPUDevice present' : 'none');
+  r.renderer.dispose();
+} catch (e) { log('auto selects a backend', false, String(e.message || e)); }
+
+try {
+  const r = await make('webgl');
+  log('backend=webgl really is WebGL2', r.backend === 'webgl', r.describe());
+  log('WebGL path exposes no device', r.device === null, String(r.device));
+  r.renderer.dispose();
+} catch (e) { log('backend=webgl really is WebGL2', false, String(e.message || e)); }
+
+try {
+  const r = await make('webgpu');
+  log('backend=webgpu really is WebGPU', r.backend === 'webgpu', r.describe());
+  r.renderer.dispose();
+} catch (e) {
+  // Only a pass if WebGPU genuinely is unavailable here.
+  log('backend=webgpu refuses to fall back silently', !have, String(e.message || e));
+}
+
+window.probeResult = { results, allOk: results.every((r) => r.ok) };
+</script>
