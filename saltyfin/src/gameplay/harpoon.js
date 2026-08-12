@@ -419,6 +419,12 @@ export function createHarpoon(opts = {}) {
       state.distance = dist;
       if (dist > 1e-4) _dir.multiplyScalar(1 / dist);
 
+      // Take up the slack: a real crew never leaves thirty metres of loose
+      // line in the water. Easing rest down while the line is slack tightens
+      // every fight toward readable distances and keeps the rope where the
+      // player can see it work.
+      if (dist < rest && rest > 16) rest = Math.max(16, rest - dt * 1.1);
+
       const stretch = dist - rest;
       let T = 0;
       if (stretch > 0) {
@@ -538,8 +544,15 @@ export function createHarpoon(opts = {}) {
         const t2 = (i + 1) / SEGS;
         const it = 1 - t2;
         const qx = _bow.x * it * it + _mid.x * 2 * it * t2 + _anchor.x * t2 * t2;
-        const qy = _bow.y * it * it + _mid.y * 2 * it * t2 + _anchor.y * t2 * t2;
+        let qy = _bow.y * it * it + _mid.y * 2 * it * t2 + _anchor.y * t2 * t2;
         const qz = _bow.z * it * it + _mid.z * 2 * it * t2 + _anchor.z * t2 * t2;
+        // Hemp floats. A slack belly drapes ALONG the surface instead of
+        // hanging metres under it — which is also the difference between a
+        // line the player can read and one that only refraction knows about.
+        // The clamp only lifts sag; a taut line to a deep animal still cuts
+        // legitimately under.
+        const both = Math.min(_bow.y, _anchor.y);
+        if (qy < -0.22 && qy < both) qy = Math.max(qy, Math.min(-0.22, both));
         const seg = ropeSegs[i];
         _a.set(qx - px, qy - py, qz - pz);
         const len = Math.max(_a.length(), 1e-4);
