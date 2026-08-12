@@ -48,7 +48,12 @@ Then open <http://localhost:8000/>.
 `M` mute · `H` hide the interface · `` ` `` debug panel. On touch, the left half
 of the screen is a thumbstick and a tap on the right half jumps.
 
-The debug panel (`` ` ``, or `?debug=1`) jumps to any world, forces a bloom,
+On touch there is no backquote, so the panel opens from the gear chip in the
+bottom-right corner — deliberately on the right, since the left half of the
+screen is the thumbstick. Its buttons and readouts size up for a fingertip, and
+the panel scrolls if the phone is short.
+
+The debug panel (`` ` ``, the gear chip on touch, or `?debug=1`) jumps to any world, forces a bloom,
 opens a portal, drops a meteor, clears the gloom, and shows live state. It
 drives the game through the same `window.tinyWorlds` handle the harness uses,
 so everything it does is scriptable.

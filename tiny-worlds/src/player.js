@@ -17,6 +17,9 @@ const _target = new THREE.Vector3();
 const _m = new THREE.Matrix4();
 
 const COYOTE = 0.12;
+// How far the ground may fall away beneath a running keeper before they are
+// genuinely airborne rather than just going downhill.
+const STICK = 0.42;
 const BUFFER = 0.16;
 
 export class Player {
@@ -177,6 +180,15 @@ export class Player {
       this.local.copy(this.up).multiplyScalar(floor);
       const radial = this.vel.dot(this.up);
       if (radial < 0) this.vel.addScaledVector(this.up, -radial);
+      this.grounded = true;
+    } else if (wasGrounded && r - floor < STICK && this.vel.dot(this.up) <= 0.5) {
+      // Stick to the ground over small drops. Terrain this detailed falls away
+      // faster than gravity can follow at running speed, so without this the
+      // keeper leaves the surface on every crest — a few centimetres of hop per
+      // frame that reads as a stutter, and flickers the walk animation into the
+      // jump one. The upward-velocity test keeps a real jump out of it.
+      this.local.copy(this.up).multiplyScalar(floor);
+      this.vel.addScaledVector(this.up, -this.vel.dot(this.up));
       this.grounded = true;
     } else {
       this.grounded = this.landOnIslet(r, dt) || false;

@@ -161,6 +161,39 @@ body.no-chrome #hud, body.menu #hud { opacity: 0; }
 
 #controls-hint b { color: rgba(244, 236, 221, .8); font-weight: 600; }
 
+/* One hint or the other, never both. Set from the pointer type at boot rather
+   than from width: a small laptop window still has a keyboard. */
+.keys-coarse { display: none; }
+body.touch .keys-fine { display: none; }
+body.touch .keys-coarse { display: inline; }
+
+/* There is no backquote on a phone, so touch gets a corner chip instead. */
+#debug-chip {
+  position: fixed;
+  /* Right side: the left half of the screen is the thumbstick. */
+  right: max(10px, env(safe-area-inset-right));
+  bottom: max(10px, env(safe-area-inset-bottom));
+  z-index: 7;
+  width: 40px;
+  height: 40px;
+  display: none;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(255, 240, 210, .16);
+  border-radius: 50%;
+  background: rgba(8, 10, 16, .55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  cursor: pointer;
+  opacity: .5;
+}
+
+body.touch #debug-chip { display: grid; }
+body.no-chrome #debug-chip { display: none; }
+#debug-chip:active { opacity: 1; }
+#debug-chip svg { width: 20px; height: 20px; fill: none; stroke: var(--ink); stroke-width: 1.6; stroke-linecap: round; }
+#debug-chip:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+
 #fps {
   position: absolute;
   right: max(20px, env(safe-area-inset-right));
@@ -276,6 +309,19 @@ body.no-chrome #hud, body.menu #hud { opacity: 0; }
 
 #debug.open { display: block; }
 
+/* On a phone the panel has to fit above the chip and take a fingertip. */
+body.touch #debug {
+  width: min(268px, calc(100vw - 24px));
+  max-height: calc(100vh - 84px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+body.touch #debug button { padding: 9px 10px; font-size: 12px; }
+/* There is no backquote to advertise on a phone. */
+body.touch .dbg-key { display: none; }
+body.touch .dbg-stats { font-size: 12px; }
+
 .dbg-title {
   font-size: 10px;
   letter-spacing: .24em;
@@ -379,6 +425,7 @@ body.no-chrome #hud, body.menu #hud { opacity: 0; }
 
 /* Landscape phones and other short viewports: keep the whole card on screen. */
 @media (max-height: 460px) {
+  body.touch #controls-hint { display: none; }
   #card-title { font-size: clamp(24px, 6vh, 34px); }
   #card-sub { margin-top: 8px; font-size: 12px; }
   #card-body { margin-top: 12px; font-size: 12px; line-height: 1.6; }
@@ -387,6 +434,12 @@ body.no-chrome #hud, body.menu #hud { opacity: 0; }
 }
 
 @media (max-width: 640px) {
-  #controls-hint { display: none; }
+  /* The touch hint is the only place the controls are explained once the title
+     card is gone, so it stays — just smaller. The keyboard one goes. */
+  body:not(.touch) #controls-hint { display: none; }
+  #controls-hint { font-size: 10px; margin-bottom: 6px; }
   #world-epithet { display: none; }
 }
+
+body.touch #fps { bottom: calc(max(10px, env(safe-area-inset-bottom)) + 46px); }
+body.touch #debug { left: max(10px, env(safe-area-inset-left)); top: max(52px, env(safe-area-inset-top)); }

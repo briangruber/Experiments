@@ -25,7 +25,8 @@
   <div id="flash"></div>
   <div id="fps"></div>
   <div id="controls-hint">
-    <b>WASD</b> run &nbsp; <b>Space</b> jump &nbsp; <b>Shift</b> sprint &nbsp; <b>drag</b> look &nbsp; <b>E</b> use &nbsp; <b>M</b> mute &nbsp; <b>H</b> hide &nbsp; <b>`</b> debug
+    <span class="keys-fine"><b>WASD</b> run &nbsp; <b>Space</b> jump &nbsp; <b>Shift</b> sprint &nbsp; <b>drag</b> look &nbsp; <b>M</b> mute &nbsp; <b>H</b> hide &nbsp; <b>`</b> debug</span>
+    <span class="keys-coarse"><b>left half</b> move &nbsp; <b>tap right</b> jump &nbsp; <b>drag right</b> look</span>
   </div>
 </div>
 
@@ -37,6 +38,12 @@
     <button id="card-button" type="button">Begin</button>
   </div>
 </div>
+
+<button id="debug-chip" type="button" aria-label="debug panel">
+  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <circle cx="12" cy="13" r="5"/><path d="M12 8V5M7 10 4.5 8M17 10l2.5-2M6.5 15H4M17.5 15H20M8 18.5 6 21M16 18.5 18 21"/>
+  </svg>
+</button>
 
 <div id="loading">
   <div id="loading-title">Tiny Worlds</div>

@@ -23,6 +23,11 @@ import { clamp } from './noise.js';
 const params = new URLSearchParams(location.search);
 const canvas = document.getElementById('gl');
 
+// Touch and keyboard are different games to explain, and a small laptop window
+// is not a phone — ask the pointer, not the viewport.
+const COARSE = matchMedia('(pointer: coarse)').matches;
+document.body.classList.toggle('touch', COARSE);
+
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 const _c = new THREE.Vector3();
@@ -560,9 +565,15 @@ if (params.get('skipmenu')) {
     title: 'Tiny Worlds',
     sub: 'a keeper, five small planets, and the light they lost',
     body: 'Every world here has gone grey. Somewhere on each one, its last sparks are still drifting — '
-      + 'gather them all and the world wakes up under your feet.<br><br>'
-      + '<span class="keys"><b>WASD</b> run &nbsp;·&nbsp; <b>Space</b> jump &nbsp;·&nbsp; <b>Shift</b> sprint '
-      + '&nbsp;·&nbsp; <b>drag</b> look &nbsp;·&nbsp; <b>E</b> use the beacon</span>',
+      + 'gather them all and the world wakes up under your feet. Watch for the gloom, and for the sky.'
+      + '<br><br><span class="keys">'
+      + (COARSE
+        ? '<b>left half</b> of the screen steers &nbsp;·&nbsp; <b>tap the right half</b> to jump'
+          + '<br><b>drag the right half</b> to look around'
+          + '<br>walk into the portal when it opens'
+        : '<b>WASD</b> run &nbsp;·&nbsp; <b>Space</b> jump &nbsp;·&nbsp; <b>Shift</b> sprint '
+          + '&nbsp;·&nbsp; <b>drag</b> to look<br>walk into the portal when it opens')
+      + '</span>',
     button: 'Begin',
   }).then(begin);
 }
@@ -589,3 +600,4 @@ const game = window.tinyWorlds = {
 
 const debug = new Debug(game, { open: params.has('debug') });
 input.onKey.add((code) => { if (code === 'Backquote') debug.toggle(); });
+document.getElementById('debug-chip').addEventListener('click', () => debug.toggle());

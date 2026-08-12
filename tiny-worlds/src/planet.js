@@ -26,6 +26,10 @@ const _col = new THREE.Color();
 // How small and grey a dormant tree is before its world wakes up.
 const DORMANT = 0.55;
 
+// Phones are fill-rate bound long before they are geometry bound, and the two
+// shells of noise over the whole planet are the most expensive thing drawn.
+const LOW_FX = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+
 let _glowSprite = null;
 function glowSprite() {
   if (_glowSprite) return _glowSprite;
@@ -591,6 +595,7 @@ export class Planet {
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }`,
       fragmentShader: `
+        #define OCTAVES ${LOW_FX ? 3 : 4}
         uniform float uTime; uniform vec3 uSun; uniform float uCover;
         uniform vec3 uTint; uniform vec3 uShade;
         varying vec3 vN;
@@ -611,7 +616,7 @@ export class Planet {
         }
         float fbm(vec3 p) {
           float a = 0.5, s = 0.0, norm = 0.0;
-          for (int i = 0; i < 4; i++) { s += a * vnoise(p); norm += a; p *= 2.07; a *= 0.5; }
+          for (int i = 0; i < OCTAVES; i++) { s += a * vnoise(p); norm += a; p *= 2.07; a *= 0.5; }
           return s / norm;   // normalised, so uCover means the same on every world
         }
         void main() {
@@ -619,8 +624,8 @@ export class Planet {
           float d = fbm(p);
           // A faster, finer layer torn across the first one gives banks an edge
           // that frays instead of ending on a contour line.
-          float wisp = fbm(vN * 7.4 + vec3(-uTime * 0.03, uTime * 0.018, uTime * 0.024));
-          d = d * 0.78 + wisp * 0.22;
+          ${LOW_FX ? '' : `float wisp = fbm(vN * 7.4 + vec3(-uTime * 0.03, uTime * 0.018, uTime * 0.024));
+          d = d * 0.78 + wisp * 0.22;`}
           float a = smoothstep(uCover, uCover + 0.16, d) * 0.78;
           a *= 0.55 + 0.45 * smoothstep(uCover - 0.04, uCover + 0.3, d);
           if (a < 0.02) discard;
@@ -629,7 +634,7 @@ export class Planet {
           gl_FragColor = vec4(col, a);
         }`,
     });
-    this.clouds = new THREE.Mesh(new THREE.SphereGeometry(def.radius * 1.09, 64, 40), mat);
+    this.clouds = new THREE.Mesh(new THREE.SphereGeometry(def.radius * 1.09, LOW_FX ? 40 : 64, LOW_FX ? 24 : 40), mat);
     this.clouds.renderOrder = 2;
     this.group.add(this.clouds);
   }
@@ -679,7 +684,7 @@ export class Planet {
         }
         void main() {
           vec3 p = vN * 5.0 + vec3(uTime * 0.02, -uTime * 0.014, uTime * 0.011);
-          float d = vnoise(p) * 0.6 + vnoise(p * 2.3) * 0.4;
+          float d = ${LOW_FX ? 'vnoise(p)' : 'vnoise(p) * 0.6 + vnoise(p * 2.3) * 0.4'};
           // Thickest edge-on, which is how a shallow layer of air actually reads.
           float graze = 1.0 - abs(dot(normalize(vN), normalize(-vView)));
           float a = smoothstep(0.38, 0.78, d) * uDensity * (0.35 + graze * 0.9);
@@ -689,7 +694,7 @@ export class Planet {
         }`,
     });
     this.mist = new THREE.Mesh(
-      new THREE.SphereGeometry(this.seaRadius + (def.mistHeight ?? 0.55), 96, 56), mat,
+      new THREE.SphereGeometry(this.seaRadius + (def.mistHeight ?? 0.55), LOW_FX ? 48 : 96, LOW_FX ? 28 : 56), mat,
     );
     this.mist.renderOrder = 1;
     this.group.add(this.mist);

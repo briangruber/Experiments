@@ -35,7 +35,13 @@ export class Engine {
     this.renderer = new THREE.WebGLRenderer({
       canvas, antialias: true, powerPreference: 'high-performance', stencil: false,
     });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+    // Phones render this at 3x the pixels of a laptop and have a fraction of
+    // the fill rate, so they get a lower ceiling and a smaller shadow map. Read
+    // from the pointer rather than the width: a narrow desktop window is not a
+    // phone, and a tablet in landscape is.
+    this.mobile = matchMedia('(pointer: coarse)').matches;
+    this.maxPixelRatio = this.mobile ? 1.5 : 2;
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, this.maxPixelRatio));
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.25;
     this.renderer.shadowMap.enabled = true;
@@ -52,7 +58,7 @@ export class Engine {
 
     this.sun = new THREE.DirectionalLight(0xfff0d2, 3.0);
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun.shadow.mapSize.set(this.mobile ? 1024 : 2048, this.mobile ? 1024 : 2048);
     this.sun.shadow.bias = -0.0012;
     this.sun.shadow.normalBias = 0.035;
     this.scene.add(this.sun, this.sun.target);
@@ -160,7 +166,7 @@ export class Engine {
 
   resize() {
     const w = innerWidth, h = innerHeight;
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, this.maxPixelRatio));
     this.renderer.setSize(w, h, false);
     this.composer.setSize(w, h);
     this.camera.aspect = w / h;
