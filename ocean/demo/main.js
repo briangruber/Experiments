@@ -279,6 +279,11 @@ async function profileSim() {
   const report = {
     fps: +fpsFull.toFixed(1),
     frameMs: +msFull.toFixed(2),
+    // If cpuMs is a small fraction of frameMs, the frame is GPU-bound and every
+    // WebGPU advantage that is about submission overhead - stateless pipelines,
+    // multi-threaded encoding, cheaper draw calls - has nothing to bite on.
+    cpuMsInFrameCallback: +cpuMs.toFixed(2),
+    gpuBoundRatio: +(msFull / Math.max(cpuMs, 0.001)).toFixed(1),
     resolution: W + 'x' + H,
     fft: ocean.N + '^2 x ' + ocean.cascadeCount,
     stages: rows,
@@ -413,8 +418,16 @@ function shouldSkip(now) {
   return false;
 }
 
+// CPU time spent inside the frame callback: building state, setting uniforms,
+// issuing draws. GL commands are asynchronous, so this is the cost of TALKING to
+// the GPU, not of the GPU doing the work. The gap between this and the frame
+// time is the answer to "would a lower-overhead API help" - if the CPU is idle
+// for 95% of the frame, the frame is not waiting on the CPU.
+let cpuMs = 0;
+
 function frame(now) {
   if (!pngPending && shouldSkip(now)) { requestAnimationFrame(frame); return; }
+  const cpu0 = performance.now();
   const dtRaw = (now - last) / 1000;
   last = now;
   const dt = Math.min(dtRaw, 1 / 20);
@@ -595,6 +608,7 @@ function frame(now) {
   // this task yields.
   if (pngPending) writePng();
 
+  cpuMs += ((performance.now() - cpu0) - cpuMs) * 0.08;
   requestAnimationFrame(frame);
 }
 
@@ -608,6 +622,7 @@ requestAnimationFrame(frame);
 
 window.abyssal = {
   params, ocean, camera, ui, gl, waveRunner, profileSim,
+  get cpuMs() { return cpuMs; },
   get spray() { return spray; },
   get wake() { return wake; },
   get lensWet() { return lensWet; },
