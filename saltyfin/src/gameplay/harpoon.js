@@ -68,9 +68,24 @@ const SINK_K = 0.16;         // freeboard lost per downward accel unit
 const STRAIN_UP = 0.030;     // /s at full load and full opposition
 const CUT_HOLD_S = 0.55;
 const ROLL_DECAY = 0.5, SINK_DECAY = 0.45;
+// --- aiming, and the cameras -------------------------------------------------
+// The scope is a real zoom, not a crop: 26 degrees against the chase rig's 46
+// is a little over 2x, enough that a leviathan at forty metres is a target
+// rather than a smudge, and narrow enough that aiming is a deliberate act.
+const SCOPE_FOV = 26;
+const AIM_YAW_LIMIT = 1.25;  // rad either side of the bow; you cannot throw
+                             // back over your own transom
+const AIM_PITCH_MIN = -0.22, AIM_PITCH_MAX = 0.62;
+const LOCK_ANGLE = 0.085;    // rad between the aim ray and an animal to read
+                             // as ON TARGET
+// The auto-reel. A miss used to cost a 2.4 s cooldown and a hunt for the
+// button; now the line comes home by itself and the next throw is a beat
+// away, because the interesting part of a harpoon is the throwing.
+const REEL_SPEED = 34;       // m/s the spear returns
+const REEL_MIN = 0.35;       // s, so a miss still reads as a miss
 
 export function createHarpoon(opts = {}) {
-  const { ctx, scene, monster, camera } = opts;
+  const { ctx, scene, monster, camera, chaseCamera } = opts;
   const water = opts.water || (() => null);
   const burst = opts.burst || (() => {});
   const audio = opts.audio || null;
@@ -78,11 +93,18 @@ export function createHarpoon(opts = {}) {
   // Everything a HUD or a harness could want, in one bag.
   const state = {
     available: false,
+    nearDeep: false,
+    aiming: false,
     flight: false,
+    reeling: false,
     tethered: false,
     tension: 0,
     strain: 0,
     distance: 0,
+    aimYaw: 0,
+    aimPitch: 0,
+    onTarget: false,
+    leadDist: 0,
     msg: '',
     msgT: 9,
     cutHold: 0,
@@ -143,14 +165,23 @@ export function createHarpoon(opts = {}) {
     group.add(spear);
 
     // The rope: a chain of stretched unit cylinders along a sagging curve.
-    // Fourteen draw calls of seven quads each; the per-frame cost is setting
-    // fourteen transforms, and there is no geometry to rebuild, ever.
-    const SEGS = 14;
+    // Twenty-four draw calls of seven quads each; the per-frame cost is
+    // setting twenty-four transforms, and there is no geometry to rebuild.
+    //
+    // Thinner than it was, and more of it. 5.5 cm of straight tube read as a
+    // hawser or a pipe; 3.6 cm reads as cord, and doubling the segment count
+    // is what lets the catenary actually curve instead of turning three
+    // visible corners. The per-segment radius jitter is deterministic and
+    // tiny (+/-8%), and it is the whole difference between a tube and a laid
+    // rope: a real line is never the same thickness twice running.
+    const SEGS = 24;
+    const ROPE_R = 0.036;
     const matRope = new THREE.MeshStandardMaterial({
-      color: 0x4E3A22, roughness: 0.92, metalness: 0.0,
+      color: 0x6B5230, roughness: 0.95, metalness: 0.0,
     });
     const ropeGeo = new THREE.CylinderGeometry(1, 1, 1, 5, 1, true);
     const ropeSegs = [];
+    const ropeR = [];
     for (let i = 0; i < SEGS; i++) {
       const m = new THREE.Mesh(ropeGeo, matRope);
       m.name = 'harpoon-rope-' + i;
@@ -158,7 +189,9 @@ export function createHarpoon(opts = {}) {
       // Parked deep: drawn once by the warm-up (culling is off) so the
       // pipeline compiles, occluded by the seabed ever after until used.
       m.position.set(0, -400, 0);
-      m.scale.set(0.055, 1, 0.055);
+      const r = ROPE_R * (1 + 0.08 * Math.sin(i * 2.399));
+      ropeR.push(r);
+      m.scale.set(r, 1, r);
       ropeSegs.push(m);
       group.add(m);
     }
@@ -204,6 +237,15 @@ export function createHarpoon(opts = {}) {
     let groanAt = 0.33;
     let cutHeld = false;
     let loafT = 0;           // seconds of unworked line; the animal's patience
+    let aimYaw = 0;          // world heading the spear will follow
+    let aimPitch = 0.12;
+    let reelT = 0;           // seconds into the auto-reel
+    let camFirst = true;     // snap the camera on the frame it is taken
+    const _camPos = new THREE.Vector3();
+    const _camLook = new THREE.Vector3();
+    const _aimDir = new THREE.Vector3();
+    const _mid2 = new THREE.Vector3();
+    const _side = new THREE.Vector3();
     let capsizeT = -1;       // <0 idle, else seconds into the sequence
     let capsizeSide = 1;
     let capsizeSink = false; // the dunk variant
@@ -374,10 +416,13 @@ export function createHarpoon(opts = {}) {
       ctx.tow = tow;
     }
 
+    /**
+     * Throw it. Only from the scope — the aim IS the shot now, and a button
+     * that auto-hit whatever was nearest made the whole act a formality.
+     */
     function fire() {
-      if (!state.available) return;
-      const near = nearestAnimal();
-      if (!hookable(near.animal, near.dist)) return;
+      if (!state.aiming || state.flight || state.reeling || state.tethered) return;
+      exitAim();
       state.flight = true;
       flightT = 0;
       spearWet = false;
@@ -385,16 +430,7 @@ export function createHarpoon(opts = {}) {
       state.strain = 0;
       cooldown = COOLDOWN;
       bowPoint(spearPos);
-      // Lead the target: aim at where the spine will be when the spear
-      // arrives, which is what makes hitting a moving animal feel fair.
-      const tp = near.animal.state.position;
-      const d = spearPos.distanceTo(tp);
-      const tFly = d / SPEAR_V;
-      _a.copy(tp).addScaledVector(near.animal.velocity, tFly);
-      _dir.copy(_a).sub(spearPos);
-      // A touch of loft to counter the drop over the flight.
-      _dir.y += 0.5 * SPEAR_G * tFly * tFly;
-      _dir.normalize();
+      aimDir(_dir);
       spearVel.copy(_dir).multiplyScalar(SPEAR_V);
       audio?.cue?.('harpoonFire');
       // The throw itself has to read: a kick of spray off the bow.
@@ -426,7 +462,7 @@ export function createHarpoon(opts = {}) {
         if (spearPos.distanceToSquared(_p) < hitR * hitR) {
           attachAlong = clamp((0.5 - tSeg) * 2 * L, -9 * a.scale, 11 * a.scale);
           state.flight = false;
-          if (!attachNow(a)) { setMsg('The spear glances off.'); }
+          if (!attachNow(a)) beginReel('The spear glances off.');
           return;
         }
       }
@@ -440,8 +476,7 @@ export function createHarpoon(opts = {}) {
         if (w?.disturb) w.disturb(spearPos.x, spearPos.z, 0.9, 2.4);
       }
       if (spearPos.y < surf - 12 || flightT > FLIGHT_MAX) {
-        state.flight = false;
-        setMsg('Missed - the spear slips under.');
+        beginReel('Missed - hauling the line back in.');
       }
     }
 
@@ -632,22 +667,24 @@ export function createHarpoon(opts = {}) {
         // The cylinder's axis is +Y; aim it down the segment.
         _q.setFromUnitVectors(_Y, _a.multiplyScalar(1 / len));
         seg.quaternion.copy(_q);
-        // The refraction target is a quarter-res texture: an honest 11 cm
-        // line vanishes between its texels, so the submerged run fattens.
-        const r = (seg.position.y < 0 ? 0.13 : 0.055);
+        // The refraction target is a quarter-res texture: an honest 4 cm line
+        // vanishes between its texels, so the submerged run still fattens —
+        // by a ratio now rather than to a fixed hawser width, so the whole
+        // rope keeps its per-segment character above and below.
+        const r = ropeR[i] * (seg.position.y < 0 ? 2.6 : 1);
         seg.scale.set(r, len, r);
         px = qx; py = qy; pz = qz;
       }
     }
 
     function layoutSpear() {
-      if (!state.flight && !state.tethered) {
+      if (!state.flight && !state.tethered && !state.reeling) {
         // Parked far under the seabed: drawn (frustumCulled is off, so the
         // warm-up compiles it) yet occluded by the world in every pass.
         spear.position.set(0, -400, 0);
         return;
       }
-      if (state.flight) {
+      if (state.flight || state.reeling) {
         spear.position.copy(spearPos);
         _a.copy(spearVel).normalize();
         _q.setFromUnitVectors(_Z, _a);
@@ -666,6 +703,189 @@ export function createHarpoon(opts = {}) {
     // run out of the tip, so flip once here rather than re-deriving inline.
     const _q2FlipCache = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
 
+    // --- aiming -----------------------------------------------------------------
+
+    /** The unit vector the spear would follow right now. */
+    function aimDir(out) {
+      const cp = Math.cos(aimPitch);
+      return out.set(Math.sin(aimYaw) * cp, Math.sin(aimPitch), -Math.cos(aimYaw) * cp);
+    }
+
+    function enterAim() {
+      if (!state.available) return;
+      const near = nearestAnimal();
+      if (!hookable(near.animal, near.dist)) return;
+      state.aiming = true;
+      camFirst = true;
+      // Start pointed at the animal, not at the horizon: the player asked to
+      // aim, not to go looking. From there it is theirs to adjust.
+      bowPoint(_bow);
+      const p = near.animal.state.position;
+      aimYaw = Math.atan2(p.x - _bow.x, -(p.z - _bow.z));
+      const flat = Math.hypot(p.x - _bow.x, p.z - _bow.z);
+      // Ballistic-ish first guess so the reticle sits ON the animal rather
+      // than above it: the drop over the flight is 0.5*g*t^2.
+      const tFly = flat / SPEAR_V;
+      aimPitch = clamp(
+        Math.atan2((p.y - _bow.y) + 0.5 * SPEAR_G * tFly * tFly, flat),
+        AIM_PITCH_MIN, AIM_PITCH_MAX,
+      );
+    }
+
+    function exitAim() {
+      state.aiming = false;
+      state.onTarget = false;
+      state.leadDist = 0;
+    }
+
+    /** Nudge the aim, in radians. Clamped to the arc the bow can throw into. */
+    function nudgeAim(dYaw, dPitch) {
+      if (!state.aiming) return;
+      const b = ctx.boat;
+      let rel = (Number(dYaw) || 0) + aimYaw - b.heading;
+      while (rel > Math.PI) rel -= TAU;
+      while (rel < -Math.PI) rel += TAU;
+      aimYaw = b.heading + clamp(rel, -AIM_YAW_LIMIT, AIM_YAW_LIMIT);
+      aimPitch = clamp(aimPitch + (Number(dPitch) || 0), AIM_PITCH_MIN, AIM_PITCH_MAX);
+    }
+
+    /** Is the aim ray near a hookable animal? Fills state.onTarget/leadDist. */
+    function evaluateAim() {
+      bowPoint(_bow);
+      aimDir(_aimDir);
+      let best = Infinity;
+      let bestDist = 0;
+      for (let i = 0; i < pod.length; i++) {
+        const a = pod[i];
+        if (!a || !a.state || a.phase === 'breach' || a.hooked) continue;
+        const p = a.state.position;
+        _rel.copy(p).sub(_bow);
+        const d = _rel.length();
+        if (d < 1e-3 || d > RANGE * 1.6) continue;
+        // Angle between the throw and the bearing to the animal, forgiving
+        // by the animal's own size: a 34 m body is a wide target up close.
+        const ang = Math.acos(clamp(_rel.dot(_aimDir) / d, -1, 1))
+          - Math.atan2(3.2 * a.scale, d);
+        if (ang < best) { best = ang; bestDist = d; }
+      }
+      state.onTarget = best <= LOCK_ANGLE;
+      state.leadDist = best < Infinity ? bestDist : 0;
+    }
+
+    // --- the cameras --------------------------------------------------------------
+
+    /** Down the shaft: eye just behind the bow, scoped along the aim. */
+    function aimCamera(dt) {
+      const b = ctx.boat;
+      bowPoint(_bow);
+      aimDir(_aimDir);
+      _camPos.set(
+        _bow.x - _aimDir.x * 3.6, _bow.y + 1.55, _bow.z - _aimDir.z * 3.6,
+      );
+      const surf = water()?.sampleHeight?.(_camPos.x, _camPos.z, ctx.time) ?? 0;
+      _camPos.y = Math.max(_camPos.y, surf + 0.9);
+      _camLook.copy(_bow).addScaledVector(_aimDir, 40);
+      applyCamera(dt, SCOPE_FOV, 9);
+    }
+
+    /** The spear's own shot: trailing it, so the throw and the rope read. */
+    function flightCamera(dt) {
+      _a.copy(spearVel);
+      if (_a.lengthSq() < 1e-4) _a.set(0, 0, -1);
+      _a.normalize();
+      _camPos.copy(spearPos).addScaledVector(_a, -7.5);
+      _camPos.y += 2.4;
+      const surf = water()?.sampleHeight?.(_camPos.x, _camPos.z, ctx.time) ?? 0;
+      _camPos.y = Math.max(_camPos.y, surf + 1.1);
+      _camLook.copy(spearPos).addScaledVector(_a, 8);
+      applyCamera(dt, 38, 7);
+    }
+
+    /**
+     * The fight, as a two-shot. Both ends of the rope have to be in frame or
+     * the tug-of-war is a boat being pushed around by nothing — so the rig
+     * stands off the LINE at right angles, far enough back that the whole
+     * span fits, high enough to see the animal under the water, and it holds
+     * that broadside as the two of them swing around each other.
+     */
+    function fightCamera(dt) {
+      const b = ctx.boat;
+      anchorPoint(_anchor);
+      _mid2.copy(b.position).add(_anchor).multiplyScalar(0.5);
+      _rel.copy(_anchor).sub(b.position);
+      _rel.y = 0;
+      const span = Math.max(_rel.length(), 6);
+      if (span > 1e-3) _rel.multiplyScalar(1 / span);
+      // Broadside to the rope, on whichever side the camera already is, so
+      // the shot never cuts across the axis mid-fight.
+      _side.set(-_rel.z, 0, _rel.x);
+      _a.copy(camera.position).sub(_mid2);
+      if (_a.dot(_side) < 0) _side.multiplyScalar(-1);
+      // Far enough back to hold the whole span in a 52 degree lens, with
+      // headroom for the animal's own length.
+      const back = clamp(span * 0.95 + 16, 26, 74);
+      const high = clamp(span * 0.30 + 9, 12, 30);
+      _camPos.copy(_mid2).addScaledVector(_side, back);
+      _camPos.y = _mid2.y + high;
+      const surf = water()?.sampleHeight?.(_camPos.x, _camPos.z, ctx.time) ?? 0;
+      _camPos.y = Math.max(_camPos.y, surf + 3.5);
+      // Bias the framing toward the boat: it is the thing the player steers,
+      // and the leviathan is big enough to hold the other half by itself.
+      _camLook.copy(_mid2).lerp(b.position, 0.22);
+      _camLook.y = Math.max(_camLook.y, -2.5);
+      applyCamera(dt, 52, 2.4);
+    }
+
+    function applyCamera(dt, fov, rate) {
+      const k = camFirst ? 1 : Math.min(1, dt * rate);
+      camera.position.lerp(_camPos, k);
+      camera.lookAt(_camLook);
+      const f = camFirst ? fov : camera.fov + (fov - camera.fov) * Math.min(1, dt * 4);
+      if (Math.abs(f - camera.fov) > 0.01) {
+        camera.fov = f;
+        camera.updateProjectionMatrix();
+      }
+      camFirst = false;
+    }
+
+    /** Hand the frame back: the chase rig eases in from wherever we left it. */
+    function releaseCamera() {
+      const want = chaseCamera?.spec?.fov ?? 46;
+      if (Math.abs(camera.fov - want) > 0.01) {
+        camera.fov += (want - camera.fov) * 0.35;
+        if (Math.abs(camera.fov - want) < 0.4) camera.fov = want;
+        camera.updateProjectionMatrix();
+      }
+    }
+
+    // --- the reel -----------------------------------------------------------------
+
+    function beginReel(reason) {
+      state.flight = false;
+      state.reeling = true;
+      reelT = 0;
+      if (reason) setMsg(reason);
+    }
+
+    function stepReel(dt) {
+      reelT += dt;
+      sternPoint(_p);
+      _a.copy(_p).sub(spearPos);
+      const d = _a.length();
+      if (d > 0.6) {
+        _a.multiplyScalar(1 / d);
+        spearPos.addScaledVector(_a, Math.min(d, REEL_SPEED * dt));
+        // Point it home, tail-first, the way a hauled dart actually travels.
+        spearVel.copy(_a).multiplyScalar(-REEL_SPEED);
+      }
+      if (d <= 0.6 && reelT > REEL_MIN) {
+        state.reeling = false;
+        // A short breath, not a punishment: the player is meant to throw
+        // again.
+        cooldown = 0.3;
+      }
+    }
+
     // --- frame ------------------------------------------------------------------
     function update(c) {
       const dt = Math.min(0.05, c.dt || 0);
@@ -673,9 +893,11 @@ export function createHarpoon(opts = {}) {
       cooldown -= dt;
 
       if (capsizeT >= 0) {
+        exitAim();
         stepCapsize(dt);
         layoutRope(false);
         layoutSpear();
+        releaseCamera();
         return;
       }
 
@@ -686,27 +908,46 @@ export function createHarpoon(opts = {}) {
       // all take the helm away — and a tether pulling on a boat the mooring
       // lerp is also moving is two owners of one hull. The line yields.
       if (state.tethered && busy) release('The line goes slack and drops away.');
+      if (state.aiming && busy) exitAim();
+      const idle = !state.tethered && !state.flight && !state.reeling;
       if (pod.length) {
         const near = nearestAnimal();
         if (!state.tethered) state.distance = near.dist;
-        state.available = !state.tethered && !state.flight && !busy
-          && cooldown <= 0 && hookable(near.animal, near.dist);
+        state.available = idle && !busy && cooldown <= 0
+          && hookable(near.animal, near.dist);
         // In range but out of reach: the HUD dims the button and says why,
         // which turns "where did my button go" into "wait for the rise".
-        state.nearDeep = !state.available && !state.tethered && !state.flight
-          && !busy && cooldown <= 0 && !!near.animal && near.dist < RANGE
+        state.nearDeep = !state.available && idle && !busy && cooldown <= 0
+          && !!near.animal && near.dist < RANGE
           && near.animal.state.depth >= DEPTH_MAX;
       } else {
         state.available = false;
         state.nearDeep = false;
       }
+      // The scope closes by itself if the shot stops being legal — she sounds,
+      // she breaches, she swims off — rather than leaving the player squinting
+      // down a barrel at nothing.
+      if (state.aiming && !state.available) exitAim();
 
       ctx.lineOut = state.tethered;
+      if (state.aiming) evaluateAim();
       if (state.flight) stepFlight(dt);
+      if (state.reeling) stepReel(dt);
       if (state.tethered) stepTether(dt);
       else if (!state.capsizing) { ctx.tow = null; audio?.setLineTension?.(0); }
+      state.aimYaw = aimYaw;
+      state.aimPitch = aimPitch;
 
-      layoutRope(state.tethered || state.flight);
+      // One owner of the frame, chosen here and reported through ownsCamera so
+      // main.js can stand the chase rig down. Order matters: the tether wins
+      // over the flight (a hit cuts straight to the two-shot), the flight wins
+      // over the scope.
+      if (state.tethered) fightCamera(dt);
+      else if (state.flight) flightCamera(dt);
+      else if (state.aiming) aimCamera(dt);
+      else { camFirst = true; releaseCamera(); }
+
+      layoutRope(state.tethered || state.flight || state.reeling);
       layoutSpear();
     }
 
@@ -716,6 +957,11 @@ export function createHarpoon(opts = {}) {
       state,
       update,
       fire,
+      aim: enterAim,
+      cancelAim: exitAim,
+      nudgeAim,
+      /** True while this module is writing the camera; main stands the chase rig down. */
+      get ownsCamera() { return state.aiming || state.flight || state.tethered; },
       cut() { if (state.tethered) release('You cut the line free.'); },
       holdCut(v) { cutHeld = !!v && state.tethered; },
       applyEnv() {},
@@ -741,6 +987,32 @@ export function createHarpoon(opts = {}) {
           return attachNow(near.animal);
         },
         setStrain(v) { strain = clamp(v, 0, 1); },
+        setAim(yaw, pitch) {
+          aimYaw = Number(yaw) || 0;
+          aimPitch = clamp(Number(pitch) || 0, AIM_PITCH_MIN, AIM_PITCH_MAX);
+          state.aimYaw = aimYaw;
+          state.aimPitch = aimPitch;
+        },
+        aimAtNearest() {
+          const near = nearestAnimal();
+          if (!near.animal) return false;
+          bowPoint(_bow);
+          const p = near.animal.state.position;
+          // Lead the animal exactly the way the old auto-throw did, so a
+          // scripted shot still lands: aim where the spine WILL be.
+          const d = _bow.distanceTo(p);
+          const tFly = d / SPEAR_V;
+          _a.copy(p).addScaledVector(near.animal.velocity, tFly);
+          const flat = Math.hypot(_a.x - _bow.x, _a.z - _bow.z);
+          aimYaw = Math.atan2(_a.x - _bow.x, -(_a.z - _bow.z));
+          aimPitch = clamp(
+            Math.atan2((_a.y - _bow.y) + 0.5 * SPEAR_G * tFly * tFly, flat),
+            AIM_PITCH_MIN, AIM_PITCH_MAX,
+          );
+          state.aimYaw = aimYaw;
+          state.aimPitch = aimPitch;
+          return true;
+        },
         forceCapsize(side = 1) { beginCapsize(side, false); },
         forceDunk() { beginCapsize(1, true); },
         tune,

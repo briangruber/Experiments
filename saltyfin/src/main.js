@@ -315,7 +315,7 @@ ctx.fishing = fishing;
 // computes lands on the creature THIS frame (monster updates later in the
 // module list) and on the hull next frame via ctx.tow.
 const harpoon = createHarpoon({
-  ctx, scene, monster, camera,
+  ctx, scene, monster, camera, chaseCamera,
   water: () => ctx.water,
   burst: wakeFoam.burst,
   audio,
@@ -673,8 +673,11 @@ function frame() {
   fishing.update(ctx);
   shoreLeave.update(ctx);
   // Before the module loop, so the pull lands on the creature this frame.
+  // It may also take the camera — the scope, the spear's flight and the
+  // fight's two-shot are all its framings, so the chase rig stands down.
   harpoon.update(ctx);
-  if (!fishing.state.ownsCamera && !shoreLeave.ownsCamera && !townEditor.active) {
+  if (!fishing.state.ownsCamera && !shoreLeave.ownsCamera && !townEditor.active
+    && !harpoon.ownsCamera) {
     chaseCamera.update(ctx);
   }
   // Last word on the camera: the editor writes the full transform, so running
@@ -901,7 +904,8 @@ const api = {
       boatController.update(ctx);
       fishing.update(ctx);
       harpoon.update(ctx);
-      if (!fishing.state.ownsCamera && !shoreLeave.ownsCamera && !townEditor.active) {
+      if (!fishing.state.ownsCamera && !shoreLeave.ownsCamera && !townEditor.active
+        && !harpoon.ownsCamera) {
         chaseCamera.update(ctx);
       }
       townEditor.update(ctx);
