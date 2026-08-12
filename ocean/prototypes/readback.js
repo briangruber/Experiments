@@ -29,6 +29,28 @@
  */
 export async function readPixelsBottomUp( renderer, target, w, h ) {
 
+	// WebGPU requires a 256-byte row pitch on buffer copies, and the readback
+	// does not compensate: for a target whose row is not a multiple of 256 bytes
+	// the returned data is the padded buffer read at the unpadded stride, so rows
+	// interleave with padding. It does not throw and it does not look like
+	// garbage - measured on an 8x8 RGBA32F target (128-byte rows), the row
+	// indices came back [0,0,1,0,2,0,3,0] instead of a permutation, which reads
+	// as a plausible-but-wrong field rather than as an error.
+	//
+	// Every real target here clears the bar (the sky/water references are 160
+	// wide = 2560 bytes; the FFT is 128 or 256), so this is a guard against a
+	// probe author picking a small size and chasing a phantom for an hour.
+	const bytesPerRow = w * 4 * ( target.texture?.type === 1015 /* FloatType */ ? 4 : 2 );
+	if ( renderer.backend?.isWebGPUBackend && bytesPerRow % 256 !== 0 ) {
+
+		throw new Error(
+			`readPixelsBottomUp: width ${w} gives a ${bytesPerRow}-byte row, which is not a ` +
+			'multiple of 256. WebGPU readback silently returns interleaved padding at this ' +
+			'size - pick a width whose row is 256-byte aligned.',
+		);
+
+	}
+
 	const raw = await renderer.readRenderTargetPixelsAsync( target, 0, 0, w, h );
 	const px = raw instanceof Float32Array ? raw : new Float32Array( raw.buffer ?? raw );
 

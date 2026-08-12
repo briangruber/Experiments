@@ -126,3 +126,42 @@ all of them. Do not redeclare a uniform another module owns — import it.
    numbers. That is what proved `cirrusLayer` was right and the blend was wrong.
 6. Compile-check both backends (`prototypes/tsl-sky-compile-probe.html`), and
    confirm the check can fail by reverting the fix.
+
+---
+
+## 9. The simulation can be three-native on both backends — as a fragment ping-pong
+
+TSL **compute** does not work on the WebGL2 backend at all
+(`prototypes/tsl-mechanics-probe.html`: 4/4 mechanics fail, one inside three
+itself). So a compute-only simulation cannot serve the fallback.
+
+A fragment ping-pong can. `prototypes/tsl-pingpong-probe.html` runs dependent
+passes over swapped float render targets with a gather at a computed index, and
+matches a CPU reference to 5e-7 on **both** backends, with multiple render
+targets working on both. That makes the WGSL compute path an optimisation rather
+than a requirement.
+
+Two things it takes to get right, both measured:
+
+- **Index in `uv`, never `screenCoordinate` + `.load()`.** `screenCoordinate` is
+  already y-flipped on WebGL by `ScreenNode.generate`, and `TextureNode.setupUV`
+  flips *again* for a `.load()` on a render-target texture
+  (three.webgpu.js:12690). The two compose into a double flip and silently
+  permute the field — worst error 1.5e+1 on both backends. Expressed in `uv`, the
+  destination and the sampler are transformed the same way and the flips cancel,
+  for the same reason the sky LUT round-trips. Use `NearestFilter` so a sample is
+  a texel fetch.
+- **`uv` row 0 is the NDC top; the readback's row 0 is the bottom.** They differ
+  by a flip, consistently on both backends.
+
+## 10. WebGPU readback needs a 256-byte row pitch
+
+`readRenderTargetPixelsAsync` does not compensate for WebGPU's row-pitch rule. On
+a target whose row is not a multiple of 256 bytes it returns the padded buffer
+read at the unpadded stride, so rows interleave with padding. It does not throw.
+Measured on an 8×8 RGBA32F target (128-byte rows), the row indices came back
+`[0,0,1,0,2,0,3,0]` instead of a permutation — a plausible-but-wrong field.
+
+Every real target here clears the bar (references are 160 wide = 2560 bytes; the
+FFT is 128 or 256). `prototypes/readback.js` now throws rather than let a probe
+at a small size mislead someone.
