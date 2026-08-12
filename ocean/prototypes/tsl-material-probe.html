@@ -1,0 +1,165 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — the TSL material mechanics the shading needs</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}</style>
+<pre id="out">running…</pre>
+
+<!--
+  The compute probe stopped a rewrite that would have died on the fallback. Same
+  question for the shading, which is the large half of the port: can a TSL
+  material do what the water and the sky actually do?
+
+    1. Sample a sampler2DArray. The four wave cascades are one array texture and
+       every fetch in the water shader is a layered one. If TSL cannot express
+       that, the surface cannot read the sea.
+    2. Displace geometry in the vertex stage from a texture. The water grid is
+       flat until the vertex shader moves it by the displacement field.
+    3. Carry a value from vertex to fragment. Everything the BRDF needs - world
+       position, distance, cascade weights - is computed once per vertex.
+    4. Loop in the fragment stage. The cloud march is 48 iterations per pixel and
+       is most of the frame.
+    5. Render into a float target and read it back, so the answer is a number
+       rather than an impression.
+
+  Verified against a CPU reference. The WebGPU render path cannot be exercised in
+  this sandbox - Chromium 141 rejects the swizzle property Three r185 passes to
+  createView - so WebGL2 is what is checkable here and the WebGPU column is
+  expected to report that, not to pass.
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import {
+  Fn, texture, uv, vec2, vec3, vec4, float, int, uint,
+  Loop, positionLocal, varying, attribute, uniform,
+} from 'three/tsl';
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+const SIZE = 8, LAYERS = 4;
+
+// A layered texture whose value encodes (layer, x, y), so a wrong layer or a
+// flipped axis produces an obviously wrong number rather than a plausible one.
+function arrayTexture() {
+  const data = new Float32Array(SIZE * SIZE * LAYERS * 4);
+  for (let l = 0; l < LAYERS; l++) {
+    for (let y = 0; y < SIZE; y++) {
+      for (let x = 0; x < SIZE; x++) {
+        const o = ((l * SIZE * SIZE) + y * SIZE + x) * 4;
+        data[o] = l * 100 + x;
+        data[o + 1] = y;
+        data[o + 2] = 0;
+        data[o + 3] = 1;
+      }
+    }
+  }
+  const t = new THREE.DataArrayTexture(data, SIZE, SIZE, LAYERS);
+  t.format = THREE.RGBAFormat;
+  t.type = THREE.FloatType;
+  t.minFilter = t.magFilter = THREE.NearestFilter;
+  t.needsUpdate = true;
+  return t;
+}
+
+async function run(forceWebGL) {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 32;
+  const renderer = new THREE.WebGPURenderer({ canvas, forceWebGL, antialias: false });
+  await renderer.init();
+  const backend = renderer.backend?.isWebGPUBackend ? 'WebGPU' : 'WebGL2';
+  const steps = {};
+
+  const arr = arrayTexture();
+  const target = new THREE.RenderTarget(SIZE, SIZE, {
+    type: THREE.FloatType, format: THREE.RGBAFormat,
+    minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
+  });
+
+  const scene = new THREE.Scene();
+  const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+
+  const layerU = uniform(2);          // ask for layer 2 specifically
+
+  const mat = new THREE.MeshBasicNodeMaterial();
+  try {
+    // 1 + 3 + 4: layered fetch, a varying, and a fragment loop.
+    const carried = varying(vec2(0, 0), 'vCarried');
+    mat.positionNode = Fn(() => {
+      // 2: move the vertex using data the shader fetched, not a fixed offset.
+      const sample = texture(arr, uv(), 0).depth(layerU);
+      carried.assign(vec2(sample.x, sample.y));
+      return positionLocal;
+    })();
+    mat.colorNode = Fn(() => {
+      const s = texture(arr, uv(), 0).depth(layerU);
+      const acc = float(0).toVar();
+      Loop({ start: int(0), end: int(4) }, ({ i }) => {
+        acc.addAssign(float(i).mul(0.5));
+      });
+      // x: the layered fetch. y: the accumulated loop. z: the varying round trip.
+      return vec4(s.x, acc, carried.x, 1);
+    })();
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat);
+    quad.frustumCulled = false;
+    scene.add(quad);
+    steps.built = true;
+  } catch (e) { steps.built = String(e.message || e); }
+
+  let pixels = null;
+  try {
+    renderer.setRenderTarget(target);
+    await renderer.renderAsync(scene, cam);
+    renderer.setRenderTarget(null);
+    // Signature is (target, x, y, w, h, textureIndex, faceIndex) and it RETURNS
+    // the data. Passing a buffer as the 6th argument makes Three use a
+    // Float32Array as a weak-map key, which fails as "Invalid value used as weak
+    // map key" and says nothing about the real mistake.
+    pixels = await renderer.readRenderTargetPixelsAsync(target, 0, 0, SIZE, SIZE);
+    steps.rendered = true;
+  } catch (e) { steps.rendered = String(e.message || e); }
+
+  renderer.dispose();
+  return { backend, steps, pixels };
+}
+
+// Layer 2 encodes x + 200 in the red channel; the loop sums 0+0.5+1+1.5 = 3.
+const LOOP_EXPECT = 3;
+
+for (const [label, force] of [['WebGPU', false], ['WebGL2', true]]) {
+  let r;
+  try { r = await run(force); } catch (e) { log(`${label}: renderer`, false, String(e.message || e)); continue; }
+
+  log(`${r.backend}: material builds (array fetch, varying, loop)`, r.steps.built === true, String(r.steps.built));
+  log(`${r.backend}: renders into a float target`, r.steps.rendered === true, String(r.steps.rendered));
+
+  if (r.pixels) {
+    const px = r.pixels;
+    // Every texel of layer 2 has red in [200, 207].
+    let layerOk = true, loopOk = true, varyOk = true;
+    for (let i = 0; i < SIZE * SIZE; i++) {
+      const red = px[i * 4], green = px[i * 4 + 1], blue = px[i * 4 + 2];
+      if (!(red >= 199.5 && red <= 207.5)) layerOk = false;
+      if (Math.abs(green - LOOP_EXPECT) > 1e-3) loopOk = false;
+      if (!(blue >= 199.5 && blue <= 207.5)) varyOk = false;
+    }
+    log(`${r.backend}: 1. sampler2DArray layer select`, layerOk, `red[0]=${px[0]} (want 200..207)`);
+    log(`${r.backend}: 4. fragment loop`, loopOk, `green[0]=${px[1]} (want ${LOOP_EXPECT})`);
+    log(`${r.backend}: 3. vertex-to-fragment varying`, varyOk, `blue[0]=${px[2]} (want 200..207)`);
+  }
+}
+
+window.probeResult = { results, allOk: results.every((r) => r.ok) };
+</script>

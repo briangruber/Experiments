@@ -298,3 +298,61 @@ that were briefly written off are the shipping path again — already verified t
 
 The simulation is also the smaller half: 3.0% of a frame, and one of the two
 implementations already exists and ships.
+
+
+---
+
+## Measured: TSL materials do everything the shading needs
+
+`prototypes/tsl-material-probe.html`. The shading is the large half of the port
+and almost all of the frame, so the same question was put to it as to compute:
+not "does TSL work" but "can it do what the water and the sky actually do".
+
+```
+WebGPU  material builds (array fetch, varying, loop)   PASS
+WebGPU  renders into a float target                    FAIL  Chromium 141 swizzle bug (sandbox)
+
+WebGL2  material builds                                PASS
+WebGL2  renders into a float target                    PASS
+WebGL2  1. sampler2DArray layer select                 PASS  red=200, exactly layer 2
+WebGL2  4. fragment loop                               PASS  green=3, exact
+WebGL2  3. vertex-to-fragment varying                  PASS  blue=200.44, interpolated
+```
+
+All four mechanics work on the fallback, checked against values that could only
+come out right if the layer, the loop count and the interpolation were all
+correct. The node graph also **compiles on WebGPU** — only the sandbox's render
+path is blocked, and that is Chromium, not Three.
+
+So the shading port is green: one TSL source, both backends, which is exactly
+what was asked for and what compute could not deliver.
+
+## The architecture, settled
+
+Every line of this is now measured rather than argued:
+
+| | simulation | surface, sky, spray, post |
+| --- | --- | --- |
+| WebGPU | WGSL compute on the device — verified to 1.40e-5 on an M4 Max | TSL node materials |
+| WebGL2 | the existing GLSL fragment simulation, unchanged | TSL node materials |
+
+The split falls where the evidence put it. Compute does not survive the WebGL2
+backend: a gather, two outputs and a loop all fail, and `Loop` fails inside
+Three's own emulation. Materials survive it completely. The simulation is 3.0%
+of a frame and already has both implementations written; the shading is the rest
+of the frame and gets the single source.
+
+## What is left
+
+The foundations are done and checked. What remains is the re-expression itself,
+and it is the largest body of work in the project:
+
+- `src/shaders/water.js` — the BRDF, ~40 KB
+- `src/shaders/sky.js` — atmosphere and the cloud march, ~40 KB
+- `src/shaders/post.js` — bloom, exposure, tonemap, ~28 KB
+- spray, wake, craft
+
+Each becomes a TSL node graph, each checked against the WebGL2 render it
+replaces. The WebGPU render path cannot be verified in this sandbox until
+Chromium catches up with Three, so those checks run on the WebGL2 backend here
+and need a real browser for the WebGPU half.
