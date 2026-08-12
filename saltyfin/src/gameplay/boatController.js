@@ -97,7 +97,12 @@ export function createBoatController({ ctx, input, water, terrain }) {
       // feel is a key that does not exist. 1.9x is 17.5 m/s, fast enough that
       // the boat plainly picks up its skirts, and it drives the wake and the
       // prop wash harder along with it because both key off speed.
-      const boost = !hold && (input.isDown('ShiftLeft') || input.isDown('ShiftRight')) ? 1.9 : 1;
+      // No boost on the line: 17.5 m/s against a rope that parts at a
+      // sustained overload turns "full throttle away", the taught winning
+      // technique, into a guaranteed snap in 2.5 seconds. The engine simply
+      // has a rope's worth of grip while one is made fast.
+      const boost = !hold && !ctx.lineOut
+        && (input.isDown('ShiftLeft') || input.isDown('ShiftRight')) ? 1.9 : 1;
 
       b.throttle += (throttleIn - b.throttle) * Math.min(1, dt * (boost > 1 ? 4.6 : 3.2));
       const target = b.throttle >= 0
@@ -166,6 +171,11 @@ export function createBoatController({ ctx, input, water, terrain }) {
       if (terrain?.seabedHeight) {
         const depth = -terrain.seabedHeight(b.position.x, b.position.z);
         if (depth < DRAFT) {
+          // The tow drift is way the keel did not choose, and aground it is
+          // way the SAND now owns: scrub it hard, or a leviathan dragging
+          // the hull across a shoal reintroduces the grounded-shake this
+          // whole block exists to prevent.
+          drift.multiplyScalar(Math.max(0, 1 - dt * 6));
           // Widen the baseline the further aground she is. A 1.5 m sample reads
           // the bump she is sitting on, and a hillside has plenty of local
           // basins for that to settle into — dropped in the middle of the

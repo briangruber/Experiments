@@ -1753,6 +1753,10 @@ export function createMonster(opts = {}) {
       alert() { state.alerted = true; approachLock = 0; if (phase === 'cruise') setPhase('approach'); },
       calm() { state.alerted = false; if (phase === 'approach') setPhase('dive'); },
       forceBreach(x, z) {
+        // A breach is a Bezier that owns the position outright; starting one
+        // under a live tether would pin the rope to a flight path the tug
+        // physics cannot touch. The line has to come off first.
+        if (hooked) return;
         if (phase === 'breach') return;
         if (typeof x === 'number' && typeof z === 'number') { beginBreach(x, z); return; }
         _dir.copy(velocity).setY(0);

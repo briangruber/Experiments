@@ -851,6 +851,16 @@ const api = {
     oceanPanel.close();
     const fishGo = document.getElementById('sf-fish-go');
     if (fishGo) fishGo.style.display = 'none';
+    const harpGo = document.getElementById('sf-harpoon-go');
+    if (harpGo) harpGo.style.display = 'none';
+    const harpPanel = document.getElementById('sf-harpoon');
+    if (harpPanel) {
+      harpPanel.style.display = 'none';
+      // Its HUD paints through a dataset.on cache; resetting it here lets
+      // the next genuine show() rewrite the style we just clobbered.
+      const inner = harpPanel.querySelector('.sf-harpoon-panel');
+      if (inner) { inner.style.display = 'none'; inner.dataset.on = '0'; }
+    }
     intro.dismiss?.();
     document.getElementById('intro')?.remove();
   },
@@ -860,6 +870,12 @@ const api = {
     fpsBadge.style.display = '';
     const fishGo = document.getElementById('sf-fish-go');
     if (fishGo) fishGo.style.display = '';
+    const harpGo = document.getElementById('sf-harpoon-go');
+    if (harpGo) harpGo.style.display = '';
+    const harpPanel = document.getElementById('sf-harpoon');
+    if (harpPanel) harpPanel.style.display = '';
+    // The inner panel stays hidden until the harpoon HUD's own guarded
+    // painter decides otherwise; its dataset cache was reset in hideHud.
   },
   stop() { running = false; },
   /**

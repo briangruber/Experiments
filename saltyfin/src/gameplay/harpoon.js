@@ -203,6 +203,7 @@ export function createHarpoon(opts = {}) {
     let strain = 0;
     let groanAt = 0.33;
     let cutHeld = false;
+    let loafT = 0;           // seconds of unworked line; the animal's patience
     let capsizeT = -1;       // <0 idle, else seconds into the sequence
     let capsizeSide = 1;
     let capsizeSink = false; // the dunk variant
@@ -231,7 +232,13 @@ export function createHarpoon(opts = {}) {
     }
 
     const hookable = (a, d) => !!a && d < RANGE && a.state.depth < DEPTH_MAX
-      && a.phase !== 'breach';
+      && a.phase !== 'breach'
+      // Never during the quest's rise: hooking the primary mid-approach
+      // cancels the climactic breach the whole first arc builds to, and the
+      // quest text then announces a surfacing that never happened. Stage 2
+      // onward it is fair game.
+      && !(a === pod[0] && a.phase === 'approach'
+        && ctx.quest && ctx.quest.state && ctx.quest.state.stage === 1);
 
     function setMsg(text) { state.msg = text; state.msgT = 0; }
 
@@ -267,6 +274,7 @@ export function createHarpoon(opts = {}) {
       tensionSmooth = 0;
       state.tension = 0;
       cooldown = COOLDOWN;
+      state.cutHold = 0;
       target?.unhook?.();
       target = null;
       audio?.setLineTension?.(0);
@@ -279,6 +287,8 @@ export function createHarpoon(opts = {}) {
       target = animal;
       state.tethered = true;
       state.flight = false;
+      cutHeld = false;
+      loafT = 0;
       strain = 0;
       groanAt = 0.33;
       snapT = 0;
@@ -286,7 +296,11 @@ export function createHarpoon(opts = {}) {
       sinkEnergy = 0;
       bowPoint(_bow);
       const p = animal.state.position;
-      rest = clamp(_bow.distanceTo(p) * 0.96, REST_MIN, REST_MAX);
+      // Pay out whatever the strike needed - clamping to REST_MAX here made a
+      // 55 m hit start 13 m over-stretched: pegged bar, one violent yank and
+      // a near-horizontal roll on the attach frame. The auto-reel below
+      // shortens it to fighting length as slack allows.
+      rest = Math.max(REST_MIN, _bow.distanceTo(p) * 0.98);
       audio?.cue?.('harpoonHit');
       burst(p.x, p.z, 30, 1.2);
       const w = water();
@@ -348,6 +362,8 @@ export function createHarpoon(opts = {}) {
       state.flight = true;
       flightT = 0;
       spearWet = false;
+      state.tension = 0;
+      state.strain = 0;
       cooldown = COOLDOWN;
       bowPoint(spearPos);
       // Lead the target: aim at where the spine will be when the spear
@@ -425,6 +441,11 @@ export function createHarpoon(opts = {}) {
       // player can see it work.
       if (dist < rest && rest > 16) rest = Math.max(16, rest - dt * 1.1);
 
+      // A teleport mid-tether (capture harness, debug, a future fast-travel)
+      // leaves the rope pinned across the map; an impossible distance is a
+      // quiet release, not a physics event.
+      if (dist > 160) { release(''); return; }
+
       const stretch = dist - rest;
       let T = 0;
       if (stretch > 0) {
@@ -443,14 +464,26 @@ export function createHarpoon(opts = {}) {
       if (T > 0) {
         // Boat end. Horizontal force feeds the drift; the lateral share
         // swings the bow and heels her; a downward rope steals freeboard.
+        //
+        // SIGNS, verified against the hull's own conventions (review round):
+        // b.right is the PORT vector (forward.z, 0, -forward.x), positive
+        // heading rate is a STARBOARD turn, positive heel is starboard-side-
+        // up, and NEGATIVE trim is bow-up (boat.js applies rotation.x =
+        // -trim). `lateral` here is starboard-positive — hence the negated
+        // dot — so a starboard pull yaws starboard (+), heels starboard-down
+        // (-), and a rope hauling downward pitches the bow DOWN via positive
+        // trim. The first version had all three backwards: the boat steered
+        // away from the pull, leaned away from the rope, and reared its bow
+        // skyward at the exact moment the leviathan pulled the foredeck
+        // green.
         const ax = _dir.x * T, ay = _dir.y * T, az = _dir.z * T;
-        const lateral = ax * b.right.x + az * b.right.z;
+        const lateral = -(ax * b.right.x + az * b.right.z);
         const along = ax * b.forward.x + az * b.forward.z;
         tow.fx = ax;
         tow.fz = az;
         tow.yaw = clamp(lateral * YAW_K, -0.85, 0.85);
         tow.heel = clamp(-lateral * HEEL_K, -1.7, 1.7);
-        tow.trim = clamp(Math.min(0, ay) * 0.03 - Math.max(0, along) * 0.006, -0.42, 0.05);
+        tow.trim = clamp(-Math.min(0, ay) * 0.03 + Math.max(0, along) * 0.006, -0.05, 0.42);
         tow.sink = Math.max(0, -ay) * SINK_K;
         tow.brake = along < 0 ? Math.min(1.4, -along * 0.1) : 0;
         ctx.tow = tow;
@@ -466,15 +499,27 @@ export function createHarpoon(opts = {}) {
         const oppose = clamp(-(_vB.x * _dir.x + _vB.z * _dir.z) / 6, 0, 1);
         if (t01 > 0.4) {
           strain = clamp(strain + dt * (0.005 + STRAIN_UP * t01 * (0.35 + 0.65 * oppose)), 0, 1);
+          loafT = Math.max(0, loafT - dt * 2);
+        } else {
+          // A line the player is not working sits at ~0.3 tension forever —
+          // below the strain gate, below the snap gate, a stalemate with no
+          // exit. The animal is not so patient: forty lazy seconds and it
+          // shakes the iron loose itself.
+          loafT += dt;
         }
       } else {
         ctx.tow = null;
         strain = clamp(strain - dt * 0.012, 0, 1);
+        loafT += dt;
+      }
+      if (loafT > 40) {
+        release('She shakes the iron loose. Fight her next time.');
+        return;
       }
       state.strain = strain;
       target.setStrain(strain);
 
-      if (strain >= groanAt) {
+      if (strain >= groanAt && strain < 0.99) {
         groanAt += 0.33;
         audio?.cue?.('levGroan');
       }
@@ -507,7 +552,10 @@ export function createHarpoon(opts = {}) {
         + dt * (T > 0 ? Math.abs(tow.heel) - 0.62 : -ROLL_DECAY));
       sinkEnergy = Math.max(0, sinkEnergy
         + dt * (T > 0 ? tow.sink - 0.7 : -SINK_DECAY));
-      if (rollEnergy > tune.ROLL_LIMIT) { beginCapsize(-Math.sign(tow.heel || 1), false); return; }
+      // SAME sign as the lean she has been holding: the roll must continue
+      // the multi-second list that earned it, not whip across to the other
+      // gunwale at the trigger frame.
+      if (rollEnergy > tune.ROLL_LIMIT) { beginCapsize(Math.sign(tow.heel || 1), false); return; }
       if (sinkEnergy > tune.DUNK_LIMIT) { beginCapsize(1, true); return; }
 
       // The cut.
@@ -629,6 +677,7 @@ export function createHarpoon(opts = {}) {
         state.nearDeep = false;
       }
 
+      ctx.lineOut = state.tethered;
       if (state.flight) stepFlight(dt);
       if (state.tethered) stepTether(dt);
       else if (!state.capsizing) { ctx.tow = null; audio?.setLineTension?.(0); }
@@ -649,6 +698,10 @@ export function createHarpoon(opts = {}) {
       dispose() {
         scene.remove(group);
         ropeGeo.dispose();
+        shaft.geometry.dispose();
+        tip.geometry.dispose();
+        vane.geometry.dispose();
+        vane2.geometry.dispose();
         matRope.dispose();
         matWood.dispose();
         matIron.dispose();
