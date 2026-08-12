@@ -120,6 +120,7 @@ export class Planet {
     this.buildGrass();
     this.buildFlowers();
     this.buildClouds();
+    this.buildMist();
     this.placeMotes();
     this.buildBeacon();
     if (def.islets) this.buildIslets();
@@ -616,7 +617,12 @@ export class Planet {
         void main() {
           vec3 p = vN * 3.1 + vec3(uTime * 0.012, uTime * 0.005, -uTime * 0.009);
           float d = fbm(p);
-          float a = smoothstep(uCover, uCover + 0.19, d) * 0.62;
+          // A faster, finer layer torn across the first one gives banks an edge
+          // that frays instead of ending on a contour line.
+          float wisp = fbm(vN * 7.4 + vec3(-uTime * 0.03, uTime * 0.018, uTime * 0.024));
+          d = d * 0.78 + wisp * 0.22;
+          float a = smoothstep(uCover, uCover + 0.16, d) * 0.78;
+          a *= 0.55 + 0.45 * smoothstep(uCover - 0.04, uCover + 0.3, d);
           if (a < 0.02) discard;
           float lit = max(dot(vN, normalize(uSun)), 0.0);
           vec3 col = mix(uShade, uTint, lit * 0.85 + 0.15);
@@ -626,6 +632,67 @@ export class Planet {
     this.clouds = new THREE.Mesh(new THREE.SphereGeometry(def.radius * 1.09, 64, 40), mat);
     this.clouds.renderOrder = 2;
     this.group.add(this.clouds);
+  }
+
+  // Mist pools where the ground is low. This is one shell a little above sea
+  // level: everywhere the land rises through it the terrain simply occludes it,
+  // so the mist ends up in the valleys and over the water for free.
+  buildMist() {
+    const def = this.def;
+    if (def.mist === false) return;
+    this.mistUniforms = {
+      uTime: { value: 0 },
+      uColor: { value: new THREE.Color(def.mistTint ?? 0xdfe8f0) },
+      uSun: { value: new THREE.Vector3(0, 1, 0) },
+      uDensity: { value: def.mistDensity ?? 0.5 },
+    };
+    const mat = new THREE.ShaderMaterial({
+      uniforms: this.mistUniforms,
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      blending: THREE.NormalBlending,
+      vertexShader: `
+        varying vec3 vN;
+        varying vec3 vView;
+        void main() {
+          vN = normalize(position);
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          vView = mv.xyz;
+          gl_Position = projectionMatrix * mv;
+        }`,
+      fragmentShader: `
+        uniform float uTime; uniform vec3 uColor; uniform vec3 uSun; uniform float uDensity;
+        varying vec3 vN; varying vec3 vView;
+        float hash(vec3 p) {
+          p = fract(p * 0.3183099 + vec3(0.71, 0.113, 0.419));
+          p *= 17.0;
+          return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+        }
+        float vnoise(vec3 x) {
+          vec3 i = floor(x), f = fract(x);
+          f = f * f * (3.0 - 2.0 * f);
+          return mix(mix(mix(hash(i), hash(i + vec3(1,0,0)), f.x),
+                         mix(hash(i + vec3(0,1,0)), hash(i + vec3(1,1,0)), f.x), f.y),
+                     mix(mix(hash(i + vec3(0,0,1)), hash(i + vec3(1,0,1)), f.x),
+                         mix(hash(i + vec3(0,1,1)), hash(i + vec3(1,1,1)), f.x), f.y), f.z);
+        }
+        void main() {
+          vec3 p = vN * 5.0 + vec3(uTime * 0.02, -uTime * 0.014, uTime * 0.011);
+          float d = vnoise(p) * 0.6 + vnoise(p * 2.3) * 0.4;
+          // Thickest edge-on, which is how a shallow layer of air actually reads.
+          float graze = 1.0 - abs(dot(normalize(vN), normalize(-vView)));
+          float a = smoothstep(0.38, 0.78, d) * uDensity * (0.35 + graze * 0.9);
+          if (a < 0.01) discard;
+          float lit = max(dot(vN, normalize(uSun)), 0.0) * 0.6 + 0.4;
+          gl_FragColor = vec4(uColor * lit, min(a, 0.72));
+        }`,
+    });
+    this.mist = new THREE.Mesh(
+      new THREE.SphereGeometry(this.seaRadius + (def.mistHeight ?? 0.55), 96, 56), mat,
+    );
+    this.mist.renderOrder = 1;
+    this.group.add(this.mist);
   }
 
   // Threats are built on first arrival, not at world-build time: five worlds
@@ -863,6 +930,10 @@ export class Planet {
       _m.copy(this.group.matrixWorld).invert();
       this.cloudUniforms.uSun.value.copy(_v).transformDirection(_m).normalize();
       this.clouds.rotation.y += dt * 0.008;
+    }
+    if (this.mistUniforms) {
+      this.mistUniforms.uTime.value = time;
+      this.mistUniforms.uSun.value.copy(this.cloudUniforms?.uSun.value ?? _up);
     }
 
     if (this.waveActive) {

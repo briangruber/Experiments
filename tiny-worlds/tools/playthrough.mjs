@@ -70,7 +70,25 @@ await page.click('#card-button');
 await frames(3);
 check('title card starts the game', await page.evaluate(() => window.tinyWorlds.state.mode === 'play'));
 
-// 2. The controls point where they say, and the keeper faces where they go.
+// 2. The debug panel opens on ` and can jump straight to any world.
+await page.keyboard.press('Backquote');
+await frames(2);
+const panel = await page.evaluate(() => {
+  const el = document.getElementById('debug');
+  return { open: el?.classList.contains('open'), worlds: el?.querySelectorAll('.dbg-worlds button').length };
+});
+check('the debug panel opens and lists every world',
+  panel.open && panel.worlds === 5, JSON.stringify(panel));
+await page.evaluate(() => document.querySelectorAll('#debug .dbg-worlds button')[3].click());
+await frames(3);
+check('a debug world button jumps there',
+  await page.evaluate(() => window.tinyWorlds.planets[window.tinyWorlds.state.worldIndex].def.id === 'ember'));
+await page.evaluate(() => window.tinyWorlds.goto(+new URLSearchParams(location.search).get('world') || 0));
+await frames(3);
+await page.keyboard.press('Backquote');
+await frames(2);
+
+// 3. The controls point where they say, and the keeper faces where they go.
 //    Left/right were once mirrored and the model ran backwards, and neither
 //    shows up in any other check here.
 const axes = [];
@@ -110,7 +128,7 @@ for (const [key, wantForward, wantRight] of [['KeyW', 1, 0], ['KeyS', -1, 0], ['
 check('the controls move and turn the keeper where they say',
   axes.every((a) => a.ok), axes.map((a) => `${a.key}:${JSON.stringify(a.got)}`).join(' '));
 
-// 3. Strafing has to travel. Following a strafe with the camera used to turn
+// 4. Strafing has to travel. Following a strafe with the camera used to turn
 //    the input frame under the keeper, spiralling them on the spot.
 const strafeStart = await page.evaluate(() => window.tinyWorlds.player.local.clone().normalize().toArray());
 await page.keyboard.down('KeyD');
@@ -123,7 +141,7 @@ const strafeArc = await page.evaluate((a) => {
 }, strafeStart);
 check('strafing travels instead of circling', strafeArc > 40, `${strafeArc} degrees in 3s`);
 
-// 4. The gloom. Walking into one costs a spark you had banked; coming down on
+// 5. The gloom. Walking into one costs a spark you had banked; coming down on
 //    one from above dispels it. Both the mercy window and the gloom's own
 //    cooldown have to be cleared first or the hit is silently swallowed.
 const gloom = await page.evaluate(() => window.tinyWorlds.planets[window.tinyWorlds.state.worldIndex].gloom?.mobs.length ?? 0);
@@ -171,7 +189,7 @@ if (gloom) {
   check('a gloom knocks you down and scatters a spark', true, 'no gloom on this world');
 }
 
-// 5. Meteors, where the world has them: the marker is where it lands.
+// 6. Meteors, where the world has them: the marker is where it lands.
 const hasMeteors = await page.evaluate(() => !!window.tinyWorlds.planets[window.tinyWorlds.state.worldIndex].meteors);
 if (hasMeteors) {
   await page.evaluate(() => {
@@ -195,7 +213,7 @@ if (hasMeteors) {
   check('a meteor falls with a marker under it', true, 'no meteors on this world');
 }
 
-// 6. Walk onto every spark in turn. Each one must register.
+// 7. Walk onto every spark in turn. Each one must register.
 await page.evaluate(() => {
   const tw = window.tinyWorlds;
   const p = tw.planets[tw.state.worldIndex];
@@ -220,7 +238,7 @@ for (let i = 0; i < total; i++) {
 }
 check('every spark can be collected', collected === total, `${collected}/${total}`);
 
-// 7. Collecting the last one blooms the world and lights the beacon.
+// 8. Collecting the last one blooms the world and lights the beacon.
 await frames(4);
 const bloomed = await page.evaluate(() => {
   const tw = window.tinyWorlds;
@@ -230,20 +248,40 @@ const bloomed = await page.evaluate(() => {
 check('the world blooms', bloomed.bloomed && bloomed.wave, JSON.stringify(bloomed));
 check('the beacon lights', bloomed.beacon);
 
-// 8. Standing at the beacon offers the launch, and E takes it.
+// 8. A portal opens beside where the last spark fell, and walking into it is
+//    the whole interaction — nothing to press.
+const portal = await page.evaluate(() => {
+  const tw = window.tinyWorlds;
+  const p = tw.planets[tw.state.worldIndex];
+  if (!p.portal) return null;
+  return {
+    fromBloom: +p.portal.centre.clone().normalize().angleTo(p.bloomOrigin).toFixed(3),
+    aboveGround: +(p.portal.centre.length() - p.groundRadius(p.portal.centre.clone().normalize())).toFixed(2),
+  };
+});
+check('a portal opens near where the last spark fell',
+  !!portal && portal.fromBloom > 0.05 && portal.fromBloom < 0.9, JSON.stringify(portal));
+
+// Stand just outside it, then walk in.
 await page.evaluate(() => {
   const tw = window.tinyWorlds;
   const p = tw.planets[tw.state.worldIndex];
-  tw.player.local.copy(p.beaconDir).multiplyScalar(p.groundRadius(p.beaconDir) + 0.1);
+  const dir = p.portal.centre.clone().normalize();
+  tw.player.local.copy(dir).multiplyScalar(p.groundRadius(dir) + 0.1);
   tw.player.vel.set(0, 0, 0);
+  tw.player.invuln = 999;
 });
 await frames(4);
-check('the beacon offers the launch', await page.evaluate(() => window.tinyWorlds.state.promptAction === 'launch'));
-await page.keyboard.press('KeyE');
+check('the portal prompts as you approach',
+  await page.evaluate(() => window.tinyWorlds.state.promptAction === 'launch'));
+await page.evaluate(() => {
+  const tw = window.tinyWorlds;
+  tw.player.local.copy(tw.planets[tw.state.worldIndex].portal.centre);
+});
 await frames(3);
-check('the launch starts', await page.evaluate(() => window.tinyWorlds.state.mode === 'flight'));
+check('walking into the portal launches', await page.evaluate(() => window.tinyWorlds.state.mode === 'flight'));
 
-// 9. The flight lands on the next world.
+// 10. The flight lands on the next world.
 const before = await page.evaluate(() => window.tinyWorlds.state.worldIndex);
 await page.waitForFunction((i) => window.tinyWorlds.state.worldIndex > i || window.tinyWorlds.state.mode !== 'flight',
   before, { timeout: 300000 }).catch(() => {});

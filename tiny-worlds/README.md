@@ -9,8 +9,9 @@ sparks are still drifting somewhere on the surface — gather them all and the
 world blooms outward from the exact spot where you caught the last one: colour
 sweeps across the ground in a visible wavefront, dormant trees stand up and
 green over, grass springs up behind the front, the sea turns from slate to
-blue, and the beacon lights. Walk to the beacon and it throws you across space
-to the next world.
+blue, and the beacon lights. A portal opens a few paces from where you were
+standing — walk into it and it takes you to the next world. There is nothing to
+press.
 
 All five planets exist in one scene from the first frame. The ones you have not
 reached yet are hanging in the sky the whole time, and the flight between them
@@ -44,8 +45,13 @@ python3 -m http.server 8000    # or any static server
 Then open <http://localhost:8000/>.
 
 `WASD` run · `Space` jump · `Shift` sprint · drag to look · wheel to zoom ·
-`E` use the beacon · `M` mute · `H` hide the interface. On touch, the left half
+`M` mute · `H` hide the interface · `` ` `` debug panel. On touch, the left half
 of the screen is a thumbstick and a tap on the right half jumps.
+
+The debug panel (`` ` ``, or `?debug=1`) jumps to any world, forces a bloom,
+opens a portal, drops a meteor, clears the gloom, and shows live state. It
+drives the game through the same `window.tinyWorlds` handle the harness uses,
+so everything it does is scriptable.
 
 Useful query parameters: `?world=2` starts on a given world, `?skipmenu=1`
 skips the title card, `?dt=0.0166` forces a fixed timestep (what the capture
@@ -58,8 +64,10 @@ index.html        entry point and import map
 src/
   main.js         boot, game state machine, the loop
   worlds.js       the five worlds as data — gravity, grip, palette, light
-  planet.js       terrain, sea, clouds, props, sparks, the bloom wavefront
+  planet.js       terrain, sea, clouds, mist, props, sparks, the bloom front
   threats.js      meteors and gloom — everything a dormant world throws
+  portal.js       the way out of a world you have woken
+  debug.js        the ` panel: jump to a world, force any event, watch state
   player.js       the keeper: radial gravity, sphere walking, animation state
   camera.js       chase camera that survives running over the poles
   engine.js       renderer, post chain, the shared sun and starfield
@@ -132,6 +140,6 @@ blooms, the beacon lights, the launch is offered, and the flight lands on the
 next planet.
 
 ```
-node tools/playthrough.mjs            # 13 checks, non-zero exit on any failure
-node tools/playthrough.mjs --world 2  # 14, including the meteor storm
+node tools/playthrough.mjs            # 16 checks, non-zero exit on any failure
+node tools/playthrough.mjs --world 2  # 17, including the meteor storm
 ```

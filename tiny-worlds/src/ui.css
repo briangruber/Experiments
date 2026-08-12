@@ -254,6 +254,79 @@ body.no-chrome #hud, body.menu #hud { opacity: 0; }
   background: rgba(255, 240, 210, .16);
 }
 
+/* ------------------------------------------------------------------ debug */
+
+#debug {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 8;
+  width: 208px;
+  padding: 12px 13px 13px;
+  border: 1px solid rgba(255, 240, 210, .14);
+  border-radius: 10px;
+  background: rgba(8, 10, 16, .82);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  font-size: 11px;
+  letter-spacing: .02em;
+  color: rgba(244, 236, 221, .9);
+  display: none;
+}
+
+#debug.open { display: block; }
+
+.dbg-title {
+  font-size: 10px;
+  letter-spacing: .24em;
+  text-transform: uppercase;
+  color: rgba(185, 174, 156, .7);
+  display: flex;
+  justify-content: space-between;
+}
+
+.dbg-key {
+  border: 1px solid rgba(255, 240, 210, .2);
+  border-radius: 3px;
+  padding: 0 4px;
+  letter-spacing: 0;
+}
+
+.dbg-section {
+  margin: 11px 0 5px;
+  font-size: 9px;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+  color: rgba(185, 174, 156, .45);
+}
+
+.dbg-worlds, .dbg-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+
+#debug button {
+  flex: 1 1 auto;
+  padding: 5px 7px;
+  font: inherit;
+  font-size: 10.5px;
+  color: rgba(244, 236, 221, .88);
+  background: rgba(255, 240, 210, .07);
+  border: 1px solid rgba(255, 240, 210, .13);
+  border-radius: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+#debug button:hover { background: rgba(255, 240, 210, .18); }
+#debug button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+.dbg-stats { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.dbg-stats th {
+  text-align: left;
+  font-weight: 400;
+  color: rgba(185, 174, 156, .6);
+  padding: 1px 0;
+}
+.dbg-stats td { text-align: right; color: var(--ink); }
+
 /* ---------------------------------------------------------------- loading */
 
 #loading {

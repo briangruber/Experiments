@@ -16,6 +16,8 @@ import { Hud } from './hud.js';
 import { Audio } from './audio.js';
 import { loadAssets } from './assets.js';
 import { offsetDir } from './threats.js';
+import { Portal } from './portal.js';
+import { Debug } from './debug.js';
 import { clamp } from './noise.js';
 
 const params = new URLSearchParams(location.search);
@@ -32,6 +34,7 @@ const _move = new THREE.Vector3();
 const _m = new THREE.Matrix4();
 const SPARK = new THREE.Color(0xffd98a);
 const PETAL = new THREE.Color(0xffe6f2);
+const WEATHER = new WeakMap();
 
 const hud = new Hud();
 const engine = new Engine(canvas);
@@ -77,6 +80,7 @@ syncParticleScale();
 addEventListener('resize', syncParticleScale);
 
 state.totalSparks = planets.reduce((n, p) => n + (p.moteTotal ?? 0), 0);
+for (const p of planets) if (p.def.weather) WEATHER.set(p, new THREE.Color(p.def.weather.color));
 
 player.onJump = () => audio.jump();
 player.onLand = (strength) => {
@@ -135,10 +139,24 @@ function bloomWorld(planet, originDir) {
   _b.copy(originDir).transformDirection(planet.group.matrixWorld);
   particles.burst(_a, { count: 90, color: new THREE.Color(planet.def.lush[2]), speed: 9, size: 0.6, life: 1.8, up: _b });
 
+  openPortal(planet, originDir);
+
   hud.toast(`${planet.def.name} wakes`);
   setTimeout(() => {
-    if (state.mode === 'play') hud.toast('the beacon is lit — go to it', 4200);
+    if (state.mode === 'play' && planet.portal) hud.toast('a way through has opened', 4200);
   }, 3400);
+}
+
+// The exit opens beside you, not back at the beacon: a few paces off, so you
+// have to step into it rather than fall through it the instant it appears.
+function openPortal(planet, originDir) {
+  if (planet.portal || state.worldIndex >= planets.length - 1) return;
+  const spot = offsetDir(originDir, 3.4 / planet.def.radius, Math.random() * Math.PI * 2, new THREE.Vector3());
+  planet.portal = new Portal(planet, spot, {
+    color: planet.def.portal ?? 0xbfe8ff,
+    facing: originDir,
+  });
+  audio.portal();
 }
 
 // A lit beacon breathes embers upward — the "come here" signal, without a
@@ -209,6 +227,28 @@ function onThreatHit({ push, strength, source }) {
   particles.burst(_a, { count: 20, color: SPARK, speed: 4, size: 0.45, life: 0.9, up: _b });
 }
 
+// A few motes of whatever this world's air carries — snow, pollen, embers.
+// Emitted around the keeper rather than over the globe, so a fixed budget of
+// particles always lands where it can be seen.
+function emitWeather(dt) {
+  const planet = current();
+  const w = planet.def.weather;
+  if (!w || state.mode === 'flight') return;
+  state.weatherEmit = (state.weatherEmit ?? 0) + dt;
+  const gap = 1 / (w.rate ?? 8);
+  while (state.weatherEmit > gap) {
+    state.weatherEmit -= gap;
+    player.worldPosition(_a);
+    player.worldUp(_b);
+    _c.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(14);
+    _a.add(_c).addScaledVector(_b, 5 + Math.random() * 4);
+    _d.copy(_b).multiplyScalar(-(w.fall ?? 1.2));
+    _d.x += (Math.random() - 0.5) * (w.drift ?? 0.8);
+    _d.z += (Math.random() - 0.5) * (w.drift ?? 0.8);
+    particles.spawn(_a, _d, WEATHER.get(planet) ?? SPARK, w.size ?? 0.3, w.life ?? 3.2, { drag: 0.15 });
+  }
+}
+
 // Petals thrown up along the bloom front while it travels.
 function emitBloomFront(planet, dt) {
   if (!planet.waveActive) return;
@@ -251,10 +291,10 @@ function updatePrompt() {
   state.promptAction = null;
   if (state.mode !== 'play') { hud.hidePrompt(); return; }
 
-  if (planet.bloomed && planet.beacon && state.worldIndex < planets.length - 1) {
-    const d = player.local.distanceTo(_a.copy(planet.beaconDir).multiplyScalar(planet.groundRadius(planet.beaconDir)));
-    if (d < 3.0) {
-      hud.showPrompt(`<b>E</b> &nbsp; launch to ${planets[state.worldIndex + 1].def.name}`);
+  if (planet.portal && state.worldIndex < planets.length - 1) {
+    const d = player.local.distanceTo(planet.portal.centre);
+    if (d < 9) {
+      hud.showPrompt(`walk into the portal &nbsp;·&nbsp; <b>${planets[state.worldIndex + 1].def.name}</b>`);
       state.promptAction = 'launch';
       return;
     }
@@ -454,9 +494,14 @@ function frame(now) {
   for (const p of planets) p.update(dt, state.time);
   threatCtx.active = playing && state.mode !== 'flight';
   current().updateThreats(dt, state.time, player, threatCtx);
+  current().portal?.update(dt, state.time, threatCtx);
   emitBloomFront(current(), dt);
+  emitWeather(dt);
+  // Stepping into the mouth is the whole interaction.
+  if (state.mode === 'play' && current().portal?.reached(player.local)) startFlight();
   particles.update(dt);
   engine.update(dt);
+  debug.update(dt);
   if (state.mode !== 'flight') updatePrompt();
 
   engine.render();
@@ -522,11 +567,25 @@ if (params.get('skipmenu')) {
   }).then(begin);
 }
 
-// Debug / capture handle.
-window.tinyWorlds = {
+// Debug / capture handle. The panel in debug.js drives the game through this,
+// so anything it can do is scriptable from the harness too.
+const game = window.tinyWorlds = {
   THREE, engine, planets, player, chase, state, particles, audio, hud, input,
   begin,
-  goto: (i) => { enterWorld(clamp(i, 0, planets.length - 1)); state.mode = 'play'; },
+  goto: (i) => { enterWorld(clamp(i, 0, planets.length - 1)); if (state.mode !== 'finale') state.mode = 'play'; },
+  giveSpark: () => {
+    const p = current();
+    const next = p.motes.find((m) => !m.taken);
+    if (next) collect(p, next);
+  },
+  dropMeteor: () => current().meteors?.spawn(player.up.clone()),
+  clearGloom: () => {
+    for (const m of current().gloom?.mobs ?? []) { m.root.visible = false; m.dead = 20; }
+  },
+  openPortal: () => openPortal(current(), current().bloomOrigin),
   bloom: () => { const p = current(); p.motes.forEach((m) => { m.taken = true; m.obj.visible = false; }); bloomWorld(p, p.landingDir); state.sparks = p.moteTotal; hud.setSparks(state.sparks, p.moteTotal); },
   get frames() { return state.frames; },
 };
+
+const debug = new Debug(game, { open: params.has('debug') });
+input.onKey.add((code) => { if (code === 'Backquote') debug.toggle(); });

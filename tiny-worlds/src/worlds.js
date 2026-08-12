@@ -12,6 +12,8 @@ const ramp = (...stops) => stops.map(hex);
 export const WORLDS = [
   {
     id: 'verdance',
+    weather: { color: '#e9f5c9', rate: 7, fall: 0.5, drift: 1.4, size: 0.16, life: 5 },
+    mistTint: hex('#e4eee8'), mistDensity: 0.32, portal: hex('#9be8c4'),
     rock: hex('#7d766a'), foam: hex('#e6efe9'), cloudCover: 0.66, cloudTint: hex('#fdfbf4'),
     flowers: ['#ffd6e8', '#fff3b0', '#ffffff'],
     threats: { gloom: 2 },
@@ -39,6 +41,8 @@ export const WORLDS = [
   },
   {
     id: 'amaranth',
+    weather: { color: '#f0cfff', rate: 9, fall: 0.35, drift: 1.8, size: 0.18, life: 6 },
+    mistTint: hex('#eadff2'), mistDensity: 0.36, portal: hex('#d5a2ff'),
     rock: hex('#7a6f84'), foam: hex('#f0e2ee'), cloudCover: 0.68, cloudTint: hex('#f6e6ff'),
     flowers: ['#ffc8f0', '#e0b0ff', '#fff0c0'],
     threats: { gloom: 3, meteors: { interval: 7.5, blast: 2.3, fallTime: 2.8 } },
@@ -67,6 +71,8 @@ export const WORLDS = [
   },
   {
     id: 'glacia',
+    weather: { color: '#ffffff', rate: 26, fall: 1.7, drift: 1.1, size: 0.2, life: 4 },
+    mistTint: hex('#e8f2fa'), mistDensity: 0.5, portal: hex('#9fd8ff'),
     rock: hex('#77828c'), foam: hex('#eef7ff'), cloudCover: 0.7, cloudTint: hex('#eef6ff'),
     flowers: ['#cfe9ff', '#ffffff', '#bcd8f0'],
     threats: { gloom: 2, meteors: { interval: 5.5, blast: 2.6, fallTime: 2.5 } },
@@ -94,6 +100,8 @@ export const WORLDS = [
   },
   {
     id: 'ember',
+    weather: { color: '#ff9a45', rate: 12, fall: -0.7, drift: 1.0, size: 0.2, life: 4.5 },
+    mistTint: hex('#5a3a3f'), mistDensity: 0.3, portal: hex('#ffb066'),
     rock: hex('#4a3f3c'), foam: hex('#c98a5a'), cloudCover: 0.62, cloudTint: hex('#8a5c46'),
     flowers: ['#ffae54', '#ff7a3a', '#ffd28a'],
     threats: { gloom: 5 },
@@ -122,6 +130,8 @@ export const WORLDS = [
   },
   {
     id: 'heart',
+    weather: { color: '#fff0c4', rate: 8, fall: 0.3, drift: 1.2, size: 0.18, life: 6 },
+    mistTint: hex('#f2ead8'), mistDensity: 0.4,
     rock: hex('#7d766a'), foam: hex('#eaf3ea'), cloudCover: 0.68, cloudTint: hex('#fff6e0'),
     flowers: ['#ffd6e8', '#fff3b0', '#c8f0a0'],
     name: 'The Heart',

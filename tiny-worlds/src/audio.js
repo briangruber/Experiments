@@ -189,6 +189,14 @@ export class Audio {
     this.tone(640, { type: 'sine', decay: 0.18, peak: 0.06, delay: 0.05 });
   }
 
+  portal() {
+    if (!this.ready || this.muted) return;
+    [392, 523.25, 659.25, 783.99].forEach((f, i) => {
+      this.tone(f, { type: 'sine', decay: 2.2 - i * 0.3, peak: 0.11, delay: i * 0.1 });
+    });
+    this.noise({ decay: 1.4, peak: 0.05, type: 'bandpass', freq: 600, sweepTo: 3200 });
+  }
+
   finale() {
     if (!this.ready || this.muted) return;
     [261.63, 311.13, 392, 466.16, 523.25, 622.25, 783.99].forEach((f, i) => {
