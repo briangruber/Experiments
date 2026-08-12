@@ -6,7 +6,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { rng, lerp, damp } from './noise.js';
+import { rng, damp } from './noise.js';
 
 export const SUN_POSITION = new THREE.Vector3(620, 420, 900);
 

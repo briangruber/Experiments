@@ -34,7 +34,7 @@ html, body {
   transition: opacity .35s ease;
 }
 
-body.no-chrome #hud { opacity: 0; }
+body.no-chrome #hud, body.menu #hud { opacity: 0; }
 
 #hud-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
 
@@ -158,11 +158,16 @@ body.no-chrome #hud { opacity: 0; }
 
 /* ------------------------------------------------------------------ cards */
 
+/* Flex with an auto-margin child rather than grid centring: when the card is
+   taller than a short viewport, grid clips the top and puts the button out of
+   reach, while this scrolls. */
 #card {
   position: fixed;
   inset: 0;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow-y: auto;
   padding: 24px;
   opacity: 0;
   pointer-events: none;
@@ -175,6 +180,7 @@ body.no-chrome #hud { opacity: 0; }
 
 #card-inner {
   max-width: 560px;
+  margin: auto;
   text-align: center;
   transform: translateY(10px);
   transition: transform .6s cubic-bezier(.2, .8, .2, 1);
@@ -268,6 +274,15 @@ body.no-chrome #hud { opacity: 0; }
 }
 
 #loading-sub { font-size: 11px; letter-spacing: .2em; text-transform: lowercase; color: rgba(185, 174, 156, .55); }
+
+/* Landscape phones and other short viewports: keep the whole card on screen. */
+@media (max-height: 460px) {
+  #card-title { font-size: clamp(24px, 6vh, 34px); }
+  #card-sub { margin-top: 8px; font-size: 12px; }
+  #card-body { margin-top: 12px; font-size: 12px; line-height: 1.6; }
+  #card-button { margin-top: 16px; padding: 9px 26px; }
+  #controls-hint { display: none; }
+}
 
 @media (max-width: 640px) {
   #controls-hint { display: none; }

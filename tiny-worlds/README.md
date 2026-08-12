@@ -97,3 +97,12 @@ It serves the folder, drives the game headlessly, and exits non-zero on any JS
 or WebGL error and on a frame that came out flat — so it doubles as the smoke
 test. Waits are counted in rendered frames rather than milliseconds, because
 under software rendering a frame can take a second or more.
+
+`tools/playthrough.mjs` is the end-to-end test: it clicks through the title
+card, walks the keeper onto every spark on a world, and checks that the world
+blooms, the beacon lights, the launch is offered, and the flight lands on the
+next planet.
+
+```
+node tools/playthrough.mjs            # 8 checks, non-zero exit on any failure
+```

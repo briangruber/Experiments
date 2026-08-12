@@ -15,7 +15,6 @@ const _v = new THREE.Vector3();
 const _tangent = new THREE.Vector3();
 const _target = new THREE.Vector3();
 const _m = new THREE.Matrix4();
-const YUP = new THREE.Vector3(0, 1, 0);
 
 const COYOTE = 0.12;
 const BUFFER = 0.16;
@@ -106,7 +105,6 @@ export class Player {
     const def = planet.def;
 
     this.up.copy(this.local).normalize();
-    const groundR = planet.groundRadius(this.up);
 
     if (!freeze) {
       _tangent.copy(moveWorld);

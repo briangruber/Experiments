@@ -15,7 +15,7 @@ import { Input } from './input.js';
 import { Hud } from './hud.js';
 import { Audio } from './audio.js';
 import { loadAssets } from './assets.js';
-import { clamp, damp, lerp } from './noise.js';
+import { clamp } from './noise.js';
 
 const params = new URLSearchParams(location.search);
 const canvas = document.getElementById('gl');
@@ -412,6 +412,7 @@ document.getElementById('prompt').addEventListener('click', () => { input.intera
 // ---------------------------------------------------------------- start
 
 function begin() {
+  document.body.classList.remove('menu');
   audio.start();
   state.mode = 'play';
   hud.setWorld(current().def, state.worldIndex, planets.length);
@@ -427,6 +428,7 @@ if (params.get('skipmenu')) {
   hud.hideCard();
   begin();
 } else {
+  document.body.classList.add('menu');
   hud.showCard({
     title: 'Tiny Worlds',
     sub: 'a keeper, five small planets, and the light they lost',
