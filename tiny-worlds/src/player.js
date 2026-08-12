@@ -22,7 +22,7 @@ const BUFFER = 0.16;
 export class Player {
   constructor(assets) {
     this.root = new THREE.Group();
-    this.height = 1.15;
+    this.height = 1.5;
     this.radius = 0.34;
 
     this.model = assets.keeper.object;

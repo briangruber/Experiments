@@ -356,21 +356,23 @@ export class Planet {
       if (!dir) break;
       this.occupied.push(dir);
       const item = {
-        dir, yaw: rand() * TAU, scale: (0.85 + rand() * 0.5) * (def.radius / 11),
+        dir, yaw: rand() * TAU, scale: (1.4 + rand() * 0.8) * (def.radius / 11),
         mesh: this.trees, index: this.trees.count++, grow: 0,
         angle: dir.angleTo(this.bloomOrigin), lift: -0.05,
       };
       this.growables.push(item);
       this.trees.setMatrixAt(item.index, this.matrixOnSurface(dir, item.yaw, item.scale * DORMANT, item.lift, _m));
-      this.trees.setColorAt(item.index, _col.setRGB(0.30, 0.29, 0.27));
+      this.trees.setColorAt(item.index, _col.setRGB(0, 0, 0)); // r = alive
     }
+
+    if (this.trees?.instanceColor) this.trees.instanceColor.needsUpdate = true;
 
     this.rocks = makeInstanced(A.rock, def.props.rocks, 'rock');
     for (let i = 0; i < def.props.rocks; i++) {
       const dir = this.findSpot(rand, { maxSlope: 0.55, minSep: 0.09, taken: this.occupied, aboveSea: 0.0 });
       if (!dir) break;
       this.occupied.push(dir);
-      const s = (0.5 + rand() * 0.9) * (def.radius / 11);
+      const s = (0.7 + rand() * 1.05) * (def.radius / 11);
       this.rocks.setMatrixAt(this.rocks.count++, this.matrixOnSurface(dir, rand() * TAU, s, -0.15, _m));
     }
 
@@ -379,7 +381,7 @@ export class Planet {
       const dir = this.findSpot(rand, { maxSlope: 0.6, minSep: 0.11, taken: this.occupied, aboveSea: 0.1 });
       if (!dir) break;
       this.occupied.push(dir);
-      const s = (0.55 + rand() * 0.6) * (def.radius / 11);
+      const s = (0.8 + rand() * 0.8) * (def.radius / 11);
       this.crystals.setMatrixAt(this.crystals.count++, this.matrixOnSurface(dir, rand() * TAU, s, -0.08, _m));
     }
     if (this.crystals) {
@@ -394,7 +396,7 @@ export class Planet {
       if (!dir) break;
       this.occupied.push(dir);
       const obj = A.house.object.clone(true);
-      const s = 1.15 * (def.radius / 11);
+      const s = 1.7 * (def.radius / 11);
       obj.scale.setScalar(s);
       this.placeOnSurface(obj, dir, rand() * TAU, -0.05 * s);
       obj.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
@@ -471,7 +473,7 @@ export class Planet {
       const r = this.surfaceRadius(_v);
       if (r < this.seaRadius + 0.12) continue;
       if (this.slopeAt(_v) > 0.5) continue;
-      mesh.setMatrixAt(n++, this.matrixOnSurface(_v, rand() * TAU, (0.8 + rand() * 0.65) * scaleFor, -0.02, _m));
+      mesh.setMatrixAt(n++, this.matrixOnSurface(_v, rand() * TAU, (1.05 + rand() * 0.8) * scaleFor, -0.02, _m));
     }
     mesh.count = n;
     mesh.instanceMatrix.needsUpdate = true;
@@ -530,7 +532,7 @@ export class Planet {
     const dir = this.landingDir;
     this.beaconDir = dir;
     const obj = A.lantern.object.clone(true);
-    const s = 1.5 * (this.def.radius / 11);
+    const s = 1.9 * (this.def.radius / 11);
     obj.scale.setScalar(s);
     this.placeOnSurface(obj, dir, 0, -0.05);
     obj.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
@@ -662,8 +664,7 @@ export class Planet {
         const e = lerp(DORMANT, 1, g.grow) * (1 + 0.2 * Math.sin(Math.min(1, g.grow) * Math.PI));
         this.matrixOnSurface(g.dir, g.yaw, Math.max(0.0001, e * g.scale), g.lift, _m);
         g.mesh.setMatrixAt(g.index, _m);
-        const c = lerp(0.30, 1, g.grow);
-        g.mesh.setColorAt(g.index, _col.setRGB(c, c * 0.99, c * 0.96));
+        g.mesh.setColorAt(g.index, _col.setRGB(g.grow, g.grow, g.grow));
       }
       this.trees.instanceMatrix.needsUpdate = true;
       if (this.trees.instanceColor) this.trees.instanceColor.needsUpdate = true;
@@ -678,7 +679,7 @@ export class Planet {
       this.beacon.flame.scale.setScalar(0.85 + 0.2 * flicker * this.beaconLevel);
       this.beacon.light.intensity = this.beaconLevel * 7 * flicker;
       this.beacon.halo.material.opacity = this.beaconLevel * 0.6 * flicker;
-      this.beacon.halo.scale.setScalar(2.4 * (0.92 + 0.08 * flicker) * (this.def.radius / 11) * 1.5);
+      this.beacon.halo.scale.setScalar(2.4 * (0.92 + 0.08 * flicker) * (this.def.radius / 11) * 1.9);
     }
 
     for (const islet of this.islets ?? []) {

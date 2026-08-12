@@ -364,7 +364,7 @@ function frame(now) {
       look: input.takeLook(),
       zoom: input.takeZoom(),
       autoFollow: input.lookedRecently <= 0,
-      heightOffset: 1.3,
+      heightOffset: 1.6,
     });
     chase.avoidTerrain(current());
   }

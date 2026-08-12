@@ -190,6 +190,28 @@ function fallbackKeeper() {
   return outer;
 }
 
+// Trees stand on a dormant world before it wakes, and a dormant tree has to
+// read as *drained*, not merely dark. Instance colour alone can only multiply,
+// so the red channel is repurposed as an "alive" factor and the shader mixes
+// the texture toward its own luminance. Meshes without instance colour — the
+// Heart's single great tree — are untouched.
+function makeRevivable(material) {
+  material.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', `
+      #ifdef USE_INSTANCING_COLOR
+        {
+          float alive = clamp(vColor.r, 0.0, 1.0);
+          float grey = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+          diffuseColor.rgb = mix(vec3(grey * 1.35 + 0.07), diffuseColor.rgb, alive);
+        }
+      #else
+        #include <color_fragment>
+      #endif`);
+  };
+  material.customProgramCacheKey = () => 'revivable';
+  return material;
+}
+
 // ---------------------------------------------------------------- loading
 
 export async function loadAssets(onProgress = () => {}) {
@@ -210,6 +232,7 @@ export async function loadAssets(onProgress = () => {}) {
 
   const out = {};
   out.tree = (loaded.tree && bakeToUnit(loaded.tree.scene)) || fallbackTree();
+  makeRevivable(out.tree.material);
   out.crystal = (loaded.crystal && bakeToUnit(loaded.crystal.scene)) || fallbackCrystal();
   out.rock = fallbackRock(7); // no generated rock: procedural boulders read better
   out.house = { object: loaded.house ? unitObject(loaded.house.scene) : fallbackHouse() };
