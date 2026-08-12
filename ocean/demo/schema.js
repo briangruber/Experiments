@@ -68,7 +68,7 @@ export const SCHEMA = [
       S('foamDecay', 'Decay rate', 0.01, 3, 0.005),
       S('foamThin', 'Raft thinning', 0, 0.6, 0.002),
       S('foamDrift', 'Downwind drift (m/s)', 0, 3, 0.005),
-      S('foamSpread', 'Spread rate', 0, 8, 0.01),
+      S('foamSpread', 'Spread rate', 0, 1.5, 0.005),
       S('foamDetail', 'Bubble relief', 0, 5, 0.01),
       S('foamCrisp', 'Bubble-edge crispness', 0, 1, 0.005),
       S('foamSharp', 'Edge erosion', 0.2, 6, 0.01),

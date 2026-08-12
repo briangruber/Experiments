@@ -34,6 +34,9 @@ const PHOTO = args.includes('--photo');
 // to point the smoke test at either is the difference between testing the
 // artifact and testing something that resembles it.
 const PAGE = opt('page', '');
+// A whole parameter set from the UI's Copy settings button. Reproducing a report
+// with 200 --set flags is not a thing anyone will do correctly.
+const SETTINGS = opt('settings', '');
 
 const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
@@ -76,9 +79,13 @@ try {
   errors.push('window.abyssal never appeared - startup failed');
 }
 
+const SETTINGS_JSON = SETTINGS
+  ? JSON.parse(await readFile(join(ROOT, SETTINGS), 'utf8')) : null;
+
 if (!errors.length) {
-  await page.evaluate(([overrides, camera]) => {
+  await page.evaluate(([overrides, camera, settings]) => {
     const A = window.abyssal;
+    if (settings) Object.assign(A.params, settings);
     for (const kv of overrides) {
       const [k, v] = kv.split('=');
       A.params[k] = v.startsWith('[') ? JSON.parse(v) : (isNaN(+v) ? v : +v);
@@ -90,7 +97,7 @@ if (!errors.length) {
     }
     A.ocean.dirty = true;
     A.ui.syncAll();
-  }, [OVERRIDES, CAMERA]);
+  }, [OVERRIDES, CAMERA, SETTINGS_JSON]);
 }
 
 await page.waitForTimeout(WAIT);
