@@ -33,6 +33,7 @@ const opt = (n, d) => {
 };
 
 const OUT = opt('out', 'shots/frame.png');
+const PAGE = opt('page', 'index.html');
 const WAIT = +opt('wait', 2500);
 const PLAY = +opt('play', 0);
 const SIM = +opt('sim', 0);
@@ -95,7 +96,7 @@ page.on('console', (m) => {
   if (m.type() === 'error') errors.push(text);
 });
 
-await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load' });
+await page.goto(`http://127.0.0.1:${port}/${PAGE}`, { waitUntil: 'load' });
 
 // Wait for the loader to finish rather than guessing.
 await page

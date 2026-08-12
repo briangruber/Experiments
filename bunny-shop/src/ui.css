@@ -493,6 +493,11 @@ button:disabled {
   cursor: default;
 }
 
+button:focus-visible {
+  outline: 3px solid var(--coral);
+  outline-offset: 3px;
+}
+
 .fineprint {
   margin: 12px 0 0;
   font-size: 13px;
@@ -533,5 +538,32 @@ button:disabled {
   .bubble {
     max-width: 190px;
     font-size: 13px;
+  }
+}
+
+/* The shop itself has to keep moving — rabbits walking is the game. What can go
+   is the decoration: the pulsing prompts, the pop-in bubbles, the shake, the
+   card drop. */
+@media (prefers-reduced-motion: reduce) {
+  .stat.bump,
+  .stars.low,
+  .ticket.shake,
+  .ticket.ready::after,
+  .banner,
+  .card {
+    animation: none;
+  }
+
+  .bubble {
+    transition: opacity 0.18s ease;
+    scale: 1;
+  }
+
+  .float {
+    transition: opacity 0.9s ease-in;
+  }
+
+  .float.go {
+    translate: 0;
   }
 }

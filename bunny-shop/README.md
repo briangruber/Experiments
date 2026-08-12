@@ -86,6 +86,29 @@ only wants the clip, and animation tracks address nodes by name, so the meshes
 and textures can be deleted outright. Originals are kept in `assets/raw/`
 (gitignored) and the optimiser always works from those.
 
+## One file
+
+`npm run bundle` writes the whole shop — three.js, the game, the stylesheet and
+every model — into a single HTML file under `dist/`, with no external requests
+at all.
+
+```
+npm run bundle
+# dist/hop-and-shop.html   a complete document, openable from disk
+# dist/artifact.html       the same page minus <html>/<head>/<body>, for hosts
+#                          that supply their own document skeleton
+```
+
+Models are embedded as base64 and handed to `GLTFLoader.parse` rather than
+fetched. That is not quite enough on its own: `GLTFLoader` turns each embedded
+texture into a `blob:` URL and then loads that URL, which is a network request
+as far as a content policy is concerned. The bytes are already in memory, so
+`src/assets.js` registers a plugin that decodes them with `createImageBitmap`
+directly. The finished page issues exactly one request — for itself — and so
+runs under a policy that blocks every scheme, `blob:` and `data:` included.
+
+The bundle is about 7.5MB and is not committed; `dist/` is ignored.
+
 ## Tests
 
 ```
@@ -107,6 +130,7 @@ node tools/shot.mjs --out shots/a.png --sim 30          # fast-forward 30s of ga
 node tools/shot.mjs --out shots/b.png --cam 2.6,2.3,6.2 --look 2.8,1,1.3
 node tools/shot.mjs --out shots/c.png --eval "window.__game.day = 5"
 node tools/shot.mjs --out shots/d.png --play 25000      # random clicking
+node tools/shot.mjs --page dist/hop-and-shop.html --out shots/e.png --sim 30
 ```
 
 `--sim` exists because software rendering runs at a few frames a second, and the

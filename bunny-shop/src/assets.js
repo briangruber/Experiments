@@ -13,12 +13,62 @@ import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 const loader = new GLTFLoader();
 const cache = new Map();
 
+// GLTFLoader turns each embedded texture into a `blob:` URL and then loads that
+// URL, which is a network request as far as a content policy is concerned. The
+// bytes are already in memory, so decode them directly instead: same result,
+// but the page makes no requests of any kind and survives a strict CSP.
+//
+// Only the image step is replaced — sampler settings, flipY and the source
+// cache are still three's, applied by loadTextureImage around this.
+loader.register((parser) => {
+  const original = parser.loadImageSource.bind(parser);
+
+  parser.loadImageSource = (sourceIndex, textureLoader) => {
+    const cached = parser.sourceCache[sourceIndex];
+    if (cached !== undefined) return cached.then((texture) => texture.clone());
+
+    const def = parser.json.images[sourceIndex];
+    // Images given by URI are not ours to handle; let three do its thing.
+    if (def.bufferView === undefined || typeof createImageBitmap === 'undefined') {
+      return original(sourceIndex, textureLoader);
+    }
+
+    const promise = parser
+      .getDependency('bufferView', def.bufferView)
+      .then((view) => createImageBitmap(new Blob([view], { type: def.mimeType }), { premultiplyAlpha: 'none' }))
+      .then((bitmap) => {
+        const texture = new THREE.Texture(bitmap);
+        texture.needsUpdate = true;
+        texture.userData.mimeType = def.mimeType;
+        return texture;
+      });
+
+    parser.sourceCache[sourceIndex] = promise;
+    return promise;
+  };
+
+  // register() expects a plugin; the work above is the whole contribution.
+  return { name: 'inline_image_decode' };
+});
+
+// tools/bundle.mjs inlines every model as base64 on `window.__ASSETS`, so the
+// single-file build can be opened from anywhere — including sandboxes that
+// refuse to fetch anything at all.
+function decode(base64) {
+  const bin = atob(base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes.buffer;
+}
+
 export function load(name) {
   if (!cache.has(name)) {
+    const embedded = globalThis.__ASSETS?.[name];
     cache.set(
       name,
       new Promise((resolve, reject) => {
-        loader.load(`assets/${name}.glb`, resolve, undefined, () => reject(new Error(`missing asset: ${name}`)));
+        if (embedded) loader.parse(decode(embedded), '', resolve, () => reject(new Error(`bad asset: ${name}`)));
+        else loader.load(`assets/${name}.glb`, resolve, undefined, () => reject(new Error(`missing asset: ${name}`)));
       }),
     );
   }
