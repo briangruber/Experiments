@@ -70,9 +70,14 @@ export class UI {
     const grid2 = document.createElement('div');
     grid2.className = 'btns';
     grid2.style.marginTop = '6px';
-    grid2.append(mk('Save PNG', 'save'), mk('Copy settings', 'copy'), mk('Reset', 'reset'));
+    grid2.append(mk('Save PNG', 'save'), mk('Copy settings', 'copy'), mk('Profile', 'profile'));
     grid2.className = 'btns three';
     actions.appendChild(grid2);
+    const grid3 = document.createElement('div');
+    grid3.className = 'btns';
+    grid3.style.marginTop = '6px';
+    grid3.append(mk('Reset', 'reset'));
+    actions.appendChild(grid3);
     root.appendChild(actions);
 
     for (const section of SCHEMA) {
@@ -175,13 +180,14 @@ export class UI {
     }
   }
 
-  toast(msg) {
+  // A result worth reading needs longer on screen than a confirmation does.
+  toast(msg, ms = 1600) {
     let el = document.querySelector('.toast');
     if (!el) { el = document.createElement('div'); el.className = 'toast'; document.body.appendChild(el); }
     el.textContent = msg;
     el.classList.add('show');
     clearTimeout(this._t);
-    this._t = setTimeout(() => el.classList.remove('show'), 1600);
+    this._t = setTimeout(() => el.classList.remove('show'), ms);
   }
 }
 
