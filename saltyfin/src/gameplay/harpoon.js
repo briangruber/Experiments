@@ -131,12 +131,16 @@ export function createHarpoon(opts = {}) {
     // Instanced so the per-frame cost is one matrix write per segment and no
     // geometry ever rebuilds.
     const SEGS = 26;
+    // Dark hawser, one hand thick. 5.5 cm was honest and invisible: at the
+    // thirty-metre distances this line actually spans, honest is sub-pixel,
+    // and a rope you cannot see is a mechanic you cannot read. Dark, because
+    // the background is sunlit water — a pale line vanished into it.
     const matRope = new THREE.MeshStandardNodeMaterial({
-      color: new THREE.Color().setHex(0xC9A96B, THREE.SRGBColorSpace),
-      roughness: 0.95, metalness: 0.0, transparent: true, fog: true,
+      color: new THREE.Color().setHex(0x4E3A22, THREE.SRGBColorSpace),
+      roughness: 0.92, metalness: 0.0, transparent: true, fog: true,
     });
     matRope.opacityNode = uLineAlpha;
-    const rope = new THREE.InstancedMesh(new THREE.BoxGeometry(0.055, 0.055, 1), matRope, SEGS);
+    const rope = new THREE.InstancedMesh(new THREE.BoxGeometry(0.11, 0.11, 1), matRope, SEGS);
     rope.name = 'harpoon-rope';
     rope.frustumCulled = false;
     group.add(rope);
@@ -520,6 +524,10 @@ export function createHarpoon(opts = {}) {
       // Availability: near, shallow, not busy, not mid-anything.
       const busy = !!(c.fishing?.state?.active) || !!(c.shore?.state?.ashore)
         || !!c.editorHold || !!c.fishingHold;
+      // Casting a lure, tying up at the quay or opening the editor mid-fight
+      // all take the helm away — and a tether pulling on a boat the mooring
+      // lerp is also moving is two owners of one hull. The line yields.
+      if (state.tethered && busy) release('The line goes slack and drops away.');
       if (mstate && hook) {
         const d = Math.hypot(
           mstate.position.x - c.boat.position.x,
