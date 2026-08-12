@@ -45,9 +45,13 @@ const RANGE = 60;            // m, boat to creature, for the call-to-action
 const DEPTH_MAX = 15;        // deeper than this the spear cannot reach
 const COOLDOWN = 2.4;        // s between throws
 // --- the spear ---------------------------------------------------------------
-const SPEAR_V = 40;          // m/s off the bow
-const SPEAR_G = 4.5;         // m/s^2 of drop; a harpoon is not a bullet
-const FLIGHT_MAX = 1.9;      // s before it is called a miss
+// Slow enough to WATCH. At 40 m/s the throw was over in half a second of
+// foreshortened pencil and the player reported no animation at all; at 27
+// with real drop it lobs a visible arc for about a second, the lead becomes
+// something you can see paying off, and the entry splash marks the miss.
+const SPEAR_V = 27;          // m/s off the bow
+const SPEAR_G = 7.5;         // m/s^2 of drop; a harpoon is not a bullet
+const FLIGHT_MAX = 2.6;      // s before it is called a miss
 // --- the rope ----------------------------------------------------------------
 const REST_MIN = 13, REST_MAX = 42;
 const K = 0.95;              // accel per metre of stretch, boat side
@@ -103,12 +107,15 @@ export function createHarpoon(opts = {}) {
   const uLineAlpha = uniform(0);
   {
 
-    // The spear: a shaft, a tip, a small tail vane. Kit-bash, like the boat.
+    // The spear: a shaft, a tip, a tail vane. Kit-bash, like the boat — and
+    // sized to be SEEN: pale wood and a cream vane against sunlit water,
+    // half again as long as an honest harpoon, because at thirty metres
+    // honest is invisible and this is the one projectile in the game.
     const spear = new THREE.Group();
     spear.name = 'harpoon-spear';
     const matWood = new THREE.MeshStandardNodeMaterial({
-      color: new THREE.Color().setHex(0x6E4E30, THREE.SRGBColorSpace),
-      roughness: 0.8, metalness: 0.0, transparent: true, fog: true,
+      color: new THREE.Color().setHex(0xC9A05E, THREE.SRGBColorSpace),
+      roughness: 0.75, metalness: 0.0, transparent: true, fog: true,
     });
     matWood.opacityNode = uSpearAlpha;
     const matIron = new THREE.MeshStandardNodeMaterial({
@@ -116,14 +123,22 @@ export function createHarpoon(opts = {}) {
       roughness: 0.45, metalness: 0.35, transparent: true, fog: true,
     });
     matIron.opacityNode = uSpearAlpha;
-    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 2.3, 7), matWood);
+    const matVane = new THREE.MeshStandardNodeMaterial({
+      color: new THREE.Color().setHex(0xF2E9D8, THREE.SRGBColorSpace),
+      roughness: 0.85, metalness: 0.0, transparent: true, fog: true,
+      side: THREE.DoubleSide,
+    });
+    matVane.opacityNode = uSpearAlpha;
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.09, 3.4, 7), matWood);
     shaft.rotation.x = Math.PI / 2;
-    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.55, 7), matIron);
+    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.17, 0.7, 7), matIron);
     tip.rotation.x = -Math.PI / 2;
-    tip.position.z = -1.35;
-    const vane = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.02, 0.34), matWood);
-    vane.position.z = 1.05;
-    spear.add(shaft, tip, vane);
+    tip.position.z = -2.0;
+    const vane = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.03, 0.55), matVane);
+    vane.position.z = 1.55;
+    const vane2 = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.5, 0.55), matVane);
+    vane2.position.z = 1.55;
+    spear.add(shaft, tip, vane, vane2);
     spear.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
     group.add(spear);
 
@@ -168,6 +183,7 @@ export function createHarpoon(opts = {}) {
     // --- state ----------------------------------------------------------------
     let cooldown = 0;
     let flightT = 0;
+    let spearWet = false;    // has this flight already splashed through?
     const spearPos = new THREE.Vector3();
     const spearVel = new THREE.Vector3();
     let rest = 20;
@@ -184,8 +200,29 @@ export function createHarpoon(opts = {}) {
     const tow = { fx: 0, fz: 0, yaw: 0, heel: 0, trim: 0, sink: 0, brake: 0 };
     let tensionSmooth = 0;
 
-    const hook = monster && monster.hook;
-    const mstate = monster && monster.state;
+    // ANY of the pod can be struck, not just the primary that shadows the
+    // player: each animal carries its own hook/towPull/strain API (see
+    // makeAnimal in monster.js), so the harpoon simply binds to whichever
+    // one it hits. `target` is the tethered animal; while the line is home
+    // the nearest hookable animal is what the call-to-action offers.
+    const pod = (monster && monster.pod) || [];
+    let target = null;
+
+    function nearestAnimal() {
+      let best = null;
+      let bd = Infinity;
+      for (let i = 0; i < pod.length; i++) {
+        const a = pod[i];
+        if (!a || !a.state) continue;
+        const p = a.state.position;
+        const d = Math.hypot(p.x - ctx.boat.position.x, p.z - ctx.boat.position.z);
+        if (d < bd) { bd = d; best = a; }
+      }
+      return { animal: best, dist: bd };
+    }
+
+    const hookable = (a, d) => !!a && d < RANGE && a.state.depth < DEPTH_MAX
+      && a.phase !== 'breach';
 
     function setMsg(text) { state.msg = text; state.msgT = 0; }
 
@@ -198,17 +235,16 @@ export function createHarpoon(opts = {}) {
       );
     }
 
-    /** The rope's far end: a point on the creature's spine near the strike. */
+    /** The rope's far end: a point on the tethered animal's spine. */
     function anchorPoint(out) {
-      const p = mstate.position;
-      const v = hook.velocity;
-      _fwd.copy(v);
+      const p = target.state.position;
+      _fwd.copy(target.velocity);
       _fwd.y *= 0.4;
       if (_fwd.lengthSq() < 1e-4) _fwd.set(0, 0, -1);
       _fwd.normalize();
       return out.set(
         p.x + _fwd.x * attachAlong,
-        p.y + 1.2 * hook.scale,
+        p.y + 1.2 * target.scale,
         p.z + _fwd.z * attachAlong,
       );
     }
@@ -222,14 +258,16 @@ export function createHarpoon(opts = {}) {
       tensionSmooth = 0;
       state.tension = 0;
       cooldown = COOLDOWN;
-      hook?.release?.();
+      target?.unhook?.();
+      target = null;
       audio?.setLineTension?.(0);
       if (reason) setMsg(reason);
     }
 
-    function attachNow() {
-      if (!hook || !mstate) return false;
-      if (state.tethered || !hook.engage()) return false;
+    function attachNow(animal) {
+      if (!animal || state.tethered) return false;
+      if (!animal.hook()) return false;
+      target = animal;
       state.tethered = true;
       state.flight = false;
       strain = 0;
@@ -238,11 +276,12 @@ export function createHarpoon(opts = {}) {
       rollEnergy = 0;
       sinkEnergy = 0;
       bowPoint(_bow);
-      rest = clamp(_bow.distanceTo(mstate.position) * 0.96, REST_MIN, REST_MAX);
+      const p = animal.state.position;
+      rest = clamp(_bow.distanceTo(p) * 0.96, REST_MIN, REST_MAX);
       audio?.cue?.('harpoonHit');
-      burst(mstate.position.x, mstate.position.z, 30, 1.2);
+      burst(p.x, p.z, 30, 1.2);
       const w = water();
-      if (w?.disturb) w.disturb(mstate.position.x, mstate.position.z, 1.6, 6.5);
+      if (w?.disturb) w.disturb(p.x, p.z, 1.6, 6.5);
       return true;
     }
 
@@ -295,21 +334,27 @@ export function createHarpoon(opts = {}) {
 
     function fire() {
       if (!state.available) return;
+      const near = nearestAnimal();
+      if (!hookable(near.animal, near.dist)) return;
       state.flight = true;
       flightT = 0;
+      spearWet = false;
       cooldown = COOLDOWN;
       bowPoint(spearPos);
       // Lead the target: aim at where the spine will be when the spear
       // arrives, which is what makes hitting a moving animal feel fair.
-      const d = spearPos.distanceTo(mstate.position);
+      const tp = near.animal.state.position;
+      const d = spearPos.distanceTo(tp);
       const tFly = d / SPEAR_V;
-      _a.copy(mstate.position).addScaledVector(hook.velocity, tFly);
+      _a.copy(tp).addScaledVector(near.animal.velocity, tFly);
       _dir.copy(_a).sub(spearPos);
       // A touch of loft to counter the drop over the flight.
       _dir.y += 0.5 * SPEAR_G * tFly * tFly;
       _dir.normalize();
       spearVel.copy(_dir).multiplyScalar(SPEAR_V);
       audio?.cue?.('harpoonFire');
+      // The throw itself has to read: a kick of spray off the bow.
+      burst(spearPos.x, spearPos.z, 8, 0.55);
     }
 
     function stepFlight(dt) {
@@ -317,32 +362,42 @@ export function createHarpoon(opts = {}) {
       spearVel.y -= SPEAR_G * dt;
       spearPos.addScaledVector(spearVel, dt);
 
-      // Strike test: distance to the creature's spine, treated as a capsule
-      // from mid-tail to nose.
-      const p = mstate.position;
-      _fwd.copy(hook.velocity).setY(0);
-      if (_fwd.lengthSq() < 1e-4) _fwd.set(0, 0, -1);
-      _fwd.normalize();
-      const L = 12 * hook.scale;
-      _a.copy(p).addScaledVector(_fwd, L);        // toward the head
-      _b2.copy(p).addScaledVector(_fwd, -L);      // down the tail
-      _rel.copy(_b2).sub(_a);
-      const tSeg = clamp(_p.copy(spearPos).sub(_a).dot(_rel) / _rel.lengthSq(), 0, 1);
-      _p.copy(_a).addScaledVector(_rel, tSeg);
-      const hitR = 3.4 * hook.scale;
-      if (spearPos.distanceToSquared(_p) < hitR * hitR && mstate.phase !== 'breach') {
-        attachAlong = clamp((0.5 - tSeg) * 2 * L, -9 * hook.scale, 11 * hook.scale);
-        state.flight = false;
-        if (!attachNow()) { setMsg('The spear glances off.'); }
-        return;
+      // Strike test against EVERY animal in the pod: the spear does not care
+      // which leviathan it was aimed at, and neither should the hit. Each
+      // spine is a capsule from mid-tail to nose.
+      for (let i = 0; i < pod.length; i++) {
+        const a = pod[i];
+        if (!a || !a.state || a.phase === 'breach' || a.hooked) continue;
+        const p = a.state.position;
+        _fwd.copy(a.velocity).setY(0);
+        if (_fwd.lengthSq() < 1e-4) _fwd.set(0, 0, -1);
+        _fwd.normalize();
+        const L = 12 * a.scale;
+        _a.copy(p).addScaledVector(_fwd, L);        // toward the head
+        _b2.copy(p).addScaledVector(_fwd, -L);      // down the tail
+        _rel.copy(_b2).sub(_a);
+        const tSeg = clamp(_p.copy(spearPos).sub(_a).dot(_rel) / _rel.lengthSq(), 0, 1);
+        _p.copy(_a).addScaledVector(_rel, tSeg);
+        const hitR = 3.4 * a.scale;
+        if (spearPos.distanceToSquared(_p) < hitR * hitR) {
+          attachAlong = clamp((0.5 - tSeg) * 2 * L, -9 * a.scale, 11 * a.scale);
+          state.flight = false;
+          if (!attachNow(a)) { setMsg('The spear glances off.'); }
+          return;
+        }
       }
       const w = water();
       const surf = w?.sampleHeight ? w.sampleHeight(spearPos.x, spearPos.z, ctx.time) : 0;
-      if (spearPos.y < surf - 0.4 || flightT > FLIGHT_MAX) {
+      // Crossing the surface splashes, whichever way the flight ends: the
+      // entry is half of what makes the throw legible from the helm.
+      if (!spearWet && spearPos.y < surf + 0.1) {
+        spearWet = true;
+        burst(spearPos.x, spearPos.z, 12, 0.7);
+        if (w?.disturb) w.disturb(spearPos.x, spearPos.z, 0.9, 2.4);
+      }
+      if (spearPos.y < surf - 6 || flightT > FLIGHT_MAX) {
         state.flight = false;
         setMsg('Missed - the spear slips under.');
-        burst(spearPos.x, spearPos.z, 10, 0.6);
-        if (w?.disturb) w.disturb(spearPos.x, spearPos.z, 0.8, 2.2);
       }
     }
 
@@ -360,7 +415,7 @@ export function createHarpoon(opts = {}) {
       if (stretch > 0) {
         _vB.copy(b.forward).multiplyScalar(b.speed);
         if (b.towDrift) { _vB.x += b.towDrift.x; _vB.z += b.towDrift.y; }
-        _rel.copy(hook.velocity).sub(_vB);
+        _rel.copy(target.velocity).sub(_vB);
         const sep = _rel.dot(_dir);
         T = K * stretch + CDAMP * Math.max(0, sep);
         T = Math.min(T, tune.TMAX * 1.15);
@@ -385,8 +440,11 @@ export function createHarpoon(opts = {}) {
         tow.brake = along < 0 ? Math.min(1.4, -along * 0.1) : 0;
         ctx.tow = tow;
 
-        // Creature end: equal, opposite, and divided by a lot of leviathan.
-        hook.pull(-ax / LEV_MASS * 8, -ay / LEV_MASS * 6, -az / LEV_MASS * 8);
+        // Creature end: equal, opposite, and divided by a lot of leviathan —
+        // more of it for the bigger pod animals (mass goes with the cube of
+        // scale; the square is what FEELS right against their flee speeds).
+        const m = LEV_MASS * target.scale * target.scale;
+        target.towPull(-ax / m * 8, -ay / m * 6, -az / m * 8);
 
         // Strain: the line has to be LOADED and the player pulling AGAINST
         // the run. Idling on a slack line teaches it nothing.
@@ -399,7 +457,7 @@ export function createHarpoon(opts = {}) {
         strain = clamp(strain - dt * 0.012, 0, 1);
       }
       state.strain = strain;
-      hook.strain(strain);
+      target.setStrain(strain);
 
       if (strain >= groanAt) {
         groanAt += 0.33;
@@ -408,7 +466,8 @@ export function createHarpoon(opts = {}) {
 
       // The win: she tires, and slips the hook on her own terms.
       if (strain >= 1) {
-        burst(mstate.position.x, mstate.position.z, 34, 1.3);
+        const p = target.state.position;
+        burst(p.x, p.z, 34, 1.3);
         audio?.cue?.('victory');
         release('She tires, rolls, and slips the line. What a fish story.');
         return;
@@ -528,15 +587,11 @@ export function createHarpoon(opts = {}) {
       // all take the helm away — and a tether pulling on a boat the mooring
       // lerp is also moving is two owners of one hull. The line yields.
       if (state.tethered && busy) release('The line goes slack and drops away.');
-      if (mstate && hook) {
-        const d = Math.hypot(
-          mstate.position.x - c.boat.position.x,
-          mstate.position.z - c.boat.position.z,
-        );
-        state.distance = state.tethered ? state.distance : d;
+      if (pod.length) {
+        const near = nearestAnimal();
+        if (!state.tethered) state.distance = near.dist;
         state.available = !state.tethered && !state.flight && !busy
-          && cooldown <= 0 && d < RANGE && mstate.depth < DEPTH_MAX
-          && mstate.phase !== 'breach';
+          && cooldown <= 0 && hookable(near.animal, near.dist);
       } else {
         state.available = false;
       }
@@ -564,13 +619,16 @@ export function createHarpoon(opts = {}) {
         matRope.dispose();
         matWood.dispose();
         matIron.dispose();
+        matVane.dispose();
       },
 
       debug: {
         attach() {
-          if (!mstate || state.tethered) return false;
-          attachAlong = 4 * (hook?.scale || 1);
-          return attachNow();
+          if (state.tethered) return false;
+          const near = nearestAnimal();
+          if (!near.animal || near.animal.phase === 'breach') return false;
+          attachAlong = 4 * near.animal.scale;
+          return attachNow(near.animal);
         },
         setStrain(v) { strain = clamp(v, 0, 1); },
         forceCapsize(side = 1) { beginCapsize(side, false); },
