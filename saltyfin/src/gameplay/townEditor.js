@@ -701,6 +701,10 @@ export function createTownEditor(opts = {}) {
 
     document.getElementById('touch')?.classList.add('hidden');
     document.getElementById('hud')?.classList.add('hidden');
+    // The fishing call-to-action lives outside #hud (it survives hideHud for
+    // captures) and would float over the editor otherwise.
+    const fishGo = document.getElementById('sf-fish-go');
+    if (fishGo) fishGo.style.display = 'none';
 
     // The canvas normally allows the browser's own pan/zoom outside the touch
     // zones; while editing, every gesture belongs to the editor.
@@ -744,6 +748,8 @@ export function createTownEditor(opts = {}) {
 
     document.getElementById('touch')?.classList.remove('hidden');
     document.getElementById('hud')?.classList.remove('hidden');
+    const fishGo = document.getElementById('sf-fish-go');
+    if (fishGo) fishGo.style.display = '';
 
     const gl = document.getElementById('gl');
     if (gl) gl.style.touchAction = savedTouchAction;
