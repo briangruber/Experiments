@@ -104,32 +104,30 @@ export function createHarpoon(opts = {}) {
   const group = new THREE.Group();
   group.name = 'harpoon';
 
-  // Presence is geometry, not alpha: the rope hides as count = 0 and the
-  // spear parks 400 m under the seabed. Both keep their pipelines compiled
-  // (the warm-up draws them once: 26 degenerate instances, a spear in the
-  // dark), no material property is ever touched, and the transparent-path
-  // question never arises. The first version drove opacityNode uniforms on
-  // transparent instanced standard materials and NOTHING drew - probed to
-  // alpha 1, count 26, correct matrices, correct layers, empty pixels.
+  // Presence is position, not alpha: idle rope segments and the idle spear
+  // park 400 m under the seabed — drawn every frame (culling is off), so
+  // their pipelines compile in the boot warm-up and stay warm, while the
+  // seabed occludes them from every pass. No material property is ever
+  // touched after construction.
   {
 
-    // The spear: a shaft, a tip, a tail vane. Kit-bash, like the boat — and
-    // sized to be SEEN: pale wood and a cream vane against sunlit water,
-    // half again as long as an honest harpoon, because at thirty metres
-    // honest is invisible and this is the one projectile in the game.
+    // The spear and the rope are PLAIN meshes with PLAIN materials, built
+    // exactly the way the fishing line is (fishing.js:238) - that line is the
+    // one cord in this game proven to draw on both backends, above and below
+    // the water. Two dead ends died here first: opacityNode uniforms on
+    // transparent node materials, then an InstancedMesh - both probed to
+    // perfect state and empty pixels. The node renderer converts plain
+    // materials itself, and what it converts, it draws.
     const spear = new THREE.Group();
     spear.name = 'harpoon-spear';
-    const matWood = new THREE.MeshStandardNodeMaterial({
-      color: new THREE.Color().setHex(0xC9A05E, THREE.SRGBColorSpace),
-      roughness: 0.75, metalness: 0.0, fog: true,
+    const matWood = new THREE.MeshStandardMaterial({
+      color: 0xC9A05E, roughness: 0.75, metalness: 0.0,
     });
-    const matIron = new THREE.MeshStandardNodeMaterial({
-      color: new THREE.Color().setHex(0x3A3C42, THREE.SRGBColorSpace),
-      roughness: 0.45, metalness: 0.35, fog: true,
+    const matIron = new THREE.MeshStandardMaterial({
+      color: 0x3A3C42, roughness: 0.45, metalness: 0.35,
     });
-    const matVane = new THREE.MeshStandardNodeMaterial({
-      color: new THREE.Color().setHex(0xF2E9D8, THREE.SRGBColorSpace),
-      roughness: 0.85, metalness: 0.0, fog: true, side: THREE.DoubleSide,
+    const matVane = new THREE.MeshStandardMaterial({
+      color: 0xF2E9D8, roughness: 0.85, metalness: 0.0, side: THREE.DoubleSide,
     });
     const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.09, 3.4, 7), matWood);
     shaft.rotation.x = Math.PI / 2;
@@ -144,30 +142,32 @@ export function createHarpoon(opts = {}) {
     spear.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
     group.add(spear);
 
-    // The rope: a chain of thin instanced boxes laid along a sagging curve.
-    // Instanced so the per-frame cost is one matrix write per segment and no
-    // geometry ever rebuilds.
-    const SEGS = 26;
-    // Dark hawser, one hand thick. 5.5 cm was honest and invisible: at the
-    // thirty-metre distances this line actually spans, honest is sub-pixel,
-    // and a rope you cannot see is a mechanic you cannot read. Dark, because
-    // the background is sunlit water — a pale line vanished into it.
-    const matRope = new THREE.MeshStandardNodeMaterial({
-      color: new THREE.Color().setHex(0x4E3A22, THREE.SRGBColorSpace),
-      roughness: 0.92, metalness: 0.0, fog: true,
+    // The rope: a chain of stretched unit cylinders along a sagging curve.
+    // Fourteen draw calls of seven quads each; the per-frame cost is setting
+    // fourteen transforms, and there is no geometry to rebuild, ever.
+    const SEGS = 14;
+    const matRope = new THREE.MeshStandardMaterial({
+      color: 0x4E3A22, roughness: 0.92, metalness: 0.0,
     });
-    const rope = new THREE.InstancedMesh(new THREE.BoxGeometry(0.11, 0.11, 1), matRope, SEGS);
-    rope.name = 'harpoon-rope';
-    rope.frustumCulled = false;
-    group.add(rope);
+    const ropeGeo = new THREE.CylinderGeometry(1, 1, 1, 5, 1, true);
+    const ropeSegs = [];
+    for (let i = 0; i < SEGS; i++) {
+      const m = new THREE.Mesh(ropeGeo, matRope);
+      m.name = 'harpoon-rope-' + i;
+      m.frustumCulled = false;
+      // Parked deep: drawn once by the warm-up (culling is off) so the
+      // pipeline compiles, occluded by the seabed ever after until used.
+      m.position.set(0, -400, 0);
+      m.scale.set(0.055, 1, 0.055);
+      ropeSegs.push(m);
+      group.add(m);
+    }
 
     // UNDERWATER too, and it is the whole feature: a line to a creature ten
-    // metres down is a line that is mostly BELOW the surface, and submerged
-    // geometry is only ever seen from the helm through the refraction pass —
-    // which renders LAYER.UNDERWATER. Without that bit (the first version's
-    // bug) every probe read alpha 1, count 26, matrices perfect... and the
-    // player saw half a metre of stub at the bow and nothing else. Same
-    // three layers as the leviathan, for the same reason.
+    // metres down is mostly BELOW the surface, and submerged geometry is only
+    // seen from the helm through the refraction pass, which renders
+    // LAYER.UNDERWATER. Same three layers as the leviathan, for the same
+    // reason.
     setLayers(group, LAYER.MAIN, LAYER.UNDERWATER, LAYER.REFLECTED);
     applyWaterClip(group);
     scene.add(group);
@@ -187,6 +187,7 @@ export function createHarpoon(opts = {}) {
     const _b2 = new THREE.Vector3();
     const _fwd = new THREE.Vector3();
     const _Z = new THREE.Vector3(0, 0, 1);
+    const _Y = new THREE.Vector3(0, 1, 0);
 
     // --- state ----------------------------------------------------------------
     let cooldown = 0;
@@ -518,10 +519,9 @@ export function createHarpoon(opts = {}) {
     // --- the visuals, every frame ----------------------------------------------
     function layoutRope(visible) {
       if (!visible) {
-        if (rope.count !== 0) rope.count = 0;
+        for (let i = 0; i < SEGS; i++) ropeSegs[i].position.set(0, -400, 0);
         return;
       }
-      rope.count = SEGS;
       bowPoint(_bow);
       if (state.tethered) anchorPoint(_anchor);
       else _anchor.copy(spearPos);
@@ -540,21 +540,19 @@ export function createHarpoon(opts = {}) {
         const qx = _bow.x * it * it + _mid.x * 2 * it * t2 + _anchor.x * t2 * t2;
         const qy = _bow.y * it * it + _mid.y * 2 * it * t2 + _anchor.y * t2 * t2;
         const qz = _bow.z * it * it + _mid.z * 2 * it * t2 + _anchor.z * t2 * t2;
+        const seg = ropeSegs[i];
         _a.set(qx - px, qy - py, qz - pz);
         const len = Math.max(_a.length(), 1e-4);
-        _p.set((qx + px) / 2, (qy + py) / 2, (qz + pz) / 2);
-        _q.setFromUnitVectors(_Z, _a.multiplyScalar(1 / len));
+        seg.position.set((qx + px) / 2, (qy + py) / 2, (qz + pz) / 2);
+        // The cylinder's axis is +Y; aim it down the segment.
+        _q.setFromUnitVectors(_Y, _a.multiplyScalar(1 / len));
+        seg.quaternion.copy(_q);
         // The refraction target is a quarter-res texture: an honest 11 cm
-        // line vanishes between its texels. Below the waterline the rope
-        // fattens, which through the water's wobble reads as refraction
-        // doing what refraction does rather than as a change of rope.
-        const fat = _p.y < 0 ? 2.4 : 1;
-        _s.set(fat, fat, len);
-        _m.compose(_p, _q, _s);
-        rope.setMatrixAt(i, _m);
+        // line vanishes between its texels, so the submerged run fattens.
+        const r = (seg.position.y < 0 ? 0.13 : 0.055);
+        seg.scale.set(r, len, r);
         px = qx; py = qy; pz = qz;
       }
-      rope.instanceMatrix.needsUpdate = true;
     }
 
     function layoutSpear() {
@@ -637,7 +635,7 @@ export function createHarpoon(opts = {}) {
       applyEnv() {},
       dispose() {
         scene.remove(group);
-        rope.geometry.dispose();
+        ropeGeo.dispose();
         matRope.dispose();
         matWood.dispose();
         matIron.dispose();
