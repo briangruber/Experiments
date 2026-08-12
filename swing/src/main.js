@@ -174,6 +174,7 @@ async function boot() {
   ]);
 
   input.attach();
+  input.bindPad(document.getElementById('btn-web'), 'web');
   input.bindPad(document.getElementById('btn-web-l'), 'webLeft');
   input.bindPad(document.getElementById('btn-web-r'), 'webRight');
   input.bindPad(document.getElementById('btn-dive'), 'dive');
@@ -208,6 +209,36 @@ async function boot() {
     playBtn.textContent = 'Resume';
     audio.setWind(0, false);
   };
+
+  // ---- control scheme ----------------------------------------------------
+  // One-button play is the default: hold to swing, let go to fly. The side is
+  // chosen for you, and the camera leans toward the next ring, so the whole
+  // game fits on the space bar.
+  const simpleBtn = document.getElementById('mode-simple');
+  const fullBtn = document.getElementById('mode-full');
+  const keysSimple = document.getElementById('keys-simple');
+  const keysFull = document.getElementById('keys-full');
+  const onePad = document.getElementById('btn-web');
+  const twoPads = [document.getElementById('btn-web-l'), document.getElementById('btn-web-r')];
+
+  const setMode = (simple) => {
+    input.simple = simple;
+    input.web = input.webLeft = input.webRight = false;
+    simpleBtn.classList.toggle('on', simple);
+    fullBtn.classList.toggle('on', !simple);
+    keysSimple.hidden = !simple;
+    keysFull.hidden = simple;
+    onePad.style.display = simple ? '' : 'none';
+    for (const pad of twoPads) pad.style.display = simple ? 'none' : '';
+    hud.setSimple(simple);
+    try { localStorage.setItem('skyline.simple', simple ? '1' : '0'); } catch { /* private mode */ }
+  };
+
+  let stored = null;
+  try { stored = localStorage.getItem('skyline.simple'); } catch { /* private mode */ }
+  setMode(stored !== '0');
+  simpleBtn.addEventListener('click', () => setMode(true));
+  fullBtn.addEventListener('click', () => setMode(false));
 
   playBtn.addEventListener('click', start);
   input.onPause = pause;
@@ -317,6 +348,7 @@ async function boot() {
     input.sample();
 
     cam.aim(dt, player, input);
+    if (input.simple) cam.assist(dt, rings.target?.pos, player);
     player.update(dt, input, cam.basis);
     handlePlayerEvents();
 

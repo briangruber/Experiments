@@ -122,6 +122,14 @@ html, body {
 }
 .pad span { font-size: 9px; letter-spacing: .1em; opacity: .55; }
 .pad.on { background: #56e0ff33; border-color: var(--cool); transform: scale(.94); }
+/* One-button layout: a single wide pad under the thumb. */
+.pad.wide {
+  left: 50%; transform: translateX(-50%);
+  bottom: calc(28px + env(safe-area-inset-bottom));
+  width: 190px; height: 74px; border-radius: 38px;
+  font-size: 15px; letter-spacing: .16em;
+}
+.pad.wide.on { transform: translateX(-50%) scale(.96); }
 #btn-web-l { left: var(--pad);  bottom: calc(96px + env(safe-area-inset-bottom)); width: 86px; height: 86px; }
 #btn-web-r { right: var(--pad); bottom: calc(96px + env(safe-area-inset-bottom)); width: 86px; height: 86px; }
 .pad.small { width: 62px; height: 62px; font-size: 10px; }
@@ -176,6 +184,20 @@ kbd {
 #play:not(:disabled):active { transform: translateY(0) scale(.98); }
 
 .renderer { margin: 20px 0 0; font: 500 11px/1 ui-monospace, Menlo, monospace; color: #5d6f92; letter-spacing: .08em; }
+
+/* Control-scheme picker on the title card. */
+.modes { display: flex; gap: 8px; justify-content: center; margin: 0 0 22px; }
+.mode {
+  pointer-events: auto; cursor: pointer;
+  padding: 9px 16px; border-radius: 999px;
+  border: 1px solid #ffffff24; background: #ffffff0d; color: var(--dim);
+  font: 700 11px/1 ui-sans-serif, system-ui, sans-serif; letter-spacing: .12em;
+  text-transform: uppercase; transition: color .15s, border-color .15s, background .15s;
+}
+.mode:hover { color: var(--ink); border-color: #ffffff44; }
+.mode.on { color: var(--ink); border-color: var(--cool); background: #56e0ff1f; }
+.keys .soft { opacity: .62; font-size: 12px; }
+.keys[hidden] { display: none; }
 
 /* pointer-type gating: keyboard hints on desktop, pads on touch */
 @media (pointer: coarse) { .pointer-fine { display: none !important; } }

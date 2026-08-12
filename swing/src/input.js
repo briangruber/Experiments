@@ -7,8 +7,9 @@ const KEYS = {
   KeyA: 'left', ArrowLeft: 'left',
   KeyD: 'right', ArrowRight: 'right',
   ShiftLeft: 'dive', ShiftRight: 'dive',
-  Space: 'boost',
+  Space: 'swing',
   KeyQ: 'webLeft', KeyE: 'webRight',
+  KeyB: 'boost',
 };
 
 export class Input {
@@ -21,6 +22,9 @@ export class Input {
     this.webLeft = false; this.webRight = false;
     this.dive = false; this.reel = false;
     this.boost = false;                // edge triggered, cleared each frame
+    /** One-button play: `web` replaces the two hand triggers entirely. */
+    this.simple = false;
+    this.web = false;
     this.enabled = false;
     this.locked = false;
     this.touch = matchMedia('(pointer: coarse)').matches;
@@ -46,6 +50,8 @@ export class Input {
       e.preventDefault();
       this.held.add(k);
       if (k === 'boost') this.boost = true;
+      // Space is the web in simple mode and the boost in full mode.
+      if (k === 'swing' && !this.simple) this.boost = true;
     });
     addEventListener('keyup', (e) => {
       const k = KEYS[e.code];
@@ -65,8 +71,12 @@ export class Input {
       if (!this.locked) {
         try { c.requestPointerLock?.()?.catch?.(() => {}); } catch { /* not allowed here */ }
       }
-      if (e.button === 0) this.webLeft = true;
-      if (e.button === 2) this.webRight = true;
+      if (this.simple) {
+        this.web = true;
+      } else {
+        if (e.button === 0) this.webLeft = true;
+        if (e.button === 2) this.webRight = true;
+      }
       if (e.button === 1) this.boost = true;
       this.dragging = true;
       this.dragX = e.clientX;
@@ -75,6 +85,7 @@ export class Input {
     addEventListener('mouseup', (e) => {
       if (e.button === 0) this.webLeft = false;
       if (e.button === 2) this.webRight = false;
+      if (e.button === 0 || e.button === 2) this.web = false;
       this.dragging = false;
     });
     document.addEventListener('pointerlockchange', () => {
@@ -100,6 +111,7 @@ export class Input {
       this.dragId = e.pointerId;
       this.dragX = e.clientX; this.dragY = e.clientY;
       c.setPointerCapture(e.pointerId);
+      if (this.simple) this.web = true;
     });
     c.addEventListener('pointermove', (e) => {
       if (e.pointerId !== this.dragId) return;
@@ -107,7 +119,11 @@ export class Input {
       this.lookY -= (e.clientY - this.dragY) * this.sensitivity;
       this.dragX = e.clientX; this.dragY = e.clientY;
     });
-    const endDrag = (e) => { if (e.pointerId === this.dragId) this.dragId = -1; };
+    const endDrag = (e) => {
+      if (e.pointerId !== this.dragId) return;
+      this.dragId = -1;
+      if (this.simple) this.web = false;
+    };
     c.addEventListener('pointerup', endDrag);
     c.addEventListener('pointercancel', endDrag);
   }
@@ -135,6 +151,11 @@ export class Input {
   /** Fold held keys and pads into the analogue fields. Call once per frame. */
   sample() {
     const h = this.held;
+    if (this.simple) {
+      if (h.has('swing')) this.web = true;
+      else if (!this.padPointers.has('web') && this.dragId < 0 && !this.dragging) this.web = false;
+      if (this.padPointers.has('web')) this.web = true;
+    }
     this.steer = (h.has('right') ? 1 : 0) - (h.has('left') ? 1 : 0);
     this.throttle = (h.has('reel') ? 1 : 0) - (h.has('back') ? 1 : 0);
     this.reel = h.has('reel') || this.padPointers.has('reel');

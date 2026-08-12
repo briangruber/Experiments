@@ -167,7 +167,7 @@ export class Player {
 
       if (score > bestScore) {
         bestScore = score;
-        best = { point: hit.point.clone(), distance: hit.distance };
+        best = { point: hit.point.clone(), distance: hit.distance, score };
       }
     }
     return best;
@@ -182,6 +182,24 @@ export class Player {
     return this.searchFan(FAN, side, basis) || this.searchFan(FAN_WIDE, side, basis);
   }
 
+  /**
+   * Fire whichever hand has the better grip. One-button play rests entirely on
+   * this: the player says "swing", and the side is chosen for them by the same
+   * scoring the two triggers use, so the arc still bends around a building
+   * rather than into it.
+   */
+  tryAttachAuto(basis) {
+    const left = this.probe(-1, basis);
+    const right = this.probe(1, basis);
+    if (!left && !right) {
+      this.missCd = 0.28;
+      this.events.push('miss');
+      return false;
+    }
+    const pickRight = !left || (right && right.score >= left.score);
+    return this.attachTo(pickRight ? right : left, pickRight ? 1 : -1);
+  }
+
   /** Fire a web: the hand's own cone first, then the wide sweep. */
   tryAttach(side, basis) {
     const best = this.probe(side, basis);
@@ -191,7 +209,11 @@ export class Player {
       this.events.push('miss');
       return false;
     }
+    return this.attachTo(best, side);
+  }
 
+  /** Commit to an anchor the search already chose. */
+  attachTo(best, side) {
     this.web.active = true;
     this.web.side = side;
     this.web.anchor.copy(best.point);
@@ -223,6 +245,10 @@ export class Player {
 
     // ------------------------------------------------------------- input --
     this.missCd = Math.max(0, this.missCd - dt);
+    if (input.simple) {
+      if (input.web && !web.active && this.missCd <= 0) this.tryAttachAuto(basis);
+      if (!input.web && web.active) this.release();
+    }
     if (input.webLeft && !(web.active && web.side === -1) && this.missCd <= 0) {
       if (web.active) this.release();
       this.tryAttach(-1, basis);
@@ -231,7 +257,7 @@ export class Player {
       if (web.active) this.release();
       this.tryAttach(1, basis);
     }
-    if (web.active && !input.webLeft && !input.webRight) this.release();
+    if (!input.simple && web.active && !input.webLeft && !input.webRight) this.release();
 
     this.diving = input.dive && !this.grounded;
     this.reeling = false;

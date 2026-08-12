@@ -45,6 +45,7 @@
   </div>
 
   <div id="touch" class="pointer-coarse">
+    <button id="btn-web" class="pad wide" type="button">SWING</button>
     <button id="btn-web-l" class="pad" type="button">WEB<span>L</span></button>
     <button id="btn-web-r" class="pad" type="button">WEB<span>R</span></button>
     <button id="btn-boost" class="pad small" type="button">BOOST</button>
@@ -57,16 +58,24 @@
     <h1>SKYLINE</h1>
     <div class="horizon"></div>
     <p class="tag">swing the city · chase the rings</p>
-    <div class="keys pointer-fine">
-      <span><kbd>left mouse</kbd> swings you left · <kbd>right mouse</kbd> swings you right</span>
-      <span><kbd>move</kbd> or drag the mouse — aim &amp; steer</span>
-      <span><kbd>W</kbd> reel in &nbsp; <kbd>Shift</kbd> dive &nbsp; <kbd>Space</kbd> boost / jump</span>
-      <span><kbd>R</kbd> respawn &nbsp; <kbd>H</kbd> hide HUD &nbsp; <kbd>Esc</kbd> pause</span>
+    <div class="modes" role="group" aria-label="Control scheme">
+      <button id="mode-simple" class="mode" type="button">One button</button>
+      <button id="mode-full" class="mode" type="button">Full controls</button>
     </div>
-    <div class="keys pointer-coarse">
-      <span>drag anywhere — aim &amp; steer</span>
-      <span><kbd>WEB L</kbd> swings you left · <kbd>WEB R</kbd> swings you right</span>
-      <span><kbd>BOOST</kbd> to launch, <kbd>DIVE</kbd> to gain speed</span>
+
+    <div class="keys" id="keys-simple">
+      <span class="pointer-fine">hold <kbd>Space</kbd> to swing — let go to fly</span>
+      <span class="pointer-coarse">hold <kbd>SWING</kbd> to swing — let go to fly</span>
+      <span>that is the whole game. the web picks its own side</span>
+      <span class="soft"><kbd class="pointer-fine">Shift</kbd><kbd class="pointer-coarse">DIVE</kbd> dive for speed &nbsp;·&nbsp; <kbd class="pointer-fine">B</kbd><kbd class="pointer-coarse">BOOST</kbd> mid-air burst</span>
+    </div>
+
+    <div class="keys" id="keys-full" hidden>
+      <span class="pointer-fine"><kbd>left mouse</kbd> swings you left · <kbd>right mouse</kbd> swings you right</span>
+      <span class="pointer-coarse"><kbd>WEB L</kbd> swings you left · <kbd>WEB R</kbd> swings you right</span>
+      <span class="pointer-fine"><kbd>move</kbd> or drag the mouse — aim &amp; steer</span>
+      <span class="pointer-coarse">drag anywhere — aim &amp; steer</span>
+      <span class="soft"><kbd>W</kbd> reel in &nbsp; <kbd>Shift</kbd> dive &nbsp; <kbd>Space</kbd> boost &nbsp; <kbd>R</kbd> respawn</span>
     </div>
     <button id="play" type="button" disabled>building the city…</button>
     <p class="renderer" id="renderer-note"></p>

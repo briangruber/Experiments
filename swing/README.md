@@ -14,24 +14,44 @@ python3 -m http.server 8000     # or any static server
 
 ## Controls
 
+Two schemes, picked on the title card and remembered. **One button** is the
+default.
+
+### One button
+
+| | desktop | touch |
+| --- | --- | --- |
+| swing | hold `Space` (or any mouse button) | hold **SWING**, or tap and hold anywhere |
+| dive for speed | `Shift` | **DIVE** |
+| mid-air burst | `B` | **BOOST** |
+
+Hold to swing, let go to fly. The web picks its own side using the same scoring
+the two triggers use, and the camera leans gently toward the next ring when you
+are not steering, so the course comes to you. A bot given nothing but this one
+button and no aiming at all covers 1.37 km a minute at 61 km/h, against 1.71 km
+at 68 for the full scheme driven with active steering — about four fifths of the
+performance for a twentieth of the dexterity.
+
+### Full controls
+
 | | desktop | touch |
 | --- | --- | --- |
 | swing left | hold left mouse (or `Q`) | hold **WEB L** |
 | swing right | hold right mouse (or `E`) | hold **WEB R** |
-| aim and steer | move the mouse (pointer lock) | drag anywhere |
+| aim and steer | move or drag the mouse | drag anywhere |
 | reel in | `W` | **DIVE** |
 | dive | `Shift` | **DIVE** |
 | boost / jump | `Space` | **BOOST** |
-| respawn | `R` | — |
-| hide HUD / mute / pause | `H` / `M` / `Esc` | — |
 
 Each trigger is a side, not just a hand: the left web searches to your left and
 swings you around that way, the right web to your right. The `L` and `R` pips
 either side of the reticle light up when that side has something to grab, so the
 mapping is visible before you commit to it.
 
+Either scheme: `R` respawn, `H` hide HUD, `M` mute, `Esc` pause.
+
 The camera lines itself up with your velocity after a moment of no steering, so
-one thumb on a phone is enough: hold a web, let go, hold the other.
+one thumb on a phone is enough.
 
 ## How it plays
 

@@ -42,6 +42,7 @@ const FREEZE = opt('freeze', '');     // "x,y,z,tx,ty,tz" — scenic still inste
 const SIM = +opt('sim', 0);           // seconds of bot-driven play, no rendering
 const TRACE = has('trace');           // sample the sim twice a second
 const FOLLOW = has('follow');         // frame the capture from a clean chase position
+const SIMPLE = has('simple');         // drive one-button mode: hold, release, nothing else
 const PAGE = opt('page', 'index.html'); // e.g. dist/skyline.html to test the bundle
 
 const MIME = {
@@ -98,7 +99,7 @@ await page.goto(`http://127.0.0.1:${port}/${PAGE}`, { waitUntil: 'load' });
 // Wait for boot, then play.
 await page.waitForFunction(() => window.__skyline || !document.getElementById('fail').hidden, null, { timeout: 60000 });
 
-const report = await page.evaluate(async ({ wait, keep, freeze, sim, trace, follow }) => {
+const report = await page.evaluate(async ({ wait, keep, freeze, sim, trace, follow, simple }) => {
   const s = window.__skyline;
   if (!s) return { fatal: document.getElementById('fail-msg').textContent };
   if (keep) return { backend: s.backend, skipped: true };
@@ -134,6 +135,7 @@ const report = await page.evaluate(async ({ wait, keep, freeze, sim, trace, foll
     const DT = 1 / 60;
     const steps = Math.round(sim / DT);
     const p = s.player, cam = s.cam, rings = s.rings;
+    input.simple = simple;
 
     const stat = {
       distance: 0, speedSum: 0, speedMax: 0, fastFrames: 0, stuckWorst: 0,
@@ -147,9 +149,10 @@ const report = await page.evaluate(async ({ wait, keep, freeze, sim, trace, foll
     const tally = () => { for (const e of p.events) stat.events[e] = (stat.events[e] || 0) + 1; };
 
     for (let i = 0; i < steps; i++) {
-      // Aim at the next ring in the chain.
+      // Aim at the next ring in the chain. One-button mode gets no aiming at
+      // all — the point of the test is whether the assist carries it.
       const t = rings.target;
-      if (t) {
+      if (t && !simple) {
         const want = Math.atan2(-(t.pos.x - p.pos.x), -(t.pos.z - p.pos.z));
         let d = want - cam.yaw;
         while (d > Math.PI) d -= Math.PI * 2;
@@ -168,8 +171,15 @@ const report = await page.evaluate(async ({ wait, keep, freeze, sim, trace, foll
         hold = false;
         cooldown = 0.42;
       }
-      input.webLeft = hold && side < 0;
-      input.webRight = hold && side > 0;
+      if (simple) {
+        // Go through the held-key set, the same channel the space bar uses:
+        // sample() rebuilds `web` from its real sources every step and would
+        // overwrite a direct write.
+        if (hold) input.held.add('swing'); else input.held.delete('swing');
+      } else {
+        input.webLeft = hold && side < 0;
+        input.webRight = hold && side > 0;
+      }
       input.dive = !p.web.active && p.vel.y < -6 && cooldown > 0.15;
       input.reel = p.web.active && p.vel.y < 0;
 
@@ -178,7 +188,7 @@ const report = await page.evaluate(async ({ wait, keep, freeze, sim, trace, foll
       // analogue fields from it every step and would overwrite a direct write.
       input.held.delete('left');
       input.held.delete('right');
-      if (t) {
+      if (t && !simple) {
         const want = Math.atan2(-(t.pos.x - p.pos.x), -(t.pos.z - p.pos.z));
         let err = want - cam.yaw;
         while (err > Math.PI) err -= Math.PI * 2;
@@ -351,7 +361,7 @@ const report = await page.evaluate(async ({ wait, keep, freeze, sim, trace, foll
     buildings: s.city.count,
     drawCalls: s.renderer.info?.render?.drawCalls ?? null,
   };
-}, { wait: WAIT, keep: KEEP, freeze: FREEZE, sim: SIM, trace: TRACE, follow: FOLLOW });
+}, { wait: WAIT, keep: KEEP, freeze: FREEZE, sim: SIM, trace: TRACE, follow: FOLLOW, simple: SIMPLE });
 
 if (!SIM) await mkdir(dirname(join(ROOT, OUT)), { recursive: true });
 // Software rasterisation can take seconds per frame; the default 30 s cap is

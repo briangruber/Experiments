@@ -77,6 +77,22 @@ export class ChaseCamera {
     this.updateBasis();
   }
 
+  /**
+   * Nudge the heading toward a point of interest. Used by one-button play: with
+   * no steering control, the course has to come to you a little — but gently
+   * enough that a deliberate turn still wins, and never while the player is
+   * actively aiming.
+   */
+  assist(dt, target, player, strength = 1) {
+    if (!target || this.idle < 0.35) return;
+    const dx = target.x - player.pos.x;
+    const dz = target.z - player.pos.z;
+    if (dx * dx + dz * dz < 400) return;               // already on top of it
+    const want = Math.atan2(-dx, -dz);
+    this.yaw = dampAngle(this.yaw, want, 0.9 * strength, dt);
+    this.updateBasis();
+  }
+
   update(dt, player) {
     const speed = player.speed;
     // Trail further back the faster you go — speed reads as framing, not numbers.

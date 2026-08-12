@@ -87,8 +87,16 @@ export class Hud {
     this.reticle.className = state;
   }
 
+  /** In one-button play the hand pips mean nothing; hide them. */
+  setSimple(simple) {
+    this.simple = simple;
+    this.pipL.style.display = simple ? 'none' : '';
+    this.pipR.style.display = simple ? 'none' : '';
+  }
+
   /** Light the hand pips for the sides that currently have something to grab. */
   setSides(left, right) {
+    if (this.simple) return;
     const key = `${left}${right}`;
     if (key === this.last.pips) return;
     this.last.pips = key;
