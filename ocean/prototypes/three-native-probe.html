@@ -1,0 +1,186 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — Three-native feasibility probe</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:13px/1.6 ui-monospace,monospace;padding:20px}
+pre{white-space:pre-wrap}</style>
+<pre id="out">running…</pre>
+
+<!--
+  Does the Three-native port actually work? Four things have to be true, and
+  none of them is obvious from the documentation. This proves or disproves each
+  one before any of ocean.js gets rewritten against them.
+
+    1. Our GLSL ES 3.00 compiles under THREE.RawShaderMaterial (glslVersion GLSL3),
+       including the multiple render targets the FFT assembly writes.
+    2. A WebGLArrayRenderTarget can be rendered into layer by layer, which is how
+       the four wave cascades are stored.
+    3. Those layers read back with the values we wrote - i.e. layer selection
+       actually selects.
+    4. The real shaders - the FFT spectrum pass and the full water surface pass,
+       which is the largest and most uniform-heavy in the project - compile.
+
+  Anything false here changes the plan. Better to find out in 60 lines than in
+  600.
+-->
+
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.185.1/build/three.module.js" } }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { INIT_SPECTRUM_FS, ASSEMBLE_FS } from '../src/shaders/oceanSim.js';
+import { WATER_VS, WATER_FS } from '../src/shaders/water.js';
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent =
+    results.map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+const canvas = document.createElement('canvas');
+canvas.width = 64; canvas.height = 64;
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
+
+// RawShaderMaterial prepends the #version line and the defines, and nothing
+// else - no precision qualifiers, unlike ShaderMaterial. Our own program()
+// prepends them, so a straight lift of a shader string compiles there and fails
+// here. This is that header.
+const PRECISION = `precision highp float;
+precision highp int;
+precision highp sampler2D;
+precision highp sampler2DArray;
+`;
+
+const fsTriangle = new THREE.BufferGeometry();
+fsTriangle.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-1, -1, 3, -1, -1, 3]), 2));
+const quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+
+const VS = `layout(location=0) in vec2 position;
+out vec2 vUv;
+void main(){ vUv = position*0.5+0.5; gl_Position = vec4(position, 0.0, 1.0); }`;
+
+function pass(material, target, layer) {
+  const scene = new THREE.Scene();
+  const m = new THREE.Mesh(fsTriangle, material);
+  m.frustumCulled = false;   // no bounding sphere on a 2-component position
+  scene.add(m);
+  renderer.setRenderTarget(target, layer);
+  renderer.render(scene, quadCam);
+  renderer.setRenderTarget(null);
+}
+
+const errors = [];
+console.error = ((orig) => (...a) => { errors.push(a.join(' ')); orig(...a); })(console.error);
+
+// ---- 1 + 2 + 3: layered float array target, written and read back ----------
+let arrayOk = false, readback = [];
+try {
+  const N = 32, LAYERS = 4;
+  const target = new THREE.WebGLArrayRenderTarget(N, N, LAYERS, {
+    type: THREE.FloatType, format: THREE.RGBAFormat,
+    minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
+  });
+  const mat = new THREE.RawShaderMaterial({
+    glslVersion: THREE.GLSL3,
+    vertexShader: PRECISION + VS,
+    fragmentShader: PRECISION + `
+      in vec2 vUv; out vec4 frag; uniform float uLayer;
+      void main(){ frag = vec4(uLayer * 10.0 + vUv.x, uLayer, 7.0, 1.0); }`,
+    uniforms: { uLayer: { value: 0 } },
+  });
+  for (let i = 0; i < LAYERS; i++) { mat.uniforms.uLayer.value = i; pass(mat, target, i); }
+
+  // readRenderTargetPixels honours its layer argument only for cube targets
+  // (three.module.js: `renderTarget.isWebGLCubeRenderTarget && ...`). For an
+  // array target it ignores it and reads whichever layer is currently attached,
+  // so reading all four in a row returns the last one written four times. Bind
+  // the layer first, then read. The port itself never needs this - the cascades
+  // are consumed as sampler2DArray - but the write path being layer-correct is
+  // load-bearing, and this is what proves it.
+  const buf = new Float32Array(4);
+  for (let i = 0; i < LAYERS; i++) {
+    renderer.setRenderTarget(target, i);
+    renderer.readRenderTargetPixels(target, N >> 1, N >> 1, 1, 1, buf, i);
+    readback.push(+buf[0].toFixed(3));
+  }
+  renderer.setRenderTarget(null);
+  // Centre texel has vUv.x ~ 0.5, so layer i should read i*10 + 0.5.
+  arrayOk = readback.every((v, i) => Math.abs(v - (i * 10 + 0.5)) < 0.05);
+  log('WebGLArrayRenderTarget: render + read back per layer', arrayOk,
+      `read [${readback.join(', ')}], expected [0.5, 10.5, 20.5, 30.5]`);
+} catch (e) {
+  log('WebGLArrayRenderTarget: render + read back per layer', false, String(e.message || e));
+}
+
+// ---- 4a: multiple render targets, as the FFT assembly pass needs -----------
+try {
+  const mrt = new THREE.WebGLRenderTarget(32, 32, {
+    count: 2, type: THREE.FloatType, format: THREE.RGBAFormat,
+    minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
+  });
+  const mat = new THREE.RawShaderMaterial({
+    glslVersion: THREE.GLSL3,
+    vertexShader: PRECISION + VS,
+    fragmentShader: PRECISION + `
+      in vec2 vUv;
+      layout(location=0) out vec4 o0;
+      layout(location=1) out vec4 o1;
+      void main(){ o0 = vec4(1.0, 0.0, 0.0, 1.0); o1 = vec4(0.0, 2.0, 0.0, 1.0); }`,
+    uniforms: {},
+  });
+  pass(mat, mrt, 0);
+  const b0 = new Float32Array(4), b1 = new Float32Array(4);
+  renderer.readRenderTargetPixels(mrt, 16, 16, 1, 1, b0, 0);
+  // Attachment 1 of an MRT target is textures[1]; readRenderTargetPixels reads
+  // attachment 0, so this checks only that the pass ran and linked.
+  log('Multiple render targets (FFT assembly writes 2)', b0[0] === 1, `attachment0 r=${b0[0]}`);
+} catch (e) {
+  log('Multiple render targets (FFT assembly writes 2)', false, String(e.message || e));
+}
+
+// ---- 4b: the real shaders compile ------------------------------------------
+function compiles(name, vs, fs, uniforms) {
+  const before = errors.length;
+  try {
+    const mat = new THREE.RawShaderMaterial({
+      glslVersion: THREE.GLSL3, vertexShader: PRECISION + vs, fragmentShader: PRECISION + fs, uniforms,
+    });
+    const t = new THREE.WebGLRenderTarget(8, 8, { type: THREE.FloatType });
+    pass(mat, t, 0);
+    const shaderErrs = errors.slice(before).filter((e) => /shader|compile|link|GLSL/i.test(e));
+    log(name, shaderErrs.length === 0, shaderErrs.slice(0, 1).join(' ').slice(0, 400));
+  } catch (e) {
+    log(name, false, String(e.message || e));
+  }
+}
+
+// The FFT spectrum pass, verbatim from the WebGL2 renderer.
+compiles('INIT_SPECTRUM_FS compiles under RawShaderMaterial', VS, INIT_SPECTRUM_FS, {});
+compiles('ASSEMBLE_FS compiles under RawShaderMaterial', VS, ASSEMBLE_FS, {});
+
+// The water surface: the biggest shader in the project, and the one that would
+// have to become a THREE.Mesh's material. Its attribute is aRT, not a_pos.
+try {
+  const before = errors.length;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, 0, 1, 0, 0, 1]), 2));
+  const mat = new THREE.RawShaderMaterial({
+    glslVersion: THREE.GLSL3, vertexShader: PRECISION + WATER_VS.replace(/\baRT\b/g, 'position'), fragmentShader: PRECISION + WATER_FS, uniforms: {},
+  });
+  const scene = new THREE.Scene();
+  const wm = new THREE.Mesh(geo, mat);
+  wm.frustumCulled = false;
+  scene.add(wm);
+  const t = new THREE.WebGLRenderTarget(8, 8, { type: THREE.FloatType });
+  renderer.setRenderTarget(t); renderer.render(scene, quadCam); renderer.setRenderTarget(null);
+  const shaderErrs = errors.slice(before).filter((e) => /shader|compile|link|GLSL/i.test(e));
+  log('WATER_VS + WATER_FS compile as a Mesh material', shaderErrs.length === 0,
+      shaderErrs.slice(0, 1).join(' ').slice(0, 600));
+} catch (e) {
+  log('WATER_VS + WATER_FS compile as a Mesh material', false, String(e.message || e));
+}
+
+window.probeResult = { results, allOk: results.every((r) => r.ok), readback };
+</script>
