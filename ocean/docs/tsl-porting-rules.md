@@ -235,3 +235,21 @@ the frame — off the half of the screen that is sea.
 Every `renderer.render()` and every `QuadMesh.render()` clears the bound target
 first. A multi-pass frame needs `renderer.autoClear = false` and one explicit
 `renderer.clear()`.
+
+## 16. WebGPU here draws but cannot PRESENT
+
+In this headless sandbox, WebGPU renders into render targets correctly and fails
+the moment anything targets the canvas swapchain:
+
+```
+A valid external Instance reference no longer exists.
+```
+
+`prototypes/webgpu-canvas-probe.html` narrows it to one quad with no app
+involved: the same renderer draws into a `RenderTarget` (exact result) and then
+drops the device presenting the identical draw to the canvas. WebGL2 does both.
+
+So it is the sandbox, not the port — but it does mean **anything that only
+presents is unverifiable here**. `boot()` therefore takes an `output` target, and
+`prototypes/three-app-smoke.html` captures into it: every pass of the pipeline
+runs, and only the swapchain blit is skipped.
