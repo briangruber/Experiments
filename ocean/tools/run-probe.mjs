@@ -65,6 +65,14 @@ try {
 await browser.close();
 server.close();
 
+const SAVE = process.argv.includes('--save') ? process.argv[process.argv.indexOf('--save') + 1] : null;
+if (SAVE && result.fingerprint) {
+  const { writeFile, mkdir } = await import('node:fs/promises');
+  await mkdir(dirname(join(ROOT, SAVE)), { recursive: true });
+  await writeFile(join(ROOT, SAVE), JSON.stringify(result.fingerprint, null, 1));
+  console.log(`saved fingerprint -> ${SAVE}`);
+}
+
 if (result.results) {
   for (const r of result.results) {
     console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.name}`);

@@ -1,0 +1,122 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — ocean simulation fingerprint</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}</style>
+<pre id="out">running…</pre>
+
+<!--
+  A deterministic fingerprint of the wave field, from the existing WebGL2
+  simulation. This is the reference the WGSL compute port has to reproduce.
+  Nothing here is about looking right; it is about numbers.
+
+  Two things are captured, because they fail differently:
+
+    stats   per cascade, per channel: mean, rms, min, max. Catches a dropped
+            term, a wrong constant, an energy normalisation that went missing -
+            anything that moves the distribution.
+    samples 256 texels on a fixed stride. Catches a localised error - a wrong
+            conjugate index, an off-by-one in the bit reversal, a bad wrap at
+            the edge - which barely moves the statistics at all.
+
+  A port that matches the stats but not the samples has a geometry bug. One that
+  matches the samples but not the stats is not possible, which is a useful check
+  on the harness itself.
+
+    node tools/run-probe.mjs "prototypes/ocean-golden.html?n=64&steps=8"
+-->
+
+<script type="module">
+import { getContext } from '../src/gl.js';
+import { Ocean, DEFAULT_CASCADES } from '../src/ocean.js';
+import { newParams } from '../src/presets.js';
+import { createDerived, derive } from '../src/derive.js';
+
+const q = new URLSearchParams(location.search);
+const N = +(q.get('n') || 64);
+const STEPS = +(q.get('steps') || 8);
+const PRESET = q.get('preset') || 'Golden Hour Swell';
+const SEED = +(q.get('seed') || 1337);
+const DT = 1 / 60;
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+let fingerprint = null;
+try {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 16;
+  const gl = getContext(canvas, {});
+
+  const params = newParams(PRESET);
+  params.seed = SEED;
+  params.fftSize = N;
+  derive(params, createDerived());
+
+  const ocean = new Ocean(gl, { size: N, cascades: DEFAULT_CASCADES });
+  ocean.setSeed(SEED);
+  ocean.buildSpectrum(params);
+
+  // Fixed dt and a fixed step count: the simulation advances by
+  // dt * timeScale each call, so this is reproducible to the bit.
+  for (let i = 0; i < STEPS; i++) ocean.update(DT, params);
+
+  const cascades = [];
+  const buf = new Float32Array(N * N * 4);
+  for (let c = 0; c < ocean.cascadeCount; c++) {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, ocean.fbo.assemble[c]);
+    gl.readBuffer(gl.COLOR_ATTACHMENT0);          // attachment 0 is disp
+    gl.readPixels(0, 0, N, N, gl.RGBA, gl.FLOAT, buf);
+
+    const ch = [0, 1, 2, 3].map(() => ({ sum: 0, sum2: 0, min: Infinity, max: -Infinity }));
+    for (let i = 0; i < N * N; i++) {
+      for (let k = 0; k < 4; k++) {
+        const v = buf[i * 4 + k];
+        const s = ch[k];
+        s.sum += v; s.sum2 += v * v;
+        if (v < s.min) s.min = v;
+        if (v > s.max) s.max = v;
+      }
+    }
+    const n = N * N;
+    const stats = ch.map((s) => ({
+      mean: +(s.sum / n).toFixed(6),
+      rms: +Math.sqrt(s.sum2 / n).toFixed(6),
+      min: +s.min.toFixed(6),
+      max: +s.max.toFixed(6),
+    }));
+
+    // 256 texels on a fixed stride, deliberately coprime with N so the walk
+    // covers rows and columns rather than marching down one line.
+    const stride = 7919 % (N * N);
+    const samples = [];
+    for (let i = 0; i < 256; i++) {
+      const idx = (i * stride) % (N * N);
+      samples.push(+buf[idx * 4].toFixed(6), +buf[idx * 4 + 1].toFixed(6),
+                   +buf[idx * 4 + 2].toFixed(6), +buf[idx * 4 + 3].toFixed(6));
+    }
+    cascades.push({ cascade: c, patch: ocean.L[c], stats, samples });
+  }
+
+  fingerprint = {
+    config: { N, steps: STEPS, dt: DT, preset: PRESET, seed: SEED, cascades: ocean.cascadeCount },
+    cascades,
+  };
+
+  // A field of zeros would "match" a broken port perfectly, so the reference has
+  // to prove it is a sea before it can be a reference.
+  const alive = cascades.every((c) => c.stats[1].rms > 1e-5);
+  log('reference field is non-trivial', alive,
+      cascades.map((c) => `L=${c.patch}m rmsY=${c.stats[1].rms}`).join('  '));
+
+  const finite = cascades.every((c) => c.stats.every((s) => Number.isFinite(s.mean) && Number.isFinite(s.rms)));
+  log('all values finite', finite);
+} catch (e) {
+  log('build reference fingerprint', false, String(e.stack || e.message || e));
+}
+
+window.probeResult = { results, allOk: results.every((r) => r.ok), fingerprint };
+</script>
