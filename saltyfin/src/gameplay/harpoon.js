@@ -245,6 +245,7 @@ export function createHarpoon(opts = {}) {
     let aimYaw = 0;          // world heading the spear will follow
     let aimPitch = 0.12;
     let reelT = 0;           // seconds into the auto-reel
+    let aimStarveT = 0;      // seconds the scope has had nothing to look at
     let camFirst = true;     // snap the camera on the frame it is taken
     const _camPos = new THREE.Vector3();
     const _camLook = new THREE.Vector3();
@@ -452,7 +453,7 @@ export function createHarpoon(opts = {}) {
       // spine is a capsule from mid-tail to nose.
       for (let i = 0; i < pod.length; i++) {
         const a = pod[i];
-        if (!a || !a.state || a.phase === 'breach' || a.hooked) continue;
+        if (!a || !a.state || a.hooked) continue;
         const p = a.state.position;
         _fwd.copy(a.velocity).setY(0);
         if (_fwd.lengthSq() < 1e-4) _fwd.set(0, 0, -1);
@@ -467,6 +468,12 @@ export function createHarpoon(opts = {}) {
         if (spearPos.distanceToSquared(_p) < hitR * hitR) {
           attachAlong = clamp((0.5 - tSeg) * 2 * L, -9 * a.scale, 11 * a.scale);
           state.flight = false;
+          // A breaching animal cannot be tethered — the leap owns her
+          // position outright and a rope to a Bezier is a rope to nothing —
+          // but a spear passing THROUGH her reads as a bug, so the throw
+          // glances and comes home. You threw at a leaping leviathan; that
+          // is a story either way.
+          if (a.phase === 'breach') { beginReel('She twists away mid-leap!'); return; }
           if (!attachNow(a)) beginReel('The spear glances off.');
           return;
         }
@@ -929,10 +936,21 @@ export function createHarpoon(opts = {}) {
         state.available = false;
         state.nearDeep = false;
       }
-      // The scope closes by itself if the shot stops being legal — she sounds,
-      // she breaches, she swims off — rather than leaving the player squinting
-      // down a barrel at nothing.
-      if (state.aiming && !state.available) exitAim();
+      // The scope is NOT yanked the moment the shot stops being legal. Her
+      // approach ends in a leap at your boat, and closing the scope on the
+      // frame she breaches took the camera away at the best thing in the
+      // game — probed: aim opened, she entered 'breach' 0.2 s later, the view
+      // snapped back to the chase rig. So it stays open while there is
+      // anything worth pointing at, and only gives up after four seconds of
+      // genuinely empty water. Escape and CANCEL are always right there.
+      if (state.aiming) {
+        const near2 = nearestAnimal();
+        const worthWatching = !!near2.animal && near2.dist < RANGE * 1.6;
+        aimStarveT = worthWatching ? 0 : aimStarveT + dt;
+        if (aimStarveT > 4) exitAim();
+      } else {
+        aimStarveT = 0;
+      }
 
       ctx.lineOut = state.tethered;
       if (state.aiming) evaluateAim();
