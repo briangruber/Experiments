@@ -84,12 +84,18 @@ if (clip) mixer.clipAction(clip).play();
 
 const v = new THREE.Vector3();
 let t = 0;
+// `?rot=<radians>` (or assetSheet.setRotation) parks the turntable at a fixed
+// angle — the only way to answer "which way does this model face?" from a
+// screenshot.
+const fixed = new URLSearchParams(location.search).get('rot');
+let held = fixed === null ? null : +fixed;
+
 renderer.setAnimationLoop((now) => {
   const dt = 1 / 60;
   t += dt;
   mixer.update(dt);
   for (const o of spin) {
-    o.rotation.y = t * 0.6;
+    o.rotation.y = held === null ? t * 0.6 : held;
     v.set(o.position.x, 0, 0).project(camera);
     o.userData.label.style.left = `${(v.x * 0.5 + 0.5) * innerWidth}px`;
     o.userData.label.style.top = `${(-v.y * 0.5 + 0.5) * innerHeight + 26}px`;
@@ -97,5 +103,5 @@ renderer.setAnimationLoop((now) => {
   renderer.render(scene, camera);
   window.assetSheetFrames = (window.assetSheetFrames || 0) + 1;
 });
-window.assetSheet = { scene, assets, camera };
+window.assetSheet = { scene, assets, camera, setRotation: (r) => { held = r; } };
 </script>

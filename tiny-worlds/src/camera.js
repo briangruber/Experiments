@@ -38,7 +38,7 @@ export class ChaseCamera {
     return out.normalize();
   }
 
-  update(dt, { target, up, moveDir, look, zoom, autoFollow = true, heightOffset = 1.15 }) {
+  update(dt, { target, up, moveDir, look, zoom, autoFollow = true, followStrength = 1, heightOffset = 1.15 }) {
     // Parallel-transport the orbit vector along the change in up.
     if (!up.equals(this.prevUp)) {
       _q.setFromUnitVectors(this.prevUp, up);
@@ -60,12 +60,15 @@ export class ChaseCamera {
     if (zoom) this.targetDistance = clamp(this.targetDistance * (1 + zoom * 0.11), this.minDistance, this.maxDistance);
     this.distance = damp(this.distance, this.targetDistance, 6, dt);
 
-    // Drift behind the player when they run, unless they are steering the view.
-    if (autoFollow && moveDir && moveDir.lengthSq() > 0.01) {
+    // Drift behind the player when they run forward, unless they are steering
+    // the view. `followStrength` falls to zero for a pure strafe: chasing one
+    // turns the input frame under the player and they circle instead of going
+    // anywhere.
+    if (autoFollow && followStrength > 0.01 && moveDir && moveDir.lengthSq() > 0.01) {
       _desired.copy(moveDir).negate();
       _desired.addScaledVector(up, this.orbit.dot(up) - _desired.dot(up));
       _desired.normalize();
-      const t = 1 - Math.exp(-0.9 * dt);
+      const t = 1 - Math.exp(-0.9 * followStrength * dt);
       this.orbit.lerp(_desired, t).normalize();
     }
 

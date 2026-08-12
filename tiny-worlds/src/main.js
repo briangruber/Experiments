@@ -322,7 +322,9 @@ async function startFinale() {
 function movementBasis(dt) {
   player.worldUp(_up);
   chase.forwardOn(_up, _fwd);
-  _right.crossVectors(_fwd, _up).normalize().negate();
+  // right = forward x up in a right-handed frame. Negating it here is what had
+  // A and D swapped.
+  _right.crossVectors(_fwd, _up).normalize();
   _move.set(0, 0, 0)
     .addScaledVector(_fwd, input.move.y)
     .addScaledVector(_right, input.move.x);
@@ -364,6 +366,11 @@ function frame(now) {
       look: input.takeLook(),
       zoom: input.takeZoom(),
       autoFollow: input.lookedRecently <= 0,
+      // Only swing in behind the keeper when they are actually running
+      // forward. Following a strafe rotates the camera, which rotates what
+      // "right" means, which curves the strafe further — the keeper spirals on
+      // the spot while the view whips around them.
+      followStrength: Math.max(0, input.move.y) * (1 - Math.min(1, Math.abs(input.move.x))),
       heightOffset: 1.6,
     });
     chase.avoidTerrain(current());

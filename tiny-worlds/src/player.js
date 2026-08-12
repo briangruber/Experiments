@@ -27,8 +27,11 @@ export class Player {
 
     this.model = assets.keeper.object;
     this.model.scale.setScalar(this.height);
-    // Tripo's rig faces -Z; the frame below treats +Z as forward.
-    this.model.rotation.y = Math.PI;
+    // Tripo's rig faces along its own +X — the bbox is wider across Z (shoulder
+    // to shoulder) than it is deep. The root frame below treats +Z as forward,
+    // so turn the model a quarter turn to match. Verified by rendering the
+    // keeper at fixed angles: tools/assets.html?rot=-1.5708 shows its face.
+    this.model.rotation.y = -Math.PI / 2;
     this.root.add(this.model);
 
     this.mixer = new THREE.AnimationMixer(this.model);

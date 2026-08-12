@@ -70,7 +70,60 @@ await page.click('#card-button');
 await frames(3);
 check('title card starts the game', await page.evaluate(() => window.tinyWorlds.state.mode === 'play'));
 
-// 2. Walk onto every spark in turn. Each one must register.
+// 2. The controls point where they say, and the keeper faces where they go.
+//    Left/right were once mirrored and the model ran backwards, and neither
+//    shows up in any other check here.
+const axes = [];
+for (const [key, wantForward, wantRight] of [['KeyW', 1, 0], ['KeyS', -1, 0], ['KeyD', 0, 1], ['KeyA', 0, -1]]) {
+  const before = await page.evaluate(() => {
+    const tw = window.tinyWorlds, T = tw.THREE;
+    const up = tw.player.worldUp(new T.Vector3());
+    const fwd = tw.chase.forwardOn(up, new T.Vector3());
+    return {
+      p: tw.player.worldPosition(new T.Vector3()).toArray(),
+      fwd: fwd.toArray(),
+      right: new T.Vector3().crossVectors(fwd, up).normalize().toArray(),
+    };
+  });
+  await page.keyboard.down(key);
+  await frames(14);
+  await page.keyboard.up(key);
+  await frames(2);
+  const got = await page.evaluate((b) => {
+    const tw = window.tinyWorlds, T = tw.THREE;
+    const moved = tw.player.worldPosition(new T.Vector3()).sub(new T.Vector3().fromArray(b.p));
+    if (moved.length() < 0.5) return null;
+    moved.normalize();
+    // The rig's own front is its local +X.
+    const front = new T.Vector3(1, 0, 0).transformDirection(tw.player.model.matrixWorld);
+    return {
+      forward: +moved.dot(new T.Vector3().fromArray(b.fwd)).toFixed(2),
+      right: +moved.dot(new T.Vector3().fromArray(b.right)).toFixed(2),
+      facing: +front.dot(moved).toFixed(2),
+    };
+  }, before);
+  const want = wantForward || wantRight;
+  const axis = wantForward ? 'forward' : 'right';
+  axes.push({ key, got, ok: !!got && got[axis] * want > 0.7 && got.facing > 0.7 });
+  await frames(20);
+}
+check('the controls move and turn the keeper where they say',
+  axes.every((a) => a.ok), axes.map((a) => `${a.key}:${JSON.stringify(a.got)}`).join(' '));
+
+// 3. Strafing has to travel. Following a strafe with the camera used to turn
+//    the input frame under the keeper, spiralling them on the spot.
+const strafeStart = await page.evaluate(() => window.tinyWorlds.player.local.clone().normalize().toArray());
+await page.keyboard.down('KeyD');
+await frames(60);
+await page.keyboard.up('KeyD');
+const strafeArc = await page.evaluate((a) => {
+  const tw = window.tinyWorlds, T = tw.THREE;
+  const d = tw.player.local.clone().normalize().dot(new T.Vector3().fromArray(a));
+  return +(Math.acos(Math.max(-1, Math.min(1, d))) * 180 / Math.PI).toFixed(1);
+}, strafeStart);
+check('strafing travels instead of circling', strafeArc > 40, `${strafeArc} degrees in 3s`);
+
+// 4. Walk onto every spark in turn. Each one must register.
 const total = await page.evaluate(() => window.tinyWorlds.planets[window.tinyWorlds.state.worldIndex].moteTotal);
 let collected = 0;
 for (let i = 0; i < total; i++) {
@@ -88,7 +141,7 @@ for (let i = 0; i < total; i++) {
 }
 check('every spark can be collected', collected === total, `${collected}/${total}`);
 
-// 3. Collecting the last one blooms the world and lights the beacon.
+// 5. Collecting the last one blooms the world and lights the beacon.
 await frames(4);
 const bloomed = await page.evaluate(() => {
   const tw = window.tinyWorlds;
@@ -98,7 +151,7 @@ const bloomed = await page.evaluate(() => {
 check('the world blooms', bloomed.bloomed && bloomed.wave, JSON.stringify(bloomed));
 check('the beacon lights', bloomed.beacon);
 
-// 4. Standing at the beacon offers the launch, and E takes it.
+// 6. Standing at the beacon offers the launch, and E takes it.
 await page.evaluate(() => {
   const tw = window.tinyWorlds;
   const p = tw.planets[tw.state.worldIndex];
@@ -111,7 +164,7 @@ await page.keyboard.press('KeyE');
 await frames(3);
 check('the launch starts', await page.evaluate(() => window.tinyWorlds.state.mode === 'flight'));
 
-// 5. The flight lands on the next world.
+// 7. The flight lands on the next world.
 const before = await page.evaluate(() => window.tinyWorlds.state.worldIndex);
 await page.waitForFunction((i) => window.tinyWorlds.state.worldIndex > i || window.tinyWorlds.state.mode !== 'flight',
   before, { timeout: 300000 }).catch(() => {});
