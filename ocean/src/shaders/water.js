@@ -676,8 +676,12 @@ void main(){
       float amtM = smoothstep(0.0004, 0.018, var);
       rawM *= mix(1.0, scintillation(vWorld.xz + 71.3, foot), amtM);
     }
+    // uSpecIntensity applies here too. Without it the only way to strengthen a
+    // moon path was to raise moonIntensity, which also feeds the atmosphere LUT
+    // and so lifts the whole sky - you got a brighter night rather than a
+    // brighter path, which is the opposite of what a moonlit scene wants.
     moonSpec = uMoonColor * Fm * (rawM / (1.0 + rawM/ceilv)) * NoLm
-             * smoothstep(-0.05, 0.1, uMoonDir.y);
+             * smoothstep(-0.05, 0.1, uMoonDir.y) * uSpecIntensity;
   }
 
   // ---- subsurface / body colour --------------------------------------------

@@ -71,8 +71,10 @@ terms, and an analytic multiple-scattering tail.
 `Wake` (a persistent Kelvin wake that remembers where you have been), and `Post`
 (HDR bloom, auto-exposure, tonemap, grain).
 
-Eight presets, from `Glassy Dawn` through `North Atlantic Storm` to `Moonlit
-Passage`, and about 380 parameters — all of it plain-object state you can read
+![A calm sea under a low moon](docs/images/peaceful-moonlit.png)
+
+Nine presets, from `Glassy Dawn` through `North Atlantic Storm` to `Peaceful
+Moonlit Ocean` (above), and about 380 parameters — all of it plain-object state you can read
 and write.
 
 ## Using it

@@ -522,8 +522,9 @@ export const PRESETS = {
   'Moonlit Passage': {
     windSpeed: 12.5, fetch: 300, amplitude: 1.0, choppiness: 1.35,
     swellAmount: 0.7, swellPeriod: 12.5,
-    sunElevation: -8.5, sunAzimuth: 300, sunIntensity: 22, turbidity: 0.9,
-    moonIntensity: 0.30, moonElevation: 34, moonAzimuth: 118, stars: 1.0,
+    sunElevation: -16.0, sunAzimuth: 300, sunIntensity: 22, turbidity: 0.9,
+    moonIntensity: 0.28, moonElevation: 26, moonAzimuth: 318, stars: 1.0,
+    specIntensity: 1.5,
     cloudCoverage: 0.34, cloudAltitude: 1900, cirrus: 0.22,
     scatterColor: [0.035, 0.135, 0.200], absorption: [0.55, 0.16, 0.10],
     skyAmbient: 1.3, glitter: 0.35, foamAmount: 1.1,
@@ -537,6 +538,43 @@ export const PRESETS = {
     sprayOpacity: 0.6, exposureBias: 0.1, saturation: 0.9, contrast: 1.08,
     bloomIntensity: 0.09, vignette: 0.7, grain: 0.022, fov: 40,
   },
+  // A calm sea under a low moon. The point of interest is the moon's glitter
+  // path, so the moon sits low (22 degrees) to stretch it across the water, and
+  // the sea is calm enough not to break it up.
+  //
+  // sunElevation is the parameter that decides whether a night reads as night.
+  // At -8.5 (Moonlit Passage) the sun is in nautical twilight and still lighting
+  // the sky; only past about -18, the end of astronomical twilight, is there no
+  // sunlight left in the air at all and the moon becomes the only source.
+  'Peaceful Moonlit Ocean': {
+    windSpeed: 5.0, fetch: 160, windDirDeg: 30, amplitude: 0.62, choppiness: 0.75,
+    swellAmount: 0.95, swellPeriod: 15.5, swellDirDeg: 18, spread: 0.85,
+    sunElevation: -18.0, sunAzimuth: 250, sunIntensity: 22, turbidity: 0.55,
+    // Azimuth matters more than it looks: the camera's default yaw of -0.6 rad
+    // IS an azimuth in this convention (326 degrees), because Camera.matrices
+    // builds its forward vector with the same cos/sin form derive() uses for the
+    // sun and moon. A moon 80 degrees off that is simply not in the frame, and
+    // its glitter path - the entire point of a moonlit sea - is off-screen with
+    // it. 332 puts it just off centre.
+    moonIntensity: 0.30, moonElevation: 20, moonAzimuth: 332,
+    // The moon's specular lobe, not the sky's brightness. Raising moonIntensity
+    // instead would light the whole atmosphere and give a brighter night rather
+    // than a brighter path.
+    specIntensity: 1.6,
+    stars: 1.0, starDensity: 0.55, starSize: 1.0, starColorTemp: 0.5,
+    cloudCoverage: 0.20, cloudAltitude: 2400, cloudThickness: 1200, cirrus: 0.16,
+    // Deep, dark water: at night there is no sunlight to scatter back out of it,
+    // so the sea is nearly black except where it reflects.
+    scatterColor: [0.018, 0.075, 0.135], absorption: [0.62, 0.19, 0.12],
+    scatterAmount: 0.055,
+    skyAmbient: 1.0, glitter: 0.62, foamAmount: 0.30, foamOpacity: 0.7,
+    sprayOpacity: 0.5,
+    // Mostly-manual iris, as for any night preset - see Moonlit Passage.
+    autoExposure: 0.18, exposureBias: -0.15,
+    saturation: 0.86, contrast: 1.16, bloomIntensity: 0.20,
+    vignette: 0.85, grain: 0.020, fov: 42,
+  },
+
   'Trade Winds': {
     windSpeed: 13.5, fetch: 450, windDirDeg: 75, amplitude: 1.0, choppiness: 1.4,
     swellAmount: 0.85, swellPeriod: 13.5, swellDirDeg: 68,
@@ -595,6 +633,16 @@ export function applyPreset(params, name) {
   // itself. Say so instead.
   if (name && !PRESETS[name]) {
     console.warn(`Abyssal: no preset named "${name}". Known presets: ${Object.keys(PRESETS).join(', ')}`);
+  }
+  // A preset key that is not a real parameter is accepted by Object.assign and
+  // then read by nobody, so a misspelt knob is not an error - it is a preset that
+  // quietly does less than it says. Same failure as an unknown preset name, one
+  // level down.
+  const over = PRESETS[name];
+  if (over) {
+    for (const k of Object.keys(over)) {
+      if (!(k in defaults)) console.warn(`Abyssal: preset "${name}" sets unknown parameter "${k}" - it will have no effect.`);
+    }
   }
   Object.assign(params, structuredClone(defaults), structuredClone(PRESETS[name] || {}));
   if (isHandheld()) Object.assign(params, MOBILE_QUALITY);
