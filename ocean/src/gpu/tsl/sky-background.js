@@ -133,6 +133,18 @@ export const uInvViewProj = /*@__PURE__*/ uniform( new THREE.Matrix4(), 'mat4' )
 const placeholder = /*@__PURE__*/ ( () => {
 
 	const t = new THREE.DataTexture( new Float32Array( [ 0, 0, 0, 1 ] ), 1, 1, THREE.RGBAFormat, THREE.FloatType );
+	// The filter state here is not cosmetic on WGSL: isUnfilterable
+	// (three.webgpu.js:79067) is true when min and mag are both NearestFilter,
+	// and generateTextureLevel then bakes textureLoad() instead of
+	// textureSampleLevel() into the shader - decided when the graph is BUILT,
+	// from whatever is bound at that moment. TslSky calls setSkyLut() in its
+	// constructor before building either material, so the real table is bound
+	// first and this never bit; giving the placeholder the table's own sampling
+	// state means it cannot bite if that ordering ever changes.
+	t.minFilter = THREE.LinearMipmapLinearFilter;
+	t.magFilter = THREE.LinearFilter;
+	t.wrapS = THREE.RepeatWrapping;
+	t.wrapT = THREE.ClampToEdgeWrapping;
 	t.needsUpdate = true;
 	return t;
 

@@ -42,7 +42,7 @@
 // horizon. Measured in prototypes/screenuv-probe.html.
 
 import * as THREE from 'three/webgpu';
-import { vec4, screenUV } from 'three/tsl';
+import { vec4, screenUV, positionGeometry } from 'three/tsl';
 
 import { setAtmosphereUniforms } from './atmosphere.js';
 import { skyLutFragment, setSkyLutUniforms, LUT_W, LUT_H, moonDirOf } from './sky-lut.js';
@@ -103,6 +103,26 @@ export class TslSky {
 		this.bgMaterial.depthWrite = false;
 		this.bgMaterial.transparent = false;
 		this.bgQuad = new THREE.QuadMesh( this.bgMaterial );
+
+		// PIN THE QUAD TO THE FAR PLANE, exactly as FS_VERT_FAR does.
+		//
+		// The GLSL pass writes `gl_Position = vec4(a_pos, 1.0, 1.0)`, so z/w = 1 -
+		// the far plane - and with LEQUAL and no depth write it shades only pixels
+		// the ocean did not already cover. That is not a detail: the cloud raymarch
+		// is the most expensive thing in the frame and this is what keeps it off the
+		// half of the screen that is sea.
+		//
+		// QuadMesh's own OrthographicCamera(-1, 1, 1, -1, 0, 1) puts the geometry at
+		// the NEAR plane, so the sky paints straight over the water; nudging the mesh
+		// toward the far plane instead just trades one wrong depth for another (both
+		// were measured, both were wrong). QuadGeometry's positions are already the
+		// NDC fullscreen triangle [-1,3, -1,-1, 3,-1] at z = 0 - the same triangle
+		// the project's own Blitter uses - so writing clip space directly reproduces
+		// FS_VERT_FAR verbatim and bypasses that camera entirely.
+		//
+		// z = 1, w = 1 is the far plane under BOTH depth conventions: GL's [-1,1] NDC
+		// and WebGPU's [0,1] both put the far plane at z/w = 1.
+		this.bgMaterial.vertexNode = vec4( positionGeometry.x, positionGeometry.y, 1.0, 1.0 );
 
 	}
 
