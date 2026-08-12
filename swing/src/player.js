@@ -7,7 +7,7 @@
 // exactly the way angular momentum says it should.
 
 import * as THREE from 'three';
-import { clamp, damp, lerp, smoothstep } from './util.js';
+import { clamp, damp, smoothstep } from './util.js';
 
 const GRAVITY = 26;
 const MAX_SPEED = 155;

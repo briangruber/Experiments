@@ -7,7 +7,7 @@
 // so a ring cannot be missed by flying through it faster than the frame rate.
 
 import * as THREE from 'three';
-import { makeRng, clamp, smoothstep } from './util.js';
+import { makeRng, clamp } from './util.js';
 
 const CHAIN = 9;
 const RADIUS = 9;
@@ -19,7 +19,6 @@ const _seg = new THREE.Vector3();
 const _rel = new THREE.Vector3();
 const _fwd = new THREE.Vector3();
 const _q = new THREE.Quaternion();
-const _up = new THREE.Vector3(0, 1, 0);
 
 export class Rings {
   constructor(city, seed = 4) {

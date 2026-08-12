@@ -42,7 +42,7 @@ export function buildSky(scene) {
   sun.renderOrder = -9;
   group.add(sun);
 
-  scene.fog = new THREE.FogExp2(0x40406b, 0.00072);
+  scene.fog = new THREE.FogExp2(0x5b4a78, 0.00072);
   scene.add(group);
 
   const key = new THREE.DirectionalLight(0xffc6a2, 2.1);

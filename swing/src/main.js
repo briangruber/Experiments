@@ -12,7 +12,7 @@ import { Fx } from './fx.js';
 import { Hud } from './hud.js';
 import { Input } from './input.js';
 import { Audio } from './audio.js';
-import { clamp, smoothstep } from './util.js';
+import { clamp } from './util.js';
 
 const canvas = document.getElementById('gl');
 const titleEl = document.getElementById('title');
@@ -236,6 +236,13 @@ async function boot() {
           fx.burst(player.pos, 4, { life: 0.35, size: 0.4, spread: 5, color: 0xffcf90, drag: 4 });
           break;
         case 'jump': audio.burst({ freq: 400, sweep: 2, dur: 0.14, gain: 0.14 }); break;
+        case 'snap':
+          // The web can let go on its own when it is dragging you along a wall.
+          // Say so, or it reads as the controls having dropped an input.
+          audio.burst({ freq: 950, sweep: 0.25, dur: 0.2, gain: 0.2, q: 3 });
+          hud.say('web snapped');
+          cam.kick(0.2);
+          break;
         default: break;
       }
     }

@@ -187,6 +187,7 @@ export class Avatar {
       _fwd.normalize();
     } else if (speed > 3) {
       _fwd.copy(p.vel).normalize();
+      this.lastYaw = Math.atan2(-_fwd.x, -_fwd.z);      // remembered for standing still
       _up.set(0, 1, 0).addScaledVector(_fwd, -_fwd.y);
       if (_up.lengthSq() < 1e-4) _up.set(0, 0, 1);
       _up.normalize();
