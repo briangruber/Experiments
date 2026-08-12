@@ -1,0 +1,176 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — TSL / WebGPURenderer feasibility probe</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:13px/1.6 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}</style>
+<pre id="out">running…</pre>
+
+<!--
+  The WebGPU port hinges on facts about THREE.WebGPURenderer that decide the
+  whole architecture, and guessing any of them wrong means rewriting the port.
+
+    1. Does WebGPURenderer actually initialise on the WebGPU backend here?
+    2. Does forceWebGL give a working WebGL2 backend from the same code?
+    3. Does a TSL shader compile and run on BOTH backends?
+    4. Does TSL COMPUTE run on both? WebGL2 has no compute shaders, so if the
+       fallback cannot run compute, the ocean simulation needs two
+       implementations and the port's shape changes completely.
+    5. Do the two backends agree numerically?
+
+  4 is the one that matters. Everything else is plumbing.
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+let THREE, TSL;
+try {
+  THREE = await import('three/webgpu');
+  TSL = await import('three/tsl');
+  log('three/webgpu and three/tsl import', true,
+      `WebGPURenderer ${typeof THREE.WebGPURenderer}, TSL exports ${Object.keys(TSL).length}`);
+} catch (e) {
+  log('three/webgpu and three/tsl import', false, String(e.message || e));
+}
+
+// Which raw-code escape hatches exist? If a dense numeric shader can be dropped
+// in as WGSL and as GLSL, the port can proceed function by function instead of
+// rewriting everything in TSL before anything runs.
+if (TSL) {
+  const hatches = ['wgslFn', 'glslFn', 'Fn', 'storage', 'instancedArray', 'instanceIndex', 'texture', 'textureStore', 'workgroupArray', 'workgroupBarrier', 'atomicAdd', 'Loop', 'If'];
+  const have = hatches.filter((h) => h in TSL);
+  log('TSL escape hatches and control flow', have.length > 6, have.join(', ') || 'none');
+}
+
+async function tryBackend(label, forceWebGL) {
+  const out = { label, init: false, backend: '?', render: false, compute: false, computeErr: '', values: null };
+  let renderer;
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64; canvas.height = 64;
+    renderer = new THREE.WebGPURenderer({ canvas, antialias: false, forceWebGL });
+    await renderer.init();
+    out.init = true;
+    out.backend = renderer.backend?.isWebGPUBackend ? 'WebGPU'
+                : renderer.backend?.isWebGLBackend ? 'WebGL2'
+                : (renderer.backend?.constructor?.name || 'unknown');
+  } catch (e) {
+    out.err = String(e.message || e);
+    return out;
+  }
+
+  // --- a TSL material actually drawing -------------------------------------
+  try {
+    const { Fn, vec4, uv, float } = TSL;
+    const scene = new THREE.Scene();
+    const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    const mat = new THREE.MeshBasicNodeMaterial();
+    mat.colorNode = Fn(() => vec4(uv().x, uv().y, float(0.5), 1.0))();
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat);
+    mesh.frustumCulled = false;
+    scene.add(mesh);
+    await renderer.renderAsync(scene, cam);
+    out.render = true;
+  } catch (e) {
+    out.renderErr = String(e.message || e);
+  }
+
+  // --- TSL compute, the fact the architecture turns on ----------------------
+  try {
+    const { Fn, instancedArray, instanceIndex, float } = TSL;
+    const COUNT = 32;
+    const buf = instancedArray(COUNT, 'float');
+    const kernel = Fn(() => {
+      // Deliberately not a copy: something whose result proves the kernel ran.
+      buf.element(instanceIndex).assign(float(instanceIndex).mul(3.0).add(1.0));
+    })().compute(COUNT);
+    await renderer.computeAsync(kernel);
+    const raw = await renderer.getArrayBufferAsync(buf.value);
+    const arr = Array.from(new Float32Array(raw)).slice(0, 6);
+    out.values = arr;
+    // Expect 1, 4, 7, 10, 13, 16
+    out.compute = arr.every((v, i) => Math.abs(v - (i * 3 + 1)) < 1e-3);
+    if (!out.compute) out.computeErr = 'ran but wrong values: ' + JSON.stringify(arr);
+  } catch (e) {
+    out.computeErr = String(e.message || e);
+  }
+
+  try { renderer.dispose(); } catch { /* ignore */ }
+  return out;
+}
+
+let gpu = null, gl = null;
+if (THREE) {
+  gpu = await tryBackend('WebGPU', false);
+  log('WebGPURenderer initialises (auto)', gpu.init, `backend: ${gpu.backend}${gpu.err ? ' — ' + gpu.err : ''}`);
+  log('TSL material renders on ' + gpu.backend, gpu.render, gpu.renderErr || '');
+  log('TSL COMPUTE runs on ' + gpu.backend, gpu.compute, gpu.computeErr || JSON.stringify(gpu.values));
+
+  gl = await tryBackend('WebGL', true);
+  log('WebGPURenderer falls back with forceWebGL', gl.init, `backend: ${gl.backend}${gl.err ? ' — ' + gl.err : ''}`);
+  log('TSL material renders on ' + gl.backend, gl.render, gl.renderErr || '');
+  // This one is allowed to fail - the point is to find out, not to pass.
+  log('TSL COMPUTE runs on ' + gl.backend + ' (the load-bearing question)',
+      gl.compute, gl.computeErr || JSON.stringify(gl.values));
+
+  if (gpu.values && gl.values) {
+    const same = gpu.values.every((v, i) => Math.abs(v - gl.values[i]) < 1e-4);
+    log('Both backends agree numerically', same, `${JSON.stringify(gpu.values)} vs ${JSON.stringify(gl.values)}`);
+  }
+}
+
+// Can dense numeric code be dropped in as raw shader source, per backend? If so
+// the existing GLSL is reused verbatim on the WebGL path and only WGSL has to be
+// written - a mechanical translation done function by function, each verifiable
+// against the other backend - instead of rewriting 170 KB of physics as TSL node
+// graphs before anything runs at all.
+if (THREE && TSL) {
+  try {
+    const { Fn, instancedArray, instanceIndex, wgslFn, float } = TSL;
+    const canvas = document.createElement('canvas');
+    const r = new THREE.WebGPURenderer({ canvas, forceWebGL: false });
+    await r.init();
+    const raw = wgslFn(`
+      fn abyssalRawTest(x: f32) -> f32 {
+        // Deliberately the shape of the real thing: a loop with maths in it.
+        var acc = 0.0;
+        for (var i = 0; i < 4; i = i + 1) { acc = acc + sin(x + f32(i)) * 0.25; }
+        return acc;
+      }
+    `);
+    const COUNT = 8;
+    const buf = instancedArray(COUNT, 'float');
+    const kernel = Fn(() => {
+      buf.element(instanceIndex).assign(raw(float(instanceIndex)));
+    })().compute(COUNT);
+    await r.computeAsync(kernel);
+    const arr = Array.from(new Float32Array(await r.getArrayBufferAsync(buf.value))).slice(0, 3);
+    const ref = [0, 1, 2].map((x) => [0, 1, 2, 3].reduce((a, i) => a + Math.sin(x + i) * 0.25, 0));
+    const ok = arr.every((v, i) => Math.abs(v - ref[i]) < 1e-4);
+    log('wgslFn: raw WGSL runs and matches a CPU reference', ok,
+        `${arr.map((v) => v.toFixed(4))} vs ${ref.map((v) => v.toFixed(4))}`);
+    r.dispose();
+  } catch (e) {
+    log('wgslFn: raw WGSL runs and matches a CPU reference', false, String(e.message || e));
+  }
+}
+
+window.probeResult = {
+  results,
+  allOk: results.every((r) => r.ok),
+  computeOnWebGL: !!(gl && gl.compute),
+  backends: { gpu: gpu && gpu.backend, gl: gl && gl.backend },
+};
+</script>
