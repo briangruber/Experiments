@@ -1,0 +1,20 @@
+{
+  "keeper:model": {
+    "taskId": "73b472c0-0537-4c31-9efe-8aa0cd4a51f3"
+  },
+  "keeper:rig": {
+    "taskId": "271b8e85-60f3-4572-b36a-d69c4fe4ee14"
+  },
+  "keeper:idle": {
+    "taskId": "e01a1021-1cf3-43ea-a009-9bdec1db6f50"
+  },
+  "keeper:walk": {
+    "taskId": "4def79c2-77c2-4122-ba75-478a24f3014e"
+  },
+  "keeper:run": {
+    "taskId": "fab54748-489e-4846-acf8-e7c99711b6b4"
+  },
+  "keeper:jump": {
+    "taskId": "8fa80320-7dc0-49da-a740-2011bd5b1196"
+  }
+}

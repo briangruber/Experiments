@@ -1,0 +1,54 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Tiny Worlds</title>
+<link rel="stylesheet" href="./src/ui.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='18' r='11' fill='%236cc05c'/><circle cx='16' cy='18' r='11' fill='none' stroke='%23d9c592' stroke-width='2'/><circle cx='23' cy='6' r='3' fill='%23ffd97a'/></svg>">
+
+<canvas id="gl" oncontextmenu="return false"></canvas>
+
+<div id="hud">
+  <div id="hud-top">
+    <div id="world-block">
+      <div id="world-name">—</div>
+      <div id="world-epithet"></div>
+    </div>
+    <div id="spark-block">
+      <div id="pips"></div>
+      <div id="counter"></div>
+      <div id="progress"></div>
+    </div>
+  </div>
+  <div id="hint"></div>
+  <div id="prompt"></div>
+  <div id="toast"></div>
+  <div id="fps"></div>
+  <div id="controls-hint">
+    <b>WASD</b> run &nbsp; <b>Space</b> jump &nbsp; <b>Shift</b> sprint &nbsp; <b>drag</b> look &nbsp; <b>E</b> use &nbsp; <b>M</b> mute &nbsp; <b>H</b> hide
+  </div>
+</div>
+
+<div id="card" class="visible dim">
+  <div id="card-inner">
+    <div id="card-title">Tiny Worlds</div>
+    <div id="card-sub">a keeper, five small planets, and the light they lost</div>
+    <div id="card-body"></div>
+    <button id="card-button" type="button">Begin</button>
+  </div>
+</div>
+
+<div id="loading">
+  <div id="loading-title">Tiny Worlds</div>
+  <div id="loading-track"><div id="loading-bar"></div></div>
+  <div id="loading-sub">shaping the ground…</div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three.module.js",
+    "three/addons/": "./vendor/jsm/"
+  }
+}
+</script>
+<script type="module" src="./src/main.js"></script>

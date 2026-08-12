@@ -1,0 +1,121 @@
+// Chase camera for a walkable sphere.
+//
+// The orbit direction is kept as a world-space unit vector and parallel-
+// transported whenever the player's up changes. That avoids the yaw/pitch
+// singularity you hit the moment someone runs over a pole — which, on a world
+// this small, is about every eight seconds.
+
+import * as THREE from 'three';
+import { clamp, damp } from './noise.js';
+
+const _q = new THREE.Quaternion();
+const _right = new THREE.Vector3();
+const _desired = new THREE.Vector3();
+const _target = new THREE.Vector3();
+const _v = new THREE.Vector3();
+
+export class ChaseCamera {
+  constructor(camera) {
+    this.camera = camera;
+    this.orbit = new THREE.Vector3(0, 0.45, 1).normalize();
+    this.up = new THREE.Vector3(0, 1, 0);
+    this.prevUp = this.up.clone();
+    this.distance = 20;
+    this.targetDistance = 20;
+    this.minDistance = 5.0;
+    this.maxDistance = 46;
+    this.pos = new THREE.Vector3();
+    this.look = new THREE.Vector3();
+    this.initialised = false;
+    this.shake = 0;
+  }
+
+  // Direction the player should treat as "forward" for input, in world space.
+  forwardOn(up, out = new THREE.Vector3()) {
+    out.copy(this.orbit).negate();
+    out.addScaledVector(up, -out.dot(up));
+    if (out.lengthSq() < 1e-6) out.set(1, 0, 0).cross(up);
+    return out.normalize();
+  }
+
+  update(dt, { target, up, moveDir, look, zoom, autoFollow = true, heightOffset = 1.15 }) {
+    // Parallel-transport the orbit vector along the change in up.
+    if (!up.equals(this.prevUp)) {
+      _q.setFromUnitVectors(this.prevUp, up);
+      this.orbit.applyQuaternion(_q).normalize();
+      this.prevUp.copy(up);
+    }
+
+    if (look && (look.x || look.y)) {
+      _q.setFromAxisAngle(up, -look.x * 0.006);
+      this.orbit.applyQuaternion(_q);
+      _right.crossVectors(up, this.orbit).normalize();
+      const pitch = Math.acos(clamp(this.orbit.dot(up), -1, 1));
+      const delta = clamp(look.y * 0.005, -0.6, 0.6);
+      const next = clamp(pitch - delta, 0.42, 1.85);
+      _q.setFromAxisAngle(_right, pitch - next);
+      this.orbit.applyQuaternion(_q).normalize();
+    }
+
+    if (zoom) this.targetDistance = clamp(this.targetDistance * (1 + zoom * 0.11), this.minDistance, this.maxDistance);
+    this.distance = damp(this.distance, this.targetDistance, 6, dt);
+
+    // Drift behind the player when they run, unless they are steering the view.
+    if (autoFollow && moveDir && moveDir.lengthSq() > 0.01) {
+      _desired.copy(moveDir).negate();
+      _desired.addScaledVector(up, this.orbit.dot(up) - _desired.dot(up));
+      _desired.normalize();
+      const t = 1 - Math.exp(-0.9 * dt);
+      this.orbit.lerp(_desired, t).normalize();
+    }
+
+    // Keep the orbit off the pole of the local frame.
+    const pitch = Math.acos(clamp(this.orbit.dot(up), -1, 1));
+    if (pitch < 0.42 || pitch > 1.85) {
+      _right.crossVectors(up, this.orbit).normalize();
+      _q.setFromAxisAngle(_right, pitch - clamp(pitch, 0.42, 1.85));
+      this.orbit.applyQuaternion(_q).normalize();
+    }
+
+    _target.copy(target).addScaledVector(up, heightOffset);
+    _desired.copy(_target).addScaledVector(this.orbit, this.distance);
+
+    if (!this.initialised) {
+      this.pos.copy(_desired);
+      this.look.copy(_target);
+      this.initialised = true;
+    } else {
+      this.pos.lerp(_desired, 1 - Math.exp(-9 * dt));
+      this.look.lerp(_target, 1 - Math.exp(-14 * dt));
+    }
+
+    if (this.shake > 0) {
+      this.shake = Math.max(0, this.shake - dt * 1.6);
+      const s = this.shake * this.shake * 0.35;
+      _v.set(Math.sin(dt * 91 + this.pos.x * 13), Math.cos(dt * 77 + this.pos.y * 11), Math.sin(dt * 63)).multiplyScalar(s);
+      this.pos.add(_v);
+    }
+
+    this.camera.position.copy(this.pos);
+    this.camera.up.copy(up);
+    this.camera.lookAt(this.look);
+  }
+
+  // Never let the ground get between the camera and the player.
+  avoidTerrain(planet) {
+    if (!planet) return;
+    _v.copy(this.camera.position);
+    planet.group.worldToLocal(_v);
+    const dir = _v.clone().normalize();
+    const floor = planet.groundRadius(dir) + 0.9;
+    if (_v.length() < floor) {
+      _v.copy(dir).multiplyScalar(floor);
+      planet.group.localToWorld(_v);
+      this.camera.position.copy(_v);
+      this.pos.copy(_v);
+      this.camera.lookAt(this.look);
+    }
+  }
+
+  snap() { this.initialised = false; }
+}
