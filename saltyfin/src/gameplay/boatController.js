@@ -27,6 +27,13 @@ export function createBoatController({ ctx, input, water, terrain }) {
   const n = new THREE.Vector3();
   let heelTarget = 0, trimTarget = 0;
   let wakeAccum = 0;
+  // Sideways way through the water, from the harpoon line. The hull normally
+  // only moves along its heading; a rope pulling on the bow is the one thing
+  // in the game that shoves her bodily, so it gets its own velocity that the
+  // keel then kills. Exposed on ctx.boat as towDrift for anything that needs
+  // the hull's true velocity (the rope's damping does).
+  const drift = new THREE.Vector2();
+  b.towDrift = drift;
 
   function surfaceAt(x, z, t) {
     const w = water?.();
@@ -40,6 +47,7 @@ export function createBoatController({ ctx, input, water, terrain }) {
   return {
     teleport(x, z, heading = b.heading) {
       b.position.x = x; b.position.z = z; b.heading = heading; b.speed = 0;
+      drift.set(0, 0);
     },
 
     update(ctx) {
@@ -50,7 +58,7 @@ export function createBoatController({ ctx, input, water, terrain }) {
       // "work the lure" down there and "walk" up on the quay, so without this
       // a jig would also drive the boat off the fish and a stroll across the
       // square would take the boat with it.
-      const hold = !!ctx.fishingHold || !!ctx.shoreHold || !!ctx.editorHold;
+      const hold = !!ctx.fishingHold || !!ctx.shoreHold || !!ctx.editorHold || !!ctx.harpoonHold;
 
       // CRUISE. The throttle latches where you leave it, so the boat can be
       // set to a lazy putter and steered with one thumb while the other holds
@@ -117,6 +125,28 @@ export function createBoatController({ ctx, input, water, terrain }) {
       b.position.x += b.forward.x * b.speed * dt;
       b.position.z += b.forward.z * b.speed * dt;
 
+      // THE LINE. ctx.tow is written by the harpoon module each frame it is
+      // taut and null otherwise: a horizontal force (m/s^2 on this hull), a
+      // yaw rate (the rope leads over the bow, so tension off-axis swings her
+      // nose toward the pull), and heel/trim/sink terms that ride on top of
+      // the wave-driven targets below. The drift is what makes being DRAGGED
+      // read: way the keel did not choose, decayed by the keel at ~1.4/s, so
+      // a hard yank slides her metres before she answers her own helm again.
+      const tow = ctx.tow;
+      if (tow) {
+        drift.x += (tow.fx || 0) * dt;
+        drift.y += (tow.fz || 0) * dt;
+        b.heading += (tow.yaw || 0) * dt;
+        b.speed -= b.speed * Math.min(0.9, (tow.brake || 0) * dt);
+      }
+      const keel = Math.exp(-dt * 1.4);
+      drift.x *= keel;
+      drift.y *= keel;
+      if (drift.lengthSq() > 1e-8) {
+        b.position.x += drift.x * dt;
+        b.position.z += drift.y * dt;
+      }
+
       // Keep her off the beach.
       //
       // seabedHeight is NEGATIVE below water and positive on dry land, so its
@@ -178,12 +208,21 @@ export function createBoatController({ ctx, input, water, terrain }) {
       const waveTrim = Math.atan2(bow - stern, 4.0);
       const accelTrim = (b.speed - before) / Math.max(dt, 1e-3);
       trimTarget = -waveTrim - THREE.MathUtils.clamp(accelTrim * 0.012, -0.06, 0.06)
-        - Math.min(0.05, Math.abs(b.speed) * 0.006);
+        - Math.min(0.05, Math.abs(b.speed) * 0.006)
+        + (tow ? tow.trim || 0 : 0);
       heelTarget = -b.turnRate * Math.min(1, Math.abs(b.speed) / 5) * 0.42
-        + n.x * b.right.x * 0.5 + n.z * b.right.z * 0.5;
+        + n.x * b.right.x * 0.5 + n.z * b.right.z * 0.5
+        + (tow ? tow.heel || 0 : 0);
 
       b.trim += (trimTarget - b.trim) * Math.min(1, dt * 5);
-      b.heel += (heelTarget - b.heel) * Math.min(1, dt * 4);
+      b.heel += (heelTarget - b.heel) * Math.min(1, dt * (tow && tow.heel ? 6 : 4));
+      // A line pulling DOWN shortens her freeboard. The ride-height lerp above
+      // pulls y toward the surface at dt*9; subtracting sink at the SAME rate
+      // makes the equilibrium exactly `surface - sink`, so sink is in honest
+      // metres — 0.4 is a wetted bow, 1.5 is green water over the foredeck.
+      if (tow && tow.sink) {
+        b.position.y -= Math.min(2.2, tow.sink) * Math.min(1, dt * 9);
+      }
 
       b.wakeStrength = THREE.MathUtils.clamp(Math.abs(b.speed) / MAX_SPEED, 0, 1);
 

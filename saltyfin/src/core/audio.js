@@ -79,7 +79,7 @@ export function createAudio(opts = {}) {
   const rng = makeRng(0x0C0A57);
 
   if (typeof window === 'undefined' || typeof document === 'undefined') {
-    return { update() {}, applyEnv() {}, dispose() {} };
+    return { update() {}, applyEnv() {}, cue() {}, setLineTension() {}, dispose() {} };
   }
 
   let ac = null;          // AudioContext, once the first gesture arrives
@@ -339,6 +339,207 @@ export function createAudio(opts = {}) {
     return (dx * e[0] + dz * e[2]) / len;
   }
 
+  // --- harpoon cues ----------------------------------------------------------
+  // Fire-and-forget voices for the tug-of-war, same discipline as the gulls
+  // and the bell: a few nodes made on demand, envelopes scheduled up front,
+  // the terminal node disconnected when the longest source ends. All of them
+  // sit UNDER the soundscape - the drama is on screen, the audio just nods.
+
+  // One-shots need noise as well as sine; a half-second buffer built once is
+  // cheaper than a fresh one per cue, and makeNoise's seam crossfade is
+  // harmless on a single pass. loop=true so any cue length is safe.
+  let cueNoiseBuf = null;
+  function noiseShot(t, dur) {
+    if (!cueNoiseBuf) cueNoiseBuf = makeNoise(0.5, false);
+    const src = ac.createBufferSource();
+    src.buffer = cueNoiseBuf;
+    src.loop = true;
+    src.start(t);
+    src.stop(t + dur);
+    return src;
+  }
+
+  // A soft mechanical thunk (the bow arm slapping home) under an airy whoosh:
+  // bandpassed noise whose band falls with the spear.
+  function cueHarpoonFire() {
+    const t = ac.currentTime + 0.02;
+    const o = ac.createOscillator();
+    o.frequency.value = 90;
+    const og = ac.createGain();
+    og.gain.setValueAtTime(0.0001, t);
+    og.gain.exponentialRampToValueAtTime(0.08, t + 0.008);
+    og.gain.setTargetAtTime(0, t + 0.02, 0.05);
+    chain(o, og, masterGain);
+    o.start(t);
+    o.stop(t + 0.3);
+    const n = noiseShot(t, 0.3);
+    const bp = biquad('bandpass', 2400, 1.2);
+    bp.frequency.setValueAtTime(2400, t);
+    bp.frequency.exponentialRampToValueAtTime(500, t + 0.25);
+    const ng = ac.createGain();
+    ng.gain.setValueAtTime(0.0001, t);
+    ng.gain.exponentialRampToValueAtTime(0.09, t + 0.03);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
+    chain(n, bp, ng, masterGain);
+    n.onended = () => { try { og.disconnect(); ng.disconnect(); } catch { /* torn down */ } };
+  }
+
+  // A wet deep thunk: the 65 Hz pluck is the hit, the lowpassed noise is the
+  // water closing over it.
+  function cueHarpoonHit() {
+    const t = ac.currentTime + 0.02;
+    const o = ac.createOscillator();
+    o.frequency.value = 65;
+    const og = ac.createGain();
+    og.gain.setValueAtTime(0.0001, t);
+    og.gain.exponentialRampToValueAtTime(0.12, t + 0.01);
+    og.gain.setTargetAtTime(0, t + 0.03, 0.11);
+    chain(o, og, masterGain);
+    o.start(t);
+    o.stop(t + 0.6);
+    const n = noiseShot(t, 0.55);
+    const ng = ac.createGain();
+    ng.gain.setValueAtTime(0.0001, t);
+    ng.gain.exponentialRampToValueAtTime(0.07, t + 0.03);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+    chain(n, biquad('lowpass', 900), ng, masterGain);
+    o.onended = () => { try { og.disconnect(); ng.disconnect(); } catch { /* torn down */ } };
+  }
+
+  // A bright crack, then the cut end singing down an octave and a half as it
+  // whips away. The twang is a quiet sine so it stings without startling.
+  function cueLineSnap() {
+    const t = ac.currentTime + 0.02;
+    const n = noiseShot(t, 0.08);
+    const ng = ac.createGain();
+    ng.gain.setValueAtTime(0.0001, t);
+    ng.gain.exponentialRampToValueAtTime(0.11, t + 0.005);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.06);
+    chain(n, biquad('highpass', 2500), ng, masterGain);
+    const o = ac.createOscillator();
+    o.frequency.setValueAtTime(900, t + 0.02);
+    o.frequency.exponentialRampToValueAtTime(200, t + 0.37);
+    const og = ac.createGain();
+    og.gain.setValueAtTime(0.0001, t + 0.02);
+    og.gain.exponentialRampToValueAtTime(0.045, t + 0.04);
+    og.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
+    chain(o, og, masterGain);
+    o.start(t + 0.02);
+    o.stop(t + 0.45);
+    o.onended = () => { try { ng.disconnect(); og.disconnect(); } catch { /* torn down */ } };
+  }
+
+  // The leviathan, heard through the hull: two detuned sines wandering slowly
+  // between about 70 and 130 Hz under a lowpass, swelling in and sighing out.
+  // Enormous and sad, not scary - the lowpass and the slow attack do both.
+  function cueLevGroan() {
+    const t = ac.currentTime + 0.02;
+    const dur = rng.range(2.5, 4);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.08, t + dur * 0.35);
+    g.gain.setTargetAtTime(0.0001, t + dur * 0.6, dur * 0.16);
+    const lp = biquad('lowpass', 260);
+    chain(lp, g, masterGain);
+    const f0 = rng.range(70, 85);
+    const f1 = rng.range(112, 130);
+    const parts = [[1, 1], [1.033, 0.7]];
+    for (let i = 0; i < parts.length; i++) {
+      const o = ac.createOscillator();
+      o.frequency.setValueAtTime(f0 * parts[i][0], t);
+      o.frequency.linearRampToValueAtTime(f1 * parts[i][0], t + dur * 0.55);
+      o.frequency.linearRampToValueAtTime(f0 * 1.12 * parts[i][0], t + dur);
+      chain(o, gain(parts[i][1]), lp);
+      o.start(t);
+      o.stop(t + dur + 1);
+      if (i === parts.length - 1) o.onended = () => { try { g.disconnect(); } catch { /* torn down */ } };
+    }
+  }
+
+  // The creature gives up: the harbour bell's voice - detuned sine pair,
+  // fast strike, long tc tail - walking up three notes at well under the
+  // bell's weight. Relief, not fanfare.
+  function cueVictory() {
+    const t0 = ac.currentTime + 0.03;
+    const out = gain(1);
+    out.connect(masterGain);
+    const notes = [523, 659, 784];
+    for (let k = 0; k < notes.length; k++) {
+      const t = t0 + k * 0.3;
+      const g = ac.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.025, t + 0.008);
+      g.gain.setTargetAtTime(0, t + 0.02, 0.4);
+      g.connect(out);
+      const parts = [[notes[k], 1], [notes[k] * 1.505, 0.6]];
+      for (let i = 0; i < parts.length; i++) {
+        const o = ac.createOscillator();
+        o.frequency.value = parts[i][0];
+        chain(o, gain(parts[i][1]), g);
+        o.start(t);
+        o.stop(t + 2.5);
+        if (k === notes.length - 1 && i === parts.length - 1) {
+          o.onended = () => { try { out.disconnect(); } catch { /* torn down */ } };
+        }
+      }
+    }
+  }
+
+  // Public: named one-shots for the harpoon fight. Not unlocked yet means the
+  // moment has passed - a cue played late is worse than a cue not played, so
+  // nothing is ever queued. Unknown names are silently nothing (rule 3).
+  function cue(name) {
+    if (!ac || dead || muted || ac.state !== 'running') return;
+    try {
+      if (name === 'harpoonFire') cueHarpoonFire();
+      else if (name === 'harpoonHit') cueHarpoonHit();
+      else if (name === 'lineSnap') cueLineSnap();
+      else if (name === 'levGroan') cueLevGroan();
+      else if (name === 'victory') cueVictory();
+    } catch { /* silence over stack traces, always */ }
+  }
+
+  // --- the rope --------------------------------------------------------------
+  // A tensioned line is a small bowed instrument: narrowband noise is the
+  // fibre creak, an LFO drifting the resonance keeps it groaning instead of
+  // humming, and a lowpassed underlayer whose cutoff climbs with tension
+  // gives danger a pitch. Built lazily on the first real pull, then it idles
+  // at gain 0 forever, like every other layer in the graph. Seven persistent
+  // nodes, all stopped by the same loops[] sweep at dispose.
+  let creakBuilt = false;
+  let mvCreak, mvCreakLow, mvCreakF;
+  function buildCreak() {
+    const src = loopSource(makeNoise(2, false));
+    const bp = biquad('bandpass', 650, 7);
+    lfo(0.83, 210, bp.frequency);        // resonance wanders ~440..860 Hz
+    const cg = gain(0);
+    chain(src, bp, cg, masterGain);
+    mvCreak = mover(cg.gain, 0.08);
+    const lp = biquad('lowpass', 320);
+    const lg = gain(0);
+    chain(src, lp, lg, masterGain);
+    mvCreakLow = mover(lg.gain, 0.08);
+    mvCreakF = mover(lp.frequency, 0.12);
+    creakBuilt = true;
+  }
+
+  // Public: line tension 0..1 from the harpoon module. Below the floor the
+  // gains settle to 0 and the voice runs silent, exactly like the movers.
+  function setLineTension(v) {
+    if (!ac || dead) return;
+    try {
+      v = clamp01(+v || 0);
+      if (!creakBuilt) {
+        if (v <= 0.01) return;
+        buildCreak();
+      }
+      const on = v <= 0.01 ? 0 : v;
+      mvCreak(on * 0.055);
+      mvCreakLow(on * on * 0.05);
+      mvCreakF(320 + v * 340);           // 320 -> 660: the pitch of danger
+    } catch { /* silence over stack traces, always */ }
+  }
+
   // --- the mute chip ---------------------------------------------------------
 
   const style = document.createElement('style');
@@ -503,5 +704,5 @@ export function createAudio(opts = {}) {
     } catch { /* never throw, even on the way out */ }
   }
 
-  return { update, applyEnv, dispose };
+  return { update, applyEnv, cue, setLineTension, dispose };
 }

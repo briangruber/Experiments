@@ -1247,6 +1247,18 @@ export function createMonster(opts = {}) {
     let stampT = 0;
     let mine = false;               // does this animal hold the breach token
 
+    // The harpoon line. `hooked` is a phase like any other, entered only from
+    // outside (the harpoon module owns the rope, the tension and the strain
+    // arithmetic; the animal owns how it FEELS about being tethered). towAcc
+    // is the line's pull, in m/s^2, written fresh every frame by towPull and
+    // consumed exactly once.
+    let hooked = false;
+    let strain = 0;                 // 0 fresh .. 1 exhausted, set from outside
+    let hookRetarget = 0;
+    let lungeT = 0;
+    const hookTarget = new THREE.Vector3();
+    const towAcc = new THREE.Vector3();
+
     const brP0 = new THREE.Vector3();
     const brP1 = new THREE.Vector3();
     const brP2 = new THREE.Vector3();
@@ -1607,6 +1619,52 @@ export function createMonster(opts = {}) {
             // air.
             beginBreach(bx + _dir.x * 26 + jx * j, bz + _dir.z * 26 + jz * j, 12);
           }
+        } else if (phase === 'hooked') {
+          // On the line. The animal picks a fresh idea every few seconds:
+          // mostly a hard run away from the boat, sometimes a cut across its
+          // stern — which is the sideways yank that heels the hull — and it
+          // stops choosing the deep sprint as it tires. All the actual rope
+          // physics live in the harpoon module; what arrives here is just an
+          // acceleration, applied after the steering so a hard pull visibly
+          // bends the path the animal wanted.
+          hookRetarget -= dt;
+          lungeT -= dt;
+          if (hookRetarget <= 0) {
+            hookRetarget = 2.6 + rng.range(0, 2.8);
+            _dir.set(position.x - bx, 0, position.z - bz);
+            if (_dir.lengthSq() < 1) _dir.copy(velocity).setY(0);
+            if (_dir.lengthSq() < 1e-4) _dir.set(0, 0, -1);
+            _dir.normalize();
+            if (strain < 0.7 && rng.chance(0.32) && boat) {
+              const side = rng.chance(0.5) ? 1 : -1;
+              hookTarget.set(
+                bx + boat.right.x * 95 * side - _dir.x * 20, 0,
+                bz + boat.right.z * 95 * side - _dir.z * 20,
+              );
+            } else {
+              hookTarget.set(position.x + _dir.x * 130, 0, position.z + _dir.z * 130);
+            }
+            pushDeep(hookTarget, minFloor);
+            lungeT = rng.chance(0.45) ? 1.7 : 0;
+          }
+          // Tired is slow, and tired gives up the deep: at full strain she
+          // wallows near the surface, which is both the read (you can SEE that
+          // you are winning) and the win condition's setup.
+          const tired = 1 - 0.62 * strain;
+          const want = (lungeT > 0 ? 9.5 : 6.4) * tired;
+          const deepWant = -16 * scale + (strain * strain) * 10 * scale;
+          const lim2 = floorLimit(hookTarget.x, hookTarget.z);
+          steerTo(hookTarget.x, Math.min(-5.5 * scale, Math.max(deepWant, lim2)),
+            hookTarget.z, want, dt);
+          velocity.addScaledVector(towAcc, dt);
+          towAcc.set(0, 0, 0);
+          speed = velocity.length();
+
+          // A tethered animal near the surface churns it.
+          if (water && water.disturb && position.y > -12 * scale && stampT > 0.18) {
+            stampT = 0;
+            water.disturb(position.x, position.z, 0.85, 8.0);
+          }
         } else {
           // dive — sink away, slow down, then fold back into the circuit.
           const lim = floorLimit(position.x, position.z);
@@ -1669,6 +1727,29 @@ export function createMonster(opts = {}) {
       update,
       get speed() { return speed; },
       get phase() { return phase; },
+      get velocity() { return velocity; },   // live reference; read, never write
+      get scale() { return scale; },
+      get hooked() { return hooked; },
+      hook() {
+        // No hooking an airborne animal: the rope would pin a Bezier.
+        if (phase === 'breach') return false;
+        hooked = true;
+        strain = 0;
+        hookRetarget = 0;
+        state.alerted = true;
+        setPhase('hooked');
+        return true;
+      },
+      unhook() {
+        if (!hooked) return;
+        hooked = false;
+        towAcc.set(0, 0, 0);
+        approachLock = 45;
+        breachCooldown = Math.max(breachCooldown, 30);
+        setPhase('dive');
+      },
+      towPull(x, y, z) { if (hooked) towAcc.set(x, y, z); },
+      setStrain(s) { strain = clamp(s, 0, 1); },
       alert() { state.alerted = true; approachLock = 0; if (phase === 'cruise') setPhase('approach'); },
       calm() { state.alerted = false; if (phase === 'approach') setPhase('dive'); },
       forceBreach(x, z) {
@@ -1865,6 +1946,22 @@ export function createMonster(opts = {}) {
     /** Let the quest drive the encounter explicitly if it would rather. */
     alert() { primary.alert(); },
     calm() { primary.calm(); },
+
+    /**
+     * The harpoon line's half of the tug-of-war, always the PRIMARY — the
+     * animal that shadows the player. The harpoon module owns the rope and
+     * every number here; the animal owns its own behaviour on the line
+     * (see the 'hooked' phase).
+     */
+    hook: {
+      engage() { return primary.hook(); },
+      release() { primary.unhook(); },
+      pull(x, y, z) { primary.towPull(x, y, z); },
+      strain(s) { primary.setStrain(s); },
+      get active() { return primary.hooked; },
+      get velocity() { return primary.velocity; },
+      get scale() { return primary.scale; },
+    },
 
     /**
      * Force a breach at a surface point, or straight ahead if none is given.

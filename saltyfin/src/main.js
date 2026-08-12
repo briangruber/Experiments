@@ -45,6 +45,8 @@ import { createHud } from './hud/hud.js';
 import { createIntro } from './hud/intro.js';
 import { createOceanPanel } from './hud/oceanPanel.js';
 import { createFishing } from './gameplay/fishing.js';
+import { createHarpoon } from './gameplay/harpoon.js';
+import { createHarpoonHud } from './hud/harpoonHud.js';
 import { createShoreLeave } from './gameplay/shoreLeave.js';
 import { createFishingHud } from './hud/fishingHud.js';
 import { createShoreHud } from './hud/shoreHud.js';
@@ -308,6 +310,16 @@ const fishing = createFishing({
   water: () => ctx.water, seed: SEED,
 });
 ctx.fishing = fishing;
+// The harpoon: a rope, a leviathan on one end of it, and consequences. Runs
+// its update between the boat controller and the module loop so the pull it
+// computes lands on the creature THIS frame (monster updates later in the
+// module list) and on the hull next frame via ctx.tow.
+const harpoon = createHarpoon({
+  ctx, scene, monster, camera,
+  water: () => ctx.water,
+  burst: wakeFoam.burst,
+  audio,
+});
 // Going ashore. Built after the chase rig because it borrows its fov when it
 // takes the frame, and after fishing because the two must never both own it.
 const shoreLeave = createShoreLeave({
@@ -323,6 +335,7 @@ const townEditor = build(createTownEditor, { town, camera, input });
 const hud = createHud({ ctx, time });
 const fishingHud = createFishingHud({ fishing, ctx });
 const shoreHud = createShoreHud({ shore: shoreLeave, ctx });
+const harpoonHud = createHarpoonHud({ harpoon, ctx });
 const intro = createIntro({ touch: !!touch.root, backend: quality.backend });
 // Sliders for the sea. Built now so `?ocean=1` and the O key work before the
 // warm-up finishes; it starts hidden and costs nothing until it is opened.
@@ -659,6 +672,8 @@ function frame() {
   // fighting over it is a jitter nobody can debug from a screenshot.
   fishing.update(ctx);
   shoreLeave.update(ctx);
+  // Before the module loop, so the pull lands on the creature this frame.
+  harpoon.update(ctx);
   if (!fishing.state.ownsCamera && !shoreLeave.ownsCamera && !townEditor.active) {
     chaseCamera.update(ctx);
   }
@@ -672,6 +687,7 @@ function frame() {
   hud.update(ctx);
   fishingHud.update();
   shoreHud.update();
+  harpoonHud.update();
 
   // Aim the shadow box at what the camera is looking at, not at the boat. On
   // the chase camera those are the same place, but an establishing shot of the
@@ -768,6 +784,7 @@ const api = {
   town,
   shore: shoreLeave,
   editor: townEditor,
+  harpoon,
   TOWN_LAYOUT_KEY,
   // The same object the panel drives, so a capture can pin a look without
   // touching a slider: saltyfin.ocean.set('reflect', 0.4).
@@ -867,6 +884,7 @@ const api = {
       ctx.frame = frames++;
       boatController.update(ctx);
       fishing.update(ctx);
+      harpoon.update(ctx);
       if (!fishing.state.ownsCamera && !shoreLeave.ownsCamera && !townEditor.active) {
         chaseCamera.update(ctx);
       }
@@ -896,7 +914,8 @@ const api = {
     renderer.setRenderTarget(null);
     hud.update(ctx);
     fishingHud.update();
-  shoreHud.update();
+    shoreHud.update();
+    harpoonHud.update();
     mirrorFrame();
   },
 };
