@@ -42,6 +42,7 @@ const FREEZE = opt('freeze', '');     // "x,y,z,tx,ty,tz" — scenic still inste
 const SIM = +opt('sim', 0);           // seconds of bot-driven play, no rendering
 const TRACE = has('trace');           // sample the sim twice a second
 const FOLLOW = has('follow');         // frame the capture from a clean chase position
+const PAGE = opt('page', 'index.html'); // e.g. dist/skyline.html to test the bundle
 
 const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
@@ -92,7 +93,7 @@ page.on('console', (m) => {
 });
 page.on('requestfailed', (r) => errors.push(`requestfailed: ${r.url()} ${r.failure()?.errorText}`));
 
-await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load' });
+await page.goto(`http://127.0.0.1:${port}/${PAGE}`, { waitUntil: 'load' });
 
 // Wait for boot, then play.
 await page.waitForFunction(() => window.__skyline || !document.getElementById('fail').hidden, null, { timeout: 60000 });
@@ -233,6 +234,11 @@ const report = await page.evaluate(async ({ wait, keep, freeze, sim, trace, foll
       }
     }
 
+    // Where the run actually ended, recorded before the gate test below moves
+    // the player to prove a point.
+    const endedAt = [p.pos.x, p.pos.y, p.pos.z].map((v) => Math.round(v));
+    const endedGrounded = p.grounded;
+
     // Drive the player straight through the next ring to prove the pickup gate
     // itself works — otherwise a run that scores nothing is ambiguous between a
     // bot that cannot aim and a ring that cannot be collected.
@@ -254,8 +260,8 @@ const report = await page.evaluate(async ({ wait, keep, freeze, sim, trace, foll
     return {
       backend: s.backend,
       simSeconds: sim,
-      endedAt: [p.pos.x, p.pos.y, p.pos.z].map((v) => Math.round(v)),
-      endedGrounded: p.grounded,
+      endedAt,
+      endedGrounded,
       endedHeading: heading,
       attachFromHere: attachWorks,
       anchorFound: anchor,

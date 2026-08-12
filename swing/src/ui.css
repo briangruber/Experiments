@@ -135,11 +135,16 @@ html, body {
 
 .title-card { max-width: 460px; text-align: center; }
 .title-card h1 {
-  margin: 0 0 6px;
+  margin: 0;
   font: 800 clamp(46px, 13vw, 84px)/.92 ui-sans-serif, system-ui, sans-serif;
   letter-spacing: -.045em;
-  background: linear-gradient(180deg, #ffffff 10%, #7fd4ff 60%, #ff6f8c 130%);
-  -webkit-background-clip: text; background-clip: text; color: transparent;
+  color: var(--ink);
+}
+/* The rule under the title is the game's own horizon: the exact sunset stop
+   from the sky gradient, fading out to either side the way the band does. */
+.horizon {
+  height: 2px; margin: 14px 0 18px;
+  background: linear-gradient(90deg, transparent, #c2624f 18%, #ff9a52 50%, #c2624f 82%, transparent);
 }
 .tag { margin: 0 0 26px; color: var(--dim); letter-spacing: .12em; text-transform: lowercase; font-size: 13px; }
 

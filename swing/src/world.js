@@ -9,6 +9,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { skyTexture, dotTexture } from './textures.js';
 import { makeRng } from './util.js';
+import { asset } from './assets.js';
 
 export const SUN_DIR = new THREE.Vector3(-0.42, 0.2, 0.88).normalize();
 
@@ -58,7 +59,7 @@ export function buildSky(scene) {
 }
 
 async function loadKit(url) {
-  const gltf = await new GLTFLoader().loadAsync(url);
+  const gltf = await new GLTFLoader().loadAsync(asset(url));
   let mesh = null;
   gltf.scene.updateMatrixWorld(true);
   gltf.scene.traverse((o) => { if (o.isMesh && !mesh) mesh = o; });

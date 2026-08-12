@@ -11,6 +11,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clamp, damp, smoothstep } from './util.js';
+import { asset } from './assets.js';
 
 const HEIGHT = 1.95;                 // metres, hips-to-head normalised
 
@@ -110,7 +111,7 @@ export class Avatar {
   }
 
   async load(url = './assets/hero.glb') {
-    const gltf = await new GLTFLoader().loadAsync(url);
+    const gltf = await new GLTFLoader().loadAsync(asset(url));
     const model = gltf.scene;
 
     model.traverse((o) => {

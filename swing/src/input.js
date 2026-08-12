@@ -29,6 +29,7 @@ export class Input {
     this.onKey = () => {};
 
     this.dragId = -1;
+    this.dragging = false;
     this.dragX = 0; this.dragY = 0;
     this.padPointers = new Map();
   }
@@ -50,29 +51,46 @@ export class Input {
       const k = KEYS[e.code];
       if (k) this.held.delete(k);
     });
-    addEventListener('blur', () => { this.held.clear(); this.dragId = -1; });
+    addEventListener('blur', () => { this.held.clear(); this.dragId = -1; this.dragging = false; });
 
-    // ---- desktop: pointer lock, buttons fire webs -------------------------
+    // ---- desktop: buttons fire webs, pointer lock if we can get it ---------
+    //
+    // Pointer lock is the nicer way to aim, but an embedded frame can refuse it
+    // and the request can reject outright. So it is always best-effort and
+    // never gates input: without it, holding a button and dragging steers,
+    // exactly like the touch path.
     c.addEventListener('mousedown', (e) => {
       if (!this.enabled || this.touch) return;
-      if (!this.locked) { c.requestPointerLock?.(); return; }
+      e.preventDefault();
+      if (!this.locked) {
+        try { c.requestPointerLock?.()?.catch?.(() => {}); } catch { /* not allowed here */ }
+      }
       if (e.button === 0) this.webLeft = true;
       if (e.button === 2) this.webRight = true;
       if (e.button === 1) this.boost = true;
-      e.preventDefault();
+      this.dragging = true;
+      this.dragX = e.clientX;
+      this.dragY = e.clientY;
     });
     addEventListener('mouseup', (e) => {
       if (e.button === 0) this.webLeft = false;
       if (e.button === 2) this.webRight = false;
+      this.dragging = false;
     });
     document.addEventListener('pointerlockchange', () => {
       this.locked = document.pointerLockElement === c;
       if (!this.locked) { this.webLeft = this.webRight = false; this.held.clear(); }
     });
     addEventListener('mousemove', (e) => {
-      if (!this.locked) return;
-      this.lookX -= e.movementX * this.sensitivity;
-      this.lookY -= e.movementY * this.sensitivity;
+      if (this.locked) {
+        this.lookX -= e.movementX * this.sensitivity;
+        this.lookY -= e.movementY * this.sensitivity;
+      } else if (this.dragging) {
+        this.lookX -= (e.clientX - this.dragX) * this.sensitivity * 1.6;
+        this.lookY -= (e.clientY - this.dragY) * this.sensitivity * 1.6;
+        this.dragX = e.clientX;
+        this.dragY = e.clientY;
+      }
     });
 
     // ---- touch: drag anywhere to look ------------------------------------

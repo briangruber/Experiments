@@ -61,6 +61,7 @@ src/
   hud.js          DOM HUD
 tools/
   shot.mjs        headless capture + smoke test
+  bundle.mjs      fold everything into one self-contained HTML file
   tripo.mjs       Tripo3D asset pipeline
 assets/           generated meshes + manifest.json (prompt and task id each)
 vendor/three/     three.js r185, WebGPU build
@@ -101,6 +102,28 @@ skeleton but no animation clips. Rather than retargeting canned clips,
 its child should point in character space — and solves the rotation that gets it
 there. That is independent of whatever bind pose the generator produced, and it
 lets the web arm aim at the real anchor point instead of approximating it.
+
+## Single-file build
+
+`tools/bundle.mjs` inlines three.js, the sources, the stylesheet and every mesh
+as a data URI, producing one HTML file that loads with no network access at all
+— which is what embedding it under a strict CSP requires.
+
+```
+npm i esbuild
+node tools/bundle.mjs --out dist/skyline.html
+node tools/bundle.mjs --out dist/page.html --body    # host supplies <head>/<body>
+```
+
+About 7 MB, most of it meshes. `src/assets.js` is the seam: served from a folder
+the loaders use relative paths, bundled they get the inlined data URIs, and
+neither loader knows which mode it is in.
+
+Verify a build the same way as the folder — `--page` points the harness at it:
+
+```
+node tools/shot.mjs --page dist/skyline.html --sim 45
+```
 
 ## Capture and smoke test
 
