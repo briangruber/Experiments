@@ -48,18 +48,6 @@
   </div>
 </div>
 
-<!-- Portrait is unplayable for a first-person game; say so rather than let
-     someone conclude it is broken. -->
-<div id="rotate" hidden>
-  <div class="rotate-inner">
-    <svg viewBox="0 0 48 48" aria-hidden="true">
-      <rect x="16" y="4" width="16" height="40" rx="3"/>
-      <path d="M8 30a16 16 0 0 0 12 12"/>
-    </svg>
-    <p>TURN YOUR PHONE SIDEWAYS</p>
-  </div>
-</div>
-
 <!-- Readable documents and the lift keypad. -->
 <div id="panel" hidden>
   <div class="panel-card">
@@ -68,6 +56,10 @@
     <div class="panel-footer" id="panel-footer"></div>
   </div>
 </div>
+
+<!-- Shown only when the render watchdog decides the frame is genuinely
+     empty. See src/watchdog.js. -->
+<div id="diagnostic" hidden></div>
 
 <!-- In-world HUD -->
 <div id="hud" hidden>

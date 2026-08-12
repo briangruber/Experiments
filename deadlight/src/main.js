@@ -8,6 +8,7 @@ import { Renderer, webgpuProblem } from './render.js';
 import { randomSeed } from './rng.js';
 import { detectQuality } from './quality.js';
 import { TouchControls } from './touch.js';
+import { RenderWatchdog } from './watchdog.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -26,7 +27,6 @@ const el = {
   seedCopy: $('seed-copy'),
   reportCopy: $('report-copy'),
   report: $('report'),
-  rotate: $('rotate'),
 };
 
 const quality = detectQuality();
@@ -38,6 +38,7 @@ const audio = new Audio();
 let renderer = null;
 let assets = null;
 let game = null;
+let watchdog = null;
 let lastResult = null;
 let raf = 0;
 let lastTime = 0;
@@ -130,7 +131,17 @@ async function boot() {
   // game has been verified all along. So it is a fallback now rather than a
   // dead end, and the menu says which one is running.
   const problem = webgpuProblem();
-  let forceWebGL = requested === 'webgl' || Boolean(problem);
+
+  // Phones start on WebGL even where WebGPU is present. Mobile WebGPU is new
+  // enough that "the device initialised, reported no error, ran at 26fps and
+  // painted nothing" is a real outcome — a black screen that throws nothing
+  // and logs nothing, on hardware I cannot put a debugger on. WebGL is the
+  // backend this game is actually verified against, and at phone quality the
+  // shadows and bloom it would gain are already switched off, so the trade is
+  // a slightly softer torch against the game rendering at all. `?backend=
+  // webgpu` opts back in for anyone who wants to check.
+  const phoneDefault = quality.touch && requested !== 'webgpu';
+  let forceWebGL = requested === 'webgl' || phoneDefault || Boolean(problem);
 
   el.loadNote.textContent = forceWebGL ? 'starting WebGL…' : 'starting WebGPU…';
   renderer = new Renderer(el.canvas, { forceWebGL, quality });
@@ -154,9 +165,14 @@ async function boot() {
   }
 
   if (forceWebGL) {
-    el.gpuNote.textContent = problem
-      ? `${problem} Running on WebGL instead — same game, slightly softer light.`
-      : 'Running on WebGL.';
+    if (problem) {
+      el.gpuNote.textContent =
+        `${problem} Running on WebGL instead — same game, slightly softer light.`;
+    } else if (phoneDefault) {
+      el.gpuNote.textContent = 'Running on WebGL for stability on mobile.';
+    } else {
+      el.gpuNote.textContent = 'Running on WebGL.';
+    }
   }
 
   assets = new AssetLibrary('./assets/');
@@ -184,14 +200,18 @@ async function boot() {
 }
 
 /**
- * A first-person game in portrait is a letterbox with a thumb over it. Rather
- * than let someone conclude the page is broken, say what to do — and only on a
- * touch device, because a narrow desktop window is still perfectly playable.
+ * Portrait plays. It used to put up a "rotate your phone" gate, which is a
+ * demand rather than a design — most phone use is one-handed and vertical, and
+ * a game that refuses to run in the orientation the device is already in is
+ * just a game that does not run.
+ *
+ * So the orientation only sets a class. The controls sit in the bottom third
+ * either way; portrait gives them a full-width band instead of two corners,
+ * and the view gets the taller frame above it.
  */
 function updateOrientation() {
-  if (!el.rotate) return;
-  const portrait = quality.touch && window.innerHeight > window.innerWidth * 1.05;
-  el.rotate.hidden = !portrait;
+  const portrait = window.innerHeight > window.innerWidth;
+  document.documentElement.classList.toggle('portrait', portrait);
 }
 
 window.addEventListener('resize', updateOrientation);
@@ -253,6 +273,10 @@ async function startRun(seed) {
     await acquireLook();
   }
 
+  // Fresh per run: a run that renders is proof for that run only, and the
+  // watchdog stands itself down permanently once it has seen a lit frame.
+  watchdog = new RenderWatchdog({ canvas: el.canvas, renderer, hud });
+
   lastTime = performance.now();
   cancelAnimationFrame(raf);
   raf = requestAnimationFrame(frame);
@@ -272,6 +296,13 @@ function frame(now) {
 
   game?.update(dt);
   renderer.render(dt);
+
+  // After the render, inside the same frame. The backbuffer is only readable
+  // until the compositor takes it — sampling from a timer instead would read a
+  // cleared buffer and report the exact bug it is looking for.
+  if (watchdog && game?.running) {
+    watchdog.update({ torchOn: Boolean(game.player?.torchOn) });
+  }
 }
 
 // -------------------------------------------------------------------- input
@@ -322,12 +353,12 @@ async function requestFullscreen() {
     if (!document.fullscreenElement && root.requestFullscreen) {
       await root.requestFullscreen({ navigationUI: 'hide' });
     }
-    // iOS Safari has no Fullscreen API on the document; the orientation lock
-    // below is a no-op there too. Both are improvements when present and
-    // nothing when absent, which is why neither is awaited for correctness.
-    await screen.orientation?.lock?.('landscape').catch(() => {});
+    // No orientation lock. It used to force landscape here, which is the same
+    // "turn your phone sideways" demand made silently — the phone rotates
+    // under the player's hands instead of asking. Both orientations play.
   } catch {
-    // Refused — an embedded frame without `allow="fullscreen"`, or iOS.
+    // Refused — an embedded frame without `allow="fullscreen"`, or iOS Safari,
+    // which has no Fullscreen API on the document at all.
   }
 }
 
@@ -388,6 +419,7 @@ window.deadlight = {
   get director() { return game?.director; },
   get renderer() { return renderer; },
   get result() { return lastResult; },
+  get watchdog() { return watchdog; },
   audio,
 };
 

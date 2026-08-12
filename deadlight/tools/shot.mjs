@@ -49,7 +49,7 @@ const PORT = Number(flag('port', 8123));
 const DEVICES = {
   phone: { width: 844, height: 390, dpr: 3, quality: 'phone' },
   tablet: { width: 1180, height: 820, dpr: 2, quality: 'tablet' },
-  portrait: { width: 390, height: 844, dpr: 3, quality: 'phone' },
+  portrait: { width: 390, height: 844, dpr: 3, quality: 'phone', portrait: true },
 };
 const DEVICE = DEVICES[flag('device')] ?? null;
 
@@ -174,14 +174,16 @@ async function main() {
     if (blocked) throw new Error(`start button disabled: ${blocked}`);
     console.log('· assets loaded, menu up');
 
-    // In portrait the game deliberately refuses to start and asks for a
-    // rotate. Verifying that is the whole point of the portrait device, so
-    // check the gate is up and stop rather than trying to click through it.
-    const gated = await page.$eval('#rotate', (r) => !r.hidden).catch(() => false);
-    if (gated) {
-      await page.screenshot({ path: OUT });
-      console.log(`· portrait: rotate gate up, wrote ${path.relative(ROOT, OUT)}`);
-      return;
+    // Portrait is a playable orientation, so it gets driven like any other
+    // device rather than checked for a gate and abandoned. What it verifies is
+    // that the controls land somewhere reachable and the look pad still owns
+    // the top of a tall screen — see the `portrait` class in ui.css.
+    if (DEVICE?.portrait) {
+      const portrait = await page.evaluate(
+        () => document.documentElement.classList.contains('portrait'),
+      );
+      if (!portrait) throw new Error('portrait device did not set the portrait class');
+      console.log('· portrait layout active');
     }
 
     await page.click('#start');
@@ -455,6 +457,23 @@ async function main() {
 
     const lost = await page.evaluate(() => window.deadlight?.renderer?.deviceLost ?? null);
     if (lost) problems.push(`graphics device lost: ${lost}`);
+
+    // The watchdog samples the canvas from inside the frame loop, so its last
+    // reading is the one piece of evidence here that pixels actually reached
+    // the screen — a screenshot proves the compositor works, not the renderer.
+    // Assert both directions: a lit frame, and no diagnostic over the top of
+    // it. A watchdog that cries wolf would put a failure panel on a working
+    // game, which is a worse bug than the one it exists to catch.
+    const watch = await page.evaluate(() => ({
+      brightness: window.deadlight?.watchdog?.lastBrightness ?? null,
+      stage: window.deadlight?.watchdog?.stage ?? null,
+      diagnostic: !document.getElementById('diagnostic')?.hidden,
+    }));
+    console.log(`· watchdog: stage ${watch.stage}, frame brightness ` +
+      `${watch.brightness?.toFixed?.(2) ?? watch.brightness}`);
+    if (watch.brightness === null) problems.push('watchdog never sampled a frame');
+    else if (watch.brightness <= 2) problems.push(`frame is black (${watch.brightness})`);
+    if (watch.diagnostic) problems.push('watchdog raised a diagnostic on a good run');
 
     const state = await page.evaluate(() => {
       const text = (id) => document.getElementById(id)?.textContent ?? '?';

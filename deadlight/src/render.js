@@ -1,10 +1,10 @@
 // Renderer setup.
 //
-// WebGPU only. There is a WebGL fallback path in three, but the whole look
-// here — the post chain, the shadowed torch, the volumetrics — was built
-// against the WebGPU backend, and a silent fallback would deliver a worse
-// game while pretending nothing had happened. So the requirement is checked
-// up front and reported honestly.
+// Built against WebGPU, but not welded to it. Three's WebGL backend runs the
+// same scene, the same node materials and the same TSL post chain, so the two
+// differ in fidelity rather than in content — which is what makes falling back
+// honest rather than a bait and switch. Whichever one is running, the menu
+// says so; see `boot()` in main.js for who picks.
 
 import * as THREE from 'three';
 import { WebGPURenderer } from 'three/webgpu';

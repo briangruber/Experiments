@@ -33,6 +33,7 @@ export class Hud {
       panelTitle: $('panel-title'),
       panelBody: $('panel-body'),
       panelFooter: $('panel-footer'),
+      diagnostic: $('diagnostic'),
       scares: $('scare-count'),
       objective: $('objective'),
       lookhint: $('lookhint'),
@@ -127,6 +128,36 @@ export class Hud {
 
   hidePanel() {
     this.el.panel.hidden = true;
+  }
+
+  /**
+   * Put a rendering failure on screen.
+   *
+   * Deliberately not a console message: the person who hits this is holding a
+   * phone, and the console is not somewhere they can go. Every field here is
+   * one they can read back, and together they identify which of the half-dozen
+   * causes of "black screen" this actually is.
+   *
+   * `action` is the one thing left to try, if there is one. A diagnostic with
+   * no button is a nicer-looking black screen; a diagnostic with a button is a
+   * way out, and on a phone it is the only way out the player has.
+   */
+  showDiagnostic(headline, detail, action = null) {
+    const el = this.el.diagnostic;
+    if (!el) return;
+    el.innerHTML = `<b>${headline}</b>`
+      + Object.entries(detail)
+        .filter(([, v]) => v !== null && v !== undefined)
+        .map(([k, v]) => `<span>${k}<i>${v}</i></span>`)
+        .join('');
+    if (action) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = action.label;
+      button.addEventListener('click', action.run);
+      el.append(button);
+    }
+    el.hidden = false;
   }
 
   setScares(n) {

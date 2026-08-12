@@ -113,12 +113,31 @@ export class Post {
     this.pipeline = new RenderPipeline(renderer);
     this.pipeline.outputNode = composite();
     this.scenePass = scenePass;
+    // Kept so `bypass()` can draw the scene directly.
+    this.renderer = renderer;
+    this.scene = scene;
+    this.camera = camera;
+    this.bypassed = false;
+  }
+
+  /**
+   * Draw the scene without the chain.
+   *
+   * The post chain is the most driver-sensitive thing in the game — a dozen
+   * TSL nodes compiled into one shader — and it is also the only part that can
+   * be dropped while the game keeps playing. So it can be switched out, which
+   * gives the watchdog something to actually try when a frame comes back
+   * black.
+   */
+  bypass(on) {
+    this.bypassed = Boolean(on);
   }
 
   render() {
     // Synchronous: the device was brought up by Renderer#init before any
     // frame runs, so the async variant would only add a promise per frame.
-    this.pipeline.render();
+    if (this.bypassed) this.renderer.render(this.scene, this.camera);
+    else this.pipeline.render();
   }
 
   /** Reset every scare parameter to its resting value. */

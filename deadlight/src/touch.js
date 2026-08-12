@@ -48,6 +48,8 @@ export class TouchControls {
     if (this.enabled || !this.el.layer) return;
     this.enabled = true;
     this.el.layer.hidden = false;
+    document.getElementById('touch-torch')?.classList
+      .toggle('latched', this.player.torchOn);
     document.documentElement.classList.add('touch');
 
     this._onDown = (e) => this.#down(e);
@@ -89,21 +91,31 @@ export class TouchControls {
 
   // ----------------------------------------------------------------- input
 
-  /** Which control a press at this point belongs to. */
+  /**
+   * Which control a press at this point belongs to.
+   *
+   * The stick claims the lower-left corner rather than the whole left half.
+   * A left/right split is fine in landscape, where both thumbs sit at the
+   * bottom anyway, but in portrait it hands half the *view* to the stick —
+   * and the top of a portrait screen is exactly where you want to drag to
+   * look. Anchoring the stick to the corner a thumb actually rests in works
+   * in both orientations without asking which one we are in.
+   */
   #classify(event) {
     const button = event.target?.closest?.('[data-touch]');
     if (button) return { kind: 'button', action: button.dataset.touch, el: button };
-    // Left half moves, right half looks. Split by the viewport rather than by
-    // a widget so the stick can appear wherever the thumb actually lands.
-    return event.clientX < window.innerWidth * 0.45
-      ? { kind: 'stick' }
-      : { kind: 'look' };
+
+    const inCorner = event.clientX < window.innerWidth * 0.45
+      && event.clientY > window.innerHeight * 0.38;
+    return inCorner ? { kind: 'stick' } : { kind: 'look' };
   }
 
   #down(event) {
     if (!this.enabled) return;
-    // Menus and the read panel own their own taps.
-    if (event.target?.closest?.('.screen, #panel')) return;
+    // Menus, the read panel and the diagnostic own their own taps. Swallowing
+    // one here would leave the player looking at an escape hatch they cannot
+    // press, which is worse than not offering it.
+    if (event.target?.closest?.('.screen, #panel, #diagnostic')) return;
 
     const role = this.#classify(event);
     event.preventDefault();
@@ -191,7 +203,13 @@ export class TouchControls {
   #press(action, down) {
     switch (action) {
       case 'torch':
-        if (down) this.player.toggleTorch();
+        if (down) {
+          this.player.toggleTorch();
+          // The torch being off is the single most common reason the screen
+          // looks broken. Make its state visible on the button itself.
+          document.getElementById('touch-torch')?.classList
+            .toggle('latched', this.player.torchOn);
+        }
         break;
       case 'use':
         if (down) this.onInteract?.();

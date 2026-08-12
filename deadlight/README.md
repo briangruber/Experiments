@@ -36,20 +36,50 @@ and says so on the menu.
 
 ## On a phone
 
-Landscape only — it asks you to rotate, because a first-person game in
-portrait is a letterbox with a thumb over it. Left thumb anywhere on the left
-of the screen summons a movement stick; the right half is the look pad; torch,
-use, run and crouch are buttons under the right thumb. USE only appears when
-there is something to use, so there is no dead button to fumble for while
-something walks toward you. Starting a run asks for fullscreen and a landscape
-lock, both of which are improvements where the browser allows them and nothing
-where it does not.
+Both orientations play. A thumb anywhere in the lower left summons a movement
+stick under itself — there is no fixed widget to miss — and anywhere else is
+the look pad. Torch, use, run and crouch are buttons under the right thumb:
+run is held rather than toggled, because you must never be sprinting merely
+because you forgot to stop; crouch is toggled, because it is a posture you
+hold for a whole corridor. USE appears only when there is something to use, so
+there is no dead button to fumble for while something walks toward you.
 
-Phones get their own quality tier (`src/quality.js`): a smaller shadow map, no
-bloom, a lower render scale, denser fog and about half the dressing. Same
-monsters, same puzzles, same scares — the tier only ever changes quantities,
-because a cut-down horror game is not worth shipping. Force one with
-`?quality=phone|tablet|desktop`.
+Portrait is not a degraded mode. Landscape is short and wide, so vertical
+space is scarce and the controls shrink to fit; portrait has height to spare
+and none sideways, so the controls grow, drop into a band across the bottom,
+and hand the top two thirds to the look pad. The running objective text moves
+down there too, because a narrow top row is already full of gauges. Starting a
+run asks for fullscreen where the browser has it. It no longer asks for a
+landscape orientation lock: rotating the phone under the player's hands is the
+same demand as a "turn your phone sideways" screen, only made silently.
+
+Phones run on **WebGL** by default even where WebGPU exists. Mobile WebGPU is
+new enough that "initialised cleanly, reported no error, ran at 26fps and
+painted nothing" is a real outcome, and a black screen that throws nothing is
+not a thing a player can work around. WebGL is the backend this game is
+verified against, and at phone quality the shadows and bloom it costs are
+switched off anyway. `?backend=webgpu` opts back in.
+
+Phones also get their own quality tier (`src/quality.js`): a smaller shadow
+map, no bloom, a lower render scale, denser fog and about half the dressing.
+Same monsters, same puzzles, same scares — the tier only ever changes
+quantities, because a cut-down horror game is not worth shipping. Force one
+with `?quality=phone|tablet|desktop`.
+
+### When the screen is black
+
+A black frame and a dark corridor are the same picture, and the half-dozen
+things that cause the first one — an unlit level, a torch switched off, a post
+chain the driver would not compile, a lost device, a backend that reported
+success and drew nothing — all look identical from outside and none of them
+throws. So the game checks its own output (`src/watchdog.js`): a few seconds
+into a run it samples the canvas, and if there is genuinely nothing on it, it
+works down that list in order of how cheap each is to rule out. Torch off gets
+a nudge. Nothing submitted gets reported as a scene problem. Geometry in and
+black out drops the post chain, which is the part most likely to have failed
+to compile and the only part the game can lose and keep running. Anything left
+goes on screen as numbers somebody can read back, with a button to reload into
+the other renderer.
 
 ## For streamers
 
