@@ -1,0 +1,121 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>DEADLIGHT</title>
+<!-- Inline, so the page makes no request the game does not need. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23050506'/%3E%3Ccircle cx='16' cy='13' r='7' fill='%23b41c22'/%3E%3Crect x='14' y='18' width='4' height='10' fill='%23b41c22'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="./src/ui.css">
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three.webgpu.min.js",
+    "three/webgpu": "./vendor/three.webgpu.min.js",
+    "three/tsl": "./vendor/three.tsl.min.js",
+    "three/addons/": "./vendor/addons/"
+  }
+}
+</script>
+
+<canvas id="gl" oncontextmenu="return false"></canvas>
+
+<!-- Full-screen colour washes driven by the scare director. Kept as DOM so a
+     scare can flash even on the frame the renderer is still catching up. -->
+<div id="flash"></div>
+<div id="blood"></div>
+<div id="vignette"></div>
+
+<!-- In-world HUD -->
+<div id="hud" hidden>
+  <div id="crosshair"></div>
+
+  <div id="hud-left">
+    <div class="gauge" id="gauge-battery">
+      <div class="gauge-label">TORCH</div>
+      <div class="bar"><i></i></div>
+    </div>
+    <div class="gauge" id="gauge-stamina">
+      <div class="gauge-label">BREATH</div>
+      <div class="bar"><i></i></div>
+    </div>
+  </div>
+
+  <!-- The BPM readout is the audience's read on how scared the player is.
+       It is deliberately the largest thing on screen after the crosshair. -->
+  <div id="hud-heart">
+    <svg viewBox="0 0 24 22" aria-hidden="true"><path d="M12 21S2.5 13.8 2.5 7.9A5.4 5.4 0 0 1 12 4.6a5.4 5.4 0 0 1 9.5 3.3C21.5 13.8 12 21 12 21z"/></svg>
+    <div class="bpm"><b id="bpm-value">72</b><span>BPM</span></div>
+  </div>
+
+  <div id="hud-right">
+    <div id="fuses">
+      <div class="hud-title">FUSES</div>
+      <div class="count"><b id="fuse-have">0</b><span id="fuse-need">/6</span></div>
+    </div>
+    <div id="scare-tally">
+      <div class="hud-title">SCARES</div>
+      <div class="count"><b id="scare-count">0</b></div>
+    </div>
+  </div>
+
+  <div id="objective"></div>
+  <div id="prompt"></div>
+  <div id="subtitle"></div>
+  <div id="seed-tag">SEED <b id="seed-value">—</b></div>
+  <div id="fps"></div>
+</div>
+
+<!-- Title -->
+<section id="menu" class="screen" hidden>
+  <div class="screen-inner">
+    <h1 class="logo">DEAD<span>LIGHT</span></h1>
+    <p class="tag">Sublevel three. Six fuses. Something else is down here.</p>
+
+    <div class="seed-row">
+      <label for="seed-input">RUN SEED</label>
+      <input id="seed-input" type="text" spellcheck="false" autocomplete="off" maxlength="12">
+      <button id="seed-roll" type="button" title="New seed">⟳</button>
+      <button id="seed-copy" type="button" title="Copy link to this run">LINK</button>
+    </div>
+
+    <button id="start" class="big" type="button">ENTER THE DARK</button>
+
+    <ul class="controls">
+      <li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move</li>
+      <li><kbd>Shift</kbd> run</li>
+      <li><kbd>F</kbd> torch</li>
+      <li><kbd>E</kbd> take / use</li>
+      <li><kbd>Ctrl</kbd> crouch</li>
+    </ul>
+
+    <p class="warn">Flashing imagery, sudden loud noise. Headphones recommended —
+      and that is not a joke.</p>
+    <p class="note" id="gpu-note"></p>
+  </div>
+</section>
+
+<!-- End of run -->
+<section id="report" class="screen" hidden>
+  <div class="screen-inner">
+    <h2 id="report-verdict">YOU DIED</h2>
+    <p id="report-cause"></p>
+    <div id="report-grid"></div>
+    <div id="report-top"></div>
+    <div class="report-actions">
+      <button id="again" class="big" type="button">RUN IT BACK</button>
+      <button id="report-copy" type="button">COPY RESULT</button>
+      <button id="new-seed" type="button">NEW SEED</button>
+    </div>
+  </div>
+</section>
+
+<!-- Loading -->
+<section id="boot" class="screen">
+  <div class="screen-inner">
+    <h1 class="logo dim">DEAD<span>LIGHT</span></h1>
+    <div class="loadbar"><i id="load-fill"></i></div>
+    <p class="note" id="load-note">warming the dark…</p>
+  </div>
+</section>
+
+<script type="module" src="./src/main.js"></script>

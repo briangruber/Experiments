@@ -1,0 +1,194 @@
+{
+  "entries": {
+    "doll": {
+      "taskId": "76e7b42a-750a-4df0-92c3-5fd97f92ad79",
+      "done": true,
+      "credits": 20,
+      "file": "doll.glb",
+      "scale": 0.35,
+      "tag": "small",
+      "prompt": "an antique porcelain doll, cracked face, one eye missing, filthy lace dress, deeply unsettling, grimy horror survival game asset, desaturated, water damaged, photoreal PBR, single object, no ground plane, no base, no pedestal"
+    },
+    "mannequin_c": {
+      "taskId": "b25bc39f-cbbd-471e-b362-f660550c5afa",
+      "done": true,
+      "credits": 20,
+      "file": "mannequin_c.glb",
+      "scale": 1.8,
+      "tag": null,
+      "prompt": "a damaged plaster mannequin, full adult human body, standing slightly hunched, head tilted to one side, blank faceless head, grey mould stains, grimy horror survival game asset, desaturated, water damaged, photoreal PBR, single object, no ground plane, no base, no pedestal"
+    },
+    "chair": {
+      "taskId": "5ce61c42-be4f-48c4-80ad-96c558db08ab",
+      "done": true,
+      "credits": 20,
+      "file": "chair.glb",
+      "scale": 0.9,
+      "tag": "medium",
+      "prompt": "a broken wooden institutional chair, one leg splintered, flaking varnish, grimy horror survival game asset, desaturated, water damaged, photoreal PBR, single object, no ground plane, no base, no pedestal"
+    },
+    "mannequin_b": {
+      "taskId": "dadf0e25-65eb-4dd9-9836-a0dd4dbd7730",
+      "done": true,
+      "credits": 20,
+      "file": "mannequin_b.glb",
+      "scale": 1.85,
+      "tag": null,
+      "prompt": "a battered shop display mannequin, full adult human body, standing, blank featureless head, one arm raised, yellowed cracked plaster, hairline fractures, grimy horror survival game asset, desaturated, water damaged, photoreal PBR, single object, no ground plane, no base, no pedestal"
+    },
+    "sink": {
+      "taskId": "5b8990db-a29b-4bf5-bfa1-97935ef83ffe",
+      "done": true,
+      "credits": 20,
+      "file": "sink.glb",
+      "scale": 0.5,
+      "tag": "wall",
+      "prompt": "a filthy porcelain hospital sink, chipped enamel, rust stains under the taps, exposed pipes, grimy horror survival game asset, desaturated, water damaged, photoreal PBR, single object, no ground plane, no base, no pedestal"
+    },
+    "lamp": {
+      "taskId": "493e4b0f-69ab-4556-84f4-bc551a71b54d",
+      "done": true,
+      "credits": 20,
+      "file": "lamp.glb",
+      "scale": 0.32,
+      "tag": "ceiling",
+      "prompt": "a caged industrial ceiling lamp, wire guard over the bulb, rusted enamel shade, hanging from a short chain, grimy horror survival game asset, desaturated, water damaged, photoreal PBR, single object, no ground plane, no base, no pedestal"
+    },
+    "mannequin_a": {
+      "taskId": "2555aab5-cdc6-4187-b450-d56765bb57d9",
+      "done": true,
+      "credits": 20,
+      "file": "mannequin_a.glb",
+      "scale": 1.85,
+      "tag": null,
+      "prompt": "a featureless wooden artist mannequin scaled to a full adult human, standing upright, arms hanging at its sides, smooth blank head with no face, cracked varnish, grimy horror survival game asset, desaturated, water damaged, photoreal PBR, single object, no ground plane, no base, no pedestal"
+    },
+    "crate": {
+      "taskId": "6140e4ae-334c-412c-98e3-c24fca8bd55d",
+      "done": true,
+      "credits": 20,
+      "file": "crate.glb",
+      "scale": 0.6,
+      "tag": "medium",
+      "prompt": "a weathered wooden shipping crate, split slats, water stains and mould, grimy horror survival game asset, desaturated, water damaged, photoreal PBR, single object, no ground plane, no base, no pedestal"
+    },
+    "barrel": {
+      "taskId": "b65aa0f0-c972-4b95-ad8a-d62f650d6ea6",
+      "done": true,
+      "credits": 20,
+      "file": "barrel.glb",
+      "scale": 0.9,
+      "tag": "medium",
+      "prompt": "a rusted steel oil drum, dented lid, chemical hazard stains, grimy horror survival game asset, desaturated, water damaged, photoreal PBR, single object, no ground plane, no base, no pedestal"
+    },
+    "crt": {
+      "taskId": "8623497b-082e-4381-9867-1f54e8f917d8",
+      "done": true,
+      "credits": 20,
+      "file": "crt.glb",
+      "scale": 0.45,
+      "tag": "medium",
+      "prompt": "an old CRT television set, cracked plastic housing, dusty glass screen, broken antenna, grimy horror survival game asset, desaturated, water damaged, photoreal PBR, single object, no ground plane, no base, no pedestal"
+    },
+    "locker": {
+      "taskId": "dbdf7e3a-8275-43f9-8566-021b20acb0ab",
+      "done": true,
+      "credits": 20,
+      "file": "locker.glb",
+      "scale": 1.8,
+      "tag": "large",
+      "prompt": "a tall dented steel locker, door ajar, rust streaks and peeling institutional green paint, grimy horror survival game asset, desaturated, water damaged, photoreal PBR, single object, no ground plane, no base, no pedestal"
+    },
+    "wheelchair": {
+      "taskId": "3219d803-1f7b-442f-b192-ddb79c7f72f5",
+      "done": true,
+      "credits": 20,
+      "file": "wheelchair.glb",
+      "scale": 0.95,
+      "tag": "large",
+      "prompt": "an old hospital wheelchair, rusted spokes, cracked leather seat, grimy horror survival game asset, desaturated, water damaged, photoreal PBR, single object, no ground plane, no base, no pedestal"
+    },
+    "gurney": {
+      "taskId": "dbac4f3e-88a1-4601-af4d-f412809a8aee",
+      "done": true,
+      "credits": 20,
+      "file": "gurney.glb",
+      "scale": 0.85,
+      "tag": "large",
+      "prompt": "an abandoned hospital gurney, bent chrome frame, filthy torn mattress, one wheel missing, grimy horror survival game asset, desaturated, water damaged, photoreal PBR, single object, no ground plane, no base, no pedestal"
+    },
+    "generator": {
+      "taskId": "666399ff-bb26-4d23-b2e6-5fbdaf39f978",
+      "done": true,
+      "credits": 20,
+      "file": "generator.glb",
+      "scale": 1.15,
+      "tag": "objective",
+      "prompt": "a small diesel backup generator, rusted yellow paint, exhaust pipe, control panel with dials, grimy horror survival game asset, desaturated, water damaged, photoreal PBR, single object, no ground plane, no base, no pedestal"
+    },
+    "fusebox": {
+      "taskId": "f1f895f2-c8e2-44a8-8f10-401ce4837b93",
+      "done": true,
+      "credits": 20,
+      "file": "fusebox.glb",
+      "scale": 0.55,
+      "tag": "objective",
+      "prompt": "a wall-mounted industrial fuse box, corroded steel door hanging open, ceramic fuses and frayed wiring inside, grimy horror survival game asset, desaturated, water damaged, photoreal PBR, single object, no ground plane, no base, no pedestal"
+    },
+    "creature": {
+      "taskId": "2db263ed-bf1c-4b0c-8015-caa4bb61ff16",
+      "done": true,
+      "note": "adopted from tools/creature-bakeoff.mjs candidate 'solid' (verified by tools/verify-rig.mjs)",
+      "file": "creature.glb",
+      "scale": 2.15,
+      "clips": [
+        "idle",
+        "walk",
+        "lunge"
+      ],
+      "prompt": "a tall gaunt humanoid horror creature standing upright in an A-pose, arms hanging down and slightly away from the body, solid connected limbs of even thickness, smooth featureless head, no separated fingers, closed simple hands, ashen grey skin, full body character model, symmetrical, clean topology, game character, T-pose reference, no base, no pedestal"
+    },
+    "creature:rig": {
+      "taskId": "ddec83fd-19dd-447d-adc8-97ae9e3b47a3",
+      "done": true,
+      "file": "creature_rigged.glb"
+    },
+    "creature:anim:idle": {
+      "taskId": "a0c0cec6-443b-4ec1-aad3-eccebd50c5d4",
+      "done": true,
+      "credits": 10,
+      "file": "creature_idle.glb"
+    },
+    "creature:anim:walk": {
+      "taskId": "81e94c9e-9bf3-48f5-9fab-7142738e407d",
+      "done": true,
+      "credits": 10,
+      "file": "creature_walk.glb"
+    },
+    "creature:anim:run": {
+      "taskId": "65841c02-b01a-4989-b6b8-fba9f2a9aa82",
+      "done": true,
+      "credits": 10,
+      "file": "creature_run.glb"
+    },
+    "creature:anim:attack": {
+      "taskId": "8191e523-8723-43ae-b1af-622538c26603",
+      "done": true,
+      "credits": 10,
+      "file": "creature_attack.glb"
+    },
+    "creature:anim:scream": {
+      "taskId": "44312e8f-8901-4fe5-a055-ab40a8752469",
+      "done": true,
+      "credits": 10,
+      "file": "creature_scream.glb"
+    },
+    "creature:anim:lunge": {
+      "taskId": "963b7446-57c5-4505-87e7-f48cbf8c1714",
+      "done": true,
+      "credits": 10,
+      "file": "creature_lunge.glb"
+    }
+  },
+  "updated": "2026-08-12T03:07:03.015Z"
+}

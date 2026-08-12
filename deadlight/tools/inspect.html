@@ -1,0 +1,135 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>DEADLIGHT — asset inspector</title>
+<!--
+  A turntable for one GLB, used to check generated assets in isolation.
+
+    node tools/serve.mjs
+    open http://localhost:8080/tools/inspect.html?file=../assets/creature.glb&clip=idle
+
+  Query: file (required), clip (name or index), t (seconds to advance), grid.
+  It exists because "the creature looks wrong in the game" has too many
+  possible causes — level lighting, the wrapper transform, the mixer — and
+  this removes all of them.
+-->
+<style>
+  html, body { margin: 0; height: 100%; background: #14161a; color: #cfd3d8;
+    font: 12px/1.5 ui-monospace, Menlo, monospace; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #info { position: fixed; top: 10px; left: 12px; white-space: pre; text-shadow: 0 1px 3px #000; }
+  #err { position: fixed; inset: auto 12px 12px 12px; color: #ff8080; white-space: pre-wrap; }
+</style>
+<canvas id="c"></canvas>
+<div id="info">loading…</div>
+<div id="err"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "../vendor/three.webgpu.min.js",
+    "three/webgpu": "../vendor/three.webgpu.min.js",
+    "three/tsl": "../vendor/three.tsl.min.js",
+    "three/addons/": "../vendor/addons/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { WebGPURenderer } from 'three/webgpu';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+const q = new URLSearchParams(location.search);
+const file = q.get('file') ?? '../assets/creature.glb';
+const clipWanted = q.get('clip');
+const advance = Number(q.get('t') ?? 0);
+const info = document.getElementById('info');
+const err = document.getElementById('err');
+
+try {
+  const renderer = new WebGPURenderer({
+    canvas: document.getElementById('c'),
+    antialias: true,
+    forceWebGL: q.get('backend') === 'webgl',
+  });
+  await renderer.init();
+  renderer.setSize(innerWidth, innerHeight, false);
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x14161a);
+  scene.add(new THREE.AmbientLight(0xffffff, 1.4));
+  const key = new THREE.DirectionalLight(0xffffff, 3.2);
+  key.position.set(3, 5, 4);
+  scene.add(key);
+  const rim = new THREE.DirectionalLight(0x88aaff, 1.6);
+  rim.position.set(-4, 2, -3);
+  scene.add(rim);
+  scene.add(new THREE.GridHelper(4, 8, 0x445566, 0x252a31));
+
+  const gltf = await new GLTFLoader().loadAsync(file);
+  const model = gltf.scene;
+  scene.add(model);
+
+  // Frame whatever arrived, whatever size it is.
+  const box = new THREE.Box3().setFromObject(model);
+  const size = box.getSize(new THREE.Vector3());
+  const centre = box.getCenter(new THREE.Vector3());
+  const radius = Math.max(size.x, size.y, size.z) || 1;
+
+  const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.01, 100);
+
+  let mixer = null;
+  let action = null;
+  if (gltf.animations.length) {
+    mixer = new THREE.AnimationMixer(model);
+    const clip = clipWanted === null
+      ? gltf.animations[0]
+      : gltf.animations[Number(clipWanted)] ?? gltf.animations.find((a) => a.name === clipWanted);
+    if (clip) {
+      action = mixer.clipAction(clip);
+      action.play();
+      if (advance) mixer.update(advance);
+    }
+  }
+
+  // Report the things that are usually wrong: bounds, skin, clip names.
+  let bones = 0;
+  let skinned = 0;
+  model.traverse((o) => {
+    if (o.isBone) bones++;
+    if (o.isSkinnedMesh) skinned++;
+  });
+  info.textContent = [
+    file,
+    `bounds  ${size.toArray().map((v) => v.toFixed(3)).join(' × ')}`,
+    `centre  ${centre.toArray().map((v) => v.toFixed(3)).join(', ')}`,
+    `bones   ${bones}   skinnedMeshes ${skinned}`,
+    `clips   ${gltf.animations.map((a) => `${a.name}(${a.duration.toFixed(2)}s)`).join(', ') || 'none'}`,
+    `playing ${action ? action.getClip().name : 'none'}`,
+  ].join('\n');
+
+  let angle = 0;
+  const clock = new THREE.Clock();
+  renderer.setAnimationLoop(() => {
+    const dt = clock.getDelta();
+    if (mixer && !advance) mixer.update(dt);
+    angle += dt * 0.5;
+    camera.position.set(
+      centre.x + Math.sin(angle) * radius * 2.1,
+      centre.y + radius * 0.35,
+      centre.z + Math.cos(angle) * radius * 2.1,
+    );
+    camera.lookAt(centre);
+    renderer.render(scene, camera);
+  });
+
+  addEventListener('resize', () => {
+    renderer.setSize(innerWidth, innerHeight, false);
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+  });
+} catch (e) {
+  err.textContent = String(e.stack ?? e);
+  info.textContent = 'failed';
+}
+</script>

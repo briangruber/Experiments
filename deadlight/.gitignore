@@ -1,0 +1,6 @@
+# Raw Tripo output — large, and reproducible from tools/generate.mjs.
+# The optimized assets/*.glb the game loads are committed.
+assets/raw/
+node_modules/
+shots/
+dist/

@@ -1,0 +1,151 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>rig check</title>
+<!--
+  Headless rig validator. Driven by tools/verify-rig.mjs; not meant to be
+  opened by hand.
+
+    ?file=../assets/creature.glb
+
+  Skins a sample of vertices on the CPU at several points through each clip
+  and measures how far the posed mesh departs from its bind pose. Two failures
+  matter, and they look nothing like each other:
+
+    · torn — weights attached to the wrong joints drag vertices across the
+      level. Bounds explode; `worst` goes into the tens.
+    · collapsed — the skeleton is sound but the retarget drove it into a heap,
+      so an upright biped ends up folded on the floor. Bounds stay perfectly
+      ordinary, which is why measuring overall size alone passes it. `height`
+      is what catches this: a walking biped stays close to its bind height.
+
+  Both are invisible in the bind pose, which loads clean and reports valid
+  clips either way, so nothing short of posing the mesh will catch them.
+-->
+<script type="importmap">
+{
+  "imports": {
+    "three": "../vendor/three.webgpu.min.js",
+    "three/webgpu": "../vendor/three.webgpu.min.js",
+    "three/tsl": "../vendor/three.tsl.min.js",
+    "three/addons/": "../vendor/addons/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+/** Vertices sampled per mesh, and poses sampled per clip. */
+const VERTEX_SAMPLES = 900;
+const POSE_SAMPLES = 12;
+
+const file = new URLSearchParams(location.search).get('file');
+
+try {
+  const gltf = await new GLTFLoader().loadAsync(file);
+  const root = gltf.scene;
+
+  let skinned = null;
+  root.traverse((o) => { if (o.isSkinnedMesh && !skinned) skinned = o; });
+  if (!skinned) throw new Error('no skinned mesh');
+
+  root.updateMatrixWorld(true);
+  skinned.skeleton.update();
+
+  const position = skinned.geometry.attributes.position;
+  const count = position.count;
+  const stride = Math.max(1, Math.floor(count / VERTEX_SAMPLES));
+
+  /** Skinned bounds of the current pose, over the sampled vertices. */
+  const posedBounds = () => {
+    const box = new THREE.Box3();
+    const v = new THREE.Vector3();
+    for (let i = 0; i < count; i += stride) {
+      v.fromBufferAttribute(position, i);
+      skinned.applyBoneTransform(i, v);
+      box.expandByPoint(v);
+    }
+    return box;
+  };
+
+  // Bind pose reference, with every action stopped.
+  const mixer = new THREE.AnimationMixer(root);
+  const bind = posedBounds();
+  const bindSize = bind.getSize(new THREE.Vector3());
+  const bindExtent = Math.max(bindSize.x, bindSize.y, bindSize.z) || 1;
+  const bindHeight = bindSize.y || 1;
+  const bindFloor = bind.min.y;
+
+  const clips = [];
+  for (const clip of gltf.animations) {
+    const action = mixer.clipAction(clip);
+    mixer.stopAllAction();
+    action.reset();
+    action.play();
+
+    let worst = 0;
+    let worstAt = 0;
+    // Lowest the posed mesh ever stands, as a fraction of its bind height.
+    let shortest = Infinity;
+    let shortestAt = 0;
+    // Lowest point the posed mesh reaches, relative to where the bind pose
+    // put its feet. A standing clip should sit at ~0; anything meaningfully
+    // negative means the game will bury the model in the floor, because the
+    // wrapper transform is derived from bind bounds.
+    let sink = 0;
+    // Step through the clip rather than sampling one pose: a bad weight often
+    // only shows at the extremes of a limb's travel.
+    let previous = 0;
+    for (let s = 0; s < POSE_SAMPLES; s++) {
+      const t = (clip.duration * s) / (POSE_SAMPLES - 1 || 1);
+      mixer.update(t - previous);
+      previous = t;
+      root.updateMatrixWorld(true);
+      skinned.skeleton.update();
+
+      const size = posedBounds().getSize(new THREE.Vector3());
+      const ratio = Math.max(size.x, size.y, size.z) / bindExtent;
+      if (ratio > worst) {
+        worst = ratio;
+        worstAt = t;
+      }
+      const posed = posedBounds();
+      sink = Math.min(sink, (posed.min.y - bindFloor) / bindHeight);
+      const height = size.y / bindHeight;
+      if (height < shortest) {
+        shortest = height;
+        shortestAt = t;
+      }
+    }
+    clips.push({
+      name: clip.name,
+      duration: +clip.duration.toFixed(2),
+      worst: +worst.toFixed(2),
+      worstAt: +worstAt.toFixed(2),
+      height: +shortest.toFixed(2),
+      heightAt: +shortestAt.toFixed(2),
+      sink: +sink.toFixed(3),
+    });
+    mixer.stopAllAction();
+  }
+
+  let bones = 0;
+  root.traverse((o) => { if (o.isBone) bones++; });
+
+  window.__result = {
+    ok: true,
+    file,
+    bones,
+    vertices: count,
+    sampled: Math.ceil(count / stride),
+    bindExtent: +bindExtent.toFixed(4),
+    bindHeight: +bindHeight.toFixed(4),
+    clips,
+    worst: +Math.max(...clips.map((c) => c.worst), 0).toFixed(2),
+    shortest: +Math.min(...clips.map((c) => c.height), 1).toFixed(2),
+    sink: +Math.min(...clips.map((c) => c.sink), 0).toFixed(3),
+  };
+} catch (err) {
+  window.__result = { ok: false, file, error: String(err.message ?? err) };
+}
+</script>

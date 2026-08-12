@@ -1,0 +1,328 @@
+{
+  "generator": "tripo v3",
+  "assets": {
+    "fusebox": {
+      "file": "fusebox.glb",
+      "role": "prop",
+      "height": 0.55,
+      "tag": "objective",
+      "bounds": {
+        "min": [
+          -0.4191,
+          -0.5,
+          -0.4099
+        ],
+        "max": [
+          0.4191,
+          0.5,
+          0.4099
+        ]
+      },
+      "taskId": "f1f895f2-c8e2-44a8-8f10-401ce4837b93"
+    },
+    "generator": {
+      "file": "generator.glb",
+      "role": "prop",
+      "height": 1.15,
+      "tag": "objective",
+      "bounds": {
+        "min": [
+          -0.435,
+          -0.3633,
+          -0.5
+        ],
+        "max": [
+          0.435,
+          0.3633,
+          0.5
+        ]
+      },
+      "taskId": "666399ff-bb26-4d23-b2e6-5fbdaf39f978"
+    },
+    "gurney": {
+      "file": "gurney.glb",
+      "role": "prop",
+      "height": 0.85,
+      "tag": "large",
+      "bounds": {
+        "min": [
+          -0.2303,
+          -0.3378,
+          -0.5
+        ],
+        "max": [
+          0.2303,
+          0.3378,
+          0.5
+        ]
+      },
+      "taskId": "dbac4f3e-88a1-4601-af4d-f412809a8aee"
+    },
+    "wheelchair": {
+      "file": "wheelchair.glb",
+      "role": "prop",
+      "height": 0.95,
+      "tag": "large",
+      "bounds": {
+        "min": [
+          -0.5,
+          -0.4421,
+          -0.3007
+        ],
+        "max": [
+          0.5,
+          0.4421,
+          0.3007
+        ]
+      },
+      "taskId": "3219d803-1f7b-442f-b192-ddb79c7f72f5"
+    },
+    "locker": {
+      "file": "locker.glb",
+      "role": "prop",
+      "height": 1.8,
+      "tag": "large",
+      "bounds": {
+        "min": [
+          -0.2192,
+          -0.5,
+          -0.1711
+        ],
+        "max": [
+          0.2192,
+          0.5,
+          0.1711
+        ]
+      },
+      "taskId": "dbdf7e3a-8275-43f9-8566-021b20acb0ab"
+    },
+    "crt": {
+      "file": "crt.glb",
+      "role": "prop",
+      "height": 0.45,
+      "tag": "medium",
+      "bounds": {
+        "min": [
+          -0.2532,
+          -0.5,
+          -0.4654
+        ],
+        "max": [
+          0.2532,
+          0.5,
+          0.4654
+        ]
+      },
+      "taskId": "8623497b-082e-4381-9867-1f54e8f917d8"
+    },
+    "barrel": {
+      "file": "barrel.glb",
+      "role": "prop",
+      "height": 0.9,
+      "tag": "medium",
+      "bounds": {
+        "min": [
+          -0.3725,
+          -0.5,
+          -0.3651
+        ],
+        "max": [
+          0.3725,
+          0.5,
+          0.3651
+        ]
+      },
+      "taskId": "b65aa0f0-c972-4b95-ad8a-d62f650d6ea6"
+    },
+    "crate": {
+      "file": "crate.glb",
+      "role": "prop",
+      "height": 0.6,
+      "tag": "medium",
+      "bounds": {
+        "min": [
+          -0.5,
+          -0.287,
+          -0.4272
+        ],
+        "max": [
+          0.5,
+          0.287,
+          0.4272
+        ]
+      },
+      "taskId": "6140e4ae-334c-412c-98e3-c24fca8bd55d"
+    },
+    "chair": {
+      "file": "chair.glb",
+      "role": "prop",
+      "height": 0.9,
+      "tag": "medium",
+      "bounds": {
+        "min": [
+          -0.2557,
+          -0.5,
+          -0.287
+        ],
+        "max": [
+          0.2557,
+          0.5,
+          0.287
+        ]
+      },
+      "taskId": "5ce61c42-be4f-48c4-80ad-96c558db08ab"
+    },
+    "doll": {
+      "file": "doll.glb",
+      "role": "prop",
+      "height": 0.35,
+      "tag": "small",
+      "bounds": {
+        "min": [
+          -0.1851,
+          -0.5,
+          -0.2339
+        ],
+        "max": [
+          0.1851,
+          0.5,
+          0.2339
+        ]
+      },
+      "taskId": "76e7b42a-750a-4df0-92c3-5fd97f92ad79"
+    },
+    "lamp": {
+      "file": "lamp.glb",
+      "role": "prop",
+      "height": 0.32,
+      "tag": "ceiling",
+      "bounds": {
+        "min": [
+          -0.3245,
+          -0.5,
+          -0.3246
+        ],
+        "max": [
+          0.3245,
+          0.5,
+          0.3246
+        ]
+      },
+      "taskId": "493e4b0f-69ab-4556-84f4-bc551a71b54d"
+    },
+    "sink": {
+      "file": "sink.glb",
+      "role": "prop",
+      "height": 0.5,
+      "tag": "wall",
+      "bounds": {
+        "min": [
+          -0.3324,
+          -0.5,
+          -0.3561
+        ],
+        "max": [
+          0.3324,
+          0.5,
+          0.3561
+        ]
+      },
+      "taskId": "5b8990db-a29b-4bf5-bfa1-97935ef83ffe"
+    },
+    "mannequin_a": {
+      "file": "mannequin_a.glb",
+      "role": "mannequin",
+      "height": 1.85,
+      "tag": null,
+      "bounds": {
+        "min": [
+          -0.08,
+          -0.5,
+          -0.182
+        ],
+        "max": [
+          0.08,
+          0.5,
+          0.182
+        ]
+      },
+      "taskId": "2555aab5-cdc6-4187-b450-d56765bb57d9"
+    },
+    "mannequin_b": {
+      "file": "mannequin_b.glb",
+      "role": "mannequin",
+      "height": 1.85,
+      "tag": null,
+      "bounds": {
+        "min": [
+          -0.1568,
+          -0.5,
+          -0.1811
+        ],
+        "max": [
+          0.1568,
+          0.5,
+          0.1811
+        ]
+      },
+      "taskId": "dadf0e25-65eb-4dd9-9836-a0dd4dbd7730"
+    },
+    "mannequin_c": {
+      "file": "mannequin_c.glb",
+      "role": "mannequin",
+      "height": 1.8,
+      "tag": null,
+      "bounds": {
+        "min": [
+          -0.1556,
+          -0.5,
+          -0.1912
+        ],
+        "max": [
+          0.1556,
+          0.5,
+          0.1912
+        ]
+      },
+      "taskId": "b25bc39f-cbbd-471e-b362-f660550c5afa"
+    },
+    "creature": {
+      "file": "creature.glb",
+      "role": "creature",
+      "height": 2.15,
+      "clips": [
+        "idle",
+        "walk",
+        "lunge"
+      ],
+      "motion": {
+        "idle": {
+          "speed": 0,
+          "yaw": null
+        },
+        "walk": {
+          "speed": 0.6499,
+          "yaw": 4.6208
+        },
+        "lunge": {
+          "speed": 0,
+          "yaw": null
+        }
+      },
+      "forwardYaw": 4.6208,
+      "bounds": {
+        "min": [
+          -0.078,
+          0,
+          -0.1639
+        ],
+        "max": [
+          0.078,
+          1,
+          0.1639
+        ]
+      },
+      "taskId": "2db263ed-bf1c-4b0c-8015-caa4bb61ff16"
+    }
+  }
+}
