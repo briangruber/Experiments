@@ -280,6 +280,35 @@ async function boot() {
     hud.setReticle(hit && hit.point.y > player.pos.y + 3 ? 'live' : '');
   };
 
+  /**
+   * One step of the game, with no drawing. Split out from the frame loop so the
+   * capture harness can run minutes of play in a tight loop and report on how it
+   * went, without waiting on a software rasteriser.
+   */
+  const simulate = (dt) => {
+    time += dt;
+    input.sample();
+
+    cam.aim(dt, player, input);
+    player.update(dt, input, cam.basis);
+    handlePlayerEvents();
+
+    rings.update(dt, player, time);
+    handleRingEvents();
+    checkNearMiss(dt);
+
+    avatar.update(dt, player);
+    web.update(dt, player, avatar);
+    fx.update(dt, player, camera);
+    cam.update(dt, player);
+    props?.update(time);
+    checkReticle(dt);
+
+    audio.setWind(player.speed, player.web.active);
+    hud.update(dt, player, rings);
+    input.endFrame();
+  };
+
   let last = performance.now();
   const frame = async () => {
     const now = performance.now();
@@ -288,27 +317,7 @@ async function boot() {
     dt = clamp(dt, 0, 1 / 20);            // never let a stall teleport the player
 
     if (state === 'playing') {
-      time += dt;
-      input.sample();
-
-      cam.aim(dt, player, input);
-      player.update(dt, input, cam.basis);
-      handlePlayerEvents();
-
-      rings.update(dt, player, time);
-      handleRingEvents();
-      checkNearMiss(dt);
-
-      avatar.update(dt, player);
-      web.update(dt, player, avatar);
-      fx.update(dt, player, camera);
-      cam.update(dt, player);
-      props?.update(time);
-      checkReticle(dt);
-
-      audio.setWind(player.speed, player.web.active);
-      hud.update(dt, player, rings);
-      input.endFrame();
+      simulate(dt);
 
       // Back off resolution rather than dropping frames on weaker phones.
       fpsAvg = fpsAvg * 0.95 + (1 / Math.max(dt, 1e-3)) * 0.05;
@@ -329,7 +338,8 @@ async function boot() {
   // Handle for the capture harness in tools/ (and for poking at it in a console).
   window.__skyline = { renderer, scene, camera, city, player, rings, cam, hud, input, avatar, backend, start,
     draw: () => (post ? post.renderAsync() : renderer.renderAsync(scene, camera)),
-    stop: () => renderer.setAnimationLoop(null) };
+    stop: () => renderer.setAnimationLoop(null),
+    step: simulate };
 }
 
 boot().catch((err) => fail(err?.message || String(err)));

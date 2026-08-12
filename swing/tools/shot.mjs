@@ -39,6 +39,8 @@ const H = +opt('h', 720);
 const TOUCH = has('touch');
 const KEEP = has('title');            // capture the menu instead of playing
 const FREEZE = opt('freeze', '');     // "x,y,z,tx,ty,tz" — scenic still instead of chase cam
+const SIM = +opt('sim', 0);           // seconds of bot-driven play, no rendering
+const TRACE = has('trace');           // sample the sim twice a second
 
 const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
@@ -94,7 +96,7 @@ await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load' });
 // Wait for boot, then play.
 await page.waitForFunction(() => window.__skyline || !document.getElementById('fail').hidden, null, { timeout: 60000 });
 
-const report = await page.evaluate(async ({ wait, keep, freeze }) => {
+const report = await page.evaluate(async ({ wait, keep, freeze, sim, trace }) => {
   const s = window.__skyline;
   if (!s) return { fatal: document.getElementById('fail-msg').textContent };
   if (keep) return { backend: s.backend, skipped: true };
@@ -120,6 +122,161 @@ const report = await page.evaluate(async ({ wait, keep, freeze }) => {
     s.camera.updateMatrixWorld(true);
     await s.draw();
     return { backend: s.backend, frozen: true, buildings: s.city.count, avatar: !!s.avatar?.ready };
+  }
+
+  // Simulation-only run: no drawing at all, fixed timestep, driven by a bot that
+  // chases the ring course the way a player would. This is how the game gets
+  // play-tested here — the software rasteriser is far too slow to judge feel.
+  if (sim > 0) {
+    s.stop();
+    const DT = 1 / 60;
+    const steps = Math.round(sim / DT);
+    const p = s.player, cam = s.cam, rings = s.rings;
+
+    const stat = {
+      distance: 0, speedSum: 0, speedMax: 0, fastFrames: 0, stuckWorst: 0,
+      minY: Infinity, maxY: -Infinity,
+      events: {}, attachedFrames: 0,
+    };
+    let stuck = 0, side = -1, hold = false, cooldown = 0;
+    const prev = { x: p.pos.x, y: p.pos.y, z: p.pos.z };
+
+    // Count events by patching the array the player refills each step.
+    const tally = () => { for (const e of p.events) stat.events[e] = (stat.events[e] || 0) + 1; };
+
+    for (let i = 0; i < steps; i++) {
+      // Aim at the next ring in the chain.
+      const t = rings.target;
+      if (t) {
+        const want = Math.atan2(-(t.pos.x - p.pos.x), -(t.pos.z - p.pos.z));
+        let d = want - cam.yaw;
+        while (d > Math.PI) d -= Math.PI * 2;
+        while (d < -Math.PI) d += Math.PI * 2;
+        input.lookX = Math.max(-0.06, Math.min(0.06, d * 0.09));
+        const rise = t.pos.y - p.pos.y;
+        input.lookY = Math.max(-0.03, Math.min(0.03, (rise / 120 - cam.pitch) * 0.05));
+      }
+
+      // Swing cycle: attach, ride to the bottom of the arc, release, dive, repeat.
+      cooldown -= DT;
+      if (!p.web.active && !hold && cooldown <= 0) {
+        side = -side;
+        hold = true;
+      } else if (p.web.active && p.vel.y > 2) {
+        hold = false;
+        cooldown = 0.42;
+      }
+      input.webLeft = hold && side < 0;
+      input.webRight = hold && side > 0;
+      input.dive = !p.web.active && p.vel.y < -6 && cooldown > 0.15;
+      input.reel = p.web.active && p.vel.y < 0;
+
+      // Steer and boost toward the ring the way a player would. Lateral steering
+      // has to go through the held-key set, because sample() rebuilds the
+      // analogue fields from it every step and would overwrite a direct write.
+      input.held.delete('left');
+      input.held.delete('right');
+      if (t) {
+        const want = Math.atan2(-(t.pos.x - p.pos.x), -(t.pos.z - p.pos.z));
+        let err = want - cam.yaw;
+        while (err > Math.PI) err -= Math.PI * 2;
+        while (err < -Math.PI) err += Math.PI * 2;
+        if (err > 0.12) input.held.add('left');
+        else if (err < -0.12) input.held.add('right');
+
+        const range = p.pos.distanceTo(t.pos);
+        const rising = t.pos.y - p.pos.y;
+        if (!p.web.active && range < 110 && Math.abs(err) < 0.5 && rising > -6) input.boost = true;
+      }
+
+      s.step(DT);
+      tally();
+
+      const dx = p.pos.x - prev.x, dy = p.pos.y - prev.y, dz = p.pos.z - prev.z;
+      stat.distance += Math.hypot(dx, dy, dz);
+      prev.x = p.pos.x; prev.y = p.pos.y; prev.z = p.pos.z;
+      stat.speedSum += p.speed;
+      stat.speedMax = Math.max(stat.speedMax, p.speed);
+      if (p.speed * 3.6 > 100) stat.fastFrames++;
+      if (p.web.active) stat.attachedFrames++;
+      stat.minY = Math.min(stat.minY, p.pos.y);
+      stat.maxY = Math.max(stat.maxY, p.pos.y);
+      const tgt = rings.target;
+      if (tgt) stat.nearestRing = Math.min(stat.nearestRing ?? Infinity, p.pos.distanceTo(tgt.pos));
+      stuck = p.speed < 3 ? stuck + 1 : 0;
+      stat.stuckWorst = Math.max(stat.stuckWorst, stuck);
+
+      if (trace && i % 30 === 0) {
+        stat.trace = stat.trace || [];
+        stat.trace.push([
+          +(i * DT).toFixed(1), Math.round(p.pos.x), Math.round(p.pos.y), Math.round(p.pos.z),
+          Math.round(p.speed * 3.6), p.web.active ? 'A' : '-', p.grounded ? 'G' : '-',
+          p.events.join('|'),
+        ].join(' '));
+      }
+      if (i % 900 === 0) await new Promise((r) => setTimeout(r, 0));   // keep the page alive
+    }
+
+    // What does the world actually look like from where the run ended? Casts the
+    // same kind of fan the anchor search uses, so a run that ends stuck reports
+    // whether there was anything to grab at all.
+    const probe = { point: p.pos.clone(), normal: p.pos.clone(), distance: 0, index: -1 };
+    const dir = p.pos.clone();
+    const around = [];
+    for (const pitchDeg of [6, 28, 54, 68]) {
+      for (const yawDeg of [0, 45, 90, 135, 180, 225, 270, 315]) {
+        const yr = yawDeg * Math.PI / 180, pr = pitchDeg * Math.PI / 180;
+        dir.set(Math.sin(yr) * Math.cos(pr), Math.sin(pr), Math.cos(yr) * Math.cos(pr));
+        const h = s.city.raycast(p.pos, dir, 105, probe);
+        if (h) around.push(`y${yawDeg} p${pitchDeg}: d=${h.distance.toFixed(0)} dy=${(h.point.y - p.pos.y).toFixed(0)}`);
+      }
+    }
+
+    // Drive the player straight through the next ring to prove the pickup gate
+    // itself works — otherwise a run that scores nothing is ambiguous between a
+    // bot that cannot aim and a ring that cannot be collected.
+    let ringGateWorks = null;
+    const gateTarget = rings.target;
+    if (gateTarget) {
+      const before = rings.collected;
+      p.prev.copy(gateTarget.pos).addScaledVector(gateTarget.normal, -6);
+      p.pos.copy(gateTarget.pos).addScaledVector(gateTarget.normal, 6);
+      rings.update(1 / 60, p, 0);
+      ringGateWorks = rings.collected === before + 1;
+    }
+
+    // Ask the anchor search itself, from wherever the run ended.
+    const heading = [cam.basis.flat.x, cam.basis.flat.y, cam.basis.flat.z].map((v) => +v.toFixed(2));
+    const attachWorks = p.tryAttach(-1, cam.basis);
+    const anchor = attachWorks ? [p.web.anchor.x, p.web.anchor.y, p.web.anchor.z].map((v) => Math.round(v)) : null;
+
+    return {
+      backend: s.backend,
+      simSeconds: sim,
+      endedAt: [p.pos.x, p.pos.y, p.pos.z].map((v) => Math.round(v)),
+      endedGrounded: p.grounded,
+      endedHeading: heading,
+      attachFromHere: attachWorks,
+      anchorFound: anchor,
+      around: around.length ? around : 'nothing within 105 m',
+      avatar: !!s.avatar?.ready,
+      buildings: s.city.count,
+      km: +(stat.distance / 1000).toFixed(2),
+      avgKmh: +(stat.speedSum / steps * 3.6).toFixed(1),
+      maxKmh: +(stat.speedMax * 3.6).toFixed(1),
+      pctOver100kmh: +(stat.fastFrames / steps * 100).toFixed(1),
+      pctAttached: +(stat.attachedFrames / steps * 100).toFixed(1),
+      ringsPerMin: +(rings.collected / (sim / 60)).toFixed(1),
+      closestApproachToRing: +(stat.nearestRing ?? -1).toFixed(1),
+      ringGateWorks,
+      rings: rings.collected,
+      score: rings.score,
+      bestCombo: rings.combo,
+      altitude: { min: +stat.minY.toFixed(1), max: +stat.maxY.toFixed(1) },
+      longestStallSeconds: +(stat.stuckWorst * DT).toFixed(2),
+      events: stat.events,
+      trace: stat.trace,
+    };
   }
 
   // Swing: hold a web, alternate hands, dive between arcs.
@@ -149,15 +306,15 @@ const report = await page.evaluate(async ({ wait, keep, freeze }) => {
     buildings: s.city.count,
     drawCalls: s.renderer.info?.render?.drawCalls ?? null,
   };
-}, { wait: WAIT, keep: KEEP, freeze: FREEZE });
+}, { wait: WAIT, keep: KEEP, freeze: FREEZE, sim: SIM, trace: TRACE });
 
-await mkdir(dirname(join(ROOT, OUT)), { recursive: true });
+if (!SIM) await mkdir(dirname(join(ROOT, OUT)), { recursive: true });
 // Software rasterisation can take seconds per frame; the default 30 s cap is
 // not enough to catch a settled one.
-await page.screenshot({ path: join(ROOT, OUT), type: 'png', timeout: 180000, animations: 'disabled' });
+if (!SIM) await page.screenshot({ path: join(ROOT, OUT), type: 'png', timeout: 180000, animations: 'disabled' });
 
 await browser.close();
 server.close();
 
-console.log(JSON.stringify({ out: OUT, ...report, errors }, null, 2));
+console.log(JSON.stringify(SIM ? { ...report, errors } : { out: OUT, ...report, errors }, null, 2));
 if (report.fatal || errors.length) process.exit(1);

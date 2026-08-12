@@ -14,7 +14,7 @@ import { facadeTextures, roofTexture, groundTextures, FACADE_TILE, ROOF_TILE } f
 export const LOT = 46;                 // building footprint budget, metres
 export const ROAD = 22;                // street width between lots
 export const PITCH = LOT + ROAD;       // 68 m block period
-export const N = 26;                   // lots per side
+export const N = 32;                   // lots per side
 export const EXTENT = N * PITCH;       // 1768 m across
 export const HALF = EXTENT / 2;
 const ROAD_FRAC = ROAD / PITCH;
@@ -168,7 +168,10 @@ export function buildCity(seed = 1337) {
     for (let ix = 0; ix < N; ix++) {
       const cx = (ix - (N - 1) / 2) * PITCH;
       const cz = (iz - (N - 1) / 2) * PITCH;
-      if (rng.chance(0.055)) continue;                   // plaza / park lot
+      // Thin the outskirts out so the city dissolves into the haze instead of
+      // ending on a hard square edge.
+      const rim = smoothstep(0.5, 1.05, Math.hypot(cx, cz) / HALF);
+      if (rng.chance(0.05 + 0.72 * rim)) continue;        // plaza / park / empty lot
 
       const ck = chunks[Math.floor(iz / CHUNK) * chunkDim + Math.floor(ix / CHUNK)];
       const tint = rng.pick(TINTS);
@@ -360,13 +363,18 @@ export function buildCity(seed = 1337) {
               pos.x += nx * push; pos.y += ny * push; pos.z += nz * push;
             } else {
               // Centre is inside the box: escape along the shallowest axis.
+              //
+              // Downwards is deliberately not a candidate. Buildings stand on
+              // the ground, so near the base the floor is always the closest
+              // face — and pushing down there buries the player under the box,
+              // where the street clamp shoves them straight back in and the two
+              // fight forever.
               const dxl = pos.x - arr[b], dxh = arr[b + 1] - pos.x;
-              const dyl = pos.y - arr[b + 2], dyh = arr[b + 3] - pos.y;
+              const dyh = arr[b + 3] - pos.y;
               const dzl = pos.z - arr[b + 4], dzh = arr[b + 5] - pos.z;
-              const m = Math.min(dxl, dxh, dyl, dyh, dzl, dzh);
+              const m = Math.min(dxl, dxh, dyh, dzl, dzh);
               nx = ny = nz = 0;
               if (m === dyh) { ny = 1; pos.y = arr[b + 3] + radius; }
-              else if (m === dyl) { ny = -1; pos.y = arr[b + 2] - radius; }
               else if (m === dxh) { nx = 1; pos.x = arr[b + 1] + radius; }
               else if (m === dxl) { nx = -1; pos.x = arr[b] - radius; }
               else if (m === dzh) { nz = 1; pos.z = arr[b + 5] + radius; }

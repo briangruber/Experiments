@@ -25,11 +25,29 @@ const BOOST_COOLDOWN = 1.15;
 const RADIUS = 1.1;
 const RUN_SPEED = 13;
 const JUMP = 13.5;
+const STREET_CLEAR = 14;             // no web anchors below this height
 
-/** Candidate directions for the anchor search, as (yaw°, pitch°) offsets. */
+/**
+ * Candidate directions for the anchor search, as (yaw°, pitch°) offsets from the
+ * player's *horizontal* heading. Measuring from the horizon rather than from the
+ * camera's forward vector matters: while diving you are looking almost straight
+ * down, and a fan hung off that direction can only ever find the street.
+ */
+const PITCHES = [28, 16, 40, 6, 54, 68];
 const FAN = [];
-for (const pitch of [26, 14, 38, 4, 50]) {
+for (const pitch of PITCHES) {
   for (const yaw of [0, 12, -12, 26, -26, 40, -40, 56, -56]) FAN.push([yaw, pitch]);
+}
+/**
+ * Fallback sweep, used only when the forward fan comes up empty. Standing with
+ * your nose against a facade, every forward ray hits it a couple of metres out
+ * and there is nothing to grab — while a perfectly good tower sits behind you.
+ * Players read that as the web being broken, so widen the search rather than
+ * make them turn on the spot.
+ */
+const FAN_WIDE = [];
+for (const pitch of PITCHES) {
+  for (const yaw of [80, -80, 110, -110, 145, -145, 180]) FAN_WIDE.push([yaw, pitch]);
 }
 
 const _n = new THREE.Vector3();
@@ -60,6 +78,9 @@ export class Player {
     this.nearMiss = 0;
     this.reeling = false;
     this.missCd = 0;
+    this.wallTime = 0;
+    this.markPos = new THREE.Vector3();
+    this.markTime = 0;
   }
 
   reset(x = 0, z = 0) {
@@ -67,46 +88,79 @@ export class Player {
     this.pos.set(x, Math.max(h + 40, 90), z);
     this.vel.set(0, 0, -18);
     this.prev.copy(this.pos);
+    this.markPos.copy(this.pos);
+    this.markTime = 0;
     this.web.active = false;
     this.grounded = false;
     this.airTime = 0;
     this.events.push('respawn');
   }
 
-  /** Look for something to swing from. `side` is -1 for the left hand, +1 right. */
-  tryAttach(side, basis) {
+  /**
+   * Sweep one fan of candidate directions and return the best anchor found.
+   * `side` is -1 for the left hand, +1 for the right.
+   */
+  searchFan(fan, side, basis) {
     const origin = _tmp.copy(this.pos);
     let best = null, bestScore = -Infinity;
 
-    for (const [yawDeg, pitchDeg] of FAN) {
+    for (const [yawDeg, pitchDeg] of fan) {
       // Bias the fan toward the requested hand so the two triggers feel distinct.
       const yaw = THREE.MathUtils.degToRad(yawDeg + side * 10);
       const pitch = THREE.MathUtils.degToRad(pitchDeg);
-      _dir.copy(basis.forward);
+      _dir.copy(basis.flat);
       _q.setFromAxisAngle(this.up, yaw);
       _dir.applyQuaternion(_q);
-      _tan.crossVectors(_dir, this.up).normalize();     // right of this direction
-      _q.setFromAxisAngle(_tan, -pitch);
+      // `_tan` is the axis to pitch about: right of the heading. Rotating by
+      // +pitch about it tilts the ray up, which is the whole point of the fan —
+      // with the sign flipped it quietly searches the pavement instead.
+      _tan.crossVectors(_dir, this.up).normalize();
+      _q.setFromAxisAngle(_tan, pitch);
       _dir.applyQuaternion(_q).normalize();
 
       const hit = this.city.raycast(origin, _dir, ROPE_MAX, _hit);
-      if (!hit || hit.distance < 6) continue;
+      if (!hit || hit.distance < 8) continue;
 
+      // No grips down in the gutter: a rope tied near the pavement cannot carry
+      // a swing over it no matter where you are hanging from.
+      if (hit.point.y < STREET_CLEAR) continue;
+
+      // The anchor has to be above you — though the further out it is, the more
+      // slack that rule gets, because you will have fallen well below it by the
+      // time the rope pulls taut. Up close it has to be genuinely overhead, or
+      // it is a tether rather than a swing.
       const dy = hit.point.y - this.pos.y;
-      if (dy < 3) continue;                              // must be above, or it is a tether not a swing
+      if (dy < Math.max(6 - 0.28 * hit.distance, -0.12 * hit.distance)) continue;
+
+      // How far below the roofline the anchor sits. This is the single most
+      // important term: a grip halfway down a flat facade swings you straight
+      // into that same facade, while one at the parapet carries you over the
+      // top of the building. Sample just inside the surface so a hit exactly on
+      // the face still resolves to the building it belongs to.
+      _n.copy(hit.point).addScaledVector(hit.normal, -0.5);
+      const belowRoof = Math.max(0, this.city.heightAt(_n.x, _n.z) - hit.point.y);
+      const clearScore = 1 - smoothstep(2, 26, belowRoof);
 
       // Prefer anchors that give a long, high arc, roughly where the player aims.
-      const heightScore = smoothstep(2, 30, dy) * (1 - 0.4 * smoothstep(70, 120, dy));
+      const heightScore = smoothstep(-8, 55, dy) * (1 - 0.3 * smoothstep(80, 130, dy));
       const distScore = 1 - Math.abs(hit.distance - 46) / 90;
       const aimScore = 1 - Math.abs(yawDeg) / 110;
       const sideScore = Math.sign(yawDeg) === side ? 0.12 : 0;
-      const score = heightScore * 1.35 + distScore * 0.8 + aimScore * 0.7 + sideScore;
+      const topScore = hit.normal.y > 0.5 ? 0.5 : 0;      // straight onto a roof
+      const score = clearScore * 1.6 + heightScore * 1.2 + distScore * 0.8
+        + aimScore * 0.7 + sideScore + topScore;
 
       if (score > bestScore) {
         bestScore = score;
         best = { point: hit.point.clone(), distance: hit.distance };
       }
     }
+    return best;
+  }
+
+  /** Fire a web: forward fan first, then the wide sweep if it found nothing. */
+  tryAttach(side, basis) {
+    const best = this.searchFan(FAN, side, basis) || this.searchFan(FAN_WIDE, side, basis);
 
     if (!best) {
       this.missCd = 0.28;                              // stop re-firing the fan every frame
@@ -237,10 +291,42 @@ export class Player {
         const radial = this.vel.dot(_n);
         if (radial > 0) this.vel.addScaledVector(_n, -radial * 1.002);
       }
+      // Rope floor: if the arc would drag through the pavement, ratchet the
+      // rope shorter so the next pass bottoms out above the street instead of
+      // grinding along it.
+      if (this.pos.y < 9) {
+        web.length = Math.max(REEL_MIN, Math.min(web.length, this.pos.distanceTo(web.anchor)));
+      }
       if (dist > ROPE_MAX * 1.4) this.release();          // snapped
     }
 
     this.collide(dt);
+
+    // A web that is dragging you along a wall is a deadlock: the constraint
+    // pulls you in, the collision push-out shoves you back, and the pair of them
+    // cancel every metre of progress. Let it snap instead.
+    if (web.active && this.wallTime > 0.3) {
+      this.release();
+      this.pos.addScaledVector(this.contact, 0.6);
+      this.missCd = 0.2;
+      this.events.push('snap');
+    }
+
+    // General deadlock guard. A constraint and a collision push-out can cancel
+    // each other exactly, leaving the player with plenty of velocity and no
+    // movement at all; nothing about a real swing keeps you inside a two-metre
+    // box for half a second, so drop the web and let gravity sort it out.
+    this.markTime += dt;
+    if (this.markTime >= 0.5) {
+      if (web.active && this.pos.distanceTo(this.markPos) < 2) {
+        this.release();
+        this.missCd = 0.25;
+        this.events.push('snap');
+      }
+      this.markPos.copy(this.pos);
+      this.markTime = 0;
+    }
+
     this.speed = this.vel.length();
 
     // Track how close the last frame passed to a wall — used for the near-miss bonus.
@@ -270,17 +356,26 @@ export class Player {
   collide(dt) {
     const hits = this.city.resolve(this.pos, RADIUS + 0.4, this.contact);
 
-    // Street level.
+    // A web always wins over standing: touching down mid-swing should drag you
+    // back off the surface, never park you there holding a rope.
+    const canGround = !this.web.active;
+
+    // Street level. Friction has to be expressed as a rate, not a per-frame
+    // multiplier: at 60 Hz a flat 0.9 is a factor of 10^-3 per second, which
+    // silently welds the player to the tarmac.
     if (this.pos.y < RADIUS) {
       this.pos.y = RADIUS;
       this.contact.set(0, 1, 0);
       if (this.vel.y < 0) this.vel.y = 0;
-      this.grounded = true;
-      this.vel.x *= 0.9; this.vel.z *= 0.9;
+      this.grounded = canGround;
+      const k = Math.exp(-(canGround ? 2.4 : 0.5) * dt);
+      this.vel.x *= k; this.vel.z *= k;
+      this.wallTime = 0;
       return;
     }
 
     if (!hits) {
+      this.wallTime = 0;
       // Leaving a ledge: stay grounded only while something is underfoot.
       if (this.grounded && this.pos.y - this.city.heightAt(this.pos.x, this.pos.z) > RADIUS + 0.6) {
         this.grounded = false;
@@ -297,18 +392,25 @@ export class Player {
         this.vel.addScaledVector(this.contact, -into);   // stop the descent
         if (this.airTime > 0.35 && -into > 12) this.events.push('land');
       }
-      this.vel.x *= 0.92; this.vel.z *= 0.92;
-      this.grounded = true;
+      const k = Math.exp(-(canGround ? 1.8 : 0.4) * dt);
+      this.vel.x *= k; this.vel.z *= k;
+      this.grounded = canGround;
+      this.wallTime = 0;
       this.airTime = 0;
     } else {
-      // Wall: shave off the component into the surface but keep sliding, so a
-      // clipped corner costs speed instead of ending the run.
+      // Wall: shave off the component into the surface and keep sliding. The
+      // speed penalty is proportional to how hard you hit, so grazing a facade
+      // is nearly free — otherwise a glancing touch while swinging past applies
+      // a flat penalty every frame it lasts, and pins you to the wall.
       if (into < 0) {
-        this.vel.addScaledVector(this.contact, -into * 1.15);
-        this.vel.multiplyScalar(0.86);
-        if (-into > 26) this.events.push('smack');
-        else this.events.push('scrape');
+        this.vel.addScaledVector(this.contact, -into);
+        const impact = -into;
+        if (impact > 5) {
+          this.vel.multiplyScalar(clamp(1 - impact / 110, 0.55, 0.99));
+          this.events.push(impact > 26 ? 'smack' : 'scrape');
+        }
       }
+      this.wallTime += dt;
       this.grounded = false;
     }
   }

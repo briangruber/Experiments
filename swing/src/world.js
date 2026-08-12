@@ -42,10 +42,10 @@ export function buildSky(scene) {
   sun.renderOrder = -9;
   group.add(sun);
 
-  scene.fog = new THREE.FogExp2(0x3a3f63, 0.00058);
+  scene.fog = new THREE.FogExp2(0x40406b, 0.00072);
   scene.add(group);
 
-  const key = new THREE.DirectionalLight(0xffb98a, 2.6);
+  const key = new THREE.DirectionalLight(0xffc6a2, 2.1);
   key.position.copy(SUN_DIR).multiplyScalar(500);
   scene.add(key);
   // Bounce from the opposite side keeps the shaded faces from going flat black.

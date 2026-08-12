@@ -191,33 +191,39 @@ export function groundTextures(seed = 23, roadFrac = 0.32) {
 export function skyTexture() {
   const W = 1024, H = 512;
   const { c, g } = canvas(W, H);
+  // A sphere's v runs 1 at the zenith to 0 at the nadir, and canvas row 0 maps
+  // to v = 1 — so the horizon belongs at the *middle* of this gradient, not at
+  // the bottom. Everything below y = H/2 is under the skyline and never seen.
   const grd = g.createLinearGradient(0, 0, 0, H);
-  grd.addColorStop(0.00, '#070a1c');   // zenith
-  grd.addColorStop(0.30, '#152144');
-  grd.addColorStop(0.52, '#3c3a6e');
-  grd.addColorStop(0.68, '#8b4f77');
-  grd.addColorStop(0.80, '#dd7a5a');
-  grd.addColorStop(0.88, '#ffb066');
-  grd.addColorStop(0.94, '#ffd39a');
-  grd.addColorStop(1.00, '#2a2438');   // below the horizon line
+  grd.addColorStop(0.00, '#050818');   // zenith
+  grd.addColorStop(0.18, '#0b1130');
+  grd.addColorStop(0.32, '#1b2350');
+  grd.addColorStop(0.42, '#3b3269');
+  grd.addColorStop(0.47, '#7c4272');
+  grd.addColorStop(0.49, '#c2624f');
+  grd.addColorStop(0.50, '#ff9a52');   // horizon
+  grd.addColorStop(0.52, '#ffc078');
+  grd.addColorStop(0.56, '#6a4a63');
+  grd.addColorStop(0.70, '#221c33');
+  grd.addColorStop(1.00, '#14101f');
   g.fillStyle = grd;
   g.fillRect(0, 0, W, H);
 
   const rng = makeRng(99);
-  for (let i = 0; i < 700; i++) {
-    const y = rng() * H * 0.45;
-    const a = (1 - y / (H * 0.45)) * rng.range(0.15, 0.95);
+  for (let i = 0; i < 900; i++) {
+    const y = rng() * H * 0.42;
+    const a = (1 - y / (H * 0.42)) * rng.range(0.15, 0.95);
     g.fillStyle = `rgba(255,255,255,${a})`;
     const s = rng.chance(0.9) ? 1 : 2;
     g.fillRect(rng() * W, y, s, s);
   }
-  // A few soft cloud bands catching the last light.
+  // A few soft cloud bands catching the last light, just above the horizon.
   for (let i = 0; i < 26; i++) {
-    const y = rng.range(H * 0.5, H * 0.86);
+    const y = rng.range(H * 0.3, H * 0.49);
     const w = rng.range(90, 460), h = rng.range(4, 16);
     const x = rng() * W;
     const cg = g.createLinearGradient(x, y, x + w, y);
-    const tint = y > H * 0.72 ? '255,190,150' : '150,140,190';
+    const tint = y > H * 0.44 ? '255,190,150' : '150,140,190';
     cg.addColorStop(0, `rgba(${tint},0)`);
     cg.addColorStop(0.5, `rgba(${tint},${rng.range(0.08, 0.3)})`);
     cg.addColorStop(1, `rgba(${tint},0)`);

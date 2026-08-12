@@ -10,7 +10,7 @@ import * as THREE from 'three';
 import { makeRng, clamp, smoothstep } from './util.js';
 
 const CHAIN = 9;
-const RADIUS = 7;
+const RADIUS = 9;
 const COMBO_TIME = 5.0;
 const SPACING = [70, 130];
 
@@ -54,6 +54,7 @@ export class Rings {
     this.collected = 0;
     this.events = [];
     this.cursor = 0;                  // index of the next ring in the chain
+    this.strayTime = 0;               // how long the course has been out of reach
   }
 
   /** Lay a fresh chain starting ahead of the player, along their heading. */
@@ -82,8 +83,11 @@ export class Rings {
         z = clamp(z, -half, half);
       }
 
+      // Sit the ring just above whatever it is over. A course strung at a fixed
+      // high altitude looks good on paper and is unreachable in practice: the
+      // swing lives a little above the rooftops, so the rings have to as well.
       const ground = this.city.heightAt(x, z);
-      const y = Math.max(ground + rng.range(18, 40), rng.range(55, 165));
+      const y = clamp(ground + rng.range(14, 34), 34, 125);
 
       const item = this.items[i];
       item.pos.set(x, y, z);
@@ -144,7 +148,16 @@ export class Rings {
       remaining--;
     }
 
-    if (!remaining) this.layChain(player);
+    // If the run has wandered away from the course, lay a fresh one ahead
+    // rather than leaving the objective stranded on the far side of the city.
+    const target = this.target;
+    if (target && player.pos.distanceTo(target.pos) > 520) this.strayTime += dt;
+    else this.strayTime = 0;
+
+    if (!remaining || this.strayTime > 6) {
+      this.layChain(player);
+      this.strayTime = 0;
+    }
 
     // Advance the cursor past anything already taken.
     while (this.cursor < this.items.length && !this.items[this.cursor].alive) this.cursor++;
