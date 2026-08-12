@@ -111,8 +111,38 @@ page or console error, so it is also the regression test.
 ```
 node tools/shot.mjs --out shots/frame.png --wait 6000
 node tools/shot.mjs --out shots/phone.png --w 390 --h 844 --touch
-node tools/shot.mjs --out shots/skyline.png --freeze "620,300,620,0,110,0"
+node tools/shot.mjs --out shots/skyline.png --freeze "700,300,700,0,80,0"
 ```
 
 Note that headless Chromium rasterises in software here, so the reported `fps`
 measures SwiftShader, not the game.
+
+### Play-testing without a GPU
+
+Because software rasterisation manages a fraction of a frame per second, none of
+the above can tell you whether the game is any *good*. `main.js` therefore
+exposes `step(dt)`, which advances the whole simulation without drawing, and
+`--sim` runs it at a fixed timestep driven by a bot that chases the ring course:
+
+```
+node tools/shot.mjs --sim 90            # 90 s of play in a couple of seconds
+node tools/shot.mjs --sim 24 --trace    # twice-a-second position/speed/state dump
+```
+
+It reports distance, average and peak speed, time spent attached, the longest
+stall, every gameplay event, and — when a run ends badly — where it ended, what
+was within reach, and whether the anchor search and ring gate still work from
+there. A healthy 90-second run looks roughly like:
+
+```
+km 1.8   avgKmh 72   maxKmh 251   pctAttached 71   longestStallSeconds 0.2
+```
+
+This is what found the bug that mattered: an inverted sign in the anchor fan's
+pitch rotation meant every "upward" ray searched the pavement, so webs anchored
+below the player and every arc bled altitude. Nothing about the rendered frames
+made that obvious; the numbers made it unmissable.
+
+The bot is a crude proportional controller and rarely threads a 9 m ring, so a
+low ring count in a sim run is expected — `ringGateWorks` in the report confirms
+the pickup itself still fires.
