@@ -644,7 +644,13 @@ export function createHarpoon(opts = {}) {
     // --- the visuals, every frame ----------------------------------------------
     function layoutRope(visible) {
       if (!visible) {
-        for (let i = 0; i < SEGS; i++) ropeSegs[i].position.set(0, -400, 0);
+        for (let i = 0; i < SEGS; i++) {
+          ropeSegs[i].position.set(0, -400, 0);
+          // Back to its natural gauge as well as its parking spot: a segment
+          // left holding the submerged fattening factor reports a rope two
+          // and a half times thicker than the one that exists.
+          ropeSegs[i].scale.set(ropeR[i], 1, ropeR[i]);
+        }
         return;
       }
       sternPoint(_bow);
