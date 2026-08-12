@@ -155,23 +155,49 @@ function fieldCard(label, field, mode, gain, scaleField) {
 }
 
 // -------------------------------------------------------------------- main --
-el('run').onclick = async () => {
-  el('run').disabled = true;
+const BUTTONS = { both: 'run-both', webgpu: 'run-gpu', webgl: 'run-gl' };
+
+async function go(mode) {
+  for (const id of Object.values(BUTTONS)) {
+    el(id).disabled = true;
+    el(id).classList.toggle('sel', id === BUTTONS[mode]);
+  }
   out().innerHTML = '';
   el('status').textContent = ' running…';
 
   let gl = null, gpu = null, gpuError = '';
-  try { gl = runGL(); } catch (e) { say(`<p class="bad">WebGL2 simulation failed: ${e.message}</p>`); }
-  try { gpu = await runGPU(); } catch (e) { gpuError = String(e.message || e); }
+  if (mode !== 'webgpu') {
+    try { gl = runGL(); } catch (e) { say(`<p class="bad">WebGL2 simulation failed: ${e.message}</p>`); }
+  }
+  if (mode !== 'webgl') {
+    try { gpu = await runGPU(); } catch (e) { gpuError = String(e.message || e); }
+  }
 
   say(`<h2>Hardware</h2><table>
     <tr><th>WebGL2</th><td>${gl ? gl.renderer : '—'}</td></tr>
     <tr><th>WebGPU</th><td>${gpu ? gpu.renderer : `<span class="bad">unavailable — ${gpuError}</span>`}</td></tr>
     <tr><th>Run</th><td>${N}² × 4 cascades, ${STEPS} steps, seed ${SEED}, preset “${PRESET}”</td></tr></table>`);
 
+  // One backend on its own is a run, not a comparison. Show its field and its
+  // timing and say plainly that nothing was compared, rather than implying a
+  // verdict from a single sample.
   if (!gl || !gpu) {
-    say(`<div id="verdict">Both backends are needed for a comparison.</div>`);
-    el('run').disabled = false; el('status').textContent = '';
+    const only = gl || gpu;
+    if (!only) {
+      say(`<div id="verdict" class="bad">Nothing ran.${gpuError ? ' ' + gpuError : ''}</div>`);
+    } else {
+      const label = gl ? 'WebGL2 fragment passes' : 'WebGPU compute';
+      say(`<h2>The field — cascade 1</h2>`);
+      const one = document.createElement('div');
+      one.className = 'fields';
+      one.appendChild(fieldCard(label, only.fields[1], 'height'));
+      out().appendChild(one);
+      say(`<h2>Time for ${STEPS} steps</h2><table>
+        <tr><th>${label}</th><td class="num">${only.ms.toFixed(2)} ms</td></tr></table>
+        <div id="verdict">Ran on ${gl ? 'WebGL2' : 'WebGPU'} only — nothing was compared.
+        Use “Run both and compare” to diff the two.${gpuError ? ` <span class="bad">WebGPU: ${gpuError}</span>` : ''}</div>`);
+    }
+    finish();
     return;
   }
 
@@ -226,8 +252,16 @@ el('run').onclick = async () => {
        worst ${worstAll.toExponential(2)}. That is a defect, not rounding — the
        difference image above shows where.`}</div>`);
 
+  finish();
+}
+
+function finish() {
   el('status').textContent = ' done.';
-  el('run').disabled = false;
-};
+  for (const id of Object.values(BUTTONS)) el(id).disabled = false;
+}
+
+el('run-both').onclick = () => go('both');
+el('run-gpu').onclick = () => go('webgpu');
+el('run-gl').onclick = () => go('webgl');
 
 window.abyssalCompare = { N, STEPS, SEED, PRESET };
