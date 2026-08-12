@@ -1,8 +1,6 @@
 import { SCHEMA } from './schema.js';
 import { PRESETS, defaults, applyPreset, isHandheld } from '../src/presets.js';
 
-export { applyPreset, isHandheld };
-
 const toHex = (c) => '#' + c.map((v) => Math.round(Math.min(Math.max(v, 0), 1) ** (1 / 2.2) * 255).toString(16).padStart(2, '0')).join('');
 const fromHex = (h) => [1, 3, 5].map((i) => (parseInt(h.slice(i, i + 2), 16) / 255) ** 2.2);
 

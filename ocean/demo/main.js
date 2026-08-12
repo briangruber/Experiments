@@ -8,8 +8,8 @@ import { Camera } from './camera.js';
 import { WaveRunner } from './waverunner.js';
 import { Wake } from '../src/wake.js';
 import { Craft } from './craft.js';
-import { UI, applyPreset } from './ui.js';
-import { defaults, PRESETS } from '../src/presets.js';
+import { UI } from './ui.js';
+import { defaults, PRESETS, applyPreset } from '../src/presets.js';
 import { createDerived, derive as deriveScene } from '../src/derive.js';
 import { clamp } from '../src/math.js';
 
