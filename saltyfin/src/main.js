@@ -784,6 +784,9 @@ window.addEventListener('keydown', (e) => {
 const api = {
   THREE, scene, camera, reflectCamera, renderer, ctx, env, time, quality, post, targets,
   clip: clipUniforms,
+  // The input module itself, so a harness can read an axis or set the
+  // throttle lever without reaching through ctx.
+  input,
   town,
   shore: shoreLeave,
   editor: townEditor,
