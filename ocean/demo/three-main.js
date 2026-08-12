@@ -36,6 +36,7 @@ import { TslPost } from '../src/gpu/tsl/post-driver.js';
 import { newParams, PRESETS, applyPreset } from '../src/presets.js';
 import { createDerived, derive } from '../src/derive.js';
 import { Camera } from './camera.js';
+import { installThreeCompat } from '../src/gpu/three-compat.js';
 
 // ---------------------------------------------------------------------------
 // Backend selection.
@@ -56,6 +57,11 @@ export function wantedBackend() {
 }
 
 export async function createRenderer( canvas, want = wantedBackend() ) {
+
+	// Before any device is created. See src/gpu/three-compat.js - without this,
+	// three r185 cannot create a single texture view on Chromium 141+ and WebGPU
+	// fails outright.
+	installThreeCompat();
 
 	const WANT = want;
 	const renderer = new THREE.WebGPURenderer( {
@@ -166,6 +172,8 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 
 	post.seedAdapt();
 
+	const api = {};
+
 	let last = performance.now();
 	let time = 0;
 	let skyDirty = true;
@@ -235,19 +243,22 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		// default, or a capture target when one was handed in.
 		post.render( hdr.texture, params, dt, time, output ? { output } : {} );
 
+		api.onFrame?.();
+
 		requestAnimationFrame( frame );
 
 	}
 
 	requestAnimationFrame( frame );
 
-	const api = {
+	Object.assign( api, {
 		renderer, backend, fellBack, params, derived, camera, sim, sky, water, spray, post,
 		output,
+		onFrame: null,
 		markSkyDirty: () => { skyDirty = true; },
 		presets: Object.keys( PRESETS ),
 		applyPreset: ( name ) => { applyPreset( params, name ); skyDirty = true; },
-	};
+	} );
 	onReady?.( api );
 	return api;
 
