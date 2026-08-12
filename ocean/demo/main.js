@@ -133,6 +133,7 @@ const ui = new UI(document.getElementById('ui'), params, (ev) => {
   }
   if (ev.type === 'save') { savePng(); return; }
   if (ev.type === 'quiet') { toggleQuiet(); return; }
+  if (ev.type === 'profile') { profileSim(); return; }
 
   const it = ev.item;
   if (it.rebuild) ocean.dirty = true;
@@ -194,6 +195,65 @@ function togglePhoto() {
   photo = !photo;
   resetAccum();
   ui.toast(photo ? 'Photo mode — accumulating' : 'Photo mode off');
+}
+
+// What fraction of a frame is the simulation?
+//
+// Measured by ablation: run normally, then no-op Ocean.update and run again.
+// Everything else - the water draw, the sky, the post chain - still runs against
+// the last fields the simulation wrote, so the difference is the simulation and
+// nothing else.
+//
+// This is a button rather than a console snippet because the console cannot
+// reach it: the page is usually embedded in an iframe, so `window.abyssal` is
+// undefined in the top frame and the reader has to know to switch the devtools
+// execution context first. A button has no such problem.
+let profiling = false;
+async function profileSim() {
+  if (profiling) return;
+  profiling = true;
+  const saved = { fpsCap: params.fpsCap, fpsCapIdle: params.fpsCapIdle, adaptive: params.adaptiveQuality };
+  // The frame cap cannot show a saving and the adaptive controller would spend
+  // it on quality instead of reporting it. Both off for the duration.
+  params.fpsCap = 0; params.fpsCapIdle = 0; params.adaptiveQuality = false;
+  ui.toast('Profiling — hold still for about 15 seconds');
+
+  const settle = (ms) => new Promise((r) => setTimeout(r, ms));
+  const measure = (secs) => new Promise((resolve) => {
+    const t0 = performance.now(), f0 = frames;
+    setTimeout(() => resolve((frames - f0) / ((performance.now() - t0) / 1000)), secs * 1000);
+  });
+
+  await settle(1500);
+  const fpsFull = await measure(6);
+  const realUpdate = ocean.update.bind(ocean);
+  ocean.update = () => {};
+  await settle(700);
+  const fpsNoSim = await measure(6);
+  ocean.update = realUpdate;
+
+  params.fpsCap = saved.fpsCap; params.fpsCapIdle = saved.fpsCapIdle;
+  params.adaptiveQuality = saved.adaptive;
+  ui.syncAll();
+  profiling = false;
+
+  const msFull = 1000 / fpsFull, msNoSim = 1000 / fpsNoSim;
+  const simMs = msFull - msNoSim;
+  const share = Math.max(0, simMs / msFull);
+  const report = {
+    fps: +fpsFull.toFixed(1),
+    frameMs: +msFull.toFixed(2),
+    withoutSimMs: +msNoSim.toFixed(2),
+    simMs: +simMs.toFixed(2),
+    simShareOfFrame: (share * 100).toFixed(1) + '%',
+    resolution: W + 'x' + H,
+    fft: ocean.N + '^2 x ' + ocean.cascadeCount,
+  };
+  console.log('Abyssal profile', report);
+  window.__profileDone = report;   // for the headless check
+  ui.toast(`Simulation is ${(share * 100).toFixed(1)}% of the frame `
+         + `(${simMs.toFixed(2)} ms of ${msFull.toFixed(2)} ms at ${W}x${H})`, 9000);
+  return report;
 }
 
 // preserveDrawingBuffer is off - it costs a full-frame copy on every single frame
@@ -510,7 +570,7 @@ document.getElementById('boot').classList.add('gone');
 requestAnimationFrame(frame);
 
 window.abyssal = {
-  params, ocean, camera, ui, gl, waveRunner,
+  params, ocean, camera, ui, gl, waveRunner, profileSim,
   get spray() { return spray; },
   get wake() { return wake; },
   get lensWet() { return lensWet; },
