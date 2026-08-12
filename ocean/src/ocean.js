@@ -79,7 +79,7 @@ const ACTIVE_SHARE = 0.38;
 // across the preset range.
 const GATE_PASS = 0.85;
 
-function butterflyData(N) {
+export function butterflyData(N) {
   const stages = Math.round(Math.log2(N));
   const bits = stages;
   const rev = new Uint32Array(N);
@@ -112,6 +112,42 @@ function butterflyData(N) {
     }
   }
   return { data, stages };
+}
+
+// The gaussian field h0 is seeded from. One continuous stream across all
+// cascades, NOT a reseed per cascade: cascade 1 continues where cascade 0 left
+// off. Reseeding per cascade gives a different sea from the same seed.
+export function cascadeNoise(N, C, seed) {
+  const rand = mulberry32(seed);
+  const data = new Float32Array(N * N * C * 4);
+  for (let c = 0; c < C; c++) {
+    for (let i = 0; i < N * N; i++) {
+      const [a, b] = gauss2(rand);
+      const [d, e] = gauss2(rand);
+      const o = (c * N * N + i) * 4;
+      data[o] = a; data[o + 1] = b; data[o + 2] = d; data[o + 3] = e;
+    }
+  }
+  return data;
+}
+
+// Each cascade owns the band up to a comfortable margin below the next
+// cascade's fundamental, so the four spectra tile k-space without overlap.
+export function bandLimitsOf(L, C, c) {
+  const low = c === 0 ? 0.0 : (2 * Math.PI / L[c]) * 6.0;
+  const high = c === C - 1 ? 1e9 : (2 * Math.PI / L[c + 1]) * 6.0;
+  return [low, high];
+}
+
+export function kCharOf(L, C, N, c) {
+  const [lo, hi] = bandLimitsOf(L, C, c);
+  const top = Math.min(hi, Math.PI * N / L[c]);
+  return lo > 0 ? Math.sqrt(lo * top) : 0.75 * top;
+}
+
+export function choppinessOf(C, c, p) {
+  const t = C > 1 ? (C - 1 - c) / (C - 1) : 1;
+  return p.choppiness * (1 + (p.choppyLong - 1) * t);
 }
 
 export class Ocean {
@@ -184,16 +220,11 @@ export class Ocean {
 
   _makeNoise(seed) {
     const gl = this.gl, N = this.N, C = this.C;
-    const rand = mulberry32(seed);
-    const data = new Float32Array(N * N * 4);
+    const all = cascadeNoise(N, C, seed);
     this.noise?.forEach?.((t) => gl.deleteTexture(t.tex));
     this.noise = [];
     for (let c = 0; c < C; c++) {
-      for (let i = 0; i < N * N; i++) {
-        const [a, b] = gauss2(rand);
-        const [d, e] = gauss2(rand);
-        data[i * 4 + 0] = a; data[i * 4 + 1] = b; data[i * 4 + 2] = d; data[i * 4 + 3] = e;
-      }
+      const data = all.subarray(c * N * N * 4, (c + 1) * N * N * 4);
       this.noise.push(texture2D(gl, {
         width: N, height: N,
         internalFormat: gl.RGBA32F, format: gl.RGBA, type: gl.FLOAT,
@@ -218,13 +249,7 @@ export class Ocean {
     this.dirty = true;
   }
 
-  bandLimits(c) {
-    // Each cascade owns the band up to a comfortable margin below the next
-    // cascade's fundamental, so the four spectra tile k-space without overlap.
-    const low = c === 0 ? 0.0 : (2 * Math.PI / this.L[c]) * 6.0;
-    const high = c === this.C - 1 ? 1e9 : (2 * Math.PI / this.L[c + 1]) * 6.0;
-    return [low, high];
-  }
+  bandLimits(c) { return bandLimitsOf(this.L, this.C, c); }
 
   // Horizontal (Gerstner) displacement is what turns a sinusoid into a wave with
   // a peaked crest and a flat trough, and that asymmetry is the main cue for the
@@ -232,19 +257,12 @@ export class Ocean {
   // *longest* waves, but the short cascades contribute almost nothing to the
   // shape of a swell while contributing most of the Jacobian, so spending the
   // budget on the long end buys crest sharpening for free.
-  choppinessFor(c, p) {
-    const t = this.C > 1 ? (this.C - 1 - c) / (this.C - 1) : 1;
-    return p.choppiness * (1 + (p.choppyLong - 1) * t);
-  }
+  choppinessFor(c, p) { return choppinessOf(this.C, c, p); }
 
   // Energy centre of a cascade's band, used as the carrier wavenumber of the
   // bound second harmonic. Cascade 0 has no lower limit, so its centre is taken
   // from the top of the band, which is where the JONSWAP peak sits.
-  kChar(c) {
-    const [lo, hi] = this.bandLimits(c);
-    const top = Math.min(hi, Math.PI * this.N / this.L[c]);
-    return lo > 0 ? Math.sqrt(lo * top) : 0.75 * top;
-  }
+  kChar(c) { return kCharOf(this.L, this.C, this.N, c); }
 
   // Per-cascade weight of the folding test that drives spray. Droplets tear off
   // waves that can carry a plunging crest; anything shorter than `scale` metres
