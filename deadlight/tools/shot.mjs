@@ -63,7 +63,11 @@ const BACKEND_ARGS = USE_WEBGPU
 const GPU_ARGS = [...COMMON, ...BACKEND_ARGS];
 
 function startServer() {
-  const proc = spawn(process.execPath, [path.join(ROOT, 'tools/serve.mjs'), '--port', String(PORT)], {
+  const serverArgs = [path.join(ROOT, 'tools/serve.mjs'), '--port', String(PORT)];
+  // `--csp` proves the single-file build survives an Artifact's policy.
+  if (has('csp')) serverArgs.push('--csp');
+  if (has('csp-noblob')) serverArgs.push('--csp-noblob');
+  const proc = spawn(process.execPath, serverArgs, {
     cwd: ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -125,8 +129,11 @@ async function main() {
   try {
     const query = new URLSearchParams({ seed: SEED });
     if (!USE_WEBGPU) query.set('backend', 'webgl');
-    console.log(`· backend: ${USE_WEBGPU ? 'webgpu' : 'webgl (verification)'}`);
-    await page.goto(`http://localhost:${PORT}/?${query}`, { waitUntil: 'domcontentloaded' });
+    // `--page` points at an alternative entry — the single-file build lives at
+    // dist/deadlight.html and has to be verified the same way as the served one.
+    const entry = flag('page', '/');
+    console.log(`· backend: ${USE_WEBGPU ? 'webgpu' : 'webgl (verification)'}${has('csp') ? ' · strict CSP' : ''}${has('csp-noblob') ? ' · strict CSP, no blob:' : ''}`);
+    await page.goto(`http://localhost:${PORT}${entry}?${query}`, { waitUntil: 'domcontentloaded' });
 
     // Wait for assets: the menu is revealed only once everything has loaded.
     await page.waitForFunction(

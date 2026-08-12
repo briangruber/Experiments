@@ -85,19 +85,39 @@ export class Player {
       if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space'].includes(e.code)) e.preventDefault();
     };
     this._onKeyUp = (e) => this.keys.delete(e.code);
+
+    // Look works two ways. Pointer lock is the good one, but it is not always
+    // available — an embedded page only gets it if whoever wrote the <iframe>
+    // included `allow="pointer-lock"`, and there is no way to ask for it from
+    // in here. So holding the mouse button turns the view too. It is a worse
+    // way to play and the HUD says so, but it is the difference between a
+    // playable page and a dead one.
+    this._dragging = false;
+    this._onMouseDown = (e) => {
+      if (e.button === 0 && !document.pointerLockElement) this._dragging = true;
+    };
+    this._onMouseUp = () => { this._dragging = false; };
+
     this._onMouse = (e) => {
-      if (document.pointerLockElement !== dom || this.frozen) return;
+      const locked = document.pointerLockElement === dom;
+      if (this.frozen || (!locked && !this._dragging)) return;
       const sens = 0.0022;
       this.yaw -= e.movementX * sens;
       this.pitch -= e.movementY * sens;
       this.pitch = THREE.MathUtils.clamp(this.pitch, -1.45, 1.45);
     };
+
     // Losing focus mid-sprint would otherwise leave the key latched down.
-    this._onBlur = () => this.keys.clear();
+    this._onBlur = () => {
+      this.keys.clear();
+      this._dragging = false;
+    };
 
     window.addEventListener('keydown', this._onKeyDown);
     window.addEventListener('keyup', this._onKeyUp);
     window.addEventListener('mousemove', this._onMouse);
+    window.addEventListener('mousedown', this._onMouseDown);
+    window.addEventListener('mouseup', this._onMouseUp);
     window.addEventListener('blur', this._onBlur);
   }
 
@@ -105,6 +125,8 @@ export class Player {
     window.removeEventListener('keydown', this._onKeyDown);
     window.removeEventListener('keyup', this._onKeyUp);
     window.removeEventListener('mousemove', this._onMouse);
+    window.removeEventListener('mousedown', this._onMouseDown);
+    window.removeEventListener('mouseup', this._onMouseUp);
     window.removeEventListener('blur', this._onBlur);
   }
 

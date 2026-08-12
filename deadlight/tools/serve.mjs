@@ -21,6 +21,35 @@ const flag = (name, fallback) => {
 const ROOT = path.resolve(flag('root', path.join(path.dirname(fileURLToPath(import.meta.url)), '..')));
 const PORT = Number(flag('port', 8080));
 
+/**
+ * `--csp` serves under a policy close to the one a published Artifact gets:
+ * inline script and style, `data:` for anything embedded, and no host allowed
+ * anywhere — not even this one. It exists so the single-file build
+ * (tools/artifact.mjs) can be proved to run under those rules *before* it is
+ * published, rather than discovered to be broken afterwards.
+ *
+ * `blob:` is listed because that is how GLTFLoader hands an embedded texture
+ * to the decoder; if a real artifact turns out to forbid it, this is the line
+ * that has to change.
+ */
+function buildCsp({ blob }) {
+  const embedded = blob ? 'data: blob:' : 'data:';
+  return [
+    "default-src 'none'",
+    "script-src 'unsafe-inline'",
+    "style-src 'unsafe-inline'",
+    `img-src ${embedded}`,
+    `media-src ${embedded}`,
+    'font-src data:',
+    `connect-src ${embedded}`,
+    ...(blob ? ['worker-src blob:'] : []),
+  ].join('; ');
+}
+
+const CSP = args.includes('--csp') || args.includes('--csp-noblob')
+  ? buildCsp({ blob: !args.includes('--csp-noblob') })
+  : null;
+
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -57,6 +86,7 @@ const server = http.createServer(async (req, res) => {
       'Content-Type': TYPES[path.extname(file)] ?? 'application/octet-stream',
       'Content-Length': info.size,
       'Cache-Control': 'no-cache',
+      ...(CSP ? { 'Content-Security-Policy': CSP } : {}),
     });
     createReadStream(file).pipe(res);
   } catch {
@@ -65,5 +95,5 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`deadlight → http://localhost:${PORT}/`);
+  console.log(`deadlight → http://localhost:${PORT}/${CSP ? '  (strict CSP)' : ''}`);
 });

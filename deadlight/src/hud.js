@@ -26,6 +26,7 @@ export class Hud {
       fuseNeed: $('fuse-need'),
       scares: $('scare-count'),
       objective: $('objective'),
+      lookhint: $('lookhint'),
       prompt: $('prompt'),
       subtitle: $('subtitle'),
       seed: $('seed-value'),
@@ -53,6 +54,11 @@ export class Hud {
     this.el.hud.hidden = true;
     this.el.flash.style.opacity = '0';
     this.el.blood.style.opacity = '0';
+  }
+
+  /** Tell the player how to look around when pointer lock was refused. */
+  setLookMode(locked) {
+    this.el.lookhint.hidden = locked;
   }
 
   setSeed(seed) {

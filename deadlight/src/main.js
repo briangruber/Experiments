@@ -40,7 +40,12 @@ let lastTime = 0;
 
 /** Seed precedence: ?seed= in the URL, then whatever is typed, then random. */
 function initialSeed() {
-  const fromUrl = new URLSearchParams(location.search).get('seed');
+  let fromUrl = null;
+  try {
+    fromUrl = new URLSearchParams(location.search).get('seed');
+  } catch {
+    // Sandboxed frame; fall through to a random seed.
+  }
   return (fromUrl || randomSeed()).toUpperCase().slice(0, 12);
 }
 
@@ -49,11 +54,33 @@ function currentSeed() {
   return typed || randomSeed();
 }
 
-/** Keep the address bar in sync so the tab itself is the shareable link. */
+/**
+ * Keep the address bar in sync so the tab itself is the shareable link.
+ *
+ * Guarded because this also runs embedded, where a sandboxed frame can refuse
+ * both `history.replaceState` and even reading `location.href`. Losing the
+ * shareable URL there is a shame; throwing on the way into a run is not
+ * acceptable, and this is called on every start.
+ */
 function pushSeedToUrl(seed) {
-  const url = new URL(location.href);
-  url.searchParams.set('seed', seed);
-  history.replaceState(null, '', url);
+  try {
+    const url = new URL(location.href);
+    url.searchParams.set('seed', seed);
+    history.replaceState(null, '', url);
+  } catch {
+    // Embedded and sandboxed. The seed is still shown on the HUD.
+  }
+}
+
+/** The current run's link, or just the seed where there is no usable URL. */
+function shareLink(seed) {
+  try {
+    const url = new URL(location.href);
+    url.searchParams.set('seed', seed);
+    return url.toString();
+  } catch {
+    return `seed ${seed}`;
+  }
 }
 
 async function copyText(text, button, done = 'COPIED') {
@@ -62,10 +89,14 @@ async function copyText(text, button, done = 'COPIED') {
     await navigator.clipboard.writeText(text);
     button.textContent = done;
   } catch {
-    // Clipboard access is refused in plenty of legitimate setups; showing the
-    // text is more useful than showing an error.
+    // Clipboard access is refused in plenty of legitimate setups, and an
+    // embedded frame may refuse `prompt` as well — hence the second guard.
     button.textContent = 'CTRL+C';
-    window.prompt('Copy this:', text);
+    try {
+      window.prompt('Copy this:', text);
+    } catch {
+      console.info(text);
+    }
   }
   setTimeout(() => { button.textContent = original; }, 1400);
 }
@@ -158,7 +189,7 @@ async function startRun(seed) {
   el.loadFill.style.width = '100%';
   el.boot.hidden = true;
 
-  el.canvas.requestPointerLock?.();
+  await acquireLook();
 
   lastTime = performance.now();
   cancelAnimationFrame(raf);
@@ -198,9 +229,7 @@ el.seedRoll.addEventListener('click', () => {
 });
 
 el.seedCopy.addEventListener('click', () => {
-  const url = new URL(location.href);
-  url.searchParams.set('seed', currentSeed());
-  copyText(url.toString(), el.seedCopy, 'COPIED');
+  copyText(shareLink(currentSeed()), el.seedCopy, 'COPIED');
 });
 
 el.reportCopy.addEventListener('click', () => {
@@ -208,23 +237,41 @@ el.reportCopy.addEventListener('click', () => {
   const r = lastResult;
   const mins = Math.floor(r.seconds / 60);
   const secs = String(Math.floor(r.seconds % 60)).padStart(2, '0');
-  const url = new URL(location.href);
-  url.searchParams.set('seed', r.seed);
   copyText(
     [
       `DEADLIGHT · seed ${r.seed}`,
       r.won ? `escaped in ${mins}:${secs}` : `died after ${mins}:${secs}`,
       `${r.fuses}/${r.fusesNeeded} fuses · ${r.scares} scares · ${Math.round(r.peakBpm)} peak BPM`,
       r.topScare ? `worst moment: ${r.topScare}` : '',
-      url.toString(),
+      shareLink(r.seed),
     ].filter(Boolean).join('\n'),
     el.reportCopy,
   );
 });
 
+/**
+ * Ask for pointer lock, and find out whether we got it.
+ *
+ * An embedded page is only granted pointer lock if the host `<iframe>` carries
+ * `allow="pointer-lock"`, which this page has no way to request. Rather than
+ * leave the mouse silently dead, the player falls back to hold-to-look and the
+ * HUD says so — see Player#attach.
+ */
+async function acquireLook() {
+  try {
+    const request = el.canvas.requestPointerLock?.();
+    if (request && typeof request.then === 'function') await request;
+  } catch {
+    // Refused. The fallback below covers it.
+  }
+  // The lock lands asynchronously even without a promise-returning API.
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  hud.setLookMode(document.pointerLockElement === el.canvas);
+}
+
 // Re-acquire pointer lock on click, and treat losing it as a pause.
 el.canvas.addEventListener('click', () => {
-  if (game?.running && !document.pointerLockElement) el.canvas.requestPointerLock?.();
+  if (game?.running && !document.pointerLockElement) acquireLook();
 });
 
 window.addEventListener('keydown', (e) => {

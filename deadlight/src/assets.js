@@ -9,6 +9,18 @@
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+// Static rather than dynamic: the single-file build bundles this module, and a
+// dynamic import there would become a second chunk with nowhere to be fetched
+// from.
+import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
+
+/** base64 → ArrayBuffer, for GLBs embedded in the single-file build. */
+function decodeBase64(text) {
+  const binary = atob(text);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+}
 
 /**
  * Give a geometry a tangent attribute if it can have one.
@@ -49,13 +61,23 @@ export class AssetLibrary {
    * be honest about what is happening rather than faking a smooth bar.
    */
   async loadAll(onProgress) {
-    const res = await fetch(`${this.base}manifest.json`);
-    if (!res.ok) {
-      throw new Error(
-        `assets/manifest.json is missing (${res.status}) — run: npm run assets`,
-      );
+    // The single-file build (tools/artifact.mjs) puts the manifest and every
+    // GLB on the page as base64, because an artifact is served under a policy
+    // that allows no requests at all. Same assets, same manifest — the only
+    // difference is where the bytes come from.
+    const embedded = globalThis.__DEADLIGHT_ASSETS ?? null;
+
+    if (embedded) {
+      this.manifest = embedded.manifest;
+    } else {
+      const res = await fetch(`${this.base}manifest.json`);
+      if (!res.ok) {
+        throw new Error(
+          `assets/manifest.json is missing (${res.status}) — run: npm run assets`,
+        );
+      }
+      this.manifest = await res.json();
     }
-    this.manifest = await res.json();
 
     const keys = Object.keys(this.manifest.assets);
     let done = 0;
@@ -64,11 +86,22 @@ export class AssetLibrary {
     // reads as a hang.
     for (const key of keys) {
       const meta = this.manifest.assets[key];
-      const gltf = await this.loader.loadAsync(`${this.base}${meta.file}`);
+      const gltf = embedded
+        ? await this.#parse(decodeBase64(embedded.files[meta.file]), meta.file)
+        : await this.loader.loadAsync(`${this.base}${meta.file}`);
       this.entries.set(key, this.#prepare(key, gltf, meta));
       onProgress?.(++done, keys.length, key);
+      // Yield between assets so the loading bar actually paints.
+      await new Promise((r) => setTimeout(r, 0));
     }
     return this;
+  }
+
+  #parse(buffer, label) {
+    return new Promise((resolve, reject) => {
+      this.loader.parse(buffer, '', resolve, (err) =>
+        reject(new Error(`${label}: ${err?.message ?? err}`)));
+    });
   }
 
   /**
@@ -176,8 +209,7 @@ export class AssetLibrary {
  * they all drive the same skeleton and cross-fade cleanly.
  */
 export async function makeAnimated(entry) {
-  const { clone } = await import('three/addons/utils/SkeletonUtils.js');
-  const root = clone(entry.root);
+  const root = cloneSkinned(entry.root);
   const mixer = new THREE.AnimationMixer(root);
 
   const actions = new Map();
