@@ -103,6 +103,7 @@ export class TslSky {
 		this.bgMaterial.depthWrite = false;
 		this.bgMaterial.transparent = false;
 		this.bgQuad = new THREE.QuadMesh( this.bgMaterial );
+		this.depthMode = 'behind';
 
 		// PIN THE QUAD TO THE FAR PLANE, exactly as FS_VERT_FAR does.
 		//
@@ -120,9 +121,52 @@ export class TslSky {
 		// the project's own Blitter uses - so writing clip space directly reproduces
 		// FS_VERT_FAR verbatim and bypasses that camera entirely.
 		//
-		// z = 1, w = 1 is the far plane under BOTH depth conventions: GL's [-1,1] NDC
-		// and WebGPU's [0,1] both put the far plane at z/w = 1.
-		this.bgMaterial.vertexNode = vec4( positionGeometry.x, positionGeometry.y, 1.0, 1.0 );
+		// z = 0.999999, NOT 1.0 — just inside the far plane rather than exactly on it.
+		//
+		// FS_VERT_FAR writes z = w, and that worked on every implementation this was
+		// developed against. It does not work on Safari's WebGPU: the sea drew and
+		// the sky did not, and the app's own band readout came back 0.052 / 0.000 -
+		// one band with content, the other EXACTLY zero, which is a pass that never
+		// rasterised rather than one that shaded black. WebGPU clips a primitive when
+		// z > w and z == w is meant to be inside, but that boundary is exactly where
+		// implementations are free to differ, and one of them does.
+		//
+		// The margin has to sit in a narrow window, so it is worked out rather than
+		// guessed. With this project's near = 0.08 and far = 90000, the most distant
+		// water (~42 km) lands at a GL depth of about 1 - 1.9e-6. This quad lands at
+		// 1 - 5e-7. So:
+		//
+		//   vs the cleared depth of 1.0   0.9999995 <= 1.0        passes, sky draws
+		//   vs the farthest sea           0.9999995 >  0.9999981  fails, sea occludes
+		//
+		// which is ~16 ULPs below 1.0 and ~23 ULPs above the far sea in a 24-bit
+		// buffer - comfortable at both ends. A larger offset would put the sky in
+		// FRONT of the distant water and paint over the horizon; a much smaller one
+		// would round back to 1.0 and be the bug again.
+		this.bgMaterial.vertexNode = vec4( positionGeometry.x, positionGeometry.y, 0.999999, 1.0 );
+
+	}
+
+	/**
+	 * How the background pass relates to the sea.
+	 *
+	 *   'behind'  (default) depth-tested just inside the far plane and drawn AFTER
+	 *             the sea, so the cloud raymarch - the most expensive thing in the
+	 *             frame - never runs on a pixel the sea already covered.
+	 *
+	 *   'first'   depth test off, drawn BEFORE the sea. Unconditionally correct on
+	 *             every implementation, and pays for the whole sky on every pixel.
+	 *
+	 * 'behind' relies on a clip-space z that sits inside the far plane, and one
+	 * WebGPU implementation was found that rasterises nothing there at all. The app
+	 * watches its own output and switches to 'first' if the sky goes missing, so a
+	 * platform that cannot do the fast path still gets a sky.
+	 */
+	setDepthMode( mode ) {
+
+		this.depthMode = mode;
+		this.bgMaterial.depthTest = mode !== 'first';
+		this.bgMaterial.needsUpdate = true;
 
 	}
 

@@ -175,6 +175,7 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	const diagQuad = new THREE.QuadMesh( diagMat );
 
 	let diagBusy = false;
+	let skyRecovered = false;
 	let diagAt = 0;
 	const readDiag = async () => {
 
@@ -190,7 +191,26 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			const px = raw instanceof Float32Array ? raw : new Float32Array( raw.buffer ?? raw );
 			let a = 0, b = 0;
 			for ( let i = 0; i < 64; i ++ ) { a += px[ i * 4 ]; b += px[ i * 4 + 1 ]; }
-			api.diag = { bandA: a / 64, bandB: b / 64 };
+			a /= 64; b /= 64;
+			api.diag = { bandA: a, bandB: b, skyMode: sky.depthMode };
+
+			// SELF-HEAL. One band with content and the other at EXACTLY zero is not a
+			// dark sky - it is a pass that never rasterised. That is what Safari's
+			// WebGPU did with the background quad on the far plane (measured on a
+			// phone: 0.052 / 0.000). If it happens here, give up the depth-rejection
+			// optimisation and draw the sky first, which no implementation can refuse.
+			//
+			// Once only, and never back again: flapping between two draw orders would
+			// be worse than either.
+			if ( sky.depthMode === 'behind' && ! skyRecovered
+				&& ( a === 0 || b === 0 ) && ( a + b ) > 0.002 ) {
+
+				skyRecovered = true;
+				sky.setDepthMode( 'first' );
+				api.skyFallback = 'The depth-tested sky drew nothing on this platform; '
+					+ 'switched to drawing it first.';
+
+			}
 
 		} catch ( e ) {
 
@@ -309,8 +329,19 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 
 		// Sea first; the sky is then depth-tested against it and its cloud march -
 		// the most expensive thing per pixel - never runs on a pixel the sea covers.
-		water.render( params, ctx, sim, cam3 );
-		sky.drawBackground( params, ctx );
+		// Unless the fast path produced no sky on this platform, in which case the
+		// sky goes first with no depth test at all. See sky.setDepthMode().
+		if ( sky.depthMode === 'first' ) {
+
+			sky.drawBackground( params, ctx );
+			water.render( params, ctx, sim, cam3 );
+
+		} else {
+
+			water.render( params, ctx, sim, cam3 );
+			sky.drawBackground( params, ctx );
+
+		}
 		spray.draw( params, ctx, sim, cam3 );
 
 		renderer.setRenderTarget( null );
