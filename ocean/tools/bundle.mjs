@@ -86,9 +86,14 @@ async function load(id) {
 
 await load(ENTRY);
 
+const BUILD_ID = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';
+
 const runtime = `
 (function(){
 "use strict";
+// Set before any module runs, so it survives a startup failure. If this is
+// undefined in the console, the page being served is older than this build.
+window.abyssalBuild = ${JSON.stringify(BUILD_ID)};
 var __defs = {}, __cache = {};
 function __req(id){
   if (__cache[id]) return __cache[id];
@@ -118,6 +123,10 @@ if (!document.querySelector('meta[name="viewport"]')) {
 try {
   __req(${JSON.stringify(ENTRY)});
 } catch (err) {
+  // Kept reachable from the console: a failure that leaves no window.abyssal
+  // otherwise gives the reader nothing to report back.
+  window.abyssalError = err;
+  console.error('Abyssal build ' + window.abyssalBuild + ' failed to start:', err);
   var boot = document.getElementById('boot');
   if (boot) {
     boot.classList.remove('gone');
@@ -128,6 +137,7 @@ try {
           '<br><br>It runs in current Chrome, Edge, Firefox and Safari 16+ on a machine with hardware graphics enabled.'
         : 'Abyssal failed to start.<br><br><span style="font-family:ui-monospace,monospace;font-size:.85em;opacity:.8">' +
           String((err && (err.message || err)) || 'unknown error').replace(/[<>&]/g, '') + '</span>') +
+      '<br><br><span style="font-size:.72em;opacity:.45;letter-spacing:.05em">build ' + window.abyssalBuild + '</span>' +
       '</div>';
   }
   throw err;
