@@ -235,3 +235,66 @@ Steps 2 to 4 are a re-expression of the physics, not a translation of it, and
 that is the honest scale of what is left: the largest body of work in this
 project so far. The WGSL kernels being correct is what makes it tractable —
 every stage has a reference to be wrong against.
+
+
+---
+
+## Measured: TSL compute does not survive the WebGL2 fallback
+
+`prototypes/tsl-mechanics-probe.html`. Before re-expressing the physics as node
+graphs, the four mechanics every stage needs, each checked against a CPU
+reference computed from the same input, on both backends:
+
+```
+WebGPU  1. storage buffer seeded from CPU data   PASS  (proven by the gather)
+WebGPU  2. gather at a computed index            PASS  worst 1.43e-7
+WebGPU  3. two output buffers in one kernel      PASS  worst 0.00e+0
+WebGPU  4. Loop and If                           PASS  worst 4.18e-5
+
+WebGL2  1. storage buffer seeded from CPU data   FAIL
+WebGL2  2. gather at a computed index            FAIL  worst 2.14e+0
+WebGL2  3. two output buffers in one kernel      FAIL  worst 3.99e+0
+WebGL2  4. Loop and If                           FAIL  dualAttributeData.switchBuffers is not a function
+```
+
+Every mechanic works on WebGPU. None works on the WebGL2 backend, and the last
+is an internal error inside Three's WebGL compute emulation rather than anything
+this code does.
+
+**This is the third position on this question, so it is worth being exact about
+why the earlier two were wrong.**
+
+The first probe ran a trivial kernel — write `instanceIndex * 3 + 1` into a
+`float` array, no input buffer, no gather, one output — and it worked on both
+backends. From that came "TSL compute runs on WebGL2, so one implementation
+serves both". The kernel was too simple to touch anything the real workload
+needs, and "it ran" is a weak claim: a wgslFn kernel also ran clean, on WebGPU,
+and wrote zeros.
+
+Then raw WGSL turned out not to be drivable through TSL at all, which forced two
+implementations. Then TSL was proposed as the way to get back to one — correctly
+in principle, and it is how Three intends this to be done. This probe is the
+first test of whether the intent survives contact with a gather, two outputs and
+a loop. It does not.
+
+### What still stands
+
+**Rendering in TSL is unaffected.** A TSL material rendered on the WebGL2 backend
+in the earlier probe, and rendering is most of the port and almost all of the
+frame — the water BRDF, the sky, the cloud march, post. Authoring those in TSL
+gives exactly the automatic fallback that was wanted.
+
+It is specifically **compute** that is WebGPU-only. So:
+
+| | simulation | surface, sky, post |
+| --- | --- | --- |
+| WebGPU | WGSL compute on the device | TSL node materials |
+| WebGL2 | the existing GLSL fragment simulation | TSL node materials |
+
+Which is where this started. The difference is that it is now measured rather
+than inferred, on the mechanics the physics actually uses, and the WGSL kernels
+that were briefly written off are the shipping path again — already verified to
+1.40e-5 against the reference on real hardware.
+
+The simulation is also the smaller half: 3.0% of a frame, and one of the two
+implementations already exists and ships.
