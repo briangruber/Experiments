@@ -165,3 +165,73 @@ Measured on an 8×8 RGBA32F target (128-byte rows), the row indices came back
 Every real target here clears the bar (references are 160 wide = 2560 bytes; the
 FFT is 128 or 256). `prototypes/readback.js` now throws rather than let a probe
 at a small size mislead someone.
+
+---
+
+## 11. A texture's filter state is part of the SHADER on WGSL
+
+`WGSLNodeBuilder.isUnfilterable` (three.webgpu.js:79067) is true when `minFilter`
+**and** `magFilter` are both `NearestFilter`, and `generateTextureLevel` then
+emits `textureLoad(...)` instead of `textureSampleLevel(...)`. That choice is
+made when the node graph is **built**, from whatever texture is bound at that
+moment — not at draw time, and not per draw.
+
+So a placeholder texture is not inert. `DataTexture` and `DataArrayTexture`
+default to `NearestFilter`; a material built before the real fields are bound
+bakes an unfiltered nearest-texel fetch into the shader and keeps it forever
+after. WebGL2 resolves the sampler per draw and is unaffected — the
+"compiles on both, wrong on one" class again.
+
+**Rule: give every placeholder the real resource's filter, wrap and mip state.**
+
+`isUnfilterable` also fires for `FloatType` when the `float32Filterable` feature
+is absent, which is worth knowing before choosing a target format.
+
+## 12. Anisotropy is not a quality knob when matching a reference
+
+`src/ocean.js` builds slope and foam with `aniso: 8`. Re-uploading those fields
+without it left the *distribution* matching to 0.15% while **27% of pixels** were
+beyond 2%: at grazing incidence — most of a seascape — an isotropic mip fetch
+averages the wrong footprint. Setting `texture.anisotropy = 8` took the same
+frame to 0/16000.
+
+## 13. Per-frame uniforms belong to the frame, not to whoever declared them
+
+`uCamPos`, `uTime` and `uWindDirV` live in `cloud-field.js` because the cloud
+field needed them first, but the water stages read all three. The water driver
+did not call `setCloudUniforms`, so:
+
+- with the sky drawn first, the sea was pixel-exact (the sky's setter had
+  already written them);
+- with the sea drawn first, `uCamPos` was still `(0,0,0)`, every view vector was
+  computed from the origin, and the near sea came back **4.5× too bright**.
+
+Correct in one draw order and wrong in the other, silently. **Every driver must
+set every uniform its stages read, including ones another module declares.**
+
+## 14. A fullscreen pass that must sit BEHIND geometry needs `vertexNode`
+
+`QuadMesh` renders through `OrthographicCamera(-1, 1, 1, -1, 0, 1)` with its
+geometry at z = 0, which lands at the **near** plane — so a sky drawn after the
+sea paints straight over it. (It comes back at exactly the sky reference's mean
+radiance, which reads as "the water is black" rather than "the water was
+overwritten".) Nudging the mesh toward the far plane trades one wrong depth for
+another.
+
+`QuadGeometry`'s positions are already the NDC fullscreen triangle
+`[-1,3, -1,-1, 3,-1]` — the same triangle this project's `Blitter` uses — so
+reproduce `FS_VERT_FAR` directly and bypass that camera:
+
+```js
+material.vertexNode = vec4( positionGeometry.x, positionGeometry.y, 1.0, 1.0 );
+```
+
+`z = w = 1` is the far plane under both GL's `[-1,1]` and WebGPU's `[0,1]` depth
+conventions. This is what keeps the cloud raymarch — the most expensive thing in
+the frame — off the half of the screen that is sea.
+
+## 15. `renderer.autoClear` defaults to true
+
+Every `renderer.render()` and every `QuadMesh.render()` clears the bound target
+first. A multi-pass frame needs `renderer.autoClear = false` and one explicit
+`renderer.clear()`.
