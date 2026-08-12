@@ -39,6 +39,12 @@
     display: block;
     touch-action: none;         /* drag-to-look, not scroll */
     cursor: grab;
+    /* Promote the canvas to its own compositor layer. On iOS Safari the WebGPU
+       canvas stayed blank until a DOM change (collapsing the panel) forced a
+       re-composite; pinning it to a layer is the standard nudge for exactly that
+       class of bug. Unverifiable from where this is written - iOS has no
+       headless - so it is an attempt, stated as one. */
+    transform: translateZ(0);
   }
   #view:active { cursor: grabbing; }
 
@@ -168,6 +174,7 @@
     <div class="row"><span class="k">Running</span><span class="v" id="status">starting…</span></div>
     <div class="row"><span class="k">Frame</span><span class="v" id="fps">—</span></div>
     <div class="row"><span class="k">Bands</span><span class="v" id="bands">—</span></div>
+    <div class="row"><span class="k">Build</span><span class="v" id="build">—</span></div>
   </div>
   <p id="note"></p>
 </div>

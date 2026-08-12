@@ -194,21 +194,42 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			a /= 64; b /= 64;
 			api.diag = { bandA: a, bandB: b, skyMode: sky.depthMode };
 
-			// SELF-HEAL. One band with content and the other at EXACTLY zero is not a
-			// dark sky - it is a pass that never rasterised. That is what Safari's
-			// WebGPU did with the background quad on the far plane (measured on a
-			// phone: 0.052 / 0.000). If it happens here, give up the depth-rejection
-			// optimisation and draw the sky first, which no implementation can refuse.
+			// SELF-HEAL, AS A LADDER. One band with content and the other at EXACTLY
+			// zero is not a dark sky - it is a pass that never rasterised. Measured on
+			// an iPhone: 0.052 / 0.000, on Safari's WebGPU.
 			//
-			// Once only, and never back again: flapping between two draw orders would
-			// be worse than either.
-			if ( sky.depthMode === 'behind' && ! skyRecovered
-				&& ( a === 0 || b === 0 ) && ( a + b ) > 0.002 ) {
+			// Each rung gives up more to gain certainty, and each fires at most once -
+			// flapping between draw orders would be worse than any of them:
+			//
+			//   behind -> first   maybe the far-plane depth test is what this
+			//                     implementation refuses; drop it and draw the sky
+			//                     before the sea.
+			//   first  -> lut     the full background pass never rasterised in EITHER
+			//                     order, which on Safari means its pipeline failed
+			//                     validation silently. Swap in a pass built only from
+			//                     parts this platform has proven: the sea visibly
+			//                     reflects the baked LUT, so a fragment that only
+			//                     fetches the LUT compiles where the cloud march may
+			//                     not. Sky gradient and sun; no clouds, no stars.
+			//
+			// A rung is only climbed while the frame HAS content (a+b > 0.002): two
+			// dark bands means nothing at all drew, and rearranging passes will not
+			// fix a dead frame.
+			if ( ( a === 0 || b === 0 ) && ( a + b ) > 0.002 ) {
 
-				skyRecovered = true;
-				sky.setDepthMode( 'first' );
-				api.skyFallback = 'The depth-tested sky drew nothing on this platform; '
-					+ 'switched to drawing it first.';
+				if ( sky.depthMode === 'behind' ) {
+
+					sky.setDepthMode( 'first' );
+					api.skyFallback = 'The depth-tested sky drew nothing here; drawing it first instead.';
+
+				} else if ( sky.depthMode === 'first' && ! skyRecovered ) {
+
+					skyRecovered = true;
+					sky.setDepthMode( 'lut' );
+					api.skyFallback = 'The full sky pass never rendered on this platform; '
+						+ 'using the LUT-only sky (no clouds or stars).';
+
+				}
 
 			}
 

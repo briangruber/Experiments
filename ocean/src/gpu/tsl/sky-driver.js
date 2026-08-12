@@ -42,13 +42,17 @@
 // horizon. Measured in prototypes/screenuv-probe.html.
 
 import * as THREE from 'three/webgpu';
-import { vec4, screenUV, positionGeometry } from 'three/tsl';
+import { Fn, vec4, screenUV, positionGeometry } from 'three/tsl';
 
 import { setAtmosphereUniforms } from './atmosphere.js';
 import { skyLutFragment, setSkyLutUniforms, LUT_W, LUT_H, moonDirOf } from './sky-lut.js';
 import { setCloudUniforms } from './cloud-field.js';
 import { setCloudMarchUniforms } from './cloud-march.js';
-import { skyBackground, setSkyBackgroundUniforms, setSkyLut } from './sky-background.js';
+import {
+	skyBackground, setSkyBackgroundUniforms, setSkyLut,
+	sampleSky, glScreenUV, uInvViewProj,
+} from './sky-background.js';
+import { uCamPos } from './cloud-field.js';
 
 export class TslSky {
 
@@ -165,8 +169,35 @@ export class TslSky {
 	setDepthMode( mode ) {
 
 		this.depthMode = mode;
-		this.bgMaterial.depthTest = mode !== 'first';
+		this.bgMaterial.depthTest = mode === 'behind';
 		this.bgMaterial.needsUpdate = true;
+
+		// The last rung: the full background pass never rasterised in EITHER draw
+		// order, which on Safari means its pipeline failed validation - a WGSL
+		// compile error draws nothing and says nothing a phone can show. So fall
+		// back to a pass built from parts this platform has already proven: the
+		// water visibly reflects the baked LUT, so a fragment that only fetches the
+		// LUT compiles where the cloud march may not. No custom vertexNode either -
+		// QuadMesh's own near-plane placement is fine for a pass drawn first with
+		// the depth test off. Sky gradient and sun, no clouds or stars.
+		if ( mode === 'lut' && ! this.lutOnlyQuad ) {
+
+			const m = new THREE.NodeMaterial();
+			m.name = 'abyssal.skyLutOnly';
+			m.fragmentNode = Fn( () => {
+
+				const ndc = vec4( glScreenUV().mul( 2.0 ).sub( 1.0 ), 1.0, 1.0 ).toVar();
+				const wp = uInvViewProj.mul( ndc ).toVar();
+				const rd = wp.xyz.div( wp.w ).sub( uCamPos ).normalize().toVar();
+				return vec4( sampleSky( rd ), 1.0 );
+
+			} )();
+			m.depthTest = false;
+			m.depthWrite = false;
+			this.lutOnlyMaterial = m;
+			this.lutOnlyQuad = new THREE.QuadMesh( m );
+
+		}
 
 	}
 
@@ -214,7 +245,7 @@ export class TslSky {
 		setSkyLutUniforms( p, ctx.sunDir, Math.max( ctx.camPos[ 1 ], 1 ),
 			ctx.moonDir ?? moonDirOf( p ) );
 
-		this.bgQuad.render( this.renderer );
+		( this.depthMode === 'lut' ? this.lutOnlyQuad : this.bgQuad ).render( this.renderer );
 
 	}
 

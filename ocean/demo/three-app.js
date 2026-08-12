@@ -6,6 +6,28 @@
 
 import { boot, wantedBackend } from './three-main.js';
 
+// ---- error capture ----------------------------------------------------------
+// A phone has no console. On Safari a WGSL pipeline that fails validation draws
+// nothing and logs the reason somewhere the user cannot see - which is how "no
+// sky" stayed undiagnosable for a full round trip. So the first few errors are
+// kept and surfaced in the panel, whatever their source.
+const capturedErrors = [];
+const keep = ( m ) => {
+
+	if ( capturedErrors.length < 5 ) capturedErrors.push( String( m ).slice( 0, 300 ) );
+
+};
+const realConsoleError = console.error;
+console.error = ( ...a ) => { keep( a.join( ' ' ) ); realConsoleError( ...a ); };
+// Guarded so the module stays importable under node, where the loadability
+// checks run and `window` does not exist.
+if ( typeof window !== 'undefined' ) {
+
+	window.addEventListener( 'error', ( e ) => keep( e.message ) );
+	window.addEventListener( 'unhandledrejection', ( e ) => keep( e.reason?.message || e.reason ) );
+
+}
+
 const statusEl = () => document.getElementById( 'status' );
 const want = wantedBackend();
 
@@ -185,6 +207,21 @@ bootWithFallback().then( ( app ) => {
 	// opened against the top frame cannot see this. The FPS readout below is what
 	// a reader actually has.
 	window.abyssal = app;
+	window.abyssalErrors = capturedErrors;
+
+	const buildEl = document.getElementById( 'build' );
+	if ( buildEl ) buildEl.textContent = ( window.abyssalBuild || '?' ).slice( 4, 13 );
+
+	// WebGPU validation errors arrive asynchronously and outside any try/catch.
+	if ( app.renderer?.backend?.device ) {
+
+		app.renderer.backend.device.addEventListener?.( 'uncapturederror', ( e ) => {
+
+			keep( e.error?.message || 'uncaptured GPU error' );
+
+		} );
+
+	}
 
 	let frames = 0, t0 = performance.now();
 	const fpsEl = document.getElementById( 'fps' );
@@ -201,9 +238,28 @@ bootWithFallback().then( ( app ) => {
 		if ( bandsEl ) {
 
 			const d = app.diag;
+			// The tag after the numbers is the sky mode the self-heal ladder has
+			// reached; no tag is the fast path.
+			const tag = d && d.skyMode && d.skyMode !== 'behind' ? `  ·${ d.skyMode }` : '';
 			bandsEl.textContent = ! d ? '—'
 				: d.error ? d.error
-				: `${ d.bandA.toFixed( 3 ) } / ${ d.bandB.toFixed( 3 ) }`;
+				: `${ d.bandA.toFixed( 3 ) } / ${ d.bandB.toFixed( 3 ) }${ tag }`;
+
+		}
+
+		// Surface whichever explanation exists, most specific first: the ladder's
+		// own reason, then the first captured error. Never overwrite a note the
+		// boot path already wrote.
+		const noteEl = document.getElementById( 'note' );
+		if ( noteEl && ! noteEl.textContent ) {
+
+			if ( app.skyFallback ) noteEl.textContent = app.skyFallback;
+			else if ( capturedErrors.length ) {
+
+				noteEl.className = 'err';
+				noteEl.textContent = capturedErrors[ 0 ];
+
+			}
 
 		}
 
