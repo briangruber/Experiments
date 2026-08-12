@@ -121,3 +121,62 @@ is no half-ported frame — a phase is not "done" until its stage runs on the ne
 renderer. Phases 2–5 are therefore developed against the probe harness and the
 equivalence tests rather than against a running demo, and the demo moves in one
 step at phase 6.
+
+
+---
+
+## Correction: raw WGSL cannot be driven through TSL
+
+Measured after the kernels were written, by `prototypes/wgslfn-storage-probe.html`.
+This changes the plan, and it reverses something stated above.
+
+**`wgslFn` does not accept `ptr<storage, ...>` parameters.** Three's only pointer
+concept is `pointerNode`, and that is for atomics — there is no general
+storage-pointer parameter in the node system. The probe confirms it from both
+ends:
+
+```
+WebGPU: vec4 storage fill                 PASS
+WebGPU: vec4 storage readback             PASS
+WebGPU: wgslFn with ptr<storage> params   ran without error, wrote NOTHING
+WebGL2: wgslFn with ptr<storage> params   throws (isStorageInstancedBufferAttribute)
+```
+
+The silent zero-write on WebGPU is the dangerous half: no exception, no warning,
+a kernel that appears to run and does nothing. Only comparing against a CPU
+reference caught it.
+
+So the earlier claim that "TSL compute runs on both backends, therefore one
+implementation serves both" is true only for kernels written as **pure TSL node
+graphs**. It is not true for raw WGSL, which is what the physics is written in.
+
+### What this means for the five kernels
+
+They are not wrong — all six modules compile clean. They are simply not
+drivable the way this document assumed.
+
+And the assumption that needed correcting is the opposite of the one flagged:
+the four kernels that declare their own `@group`/`@binding` are in the **right**
+shape, because they are driven directly on the device. It is `INIT_SPECTRUM_WGSL`,
+written as a `wgslFn` snippet, that has to be converted to a raw module like its
+siblings.
+
+### Revised architecture
+
+| | simulation | surface, sky, post |
+| --- | --- | --- |
+| WebGPU | the raw WGSL compute modules, dispatched on `renderer.backend.device` | TSL node materials |
+| WebGL2 fallback | the existing GLSL fragment pipeline, unchanged | TSL node materials |
+
+Two simulation implementations, which is what the original architecture was
+trying to avoid. It is still the right trade, for a reason the measurements
+already established: the fallback implementation **already exists, already
+ships, and is the reference the port is being checked against**. The alternative
+— rewriting the spectrum, the FFT, the assembly and the foam as TSL node graphs
+so one source serves both — is a full re-expression of the physics in an
+unfamiliar form, to buy a path that currently works, for a measured saving of
+under 1 fps.
+
+The shared-memory FFT stays WebGPU-only regardless. That was always true:
+`var<workgroup>` has no WebGL2 equivalent, and the stage-wise kernel is the
+portable one.
