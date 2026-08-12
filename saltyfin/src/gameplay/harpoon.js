@@ -33,7 +33,6 @@
 //                the hook. Nobody dies; everybody has a story.
 
 import * as THREE from 'three';
-import { uniform } from 'three/tsl';
 import { LAYER, setLayers } from '../core/layers.js';
 import { applyWaterClip } from '../water/clip.js';
 
@@ -99,17 +98,19 @@ export function createHarpoon(opts = {}) {
   };
 
   // --- visuals ---------------------------------------------------------------
-  // Built once, hidden by uniforms (never .visible — the boot warm-up has to
-  // draw these so their pipelines compile before the first throw).
+  // Built once. Never .visible-toggled — the boot warm-up has to draw both
+  // objects once so their pipelines compile before the first throw.
 
   const group = new THREE.Group();
   group.name = 'harpoon';
 
-  // Opacity rides uniforms so the materials are never touched after build:
-  // both the rope and the spear exist (alpha 0) from boot, which is what lets
-  // warmUpClock compile their pipelines before the first throw.
-  const uSpearAlpha = uniform(0);
-  const uLineAlpha = uniform(0);
+  // Presence is geometry, not alpha: the rope hides as count = 0 and the
+  // spear parks 400 m under the seabed. Both keep their pipelines compiled
+  // (the warm-up draws them once: 26 degenerate instances, a spear in the
+  // dark), no material property is ever touched, and the transparent-path
+  // question never arises. The first version drove opacityNode uniforms on
+  // transparent instanced standard materials and NOTHING drew - probed to
+  // alpha 1, count 26, correct matrices, correct layers, empty pixels.
   {
 
     // The spear: a shaft, a tip, a tail vane. Kit-bash, like the boat — and
@@ -120,20 +121,16 @@ export function createHarpoon(opts = {}) {
     spear.name = 'harpoon-spear';
     const matWood = new THREE.MeshStandardNodeMaterial({
       color: new THREE.Color().setHex(0xC9A05E, THREE.SRGBColorSpace),
-      roughness: 0.75, metalness: 0.0, transparent: true, fog: true,
+      roughness: 0.75, metalness: 0.0, fog: true,
     });
-    matWood.opacityNode = uSpearAlpha;
     const matIron = new THREE.MeshStandardNodeMaterial({
       color: new THREE.Color().setHex(0x3A3C42, THREE.SRGBColorSpace),
-      roughness: 0.45, metalness: 0.35, transparent: true, fog: true,
+      roughness: 0.45, metalness: 0.35, fog: true,
     });
-    matIron.opacityNode = uSpearAlpha;
     const matVane = new THREE.MeshStandardNodeMaterial({
       color: new THREE.Color().setHex(0xF2E9D8, THREE.SRGBColorSpace),
-      roughness: 0.85, metalness: 0.0, transparent: true, fog: true,
-      side: THREE.DoubleSide,
+      roughness: 0.85, metalness: 0.0, fog: true, side: THREE.DoubleSide,
     });
-    matVane.opacityNode = uSpearAlpha;
     const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.09, 3.4, 7), matWood);
     shaft.rotation.x = Math.PI / 2;
     const tip = new THREE.Mesh(new THREE.ConeGeometry(0.17, 0.7, 7), matIron);
@@ -157,15 +154,21 @@ export function createHarpoon(opts = {}) {
     // the background is sunlit water — a pale line vanished into it.
     const matRope = new THREE.MeshStandardNodeMaterial({
       color: new THREE.Color().setHex(0x4E3A22, THREE.SRGBColorSpace),
-      roughness: 0.92, metalness: 0.0, transparent: true, fog: true,
+      roughness: 0.92, metalness: 0.0, fog: true,
     });
-    matRope.opacityNode = uLineAlpha;
     const rope = new THREE.InstancedMesh(new THREE.BoxGeometry(0.11, 0.11, 1), matRope, SEGS);
     rope.name = 'harpoon-rope';
     rope.frustumCulled = false;
     group.add(rope);
 
-    setLayers(group, LAYER.MAIN, LAYER.REFLECTED);
+    // UNDERWATER too, and it is the whole feature: a line to a creature ten
+    // metres down is a line that is mostly BELOW the surface, and submerged
+    // geometry is only ever seen from the helm through the refraction pass —
+    // which renders LAYER.UNDERWATER. Without that bit (the first version's
+    // bug) every probe read alpha 1, count 26, matrices perfect... and the
+    // player saw half a metre of stub at the bow and nothing else. Same
+    // three layers as the leviathan, for the same reason.
+    setLayers(group, LAYER.MAIN, LAYER.UNDERWATER, LAYER.REFLECTED);
     applyWaterClip(group);
     scene.add(group);
 
@@ -513,10 +516,9 @@ export function createHarpoon(opts = {}) {
     }
 
     // --- the visuals, every frame ----------------------------------------------
-    function layoutRope(alphaTarget) {
-      uLineAlpha.value += (alphaTarget - uLineAlpha.value) * 0.3;
-      if (uLineAlpha.value < 0.02) {
-        if (rope.count !== 0) { rope.count = 0; }
+    function layoutRope(visible) {
+      if (!visible) {
+        if (rope.count !== 0) rope.count = 0;
         return;
       }
       rope.count = SEGS;
@@ -542,7 +544,12 @@ export function createHarpoon(opts = {}) {
         const len = Math.max(_a.length(), 1e-4);
         _p.set((qx + px) / 2, (qy + py) / 2, (qz + pz) / 2);
         _q.setFromUnitVectors(_Z, _a.multiplyScalar(1 / len));
-        _s.set(1, 1, len);
+        // The refraction target is a quarter-res texture: an honest 11 cm
+        // line vanishes between its texels. Below the waterline the rope
+        // fattens, which through the water's wobble reads as refraction
+        // doing what refraction does rather than as a change of rope.
+        const fat = _p.y < 0 ? 2.4 : 1;
+        _s.set(fat, fat, len);
         _m.compose(_p, _q, _s);
         rope.setMatrixAt(i, _m);
         px = qx; py = qy; pz = qz;
@@ -551,8 +558,12 @@ export function createHarpoon(opts = {}) {
     }
 
     function layoutSpear() {
-      const want = state.flight || state.tethered ? 1 : 0;
-      uSpearAlpha.value += (want - uSpearAlpha.value) * 0.35;
+      if (!state.flight && !state.tethered) {
+        // Parked far under the seabed: drawn (frustumCulled is off, so the
+        // warm-up compiles it) yet occluded by the world in every pass.
+        spear.position.set(0, -400, 0);
+        return;
+      }
       if (state.flight) {
         spear.position.copy(spearPos);
         _a.copy(spearVel).normalize();
@@ -580,7 +591,7 @@ export function createHarpoon(opts = {}) {
 
       if (capsizeT >= 0) {
         stepCapsize(dt);
-        layoutRope(0);
+        layoutRope(false);
         layoutSpear();
         return;
       }
@@ -611,7 +622,7 @@ export function createHarpoon(opts = {}) {
       if (state.tethered) stepTether(dt);
       else if (!state.capsizing) { ctx.tow = null; audio?.setLineTension?.(0); }
 
-      layoutRope(state.tethered ? 1 : (state.flight ? 0.9 : 0));
+      layoutRope(state.tethered || state.flight);
       layoutSpear();
     }
 
