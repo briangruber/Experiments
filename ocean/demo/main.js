@@ -209,6 +209,37 @@ function togglePhoto() {
 // undefined in the top frame and the reader has to know to switch the devtools
 // execution context first. A button has no such problem.
 let profiling = false;
+
+// Each entry disables one stage and returns the undo. Only stages that can be
+// removed WITHOUT changing what the others cost belong here - see the note on
+// the sea below for the one that cannot.
+function ablations() {
+  return [
+    {
+      name: 'simulation',
+      detail: 'FFT cascades + foam',
+      off: () => { ocean.update = () => {}; return () => { delete ocean.update; }; },
+    },
+    {
+      // Not removed, reduced: the sky pass also draws the atmosphere and the sun,
+      // and deleting it would leave holes rather than a cheaper frame. Stepping
+      // the march down to its floor measures the part that scales.
+      name: 'cloud march',
+      detail: `${Math.round(params.cloudSteps)} steps down to 8`,
+      off: () => { const r = params.cloudSteps; params.cloudSteps = 8; return () => { params.cloudSteps = r; }; },
+    },
+    {
+      // Additive billboards drawn last, so nothing else's cost depends on them.
+      name: 'spray',
+      detail: 'GPU particles',
+      off: () => { spray.draw = () => {}; return () => { delete spray.draw; }; },
+    },
+  ];
+  // The sea surface is deliberately absent. It is drawn first and writes depth,
+  // so removing it hands every one of its pixels to the cloud march - the frame
+  // can get SLOWER, and the number would be meaningless.
+}
+
 async function profileSim() {
   if (profiling) return;
   profiling = true;
@@ -216,7 +247,6 @@ async function profileSim() {
   // The frame cap cannot show a saving and the adaptive controller would spend
   // it on quality instead of reporting it. Both off for the duration.
   params.fpsCap = 0; params.fpsCapIdle = 0; params.adaptiveQuality = false;
-  ui.toast('Profiling — hold still for about 15 seconds');
 
   const settle = (ms) => new Promise((r) => setTimeout(r, ms));
   const measure = (secs) => new Promise((resolve) => {
@@ -224,35 +254,42 @@ async function profileSim() {
     setTimeout(() => resolve((frames - f0) / ((performance.now() - t0) / 1000)), secs * 1000);
   });
 
-  await settle(1500);
-  const fpsFull = await measure(6);
-  const realUpdate = ocean.update.bind(ocean);
-  ocean.update = () => {};
-  await settle(700);
-  const fpsNoSim = await measure(6);
-  ocean.update = realUpdate;
+  const stages = ablations();
+  ui.toast('Profiling — hold still for about 20 seconds', 20000);
+  await settle(1200);
+  const fpsFull = await measure(5);
+  const msFull = 1000 / fpsFull;
+
+  const rows = [];
+  for (const st of stages) {
+    const undo = st.off();
+    await settle(600);
+    const ms = 1000 / (await measure(4));
+    undo();
+    rows.push({ stage: st.name, detail: st.detail, ms: +(msFull - ms).toFixed(2),
+                share: +(100 * (msFull - ms) / msFull).toFixed(1) });
+  }
 
   params.fpsCap = saved.fpsCap; params.fpsCapIdle = saved.fpsCapIdle;
   params.adaptiveQuality = saved.adaptive;
   ui.syncAll();
   profiling = false;
 
-  const msFull = 1000 / fpsFull, msNoSim = 1000 / fpsNoSim;
-  const simMs = msFull - msNoSim;
-  const share = Math.max(0, simMs / msFull);
+  const accounted = rows.reduce((a, r) => a + Math.max(0, r.ms), 0);
   const report = {
     fps: +fpsFull.toFixed(1),
     frameMs: +msFull.toFixed(2),
-    withoutSimMs: +msNoSim.toFixed(2),
-    simMs: +simMs.toFixed(2),
-    simShareOfFrame: (share * 100).toFixed(1) + '%',
     resolution: W + 'x' + H,
     fft: ocean.N + '^2 x ' + ocean.cascadeCount,
+    stages: rows,
+    unaccounted: +(msFull - accounted).toFixed(2),
   };
   console.log('Abyssal profile', report);
-  window.__profileDone = report;   // for the headless check
-  ui.toast(`Simulation is ${(share * 100).toFixed(1)}% of the frame `
-         + `(${simMs.toFixed(2)} ms of ${msFull.toFixed(2)} ms at ${W}x${H})`, 9000);
+  console.table(rows);
+  window.__profileDone = report;
+  const top = rows.slice().sort((a, b) => b.ms - a.ms)[0];
+  ui.toast(`${msFull.toFixed(1)} ms/frame at ${W}x${H} — biggest single item: `
+         + `${top.stage} ${top.ms.toFixed(1)} ms (${top.share}%). Full breakdown in the console.`, 12000);
   return report;
 }
 
