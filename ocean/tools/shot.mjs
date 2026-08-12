@@ -30,6 +30,10 @@ const HEIGHT = +opt('h', 720);
 const OVERRIDES = multi('set');
 const CAMERA = opt('camera', '');
 const PHOTO = args.includes('--photo');
+// The bundle is what ships; index.html is only what development runs. Being able
+// to point the smoke test at either is the difference between testing the
+// artifact and testing something that resembles it.
+const PAGE = opt('page', '');
 
 const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
@@ -63,7 +67,7 @@ page.on('console', (m) => {
 });
 page.on('pageerror', (e) => errors.push('pageerror: ' + (e.stack || e.message)));
 
-await page.goto(`http://127.0.0.1:${port}/?keepbuffer=1&preset=${encodeURIComponent(PRESET)}`, { waitUntil: 'load' });
+await page.goto(`http://127.0.0.1:${port}/${PAGE}?keepbuffer=1&preset=${encodeURIComponent(PRESET)}`, { waitUntil: 'load' });
 
 // Wait for the module to publish its handle (or fail loudly).
 try {
