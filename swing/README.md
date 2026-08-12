@@ -112,7 +112,12 @@ page or console error, so it is also the regression test.
 node tools/shot.mjs --out shots/frame.png --wait 6000
 node tools/shot.mjs --out shots/phone.png --w 390 --h 844 --touch
 node tools/shot.mjs --out shots/skyline.png --freeze "700,300,700,0,80,0"
+node tools/shot.mjs --out shots/hero.png --follow      # clean chase framing
 ```
+
+Captures always stop the loop and draw a single settled frame before shooting:
+left running, the software rasteriser starves the screenshot and it never
+resolves.
 
 Note that headless Chromium rasterises in software here, so the reported `fps`
 measures SwiftShader, not the game.

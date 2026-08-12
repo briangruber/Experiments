@@ -41,6 +41,7 @@ const KEEP = has('title');            // capture the menu instead of playing
 const FREEZE = opt('freeze', '');     // "x,y,z,tx,ty,tz" — scenic still instead of chase cam
 const SIM = +opt('sim', 0);           // seconds of bot-driven play, no rendering
 const TRACE = has('trace');           // sample the sim twice a second
+const FOLLOW = has('follow');         // frame the capture from a clean chase position
 
 const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
@@ -96,7 +97,7 @@ await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load' });
 // Wait for boot, then play.
 await page.waitForFunction(() => window.__skyline || !document.getElementById('fail').hidden, null, { timeout: 60000 });
 
-const report = await page.evaluate(async ({ wait, keep, freeze, sim, trace }) => {
+const report = await page.evaluate(async ({ wait, keep, freeze, sim, trace, follow }) => {
   const s = window.__skyline;
   if (!s) return { fatal: document.getElementById('fail-msg').textContent };
   if (keep) return { backend: s.backend, skipped: true };
@@ -293,6 +294,28 @@ const report = await page.evaluate(async ({ wait, keep, freeze, sim, trace }) =>
   }
   await step(500, () => { input.webLeft = true; });
 
+  // Settle before capturing. Left running, the loop saturates the software
+  // rasteriser and the screenshot never gets a stable frame — so stop it, let
+  // any in-flight frame land, and draw exactly one.
+  s.stop();
+  await new Promise((r) => setTimeout(r, 6000));
+
+  // Optional hero framing: the in-game camera pulls right in when the player
+  // swings close to a facade, which is correct to play and unreadable as a
+  // still. This puts the shot back where a chase camera in open air would be.
+  if (follow) {
+    const p0 = s.player;
+    const back = p0.vel.clone();
+    back.y = 0;
+    if (back.lengthSq() < 1) back.set(0, 0, 1);
+    back.normalize();
+    s.camera.position.copy(p0.pos).addScaledVector(back, -16).setY(p0.pos.y + 7);
+    s.camera.up.set(0, 1, 0);
+    s.camera.lookAt(p0.pos.x, p0.pos.y, p0.pos.z);
+    s.camera.updateMatrixWorld(true);
+  }
+  await s.draw();
+
   const p = s.player;
   return {
     backend: s.backend,
@@ -306,7 +329,7 @@ const report = await page.evaluate(async ({ wait, keep, freeze, sim, trace }) =>
     buildings: s.city.count,
     drawCalls: s.renderer.info?.render?.drawCalls ?? null,
   };
-}, { wait: WAIT, keep: KEEP, freeze: FREEZE, sim: SIM, trace: TRACE });
+}, { wait: WAIT, keep: KEEP, freeze: FREEZE, sim: SIM, trace: TRACE, follow: FOLLOW });
 
 if (!SIM) await mkdir(dirname(join(ROOT, OUT)), { recursive: true });
 // Software rasterisation can take seconds per frame; the default 30 s cap is
