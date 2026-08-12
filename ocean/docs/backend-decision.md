@@ -10,29 +10,39 @@ part of the renderer that would use them is the simulation — the FFT cascades,
 the spray integration, the wake stamp — all of which are currently fragment
 passes into float textures because WebGL2 has no compute.
 
-So the question is what fraction of a frame the simulation actually is.
-Measured by ablation (`tools/probe-backend.mjs`: run normally, then no-op
-`Ocean.update`, with the frame cap and the adaptive controller both disabled so
-neither can absorb the saving):
+So the question is what fraction of a frame the simulation actually is, and how
+much faster compute would make it. Both are now measured on real hardware —
+an Apple M4 Max, Chrome, WebGPU on Metal.
+
+**How much of the frame is the simulation?** `Profile`, in the demo's Actions
+panel, ablates it: run normally, no-op `Ocean.update`, run again, with the frame
+cap and the adaptive controller disabled so neither can absorb the saving.
 
 ```
-frame, full                 909.1 ms
-frame, simulation disabled  833.3 ms
-simulation                   75.8 ms   ->  8.3% of the frame
+2011 x 1047, 256² x 4 cascades      37.7 fps    26.56 ms / frame
+without the simulation                          25.76 ms
+simulation                                       0.80 ms   ->  3.0%
 ```
 
-**Making the simulation infinitely fast would win under a tenth of a frame.**
-The other 92% is fragment and vertex work — the volumetric cloud march, the
-water BRDF, spray overdraw — and an ALU-bound raymarch costs exactly the same
-number of ALU cycles in WebGPU as in WebGL2. No API change makes it faster.
+**How much faster is compute?** `prototypes/webgpu-vs-webgl.html`, same machine,
+with both backends cross-checked to zero relative error so they are provably
+doing the same work:
 
-Caveat, stated because it matters: this was measured on SwiftShader (CPU
-rasterisation), not real hardware, so the exact ratio will move. The direction
-will not — a prior ablation on the same build put the cloud march alone at
-about a fifth of the frame, which is already more than twice the entire
-simulation.
+```
+FFT 256² x 4, fragment passes (WebGL2)          0.34 ms
+FFT 256² x 4, compute + shared memory (WebGPU)  0.09 ms   ->  3.96x
+```
 
-Against that ~8% ceiling, the costs are:
+**Multiply them.** A 3.96× speedup removes 75% of 0.80 ms:
+
+```
+0.60 ms saved out of 26.56 ms   ->  37.7 fps becomes 38.6 fps
+```
+
+**Under one frame per second.** That is the entire return on translating ~170 KB
+of GLSL to WGSL, and it is measured rather than argued.
+
+Against that ~1 fps ceiling, the costs are:Against that ~8% ceiling, the costs are:
 
 - **~170 KB of GLSL ES 3.00 to translate to WGSL.** The shaders are the asset
   here; they are also the part most likely to acquire subtle bugs in
@@ -56,11 +66,21 @@ when the fragment work has already been cut and the sim is what is left.
 
 In descending order of measured value:
 
-1. **Half-resolution clouds with a depth-aware upsample.** The march is ~20% of
-   the frame; halving its pixel count saves more than making the entire
-   simulation free. This is the single biggest win available and it is not done.
-2. **Spray overdraw.** Second-largest item, and it is pure fill.
+`Profile` breaks the frame down by stage, so this list can be checked against the
+machine in front of you rather than taken on trust. On the measurement above,
+25.76 ms of a 26.56 ms frame is fragment and vertex work — so everything worth
+doing is there:
+
+1. **Half-resolution clouds with a depth-aware upsample.** Read the cloud-march
+   row from `Profile`; halving its pixel count typically saves several times what
+   the whole simulation costs. Not done, and the biggest win available.
+2. **Spray overdraw.** Pure fill, drawn last over everything.
 3. **Water grid LOD**, for the vertex-bound case on mobile.
+
+Note what `Profile` deliberately does not report: the sea surface. It is drawn
+first and writes depth, so removing it hands every one of its pixels to the cloud
+march and the frame can come out *slower*. An ablation only means something for a
+stage whose removal does not change what the others cost.
 
 ## Three.js: yes
 
