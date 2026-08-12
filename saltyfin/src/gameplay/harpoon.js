@@ -42,7 +42,12 @@ const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
 // --- the fire envelope -------------------------------------------------------
 const RANGE = 60;            // m, boat to creature, for the call-to-action
-const DEPTH_MAX = 15;        // deeper than this the spear cannot reach
+// The arm gate and the spear's underwater run MUST agree: offering a shot the
+// dart cannot physically reach is a guaranteed miss sold as an opportunity.
+// The spear dies 12 m under; the button arms at 12. The animals cruise deeper
+// than this — the shot is for the moments they come UP: the quest approach,
+// a flyby, a pod sounding, the seconds around a breach.
+const DEPTH_MAX = 12;
 const COOLDOWN = 2.4;        // s between throws
 // --- the spear ---------------------------------------------------------------
 // Slow enough to WATCH. At 40 m/s the throw was over in half a second of
@@ -395,7 +400,7 @@ export function createHarpoon(opts = {}) {
         burst(spearPos.x, spearPos.z, 12, 0.7);
         if (w?.disturb) w.disturb(spearPos.x, spearPos.z, 0.9, 2.4);
       }
-      if (spearPos.y < surf - 6 || flightT > FLIGHT_MAX) {
+      if (spearPos.y < surf - 12 || flightT > FLIGHT_MAX) {
         state.flight = false;
         setMsg('Missed - the spear slips under.');
       }
@@ -592,8 +597,14 @@ export function createHarpoon(opts = {}) {
         if (!state.tethered) state.distance = near.dist;
         state.available = !state.tethered && !state.flight && !busy
           && cooldown <= 0 && hookable(near.animal, near.dist);
+        // In range but out of reach: the HUD dims the button and says why,
+        // which turns "where did my button go" into "wait for the rise".
+        state.nearDeep = !state.available && !state.tethered && !state.flight
+          && !busy && cooldown <= 0 && !!near.animal && near.dist < RANGE
+          && near.animal.state.depth >= DEPTH_MAX;
       } else {
         state.available = false;
+        state.nearDeep = false;
       }
 
       if (state.flight) stepFlight(dt);

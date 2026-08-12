@@ -39,6 +39,9 @@ const CSS = `
   background-color: rgba(122,178,232,.36); color: #fff; }
 #sf-harpoon-go svg { width: 15px; height: 15px; fill: currentColor; }
 #sf-harpoon-go.sf-harpoon-hidden { display: none; }
+/* In range but the animal is too deep to reach: the button stays, dimmed,
+   naming the reason - absence read as a bug, a dim button reads as "wait". */
+#sf-harpoon-go.sf-harpoon-dim { opacity: .45; cursor: default; }
 
 /* --- the status strip ------------------------------------------------------ */
 #sf-harpoon { position: fixed; z-index: 46; left: 50%; top: 64px;
@@ -223,9 +226,15 @@ export function createHarpoonHud({ harpoon, ctx } = {}) {
     // ---- the button ---------------------------------------------------------
     // Offered while there is something to do with it, and never during the
     // capsize drama - a control shown while the boat is rolling over is a lie.
-    const goOn = (available || tethered) && !s.capsizing;
+    // A creature in range but below spear depth keeps the button visible and
+    // dim: the wait for it to rise is part of the hunt, not a missing UI.
+    const nearDeep = !!s.nearDeep;
+    const goOn = (available || tethered || nearDeep) && !s.capsizing;
     set('goOn', goOn, (v) => go.classList.toggle('sf-harpoon-hidden', !v));
-    set('goLabel', tethered ? 'CUT LINE' : 'HARPOON', (v) => { goLabel.textContent = v; });
+    set('goDim', nearDeep && !available && !tethered,
+      (v) => go.classList.toggle('sf-harpoon-dim', v));
+    set('goLabel', tethered ? 'CUT LINE' : (available ? 'HARPOON' : 'TOO DEEP'),
+      (v) => { goLabel.textContent = v; });
 
     // The cut's progress, painted into the button from the left. background-image
     // only: the base colour underneath stays whatever the CSS (and :active) says.
