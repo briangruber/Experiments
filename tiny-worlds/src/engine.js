@@ -57,10 +57,14 @@ export class Engine {
     this.sun.shadow.normalBias = 0.035;
     this.scene.add(this.sun, this.sun.target);
 
-    // A second, dim fill from the opposite side so the dark side of a world
-    // still has readable silhouettes.
-    this.fill = new THREE.DirectionalLight(0x5f78b0, 0.35);
-    this.scene.add(this.fill);
+    // Moonlight. Each world keeps a real terminator — half of it is genuinely
+    // night — but the night half has to stay playable, so it gets a cool fill
+    // from the anti-sun direction rather than falling to black.
+    this.fill = new THREE.DirectionalLight(0x7d93d8, 1.0);
+    // The target has to live in the scene graph, or its matrixWorld never
+    // updates and every world but the one at the origin gets lit from the
+    // wrong side.
+    this.scene.add(this.fill, this.fill.target);
 
     this.buildSky();
 
@@ -137,8 +141,10 @@ export class Engine {
     cam.updateProjectionMatrix();
 
     this.fill.position.copy(centre).addScaledVector(_v, -def.radius * 4);
-    this.fill.color.set(def.ambient.sky);
-    this.fill.intensity = def.dark ? 0.12 : 0.4;
+    this.fill.target.position.copy(centre);
+    this.fill.target.updateMatrixWorld();
+    this.fill.color.set(def.dark ? 0x54407a : 0x869ade);
+    this.fill.intensity = def.dark ? 0.22 : 1.35;
 
     this.hemi.color.set(def.ambient.sky);
     this.hemi.groundColor.set(def.ambient.ground);

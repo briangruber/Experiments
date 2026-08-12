@@ -64,9 +64,16 @@ function sampleRamp(stops, e, seaE, out) {
     const t = seaE > 0 ? clamp(e / seaE, 0, 1) : 1;
     return out.copy(stops[0]).lerp(stops[1], t);
   }
-  const u = clamp((e - seaE) / Math.max(1e-4, 1 - seaE), 0, 1) * 3;
-  const i = Math.min(2, Math.floor(u));
-  return out.copy(stops[1 + i]).lerp(stops[2 + i], u - i);
+  // Uneven breakpoints: a narrow beach, a wide band of living ground, then
+  // rock and only a cap of snow. Equal thirds gave every world a pale dome.
+  const land = clamp((e - seaE) / Math.max(1e-4, 1 - seaE), 0, 1);
+  // Four stops above water means three segments, so BREAKS needs four entries:
+  // a narrow beach, a wide band of living ground, then rock climbing to a cap.
+  const BREAKS = [0, 0.08, 0.82, 1];
+  let i = 1;
+  while (i < BREAKS.length - 1 && land > BREAKS[i]) i++;
+  const t = (land - BREAKS[i - 1]) / Math.max(1e-4, BREAKS[i] - BREAKS[i - 1]);
+  return out.copy(stops[i]).lerp(stops[i + 1], clamp(t, 0, 1));
 }
 
 export class Planet {
@@ -214,8 +221,12 @@ export class Planet {
       color: new THREE.Color(def.water.dry),
       transparent: true,
       opacity: def.water.opacity,
-      roughness: 0.16,
-      metalness: 0.1,
+      roughness: 0.34,
+      metalness: 0.0,
+      // A touch of self-light so shallow water never reads as a black hole on
+      // the night side of a world you are meant to keep walking across.
+      emissive: new THREE.Color(def.water.dry),
+      emissiveIntensity: 0.16,
     });
     mat.onBeforeCompile = (shader) => {
       Object.assign(shader.uniforms, this.waterUniforms);
@@ -373,8 +384,8 @@ export class Planet {
     }
     if (this.crystals) {
       this.crystals.material = this.crystals.material.clone();
-      this.crystals.material.emissive = new THREE.Color(def.lush[4]);
-      this.crystals.material.emissiveIntensity = def.dark ? 0.5 : 0.15;
+      this.crystals.material.emissive = new THREE.Color(def.lush[3]);
+      this.crystals.material.emissiveIntensity = def.dark ? 0.4 : 0.1;
     }
 
     this.houses = [];
@@ -389,7 +400,7 @@ export class Planet {
       obj.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
       this.group.add(obj);
       // A warm window that only lights once the world is alive again.
-      const glow = new THREE.PointLight(0xffc98a, 0, 6, 2);
+      const glow = new THREE.PointLight(0xffc98a, 0, 5, 2);
       glow.position.copy(obj.position).addScaledVector(dir, 0.6);
       this.group.add(glow);
       this.houses.push({ obj, glow });
@@ -409,9 +420,9 @@ export class Planet {
     for (let b = 0; b < 3; b++) {
       const a = (b / 3) * TAU + rand() * 0.4;
       const dx = Math.cos(a), dz = Math.sin(a);
-      const w = 0.075;
+      const w = 0.032;
       const o = blade.length / 3;
-      blade.push(-dz * w, 0, dx * w, dz * w, 0, -dx * w, dx * 0.06, 0.42, dz * 0.06);
+      blade.push(-dz * w, 0, dx * w, dz * w, 0, -dx * w, dx * 0.02, 0.18, dz * 0.02);
       idx.push(o, o + 1, o + 2);
       cols.push(0.62, 0.6, 0.5, 0.68, 0.66, 0.55, 1.35, 1.35, 1.2);
     }
@@ -460,7 +471,7 @@ export class Planet {
       const r = this.surfaceRadius(_v);
       if (r < this.seaRadius + 0.12) continue;
       if (this.slopeAt(_v) > 0.5) continue;
-      mesh.setMatrixAt(n++, this.matrixOnSurface(_v, rand() * TAU, (0.85 + rand() * 0.8) * scaleFor, -0.02, _m));
+      mesh.setMatrixAt(n++, this.matrixOnSurface(_v, rand() * TAU, (0.8 + rand() * 0.65) * scaleFor, -0.02, _m));
     }
     mesh.count = n;
     mesh.instanceMatrix.needsUpdate = true;
@@ -532,7 +543,7 @@ export class Planet {
     flame.position.copy(dir).multiplyScalar(this.groundRadius(dir) + 1.35 * s);
     this.group.add(flame);
 
-    const light = new THREE.PointLight(0xffd68a, 0, 26, 1.6);
+    const light = new THREE.PointLight(0xffd68a, 0, 13, 1.9);
     light.position.copy(flame.position);
     this.group.add(light);
 
@@ -542,7 +553,7 @@ export class Planet {
       map: glowSprite(), color: 0xffdc9a, transparent: true, opacity: 0,
       depthWrite: false, blending: THREE.AdditiveBlending,
     }));
-    halo.scale.setScalar(5 * s);
+    halo.scale.setScalar(2.4 * s);
     halo.position.copy(flame.position);
     this.group.add(halo);
 
@@ -632,7 +643,8 @@ export class Planet {
       if (this.grassUniforms) this.grassUniforms.uBloomRadius.value = this.waveRadius;
       this.lush = clamp(this.waveRadius / Math.PI, 0, 1);
       this.water.material.color.copy(this.waterColorDry).lerp(this.waterColorLush, this.lush);
-      if (this.crystals) this.crystals.material.emissiveIntensity = lerp(def.dark ? 0.5 : 0.15, def.dark ? 2.2 : 1.1, this.lush);
+      this.water.material.emissive.copy(this.water.material.color);
+      if (this.crystals) this.crystals.material.emissiveIntensity = lerp(def.dark ? 0.4 : 0.1, def.dark ? 1.3 : 0.4, this.lush);
       for (const h of this.houses) h.glow.intensity = this.lush * (def.dark ? 14 : 6);
       if (this.waveRadius > Math.PI + 0.5) { this.waveActive = false; this.lush = 1; }
     }
@@ -664,9 +676,9 @@ export class Planet {
       const flicker = 0.85 + 0.15 * Math.sin(time * 7.3) * Math.sin(time * 3.1);
       this.beacon.flame.material.opacity = this.beaconLevel * 0.95;
       this.beacon.flame.scale.setScalar(0.85 + 0.2 * flicker * this.beaconLevel);
-      this.beacon.light.intensity = this.beaconLevel * 16 * flicker;
-      this.beacon.halo.material.opacity = this.beaconLevel * 0.75 * flicker;
-      this.beacon.halo.scale.setScalar(5 * (0.92 + 0.08 * flicker) * (this.def.radius / 11) * 1.5);
+      this.beacon.light.intensity = this.beaconLevel * 7 * flicker;
+      this.beacon.halo.material.opacity = this.beaconLevel * 0.6 * flicker;
+      this.beacon.halo.scale.setScalar(2.4 * (0.92 + 0.08 * flicker) * (this.def.radius / 11) * 1.5);
     }
 
     for (const islet of this.islets ?? []) {

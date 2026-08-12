@@ -45,6 +45,7 @@ const FLIGHT = flag('flight');
 const NOHUD = flag('nohud');
 const STEP = opt('step', '0.0166');
 const FRAMES = +opt('frames', 0);
+const MENU = flag('menu');   // leave the title card up instead of skipping it
 
 const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
@@ -84,7 +85,7 @@ page.on('console', (m) => {
 });
 page.on('pageerror', (e) => errors.push('pageerror: ' + (e.stack || e.message)));
 
-await page.goto(`http://127.0.0.1:${port}/?skipmenu=1&world=${WORLD}&dt=${STEP}`, { waitUntil: 'load' });
+await page.goto(`http://127.0.0.1:${port}/?${MENU ? '' : 'skipmenu=1&'}world=${WORLD}&dt=${STEP}`, { waitUntil: 'load' });
 
 // Under software rendering a frame can take seconds, so every wait below is
 // expressed in rendered frames, not wall-clock milliseconds.
@@ -94,10 +95,12 @@ const waitFrames = async (n) => {
     start + n, { timeout: 180000 }).catch(() => errors.push(`stalled waiting for ${n} frames`));
 };
 
+const wanted = MENU ? ['title'] : ['play', 'finale'];
 try {
-  await page.waitForFunction(() => !!window.tinyWorlds && window.tinyWorlds.state.mode === 'play', null, { timeout: 60000 });
+  await page.waitForFunction((modes) => !!window.tinyWorlds && modes.includes(window.tinyWorlds.state.mode),
+    wanted, { timeout: 60000 });
 } catch {
-  errors.push('game never reached play state');
+  errors.push(`game never reached ${wanted.join('/')} state`);
 }
 
 if (!errors.length) {

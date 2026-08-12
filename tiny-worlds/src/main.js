@@ -101,8 +101,10 @@ function enterWorld(index, { lift = 0 } = {}) {
   state.sparks = planet.motes.filter((m) => m.taken).length;
   hud.setSparks(state.sparks, planet.moteTotal ?? 0);
   audio.setWorld(index, { dark: planet.def.dark });
-  chase.targetDistance = planet.def.radius * 1.5 + 3.5;
+  chase.targetDistance = planet.def.radius * 1.15 + 4;
   chase.snap();
+  // The Heart has nothing to collect: arriving is the ending.
+  if (planet.def.finale && !planet.bloomed) startFinale();
 }
 
 // ---------------------------------------------------------------- play
@@ -287,8 +289,7 @@ function updateFlight(dt) {
     player.worldUp(_b);
     particles.burst(_a, { count: 40, color: new THREE.Color(0xd8cbb0), speed: 4.5, size: 0.4, life: 0.9, up: _b });
     chase.shake = 0.7;
-    if (to.def.finale) startFinale();
-    else state.mode = 'play';
+    if (!to.def.finale) state.mode = 'play';
   }
 }
 
@@ -296,7 +297,7 @@ function updateFlight(dt) {
 
 async function startFinale() {
   const planet = current();
-  state.mode = 'finale';
+  if (state.mode !== 'title') state.mode = 'finale';
   planet.startBloom(planet.landingDir);
   planet.beaconOn = true;
   planet.heartTree.grow = 1;
