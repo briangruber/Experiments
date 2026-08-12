@@ -85,6 +85,22 @@ procedural stand-in if a file is missing — the game still runs with the
 `tools/assets.html` is a turntable contact sheet of every loaded asset, which
 is the fastest way to check a fresh generation came back the right way up.
 
+## Single-file build
+
+```
+node tools/bundle.mjs --out dist/tiny-worlds.html
+```
+
+Emits one self-contained HTML file — three.js, every module, and every model
+inlined — for hosting somewhere that blocks external requests entirely (an
+Artifact page cannot fetch a sibling script, and cannot fetch a `data:` URL
+either, so the models ride along as base64 that `src/assets.js` hands straight
+to `GLTFLoader.parse`). Roughly 11 MB, most of it the keeper's four animation
+clips. `--skip keeper-run.glb` drops a model if you need it smaller.
+
+Both harnesses below take `--page dist/tiny-worlds.html` to run against the
+bundle instead of the source tree, which is how the build gets tested.
+
 ## Capture harness
 
 ```

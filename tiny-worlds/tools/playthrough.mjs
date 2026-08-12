@@ -17,6 +17,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const opt = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i + 1] : d; };
 const WORLD = +opt('world', 0);
+const PAGE = opt('page', 'index.html');   // e.g. dist/tiny-worlds.html
 
 const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
@@ -25,7 +26,7 @@ const MIME = {
 const server = createServer(async (req, res) => {
   try {
     const url = decodeURIComponent(req.url.split('?')[0]);
-    const path = join(ROOT, url === '/' ? 'index.html' : url);
+    const path = join(ROOT, url === '/' ? PAGE : url);
     if (!path.startsWith(ROOT)) { res.writeHead(403).end(); return; }
     const body = await readFile(path);
     res.writeHead(200, { 'content-type': MIME[extname(path)] || 'application/octet-stream' });

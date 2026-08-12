@@ -233,6 +233,11 @@ body.no-chrome #hud, body.menu #hud { opacity: 0; }
 
 #card-button:hover { background: rgba(255, 240, 210, .16); border-color: rgba(255, 240, 210, .4); transform: translateY(-1px); }
 #card-button:active { transform: translateY(0); }
+#card-button:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 3px;
+  background: rgba(255, 240, 210, .16);
+}
 
 /* ---------------------------------------------------------------- loading */
 
@@ -274,6 +279,15 @@ body.no-chrome #hud, body.menu #hud { opacity: 0; }
 }
 
 #loading-sub { font-size: 11px; letter-spacing: .2em; text-transform: lowercase; color: rgba(185, 174, 156, .55); }
+
+/* The game's own motion is the content and cannot be turned off, but the
+   interface around it can stop sliding and fading. */
+@media (prefers-reduced-motion: reduce) {
+  #hud, #hint, #prompt, #toast, #card, #card-inner, #loading, #loading-bar, #pips i {
+    transition-duration: .01ms;
+  }
+  #hint, #prompt, #toast, #card-inner { transform: none; }
+}
 
 /* Landscape phones and other short viewports: keep the whole card on screen. */
 @media (max-height: 460px) {

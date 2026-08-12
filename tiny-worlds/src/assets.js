@@ -9,20 +9,32 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 
+const FILES = {
+  tree: 'tree.glb',
+  crystal: 'crystal.glb',
+  house: 'house.glb',
+  lantern: 'lantern.glb',
+  keeperIdle: 'keeper-idle.glb',
+  keeperWalk: 'keeper-walk.glb',
+  keeperRun: 'keeper-run.glb',
+  keeperJump: 'keeper-jump.glb',
+};
+
 // Resolved against this module, not the page, so the loader works from any
 // entry point (the game, the asset contact sheet, an embed).
-const asset = (name) => new URL(`../assets/${name}`, import.meta.url).href;
+const assetUrl = (name) => new URL(`../assets/${name}`, import.meta.url).href;
 
-const FILES = {
-  tree: asset('tree.glb'),
-  crystal: asset('crystal.glb'),
-  house: asset('house.glb'),
-  lantern: asset('lantern.glb'),
-  keeperIdle: asset('keeper-idle.glb'),
-  keeperWalk: asset('keeper-walk.glb'),
-  keeperRun: asset('keeper-run.glb'),
-  keeperJump: asset('keeper-jump.glb'),
-};
+// The single-file build (tools/bundle.mjs) leaves the models here as base64,
+// because a hosted artifact may not fetch anything at all — not even a data:
+// URL. Decoding to an ArrayBuffer and parsing it directly touches no network.
+const inlined = (name) => globalThis.__TINY_WORLDS_ASSETS?.[name];
+
+function base64ToBuffer(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes.buffer;
+}
 
 // Tripo returns physically-plausible PBR; these worlds want matte clay.
 function claySoften(mat) {
@@ -220,11 +232,14 @@ export async function loadAssets(onProgress = () => {}) {
   const loaded = {};
   let done = 0;
 
-  await Promise.all(entries.map(async ([key, url]) => {
+  await Promise.all(entries.map(async ([key, name]) => {
     try {
-      loaded[key] = await loader.loadAsync(url);
+      const embedded = inlined(name);
+      loaded[key] = embedded
+        ? await loader.parseAsync(base64ToBuffer(embedded), '')
+        : await loader.loadAsync(assetUrl(name));
     } catch (err) {
-      console.warn(`[assets] ${url} unavailable, using fallback:`, err.message ?? err);
+      console.warn(`[assets] ${name} unavailable, using fallback:`, err.message ?? err);
       loaded[key] = null;
     }
     onProgress(++done / entries.length);
