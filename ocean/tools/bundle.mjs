@@ -16,6 +16,11 @@ const opt = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i
 const ROOT = resolve(opt('root', '.'));
 const OUT = resolve(opt('out', 'dist/abyssal.html'));
 const ENTRY = opt('entry', 'demo/main.js');
+const HTML = opt('html', 'index.html');
+const CSS = opt('css', 'demo/ui.css');
+// The demo's boot-failure panel assumes the demo's markup. Another page has its
+// own error handling and does not want a stray ABYSSAL splash on top of it.
+const BOOT_PANEL = !args.includes('--no-boot-panel');
 
 const IMPORT_RE = /^\s*import\s*\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]\s*;?\s*$/gm;
 
@@ -127,7 +132,7 @@ try {
   // otherwise gives the reader nothing to report back.
   window.abyssalError = err;
   console.error('Abyssal build ' + window.abyssalBuild + ' failed to start:', err);
-  var boot = document.getElementById('boot');
+  var boot = ${BOOT_PANEL ? "document.getElementById('boot')" : 'null'};
   if (boot) {
     boot.classList.remove('gone');
     boot.innerHTML = '<div class="boot-title">ABYSSAL</div>' +
@@ -153,8 +158,8 @@ const escJs   = (s) => s.replace(NON_ASCII, (c) => '\\u' + c.charCodeAt(0).toStr
 const escHtml = (s) => s.replace(NON_ASCII, (c) => '&#' + c.charCodeAt(0) + ';');
 const escCss  = (s) => s.replace(NON_ASCII, (c) => '\\' + c.charCodeAt(0).toString(16) + ' ');
 
-const css = await readFile(join(ROOT, 'demo/ui.css'), 'utf8');
-const html = await readFile(join(ROOT, 'index.html'), 'utf8');
+const css = CSS === 'none' ? '' : await readFile(join(ROOT, CSS), 'utf8');
+const html = await readFile(join(ROOT, HTML), 'utf8');
 
 // Keep the app's own markup; drop the tags the Artifact wrapper supplies and the
 // module <script>, which the bundle replaces.
