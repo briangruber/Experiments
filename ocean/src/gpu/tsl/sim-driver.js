@@ -159,7 +159,7 @@ import {
 	DEFAULT_CASCADES, FOAM_WEIGHTS,
 	butterflyData, cascadeNoise, bandLimitsOf, kCharOf, choppinessOf,
 	whitecapFraction, breakLodsOf, breakWeightsOf, foamCutoffOf,
-} from '../../ocean.js';
+} from '../../ocean-shared.js';
 
 /**
  * The gaussian field h0 is seeded from, as ONE array texture indexed by uLayer.

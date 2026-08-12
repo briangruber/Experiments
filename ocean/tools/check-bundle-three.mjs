@@ -53,6 +53,19 @@ page.on('request', (r) => {
   if (!u.startsWith(`http://127.0.0.1:${port}`) && !u.startsWith('data:') && !u.startsWith('blob:')) external.push(u);
 });
 
+// Record every graphics context the page creates, before any script runs. In a
+// three.js build the only ones should be three's own: 'webgpu', or 'webgl2' from
+// its WebGLBackend. A '2d' is the app's own frame capture. Anything else means
+// something is still rendering outside three.
+await page.addInitScript(() => {
+  window.__ctx = [];
+  const orig = HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = function (type, ...rest) {
+    window.__ctx.push(type);
+    return orig.call(this, type, ...rest);
+  };
+});
+
 const q = BACKEND === 'auto' ? '' : `?backend=${BACKEND}`;
 await page.goto(`http://127.0.0.1:${port}/${q}`, { waitUntil: 'load' });
 await page.waitForTimeout(SETTLE);
@@ -95,6 +108,7 @@ const result = await page.evaluate(() => {
     status: status ? status.textContent.trim() : null,
     statusClass: status ? status.className : null,
     presetCount: document.getElementById('preset')?.options.length ?? 0,
+    contexts: (window.__ctx || []).join(', '),
     size: canvas ? [canvas.width, canvas.height] : null,
   };
   const d = window.__cap;
@@ -136,6 +150,11 @@ const checks = [
   ['no console errors', unexpected(consoleErrors).length === 0,
     unexpected(consoleErrors)[0] ?? (consoleErrors.length ? `${consoleErrors.length} expected device-loss message(s)` : 'none')],
   ['no external requests', external.length === 0, external[0] ?? 'none'],
+  // Every GPU context must come from three. '2d' is the app's own frame capture.
+  ['no graphics context outside three',
+    (result.contexts ?? '').split(', ').filter(Boolean)
+      .every((t) => t === 'webgpu' || t === 'webgl2' || t === '2d'),
+    result.contexts || 'none'],
 ];
 
 let failed = 0;
