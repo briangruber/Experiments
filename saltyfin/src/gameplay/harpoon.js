@@ -5,11 +5,11 @@
 //
 //   T = K * stretch + C * max(0, separation rate)        tension, never push
 //
-// The boat receives T as an acceleration at the BOW: the horizontal part
-// becomes drift the keel has to kill (boatController.js consumes ctx.tow),
-// the off-axis part swings her nose toward the pull and heels her over, and
-// any downward component shortens her freeboard — which is how a sounding
-// leviathan pulls the foredeck green. The creature receives -T scaled by a
+// The boat receives T as an acceleration at the STERN towing post: the
+// horizontal part becomes drift the keel has to kill (boatController.js
+// consumes ctx.tow), the off-axis part slews her stern toward the pull and
+// heels her over, and a sounding leviathan squats the transom and steals
+// her freeboard. The creature receives -T scaled by a
 // mass ratio, folded into its own steering (the 'hooked' phase in
 // monster.js), so a hard pull visibly bends its path without ever puppeting
 // it.
@@ -251,6 +251,23 @@ export function createHarpoon(opts = {}) {
       );
     }
 
+    // The line is made fast to a towing post at the STERN, and that choice is
+    // load-bearing: a rope at the bow weathervanes the nose toward the pull,
+    // so the harder you throttled away the harder your own bow was dragged
+    // back around until the line went slack -- measured in the harness as
+    // strain stalling at 0.09 and the taught strategy silently failing. A
+    // stern post makes pulling away STABLE (deviations swing the stern back
+    // into line), which is why real boats tow from aft. The spear still
+    // flies from the bow; the line pays out over the transom.
+    function sternPoint(out) {
+      const b = ctx.boat;
+      return out.set(
+        b.position.x - b.forward.x * 2.4,
+        b.position.y + 0.5,
+        b.position.z - b.forward.z * 2.4,
+      );
+    }
+
     /** The rope's far end: a point on the tethered animal's spine. */
     function anchorPoint(out) {
       const p = target.state.position;
@@ -294,7 +311,7 @@ export function createHarpoon(opts = {}) {
       snapT = 0;
       rollEnergy = 0;
       sinkEnergy = 0;
-      bowPoint(_bow);
+      sternPoint(_bow);
       const p = animal.state.position;
       // Pay out whatever the strike needed - clamping to REST_MAX here made a
       // 55 m hit start 13 m over-stretched: pegged bar, one violent yank and
@@ -316,7 +333,7 @@ export function createHarpoon(opts = {}) {
       state.capsizing = true;
       ctx.harpoonHold = true;
       release(dunk
-        ? 'She sounds hard - the bow goes under and the line tears free!'
+        ? 'She sounds hard - the transom digs in and the line tears free!'
         : 'She rolls you clean over! The line is gone.');
       audio?.cue?.('lineSnap');
     }
@@ -428,7 +445,7 @@ export function createHarpoon(opts = {}) {
 
     function stepTether(dt) {
       const b = ctx.boat;
-      bowPoint(_bow);
+      sternPoint(_bow);
       anchorPoint(_anchor);
       _dir.copy(_anchor).sub(_bow);
       const dist = _dir.length();
@@ -481,9 +498,14 @@ export function createHarpoon(opts = {}) {
         const along = ax * b.forward.x + az * b.forward.z;
         tow.fx = ax;
         tow.fz = az;
-        tow.yaw = clamp(lateral * YAW_K, -0.85, 0.85);
+        // Stern lever arm: a starboard pull swings the STERN starboard and
+        // the bow port -- negative heading rate. This is also what makes
+        // fleeing stable instead of the bow-attach death spiral above.
+        tow.yaw = clamp(-lateral * YAW_K, -0.85, 0.85);
         tow.heel = clamp(-lateral * HEEL_K, -1.7, 1.7);
-        tow.trim = clamp(-Math.min(0, ay) * 0.03 + Math.max(0, along) * 0.006, -0.05, 0.42);
+        // A stern hauled downward squats the transom and LIFTS the bow:
+        // negative trim is bow-up in this codebase (boat.js rotation.x = -trim).
+        tow.trim = clamp(Math.min(0, ay) * 0.03 - Math.max(0, along) * 0.006, -0.42, 0.05);
         tow.sink = Math.max(0, -ay) * SINK_K;
         tow.brake = along < 0 ? Math.min(1.4, -along * 0.1) : 0;
         ctx.tow = tow;
@@ -538,7 +560,7 @@ export function createHarpoon(opts = {}) {
       else snapT = Math.max(0, snapT - dt * 2);
       if (snapT > tune.SNAP_S) {
         audio?.cue?.('lineSnap');
-        bowPoint(_p);
+        sternPoint(_p);
         burst(_p.x, _p.z, 14, 0.9);
         release('The line parts with a crack!');
         return;
@@ -576,7 +598,7 @@ export function createHarpoon(opts = {}) {
         for (let i = 0; i < SEGS; i++) ropeSegs[i].position.set(0, -400, 0);
         return;
       }
-      bowPoint(_bow);
+      sternPoint(_bow);
       if (state.tethered) anchorPoint(_anchor);
       else _anchor.copy(spearPos);
       // Sag: a slack line hangs, a loaded one straightens and hums.
@@ -632,7 +654,7 @@ export function createHarpoon(opts = {}) {
       } else if (state.tethered) {
         anchorPoint(_p);
         spear.position.copy(_p);
-        bowPoint(_a);
+        sternPoint(_a);
         _a.sub(_p).normalize();
         _q.setFromUnitVectors(_Z, _a);
         spear.quaternion.copy(_q);
