@@ -1665,6 +1665,23 @@ export function createMonster(opts = {}) {
             stampT = 0;
             water.disturb(position.x, position.z, 0.85, 8.0);
           }
+        } else if (phase === 'spent') {
+          // Beaten fair. She stays up for a long moment, rolling in her own
+          // wash, before the deep takes her back — the win the player just
+          // fought a minute for is a SIGHT, not a toast message.
+          _dir.copy(velocity).setY(0);
+          if (_dir.lengthSq() < 1) _dir.set(0, 0, -1);
+          _dir.normalize();
+          const limS = floorLimit(position.x, position.z);
+          steerTo(position.x + _dir.x * 40, Math.max(-5.5 * scale, limS),
+            position.z + _dir.z * 40, 2.2, dt);
+          speed = velocity.length();
+          if (water && water.disturb && stampT > 0.25
+            && Math.hypot(position.x - bx, position.z - bz) < 70) {
+            stampT = 0;
+            water.disturb(position.x, position.z, 0.7, 8.5);
+          }
+          if (phaseT > 9) setPhase('dive');
         } else {
           // dive — sink away, slow down, then fold back into the circuit.
           const lim = floorLimit(position.x, position.z);
@@ -1740,13 +1757,18 @@ export function createMonster(opts = {}) {
         setPhase('hooked');
         return true;
       },
-      unhook() {
+      unhook(spent) {
         if (!hooked) return;
         hooked = false;
         towAcc.set(0, 0, 0);
-        approachLock = 45;
-        breachCooldown = Math.max(breachCooldown, 30);
-        setPhase('dive');
+        // Short lockouts. The first cut of this used 45 s and a 30 s breach
+        // floor, and the felt result was reported in three words: "I don't
+        // see any more leviathans" — every fight ended with the animal a
+        // hundred metres away, deep, and refusing to come back for most of a
+        // minute. A fight should END with a leviathan in view.
+        approachLock = 18;
+        breachCooldown = Math.max(breachCooldown, 14);
+        setPhase(spent ? 'spent' : 'dive');
       },
       towPull(x, y, z) { if (hooked) towAcc.set(x, y, z); },
       setStrain(s) { strain = clamp(s, 0, 1); },

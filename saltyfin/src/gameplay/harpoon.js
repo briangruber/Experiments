@@ -282,7 +282,7 @@ export function createHarpoon(opts = {}) {
       );
     }
 
-    function release(reason) {
+    function release(reason, spent) {
       if (!state.tethered) return;
       state.tethered = false;
       snapT = 0;
@@ -292,7 +292,9 @@ export function createHarpoon(opts = {}) {
       state.tension = 0;
       cooldown = COOLDOWN;
       state.cutHold = 0;
-      target?.unhook?.();
+      // `spent` marks a fair win: the animal surfaces and lingers instead of
+      // vanishing into the deep — see the 'spent' phase in monster.js.
+      target?.unhook?.(!!spent);
       target = null;
       audio?.setLineTension?.(0);
       if (reason) setMsg(reason);
@@ -551,7 +553,7 @@ export function createHarpoon(opts = {}) {
         const p = target.state.position;
         burst(p.x, p.z, 34, 1.3);
         audio?.cue?.('victory');
-        release('She tires, rolls, and slips the line. What a fish story.');
+        release('She tires, rolls, and slips the line. What a fish story.', true);
         return;
       }
 
