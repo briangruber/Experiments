@@ -100,6 +100,14 @@ export class Player {
     this.invuln = 0;
     // Overridable so the harness can sweep it against measured foot skate.
     this.stride = STRIDE;
+    // Ground pound: a second jump press in the air dives straight down.
+    this.smashing = false;
+    this.smashSpin = 0;
+    this.onSmash = null;
+    this.onSmashStart = null;
+    // Consecutive gloom stomps without touching the ground. threats.js bumps
+    // it, landing clears it, and each link bounces higher than the last.
+    this.bounceChain = 0;
   }
 
   // Knocked off your feet: a shove along the surface plus real air, and a
@@ -116,6 +124,8 @@ export class Player {
     // back, forward, hurled back" every few seconds.
     this.vel.addScaledVector(_v, 3.2 + 1.8 * strength);
     this.vel.addScaledVector(this.up, 3.6 + 1.2 * strength);
+    this.smashing = false;
+    this.smashSpin = 0;
     this.grounded = false;
     this.airTime = 0.2;
     this.squash = 1.25;
@@ -223,6 +233,30 @@ export class Player {
         this.vel.addScaledVector(this.up, (def.jumpSpeed ?? 11) - rv);
         this.squash = 0.78;
         this.onJump?.();
+      } else if (this.jumpBuffer > 0 && !this.grounded && !this.smashing
+        && this.airTime >= COYOTE && (this.hurtTime ?? 0) <= 0) {
+        // Second press in the air: tuck and smash straight down. Drift is
+        // mostly cancelled so the dive lands where you aimed it, not where
+        // momentum was already taking you.
+        this.jumpBuffer = 0;
+        this.smashing = true;
+        this.smashSpin = 0;
+        const rv = this.vel.dot(this.up);
+        this.vel.addScaledVector(this.up, -rv);
+        this.vel.multiplyScalar(0.3);
+        this.vel.addScaledVector(this.up, -Math.max(24, (def.gravity ?? 24) * 1.15));
+        this.squash = 1.18;
+        this.onSmashStart?.();
+      }
+
+      // The black hole tugs everything that leaves the ground. On foot the
+      // surface mostly holds you; in the air a long jump visibly curves toward
+      // the dark, which is the whole character of the world that has one.
+      if (def.blackHole && planet.holeWorld) {
+        _v.copy(planet.holeWorld).applyMatrix4(_m.copy(planet.group.matrixWorld).invert()).sub(this.local);
+        const d = Math.max(_v.length(), 4);
+        const a = def.blackHole.pull * (400 / (d * d));
+        this.vel.addScaledVector(_v.normalize(), a * dt * (this.grounded ? 0.35 : 1));
       }
 
       this.local.addScaledVector(this.vel, dt);
@@ -278,10 +312,16 @@ export class Player {
     }
 
     if (this.grounded) {
-      if (!wasGrounded && this.airTime > 0.18) {
+      if (!wasGrounded && this.smashing) {
+        this.smashing = false;
+        this.smashSpin = 0;
+        this.squash = 0.5;
+        this.onSmash?.(clamp(this.fallSpeed / 30, 0.4, 1));
+      } else if (!wasGrounded && this.airTime > 0.18) {
         this.squash = clamp(1 - Math.min(0.4, this.fallSpeed / 40), 0.6, 1);
         this.onLand?.(Math.min(1, this.fallSpeed / 22));
       }
+      this.bounceChain = 0;
       this.airTime = 0;
       this.fallSpeed = 0;
     } else {
@@ -320,8 +360,10 @@ export class Player {
     const turn = _r.crossVectors(this.up, this.facing).dot(_v) / Math.max(1, this.speed);
     this.lean = damp(this.lean ?? 0, clamp(-turn * 0.5, -0.42, 0.42), 7, dt);
     this.pitch = damp(this.pitch ?? 0, clamp(this.speed / (def.moveSpeed ?? 6.5), 0, 1.4) * 0.1, 5, dt);
+    // One quick front flip into the smash, then hold the tuck until impact.
+    if (this.smashing) this.smashSpin = Math.min(Math.PI * 2, this.smashSpin + dt * 15);
     this.model.rotation.z = this.lean;
-    this.model.rotation.x = this.pitch;
+    this.model.rotation.x = this.pitch + this.smashSpin;
 
     // ---- animation
     //

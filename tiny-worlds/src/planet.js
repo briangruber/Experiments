@@ -920,6 +920,7 @@ export class Planet {
     for (const g of this.growables) g.angle = g.dir.angleTo(this.bloomOrigin);
     this.waveRadius = 0;
     this.waveActive = true;
+    this.waveShoved = false;   // the front shoves the keeper once as it passes
     this.bloomed = true;
   }
 

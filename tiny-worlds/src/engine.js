@@ -5,8 +5,52 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { rng, damp } from './noise.js';
+
+// Gravitational lensing, the screen-space fake: pixels near the hole sample
+// the image from further in, so the starfield and the planet smear into a ring
+// around it. A black core stands in for the horizon (backstopping the black
+// sphere mesh), with a hot rim just outside. Off by default; main.js feeds it
+// the hole's projected position each frame and it turns itself off whenever
+// the hole is off screen.
+const LensShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    uPos: { value: new THREE.Vector2(0.5, 0.5) },
+    uR: { value: 0.0 },
+    uAspect: { value: 1.0 },
+    uStrength: { value: 0.0 },
+  },
+  vertexShader: /* glsl */`
+    varying vec2 vUv;
+    void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: /* glsl */`
+    uniform sampler2D tDiffuse;
+    uniform vec2 uPos;
+    uniform float uR, uAspect, uStrength;
+    varying vec2 vUv;
+    void main() {
+      vec2 d = vUv - uPos;
+      d.x *= uAspect;
+      float r = length(d);
+      float bend = uStrength * uR * uR / max(r * r, 1e-5);
+      bend = min(bend, r * 0.85);
+      vec2 dir = d / max(r, 1e-5);
+      vec2 off = dir * bend;
+      off.x /= uAspect;
+      vec3 col;
+      col.r = texture2D(tDiffuse, vUv - off * 1.035).r;
+      col.g = texture2D(tDiffuse, vUv - off).g;
+      col.b = texture2D(tDiffuse, vUv - off * 0.965).b;
+      float core = smoothstep(uR, uR * 0.8, r) * min(uStrength * 4.0, 1.0);
+      col = mix(col, vec3(0.0), core);
+      float rim = smoothstep(uR * 1.6, uR * 1.02, r) * (1.0 - core) * min(uStrength * 2.0, 1.0);
+      col += vec3(1.0, 0.72, 0.4) * rim * 0.45;
+      gl_FragColor = vec4(col, 1.0);
+    }`,
+};
 
 export const SUN_POSITION = new THREE.Vector3(620, 420, 900);
 
@@ -76,6 +120,10 @@ export class Engine {
 
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
+    // Lens before bloom, so the smeared ring of light also glows.
+    this.lens = new ShaderPass(LensShader);
+    this.lens.enabled = false;
+    this.composer.addPass(this.lens);
     this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.45, 0.3, 0.9);
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
@@ -162,6 +210,18 @@ export class Engine {
   update(dt) {
     if (this.hemiTarget !== undefined) this.hemi.intensity = damp(this.hemi.intensity, this.hemiTarget, 2.5, dt);
     this.stars.rotation.y += dt * 0.002;
+  }
+
+  // Fed by main each frame with BlackHole.project()'s result, or null.
+  setLens(proj) {
+    if (!proj || proj.r <= 0.001) { this.lens.enabled = false; return; }
+    this.lens.enabled = true;
+    const u = this.lens.uniforms;
+    u.uPos.value.set(proj.x, proj.y);
+    u.uR.value = proj.r;
+    u.uAspect.value = this.camera.aspect;
+    // Fades in as you get near, so entering the world does not pop the sky.
+    u.uStrength.value = Math.min(1, 220 / Math.max(proj.dist, 40)) * 0.55;
   }
 
   resize() {

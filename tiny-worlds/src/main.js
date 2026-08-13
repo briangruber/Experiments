@@ -5,8 +5,9 @@
 // which is the whole point.
 
 import * as THREE from 'three';
-import { WORLDS } from './worlds.js';
+import { WORLDS, SPECK } from './worlds.js';
 import { Planet } from './planet.js';
+import { BlackHole } from './blackhole.js';
 import { Player } from './player.js';
 import { ChaseCamera } from './camera.js';
 import { Engine } from './engine.js';
@@ -72,6 +73,20 @@ for (let i = 0; i < WORLDS.length; i++) {
   await new Promise((r) => setTimeout(r, 0)); // let the bar actually paint
 }
 
+// The secret: a speck of a world over Amaranth's pole, off the progression
+// entirely. It exists, which is the reward.
+const speck = new Planet(SPECK, assets);
+engine.scene.add(speck.group);
+
+// Umbra's black hole — the visible half. The pull lives in player.js, keyed
+// off `planet.holeWorld`.
+let blackHole = null;
+for (const p of planets) {
+  if (!p.def.blackHole) continue;
+  blackHole = new BlackHole(engine.scene, p.def);
+  p.holeWorld = blackHole.centre;
+}
+
 const player = new Player(assets);
 const chase = new ChaseCamera(engine.camera);
 const particles = new Particles(engine.scene);
@@ -100,6 +115,20 @@ player.onLand = (strength) => {
   }
 };
 player.onStep = () => audio.step();
+player.onSmashStart = () => audio.dive();
+player.onSmash = (strength) => {
+  audio.smash(strength);
+  chase.shake = 0.45 + strength * 0.35;
+  player.worldPosition(_a);
+  player.worldUp(_b);
+  particles.burst(_a, {
+    count: 26 + Math.round(strength * 22), color: new THREE.Color(0xd8cbb0),
+    speed: 4.5 + strength * 4, size: 0.42, life: 0.8, up: _b, spread: 1.5,
+  });
+  const planet = current();
+  const gone = planet.gloom?.dispelNear(player.up, 3.4, threatCtx) ?? 0;
+  if (gone) hud.toast(gone > 1 ? `${gone} gloom scattered` : 'gloom scattered', 1600);
+};
 
 const current = () => planets[state.worldIndex];
 
@@ -112,6 +141,9 @@ function enterWorld(index, { lift = 0 } = {}) {
   state.sparks = planet.motes.filter((m) => m.taken).length;
   hud.setSparks(state.sparks, planet.moteTotal ?? 0);
   audio.setWorld(index, { dark: planet.def.dark });
+  // The music arrives as assembled as the world is.
+  if (planet.bloomed) { audio.setLayers(1, { bloomed: true }); audio.themeOn(); }
+  else { audio.themeOff(); audio.setLayers(planet.moteTotal ? state.sparks / planet.moteTotal : 0); }
   chase.targetDistance = planet.def.radius * 1.15 + 4;
   chase.snap();
   planet.spawnThreats();
@@ -130,6 +162,7 @@ function collect(planet, mote) {
   state.sparks++;
   state.collected++;
   audio.collect(state.sparks - 1, planet.moteTotal);
+  audio.setLayers(state.sparks / planet.moteTotal);
   hud.setSparks(state.sparks, planet.moteTotal);
   if (state.sparks >= planet.moteTotal) bloomWorld(planet, mote.dir);
 }
@@ -138,6 +171,8 @@ function bloomWorld(planet, originDir) {
   planet.startBloom(originDir);
   planet.beaconOn = true;
   audio.bloom();
+  audio.setLayers(1, { bloomed: true });
+  audio.themeOn();
   chase.shake = 0.9;
 
   planet.group.localToWorld(_a.copy(originDir).multiplyScalar(planet.groundRadius(originDir)));
@@ -190,9 +225,9 @@ const threatCtx = {
   emberColor: new THREE.Color(0xff8a3a),
   gloomColor: new THREE.Color(0x9a7ad8),
   onHit: (hit) => onThreatHit(hit),
-  onStomp: () => {
-    chase.shake = 0.4;
-    hud.toast('gloom scattered', 1600);
+  onStomp: (pos, chain = 1) => {
+    chase.shake = 0.4 + Math.min(chain - 1, 4) * 0.08;
+    hud.toast(chain > 1 ? `gloom scattered ×${chain}` : 'gloom scattered', 1600);
   },
 };
 
@@ -224,6 +259,7 @@ function onThreatHit({ push, strength, source }) {
   mote.up.copy(mote.dir);
   mote.hold = 1.6;
   state.sparks = Math.max(0, state.sparks - 1);
+  audio.setLayers(planet.moteTotal ? state.sparks / planet.moteTotal : 0);
   hud.setSparks(state.sparks, planet.moteTotal);
   hud.toast(source === 'meteor' ? 'a meteor scattered a spark' : 'the gloom stole a spark', 2600);
 
@@ -270,6 +306,125 @@ function emitBloomFront(planet, dt) {
   }
 }
 
+// The wavefront is a physics event once per bloom: when it sweeps under the
+// keeper it throws them into the air, and for a couple of seconds you are
+// surfing the wave that you made.
+function bloomSurf(planet) {
+  if (!planet.waveActive || planet.waveShoved || player.planet !== planet) return;
+  if (planet.waveRadius < player.up.angleTo(planet.bloomOrigin)) return;
+  planet.waveShoved = true;
+  _c.copy(player.up).addScaledVector(planet.bloomOrigin, -player.up.dot(planet.bloomOrigin));
+  if (_c.lengthSq() > 1e-6) player.vel.addScaledVector(_c.normalize(), 6.5);
+  player.vel.addScaledVector(player.up, 7);
+  player.grounded = false;
+  player.squash = 0.72;
+  chase.shake = Math.max(chase.shake ?? 0, 0.5);
+  audio.surf();
+  player.worldPosition(_a);
+  player.worldUp(_b);
+  particles.burst(_a, { count: 26, color: PETAL, speed: 5, size: 0.45, life: 1.1, up: _b });
+}
+
+// ------------------------------------------------------------- the speck
+//
+// Gravity handoff, both directions. Jump high enough off Amaranth inside the
+// speck's sphere of influence and it catches you; drift far enough off the
+// speck and Amaranth takes you back. World position and velocity carry over
+// exactly, so the trade feels like physics rather than a teleport.
+function transferTo(planet) {
+  player.worldPosition(_a);
+  _b.copy(player.vel).transformDirection(player.planet.group.matrixWorld);
+  player.planet.group.remove(player.root);
+  player.planet = planet;
+  planet.group.add(player.root);
+  planet.group.worldToLocal(player.local.copy(_a));
+  player.vel.copy(_b).transformDirection(_m.copy(planet.group.matrixWorld).invert());
+  player.up.copy(player.local).normalize();
+  player.grounded = false;
+  player.lantern.intensity = planet.def.dark ? 11 : 0;
+  player.syncTransform();
+}
+
+function updateSpeck() {
+  if (state.mode !== 'play') return;
+  if (player.planet === speck) {
+    if (player.local.length() > speck.def.radius * 3.2) {
+      transferTo(planets[1]);
+      // Falling home passes back through the capture zone; without a grace
+      // period the speck catches you again on the way down, forever.
+      state.speckHop = state.time;
+      hud.toast('Amaranth takes you back', 2000);
+    } else if (player.grounded && !state.speckFound) {
+      state.speckFound = true;
+      player.goldTrail = true;
+      speck.beaconOn = true;
+      audio.portal();
+      hud.toast('The Speck — a world too small to lose', 4600);
+      setTimeout(() => {
+        if (state.speckFound) hud.toast('it will remember you walked here', 3600);
+      }, 5000);
+    }
+  } else if (player.planet === planets[1] && !player.grounded
+    && state.time - (state.speckHop ?? -9) > 1.6) {
+    player.worldPosition(_a);
+    if (_a.distanceTo(speck.group.position) < speck.def.radius * 2.0) {
+      transferTo(speck);
+      chase.shake = 0.35;
+    }
+  }
+}
+
+// Having stood on the Speck, the keeper leaves a thin gold wake forever.
+function emitTrail(dt) {
+  if (!player.goldTrail || !player.grounded || player.speed < 3) return;
+  state.trailEmit = (state.trailEmit ?? 0) + dt;
+  while (state.trailEmit > 0.09) {
+    state.trailEmit -= 0.09;
+    player.worldPosition(_a);
+    player.worldUp(_b);
+    _a.addScaledVector(_b, 0.15);
+    _d.copy(_b).multiplyScalar(0.8 + Math.random() * 0.6);
+    _d.x += (Math.random() - 0.5) * 0.5;
+    _d.z += (Math.random() - 0.5) * 0.5;
+    particles.spawn(_a, _d, SPARK, 0.22, 0.9, { drag: 1.6 });
+  }
+}
+
+// --------------------------------------------------------- the black hole
+//
+// Failsafe, not the main mechanic: the pull on airborne movement is what the
+// world is about, but if the keeper is ever genuinely dragged in, the hole
+// costs a spark and spits nothing back — respawn at the beacon.
+function updateBlackHole(dt) {
+  if (!blackHole) return;
+  blackHole.update(dt, state.time);
+  engine.setLens(blackHole.project(engine.camera));
+  const planet = current();
+  if (state.mode !== 'play' || !planet.def.blackHole || player.planet !== planet) return;
+  player.worldPosition(_a);
+  if (_a.distanceTo(blackHole.centre) > blackHole.radius * 3) return;
+  audio.hurt();
+  hud.flash();
+  chase.shake = 1.2;
+  hud.toast('the dark lets nothing go', 2800);
+  const held = planet.motes.filter((m) => m.taken && !m.islet);
+  if (held.length && !planet.bloomed) {
+    const mote = held[held.length - 1];
+    mote.taken = false;
+    mote.attract = null;
+    mote.obj.visible = true;
+    offsetDir(planet.landingDir, 0.35 + Math.random() * 0.2, Math.random() * Math.PI * 2, mote.dir);
+    mote.up.copy(mote.dir);
+    mote.hold = 1.6;
+    state.sparks = Math.max(0, state.sparks - 1);
+    audio.setLayers(planet.moteTotal ? state.sparks / planet.moteTotal : 0);
+    hud.setSparks(state.sparks, planet.moteTotal);
+  }
+  player.attachTo(planet, planet.landingDir, { lift: 6 });
+  player.invuln = 2.2;
+  chase.snap();
+}
+
 function checkMotes(dt) {
   const planet = current();
   const pickup = 1.35;
@@ -296,7 +451,7 @@ function updatePrompt() {
   state.promptAction = null;
   if (state.mode !== 'play') { hud.hidePrompt(); return; }
 
-  if (planet.portal && state.worldIndex < planets.length - 1) {
+  if (planet.portal && state.worldIndex < planets.length - 1 && player.planet === planet) {
     const d = player.local.distanceTo(planet.portal.centre);
     if (d < 9) {
       hud.showPrompt(`walk into the portal &nbsp;·&nbsp; <b>${planets[state.worldIndex + 1].def.name}</b>`);
@@ -472,14 +627,16 @@ function frame(now) {
     const move = playing ? movementBasis(dt) : _move.set(0, 0, 0);
     player.sprint = input.sprint;
     player.update(dt, { moveWorld: move, jump: playing && input.takeJump(), freeze: !playing });
-    if (playing) { checkMotes(dt); emitBeacon(dt); }
+    if (playing && player.planet === current()) { checkMotes(dt); emitBeacon(dt); }
+    if (playing) { updateSpeck(); emitTrail(dt); }
 
     player.worldPosition(_a);
     player.worldUp(_b);
     // The higher you get, the further back the camera sits — on the light
     // worlds a full-speed jump nearly leaves the planet, and that only reads
-    // if you can see the planet.
-    const planetNow = current();
+    // if you can see the planet. `player.planet`, not `current()`: the keeper
+    // can be standing on the speck, which is nobody's current world.
+    const planetNow = player.planet ?? current();
     const altitude = Math.max(0, player.local.length() - planetNow.groundRadius(player.up));
     chase.targetDistance = planetNow.def.radius * 1.15 + 4 + Math.min(altitude * 1.5, planetNow.def.radius * 1.4);
 
@@ -504,13 +661,16 @@ function frame(now) {
   else if (state.mode !== 'play') input.takeInteract();
 
   for (const p of planets) p.update(dt, state.time);
+  speck.update(dt, state.time);
   threatCtx.active = playing && state.mode !== 'flight';
   current().updateThreats(dt, state.time, player, threatCtx);
   current().portal?.update(dt, state.time, threatCtx);
   emitBloomFront(current(), dt);
+  bloomSurf(current());
+  updateBlackHole(dt);
   emitWeather(dt);
   // Stepping into the mouth is the whole interaction.
-  if (state.mode === 'play' && current().portal?.reached(player.local)) startFlight();
+  if (state.mode === 'play' && player.planet === current() && current().portal?.reached(player.local)) startFlight();
   particles.update(dt);
   engine.update(dt);
   debug.update(dt);
@@ -576,16 +736,17 @@ if (params.get('skipmenu')) {
   document.body.classList.add('menu');
   hud.showCard({
     title: 'Tiny Worlds',
-    sub: 'a keeper, five small planets, and the light they lost',
+    sub: 'a keeper, six small worlds, and the light they lost',
     body: 'Every world here has gone grey. Somewhere on each one, its last sparks are still drifting — '
       + 'gather them all and the world wakes up under your feet. Watch for the gloom, and for the sky.'
       + '<br><br><span class="keys">'
       + (COARSE
         ? '<b>left half</b> of the screen steers &nbsp;·&nbsp; <b>tap the right half</b> to jump'
+          + '<br><b>tap again in the air</b> to smash down'
           + '<br><b>drag the right half</b> to look around'
           + '<br>walk into the portal when it opens'
-        : '<b>WASD</b> run &nbsp;·&nbsp; <b>Space</b> jump &nbsp;·&nbsp; <b>Shift</b> sprint '
-          + '&nbsp;·&nbsp; <b>drag</b> to look<br>walk into the portal when it opens')
+        : '<b>WASD</b> run &nbsp;·&nbsp; <b>Space</b> jump, <b>again in the air</b> to smash '
+          + '&nbsp;·&nbsp; <b>Shift</b> sprint &nbsp;·&nbsp; <b>drag</b> to look<br>walk into the portal when it opens')
       + '</span>',
     button: 'Begin',
   }).then(begin);

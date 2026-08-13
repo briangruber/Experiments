@@ -47,6 +47,34 @@ export class Audio {
     lfo.connect(lfoGain).connect(this.padFilter.frequency);
     lfo.start();
 
+    // The music assembles: each of these voices is silent until enough of the
+    // world's sparks are banked, so progress is something you can hear. Every
+    // voice tremolos at its own rate — four steady sines would just be a
+    // thicker pad.
+    this.root = 110;
+    this.layerDefs = [
+      { mult: 2, type: 'sine', base: 0.055, trem: 0.9 },
+      { mult: 3, type: 'sine', base: 0.05, trem: 1.4 },
+      { mult: 2.5, type: 'triangle', base: 0.03, trem: 0.65 },
+      { mult: 4.5, type: 'sine', base: 0.022, trem: 1.9 },
+    ];
+    this.layers = this.layerDefs.map((d) => {
+      const osc = this.ctx.createOscillator();
+      osc.type = d.type;
+      osc.frequency.value = this.root * d.mult;
+      const gain = this.ctx.createGain();
+      gain.gain.value = 0;
+      const trem = this.ctx.createOscillator();
+      trem.frequency.value = d.trem;
+      const tremGain = this.ctx.createGain();
+      tremGain.gain.value = 0;
+      trem.connect(tremGain).connect(gain.gain);
+      osc.connect(gain).connect(this.padFilter);
+      osc.start();
+      trem.start();
+      return { osc, gain, tremGain, def: d };
+    });
+
     this.noiseBuffer = this.makeNoise();
     this.ready = true;
     this.master.gain.linearRampToValueAtTime(this.muted ? 0 : 0.85, this.ctx.currentTime + 1.5);
@@ -71,12 +99,51 @@ export class Audio {
   // Each world gets its own root note and colour.
   setWorld(index, { dark = false } = {}) {
     if (!this.ready) return;
-    const roots = [110, 98, 130.81, 82.41, 146.83];
+    const roots = [110, 98, 130.81, 82.41, 73.42, 146.83];
     const root = roots[index % roots.length];
+    this.root = root;
     const t = this.ctx.currentTime;
     for (const p of this.padOscs) p.osc.frequency.linearRampToValueAtTime(root * p.mult, t + 2.5);
+    for (const l of this.layers) l.osc.frequency.linearRampToValueAtTime(root * l.def.mult, t + 2.5);
     this.padFilter.frequency.linearRampToValueAtTime(dark ? 380 : 760, t + 2.5);
     this.chimeIndex = 0;
+  }
+
+  // 0..1 of the current world's sparks. Voices fade in one by one as the
+  // fraction climbs, and fall away again if the gloom shakes a spark loose.
+  setLayers(frac, { bloomed = false } = {}) {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime;
+    this.layers.forEach((l, i) => {
+      const gate = Math.max(0, Math.min(1, frac * this.layers.length - i));
+      const lvl = (bloomed ? 1 : gate) * l.def.base;
+      l.gain.gain.cancelScheduledValues(t);
+      l.gain.gain.setValueAtTime(l.gain.gain.value, t);
+      l.gain.gain.linearRampToValueAtTime(lvl, t + 1.4);
+      l.tremGain.gain.cancelScheduledValues(t);
+      l.tremGain.gain.setValueAtTime(l.tremGain.gain.value, t);
+      l.tremGain.gain.linearRampToValueAtTime(lvl * 0.45, t + 1.4);
+    });
+  }
+
+  // Once a world blooms the full theme plays: a slow pentatonic figure over
+  // the assembled pad. Runs on a timer, not the audio clock — at this tempo
+  // nobody can hear the jitter, and it survives tab throttling gracefully.
+  themeOn() {
+    if (!this.ready || this.arp) return;
+    const seq = [0, 4, 7, 12, 9, 7, 4, 2];
+    let step = 0;
+    this.arp = setInterval(() => {
+      if (this.muted) return;
+      const f = this.root * 4 * Math.pow(2, seq[step % seq.length] / 12);
+      this.tone(f, { type: 'triangle', decay: 0.6, peak: 0.035 });
+      if (step % 8 === 0) this.tone(this.root * 2, { type: 'sine', decay: 1.6, peak: 0.028 });
+      step++;
+    }, 430);
+  }
+
+  themeOff() {
+    if (this.arp) { clearInterval(this.arp); this.arp = null; }
   }
 
   env(node, { attack = 0.005, decay = 0.4, peak = 0.3 } = {}) {
@@ -183,10 +250,31 @@ export class Audio {
     this.tone(96, { type: 'triangle', decay: 0.3, peak: 0.08, delay: 0.02 });
   }
 
-  stomp() {
-    this.noise({ decay: 0.22, peak: 0.12, type: 'bandpass', freq: 900, sweepTo: 2600 });
-    this.tone(320, { type: 'triangle', decay: 0.25, peak: 0.12 });
-    this.tone(640, { type: 'sine', decay: 0.18, peak: 0.06, delay: 0.05 });
+  // Pitch climbs with the bounce chain, so a good run sounds like one.
+  stomp(chain = 1) {
+    const m = 1 + Math.min(chain - 1, 4) * 0.19;
+    this.noise({ decay: 0.22, peak: 0.12, type: 'bandpass', freq: 900 * m, sweepTo: 2600 });
+    this.tone(320 * m, { type: 'triangle', decay: 0.25, peak: 0.12 });
+    this.tone(640 * m, { type: 'sine', decay: 0.18, peak: 0.06, delay: 0.05 });
+  }
+
+  // The tuck at the top of a smash: a short falling whistle.
+  dive() {
+    this.noise({ decay: 0.3, peak: 0.07, type: 'bandpass', freq: 2400, sweepTo: 300 });
+  }
+
+  // The landing. Heavier than a normal land, lighter than a meteor.
+  smash(strength = 1) {
+    this.noise({ decay: 0.5, peak: 0.14 + strength * 0.1, type: 'lowpass', freq: 800, sweepTo: 110 });
+    this.tone(60, { type: 'sine', decay: 0.45, peak: 0.16 });
+    this.tone(110, { type: 'triangle', decay: 0.22, peak: 0.07, delay: 0.02 });
+  }
+
+  // The bloom front arriving under your feet.
+  surf() {
+    this.noise({ decay: 0.9, peak: 0.09, type: 'bandpass', freq: 500, sweepTo: 2400 });
+    this.tone(392, { type: 'sine', decay: 0.9, peak: 0.08 });
+    this.tone(587.33, { type: 'sine', decay: 0.7, peak: 0.05, delay: 0.08 });
   }
 
   portal() {

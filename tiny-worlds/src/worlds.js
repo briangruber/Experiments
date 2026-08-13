@@ -130,6 +130,39 @@ export const WORLDS = [
     lush: ramp('#7d2c17', '#7a4a2a', '#2f7a4f', '#c05c22', '#f5a83f'),
   },
   {
+    id: 'umbra',
+    weather: { color: '#b8c4ff', rate: 5, fall: 0.12, drift: 2.6, size: 0.15, life: 6 },
+    mistTint: hex('#2a2436'), mistDensity: 0.26, portal: hex('#9fb4ff'),
+    rock: hex('#4e4a58'), foam: hex('#8f93b8'), cloudCover: 0.34, cloudTint: hex('#6a6f96'),
+    flowers: ['#aab4ff', '#e0c8ff', '#8fd4ff'],
+    threats: { gloom: 3 },
+    name: 'Umbra',
+    epithet: 'in the mouth of the dark',
+    hint: 'The hole in the sky pulls at every jump. Lean against it, and do not drift deep.',
+    seed: 66101,
+    radius: 10.2,
+    position: [-84, 6, -420],
+    spin: 0.005,
+    gravity: 22,
+    moveSpeed: 6.6,
+    jumpSpeed: 11.6,
+    hang: 0.9,
+    grip: 13,
+    terrain: { amp: 1.45, freq: 1.2, ridgeAmp: 1.0, seaLevel: 0.27 },
+    motes: 9,
+    props: { trees: 14, rocks: 30, crystals: 14, houses: 1 },
+    grass: 5200,
+    // The twist: a black hole hangs `dist` units off the surface in `dir`, and
+    // everything airborne curves toward it. dir is in world axes, from centre.
+    blackHole: { dir: [-0.66, 0.3, 0.42], dist: 40, radius: 3.4, pull: 13 },
+    sun: { color: 0xcdd4ff, intensity: 1.5, dir: [0.2, 0.5, -0.8] },
+    ambient: { sky: 0x5a5f8f, ground: 0x241f30, intensity: 0.95 },
+    water: { dry: hex('#6f7284'), lush: hex('#4a63c8'), opacity: 0.88 },
+    space: hex('#04030a'),
+    dry: ramp('#4a4552', '#6e6878', '#787083', '#847c90', '#a29aae'),
+    lush: ramp('#2c3c8f', '#c9c2e6', '#7a8fe0', '#4a5fb8', '#dfe2ff'),
+  },
+  {
     id: 'heart',
     weather: { color: '#fff0c4', rate: 8, fall: 0.3, drift: 1.2, size: 0.18, life: 6 },
     mistTint: hex('#f2ead8'), mistDensity: 0.4,
@@ -161,3 +194,37 @@ export const WORLDS = [
 ];
 
 export const worldById = (id) => WORLDS.find((w) => w.id === id);
+
+// The sixth world nobody is told about. It hangs over Amaranth's pole, just
+// past the reach of an ordinary jump — you need the top of a bobbing islet and
+// a running leap to get caught by it. Not part of the progression: no sparks,
+// no portal, nothing but the fact of having stood there.
+export const SPECK = {
+  id: 'speck',
+  name: 'The Speck',
+  epithet: 'a world too small to lose',
+  hint: '',
+  mistTint: hex('#eadff2'), mistDensity: 0.2, clouds: false,
+  rock: hex('#8a8274'), foam: hex('#efe9da'), cloudCover: 0, cloudTint: hex('#ffffff'),
+  flowers: ['#ffe9a8', '#ffd6e8', '#ffffff'],
+  seed: 40961,
+  radius: 2.3,
+  // Amaranth sits at [152, 36, -104]; this floats ~21.7 above its pole.
+  position: [156, 56.5, -110],
+  spin: 0.02,
+  gravity: 5,
+  moveSpeed: 5,
+  jumpSpeed: 7.5,
+  hang: 0.85,
+  grip: 12,
+  terrain: { amp: 0.35, freq: 1.8, ridgeAmp: 0.2, seaLevel: 0.22 },
+  motes: 0,
+  props: { trees: 2, rocks: 4, crystals: 5, houses: 0 },
+  grass: 900,
+  sun: { color: 0xffd9e8, intensity: 2.6, dir: [-0.5, 0.5, 0.7] },
+  ambient: { sky: 0xd8a9e0, ground: 0x4a3550, intensity: 1.6 },
+  water: { dry: hex('#a294ae'), lush: hex('#8a58c8'), opacity: 0.84 },
+  space: hex('#0d0715'),
+  dry: ramp('#6a6258', '#948a7a', '#9c937f', '#a89e88', '#c4baa4'),
+  lush: ramp('#4a3d8a', '#e6c9d8', '#f0d890', '#c9a84c', '#fff2c8'),
+};

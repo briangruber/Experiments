@@ -307,6 +307,25 @@ export class Gloom {
     mob.current = name;
   }
 
+  // The smash's shockwave: scatter everything within `radius` along the
+  // surface. Returns how many went, so the caller can brag about it.
+  dispelNear(dir, radius, ctx) {
+    const planet = this.planet;
+    let n = 0;
+    for (const mob of this.mobs) {
+      if (!mob.root.visible || mob.dead > 0) continue;
+      const reach = mob.dir.angleTo(dir) * planet.groundRadius(mob.dir);
+      if (reach > radius) continue;
+      planet.group.localToWorld(_w.copy(mob.root.position));
+      ctx.particles.burst(_w, { count: 22, color: ctx.gloomColor, speed: 4, size: 0.5, life: 0.9 });
+      mob.root.visible = false;
+      mob.dead = 14;
+      mob.speed = 0;
+      n++;
+    }
+    return n;
+  }
+
   update(dt, time, player, ctx) {
     const planet = this.planet;
     const chasing = ctx.active && !planet.bloomed && player && player.planet === planet;
@@ -396,11 +415,24 @@ export class Gloom {
       // timer — gating the whole contact made a retreating gloom unstompable.
       if (!player.grounded && falling && above) {
         ctx.particles.burst(_w, { count: 26, color: ctx.gloomColor, speed: 4.5, size: 0.55, life: 1.0 });
-        ctx.audio?.stomp();
         mob.root.visible = false;
         mob.dead = 14;
         mob.speed = 0;
-        ctx.onStomp?.(_w.clone());
+        // The burst is a trampoline. Each stomp in a row bounces higher, so a
+        // chain of gloom becomes an aerial route — the chain resets the moment
+        // the keeper touches actual ground.
+        player.smashing = false;
+        player.smashSpin = 0;
+        player.bounceChain = (player.bounceChain ?? 0) + 1;
+        const rv = player.vel.dot(player.up);
+        const boost = (planet.def.jumpSpeed ?? 11) * (1.02 + 0.16 * Math.min(player.bounceChain, 4));
+        player.vel.addScaledVector(player.up, boost - rv);
+        player.grounded = false;
+        player.airTime = 0.01;
+        player.squash = 0.72;
+        player.fallSpeed = 0;
+        ctx.audio?.stomp(player.bounceChain);
+        ctx.onStomp?.(_w.clone(), player.bounceChain);
       } else if (canHit) {
         _v.copy(player.up).sub(mob.dir).normalize();
         if (_v.lengthSq() < 1e-4) _v.copy(player.facing);

@@ -1,6 +1,6 @@
 # Tiny Worlds
 
-A keeper, five small planets, and the light they lost.
+A keeper, six small worlds, and the light they lost.
 
 Each world is a sphere you can run all the way around in about ten seconds.
 Gravity points at the core, so "up" is wherever you happen to be standing and
@@ -31,7 +31,30 @@ the world and it all stops: the light drives the gloom out and the sky settles.
 | Amaranth | barely any gravity — a running jump nearly leaves the world | gloom, and a falling sky |
 | Glacia | almost no ground friction | fewer gloom, heavier bombardment |
 | Ember | night, lit only by your lantern | thick with gloom |
+| Umbra | a black hole hangs in the sky, and every jump curves toward it | gloom, and the dark itself |
 | The Heart | tiny, and it blooms on arrival | nothing at all |
+
+There is also a seventh place that is not in that table, not in the debug
+panel, and not on the way to anything. Amaranth's gravity is weak, its islets
+bob, and something small glitters over its pole.
+
+A few systems are worth knowing before you read the code:
+
+- **The smash.** Jump again in the air and the keeper tucks, flips, and comes
+  down hard; the landing is a shockwave that scatters any gloom nearby.
+- **Bounce chains.** Coming down on a gloom bursts it and bounces you — higher
+  each time, so a line of gloom is an aerial route if you can string it.
+  Touching the ground resets the chain.
+- **The bloom is a physics event.** When the wavefront sweeps under your feet
+  it throws you into the air once — you surf the wave you made.
+- **The music assembles.** Each banked spark fades another voice into the pad
+  (and losing one to the gloom takes it back out); the full theme only plays
+  over a bloomed world. All still synthesised at runtime.
+- **Umbra's black hole** is three cheats stacked: a genuinely black sphere, an
+  additively-blended accretion disk with one side brighter (doppler beaming,
+  approximately), and a screen-space lens pass that bends the rendered image
+  around it — plus a real acceleration on the keeper in `player.js`, so long
+  jumps on the near side visibly curve toward the dark.
 
 ## Running it
 

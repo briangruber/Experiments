@@ -75,10 +75,14 @@ await page.keyboard.press('Backquote');
 await frames(2);
 const panel = await page.evaluate(() => {
   const el = document.getElementById('debug');
-  return { open: el?.classList.contains('open'), worlds: el?.querySelectorAll('.dbg-worlds button').length };
+  return {
+    open: el?.classList.contains('open'),
+    worlds: el?.querySelectorAll('.dbg-worlds button').length,
+    expected: window.tinyWorlds.planets.length,
+  };
 });
 check('the debug panel opens and lists every world',
-  panel.open && panel.worlds === 5, JSON.stringify(panel));
+  panel.open && panel.worlds === panel.expected, JSON.stringify(panel));
 await page.evaluate(() => document.querySelectorAll('#debug .dbg-worlds button')[3].click());
 await frames(3);
 check('a debug world button jumps there',
