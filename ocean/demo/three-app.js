@@ -667,6 +667,7 @@ bootWithFallback().then( ( app ) => {
 	}
 
 	let frames = 0, t0 = performance.now();
+	let lastApplied = 0;
 	const fpsEl = document.getElementById( 'fps' );
 	setInterval( () => {
 
@@ -718,7 +719,21 @@ bootWithFallback().then( ( app ) => {
 		// A software rasteriser can genuinely sit under one frame a second, and
 		// "0 fps" reads as broken rather than as slow.
 		const shown = fps >= 1 ? fps.toFixed( 0 ) : fps > 0 ? '<1' : '—';
-		if ( fpsEl ) fpsEl.textContent = `${ shown } fps  ${ c.width }×${ c.height }`;
+		if ( fpsEl ) {
+
+			// While riding, the line carries the two numbers that matter for the
+			// ride: speed, and how often a fresh surface reading actually reaches
+			// the hull. The probe rate is diagnosis-by-screenshot - the hull's
+			// entire feel rides on it (a starved probe is a bouncing craft, see
+			// craft-probe.js), and a phone has no console to ask.
+			const applied = app.craftProbe?.applied ?? 0;
+			const probeRate = applied - lastApplied;
+			lastApplied = applied;
+			fpsEl.textContent = app.rider?.active
+				? `${ app.rider.speedKts.toFixed( 0 ) } kn · ${ shown } fps · probe ${ probeRate }/s`
+				: `${ shown } fps  ${ c.width }×${ c.height }`;
+
+		}
 
 	}, 1000 );
 	app.onFrame = () => { frames ++; };

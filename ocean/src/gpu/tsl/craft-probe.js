@@ -141,11 +141,41 @@ export class TslCraftProbe {
 		this.width = 64;
 		uProbeWidth.value = this.width;
 
-		this.rt = new THREE.RenderTarget( this.width, 1, {
+		// A RING of targets, one readback in flight per slot - NOT one target
+		// behind a busy flag.
+		//
+		// The busy-gated version serialised the whole probe: render, await the
+		// readback, and only then issue the next one. three's async readback
+		// takes several frames to resolve, and every frame it is in flight was a
+		// frame the surface data stood still - measured on the same machine and
+		// harness as the raw-GL demo, the readings landed at HALF its rate. That
+		// is not a smoothness nicety: the rider differentiates the probe height
+		// TWICE (surfVel, then surfAcc) to decide when the water has dropped away
+		// under the hull, and a stair-stepping input turns into acceleration
+		// spikes that read as exactly that. Each spike below -g*launchG launches
+		// the craft; each landing is an impact; the loop repeats. Reported, twice,
+		// as a hull "bouncing all around" instead of floating - the physics was
+		// fine, it was being fed a strip chart drawn in steps.
+		//
+		// With a ring, a probe is ISSUED every frame and each slot's readback
+		// resolves whenever it resolves - the latency stays (readings are a few
+		// frames old, which the rider's smoothing has always absorbed) but the
+		// RATE becomes one reading per frame, which is what the differentiators
+		// need. Three slots covers a readback latency of three frames before any
+		// issue is skipped. Distinct targets per slot keep concurrent readbacks
+		// from sharing a surface - whether a shared one is safe depends on the
+		// backend's copy scheduling, and this way it does not have to be known.
+		this.ring = Array.from( { length: 3 }, () => new THREE.RenderTarget( this.width, 1, {
 			type: THREE.FloatType, format: THREE.RGBAFormat,
 			minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
 			depthBuffer: false, generateMipmaps: false,
-		} );
+		} ) );
+		this.pending = this.ring.map( () => false );
+		// Issue and apply sequence numbers: readbacks may resolve out of order,
+		// and an old reading applied over a newer one would step the surface
+		// BACKWARD - worse than the staleness this exists to fix.
+		this.seq = 0;
+		this.applied = 0;
 
 		this.material = new THREE.NodeMaterial();
 		this.material.name = 'abyssal.craft.probe';
@@ -154,7 +184,6 @@ export class TslCraftProbe {
 		this.material.depthWrite = false;
 		this.quad = new THREE.QuadMesh( this.material );
 
-		this.busy = false;
 		// height, foam and the Lagrangian offset per probe - seeded flat so
 		// frame 1 has an answer.
 		this.result = Array.from( { length: NPROBE }, () => ( { h: 0, foam: 0, dx: 0, dz: 0 } ) );
@@ -176,8 +205,12 @@ export class TslCraftProbe {
 	 */
 	async update( points, o = {} ) {
 
-		if ( this.busy ) return this.result;
-		this.busy = true;
+		// The GPU is more than a full ring behind; skip this frame's issue rather
+		// than queueing into the past.
+		const slot = this.seq % this.ring.length;
+		if ( this.pending[ slot ] ) return this.result;
+		this.pending[ slot ] = true;
+		const mySeq = ++ this.seq;
 
 		try {
 
@@ -202,29 +235,39 @@ export class TslCraftProbe {
 			uWakeProbe.value = o.wakeProbe ?? 0;
 			uWakeNear.value = o.wakeNear ?? 6;
 
+			// The render is synchronous and reads the uniforms NOW, so each slot's
+			// pixels match the points this call was given even though the ring has
+			// three readbacks against three uniform sets in flight - the copy for
+			// each readback is enqueued on the GPU timeline before the next
+			// frame's render touches anything.
 			const r = this.renderer;
 			const prev = r.getRenderTarget();
 			const prevAuto = r.autoClear;
 			r.autoClear = false;
-			r.setRenderTarget( this.rt );
+			r.setRenderTarget( this.ring[ slot ] );
 			this.quad.render( r );
 			r.setRenderTarget( prev );
 			r.autoClear = prevAuto;
 
-			const raw = await r.readRenderTargetPixelsAsync( this.rt, 0, 0, this.width, 1 );
-			const px = raw instanceof Float32Array ? raw : new Float32Array( raw.buffer ?? raw );
-			for ( let i = 0; i < NPROBE; i ++ ) {
+			const raw = await r.readRenderTargetPixelsAsync( this.ring[ slot ], 0, 0, this.width, 1 );
+			if ( mySeq > this.applied ) {
 
-				this.result[ i ] = {
-					h: px[ i * 4 ], foam: px[ i * 4 + 1 ],
-					dx: px[ i * 4 + 2 ], dz: px[ i * 4 + 3 ],
-				};
+				this.applied = mySeq;
+				const px = raw instanceof Float32Array ? raw : new Float32Array( raw.buffer ?? raw );
+				for ( let i = 0; i < NPROBE; i ++ ) {
+
+					this.result[ i ] = {
+						h: px[ i * 4 ], foam: px[ i * 4 + 1 ],
+						dx: px[ i * 4 + 2 ], dz: px[ i * 4 + 3 ],
+					};
+
+				}
 
 			}
 
 		} finally {
 
-			this.busy = false;
+			this.pending[ slot ] = false;
 
 		}
 
@@ -234,7 +277,7 @@ export class TslCraftProbe {
 
 	dispose() {
 
-		this.rt.dispose();
+		for ( const rt of this.ring ) rt.dispose();
 		this.material.dispose?.();
 
 	}
