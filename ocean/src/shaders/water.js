@@ -30,7 +30,7 @@ ${WAKE_SAMPLE_GLSL}
 layout(location=0) in vec2 aRT;      // x: radial parameter 0..1, y: angle 0..1
 
 uniform mat4  uViewProj;
-uniform vec3  uCamPos;
+uniform vec3  uCamPos;      // also read by the FS; one uniform, two stages
 uniform vec2  uGridCenter;
 uniform float uRMin, uRMax;
 uniform float uHeightScale, uHorizScale;
@@ -118,6 +118,35 @@ void main(){
   // Planet curvature drops the far surface away, which is what actually puts
   // the horizon at the right place and hides the end of the grid.
   pos.y -= uEarthCurve * (r*r) / (2.0 * R_EARTH);
+
+  // THE OUTERMOST RING IS PINNED JUST ABOVE THE SIGHTLINE TANGENT.
+  //
+  // The curved surface approaches the eye's tangent ray asymptotically, so the
+  // screen row at the exact horizon dip is a limit no triangle ever reaches -
+  // a sub-pixel seam that whatever was drawn behind the sea leaks through. The
+  // background's below-horizon limb is dark, so the leak prints a dark dashed
+  // line along the horizon. Invisible at the 160x100 golden rig (the seam is
+  // half a pixel there), plain at real resolutions from any elevated camera -
+  // and proven to be a coverage gap, not shading: with this fragment shader
+  // forced to constant magenta, the dashes kept their colour.
+  //
+  // So the last ring ignores the curvature drop and sits on the tangent line
+  // OVERSHOT BY 2.5 MILLIRADIANS. The overshoot must be an angle, not a
+  // fraction: a fractional lift moves the ring by a fraction of the dip - a
+  // quarter of a pixel row at 42 km, measured to leave the dashes intact.
+  // And the angle must clear a FULL pixel row at any plausible resolution: a
+  // half-milliradian try landed the ring's edge at row 80.49 with the pixel
+  // centers at 80.5 and changed not one pixel. 2.5e-3 rad clears 1.6 rows at fov 44 over 500 rows (the demo framing where
+  // 1.2e-3 left faint residual dots) and ~3 rows on the hunt rig; the silhouette
+  // rises 0.14 degrees above the true horizon, which is beneath notice. The
+  // ring's fragments shade as extreme-grazing water, the mirror of the
+  // horizon sky, which is exactly what belongs in that band. The dip*0.1
+  // floor keeps a wading-height camera's ring below eye level.
+  if (aRT.x > 0.9999) {
+    float hEye = max(uCamPos.y - uSeaLevel, 1.0);
+    float dip = sqrt(2.0 * hEye * max(uEarthCurve, 1e-3) / R_EARTH);
+    pos.y = uCamPos.y - max(dip - 2.5e-3, dip * 0.1) * r;
+  }
 
   vWorld  = pos;
   vDist   = r;

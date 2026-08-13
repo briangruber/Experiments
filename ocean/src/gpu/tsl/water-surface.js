@@ -138,8 +138,8 @@
 //    ./sky-lut.js's, and uSunAngularRadius/uSkyLUT are ./sky-background.js's.
 //    Porting rule 7: do not redeclare a uniform another module owns.
 //
-//    WATER_VS declares uCamPos and never uses it, so the vertex stage here does
-//    not read it either. ABYSSAL_OUT/uOutExposure is the HDR output guard, which
+//    Both vertex stages read uCamPos for the horizon-pinned outermost ring
+//    (they used to declare it unused). ABYSSAL_OUT/uOutExposure is the HDR output guard, which
 //    is the driver's business and a no-op in value terms - the same call
 //    ./sky-background.js made.
 //
@@ -426,6 +426,18 @@ export const waterPosition = /*@__PURE__*/ Fn( () => {
 	// Planet curvature drops the far surface away, which is what actually puts
 	// the horizon at the right place and hides the end of the grid.
 	pos.y.subAssign( uEarthCurve.mul( r.mul( r ) ).div( 2.0 * R_EARTH ) );
+
+	// THE OUTERMOST RING IS PINNED JUST ABOVE THE SIGHTLINE TANGENT - the fix
+	// for the dark dashed line along the horizon at elevated cameras. The full
+	// account (and the coverage-gap proof) is in src/shaders/water.js at this
+	// same spot; the two sources must stay identical.
+	If( aRT.x.greaterThan( 0.9999 ), () => {
+
+		const hEye = uCamPos.y.sub( uSeaLevel ).max( 1.0 ).toVar();
+		const dip = hEye.mul( 2.0 ).mul( uEarthCurve.max( 1e-3 ) ).div( R_EARTH ).sqrt().toVar();
+		pos.y.assign( uCamPos.y.sub( dip.sub( 2.5e-3 ).max( dip.mul( 0.1 ) ).mul( r ) ) );
+
+	} );
 
 	vWorld.assign( pos );
 	vDist.assign( r );

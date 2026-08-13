@@ -44,6 +44,12 @@ export const RIG = {
   fov: 44, near: 0.1, far: 60000,
   time: 12.0,
 };
+// Rig overrides for A/B hunts away from the golden view (?camy=30&pitch=-0.01&fov=10).
+// Defaults untouched, so the golden itself cannot drift. compare-image checks the
+// rig in the fingerprint, so a mismatched comparison still refuses to run.
+if (q.get('camy')) RIG.pos[1] = +q.get('camy');
+if (q.get('pitch')) RIG.pitch = +q.get('pitch');
+if (q.get('fov')) RIG.fov = +q.get('fov');
 
 let fingerprint = null;
 try {

@@ -64,6 +64,11 @@ const RIG = {
   fov: 44, near: 0.1, far: 60000,
   time: 12.0,
 };
+// Rig overrides for A/B hunts away from the golden view (?camy=30&pitch=-0.01).
+// Defaults untouched; compare-image checks the rig and refuses a mismatch.
+if (q.get('camy')) RIG.pos[1] = +q.get('camy');
+if (q.get('pitch')) RIG.pitch = +q.get('pitch');
+if (q.get('fov')) RIG.fov = +q.get('fov');
 
 let fingerprint = null;
 try {

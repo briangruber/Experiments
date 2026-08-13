@@ -68,6 +68,10 @@ const RIG = {
   fov: 44, near: 0.1, far: 60000,
   time: 12.0,
 };
+// Same rig overrides as prototypes/sky-golden.html, for A/B hunts off-golden.
+if (q.get('camy')) RIG.pos[1] = +q.get('camy');
+if (q.get('pitch')) RIG.pitch = +q.get('pitch');
+if (q.get('fov')) RIG.fov = +q.get('fov');
 
 let fingerprint = null;
 let backend = '?';
