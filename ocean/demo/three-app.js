@@ -207,6 +207,23 @@ bootWithFallback().then( ( app ) => {
 	// opened against the top frame cannot see this. The FPS readout below is what
 	// a reader actually has.
 	window.abyssal = app;
+
+	// iOS WebKit composite nudge. On an iPhone, a FRESH page load composites the
+	// WebGPU canvas fine, but an in-page navigation (the backend buttons set a
+	// URL param) leaves it blank until any layout change touches the document -
+	// collapsing the panel was "fixing" it, which is how the symptom was found.
+	// So do programmatically what the collapse does: invalidate document layout,
+	// a few times over the first seconds, with a padding change too small to see.
+	// Harmless on every other platform; unverifiable from where this is written,
+	// like everything iOS - stated as the attempt it is.
+	const kickCompositor = () => {
+
+		document.body.style.paddingBottom = '0.02px';
+		void document.body.offsetHeight;                 // force the reflow now
+		requestAnimationFrame( () => { document.body.style.paddingBottom = ''; } );
+
+	};
+	for ( const ms of [ 300, 900, 2000 ] ) setTimeout( kickCompositor, ms );
 	window.abyssalErrors = capturedErrors;
 
 	const buildEl = document.getElementById( 'build' );
