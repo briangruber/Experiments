@@ -675,6 +675,9 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 				craftXZ: rider.surfXZ(),
 				wakeProbe: params.wakeProbe,
 				wakeNear: Math.max( params.wrLength, 0.5 ) * 2.5,
+				// The hull's waterline length - the scale the probe averages the
+				// sea over. craft-probe.js: THE HULL READS A MIPPED SEA.
+				footprint: Math.max( params.wrLength, 0.5 ),
 			} ).then( ( rows ) => rider.acceptProbe( rows ) ).catch( () => {} );
 
 		}

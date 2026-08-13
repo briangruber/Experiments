@@ -42,6 +42,38 @@ export const uCraftXZ = /*@__PURE__*/ uniform( 'vec2' );
 export const uWakeProbe = /*@__PURE__*/ uniform( 0.0 );
 export const uWakeNear = /*@__PURE__*/ uniform( 6.0 );
 export const uProbeWidth = /*@__PURE__*/ uniform( 64.0 );
+// Per-cascade mip level for every probe fetch. NOT an optimisation - the hull's
+// suspension. See THE HULL READS A MIPPED SEA below.
+export const uProbeLod = /*@__PURE__*/ uniformArray( [ 0, 0, 0, 0 ], 'float' );
+
+// ---------------------------------------------------------------------------
+// THE HULL READS A MIPPED SEA, AND THAT IS THE SUSPENSION.
+//
+// The GL probe (PROBE_FS in demo/waverunner.js) samples uDisp with IMPLICIT
+// LOD, and its quad is 4x1 with one PROBE PER FRAGMENT - so the screen-space
+// derivatives the hardware selects mips from are the distances BETWEEN PROBE
+// POINTS, metres apart. For N=256 that lands each cascade at
+// log2(spacing * N / patch): the 250 m cascade near mip 0, the 60 m cascade
+// near mip 3, the shortest near mip 5+ - averaged over dozens of texels,
+// contributing almost nothing. The craft therefore rides the SWELL and simply
+// does not see the chop, which is the correct physics by accident: a hull
+// integrates the water over its waterline length, and short waves pass under
+// it instead of throwing it.
+//
+// This port originally sampled .level(0) - the full-resolution field, every
+// capillary edge of the smallest cascade, fed straight into a spring and into
+// the launch detector's TWO derivatives. The craft twitched at idle and leapt
+// off ripples at speed, identically on BOTH backends, while the raw-GL demo
+// with the same physics floated: reported twice as "bouncing all around", and
+// nailed by the report that it "bounces the same on webgl" - a shared-source
+// fault, not a backend one. The one thing both TSL backends share and the GL
+// demo does differently is this sampling.
+//
+// So the LOD is now EXPLICIT: per cascade, log2(footprint * N / patch),
+// computed on the CPU (update() below) with footprint = the hull length - the
+// same averaging the GL fragment derivatives produced, minus the accident. The
+// mip chains are real on both backends: sim-driver.js regenerates disp mips
+// after every step (its note 2), exactly as ocean.js does.
 
 /** vec4(height + seaLevel, foam, xShift, 1) at one probe point. */
 export const surfaceAt = /*@__PURE__*/ Fn( ( [ p ] ) => {
@@ -49,13 +81,16 @@ export const surfaceAt = /*@__PURE__*/ Fn( ( [ p ] ) => {
 	const x = vec2( p ).toVar();
 
 	// x <- p - D_xz(x), three times. See the header: this is the Lagrangian
-	// inversion, and it is not optional.
+	// inversion, and it is not optional. Mipped taps here too - the GL probe's
+	// derivatives applied inside this loop as well, and inverting a smoothed
+	// field with full-resolution taps would converge to a different x than the
+	// height read below expects.
 	Loop( { start: 0, end: 3, type: 'int', condition: '<' }, () => {
 
 		const d = vec2( 0.0 ).toVar();
 		Loop( { start: 0, end: uCascadeCount, type: 'int', condition: '<' }, ( { i } ) => {
 
-			const s = dispTexture.sample( vec3( x.div( uPatch.element( i ) ), float( i ) ) ).level( 0 );
+			const s = dispTexture.sample( vec3( x.div( uPatch.element( i ) ), float( i ) ) ).level( uProbeLod.element( i ) );
 			d.addAssign( s.xz.mul( uHorizScale ) );
 
 		} );
@@ -68,8 +103,8 @@ export const surfaceAt = /*@__PURE__*/ Fn( ( [ p ] ) => {
 	Loop( { start: 0, end: uCascadeCount, type: 'int', condition: '<' }, ( { i } ) => {
 
 		const uvc = vec3( x.div( uPatch.element( i ) ), float( i ) );
-		h.addAssign( dispTexture.sample( uvc ).level( 0 ).y.mul( uHeightScale ) );
-		foam.addAssign( foamTexture.sample( uvc ).level( 0 ).x );
+		h.addAssign( dispTexture.sample( uvc ).level( uProbeLod.element( i ) ).y.mul( uHeightScale ) );
+		foam.addAssign( foamTexture.sample( uvc ).level( uProbeLod.element( i ) ).x );
 
 	} );
 
@@ -234,6 +269,23 @@ export class TslCraftProbe {
 			if ( o.craftXZ ) uCraftXZ.value.set( o.craftXZ[ 0 ], o.craftXZ[ 1 ] );
 			uWakeProbe.value = o.wakeProbe ?? 0;
 			uWakeNear.value = o.wakeNear ?? 6;
+
+			// The suspension (see THE HULL READS A MIPPED SEA above): each cascade
+			// is read at the mip whose texels average the sea over the hull's own
+			// length. The relational checks in prototypes/craft-probe-tsl.html
+			// hold under ANY footprint, because mip filtering is linear: a flat
+			// sea is flat at every level and doubling heightScale still doubles
+			// every deviation exactly. o.footprint = 0 reads the exact texel.
+			const fp = o.footprint ?? 1.6;
+			const N = dispTexture.value?.image?.width || 256;
+			for ( let i = 0; i < 4; i ++ ) {
+
+				const patch = uPatch.array[ i ] || 1;
+				uProbeLod.array[ i ] = fp > 0
+					? Math.max( 0, Math.log2( ( fp * N ) / patch ) )
+					: 0;
+
+			}
 
 			// The render is synchronous and reads the uniforms NOW, so each slot's
 			// pixels match the points this call was given even though the ring has

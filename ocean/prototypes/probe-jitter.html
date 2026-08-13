@@ -1,0 +1,133 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — probe smoothness: does the hull read water or every ripple?</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}</style>
+<pre id="out">running…</pre>
+
+<!--
+  The craft was reported "bouncing all around" AT IDLE, identically on both
+  backends, with the probe landing at a healthy rate - while the raw-GL demo
+  with the same physics floated. The cause is the sampling LOD (see THE HULL
+  READS A MIPPED SEA in src/gpu/tsl/craft-probe.js): the GL probe's implicit
+  derivatives read a deeply mipped sea, the port's .level(0) read every
+  capillary edge.
+
+  This page measures exactly that, and is the regression net for it. A probe
+  point drifts at 0.5 m/s (about 1 kn) across a developed sea while the sim
+  runs at 1/60 s per step, and the height series is recorded twice: once at
+  footprint 0 (the exact texel - the port's old behaviour) and once at the
+  hull's footprint (the mipped read). The verdict is the high-frequency
+  content - RMS of the second difference - which is the very signal the
+  rider's launch detector differentiates the probe to find:
+
+    - the footprint read must carry LESS high-frequency content than the
+      exact read (the suspension actually suspends);
+    - the footprint read must still MOVE with the swell (span stays real) -
+      a probe that smooths the sea away entirely would pass a naive
+      smoothness bar by reading a constant.
+
+    node tools/run-probe.mjs "prototypes/probe-jitter.html?backend=webgl"
+    node tools/run-probe.mjs "prototypes/probe-jitter.html?backend=webgpu"
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { TslOceanSim } from '../src/gpu/tsl/sim-driver.js';
+import { TslCraftProbe, NPROBE } from '../src/gpu/tsl/craft-probe.js';
+import { setWaterCommonUniforms } from '../src/gpu/tsl/water-common.js';
+import { newParams } from '../src/presets.js';
+import { createDerived, derive } from '../src/derive.js';
+import { installThreeCompat } from '../src/gpu/three-compat.js';
+installThreeCompat();
+
+const q = new URLSearchParams(location.search);
+const N = +(q.get('n') || 128);
+const BACKEND = (q.get('backend') || 'webgl').toLowerCase();
+const FRAMES = +(q.get('frames') || 48);
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+try {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 64;
+  const renderer = new THREE.WebGPURenderer({ canvas, forceWebGL: BACKEND !== 'webgpu', antialias: false });
+  await renderer.init();
+  renderer.autoClear = false;
+  const isWebGPU = !!renderer.backend?.isWebGPUBackend;
+  if (BACKEND === 'webgpu' && !isWebGPU) throw new Error('webgpu requested, webgl delivered - nothing to measure');
+
+  const params = newParams('Golden Hour Swell');
+  params.fftSize = N;
+  const d = createDerived();
+  derive(params, d);
+
+  const sim = new TslOceanSim(renderer, { size: params.fftSize });
+  sim.setSeed(params.seed);
+  sim.buildSpectrum(params);
+  for (let i = 0; i < 8; i++) sim.update(1 / 60, params);
+
+  const probe = new TslCraftProbe(renderer);
+
+  // One craft-shaped set of points drifting at idle speed. Strictly serial -
+  // one sim step, one awaited probe per footprint - so what is measured is the
+  // sampler, never the pipelining.
+  const run = async (footprint) => {
+    const sim2 = sim; // same sea for both runs: the sim continues from wherever it is
+    const series = [];
+    for (let f = 0; f < FRAMES; f++) {
+      sim2.update(1 / 60, params);
+      setWaterCommonUniforms(params, { camPos: new Float32Array([0, 5, 0]), time: 1 + f / 60 }, sim2, null);
+      const px = 7.3 + 0.5 * f / 60, pz = -2.1;
+      const r = await probe.update(
+        [[px, pz], [px + 1.6, pz], [px, pz - 0.6], [px, pz + 0.6]],
+        { seaLevel: params.seaLevel, wakeProbe: 0, footprint });
+      series.push(r[0].h);
+    }
+    const d1 = [], d2 = [];
+    for (let i = 1; i < series.length; i++) d1.push(series[i] - series[i - 1]);
+    for (let i = 1; i < d1.length; i++) d2.push(d1[i] - d1[i - 1]);
+    const rms = (a) => Math.sqrt(a.reduce((x, y) => x + y * y, 0) / Math.max(a.length, 1));
+    return {
+      series,
+      span: Math.max(...series) - Math.min(...series),
+      hf: rms(d2),                       // what the launch detector sees
+      worstStep: Math.max(...d1.map(Math.abs)),
+    };
+  };
+
+  const exact = await run(0);
+  const hull = await run(1.6);
+
+  log(`backend ${isWebGPU ? 'webgpu' : 'webgl'} · ${FRAMES} steps of 1/60 s · drifting at 0.5 m/s`, true,
+      `exact texel: hf ${exact.hf.toFixed(4)} · worst step ${exact.worstStep.toFixed(4)} · span ${exact.span.toFixed(3)}\n`
+      + `        hull footprint: hf ${hull.hf.toFixed(4)} · worst step ${hull.worstStep.toFixed(4)} · span ${hull.span.toFixed(3)}`);
+
+  log('the footprint read is calmer than the exact read',
+      hull.hf < exact.hf * 0.7 && hull.worstStep <= exact.worstStep,
+      `high-frequency content ${exact.hf.toFixed(4)} -> ${hull.hf.toFixed(4)} `
+      + `(${(100 * hull.hf / Math.max(exact.hf, 1e-9)).toFixed(0)}%)`);
+
+  log('and it still rides a moving sea, not a constant',
+      hull.span > 0.02 && Number.isFinite(hull.span),
+      `span ${hull.span.toFixed(3)} m over ${(FRAMES / 60).toFixed(1)} s`);
+
+  window.probeResult = { allOk: results.every((r) => r.ok), results,
+    exactHf: exact.hf, hullHf: hull.hf, exactSpan: exact.span, hullSpan: hull.span };
+} catch (e) {
+  log('run', false, String(e?.message || e));
+  window.probeResult = { allOk: false, results, error: String(e?.message || e) };
+}
+</script>
