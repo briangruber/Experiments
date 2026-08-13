@@ -522,7 +522,12 @@ export const PRESETS = {
     cloudCoverage: 0.30, cloudAltitude: 2600, cirrus: 0.5,
     scatterColor: [0.050, 0.255, 0.360], absorption: [0.36, 0.06, 0.038],
     foamAmount: 0.6, glitter: 0.95, baseRoughness: 0.035,
-    sprayOpacity: 0.12, sprayRate: 0.10,
+    // The dawn calm was first dimmed through OPACITY (0.12 over rate 0.10),
+    // which also dimmed the wave runner's plume to a ghost - opacity is shared
+    // with the craft's spray, rate is not. Moved to the rate side keeping the
+    // product (visible ambient spray ~ rate x opacity: 0.10x0.12 = 0.02x0.6),
+    // so the dawn looks the same and the rooster tail renders at full body.
+    sprayOpacity: 0.6, sprayRate: 0.02,
     exposureBias: 0.05, saturation: 1.05, bloomIntensity: 0.075, halation: 0.014,
     vignette: 0.4, fov: 30,
   },
@@ -651,7 +656,15 @@ export const PRESETS = {
     scatterColor: [0.075, 0.150, 0.105], absorption: [0.85, 0.42, 0.75],
     scatterAmount: 0.045, sssStrength: 0.5,
     baseRoughness: 0.02, skyBlur: 0.32, grazeFocus: 0.10, glitter: 0.5,
-    foamAmount: 0.0, sprayOpacity: 0.0, sprayRate: 0.0,
+    // No AMBIENT spray on glassy water: sprayRate 0 stops the whitecap sheets
+    // from ever spawning (belt and braces beside foamAmount 0). sprayOpacity
+    // must stay live, and the first cut of this preset zeroed it too - the
+    // draw pass early-outs when opacity is zero, and the wave runner's rooster
+    // tail goes through that same draw. The craft threw its plume and nothing
+    // rendered: "sheltered water has no spray from the wave runner". Opacity
+    // only shows what exists, and with rate and foam at zero nothing ambient
+    // exists - so this costs the glass nothing.
+    foamAmount: 0.0, sprayOpacity: 0.85, sprayRate: 0.0,
     saturation: 1.02, contrast: 1.02, exposureBias: -0.05, vignette: 0.3, fov: 46,
   },
   'Deep Blue Afternoon': {
