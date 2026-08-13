@@ -68,12 +68,12 @@ const unb64 = ( s, T ) => {
  *   this is the scale that puts it in metres. demo/craft.js does the same with
  *   uMeshScale = craftLength / 32000.
  */
-export function buildCraftGeometry( lengthM = 3.2 ) {
+export function buildCraftGeometry( lengthM = 3.2, record = CRAFT_MESH ) {
 
-	const pos = unb64( CRAFT_MESH.pos, Int16Array );
-	const nrm = unb64( CRAFT_MESH.nrm, Int8Array );
-	const uvq = unb64( CRAFT_MESH.uv, Uint16Array );
-	const idx = unb64( CRAFT_MESH.idx, Uint16Array );
+	const pos = unb64( record.pos, Int16Array );
+	const nrm = unb64( record.nrm, Int8Array );
+	const uvq = unb64( record.uv, Uint16Array );
+	const idx = unb64( record.idx, Uint16Array );
 
 	const n = pos.length / 3;
 	const P = new Float32Array( pos.length );
@@ -112,11 +112,11 @@ export function buildCraftGeometry( lengthM = 3.2 ) {
  * @returns {Promise<THREE.Texture|null>} null if the decode failed, in which
  *   case the material falls back to a flat colour rather than to nothing.
  */
-export async function loadCraftTexture( renderer ) {
+export async function loadCraftTexture( renderer, record = CRAFT_MESH ) {
 
 	try {
 
-		const bin = atob( CRAFT_MESH.baseColorJpeg );
+		const bin = atob( record.baseColorJpeg );
 		const u8 = new Uint8Array( bin.length );
 		for ( let i = 0; i < bin.length; i ++ ) u8[ i ] = bin.charCodeAt( i );
 		const bmp = await createImageBitmap( new Blob( [ u8 ], { type: 'image/jpeg' } ) );

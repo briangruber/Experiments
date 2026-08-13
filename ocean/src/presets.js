@@ -330,6 +330,28 @@ export const defaults = {
   wakeProbe: 0.8,           // how much of that the hull feels when it crosses it
   craftLift: 0.46,          // rides the hull's designed waterline on the surface
   craftSprayAmount: 1.0,
+
+  // ---- the seaplane (demo/seaplane.js) ----
+  // Sized on a Cessna 208 on floats: 11.5 m long, rotates around 24 m/s,
+  // cruises near 60. spCgHeight is where the CG rides above the waterline at
+  // rest - the mesh keel sits about 2.4 m under the CG on this hull.
+  spLength: 10.5,           // metres nose to tail; the mesh is unit-length
+  spScale: 1.0,
+  spThrust: 5.4,            // m/s^2 at full lever, static
+  spTopSpeed: 61.0,         // m/s, level flight, full throttle
+  spTakeoff: 23.0,          // m/s rotation speed
+  spStall: 15.0,            // m/s; below this the wing mushes
+  spWaterTurn: 0.45,        // rad/s water rudder at speed
+  spMaxBank: 0.78,          // rad, full lateral stick
+  spMaxPitch: 0.42,         // rad, full pull
+  spRollRate: 2.4,          // 1/s lag rates toward the stick
+  spPitchRate: 2.0,
+  spCgHeight: 2.05,         // m, CG above the waterline at rest
+  spCamDistance: 26.0,      // chase rig, at rest
+  spCamRise: 7.0,
+  spCamLook: 40.0,          // metres ahead the chase camera leads
+  spFovKick: 9.0,           // degrees of lens at full speed
+
   hullPush: 0.55,           // depth of the hollow the hull presses, m
   hullRadius: 2.6,          // along-hull extent of that footprint, m
   hullBow: 0.9,             // how much of it stands back up as bow wave

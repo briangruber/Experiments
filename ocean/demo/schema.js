@@ -319,6 +319,24 @@ export const SCHEMA = [
     ],
   },
   {
+    group: 'Seaplane', items: [
+      S('spThrust', 'Engine thrust', 1, 12, 0.1),
+      S('spTopSpeed', 'Top speed (m/s)', 20, 120, 0.5),
+      S('spTakeoff', 'Rotation speed (m/s)', 10, 45, 0.5),
+      S('spStall', 'Stall speed (m/s)', 6, 30, 0.5),
+      S('spMaxBank', 'Max bank (rad)', 0.2, 1.2, 0.01),
+      S('spMaxPitch', 'Max pitch (rad)', 0.1, 0.8, 0.01),
+      S('spRollRate', 'Roll response', 0.5, 6, 0.05),
+      S('spPitchRate', 'Pitch response', 0.5, 6, 0.05),
+      S('spWaterTurn', 'Water rudder', 0.05, 1.5, 0.01),
+      S('spLength', 'Length (m)', 6, 16, 0.1),
+      S('spCgHeight', 'Waterline height (m)', 1, 3.5, 0.05),
+      S('spCamDistance', 'Chase distance', 10, 60, 0.5),
+      S('spCamRise', 'Chase rise', 2, 20, 0.1),
+      S('spFovKick', 'Speed FOV', 0, 25, 0.1),
+    ],
+  },
+  {
     group: 'Camera', items: [
       S('fov', 'Field of view', 8, 95, 0.5, { camera: true }),
       S('minAltitude', 'Min altitude (m)', 0.1, 400, 0.1),

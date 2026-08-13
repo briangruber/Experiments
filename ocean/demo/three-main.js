@@ -46,6 +46,8 @@ import {
 	uCraftWetLine,
 } from '../src/gpu/tsl/craft.js';
 import { WaveRunner } from './waverunner.js';
+import { SeaPlane } from './seaplane.js';
+import { PLANE_MESH } from './planeModel.js';
 
 // ---------------------------------------------------------------------------
 // Backend selection.
@@ -155,6 +157,9 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	const wake = new TslWake( renderer, { size: params.wakeTexSize } );
 	const craftProbe = new TslCraftProbe( renderer );
 	const rider = new WaveRunner( null, null, { canvas } );
+	// The seaplane shares the rider's whole support system - probe, wake, spray,
+	// camera locking - and can never be active at the same time.
+	const plane = new SeaPlane( { canvas } );
 
 	// Scratch, so the per-frame ctx does not allocate.
 	//
@@ -178,7 +183,20 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	craftMesh.visible = false;
 	const craftScene = new THREE.Scene();
 	craftScene.add( craftMesh );
-	loadCraftTexture( renderer ).then( setCraftTexture );
+	// Two hulls, ONE material: the modes are mutually exclusive, so the shared
+	// craft shader just gets the active hull's atlas pointed at it before its
+	// draw. Both atlases are the same class of texture (sRGB, mipped, filtered),
+	// so the swap never changes which sampling instruction the graph built
+	// (porting rule 11).
+	const planeMesh = new THREE.Mesh(
+		buildCraftGeometry( params.spLength, PLANE_MESH ).geometry, craftMat );
+	planeMesh.frustumCulled = false;
+	planeMesh.visible = false;
+	planeMesh.matrixAutoUpdate = false;
+	craftScene.add( planeMesh );
+	let skiTex = null, planeTex = null;
+	loadCraftTexture( renderer ).then( ( t ) => { skiTex = t; setCraftTexture( t ); } );
+	loadCraftTexture( renderer, PLANE_MESH ).then( ( t ) => { planeTex = t; } );
 
 	// Position the hull from the rider's state, by replicating demo/craft.js
 	// setTransform() EXACTLY rather than by mapping it onto Euler angles.
@@ -197,7 +215,7 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	// arithmetic that has always aimed this model is the arithmetic being run.
 	craftMesh.matrixAutoUpdate = false;
 	const craftM = new THREE.Matrix4();
-	const setCraftTransform = ( pos, yaw, pitch, roll, scale, modelYaw = 0 ) => {
+	const setCraftTransform = ( mesh, pos, yaw, pitch, roll, scale, modelYaw = 0 ) => {
 
 		const cy = Math.cos( yaw ), sy = Math.sin( yaw );
 		const cp = Math.cos( pitch ), sp = Math.sin( pitch );
@@ -222,33 +240,61 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			rr[ 2 ] * scale, u2[ 2 ] * scale, bb[ 2 ] * scale, pos[ 2 ],
 			0, 0, 0, 1,
 		);
-		craftMesh.matrix.copy( craftM );
-		craftMesh.matrixWorldNeedsUpdate = true;
+		mesh.matrix.copy( craftM );
+		mesh.matrixWorldNeedsUpdate = true;
 
 	};
 
 	const drawCraft = () => {
 
-		if ( ! rider.active ) return;
-		// The waterline is the SEA, not the deck: using deckY put almost the whole
-		// hull below it, which is what made the paint read as glass.
-		uCraftWetLine.value = rider.probeH[ 0 ];
-		setCraftTransform(
-			[
-				rider.pos[ 0 ],
-				// The hull's designed waterline sits above its keel, so the origin
-				// has to ride proud of the surface or the sea closes over the deck.
-				( rider.deckY ?? 0 ) + params.craftLift,
-				rider.pos[ 2 ],
-			],
-			rider.heading,
-			rider.pitchTrim + params.craftPitchOffset,
-			rider.bank + rider.rollTrim + params.craftRollOffset,
-			params.craftScale,
-			params.craftYawOffset,
-		);
-		craftMesh.visible = true;
-		renderer.render( craftScene, cam3 );
+		if ( rider.active ) {
+
+			// The waterline is the SEA, not the deck: using deckY put almost the
+			// whole hull below it, which is what made the paint read as glass.
+			uCraftWetLine.value = rider.probeH[ 0 ];
+			if ( skiTex ) setCraftTexture( skiTex );
+			setCraftTransform(
+				craftMesh,
+				[
+					rider.pos[ 0 ],
+					// The hull's designed waterline sits above its keel, so the origin
+					// has to ride proud of the surface or the sea closes over the deck.
+					( rider.deckY ?? 0 ) + params.craftLift,
+					rider.pos[ 2 ],
+				],
+				rider.heading,
+				rider.pitchTrim + params.craftPitchOffset,
+				rider.bank + rider.rollTrim + params.craftRollOffset,
+				params.craftScale,
+				params.craftYawOffset,
+			);
+			craftMesh.visible = true;
+			planeMesh.visible = false;
+			renderer.render( craftScene, cam3 );
+
+		} else if ( plane.active ) {
+
+			// Airborne, the wet darkening must not climb the hull: pin the
+			// waterline to the sea it left, and the paint dries as it climbs.
+			uCraftWetLine.value = plane.airborne
+				? plane.probeH[ 0 ] - 2.0
+				: plane.probeH[ 0 ];
+			if ( planeTex ) setCraftTexture( planeTex );
+			// modelYaw 0: tools/glb.mjs already put this asset's nose on -Z.
+			setCraftTransform(
+				planeMesh,
+				[ plane.pos[ 0 ], plane.pos[ 1 ], plane.pos[ 2 ] ],
+				plane.heading,
+				plane.pitch,
+				plane.roll,
+				params.spScale,
+				0,
+			);
+			planeMesh.visible = true;
+			craftMesh.visible = false;
+			renderer.render( craftScene, cam3 );
+
+		}
 
 	};
 	const post = new TslPost( renderer );
@@ -491,11 +537,14 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		// frame's position. At 15 m/s that is a hull sliding around inside its own
 		// frame every time the rig moved.
 		if ( rider.active ) rider.update( dt, params, camera.keys, camera );
+		else if ( plane.active ) plane.update( dt, params, camera.keys, camera );
 		// The wake field is stamped before anything reads it, from the hull state
-		// the update just produced.
-		wake.update( dt, params, rider );
+		// the update just produced. The plane hands over floatRig, whose `active`
+		// means "the floats are working the water" - a flying hull must not go
+		// on digging a hollow into the sea under its shadow.
+		wake.update( dt, params, plane.active ? plane.floatRig : rider );
 
-		camera.locked = rider.active;
+		camera.locked = rider.active || plane.active;
 		camera.update( dt, params );
 
 		// THIS IS NOT OPTIONAL, and leaving it out is invisible until you look up.
@@ -511,10 +560,16 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		camera.matrices( canvas.width, canvas.height );
 
 		// Forward in the convention the whole renderer uses: heading 0 looks down
-		// -Z, so forward is (sin, -cos).
-		const cf = rider.active
-			? [ Math.sin( rider.heading ), - Math.cos( rider.heading ) ]
+		// -Z, so forward is (sin, -cos). Whichever hull is out, the spray and the
+		// water read it through the same ctx fields - the emitter does not care
+		// whether the thing shedding water has a handlebar or a yoke.
+		const veh = rider.active ? rider : ( plane.active ? plane : null );
+		const cf = veh
+			? [ Math.sin( veh.heading ), - Math.cos( veh.heading ) ]
 			: [ 0, 1 ];
+		// A flying plane sheds no spray; a taxiing one sheds it exactly like a
+		// hull, because it is one.
+		const wet = veh && ! ( veh === plane && plane.airborne );
 
 		// The rig, in the shape every driver takes.
 		const ctx = {
@@ -532,35 +587,35 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			// simply never emit, which is what "it lost the spray it used to have"
 			// looks like from outside. Mirrors demo/main.js exactly.
 			craftPos: setA3( vCraftPos,
-				rider.active ? rider.pos[ 0 ] : 0,
-				rider.active ? ( rider.deckY ?? 0 ) : - 1e4,
-				rider.active ? rider.pos[ 2 ] : 0 ),
+				wet ? veh.pos[ 0 ] : 0,
+				wet ? ( veh.deckY ?? 0 ) : - 1e4,
+				wet ? veh.pos[ 2 ] : 0 ),
 			craftFwd: setA2( vCraftFwd, cf[ 0 ], cf[ 1 ] ),
 			craftRight: setA2( vCraftRight, - cf[ 1 ], cf[ 0 ] ),
-			craftSpeed: rider.active ? Math.abs( rider.speed ) : 0,
-			craftTurn: rider.active ? rider.yawRate : 0,
-			craftAmount: rider.active ? params.craftSprayAmount : 0,
-			craftLoad: rider.active ? ( rider.hullLoad ?? 0 ) : 0,
-			// The rider's inputs and the hull's attitude, which is what the spray
-			// emitter needs to point the water anywhere sensible.
-			craftSteer: rider.active ? rider.steerIn : 0,
-			craftThrottle: rider.active ? ( rider.throttle ?? 0 ) : 0,
-			craftSlip: rider.active ? ( rider.slipSigned ?? 0 ) : 0,
-			craftAir: rider.active && rider.airborne ? 1 : 0,
-			craftImpact: rider.active ? rider.impact : 0,
+			craftSpeed: wet ? Math.abs( veh.speed ) : 0,
+			craftTurn: wet ? veh.yawRate : 0,
+			craftAmount: wet ? params.craftSprayAmount : 0,
+			craftLoad: wet ? ( veh.hullLoad ?? 0 ) : 0,
+			// The vehicle's inputs and attitude, which is what the spray emitter
+			// needs to point the water anywhere sensible.
+			craftSteer: wet ? veh.steerIn : 0,
+			craftThrottle: wet ? ( veh.throttle ?? 0 ) : 0,
+			craftSlip: wet ? ( veh.slipSigned ?? 0 ) : 0,
+			craftAir: veh && veh.airborne ? 1 : 0,
+			craftImpact: veh ? veh.impact : 0,
 		};
 
 		// The hull's own hollow and bow wave, which the water VERTEX stage reads.
 		// Stamped at surfXZ(), not pos: the water shaders index by the undisplaced
 		// grid point, so a hollow written at the world position slides off the
 		// craft as the waves pass under it.
-		if ( rider.active ) {
+		if ( wet ) {
 
-			const s = rider.surfXZ();
-			hull.pos[ 0 ] = s[ 0 ]; hull.pos[ 1 ] = rider.deckY ?? 0; hull.pos[ 2 ] = s[ 1 ];
-			hull.push = params.hullPush;
+			const s = veh.surfXZ();
+			hull.pos[ 0 ] = s[ 0 ]; hull.pos[ 1 ] = veh.deckY ?? 0; hull.pos[ 2 ] = s[ 1 ];
+			hull.push = params.hullPush * ( veh === plane ? 1.6 : 1 );
 			// The hollow only exists once the hull is actually loading the water.
-			hull.plane = Math.min( 1, 0.35 + 0.65 * Math.abs( rider.speed ) / Math.max( params.craftPlaneFull, 1 ) );
+			hull.plane = Math.min( 1, 0.35 + 0.65 * Math.abs( veh.speed ) / Math.max( params.craftPlaneFull, 1 ) );
 
 		} else {
 
@@ -677,15 +732,19 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 				wakeNear: Math.max( params.wrLength, 0.5 ) * 2.5,
 				// The hull's waterline length - the scale the probe averages the
 				// sea over. craft-probe.js: THE HULL READS A MIPPED SEA.
-				footprint: Math.max( params.wrLength, 0.5 ),
+				footprint: veh === plane
+					? Math.max( params.spLength * 0.5, 2 )
+					: Math.max( params.wrLength, 0.5 ),
 				// Buoyancy against the LOCAL water, fading out as the hull gets on
 				// the plane. craft-probe.js: THE SEA IS TALLER THAN ITS AVERAGE.
 				// At rest the craft floats on the crest that is actually under it;
 				// at planing speed it skims the averaged sea. craftPlaneFull is the
 				// speed the hull is considered fully planing at, the same knob the
 				// water's hollow uses.
-				chop: 1 - Math.min( 0.9, Math.abs( rider.speed ) / Math.max( params.craftPlaneFull, 1 ) ),
-			} ).then( ( rows ) => rider.acceptProbe( rows ) ).catch( () => {} );
+				chop: veh === plane
+					? 1 - Math.min( 0.95, plane.va / Math.max( params.spTakeoff * 0.7, 1 ) )
+					: 1 - Math.min( 0.9, Math.abs( rider.speed ) / Math.max( params.craftPlaneFull, 1 ) ),
+			} ).then( ( rows ) => veh.acceptProbe( rows ) ).catch( () => {} );
 
 		}
 
@@ -715,14 +774,47 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		cam3,
 		output,
 		onFrame: null,
-		rider, wake, craftProbe, craftMesh, hull,
+		rider, plane, wake, craftProbe, craftMesh, planeMesh, hull,
 		toggleRide: () => {
 
 			rider.active = ! rider.active;
-			if ( rider.active ) rider.reset( camera );
-			else craftMesh.visible = false;
+			if ( rider.active ) {
+
+				// One hull at a time; stepping onto the ski steps out of the plane.
+				plane.active = false;
+				planeMesh.visible = false;
+				rider.reset( camera );
+
+			} else {
+
+				craftMesh.visible = false;
+
+			}
+
 			document.body.classList.toggle( 'riding', rider.active );
+			document.body.classList.toggle( 'flying', false );
 			return rider.active;
+
+		},
+		toggleFly: () => {
+
+			plane.active = ! plane.active;
+			if ( plane.active ) {
+
+				rider.active = false;
+				craftMesh.visible = false;
+				plane.reset( camera );
+				wake.clear?.();
+
+			} else {
+
+				planeMesh.visible = false;
+
+			}
+
+			document.body.classList.toggle( 'flying', plane.active );
+			document.body.classList.toggle( 'riding', false );
+			return plane.active;
 
 		},
 		markSkyDirty: () => { skyDirty = true; },

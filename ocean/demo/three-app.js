@@ -36,21 +36,32 @@ const want = wantedBackend();
 // The two control schemes are different enough that showing the flying one
 // while riding is just wrong - and Shift and Space in particular were doing
 // something nobody had been told about.
-const FLY_HINT = 'Drag to look · W A S D to move · scroll to zoom · R to ride';
+const FLY_HINT = 'Drag to look · W A S D to move · scroll to zoom · R to ride · F to fly';
 const RIDE_HINT = 'W throttle · A D steer · Shift to carve · Space boost · V view · R to step off';
+const PLANE_HINT = 'W/S throttle lever · A D bank · Shift/\u2193 pull and push · V view · F to step out';
 
 // One place that makes the whole panel agree about the ride, whichever of the
 // four ways in was used: the HUD button, the Settings panel's own Ride button,
 // the R key, or an api.toggleRide() from the console.
-function syncRide( app, riding ) {
+function syncRide( app ) {
 
+	const riding = !! app.rider?.active;
+	const flying = !! app.plane?.active;
 	const hint = document.getElementById( 'hint' );
-	if ( hint ) hint.textContent = riding ? RIDE_HINT : FLY_HINT;
+	if ( hint ) hint.textContent = flying ? PLANE_HINT : riding ? RIDE_HINT : FLY_HINT;
 	const btn = document.getElementById( 'btn-ride' );
 	if ( btn ) {
 
 		btn.setAttribute( 'aria-pressed', String( riding ) );
 		btn.textContent = riding ? 'Riding' : 'Ride';
+
+	}
+
+	const fbtn = document.getElementById( 'btn-fly' );
+	if ( fbtn ) {
+
+		fbtn.setAttribute( 'aria-pressed', String( flying ) );
+		fbtn.textContent = flying ? 'Flying' : 'Fly';
 
 	}
 
@@ -604,6 +615,13 @@ bootWithFallback().then( ( app ) => {
 		panelUI?.syncAll();
 
 	} );
+	document.getElementById( 'btn-fly' )?.addEventListener( 'click', () => {
+
+		app.toggleFly();
+		syncRide( app );
+		panelUI?.syncAll();
+
+	} );
 	document.getElementById( 'btn-view' )?.addEventListener( 'click', () => {
 
 		app.params.wrView = app.params.wrView >= 0.5 ? 0 : 1;
@@ -611,7 +629,7 @@ bootWithFallback().then( ( app ) => {
 		panelUI?.syncAll();
 
 	} );
-	syncRide( app, false );
+	syncRide( app );
 
 	// The same keys the classic demo uses. Ignored while a control has focus, so
 	// typing in the panel does not launch the craft.
@@ -619,7 +637,8 @@ bootWithFallback().then( ( app ) => {
 
 		const t = e.target;
 		if ( t && ( t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'BUTTON' ) ) return;
-		if ( e.code === 'KeyR' ) syncRide( app, app.toggleRide() );
+		if ( e.code === 'KeyR' ) { app.toggleRide(); syncRide( app ); }
+		else if ( e.code === 'KeyF' ) { app.toggleFly(); syncRide( app ); }
 		else if ( e.code === 'KeyV' ) {
 
 			app.params.wrView = app.params.wrView >= 0.5 ? 0 : 1;
@@ -729,9 +748,12 @@ bootWithFallback().then( ( app ) => {
 			const applied = app.craftProbe?.applied ?? 0;
 			const probeRate = applied - lastApplied;
 			lastApplied = applied;
-			fpsEl.textContent = app.rider?.active
-				? `${ app.rider.speedKts.toFixed( 0 ) } kn · ${ shown } fps · probe ${ probeRate }/s`
-				: `${ shown } fps  ${ c.width }×${ c.height }`;
+			fpsEl.textContent = app.plane?.active
+				? `${ app.plane.speedKts.toFixed( 0 ) } kn · ${ app.plane.altitude.toFixed( 0 ) } m · `
+					+ `${ Math.round( ( app.plane.throttle ?? 0 ) * 100 ) }% · ${ shown } fps`
+				: app.rider?.active
+					? `${ app.rider.speedKts.toFixed( 0 ) } kn · ${ shown } fps · probe ${ probeRate }/s`
+					: `${ shown } fps  ${ c.width }×${ c.height }`;
 
 		}
 

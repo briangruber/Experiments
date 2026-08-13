@@ -100,6 +100,7 @@ top and bottom band means; two near-zero bands means nothing drew.
    | anything (smoke) | `npm run check` (WebGL2 demo) · `npm run check:bundle:three` (three/WebGPU demo) |
    | Three.js examples or facade | `npm run check:examples` |
    | the wave runner (rider, craft, wake, probe, ride camera) | `npm run check:ride` |
+   | the seaplane (taxi, takeoff, flight, landing) | `npm run check:fly` |
    | facade internals | `node tools/run-probe.mjs prototypes/facade-probe.html` |
    | cloud recipes | `node tools/run-probe.mjs prototypes/cloud-types.html --shot shots/clouds.png` |
    | FFT simulation | `npm run check:sim` (bit-exact golden compare) |
