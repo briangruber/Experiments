@@ -95,6 +95,13 @@
     font: 400 11px/1.45 var(--sans);
     color: var(--dim);
   }
+  /* The thumb controls, shown only where there is a thumb and only while
+     riding - the pointer query is the same one src/presets.js uses to decide
+     this is a handheld. */
+  #hint-touch { display: none; margin: 0; font: 400 11px/1.45 var(--sans); color: var(--haze); }
+  @media (pointer: coarse) {
+    body.riding #hint-touch { display: block; }
+  }
 
   /* The segmented control shows what was REQUESTED. What is actually running is
      the status line below - the two differ whenever a fallback fires, and this
@@ -117,6 +124,32 @@
     color: var(--abyss);
     background: var(--glint);
     border-color: var(--glint);
+  }
+
+  /* The ride pair. Same construction as the backend group, but Ride carries the
+     accent when it is live, because "am I riding?" is state and not a request. */
+  #ride-row { display: flex; gap: 4px; }
+  #ride-row button {
+    font: 500 11px/1 var(--mono);
+    color: var(--spume);
+    background: var(--hull);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 8px 4px;
+    cursor: pointer;
+    -webkit-appearance: none;
+    transition: background .12s ease, color .12s ease, border-color .12s ease;
+  }
+  #btn-ride { flex: 2; }
+  #btn-view { flex: 1; color: var(--haze); }
+  #ride-row button:hover { background: var(--hull-2); color: var(--spume); }
+  #btn-ride[aria-pressed="true"] {
+    color: var(--abyss);
+    background: var(--glint);
+    border-color: var(--glint);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #ride-row button { transition: none; }
   }
 
   select {
@@ -181,11 +214,20 @@
   </div>
 
   <p id="hint">Drag to look · W A S D to move · scroll to zoom · R to ride</p>
+  <p id="hint-touch">Riding: hold anywhere to open the throttle, slide left or right to steer.</p>
 
   <div id="backend" role="group" aria-label="Renderer backend">
     <button id="btn-auto"   aria-pressed="false" title="Prefer WebGPU, fall back to WebGL2">Auto</button>
     <button id="btn-webgpu" aria-pressed="false" title="Request WebGPU">WebGPU</button>
     <button id="btn-webgl"  aria-pressed="false" title="Force the WebGL2 fallback">WebGL2</button>
+  </div>
+
+  <!-- R and V are keys, and a phone has neither. The ride was reachable only
+       through the Settings panel, which is a long way to go for the one control
+       that changes what the app IS. -->
+  <div id="ride-row" role="group" aria-label="Wave runner">
+    <button id="btn-ride" aria-pressed="false" title="Ride the wave runner (R)">Ride</button>
+    <button id="btn-view" title="Switch between the chase camera and the rider's own view (V)">Chase</button>
   </div>
 
   <select id="preset" aria-label="Sea state preset"></select>

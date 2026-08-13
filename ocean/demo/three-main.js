@@ -573,6 +573,24 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 
 		api.ctx = ctx;      // the rig the drivers got this frame; verification reads it
 		cam3.position.set( camera.pos[ 0 ], camera.pos[ 1 ], camera.pos[ 2 ] );
+		// THE ROLL, AND THE TEAR AT THE HORIZON.
+		//
+		// Object3D.lookAt() orients through the object's OWN `up`, and a fresh
+		// camera's is (0,1,0) forever. So cam3 - which rasterises the sea, the hull
+		// and the spray - had no roll, while the sky is drawn from ctx.invViewProj,
+		// which camera.matrices() builds from camera.up AFTER camera.js has rolled
+		// the basis. Level, the two agree and nothing shows. Bank into a turn and
+		// the sky's horizon tilts while the sea's stays level, and the wedge
+		// between them fills with the LUT's below-horizon hemisphere: a dark
+		// triangle opening along the horizon on the inside of every turn, widest
+		// where the bank is hardest. Reported as a tear between the sky and the
+		// water when turning, which is exactly what it is - two cameras disagreeing
+		// about which way is up.
+		//
+		// The spray had the same split: its billboards are built from ctx.camRight
+		// and ctx.camUp, which are rolled, and then projected through cam3, which
+		// was not.
+		cam3.up.set( camera.up[ 0 ], camera.up[ 1 ], camera.up[ 2 ] );
 		cam3.lookAt(
 			camera.pos[ 0 ] + camera.fwd[ 0 ],
 			camera.pos[ 1 ] + camera.fwd[ 1 ],
@@ -642,9 +660,21 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 
 			craftProbe.update( rider.probePoints( params ), {
 				seaLevel: params.seaLevel,
-				craftXZ: [ rider.pos[ 0 ], rider.pos[ 2 ] ],
+				// THE HULL MUST NOT READ BACK THE HOLE IT IS CURRENTLY DIGGING.
+				//
+				// surfaceAt() gates the wake it adds by distance from uCraftXZ, and
+				// the port had both halves of that gate wrong: it centred it on the
+				// world position instead of surfXZ() - the Lagrangian coordinate the
+				// wake field is actually indexed by, one to two metres away and
+				// swinging with the wave phase - and it shrank the exclusion radius
+				// from 2.5 hull lengths to 1.5. Between them the craft was reading a
+				// large part of its own live stamp: a hull that sinks into a trough
+				// it deepens by sinking, then springs out of it. craft-probe.js says
+				// in as many words why that must not happen. Reported as "WAY too
+				// bouncy on the water". demo/waverunner.js:205-207 is the reference.
+				craftXZ: rider.surfXZ(),
 				wakeProbe: params.wakeProbe,
-				wakeNear: Math.max( params.wrLength, 1 ) * 1.5,
+				wakeNear: Math.max( params.wrLength, 0.5 ) * 2.5,
 			} ).then( ( rows ) => rider.acceptProbe( rows ) ).catch( () => {} );
 
 		}

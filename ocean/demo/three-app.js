@@ -39,10 +39,29 @@ const want = wantedBackend();
 const FLY_HINT = 'Drag to look · W A S D to move · scroll to zoom · R to ride';
 const RIDE_HINT = 'W throttle · A D steer · Shift to carve · Space boost · V view · R to step off';
 
-function setRideHint( riding ) {
+// One place that makes the whole panel agree about the ride, whichever of the
+// four ways in was used: the HUD button, the Settings panel's own Ride button,
+// the R key, or an api.toggleRide() from the console.
+function syncRide( app, riding ) {
 
-	const el = document.getElementById( 'hint' );
-	if ( el ) el.textContent = riding ? RIDE_HINT : FLY_HINT;
+	const hint = document.getElementById( 'hint' );
+	if ( hint ) hint.textContent = riding ? RIDE_HINT : FLY_HINT;
+	const btn = document.getElementById( 'btn-ride' );
+	if ( btn ) {
+
+		btn.setAttribute( 'aria-pressed', String( riding ) );
+		btn.textContent = riding ? 'Riding' : 'Ride';
+
+	}
+
+	syncView( app );
+
+}
+
+function syncView( app ) {
+
+	const v = document.getElementById( 'btn-view' );
+	if ( v ) v.textContent = app.params.wrView >= 0.5 ? 'Chase' : 'Rider';
 
 }
 
@@ -461,7 +480,7 @@ function installSettingsPanel( app, presetSel, cloudSel ) {
 
 		if ( ev.type === 'ride' ) {
 
-			setRideHint( app.toggleRide() );
+			syncRide( app, app.toggleRide() );
 			ui.syncAll();
 			return;
 
@@ -471,6 +490,7 @@ function installSettingsPanel( app, presetSel, cloudSel ) {
 
 			app.params.wrView = app.params.wrView >= 0.5 ? 0 : 1;
 			ui.syncAll();
+			syncView( app );
 			ui.toast( app.params.wrView >= 0.5 ? 'Chase camera' : 'Rider view' );
 			return;
 
@@ -520,6 +540,8 @@ function installSettingsPanel( app, presetSel, cloudSel ) {
 	presetSel?.addEventListener( 'change', () => { ui.presetSelect.value = presetSel.value; ui.syncAll(); } );
 	cloudSel?.addEventListener( 'change', () => ui.syncAll() );
 
+	return ui;
+
 }
 
 bootWithFallback().then( ( app ) => {
@@ -567,7 +589,29 @@ bootWithFallback().then( ( app ) => {
 
 	}
 
-	installSettingsPanel( app, sel, cloudSel );
+	// The panel keeps the UI instance; the HUD's buttons need it so the two
+	// Ride buttons - the one up here and the one inside Settings - never
+	// disagree about whether you are aboard.
+	const panelUI = installSettingsPanel( app, sel, cloudSel );
+
+	// The HUD's own ride controls. These exist because R and V are keys: on a
+	// phone the ride was reachable only by opening the full parameter panel and
+	// finding a button in it, which is a long way to go for the control that
+	// decides what the app is.
+	document.getElementById( 'btn-ride' )?.addEventListener( 'click', () => {
+
+		syncRide( app, app.toggleRide() );
+		panelUI?.syncAll();
+
+	} );
+	document.getElementById( 'btn-view' )?.addEventListener( 'click', () => {
+
+		app.params.wrView = app.params.wrView >= 0.5 ? 0 : 1;
+		syncView( app );
+		panelUI?.syncAll();
+
+	} );
+	syncRide( app, false );
 
 	// The same keys the classic demo uses. Ignored while a control has focus, so
 	// typing in the panel does not launch the craft.
@@ -575,8 +619,13 @@ bootWithFallback().then( ( app ) => {
 
 		const t = e.target;
 		if ( t && ( t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'BUTTON' ) ) return;
-		if ( e.code === 'KeyR' ) setRideHint( app.toggleRide() );
-		else if ( e.code === 'KeyV' ) app.params.wrView = app.params.wrView >= 0.5 ? 0 : 1;
+		if ( e.code === 'KeyR' ) syncRide( app, app.toggleRide() );
+		else if ( e.code === 'KeyV' ) {
+
+			app.params.wrView = app.params.wrView >= 0.5 ? 0 : 1;
+			syncView( app );
+
+		}
 
 	} );
 
