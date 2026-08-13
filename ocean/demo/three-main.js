@@ -678,6 +678,13 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 				// The hull's waterline length - the scale the probe averages the
 				// sea over. craft-probe.js: THE HULL READS A MIPPED SEA.
 				footprint: Math.max( params.wrLength, 0.5 ),
+				// Buoyancy against the LOCAL water, fading out as the hull gets on
+				// the plane. craft-probe.js: THE SEA IS TALLER THAN ITS AVERAGE.
+				// At rest the craft floats on the crest that is actually under it;
+				// at planing speed it skims the averaged sea. craftPlaneFull is the
+				// speed the hull is considered fully planing at, the same knob the
+				// water's hollow uses.
+				chop: 1 - Math.min( 0.9, Math.abs( rider.speed ) / Math.max( params.craftPlaneFull, 1 ) ),
 			} ).then( ( rows ) => rider.acceptProbe( rows ) ).catch( () => {} );
 
 		}

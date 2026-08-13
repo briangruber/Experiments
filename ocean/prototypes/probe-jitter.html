@@ -84,7 +84,7 @@ try {
   // One craft-shaped set of points drifting at idle speed. Strictly serial -
   // one sim step, one awaited probe per footprint - so what is measured is the
   // sampler, never the pipelining.
-  const run = async (footprint) => {
+  const run = async (footprint, chop = 0) => {
     const sim2 = sim; // same sea for both runs: the sim continues from wherever it is
     const series = [];
     for (let f = 0; f < FRAMES; f++) {
@@ -93,7 +93,7 @@ try {
       const px = 7.3 + 0.5 * f / 60, pz = -2.1;
       const r = await probe.update(
         [[px, pz], [px + 1.6, pz], [px, pz - 0.6], [px, pz + 0.6]],
-        { seaLevel: params.seaLevel, wakeProbe: 0, footprint });
+        { seaLevel: params.seaLevel, wakeProbe: 0, footprint, chop });
       series.push(r[0].h);
     }
     const d1 = [], d2 = [];
@@ -110,6 +110,11 @@ try {
 
   const exact = await run(0);
   const hull = await run(1.6);
+  // The at-rest read: deep suspension plus the one-sided chop lift. It rides
+  // the LOCAL water (span grows back toward the real sea) and must stay smooth
+  // - its x comes from the stable deep inversion, so the 0.88 m hops of the
+  // exact read cannot return through this door.
+  const rest = await run(1.6, 1);
 
   log(`backend ${isWebGPU ? 'webgpu' : 'webgl'} · ${FRAMES} steps of 1/60 s · drifting at 0.5 m/s`, true,
       `exact texel: hf ${exact.hf.toFixed(4)} · worst step ${exact.worstStep.toFixed(4)} · span ${exact.span.toFixed(3)}\n`
@@ -124,8 +129,12 @@ try {
       hull.span > 0.02 && Number.isFinite(hull.span),
       `span ${hull.span.toFixed(3)} m over ${(FRAMES / 60).toFixed(1)} s`);
 
+  log('the at-rest chop lift floats the local water without the hops',
+      rest.hf < exact.hf * 0.2 && rest.worstStep < exact.worstStep * 0.5,
+      `chop=1: hf ${rest.hf.toFixed(4)} · worst step ${rest.worstStep.toFixed(4)} · span ${rest.span.toFixed(3)}`);
+
   window.probeResult = { allOk: results.every((r) => r.ok), results,
-    exactHf: exact.hf, hullHf: hull.hf, exactSpan: exact.span, hullSpan: hull.span };
+    exactHf: exact.hf, hullHf: hull.hf, restHf: rest.hf, exactSpan: exact.span, hullSpan: hull.span, restSpan: rest.span };
 } catch (e) {
   log('run', false, String(e?.message || e));
   window.probeResult = { allOk: false, results, error: String(e?.message || e) };

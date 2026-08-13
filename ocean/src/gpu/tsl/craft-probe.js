@@ -45,6 +45,12 @@ export const uProbeWidth = /*@__PURE__*/ uniform( 64.0 );
 // Per-cascade mip level for every probe fetch. NOT an optimisation - the hull's
 // suspension. See THE HULL READS A MIPPED SEA below.
 export const uProbeLod = /*@__PURE__*/ uniformArray( [ 0, 0, 0, 0 ], 'float' );
+// The light read for the one-sided chop lift - see THE SEA IS TALLER THAN ITS
+// AVERAGE below. Quarter-footprint mips: enough to stay smooth, keeps the
+// local waves the deep read averages away.
+export const uProbeLodLight = /*@__PURE__*/ uniformArray( [ 0, 0, 0, 0 ], 'float' );
+// 0 = ride the averaged sea (planing); 1 = float on the local water (at rest).
+export const uProbeChop = /*@__PURE__*/ uniform( 0.0 );
 
 // ---------------------------------------------------------------------------
 // THE HULL READS A MIPPED SEA, AND THAT IS THE SUSPENSION.
@@ -98,15 +104,41 @@ export const surfaceAt = /*@__PURE__*/ Fn( ( [ p ] ) => {
 
 	} );
 
+	// -----------------------------------------------------------------------
+	// THE SEA IS TALLER THAN ITS AVERAGE.
+	//
+	// Measured on a developed Golden Hour Swell (prototypes/probe-burial.html):
+	// the full-resolution surface stands up to 1.6 m ABOVE the footprint-
+	// averaged one, 0.84 m at the 95th percentile. A hull riding the average
+	// with ~0.35 m of hover therefore gets water over the deck whenever a real
+	// crest passes - reported as "it sometimes sinks".
+	//
+	// So two heights are read AT THE SAME STABLE x (the inversion above ran on
+	// the deep-mipped field, which is what keeps x from hopping between fixed
+	// points - the instability probe-jitter.html pinned at 0.88 m per frame):
+	//
+	//   hDeep   footprint mips - the suspension, what the launch detector eats;
+	//   hLight  quarter-footprint mips - the local water, still artifact-free.
+	//
+	// The lift is ONE-SIDED and faded by uProbeChop: water that stands above
+	// the averaged sea pushes the hull up (buoyancy touches the hull); air
+	// below a local trough does not pull it down. At rest chop=1 and the craft
+	// floats on the water that is actually there; on the plane chop->0 and it
+	// skims the averaged sea, which is what a planing hull really does - and
+	// what keeps the launch detector reading the tuned, averaged signal at the
+	// speeds where launches matter.
 	const h = float( 0.0 ).toVar();
+	const hLight = float( 0.0 ).toVar();
 	const foam = float( 0.0 ).toVar();
 	Loop( { start: 0, end: uCascadeCount, type: 'int', condition: '<' }, ( { i } ) => {
 
 		const uvc = vec3( x.div( uPatch.element( i ) ), float( i ) );
 		h.addAssign( dispTexture.sample( uvc ).level( uProbeLod.element( i ) ).y.mul( uHeightScale ) );
+		hLight.addAssign( dispTexture.sample( uvc ).level( uProbeLodLight.element( i ) ).y.mul( uHeightScale ) );
 		foam.addAssign( foamTexture.sample( uvc ).level( uProbeLod.element( i ) ).x );
 
 	} );
+	h.addAssign( hLight.sub( h ).max( 0.0 ).mul( uProbeChop ) );
 
 	// Everything the hull has already done to the sea - but only beyond a few
 	// hull lengths. The stamp directly under the craft is the hollow it is
@@ -284,8 +316,14 @@ export class TslCraftProbe {
 				uProbeLod.array[ i ] = fp > 0
 					? Math.max( 0, Math.log2( ( fp * N ) / patch ) )
 					: 0;
+				// The light read: a quarter of the footprint. See THE SEA IS
+				// TALLER THAN ITS AVERAGE.
+				uProbeLodLight.array[ i ] = fp > 0
+					? Math.max( 0, Math.log2( ( fp * 0.25 * N ) / patch ) )
+					: 0;
 
 			}
+			uProbeChop.value = o.chop ?? 0;
 
 			// The render is synchronous and reads the uniforms NOW, so each slot's
 			// pixels match the points this call was given even though the ring has
