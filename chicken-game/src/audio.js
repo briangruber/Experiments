@@ -78,6 +78,34 @@ export class CoopAudio {
     if (v) v.osc.frequency.exponentialRampToValueAtTime(70, v.t0 + 0.1);
   }
 
+  // Rain, as a loop of filtered noise whose gain follows the downpour.
+  setRain(level) {
+    if (this.muted || !this.ctx) return;
+    if (!this.rainGain) {
+      const len = this.ctx.sampleRate * 2;
+      const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      // Slightly smoothed noise reads as rain rather than as static.
+      let last = 0;
+      for (let i = 0; i < len; i++) {
+        last = last * 0.6 + (Math.random() * 2 - 1) * 0.4;
+        d[i] = last;
+      }
+      const src = this.ctx.createBufferSource();
+      src.buffer = buf;
+      src.loop = true;
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.value = 1400;
+      filter.Q.value = 0.5;
+      this.rainGain = this.ctx.createGain();
+      this.rainGain.gain.value = 0;
+      src.connect(filter).connect(this.rainGain).connect(this.master);
+      src.start();
+    }
+    this.rainGain.gain.setTargetAtTime(level * 0.22, this.ctx.currentTime, 0.6);
+  }
+
   // Cock-a-doodle-doo, in four syllables with the long fall at the end.
   crow() {
     const notes = [[540, 0.2, 0], [720, 0.17, 0.21], [900, 0.3, 0.4], [680, 0.5, 0.73]];

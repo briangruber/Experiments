@@ -22,8 +22,8 @@ const DOOR_OUT = new THREE.Vector3(DOOR.outside.x, 0, DOOR.outside.z);
 //   committed  cannot be interrupted by another chicken forcing a behavior on
 //            her (a chase making her flee, say). Only a hawk overrides it.
 //   next     chain to this behavior when the timer expires naturally;
-//            may be a function (c, w) => name. Use this instead of calling
-//            c.force() from exit(), which would re-enter the exit handler.
+//            may be a function (c, w) => name. Prefer this to calling
+//            c.force() on yourself from exit(), which has to be deferred.
 
 // A chicken may only ever aim at a point in her own zone — she steers in a
 // straight line, so a target across the wall walks her into it.
@@ -88,6 +88,13 @@ function knockBack(c, fromPos, dist, height, dur) {
   away.y = 0;
   hold(c, away);
   c.startHop(away, height, dur);
+}
+
+const FEEDING = new Set(['eat', 'peckGrass', 'seedRush', 'peckAround', 'drink']);
+
+// Lower-ranked birds busy with food, which is what makes them worth shoving.
+function pickTargets(c, w) {
+  return others(c, w).filter((o) => o.rank > c.rank && FEEDING.has(o.bhv.name));
 }
 
 export const BEHAVIORS = {
@@ -685,7 +692,18 @@ export const BEHAVIORS = {
     exit(c, w) {
       c.neckPitchT = 0;
       const r = c.bhv.data.rival;
-      if (r && w.rng() < 0.7) r.force('flee', { from: c });
+      if (!r) return;
+      // The lower bird backs down — unless it doesn't, which is how a pecking
+      // order actually changes. An upset swaps the two ranks for good.
+      const upset = w.rng() < 0.18;
+      const cWins = (c.rank < r.rank) !== upset;
+      const winner = cWins ? c : r;
+      const loser = cWins ? r : c;
+      if (upset) {
+        const tmp = winner.rank; winner.rank = loser.rank; loser.rank = tmp;
+        winner.showEmote('crown', 2.6);
+      }
+      loser.force('flee', { from: winner });
     },
   },
 
@@ -954,7 +972,13 @@ export const BEHAVIORS = {
 
   goInside: {
     weight: 0.8, zone: 'yard', dur: [9, 13], cooldown: 20,
+    // Only picked when there is a way in — but the rain forces it regardless,
+    // and a flock shut out in a downpour is the whole joke.
     can: (c, w) => w.door.open,
+    // Shut out in the wet, she does not give up and go and stand in a puddle;
+    // she waits at the door. Breaks the moment it opens or the rain stops.
+    next: (c, w) => (c.zone === 'yard' && !w.door.open && w.weather.rain > 0.35
+      ? 'goInside' : null),
     enter(c, w) {
       c.bhv.data.phase = 'approach';
       c.walkTo(new THREE.Vector3(DOOR.outside.x, 0, DOOR.outside.z), rand(w.rng, 0.9, 1.15));
@@ -962,7 +986,18 @@ export const BEHAVIORS = {
     update(c, w, dt) {
       const d = c.bhv.data;
       if (!w.door.open) {
-        if (!d.rebuffed) { d.rebuffed = true; c.showEmote('question', 2.4); c.stop(); }
+        // Shut out. Crowd up against the door and make it known. One target,
+        // latched, so nobody oscillates on the spot.
+        if (!d.rebuffed) {
+          d.rebuffed = true;
+          c.showEmote('question', 2.4);
+          c.walkTo(hold(c, new THREE.Vector3(
+            DOOR.outside.x + rand(w.rng, -0.8, 0.8), 0,
+            DOOR.outside.z + rand(w.rng, 0, 0.7))), 1.0);
+        } else if (c.arrived(0.3)) {
+          c.stop();
+          c.facePoint(DOOR.outside, dt, 2);
+        }
         return;
       }
       if (d.phase === 'approach') {
@@ -1144,6 +1179,89 @@ export const BEHAVIORS = {
       }
     },
     exit(c) { c.flapT = 0; c.sitT = 0; c.headYawT = 0; c.stop(); },
+  },
+
+  // Rank has privileges: a higher bird simply takes the spot a lower one is
+  // eating from. This is where the pecking order shows up in one moment
+  // rather than over a whole session.
+  displace: {
+    weight: 0.7, weird: true, dur: [6, 9], cooldown: 26, icon: 'anger',
+    can: (c, w) => pickTargets(c, w).length > 0,
+    enter(c, w) {
+      const targets = pickTargets(c, w);
+      c.bhv.data.target = targets.length ? pick(w.rng, targets) : null;
+      c.strut = 1;
+    },
+    update(c, w, dt) {
+      const t = c.bhv.data.target;
+      if (!t || !t.active) { c.bhv.t = c.bhv.dur; return; }
+      c.walkTo(t.pos, 1.9);
+      if (c.pos.distanceTo(t.pos) < 0.6) {
+        c.doPeck();
+        c.showEmote('anger', 2);
+        w.audio.squawk(1.1);
+        w.fx.feather(t.pos, t.color);
+        t.force('flee', { from: c });
+        c.bhv.t = c.bhv.dur;
+      }
+    },
+    exit(c) { c.strut = 0; c.stop(); },
+  },
+
+  // ---- being picked up ----------------------------------------------------
+
+  held: {
+    weight: 0, weird: true, chained: true, tough: true, committed: true,
+    dur: [200, 200], icon: 'bang',
+    enter(c, w) {
+      c.comeDown();
+      c.frozen = false;
+      c.stop();
+      c.flapT = 1;
+      w.audio.squawk(1.3);
+      w.incident();
+    },
+    update(c, w, dt) {
+      if (!c.heldBy) { c.bhv.t = c.bhv.dur; return; }
+      // Wings out, legs going, entirely without dignity.
+      c.flapT = 0.75 + Math.sin(w.time * 12) * 0.25;
+      c.legKick = 1;
+      c.bodyRoll = Math.sin(w.time * 5) * 0.12;
+      if (w.rng() < dt * 0.9) w.audio.squawk(rand(w.rng, 0.9, 1.5));
+      if (w.rng() < dt * 1.4) w.fx.feather(c.pos, c.color);
+    },
+    exit(c) { c.flapT = 0; c.legKick = 0; c.bodyRoll = 0; },
+  },
+
+  // Put down, and with opinions about it.
+  dropped: {
+    weight: 0, weird: true, chained: true, dur: [4, 6], icon: 'anger',
+    enter(c, w) {
+      c.flapT = 1;
+      w.audio.squawk(0.9);
+    },
+    update(c, w, dt) {
+      if (c.falling) { c.flapT = 1; c.legKick = 1; return; }
+      c.legKick = 0;
+      c.flapT = Math.max(0, c.flapT - dt * 0.8);
+      c.headYawT = Math.sin(w.time * 5) * 0.7;      // glaring around
+      if (!c.move && c.bhv.t > 1.2) c.walkTo(randomPoint(w, c), 1.6);
+    },
+    exit(c) { c.flapT = 0; c.legKick = 0; c.headYawT = 0; c.stop(); },
+  },
+
+  // Out of the rain at last, and a foot of water comes off her. Fires when
+  // the shower ends or when she gets under cover, whichever happens first.
+  shakeOff: {
+    weight: 0, weird: true, chained: true, dur: [2.2, 3.2], icon: 'drop',
+    enter(c, w) { c.stop(); w.audio.cluck(1.1); },
+    update(c, w, dt) {
+      c.bodyRoll = Math.sin(w.time * 22) * 0.28;
+      c.flapT = 0.55 + Math.sin(w.time * 18) * 0.35;
+      if (w.rng() < dt * 6) w.fx.puff(c.pos, 0xa8c4d0);
+      if (w.rng() < dt * 2) w.fx.feather(c.pos, c.color);
+    },
+    exit(c) { c.bodyRoll = 0; c.flapT = 0; },
   },
 
   // ---- the rooster --------------------------------------------------------
@@ -1796,6 +1914,18 @@ export const CHICK_BEHAVIORS = {
     },
     exit(c) { c.sitT = 0; c.lidT = 0; },
   },
+
+  // A soggy chick is twice the shake for half the chicken.
+  shakeOff: {
+    weight: 0, weird: true, chained: true, dur: [1.6, 2.4], icon: 'drop',
+    enter(c, w) { c.stop(); w.audio.cluck(1.7); },
+    update(c, w, dt) {
+      c.bodyRoll = Math.sin(w.time * 30) * 0.34;
+      c.flapT = 0.6 + Math.sin(w.time * 24) * 0.4;
+      if (w.rng() < dt * 5) w.fx.puff(c.pos, 0xa8c4d0);
+    },
+    exit(c) { c.bodyRoll = 0; c.flapT = 0; },
+  },
 };
 
 // Behaviors that only make sense with a partner or a target that a snapshot
@@ -1837,6 +1967,19 @@ const BIG_PHASE_BIAS = {
   dawn: { _: 0.7, bigStir: 2, bigEat: 2 },
 };
 
+// Wet weather on top of the time of day. Multiplies with the phase bias, so
+// a rainy dusk drives everyone indoors twice as hard.
+const RAIN_BIAS = {
+  _: 0.85,
+  goOutside: 0.03, sunbathe: 0, dustBath: 0.05, stumpPerch: 0.1,
+  peckGrass: 0.35, goInside: 10, splash: 3.5, eat: 1.6, roost: 1.5,
+};
+
+function rainWeight(name, w, c) {
+  if (c.chick || !w.weather || w.weather.rain < 0.35) return 1;
+  return RAIN_BIAS[name] ?? RAIN_BIAS._;
+}
+
 function phaseWeight(name, w, c) {
   if (c.chick) return 1;   // chicks go where mum goes
   const table = (c.big ? BIG_PHASE_BIAS : PHASE_BIAS)[w.phase];
@@ -1862,10 +2005,25 @@ const BIG_ALIASES = {
 
 // Guards against a behavior's exit() handler triggering another transition,
 // which would re-enter that same exit(). Chain with `next` instead.
+//
+// An exit that forces a behavior on the chicken it belongs to cannot install
+// it here either: the transition that triggered the exit is still in flight
+// and is about to overwrite c.bhv. forceBehavior parks the request in
+// c._pending and whoever is doing that transition picks it up.
 function runExit(c, w) {
   if (c._inExit) return;
   c._inExit = true;
   try { c.bhv.def?.exit?.(c, w); } finally { c._inExit = false; }
+}
+
+// Install a request parked by an exit handler, if there is one. Returns the
+// new behavior, or null if the caller should carry on with its own.
+function takePending(c, w) {
+  const p = c._pending;
+  if (!p) return null;
+  c._pending = null;
+  c.frozen = false;
+  return enterBehavior(c, w, p.name, p.def, p.data, true);
 }
 
 export function pickBehavior(c, w) {
@@ -1885,7 +2043,7 @@ export function pickBehavior(c, w) {
     if (def.hen && c.rooster) continue;
     if (def.can && !def.can(c, w)) continue;
     if ((c.cooldowns[name] ?? 0) > w.time) continue;
-    let weight = def.weight * (def.weird ? c.weirdMul : 1) * phaseWeight(name, w, c);
+    let weight = def.weight * (def.weird ? c.weirdMul : 1) * phaseWeight(name, w, c) * rainWeight(name, w, c);
     if (weight <= 0) continue;
     if (name === c.bhv.lastName) weight *= 0.25; // variety, but repeats stay possible
     total += weight;
@@ -1901,7 +2059,7 @@ export function pickBehavior(c, w) {
 }
 
 // A hawk is the one thing that outranks a committed behavior.
-const OVERRIDES_COMMITMENT = new Set(['hawkPanic']);
+const OVERRIDES_COMMITMENT = new Set(['hawkPanic', 'held', 'dropped']);
 
 export function forceBehavior(c, w, name, data = {}) {
   // A hen who has decided to sit on a nest is not to be talked out of it by
@@ -1922,14 +2080,23 @@ export function forceBehavior(c, w, name, data = {}) {
     ? (TABLES[c.table][name] ?? null)
     : ((TABLES[c.table] ?? BEHAVIORS)[name] ?? BEHAVIORS[name]);
   if (!def) return c.bhv;
+  // Called from inside this chicken's own exit(): park it, because whatever
+  // triggered the exit is about to assign c.bhv over the top.
+  if (c._inExit) { c._pending = { name, def, data }; return c.bhv; }
   c.frozen = false;
   runExit(c, w);
+  // An explicit force outranks anything the outgoing behavior asked for.
+  c._pending = null;
   return enterBehavior(c, w, name, def, data, true);
 }
 
 function enterBehavior(c, w, name, def, data, forced = false) {
   const prev = c.bhv;
-  if (!forced) runExit(c, w);
+  if (!forced) {
+    runExit(c, w);
+    const pending = takePending(c, w);
+    if (pending) return pending;
+  }
   c.bhv = {
     name, def, t: 0, data,
     dur: rand(w.rng, def.dur[0], def.dur[1]),

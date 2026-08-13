@@ -45,6 +45,11 @@ export const EV = {
   HAWK: 'hawk',      // {}              a shadow crosses the run
   FOX: 'fox',        // {}              summon a fox; at night one may come anyway
   SHOO: 'shoo',      // {}              chase the fox off
+  RAIN: 'rain',      // { on }          start or stop the rain
+  // Picking a chicken up. HOLD streams a position while dragging (throttled
+  // to ~15 Hz, the same discipline as WATCH); DROP lets go.
+  HOLD: 'hold',      // { chicken, x, z }
+  DROP: 'drop',      // { chicken }
 };
 
 // Events landing on the same tick must be applied in the same order on every
@@ -125,4 +130,10 @@ export class LocalTransport {
 //   - Snapshot: world.snapshot() — a few hundred bytes of transforms and
 //              behavior names. Constant cost, and doubles as the drift
 //              correction that makes cross-platform lockstep safe.
-export const SNAPSHOT_VERSION = 1;
+//
+// A snapshot has to carry every piece of world state that drifts from its
+// spawn value, not just positions: the pecking order is fought over, the door
+// gets opened and shut, the weather rolls, and chickens get wet. A joiner
+// given only transforms would agree about where everyone is standing and
+// disagree about who outranks whom. Version this when that list changes.
+export const SNAPSHOT_VERSION = 2;

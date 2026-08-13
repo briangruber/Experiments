@@ -43,6 +43,13 @@ export class Chicken {
     this.active = !this.chick;
     this.mum = null;
     this.slot = 0;
+    // Position in the pecking order; lower is higher-ranking. Assigned at
+    // spawn and then genuinely fought over — a standoff can swap two ranks.
+    this.rank = opts.rank ?? 99;
+    this.rankOf = 1;                       // flock size; set once the flock exists
+    this.heldBy = null;                    // actor id, while being carried
+    this.holdPos = new THREE.Vector3();
+    this.falling = false;                  // let go of, on the way down
 
     // Personality: how fast she moves and how weird she is willing to get.
     // Bertha is immense, so she is slow and takes long, heavy strides.
@@ -79,6 +86,9 @@ export class Chicken {
 
     this.bhv = { name: null, def: null, t: 0, dur: 0, data: {}, lastName: null };
     this.cooldowns = {};
+    this._inExit = false;      // running exit(): forced behaviors get parked
+    this._pending = null;      // ...here, and installed by the transition
+    this.wet = 0;              // 0 dry, 1 soaked; only rain fills it
 
     this.root = new THREE.Group();
     this.buildModel(palette);
@@ -308,6 +318,13 @@ export class Chicken {
     }
   }
 
+  // How high she holds herself, 1 at the top of the pecking order down to 0 at
+  // the bottom. Bertha and the chicks are outside the order and stand normally.
+  get standing() {
+    if (this.big || this.chick || this.rank > this.rankOf) return 0;
+    return 1 - (this.rank - 1) / Math.max(1, this.rankOf - 1);
+  }
+
   // ---- behavior plumbing -------------------------------------------------
 
   setNext() { pickBehavior(this, this.world); }
@@ -408,6 +425,27 @@ export class Chicken {
     b.t += dt;
     if (!b.def || b.t >= b.dur) this.setNext();
     else b.def.update?.(this, w, dt);
+
+    // Being carried: position comes from HOLD events, nothing else applies.
+    if (this.heldBy) {
+      this.prevPos.copy(this.pos);
+      this.pos.copy(this.holdPos);
+      this.animate(dt);
+      return;
+    }
+
+    if (this.falling) {
+      this.pos.y -= 5.5 * dt;
+      if (this.pos.y <= 0) {
+        this.pos.y = 0;
+        this.falling = false;
+        w.audio.bonk();
+        w.fx.puff(this.pos, 0x9a7f5c);
+        for (let i = 0; i < 3; i++) w.fx.feather(this.pos, this.color);
+      }
+      this.animate(dt);
+      return;
+    }
 
     if (this.riding && this.riding.sit < 0.4) {
       // Invariant: nobody stays aboard a host who has stood up, whatever
@@ -535,8 +573,12 @@ export class Chicken {
     const bounce = Math.abs(Math.sin(g)) * 0.035 * amp;
     const inAir = this.hop !== null;
 
+    // Standing: a bird high in the pecking order carries herself taller than
+    // one at the bottom. Small, but over a flock of eight it is the difference
+    // between a crowd and a hierarchy — and it updates when a rank changes
+    // hands, so an upset is visible afterwards, not just at the moment.
     this.hips.position.y = lerp(0.32, 0.15, this.sit) + bounce + (inAir ? 0.05 : 0)
-      + this.strut * 0.05;
+      + this.strut * 0.05 + this.standing * 0.035;
     // A strutting rooster carries his chest high and his head back.
     if (this.rooster) this.hips.rotation.x = (this.hips.rotation.x ?? 0) - this.strut * 0.12;
     this.hips.rotation.z = this.bodyRoll;
@@ -565,7 +607,7 @@ export class Chicken {
     const bob = Math.sin(g * 2) * 0.05 * amp;
     this.neck.position.z = (this.big ? 0.22 : 0.18) + bob;
     const peckPitch = peck * lerp(1.35, 0.55, this.peckHeight);
-    this.neck.rotation.x = this.neckPitch + peckPitch + amp * 0.12;
+    this.neck.rotation.x = this.neckPitch + peckPitch + amp * 0.12 - this.standing * 0.14;
     this.head.rotation.z = this.headTilt;
     this.head.rotation.y = this.headYaw;
     this.head.position.y = (this.big ? 0.14 : 0.17) - peck * lerp(0.10, 0.0, this.peckHeight);
@@ -585,9 +627,12 @@ export class Chicken {
       wing.rotation.z = side * (0.1 + this.flap * 1.15 + flutter * 0.35 + splay);
     }
 
-    // Idle tail wag, faster when excited.
-    this.tail.rotation.y = Math.sin(this.world.time * 2.6 + this.yaw) * (0.12 + this.flap * 0.3);
-    this.tail.rotation.x = this.sit * 0.35 - this.flap * 0.2;
+    // Idle tail wag, faster when excited. A soaked chicken's tail hangs, and
+    // the wag goes out of it — the cheapest possible "bedraggled".
+    const dry = 1 - this.wet;
+    this.tail.rotation.y = Math.sin(this.world.time * 2.6 + this.yaw)
+      * (0.12 + this.flap * 0.3) * dry;
+    this.tail.rotation.x = this.sit * 0.35 - this.flap * 0.2 + this.wet * 0.55;
   }
 }
 
@@ -612,7 +657,7 @@ export function spawnFlock(world, count) {
   for (let i = 0; i < count; i++) {
     const ni = Math.floor(world.rng() * names.length);
     const name = names.splice(ni, 1)[0];
-    const c = new Chicken(name, PALETTES[i % PALETTES.length], world);
+    const c = new Chicken(name, PALETTES[i % PALETTES.length], world, { rank: i + 2 });
     flock.push(c);
     world.scene.add(c.root);
   }
@@ -623,7 +668,7 @@ export function spawnFlock(world, count) {
 // coop would fall apart without him.
 export function spawnRooster(world) {
   const r = new Chicken('Reginald',
-    { body: 0x2b3a44, accent: 0xb0641e }, world, { rooster: true, scale: 1.26 });
+    { body: 0x2b3a44, accent: 0xb0641e }, world, { rooster: true, scale: 1.26, rank: 1 });
   r.pos.set(1.4, 0, 1.2);
   r.prevPos.copy(r.pos);
   r.root.position.copy(r.pos);
@@ -649,7 +694,7 @@ export function spawnChicks(world, count) {
 // the single most disruptive object in the building when she isn't.
 export function spawnBertha(world) {
   const bertha = new Chicken('Big Bertha',
-    { body: 0xb8763a, accent: 0x8e5726 }, world, { big: true, scale: 2.05 });
+    { body: 0xb8763a, accent: 0x8e5726 }, world, { big: true, scale: 2.05, rank: 0 });
   bertha.pos.set(-2.4, 0, -2.5);
   bertha.prevPos.copy(bertha.pos);
   bertha.root.position.copy(bertha.pos);

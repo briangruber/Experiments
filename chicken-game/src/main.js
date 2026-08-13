@@ -61,6 +61,7 @@ const EGG_MAT = new THREE.MeshStandardMaterial({ color: 0xf2ead8, roughness: 0.5
 const GOLD_MAT = new THREE.MeshStandardMaterial({
   color: 0xe0a233, roughness: 0.22, metalness: 0.7, emissive: 0x2e1c04,
 });
+const HOLD_Y = 1.15;   // how high a picked-up chicken dangles from the cursor
 const WORM_GEO = new THREE.CapsuleGeometry(0.035, 0.2, 3, 6);
 const WORM_MAT = new THREE.MeshStandardMaterial({ color: 0xc2707e, roughness: 0.7 });
 
@@ -118,6 +119,10 @@ const world = {
   door: { open: true },
   worm: null,                     // { pos, taken, mesh }
   hawk: { active: false, t: 0 },
+
+  // Weather. `rain` eases toward `rainT`; a roll every so often decides
+  // whether it should be raining at all.
+  weather: { rain: 0, rainT: 0, next: 40 },
 
   // A fox comes most nights. What it gets depends on the pop-hole.
   fox: null,
@@ -199,6 +204,9 @@ const world = {
       chickens: world.chickens.map((c) => [
         +c.pos.x.toFixed(3), +c.pos.y.toFixed(3), +c.pos.z.toFixed(3),
         +c.yaw.toFixed(3), c.bhv.name,
+        // Both drift over the course of a session, so a late joiner who only
+        // got the spawn-time values would disagree about who outranks whom.
+        c.rank, +c.wet.toFixed(2),
       ]),
       eggs: world.eggs.map((e) => [
         e.userData.id, +e.position.x.toFixed(2), +e.position.z.toFixed(2),
@@ -207,6 +215,9 @@ const world = {
       // Whether a brood is out and about, so a late joiner sees the chicks.
       brood: world.chicks.map((k) => [k.active ? 1 : 0, world.chickens.indexOf(k.mum), k.slot]),
       dayT: +world.dayT.toFixed(4),
+      door: world.door.open ? 1 : 0,
+      weather: [+world.weather.rain.toFixed(3), world.weather.rainT,
+        +world.weather.next.toFixed(2)],
     };
   },
 
@@ -227,13 +238,22 @@ const world = {
       k.slot = slot;
       k.crossing = false;
     });
-    snap.chickens.forEach(([x, y, z, yaw, bhv], i) => {
+    if (snap.door !== undefined && world.door.open !== !!snap.door) {
+      world.door.open = !!snap.door;
+      ui.setDoor(world.door.open);
+    }
+    if (snap.weather) {
+      [world.weather.rain, world.weather.rainT, world.weather.next] = snap.weather;
+    }
+    snap.chickens.forEach(([x, y, z, yaw, bhv, rank, wet], i) => {
       const c = world.chickens[i];
       if (!c) return;
       c.pos.set(x, y, z);
       c.prevPos.copy(c.pos);
       c.yaw = c.prevYaw = yaw;
       c.root.position.copy(c.pos);
+      if (rank !== undefined) c.rank = rank;
+      c.wet = wet ?? 0;
       if (!c.active) return;    // an unhatched chick has no behavior to restore
       const target = isResumable(bhv)
         ? bhv
@@ -274,6 +294,9 @@ world.coop = buildCoop(scene, rng);
 const hens = spawnFlock(world, 7);
 world.rooster = spawnRooster(world);
 const flock = [...hens, world.rooster];
+// Everyone in the order needs to know how long it is, to know how tall to
+// stand. Ranks are 1..flock.length and get fought over from there.
+for (const c of flock) c.rankOf = flock.length;
 world.bertha = spawnBertha(world);
 // Chicks are created up front but hidden, so the population — and therefore
 // every index in a snapshot — is fixed for the life of the world.
@@ -401,6 +424,25 @@ let dragging = false;
 let dragDist = 0;
 let lastX = 0, lastY = 0;
 let pinchDist = 0;
+let grabbed = null;      // chicken currently being carried by this viewer
+let grabIndex = -1;
+let grabMoved = false;
+let holdTimer = 0;
+const holdPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -HOLD_Y);
+
+// Where the cursor is, projected onto the plane the held chicken dangles in.
+function sendHold(e) {
+  setNDC(e);
+  raycaster.setFromCamera(pointerNDC, camera);
+  const p = new THREE.Vector3();
+  if (!raycaster.ray.intersectPlane(holdPlane, p)) return;
+  const b = bounds(zoneOf(p.z));
+  transport.send(EV.HOLD, {
+    chicken: grabIndex,
+    x: +clamp(p.x, b.x0, b.x1).toFixed(2),
+    z: +clamp(p.z, b.z0, b.z1).toFixed(2),
+  }, world.tick);
+}
 
 function setNDC(e) {
   pointerNDC.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
@@ -408,6 +450,20 @@ function setNDC(e) {
 
 canvas.addEventListener('pointerdown', (e) => {
   ui.dismissHint();
+  // Landing on a chicken picks her up rather than swinging the camera.
+  setNDC(e);
+  raycaster.setFromCamera(pointerNDC, camera);
+  const grabHit = raycaster.intersectObjects(
+    world.chickens.filter((c) => c.active && !c.big).map((c) => c.root), true)[0];
+  if (grabHit) {
+    grabbed = grabHit.object.userData.chicken;
+    grabIndex = world.chickens.indexOf(grabbed);
+    grabMoved = false;
+    holdTimer = 0;
+    sendHold(e);
+    canvas.setPointerCapture(e.pointerId);
+    return;
+  }
   dragging = true;
   dragDist = 0;
   lastX = e.clientX; lastY = e.clientY;
@@ -416,6 +472,13 @@ canvas.addEventListener('pointerdown', (e) => {
 });
 
 canvas.addEventListener('pointermove', (e) => {
+  if (grabbed) {
+    grabMoved = true;
+    // Throttled like WATCH: a stream of positions, not one per mouse event.
+    holdTimer -= 1 / 60;
+    if (holdTimer <= 0) { holdTimer = 1 / 15; sendHold(e); }
+    return;
+  }
   if (dragging) {
     const dx = e.clientX - lastX, dy = e.clientY - lastY;
     dragDist += Math.abs(dx) + Math.abs(dy);
@@ -441,7 +504,34 @@ canvas.addEventListener('pointermove', (e) => {
   }
 });
 
+// Let go of whoever is being carried. `held` runs for 200 s, so anything that
+// ends a drag without a pointerup — a cancelled touch, a lost capture, the tab
+// going away — has to come through here or she hangs in the air until it
+// expires.
+function releaseGrab(poke) {
+  if (!grabbed) return;
+  transport.send(EV.DROP, { chicken: grabIndex }, world.tick);
+  if (poke) transport.send(EV.POKE, { chicken: grabIndex }, world.tick);
+  grabbed = null;
+}
+
+// pointerup releases capture itself, and clears `grabbed` first, so the
+// lostpointercapture that follows a normal drag is a no-op.
+function abandonDrag() {
+  releaseGrab(false);
+  dragging = false;
+  canvas.classList.remove('dragging');
+}
+canvas.addEventListener('pointercancel', abandonDrag);
+canvas.addEventListener('lostpointercapture', abandonDrag);
+addEventListener('blur', abandonDrag);
+
 canvas.addEventListener('pointerup', (e) => {
+  if (grabbed) {
+    // A tap with no drag is still a poke, which is the old behavior.
+    releaseGrab(!grabMoved);
+    return;
+  }
   canvas.classList.remove('dragging');
   const wasDragging = dragging;
   dragging = false;
@@ -575,6 +665,31 @@ function applyEvent(e) {
       break;
     }
 
+    case EV.RAIN: {
+      world.weather.rainT = e.on ? 1 : 0;
+      world.weather.next = 55;         // hold the viewer's choice for a while
+      break;
+    }
+
+    case EV.HOLD: {
+      const c = world.chickens[e.chicken];
+      if (!c || !c.active || c.big) break;
+      c.heldBy = e.actor;
+      c.falling = false;
+      c.holdPos.set(e.x, HOLD_Y, e.z);
+      if (c.bhv.name !== 'held') c.force('held');
+      break;
+    }
+
+    case EV.DROP: {
+      const c = world.chickens[e.chicken];
+      if (!c || !c.heldBy) break;
+      c.heldBy = null;
+      c.falling = c.pos.y > 0.02;
+      c.force('dropped');
+      break;
+    }
+
     case EV.SHOO: {
       if (world.fox) { world.fox.scared = 4; audio.squawk(0.5); }
       break;
@@ -679,6 +794,10 @@ ui.onFox = () => {
   ui.dismissHint();
   transport.send(EV.FOX, {}, world.tick);
 };
+ui.onRain = () => {
+  ui.dismissHint();
+  transport.send(EV.RAIN, { on: world.weather.rainT < 0.5 }, world.tick);
+};
 ui.setView(orbit.view);
 ui.setDoor(world.door.open);
 
@@ -734,7 +853,8 @@ function applyDaylight() {
   const d = daylight(t);
   const gold = goldenHour(t);
 
-  sun.intensity = 0.05 + d * 2.5;
+  const wet = world.weather.rain;
+  sun.intensity = (0.05 + d * 2.5) * (1 - wet * 0.65);
   sun.color.copy(SUN_DAY).lerp(SUN_DUSK, gold * 0.85);
   hemi.intensity = 0.1 + d * 0.55;
   hemi.color.copy(SKY_DAY).lerp(SUN_DUSK, gold * 0.5);
@@ -744,6 +864,7 @@ function applyDaylight() {
   // The dome goes orange through dusk, then deep blue.
   tmpColor.copy(SKY_NIGHT).lerp(SKY_DAY, d);
   tmpColor.lerp(SKY_DUSK, gold * 0.6);
+  tmpColor.lerp(RAIN_SKY, wet * 0.75);
   world.coop.yard.skyMat.color.copy(tmpColor);
   world.coop.winSkyMat.color.copy(tmpColor);
   scene.background.copy(NIGHT_BG).lerp(DAY_BG, d);
@@ -753,6 +874,40 @@ function applyDaylight() {
   nightBulb = 14 + (1 - d) * 16;
   world.coop.shaftMat.opacity = 0.055 * d;
   world.coop.motes.material.opacity = 0.55 * d;
+}
+
+// Rain streaks, drawn only while it is actually raining. Their fall is driven
+// by render time, not the tick — they are scenery and no chicken can see them.
+const rainDummy = new THREE.Object3D();
+let rainFall = 0;
+function applyRain(frameDt) {
+  const { rainMesh, rainSeeds, rainCount } = world.coop.yard;
+  const level = world.weather.rain;
+  rainMesh.visible = level > 0.02;
+  audio.setRain(level);
+  // Driven off the real level rather than the click, so the button is right
+  // when the weather rolls on its own too.
+  ui.setRain(level > 0.35);
+  if (!rainMesh.visible) return;
+
+  rainFall = (rainFall + frameDt * 14) % 9;
+  rainMesh.material.opacity = 0.15 + level * 0.45;
+  for (let i = 0; i < rainCount; i++) {
+    // Each streak falls from its own seeded height and wraps around.
+    const y = (rainSeeds[i * 3 + 1] + 9 - rainFall) % 9;
+    rainDummy.position.set(rainSeeds[i * 3], y, rainSeeds[i * 3 + 2]);
+    rainDummy.scale.set(1, 0.6 + level, 1);
+    rainDummy.updateMatrix();
+    rainMesh.setMatrixAt(i, rainDummy.matrix);
+  }
+  rainMesh.instanceMatrix.needsUpdate = true;
+
+  // The puddle fills while it rains and drains slowly afterwards.
+  const p = world.coop.yard.puddleMesh;
+  if (p) {
+    const s = 1 + level * 0.55;
+    p.scale.setScalar(damp(p.scale.x, s, 1.2, frameDt));
+  }
 }
 
 // One simulation tick. Always exactly TICK_DT of coop time — never a
@@ -767,6 +922,40 @@ function tick() {
   chickenCollisions();
   rollEggs(TICK_DT);
   fx.reapPatches();
+
+  // Weather rolls on its own; a viewer can override and it holds for a while.
+  const wx = world.weather;
+  wx.next -= TICK_DT;
+  if (wx.next <= 0) {
+    wx.next = rand(rng, 45, 110);
+    wx.rainT = rng() < 0.3 ? 1 : 0;
+  }
+  const wasRaining = wx.rain > 0.35;
+  wx.rain = damp(wx.rain, wx.rainT, 0.45, TICK_DT);
+  if (!wasRaining && wx.rain > 0.35) {
+    // It has started. Leaning on the behavior table alone had them drifting
+    // in over a minute or two; a downpour should empty the run while you
+    // watch it. Whether they get in is still the door's business.
+    for (const c of flock) {
+      if (c.active && c.zone === 'yard' && !c.bhv.def?.committed) {
+        c.cooldowns.goInside = 0;
+        c.force('goInside');
+      }
+    }
+  }
+  // Who is actually wet, which is not the same as who is outdoors. Sheltering
+  // has to be worth something: a hen who got in early stays dry, and one who
+  // was caught out is still dripping on the coop floor a minute later.
+  for (const c of world.chickens) {
+    const inRain = c.zone === 'yard' && wx.rain > 0.2;
+    c.wet = clamp(c.wet + (inRain ? wx.rain * 0.32 : -0.07) * TICK_DT, 0, 1);
+    if (inRain || c.wet < 0.45 || !c.active || c.big) continue;
+    if (c.bhv.name === 'shakeOff' || c.bhv.def?.committed) continue;
+    // Out of it and dripping. Staggered rather than simultaneous, because a
+    // ragged wave of shaking chickens is funnier than a chorus line. A shake
+    // takes the worst of it off; she stays visibly damp for a while after.
+    if (rng() < TICK_DT * 0.9) { c.wet = 0.3; c.force('shakeOff'); }
+  }
 
   world.dayT = (world.dayT + TICK_DT / DAY_SECONDS) % 1;
   world.phase = phaseOf(world.dayT);
@@ -896,6 +1085,7 @@ function render(alpha, frameDt) {
   sun.target.updateMatrixWorld();
 
   applyDaylight();
+  applyRain(frameDt);
   ui.setDoorWarning(world.door.open && (world.phase === 'dusk' || world.phase === 'night'));
 
   applyCamera(frameDt);
@@ -939,6 +1129,7 @@ const SUN_DAY = new THREE.Color(0xffe0a8);
 const SUN_DUSK = new THREE.Color(0xff8a3d);
 const DAY_BG = new THREE.Color(0x120c07);
 const NIGHT_BG = new THREE.Color(0x05070f);
+const RAIN_SKY = new THREE.Color(0x6b7783);
 const tmpColor = new THREE.Color();
 
 const MAX_CATCHUP = 8;   // a backgrounded tab must not try to replay an hour

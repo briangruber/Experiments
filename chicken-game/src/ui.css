@@ -213,7 +213,8 @@ html, body {
 
 @media (max-width: 520px) {
   #title { font-size: 16px; letter-spacing: 2px; }
-  #hint { font-size: 10px; }
+  /* Too long for one line on a phone; wrap rather than run off the edge. */
+  #hint { font-size: 10px; white-space: normal; max-width: 88vw; text-align: center; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -476,9 +476,28 @@ function buildYard(g, rng) {
   puddle.position.set(-3.6, 0.016, 10.2);
   yard.add(puddle);
 
+  // ---- rain ---------------------------------------------------------------
+  // Thin instanced streaks over the whole property. Only stepped while it is
+  // actually raining, so it costs nothing on a dry day.
+  const RAIN_N = 900;
+  const rainMesh = new THREE.InstancedMesh(
+    new THREE.BoxGeometry(0.013, 0.34, 0.013),
+    new THREE.MeshBasicMaterial({ color: 0xa9cadd, transparent: true, opacity: 0.55 }),
+    RAIN_N);
+  const rainSeeds = new Float32Array(RAIN_N * 3);
+  for (let i = 0; i < RAIN_N; i++) {
+    rainSeeds[i * 3] = rand(rng, -9, 9);
+    rainSeeds[i * 3 + 1] = rand(rng, 0, 9);
+    rainSeeds[i * 3 + 2] = rand(rng, -6, YARD.z1 + 3);
+  }
+  rainMesh.frustumCulled = false;
+  rainMesh.visible = false;
+  yard.add(rainMesh);
+
   g.add(yard);
   return {
-    group: yard, skyMat,
+    group: yard, skyMat, rainMesh, rainSeeds, rainCount: RAIN_N,
+    puddleMesh: puddle,
     stump: new THREE.Vector3(3.1, 0.74, 8.6),
     puddle: new THREE.Vector3(-3.6, 0, 10.2),
   };

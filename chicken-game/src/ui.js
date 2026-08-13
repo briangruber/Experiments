@@ -25,6 +25,7 @@ export class UI {
     this.onWorm = () => {};
     this.onHawk = () => {};
     this.onFox = () => {};
+    this.onRain = () => {};
 
     this.viewBtn = document.getElementById('view');
     this.doorBtn = document.getElementById('act-door');
@@ -33,6 +34,8 @@ export class UI {
     document.getElementById('act-worm').addEventListener('click', () => this.onWorm());
     document.getElementById('act-hawk').addEventListener('click', () => this.onHawk());
     document.getElementById('act-fox').addEventListener('click', () => this.onFox());
+    this.rainBtn = document.getElementById('act-rain');
+    this.rainBtn.addEventListener('click', () => this.onRain());
 
     this.initFullscreen();
   }
@@ -52,6 +55,13 @@ export class UI {
     if (this._warn === on) return;
     this._warn = on;
     this.doorBtn.classList.toggle('warn', on);
+  }
+
+  setRain(on) {
+    if (this._rain === on) return;
+    this._rain = on;
+    this.rainBtn.classList.toggle('on', on);
+    this.rainBtn.setAttribute('aria-label', on ? 'Stop the rain' : 'Make it rain');
   }
 
   setDoor(open) {

@@ -67,6 +67,12 @@ const SCRIPT = [
   { at: 3900, type: 'seeds', payload: { x: -1.5, z: 8.4 } },
   { at: 2900, type: 'fox', payload: {} },
   { at: 3600, type: 'shoo', payload: {} },
+  // Rain and carrying a chicken around are shared state as well.
+  { at: 600, type: 'rain', payload: { on: true } },
+  { at: 1300, type: 'rain', payload: { on: false } },
+  { at: 2000, type: 'hold', payload: { chicken: 3, x: 1.1, z: -1.4 } },
+  { at: 2040, type: 'hold', payload: { chicken: 3, x: -2.2, z: 2.6 } },
+  { at: 2080, type: 'drop', payload: { chicken: 3 } },
 ];
 
 // Deep fingerprint of everything the simulation owns. Full precision: the
@@ -80,6 +86,7 @@ const FINGERPRINT = `(() => {
     time: w.time,
     door: w.door.open,
     dayT: num(w.dayT), phase: w.phase, lastPhase: w.lastPhase,
+    weather: [num(w.weather.rain), num(w.weather.rainT), num(w.weather.next)],
     chicks: w.chicks.map((k) => [k.active ? 1 : 0, k.slot,
       k.mum ? w.chickens.indexOf(k.mum) : -1, k.crossing ? 1 : 0]),
     hawk: [w.hawk.active, num(w.hawk.t)],
@@ -97,6 +104,8 @@ const FINGERPRINT = `(() => {
       num(c.fall), num(c.fallT), num(c.lid), num(c.lidT), num(c.legTuck),
       num(c.bodyRoll), num(c.peckT), num(c.neckPitch), num(c.headYaw), num(c.headTilt),
       c.perch ? 1 : 0, c.riding ? 1 : 0, c.riders.length, c.frozen ? 1 : 0,
+      c.rank, num(c.wet), c.heldBy ?? 0, c.falling ? 1 : 0,
+      num(c.holdPos.x), num(c.holdPos.z),
       c.hop ? [num(c.hop.t), num(c.hop.dur), num(c.hop.height)] : 0,
       c.move ? [num(c.move.target.x), num(c.move.target.z), num(c.move.speed)] : 0,
       Object.entries(c.cooldowns).sort().map(([k, v]) => k + ':' + num(v)).join(','),
@@ -125,11 +134,21 @@ async function run(label, jitterRender) {
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
     const trace = [];
+    // What the replay actually visited. A guard that quietly covers nothing
+    // still passes, so it has to say what it touched.
+    const cover = { behaviors: new Set(), maxWet: 0, everOutside: 0, ranksSwapped: 0 };
+    const rank0 = g.world.chickens.map((c) => c.rank);
     const byTick = new Map(script.map((e) => [e.at, e]));
     for (let i = 0; i < ticks; i++) {
       const ev = byTick.get(g.world.tick);
       if (ev) g.send(ev.type, ev.payload);
       g.step(1);
+      for (const c of g.world.chickens) {
+        if (!c.active) continue;
+        cover.behaviors.add(c.bhv.name);
+        if (c.wet > cover.maxWet) cover.maxWet = c.wet;
+        if (c.zone === 'yard') cover.everOutside++;
+      }
       // Light per-tick trace so a divergence can be located, not guessed at.
       if (i % 5 === 0) {
         let acc = i + '|';
@@ -144,7 +163,11 @@ async function run(label, jitterRender) {
         g.renderFrame(0.004 + chaos() * 0.25, chaos());
       }
     }
-    return { fp: eval(fpSrc), snap: g.snapshot(), trace };
+    cover.ranksSwapped = g.world.chickens.filter((c, n) => c.rank !== rank0[n]).length;
+    return {
+      fp: eval(fpSrc), snap: g.snapshot(), trace,
+      cover: { ...cover, behaviors: [...cover.behaviors].sort() },
+    };
   }, [TICKS, SCRIPT, jitterRender, FINGERPRINT]);
 
   await page.close();
@@ -193,11 +216,25 @@ await page.close();
 await browser.close();
 server.close();
 
+// Every path the scripted events are there to exercise has to actually be
+// reached, or an identical hash means nothing.
+const REQUIRED = ['goInside', 'goOutside', 'chaseWorm', 'hawkPanic', 'held', 'dropped', 'shakeOff'];
+const missed = REQUIRED.filter((n) => !clean.cover.behaviors.includes(n));
+const covered = {
+  behaviorsVisited: clean.cover.behaviors.length,
+  ticksSpentOutdoors: clean.cover.everOutside,
+  wettestChicken: +clean.cover.maxWet.toFixed(2),
+  ranksChangedHands: clean.cover.ranksSwapped,
+  scriptedPathsMissed: missed,
+};
+
 const report = {
-  ok: match && roundTrip.same && !clean.errors.length && !jittered.errors.length && !snapErrors.length,
+  ok: match && roundTrip.same && !missed.length
+    && !clean.errors.length && !jittered.errors.length && !snapErrors.length,
   ticks: TICKS,
   seed: SEED,
   events: SCRIPT.length,
+  covered,
   cleanHash: hash(clean.fp),
   jitteredHash: hash(jittered.fp),
   identical: match,
@@ -210,6 +247,11 @@ const report = {
 console.log(JSON.stringify(report, null, 2));
 
 if (!report.ok) {
+  if (missed.length) {
+    console.error(`\nThe replay never reached: ${missed.join(', ')}.`);
+    console.error('Matching hashes prove nothing about a path no chicken took —');
+    console.error('adjust SCRIPT (timings, or the tick count) until they are covered.');
+  }
   if (!match) {
     // Where did they part company?
     const a = clean.trace, b = jittered.trace;
