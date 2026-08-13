@@ -262,6 +262,33 @@ const report = await page.evaluate(async ({ wait, keep, freeze, sim, trace, foll
       ringGateWorks = rings.collected === before + 1;
     }
 
+    // Does the web go where you pointed? Aim at a spread of directions and
+    // measure the angle between the ray fired and the anchor actually chosen.
+    const aimTruth = [];
+    {
+      const yaw0 = cam.yaw, pitch0 = cam.pitch;
+      // The last two aim steeply at open sky, where the centre ray hits nothing:
+      // those exercise the fallback, and should still find a grip rather than whiff.
+      for (const [dy, dp] of [[0, 0.1], [0.6, 0.25], [-0.6, 0.25], [1.2, 0.05], [-1.2, 0.4], [0, 1.3], [2.4, 1.45]]) {
+        cam.yaw = yaw0 + dy;
+        cam.pitch = pitch0 + dp;
+        cam.updateBasis();
+        const l = p.probe(-1, cam.basis), r = p.probe(1, cam.basis);
+        const g = !l ? r : !r ? l : (r.score >= l.score ? r : l);
+        if (!g) { aimTruth.push(null); continue; }
+        const toAnchor = g.point.clone().sub(p.pos).normalize();
+        const off = Math.acos(Math.max(-1, Math.min(1, toAnchor.dot(cam.basis.forward))));
+        aimTruth.push(+(off * 180 / Math.PI).toFixed(1));
+      }
+      cam.yaw = yaw0; cam.pitch = pitch0; cam.updateBasis();
+    }
+    const aimed = aimTruth.filter((v) => v !== null);
+    const offAimDegrees = {
+      perSample: aimTruth,
+      found: `${aimed.length}/${aimTruth.length}`,
+      worst: aimed.length ? Math.max(...aimed) : null,
+    };
+
     // The question the player actually asks: if I point the camera somewhere and
     // just hold on, do I end up going that way? Offset the view from the
     // direction of travel, hold the web, touch nothing else, and see how much of
@@ -378,6 +405,7 @@ const report = await page.evaluate(async ({ wait, keep, freeze, sim, trace, foll
       endedGrounded,
       handSpread,
       turning,
+      offAimDegrees,
       lookSteer,
       leanAim,
       carve,

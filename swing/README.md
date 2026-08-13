@@ -76,10 +76,18 @@ performance for a twentieth of the dexterity.
 | dive | `Shift` | **DIVE** |
 | boost / jump | `Space` | **BOOST** |
 
-Each trigger is a side, not just a hand: the left web searches to your left and
-swings you around that way, the right web to your right. The `L` and `R` pips
-either side of the reticle light up when that side has something to grab, so the
-mapping is visible before you commit to it.
+The press carries the aim. The search sweeps a cone around the ray you are
+actually pointing down — pitch included, which it used to discard entirely — and
+how close a grip sits to that ray outweighs every other term. Which hand you
+pressed, which way you lean and how clear the roofline is only separate
+candidates that are all roughly where you pointed, so aiming at one building and
+being thrown at another cannot happen. Point somewhere with nothing grabbable and
+the old heading fan still runs as a fallback, so a bad aim costs a worse grip
+rather than a whiff.
+
+One consequence worth knowing: aim beats hand. Point both triggers at the same
+grip and they both take it. The two hands differ when the cone offers a choice,
+not when you have already named the answer.
 
 Either scheme: `R` respawn, `H` hide HUD, `M` mute, `Esc` pause.
 

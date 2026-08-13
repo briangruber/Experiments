@@ -51,6 +51,18 @@ const PITCHES = [28, 16, 40, 6, 54, 68];
  * toward −X, while `basis.right` is +X, so an outward angle becomes a rotation
  * of `-side * outward`.
  */
+/**
+ * Rings of (radius°, azimuth°) around the aim ray itself. The press carries the
+ * aim: the direction you are pointing when you fire is the strong prior, and
+ * everything else — which hand, which way you lean, how clear the roofline is —
+ * only separates candidates that are all roughly where you pointed. The heading
+ * fan below stays as the fallback for when nothing in the cone is grabbable.
+ */
+const AIM_CONE = [[0, 0]];
+for (const [radius, count] of [[9, 4], [19, 6], [31, 8], [44, 8]]) {
+  for (let i = 0; i < count; i++) AIM_CONE.push([radius, (360 / count) * i]);
+}
+
 const OUTWARD = [-8, 6, 20, 34, 50, 68];
 const FAN = [];
 for (const pitch of PITCHES) {
@@ -78,6 +90,9 @@ const _q = new THREE.Quaternion();
 const _carve = new THREE.Vector3();
 const _side = new THREE.Vector3();
 const _want = new THREE.Vector3();
+const _aimU = new THREE.Vector3();
+const _aimV = new THREE.Vector3();
+const _tmp2 = new THREE.Vector3();
 
 export class Player {
   constructor(city) {
@@ -119,14 +134,42 @@ export class Player {
   }
 
   /**
-   * Sweep one fan of candidate directions and return the best anchor found.
+   * Sweep the cone around where the player is actually pointing, pitch and all.
+   * This runs first; the heading fan is only consulted when it finds nothing.
+   */
+  searchAim(side, basis) {
+    const origin = _tmp.copy(this.pos);
+    let best = null, bestScore = -Infinity;
+    _aimU.copy(basis.right);
+    _aimV.crossVectors(basis.forward, _aimU).normalize();
+
+    for (const [radiusDeg, azDeg] of AIM_CONE) {
+      const r = THREE.MathUtils.degToRad(radiusDeg);
+      const az = THREE.MathUtils.degToRad(azDeg);
+      const sr = Math.sin(r);
+      _dir.copy(basis.forward).multiplyScalar(Math.cos(r))
+        .addScaledVector(_aimU, Math.cos(az) * sr)
+        .addScaledVector(_aimV, Math.sin(az) * sr)
+        .normalize();
+
+      const scored = this.evaluateRay(origin, _dir, side, basis, radiusDeg, true);
+      if (scored && scored.score > bestScore) {
+        bestScore = scored.score;
+        best = scored;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Fallback: sweep a fan hung off the horizontal heading, ignoring pitch.
    * `side` is -1 for the left hand, +1 for the right.
    */
   searchFan(fan, side, basis) {
     const origin = _tmp.copy(this.pos);
     let best = null, bestScore = -Infinity;
-    // Lean aims the throw. This is the answer to "how do I direct the web": you
-    // do not pick a side, you lean the way you want to go and the web follows.
+    // Lean nudges the fallback sweep. It is only a nudge now: when the cone
+    // around the aim found something, none of this ran at all.
     const biasDeg = -this.lean * LEAN_AIM;
 
     for (const [outDeg, pitchDeg] of fan) {
@@ -143,19 +186,31 @@ export class Player {
       _q.setFromAxisAngle(_tan, pitch);
       _dir.applyQuaternion(_q).normalize();
 
-      const hit = this.city.raycast(origin, _dir, ROPE_MAX, _hit);
-      if (!hit || hit.distance < 8) continue;
+      const scored = this.evaluateRay(origin, _dir, side, basis, outDeg, false);
+      if (scored && scored.score > bestScore) {
+        bestScore = scored.score;
+        best = scored;
+      }
+    }
+    return best;
+  }
+
+  /** Cast one candidate ray and score the grip it finds, or return null. */
+  evaluateRay(origin, dir, side, basis, offDeg, fromAim) {
+    {
+      const hit = this.city.raycast(origin, dir, ROPE_MAX, _hit);
+      if (!hit || hit.distance < 8) return null;
 
       // No grips down in the gutter: a rope tied near the pavement cannot carry
       // a swing over it no matter where you are hanging from.
-      if (hit.point.y < STREET_CLEAR) continue;
+      if (hit.point.y < STREET_CLEAR) return null;
 
       // The anchor has to be above you — though the further out it is, the more
       // slack that rule gets, because you will have fallen well below it by the
       // time the rope pulls taut. Up close it has to be genuinely overhead, or
       // it is a tether rather than a swing.
       const dy = hit.point.y - this.pos.y;
-      if (dy < Math.max(6 - 0.28 * hit.distance, -0.12 * hit.distance)) continue;
+      if (dy < Math.max(6 - 0.28 * hit.distance, -0.12 * hit.distance)) return null;
 
       // How far below the roofline the anchor sits. This is the single most
       // important term: a grip halfway down a flat facade swings you straight
@@ -171,19 +226,25 @@ export class Player {
       const distScore = 1 - Math.abs(hit.distance - 46) / 90;
       // Favour a grip out to the side over one dead ahead: that is what bends the
       // arc around the building and makes the two triggers read differently.
-      const spreadScore = 1 - Math.abs(outDeg - 30) / 90;
-      // And prefer one on the side you are leaning toward.
-      const leanScore = this.lean ? clamp(this.lean * side, -1, 1) * 0.55 : 0;
+      // How far off the press this grip is. Inside the aim cone this dominates
+      // everything else, which is the point: the web goes where you pointed,
+      // and the rest of the scoring only separates near-ties.
+      const aimScore = fromAim ? (1 - offDeg / 60) * 3.2 : 0;
+      const spreadScore = fromAim ? 0 : 1 - Math.abs(offDeg - 30) / 90;
+      // Which hand still breaks ties among grips that are all near the aim —
+      // enough that the two triggers stay distinct when the cone offers a
+      // choice, far too little to pull the throw off what you pointed at.
+      let leanScore = !fromAim && this.lean ? clamp(this.lean * side, -1, 1) * 0.55 : 0;
+      if (fromAim) {
+        _tmp2.copy(hit.point).sub(this.pos);
+        leanScore = clamp(_tmp2.dot(basis.right) / 30, -1, 1) * side * 0.4;
+      }
       const topScore = hit.normal.y > 0.5 ? 0.5 : 0;      // straight onto a roof
       const score = clearScore * 1.6 + heightScore * 1.2 + distScore * 0.8
-        + spreadScore * 0.9 + leanScore + topScore;
+        + aimScore + spreadScore * 0.9 + leanScore + topScore;
 
-      if (score > bestScore) {
-        bestScore = score;
-        best = { point: hit.point.clone(), normal: hit.normal.clone(), distance: hit.distance, score };
-      }
+      return { point: hit.point.clone(), normal: hit.normal.clone(), distance: hit.distance, score };
     }
-    return best;
   }
 
   /**
@@ -192,7 +253,9 @@ export class Player {
    * visible before you commit to it.
    */
   probe(side, basis) {
-    return this.searchFan(FAN, side, basis) || this.searchFan(FAN_WIDE, side, basis);
+    return this.searchAim(side, basis)
+      || this.searchFan(FAN, side, basis)
+      || this.searchFan(FAN_WIDE, side, basis);
   }
 
   /**
