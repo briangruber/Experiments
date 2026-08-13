@@ -163,6 +163,10 @@ const SOUND_FALL = 12;      // and back down
 const SOUND_Y = 8.5;
 const SOUND_LOCK = 90;      // before that animal will do it again
 const SOUND_ABEAM = 60;     // metres to the side of the boat it aims for
+// How far off the beam an approaching animal settles. Far enough that the
+// player can see the whole of her and turn to face her, close enough that she
+// is plainly interested in the boat rather than passing by.
+const APPROACH_ABEAM = 38;
 const SOUND_AHEAD = 30;     // and ahead, so the crossing happens off the bow
 
 // --- scratch (module scope; update() allocates nothing) ---------------------
@@ -1497,10 +1501,12 @@ export function createMonster(opts = {}) {
             _dir.set(bx - position.x, 0, bz - position.z);
             if (_dir.lengthSq() < 1) _dir.copy(velocity).setY(0);
             _dir.normalize();
-            // ACROSS the bow, not through the keel: the pass is aimed at a
-            // point 34 m off the boat's beam, so it is something you watch go
-            // by rather than something that lives under the floorboards.
-            _tgt.set(bx + _dir.x * 70 - _dir.z * 34, 0, bz + _dir.z * 70 + _dir.x * 34);
+            // ACROSS the bow, not through the keel. The offset has to be big
+            // enough to survive the geometry: the closest approach of a line
+            // aimed 70 m past the boat is only the offset scaled by how far
+            // she still has to come, so 34 m of lateral became 20 m of actual
+            // clearance. 55 m keeps the pass out at a watchable distance.
+            _tgt.set(bx + _dir.x * 70 - _dir.z * 55, 0, bz + _dir.z * 70 + _dir.x * 55);
             pushDeep(_tgt, minFloor);
             const lim = floorLimit(_tgt.x, _tgt.z);
             steerTo(_tgt.x, Math.min(-11, Math.max(-20, lim)), _tgt.z, 5.4, dt);
@@ -1606,11 +1612,14 @@ export function createMonster(opts = {}) {
           const away = _dir.length();
           if (away < 1) _dir.copy(velocity).setY(0);
           _dir.normalize();
-          // Aim to pass ABEAM of the boat rather than straight through it: a
-          // point 40 m along her approach line and 30 m off it. She still
-          // arrives, still rises, still breaches on the quest's cue — she
-          // simply stops using the hull as a hat.
-          _tgt.set(bx + _dir.x * 40 - _dir.z * 30, 0, bz + _dir.z * 40 + _dir.x * 30);
+          // COME ALONGSIDE, and stop there. Aiming at a point BEYOND the boat
+          // — even one offset to the side — still draws her line straight
+          // across the hull, and because the target moves with the boat she
+          // then hovers on it: measured at 2 m for thirty seconds, which is
+          // exactly the "stays under my boat" the player reported. The target
+          // is now abeam at a fixed standoff, so the line she swims ends
+          // beside the player rather than through him.
+          _tgt.set(bx - _dir.z * APPROACH_ABEAM, 0, bz + _dir.x * APPROACH_ABEAM);
           pushDeep(_tgt, minFloor);
           const lim = floorLimit(_tgt.x, _tgt.z);
           steerTo(_tgt.x, Math.min(-7.5, Math.max(-depthWant, lim)), _tgt.z, 4.6 + 2.6 * rise, dt);

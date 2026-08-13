@@ -105,7 +105,11 @@ const ASSIST_CONE = 0.45;    // rad; beyond this the assist lets go entirely
 // --- the lock ----------------------------------------------------------------
 const LOCK_RANGE = 150;      // m, how far away a creature can be claimed
 const LOCK_DROP = 260;       // m, past which the lock breaks on its own
-const STATION_SIDE = 26;     // m off her beam the boat likes to sit
+// Measured at 26: the boat settled 17-21 m off her CENTRE, which on a
+// thirty-four metre animal is close enough to be inside her turning circle.
+// 32 holds the low twenties, which frames her whole length and still sits
+// well inside the sixty-metre throw.
+const STATION_SIDE = 32;     // m off her beam the boat likes to sit
 const STATION_LEAD = 4;      // m ahead of her, so the bow is level with her eye
 // The auto-reel. A miss used to cost a 2.4 s cooldown and a hunt for the
 // button; now the line comes home by itself and the next throw is a beat
@@ -1127,10 +1131,15 @@ export function createHarpoon(opts = {}) {
       if (locked && !locked.state) locked = null;
       if (locked && state.tethered && target !== locked) lockOff(true);
       if (locked) stepLock(dt);
-      else { ctx.escort = null; state.escorting = false; state.lockDist = 0; }
+      else { ctx.escort = null; state.escorting = false; }
       state.locked = !!locked;
       const lockNear = nearestAnimal();
       state.lockable = !locked && !!lockNear.animal && lockNear.dist <= LOCK_RANGE;
+      // Range to whichever animal the lock is ABOUT — the held one, or the
+      // candidate the button is offering. Reporting zero until the lock
+      // engaged left the HUD with nothing to show on the pill it was
+      // inviting the player to press.
+      if (!locked) state.lockDist = lockNear.animal ? lockNear.dist : 0;
 
       ctx.lineOut = state.tethered;
       if (state.aiming) { assistAim(dt); evaluateAim(); }
