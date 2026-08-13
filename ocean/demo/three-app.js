@@ -167,6 +167,49 @@ async function bootWithFallback() {
 						bands += fmt( 'bloom', await app.measureTexture( app.post.up[ 0 ].texture ) );
 						bands += fmt( 'ldr', await app.measureTexture( app.post.ldr.texture ) );
 
+						// The field data reached the last pass: composite's LDR healthy
+						// (0.258/0.515), final output black. FXAA_FS is three suspects in
+						// one program - the ldr tap, filmGrain, the FXAA arithmetic - and
+						// two bypasses tell them apart: fxaa=0 short-circuits to
+						// tap+grain; fxaa=0 grain=0 is a pure tap passthrough. And a
+						// bypass that measures HEALTHY is not just a datum, it is a
+						// TREATMENT: apply it, stay on WebGPU, and say what was disabled.
+						const saved = { fxaa: app.params.fxaa, grain: app.params.grain };
+						let heal = null;
+						try {
+
+							app.params.fxaa = 0;
+							const g = await app.measurePostOutput();
+							bands += `; out(fxaa0) ${ g.a.toFixed( 3 ) }/${ g.b.toFixed( 3 ) }`;
+							if ( ( g.a + g.b ) > 0.02 ) {
+
+								heal = { fxaa: 0 };
+
+							} else {
+
+								app.params.grain = 0;
+								const p2 = await app.measurePostOutput();
+								bands += `; out(fxaa0,grain0) ${ p2.a.toFixed( 3 ) }/${ p2.b.toFixed( 3 ) }`;
+								if ( ( p2.a + p2.b ) > 0.02 ) heal = { fxaa: 0, grain: 0 };
+
+							}
+
+						} finally {
+
+							Object.assign( app.params, saved );
+
+						}
+
+						if ( heal ) {
+
+							Object.assign( app.params, heal );
+							app.presentWarning = `This GPU's shader compiler breaks the `
+								+ ( heal.grain !== undefined ? 'FXAA + film-grain pass' : 'FXAA pass' )
+								+ `; disabled it and staying on WebGPU (${ bands }).`;
+							return app;
+
+						}
+
 					} catch ( e ) {
 
 						bands += `; pass-bisect failed: ${ String( e?.message || e ).slice( 0, 60 ) }`;
