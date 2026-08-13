@@ -232,7 +232,7 @@
 
 import {
 	Fn, If, float, int, vec2, vec3, vec4,
-	uniform, texture, mix, select, clamp, smoothstep,
+	uniform, texture, mix, select, clamp, smoothstep, step,
 } from 'three/tsl';
 
 import {
@@ -1579,7 +1579,24 @@ export const fxaaFragment = /*@__PURE__*/ Fn( () => {
 		// The GLSL calls lum(rgbB) twice in the same expression; one .toVar() is
 		// the same value (note F4).
 		const lb = lumFxaa( rgbB ).toVar();
-		const res = select( lb.lessThan( lMin ).or( lb.greaterThan( lMax ) ), rgbA, rgbB ).toVar();
+		// NOT the boolean select the GLSL spells. This was
+		//   select( lb.lessThan( lMin ).or( lb.greaterThan( lMax ) ), rgbA, rgbB )
+		// and that formulation is the one thing in this program that Chrome's
+		// Metal shader compiler miscompiles: field-bisected on an Apple metal-3
+		// adapter to exactly this pass (composite LDR healthy at 0.258/0.515,
+		// this program's output black; grain and the taps exonerated by running
+		// the uAmount<=0 branch, which measured bright). SwiftShader and WebKit
+		// execute the same WGSL correctly, so the WGSL is right and the .or()+
+		// select lowering is what breaks. Arithmetic instead, equality-exact:
+		// step(e,x) is 0 when x<e else 1, so 1-step(lMin,lb) is the STRICT
+		// lb<lMin and 1-step(lb,lMax) the STRICT lb>lMax, matching the
+		// comparisons at their boundaries bit for bit - the post golden agrees
+		// to 0/16000 on both backends.
+		const outside = clamp(
+			float( 1.0 ).sub( step( lMin, lb ) ).add( float( 1.0 ).sub( step( lb, lMax ) ) ),
+			0.0, 1.0,
+		).toVar();
+		const res = mix( rgbB, rgbA, outside ).toVar();
 
 		out.assign( clamp( filmGrain( mix( rgbM, res, uAmount ) ), 0.0, 1.0 ) );
 
