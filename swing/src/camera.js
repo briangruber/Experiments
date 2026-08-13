@@ -9,6 +9,7 @@
 import * as THREE from 'three';
 import { clamp, damp, dampAngle, lerp, smoothstep } from './util.js';
 
+const TURN_RATE = 2.0;                 // radians per second on a held turn key
 const PITCH_MIN = -1.15, PITCH_MAX = 0.95;
 const FOV_BASE = 62, FOV_FAST = 92;
 
@@ -60,8 +61,14 @@ export class ChaseCamera {
    * direction the player is looking right now, not last frame's.
    */
   aim(dt, player, input) {
-    const moved = Math.abs(input.lookX) + Math.abs(input.lookY);
-    this.yaw += input.lookX;
+    // Turning has to exist as its own control. Steering used to be a sideways
+    // force only, which nudges your path without ever pointing you somewhere —
+    // so with the mouse busy firing webs there was no way to turn at all.
+    // Positive yaw rotates the heading toward -X, i.e. left, so turning right
+    // subtracts.
+    const turned = input.turn ? input.turn * TURN_RATE * dt : 0;
+    const moved = Math.abs(input.lookX) + Math.abs(input.lookY) + Math.abs(turned);
+    this.yaw += input.lookX - turned;
     this.pitch = clamp(this.pitch + input.lookY, PITCH_MIN, PITCH_MAX);
     this.idle = moved > 0.0005 ? 0 : this.idle + dt;
 

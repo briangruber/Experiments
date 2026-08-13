@@ -262,6 +262,23 @@ const report = await page.evaluate(async ({ wait, keep, freeze, sim, trace, foll
       ringGateWorks = rings.collected === before + 1;
     }
 
+    // Does a held turn key actually change where you are pointing? Steering used
+    // to be a sideways force only, which never turns the heading.
+    const yaw0 = cam.yaw;
+    input.held.add('right');
+    for (let i = 0; i < 30; i++) { input.sample(); cam.aim(DT, p, input); input.endFrame(); }
+    const yawRight = cam.yaw;
+    input.held.delete('right');
+    input.held.add('left');
+    for (let i = 0; i < 60; i++) { input.sample(); cam.aim(DT, p, input); input.endFrame(); }
+    const yawLeft = cam.yaw;
+    input.held.delete('left');
+    const deg = (a, b) => +(((b - a) * 180 / Math.PI)).toFixed(1);
+    const turning = {
+      rightHalfSecond: deg(yaw0, yawRight),
+      leftOneSecond: deg(yawRight, yawLeft),
+    };
+
     // Does each trigger actually reach to its own side? Project each hand's
     // chosen anchor onto the camera's right vector: the left web should land
     // negative, the right web positive.
@@ -286,6 +303,7 @@ const report = await page.evaluate(async ({ wait, keep, freeze, sim, trace, foll
       endedAt,
       endedGrounded,
       handSpread,
+      turning,
       endedHeading: heading,
       attachFromHere: attachWorks,
       anchorFound: anchor,

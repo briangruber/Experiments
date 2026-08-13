@@ -19,6 +19,7 @@ export class Input {
 
     this.lookX = 0; this.lookY = 0;   // radians accumulated since last frame
     this.steer = 0; this.throttle = 0;
+    this.turn = 0;                     // -1 left, +1 right — an actual heading change
     this.webLeft = false; this.webRight = false;
     this.dive = false; this.reel = false;
     this.boost = false;                // edge triggered, cleared each frame
@@ -33,7 +34,7 @@ export class Input {
     this.onKey = () => {};
 
     this.dragId = -1;
-    this.dragging = false;
+    this.mouseWeb = false;              // a mouse button is down
     this.dragX = 0; this.dragY = 0;
     this.padPointers = new Map();
   }
@@ -57,7 +58,7 @@ export class Input {
       const k = KEYS[e.code];
       if (k) this.held.delete(k);
     });
-    addEventListener('blur', () => { this.held.clear(); this.dragId = -1; this.dragging = false; });
+    addEventListener('blur', () => { this.held.clear(); this.dragId = -1; this.mouseWeb = false; });
 
     // ---- desktop: buttons fire webs, pointer lock if we can get it ---------
     //
@@ -78,29 +79,28 @@ export class Input {
         if (e.button === 2) this.webRight = true;
       }
       if (e.button === 1) this.boost = true;
-      this.dragging = true;
-      this.dragX = e.clientX;
-      this.dragY = e.clientY;
+      if (e.button === 0 || e.button === 2) this.mouseWeb = true;
     });
     addEventListener('mouseup', (e) => {
       if (e.button === 0) this.webLeft = false;
       if (e.button === 2) this.webRight = false;
-      if (e.button === 0 || e.button === 2) this.web = false;
-      this.dragging = false;
+      if (e.button === 0 || e.button === 2) this.mouseWeb = false;
     });
     document.addEventListener('pointerlockchange', () => {
       this.locked = document.pointerLockElement === c;
-      if (!this.locked) { this.webLeft = this.webRight = false; this.held.clear(); }
+      if (!this.locked) { this.webLeft = this.webRight = false; this.mouseWeb = false; this.held.clear(); }
     });
+    // Aiming never requires a button. Gating mouse-look behind a held button
+    // put it in direct conflict with firing a web, which left one-button play
+    // with no way to turn at all.
     addEventListener('mousemove', (e) => {
+      if (!this.enabled) return;
       if (this.locked) {
         this.lookX -= e.movementX * this.sensitivity;
         this.lookY -= e.movementY * this.sensitivity;
-      } else if (this.dragging) {
-        this.lookX -= (e.clientX - this.dragX) * this.sensitivity * 1.6;
-        this.lookY -= (e.clientY - this.dragY) * this.sensitivity * 1.6;
-        this.dragX = e.clientX;
-        this.dragY = e.clientY;
+      } else if (e.movementX !== undefined) {
+        this.lookX -= e.movementX * this.sensitivity;
+        this.lookY -= e.movementY * this.sensitivity;
       }
     });
 
@@ -111,7 +111,6 @@ export class Input {
       this.dragId = e.pointerId;
       this.dragX = e.clientX; this.dragY = e.clientY;
       c.setPointerCapture(e.pointerId);
-      if (this.simple) this.web = true;
     });
     c.addEventListener('pointermove', (e) => {
       if (e.pointerId !== this.dragId) return;
@@ -119,44 +118,57 @@ export class Input {
       this.lookY -= (e.clientY - this.dragY) * this.sensitivity;
       this.dragX = e.clientX; this.dragY = e.clientY;
     });
-    const endDrag = (e) => {
-      if (e.pointerId !== this.dragId) return;
-      this.dragId = -1;
-      if (this.simple) this.web = false;
-    };
+    const endDrag = (e) => { if (e.pointerId === this.dragId) this.dragId = -1; };
     c.addEventListener('pointerup', endDrag);
     c.addEventListener('pointercancel', endDrag);
   }
 
-  /** Wire an on-screen pad to a field; `edge` fields latch for one frame. */
-  bindPad(el, field, edge = false) {
+  /**
+   * Wire an on-screen pad to a field; `edge` fields latch for one frame.
+   * A `steer` pad also turns while held, so sliding your thumb sideways off the
+   * swing button aims — one thumb can then play the whole game.
+   */
+  bindPad(el, field, { edge = false, steer = false } = {}) {
     if (!el) return;
+    let id = -1, sx = 0, sy = 0;
     const on = (e) => {
       e.preventDefault();
       el.classList.add('on');
       el.setPointerCapture?.(e.pointerId);
+      id = e.pointerId; sx = e.clientX; sy = e.clientY;
       if (edge) this[field] = true; else this.padPointers.set(field, true);
     };
     const off = (e) => {
       e?.preventDefault();
+      if (e && e.pointerId !== id && id !== -1) return;
+      id = -1;
       el.classList.remove('on');
       if (!edge) this.padPointers.delete(field);
     };
     el.addEventListener('pointerdown', on);
     el.addEventListener('pointerup', off);
     el.addEventListener('pointercancel', off);
-    el.addEventListener('pointerleave', off);
+    if (steer) {
+      el.addEventListener('pointermove', (e) => {
+        if (e.pointerId !== id) return;
+        this.lookX -= (e.clientX - sx) * this.sensitivity;
+        this.lookY -= (e.clientY - sy) * this.sensitivity;
+        sx = e.clientX; sy = e.clientY;
+      });
+    } else {
+      el.addEventListener('pointerleave', off);
+    }
   }
 
   /** Fold held keys and pads into the analogue fields. Call once per frame. */
   sample() {
     const h = this.held;
+    // One source of truth for the single trigger, so nothing can latch it on.
     if (this.simple) {
-      if (h.has('swing')) this.web = true;
-      else if (!this.padPointers.has('web') && this.dragId < 0 && !this.dragging) this.web = false;
-      if (this.padPointers.has('web')) this.web = true;
+      this.web = h.has('swing') || this.padPointers.has('web') || this.mouseWeb;
     }
     this.steer = (h.has('right') ? 1 : 0) - (h.has('left') ? 1 : 0);
+    this.turn = this.steer + (this.padPointers.has('turnRight') ? 1 : 0) - (this.padPointers.has('turnLeft') ? 1 : 0);
     this.throttle = (h.has('reel') ? 1 : 0) - (h.has('back') ? 1 : 0);
     this.reel = h.has('reel') || this.padPointers.has('reel');
     this.dive = h.has('dive') || this.padPointers.has('dive');

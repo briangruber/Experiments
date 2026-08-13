@@ -174,11 +174,11 @@ async function boot() {
   ]);
 
   input.attach();
-  input.bindPad(document.getElementById('btn-web'), 'web');
+  input.bindPad(document.getElementById('btn-web'), 'web', { steer: true });
   input.bindPad(document.getElementById('btn-web-l'), 'webLeft');
   input.bindPad(document.getElementById('btn-web-r'), 'webRight');
   input.bindPad(document.getElementById('btn-dive'), 'dive');
-  input.bindPad(document.getElementById('btn-boost'), 'boost', true);
+  input.bindPad(document.getElementById('btn-boost'), 'boost', { edge: true });
 
   let props = null;
   let grip = null;
@@ -373,6 +373,9 @@ async function boot() {
       ? (coarse ? 'hold <kbd>SWING</kbd> to fire a web' : 'hold <kbd>Space</kbd> to fire a web')
       : (coarse ? 'hold <kbd>WEB L</kbd> or <kbd>WEB R</kbd>' : 'hold a mouse button to fire a web')) },
     { key: 'release', text: () => 'let go at the bottom of the arc to fly' },
+    { key: 'turn', text: () => (coarse
+      ? 'slide your thumb to turn — on the button or anywhere'
+      : 'turn with <kbd>A</kbd> and <kbd>D</kbd>, or move the mouse') },
     { key: 'ring', text: () => 'follow the arrow — fly through the gold rings' },
   ];
   let coachStep = 0;
@@ -387,6 +390,7 @@ async function boot() {
     const done =
       (step === 'swing' && player.web.active) ||
       (step === 'release' && coachTimer > 2.5 && !player.web.active && player.airTime > 0.6) ||
+      (step === 'turn' && (Math.abs(input.turn) > 0 || coachTimer > 6)) ||
       (step === 'ring' && coachTimer > 7);
     if (done) {
       coachStep++;

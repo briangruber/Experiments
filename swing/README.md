@@ -21,7 +21,8 @@ default.
 
 | | desktop | touch |
 | --- | --- | --- |
-| swing | hold `Space` (or any mouse button) | hold **SWING**, or tap and hold anywhere |
+| swing | hold `Space` (or any mouse button) | hold **SWING** |
+| turn | `A` / `D`, or move the mouse | slide your thumb — on the button or anywhere |
 | dive for speed | `Shift` | **DIVE** |
 | mid-air burst | `B` | **BOOST** |
 
@@ -42,7 +43,8 @@ performance for a twentieth of the dexterity.
 | --- | --- | --- |
 | swing left | hold left mouse (or `Q`) | hold **WEB L** |
 | swing right | hold right mouse (or `E`) | hold **WEB R** |
-| aim and steer | move or drag the mouse | drag anywhere |
+| aim | move the mouse | drag anywhere |
+| turn | `A` / `D` | slide on a pad |
 | reel in | `W` | **DIVE** |
 | dive | `Shift` | **DIVE** |
 | boost / jump | `Space` | **BOOST** |
@@ -57,6 +59,11 @@ Either scheme: `R` respawn, `H` hide HUD, `M` mute, `Esc` pause.
 Releasing at the bottom of the arc — fast, just starting to rise — scores a
 *good* or *perfect release*. That is the one piece of timing the swing rewards,
 so it is worth points rather than left to be discovered.
+
+`A` / `D` turn the heading outright, at 2 rad/s. They used to apply a sideways
+force only, which nudges your path without ever pointing you somewhere — and
+since mouse-look was gated behind a held button, and that same button fires a
+web, one-button play had no way to turn at all. Aiming now needs no button.
 
 The camera lines itself up with your velocity after a moment of no steering, so
 one thumb on a phone is enough.
