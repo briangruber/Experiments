@@ -18,6 +18,8 @@ const FILES = {
   keeperWalk: 'keeper-walk.glb',
   keeperRun: 'keeper-run.glb',
   keeperJump: 'keeper-jump.glb',
+  keeperFall: 'keeper-fall.glb',
+  keeperHurt: 'keeper-hurt.glb',
   gloomIdle: 'gloom-idle.glb',
   gloomWalk: 'gloom-walk.glb',
 };
@@ -298,6 +300,7 @@ export async function loadAssets(onProgress = () => {}) {
   out.keeper = rigged([
     ['idle', loaded.keeperIdle], ['walk', loaded.keeperWalk],
     ['run', loaded.keeperRun], ['jump', loaded.keeperJump],
+    ['fall', loaded.keeperFall], ['hurt', loaded.keeperHurt],
   ], fallbackKeeper);
 
   out.gloom = rigged([['idle', loaded.gloomIdle], ['walk', loaded.gloomWalk]], fallbackGloom);

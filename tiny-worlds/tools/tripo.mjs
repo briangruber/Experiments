@@ -34,7 +34,9 @@ const MANIFEST = {
       + ` standing in a T-pose, two arms two legs, friendly face, ${LOOK}`,
     faceLimit: 12000,
     rig: true,
-    animations: ['idle', 'walk', 'run', 'jump'],
+    // fall is a separate pose from jump: rising and descending look nothing
+    // alike, and hurt covers being knocked off your feet.
+    animations: ['idle', 'walk', 'run', 'jump', 'fall', 'hurt'],
   },
   gloom: {
     prompt: `A small round grumpy shadow creature standing in a T-pose, two`

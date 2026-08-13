@@ -16,5 +16,11 @@
   },
   "keeper:jump": {
     "taskId": "8fa80320-7dc0-49da-a740-2011bd5b1196"
+  },
+  "keeper:fall": {
+    "taskId": "51295b39-1d38-41cf-89c9-d31f0f199a81"
+  },
+  "keeper:hurt": {
+    "taskId": "072e948a-90e5-4dfa-9ee7-5afe2acf87ae"
   }
 }

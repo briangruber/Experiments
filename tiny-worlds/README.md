@@ -98,8 +98,9 @@ node tools/glb-info.mjs assets/*.glb
 
 `tools/tripo.mjs` holds the prompt manifest and a ledger (`assets/tripo*.json`)
 of task ids, so a re-run resumes finished work instead of paying for it twice.
-The keeper is text → mesh → rig → four retargeted clips (idle, walk, run,
-jump); the props are text → mesh. Everything is loaded through `src/assets.js`,
+The keeper is text → mesh → rig → six retargeted clips (idle, walk, run, jump,
+fall, hurt) blended by speed and by which way they are moving through the air;
+the gloom is the same pipeline with idle and walk. The props are text → mesh. Everything is loaded through `src/assets.js`,
 which normalises each model to unit height sitting on y=0 and swaps in a
 procedural stand-in if a file is missing — the game still runs with the
 `assets/` folder emptied.

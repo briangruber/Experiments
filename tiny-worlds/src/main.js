@@ -548,6 +548,12 @@ canvas.addEventListener('pointerup', (e) => {
 });
 document.getElementById('prompt').addEventListener('click', () => { input.interactQueued = true; });
 
+// user-select stops the highlight, but a drag beginning on the canvas can still
+// be claimed by the browser as a native drag or a selection extend, which
+// swallows the pointermove stream the camera runs on.
+canvas.addEventListener('selectstart', (e) => e.preventDefault());
+canvas.addEventListener('dragstart', (e) => e.preventDefault());
+
 // ---------------------------------------------------------------- start
 
 function begin() {

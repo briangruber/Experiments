@@ -107,7 +107,7 @@ export function stripToAnimation(buf) {
 
 // Files whose mesh the game never uses: the character mesh always comes from
 // the `-idle` retarget, and these carry a byte-identical copy of it.
-export const isClipOnly = (name) => /-(walk|run|jump|climb|slash)\.glb$/.test(name);
+export const isClipOnly = (name) => /-(walk|run|jump|fall|hurt|climb|slash)\.glb$/.test(name);
 
 if (process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop())) {
   for (const path of process.argv.slice(2)) {

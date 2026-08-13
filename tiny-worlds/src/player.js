@@ -87,6 +87,7 @@ export class Player {
     this.airTime = 0.2;
     this.squash = 1.25;
     this.invuln = 1.4;
+    this.hurtTime = 0.7;
     return true;
   }
 
@@ -293,12 +294,22 @@ export class Player {
     // running just under the walk/run line — and it cannot express the middle.
     const base = def.moveSpeed ?? 6.5;
     const airborne = !this.grounded && this.airTime > 0.14;
+    const rising = this.vel.dot(this.up) > 0.5;
+    this.hurtTime = Math.max(0, (this.hurtTime ?? 0) - dt);
+    const reeling = this.hurtTime > 0 && !!this.actions.hurt;
+
     const jog = clamp((this.speed - 0.6) / (base * 0.9), 0, 1);
     const dash = clamp((this.speed - base * 0.95) / (base * 0.6), 0, 1);
-    this.blend('idle', airborne ? 0 : (1 - jog), dt);
-    this.blend('walk', airborne ? 0 : jog * (1 - dash), dt);
-    this.blend('run', airborne ? 0 : jog * dash, dt);
-    this.blend('jump', airborne ? 1 : 0, dt);
+    const ground = reeling || airborne ? 0 : 1;
+    this.blend('idle', ground * (1 - jog), dt);
+    this.blend('walk', ground * jog * (1 - dash), dt);
+    this.blend('run', ground * jog * dash, dt);
+    // Rising and falling look nothing alike, so they are separate clips: the
+    // takeoff holds while you climb, and the fall takes over past the apex.
+    // Faster in than out, so a jump reads immediately but a landing settles.
+    this.blend('jump', reeling ? 0 : (airborne && rising ? 1 : 0), dt, 16);
+    this.blend('fall', reeling ? 0 : (airborne && !rising ? 1 : 0), dt, 11);
+    this.blend('hurt', reeling ? 1 : 0, dt, 18);
 
     // Stride matched to ground speed, so the feet stop skating.
     const cadence = clamp(this.speed / base, 0.55, 1.9);

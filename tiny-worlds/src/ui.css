@@ -20,7 +20,18 @@ html, body {
   -webkit-font-smoothing: antialiased;
   overscroll-behavior: none;
   touch-action: none;
+  /* Dragging to look is a drag gesture, and the browser reads it as a text
+     selection: the HUD highlights blue, a long press on mobile pops the copy
+     callout, and the drag ends up owned by the selection instead of the game. */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
 }
+
+/* Nothing on this page is text to be taken away. */
+::selection { background: transparent; }
+::-moz-selection { background: transparent; }
 
 #gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 
