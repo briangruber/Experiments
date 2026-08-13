@@ -674,8 +674,10 @@ export function createHarpoon(opts = {}) {
         // Creature end: equal, opposite, and divided by a lot of leviathan —
         // more of it for the bigger pod animals (mass goes with the cube of
         // scale; the square is what FEELS right against their flee speeds).
+        // Enough to bend her track — you can steer her, slowly, by leaning on
+        // the rope — and nowhere near enough to stop her.
         const m = LEV_MASS * target.scale * target.scale;
-        target.towPull(-ax / m * 8, -ay / m * 6, -az / m * 8);
+        target.towPull(-ax / m * 5, -ay / m * 4, -az / m * 5);
 
         // Strain: the line has to be LOADED and the player pulling AGAINST
         // the run. Idling on a slack line teaches it nothing.

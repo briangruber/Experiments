@@ -140,10 +140,14 @@ const DEEP_FLOOR = -24;
 // column, not a visibility flag — nothing here is ever hidden or revealed.
 const POD = [
   // x     z      scale band          circuit  stretch rate    speed
-  { x: 140, z: -300, s: 1.00, d0: 13.5, d1: 24.5, r: 96, k: 1.25, u: 0.032, v: 4.2 },  // -30.8  the quest's animal
-  { x: -20, z: -380, s: 0.88, d0: 14.0, d1: 18.0, r: 84, k: 1.30, u: 0.026, v: 3.6 },  // -33    due north, over the drop
-  { x: -250, z: -290, s: 1.15, d0: 20.0, d1: 24.0, r: 108, k: 1.15, u: 0.020, v: 3.4 }, // -31.5  the north-west deep
-  { x: 90, z: -520, s: 1.08, d0: 26.0, d1: 30.0, r: 124, k: 1.20, u: 0.038, v: 5.2 },  // -42    the one you have to go and find
+  // The speeds nearly doubled and the circuit rates with them. A blue whale
+  // cruises at 5 m/s and sprints past 10; these are bigger than that and were
+  // ambling at 3.4, which read exactly as the player put it — "they should
+  // swim fast and not just sit around for long".
+  { x: 140, z: -300, s: 1.00, d0: 13.5, d1: 24.5, r: 96, k: 1.25, u: 0.055, v: 7.4 },  // -30.8  the quest's animal
+  { x: -20, z: -380, s: 0.88, d0: 14.0, d1: 18.0, r: 84, k: 1.30, u: 0.048, v: 6.6 },  // -33    due north, over the drop
+  { x: -250, z: -290, s: 1.15, d0: 20.0, d1: 24.0, r: 108, k: 1.15, u: 0.036, v: 6.2 }, // -31.5  the north-west deep
+  { x: 90, z: -520, s: 1.08, d0: 26.0, d1: 30.0, r: 124, k: 1.20, u: 0.062, v: 8.6 },  // -42    the one you have to go and find
 ];
 
 // The sounding — the reward for driving out to where one of them lives, and the
@@ -1358,13 +1362,23 @@ export function createMonster(opts = {}) {
      * which is what gives the long lazy arcs the art has. The yaw rate falls out
      * of the turn and drives the bank.
      */
-    function steerTo(tx, ty, tz, want, dt) {
+    /**
+     * @param {number} [authority] how hard she drives toward the wanted
+     *   velocity, per second. The default 0.55 is the lazy cruise the art
+     *   wants — long arcs, visible momentum. It is ALSO, at that value, weak
+     *   enough that anything pushing back wins: with a harpoon line dragging
+     *   at ~2.5 m/s^2 the equilibrium sat 4.5 m/s below her intended speed,
+     *   which is precisely why a beast the size of a ferry felt like she was
+     *   "barely" towing a six-metre skiff. Hooked, she drives at 2.0 and the
+     *   same rope costs her about a metre a second.
+     */
+    function steerTo(tx, ty, tz, want, dt, authority = 0.55) {
       desired.set(tx - position.x, ty - position.y, tz - position.z);
       const d = desired.length();
       if (d > 1e-4) desired.multiplyScalar(want / d);
       else desired.copy(velocity);
       const prevYaw = Math.atan2(velocity.x, -velocity.z);
-      velocity.lerp(desired, Math.min(1, dt * 0.55));
+      velocity.lerp(desired, Math.min(1, dt * authority));
       let dyaw = Math.atan2(velocity.x, -velocity.z) - prevYaw;
       while (dyaw > Math.PI) dyaw -= TAU;
       while (dyaw < -Math.PI) dyaw += TAU;
@@ -1513,7 +1527,7 @@ export function createMonster(opts = {}) {
             _tgt.set(bx + _dir.x * 70 - _dir.z * 55, 0, bz + _dir.z * 70 + _dir.x * 55);
             pushDeep(_tgt, minFloor);
             const lim = floorLimit(_tgt.x, _tgt.z);
-            steerTo(_tgt.x, Math.min(-11, Math.max(-20, lim)), _tgt.z, 5.4, dt);
+            steerTo(_tgt.x, Math.min(-11, Math.max(-20, lim)), _tgt.z, 9.5, dt, 0.9);
             if (flyby <= 0 || away > 340 || seabed(bx, bz) > minFloor) {
               flyby = 0;
               flybyT = 46 + rng.range(0, 34);
@@ -1585,7 +1599,7 @@ export function createMonster(opts = {}) {
           pushDeep(_tgt, minFloor);
           if (Math.hypot(position.x - _tgt.x, position.z - _tgt.z) < 45) soundSide = -soundSide;
           const lim = floorLimit(_tgt.x, _tgt.z);
-          steerTo(_tgt.x, Math.min(-7.0 * scale, Math.max(-depthWant, lim)), _tgt.z, 5.6, dt);
+          steerTo(_tgt.x, Math.min(-7.0 * scale, Math.max(-depthWant, lim)), _tgt.z, 8.6, dt, 0.75);
           speed = velocity.length();
 
           // A shallow animal moving fast drags the surface with it. Same stamp
@@ -1626,7 +1640,7 @@ export function createMonster(opts = {}) {
           _tgt.set(bx - _dir.z * APPROACH_ABEAM, 0, bz + _dir.x * APPROACH_ABEAM);
           pushDeep(_tgt, minFloor);
           const lim = floorLimit(_tgt.x, _tgt.z);
-          steerTo(_tgt.x, Math.min(-7.5, Math.max(-depthWant, lim)), _tgt.z, 4.6 + 2.6 * rise, dt);
+          steerTo(_tgt.x, Math.min(-7.5, Math.max(-depthWant, lim)), _tgt.z, 7.2 + 3.8 * rise, dt, 0.8);
           speed = velocity.length();
 
           if (water && water.disturb && away < 55 && position.y > -13 && stampT > 0.22) {
@@ -1691,12 +1705,17 @@ export function createMonster(opts = {}) {
           // the ride. Fresh she makes ten knots and lunges at fifteen; spent
           // she wallows, which is both the read that you are winning and the
           // setup for her slipping the hook.
+          // Fresh she makes twenty-four knots and lunges at thirty-five — the
+          // boat's own flat-out is eighteen, so a running leviathan tows you
+          // faster than your engine can drive, which IS the sleigh ride. She
+          // drives at authority 2.0 so the rope bends her course without
+          // braking her to a crawl.
           const tired = 1 - 0.62 * strain;
-          const want = (lungeT > 0 ? 13.5 : 9.2) * tired;
+          const want = (lungeT > 0 ? 18.0 : 12.5) * tired;
           const deepWant = -16 * scale + (strain * strain) * 10 * scale;
           const lim2 = floorLimit(hookTarget.x, hookTarget.z);
           steerTo(hookTarget.x, Math.min(-5.5 * scale, Math.max(deepWant, lim2)),
-            hookTarget.z, want, dt);
+            hookTarget.z, want, dt, 2.0);
           velocity.addScaledVector(towAcc, dt);
           towAcc.set(0, 0, 0);
           speed = velocity.length();
@@ -1731,7 +1750,7 @@ export function createMonster(opts = {}) {
           if (_dir.lengthSq() < 1) _dir.set(0, 0, -1);
           _dir.normalize();
           steerTo(position.x + _dir.x * 90, depthWant, position.z + _dir.z * 90,
-            5.0 - 2.0 * clamp(phaseT / 14, 0, 1), dt);
+            8.5 - 3.0 * clamp(phaseT / 14, 0, 1), dt, 0.8);
           speed = velocity.length();
           if (phaseT > 20) { state.alerted = false; nearDisturbT = 0; setPhase('cruise'); }
         }
