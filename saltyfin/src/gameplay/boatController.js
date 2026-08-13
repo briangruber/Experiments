@@ -189,9 +189,26 @@ export function createBoatController({ ctx, input, water, terrain }) {
         b.heading += (tow.yaw || 0) * dt;
         b.speed -= b.speed * Math.min(0.9, (tow.brake || 0) * dt);
       }
-      const keel = Math.exp(-dt * 1.4);
-      drift.x *= keel;
-      drift.y *= keel;
+      // The keel, and how much of the rope's gift it is allowed to take back.
+      // Free of a line she scrubs sideways way at 1.4/s. Under tow the decay
+      // is ANISOTROPIC: hard across the rope, where the keel really does
+      // bite, and gentle along it, where a towed hull simply goes. Damping
+      // both equally is what made a leviathan feel like a strong current
+      // instead of a whale with your rope in it.
+      if (tow && tow.keel && (tow.dirX || tow.dirZ)) {
+        const dx = tow.dirX, dz = tow.dirZ;
+        const alongV = drift.x * dx + drift.y * dz;
+        const acrossX = drift.x - alongV * dx;
+        const acrossZ = drift.y - alongV * dz;
+        const kAlong = Math.exp(-dt * tow.keel);
+        const kAcross = Math.exp(-dt * 2.2);
+        drift.x = alongV * kAlong * dx + acrossX * kAcross;
+        drift.y = alongV * kAlong * dz + acrossZ * kAcross;
+      } else {
+        const keel = Math.exp(-dt * 1.4);
+        drift.x *= keel;
+        drift.y *= keel;
+      }
       if (drift.lengthSq() > 1e-8) {
         b.position.x += drift.x * dt;
         b.position.z += drift.y * dt;
@@ -279,13 +296,21 @@ export function createBoatController({ ctx, input, water, terrain }) {
         b.position.y -= Math.min(2.2, tow.sink) * Math.min(1, dt * 9);
       }
 
-      b.wakeStrength = THREE.MathUtils.clamp(Math.abs(b.speed) / MAX_SPEED, 0, 1);
+      // Way through the water is way through the water, whoever is providing
+      // it. A boat being hauled along at eight knots on the end of a rope
+      // throws the same bow wave as one under power, and reading only the
+      // engine meant the most violent moment in the game had the wake of a
+      // boat sitting still.
+      const madeGood = Math.hypot(b.forward.x * b.speed + drift.x,
+        b.forward.z * b.speed + drift.y);
+      b.wakeStrength = THREE.MathUtils.clamp(madeGood / MAX_SPEED, 0, 1);
+      b.towSpeed = drift.length();
 
       // Stamp the ripple sim behind the transom at a fixed spacing so the wake
       // does not thin out when the frame rate does.
       const w = water?.();
       if (w?.disturb) {
-        wakeAccum += Math.abs(b.speed) * dt;
+        wakeAccum += madeGood * dt;
         while (wakeAccum > 0.45) {
           wakeAccum -= 0.45;
           w.disturb(

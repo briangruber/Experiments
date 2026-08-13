@@ -1674,7 +1674,10 @@ export function createMonster(opts = {}) {
                 bz + boat.right.z * 95 * side - _dir.z * 20,
               );
             } else {
-              hookTarget.set(position.x + _dir.x * 130, 0, position.z + _dir.z * 130);
+              // OUT. Straight for open water and a long way of it, because
+              // "she is dragging me out to sea" is the feeling being built
+              // and a 130 m leash turned every run into a lap of the bay.
+              hookTarget.set(position.x + _dir.x * 320, 0, position.z + _dir.z * 320);
             }
             pushDeep(hookTarget, minFloor);
             lungeT = rng.chance(0.45) ? 1.7 : 0;
@@ -1682,8 +1685,14 @@ export function createMonster(opts = {}) {
           // Tired is slow, and tired gives up the deep: at full strain she
           // wallows near the surface, which is both the read (you can SEE that
           // you are winning) and the win condition's setup.
+          // She RUNS. A creature this size with an iron in her shoulder does
+          // not potter — and the whole sleigh ride depends on her having
+          // somewhere to be: the boat is towed at her speed, so her speed is
+          // the ride. Fresh she makes ten knots and lunges at fifteen; spent
+          // she wallows, which is both the read that you are winning and the
+          // setup for her slipping the hook.
           const tired = 1 - 0.62 * strain;
-          const want = (lungeT > 0 ? 9.5 : 6.4) * tired;
+          const want = (lungeT > 0 ? 13.5 : 9.2) * tired;
           const deepWant = -16 * scale + (strain * strain) * 10 * scale;
           const lim2 = floorLimit(hookTarget.x, hookTarget.z);
           steerTo(hookTarget.x, Math.min(-5.5 * scale, Math.max(deepWant, lim2)),

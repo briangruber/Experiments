@@ -67,9 +67,31 @@ const SPEAR_DRAG = 1.15;     // per second, once wet
 const SPEAR_SINK = 2.2;      // m/s^2 it settles at, once wet
 // --- the rope ----------------------------------------------------------------
 const REST_MIN = 13, REST_MAX = 42;
-const K = 0.95;              // accel per metre of stretch, boat side
-const CDAMP = 0.5;           // accel per m/s of separation rate
-const LEV_MASS = 26;         // how much harder the creature is to shift
+// THE SLEIGH RIDE.
+//
+// She is thirty-four metres of animal; the skiff is six. The first balance
+// had them arguing as near-equals — the boat held its ground and the fight
+// was a tug-of-war between comparable things, which is not what the player
+// saw when they looked at her: "that leviathan is WAY bigger than me and my
+// boat, it should really be pulling me hard... just dragging me out to sea."
+//
+// So the rope now couples the hull to her the way a real one would. The
+// DAMPER does the towing: it pushes the boat's along-rope velocity toward
+// hers, so the terminal state is not "boat pinned at some force" but "boat
+// travelling at the animal's speed with a little stretch left in the line".
+// That self-limits without a cap — catch up and the stretch goes out of the
+// rope, and with it the pull.
+const K = 1.5;               // accel per metre of stretch, boat side
+const CDAMP = 1.1;           // accel per m/s of separation rate: the tow
+// She barely feels it back. Mass goes as the cube of length, so a hull a
+// fifth her size moving her at all is already generous; this is what makes
+// the fight about survival and endurance rather than about winning a pull.
+const LEV_MASS = 85;
+// Divides the tow before it reaches the hull. The skiff is 1. THIS IS THE
+// PROGRESSION HOOK: a bigger boat is a bigger number here, and the same
+// leviathan tows it proportionally less — which is exactly the "bigger boats
+// that can handle the bigger creatures" the game is heading for.
+const BOAT_POWER = 1.0;
 const YAW_K = 0.14;          // nose-toward-the-pull, rad/s per accel unit
 const HEEL_K = 0.115;        // heel per lateral accel unit
 const SINK_K = 0.16;         // freeboard lost per downward accel unit
@@ -158,10 +180,16 @@ export function createHarpoon(opts = {}) {
 
   // Tunables the debug harness may lower to reach the rare outcomes quickly.
   const tune = {
-    TMAX: 14,                // accel units at which the line is at its limit
-    SNAP_S: 1.5,             // s above 92% before it parts
-    ROLL_LIMIT: 1.35,        // rollEnergy that capsizes
-    DUNK_LIMIT: 1.6,         // sinkEnergy that drags the bow under
+    // Raised with the forces. An ordinary tow now rides around half of this,
+    // so the line hums without parting, and only a genuinely bad angle —
+    // beam-on with the engine fighting her — spikes into the red.
+    TMAX: 27,                // accel units at which the line is at its limit
+    SNAP_S: 2.2,             // s above 92% before it parts
+    // A hull being towed leans on the rope constantly, so the roll and dunk
+    // budgets grow with it; otherwise the sleigh ride itself would capsize
+    // you inside ten seconds and the ride would never happen.
+    ROLL_LIMIT: 2.4,         // rollEnergy that capsizes
+    DUNK_LIMIT: 2.6,         // sinkEnergy that drags the bow under
   };
 
   // --- visuals ---------------------------------------------------------------
@@ -286,6 +314,7 @@ export function createHarpoon(opts = {}) {
     let aimPitch = 0.12;
     let reelT = 0;           // seconds into the auto-reel
     let aimStarveT = 0;      // seconds the scope has had nothing to look at
+    let sprayT = 0;          // stamp timer for the bow tearing water under tow
     let locked = null;       // the animal the player has claimed
     const _station = new THREE.Vector3();
     let camFirst = true;     // snap the camera on the frame it is taken
@@ -617,11 +646,19 @@ export function createHarpoon(opts = {}) {
         // away from the pull, leaned away from the rope, and reared its bow
         // skyward at the exact moment the leviathan pulled the foredeck
         // green.
-        const ax = _dir.x * T, ay = _dir.y * T, az = _dir.z * T;
+        const ax = _dir.x * T / BOAT_POWER, ay = _dir.y * T / BOAT_POWER;
+        const az = _dir.z * T / BOAT_POWER;
         const lateral = -(ax * b.right.x + az * b.right.z);
         const along = ax * b.forward.x + az * b.forward.z;
         tow.fx = ax;
         tow.fz = az;
+        // The rope's own direction, and how hard the keel is allowed to eat
+        // the way it gives the hull. A boat under tow SLIDES: the keel bites
+        // across the pull and barely at all along it, which is the whole
+        // difference between being dragged out to sea and being nudged.
+        tow.dirX = _dir.x;
+        tow.dirZ = _dir.z;
+        tow.keel = 0.42;
         // Stern lever arm: a starboard pull swings the STERN starboard and
         // the bow port -- negative heading rate. This is also what makes
         // fleeing stable instead of the bow-attach death spiral above.
@@ -643,7 +680,10 @@ export function createHarpoon(opts = {}) {
         // Strain: the line has to be LOADED and the player pulling AGAINST
         // the run. Idling on a slack line teaches it nothing.
         const oppose = clamp(-(_vB.x * _dir.x + _vB.z * _dir.z) / 6, 0, 1);
-        if (t01 > 0.4) {
+        // The gate came down with the tension scale: a steady tow sits near
+        // half of a much larger TMAX, and a gate of 0.4 would have meant an
+        // honest sleigh ride tired her not at all.
+        if (t01 > 0.22) {
           strain = clamp(strain + dt * (0.005 + STRAIN_UP * t01 * (0.35 + 0.65 * oppose)), 0, 1);
           loafT = Math.max(0, loafT - dt * 2);
         } else {
@@ -664,6 +704,21 @@ export function createHarpoon(opts = {}) {
       }
       state.strain = strain;
       target.setStrain(strain);
+
+      // The ride, made visible. Once she is genuinely hauling the hull along,
+      // the bow tears water — a burst at the stem every few tenths, scaled by
+      // how fast she has the boat going.
+      const towing = ctx.boat.towSpeed || 0;
+      if (towing > 2.2) {
+        sprayT -= dt;
+        if (sprayT <= 0) {
+          sprayT = 0.16;
+          bowPoint(_p);
+          burst(_p.x, _p.z, Math.round(4 + towing), 0.5 + towing * 0.09);
+          const w2 = water();
+          if (w2?.disturb) w2.disturb(_p.x, _p.z, 0.5 + towing * 0.07, 3.2);
+        }
+      }
 
       if (strain >= groanAt && strain < 0.99) {
         groanAt += 0.33;
