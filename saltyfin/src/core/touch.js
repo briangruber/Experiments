@@ -1,10 +1,17 @@
 // Touch controls, for phones and tablets. Built only when the device actually
 // has a coarse pointer (or `?touch=1` forces it), so a desktop never sees them.
 //
-// Left thumb drives: a floating stick that appears wherever the thumb lands on
-// the left half — forward/back is throttle, left/right is helm. Right half is
-// the camera: drag to orbit, pinch to zoom. The time-of-day row sends the same
-// key events main.js already listens for, so there is one code path for both.
+// Two thumbs, one job each. LEFT is the throttle lever: slide it up for ahead,
+// down for astern, and it stays where it is left, with a detent at neutral so
+// slowing down cannot fall into reverse. It fades out a few seconds after the
+// last touch and comes back the moment a thumb returns. RIGHT is the helm: a
+// floating stick that appears wherever the thumb lands, steering only.
+//
+// Nothing here moves the camera. The rig frames the boat by itself, and a view
+// the player could swing was one more thing to end up lost behind — so the
+// orbit-and-pinch half became the helm instead. The time-of-day row sends the
+// same key events main.js already listens for, so there is one code path for
+// both.
 //
 // This module owns its own markup and its own stylesheet. It does not touch the
 // HUD, so the two can be worked on independently.
@@ -13,19 +20,28 @@ const CSS = `
 #touch { position: fixed; inset: 0; z-index: 40; pointer-events: none;
   touch-action: none; -webkit-user-select: none; user-select: none; }
 #touch .zone { position: absolute; top: 0; bottom: 0; pointer-events: auto; }
-/* The helm zone starts clear of the throttle lever, so the thumb that steers
-   and the thumb that sets the revs never argue over the same pixels. */
-#touch .zone.drive { left: 96px; width: calc(50% - 96px); }
-#touch .zone.look  { right: 0; width: 50%; }
+/* Left thumb sets the revs, right thumb steers, and nothing on this screen
+   moves the camera any more — the rig frames the boat itself, and a view the
+   player could swing was one more thing to get lost behind. The helm owns the
+   whole right half; the lever owns the left edge; the gap between them is
+   deliberately dead so neither can be grabbed by accident. */
+#touch .zone.drive { right: 0; width: 50%; }
 
 /* --- the throttle ---------------------------------------------------------
    A lever, not a spring: it stays where it is left, and there is a detent at
    neutral that a drag from ahead CATCHES on before it can reach astern. That
    catch is the whole reason this is not just a slider - it is how you stop a
    boat without accidentally ordering full astern. */
+/* It fades out when it has been left alone, because a lever you have already
+   set is a lever you are no longer looking at, and the sea is the point. It
+   stays TOUCHABLE while invisible: reaching for it brings it straight back,
+   and because the drag is relative, grabbing a lever you cannot see never
+   makes it jump. */
 #touch .thr { position: absolute; left: max(12px, env(safe-area-inset-left));
   top: 50%; transform: translateY(-50%);
-  width: 66px; height: min(58vh, 300px); pointer-events: auto; touch-action: none; }
+  width: 66px; height: min(58vh, 300px); pointer-events: auto; touch-action: none;
+  opacity: 1; transition: opacity .55s ease; }
+#touch .thr.idle { opacity: 0; }
 #touch .thr-track { position: absolute; inset: 0; border-radius: 33px;
   border: 1.5px solid rgba(214,236,255,.30);
   background: linear-gradient(180deg,
@@ -135,7 +151,6 @@ export function createTouchControls({ input, onTimePreset } = {}) {
   root.id = 'touch';
   root.innerHTML = `
     <div class="zone drive"></div>
-    <div class="zone look"></div>
     <div class="thr" id="sf-throttle">
       <div class="thr-track sf-thr-track">
         <div class="thr-cap ahead">Ahead</div>
@@ -156,14 +171,10 @@ export function createTouchControls({ input, onTimePreset } = {}) {
   document.body.appendChild(root);
 
   const drive = root.querySelector('.drive');
-  const look = root.querySelector('.look');
   const stick = root.querySelector('.stick');
   const nub = root.querySelector('.nub');
 
   let driveId = null, ox = 0, oy = 0;
-  let lookId = null, lx = 0, ly = 0;
-  const pinch = new Map();
-  let pinchDist = 0;
 
   // The stick is the HELM now, and only the helm: the throttle moved to its
   // own lever, and a stick that also set the revs meant every course
@@ -202,43 +213,6 @@ export function createTouchControls({ input, onTimePreset } = {}) {
     }
   };
 
-  const onLookStart = (e) => {
-    for (const t of e.changedTouches) {
-      pinch.set(t.identifier, { x: t.clientX, y: t.clientY });
-      if (lookId === null) { lookId = t.identifier; lx = t.clientX; ly = t.clientY; }
-    }
-    if (pinch.size === 2) pinchDist = spread();
-  };
-  const spread = () => {
-    const [a, b] = [...pinch.values()];
-    return Math.hypot(a.x - b.x, a.y - b.y);
-  };
-  const onLookMove = (e) => {
-    for (const t of e.changedTouches) {
-      if (pinch.has(t.identifier)) pinch.set(t.identifier, { x: t.clientX, y: t.clientY });
-      if (t.identifier !== lookId || pinch.size > 1) continue;
-      input.addTouchLook(t.clientX - lx, t.clientY - ly);
-      lx = t.clientX; ly = t.clientY;
-    }
-    if (pinch.size === 2) {
-      const d = spread();
-      if (pinchDist > 0) input.addTouchZoom((pinchDist - d) * 0.02);
-      pinchDist = d;
-    }
-  };
-  const onLookEnd = (e) => {
-    for (const t of e.changedTouches) {
-      pinch.delete(t.identifier);
-      if (t.identifier === lookId) lookId = null;
-    }
-    if (pinch.size < 2) pinchDist = 0;
-    if (pinch.size === 1 && lookId === null) {
-      const [id] = [...pinch.keys()];
-      const p = pinch.get(id);
-      lookId = id; lx = p.x; ly = p.y;
-    }
-  };
-
   // --- the throttle lever -----------------------------------------------------
   //
   // Position is remembered in `lever` (-1 astern .. +1 ahead) and the thumb
@@ -264,6 +238,17 @@ export function createTouchControls({ input, onTimePreset } = {}) {
   const thrLever = root.querySelector('.thr-lever');
   const thrTrack = root.querySelector('.thr-track');
 
+  // Out of sight a few seconds after the last touch, back the instant a thumb
+  // returns. Long enough that setting the revs and then watching the water
+  // does not make it vanish under your finger.
+  const THR_IDLE_MS = 3500;
+  let thrHideT = null;
+  const wakeThrottle = () => {
+    thrEl.classList.remove('idle');
+    if (thrHideT) clearTimeout(thrHideT);
+    thrHideT = setTimeout(() => thrEl.classList.add('idle'), THR_IDLE_MS);
+  };
+
   const paintLever = () => {
     const h = thrTrack.clientHeight || 260;
     const travel = (h - 52) * 0.5;
@@ -277,12 +262,13 @@ export function createTouchControls({ input, onTimePreset } = {}) {
   };
 
   const onThrStart = (e) => {
+    wakeThrottle();
     if (thrId !== null) return;
     const t = e.changedTouches[0];
     thrId = t.identifier;
     thrY = t.clientY;
     thrRaw = lever;
-    caught = 0;
+    caught = false;
     thrLever.classList.add('on');
   };
   const onThrMove = (e) => {
@@ -314,8 +300,9 @@ export function createTouchControls({ input, onTimePreset } = {}) {
     for (const t of e.changedTouches) {
       if (t.identifier !== thrId) continue;
       thrId = null;
-      caught = 0;
+      caught = false;
       thrLever.classList.remove('on');
+      wakeThrottle();          // the fade starts when the thumb comes off
       // It STAYS. That is what a lever is.
     }
   };
@@ -334,10 +321,6 @@ export function createTouchControls({ input, onTimePreset } = {}) {
   drive.addEventListener('touchmove', (e) => { stop(e); onDriveMove(e); }, { passive: false });
   drive.addEventListener('touchend', onDriveEnd);
   drive.addEventListener('touchcancel', onDriveEnd);
-  look.addEventListener('touchstart', (e) => { stop(e); onLookStart(e); }, { passive: false });
-  look.addEventListener('touchmove', (e) => { stop(e); onLookMove(e); }, { passive: false });
-  look.addEventListener('touchend', onLookEnd);
-  look.addEventListener('touchcancel', onLookEnd);
 
   root.querySelector('.times').addEventListener('click', (e) => {
     const code = e.target?.dataset?.code;
