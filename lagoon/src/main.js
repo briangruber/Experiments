@@ -26,7 +26,7 @@ const QUALITY = {
   high: { water: 448, floor: 512, depth: 1024, ratio: 1.75 },
 };
 const isPhone = matchMedia('(pointer: coarse)').matches;
-const quality = QUALITY[q.get('q')] || (isPhone ? QUALITY.medium : QUALITY.high);
+const quality = QUALITY[q.get('q') || window.LAGOON_QUALITY] || (isPhone ? QUALITY.medium : QUALITY.high);
 
 const params = structuredClone(defaults);
 applyPreset(params, PRESETS[q.get('preset')] ? q.get('preset') : 'Midday Cove');
@@ -263,7 +263,7 @@ function frame() {
   fpsAcc += dt; fpsCount++;
   if (fpsAcc > 0.5) {
     const fps = fpsCount / fpsAcc;
-    fpsEl.textContent = `${fps.toFixed(0)} fps · ${backend}`;
+    fpsEl.textContent = `${fps.toFixed(0)} fps \u00b7 ${backend}`;
     // Give back resolution when there is headroom, take it when there is not.
     if (fps < 26 && adaptive > 0.62) { adaptive = Math.max(0.62, adaptive - 0.08); resize(); }
     else if (fps > 52 && adaptive < 1) { adaptive = Math.min(1, adaptive + 0.04); resize(); }

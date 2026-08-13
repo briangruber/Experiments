@@ -62,6 +62,10 @@ select { cursor: pointer; }
 .btns { grid-column: 2 / -1; display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px; }
 .btns button { grid-column: auto; cursor: pointer; text-transform: capitalize; }
 .btns button:hover, select:hover { border-color: var(--accent); }
+button:focus-visible, select:focus-visible, input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 
 input[type="range"] {
   -webkit-appearance: none; appearance: none;
@@ -119,3 +123,9 @@ body.panel-open #panel-toggle .close-label { display: inline; }
 
 /* Capture / hide-UI mode: everything but the canvas goes away. */
 body.capture #ui, body.capture #panel-toggle, body.capture #hud { opacity: 0; pointer-events: none; }
+
+/* The scene itself is the content, so it keeps animating; the interface stops
+   sliding around for anyone who has asked motion to stop. */
+@media (prefers-reduced-motion: reduce) {
+  #ui, #panel-toggle, #boot { transition: none; }
+}

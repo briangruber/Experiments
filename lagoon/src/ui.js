@@ -31,7 +31,7 @@ export class UI {
 
     const brand = document.createElement('div');
     brand.className = 'brand';
-    brand.innerHTML = '<h1>LAGOON</h1><p>stylised shallow water · three.js webgpu</p>';
+    brand.innerHTML = '<h1>LAGOON</h1><p>stylised shallow water \u00b7 three.js webgpu</p>';
     root.appendChild(brand);
 
     const presetRow = document.createElement('div');

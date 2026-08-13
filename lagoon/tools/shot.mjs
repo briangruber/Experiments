@@ -62,10 +62,14 @@ const QUALITY = opt('q', '');
 // which is the code a browser actually runs. Only usable with --webgl here:
 // headless WebGPU loses its device the moment it presents to a canvas.
 const ONSCREEN = args.includes('--onscreen');
+// Point the harness at a bundled build instead of the served sources, so the
+// single-file output is smoke tested the same way the folder is.
+const PAGE = opt('page', '');
 
 const MIME = {
-  '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
-  '.css': 'text/css', '.json': 'application/json', '.png': 'image/png',
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json', '.png': 'image/png',
 };
 
 const server = createServer(async (req, res) => {
@@ -110,7 +114,7 @@ if (QUALITY) query.set('q', QUALITY);
 if (NO_POST) query.set('post', '0');
 if (!ONSCREEN) query.set('offscreen', '1');
 query.set('ui', '0');
-await page.goto(`http://127.0.0.1:${port}/?${query}`, { waitUntil: 'load' });
+await page.goto(`http://127.0.0.1:${port}/${PAGE}?${query}`, { waitUntil: 'load' });
 
 try {
   await page.waitForFunction(() => !!window.lagoon, null, { timeout: 60000 });
