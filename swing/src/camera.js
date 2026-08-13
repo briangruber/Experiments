@@ -66,7 +66,11 @@ export class ChaseCamera {
     // so with the mouse busy firing webs there was no way to turn at all.
     // Positive yaw rotates the heading toward -X, i.e. left, so turning right
     // subtracts.
-    const turned = input.turn ? input.turn * TURN_RATE * dt : 0;
+    // On a rope the carve turns you and the camera follows the velocity it
+    // produced; adding a full tank-turn on top would spin the view off the arc.
+    // In free air there is nothing to carve against, so the keys get full say.
+    const authority = player.web.active ? 0.4 : 1;
+    const turned = input.turn ? input.turn * TURN_RATE * authority * dt : 0;
     const moved = Math.abs(input.lookX) + Math.abs(input.lookY) + Math.abs(turned);
     this.yaw += input.lookX - turned;
     this.pitch = clamp(this.pitch + input.lookY, PITCH_MIN, PITCH_MAX);

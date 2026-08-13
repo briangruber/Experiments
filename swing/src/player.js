@@ -26,6 +26,13 @@ const RADIUS = 1.1;
 const RUN_SPEED = 13;
 const JUMP = 13.5;
 const STREET_CLEAR = 14;             // no web anchors below this height
+const LEAN_AIM = 34;                 // degrees the throw swings with a full lean
+// Bank only. Measured, this force is *not* what turns you: doubling it moves
+// the achieved turn rate by under 15%, because the real steering is the pump
+// below thrusting along the camera's forward while the camera follows the
+// velocity that produces — a loop that compounds aiming into a turn. Which is
+// the genre-correct answer: you steer a swing by looking, not by pushing.
+const CARVE = 13;                    // lateral acceleration, for bank and feel
 
 /**
  * Candidate directions for the anchor search, as (yaw°, pitch°) offsets from the
@@ -71,6 +78,8 @@ const _tan = new THREE.Vector3();
 const _tmp = new THREE.Vector3();
 const _hit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, index: -1 };
 const _q = new THREE.Quaternion();
+const _carve = new THREE.Vector3();
+const _side = new THREE.Vector3();
 
 export class Player {
   constructor(city) {
@@ -95,6 +104,7 @@ export class Player {
     this.wallTime = 0;
     this.markPos = new THREE.Vector3();
     this.markTime = 0;
+    this.lean = 0;
   }
 
   reset(x = 0, z = 0) {
@@ -117,10 +127,13 @@ export class Player {
   searchFan(fan, side, basis) {
     const origin = _tmp.copy(this.pos);
     let best = null, bestScore = -Infinity;
+    // Lean aims the throw. This is the answer to "how do I direct the web": you
+    // do not pick a side, you lean the way you want to go and the web follows.
+    const biasDeg = -this.lean * LEAN_AIM;
 
     for (const [outDeg, pitchDeg] of fan) {
       // Outward angle on the firing hand's side, converted to a heading rotation.
-      const yaw = THREE.MathUtils.degToRad(-side * outDeg);
+      const yaw = THREE.MathUtils.degToRad(-side * outDeg + biasDeg);
       const pitch = THREE.MathUtils.degToRad(pitchDeg);
       _dir.copy(basis.flat);
       _q.setFromAxisAngle(this.up, yaw);
@@ -161,9 +174,11 @@ export class Player {
       // Favour a grip out to the side over one dead ahead: that is what bends the
       // arc around the building and makes the two triggers read differently.
       const spreadScore = 1 - Math.abs(outDeg - 30) / 90;
+      // And prefer one on the side you are leaning toward.
+      const leanScore = this.lean ? clamp(this.lean * side, -1, 1) * 0.55 : 0;
       const topScore = hit.normal.y > 0.5 ? 0.5 : 0;      // straight onto a roof
       const score = clearScore * 1.6 + heightScore * 1.2 + distScore * 0.8
-        + spreadScore * 0.9 + topScore;
+        + spreadScore * 0.9 + leanScore + topScore;
 
       if (score > bestScore) {
         bestScore = score;
@@ -254,6 +269,7 @@ export class Player {
   }
 
   update(dt, input, basis) {
+    this.lean = input.lean || 0;
     this.events.length = 0;
     this.prev.copy(this.pos);
     const web = this.web;
@@ -310,10 +326,22 @@ export class Player {
           _tan.normalize();
           const align = clamp(_tan.dot(basis.forward), -1, 1);
           this.vel.addScaledVector(_tan, SWING_THRUST * (0.55 + 0.45 * align) * dt);
+
         }
 
-        // Steer the arc sideways.
-        if (input.steer) this.vel.addScaledVector(basis.right, input.steer * AIR_STEER * 0.8 * dt);
+        // Carve: rotate the horizontal heading rather than shoving the body
+        // sideways. Pushing perpendicular to travel turns the momentum you
+        // already have, which is why a swing banks and feels heavy instead of
+        // sliding like a joystick. Taken about travel, not about the rope — a
+        // rope you are hanging straight below has no sideways to speak of.
+        if (input.lean) {
+          _carve.set(this.vel.x, 0, this.vel.z);
+          if (_carve.lengthSq() > 1) {
+            _carve.normalize();
+            _side.crossVectors(this.up, _carve);        // left of travel
+            this.vel.addScaledVector(_side, -input.lean * CARVE * dt);
+          }
+        }
 
         // Reel in — pulls toward the anchor and shortens the rope behind you.
         if (input.reel || input.dive) {
@@ -322,7 +350,7 @@ export class Player {
           web.length = Math.max(REEL_MIN, Math.min(web.length, dist));
         }
       } else {
-        if (input.steer) this.vel.addScaledVector(basis.right, input.steer * AIR_STEER * dt);
+        if (input.lean) this.vel.addScaledVector(basis.right, input.lean * AIR_STEER * dt);
         if (this.diving) {
           _dir.copy(basis.forward);
           _dir.y = Math.min(_dir.y, -0.35);
@@ -404,7 +432,7 @@ export class Player {
   updateGround(dt, input, basis) {
     _dir.set(0, 0, 0);
     if (input.throttle) _dir.addScaledVector(basis.forward, input.throttle);
-    if (input.steer) _dir.addScaledVector(basis.right, input.steer);
+    if (input.lean) _dir.addScaledVector(basis.right, input.lean);
     _dir.y = 0;
     if (_dir.lengthSq() > 1e-4) {
       _dir.normalize().multiplyScalar(RUN_SPEED);

@@ -374,8 +374,8 @@ async function boot() {
       : (coarse ? 'hold <kbd>WEB L</kbd> or <kbd>WEB R</kbd>' : 'hold a mouse button to fire a web')) },
     { key: 'release', text: () => 'let go at the bottom of the arc to fly' },
     { key: 'turn', text: () => (coarse
-      ? 'slide your thumb to turn — on the button or anywhere'
-      : 'turn with <kbd>A</kbd> and <kbd>D</kbd>, or move the mouse') },
+      ? 'look where you want to go — lean by sliding your thumb'
+      : 'look where you want to go — lean with <kbd>A</kbd> and <kbd>D</kbd>') },
     { key: 'ring', text: () => 'follow the arrow — fly through the gold rings' },
   ];
   let coachStep = 0;
@@ -390,7 +390,7 @@ async function boot() {
     const done =
       (step === 'swing' && player.web.active) ||
       (step === 'release' && coachTimer > 2.5 && !player.web.active && player.airTime > 0.6) ||
-      (step === 'turn' && (Math.abs(input.turn) > 0 || coachTimer > 6)) ||
+      (step === 'turn' && (Math.abs(input.lean) > 0.3 || coachTimer > 6)) ||
       (step === 'ring' && coachTimer > 7);
     if (done) {
       coachStep++;
@@ -408,7 +408,7 @@ async function boot() {
    */
   const simulate = (dt) => {
     time += dt;
-    input.sample();
+    input.sample(dt);
 
     cam.aim(dt, player, input);
     if (input.simple) cam.assist(dt, rings.target?.pos, player);

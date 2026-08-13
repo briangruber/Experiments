@@ -1,5 +1,18 @@
 // One input state for mouse+keyboard and touch alike. The game reads fields,
 // never events, so adding a control surface never touches the simulation.
+//
+// A swinging game has two channels and no more: *where I want to go*, and *when
+// to hold on*. `lean` is the first of those — a single signed intent axis that
+// every direction control feeds, whether that is A/D, the mouse, a thumb drag or
+// a slide on the swing pad. Pushing your view toward something IS leaning toward
+// it; there is no separate notion of turning. Everything downstream reads this
+// one number: which side the next web is thrown, which way the arc carves, and
+// which way the body banks.
+
+import { clamp, damp } from './util.js';
+
+/** Aim rate, in radians per second, that counts as a full lean. */
+const LEAN_FULL = 1.9;
 
 const KEYS = {
   KeyW: 'reel', ArrowUp: 'reel',
@@ -19,7 +32,8 @@ export class Input {
 
     this.lookX = 0; this.lookY = 0;   // radians accumulated since last frame
     this.steer = 0; this.throttle = 0;
-    this.turn = 0;                     // -1 left, +1 right — an actual heading change
+    this.turn = 0;                     // heading authority, from keys only
+    this.lean = 0;                     // -1..1 smoothed intent, the one direction channel
     this.webLeft = false; this.webRight = false;
     this.dive = false; this.reel = false;
     this.boost = false;                // edge triggered, cleared each frame
@@ -161,14 +175,20 @@ export class Input {
   }
 
   /** Fold held keys and pads into the analogue fields. Call once per frame. */
-  sample() {
+  sample(dt = 1 / 60) {
     const h = this.held;
     // One source of truth for the single trigger, so nothing can latch it on.
     if (this.simple) {
       this.web = h.has('swing') || this.padPointers.has('web') || this.mouseWeb;
     }
-    this.steer = (h.has('right') ? 1 : 0) - (h.has('left') ? 1 : 0);
-    this.turn = this.steer + (this.padPointers.has('turnRight') ? 1 : 0) - (this.padPointers.has('turnLeft') ? 1 : 0);
+    // One intent axis, from every direction control at once. Keys turn the view
+    // directly; the mouse and thumb already did so through lookX, and the rate
+    // they did it at is read back here as the same intent.
+    const keyLean = (h.has('right') ? 1 : 0) - (h.has('left') ? 1 : 0);
+    const aimLean = clamp(-this.lookX / Math.max(dt, 1e-4) / LEAN_FULL, -1, 1);
+    this.steer = keyLean;
+    this.turn = keyLean;
+    this.lean = damp(this.lean, clamp(keyLean + aimLean, -1, 1), 14, dt);
     this.throttle = (h.has('reel') ? 1 : 0) - (h.has('back') ? 1 : 0);
     this.reel = h.has('reel') || this.padPointers.has('reel');
     this.dive = h.has('dive') || this.padPointers.has('dive');

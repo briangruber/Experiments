@@ -14,8 +14,29 @@ python3 -m http.server 8000     # or any static server
 
 ## Controls
 
-Two schemes, picked on the title card and remembered. **One button** is the
-default.
+A swinging game has two channels and no more: **where you want to go**, and
+**when to hold on**. Everything here is one of those two.
+
+*Where* is a single signed intent axis — `lean` — that every direction control
+feeds: `A`/`D`, the mouse, a thumb drag, a slide on the swing pad. Pushing your
+view toward something *is* leaning toward it, so there is no separate notion of
+turning to learn. One number decides which side the next web is thrown, which
+way the arc banks, and which way the body leans.
+
+It steers less than you would think, though, and it took measuring to see why.
+Doubling the carve force moves the achieved turn rate by under 15%. The real
+steering is the pump: it thrusts along the camera's forward, the camera follows
+the velocity that produces, and the loop compounds aiming into a turn. Which is
+the genre's own answer — **you steer a swing by looking, not by pushing** — so
+that is what the game now teaches, and the carve is left as bank and feel.
+
+Measured, from the harness:
+
+| | effect |
+| --- | --- |
+| full lean, web throw | lands 17.7 m left / 18.5 m right of travel |
+| full lean, held 0.75 s on a rope | turns 73.5° left / 68.7° right |
+| held turn key, free air | 2.0 rad/s |
 
 ### One button
 

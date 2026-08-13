@@ -262,6 +262,45 @@ const report = await page.evaluate(async ({ wait, keep, freeze, sim, trace, foll
       ringGateWorks = rings.collected === before + 1;
     }
 
+    // Does leaning aim the web? Same position and heading, opposite intent:
+    // the two anchors should land on opposite sides of the direction of travel.
+    const leanAim = {};
+    for (const [name, lean] of [['leanLeft', -1], ['leanRight', 1]]) {
+      p.lean = lean;
+      const l = p.probe(-1, cam.basis), r = p.probe(1, cam.basis);
+      const g = !l ? r : !r ? l : (r.score >= l.score ? r : l);
+      leanAim[name] = g
+        ? +g.point.clone().sub(p.pos).dot(cam.basis.right).toFixed(1)
+        : null;
+    }
+    p.lean = 0;
+
+    // And does it bend the body? Run the same swing twice from one state.
+    const snapshot = () => ({
+      pos: p.pos.clone(), vel: p.vel.clone(), web: { ...p.web, anchor: p.web.anchor.clone() },
+    });
+    const restore = (m) => {
+      p.pos.copy(m.pos); p.vel.copy(m.vel);
+      Object.assign(p.web, m.web);
+      p.web.anchor.copy(m.web.anchor);
+    };
+    const mark = snapshot();
+    const carve = {};
+    for (const [name, lean] of [['carveLeft', -1], ['carveRight', 1]]) {
+      restore(mark);
+      const h0 = Math.atan2(-p.vel.x, -p.vel.z);
+      // Hold the web: with no button down, both control schemes release on the
+      // first step and this measures airborne turning instead of a carve.
+      const fake = { ...input, lean, turn: 0, steer: 0, simple: true, web: true, reel: false, dive: false };
+      for (let i = 0; i < 45; i++) p.update(DT, fake, cam.basis);
+      const h1 = Math.atan2(-p.vel.x, -p.vel.z);
+      let d = h1 - h0;
+      while (d > Math.PI) d -= Math.PI * 2;
+      while (d < -Math.PI) d += Math.PI * 2;
+      carve[name] = +(d * 180 / Math.PI).toFixed(1);
+    }
+    restore(mark);
+
     // Does a held turn key actually change where you are pointing? Steering used
     // to be a sideways force only, which never turns the heading.
     const yaw0 = cam.yaw;
@@ -304,6 +343,8 @@ const report = await page.evaluate(async ({ wait, keep, freeze, sim, trace, foll
       endedGrounded,
       handSpread,
       turning,
+      leanAim,
+      carve,
       endedHeading: heading,
       attachFromHere: attachWorks,
       anchorFound: anchor,
