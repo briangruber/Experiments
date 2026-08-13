@@ -35,6 +35,7 @@ import { TslSpray } from '../src/gpu/tsl/spray-driver.js';
 import { TslPost } from '../src/gpu/tsl/post-driver.js';
 
 import { newParams, PRESETS, applyPreset } from '../src/presets.js';
+import { CLOUD_TYPE_NAMES, applyCloudType } from '../src/cloud-types.js';
 import { createDerived, derive } from '../src/derive.js';
 import { Camera } from './camera.js';
 import { installThreeCompat } from '../src/gpu/three-compat.js';
@@ -393,7 +394,47 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		onFrame: null,
 		markSkyDirty: () => { skyDirty = true; },
 		presets: Object.keys( PRESETS ),
-		applyPreset: ( name ) => { applyPreset( params, name ); skyDirty = true; },
+		cloudTypes: CLOUD_TYPE_NAMES,
+		applyPreset: ( name ) => {
+
+			applyPreset( params, name );
+			api.presetName = name;
+			// The wave spectrum is preset-shaped too; without this the sea keeps the
+			// old preset's waves under the new preset's light. (The raw-GL demo sets
+			// ocean.dirty on every preset change; this port had lost that.)
+			sim.dirty = true;
+			skyDirty = true;
+			// A preset carries its own sky, so switching presets ends a cloud
+			// override - the dropdowns agree with what is on screen.
+			api.cloudType = 'preset';
+
+		},
+		// A real cloud genus over the active preset (src/cloud-types.js), or
+		// 'preset' to give the preset its sky back - which is a re-apply of the
+		// preset's own cloud keys, not a no-op, so it really does undo.
+		applyClouds: ( name ) => {
+
+			if ( name === 'preset' ) {
+
+				const base = newParams( api.presetName );
+				for ( const k of Object.keys( base ) ) {
+
+					if ( /^(cloud|cirrus)/.test( k ) ) params[ k ] = base[ k ];
+
+				}
+
+			} else {
+
+				applyCloudType( params, name );
+
+			}
+
+			api.cloudType = name;
+			skyDirty = true;
+
+		},
+		presetName: preset,
+		cloudType: 'preset',
 	} );
 	onReady?.( api );
 	return api;

@@ -187,7 +187,33 @@ bootWithFallback().then( ( app ) => {
 		}
 
 		sel.value = app.params.preset ?? 'Golden Hour Swell';
-		sel.addEventListener( 'change', () => app.applyPreset( sel.value ) );
+		sel.addEventListener( 'change', () => {
+
+			app.applyPreset( sel.value );
+			// A preset brings its own sky; the cloud dropdown follows.
+			const cl = document.getElementById( 'clouds' );
+			if ( cl ) cl.value = 'preset';
+
+		} );
+
+	}
+
+	// Real cloud genera - cirrus, cumulus, stratus, nimbus, cumulonimbus - as
+	// measured recipes over whatever preset is active (src/cloud-types.js). The
+	// first option restores the preset's own sky.
+	const cloudSel = document.getElementById( 'clouds' );
+	if ( cloudSel ) {
+
+		for ( const name of app.cloudTypes ) {
+
+			const o = document.createElement( 'option' );
+			o.value = name;
+			o.textContent = `Clouds · ${ name }`;
+			cloudSel.appendChild( o );
+
+		}
+
+		cloudSel.addEventListener( 'change', () => app.applyClouds( cloudSel.value ) );
 
 	}
 
