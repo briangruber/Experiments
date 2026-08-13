@@ -152,7 +152,7 @@
 
 import {
 	Fn, If, float, int, vec2, vec3, uniform, attribute, varyingProperty,
-	mix, clamp, smoothstep, select, reflect, dFdx, dFdy, fwidth,
+	mix, clamp, smoothstep, select, reflect, dFdx, dFdy, fwidth, atan, acos,
 } from 'three/tsl';
 
 import {
@@ -284,6 +284,16 @@ export const uSpecIntensity = /*@__PURE__*/ uniform( 1.0 );
 export const uSpecClamp = /*@__PURE__*/ uniform( 20000.0 );
 export const uSpecAA = /*@__PURE__*/ uniform( 1.0 );          // screen-space slope variance folded into the lobe
 export const uGrazeFocus = /*@__PURE__*/ uniform( 0.20 );     // how far the reflection lobe narrows at grazing
+// The craft's image in the sea. Port of WATER_FS's THE CRAFT IN THE WATER; see
+// that note for why a proxy sphere against the reflection ray is the whole
+// mechanism. Amount 0 (the default, and what any caller without a craft gets)
+// leaves the reflection exactly as it was.
+export const uCraftReflPos = /*@__PURE__*/ uniform( 'vec3' );
+// A hull's mean albedo: most of them are pale. It only ever multiplies the sky
+// the craft is under, so it is a tint and not a colour.
+export const uCraftReflTint = /*@__PURE__*/ uniform( /*@__PURE__*/ vec3( 0.72, 0.76, 0.78 ) );
+export const uCraftReflSize = /*@__PURE__*/ uniform( 0.0 );
+export const uCraftReflAmount = /*@__PURE__*/ uniform( 0.0 );
 
 export const uSkyAmbient = /*@__PURE__*/ uniform( 1.0 );
 export const uHorizonBend = /*@__PURE__*/ uniform( 0.85 );
@@ -881,6 +891,23 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 	// because dirToSkyUv does not normalize (sky-lut.js note 1).
 	const skyRefl = sampleSky( R.normalize(), alpha.mul( grazeNarrow ) ).toVar();
 
+	// THE CRAFT IN THE WATER - WATER_FS carries the full note. R is already this
+	// fragment's direction in the mirror, so if R points at the craft, the craft
+	// is what it reflects; the wobble comes from the wave normal for free.
+	// Standalone mix (porting rule 1).
+	If( uCraftReflAmount.greaterThan( 0.001 ), () => {
+
+		const toC = uCraftReflPos.sub( vWorld ).toVar();
+		const dC = toC.length().max( 1e-3 ).toVar();
+		const cosA = R.normalize().dot( toC.div( dC ) ).toVar();
+		const angR = atan( uCraftReflSize.div( dC ) ).toVar();
+		const blur = angR.mul( 0.35 ).add( alpha.mul( 0.9 ) ).toVar();
+		const hit = float( 1.0 ).sub(
+			smoothstep( angR.mul( 0.55 ), angR.add( blur ), acos( cosA.clamp( - 1.0, 1.0 ) ) ) ).toVar();
+		skyRefl.assign( mix( skyRefl, uCraftReflTint.mul( skyRefl ), hit.mul( uCraftReflAmount ) ) );
+
+	} );
+
 	// A ray that dove under the horizon really hit the next wave face. Feeding it
 	// the neighbouring water's own radiance is the inter-reflection term, and it
 	// is what gives troughs their deep colour instead of a flipped sky.
@@ -1174,6 +1201,17 @@ export function setWaterSurfaceUniforms( p, ctx, hull ) {
 	uRMax.value = p.rMax;
 	uEarthCurve.value = p.earthCurve;
 	uSeaLevel.value = p.seaLevel;
+
+	// The craft's image in the sea. Read off ctx, which every driver already
+	// fills; a caller with no craft leaves amount 0 and the branch never runs.
+	if ( ctx?.craftReflPos ) {
+
+		uCraftReflPos.value.set( ctx.craftReflPos[ 0 ], ctx.craftReflPos[ 1 ], ctx.craftReflPos[ 2 ] );
+
+	}
+
+	uCraftReflSize.value = ctx?.craftReflSize ?? 0;
+	uCraftReflAmount.value = ctx?.craftReflAmount ?? 0;
 
 	const h = hull || NO_HULL;
 	uHullPos.value.set( h.pos[ 0 ], h.pos[ 1 ], h.pos[ 2 ] );

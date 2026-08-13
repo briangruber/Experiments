@@ -43,7 +43,7 @@ import { TslWake } from '../src/gpu/tsl/wake-driver.js';
 import { TslCraftProbe } from '../src/gpu/tsl/craft-probe.js';
 import {
 	buildCraftGeometry, loadCraftTexture, setCraftTexture, craftFragment,
-	uCraftWetLine,
+	craftVertex, uCraftWetLine, uPropAngle, uPropHub,
 } from '../src/gpu/tsl/craft.js';
 import { WaveRunner } from './waverunner.js';
 import { SeaPlane } from './seaplane.js';
@@ -172,11 +172,15 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	const vCraftPos = new Float32Array( 3 );
 	const vCraftFwd = new Float32Array( 2 );
 	const vCraftRight = new Float32Array( 2 );
+	const vReflPos = new Float32Array( 3 );
 	const hull = { pos: new Float32Array( 3 ), fwd: new Float32Array( 2 ), push: 0, plane: 0 };
 
 	const craftMat = new THREE.NodeMaterial();
 	craftMat.name = 'abyssal.craft';
 	craftMat.fragmentNode = craftFragment();
+	// The propeller lives in the vertex stage; craft.js explains why the normal
+	// has to travel with it.
+	craftMat.positionNode = craftVertex();
 	craftMat.side = THREE.DoubleSide;      // the hull is not watertight everywhere
 	const craftMesh = new THREE.Mesh( buildCraftGeometry( params.craftLength ).geometry, craftMat );
 	craftMesh.frustumCulled = false;
@@ -188,8 +192,8 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	// draw. Both atlases are the same class of texture (sRGB, mipped, filtered),
 	// so the swap never changes which sampling instruction the graph built
 	// (porting rule 11).
-	const planeMesh = new THREE.Mesh(
-		buildCraftGeometry( params.spLength, PLANE_MESH ).geometry, craftMat );
+	const planeBuild = buildCraftGeometry( params.spLength, PLANE_MESH );
+	const planeMesh = new THREE.Mesh( planeBuild.geometry, craftMat );
 	planeMesh.frustumCulled = false;
 	planeMesh.visible = false;
 	planeMesh.matrixAutoUpdate = false;
@@ -280,6 +284,7 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 				? plane.probeH[ 0 ] - 2.0
 				: plane.probeH[ 0 ];
 			if ( planeTex ) setCraftTexture( planeTex );
+			uPropHub.value.set( planeBuild.hub[ 0 ], planeBuild.hub[ 1 ], planeBuild.hub[ 2 ] );
 			// modelYaw 0: tools/glb.mjs already put this asset's nose on -Z.
 			setCraftTransform(
 				planeMesh,
@@ -497,6 +502,7 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 
 	let last = performance.now();
 	let time = 0;
+	let propAngle = 0;
 	let skyDirty = true;
 
 	function frame( now ) {
@@ -538,6 +544,18 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		// frame every time the rig moved.
 		if ( rider.active ) rider.update( dt, params, camera.keys, camera );
 		else if ( plane.active ) plane.update( dt, params, camera.keys, camera );
+
+		// The propeller. Idle is a real idle - a running engine never stops the
+		// disc - and the rate climbs with the lever, not with airspeed, because
+		// that is what a throttle does. Wrapped so the angle never grows into the
+		// range where a float's spacing exceeds a pixel of blade.
+		if ( plane.active ) {
+
+			propAngle = ( propAngle + ( params.spPropIdle
+				+ ( params.spPropRpm - params.spPropIdle ) * plane.throttle ) * dt ) % ( Math.PI * 2 );
+			uPropAngle.value = propAngle;
+
+		}
 		// The wake field is stamped before anything reads it, from the hull state
 		// the update just produced. The plane hands over floatRig, whose `active`
 		// means "the floats are working the water" - a flying hull must not go
@@ -603,6 +621,22 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			craftSlip: wet ? ( veh.slipSigned ?? 0 ) : 0,
 			craftAir: veh && veh.airborne ? 1 : 0,
 			craftImpact: veh ? veh.impact : 0,
+			// THE CRAFT'S IMAGE IN THE SEA (src/shaders/water.js). Separate from
+			// craftPos, which is parked at -1e4 whenever the hull is not working
+			// the water - a flying seaplane still has a reflection, and parking
+			// its reflection under the sea bed is not it.
+			craftReflPos: veh
+				? setA3( vReflPos, veh.pos[ 0 ], veh === plane ? veh.pos[ 1 ] : ( veh.deckY ?? 0 ), veh.pos[ 2 ] )
+				: setA3( vReflPos, 0, - 1e4, 0 ),
+			craftReflSize: veh === plane
+				? params.spLength * 0.42
+				: params.craftLength * 0.55,
+			// Fades out as the craft climbs away: the proxy's angular size already
+			// shrinks with distance, but a hull is also a poorer mirror subject the
+			// further it is from the water it is reflecting in.
+			craftReflAmount: veh
+				? params.craftReflect * ( 1 - Math.min( 1, Math.max( 0, ( veh.pos[ 1 ] - ( veh.probeH?.[ 0 ] ?? 0 ) ) / params.craftReflectFade ) ) )
+				: 0,
 		};
 
 		// The hull's own hollow and bow wave, which the water VERTEX stage reads.

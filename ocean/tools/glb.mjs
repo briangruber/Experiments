@@ -31,6 +31,11 @@ const IN = opt('in'); const OUT = opt('out'); const NAME = opt('name', 'MESH');
 const FORWARD = opt('forward', '-z');
 const TEX_SIZE = +opt('tex-size', 1024);
 const TEX_Q = +opt('tex-quality', 0.85);
+// --spin "hx,hy,hz,rCut,rMax,zMax,yFloor,seedR" bakes a per-vertex SPIN WEIGHT
+// for a propeller: which vertices the renderer may rotate about the hub axis.
+// All values are in NORMALISED model units (the bounding box centred, divided
+// by the length axis), which is what the numbers below were measured in.
+const SPIN = opt('spin', '');
 if (!IN || !OUT) { console.error('need --in and --out'); process.exit(2); }
 
 const buf = await readFile(IN);
@@ -128,7 +133,86 @@ if (texInfo) {
   await browser.close();
 }
 
+// ---- propeller spin weights ------------------------------------------------
+//
+// WHY THIS IS A FLOOD FILL AND NOT A BOX.
+//
+// The blades sweep past the fuselage and the wing root, so no cylinder, slab or
+// annulus around the hub separates them: measured on this asset, a generous
+// annulus caught 472 vertices of which a third were fuselage, and the blade
+// tips sit at the same radius from the hub as the wing root does. The UV atlas
+// does not separate them either - Meshy's unwrap is fragmented, and the blades'
+// UV bounding box contains 7220 vertices from the whole airframe. What DOES
+// separate them is CONNECTIVITY: a blade reaches the airframe only through the
+// spinner, so a fill seeded on unambiguous blade vertices and forbidden to
+// cross into the spinner (r < rCut) stops exactly at the blade roots.
+//
+// The hub disc itself is then added unconditionally. It is a body of revolution
+// about the spin axis, so rotating it is visually a no-op - and including it
+// moves the shear boundary off the blade root (where it would show as a twist)
+// and onto an axisymmetric surface (where it cannot show at all).
+function spinWeights(P, idx, n, spec) {
+  const [hx, hy, hz, rCut, rMax, zMax, yFloor, seedR] = spec.split(',').map(Number);
+  const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < n; i++) for (let c = 0; c < 3; c++) {
+    min[c] = Math.min(min[c], P[i * 3 + c]); max[c] = Math.max(max[c], P[i * 3 + c]);
+  }
+  const ctr = min.map((m, c) => (m + max[c]) / 2);
+  const L = max[2] - min[2];
+  const Q = new Float64Array(n * 3);
+  for (let i = 0; i < n * 3; i++) Q[i] = (P[i] - ctr[i % 3]) / L;
+
+  // Weld first: an export is split at every UV seam, and an unwelded blade is a
+  // dozen disconnected ribbons that a fill cannot walk along.
+  const map = new Map(); const weld = new Int32Array(n); let nw = 0;
+  for (let i = 0; i < n; i++) {
+    const k = `${Math.round(Q[i * 3] * 20000)},${Math.round(Q[i * 3 + 1] * 20000)},${Math.round(Q[i * 3 + 2] * 20000)}`;
+    let w = map.get(k);
+    if (w === undefined) { w = nw++; map.set(k, w); }
+    weld[i] = w;
+  }
+  const adj = Array.from({ length: nw }, () => new Set());
+  for (let t = 0; t < idx.length; t += 3) {
+    const a = weld[idx[t]], b = weld[idx[t + 1]], c = weld[idx[t + 2]];
+    adj[a].add(b); adj[a].add(c); adj[b].add(a); adj[b].add(c); adj[c].add(a); adj[c].add(b);
+  }
+  const rw = new Float64Array(nw), dzw = new Float64Array(nw), yw = new Float64Array(nw);
+  for (let i = 0; i < n; i++) {
+    const w = weld[i];
+    rw[w] = Math.hypot(Q[i * 3] - hx, Q[i * 3 + 1] - hy);
+    dzw[w] = Math.abs(Q[i * 3 + 2] - hz);
+    yw[w] = Q[i * 3 + 1];
+  }
+  const inHub = (w) => rw[w] < rCut && dzw[w] < zMax && yw[w] > yFloor;
+  const seen = new Uint8Array(nw); const queue = [];
+  for (let w = 0; w < nw; w++) {
+    if (rw[w] > seedR && rw[w] < rMax && dzw[w] < zMax * 0.8 && yw[w] > hy + 0.025) {
+      seen[w] = 1; queue.push(w);
+    }
+  }
+  const seeds = queue.length;
+  for (let qi = 0; qi < queue.length; qi++) {
+    for (const w of adj[queue[qi]]) {
+      if (seen[w] || rw[w] < rCut || rw[w] > rMax || dzw[w] > zMax || yw[w] < yFloor) continue;
+      seen[w] = 1; queue.push(w);
+    }
+  }
+  for (let w = 0; w < nw; w++) if (inHub(w)) seen[w] = 1;
+  const out = new Uint8Array(n);
+  let hit = 0;
+  for (let i = 0; i < n; i++) { out[i] = seen[weld[i]] ? 255 : 0; if (out[i]) hit++; }
+  console.log(`  spin: ${seeds} seeds -> ${hit} of ${n} vertices rotate (hub ${hx},${hy},${hz})`);
+  return out;
+}
+
 const b64 = (arr) => Buffer.from(arr.buffer, arr.byteOffset, arr.byteLength).toString('base64');
+let spinLine = '';
+if (SPIN) {
+  const w = spinWeights(P, qidx, n, SPIN);
+  const parts = SPIN.split(',').map(Number);
+  spinLine = `  spin: '${b64(w)}',\n  spinHub: [${parts[0]}, ${parts[1]}, ${parts[2]}],\n`;
+}
+
 const body = `// ${NAME}: generated from ${IN.split('/').pop()} by tools/glb.mjs.
 // Inlined because the artifact CSP blocks every external request. Positions are
 // Int16 with the LENGTH axis spanning +-16000 (decode: * lengthM / 32000),
@@ -140,7 +224,7 @@ export const ${NAME} = {
   nrm: '${b64(qnrm)}',
   uv: '${b64(quv)}',
   idx: '${b64(qidx)}',
-  baseColorJpeg: '${jpegB64}',
+${spinLine}  baseColorJpeg: '${jpegB64}',
 };
 `;
 await writeFile(OUT, body);

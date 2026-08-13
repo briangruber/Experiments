@@ -7,6 +7,11 @@
 // wants the sea's geometry without our shading (a physics probe, a custom
 // material, a different renderer) uses Ocean alone and never touches this file.
 
+const ZERO3 = new Float32Array(3);
+// A hull's mean albedo: most of them are pale. Only ever multiplies the sky the
+// craft is under, so it is a tint and not a colour.
+const CRAFT_TINT = new Float32Array([0.72, 0.76, 0.78]);
+
 import { program, setUniforms, texture2D } from './gl.js';
 import { clamp } from './math.js';
 import { WATER_VS, WATER_FS } from './shaders/water.js';
@@ -171,6 +176,13 @@ export class WaterSurface {
       uHullPush: hull.push,
       uHullRadius: p.hullRadius, uHullBow: p.hullBow,
       uHullPlane: hull.plane,
+      // The craft's image in the water (WATER_FS: THE CRAFT IN THE WATER).
+      // Read off ctx, which every driver already fills, so a caller that has no
+      // craft gets amount 0 and the branch costs one compare.
+      uCraftReflPos: ctx.craftReflPos ?? ZERO3,
+      uCraftReflTint: ctx.craftReflTint ?? CRAFT_TINT,
+      uCraftReflSize: ctx.craftReflSize ?? 0,
+      uCraftReflAmount: ctx.craftReflAmount ?? 0,
       uInterReflect: p.interReflect, uWaveAO: p.waveAO,
       uWaveShadow: p.waveShadow, uShadowScale: p.shadowScale,
       uCapillary: p.capillary, uCapillaryScale: p.capillaryScale,

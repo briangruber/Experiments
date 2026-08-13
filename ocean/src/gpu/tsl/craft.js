@@ -31,6 +31,7 @@
 import * as THREE from 'three/webgpu';
 import {
 	Fn, If, float, vec2, vec3, vec4, uniform, texture, mix, clamp, smoothstep,
+	attribute, cos, sin,
 	positionLocal, normalLocal, uv, positionWorld, normalWorld, cameraPosition,
 	modelWorldMatrix, transformNormalToView, varyingProperty, max, dot, normalize,
 	pow, exp, faceDirection,
@@ -86,13 +87,31 @@ export function buildCraftGeometry( lengthM = 3.2, record = CRAFT_MESH ) {
 	const U = new Float32Array( uvq.length );
 	for ( let i = 0; i < uvq.length; i ++ ) U[ i ] = uvq[ i ] / 65535;
 
+	// The propeller spin weight, baked by tools/glb.mjs (see its flood-fill note
+	// for why the blades cannot be selected by a box). ALWAYS present, zero-filled
+	// when the record has none: the wave runner and the seaplane share one
+	// material, so the vertex stage reads this attribute for both, and a geometry
+	// missing it would be an undefined attribute rather than a still propeller.
+	const S = new Float32Array( n );
+	if ( record.spin ) {
+
+		const sp = unb64( record.spin, Uint8Array );
+		for ( let i = 0; i < n; i ++ ) S[ i ] = ( sp[ i ] ?? 0 ) / 255;
+
+	}
+
 	const geo = new THREE.BufferGeometry();
 	geo.setAttribute( 'position', new THREE.BufferAttribute( P, 3 ) );
 	geo.setAttribute( 'normal', new THREE.BufferAttribute( N, 3 ) );
 	geo.setAttribute( 'uv', new THREE.BufferAttribute( U, 2 ) );
+	geo.setAttribute( 'spin', new THREE.BufferAttribute( S, 1 ) );
 	geo.setIndex( new THREE.BufferAttribute( idx, 1 ) );
 	geo.computeBoundingSphere();
-	return { geometry: geo, vertexCount: n, triangleCount: idx.length / 3 };
+	// The hub in METRES, so the caller can point the spin axis at it.
+	const hub = record.spinHub
+		? record.spinHub.map( ( v ) => v * lengthM )
+		: [ 0, 0, 0 ];
+	return { geometry: geo, vertexCount: n, triangleCount: idx.length / 3, hub };
 
 }
 
@@ -140,6 +159,49 @@ export async function loadCraftTexture( renderer, record = CRAFT_MESH ) {
 	}
 
 }
+
+// ---- the propeller ----------------------------------------------------------
+
+export const uPropAngle = /*@__PURE__*/ uniform( 0.0 );
+export const uPropHub = /*@__PURE__*/ uniform( /*@__PURE__*/ new THREE.Vector3() );
+
+/**
+ * Spin the blades about the hub axis, in the VERTEX stage.
+ *
+ * The rotation is applied to positionLocal AND normalLocal. Assigning
+ * normalLocal is the same mechanism three's own skinning and instancing use
+ * (three.webgpu.js:18517, :18805) and it is not optional here: craftFragment
+ * shades from normalWorld, which is derived from normalLocal through the normal
+ * matrix, so rotating positions alone would spin the blades while their
+ * lighting stayed nailed to where the blades used to be.
+ *
+ * The axis is the craft's own Z - the model's forward - which is where
+ * tools/glb.mjs put the disc. Weight 0 (every vertex of the wave runner, and
+ * every vertex of the plane that is not blade or hub) leaves the vertex exactly
+ * where it was, so this costs the other hull two multiplies and nothing else.
+ */
+export const craftVertex = /*@__PURE__*/ Fn( () => {
+
+	const w = attribute( 'spin', 'float' );
+	const a = uPropAngle.mul( w ).toVar();
+	const c = cos( a ).toVar(), s = sin( a ).toVar();
+
+	const p = positionLocal.toVar();
+	const dx = p.x.sub( uPropHub.x ).toVar();
+	const dy = p.y.sub( uPropHub.y ).toVar();
+	p.x.assign( uPropHub.x.add( dx.mul( c ).sub( dy.mul( s ) ) ) );
+	p.y.assign( uPropHub.y.add( dx.mul( s ).add( dy.mul( c ) ) ) );
+
+	const nx = normalLocal.x.toVar(), ny = normalLocal.y.toVar();
+	normalLocal.assign( vec3(
+		nx.mul( c ).sub( ny.mul( s ) ),
+		nx.mul( s ).add( ny.mul( c ) ),
+		normalLocal.z,
+	) );
+
+	return p;
+
+} );
 
 // ---- material ---------------------------------------------------------------
 

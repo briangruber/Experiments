@@ -334,6 +334,10 @@ export const SCHEMA = [
       S('spCamDistance', 'Chase distance', 10, 60, 0.5),
       S('spCamRise', 'Chase rise', 2, 20, 0.1),
       S('spFovKick', 'Speed FOV', 0, 25, 0.1),
+      S('craftReflect', 'Reflection in the water', 0, 2, 0.01),
+      S('craftReflectFade', 'Reflection fade (m)', 20, 600, 5),
+      S('spPropIdle', 'Prop idle (rad/s)', 0, 40, 0.5),
+      S('spPropRpm', 'Prop full power (rad/s)', 10, 200, 1),
     ],
   },
   {

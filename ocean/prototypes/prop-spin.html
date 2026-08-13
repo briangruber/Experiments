@@ -1,0 +1,36 @@
+<!doctype html><meta charset="utf-8"><body style="margin:0;background:#0a0e14">
+<canvas id="view" width="1200" height="300"></canvas>
+<script type="importmap">{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js" } }</script>
+<!--
+  Four propeller angles on one strip. The blades must SWEEP - the same two
+  blades at four attitudes - while the airframe behind them does not move a
+  pixel, which is the whole claim of the baked spin weight (tools/glb.mjs).
+-->
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { buildCraftGeometry, loadCraftTexture, craftVertex, uPropAngle, uPropHub } from '../src/gpu/tsl/craft.js';
+import { PLANE_MESH } from '../demo/planeModel.js';
+import { installThreeCompat } from '../src/gpu/three-compat.js';
+installThreeCompat();
+const canvas = document.getElementById('view');
+const r = new THREE.WebGPURenderer({ canvas, forceWebGL: true, antialias: true });
+await r.init(); r.setClearColor(0x0a0e14, 1);
+const b = buildCraftGeometry(10, PLANE_MESH);
+const tex = await loadCraftTexture(r, PLANE_MESH);
+const mat = new THREE.MeshBasicNodeMaterial({ map: tex, side: THREE.DoubleSide });
+mat.positionNode = craftVertex();
+uPropHub.value.set(b.hub[0], b.hub[1], b.hub[2]);
+const mesh = new THREE.Mesh(b.geometry, mat);
+const scene = new THREE.Scene(); scene.add(mesh);
+const cam = new THREE.PerspectiveCamera(26, 300/300, 0.05, 200);
+cam.position.set(0, 1.6, -5.2); cam.lookAt(0, 0.85, 0.42);
+for (let i = 0; i < 4; i++) {
+  uPropAngle.value = i * Math.PI / 8;
+  r.setViewport(i*300,0,300,300); r.setScissor(i*300,0,300,300); r.setScissorTest(true);
+  await r.renderAsync(scene, cam);
+}
+window.probeResult = { allOk: true, results: [{ name: 'four prop angles', ok: true, detail: '0, 22.5, 45, 67.5 deg' }] };
+</script></body>

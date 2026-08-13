@@ -62,6 +62,17 @@ await page.evaluate(() => {
     if (!p.active) return;
     A.__log.push({
       va: p.va, air: p.airborne ? 1 : 0, alt: p.alt, y: p.pos[1],
+      x: p.pos[0], z: p.pos[2],
+      // Does the nose point where it is going? Read off the model matrix BASIS
+      // COLUMNS - never a quaternion; tools/check-ride.mjs explains why. The
+      // plane's transform uses modelYaw 0, so the bow is the model's local -Z,
+      // i.e. the NEGATED third column.
+      align: (() => {
+        const e = A.planeMesh.matrix.elements;
+        const L = Math.hypot(e[8], e[10]) || 1;
+        const w = [Math.sin(p.heading), -Math.cos(p.heading)];
+        return (-e[8] / L) * w[0] + (-e[10] / L) * w[1];
+      })(),
       heading: p.heading, roll: p.roll, gamma: p.gamma, throttle: p.throttle,
       surf: p.probeH[0],
       camD: Math.hypot(c.position.x - p.pos[0], c.position.z - p.pos[2]),
@@ -110,10 +121,19 @@ const rollsInTurn = turn.filter((r) => r.air).map((r) => r.roll);
 const landed = down.filter((r) => r.air === 0).length;
 const endVa = down.length ? down[down.length - 1].va : NaN;
 const maxRigErr = Math.max(...all.map((r) => r.rigErr));
+// GROUND DISTANCE COVERED WHILE STILL ON THE WATER. The assertion that was
+// missing: a hull can build airspeed without moving, and every other number in
+// this report looks healthy while it does.
+const wet = run.filter((r) => r.air === 0);
+const taxiRun = wet.length > 1
+  ? Math.hypot(wet[wet.length - 1].x - wet[0].x, wet[wet.length - 1].z - wet[0].z) : 0;
+const worstAlign = Math.min(...all.map((r) => r.align));
 
 const out = {
   frames: all.length,
-  taxi: { frames: run.length, liftoffFrame: takeoffIdx, vAtLiftoff: +vAtLiftoff?.toFixed(1), spTakeoff },
+  taxi: { frames: run.length, liftoffFrame: takeoffIdx, vAtLiftoff: +vAtLiftoff?.toFixed(1), spTakeoff,
+          groundRun: +taxiRun.toFixed(1) },
+  nose: { worstAlign: +worstAlign.toFixed(4) },
   climb: { maxAlt: +maxAlt.toFixed(1) },
   turn: {
     n: headings.length,
@@ -132,6 +152,10 @@ need(all.length > 20, 'not enough frames sampled');
 need(takeoffIdx > 0, 'never lifted off (or spawned airborne)');
 need(vAtLiftoff >= spTakeoff * 0.92, `lifted off at ${vAtLiftoff} m/s, below rotation speed ${spTakeoff}`);
 need(maxAlt > 8, `never climbed (max float clearance ${maxAlt.toFixed(1)} m)`);
+// It has to TAXI, not just spin its airspeed up on the spot. A run to 23 m/s
+// cannot happen in less than a few hundred metres of water.
+need(taxiRun > 150, `covered only ${taxiRun.toFixed(1)} m of water before lifting off`);
+need(worstAlign > 0.99, `nose not along travel (worst ${worstAlign.toFixed(3)})`);
 // Stick right = roll negative (right wing down) = heading increasing.
 need(headings.length > 3, 'no airborne frames in the turn phase');
 need(headingSwing > 0.15, `right bank did not turn right (heading moved ${headingSwing.toFixed(3)})`);

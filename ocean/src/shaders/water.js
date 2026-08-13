@@ -42,6 +42,9 @@ uniform float uSeaLevel;
 uniform vec3  uHullPos;
 uniform vec2  uHullFwd;
 uniform float uHullPush, uHullRadius, uHullBow, uHullPlane;
+// The craft's reflection in the sea. See THE CRAFT IN THE WATER below.
+uniform vec3  uCraftReflPos, uCraftReflTint;
+uniform float uCraftReflSize, uCraftReflAmount;
 // ...and everything the hull has *already* done to the sea, which outlives it by
 // tens of seconds. wakeAt() comes from wake.js, so the surface is displaced by
 // exactly the pattern the fragment shader lights.
@@ -680,6 +683,35 @@ void main(){
   // reflection is nearly the whole image, so without this the sea flattens into
   // a uniform sheet no matter how much crest-to-trough relief there really is.
   skyRefl *= mix(1.0, ao, 0.8);
+
+  // ---- THE CRAFT IN THE WATER ----------------------------------------------
+  //
+  // The sea reflects the sky and nothing else, so a craft sitting on it had no
+  // image in the water at all. This puts one there without a reflection pass:
+  // R is already the direction this fragment is looking in the mirror, so if R
+  // points at the craft, the craft is what this fragment reflects. A ray-sphere
+  // test against a proxy sphere at the craft is the whole of it - no second
+  // camera, no render target, and no flat-mirror assumption, because R comes
+  // from the WAVY normal. The wobble in the reflection is therefore the real
+  // wave field's, which is the part a planar reflection pass has to fake.
+  //
+  // The proxy is lit by sampleSky along the same R: the craft is under that
+  // sky, so the reflection inherits the scene's exposure and colour for free -
+  // orange at sunset, dim at night - instead of being a pasted-on constant.
+  //
+  // Softened by the surface roughness, so a glassy sea holds a sharp image and
+  // a rough one smears it, and faded by uCraftReflAmount, which the app sets to
+  // zero whenever there is no craft.
+  if (uCraftReflAmount > 0.001) {
+    vec3 toC = uCraftReflPos - vWorld;
+    float dC = max(length(toC), 1e-3);
+    float cosA = dot(normalize(R), toC / dC);
+    // Angular radius of the proxy, widened by the GGX lobe.
+    float angR = atan(uCraftReflSize / dC);
+    float blur = angR * 0.35 + alpha * 0.9;
+    float hit = 1.0 - smoothstep(angR * 0.55, angR + blur, acos(clamp(cosA, -1.0, 1.0)));
+    skyRefl = mix(skyRefl, uCraftReflTint * skyRefl, hit * uCraftReflAmount);
+  }
 
   vec3 Fenv = envFresnel(NoV, alpha, uWaterIOR);
 

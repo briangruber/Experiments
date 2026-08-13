@@ -59,6 +59,7 @@
     "check:examples": "node tools/check-examples.mjs",
     "check:ride": "node tools/bundle-three.mjs && node tools/check-ride.mjs",
     "check:fly": "node tools/bundle-three.mjs && node tools/check-fly.mjs",
+    "check:reflect": "node tools/bundle-three.mjs && node tools/check-reflection.mjs",
     "check:sim": "node tools/run-probe.mjs \"prototypes/ocean-golden.html?n=64&steps=8\" --save test/out/gl-64.json && node tools/run-probe.mjs \"prototypes/ocean-compute-probe.html?n=64&steps=8\" --save test/out/wgsl-64.json && node tools/compare-fingerprint.mjs test/out/gl-64.json test/out/wgsl-64.json",
     "docs:params": "node tools/gen-params.mjs > docs/parameters.md"
   },

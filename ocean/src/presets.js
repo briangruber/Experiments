@@ -330,6 +330,8 @@ export const defaults = {
   wakeProbe: 0.8,           // how much of that the hull feels when it crosses it
   craftLift: 0.46,          // rides the hull's designed waterline on the surface
   craftSprayAmount: 1.0,
+  craftReflect: 1.0,        // strength of the craft's own image in the water
+  craftReflectFade: 180.0,  // metres of altitude over which that image fades out
 
   // ---- the seaplane (demo/seaplane.js) ----
   // Sized on a Cessna 208 on floats: 11.5 m long, rotates around 24 m/s,
@@ -351,6 +353,10 @@ export const defaults = {
   spCamRise: 7.0,
   spCamLook: 40.0,          // metres ahead the chase camera leads
   spFovKick: 9.0,           // degrees of lens at full speed
+  spPropIdle: 12.0,         // rad/s with the lever closed - an engine still runs
+  spPropRpm: 95.0,          // rad/s at full power. Past the frame rate this
+                            // aliases into a slow backward crawl, which is what
+                            // a real propeller does on camera too.
 
   hullPush: 0.55,           // depth of the hollow the hull presses, m
   hullRadius: 2.6,          // along-hull extent of that footprint, m

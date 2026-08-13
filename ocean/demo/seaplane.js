@@ -213,6 +213,16 @@ export class SeaPlane {
       this.alt += this.vy * d;
       this.pos[1] = surf + this.alt;
 
+      // AND IT ACTUALLY GOES SOMEWHERE. The first cut of this branch integrated
+      // pos[1] and nothing else, so the hull built airspeed while standing
+      // still and then simply left the water - reported as "it didn't move on
+      // the water but it eventually lifted off without first picking up speed".
+      // The airborne branch below had always integrated the path; only the
+      // water phase was missing its two lines, and check-fly asserted speed and
+      // altitude but never GROUND DISTANCE, so the gap sailed through.
+      this.pos[0] += Math.sin(this.heading) * this.va * d;
+      this.pos[2] += -Math.cos(this.heading) * this.va * d;
+
       // Attitude on the water: nose-up on the hump, level on the step, plus
       // whatever the swell under the floats says.
       const humpPitch = 0.10 * planeT * (1 - planeT) * 4 * clamp(this.throttle * 2, 0, 1);
