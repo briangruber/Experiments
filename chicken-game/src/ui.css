@@ -75,21 +75,48 @@ html, body {
 }
 #hint.gone { opacity: 0; }
 
-#mute {
+#buttons {
   position: absolute;
   top: 14px;
   right: 16px;
+  display: flex;
+  gap: 8px;
+}
+
+#buttons button {
   pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 32px;
   background: rgba(20, 12, 5, 0.55);
   color: #f3e7d3;
   border: 1px solid rgba(243, 231, 211, 0.25);
   border-radius: 8px;
   font-size: 16px;
-  padding: 6px 10px;
+  line-height: 1;
+  padding: 0 8px;
   cursor: pointer;
+  font-family: inherit;
 }
-#mute:hover { background: rgba(60, 40, 18, 0.7); }
-#mute:focus-visible { outline: 2px solid #e8a33d; outline-offset: 2px; }
+#buttons button:hover { background: rgba(60, 40, 18, 0.7); }
+#buttons button:focus-visible { outline: 2px solid #e8a33d; outline-offset: 2px; }
+#buttons button[hidden] { display: none; }
+
+#fullscreen svg {
+  width: 17px;
+  height: 17px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+#fullscreen .fs-out { display: none; }
+#fullscreen.is-full .fs-in { display: none; }
+#fullscreen.is-full .fs-out { display: block; }
 
 #name-tag {
   position: absolute;

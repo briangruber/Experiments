@@ -12,7 +12,18 @@
     </div>
   </div>
   <div id="hint">drag · look &nbsp; scroll · zoom &nbsp; tap floor · seeds &nbsp; tap chicken · boo</div>
-  <button id="mute" type="button" aria-label="Turn sound on">🔇</button>
+  <div id="buttons">
+    <!-- Drawn rather than set as an emoji: the square-four-corners glyph has
+         patchy font coverage, and a missing box in the corner looks broken.
+         Hidden until the Fullscreen API is confirmed available. -->
+    <button id="fullscreen" type="button" aria-label="Enter full screen" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path class="fs-in" d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/>
+        <path class="fs-out" d="M9 4v5H4M20 9h-5V4M15 20v-5h5M4 15h5v5"/>
+      </svg>
+    </button>
+    <button id="mute" type="button" aria-label="Turn sound on">🔇</button>
+  </div>
   <div id="name-tag"></div>
   <div id="fatal"></div>
 </div>

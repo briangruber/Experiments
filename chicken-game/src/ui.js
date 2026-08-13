@@ -18,7 +18,57 @@ export class UI {
       muteBtn.setAttribute('aria-label', audio.muted ? 'Turn sound on' : 'Turn sound off');
       if (!audio.muted) audio.bok();
     });
+
+    this.initFullscreen();
   }
+
+  // Full screen is not available everywhere: an iframe only gets it if the
+  // embedding page allows it, and iOS Safari refuses it for anything that is
+  // not a <video>. Rather than leave a button that quietly does nothing, it
+  // stays hidden unless the API is really there — and hides itself again if a
+  // request is refused at runtime.
+  initFullscreen() {
+    const btn = document.getElementById('fullscreen');
+    if (!btn) return;
+    const root = document.documentElement;
+    const request = root.requestFullscreen ?? root.webkitRequestFullscreen;
+    const exit = document.exitFullscreen ?? document.webkitExitFullscreen;
+    const allowed = document.fullscreenEnabled ?? document.webkitFullscreenEnabled ?? false;
+    if (!request || !exit || !allowed) return;
+
+    const current = () => document.fullscreenElement ?? document.webkitFullscreenElement ?? null;
+
+    const sync = () => {
+      const on = !!current();
+      btn.classList.toggle('is-full', on);
+      btn.setAttribute('aria-label', on ? 'Exit full screen' : 'Enter full screen');
+    };
+
+    this.toggleFullscreen = () => {
+      if (current()) {
+        Promise.resolve(exit.call(document)).catch(() => {});
+      } else {
+        // Older WebKit returns undefined instead of a promise.
+        Promise.resolve(request.call(root)).catch(() => { btn.hidden = true; });
+      }
+    };
+
+    btn.hidden = false;
+    btn.addEventListener('click', this.toggleFullscreen);
+    // Esc and the browser's own control both leave without a click.
+    document.addEventListener('fullscreenchange', sync);
+    document.addEventListener('webkitfullscreenchange', sync);
+    addEventListener('keydown', (e) => {
+      if (e.key === 'f' || e.key === 'F') {
+        if (e.metaKey || e.ctrlKey || e.altKey) return;
+        this.toggleFullscreen();
+      }
+    });
+    sync();
+  }
+
+  // Replaced by initFullscreen when the API is available.
+  toggleFullscreen() {}
 
   addWeird() {
     this.weird++;
