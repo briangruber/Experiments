@@ -756,6 +756,7 @@ if (params.get('skipmenu')) {
 // so anything it can do is scriptable from the harness too.
 const game = window.tinyWorlds = {
   THREE, engine, planets, player, chase, state, particles, audio, hud, input,
+  speck, blackHole,
   begin,
   goto: (i) => { enterWorld(clamp(i, 0, planets.length - 1)); if (state.mode !== 'finale') state.mode = 'play'; },
   giveSpark: () => {
