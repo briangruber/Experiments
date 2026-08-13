@@ -178,6 +178,43 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	let diagBusy = false;
 	let skyRecovered = false;
 	let diagAt = 0;
+	// Band-measure ANY texture through the diag quad: two 64-wide row averages
+	// plus a non-finite count, read through the GPU path that has been reliable
+	// on every platform. This is the instrument that lets a field note bisect
+	// the post chain pass by pass - a NaN anywhere shows up here as nonfinite>0
+	// where a black shows up as 0.000 bands.
+	const measureTexture = async ( tex ) => {
+
+		const prevTex = diagSrc.value;
+		const prev = renderer.getRenderTarget();
+		try {
+
+			diagSrc.value = tex;
+			renderer.setRenderTarget( diagRT );
+			diagQuad.render( renderer );
+			renderer.setRenderTarget( prev );
+			const raw = await renderer.readRenderTargetPixelsAsync( diagRT, 0, 0, 64, 1 );
+			const px = raw instanceof Float32Array ? raw : new Float32Array( raw.buffer ?? raw );
+			let a = 0, b = 0, bad = 0;
+			for ( let i = 0; i < 64; i ++ ) {
+
+				const va = px[ i * 4 ], vb = px[ i * 4 + 1 ];
+				if ( ! Number.isFinite( va ) || ! Number.isFinite( vb ) ) { bad ++; continue; }
+				a += va; b += vb;
+
+			}
+
+			const n = 64 - bad;
+			return { a: n ? a / n : 0, b: n ? b / n : 0, nonfinite: bad };
+
+		} finally {
+
+			diagSrc.value = prevTex;
+
+		}
+
+	};
+
 	const readDiag = async () => {
 
 		if ( diagBusy ) return;
@@ -400,6 +437,7 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		// here: render the post chain into a target and read THAT - the same
 		// readRenderTargetPixelsAsync that reliably measures the HDR bands.
 		// 64 texels x 16 bytes clears WebGPU's 256-byte row-pitch rule.
+		measureTexture,
 		measurePostOutput: async () => {
 
 			const rt = new THREE.RenderTarget( 64, 32, {

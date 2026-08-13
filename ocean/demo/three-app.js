@@ -154,32 +154,22 @@ async function bootWithFallback() {
 				// names the guilty pass instead of the whole chain.
 				if ( postOut && ( postOut.a + postOut.b ) <= 0.004 ) {
 
+					// Pass-by-pass, through measureTexture's NaN-aware bands. The field
+					// data so far: adapt converges (so LUM samples the HDR fine) while
+					// exposure and bloom bypasses change nothing - and bloomIntensity 0
+					// does NOT neutralise a NaN, because NaN*0 is NaN. So look INSIDE:
+					// prefilter out, bloom out, composite's LDR, each with a nonfinite
+					// count. A NaN factory names itself here.
 					try {
 
-						const adapt = await app.post.readAdapt();
-						bands += `; adapt ${ Array.from( adapt.slice( 0, 3 ) ).map( ( v ) => v.toPrecision( 3 ) ).join( '/' ) }`;
-
-					} catch { bands += '; adapt unread'; }
-					const saved = {
-						autoExposure: app.params.autoExposure,
-						bloomIntensity: app.params.bloomIntensity,
-					};
-					try {
-
-						app.params.autoExposure = 0;
-						const manual = await app.measurePostOutput();
-						bands += `; manual-exposure out ${ manual.a.toFixed( 3 ) } / ${ manual.b.toFixed( 3 ) }`;
-						app.params.bloomIntensity = 0;
-						const noBloom = await app.measurePostOutput();
-						bands += `; +no-bloom ${ noBloom.a.toFixed( 3 ) } / ${ noBloom.b.toFixed( 3 ) }`;
+						const fmt = ( t, m ) => `; ${ t } ${ m.a.toFixed( 3 ) }/${ m.b.toFixed( 3 ) }${ m.nonfinite ? ` NaN×${ m.nonfinite }` : '' }`;
+						bands += fmt( 'prefilter', await app.measureTexture( app.post.chain[ 0 ].texture ) );
+						bands += fmt( 'bloom', await app.measureTexture( app.post.up[ 0 ].texture ) );
+						bands += fmt( 'ldr', await app.measureTexture( app.post.ldr.texture ) );
 
 					} catch ( e ) {
 
-						bands += `; bisect failed: ${ String( e?.message || e ).slice( 0, 60 ) }`;
-
-					} finally {
-
-						Object.assign( app.params, saved );
+						bands += `; pass-bisect failed: ${ String( e?.message || e ).slice( 0, 60 ) }`;
 
 					}
 
