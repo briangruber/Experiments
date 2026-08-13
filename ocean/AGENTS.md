@@ -103,6 +103,7 @@ top and bottom band means; two near-zero bands means nothing drew.
    | the seaplane (taxi, takeoff, flight, landing) | `npm run check:fly` |
    | what touches the water (floats, wingtip, the hollow) | `npm run check:contact` |
    | the craft's reflection in the sea | `npm run check:reflect` |
+   | the craft's shadow on the sea, and that it has the hull's shape | `npm run check:shadow` |
    | the frame-rate governor / anything performance | `npm run check:adapt` |
    | facade internals | `node tools/run-probe.mjs prototypes/facade-probe.html` |
    | cloud recipes | `node tools/run-probe.mjs prototypes/cloud-types.html --shot shots/clouds.png` |

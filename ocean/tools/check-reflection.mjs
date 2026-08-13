@@ -71,6 +71,11 @@ await page.evaluate(() => {
   A.sim.update = () => {};
   A.plane.update = () => {};
   A.spray.update = () => {};
+  // The wake field keeps diffusing on its own, and it is the only thing left
+  // moving once the sim, the aircraft and the particles are stopped: with it
+  // live the off/off control ran at 490 changed pixels, which is a third of the
+  // effect being measured.
+  A.wake.update = () => {};
 });
 await page.waitForTimeout(6000);
 await page.evaluate(() => { const h = document.getElementById('hud'); if (h) h.style.display = 'none'; });
@@ -111,12 +116,25 @@ const stats = await p2.evaluate(async ({ off, on, off2, shadow }) => {
   const A = await load(off), B = await load(on), C = await load(off2), D = await load(shadow);
   const count = (X, Y) => {
     let n = 0, max = 0, sx = 0, sy = 0;
+    const xs = [], ys = [];
     for (let i = 0; i < X.d.length; i += 4) {
       const dd = (Math.abs(X.d[i] - Y.d[i]) + Math.abs(X.d[i + 1] - Y.d[i + 1]) + Math.abs(X.d[i + 2] - Y.d[i + 2])) / 3;
-      if (dd > 2) { n++; const px = (i / 4) % X.w, py = Math.floor((i / 4) / X.w); sx += px; sy += py; }
+      if (dd > 2) {
+        n++; const px = (i / 4) % X.w, py = Math.floor((i / 4) / X.w); sx += px; sy += py;
+        xs.push(px); ys.push(py);
+      }
       if (dd > max) max = dd;
     }
-    return { n, max, cx: sx / Math.max(n, 1), cy: sy / Math.max(n, 1), total: X.d.length / 4, h: X.h };
+    // A PERCENTILE bounding box, not a min/max one. The control still leaves a
+    // couple of hundred pixels scattered across the frame, and one of them at a
+    // far corner inflates a min/max box until every shape looks sparse inside it.
+    xs.sort((p, q) => p - q); ys.sort((p, q) => p - q);
+    const q = (arr, f) => (arr.length ? arr[Math.min(arr.length - 1, Math.floor(f * arr.length))] : 0);
+    const box = n ? (q(xs, 0.98) - q(xs, 0.02) + 1) * (q(ys, 0.98) - q(ys, 0.02) + 1) : 0;
+    return {
+      n, max, cx: sx / Math.max(n, 1), cy: sy / Math.max(n, 1),
+      total: X.d.length / 4, h: X.h, fill: n / Math.max(box, 1),
+    };
   };
   return { control: count(A, C), effect: count(A, B), shadow: count(A, D) };
 }, { off: shots.off.toString('base64'), on: shots.on.toString('base64'),
@@ -128,7 +146,10 @@ console.log(JSON.stringify({
   proxyRadius: +state.size.toFixed(2), craftY: +state.y.toFixed(2),
   control: { changed: control.n, max: +control.max.toFixed(1) },
   effect: { changed: effect.n, max: +effect.max.toFixed(1), centroidY: +effect.cy.toFixed(0), frameH: effect.h },
-  shadow: { changed: shadow.n, max: +shadow.max.toFixed(1), centroidY: +shadow.cy.toFixed(0) },
+  shadow: {
+    changed: shadow.n, max: +shadow.max.toFixed(1), centroidY: +shadow.cy.toFixed(0),
+    fill: +shadow.fill.toFixed(2),
+  },
 }, null, 1));
 
 const fails = [];
@@ -139,8 +160,12 @@ need(effect.n < effect.total * 0.35, `reflection changed ${effect.n} of ${effect
 // The image belongs BELOW the horizon, under the craft - not in the sky.
 need(effect.cy > effect.h * 0.45, `reflection centroid at y=${effect.cy.toFixed(0)} of ${effect.h} - above the waterline`);
 // The shadow is its own claim, measured with the reflection switched off.
-need(shadow.n > control.n * 4, `shadow changed ${shadow.n} px against a control of ${control.n}`);
-need(shadow.n > 800, `shadow barely visible (${shadow.n} px changed)`);
+// The shadow is still measured here - it has to survive the same frozen frame -
+// but only for EXISTENCE. From the chase view it covers a few hundred pixels,
+// which is the same order as this frame's residual noise, and no threshold that
+// loose can tell an airframe from a blob. That claim belongs to
+// tools/check-shadow.mjs, which looks straight down at it.
+need(shadow.n > control.n * 2, `shadow changed ${shadow.n} px against a control of ${control.n}`);
 need(shadow.cy > shadow.h * 0.45, `shadow centroid at y=${shadow.cy.toFixed(0)} - above the waterline`);
 need(errors.length === 0, 'page errors: ' + errors.slice(0, 3).join(' | '));
 

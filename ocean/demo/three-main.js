@@ -26,7 +26,7 @@
 // and the craft mesh, not the water's side of it.
 
 import * as THREE from 'three/webgpu';
-import { texture, uv, vec4, float } from 'three/tsl';
+import { texture, uv, vec4, float, shadow } from 'three/tsl';
 
 import { TslOceanSim } from '../src/gpu/tsl/sim-driver.js';
 import { TslSky } from '../src/gpu/tsl/sky-driver.js';
@@ -48,6 +48,7 @@ import {
 import { WaveRunner } from './waverunner.js';
 import { SeaPlane } from './seaplane.js';
 import { PLANE_MESH } from './planeModel.js';
+import { setCraftShadowNode } from '../src/gpu/tsl/water-surface.js';
 
 // ---------------------------------------------------------------------------
 // Backend selection.
@@ -142,6 +143,69 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	sim.setSeed( params.seed );
 	sim.buildSpectrum( params );
 
+	// ---- THE CRAFT'S SHADOW, CAST BY THREE'S OWN SHADOW MAP -------------------
+	//
+	// What was here before was a proxy sphere tested along the sun: a soft round
+	// blob whose only virtue was costing nothing. It read as a blob, because it
+	// was one. This renders the hull's actual silhouette from the sun and lets the
+	// sea sample it - three's standard mechanism, with three wrinkles the standard
+	// mechanism does not cover, all worth spelling out.
+	//
+	// 1. receiveShadow ON THE WATER WOULD DO NOTHING. three's shadows arrive
+	//    through setupLighting(), and setupLighting only runs for a material with
+	//    no fragmentNode (three.webgpu.js:21294). The water HAS one - the entire
+	//    ocean shader is a fragmentNode - so the light loop that would apply a
+	//    shadow never runs on it. The shadow is therefore sampled by hand, which
+	//    is exactly what shadow( light ) hands back: a node reading 1 in the light
+	//    and 0 in shadow. ./gpu/tsl/water-surface.js multiplies the DIRECT-SUN
+	//    term by it, so the sky ambient still reaches into the shadow, as it does
+	//    in life.
+	//
+	// 2. THE SHADOW MAP RENDERS WHATEVER SCENE IT IS ASKED FROM, and the water is
+	//    drawn from its own scene, which holds exactly one mesh: the sea. Left
+	//    alone, the shadow pass would render the ocean casting on itself and the
+	//    aircraft not at all. So the render is pointed at the craft's scene, where
+	//    the casters live - patched on the instance, since three exports the
+	//    shadow() factory but not the ShadowNode class.
+	//
+	// 3. IT HAS TO EXIST BEFORE THE WATER MATERIAL DOES. The node graph is built
+	//    once; a shadow handed over afterwards would never appear in it (the same
+	//    hazard as porting rule 11). Hence the light being created here, ahead of
+	//    TslWater, and only wired into the craft's scene further down.
+	renderer.shadowMap.enabled = true;
+	renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+	const sunLight = new THREE.DirectionalLight( 0xffffff, 1 );
+	sunLight.castShadow = true;
+	sunLight.shadow.mapSize.set( 1024, 1024 );
+	// Costs nothing when nobody is riding: the map is only re-rendered on frames
+	// that actually have something in it (see aimSunLight).
+	sunLight.shadow.autoUpdate = false;
+	sunLight.shadow.bias = - 0.0006;
+	sunLight.shadow.normalBias = 0.06;
+	let shadowCasterScene = null;
+	const craftShadow = shadow( sunLight );
+	{
+
+		const base = Object.getPrototypeOf( craftShadow ).renderShadow;
+		craftShadow.renderShadow = function ( frame ) {
+
+			const prev = frame.scene;
+			if ( shadowCasterScene ) frame.scene = shadowCasterScene;
+			try {
+
+				base.call( this, frame );
+
+			} finally {
+
+				frame.scene = prev;
+
+			}
+
+		};
+
+	}
+	setCraftShadowNode( craftShadow );
+
 	const water = new TslWater( renderer, params );
 	water.setFields( { disp: sim.disp, slope: sim.slope, foam: sim.foamTex } );
 
@@ -202,6 +266,51 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	loadCraftTexture( renderer ).then( ( t ) => { skiTex = t; setCraftTexture( t ); } );
 	loadCraftTexture( renderer, PLANE_MESH ).then( ( t ) => { planeTex = t; } );
 
+	// The casters, and the scene the shadow pass is redirected to (wrinkle 2).
+	craftMesh.castShadow = true;
+	planeMesh.castShadow = true;
+	craftScene.add( sunLight );
+	craftScene.add( sunLight.target );
+	shadowCasterScene = craftScene;
+
+	// Aim the light down the sun at whatever is out there, and size its box to the
+	// hull. A directional shadow is an ORTHOGRAPHIC box, and the box has to hold
+	// both the caster and the patch of sea the shadow lands on - the same
+	// silhouette twice, so it only needs the hull's width across the sun and
+	// enough DEPTH to reach from the aircraft down to the water. Sea outside the
+	// box reads as lit, which for an ocean is the right answer.
+	const aimSunLight = () => {
+
+		const veh = rider.active ? rider : ( plane.active ? plane : null );
+		const on = veh !== null && drawCraftEnabled && params.craftShadow > 0.001;
+		sunLight.shadow.needsUpdate = on;
+		if ( ! on ) return;
+
+		const s = derived.sunDir;
+		const size = veh === plane
+			? Math.max( params.spLength * params.spHalfSpan, 4 ) * 1.15
+			: Math.max( params.craftLength, 2 ) * 0.9;
+		// How far the light travels past the hull to reach the sea under it.
+		// Clamped, because with the sun on the horizon that distance runs away and
+		// an orthographic box that long has no depth precision left to give.
+		const sea = veh.probeH?.[ 0 ] ?? 0;
+		const drop = Math.min( Math.max( veh.pos[ 1 ] - sea, 0 ) / Math.max( s[ 1 ], 0.15 ), 400 );
+		const back = 40;
+		sunLight.position.set(
+			veh.pos[ 0 ] + s[ 0 ] * back,
+			veh.pos[ 1 ] + s[ 1 ] * back,
+			veh.pos[ 2 ] + s[ 2 ] * back,
+		);
+		sunLight.target.position.set( veh.pos[ 0 ], veh.pos[ 1 ], veh.pos[ 2 ] );
+		const c = sunLight.shadow.camera;
+		c.left = - size; c.right = size; c.top = size; c.bottom = - size;
+		c.near = 1; c.far = back + drop + size * 2;
+		c.updateProjectionMatrix();
+		sunLight.updateMatrixWorld( true );
+		sunLight.target.updateMatrixWorld( true );
+
+	};
+
 	// Position the hull from the rider's state, by replicating demo/craft.js
 	// setTransform() EXACTLY rather than by mapping it onto Euler angles.
 	//
@@ -251,9 +360,14 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 
 	// Flipped by api.profile()'s craft ablation; nothing else touches it.
 	let drawCraftEnabled = true;
-	const drawCraft = () => {
 
-		if ( ! drawCraftEnabled ) return;
+	// POSING IS SEPARATE FROM DRAWING, and the split is load-bearing. The craft is
+	// drawn AFTER the water, but its shadow is cast DURING the water pass (the
+	// shadow map renders when the water's node graph updates), so if the hull were
+	// still posed inside the draw the sea would be shadowed by where the aircraft
+	// was last frame. Pose early, draw late.
+	const poseCraft = () => {
+
 		if ( rider.active ) {
 
 			// The waterline is the SEA, not the deck: using deckY put almost the
@@ -277,7 +391,6 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			);
 			craftMesh.visible = true;
 			planeMesh.visible = false;
-			renderer.render( craftScene, cam3 );
 
 		} else if ( plane.active ) {
 
@@ -300,9 +413,22 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			);
 			planeMesh.visible = true;
 			craftMesh.visible = false;
-			renderer.render( craftScene, cam3 );
+
+		} else {
+
+			craftMesh.visible = false;
+			planeMesh.visible = false;
 
 		}
+
+		aimSunLight();
+
+	};
+	const drawCraft = () => {
+
+		if ( ! drawCraftEnabled ) return;
+		if ( ! craftMesh.visible && ! planeMesh.visible ) return;
+		renderer.render( craftScene, cam3 );
 
 	};
 	const post = new TslPost( renderer );
@@ -839,6 +965,10 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		}
 
 		// --- the frame -------------------------------------------------------
+		// Pose before anything renders: the shadow map is rendered from inside the
+		// WATER pass (that is when the water's node graph updates), so a hull posed
+		// in drawCraft would shadow the sea from where it was last frame.
+		poseCraft();
 		renderer.setRenderTarget( hdr );
 		renderer.setClearColor( 0x000000, 1 );
 		renderer.clear( true, true, false );

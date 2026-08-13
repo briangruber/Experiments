@@ -654,6 +654,15 @@ void main(){
   // hard-edged shadow and one at altitude throws a soft one that fades into
   // nothing by itself. No height fade is applied on top: the geometry already
   // does it, and doing it twice was how the reflection ended up invisible.
+  //
+  // THE THREE.JS PATH NO LONGER DOES THIS. src/gpu/tsl/water-surface.js takes a
+  // real shadow map instead - the hull rendered from the sun, sampled here - so
+  // the seaplane throws wings and floats rather than a circle. It was reported
+  // as a blob because from the air, at the size an aircraft's shadow actually
+  // is, a proxy sphere reads as exactly one. This renderer keeps the proxy: it
+  // has no shadow-map plumbing, and the golden images that pin every other part
+  // of the sea are taken through it. The two paths therefore differ HERE, and
+  // only here, which is the trade the note in demo/three-main.js records.
   if (uCraftShadow > 0.001) {
     vec3 toC = uCraftReflPos - vWorld;
     float along = dot(toC, uSunDir);

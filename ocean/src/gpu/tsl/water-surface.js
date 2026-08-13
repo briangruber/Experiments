@@ -300,6 +300,27 @@ export const uCraftReflAmount = /*@__PURE__*/ uniform( 0.0 );
 // its own through the penumbra and needs no height fade at all.
 export const uCraftShadow = /*@__PURE__*/ uniform( 0.0 );
 
+// A REAL SHADOW, IF THE CALLER HAS ONE TO GIVE.
+//
+// The water cannot use receiveShadow: three applies shadows inside
+// setupLighting(), which only runs for a material with no fragmentNode
+// (three.webgpu.js:21294), and this whole shader IS a fragmentNode. So the
+// caller builds the shadow itself - `shadow( light )` from three/tsl, which
+// returns 1 in the light and 0 in shadow - and hands the node over here, where
+// the direct-sun term multiplies by it.
+//
+// MUST BE CALLED BEFORE THE MATERIAL IS BUILT. The graph is built once and this
+// decides which branch goes into it; handing a node over afterwards changes
+// nothing, the same way a texture swapped after build cannot change the sampling
+// instruction (porting rule 11). Left unset, the water keeps the analytic proxy
+// the GLSL reference uses, so nothing that does not ask for this changes.
+let craftShadowNode = null;
+export function setCraftShadowNode( node ) {
+
+	craftShadowNode = node ?? null;
+
+}
+
 export const uSkyAmbient = /*@__PURE__*/ uniform( 1.0 );
 export const uHorizonBend = /*@__PURE__*/ uniform( 0.85 );
 export const uInterReflect = /*@__PURE__*/ uniform( 0.6 );
@@ -827,27 +848,51 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 	// against the unweighted swell height the vertex stage accumulated.
 	sunRad.mulAssign( sunVisibility( vFlat.xz, vSwellH, dist ) );
 
-	// THE CRAFT'S SHADOW - WATER_FS carries the full note. The same proxy the
-	// reflection uses, tested along the SUN rather than along the reflection
-	// ray, landing on sunRad so every direct-sun term dims together while the
-	// sky ambient still reaches in.
-	If( uCraftShadow.greaterThan( 0.001 ), () => {
+	// THE CRAFT'S SHADOW, landing on sunRad so every direct-sun term dims together
+	// while the sky ambient still reaches in - which is what a shadow on water
+	// looks like, and the reason this is not a darkening of the final colour.
+	//
+	// WHAT CASTS IT depends on what the caller gave us. With a shadow node handed
+	// in (setCraftShadowNode, and see the note there) this is three's own shadow
+	// map: the hull's real silhouette, wings and floats and all. Without one it
+	// falls back to the proxy sphere WATER_FS still uses - a soft round blob,
+	// which is exactly what it was reported as.
+	if ( craftShadowNode !== null ) {
 
-		const toS = uCraftReflPos.sub( vWorld ).toVar();
-		const along = toS.dot( uSunDir ).toVar();
-		If( along.greaterThan( 0.0 ), () => {
+		// GATED, and not only to honour the dial. A soft-filtered shadow lookup is
+		// several texture fetches per pixel, and without this branch the whole
+		// ocean would pay them on every frame of a session where nobody ever rode
+		// anything. uCraftShadow is 0 whenever no hull is out (demo/three-main.js
+		// sets it from the active vehicle), so the fetches only happen when there
+		// is something to cast.
+		If( uCraftShadow.greaterThan( 0.001 ), () => {
 
-			const perp = toS.sub( uSunDir.mul( along ) ).length().toVar();
-			// The penumbra grows at the sun's own angular radius with the distance
-			// the light travelled past the craft, so altitude softens the shadow
-			// by itself and no second height fade is needed.
-			const pen = uCraftReflSize.add( along.mul( uSunAngularRadius.max( 1e-4 ) ).mul( 2.0 ) ).toVar();
-			const sh = float( 1.0 ).sub( smoothstep( uCraftReflSize.mul( 0.45 ), pen, perp ) ).toVar();
-			sunRad.mulAssign( float( 1.0 ).sub( sh.mul( uCraftShadow ) ) );
+			// 1 in the light, 0 in shadow; uCraftShadow stays the strength dial.
+			sunRad.mulAssign( mix( float( 1.0 ), craftShadowNode, uCraftShadow ) );
 
 		} );
 
-	} );
+	} else {
+
+		If( uCraftShadow.greaterThan( 0.001 ), () => {
+
+			const toS = uCraftReflPos.sub( vWorld ).toVar();
+			const along = toS.dot( uSunDir ).toVar();
+			If( along.greaterThan( 0.0 ), () => {
+
+				const perp = toS.sub( uSunDir.mul( along ) ).length().toVar();
+				// The penumbra grows at the sun's own angular radius with the
+				// distance the light travelled past the craft, so altitude softens
+				// the shadow by itself and no second height fade is needed.
+				const pen = uCraftReflSize.add( along.mul( uSunAngularRadius.max( 1e-4 ) ).mul( 2.0 ) ).toVar();
+				const sh = float( 1.0 ).sub( smoothstep( uCraftReflSize.mul( 0.45 ), pen, perp ) ).toVar();
+				sunRad.mulAssign( float( 1.0 ).sub( sh.mul( uCraftShadow ) ) );
+
+			} );
+
+		} );
+
+	}
 
 	const L = uSunDir;
 	const NoL = N.dot( L ).max( 0.0 ).toVar();
