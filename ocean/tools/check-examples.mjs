@@ -27,7 +27,16 @@ const WAIT = +argOf('wait', 12000);
 const SHOTS = argOf('shots', join(ROOT, 'shots'));
 const W = +argOf('w', 640), H = +argOf('h', 400);
 
-const PAGES = ['water-and-sky.html', 'water-only.html', 'sky-only.html'];
+// The webgpu-* pages run the TSL facade. They carry ?backend=webgl here NOT
+// because WebGPU is absent - the sandbox has a SwiftShader adapter that renders
+// into targets correctly - but because it cannot PRESENT to a canvas swapchain
+// (prototypes/webgpu-canvas-probe.html), and an example's whole output is the
+// canvas. The facade's WebGPU path is exercised by tools/check-bundle-three.mjs
+// against a capture target instead.
+const PAGES = [
+  'water-and-sky.html', 'water-only.html', 'sky-only.html',
+  'webgpu-ocean.html?backend=webgl', 'webgpu-sky.html?backend=webgl',
+];
 
 // three's package.json is not in its exports map, so require.resolve cannot find
 // the package root. Walk up looking for the install instead.
@@ -118,7 +127,7 @@ for (const name of PAGES) {
     });
   }));
 
-  await writeFile(join(SHOTS, name.replace('.html', '.png')),
+  await writeFile(join(SHOTS, name.replace(/\.html(\?.*)?$/, '.png')),
     Buffer.from(stats.png.split(',')[1], 'base64'));
 
   // A frame that is uniform is a frame that did not draw. Both failure modes seen
