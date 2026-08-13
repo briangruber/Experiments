@@ -22,14 +22,26 @@ const COYOTE = 0.12;
 const STICK = 0.42;
 // Steepness (1 - cos) past which the ground is a cliff, not a hill.
 const MAX_STAND = 0.46;
-// World units one full cycle of the walk clip carries the keeper. Everything
-// about foot plant follows from this number, and it is not free to choose: it
-// has to be the distance the clip's own feet travel per cycle, which is the
-// root motion that src/assets.js strips out — 1.58 units on this rig. Set it
-// higher and the planted foot slides forward under the keeper; lower and it
-// drags back. It read as 3.0 while the clip still carried its root motion,
-// because half the apparent travel was the model sliding, not the feet.
-const STRIDE = 1.58;
+// World units one full cycle of the walk clip carries the keeper. Foot plant
+// follows from this: the clip's own feet cover 1.58 units per cycle — the root
+// motion src/assets.js strips out — so 1.58 is the only value at which a planted
+// foot is genuinely still, and anything larger slides it forward.
+//
+// It cannot be 1.58. The keeper crosses a world in ten seconds while standing
+// 1.5 units tall, so 6.5 units a second at a 1.58 stride is 3.8 walk cycles a
+// second, roughly twice any real gait, and the legs blur. Measuring the slowest
+// 5% of foot movement against the keeper's own 0.110-unit step gives the curve:
+//
+//     stride 3.0   2.21 cycles/s   foot floor 0.064  (58% of body speed)
+//     stride 2.2   3.01 cycles/s   foot floor 0.044  (40%)
+//     stride 1.58  3.79 cycles/s   foot floor 0.036  (33%)
+//
+// Most of the plant is bought by the first step and very little by the second,
+// so this sits at the knee: 2.2 takes 18 of the 25 points of slide that going
+// all the way would, and keeps the gait readable. It read as 3.0 while the clip
+// still carried its root motion, because half the apparent travel then was the
+// model sliding rather than the feet walking.
+const STRIDE = 2.2;
 // Clips that play once and hold their last frame rather than looping. Looping
 // them restarts the pose mid-air: the fall clip's ends are a full quaternion
 // and a half apart, so it lurched every three seconds of descent.

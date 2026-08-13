@@ -122,12 +122,24 @@ like. `deRoot()` subtracts the straight line from every position track and keeps
 everything that oscillates around it, so the hip surge and the idle's weight
 shift survive, the travel goes, and the first frame equals the last.
 
-**The stride is not a free parameter.** `STRIDE` in `player.js` is how far one
-cycle of the clip carries the keeper, and it has to be the distance the clip's
-own feet travel — which is the root motion that was just stripped out, 1.58
-units. Higher and the planted foot slides forward under the keeper; lower and it
-drags back. It read as 3.0 while the root motion was still in, because half the
-apparent travel was the model sliding rather than the feet walking.
+**The stride is a trade, not a lookup.** `STRIDE` in `player.js` is how far one
+cycle carries the keeper. The clip's own feet cover 1.58 units per cycle — the
+root motion just stripped out — so 1.58 is the only value at which a planted
+foot is genuinely still. But the keeper crosses a world in ten seconds while
+standing 1.5 units tall, and 6.5 units a second at a 1.58 stride is 3.8 walk
+cycles a second: about twice any real gait, and the legs blur. Measuring the
+slowest 5% of foot movement against the keeper's own 0.110-unit step:
+
+| stride | cycles/s | foot floor | as a share of body speed |
+| --- | --- | --- | --- |
+| 3.0 | 2.21 | 0.064 | 58% — never plants at all |
+| 2.2 | 3.01 | 0.044 | 40% |
+| 1.58 | 3.79 | 0.036 | 33% |
+
+Most of the plant is bought by the first step down and very little by the
+second, so it sits at the knee at 2.2. It read as 3.0 while the root motion was
+still in, because half the apparent travel then was the model sliding rather
+than the feet walking.
 
 `tools/assets.html` is a turntable contact sheet of every loaded asset, which
 is the fastest way to check a fresh generation came back the right way up.
