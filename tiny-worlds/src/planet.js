@@ -922,6 +922,19 @@ export class Planet {
     this.waveActive = true;
     this.waveShoved = false;   // the front shoves the keeper once as it passes
     this.bloomed = true;
+
+    // A woken world glows from across the system — progress you can see from
+    // any other planet's surface, and the light the dark worlds borrow.
+    if (!this.worldGlow) {
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: glowSprite(), color: new THREE.Color(this.def.lush[2]),
+        transparent: true, opacity: 0, depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      }));
+      s.scale.setScalar(this.def.radius * 3.4);
+      this.group.add(s);
+      this.worldGlow = s;
+    }
   }
 
   update(dt, time) {
@@ -972,6 +985,10 @@ export class Planet {
       this.trees.instanceMatrix.needsUpdate = true;
       if (this.trees.instanceColor) this.trees.instanceColor.needsUpdate = true;
       this.treesDirty = moving;
+    }
+
+    if (this.worldGlow) {
+      this.worldGlow.material.opacity = lerp(this.worldGlow.material.opacity, 0.15 * this.lush, 1 - Math.exp(-1.2 * dt));
     }
 
     if (this.beacon) {

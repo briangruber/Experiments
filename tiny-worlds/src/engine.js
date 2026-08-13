@@ -176,8 +176,10 @@ export class Engine {
   }
 
   // Light is re-aimed at whichever world the keeper is standing on, so the
-  // shadow map spends all of its resolution where it can be seen.
-  focusWorld(planet) {
+  // shadow map spends all of its resolution where it can be seen. `woken` is
+  // how many other worlds have bloomed: on a dark world their light genuinely
+  // reaches you, so waking worlds makes the night ones easier to read.
+  focusWorld(planet, woken = 0) {
     const def = planet.def;
     const centre = planet.group.position;
     _v.copy(SUN_POSITION).sub(centre).normalize();
@@ -198,7 +200,7 @@ export class Engine {
     this.fill.target.position.copy(centre);
     this.fill.target.updateMatrixWorld();
     this.fill.color.set(def.dark ? 0x54407a : 0x869ade);
-    this.fill.intensity = def.dark ? 0.22 : 1.35;
+    this.fill.intensity = def.dark ? Math.min(0.22 + woken * 0.12, 0.62) : 1.35;
 
     this.hemi.color.set(def.ambient.sky);
     this.hemi.groundColor.set(def.ambient.ground);

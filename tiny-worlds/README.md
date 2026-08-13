@@ -47,6 +47,15 @@ A few systems are worth knowing before you read the code:
   Touching the ground resets the chain.
 - **The bloom is a physics event.** When the wavefront sweeps under your feet
   it throws you into the air once — you surf the wave you made.
+- **The flight is a place, not a cutscene.** Sparks drift near the route
+  between worlds, and the stick steers you off the rail to sweep them up. The
+  rail still flies you home; the drift pinches shut before the landing.
+- **The last spark is shy.** A dormant world's final ground spark runs when
+  you close in — slower than you walk, so the chase always ends the same way,
+  but it will happily back itself against the sea first.
+- **Woken worlds shine.** A bloomed planet glows from across the system, and
+  on the dark worlds that light genuinely reaches you: the fill light scales
+  with how many worlds you have woken.
 - **The music assembles.** Each banked spark fades another voice into the pad
   (and losing one to the gloom takes it back out); the full theme only plays
   over a bloomed world. All still synthesised at runtime.

@@ -45,7 +45,7 @@ export class Particles {
     // attribute, and PointsMaterial already owns the name `size` as a uniform.
     this.scaleUniform = { value: 400 };
     const mat = new THREE.ShaderMaterial({
-      uniforms: { uMap: { value: sparkTexture() }, uScale: this.scaleUniform },
+      uniforms: { uMap: { value: (this.texture = sparkTexture()) }, uScale: this.scaleUniform },
       vertexShader: `
         attribute vec3 aColor;
         attribute float aSize;

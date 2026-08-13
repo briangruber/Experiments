@@ -136,7 +136,16 @@ function enterWorld(index, { lift = 0 } = {}) {
   state.worldIndex = index;
   const planet = planets[index];
   player.attachTo(planet, planet.landingDir, { lift });
-  engine.focusWorld(planet);
+  const woken = planets.filter((p) => p.bloomed && p !== planet).length;
+  engine.focusWorld(planet, woken);
+  if (planet.def.dark && woken > 0 && !planet.shineToast) {
+    planet.shineToast = true;
+    setTimeout(() => {
+      if (current() === planet) {
+        hud.toast(woken > 1 ? `${woken} worlds you woke shine overhead` : 'a world you woke shines overhead', 3400);
+      }
+    }, 2600);
+  }
   hud.setWorld(planet.def, index, planets.length);
   state.sparks = planet.motes.filter((m) => m.taken).length;
   hud.setSparks(state.sparks, planet.moteTotal ?? 0);
@@ -425,6 +434,42 @@ function updateBlackHole(dt) {
   chase.snap();
 }
 
+// The final ground spark of a dormant world doesn't want to be caught. It
+// runs along the surface when you close in, tires quickly, and gives up
+// entirely if you corner it against the water. Pure drama: it flees slower
+// than you walk, so the chase always ends the same way.
+function updateShySpark(planet, dt) {
+  if (planet.bloomed || !planet.motes?.length) return;
+  const left = planet.motes.filter((m) => !m.taken && !(m.hold > 0));
+  if (left.length !== 1 || left[0].islet) return;
+  const m = left[0];
+  const d = m.obj.position.distanceTo(player.local);
+  m.stamina ??= 2.6;
+  if (d < 6.5 && d > 1.0 && m.stamina > 0) {
+    if (!planet.shyToast) { planet.shyToast = true; hud.toast('the last spark is shy', 2200); }
+    m.stamina -= dt;
+    _c.copy(m.dir).sub(player.up);
+    _c.addScaledVector(m.dir, -_c.dot(m.dir));
+    if (_c.lengthSq() > 1e-6) {
+      _c.normalize();
+      _d.copy(m.dir).addScaledVector(_c, (3.8 * dt) / planet.groundRadius(m.dir)).normalize();
+      // Cornered at the waterline: it gives up rather than wading out.
+      if (planet.surfaceRadius(_d) > planet.seaRadius + 0.2) m.dir.copy(_d);
+      else m.stamina = 0;
+    }
+    // Panic glitter while it runs.
+    planet.shyEmit = (planet.shyEmit ?? 0) + dt;
+    while (planet.shyEmit > 0.08) {
+      planet.shyEmit -= 0.08;
+      planet.group.localToWorld(_a.copy(m.obj.position));
+      _b.set((Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2 + 1, (Math.random() - 0.5) * 2);
+      particles.spawn(_a, _b, SPARK, 0.22, 0.6, { drag: 1.8 });
+    }
+  } else if (d > 9) {
+    m.stamina = Math.min(2.6, m.stamina + dt * 0.5);
+  }
+}
+
 function checkMotes(dt) {
   const planet = current();
   const pickup = 1.35;
@@ -464,6 +509,24 @@ function updatePrompt() {
 
 // ---------------------------------------------------------------- flight
 
+// One little glowing pickup, floating in open space.
+function makeFlightMote(pos) {
+  const group = new THREE.Group();
+  const core = new THREE.Mesh(
+    new THREE.IcosahedronGeometry(0.34, 1),
+    new THREE.MeshBasicMaterial({ color: 0xfff3c4 }),
+  );
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: particles.texture, color: 0xffd98a, transparent: true, opacity: 0.9,
+    depthWrite: false, blending: THREE.AdditiveBlending,
+  }));
+  halo.scale.setScalar(3.2);
+  group.add(core, halo);
+  group.position.copy(pos);
+  engine.scene.add(group);
+  return group;
+}
+
 function startFlight() {
   const from = current();
   const to = planets[state.worldIndex + 1];
@@ -486,7 +549,38 @@ function startFlight() {
     upFrom: _b.clone(),
     camPos: engine.camera.position.clone(),
     trail: 0,
+    off: new THREE.Vector3(),   // where you have steered off the rail
+    motes: [],
+    caught: 0,
   };
+
+  // The flight is a place, not a cutscene: sparks drift near the route, and
+  // the stick steers you off the rail to sweep them up. Placed against the
+  // curve as it is now — the endpoints move a little as the worlds turn, so
+  // the pickup radius is forgiving.
+  const f = state.flight;
+  const landLocal = _c.copy(to.landingDir).multiplyScalar(to.groundRadius(to.landingDir));
+  const p3 = to.group.localToWorld(landLocal).clone();
+  const upTo = _d.copy(to.landingDir).transformDirection(to.group.matrixWorld).normalize();
+  const p1 = _a.copy(f.start).addScaledVector(f.upFrom, 34).clone();
+  const p2 = _b.copy(p3).addScaledVector(upTo, 40).clone();
+  for (let i = 0; i < 6; i++) {
+    const t = 0.26 + i * 0.105;
+    const e = t * t * (3 - 2 * t);
+    const pos = bezier(f.start, p1, p2, p3, e, new THREE.Vector3());
+    const ahead = bezier(f.start, p1, p2, p3, Math.min(1, e + 0.01), new THREE.Vector3()).sub(pos).normalize();
+    const side = _c.crossVectors(ahead, f.upFrom).normalize();
+    pos.addScaledVector(side, (Math.random() * 2 - 1) * 4.5)
+      .addScaledVector(_d.crossVectors(side, ahead).normalize(), (Math.random() * 2 - 1) * 3.5);
+    f.motes.push({ obj: makeFlightMote(pos), pos: pos.clone(), taken: false, phase: Math.random() * Math.PI * 2 });
+  }
+  if (!state.flightHinted) {
+    state.flightHinted = true;
+    setTimeout(() => {
+      if (state.mode === 'flight') hud.toast(COARSE ? 'drift with the stick' : 'drift with WASD', 2600);
+    }, 1200);
+  }
+
   hud.hidePrompt();
   hud.toast(`${to.def.name}`, 4000);
 }
@@ -529,9 +623,37 @@ function updateFlight(dt) {
   const tangent = ahead.lengthSq() > 1e-8 ? ahead.normalize() : _fwd.set(0, 0, 1);
 
   _up.copy(f.upFrom).lerp(upTo, e * e * (3 - 2 * e)).normalize();
+
+  // Steering: the rail still flies you home, but the stick drifts you off it
+  // sideways and up, which is how the sparks out here get caught. The drift
+  // eases back toward the rail on its own and pinches shut near the landing.
+  _right.crossVectors(tangent, _up).normalize();
+  _c.set(0, 0, 0).addScaledVector(_right, input.move.x).addScaledVector(_up, input.move.y);
+  f.off.addScaledVector(_c, 17 * dt);
+  f.off.multiplyScalar(Math.max(0, 1 - 0.55 * dt));
+  if (f.off.lengthSq() > 49) f.off.setLength(7);
+  const pinch = Math.min(1, (1 - e) * 5);
+  pos.addScaledVector(f.off, pinch);
+
   player.root.position.copy(pos);
   orientRoot(_up, tangent);
   player.mixer.update(dt);
+
+  // Sweep up anything you steered close to.
+  for (const m of f.motes) {
+    if (m.taken) continue;
+    m.obj.position.y = m.pos.y + Math.sin(state.time * 2.2 + m.phase) * 0.4;
+    m.obj.rotation.y += dt * 1.6;
+    if (m.obj.position.distanceTo(pos) < 3.1) {
+      m.taken = true;
+      m.obj.visible = false;
+      f.caught++;
+      state.collected++;
+      audio.collect(f.caught + 3, 99);
+      _b.copy(_up);
+      particles.burst(m.obj.position, { count: 30, color: SPARK, speed: 5.5, size: 0.5, life: 1.0, up: _b });
+    }
+  }
 
   // Re-entry trail.
   f.trail += dt;
@@ -555,12 +677,18 @@ function updateFlight(dt) {
   if (prevT < 0.86 && f.t >= 0.86) audio.arrive();
 
   if (f.t >= 1) {
+    for (const m of f.motes) engine.scene.remove(m.obj);
     state.flight = null;
     enterWorld(state.worldIndex + 1);
     player.worldPosition(_a);
     player.worldUp(_b);
     particles.burst(_a, { count: 40, color: new THREE.Color(0xd8cbb0), speed: 4.5, size: 0.4, life: 0.9, up: _b });
     chase.shake = 0.7;
+    if (f.caught) {
+      setTimeout(() => hud.toast(
+        f.caught > 1 ? `${f.caught} sparks caught mid-flight` : 'a spark caught mid-flight', 2800,
+      ), 1200);
+    }
     if (!to.def.finale) state.mode = 'play';
   }
 }
@@ -627,7 +755,7 @@ function frame(now) {
     const move = playing ? movementBasis(dt) : _move.set(0, 0, 0);
     player.sprint = input.sprint;
     player.update(dt, { moveWorld: move, jump: playing && input.takeJump(), freeze: !playing });
-    if (playing && player.planet === current()) { checkMotes(dt); emitBeacon(dt); }
+    if (playing && player.planet === current()) { checkMotes(dt); updateShySpark(current(), dt); emitBeacon(dt); }
     if (playing) { updateSpeck(); emitTrail(dt); }
 
     player.worldPosition(_a);
@@ -758,6 +886,7 @@ const game = window.tinyWorlds = {
   THREE, engine, planets, player, chase, state, particles, audio, hud, input,
   speck, blackHole,
   begin,
+  flight: () => { if (state.mode === 'play') startFlight(); },
   goto: (i) => { enterWorld(clamp(i, 0, planets.length - 1)); if (state.mode !== 'finale') state.mode = 'play'; },
   giveSpark: () => {
     const p = current();
