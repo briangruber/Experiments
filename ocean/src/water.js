@@ -174,6 +174,7 @@ export class WaterSurface {
       uInterReflect: p.interReflect, uWaveAO: p.waveAO,
       uWaveShadow: p.waveShadow, uShadowScale: p.shadowScale,
       uCapillary: p.capillary, uCapillaryScale: p.capillaryScale,
+      uGust: p.gust ?? 0, uGustScale: p.gustScale ?? 55, uGustDrift: p.gustDrift ?? 0.35,
       uSpecAA: p.specAA, uGrazeFocus: p.grazeFocus,
       uSSSBias: p.sssBias, uFoamFar: p.foamFar,
       uOutExposure: this.outExposure,

@@ -98,6 +98,12 @@ export const defaults = {
   shadowScale: 1.2,         // march length of that occlusion, in wave scales
   capillary: 0.6,
   capillaryScale: 1.0,
+  // Wind gusts arriving in patches - the "cat's paws" that dominate sheltered
+  // water on a light-air day. 0 is off, which is what every preset written
+  // before this existed gets.
+  gust: 0.0,                // strength of the rough/smooth mottling
+  gustScale: 55.0,          // patch size, m
+  gustDrift: 0.35,          // how fast patches travel downwind
   aerial: 1.0,
 
   // ---- spray ----
@@ -607,6 +613,46 @@ export const PRESETS = {
     sprayMist: 0.6, sprayMistOpacity: 0.16, sprayMistLife: 9.0, sprayHaze: 0.0012,
     saturation: 0.72, contrast: 1.14, exposureBias: 0.25, vignette: 0.75,
     grain: 0.028, fov: 52, handheld: 2.0, cameraBob: 0.8, minAltitude: 6.0,
+  },
+  // Built against photographs of sheltered water on a bright, light-air day
+  // (a Florida marina reach, midday, scattered cumulus). What the reference
+  // actually shows, and what each line here is for:
+  //
+  //   the surface is RIPPLE, not wave      windSpeed 3.4 over a 3 km fetch:
+  //                                        almost no gravity wave, and swell
+  //                                        0.06 m so there is a hint of heave
+  //                                        rather than a flat plate
+  //   fine, dense grain                    capillary 1.5 at capillaryScale 1.7,
+  //                                        the finest band this model has
+  //   MOTTLED into patches                 gust 0.55 over 40 m patches - the
+  //                                        single most distinctive thing in the
+  //                                        photos, and what the new gust field
+  //                                        was written for
+  //   near water dark and murky            a green-brown absorption/scatter pair
+  //                                        rather than the ocean's blue, and
+  //                                        scatterAmount down: sheltered water
+  //                                        is turbid, so less light comes back
+  //                                        up and it reads near-black up close
+  //   far water a bright mirror            baseRoughness 0.02 and skyBlur 0.32:
+  //                                        the smooth patches must reflect the
+  //                                        far shore sharply enough to recognise
+  //   reflections drawn out vertically     grazeFocus 0.10 narrows the lobe
+  //                                        across the horizon, which is what
+  //                                        stretches a reflection into a column
+  //   no foam anywhere                     foamAmount 0
+  'Sheltered Water': {
+    windSpeed: 3.4, fetch: 3, amplitude: 0.5, choppiness: 0.55, shortWaveFade: 0.95,
+    swellAmount: 0.06, swellPeriod: 6.0, depth: 6,
+    capillary: 1.5, capillaryScale: 1.7,
+    gust: 0.55, gustScale: 40, gustDrift: 0.5,
+    sunElevation: 58, sunAzimuth: 135, sunIntensity: 23, turbidity: 2.2,
+    cloudCoverage: 0.5, cloudAltitude: 900, cloudThickness: 1700, cloudDetail: 0.7,
+    cirrus: 0.1,
+    scatterColor: [0.075, 0.150, 0.105], absorption: [0.85, 0.42, 0.75],
+    scatterAmount: 0.045, sssStrength: 0.5,
+    baseRoughness: 0.02, skyBlur: 0.32, grazeFocus: 0.10, glitter: 0.5,
+    foamAmount: 0.0, sprayOpacity: 0.0, sprayRate: 0.0,
+    saturation: 1.02, contrast: 1.02, exposureBias: -0.05, vignette: 0.3, fov: 46,
   },
   'Deep Blue Afternoon': {
     windSpeed: 10.0, fetch: 600, amplitude: 0.85, choppiness: 1.05,

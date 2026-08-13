@@ -151,7 +151,7 @@
 //    perfect mirror.
 
 import {
-	Fn, If, float, vec2, vec3, uniform, attribute, varyingProperty,
+	Fn, If, float, int, vec2, vec3, uniform, attribute, varyingProperty,
 	mix, clamp, smoothstep, select, reflect, dFdx, dFdy, fwidth,
 } from 'three/tsl';
 
@@ -163,7 +163,7 @@ import {
 import { uSunDir, uMoonDir, uMoonColor } from './sky-lut.js';
 import { skyLutTexture, uSunAngularRadius } from './sky-background.js';
 import { uTime, uCamPos } from './cloud-field.js';
-import { vnoise } from './noise.js';
+import { vnoise, fbm2 } from './noise.js';
 
 import {
 	PI_W, R_EARTH, uWindDir, uWakeOn, uWakeExtent,
@@ -259,6 +259,9 @@ export const uWindSpeed = /*@__PURE__*/ uniform( 11.0 );      // U10, m/s
 
 export const uCapillary = /*@__PURE__*/ uniform( 0.6 );
 export const uCapillaryScale = /*@__PURE__*/ uniform( 1.0 );
+export const uGust = /*@__PURE__*/ uniform( 0.0 );        // cat's-paw strength
+export const uGustScale = /*@__PURE__*/ uniform( 55.0 );  // patch size, m
+export const uGustDrift = /*@__PURE__*/ uniform( 0.35 );  // downwind travel, m/s per unit wind
 
 export const uFoamAmount = /*@__PURE__*/ uniform( 0.9 );
 export const uFoamRoughness = /*@__PURE__*/ uniform( 0.62 );
@@ -508,10 +511,28 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 	// them; point-sampling them anyway is pure aliasing.
 	capFade.mulAssign( float( 1.0 ).sub( smoothstep( 0.06, 0.34, foot ) ) );
 
+	// ---- wind gusts: the cat's paws -----------------------------------------
+	// The full account is in src/shaders/water.js at this same spot; the two
+	// sources must stay identical. Short version: gusts arrive in patches tens
+	// of metres across and roughen their own patch of water into a matte
+	// cat's-paw while the lull beside it stays a mirror, and on sheltered water
+	// that mottling IS the surface texture. Scales the short-wave energy - the
+	// capillary layer here, and the slope variance below, which is what carries
+	// the patches past the near field.
+	//
+	// Written as an unconditional expression rather than an If: uGust is 0 by
+	// default, and mix() with a zero-width range is exactly 1.0, so the guard
+	// would only be a cost saving on the branch nobody takes.
+	const gustQ = vFlat.xz.sub( uWindDir.mul( uTime.mul( uGustDrift ) ) )
+		.div( uGustScale.max( 4.0 ) ).toVar();
+	const gustN = smoothstep( 0.35, 0.72, fbm2( gustQ, int( 3 ) ) ).toVar();
+	// Standalone mix (rule 1).
+	const gust = mix( float( 1.0 ).sub( uGust.mul( 0.85 ) ), float( 1.0 ).add( uGust.mul( 1.6 ) ), gustN ).toVar();
+
 	If( capFade.greaterThan( 0.01 ), () => {
 
 		const amp = uCapillary.mul( 0.16 ).mul( capFade )
-			.mul( clamp( uWindSpeed.div( 9.0 ), 0.15, 2.0 ) ).toVar();
+			.mul( clamp( uWindSpeed.div( 9.0 ), 0.15, 2.0 ) ).mul( gust ).toVar();
 		// They pile up on the face turned into the wind. uWindDir is the UNIT
 		// direction (./water-common.js note 1) - the magnitude is load-bearing
 		// here, and feeding it cloud-field's wind velocity would multiply this
@@ -590,7 +611,7 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 	const N = vec3( slope.x.negate(), 1.0, slope.y.negate() ).normalize().toVar();
 
 	// GLSL: `float var = ...`. `var` is a JavaScript reserved word - note 2.
-	const slopeVar = msq.sub( slope.dot( slope ) ).max( 0.0 ).add( lost ).toVar();
+	const slopeVar = msq.sub( slope.dot( slope ) ).max( 0.0 ).add( lost ).mul( gust ).toVar();
 
 	// The cascade mip chain filters each band over its own texels. It cannot know
 	// about the pixel that straddles a crest, about the projection stretching that
@@ -612,7 +633,10 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 	const an = uWindAniso.max( 0.05 ).toVar();
 	const vAl = slopeVar.mul( an ).div( float( 1.0 ).add( an ) ).toVar();
 	const vCr = slopeVar.div( float( 1.0 ).add( an ) ).toVar();
-	const b2 = uBaseRoughness.mul( uBaseRoughness ).toVar();
+	// Gust scales the unresolved micro-surface variance too - see the note in
+	// src/shaders/water.js; on calm water this is the term that carries the
+	// mottling at all.
+	const b2 = uBaseRoughness.mul( uBaseRoughness ).mul( gust ).toVar();
 	// alpha^2 = 2*sigma^2 is the Beckmann->GGX slope-variance identity. Capping it
 	// matters: a real sea tops out near mss 0.09 even in a hurricane, so alpha can
 	// never legitimately reach 1 and turn the distant water Lambertian-white.
@@ -1177,6 +1201,9 @@ export function setWaterSurfaceUniforms( p, ctx, hull ) {
 
 	uCapillary.value = p.capillary;
 	uCapillaryScale.value = p.capillaryScale;
+	uGust.value = p.gust ?? 0;
+	uGustScale.value = p.gustScale ?? 55;
+	uGustDrift.value = p.gustDrift ?? 0.35;
 
 	uFoamAmount.value = p.foamAmount;
 	uFoamRoughness.value = p.foamRoughness;

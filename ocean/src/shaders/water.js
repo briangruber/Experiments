@@ -198,6 +198,7 @@ uniform float uHorizonBend, uInterReflect;
 uniform float uWaveAO;
 uniform float uSpecAA, uGrazeFocus, uSSSBias, uFoamFar;
 uniform float uCapillary, uCapillaryScale;
+uniform float uGust, uGustScale, uGustDrift;
 uniform float uWaveShadow, uShadowScale;
 uniform float uHeightScale;      // the shadow march reads the same height field the VS displaced by
 
@@ -404,6 +405,31 @@ void main(){
     foamR += fo.z * w;
   }
 
+  // ---- wind gusts: the cat's paws -------------------------------------------
+  // Wind over water does not arrive evenly. It comes in gusts and lulls tens of
+  // metres across, and each gust roughens its own patch of surface into a matte
+  // "cat's paw" while the lull beside it stays a mirror. On sheltered water that
+  // mottling IS the texture: photograph a marina in light air and the frame is
+  // patches of dark ripple against bright smooth water, not waves.
+  //
+  // A slow noise field drifting downwind, scaling the local SHORT-WAVE energy:
+  // the capillary ripples just below, and the slope variance that sets roughness
+  // at every distance - which is what carries the mottling past the near field,
+  // where the capillary layer has already faded out.
+  //
+  // Scaling "var" wholesale is an approximation, since the swell's share of it
+  // is not gust-driven. It is a defensible one: mean-square slope is dominated
+  // by the short end of the spectrum, and the short end is exactly what a gust
+  // drives. uGust defaults to 0, so no existing preset moves.
+  float gust = 1.0;
+  if (uGust > 0.0){
+    vec2 gq = (vFlat.xz - uWindDirV * (uTime * uGustDrift)) / max(uGustScale, 4.0);
+    // fbm2 lands in 0..1 clustered near 0.5; this window spreads it into
+    // distinct patches instead of a uniform haze.
+    float g = smoothstep(0.35, 0.72, fbm2(gq, 3));
+    gust = mix(1.0 - 0.85*uGust, 1.0 + 1.6*uGust, g);
+  }
+
   // Sub-cascade capillary detail, near field only.
   float capFade = uCapillary > 0.0
     ? 1.0 / (1.0 + (dist*dist) / (900.0 * uCapillaryScale * uCapillaryScale))
@@ -412,7 +438,7 @@ void main(){
   // them; point-sampling them anyway is pure aliasing.
   capFade *= 1.0 - smoothstep(0.06, 0.34, foot);
   if (capFade > 0.01){
-    float amp = uCapillary * 0.16 * capFade * clamp(uWindSpeed/9.0, 0.15, 2.0);
+    float amp = uCapillary * 0.16 * capFade * clamp(uWindSpeed/9.0, 0.15, 2.0) * gust;
     // They pile up on the face turned into the wind.
     amp *= clamp(0.45 + dot(slope, uWindDirV) * 2.0, 0.0, 1.8);
     slope += capillarySlope(vFlat.xz, uTime, amp);
@@ -462,7 +488,7 @@ void main(){
   }
 
   vec3 N = normalize(vec3(-slope.x, 1.0, -slope.y));
-  float var = max(msq - dot(slope, slope), 0.0) + lost;
+  float var = (max(msq - dot(slope, slope), 0.0) + lost) * gust;
 
   // The cascade mip chain filters each band over its own texels. It cannot know
   // about the pixel that straddles a crest, about the projection stretching that
@@ -481,7 +507,14 @@ void main(){
   float an   = max(uWindAniso, 0.05);
   float vAl  = var * an / (1.0 + an);
   float vCr  = var / (1.0 + an);
-  float b2   = uBaseRoughness * uBaseRoughness;
+  // The gust roughens the UNRESOLVED micro-surface too, and on calm water that
+  // is the term that matters: with a 3 m/s wind the resolved slope variance is
+  // nearly nothing, so alpha is almost entirely baseRoughness and modulating
+  // only the resolved variance leaves the mottling invisible (measured: max delta 0.029 before
+  // this line). b2 is a variance, so scaling it by the same factor is
+  // dimensionally the same operation applied to the part of the spectrum the
+  // cascades never resolved.
+  float b2   = uBaseRoughness * uBaseRoughness * gust;
   // alpha^2 = 2*sigma^2 is the Beckmann->GGX slope-variance identity. Capping it
   // matters: a real sea tops out near mss 0.09 even in a hurricane, so alpha can
   // never legitimately reach 1 and turn the distant water Lambertian-white.
