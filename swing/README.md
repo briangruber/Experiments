@@ -23,18 +23,24 @@ view toward something *is* leaning toward it, so there is no separate notion of
 turning to learn. One number decides which side the next web is thrown, which
 way the arc banks, and which way the body leans.
 
-It steers less than you would think, though, and it took measuring to see why.
-Doubling the carve force moves the achieved turn rate by under 15%. The real
-steering is the pump: it thrusts along the camera's forward, the camera follows
-the velocity that produces, and the loop compounds aiming into a turn. Which is
-the genre's own answer — **you steer a swing by looking, not by pushing** — so
-that is what the game now teaches, and the carve is left as bank and feel.
+The steering itself is the pump. It thrusts in the rope's tangent plane — along
+the rope would only fight the constraint — but *within* that plane it aims
+between the way you are already travelling and the way you are looking. It used
+to thrust purely along travel, which is a throttle and not a rudder: it made you
+faster along a path you could not change.
+
+The signal is the **angle you are off by**, not how fast you moved the mouse.
+That distinction is the whole thing. An intent derived from aim rate evaporates
+the moment you stop moving the mouse, so lining the camera up on a target and
+holding it there produced exactly nothing — which is what "it doesn't go where
+I'm looking" was. An angular error persists until you are pointed at it.
 
 Measured, from the harness:
 
 | | effect |
 | --- | --- |
-| full lean, web throw | lands 17.7 m left / 18.5 m right of travel |
+| look 60° off travel, hold, touch nothing | 60° → 7-12° after one second |
+| full lean, web throw | lands ~18 m left / right of travel |
 | full lean, held 0.75 s on a rope | turns 73.5° left / 68.7° right |
 | held turn key, free air | 2.0 rad/s |
 

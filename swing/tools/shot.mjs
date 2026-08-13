@@ -262,6 +262,41 @@ const report = await page.evaluate(async ({ wait, keep, freeze, sim, trace, foll
       ringGateWorks = rings.collected === before + 1;
     }
 
+    // The question the player actually asks: if I point the camera somewhere and
+    // just hold on, do I end up going that way? Offset the view from the
+    // direction of travel, hold the web, touch nothing else, and see how much of
+    // the error is gone after a second.
+    const lookSteer = {};
+    {
+      const mark0 = {
+        pos: p.pos.clone(), vel: p.vel.clone(),
+        web: { ...p.web, anchor: p.web.anchor.clone() },
+        yaw: cam.yaw,
+      };
+      for (const [name, offset] of [['left60', Math.PI / 3], ['right60', -Math.PI / 3]]) {
+        p.pos.copy(mark0.pos); p.vel.copy(mark0.vel);
+        Object.assign(p.web, mark0.web); p.web.anchor.copy(mark0.web.anchor);
+        const travel0 = Math.atan2(-p.vel.x, -p.vel.z);
+        cam.yaw = travel0 + offset;          // look this far off where we are going
+        cam.updateBasis();
+        const hold = { ...input, lean: 0, turn: 0, steer: 0, simple: true, web: true, reel: false, dive: false };
+        for (let i = 0; i < 60; i++) {
+          p.update(DT, hold, cam.basis);     // camera held still: pure look-steering
+        }
+        const travel1 = Math.atan2(-p.vel.x, -p.vel.z);
+        let err = cam.yaw - travel1;
+        while (err > Math.PI) err -= Math.PI * 2;
+        while (err < -Math.PI) err += Math.PI * 2;
+        lookSteer[name] = {
+          startedOffBy: 60,
+          endedOffBy: +Math.abs(err * 180 / Math.PI).toFixed(1),
+        };
+      }
+      p.pos.copy(mark0.pos); p.vel.copy(mark0.vel);
+      Object.assign(p.web, mark0.web); p.web.anchor.copy(mark0.web.anchor);
+      cam.yaw = mark0.yaw; cam.updateBasis();
+    }
+
     // Does leaning aim the web? Same position and heading, opposite intent:
     // the two anchors should land on opposite sides of the direction of travel.
     const leanAim = {};
@@ -343,6 +378,7 @@ const report = await page.evaluate(async ({ wait, keep, freeze, sim, trace, foll
       endedGrounded,
       handSpread,
       turning,
+      lookSteer,
       leanAim,
       carve,
       endedHeading: heading,

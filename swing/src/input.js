@@ -9,10 +9,7 @@
 // one number: which side the next web is thrown, which way the arc carves, and
 // which way the body banks.
 
-import { clamp, damp } from './util.js';
-
-/** Aim rate, in radians per second, that counts as a full lean. */
-const LEAN_FULL = 1.9;
+import { damp } from './util.js';
 
 const KEYS = {
   KeyW: 'reel', ArrowUp: 'reel',
@@ -181,14 +178,15 @@ export class Input {
     if (this.simple) {
       this.web = h.has('swing') || this.padPointers.has('web') || this.mouseWeb;
     }
-    // One intent axis, from every direction control at once. Keys turn the view
-    // directly; the mouse and thumb already did so through lookX, and the rate
-    // they did it at is read back here as the same intent.
+    // Explicit lean only. Aiming used to feed a second, rate-derived lean on top
+    // of this, which both double-counted and evaporated the moment you stopped
+    // moving the mouse. Where you are *looking* is now read by the player as an
+    // angular error against where you are going, so pointing the camera and
+    // holding it steers — and this axis is left as the deliberate nudge.
     const keyLean = (h.has('right') ? 1 : 0) - (h.has('left') ? 1 : 0);
-    const aimLean = clamp(-this.lookX / Math.max(dt, 1e-4) / LEAN_FULL, -1, 1);
     this.steer = keyLean;
     this.turn = keyLean;
-    this.lean = damp(this.lean, clamp(keyLean + aimLean, -1, 1), 14, dt);
+    this.lean = damp(this.lean, keyLean, 14, dt);
     this.throttle = (h.has('reel') ? 1 : 0) - (h.has('back') ? 1 : 0);
     this.reel = h.has('reel') || this.padPointers.has('reel');
     this.dive = h.has('dive') || this.padPointers.has('dive');

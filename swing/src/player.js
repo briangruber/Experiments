@@ -27,12 +27,9 @@ const RUN_SPEED = 13;
 const JUMP = 13.5;
 const STREET_CLEAR = 14;             // no web anchors below this height
 const LEAN_AIM = 34;                 // degrees the throw swings with a full lean
-// Bank only. Measured, this force is *not* what turns you: doubling it moves
-// the achieved turn rate by under 15%, because the real steering is the pump
-// below thrusting along the camera's forward while the camera follows the
-// velocity that produces — a loop that compounds aiming into a turn. Which is
-// the genre-correct answer: you steer a swing by looking, not by pushing.
-const CARVE = 13;                    // lateral acceleration, for bank and feel
+const CARVE = 13;                    // lateral acceleration, banking the arc
+const STEER_BLEND = 0.75;            // how far the pump aims at the look direction
+const AIM_FULL = Math.PI / 3;        // look this far off travel for a full turn
 
 /**
  * Candidate directions for the anchor search, as (yaw°, pitch°) offsets from the
@@ -80,6 +77,7 @@ const _hit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance
 const _q = new THREE.Quaternion();
 const _carve = new THREE.Vector3();
 const _side = new THREE.Vector3();
+const _want = new THREE.Vector3();
 
 export class Player {
   constructor(city) {
@@ -269,7 +267,20 @@ export class Player {
   }
 
   update(dt, input, basis) {
-    this.lean = input.lean || 0;
+    // Where you are looking versus where you are going. This, not the rate the
+    // mouse moved, is the steering signal: hold the camera on a target and the
+    // error persists until you are pointed at it. Deriving intent from aim rate
+    // meant that lining the camera up and holding it produced nothing at all.
+    _carve.set(this.vel.x, 0, this.vel.z);
+    let aimIntent = 0;
+    if (_carve.lengthSq() > 4) {
+      _carve.normalize();
+      const cross = _carve.z * basis.flat.x - _carve.x * basis.flat.z;
+      const dotp = clamp(_carve.dot(basis.flat), -1, 1);
+      aimIntent = clamp(-Math.atan2(cross, dotp) / AIM_FULL, -1, 1);
+    }
+    this.aimIntent = aimIntent;
+    this.lean = clamp((input.lean || 0) + aimIntent, -1, 1);
     this.events.length = 0;
     this.prev.copy(this.pos);
     const web = this.web;
@@ -320,13 +331,25 @@ export class Player {
         const dist = _d.length() || 1e-6;
         _n.copy(_d).divideScalar(dist);
 
-        // Pump: thrust along the tangent, in the direction already travelling.
+        // Pump. The thrust stays in the rope's tangent plane — pushing along the
+        // rope would just fight the constraint — but *within* that plane it is
+        // aimed between the way you are already travelling and the way you are
+        // looking. Thrusting purely along travel, as this did, is a throttle
+        // rather than a rudder: it makes you faster along a path you cannot
+        // change, which is why looking somewhere did not take you there.
         _tan.copy(this.vel).addScaledVector(_n, -this.vel.dot(_n));
         if (_tan.lengthSq() > 1e-4) {
           _tan.normalize();
-          const align = clamp(_tan.dot(basis.forward), -1, 1);
-          this.vel.addScaledVector(_tan, SWING_THRUST * (0.55 + 0.45 * align) * dt);
-
+          _want.copy(basis.forward).addScaledVector(_n, -basis.forward.dot(_n));
+          if (_want.lengthSq() > 1e-4) {
+            _want.normalize();
+            // Never thrust backwards along the arc; past 90° off, hold the
+            // tangent and let the carve bring the heading round.
+            const ahead = clamp(_want.dot(_tan), -1, 1);
+            const blend = STEER_BLEND * smoothstep(-0.35, 0.4, ahead);
+            _tan.lerp(_want, blend).normalize();
+          }
+          this.vel.addScaledVector(_tan, SWING_THRUST * dt);
         }
 
         // Carve: rotate the horizontal heading rather than shoving the body
@@ -334,12 +357,12 @@ export class Player {
         // already have, which is why a swing banks and feels heavy instead of
         // sliding like a joystick. Taken about travel, not about the rope — a
         // rope you are hanging straight below has no sideways to speak of.
-        if (input.lean) {
+        if (this.lean) {
           _carve.set(this.vel.x, 0, this.vel.z);
           if (_carve.lengthSq() > 1) {
             _carve.normalize();
             _side.crossVectors(this.up, _carve);        // left of travel
-            this.vel.addScaledVector(_side, -input.lean * CARVE * dt);
+            this.vel.addScaledVector(_side, -this.lean * CARVE * dt);
           }
         }
 
@@ -350,7 +373,7 @@ export class Player {
           web.length = Math.max(REEL_MIN, Math.min(web.length, dist));
         }
       } else {
-        if (input.lean) this.vel.addScaledVector(basis.right, input.lean * AIR_STEER * dt);
+        if (this.lean) this.vel.addScaledVector(basis.right, this.lean * AIR_STEER * dt);
         if (this.diving) {
           _dir.copy(basis.forward);
           _dir.y = Math.min(_dir.y, -0.35);
