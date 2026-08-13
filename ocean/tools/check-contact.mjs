@@ -49,6 +49,7 @@ const sample = () => page.evaluate(() => {
   const tip = [A.ctx.craftPos[0], A.ctx.craftPos[1], A.ctx.craftPos[2]];
   return {
     roll: +p.roll.toFixed(2), wingCut: +p.wingCut.toFixed(2), wetness: +p.wetness.toFixed(2),
+    wingWet: +p.wingWet.toFixed(3), wingAt: +p.wingAt.toFixed(2),
     contact: +p.contact.toFixed(2), hullPush: +A.hull.push.toFixed(3),
     craftAmount: +A.ctx.craftAmount.toFixed(2), craftAir: A.ctx.craftAir,
     // How far the emission point is from the fuselage centreline.
@@ -68,15 +69,24 @@ const sample = () => page.evaluate(() => {
 const pin = (height, roll) => page.evaluate(([h, r]) => {
   const A = window.abyssal, p = A.plane;
   A.onFrame = () => {
-    p.airborne = true; p.va = 40; p.roll = r;
+    // gamma above the touchdown gate (0.02) and alt pinned too: with gamma 0 the
+    // airborne branch's landing test can flip the aircraft back into the water
+    // branch between the pin and the sample, and then alt reads the float spring
+    // while pos[1] reads the pin - two numbers that cannot both be true, which
+    // is what a flaky run of this looked like.
+    p.airborne = true; p.va = 40; p.roll = r; p.gamma = 0.05; p.vy = 0;
     p.pos[1] = p.probeH[0] + h;
-    p.gamma = 0;
+    p.alt = h;
   };
 }, [height, roll]);
 
-// Level and well clear: nothing should be touching.
+// Level and well clear: nothing should be touching. The long settle is the
+// first leg's alone: it runs straight after boot, when this rasteriser is at
+// its slowest, and the pin needs several FRAMES to take - four seconds bought
+// two of them and the aircraft was still reporting the contact it had while
+// afloat.
 await pin(12, 0);
-await page.waitForTimeout(4000);
+await page.waitForTimeout(12000);
 const level = await sample();
 
 // Banked hard, floats CLEAR, tip in. The CG rides spCgHeight (2.05 m) above the
@@ -98,8 +108,12 @@ need(banked.wingCut > 0.1, `a ${Math.abs(banked.roll)} rad bank did not put the 
 need(banked.contact < 0.05, `the floats were still in the water (contact ${banked.contact}) - this leg is not testing the wing`);
 need(banked.craftAmount > 0, 'a cutting wingtip threw no spray');
 need(banked.craftAir === 0, 'the emitter was told the craft was airborne while its wing was in the water');
-need(banked.offset > banked.halfSpan * 0.5,
-  `spray came from ${banked.offset} m off the centreline - it should come from the tip at ${banked.halfSpan} m`);
+// The spray comes from the MIDDLE of the wetted run, so it sits between the
+// crossing point and the tip - never outboard of the tip, and never at the root.
+need(banked.offset > 0.1 && banked.offset < banked.halfSpan + 0.01,
+  `spray came from ${banked.offset} m out; the wetted wing runs to ${banked.halfSpan} m`);
+need(Math.abs(banked.offset - banked.wingAt) < 0.01,
+  'the emission point is not the wetted run\'s midpoint');
 need(banked.hullPush < 0.02, `a cutting wing pressed a ${banked.hullPush} m hollow - it should displace nothing`);
 need(errs.length === 0, 'page errors: ' + errs.slice(0, 2).join(' | '));
 console.log(fails.length ? 'WING FAILED\n  ' + fails.join('\n  ') : 'WING OK');

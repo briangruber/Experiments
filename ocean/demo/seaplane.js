@@ -75,7 +75,9 @@ export class SeaPlane {
 
     // What the water sees - see WHAT IS ACTUALLY TOUCHING THE WATER in update().
     this.contact = 0;        // 0..1, how deep the floats are working the sea
-    this.wingCut = 0;        // metres of low wingtip below the surface
+    this.wingCut = 0;        // mean depth of the wetted part of the low wing, m
+    this.wingWet = 0;        // fraction of the low half-wing under the surface
+    this.wingAt = 0;         // metres out from the root where the spray comes from
     this.wingSide = 1;
     this.wetness = 0;        // the greater of the two, for spray
     this.contactPos = new Float32Array(3);
@@ -118,7 +120,7 @@ export class SeaPlane {
     this.alt = 2.0; this.vy = 0; this.yawRate = 0; this.steerIn = 0;
     this.impact = 0; this.shake = 0; this.speed = 0; this.speedT = 0;
     this._primed = false; this._lagPrimed = false;
-    this.contact = 0; this.wingCut = 0; this.wetness = 0;
+    this.contact = 0; this.wingCut = 0; this.wingWet = 0; this.wingAt = 0; this.wetness = 0;
     this.camRig = null;
     this._lastSurf = undefined;
   }
@@ -339,16 +341,39 @@ export class SeaPlane {
     // is geometry - half a span out along the roll axis - and the sea under it
     // is taken as the centre reading, which over the half span of a light
     // floatplane is within the wave the probe already smooths over.
+    // A WING IS A LINE, NOT A POINT. The first cut of this tested only the TIP
+    // and then threw the spray from the tip whenever it was wet - so a wing
+    // barely dipping and a wing buried half its span made the same plume, in
+    // the same place, and neither was where the water was actually being cut.
+    //
+    // The low wing runs from the root at the CG out to the tip at halfSpan, and
+    // at distance s along it the wing is (pos.y - s*|sin roll|) above the sea.
+    // It enters the water at s0 = (pos.y - surf) / |sin roll|, so the wetted
+    // part is the segment s0..halfSpan: the spray comes from the MIDDLE of that
+    // segment, and how much there is follows its LENGTH. Rolling further does
+    // not move the plume outboard - it moves it INboard, along the wing, which
+    // is what the geometry does and what the screenshot showed it failing to do.
     const halfSpan = Math.max(p.spLength, 4) * p.spHalfSpan;
-    const tipDrop = Math.abs(Math.sin(this.roll)) * halfSpan;
+    const sinR = Math.abs(Math.sin(this.roll));
     this.wingSide = this.roll > 0 ? -1 : 1;               // which tip is the low one
-    this.wingCut = Math.max(0, (surf - (this.pos[1] - tipDrop)));
+    const above = this.pos[1] - surf;
+    // Where the wing crosses the surface, in metres out from the root. Negative
+    // means the root itself is under, so the whole wing is in.
+    const s0 = sinR > 1e-4 ? above / sinR : (above <= 0 ? -1e9 : 1e9);
+    const sIn = Math.max(0, Math.min(s0, halfSpan));      // start of the wetted run
+    this.wingWet = Math.max(0, (halfSpan - sIn) / halfSpan);
+    // Mean depth of the wetted run, which is what a spray plume scales with -
+    // not the tip's depth, which is its maximum.
+    this.wingCut = this.wingWet > 0 ? (halfSpan - sIn) * sinR * 0.5 : 0;
+    // ...and the point on the wing the water is being cut at.
+    this.wingAt = this.wingWet > 0 ? (sIn + halfSpan) * 0.5 : 0;
 
-    if (this.wingCut > 0 && this.va > 2) {
+    if (this.wingWet > 0 && this.va > 2) {
       // A wing dragging in water bites hard. Arcade-honest: it scrubs speed
       // and rolls the aircraft back toward level rather than cartwheeling it,
       // so a clumsy low pass costs you energy and a fright instead of the run.
-      const bite = clamp(this.wingCut / Math.max(halfSpan * 0.25, 0.5), 0, 1);
+      // The bite follows how MUCH wing is in, not how deep the tip is.
+      const bite = clamp(this.wingWet * 1.6, 0, 1);
       this.va = Math.max(0, this.va - bite * p.spWingBite * d);
       this.roll = lerp(this.roll, 0, 1 - Math.exp(-bite * p.spWingRight * d));
       this.hullLoad = Math.max(this.hullLoad, bite * 12);
@@ -360,12 +385,14 @@ export class SeaPlane {
     // two metres above the sea, which is where a CG-anchored plume looked like
     // it was coming from.
     const rx = Math.cos(this.heading), rz = Math.sin(this.heading);   // starboard
-    const cut = this.wingCut > 0 ? 1 : 0;
-    this.contactPos[0] = this.pos[0] + cut * this.wingSide * rx * halfSpan;
+    const at = this.wingWet > 0 ? this.wingAt : 0;
+    this.contactPos[0] = this.pos[0] + this.wingSide * rx * at;
     this.contactPos[1] = surf;
-    this.contactPos[2] = this.pos[2] + cut * this.wingSide * rz * halfSpan;
-    // How much water is being thrown, whatever is throwing it.
-    this.wetness = Math.max(this.contact, clamp(this.wingCut * 2.5, 0, 1));
+    this.contactPos[2] = this.pos[2] + this.wingSide * rz * at;
+    // How much water is being thrown, whatever is throwing it. The wing's share
+    // follows the WETTED LENGTH: a tip kissing the surface throws a wisp, half a
+    // wing buried throws a wall.
+    this.wetness = Math.max(this.contact, clamp(this.wingWet * 1.8, 0, 1));
 
     // The wake stamper's view of this vehicle.
     const fr = this.floatRig;
