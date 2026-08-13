@@ -643,6 +643,11 @@ export function createHarpoonHud({ harpoon, ctx } = {}) {
     } else {
       const lock = !!s.onTarget;
       set('scopeLock', lock, (v) => scope.classList.toggle('sf-scope-lock', v));
+      // The assist is live the whole time the creature is locked, so the
+      // reticle says so the whole time - dimmed, and only while the bright
+      // treatment is not already saying something stronger.
+      set('scopeAssist', locked && !lock,
+        (v) => scope.classList.toggle('sf-scope-assist', v));
       // Zero means the ray is pointed at open water, and "0 M" would read as a
       // range rather than as no answer.
       const lead = num(s.leadDist);
@@ -685,11 +690,12 @@ export function createHarpoonHud({ harpoon, ctx } = {}) {
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('keyup', onKeyUp);
       endDrag();
-      // Every other listener this module added is on one of these three
+      // Every other listener this module added is on one of these four
       // elements, so removing them takes the listeners with them.
       root.remove();
       scope.remove();
       go.remove();
+      lockGo.remove();
       style.remove();
     },
   };
