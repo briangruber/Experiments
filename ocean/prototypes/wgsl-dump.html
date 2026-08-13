@@ -1,0 +1,111 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — capture the WGSL three actually submits</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}</style>
+<pre id="out">running…</pre>
+
+<!--
+  An iPhone rejected the sky background pipeline with
+
+    "The combined byte size of all variables in the private address space
+     exceeds 8192 bytes"
+
+  which is WebKit's WGSL limit - Chromium's Tint has none, so every check here
+  passed while the real budget was blown. To shrink the shader under 8192 the
+  first step is to SEE it: hook GPUDevice.createShaderModule, build the sky, and
+  keep every module three submits. The fingerprint carries the codes out so a
+  node script can account for the private space the way WebKit does.
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { installWebGPUSwizzleShim } from './webgpu-shim.js';
+import { TslSky } from '../src/gpu/tsl/sky-driver.js';
+import { newParams } from '../src/presets.js';
+import { createDerived, derive } from '../src/derive.js';
+import { perspective, lookAt, mul, invert, mat4, v3, DEG } from '../src/math.js';
+
+installWebGPUSwizzleShim();
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+// The hook, before any device exists.
+const captured = [];
+const origCreate = GPUDevice.prototype.createShaderModule;
+GPUDevice.prototype.createShaderModule = function (desc) {
+  captured.push({ label: desc.label || '', code: desc.code || '' });
+  return origCreate.call(this, desc);
+};
+
+let fingerprint = null;
+try {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 64;
+  const renderer = new THREE.WebGPURenderer({ canvas, forceWebGL: false, antialias: false });
+  await renderer.init();
+  if (!renderer.backend?.isWebGPUBackend) throw new Error('needs the WebGPU backend to emit WGSL');
+
+  const params = newParams('Golden Hour Swell');
+  const d = createDerived();
+  derive(params, d);
+
+  const sky = new TslSky(renderer);
+  sky.updateLUT(params, d.sunDir, 12);
+
+  const RIG = { pos: [0, 12, 0], yaw: -0.6, pitch: -0.02, fov: 44, near: 0.1, far: 60000, time: 12.0 };
+  const targetPt = v3(
+    RIG.pos[0] + Math.cos(RIG.pitch) * Math.sin(RIG.yaw),
+    RIG.pos[1] + Math.sin(RIG.pitch),
+    RIG.pos[2] - Math.cos(RIG.pitch) * Math.cos(RIG.yaw),
+  );
+  const view = lookAt(new Float32Array(RIG.pos), targetPt, v3(0, 1, 0), mat4());
+  const proj = perspective(RIG.fov * DEG, 64 / 64, RIG.near, RIG.far, mat4());
+  const viewProj = mul(proj, view, mat4());
+  const invViewProj = invert(viewProj, mat4());
+
+  const target = new THREE.RenderTarget(64, 64, {
+    type: THREE.HalfFloatType, format: THREE.RGBAFormat, depthBuffer: true,
+  });
+  renderer.autoClear = false;
+  renderer.setRenderTarget(target);
+  renderer.clear(true, true, false);
+  try {
+    sky.drawBackground(params, {
+      camPos: new Float32Array(RIG.pos), invViewProj, viewProj,
+      sunDir: d.sunDir, moonDir: d.moonDir, windVec3: d.windVec3, time: RIG.time,
+    });
+  } catch (e) {
+    // The sandbox render bug may fire after module creation; the codes are
+    // already captured, which is all this page is for.
+    log('draw threw (module capture is what matters)', true, String(e.message).slice(0, 120));
+  }
+  renderer.setRenderTarget(null);
+
+  const mods = captured.map((c, i) => ({
+    i, label: c.label, bytes: c.code.length,
+    isBg: /skyBackground|cloud|march/i.test(c.label) || /cirrus|starfield|marchClouds|cloudDensity/i.test(c.code),
+    code: c.code,
+  }));
+  log('modules captured', mods.length > 0,
+    mods.map((m) => `#${m.i} ${m.label || '(unlabelled)'} ${m.bytes}B${m.isBg ? '  <- background' : ''}`).join('\n        '));
+
+  fingerprint = { modules: mods };
+} catch (e) {
+  log('capture WGSL', false, String(e.stack || e.message || e).slice(0, 600));
+}
+
+window.probeResult = { results, allOk: results.every((r) => r.ok), fingerprint };
+</script>

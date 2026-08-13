@@ -253,3 +253,31 @@ So it is the sandbox, not the port — but it does mean **anything that only
 presents is unverifiable here**. `boot()` therefore takes an `output` target, and
 `prototypes/three-app-smoke.html` captures into it: every pass of the pipeline
 runs, and only the swapchain blit is skipped.
+
+## 17. WebKit budgets 8 KB of private address space — and inlining is what spends it
+
+Three's WGSL builder declares **every inlined node variable at module scope as
+`var<private>`**, and WebKit's WGSL compiler rejects any module whose private
+space exceeds **8192 bytes** ("The combined byte size of all variables in the
+private address space exceeds 8192 bytes"). Chromium's Tint has no such limit,
+so nothing catches it until Safari/iOS. Fully inlined, the sky background
+fragment carried 1,891 private vars (~17.5 KB) — the light-cone unroll inlined
+the cloud density evaluator ten times.
+
+The fix is `Fn.setLayout()`: a layouted Fn compiles as a real WGSL function
+whose locals are function-scope (outside the budget) and whose body exists once.
+
+## 18. Only PURE functions may carry a layout
+
+`builder.buildFunctionNode` caches the generated function code **per backend,
+per Fn — not per program** (three.webgpu.js:52904). A layouted body that reads a
+uniform bakes the first program's binding name into the cached code; every later
+pipeline reuses it against its own bind layout. Measured: the LUT pass built
+first, the background pass reused `densities()`/`extinctionAt()`, and **100% of
+pixels came out wrong on WGSL** while GLSL misread 5% and failed to compile in
+dual-renderer pages. It compiles clean; only an image diff catches it.
+
+So: parameters and literals only — no uniform reads, no texture reads — in any
+layouted Fn. Pure noise/math helpers are the bulk of the inlining anyway;
+pure-only layouts took the sky from 17.5 KB to 4.4 KB of private space while
+staying bit-identical to the unlayouted image on both backends.

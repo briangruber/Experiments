@@ -363,3 +363,42 @@ export function setCloudUniforms( p, ctx ) {
   uCloudFade.value = p.cloudFade;
 
 }
+
+
+// THE LAYOUT RULE, LEARNED THE EXPENSIVE WAY: only PURE functions may carry a
+// layout - parameters and literals only, no uniform and no texture reads.
+// builder.buildFunctionNode caches the generated code per backend PER Fn, not
+// per program (three.webgpu.js:52904). A layouted body that references a
+// uniform bakes the FIRST program's binding name into the cached code; every
+// later pipeline reuses it against its own, different bind layout. Measured:
+// the sky LUT built first, the background pass reused densities()/extinctionAt()
+// with the LUT's bindings, and every pixel came out wrong on WGSL (100%/16000)
+// while GLSL misread 5% and failed to compile in dual-renderer pages. A pure
+// function's code references nothing outside itself, so the cache is safe.
+// ---- WGSL function layouts --------------------------------------------------
+// setLayout() makes three compile a TSL Fn as a REAL shader function instead of
+// inlining its body at every call site. This is not an optimisation nicety here,
+// it is what lets the sky exist on iOS at all:
+//
+//   Three's WGSL builder declares every inlined node variable at MODULE scope as
+//   var<private>, and WebKit enforces a hard 8192-byte budget on the private
+//   address space. Fully inlined, the background pass emitted 1,891 private vars
+//   (~17.5 KB) - the light-cone unroll alone inlines the cloud density evaluator
+//   ten times - and WebKit refused the pipeline:
+//
+//     "The combined byte size of all variables in the private address space
+//      exceeds 8192 bytes"      (captured from an iPhone by the app's own panel)
+//
+//   As real functions, locals live in FUNCTION address space, outside that
+//   budget, and each helper has one body instead of N inlined copies. Chromium
+//   imposes no such limit, which is why nothing here ever caught it.
+//
+// Layout names carry the abyssal prefix so they cannot collide with three's own
+// layouted helpers in the same shader module.
+
+// IMPURE, NOT LAYOUTED (reads uniforms - see the layout rule above)
+// cloudWeather.setLayout( { name: 'abyssal_cloudWeather', type: 'vec2', inputs: [ { name: 'xz', type: 'vec2' } ] } );
+// IMPURE, NOT LAYOUTED (reads uniforms - see the layout rule above)
+// heightProfile.setLayout( { name: 'abyssal_heightProfile', type: 'float', inputs: [ { name: 'h', type: 'float' }, { name: 'type', type: 'float' } ] } );
+// IMPURE, NOT LAYOUTED (reads uniforms - see the layout rule above)
+// cloudDensity.setLayout( { name: 'abyssal_cloudDensity', type: 'float', inputs: [ { name: 'p', type: 'vec3' }, { name: 'alt', type: 'float' }, { name: 'lod', type: 'float' } ] } );
