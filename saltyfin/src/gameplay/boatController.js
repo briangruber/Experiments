@@ -9,8 +9,12 @@ const MAX_SPEED = 9.2;        // m/s flat out
 const REVERSE_SPEED = 3.0;
 const ACCEL = 4.6;
 const DRAG = 0.72;
-const TURN_RATE = 1.15;       // rad/s at speed
-const TURN_AT_REST = 0.30;
+const TURN_RATE = 1.30;       // rad/s at speed
+// A boat that will not turn until it is already moving is a boat that feels
+// broken every time you are lining something up — which is most of the time
+// now that there is something to line up ON. Nearly double the authority at
+// rest: she still swings slowly on the outboard, but she swings.
+const TURN_AT_REST = 0.58;
 
 // How much water she needs under her, and the fastest she will ever be refloated.
 // The cap is the important one: it is what keeps a grounding a nudge rather than a
@@ -43,6 +47,9 @@ export function createBoatController({ ctx, input, water, terrain }) {
   // The latched throttle setpoint, 0..1. Forward only: reverse is a
   // manoeuvring gear and stays held-only.
   let cruise = 0;
+  // Seconds the player's own hands still own the helm after touching it, so
+  // the escort autopilot cannot argue with a correction mid-turn.
+  let manualT = 0;
 
   return {
     teleport(x, z, heading = b.heading) {
@@ -95,8 +102,40 @@ export function createBoatController({ ctx, input, water, terrain }) {
       // 0.45/s leaves about a third of it, which is what "ease off a little"
       // should mean. Stopping outright is just holding the brake on.
       else if (raw < -0.02) cruise = Math.max(0, cruise - dt * 0.45);
-      const throttleIn = raw < -0.02 ? raw : cruise;
-      const turnIn = hold ? 0 : input.axis('turn');
+      let throttleIn = raw < -0.02 ? raw : cruise;
+      let turnIn = hold ? 0 : input.axis('turn');
+
+      // THE ESCORT. With a leviathan locked, harpoon.js publishes a station
+      // off her beam and the helm sails to it by itself — steering toward the
+      // point, easing the throttle to close the distance and holding once
+      // there. It is an autopilot, not a seizure: any real input on either
+      // axis takes over instantly and keeps the helm for a couple of seconds
+      // afterwards, so the player is never fighting their own boat.
+      const escort = ctx.escort;
+      const manual = Math.abs(turnIn) > 0.05 || Math.abs(raw) > 0.05;
+      if (manual) manualT = 1.6;
+      else manualT = Math.max(0, manualT - dt);
+      if (escort && !hold && manualT <= 0) {
+        const ex = escort.x - b.position.x;
+        const ez = escort.z - b.position.z;
+        const range = Math.hypot(ex, ez);
+        // Point at the station while it is far, at HER while sitting on it,
+        // so the boat arrives and then turns to watch rather than circling.
+        const aimAtHer = range < 14 && escort.look;
+        const tx = aimAtHer ? escort.look.x - b.position.x : ex;
+        const tz = aimAtHer ? escort.look.z - b.position.z : ez;
+        let dh = Math.atan2(tx, -tz) - b.heading;
+        while (dh > Math.PI) dh -= Math.PI * 2;
+        while (dh < -Math.PI) dh += Math.PI * 2;
+        turnIn = THREE.MathUtils.clamp(dh * 1.5, -1, 1);
+        // Throttle on distance, and backed off when she is off the bow so the
+        // boat does not sprint sideways: a station 30 m abeam is a gentle
+        // curve, not a drag race.
+        const want = THREE.MathUtils.clamp((range - 6) / 26, 0, 1)
+          * (0.35 + 0.65 * Math.max(0, Math.cos(dh)));
+        cruise += (want - cruise) * Math.min(1, dt * 1.4);
+        throttleIn = cruise;
+      }
       // Shift is the throttle wide open. It was 1.35x, which on a hull that
       // already accelerates over about three seconds is a change you have to
       // look at the speed readout to notice — and a "go faster" key you cannot

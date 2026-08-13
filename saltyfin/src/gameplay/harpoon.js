@@ -90,8 +90,23 @@ const AIM_YAW_LIMIT = 1.25;  // rad either side of the bow; you cannot throw
 // stopped at -12.6 and pinned every reticle to its floor, unable to point at
 // the animal it was aiming at. -40 degrees covers the whole envelope.
 const AIM_PITCH_MIN = -0.72, AIM_PITCH_MAX = 0.62;
-const LOCK_ANGLE = 0.085;    // rad between the aim ray and an animal to read
-                             // as ON TARGET
+// A forgiving cone. 0.085 rad was five degrees of slop on a target the size
+// of a bus at forty metres, and the report was simply "too hard to aim". At
+// 0.20 the reticle finds her when it is near her, which is the difference
+// between aiming and fighting the aim.
+const LOCK_ANGLE = 0.20;
+// Aim assist, and it only ever exists while a creature is LOCKED — the player
+// has said which animal they mean, so the reticle is allowed to want it. It
+// is a pull, not a snap: at 2.4 rad/s of convergence a wild aim still takes a
+// beat to settle, and any drag the player makes wins instantly because it is
+// applied on top.
+const ASSIST_RATE = 2.4;
+const ASSIST_CONE = 0.45;    // rad; beyond this the assist lets go entirely
+// --- the lock ----------------------------------------------------------------
+const LOCK_RANGE = 150;      // m, how far away a creature can be claimed
+const LOCK_DROP = 260;       // m, past which the lock breaks on its own
+const STATION_SIDE = 26;     // m off her beam the boat likes to sit
+const STATION_LEAD = 4;      // m ahead of her, so the bow is level with her eye
 // The auto-reel. A miss used to cost a 2.4 s cooldown and a hunt for the
 // button; now the line comes home by itself and the next throw is a beat
 // away, because the interesting part of a harpoon is the throwing.
@@ -119,6 +134,10 @@ export function createHarpoon(opts = {}) {
     aimPitch: 0,
     onTarget: false,
     leadDist: 0,
+    locked: false,
+    lockable: false,
+    lockDist: 0,
+    escorting: false,
     msg: '',
     msgT: 9,
     cutHold: 0,
@@ -255,6 +274,8 @@ export function createHarpoon(opts = {}) {
     let aimPitch = 0.12;
     let reelT = 0;           // seconds into the auto-reel
     let aimStarveT = 0;      // seconds the scope has had nothing to look at
+    let locked = null;       // the animal the player has claimed
+    const _station = new THREE.Vector3();
     let camFirst = true;     // snap the camera on the frame it is taken
     const _camPos = new THREE.Vector3();
     const _camLook = new THREE.Vector3();
@@ -482,7 +503,11 @@ export function createHarpoon(opts = {}) {
         _rel.copy(_b2).sub(_a);
         const tSeg = clamp(_p.copy(spearPos).sub(_a).dot(_rel) / _rel.lengthSq(), 0, 1);
         _p.copy(_a).addScaledVector(_rel, tSeg);
-        const hitR = 3.4 * a.scale;
+        // Generous, deliberately. She is thirty-four metres of animal and the
+        // throw is made from a moving boat at a moving target through a lens
+        // that is 26 degrees wide; a spear that has to thread a 3.4 m needle
+        // is the difference between a hunt and a chore.
+        const hitR = 4.6 * a.scale;
         if (spearPos.distanceToSquared(_p) < hitR * hitR) {
           attachAlong = clamp((0.5 - tSeg) * 2 * L, -9 * a.scale, 11 * a.scale);
           state.flight = false;
@@ -788,7 +813,94 @@ export function createHarpoon(opts = {}) {
       aimPitch = clamp(aimPitch + (Number(dPitch) || 0), AIM_PITCH_MIN, AIM_PITCH_MAX);
     }
 
+    // --- the lock, and the escort it drives ---------------------------------
+    //
+    // Locking is the answer to "I can't move around to see them": you claim an
+    // animal and the boat keeps station off her beam by itself, so the whole
+    // problem of chasing a thirty-four metre shadow around a lagoon with a
+    // thumb-stick simply stops being the player's job. The camera frames the
+    // pair, and the aim assist keys off the same choice — you have said which
+    // one you mean, so the reticle is allowed to help you point at her.
+
+    function lockOn() {
+      const near = nearestAnimal();
+      if (!near.animal || near.dist > LOCK_RANGE) return false;
+      locked = near.animal;
+      camFirst = true;
+      setMsg('Locked on. The helm will hold station off her beam.');
+      return true;
+    }
+
+    function lockOff(quiet) {
+      if (!locked) return;
+      locked = null;
+      ctx.escort = null;
+      state.escorting = false;
+      camFirst = true;
+      if (!quiet) setMsg('Lock released.');
+    }
+
+    /** Where the boat wants to be: off her beam, a little ahead. */
+    function stationPoint(out) {
+      const p = locked.state.position;
+      _fwd.copy(locked.velocity).setY(0);
+      if (_fwd.lengthSq() < 1e-4) _fwd.set(0, 0, -1);
+      _fwd.normalize();
+      // Whichever beam the boat is already nearer, so the escort never cuts
+      // across her nose to swap sides.
+      _side.set(-_fwd.z, 0, _fwd.x);
+      _rel.set(ctx.boat.position.x - p.x, 0, ctx.boat.position.z - p.z);
+      if (_rel.dot(_side) < 0) _side.multiplyScalar(-1);
+      return out.set(
+        p.x + _side.x * STATION_SIDE + _fwd.x * STATION_LEAD, 0,
+        p.z + _side.z * STATION_SIDE + _fwd.z * STATION_LEAD,
+      );
+    }
+
+    function stepLock(dt) {
+      if (!locked || !locked.state) return;
+      const p = locked.state.position;
+      const d = Math.hypot(p.x - ctx.boat.position.x, p.z - ctx.boat.position.z);
+      state.lockDist = d;
+      if (d > LOCK_DROP) { lockOff(); setMsg('She has outrun the lock.'); return; }
+      // The autopilot is a request, not a seizure: boatController blends it in
+      // and any real helm input overrides it (see ctx.escort there).
+      stationPoint(_station);
+      ctx.escort = { x: _station.x, z: _station.z, look: { x: p.x, z: p.z } };
+      state.escorting = true;
+      void dt;
+    }
+
     /** Is the aim ray near a hookable animal? Fills state.onTarget/leadDist. */
+    /**
+     * The assist. With a creature locked, the aim converges on the lead
+     * solution — where the spear and the animal would meet — at a bounded
+     * rate, and only while the reticle is already in the neighbourhood. It
+     * cannot take the shot for you: it moves the aim, you still choose when
+     * to release, and a drag applied the same frame wins outright.
+     */
+    function assistAim(dt) {
+      if (!locked || !locked.state) return;
+      bowPoint(_bow);
+      const p = locked.state.position;
+      const d = _bow.distanceTo(p);
+      if (d < 1e-3) return;
+      const tFly = d / SPEAR_V;
+      _a.copy(p).addScaledVector(locked.velocity, tFly);
+      const flat = Math.hypot(_a.x - _bow.x, _a.z - _bow.z);
+      const wantYaw = Math.atan2(_a.x - _bow.x, -(_a.z - _bow.z));
+      const wantPitch = Math.atan2((_a.y - _bow.y) + 0.5 * SPEAR_G * tFly * tFly, flat);
+      let dy = wantYaw - aimYaw;
+      while (dy > Math.PI) dy -= TAU;
+      while (dy < -Math.PI) dy += TAU;
+      const dp = wantPitch - aimPitch;
+      const off = Math.hypot(dy, dp);
+      if (off > ASSIST_CONE || off < 1e-4) return;
+      // Ease off as it arrives, so the reticle settles instead of ringing.
+      const k = Math.min(1, dt * ASSIST_RATE);
+      nudgeAim(dy * k, dp * k);
+    }
+
     function evaluateAim() {
       bowPoint(_bow);
       aimDir(_aimDir);
@@ -873,6 +985,38 @@ export function createHarpoon(opts = {}) {
       _camLook.copy(_mid2).lerp(b.position, 0.22);
       _camLook.y = Math.max(_camLook.y, -2.5);
       applyCamera(dt, 52, 2.4);
+    }
+
+    /**
+     * The hunt: locked but not yet committed. Behind and above the boat's
+     * quarter, turned so the locked animal sits in the far half of the frame
+     * — you can see where you are going AND what you are going after, which
+     * is the shot the player was asking for when they said they could not
+     * move around to see them.
+     */
+    function huntCamera(dt) {
+      const b = ctx.boat;
+      const p = locked.state.position;
+      _mid2.copy(b.position).add(p).multiplyScalar(0.5);
+      _rel.set(p.x - b.position.x, 0, p.z - b.position.z);
+      const span = Math.max(_rel.length(), 8);
+      _rel.multiplyScalar(1 / span);
+      // Stand off the line between them, on the side the camera is already,
+      // and far enough back that both ends fit a 50 degree lens.
+      _side.set(-_rel.z, 0, _rel.x);
+      _a.copy(camera.position).sub(_mid2);
+      if (_a.dot(_side) < 0) _side.multiplyScalar(-1);
+      const back = clamp(span * 0.62 + 20, 26, 62);
+      const high = clamp(span * 0.22 + 11, 13, 26);
+      _camPos.copy(_mid2).addScaledVector(_side, back * 0.62)
+        .addScaledVector(_rel, -back * 0.62);
+      _camPos.y = _mid2.y + high;
+      const surf = water()?.sampleHeight?.(_camPos.x, _camPos.z, ctx.time) ?? 0;
+      _camPos.y = Math.max(_camPos.y, surf + 3.5);
+      // Favour the boat a little: it is the thing being steered.
+      _camLook.copy(_mid2).lerp(b.position, 0.25);
+      _camLook.y = Math.max(_camLook.y, -3);
+      applyCamera(dt, 50, 2.2);
     }
 
     function applyCamera(dt, fov, rate) {
@@ -979,8 +1123,17 @@ export function createHarpoon(opts = {}) {
         aimStarveT = 0;
       }
 
+      // The lock: claimable, held, and the station it asks the helm for.
+      if (locked && !locked.state) locked = null;
+      if (locked && state.tethered && target !== locked) lockOff(true);
+      if (locked) stepLock(dt);
+      else { ctx.escort = null; state.escorting = false; state.lockDist = 0; }
+      state.locked = !!locked;
+      const lockNear = nearestAnimal();
+      state.lockable = !locked && !!lockNear.animal && lockNear.dist <= LOCK_RANGE;
+
       ctx.lineOut = state.tethered;
-      if (state.aiming) evaluateAim();
+      if (state.aiming) { assistAim(dt); evaluateAim(); }
       if (state.flight) stepFlight(dt);
       if (state.reeling) stepReel(dt);
       if (state.tethered) stepTether(dt);
@@ -995,6 +1148,7 @@ export function createHarpoon(opts = {}) {
       if (state.tethered) fightCamera(dt);
       else if (state.flight) flightCamera(dt);
       else if (state.aiming) aimCamera(dt);
+      else if (locked) huntCamera(dt);
       else { camFirst = true; releaseCamera(); }
 
       layoutRope(state.tethered || state.flight || state.reeling);
@@ -1011,7 +1165,12 @@ export function createHarpoon(opts = {}) {
       cancelAim: exitAim,
       nudgeAim,
       /** True while this module is writing the camera; main stands the chase rig down. */
-      get ownsCamera() { return state.aiming || state.flight || state.tethered; },
+      get ownsCamera() {
+        return state.aiming || state.flight || state.tethered || !!locked;
+      },
+      lockOn,
+      lockOff: () => lockOff(),
+      toggleLock() { if (locked) lockOff(); else lockOn(); },
       cut() { if (state.tethered) release('You cut the line free.'); },
       holdCut(v) { cutHeld = !!v && state.tethered; },
       applyEnv() {},

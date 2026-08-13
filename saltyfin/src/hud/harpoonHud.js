@@ -8,13 +8,17 @@
 // it reads is treated as absent-until-proven so an older harpoon.js that has
 // never heard of aiming still drives the parts it does know about.
 //
-// Three surfaces:
+// Four surfaces:
 //
 //   - one pill button, bottom-right, stacked above the fishing cast button.
 //     It is the whole out-of-scope control scheme: tap to raise the spear
 //     while the shot is offered, press-and-hold to cut once the line is live.
 //     The hold's progress is painted INTO the button as a left-to-right fill,
 //     so the gesture and its feedback are the same pixels.
+//   - a second pill above it: the lock. Tap to take the nearest leviathan, tap
+//     again to drop it. Locked, it carries the range so the player can read
+//     the closing without opening the scope, and it is the only place the aim
+//     assist announces itself outside the scope.
 //   - the scope: a full-screen aiming view with a vignette, a reticle, a
 //     range readout and its own FIRE. It is the only place a throw can be
 //     started from, because a throw you did not aim is a throw you did not
@@ -24,8 +28,8 @@
 //     text fades in and out as the sim reports beats (hit, snap, give-up).
 //
 // The keyboard mirror is H: raise the spear while the shot is offered, fire
-// while scoped, hold-to-cut while tethered. This module owns that listener the
-// same way fishingHud owns KeyF.
+// while scoped, hold-to-cut while tethered. L toggles the lock, in or out of
+// the scope. This module owns that listener the same way fishingHud owns KeyF.
 
 const CSS = `
 /* --- the call to action, stacked 56px above #sf-fish-go ------------------- */
@@ -48,6 +52,52 @@ const CSS = `
 /* In range but the animal is too deep to reach: the button stays, dimmed,
    naming the reason - absence read as a bug, a dim button reads as "wait". */
 #sf-harpoon-go.sf-harpoon-dim { opacity: .45; cursor: default; }
+
+/* --- the lock, stacked another 56px above #sf-harpoon-go ------------------ */
+/* Same shell as the harpoon pill on purpose: they are the two halves of one
+   control scheme - pick the animal, then throw at it - and a second shape
+   would read as a second system. The rise is the same 56px the harpoon pill
+   takes over the cast button, so the column stays even as buttons come and
+   go. */
+#sf-lock-go { position: fixed; z-index: 46; pointer-events: auto; cursor: pointer;
+  right: max(14px, env(safe-area-inset-right));
+  bottom: calc(262px + env(safe-area-inset-bottom));
+  display: flex; align-items: center; gap: 7px;
+  padding: 9px 14px 9px 11px; border-radius: 999px;
+  border: 1px solid rgba(206,232,255,.24); background: rgba(8,20,36,.52);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  color: rgba(226,242,255,.86);
+  font: 700 10px/1 ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: .16em; text-transform: uppercase;
+  -webkit-user-select: none; user-select: none; touch-action: none;
+  -webkit-touch-callout: none; }
+#sf-lock-go svg { width: 15px; height: 15px; fill: currentColor; }
+#sf-lock-go.sf-lock-hidden { display: none; }
+
+/* The label and the range are a column so the number hangs under the word
+   without widening the pill; :empty drops the number out of the flex flow
+   entirely, so an unlocked pill is not a word with a gap under it. */
+#sf-lock-go .sf-lock-txt { display: flex; flex-direction: column;
+  align-items: flex-start; gap: 3px; }
+#sf-lock-go .sf-lock-d { font: 700 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .12em; color: rgba(255,224,172,.78); }
+#sf-lock-go .sf-lock-d:empty { display: none; }
+
+/* Held: the same amber as #sf-scope-fire, because it is the same promise -
+   this is the animal the spear is being helped toward. */
+#sf-lock-go.sf-lock-lit { border-color: rgba(255,200,107,.5); color: #ffe0ac;
+  background-color: rgba(44,28,10,.55);
+  box-shadow: 0 0 0 1px rgba(255,200,107,.35), 0 0 18px rgba(255,183,77,.3); }
+/* After the lit rule, so a press still reads as a press on a locked pill:
+   equal specificity, and source order decides. */
+#sf-lock-go:active, #sf-lock-go.sf-lock-down {
+  background-color: rgba(122,178,232,.36); color: #fff; }
+
+/* The autopilot is actively holding station off the beam. Only the glyph
+   breathes - the label has to stay readable, and a pulsing button would read
+   as an alarm rather than as "the helm has this". */
+#sf-lock-go.sf-lock-escort svg { animation: sf-lock-breathe 1.9s ease-in-out infinite; }
+@keyframes sf-lock-breathe { 0%, 100% { opacity: 1; } 50% { opacity: .42; } }
 
 /* --- the scope ------------------------------------------------------------- */
 /* This one IS display-toggled, and that is not the rule being broken: the rule
@@ -83,6 +133,15 @@ const CSS = `
 #sf-scope .sf-scope-dot { fill: currentColor; stroke: none; }
 #sf-scope .sf-scope-ring { fill: none; stroke: currentColor; stroke-width: 1.1;
   opacity: 0; }
+/* Locked, but the ray is not on the animal yet. The aim assist is bending the
+   shot toward the lead solution the whole time, and a reticle that looked
+   exactly like an unassisted one would hide that. So: the same amber, held
+   back - dimmer, and a dashed ring instead of a solid one. Written ABOVE the
+   lock rules and painted only while onTarget is false, so it can never dilute
+   the bright state by either route. */
+#sf-scope.sf-scope-assist .sf-scope-ret { color: rgba(255,200,107,.58); }
+#sf-scope.sf-scope-assist .sf-scope-ring { opacity: .55; stroke-dasharray: 3 5; }
+
 /* One class on the root drives every part of the lock, so the crosshair, the
    ring, the number and the word can never disagree about whether there is
    something in front of the spear. */
@@ -180,6 +239,15 @@ const SVG_SPEAR = '<svg viewBox="0 0 24 24" aria-hidden="true">'
   + ' 2.9-2.9-.7-2 8.9-8.9 2.1 2.1 1.3-6.2Z"/>'
   + '</svg>';
 
+// A target: ring, gap, dot. Drawn as one evenodd path so it inherits the
+// pill's currentColor fill like the spear does, rather than needing a stroke
+// colour of its own that the amber state would then have to chase.
+const SVG_TARGET = '<svg viewBox="0 0 24 24" aria-hidden="true">'
+  + '<path fill-rule="evenodd" d="M12 2.6a9.4 9.4 0 1 0 0 18.8 9.4 9.4 0 1 0 0-18.8Z'
+  + 'M12 4.8a7.2 7.2 0 1 1 0 14.4 7.2 7.2 0 1 1 0-14.4Z'
+  + 'M12 9.4a2.6 2.6 0 1 0 0 5.2 2.6 2.6 0 1 0 0-5.2Z"/>'
+  + '</svg>';
+
 // The crosshair: four arms with a clear gap at the middle so the animal is
 // never hidden by the thing pointing at it, a dot for the exact axis, a
 // perpendicular tick capping each arm, and the lock ring that only the amber
@@ -218,6 +286,20 @@ export function createHarpoonHud({ harpoon, ctx } = {}) {
   go.title = 'Harpoon  (H)';
   document.body.appendChild(go);
 
+  // The lock. Its own element rather than a mode of the harpoon pill: the two
+  // are live at the same time on the same animal, and a control that changed
+  // meaning under the thumb is how a player loses a lock reaching for a throw.
+  const lockGo = document.createElement('div');
+  lockGo.id = 'sf-lock-go';
+  lockGo.dataset.sfUi = '';
+  lockGo.className = 'sf-lock-hidden';
+  lockGo.innerHTML = SVG_TARGET
+    + '<span class="sf-lock-txt">'
+    + '<span class="sf-lock-t">LOCK ON</span><span class="sf-lock-d"></span>'
+    + '</span>';
+  lockGo.title = 'Lock on  (L)';
+  document.body.appendChild(lockGo);
+
   // The scope. data-sf-ui is the whole reason a drag in here aims instead of
   // orbiting the chase camera as well: core/input.js latches on the press and
   // refuses any gesture that started inside a [data-sf-ui] subtree.
@@ -254,6 +336,8 @@ export function createHarpoonHud({ harpoon, ctx } = {}) {
   document.body.appendChild(root);
 
   const goLabel = go.querySelector('.sf-harpoon-go-t');
+  const lockLabel = lockGo.querySelector('.sf-lock-t');
+  const lockDist = lockGo.querySelector('.sf-lock-d');
   const scopeHint = scope.querySelector('.sf-scope-hint');
   const scopeDist = scope.querySelector('.sf-scope-d');
   const scopeFire = scope.querySelector('#sf-scope-fire');
@@ -310,6 +394,23 @@ export function createHarpoonHud({ harpoon, ctx } = {}) {
   // Kill the synthesized click / long-press callout on touch; the pointer
   // events above already fired by the time this runs.
   go.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
+
+  // The lock is one gesture with no second meaning, so it acts on the press
+  // like FIRE does. toggleLock() is asked for the decision rather than reading
+  // state.locked and picking lockOn/lockOff here - the sim knows whether a
+  // creature is still there to lock, and this file must never be the second
+  // place that opinion lives.
+  const lockDown = (e) => {
+    e.preventDefault();
+    lockGo.classList.add('sf-lock-down');
+    call('toggleLock');
+  };
+  const lockUp = () => lockGo.classList.remove('sf-lock-down');
+  lockGo.addEventListener('pointerdown', lockDown);
+  lockGo.addEventListener('pointerup', lockUp);
+  lockGo.addEventListener('pointerleave', lockUp);
+  lockGo.addEventListener('pointercancel', lockUp);
+  lockGo.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
 
   // --- the scope's drag ------------------------------------------------------
   //
@@ -418,6 +519,18 @@ export function createHarpoonHud({ harpoon, ctx } = {}) {
     const s = harpoon && harpoon.state;
     if (!s) return;
 
+    // L is the lock, and it works whether or not the scope is up: while scoped
+    // the lock IS the aim assist, so taking one or dropping it mid-aim is a
+    // choice worth having. It has to be tested above the aiming switch below,
+    // whose `default: return` would otherwise eat the key. Edge only - holding
+    // L would toggle the lock on and off at the repeat rate.
+    if (e.code === 'KeyL') {
+      if (e.repeat) return;
+      e.preventDefault();
+      call('toggleLock');
+      return;
+    }
+
     if (s.aiming) {
       switch (e.code) {
         case 'ArrowLeft': e.preventDefault(); call('nudgeAim', -AIM_STEP, 0); return;
@@ -493,6 +606,32 @@ export function createHarpoonHud({ harpoon, ctx } = {}) {
         ? `linear-gradient(90deg, rgba(255,138,91,.55) ${v}%, rgba(255,138,91,0) ${v}%)`
         : '';
     });
+
+    // ---- the lock -----------------------------------------------------------
+    // Every field here may be missing entirely - an older harpoon.js knows
+    // nothing about locking - and absent has to mean "no lock", never a pill
+    // offering a control the sim cannot honour.
+    const locked = !!s.locked;
+    const lockable = !!s.lockable;
+    // Offered when there is a lock to take or one to drop, and gone during the
+    // capsize for the same reason the harpoon pill is. While the scope is up
+    // the reticle already says whether the assist is on, and a pill under a
+    // full-screen plate is a button nobody can press.
+    const lockGoOn = (locked || lockable) && !s.capsizing && !aiming;
+    set('lockOn', lockGoOn, (v) => lockGo.classList.toggle('sf-lock-hidden', !v));
+    set('lockLit', locked, (v) => lockGo.classList.toggle('sf-lock-lit', v));
+    set('lockEsc', locked && !!s.escorting,
+      (v) => lockGo.classList.toggle('sf-lock-escort', v));
+    set('lockLabel', locked ? 'LOCKED' : 'LOCK ON', (v) => { lockLabel.textContent = v; });
+    set('lockTitle', locked ? 'Drop lock  (L)' : 'Lock on  (L)',
+      (v) => { lockGo.title = v; });
+    // Whole metres. Both animals are moving, so the raw number changes every
+    // frame, and the quantised guard is what keeps this from being a text
+    // node rewritten sixty times a second for digits nobody can read. Zero
+    // reads as no answer rather than as a range, same as the scope's readout.
+    const lockD = num(s.lockDist);
+    set('lockDist', locked && lockD > 0 ? `${Math.round(lockD)} M` : '',
+      (v) => { lockDist.textContent = v; });
 
     // ---- the scope ----------------------------------------------------------
     set('scopeOn', aiming, (v) => scope.classList.toggle('sf-scope-on', v));

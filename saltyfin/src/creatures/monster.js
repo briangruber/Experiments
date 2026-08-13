@@ -1469,10 +1469,22 @@ export function createMonster(opts = {}) {
         // time by the POD table (closest pair 178 m apart), so nothing has to be
         // tested per frame.
         if (isPrimary) {
-          if (seabed(bx, bz) < minFloor) _tgt.set(bx, 0, bz);
-          else _tgt.set(HOME_X, 0, HOME_Z);
+          // Her circuit is centred NEAR the player, not ON him. Centring it on
+          // the boat meant the circuit radius carried her straight over the
+          // hull twice a lap and she read as parked under it — "they seem to
+          // want to stay under my boat so I can't move around to see them".
+          // The centre now stands off by the circuit's own radius, so she
+          // swims her lap in view and the player follows her instead of
+          // wearing her.
+          if (seabed(bx, bz) < minFloor) {
+            _v.set(anchor.x - bx, 0, anchor.z - bz);
+            if (_v.lengthSq() < 1) _v.set(0, 0, -1);
+            _v.normalize();
+            const stand = spec.r * spec.k * 0.9 + 40;
+            _tgt.set(bx + _v.x * stand, 0, bz + _v.z * stand);
+          } else _tgt.set(HOME_X, 0, HOME_Z);
           deepenAnchor(_tgt);
-          anchor.lerp(_tgt, 1 - Math.exp(-dt / 22));
+          anchor.lerp(_tgt, 1 - Math.exp(-dt / 26));
         }
 
         if (phase === 'cruise') {
@@ -1485,7 +1497,10 @@ export function createMonster(opts = {}) {
             _dir.set(bx - position.x, 0, bz - position.z);
             if (_dir.lengthSq() < 1) _dir.copy(velocity).setY(0);
             _dir.normalize();
-            _tgt.set(bx + _dir.x * 70, 0, bz + _dir.z * 70);
+            // ACROSS the bow, not through the keel: the pass is aimed at a
+            // point 34 m off the boat's beam, so it is something you watch go
+            // by rather than something that lives under the floorboards.
+            _tgt.set(bx + _dir.x * 70 - _dir.z * 34, 0, bz + _dir.z * 70 + _dir.x * 34);
             pushDeep(_tgt, minFloor);
             const lim = floorLimit(_tgt.x, _tgt.z);
             steerTo(_tgt.x, Math.min(-11, Math.max(-20, lim)), _tgt.z, 5.4, dt);
@@ -1591,7 +1606,11 @@ export function createMonster(opts = {}) {
           const away = _dir.length();
           if (away < 1) _dir.copy(velocity).setY(0);
           _dir.normalize();
-          _tgt.set(bx + _dir.x * 40, 0, bz + _dir.z * 40);
+          // Aim to pass ABEAM of the boat rather than straight through it: a
+          // point 40 m along her approach line and 30 m off it. She still
+          // arrives, still rises, still breaches on the quest's cue — she
+          // simply stops using the hull as a hat.
+          _tgt.set(bx + _dir.x * 40 - _dir.z * 30, 0, bz + _dir.z * 40 + _dir.x * 30);
           pushDeep(_tgt, minFloor);
           const lim = floorLimit(_tgt.x, _tgt.z);
           steerTo(_tgt.x, Math.min(-7.5, Math.max(-depthWant, lim)), _tgt.z, 4.6 + 2.6 * rise, dt);
