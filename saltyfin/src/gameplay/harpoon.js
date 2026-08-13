@@ -101,7 +101,12 @@ const LOCK_ANGLE = 0.20;
 // beat to settle, and any drag the player makes wins instantly because it is
 // applied on top.
 const ASSIST_RATE = 2.4;
-const ASSIST_CONE = 0.45;    // rad; beyond this the assist lets go entirely
+// Generous, because LOCKED is a statement of intent: the player has already
+// said which animal they mean, so the reticle should help them find her from
+// most of the way round the bow rather than only when they are nearly there.
+// At 0.45 rad the assist quit at 26 degrees off, which is exactly the case
+// that needed it.
+const ASSIST_CONE = 1.2;     // rad; beyond this the assist lets go entirely
 // --- the lock ----------------------------------------------------------------
 const LOCK_RANGE = 150;      // m, how far away a creature can be claimed
 const LOCK_DROP = 260;       // m, past which the lock breaks on its own

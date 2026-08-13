@@ -167,6 +167,10 @@ const SOUND_ABEAM = 60;     // metres to the side of the boat it aims for
 // player can see the whole of her and turn to face her, close enough that she
 // is plainly interested in the boat rather than passing by.
 const APPROACH_ABEAM = 38;
+// The hard floor on how close any un-hooked animal will swim to the boat.
+// Comfortably outside her own body length so the player can see all of her,
+// and well inside the sixty-metre throw so she is still a target.
+const KEEP_OFF = 26;
 const SOUND_AHEAD = 30;     // and ahead, so the crossing happens off the bow
 
 // --- scratch (module scope; update() allocates nothing) ---------------------
@@ -1721,6 +1725,25 @@ export function createMonster(opts = {}) {
             5.0 - 2.0 * clamp(phaseT / 14, 0, 1), dt);
           speed = velocity.length();
           if (phaseT > 20) { state.alerted = false; nearDisturbT = 0; setPhase('cruise'); }
+        }
+
+        // PERSONAL SPACE. The same argument as the reef bail-out below, for
+        // the same reason: a phase only vets its target, and every route to a
+        // target near the player eventually runs over him. Chasing that
+        // through each phase in turn fixed the approach and left the flyby,
+        // and would have left the next one too — so this is a floor under all
+        // of them. Inside KEEP_OFF she peels away, harder the closer she is.
+        //
+        // Not while hooked (the fight is meant to be close) and not while
+        // breaching (the leap owns her position outright).
+        if (!hooked && phase !== 'breach') {
+          const dxb = position.x - bx, dzb = position.z - bz;
+          const db = Math.hypot(dxb, dzb);
+          if (db > 1e-3 && db < KEEP_OFF) {
+            const urge = (KEEP_OFF - db) / KEEP_OFF;
+            desired.set((dxb / db) * 6.5, velocity.y, (dzb / db) * 6.5);
+            velocity.lerp(desired, Math.min(1, dt * (0.7 + 3.4 * urge)));
+          }
         }
 
         // Shallow-water bail-out. It runs after whatever the phase wanted and
