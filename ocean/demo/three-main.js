@@ -114,6 +114,9 @@ export async function createRenderer( canvas, want = wantedBackend() ) {
  *   frame is the only way to exercise the whole pipeline there.
  * @param {Function} [opts.onReady]
  */
+const setA2 = ( a, x, y ) => { a[ 0 ] = x; a[ 1 ] = y; return a; };
+const setA3 = ( a, x, y, z ) => { a[ 0 ] = x; a[ 1 ] = y; a[ 2 ] = z; return a; };
+
 export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, backend: want, overrides, output = null } = {} ) {
 
 	const { renderer, backend, fellBack } = await createRenderer( canvas, want ?? wantedBackend() );
@@ -154,9 +157,16 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	const rider = new WaveRunner( null, null, { canvas } );
 
 	// Scratch, so the per-frame ctx does not allocate.
-	const vCraftPos = new THREE.Vector3();
-	const vCraftFwd = new THREE.Vector2();
-	const vCraftRight = new THREE.Vector2();
+	//
+	// Float32Array, NOT THREE.Vector3/Vector2. The drivers read these by INDEX -
+	// ./gpu/tsl/spray.js does `cp[ 0 ], cp[ 1 ], cp[ 2 ]` - and a three vector
+	// has .x/.y/.z with no numeric indices, so every craft uniform came out
+	// undefined and then NaN. A NaN emitter emits nothing and reports nothing,
+	// which is exactly what "it has no spray" looked like. The raw-GL demo uses
+	// its set2/set3 helpers over Float32Arrays for the same reason.
+	const vCraftPos = new Float32Array( 3 );
+	const vCraftFwd = new Float32Array( 2 );
+	const vCraftRight = new Float32Array( 2 );
 	const hull = { pos: new Float32Array( 3 ), fwd: new Float32Array( 2 ), push: 0, plane: 0 };
 
 	const craftMat = new THREE.NodeMaterial();
@@ -170,42 +180,73 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	craftScene.add( craftMesh );
 	loadCraftTexture( renderer ).then( setCraftTexture );
 
-	// Position the hull from the rider's state. The GL demo builds the basis
-	// straight into the matrix columns; three does the same job through the
-	// object's rotation, in the order yaw -> pitch -> roll about the craft's own
-	// axes, which is what YXZ gives.
-	craftMesh.rotation.order = 'YXZ';
+	// Position the hull from the rider's state, by replicating demo/craft.js
+	// setTransform() EXACTLY rather than by mapping it onto Euler angles.
+	//
+	// That mapping is what went wrong twice. The reference builds an orthonormal
+	// basis into the matrix columns and applies the model's own yaw correction
+	// INSIDE the craft frame, and its comment says why in as many words: folding
+	// that correction into the craft's heading also rotates the roll axis, so a
+	// 180-degree correction silently swaps port and starboard and the hull banks
+	// the wrong way out of every turn. Euler angles cannot express "yaw the model
+	// within its own frame, after the heading" without that hazard, so this does
+	// not try - it computes the same sixteen floats.
+	//
+	// It also removes the convention guessing entirely: whether the bow is +Z or
+	// -Z in the source asset stops being something to reason about, because the
+	// arithmetic that has always aimed this model is the arithmetic being run.
+	craftMesh.matrixAutoUpdate = false;
+	const craftM = new THREE.Matrix4();
+	const setCraftTransform = ( pos, yaw, pitch, roll, scale, modelYaw = 0 ) => {
+
+		const cy = Math.cos( yaw ), sy = Math.sin( yaw );
+		const cp = Math.cos( pitch ), sp = Math.sin( pitch );
+		const cr = Math.cos( roll ), sr = Math.sin( roll );
+		const f = [ cp * sy, sp, - cp * cy ];
+		const r = [ cy, 0, sy ];
+		let u = [ f[ 1 ] * r[ 2 ] - f[ 2 ] * r[ 1 ], f[ 2 ] * r[ 0 ] - f[ 0 ] * r[ 2 ], f[ 0 ] * r[ 1 ] - f[ 1 ] * r[ 0 ] ];
+		u = [ - u[ 0 ], - u[ 1 ], - u[ 2 ] ];
+		const r2 = r.map( ( v, i ) => v * cr + u[ i ] * sr );
+		const u2 = u.map( ( v, i ) => v * cr - r[ i ] * sr );
+		const b = [ - f[ 0 ], - f[ 1 ], - f[ 2 ] ];
+		const cf = Math.cos( modelYaw ), sf = Math.sin( modelYaw );
+		const rr = r2.map( ( v, i ) => v * cf - b[ i ] * sf );
+		const bb = r2.map( ( v, i ) => v * sf + b[ i ] * cf );
+
+		// THREE.Matrix4.set takes ROW-major arguments and stores column-major,
+		// while the GLSL m[] above is written column-major - so the columns
+		// (rr, u2, bb, pos) become the rows of this call.
+		craftM.set(
+			rr[ 0 ] * scale, u2[ 0 ] * scale, bb[ 0 ] * scale, pos[ 0 ],
+			rr[ 1 ] * scale, u2[ 1 ] * scale, bb[ 1 ] * scale, pos[ 1 ],
+			rr[ 2 ] * scale, u2[ 2 ] * scale, bb[ 2 ] * scale, pos[ 2 ],
+			0, 0, 0, 1,
+		);
+		craftMesh.matrix.copy( craftM );
+		craftMesh.matrixWorldNeedsUpdate = true;
+
+	};
+
 	const drawCraft = () => {
 
 		if ( ! rider.active ) return;
 		// The waterline is the SEA, not the deck: using deckY put almost the whole
 		// hull below it, which is what made the paint read as glass.
 		uCraftWetLine.value = rider.probeH[ 0 ];
-		craftMesh.position.set(
-			rider.pos[ 0 ],
-			// The hull's designed waterline sits above its keel, so the origin has
-			// to ride proud of the surface or the sea closes over the deck.
-			( rider.deckY ?? 0 ) + params.craftLift,
-			rider.pos[ 2 ],
-		);
-		// THE YAW IS -heading, AND craftYawOffset CARRIES A PI THIS PATH DOES NOT
-		// NEED.
-		//
-		// The renderer's convention is forward = (sin h, -cos h). three's Y
-		// rotation takes the model's own bow (-Z) to (-sin t, -cos t), so t = -h
-		// points the bow where the craft is going. craftYawOffset defaults to PI
-		// because demo/craft.js builds its basis into the matrix columns by hand
-		// and needs the half turn there; adding it here as well is a half turn too
-		// many. Measured, with the craft in a steady turn: bow (0.403, 0.915)
-		// against travel (-0.403, -0.915) - an alignment of -0.9998, exactly
-		// backwards. Subtracting the PI keeps the slider meaningful (moving it
-		// still rotates the model) while the default lands at -h.
-		craftMesh.rotation.set(
+		setCraftTransform(
+			[
+				rider.pos[ 0 ],
+				// The hull's designed waterline sits above its keel, so the origin
+				// has to ride proud of the surface or the sea closes over the deck.
+				( rider.deckY ?? 0 ) + params.craftLift,
+				rider.pos[ 2 ],
+			],
+			rider.heading,
 			rider.pitchTrim + params.craftPitchOffset,
-			params.craftYawOffset - Math.PI - rider.heading,
 			rider.bank + rider.rollTrim + params.craftRollOffset,
+			params.craftScale,
+			params.craftYawOffset,
 		);
-		craftMesh.scale.setScalar( params.craftScale );
 		craftMesh.visible = true;
 		renderer.render( craftScene, cam3 );
 
@@ -456,11 +497,12 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			// the rooster tail, the wall of water off a carve and the impact burst
 			// simply never emit, which is what "it lost the spray it used to have"
 			// looks like from outside. Mirrors demo/main.js exactly.
-			craftPos: rider.active
-				? vCraftPos.set( rider.pos[ 0 ], rider.deckY ?? 0, rider.pos[ 2 ] )
-				: vCraftPos.set( 0, - 1e4, 0 ),
-			craftFwd: vCraftFwd.set( cf[ 0 ], cf[ 1 ] ),
-			craftRight: vCraftRight.set( - cf[ 1 ], cf[ 0 ] ),
+			craftPos: setA3( vCraftPos,
+				rider.active ? rider.pos[ 0 ] : 0,
+				rider.active ? ( rider.deckY ?? 0 ) : - 1e4,
+				rider.active ? rider.pos[ 2 ] : 0 ),
+			craftFwd: setA2( vCraftFwd, cf[ 0 ], cf[ 1 ] ),
+			craftRight: setA2( vCraftRight, - cf[ 1 ], cf[ 0 ] ),
 			craftSpeed: rider.active ? Math.abs( rider.speed ) : 0,
 			craftTurn: rider.active ? rider.yawRate : 0,
 			craftAmount: rider.active ? params.craftSprayAmount : 0,
