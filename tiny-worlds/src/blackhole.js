@@ -51,13 +51,13 @@ export class BlackHole {
       map: ringTexture(), transparent: true, depthWrite: false,
       blending: THREE.AdditiveBlending, opacity: 0.9,
     }));
-    ring.scale.setScalar(bh.radius * 2.55);
+    ring.scale.setScalar(bh.radius * 3.1);
     this.group.add(ring);
     this.ring = ring;
 
     // Accretion disk: an annulus, tilted, spinning, with the approaching side
     // hotter and brighter than the receding one.
-    const disk = new THREE.RingGeometry(bh.radius * 1.35, bh.radius * 3.1, 72, 1);
+    const disk = new THREE.RingGeometry(bh.radius * 1.35, bh.radius * 3.9, 72, 1);
     const pos = disk.attributes.position;
     const cols = new Float32Array(pos.count * 3);
     const hot = new THREE.Color(0xfff1d8);
@@ -66,7 +66,7 @@ export class BlackHole {
     for (let i = 0; i < pos.count; i++) {
       const a = Math.atan2(pos.getY(i), pos.getX(i));
       const beam = 0.5 + 0.5 * Math.cos(a);            // one side approaches
-      const r = Math.hypot(pos.getX(i), pos.getY(i)) / (bh.radius * 3.1);
+      const r = Math.hypot(pos.getX(i), pos.getY(i)) / (bh.radius * 3.9);
       col.copy(cold).lerp(hot, beam * 0.85).multiplyScalar((1.15 - r) * (0.35 + beam));
       cols[i * 3] = col.r; cols[i * 3 + 1] = col.g; cols[i * 3 + 2] = col.b;
     }

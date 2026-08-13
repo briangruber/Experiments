@@ -154,7 +154,7 @@ export const WORLDS = [
     grass: 5200,
     // The twist: a black hole hangs `dist` units off the surface in `dir`, and
     // everything airborne curves toward it. dir is in world axes, from centre.
-    blackHole: { dir: [-0.66, 0.3, 0.42], dist: 40, radius: 3.4, pull: 13 },
+    blackHole: { dir: [-0.66, 0.3, 0.42], dist: 33, radius: 3.4, pull: 11 },
     sun: { color: 0xcdd4ff, intensity: 1.5, dir: [0.2, 0.5, -0.8] },
     ambient: { sky: 0x5a5f8f, ground: 0x241f30, intensity: 0.95 },
     water: { dry: hex('#6f7284'), lush: hex('#4a63c8'), opacity: 0.88 },
