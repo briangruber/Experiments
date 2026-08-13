@@ -1,0 +1,33 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Lagoon — stylised shallow water · three.js WebGPU</title>
+<link rel="stylesheet" href="./src/ui.css">
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three.webgpu.min.js",
+    "three/webgpu": "./vendor/three.webgpu.min.js",
+    "three/tsl": "./vendor/three.tsl.min.js"
+  }
+}
+</script>
+<canvas id="gl" oncontextmenu="return false"></canvas>
+<div id="ui"></div>
+<button id="panel-toggle" type="button" aria-controls="ui" aria-expanded="false">
+  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <path d="M4 7h7M17.5 7H20M4 12h9M19.5 12H20M4 17h7M17.5 17H20"/>
+    <circle cx="14.5" cy="7" r="2.3"/><circle cx="16.5" cy="12" r="2.3"/><circle cx="14.5" cy="17" r="2.3"/>
+  </svg>
+  <span class="open-label">Controls</span><span class="close-label">Hide</span>
+</button>
+<div id="hud">
+  <div id="hud-fps">—</div>
+  <div id="hud-hint" class="pointer-fine">drag&nbsp;·&nbsp;orbit &nbsp; wheel&nbsp;·&nbsp;zoom &nbsp; right-drag&nbsp;·&nbsp;pan &nbsp; 1-4&nbsp;·&nbsp;views &nbsp; H&nbsp;·&nbsp;hide UI</div>
+  <div id="hud-hint-touch" class="pointer-coarse">drag&nbsp;·&nbsp;orbit &nbsp; pinch&nbsp;·&nbsp;zoom &nbsp; Controls&nbsp;·&nbsp;presets</div>
+</div>
+<div id="boot">
+  <div class="boot-title">LAGOON</div>
+  <div class="boot-sub">warming the shallows…</div>
+</div>
+<script type="module" src="./src/main.js"></script>

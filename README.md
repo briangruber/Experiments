@@ -15,6 +15,7 @@ collide, and a branch can be merged without reading it first.
 | folder | what it is |
 | --- | --- |
 | `ocean/` | Abyssal — a real-time cinematic ocean simulator with a rideable wave runner. Multi-cascade FFT sea, volumetric clouds, GPU spray, persistent Kelvin wake. |
+| `lagoon/` | Stylised shallow water — three.js + WebGPU, shaded in TSL. Per-channel absorption over a sand floor, caustics, shore lace and contact foam, boat wake. |
 
 Other prototypes currently live on their own branches and follow the same
 convention (`harbor/`, `boats/`, `cozy-fishing/`). They can be merged here as
@@ -46,4 +47,10 @@ node tools/shot.mjs --out shots/frame.png --w 1280 --h 720
 ```
 
 `tools/shot.mjs` exits non-zero on any WebGL or JS error, so it doubles as a
-smoke test.
+smoke test. `lagoon/` has the same harness for its WebGPU renderer:
+
+```
+cd lagoon
+python3 -m http.server 8000                                  # no build step
+node tools/shot.mjs --out shots/frame.png --w 1280 --h 720
+```
