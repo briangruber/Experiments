@@ -121,30 +121,28 @@ function refuse(message) {
 
 async function boot() {
   let requested = null;
+  let safeMode = false;
   try {
-    requested = new URLSearchParams(location.search).get('backend');
+    const params = new URLSearchParams(location.search);
+    requested = params.get('backend');
+    safeMode = params.get('safe') === '1';
   } catch { /* sandboxed */ }
 
-  // WebGPU is what this was built for, but refusing to run without it strands
-  // every phone whose browser has not shipped it yet — and the WebGL backend
-  // runs the identical scene, materials and TSL post chain, which is how this
-  // game has been verified all along. So it is a fallback now rather than a
-  // dead end, and the menu says which one is running.
+  // WebGL is the default, on every device.
+  //
+  // This was built against WebGPU and still runs on it, but WebGPU turned out
+  // to be the thing standing between real people and a playable game: on a
+  // phone it initialised cleanly, reported no error, ran at twenty-six frames
+  // per second and painted nothing at all. A backend that fails by succeeding
+  // is not one to leave switched on by default, and the WebGL path draws the
+  // identical scene through the identical node materials and TSL post chain —
+  // it is the path this game has been verified against all along. The cost is
+  // a slightly softer light. `?backend=webgpu` opts back in.
   const problem = webgpuProblem();
-
-  // Phones start on WebGL even where WebGPU is present. Mobile WebGPU is new
-  // enough that "the device initialised, reported no error, ran at 26fps and
-  // painted nothing" is a real outcome — a black screen that throws nothing
-  // and logs nothing, on hardware I cannot put a debugger on. WebGL is the
-  // backend this game is actually verified against, and at phone quality the
-  // shadows and bloom it would gain are already switched off, so the trade is
-  // a slightly softer torch against the game rendering at all. `?backend=
-  // webgpu` opts back in for anyone who wants to check.
-  const phoneDefault = quality.touch && requested !== 'webgpu';
-  let forceWebGL = requested === 'webgl' || phoneDefault || Boolean(problem);
+  let forceWebGL = requested !== 'webgpu' || Boolean(problem);
 
   el.loadNote.textContent = forceWebGL ? 'starting WebGL…' : 'starting WebGPU…';
-  renderer = new Renderer(el.canvas, { forceWebGL, quality });
+  renderer = new Renderer(el.canvas, { forceWebGL, quality, safeMode });
   try {
     await renderer.init();
   } catch (err) {
@@ -155,7 +153,7 @@ async function boot() {
     // WebGPU said yes and then failed. Try the other one before giving up.
     console.warn('WebGPU failed, falling back to WebGL:', err.message);
     forceWebGL = true;
-    renderer = new Renderer(el.canvas, { forceWebGL: true, quality });
+    renderer = new Renderer(el.canvas, { forceWebGL: true, quality, safeMode });
     try {
       await renderer.init();
     } catch (fallbackErr) {
@@ -164,15 +162,11 @@ async function boot() {
     }
   }
 
-  if (forceWebGL) {
-    if (problem) {
-      el.gpuNote.textContent =
-        `${problem} Running on WebGL instead — same game, slightly softer light.`;
-    } else if (phoneDefault) {
-      el.gpuNote.textContent = 'Running on WebGL for stability on mobile.';
-    } else {
-      el.gpuNote.textContent = 'Running on WebGL.';
-    }
+  hud.setBackend(safeMode ? `${renderer.label} SAFE` : renderer.label);
+  if (requested === 'webgpu' && problem) {
+    el.gpuNote.textContent = `${problem} Running on WebGL instead.`;
+  } else if (safeMode) {
+    el.gpuNote.textContent = 'Safe mode: no effects, no shadows.';
   }
 
   assets = new AssetLibrary('./assets/');
@@ -382,6 +376,39 @@ async function acquireLook() {
   hud.setLookMode(document.pointerLockElement === el.canvas);
 }
 
+// Skipping a cutscene had exactly one input — the space bar — which on a phone
+// makes a twenty-second scripted shot something that happens *to* the player
+// with no way out of it.
+$('cine-skip')?.addEventListener('click', () => game?.cutscene?.skip());
+
+/**
+ * Open or close the renderer diagnostic.
+ *
+ * Nothing else on a phone can answer "what is it actually doing" — there is no
+ * console, no flags, no way to attach anything. One tap on the frame-rate
+ * readout, a corner nobody presses by accident, turns "it's all black" into a
+ * screenful of facts.
+ *
+ * Opening it releases pointer lock, and that is not a courtesy. While the lock
+ * is held every mouse event in the window is delivered to the canvas, so on a
+ * desktop the panel would appear with its escape buttons visibly present and
+ * completely unclickable — a diagnostic you cannot act on, which is the exact
+ * failure it exists to prevent.
+ */
+function toggleDiagnostic() {
+  if (!watchdog) return;
+  const el = $('diagnostic');
+  if (el && !el.hidden) {
+    hud.hideDiagnostic();
+    return;
+  }
+  document.exitPointerLock?.();
+  hud.setLookMode(false);
+  watchdog.showManual({ torchOn: Boolean(game?.player?.torchOn) });
+}
+
+$('fps')?.addEventListener('click', toggleDiagnostic);
+
 // Re-acquire pointer lock on click, and treat losing it as a pause.
 el.canvas.addEventListener('click', () => {
   if (game?.running && !document.pointerLockElement) acquireLook();
@@ -395,6 +422,9 @@ window.addEventListener('keydown', (e) => {
   }
   if (e.code === 'KeyE') game?.interact();
   if (e.code === 'KeyM') audio.setMuted(!audio.muted);
+  // Backquote reaches the diagnostic without a mouse, which under pointer lock
+  // is the only thing that can reach it at all.
+  if (e.code === 'Backquote') toggleDiagnostic();
 
   // Chaos keys — the streamer hook. 1–6 fire a specific scare on demand, so
   // a moderator can trigger one from chat without touching the game state.

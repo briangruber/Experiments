@@ -159,10 +159,14 @@ async function main() {
     const query = new URLSearchParams({ seed: SEED });
     if (!USE_WEBGPU) query.set('backend', 'webgl');
     if (DEVICE) query.set('quality', DEVICE.quality);
+    // `--safe` covers the last rung of the watchdog's ladder: no post chain,
+    // no shadows. It is a shipped code path a player can reload into, so it
+    // has to be proved to still draw a level rather than assumed to.
+    if (has('safe')) query.set('safe', '1');
     // `--page` points at an alternative entry — the single-file build lives at
     // dist/deadlight.html and has to be verified the same way as the served one.
     const entry = flag('page', '/');
-    console.log(`· backend: ${USE_WEBGPU ? 'webgpu' : 'webgl (verification)'}${has('csp') ? ' · strict CSP' : ''}${has('csp-noblob') ? ' · strict CSP, no blob:' : ''}`);
+    console.log(`· backend: ${USE_WEBGPU ? 'webgpu' : 'webgl'}${has('safe') ? ' · safe mode' : ''}${has('csp') ? ' · strict CSP' : ''}${has('csp-noblob') ? ' · strict CSP, no blob:' : ''}`);
     await page.goto(`http://localhost:${PORT}${entry}?${query}`, { waitUntil: 'domcontentloaded' });
 
     // Wait for assets: the menu is revealed only once everything has loaded.
@@ -283,6 +287,110 @@ async function main() {
       }
       await page.keyboard.up('KeyW');
     }
+
+    // Open the renderer diagnostic. On a phone the tap on the frame-rate
+    // readout is the only way to find out what the renderer is doing — no
+    // console, no flags — so it is driven the way a finger drives it. On a
+    // desktop the key is the only way in: pointer lock delivers every mouse
+    // event to the canvas, which is why opening the panel releases the lock.
+    // Done here, while the HUD is up — `--solve` ends the run and hides it.
+    if (DEVICE) await page.click('#fps');
+    else await page.keyboard.press('Backquote');
+    const diag = await page.evaluate(() => {
+      const el = document.getElementById('diagnostic');
+      return {
+        open: !el.hidden,
+        text: el.textContent,
+        buttons: el.querySelectorAll('button').length,
+      };
+    });
+    if (!diag.open) problems.push('tapping the FPS readout did not open the diagnostic');
+    else if (!/backend/i.test(diag.text)) problems.push('diagnostic does not name the backend');
+    console.log(`\u00b7 diagnostic: opens on ${DEVICE ? 'tap' : 'key'},`
+      + ` ${diag.buttons} action(s)`);
+    // And it must be clickable now the lock is gone, which is the whole point.
+    await page.click('#fps');
+    if (await page.evaluate(() => !document.getElementById('diagnostic').hidden)) {
+      problems.push('diagnostic would not close');
+    }
+
+    // Open a readable panel and close it with a tap, touching nothing but the
+    // pointer. This is the bug a phone actually hit: the panel said "E · close"
+    // to a device with no E, so reading a ward tag was a soft lock.
+    const panel = await page.evaluate(async () => {
+      const g = window.deadlight.game;
+      const item = g.code.interactables.find((i) => i.kind === 'tag');
+      if (!item) return { found: false };
+      const pending = item.use();
+      await new Promise((r) => setTimeout(r, 120));
+      const el = document.getElementById('panel');
+      const opened = !el.hidden;
+      const button = el.querySelector('.pbtn[data-act="close"]');
+      const label = button?.textContent ?? null;
+      window.__panelPending = pending;
+      return { found: true, opened, label, button: Boolean(button) };
+    });
+    // `--panel-shot` leaves the panel up for a capture. It is the one piece of
+    // UI a screenshot of gameplay never contains, and its layout is exactly
+    // what broke on a phone.
+    if (has('panel-shot') && panel.opened) {
+      const shot = OUT.replace(/(\.png)$/, '-panel$1');
+      await page.screenshot({ path: shot });
+      console.log(`\u00b7 wrote ${path.relative(ROOT, shot)}`);
+    }
+    Object.assign(panel, await page.evaluate(async () => {
+      const g = window.deadlight.game;
+      const el = document.getElementById('panel');
+      el.querySelector('.pbtn[data-act="close"]')?.click();
+      await Promise.race([window.__panelPending, new Promise((r) => setTimeout(r, 1500))]);
+      return { closed: el.hidden, settled: !g.ui.open };
+    }));
+    if (!panel.found) problems.push('no ward tag to open a panel with');
+    else {
+      if (!panel.opened) problems.push('reading a ward tag did not open the panel');
+      if (!panel.button) problems.push('panel has no close button to tap');
+      if (!panel.closed || !panel.settled) problems.push('tapping close did not shut the panel');
+      console.log(`\u00b7 panel: closes on tap ("${panel.label}")`);
+    }
+
+    // And the keypad, which is the panel a phone player has to operate to
+    // actually finish the game: three digits in, one deleted, then leave.
+    // Deliberately short of the full code — a correct code ends the run.
+    const pad = await page.evaluate(async () => {
+      const g = window.deadlight.game;
+      const pending = g.code.enter();
+      await new Promise((r) => setTimeout(r, 120));
+      const el = document.getElementById('panel');
+      const tap = (sel) => el.querySelector(sel)?.click();
+      tap('[data-d="1"]');
+      tap('[data-d="2"]');
+      tap('[data-d="3"]');
+      await new Promise((r) => setTimeout(r, 60));
+      const typed = [...el.querySelectorAll('.code-display .digit')]
+        .map((d) => d.textContent).join('');
+      window.__padPending = pending;
+      tap('.pbtn[data-act="back"]');
+      await new Promise((r) => setTimeout(r, 60));
+      const afterBack = [...el.querySelectorAll('.code-display .digit')]
+        .map((d) => d.textContent).join('');
+      return { typed, afterBack };
+    });
+    if (has('panel-shot')) {
+      const shot = OUT.replace(/(\.png)$/, '-keypad$1');
+      await page.screenshot({ path: shot });
+      console.log(`\u00b7 wrote ${path.relative(ROOT, shot)}`);
+    }
+    Object.assign(pad, await page.evaluate(async () => {
+      const el = document.getElementById('panel');
+      el.querySelector('.pbtn[data-act="close"]')?.click();
+      const result = await Promise.race([
+        window.__padPending, new Promise((r) => setTimeout(r, 1500))]);
+      return { closed: el.hidden, solved: result === true };
+    }));
+    if (!pad.typed.startsWith('123')) problems.push(`keypad taps did not register (${pad.typed})`);
+    if (!pad.afterBack.startsWith('12\u00b7')) problems.push(`keypad backspace did not work (${pad.afterBack})`);
+    if (!pad.closed || pad.solved) problems.push('keypad would not close on tap');
+    console.log(`\u00b7 keypad: taps register (${pad.typed} \u2192 ${pad.afterBack}), leaves on tap`);
 
     // Drive the puzzles directly. The random walk above will not find a tag
     // in eight seconds, and "the puzzles work" is exactly the thing a smoke

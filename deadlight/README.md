@@ -1,6 +1,6 @@
 # DEADLIGHT
 
-A first-person jump-scare game that runs in the browser on WebGPU. Sublevel
+A first-person jump-scare game that runs in the browser on three.js. Sublevel
 three of a decommissioned hospital: throw three breakers in an order printed
 somewhere else, find four ward tags that spell a lift code, and get out.
 Three monsters are down here, and the mannequins are not where you left them.
@@ -15,10 +15,19 @@ is procedural, and so is every sound.
 node tools/serve.mjs      # then open http://localhost:8080
 ```
 
-WebGPU needs a secure context, so it has to be served — opening `index.html`
-off the filesystem will not work. Chrome/Edge 113+ or Safari 18+ get WebGPU;
-anything older falls back to WebGL, which runs the same scene and post chain
-and says so on the menu.
+It has to be served rather than opened off the filesystem: ES modules will not
+load over `file://`, and `file://` is not a secure context, which WebGPU
+requires.
+
+**It runs on WebGL by default, on every device.** This was built against
+WebGPU and still runs on it, but WebGPU turned out to be the thing standing
+between real people and a playable game: on a phone it initialised cleanly,
+reported no error, ran at twenty-six frames per second and painted nothing at
+all. A backend that fails by succeeding is not one to leave switched on by
+default. The WebGL path draws the identical scene through the identical node
+materials and the identical TSL post chain — it is the path this game has been
+verified against all along — and costs a slightly softer light.
+`?backend=webgpu` opts back in. The HUD names whichever one is running.
 
 ## Controls
 
@@ -32,6 +41,7 @@ and says so on the menu.
 | `1`–`6` | trigger a specific scare — see below |
 | `Space` | skip a cutscene |
 | `M` | mute |
+| `` ` `` | renderer diagnostic |
 | `Esc` | release the mouse |
 
 ## On a phone
@@ -44,6 +54,15 @@ because you forgot to stop; crouch is toggled, because it is a posture you
 hold for a whole corridor. USE appears only when there is something to use, so
 there is no dead button to fumble for while something walks toward you.
 
+**Nothing on screen names a key you do not have.** Every panel, prompt and
+hint has a pointer path and a keyboard path through the same action, and the
+label says whichever one you are holding — because for a while this game told
+a phone to press E to close a ward tag, which made reading one a soft lock.
+The keypad has an on-screen ⌫ and LEAVE; notes have CLOSE; the cutscene skip
+is a button, not a caption saying SPACE. This is the kind of bug that is
+invisible from a desktop and total from a phone, so `tools/shot.mjs --device`
+now opens a panel and a keypad and operates both by pointer alone.
+
 Portrait is not a degraded mode. Landscape is short and wide, so vertical
 space is scarce and the controls shrink to fit; portrait has height to spare
 and none sideways, so the controls grow, drop into a band across the bottom,
@@ -53,14 +72,7 @@ run asks for fullscreen where the browser has it. It no longer asks for a
 landscape orientation lock: rotating the phone under the player's hands is the
 same demand as a "turn your phone sideways" screen, only made silently.
 
-Phones run on **WebGL** by default even where WebGPU exists. Mobile WebGPU is
-new enough that "initialised cleanly, reported no error, ran at 26fps and
-painted nothing" is a real outcome, and a black screen that throws nothing is
-not a thing a player can work around. WebGL is the backend this game is
-verified against, and at phone quality the shadows and bloom it costs are
-switched off anyway. `?backend=webgpu` opts back in.
-
-Phones also get their own quality tier (`src/quality.js`): a smaller shadow
+Phones get their own quality tier (`src/quality.js`): a smaller shadow
 map, no bloom, a lower render scale, denser fog and about half the dressing.
 Same monsters, same puzzles, same scares — the tier only ever changes
 quantities, because a cut-down horror game is not worth shipping. Force one
@@ -78,8 +90,23 @@ works down that list in order of how cheap each is to rule out. Torch off gets
 a nudge. Nothing submitted gets reported as a scene problem. Geometry in and
 black out drops the post chain, which is the part most likely to have failed
 to compile and the only part the game can lose and keep running. Anything left
-goes on screen as numbers somebody can read back, with a button to reload into
-the other renderer.
+goes on screen as numbers somebody can read back, with buttons to reload into
+safe mode or the other renderer.
+
+You do not have to wait for it to fire, though. **Tap the frame-rate readout**
+in the top-left — or press `` ` `` — and the same panel opens on demand: build,
+backend, GPU name, whether safe mode and the post chain are on, draw calls,
+triangles, canvas size, torch state. On a phone there is no console, no flags
+and no way to attach anything, so one tap on a corner nobody presses by
+accident is the whole difference between knowing and guessing. Opening it
+releases pointer lock: while the lock is held every mouse event goes to the
+canvas, so the panel would otherwise appear on a desktop with its buttons
+visible and unclickable.
+
+`?safe=1` is the bottom rung, also reachable from that panel. It drops the
+post chain and the shadow pass — a dozen TSL nodes compiled into one shader,
+and a depth target the driver has to agree to, which between them are most of
+what a driver can refuse. It looks flat and it is still the game.
 
 ## For streamers
 

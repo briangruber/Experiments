@@ -270,6 +270,9 @@ canvas#gl {
 
 #seed-tag b { color: var(--ink); font-weight: 500; }
 
+/* Also the way into the renderer diagnostic — see main.js. The padding is a
+   thumb-sized tap target hidden behind ten-pixel text, negatively margined so
+   growing the hit area does not move the label. */
 #fps {
   position: absolute;
   top: 24px;
@@ -277,6 +280,11 @@ canvas#gl {
   font-size: 10px;
   color: var(--dim);
   letter-spacing: 0.16em;
+  padding: 12px 16px;
+  margin: -12px 0 0 -16px;
+  pointer-events: auto;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* ------------------------------------------------------------- cutscenes */
@@ -342,6 +350,8 @@ canvas#gl {
 
 #cine-title.show, #cine-sub.show { opacity: 1; }
 
+/* A button, not a caption. On a phone the cutscene is otherwise something
+   that happens *to* the player for twenty seconds with no way to cut it. */
 #cine-skip {
   position: absolute;
   right: 24px;
@@ -350,6 +360,21 @@ canvas#gl {
   font-size: 10px;
   letter-spacing: 0.2em;
   color: #56534f;
+  background: none;
+  border: 1px solid transparent;
+  padding: 10px 14px;
+  margin: -10px -14px;
+  cursor: pointer;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html.touch #cine-skip {
+  color: var(--dim);
+  border-color: var(--edge);
+  font-size: 12px;
+  padding: 14px 20px;
+  margin: 0;
 }
 
 #letterbox.no-skip #cine-skip { display: none; }
@@ -413,12 +438,41 @@ canvas#gl {
   margin-top: 18px;
   padding-top: 12px;
   border-top: 1px solid rgba(216, 212, 204, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
   font-family: var(--hud-font);
   font-size: 10px;
   letter-spacing: 0.2em;
   color: var(--dim);
   text-transform: uppercase;
 }
+
+/* The status half of the footer — "2/4 tags read". Pushed left so the
+   buttons sit together under the thumb rather than either side of it. */
+.pnote { margin-right: auto; }
+
+/* Every way out of a panel is one of these. It reads as a hint on a desktop
+   and works as a button everywhere, which is the point: the keyboard path and
+   the pointer path are the same control, not two half-implementations. */
+.pbtn {
+  font-family: var(--hud-font);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: rgba(216, 212, 204, 0.06);
+  border: 1px solid var(--edge);
+  padding: 10px 16px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.pbtn:active { background: rgba(216, 212, 204, 0.18); }
+
+/* Thumb-sized on a touch device, where these are the only way out. */
+html.touch .pbtn { font-size: 12px; padding: 15px 22px; }
 
 /* Keypad */
 .code-display {
@@ -682,6 +736,12 @@ html.portrait #cine-text { bottom: 26vh; }
 }
 
 #diagnostic button:active { background: rgba(180, 28, 34, 0.4); }
+
+#diagnostic button.quiet {
+  background: transparent;
+  border-color: var(--edge);
+  color: var(--dim);
+}
 
 /* --------------------------------------------------------------- screens */
 

@@ -27,27 +27,42 @@ const LABELS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 /**
  * A modal panel: reading a tag, or entering a code.
  *
- * Keyboard-first on purpose. The game holds pointer lock while it runs, so
- * there is no cursor to click a button with — and releasing the lock to show
- * one would drop the player out of the game every time they read a scrap of
- * paper. The on-screen keys still respond to the mouse for the embedded build,
- * where pointer lock may never have been granted in the first place.
+ * Every panel is operable two ways, and that is not a nicety — a panel with no
+ * way out is a soft lock, and for a while this one had exactly that on a
+ * phone: it said "E · close" to a player holding a device with no E.
+ *
+ * So the keyboard path and the pointer path go through the same actions rather
+ * than one being a partial mirror of the other. The keyboard path exists
+ * because the game holds pointer lock while it runs and there is no cursor to
+ * click with; the pointer path exists because plenty of players have no
+ * keyboard, and because an embedded build may never be granted pointer lock in
+ * the first place. Both close the panel, both delete a digit, both leave.
  */
 export class PuzzleUI {
-  constructor(hud, audio) {
+  constructor(hud, audio, { touch = false } = {}) {
     this.hud = hud;
     this.audio = audio;
+    this.touch = touch;
     this.open = false;
     this._onKey = null;
     this._resolve = null;
   }
 
+  /** A footer button. Labelled for whatever the player is actually holding. */
+  #button(action, keyLabel, tapLabel) {
+    return `<button class="pbtn" data-act="${action}" type="button">`
+      + `${this.touch ? tapLabel : keyLabel}</button>`;
+  }
+
   /** Show a readable document. Resolves when the player closes it. */
-  note({ title, lines, footer = 'E · close' }) {
-    return this.#show({ title, body: lines.map((l) => `<div class="note-line">${l}</div>`).join(''), footer },
-      (event, close) => {
-        if (['KeyE', 'Escape', 'Enter', 'Space'].includes(event.code)) close(null);
-      });
+  note({ title, lines }) {
+    return this.#show({
+      title,
+      body: lines.map((l) => `<div class="note-line">${l}</div>`).join(''),
+      footer: this.#button('close', 'E · close', 'CLOSE'),
+    }, (event, close) => {
+      if (['KeyE', 'Escape', 'Enter', 'Space'].includes(event.code)) close(null);
+    });
   }
 
   /**
@@ -56,7 +71,7 @@ export class PuzzleUI {
    * typed four digits has committed, and asking them to press enter as well
    * only adds a way to fumble it.
    */
-  code({ title, length = 4, footer = 'type the code · Esc · leave' }) {
+  code({ title, length = 4, footer = '' }) {
     let entry = '';
     const render = () => {
       const cells = Array.from({ length }, (_, i) =>
@@ -66,31 +81,40 @@ export class PuzzleUI {
         <span class="wide" data-d="0">0</span></div>`;
     };
 
-    return this.#show({ title, body: render(), footer }, (event, close, update) => {
-      if (event.code === 'Escape') return close(null);
-      if (event.code === 'Backspace') {
-        entry = entry.slice(0, -1);
-        this.audio?.click(false);
-        return update(render());
-      }
-      const digit = event.key >= '0' && event.key <= '9' ? event.key : null;
-      if (!digit || entry.length >= length) return undefined;
-      entry += digit;
-      this.audio?.click(true);
-      update(render());
-      if (entry.length === length) setTimeout(() => close(entry), 220);
-      return undefined;
-    }, (digit, close, update) => {
-      // Mouse path, for when there is no pointer lock to fight.
+    const push = (digit, close, update) => {
       if (entry.length >= length) return;
       entry += digit;
       this.audio?.click(true);
       update(render());
+      // Auto-submit on the last digit; the delay lets the player see it land.
       if (entry.length === length) setTimeout(() => close(entry), 220);
+    };
+    const back = (update) => {
+      entry = entry.slice(0, -1);
+      this.audio?.click(false);
+      update(render());
+    };
+
+    return this.#show({
+      title,
+      body: render(),
+      footer: `<span class="pnote">${footer}</span>`
+        + this.#button('back', '⌫ backspace', '⌫')
+        + this.#button('close', 'Esc · leave', 'LEAVE'),
+    }, (event, close, update) => {
+      if (event.code === 'Escape') return close(null);
+      if (event.code === 'Backspace') return back(update);
+      const digit = event.key >= '0' && event.key <= '9' ? event.key : null;
+      if (digit) push(digit, close, update);
+      return undefined;
+    }, (action, close, update) => {
+      if (action === 'close') return close(null);
+      if (action === 'back') return back(update);
+      return push(action, close, update);
     });
   }
 
-  #show(content, handleKey, handleClick) {
+  #show(content, handleKey, handleAction) {
     if (this.open) this.close();
     this.open = true;
     this.hud.showPanel(content);
@@ -115,9 +139,16 @@ export class PuzzleUI {
       };
       window.addEventListener('keydown', this._onKey, true);
 
+      // One pointer path for digits and actions alike. `closest` rather than
+      // the target itself, because a tap lands on whatever is under the thumb
+      // — the label inside a button as often as the button.
       this._onClick = (event) => {
-        const digit = event.target?.dataset?.d;
-        if (digit && handleClick) handleClick(digit, close, update);
+        const el = event.target?.closest?.('[data-d], [data-act]');
+        if (!el) return;
+        event.preventDefault();
+        const action = el.dataset.act ?? el.dataset.d;
+        if (action === 'close' && !handleAction) return close(null);
+        handleAction?.(action, close, update);
       };
       this.hud.el.panel.addEventListener('click', this._onClick);
       this._close = close;
@@ -389,7 +420,7 @@ export class CodeLock {
     if (this.solved) return true;
     const typed = await this.ui.code({
       title: 'LIFT — AUTHORISATION',
-      footer: `${this.foundCount}/${this.length} tags read · Esc · leave`,
+      footer: `${this.foundCount}/${this.length} tags read`,
     });
     if (typed === null) return false;
 

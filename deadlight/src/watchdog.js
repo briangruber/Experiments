@@ -99,20 +99,43 @@ export class RenderWatchdog {
     }
 
     this.stage++;
-    this.#act(brightness, context);
+    this.#act(context);
   }
 
-  #act(brightness, context) {
+  /**
+   * Everything known about what the renderer is doing, in fields a player can
+   * read down a phone screen and out loud. This is the payload of the whole
+   * exercise: not the fallbacks, but the fact that somebody two thousand miles
+   * away can now answer "which backend, how many draw calls, what size".
+   */
+  describe(context = {}) {
     const info = this.renderer.renderer?.info?.render;
-    const detail = {
-      brightness: brightness.toFixed(2),
+    return {
+      build: this.renderer.build ?? '?',
       backend: this.renderer.forceWebGL ? 'WebGL' : 'WebGPU',
+      gpu: this.renderer.gpuName ?? '?',
+      safeMode: this.renderer.safeMode ? 'on' : 'off',
+      post: this.renderer.post?.bypassed ? 'bypassed' : 'on',
+      brightness: this.lastBrightness === null
+        ? 'unreadable' : this.lastBrightness.toFixed(2),
       drawCalls: info?.drawCalls ?? '?',
       triangles: info?.triangles ?? '?',
       canvas: `${this.canvas.width}×${this.canvas.height}`,
-      torch: context.torchOn ? 'on' : 'OFF',
+      torch: context.torchOn === undefined ? '?' : (context.torchOn ? 'on' : 'OFF'),
       lost: this.renderer.deviceLost ?? null,
     };
+  }
+
+  /** Open the panel because the player asked, not because anything is wrong. */
+  showManual(context) {
+    this.hud?.showDiagnostic('Renderer', this.describe(context), [
+      ...this.#escapes(),
+      { label: 'CLOSE', quiet: true, run: () => this.hud.hideDiagnostic() },
+    ]);
+  }
+
+  #act(context) {
+    const detail = this.describe(context);
 
     // 1. The cheapest explanation, and by far the most common: the light is
     //    off. That is the game working, not failing.
@@ -140,48 +163,62 @@ export class RenderWatchdog {
     }
 
     // 4. Still black with the post chain out of the way. Out of moves inside
-    //    this process — but not out of options, because there is a whole
-    //    second graphics backend the same scene runs on. Swapping it needs a
-    //    reload, so it is the player's call rather than something that yanks
-    //    the run out from under them.
+    //    this process — but not out of options, because safe mode and the
+    //    other backend are both still on the table. Either needs a reload, so
+    //    it is the player's call rather than something that yanks the run out
+    //    from under them.
     this.#surface('The scene is not rendering.', detail);
     this.stage = 3;
   }
 
+  /** Reload with a query parameter set. Both escapes below are the same move. */
+  static #reloadWith(key, value) {
+    try {
+      const url = new URL(location.href);
+      url.searchParams.set(key, value);
+      location.replace(url);
+    } catch {
+      // Sandboxed frame that will not hand over its own URL.
+      location.reload();
+    }
+  }
+
   /**
-   * The remaining escape hatch, if there is one.
+   * The things left to try, cheapest first.
    *
-   * A backend that accepts every command and paints nothing is a driver
-   * problem, and no amount of rearranging the scene fixes it. The same scene
-   * runs on both backends, so the honest offer is always "try the other one" —
-   * which direction depends on which one is already failing. The exception is
-   * a browser with no WebGPU at all: there is nothing to swap to, and a button
-   * that reloads into the same renderer is worse than no button.
+   * Safe mode comes first because it is the smaller loss: it drops the post
+   * chain and the shadows — a dozen TSL nodes compiled into one shader, and a
+   * depth pass with a float target, which between them are most of what a
+   * driver can refuse — and keeps the game. Swapping backends is the bigger
+   * hammer and only worth offering when there is another backend to swap to.
    */
-  #escape() {
-    const onWebGL = Boolean(this.renderer.forceWebGL);
-    // Swapping to WebGPU is only worth offering where there is a WebGPU to
-    // swap to; offering a button that reloads into the same backend is worse
-    // than offering nothing.
-    if (onWebGL && !navigator.gpu) return null;
-    const backend = onWebGL ? 'webgpu' : 'webgl';
-    return {
-      label: `TRY THE ${backend.toUpperCase()} RENDERER`,
-      run: () => {
-        try {
-          const url = new URL(location.href);
-          url.searchParams.set('backend', backend);
-          location.replace(url);
-        } catch {
-          location.reload();
-        }
-      },
-    };
+  #escapes() {
+    const out = [];
+    if (!this.renderer.safeMode) {
+      out.push({
+        label: 'SAFE MODE — NO EFFECTS OR SHADOWS',
+        run: () => RenderWatchdog.#reloadWith('safe', '1'),
+      });
+    }
+    if (this.renderer.forceWebGL) {
+      if (navigator.gpu) {
+        out.push({
+          label: 'TRY THE WEBGPU RENDERER',
+          run: () => RenderWatchdog.#reloadWith('backend', 'webgpu'),
+        });
+      }
+    } else {
+      out.push({
+        label: 'TRY THE WEBGL RENDERER',
+        run: () => RenderWatchdog.#reloadWith('backend', 'webgl'),
+      });
+    }
+    return out;
   }
 
   #surface(headline, detail) {
     this.report = { headline, detail };
     console.error('watchdog:', headline, detail);
-    this.hud?.showDiagnostic(headline, detail, this.#escape());
+    this.hud?.showDiagnostic(headline, detail, this.#escapes());
   }
 }

@@ -51,6 +51,9 @@ export class TouchControls {
     document.getElementById('touch-torch')?.classList
       .toggle('latched', this.player.torchOn);
     document.documentElement.classList.add('touch');
+    // Every on-screen hint that names a key is a lie on this device.
+    const skip = document.getElementById('cine-skip');
+    if (skip) skip.textContent = 'SKIP';
 
     this._onDown = (e) => this.#down(e);
     this._onMove = (e) => this.#move(e);
@@ -115,7 +118,7 @@ export class TouchControls {
     // Menus, the read panel and the diagnostic own their own taps. Swallowing
     // one here would leave the player looking at an escape hatch they cannot
     // press, which is worse than not offering it.
-    if (event.target?.closest?.('.screen, #panel, #diagnostic')) return;
+    if (event.target?.closest?.('.screen, #panel, #diagnostic, #fps, #cine-skip')) return;
 
     const role = this.#classify(event);
     event.preventDefault();

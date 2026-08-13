@@ -22,6 +22,13 @@ import { Post } from './post.js';
  * is the renderer; anything the check cannot answer without an adapter is
  * reported from `Renderer#init` instead.
  */
+/**
+ * Build stamp. Bumped by hand when something ships that changes what a bug
+ * report means — it appears in the diagnostic panel so "it's still black" can
+ * be told apart from "it's still black on the build from before the fix".
+ */
+export const BUILD = 'r5';
+
 export function webgpuProblem() {
   if (!window.isSecureContext) {
     return 'WebGPU needs a secure context — serve this over http://localhost rather than opening the file directly.';
@@ -41,21 +48,32 @@ export class Renderer {
    * that can be checked anywhere. It is not a player-facing fallback: the
    * game asks for WebGPU and says so when it is missing.
    */
-  constructor(canvas, { forceWebGL = false, quality } = {}) {
+  constructor(canvas, { forceWebGL = false, quality, safeMode = false } = {}) {
     this.canvas = canvas;
     this.forceWebGL = forceWebGL;
     this.quality = quality;
+    /**
+     * Safe mode drops the two most driver-sensitive things in the game: the
+     * post chain, which is a dozen TSL nodes compiled into one shader, and the
+     * shadow pass, which wants a depth target the driver has to agree to. It
+     * is the last rung of the ladder in src/watchdog.js — ugly, and still the
+     * game.
+     */
+    this.safeMode = safeMode;
+    this.label = forceWebGL ? 'WEBGL' : 'WEBGPU';
+    /** Stamped into the diagnostic so a bug report names the build it saw. */
+    this.build = BUILD;
     this.renderer = new WebGPURenderer({
       canvas,
       // MSAA is a per-sample cost on a device that is already fill-bound, and
       // the post chain's grain hides the aliasing it would have removed.
-      antialias: quality.tier === 'desktop',
+      antialias: quality.tier === 'desktop' && !safeMode,
       powerPreference: 'high-performance',
       forceWebGL,
     });
 
     this.renderer.setClearColor(0x000000, 1);
-    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.enabled = !safeMode;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.NoToneMapping; // the post chain tones.
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -87,10 +105,37 @@ export class Renderer {
       this.onDeviceLost?.(this.deviceLost);
     });
 
+    this.gpuName = this.#identifyGpu();
+
     this._onResize = () => this.resize();
     window.addEventListener('resize', this._onResize);
     this.resize();
     return this;
+  }
+
+  /**
+   * What is actually drawing this, as a string.
+   *
+   * Both backends hide it somewhere different and neither promises to expose
+   * it at all — WebGL puts it behind a debug extension browsers may withhold,
+   * and WebGPU offers an adapter description that is often empty. Best effort
+   * on purpose: this is for a bug report, so an unhelpful answer is fine and
+   * an exception on the way into a run is not.
+   */
+  #identifyGpu() {
+    try {
+      const backend = this.renderer.backend;
+      const gl = backend?.gl;
+      if (gl) {
+        const ext = gl.getExtension('WEBGL_debug_renderer_info');
+        const name = ext && gl.getParameter(ext.UNMASKED_RENDERER_WEBGL);
+        return name || gl.getParameter(gl.RENDERER) || 'WebGL';
+      }
+      const adapter = backend?.adapter;
+      return adapter?.info?.description || adapter?.info?.vendor || 'WebGPU';
+    } catch {
+      return '?';
+    }
   }
 
   /**
@@ -103,6 +148,9 @@ export class Renderer {
   setScene(scene) {
     this.scene = scene;
     this.post = new Post(this.renderer, scene, this.camera, this.quality);
+    // Built either way, then switched out: the director writes to its uniforms
+    // every frame and should not have to know whether anyone is reading them.
+    if (this.safeMode) this.post.bypass(true);
     this.resize();
     return this.post;
   }

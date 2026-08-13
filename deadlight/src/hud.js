@@ -54,6 +54,20 @@ export class Hud {
     this._objectiveTimer = 0;
     this._flash = 0;
     this._blood = 0;
+    /** Shown next to the frame rate; see `setBackend`. */
+    this._backend = '';
+  }
+
+  /**
+   * Name the graphics backend on the HUD, permanently.
+   *
+   * It reads as developer clutter until the day someone says "it's black, I
+   * think it's using WebGPU" — and then it is the difference between knowing
+   * and guessing, on a device nobody can attach a debugger to. It costs one
+   * word in the corner already occupied by the frame rate.
+   */
+  setBackend(label) {
+    this._backend = label ? `${label} · ` : '';
   }
 
   show() {
@@ -118,7 +132,9 @@ export class Hud {
   showPanel({ title, body, footer }) {
     this.el.panelTitle.textContent = title ?? '';
     this.el.panelBody.innerHTML = body ?? '';
-    this.el.panelFooter.textContent = footer ?? '';
+    // HTML, not text: the footer carries the panel's buttons, which are the
+    // only way out of a panel on a device with no keyboard.
+    this.el.panelFooter.innerHTML = footer ?? '';
     this.el.panel.hidden = false;
   }
 
@@ -138,11 +154,11 @@ export class Hud {
    * one they can read back, and together they identify which of the half-dozen
    * causes of "black screen" this actually is.
    *
-   * `action` is the one thing left to try, if there is one. A diagnostic with
-   * no button is a nicer-looking black screen; a diagnostic with a button is a
-   * way out, and on a phone it is the only way out the player has.
+   * `actions` are the things left to try. A diagnostic with no buttons is a
+   * nicer-looking black screen; one with buttons is a way out, and on a phone
+   * it is the only way out the player has.
    */
-  showDiagnostic(headline, detail, action = null) {
+  showDiagnostic(headline, detail, actions = []) {
     const el = this.el.diagnostic;
     if (!el) return;
     el.innerHTML = `<b>${headline}</b>`
@@ -150,14 +166,20 @@ export class Hud {
         .filter(([, v]) => v !== null && v !== undefined)
         .map(([k, v]) => `<span>${k}<i>${v}</i></span>`)
         .join('');
-    if (action) {
+    for (const action of actions) {
+      if (!action) continue;
       const button = document.createElement('button');
       button.type = 'button';
+      if (action.quiet) button.className = 'quiet';
       button.textContent = action.label;
       button.addEventListener('click', action.run);
       el.append(button);
     }
     el.hidden = false;
+  }
+
+  hideDiagnostic() {
+    if (this.el.diagnostic) this.el.diagnostic.hidden = true;
   }
 
   setScares(n) {
@@ -215,7 +237,7 @@ export class Hud {
     el.heart.style.setProperty('--beat', `${(60 / Math.max(40, bpm)).toFixed(3)}s`);
     el.heart.classList.toggle('panic', bpm > 140);
 
-    el.fps.textContent = `${state.fps} FPS`;
+    el.fps.textContent = `${this._backend}${state.fps} FPS`;
 
     // Washes decay here rather than in CSS so a scare can drive them per
     // frame without fighting a transition.

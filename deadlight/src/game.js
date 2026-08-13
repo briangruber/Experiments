@@ -159,7 +159,7 @@ export class Game {
   }
 
   #buildPuzzles() {
-    this.ui = new PuzzleUI(this.hud, this.audio);
+    this.ui = new PuzzleUI(this.hud, this.audio, { touch: Boolean(this.quality?.touch) });
 
     const shared = {
       level: this.level,
@@ -461,7 +461,10 @@ export class Game {
     }
 
     this._focus = best;
-    this.hud.prompt(best ? `<kbd>E</kbd> ${best.labelFor()}` : null);
+    // Name the control the player actually has. Telling a phone to press E
+    // is the same bug as a panel with no close button, just quieter.
+    const key = this.quality?.touch ? 'USE' : 'E';
+    this.hud.prompt(best ? `<kbd>${key}</kbd> ${best.labelFor()}` : null);
   }
 
   /** Called from the keyboard handler in main.js. */
