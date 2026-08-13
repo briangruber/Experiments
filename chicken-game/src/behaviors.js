@@ -7,11 +7,13 @@ import { clamp, pick, rand, TAU } from './util.js';
 //            personal weirdness multiplier
 //   dur      [min,max] seconds before the next decision
 //   cooldown seconds (plus up to as many again) before it can repeat
+//   icon     thought bubble shown on entry. There is no text anywhere in
+//            this game, so the bubble plus the pose IS the explanation —
+//            if a behavior cannot be read without one, it needs a better pose.
 //   can      optional gate; enter/update/exit drive the chicken
 //   next     chain to this behavior when the timer expires naturally;
 //            may be a function (c, w) => name. Use this instead of calling
 //            c.force() from exit(), which would re-enter the exit handler.
-//   lines    ticker one-liners ({n} = this chicken, {m} = other chicken)
 
 const AREA = 4.1;
 
@@ -35,11 +37,15 @@ function nearest(c, w, maxDist = 99) {
   return best;
 }
 
-function say(w, c, lines, other) {
-  if (!lines) return;
-  let line = typeof lines === 'string' ? lines : pick(w.rng, lines);
-  line = line.replaceAll('{n}', c.name).replaceAll('{m}', other?.name ?? 'someone');
-  w.ui.tick(line);
+// Send a chicken flying away from a point, clamped inside the coop.
+function knockBack(c, fromPos, dist, height, dur) {
+  const away = new THREE.Vector3(c.pos.x - fromPos.x, 0, c.pos.z - fromPos.z);
+  if (away.lengthSq() < 0.01) away.set(1, 0, 0);
+  away.normalize().multiplyScalar(dist).add(c.pos);
+  away.y = 0;
+  away.x = clamp(away.x, -AREA, AREA);
+  away.z = clamp(away.z, -AREA, AREA);
+  c.startHop(away, height, dur);
 }
 
 export const BEHAVIORS = {
@@ -67,7 +73,7 @@ export const BEHAVIORS = {
   },
 
   eat: {
-    weight: 1.2, dur: [5, 9],
+    weight: 1.2, dur: [5, 9], icon: 'grain',
     enter(c, w) {
       const f = w.coop.feeder;
       const a = rand(w.rng, 0, TAU);
@@ -83,9 +89,7 @@ export const BEHAVIORS = {
   },
 
   drink: {
-    weight: 0.8, dur: [5, 8],
-    lines: ['{n} is drinking like nobody taught her how.'],
-    quiet: 0.85,
+    weight: 0.8, dur: [5, 8], icon: 'drop',
     enter(c, w) {
       const s = w.coop.water;
       c.walkTo(new THREE.Vector3(s.x, 0, s.z + 0.5), 0.75);
@@ -105,22 +109,19 @@ export const BEHAVIORS = {
   // ---- the weird stuff ----------------------------------------------------
 
   zoomies: {
-    weight: 0.9, weird: true, dur: [3, 6],
-    lines: ['{n} has the zoomies.', '{n} is running laps. Training for something.',
-      '{n} suddenly remembered she can run.'],
+    weight: 0.9, weird: true, dur: [3, 6], icon: 'star',
     enter(c, w) { c.flapT = 0.5; c.walkTo(randomPoint(w), 2.6); },
     update(c, w, dt) {
       if (c.arrived(0.5)) c.walkTo(randomPoint(w), 2.6);
       if (w.rng() < dt * 1.5) w.fx.feather(c.pos, c.color);
+      // Running this fast, sometimes the legs simply stop cooperating.
+      if (w.rng() < dt * 0.08) c.force('bonk', { trip: true });
     },
     exit(c) { c.flapT = 0; c.stop(); },
   },
 
   stareWall: {
-    weight: 0.7, weird: true, dur: [6, 14],
-    lines: ['{n} is having a staring contest with the wall.',
-      '{n} found a very interesting wall.',
-      '{n} is facing the wall. Thinking about what she did.'],
+    weight: 0.7, weird: true, dur: [6, 14], icon: 'dots',
     enter(c, w) {
       const walls = [
         new THREE.Vector3(rand(w.rng, -3, 3), 0, -AREA), new THREE.Vector3(rand(w.rng, -3, 3), 0, AREA),
@@ -131,14 +132,16 @@ export const BEHAVIORS = {
       c.walkTo(spot, 0.9);
     },
     update(c, w, dt) {
-      if (c.arrived(0.3)) c.facePoint(c.bhv.data.wall, dt, 3);
+      if (c.arrived(0.3)) {
+        c.facePoint(c.bhv.data.wall, dt, 3);
+        // Every so often she remembers she is still doing this.
+        if (w.rng() < dt * 0.12) c.showEmote('dots', 2);
+      }
     },
   },
 
   stareYou: {
-    weight: 0.8, weird: true, dur: [5, 11],
-    lines: ['{n} is watching you.', '{n} knows you are there.',
-      '{n} is looking directly into your soul.'],
+    weight: 0.8, weird: true, dur: [5, 11], icon: 'eye',
     enter(c, w) {
       c.stop();
       c.bhv.data.creep = w.rng() < 0.35; // sometimes she comes closer. slowly.
@@ -153,7 +156,7 @@ export const BEHAVIORS = {
         c.gaitAmp = 0.25; c.gait += dt * 2.5; // slow, deliberate steps
         if (!c.bhv.data.said && c.bhv.t > 2.5) {
           c.bhv.data.said = true;
-          say(w, c, ['{n} is coming for you.']);
+          c.showEmote('eye', 2.6);
         }
       }
     },
@@ -161,10 +164,7 @@ export const BEHAVIORS = {
   },
 
   statue: {
-    weight: 0.6, weird: true, dur: [4, 9],
-    lines: ['{n} is pretending to be a statue.',
-      '{n} stopped. Completely. Mid-stride.',
-      '{n} has become sculpture.'],
+    weight: 0.6, weird: true, dur: [4, 9], icon: 'dots',
     enter(c, w) {
       // Freeze mid-stride: legs scissored, head half-raised.
       c.stop();
@@ -176,8 +176,7 @@ export const BEHAVIORS = {
   },
 
   spin: {
-    weight: 0.5, weird: true, dur: [4.5, 6.5],
-    lines: ['{n} is spinning. Nobody knows why.', '{n} initiated spin protocol.'],
+    weight: 0.5, weird: true, dur: [4.5, 6.5], icon: 'spiral',
     enter(c, w) {
       c.stop();
       c.bhv.data.dir = w.rng() < 0.5 ? -1 : 1;
@@ -189,8 +188,8 @@ export const BEHAVIORS = {
         c.yaw += d.dir * dt * (4 + c.bhv.t * 2);
         c.gaitAmp = 1; c.gait += dt * 10;
       } else {
-        // Dizzy aftermath: a decaying wobble.
-        if (!d.saidDizzy) { d.saidDizzy = true; say(w, c, ['{n} is dizzy now and regrets everything.']); }
+        // Dizzy aftermath: a decaying wobble and a head full of stars.
+        if (!d.saidDizzy) { d.saidDizzy = true; c.showEmote('dizzy', 2.6); }
         const left = 1 - (c.bhv.t - d.spinT) / (c.bhv.dur - d.spinT);
         c.bodyRoll = Math.sin(w.time * 9) * 0.25 * Math.max(0, left);
       }
@@ -199,8 +198,7 @@ export const BEHAVIORS = {
   },
 
   moonwalk: {
-    weight: 0.5, weird: true, dur: [3, 5],
-    lines: ['{n} is moonwalking. Incredible.', '{n} discovered reverse gear.'],
+    weight: 0.5, weird: true, dur: [3, 5], icon: 'note',
     enter(c, w) { c.stop(); },
     update(c, w, dt) {
       // Legs animate a confident walk while the body glides backwards.
@@ -213,8 +211,7 @@ export const BEHAVIORS = {
   },
 
   sidle: {
-    weight: 0.4, weird: true, dur: [3, 5.5],
-    lines: ['{n} is sidling. Suspicious.', '{n} is moving sideways so you will not notice her.'],
+    weight: 0.4, weird: true, dur: [3, 5.5], icon: 'eye',
     enter(c, w) { c.stop(); c.bhv.data.dir = w.rng() < 0.5 ? -1 : 1; },
     update(c, w, dt) {
       c.facePoint(w.camera.position, dt, 3);
@@ -227,14 +224,13 @@ export const BEHAVIORS = {
 
   jumpScare: {
     weight: 0.6, weird: true, dur: [2.5, 4],
-    lines: ['{n} jumped. There was nothing there.',
-      '{n} levitated briefly. No comment.'],
     enter(c, w) { c.stop(); c.bhv.data.at = rand(w.rng, 0.4, 1.6); c.bhv.data.done = false; },
     update(c, w, dt) {
       const d = c.bhv.data;
       if (!d.done && c.bhv.t >= d.at) {
         d.done = true;
         c.startHop(c.pos, rand(w.rng, 0.45, 0.7), 0.5);
+        c.showEmote('bang', 1.8);
         w.audio.squawk(1.3);
         w.fx.feather(c.pos, c.color);
       }
@@ -244,10 +240,7 @@ export const BEHAVIORS = {
   },
 
   investigate: {
-    weight: 0.9, weird: true, quiet: 0.5, dur: [5, 9],
-    lines: ['{n} found something. It is nothing.',
-      '{n} is inspecting a very specific spot.',
-      '{n} demands answers from the floor.'],
+    weight: 0.9, weird: true, dur: [5, 9], icon: 'question',
     enter(c, w) {
       const p = c.pos.clone();
       p.x = clamp(p.x + rand(w.rng, -1.5, 1.5), -AREA, AREA);
@@ -266,8 +259,7 @@ export const BEHAVIORS = {
   },
 
   chase: {
-    weight: 0.7, weird: true, dur: [4, 7], cooldown: 12,
-    // no `lines`: announced from enter(), once the victim is known
+    weight: 0.7, weird: true, dur: [4, 7], cooldown: 12, icon: 'anger',
     can(c, w) { return others(c, w).some((o) => o.bhv.name !== 'panic'); },
     enter(c, w) {
       const victims = others(c, w).filter((o) => o.bhv.name !== 'panic');
@@ -275,26 +267,22 @@ export const BEHAVIORS = {
       c.bhv.data.victim = v;
       v.force('flee', { from: c });
       c.flapT = 0.35;
-      if (w.rng() < 0.8) {
-        say(w, c, ['{n} is chasing {m} for personal reasons.',
-          '{n} has declared war on {m}.',
-          '{n} would like a word with {m}.'], v);
-      }
     },
     update(c, w, dt) {
       const v = c.bhv.data.victim;
       c.walkTo(v.pos, 2.1);
       if (c.pos.distanceTo(v.pos) < 0.45) {
-        say(w, c, ['{n} caught {m}. Nothing happened.', '{n} caught {m} and immediately lost interest.'], v);
+        // Caught her, and immediately has no idea what to do about it.
+        c.showEmote('question', 2.2);
         v.force('wander');
-        c.bhv.t = c.bhv.dur; // done
+        c.bhv.t = c.bhv.dur;
       }
     },
     exit(c) { c.flapT = 0; c.stop(); },
   },
 
   flee: {
-    weight: 0, dur: [3, 5],
+    weight: 0, dur: [3, 5], icon: 'bang',
     enter(c, w) { c.flapT = 0.6; w.audio.squawk(0.9); },
     update(c, w, dt) {
       const from = c.bhv.data.from;
@@ -313,8 +301,6 @@ export const BEHAVIORS = {
 
   roost: {
     weight: 0.8, dur: [10, 22], cooldown: 20,
-    lines: ['{n} took the high ground.'],
-    quiet: 0.7,
     enter(c, w) {
       const bar = pick(w.rng, w.coop.roosts);
       const x = rand(w.rng, bar.x0 + 0.3, bar.x1 - 0.3);
@@ -338,10 +324,10 @@ export const BEHAVIORS = {
         // Occasional wobble; rare comedy fall.
         if (w.rng() < dt * 0.25) c.bodyRoll = rand(w.rng, -0.16, 0.16);
         c.bodyRoll *= Math.max(0, 1 - dt * 3);
-        if (w.rng() < dt * 0.02) {
-          say(w, c, ['{n} fell off the roost.', '{n} forgot how perching works.']);
+        if (w.rng() < dt * 0.025) {
+          c.showEmote('bang', 1.6);
           c.comeDown();
-          c.force('panic', { short: true });
+          c.force('bonk', { fell: true });
         }
       }
     },
@@ -352,9 +338,7 @@ export const BEHAVIORS = {
   },
 
   dustBath: {
-    weight: 0.8, weird: true, dur: [7, 12], cooldown: 25,
-    lines: ['{n} is taking a dust bath. Filthy and delighted.',
-      '{n} is rolling in the dirt on purpose.'],
+    weight: 0.8, weird: true, dur: [7, 12], cooldown: 25, icon: 'star',
     enter(c, w) { c.walkTo(randomPoint(w, 1.2), 0.8); c.bhv.data.bathing = false; },
     update(c, w, dt) {
       const d = c.bhv.data;
@@ -374,9 +358,9 @@ export const BEHAVIORS = {
     },
   },
 
+  // No icon: the rising Zs already say it, and a bubble on top doubles up.
   sleep: {
     weight: 0.7, weird: true, dur: [9, 16], cooldown: 30,
-    lines: ['{n} fell asleep standing up.', '{n} has powered down.'],
     enter(c, w) {
       c.stop();
       c.bhv.data.standing = w.rng() < 0.5;
@@ -397,7 +381,7 @@ export const BEHAVIORS = {
   },
 
   layEgg: {
-    weight: 0.55, dur: [9, 12], cooldown: 55,
+    weight: 0.55, dur: [9, 12], cooldown: 55, icon: 'egg',
     enter(c, w) {
       const useNest = w.rng() < 0.55;
       c.bhv.data.phase = 'go';
@@ -426,13 +410,10 @@ export const BEHAVIORS = {
           c.bodyRoll = 0;
           c.sitT = 0;
           const eggPos = c.pos.clone().sub(new THREE.Vector3(Math.sin(c.yaw), 0, Math.cos(c.yaw)).multiplyScalar(0.25));
-          w.spawnEgg(eggPos, !!d.nest);
+          w.spawnEgg(eggPos);
           w.audio.fanfare();
           c.flapT = 0.9;
-          say(w, c, d.nest
-            ? ['{n} laid an egg like a professional.', '{n} produced an egg. Flawless technique.']
-            : ['{n} laid an egg right there on the floor. No notes.',
-               '{n} laid an egg wherever she happened to be standing.']);
+          c.showEmote('star', 2.6);
         }
       } else if (d.phase === 'proud') {
         c.flapT = Math.max(0, c.flapT - dt * 1.5);
@@ -445,7 +426,7 @@ export const BEHAVIORS = {
 
   // The full ceremony, no egg. Comedy is timing.
   phantomEgg: {
-    weight: 0.5, weird: true, dur: [8, 10], cooldown: 45,
+    weight: 0.5, weird: true, dur: [8, 10], cooldown: 45, icon: 'egg',
     enter(c, w) { c.stop(); c.sitT = 1; c.bhv.data.phase = 'strain'; },
     update(c, w, dt) {
       const d = c.bhv.data;
@@ -455,9 +436,7 @@ export const BEHAVIORS = {
         if (c.bhv.t > 3.4) {
           d.phase = 'nothing';
           c.bodyRoll = 0; c.flapT = 0; c.sitT = 0;
-          say(w, c, ['{n} tried to lay an egg. Nothing happened. {n} is processing this.',
-            '{n} braced for an egg that never came.',
-            '{n} made a considerable effort and produced nothing at all.']);
+          c.showEmote('question', 3.2); // where is it
         }
       } else {
         // stares back at the spot where the egg should be
@@ -468,11 +447,77 @@ export const BEHAVIORS = {
     exit(c) { c.sitT = 0; c.bodyRoll = 0; c.flapT = 0; c.neckPitchT = 0; c.headTiltT = 0; },
   },
 
+  // A full-body sneeze with recoil.
+  sneeze: {
+    weight: 0.5, weird: true, dur: [4.5, 6], cooldown: 30,
+    enter(c, w) { c.stop(); c.bhv.data.done = false; },
+    update(c, w, dt) {
+      const d = c.bhv.data;
+      if (!d.done) {
+        // wind-up: head rears further and further back
+        c.neckPitchT = -0.35 - Math.min(0.55, c.bhv.t * 0.42);
+        if (c.bhv.t > 1.6) {
+          d.done = true;
+          c.neckPitchT = 0.8;
+          c.showEmote('bang', 1.6);
+          w.audio.sneeze();
+          w.shake(0.05);
+          for (let i = 0; i < 5; i++) w.fx.feather(c.pos, c.color);
+          w.fx.puff(c.pos.clone().add(
+            new THREE.Vector3(Math.sin(c.yaw) * 0.3, 0.1, Math.cos(c.yaw) * 0.3)), 0xd8cbb0);
+          knockBack(c, c.pos.clone().add(
+            new THREE.Vector3(Math.sin(c.yaw), 0, Math.cos(c.yaw))), 0.85, 0.18, 0.42);
+        }
+      } else if (c.bhv.t > 2.6) {
+        c.neckPitchT = 0; // composure, eventually
+      }
+    },
+    exit(c) { c.neckPitchT = 0; },
+  },
+
+  // Knocked flat: wall, another chicken, a trip, or falling off the roost.
+  bonk: {
+    weight: 0, weird: true, chained: true, dur: [3.4, 4.4], icon: 'dizzy',
+    enter(c, w) {
+      c.stop();
+      c.frozen = false;
+      c.fallT = 1;
+      c.legKick = 1;
+      c.lidT = 0;
+      w.audio.bonk();
+      w.audio.squawk(1.45);
+      w.shake(0.07);
+      w.incident();
+      for (let i = 0; i < 4; i++) w.fx.feather(c.pos, c.color);
+      w.fx.puff(c.pos, 0x9a7f5c);
+      const d = c.bhv.data;
+      if (d.from) knockBack(c, d.from.pos, 0.55, 0.16, 0.34);
+      else if (d.wall) {
+        // bounce back into the room
+        knockBack(c, c.pos.clone().multiplyScalar(1.6), 0.5, 0.16, 0.34);
+      } else if (d.trip) {
+        // carried forward by her own momentum, face first
+        const fwd = c.pos.clone().add(
+          new THREE.Vector3(Math.sin(c.yaw), 0, Math.cos(c.yaw)).multiplyScalar(0.6));
+        fwd.x = clamp(fwd.x, -AREA, AREA); fwd.z = clamp(fwd.z, -AREA, AREA);
+        c.startHop(fwd, 0.1, 0.3);
+      }
+    },
+    update(c, w, dt) {
+      // Legs bicycle for a while, then she works out which way is up.
+      if (c.bhv.t > c.bhv.dur - 1.2) {
+        c.fallT = 0;
+        c.legKick = Math.max(0, c.legKick - dt * 2);
+      } else {
+        c.legKick = 1;
+        c.bodyRoll = Math.sin(w.time * 6) * 0.08;
+      }
+    },
+    exit(c) { c.fallT = 0; c.legKick = 0; c.bodyRoll = 0; },
+  },
+
   panic: {
-    weight: 0.15, weird: true, dur: [2.5, 5], cooldown: 18, quiet: 0.72,
-    lines: ['{n} is panicking about absolutely nothing.',
-      'PANIC! {n} saw something. There was nothing.',
-      '{n} remembered a bad dream and is handling it poorly.'],
+    weight: 0.15, weird: true, dur: [2.5, 5], cooldown: 18, icon: 'bang',
     enter(c, w) {
       c.comeDown();
       c.frozen = false;
@@ -493,21 +538,15 @@ export const BEHAVIORS = {
         c.bhv.data.infect = 0.3;
         for (const o of others(c, w)) {
           if (o.bhv.name === 'panic') continue;
-          if (o.pos.distanceTo(c.pos) < 2.0 && w.rng() < 0.3) {
-            o.force('panic');
-            if (w.rng() < 0.5) say(w, o, ['{m} convinced {n} to also panic.'], c);
-          }
+          if (o.pos.distanceTo(c.pos) < 2.0 && w.rng() < 0.3) o.force('panic');
         }
       }
     },
-    exit(c, w) {
-      c.flapT = 0; c.stop();
-      if (w.rng() < 0.35) say(w, c, ['{n} has calmed down. Crisis averted (there was no crisis).']);
-    },
+    exit(c) { c.flapT = 0; c.stop(); },
   },
 
   seedRush: {
-    weight: 0, dur: [8, 14],
+    weight: 0, dur: [8, 14], icon: 'grain',
     enter(c, w) {
       c.comeDown();
       c.frozen = false;
@@ -525,7 +564,7 @@ export const BEHAVIORS = {
         if (w.rng() < dt * 3 && c.doPeck()) {
           patch.eat();
           w.audio.cluck(rand(w.rng, 0.8, 1.2));
-          if (patch.count <= 0) say(w, c, ['The seeds are gone. {n} double-checked.']);
+          if (patch.count <= 0) c.showEmote('question', 2.4);
         }
       }
     },
@@ -535,7 +574,7 @@ export const BEHAVIORS = {
   // ---- social nonsense ----------------------------------------------------
 
   conga: {
-    weight: 0.55, weird: true, dur: [10, 16], cooldown: 40,
+    weight: 0.55, weird: true, dur: [10, 16], cooldown: 40, icon: 'note',
     can(c, w) { return others(c, w).length >= 2; },
     enter(c, w) {
       const pool = others(c, w).filter((o) => o.bhv.name !== 'panic' && o.bhv.name !== 'conga');
@@ -546,25 +585,16 @@ export const BEHAVIORS = {
       }
       c.bhv.data.count = n;
       c.walkTo(randomPoint(w), 0.95);
-      if (n >= 2) {
-        say(w, c, [`A conga line has formed behind {n}. Nobody knows why.`,
-          `{n} is leading a procession of ${n}. Destination unknown.`,
-          `{n} has followers now.`]);
-      }
     },
     update(c, w, dt) {
       if (c.arrived(0.4)) c.walkTo(randomPoint(w), 0.95);
+      if (w.rng() < dt * 0.25) c.showEmote('note', 2);
     },
-    exit(c, w) {
-      c.stop();
-      if (c.bhv.data.count >= 2 && w.rng() < 0.6) {
-        say(w, c, ['The conga line has disbanded. No one will speak of it.']);
-      }
-    },
+    exit(c) { c.stop(); },
   },
 
   congaFollow: {
-    weight: 0, dur: [10, 16],
+    weight: 0, dur: [10, 16], icon: 'note',
     update(c, w, dt) {
       const { leader, slot } = c.bhv.data;
       if (!leader || leader.bhv.name !== 'conga') { c.bhv.t = c.bhv.dur; return; }
@@ -578,7 +608,7 @@ export const BEHAVIORS = {
   },
 
   standoff: {
-    weight: 0.6, weird: true, dur: [6, 9], cooldown: 30,
+    weight: 0.6, weird: true, dur: [6, 9], cooldown: 30, icon: 'anger',
     can(c, w) { return !!nearest(c, w, 3.0); },
     enter(c, w) {
       const rival = nearest(c, w, 3.0);
@@ -586,9 +616,6 @@ export const BEHAVIORS = {
       c.bhv.data.rival = rival;
       rival.force('standoffB', { rival: c });
       c.stop();
-      say(w, c, ['{n} and {m} are having a disagreement.',
-        '{n} has squared up to {m}.',
-        '{n} and {m} are standing very close and saying nothing.'], rival);
     },
     update(c, w, dt) {
       const r = c.bhv.data.rival;
@@ -602,16 +629,12 @@ export const BEHAVIORS = {
     exit(c, w) {
       c.neckPitchT = 0;
       const r = c.bhv.data.rival;
-      if (r && w.rng() < 0.7) {
-        say(w, c, ['{m} backed down. {n} has won something.',
-          'Nothing was resolved between {n} and {m}.'], r);
-        r.force('flee', { from: c });
-      }
+      if (r && w.rng() < 0.7) r.force('flee', { from: c });
     },
   },
 
   standoffB: {
-    weight: 0, dur: [6, 9],
+    weight: 0, dur: [6, 9], icon: 'anger',
     update(c, w, dt) {
       const r = c.bhv.data.rival;
       if (!r || r.bhv.name !== 'standoff') { c.bhv.t = c.bhv.dur; return; }
@@ -623,7 +646,7 @@ export const BEHAVIORS = {
   },
 
   tailPeck: {
-    weight: 0.55, weird: true, dur: [7, 10], cooldown: 28,
+    weight: 0.55, weird: true, dur: [7, 10], cooldown: 28, icon: 'star',
     can(c, w) { return !!nearest(c, w, 4.5); },
     enter(c, w) {
       const v = nearest(c, w, 4.5);
@@ -646,11 +669,10 @@ export const BEHAVIORS = {
           c.stop();
           c.doPeck(0.25);
           v.startHop(v.pos.clone(), 0.3, 0.38);
+          v.showEmote('bang', 1.8);
           w.audio.squawk(1.35);
           w.fx.feather(v.pos, v.color);
           w.incident();
-          say(w, c, ['{n} pecked {m} and is now pretending she did not.',
-            '{n} got {m} right on the tail.'], v);
           if (w.rng() < 0.5) v.force('flee', { from: c });
         }
       } else {
@@ -663,7 +685,7 @@ export const BEHAVIORS = {
   },
 
   gawk: {
-    weight: 0.6, weird: true, dur: [8, 13], cooldown: 35,
+    weight: 0.6, weird: true, dur: [8, 13], cooldown: 35, icon: 'question',
     enter(c, w) {
       const spot = randomPoint(w, 1.0);
       c.bhv.data.spot = spot;
@@ -675,10 +697,6 @@ export const BEHAVIORS = {
         const o = pool.splice(Math.floor(w.rng() * pool.length), 1)[0];
         o.force('gawkJoin', { spot });
       }
-      if (n >= 1) {
-        say(w, c, ['{n} is staring at something on the floor. A crowd is forming.',
-          'Everyone has come to look at whatever {n} found.']);
-      }
     },
     update(c, w, dt) {
       if (!c.arrived(0.4)) return;
@@ -689,12 +707,12 @@ export const BEHAVIORS = {
     },
     exit(c, w) {
       c.neckPitchT = 0;
-      if (w.rng() < 0.7) say(w, c, ['There was nothing there. Everyone leaves disappointed.']);
+      if (w.rng() < 0.7) c.showEmote('dots', 2.4); // nothing was there
     },
   },
 
   gawkJoin: {
-    weight: 0, dur: [6, 10],
+    weight: 0, dur: [6, 10], icon: 'question',
     enter(c, w) {
       const s = c.bhv.data.spot;
       const a = rand(w.rng, 0, TAU);
@@ -711,40 +729,32 @@ export const BEHAVIORS = {
   },
 
   copycat: {
-    weight: 0.45, weird: true, dur: [1, 1.5], cooldown: 30,
+    weight: 0.45, weird: true, dur: [1, 1.5], cooldown: 30, icon: 'eye',
     can(c, w) { return !!nearest(c, w, 3.5); },
     enter(c, w) {
       const m = nearest(c, w, 3.5);
       // Copy only solo behaviors; the multi-actor ones need their own casting.
       const SOLO = ['peckAround', 'stareWall', 'statue', 'spin', 'moonwalk', 'sidle',
-        'zoomies', 'investigate', 'dustBath', 'oneLeg', 'existential', 'stareYou'];
-      if (m && SOLO.includes(m.bhv.name)) {
-        say(w, c, ['{n} is copying {m}.', '{n} saw {m} do it and thought it looked correct.'], m);
-        c.bhv.data.copy = m.bhv.name;
-      }
+        'zoomies', 'investigate', 'dustBath', 'oneLeg', 'existential', 'stareYou', 'sneeze'];
+      if (m && SOLO.includes(m.bhv.name)) c.bhv.data.copy = m.bhv.name;
     },
     // Chain into the copied behavior once the beat lands.
     next: (c) => c.bhv.data.copy ?? 'peckAround',
   },
 
   existential: {
-    weight: 0.5, weird: true, dur: [7, 12],
-    lines: ['{n} is looking at the ceiling and questioning everything.',
-      '{n} has begun to wonder what any of this is for.',
-      '{n} is contemplating the nature of the coop.'],
+    weight: 0.5, weird: true, dur: [7, 12], icon: 'spiral',
     enter(c, w) { c.stop(); },
     update(c, w, dt) {
       c.neckPitchT = -0.95; // head all the way back, staring up
       c.headTiltT = Math.sin(w.time * 0.5) * 0.18;
+      if (w.rng() < dt * 0.15) c.showEmote('spiral', 2.4);
     },
     exit(c) { c.neckPitchT = 0; c.headTiltT = 0; },
   },
 
   oneLeg: {
-    weight: 0.5, weird: true, dur: [6, 11],
-    lines: ['{n} is standing on one leg to prove a point.',
-      '{n} has retracted a leg. The other one is fine.',
-      '{n} is down to one leg and seems pleased about it.'],
+    weight: 0.5, weird: true, dur: [6, 11], icon: 'star',
     enter(c, w) { c.stop(); c.legTuckT = 1; },
     update(c, w, dt) {
       // the wobble of someone regretting a commitment
@@ -755,10 +765,7 @@ export const BEHAVIORS = {
   },
 
   scream: {
-    weight: 0.4, weird: true, dur: [3, 4.5], cooldown: 25,
-    lines: ['{n} screamed. No reason was given.',
-      '{n} let out a noise nobody asked for.',
-      '{n} screamed and now everyone is looking.'],
+    weight: 0.4, weird: true, dur: [3, 4.5], cooldown: 25, icon: 'bang',
     enter(c, w) {
       c.stop();
       c.neckPitchT = -0.7;
@@ -776,19 +783,19 @@ export const BEHAVIORS = {
   },
 
   lookAt: {
-    weight: 0, dur: [1.8, 3],
+    weight: 0, dur: [1.8, 3], icon: 'question',
     enter(c) { c.stop(); },
     update(c, w, dt) {
-      const at = c.bhv.data.at;
-      if (at) c.facePoint(at.pos, dt, 6);
+      const d = c.bhv.data;
+      if (d.at) c.facePoint(d.at.pos, dt, 6);
       c.headTiltT = 0.3;
+      if (d.up) c.neckPitchT = -0.85; // something is happening on the ceiling
     },
-    exit(c) { c.headTiltT = 0; },
+    exit(c) { c.headTiltT = 0; c.neckPitchT = 0; },
   },
 
   flightAttempt: {
-    weight: 0.55, weird: true, dur: [5, 7], cooldown: 30,
-    lines: ['{n} is preparing for takeoff.', '{n} believes she can fly.'],
+    weight: 0.55, weird: true, dur: [5, 7], cooldown: 30, icon: 'wing',
     enter(c, w) { c.stop(); c.bhv.data.phase = 'wind'; },
     update(c, w, dt) {
       const d = c.bhv.data;
@@ -809,10 +816,9 @@ export const BEHAVIORS = {
         d.phase = 'landed';
         c.flapT = 0;
         c.bodyRoll = 0.35;
+        c.showEmote('dizzy', 2.4);
         w.fx.puff(c.pos, 0x9a7f5c);
-        say(w, c, ['{n} attempted flight. Physics won.',
-          '{n} achieved 40 centimetres of altitude and a hard landing.',
-          '{n} flew. Briefly. Badly.']);
+        w.audio.bonk();
       } else if (d.phase === 'landed') {
         c.bodyRoll *= Math.max(0, 1 - dt * 2.5);
         c.neckPitchT = 0.3; // dazed
@@ -824,10 +830,8 @@ export const BEHAVIORS = {
   // ---- behaviors that revolve around the matriarch ------------------------
 
   worship: {
-    weight: 0.5, weird: true, dur: [8, 13], cooldown: 40,
+    weight: 0.5, weird: true, dur: [8, 13], cooldown: 40, icon: 'heart',
     can(c, w) { return !!w.bertha; },
-    lines: ['{n} is paying her respects to Big Bertha.',
-      '{n} has gone to look upon Big Bertha.'],
     enter(c, w) {
       const b = w.bertha;
       const a = rand(w.rng, 0, TAU);
@@ -839,12 +843,13 @@ export const BEHAVIORS = {
       c.facePoint(w.bertha.pos, dt, 3);
       // slow, reverent bowing
       c.neckPitchT = Math.sin(w.time * 1.2) > 0 ? 0.85 : -0.1;
+      if (w.rng() < dt * 0.2) c.showEmote('heart', 2);
     },
     exit(c) { c.neckPitchT = 0; },
   },
 
   rideBertha: {
-    weight: 0.7, weird: true, dur: [12, 22], cooldown: 50,
+    weight: 0.7, weird: true, dur: [12, 22], cooldown: 50, icon: 'crown',
     can(c, w) {
       const b = w.bertha;
       return !!b && b.sit > 0.6 && b.riders.length < 2 && !c.riding && !c.perch;
@@ -867,30 +872,25 @@ export const BEHAVIORS = {
       } else if (d.phase === 'mount' && !c.hop) {
         // She may have stood up during the half-second of the leap.
         if (b.sit < 0.55) {
-          say(w, c, ['{n} leapt onto Big Bertha exactly as Big Bertha stood up.',
-            '{n} mistimed the jump onto Big Bertha catastrophically.']);
-          c.force('panic', { short: true });
+          c.showEmote('bang', 1.8);
+          c.force('bonk', { from: b });
           return;
         }
         d.phase = 'riding';
         c.mount(b, new THREE.Vector3(rand(w.rng, -0.22, 0.22), 0, rand(w.rng, -0.28, 0.28)));
         c.sitT = 0.35;
+        c.showEmote('crown', 2.8);
         w.audio.cluck(1.2);
-        say(w, c, ['{n} has climbed on top of Big Bertha. This is a mistake.',
-          '{n} is now standing on Big Bertha. Bertha has not noticed.',
-          '{n} has claimed the summit of Big Bertha.']);
       } else if (d.phase === 'riding') {
         if (!c.riding) { c.bhv.t = c.bhv.dur; return; } // bucked off
         if (w.rng() < dt * 0.5) c.doPeck();
         if (w.rng() < dt * 0.3) c.headYawT = rand(w.rng, -0.9, 0.9);
+        if (w.rng() < dt * 0.15) c.showEmote('crown', 2);
       }
     },
     exit(c, w) {
       c.sitT = 0; c.headYawT = 0;
-      if (c.riding) {
-        c.dismount();
-        if (w.rng() < 0.6) say(w, c, ['{n} has descended from Big Bertha.']);
-      }
+      if (c.riding) c.dismount();
     },
   },
 };
@@ -901,10 +901,7 @@ export const BEHAVIORS = {
 export const BIG_BEHAVIORS = {
 
   bigSleep: {
-    weight: 5, dur: [18, 32],
-    lines: ['Big Bertha is asleep. The coop is at peace.',
-      'Big Bertha has resumed sleeping. This is the natural order.'],
-    quiet: 0.75,
+    weight: 5, dur: [18, 32],   // her rising Zs carry this; see `sleep`
     enter(c, w) {
       c.stop();
       c.sitT = 1; c.lidT = 1;
@@ -919,6 +916,8 @@ export const BIG_BEHAVIORS = {
         d.z = rand(w.rng, 1.9, 2.8);
         w.fx.zzz(c.pos.clone().add(new THREE.Vector3(0, 1.45, 0)), 0.34);
         w.audio.snore();
+        // Each snore visibly moves the air in front of her.
+        w.fx.puff(c.pos.clone().add(new THREE.Vector3(0, 0.55, 0)), 0xc4b393);
       }
       // dream twitches
       if (w.rng() < dt * 0.3) { c.bodyRoll = rand(w.rng, -0.05, 0.05); c.flapT = 0.12; }
@@ -930,10 +929,7 @@ export const BIG_BEHAVIORS = {
 
   // She stirs, mutters, and does not wake. Pure anticlimax.
   bigStir: {
-    weight: 1.4, dur: [5, 8],
-    lines: ['Big Bertha shifted in her sleep. Everyone froze.',
-      'Big Bertha made a noise. Nothing further.',
-      'Big Bertha almost woke up. The coop held its breath.'],
+    weight: 1.4, dur: [5, 8], icon: 'zzz',
     enter(c, w) {
       c.lidT = 0.75;
       c.headYawT = 0.6;
@@ -951,10 +947,7 @@ export const BIG_BEHAVIORS = {
 
   // The slow, terrible business of standing up.
   bigRise: {
-    weight: 1.5, weird: true, dur: [4.5, 5.5], cooldown: 30,
-    lines: ['Big Bertha is waking up.', 'Something is happening. Big Bertha is moving.',
-      'Big Bertha has opened her eyes.'],
-    quiet: 0,
+    weight: 1.5, weird: true, dur: [4.5, 5.5], cooldown: 30, icon: 'bang',
     enter(c, w) {
       c.buckOff();          // any passengers are launched immediately
       c.lidT = 0.1;
@@ -977,25 +970,16 @@ export const BIG_BEHAVIORS = {
   },
 
   bigShrug: {
-    weight: 0, dur: [3.5, 5],
-    enter(c, w) {
-      say(w, c, ['Big Bertha stood up, reconsidered, and is lying back down.',
-        'Big Bertha surveyed the coop, found it acceptable, and sat.',
-        'False alarm. Big Bertha has changed her mind.']);
-      c.stop();
-    },
+    weight: 0, dur: [3.5, 5], icon: 'dots',
+    enter(c) { c.stop(); },
     update(c, w, dt) { c.facePoint(w.camera.position, dt, 0.7); },
     next: 'bigSettle',
   },
 
   // THE RECKONING. She crosses the coop and everything gets out of the way.
   reckoning: {
-    weight: 0, weird: true, chained: true, dur: [14, 20],
+    weight: 0, weird: true, chained: true, dur: [14, 20], icon: 'anger',
     enter(c, w) {
-      say(w, c, ['Big Bertha is crossing the coop. Everyone has opinions about this.',
-        'THE FLOOR IS SHAKING. It is just Big Bertha walking.',
-        'Big Bertha is on the move. Clear the area.',
-        'Big Bertha has decided to go somewhere. It is happening slowly.']);
       w.audio.berthaCall();
       w.incident();
       c.lidT = 0.1;
@@ -1009,16 +993,11 @@ export const BIG_BEHAVIORS = {
         const d = o.pos.distanceTo(c.pos);
         if (d < 2.4 && o.bhv.name !== 'flee' && o.bhv.name !== 'panic' && w.rng() < dt * 3) {
           o.force('flee', { from: c });
-          if (w.rng() < 0.12) say(w, o, ['{n} has yielded to Big Bertha.']);
         }
       }
       if (c.arrived(0.45)) {
-        if (--c.bhv.data.legs > 0) {
-          c.walkTo(randomPoint(w, 1.3), 0.42);
-          if (w.rng() < 0.4) say(w, c, ['Big Bertha walked four feet and needs a moment.']);
-        } else {
-          c.bhv.t = c.bhv.dur;
-        }
+        if (--c.bhv.data.legs > 0) c.walkTo(randomPoint(w, 1.3), 0.42);
+        else c.bhv.t = c.bhv.dur;
       }
     },
     exit(c) { c.stop(); },
@@ -1027,11 +1006,8 @@ export const BIG_BEHAVIORS = {
 
   // Lowering herself back down, with feeling.
   bigSettle: {
-    weight: 0, dur: [4, 5],
-    lines: ['Big Bertha is going back to sleep. The coop exhales.',
-      'Big Bertha has completed her business and is lying down.'],
-    quiet: 0.35,
-    enter(c, w) { c.stop(); },
+    weight: 0, dur: [4, 5], icon: 'zzz',
+    enter(c) { c.stop(); },
     update(c, w, dt) {
       c.sitT = Math.min(1, c.bhv.t / 2.6);
       c.lidT = Math.min(1, 0.2 + c.bhv.t / 3);
@@ -1041,9 +1017,7 @@ export const BIG_BEHAVIORS = {
 
   // She eats. There is nothing left for anyone else.
   bigEat: {
-    weight: 1.1, dur: [16, 22], cooldown: 60,
-    lines: ['Big Bertha is going to the feeder. Everyone else can wait.'],
-    quiet: 0.1,
+    weight: 1.1, dur: [16, 22], cooldown: 60, icon: 'grain',
     enter(c, w) {
       c.buckOff();
       c.lidT = 0.2;
@@ -1065,10 +1039,7 @@ export const BIG_BEHAVIORS = {
             o.force('flee', { from: c });
           }
         }
-        if (c.arrived(0.5)) {
-          d.phase = 'eat';
-          if (w.rng() < 0.8) say(w, c, ['Big Bertha has reached the feeder. It is hers now.']);
-        }
+        if (c.arrived(0.5)) d.phase = 'eat';
       } else {
         c.facePoint(f, dt, 1.2);
         if (w.rng() < dt * 2) { c.doPeck(0.55); w.audio.cluck(0.55); }
@@ -1079,14 +1050,12 @@ export const BIG_BEHAVIORS = {
 
   // Being looked at, and looking back.
   bigStare: {
-    weight: 0.9, weird: true, dur: [9, 14], cooldown: 45,
-    lines: ['Big Bertha is looking at you. Directly.',
-      'Big Bertha has noticed you and has not looked away.',
-      'Big Bertha is awake and you are the reason.'],
+    weight: 0.9, weird: true, dur: [9, 14], cooldown: 45, icon: 'eye',
     enter(c, w) { c.stop(); c.lidT = 0.05; },
     update(c, w, dt) {
       c.facePoint(w.camera.position, dt, 0.9); // she turns very, very slowly
       c.headTiltT = Math.sin(w.time * 0.35) * 0.22;
+      if (w.rng() < dt * 0.12) c.showEmote('eye', 2.6);
     },
     exit(c) { c.headTiltT = 0; },
     next: 'bigSettle',
@@ -1094,10 +1063,7 @@ export const BIG_BEHAVIORS = {
 
   // An earthquake with feathers.
   bigDustBath: {
-    weight: 0.8, weird: true, dur: [12, 16], cooldown: 70,
-    lines: ['Big Bertha is taking a dust bath. Structural concerns have been raised.',
-      'Big Bertha is rolling in the dirt. The building is shaking.'],
-    quiet: 0,
+    weight: 0.8, weird: true, dur: [12, 16], cooldown: 70, icon: 'star',
     enter(c, w) {
       c.buckOff();
       c.stop();
@@ -1124,19 +1090,58 @@ export const BIG_BEHAVIORS = {
       w.fx.feather(c.pos, c.color);
       w.shake(0.2);
     },
+    // Sometimes she rolls a little too far and cannot get back over.
+    next: (c, w) => (w.rng() < 0.45 ? 'bigStuck' : 'bigSettle'),
+  },
+
+  // Flat on her back, legs in the air. The single funniest thing in the coop.
+  bigStuck: {
+    weight: 0, weird: true, chained: true, dur: [10, 14], icon: 'dizzy',
+    enter(c, w) {
+      c.buckOff();
+      c.stop();
+      c.fallT = 1;
+      c.legKick = 1;
+      c.sitT = 1;
+      c.lidT = 0.1;
+      w.audio.berthaGroan(0.75);
+      w.shake(0.28);
+      w.incident();
+      for (let i = 0; i < 6; i++) w.fx.puff(c.pos, 0x9a7f5c);
+      // The entire coop comes to look at this.
+      for (const o of w.chickens) {
+        if (o.big) continue;
+        if (w.rng() < 0.85) o.force('gawkJoin', { spot: c.pos.clone() });
+      }
+    },
+    update(c, w, dt) {
+      c.legKick = 1;
+      c.bodyRoll = Math.sin(w.time * 3.4) * 0.12;
+      if (w.rng() < dt * 1.2) w.fx.puff(c.pos, 0x9a7f5c);
+      if (w.rng() < dt * 0.5) w.audio.berthaGroan(rand(w.rng, 0.7, 1.05));
+      if (w.rng() < dt * 0.25) c.showEmote('dizzy', 2.4);
+    },
+    exit(c, w) {
+      // She rights herself all at once, and everyone regrets watching.
+      c.fallT = 0; c.legKick = 0; c.bodyRoll = 0;
+      w.shake(0.34);
+      w.audio.berthaCall();
+      for (let i = 0; i < 8; i++) w.fx.puff(c.pos, 0x9a7f5c);
+      for (const o of w.chickens) {
+        if (!o.big && o.pos.distanceTo(c.pos) < 3.2) o.force('flee', { from: c });
+      }
+    },
     next: 'bigSettle',
   },
 
   // Seeds are worth getting up for.
   bigSeedRush: {
-    weight: 0, weird: true, chained: true, dur: [16, 22],
+    weight: 0, weird: true, chained: true, dur: [16, 22], icon: 'grain',
     enter(c, w) {
       c.buckOff();
       c.sitT = 0;
       c.lidT = 0.2;
       c.bhv.data.phase = 'rise';
-      say(w, c, ['Big Bertha has smelled the seeds. She is getting up.',
-        'Big Bertha is coming for the seeds. Move.']);
       w.audio.berthaGroan();
       w.incident();
     },
@@ -1145,7 +1150,7 @@ export const BIG_BEHAVIORS = {
       const patch = d.patch;
       if (!patch || patch.count <= 0) { c.bhv.t = c.bhv.dur; return; }
       if (d.phase === 'rise') {
-        if (c.bhv.t > 2.4) { d.phase = 'walk'; }
+        if (c.bhv.t > 2.4) d.phase = 'walk';
         return;
       }
       const spot = new THREE.Vector3(patch.pos.x, 0, patch.pos.z + 0.75);
@@ -1164,7 +1169,6 @@ export const BIG_BEHAVIORS = {
           c.doPeck();
           patch.eat(); patch.eat(); // she takes two at a time
           w.audio.cluck(0.5);
-          if (patch.count <= 0) say(w, c, ['Big Bertha ate all of it. Every seed. Gone.']);
         }
       }
     },
@@ -1173,12 +1177,9 @@ export const BIG_BEHAVIORS = {
 
   // You clicked her.
   bigGlare: {
-    weight: 0, dur: [5, 7],
+    weight: 0, dur: [5, 7], icon: 'anger',
     enter(c, w) {
       c.lidT = 0.35;
-      say(w, c, ['Big Bertha opened one eye. You have been noted.',
-        'Big Bertha is aware of what you did.',
-        'Big Bertha does not appreciate being poked.']);
       w.audio.berthaGroan(0.8);
     },
     update(c, w, dt) { c.facePoint(w.camera.position, dt, 0.8); },
@@ -1197,7 +1198,10 @@ const PICKABLE = {
 
 // Bertha cannot be startled, seeded, or chased like an ordinary chicken;
 // requests aimed at her get translated or dropped.
-const BIG_ALIASES = { seedRush: 'bigSeedRush', wander: 'bigSettle', panic: null, flee: null, lookAt: null };
+const BIG_ALIASES = {
+  seedRush: 'bigSeedRush', wander: 'bigSettle',
+  panic: null, flee: null, lookAt: null, bonk: null, gawkJoin: null,
+};
 
 // Guards against a behavior's exit() handler triggering another transition,
 // which would re-enter that same exit(). Chain with `next` instead.
@@ -1259,7 +1263,7 @@ function enterBehavior(c, w, name, def, data, forced = false) {
   // Count spontaneous weirdness only, or a panic cascade inflates the tally
   // by one per infected chicken. `chained` opts a forced behavior back in.
   if (def.weird && (!forced || def.chained)) w.ui.addWeird();
-  if (def.lines && w.rng() > (def.quiet ?? 0.25)) say(w, c, def.lines);
+  if (def.icon) c.showEmote(def.icon);
   def.enter?.(c, w);
   return c.bhv;
 }

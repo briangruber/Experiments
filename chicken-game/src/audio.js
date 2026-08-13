@@ -64,6 +64,20 @@ export class CoopAudio {
     if (v) v.osc.frequency.exponentialRampToValueAtTime(90, v.t0 + 0.11);
   }
 
+  // A sneeze: a sharp burst of noise with a downward tail.
+  sneeze() {
+    const v = this._env('sawtooth', 900, 0.09, 0.16);
+    if (v) v.osc.frequency.exponentialRampToValueAtTime(300, v.t0 + 0.08);
+    const t = this._env('square', 420, 0.3, 0.12, 0.07);
+    if (t) t.osc.frequency.exponentialRampToValueAtTime(120, t.t0 + 0.28);
+  }
+
+  // Hitting something solid: a wooden knock, no pitch to speak of.
+  bonk() {
+    const v = this._env('square', 210, 0.11, 0.22);
+    if (v) v.osc.frequency.exponentialRampToValueAtTime(70, v.t0 + 0.1);
+  }
+
   // ---- Big Bertha: everything an octave down and twice as long -----------
 
   snore(gain = 1) {

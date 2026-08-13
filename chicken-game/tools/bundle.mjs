@@ -127,15 +127,12 @@ if (!document.querySelector('meta[name="viewport"]')) {
 try {
   __req(${JSON.stringify(ENTRY)});
 } catch (err) {
-  var t = document.getElementById('ticker');
+  var t = document.getElementById('fatal');
   if (t) {
-    var d = document.createElement('div');
-    d.className = 'tick';
-    d.style.animation = 'none';
-    d.textContent = 'The coop could not open. This usually means WebGL is unavailable; '
+    t.style.display = 'block';
+    t.textContent = 'The coop could not open. This usually means WebGL is unavailable; '
       + 'current Chrome, Edge, Firefox or Safari with hardware graphics will work. ('
       + (err && err.message ? err.message : err) + ')';
-    t.appendChild(d);
   }
   throw err;
 }

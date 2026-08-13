@@ -31,6 +31,159 @@ function zTexture() {
 const FEATHER_GEO = new THREE.PlaneGeometry(0.085, 0.05);
 const SEED_GEO = new THREE.SphereGeometry(0.022, 6, 5);
 
+// ---- emote bubbles ---------------------------------------------------------
+// What a chicken is doing has to read at a glance, with no words anywhere.
+// Every icon is drawn with canvas paths or ASCII glyphs only — an emoji font
+// is not guaranteed to exist on the viewer's machine, and a tofu box in a
+// thought bubble would be worse than no bubble at all.
+
+const INK = '#241a12';
+const CREAM = '#f7eeda';
+const TAU_2 = Math.PI * 2;
+
+function roundRect(x, l, t, w, h, r) {
+  x.beginPath();
+  x.moveTo(l + r, t);
+  x.arcTo(l + w, t, l + w, t + h, r);
+  x.arcTo(l + w, t + h, l, t + h, r);
+  x.arcTo(l, t + h, l, t, r);
+  x.arcTo(l, t, l + w, t, r);
+  x.closePath();
+}
+
+function glyph(x, ch, color, size = 62) {
+  x.fillStyle = color;
+  x.font = `bold ${size}px Georgia, "Times New Roman", serif`;
+  x.textAlign = 'center';
+  x.textBaseline = 'middle';
+  x.fillText(ch, 64, 46);
+}
+
+function star(x, cx, cy, r, color) {
+  x.fillStyle = color;
+  x.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = -Math.PI / 2 + (i * Math.PI) / 5;
+    const rad = i % 2 ? r * 0.44 : r;
+    x[i ? 'lineTo' : 'moveTo'](cx + Math.cos(a) * rad, cy + Math.sin(a) * rad);
+  }
+  x.closePath();
+  x.fill();
+}
+
+// The icon painters. Each draws inside a 128x128 canvas, centred near (64,44).
+const ICONS = {
+  bang: (x) => glyph(x, '!', '#c23b2e', 66),
+  question: (x) => glyph(x, '?', INK, 62),
+  zzz: (x) => { glyph(x, 'z', INK, 40); x.font = 'bold 56px Georgia'; x.fillText('Z', 82, 32); },
+  dots: (x) => { // "...", the sound of a chicken having no thoughts
+    x.fillStyle = INK;
+    for (const dx of [-22, 0, 22]) { x.beginPath(); x.arc(64 + dx, 50, 7, 0, TAU_2); x.fill(); }
+  },
+  eye: (x) => {
+    x.strokeStyle = INK; x.lineWidth = 6; x.fillStyle = '#fff';
+    x.beginPath(); x.ellipse(64, 46, 34, 21, 0, 0, TAU_2); x.fill(); x.stroke();
+    x.fillStyle = INK; x.beginPath(); x.arc(64, 46, 11, 0, TAU_2); x.fill();
+  },
+  anger: (x) => { // the four-spike cartoon anger mark
+    x.fillStyle = '#c23b2e';
+    x.beginPath();
+    for (let i = 0; i < 4; i++) {
+      const a = (i * Math.PI) / 2;
+      const ca = Math.cos(a), sa = Math.sin(a);
+      x.moveTo(64 + ca * 34, 46 + sa * 34);
+      x.lineTo(64 + (ca - sa) * 9, 46 + (sa + ca) * 9);
+      x.lineTo(64 + Math.cos(a + Math.PI / 2) * 34, 46 + Math.sin(a + Math.PI / 2) * 34);
+      x.lineTo(64 + (ca + sa) * 3, 46 + (sa - ca) * 3);
+    }
+    x.closePath(); x.fill();
+  },
+  heart: (x) => {
+    x.fillStyle = '#d4526e';
+    x.beginPath();
+    x.moveTo(64, 68);
+    x.bezierCurveTo(24, 44, 34, 16, 64, 34);
+    x.bezierCurveTo(94, 16, 104, 44, 64, 68);
+    x.closePath(); x.fill();
+  },
+  star: (x) => { star(x, 64, 46, 32, '#e8a33d'); },
+  dizzy: (x) => { // little stars orbiting nothing
+    star(x, 44, 34, 15, '#e8a33d');
+    star(x, 82, 42, 13, '#e8a33d');
+    star(x, 60, 62, 11, '#e8a33d');
+  },
+  note: (x) => {
+    x.fillStyle = INK;
+    x.beginPath(); x.ellipse(50, 62, 15, 11, -0.35, 0, TAU_2); x.fill();
+    x.fillRect(61, 18, 6, 45);
+    x.beginPath(); x.moveTo(67, 18); x.quadraticCurveTo(92, 26, 86, 48);
+    x.quadraticCurveTo(84, 30, 67, 32); x.closePath(); x.fill();
+  },
+  drop: (x) => {
+    x.fillStyle = '#5b93c9';
+    x.beginPath(); x.moveTo(64, 16);
+    x.bezierCurveTo(92, 46, 88, 72, 64, 72);
+    x.bezierCurveTo(40, 72, 36, 46, 64, 16);
+    x.closePath(); x.fill();
+  },
+  egg: (x) => {
+    x.fillStyle = '#f2ead8'; x.strokeStyle = INK; x.lineWidth = 5;
+    x.beginPath(); x.ellipse(64, 46, 22, 29, 0, 0, TAU_2); x.fill(); x.stroke();
+  },
+  grain: (x) => {
+    x.fillStyle = '#d9a83f';
+    for (const [dx, dy, a] of [[-20, 6, 0.4], [4, -12, -0.3], [18, 12, 0.7], [-2, 20, 0.1]]) {
+      x.beginPath(); x.ellipse(64 + dx, 46 + dy, 13, 7, a, 0, TAU_2); x.fill();
+    }
+  },
+  spiral: (x) => {
+    x.strokeStyle = INK; x.lineWidth = 7; x.lineCap = 'round';
+    x.beginPath();
+    for (let i = 0; i <= 60; i++) {
+      const t = (i / 60) * 4.4 * Math.PI;
+      const r = 3 + t * 2.6;
+      const px = 64 + Math.cos(t) * r, py = 46 + Math.sin(t) * r;
+      x[i ? 'lineTo' : 'moveTo'](px, py);
+    }
+    x.stroke();
+  },
+  wing: (x) => { // a hopeful little wing: the flight-attempt icon
+    x.fillStyle = INK;
+    x.beginPath(); x.moveTo(30, 62);
+    x.quadraticCurveTo(44, 18, 96, 24);
+    x.quadraticCurveTo(78, 52, 30, 62);
+    x.closePath(); x.fill();
+    x.strokeStyle = CREAM; x.lineWidth = 4;
+    for (const dx of [0, 13, 26]) {
+      x.beginPath(); x.moveTo(48 + dx, 54 - dx * 0.55); x.lineTo(62 + dx, 32 - dx * 0.5); x.stroke();
+    }
+  },
+  crown: (x) => {
+    x.fillStyle = '#e8a33d'; x.strokeStyle = INK; x.lineWidth = 5;
+    x.beginPath();
+    x.moveTo(28, 66); x.lineTo(34, 22); x.lineTo(50, 46); x.lineTo(64, 18);
+    x.lineTo(78, 46); x.lineTo(94, 22); x.lineTo(100, 66);
+    x.closePath(); x.fill(); x.stroke();
+  },
+};
+
+function emoteTexture(paint) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const x = c.getContext('2d');
+  // Thought bubble: one rounded cloud plus two trailing dots, drawn as
+  // separate shapes so no outline ever cuts through another.
+  x.fillStyle = CREAM; x.strokeStyle = INK; x.lineWidth = 6;
+  x.beginPath(); x.arc(50, 100, 10, 0, TAU_2); x.fill(); x.stroke();
+  x.beginPath(); x.arc(34, 118, 6, 0, TAU_2); x.fill(); x.stroke();
+  roundRect(x, 8, 4, 112, 82, 26);
+  x.fill(); x.stroke();
+  paint(x);
+  const tex = new THREE.CanvasTexture(c);
+  tex.anisotropy = 4;
+  return tex;
+}
+
 class SeedPatch {
   constructor(scene, pos, rng) {
     this.pos = pos.clone();
@@ -79,6 +232,15 @@ export class FX {
     this.patches = [];
     this.puffTex = softCircleTexture();
     this.zTex = zTexture();
+
+    // One shared material per icon: emote sprites animate by scale, never
+    // opacity, so every chicken showing "!" can use the same material.
+    this.emoteMats = {};
+    for (const [name, paint] of Object.entries(ICONS)) {
+      this.emoteMats[name] = new THREE.SpriteMaterial({
+        map: emoteTexture(paint), transparent: true, depthWrite: false,
+      });
+    }
   }
 
   feather(pos, color) {

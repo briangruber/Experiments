@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { clamp, damp, lerp, rand, turnToward, TAU } from './util.js';
+import { clamp, damp, lerp, rand, turnToward } from './util.js';
 import { pickBehavior, forceBehavior } from './behaviors.js';
 
 // Chickens are built facing +Z: forward = (sin yaw, 0, cos yaw).
@@ -61,6 +61,8 @@ export class Chicken {
     this.lid = this.big ? 0.85 : 0;        // eyelid droop
     this.lidT = this.lid;
     this.legTuck = 0; this.legTuckT = 0;   // one-legged standing
+    this.fall = 0; this.fallT = 0;         // knocked over onto her side
+    this.legKick = 0;                      // legs bicycling while down
     this.bodyRoll = 0;         // driven directly by behaviors (dust bath, dizzy)
     this.peckT = 1e9;          // time since last peck started
     this.peckHeight = 0;       // 0 = ground, ~0.35 = feeder trough
@@ -75,6 +77,44 @@ export class Chicken {
     this.rideHeight = 0.38 * this.scale;
     this.root.position.set(rand(world.rng, -3, 3), 0, rand(world.rng, -2.5, 3));
     this.root.rotation.y = this.yaw;
+
+    // Thought bubble. Lives in the scene rather than under root so it never
+    // inherits the bird's tipping, spinning or squashing.
+    this.emoteSprite = new THREE.Sprite(world.fx.emoteMats.dots);
+    this.emoteSprite.visible = false;
+    this.emoteSprite.renderOrder = 5;
+    this.emoteScale = 0.44 * (1 + (this.scale - 1) * 0.3);
+    world.scene.add(this.emoteSprite);
+    this.emoteT = 0;
+    this.emoteDur = 0;
+  }
+
+  // Show a thought bubble. This is the only way the game explains itself,
+  // so behaviors declare an `icon` and it fires on entry.
+  showEmote(icon, dur = 2.4) {
+    const mat = this.world.fx.emoteMats[icon];
+    if (!mat) return;
+    this.emoteSprite.material = mat;
+    this.emoteT = 0;
+    this.emoteDur = dur;
+    this.emoteSprite.visible = true;
+  }
+
+  updateEmote(dt) {
+    const s = this.emoteSprite;
+    if (!s.visible) return;
+    this.emoteT += dt;
+    const k = this.emoteT / this.emoteDur;
+    if (k >= 1) { s.visible = false; return; }
+    // Pop in, hold, shrink out.
+    const pop = k < 0.16 ? Math.sin((k / 0.16) * Math.PI * 0.5) * 1.14
+      : k > 0.86 ? (1 - (k - 0.86) / 0.14) : 1;
+    const sc = this.emoteScale * Math.max(0, pop);
+    s.scale.set(sc, sc, sc);
+    s.position.set(
+      this.pos.x,
+      this.pos.y + 0.86 * this.scale + 0.26 + Math.sin(this.world.time * 2.4) * 0.02,
+      this.pos.z);
   }
 
   buildModel(palette) {
@@ -82,9 +122,14 @@ export class Chicken {
     const body = feathered(palette.body);
     const accent = feathered(palette.accent);
 
+    // The rig carries the whole bird and can be tipped over on its side
+    // without disturbing root.position, which stays the ground contact point.
+    this.rig = new THREE.Group();
+    this.root.add(this.rig);
+
     this.hips = new THREE.Group();
     this.hips.position.y = 0.32;
-    this.root.add(this.hips);
+    this.rig.add(this.hips);
 
     const bodyMesh = new THREE.Mesh(BODY_GEO, body);
     // Bertha is not a bigger chicken so much as a rounder one.
@@ -187,7 +232,7 @@ export class Chicken {
       foot.castShadow = true;
       leg.add(foot);
       this.legs.push(leg);
-      this.root.add(leg);
+      this.rig.add(leg);
     }
 
     this.root.traverse((o) => { o.userData.chicken = this; });
@@ -274,6 +319,7 @@ export class Chicken {
 
   update(dt) {
     const w = this.world;
+    this.updateEmote(dt); // runs even while frozen, so statues can still think
 
     // Behavior state machine.
     const b = this.bhv;
@@ -351,9 +397,19 @@ export class Chicken {
     // Keep everyone inside the coop (hops and perches manage their own y).
     if (!this.perch && !this.hop) {
       const lim = 4.35 - (this.rad - 0.3);
+      const hitWall = Math.abs(this.pos.x) > lim || Math.abs(this.pos.z) > lim;
       this.pos.x = clamp(this.pos.x, -lim, lim);
       this.pos.z = clamp(this.pos.z, -lim, lim);
       if (this.pos.y > 0) this.pos.y = Math.max(0, this.pos.y - 3 * dt);
+
+      // Running flat out into a wall is a bonk, not a gentle stop. The
+      // cooldown stops a chicken pinned against a wall bonking every frame.
+      this._wallCool = Math.max(0, (this._wallCool ?? 0) - dt);
+      if (hitWall && !this.big && this._wallCool <= 0 && this.bhv.name !== 'bonk'
+          && this.move && this.move.speed > 1.7) {
+        this._wallCool = 3;
+        this.force('bonk', { wall: true });
+      }
     }
 
     this.animate(dt);
@@ -372,6 +428,12 @@ export class Chicken {
     this.headYaw = damp(this.headYaw, this.headYawT, 8, dt);
     this.lid = damp(this.lid, this.lidT, 6, dt);
     this.legTuck = damp(this.legTuck, this.legTuckT, 6, dt);
+    this.fall = damp(this.fall, this.fallT, 9, dt);
+
+    // Tipped over: roll the whole rig onto its side and lift it so the body
+    // rests on the floor instead of sinking through it.
+    this.rig.rotation.z = this.fall * 1.45;
+    this.rig.position.y = this.fall * 0.30;
 
     // Peck: one quick dive of the neck, then recover.
     this.peckT += dt;
@@ -400,7 +462,8 @@ export class Chicken {
       const swing = Math.sin(g + i * Math.PI) * 0.55 * amp;
       // legTuck folds the right leg up under the body (one-legged standing).
       const tuck = i === 1 ? this.legTuck : 0;
-      leg.rotation.x = swing * (1 - this.sit) - tuck * 0.9;
+      const kick = this.legKick * Math.sin(this.world.time * 13 + i * 2.2) * 0.8;
+      leg.rotation.x = swing * (1 - this.sit) - tuck * 0.9 + kick;
       const fold = (1 - this.sit * 0.8) * (1 - tuck * 0.55);
       leg.scale.y = fold;
       leg.position.y = 0.30 * fold + lerp(0, -0.13, this.sit);
@@ -422,11 +485,13 @@ export class Chicken {
       for (const brow of this.brows) brow.position.y = 0.062 - this.lid * 0.05;
     }
 
-    // Wings: resting tuck, spread + flutter when flapping.
+    // Wings: resting tuck, spread + flutter when flapping. A bird on her side
+    // splays both wings — tucked, the upper one reads as a detached blob.
     const flutter = Math.sin(this.world.time * 34 + this.gait) * this.flap;
+    const splay = this.fall * (0.5 + Math.sin(this.world.time * 9) * 0.12);
     for (const wing of this.wings) {
       const side = wing.userData.side;
-      wing.rotation.z = side * (0.1 + this.flap * 1.15 + flutter * 0.35);
+      wing.rotation.z = side * (0.1 + this.flap * 1.15 + flutter * 0.35 + splay);
     }
 
     // Idle tail wag, faster when excited.

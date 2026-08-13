@@ -39,6 +39,9 @@ let signDays = 0;
 const EGG_GEO = new THREE.SphereGeometry(0.075, 9, 7);
 EGG_GEO.scale(0.82, 1, 0.82);
 const EGG_MAT = new THREE.MeshStandardMaterial({ color: 0xf2ead8, roughness: 0.55 });
+const GOLD_MAT = new THREE.MeshStandardMaterial({
+  color: 0xe0a233, roughness: 0.22, metalness: 0.7, emissive: 0x2e1c04,
+});
 
 const world = {
   scene, camera, rng, ui, audio, fx,
@@ -49,13 +52,19 @@ const world = {
   coop: null,
 
   spawnEgg(pos) {
-    const egg = new THREE.Mesh(EGG_GEO, EGG_MAT);
+    const golden = rng() < 0.1;
+    const egg = new THREE.Mesh(EGG_GEO, golden ? GOLD_MAT : EGG_MAT);
     egg.position.set(pos.x, 0.055, pos.z);
     egg.rotation.set(rand(rng, -0.2, 0.2), rand(rng, 0, TAU), rand(rng, -0.2, 0.2));
     egg.castShadow = true;
-    egg.userData.egg = true;
+    // Eggs are laid with a bit of momentum and roll until they settle.
+    egg.userData = {
+      egg: true, golden,
+      vel: new THREE.Vector3(rand(rng, -0.55, 0.55), 0, rand(rng, -0.55, 0.55)),
+    };
     scene.add(egg);
     world.eggs.push(egg);
+    if (golden) for (let i = 0; i < 5; i++) fx.puff(pos, 0xffd88a);
   },
 
   shake(amount) {
@@ -159,6 +168,7 @@ function setNDC(e) {
 }
 
 canvas.addEventListener('pointerdown', (e) => {
+  ui.dismissHint();
   dragging = true;
   dragDist = 0;
   lastX = e.clientX; lastY = e.clientY;
@@ -195,7 +205,7 @@ canvas.addEventListener('pointerup', (e) => {
   canvas.classList.remove('dragging');
   const wasDragging = dragging;
   dragging = false;
-  if (!wasDragging || dragDist > 6) return;
+  if (!wasDragging || dragDist > 9) return; // a touch "tap" is never pixel-perfect
   // A click, not a drag: poke a chicken, collect an egg, or toss seeds.
   setNDC(e);
   raycaster.setFromCamera(pointerNDC, camera);
@@ -204,26 +214,40 @@ canvas.addEventListener('pointerup', (e) => {
   if (chickenHit) {
     const c = chickenHit.object.userData.chicken;
     if (c.big) {
-      // She does not startle. She notices.
-      c.force('bigGlare');
-      ui.tick('You poked Big Bertha. That was a choice.', true);
+      c.force('bigGlare'); // she does not startle. she notices.
       return;
     }
-    const sleeping = c.bhv.name === 'sleep';
     c.force('panic', { short: true });
     c.startHop(c.pos.clone(), 0.35, 0.4);
     audio.squawk(1.2);
-    ui.tick(sleeping ? `You woke ${c.name} up. She will remember this.` : `You startled ${c.name}. Rude.`, true);
     return;
   }
 
   const eggHit = raycaster.intersectObjects(world.eggs)[0];
   if (eggHit) {
-    scene.remove(eggHit.object);
-    world.eggs.splice(world.eggs.indexOf(eggHit.object), 1);
-    ui.addEgg();
-    audio.pop();
-    ui.tick('Egg collected. The chickens did not notice.', true);
+    const egg = eggHit.object;
+    scene.remove(egg);
+    world.eggs.splice(world.eggs.indexOf(egg), 1);
+    if (egg.userData.golden) {
+      ui.addEgg(5);
+      audio.fanfare();
+      for (let i = 0; i < 8; i++) fx.puff(egg.position, 0xffd88a);
+    } else {
+      ui.addEgg();
+      audio.pop();
+      fx.puff(egg.position, 0xf2ead8);
+    }
+    return;
+  }
+
+  // The bulb is asking to be swung at, hanging there like that.
+  const bulbHit = raycaster.intersectObject(world.coop.bulbRig, true)[0];
+  if (bulbHit) {
+    bulbSwing = 0.2;
+    audio.bonk();
+    for (const c of flock) {
+      if (rng() < 0.6) c.force('lookAt', { at: { pos: world.coop.bulbPos }, up: true });
+    }
     return;
   }
 
@@ -233,7 +257,6 @@ canvas.addEventListener('pointerup', (e) => {
     p.z = clamp(p.z, -4.2, 4.2);
     const patch = fx.seeds(p);
     audio.cluck(0.8);
-    ui.tick('You tossed some seeds. This will not stay calm for long.', true);
     for (const c of flock) {
       if (c.pos.distanceTo(p) < 5.5 && rng() < 0.85 && c.bhv.name !== 'panic') {
         c.force('seedRush', { patch });
@@ -265,10 +288,24 @@ canvas.addEventListener('touchend', () => { pinchDist = 0; });
 
 // ---- resize ----------------------------------------------------------------
 
+let laidOut = false;
 function resize() {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
+
+  // A portrait phone has a narrow horizontal field of view, so the default
+  // desktop framing leaves the flock tiny in the middle of a lot of floor.
+  // Start closer and more level there. Only once — after that it is the
+  // player's camera, and a device rotation should not snatch it back.
+  if (!laidOut) {
+    laidOut = true;
+    if (innerWidth < innerHeight) {
+      orbit.r = orbit.rT = 3.05;
+      orbit.phi = orbit.phiT = 1.31;
+      orbit.target.y = 0.8;
+    }
+  }
 }
 addEventListener('resize', resize);
 resize();
@@ -277,9 +314,46 @@ resize();
 
 let nextAmbient = 2;
 
+// Two chickens running flat out into each other both go down. Only pairs
+// where at least one is sprinting count, so a crowded feeder stays peaceful.
+function chickenCollisions() {
+  const list = world.chickens;
+  const busy = (c) => c.big || c.riding || c.perch || c.hop || c.bhv.name === 'bonk';
+  for (let i = 0; i < list.length; i++) {
+    const a = list[i];
+    if (busy(a)) continue;
+    for (let j = i + 1; j < list.length; j++) {
+      const b = list[j];
+      if (busy(b)) continue;
+      if (!(a.move?.speed > 1.7) && !(b.move?.speed > 1.7)) continue;
+      const reach = a.rad + b.rad - 0.1;
+      if (a.pos.distanceToSquared(b.pos) < reach * reach) {
+        a.force('bonk', { from: b });
+        b.force('bonk', { from: a });
+        break; // a is on the floor now; stop pairing her up
+      }
+    }
+  }
+}
+
+function rollEggs(dt) {
+  for (const egg of world.eggs) {
+    const v = egg.userData.vel;
+    if (!v || v.lengthSq() < 1e-5) continue;
+    egg.position.x = clamp(egg.position.x + v.x * dt, -4.25, 4.25);
+    egg.position.z = clamp(egg.position.z + v.z * dt, -4.25, 4.25);
+    egg.rotation.x += v.z * dt * 7;
+    egg.rotation.z -= v.x * dt * 7;
+    v.multiplyScalar(Math.max(0, 1 - dt * 2.6));
+    if (v.lengthSq() < 1e-4) v.set(0, 0, 0);
+  }
+}
+
 function step(dt) {
   world.time += dt;
   for (const c of world.chickens) c.update(dt);
+  chickenCollisions();
+  rollEggs(dt);
   fx.update(dt, world.time);
   updateMotes(world.coop, world.time);
 
@@ -299,7 +373,6 @@ function step(dt) {
     calmTime = 0;
     signDays++;
     world.coop.drawSign(signDays);
-    if (signDays === 1) ui.tick('The sign now reads 1 day without incident.');
   }
 
   nextAmbient -= dt;
