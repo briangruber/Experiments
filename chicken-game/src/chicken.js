@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { clamp, damp, lerp, rand, turnToward } from './util.js';
+import { clamp, damp, lerp, rand, turnToward, wrapAngle } from './util.js';
 import { pickBehavior, forceBehavior } from './behaviors.js';
 
 // Chickens are built facing +Z: forward = (sin yaw, 0, cos yaw).
@@ -75,7 +75,14 @@ export class Chicken {
     this.root.scale.setScalar(this.scale);
     // Height of her back while sitting: hips (0.15) + squashed body radius.
     this.rideHeight = 0.38 * this.scale;
-    this.root.position.set(rand(world.rng, -3, 3), 0, rand(world.rng, -2.5, 3));
+    // Simulation position. The rendered root is interpolated toward it each
+    // frame (see render), which is what lets the simulation run at a fixed
+    // 30 Hz — a hard requirement for every client agreeing on the world —
+    // while still looking smooth on a 120 Hz display.
+    this.pos = new THREE.Vector3(rand(world.rng, -3, 3), 0, rand(world.rng, -2.5, 3));
+    this.prevPos = this.pos.clone();
+    this.prevYaw = this.yaw;
+    this.root.position.copy(this.pos);
     this.root.rotation.y = this.yaw;
 
     // Thought bubble. Lives in the scene rather than under root so it never
@@ -106,15 +113,12 @@ export class Chicken {
     this.emoteT += dt;
     const k = this.emoteT / this.emoteDur;
     if (k >= 1) { s.visible = false; return; }
-    // Pop in, hold, shrink out.
+    // Pop in, hold, shrink out. Placement happens in render(), against the
+    // interpolated transform, so the bubble does not jitter at 30 Hz.
     const pop = k < 0.16 ? Math.sin((k / 0.16) * Math.PI * 0.5) * 1.14
       : k > 0.86 ? (1 - (k - 0.86) / 0.14) : 1;
     const sc = this.emoteScale * Math.max(0, pop);
     s.scale.set(sc, sc, sc);
-    s.position.set(
-      this.pos.x,
-      this.pos.y + 0.86 * this.scale + 0.26 + Math.sin(this.world.time * 2.4) * 0.02,
-      this.pos.z);
   }
 
   buildModel(palette) {
@@ -238,7 +242,28 @@ export class Chicken {
     this.root.traverse((o) => { o.userData.chicken = this; });
   }
 
-  get pos() { return this.root.position; }
+  // ---- fixed-tick / render split -----------------------------------------
+
+  // Called at the top of every simulation tick: the previous transform is the
+  // near end of the interpolation the renderer draws between ticks.
+  beginTick() {
+    this.prevPos.copy(this.pos);
+    this.prevYaw = this.yaw;
+  }
+
+  // alpha is how far the current frame sits between the last two ticks.
+  render(alpha) {
+    const p = this.root.position;
+    p.lerpVectors(this.prevPos, this.pos, alpha);
+    this.root.rotation.y = this.prevYaw + wrapAngle(this.yaw - this.prevYaw) * alpha;
+    const s = this.emoteSprite;
+    if (s.visible) {
+      s.position.set(
+        p.x,
+        p.y + 0.86 * this.scale + 0.26 + Math.sin(this.world.time * 2.4) * 0.02,
+        p.z);
+    }
+  }
 
   // ---- behavior plumbing -------------------------------------------------
 
@@ -418,9 +443,10 @@ export class Chicken {
   animate(dt) {
     if (this.frozen) return; // statue mode: hold the exact pose
 
-    this.root.rotation.y = this.yaw;
-
-    // Smoothed animation channels.
+    // Smoothed animation channels. These run inside the fixed tick, not at
+    // render rate, because behaviors read some of them back (c.sit gates
+    // whether anyone may ride Bertha) and a render-rate value would make
+    // that decision depend on the viewer's framerate.
     this.sit = damp(this.sit, this.sitT, 8, dt);
     this.flap = damp(this.flap, this.flapT, 10, dt);
     this.neckPitch = damp(this.neckPitch, this.neckPitchT, 10, dt);
@@ -534,6 +560,8 @@ export function spawnBertha(world) {
   const bertha = new Chicken('Big Bertha',
     { body: 0xb8763a, accent: 0x8e5726 }, world, { big: true, scale: 2.05 });
   bertha.pos.set(-2.4, 0, -2.5);
+  bertha.prevPos.copy(bertha.pos);
+  bertha.root.position.copy(bertha.pos);
   bertha.sit = bertha.sitT = 1;
   world.scene.add(bertha.root);
   return bertha;

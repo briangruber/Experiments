@@ -2,13 +2,22 @@ import * as THREE from 'three';
 import { clamp, damp, mulberry32, rand, TAU } from './util.js';
 import { buildCoop, updateMotes } from './coop.js';
 import { spawnFlock, spawnBertha } from './chicken.js';
+import { isResumable } from './behaviors.js';
 import { FX } from './fx.js';
 import { CoopAudio } from './audio.js';
 import { UI } from './ui.js';
+import { EV, EventQueue, LocalTransport, TICK_DT } from './net.js';
 
 const params = new URLSearchParams(location.search);
-const seed = parseInt(params.get('seed') ?? '', 10);
-const rng = mulberry32(Number.isFinite(seed) ? seed : (Math.random() * 2 ** 31) | 0);
+const seedParam = parseInt(params.get('seed') ?? '', 10);
+const SEED = Number.isFinite(seedParam) ? seedParam : (Math.random() * 2 ** 31) | 0;
+
+// Two independent streams. `rng` decides what the coop does and must be drawn
+// from identically by every client; `fxRng` only jitters particles, which are
+// dropped when a pool is full and so cannot be trusted to stay in step.
+// See net.js for the full set of rules this simulation keeps to.
+const rng = mulberry32(SEED);
+const fxRng = mulberry32(SEED ^ 0x9e3779b9);
 
 // ---- renderer / scene ------------------------------------------------------
 
@@ -29,7 +38,14 @@ const camera = new THREE.PerspectiveCamera(55, 1, 0.05, 60);
 
 const audio = new CoopAudio();
 const ui = new UI(audio);
-const fx = new FX(scene, rng);
+const fx = new FX(scene, fxRng);
+
+// Player input becomes tick-stamped events and is applied inside the tick
+// loop. Swapping LocalTransport for a socket-backed one is the whole of the
+// client-side change needed to make the coop shared.
+const transport = new LocalTransport();
+const events = new EventQueue();
+transport.onEvent((e) => events.add(e));
 
 let shakeAmt = 0;      // camera shake, decays every frame
 let bulbSwing = 0;     // how hard the hanging bulb is swinging
@@ -45,11 +61,21 @@ const GOLD_MAT = new THREE.MeshStandardMaterial({
 
 const world = {
   scene, camera, rng, ui, audio, fx,
-  time: 0,
+  seed: SEED,
+  tick: 0,           // simulation clock; the only time the world agrees on
+  time: 0,           // tick * TICK_DT, kept for animation phases
   chickens: [],
   eggs: [],
+  nextEggId: 1,      // eggs need stable ids so "collected" is sendable
   bertha: null,
   coop: null,
+
+  // Where the audience is standing, as shared world state. One entry per
+  // connected viewer; chickens pick which one to fixate on. Seeded with the
+  // default camera spot so a chicken can stare at you on the very first tick,
+  // before any WATCH event has been sent.
+  watchers: [{ id: 'local', pos: new THREE.Vector3(2.6, 1.7, -3.3) }],
+  audienceFallback: new THREE.Vector3(2.6, 1.7, -3.3),
 
   spawnEgg(pos) {
     const golden = rng() < 0.1;
@@ -59,12 +85,60 @@ const world = {
     egg.castShadow = true;
     // Eggs are laid with a bit of momentum and roll until they settle.
     egg.userData = {
-      egg: true, golden,
+      egg: true, golden, id: world.nextEggId++,
       vel: new THREE.Vector3(rand(rng, -0.55, 0.55), 0, rand(rng, -0.55, 0.55)),
     };
     scene.add(egg);
     world.eggs.push(egg);
     if (golden) for (let i = 0; i < 5; i++) fx.puff(pos, 0xffd88a);
+  },
+
+  removeEgg(egg) {
+    const i = world.eggs.indexOf(egg);
+    if (i < 0) return false;
+    world.eggs.splice(i, 1);
+    scene.remove(egg);
+    return true;
+  },
+
+  // A few hundred bytes describing what the coop currently looks like: enough
+  // for a late joiner to arrive mid-scene, and the drift correction that makes
+  // lockstep safe across browsers whose Math.sin differs in the last bit.
+  snapshot() {
+    return {
+      tick: world.tick,
+      chickens: world.chickens.map((c) => [
+        +c.pos.x.toFixed(3), +c.pos.y.toFixed(3), +c.pos.z.toFixed(3),
+        +c.yaw.toFixed(3), c.bhv.name,
+      ]),
+      eggs: world.eggs.map((e) => [
+        e.userData.id, +e.position.x.toFixed(2), +e.position.z.toFixed(2),
+        e.userData.golden ? 1 : 0,
+      ]),
+    };
+  },
+
+  applySnapshot(snap) {
+    world.tick = snap.tick;
+    world.time = snap.tick * TICK_DT;
+    snap.chickens.forEach(([x, y, z, yaw, bhv], i) => {
+      const c = world.chickens[i];
+      if (!c) return;
+      c.pos.set(x, y, z);
+      c.prevPos.copy(c.pos);
+      c.yaw = c.prevYaw = yaw;
+      const target = isResumable(bhv) ? bhv : (c.big ? 'bigSettle' : 'wander');
+      if (c.bhv.name !== target) c.force(target);
+    });
+    for (const egg of [...world.eggs]) world.removeEgg(egg);
+    for (const [id, x, z, golden] of snap.eggs) {
+      world.spawnEgg(new THREE.Vector3(x, 0, z));
+      const egg = world.eggs[world.eggs.length - 1];
+      egg.userData.id = id;
+      egg.userData.vel.set(0, 0, 0);
+      egg.material = golden ? GOLD_MAT : EGG_MAT;
+      egg.userData.golden = !!golden;
+    }
   },
 
   shake(amount) {
@@ -210,63 +284,112 @@ canvas.addEventListener('pointerup', (e) => {
   setNDC(e);
   raycaster.setFromCamera(pointerNDC, camera);
 
+  // Picking is local — a raycast is meaningless on another machine — so it
+  // resolves to an index or a coordinate, and only that goes into the event.
   const chickenHit = raycaster.intersectObjects(world.chickens.map((c) => c.root), true)[0];
   if (chickenHit) {
     const c = chickenHit.object.userData.chicken;
-    if (c.big) {
-      c.force('bigGlare'); // she does not startle. she notices.
-      return;
-    }
-    c.force('panic', { short: true });
-    c.startHop(c.pos.clone(), 0.35, 0.4);
-    audio.squawk(1.2);
+    transport.send(EV.POKE, { chicken: world.chickens.indexOf(c) }, world.tick);
     return;
   }
 
   const eggHit = raycaster.intersectObjects(world.eggs)[0];
   if (eggHit) {
-    const egg = eggHit.object;
-    scene.remove(egg);
-    world.eggs.splice(world.eggs.indexOf(egg), 1);
-    if (egg.userData.golden) {
-      ui.addEgg(5);
-      audio.fanfare();
-      for (let i = 0; i < 8; i++) fx.puff(egg.position, 0xffd88a);
-    } else {
-      ui.addEgg();
-      audio.pop();
-      fx.puff(egg.position, 0xf2ead8);
-    }
+    transport.send(EV.COLLECT, { egg: eggHit.object.userData.id }, world.tick);
     return;
   }
 
   // The bulb is asking to be swung at, hanging there like that.
-  const bulbHit = raycaster.intersectObject(world.coop.bulbRig, true)[0];
-  if (bulbHit) {
-    bulbSwing = 0.2;
-    audio.bonk();
-    for (const c of flock) {
-      if (rng() < 0.6) c.force('lookAt', { at: { pos: world.coop.bulbPos }, up: true });
-    }
+  if (raycaster.intersectObject(world.coop.bulbRig, true)[0]) {
+    transport.send(EV.BULB, {}, world.tick);
     return;
   }
 
   const p = new THREE.Vector3();
   if (raycaster.ray.intersectPlane(floorPlane, p) && Math.abs(p.x) < 4.6 && Math.abs(p.z) < 4.6) {
-    p.x = clamp(p.x, -4.2, 4.2);
-    p.z = clamp(p.z, -4.2, 4.2);
-    const patch = fx.seeds(p);
-    audio.cluck(0.8);
-    for (const c of flock) {
-      if (c.pos.distanceTo(p) < 5.5 && rng() < 0.85 && c.bhv.name !== 'panic') {
-        c.force('seedRush', { patch });
-      }
-    }
-    // Sometimes it is enough to wake the matriarch, which changes everything.
-    const b = world.bertha;
-    if (b && b.bhv.name !== 'bigSeedRush' && rng() < 0.5) b.force('seedRush', { patch });
+    transport.send(EV.SEEDS, {
+      x: +clamp(p.x, -4.2, 4.2).toFixed(3),
+      z: +clamp(p.z, -4.2, 4.2).toFixed(3),
+    }, world.tick);
   }
 });
+
+// ---- events ----------------------------------------------------------------
+// Applied inside the tick loop, never straight from the input handler. Every
+// client runs this same function on the same event at the same tick.
+
+function applyEvent(e) {
+  switch (e.type) {
+    case EV.SEEDS: {
+      const patch = fx.seeds(new THREE.Vector3(e.x, 0, e.z));
+      audio.cluck(0.8);
+      for (const c of flock) {
+        if (c.pos.distanceTo(patch.pos) < 5.5 && rng() < 0.85 && c.bhv.name !== 'panic') {
+          c.force('seedRush', { patch });
+        }
+      }
+      // Sometimes it is enough to wake the matriarch, which changes everything.
+      const b = world.bertha;
+      if (b && b.bhv.name !== 'bigSeedRush' && rng() < 0.5) b.force('seedRush', { patch });
+      break;
+    }
+
+    case EV.POKE: {
+      const c = world.chickens[e.chicken];
+      if (!c) break;
+      if (c.big) { c.force('bigGlare'); break; } // she does not startle. she notices.
+      c.force('panic', { short: true });
+      c.startHop(c.pos.clone(), 0.35, 0.4);
+      audio.squawk(1.2);
+      break;
+    }
+
+    case EV.WATCH: {
+      let watcher = world.watchers.find((x) => x.id === e.id);
+      if (!watcher) {
+        watcher = { id: e.id, pos: new THREE.Vector3() };
+        world.watchers.push(watcher);
+        // Keep the list sorted by id so every client iterates it identically.
+        world.watchers.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+      }
+      watcher.pos.set(e.x, e.y, e.z);
+      break;
+    }
+
+    case EV.LEAVE: {
+      const i = world.watchers.findIndex((x) => x.id === e.id);
+      if (i >= 0 && world.watchers.length > 1) world.watchers.splice(i, 1);
+      break;
+    }
+
+    case EV.BULB: {
+      bulbSwing = 0.2;
+      audio.bonk();
+      for (const c of flock) {
+        if (rng() < 0.6) c.force('lookAt', { at: { pos: world.coop.bulbPos }, up: true });
+      }
+      break;
+    }
+
+    case EV.COLLECT: {
+      const egg = world.eggs.find((x) => x.userData.id === e.egg);
+      if (!egg) break;                       // someone else got there first
+      const { golden } = egg.userData;
+      const at = egg.position.clone();
+      world.removeEgg(egg);
+      for (let i = 0; i < (golden ? 8 : 1); i++) fx.puff(at, golden ? 0xffd88a : 0xf2ead8);
+      // The egg leaving is shared; the point for it belongs to whoever tapped.
+      if (e.actor === transport.actor) {
+        if (golden) { ui.addEgg(5); audio.fanfare(); } else { ui.addEgg(); audio.pop(); }
+      } else if (golden) {
+        audio.fanfare();
+      } else {
+        audio.pop();
+      }
+      break;
+    }
+  }
+}
 
 canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
@@ -349,17 +472,47 @@ function rollEggs(dt) {
   }
 }
 
-function step(dt) {
-  world.time += dt;
-  for (const c of world.chickens) c.update(dt);
+// One simulation tick. Always exactly TICK_DT of coop time — never a
+// wall-clock delta — so every client advances the world identically.
+function tick() {
+  const due = events.drain(world.tick);
+  if (due) for (const e of due) applyEvent(e);
+
+  for (const c of world.chickens) c.beginTick();
+  world.time += TICK_DT;
+  for (const c of world.chickens) c.update(TICK_DT);
   chickenCollisions();
-  rollEggs(dt);
-  fx.update(dt, world.time);
+  rollEggs(TICK_DT);
+  fx.reapPatches();
+
+  // The sign counts up in calm and is reset by the first thing that happens.
+  calmTime += TICK_DT;
+  if (calmTime > 14) {
+    calmTime = 0;
+    signDays++;
+    world.coop.drawSign(signDays);
+  }
+
+  nextAmbient -= TICK_DT;
+  if (nextAmbient <= 0) {
+    nextAmbient = rand(rng, 2.5, 7);
+    audio.bok(rand(rng, 0.85, 1.25));
+  }
+
+  world.tick++;
+}
+
+// Everything the viewer sees but the world does not depend on: particles,
+// the swinging bulb, the camera. Runs at display rate with a real delta, and
+// draws chickens interpolated between the last two ticks.
+function render(alpha, frameDt) {
+  for (const c of world.chickens) c.render(alpha);
+  fx.update(frameDt, world.time);
   updateMotes(world.coop, world.time);
 
   // The bulb hums along with a barely-there flicker, and swings when the
   // floor gets hit. The point light rides with it so the shadows swing too.
-  bulbSwing = Math.max(0, bulbSwing - dt * 0.045);
+  bulbSwing = Math.max(0, bulbSwing - frameDt * 0.045);
   const rig = world.coop.bulbRig;
   rig.rotation.z = Math.sin(world.time * 3.1) * bulbSwing;
   rig.rotation.x = Math.cos(world.time * 2.7) * bulbSwing * 0.7;
@@ -367,35 +520,58 @@ function step(dt) {
   world.coop.bulbMesh.getWorldPosition(bulbLight.position);
   bulbLight.intensity = 14 * (1 + Math.sin(world.time * 11) * 0.02 + Math.sin(world.time * 3.7) * 0.015);
 
-  // The sign counts up in calm and is reset by the first thing that happens.
-  calmTime += dt;
-  if (calmTime > 14) {
-    calmTime = 0;
-    signDays++;
-    world.coop.drawSign(signDays);
-  }
-
-  nextAmbient -= dt;
-  if (nextAmbient <= 0) {
-    nextAmbient = rand(rng, 2.5, 7);
-    audio.bok(rand(rng, 0.85, 1.25));
-  }
+  applyCamera(frameDt);
+  renderer.render(scene, camera);
 }
 
+const MAX_CATCHUP = 8;   // a backgrounded tab must not try to replay an hour
+let watchTimer = 0;      // seconds until this viewer republishes its position
+
 const handle = {
-  frames: 0, world, camera, renderer, orbit,
-  // Fast-forward hook for the test harness.
-  step(n, dt = 1 / 30) { for (let i = 0; i < n; i++) step(dt); },
+  frames: 0, world, camera, renderer, orbit, transport, events,
+  // Stops the display loop from advancing the simulation, so a test (or a
+  // future server-driven client) can decide exactly when ticks happen.
+  paused: false,
+  // Advance exactly n ticks. Used by the test harness and by a late joiner
+  // replaying an event log.
+  step(n) { for (let i = 0; i < n; i++) tick(); },
+  // Draw without simulating — the property the determinism test leans on.
+  renderFrame(dt = 1 / 60, alpha = 1) { render(alpha, dt); },
+  // Inject an event as if a player had made it, for tests and for a future
+  // server pushing another viewer's action into this client.
+  send(type, payload) { return transport.send(type, payload, world.tick); },
+  snapshot: () => world.snapshot(),
+  applySnapshot: (s) => world.applySnapshot(s),
 };
 window.chickenGame = handle;
 
+let acc = 0;
 let prev = performance.now();
 renderer.setAnimationLoop((now) => {
   // Clamp below as well: the first frame's timestamp can predate `prev`.
-  const dt = clamp((now - prev) / 1000, 0, 0.05);
+  const frameDt = clamp((now - prev) / 1000, 0, 0.25);
   prev = now;
-  step(dt);
-  applyCamera(dt);
-  renderer.render(scene, camera);
+  let ran = 0;
+  if (!handle.paused) {
+    acc += frameDt;
+    while (acc >= TICK_DT && ran < MAX_CATCHUP) { tick(); acc -= TICK_DT; ran++; }
+    if (ran === MAX_CATCHUP) acc = 0; // gave up catching up; do not spiral
+
+    // Publish where this viewer is looking from, about once a second and
+    // rounded to centimetres. Chickens read watchers, never the live camera,
+    // so this is the one path by which moving your own view reaches the
+    // simulation — and it is an ordinary event, identical on every client.
+    watchTimer -= frameDt;
+    if (watchTimer <= 0) {
+      watchTimer = 1;
+      const p = camera.position;
+      transport.send(EV.WATCH, {
+        id: transport.actor,
+        x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2),
+      }, world.tick);
+    }
+  }
+
+  render(clamp(acc / TICK_DT, 0, 1), frameDt);
   handle.frames++;
 });

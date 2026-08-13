@@ -224,6 +224,11 @@ class SeedPatch {
 }
 
 export class FX {
+  // `rng` here is the COSMETIC stream, never the simulation's. Effects drop
+  // draws when a pool is full (see feather/_sprite below), and pool occupancy
+  // depends on the viewer's framerate — sharing the simulation RNG would make
+  // two clients on the same seed consume it a different number of times and
+  // drift apart within seconds.
   constructor(scene, rng) {
     this.scene = scene;
     this.rng = rng;
@@ -288,6 +293,13 @@ export class FX {
     return patch;
   }
 
+  // Seed patches are simulation state — chickens read patch.count — so they
+  // are reaped from the tick, not from the render-rate visual update, which
+  // would make the eviction in seeds() depend on framerate.
+  reapPatches() {
+    this.patches = this.patches.filter((p) => p.count > 0);
+  }
+
   update(dt, time) {
     for (let i = this.feathers.length - 1; i >= 0; i--) {
       const f = this.feathers[i];
@@ -324,7 +336,5 @@ export class FX {
         this.sprites.splice(i, 1);
       }
     }
-
-    this.patches = this.patches.filter((p) => p.count > 0);
   }
 }

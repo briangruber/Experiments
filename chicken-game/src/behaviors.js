@@ -28,6 +28,27 @@ function others(c, w) {
   return w.chickens.filter((o) => o !== c && !o.big && !o.perch && !o.riding);
 }
 
+// Where the audience is, as far as the simulation is concerned.
+//
+// This deliberately is NOT the local camera. Every viewer has their own
+// camera moving at their own framerate, so reading it here would both steer
+// each client's chickens differently and make "she is watching you" a
+// different claim on every screen. Watchers are shared world state, updated
+// by WATCH events. With several viewers the target is picked by distance with
+// the id as tiebreak, so everyone sees the same hen fixated on the same
+// person.
+function watcher(c, w) {
+  const list = w.watchers;
+  if (!list.length) return w.audienceFallback;
+  let best = list[0];
+  let bestD = best.pos.distanceToSquared(c.pos);
+  for (let i = 1; i < list.length; i++) {
+    const d = list[i].pos.distanceToSquared(c.pos);
+    if (d < bestD || (d === bestD && list[i].id < best.id)) { best = list[i]; bestD = d; }
+  }
+  return best.pos;
+}
+
 function nearest(c, w, maxDist = 99) {
   let best = null, bestD = maxDist;
   for (const o of others(c, w)) {
@@ -147,10 +168,10 @@ export const BEHAVIORS = {
       c.bhv.data.creep = w.rng() < 0.35; // sometimes she comes closer. slowly.
     },
     update(c, w, dt) {
-      const cam = w.camera.position;
+      const cam = watcher(c, w);
       c.facePoint(cam, dt, 4);
       c.headTiltT = Math.sin(w.time * 0.7) * 0.45;
-      if (c.bhv.data.creep && w.camera.position.distanceTo(c.pos) > 1.4) {
+      if (c.bhv.data.creep && cam.distanceTo(c.pos) > 1.4) {
         c.pos.x += Math.sin(c.yaw) * 0.14 * dt;
         c.pos.z += Math.cos(c.yaw) * 0.14 * dt;
         c.gaitAmp = 0.25; c.gait += dt * 2.5; // slow, deliberate steps
@@ -214,7 +235,7 @@ export const BEHAVIORS = {
     weight: 0.4, weird: true, dur: [3, 5.5], icon: 'eye',
     enter(c, w) { c.stop(); c.bhv.data.dir = w.rng() < 0.5 ? -1 : 1; },
     update(c, w, dt) {
-      c.facePoint(w.camera.position, dt, 3);
+      c.facePoint(watcher(c, w), dt, 3);
       const strafeYaw = c.yaw + (Math.PI / 2) * c.bhv.data.dir;
       c.pos.x += Math.sin(strafeYaw) * 0.4 * dt;
       c.pos.z += Math.cos(strafeYaw) * 0.4 * dt;
@@ -714,7 +735,9 @@ export const BEHAVIORS = {
   gawkJoin: {
     weight: 0, dur: [6, 10], icon: 'question',
     enter(c, w) {
-      const s = c.bhv.data.spot;
+      // A snapshot restores behaviors by name with no data, so enter() must
+      // never assume the caller supplied any.
+      const s = c.bhv.data.spot ?? (c.bhv.data.spot = c.pos.clone());
       const a = rand(w.rng, 0, TAU);
       c.walkTo(new THREE.Vector3(s.x + Math.sin(a) * 0.75, 0, s.z + Math.cos(a) * 0.75), 1.2);
     },
@@ -972,7 +995,7 @@ export const BIG_BEHAVIORS = {
   bigShrug: {
     weight: 0, dur: [3.5, 5], icon: 'dots',
     enter(c) { c.stop(); },
-    update(c, w, dt) { c.facePoint(w.camera.position, dt, 0.7); },
+    update(c, w, dt) { c.facePoint(watcher(c, w), dt, 0.7); },
     next: 'bigSettle',
   },
 
@@ -1053,7 +1076,7 @@ export const BIG_BEHAVIORS = {
     weight: 0.9, weird: true, dur: [9, 14], cooldown: 45, icon: 'eye',
     enter(c, w) { c.stop(); c.lidT = 0.05; },
     update(c, w, dt) {
-      c.facePoint(w.camera.position, dt, 0.9); // she turns very, very slowly
+      c.facePoint(watcher(c, w), dt, 0.9); // she turns very, very slowly
       c.headTiltT = Math.sin(w.time * 0.35) * 0.22;
       if (w.rng() < dt * 0.12) c.showEmote('eye', 2.6);
     },
@@ -1182,11 +1205,19 @@ export const BIG_BEHAVIORS = {
       c.lidT = 0.35;
       w.audio.berthaGroan(0.8);
     },
-    update(c, w, dt) { c.facePoint(w.camera.position, dt, 0.8); },
+    update(c, w, dt) { c.facePoint(watcher(c, w), dt, 0.8); },
     // Poke her enough and she gets up. That is on you.
     next: (c, w) => (w.rng() < 0.35 ? 'bigRise' : 'bigSleep'),
   },
 };
+
+// Behaviors that only make sense with a partner or a target that a snapshot
+// does not carry — a follower needs its leader, a rush needs its seed patch.
+// A client restoring from a snapshot puts these chickens back on `wander`
+// instead and lets them pick again; positions stay correct either way, which
+// is what the snapshot is really for.
+const NEEDS_CONTEXT = new Set(['congaFollow', 'standoffB', 'gawkJoin', 'seedRush', 'lookAt']);
+export const isResumable = (name) => !NEEDS_CONTEXT.has(name);
 
 // ---- state machine plumbing ------------------------------------------------
 

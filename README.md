@@ -56,4 +56,13 @@ cd chicken-game
 node tools/bundle.mjs --root . --out dist/chicken-game.html   # single self-contained file
 node tools/shot.mjs --out shots/coop.png            # render + smoke test
 node tools/shot.mjs --ff 3600 --camera "-0.9,1.25,4.6"   # fast-forward 2 min of coop time first
+node tools/determinism.mjs                          # guards the multiplayer seam
 ```
+
+`chicken-game/` runs a fixed-timestep simulation that is deliberately kept
+independent of rendering, so the coop can later be shared between viewers.
+`tools/determinism.mjs` replays one seed and one event list twice — once
+stepped cleanly, once with rendering hammered at wildly varying frame rates —
+and fails if the two worlds differ by a single bit. The rules that keeps
+honest are written down in `chicken-game/src/net.js`; read them before adding
+anything that draws from the simulation RNG.
