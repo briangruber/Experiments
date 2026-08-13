@@ -117,9 +117,12 @@ await load(ENTRY);
 
 const assetDir = join(ROOT, 'assets');
 const files = (await readdir(assetDir)).filter((f) => f.endsWith('.glb') && !SKIP.has(f));
-// keeper-rig.glb is the intermediate the retargets were built from; the game
-// never loads it, so it does not belong in a single-file build.
-const used = files.filter((f) => f !== 'keeper-rig.glb');
+// keeper-rig.glb is the intermediate the retargets were built from, and
+// keeper-run.glb is a retarget whose loop seam made it unusable — the walk
+// cycle is rate-matched to ground speed instead. Neither is loaded at runtime,
+// so neither belongs in a single-file build.
+const DEAD = new Set(['keeper-rig.glb', 'keeper-run.glb']);
+const used = files.filter((f) => !DEAD.has(f));
 const assetEntries = [];
 let assetBytes = 0;
 let strippedBytes = 0;

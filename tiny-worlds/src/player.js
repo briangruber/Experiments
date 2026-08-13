@@ -22,6 +22,13 @@ const COYOTE = 0.12;
 const STICK = 0.42;
 // Steepness (1 - cos) past which the ground is a cliff, not a hill.
 const MAX_STAND = 0.46;
+// World units one full cycle of the walk clip carries the keeper. Everything
+// about foot plant follows from this number.
+const STRIDE = 3.0;
+// Clips that play once and hold their last frame rather than looping. Looping
+// them restarts the pose mid-air: the fall clip's ends are a full quaternion
+// and a half apart, so it lurched every three seconds of descent.
+const ONE_SHOT = new Set(['jump', 'fall', 'hurt']);
 const BUFFER = 0.16;
 
 export class Player {
@@ -44,6 +51,10 @@ export class Player {
     for (const [name, clip] of Object.entries(assets.keeper.clips)) {
       const action = this.mixer.clipAction(clip);
       action.enabled = true;
+      if (ONE_SHOT.has(name)) {
+        action.setLoop(THREE.LoopOnce, 1);
+        action.clampWhenFinished = true;
+      }
       action.setEffectiveWeight(name === 'idle' ? 1 : 0);
       action.play();
       this.actions[name] = action;
@@ -123,6 +134,9 @@ export class Player {
     const action = this.actions[name];
     if (!action) return;
     const w = damp(action.getEffectiveWeight(), target, rate, dt);
+    // A one-shot that has already played out sits clamped on its last frame,
+    // so re-entering the state has to rewind it.
+    if (target > 0.5 && w < 0.05 && ONE_SHOT.has(name)) action.reset();
     action.setEffectiveWeight(w < 0.002 ? 0 : w);
     if (w > 0.002 && !action.isRunning()) action.play();
     // `current` is only a label now, for the debug panel and the harness.
@@ -299,11 +313,13 @@ export class Player {
     const reeling = this.hurtTime > 0 && !!this.actions.hurt;
 
     const jog = clamp((this.speed - 0.6) / (base * 0.9), 0, 1);
-    const dash = clamp((this.speed - base * 0.95) / (base * 0.6), 0, 1);
     const ground = reeling || airborne ? 0 : 1;
     this.blend('idle', ground * (1 - jog), dt);
-    this.blend('walk', ground * jog * (1 - dash), dt);
-    this.blend('run', ground * jog * dash, dt);
+    // One locomotion cycle, played at whatever rate the ground demands. The
+    // run clip is not blended in: its first and last frames are a third of a
+    // quaternion apart, so it popped once per cycle, and cross-blending two
+    // cycles whose feet are out of phase is its own kind of mush.
+    this.blend('walk', ground * jog, dt);
     // Rising and falling look nothing alike, so they are separate clips: the
     // takeoff holds while you climb, and the fall takes over past the apex.
     // Faster in than out, so a jump reads immediately but a landing settles.
@@ -311,14 +327,19 @@ export class Player {
     this.blend('fall', reeling ? 0 : (airborne && !rising ? 1 : 0), dt, 11);
     this.blend('hurt', reeling ? 1 : 0, dt, 18);
 
-    // Stride matched to ground speed, so the feet stop skating.
-    const cadence = clamp(this.speed / base, 0.55, 1.9);
-    this.actions.walk?.setEffectiveTimeScale(cadence * 1.15);
-    this.actions.run?.setEffectiveTimeScale(clamp(cadence, 0.8, 1.5));
+    // Play rate from stride, not from a guessed multiplier. One cycle of the
+    // clip should carry the keeper STRIDE units, so the rate is however many
+    // cycles per second that speed needs. The old code ran the clip at 1.15x
+    // while the keeper crossed six units a second: the legs cycled about five
+    // times too slowly for the ground going by, which is what "the walk does
+    // not fit the motion" looks like.
+    const cycle = this.actions.walk?.getClip().duration ?? 1;
+    const cadence = clamp((this.speed / STRIDE) * cycle, 0.35, 9);
+    this.actions.walk?.setEffectiveTimeScale(cadence);
     this.mixer.update(dt);
 
     if (this.grounded && this.speed > 0.5) {
-      this.stepTimer -= dt * cadence;
+      this.stepTimer -= dt * clamp(this.speed / base, 0.5, 2);
       if (this.stepTimer <= 0) { this.stepTimer = 0.34; this.onStep?.(this.speed); }
     }
   }

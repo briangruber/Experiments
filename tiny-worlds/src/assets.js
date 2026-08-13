@@ -16,7 +16,6 @@ const FILES = {
   lantern: 'lantern.glb',
   keeperIdle: 'keeper-idle.glb',
   keeperWalk: 'keeper-walk.glb',
-  keeperRun: 'keeper-run.glb',
   keeperJump: 'keeper-jump.glb',
   keeperFall: 'keeper-fall.glb',
   keeperHurt: 'keeper-hurt.glb',
@@ -299,7 +298,7 @@ export async function loadAssets(onProgress = () => {}) {
 
   out.keeper = rigged([
     ['idle', loaded.keeperIdle], ['walk', loaded.keeperWalk],
-    ['run', loaded.keeperRun], ['jump', loaded.keeperJump],
+    ['jump', loaded.keeperJump],
     ['fall', loaded.keeperFall], ['hurt', loaded.keeperHurt],
   ], fallbackKeeper);
 
