@@ -250,40 +250,47 @@ export function buildCoop(scene, rng) {
   strawMesh.receiveShadow = true;
   g.add(strawMesh);
 
-  // ---- "days without incident" sign --------------------------------------
+  // ---- "days without incident" sign (it never gets far) -------------------
   const signCanvas = document.createElement('canvas');
   signCanvas.width = 256; signCanvas.height = 128;
-  const ctx = signCanvas.getContext('2d');
-  ctx.fillStyle = '#2b2019'; ctx.fillRect(0, 0, 256, 128);
-  ctx.strokeStyle = '#c9b28a'; ctx.lineWidth = 5; ctx.strokeRect(6, 6, 244, 116);
-  ctx.fillStyle = '#e8dcc0'; ctx.textAlign = 'center';
-  ctx.font = '22px Georgia';
-  ctx.fillText('DAYS WITHOUT', 128, 40);
-  ctx.fillText('INCIDENT', 128, 66);
-  ctx.font = 'bold 44px Georgia';
-  ctx.fillStyle = '#e8a33d';
-  ctx.fillText('0', 128, 112);
+  const signCtx = signCanvas.getContext('2d');
+  const signTex = new THREE.CanvasTexture(signCanvas);
+  const drawSign = (days) => {
+    const ctx = signCtx;
+    ctx.fillStyle = '#2b2019'; ctx.fillRect(0, 0, 256, 128);
+    ctx.strokeStyle = '#c9b28a'; ctx.lineWidth = 5; ctx.strokeRect(6, 6, 244, 116);
+    ctx.fillStyle = '#e8dcc0'; ctx.textAlign = 'center';
+    ctx.font = '22px Georgia';
+    ctx.fillText('DAYS WITHOUT', 128, 40);
+    ctx.fillText('INCIDENT', 128, 66);
+    ctx.font = 'bold 44px Georgia';
+    ctx.fillStyle = days > 0 ? '#8fbf6a' : '#e8a33d';
+    ctx.fillText(String(days), 128, 112);
+    signTex.needsUpdate = true;
+  };
+  drawSign(0);
   const sign = new THREE.Mesh(
     new THREE.PlaneGeometry(1.0, 0.5),
-    new THREE.MeshStandardMaterial({ map: new THREE.CanvasTexture(signCanvas), roughness: 0.9 }));
+    new THREE.MeshStandardMaterial({ map: signTex, roughness: 0.9 }));
   sign.position.set(0.6, 2.3, 4.93);
   sign.rotation.y = Math.PI;
   g.add(sign);
 
   // ---- hanging bulb -------------------------------------------------------
+  // Pivoted at the ceiling so the whole fixture can swing when Bertha walks.
   const bulbGroup = new THREE.Group();
-  bulbGroup.position.set(0, 0, 0.4);
+  bulbGroup.position.set(0, H, 0.4);
   const bulbCord = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.85, 5),
     new THREE.MeshStandardMaterial({ color: 0x1e1a16, roughness: 0.9 }));
-  bulbCord.position.y = H - 0.425;
+  bulbCord.position.y = -0.425;
   bulbGroup.add(bulbCord);
   const shade = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.22, 12, 1, true),
     new THREE.MeshStandardMaterial({ color: 0x2e5545, flatShading: true, roughness: 0.5, side: THREE.DoubleSide }));
-  shade.position.y = H - 0.9;
+  shade.position.y = -0.9;
   bulbGroup.add(shade);
   const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 8),
     new THREE.MeshBasicMaterial({ color: 0xffe6b0 }));
-  bulb.position.y = H - 1.0;
+  bulb.position.y = -1.0;
   bulbGroup.add(bulb);
   g.add(bulbGroup);
 
@@ -291,7 +298,8 @@ export function buildCoop(scene, rng) {
 
   return {
     W, H, roosts, nests, feeder, water,
-    motes, motePos, shaftDir, winCenter,
+    motes, motePos, shaftDir, winCenter, drawSign,
+    bulbRig: bulbGroup, bulbMesh: bulb,
     bulbPos: new THREE.Vector3(0, H - 1.0, 0.4),
   };
 }

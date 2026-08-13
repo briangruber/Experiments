@@ -98,9 +98,9 @@ export class FX {
       { grow: 1.1, rise: 0.12, life: 0.9, size: 0.3, opacity: 0.4 });
   }
 
-  zzz(pos) {
+  zzz(pos, size = 0.16) {
     this._sprite(this.zTex, 0xffffff, pos,
-      { grow: 0.12, rise: 0.32, life: 1.7, size: 0.16, opacity: 0.9, wobble: true });
+      { grow: 0.12, rise: 0.32, life: 1.7, size, opacity: 0.9, wobble: true });
   }
 
   _sprite(map, color, pos, cfg) {

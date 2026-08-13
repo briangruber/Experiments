@@ -130,6 +130,7 @@ const stats = await page.evaluate(() => {
     frames: g?.frames ?? 0,
     chickens: g?.world.chickens.length ?? 0,
     behaviors: g?.world.chickens.map((ch) => ch.bhv.name) ?? [],
+    bertha: g?.world.bertha?.bhv.name ?? null,
     eggs: g?.world.eggs.length ?? 0,
   };
 });
@@ -141,7 +142,8 @@ await browser.close();
 server.close();
 
 const report = {
-  ok: errors.length === 0 && stats.frames > 2 && stats.stdLuma > 1.0 && stats.chickens === 7,
+  ok: errors.length === 0 && stats.frames > 2 && stats.stdLuma > 1.0
+    && stats.chickens === 8 && !!stats.bertha,
   out: OUT, ...stats,
   errors: errors.slice(0, 12),
 };

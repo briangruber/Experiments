@@ -14,7 +14,7 @@ collide, and a branch can be merged without reading it first.
 
 | folder | what it is |
 | --- | --- |
-| `chicken-game/` | Chicken Game — the inside of a chicken coop in three.js. Seven procedural hens with a weighted behavior AI do strange, funny, unpredictable things (zoomies, wall-staring, moonwalking, contagious panic, egg laying). Toss seeds, boo chickens, collect eggs. |
+| `chicken-game/` | Chicken Game — the inside of a chicken coop in three.js. Seven procedural hens run a weighted behavior AI with 36 states (zoomies, wall-staring, moonwalking, conga lines, standoffs, contagious panic), presided over by Big Bertha, an enormous matriarch who mostly sleeps and occasionally shakes the building. Toss seeds, boo chickens, collect eggs. |
 | `ocean/` | Abyssal — a real-time cinematic ocean simulator with a rideable wave runner. Multi-cascade FFT sea, volumetric clouds, GPU spray, persistent Kelvin wake. |
 
 Other prototypes currently live on their own branches and follow the same

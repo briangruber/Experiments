@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { clamp, damp, mulberry32, rand, TAU } from './util.js';
 import { buildCoop, updateMotes } from './coop.js';
-import { spawnFlock } from './chicken.js';
+import { spawnFlock, spawnBertha } from './chicken.js';
 import { FX } from './fx.js';
 import { CoopAudio } from './audio.js';
 import { UI } from './ui.js';
@@ -31,13 +31,24 @@ const audio = new CoopAudio();
 const ui = new UI(audio);
 const fx = new FX(scene, rng);
 
+let shakeAmt = 0;      // camera shake, decays every frame
+let bulbSwing = 0;     // how hard the hanging bulb is swinging
+let calmTime = 0;      // seconds since the last incident
+let signDays = 0;
+
+const EGG_GEO = new THREE.SphereGeometry(0.075, 9, 7);
+EGG_GEO.scale(0.82, 1, 0.82);
+const EGG_MAT = new THREE.MeshStandardMaterial({ color: 0xf2ead8, roughness: 0.55 });
+
 const world = {
   scene, camera, rng, ui, audio, fx,
   time: 0,
   chickens: [],
   eggs: [],
+  bertha: null,
   coop: null,
-  spawnEgg(pos, inNest) {
+
+  spawnEgg(pos) {
     const egg = new THREE.Mesh(EGG_GEO, EGG_MAT);
     egg.position.set(pos.x, 0.055, pos.z);
     egg.rotation.set(rand(rng, -0.2, 0.2), rand(rng, 0, TAU), rand(rng, -0.2, 0.2));
@@ -46,14 +57,30 @@ const world = {
     scene.add(egg);
     world.eggs.push(egg);
   },
+
+  shake(amount) {
+    shakeAmt = Math.min(0.5, shakeAmt + amount);
+    bulbSwing = Math.min(0.16, bulbSwing + amount * 0.5);
+  },
+
+  // Big Bertha put a foot down.
+  thud(c) {
+    world.shake(0.11);
+    fx.puff(c.pos, 0x9a7f5c);
+    audio.thud();
+  },
+
+  // Something happened. The sign goes back to zero, as it always does.
+  incident() {
+    calmTime = 0;
+    if (signDays !== 0) { signDays = 0; world.coop.drawSign(0); }
+  },
 };
 
-const EGG_GEO = new THREE.SphereGeometry(0.075, 9, 7);
-EGG_GEO.scale(0.82, 1, 0.82);
-const EGG_MAT = new THREE.MeshStandardMaterial({ color: 0xf2ead8, roughness: 0.55 });
-
 world.coop = buildCoop(scene, rng);
-world.chickens = spawnFlock(world, 7);
+const flock = spawnFlock(world, 7);
+world.bertha = spawnBertha(world);
+world.chickens = [...flock, world.bertha];
 
 // ---- lights ----------------------------------------------------------------
 
@@ -105,6 +132,15 @@ function applyCamera(dt) {
   camera.position.x = clamp(camera.position.x, -4.55, 4.55);
   camera.position.z = clamp(camera.position.z, -4.55, 4.55);
   camera.position.y = clamp(camera.position.y, 0.35, 3.8);
+
+  // Footfall shake, applied before lookAt so the whole view jolts.
+  shakeAmt = Math.max(0, shakeAmt - dt * 0.85);
+  if (shakeAmt > 0.001) {
+    const t = world.time;
+    camera.position.x += Math.sin(t * 47.3) * shakeAmt * 0.085;
+    camera.position.y += Math.sin(t * 61.7) * shakeAmt * 0.105;
+    camera.position.z += Math.cos(t * 53.1) * shakeAmt * 0.085;
+  }
   camera.lookAt(orbit.target);
 }
 
@@ -145,7 +181,7 @@ canvas.addEventListener('pointermove', (e) => {
     const hit = raycaster.intersectObjects(world.chickens.map((c) => c.root), true)[0];
     if (hit) {
       const c = hit.object.userData.chicken;
-      const p = c.pos.clone().add(new THREE.Vector3(0, 0.85, 0)).project(camera);
+      const p = c.pos.clone().add(new THREE.Vector3(0, 0.85 * c.scale, 0)).project(camera);
       ui.showTag(c.name, (p.x * 0.5 + 0.5) * innerWidth, (-p.y * 0.5 + 0.5) * innerHeight);
       canvas.classList.add('pointing');
     } else {
@@ -167,6 +203,12 @@ canvas.addEventListener('pointerup', (e) => {
   const chickenHit = raycaster.intersectObjects(world.chickens.map((c) => c.root), true)[0];
   if (chickenHit) {
     const c = chickenHit.object.userData.chicken;
+    if (c.big) {
+      // She does not startle. She notices.
+      c.force('bigGlare');
+      ui.tick('You poked Big Bertha. That was a choice.', true);
+      return;
+    }
     const sleeping = c.bhv.name === 'sleep';
     c.force('panic', { short: true });
     c.startHop(c.pos.clone(), 0.35, 0.4);
@@ -192,11 +234,14 @@ canvas.addEventListener('pointerup', (e) => {
     const patch = fx.seeds(p);
     audio.cluck(0.8);
     ui.tick('You tossed some seeds. This will not stay calm for long.', true);
-    for (const c of world.chickens) {
+    for (const c of flock) {
       if (c.pos.distanceTo(p) < 5.5 && rng() < 0.85 && c.bhv.name !== 'panic') {
         c.force('seedRush', { patch });
       }
     }
+    // Sometimes it is enough to wake the matriarch, which changes everything.
+    const b = world.bertha;
+    if (b && b.bhv.name !== 'bigSeedRush' && rng() < 0.5) b.force('seedRush', { patch });
   }
 });
 
@@ -228,11 +273,9 @@ function resize() {
 addEventListener('resize', resize);
 resize();
 
-// ---- ambient noises --------------------------------------------------------
+// ---- main loop -------------------------------------------------------------
 
 let nextAmbient = 2;
-
-// ---- main loop -------------------------------------------------------------
 
 function step(dt) {
   world.time += dt;
@@ -240,8 +283,24 @@ function step(dt) {
   fx.update(dt, world.time);
   updateMotes(world.coop, world.time);
 
-  // The bulb hums along with a barely-there flicker.
+  // The bulb hums along with a barely-there flicker, and swings when the
+  // floor gets hit. The point light rides with it so the shadows swing too.
+  bulbSwing = Math.max(0, bulbSwing - dt * 0.045);
+  const rig = world.coop.bulbRig;
+  rig.rotation.z = Math.sin(world.time * 3.1) * bulbSwing;
+  rig.rotation.x = Math.cos(world.time * 2.7) * bulbSwing * 0.7;
+  rig.updateMatrixWorld();
+  world.coop.bulbMesh.getWorldPosition(bulbLight.position);
   bulbLight.intensity = 14 * (1 + Math.sin(world.time * 11) * 0.02 + Math.sin(world.time * 3.7) * 0.015);
+
+  // The sign counts up in calm and is reset by the first thing that happens.
+  calmTime += dt;
+  if (calmTime > 14) {
+    calmTime = 0;
+    signDays++;
+    world.coop.drawSign(signDays);
+    if (signDays === 1) ui.tick('The sign now reads 1 day without incident.');
+  }
 
   nextAmbient -= dt;
   if (nextAmbient <= 0) {

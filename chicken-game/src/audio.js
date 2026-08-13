@@ -63,4 +63,34 @@ export class CoopAudio {
     const v = this._env('sine', 300, 0.12, 0.2);
     if (v) v.osc.frequency.exponentialRampToValueAtTime(90, v.t0 + 0.11);
   }
+
+  // ---- Big Bertha: everything an octave down and twice as long -----------
+
+  snore(gain = 1) {
+    const v = this._env('sawtooth', 62, 1.1, 0.075 * gain);
+    if (!v) return;
+    v.osc.frequency.linearRampToValueAtTime(48, v.t0 + 0.55);
+    v.osc.frequency.linearRampToValueAtTime(70, v.t0 + 1.05);
+  }
+
+  berthaGroan(pitch = 1) {
+    const v = this._env('sawtooth', 150 * pitch, 0.85, 0.12);
+    if (!v) return;
+    v.osc.frequency.exponentialRampToValueAtTime(95 * pitch, v.t0 + 0.5);
+    v.osc.frequency.exponentialRampToValueAtTime(130 * pitch, v.t0 + 0.8);
+  }
+
+  berthaCall() {
+    // A cluck pitched down far enough to sound like a warning.
+    const v = this._env('triangle', 250, 0.42, 0.2);
+    if (v) v.osc.frequency.exponentialRampToValueAtTime(85, v.t0 + 0.38);
+    this._env('sawtooth', 70, 0.6, 0.1, 0.1);
+  }
+
+  // Footfall: a short low thump with a click of straw on top.
+  thud() {
+    const v = this._env('sine', 105, 0.24, 0.28);
+    if (v) v.osc.frequency.exponentialRampToValueAtTime(38, v.t0 + 0.2);
+    this._env('triangle', 190, 0.05, 0.05);
+  }
 }
