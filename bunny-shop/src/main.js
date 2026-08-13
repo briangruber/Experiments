@@ -95,7 +95,7 @@ for (const b of BUNNIES) {
 }
 
 const shop = dressShop(scene, gltf);
-const game = new Game({ scene, gltf, clips, ui, audio, obstacles: shop.obstacles });
+const game = new Game({ scene, gltf, clips, ui, audio, obstacles: shop.obstacles, clickable: shop.clickable });
 
 startBtn.disabled = false;
 startBtn.textContent = 'Open the Shop';
@@ -153,6 +153,7 @@ canvas.addEventListener('pointerdown', (e) => {
   if (target.kind === 'crate') game.clickCrate(target.id);
   else if (target.kind === 'bell') game.clickBell();
   else if (target.kind === 'shopper') game.clickShopper(target.shopper);
+  else if (target.kind === 'incident') game.solveIncident();
 });
 
 // Number keys bag produce without hunting for the crate.
@@ -185,6 +186,10 @@ padStock.replaceChildren(
 ui.bindPad(padStock, document.querySelector('#pad-bell'));
 
 document.querySelector('#pad-bell').addEventListener('click', () => game.running && game.clickBell());
+
+// The alert is the reliable way to deal with an incident: the rabbit causing it
+// may be behind a shelf, or off the edge of a phone screen entirely.
+document.querySelector('#alert').addEventListener('click', () => game.running && game.solveIncident());
 
 // --------------------------------------------------------------- curtains
 

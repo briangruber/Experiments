@@ -45,7 +45,19 @@
       </div>
 
       <div id="bubbles"></div>
-      <div id="toasts"></div>
+
+      <!-- One column so a passing banner can never cover the alert, which is
+           the only one of the two you can act on. -->
+      <div id="topstack">
+        <!-- Whatever is going wrong right now. Tappable, because on a phone the
+             rabbit responsible is usually off the side of the frame. -->
+        <button id="alert" type="button" hidden>
+          <span class="alert-what"></span>
+          <span class="alert-call"></span>
+          <i class="alert-clock"><b></b></i>
+        </button>
+        <div id="toasts"></div>
+      </div>
 
       <div id="title" class="curtain">
         <div class="card">
@@ -64,6 +76,11 @@
             <li>
               <span class="if-mouse">Click</span><span class="if-touch">Tap</span> a rabbit to
               <b>pet</b> it. This is scientifically calming. Once each.
+            </li>
+            <li>
+              Things go wrong — a spill, a thief, an awkward question.
+              <span class="if-mouse">Click</span><span class="if-touch">Tap</span> the
+              <b>red alert</b> before its timer runs out.
             </li>
           </ol>
           <button id="start" type="button" disabled>Loading the shop…</button>

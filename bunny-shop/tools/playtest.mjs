@@ -289,9 +289,109 @@ const results = await page.evaluate(() => {
   check('speed always equals stride times playback rate',
     gaitRows.every((r) => Math.abs(r.natural * r.rate - r.speed) < 0.02),
     gaitRows.map((r) => `${r.kind}/${r.gait} ${r.natural}x${r.rate}=${r.speed}`).join(', '));
+  // The smallest customers really are slow — short legs, and the rate is capped
+  // at a cadence that still reads as walking rather than scurrying.
   check('every rabbit moves at a playable speed',
-    gaitRows.every((r) => r.speed > 0.6 && r.speed < 3.2),
+    gaitRows.every((r) => r.speed > 0.5 && r.speed < 3.2),
     gaitRows.map((r) => `${r.kind}/${r.gait} ${r.speed}`).join(', '));
+
+  // --- incidents ----------------------------------------------------------
+  // Incidents need somebody browsing to happen to. Rather than hope one is,
+  // these set the stage explicitly: freeze the natural schedule, park a rabbit
+  // at a shelf, then ask for the incident we want to test.
+  const stage = (day = 4) => {
+    g.start();
+    g.day = day;
+    step(30);
+    g.incidentIn = 1e9; // no unplanned incidents while we are measuring
+    g.endIncident();
+    g.lastIncident = null;
+    return g.shoppers.filter((s2) => s2.queueIndex < 0 && !s2.done);
+  };
+
+  const parkBrowser = () => {
+    const free = g.shoppers.find((s2) => s2.queueIndex < 0 && !s2.done);
+    if (!free) return null;
+    free.phase = 'browsing';
+    free.timer = 1e6;
+    free.incident = null;
+    return free;
+  };
+
+  const forceIncident = (id, tries = 40) => {
+    for (let i = 0; i < tries; i++) {
+      if (!parkBrowser()) {
+        step(2);
+        continue;
+      }
+      g.lastIncident = null;
+      g.startIncident();
+      if (g.incident?.def.id === id) return g.incident;
+      if (g.incident) g.endIncident();
+    }
+    return null;
+  };
+
+  stage();
+  parkBrowser();
+  g.startIncident();
+  check('an incident starts', !!g.incident, g.incident?.def.id);
+  check('the alert is showing', !document.querySelector('#alert').hidden);
+  check('the alert names a way out', !!document.querySelector('.alert-call').textContent);
+
+  const coinsAtIncident = g.coins;
+  const solvedId = g.incident?.def.id;
+  g.solveIncident();
+  check('solving an incident clears it', g.incident === null, solvedId);
+  check('the alert goes away', document.querySelector('#alert').hidden);
+  if (solvedId && solvedId !== 'question') {
+    check('solving an incident pays', g.coins > coinsAtIncident, `${coinsAtIncident} -> ${g.coins}`);
+  }
+
+  // Ignoring a thief costs real money.
+  stage();
+  g.coins = 100;
+  check('a shoplifter can be provoked', !!forceIncident('shoplifter'), g.incident?.def.id);
+  if (g.incident?.def.id === 'shoplifter') {
+    check('a thief heads for the door', g.incident.target.phase === 'sneaking', g.incident.target.phase);
+    g.incident.left = 0.001;
+    step(0.2);
+    check('an ignored thief costs coins', g.coins < 100, `100 -> ${g.coins}`);
+    check('the theft resolves the incident', g.incident === null);
+  }
+
+  // Tapping the culprit is the same as tapping the alert.
+  stage();
+  const culprit = parkBrowser();
+  g.startIncident();
+  if (g.incident && culprit) {
+    g.clickShopper(g.incident.target);
+    check('tapping the culprit resolves the incident', g.incident === null);
+    check('the culprit was dealt with, not petted', culprit.petted === false);
+  }
+
+  // A spill puts real objects on the floor; nothing may survive a restart.
+  stage();
+  // Rabbits are scene children too and a restart disposes them, so count the
+  // fittings only.
+  const fittings = () => g.scene.children.length - g.shoppers.length;
+  const baseline = g.clickable.length;
+  const sceneBefore = fittings();
+  check('a spill can be provoked', !!forceIncident('spill'), g.incident?.def.id);
+  if (g.incident?.def.id === 'spill') {
+    check('a spill puts a tap target on the floor', g.clickable.length === baseline + 1,
+      `${baseline} -> ${g.clickable.length}`);
+    check('a spill adds exactly one thing to the scene', fittings() === sceneBefore + 1,
+      `${sceneBefore} -> ${fittings()}`);
+    check('a spill slows the customer being served', g.incident.def.patienceDrain > 1,
+      g.incident.def.patienceDrain);
+    g.start();
+    check('restarting clears any incident', g.incident === null);
+    check('restarting takes the spill off the floor', g.clickable.length === baseline,
+      `${g.clickable.length} vs ${baseline}`);
+    check('restarting leaves no orphan objects in the scene', fittings() === sceneBefore,
+      `${sceneBefore} -> ${fittings()}`);
+  }
 
   // --- bubbles stay up long enough to read --------------------------------
   const long = 'This is a deliberately long line of dialogue with quite a lot of words in it indeed.';

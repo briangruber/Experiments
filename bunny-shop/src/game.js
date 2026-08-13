@@ -5,6 +5,7 @@ import { place } from './assets.js';
 import { Customer } from './bunny.js';
 import { BAG, COUNTER, CRATE_X, DOOR, OUTSIDE, QUEUE, RULES, SHELVES, STOCK, STOCK_BY_ID, orderShape } from './config.js';
 import { ANTICS, DAY_REVIEWS, EVENTS, SPECIALS, STREAK_LINES, bunnyName, describeOrder, pick, review, say } from './dialogue.js';
+import { INCIDENTS } from './incidents.js';
 import { TWEAKS } from './scene.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -24,6 +25,8 @@ class Shopper {
     this.patienceMax = 1;
     this.mistakes = 0;
     this.petted = false;
+    this.incident = null;
+    this.bonusTip = 1;
     this.queueIndex = -1;
     this.bubble = null;
     this.nagAt = 0.45;
@@ -47,13 +50,15 @@ class Shopper {
 }
 
 export class Game {
-  constructor({ scene, gltf, clips, ui, audio, obstacles = [] }) {
+  constructor({ scene, gltf, clips, ui, audio, obstacles = [], clickable = [] }) {
     this.scene = scene;
     this.gltf = gltf;
     this.clips = clips;
     this.ui = ui;
     this.audio = audio;
     this.obstacles = obstacles;
+    // Spills add and remove their own tap target while they are on the floor.
+    this.clickable = clickable;
 
     this.shoppers = [];
     this.flyers = [];
@@ -84,8 +89,12 @@ export class Game {
     this.bellReady = false;
     this.event = null;
     this.lastEvent = null;
+    this.lastIncident = null;
     this.eventLeft = 0;
     this.eventIn = rand(...RULES.eventFirst);
+
+    this.endIncident();
+    this.incidentIn = rand(...RULES.incidentFirst);
 
     this.ui.setCoins(0);
     this.ui.setDay(1);
@@ -98,6 +107,134 @@ export class Game {
   start() {
     this.reset();
     this.running = true;
+  }
+
+  // ------------------------------------------------------------- incidents
+
+  // Small surface the incident definitions are written against, so they never
+  // have to reach into the internals of the shop.
+  get rules() {
+    return RULES;
+  }
+
+  get stockIds() {
+    return STOCK.map((i) => i.id);
+  }
+
+  get doorSpot() {
+    return { x: DOOR.x, z: DOOR.z + 1.2 };
+  }
+
+  pay(amount) {
+    this.coins = Math.max(0, this.coins + amount);
+    this.ui.setCoins(this.coins);
+    if (amount > 0) this.audio?.cash();
+    else this.audio?.wrong();
+  }
+
+  // Produce strewn across the floor, and a generous invisible slab to tap it by.
+  //
+  // The spot is pulled into the open floor between the shelves and the counter.
+  // Left where the rabbit actually stood, a spill lands behind a shelf or in the
+  // doorway, where it is neither visible nor easy to aim at — and an incident
+  // you cannot see is just a penalty.
+  scatter(x, z) {
+    x = Math.max(-3.6, Math.min(4.4, x));
+    z = Math.max(-2.8, Math.min(1.6, z));
+
+    const group = new THREE.Group();
+    for (let i = 0; i < 7; i++) {
+      const id = pick(STOCK).id;
+      // Oversized like the counter samples: at this camera distance a life-size
+      // radish on the floor is a speck, and the mess has to read at a glance.
+      const item = place(this.gltf[id], { ...TWEAKS[id], height: TWEAKS[id].height * 1.5, clone: true });
+      const a = (i / 7) * Math.PI * 2 + Math.random();
+      const r = 0.3 + Math.random() * 0.75;
+      item.position.set(Math.cos(a) * r, 0.02, Math.sin(a) * r);
+      item.rotation.set(Math.random() * 0.6, Math.random() * 6, Math.random() * 0.6);
+      group.add(item);
+    }
+
+    const hit = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.3, 2.4), new THREE.MeshBasicMaterial({ visible: false }));
+    hit.position.y = 0.6;
+    hit.userData = { kind: 'incident' };
+    group.add(hit);
+
+    group.position.set(x, 0, z);
+    this.scene.add(group);
+    this.clickable?.push(hit);
+    return group;
+  }
+
+  clearScatter(group) {
+    if (!group) return;
+    const hit = group.children.find((c) => c.userData?.kind === 'incident');
+    const i = this.clickable?.indexOf(hit) ?? -1;
+    if (i >= 0) this.clickable.splice(i, 1);
+    this.scene.remove(group);
+    group.traverse((o) => o.isMesh && o.geometry.dispose?.());
+  }
+
+  startIncident() {
+    const options = INCIDENTS.filter((i) => i.minDay <= this.day && i.id !== this.lastIncident);
+    // Weighted pick, then let the definition find itself a victim.
+    const pool = options.flatMap((i) => Array(i.weight).fill(i));
+    for (const def of pool.sort(() => Math.random() - 0.5)) {
+      const target = def.find(this);
+      if (!target) continue;
+
+      this.incident = { def, target, left: def.window, state: null };
+      this.lastIncident = def.id;
+      target.incident = def.id;
+      this.incident.state = def.start(this, target) ?? null;
+      this.ui.setAlert(def.alert(target), def.call);
+      this.audio?.alarm();
+      return;
+    }
+  }
+
+  // Ends the incident whatever the reason, so nothing is left half-running.
+  endIncident() {
+    const live = this.incident;
+    this.incident = null;
+    this.incidentIn = rand(...RULES.incidentGap);
+    this.ui.clearAlert();
+    if (!live) return;
+    live.def.end?.(this, live.target, live.state);
+    if (live.target) live.target.incident = null;
+  }
+
+  solveIncident() {
+    const live = this.incident;
+    if (!live) return false;
+    live.def.solve?.(this, live.target, live.state);
+    this.audio?.ding();
+    this.endIncident();
+    return true;
+  }
+
+  updateIncident(dt) {
+    const live = this.incident;
+    if (live) {
+      // A customer who left or was served takes their incident with them.
+      if (live.target && (live.target.done || live.target.phase === 'gone')) {
+        this.endIncident();
+        return;
+      }
+      live.left -= dt;
+      this.ui.setAlertClock(live.left / live.def.window);
+      if (live.left <= 0) {
+        live.def.expire?.(this, live.target, live.state);
+        this.endIncident();
+      }
+      return;
+    }
+
+    // Nothing goes wrong while the shop is empty enough that you would only be
+    // waiting for it.
+    if (this.shoppers.length < 2) return;
+    this.incidentIn -= dt;
+    if (this.incidentIn <= 0) this.startIncident();
   }
 
   // ---------------------------------------------------------------- events
@@ -305,6 +442,11 @@ export class Game {
   }
 
   clickShopper(shopper) {
+    // Whoever is causing the current problem is dealt with rather than petted.
+    if (this.incident?.target === shopper) {
+      this.solveIncident();
+      return;
+    }
     if (shopper.petted || shopper.phase === 'leaving' || shopper.phase === 'gone') return;
     shopper.petted = true;
     this.petted++;
@@ -332,7 +474,7 @@ export class Game {
     // A run of flawless orders is worth more than any single one of them.
     const runBonus = 1 + Math.min(RULES.streakTipCap, this.streak * RULES.streakTipStep);
     const tip = Math.round(
-      RULES.tipMax * speed * Math.max(0, 1 - s.mistakes * 0.34) * runBonus * (s.spec?.tipScale ?? 1) * (this.mods.tipScale ?? 1),
+      RULES.tipMax * speed * Math.max(0, 1 - s.mistakes * 0.34) * runBonus * (s.spec?.tipScale ?? 1) * (this.mods.tipScale ?? 1) * (s.bonusTip ?? 1),
     );
     const total = base + tip;
 
@@ -523,6 +665,7 @@ export class Game {
     if (this.dayClock <= 0) this.nextDay();
 
     this.updateEvent(dt);
+    this.updateIncident(dt);
 
     this.spawnIn -= dt;
     if (this.spawnIn <= 0) {
@@ -617,7 +760,7 @@ export class Game {
         break;
 
       case 'counter': {
-        s.patience -= dt;
+        s.patience -= dt * (this.incident?.def.patienceDrain ?? 1);
         const frac = s.patience / s.patienceMax;
         this.ui.setPatience(frac);
 
@@ -643,6 +786,13 @@ export class Game {
           this.leaveQueue(s);
           s.phase = 'leaving';
           b.goTo(DOOR.x, DOOR.z - 1.5, { run: true });
+        }
+        break;
+
+      case 'sneaking':
+        // Reaching the door is the same as the incident timing out.
+        if (b.arrived && this.incident?.target === s) {
+          this.incident.left = 0;
         }
         break;
 

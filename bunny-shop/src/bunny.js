@@ -16,7 +16,7 @@ const TURN_RATE = 7.0;
 
 // Playback rate is allowed to sit anywhere in this band. Below it a walk reads
 // as a dawdle, above it as a scurry.
-const RATE_LIMIT = [1.2, 2.9];
+const RATE_LIMIT = [1.2, 3.1];
 
 // Fur tints. They multiply against a cream or grey model, so they read as
 // different rabbits rather than different paint jobs.

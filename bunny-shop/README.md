@@ -44,6 +44,19 @@ arriving all at once. Each one is a real modifier, not just a banner: crazes
 push an item into every order, rumours take one out, and the tips, patience and
 arrival rate move with them.
 
+**Incidents** are the other half of that, and they want your attention rather
+than your patience. A red alert appears with a countdown, and you deal with it
+by tapping the alert or the rabbit responsible:
+
+| what | if you deal with it | if you don't |
+| --- | --- | --- |
+| Somebody is edging towards the door with unpaid produce | they put it back, sheepishly, and you are paid for noticing | they walk out and it comes off your takings |
+| Produce all over the floor | swept, small bonus | whoever is at the counter loses patience half again as fast until it clears |
+| A rabbit has a question | answered, and they buy more and tip like it was your idea | they leave without buying, to go and guess forever |
+
+The point of them is that they compete with the queue: the counter does not stop
+while you are dealing with a thief.
+
 Days get busier: shorter gaps between customers, longer orders, less patience.
 Three customers are not like the others:
 
@@ -63,6 +76,7 @@ src/
   assets.js           GLB loading, and normalising whatever the generator sent
   bunny.js            one customer: rig, clips, walking, the trench coat stack
   game.js             the rules — spawning, queueing, orders, scoring, events
+  incidents.js        things that go wrong, and what it costs to ignore them
   dialogue.js         everything the rabbits say
   ui.js / ui.css      HUD, tickets, speech bubbles and the touch pad
   audio.js            synthesised sound; no audio files
@@ -166,7 +180,7 @@ The bundle is about 7.5MB and is not committed; `dist/` is ignored.
 ## Tests
 
 ```
-npm test                 # 44 assertions over the actual game rules
+npm test                 # 66 assertions over the actual game rules
 npm run collisions       # ten unattended minutes, reporting anything walked into
 npm run shot             # a screenshot of the shop
 ```
@@ -176,9 +190,14 @@ wall-clock time, so a full day of trading takes about a second and the results
 are deterministic. It covers a clean sale end to end, wrong items, petting,
 patience running out, the day rolling over, losing, restarting, streaks, each
 special customer's rules, the touch pad's counts, every shop-wide event's
-modifier, that nobody ends up inside the furniture or inside another rabbit,
-that a long line gets a long bubble, and four unattended minutes without the
-shop floor filling up.
+modifier, each incident's reward and penalty and that a spill leaves nothing
+behind, that walking speed always equals stride times playback rate, that nobody
+ends up inside the furniture or inside another rabbit, that a long line gets a
+long bubble, and four unattended minutes without the shop floor filling up.
+
+The incident tests set their own stage — freeze the schedule, park a rabbit at a
+shelf, then ask for the incident under test — because incidents need somebody
+browsing to happen to, and hoping one is browsing made the suite flaky.
 
 `tools/collisions.mjs` runs the shop unattended and samples every rabbit's
 walking circle against every prop's measured footprint, printing which prop, how

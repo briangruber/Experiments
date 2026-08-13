@@ -114,6 +114,12 @@ export class Audio {
     this.tone(1760, { at: 0.33, dur: 0.6, type: 'sine', gain: 0.1 });
   }
 
+  // Something needs attention: two urgent, slightly sour notes.
+  alarm() {
+    this.tone(880, { dur: 0.16, type: 'square', gain: 0.16 });
+    this.tone(740, { at: 0.17, dur: 0.24, type: 'square', gain: 0.16 });
+  }
+
   storm() {
     this.tone(330, { dur: 0.4, type: 'square', gain: 0.16, to: 110 });
     this.noise({ dur: 0.3, gain: 0.14, freq: 500 });

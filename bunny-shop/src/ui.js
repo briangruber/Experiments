@@ -25,6 +25,10 @@ export class UI {
     this.starsEl = $('#stat-stars');
 
     this.streakEl = $('#stat-streak');
+    this.alertEl = $('#alert');
+    this.alertWhat = $('.alert-what');
+    this.alertCall = $('.alert-call');
+    this.alertClock = $('.alert-clock b');
     this.padButtons = [];
     this.padBell = null;
 
@@ -75,6 +79,29 @@ export class UI {
     this.toasts.append(el);
     setTimeout(() => el.classList.add('out'), 2400);
     setTimeout(() => el.remove(), 3200);
+  }
+
+  // ---------------------------------------------------------------- alerts
+
+  setAlert(what, call) {
+    this.alertWhat.textContent = what;
+    this.alertCall.textContent = call;
+    this.alertClock.style.width = '100%';
+    this.alertEl.hidden = false;
+    this.alertEl.classList.remove('in');
+    void this.alertEl.offsetWidth;
+    this.alertEl.classList.add('in');
+  }
+
+  setAlertClock(fraction) {
+    const pct = Math.max(0, Math.min(1, fraction));
+    this.alertClock.style.width = `${pct * 100}%`;
+    this.alertEl.classList.toggle('urgent', pct < 0.34);
+  }
+
+  clearAlert() {
+    this.alertEl.hidden = true;
+    this.alertEl.classList.remove('urgent');
   }
 
   // ---------------------------------------------------------------- ticket
@@ -182,6 +209,7 @@ export class UI {
     for (const [, e] of this.live) e.el.remove();
     this.live.clear();
     this.toasts.replaceChildren();
+    this.clearAlert();
   }
 
   // A floating bit of text that rises from a rabbit and fades.

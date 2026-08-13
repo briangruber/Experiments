@@ -102,6 +102,12 @@ export const RULES = {
   eventFirst: [26, 40], // seconds before the first shop-wide event
   eventGap: [34, 58], // and between them afterwards
   anticChance: 0.055, // per second, per browsing rabbit
+
+  incidentFirst: [18, 30], // seconds before the first thing goes wrong
+  incidentGap: [22, 38], // and between them afterwards
+  incidentReward: 8, // for dealing with one
+  incidentTheft: 14, // for letting a thief walk out
+  incidentTipBonus: 2.5, // tip multiplier for an answered question
 };
 
 // How many distinct items and how many of each, as the days get busier.
