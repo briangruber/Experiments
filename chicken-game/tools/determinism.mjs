@@ -77,13 +77,16 @@ const FINGERPRINT = `(() => {
     tick: w.tick,
     time: w.time,
     door: w.door.open,
+    dayT: num(w.dayT), phase: w.phase,
+    chicks: w.chicks.map((k) => [k.active ? 1 : 0, k.slot,
+      k.mum ? w.chickens.indexOf(k.mum) : -1, k.crossing ? 1 : 0]),
     hawk: [w.hawk.active, num(w.hawk.t)],
     worm: w.worm ? [num(w.worm.pos.x), num(w.worm.pos.z), w.worm.taken, num(w.worm.age ?? 0)] : 0,
     watchers: w.watchers.map((x) => [x.id, num(x.pos.x), num(x.pos.y), num(x.pos.z)]),
     eggs: w.eggs.map((e) => [e.userData.id, e.position.x, e.position.z,
       e.userData.golden, e.userData.vel.x, e.userData.vel.z]),
     chickens: w.chickens.map((c) => [
-      num(c.pos.x), num(c.pos.y), num(c.pos.z), num(c.yaw), c.zone,
+      num(c.pos.x), num(c.pos.y), num(c.pos.z), num(c.yaw), c.zone, c.active ? 1 : 0,
       c.bhv.name, num(c.bhv.t), num(c.bhv.dur),
       num(c.gait), num(c.gaitAmp), num(c.sit), num(c.sitT), num(c.flap), num(c.flapT),
       num(c.fall), num(c.fallT), num(c.lid), num(c.lidT), num(c.legTuck),
@@ -101,12 +104,12 @@ async function run(label, jitterRender) {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  await page.goto(`http://127.0.0.1:${port}/?seed=${SEED}`, { waitUntil: 'load' });
+  await page.goto(`http://127.0.0.1:${port}/?seed=${SEED}&paused=1`, { waitUntil: 'load' });
   await page.waitForFunction(() => !!window.chickenGame, null, { timeout: 20000 });
 
   const state = await page.evaluate(async ([ticks, script, jitter, fpSrc]) => {
     const g = window.chickenGame;
-    g.paused = true;                 // the display loop must not add ticks
+    // Already paused via ?paused=1, so tick 0 really is tick 0.
     // mulberry32 again, seeded differently from the world, so the render
     // jitter pattern is reproducible but unrelated to the simulation.
     let s = 0x1234567 >>> 0;
@@ -116,11 +119,18 @@ async function run(label, jitterRender) {
       t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
+    const trace = [];
     const byTick = new Map(script.map((e) => [e.at, e]));
     for (let i = 0; i < ticks; i++) {
       const ev = byTick.get(g.world.tick);
       if (ev) g.send(ev.type, ev.payload);
       g.step(1);
+      // Light per-tick trace so a divergence can be located, not guessed at.
+      if (i % 5 === 0) {
+        let acc = i + '|';
+        for (const c of g.world.chickens) acc += c.bhv.name + ',' + c.bhv.t.toFixed(4) + ';';
+        trace.push(acc);
+      }
       if (jitter && chaos() < 0.25) {
         // Draw at a delta anywhere from 240 Hz to 4 Hz, at a random point
         // between ticks. Software rasterisation is slow, so this fires on a
@@ -129,7 +139,7 @@ async function run(label, jitterRender) {
         g.renderFrame(0.004 + chaos() * 0.25, chaos());
       }
     }
-    return { fp: eval(fpSrc), snap: g.snapshot() };
+    return { fp: eval(fpSrc), snap: g.snapshot(), trace };
   }, [TICKS, SCRIPT, jitterRender, FINGERPRINT]);
 
   await page.close();
@@ -147,7 +157,7 @@ const match = clean.fp === jittered.fp;
 const page = await browser.newPage({ viewport: { width: 900, height: 600 } });
 const snapErrors = [];
 page.on('pageerror', (e) => snapErrors.push(e.message));
-await page.goto(`http://127.0.0.1:${port}/?seed=9999`, { waitUntil: 'load' });
+await page.goto(`http://127.0.0.1:${port}/?seed=9999&paused=1`, { waitUntil: 'load' });
 await page.waitForFunction(() => !!window.chickenGame, null, { timeout: 20000 });
 const roundTrip = await page.evaluate((snap) => {
   const g = window.chickenGame;
@@ -195,6 +205,17 @@ const report = {
 console.log(JSON.stringify(report, null, 2));
 
 if (!report.ok) {
+  if (!match) {
+    // Where did they part company?
+    const a = clean.trace, b = jittered.trace;
+    for (let i = 0; i < Math.min(a.length, b.length); i++) {
+      if (a[i] !== b[i]) {
+        console.error(`\nfirst diverging sample (tick ${i * 5}):\n  clean:    ${a[i]}\n  jittered: ${b[i]}`);
+        if (i > 0) console.error(`  previous sample matched: ${a[i - 1]}`);
+        break;
+      }
+    }
+  }
   if (!match) {
     // Point at the first field that differs, so a regression is debuggable.
     const a = JSON.parse(clean.fp), b = JSON.parse(jittered.fp);

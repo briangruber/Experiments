@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { clamp, damp, mulberry32, rand, TAU } from './util.js';
 import { buildCoop, updateMotes } from './coop.js';
-import { spawnFlock, spawnBertha } from './chicken.js';
+import { spawnFlock, spawnBertha, spawnChicks } from './chicken.js';
 import { isResumable } from './behaviors.js';
 import { FX } from './fx.js';
 import { CoopAudio } from './audio.js';
@@ -83,7 +83,21 @@ const world = {
   eggs: [],
   nextEggId: 1,      // eggs need stable ids so "collected" is sendable
   bertha: null,
+  chicks: [],
   coop: null,
+
+  // A hen has finished sitting. Reveal the brood at her nest.
+  hatch(mum, nest) {
+    const idle = world.chicks.filter((k) => !k.active);
+    if (!idle.length) return;
+    const n = Math.min(idle.length, 2 + Math.floor(rng() * 3));
+    const at = nest ?? mum.pos;
+    for (let i = 0; i < n; i++) idle[i].hatchAt(mum, i, at, rng);
+    audio.fanfare();
+    audio.bok(1.6);
+    for (let i = 0; i < 10; i++) fx.puff(at, 0xf5dc90);
+    world.incident();
+  },
 
   // Where the audience is standing, as shared world state. One entry per
   // connected viewer; chickens pick which one to fixate on. Seeded with the
@@ -91,6 +105,11 @@ const world = {
   // before any WATCH event has been sent.
   watchers: [{ id: 'local', pos: new THREE.Vector3(2.6, 1.7, -3.3) }],
   audienceFallback: new THREE.Vector3(2.6, 1.7, -3.3),
+
+  // Time of day, in [0,1). Simulation state, so every viewer sees the same
+  // dusk at the same moment. One full day is DAY_SECONDS of real time.
+  dayT: 0.12,
+  phase: 'day',
 
   // Shared world state a viewer can change.
   door: { open: true },
@@ -163,19 +182,40 @@ const world = {
         e.userData.id, +e.position.x.toFixed(2), +e.position.z.toFixed(2),
         e.userData.golden ? 1 : 0,
       ]),
+      // Whether a brood is out and about, so a late joiner sees the chicks.
+      brood: world.chicks.map((k) => [k.active ? 1 : 0, world.chickens.indexOf(k.mum), k.slot]),
+      dayT: +world.dayT.toFixed(4),
     };
   },
 
   applySnapshot(snap) {
     world.tick = snap.tick;
     world.time = snap.tick * TICK_DT;
+    if (snap.dayT !== undefined) {
+      world.dayT = snap.dayT;
+      world.phase = phaseOf(world.dayT);
+    }
+    // Restore the brood first: a chick's behaviors need to know her mother.
+    (snap.brood ?? []).forEach(([active, mumIdx, slot], i) => {
+      const k = world.chicks[i];
+      if (!k) return;
+      k.active = !!active;
+      k.root.visible = k.active;
+      k.mum = mumIdx >= 0 ? world.chickens[mumIdx] : null;
+      k.slot = slot;
+      k.crossing = false;
+    });
     snap.chickens.forEach(([x, y, z, yaw, bhv], i) => {
       const c = world.chickens[i];
       if (!c) return;
       c.pos.set(x, y, z);
       c.prevPos.copy(c.pos);
       c.yaw = c.prevYaw = yaw;
-      const target = isResumable(bhv) ? bhv : (c.big ? 'bigSettle' : 'wander');
+      c.root.position.copy(c.pos);
+      if (!c.active) return;    // an unhatched chick has no behavior to restore
+      const target = isResumable(bhv)
+        ? bhv
+        : (c.big ? 'bigSettle' : (c.chick ? 'followMum' : 'wander'));
       if (c.bhv.name !== target) c.force(target);
     });
     for (const egg of [...world.eggs]) world.removeEgg(egg);
@@ -211,11 +251,16 @@ const world = {
 world.coop = buildCoop(scene, rng);
 const flock = spawnFlock(world, 7);
 world.bertha = spawnBertha(world);
-world.chickens = [...flock, world.bertha];
+// Chicks are created up front but hidden, so the population — and therefore
+// every index in a snapshot — is fixed for the life of the world.
+world.chicks = spawnChicks(world, 4);
+world.chickens = [...flock, world.bertha, ...world.chicks];
 
 // ---- lights ----------------------------------------------------------------
 
-scene.add(new THREE.HemisphereLight(0xffe2b8, 0x4a3a24, 0.62));
+const hemi = new THREE.HemisphereLight(0xffe2b8, 0x4a3a24, 0.62);
+scene.add(hemi);
+const HEMI_GROUND = new THREE.Color(0x4a3a24);
 
 // The coop's door wall faces away from the sun, so from the run it would
 // otherwise read as a black slab. This stands in for light bouncing off the
@@ -358,7 +403,8 @@ canvas.addEventListener('pointermove', (e) => {
     // Hover: show the chicken's name.
     setNDC(e);
     raycaster.setFromCamera(pointerNDC, camera);
-    const hit = raycaster.intersectObjects(world.chickens.map((c) => c.root), true)[0];
+    const hit = raycaster.intersectObjects(
+      world.chickens.filter((c) => c.active).map((c) => c.root), true)[0];
     if (hit) {
       const c = hit.object.userData.chicken;
       const p = c.pos.clone().add(new THREE.Vector3(0, 0.85 * c.scale, 0)).project(camera);
@@ -382,7 +428,8 @@ canvas.addEventListener('pointerup', (e) => {
 
   // Picking is local — a raycast is meaningless on another machine — so it
   // resolves to an index or a coordinate, and only that goes into the event.
-  const chickenHit = raycaster.intersectObjects(world.chickens.map((c) => c.root), true)[0];
+  const pickable = world.chickens.filter((c) => c.active).map((c) => c.root);
+  const chickenHit = raycaster.intersectObjects(pickable, true)[0];
   if (chickenHit) {
     const c = chickenHit.object.userData.chicken;
     transport.send(EV.POKE, { chicken: world.chickens.indexOf(c) }, world.tick);
@@ -605,7 +652,7 @@ let nextAmbient = 2;
 // where at least one is sprinting count, so a crowded feeder stays peaceful.
 function chickenCollisions() {
   const list = world.chickens;
-  const busy = (c) => c.big || c.riding || c.perch || c.hop
+  const busy = (c) => c.big || c.chick || !c.active || c.riding || c.perch || c.hop
     || c.bhv.name === 'bonk' || c.bhv.def?.tough;
   for (let i = 0; i < list.length; i++) {
     const a = list[i];
@@ -637,6 +684,34 @@ function rollEggs(dt) {
   }
 }
 
+// Repaint the world for the current time of day. Purely presentational — the
+// clock it reads from is simulation state, so all viewers see the same dusk.
+function applyDaylight() {
+  const t = world.dayT;
+  const d = daylight(t);
+  const gold = goldenHour(t);
+
+  sun.intensity = 0.05 + d * 2.5;
+  sun.color.copy(SUN_DAY).lerp(SUN_DUSK, gold * 0.85);
+  hemi.intensity = 0.1 + d * 0.55;
+  hemi.color.copy(SKY_DAY).lerp(SUN_DUSK, gold * 0.5);
+  hemi.groundColor.copy(HEMI_GROUND).lerp(GROUND_NIGHT, 1 - d);
+  skyFill.intensity = 0.12 + d * 0.6;
+
+  // The dome goes orange through dusk, then deep blue.
+  tmpColor.copy(SKY_NIGHT).lerp(SKY_DAY, d);
+  tmpColor.lerp(SKY_DUSK, gold * 0.6);
+  world.coop.yard.skyMat.color.copy(tmpColor);
+  world.coop.winSkyMat.color.copy(tmpColor);
+  scene.background.copy(NIGHT_BG).lerp(DAY_BG, d);
+
+  // The bulb is the only light left after dark, and the shaft through the
+  // window has nothing to carry once the sun is down.
+  nightBulb = 14 + (1 - d) * 16;
+  world.coop.shaftMat.opacity = 0.055 * d;
+  world.coop.motes.material.opacity = 0.55 * d;
+}
+
 // One simulation tick. Always exactly TICK_DT of coop time — never a
 // wall-clock delta — so every client advances the world identically.
 function tick() {
@@ -649,6 +724,9 @@ function tick() {
   chickenCollisions();
   rollEggs(TICK_DT);
   fx.reapPatches();
+
+  world.dayT = (world.dayT + TICK_DT / DAY_SECONDS) % 1;
+  world.phase = phaseOf(world.dayT);
 
   // The hawk's pass is simulation state so every client sees the shadow in
   // the same place at the same moment.
@@ -713,7 +791,7 @@ function render(alpha, frameDt) {
   rig.rotation.x = Math.cos(world.time * 2.7) * bulbSwing * 0.7;
   rig.updateMatrixWorld();
   world.coop.bulbMesh.getWorldPosition(bulbLight.position);
-  bulbLight.intensity = 14 * (1 + Math.sin(world.time * 11) * 0.02 + Math.sin(world.time * 3.7) * 0.015);
+  bulbLight.intensity = nightBulb * (1 + Math.sin(world.time * 11) * 0.02 + Math.sin(world.time * 3.7) * 0.015);
 
   // One shadow map cannot cover coop and run at a useful resolution, so it
   // follows whichever one this viewer is looking at.
@@ -722,19 +800,64 @@ function render(alpha, frameDt) {
   sun.position.copy(sun.target.position).add(SUN_OFFSET);
   sun.target.updateMatrixWorld();
 
+  applyDaylight();
+
   applyCamera(frameDt);
   renderer.render(scene, camera);
 }
 
+const DAY_SECONDS = 320;  // a whole day and night, watchable in one sitting
+
+// Which part of the day it is. Chickens keep farm hours: out all day, in at
+// dusk, asleep on the roost at night, and pouring back out at first light.
+function phaseOf(t) {
+  if (t < 0.07) return 'dawn';
+  if (t < 0.60) return 'day';
+  if (t < 0.74) return 'dusk';
+  if (t < 0.95) return 'night';
+  return 'dawn';
+}
+
+// 1 at midday, 0 in the dead of night.
+function daylight(t) {
+  if (t < 0.07) return t / 0.07;
+  if (t < 0.60) return 1;
+  if (t < 0.80) return 1 - (t - 0.60) / 0.20;
+  if (t < 0.95) return 0;
+  return (t - 0.95) / 0.05;
+}
+
+// Peaks through dusk and dawn, when everything goes orange.
+function goldenHour(t) {
+  if (t > 0.58 && t < 0.82) return Math.sin(((t - 0.58) / 0.24) * Math.PI);
+  if (t > 0.93) return Math.sin(((t - 0.93) / 0.14) * Math.PI);
+  if (t < 0.09) return Math.sin(((t + 0.07) / 0.14) * Math.PI);
+  return 0;
+}
+
+const SKY_DAY = new THREE.Color(0xffffff);
+const SKY_DUSK = new THREE.Color(0xff9b52);
+const SKY_NIGHT = new THREE.Color(0x1b2748);
+const GROUND_NIGHT = new THREE.Color(0x0d1220);
+const SUN_DAY = new THREE.Color(0xffe0a8);
+const SUN_DUSK = new THREE.Color(0xff8a3d);
+const DAY_BG = new THREE.Color(0x120c07);
+const NIGHT_BG = new THREE.Color(0x05070f);
+const tmpColor = new THREE.Color();
+
 const MAX_CATCHUP = 8;   // a backgrounded tab must not try to replay an hour
 let watchTimer = 0;      // seconds until this viewer republishes its position
 let doorAngle = -1.9;    // rendered swing of the pop-hole door
+let nightBulb = 14;      // bulb intensity, driven by the daylight curve
 
 const handle = {
   frames: 0, world, camera, renderer, orbit, transport, events,
   // Stops the display loop from advancing the simulation, so a test (or a
   // future server-driven client) can decide exactly when ticks happen.
-  paused: false,
+  // ?paused=1 starts that way: without it a test cannot know how many ticks
+  // elapsed between page load and its first line of code, which makes any
+  // comparison between two runs meaningless.
+  paused: params.get('paused') === '1',
   // Advance exactly n ticks. Used by the test harness and by a late joiner
   // replaying an event log.
   step(n) { for (let i = 0; i < n; i++) tick(); },

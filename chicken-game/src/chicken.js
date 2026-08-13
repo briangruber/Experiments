@@ -33,15 +33,21 @@ export class Chicken {
     this.world = world;
     this.color = palette.body;
     this.big = !!opts.big;
+    this.chick = !!opts.chick;
     this.scale = opts.scale ?? 1;
-    this.table = this.big ? 'big' : 'normal';
+    this.table = this.big ? 'big' : (this.chick ? 'chick' : 'normal');
     this.rad = 0.3 * this.scale;
+    // Chicks exist from the start but stay hidden until a hen hatches them,
+    // so world.chickens never changes length and snapshots stay index-stable.
+    this.active = !this.chick;
+    this.mum = null;
+    this.slot = 0;
 
     // Personality: how fast she moves and how weird she is willing to get.
     // Bertha is immense, so she is slow and takes long, heavy strides.
-    this.speedMul = this.big ? 1 : rand(world.rng, 0.85, 1.2);
+    this.speedMul = this.big ? 1 : (this.chick ? rand(world.rng, 1.25, 1.5) : rand(world.rng, 0.85, 1.2));
     this.weirdMul = this.big ? 1 : rand(world.rng, 0.6, 1.8);
-    this.gaitRate = this.big ? 3.4 : 9;
+    this.gaitRate = this.big ? 3.4 : (this.chick ? 17 : 9);   // tiny legs, high cadence
 
     this.yaw = rand(world.rng, -Math.PI, Math.PI);
     this.move = null;          // { target: Vector3, speed }
@@ -86,6 +92,7 @@ export class Chicken {
     this.prevYaw = this.yaw;
     this.root.position.copy(this.pos);
     this.root.rotation.y = this.yaw;
+    this.root.visible = this.active;
 
     // Thought bubble. Lives in the scene rather than under root so it never
     // inherits the bird's tipping, spinning or squashing.
@@ -140,14 +147,15 @@ export class Chicken {
     const bodyMesh = new THREE.Mesh(BODY_GEO, body);
     // Bertha is not a bigger chicken so much as a rounder one.
     if (big) bodyMesh.scale.set(1.22, 1.08, 1.3);
+    else if (this.chick) bodyMesh.scale.set(1.05, 1.0, 1.05); // a round fluffball
     else bodyMesh.scale.set(0.95, 0.85, 1.2);
     bodyMesh.castShadow = true;
     this.hips.add(bodyMesh);
 
-    // Tail: a fan of flat quills angled up and back.
+    // Tail: a fan of flat quills angled up and back. A chick's is a stub.
     this.tail = new THREE.Group();
     this.tail.position.set(0, 0.10, big ? -0.28 : -0.22);
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < (this.chick ? 2 : 5); i++) {
       const q = new THREE.Mesh(TAIL_GEO, i % 2 ? accent : body);
       const spread = (i - 2) * 0.16;
       q.position.set(spread * 0.22, 0.055, -0.03 - Math.abs(spread) * 0.05);
@@ -191,12 +199,14 @@ export class Chicken {
     beak.position.set(0, -0.005, big ? 0.135 : 0.12);
     this.head.add(beak);
 
-    const wattle = new THREE.Mesh(WATTLE_GEO, RED);
-    wattle.position.set(0, -0.075, 0.085);
-    if (big) wattle.scale.set(1.7, 1.45, 1.6); // a magnificent wattle
-    this.head.add(wattle);
+    if (!this.chick) {
+      const wattle = new THREE.Mesh(WATTLE_GEO, RED);
+      wattle.position.set(0, -0.075, 0.085);
+      if (big) wattle.scale.set(1.7, 1.45, 1.6); // a magnificent wattle
+      this.head.add(wattle);
+    }
 
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < (this.chick ? 0 : 3); i++) {
       const c = new THREE.Mesh(COMB_GEO, RED);
       c.position.set(0, 0.095 - i * 0.008, 0.045 - i * 0.052);
       c.rotation.x = -0.25;
@@ -255,6 +265,7 @@ export class Chicken {
 
   // alpha is how far the current frame sits between the last two ticks.
   render(alpha) {
+    if (!this.active) return;
     const p = this.root.position;
     p.lerpVectors(this.prevPos, this.pos, alpha);
     this.root.rotation.y = this.prevYaw + wrapAngle(this.yaw - this.prevYaw) * alpha;
@@ -297,6 +308,19 @@ export class Chicken {
   startHop(to, height, dur) {
     this.hop = { from: this.pos.clone(), to: to.clone(), t: 0, dur, height };
     this.move = null;
+  }
+
+  // Called when a hen hatches this chick.
+  hatchAt(mum, slot, at, rng) {
+    this.active = true;
+    this.root.visible = true;
+    this.mum = mum;
+    this.slot = slot;
+    this.pos.set(at.x + rand(rng, -0.3, 0.3), 0, at.z + rand(rng, 0.15, 0.55));
+    this.prevPos.copy(this.pos);
+    this.root.position.copy(this.pos);
+    this.zone = 'coop';
+    this.force('followMum');
   }
 
   // ---- riding (standing on Big Bertha) -----------------------------------
@@ -345,6 +369,7 @@ export class Chicken {
   // ---- per-frame update --------------------------------------------------
 
   update(dt) {
+    if (!this.active) return;
     const w = this.world;
     this.updateEmote(dt); // runs even while frozen, so statues can still think
 
@@ -393,8 +418,13 @@ export class Chicken {
         this.yaw = turnToward(this.yaw, Math.atan2(dx, dz), this.big ? 2.2 : 7, dt);
         const step = Math.min(this.move.speed * this.speedMul * dt, dist);
         let mx = Math.sin(this.yaw) * step, mz = Math.cos(this.yaw) * step;
+        // Chicks are exempt from crowd separation in both directions: they
+        // scurry between everyone's feet, and letting them shove meant a
+        // brood arriving at the pop-hole together pushed each other out of
+        // the opening and none of them could get through it.
         for (const other of w.chickens) {
           if (other === this || other.perch || other.riding) continue;
+          if (other.chick || this.chick || !other.active) continue;
           const minD = this.rad + other.rad;
           const ox = this.pos.x - other.pos.x, oz = this.pos.z - other.pos.z;
           const d2 = ox * ox + oz * oz;
@@ -554,6 +584,20 @@ export function spawnFlock(world, count) {
     world.scene.add(c.root);
   }
   return flock;
+}
+
+// A brood, created hidden at startup and revealed when a hen hatches them.
+// Keeping the population fixed means world.chickens is index-stable, which
+// snapshots and the determinism fingerprint both rely on.
+export function spawnChicks(world, count) {
+  const chicks = [];
+  for (let i = 0; i < count; i++) {
+    const k = new Chicken(`Chick ${i + 1}`,
+      { body: 0xf5dc90, accent: 0xe3c264 }, world, { chick: true, scale: 0.42 });
+    chicks.push(k);
+    world.scene.add(k.root);
+  }
+  return chicks;
 }
 
 // The matriarch. Twice the size, a third the speed, asleep by default, and

@@ -128,8 +128,9 @@ const stats = await page.evaluate(() => {
     stdLuma: +Math.sqrt(varSum / n).toFixed(2),
     minLuma: +min.toFixed(1), maxLuma: +max.toFixed(1),
     frames: g?.frames ?? 0,
-    chickens: g?.world.chickens.length ?? 0,
-    behaviors: g?.world.chickens.map((ch) => ch.bhv.name) ?? [],
+    chickens: g?.world.chickens.filter((ch) => ch.active).length ?? 0,
+    chicks: g?.world.chicks.filter((k) => k.active).length ?? 0,
+    behaviors: g?.world.chickens.filter((ch) => ch.active).map((ch) => ch.bhv.name) ?? [],
     bertha: g?.world.bertha?.bhv.name ?? null,
     eggs: g?.world.eggs.length ?? 0,
   };
@@ -143,7 +144,7 @@ server.close();
 
 const report = {
   ok: errors.length === 0 && stats.frames > 2 && stats.stdLuma > 1.0
-    && stats.chickens === 8 && !!stats.bertha,
+    && stats.chickens >= 8 && !!stats.bertha,
   out: OUT, ...stats,
   errors: errors.slice(0, 12),
 };

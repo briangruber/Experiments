@@ -18,6 +18,8 @@ const DOOR_OUT = new THREE.Vector3(DOOR.outside.x, 0, DOOR.outside.z);
 //   can      optional gate; enter/update/exit drive the chicken
 //   tough    exempt from chicken-to-chicken collisions, for behaviors whose
 //            whole point is a crowd converging on one spot
+//   committed  cannot be interrupted by another chicken forcing a behavior on
+//            her (a chase making her flee, say). Only a hawk overrides it.
 //   next     chain to this behavior when the timer expires naturally;
 //            may be a function (c, w) => name. Use this instead of calling
 //            c.force() from exit(), which would re-enter the exit handler.
@@ -43,8 +45,8 @@ function hold(c, v, margin = 0.25) {
 // Same zone only: a chase, a standoff or a panic must not carry through a
 // solid wall to a chicken standing outside.
 function others(c, w) {
-  return w.chickens.filter((o) => o !== c && !o.big && !o.perch && !o.riding
-    && o.zone === c.zone);
+  return w.chickens.filter((o) => o !== c && !o.big && !o.chick && o.active
+    && !o.perch && !o.riding && o.zone === c.zone);
 }
 
 // Where the audience is, as far as the simulation is concerned.
@@ -348,7 +350,12 @@ export const BEHAVIORS = {
 
   roost: {
     zone: 'coop', weight: 0.8, dur: [10, 22], cooldown: 20,
+    // Once up for the night she stays up; the duration is stretched on entry.
+    nightDur: [55, 90],
     enter(c, w) {
+      if (w.phase === 'night' || w.phase === 'dusk') {
+        c.bhv.dur = rand(w.rng, 55, 90);   // settled in for the night
+      }
       const bar = pick(w.rng, w.coop.roosts);
       const x = rand(w.rng, bar.x0 + 0.3, bar.x1 - 0.3);
       c.bhv.data.bar = bar;
@@ -371,7 +378,7 @@ export const BEHAVIORS = {
         // Occasional wobble; rare comedy fall.
         if (w.rng() < dt * 0.25) c.bodyRoll = rand(w.rng, -0.16, 0.16);
         c.bodyRoll *= Math.max(0, 1 - dt * 3);
-        if (w.rng() < dt * 0.025) {
+        if (w.rng() < dt * (w.phase === 'night' ? 0.004 : 0.025)) {
           c.showEmote('bang', 1.6);
           c.comeDown();
           c.force('bonk', { fell: true });
@@ -872,6 +879,45 @@ export const BEHAVIORS = {
       }
     },
     exit(c) { c.flapT = 0; c.bodyRoll = 0; c.neckPitchT = 0; },
+  },
+
+// A hen goes broody: takes a nest, sits on it for a good long while,
+  // growls at anyone who comes near, and eventually there are chicks.
+  broody: {
+    // tough: a hen on her way to a nest was being bowled over by the flock
+    // and, with a cooldown this long, never got another go at it.
+    zone: 'coop', weight: 0.75, weird: true, tough: true, committed: true,
+    dur: [46, 62], cooldown: 260, icon: 'egg',
+    can: (c, w) => w.chicks.length > 0 && w.chicks.every((k) => !k.active)
+      && w.phase !== 'night',
+    enter(c, w) {
+      c.bhv.data.nest = pick(w.rng, w.coop.nests);
+      c.walkTo(c.bhv.data.nest, 1.05);
+    },
+    update(c, w, dt) {
+      const d = c.bhv.data;
+      if (!d.sat) {
+        if (c.arrived(0.3)) { d.sat = true; c.stop(); c.sitT = 1; c.lidT = 0.55; }
+        return;
+      }
+      c.bodyRoll = Math.sin(w.time * 0.8) * 0.03;
+      // Nobody comes near a broody hen twice.
+      for (const o of others(c, w)) {
+        if (o.pos.distanceTo(c.pos) < 0.95 && w.rng() < dt * 2) {
+          c.showEmote('anger', 1.8);
+          w.audio.squawk(0.8);
+          o.force('flee', { from: c });
+        }
+      }
+      if (w.rng() < dt * 0.1) c.showEmote('egg', 2);
+    },
+    exit(c, w) {
+      c.sitT = 0; c.lidT = 0; c.bodyRoll = 0;
+      if (c.bhv.data.sat) w.hatch(c, c.bhv.data.nest);
+      // Interrupted before she settled: do not burn the long cooldown on an
+      // attempt that never happened.
+      else delete c.cooldowns.broody;
+    },
   },
 
   // ---- the door, and the world beyond it ----------------------------------
@@ -1457,20 +1503,152 @@ export const BIG_BEHAVIORS = {
   },
 };
 
+// ---- chicks ----------------------------------------------------------------
+// A brood is mostly one behavior — stay with mum — plus small bursts of the
+// things that make chicks funny: darting off, pecking at nothing, and piling
+// up underneath her.
+
+// How far a chick has strayed from her mother. A chick this far back stops
+// having ideas of her own until she has caught up.
+function mumGap(c) {
+  if (!c.mum || c.mum.zone !== c.zone) return 99;
+  return c.pos.distanceTo(c.mum.pos);
+}
+
+export const CHICK_BEHAVIORS = {
+  followMum: {
+    weight: 6, dur: [3, 6],
+    update(c, w, dt) {
+      const m = c.mum;
+      if (!m) return;
+      if (m.zone !== c.zone) {
+        // Mum went through the pop-hole. Aim at the staging point on this
+        // side, then at the one beyond it — walking between the two carries
+        // her through the opening. Once across, zones match and this branch
+        // stops firing, so there is nothing to oscillate.
+        if (!w.door.open) {
+          c.stop();
+          if (w.rng() < dt * 0.6) c.showEmote('question', 1.6);
+          return;
+        }
+        const stage = c.zone === 'coop' ? DOOR_IN : DOOR_OUT;
+        const beyond = c.zone === 'coop' ? DOOR_OUT : DOOR_IN;
+        // Latched on the chick, not on the behavior: followMum re-picks every
+        // few seconds, and without a latch that outlives it she hunts between
+        // the two staging points and never actually goes through.
+        if (!c.crossing && c.pos.distanceTo(stage) < 0.55) c.crossing = true;
+        c.walkTo(c.crossing ? beyond : stage, 2.0);
+        return;
+      }
+      c.crossing = false;   // same side as mum again
+      // Line up behind her, one slot back each.
+      const spot = new THREE.Vector3(-Math.sin(m.yaw), 0, -Math.cos(m.yaw))
+        .multiplyScalar(0.3 + c.slot * 0.15).add(m.pos);
+      spot.y = 0;
+      const gap = c.pos.distanceTo(spot);
+      if (gap > 0.16) c.walkTo(hold(c, spot, 0.15), gap > 1.6 ? 3.1 : 1.3);
+      else { c.stop(); if (w.rng() < dt * 1.2) c.doPeck(); }
+      // Left behind: peep about it.
+      if (gap > 2.6 && w.rng() < dt * 0.5) c.showEmote('question', 1.6);
+    },
+    exit(c) { c.stop(); },
+  },
+
+  chickPeck: {
+    weight: 1.8, dur: [1.4, 2.8],
+    can: (c) => mumGap(c) < 2.2,
+    enter(c) { c.stop(); },
+    update(c, w, dt) {
+      if (w.rng() < dt * 4) c.doPeck();
+      if (w.rng() < dt * 1.2) c.yaw += rand(w.rng, -1.2, 1.2);
+    },
+  },
+
+  // A chick at full tilt, for no reason, in a straight line.
+  chickDart: {
+    weight: 1.3, weird: true, dur: [1.2, 2.2], icon: 'star',
+    can: (c) => mumGap(c) < 2,
+    enter(c, w) { c.walkTo(randomPoint(w, c, 0.6), 2.8); c.flapT = 0.7; },
+    update(c, w, dt) { if (c.arrived(0.3)) c.walkTo(randomPoint(w, c, 0.6), 2.8); },
+    exit(c) { c.flapT = 0; c.stop(); },
+  },
+
+  // Wedged under mum, which is where a chick most wants to be.
+  chickHuddle: {
+    weight: 1.5, dur: [5, 10],
+    can: (c, w) => !!c.mum && c.mum.zone === c.zone && mumGap(c) < 3,
+    enter(c, w) {
+      // A snapshot can force this on a chick with no mother, so enter() must
+      // not assume the `can` gate ran.
+      const m = c.mum;
+      if (!m) { c.stop(); return; }
+      c.walkTo(new THREE.Vector3(
+        m.pos.x + rand(w.rng, -0.24, 0.24), 0, m.pos.z + rand(w.rng, -0.28, 0.05)), 1.6);
+    },
+    update(c, w, dt) {
+      if (!c.arrived(0.22)) return;
+      c.stop();
+      c.sitT = 1;
+      c.lidT = 0.85;
+      if (w.rng() < dt * 0.25) w.fx.zzz(c.pos.clone().add(new THREE.Vector3(0, 0.3, 0)), 0.1);
+    },
+    exit(c) { c.sitT = 0; c.lidT = 0; },
+  },
+};
+
 // Behaviors that only make sense with a partner or a target that a snapshot
 // does not carry — a follower needs its leader, a rush needs its seed patch.
 // A client restoring from a snapshot puts these chickens back on `wander`
 // instead and lets them pick again; positions stay correct either way, which
 // is what the snapshot is really for.
-const NEEDS_CONTEXT = new Set(['congaFollow', 'standoffB', 'gawkJoin', 'seedRush', 'lookAt']);
+const NEEDS_CONTEXT = new Set(['congaFollow', 'standoffB', 'gawkJoin', 'seedRush', 'lookAt',
+  'chickHuddle']);
 export const isResumable = (name) => !NEEDS_CONTEXT.has(name);
+
+// Chickens keep farm hours. Rather than special-casing every behavior, the
+// time of day just reweights the whole table: at dusk going in and roosting
+// dominate, at night almost nothing else is even considered, and at first
+// light they pour back outside. A name absent from a phase uses that phase's
+// `_` default.
+const PHASE_BIAS = {
+  day: null,                                  // no bias at all
+  dusk: {
+    _: 0.7,
+    goOutside: 0, sunbathe: 0, splash: 0, stumpPerch: 0.2,
+    goInside: 14, roost: 7, eat: 2, drink: 1.6, sleep: 1.5,
+  },
+  night: {
+    _: 0.03,                                  // the coop is asleep
+    roost: 40, sleep: 30, goInside: 8, goOutside: 0,
+    sunbathe: 0, splash: 0, peckGrass: 0.2, stumpPerch: 0,
+  },
+  dawn: {
+    _: 0.8,
+    goOutside: 6, roost: 0.05, sleep: 0.1, peckGrass: 2, eat: 2,
+  },
+};
+
+const BIG_PHASE_BIAS = {
+  day: null,
+  dusk: { _: 0.5, bigSleep: 4, bigSettle: 2 },
+  night: { _: 0.02, bigSleep: 50, bigStir: 1 },
+  dawn: { _: 0.7, bigStir: 2, bigEat: 2 },
+};
+
+function phaseWeight(name, w, c) {
+  if (c.chick) return 1;   // chicks go where mum goes
+  const table = (c.big ? BIG_PHASE_BIAS : PHASE_BIAS)[w.phase];
+  if (!table) return 1;
+  return table[name] ?? table._;
+}
 
 // ---- state machine plumbing ------------------------------------------------
 
-const TABLES = { normal: BEHAVIORS, big: BIG_BEHAVIORS };
+const TABLES = { normal: BEHAVIORS, big: BIG_BEHAVIORS, chick: CHICK_BEHAVIORS };
 const PICKABLE = {
   normal: Object.entries(BEHAVIORS).filter(([, d]) => d.weight > 0),
   big: Object.entries(BIG_BEHAVIORS).filter(([, d]) => d.weight > 0),
+  chick: Object.entries(CHICK_BEHAVIORS).filter(([, d]) => d.weight > 0),
 };
 
 // Bertha cannot be startled, seeded, or chased like an ordinary chicken;
@@ -1503,7 +1681,8 @@ export function pickBehavior(c, w) {
     if (def.zone && def.zone !== c.zone) continue;
     if (def.can && !def.can(c, w)) continue;
     if ((c.cooldowns[name] ?? 0) > w.time) continue;
-    let weight = def.weight * (def.weird ? c.weirdMul : 1);
+    let weight = def.weight * (def.weird ? c.weirdMul : 1) * phaseWeight(name, w, c);
+    if (weight <= 0) continue;
     if (name === c.bhv.lastName) weight *= 0.25; // variety, but repeats stay possible
     total += weight;
     bag.push([name, def, weight]);
@@ -1513,18 +1692,26 @@ export function pickBehavior(c, w) {
     roll -= weight;
     if (roll <= 0) return enterBehavior(c, w, name, def, {});
   }
-  const fallback = c.big ? 'bigSleep' : 'wander';
+  const fallback = c.big ? 'bigSleep' : (c.chick ? 'followMum' : 'wander');
   return enterBehavior(c, w, fallback, table[fallback], {});
 }
 
+// A hawk is the one thing that outranks a committed behavior.
+const OVERRIDES_COMMITMENT = new Set(['hawkPanic']);
+
 export function forceBehavior(c, w, name, data = {}) {
+  // A hen who has decided to sit on a nest is not to be talked out of it by
+  // whoever fancies a chase.
+  if (c.bhv.def?.committed && !OVERRIDES_COMMITMENT.has(name)) return c.bhv;
   if (c.big) {
     if (name in BIG_ALIASES) name = BIG_ALIASES[name];
     if (!name) return c.bhv;      // she is unbothered
   }
   // Bertha only ever runs her own table. Without this, any new behavior added
   // for the flock silently becomes hers too, at flock speeds.
-  const def = c.big ? BIG_BEHAVIORS[name] : ((TABLES[c.table] ?? BEHAVIORS)[name] ?? BEHAVIORS[name]);
+  const def = (c.big || c.chick)
+    ? (TABLES[c.table][name] ?? null)
+    : ((TABLES[c.table] ?? BEHAVIORS)[name] ?? BEHAVIORS[name]);
   if (!def) return c.bhv;
   c.frozen = false;
   runExit(c, w);

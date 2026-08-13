@@ -92,9 +92,8 @@ export function buildCoop(scene, rng) {
 
   // ---- window: frame + bright sky ----------------------------------------
   const winW = win.z1 - win.z0, winH = win.y1 - win.y0;
-  const sky = new THREE.Mesh(
-    new THREE.PlaneGeometry(winW, winH),
-    new THREE.MeshBasicMaterial({ color: 0xcfe6f5 }));
+  const winSkyMat = new THREE.MeshBasicMaterial({ color: 0xcfe6f5 });
+  const sky = new THREE.Mesh(new THREE.PlaneGeometry(winW, winH), winSkyMat);
   sky.position.set(W + WALL / 2 + 0.01, (win.y0 + win.y1) / 2, (win.z0 + win.z1) / 2);
   sky.rotation.y = -Math.PI / 2;
   g.add(sky);
@@ -115,12 +114,12 @@ export function buildCoop(scene, rng) {
   const shaftTarget = new THREE.Vector3(1.1, 0, -0.4);
   const shaftDir = shaftTarget.clone().sub(winCenter);
   const shaftLen = shaftDir.length();
+  const shaftMat = new THREE.MeshBasicMaterial({
+    color: 0xffe9b8, transparent: true, opacity: 0.055,
+    blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false,
+  });
   const shaft = new THREE.Mesh(
-    new THREE.CylinderGeometry(1.15, 0.62, shaftLen, 18, 1, true),
-    new THREE.MeshBasicMaterial({
-      color: 0xffe9b8, transparent: true, opacity: 0.055,
-      blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false,
-    }));
+    new THREE.CylinderGeometry(1.15, 0.62, shaftLen, 18, 1, true), shaftMat);
   shaft.position.copy(winCenter).addScaledVector(shaftDir, 0.5);
   shaft.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), shaftDir.clone().normalize());
   g.add(shaft);
@@ -352,7 +351,7 @@ export function buildCoop(scene, rng) {
 
   return {
     W, H, roosts, nests, feeder, water, doorPivot, yard,
-    motes, motePos, shaftDir, winCenter, drawSign,
+    motes, motePos, shaftDir, winCenter, drawSign, shaftMat, winSkyMat,
     bulbRig: bulbGroup, bulbMesh: bulb,
     bulbPos: new THREE.Vector3(0, H - 1.0, 0.4),
   };
@@ -376,12 +375,10 @@ function buildYard(g, rng) {
   grad.addColorStop(1, '#e8e0cb');
   sctx.fillStyle = grad;
   sctx.fillRect(0, 0, 4, 128);
-  const sky = new THREE.Mesh(
-    new THREE.SphereGeometry(46, 16, 12),
-    new THREE.MeshBasicMaterial({
-      map: new THREE.CanvasTexture(skyCanvas), side: THREE.BackSide, depthWrite: false,
-    }));
-  yard.add(sky);
+  const skyMat = new THREE.MeshBasicMaterial({
+    map: new THREE.CanvasTexture(skyCanvas), side: THREE.BackSide, depthWrite: false,
+  });
+  yard.add(new THREE.Mesh(new THREE.SphereGeometry(46, 16, 12), skyMat));
 
   // Ground. Tucked under the coop wall so there is no seam at the threshold.
   const ground = new THREE.Mesh(
@@ -480,7 +477,11 @@ function buildYard(g, rng) {
   yard.add(puddle);
 
   g.add(yard);
-  return { group: yard, stump: new THREE.Vector3(3.1, 0.74, 8.6), puddle: new THREE.Vector3(-3.6, 0, 10.2) };
+  return {
+    group: yard, skyMat,
+    stump: new THREE.Vector3(3.1, 0.74, 8.6),
+    puddle: new THREE.Vector3(-3.6, 0, 10.2),
+  };
 }
 
 // Gentle drift for the dust motes; called every frame.
