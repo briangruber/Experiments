@@ -196,6 +196,7 @@ function presentedNothing( app ) {
 		const canvas = app.renderer.domElement;
 		let seen = 0;
 		let blackReads = 0;
+		let kicked = false;
 		const prev = app.onFrame;
 		let liveness = 0;
 		const done = ( verdict ) => {
@@ -221,7 +222,29 @@ function presentedNothing( app ) {
 				let sum = 0;
 				for ( let i = 0; i < d.length; i += 4 ) sum += d[ i ] + d[ i + 1 ] + d[ i + 2 ];
 				if ( sum / ( d.length / 4 ) >= 3 ) return done( false );   // content - all is well
-				if ( ++ blackReads >= 3 ) return done( true );             // black, three samples running
+				if ( ++ blackReads >= 3 ) {
+
+					// Before condemning: one attempt to un-stick the swapchain. A
+					// field report (macOS Chrome, in the artifact iframe) showed the
+					// PIPELINE rendering perfectly - bands 0.172/0.415 - with the
+					// canvas reading black, which is either a swapchain that never
+					// composited or a readback that lies. Nudging the canvas size by
+					// one device pixel forces the app's own per-frame resize() to run
+					// renderer.setSize, which reconfigures the canvas context - a
+					// fresh swapchain. Once; if three more samples still read black,
+					// the verdict stands.
+					if ( ! kicked ) {
+
+						kicked = true;
+						blackReads = 0;
+						canvas.width = canvas.width + 1;
+						return;
+
+					}
+
+					return done( true );
+
+				}
 
 			} catch {
 
