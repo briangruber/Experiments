@@ -142,10 +142,48 @@ async function bootWithFallback() {
 				let postOut = null;
 				try { postOut = await app.measurePostOutput(); } catch {}
 				const d = app.diag;
-				const bands = ( d && d.bandA !== undefined
+				let bands = ( d && d.bandA !== undefined
 					? `pipeline ${ d.bandA.toFixed( 3 ) } / ${ d.bandB.toFixed( 3 ) }`
 					: 'pipeline unread' )
 					+ ( postOut ? `, post out ${ postOut.a.toFixed( 3 ) } / ${ postOut.b.toFixed( 3 ) }` : ', post out unread' );
+
+				// A dark post output gets bisected on the spot, because each field
+				// round-trip costs a day: the adapt state itself (metering poisoning
+				// shows up as NaN or a runaway key), the same frame with the metering
+				// bypassed, and again with bloom also out of the loop. The note then
+				// names the guilty pass instead of the whole chain.
+				if ( postOut && ( postOut.a + postOut.b ) <= 0.004 ) {
+
+					try {
+
+						const adapt = await app.post.readAdapt();
+						bands += `; adapt ${ Array.from( adapt.slice( 0, 3 ) ).map( ( v ) => v.toPrecision( 3 ) ).join( '/' ) }`;
+
+					} catch { bands += '; adapt unread'; }
+					const saved = {
+						autoExposure: app.params.autoExposure,
+						bloomIntensity: app.params.bloomIntensity,
+					};
+					try {
+
+						app.params.autoExposure = 0;
+						const manual = await app.measurePostOutput();
+						bands += `; manual-exposure out ${ manual.a.toFixed( 3 ) } / ${ manual.b.toFixed( 3 ) }`;
+						app.params.bloomIntensity = 0;
+						const noBloom = await app.measurePostOutput();
+						bands += `; +no-bloom ${ noBloom.a.toFixed( 3 ) } / ${ noBloom.b.toFixed( 3 ) }`;
+
+					} catch ( e ) {
+
+						bands += `; bisect failed: ${ String( e?.message || e ).slice( 0, 60 ) }`;
+
+					} finally {
+
+						Object.assign( app.params, saved );
+
+					}
+
+				}
 
 				// The full frame reaches the end of the chain with content: the only
 				// contrary evidence is the untrustworthy canvas read. Stay on WebGPU
