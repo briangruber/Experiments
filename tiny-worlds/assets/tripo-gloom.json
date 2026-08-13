@@ -1,0 +1,14 @@
+{
+  "gloom:model": {
+    "taskId": "fe0530b6-f839-4831-8c5b-9551b39b0957"
+  },
+  "gloom:rig": {
+    "taskId": "91c958e0-7e1a-417c-a2bc-722e05b7a14c"
+  },
+  "gloom:idle": {
+    "taskId": "101a1305-f3ca-4d25-86d4-ba1779b749e5"
+  },
+  "gloom:walk": {
+    "taskId": "37eec0e4-e3ad-486d-8dd9-9b05f4b7f562"
+  }
+}

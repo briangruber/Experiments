@@ -1,0 +1,14 @@
+{
+  "house:model": {
+    "taskId": "3b04250a-0eb9-4fca-ba15-cc181f9f869c"
+  },
+  "lantern:model": {
+    "taskId": "858220e1-57ed-4194-9c69-6d4ca45ec78c"
+  },
+  "tree:model": {
+    "taskId": "35a8a148-b19a-4402-bfee-810e85fbbb36"
+  },
+  "crystal:model": {
+    "taskId": "6d58564c-2ea0-4b56-8e9e-ecc075d57be5"
+  }
+}

@@ -1,0 +1,107 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Tiny Worlds — asset sheet</title>
+<style>
+  body { margin: 0; background: #16181f; color: #f4ecdd; font: 12px ui-sans-serif, system-ui; }
+  canvas { display: block; }
+  #labels { position: fixed; inset: 0; pointer-events: none; }
+  .label { position: absolute; transform: translate(-50%, 0); letter-spacing: .1em; opacity: .75; }
+</style>
+<canvas id="gl"></canvas>
+<div id="labels"></div>
+<script type="importmap">
+{ "imports": { "three": "../vendor/three.module.js", "three/addons/": "../vendor/jsm/" } }
+</script>
+<script type="module">
+// Turntable contact sheet for the generated assets — the fastest way to see
+// whether a Tripo model came back the right way up and the right size.
+import * as THREE from 'three';
+import { loadAssets } from '../src/assets.js';
+
+const canvas = document.getElementById('gl');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setSize(innerWidth, innerHeight, false);
+renderer.setPixelRatio(1);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
+renderer.shadowMap.enabled = true;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x16181f);
+const camera = new THREE.PerspectiveCamera(35, innerWidth / innerHeight, 0.1, 100);
+camera.position.set(0, 1.5, 9);
+camera.lookAt(0, 0.6, 0);
+
+scene.add(new THREE.HemisphereLight(0xbfd6ee, 0x4a4034, 1.1));
+const key = new THREE.DirectionalLight(0xfff0d2, 3.2);
+key.position.set(4, 7, 5);
+key.castShadow = true;
+scene.add(key);
+
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(40, 40),
+  new THREE.MeshStandardMaterial({ color: 0x2a2d36, roughness: 1 }),
+);
+floor.rotation.x = -Math.PI / 2;
+floor.receiveShadow = true;
+scene.add(floor);
+
+const assets = await loadAssets();
+const spin = [];
+const labels = document.getElementById('labels');
+
+function place(object, x, label) {
+  object.position.x = x;
+  object.traverse((o) => { if (o.isMesh || o.isSkinnedMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  scene.add(object);
+  spin.push(object);
+  const el = document.createElement('div');
+  el.className = 'label';
+  el.textContent = label;
+  labels.appendChild(el);
+  object.userData.label = el;
+}
+
+const mesh = (src, s) => {
+  const m = new THREE.Mesh(src.geometry, src.material);
+  m.scale.setScalar(s);
+  const g = new THREE.Group();
+  g.add(m);
+  return g;
+};
+
+place(mesh(assets.tree, 1.6), -4.5, 'tree');
+place(mesh(assets.crystal, 1.4), -2.2, 'crystal');
+place((() => { const o = assets.house.object; o.scale.setScalar(1.6); return o; })(), 0.2, 'house');
+place((() => { const o = assets.lantern.object; o.scale.setScalar(1.8); return o; })(), 2.6, 'lantern');
+place((() => { const o = assets.keeper.object; o.scale.setScalar(1.6); return o; })(), 4.8, 'keeper');
+place(mesh(assets.rock, 1.6), 6.8, 'rock');
+
+const mixer = new THREE.AnimationMixer(assets.keeper.object);
+const clipName = new URLSearchParams(location.search).get('clip') || 'walk';
+const clip = assets.keeper.clips[clipName];
+if (clip) mixer.clipAction(clip).play();
+
+const v = new THREE.Vector3();
+let t = 0;
+// `?rot=<radians>` (or assetSheet.setRotation) parks the turntable at a fixed
+// angle — the only way to answer "which way does this model face?" from a
+// screenshot.
+const fixed = new URLSearchParams(location.search).get('rot');
+let held = fixed === null ? null : +fixed;
+
+renderer.setAnimationLoop((now) => {
+  const dt = 1 / 60;
+  t += dt;
+  mixer.update(dt);
+  for (const o of spin) {
+    o.rotation.y = held === null ? t * 0.6 : held;
+    v.set(o.position.x, 0, 0).project(camera);
+    o.userData.label.style.left = `${(v.x * 0.5 + 0.5) * innerWidth}px`;
+    o.userData.label.style.top = `${(-v.y * 0.5 + 0.5) * innerHeight + 26}px`;
+  }
+  renderer.render(scene, camera);
+  window.assetSheetFrames = (window.assetSheetFrames || 0) + 1;
+});
+window.assetSheet = { scene, assets, camera, setRotation: (r) => { held = r; } };
+</script>
