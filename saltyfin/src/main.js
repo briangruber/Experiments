@@ -331,6 +331,9 @@ ctx.shore = shoreLeave;
 // persists on this device. Entered from the badge menu or F2; while active it
 // owns the camera and holds the helm and the walker still via ctx.editorHold.
 const townEditor = build(createTownEditor, { town, camera, input });
+// The HUD's radar reads the lock through ctx, so the module has to be there
+// as well as on the api handle.
+ctx.harpoon = harpoon;
 
 const hud = createHud({ ctx, time });
 const fishingHud = createFishingHud({ fishing, ctx });

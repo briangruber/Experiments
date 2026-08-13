@@ -413,6 +413,7 @@ export function createHud({ ctx, time } = {}) {
     // A dot for every animal in range, the primary included. Anything the pod
     // does not fill is hidden rather than left where it last was.
     const pod = (c && c.monster && c.monster.pod) || null;
+    const lockIdx = fin(c && c.harpoon && c.harpoon.state && c.harpoon.state.lockIndex, -1);
     let shown = 0;
     if (pod && pod.length) {
       for (let i = 0; i < pod.length && shown < MON_DOTS; i++) {
@@ -428,6 +429,13 @@ export function createHud({ ctx, time } = {}) {
         const r = Math.min(d * MM_PPM, mmR - 9);
         const dot = mmMons[shown++];
         vis(dot, true);
+        // WHICH one is yours. With a pod out there, three identical red pips
+        // and a lock somewhere among them told the player nothing.
+        const isLocked = i === lockIdx;
+        if (dot.dataset.lock !== (isLocked ? '1' : '0')) {
+          dot.dataset.lock = isLocked ? '1' : '0';
+          dot.classList.toggle('sf-mm-locked', isLocked);
+        }
         dot.style.transform = 'translate(' + (Math.sin(a) * r).toFixed(1) + 'px,'
           + (-Math.cos(a) * r).toFixed(1) + 'px)';
       }

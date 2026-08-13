@@ -284,6 +284,17 @@
   width: 0; height: 0;
   will-change: transform;
 }
+/* The claimed animal: amber instead of red, a ring around it, and a slow
+   pulse so the eye finds it among the pod without having to count. */
+.sf-mm-locked svg { fill: #ffc86b !important; }
+.sf-mm-locked::after { content: ''; position: absolute; left: -13px; top: -13px;
+  width: 26px; height: 26px; border-radius: 50%;
+  border: 1.5px solid rgba(255,200,107,.9);
+  animation: sf-mm-lockpulse 1.8s ease-in-out infinite; }
+@keyframes sf-mm-lockpulse {
+  0%, 100% { transform: scale(1); opacity: .95; }
+  50% { transform: scale(1.18); opacity: .5; }
+}
 .sf-mm-mon svg {
   position: absolute; left: -9px; top: -9px;
   width: 18px; height: 18px;

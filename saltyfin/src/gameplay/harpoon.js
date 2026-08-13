@@ -158,7 +158,9 @@ const REEL_MIN = 0.35;       // s, so a miss still reads as a miss
 // How long the line stays on the drum after a strike. Long enough to be
 // hauled somewhere and feel it, short enough that the hunt is a sequence of
 // rides rather than one endless tug-of-war.
-const TOW_TIME = 7.0;
+// Barrels come off a rack, not off a rope: a fresh cask is ready almost at
+// once, because the loop the player asked for is throw, come round, throw.
+const BARREL_COOLDOWN = 1.6;
 const MAX_BARRELS = 10;      // casks the scene can draw at once
 const BARREL_ROPE = 9;       // m of line between the animal and her cask
 
@@ -187,6 +189,9 @@ export function createHarpoon(opts = {}) {
     lockable: false,
     lockDist: 0,
     escorting: false,
+    /** Index into monster.pod of the locked animal, or -1. The radar reads
+     *  this to mark WHICH shape out there is the one you claimed. */
+    lockIndex: -1,
     barrels: 0,
     barrelsNeeded: 0,
     msg: '',
@@ -311,6 +316,22 @@ export function createHarpoon(opts = {}) {
       barrelPool.push(g2);
       group.add(g2);
     }
+    // Each cask trails its own line down to the iron in her. Four thin
+    // segments is plenty for a nine-metre rope and it makes the ownership
+    // unmistakable: the rope goes barrel-to-animal, never barrel-to-boat.
+    const BARREL_SEGS = 4;
+    const barrelRopeGeo = new THREE.CylinderGeometry(1, 1, 1, 5, 1, true);
+    const barrelRopes = [];
+    for (let i = 0; i < MAX_BARRELS * BARREL_SEGS; i++) {
+      const m = new THREE.Mesh(barrelRopeGeo, matRope);
+      m.name = 'harpoon-barrelrope-' + i;
+      m.frustumCulled = false;
+      m.position.set(0, -400, 0);
+      m.scale.set(ROPE_R, 1, ROPE_R);
+      barrelRopes.push(m);
+      group.add(m);
+    }
+
     // Live casks: { animal, along, side, obj, bob }
     const barrels = [];
 
@@ -361,6 +382,7 @@ export function createHarpoon(opts = {}) {
     let aimStarveT = 0;      // seconds the scope has had nothing to look at
     let sprayT = 0;          // stamp timer for the bow tearing water under tow
     let towT = 0;            // seconds of line left on the drum after a strike
+    let shotKind = 'harpoon';  // which iron is in the air: 'barrel' | 'harpoon'
     let locked = null;       // the animal the player has claimed
     const _station = new THREE.Vector3();
     let camFirst = true;     // snap the camera on the frame it is taken
@@ -542,6 +564,31 @@ export function createHarpoon(opts = {}) {
           Math.sin(b2.bob * 1.7) * 0.25, Math.atan2(_fwd.x, _fwd.z),
           Math.cos(b2.bob * 1.3) * 0.22,
         );
+
+        // Her line: from the iron in her back up to the cask riding above.
+        const ay2 = p.y + 1.2 * a.scale;
+        for (let k = 0; k < BARREL_SEGS; k++) {
+          const seg = barrelRopes[i * BARREL_SEGS + k];
+          if (!seg) break;
+          const t0 = k / BARREL_SEGS, t1 = (k + 1) / BARREL_SEGS;
+          const x0 = ax2 + (b2.obj.position.x - ax2) * t0;
+          const y0 = ay2 + (b2.obj.position.y - ay2) * t0;
+          const z0 = az2 + (b2.obj.position.z - az2) * t0;
+          const x1 = ax2 + (b2.obj.position.x - ax2) * t1;
+          const y1 = ay2 + (b2.obj.position.y - ay2) * t1;
+          const z1 = az2 + (b2.obj.position.z - az2) * t1;
+          _a.set(x1 - x0, y1 - y0, z1 - z0);
+          const len = Math.max(_a.length(), 1e-4);
+          seg.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+          _q.setFromUnitVectors(_Y, _a.multiplyScalar(1 / len));
+          seg.quaternion.copy(_q);
+          const r = ROPE_R * (seg.position.y < 0 ? 2.6 : 1);
+          seg.scale.set(r, len, r);
+        }
+      }
+      // Park every line belonging to a cask that is not in the water.
+      for (let i = barrels.length * BARREL_SEGS; i < barrelRopes.length; i++) {
+        if (barrelRopes[i].position.y > -50) barrelRopes[i].position.set(0, -400, 0);
       }
     }
 
@@ -565,11 +612,6 @@ export function createHarpoon(opts = {}) {
       // a near-horizontal roll on the attach frame. The auto-reel below
       // shortens it to fighting length as slack allows.
       rest = Math.max(REST_MIN, _bow.distanceTo(p) * 0.98);
-      // The iron carries a cask. It goes into her NOW — the line to the boat
-      // is only the few seconds of ride before it pays out and leaves the
-      // barrel with her, which is exactly how Quint did it.
-      plantBarrel(animal);
-      towT = TOW_TIME;
       audio?.cue?.('harpoonHit');
       burst(p.x, p.z, 30, 1.2);
       const w = water();
@@ -628,8 +670,20 @@ export function createHarpoon(opts = {}) {
      * Throw it. Only from the scope — the aim IS the shot now, and a button
      * that auto-hit whatever was nearest made the whole act a formality.
      */
-    function fire() {
+    /**
+     * Two irons, two jobs, and they are NOT the same shot:
+     *
+     *   'barrel'   a cask goes off the rack and into her. The line runs from
+     *              the BARREL to the animal — never to the boat — so nothing
+     *              is towed and you are free to come round for the next one.
+     *   'harpoon'  the fast iron, made fast to the towing post. That is the
+     *              rope that hauls you, the tug-of-war, the sleigh ride.
+     *
+     * @param {'barrel'|'harpoon'} kind
+     */
+    function fire(kind = 'harpoon') {
       if (state.flight || state.reeling || state.tethered) return;
+      shotKind = kind === 'barrel' ? 'barrel' : 'harpoon';
       // THE SHOT IS THE LOCK. Manual aiming was the single hardest thing in
       // the game and the player said so twice; with a creature claimed there
       // is nothing left to decide, so the throw goes straight from the
@@ -700,6 +754,22 @@ export function createHarpoon(opts = {}) {
           // glances and comes home. You threw at a leaping leviathan; that
           // is a story either way.
           if (a.phase === 'breach') { beginReel('She twists away mid-leap!'); return; }
+          if (shotKind === 'barrel') {
+            // The cask is hers and the line is between the two of THEM. The
+            // boat keeps nothing but the recoil and the view.
+            attachAlong = clamp((0.5 - tSeg) * 2 * L, -9 * a.scale, 11 * a.scale);
+            plantBarrel(a);
+            state.flight = false;
+            audio?.cue?.('harpoonHit');
+            burst(p.x, p.z, 26, 1.1);
+            const wB = water();
+            if (wB?.disturb) wB.disturb(p.x, p.z, 1.4, 6.0);
+            // No reel: the barrel went with her, and the next cask comes off
+            // the rack, not off the end of a rope.
+            state.reeling = false;
+            cooldown = BARREL_COOLDOWN;
+            return;
+          }
           if (!attachNow(a)) beginReel('The spear glances off.');
           return;
         }
@@ -885,22 +955,6 @@ export function createHarpoon(opts = {}) {
       // gunwale at the trigger frame.
       if (rollEnergy > tune.ROLL_LIMIT) { beginCapsize(Math.sign(tow.heel || 1), false); return; }
       if (sinkEnergy > tune.DUNK_LIMIT) { beginCapsize(1, true); return; }
-
-      // THE LINE PAYS OUT. A few seconds of being hauled along behind her,
-      // and then the rope runs off the drum and the cask is hers to carry.
-      // This is what keeps every barrel its own violent little sleigh ride
-      // without turning the hunt into one endless tug-of-war.
-      towT -= dt;
-      if (towT <= 0) {
-        const left = target.barrelsNeeded - target.barrels;
-        // Silent when that cask finished her: plantBarrel has already said
-        // the only thing worth saying, and "the line pays out" stepping on
-        // "she is up!" is the anticlimax of the whole hunt.
-        release(left > 0
-          ? 'The line pays out - she has the barrel. ' + left + ' more.'
-          : '');
-        return;
-      }
 
       // The cut.
       if (cutHeld) {
@@ -1198,18 +1252,6 @@ export function createHarpoon(opts = {}) {
       applyCamera(dt, SCOPE_FOV, 9);
     }
 
-    /** The spear's own shot: trailing it, so the throw and the rope read. */
-    function flightCamera(dt) {
-      _a.copy(spearVel);
-      if (_a.lengthSq() < 1e-4) _a.set(0, 0, -1);
-      _a.normalize();
-      _camPos.copy(spearPos).addScaledVector(_a, -7.5);
-      _camPos.y += 2.4;
-      const surf = water()?.sampleHeight?.(_camPos.x, _camPos.z, ctx.time) ?? 0;
-      _camPos.y = Math.max(_camPos.y, surf + 1.1);
-      _camLook.copy(spearPos).addScaledVector(_a, 8);
-      applyCamera(dt, 38, 7);
-    }
 
     /**
      * The fight, as a two-shot. Both ends of the rope have to be in frame or
@@ -1388,6 +1430,7 @@ export function createHarpoon(opts = {}) {
       if (locked) stepLock(dt);
       else { ctx.escort = null; state.escorting = false; }
       state.locked = !!locked;
+      state.lockIndex = locked ? pod.indexOf(locked) : -1;
       state.barrels = locked ? locked.barrels : 0;
       state.barrelsNeeded = locked ? locked.barrelsNeeded : 0;
       const lockNear = nearestAnimal();
@@ -1411,10 +1454,13 @@ export function createHarpoon(opts = {}) {
       // main.js can stand the chase rig down. Order matters: the tether wins
       // over the flight (a hit cuts straight to the two-shot), the flight wins
       // over the scope.
+      // The throw does NOT take the camera. Zooming off after the spear tore
+      // the player out of the shot they had chosen and dumped them somewhere
+      // else mid-hunt; the iron simply leaves the boat and you watch it go
+      // from where you already were.
       if (state.tethered) fightCamera(dt);
-      else if (state.flight) flightCamera(dt);
-      else if (state.aiming) aimCamera(dt);
       else if (locked) huntCamera(dt);
+      else if (state.aiming) aimCamera(dt);
       else { camFirst = true; releaseCamera(); }
 
       layoutRope(state.tethered || state.flight || state.reeling);
@@ -1433,7 +1479,7 @@ export function createHarpoon(opts = {}) {
       nudgeAim,
       /** True while this module is writing the camera; main stands the chase rig down. */
       get ownsCamera() {
-        return state.aiming || state.flight || state.tethered || !!locked;
+        return state.aiming || state.tethered || !!locked;
       },
       lockOn,
       lockOff: () => lockOff(),

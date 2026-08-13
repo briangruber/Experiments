@@ -53,6 +53,30 @@ const CSS = `
    naming the reason - absence read as a bug, a dim button reads as "wait". */
 #sf-harpoon-go.sf-harpoon-dim { opacity: .45; cursor: default; }
 
+/* --- the cask, between the harpoon pill and the lock ---------------------- */
+/* Two irons, two buttons, because they are two different shots: the harpoon
+   is made fast to the boat and hauls you; the barrel leaves the rack and is
+   hers alone. Same shell, and the amber says which one is the cask. */
+#sf-barrel-go { position: fixed; z-index: 46; pointer-events: auto; cursor: pointer;
+  right: max(14px, env(safe-area-inset-right));
+  bottom: calc(262px + env(safe-area-inset-bottom));
+  display: flex; align-items: center; gap: 7px;
+  padding: 9px 14px 9px 11px; border-radius: 999px;
+  border: 1px solid rgba(255,200,107,.42); background: rgba(44,28,10,.5);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  color: #ffe0ac;
+  font: 700 10px/1 ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: .16em; text-transform: uppercase;
+  -webkit-user-select: none; user-select: none; touch-action: none;
+  -webkit-touch-callout: none; }
+#sf-barrel-go:active, #sf-barrel-go.sf-barrel-down {
+  background-color: rgba(255,200,107,.5); color: #1b1206; }
+#sf-barrel-go svg { width: 15px; height: 15px; fill: currentColor; }
+#sf-barrel-go.sf-barrel-hidden { display: none; }
+#sf-barrel-go.sf-barrel-dim { opacity: .45; cursor: default; }
+#sf-barrel-go .sf-barrel-d { font: 700 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .12em; opacity: .85; }
+
 /* --- the lock, stacked another 56px above #sf-harpoon-go ------------------ */
 /* Same shell as the harpoon pill on purpose: they are the two halves of one
    control scheme - pick the animal, then throw at it - and a second shape
@@ -61,7 +85,7 @@ const CSS = `
    go. */
 #sf-lock-go { position: fixed; z-index: 46; pointer-events: auto; cursor: pointer;
   right: max(14px, env(safe-area-inset-right));
-  bottom: calc(262px + env(safe-area-inset-bottom));
+  bottom: calc(318px + env(safe-area-inset-bottom));
   display: flex; align-items: center; gap: 7px;
   padding: 9px 14px 9px 11px; border-radius: 999px;
   border: 1px solid rgba(206,232,255,.24); background: rgba(8,20,36,.52);
@@ -300,6 +324,24 @@ export function createHarpoonHud({ harpoon, ctx } = {}) {
   lockGo.title = 'Lock on  (L)';
   document.body.appendChild(lockGo);
 
+  // The cask. Its own pill because it is its own shot: the barrel leaves the
+  // rack and stays with her, where the harpoon stays with us.
+  const SVG_BARREL = '<svg viewBox="0 0 24 24" aria-hidden="true">'
+    + '<path d="M7.4 3.2h9.2c.6 2.6.9 5.4.9 8.8s-.3 6.2-.9 8.8H7.4'
+    + 'c-.6-2.6-.9-5.4-.9-8.8s.3-6.2.9-8.8Z" opacity=".92"/>'
+    + '<rect x="5.6" y="7.4" width="12.8" height="1.5" rx=".6" opacity=".55"/>'
+    + '<rect x="5.6" y="15.1" width="12.8" height="1.5" rx=".6" opacity=".55"/></svg>';
+  const barrelGo = document.createElement('div');
+  barrelGo.id = 'sf-barrel-go';
+  barrelGo.dataset.sfUi = '';
+  barrelGo.className = 'sf-barrel-hidden';
+  barrelGo.innerHTML = SVG_BARREL
+    + '<span class="sf-barrel-t">BARREL</span><span class="sf-barrel-d"></span>';
+  barrelGo.title = 'Throw a barrel  (B)';
+  document.body.appendChild(barrelGo);
+  const barrelLabel = barrelGo.querySelector('.sf-barrel-t');
+  const barrelCount = barrelGo.querySelector('.sf-barrel-d');
+
   // The scope. data-sf-ui is the whole reason a drag in here aims instead of
   // orbiting the chase camera as well: core/input.js latches on the press and
   // refuses any gesture that started inside a [data-sf-ui] subtree.
@@ -378,7 +420,7 @@ export function createHarpoonHud({ harpoon, ctx } = {}) {
       go.classList.add('sf-harpoon-down');
       call('holdCut', true);
     } else if (s.available && !s.aiming) {
-      call('fire');
+      call('fire', 'harpoon');
     }
   };
   const goUp = () => {
@@ -487,20 +529,24 @@ export function createHarpoonHud({ harpoon, ctx } = {}) {
 
   // FIRE acts on the press, like a trigger: a throw that waited for the
   // release would land a frame after the moment the player picked.
-  const press = (el, fn) => {
+  const press = (el, fn, downClass = 'sf-scope-down') => {
     const dn = (e) => {
       e.preventDefault();
       e.stopPropagation();
-      el.classList.add('sf-scope-down');
+      el.classList.add(downClass);
       fn();
     };
-    const up = () => el.classList.remove('sf-scope-down');
+    const up = () => el.classList.remove(downClass);
     el.addEventListener('pointerdown', dn);
     el.addEventListener('pointerup', up);
     el.addEventListener('pointerleave', up);
     el.addEventListener('pointercancel', up);
   };
-  press(scopeFire, () => call('fire'));
+  press(scopeFire, () => call('fire', 'harpoon'));
+  press(barrelGo, () => {
+    const s2 = harpoon && harpoon.state;
+    if (s2 && s2.available && !s2.tethered) call('fire', 'barrel');
+  }, 'sf-barrel-down');
   press(scopeCancel, () => call('cancelAim'));
 
   // H mirrors the button, and what it means follows the state: raise the spear
@@ -530,6 +576,15 @@ export function createHarpoonHud({ harpoon, ctx } = {}) {
       call('toggleLock');
       return;
     }
+    // B is the cask, H is the fast iron. Same test position as L and for the
+    // same reason: the aiming switch below would swallow it.
+    if (e.code === 'KeyB') {
+      if (e.repeat) return;
+      e.preventDefault();
+      const sB = harpoon && harpoon.state;
+      if (sB && sB.available && !sB.tethered) call('fire', 'barrel');
+      return;
+    }
 
     if (s.aiming) {
       switch (e.code) {
@@ -549,7 +604,8 @@ export function createHarpoonHud({ harpoon, ctx } = {}) {
     if (e.code !== 'KeyH') return;
     if (s.tethered) { call('holdCut', true); return; }
     if (e.repeat) return;
-    if (s.available) call('fire');
+    if (s.available) call('fire', 'harpoon');
+
   };
   const onKeyUp = (e) => {
     if (e.code !== 'KeyH') return;
@@ -599,8 +655,17 @@ export function createHarpoonHud({ harpoon, ctx } = {}) {
     // the same pill still cuts the line early if the ride is going badly.
     const nb = Number(s.barrels) || 0;
     const need = Number(s.barrelsNeeded) || 0;
-    set('goLabel', tethered ? 'CUT LINE' : (available ? 'THROW' : 'TOO DEEP'),
+    set('goLabel', tethered ? 'CUT LINE' : (available ? 'HARPOON' : 'TOO DEEP'),
       (v) => { goLabel.textContent = v; });
+    // The cask is offered whenever the harpoon is, EXCEPT while a line is
+    // already made fast: one rope at a time, and the barrel wants a free boat.
+    const barrelOn = available && !tethered && !s.capsizing && !aiming
+      && !flight && !reeling;
+    set('barrelOn', barrelOn,
+      (v) => barrelGo.classList.toggle('sf-barrel-hidden', !v));
+    set('barrelCount', need ? nb + '/' + need : '',
+      (v) => { barrelCount.textContent = v; });
+    set('barrelLabel', 'BARREL', (v) => { barrelLabel.textContent = v; });
 
 
     // The cut's progress, painted into the button from the left. background-image
