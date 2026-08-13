@@ -333,9 +333,17 @@ export class Gloom {
       if (!mob.root.visible) continue;
 
       mob.cooldown = Math.max(0, mob.cooldown - dt);
+      mob.retreat = Math.max(0, (mob.retreat ?? 0) - dt);
       const toPlayer = chasing ? player.up.angleTo(mob.dir) * planet.groundRadius(mob.dir) : Infinity;
 
-      if (chasing && toPlayer < 7 * scale) {
+      if (mob.retreat > 0 && chasing) {
+        // Just landed a hit: give ground for a moment. Without this it simply
+        // walks back into you the instant its cooldown expires, and the whole
+        // encounter is a series of shoves you cannot answer.
+        _v.copy(mob.dir).addScaledVector(player.up, -mob.dir.dot(player.up));
+        if (_v.lengthSq() > 1e-6) mob.heading.copy(_v.normalize());
+        mob.speed = damp(mob.speed, 3.4 * scale, 4, dt);
+      } else if (chasing && toPlayer < 7 * scale) {
         mob.state = 'chase';
         // Head straight at the keeper along the surface.
         _v.copy(player.up).addScaledVector(mob.dir, -player.up.dot(mob.dir));
@@ -373,7 +381,7 @@ export class Gloom {
         mob.mixer.update(dt);
       }
 
-      if (!chasing || mob.cooldown > 0) continue;
+      if (!chasing) continue;
 
       // Contact. Coming down on one from above dispels it; anything else is a
       // hit on the keeper.
@@ -382,7 +390,10 @@ export class Gloom {
 
       const falling = player.vel.dot(player.up) < -1.5;
       const above = player.local.length() > mob.root.position.length() + 0.45 * scale;
+      const canHit = mob.cooldown <= 0 && mob.retreat <= 0;
       planet.group.localToWorld(_w.copy(mob.root.position));
+      // Coming down on one always works. Only its ability to hit back is on a
+      // timer — gating the whole contact made a retreating gloom unstompable.
       if (!player.grounded && falling && above) {
         ctx.particles.burst(_w, { count: 26, color: ctx.gloomColor, speed: 4.5, size: 0.55, life: 1.0 });
         ctx.audio?.stomp();
@@ -390,10 +401,11 @@ export class Gloom {
         mob.dead = 14;
         mob.speed = 0;
         ctx.onStomp?.(_w.clone());
-      } else {
+      } else if (canHit) {
         _v.copy(player.up).sub(mob.dir).normalize();
         if (_v.lengthSq() < 1e-4) _v.copy(player.facing);
-        mob.cooldown = 1.6;
+        mob.cooldown = 2.4;
+        mob.retreat = 2.0;
         ctx.onHit?.({ push: _v.clone(), strength: 0.8, source: 'gloom' });
       }
     }

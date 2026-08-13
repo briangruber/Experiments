@@ -92,12 +92,15 @@ export class Player {
     _v.addScaledVector(this.up, -_v.dot(this.up));
     if (_v.lengthSq() < 1e-6) _v.copy(this.facing);
     _v.normalize();
-    this.vel.addScaledVector(_v, 7 + 5 * strength);
-    this.vel.addScaledVector(this.up, 7 + 3 * strength);
+    // A stumble, not a launch. This used to throw the keeper about six units
+    // backwards, so a gloom trailing you turned the walk into "forward, hurled
+    // back, forward, hurled back" every few seconds.
+    this.vel.addScaledVector(_v, 3.2 + 1.8 * strength);
+    this.vel.addScaledVector(this.up, 3.6 + 1.2 * strength);
     this.grounded = false;
     this.airTime = 0.2;
     this.squash = 1.25;
-    this.invuln = 1.4;
+    this.invuln = 1.9;
     this.hurtTime = 0.7;
     return true;
   }
