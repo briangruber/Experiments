@@ -14,6 +14,7 @@ collide, and a branch can be merged without reading it first.
 
 | folder | what it is |
 | --- | --- |
+| `chicken-game/` | Chicken Game — the inside of a chicken coop in three.js. Seven procedural hens with a weighted behavior AI do strange, funny, unpredictable things (zoomies, wall-staring, moonwalking, contagious panic, egg laying). Toss seeds, boo chickens, collect eggs. |
 | `ocean/` | Abyssal — a real-time cinematic ocean simulator with a rideable wave runner. Multi-cascade FFT sea, volumetric clouds, GPU spray, persistent Kelvin wake. |
 
 Other prototypes currently live on their own branches and follow the same
@@ -47,3 +48,11 @@ node tools/shot.mjs --out shots/frame.png --w 1280 --h 720
 
 `tools/shot.mjs` exits non-zero on any WebGL or JS error, so it doubles as a
 smoke test.
+
+`chicken-game/` follows the same pattern with its own harness:
+
+```
+cd chicken-game
+node tools/shot.mjs --out shots/coop.png            # render + smoke test
+node tools/shot.mjs --ff 3600 --camera "-0.9,1.25,4.6"   # fast-forward 2 min of coop time first
+```

@@ -1,0 +1,22 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Chicken Game</title>
+<link rel="stylesheet" href="./src/ui.css">
+<canvas id="gl" oncontextmenu="return false"></canvas>
+<div id="ui">
+  <div id="masthead">
+    <div id="title">🐔 CHICKEN GAME</div>
+    <div id="counters">
+      <span id="egg-counter" title="Eggs collected">🥚 0</span>
+      <span id="weird-counter" title="Weird moments witnessed">👁 0</span>
+    </div>
+  </div>
+  <div id="ticker"></div>
+  <div id="hint">drag · look around &nbsp; wheel · zoom &nbsp; click floor · toss seeds &nbsp; click chicken · boo &nbsp; click egg · collect</div>
+  <button id="mute" type="button" title="Sound">🔇</button>
+  <div id="name-tag"></div>
+</div>
+<script type="importmap">
+  { "imports": { "three": "./vendor/three.module.min.js" } }
+</script>
+<script type="module" src="./src/main.js"></script>

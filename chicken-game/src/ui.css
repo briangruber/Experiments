@@ -1,0 +1,120 @@
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #1a120b;
+  font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+}
+
+#gl {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+  cursor: grab;
+}
+#gl.dragging { cursor: grabbing; }
+#gl.pointing { cursor: pointer; }
+
+#ui {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  color: #f3e7d3;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#masthead {
+  position: absolute;
+  top: 14px;
+  left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+#title {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+}
+
+#counters {
+  display: flex;
+  gap: 14px;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+}
+
+#ticker {
+  position: absolute;
+  left: 18px;
+  bottom: 44px;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 5px;
+  max-width: min(440px, 70vw);
+}
+
+.tick {
+  font-size: 13.5px;
+  line-height: 1.35;
+  padding: 5px 10px;
+  background: rgba(20, 12, 5, 0.62);
+  border-left: 3px solid #e8a33d;
+  border-radius: 0 6px 6px 0;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  animation: tick-in 0.25s ease-out, tick-out 1.2s ease-in 8.5s forwards;
+}
+.tick.player { border-left-color: #7ec8e3; }
+
+@keyframes tick-in {
+  from { opacity: 0; transform: translateX(-14px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes tick-out {
+  to { opacity: 0; }
+}
+
+#hint {
+  position: absolute;
+  left: 18px;
+  bottom: 14px;
+  font-size: 11.5px;
+  opacity: 0.65;
+  letter-spacing: 0.4px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+#mute {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  pointer-events: auto;
+  background: rgba(20, 12, 5, 0.55);
+  color: #f3e7d3;
+  border: 1px solid rgba(243, 231, 211, 0.25);
+  border-radius: 8px;
+  font-size: 16px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+#mute:hover { background: rgba(60, 40, 18, 0.7); }
+
+#name-tag {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  background: rgba(20, 12, 5, 0.75);
+  border: 1px solid rgba(232, 163, 61, 0.5);
+  border-radius: 6px;
+  padding: 3px 9px;
+  font-size: 12.5px;
+  white-space: nowrap;
+  display: none;
+  text-shadow: none;
+}
