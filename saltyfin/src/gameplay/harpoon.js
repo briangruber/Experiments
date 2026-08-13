@@ -50,7 +50,12 @@ const RANGE = 60;            // m, boat to creature, for the call-to-action
 // rise. The dart now keeps travelling once it is wet (SPEAR_DRAG below), so
 // the gate moves to where it can actually reach — which turns a cruising
 // leviathan from scenery into a target.
-const DEPTH_MAX = 20;
+// Twenty was still short. Her cruise band runs to 24.5 m and the escort now
+// parks you alongside her while she swims it, so the probe watched a locked
+// animal sit at 20.2 m for forty seconds with the throw refused the whole
+// time — the TOO DEEP complaint wearing a new hat. Thirty covers the band
+// with room over it, and the iron carries that far (see SPEAR_DRAG).
+const DEPTH_MAX = 30;
 const COOLDOWN = 2.4;        // s between throws
 // --- the spear ---------------------------------------------------------------
 // Slow enough to WATCH. At 40 m/s the throw was over in half a second of
@@ -59,11 +64,14 @@ const COOLDOWN = 2.4;        // s between throws
 // something you can see paying off, and the entry splash marks the miss.
 const SPEAR_V = 27;          // m/s off the bow
 const SPEAR_G = 7.5;         // m/s^2 of drop; a harpoon is not a bullet
-const FLIGHT_MAX = 3.6;      // s before it is called a miss
+const FLIGHT_MAX = 4.6;      // s before it is called a miss
 // Under water it slows rather than stopping: e^(-1.15 t) still carries the
 // dart the twenty-odd metres down to a cruising animal in about a second and
 // a half, which is a throw you can watch land.
-const SPEAR_DRAG = 1.15;     // per second, once wet
+// Eased so the cask reaches a cruising leviathan: at 0.75 the dart still runs
+// close to thirty metres under before it is spent, which is the whole depth
+// band the shot is now offered against.
+const SPEAR_DRAG = 0.75;     // per second, once wet
 const SPEAR_SINK = 2.2;      // m/s^2 it settles at, once wet
 // --- the rope ----------------------------------------------------------------
 const REST_MIN = 13, REST_MAX = 42;
@@ -707,8 +715,8 @@ export function createHarpoon(opts = {}) {
       }
       // Spent when it has run out of way or out of time — deep enough to
       // reach a cruising animal, and no deeper.
-      if (spearPos.y < surf - 26 || flightT > FLIGHT_MAX
-        || (spearWet && spearVel.lengthSq() < 9)) {
+      if (spearPos.y < surf - 42 || flightT > FLIGHT_MAX
+        || (spearWet && spearVel.lengthSq() < 4)) {
         beginReel('Missed - hauling the line back in.');
       }
     }
