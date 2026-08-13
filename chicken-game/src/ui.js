@@ -19,7 +19,33 @@ export class UI {
       if (!audio.muted) audio.bok();
     });
 
+    // Wired by main.js once the world exists.
+    this.onView = () => {};
+    this.onDoor = () => {};
+    this.onWorm = () => {};
+    this.onHawk = () => {};
+
+    this.viewBtn = document.getElementById('view');
+    this.doorBtn = document.getElementById('act-door');
+    this.viewBtn.addEventListener('click', () => this.onView());
+    this.doorBtn.addEventListener('click', () => this.onDoor());
+    document.getElementById('act-worm').addEventListener('click', () => this.onWorm());
+    document.getElementById('act-hawk').addEventListener('click', () => this.onHawk());
+
     this.initFullscreen();
+  }
+
+  // Which enclosure the local camera is watching. Purely this viewer's
+  // choice — it is never shared.
+  setView(name) {
+    const outside = name === 'yard';
+    this.viewBtn.classList.toggle('outside', outside);
+    this.viewBtn.setAttribute('aria-label', outside ? 'Go back inside the coop' : 'Go outside to the run');
+  }
+
+  setDoor(open) {
+    this.doorBtn.classList.toggle('shut', !open);
+    this.doorBtn.setAttribute('aria-label', open ? 'Close the pop-hole' : 'Open the pop-hole');
   }
 
   // Full screen is not available everywhere: an iframe only gets it if the

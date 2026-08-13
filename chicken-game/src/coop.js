@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { rand } from './util.js';
+import { DOOR, YARD, WALL_Z } from './zones.js';
 
 // Builds the coop interior: plank walls, straw floor, roosts, nesting boxes,
 // feeder, window with a sun shaft, hanging bulb. Returns the points of
@@ -49,10 +50,21 @@ export function buildCoop(scene, rng) {
   // ---- walls (window cut into the +X wall) -------------------------------
   const rows = 8, rowH = H / rows;
   const win = { y0: 2.0, y1: 3.1, z0: -2.4, z1: -0.8 };  // on +X wall
+  const doorX0 = DOOR.x - DOOR.halfWidth, doorX1 = DOOR.x + DOOR.halfWidth;
   for (let i = 0; i < rows; i++) {
     const y = rowH * (i + 0.5);
     plankRow(g, rng, { axis: 'x', length: W * 2, y, h: rowH, thickness: WALL, fixed: -W, base: baseWall }); // -Z
-    plankRow(g, rng, { axis: 'x', length: W * 2, y, h: rowH, thickness: WALL, fixed: W, base: baseWall });  // +Z
+    // +Z wall: split around the pop-hole for every row below the lintel.
+    if (y - rowH / 2 >= DOOR.top - 0.01) {
+      plankRow(g, rng, { axis: 'x', length: W * 2, y, h: rowH, thickness: WALL, fixed: W, base: baseWall });
+    } else {
+      const segA = doorX0 + W;      // -W .. door
+      const segB = W - doorX1;      // door .. +W
+      const a = plankRow(g, rng, { axis: 'x', length: segA, y, h: rowH, thickness: WALL, fixed: W, base: baseWall });
+      a.position.x = -W + segA / 2;
+      const b = plankRow(g, rng, { axis: 'x', length: segB, y, h: rowH, thickness: WALL, fixed: W, base: baseWall });
+      b.position.x = doorX1 + segB / 2;
+    }
     plankRow(g, rng, { axis: 'z', length: W * 2, y, h: rowH, thickness: WALL, fixed: -W, base: baseWall }); // -X
     if (y - rowH / 2 >= win.y1 - 0.01 || y + rowH / 2 <= win.y0 + 0.01) {
       plankRow(g, rng, { axis: 'z', length: W * 2, y, h: rowH, thickness: WALL, fixed: W, base: baseWall }); // +X full
@@ -294,14 +306,181 @@ export function buildCoop(scene, rng) {
   bulbGroup.add(bulb);
   g.add(bulbGroup);
 
+  // ---- the pop-hole and its door ------------------------------------------
+  const frameWood = wood(0x8f6c46);
+  for (const side of [-1, 1]) {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.12, DOOR.top + 0.1, 0.2), frameWood);
+    post.position.set(DOOR.x + side * (DOOR.halfWidth + 0.05), (DOOR.top + 0.1) / 2, W);
+    post.castShadow = true;
+    g.add(post);
+  }
+  const lintel = new THREE.Mesh(
+    new THREE.BoxGeometry(DOOR.halfWidth * 2 + 0.24, 0.14, 0.2), frameWood);
+  lintel.position.set(DOOR.x, DOOR.top + 0.07, W);
+  lintel.castShadow = true;
+  g.add(lintel);
+
+  // Hinged on the left post, swinging out into the yard.
+  const doorPivot = new THREE.Group();
+  doorPivot.position.set(DOOR.x - DOOR.halfWidth, 0, W + 0.09);
+  const doorPanel = new THREE.Mesh(
+    new THREE.BoxGeometry(DOOR.halfWidth * 2, DOOR.top - 0.04, 0.06),
+    wood(0x7d5c3a, 0.85));
+  doorPanel.position.set(DOOR.halfWidth, (DOOR.top - 0.04) / 2, 0);
+  doorPanel.castShadow = true;
+  doorPivot.add(doorPanel);
+  for (const dy of [0.35, 1.1]) {
+    const brace = new THREE.Mesh(new THREE.BoxGeometry(DOOR.halfWidth * 2, 0.09, 0.02), frameWood);
+    brace.position.set(DOOR.halfWidth, dy, 0.04);
+    doorPivot.add(brace);
+  }
+  g.add(doorPivot);
+
+  // ---- a simple roof, so the coop reads as a building from outside --------
+  const roofMat = wood(0x6a4a33, 0.95);
+  for (const side of [-1, 1]) {
+    const slope = new THREE.Mesh(new THREE.BoxGeometry(W * 2 + 0.7, 0.12, W * 1.55), roofMat);
+    slope.position.set(0, H + 0.62, side * W * 0.55);
+    slope.rotation.x = side * -0.42;
+    slope.castShadow = true;
+    g.add(slope);
+  }
+
+  const yard = buildYard(g, rng);
+
   scene.add(g);
 
   return {
-    W, H, roosts, nests, feeder, water,
+    W, H, roosts, nests, feeder, water, doorPivot, yard,
     motes, motePos, shaftDir, winCenter, drawSign,
     bulbRig: bulbGroup, bulbMesh: bulb,
     bulbPos: new THREE.Vector3(0, H - 1.0, 0.4),
   };
+}
+
+// The run outside the pop-hole: grass, a fence, a stump to perch on, a
+// puddle, and a sky to sit under. Built into the same group as the coop so
+// the two can never drift apart.
+function buildYard(g, rng) {
+  const yard = new THREE.Group();
+
+  // Sky dome. A vertical gradient painted on a canvas beats a flat colour
+  // and costs nothing; the coop's own walls occlude it from inside.
+  const skyCanvas = document.createElement('canvas');
+  skyCanvas.width = 4; skyCanvas.height = 128;
+  const sctx = skyCanvas.getContext('2d');
+  const grad = sctx.createLinearGradient(0, 0, 0, 128);
+  grad.addColorStop(0, '#3f78b5');
+  grad.addColorStop(0.45, '#8fc0dd');
+  grad.addColorStop(0.75, '#d8e6ea');
+  grad.addColorStop(1, '#e8e0cb');
+  sctx.fillStyle = grad;
+  sctx.fillRect(0, 0, 4, 128);
+  const sky = new THREE.Mesh(
+    new THREE.SphereGeometry(46, 16, 12),
+    new THREE.MeshBasicMaterial({
+      map: new THREE.CanvasTexture(skyCanvas), side: THREE.BackSide, depthWrite: false,
+    }));
+  yard.add(sky);
+
+  // Ground. Tucked under the coop wall so there is no seam at the threshold.
+  const ground = new THREE.Mesh(
+    new THREE.BoxGeometry((YARD.x1 - YARD.x0) + 3.5, 0.2, (YARD.z1 - YARD.z0) + 3.2),
+    new THREE.MeshStandardMaterial({ color: 0x6f8347, flatShading: true, roughness: 1 }));
+  ground.position.set((YARD.x0 + YARD.x1) / 2, -0.1, (WALL_Z + YARD.z1 + 0.9) / 2);
+  ground.receiveShadow = true;
+  yard.add(ground);
+
+  // A scuffed patch of bare earth just outside the door, where they mill.
+  const scuff = new THREE.Mesh(
+    new THREE.CircleGeometry(2.1, 14),
+    new THREE.MeshStandardMaterial({ color: 0x7d6743, flatShading: true, roughness: 1 }));
+  scuff.rotation.x = -Math.PI / 2;
+  scuff.position.set(DOOR.x, 0.012, WALL_Z + 1.5);
+  scuff.receiveShadow = true;
+  yard.add(scuff);
+
+  // Grass tufts, thinning out near the scuffed patch.
+  const TUFTS = 420;
+  const tuft = new THREE.ConeGeometry(0.075, 0.3, 4);
+  const grass = new THREE.InstancedMesh(
+    tuft, new THREE.MeshStandardMaterial({ flatShading: true, roughness: 1 }), TUFTS);
+  const dummy = new THREE.Object3D();
+  const col = new THREE.Color();
+  let placed = 0;
+  for (let i = 0; i < TUFTS * 3 && placed < TUFTS; i++) {
+    const x = rand(rng, YARD.x0 - 1, YARD.x1 + 1);
+    const z = rand(rng, WALL_Z + 0.4, YARD.z1 + 1);
+    const bare = Math.hypot(x - DOOR.x, z - (WALL_Z + 1.5)) < rand(rng, 0.6, 2.4);
+    if (bare) continue;
+    dummy.position.set(x, rand(rng, 0.08, 0.15), z);
+    dummy.rotation.set(rand(rng, -0.2, 0.2), rand(rng, 0, Math.PI), rand(rng, -0.2, 0.2));
+    dummy.scale.setScalar(rand(rng, 0.7, 1.5));
+    dummy.updateMatrix();
+    grass.setMatrixAt(placed, dummy.matrix);
+    col.setHex(0x7e9b4e).offsetHSL(rand(rng, -0.04, 0.04), rand(rng, -0.1, 0.12), rand(rng, -0.1, 0.1));
+    grass.setColorAt(placed, col);
+    placed++;
+  }
+  grass.count = placed;
+  grass.receiveShadow = true;
+  yard.add(grass);
+
+  // Fence: posts and two rails, open where it meets the coop.
+  const postMat = wood(0x6b5236, 0.95);
+  const railMat = wood(0x7a5f3d, 0.95);
+  const fence = [];
+  const step = 1.55;
+  for (let x = YARD.x0 - 0.4; x <= YARD.x1 + 0.4; x += step) fence.push([x, YARD.z1 + 0.4]);
+  for (let z = WALL_Z; z <= YARD.z1 + 0.4; z += step) {
+    fence.push([YARD.x0 - 0.4, z]);
+    fence.push([YARD.x1 + 0.4, z]);
+  }
+  for (const [x, z] of fence) {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.25, 0.1), postMat);
+    post.position.set(x, 0.62, z);
+    post.castShadow = true;
+    yard.add(post);
+  }
+  const railRuns = [
+    { len: (YARD.x1 - YARD.x0) + 0.8, pos: [(YARD.x0 + YARD.x1) / 2, 0, YARD.z1 + 0.4], rot: 0 },
+    { len: (YARD.z1 + 0.4 - WALL_Z), pos: [YARD.x0 - 0.4, 0, (WALL_Z + YARD.z1 + 0.4) / 2], rot: Math.PI / 2 },
+    { len: (YARD.z1 + 0.4 - WALL_Z), pos: [YARD.x1 + 0.4, 0, (WALL_Z + YARD.z1 + 0.4) / 2], rot: Math.PI / 2 },
+  ];
+  for (const run of railRuns) {
+    for (const y of [0.45, 1.0]) {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(run.len, 0.07, 0.05), railMat);
+      rail.position.set(run.pos[0], y, run.pos[2]);
+      rail.rotation.y = run.rot;
+      rail.castShadow = true;
+      yard.add(rail);
+    }
+  }
+
+  // A stump to stand on and feel important about.
+  const stump = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.55, 0.62, 0.7, 9),
+    wood(0x6b5138, 0.95));
+  stump.position.set(3.1, 0.35, 8.6);
+  stump.castShadow = true;
+  stump.receiveShadow = true;
+  yard.add(stump);
+  const stumpTop = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.55, 0.55, 0.04, 9),
+    new THREE.MeshStandardMaterial({ color: 0xa8845a, flatShading: true, roughness: 0.9 }));
+  stumpTop.position.set(3.1, 0.71, 8.6);
+  yard.add(stumpTop);
+
+  // A puddle that never quite dries out.
+  const puddle = new THREE.Mesh(
+    new THREE.CircleGeometry(1.05, 16),
+    new THREE.MeshStandardMaterial({ color: 0x7fa6b8, roughness: 0.12, metalness: 0.45 }));
+  puddle.rotation.x = -Math.PI / 2;
+  puddle.position.set(-3.6, 0.016, 10.2);
+  yard.add(puddle);
+
+  g.add(yard);
+  return { group: yard, stump: new THREE.Vector3(3.1, 0.74, 8.6), puddle: new THREE.Vector3(-3.6, 0, 10.2) };
 }
 
 // Gentle drift for the dust motes; called every frame.

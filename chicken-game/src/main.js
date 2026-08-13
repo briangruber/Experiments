@@ -7,6 +7,7 @@ import { FX } from './fx.js';
 import { CoopAudio } from './audio.js';
 import { UI } from './ui.js';
 import { EV, EventQueue, LocalTransport, TICK_DT } from './net.js';
+import { DOOR, YARD, bounds, zoneOf } from './zones.js';
 
 const params = new URLSearchParams(location.search);
 const seedParam = parseInt(params.get('seed') ?? '', 10);
@@ -32,7 +33,8 @@ renderer.toneMappingExposure = 1.15;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x120c07);
 
-const camera = new THREE.PerspectiveCamera(55, 1, 0.05, 60);
+// Far plane clears the sky dome from anywhere in the yard.
+const camera = new THREE.PerspectiveCamera(55, 1, 0.05, 160);
 
 // ---- world -----------------------------------------------------------------
 
@@ -58,6 +60,19 @@ const EGG_MAT = new THREE.MeshStandardMaterial({ color: 0xf2ead8, roughness: 0.5
 const GOLD_MAT = new THREE.MeshStandardMaterial({
   color: 0xe0a233, roughness: 0.22, metalness: 0.7, emissive: 0x2e1c04,
 });
+const WORM_GEO = new THREE.CapsuleGeometry(0.035, 0.2, 3, 6);
+const WORM_MAT = new THREE.MeshStandardMaterial({ color: 0xc2707e, roughness: 0.7 });
+
+// The hawk is only ever a shadow on the ground, which is scarier and also
+// means there is no bird to model.
+const HAWK_MAT = new THREE.MeshBasicMaterial({
+  color: 0x0d1408, transparent: true, opacity: 0, depthWrite: false,
+});
+const hawkShadow = new THREE.Mesh(new THREE.CircleGeometry(1.15, 18), HAWK_MAT);
+hawkShadow.rotation.x = -Math.PI / 2;
+hawkShadow.scale.set(1, 1, 1.9);
+hawkShadow.visible = false;
+scene.add(hawkShadow);
 
 const world = {
   scene, camera, rng, ui, audio, fx,
@@ -76,6 +91,39 @@ const world = {
   // before any WATCH event has been sent.
   watchers: [{ id: 'local', pos: new THREE.Vector3(2.6, 1.7, -3.3) }],
   audienceFallback: new THREE.Vector3(2.6, 1.7, -3.3),
+
+  // Shared world state a viewer can change.
+  door: { open: true },
+  worm: null,                     // { pos, taken, mesh }
+  hawk: { active: false, t: 0 },
+
+  dropWorm(x, z) {
+    if (world.worm) world.clearWorm();
+    const mesh = new THREE.Mesh(WORM_GEO, WORM_MAT);
+    mesh.position.set(x, 0.045, z);
+    mesh.rotation.z = Math.PI / 2;
+    mesh.castShadow = true;
+    scene.add(mesh);
+    world.worm = { pos: new THREE.Vector3(x, 0, z), taken: false, mesh };
+    // Everyone outside drops what they are doing.
+    for (const c of world.chickens) {
+      if (c.big || c.zone !== 'yard') continue;
+      c.force('chaseWorm');
+    }
+  },
+
+  takeWorm(c) {
+    if (!world.worm || world.worm.taken) return;
+    world.worm.taken = true;
+    fx.puff(world.worm.pos, 0xc2707e);
+    world.clearWorm();
+  },
+
+  clearWorm() {
+    if (!world.worm) return;
+    scene.remove(world.worm.mesh);
+    world.worm = null;
+  },
 
   spawnEgg(pos) {
     const golden = rng() < 0.1;
@@ -167,7 +215,14 @@ world.chickens = [...flock, world.bertha];
 
 // ---- lights ----------------------------------------------------------------
 
-scene.add(new THREE.HemisphereLight(0xffe2b8, 0x3a2c1c, 0.55));
+scene.add(new THREE.HemisphereLight(0xffe2b8, 0x4a3a24, 0.62));
+
+// The coop's door wall faces away from the sun, so from the run it would
+// otherwise read as a black slab. This stands in for light bouncing off the
+// sky; no shadows, so it costs almost nothing.
+const skyFill = new THREE.DirectionalLight(0xbed8ee, 0.7);
+skyFill.position.set(-3, 5, 14);
+scene.add(skyFill);
 
 // Sun coming in through the window on the +X wall.
 const sun = new THREE.DirectionalLight(0xffe0a8, 2.4);
@@ -176,11 +231,19 @@ sun.target.position.set(0.6, 0, -0.3);
 sun.castShadow = true;
 sun.shadow.mapSize.set(1024, 1024);
 sun.shadow.camera.near = 2;
-sun.shadow.camera.far = 20;
-sun.shadow.camera.left = -6; sun.shadow.camera.right = 6;
-sun.shadow.camera.top = 6; sun.shadow.camera.bottom = -6;
+sun.shadow.camera.far = 30;
+sun.shadow.camera.left = -7.5; sun.shadow.camera.right = 7.5;
+sun.shadow.camera.top = 7.5; sun.shadow.camera.bottom = -7.5;
 sun.shadow.bias = -0.002;
 scene.add(sun, sun.target);
+
+// Keeping the sun's direction fixed while moving what it points at lets one
+// shadow map serve both enclosures.
+const SUN_OFFSET = new THREE.Vector3(8.9, 5.5, -1.6);
+const SUN_FOCUS = {
+  coop: new THREE.Vector3(0.6, 0, -0.3),
+  yard: new THREE.Vector3(0, 0, 9.2),
+};
 
 // Warm bulb hanging mid-coop.
 const bulbLight = new THREE.PointLight(0xffd9a0, 14, 14, 1.8);
@@ -192,12 +255,42 @@ scene.add(bulbLight);
 
 // ---- camera orbit (constrained to the inside of the coop) ------------------
 
+// Two places to stand. Which one you are watching from is yours alone — it
+// is not shared state — but the position you end up at is published as a
+// WATCH event, so the chickens know whether you are indoors or out.
+const VIEWS = {
+  coop: {
+    target: new THREE.Vector3(0, 0.9, -0.2), theta: 2.45, phi: 1.22, r: 4.4,
+    rMin: 1.4, rMax: 5.6,
+    box: { x: [-4.55, 4.55], y: [0.35, 3.8], z: [-4.55, 4.55] },
+  },
+  yard: {
+    target: new THREE.Vector3(-0.4, 0.7, 8.9), theta: 0.16, phi: 1.03, r: 8.2,
+    rMin: 2.5, rMax: 11,
+    box: { x: [-7.2, 7.2], y: [0.4, 6.5], z: [5.3, 16.4] },
+  },
+};
+
 const orbit = {
-  target: new THREE.Vector3(0, 0.9, -0.2),
+  view: 'coop',
+  target: VIEWS.coop.target.clone(),
+  targetT: VIEWS.coop.target.clone(),
   theta: 2.45, phi: 1.22, r: 4.4,
   thetaT: 2.45, phiT: 1.22, rT: 4.4,
   lastInput: -10,
 };
+
+function setView(name) {
+  const v = VIEWS[name];
+  if (!v || orbit.view === name) return;
+  orbit.view = name;
+  orbit.targetT.copy(v.target);
+  orbit.thetaT = v.theta;
+  orbit.phiT = v.phi;
+  orbit.rT = v.r;
+  orbit.lastInput = world.time;
+  ui.setView(name);
+}
 
 function applyCamera(dt) {
   // Idle drift: after a while the camera slowly circles the coop on its own.
@@ -206,15 +299,18 @@ function applyCamera(dt) {
   orbit.theta = damp(orbit.theta, orbit.thetaT, 10, dt);
   orbit.phi = damp(orbit.phi, orbit.phiT, 10, dt);
   orbit.r = damp(orbit.r, orbit.rT, 8, dt);
+  // Switching views flies the anchor across rather than cutting.
+  orbit.target.lerp(orbit.targetT, 1 - Math.exp(-4.5 * dt));
 
   const sp = Math.sin(orbit.phi);
   camera.position.set(
     orbit.target.x + orbit.r * sp * Math.sin(orbit.theta),
     orbit.target.y + orbit.r * Math.cos(orbit.phi),
     orbit.target.z + orbit.r * sp * Math.cos(orbit.theta));
-  camera.position.x = clamp(camera.position.x, -4.55, 4.55);
-  camera.position.z = clamp(camera.position.z, -4.55, 4.55);
-  camera.position.y = clamp(camera.position.y, 0.35, 3.8);
+  const box = VIEWS[orbit.view].box;
+  camera.position.x = clamp(camera.position.x, box.x[0], box.x[1]);
+  camera.position.y = clamp(camera.position.y, box.y[0], box.y[1]);
+  camera.position.z = clamp(camera.position.z, box.z[0], box.z[1]);
 
   // Footfall shake, applied before lookAt so the whole view jolts.
   shakeAmt = Math.max(0, shakeAmt - dt * 0.85);
@@ -306,11 +402,14 @@ canvas.addEventListener('pointerup', (e) => {
   }
 
   const p = new THREE.Vector3();
-  if (raycaster.ray.intersectPlane(floorPlane, p) && Math.abs(p.x) < 4.6 && Math.abs(p.z) < 4.6) {
-    transport.send(EV.SEEDS, {
-      x: +clamp(p.x, -4.2, 4.2).toFixed(3),
-      z: +clamp(p.z, -4.2, 4.2).toFixed(3),
-    }, world.tick);
+  if (raycaster.ray.intersectPlane(floorPlane, p)) {
+    const b = bounds(zoneOf(p.z));
+    if (p.x > b.x0 - 1 && p.x < b.x1 + 1 && p.z > b.z0 - 1 && p.z < b.z1 + 1) {
+      transport.send(EV.SEEDS, {
+        x: +clamp(p.x, b.x0 + 0.25, b.x1 - 0.25).toFixed(3),
+        z: +clamp(p.z, b.z0 + 0.25, b.z1 - 0.25).toFixed(3),
+      }, world.tick);
+    }
   }
 });
 
@@ -323,14 +422,18 @@ function applyEvent(e) {
     case EV.SEEDS: {
       const patch = fx.seeds(new THREE.Vector3(e.x, 0, e.z));
       audio.cluck(0.8);
+      const patchZone = zoneOf(patch.pos.z);
       for (const c of flock) {
-        if (c.pos.distanceTo(patch.pos) < 5.5 && rng() < 0.85 && c.bhv.name !== 'panic') {
+        if (c.zone !== patchZone) continue;   // she cannot smell through a wall
+        if (c.pos.distanceTo(patch.pos) < 6 && rng() < 0.85 && c.bhv.name !== 'panic') {
           c.force('seedRush', { patch });
         }
       }
       // Sometimes it is enough to wake the matriarch, which changes everything.
       const b = world.bertha;
-      if (b && b.bhv.name !== 'bigSeedRush' && rng() < 0.5) b.force('seedRush', { patch });
+      if (b && patchZone === 'coop' && b.bhv.name !== 'bigSeedRush' && rng() < 0.5) {
+        b.force('seedRush', { patch });
+      }
       break;
     }
 
@@ -366,8 +469,37 @@ function applyEvent(e) {
       bulbSwing = 0.2;
       audio.bonk();
       for (const c of flock) {
+        if (c.zone !== 'coop') continue;
         if (rng() < 0.6) c.force('lookAt', { at: { pos: world.coop.bulbPos }, up: true });
       }
+      break;
+    }
+
+    case EV.DOOR: {
+      const open = !!e.open;
+      if (world.door.open === open) break;
+      world.door.open = open;
+      ui.setDoor(open);
+      audio.bonk();
+      // Anyone mid-doorway notices immediately; clampToZone shoves them clear.
+      for (const c of flock) {
+        if (Math.abs(c.pos.z - 5) < 1.4 && rng() < 0.8) c.showEmote('question', 2.2);
+      }
+      break;
+    }
+
+    case EV.WORM: {
+      world.dropWorm(e.x, e.z);
+      audio.cluck(1.3);
+      break;
+    }
+
+    case EV.HAWK: {
+      world.hawk.active = true;
+      world.hawk.t = 0;
+      world.incident();
+      audio.squawk(0.55);
+      for (const c of flock) c.force('hawkPanic');
       break;
     }
 
@@ -393,7 +525,8 @@ function applyEvent(e) {
 
 canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
-  orbit.rT = clamp(orbit.rT * (1 + Math.sign(e.deltaY) * 0.09), 1.4, 5.6);
+  const v = VIEWS[orbit.view];
+  orbit.rT = clamp(orbit.rT * (1 + Math.sign(e.deltaY) * 0.09), v.rMin, v.rMax);
   orbit.lastInput = world.time;
 }, { passive: false });
 
@@ -402,7 +535,8 @@ canvas.addEventListener('touchmove', (e) => {
     const d = Math.hypot(
       e.touches[0].clientX - e.touches[1].clientX,
       e.touches[0].clientY - e.touches[1].clientY);
-    if (pinchDist > 0) orbit.rT = clamp(orbit.rT * (pinchDist / d), 1.4, 5.6);
+    const v = VIEWS[orbit.view];
+    if (pinchDist > 0) orbit.rT = clamp(orbit.rT * (pinchDist / d), v.rMin, v.rMax);
     pinchDist = d;
     orbit.lastInput = world.time;
   }
@@ -433,6 +567,36 @@ function resize() {
 addEventListener('resize', resize);
 resize();
 
+// ---- viewer controls -------------------------------------------------------
+
+ui.onView = () => {
+  ui.dismissHint();
+  setView(orbit.view === 'coop' ? 'yard' : 'coop');
+};
+ui.onDoor = () => {
+  ui.dismissHint();
+  transport.send(EV.DOOR, { open: !world.door.open }, world.tick);
+};
+ui.onWorm = () => {
+  ui.dismissHint();
+  // Somewhere in the open part of the run, away from the doorway scuffle.
+  transport.send(EV.WORM, {
+    x: +rand(rng, YARD.x0 + 1.2, YARD.x1 - 1.2).toFixed(2),
+    z: +rand(rng, 7.2, YARD.z1 - 1).toFixed(2),
+  }, world.tick);
+};
+ui.onHawk = () => {
+  ui.dismissHint();
+  transport.send(EV.HAWK, {}, world.tick);
+};
+ui.setView(orbit.view);
+ui.setDoor(world.door.open);
+
+addEventListener('keydown', (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === 'v' || e.key === 'V') ui.onView();
+});
+
 // ---- main loop -------------------------------------------------------------
 
 let nextAmbient = 2;
@@ -441,7 +605,8 @@ let nextAmbient = 2;
 // where at least one is sprinting count, so a crowded feeder stays peaceful.
 function chickenCollisions() {
   const list = world.chickens;
-  const busy = (c) => c.big || c.riding || c.perch || c.hop || c.bhv.name === 'bonk';
+  const busy = (c) => c.big || c.riding || c.perch || c.hop
+    || c.bhv.name === 'bonk' || c.bhv.def?.tough;
   for (let i = 0; i < list.length; i++) {
     const a = list[i];
     if (busy(a)) continue;
@@ -485,6 +650,18 @@ function tick() {
   rollEggs(TICK_DT);
   fx.reapPatches();
 
+  // The hawk's pass is simulation state so every client sees the shadow in
+  // the same place at the same moment.
+  if (world.hawk.active) {
+    world.hawk.t += TICK_DT;
+    if (world.hawk.t > 5) world.hawk.active = false;
+  }
+  // An unclaimed worm is fair game until someone gets it.
+  if (world.worm && !world.worm.taken) {
+    world.worm.age = (world.worm.age ?? 0) + TICK_DT;
+    if (world.worm.age > 45) world.clearWorm();   // it got away
+  }
+
   // The sign counts up in calm and is reset by the first thing that happens.
   calmTime += TICK_DT;
   if (calmTime > 14) {
@@ -510,6 +687,24 @@ function render(alpha, frameDt) {
   fx.update(frameDt, world.time);
   updateMotes(world.coop, world.time);
 
+  // The door swings; the state it swings toward is shared, the swing is not.
+  doorAngle = damp(doorAngle, world.door.open ? -1.9 : 0, 7, frameDt);
+  world.coop.doorPivot.rotation.y = doorAngle;
+
+  if (world.worm) world.worm.mesh.rotation.y = Math.sin(world.time * 7) * 0.5;
+
+  // Hawk shadow: a long ellipse sweeping the run.
+  const hk = world.hawk;
+  hawkShadow.visible = hk.active;
+  if (hk.active) {
+    const k = hk.t / 5;
+    hawkShadow.position.set(
+      YARD.x0 - 2 + k * ((YARD.x1 - YARD.x0) + 4),
+      0.02,
+      6.2 + Math.sin(k * Math.PI) * 4.2);
+    HAWK_MAT.opacity = Math.sin(Math.min(1, k * 1.2) * Math.PI) * 0.5;
+  }
+
   // The bulb hums along with a barely-there flicker, and swings when the
   // floor gets hit. The point light rides with it so the shadows swing too.
   bulbSwing = Math.max(0, bulbSwing - frameDt * 0.045);
@@ -520,12 +715,20 @@ function render(alpha, frameDt) {
   world.coop.bulbMesh.getWorldPosition(bulbLight.position);
   bulbLight.intensity = 14 * (1 + Math.sin(world.time * 11) * 0.02 + Math.sin(world.time * 3.7) * 0.015);
 
+  // One shadow map cannot cover coop and run at a useful resolution, so it
+  // follows whichever one this viewer is looking at.
+  const focus = orbit.view === 'yard' ? SUN_FOCUS.yard : SUN_FOCUS.coop;
+  sun.target.position.lerp(focus, 1 - Math.exp(-3 * frameDt));
+  sun.position.copy(sun.target.position).add(SUN_OFFSET);
+  sun.target.updateMatrixWorld();
+
   applyCamera(frameDt);
   renderer.render(scene, camera);
 }
 
 const MAX_CATCHUP = 8;   // a backgrounded tab must not try to replay an hour
 let watchTimer = 0;      // seconds until this viewer republishes its position
+let doorAngle = -1.9;    // rendered swing of the pop-hole door
 
 const handle = {
   frames: 0, world, camera, renderer, orbit, transport, events,
@@ -540,6 +743,7 @@ const handle = {
   // Inject an event as if a player had made it, for tests and for a future
   // server pushing another viewer's action into this client.
   send(type, payload) { return transport.send(type, payload, world.tick); },
+  setView,
   snapshot: () => world.snapshot(),
   applySnapshot: (s) => world.applySnapshot(s),
 };

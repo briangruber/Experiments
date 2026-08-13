@@ -158,6 +158,26 @@ const ICONS = {
       x.beginPath(); x.moveTo(48 + dx, 54 - dx * 0.55); x.lineTo(62 + dx, 32 - dx * 0.5); x.stroke();
     }
   },
+  sun: (x) => {
+    x.strokeStyle = '#e8a33d'; x.lineWidth = 6; x.lineCap = 'round';
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * TAU_2;
+      x.beginPath();
+      x.moveTo(64 + Math.cos(a) * 24, 46 + Math.sin(a) * 24);
+      x.lineTo(64 + Math.cos(a) * 36, 46 + Math.sin(a) * 36);
+      x.stroke();
+    }
+    x.fillStyle = '#e8a33d';
+    x.beginPath(); x.arc(64, 46, 17, 0, TAU_2); x.fill();
+  },
+  worm: (x) => {
+    x.strokeStyle = '#c2707e'; x.lineWidth = 13; x.lineCap = 'round';
+    x.beginPath();
+    x.moveTo(28, 58);
+    x.bezierCurveTo(44, 24, 62, 72, 78, 40);
+    x.bezierCurveTo(86, 26, 96, 30, 100, 42);
+    x.stroke();
+  },
   crown: (x) => {
     x.fillStyle = '#e8a33d'; x.strokeStyle = INK; x.lineWidth = 5;
     x.beginPath();

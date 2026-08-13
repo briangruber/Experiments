@@ -1,5 +1,10 @@
 import * as THREE from 'three';
 import { clamp, pick, rand, TAU } from './util.js';
+import { DOOR, bounds } from './zones.js';
+
+// The two staging points either side of the pop-hole, as vectors.
+const DOOR_IN = new THREE.Vector3(DOOR.inside.x, 0, DOOR.inside.z);
+const DOOR_OUT = new THREE.Vector3(DOOR.outside.x, 0, DOOR.outside.z);
 
 // Every strange thing a chicken can decide to do lives here. Each behavior:
 //   weight   relative chance of being picked (0 = only ever forced)
@@ -11,21 +16,35 @@ import { clamp, pick, rand, TAU } from './util.js';
 //            this game, so the bubble plus the pose IS the explanation —
 //            if a behavior cannot be read without one, it needs a better pose.
 //   can      optional gate; enter/update/exit drive the chicken
+//   tough    exempt from chicken-to-chicken collisions, for behaviors whose
+//            whole point is a crowd converging on one spot
 //   next     chain to this behavior when the timer expires naturally;
 //            may be a function (c, w) => name. Use this instead of calling
 //            c.force() from exit(), which would re-enter the exit handler.
 
-const AREA = 4.1;
-
-function randomPoint(w, margin = 0.4) {
+// A chicken may only ever aim at a point in her own zone — she steers in a
+// straight line, so a target across the wall walks her into it.
+function randomPoint(w, c, margin = 0.4) {
+  const b = bounds(c.zone);
   return new THREE.Vector3(
-    rand(w.rng, -(AREA - margin), AREA - margin), 0,
-    rand(w.rng, -(AREA - margin), AREA - margin));
+    rand(w.rng, b.x0 + margin, b.x1 - margin), 0,
+    rand(w.rng, b.z0 + margin, b.z1 - margin));
+}
+
+// Pull a point back inside the chicken's own enclosure.
+function hold(c, v, margin = 0.25) {
+  const b = bounds(c.zone);
+  v.x = clamp(v.x, b.x0 + margin, b.x1 - margin);
+  v.z = clamp(v.z, b.z0 + margin, b.z1 - margin);
+  return v;
 }
 
 // Everyone except this chicken, Bertha, and anyone off the floor.
+// Same zone only: a chase, a standoff or a panic must not carry through a
+// solid wall to a chicken standing outside.
 function others(c, w) {
-  return w.chickens.filter((o) => o !== c && !o.big && !o.perch && !o.riding);
+  return w.chickens.filter((o) => o !== c && !o.big && !o.perch && !o.riding
+    && o.zone === c.zone);
 }
 
 // Where the audience is, as far as the simulation is concerned.
@@ -64,8 +83,7 @@ function knockBack(c, fromPos, dist, height, dur) {
   if (away.lengthSq() < 0.01) away.set(1, 0, 0);
   away.normalize().multiplyScalar(dist).add(c.pos);
   away.y = 0;
-  away.x = clamp(away.x, -AREA, AREA);
-  away.z = clamp(away.z, -AREA, AREA);
+  hold(c, away);
   c.startHop(away, height, dur);
 }
 
@@ -75,11 +93,11 @@ export const BEHAVIORS = {
 
   wander: {
     weight: 3.0, dur: [4, 9],
-    enter(c, w) { c.walkTo(randomPoint(w), rand(w.rng, 0.55, 0.85)); },
+    enter(c, w) { c.walkTo(randomPoint(w, c), rand(w.rng, 0.55, 0.85)); },
     update(c, w, dt) {
       if (c.arrived()) {
         if (w.rng() < 0.4) c.doPeck();
-        if (w.rng() < 0.03) c.walkTo(randomPoint(w), rand(w.rng, 0.55, 0.85));
+        if (w.rng() < 0.03) c.walkTo(randomPoint(w, c), rand(w.rng, 0.55, 0.85));
       }
     },
   },
@@ -94,7 +112,7 @@ export const BEHAVIORS = {
   },
 
   eat: {
-    weight: 1.2, dur: [5, 9], icon: 'grain',
+    zone: 'coop', weight: 1.2, dur: [5, 9], icon: 'grain',
     enter(c, w) {
       const f = w.coop.feeder;
       const a = rand(w.rng, 0, TAU);
@@ -110,7 +128,7 @@ export const BEHAVIORS = {
   },
 
   drink: {
-    weight: 0.8, dur: [5, 8], icon: 'drop',
+    zone: 'coop', weight: 0.8, dur: [5, 8], icon: 'drop',
     enter(c, w) {
       const s = w.coop.water;
       c.walkTo(new THREE.Vector3(s.x, 0, s.z + 0.5), 0.75);
@@ -131,9 +149,9 @@ export const BEHAVIORS = {
 
   zoomies: {
     weight: 0.9, weird: true, dur: [3, 6], icon: 'star',
-    enter(c, w) { c.flapT = 0.5; c.walkTo(randomPoint(w), 2.6); },
+    enter(c, w) { c.flapT = 0.5; c.walkTo(randomPoint(w, c), 2.6); },
     update(c, w, dt) {
-      if (c.arrived(0.5)) c.walkTo(randomPoint(w), 2.6);
+      if (c.arrived(0.5)) c.walkTo(randomPoint(w, c), 2.6);
       if (w.rng() < dt * 1.5) w.fx.feather(c.pos, c.color);
       // Running this fast, sometimes the legs simply stop cooperating.
       if (w.rng() < dt * 0.08) c.force('bonk', { trip: true });
@@ -144,12 +162,16 @@ export const BEHAVIORS = {
   stareWall: {
     weight: 0.7, weird: true, dur: [6, 14], icon: 'dots',
     enter(c, w) {
-      const walls = [
-        new THREE.Vector3(rand(w.rng, -3, 3), 0, -AREA), new THREE.Vector3(rand(w.rng, -3, 3), 0, AREA),
-        new THREE.Vector3(-AREA, 0, rand(w.rng, -3, 3)), new THREE.Vector3(AREA, 0, rand(w.rng, -3, 3)),
-      ];
-      const spot = pick(w.rng, walls);
-      c.bhv.data.wall = spot.clone().multiplyScalar(1.4);
+      // Outside this is a fence, which is just as absorbing.
+      const b = bounds(c.zone);
+      const mx = rand(w.rng, b.x0 + 0.8, b.x1 - 0.8);
+      const mz = rand(w.rng, b.z0 + 0.8, b.z1 - 0.8);
+      const spot = pick(w.rng, [
+        new THREE.Vector3(mx, 0, b.z0 + 0.25), new THREE.Vector3(mx, 0, b.z1 - 0.25),
+        new THREE.Vector3(b.x0 + 0.25, 0, mz), new THREE.Vector3(b.x1 - 0.25, 0, mz),
+      ]);
+      const mid = new THREE.Vector3((b.x0 + b.x1) / 2, 0, (b.z0 + b.z1) / 2);
+      c.bhv.data.wall = spot.clone().sub(mid).multiplyScalar(1.4).add(mid);
       c.walkTo(spot, 0.9);
     },
     update(c, w, dt) {
@@ -264,9 +286,9 @@ export const BEHAVIORS = {
     weight: 0.9, weird: true, dur: [5, 9], icon: 'question',
     enter(c, w) {
       const p = c.pos.clone();
-      p.x = clamp(p.x + rand(w.rng, -1.5, 1.5), -AREA, AREA);
-      p.z = clamp(p.z + rand(w.rng, -1.5, 1.5), -AREA, AREA);
-      c.bhv.data.spot = p;
+      p.x += rand(w.rng, -1.5, 1.5);
+      p.z += rand(w.rng, -1.5, 1.5);
+      c.bhv.data.spot = hold(c, p);
       c.walkTo(p, 0.7);
     },
     update(c, w, dt) {
@@ -284,18 +306,22 @@ export const BEHAVIORS = {
     can(c, w) { return others(c, w).some((o) => o.bhv.name !== 'panic'); },
     enter(c, w) {
       const victims = others(c, w).filter((o) => o.bhv.name !== 'panic');
-      const v = pick(w.rng, victims);
+      const v = c.bhv.data.victim ?? pick(w.rng, victims);
       c.bhv.data.victim = v;
-      v.force('flee', { from: c });
+      // noFlee: the target is doing something more interesting than fleeing
+      // (a worm victory lap), and cancelling it would defeat the point.
+      if (!c.bhv.data.noFlee) v.force('flee', { from: c });
       c.flapT = 0.35;
     },
     update(c, w, dt) {
       const v = c.bhv.data.victim;
       c.walkTo(v.pos, 2.1);
-      if (c.pos.distanceTo(v.pos) < 0.45) {
+      // A grace period, or a pursuer who started shoulder to shoulder with
+      // her target "catches" it on the first tick and there is no chase.
+      if (c.bhv.t > 1.1 && c.pos.distanceTo(v.pos) < 0.45) {
         // Caught her, and immediately has no idea what to do about it.
         c.showEmote('question', 2.2);
-        v.force('wander');
+        if (!c.bhv.data.noFlee) v.force('wander');
         c.bhv.t = c.bhv.dur;
       }
     },
@@ -312,16 +338,16 @@ export const BEHAVIORS = {
         away.y = 0;
         if (away.lengthSq() < 0.01) away.set(1, 0, 0);
         away.normalize().multiplyScalar(2.5).add(c.pos);
-        away.x = clamp(away.x + rand(w.rng, -1, 1), -AREA, AREA);
-        away.z = clamp(away.z + rand(w.rng, -1, 1), -AREA, AREA);
-        c.walkTo(away, 2.3);
+        away.x += rand(w.rng, -1, 1);
+        away.z += rand(w.rng, -1, 1);
+        c.walkTo(hold(c, away), 2.3);
       }
     },
     exit(c) { c.flapT = 0; c.stop(); },
   },
 
   roost: {
-    weight: 0.8, dur: [10, 22], cooldown: 20,
+    zone: 'coop', weight: 0.8, dur: [10, 22], cooldown: 20,
     enter(c, w) {
       const bar = pick(w.rng, w.coop.roosts);
       const x = rand(w.rng, bar.x0 + 0.3, bar.x1 - 0.3);
@@ -360,7 +386,7 @@ export const BEHAVIORS = {
 
   dustBath: {
     weight: 0.8, weird: true, dur: [7, 12], cooldown: 25, icon: 'star',
-    enter(c, w) { c.walkTo(randomPoint(w, 1.2), 0.8); c.bhv.data.bathing = false; },
+    enter(c, w) { c.walkTo(randomPoint(w, c, 1.2), 0.8); c.bhv.data.bathing = false; },
     update(c, w, dt) {
       const d = c.bhv.data;
       if (!d.bathing) {
@@ -402,7 +428,7 @@ export const BEHAVIORS = {
   },
 
   layEgg: {
-    weight: 0.55, dur: [9, 12], cooldown: 55, icon: 'egg',
+    zone: 'coop', weight: 0.55, dur: [9, 12], cooldown: 55, icon: 'egg',
     enter(c, w) {
       const useNest = w.rng() < 0.55;
       c.bhv.data.phase = 'go';
@@ -438,7 +464,7 @@ export const BEHAVIORS = {
         }
       } else if (d.phase === 'proud') {
         c.flapT = Math.max(0, c.flapT - dt * 1.5);
-        if (!c.move || c.arrived()) c.walkTo(randomPoint(w), 1.1); // victory strut
+        if (!c.move || c.arrived()) c.walkTo(randomPoint(w, c), 1.1); // victory strut
         c.gait += dt * 4; // extra strut in the step
       }
     },
@@ -520,8 +546,7 @@ export const BEHAVIORS = {
         // carried forward by her own momentum, face first
         const fwd = c.pos.clone().add(
           new THREE.Vector3(Math.sin(c.yaw), 0, Math.cos(c.yaw)).multiplyScalar(0.6));
-        fwd.x = clamp(fwd.x, -AREA, AREA); fwd.z = clamp(fwd.z, -AREA, AREA);
-        c.startHop(fwd, 0.1, 0.3);
+        c.startHop(hold(c, fwd), 0.1, 0.3);
       }
     },
     update(c, w, dt) {
@@ -546,11 +571,11 @@ export const BEHAVIORS = {
       if (c.bhv.data.short) c.bhv.dur = 1.8;
       w.audio.squawk(1);
       w.incident();
-      c.walkTo(randomPoint(w), 3.0);
+      c.walkTo(randomPoint(w, c), 3.0);
       c.bhv.data.infect = 0;
     },
     update(c, w, dt) {
-      if (c.arrived(0.6)) c.walkTo(randomPoint(w), 3.0);
+      if (c.arrived(0.6)) c.walkTo(randomPoint(w, c), 3.0);
       if (w.rng() < dt * 2.5) w.fx.feather(c.pos, c.color);
       if (w.rng() < dt * 1.2) w.audio.squawk(rand(w.rng, 0.8, 1.4));
       // Panic is contagious.
@@ -605,10 +630,10 @@ export const BEHAVIORS = {
         f.force('congaFollow', { leader: c, slot: i + 1 });
       }
       c.bhv.data.count = n;
-      c.walkTo(randomPoint(w), 0.95);
+      c.walkTo(randomPoint(w, c), 0.95);
     },
     update(c, w, dt) {
-      if (c.arrived(0.4)) c.walkTo(randomPoint(w), 0.95);
+      if (c.arrived(0.4)) c.walkTo(randomPoint(w, c), 0.95);
       if (w.rng() < dt * 0.25) c.showEmote('note', 2);
     },
     exit(c) { c.stop(); },
@@ -708,7 +733,7 @@ export const BEHAVIORS = {
   gawk: {
     weight: 0.6, weird: true, dur: [8, 13], cooldown: 35, icon: 'question',
     enter(c, w) {
-      const spot = randomPoint(w, 1.0);
+      const spot = randomPoint(w, c, 1.0);
       c.bhv.data.spot = spot;
       c.walkTo(spot, 1.0);
       // Curiosity is contagious: pull in a couple of onlookers.
@@ -830,8 +855,7 @@ export const BEHAVIORS = {
           d.phase = 'launch';
           const to = c.pos.clone().add(
             new THREE.Vector3(Math.sin(c.yaw), 0, Math.cos(c.yaw)).multiplyScalar(1.3));
-          to.x = clamp(to.x, -AREA, AREA); to.z = clamp(to.z, -AREA, AREA);
-          c.startHop(to, 0.55, 0.75); // the full extent of chicken aviation
+          c.startHop(hold(c, to), 0.55, 0.75); // the full extent of chicken aviation
           w.audio.squawk(1.1);
           for (let i = 0; i < 3; i++) w.fx.feather(c.pos, c.color);
         }
@@ -850,10 +874,232 @@ export const BEHAVIORS = {
     exit(c) { c.flapT = 0; c.bodyRoll = 0; c.neckPitchT = 0; },
   },
 
+  // ---- the door, and the world beyond it ----------------------------------
+
+  goOutside: {
+    weight: 2.7, zone: 'coop', dur: [9, 13], cooldown: 10, icon: 'sun',
+    can: (c, w) => w.door.open,
+    enter(c, w) {
+      c.bhv.data.phase = 'approach';
+      c.walkTo(new THREE.Vector3(DOOR.inside.x, 0, DOOR.inside.z), rand(w.rng, 0.9, 1.15));
+    },
+    update(c, w, dt) {
+      const d = c.bhv.data;
+      if (!w.door.open) {
+        // Shut in her face. Have a look at it, then give up.
+        if (!d.rebuffed) { d.rebuffed = true; c.showEmote('question', 2.4); c.stop(); }
+        return;
+      }
+      if (d.phase === 'approach') {
+        if (c.arrived(0.32)) {
+          d.phase = 'through';
+          c.walkTo(new THREE.Vector3(DOOR.outside.x, 0, DOOR.outside.z), 1.1);
+        }
+      } else if (c.zone === 'yard' && c.arrived(0.45)) {
+        c.bhv.t = c.bhv.dur;   // out. get on with something else
+      }
+    },
+    exit(c) { c.stop(); },
+  },
+
+  goInside: {
+    weight: 0.8, zone: 'yard', dur: [9, 13], cooldown: 20,
+    can: (c, w) => w.door.open,
+    enter(c, w) {
+      c.bhv.data.phase = 'approach';
+      c.walkTo(new THREE.Vector3(DOOR.outside.x, 0, DOOR.outside.z), rand(w.rng, 0.9, 1.15));
+    },
+    update(c, w, dt) {
+      const d = c.bhv.data;
+      if (!w.door.open) {
+        if (!d.rebuffed) { d.rebuffed = true; c.showEmote('question', 2.4); c.stop(); }
+        return;
+      }
+      if (d.phase === 'approach') {
+        if (c.arrived(0.32)) {
+          d.phase = 'through';
+          c.walkTo(new THREE.Vector3(DOOR.inside.x, 0, DOOR.inside.z), 1.1);
+        }
+      } else if (c.zone === 'coop' && c.arrived(0.45)) {
+        c.bhv.t = c.bhv.dur;
+      }
+    },
+    exit(c) { c.stop(); },
+  },
+
+  peckGrass: {
+    weight: 2.6, zone: 'yard', dur: [5, 10], icon: 'grain',
+    enter(c, w) { c.walkTo(randomPoint(w, c), rand(w.rng, 0.6, 0.85)); },
+    update(c, w, dt) {
+      if (!c.arrived(0.3)) return;
+      c.stop();
+      if (w.rng() < dt * 2.6) c.doPeck();
+      if (w.rng() < dt * 0.35) c.walkTo(randomPoint(w, c), 0.7);
+    },
+  },
+
+  // Flopped on one side with a wing thrown out, motionless in the sun. Real
+  // chickens do this and it looks exactly like they have died.
+  sunbathe: {
+    weight: 1.1, zone: 'yard', weird: true, dur: [11, 18], cooldown: 40, icon: 'sun',
+    enter(c, w) { c.walkTo(randomPoint(w, c, 1.2), 0.7); c.bhv.data.down = false; },
+    update(c, w, dt) {
+      const d = c.bhv.data;
+      if (!d.down) {
+        if (c.arrived(0.35)) {
+          d.down = true;
+          c.stop(); c.sitT = 1; c.fallT = 0.8; c.lidT = 0.9; c.flapT = 0.45;
+        }
+        return;
+      }
+      c.bodyRoll = Math.sin(w.time * 0.6) * 0.05;
+      if (w.rng() < dt * 0.12) c.showEmote('sun', 2.4);
+    },
+    exit(c) { c.sitT = 0; c.fallT = 0; c.lidT = 0; c.flapT = 0; c.bodyRoll = 0; },
+  },
+
+  stumpPerch: {
+    weight: 0.9, zone: 'yard', dur: [11, 18], cooldown: 35, icon: 'crown',
+    can: (c, w) => !w.chickens.some((o) => o !== c && o.perch?.stump),
+    enter(c, w) {
+      const s = w.coop.yard.stump;
+      c.bhv.data.phase = 'approach';
+      c.walkTo(new THREE.Vector3(s.x, 0, s.z + 1.05), 0.9);
+    },
+    update(c, w, dt) {
+      const d = c.bhv.data;
+      const s = w.coop.yard.stump;
+      if (d.phase === 'approach') {
+        if (c.arrived(0.35)) {
+          d.phase = 'up';
+          c.startHop(new THREE.Vector3(s.x, s.y, s.z), 0.5, 0.6);
+          w.audio.cluck(1.15);
+        }
+      } else if (d.phase === 'up' && !c.hop) {
+        d.phase = 'king';
+        c.perch = { stump: true };
+      } else if (d.phase === 'king') {
+        if (w.rng() < dt * 0.5) c.yaw += rand(w.rng, -1.1, 1.1);
+        if (w.rng() < dt * 0.12) c.showEmote('crown', 2);
+      }
+    },
+    exit(c, w) {
+      if (c.perch) {
+        c.perch = null;
+        const down = hold(c, new THREE.Vector3(c.pos.x, 0, c.pos.z + 1.0));
+        c.startHop(down, 0.3, 0.5);
+      }
+    },
+  },
+
+  splash: {
+    weight: 0.75, zone: 'yard', weird: true, dur: [7, 11], cooldown: 40, icon: 'drop',
+    enter(c, w) {
+      const p = w.coop.yard.puddle;
+      c.walkTo(new THREE.Vector3(p.x + rand(w.rng, -0.5, 0.5), 0, p.z + rand(w.rng, -0.5, 0.5)), 0.9);
+    },
+    update(c, w, dt) {
+      if (!c.arrived(0.4)) return;
+      c.stop();
+      c.flapT = 0.4 + Math.sin(w.time * 9) * 0.3;
+      c.bodyRoll = Math.sin(w.time * 6.5) * 0.16;
+      if (w.rng() < dt * 3.5) w.fx.puff(c.pos, 0x8fb6c4);
+    },
+    exit(c) { c.flapT = 0; c.bodyRoll = 0; },
+  },
+
+  // ---- the worm: whoever gets there first is briefly the most important
+  // chicken alive, and everyone else would like a word ----------------------
+
+  chaseWorm: {
+    weight: 0, dur: [12, 18], icon: 'worm',
+    enter(c, w) { c.comeDown(); c.frozen = false; c.flapT = 0.3; },
+    update(c, w, dt) {
+      const worm = w.worm;
+      if (!worm || worm.taken || c.zone !== 'yard') { c.bhv.t = c.bhv.dur; return; }
+      c.flapT = Math.max(0, c.flapT - dt);
+      c.walkTo(worm.pos, 2.5);
+      if (c.pos.distanceTo(worm.pos) < 0.38) {
+        w.takeWorm(c);
+        c.force('wormVictory');
+      }
+    },
+    exit(c) { c.flapT = 0; c.stop(); },
+  },
+
+  wormVictory: {
+    // tough: converging on the worm puts everyone shoulder to shoulder at
+    // speed, and the collision pile-up would knock the winner flat before she
+    // got a single stride of her victory lap.
+    weight: 0, weird: true, chained: true, tough: true, dur: [8, 12], icon: 'crown',
+    enter(c, w) {
+      w.audio.fanfare();
+      c.flapT = 0.9;
+      c.showEmote('crown', 3);
+      // Possession is the whole game. Everyone else now wants it.
+      for (const o of others(c, w)) {
+        if (w.rng() < 0.85) o.force('chase', { victim: c, noFlee: true });
+      }
+      c.walkTo(randomPoint(w, c), 2.5);
+    },
+    update(c, w, dt) {
+      c.flapT = Math.max(0, c.flapT - dt * 0.7);
+      if (c.arrived(0.5)) c.walkTo(randomPoint(w, c), 2.4);
+      if (w.rng() < dt * 1.2) w.fx.feather(c.pos, c.color);
+    },
+    exit(c) { c.flapT = 0; c.stop(); },
+  },
+
+  // ---- the hawk: a shadow crosses the yard and everyone loses composure ----
+
+  hawkPanic: {
+    // tough for the same reason: seven chickens funnelling into one pop-hole
+    // otherwise collapse into a heap and never make it inside.
+    weight: 0, weird: true, chained: true, tough: true, dur: [9, 13], icon: 'bang',
+    enter(c, w) {
+      c.comeDown();
+      c.frozen = false;
+      c.flapT = 1;
+      w.audio.squawk(rand(w.rng, 0.7, 1.5));
+      w.incident();
+      c.bhv.data.stage = 'bolt';
+    },
+    update(c, w, dt) {
+      const d = c.bhv.data;
+      if (w.rng() < dt * 2) w.fx.feather(c.pos, c.color);
+
+      if (c.zone === 'yard') {
+        if (w.door.open) {
+          // Make for the pop-hole, single file, badly. Latched: once she has
+          // reached the outside staging point she commits to going through,
+          // or she oscillates on the threshold forever.
+          if (!d.through && c.pos.distanceTo(DOOR_OUT) < 0.8) d.through = true;
+          c.walkTo(d.through ? DOOR_IN : DOOR_OUT, 3.1);
+        } else if (c.arrived(0.5)) {
+          // Shut out. Run in circles instead, which does not help.
+          c.walkTo(randomPoint(w, c), 3.1);
+        }
+        return;
+      }
+
+      // Safely indoors: get away from the doorway and crouch.
+      if (d.stage === 'bolt') {
+        if (c.pos.z < 2.2) { d.stage = 'cower'; c.stop(); }
+        else if (c.arrived(0.5)) c.walkTo(randomPoint(w, c), 3.0);
+        else if (!c.move) c.walkTo(randomPoint(w, c), 3.0);
+      } else {
+        c.sitT = 0.75;
+        c.flapT = Math.max(0, c.flapT - dt * 0.5);
+        c.headYawT = Math.sin(w.time * 4) * 0.6;
+      }
+    },
+    exit(c) { c.flapT = 0; c.sitT = 0; c.headYawT = 0; c.stop(); },
+  },
+
   // ---- behaviors that revolve around the matriarch ------------------------
 
   worship: {
-    weight: 0.5, weird: true, dur: [8, 13], cooldown: 40, icon: 'heart',
+    zone: 'coop', weight: 0.5, weird: true, dur: [8, 13], cooldown: 40, icon: 'heart',
     can(c, w) { return !!w.bertha; },
     enter(c, w) {
       const b = w.bertha;
@@ -872,7 +1118,7 @@ export const BEHAVIORS = {
   },
 
   rideBertha: {
-    weight: 0.7, weird: true, dur: [12, 22], cooldown: 50, icon: 'crown',
+    zone: 'coop', weight: 0.7, weird: true, dur: [12, 22], cooldown: 50, icon: 'crown',
     can(c, w) {
       const b = w.bertha;
       return !!b && b.sit > 0.6 && b.riders.length < 2 && !c.riding && !c.perch;
@@ -1007,7 +1253,7 @@ export const BIG_BEHAVIORS = {
       w.incident();
       c.lidT = 0.1;
       c.bhv.data.legs = 2 + Math.floor(w.rng() * 2);
-      c.walkTo(randomPoint(w, 1.3), 0.42);
+      c.walkTo(randomPoint(w, c, 1.3), 0.42);
     },
     update(c, w, dt) {
       // Anything in her path decides it has business elsewhere.
@@ -1019,7 +1265,7 @@ export const BIG_BEHAVIORS = {
         }
       }
       if (c.arrived(0.45)) {
-        if (--c.bhv.data.legs > 0) c.walkTo(randomPoint(w, 1.3), 0.42);
+        if (--c.bhv.data.legs > 0) c.walkTo(randomPoint(w, c, 1.3), 0.42);
         else c.bhv.t = c.bhv.dur;
       }
     },
@@ -1254,6 +1500,7 @@ export function pickBehavior(c, w) {
   let total = 0;
   const bag = [];
   for (const [name, def] of PICKABLE[c.table] ?? PICKABLE.normal) {
+    if (def.zone && def.zone !== c.zone) continue;
     if (def.can && !def.can(c, w)) continue;
     if ((c.cooldowns[name] ?? 0) > w.time) continue;
     let weight = def.weight * (def.weird ? c.weirdMul : 1);
@@ -1275,7 +1522,9 @@ export function forceBehavior(c, w, name, data = {}) {
     if (name in BIG_ALIASES) name = BIG_ALIASES[name];
     if (!name) return c.bhv;      // she is unbothered
   }
-  const def = (TABLES[c.table] ?? BEHAVIORS)[name] ?? BEHAVIORS[name];
+  // Bertha only ever runs her own table. Without this, any new behavior added
+  // for the flock silently becomes hers too, at flock speeds.
+  const def = c.big ? BIG_BEHAVIORS[name] : ((TABLES[c.table] ?? BEHAVIORS)[name] ?? BEHAVIORS[name]);
   if (!def) return c.bhv;
   c.frozen = false;
   runExit(c, w);

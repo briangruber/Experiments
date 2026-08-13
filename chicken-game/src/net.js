@@ -38,6 +38,11 @@ export const EV = {
   // second at low precision; ~40 bytes per viewer.
   WATCH: 'watch',    // { id, x, y, z }
   LEAVE: 'leave',    // { id }          viewer disconnected
+  // Things a viewer does to the world itself. All shared, all visible to
+  // everyone watching — this is the part that makes an audience worth having.
+  DOOR: 'door',      // { open }        open or shut the pop-hole
+  WORM: 'worm',      // { x, z }        drop a worm in the yard
+  HAWK: 'hawk',      // {}              a shadow crosses the run
 };
 
 // Events landing on the same tick must be applied in the same order on every

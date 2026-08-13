@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { clamp, damp, lerp, rand, turnToward, wrapAngle } from './util.js';
 import { pickBehavior, forceBehavior } from './behaviors.js';
+import { clampToZone } from './zones.js';
 
 // Chickens are built facing +Z: forward = (sin yaw, 0, cos yaw).
 // A chicken's size is one root scale factor; everything below is authored at
@@ -48,6 +49,7 @@ export class Chicken {
     this.perch = null;         // roost reference while perched
     this.riding = null;        // chicken being stood on (Bertha)
     this.riders = [];          // chickens standing on this one
+    this.zone = 'coop';        // 'coop' or 'yard'; maintained by clampToZone
     this.frozen = false;       // statue mode: skip all animation
 
     this.gait = 0;             // leg phase
@@ -419,12 +421,12 @@ export class Chicken {
       this.stepSign = s;
     }
 
-    // Keep everyone inside the coop (hops and perches manage their own y).
+    // Keep everyone inside whichever enclosure they are in (hops and perches
+    // manage their own y). This also updates c.zone.
     if (!this.perch && !this.hop) {
-      const lim = 4.35 - (this.rad - 0.3);
-      const hitWall = Math.abs(this.pos.x) > lim || Math.abs(this.pos.z) > lim;
-      this.pos.x = clamp(this.pos.x, -lim, lim);
-      this.pos.z = clamp(this.pos.z, -lim, lim);
+      const wasX = this.pos.x, wasZ = this.pos.z;
+      clampToZone(this, w);
+      const hitWall = this.pos.x !== wasX || this.pos.z !== wasZ;
       if (this.pos.y > 0) this.pos.y = Math.max(0, this.pos.y - 3 * dt);
 
       // Running flat out into a wall is a bonk, not a gentle stop. The

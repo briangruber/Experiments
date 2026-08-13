@@ -59,6 +59,12 @@ const SCRIPT = [
   { at: 1500, type: 'seeds', payload: { x: -2.0, z: 2.1 } },
   { at: 2200, type: 'poke', payload: { chicken: 7 } },  // Bertha
   { at: 3000, type: 'seeds', payload: { x: 0.4, z: 0.9 } },
+  // The outdoor dynamics are shared state too, so they belong in the guard.
+  { at: 1800, type: 'door', payload: { open: false } },
+  { at: 2400, type: 'door', payload: { open: true } },
+  { at: 2700, type: 'worm', payload: { x: 1.6, z: 9.2 } },
+  { at: 3400, type: 'hawk', payload: {} },
+  { at: 3900, type: 'seeds', payload: { x: -1.5, z: 8.4 } },
 ];
 
 // Deep fingerprint of everything the simulation owns. Full precision: the
@@ -70,10 +76,14 @@ const FINGERPRINT = `(() => {
   return JSON.stringify({
     tick: w.tick,
     time: w.time,
+    door: w.door.open,
+    hawk: [w.hawk.active, num(w.hawk.t)],
+    worm: w.worm ? [num(w.worm.pos.x), num(w.worm.pos.z), w.worm.taken, num(w.worm.age ?? 0)] : 0,
+    watchers: w.watchers.map((x) => [x.id, num(x.pos.x), num(x.pos.y), num(x.pos.z)]),
     eggs: w.eggs.map((e) => [e.userData.id, e.position.x, e.position.z,
       e.userData.golden, e.userData.vel.x, e.userData.vel.z]),
     chickens: w.chickens.map((c) => [
-      num(c.pos.x), num(c.pos.y), num(c.pos.z), num(c.yaw),
+      num(c.pos.x), num(c.pos.y), num(c.pos.z), num(c.yaw), c.zone,
       c.bhv.name, num(c.bhv.t), num(c.bhv.dur),
       num(c.gait), num(c.gaitAmp), num(c.sit), num(c.sitT), num(c.flap), num(c.flapT),
       num(c.fall), num(c.fallT), num(c.lid), num(c.lidT), num(c.legTuck),

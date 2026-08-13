@@ -104,6 +104,56 @@ html, body {
 #buttons button:focus-visible { outline: 2px solid #e8a33d; outline-offset: 2px; }
 #buttons button[hidden] { display: none; }
 
+/* Viewer actions, bottom centre, above the controls hint. */
+#actions {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 38px;
+  display: flex;
+  gap: 10px;
+}
+
+#actions button {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 40px;
+  background: rgba(20, 12, 5, 0.6);
+  color: #f3e7d3;
+  border: 1px solid rgba(243, 231, 211, 0.28);
+  border-radius: 10px;
+  cursor: pointer;
+}
+#actions button:hover { background: rgba(70, 46, 20, 0.78); }
+#actions button:active { transform: translateY(1px); }
+#actions button:focus-visible { outline: 2px solid #e8a33d; outline-offset: 2px; }
+#actions button.on { border-color: rgba(232, 163, 61, 0.85); color: #ffd48a; }
+#actions button:disabled { opacity: 0.35; cursor: default; }
+
+#actions svg,
+#view svg,
+#fullscreen svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  display: block;
+}
+#actions svg { width: 22px; height: 22px; }
+#view svg { width: 19px; height: 19px; }
+
+/* The door icon's swinging leaf folds shut when the door is shut. */
+#act-door .d-swing { transition: opacity 0.2s ease; }
+#act-door.shut .d-swing { opacity: 0.25; }
+
+#view .v-in { display: none; }
+#view.outside .v-out { display: none; }
+#view.outside .v-in { display: block; }
+
 #fullscreen svg {
   width: 17px;
   height: 17px;
