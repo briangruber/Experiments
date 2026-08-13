@@ -71,6 +71,20 @@ try {
   result = { error: 'window.probeResult never appeared', pageErrors };
 }
 
+// --shot path.png captures the page before teardown. Probes that draw preview
+// canvases (prototypes/cloud-types.html draws all five genera in a grid) are
+// answering a question numbers alone cannot: what the thing actually looks like.
+const SHOT = process.argv.includes('--shot') ? process.argv[process.argv.indexOf('--shot') + 1] : null;
+if (SHOT) {
+  const { mkdir } = await import('node:fs/promises');
+  await mkdir(dirname(join(ROOT, SHOT)), { recursive: true });
+  // The convention across prototypes/ is a #view canvas holding the picture;
+  // capture that when it exists (the page screenshot is mostly the PASS text).
+  const view = await page.$('#view');
+  await (view || page).screenshot({ path: join(ROOT, SHOT) });
+  console.log(`saved screenshot -> ${SHOT}`);
+}
+
 await browser.close();
 server.close();
 
