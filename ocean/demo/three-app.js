@@ -247,17 +247,24 @@ bootWithFallback().then( ( app ) => {
 
 		}
 
-		// Surface whichever explanation exists, most specific first: the ladder's
-		// own reason, then the first captured error. Never overwrite a note the
-		// boot path already wrote.
+		// The note recomputes every tick rather than filling once: the first build
+		// wrote the ladder's message and stopped, which HID the captured WGSL
+		// error behind it - the one line that says what Safari actually rejected.
+		// Both are shown: the ladder's reason, then the first error. The boot
+		// fallback reason keeps precedence when it exists (that path never climbs
+		// the ladder, so they cannot both apply).
 		const noteEl = document.getElementById( 'note' );
-		if ( noteEl && ! noteEl.textContent ) {
+		if ( noteEl ) {
 
-			if ( app.skyFallback ) noteEl.textContent = app.skyFallback;
-			else if ( capturedErrors.length ) {
+			const parts = [];
+			if ( app.fallbackReason ) parts.push( app.fallbackReason );
+			else if ( app.skyFallback ) parts.push( app.skyFallback );
+			if ( capturedErrors.length ) parts.push( 'GPU: ' + capturedErrors[ 0 ] );
+			const text = parts.join( ' — ' );
+			if ( noteEl.textContent !== text ) {
 
-				noteEl.className = 'err';
-				noteEl.textContent = capturedErrors[ 0 ];
+				noteEl.className = capturedErrors.length && ! app.skyFallback ? 'err' : '';
+				noteEl.textContent = text;
 
 			}
 

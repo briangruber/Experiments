@@ -72,6 +72,14 @@ try {
   backend = app.backend;
   log(`${backend}: booted`, true, app.fellBack ? 'FELL BACK' : `asked for ${WANT}`);
 
+  // ?skymode=first|lut forces a self-heal rung, to verify each renders a frame
+  // with BOTH a sky and a visible sea. The 'lut' rung shipped with a draw-order
+  // bug that painted the LUT's dark below-horizon hemisphere over the ocean -
+  // reported from a phone as "a sky comes in and the ocean becomes black" - and
+  // this is the check that would have caught it.
+  const forced = q.get('skymode');
+  if (forced) app.sky.setDepthMode(forced);
+
   let n = 0;
   await new Promise((res) => {
     const tick = () => { if (++n >= FRAMES) return res(); requestAnimationFrame(tick); };
@@ -103,6 +111,11 @@ try {
       `upper ${top.toFixed(4)}  lower ${bot.toFixed(4)}`);
   log(`${backend}: sky is brighter than sea`, top > bot,
       `${top.toFixed(4)} vs ${bot.toFixed(4)}`);
+  // The sea must survive whatever the sky mode is. The golden-hour sea sits
+  // around 0.2 mean; the LUT's below-horizon hemisphere is far darker, so a
+  // painted-over ocean fails this even before a human would notice it.
+  log(`${backend}: sea is visible, not painted over`, bot > 0.1,
+      `lower third ${bot.toFixed(4)} (mode ${q.get('skymode') || 'behind'})`);
   log(`${backend}: all finite`, px.every(Number.isFinite));
 } catch (e) {
   log(`${backend}: run`, false, String(e.stack || e.message || e).slice(0, 900));

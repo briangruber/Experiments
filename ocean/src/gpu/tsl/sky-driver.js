@@ -148,6 +148,7 @@ export class TslSky {
 		// FRONT of the distant water and paint over the horizon; a much smaller one
 		// would round back to 1.0 and be the bug again.
 		this.bgMaterial.vertexNode = vec4( positionGeometry.x, positionGeometry.y, 0.999999, 1.0 );
+		this._farPlaneVertex = this.bgMaterial.vertexNode;
 
 	}
 
@@ -170,6 +171,17 @@ export class TslSky {
 
 		this.depthMode = mode;
 		this.bgMaterial.depthTest = mode === 'behind';
+
+		// 'first' drops the custom far-plane vertex stage as well as the depth
+		// test. The phone that reported this climbed straight through 'first' -
+		// the full pass rasterised nothing in either draw order - and with the
+		// depth test already off, the only thing that rung still shared with the
+		// failing one was the vertexNode pinning the quad at z = 0.999999. If what
+		// Safari refuses is that geometry path rather than the fragment, removing
+		// it restores the FULL sky, clouds and all, and the ladder never needs the
+		// LUT rung. Drawn first with no depth test, QuadMesh's own near-plane
+		// placement is exactly right anyway.
+		this.bgMaterial.vertexNode = mode === 'behind' ? this._farPlaneVertex : null;
 		this.bgMaterial.needsUpdate = true;
 
 		// The last rung: the full background pass never rasterised in EITHER draw

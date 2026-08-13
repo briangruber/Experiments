@@ -351,8 +351,13 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		// Sea first; the sky is then depth-tested against it and its cloud march -
 		// the most expensive thing per pixel - never runs on a pixel the sea covers.
 		// Unless the fast path produced no sky on this platform, in which case the
-		// sky goes first with no depth test at all. See sky.setDepthMode().
-		if ( sky.depthMode === 'first' ) {
+		// sky - full or LUT-only, whichever rung the ladder reached - goes first
+		// with no depth test at all. This branch MUST cover every non-'behind'
+		// mode: the first ladder build special-cased 'first' alone, so the 'lut'
+		// rung drew its fullscreen quad AFTER the sea with the depth test off and
+		// painted the LUT's dark below-horizon hemisphere over the ocean. Measured
+		// on the reporting phone as "a sky comes in and the ocean becomes black".
+		if ( sky.depthMode !== 'behind' ) {
 
 			sky.drawBackground( params, ctx );
 			water.render( params, ctx, sim, cam3 );
