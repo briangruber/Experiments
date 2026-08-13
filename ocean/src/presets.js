@@ -473,9 +473,20 @@ export const defaults = {
   photoSamples: 24,
 };
 
+// THE WAVE-FEEL BAND, learned the hard way. A field report described six of
+// these presets as "bubbling tar", and the split was exact: every preset that
+// read as WAVES sat at choppiness 0.75-1.15 with amplitude 0.62-0.85, often
+// swell-dominated; every preset that read as tar ran choppiness 1.25-1.7 at
+// amplitude ~1.0, storms adding widened spread. High choppiness pinches
+// crests into blobs that rise and collapse in place, and at full amplitude
+// the surface sits past its steepness limit everywhere - churn with no
+// visible travel. So: keep choppiness at or under ~1.2 (storms ~1.3), keep
+// amplitude under ~0.95, and when a preset needs to feel BIG, put the height
+// in a long-period swell - a 15-second swell train reads as the ocean moving;
+// wind-sea chop at the same energy reads as boiling.
 export const PRESETS = {
   'Golden Hour Swell': {
-    windSpeed: 9.5, fetch: 320, windDirDeg: 42, amplitude: 1.0, choppiness: 1.3,
+    windSpeed: 9.5, fetch: 320, windDirDeg: 42, amplitude: 0.85, choppiness: 1.05,
     swellAmount: 0.75, swellPeriod: 14, swellDirDeg: 24,
     sunElevation: 4.2, sunAzimuth: 48, sunIntensity: 24, turbidity: 1.5,
     cloudCoverage: 0.42, cloudAltitude: 1700, cirrus: 0.35,
@@ -485,8 +496,8 @@ export const PRESETS = {
     bloomIntensity: 0.06, halation: 0.010, fov: 34,
   },
   'North Atlantic Storm': {
-    windSpeed: 26.0, fetch: 800, windDirDeg: 285, amplitude: 1.05, choppiness: 1.55,
-    swellAmount: 1.35, swellPeriod: 15.5, swellDirDeg: 278, alignment: 0.86,
+    windSpeed: 26.0, fetch: 800, windDirDeg: 285, amplitude: 0.9, choppiness: 1.25,
+    swellAmount: 1.35, swellPeriod: 15.5, swellDirDeg: 278, alignment: 0.9,
     sunElevation: 9.0, sunAzimuth: 210, sunIntensity: 17, turbidity: 3.4, ozone: 1.2,
     cloudCoverage: 0.86, cloudDensity: 1.7, cloudAltitude: 620, cloudThickness: 3400,
     cloudDetail: 0.8, cirrus: 0.1, cloudSpeed: 3.0,
@@ -520,8 +531,8 @@ export const PRESETS = {
     saturation: 1.14, contrast: 1.05, exposureBias: -0.1, vignette: 0.35, fov: 42,
   },
   'Moonlit Passage': {
-    windSpeed: 12.5, fetch: 300, amplitude: 1.0, choppiness: 1.35,
-    swellAmount: 0.7, swellPeriod: 12.5,
+    windSpeed: 12.5, fetch: 300, amplitude: 0.85, choppiness: 1.05,
+    swellAmount: 0.9, swellPeriod: 13.5,
     sunElevation: -16.0, sunAzimuth: 300, sunIntensity: 22, turbidity: 0.9,
     moonIntensity: 0.28, moonElevation: 26, moonAzimuth: 318, stars: 1.0,
     specIntensity: 1.5,
@@ -576,7 +587,7 @@ export const PRESETS = {
   },
 
   'Trade Winds': {
-    windSpeed: 13.5, fetch: 450, windDirDeg: 75, amplitude: 1.0, choppiness: 1.4,
+    windSpeed: 13.5, fetch: 450, windDirDeg: 75, amplitude: 0.9, choppiness: 1.15,
     swellAmount: 0.85, swellPeriod: 13.5, swellDirDeg: 68,
     sunElevation: 26, sunAzimuth: 96, sunIntensity: 22, turbidity: 1.7,
     cloudCoverage: 0.52, cloudAltitude: 1100, cloudThickness: 2100, cirrus: 0.25,
@@ -584,8 +595,8 @@ export const PRESETS = {
     saturation: 1.06, exposureBias: 0.0, fov: 40,
   },
   'Hurricane Sea': {
-    windSpeed: 38.0, fetch: 1000, amplitude: 1.1, choppiness: 1.7, alignment: 0.75,
-    swellAmount: 1.9, swellPeriod: 17.0, spread: 1.5,
+    windSpeed: 38.0, fetch: 1000, amplitude: 0.95, choppiness: 1.3, alignment: 0.85,
+    swellAmount: 1.9, swellPeriod: 17.0, spread: 1.15,
     sunElevation: 14, sunAzimuth: 190, sunIntensity: 14, turbidity: 5.0,
     cloudCoverage: 0.95, cloudDensity: 2.2, cloudAltitude: 380, cloudThickness: 4200,
     cloudSpeed: 5.0, cloudDetail: 0.9, cirrus: 0.0,
@@ -598,7 +609,7 @@ export const PRESETS = {
     grain: 0.028, fov: 52, handheld: 2.0, cameraBob: 0.8, minAltitude: 6.0,
   },
   'Deep Blue Afternoon': {
-    windSpeed: 10.0, fetch: 600, amplitude: 0.95, choppiness: 1.25,
+    windSpeed: 10.0, fetch: 600, amplitude: 0.85, choppiness: 1.05,
     swellAmount: 0.6, swellPeriod: 12.0, depth: 3500,
     sunElevation: 42, sunAzimuth: 235, sunIntensity: 23, turbidity: 1.3,
     cloudCoverage: 0.40, cloudAltitude: 2200, cirrus: 0.3,
