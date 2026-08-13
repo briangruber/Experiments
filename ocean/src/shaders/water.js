@@ -42,9 +42,6 @@ uniform float uSeaLevel;
 uniform vec3  uHullPos;
 uniform vec2  uHullFwd;
 uniform float uHullPush, uHullRadius, uHullBow, uHullPlane;
-// The craft's reflection in the sea. See THE CRAFT IN THE WATER below.
-uniform vec3  uCraftReflPos, uCraftReflTint;
-uniform float uCraftReflSize, uCraftReflAmount;
 // ...and everything the hull has *already* done to the sea, which outlives it by
 // tens of seconds. wakeAt() comes from wake.js, so the surface is displaced by
 // exactly the pattern the fragment shader lights.
@@ -203,6 +200,16 @@ uniform float uSpecAA, uGrazeFocus, uSSSBias, uFoamFar;
 uniform float uCapillary, uCapillaryScale;
 uniform float uGust, uGustScale, uGustDrift;
 uniform float uWaveShadow, uShadowScale;
+// The craft's image in the sea and the shadow it throws on it. FRAGMENT stage:
+// the first cut of this declared them in the VERTEX stage, which never used
+// them, so the fragment shader referenced four undeclared identifiers and the
+// raw-GL water program failed to compile outright. It went unnoticed because
+// every check that ran drives the three.js path; "npm run check" is the one
+// that compiles this file, and it is in AGENTS.md's table for exactly this.
+// (And no backticks in here: this GLSL lives inside a JS template literal, so
+// a backtick ends the shader and the file. Third time in this session.)
+uniform vec3  uCraftReflPos, uCraftReflTint;
+uniform float uCraftReflSize, uCraftReflAmount, uCraftShadow;
 uniform float uHeightScale;      // the shadow march reads the same height field the VS displaced by
 
 out vec4 fragColor;
@@ -632,6 +639,32 @@ void main(){
   // ambient reaches into a swell's lee.
   sunRad *= sunVisibility(vFlat.xz, vSwellH, dist);
 
+  // ---- THE CRAFT'S SHADOW ---------------------------------------------------
+  //
+  // The same proxy the reflection uses, tested along the SUN instead of along
+  // the reflection ray: if the craft sits between this patch of water and the
+  // sun, this patch is in its shadow. That is the whole of it - no shadow map,
+  // no second pass, no cascade - and it lands on sunRad, which every direct-sun
+  // term below reads, so the specular, the subsurface glow and the foam's
+  // lighting all go dim together while the sky ambient still reaches in. Which
+  // is what a shadow is.
+  //
+  // The penumbra grows with the distance the light has travelled past the
+  // craft, at the sun's own angular radius, so a hull on the water throws a
+  // hard-edged shadow and one at altitude throws a soft one that fades into
+  // nothing by itself. No height fade is applied on top: the geometry already
+  // does it, and doing it twice was how the reflection ended up invisible.
+  if (uCraftShadow > 0.001) {
+    vec3 toC = uCraftReflPos - vWorld;
+    float along = dot(toC, uSunDir);
+    if (along > 0.0) {
+      float perp = length(toC - uSunDir * along);
+      float pen = uCraftReflSize + along * max(uSunAngularRadius, 1e-4) * 2.0;
+      float sh = 1.0 - smoothstep(uCraftReflSize * 0.45, pen, perp);
+      sunRad *= 1.0 - sh * uCraftShadow;
+    }
+  }
+
   vec3 L = uSunDir;
   float NoL = max(dot(N, L), 0.0);
 
@@ -710,7 +743,19 @@ void main(){
     float angR = atan(uCraftReflSize / dC);
     float blur = angR * 0.35 + alpha * 0.9;
     float hit = 1.0 - smoothstep(angR * 0.55, angR + blur, acos(clamp(cosA, -1.0, 1.0)));
-    skyRefl = mix(skyRefl, uCraftReflTint * skyRefl, hit * uCraftReflAmount);
+    // THE CRAFT'S OWN RADIANCE, not a tint on the sky behind it.
+    //
+    // The first version of this multiplied the sky reflection by the hull's
+    // colour, which can only ever DARKEN it - a pale aircraft over bright water
+    // came out as a 25% dimming of the sky, measurable but invisible, and
+    // reported as "the plane does not give a reflection". A lambertian hull
+    // under this sky has radiance albedo * E / pi, and E is the irradiance the
+    // sea itself is standing in, so the reflection now brightens or darkens
+    // against the water exactly as the real hull does - white against a dark
+    // sea, dark against the sun's glare - and stays in the scene's exposure
+    // because it is built from the same irradiance the water uses.
+    vec3 craftRad = uCraftReflTint * (skyIrr + sunRad * max(uSunDir.y, 0.0) * 0.6) / PI;
+    skyRefl = mix(skyRefl, craftRad, hit * uCraftReflAmount);
   }
 
   vec3 Fenv = envFresnel(NoV, alpha, uWaterIOR);

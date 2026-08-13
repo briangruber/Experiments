@@ -745,12 +745,20 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			craftReflPos: veh
 				? setA3( vReflPos, veh.pos[ 0 ], veh === plane ? veh.pos[ 1 ] : ( veh.deckY ?? 0 ), veh.pos[ 2 ] )
 				: setA3( vReflPos, 0, - 1e4, 0 ),
+			// Sized to the WINGSPAN, not the length: the wings are most of what a
+			// sea looking up at an aircraft can see, and a proxy scaled to the
+			// fuselage put a reflection in the water about a third the area of
+			// the thing casting it.
 			craftReflSize: veh === plane
-				? params.spLength * 0.42
+				? params.spLength * params.spHalfSpan * 0.9
 				: params.craftLength * 0.55,
 			// Fades out as the craft climbs away: the proxy's angular size already
 			// shrinks with distance, but a hull is also a poorer mirror subject the
 			// further it is from the water it is reflecting in.
+			// The shadow does NOT take the reflection's height fade: its penumbra
+			// already widens with altitude, and fading it twice is exactly how the
+			// reflection ended up invisible.
+			craftShadow: veh ? params.craftShadow : 0,
 			craftReflAmount: veh
 				? params.craftReflect * ( 1 - Math.min( 1, Math.max( 0, ( veh.pos[ 1 ] - ( veh.probeH?.[ 0 ] ?? 0 ) ) / params.craftReflectFade ) ) )
 				: 0,

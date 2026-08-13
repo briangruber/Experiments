@@ -183,6 +183,7 @@ export class WaterSurface {
       uCraftReflTint: ctx.craftReflTint ?? CRAFT_TINT,
       uCraftReflSize: ctx.craftReflSize ?? 0,
       uCraftReflAmount: ctx.craftReflAmount ?? 0,
+      uCraftShadow: ctx.craftShadow ?? 0,
       uInterReflect: p.interReflect, uWaveAO: p.waveAO,
       uWaveShadow: p.waveShadow, uShadowScale: p.shadowScale,
       uCapillary: p.capillary, uCapillaryScale: p.capillaryScale,

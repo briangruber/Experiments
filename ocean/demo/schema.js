@@ -335,6 +335,7 @@ export const SCHEMA = [
       S('spCamRise', 'Chase rise', 2, 20, 0.1),
       S('spFovKick', 'Speed FOV', 0, 25, 0.1),
       S('craftReflect', 'Reflection in the water', 0, 2, 0.01),
+      S('craftShadow', 'Shadow on the water', 0, 1, 0.01),
       S('craftReflectFade', 'Reflection fade (m)', 20, 600, 5),
       S('spHullPush', 'Float hollow x', 0, 2, 0.01),
       S('spContactFade', 'Contact fade (m)', 0.2, 6, 0.05),

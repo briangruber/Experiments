@@ -330,6 +330,7 @@ export const defaults = {
   wakeProbe: 0.8,           // how much of that the hull feels when it crosses it
   craftLift: 0.46,          // rides the hull's designed waterline on the surface
   craftSprayAmount: 1.0,
+  craftShadow: 0.85,        // how dark the shadow it throws on the water is
   craftReflect: 1.0,        // strength of the craft's own image in the water
   craftReflectFade: 180.0,  // metres of altitude over which that image fades out
 

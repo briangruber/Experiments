@@ -294,6 +294,11 @@ export const uCraftReflPos = /*@__PURE__*/ uniform( 'vec3' );
 export const uCraftReflTint = /*@__PURE__*/ uniform( /*@__PURE__*/ vec3( 0.72, 0.76, 0.78 ) );
 export const uCraftReflSize = /*@__PURE__*/ uniform( 0.0 );
 export const uCraftReflAmount = /*@__PURE__*/ uniform( 0.0 );
+// The shadow it throws, strength 0..1. Separate from the reflection's amount
+// because the two fade for different reasons: the reflection dims as the craft
+// climbs away from the water it is mirrored in, while the shadow softens on
+// its own through the penumbra and needs no height fade at all.
+export const uCraftShadow = /*@__PURE__*/ uniform( 0.0 );
 
 export const uSkyAmbient = /*@__PURE__*/ uniform( 1.0 );
 export const uHorizonBend = /*@__PURE__*/ uniform( 0.85 );
@@ -822,6 +827,28 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 	// against the unweighted swell height the vertex stage accumulated.
 	sunRad.mulAssign( sunVisibility( vFlat.xz, vSwellH, dist ) );
 
+	// THE CRAFT'S SHADOW - WATER_FS carries the full note. The same proxy the
+	// reflection uses, tested along the SUN rather than along the reflection
+	// ray, landing on sunRad so every direct-sun term dims together while the
+	// sky ambient still reaches in.
+	If( uCraftShadow.greaterThan( 0.001 ), () => {
+
+		const toS = uCraftReflPos.sub( vWorld ).toVar();
+		const along = toS.dot( uSunDir ).toVar();
+		If( along.greaterThan( 0.0 ), () => {
+
+			const perp = toS.sub( uSunDir.mul( along ) ).length().toVar();
+			// The penumbra grows at the sun's own angular radius with the distance
+			// the light travelled past the craft, so altitude softens the shadow
+			// by itself and no second height fade is needed.
+			const pen = uCraftReflSize.add( along.mul( uSunAngularRadius.max( 1e-4 ) ).mul( 2.0 ) ).toVar();
+			const sh = float( 1.0 ).sub( smoothstep( uCraftReflSize.mul( 0.45 ), pen, perp ) ).toVar();
+			sunRad.mulAssign( float( 1.0 ).sub( sh.mul( uCraftShadow ) ) );
+
+		} );
+
+	} );
+
 	const L = uSunDir;
 	const NoL = N.dot( L ).max( 0.0 ).toVar();
 
@@ -904,7 +931,14 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 		const blur = angR.mul( 0.35 ).add( alpha.mul( 0.9 ) ).toVar();
 		const hit = float( 1.0 ).sub(
 			smoothstep( angR.mul( 0.55 ), angR.add( blur ), acos( cosA.clamp( - 1.0, 1.0 ) ) ) ).toVar();
-		skyRefl.assign( mix( skyRefl, uCraftReflTint.mul( skyRefl ), hit.mul( uCraftReflAmount ) ) );
+		// The craft's OWN radiance, not a tint on the sky behind it - WATER_FS
+		// carries the note. Multiplying the sky by the hull's colour can only
+		// darken it, which is why a pale aircraft over bright water read as a
+		// 25% dimming: measurable, invisible, and reported as no reflection.
+		const craftRad = uCraftReflTint
+			.mul( skyIrr.add( sunRad.mul( uSunDir.y.max( 0.0 ) ).mul( 0.6 ) ) )
+			.div( PI_W ).toVar();
+		skyRefl.assign( mix( skyRefl, craftRad, hit.mul( uCraftReflAmount ) ) );
 
 	} );
 
@@ -1212,6 +1246,7 @@ export function setWaterSurfaceUniforms( p, ctx, hull ) {
 
 	uCraftReflSize.value = ctx?.craftReflSize ?? 0;
 	uCraftReflAmount.value = ctx?.craftReflAmount ?? 0;
+	uCraftShadow.value = ctx?.craftShadow ?? 0;
 
 	const h = hull || NO_HULL;
 	uHullPos.value.set( h.pos[ 0 ], h.pos[ 1 ], h.pos[ 2 ] );
