@@ -102,12 +102,32 @@ The keeper is text → mesh → rig → retargeted clips. Five are used: idle an
 walk on the ground, jump and fall depending on which way they are moving
 through the air, and hurt when something knocks them over. The walk cycle is
 rate-matched to ground speed rather than crossfaded with a run — the run
-retarget's loop seam popped once a cycle, and blending two cycles whose feet
-are out of phase is its own kind of mush. The gloom is the same pipeline with
-idle and walk. The props are text → mesh. Everything is loaded through `src/assets.js`,
-which normalises each model to unit height sitting on y=0 and swaps in a
-procedural stand-in if a file is missing — the game still runs with the
-`assets/` folder emptied.
+retarget's rotation tracks end a third of a quaternion away from where they
+start, so it popped once a cycle no matter what was done to it, and blending two
+cycles whose feet are out of phase is its own kind of mush. The
+gloom is the same pipeline with idle and walk. The props are text → mesh.
+Everything is loaded through `src/assets.js`, which normalises each model to
+unit height sitting on y=0 and swaps in a procedural stand-in if a file is
+missing — the game still runs with the `assets/` folder emptied.
+
+Two things about those clips are worth knowing, because both were bugs before
+they were features:
+
+**They carry root motion.** Tripo's walk retarget translates the hip forward a
+body and a half over its 2.4 seconds and snaps back at the loop — 1.64 world
+units of drift and a 1.56-unit jump on a keeper 1.5 units tall. The game drives
+position itself, so that is not locomotion, it is the model sliding out ahead of
+its own feet and being yanked back once a cycle, which is exactly what it looks
+like. `deRoot()` subtracts the straight line from every position track and keeps
+everything that oscillates around it, so the hip surge and the idle's weight
+shift survive, the travel goes, and the first frame equals the last.
+
+**The stride is not a free parameter.** `STRIDE` in `player.js` is how far one
+cycle of the clip carries the keeper, and it has to be the distance the clip's
+own feet travel — which is the root motion that was just stripped out, 1.58
+units. Higher and the planted foot slides forward under the keeper; lower and it
+drags back. It read as 3.0 while the root motion was still in, because half the
+apparent travel was the model sliding rather than the feet walking.
 
 `tools/assets.html` is a turntable contact sheet of every loaded asset, which
 is the fastest way to check a fresh generation came back the right way up.
@@ -122,7 +142,19 @@ Emits one self-contained HTML file — three.js, every module, and every model
 inlined — for hosting somewhere that blocks external requests entirely (an
 Artifact page cannot fetch a sibling script, and cannot fetch a `data:` URL
 either, so the models ride along as base64 that `src/assets.js` hands straight
-to `GLTFLoader.parse`). Roughly 11 MB. Tripo returns every retargeted clip as a complete model — the
+to `GLTFLoader.parse`). Roughly 12 MB.
+
+Inlining the models is not quite enough on its own. Their textures are bytes
+inside the GLB, and GLTFLoader wraps those bytes in a Blob, takes a `blob:` URL
+for it, and hands the URL to `ImageBitmapLoader` — which *fetches* it. A fetch
+is `connect-src`, and an Artifact page sets `connect-src` to `'none'`, so the
+request is refused even though the bytes never leave the document. Every texture
+fails and the models render flat white; the keeper becomes a white statue. It
+cannot be caught in development, where there is no CSP at all — the only way to
+see it is to serve the bundle behind one. `patchBlobImageDecoding()` in
+`src/assets.js` keeps a `blob:` URL → Blob table and decodes with
+`createImageBitmap` on the Blob itself, which involves no URL and no request, so
+there is nothing for a CSP to refuse. Tripo returns every retargeted clip as a complete model — the
 same mesh and the same three JPEGs as every other clip of that character — so
 `tools/strip-anim.mjs` reduces those files to their keyframes alone during the
 build, which is the difference between 7 MB of models and 11. `--skip <file>`

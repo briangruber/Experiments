@@ -82,7 +82,10 @@ export class ChaseCamera {
     }
 
     _target.copy(target).addScaledVector(up, heightOffset);
-    _desired.copy(_target).addScaledVector(this.orbit, this.distance);
+    // The terrain clamp is part of where the camera wants to be, not a
+    // correction applied to it afterwards.
+    const reach = Math.min(this.distance, this.clearDistance ?? this.distance);
+    _desired.copy(_target).addScaledVector(this.orbit, reach);
 
     if (!this.initialised) {
       this.pos.copy(_desired);
@@ -112,7 +115,14 @@ export class ChaseCamera {
   // pulled it straight back into the hill and the view buzzed. This walks in
   // along the orbit instead, finds the furthest point that is clear, and eases
   // to it: the camera slides over a ridge rather than fighting it.
-  avoidTerrain(planet, dt = 0.016) {
+  // Only measures. Applying the result here — writing camera.position after
+  // update() had already placed it — meant that the frame the obstruction
+  // cleared, the camera snapped from the clamped point back to `pos`, which
+  // had gone on smoothing somewhere else entirely. Walking past a run of
+  // ridges did that over and over: the view lurched backwards, recovered, and
+  // lurched again. update() now places the camera at the clamped distance
+  // itself, so what is measured and what is rendered are the same number.
+  measureClearance(planet, dt = 0.016) {
     if (!planet || !this.initialised) return;
     const MARGIN = 0.85;
     const STEPS = 6;
@@ -129,11 +139,6 @@ export class ChaseCamera {
     // clearing it does not fling the camera.
     const rate = free < this.clearDistance ? 26 : 3.5;
     this.clearDistance = damp(this.clearDistance ?? free, free, rate, dt);
-    if (this.clearDistance < this.distance - 0.01) {
-      _v.copy(this.look).addScaledVector(this.orbit, this.clearDistance);
-      this.camera.position.copy(_v);
-      this.camera.lookAt(this.look);
-    }
   }
 
   snap() { this.initialised = false; this.clearDistance = this.targetDistance; }

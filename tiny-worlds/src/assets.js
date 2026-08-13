@@ -9,6 +9,61 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 
+// Every texture in these models is bytes inside the GLB. GLTFLoader wraps those
+// bytes in a Blob, takes a blob: URL for it, and hands the URL to
+// ImageBitmapLoader — which fetches it. A fetch is connect-src, and an Artifact
+// page sets connect-src to 'none', so the request is refused even though the
+// bytes never leave the document. Every texture then fails and the models
+// render as flat white: the keeper turns into a white statue.
+//
+// createImageBitmap decodes a Blob directly, with no URL and no request at all,
+// so the CSP has nothing to object to. Keep a blob: URL -> Blob table on the way
+// past and decode from that instead. Only URLs we minted ourselves are diverted;
+// anything else falls through to the normal path.
+let decodingPatched = false;
+function patchBlobImageDecoding() {
+  if (decodingPatched) return;
+  decodingPatched = true;
+  const url = globalThis.URL;
+  if (typeof createImageBitmap === 'undefined' || !url?.createObjectURL) return;
+
+  const blobs = new Map();
+  const create = url.createObjectURL.bind(url);
+  const revoke = url.revokeObjectURL.bind(url);
+  url.createObjectURL = (obj) => {
+    const href = create(obj);
+    if (obj instanceof Blob) blobs.set(href, obj);
+    return href;
+  };
+  url.revokeObjectURL = (href) => { blobs.delete(href); revoke(href); };
+
+  const decode = (loader, href, onLoad, onError) => {
+    const blob = blobs.get(href);
+    if (!blob) return false;
+    loader.manager.itemStart(href);
+    createImageBitmap(blob, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' })
+      .then((bitmap) => { onLoad?.(bitmap); loader.manager.itemEnd(href); })
+      .catch((err) => { onError?.(err); loader.manager.itemError(href); loader.manager.itemEnd(href); });
+    return true;
+  };
+
+  const bitmapLoad = THREE.ImageBitmapLoader.prototype.load;
+  THREE.ImageBitmapLoader.prototype.load = function (href, onLoad, onProgress, onError) {
+    if (decode(this, href, onLoad, onError)) return;
+    return bitmapLoad.call(this, href, onLoad, onProgress, onError);
+  };
+
+  // Safari before 17 and Firefox before 98 get a TextureLoader instead, which
+  // goes through <img src=blob:> — img-src rather than connect-src, but not
+  // worth betting the character's skin on. An ImageBitmap is a valid
+  // texture.image, so the same decode serves.
+  const imageLoad = THREE.ImageLoader.prototype.load;
+  THREE.ImageLoader.prototype.load = function (href, onLoad, onProgress, onError) {
+    if (decode(this, href, onLoad, onError)) return;
+    return imageLoad.call(this, href, onLoad, onProgress, onError);
+  };
+}
+
 const FILES = {
   tree: 'tree.glb',
   crystal: 'crystal.glb',
@@ -250,9 +305,37 @@ function fallbackGloom() {
   return outer;
 }
 
+// Tripo's retargets carry root motion. The walk cycle translates the Hip a
+// body and a half forward over its 2.4 seconds and then snaps back to the start
+// at the loop seam — measured at 1.64 units of drift and a 1.56-unit jump on a
+// keeper 1.5 units tall. The game drives position itself, so that drift is not
+// locomotion, it is the model sliding out ahead of its own feet and being
+// yanked back once a cycle.
+//
+// Take the straight line out of every position track and keep everything that
+// oscillates around it: the walk's hip surge and the idle's weight shift stay,
+// the travel goes, and first frame now equals last so the loop is seamless.
+// Clips that do not drift (idle, jump, hurt) come through untouched.
+function deRoot(clip) {
+  for (const track of clip.tracks) {
+    if (!track.name.endsWith('.position')) continue;
+    const { times, values } = track;
+    const n = times.length;
+    const span = n > 1 ? times[n - 1] - times[0] : 0;
+    if (span <= 1e-6) continue;
+    for (let c = 0; c < 3; c++) {
+      const drift = values[(n - 1) * 3 + c] - values[c];
+      if (Math.abs(drift) < 1e-4) continue;
+      for (let i = 0; i < n; i++) values[i * 3 + c] -= drift * ((times[i] - times[0]) / span);
+    }
+  }
+  return clip;
+}
+
 // ---------------------------------------------------------------- loading
 
 export async function loadAssets(onProgress = () => {}) {
+  patchBlobImageDecoding();
   const loader = new GLTFLoader();
   const entries = Object.entries(FILES);
   const loaded = {};
@@ -288,7 +371,7 @@ export async function loadAssets(onProgress = () => {}) {
     const clips = {};
     for (const [name, gltf] of files) {
       const clip = gltf?.animations?.[0];
-      if (clip) { clip.name = name; clips[name] = clip; }
+      if (clip) { clip.name = name; clips[name] = deRoot(clip); }
     }
     object.traverse((o) => {
       if (o.isMesh || o.isSkinnedMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; }

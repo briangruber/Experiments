@@ -23,8 +23,13 @@ const STICK = 0.42;
 // Steepness (1 - cos) past which the ground is a cliff, not a hill.
 const MAX_STAND = 0.46;
 // World units one full cycle of the walk clip carries the keeper. Everything
-// about foot plant follows from this number.
-const STRIDE = 3.0;
+// about foot plant follows from this number, and it is not free to choose: it
+// has to be the distance the clip's own feet travel per cycle, which is the
+// root motion that src/assets.js strips out — 1.58 units on this rig. Set it
+// higher and the planted foot slides forward under the keeper; lower and it
+// drags back. It read as 3.0 while the clip still carried its root motion,
+// because half the apparent travel was the model sliding, not the feet.
+const STRIDE = 1.58;
 // Clips that play once and hold their last frame rather than looping. Looping
 // them restarts the pose mid-air: the fall clip's ends are a full quaternion
 // and a half apart, so it lurched every three seconds of descent.
@@ -81,6 +86,8 @@ export class Player {
     this.stepTimer = 0;
     this.platform = null;
     this.invuln = 0;
+    // Overridable so the harness can sweep it against measured foot skate.
+    this.stride = STRIDE;
   }
 
   // Knocked off your feet: a shove along the surface plus real air, and a
@@ -337,7 +344,7 @@ export class Player {
     // times too slowly for the ground going by, which is what "the walk does
     // not fit the motion" looks like.
     const cycle = this.actions.walk?.getClip().duration ?? 1;
-    const cadence = clamp((this.speed / STRIDE) * cycle, 0.35, 9);
+    const cadence = clamp((this.speed / (this.stride ?? STRIDE)) * cycle, 0.35, 9);
     this.actions.walk?.setEffectiveTimeScale(cadence);
     this.mixer.update(dt);
 
