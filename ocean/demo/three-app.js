@@ -131,21 +131,38 @@ async function bootWithFallback() {
 
 			for ( const ms of [ 300, 900, 2000 ] ) setTimeout( kickCompositor, ms );
 
+			// The drawImage readback that used to be this watchdog's whole verdict
+			// is a PROVEN LIAR on macOS Chrome: the canvas-doctor page showed every
+			// canvas visibly cycling colors while every readback - WebGL2 included -
+			// reported black. So a black readback is only a SUSPICION; the verdict
+			// comes from measuring the tonemapped frame at its source, through the
+			// GPU readback path that reliably measures the HDR bands.
 			if ( await presentedNothing( app ) ) {
 
-				// What the panel should say depends on what the pipeline itself did:
-				// bands with content mean the frames RENDERED and only presentation
-				// failed, which is a very different bug report from nothing drawing.
+				let postOut = null;
+				try { postOut = await app.measurePostOutput(); } catch {}
 				const d = app.diag;
-				const bands = d && d.bandA !== undefined
-					? `pipeline bands ${ d.bandA.toFixed( 3 ) } / ${ d.bandB.toFixed( 3 ) }`
-					: 'pipeline output unread';
+				const bands = ( d && d.bandA !== undefined
+					? `pipeline ${ d.bandA.toFixed( 3 ) } / ${ d.bandB.toFixed( 3 ) }`
+					: 'pipeline unread' )
+					+ ( postOut ? `, post out ${ postOut.a.toFixed( 3 ) } / ${ postOut.b.toFixed( 3 ) }` : ', post out unread' );
 
-				// An EXPLICIT WebGPU request is not permission to switch: stay, and
-				// say what was measured. Auto is where falling back is the contract.
+				// The full frame reaches the end of the chain with content: the only
+				// contrary evidence is the untrustworthy canvas read. Stay on WebGPU
+				// and say so - with the escape hatch named, in case this machine is
+				// the rarer kind where presentation itself is broken.
+				if ( postOut && ( postOut.a + postOut.b ) > 0.004 ) {
+
+					app.presentWarning = `The canvas readback reports black, but the frame is healthy `
+						+ `(${ bands }) - trusting the frame. If the screen IS black, press WebGL2.`;
+					return app;
+
+				}
+
+				// The tonemapped output is genuinely dark: something real is broken.
 				if ( want === 'webgpu' ) {
 
-					app.presentWarning = `WebGPU is running but the canvas reads black (${ bands }). `
+					app.presentWarning = `WebGPU is running but produced a black frame (${ bands }). `
 						+ 'Press Auto to allow the WebGL2 fallback.';
 					return app;
 
@@ -154,7 +171,7 @@ async function bootWithFallback() {
 				app.renderer.setAnimationLoop?.( null );
 				const fb = await boot( { canvas: freshCanvas(), backend: 'webgl' } );
 				fb.fellBack = true;
-				fb.fallbackReason = `WebGPU initialised but the canvas stayed black (${ bands }).`;
+				fb.fallbackReason = `WebGPU initialised but produced a black frame (${ bands }).`;
 				return fb;
 
 			}
@@ -196,7 +213,6 @@ function presentedNothing( app ) {
 		const canvas = app.renderer.domElement;
 		let seen = 0;
 		let blackReads = 0;
-		let kicked = false;
 		const prev = app.onFrame;
 		let liveness = 0;
 		const done = ( verdict ) => {
@@ -222,29 +238,15 @@ function presentedNothing( app ) {
 				let sum = 0;
 				for ( let i = 0; i < d.length; i += 4 ) sum += d[ i ] + d[ i + 1 ] + d[ i + 2 ];
 				if ( sum / ( d.length / 4 ) >= 3 ) return done( false );   // content - all is well
-				if ( ++ blackReads >= 3 ) {
-
-					// Before condemning: one attempt to un-stick the swapchain. A
-					// field report (macOS Chrome, in the artifact iframe) showed the
-					// PIPELINE rendering perfectly - bands 0.172/0.415 - with the
-					// canvas reading black, which is either a swapchain that never
-					// composited or a readback that lies. Nudging the canvas size by
-					// one device pixel forces the app's own per-frame resize() to run
-					// renderer.setSize, which reconfigures the canvas context - a
-					// fresh swapchain. Once; if three more samples still read black,
-					// the verdict stands.
-					if ( ! kicked ) {
-
-						kicked = true;
-						blackReads = 0;
-						canvas.width = canvas.width + 1;
-						return;
-
-					}
-
-					return done( true );
-
-				}
+				// Three black reads is a SUSPICION, not a verdict - drawImage on a
+				// presented canvas is a proven liar on macOS Chrome (canvas-doctor:
+				// every square visibly cycling, every readback black, WebGL2 too).
+				// The caller confirms or clears it against measurePostOutput(). The
+				// speculative one-shot swapchain reconfigure that briefly lived here
+				// is gone: a mid-run canvas reconfigure on a healthy device risks
+				// breaking the presentation it meant to rescue, for a symptom the
+				// readback may simply be inventing.
+				if ( ++ blackReads >= 3 ) return done( true );
 
 			} catch {
 

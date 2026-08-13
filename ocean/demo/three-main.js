@@ -393,6 +393,42 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		output,
 		onFrame: null,
 		markSkyDirty: () => { skyDirty = true; },
+		// The tonemapped frame, measured at the source. drawImage readback of a
+		// presented canvas is a proven liar on macOS Chrome (the canvas-doctor
+		// page showed every canvas cycling colors while every readback said
+		// black, WebGL2 included), so the watchdog's real evidence comes from
+		// here: render the post chain into a target and read THAT - the same
+		// readRenderTargetPixelsAsync that reliably measures the HDR bands.
+		// 64 texels x 16 bytes clears WebGPU's 256-byte row-pitch rule.
+		measurePostOutput: async () => {
+
+			const rt = new THREE.RenderTarget( 64, 32, {
+				type: THREE.FloatType, format: THREE.RGBAFormat,
+				minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false,
+			} );
+			try {
+
+				post.render( hdr.texture, params, 0, time, { output: rt } );
+				const raw = await renderer.readRenderTargetPixelsAsync( rt, 0, 0, 64, 32 );
+				const px = raw instanceof Float32Array ? raw : new Float32Array( raw.buffer ?? raw );
+				let a = 0, b = 0;
+				for ( let x = 0; x < 64; x ++ ) {
+
+					const top = ( 27 * 64 + x ) * 4, bot = ( 4 * 64 + x ) * 4;
+					a += 0.2126 * px[ top ] + 0.7152 * px[ top + 1 ] + 0.0722 * px[ top + 2 ];
+					b += 0.2126 * px[ bot ] + 0.7152 * px[ bot + 1 ] + 0.0722 * px[ bot + 2 ];
+
+				}
+
+				return { a: a / 64, b: b / 64 };
+
+			} finally {
+
+				rt.dispose();
+
+			}
+
+		},
 		presets: Object.keys( PRESETS ),
 		cloudTypes: CLOUD_TYPE_NAMES,
 		applyPreset: ( name ) => {
