@@ -1,5 +1,14 @@
 # Using Abyssal in a Three.js scene
 
+> **There are two ways in, and this page documents the classic one.**
+> If you are starting fresh, the `abyssal-ocean/webgpu` entry is the smaller
+> integration: `createAbyssal({ canvas, scene })` builds the whole stack —
+> sea, sky, spray, post — as native three.js node materials (TSL), runs on
+> WebGPU with automatic WebGL2 fallback, and takes a plain
+> `THREE.PerspectiveCamera`. See the README's first example and
+> `examples/webgpu-ocean.html` / `examples/webgpu-sky.html`. Everything below
+> is the original WebGL2 adapter, which remains supported and dependency-free.
+
 Abyssal is not built on Three.js. It is hand-written WebGL2 with no dependencies,
 and this is a real adapter rather than a wrapper around Three materials. That
 choice has consequences in both directions, and this page is mostly about being

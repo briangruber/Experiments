@@ -2,7 +2,7 @@
 
 # Abyssal
 
-**A photoreal ocean and sky for WebGL2 — droppable into a Three.js scene.**
+**A photoreal ocean and sky for Three.js — WebGPU with WebGL2 fallback.**
 
 [Three.js guide](docs/threejs.md) · [Parameters](docs/parameters.md) · [How it works](docs/physics.md) · [Examples](examples/)
 
@@ -11,8 +11,46 @@
 </div>
 
 A real-time sea built from a multi-cascade FFT wave spectrum, and a sky built from
-a physical atmosphere with a volumetric cloud raymarch. Both are self-contained
-WebGL2 components with no dependencies, and either can be used on its own.
+a physical atmosphere with a volumetric cloud raymarch. The whole stack is written
+once in TSL, three.js's node shading language, so the same source compiles to
+WGSL on WebGPU and to GLSL on WebGL2, and the backend is a runtime choice —
+every pass is verified pixel-identical between the two against golden images.
+
+```js
+import * as THREE from 'three/webgpu';
+import { createAbyssal } from 'abyssal-ocean/webgpu';
+
+const abyssal = await createAbyssal({
+  canvas,
+  preset: 'Golden Hour Swell',
+  scene,                    // your THREE.Scene — shares the frame's depth
+});
+
+const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.5, 40000);
+abyssal.renderer.setAnimationLoop(() => abyssal.frame(camera));
+```
+
+That is the entire integration: FFT ocean, volumetric sky, spray and a filmic
+HDR post chain on the canvas, WebGPU when the machine has it, WebGL2 when it
+does not. Your meshes occlude the water and the waterline rides across your
+hull, because your scene and the sea share one depth buffer.
+
+The sky's clouds come as **real genera** — measured recipes, not just coverage
+values with names (see [`src/cloud-types.js`](src/cloud-types.js)):
+
+```js
+abyssal.setClouds('cumulonimbus');   // or cirrus, cumulus, stratus, nimbus
+abyssal.setClouds('nimbus');         // the light stays the preset's; only the clouds change
+```
+
+`water: false` gives you the sky alone over your own ground; `post: false`
+leaves linear HDR for your own tonemapper. `examples/webgpu-ocean.html` and
+`examples/webgpu-sky.html` are copy-paste starting points.
+
+## The classic WebGL2 adapter
+
+The original components are still here and still dependency-free — three reads
+matrices off the camera you hand it and never imports `three` itself:
 
 ```js
 import { AbyssalWater, AbyssalSky } from 'abyssal-ocean/three';
@@ -47,11 +85,13 @@ share one depth buffer.*
 npm install abyssal-ocean
 ```
 
-No dependencies, and no `three` peer dependency — the adapter never imports
-Three, it reads three matrices off the camera you hand it. Any Three from r120
+The `abyssal-ocean/webgpu` entry imports `three/webgpu` and needs three ≥ r185
+(an optional peer dependency). Everything else — the classic adapter and the
+raw components — has no dependencies at all: the adapter never imports Three,
+it reads three matrices off the camera you hand it, and any Three from r120
 works, via bundler, import map or CDN.
 
-WebGL2 and `EXT_color_buffer_float` are required.
+For the classic path, WebGL2 and `EXT_color_buffer_float` are required.
 
 ## What you get
 
@@ -123,7 +163,11 @@ src/          the library — no DOM, no dependencies, nothing global
   spray.js      GPU particle spray        } optional
   wake.js       persistent Kelvin wake    }
   post.js       HDR post chain            }
-  three/        the Three.js adapter
+  cloud-types.js  the five real cloud genera, as measured recipes
+  three/        the Three.js adapter (classic WebGL2)
+  gpu/          the TSL port — one source, WGSL and GLSL
+    abyssal.js    createAbyssal(), the one-call facade
+    tsl/          node-graph drivers: sim, water, sky, spray, post
   shaders/      GLSL, as plain strings
 demo/         the Abyssal application — UI, camera, wave runner, craft
 examples/     minimal Three.js integrations
@@ -134,8 +178,10 @@ tools/        build, capture and measurement scripts
 
 ```
 npm start                # serve the demo and the examples
-npm run build            # single self-contained HTML file in dist/
+npm run build            # single self-contained HTML file in dist/ (WebGL2 demo)
+npm run build:three      # the three.js/WebGPU demo bundle
 npm run check            # headless smoke test of the demo
+npm run check:bundle:three  # build + smoke test the three.js/WebGPU bundle
 npm run check:examples   # headless smoke test of the Three.js examples
 npm run docs:params      # regenerate docs/parameters.md
 ```

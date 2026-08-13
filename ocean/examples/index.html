@@ -29,6 +29,20 @@
   <h1>Abyssal · Three.js examples</h1>
   <p class="sub">Serve this directory (<code>npm start</code>) — ES modules will not load from <code>file://</code>.</p>
 
+  <a class="card" href="./webgpu-ocean.html">
+    <b>WebGPU — the whole ocean in one call</b>
+    <span>The <code>createAbyssal()</code> facade: FFT sea, volumetric sky, spray and
+    HDR post, on WebGPU with WebGL2 as the automatic fallback. Presets and real
+    cloud genera as buttons; your meshes share the frame's depth.</span>
+  </a>
+
+  <a class="card" href="./webgpu-sky.html">
+    <b>WebGPU — a sky of real clouds, no water</b>
+    <span><code>water: false</code>: the atmosphere and cloud raymarch over your own
+    ground. Cirrus, cumulus, stratus, nimbus, cumulonimbus — measured recipes,
+    switchable live, with a sun-elevation slider.</span>
+  </a>
+
   <a class="card" href="./water-and-sky.html">
     <b>Water and sky</b>
     <span>Both components sharing one parameter set, with Three.js pilings standing
