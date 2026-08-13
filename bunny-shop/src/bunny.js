@@ -7,9 +7,16 @@ import * as THREE from 'three';
 import { place } from './assets.js';
 import { TWEAKS } from './scene.js';
 
-const WALK_SPEED = 1.45;
-const RUN_SPEED = 3.1;
+// What we would like a rabbit to move at. It is a wish, not a setting: the
+// speed actually used is derived from the rabbit's measured stride so that the
+// feet cannot slide, and these only decide the playback rate we aim for.
+const WALK_SPEED = 1.15;
+const RUN_SPEED = 2.3;
 const TURN_RATE = 7.0;
+
+// Playback rate is allowed to sit anywhere in this band. Below it a walk reads
+// as a dawdle, above it as a scurry.
+const RATE_LIMIT = [1.2, 2.9];
 
 // Fur tints. They multiply against a cream or grey model, so they read as
 // different rabbits rather than different paint jobs.
@@ -18,6 +25,50 @@ const COATS = [
 ];
 
 const SCARVES = [0xe0664f, 0x6bc4d6, 0xffd166, 0x8fd06a, 0xd694e8, 0xf58fb0];
+
+/**
+ * How fast the ground would have to pass under a rabbit for this clip to look
+ * right, in metres per second at playback rate 1.
+ *
+ * The clips animate in place, so there is no root travel to read the speed off.
+ * Instead this poses the skeleton across one cycle and measures how far apart
+ * the feet get: that peak separation is the stride, a biped covers two strides
+ * per cycle, and the rest is division. Doing it by forward kinematics on the
+ * real skeleton means it stays correct for a rabbit of any size, and survives
+ * the animations being regenerated.
+ */
+function measureGait(group, clip) {
+  let left = null;
+  let right = null;
+  group.traverse((o) => {
+    if (!o.isBone) return;
+    if (/^L_Foot$/i.test(o.name)) left = o;
+    if (/^R_Foot$/i.test(o.name)) right = o;
+  });
+  if (!left || !right || !clip.duration) return null;
+
+  const mixer = new THREE.AnimationMixer(group);
+  const action = mixer.clipAction(clip);
+  action.play();
+
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  let stride = 0;
+  const steps = 48;
+
+  for (let i = 0; i <= steps; i++) {
+    mixer.setTime((i / steps) * clip.duration);
+    group.updateWorldMatrix(true, true);
+    a.setFromMatrixPosition(left.matrixWorld);
+    b.setFromMatrixPosition(right.matrixWorld);
+    stride = Math.max(stride, Math.hypot(a.x - b.x, a.z - b.z));
+  }
+
+  action.stop();
+  mixer.setTime(0);
+  mixer.uncacheClip(clip);
+  return stride > 0.02 ? (2 * stride) / clip.duration : null;
+}
 
 /**
  * Remove horizontal travel from a baked clip so the rabbit stays under our
@@ -80,6 +131,28 @@ export class Customer {
     this.wantFacing = 0;
     this.speed = WALK_SPEED;
     this.arrived = true;
+
+    // Movement is derived from the animation rather than the other way round.
+    //
+    // Height is a bad proxy for stride — the lanky rabbit is tall mostly in the
+    // ears and takes a *shorter* step than the round one — so each rabbit's own
+    // stride is measured and its speed set to whatever that stride, played at a
+    // sensible cadence, actually covers. Sliding feet then cannot happen: the
+    // speed and the playback rate are two views of the same number.
+    this.gaits = {};
+    this.speeds = { walk: WALK_SPEED, run: RUN_SPEED };
+    this.rates = { walk: 1, run: 1 };
+
+    const lead = this.root.children[0];
+    for (const [name, wanted] of [['walk', WALK_SPEED], ['run', RUN_SPEED]]) {
+      const clip = this.actions[name]?.getClip();
+      const natural = lead && clip ? measureGait(lead, clip) : null;
+      if (!natural) continue;
+      const rate = Math.min(RATE_LIMIT[1], Math.max(RATE_LIMIT[0], wanted / natural));
+      this.gaits[name] = natural;
+      this.rates[name] = rate;
+      this.speeds[name] = natural * rate;
+    }
 
     this.play('idle');
   }
@@ -174,9 +247,17 @@ export class Customer {
 
   goTo(x, z, { run = false } = {}) {
     this.target = new THREE.Vector2(x, z);
-    this.speed = run ? RUN_SPEED : WALK_SPEED;
     this.arrived = false;
-    this.play(run ? 'run' : 'walk');
+
+    const gait = run ? 'run' : 'walk';
+    this.speed = this.speeds[gait];
+    this.play(gait);
+
+    // The cycle and the ground covered are the same number seen twice. Without
+    // this the feet slide, and — worse — the legs snapping back at the loop
+    // point reads as the whole rabbit jerking backwards.
+    const action = this.actions[gait];
+    if (action) action.timeScale = this.rates[gait];
   }
 
   faceCamera() {
@@ -207,6 +288,9 @@ export class Customer {
     const done = (e) => {
       if (e.action !== action) return;
       mixer.removeEventListener('finished', done);
+      // Something else may have taken over while this was playing — a rabbit
+      // that started walking mid-antic must not be forced back to standing.
+      if (this.current !== action) return;
       this.current = null;
       this.play('idle', 0.2);
     };

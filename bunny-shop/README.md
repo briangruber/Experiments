@@ -84,6 +84,22 @@ carry a little residual root travel; `bunny.js` strips horizontal motion from
 the root track and keeps the vertical bounce, so walking is driven by the game
 and the hop still looks like a hop.
 
+**Walking speed comes out of the animation, not the other way round.** The clips
+animate in place, so there is no root travel to read a speed off. Instead
+`measureGait` poses each rabbit's own skeleton across one cycle and measures how
+far apart its feet get: that peak separation is the stride, a biped covers two
+strides per cycle, and dividing by the duration gives the speed the clip
+depicts. The rabbit is then moved at exactly that speed times the playback rate,
+so a planted foot stays planted — sliding feet are not tuned away, they are
+structurally impossible.
+
+Height would have been the obvious shortcut and it is wrong: the lanky rabbit is
+tall mostly in the ears and takes a *shorter* step than the round one. Measuring
+each skeleton catches that, and catches it again if the animations are ever
+regenerated. It also fixed a complaint that looked like a separate bug — rabbits
+appearing to jerk backwards was the cycle looping while the body kept moving,
+which is what a walk running at a third of the needed rate looks like.
+
 **Screen shape picks the composition.** The visible vertical span of a
 perspective camera is `2 * halfHeight / aspect` whatever the field of view, so
 no single camera suits a phone upright, a laptop and a phone on its side.

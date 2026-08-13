@@ -260,6 +260,39 @@ const results = await page.evaluate(() => {
   }
   check('rabbits are not standing inside each other', pairs.length === 0, pairs.join(', '));
 
+  // --- the walk cycle matches the ground covered --------------------------
+  // A playback rate that has to clamp is a foot that slides, and a sliding walk
+  // reads as the rabbit jerking backwards every time the cycle loops.
+  g.start();
+  const gaitRows = [];
+  for (const kind of ['normal', 'tiny', 'trenchcoat']) {
+    g.start();
+    g.day = 4;
+    g.rollSpecial = () => (kind === 'normal' ? null : kind);
+    const c = waitForCustomer();
+    if (!c) continue;
+    const b = c.body;
+    for (const gait of ['walk', 'run']) {
+      gaitRows.push({
+        kind,
+        gait,
+        natural: b.gaits[gait] ? +b.gaits[gait].toFixed(2) : null,
+        speed: +b.speeds[gait].toFixed(2),
+        rate: +b.rates[gait].toFixed(2),
+      });
+    }
+  }
+  check('every rabbit has a measured stride', gaitRows.every((r) => r.natural !== null),
+    JSON.stringify(gaitRows));
+  // The whole point: speed is the stride times the rate, so a planted foot
+  // stays planted no matter which rabbit it belongs to.
+  check('speed always equals stride times playback rate',
+    gaitRows.every((r) => Math.abs(r.natural * r.rate - r.speed) < 0.02),
+    gaitRows.map((r) => `${r.kind}/${r.gait} ${r.natural}x${r.rate}=${r.speed}`).join(', '));
+  check('every rabbit moves at a playable speed',
+    gaitRows.every((r) => r.speed > 0.6 && r.speed < 3.2),
+    gaitRows.map((r) => `${r.kind}/${r.gait} ${r.speed}`).join(', '));
+
   // --- bubbles stay up long enough to read --------------------------------
   const long = 'This is a deliberately long line of dialogue with quite a lot of words in it indeed.';
   g.ui.bubble(g.shoppers[0] ?? { body: { anchor: () => ({}) }, done: false }, long, { keep: true });
