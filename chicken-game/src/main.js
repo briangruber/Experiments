@@ -872,8 +872,12 @@ function applyDaylight() {
   // The bulb is the only light left after dark, and the shaft through the
   // window has nothing to carry once the sun is down.
   nightBulb = 14 + (1 - d) * 16;
-  world.coop.shaftMat.opacity = 0.055 * d;
-  world.coop.motes.material.opacity = 0.55 * d;
+  // Cloud kills the sunbeam through the window, and the dust stops dancing
+  // in it. Leaving those lit through a downpour was the giveaway that the
+  // weather only existed outdoors.
+  const clear = 1 - wet * 0.9;
+  world.coop.shaftMat.opacity = 0.055 * d * clear;
+  world.coop.motes.material.opacity = 0.55 * d * clear;
 }
 
 // Rain streaks, drawn only while it is actually raining. Their fall is driven

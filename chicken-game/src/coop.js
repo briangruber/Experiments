@@ -477,8 +477,13 @@ function buildYard(g, rng) {
   yard.add(puddle);
 
   // ---- rain ---------------------------------------------------------------
-  // Thin instanced streaks over the whole property. Only stepped while it is
-  // actually raining, so it costs nothing on a dry day.
+  // Thin instanced streaks over the run. Only stepped while it is actually
+  // raining, so it costs nothing on a dry day.
+  //
+  // Strictly beyond the coop's back wall: the coop has a roof, and a streak
+  // seeded at z < WALL_Z falls straight through it and rains on the straw.
+  // From inside, the weather shows through the open pop-hole, in the window's
+  // sky colour, and in the sunbeam going out.
   const RAIN_N = 900;
   const rainMesh = new THREE.InstancedMesh(
     new THREE.BoxGeometry(0.013, 0.34, 0.013),
@@ -488,7 +493,7 @@ function buildYard(g, rng) {
   for (let i = 0; i < RAIN_N; i++) {
     rainSeeds[i * 3] = rand(rng, -9, 9);
     rainSeeds[i * 3 + 1] = rand(rng, 0, 9);
-    rainSeeds[i * 3 + 2] = rand(rng, -6, YARD.z1 + 3);
+    rainSeeds[i * 3 + 2] = rand(rng, WALL_Z + 0.35, YARD.z1 + 4);
   }
   rainMesh.frustumCulled = false;
   rainMesh.visible = false;
