@@ -291,7 +291,57 @@ try {
 `;
 
 const shell = await readFile(join(ROOT, opt('html', 'demo/three-shell.html')), 'utf8');
-const html = shell.replace('/*__BUNDLE__*/', () => out);
+// The settings panel is the classic demo's UI, and its stylesheet rides along:
+// a <link> would 404 inside a standalone artifact, so it is inlined at the
+// marker (which sits before the shell's own <style>, letting the shell win).
+//
+// Inlined SANITIZED, not verbatim - ui.css also carries the CLASSIC shell's
+// chrome, and two of those rules are live grenades on this page:
+//   - it styles #hud (the old demo's readout), and this shell's instrument
+//     panel shares that id - its `pointer-events:none` made the Settings
+//     button unclickable, measured as "canvas intercepts pointer events";
+//   - .brand uses backdrop-filter, which this shell REMOVED because Chromium
+//     and WebKit refuse to composite a WebGPU canvas under one (see the
+//     comment block in three-shell.html).
+// So: every declaration of backdrop-filter goes, and every top-level rule
+// whose selector reaches for the old shell's chrome (#hud, #boot,
+// #panel-toggle, .panel-hidden, bare html/body/canvas) goes. Media queries
+// are kept but sanitized by the same rule.
+export function sanitizeUiCss(css) {
+	css = css.replace(/backdrop-filter\s*:[^;}]*;?/g, '');
+	const OWNED = /(#hud|#boot|#panel-toggle|\.panel-hidden)\b/;
+	const BARE = /^\s*(html|body|canvas)\s*$/;
+	// Filter PER SELECTOR PART, never per rule: `#ui.hidden, body.panel-hidden
+	// #ui { ... }` must keep its #ui.hidden half - dropping the whole rule left
+	// the panel permanently visible, full-screen under the phone media query,
+	// eating every click on the page.
+	const keepParts = (sel) => sel.split(',').filter((s) => !OWNED.test(s) && !BARE.test(s.trim()));
+	let out = '', i = 0;
+	while (i < css.length) {
+		const open = css.indexOf('{', i);
+		if (open < 0) { out += css.slice(i); break; }
+		const header = css.slice(i, open);
+		let depth = 1, j = open + 1;
+		while (j < css.length && depth) { if (css[j] === '{') depth++; else if (css[j] === '}') depth--; j++; }
+		const body = css.slice(open + 1, j - 1);
+		if (header.trim().startsWith('@')) {
+			// at-rule: sanitize its (flat) inner rules by the same test
+			out += header + '{' + body.replace(/([^{}]+)\{[^{}]*\}/g, (rule, sel, o, whole) => {
+				const kept = keepParts(sel);
+				return kept.length ? kept.join(',') + rule.slice(sel.length) : '';
+			}) + '}';
+		} else {
+			const kept = keepParts(header);
+			if (kept.length) out += kept.join(',') + '{' + body + '}';
+		}
+		i = j;
+	}
+	return out;
+}
+const uiCss = sanitizeUiCss(await readFile(join(ROOT, 'demo/ui.css'), 'utf8'));
+const html = shell
+	.replace('/*__UI_CSS__*/', () => uiCss.replaceAll('</', '<\\/'))
+	.replace('/*__BUNDLE__*/', () => out);
 
 await mkdir(dirname(OUT), { recursive: true });
 await writeFile(OUT, html);

@@ -2,6 +2,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Abyssal Ocean</title>
+<!-- The full settings panel is the classic demo's, verbatim: demo/ui.js builds
+     it and demo/ui.css styles it. The bundler inlines that stylesheet at the
+     marker below. It comes BEFORE this page's own style block on purpose, so
+     wherever the two disagree (body, canvas, palette) the instrument panel's
+     rules win by document order. -->
+<style>/*__UI_CSS__*/</style>
 <style>
   /* Single theme by commitment, not omission: this page is a full-bleed night
      sea. A light variant would mean painting a panel for a ground that does not
@@ -126,6 +132,20 @@
   }
   select:hover { background: var(--hull-2); }
 
+  #settings-btn {
+    font: 400 11px/1 var(--mono);
+    width: 100%;
+    color: var(--spume);
+    background: var(--hull);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 7px 8px;
+    text-align: left;
+    cursor: pointer;
+  }
+  #settings-btn:hover { background: var(--hull-2); }
+  #settings-btn[aria-expanded="true"] { color: var(--glint); border-color: var(--glint); }
+
   /* Readouts. Row of label + value, hairline between, digits aligned. */
   #readout { display: flex; flex-direction: column; gap: 6px; padding-top: 9px; border-top: 1px solid var(--rule); }
   .row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
@@ -174,6 +194,9 @@
     <option value="preset">Clouds · preset’s own</option>
   </select>
 
+  <button id="settings-btn" aria-expanded="false" aria-controls="ui"
+    title="Every parameter of the sea and the sky">Settings ›</button>
+
   <div id="readout">
     <div class="row"><span class="k">Running</span><span class="v" id="status">starting…</span></div>
     <div class="row"><span class="k">Frame</span><span class="v" id="fps">—</span></div>
@@ -182,6 +205,10 @@
   </div>
   <p id="note"></p>
 </div>
+
+<!-- The classic demo's full parameter panel (demo/ui.js), docked right, hidden
+     until the Settings button opens it. -->
+<div id="ui" class="hidden"></div>
 
 <script>
   (function () {

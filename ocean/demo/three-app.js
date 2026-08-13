@@ -5,6 +5,8 @@
 // Everything here is UI. The rendering lives in ./three-main.js.
 
 import { boot, wantedBackend } from './three-main.js';
+import { UI } from './ui.js';
+import { defaults } from '../src/presets.js';
 
 // ---- error capture ----------------------------------------------------------
 // A phone has no console. On Safari a WGSL pipeline that fails validation draws
@@ -91,6 +93,22 @@ function freshCanvas() {
 
 }
 
+// iOS WebKit composite nudge. On an iPhone, a FRESH page load composites the
+// WebGPU canvas fine, but an in-page navigation (the backend buttons set a
+// URL param) leaves it blank until any layout change touches the document -
+// collapsing the panel was "fixing" it, which is how the symptom was found.
+// So do programmatically what the collapse does: invalidate document layout
+// with a padding change too small to see. Harmless on every other platform;
+// unverifiable from where this is written, like everything iOS - stated as
+// the attempt it is.
+function kickCompositor() {
+
+	document.body.style.paddingBottom = '0.02px';
+	void document.body.offsetHeight;                 // force the reflow now
+	requestAnimationFrame( () => { document.body.style.paddingBottom = ''; } );
+
+}
+
 async function bootWithFallback() {
 
 	const canvas = document.getElementById( 'view' );
@@ -104,16 +122,42 @@ async function bootWithFallback() {
 		// headless environment does, and a black rectangle with a cheerful
 		// "running on WebGPU" underneath is the worst thing to hand someone.
 		//
-		// So look. One capture, a few frames in, read INSIDE the frame callback
-		// because a drawing buffer is cleared once it composites. If nothing
-		// arrived, come back up on WebGL2 and say why.
-		if ( app.backend === 'webgpu' && await presentedNothing( app, canvas ) ) {
+		// So look - INSIDE the frame callback, because a drawing buffer is
+		// cleared once it composites - and on iOS WebKit, nudge the compositor
+		// first (see kickCompositor): the known blank-canvas case there is the
+		// compositor not picking the canvas up, and a kick before the verdict
+		// gives the honest outcome a chance.
+		if ( app.backend === 'webgpu' ) {
 
-			app.renderer.setAnimationLoop?.( null );
-			const fb = await boot( { canvas: freshCanvas(), backend: 'webgl' } );
-			fb.fellBack = true;
-			fb.fallbackReason = 'WebGPU initialised but presented no pixels on this platform.';
-			return fb;
+			for ( const ms of [ 300, 900, 2000 ] ) setTimeout( kickCompositor, ms );
+
+			if ( await presentedNothing( app ) ) {
+
+				// What the panel should say depends on what the pipeline itself did:
+				// bands with content mean the frames RENDERED and only presentation
+				// failed, which is a very different bug report from nothing drawing.
+				const d = app.diag;
+				const bands = d && d.bandA !== undefined
+					? `pipeline bands ${ d.bandA.toFixed( 3 ) } / ${ d.bandB.toFixed( 3 ) }`
+					: 'pipeline output unread';
+
+				// An EXPLICIT WebGPU request is not permission to switch: stay, and
+				// say what was measured. Auto is where falling back is the contract.
+				if ( want === 'webgpu' ) {
+
+					app.presentWarning = `WebGPU is running but the canvas reads black (${ bands }). `
+						+ 'Press Auto to allow the WebGL2 fallback.';
+					return app;
+
+				}
+
+				app.renderer.setAnimationLoop?.( null );
+				const fb = await boot( { canvas: freshCanvas(), backend: 'webgl' } );
+				fb.fellBack = true;
+				fb.fallbackReason = `WebGPU initialised but the canvas stayed black (${ bands }).`;
+				return fb;
+
+			}
 
 		}
 
@@ -132,19 +176,40 @@ async function bootWithFallback() {
 
 }
 
-// Resolves true when the canvas is uniformly black after the app has had a few
-// frames to draw something.
-function presentedNothing( app, canvas ) {
+// Resolves true when the canvas is reading uniformly black even though frames
+// are being produced.
+//
+// THE SCHEDULE COUNTS FRAMES, NOT WALL TIME. The first WebGPU frame pays the
+// whole pipeline-compile bill - ninety-odd pipelines - and on a real MacBook
+// that bill ran past the flat 5-second timeout this function used to have, so
+// the watchdog condemned a healthy device for being slow to warm up and
+// swapped a working WebGPU ocean for the WebGL2 one. Measured in the field:
+// "WebGPU initialised but presented no pixels" on a machine that runs WebGPU
+// fine. So: sample the canvas on the 8th frame and every 4th after, call it
+// black only after three consecutive black samples, and use wall time for one
+// thing alone - a device that cannot produce even its FIRST frame in 45
+// seconds is dead, compile storm or not.
+function presentedNothing( app ) {
 
 	return new Promise( ( resolve ) => {
 
+		const canvas = app.renderer.domElement;
 		let seen = 0;
+		let blackReads = 0;
 		const prev = app.onFrame;
-		const done = ( verdict ) => { app.onFrame = prev; resolve( verdict ); };
+		let liveness = 0;
+		const done = ( verdict ) => {
+
+			clearInterval( liveness );
+			app.onFrame = prev;
+			resolve( verdict );
+
+		};
 
 		app.onFrame = () => {
 
-			if ( ++ seen < 6 ) return;               // let the iris and the sim settle
+			seen ++;
+			if ( seen < 8 || ( seen - 8 ) % 4 !== 0 ) return;
 			try {
 
 				const c = document.createElement( 'canvas' );
@@ -155,7 +220,8 @@ function presentedNothing( app, canvas ) {
 				const d = g.getImageData( 0, 0, c.width, c.height ).data;
 				let sum = 0;
 				for ( let i = 0; i < d.length; i += 4 ) sum += d[ i ] + d[ i + 1 ] + d[ i + 2 ];
-				done( sum / ( d.length / 4 ) < 3 );   // essentially black
+				if ( sum / ( d.length / 4 ) >= 3 ) return done( false );   // content - all is well
+				if ( ++ blackReads >= 3 ) return done( true );             // black, three samples running
 
 			} catch {
 
@@ -165,10 +231,150 @@ function presentedNothing( app, canvas ) {
 
 		};
 
-		// If frames are not arriving at all, that is its own kind of nothing.
-		setTimeout( () => done( true ), 5000 );
+		const t0 = performance.now();
+		liveness = setInterval( () => {
+
+			if ( seen === 0 && performance.now() - t0 > 45000 ) done( true );
+
+		}, 5000 );
 
 	} );
+
+}
+
+// The classic demo's full parameter panel (demo/ui.js + demo/schema.js),
+// docked on the right behind the Settings button. Same widgets, same schema,
+// same toasts - the difference is only in what the events drive.
+function installSettingsPanel( app, presetSel, cloudSel ) {
+
+	const uiRoot = document.getElementById( 'ui' );
+	const btn = document.getElementById( 'settings-btn' );
+	if ( ! uiRoot || ! btn ) return;
+
+	const ui = new UI( uiRoot, app.params, ( ev ) => {
+
+		if ( ev.type === 'preset' ) {
+
+			app.applyPreset( ev.name );
+			if ( presetSel ) presetSel.value = ev.name;
+			if ( cloudSel ) cloudSel.value = 'preset';
+			ui.syncAll();
+			return;
+
+		}
+
+		if ( ev.type === 'reseed' ) {
+
+			app.params.seed = 1 + Math.floor( Math.random() * 9998 );
+			app.sim.setSeed( app.params.seed );
+			ui.syncAll();
+			ui.toast( 'New sea generated' );
+			return;
+
+		}
+
+		if ( ev.type === 'reset' ) {
+
+			app.applyPreset( ui.presetSelect.value );
+			if ( cloudSel ) cloudSel.value = 'preset';
+			ui.syncAll();
+			return;
+
+		}
+
+		if ( ev.type === 'copy' ) {
+
+			const clean = {};
+			for ( const k of Object.keys( defaults ) ) clean[ k ] = app.params[ k ];
+			const text = JSON.stringify( clean, null, 2 );
+			Promise.resolve( navigator.clipboard?.writeText( text ) ?? Promise.reject() )
+				.then( () => ui.toast( 'Settings copied to clipboard' ) )
+				.catch( () => {
+
+					console.log( text );
+					ui.toast( 'Clipboard blocked — settings printed to the console' );
+
+				} );
+			return;
+
+		}
+
+		if ( ev.type === 'save' ) {
+
+			// Inside the frame callback, because a presented drawing buffer reads
+			// back blank - the same reason presentedNothing() samples there.
+			const prev = app.onFrame;
+			app.onFrame = () => {
+
+				app.onFrame = prev;
+				prev?.();
+				try {
+
+					const src = app.renderer.domElement;
+					const c = document.createElement( 'canvas' );
+					c.width = src.width; c.height = src.height;
+					c.getContext( '2d' ).drawImage( src, 0, 0 );
+					const a = document.createElement( 'a' );
+					a.download = 'abyssal.png';
+					a.href = c.toDataURL( 'image/png' );
+					a.click();
+					ui.toast( 'Saved' );
+
+				} catch ( e ) {
+
+					ui.toast( 'Could not read the canvas: ' + String( e?.message || e ).slice( 0, 60 ), 3200 );
+
+				}
+
+			};
+			return;
+
+		}
+
+		if ( ev.type === 'photo' || ev.type === 'ride' || ev.type === 'view'
+			|| ev.type === 'quiet' || ev.type === 'profile' ) {
+
+			ui.toast( 'Not in the three.js demo yet — use the classic demo for this' );
+			return;
+
+		}
+
+		const it = ev.item;
+		if ( ! it ) return;
+		// The wave spectrum is built from parameters, not read per frame.
+		if ( it.rebuild ) app.sim.dirty = true;
+		// Structural rebuilds (FFT size, grid density, spray buffers) mean new GPU
+		// objects; the three drivers build them once at boot. Honest about it.
+		if ( it.rebuildSim || it.rebuildGrid || it.rebuildSpray || it.rebuildWake ) {
+
+			ui.toast( 'Takes effect after reload on the three.js demo', 2600 );
+
+		}
+		// Cheap relative to a wrong sky: the LUT re-bakes once per changed knob,
+		// and only sun/moon/turbidity knobs actually move it.
+		app.markSkyDirty();
+
+	} );
+
+	// What is not ported is not offered: the craft (and its ride/view buttons)
+	// and photo accumulation are still classic-demo-only.
+	for ( const b of [ ui.rideBtn, ui.viewBtn, ui.quietBtn ] ) if ( b ) b.style.display = 'none';
+
+	ui.presetSelect.value = app.presetName ?? 'Golden Hour Swell';
+	ui.syncAll();
+
+	btn.addEventListener( 'click', () => {
+
+		const open = uiRoot.classList.toggle( 'hidden' ) === false;
+		btn.setAttribute( 'aria-expanded', String( open ) );
+		btn.textContent = open ? 'Settings ‹' : 'Settings ›';
+
+	} );
+
+	// The instrument panel's own selects stay live; keep the big panel in step
+	// when they change.
+	presetSel?.addEventListener( 'change', () => { ui.presetSelect.value = presetSel.value; ui.syncAll(); } );
+	cloudSel?.addEventListener( 'change', () => ui.syncAll() );
 
 }
 
@@ -217,6 +423,8 @@ bootWithFallback().then( ( app ) => {
 
 	}
 
+	installSettingsPanel( app, sel, cloudSel );
+
 	// The segmented control above says what was asked for; this says what is
 	// actually running. They differ exactly when a fallback fired, and that is
 	// the one piece of state this app exists to show, so it is stated plainly
@@ -234,21 +442,9 @@ bootWithFallback().then( ( app ) => {
 	// a reader actually has.
 	window.abyssal = app;
 
-	// iOS WebKit composite nudge. On an iPhone, a FRESH page load composites the
-	// WebGPU canvas fine, but an in-page navigation (the backend buttons set a
-	// URL param) leaves it blank until any layout change touches the document -
-	// collapsing the panel was "fixing" it, which is how the symptom was found.
-	// So do programmatically what the collapse does: invalidate document layout,
-	// a few times over the first seconds, with a padding change too small to see.
-	// Harmless on every other platform; unverifiable from where this is written,
-	// like everything iOS - stated as the attempt it is.
-	const kickCompositor = () => {
-
-		document.body.style.paddingBottom = '0.02px';
-		void document.body.offsetHeight;                 // force the reflow now
-		requestAnimationFrame( () => { document.body.style.paddingBottom = ''; } );
-
-	};
+	// Composite nudges again once the final app is up (see kickCompositor) -
+	// the pre-watchdog kicks cover the WebGPU path, these cover a fallback's
+	// fresh canvas too.
 	for ( const ms of [ 300, 900, 2000 ] ) setTimeout( kickCompositor, ms );
 	window.abyssalErrors = capturedErrors;
 
@@ -301,6 +497,7 @@ bootWithFallback().then( ( app ) => {
 
 			const parts = [];
 			if ( app.fallbackReason ) parts.push( app.fallbackReason );
+			else if ( app.presentWarning ) parts.push( app.presentWarning );
 			else if ( app.skyFallback ) parts.push( app.skyFallback );
 			if ( capturedErrors.length ) parts.push( 'GPU: ' + capturedErrors[ 0 ] );
 			const text = parts.join( ' — ' );
