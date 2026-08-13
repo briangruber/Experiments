@@ -246,6 +246,31 @@ export function skyTexture() {
   return finish(c);
 }
 
+/**
+ * Soft blotchy alpha, tiled across the haze layers. Drawn as overlapping blurred
+ * blobs rather than noise: at the scale these planes are stretched to, per-pixel
+ * noise averages out to flat grey and reads as a sheet of plastic.
+ */
+export function hazeTexture(seed = 41) {
+  const rng = makeRng(seed);
+  const S = 512;
+  const { c, g } = canvas(S);
+  g.clearRect(0, 0, S, S);
+  for (let i = 0; i < 70; i++) {
+    const x = rng() * S, y = rng() * S, r = rng.range(50, 190);
+    const grd = g.createRadialGradient(x, y, 0, x, y, r);
+    const a = rng.range(0.05, 0.22);
+    grd.addColorStop(0, `rgba(255,255,255,${a})`);
+    grd.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grd;
+    // Wrap by drawing each blob at every edge offset it could straddle.
+    for (const [dx, dy] of [[0, 0], [S, 0], [-S, 0], [0, S], [0, -S]]) {
+      g.beginPath(); g.arc(x + dx, y + dy, r, 0, Math.PI * 2); g.fill();
+    }
+  }
+  return finish(c);
+}
+
 /** Soft round sprite used for spray, sparks and the sun flare. */
 export function dotTexture() {
   const S = 128;

@@ -130,6 +130,14 @@ export class Avatar {
           m.roughness = Math.min(m.roughness ?? 1, 0.62);
           m.metalness = Math.max(m.metalness ?? 0, 0.08);
           m.envMapIntensity = 1;
+          // Self-lit, faintly, in the suit's own colours. A camera-mounted rim
+          // light was tried first and lit the whole city with it — a directional
+          // light does not care that it was aimed at the character. This puts
+          // the edge only where it was wanted.
+          if (m.map && !m.emissiveMap) {
+            m.emissiveMap = m.map;
+            m.emissive = new THREE.Color(0x9fb6d8).multiplyScalar(0.22);
+          }
         }
       }
     });

@@ -25,6 +25,10 @@ default.
 | dive for speed | `Shift` | **DIVE** |
 | mid-air burst | `B` | **BOOST** |
 
+A cyan ring marks the grip your next press would take, so you can time a swing
+instead of guessing at one, and a gold arrow points at the next ring whenever it
+is off screen. Three lines of coaching appear on a first run and never again.
+
 Hold to swing, let go to fly. The web picks its own side using the same scoring
 the two triggers use, and the camera leans gently toward the next ring when you
 are not steering, so the course comes to you. A bot given nothing but this one
@@ -49,6 +53,10 @@ either side of the reticle light up when that side has something to grab, so the
 mapping is visible before you commit to it.
 
 Either scheme: `R` respawn, `H` hide HUD, `M` mute, `Esc` pause.
+
+Releasing at the bottom of the arc — fast, just starting to rise — scores a
+*good* or *perfect release*. That is the one piece of timing the swing rewards,
+so it is worth points rather than left to be discovered.
 
 The camera lines itself up with your velocity after a moment of no steering, so
 one thumb on a phone is enough.

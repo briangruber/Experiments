@@ -181,6 +181,7 @@ async function boot() {
   input.bindPad(document.getElementById('btn-boost'), 'boost', true);
 
   let props = null;
+  let grip = null;
   let state = 'title';
   let time = 0;
   let nearMissCd = 0;
@@ -258,6 +259,18 @@ async function boot() {
           fx.burst(player.web.anchor, 7, { life: 0.4, size: 0.6, spread: 4, color: 0xdfefff, drag: 4 });
           break;
         case 'miss': audio.miss(); break;
+        // Timing the release is the skill the swing is built on, so pay for it.
+        case 'perfect':
+        case 'good': {
+          const best = e === 'perfect';
+          rings.award(best ? 150 : 60, best ? 'perfect release' : 'good release');
+          fx.burst(player.pos, best ? 18 : 8, {
+            color: best ? 0xffd166 : 0x9fe8ff, spread: 7, life: 0.5, size: 0.5, drag: 3,
+          });
+          audio.burst({ freq: best ? 1750 : 1200, sweep: 0.5, dur: 0.16, gain: best ? 0.16 : 0.1, q: 3 });
+          if (best) cam.kick(0.22);
+          break;
+        }
         case 'boost':
           audio.boost();
           cam.kick(0.35);
@@ -332,10 +345,56 @@ async function boot() {
     reticleCd -= dt;
     if (reticleCd > 0) return;
     reticleCd = 0.11;
-    const left = !!player.probe(-1, cam.basis);
-    const right = !!player.probe(1, cam.basis);
-    hud.setSides(left, right);
+    const left = player.probe(-1, cam.basis);
+    const right = player.probe(1, cam.basis);
+    hud.setSides(!!left, !!right);
     hud.setReticle(left || right ? 'live' : '');
+    // Remember the better of the two for the 3D marker.
+    grip = !left ? right : !right ? left : (right.score >= left.score ? right : left);
+  };
+
+  /** Screen-edge arrow toward the ring you are meant to fly through next. */
+  const updateRingPointer = () => {
+    const t = rings.target;
+    if (!t) { hud.setRingPointer(null); return; }
+    _probe.copy(t.pos).project(camera);
+    _dir.copy(t.pos).sub(camera.position);
+    camera.getWorldDirection(_normal);
+    const behind = _dir.dot(_normal) < 0;
+    hud.setRingPointer(_probe, behind, player.pos.distanceTo(t.pos), innerWidth, innerHeight);
+  };
+
+  /**
+   * Three lines of coaching on a first run, each cleared by the player doing the
+   * thing. Anything longer is a manual, and nobody reads a manual to swing.
+   */
+  const COACH = [
+    { key: 'swing', text: () => (input.simple
+      ? (coarse ? 'hold <kbd>SWING</kbd> to fire a web' : 'hold <kbd>Space</kbd> to fire a web')
+      : (coarse ? 'hold <kbd>WEB L</kbd> or <kbd>WEB R</kbd>' : 'hold a mouse button to fire a web')) },
+    { key: 'release', text: () => 'let go at the bottom of the arc to fly' },
+    { key: 'ring', text: () => 'follow the arrow — fly through the gold rings' },
+  ];
+  let coachStep = 0;
+  let coachTimer = 0;
+  try { if (localStorage.getItem('skyline.coached') === '1') coachStep = COACH.length; } catch { /* private */ }
+
+  const updateCoach = (dt) => {
+    if (coachStep >= COACH.length) { hud.setCoach(null); return; }
+    coachTimer += dt;
+    hud.setCoach(COACH[coachStep].text());
+    const step = COACH[coachStep].key;
+    const done =
+      (step === 'swing' && player.web.active) ||
+      (step === 'release' && coachTimer > 2.5 && !player.web.active && player.airTime > 0.6) ||
+      (step === 'ring' && coachTimer > 7);
+    if (done) {
+      coachStep++;
+      coachTimer = 0;
+      if (coachStep >= COACH.length) {
+        try { localStorage.setItem('skyline.coached', '1'); } catch { /* private */ }
+      }
+    }
   };
 
   /**
@@ -359,6 +418,9 @@ async function boot() {
     avatar.update(dt, player);
     web.update(dt, player, avatar);
     fx.update(dt, player, camera);
+    fx.setAim(grip, camera, dt, !player.web.active);
+    updateRingPointer();
+    updateCoach(dt);
     cam.update(dt, player);
     props?.update(time);
     checkReticle(dt);

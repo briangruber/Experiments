@@ -7,7 +7,7 @@
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { skyTexture, dotTexture } from './textures.js';
+import { skyTexture, dotTexture, hazeTexture } from './textures.js';
 import { makeRng } from './util.js';
 import { loadGLB } from './assets.js';
 
@@ -43,6 +43,23 @@ export function buildSky(scene) {
   sun.renderOrder = -9;
   group.add(sun);
 
+  // A single high cloud deck. A low one was tried and removed: an additive
+  // plane under the rooftops covers the entire frame when you look down at the
+  // city and milks it out, and distance haze is the fog's job anyway. This one
+  // sits above downtown, where it only ever reads as sky.
+  const deck = new THREE.Mesh(
+    new THREE.PlaneGeometry(11000, 11000),
+    new THREE.MeshBasicMaterial({
+      map: (() => { const t = hazeTexture(77); t.repeat.set(5, 5); return t; })(),
+      color: 0xffb98a, transparent: true, opacity: 0.1,
+      depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    }),
+  );
+  deck.rotation.x = -Math.PI / 2;
+  deck.position.y = 380;
+  deck.renderOrder = 1;
+  group.add(deck);
+
   scene.fog = new THREE.FogExp2(0x5b4a78, 0.00072);
   scene.add(group);
 
@@ -55,7 +72,7 @@ export function buildSky(scene) {
   scene.add(fill);
   scene.add(new THREE.HemisphereLight(0x8ba6ff, 0x241c2c, 1.15));
 
-  return { group, dome, sun, key };
+  return { group, dome, sun, key, deck };
 }
 
 async function loadKit(url) {

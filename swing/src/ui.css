@@ -99,6 +99,43 @@ html, body {
   100% { opacity: 0; transform: translateY(-10px); }
 }
 
+/* Where the next ring is, when it is not on screen. */
+#ring-pointer {
+  position: absolute; left: 0; top: 0;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  transform: translate(-50%, -50%);
+  will-change: transform;
+}
+#ring-pointer[hidden] { display: none; }
+#ring-pointer svg {
+  width: 26px; height: 26px; fill: var(--gold);
+  filter: drop-shadow(0 0 8px #ffd16688);
+}
+#ring-pointer b {
+  font: 700 11px/1 ui-monospace, Menlo, monospace; color: var(--gold);
+  font-variant-numeric: tabular-nums; text-shadow: 0 1px 8px #000c;
+}
+#ring-pointer i { font-style: normal; opacity: .6; margin-left: 1px; }
+
+/* One line of coaching at a time, first run only. */
+#coach {
+  position: absolute; left: 50%; bottom: 22%;
+  transform: translateX(-50%);
+  padding: 10px 18px; border-radius: 999px;
+  background: #070b16b8; border: 1px solid #ffffff1f;
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  font: 600 13px/1 ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: .03em; color: var(--ink);
+  white-space: nowrap;
+  animation: coach-in .3s ease-out;
+}
+#coach[hidden] { display: none; }
+#coach kbd { margin: 0 2px; }
+@keyframes coach-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to   { opacity: 1; transform: translateX(-50%); }
+}
+
 #tape {
   position: absolute; left: var(--pad); top: max(18px, env(safe-area-inset-top));
   display: flex; flex-direction: column; gap: 3px;

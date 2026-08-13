@@ -80,7 +80,42 @@ export class Fx {
     this.shadow.renderOrder = 2;
     this.group.add(this.shadow);
 
+    // Aim marker: where the next press would attach. Knowing that before you
+    // commit is the difference between timing a swing and guessing at one.
+    const ring = new THREE.RingGeometry(0.72, 1, 28);
+    this.aim = new THREE.Mesh(ring, new THREE.MeshBasicMaterial({
+      color: 0x7fe3ff, transparent: true, opacity: 0, depthWrite: false,
+      depthTest: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    }));
+    this.aim.frustumCulled = false;
+    this.aim.renderOrder = 6;
+    this.group.add(this.aim);
+    this.aimShow = 0;
+    this.aimPulse = 0;
+
     this.windAccum = 0;
+  }
+
+  /**
+   * Park the aim marker on a candidate grip. It is scaled by distance to hold a
+   * constant size on screen, so a grip 90 m away reads as clearly as one at 20.
+   */
+  setAim(grip, camera, dt, ready) {
+    this.aimShow = clamp(this.aimShow + (grip && ready ? dt * 7 : -dt * 9), 0, 1);
+    if (this.aimShow <= 0.001) { this.aim.visible = false; return; }
+    this.aim.visible = true;
+    if (grip) {
+      this.aim.position.copy(grip.point).addScaledVector(grip.normal, 0.35);
+      _pos.copy(grip.point).add(grip.normal);
+      this.aim.lookAt(_pos);
+      camera.getWorldPosition(_view);
+      const dist = this.aim.position.distanceTo(_view);
+      this.aim.userData.scale = clamp(dist * 0.028, 0.5, 3.2);
+    }
+    this.aimPulse += dt * 3.4;
+    const beat = 1 + Math.sin(this.aimPulse) * 0.07;
+    this.aim.scale.setScalar((this.aim.userData.scale || 1) * beat * this.aimShow);
+    this.aim.material.opacity = 0.75 * this.aimShow;
   }
 
   spawn(pos, vel, opts = {}) {

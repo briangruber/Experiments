@@ -167,7 +167,7 @@ export class Player {
 
       if (score > bestScore) {
         bestScore = score;
-        best = { point: hit.point.clone(), distance: hit.distance, score };
+        best = { point: hit.point.clone(), normal: hit.normal.clone(), distance: hit.distance, score };
       }
     }
     return best;
@@ -229,8 +229,23 @@ export class Player {
     return true;
   }
 
+  /**
+   * How good a release this is, 0..1. A swing converts to distance when you let
+   * go at the bottom of the arc, moving fast and just starting to rise — let go
+   * early and you drop, late and you have already spent the speed climbing.
+   */
+  releaseQuality() {
+    if (!this.web.active) return 0;
+    const rising = clamp((this.vel.y + 4) / 12, 0, 1);       // best just past the bottom
+    const late = 1 - smoothstep(14, 30, this.vel.y);
+    const fast = smoothstep(18, 42, this.speed);
+    return rising * late * fast;
+  }
+
   release() {
     if (!this.web.active) return;
+    const quality = this.releaseQuality();
+    if (quality > 0.55) this.events.push(quality > 0.82 ? 'perfect' : 'good');
     this.web.active = false;
     // A release near the bottom of the arc keeps the momentum you earned; add a
     // small kick so letting go always feels like a launch.
