@@ -314,11 +314,30 @@ function installSettingsPanel( app, presetSel, cloudSel ) {
 					const c = document.createElement( 'canvas' );
 					c.width = src.width; c.height = src.height;
 					c.getContext( '2d' ).drawImage( src, 0, 0 );
-					const a = document.createElement( 'a' );
-					a.download = 'abyssal.png';
-					a.href = c.toDataURL( 'image/png' );
-					a.click();
-					ui.toast( 'Saved' );
+
+					// Inside the claude.ai artifact viewer a plain <a download> click is
+					// inert by design - saves go through the granted downloads capability
+					// and the viewer confirms. Everywhere else the anchor still works.
+					if ( window.claude?.downloads?.save ) {
+
+						c.toBlob( ( blob ) => {
+
+							window.claude.downloads.save( { filename: 'abyssal.png', data: blob } )
+								.then( () => ui.toast( 'Saved' ) )
+								.catch( ( e ) => ui.toast( e?.code === 'declined' ? 'Cancelled'
+									: 'Save failed: ' + String( e?.message || e ).slice( 0, 60 ), 2600 ) );
+
+						}, 'image/png' );
+
+					} else {
+
+						const a = document.createElement( 'a' );
+						a.download = 'abyssal.png';
+						a.href = c.toDataURL( 'image/png' );
+						a.click();
+						ui.toast( 'Saved' );
+
+					}
 
 				} catch ( e ) {
 
