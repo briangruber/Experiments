@@ -79,7 +79,7 @@ const FINGERPRINT = `(() => {
     tick: w.tick,
     time: w.time,
     door: w.door.open,
-    dayT: num(w.dayT), phase: w.phase,
+    dayT: num(w.dayT), phase: w.phase, lastPhase: w.lastPhase,
     chicks: w.chicks.map((k) => [k.active ? 1 : 0, k.slot,
       k.mum ? w.chickens.indexOf(k.mum) : -1, k.crossing ? 1 : 0]),
     hawk: [w.hawk.active, num(w.hawk.t)],

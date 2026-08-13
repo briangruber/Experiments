@@ -34,6 +34,7 @@ export class Chicken {
     this.color = palette.body;
     this.big = !!opts.big;
     this.chick = !!opts.chick;
+    this.rooster = !!opts.rooster;
     this.scale = opts.scale ?? 1;
     this.table = this.big ? 'big' : (this.chick ? 'chick' : 'normal');
     this.rad = 0.3 * this.scale;
@@ -48,6 +49,7 @@ export class Chicken {
     this.speedMul = this.big ? 1 : (this.chick ? rand(world.rng, 1.25, 1.5) : rand(world.rng, 0.85, 1.2));
     this.weirdMul = this.big ? 1 : rand(world.rng, 0.6, 1.8);
     this.gaitRate = this.big ? 3.4 : (this.chick ? 17 : 9);   // tiny legs, high cadence
+    this.strut = 0;            // extra chest-out swagger, roosters only
 
     this.yaw = rand(world.rng, -Math.PI, Math.PI);
     this.move = null;          // { target: Vector3, speed }
@@ -148,6 +150,7 @@ export class Chicken {
     // Bertha is not a bigger chicken so much as a rounder one.
     if (big) bodyMesh.scale.set(1.22, 1.08, 1.3);
     else if (this.chick) bodyMesh.scale.set(1.05, 1.0, 1.05); // a round fluffball
+    else if (this.rooster) bodyMesh.scale.set(0.92, 0.95, 1.15); // upright, deep chest
     else bodyMesh.scale.set(0.95, 0.85, 1.2);
     bodyMesh.castShadow = true;
     this.hips.add(bodyMesh);
@@ -155,11 +158,19 @@ export class Chicken {
     // Tail: a fan of flat quills angled up and back. A chick's is a stub.
     this.tail = new THREE.Group();
     this.tail.position.set(0, 0.10, big ? -0.28 : -0.22);
-    for (let i = 0; i < (this.chick ? 2 : 5); i++) {
+    for (let i = 0; i < (this.chick ? 2 : (this.rooster ? 7 : 5)); i++) {
       const q = new THREE.Mesh(TAIL_GEO, i % 2 ? accent : body);
-      const spread = (i - 2) * 0.16;
-      q.position.set(spread * 0.22, 0.055, -0.03 - Math.abs(spread) * 0.05);
-      q.rotation.set(-0.8 - Math.abs(spread) * 0.55, spread * 0.5, spread * 0.35);
+      if (this.rooster) {
+        // Long sickle feathers arching up and over: the whole silhouette.
+        const k = i / 6;
+        q.scale.set(1.1, 1.5 + k * 1.2, 1.1);
+        q.position.set((i - 3) * 0.035, 0.1 + k * 0.12, -0.02 - k * 0.06);
+        q.rotation.set(-1.15 - k * 0.5, (i - 3) * 0.12, (i - 3) * 0.1);
+      } else {
+        const spread = (i - 2) * 0.16;
+        q.position.set(spread * 0.22, 0.055, -0.03 - Math.abs(spread) * 0.05);
+        q.rotation.set(-0.8 - Math.abs(spread) * 0.55, spread * 0.5, spread * 0.35);
+      }
       q.castShadow = true;
       this.tail.add(q);
     }
@@ -200,14 +211,33 @@ export class Chicken {
     this.head.add(beak);
 
     if (!this.chick) {
-      const wattle = new THREE.Mesh(WATTLE_GEO, RED);
-      wattle.position.set(0, -0.075, 0.085);
-      if (big) wattle.scale.set(1.7, 1.45, 1.6); // a magnificent wattle
-      this.head.add(wattle);
+      if (this.rooster) {
+        // A pair of long wattles, one either side of the beak.
+        for (const side of [-1, 1]) {
+          const w2 = new THREE.Mesh(WATTLE_GEO, RED);
+          w2.position.set(side * 0.03, -0.085, 0.075);
+          w2.scale.set(1.1, 1.9, 1.1);
+          this.head.add(w2);
+        }
+      } else {
+        const wattle = new THREE.Mesh(WATTLE_GEO, RED);
+        wattle.position.set(0, -0.075, 0.085);
+        if (big) wattle.scale.set(1.7, 1.45, 1.6); // a magnificent wattle
+        this.head.add(wattle);
+      }
     }
 
-    for (let i = 0; i < (this.chick ? 0 : 3); i++) {
+    for (let i = 0; i < (this.chick ? 0 : (this.rooster ? 5 : 3)); i++) {
       const c = new THREE.Mesh(COMB_GEO, RED);
+      if (this.rooster) {
+        // Five tall points, tallest in the middle.
+        const k = Math.sin((i / 4) * Math.PI);
+        c.scale.set(1, 1.4 + k * 1.5, 1.1);
+        c.position.set(0, 0.1 + k * 0.03, 0.06 - i * 0.036);
+        c.rotation.x = -0.12;
+        this.head.add(c);
+        continue;
+      }
       c.position.set(0, 0.095 - i * 0.008, 0.045 - i * 0.052);
       c.rotation.x = -0.25;
       // Bertha's comb has long since flopped over to one side.
@@ -505,7 +535,10 @@ export class Chicken {
     const bounce = Math.abs(Math.sin(g)) * 0.035 * amp;
     const inAir = this.hop !== null;
 
-    this.hips.position.y = lerp(0.32, 0.15, this.sit) + bounce + (inAir ? 0.05 : 0);
+    this.hips.position.y = lerp(0.32, 0.15, this.sit) + bounce + (inAir ? 0.05 : 0)
+      + this.strut * 0.05;
+    // A strutting rooster carries his chest high and his head back.
+    if (this.rooster) this.hips.rotation.x = (this.hips.rotation.x ?? 0) - this.strut * 0.12;
     this.hips.rotation.z = this.bodyRoll;
     this.hips.rotation.x = peck * 0.22 - this.flap * 0.1 - this.sit * 0.08;
 
@@ -584,6 +617,18 @@ export function spawnFlock(world, count) {
     world.scene.add(c.root);
   }
   return flock;
+}
+
+// The rooster: taller than the hens, mostly tail and comb, and convinced the
+// coop would fall apart without him.
+export function spawnRooster(world) {
+  const r = new Chicken('Reginald',
+    { body: 0x2b3a44, accent: 0xb0641e }, world, { rooster: true, scale: 1.26 });
+  r.pos.set(1.4, 0, 1.2);
+  r.prevPos.copy(r.pos);
+  r.root.position.copy(r.pos);
+  world.scene.add(r.root);
+  return r;
 }
 
 // A brood, created hidden at startup and revealed when a hen hatches them.

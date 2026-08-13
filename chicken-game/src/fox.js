@@ -155,6 +155,7 @@ export class Fox {
   terrorize(w, dt, radius) {
     for (const c of w.chickens) {
       if (!c.active || c.big) continue;
+      if (c.rooster) continue;          // he does not run; see guardFox
       if (c.zone !== (this.inCoop ? 'coop' : 'yard')) continue;
       if (c.pos.distanceTo(this.pos) > radius) continue;
       if (c.bhv.name === 'flee' || c.bhv.name === 'foxFlee') continue;

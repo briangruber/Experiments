@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { clamp, damp, mulberry32, rand, TAU } from './util.js';
 import { buildCoop, updateMotes } from './coop.js';
-import { spawnFlock, spawnBertha, spawnChicks } from './chicken.js';
+import { spawnFlock, spawnBertha, spawnChicks, spawnRooster } from './chicken.js';
 import { isResumable } from './behaviors.js';
 import { FX } from './fx.js';
 import { CoopAudio } from './audio.js';
@@ -84,7 +84,9 @@ const world = {
   eggs: [],
   nextEggId: 1,      // eggs need stable ids so "collected" is sendable
   bertha: null,
+  rooster: null,
   chicks: [],
+  lastPhase: 'day',
   coop: null,
 
   // A hen has finished sitting. Reveal the brood at her nest.
@@ -269,7 +271,9 @@ const world = {
 };
 
 world.coop = buildCoop(scene, rng);
-const flock = spawnFlock(world, 7);
+const hens = spawnFlock(world, 7);
+world.rooster = spawnRooster(world);
+const flock = [...hens, world.rooster];
 world.bertha = spawnBertha(world);
 // Chicks are created up front but hidden, so the population — and therefore
 // every index in a snapshot — is fixed for the life of the world.
@@ -767,6 +771,12 @@ function tick() {
   world.dayT = (world.dayT + TICK_DT / DAY_SECONDS) % 1;
   world.phase = phaseOf(world.dayT);
 
+  // First light. Somebody has an announcement.
+  if (world.phase !== world.lastPhase) {
+    if (world.phase === 'dawn' && world.rooster?.active) world.rooster.force('crow');
+    world.lastPhase = world.phase;
+  }
+
   // After dark, something comes sniffing round the run. Rolled once a night;
   // whether it gets anything is entirely down to whether the door was shut.
   if (world.phase === 'night') {
@@ -777,6 +787,17 @@ function tick() {
   } else if (world.phase === 'dawn') {
     world.foxTonight = false;
     world.foxNightT = 0;
+  }
+
+  // A standoff only lasts a few seconds, so waiting for the rooster to happen
+  // to re-pick during one meant he broke up a fight roughly never. He reacts
+  // to it instead.
+  const roo0 = world.rooster;
+  if (roo0?.active && !world.fox && roo0.bhv.name !== 'breakUpFight'
+      && !roo0.bhv.def?.committed && rng() < TICK_DT * 1.3) {
+    const fight = world.chickens.find(
+      (o) => o.active && o.bhv.name === 'standoff' && o.zone === roo0.zone);
+    if (fight) roo0.force('breakUpFight');
   }
 
   if (world.fox) {
@@ -791,6 +812,12 @@ function tick() {
       const near = c.pos.distanceTo(world.fox.pos) < 4.5
         || mine.some((k) => k.pos.distanceTo(world.fox.pos) < 3.5);
       if (near) c.force('defendChicks');
+    }
+    // And the rooster squares up to it on principle.
+    const roo = world.rooster;
+    if (roo?.active && roo.zone === foxZone && roo.bhv.name !== 'guardFox'
+        && roo.pos.distanceTo(world.fox.pos) < 5) {
+      roo.force('guardFox');
     }
     if (world.fox.done) world.clearFox();
   }

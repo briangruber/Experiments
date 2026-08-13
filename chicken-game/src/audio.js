@@ -78,6 +78,15 @@ export class CoopAudio {
     if (v) v.osc.frequency.exponentialRampToValueAtTime(70, v.t0 + 0.1);
   }
 
+  // Cock-a-doodle-doo, in four syllables with the long fall at the end.
+  crow() {
+    const notes = [[540, 0.2, 0], [720, 0.17, 0.21], [900, 0.3, 0.4], [680, 0.5, 0.73]];
+    for (const [f, d, at] of notes) {
+      const v = this._env('sawtooth', f, d, 0.12, at);
+      if (v) v.osc.frequency.exponentialRampToValueAtTime(f * 0.72, v.t0 + d);
+    }
+  }
+
   // A fox's bark: short, dry and unpleasant.
   foxBark() {
     const v = this._env('sawtooth', 340, 0.22, 0.16);

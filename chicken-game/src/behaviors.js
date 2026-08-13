@@ -16,6 +16,7 @@ const DOOR_OUT = new THREE.Vector3(DOOR.outside.x, 0, DOOR.outside.z);
 //            this game, so the bubble plus the pose IS the explanation —
 //            if a behavior cannot be read without one, it needs a better pose.
 //   can      optional gate; enter/update/exit drive the chicken
+//   rooster  only the rooster may pick it;  hen  only hens may
 //   tough    exempt from chicken-to-chicken collisions, for behaviors whose
 //            whole point is a crowd converging on one spot
 //   committed  cannot be interrupted by another chicken forcing a behavior on
@@ -435,6 +436,7 @@ export const BEHAVIORS = {
   },
 
   layEgg: {
+    hen: true,
     zone: 'coop', weight: 0.55, dur: [9, 12], cooldown: 55, icon: 'egg',
     enter(c, w) {
       const useNest = w.rng() < 0.55;
@@ -480,6 +482,7 @@ export const BEHAVIORS = {
 
   // The full ceremony, no egg. Comedy is timing.
   phantomEgg: {
+    hen: true,
     weight: 0.5, weird: true, dur: [8, 10], cooldown: 45, icon: 'egg',
     enter(c, w) { c.stop(); c.sitT = 1; c.bhv.data.phase = 'strain'; },
     update(c, w, dt) {
@@ -884,6 +887,7 @@ export const BEHAVIORS = {
 // A hen goes broody: takes a nest, sits on it for a good long while,
   // growls at anyone who comes near, and eventually there are chicks.
   broody: {
+    hen: true,
     // tough: a hen on her way to a nest was being bowled over by the flock
     // and, with a cooldown this long, never got another go at it.
     zone: 'coop', weight: 0.75, weird: true, tough: true, committed: true,
@@ -1140,6 +1144,151 @@ export const BEHAVIORS = {
       }
     },
     exit(c) { c.flapT = 0; c.sitT = 0; c.headYawT = 0; c.stop(); },
+  },
+
+  // ---- the rooster --------------------------------------------------------
+  // He is bigger, louder, and under the impression that the coop would not
+  // function without him.
+
+  crow: {
+    rooster: true, weight: 1.5, weird: true, dur: [5, 7], cooldown: 22, icon: 'note',
+    enter(c, w) {
+      c.stop();
+      c.bhv.data.at = rand(w.rng, 0.7, 1.5);
+      c.bhv.data.done = false;
+      c.strut = 1;
+    },
+    update(c, w, dt) {
+      const d = c.bhv.data;
+      if (!d.done) {
+        // Winds up: chest out, neck rearing further and further back.
+        c.neckPitchT = -0.3 - Math.min(0.7, c.bhv.t * 0.6);
+        if (c.bhv.t > d.at) {
+          d.done = true;
+          c.neckPitchT = -1.15;
+          c.flapT = 0.95;
+          w.audio.crow();
+          for (let i = 0; i < 3; i++) w.fx.feather(c.pos, c.color);
+          // The whole coop stops for this, which is the point of it.
+          for (const o of others(c, w)) {
+            if (w.rng() < 0.75) o.force('lookAt', { at: c });
+          }
+        }
+      } else {
+        c.flapT = Math.max(0, c.flapT - dt * 1.1);
+        if (c.bhv.t > d.at + 1.8) c.neckPitchT = 0;
+      }
+    },
+    exit(c) { c.neckPitchT = 0; c.flapT = 0; c.strut = 0; },
+  },
+
+  // He finds something worth eating and calls everyone over to it. Real
+  // roosters do this, and it is the only unselfish act in the coop.
+  tidbit: {
+    rooster: true, weight: 1.1, weird: true, dur: [9, 13], cooldown: 45, icon: 'grain',
+    can: (c, w) => others(c, w).length >= 2,
+    enter(c, w) {
+      c.bhv.data.spot = randomPoint(w, c, 0.9);
+      c.walkTo(c.bhv.data.spot, 1.1);
+    },
+    update(c, w, dt) {
+      const d = c.bhv.data;
+      if (!c.arrived(0.3)) return;
+      c.stop();
+      c.facePoint(d.spot, dt);
+      c.neckPitchT = 0.5;
+      if (w.rng() < dt * 5) { c.doPeck(); w.audio.cluck(1.45); }
+      if (!d.called) {
+        d.called = true;
+        for (const o of others(c, w)) {
+          if (w.rng() < 0.85) o.force('gawkJoin', { spot: d.spot });
+        }
+      }
+    },
+    exit(c) { c.neckPitchT = 0; },
+  },
+
+  // Two hens squaring up is his business, apparently.
+  breakUpFight: {
+    rooster: true, weight: 4.0, weird: true, dur: [5, 8], icon: 'anger',
+    can: (c, w) => w.chickens.some((o) => o.active && o.bhv.name === 'standoff' && o.zone === c.zone),
+    enter(c, w) {
+      c.bhv.data.pair = w.chickens.find(
+        (o) => o.active && o.bhv.name === 'standoff' && o.zone === c.zone) ?? null;
+      c.flapT = 0.55;
+      c.strut = 1;
+    },
+    update(c, w, dt) {
+      const p = c.bhv.data.pair;
+      if (!p) { c.bhv.t = c.bhv.dur; return; }
+      c.walkTo(p.pos, 2.3);
+      if (c.pos.distanceTo(p.pos) < 0.85) {
+        // Grab the rival first: the moment p changes behavior its data goes.
+        const rival = p.bhv.data.rival ?? null;
+        c.showEmote('anger', 2.2);
+        w.audio.squawk(0.7);
+        p.force('flee', { from: c });
+        if (rival) rival.force('flee', { from: c });
+        c.bhv.t = c.bhv.dur;
+      }
+    },
+    exit(c) { c.flapT = 0; c.strut = 0; c.stop(); },
+  },
+
+  // The perimeter will not walk itself.
+  patrol: {
+    rooster: true, weight: 1.4, dur: [12, 18], cooldown: 25, icon: 'crown',
+    enter(c, w) {
+      const b = bounds(c.zone);
+      const m = 0.9;
+      c.bhv.data.route = [
+        new THREE.Vector3(b.x0 + m, 0, b.z0 + m), new THREE.Vector3(b.x1 - m, 0, b.z0 + m),
+        new THREE.Vector3(b.x1 - m, 0, b.z1 - m), new THREE.Vector3(b.x0 + m, 0, b.z1 - m),
+      ];
+      let best = 0, bestD = 1e9;
+      c.bhv.data.route.forEach((v, i) => {
+        const d = v.distanceToSquared(c.pos);
+        if (d < bestD) { bestD = d; best = i; }
+      });
+      c.bhv.data.i = best;
+      c.strut = 1;
+      c.walkTo(c.bhv.data.route[best], 0.85);
+    },
+    update(c, w, dt) {
+      const d = c.bhv.data;
+      if (c.arrived(0.4)) {
+        d.i = (d.i + 1) % d.route.length;
+        c.walkTo(d.route[d.i], 0.85);
+      }
+      if (w.rng() < dt * 0.12) c.showEmote('crown', 1.8);
+    },
+    exit(c) { c.strut = 0; c.stop(); },
+  },
+
+  // He does not run from a fox. It rarely goes well, but he does not run.
+  guardFox: {
+    weight: 0, weird: true, chained: true, tough: true, committed: true,
+    dur: [7, 10], icon: 'anger',
+    enter(c, w) {
+      c.flapT = 1;
+      c.strut = 1;
+      w.audio.squawk(0.5);
+      w.incident();
+      c.showEmote('anger', 2.6);
+    },
+    update(c, w, dt) {
+      const fox = w.fox;
+      if (!fox || fox.done) { c.bhv.t = c.bhv.dur; return; }
+      c.walkTo(fox.pos, 3.2);
+      if (w.rng() < dt * 1.5) w.fx.feather(c.pos, c.color);
+      if (c.pos.distanceTo(fox.pos) < 1.1) {
+        fox.scared = 4;
+        for (let i = 0; i < 6; i++) w.fx.feather(c.pos, c.color);
+        w.audio.crow();
+        c.bhv.t = c.bhv.dur;
+      }
+    },
+    exit(c) { c.flapT = 0; c.strut = 0; c.stop(); },
   },
 
 // ---- the fox ------------------------------------------------------------
@@ -1732,6 +1881,8 @@ export function pickBehavior(c, w) {
   const bag = [];
   for (const [name, def] of PICKABLE[c.table] ?? PICKABLE.normal) {
     if (def.zone && def.zone !== c.zone) continue;
+    if (def.rooster && !c.rooster) continue;
+    if (def.hen && c.rooster) continue;
     if (def.can && !def.can(c, w)) continue;
     if ((c.cooldowns[name] ?? 0) > w.time) continue;
     let weight = def.weight * (def.weird ? c.weirdMul : 1) * phaseWeight(name, w, c);
@@ -1756,6 +1907,11 @@ export function forceBehavior(c, w, name, data = {}) {
   // A hen who has decided to sit on a nest is not to be talked out of it by
   // whoever fancies a chase.
   if (c.bhv.def?.committed && !OVERRIDES_COMMITMENT.has(name)) return c.bhv;
+  // Sex-specific behaviors are an invariant, not a preference: forcing is
+  // used from a dozen places and a hen must never end up crowing.
+  const want = BEHAVIORS[name];
+  if (want?.rooster && !c.rooster) return c.bhv;
+  if (want?.hen && c.rooster) return c.bhv;
   if (c.big) {
     if (name in BIG_ALIASES) name = BIG_ALIASES[name];
     if (!name) return c.bhv;      // she is unbothered
