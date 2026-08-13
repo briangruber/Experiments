@@ -446,8 +446,24 @@ function installSettingsPanel( app, presetSel, cloudSel ) {
 
 		}
 
-		if ( ev.type === 'photo' || ev.type === 'ride' || ev.type === 'view'
-			|| ev.type === 'quiet' || ev.type === 'profile' ) {
+		if ( ev.type === 'ride' ) {
+
+			app.toggleRide();
+			ui.syncAll();
+			return;
+
+		}
+
+		if ( ev.type === 'view' ) {
+
+			app.params.wrView = app.params.wrView >= 0.5 ? 0 : 1;
+			ui.syncAll();
+			ui.toast( app.params.wrView >= 0.5 ? 'Chase camera' : 'Rider view' );
+			return;
+
+		}
+
+		if ( ev.type === 'photo' || ev.type === 'quiet' || ev.type === 'profile' ) {
 
 			ui.toast( 'Not in the three.js demo yet — use the classic demo for this' );
 			return;
@@ -471,9 +487,9 @@ function installSettingsPanel( app, presetSel, cloudSel ) {
 
 	} );
 
-	// What is not ported is not offered: the craft (and its ride/view buttons)
-	// and photo accumulation are still classic-demo-only.
-	for ( const b of [ ui.rideBtn, ui.viewBtn, ui.quietBtn ] ) if ( b ) b.style.display = 'none';
+	// Ride and the view switch are live now; photo accumulation and quiet mode
+	// are still classic-demo-only, so they are not offered.
+	for ( const b of [ ui.quietBtn ] ) if ( b ) b.style.display = 'none';
 
 	ui.presetSelect.value = app.presetName ?? 'Golden Hour Swell';
 	ui.syncAll();
@@ -539,6 +555,17 @@ bootWithFallback().then( ( app ) => {
 	}
 
 	installSettingsPanel( app, sel, cloudSel );
+
+	// The same keys the classic demo uses. Ignored while a control has focus, so
+	// typing in the panel does not launch the craft.
+	window.addEventListener( 'keydown', ( e ) => {
+
+		const t = e.target;
+		if ( t && ( t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'BUTTON' ) ) return;
+		if ( e.code === 'KeyR' ) app.toggleRide();
+		else if ( e.code === 'KeyV' ) app.params.wrView = app.params.wrView >= 0.5 ? 0 : 1;
+
+	} );
 
 	// The segmented control above says what was asked for; this says what is
 	// actually running. They differ exactly when a fallback fired, and that is

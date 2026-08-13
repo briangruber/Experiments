@@ -39,6 +39,13 @@ import { CLOUD_TYPE_NAMES, applyCloudType } from '../src/cloud-types.js';
 import { createDerived, derive } from '../src/derive.js';
 import { Camera } from './camera.js';
 import { installThreeCompat } from '../src/gpu/three-compat.js';
+import { TslWake } from '../src/gpu/tsl/wake-driver.js';
+import { TslCraftProbe } from '../src/gpu/tsl/craft-probe.js';
+import {
+	buildCraftGeometry, loadCraftTexture, setCraftTexture, craftFragment,
+	uCraftWetLine,
+} from '../src/gpu/tsl/craft.js';
+import { WaveRunner } from './waverunner.js';
 
 // ---------------------------------------------------------------------------
 // Backend selection.
@@ -134,6 +141,57 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	water.setFields( { disp: sim.disp, slope: sim.slope, foam: sim.foamTex } );
 
 	const spray = new TslSpray( renderer, { size: params.sprayTexSize } );
+
+	// ---- the wave runner ----------------------------------------------------
+	// Three pieces, each verified on its own: the wake field it leaves
+	// (prototypes/wake-tsl.html), the hull mesh and its shading (craft-tsl.html)
+	// and the buoyancy probe that tells it where the water is
+	// (craft-probe-tsl.html). The rider physics is demo/waverunner.js, shared
+	// verbatim with the WebGL2 demo - it takes gl = null here and is fed the
+	// probe readings through acceptProbe() instead of running its own.
+	const wake = new TslWake( renderer, { size: params.wakeTexSize } );
+	const craftProbe = new TslCraftProbe( renderer );
+	const rider = new WaveRunner( null, null, { canvas } );
+
+	const craftMat = new THREE.NodeMaterial();
+	craftMat.name = 'abyssal.craft';
+	craftMat.fragmentNode = craftFragment();
+	craftMat.side = THREE.DoubleSide;      // the hull is not watertight everywhere
+	const craftMesh = new THREE.Mesh( buildCraftGeometry( params.craftLength ).geometry, craftMat );
+	craftMesh.frustumCulled = false;
+	craftMesh.visible = false;
+	const craftScene = new THREE.Scene();
+	craftScene.add( craftMesh );
+	loadCraftTexture( renderer ).then( setCraftTexture );
+
+	// Position the hull from the rider's state. The GL demo builds the basis
+	// straight into the matrix columns; three does the same job through the
+	// object's rotation, in the order yaw -> pitch -> roll about the craft's own
+	// axes, which is what YXZ gives.
+	craftMesh.rotation.order = 'YXZ';
+	const drawCraft = () => {
+
+		if ( ! rider.active ) return;
+		// The waterline is the SEA, not the deck: using deckY put almost the whole
+		// hull below it, which is what made the paint read as glass.
+		uCraftWetLine.value = rider.probeH[ 0 ];
+		craftMesh.position.set(
+			rider.pos[ 0 ],
+			// The hull's designed waterline sits above its keel, so the origin has
+			// to ride proud of the surface or the sea closes over the deck.
+			( rider.deckY ?? 0 ) + params.craftLift,
+			rider.pos[ 2 ],
+		);
+		craftMesh.rotation.set(
+			rider.pitchTrim + params.craftPitchOffset,
+			rider.heading + params.craftYawOffset,
+			rider.bank + rider.rollTrim + params.craftRollOffset,
+		);
+		craftMesh.scale.setScalar( params.craftScale );
+		craftMesh.visible = true;
+		renderer.render( craftScene, cam3 );
+
+	};
 	const post = new TslPost( renderer );
 
 	// The three camera the sea is rasterised through. demo/camera.js owns the
@@ -384,6 +442,16 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		cam3.updateProjectionMatrix();
 		cam3.updateMatrixWorld( true );
 
+		// The rider first: it reads last frame's probe (craft-probe.js explains why
+		// the readback is async) and moves the hull, so the wake and the water
+		// both see where the craft actually is this frame.
+		if ( rider.active ) {
+
+			rider.update( dt, params, camera.keys, camera );
+
+		}
+		wake.update( dt, params, rider );
+
 		sim.update( dt, params );
 		spray.update( dt, params, ctx, sim );
 
@@ -414,15 +482,38 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		if ( sky.depthMode !== 'behind' ) {
 
 			sky.drawBackground( params, ctx );
-			water.render( params, ctx, sim, cam3 );
+			water.render( params, ctx, sim, cam3, { wake: wake.uniforms( params, rider.active ) } );
+			drawCraft();
 
 		} else {
 
-			water.render( params, ctx, sim, cam3 );
+			water.render( params, ctx, sim, cam3, { wake: wake.uniforms( params, rider.active ) } );
+			drawCraft();
 			sky.drawBackground( params, ctx );
 
 		}
 		spray.draw( params, ctx, sim, cam3 );
+
+		// THE PROBE RUNS AFTER THE WATER, and that is not an ordering nicety.
+		// It samples the cascade displacement through the same uniforms the water
+		// binds in its own render() - dispTexture, uPatch, uCascadeCount. Fired
+		// before the water, it reads the placeholders and returns a dead flat sea:
+		// measured as every probe height exactly 0 while the craft accelerated
+		// normally, so the hull simply flew along at sea level. The reading is
+		// consumed on the NEXT frame anyway (the readback is async), so there is
+		// nothing to gain by asking earlier.
+		//
+		// Deliberately not awaited: the frame must never wait on a readback.
+		if ( rider.active ) {
+
+			craftProbe.update( rider.probePoints( params ), {
+				seaLevel: params.seaLevel,
+				craftXZ: [ rider.pos[ 0 ], rider.pos[ 2 ] ],
+				wakeProbe: params.wakeProbe,
+				wakeNear: Math.max( params.wrLength, 1 ) * 1.5,
+			} ).then( ( rows ) => rider.acceptProbe( rows ) ).catch( () => {} );
+
+		}
 
 		renderer.setRenderTarget( null );
 
@@ -445,6 +536,16 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		renderer, backend, fellBack, params, derived, camera, sim, sky, water, spray, post,
 		output,
 		onFrame: null,
+		rider, wake, craftProbe,
+		toggleRide: () => {
+
+			rider.active = ! rider.active;
+			if ( rider.active ) rider.reset( camera );
+			else craftMesh.visible = false;
+			document.body.classList.toggle( 'riding', rider.active );
+			return rider.active;
+
+		},
 		markSkyDirty: () => { skyDirty = true; },
 		// The tonemapped frame, measured at the source. drawImage readback of a
 		// presented canvas is a proven liar on macOS Chrome (the canvas-doctor

@@ -68,23 +68,31 @@ void main(){
 `;
 
 export class WaveRunner {
-  constructor(gl, blit) {
+  // gl may be null. Everything in this class except probe() and the touch
+  // binding is plain CPU physics, and the three.js demo drives exactly that,
+  // feeding the surface readings in from src/gpu/tsl/craft-probe.js instead of
+  // from the GL program below. Passing { canvas } covers the one other thing
+  // the renderer was being asked for.
+  constructor(gl, blit, opts = {}) {
     this.gl = gl;
     this.blit = blit;
+    this.canvas = opts.canvas || gl?.canvas || null;
     this.active = false;
 
-    this.tex = texture2D(gl, {
-      width: NPROBE, height: 1,
-      internalFormat: gl.RGBA32F, format: gl.RGBA, type: gl.FLOAT,
-      filter: gl.NEAREST,
-    });
-    this.fbo = framebuffer(gl, [this.tex]);
-    this.prog = program(gl, FS_VERT, PROBE_FS, 'waverunner.probe');
+    if (gl) {
+      this.tex = texture2D(gl, {
+        width: NPROBE, height: 1,
+        internalFormat: gl.RGBA32F, format: gl.RGBA, type: gl.FLOAT,
+        filter: gl.NEAREST,
+      });
+      this.fbo = framebuffer(gl, [this.tex]);
+      this.prog = program(gl, FS_VERT, PROBE_FS, 'waverunner.probe');
 
-    this.pbo = gl.createBuffer();
-    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.pbo);
-    gl.bufferData(gl.PIXEL_PACK_BUFFER, NPROBE * 4 * 4, gl.STREAM_READ);
-    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+      this.pbo = gl.createBuffer();
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.pbo);
+      gl.bufferData(gl.PIXEL_PACK_BUFFER, NPROBE * 4 * 4, gl.STREAM_READ);
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+    }
     this.readBuf = new Float32Array(NPROBE * 4);
     this.fence = null;
 
@@ -122,7 +130,8 @@ export class WaveRunner {
   // throttle and sliding left or right is the bar, so the whole mode works with
   // one thumb.
   _bindTouch() {
-    const c = this.gl.canvas;
+    const c = this.canvas;
+    if (!c) return;
     let originX = 0;
     const isTouch = (e) => e.pointerType === 'touch' || e.pointerType === 'pen';
     c.addEventListener('pointerdown', (e) => {
@@ -176,6 +185,9 @@ export class WaveRunner {
   // Probe pass + non-blocking fetch of whatever the GPU has finished.
   probe(p, ocean, wake) {
     const gl = this.gl;
+    // The three.js demo probes through TslCraftProbe and calls acceptProbe()
+    // with the result; there is no GL program here to run.
+    if (!gl) return;
     const pts = this._probePoints(p);
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
@@ -498,6 +510,35 @@ export class WaveRunner {
   // the craft writes into those fields - the hull footprint, the wake record -
   // has to be placed here rather than at pos, or it sits a metre or two away from
   // the craft and slides about as the waves go under it.
+  // Take a set of surface readings from OUTSIDE - the three.js path, where the
+  // probe is a TSL pass. Deliberately the same handling the GL readback does
+  // below: the reading becomes a TARGET rather than the value, because it lands
+  // every few frames and assigning it straight through made the camera jump
+  // each time one arrived.
+  //
+  // rows: [{ h, foam, dx }] from src/gpu/tsl/craft-probe.js, in _probePoints order.
+  acceptProbe(rows) {
+    if (!rows || rows.length < NPROBE) return;
+    for (let i = 0; i < NPROBE; i++) this.probeTarget[i] = rows[i].h;
+    if (!this._primed) {
+      for (let i = 0; i < NPROBE; i++) this.probeH[i] = this.probeTarget[i];
+      this._primed = true;
+    }
+    this.probeFoam = rows[0].foam;
+    // x - p: how far the Lagrangian coordinate the water shaders index by is
+    // from the world point the craft is at. Anything the craft writes into a
+    // field indexed that way has to be written at x, not at p.
+    this.lagTarget[0] = rows[0].dx;
+    this.lagTarget[1] = rows[0].dz;
+    if (!this._lagPrimed) {
+      this.lag[0] = this.lagTarget[0]; this.lag[1] = this.lagTarget[1];
+      this._lagPrimed = true;
+    }
+  }
+
+  // The world xz of each probe, so an external prober knows where to sample.
+  probePoints(p) { return this._probePoints(p); }
+
   surfXZ() {
     this.lagXZ[0] = this.pos[0] + this.lag[0];
     this.lagXZ[1] = this.pos[2] + this.lag[1];
