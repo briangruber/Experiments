@@ -353,6 +353,17 @@ export const defaults = {
   spCamRise: 7.0,
   spCamLook: 40.0,          // metres ahead the chase camera leads
   spFovKick: 9.0,           // degrees of lens at full speed
+  // What the sea feels. spHullPush scales the hollow the floats press into it -
+  // well under the wave runner's, because a floatplane is light and its floats
+  // are narrow, and the first cut of this ran at 1.6x the ski's and heaved the
+  // whole sea. spContactFade is the clearance over which that hollow fades in
+  // and out, so takeoff and touchdown are a release and a settle rather than a
+  // switch. See WHAT IS ACTUALLY TOUCHING THE WATER in demo/seaplane.js.
+  spHullPush: 0.5,
+  spContactFade: 1.8,       // m of float clearance over which contact fades
+  spHalfSpan: 0.66,         // half the wingspan, as a fraction of length
+  spWingBite: 9.0,          // m/s^2 a fully buried wingtip scrubs
+  spWingRight: 6.0,         // 1/s it rolls you back level while it bites
   spPropIdle: 12.0,         // rad/s with the lever closed - an engine still runs
   spPropRpm: 95.0,          // rad/s at full power. Past the frame rate this
                             // aliases into a slow backward crawl, which is what

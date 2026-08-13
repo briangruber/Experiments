@@ -52,6 +52,7 @@ await page.evaluate(() => { const A = window.abyssal;
 await page.evaluate(() => {
   const A = window.abyssal;
   A.__log = [];
+  A.__contact = [];
   // TIME ACCELERATION. The physics is pure CPU code, so a software rasteriser
   // at under 2 fps can still simulate a full takeoff run: after sampling, step
   // the plane several extra times at the same clamped dt the main loop uses.
@@ -81,13 +82,23 @@ await page.evaluate(() => {
       })(),
       heading: p.heading, roll: p.roll, gamma: p.gamma, throttle: p.throttle,
       surf: p.probeH[0],
+      contact: p.contact, wingCut: p.wingCut, wetness: p.wetness,
+      hullPush: A.hull.push,
       camD: Math.hypot(c.position.x - p.pos[0], c.position.z - p.pos[2]),
       rigErr: p.camRig
         ? Math.hypot(c.position.x - p.camRig[0], c.position.y - p.camRig[1], c.position.z - p.camRig[2])
         : 0,
       finite: [p.va, p.pos[0], p.pos[1], p.pos[2], p.heading, p.roll, p.gamma].every(Number.isFinite) ? 1 : 0,
     });
-    for (let i = 0; i < EXTRA; i++) p.update(1 / 20, A.params, A.camera.keys, A.camera);
+    // Contact is sampled at every PHYSICS STEP, not once per frame. The frame
+    // samples above are 10 steps apart under time acceleration, so a hull can
+    // cross the whole contact fade between two of them - the first version of
+    // this assertion read that aliasing as a one-frame snap and failed on it.
+    A.__contact.push(p.contact);
+    for (let i = 0; i < EXTRA; i++) {
+      p.update(1 / 20, A.params, A.camera.keys, A.camera);
+      A.__contact.push(p.contact);
+    }
   };
 });
 
@@ -134,12 +145,30 @@ const wet = run.filter((r) => r.air === 0);
 const taxiRun = wet.length > 1
   ? Math.hypot(wet[wet.length - 1].x - wet[0].x, wet[wet.length - 1].z - wet[0].z) : 0;
 const worstAlign = Math.min(...all.map((r) => r.align));
+// THE SEA MUST NOT SNAP. The hollow the floats press used to be a boolean -
+// full depth one frame, zero the next, at every takeoff and touchdown - which
+// is what heaved the ocean under the aircraft. Contact is continuous now, so
+// the biggest single-frame step in the hollow is the measure of it. The plane
+// crosses the boundary in both directions during this run.
+const contactSeries = await page.evaluate(() => window.abyssal.__contact.slice());
+let worstContactStep = 0;
+for (let i = 1; i < contactSeries.length; i++) {
+  worstContactStep = Math.max(worstContactStep, Math.abs(contactSeries[i] - contactSeries[i - 1]));
+}
+const maxPush = Math.max(...all.map((r) => r.hullPush));
 
 const out = {
   frames: all.length,
   taxi: { frames: run.length, liftoffFrame: takeoffIdx, vAtLiftoff: +vAtLiftoff?.toFixed(1), spTakeoff,
           groundRun: +taxiRun.toFixed(1) },
   nose: { worstAlign: +worstAlign.toFixed(4) },
+  water: {
+    maxHullPush: +maxPush.toFixed(3),
+    contactSteps: contactSeries.length,
+    worstContactStep: +worstContactStep.toFixed(3),
+    contactSpan: [+Math.min(...contactSeries).toFixed(2), +Math.max(...contactSeries).toFixed(2)],
+    maxWingCut: +Math.max(...all.map((r) => r.wingCut)).toFixed(2),
+  },
   climb: { maxAlt: +maxAlt.toFixed(1) },
   turn: {
     n: headings.length,
@@ -162,6 +191,18 @@ need(maxAlt > 8, `never climbed (max float clearance ${maxAlt.toFixed(1)} m)`);
 // cannot happen in less than a few hundred metres of water.
 need(taxiRun > 150, `covered only ${taxiRun.toFixed(1)} m of water before lifting off`);
 need(worstAlign > 0.99, `nose not along travel (worst ${worstAlign.toFixed(3)})`);
+// The hollow is shallower than the wave runner's and never steps by more than
+// a fraction of its own depth in one frame. dt is clamped to 1/20 s and the
+// contact fade is ~1.8 m, so a legitimate frame cannot cross it.
+need(maxPush < 0.45, `float hollow ${maxPush.toFixed(2)} m is too deep for a floatplane`);
+// Contact must be CONTINUOUS across the takeoff and the landing this run makes.
+// dt is clamped to 1/20 s and the fade is ~1.8 m, so even a 15 m/s departure
+// moves it by well under half.
+need(contactSeries.length > 50, 'not enough physics steps to judge continuity');
+need(Math.min(...contactSeries) < 0.1 && Math.max(...contactSeries) > 0.9,
+  'the run never crossed the waterline, so continuity was not tested');
+need(worstContactStep < 0.6,
+  `contact stepped ${worstContactStep.toFixed(2)} in one physics step - the sea will snap`);
 // Stick right = roll negative (right wing down) = heading increasing.
 need(headings.length > 3, 'no airborne frames in the turn phase');
 need(headingSwing > 0.15, `right bank did not turn right (heading moved ${headingSwing.toFixed(3)})`);

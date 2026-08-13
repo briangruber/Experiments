@@ -101,6 +101,7 @@ top and bottom band means; two near-zero bands means nothing drew.
    | Three.js examples or facade | `npm run check:examples` |
    | the wave runner (rider, craft, wake, probe, ride camera) | `npm run check:ride` |
    | the seaplane (taxi, takeoff, flight, landing) | `npm run check:fly` |
+   | what touches the water (floats, wingtip, the hollow) | `npm run check:contact` |
    | the craft's reflection in the sea | `npm run check:reflect` |
    | the frame-rate governor / anything performance | `npm run check:adapt` |
    | facade internals | `node tools/run-probe.mjs prototypes/facade-probe.html` |

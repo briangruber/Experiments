@@ -73,6 +73,13 @@ export class SeaPlane {
       surfXZ: () => this.surfXZ(),
     };
 
+    // What the water sees - see WHAT IS ACTUALLY TOUCHING THE WATER in update().
+    this.contact = 0;        // 0..1, how deep the floats are working the sea
+    this.wingCut = 0;        // metres of low wingtip below the surface
+    this.wingSide = 1;
+    this.wetness = 0;        // the greater of the two, for spray
+    this.contactPos = new Float32Array(3);
+
     this.touching = false; this.touchSteer = 0; this.touchPitch = 0;
     this._bindTouch();
   }
@@ -111,6 +118,7 @@ export class SeaPlane {
     this.alt = 2.0; this.vy = 0; this.yawRate = 0; this.steerIn = 0;
     this.impact = 0; this.shake = 0; this.speed = 0; this.speedT = 0;
     this._primed = false; this._lagPrimed = false;
+    this.contact = 0; this.wingCut = 0; this.wetness = 0;
     this.camRig = null;
     this._lastSurf = undefined;
   }
@@ -313,12 +321,62 @@ export class SeaPlane {
     this.deckY = this.pos[1];
     this._lastSurf = surf;
 
+    // ---- WHAT IS ACTUALLY TOUCHING THE WATER ------------------------------
+    //
+    // `airborne` is a boolean, and the renderer used it directly: the hull's
+    // hollow in the sea appeared and vanished in a single frame at every
+    // takeoff and every touchdown, so the water snapped up and down under the
+    // aircraft. Reported as "such a violent bouncing of the ocean". Contact is
+    // a CONTINUOUS quantity - how deep the floats are - and everything the
+    // water sees is now driven from it, so the sea closes over the floats and
+    // releases them the way it would.
+    const clear = this.pos[1] - surf - p.spCgHeight;      // float bottom above the sea
+    this.contact = clamp(1 - clear / Math.max(p.spContactFade, 0.1), 0, 1);
+
+    // A WING IN THE WATER. In a steep bank at low level the low tip reaches
+    // below the surface long before the floats do, and it should cut a line of
+    // spray rather than do nothing (or heave the whole sea). The tip's height
+    // is geometry - half a span out along the roll axis - and the sea under it
+    // is taken as the centre reading, which over the half span of a light
+    // floatplane is within the wave the probe already smooths over.
+    const halfSpan = Math.max(p.spLength, 4) * p.spHalfSpan;
+    const tipDrop = Math.abs(Math.sin(this.roll)) * halfSpan;
+    this.wingSide = this.roll > 0 ? -1 : 1;               // which tip is the low one
+    this.wingCut = Math.max(0, (surf - (this.pos[1] - tipDrop)));
+
+    if (this.wingCut > 0 && this.va > 2) {
+      // A wing dragging in water bites hard. Arcade-honest: it scrubs speed
+      // and rolls the aircraft back toward level rather than cartwheeling it,
+      // so a clumsy low pass costs you energy and a fright instead of the run.
+      const bite = clamp(this.wingCut / Math.max(halfSpan * 0.25, 0.5), 0, 1);
+      this.va = Math.max(0, this.va - bite * p.spWingBite * d);
+      this.roll = lerp(this.roll, 0, 1 - Math.exp(-bite * p.spWingRight * d));
+      this.hullLoad = Math.max(this.hullLoad, bite * 12);
+    }
+
+    // Where the water is being worked, in world space. The floats sit at the
+    // CG's xz; a cutting wingtip is half a span out to one side, and while it
+    // is cutting THAT is where the spray comes from - not from the fuselage
+    // two metres above the sea, which is where a CG-anchored plume looked like
+    // it was coming from.
+    const rx = Math.cos(this.heading), rz = Math.sin(this.heading);   // starboard
+    const cut = this.wingCut > 0 ? 1 : 0;
+    this.contactPos[0] = this.pos[0] + cut * this.wingSide * rx * halfSpan;
+    this.contactPos[1] = surf;
+    this.contactPos[2] = this.pos[2] + cut * this.wingSide * rz * halfSpan;
+    // How much water is being thrown, whatever is throwing it.
+    this.wetness = Math.max(this.contact, clamp(this.wingCut * 2.5, 0, 1));
+
     // The wake stamper's view of this vehicle.
     const fr = this.floatRig;
-    fr.active = this.active && !this.airborne;
+    // The wake follows CONTACT, not the airborne flag: a hull half out of the
+    // water cuts half a wake, and the trail it already laid should not vanish
+    // the instant the floats unstick. speedT carries the fade, because that is
+    // what wake-driver.js scales the stamp by.
+    fr.active = this.active && this.contact > 0.02;
     fr.speed = this.speed; fr.heading = this.heading; fr.airborne = this.airborne;
     fr.yawRate = this.yawRate; fr.slip = this.slip; fr.hullLoad = this.hullLoad;
-    fr.impact = this.impact; fr.speedT = this.speedT;
+    fr.impact = this.impact; fr.speedT = this.speedT * this.contact;
 
     // ---- the camera -----------------------------------------------------
     const t = performance.now() * 0.001;

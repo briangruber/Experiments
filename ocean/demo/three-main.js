@@ -686,7 +686,20 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			: [ 0, 1 ];
 		// A flying plane sheds no spray; a taxiing one sheds it exactly like a
 		// hull, because it is one.
-		const wet = veh && ! ( veh === plane && plane.airborne );
+		// HOW MUCH WATER IS BEING WORKED, not whether any is.
+		//
+		// This used to be a boolean - `airborne` inverted - so the hollow in the
+		// sea and the whole plume switched on and off in a single frame at every
+		// takeoff and touchdown, and the sea snapped with them. The seaplane now
+		// reports a continuous `wetness` (see WHAT IS ACTUALLY TOUCHING THE WATER
+		// in demo/seaplane.js), which also rises on its own when a wingtip cuts
+		// in during a low bank - a case the boolean could not express at all,
+		// because the aircraft is airborne the whole time.
+		const wet = veh ? ( veh === plane ? plane.wetness : 1 ) : 0;
+		// And WHERE it is being worked: the floats' waterline, or the wingtip
+		// that is cutting - not the CG two metres above the sea, which is where
+		// the plume used to start.
+		const wetPos = veh === plane ? plane.contactPos : null;
 
 		// The rig, in the shape every driver takes.
 		const ctx = {
@@ -704,21 +717,26 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			// simply never emit, which is what "it lost the spray it used to have"
 			// looks like from outside. Mirrors demo/main.js exactly.
 			craftPos: setA3( vCraftPos,
-				wet ? veh.pos[ 0 ] : 0,
-				wet ? ( veh.deckY ?? 0 ) : - 1e4,
-				wet ? veh.pos[ 2 ] : 0 ),
+				wet > 0.001 ? ( wetPos ? wetPos[ 0 ] : veh.pos[ 0 ] ) : 0,
+				wet > 0.001 ? ( wetPos ? wetPos[ 1 ] : ( veh.deckY ?? 0 ) ) : - 1e4,
+				wet > 0.001 ? ( wetPos ? wetPos[ 2 ] : veh.pos[ 2 ] ) : 0 ),
 			craftFwd: setA2( vCraftFwd, cf[ 0 ], cf[ 1 ] ),
 			craftRight: setA2( vCraftRight, - cf[ 1 ], cf[ 0 ] ),
-			craftSpeed: wet ? Math.abs( veh.speed ) : 0,
-			craftTurn: wet ? veh.yawRate : 0,
-			craftAmount: wet ? params.craftSprayAmount : 0,
-			craftLoad: wet ? ( veh.hullLoad ?? 0 ) : 0,
+			craftSpeed: wet > 0.001 ? Math.abs( veh.speed ) : 0,
+			craftTurn: wet > 0.001 ? veh.yawRate : 0,
+			// Scaled BY the wetness, not gated by it: the plume grows as the
+			// floats settle in and thins as they leave, and a wingtip that is
+			// barely touching throws barely any water.
+			craftAmount: wet > 0.001 ? params.craftSprayAmount * wet : 0,
+			craftLoad: wet > 0.001 ? ( veh.hullLoad ?? 0 ) * wet : 0,
 			// The vehicle's inputs and attitude, which is what the spray emitter
 			// needs to point the water anywhere sensible.
-			craftSteer: wet ? veh.steerIn : 0,
-			craftThrottle: wet ? ( veh.throttle ?? 0 ) : 0,
-			craftSlip: wet ? ( veh.slipSigned ?? 0 ) : 0,
-			craftAir: veh && veh.airborne ? 1 : 0,
+			craftSteer: wet > 0.001 ? veh.steerIn : 0,
+			craftThrottle: wet > 0.001 ? ( veh.throttle ?? 0 ) : 0,
+			craftSlip: wet > 0.001 ? ( veh.slipSigned ?? 0 ) : 0,
+			// A cutting wingtip is a hull in the water even though the aircraft
+			// is flying, so the emitter must not be told it is airborne.
+			craftAir: veh && veh.airborne && wet <= 0.001 ? 1 : 0,
 			craftImpact: veh ? veh.impact : 0,
 			// THE CRAFT'S IMAGE IN THE SEA (src/shaders/water.js). Separate from
 			// craftPos, which is parked at -1e4 whenever the hull is not working
@@ -742,11 +760,18 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		// Stamped at surfXZ(), not pos: the water shaders index by the undisplaced
 		// grid point, so a hollow written at the world position slides off the
 		// craft as the waves pass under it.
-		if ( wet ) {
+		if ( wet > 0.001 ) {
 
 			const s = veh.surfXZ();
 			hull.pos[ 0 ] = s[ 0 ]; hull.pos[ 1 ] = veh.deckY ?? 0; hull.pos[ 2 ] = s[ 1 ];
-			hull.push = params.hullPush * ( veh === plane ? 1.6 : 1 );
+			// The seaplane presses a SHALLOWER hollow than the ski, faded by how
+			// deep its floats actually are. It ran at 1.6x the ski's and switched
+			// on and off in a single frame; between them that is the sea heaving
+			// under the aircraft. A wingtip cutting gets no hollow at all - it
+			// throws spray, it does not displace the ocean.
+			hull.push = veh === plane
+				? params.hullPush * params.spHullPush * plane.contact
+				: params.hullPush;
 			// The hollow only exists once the hull is actually loading the water.
 			hull.plane = Math.min( 1, 0.35 + 0.65 * Math.abs( veh.speed ) / Math.max( params.craftPlaneFull, 1 ) );
 

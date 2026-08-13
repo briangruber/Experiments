@@ -65,7 +65,66 @@ function syncRide( app ) {
 
 	}
 
+	// Stepping aboard shows the card; stepping off takes it away immediately.
+	if ( flying && ! wasFlying ) showControlsCard( app );
+	else if ( ! flying ) hideControlsCard();
+	wasFlying = flying;
+
 	syncView( app );
+
+}
+
+// ---- the controls card ------------------------------------------------------
+//
+// Shown when you step aboard the seaplane and gone once you are flying away.
+// A hint that stays forever becomes furniture; one that leaves when you no
+// longer need it is worth reading. Two ways out, whichever comes first:
+//
+//   - you fly away: airborne AND past half rotation speed, which is the moment
+//     the controls stop being news;
+//   - a hard timeout, so it always clears even if you never take off.
+//
+// Coarse pointers get the thumb scheme instead of the keys - the desktop line
+// is a list of keys a phone does not have.
+let cardTimer = null, cardPoll = null;
+
+function showControlsCard( app ) {
+
+	const el = document.getElementById( 'controls-card' );
+	if ( ! el ) return;
+
+	const coarse = typeof window !== 'undefined'
+		&& window.matchMedia( '(pointer: coarse)' ).matches;
+	el.innerHTML = coarse
+		? 'Hold to open the <b>throttle</b> · slide <b>sideways</b> to bank · slide <b>up and down</b> to climb and dive'
+		: '<b>W</b>/<b>S</b> throttle lever · <b>A</b> <b>D</b> bank · <b>Shift</b>/<b>&#8595;</b> pull and push · <b>V</b> view · <b>F</b> to step out';
+	el.classList.add( 'show' );
+
+	clearTimeout( cardTimer );
+	clearInterval( cardPoll );
+	const hide = () => {
+
+		clearTimeout( cardTimer ); clearInterval( cardPoll );
+		cardTimer = cardPoll = null;
+		el.classList.remove( 'show' );
+
+	};
+	cardTimer = setTimeout( hide, 9000 );
+	cardPoll = setInterval( () => {
+
+		const p = app.plane;
+		if ( ! p?.active ) return hide();
+		if ( p.airborne && p.va > app.params.spTakeoff * 0.5 ) hide();
+
+	}, 300 );
+
+}
+
+function hideControlsCard() {
+
+	clearTimeout( cardTimer ); clearInterval( cardPoll );
+	cardTimer = cardPoll = null;
+	document.getElementById( 'controls-card' )?.classList.remove( 'show' );
 
 }
 
@@ -385,6 +444,10 @@ function presentedNothing( app ) {
 // docked on the right behind the Settings button. Same widgets, same schema,
 // same toasts - the difference is only in what the events drive.
 let profiling = false;
+let wasFlying = false;
+// While this is in the future, the once-a-second HUD refresh leaves the note
+// alone - see the note block in the interval below.
+let noteHoldUntil = 0;
 
 function installSettingsPanel( app, presetSel, cloudSel ) {
 
@@ -516,6 +579,7 @@ function installSettingsPanel( app, presetSel, cloudSel ) {
 			// api.profile()'s note on rasterisers disagreeing about cost.
 			if ( profiling ) return;
 			profiling = true;
+			noteHoldUntil = performance.now() + 6e5;    // held while it runs
 			setNote( 'Profiling — hold still for about half a minute…' );
 			app.profile( ( msg ) => setNote( 'Profiling — ' + msg ) ).then( ( r ) => {
 
@@ -529,11 +593,15 @@ function installSettingsPanel( app, presetSel, cloudSel ) {
 					+ ( r.trustworthy ? '' : ` · UNSTABLE (${ r.driftPct }% drift, treat as rough)` ),
 					r.trustworthy ? '' : 'err',
 				);
+				// Two minutes is long enough to read a dozen numbers off a phone
+				// and short enough that a later GPU error is not hidden forever.
+				noteHoldUntil = performance.now() + 120000;
 				ui.toast( 'Profile done — the breakdown is in the panel', 9000 );
 
 			} ).catch( ( e ) => {
 
 				profiling = false;
+				noteHoldUntil = performance.now() + 120000;
 				setNote( 'Profiling failed: ' + String( e?.message || e ), 'err' );
 
 			} );
@@ -751,7 +819,15 @@ bootWithFallback().then( ( app ) => {
 		// fallback reason keeps precedence when it exists (that path never climbs
 		// the ladder, so they cannot both apply).
 		const noteEl = document.getElementById( 'note' );
-		if ( noteEl ) {
+		// THE PROFILER OWNS THE NOTE WHILE IT HOLDS IT.
+		//
+		// This block recomputes the note once a second from the fallback/error
+		// state, and when there is nothing to say it writes the empty string -
+		// which is what wiped the profile report a second after it appeared,
+		// reported as "I clicked profile but never saw profiling information".
+		// The report is the whole point of running it, so it holds the line
+		// until it expires or another profile replaces it.
+		if ( noteEl && performance.now() > noteHoldUntil ) {
 
 			const parts = [];
 			if ( app.fallbackReason ) parts.push( app.fallbackReason );

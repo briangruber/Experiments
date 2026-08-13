@@ -99,6 +99,34 @@
      riding - the pointer query is the same one src/presets.js uses to decide
      this is a handheld. */
   #hint-touch { display: none; margin: 0; font: 400 11px/1.45 var(--sans); color: var(--haze); }
+
+  /* The controls card: what you need for the first few seconds aboard, and
+     nothing after that. Bottom centre, out of the way of both the horizon and
+     the panel; never interactive, so it cannot intercept the throttle. */
+  #controls-card {
+    position: fixed; z-index: 9;
+    left: 50%; bottom: calc(22px + env(safe-area-inset-bottom, 0px));
+    transform: translate(-50%, 6px);
+    max-width: min(30rem, calc(100vw - 32px));
+    padding: 9px 15px;
+    font: 400 12px/1.5 var(--mono);
+    color: var(--spume);
+    background: rgba(6, 13, 20, 0.82);
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    text-align: center;
+    pointer-events: none;             /* never between a thumb and the throttle */
+    opacity: 0;
+    transition: opacity .5s ease, transform .5s ease;
+  }
+  #controls-card.show { opacity: 1; transform: translate(-50%, 0); }
+  #controls-card b { color: var(--glint); font-weight: 600; }
+  @media (max-width: 520px) {
+    #controls-card { font-size: 11px; padding: 8px 12px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #controls-card { transition: opacity .2s linear; }
+  }
   @media (pointer: coarse) {
     body.riding #hint-touch, body.flying #hint-touch { display: block; }
   }
@@ -206,6 +234,11 @@
 </style>
 
 <canvas id="view"></canvas>
+
+<!-- The controls, shown for a moment when you step aboard and gone once you are
+     flying. It never takes a pointer event (see the CSS), so it cannot come
+     between a thumb and the throttle. -->
+<div id="controls-card" aria-hidden="true"></div>
 
 <div id="hud" data-collapsed="false">
   <div id="hud-head">
