@@ -424,11 +424,20 @@ export function createHud({ ctx, time } = {}) {
         const d = Math.sqrt(dx * dx + dz * dz);
         if (d >= MONSTER_RANGE) continue;
         const a = Math.atan2(dx, -dz) - headingDeg / RAD2DEG;
-        // 9 px is the pip glyph's own half-width, so a rim-pinned animal sits
-        // fully inside the dial instead of half-clipped by its edge.
-        const r = Math.min(d * MM_PPM, mmR - 9);
         const dot = mmMons[shown++];
         vis(dot, true);
+        // Size the pip by the animal. Quantised to a twentieth so a swimming
+        // creature never rewrites its own style every frame.
+        const sc = fin(pod[i] && pod[i].scale, 1);
+        const pipQ = Math.round(clamp(0.62 + sc * 0.52, 0.7, 2.6) * 20);
+        // 9 px is the pip glyph's own half-width AT UNIT SIZE, and the rim
+        // clamp has to grow with it — a great one draws at over twice that
+        // and was hanging half of herself off the edge of the dial.
+        const r = Math.min(d * MM_PPM, mmR - 9 * (pipQ / 20));
+        if (dot.__pip !== pipQ) {
+          dot.__pip = pipQ;
+          dot.style.setProperty('--sf-pip', (pipQ / 20).toFixed(2));
+        }
         // WHICH one is yours. With a pod out there, three identical red pips
         // and a lock somewhere among them told the player nothing.
         const isLocked = i === lockIdx;

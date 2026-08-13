@@ -56,6 +56,12 @@ const RANGE = 60;            // m, boat to creature, for the call-to-action
 // time — the TOO DEEP complaint wearing a new hat. Thirty covers the band
 // with room over it, and the iron carries that far (see SPEAR_DRAG).
 const DEPTH_MAX = 30;
+// Where on the animal the iron is thrown, as a fraction of the rise from her
+// centreline to the ridge of her back. A shade under 1 so the aim point is in
+// the meat rather than skimming the spine, and the SAME number the reach test
+// uses — gate and solution must agree or the button offers a throw the arc
+// cannot make.
+const BACK_AIM = 0.85;
 const COOLDOWN = 2.4;        // s between throws
 // --- the spear ---------------------------------------------------------------
 // Slow enough to WATCH. At 40 m/s the throw was over in half a second of
@@ -161,7 +167,7 @@ const REEL_MIN = 0.35;       // s, so a miss still reads as a miss
 // Barrels come off a rack, not off a rope: a fresh cask is ready almost at
 // once, because the loop the player asked for is throw, come round, throw.
 const BARREL_COOLDOWN = 1.6;
-const MAX_BARRELS = 10;      // casks the scene can draw at once
+const MAX_BARRELS = 18;      // casks the scene can draw at once
 const BARREL_ROPE = 9;       // m of line between the animal and her cask
 
 export function createHarpoon(opts = {}) {
@@ -418,7 +424,30 @@ export function createHarpoon(opts = {}) {
       return { animal: best, dist: bd };
     }
 
-    const hookable = (a, d) => !!a && d < RANGE && a.state.depth < DEPTH_MAX
+    /**
+     * How deep the throw actually has to go. NOT the animal's depth: that is
+     * her centreline, and a great one is eleven metres of body above it. The
+     * iron is thrown at her back and the strike capsule is 4.6 x scale wide,
+     * so the honest number is the ridge — depth less most of the rise to it.
+     * Without this the biggest animals in the ocean read TOO DEEP while
+     * cruising in plain sight, which is the exact complaint that moved
+     * DEPTH_MAX from 12 to 30 in the first place.
+     */
+    /** Metres from an animal's centreline up to where the iron goes in. */
+    const backOf = (a) => {
+      const rise = a && a.state && Number.isFinite(a.state.backRise)
+        ? a.state.backRise
+        : 3.42 * ((a && a.scale) || 1);
+      return rise * BACK_AIM;
+    };
+
+    const reachDepth = (a) => {
+      const s = a && a.state;
+      if (!s) return Infinity;
+      return Math.max(0, s.depth - backOf(a));
+    };
+
+    const hookable = (a, d) => !!a && d < RANGE && reachDepth(a) < DEPTH_MAX
       && a.phase !== 'breach'
       // Never during the quest's rise: hooking the primary mid-approach
       // cancels the climactic breach the whole first arc builds to, and the
@@ -481,7 +510,7 @@ export function createHarpoon(opts = {}) {
       _fwd.normalize();
       return out.set(
         p.x + _fwd.x * attachAlong,
-        p.y + 1.2 * target.scale,
+        p.y + backOf(target),
         p.z + _fwd.z * attachAlong,
       );
     }
@@ -551,7 +580,11 @@ export function createHarpoon(opts = {}) {
         // towed under skids behind the point it is tied to.
         b2.bob += dt;
         const surf = water()?.sampleHeight?.(ax2, az2, ctx.time) ?? 0;
-        const deep = Math.max(0, -(p.y + 1.2 * a.scale));
+        // The iron is in her BACK, so that is where the rope starts and what
+        // the depth is measured from. A flat 1.2 x scale put the knot four
+        // metres above a great one's centreline and eight metres inside her.
+        const backY = p.y + backOf(a);
+        const deep = Math.max(0, -backY);
         const lag = Math.min(deep * 0.55, BARREL_ROPE * 0.8);
         const bx2 = ax2 - _fwd.x * lag;
         const bz2 = az2 - _fwd.z * lag;
@@ -566,7 +599,7 @@ export function createHarpoon(opts = {}) {
         );
 
         // Her line: from the iron in her back up to the cask riding above.
-        const ay2 = p.y + 1.2 * a.scale;
+        const ay2 = backY;
         for (let k = 0; k < BARREL_SEGS; k++) {
           const seg = barrelRopes[i * BARREL_SEGS + k];
           if (!seg) break;
@@ -880,8 +913,13 @@ export function createHarpoon(opts = {}) {
         // The gate came down with the tension scale: a steady tow sits near
         // half of a much larger TMAX, and a gate of 0.4 would have meant an
         // honest sleigh ride tired her not at all.
+        // Size tells here too: a great one does not tire on the same clock as
+        // a thirty-metre animal. The rope alone will never finish one — that
+        // is what the casks are for — but leaning on it still counts, just
+        // three times more slowly.
+        const stamina = 1 / Math.max(0.5, target.scale);
         if (t01 > 0.22) {
-          strain = clamp(strain + dt * (0.005 + STRAIN_UP * t01 * (0.35 + 0.65 * oppose)), 0, 1);
+          strain = clamp(strain + dt * stamina * (0.005 + STRAIN_UP * t01 * (0.35 + 0.65 * oppose)), 0, 1);
           loafT = Math.max(0, loafT - dt * 2);
         } else {
           // A line the player is not working sits at ~0.3 tension forever —
@@ -1069,6 +1107,10 @@ export function createHarpoon(opts = {}) {
       if (d < 1e-3) return false;
       const tFly = d / SPEAR_V;
       _a.copy(p).addScaledVector(a.velocity, tFly);
+      // Lead her, then lift onto her back — see BACK_AIM. On a great one this
+      // is nine metres of difference and it is the difference between the
+      // iron landing on the shoulders and the iron groping under her belly.
+      _a.y += backOf(a);
       const flat = Math.hypot(_a.x - _bow.x, _a.z - _bow.z);
       aimYaw = Math.atan2(_a.x - _bow.x, -(_a.z - _bow.z));
       aimPitch = clamp(
@@ -1192,6 +1234,7 @@ export function createHarpoon(opts = {}) {
       if (d < 1e-3) return;
       const tFly = d / SPEAR_V;
       _a.copy(p).addScaledVector(locked.velocity, tFly);
+      _a.y += backOf(locked);
       const flat = Math.hypot(_a.x - _bow.x, _a.z - _bow.z);
       const wantYaw = Math.atan2(_a.x - _bow.x, -(_a.z - _bow.z));
       const wantPitch = Math.atan2((_a.y - _bow.y) + 0.5 * SPEAR_G * tFly * tFly, flat);
@@ -1403,7 +1446,7 @@ export function createHarpoon(opts = {}) {
         // which turns "where did my button go" into "wait for the rise".
         state.nearDeep = !state.available && idle && !busy && cooldown <= 0
           && !!near.animal && near.dist < RANGE
-          && near.animal.state.depth >= DEPTH_MAX;
+          && reachDepth(near.animal) >= DEPTH_MAX;
       } else {
         state.available = false;
         state.nearDeep = false;

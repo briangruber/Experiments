@@ -140,14 +140,26 @@ const DEEP_FLOOR = -24;
 // column, not a visibility flag — nothing here is ever hidden or revealed.
 const POD = [
   // x     z      scale band          circuit  stretch rate    speed
-  // The speeds nearly doubled and the circuit rates with them. A blue whale
-  // cruises at 5 m/s and sprints past 10; these are bigger than that and were
-  // ambling at 3.4, which read exactly as the player put it — "they should
-  // swim fast and not just sit around for long".
-  { x: 140, z: -300, s: 1.00, d0: 13.5, d1: 24.5, r: 96, k: 1.25, u: 0.055, v: 7.4 },  // -30.8  the quest's animal
-  { x: -20, z: -380, s: 0.88, d0: 14.0, d1: 18.0, r: 84, k: 1.30, u: 0.048, v: 6.6 },  // -33    due north, over the drop
-  { x: -250, z: -290, s: 1.15, d0: 20.0, d1: 24.0, r: 108, k: 1.15, u: 0.036, v: 6.2 }, // -31.5  the north-west deep
-  { x: 90, z: -520, s: 1.08, d0: 26.0, d1: 30.0, r: 124, k: 1.20, u: 0.062, v: 8.6 },  // -42    the one you have to go and find
+  //
+  // SIZE IS BOUNDED BY THE SEA, not by taste. An animal needs 13.5 x scale
+  // metres of water under her before the shallow bail-out starts dragging her
+  // outward, and this ocean bottoms out at 59 m (measured: flat at -59.2 from
+  // about 800 m out to the far field). That caps the biggest thing that can
+  // swim here at scale 4.3 or so. The great ones below sit at 3.2 and 3.6 —
+  // roughly three and a half times the length of the old largest and, since
+  // the tow term goes with the square of scale (harpoon.js), ten to thirteen
+  // times its resistance on the rope: 9 casks to float one rather than 4, and
+  // a mass term that makes the skiff's rope a formality.
+  { x: 140, z: -300, s: 1.00, d0: 13.5, d1: 24.5, r: 96, k: 1.25, u: 0.055, v: 7.4 },  // the quest's animal
+  { x: -20, z: -380, s: 0.88, d0: 14.0, d1: 18.0, r: 84, k: 1.30, u: 0.048, v: 6.6 },  // due north, over the drop
+  // THE GREAT ONES, third and fourth on purpose: the pod is trimmed from the
+  // END for weaker hardware, so a phone that only gets three animals still
+  // gets the largest thing in the ocean, and the fourth slot — everything but
+  // the very lowest tier — gets both of them.
+  { x: -700, z: -640, s: 3.60, d0: 24.0, d1: 36.0, r: 170, k: 1.08, u: 0.016, v: 5.8 }, // out where the floor stops dropping
+  { x: 620, z: -520, s: 3.20, d0: 22.0, d1: 34.0, r: 150, k: 1.10, u: 0.020, v: 6.4 },  // the eastern deep
+  { x: -250, z: -290, s: 1.15, d0: 20.0, d1: 24.0, r: 108, k: 1.15, u: 0.036, v: 6.2 }, // the north-west deep
+  { x: 90, z: -520, s: 1.08, d0: 26.0, d1: 30.0, r: 124, k: 1.20, u: 0.062, v: 8.6 },  // the one you have to go and find
 ];
 
 // The sounding — the reward for driving out to where one of them lives, and the
@@ -303,6 +315,14 @@ const PROF = [
   [0.955, 0.190, 0.400, -0.94],
   [1.000, 0.030, 0.260, -1.02],
 ];
+
+// The tallest point of the body above its own origin, per metre of scale:
+// max(yc + halfH) over PROF, which is the ridge across the shoulders at
+// t = 0.30. The harpoon gates and aims on THIS, not on the centreline —
+// a great one swimming with her spine at thirty metres still has her back
+// at nineteen, and refusing that throw as "too deep" is a lie the player
+// can see straight through.
+const BACK_RISE = 3.42;
 
 const _prof = [0, 0, 0];
 
@@ -977,12 +997,14 @@ export function createMonster(opts = {}) {
 
   // ---- how many ----------------------------------------------------------
   // The house ramp, `lerpI` in splash.js:122, branching on the geometry BUDGET
-  // and never on a tier name. geometry 1.00 -> 4, 0.68 -> 3, 0.50 -> 2,
-  // 0.42 -> 2. Never fewer than two: one is what there was before the player
-  // asked for more.
+  // and never on a tier name. geometry 1.00 -> 6, 0.68 -> 4, 0.50 -> 3,
+  // 0.42 -> 3. Never fewer than three, and the table is ordered so those three
+  // include a great one (see POD).
   const podCount = Math.min(
     POD.length,
-    Math.round(2 + 2 * clamp((geoBudget - 0.42) / 0.58, 0, 1)),
+    // A bigger animal is the SAME geometry with a bigger matrix — the whole
+    // pod shares one buffer — so raising this cap costs draws, not detail.
+    Math.round(3 + 3 * clamp((geoBudget - 0.42) / 0.58, 0, 1)),
   );
 
   const podGeos = [];
@@ -1220,10 +1242,14 @@ export function createMonster(opts = {}) {
     const velocity = new THREE.Vector3(0, 0, -spec.v);
     const desired = new THREE.Vector3();
 
+    const backRise = BACK_RISE * scale;
+
     const state = {
       position,
       heading: 0,
       depth: Math.max(0, -position.y),
+      backRise,
+      backDepth: Math.max(0, -position.y - backRise),
       distance: 260,
       surfaced: 0,
       phase: 'cruise',
@@ -1279,7 +1305,7 @@ export function createMonster(opts = {}) {
     // cannot dive is a leviathan you have beaten. Bigger animals need more of
     // them, which is the whole progression the player asked for.
     let barrels = 0;
-    const barrelsNeeded = Math.max(3, Math.round(scale * 3.6));
+    const barrelsNeeded = Math.max(3, Math.round(2 + scale * 2.2));
     /** She works the casks loose and goes back to being a leviathan. */
     function shedBarrelsInternal() { barrels = 0; state.barrels = 0; }
 
@@ -1821,8 +1847,13 @@ export function createMonster(opts = {}) {
         if (position.y < lim) { position.y = lim; if (velocity.y < 0) velocity.y *= 0.2; }
         // The casks raise her ceiling as well as pushing her toward it: fully
         // barrelled she rides with her back out of the water, which is the
-        // whole point of putting them in her.
-        const ceilNow = ceiling + Math.min(barrels / barrelsNeeded, 1) * (ceiling * -0.82);
+        // whole point of putting them in her. The float height is measured
+        // from her OWN back, not from a flat fraction of the ceiling — the
+        // old 0.82 gave every animal the same centreline and so stood a great
+        // one eight metres into the air. This way each of them shows the same
+        // couple of metres of back, whatever she is.
+        const ceilFloat = 2.8 - backRise;
+        const ceilNow = ceiling + (ceilFloat - ceiling) * Math.min(barrels / barrelsNeeded, 1);
         if (position.y > ceilNow) { position.y = ceilNow; if (velocity.y > 0) velocity.y *= 0.2; }
         lastY = position.y;
       }
@@ -1833,6 +1864,7 @@ export function createMonster(opts = {}) {
       // ---- exported state ------------------------------------------------
       state.heading = Math.atan2(velocity.x, -velocity.z);
       state.depth = Math.max(0, -position.y);
+      state.backDepth = Math.max(0, state.depth - backRise);
       state.distance = Math.hypot(position.x - bx, position.z - bz);
       // 0 while it is anywhere near its cruising ceiling, 1 once the head and
       // shoulders are clear — the HUD reads this to decide it has been sighted.

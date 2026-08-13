@@ -287,17 +287,23 @@
 /* The claimed animal: amber instead of red, a ring around it, and a slow
    pulse so the eye finds it among the pod without having to count. */
 .sf-mm-locked svg { fill: #ffc86b !important; }
-.sf-mm-locked::after { content: ''; position: absolute; left: -13px; top: -13px;
-  width: 26px; height: 26px; border-radius: 50%;
+.sf-mm-locked::after { content: ''; position: absolute;
+  left: calc(-13px * var(--sf-pip, 1)); top: calc(-13px * var(--sf-pip, 1));
+  width: calc(26px * var(--sf-pip, 1)); height: calc(26px * var(--sf-pip, 1));
+  border-radius: 50%;
   border: 1.5px solid rgba(255,200,107,.9);
   animation: sf-mm-lockpulse 1.8s ease-in-out infinite; }
 @keyframes sf-mm-lockpulse {
   0%, 100% { transform: scale(1); opacity: .95; }
   50% { transform: scale(1.18); opacity: .5; }
 }
+/* --sf-pip carries the animal's own size, written by hud.js. A great
+   leviathan draws two and a half times the blip of a small one, which is the
+   only way to tell from the radar what you are steering toward. */
 .sf-mm-mon svg {
-  position: absolute; left: -9px; top: -9px;
-  width: 18px; height: 18px;
+  position: absolute;
+  left: calc(-9px * var(--sf-pip, 1)); top: calc(-9px * var(--sf-pip, 1));
+  width: calc(18px * var(--sf-pip, 1)); height: calc(18px * var(--sf-pip, 1));
   fill: var(--sf-red);
   filter: drop-shadow(0 1px 3px rgba(2, 8, 18, .8));
 }
