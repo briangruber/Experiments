@@ -82,6 +82,9 @@ const ROLL_DECAY = 0.5, SINK_DECAY = 0.45;
 // is a little over 2x, enough that a leviathan at forty metres is a target
 // rather than a smudge, and narrow enough that aiming is a deliberate act.
 const SCOPE_FOV = 26;
+// How far back down the aim ray the eye sits. Far enough that the bow reads
+// as the bottom of the frame rather than as the subject.
+const SCOPE_BACK = 5.4;
 const AIM_YAW_LIMIT = 1.25;  // rad either side of the bow; you cannot throw
                              // back over your own transom
 // You have to be able to aim DOWN at her. She swims up to twelve metres under
@@ -338,6 +341,23 @@ export function createHarpoon(opts = {}) {
       );
     }
 
+    /**
+     * THE SIGHT: where the throw is aimed from, and the only point the scope
+     * camera is ever allowed to sit behind. Above the gunwale rather than on
+     * it, because a camera at deck height fills the screen with hull — which
+     * is what the player saw: "the issue with aiming is it shows the boat
+     * mostly". Everything that reasons about the throw uses this one point,
+     * so the reticle cannot disagree with the spear.
+     */
+    function sightPoint(out) {
+      const b = ctx.boat;
+      return out.set(
+        b.position.x + b.forward.x * 2.6,
+        b.position.y + 2.2,
+        b.position.z + b.forward.z * 2.6,
+      );
+    }
+
     // The line is made fast to a towing post at the STERN, and that choice is
     // load-bearing: a rope at the bow weathervanes the nose toward the pull,
     // so the harder you throttled away the harder your own bow was dragged
@@ -474,7 +494,7 @@ export function createHarpoon(opts = {}) {
       state.tension = 0;
       state.strain = 0;
       cooldown = COOLDOWN;
-      bowPoint(spearPos);
+      sightPoint(spearPos);
       aimDir(_dir);
       spearVel.copy(_dir).multiplyScalar(SPEAR_V);
       audio?.cue?.('harpoonFire');
@@ -792,7 +812,7 @@ export function createHarpoon(opts = {}) {
       camFirst = true;
       // Start pointed at the animal, not at the horizon: the player asked to
       // aim, not to go looking. From there it is theirs to adjust.
-      bowPoint(_bow);
+      sightPoint(_bow);
       const p = near.animal.state.position;
       aimYaw = Math.atan2(p.x - _bow.x, -(p.z - _bow.z));
       const flat = Math.hypot(p.x - _bow.x, p.z - _bow.z);
@@ -890,7 +910,7 @@ export function createHarpoon(opts = {}) {
      */
     function assistAim(dt) {
       if (!locked || !locked.state) return;
-      bowPoint(_bow);
+      sightPoint(_bow);
       const p = locked.state.position;
       const d = _bow.distanceTo(p);
       if (d < 1e-3) return;
@@ -911,7 +931,7 @@ export function createHarpoon(opts = {}) {
     }
 
     function evaluateAim() {
-      bowPoint(_bow);
+      sightPoint(_bow);
       aimDir(_aimDir);
       let best = Infinity;
       let bestDist = 0;
@@ -934,17 +954,25 @@ export function createHarpoon(opts = {}) {
 
     // --- the cameras --------------------------------------------------------------
 
-    /** Down the shaft: eye just behind the bow, scoped along the aim. */
+    /**
+     * Down the shaft. The eye sits on the BACK-EXTENSION of the aim ray, in
+     * full three dimensions — so aiming down automatically lifts the camera
+     * up and over the bow instead of burying it in the foredeck, and the view
+     * direction IS the throw direction, which is what makes a crosshair at
+     * screen centre an honest promise. The old rig pinned the eye to a fixed
+     * height and looked from a different point than it aimed from: the hull
+     * filled the frame and the reticle lied by a couple of degrees.
+     */
     function aimCamera(dt) {
-      const b = ctx.boat;
-      bowPoint(_bow);
+      sightPoint(_bow);
       aimDir(_aimDir);
-      _camPos.set(
-        _bow.x - _aimDir.x * 3.6, _bow.y + 1.55, _bow.z - _aimDir.z * 3.6,
-      );
+      _camPos.copy(_bow).addScaledVector(_aimDir, -SCOPE_BACK);
       const surf = water()?.sampleHeight?.(_camPos.x, _camPos.z, ctx.time) ?? 0;
-      _camPos.y = Math.max(_camPos.y, surf + 0.9);
-      _camLook.copy(_bow).addScaledVector(_aimDir, 40);
+      // Never through the sea surface. Raising the eye costs a little of the
+      // ray-alignment, so it only happens when the alternative is a view from
+      // underwater.
+      _camPos.y = Math.max(_camPos.y, surf + 1.0);
+      _camLook.copy(_camPos).addScaledVector(_aimDir, 45);
       applyCamera(dt, SCOPE_FOV, 9);
     }
 
@@ -1219,7 +1247,7 @@ export function createHarpoon(opts = {}) {
         aimAtNearest() {
           const near = nearestAnimal();
           if (!near.animal) return false;
-          bowPoint(_bow);
+          sightPoint(_bow);
           const p = near.animal.state.position;
           // Lead the animal exactly the way the old auto-throw did, so a
           // scripted shot still lands: aim where the spine WILL be.
