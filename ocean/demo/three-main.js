@@ -153,6 +153,12 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	const craftProbe = new TslCraftProbe( renderer );
 	const rider = new WaveRunner( null, null, { canvas } );
 
+	// Scratch, so the per-frame ctx does not allocate.
+	const vCraftPos = new THREE.Vector3();
+	const vCraftFwd = new THREE.Vector2();
+	const vCraftRight = new THREE.Vector2();
+	const hull = { pos: new Float32Array( 3 ), fwd: new Float32Array( 2 ), push: 0, plane: 0 };
+
 	const craftMat = new THREE.NodeMaterial();
 	craftMat.name = 'abyssal.craft';
 	craftMat.fragmentNode = craftFragment();
@@ -182,9 +188,21 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			( rider.deckY ?? 0 ) + params.craftLift,
 			rider.pos[ 2 ],
 		);
+		// THE YAW IS -heading, AND craftYawOffset CARRIES A PI THIS PATH DOES NOT
+		// NEED.
+		//
+		// The renderer's convention is forward = (sin h, -cos h). three's Y
+		// rotation takes the model's own bow (-Z) to (-sin t, -cos t), so t = -h
+		// points the bow where the craft is going. craftYawOffset defaults to PI
+		// because demo/craft.js builds its basis into the matrix columns by hand
+		// and needs the half turn there; adding it here as well is a half turn too
+		// many. Measured, with the craft in a steady turn: bow (0.403, 0.915)
+		// against travel (-0.403, -0.915) - an alignment of -0.9998, exactly
+		// backwards. Subtracting the PI keeps the slider meaningful (moving it
+		// still rotates the model) while the default lands at -h.
 		craftMesh.rotation.set(
 			rider.pitchTrim + params.craftPitchOffset,
-			rider.heading + params.craftYawOffset,
+			params.craftYawOffset - Math.PI - rider.heading,
 			rider.bank + rider.rollTrim + params.craftRollOffset,
 		);
 		craftMesh.scale.setScalar( params.craftScale );
@@ -417,6 +435,12 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 
 		derive( params, derived );
 
+		// Forward in the convention the whole renderer uses: heading 0 looks down
+		// -Z, so forward is (sin, -cos).
+		const cf = rider.active
+			? [ Math.sin( rider.heading ), - Math.cos( rider.heading ) ]
+			: [ 0, 1 ];
+
 		// The rig, in the shape every driver takes.
 		const ctx = {
 			camPos: camera.pos,
@@ -428,8 +452,50 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			moonDir: derived.moonDir,
 			windVec3: derived.windVec3,
 			time,
+			// THE CRAFT'S STATE. The spray emitter reads all of this - without it
+			// the rooster tail, the wall of water off a carve and the impact burst
+			// simply never emit, which is what "it lost the spray it used to have"
+			// looks like from outside. Mirrors demo/main.js exactly.
+			craftPos: rider.active
+				? vCraftPos.set( rider.pos[ 0 ], rider.deckY ?? 0, rider.pos[ 2 ] )
+				: vCraftPos.set( 0, - 1e4, 0 ),
+			craftFwd: vCraftFwd.set( cf[ 0 ], cf[ 1 ] ),
+			craftRight: vCraftRight.set( - cf[ 1 ], cf[ 0 ] ),
+			craftSpeed: rider.active ? Math.abs( rider.speed ) : 0,
+			craftTurn: rider.active ? rider.yawRate : 0,
+			craftAmount: rider.active ? params.craftSprayAmount : 0,
+			craftLoad: rider.active ? ( rider.hullLoad ?? 0 ) : 0,
+			// The rider's inputs and the hull's attitude, which is what the spray
+			// emitter needs to point the water anywhere sensible.
+			craftSteer: rider.active ? rider.steerIn : 0,
+			craftThrottle: rider.active ? ( rider.throttle ?? 0 ) : 0,
+			craftSlip: rider.active ? ( rider.slipSigned ?? 0 ) : 0,
+			craftAir: rider.active && rider.airborne ? 1 : 0,
+			craftImpact: rider.active ? rider.impact : 0,
 		};
 
+		// The hull's own hollow and bow wave, which the water VERTEX stage reads.
+		// Stamped at surfXZ(), not pos: the water shaders index by the undisplaced
+		// grid point, so a hollow written at the world position slides off the
+		// craft as the waves pass under it.
+		if ( rider.active ) {
+
+			const s = rider.surfXZ();
+			hull.pos[ 0 ] = s[ 0 ]; hull.pos[ 1 ] = rider.deckY ?? 0; hull.pos[ 2 ] = s[ 1 ];
+			hull.push = params.hullPush;
+			// The hollow only exists once the hull is actually loading the water.
+			hull.plane = Math.min( 1, 0.35 + 0.65 * Math.abs( rider.speed ) / Math.max( params.craftPlaneFull, 1 ) );
+
+		} else {
+
+			hull.pos[ 0 ] = 0; hull.pos[ 1 ] = - 1e4; hull.pos[ 2 ] = 0;
+			hull.push = 0;
+			hull.plane = 0;
+
+		}
+		hull.fwd[ 0 ] = cf[ 0 ]; hull.fwd[ 1 ] = cf[ 1 ];
+
+		api.ctx = ctx;      // the rig the drivers got this frame; verification reads it
 		cam3.position.set( camera.pos[ 0 ], camera.pos[ 1 ], camera.pos[ 2 ] );
 		cam3.lookAt(
 			camera.pos[ 0 ] + camera.fwd[ 0 ],
@@ -482,12 +548,12 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		if ( sky.depthMode !== 'behind' ) {
 
 			sky.drawBackground( params, ctx );
-			water.render( params, ctx, sim, cam3, { wake: wake.uniforms( params, rider.active ) } );
+			water.render( params, ctx, sim, cam3, { wake: wake.uniforms( params, rider.active ), hull } );
 			drawCraft();
 
 		} else {
 
-			water.render( params, ctx, sim, cam3, { wake: wake.uniforms( params, rider.active ) } );
+			water.render( params, ctx, sim, cam3, { wake: wake.uniforms( params, rider.active ), hull } );
 			drawCraft();
 			sky.drawBackground( params, ctx );
 
@@ -536,7 +602,7 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		renderer, backend, fellBack, params, derived, camera, sim, sky, water, spray, post,
 		output,
 		onFrame: null,
-		rider, wake, craftProbe,
+		rider, wake, craftProbe, craftMesh, hull,
 		toggleRide: () => {
 
 			rider.active = ! rider.active;
