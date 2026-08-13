@@ -14,21 +14,24 @@
 // ---------------------------------------------------------------------------
 // THREE THINGS THIS PASS GETS RIGHT AND A NAIVE PORT WOULD NOT
 //
-// 1. THE PASS COORDINATE IS glScreenUV(), NOT uv().
+// 1. THE PASS COORDINATE IS uv(), AND IT WAS MEASURED, NOT REASONED.
 //
 //    The wake is read back by WORLD position: wakeAt() maps a world point to
-//    uv = (p - origin)/extent + 0.5 and samples. That is an absolute mapping,
-//    so this pass's uv -> world mapping has to be the exact inverse of it, in
-//    the same orientation the GLSL produces. glScreenUV() is this repo's
-//    gl_FragCoord-derived vUv equivalent (./sky-background.js); uv() is the
-//    QuadGeometry attribute and is NOT the same orientation. Getting this wrong
-//    mirrors the entire wake through the track - which looks almost right,
-//    since a Kelvin wedge is very nearly symmetric, and is why it is called out
-//    here rather than left to the reader.
+//    uv = (p - origin)/extent + 0.5 and samples. What this pass needs is to
+//    write the texel that same expression will later fetch.
 //
-//    (The ocean sim indexes in uv() and is correct to: its field is read back
-//    in the SAME index space it was written in, so only self-consistency
-//    matters there. The wake's read is absolute. Different rule, same repo.)
+//    The first version used glScreenUV(), this repo's gl_FragCoord-derived vUv
+//    equivalent, on the reasoning that the GLSL's vUv is what the reference
+//    uses - and a probe that rendered all three candidate coordinates into a
+//    target AGREED that glScreenUV matches FS_VERT's convention. The field
+//    still came out wrong: 2282 records against the reference's 1575.
+//    prototypes/wake-tsl.html settles it empirically, and uv() gives 1575
+//    exactly with the lateral distributions matching to 0.057 m.
+//
+//    The lesson is in the assertions rather than the answer: record COUNT and
+//    record CONTENT are orientation-independent, and no amount of flipping
+//    turns 2282 into 1575. Trust those over any argument about conventions,
+//    this one included.
 //
 // 2. NO .or() IN A select(). The GLSL stamps a texel when it is abeam AND
 //    (the record is empty OR this passage came closer). A boolean .or() feeding
