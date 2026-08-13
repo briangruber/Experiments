@@ -78,6 +78,14 @@ export class CoopAudio {
     if (v) v.osc.frequency.exponentialRampToValueAtTime(70, v.t0 + 0.1);
   }
 
+  // A fox's bark: short, dry and unpleasant.
+  foxBark() {
+    const v = this._env('sawtooth', 340, 0.22, 0.16);
+    if (!v) return;
+    v.osc.frequency.exponentialRampToValueAtTime(150, v.t0 + 0.18);
+    this._env('square', 260, 0.14, 0.08, 0.26);
+  }
+
   // ---- Big Bertha: everything an octave down and twice as long -----------
 
   snore(gain = 1) {

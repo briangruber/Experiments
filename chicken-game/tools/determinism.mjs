@@ -65,6 +65,8 @@ const SCRIPT = [
   { at: 2700, type: 'worm', payload: { x: 1.6, z: 9.2 } },
   { at: 3400, type: 'hawk', payload: {} },
   { at: 3900, type: 'seeds', payload: { x: -1.5, z: 8.4 } },
+  { at: 2900, type: 'fox', payload: {} },
+  { at: 3600, type: 'shoo', payload: {} },
 ];
 
 // Deep fingerprint of everything the simulation owns. Full precision: the
@@ -81,6 +83,9 @@ const FINGERPRINT = `(() => {
     chicks: w.chicks.map((k) => [k.active ? 1 : 0, k.slot,
       k.mum ? w.chickens.indexOf(k.mum) : -1, k.crossing ? 1 : 0]),
     hawk: [w.hawk.active, num(w.hawk.t)],
+    fox: w.fox ? [w.fox.phase, num(w.fox.pos.x), num(w.fox.pos.z), num(w.fox.yaw),
+      num(w.fox.t), num(w.fox.life), !!w.fox.carrying, num(w.fox.scared)] : 0,
+    foxTonight: [w.foxTonight, num(w.foxNightT)],
     worm: w.worm ? [num(w.worm.pos.x), num(w.worm.pos.z), w.worm.taken, num(w.worm.age ?? 0)] : 0,
     watchers: w.watchers.map((x) => [x.id, num(x.pos.x), num(x.pos.y), num(x.pos.z)]),
     eggs: w.eggs.map((e) => [e.userData.id, e.position.x, e.position.z,

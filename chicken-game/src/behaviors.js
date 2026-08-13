@@ -1142,6 +1142,59 @@ export const BEHAVIORS = {
     exit(c) { c.flapT = 0; c.sitT = 0; c.headYawT = 0; c.stop(); },
   },
 
+// ---- the fox ------------------------------------------------------------
+
+  foxFlee: {
+    weight: 0, weird: true, chained: true, tough: true, dur: [6, 10], icon: 'bang',
+    enter(c, w) {
+      c.comeDown();
+      c.frozen = false;
+      c.flapT = 1;
+      w.audio.squawk(rand(w.rng, 0.7, 1.4));
+      w.incident();
+    },
+    update(c, w, dt) {
+      const fox = c.bhv.data.from ?? w.fox;
+      if (w.rng() < dt * 2.2) w.fx.feather(c.pos, c.color);
+      if (!fox) {
+        if (c.arrived(0.5)) c.walkTo(randomPoint(w, c), 3.0);
+        return;
+      }
+      const away = c.pos.clone().sub(fox.pos);
+      away.y = 0;
+      if (away.lengthSq() < 0.01) away.set(1, 0, 0);
+      away.normalize().multiplyScalar(3.2).add(c.pos);
+      c.walkTo(hold(c, away), 3.2);
+    },
+    exit(c) { c.flapT = 0; c.stop(); },
+  },
+
+  // A hen with chicks does not run from a fox. She runs at it, and it works.
+  defendChicks: {
+    weight: 0, weird: true, chained: true, tough: true, committed: true,
+    dur: [6, 9], icon: 'anger',
+    enter(c, w) {
+      c.flapT = 1;
+      w.audio.squawk(0.55);
+      w.incident();
+      c.showEmote('anger', 2.6);
+    },
+    update(c, w, dt) {
+      const fox = w.fox;
+      if (!fox || fox.done) { c.bhv.t = c.bhv.dur; return; }
+      c.walkTo(fox.pos, 3.1);
+      if (c.pos.distanceTo(fox.pos) < 1.0) {
+        // Sees it off. A fox will not argue with this.
+        fox.scared = 4;
+        for (let i = 0; i < 5; i++) w.fx.feather(c.pos, c.color);
+        w.audio.squawk(0.5);
+        c.showEmote('anger', 2.4);
+        c.bhv.t = c.bhv.dur;
+      }
+    },
+    exit(c) { c.flapT = 0; c.stop(); },
+  },
+
   // ---- behaviors that revolve around the matriarch ------------------------
 
   worship: {

@@ -8,6 +8,7 @@ import { CoopAudio } from './audio.js';
 import { UI } from './ui.js';
 import { EV, EventQueue, LocalTransport, TICK_DT } from './net.js';
 import { DOOR, YARD, bounds, zoneOf } from './zones.js';
+import { Fox } from './fox.js';
 
 const params = new URLSearchParams(location.search);
 const seedParam = parseInt(params.get('seed') ?? '', 10);
@@ -115,6 +116,25 @@ const world = {
   door: { open: true },
   worm: null,                     // { pos, taken, mesh }
   hawk: { active: false, t: 0 },
+
+  // A fox comes most nights. What it gets depends on the pop-hole.
+  fox: null,
+  foxTonight: false,              // one visit per night, rolled once
+  foxNightT: 0,
+
+  summonFox() {
+    if (world.fox) return;
+    world.fox = new Fox(world);
+    world.foxTonight = true;
+    audio.foxBark();
+    world.incident();
+  },
+
+  clearFox() {
+    if (!world.fox) return;
+    world.fox.dispose();
+    world.fox = null;
+  },
 
   dropWorm(x, z) {
     if (world.worm) world.clearWorm();
@@ -436,6 +456,11 @@ canvas.addEventListener('pointerup', (e) => {
     return;
   }
 
+  if (world.fox && raycaster.intersectObject(world.fox.root, true)[0]) {
+    transport.send(EV.SHOO, {}, world.tick);
+    return;
+  }
+
   const eggHit = raycaster.intersectObjects(world.eggs)[0];
   if (eggHit) {
     transport.send(EV.COLLECT, { egg: eggHit.object.userData.id }, world.tick);
@@ -541,6 +566,16 @@ function applyEvent(e) {
       break;
     }
 
+    case EV.FOX: {
+      world.summonFox();
+      break;
+    }
+
+    case EV.SHOO: {
+      if (world.fox) { world.fox.scared = 4; audio.squawk(0.5); }
+      break;
+    }
+
     case EV.HAWK: {
       world.hawk.active = true;
       world.hawk.t = 0;
@@ -636,6 +671,10 @@ ui.onHawk = () => {
   ui.dismissHint();
   transport.send(EV.HAWK, {}, world.tick);
 };
+ui.onFox = () => {
+  ui.dismissHint();
+  transport.send(EV.FOX, {}, world.tick);
+};
 ui.setView(orbit.view);
 ui.setDoor(world.door.open);
 
@@ -728,6 +767,34 @@ function tick() {
   world.dayT = (world.dayT + TICK_DT / DAY_SECONDS) % 1;
   world.phase = phaseOf(world.dayT);
 
+  // After dark, something comes sniffing round the run. Rolled once a night;
+  // whether it gets anything is entirely down to whether the door was shut.
+  if (world.phase === 'night') {
+    world.foxNightT += TICK_DT;
+    if (!world.fox && !world.foxTonight && world.foxNightT > 5 && rng() < TICK_DT * 0.028) {
+      world.summonFox();
+    }
+  } else if (world.phase === 'dawn') {
+    world.foxTonight = false;
+    world.foxNightT = 0;
+  }
+
+  if (world.fox) {
+    world.fox.update(TICK_DT);
+    // A mother will not stand for this. She goes for it if the fox is
+    // anywhere near her or, more to the point, near any of her chicks.
+    const foxZone = world.fox.inCoop ? 'coop' : 'yard';
+    for (const c of flock) {
+      if (!c.active || c.bhv.name === 'defendChicks' || c.zone !== foxZone) continue;
+      const mine = world.chicks.filter((k) => k.active && k.mum === c);
+      if (!mine.length) continue;
+      const near = c.pos.distanceTo(world.fox.pos) < 4.5
+        || mine.some((k) => k.pos.distanceTo(world.fox.pos) < 3.5);
+      if (near) c.force('defendChicks');
+    }
+    if (world.fox.done) world.clearFox();
+  }
+
   // The hawk's pass is simulation state so every client sees the shadow in
   // the same place at the same moment.
   if (world.hawk.active) {
@@ -762,6 +829,7 @@ function tick() {
 // draws chickens interpolated between the last two ticks.
 function render(alpha, frameDt) {
   for (const c of world.chickens) c.render(alpha);
+  if (world.fox) world.fox.render(alpha);
   fx.update(frameDt, world.time);
   updateMotes(world.coop, world.time);
 
@@ -801,6 +869,7 @@ function render(alpha, frameDt) {
   sun.target.updateMatrixWorld();
 
   applyDaylight();
+  ui.setDoorWarning(world.door.open && (world.phase === 'dusk' || world.phase === 'night'));
 
   applyCamera(frameDt);
   renderer.render(scene, camera);

@@ -24,6 +24,7 @@ export class UI {
     this.onDoor = () => {};
     this.onWorm = () => {};
     this.onHawk = () => {};
+    this.onFox = () => {};
 
     this.viewBtn = document.getElementById('view');
     this.doorBtn = document.getElementById('act-door');
@@ -31,6 +32,7 @@ export class UI {
     this.doorBtn.addEventListener('click', () => this.onDoor());
     document.getElementById('act-worm').addEventListener('click', () => this.onWorm());
     document.getElementById('act-hawk').addEventListener('click', () => this.onHawk());
+    document.getElementById('act-fox').addEventListener('click', () => this.onFox());
 
     this.initFullscreen();
   }
@@ -41,6 +43,15 @@ export class UI {
     const outside = name === 'yard';
     this.viewBtn.classList.toggle('outside', outside);
     this.viewBtn.setAttribute('aria-label', outside ? 'Go back inside the coop' : 'Go outside to the run');
+  }
+
+  // Shown from dusk until dawn while the pop-hole is still open. It is the
+  // only warning the player gets, and it is the difference between a quiet
+  // night and losing an egg to a fox.
+  setDoorWarning(on) {
+    if (this._warn === on) return;
+    this._warn = on;
+    this.doorBtn.classList.toggle('warn', on);
   }
 
   setDoor(open) {

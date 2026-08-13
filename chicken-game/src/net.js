@@ -43,6 +43,8 @@ export const EV = {
   DOOR: 'door',      // { open }        open or shut the pop-hole
   WORM: 'worm',      // { x, z }        drop a worm in the yard
   HAWK: 'hawk',      // {}              a shadow crosses the run
+  FOX: 'fox',        // {}              summon a fox; at night one may come anyway
+  SHOO: 'shoo',      // {}              chase the fox off
 };
 
 // Events landing on the same tick must be applied in the same order on every
