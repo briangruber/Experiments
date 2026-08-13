@@ -384,6 +384,8 @@ function presentedNothing( app ) {
 // The classic demo's full parameter panel (demo/ui.js + demo/schema.js),
 // docked on the right behind the Settings button. Same widgets, same schema,
 // same toasts - the difference is only in what the events drive.
+let profiling = false;
+
 function installSettingsPanel( app, presetSel, cloudSel ) {
 
 	const uiRoot = document.getElementById( 'ui' );
@@ -507,7 +509,39 @@ function installSettingsPanel( app, presetSel, cloudSel ) {
 
 		}
 
-		if ( ev.type === 'photo' || ev.type === 'quiet' || ev.type === 'profile' ) {
+		if ( ev.type === 'profile' ) {
+
+			// A phone has no console, so the breakdown goes on the SCREEN. It is
+			// also the only honest way to answer "why is this slow HERE" - see
+			// api.profile()'s note on rasterisers disagreeing about cost.
+			if ( profiling ) return;
+			profiling = true;
+			setNote( 'Profiling — hold still for about half a minute…' );
+			app.profile( ( msg ) => setNote( 'Profiling — ' + msg ) ).then( ( r ) => {
+
+				profiling = false;
+				const top = r.stages.map( ( s ) => `${ s.stage } ${ s.ms.toFixed( 1 ) }ms ${ s.share }%` ).join( ' · ' );
+				setNote(
+					`${ r.frameMs.toFixed( 1 ) } ms/frame (${ r.fps } fps) at ${ r.resolution } · ${ r.backend }`
+					+ `${ r.riding ? ' · riding' : r.flying ? ' · flying' : '' }`
+					+ ` · fft ${ r.fft } · clouds ${ r.cloudSteps } · scale ${ r.renderScale }`
+					+ ` — ${ top } · other ${ r.unaccounted.toFixed( 1 ) }ms`
+					+ ( r.trustworthy ? '' : ` · UNSTABLE (${ r.driftPct }% drift, treat as rough)` ),
+					r.trustworthy ? '' : 'err',
+				);
+				ui.toast( 'Profile done — the breakdown is in the panel', 9000 );
+
+			} ).catch( ( e ) => {
+
+				profiling = false;
+				setNote( 'Profiling failed: ' + String( e?.message || e ), 'err' );
+
+			} );
+			return;
+
+		}
+
+		if ( ev.type === 'photo' || ev.type === 'quiet' ) {
 
 			ui.toast( 'Not in the three.js demo yet — use the classic demo for this' );
 			return;

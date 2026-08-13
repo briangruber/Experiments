@@ -42,6 +42,7 @@ await page.waitForFunction(() => !!window.abyssal, null, { timeout: 120000 });
 await page.evaluate(() => {
   const A = window.abyssal;
   A.applyPreset('Sheltered Water');     // calm water holds a legible image
+  A.params.adaptiveQuality = 0; A.params.fpsCap = 0;
   A.params.renderScale = 0.4; A.params.cloudSteps = 8;
   A.params.sprayOpacity = 0;            // no billboards in the diff
   A.toggleFly();

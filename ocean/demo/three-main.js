@@ -249,8 +249,11 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 
 	};
 
+	// Flipped by api.profile()'s craft ablation; nothing else touches it.
+	let drawCraftEnabled = true;
 	const drawCraft = () => {
 
+		if ( ! drawCraftEnabled ) return;
 		if ( rider.active ) {
 
 			// The waterline is the SEA, not the deck: using deckY put almost the
@@ -505,12 +508,108 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	let propAngle = 0;
 	let skyDirty = true;
 
+	// ---- the frame-rate governor ---------------------------------------------
+	//
+	// PORTED FROM demo/main.js:378-425, WHICH THIS DEMO NEVER HAD.
+	//
+	// The raw-GL demo measures itself once a second and trims quality until it
+	// reaches targetFps. The three port shipped without it, so a device sat at
+	// whatever the fixed settings happened to cost with no way out but the
+	// settings panel - reported as 19 fps on a phone. Every parameter it moves
+	// already existed and was already tuned; only the loop was missing.
+	//
+	// Three levers, spent in the order a measured frame says they are worth.
+	// PIXELS go first and furthest, because trimming them touches every stage at
+	// once. The cloud march is next. The water grid is last, because it is the
+	// only one that reallocates a buffer. Quality is given back in the reverse
+	// order, cheapest first, so it returns without immediately spending the
+	// headroom that allowed it.
+	let qAccum = 0, qFrames = 0;
+
+	// True when the frame rate is held down by the CAP rather than by the device.
+	// Without this the controller reads "we have headroom" from a frame rate the
+	// cap itself is setting, and climbs quality until it has spent exactly the
+	// power the cap was meant to save.
+	const cappedOut = ( fps ) => params.fpsCap > 0 && fps >= params.fpsCap * 0.92;
+
+	function adaptQuality( dtRaw ) {
+
+		if ( ! params.adaptiveQuality ) return;
+		qAccum += dtRaw; qFrames ++;
+		if ( qAccum < 1.0 ) return;
+		const fps = qFrames / qAccum;
+		qAccum = 0; qFrames = 0;
+		api.adaptFps = fps;
+
+		const lo = params.renderScaleMin, hi = params.renderScaleMax;
+		if ( fps < params.targetFps * 0.9 ) {
+
+			if ( params.renderScale > lo ) {
+
+				params.renderScale = Math.max( lo, params.renderScale - 0.08 );
+
+			} else if ( params.cloudStepScale > params.cloudStepMin ) {
+
+				params.cloudStepScale = Math.max( params.cloudStepMin, params.cloudStepScale - 0.15 );
+
+			} else if ( params.gridScale > params.gridScaleMin ) {
+
+				params.gridScale = Math.max( params.gridScaleMin, params.gridScale - 0.12 );
+				water.rebuildGrid( params );
+
+			}
+
+		} else if ( fps > params.targetFps * 1.25 && ! cappedOut( fps ) ) {
+
+			if ( params.gridScale < 1 ) {
+
+				params.gridScale = Math.min( 1, params.gridScale + 0.06 );
+				water.rebuildGrid( params );
+
+			} else if ( params.cloudStepScale < 1 ) {
+
+				params.cloudStepScale = Math.min( 1, params.cloudStepScale + 0.08 );
+
+			} else if ( params.renderScale < hi ) {
+
+				params.renderScale = Math.min( hi, params.renderScale + 0.04 );
+
+			}
+
+		}
+
+	}
+
+	// The duty cycle. Uncapped, this runs at the display's refresh rate and the
+	// governor above then raises quality until it is JUST missing the target, so
+	// between them they consume every watt the device will give - right for a
+	// benchmark, wrong for something you leave open on a phone. Capping has to
+	// SKIP FRAMES rather than lower quality: quality knobs trade picture for
+	// frame rate, and neither of those is what makes a device hot. Only doing
+	// less work per second does.
+	let lastPresent = 0;
+	function shouldSkip( now ) {
+
+		if ( params.fpsCap <= 0 ) return false;
+		const cap = document.hasFocus() ? params.fpsCap : Math.min( params.fpsCap, params.fpsCapIdle );
+		// A hair under the period: a cap equal to the refresh rate otherwise
+		// lands just the wrong side of every other vsync and halves the rate.
+		if ( now - lastPresent < 1000 / cap - 1.2 ) return true;
+		lastPresent = now;
+		return false;
+
+	}
+
 	function frame( now ) {
 
-		const dt = Math.min( ( now - last ) / 1000, 0.1 );
+		if ( shouldSkip( now ) ) { requestAnimationFrame( frame ); return; }
+
+		const dtRaw = ( now - last ) / 1000;
+		const dt = Math.min( dtRaw, 0.1 );
 		last = now;
 		time += dt * ( params.timeScale ?? 1 );
 
+		adaptQuality( dtRaw );
 		resize();
 		derive( params, derived );
 
@@ -852,6 +951,125 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 
 		},
 		markSkyDirty: () => { skyDirty = true; },
+
+		// ---- what does a frame actually cost, HERE? ---------------------------
+		//
+		// Ported from demo/main.js's profileSim(). Measured by ABLATION: run
+		// normally, then no-op one stage and run again. Everything else still
+		// runs against the last fields that stage wrote, so the difference is
+		// that stage and nothing else.
+		//
+		// This exists because the developer's rasteriser is not the reader's GPU,
+		// and the two disagree about WHICH stages are expensive: a software
+		// rasteriser is dominated by pass count and CPU work, a phone by fill
+		// rate and blended overdraw. Ablating on the machine that is actually
+		// slow is the only way to know - and a phone has no console, so the
+		// result comes back as a value and the caller puts it on the screen.
+		//
+		// Only stages that can be removed WITHOUT changing what the others cost
+		// belong here. The SEA is deliberately absent: it draws first and writes
+		// depth, so removing it hands every one of its pixels to the cloud march
+		// and the frame can get SLOWER.
+		profile: async ( onProgress ) => {
+
+			const saved = { cap: params.fpsCap, idle: params.fpsCapIdle, adapt: params.adaptiveQuality };
+			// The cap cannot show a saving, and the governor would spend any
+			// saving on quality instead of reporting it. Both off for the run.
+			params.fpsCap = 0; params.fpsCapIdle = 0; params.adaptiveQuality = 0;
+
+			const settle = ( ms ) => new Promise( ( r ) => setTimeout( r, ms ) );
+			const measure = ( secs ) => new Promise( ( resolve ) => {
+
+				let n = 0;
+				const prev = api.onFrame;
+				const t0 = performance.now();
+				api.onFrame = () => { n ++; prev?.(); };
+				setTimeout( () => {
+
+					api.onFrame = prev;
+					resolve( n / ( ( performance.now() - t0 ) / 1000 ) );
+
+				}, secs * 1000 );
+
+			} );
+
+			const stages = [
+				{ name: 'sim', detail: 'FFT cascades + foam',
+					off: () => { const f = sim.update; sim.update = () => {}; return () => { sim.update = f; }; } },
+				{ name: 'clouds', detail: `${ Math.round( params.cloudSteps ) } steps to 8`,
+					off: () => { const v = params.cloudSteps; params.cloudSteps = 8; return () => { params.cloudSteps = v; }; } },
+				{ name: 'spray', detail: 'GPU particles',
+					off: () => { const f = spray.draw; spray.draw = () => {}; return () => { spray.draw = f; }; } },
+				{ name: 'post', detail: 'bloom + grain',
+					off: () => {
+
+						const f = post.render;
+						post.render = ( tex, p, d, t, o ) => f.call( post, tex,
+							{ ...p, bloomIntensity: 0, grain: 0, chromatic: 0, halation: 0 }, d, t, o );
+						return () => { post.render = f; };
+
+					} },
+				{ name: 'craft', detail: 'hull + wake + probe',
+					off: () => {
+
+						const a = wake.update, b = craftProbe.update;
+						wake.update = () => {};
+						craftProbe.update = () => Promise.resolve( craftProbe.result );
+						drawCraftEnabled = false;
+						return () => { wake.update = a; craftProbe.update = b; drawCraftEnabled = true; };
+
+					} },
+			];
+
+			// WARM UP FIRST, and bracket the run with a second baseline. Measured
+			// while building this: a baseline taken six seconds after boot ran at
+			// 0.37 fps against 2.5 fps warm, because ~90 pipelines were still
+			// compiling - which made every single stage look like 84% of the
+			// frame. If the two baselines disagree, the report says so rather
+			// than quietly presenting warm-up as stage cost.
+			onProgress?.( 'warming up…' );
+			await settle( 2500 );
+			const fpsFull = await measure( 4 );
+			const msFull = 1000 / fpsFull;
+
+			const rows = [];
+			for ( const st of stages ) {
+
+				onProgress?.( `measuring ${ st.name }…` );
+				const undo = st.off();
+				await settle( 700 );
+				const ms = 1000 / await measure( 3 );
+				undo();
+				rows.push( { stage: st.name, detail: st.detail,
+					ms: + ( msFull - ms ).toFixed( 2 ),
+					share: + ( 100 * ( msFull - ms ) / msFull ).toFixed( 1 ) } );
+
+			}
+
+			onProgress?.( 'confirming…' );
+			await settle( 700 );
+			const fpsEnd = await measure( 3 );
+			const drift = Math.abs( fpsEnd - fpsFull ) / Math.max( fpsFull, 1e-6 );
+
+			params.fpsCap = saved.cap; params.fpsCapIdle = saved.idle;
+			params.adaptiveQuality = saved.adapt;
+
+			const c = renderer.domElement;
+			const report = {
+				fps: + fpsFull.toFixed( 1 ), frameMs: + msFull.toFixed( 1 ),
+				resolution: `${ c.width }x${ c.height }`,
+				backend, riding: rider.active, flying: plane.active,
+				fft: params.fftSize, cloudSteps: Math.round( params.cloudSteps * ( params.cloudStepScale ?? 1 ) ),
+				renderScale: + params.renderScale.toFixed( 2 ),
+				stages: rows.slice().sort( ( a, b ) => b.ms - a.ms ),
+				unaccounted: + ( msFull - rows.reduce( ( a, r ) => a + Math.max( 0, r.ms ), 0 ) ).toFixed( 2 ),
+				driftPct: + ( drift * 100 ).toFixed( 0 ),
+				trustworthy: drift < 0.15,
+			};
+			api.lastProfile = report;
+			return report;
+
+		},
 		// The tonemapped frame, measured at the source. drawImage readback of a
 		// presented canvas is a proven liar on macOS Chrome (the canvas-doctor
 		// page showed every canvas cycling colors while every readback said

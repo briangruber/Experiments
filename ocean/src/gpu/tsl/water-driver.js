@@ -172,6 +172,7 @@ export class TslWater {
 
 		this.scene = new THREE.Scene();
 		this.scene.add( this.mesh );
+		this._gridScale = Math.min( Math.max( p.gridScale ?? 1, 0.25 ), 1 );
 
 	}
 
@@ -223,6 +224,30 @@ export class TslWater {
 		setWaterSurfaceUniforms( p, ctx, opts.hull || NO_HULL );
 
 		this.renderer.render( this.scene, camera );
+
+	}
+
+	/**
+	 * Rebuild the radial grid at the params' current gridScale.
+	 *
+	 * The frame-rate governor's third and last lever (demo/three-main.js). It is
+	 * last because it is the only one that reallocates a buffer, so it is also
+	 * the only one that must not be called for a change too small to matter -
+	 * hence the epsilon. Returns true when it actually rebuilt.
+	 */
+	rebuildGrid( p ) {
+
+		const g = Math.min( Math.max( p.gridScale ?? 1, 0.25 ), 1 );
+		if ( Math.abs( g - this._gridScale ) < 0.02 ) return false;
+		this._gridScale = g;
+
+		const old = this.geometry;
+		const { geo, count } = buildWaterGrid( p );
+		this.geometry = geo;
+		this.vertexCount = count;
+		this.mesh.geometry = geo;
+		old.dispose();
+		return true;
 
 	}
 

@@ -715,8 +715,17 @@ const MOBILE_QUALITY = {
   gridRadial: 200,
   gridAngular: 320,
   cloudSteps: 22,
-  sprayTexSize: 96,
+  // 64x64 = 4096 parcels, down from 96x96 = 9216. Spray was the largest single
+  // stage of a riding frame under ablation, and it is the one a phone is worst
+  // at: every parcel is a big blended billboard, and blended overdraw is what a
+  // tile-based GPU pays most for. The budget is spread over the visible disc, so
+  // halving it thins the plume rather than shortening it.
+  sprayTexSize: 64,
   renderScale: 0.65,
+  // The governor may trim below this but must not climb past it. A phone that
+  // finds headroom should bank it as battery and heat, not spend it on pixels
+  // nobody can resolve on a six-inch screen.
+  renderScaleMax: 0.85,
 };
 
 export const isHandheld = () =>

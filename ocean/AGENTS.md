@@ -102,6 +102,7 @@ top and bottom band means; two near-zero bands means nothing drew.
    | the wave runner (rider, craft, wake, probe, ride camera) | `npm run check:ride` |
    | the seaplane (taxi, takeoff, flight, landing) | `npm run check:fly` |
    | the craft's reflection in the sea | `npm run check:reflect` |
+   | the frame-rate governor / anything performance | `npm run check:adapt` |
    | facade internals | `node tools/run-probe.mjs prototypes/facade-probe.html` |
    | cloud recipes | `node tools/run-probe.mjs prototypes/cloud-types.html --shot shots/clouds.png` |
    | FFT simulation | `npm run check:sim` (bit-exact golden compare) |

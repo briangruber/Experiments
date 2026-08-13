@@ -41,7 +41,13 @@ page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 
 await page.goto(`http://127.0.0.1:${server.address().port}/?backend=${BACKEND}`, { waitUntil: 'domcontentloaded' });
 await page.waitForFunction(() => !!window.abyssal, null, { timeout: 120000 });
-await page.evaluate(() => { window.abyssal.params.renderScale = 0.25; window.abyssal.params.cloudSteps = 6; });
+await page.evaluate(() => { const A = window.abyssal;
+  // A check measures a FIXED configuration. The frame-rate governor would drag
+  // renderScale back toward its floor mid-run and quietly change what is being
+  // measured - and on this rasteriser it would raise it, since the floor is
+  // above the load shed below.
+  A.params.adaptiveQuality = 0; A.params.fpsCap = 0;
+  A.params.renderScale = 0.25; A.params.cloudSteps = 6; });
 
 await page.evaluate(() => {
   const A = window.abyssal;
