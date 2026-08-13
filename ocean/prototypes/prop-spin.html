@@ -5,9 +5,16 @@
   "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
   "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js" } }</script>
 <!--
-  Four propeller angles on one strip. The blades must SWEEP - the same two
-  blades at four attitudes - while the airframe behind them does not move a
-  pixel, which is the whole claim of the baked spin weight (tools/glb.mjs).
+  Four propeller angles on one strip. The blades must SWEEP - the same blades at
+  four attitudes - while the airframe behind them does not move a pixel, which is
+  the whole claim of the baked spin weight (tools/glb.mjs).
+
+  The strip is for eyes; the two assertions below are what actually holds the
+  bake honest, because both of its failure modes were invisible in a still:
+  a bake that rotated only the two blades ABOVE the hub (the airframe hid the
+  rest, and the plane looked like it had a spinning prop), and a bake whose
+  boundary triangles stretched instead of turning (a fan of smeared triangles
+  that only appears at a non-zero angle).
 -->
 <script type="module">
 import * as THREE from 'three/webgpu';
@@ -32,5 +39,39 @@ for (let i = 0; i < 4; i++) {
   r.setViewport(i*300,0,300,300); r.setScissor(i*300,0,300,300); r.setScissorTest(true);
   await r.renderAsync(scene, cam);
 }
-window.probeResult = { allOk: true, results: [{ name: 'four prop angles', ok: true, detail: '0, 22.5, 45, 67.5 deg' }] };
+
+// ---- assertions on the baked weight itself ---------------------------------
+const pos = b.geometry.getAttribute('position');
+const spin = b.geometry.getAttribute('spin');
+const index = b.geometry.getIndex();
+const hubR = 0.42;   // the spinner, in metres at lengthM = 10 - not a blade
+
+// How many blades turn? Bin the spinning vertices outside the spinner by angle
+// about the hub axis and count the runs of occupied bins.
+const bin = new Uint8Array(72);
+for (let i = 0; i < pos.count; i++) {
+  if (spin.getX(i) < 0.5) continue;
+  const dx = pos.getX(i) - b.hub[0], dy = pos.getY(i) - b.hub[1];
+  if (Math.hypot(dx, dy) < hubR) continue;
+  bin[Math.floor(((Math.atan2(dy, dx) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2) * 72)] = 1;
+}
+let blades = 0;
+for (let k = 0; k < 72; k++) if (bin[k] && !bin[(k + 71) % 72]) blades++;
+
+// Does anything stretch? A triangle with corners on both sides of the boundary
+// does not rotate, it shears - tools/glb.mjs splits the mesh so there are none.
+let mixed = 0;
+for (let t = 0; t < index.count; t += 3) {
+  const s = (spin.getX(index.getX(t)) > 0.5 ? 1 : 0)
+    + (spin.getX(index.getX(t + 1)) > 0.5 ? 1 : 0)
+    + (spin.getX(index.getX(t + 2)) > 0.5 ? 1 : 0);
+  if (s > 0 && s < 3) mixed++;
+}
+
+const results = [
+  { name: 'four prop angles', ok: true, detail: '0, 22.5, 45, 67.5 deg' },
+  { name: 'every blade turns', ok: blades === 4, detail: `${blades} blades carry a spin weight (want 4)` },
+  { name: 'nothing stretches', ok: mixed === 0, detail: `${mixed} triangles straddle the spin boundary (want 0)` },
+];
+window.probeResult = { allOk: results.every((x) => x.ok), results };
 </script></body>

@@ -31,7 +31,7 @@ const IN = opt('in'); const OUT = opt('out'); const NAME = opt('name', 'MESH');
 const FORWARD = opt('forward', '-z');
 const TEX_SIZE = +opt('tex-size', 1024);
 const TEX_Q = +opt('tex-quality', 0.85);
-// --spin "hx,hy,hz,rCut,rMax,zMax,yFloor,seedR" bakes a per-vertex SPIN WEIGHT
+// --spin "hx,hy,hz,rCut,rMax,zMax,zThin" bakes a per-vertex SPIN WEIGHT
 // for a propeller: which vertices the renderer may rotate about the hub axis.
 // All values are in NORMALISED model units (the bounding box centred, divided
 // by the length axis), which is what the numbers below were measured in.
@@ -147,12 +147,28 @@ if (texInfo) {
 // spinner, so a fill seeded on unambiguous blade vertices and forbidden to
 // cross into the spinner (r < rCut) stops exactly at the blade roots.
 //
+// AND WHY IT IS NOT SEEDED BY HAND. The first version seeded "above the hub",
+// which quietly meant "only the two blades pointing up": this prop has four,
+// and the lower pair shares its annulus with the wing root, so no height, radius
+// or slab rule picks them out without also picking up wing. So nothing is seeded
+// by hand. The whole annulus rCut < r < rMax, |dz| < zMax is split into
+// connected components - blades cannot merge there, since they meet only through
+// the excluded spinner - and each component is then judged BY SHAPE:
+//
+//   a blade runs out along a radius (spans most of the annulus), stays narrow
+//   in angle, and is thin in z.
+//
+// Airframe that pokes into the annulus fails at least one of those: the wing
+// panel is wide in angle and long in z, the float struts barely move in radius.
+// The classification prints, so a new model's numbers can be read off the log
+// rather than guessed at.
+//
 // The hub disc itself is then added unconditionally. It is a body of revolution
 // about the spin axis, so rotating it is visually a no-op - and including it
 // moves the shear boundary off the blade root (where it would show as a twist)
 // and onto an axisymmetric surface (where it cannot show at all).
 function spinWeights(P, idx, n, spec) {
-  const [hx, hy, hz, rCut, rMax, zMax, yFloor, seedR] = spec.split(',').map(Number);
+  const [hx, hy, hz, rCut, rMax, zMax, zThin] = spec.split(',').map(Number);
   const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
   for (let i = 0; i < n; i++) for (let c = 0; c < 3; c++) {
     min[c] = Math.min(min[c], P[i * 3 + c]); max[c] = Math.max(max[c], P[i * 3 + c]);
@@ -176,41 +192,119 @@ function spinWeights(P, idx, n, spec) {
     const a = weld[idx[t]], b = weld[idx[t + 1]], c = weld[idx[t + 2]];
     adj[a].add(b); adj[a].add(c); adj[b].add(a); adj[b].add(c); adj[c].add(a); adj[c].add(b);
   }
-  const rw = new Float64Array(nw), dzw = new Float64Array(nw), yw = new Float64Array(nw);
+  const rw = new Float64Array(nw), dzw = new Float64Array(nw);
   for (let i = 0; i < n; i++) {
     const w = weld[i];
     rw[w] = Math.hypot(Q[i * 3] - hx, Q[i * 3 + 1] - hy);
     dzw[w] = Math.abs(Q[i * 3 + 2] - hz);
-    yw[w] = Q[i * 3 + 1];
   }
-  const inHub = (w) => rw[w] < rCut && dzw[w] < zMax && yw[w] > yFloor;
-  const seen = new Uint8Array(nw); const queue = [];
-  for (let w = 0; w < nw; w++) {
-    if (rw[w] > seedR && rw[w] < rMax && dzw[w] < zMax * 0.8 && yw[w] > hy + 0.025) {
-      seen[w] = 1; queue.push(w);
+  const aw = new Float64Array(nw);
+  for (let i = 0; i < n; i++) aw[weld[i]] = Math.atan2(Q[i * 3 + 1] - hy, Q[i * 3] - hx);
+  const inRing = (w) => rw[w] >= rCut && rw[w] <= rMax && dzw[w] <= zMax;
+
+  const comp = new Int32Array(nw).fill(-1);
+  const seen = new Uint8Array(nw);
+  let kept = 0;
+  for (let s = 0; s < nw; s++) {
+    if (comp[s] >= 0 || !inRing(s)) continue;
+    const q = [s]; comp[s] = 1;
+    for (let qi = 0; qi < q.length; qi++) {
+      for (const w of adj[q[qi]]) { if (comp[w] < 0 && inRing(w)) { comp[w] = 1; q.push(w); } }
     }
-  }
-  const seeds = queue.length;
-  for (let qi = 0; qi < queue.length; qi++) {
-    for (const w of adj[queue[qi]]) {
-      if (seen[w] || rw[w] < rCut || rw[w] > rMax || dzw[w] > zMax || yw[w] < yFloor) continue;
-      seen[w] = 1; queue.push(w);
+    // Angular width has to be measured on the circle, not on atan2's cut: a
+    // blade straddling -pi would otherwise read as 360 deg wide and be dropped.
+    let cx = 0, cy = 0, rMin = Infinity, rTop = 0, zLo = Infinity, zHi = -Infinity;
+    for (const w of q) {
+      cx += Math.cos(aw[w]); cy += Math.sin(aw[w]);
+      rMin = Math.min(rMin, rw[w]); rTop = Math.max(rTop, rw[w]);
+      zLo = Math.min(zLo, dzw[w]); zHi = Math.max(zHi, dzw[w]);
     }
+    const mean = Math.atan2(cy, cx);
+    let half = 0;
+    for (const w of q) {
+      let d = Math.abs(aw[w] - mean); if (d > Math.PI) d = 2 * Math.PI - d;
+      half = Math.max(half, d);
+    }
+    const span = (rTop - rMin) / (rMax - rCut);
+    const wide = half * 2 * 180 / Math.PI;
+    const thick = zHi - zLo;
+    const blade = q.length >= 8 && span > 0.5 && wide < 70 && thick < zThin;
+    console.log(`    ring part n=${String(q.length).padStart(4)} at ${String(Math.round(((mean * 180 / Math.PI) + 360) % 360)).padStart(3)} deg` +
+      ` | radial span ${span.toFixed(2)} | angular width ${wide.toFixed(0)} deg | z thickness ${thick.toFixed(3)} -> ${blade ? 'BLADE' : 'airframe'}`);
+    if (blade) { kept++; for (const w of q) seen[w] = 1; }
   }
-  for (let w = 0; w < nw; w++) if (inHub(w)) seen[w] = 1;
+  // The spinner: axisymmetric about the axis (measured r spread 0.005-0.015
+  // against a mean radius of 0.034), so rotating it is a visual no-op, and it
+  // carries the boundary off the blade roots and onto a surface where a seam
+  // cannot be seen.
+  for (let w = 0; w < nw; w++) if (rw[w] < rCut && dzw[w] < zMax) seen[w] = 1;
+
+  // Weld positions, mark ORIGINALS - and mark them a TRIANGLE at a time. The
+  // weld is a lie about identity: the wing skin has vertices sitting exactly on
+  // blade vertices, and marking every original that shares a welded position
+  // dragged one corner of a wing triangle around with the prop, which renders as
+  // a sheet the size of the wing sweeping across the nose. A triangle spins only
+  // if all three of its corners are in the blade set, and only those triangles'
+  // own original indices are marked, so a coincident wing vertex stays put.
+  const spinTri = new Uint8Array(idx.length / 3);
   const out = new Uint8Array(n);
+  for (let t = 0; t < idx.length; t += 3) {
+    if (!seen[weld[idx[t]]] || !seen[weld[idx[t + 1]]] || !seen[weld[idx[t + 2]]]) continue;
+    spinTri[t / 3] = 1;
+    out[idx[t]] = 255; out[idx[t + 1]] = 255; out[idx[t + 2]] = 255;
+  }
+
+  // SPLIT THE MESH AT THE BOUNDARY. A rigid part carved out of a connected mesh
+  // still has a ring of triangles with one corner on each side, and those do not
+  // rotate - they STRETCH, which on this asset drew a fan of smeared triangles
+  // out of the nacelle every frame the prop turned. Measured: 156 such triangles,
+  // and dropping the spinner from the set only cut them to 118, because the
+  // blades are welded to it. So the boundary vertices are duplicated: the
+  // stationary side gets its own copies, and the two sides simply come apart.
+  // The crack left behind is on the spinner, a body of revolution, where the
+  // surface it exposes is the surface it hid.
+  const newIdx = Uint16Array.from(idx);
+  const dupOf = new Map(); const dup = [];
+  for (let t = 0; t < idx.length; t += 3) {
+    if (spinTri[t / 3]) continue;
+    for (let k = 0; k < 3; k++) {
+      const v = idx[t + k];
+      if (!out[v]) continue;
+      let d = dupOf.get(v);
+      if (d === undefined) { d = n + dup.length; dup.push(v); dupOf.set(v, d); }
+      newIdx[t + k] = d;
+    }
+  }
+  if (n + dup.length > 65535) throw new Error('splitting the prop overflowed Uint16 indices');
+
+  const spin = new Uint8Array(n + dup.length);
+  spin.set(out);                      // the duplicates stay at zero: they do not spin
   let hit = 0;
-  for (let i = 0; i < n; i++) { out[i] = seen[weld[i]] ? 255 : 0; if (out[i]) hit++; }
-  console.log(`  spin: ${seeds} seeds -> ${hit} of ${n} vertices rotate (hub ${hx},${hy},${hz})`);
-  return out;
+  for (let i = 0; i < spin.length; i++) if (spin[i]) hit++;
+  console.log(`    ${dup.length} boundary vertices split so nothing stretches`);
+  console.log(`  spin: ${kept} blades -> ${hit} of ${n + dup.length} vertices rotate (hub ${hx},${hy},${hz})`);
+  return { spin, idx: newIdx, dup };
 }
 
 const b64 = (arr) => Buffer.from(arr.buffer, arr.byteOffset, arr.byteLength).toString('base64');
 let spinLine = '';
+let outPos = qpos, outNrm = qnrm, outUv = quv, outIdx = qidx, outN = n;
 if (SPIN) {
-  const w = spinWeights(P, qidx, n, SPIN);
+  const { spin, idx: splitIdx, dup } = spinWeights(P, qidx, n, SPIN);
+  // The split appended vertices; they are exact copies of the originals they
+  // were cut from, so every attribute is copied straight across.
+  outN = n + dup.length;
+  outIdx = splitIdx;
+  outPos = new Int16Array(outN * 3); outPos.set(qpos);
+  outNrm = new Int8Array(outN * 3); outNrm.set(qnrm);
+  outUv = new Uint16Array(outN * 2); outUv.set(quv);
+  for (let j = 0; j < dup.length; j++) {
+    const s = dup[j], d = n + j;
+    for (let c = 0; c < 3; c++) { outPos[d * 3 + c] = qpos[s * 3 + c]; outNrm[d * 3 + c] = qnrm[s * 3 + c]; }
+    outUv[d * 2] = quv[s * 2]; outUv[d * 2 + 1] = quv[s * 2 + 1];
+  }
   const parts = SPIN.split(',').map(Number);
-  spinLine = `  spin: '${b64(w)}',\n  spinHub: [${parts[0]}, ${parts[1]}, ${parts[2]}],\n`;
+  spinLine = `  spin: '${b64(spin)}',\n  spinHub: [${parts[0]}, ${parts[1]}, ${parts[2]}],\n`;
 }
 
 const body = `// ${NAME}: generated from ${IN.split('/').pop()} by tools/glb.mjs.
@@ -219,13 +313,13 @@ const body = `// ${NAME}: generated from ${IN.split('/').pop()} by tools/glb.mjs
 // normals Int8, UVs Uint16. Source forward axis was ${FORWARD}; rotated so the
 // nose sits at -Z, the renderer's convention for "forward".
 export const ${NAME} = {
-  verts: ${n}, tris: ${qidx.length / 3},
-  pos: '${b64(qpos)}',
-  nrm: '${b64(qnrm)}',
-  uv: '${b64(quv)}',
-  idx: '${b64(qidx)}',
+  verts: ${outN}, tris: ${outIdx.length / 3},
+  pos: '${b64(outPos)}',
+  nrm: '${b64(outNrm)}',
+  uv: '${b64(outUv)}',
+  idx: '${b64(outIdx)}',
 ${spinLine}  baseColorJpeg: '${jpegB64}',
 };
 `;
 await writeFile(OUT, body);
-console.log(`${OUT}: ${n} verts, ${qidx.length / 3} tris, jpeg ${Math.round(jpegB64.length * 0.75 / 1024)} kB, module ${Math.round(body.length / 1024)} kB`);
+console.log(`${OUT}: ${outN} verts, ${outIdx.length / 3} tris, jpeg ${Math.round(jpegB64.length * 0.75 / 1024)} kB, module ${Math.round(body.length / 1024)} kB`);

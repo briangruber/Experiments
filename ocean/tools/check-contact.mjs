@@ -51,6 +51,7 @@ const sample = () => page.evaluate(() => {
     roll: +p.roll.toFixed(2), wingCut: +p.wingCut.toFixed(2), wetness: +p.wetness.toFixed(2),
     wingWet: +p.wingWet.toFixed(3), wingAt: +p.wingAt.toFixed(2),
     contact: +p.contact.toFixed(2), hullPush: +A.hull.push.toFixed(3),
+    wingOut: +p.wingOut.toFixed(2),
     craftAmount: +A.ctx.craftAmount.toFixed(2), craftAir: A.ctx.craftAir,
     // How far the emission point is from the fuselage centreline.
     offset: +Math.hypot(tip[0] - p.pos[0], tip[2] - p.pos[2]).toFixed(2),
@@ -112,8 +113,14 @@ need(banked.craftAir === 0, 'the emitter was told the craft was airborne while i
 // crossing point and the tip - never outboard of the tip, and never at the root.
 need(banked.offset > 0.1 && banked.offset < banked.halfSpan + 0.01,
   `spray came from ${banked.offset} m out; the wetted wing runs to ${banked.halfSpan} m`);
-need(Math.abs(banked.offset - banked.wingAt) < 0.01,
-  'the emission point is not the wetted run\'s midpoint');
+// ...and it sits where that midpoint actually IS: wingAt is measured along the
+// banked wing, so its offset from the fuselage on the water is its horizontal
+// projection. Asserting against wingAt itself is what let the plume sit a third
+// of the wetted run outboard of the water it was supposed to be cutting.
+need(Math.abs(banked.offset - banked.wingOut) < 0.01,
+  `the emission point (${banked.offset} m out) is not the wetted run's midpoint (${banked.wingOut} m)`);
+need(banked.wingOut < banked.wingAt,
+  `the plume was not projected onto the water: ${banked.wingOut} m out for a station ${banked.wingAt} m along a banked wing`);
 need(banked.hullPush < 0.02, `a cutting wing pressed a ${banked.hullPush} m hollow - it should displace nothing`);
 need(errs.length === 0, 'page errors: ' + errs.slice(0, 2).join(' | '));
 console.log(fails.length ? 'WING FAILED\n  ' + fails.join('\n  ') : 'WING OK');

@@ -77,7 +77,8 @@ export class SeaPlane {
     this.contact = 0;        // 0..1, how deep the floats are working the sea
     this.wingCut = 0;        // mean depth of the wetted part of the low wing, m
     this.wingWet = 0;        // fraction of the low half-wing under the surface
-    this.wingAt = 0;         // metres out from the root where the spray comes from
+    this.wingAt = 0;         // station along the low wing the spray comes from, m
+    this.wingOut = 0;        // that station's HORIZONTAL offset from the fuselage, m
     this.wingSide = 1;
     this.wetness = 0;        // the greater of the two, for spray
     this.contactPos = new Float32Array(3);
@@ -120,7 +121,7 @@ export class SeaPlane {
     this.alt = 2.0; this.vy = 0; this.yawRate = 0; this.steerIn = 0;
     this.impact = 0; this.shake = 0; this.speed = 0; this.speedT = 0;
     this._primed = false; this._lagPrimed = false;
-    this.contact = 0; this.wingCut = 0; this.wingWet = 0; this.wingAt = 0; this.wetness = 0;
+    this.contact = 0; this.wingCut = 0; this.wingWet = 0; this.wingAt = 0; this.wingOut = 0; this.wetness = 0;
     this.camRig = null;
     this._lastSurf = undefined;
   }
@@ -384,11 +385,24 @@ export class SeaPlane {
     // is cutting THAT is where the spray comes from - not from the fuselage
     // two metres above the sea, which is where a CG-anchored plume looked like
     // it was coming from.
+    // wingAt is a station measured ALONG THE WING, and the wing is banked: on
+    // the water's own plane that station stands only wingAt*cos(roll) out from
+    // the fuselage. Using the along-wing distance as the offset threw the plume
+    // outboard of the cut by a third of it at the banks where the wing is
+    // actually in - "the spray is off to the side a bit". At the bank that puts
+    // a tip in, this is the difference between a plume on the wing and a plume
+    // beyond it.
     const rx = Math.cos(this.heading), rz = Math.sin(this.heading);   // starboard
-    const at = this.wingWet > 0 ? this.wingAt : 0;
+    const out = this.wingWet > 0 ? this.wingAt * Math.abs(Math.cos(this.roll)) : 0;
+    // And when the floats are in as well, the water is being worked in two
+    // places at once. The plume belongs at the heavier of them, not always at
+    // the wing: on a banked touchdown the floats carry most of it.
+    const wWing = clamp(this.wingWet * 1.8, 0, 1);
+    const at = out * (wWing / Math.max(wWing + this.contact, 1e-4));
     this.contactPos[0] = this.pos[0] + this.wingSide * rx * at;
     this.contactPos[1] = surf;
     this.contactPos[2] = this.pos[2] + this.wingSide * rz * at;
+    this.wingOut = at;                                    // for tools/check-contact.mjs
     // How much water is being thrown, whatever is throwing it. The wing's share
     // follows the WETTED LENGTH: a tip kissing the surface throws a wisp, half a
     // wing buried throws a wall.
