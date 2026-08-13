@@ -893,9 +893,12 @@ export function createHarpoon(opts = {}) {
       towT -= dt;
       if (towT <= 0) {
         const left = target.barrelsNeeded - target.barrels;
+        // Silent when that cask finished her: plantBarrel has already said
+        // the only thing worth saying, and "the line pays out" stepping on
+        // "she is up!" is the anticlimax of the whole hunt.
         release(left > 0
           ? 'The line pays out - she has the barrel. ' + left + ' more.'
-          : 'The line pays out.');
+          : '');
         return;
       }
 
