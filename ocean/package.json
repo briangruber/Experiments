@@ -16,7 +16,10 @@
   "files": [
     "src",
     "docs",
+    "examples",
     "README.md",
+    "AGENTS.md",
+    "llms.txt",
     "LICENSE"
   ],
   "keywords": [

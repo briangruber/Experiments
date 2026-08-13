@@ -4,7 +4,7 @@
 
 **A photoreal ocean and sky for Three.js — WebGPU with WebGL2 fallback.**
 
-[Three.js guide](docs/threejs.md) · [Parameters](docs/parameters.md) · [How it works](docs/physics.md) · [Examples](examples/)
+[Three.js guide](docs/threejs.md) · [Parameters](docs/parameters.md) · [How it works](docs/physics.md) · [Examples](examples/) · [For coding agents](AGENTS.md)
 
 ![The sea at golden hour](docs/images/hero.png)
 
