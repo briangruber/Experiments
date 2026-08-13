@@ -93,10 +93,21 @@ and very bad at a flat wall, and stretching a generated counter across the shop
 smeared its cash register into a puddle — so the counter is joinery and the
 generated one became a back counter where its detail is visible.
 
-**The game owns position, the clips own the pose.** Tripo's baked animations
-carry a little residual root travel; `bunny.js` strips horizontal motion from
-the root track and keeps the vertical bounce, so walking is driven by the game
-and the hop still looks like a hop.
+**The game owns position, the clips own the pose.** The baked animations travel
+— half a metre of forward creep per walk cycle — so `deroot` in `bunny.js`
+subtracts the straight-line drift from every translation track, leaving the
+oscillation. Travel is drift and bounce is oscillation, so de-trending removes
+one and keeps the other, and as a side effect the last frame lands back on the
+first, which is what makes the clip loop without a seam.
+
+Doing it per-axis was the mistake worth recording. These rigs are Z-up: the
+forward travel rides on the root's local *Y*, and the bob on local X and Z. An
+earlier version assumed Y was vertical, so it deleted the bounce and kept the
+travel — the rabbit crept forward inside its own group all cycle and snapped
+back at the loop, which is exactly what "walking, then teleporting backwards"
+looks like. Which axis a rig calls up is not something to guess, and
+de-trending all three means it never has to be guessed. `npm test` asserts, in
+world space where horizontal is unambiguous, that no clip seams or travels.
 
 **Walking speed comes out of the animation, not the other way round.** The clips
 animate in place, so there is no root travel to read a speed off. Instead

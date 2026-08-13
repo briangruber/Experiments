@@ -71,22 +71,42 @@ function measureGait(group, clip) {
 }
 
 /**
- * Remove horizontal travel from a baked clip so the rabbit stays under our
- * control, while leaving the vertical bounce that makes a hop look like a hop.
+ * Take the travel out of a baked clip, leaving the bounce, so the game can own
+ * where a rabbit is while the clip owns how it looks getting there.
+ *
+ * This subtracts the straight-line drift from every translation track rather
+ * than flattening particular axes. Which axis a rig calls "up" is not something
+ * to guess: these are Z-up, so the forward travel rides on local Y and the bob
+ * on local X and Z. An earlier version assumed Y was vertical, and so kept the
+ * half-metre of travel and deleted the bounce — the rabbit crept forward inside
+ * its own group all cycle and snapped back at the loop, which is what "walking,
+ * then teleporting backwards" looks like.
+ *
+ * De-trending is also what makes the clip loop cleanly: travel is drift and bob
+ * is oscillation, so removing the drift leaves the last frame equal to the
+ * first, and the seam goes with it.
  */
 function deroot(clip) {
   const out = clip.clone();
+
   for (const track of out.tracks) {
     if (!track.name.endsWith('.position')) continue;
-    if (!/hip|root|pelvis|armature|bone_?0|spine/i.test(track.name)) continue;
+
+    const times = track.times;
     const v = track.values;
-    const x0 = v[0];
-    const z0 = v[2];
-    for (let i = 0; i < v.length; i += 3) {
-      v[i] = x0;
-      v[i + 2] = z0;
+    const frames = times.length;
+    const span = frames > 1 ? times[frames - 1] - times[0] : 0;
+    if (span <= 0) continue;
+
+    for (let axis = 0; axis < 3; axis++) {
+      const drift = v[(frames - 1) * 3 + axis] - v[axis];
+      if (Math.abs(drift) < 1e-6) continue;
+      for (let i = 0; i < frames; i++) {
+        v[i * 3 + axis] -= (drift * (times[i] - times[0])) / span;
+      }
     }
   }
+
   return out;
 }
 

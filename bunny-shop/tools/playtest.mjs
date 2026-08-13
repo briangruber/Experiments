@@ -393,6 +393,59 @@ const results = await page.evaluate(() => {
       `${sceneBefore} -> ${fittings()}`);
   }
 
+  // --- the walk cycle does not travel ------------------------------------
+  // The clips are meant to animate in place: the game owns where a rabbit is.
+  // A clip that creeps forward inside its own group and snaps back at the loop
+  // is what "walking, then teleporting backwards" looks like, and it survived
+  // one wrong fix, so it is asserted in world space where "horizontal" is
+  // unambiguous rather than trusting an axis guess.
+  g.start();
+  step(20);
+  const walker = g.shoppers[0];
+  if (walker) {
+    const THREE = window.__THREE;
+    const lead = walker.body.root.children[0];
+    let hip = null;
+    lead.traverse((o) => {
+      if (o.isBone && /^Hip$/i.test(o.name)) hip = o;
+    });
+
+    const travel = [];
+    for (const gait of ['walk', 'run']) {
+      const clip = walker.body.actions[gait].getClip();
+
+      // No track may end anywhere other than where it started.
+      let seam = 0;
+      for (const tr of clip.tracks) {
+        if (!tr.name.endsWith('.position')) continue;
+        const v = tr.values;
+        const n = tr.getValueSize();
+        for (let k = 0; k < n; k++) seam = Math.max(seam, Math.abs(v[k] - v[v.length - n + k]));
+      }
+
+      // And the root must be in the same place on the floor at both ends.
+      const mixer = new THREE.AnimationMixer(lead);
+      const action = mixer.clipAction(clip);
+      action.play();
+      const at = (t) => {
+        mixer.setTime(t);
+        lead.updateWorldMatrix(true, true);
+        return new THREE.Vector3().setFromMatrixPosition(hip.matrixWorld);
+      };
+      const a = at(0);
+      const b = at(clip.duration * 0.999);
+      action.stop();
+      mixer.uncacheClip(clip);
+
+      travel.push({ gait, seam: +seam.toFixed(4), drift: +Math.hypot(b.x - a.x, b.z - a.z).toFixed(4) });
+    }
+
+    check('no clip has a loop seam', travel.every((t) => t.seam < 0.001),
+      travel.map((t) => `${t.gait} ${t.seam}`).join(', '));
+    check('no clip travels across the floor', travel.every((t) => t.drift < 0.02),
+      travel.map((t) => `${t.gait} ${t.drift}`).join(', '));
+  }
+
   // --- bubbles stay up long enough to read --------------------------------
   const long = 'This is a deliberately long line of dialogue with quite a lot of words in it indeed.';
   g.ui.bubble(g.shoppers[0] ?? { body: { anchor: () => ({}) }, done: false }, long, { keep: true });
