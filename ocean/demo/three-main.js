@@ -303,9 +303,25 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 
 	const resize = () => {
 
-		const dpr = Math.min( window.devicePixelRatio || 1, params.renderScale ?? 1 );
-		const w = Math.max( 8, Math.round( canvas.clientWidth * dpr ) );
-		const h = Math.max( 8, Math.round( canvas.clientHeight * dpr ) );
+		// TWO KNOBS, AND THEY MULTIPLY - demo/main.js:43-45, which this had wrong.
+		//
+		// dprCap ceilings the device pixel ratio (a Retina panel at 2 is worth
+		// paying for; a phone at 3 is not). renderScale then scales that, and is
+		// what the quality controls actually move.
+		//
+		// The port collapsed the two into `min(devicePixelRatio, renderScale)`,
+		// which is not a smaller version of the same thing - it is a different
+		// formula that silently discards the cap and uses renderScale as the
+		// ceiling. On a phone (dpr 3, mobile renderScale 0.65) it rendered at
+		// 0.65x CSS pixels where the original renders at min(3, 1.75) * 0.65 =
+		// 1.14x - barely a third of the pixels, upscaled to a 3x panel. Reported
+		// from a phone as "grainy and not as high quality", which is exactly what
+		// a 4.6x upscale looks like, film grain included: the grain is laid down
+		// at render resolution, so every grain cell got magnified with it.
+		const dpr = Math.min( window.devicePixelRatio || 1, Math.max( params.dprCap ?? 1.75, 0.5 ) );
+		const scale = params.renderScale ?? 1;
+		const w = Math.max( 8, Math.round( canvas.clientWidth * dpr * scale ) );
+		const h = Math.max( 8, Math.round( canvas.clientHeight * dpr * scale ) );
 		if ( canvas.width !== w || canvas.height !== h || ! hdr ) sizeTo( w, h );
 
 	};
