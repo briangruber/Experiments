@@ -26,6 +26,7 @@ export class UI {
     this.onHawk = () => {};
     this.onFox = () => {};
     this.onRain = () => {};
+    this.onMouse = () => {};
 
     this.viewBtn = document.getElementById('view');
     this.doorBtn = document.getElementById('act-door');
@@ -34,6 +35,7 @@ export class UI {
     document.getElementById('act-worm').addEventListener('click', () => this.onWorm());
     document.getElementById('act-hawk').addEventListener('click', () => this.onHawk());
     document.getElementById('act-fox').addEventListener('click', () => this.onFox());
+    document.getElementById('act-mouse').addEventListener('click', () => this.onMouse());
     this.rainBtn = document.getElementById('act-rain');
     this.rainBtn.addEventListener('click', () => this.onRain());
 

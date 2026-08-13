@@ -22,6 +22,9 @@ const FOOT_GEO = new THREE.BoxGeometry(0.09, 0.02, 0.13);
 const ORANGE = new THREE.MeshStandardMaterial({ color: 0xd98b2b, flatShading: true, roughness: 0.85 });
 const RED = new THREE.MeshStandardMaterial({ color: 0xc23b2e, flatShading: true, roughness: 0.85 });
 const DARK = new THREE.MeshStandardMaterial({ color: 0x1c1310, flatShading: true, roughness: 0.6 });
+// Whatever she has caught, held in the beak. Currently only ever a mouse.
+const CATCH_MAT = new THREE.MeshStandardMaterial({ color: 0x6b6259, flatShading: true, roughness: 0.9 });
+const CATCH_TAIL = new THREE.MeshStandardMaterial({ color: 0xc99a95, flatShading: true, roughness: 0.8 });
 
 function feathered(color) {
   return new THREE.MeshStandardMaterial({ color, flatShading: true, roughness: 0.95 });
@@ -323,6 +326,24 @@ export class Chicken {
   get standing() {
     if (this.big || this.chick || this.rank > this.rankOf) return 0;
     return 1 - (this.rank - 1) / Math.max(1, this.rankOf - 1);
+  }
+
+  // Something in her beak. Built the first time it is needed and then kept,
+  // since the same hen tends to be the one who catches things.
+  showCatch(on) {
+    if (!this.catchMesh) {
+      if (!on) return;
+      const m = new THREE.Mesh(new THREE.SphereGeometry(0.055, 6, 5), CATCH_MAT);
+      m.scale.set(0.8, 0.7, 1.5);
+      m.position.set(0, -0.03, 0.2);
+      const tail = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.003, 0.16, 4), CATCH_TAIL);
+      tail.rotation.x = Math.PI / 2;
+      tail.position.set(0, 0.01, -0.13);
+      m.add(tail);
+      this.head.add(m);
+      this.catchMesh = m;
+    }
+    this.catchMesh.visible = on;
   }
 
   // ---- behavior plumbing -------------------------------------------------

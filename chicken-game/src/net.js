@@ -46,6 +46,7 @@ export const EV = {
   FOX: 'fox',        // {}              summon a fox; at night one may come anyway
   SHOO: 'shoo',      // {}              chase the fox off
   RAIN: 'rain',      // { on }          start or stop the rain
+  MOUSE: 'mouse',    // {}              let a mouse into the coop
   // Picking a chicken up. HOLD streams a position while dragging (throttled
   // to ~15 Hz, the same discipline as WATCH); DROP lets go.
   HOLD: 'hold',      // { chicken, x, z }

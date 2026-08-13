@@ -52,27 +52,34 @@ const browser = await chromium.launch({
 });
 
 // The scripted session both runs replay: a few player actions at fixed ticks.
+//
+// Ordered so each event lands when the flock is where it needs to be — the
+// worm while they are outdoors, the rain on top of them out there, the mouse
+// while they are in. The coverage check below is what keeps that honest;
+// retiming one event can starve another of its preconditions.
 const SCRIPT = [
   { at: 120, type: 'seeds', payload: { x: 1.2, z: -0.4 } },
-  { at: 400, type: 'poke', payload: { chicken: 2 } },
+  { at: 700, type: 'poke', payload: { chicken: 2 } },
   { at: 900, type: 'bulb', payload: {} },
-  { at: 1500, type: 'seeds', payload: { x: -2.0, z: 2.1 } },
-  { at: 2200, type: 'poke', payload: { chicken: 7 } },  // Bertha
-  { at: 3000, type: 'seeds', payload: { x: 0.4, z: 0.9 } },
-  // The outdoor dynamics are shared state too, so they belong in the guard.
-  { at: 1800, type: 'door', payload: { open: false } },
-  { at: 2400, type: 'door', payload: { open: true } },
-  { at: 2700, type: 'worm', payload: { x: 1.6, z: 9.2 } },
-  { at: 3400, type: 'hawk', payload: {} },
-  { at: 3900, type: 'seeds', payload: { x: -1.5, z: 8.4 } },
-  { at: 2900, type: 'fox', payload: {} },
-  { at: 3600, type: 'shoo', payload: {} },
-  // Rain and carrying a chicken around are shared state as well.
-  { at: 600, type: 'rain', payload: { on: true } },
-  { at: 1300, type: 'rain', payload: { on: false } },
-  { at: 2000, type: 'hold', payload: { chicken: 3, x: 1.1, z: -1.4 } },
-  { at: 2040, type: 'hold', payload: { chicken: 3, x: -2.2, z: 2.6 } },
-  { at: 2080, type: 'drop', payload: { chicken: 3 } },
+  { at: 1100, type: 'seeds', payload: { x: -1.5, z: 8.4 } },   // draws them out
+  { at: 1600, type: 'worm', payload: { x: 1.6, z: 9.2 } },     // ...and holds them
+  { at: 1900, type: 'hold', payload: { chicken: 3, x: 1.1, z: -1.4 } },
+  { at: 1940, type: 'hold', payload: { chicken: 3, x: -2.2, z: 2.6 } },
+  { at: 1980, type: 'drop', payload: { chicken: 3 } },
+  { at: 2200, type: 'rain', payload: { on: true } },           // caught out in it
+  { at: 2800, type: 'rain', payload: { on: false } },
+  // The rain has just driven everyone indoors, which is the one moment a
+  // mouse is guaranteed an audience. Released while the flock is outside it
+  // simply eats and leaves, and the hunt is never exercised.
+  { at: 2500, type: 'mouse', payload: {} },
+  { at: 2900, type: 'mouse', payload: {} },
+  { at: 2600, type: 'poke', payload: { chicken: 7 } },  // Bertha
+  { at: 3200, type: 'hawk', payload: {} },
+  { at: 3400, type: 'door', payload: { open: false } },
+  { at: 3600, type: 'fox', payload: {} },               // shut out: it prowls
+  { at: 3900, type: 'shoo', payload: {} },
+  { at: 4000, type: 'door', payload: { open: true } },
+  { at: 4200, type: 'seeds', payload: { x: 0.4, z: 0.9 } },
 ];
 
 // Deep fingerprint of everything the simulation owns. Full precision: the
@@ -87,6 +94,13 @@ const FINGERPRINT = `(() => {
     door: w.door.open,
     dayT: num(w.dayT), phase: w.phase, lastPhase: w.lastPhase,
     weather: [num(w.weather.rain), num(w.weather.rainT), num(w.weather.next)],
+    nest: w.favouriteNest,
+    mouse: w.mouse ? [w.mouse.phase, num(w.mouse.pos.x), num(w.mouse.pos.z), num(w.mouse.yaw),
+      num(w.mouse.t), num(w.mouse.life), num(w.mouse.dart), !!w.mouse.spotted] : 0,
+    mouseNext: num(w.mouseNext),
+    fly: [w.butterfly.active, num(w.butterfly.pos.x), num(w.butterfly.pos.y),
+      num(w.butterfly.pos.z), num(w.butterfly.t), num(w.butterfly.next),
+      num(w.butterfly.target.x), num(w.butterfly.target.y), num(w.butterfly.target.z)],
     chicks: w.chicks.map((k) => [k.active ? 1 : 0, k.slot,
       k.mum ? w.chickens.indexOf(k.mum) : -1, k.crossing ? 1 : 0]),
     hawk: [w.hawk.active, num(w.hawk.t)],
@@ -218,7 +232,8 @@ server.close();
 
 // Every path the scripted events are there to exercise has to actually be
 // reached, or an identical hash means nothing.
-const REQUIRED = ['goInside', 'goOutside', 'chaseWorm', 'hawkPanic', 'held', 'dropped', 'shakeOff'];
+const REQUIRED = ['goInside', 'goOutside', 'chaseWorm', 'hawkPanic', 'held', 'dropped',
+  'shakeOff', 'mouseHunt', 'mouseVictory'];
 const missed = REQUIRED.filter((n) => !clean.cover.behaviors.includes(n));
 const covered = {
   behaviorsVisited: clean.cover.behaviors.length,

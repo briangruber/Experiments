@@ -106,6 +106,20 @@ export class CoopAudio {
     this.rainGain.gain.setTargetAtTime(level * 0.22, this.ctx.currentTime, 0.6);
   }
 
+  // A mouse: two tiny squeaks right at the top of the range.
+  squeak() {
+    for (let i = 0; i < 2; i++) {
+      const v = this._env('square', 1900, 0.05, 0.05, i * 0.08);
+      if (v) v.osc.frequency.exponentialRampToValueAtTime(2600, v.t0 + 0.045);
+    }
+  }
+
+  // Wingbeats: a soft flutter, for a chicken briefly and unconvincingly
+  // airborne.
+  flutter() {
+    for (let i = 0; i < 4; i++) this._env('triangle', 130 + i * 18, 0.05, 0.05, i * 0.07);
+  }
+
   // Cock-a-doodle-doo, in four syllables with the long fall at the end.
   crow() {
     const notes = [[540, 0.2, 0], [720, 0.17, 0.21], [900, 0.3, 0.4], [680, 0.5, 0.73]];

@@ -97,6 +97,35 @@ function pickTargets(c, w) {
   return others(c, w).filter((o) => o.rank > c.rank && FEEDING.has(o.bhv.name));
 }
 
+// Who is sitting in a given nesting box. Derived rather than bookkept: a
+// reservation table would need unwinding on every way a behavior can end,
+// and would be wrong the first time one of them was forgotten.
+function nestOccupant(w, index, except) {
+  if (index < 0) return null;
+  for (const c of w.chickens) {
+    if (c === except || !c.active) continue;
+    if (c.bhv.data?.onNest && c.bhv.data.nestIndex === index) return c;
+  }
+  return null;
+}
+
+function settleOnNest(c, d) {
+  d.phase = 'squat';
+  d.squatT = 0;
+  d.onNest = true;
+  c.stop();
+  c.sitT = 1;
+}
+
+// Perched neighbours on the same bar, near enough to be an imposition.
+function perchNeighbour(c, w, radius) {
+  for (const o of w.chickens) {
+    if (o === c || !o.active || o.perch !== c.perch) continue;
+    if (Math.abs(o.pos.x - c.pos.x) < radius) return o;
+  }
+  return null;
+}
+
 export const BEHAVIORS = {
 
   // ---- ordinary chicken business (the baseline the weirdness pops out of) --
@@ -364,7 +393,13 @@ export const BEHAVIORS = {
       if (w.phase === 'night' || w.phase === 'dusk') {
         c.bhv.dur = rand(w.rng, 55, 90);   // settled in for the night
       }
-      const bar = pick(w.rng, w.coop.roosts);
+      // Rank decides altitude. Top birds take the high bar, and they take it
+      // by turning up and shoving — see the jostling below.
+      const bars = w.coop.roosts;
+      const senior = c.rank <= Math.ceil(c.rankOf / 2);
+      const bar = w.rng() < 0.78
+        ? bars[senior ? bars.length - 1 : 0]
+        : pick(w.rng, bars);
       const x = rand(w.rng, bar.x0 + 0.3, bar.x1 - 0.3);
       c.bhv.data.bar = bar;
       c.bhv.data.spot = new THREE.Vector3(x, bar.y, bar.z);
@@ -386,6 +421,25 @@ export const BEHAVIORS = {
         // Occasional wobble; rare comedy fall.
         if (w.rng() < dt * 0.25) c.bodyRoll = rand(w.rng, -0.16, 0.16);
         c.bodyRoll *= Math.max(0, 1 - dt * 3);
+
+        // Settling down for the night is not a peaceful business. A senior
+        // bird sidles up to a junior one and simply takes the spot; the
+        // junior one goes over the edge and has to come back up.
+        if (w.rng() < dt * 0.4) {
+          const n = perchNeighbour(c, w, 0.7);
+          if (n && c.rank < n.rank && !n.bhv.def?.committed) {
+            const spot = n.pos.x;
+            n.showEmote('bang', 1.6);
+            n.comeDown();
+            n.force('bonk', { fell: true });
+            w.audio.squawk(rand(w.rng, 0.8, 1.2));
+            w.fx.feather(c.pos, n.color);
+            // Shuffle along into the vacancy.
+            c.pos.x = clamp(spot, d.bar.x0 + 0.25, d.bar.x1 - 0.25);
+            c.bodyRoll = 0.2;
+          }
+        }
+
         if (w.rng() < dt * (w.phase === 'night' ? 0.004 : 0.025)) {
           c.showEmote('bang', 1.6);
           c.comeDown();
@@ -442,29 +496,72 @@ export const BEHAVIORS = {
     exit(c) { c.sitT = 0; c.neckPitchT = 0; c.headYawT = 0; c.lidT = 0; },
   },
 
+  // Three boxes, seven hens, and one box everybody wants. Which box is
+  // arbitrary and never explained, and a hen will queue for it, stare at the
+  // occupant, and finally climb in on top of her rather than use one of the
+  // two identical empty ones either side. This is not a caricature; it is
+  // what chickens do.
   layEgg: {
     hen: true,
-    zone: 'coop', weight: 0.55, dur: [9, 12], cooldown: 55, icon: 'egg',
+    zone: 'coop', weight: 0.55, dur: [16, 22], cooldown: 55, icon: 'egg',
     enter(c, w) {
-      const useNest = w.rng() < 0.55;
-      c.bhv.data.phase = 'go';
-      if (useNest) {
-        c.bhv.data.nest = pick(w.rng, w.coop.nests);
-        c.walkTo(c.bhv.data.nest, 0.9);
-      } else {
-        c.bhv.data.nest = null;
-        c.stop(); // right here is fine, apparently
-      }
+      const d = c.bhv.data;
+      d.phase = 'go';
+      // Now and then she cannot be bothered and lays where she stands.
+      if (w.rng() < 0.2) { d.nestIndex = -1; d.nest = null; c.stop(); return; }
+      d.nestIndex = w.favouriteNest;
+      d.nest = w.coop.nests[d.nestIndex];
+      c.walkTo(d.nest, 0.9);
     },
     update(c, w, dt) {
       const d = c.bhv.data;
       if (d.phase === 'go') {
         if (!d.nest || c.arrived(0.25)) {
-          d.phase = 'squat';
-          d.squatT = 0;
-          c.stop();
-          c.sitT = 1;
+          const sitter = nestOccupant(w, d.nestIndex, c);
+          if (!sitter) settleOnNest(c, d);
+          else if (c.rank < sitter.rank && !sitter.bhv.def?.committed) {
+            // Seniority. Out you get.
+            d.phase = 'evict';
+            d.victim = sitter;
+          } else {
+            d.phase = 'queue';
+            d.queueT = 0;
+            c.stop();
+          }
         }
+      } else if (d.phase === 'evict') {
+        const v = d.victim;
+        c.facePoint(v ? v.pos : c.pos, dt, 5);
+        if (c.doPeck()) {
+          w.audio.squawk(1.15);
+          if (v) { w.fx.feather(v.pos, v.color); v.force('flee', { from: c }); }
+          settleOnNest(c, d);
+        }
+      } else if (d.phase === 'queue') {
+        // Waiting her turn, in the loosest sense. She stands at the lip and
+        // cranes in, and her patience runs out well before the sitter's does.
+        d.queueT += dt;
+        c.facePoint(d.nest, dt, 3);
+        c.neckPitchT = 0.45 + Math.sin(w.time * 2.2) * 0.2;
+        if (w.rng() < dt * 0.5) c.showEmote(w.rng() < 0.5 ? 'question' : 'anger', 1.8);
+        if (!nestOccupant(w, d.nestIndex, c)) { c.neckPitchT = 0; settleOnNest(c, d); }
+        else if (d.queueT > 7) {
+          // Fine. She will use it at the same time as her.
+          d.phase = 'cram';
+          c.neckPitchT = 0;
+          c.walkTo(d.nest, 0.7);
+          w.audio.squawk(0.85);
+        }
+      } else if (d.phase === 'cram') {
+        // Two hens, one box, no dignity, and neither will give it up.
+        const sitter = nestOccupant(w, d.nestIndex, c);
+        c.bodyRoll = Math.sin(w.time * 11) * 0.2;
+        if (sitter) {
+          sitter.bodyRoll = Math.sin(w.time * 11 + 2) * 0.2;
+          if (w.rng() < dt * 2.5) w.fx.feather(c.pos, sitter.color);
+          if (w.rng() < dt * 0.8) sitter.showEmote('anger', 1.6);
+        }
+        if (c.arrived(0.3)) { c.bodyRoll = 0; settleOnNest(c, d); }
       } else if (d.phase === 'squat') {
         d.squatT += dt;
         c.bodyRoll = Math.sin(w.time * 18) * 0.05; // concentration shiver
@@ -484,7 +581,10 @@ export const BEHAVIORS = {
         c.gait += dt * 4; // extra strut in the step
       }
     },
-    exit(c) { c.sitT = 0; c.bodyRoll = 0; c.flapT = 0; },
+    exit(c) {
+      c.sitT = 0; c.bodyRoll = 0; c.flapT = 0; c.neckPitchT = 0;
+      c.bhv.data.onNest = false;
+    },
   },
 
   // The full ceremony, no egg. Comedy is timing.
@@ -913,13 +1013,21 @@ export const BEHAVIORS = {
     can: (c, w) => w.chicks.length > 0 && w.chicks.every((k) => !k.active)
       && w.phase !== 'night',
     enter(c, w) {
-      c.bhv.data.nest = pick(w.rng, w.coop.nests);
-      c.walkTo(c.bhv.data.nest, 1.05);
+      // She wants the good box too, and being committed she gets to keep it.
+      const d = c.bhv.data;
+      d.nestIndex = nestOccupant(w, w.favouriteNest, c)
+        ? Math.floor(w.rng() * w.coop.nests.length)
+        : w.favouriteNest;
+      d.nest = w.coop.nests[d.nestIndex];
+      c.walkTo(d.nest, 1.05);
     },
     update(c, w, dt) {
       const d = c.bhv.data;
       if (!d.sat) {
-        if (c.arrived(0.3)) { d.sat = true; c.stop(); c.sitT = 1; c.lidT = 0.55; }
+        if (c.arrived(0.3)) {
+          d.sat = true; d.onNest = true;
+          c.stop(); c.sitT = 1; c.lidT = 0.55;
+        }
         return;
       }
       c.bodyRoll = Math.sin(w.time * 0.8) * 0.03;
@@ -935,6 +1043,7 @@ export const BEHAVIORS = {
     },
     exit(c, w) {
       c.sitT = 0; c.lidT = 0; c.bodyRoll = 0;
+      c.bhv.data.onNest = false;
       if (c.bhv.data.sat) w.hatch(c, c.bhv.data.nest);
       // Interrupted before she settled: do not burn the long cooldown on an
       // attempt that never happened.
@@ -1206,6 +1315,86 @@ export const BEHAVIORS = {
       }
     },
     exit(c) { c.strut = 0; c.stop(); },
+  },
+
+  // ---- the mouse ----------------------------------------------------------
+  // Chickens are dinosaurs, and this is the one moment the game says so out
+  // loud. A flock that was dozing thirty seconds ago goes after it flat out.
+
+  mouseHunt: {
+    // tough: eight birds converging on one small target is exactly the
+    // pile-up that collision separation turns into a stationary scrum.
+    weight: 0, weird: true, chained: true, tough: true, dur: [12, 18], icon: 'eye',
+    enter(c, w) {
+      c.comeDown();
+      c.frozen = false;
+      c.showEmote('eye', 1.8);
+      w.audio.cluck(1.4);
+    },
+    update(c, w, dt) {
+      const m = w.mouse;
+      if (!m || m.done || c.zone !== 'coop') { c.bhv.t = c.bhv.dur; return; }
+      // Head down, neck out, absolutely locked on.
+      c.neckPitchT = 0.5;
+      c.gaitAmp = 1;
+      c.walkTo(m.pos, 2.9);
+      if (c.pos.distanceTo(m.pos) < 0.4 && c.doPeck()) w.catchMouse(c);
+    },
+    exit(c) { c.neckPitchT = 0; c.stop(); },
+  },
+
+  // She has it, she is not sharing it, and now she is the most wanted
+  // chicken in the building.
+  mouseVictory: {
+    weight: 0, weird: true, chained: true, tough: true, dur: [9, 13], icon: 'crown',
+    enter(c, w) {
+      w.audio.fanfare();
+      c.showCatch(true);
+      c.flapT = 0.8;
+      w.incident();
+      for (const o of others(c, w)) {
+        if (w.rng() < 0.92) o.force('chase', { victim: c, noFlee: true });
+      }
+      c.walkTo(randomPoint(w, c), 2.9);
+    },
+    update(c, w, dt) {
+      c.flapT = Math.max(0, c.flapT - dt * 0.6);
+      if (c.arrived(0.5)) c.walkTo(randomPoint(w, c), 2.8);
+      if (w.rng() < dt * 1.4) w.fx.feather(c.pos, c.color);
+    },
+    // Whatever else happens, she does not keep it.
+    exit(c) { c.showCatch(false); c.flapT = 0; c.stop(); },
+  },
+
+  // ---- the butterfly ------------------------------------------------------
+
+  // A hen versus a butterfly is a fair fight only in her opinion.
+  chaseButterfly: {
+    zone: 'yard', weight: 1.1, weird: true, dur: [9, 15], cooldown: 34, icon: 'star',
+    can: (c, w) => !!w.butterfly?.active,
+    update(c, w, dt) {
+      const b = w.butterfly;
+      if (!b?.active) { c.bhv.t = c.bhv.dur; return; }
+      if (c.hop) return;               // mid-leap; let it play out
+      const flat = new THREE.Vector3(b.pos.x, 0, b.pos.z);
+      const gap = c.pos.distanceTo(flat);
+      c.facePoint(flat, dt, 4);
+      // Neck craned up at it the whole time, which is most of the joke.
+      c.neckPitchT = -0.55;
+      c.headTiltT = Math.sin(w.time * 3) * 0.2;
+      if (gap > 0.75) { c.walkTo(flat, 1.9); return; }
+      c.stop();
+      // Close enough to try. Chicken aviation being what it is, she misses.
+      if (w.rng() < dt * 1.6) {
+        const to = c.pos.clone().lerp(flat, 1.35);
+        c.startHop(hold(c, to), 0.75, 0.62);
+        c.flapT = 1;
+        w.audio.flutter();
+        for (let i = 0; i < 2; i++) w.fx.feather(c.pos, c.color);
+        b.startle(w);
+      }
+    },
+    exit(c) { c.neckPitchT = 0; c.headTiltT = 0; c.flapT = 0; c.stop(); },
   },
 
   // ---- being picked up ----------------------------------------------------
@@ -1933,8 +2122,10 @@ export const CHICK_BEHAVIORS = {
 // A client restoring from a snapshot puts these chickens back on `wander`
 // instead and lets them pick again; positions stay correct either way, which
 // is what the snapshot is really for.
+// mouseVictory is here because the mouse itself cannot be restored: resuming
+// it would put a mouse in the beak of a hen who never caught one.
 const NEEDS_CONTEXT = new Set(['congaFollow', 'standoffB', 'gawkJoin', 'seedRush', 'lookAt',
-  'chickHuddle']);
+  'chickHuddle', 'mouseVictory']);
 export const isResumable = (name) => !NEEDS_CONTEXT.has(name);
 
 // Chickens keep farm hours. Rather than special-casing every behavior, the

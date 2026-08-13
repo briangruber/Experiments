@@ -9,6 +9,8 @@ import { UI } from './ui.js';
 import { EV, EventQueue, LocalTransport, TICK_DT } from './net.js';
 import { DOOR, YARD, bounds, zoneOf } from './zones.js';
 import { Fox } from './fox.js';
+import { Mouse } from './mouse.js';
+import { Butterfly } from './butterfly.js';
 
 const params = new URLSearchParams(location.search);
 const seedParam = parseInt(params.get('seed') ?? '', 10);
@@ -129,6 +131,38 @@ const world = {
   foxTonight: false,              // one visit per night, rolled once
   foxNightT: 0,
 
+  // A mouse in the feed. Harmless, and the single most disruptive thing that
+  // can happen indoors.
+  mouse: null,
+  mouseNext: 90,
+
+  // Which nesting box is the good one. Nothing distinguishes it. There is
+  // always one, and they will queue for it.
+  favouriteNest: 0,
+
+  summonMouse() {
+    if (world.mouse) return;
+    world.mouse = new Mouse(world);
+    world.mouseNext = rand(rng, 150, 320);
+  },
+
+  clearMouse() {
+    if (!world.mouse) return;
+    world.mouse.dispose();
+    world.mouse = null;
+  },
+
+  // Somebody got it. She is now carrying it around at speed with the entire
+  // flock in pursuit, which is a considerably bigger event than the mouse.
+  catchMouse(c) {
+    if (!world.mouse || world.mouse.caught) return;
+    world.mouse.caught = true;
+    world.clearMouse();
+    audio.squeak();
+    fx.puff(c.pos, 0x6b6259);
+    c.force('mouseVictory');
+  },
+
   summonFox() {
     if (world.fox) return;
     world.fox = new Fox(world);
@@ -218,6 +252,14 @@ const world = {
       door: world.door.open ? 1 : 0,
       weather: [+world.weather.rain.toFixed(3), world.weather.rainT,
         +world.weather.next.toFixed(2)],
+      // The butterfly gates a behavior, so a joiner who did not know about it
+      // would watch a hen leap at nothing. The mouse deliberately is not here:
+      // it lives half a minute, restoring it would mean constructing one from
+      // the shared RNG, and a joiner who misses one has only missed one.
+      fly: world.butterfly.active
+        ? [+world.butterfly.pos.x.toFixed(2), +world.butterfly.pos.y.toFixed(2),
+          +world.butterfly.pos.z.toFixed(2), +world.butterfly.t.toFixed(1)]
+        : 0,
     };
   },
 
@@ -244,6 +286,16 @@ const world = {
     }
     if (snap.weather) {
       [world.weather.rain, world.weather.rainT, world.weather.next] = snap.weather;
+    }
+    if (snap.fly !== undefined) {
+      const b = world.butterfly;
+      b.active = !!snap.fly;
+      if (b.active) {
+        b.pos.set(snap.fly[0], snap.fly[1], snap.fly[2]);
+        b.prevPos.copy(b.pos);
+        b.t = snap.fly[3];
+        b.target.copy(b.pos);
+      }
     }
     snap.chickens.forEach(([x, y, z, yaw, bhv, rank, wet], i) => {
       const c = world.chickens[i];
@@ -297,6 +349,8 @@ const flock = [...hens, world.rooster];
 // Everyone in the order needs to know how long it is, to know how tall to
 // stand. Ranks are 1..flock.length and get fought over from there.
 for (const c of flock) c.rankOf = flock.length;
+world.favouriteNest = Math.floor(rng() * world.coop.nests.length);
+world.butterfly = new Butterfly(world);
 world.bertha = spawnBertha(world);
 // Chicks are created up front but hidden, so the population — and therefore
 // every index in a snapshot — is fixed for the life of the world.
@@ -671,6 +725,11 @@ function applyEvent(e) {
       break;
     }
 
+    case EV.MOUSE: {
+      world.summonMouse();
+      break;
+    }
+
     case EV.HOLD: {
       const c = world.chickens[e.chicken];
       if (!c || !c.active || c.big) break;
@@ -797,6 +856,10 @@ ui.onFox = () => {
 ui.onRain = () => {
   ui.dismissHint();
   transport.send(EV.RAIN, { on: world.weather.rainT < 0.5 }, world.tick);
+};
+ui.onMouse = () => {
+  ui.dismissHint();
+  transport.send(EV.MOUSE, {}, world.tick);
 };
 ui.setView(orbit.view);
 ui.setDoor(world.door.open);
@@ -1015,6 +1078,19 @@ function tick() {
     if (world.fox.done) world.clearFox();
   }
 
+  // A mouse turns up now and then on its own, indoors, during the quiet part
+  // of the day when nothing else is happening. Not at night: the flock is up
+  // on the roost and nobody would see it.
+  if (world.mouse) {
+    world.mouse.update(TICK_DT);
+    if (world.mouse.done) world.clearMouse();
+  } else if (world.phase !== 'night') {
+    world.mouseNext -= TICK_DT;
+    if (world.mouseNext <= 0) world.summonMouse();
+  }
+
+  world.butterfly.update(TICK_DT);
+
   // The hawk's pass is simulation state so every client sees the shadow in
   // the same place at the same moment.
   if (world.hawk.active) {
@@ -1050,6 +1126,8 @@ function tick() {
 function render(alpha, frameDt) {
   for (const c of world.chickens) c.render(alpha);
   if (world.fox) world.fox.render(alpha);
+  if (world.mouse) world.mouse.render(alpha);
+  world.butterfly.render(alpha, frameDt);
   fx.update(frameDt, world.time);
   updateMotes(world.coop, world.time);
 
