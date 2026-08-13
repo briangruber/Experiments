@@ -53,6 +53,7 @@ smoke test.
 
 ```
 cd chicken-game
+node tools/bundle.mjs --root . --out dist/chicken-game.html   # single self-contained file
 node tools/shot.mjs --out shots/coop.png            # render + smoke test
 node tools/shot.mjs --ff 3600 --camera "-0.9,1.25,4.6"   # fast-forward 2 min of coop time first
 ```
