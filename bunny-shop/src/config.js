@@ -24,25 +24,33 @@ export const COUNTER = {
 // The line curves back into the shop rather than stacking straight back, so
 // five rabbits read as a queue instead of one rabbit with depth. QUEUE[0] is
 // the service position — whoever stands there is the customer being served.
+//
+// Every slot is clear of the counter (z 2.28..3.92) and of the shelves, whose
+// real footprint is 2.68 deep — much deeper than they look.
 export const QUEUE = [
   { x: 2.9, z: 1.45 },
-  { x: 3.5, z: -0.7 },
-  { x: 3.2, z: -2.7 },
-  { x: 2.1, z: -4.3 },
-  { x: 0.5, z: -5.2 },
+  { x: 4.2, z: 0.1 },
+  { x: 4.6, z: -1.6 },
+  { x: 3.8, z: -3.2 },
+  { x: 2.0, z: -3.9 },
 ];
 
-export const DOOR = { x: -4.6, z: ROOM.zBack + 0.06 };
-export const OUTSIDE = { x: -4.6, z: ROOM.zBack - 2.5 };
+export const DOOR = { x: -5.6, z: ROOM.zBack + 0.06 };
+export const OUTSIDE = { x: -5.6, z: ROOM.zBack - 2.5 };
 
 // Shelves along the back and left of the shop, with the loitering spots that
 // belong to each one. Browsing is pure theatre, but it is most of the charm.
+// The shelf model is 2.68 deep once placed, so these sit with their backs to a
+// wall and their loitering spots a clear metre in front of the front edge.
+// The one that used to stand beside the door is gone: rabbits walked in through
+// it. Left-wall shelves are at x = -5.46 so the geometry ends at the wall
+// rather than a metre outside the building.
 export const SHELVES = [
-  { pos: { x: -5.2, z: -5.9 }, ry: 0, browse: { x: -5.2, z: -4.4 } },
-  { pos: { x: -1.4, z: -5.9 }, ry: 0, browse: { x: -1.4, z: -4.4 } },
-  { pos: { x: 2.4, z: -5.9 }, ry: 0, browse: { x: 2.4, z: -4.4 } },
-  { pos: { x: -6.9, z: -2.4 }, ry: Math.PI / 2, browse: { x: -5.4, z: -2.4 } },
-  { pos: { x: -6.9, z: 0.6 }, ry: Math.PI / 2, browse: { x: -5.4, z: 0.6 } },
+  { pos: { x: -3.4, z: -5.9 }, ry: 0, browse: { x: -3.4, z: -3.55 } },
+  { pos: { x: -1.2, z: -5.9 }, ry: 0, browse: { x: -1.2, z: -3.55 } },
+  { pos: { x: 2.4, z: -5.9 }, ry: 0, browse: { x: 2.4, z: -3.55 } },
+  { pos: { x: -5.46, z: -2.4 }, ry: Math.PI / 2, browse: { x: -3.2, z: -2.4 } },
+  { pos: { x: -5.46, z: 0.9 }, ry: Math.PI / 2, browse: { x: -3.2, z: 0.9 } },
 ];
 
 // ---------------------------------------------------------------- stock
@@ -90,6 +98,10 @@ export const RULES = {
   speedTipWindow: 0.55, // fraction of patience left that still earns a full tip
   streakTipStep: 0.12, // extra tip per flawless order in a row
   streakTipCap: 1.2, // ...up to this much again on top
+
+  eventFirst: [26, 40], // seconds before the first shop-wide event
+  eventGap: [34, 58], // and between them afterwards
+  anticChance: 0.055, // per second, per browsing rabbit
 };
 
 // How many distinct items and how many of each, as the days get busier.

@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { place } from './assets.js';
 import { Customer } from './bunny.js';
 import { BAG, COUNTER, CRATE_X, DOOR, OUTSIDE, QUEUE, RULES, SHELVES, STOCK, STOCK_BY_ID, orderShape } from './config.js';
-import { DAY_REVIEWS, SPECIALS, STREAK_LINES, bunnyName, describeOrder, pick, review, say } from './dialogue.js';
+import { ANTICS, DAY_REVIEWS, EVENTS, SPECIALS, STREAK_LINES, bunnyName, describeOrder, pick, review, say } from './dialogue.js';
 import { TWEAKS } from './scene.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -47,12 +47,13 @@ class Shopper {
 }
 
 export class Game {
-  constructor({ scene, gltf, clips, ui, audio }) {
+  constructor({ scene, gltf, clips, ui, audio, obstacles = [] }) {
     this.scene = scene;
     this.gltf = gltf;
     this.clips = clips;
     this.ui = ui;
     this.audio = audio;
+    this.obstacles = obstacles;
 
     this.shoppers = [];
     this.flyers = [];
@@ -81,6 +82,10 @@ export class Game {
     this.running = false;
     this.over = false;
     this.bellReady = false;
+    this.event = null;
+    this.lastEvent = null;
+    this.eventLeft = 0;
+    this.eventIn = rand(...RULES.eventFirst);
 
     this.ui.setCoins(0);
     this.ui.setDay(1);
@@ -95,12 +100,47 @@ export class Game {
     this.running = true;
   }
 
+  // ---------------------------------------------------------------- events
+
+  // Whatever the shop is currently going through, or an empty set of modifiers.
+  get mods() {
+    return this.event ?? {};
+  }
+
+  startEvent() {
+    const options = EVENTS.filter((e) => e.minDay <= this.day && e.id !== this.lastEvent);
+    if (!options.length) return;
+    this.event = pick(options);
+    this.lastEvent = this.event.id;
+    this.eventLeft = this.event.duration;
+    this.ui.banner(...this.event.banner);
+    this.audio?.event();
+  }
+
+  endEvent() {
+    const over = this.event?.over;
+    this.event = null;
+    this.eventIn = rand(...RULES.eventGap);
+    if (over) this.ui.banner('Back to normal', over);
+  }
+
+  updateEvent(dt) {
+    if (this.event) {
+      this.eventLeft -= dt;
+      if (this.eventLeft <= 0) this.endEvent();
+      return;
+    }
+    this.eventIn -= dt;
+    if (this.eventIn <= 0) this.startEvent();
+  }
+
   // ---------------------------------------------------------------- spawning
 
   spawnGap() {
     const t = Math.pow(RULES.spawnDayFalloff, this.day - 1);
-    const lo = Math.max(RULES.spawnGapFloor[0], RULES.spawnGapStart[0] * t);
-    const hi = Math.max(RULES.spawnGapFloor[1], RULES.spawnGapStart[1] * t);
+    const scale = this.mods.spawnScale ?? 1;
+    const lo = Math.max(RULES.spawnGapFloor[0] * scale, RULES.spawnGapStart[0] * t * scale);
+    const hi = Math.max(RULES.spawnGapFloor[1] * scale, RULES.spawnGapStart[1] * t * scale);
     return rand(lo, hi);
   }
 
@@ -147,7 +187,8 @@ export class Game {
 
   makeOrder(shopper) {
     const { kinds, most } = orderShape(this.day);
-    const pool = [...STOCK];
+    // A rumour takes an item off every order until it blows over.
+    const pool = STOCK.filter((i) => i.id !== this.mods.banItem);
     const items = [];
     for (let i = 0; i < kinds && pool.length; i++) {
       const [item] = pool.splice(Math.floor(Math.random() * pool.length), 1);
@@ -158,7 +199,15 @@ export class Game {
     // the whole payoff of the joke, so it is worth the extra patience it buys.
     if (shopper.special === 'trenchcoat') for (const i of items) i.count *= 3;
 
-    // The very small one has planned exactly one purchase all week.
+    // Whatever the shop has gone mad for this minute ends up in every order.
+    const craze = this.mods.forceItem;
+    if (craze && !items.some((i) => i.id === craze)) {
+      items[Math.floor(Math.random() * items.length)] = { id: craze, count: 1 + Math.floor(Math.random() * most) };
+    }
+    if (this.mods.orderScale) for (const i of items) i.count *= this.mods.orderScale;
+
+    // The very small one has planned exactly one purchase all week, whatever
+    // the rest of the warren is doing.
     if (shopper.special === 'tiny') return [{ id: items[0].id, count: 1 }];
 
     // The inspector checks the range, not the volume: three different things.
@@ -173,7 +222,7 @@ export class Game {
   patienceFor(order, shopper) {
     const total = order.reduce((n, i) => n + i.count, 0);
     const base = (RULES.patienceBase + total * RULES.patiencePerItem) * Math.pow(RULES.patienceDayFalloff, this.day - 1);
-    return Math.max(12, base * (shopper.spec?.patienceScale ?? 1));
+    return Math.max(12, base * (shopper.spec?.patienceScale ?? 1) * (this.mods.patienceScale ?? 1));
   }
 
   // ---------------------------------------------------------------- queue
@@ -225,7 +274,7 @@ export class Game {
       s.mistakes++;
       s.patience = Math.max(0, s.patience - RULES.wrongItemPenalty);
       s.body.playOnce('hurt');
-      this.ui.bubble(s, s.spec?.wrong ? pick(s.spec.wrong) : say.wrong(), { mood: 'cross', ttl: 2000 });
+      this.ui.bubble(s, s.spec?.wrong ? pick(s.spec.wrong) : say.wrong(), { mood: 'cross', keep: true });
       this.breakStreak();
       this.audio?.wrong();
       this.ui.shakeTicket();
@@ -249,7 +298,7 @@ export class Game {
     if (!s || !s.complete()) {
       // Ringing early is a legitimate thing to do by accident; the rabbit has
       // opinions about it, but it costs nothing.
-      if (s) this.ui.bubble(s, pick(['Not yet!', 'I am not finished.', 'Bold of you.']), { ttl: 1400 });
+      if (s) this.ui.bubble(s, pick(['Not yet!', 'I am not finished.', 'Bold of you.']), { keep: true });
       return;
     }
     this.finishOrder(s);
@@ -263,7 +312,7 @@ export class Game {
     const boost = RULES.petBoost * (shopper.special === 'tiny' ? 2 : 1);
     shopper.patience = Math.min(shopper.patienceMax, shopper.patience + boost);
     shopper.body.playOnce('jump');
-    this.ui.bubble(shopper, say.pet(), { mood: 'happy', ttl: 2600 });
+    this.ui.bubble(shopper, say.pet(), { mood: 'happy', keep: true });
     this.ui.heart(shopper);
     this.audio?.pet();
   }
@@ -283,7 +332,7 @@ export class Game {
     // A run of flawless orders is worth more than any single one of them.
     const runBonus = 1 + Math.min(RULES.streakTipCap, this.streak * RULES.streakTipStep);
     const tip = Math.round(
-      RULES.tipMax * speed * Math.max(0, 1 - s.mistakes * 0.34) * runBonus * (s.spec?.tipScale ?? 1),
+      RULES.tipMax * speed * Math.max(0, 1 - s.mistakes * 0.34) * runBonus * (s.spec?.tipScale ?? 1) * (this.mods.tipScale ?? 1),
     );
     const total = base + tip;
 
@@ -294,7 +343,7 @@ export class Game {
 
     const stars = clean && fraction > 0.5 ? 5 : s.mistakes <= 1 && fraction > 0.25 ? 4 : 3;
     const line = s.spec ? pick(s.spec.thanks) : review(stars);
-    this.ui.bubble(s, clean || !s.spec?.failLine ? line : s.spec.failLine, { mood: 'happy', ttl: 3200 });
+    this.ui.bubble(s, clean || !s.spec?.failLine ? line : s.spec.failLine, { mood: 'happy', keep: true });
 
     // A flawless inspection buys back a star.
     const reward = clean ? s.spec?.reward : null;
@@ -341,7 +390,7 @@ export class Game {
     this.lost++;
     this.hearts--;
     this.ui.setHearts(this.hearts);
-    this.ui.bubble(s, say.rage(), { mood: 'cross', ttl: 3000 });
+    this.ui.bubble(s, say.rage(), { mood: 'cross', keep: true });
     this.ui.hideTicket();
     this.clearBag();
     this.bellReady = false;
@@ -405,15 +454,75 @@ export class Game {
 
   // ---------------------------------------------------------------- loop
 
+  // Shove a rabbit back out of any furniture it has ended up inside, along
+  // whichever axis it is least far in. Walking speeds are slow next to the size
+  // of a shelf, so this catches everything without needing real pathfinding —
+  // and it means a badly placed waypoint can never park a rabbit in a counter.
+  separate(body) {
+    const r = body.radius;
+    const p = body.pos; // Vector2, where y is world z
+    let moved = false;
+
+    for (const b of this.obstacles) {
+      if (p.x + r <= b.minX || p.x - r >= b.maxX || p.y + r <= b.minZ || p.y - r >= b.maxZ) continue;
+
+      const outLeft = p.x + r - b.minX;
+      const outRight = b.maxX - (p.x - r);
+      const outNear = p.y + r - b.minZ;
+      const outFar = b.maxZ - (p.y - r);
+      const least = Math.min(outLeft, outRight, outNear, outFar);
+
+      if (least === outLeft) p.x -= outLeft;
+      else if (least === outRight) p.x += outRight;
+      else if (least === outNear) p.y -= outNear;
+      else p.y += outFar;
+      moved = true;
+    }
+
+    if (moved) body.root.position.set(p.x, 0, p.y);
+  }
+
+  // Push overlapping rabbits apart, half a correction each. Without this a
+  // queue in perspective reads as one wide rabbit.
+  separateShoppers() {
+    for (let i = 0; i < this.shoppers.length; i++) {
+      for (let j = i + 1; j < this.shoppers.length; j++) {
+        const a = this.shoppers[i].body;
+        const b = this.shoppers[j].body;
+        const dx = b.pos.x - a.pos.x;
+        const dz = b.pos.y - a.pos.y;
+        const want = a.radius + b.radius;
+        const d = Math.hypot(dx, dz);
+        if (d >= want || d < 1e-4) continue;
+
+        const push = (want - d) / 2;
+        const nx = dx / d;
+        const nz = dz / d;
+        a.pos.x -= nx * push;
+        a.pos.y -= nz * push;
+        b.pos.x += nx * push;
+        b.pos.y += nz * push;
+        a.root.position.set(a.pos.x, 0, a.pos.y);
+        b.root.position.set(b.pos.x, 0, b.pos.y);
+      }
+    }
+  }
+
   update(dt) {
     this.updateFlyers(dt);
     for (const s of this.shoppers) s.body.update(dt);
+    this.separateShoppers();
+    // Furniture wins: resolve rabbit-on-rabbit first, then push the results
+    // back out of the fittings so nobody gets shoved into a shelf.
+    for (const s of this.shoppers) this.separate(s.body);
 
     if (!this.running) return;
 
     this.dayClock -= dt;
     this.ui.setClock(this.dayClock / RULES.dayLength);
     if (this.dayClock <= 0) this.nextDay();
+
+    this.updateEvent(dt);
 
     this.spawnIn -= dt;
     if (this.spawnIn <= 0) {
@@ -458,11 +567,18 @@ export class Game {
           s.phase = 'browsing';
           s.timer = rand(2.6, 6.0);
           b.wantFacing = Math.PI; // face the shelf
-          this.ui.bubble(s, say.browse(), { mood: 'think', ttl: 3400 });
+          this.ui.bubble(s, say.browse(), { mood: 'think' });
         }
         break;
 
       case 'browsing':
+        // Rabbits left alone for a few seconds do something unprompted. It is
+        // the cheapest possible life in a shop that is mostly a queue.
+        if (Math.random() < RULES.anticChance * dt) {
+          const bit = pick(ANTICS);
+          b.playOnce(bit.anim);
+          this.ui.bubble(s, bit.line, { mood: bit.anim === 'jump' ? 'happy' : 'cross' });
+        }
         if (s.timer <= 0) {
           if (!this.joinQueue(s)) {
             s.timer = rand(1.5, 3);
@@ -484,7 +600,7 @@ export class Game {
           s.phase = 'greeting';
           s.timer = 1.15;
           const greet = s.special ? pick(SPECIALS[s.special].greet) : say.greet();
-          this.ui.bubble(s, greet, { ttl: 2000 });
+          this.ui.bubble(s, greet, { keep: true });
         }
         break;
 
@@ -496,7 +612,7 @@ export class Game {
           s.phase = 'counter';
           this.ui.setTicket(s);
           const template = s.special ? pick(SPECIALS[s.special].order) : say.order();
-          this.ui.bubble(s, template.replace('{order}', describeOrder(s.order, STOCK_BY_ID)), { ttl: 5200 });
+          this.ui.bubble(s, template.replace('{order}', describeOrder(s.order, STOCK_BY_ID)), { ttl: 6500, keep: true });
         }
         break;
 
@@ -508,7 +624,7 @@ export class Game {
         // One nudge partway down, one closer to the end.
         if (frac <= s.nagAt) {
           s.nagAt = frac <= 0.2 ? -1 : 0.2;
-          this.ui.bubble(s, say.impatient(), { mood: 'cross', ttl: 2400 });
+          this.ui.bubble(s, say.impatient(), { mood: 'cross', keep: true });
         }
         if (s.patience <= 0) this.loseCustomer(s);
         break;

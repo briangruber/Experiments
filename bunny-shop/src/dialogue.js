@@ -307,6 +307,78 @@ export const SPECIALS = {
   },
 };
 
+// ---------------------------------------------------------------- events
+
+// Things that happen to the shop, rather than to a customer. Each one is a
+// banner and a real modifier, so the joke changes how the next minute plays.
+export const EVENTS = [
+  {
+    id: 'cabbage-rush',
+    minDay: 1,
+    duration: 26,
+    banner: ['Cabbage Rush', 'Someone posted about cabbage. Nobody knows who.'],
+    over: 'The cabbage thing has passed. It always does.',
+    forceItem: 'cabbage',
+  },
+  {
+    id: 'golden-hour',
+    minDay: 1,
+    duration: 24,
+    banner: ['Golden Hour', 'The light is lovely and everyone is feeling generous.'],
+    over: 'The light has gone off the counter. So have the big tips.',
+    tipScale: 2,
+  },
+  {
+    id: 'radish-rumour',
+    minDay: 2,
+    duration: 30,
+    banner: ['The Radish Rumour', 'It is not true. It is spreading anyway.'],
+    over: 'The radishes have been cleared of all wrongdoing.',
+    banItem: 'radish',
+  },
+  {
+    id: 'big-lunch',
+    minDay: 2,
+    duration: 28,
+    banner: ['Sleepy Afternoon', 'Everyone has had an enormous lunch. Nobody is in a hurry.'],
+    over: 'The warren has woken up. Regrettably.',
+    patienceScale: 1.9,
+  },
+  {
+    id: 'the-bus',
+    minDay: 3,
+    duration: 20,
+    banner: ['The 3:15 Has Arrived', 'All of it. All of the 3:15.'],
+    over: 'That was the 3:15. The 4:15 is worse.',
+    spawnScale: 0.45,
+    patienceScale: 1.25,
+  },
+  {
+    id: 'stocking-up',
+    minDay: 3,
+    duration: 26,
+    banner: ['Stocking Up', 'Something is happening at the weekend and nobody will say what.'],
+    over: 'Whatever it was, it is over, and nobody will say how it went.',
+    orderScale: 2,
+    tipScale: 1.6,
+    patienceScale: 1.4,
+  },
+];
+
+// Small unprompted moments from rabbits who are only browsing. `anim` is one of
+// the clips every rabbit has.
+export const ANTICS = [
+  { anim: 'jump', line: 'THEY HAVE THE MUFFINS.' },
+  { anim: 'jump', line: 'Oh! I remembered the thing!' },
+  { anim: 'hurt', line: 'I meant to do that.' },
+  { anim: 'hurt', line: 'Who put the floor there.' },
+  { anim: 'jump', line: 'Sorry! Sorry. Excited.' },
+  { anim: 'hurt', line: 'That shelf moved. I will be reporting it.' },
+  { anim: 'jump', line: 'I have just had the best idea and it is soup.' },
+  { anim: 'hurt', line: 'Nothing happened. Nothing at all happened.' },
+  { anim: 'jump', line: 'Look how high I can— sorry.' },
+];
+
 // ---------------------------------------------------------------- drawing
 
 // A bank you can draw from without repeats; it reshuffles once emptied.

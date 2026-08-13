@@ -423,23 +423,29 @@ export function dressShop(scene, gltf) {
   // generated one to the width of the shop smeared its cash register into a
   // puddle, and a long plain run reads better under the produce anyway.
   const run = buildCounterRun(COUNTER.width, 0);
+  run.userData.prop = 'counter';
   scene.add(run);
   handles.counter = run;
+  handles.solids = [run];
 
   // The generated counter keeps its own proportions as a back counter against
   // the wall, which is the one place its little brass register can be seen.
   const till = place(gltf.counter, TWEAKS.counter);
   till.position.set(5.0, 0, ROOM.zBack + 0.9);
   till.rotation.y = -0.22;
+  till.userData.prop = 'back counter';
   scene.add(till);
   handles.till = till;
+  handles.solids.push(till);
 
-  for (const s of SHELVES) {
+  SHELVES.forEach((s, i) => {
     const shelf = place(gltf.shelf, { ...TWEAKS.shelf, clone: true });
     shelf.position.set(s.pos.x, 0, s.pos.z);
     shelf.rotation.y = s.ry;
+    shelf.userData.prop = `shelf ${i}`;
     scene.add(shelf);
-  }
+    handles.solids.push(shelf);
+  });
 
   // Produce crates along the counter, each with a sample of its stock floating
   // just above it so the shelf reads at a glance.
@@ -495,7 +501,9 @@ export function dressShop(scene, gltf) {
   ]) {
     const plant = place(gltf.plant, { ...TWEAKS.plant, clone: true });
     plant.position.set(x, 0, z);
+    plant.userData.prop = 'plant';
     scene.add(plant);
+    handles.solids.push(plant);
   }
 
   // Stock on the shelves: a few items along the top plank of each unit, so the
@@ -527,8 +535,18 @@ export function dressShop(scene, gltf) {
     const c = place(gltf.crate, { ...TWEAKS.crate, height: bigCrate, clone: true });
     c.position.set(x, y, z);
     c.rotation.y = ry;
+    c.userData.prop = 'floor crate';
     scene.add(c);
+    handles.solids.push(c);
   }
+
+  // Flatten the solid props to XZ rectangles once, for the walking rabbits to
+  // be pushed out of. Measuring the real geometry beats guessing: the shelves
+  // turn out to be 2.68 deep, nothing like the footprint they appear to have.
+  handles.obstacles = handles.solids.map((o) => {
+    const b = new THREE.Box3().setFromObject(o);
+    return { name: o.userData.prop, minX: b.min.x, maxX: b.max.x, minZ: b.min.z, maxZ: b.max.z };
+  });
 
   return handles;
 }

@@ -106,6 +106,14 @@ export class Audio {
     );
   }
 
+  // Something is happening to the shop: a little rising three-note flourish.
+  event() {
+    [523, 698, 880].forEach((f, i) =>
+      this.tone(f, { at: i * 0.11, dur: 0.5, type: 'sine', gain: 0.24 }),
+    );
+    this.tone(1760, { at: 0.33, dur: 0.6, type: 'sine', gain: 0.1 });
+  }
+
   storm() {
     this.tone(330, { dur: 0.4, type: 'square', gain: 0.16, to: 110 });
     this.noise({ dur: 0.3, gain: 0.14, freq: 500 });

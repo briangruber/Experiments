@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { Audio } from './audio.js';
 import { clipsFrom, loadAll } from './assets.js';
 import { Game } from './game.js';
+import * as CONFIG from './config.js';
 import { STOCK } from './config.js';
 import { createWorld, dressShop, frameCamera } from './scene.js';
 import { UI } from './ui.js';
@@ -94,7 +95,7 @@ for (const b of BUNNIES) {
 }
 
 const shop = dressShop(scene, gltf);
-const game = new Game({ scene, gltf, clips, ui, audio });
+const game = new Game({ scene, gltf, clips, ui, audio, obstacles: shop.obstacles });
 
 startBtn.disabled = false;
 startBtn.textContent = 'Open the Shop';
@@ -242,7 +243,10 @@ function frame() {
 
 shop.bell.userData.baseY = shop.bell.position.y;
 
-// Exposed for tools/shot.mjs, which asserts on live game state.
+// Exposed for tools/shot.mjs and tools/playtest.mjs, which assert on live state.
 window.__game = game;
+window.__cfg = CONFIG;
+window.__shop = shop;
+window.__THREE = THREE;
 
 frame();

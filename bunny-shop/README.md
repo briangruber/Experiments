@@ -38,6 +38,12 @@ python3 -m http.server 8000     # or any static server
   One mistake ends it.
 - Three rabbits leaving unhappy and the warren stops coming.
 
+Every so often something happens to the whole shop for half a minute — a run on
+cabbage, a rumour about the radishes, an unusually generous hour, the 3:15 bus
+arriving all at once. Each one is a real modifier, not just a banner: crazes
+push an item into every order, rumours take one out, and the tips, patience and
+arrival rate move with them.
+
 Days get busier: shorter gaps between customers, longer orders, less patience.
 Three customers are not like the others:
 
@@ -56,7 +62,7 @@ src/
   scene.js            renderer, room, lighting, prop placement
   assets.js           GLB loading, and normalising whatever the generator sent
   bunny.js            one customer: rig, clips, walking, the trench coat stack
-  game.js             the rules — spawning, queueing, orders, scoring
+  game.js             the rules — spawning, queueing, orders, scoring, events
   dialogue.js         everything the rabbits say
   ui.js / ui.css      HUD, tickets, speech bubbles and the touch pad
   audio.js            synthesised sound; no audio files
@@ -86,6 +92,15 @@ half-height each wants to see, since wasted vertical space is what makes a
 framing look wrong — and solves the camera distance from that. Below 760px wide
 or 520px tall, or on any coarse pointer, the canvas also gives up its bottom
 edge to a control pad rather than having one float on top of the shop.
+
+**Nothing walks through the furniture.** Rabbits are pushed out of every solid
+prop's real footprint each frame, along whichever axis they are least far into
+it, and out of each other. That is a safety net rather than the plan — the walk
+targets are placed with clearance — but it means a badly placed waypoint can
+never park a rabbit inside a counter. It replaced a layout built on guessed
+footprints: the shelf model is 2.68m deep, nothing like the size it looks, which
+had put two queue positions and three loitering spots inside shelves and a whole
+shelf across the doorway.
 
 ## Rebuilding the assets
 
@@ -135,7 +150,8 @@ The bundle is about 7.5MB and is not committed; `dist/` is ignored.
 ## Tests
 
 ```
-npm test                 # 36 assertions over the actual game rules
+npm test                 # 44 assertions over the actual game rules
+npm run collisions       # ten unattended minutes, reporting anything walked into
 npm run shot             # a screenshot of the shop
 ```
 
@@ -143,8 +159,15 @@ npm run shot             # a screenshot of the shop
 wall-clock time, so a full day of trading takes about a second and the results
 are deterministic. It covers a clean sale end to end, wrong items, petting,
 patience running out, the day rolling over, losing, restarting, streaks, each
-special customer's rules, the touch pad's counts, and four unattended minutes
-without the shop floor filling up.
+special customer's rules, the touch pad's counts, every shop-wide event's
+modifier, that nobody ends up inside the furniture or inside another rabbit,
+that a long line gets a long bubble, and four unattended minutes without the
+shop floor filling up.
+
+`tools/collisions.mjs` runs the shop unattended and samples every rabbit's
+walking circle against every prop's measured footprint, printing which prop, how
+often, how deep and during which phase of a visit. Grazing at zero depth is the
+separation pass working; anything deeper fails the run.
 
 `tools/shot.mjs` serves the folder, drives a headless browser and exits non-zero
 on any page error, so it doubles as a smoke test. Useful flags:

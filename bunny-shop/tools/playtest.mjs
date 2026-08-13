@@ -210,6 +210,63 @@ const results = await page.evaluate(() => {
   }
   check('unused pad buttons exist but are not highlighted', !!padBtn);
 
+  // --- shop-wide events ---------------------------------------------------
+  g.start();
+  g.day = 4;
+  g.event = null;
+  g.startEvent();
+  check('an event starts', !!g.event, g.event?.id);
+
+  // Force each modifier in turn and check it actually reaches the rules.
+  g.event = { id: 'test', duration: 99, banner: ['x', 'y'], banItem: 'radish', forceItem: 'cabbage' };
+  const shaped = Array.from({ length: 12 }, () => g.makeOrder({ special: null }));
+  check('a banned item leaves every order', shaped.every((o) => !o.some((i) => i.id === 'radish')));
+  check('a craze reaches every order', shaped.every((o) => o.some((i) => i.id === 'cabbage')));
+
+  g.event = { id: 'test', duration: 99, banner: ['x', 'y'], tipScale: 3, patienceScale: 2 };
+  const boosted = g.patienceFor([{ id: 'carrot', count: 1 }], { spec: null });
+  g.event = null;
+  const plain = g.patienceFor([{ id: 'carrot', count: 1 }], { spec: null });
+  check('an event can change patience', boosted > plain * 1.8, `${plain.toFixed(1)} -> ${boosted.toFixed(1)}`);
+
+  g.event = { id: 'test', duration: 0.01, banner: ['x', 'y'], over: 'done' };
+  g.eventLeft = 0.01;
+  step(1);
+  check('an event ends on its own', g.event === null);
+
+  // --- rabbits stay out of the furniture ----------------------------------
+  g.start();
+  step(150);
+  const stuck = [];
+  for (const sh of g.shoppers) {
+    const p = sh.body.pos;
+    const r = sh.body.radius;
+    for (const b of g.obstacles) {
+      const dx = Math.min(p.x + r, b.maxX) - Math.max(p.x - r, b.minX);
+      const dz = Math.min(p.y + r, b.maxZ) - Math.max(p.y - r, b.minZ);
+      if (dx > 0.02 && dz > 0.02) stuck.push(`${sh.name} in ${b.name}`);
+    }
+  }
+  check('nobody is standing inside the furniture', stuck.length === 0, stuck.join('; '));
+
+  const pairs = [];
+  for (let i = 0; i < g.shoppers.length; i++) {
+    for (let j = i + 1; j < g.shoppers.length; j++) {
+      const a = g.shoppers[i].body;
+      const b = g.shoppers[j].body;
+      const d = Math.hypot(b.pos.x - a.pos.x, b.pos.y - a.pos.y);
+      if (d < (a.radius + b.radius) * 0.9) pairs.push(d.toFixed(2));
+    }
+  }
+  check('rabbits are not standing inside each other', pairs.length === 0, pairs.join(', '));
+
+  // --- bubbles stay up long enough to read --------------------------------
+  const long = 'This is a deliberately long line of dialogue with quite a lot of words in it indeed.';
+  g.ui.bubble(g.shoppers[0] ?? { body: { anchor: () => ({}) }, done: false }, long, { keep: true });
+  const entry = [...g.ui.live.values()].pop();
+  check('a long line gets a long bubble', entry && entry.until - performance.now() > 6000,
+    entry ? Math.round(entry.until - performance.now()) : 'none');
+
   // --- a long unattended run must not throw or leak -----------------------
   g.start();
   step(240);

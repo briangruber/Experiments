@@ -9,7 +9,9 @@
     "optimize": "node tools/optimize.mjs",
     "bundle": "node tools/bundle.mjs",
     "shot": "node tools/shot.mjs --out shots/shop.png --open",
-    "test": "node tools/shot.mjs --out shots/smoke.png --play 25000"
+    "test": "node tools/playtest.mjs",
+    "collisions": "node tools/collisions.mjs",
+    "smoke": "node tools/shot.mjs --out shots/smoke.png --play 25000"
   },
   "devDependencies": {
     "@gltf-transform/core": "^4.2.1",

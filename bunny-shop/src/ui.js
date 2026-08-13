@@ -134,16 +134,29 @@ export class UI {
 
   // ---------------------------------------------------------------- bubbles
 
-  bubble(shopper, text, { mood = 'plain', ttl = 3000 } = {}) {
-    // Idle chatter is decoration; three overlapping thought bubbles in the
-    // middle of the shop is not. The rabbit being served always gets through.
-    if (mood === 'think') {
-      // A phone frames the counter closely — the browsers muttering to
-      // themselves are off-screen, so their bubbles are pure clutter.
+  /**
+   * Show a line above a rabbit.
+   *
+   * `ttl` is a floor, not the answer: a bubble should be up long enough to read,
+   * and the order lines run to twenty words. The time on screen is derived from
+   * the length of the line and only raised by the caller's minimum.
+   */
+  bubble(shopper, text, { mood = 'plain', ttl = 0, keep = false } = {}) {
+    const words = text.trim().split(/\s+/).length;
+    // ~3.3 words a second, plus a beat to notice it appeared and a beat to
+    // finish on. Generous on purpose — a joke you only half-read is not a joke.
+    const readable = 1500 + words * 300;
+    ttl = Math.max(ttl, Math.min(readable, 11000));
+
+    // Idle chatter is decoration; a wall of overlapping bubbles is not. Lines
+    // now stay up long enough to read, which makes crowding much easier, so
+    // background rabbits get one bubble between them and the served rabbit —
+    // marked `keep` — always gets through.
+    if (!keep) {
       if (document.documentElement.classList.contains('touch')) return;
-      let thinking = 0;
-      for (const [, e] of this.live) if (e.el.classList.contains('think')) thinking++;
-      if (thinking >= 2) return;
+      let background = 0;
+      for (const [, e] of this.live) if (!e.keep) background++;
+      if (background >= 1) return;
     }
     this.dropBubble(shopper);
 
@@ -154,7 +167,7 @@ export class UI {
     // Let the layout settle before the pop-in, so it scales from its real size.
     requestAnimationFrame(() => el.classList.add('in'));
 
-    this.live.set(shopper, { el, until: performance.now() + ttl });
+    this.live.set(shopper, { el, keep, until: performance.now() + ttl });
   }
 
   dropBubble(shopper) {
@@ -206,13 +219,28 @@ export class UI {
 
   update() {
     const now = performance.now();
+    const placed = [];
+
     for (const [shopper, entry] of this.live) {
       if (now > entry.until || shopper.done) {
         this.dropBubble(shopper);
         continue;
       }
+
       const p = this.project(shopper.body.anchor(this._v));
-      entry.el.style.transform = `translate(-50%,-100%) translate(${p.x}px, ${p.y - 14}px)`;
+      const w = entry.el.offsetWidth;
+      const h = entry.el.offsetHeight;
+      let y = p.y - 14;
+
+      // Two rabbits standing near each other would otherwise print one bubble
+      // on top of the other; lift the later one clear.
+      for (const q of placed) {
+        if (Math.abs(q.x - p.x) > (q.w + w) / 2) continue;
+        if (y - h < q.y && y > q.y - q.h) y = q.y - q.h - 6;
+      }
+      placed.push({ x: p.x, y, w, h });
+
+      entry.el.style.transform = `translate(-50%,-100%) translate(${p.x}px, ${y}px)`;
       entry.el.style.opacity = p.behind ? '0' : '';
     }
   }

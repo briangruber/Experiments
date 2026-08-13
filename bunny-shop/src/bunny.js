@@ -67,6 +67,11 @@ export class Customer {
     }
 
     this.height = height * (stack ? 2.1 : 1);
+    // Used to keep rabbits out of the furniture. Deliberately smaller than the
+    // mesh: the models rest in a wide A-pose, so their bounding box is mostly
+    // outstretched arms and treating that as solid makes them shove each other
+    // across the room.
+    this.radius = (stack ? 0.42 : 0.32) * (height / 1.34);
 
     // Movement state.
     this.pos = new THREE.Vector2(0, 0);
