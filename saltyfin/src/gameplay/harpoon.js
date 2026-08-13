@@ -146,6 +146,13 @@ const STATION_LEAD = 4;      // m ahead of her, so the bow is level with her eye
 // away, because the interesting part of a harpoon is the throwing.
 const REEL_SPEED = 34;       // m/s the spear returns
 const REEL_MIN = 0.35;       // s, so a miss still reads as a miss
+// --- the barrels ---------------------------------------------------------------
+// How long the line stays on the drum after a strike. Long enough to be
+// hauled somewhere and feel it, short enough that the hunt is a sequence of
+// rides rather than one endless tug-of-war.
+const TOW_TIME = 7.0;
+const MAX_BARRELS = 10;      // casks the scene can draw at once
+const BARREL_ROPE = 9;       // m of line between the animal and her cask
 
 export function createHarpoon(opts = {}) {
   const { ctx, scene, monster, camera, chaseCamera } = opts;
@@ -172,6 +179,8 @@ export function createHarpoon(opts = {}) {
     lockable: false,
     lockDist: 0,
     escorting: false,
+    barrels: 0,
+    barrelsNeeded: 0,
     msg: '',
     msgT: 9,
     cutHold: 0,
@@ -269,6 +278,34 @@ export function createHarpoon(opts = {}) {
       group.add(m);
     }
 
+    // THE CASKS. Built once, parked under the seabed, claimed as they are
+    // planted — same discipline as the rope: nothing is created mid-fight, so
+    // nothing compiles a pipeline mid-fight. Each is a yellow barrel with two
+    // iron hoops and a short line up to the animal carrying it.
+    const matBarrel = new THREE.MeshStandardMaterial({
+      color: 0xE0B23C, roughness: 0.72, metalness: 0.05,
+    });
+    const matHoop = new THREE.MeshStandardMaterial({
+      color: 0x4A3A2C, roughness: 0.8, metalness: 0.2,
+    });
+    const barrelGeo = new THREE.CylinderGeometry(0.62, 0.62, 1.5, 12);
+    const hoopGeo = new THREE.CylinderGeometry(0.66, 0.66, 0.14, 12);
+    const barrelPool = [];
+    for (let i = 0; i < MAX_BARRELS; i++) {
+      const g2 = new THREE.Group();
+      g2.name = 'harpoon-barrel-' + i;
+      const body = new THREE.Mesh(barrelGeo, matBarrel);
+      const h1 = new THREE.Mesh(hoopGeo, matHoop); h1.position.y = 0.45;
+      const h2 = new THREE.Mesh(hoopGeo, matHoop); h2.position.y = -0.45;
+      g2.add(body, h1, h2);
+      g2.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
+      g2.position.set(0, -400, 0);
+      barrelPool.push(g2);
+      group.add(g2);
+    }
+    // Live casks: { animal, along, side, obj, bob }
+    const barrels = [];
+
     // UNDERWATER too, and it is the whole feature: a line to a creature ten
     // metres down is mostly BELOW the surface, and submerged geometry is only
     // seen from the helm through the refraction pass, which renders
@@ -315,6 +352,7 @@ export function createHarpoon(opts = {}) {
     let reelT = 0;           // seconds into the auto-reel
     let aimStarveT = 0;      // seconds the scope has had nothing to look at
     let sprayT = 0;          // stamp timer for the bow tearing water under tow
+    let towT = 0;            // seconds of line left on the drum after a strike
     let locked = null;       // the animal the player has claimed
     const _station = new THREE.Vector3();
     let camFirst = true;     // snap the camera on the frame it is taken
@@ -436,6 +474,69 @@ export function createHarpoon(opts = {}) {
       if (reason) setMsg(reason);
     }
 
+    /**
+     * Put a cask in her. The attach point is remembered ALONG her spine and
+     * off to one side, so every barrel rides its own spot on her back rather
+     * than all of them stacking in the same place.
+     */
+    function plantBarrel(animal) {
+      if (barrels.length >= MAX_BARRELS) return;
+      const obj = barrelPool[barrels.length];
+      const landed = animal.addBarrel();
+      barrels.push({
+        animal,
+        along: attachAlong,
+        side: (barrels.length % 2 ? 1 : -1) * 2.2 * animal.scale,
+        obj,
+        bob: barrels.length * 1.7,
+      });
+      if (landed) {
+        audio?.cue?.('victory');
+        const p = animal.state.position;
+        burst(p.x, p.z, 40, 1.5);
+        setMsg('She is up! Every barrel is in her - look at the size of it.');
+      }
+    }
+
+    /** Float every planted cask: up to the surface, trailing its animal. */
+    function layoutBarrels(dt) {
+      for (let i = barrels.length - 1; i >= 0; i--) {
+        const b2 = barrels[i];
+        const a = b2.animal;
+        if (!a || !a.state || a.barrels === 0) {
+          // She shook them off; the cask goes back in the locker.
+          b2.obj.position.set(0, -400, 0);
+          barrels.splice(i, 1);
+          continue;
+        }
+        const p = a.state.position;
+        _fwd.copy(a.velocity).setY(0);
+        if (_fwd.lengthSq() < 1e-4) _fwd.set(0, 0, -1);
+        _fwd.normalize();
+        _side.set(-_fwd.z, 0, _fwd.x);
+        // Where the iron went in.
+        const ax2 = p.x + _fwd.x * b2.along + _side.x * b2.side;
+        const az2 = p.z + _fwd.z * b2.along + _side.z * b2.side;
+        // The cask wants the surface and lags astern of her — a barrel being
+        // towed under skids behind the point it is tied to.
+        b2.bob += dt;
+        const surf = water()?.sampleHeight?.(ax2, az2, ctx.time) ?? 0;
+        const deep = Math.max(0, -(p.y + 1.2 * a.scale));
+        const lag = Math.min(deep * 0.55, BARREL_ROPE * 0.8);
+        const bx2 = ax2 - _fwd.x * lag;
+        const bz2 = az2 - _fwd.z * lag;
+        // Dragged under when she sounds hard, riding the chop when she is up.
+        const pull = clamp(deep - BARREL_ROPE, 0, 6);
+        b2.obj.position.set(
+          bx2, surf + 0.35 - pull + Math.sin(b2.bob * 2.1) * 0.12, bz2,
+        );
+        b2.obj.rotation.set(
+          Math.sin(b2.bob * 1.7) * 0.25, Math.atan2(_fwd.x, _fwd.z),
+          Math.cos(b2.bob * 1.3) * 0.22,
+        );
+      }
+    }
+
     function attachNow(animal) {
       if (!animal || state.tethered) return false;
       if (!animal.hook()) return false;
@@ -456,6 +557,11 @@ export function createHarpoon(opts = {}) {
       // a near-horizontal roll on the attach frame. The auto-reel below
       // shortens it to fighting length as slack allows.
       rest = Math.max(REST_MIN, _bow.distanceTo(p) * 0.98);
+      // The iron carries a cask. It goes into her NOW — the line to the boat
+      // is only the few seconds of ride before it pays out and leaves the
+      // barrel with her, which is exactly how Quint did it.
+      plantBarrel(animal);
+      towT = TOW_TIME;
       audio?.cue?.('harpoonHit');
       burst(p.x, p.z, 30, 1.2);
       const w = water();
@@ -515,7 +621,18 @@ export function createHarpoon(opts = {}) {
      * that auto-hit whatever was nearest made the whole act a formality.
      */
     function fire() {
-      if (!state.aiming || state.flight || state.reeling || state.tethered) return;
+      if (state.flight || state.reeling || state.tethered) return;
+      // THE SHOT IS THE LOCK. Manual aiming was the single hardest thing in
+      // the game and the player said so twice; with a creature claimed there
+      // is nothing left to decide, so the throw goes straight from the
+      // following view — bow to animal, led for her speed and lofted for the
+      // drop, exactly the solution the assist was converging on anyway.
+      if (locked && locked.state) {
+        if (!aimAtAnimal(locked)) return;
+      } else if (!state.aiming) {
+        const near = nearestAnimal();
+        if (!hookable(near.animal, near.dist) || !aimAtAnimal(near.animal)) return;
+      }
       exitAim();
       state.flight = true;
       flightT = 0;
@@ -761,6 +878,19 @@ export function createHarpoon(opts = {}) {
       if (rollEnergy > tune.ROLL_LIMIT) { beginCapsize(Math.sign(tow.heel || 1), false); return; }
       if (sinkEnergy > tune.DUNK_LIMIT) { beginCapsize(1, true); return; }
 
+      // THE LINE PAYS OUT. A few seconds of being hauled along behind her,
+      // and then the rope runs off the drum and the cask is hers to carry.
+      // This is what keeps every barrel its own violent little sleigh ride
+      // without turning the hunt into one endless tug-of-war.
+      towT -= dt;
+      if (towT <= 0) {
+        const left = target.barrelsNeeded - target.barrels;
+        release(left > 0
+          ? 'The line pays out - she has the barrel. ' + left + ' more.'
+          : 'The line pays out.');
+        return;
+      }
+
       // The cut.
       if (cutHeld) {
         state.cutHold = clamp(state.cutHold + dt / CUT_HOLD_S, 0, 1);
@@ -859,6 +989,30 @@ export function createHarpoon(opts = {}) {
     function aimDir(out) {
       const cp = Math.cos(aimPitch);
       return out.set(Math.sin(aimYaw) * cp, Math.sin(aimPitch), -Math.cos(aimYaw) * cp);
+    }
+
+    /**
+     * Point the throw at one animal: where her spine WILL be when the spear
+     * gets there, lofted for the drop over that flight. This is the whole of
+     * aiming now — the player picks the animal, the harpooner solves the lead.
+     */
+    function aimAtAnimal(a) {
+      if (!a || !a.state) return false;
+      sightPoint(_bow);
+      const p = a.state.position;
+      const d = _bow.distanceTo(p);
+      if (d < 1e-3) return false;
+      const tFly = d / SPEAR_V;
+      _a.copy(p).addScaledVector(a.velocity, tFly);
+      const flat = Math.hypot(_a.x - _bow.x, _a.z - _bow.z);
+      aimYaw = Math.atan2(_a.x - _bow.x, -(_a.z - _bow.z));
+      aimPitch = clamp(
+        Math.atan2((_a.y - _bow.y) + 0.5 * SPEAR_G * tFly * tFly, flat),
+        AIM_PITCH_MIN, AIM_PITCH_MAX,
+      );
+      state.aimYaw = aimYaw;
+      state.aimPitch = aimPitch;
+      return true;
     }
 
     function enterAim() {
@@ -1223,6 +1377,8 @@ export function createHarpoon(opts = {}) {
       if (locked) stepLock(dt);
       else { ctx.escort = null; state.escorting = false; }
       state.locked = !!locked;
+      state.barrels = locked ? locked.barrels : 0;
+      state.barrelsNeeded = locked ? locked.barrelsNeeded : 0;
       const lockNear = nearestAnimal();
       state.lockable = !locked && !!lockNear.animal && lockNear.dist <= LOCK_RANGE;
       // Range to whichever animal the lock is ABOUT — the held one, or the
@@ -1252,6 +1408,7 @@ export function createHarpoon(opts = {}) {
 
       layoutRope(state.tethered || state.flight || state.reeling);
       layoutSpear();
+      layoutBarrels(dt);
     }
 
     // --- handle -----------------------------------------------------------------
@@ -1303,23 +1460,7 @@ export function createHarpoon(opts = {}) {
         },
         aimAtNearest() {
           const near = nearestAnimal();
-          if (!near.animal) return false;
-          sightPoint(_bow);
-          const p = near.animal.state.position;
-          // Lead the animal exactly the way the old auto-throw did, so a
-          // scripted shot still lands: aim where the spine WILL be.
-          const d = _bow.distanceTo(p);
-          const tFly = d / SPEAR_V;
-          _a.copy(p).addScaledVector(near.animal.velocity, tFly);
-          const flat = Math.hypot(_a.x - _bow.x, _a.z - _bow.z);
-          aimYaw = Math.atan2(_a.x - _bow.x, -(_a.z - _bow.z));
-          aimPitch = clamp(
-            Math.atan2((_a.y - _bow.y) + 0.5 * SPEAR_G * tFly * tFly, flat),
-            AIM_PITCH_MIN, AIM_PITCH_MAX,
-          );
-          state.aimYaw = aimYaw;
-          state.aimPitch = aimPitch;
-          return true;
+          return near.animal ? aimAtAnimal(near.animal) : false;
         },
         forceCapsize(side = 1) { beginCapsize(side, false); },
         forceDunk() { beginCapsize(1, true); },

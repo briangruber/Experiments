@@ -1228,6 +1228,8 @@ export function createMonster(opts = {}) {
       surfaced: 0,
       phase: 'cruise',
       alerted: false,
+      barrels: 0,
+      barrelsNeeded: 0,
     };
     if (isPrimary) state.disturbance = disturbPos;
 
@@ -1270,6 +1272,16 @@ export function createMonster(opts = {}) {
     let lungeT = 0;
     const hookTarget = new THREE.Vector3();
     const towAcc = new THREE.Vector3();
+
+    // THE BARRELS. Quint's method: every iron carries a sealed cask, and a
+    // cask will not go down. One is an inconvenience to something this size;
+    // three or four will not let her stay under at all, and a leviathan that
+    // cannot dive is a leviathan you have beaten. Bigger animals need more of
+    // them, which is the whole progression the player asked for.
+    let barrels = 0;
+    const barrelsNeeded = Math.max(3, Math.round(scale * 3.6));
+    /** She works the casks loose and goes back to being a leviathan. */
+    function shedBarrelsInternal() { barrels = 0; state.barrels = 0; }
 
     const brP0 = new THREE.Vector3();
     const brP1 = new THREE.Vector3();
@@ -1741,7 +1753,8 @@ export function createMonster(opts = {}) {
             stampT = 0;
             water.disturb(position.x, position.z, 0.7, 8.5);
           }
-          if (phaseT > 9) setPhase('dive');
+          // Longer the more casks she is carrying: that IS the trophy shot.
+          if (phaseT > 9 + barrels * 5) { shedBarrelsInternal(); setPhase('dive'); }
         } else {
           // dive — sink away, slow down, then fold back into the circuit.
           const lim = floorLimit(position.x, position.z);
@@ -1753,6 +1766,19 @@ export function createMonster(opts = {}) {
             8.5 - 3.0 * clamp(phaseT / 14, 0, 1), dt, 0.8);
           speed = velocity.length();
           if (phaseT > 20) { state.alerted = false; nearDisturbT = 0; setPhase('cruise'); }
+        }
+
+        // WHAT THE CASKS DO. Applied after whatever the phase wanted, for the
+        // same reason as everything else in this block: a phase picks a
+        // target, and buoyancy is not a target — it is a fact that happens to
+        // her on the way there. Each barrel lifts her and slows her, and once
+        // she is carrying all of them she cannot get down at all.
+        if (barrels > 0 && phase !== 'breach') {
+          velocity.y += barrels * 2.1 * dt;
+          const drag = Math.min(0.60, barrels * 0.16);
+          const keep = 1 - drag * dt * 1.1;
+          velocity.x *= keep;
+          velocity.z *= keep;
         }
 
         // PERSONAL SPACE. The same argument as the reef bail-out below, for
@@ -1793,7 +1819,11 @@ export function createMonster(opts = {}) {
         // is invisible; a leviathan standing in the shallows is not.
         const lim = floorLimit(position.x, position.z);
         if (position.y < lim) { position.y = lim; if (velocity.y < 0) velocity.y *= 0.2; }
-        if (position.y > ceiling) { position.y = ceiling; if (velocity.y > 0) velocity.y *= 0.2; }
+        // The casks raise her ceiling as well as pushing her toward it: fully
+        // barrelled she rides with her back out of the water, which is the
+        // whole point of putting them in her.
+        const ceilNow = ceiling + Math.min(barrels / barrelsNeeded, 1) * (ceiling * -0.82);
+        if (position.y > ceilNow) { position.y = ceilNow; if (velocity.y > 0) velocity.y *= 0.2; }
         lastY = position.y;
       }
 
@@ -1811,6 +1841,8 @@ export function createMonster(opts = {}) {
 
       return position.y;
     }
+
+    state.barrelsNeeded = barrelsNeeded;
 
     // Prime the exported state so the HUD and the quest have sane numbers on the
     // very first frame, before update() has ever run.
@@ -1851,6 +1883,26 @@ export function createMonster(opts = {}) {
       },
       towPull(x, y, z) { if (hooked) towAcc.set(x, y, z); },
       setStrain(s) { strain = clamp(s, 0, 1); },
+      get barrels() { return barrels; },
+      get barrelsNeeded() { return barrelsNeeded; },
+      /** Plant one. Returns true when that was the cask that finished her. */
+      addBarrel() {
+        barrels++;
+        state.barrels = barrels;
+        state.alerted = true;
+        if (barrels >= barrelsNeeded) {
+          // Beaten: she comes up and stays up, blowing, until she has the
+          // strength to shake the casks off and go back down. Nobody dies in
+          // this game — you land her, you look at her, she leaves.
+          hooked = false;
+          towAcc.set(0, 0, 0);
+          setPhase('spent');
+          return true;
+        }
+        return false;
+      },
+      /** She works them loose over time once she is left alone. */
+      shedBarrels: shedBarrelsInternal,
       alert() { state.alerted = true; approachLock = 0; if (phase === 'cruise') setPhase('approach'); },
       calm() { state.alerted = false; if (phase === 'approach') setPhase('dive'); },
       forceBreach(x, z) {

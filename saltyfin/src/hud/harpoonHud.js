@@ -378,7 +378,7 @@ export function createHarpoonHud({ harpoon, ctx } = {}) {
       go.classList.add('sf-harpoon-down');
       call('holdCut', true);
     } else if (s.available && !s.aiming) {
-      call('aim');
+      call('fire');
     }
   };
   const goUp = () => {
@@ -549,7 +549,7 @@ export function createHarpoonHud({ harpoon, ctx } = {}) {
     if (e.code !== 'KeyH') return;
     if (s.tethered) { call('holdCut', true); return; }
     if (e.repeat) return;
-    if (s.available) call('aim');
+    if (s.available) call('fire');
   };
   const onKeyUp = (e) => {
     if (e.code !== 'KeyH') return;
@@ -595,8 +595,13 @@ export function createHarpoonHud({ harpoon, ctx } = {}) {
     set('goOn', goOn, (v) => go.classList.toggle('sf-harpoon-hidden', !v));
     set('goDim', nearDeep && !available && !tethered,
       (v) => go.classList.toggle('sf-harpoon-dim', v));
-    set('goLabel', tethered ? 'CUT LINE' : (available ? 'AIM' : 'TOO DEEP'),
+    // THROW, not AIM: the lock is the aim now. While a cask is being towed
+    // the same pill still cuts the line early if the ride is going badly.
+    const nb = Number(s.barrels) || 0;
+    const need = Number(s.barrelsNeeded) || 0;
+    set('goLabel', tethered ? 'CUT LINE' : (available ? 'THROW' : 'TOO DEEP'),
       (v) => { goLabel.textContent = v; });
+
 
     // The cut's progress, painted into the button from the left. background-image
     // only: the base colour underneath stays whatever the CSS (and :active) says.
@@ -630,7 +635,12 @@ export function createHarpoonHud({ harpoon, ctx } = {}) {
     // node rewritten sixty times a second for digits nobody can read. Zero
     // reads as no answer rather than as a range, same as the scope's readout.
     const lockD = num(s.lockDist);
-    set('lockDist', locked && lockD > 0 ? `${Math.round(lockD)} M` : '',
+    // Range while she is clean; the cask count the moment the first iron is
+    // in her, because from then on that is the only number that matters.
+    const nb2 = num(s.barrels), need2 = num(s.barrelsNeeded);
+    set('lockDist',
+      locked && nb2 > 0 && need2 > 0 ? `${nb2}/${need2} BARRELS`
+        : (locked && lockD > 0 ? `${Math.round(lockD)} M` : ''),
       (v) => { lockDist.textContent = v; });
 
     // ---- the scope ----------------------------------------------------------
