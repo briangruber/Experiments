@@ -460,6 +460,42 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		time += dt * ( params.timeScale ?? 1 );
 
 		resize();
+		derive( params, derived );
+
+		// The ocean first: the craft has to read the surface the sim just wrote.
+		sim.update( dt, params );
+
+		// THE RIDER RUNS BEFORE THE CAMERA, AND THE CAMERA IS LOCKED WHILE IT DOES.
+		//
+		// demo/main.js:440-450 is this order, and the port had inverted it. Two
+		// separate faults came out of that, and both were reported as feel rather
+		// than as bugs.
+		//
+		// camera.locked. rider.update() ends by DRIVING the camera - it writes pos,
+		// yaw, pitch, roll and fov for the chase or deck rig. Camera.update() is the
+		// free-flight controller, and it reads the same key set: while riding, W
+		// also flew the camera forward, Space also lifted it, and Shift multiplied
+		// the fly speed by SIX. Every frame the camera was thrown some metres off
+		// the rig and the rider yanked it back, which is the "shaking violently,
+		// sometimes above the water" - the altitude came from Space and from
+		// camera.update()'s own `pos.y = max(pos.y, minAltitude)` clamp, which has
+		// no business acting on a hull sitting at deck height. It also wrecked the
+		// carve specifically, because Shift is the one key bound to both. locked is
+		// exactly the flag camera.js provides for "something else is driving this";
+		// it still builds the basis, it just stops fighting.
+		//
+		// The order. camera.update() derives fwd/right/up from yaw/pitch/roll, and
+		// matrices() builds viewProj from those. Running both BEFORE the rider set
+		// this frame's rig meant the whole frame - sea, sky, spray billboards - was
+		// rasterised through last frame's camera while the craft was drawn at this
+		// frame's position. At 15 m/s that is a hull sliding around inside its own
+		// frame every time the rig moved.
+		if ( rider.active ) rider.update( dt, params, camera.keys, camera );
+		// The wake field is stamped before anything reads it, from the hull state
+		// the update just produced.
+		wake.update( dt, params, rider );
+
+		camera.locked = rider.active;
 		camera.update( dt, params );
 
 		// THIS IS NOT OPTIONAL, and leaving it out is invisible until you look up.
@@ -473,8 +509,6 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		// somewhere near straight down, so the sky renders as though the camera were
 		// buried. The frame looks like a sea with no sky above it.
 		camera.matrices( canvas.width, canvas.height );
-
-		derive( params, derived );
 
 		// Forward in the convention the whole renderer uses: heading 0 looks down
 		// -Z, so forward is (sin, -cos).
@@ -550,17 +584,9 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		cam3.updateProjectionMatrix();
 		cam3.updateMatrixWorld( true );
 
-		// The rider first: it reads last frame's probe (craft-probe.js explains why
-		// the readback is async) and moves the hull, so the wake and the water
-		// both see where the craft actually is this frame.
-		if ( rider.active ) {
-
-			rider.update( dt, params, camera.keys, camera );
-
-		}
-		wake.update( dt, params, rider );
-
-		sim.update( dt, params );
+		// The rider, the wake and the sim have already run this frame, above the
+		// camera - see the note there. Only the particles are left, and they need
+		// the ctx that the camera produced.
 		spray.update( dt, params, ctx, sim );
 
 		// The LUT is a function of sun/moon/eye height only, so it is re-baked when
@@ -642,6 +668,11 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 
 	Object.assign( api, {
 		renderer, backend, fellBack, params, derived, camera, sim, sky, water, spray, post,
+		// The camera the frame was actually rasterised through, which is not the
+		// same object as `camera` and need not agree with it. Exposed because that
+		// disagreement was the bug: verification that samples `camera` after the
+		// frame sees the rig the rider left behind and reports everything fine.
+		cam3,
 		output,
 		onFrame: null,
 		rider, wake, craftProbe, craftMesh, hull,

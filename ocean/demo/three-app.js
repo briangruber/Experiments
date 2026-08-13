@@ -33,6 +33,19 @@ if ( typeof window !== 'undefined' ) {
 const statusEl = () => document.getElementById( 'status' );
 const want = wantedBackend();
 
+// The two control schemes are different enough that showing the flying one
+// while riding is just wrong - and Shift and Space in particular were doing
+// something nobody had been told about.
+const FLY_HINT = 'Drag to look · W A S D to move · scroll to zoom · R to ride';
+const RIDE_HINT = 'W throttle · A D steer · Shift to carve · Space boost · V view · R to step off';
+
+function setRideHint( riding ) {
+
+	const el = document.getElementById( 'hint' );
+	if ( el ) el.textContent = riding ? RIDE_HINT : FLY_HINT;
+
+}
+
 function setStatus( text, cls ) {
 
 	const el = statusEl();
@@ -448,7 +461,7 @@ function installSettingsPanel( app, presetSel, cloudSel ) {
 
 		if ( ev.type === 'ride' ) {
 
-			app.toggleRide();
+			setRideHint( app.toggleRide() );
 			ui.syncAll();
 			return;
 
@@ -562,7 +575,7 @@ bootWithFallback().then( ( app ) => {
 
 		const t = e.target;
 		if ( t && ( t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'BUTTON' ) ) return;
-		if ( e.code === 'KeyR' ) app.toggleRide();
+		if ( e.code === 'KeyR' ) setRideHint( app.toggleRide() );
 		else if ( e.code === 'KeyV' ) app.params.wrView = app.params.wrView >= 0.5 ? 0 : 1;
 
 	} );
