@@ -12,7 +12,8 @@ import { Soundtrack } from './audio.js';
 import { Titles } from './titles.js';
 import { Director, buildProps } from './director.js';
 import { episode } from '../episodes/e01-corazon/episode.js';
-import { Recorder, deliver, canDeliver, formatLabel } from './record.js';
+import { Recorder, deliver, canDeliver, formatLabel, saveCapBytes } from './record.js';
+import { exportSteppedVideo, probeSteppedExport, wavBytes } from './exporter.js';
 import { drawCards } from './cards.js';
 import { clamp } from './util.js';
 
@@ -134,7 +135,7 @@ dir.scenes.forEach((s, i) => {
   b.type = 'button';
   b.textContent = s.name;
   b.title = s.subtitle;
-  b.addEventListener('click', () => { startAudio(); dir.goTo(i); });
+  b.addEventListener('click', () => { if (offline) return; startAudio(); dir.goTo(i); });
   hud.chapters.appendChild(b);
   chapterButtons.set(i, b);
 });
@@ -168,6 +169,7 @@ async function startAudio() {
 }
 
 function begin() {
+  if (offline) return;
   startCard.classList.add('gone');
   running = true;
   dir.goTo(0);
@@ -175,10 +177,13 @@ function begin() {
 }
 playBtn.addEventListener('click', begin);
 
-document.getElementById('btn-prev').addEventListener('click', () => dir.prev());
-document.getElementById('btn-next').addEventListener('click', () => dir.next());
+// The transport is inert while the stepped exporter owns the world — a scene
+// jump mid-render would splice itself into the file.
+document.getElementById('btn-prev').addEventListener('click', () => { if (!offline) dir.prev(); });
+document.getElementById('btn-next').addEventListener('click', () => { if (!offline) dir.next(); });
 const pauseBtn = document.getElementById('btn-pause');
 pauseBtn.addEventListener('click', () => {
+  if (offline) return;
   dir.paused = !dir.paused;
   pauseBtn.textContent = dir.paused ? '▶' : '❚❚';
   if (dir.paused) ctx.score.suspend(); else ctx.score.resume();
@@ -203,16 +208,32 @@ const exportBtn = document.getElementById('btn-export');
 
 // program: null when not recording, otherwise the shot list being played out.
 let program = null;
+// stepped: null when idle, otherwise the WebCodecs export in flight.
+let stepped = null;
+
+// Whether this browser can drive the stepped exporter, probed once at the
+// trailer's size — it is the larger frame, so a yes here covers both cuts.
+// The answer only shows the button and rewrites the panel's fine print; each
+// export re-probes at its own dimensions before committing.
+const steppedProbe = probeSteppedExport({ width: 1280, height: 720, fps: 30 })
+  .catch(() => ({ ok: false }));
 
 exportBtn.hidden = true;
-if (Recorder.supported) {
-  canDeliver().then((ok) => { exportBtn.hidden = !ok; });
-}
+Promise.all([canDeliver(), steppedProbe]).then(([ok, probe]) => {
+  exportBtn.hidden = !(ok && (Recorder.supported || probe.ok));
+  // The realtime warning is wrong for the stepped path: it runs faster than
+  // the piece and survives a hidden tab.
+  const note = exportPanel.querySelector('.export-note');
+  if (note && probe.ok) note.textContent = 'Exportación acelerada: más rápida que verla. Puedes cambiar de pestaña.';
+});
 exportBtn.addEventListener('click', () => { exportPanel.hidden = false; });
 document.getElementById('export-close').addEventListener('click', () => { exportPanel.hidden = true; });
-document.getElementById('rec-stop').addEventListener('click', () => finishRecording('cancelado'));
+document.getElementById('rec-stop').addEventListener('click', () => {
+  if (stepped) { stepped.cancelled = true; recLabel.textContent = 'cancelando…'; return; }
+  finishRecording('cancelado');
+});
 for (const b of exportPanel.querySelectorAll('[data-cut]')) {
-  b.addEventListener('click', () => startRecording(b.dataset.cut));
+  b.addEventListener('click', () => startExport(b.dataset.cut));
   // The panel's markup carries a length, and nothing was updating it — it had
   // been advertising 4:25 since the episode grew past five minutes. CUTS is the
   // only place that number should live.
@@ -221,9 +242,98 @@ for (const b of exportPanel.querySelectorAll('[data-cut]')) {
   if (note && cut) note.textContent = cut.note + (b.dataset.cut === 'trailer' ? ' · para redes' : '');
 }
 
+// One button, two engines. The stepped WebCodecs exporter is preferred — it is
+// deterministic and faster than realtime on hardware with an H.264 encoder —
+// and the realtime recorder stays exactly what it was for everything else,
+// including the one case where the stepped path cannot keep its promise: on a
+// published page a long cut at the bitrate floor cannot land under the 16 MiB
+// save ceiling, and the realtime recorder is the path whose budget the user
+// already accepts there.
+async function startExport(cutName) {
+  const cut = CUTS[cutName];
+  if (!cut || program || stepped) return;
+  let probe = null;
+  try { probe = await probeSteppedExport({ width: cut.width, height: cut.height, fps: 30 }); } catch { probe = null; }
+  if (probe && probe.ok) {
+    const capBytes = await saveCapBytes();
+    const seconds = cut.segments
+      ? cut.segments.reduce((a, s) => a + s[2], 0)
+      : dir.scenes.reduce((a, s) => a + s.dur / (s.pace ?? dir.pace), 0);
+    const floored = capBytes > 0
+      && (capBytes * 8) / Math.max(20, seconds) - (probe.audio ? 160_000 : 0) < 220_000;
+    if (!floored || !Recorder.supported) return startSteppedExport(cutName, cut, probe, capBytes);
+  }
+  return startRecording(cutName);
+}
+
+async function startSteppedExport(cutName, cut, probe, capBytes) {
+  exportPanel.hidden = true;
+  stepped = { cancelled: false };
+  recBar.hidden = false;
+  recLabel.textContent = `EXPORTANDO · MP4 · H.264${probe.audio ? ' + AAC' : ''}`;
+  recTime.textContent = '…';
+  const t0 = performance.now();
+  let res;
+  try {
+    res = await exportSteppedVideo({
+      cut, width: cut.width, height: cut.height, fps: 30,
+      // A megabyte of headroom under the ceiling, the same margin the
+      // realtime recorder's TARGET_BYTES keeps.
+      maxBytes: capBytes ? capBytes - 2 * 1024 * 1024 : 0,
+      world: offlineWorld,
+      cancelled: () => stepped.cancelled,
+      onProgress: ({ phase, done, total }) => {
+        recTime.textContent = phase === 'audio' ? 'sonido…' : `${done} / ${total} cuadros`;
+      },
+    });
+  } catch (e) {
+    res = { ok: false, reason: (e && e.message) || String(e) };
+  }
+  offlineEnd();   // safety net — the exporter calls world.end() itself
+  stepped = null;
+  if (!res.ok) {
+    recBar.hidden = true;
+    if (res.cancelled) return;
+    // Probed fine but failed anyway (an encoder quirk, b-frames the muxer
+    // refuses). The realtime recorder still works; use it rather than losing
+    // the export.
+    console.warn('stepped export failed, falling back to realtime:', res.reason);
+    if (Recorder.supported) return startRecording(cutName);
+    return;
+  }
+  const blob = new Blob([res.bytes], { type: 'video/mp4' });
+  const wall = +(((performance.now() - t0) / 1000).toFixed(1));
+  window.__lastExport = {
+    cut: cutName, stepped: true, frames: res.frames, wall,
+    fps: +(res.frames / Math.max(0.1, wall)).toFixed(1),
+    mb: +(blob.size / 1048576).toFixed(1), codec: res.codec, silent: res.silent,
+  };
+  recLabel.textContent = `${res.frames} cuadros · ${wall}s${res.silent ? ' · sin sonido (AAC no disponible)' : ''}`;
+  recTime.textContent = `${(blob.size / 1048576).toFixed(1)} MB`;
+  setTimeout(() => { if (!program && !stepped) recBar.hidden = true; }, 9000);
+  const saved = await deliver(blob, `corazon-de-gallina-${cutName}.mp4`);
+  // No AAC encoder: the mp4 is silent, so the mixed soundtrack rides along as
+  // a WAV rather than being lost.
+  if (saved.ok && res.silent && res.wav) {
+    await deliver(new Blob([res.wav], { type: 'audio/wav' }), `corazon-de-gallina-${cutName}.wav`);
+  }
+  const failure = {
+    too_large: 'archivo demasiado grande',
+    blocked: 'descarga bloqueada aquí — abre la página fuera del marco',
+    declined: 'guardado cancelado',
+    error: 'no se pudo guardar',
+  }[saved.how];
+  if (!saved.ok && failure) {
+    recLabel.textContent = failure;
+    recTime.textContent = `${(blob.size / 1048576).toFixed(1)} MB`;
+    recBar.hidden = false;
+    setTimeout(() => { if (!stepped) recBar.hidden = true; }, 6000);
+  }
+}
+
 async function startRecording(cutName) {
   const cut = CUTS[cutName];
-  if (!cut || program) return;
+  if (!cut || program || stepped) return;
   exportPanel.hidden = true;
 
   // The export is the thing being watched now; give it the whole window and
@@ -328,6 +438,7 @@ async function finishRecording(note) {
 }
 
 window.addEventListener('keydown', (e) => {
+  if (offline) return;   // the stepped exporter owns the world; see the transport guards
   if (e.key === 'h' || e.key === 'H') setUI(!showUI);
   else if (e.key === ' ') { e.preventDefault(); pauseBtn.click(); }
   else if (e.key === 'ArrowRight') dir.next();
@@ -471,6 +582,105 @@ function frame() {
   hud.bar.style.transform = `scaleX(${p})`;
 }
 
+// --- deterministic offline render -------------------------------------------
+// Real-time screen recording depends on the browser handing frames to an
+// encoder while the page is visible and keeping up. This does not: the world
+// is stepped by a fixed amount per frame and the soundtrack is rendered
+// separately through an OfflineAudioContext against the same clock. Two
+// consumers drive it — tools/render.mjs over the harness handle, and the
+// stepped WebCodecs exporter through offlineWorld below — so it lives here as
+// plain functions rather than inside the handle.
+
+async function offlineBegin({ fps = 30, width: w = 1280, height: h = 720, seconds, quality: q = 0.92 }) {
+  const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  if (!OAC) return { ok: false, error: 'no OfflineAudioContext' };
+  await soundtrack.openOffline(OAC, seconds + 3);
+  ctx.score = soundtrack;
+
+  running = true;
+  startCard.classList.add('gone');
+  document.body.classList.add('no-ui');
+  // frame() stops running while the offline renderer drives the world, so
+  // wipe the caption overlay rather than leave the last live card frozen
+  // over the page for the length of the render.
+  cardCtx.clearRect(0, 0, cardCanvas.width, cardCanvas.height);
+  cardsDrawn = false;
+
+  canvas.width = w; canvas.height = h;
+  renderer.setSize(w, h, false);
+  cam.setAspect(w / h);
+  post.setSize(w, h);
+
+  const mix = document.createElement('canvas');
+  mix.width = w; mix.height = h;
+  offline = {
+    fps, dt: 1 / fps, seconds, width: w, height: h, n: 0, quality: q,
+    mix, mctx: mix.getContext('2d', { alpha: false }),
+  };
+  time = 0;
+  dir.goTo(0);
+  return { ok: true, total: Math.ceil(seconds * fps) };
+}
+
+// One step: advance the world one frame and composite it (with its cards)
+// onto the mixing canvas. Returns the canvas, or null when the run is over.
+// The stepped exporter hands this canvas straight to a VideoEncoder — the
+// measured cost of the old path was 99% canvas.toDataURL, so the JPEG detour
+// only exists for the ffmpeg pipe below.
+function offlineStep() {
+  const o = offline;
+  if (!o) return null;
+  if (o.n >= Math.ceil(o.seconds * o.fps)) return null;
+  // The soundtrack schedules against this, not against a wall clock.
+  soundtrack.virtualNow = o.n * o.dt;
+  const sdt = dir.update(o.dt);
+  time += sdt;
+  if (sdt > 0) {
+    for (const k in actors) actors[k].update(sdt, time, o.dt);
+    updateSet(set, sdt, time);
+    updateDressing(set, sdt);
+    updateWeather(weather, sdt, time, set);
+    ctx.score.setRain(weather.amount);
+    cam.update(sdt, time);
+  }
+  titles.update(o.dt);
+  post.grade(o.dt);
+  post.render(scene, camera, time, cam);
+  o.mctx.drawImage(canvas, 0, 0, o.width, o.height);
+  drawCards(o.mctx, titles, o.width, o.height);
+  o.n++;
+  return o.mix;
+}
+
+// Put the page back after an offline run: the live canvas size, the interface,
+// and the wall-clock audio. The offline context has rendered its length and is
+// spent; if the live soundtrack had never been started (a fresh page driven by
+// the CLI) it is reset instead, so a later start() builds one from scratch.
+function offlineEnd() {
+  if (!offline) return;
+  offline = null;
+  document.body.classList.remove('no-ui');
+  soundtrack.closeOffline(audioStarted && !soundtrack.failed);
+  ctx.score = audioStarted && soundtrack.failed ? synth : soundtrack;
+  resize();
+  last = performance.now() / 1000;
+  // Re-enter the scene the export ended on: scene entry restates the music
+  // bed and the ambience, which a fresh audio context knows nothing about.
+  if (dir.scene) dir.goTo(dir.scene.id);
+}
+
+// The offline contract as the stepped exporter consumes it (engine/exporter.js
+// documents the shape). The exporter and the harness cannot diverge because
+// both drive these same functions.
+const offlineWorld = {
+  begin: (o) => offlineBegin(o),
+  frame: () => offlineStep(),
+  goTo: (ref, t) => { dir.goTo(ref); seekWithin(t); },
+  audio: () => (soundtrack.ctx && soundtrack.virtualNow !== null ? soundtrack.ctx.startRendering() : null),
+  fullSeconds: () => dir.scenes.reduce((a, s) => a + s.dur / (s.pace ?? dir.pace), 0),
+  end: () => offlineEnd(),
+};
+
 // Show the world behind the start card straight away.
 dir.goTo(0, { silent: true });
 dir.onScene(dir.scenes[0], 0);
@@ -502,96 +712,77 @@ window.__telenovela = {
   seekWithin(t) { seekWithin(t); },
 
   // --- deterministic offline render ---------------------------------------
-  // Real-time screen recording depends on the browser handing frames to an
-  // encoder while the page is visible and keeping up. This does not: the world
-  // is stepped by a fixed amount, each frame is handed back as a JPEG, and the
-  // soundtrack is rendered separately through an OfflineAudioContext against
-  // the same clock. tools/render.mjs drives it and lets ffmpeg encode.
-  async offlineBegin({ fps = 30, width = 1280, height = 720, seconds, quality = 0.92 }) {
-    const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
-    if (!OAC) return { ok: false, error: 'no OfflineAudioContext' };
-    await soundtrack.openOffline(OAC, seconds + 3);
-    ctx.score = soundtrack;
+  // The offline contract lives above as plain functions (offlineBegin /
+  // offlineStep / offlineEnd); the handle re-exposes it for tools/render.mjs.
+  offlineBegin(o) { return offlineBegin(o); },
 
-    running = true;
-    startCard.classList.add('gone');
-    document.body.classList.add('no-ui');
-    // frame() stops running while the offline renderer drives the world, so
-    // wipe the caption overlay rather than leave the last live card frozen
-    // over the page for the length of the render.
-    cardCtx.clearRect(0, 0, cardCanvas.width, cardCanvas.height);
-    cardsDrawn = false;
-
-    canvas.width = width; canvas.height = height;
-    renderer.setSize(width, height, false);
-    cam.setAspect(width / height);
-    post.setSize(width, height);
-
-    const mix = document.createElement('canvas');
-    mix.width = width; mix.height = height;
-    offline = {
-      fps, dt: 1 / fps, seconds, width, height, n: 0, quality,
-      mix, mctx: mix.getContext('2d', { alpha: false }),
-    };
-    time = 0;
-    dir.goTo(0);
-    return { ok: true, total: Math.ceil(seconds * fps) };
-  },
-
-  // One step, one frame. Returns base64 JPEG, or null when the run is over.
+  // One step, one frame, as base64 JPEG — the ffmpeg pipe's format. The
+  // stepped exporter skips this and takes the canvas from offlineStep()
+  // directly; toDataURL is why the JPEG pipe measured 99% encode.
   offlineFrame() {
-    const o = offline;
-    if (!o) return null;
-    if (o.n >= Math.ceil(o.seconds * o.fps)) return null;
-    // The soundtrack schedules against this, not against a wall clock.
-    soundtrack.virtualNow = o.n * o.dt;
-    const sdt = dir.update(o.dt);
-    time += sdt;
-    if (sdt > 0) {
-      for (const k in actors) actors[k].update(sdt, time, o.dt);
-      updateSet(set, sdt, time);
-      updateDressing(set, sdt);
-      updateWeather(weather, sdt, time, set);
-      ctx.score.setRain(weather.amount);
-      cam.update(sdt, time);
-    }
-    titles.update(o.dt);
-    post.grade(o.dt);
-    post.render(scene, camera, time, cam);
-    o.mctx.drawImage(canvas, 0, 0, o.width, o.height);
-    drawCards(o.mctx, titles, o.width, o.height);
-    o.n++;
+    const c = offlineStep();
+    if (!c) return null;
     // The frame is JPEG'd on its way to ffmpeg, so this is the real quality
     // ceiling — a crf of 16 cannot recover what 0.92 threw away.
-    return o.mix.toDataURL('image/jpeg', o.quality).slice('data:image/jpeg;base64,'.length);
+    return c.toDataURL('image/jpeg', offline.quality).slice('data:image/jpeg;base64,'.length);
   },
 
   // Render the scheduled soundtrack and hand it back as a WAV.
   async offlineAudio() {
     if (!offline) return null;
     const buf = await soundtrack.ctx.startRendering();
-    const chans = Math.min(2, buf.numberOfChannels);
-    const n = buf.length;
-    const bytes = new DataView(new ArrayBuffer(44 + n * chans * 2));
-    const put = (o, s) => { for (let i = 0; i < s.length; i++) bytes.setUint8(o + i, s.charCodeAt(i)); };
-    put(0, 'RIFF'); bytes.setUint32(4, 36 + n * chans * 2, true); put(8, 'WAVEfmt ');
-    bytes.setUint32(16, 16, true); bytes.setUint16(20, 1, true); bytes.setUint16(22, chans, true);
-    bytes.setUint32(24, buf.sampleRate, true); bytes.setUint32(28, buf.sampleRate * chans * 2, true);
-    bytes.setUint16(32, chans * 2, true); bytes.setUint16(34, 16, true);
-    put(36, 'data'); bytes.setUint32(40, n * chans * 2, true);
-    const data = [];
-    for (let c = 0; c < chans; c++) data.push(buf.getChannelData(c));
-    let p = 44;
-    for (let i = 0; i < n; i++) {
-      for (let c = 0; c < chans; c++) {
-        const v = Math.max(-1, Math.min(1, data[c][i]));
-        bytes.setInt16(p, v < 0 ? v * 32768 : v * 32767, true);
-        p += 2;
-      }
-    }
-    const u8 = new Uint8Array(bytes.buffer);
+    const u8 = wavBytes(buf, buf.length);
     let bin = '';
     for (let i = 0; i < u8.length; i += 0x8000) bin += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+    return btoa(bin);
+  },
+
+  // --- stepped WebCodecs export --------------------------------------------
+  // The CLI face of the same exporter the button uses. exportRun kicks the
+  // export off and parks its result in window.__export; exportStatus is
+  // cheap to poll; exportSlice hands the finished bytes out in pieces small
+  // enough for a CDP evaluate to carry.
+  exportProbe(o) { return probeSteppedExport(o); },
+  async exportRun(o) {
+    const cut = typeof o.cut === 'string' ? CUTS[o.cut] : o.cut;
+    if (!cut) { window.__export = { state: 'failed', error: `unknown cut ${o.cut}` }; return false; }
+    window.__export = { state: 'running', phase: 'video', done: 0, total: 0 };
+    try {
+      const res = await exportSteppedVideo({
+        cut, width: o.width || cut.width, height: o.height || cut.height, fps: o.fps || 30,
+        limitSeconds: o.seconds || 0, videoBitrate: o.videoBitrate || 0,
+        maxBytes: o.maxBytes || 0, codec: o.codec || null, mux: o.mux !== false,
+        world: offlineWorld,
+        onProgress: (p) => Object.assign(window.__export, p),
+      });
+      window.__export = res.ok
+        ? {
+          state: 'done', bytes: res.bytes, wav: res.wav, silent: !!res.silent,
+          codec: res.codec, frames: res.frames, chunks: res.chunks,
+          size: res.bytes ? res.bytes.length : 0, wavSize: res.wav ? res.wav.length : 0,
+        }
+        : { state: 'failed', error: res.cancelled ? 'cancelled' : (res.reason || 'unknown') };
+    } catch (e) {
+      window.__export = { state: 'failed', error: (e && e.message) || String(e) };
+    }
+    return true;
+  },
+  exportStatus() {
+    const s = window.__export;
+    if (!s) return null;
+    return {
+      state: s.state, phase: s.phase || null, done: s.done | 0, total: s.total | 0,
+      error: s.error || null, size: s.size | 0, wavSize: s.wavSize | 0,
+      silent: !!s.silent, codec: s.codec || null, frames: s.frames | 0, chunks: s.chunks | 0,
+    };
+  },
+  exportSlice(kind, offset, length) {
+    const s = window.__export;
+    const u8 = s && (kind === 'wav' ? s.wav : s.bytes);
+    if (!u8) return null;
+    const part = u8.subarray(offset, Math.min(offset + length, u8.length));
+    let bin = '';
+    for (let i = 0; i < part.length; i += 0x8000) bin += String.fromCharCode.apply(null, part.subarray(i, i + 0x8000));
     return btoa(bin);
   },
   // Self-test for the video export: record a few seconds and report the file.

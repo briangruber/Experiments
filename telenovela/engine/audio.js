@@ -84,6 +84,33 @@ export class Soundtrack {
     return this.ctx;
   }
 
+  // The offline context has rendered its length and cannot be reused, so this
+  // puts the soundtrack back on the wall clock afterwards. With `live` a fresh
+  // realtime context is built immediately — the page keeps playing after an
+  // in-page export; without it the soundtrack returns to its never-started
+  // state so a later start() sets one up from scratch. Decoded buffers keep:
+  // an AudioBuffer is not tied to the context that decoded it. Beds, loops and
+  // the capture tap all pointed into the dead graph, so they are dropped —
+  // re-entering the current scene restates them.
+  closeOffline(live) {
+    this.virtualNow = null;
+    this.bed = null;
+    this.beds = new Set();
+    this.bedWanted = undefined;
+    this.bedGen++;
+    this.loops = new Map();
+    this._capture = null;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!live || !AC) {
+      this.ctx = null;
+      this.ready = false;
+      return;
+    }
+    this.ctx = new AC();
+    this.buildGraph();
+    this.ready = true;
+  }
+
   // --- loading --------------------------------------------------------------
 
   // The single-file build carries its audio as data: URIs, and fetch() on those

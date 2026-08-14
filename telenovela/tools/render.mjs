@@ -54,6 +54,11 @@ const VBR = opt('vbr', '4M');           // VP8 only; VP9 and x264 use --crf
 // audio encoder to mux it with — a silent file plus a WAV can still be joined
 // somewhere else, which beats losing half the piece.
 const KEEP_WAV = args.includes('--wav');
+// The page is asked first whether it can encode the file itself (WebCodecs
+// H.264 + AAC, muxed in-page — see engine/exporter.js); --pipe skips that and
+// forces the JPEG→ffmpeg pipe, for comparing the two or distrusting one.
+const FORCE_PIPE = args.includes('--pipe');
+const KBPS = +opt('kbps', 0);           // WebCodecs path only; 0 = pick from size
 const USE_GPU = args.includes('--gpu');
 const USE_HW_ENCODE = args.includes('--hw');
 const HWBITRATE = opt('hwbitrate', '14M');   // VideoToolbox has no --crf equivalent worth trusting
@@ -157,6 +162,75 @@ const segments = trailer
   ? await page.evaluate(() => window.__telenovela.CUTS.trailer.segments)
   : null;
 const totalSeconds = trailer ? segments.reduce((a, s) => a + s[2], 0) : seconds;
+
+// --- in-page WebCodecs first -------------------------------------------------
+// If the browser can encode H.264 itself, the whole export runs inside the
+// page — same stepped world, frames handed to a VideoEncoder as VideoFrames
+// instead of being toDataURL'd (which measured as 99% of frame time), muxed by
+// engine/mp4.js — and ffmpeg is never involved. This is the exact code path
+// the export button uses, so a file made here is a file the button would make.
+const probe = FORCE_PIPE ? null : await page.evaluate(
+  (o) => window.__telenovela.exportProbe(o),
+  { width: WIDTH, height: HEIGHT, fps: FPS },
+).catch(() => null);
+if (probe && probe.ok) {
+  console.log(`${CUT}: ${totalSeconds.toFixed(1)}s at ${FPS}fps, ${WIDTH}x${HEIGHT}`);
+  console.log(`render: ${USE_GPU ? 'GPU (hardware WebGL)' : 'software (SwiftShader) — try --gpu on a machine with a real GPU'}`);
+  console.log(`encode: in-page WebCodecs ${probe.video}${probe.audio ? ' + AAC' : ' — no AAC encoder; silent mp4 + WAV beside it'}`);
+
+  // Fire and poll rather than awaiting: a full episode is minutes of work and
+  // a single evaluate that long is a connection timeout waiting to happen.
+  await page.evaluate((o) => { window.__telenovela.exportRun(o); return true; }, {
+    cut: CUT, fps: FPS, width: WIDTH, height: HEIGHT,
+    seconds: LIMIT || 0, videoBitrate: KBPS ? KBPS * 1000 : 0,
+  });
+  let st = null;
+  const t0 = Date.now();
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 500));
+    st = await page.evaluate(() => window.__telenovela.exportStatus());
+    if (!st || st.state !== 'running') break;
+    const rate = st.done / ((Date.now() - t0) / 1000);
+    process.stdout.write(st.phase === 'audio'
+      ? `\r  soundtrack…                                   `
+      : `\r  ${st.done}/${st.total} frames (${((st.done / Math.max(1, st.total)) * 100).toFixed(0)}%) · ${rate.toFixed(1)} fps   `);
+  }
+  process.stdout.write('\n');
+  if (!st || st.state !== 'done') {
+    console.error(`in-page export failed: ${st ? st.error : 'no status'}`);
+    await browser.close(); server.close();
+    process.exit(1);
+  }
+
+  // Pull the file out in slices: one evaluate returning the whole thing blows
+  // the CDP message limit. ~6 MB of bytes is ~8 MB of base64 per round trip.
+  const pull = async (kind, size, path) => {
+    const STEP = 6 * 1024 * 1024;
+    const parts = [];
+    for (let off = 0; off < size; off += STEP) {
+      const b64 = await page.evaluate(
+        ([k, o, n]) => window.__telenovela.exportSlice(k, o, n), [kind, off, STEP]);
+      parts.push(Buffer.from(b64, 'base64'));
+    }
+    await writeFile(path, Buffer.concat(parts));
+  };
+  await mkdir(dirname(OUT), { recursive: true });
+  const outPath = OUT.replace(/\.(mp4|webm)$/i, '') + '.mp4';
+  await pull('video', st.size, outPath);
+  if (st.silent && st.wavSize) {
+    const wavPath = outPath.replace(/\.mp4$/, '.wav');
+    await pull('wav', st.wavSize, wavPath);
+    console.log(`${wavPath}\n  the soundtrack, unmuxed — this browser has no AAC encoder`);
+  }
+  await browser.close();
+  server.close();
+  const info = await stat(outPath);
+  console.log(`${outPath}\n  ${st.frames} frames · ${(st.frames / FPS).toFixed(1)}s · ${(info.size / 1048576).toFixed(1)} MB`);
+  process.exit(0);
+}
+if (!FORCE_PIPE) {
+  console.log(`WebCodecs: ${probe && probe.reason ? probe.reason : 'unavailable'} — falling back to the JPEG→ffmpeg pipe`);
+}
 
 const can = ffCan();
 if (!can) {

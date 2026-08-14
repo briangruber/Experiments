@@ -147,6 +147,17 @@ export class Recorder {
   }
 }
 
+// How big a file can this view actually save? The published-page downloads
+// capability refuses anything over 16 MiB; a normally served page has no
+// ceiling at all (returns 0). Both exporters budget their bitrate against
+// this so a finished file is never one the page cannot hand over.
+export async function saveCapBytes() {
+  const api = typeof window !== 'undefined' && window.claude && window.claude.use
+    ? await window.claude.use('downloads').catch(() => null)
+    : null;
+  return api ? 16 * 1024 * 1024 : 0;
+}
+
 // Can this view actually hand the viewer a file? A published page needs the
 // downloads capability; a sandboxed frame without it can't save at all, and an
 // export button that cannot deliver is worse than no button.

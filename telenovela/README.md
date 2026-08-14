@@ -111,6 +111,9 @@ engine/           everything that could stage any episode
   score.js        the synthesised orchestra
   titles.js       title card state, driven off the director's clock
   cards.js        the one card renderer — live overlay, export and offline alike
+  exporter.js     the stepped WebCodecs exporter — button and CLI drive it alike
+  mp4.js          the minimal MP4 muxer the exporter writes with
+  record.js       the realtime MediaRecorder fallback, and file delivery
 company/          the troupe and its stock
   cast/           one file per character: spec + wardrobe
   sets/           courtyard.js — the set, generated textures, lighting
@@ -248,76 +251,88 @@ black once the compositor has swapped.
 
 ## Exporting video
 
-The **⏺ VIDEO** button records the piece and hands you a file. Two cuts:
+The **⏺ VIDEO** button steps the piece through an encoder and hands you a
+file. Two cuts:
 
 - **Tráiler** — 55 s at 720p, assembled from ten beats. It cuts between them,
   which is both the right length for social and exactly how the genre
   advertises itself.
 - **Episodio completo** — the whole thing at 540p.
 
-Recording is real time and composites onto a mixing canvas, because
-`MediaRecorder` can only capture a canvas: the WebGL frame first, then the
-title cards, drawn by the same `engine/cards.js` renderer that paints the live
-page's caption overlay — so the file shows exactly what the page did. Audio
-comes off the soundtrack's master bus as a `MediaStream` track.
+There is one stepped exporter (`engine/exporter.js`), and both the button and
+the CLI drive it. Where the browser has WebCodecs H.264 — every current
+Chrome, hardware-accelerated on a Mac — the world is stepped a frame at a
+time through the same offline contract `tools/render.mjs` uses, each
+composited frame goes to a `VideoEncoder` as a `VideoFrame` (no
+`canvas.toDataURL`, which measured as 99% of frame time in the old JPEG
+pipe), the soundtrack renders through an `OfflineAudioContext` and gets
+AAC-encoded, and `engine/mp4.js` muxes both into an MP4 written by hand:
+`ftyp`, one `mdat` of samples in arrival order, `moov` last (legal
+everywhere, just not "faststart"). Stepped means deterministic: faster than
+watching it on real hardware, it cannot drop a frame, and the tab can be
+hidden — the export loop yields through a `MessageChannel`, which background
+throttling does not touch. A progress bar counts frames and the stop button
+cancels.
 
-The container is H.264/AAC MP4 where the browser can encode it, falling back to
-VP9/Opus WebM; the interface says which you are getting.
+The fallbacks, in order. A browser with H.264 but no AAC gets a silent MP4
+plus the mixed soundtrack as a WAV beside it. A browser with no usable
+WebCodecs keeps the old realtime `MediaRecorder` path exactly as it was:
+composites onto a mixing canvas (the WebGL frame, then the title cards, drawn
+by the same `engine/cards.js` renderer as the live page), audio off the master
+bus, H.264/AAC MP4 or VP9/Opus WebM as the browser allows, and the
+`fixMp4Duration` header repair afterwards, since `MediaRecorder` streams and
+never writes a duration (`tools/fixvideo.mjs` runs the same repair on old
+files from disk). The realtime path also stays in charge on a published page
+when a cut is so long that even the floor bitrate cannot land under the
+16 MiB `downloads`-capability ceiling — both exporters budget their bitrate
+against that ceiling (`saveCapBytes`), so the artifact never loses the
+ability to save.
 
-`MediaRecorder` streams, so it never writes a duration into the file header —
-it does not know how long the recording will be until it stops. Browsers cope by
-scanning the whole file; QuickTime does not, and opens a perfectly good clip as
-`00:00`. So after recording, the fragments are walked, the sample durations
-added up, and the totals written into `mvhd`, `tkhd` and `mdhd`.
-`tools/fixvideo.mjs` runs the same repair on a file from disk, for anything
-recorded before this existed:
-
-```
-node tools/fixvideo.mjs ~/Downloads/corazon-de-gallina-trailer.mp4
-```
-
-Capture runs at a fixed 30fps rather than one frame per render, so a 120Hz
-display doesn't push 120fps at the encoder. And recording stops if the page is
-hidden: a background tab stops `requestAnimationFrame`, so nothing would be
-drawn or captured while the audio and the clock kept going. Bitrate is chosen from
-the cut's length so the file lands under 14 MiB, which is what the published
-page's `downloads` capability will accept — served normally, it just downloads.
-While recording, frame time is left unclamped: the audio runs on the wall clock
-regardless, so the world has to as well, and a slow machine gets a choppy video
-rather than a desynchronised one.
+The muxer is unit-tested in plain node — `node tools/test-mp4.mjs` builds a
+file from synthetic chunks and parses every table back out — because the
+development sandbox's Chromium has no H.264 or AAC encoder at all. The
+encoder loop itself (feeding, backpressure via `encodeQueueSize` and
+`dequeue`, flush) is proven in that sandbox by driving it with VP8 against
+real stepped frames; the avc1+aac happy path needs a run on real hardware.
 
 ## Rendering offline
 
-The in-page export records the screen in real time, which depends on the browser
-handing frames to an encoder while the page stays visible and keeps up.
-`tools/render.mjs` does not depend on any of that: it steps the world by a fixed
-amount per frame, captures every frame, and renders the soundtrack separately
-through an `OfflineAudioContext` against the same clock. Slower than watching it,
-and it cannot drop a frame or drift out of sync.
+`tools/render.mjs` renders the piece to a file from the command line, without
+recording a screen: the world is stepped by a fixed amount per frame, and the
+soundtrack is rendered separately through an `OfflineAudioContext` against the
+same clock. It cannot drop a frame or drift out of sync.
 
 ```
 node tools/render.mjs --cut trailer --out dist/trailer.mp4
 node tools/render.mjs --cut episode --fps 30 --w 1280 --h 720
 ```
 
-It needs a full ffmpeg — `brew install ffmpeg`, or set `FFMPEG=/path/to/ffmpeg`.
-It probes the encoders first and says what it found: H.264 + AAC in MP4 where
-available, VP8 WebM otherwise, and it stops with a clear message rather than
-stalling on a pipe if the encoder it needs is missing.
+It asks the page first whether the in-page WebCodecs exporter can run (the
+same `engine/exporter.js` the button uses). If yes, the whole encode happens
+inside the browser — ffmpeg never starts — and the finished file is pulled
+out over the harness in ~8 MB base64 slices, because one giant `evaluate`
+return falls over. `--pipe` forces the old path; `--kbps` pins the bitrate.
 
-Yes, it carries the sound: the soundtrack is rendered through an
-`OfflineAudioContext` on the same clock as the frames, written out as a WAV, and
-muxed in. Measured on a real run it comes out at RMS 0.23 with peaks under the
-ceiling. Seeking between trailer beats suppresses one-shots — fast-forwarding
-through a scene passes every cue in it, and they would otherwise all land on the
-same instant as one pile of thunder — while letting the music beds follow along.
+Otherwise it falls back to the JPEG pipe: every frame is `toDataURL`'d to
+ffmpeg's stdin, the WAV is muxed in afterwards. That needs a full ffmpeg —
+`brew install ffmpeg`, or `FFMPEG=/path/to/ffmpeg`. It probes the encoders
+first and says what it found: H.264 + AAC in MP4 where available, VP8 WebM
+otherwise, and it stops with a clear message rather than stalling on a pipe
+if the encoder it needs is missing.
 
-**Verified in part.** The page half — deterministic stepping, per-frame capture,
-and the offline soundtrack render — is tested and works. The ffmpeg half is not
-tested here: the only ffmpeg in this development container is Playwright's
-stripped build, which has no mjpeg decoder and no audio encoder at all, so it
-cannot run this pipeline. Treat the encoding step as unproven until it has run
-against a real ffmpeg.
+Either way it carries the sound (WAV beside the file when no audio encoder
+exists on the fallback path). Seeking between trailer beats suppresses
+one-shots — fast-forwarding through a scene passes every cue in it, and they
+would otherwise all land on the same instant as one pile of thunder — while
+letting the music beds follow along.
+
+**Verified in part.** The page half — deterministic stepping, per-frame
+capture, the offline soundtrack render, the VP8-driven encoder loop, and the
+JPEG fallback end to end — is tested in the sandbox and works. The WebCodecs
+H.264+AAC encode itself cannot run here (headless Chromium: no H.264, no AAC)
+and the ffmpeg half of the fallback has only run against Playwright's
+stripped build (VP8, silent). Treat both encodes as unproven until they have
+run on a real machine.
 
 ## Bundling
 

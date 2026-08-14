@@ -49,6 +49,8 @@ const MODULES = [
   'engine/cards.js',
   'engine/weather.js',
   'engine/record.js',
+  'engine/mp4.js',
+  'engine/exporter.js',
   'episodes/e01-corazon/subtitles.js',
   'engine/director.js',
   'episodes/e01-corazon/marks.js',
