@@ -40,15 +40,41 @@ export class Soundtrack {
 
   // --- loading --------------------------------------------------------------
 
+  // The single-file build carries its audio as data: URIs, and fetch() on those
+  // is a connect-src request — which a strict CSP (the published page, for one)
+  // refuses. Decode them in-process instead and keep fetch for real URLs.
+  static bytesFromDataUri(url) {
+    const comma = url.indexOf(',');
+    if (comma < 0) throw new Error('malformed data URI');
+    const meta = url.slice(0, comma);
+    const body = url.slice(comma + 1);
+    if (!/;base64/i.test(meta)) {
+      const s = decodeURIComponent(body);
+      const out = new Uint8Array(s.length);
+      for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+      return out.buffer;
+    }
+    const bin = atob(body);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out.buffer;
+  }
+
   async load(name) {
     if (this.buffers.has(name)) return this.buffers.get(name);
     if (this.pending.has(name)) return this.pending.get(name);
     const url = this.manifest[name];
     if (!url) return null;
     const p = (async () => {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`${name}: ${res.status}`);
-      const buf = await this.ctx.decodeAudioData(await res.arrayBuffer());
+      let bytes;
+      if (url.startsWith('data:')) {
+        bytes = Soundtrack.bytesFromDataUri(url);
+      } else {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`${name}: ${res.status}`);
+        bytes = await res.arrayBuffer();
+      }
+      const buf = await this.ctx.decodeAudioData(bytes);
       this.buffers.set(name, buf);
       this.pending.delete(name);
       return buf;
@@ -101,6 +127,9 @@ export class Soundtrack {
       if (EAGER(name)) this.load(name).catch(() => {});
     }
     if (this.mood !== 'silence') this.setMood(this.mood, 1.5);
+    // Anything the director asked for while we were still decoding.
+    for (const [name, args] of this._pendingAmbience || []) this.ambience(name, ...args);
+    this._pendingAmbience = null;
     return true;
   }
 
@@ -147,7 +176,7 @@ export class Soundtrack {
   // --- looped ambience ------------------------------------------------------
 
   ambience(name, level, ramp = 1.2) {
-    if (!this.ready) return;
+    if (!this.ready) { (this._pendingAmbience ||= new Map()).set(name, [level, ramp]); return; }
     let l = this.loops.get(name);
     const t = this.ctx.currentTime;
     if (!l) {

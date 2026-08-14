@@ -110,6 +110,9 @@ async function startAudio() {
   audioStarted = true;
   const ok = await soundtrack.start();
   if (!ok) { ctx.score = synth; synth.start(); }
+  // Which engine actually came up. A silent fall back to the synth once went
+  // unnoticed for a whole release, so say so somewhere findable.
+  soundBtn.title = ok ? 'Sound (M) · ElevenLabs' : 'Sound (M) · synth fallback';
   ctx.score.setMood('theme', 3);
 }
 

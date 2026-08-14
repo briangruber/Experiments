@@ -903,7 +903,7 @@ function buildScreenplay(ctx, tw) {
         [39.2, (c) => {
           c.score.say('vo-credits-4');
           c.titles.show('BRIAN GRUBER', {
-            kicker: 'productor ejecutivo · jefe supremo de las vibras',
+            kicker: 'wrote a few prompts',
             kind: 'credit', dur: 5.5, fadeIn: 0.9,
           });
           c.score.crow();

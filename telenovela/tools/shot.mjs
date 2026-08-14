@@ -40,6 +40,13 @@ const WIDTH = +opt('w', 1280);
 const HEIGHT = +opt('h', 720);
 const CONTACT = opt('contact', null);
 const NO_UI = !args.includes('--ui');
+// --csp serves under roughly the published page's content policy. The artifact
+// viewer blocks connect-src, which means fetch() — including fetch of a data:
+// URI — so the bundled soundtrack has to load without it.
+const CSP = args.includes('--csp');
+const CSP_HEADER = "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' 'self'; "
+  + "style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; "
+  + "font-src data:; connect-src 'none'; worker-src blob:;";
 
 // One frame from each act, chosen to land on a beat worth looking at.
 const CONTACT_SHEET = [
@@ -63,7 +70,9 @@ const server = createServer(async (req, res) => {
     const path = join(ROOT, url === '/' ? 'index.html' : url);
     if (!path.startsWith(ROOT)) { res.writeHead(403).end(); return; }
     const body = await readFile(path);
-    res.writeHead(200, { 'content-type': MIME[extname(path)] || 'application/octet-stream' });
+    const headers = { 'content-type': MIME[extname(path)] || 'application/octet-stream' };
+    if (CSP) headers['content-security-policy'] = CSP_HEADER;
+    res.writeHead(200, headers);
     res.end(body);
   } catch {
     res.writeHead(404).end('not found');
@@ -84,9 +93,12 @@ const page = await browser.newPage({ viewport: { width: WIDTH, height: HEIGHT },
 
 const errors = [];
 const logs = [];
+// The CSP probe below deliberately trips the policy; its complaint is the
+// point, not a failure.
+const PROBE_NOISE = /data:text\/plain;base64,YQ==/;
 page.on('console', (m) => {
   logs.push(`${m.type()}: ${m.text()}`);
-  if (m.type() === 'error') errors.push(m.text());
+  if (m.type() === 'error' && !PROBE_NOISE.test(m.text())) errors.push(m.text());
 });
 page.on('pageerror', (e) => errors.push('pageerror: ' + (e.stack || e.message)));
 
@@ -125,12 +137,16 @@ if (!errors.length) {
   // silently falling back to the synth.
   audio = await page.evaluate(async () => {
     const T = window.__telenovela;
+    // Prove the policy is really biting before trusting the result below.
+    let fetchBlocked = false;
+    try { await fetch('data:text/plain;base64,YQ=='); } catch { fetchBlocked = true; }
     const ok = await T.soundtrack.start();
     await new Promise((r) => setTimeout(r, 2500));
     return {
       ok, ready: T.soundtrack.ready, failed: T.soundtrack.failed,
       clips: Object.keys(T.soundtrack.manifest).length,
       decoded: T.soundtrack.buffers.size,
+      fetchBlocked,
     };
   });
   await page.evaluate(() => window.__telenovela.soundtrack.setEnabled(false));

@@ -64,7 +64,7 @@ const VOICE = {
   'vo-credits-1': 'Dirección, guion, fotografía, vestuario, y absolutamente todas las plumas: Claude Opus Cinco.',
   'vo-credits-2': 'Escenografía construida a mano, polígono por polígono, en Three punto JS.',
   'vo-credits-3': 'Música original, truenos, y todos los suspiros: ElevenLabs.',
-  'vo-credits-4': 'Productor ejecutivo, y jefe supremo de las vibras: Brian Gruber.',
+  'vo-credits-4': 'Escribió unos cuantos prompts... Brian Gruber.',
   'vo-credits-5': 'Ninguna gallina resultó herida durante esta producción. Varias resultaron traicionadas.',
 };
 

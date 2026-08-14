@@ -79,7 +79,10 @@ node tools/audio.mjs --only vo-title --force     # redo one cue
 
 `src/audio.js` plays it: beds crossfade on mood changes, rain and night
 ambience ride a continuous gain, and the announcer ducks the music under
-himself. It presents exactly the same surface as the procedural synth in
+himself. Clips arrive as data URIs in the bundled build, and are decoded
+in-process rather than with `fetch` — fetching a data URI is a `connect-src`
+request, which a strict CSP refuses, and the published page has one. Run the
+harness with `--csp` to test under that policy. It presents exactly the same surface as the procedural synth in
 `src/score.js`, which stands by as a fallback for when the audio can't be
 fetched or decoded — opening `index.html` straight off the filesystem, say.
 The director's cues never have to know which one is running.
@@ -169,6 +172,7 @@ file instead of the source, so both builds get the same test.
 node tools/shot.mjs --out shots/frame.png --scene 3 --at 14.2
 node tools/shot.mjs --frames 0:4,2:16.5,5:34 --out shots/x.png
 node tools/shot.mjs --contact shots/contact          # one frame per beat
+node tools/shot.mjs --page /dist/corazon-de-gallina.html --csp   # as published
 ```
 
 Sampling happens inside the page's own render frame — a WebGL canvas reads back
