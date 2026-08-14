@@ -73,6 +73,44 @@ Also on that branch, already correct and worth keeping:
   **around the whole mix**, because `mix(a, b, 0)` is still NaN if `b` is.
   A NaN there washes the entire ocean white.
 
+## THE ANSWER IS ALREADY IN THIS REPO: `claude/saltyfin-webgpu`
+
+Do not design this from scratch. That branch renders meshes *and* a leviathan
+under water, seen through the surface with refraction, caustics and depth, on
+the same three.js node renderer. It is the reference implementation.
+
+What it does that Abyssal does not:
+
+- `saltyfin/src/water/waterMaterial.js` keeps the sea **opaque**
+  (`transparent = false`, `depthWrite = true`) exactly as Abyssal does - so
+  opacity was never the difference. What it adds is a **REFRACTION PASS**: a
+  colour target `tRefraction` *and* a matching depth target
+  `tRefractionDepth`, sampled at a screen-space UV offset by the surface
+  normal, with the depth used to reconstruct the water column and drive the
+  extinction. Abyssal's ocean computes everything analytically and never reads
+  what is behind it; that, and only that, is why a mesh cannot be seen through
+  it here.
+- The submerged pass renders into a target **with its own depth buffer**, which
+  is precisely the missing piece behind both symptoms above. Its own comment
+  notes the refraction pass "contains the boat's own submerged hull".
+- `saltyfin/src/water/clip.js` solves the waterline split with a **uniform, not
+  a clipping plane**, and explains why at length: `material.clippingPlanes`
+  feeds `clippingContextCacheKey`, one of the 29 components of
+  `WebGPUBackend.getRenderCacheKey`, so toggling it per pass forces a
+  synchronous pipeline creation per material per pass - measured there at ~55
+  pipeline creations a frame and 11 fps on a phone. The same argument rules out
+  swapping `side`, `depthWrite`, `transparent`, blending or stencil per pass.
+  **Read that file before touching the waterline split**; it is the answer to
+  "how do fins break the surface" and it is already written.
+- It sorts objects into passes by LAYER (`LAYER.REFLECTED` / `LAYER.UNDERWATER`)
+  rather than by juggling material flags.
+
+So the plan is a port, not an invention: bring the refraction colour+depth
+target and the clip uniform across, then the animal is an ordinary opaque
+depth-tested mesh and the sea does the rest - which is what "why can't three.js
+just handle it" is really asking, and the answer is that it can, once the water
+has a refraction pass to hand it to.
+
 ## Two process notes that cost real time here
 
 - **A boot timeout is a boot failure until proven otherwise.** Three checks
