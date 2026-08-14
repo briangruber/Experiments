@@ -97,16 +97,33 @@ const work = (async () => {
     // three-main.js calls at the END of its own frame, landing this before
     // the NEXT frame's dragon.update()).
     let forcedDepth = null;
+    // Pinned alongside depth: craftSpeed now carries the animal's REAL swim
+    // speed (the same craftPlaneSpeed..Full gate the vehicles obey), and an
+    // unpinned dragon holding station near a still camera idles below the
+    // planing threshold - the sheet spray under test would be legitimately
+    // absent. 20 m/s is a fast surface run, well past craftPlaneFull.
+    const forcedSpeed = 20;
     // Peak, not a point sample: the wake stir rides the impact burst, which
     // decays within a second - a fixed-latency read would race it.
     let wkStirPeak = 0;
     A.onFrame = () => {
-      if ( forcedDepth !== null ) A.dragon.depth = forcedDepth;
+      if ( forcedDepth !== null ) { A.dragon.depth = forcedDepth; A.dragon.speed = forcedSpeed; }
       wkStirPeak = Math.max( wkStirPeak, uWkStir.value );
     };
 
+    // The REAL uniforms call the water render makes, captured rather than
+    // reimplemented: gate (does the sea sample the field) and dims (whose
+    // track is it drawn as).
+    let wakeGate = null, wakeDims = null;
+    const origUniforms = A.wake.uniforms.bind( A.wake );
+    A.wake.uniforms = ( p, a, d ) => { wakeGate = a; wakeDims = d; return origUniforms( p, a, d ); };
+
     // ---- deep, no vehicle: parked, and no wake ---------------------------
-    forcedDepth = topY + 14;   // back a solid 14 m under, whatever sdLength is
+    // 20 m of clearance, not a boundary case: the gates read the PITCHED high
+    // point now, and the dive's own nose-down pitch can hoist a tail tip
+    // sdLength/2 * sin(0.5) - ~12 m at this length - above the level posture
+    // while the pitch decays back out.
+    forcedDepth = topY + 20;
     await frames(5);
     log('deep dragon throws no spray', uCraftAmount.value === 0, `uCraftAmount = ${ uCraftAmount.value.toFixed(4) }`);
     log('deep dragon leaves no wake either', uWkActive.value === 0, `uWkActive = ${ uWkActive.value }`);
@@ -137,7 +154,14 @@ const work = (async () => {
       uCraftPos.value.x - A.dragon.pos[0], uCraftPos.value.z - A.dragon.pos[2],
     ) < 0.5 && Math.abs(uCraftPos.value.y - (A.params.sdSeaLevel ?? 0)) < 0.5,
         `uCraftPos ${ uCraftPos.value.x.toFixed(2) },${ uCraftPos.value.y.toFixed(2) },${ uCraftPos.value.z.toFixed(2) } (y should be ~sea level, not mid-body)`);
-    log('breach severity feeds a nonzero synthetic speed', uCraftSpeed.value > 0, `uCraftSpeed = ${ uCraftSpeed.value.toFixed(2) }`);
+    // Loose bound: the physics runs one accel step between the onFrame pin and
+    // the read (measured drift ~0.3 m/s, but it scales with dt on a slow
+    // rasteriser). The claim is that the REAL speed reaches the emitter -
+    // "well past craftPlaneFull, nowhere near the old synthetic 14" - not
+    // exact equality with the pin.
+    log('its real swim speed drives the emitter, same gate as the vehicles',
+        Math.abs(uCraftSpeed.value - forcedSpeed) < 3,
+        `uCraftSpeed = ${ uCraftSpeed.value.toFixed(2) } (pinned swim speed ${ forcedSpeed }; craftPlaneSpeed..Full decide the sheet from here)`);
 
     // ---- the emitter footprint is the ANIMAL's, not the ski's ------------
     // Without this every particle spawned within the ski's 1.6 x 0.6 m of
@@ -151,6 +175,27 @@ const work = (async () => {
     log('a shallow dragon stamps a live wake', uWkActive.value === 1, `uWkActive = ${ uWkActive.value }`);
     log('the wake stamp has real stir behind it', wkStirPeak > 0.01,
         `peak uWkStir ${ wkStirPeak.toFixed(3) } across the breach (impact + speed + turn all feed it)`);
+    log('the track renders at the ANIMAL\'s width, not the ski\'s',
+        !! wakeDims && Math.abs(wakeDims.beam - Math.max(A.params.sdWakeBeam, 0.5)) < 0.01,
+        wakeDims ? `dims.beam ${ wakeDims.beam.toFixed(1) }m (sdWakeBeam ${ A.params.sdWakeBeam }), arm share ${ (wakeDims.arm / Math.max(A.params.wakeArm, 1e-6)).toFixed(2) }` : 'no dims handed to wake.uniforms at all');
+
+    // ---- diving lets the old wake FADE, not vanish -----------------------
+    // uWakeOn used to follow the source's liveness directly, snapping the
+    // whole surviving track off the sea the moment the animal dove.
+    A.params.wakeLife = 1.5;
+    await frames(2);            // one stamping frame arms the latch at the new life
+    forcedDepth = topY + 20;
+    await frames(3);
+    log('right after the dive, no NEW stamps land', uWkActive.value === 0, `uWkActive = ${ uWkActive.value }`);
+    log('...but the old track is still being drawn while it decays', wakeGate === true,
+        `wake.uniforms gate = ${ wakeGate } (used to cut to false the same frame)`);
+    await new Promise((r) => setTimeout(r, 2500));
+    await frames(2);
+    log('...and once the last record has died, the sea stops sampling it', wakeGate === false,
+        `wake.uniforms gate = ${ wakeGate } after wakeLife (1.5s) + margin`);
+    A.params.wakeLife = 14;
+    forcedDepth = A.params.sdMinDepth;
+    await frames(5);
 
     // ---- sdSpray = 0 turns it off, same slider as the foam mask --------
     A.params.sdSpray = 0;

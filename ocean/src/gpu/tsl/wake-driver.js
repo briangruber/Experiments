@@ -200,7 +200,18 @@ export class TslWake {
 	 * src/wake.js returns, because ./water-common.js setWakeUniforms() reads
 	 * them by name.
 	 */
-	uniforms( p, active ) {
+	/**
+	 * @param {object} p - parameter set. Pass the ACTIVE hull's remapped set
+	 *   (demo/three-main.js's activeParams) so p.wrBeam resolves to the hull
+	 *   actually laying the track - handed plain `params` while the boat was
+	 *   out, the boat's wake rendered at the SKI's beam.
+	 * @param {boolean} active - whether the water samples the field at all.
+	 * @param {object} [dims] - per-source render overrides for a track laid by
+	 *   something that is not the active wr-hull at all (the sea dragon):
+	 *   { beam, armW, arm }. The FIELD is shared and so are these uniforms -
+	 *   one track exists at a time, so whoever stamped it describes it.
+	 */
+	uniforms( p, active, dims ) {
 
 		return {
 			uWakeTex: this.field,
@@ -208,11 +219,11 @@ export class TslWake {
 			uWakeExtent: this.extent,
 			uWakeOn: active ? 1 : 0,
 			uWakeLife: p.wakeLife,
-			uWakeArmW: p.wakeWidth,
-			uWakeArm: p.wakeArm,
+			uWakeArmW: dims?.armW ?? p.wakeWidth,
+			uWakeArm: dims?.arm ?? p.wakeArm,
 			uWakeChurn: p.wakeCentre,
 			uWakeSpread: p.wakeSpread,
-			uWakeBeam: Math.max( p.wrBeam, 0.3 ) * 1.6,
+			uWakeBeam: dims?.beam ?? Math.max( p.wrBeam, 0.3 ) * 1.6,
 			uWakeDepth: p.wakeDepth,
 			uWakeStrength: p.wakeStrength,
 		};

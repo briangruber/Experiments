@@ -367,6 +367,24 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	// drives both its wake stamp and the water's own uWakeOn gate, so it is
 	// computed once in the frame loop and read again at the render calls.
 	let dragonWakeT = 0;
+	// Seconds of already-laid wake still worth drawing. uWakeOn used to follow
+	// the SOURCE's liveness directly, which snapped the whole surviving track
+	// off the sea the instant the dragon dove (or a ride ended) - reported
+	// live: "old wake should fade away on its own". The field's records
+	// already decay over wakeLife; this latch just keeps the water sampling
+	// them until the last stamp has actually died, for every source alike.
+	let wakeHold = 0;
+	let lastWakeDims = null;
+	// The body's highest point right now, world Y. Not the resting bounding
+	// box top: a porpoising body PITCHES (demo/seadragon.js swings it +-0.5
+	// rad on the depth it is taking), and at 52 m long a pitched nose or tail
+	// rides up to sdLength/2 * sin(pitch) - up to ~12 m - above what the
+	// level-posture box says. The first pitch-blind gate was why spray showed
+	// "at one point" and not through the rest of a breach arc it was plainly
+	// making.
+	const dragonHighPoint = () =>
+		dragon.pos[ 1 ] + dragonTopY
+		+ params.sdLength * 0.5 * Math.abs( Math.sin( dragon.pitch ) );
 	const dragonMat = new THREE.NodeMaterial();
 	dragonMat.name = 'abyssal.dragon';
 	dragonMat.fragmentNode = creatureFragment();
@@ -1088,10 +1106,12 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		dragonWakeT = 0;
 		if ( ! rider.active && ! plane.active && ! boat.active && params.sdEnabled >= 0.5 ) {
 
-			const clear = params.sdSeaLevel - ( dragon.pos[ 1 ] + dragonTopY );
+			// dragonHighPoint(), not the level-posture back: the gate has to see
+			// a pitched nose or tail out of the water too.
+			const clear = params.sdSeaLevel - dragonHighPoint();
 			dragonWakeT = Math.max( 0, Math.min( 1,
 				1 - Math.max( 0, clear ) / Math.max( params.sdSwellFade, 0.5 ),
-			) );
+			) ) * Math.min( params.sdWake ?? 1, 2 );
 
 		}
 		const dragonWakeRig = {
@@ -1111,10 +1131,33 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			heading: dragon.heading,
 			active: dragonWakeT > 0.001,
 		};
+		const dragonStamping = ! rider.active && ! plane.active && ! boat.active
+			&& dragonWakeT > 0.001;
 		wake.update( dt, activeParams, plane.active ? plane.floatRig
 			: ( boat.active ? boat
 				: ( rider.active ? rider
-					: ( dragonWakeT > 0.001 ? dragonWakeRig : rider ) ) ) );
+					: ( dragonStamping ? dragonWakeRig : rider ) ) ) );
+		// Arm the fade latch while ANY source is actually stamping; between
+		// stamps it runs down in real time and the water stops sampling the
+		// field only once the newest record in it has fully decayed too.
+		const stamping = rider.active || boat.active || dragonStamping
+			|| ( plane.active && plane.floatRig.active );
+		wakeHold = stamping ? Math.max( params.wakeLife, 0.5 ) : Math.max( 0, wakeHold - dt );
+		// How the surviving track should RENDER - the field is shared, so this
+		// describes whoever stamped it last, and holds through their fade-out.
+		if ( dragonStamping ) {
+
+			lastWakeDims = {
+				beam: Math.max( params.sdWakeBeam, 0.5 ),
+				armW: Math.max( params.wakeWidth, params.sdWakeBeam * 0.3 ),
+				arm: params.wakeArm * ( params.sdWakeArm ?? 0.35 ),
+			};
+
+		} else if ( stamping ) {
+
+			lastWakeDims = null;   // a vehicle's own wr*/boat* mapping applies
+
+		}
 
 		camera.locked = rider.active || plane.active || boat.active || followDragon;
 		camera.update( dt, params );
@@ -1215,12 +1258,13 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		let dragonSpray = 0;
 		if ( ! veh && params.sdEnabled >= 0.5 && params.sdSpray > 0.0005 ) {
 
-			// The BACK's clearance, not the origin's - see dragonTopY's note. At
+			// The highest BODY PART's clearance - pitched nose or tail included
+			// (dragonHighPoint), never the origin - see dragonTopY's note. At
 			// the default staging the origin NEVER comes within sdSprayDepth of
 			// the surface (sdMinDepth alone forbids it), while the back is
 			// routinely metres out of the water.
 			// + still under the mean surface, - poking through it.
-			const clearance = params.sdSeaLevel - ( dragon.pos[ 1 ] + dragonTopY );
+			const clearance = params.sdSeaLevel - dragonHighPoint();
 			dragonSpray = Math.max( 0, Math.min( 1,
 				1 - clearance / Math.max( params.sdSprayDepth, 0.05 ),
 			) );
@@ -1290,7 +1334,7 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 					// over) - spray leaves from where the body cuts the water,
 					// exactly where the vehicles' own deckY anchor sits for them.
 					dragonSpray > 0.001
-						? Math.min( dragon.pos[ 1 ] + dragonTopY, params.sdSeaLevel )
+						? Math.min( dragonHighPoint(), params.sdSeaLevel )
 						: - 1e4,
 					dragonSpray > 0.001 ? dragon.pos[ 2 ] : 0 ),
 			craftFwd: setA2( vCraftFwd, cf[ 0 ], cf[ 1 ] ),
@@ -1303,16 +1347,19 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			// the vehicles, so their existing wr*/boat* mapping is untouched.
 			craftLen: veh ? undefined : params.sdLength * 0.5,
 			craftBeam: veh ? undefined : Math.max( params.sdSwellRadius, 1 ),
-			// The dragon's OWN swim speed is not what this measures - a body can
-			// break the surface nearly stationary, holding station, which is
-			// exactly when a subtle breach mist should still show. What this
-			// channel actually gates downstream (spray.js's `plane` factor,
-			// craftPlaneSpeed..craftPlaneFull) is "how planed-in is the source",
-			// so it is driven by breach severity instead: barely poking through
-			// gives a thin mist, fully surfaced gives the full sheet.
+			// The dragon's REAL swim speed, on purpose - "if any of its body
+			// parts are breaking the surface and it is moving with enough
+			// speed, the spray should be happening" is exactly the contract
+			// spray.js's `plane` factor already enforces for the vehicles
+			// (craftPlaneSpeed..craftPlaneFull, the same shared sliders): a
+			// fast surface run sheds the full sheet, a slow breach only gets
+			// the one-shot impact burst, which doesn't gate on speed. An
+			// earlier version fed a synthetic "breach severity" speed here so
+			// a stationary breach could mist - that muddied the very speed
+			// gate the vehicles obey, so the animal follows the same rule now.
 			craftSpeed: veh
 				? ( wet > 0.001 ? Math.abs( veh.speed ) : 0 )
-				: ( dragonSpray > 0.001 ? params.craftPlaneFull * dragonSpray : 0 ),
+				: ( dragonSpray > 0.001 ? Math.abs( dragon.speed ) : 0 ),
 			craftTurn: wet > 0.001 ? veh.yawRate : 0,
 			// Scaled BY the wetness, not gated by it: the plume grows as the
 			// floats settle in and thins as they leave, and a wingtip that is
@@ -1504,13 +1551,13 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		if ( sky.depthMode !== 'behind' ) {
 
 			sky.drawBackground( params, ctx );
-			water.render( params, ctx, sim, cam3, { wake: wake.uniforms( params, rider.active || boat.active || dragonWakeT > 0.001 ), hull } );
+			water.render( params, ctx, sim, cam3, { wake: wake.uniforms( activeParams, wakeHold > 0, lastWakeDims ), hull } );
 			drawDragonOver();
 			drawCraft();
 
 		} else {
 
-			water.render( params, ctx, sim, cam3, { wake: wake.uniforms( params, rider.active || boat.active || dragonWakeT > 0.001 ), hull } );
+			water.render( params, ctx, sim, cam3, { wake: wake.uniforms( activeParams, wakeHold > 0, lastWakeDims ), hull } );
 			drawDragonOver();
 			drawCraft();
 			sky.drawBackground( params, ctx );

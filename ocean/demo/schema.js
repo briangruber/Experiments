@@ -275,6 +275,9 @@ export const SCHEMA = [
       S('sdGape', 'Jaw shut angle (rad)', 0, 1.4, 0.01),
       S('sdThrough', 'Shows through the glare', 0, 1, 0.01),
       S('sdRefract', 'Refraction through the surface', 0, 0.2, 0.001),
+      S('sdWake', 'Wake it stirs up', 0, 2, 0.01),
+      S('sdWakeBeam', 'Wake track width (m)', 0.5, 20, 0.1),
+      S('sdWakeArm', 'Wake V-arms share', 0, 1, 0.01),
     ],
   },
   {

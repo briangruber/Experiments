@@ -574,6 +574,20 @@ export const defaults = {
   sdAmp: 0.055,             // peak tail sweep, as a fraction of length
   sdBeat: 0.35,             // tail beats per second at rest
   sdBeatSpeed: 0.030,       // ...plus this many per m/s
+  // Its wake. The same shared field the vehicles stamp (one track per frame,
+  // a vehicle keeps priority), but a submerged swimmer is not a planing hull:
+  // its track is broad churned water more than a hard Kelvin V, and it fades
+  // with how deep the body is running (over sdSwellFade, like the mound).
+  sdWake: 1.0,              // gain on how hard it stirs the record; 0 = none
+  sdWakeBeam: 6.0,          // half-width of the churned track, m. The field
+                            // otherwise renders at the ACTIVE HULL's beam -
+                            // ski-width lines under a 50 m animal read as an
+                            // etched stamp, which is exactly how it was
+                            // reported: "like a stamped image on the water".
+  sdWakeArm: 0.35,          // share of the usual Kelvin-arm strength its track
+                            // keeps. Mostly-churn is what a body under the
+                            // surface actually leaves; 1 gives it a full
+                            // planing-hull V.
 
   hullPush: 0.55,           // depth of the hollow the hull presses, m
   hullRadius: 2.6,          // along-hull extent of that footprint, m

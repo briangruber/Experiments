@@ -281,6 +281,9 @@ need `water.rebuildGrid()`.
 | `sdGape` | Jaw shut angle (rad) | `0.3` | 0 … 1.4 |  |
 | `sdThrough` | Shows through the glare | `0.07` | 0 … 1 |  |
 | `sdRefract` | Refraction through the surface | `0.2` | 0 … 0.2 |  |
+| `sdWake` | Wake it stirs up | `1` | 0 … 2 |  |
+| `sdWakeBeam` | Wake track width (m) | `6` | 0.5 … 20 |  |
+| `sdWakeArm` | Wake V-arms share | `0.35` | 0 … 1 |  |
 
 ## Wave Runner
 
