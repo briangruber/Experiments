@@ -1275,7 +1275,18 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 		const bend = N.xz.mul( uUnderwaterRefract ).div( float( 1.0 ).add( dist.mul( 0.03 ) ) ).toVar();
 		const suv = screenUV.add( vec2( bend.x, bend.y.negate() ) ).clamp( 0.001, 0.999 ).toVar();
 		const uw = underwaterTexture.sample( suv ).toVar();
-		diffuse.assign( mix( diffuse, uw.rgb, uw.a.mul( uUnderwaterAmount ).clamp( 0.0, 1.0 ) ) );
+		// THE GUARD GOES AROUND THE WHOLE MIX, and that placement is the bug this
+		// cost. Washing the ocean white was a NaN arriving from the target, and
+		// the first guard only sanitised the WEIGHT - but mix(a, b, 0) is
+		// a*(1-0) + b*0, and a NaN in b is still NaN after multiplying by zero.
+		// select() picks one of its arms, so a NaN in the arm not taken cannot
+		// travel; the mix has to be inside it, not upstream of it. Comparisons
+		// against NaN are false, so anything the target holds that is not a sane
+		// 0..1 coverage leaves the sea exactly as it was.
+		const cov = uw.a.mul( uUnderwaterAmount ).toVar();
+		const sane = cov.greaterThan( 0.0 ).and( cov.lessThan( 1.0001 ) )
+			.and( uw.r.lessThan( 1e6 ) ).and( uw.g.lessThan( 1e6 ) ).and( uw.b.lessThan( 1e6 ) ).toVar();
+		diffuse.assign( select( sane, mix( diffuse, uw.rgb, cov.min( 1.0 ) ), diffuse ) );
 
 	} );
 

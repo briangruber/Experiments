@@ -163,9 +163,13 @@ export class SeaDragon {
     // exactly how it was reported. It opens on a slow, irregular cycle and
     // opens WIDER when it is sprinting, so the gape reads as effort.
     const drive = Math.sin(this.t * 0.37) * 0.6 + Math.sin(this.t * 0.13 + 2.1) * 0.4;
-    const want = Math.max(0, drive - 0.55) / 0.45;          // open maybe a fifth of the time
+    // wantGape, not `want`: there is already a `want` in this scope for the
+    // speed, and redeclaring it is a SyntaxError that stops the whole app from
+    // booting. It cost three checks that "timed out" before one was run alone
+    // and said so.
+    const wantGape = Math.max(0, drive - 0.55) / 0.45;      // open maybe a fifth of the time
     const eager = clamp(this.speed / Math.max(p.sdSpeed, 1), 0, 1);
-    this.gape = lerp(this.gape, clamp(want * (0.45 + 0.55 * eager), 0, 1), 1 - Math.exp(-3.5 * d));
+    this.gape = lerp(this.gape, clamp(wantGape * (0.45 + 0.55 * eager), 0, 1), 1 - Math.exp(-3.5 * d));
 
     // Bank into the turn, the way anything with fins does.
     this.roll = lerp(this.roll, clamp(-this.yawRate * this.speed * 0.09, -0.6, 0.6), 1 - Math.exp(-3 * d));

@@ -1074,6 +1074,10 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		// Everything submerged goes into its own target FIRST, because the sea
 		// reads it while shading itself.
 		const submerged = drawDragon();
+		// Nothing submerged this frame? Clear the target anyway, so the sea never
+		// samples a buffer nobody has written since the last time something was
+		// in it.
+		if ( ! submerged ) underwater.clear();
 		uUnderwaterAmount.value = submerged ? params.sdOpacity : 0;
 		uUnderwaterRefract.value = params.sdRefract;
 

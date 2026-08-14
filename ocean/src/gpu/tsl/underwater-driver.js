@@ -83,6 +83,7 @@ export class TslUnderwater {
 	render( scene, camera ) {
 
 		if ( ! this.target ) return;
+		this.cleared = true;
 		const r = this.renderer;
 		const prev = r.getRenderTarget();
 		r.setRenderTarget( this.target );
@@ -92,6 +93,25 @@ export class TslUnderwater {
 		// against the first frame's.
 		r.clear( true, true, false );
 		r.render( scene, camera );
+		r.setRenderTarget( prev );
+
+	}
+
+	/**
+	 * Clear it and draw nothing. Called on the frames with nothing submerged, so
+	 * the target is ALWAYS a freshly cleared buffer rather than whatever was in
+	 * it last - the sea samples it every frame it is switched on, and a stale or
+	 * never-written half-float target is exactly the NaN the ocean shader now
+	 * guards against. Cheap: a clear of a quarter-resolution buffer.
+	 */
+	clear() {
+
+		if ( ! this.target ) return;
+		const r = this.renderer;
+		const prev = r.getRenderTarget();
+		r.setRenderTarget( this.target );
+		r.setClearColor( 0x000000, 0 );
+		r.clear( true, true, false );
 		r.setRenderTarget( prev );
 
 	}
