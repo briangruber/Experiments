@@ -314,3 +314,77 @@ export const craftFragment = /*@__PURE__*/ Fn( () => {
 	);
 
 } );
+
+/**
+ * A mesh's own half-width profile against height, so a wake can be as wide as
+ * the part of the body ACTUALLY cutting the surface instead of a number
+ * somebody had to guess and re-guess per craft.
+ *
+ * Built once from the geometry (and rebuilt only when the geometry is), then
+ * read O(1) per frame by waterlineHalfWidth(). Bucketed by LOCAL y: for each
+ * slice of height, the widest |x| any vertex reaches there. Empty buckets are
+ * filled from their neighbours so a sparse mesh cannot punch holes in the
+ * profile.
+ *
+ * APPROXIMATION, stated plainly: local y is treated as world-vertical, so a
+ * pitched or rolled body is measured as though it were level. Correcting it
+ * would mean transforming every vertex every frame - the whole cost this
+ * exists to avoid - and at the angles anything here actually swims or floats
+ * at, the error is far smaller than the guessed constant it replaces.
+ *
+ * @param {THREE.BufferGeometry} geometry - as returned by buildCraftGeometry.
+ * @param {number} [bins=64] - height slices.
+ * @returns {{minY:number, maxY:number, half:Float32Array}}
+ */
+export function buildWaterlineProfile( geometry, bins = 64 ) {
+
+	const pos = geometry.getAttribute( 'position' );
+	const half = new Float32Array( bins );
+	let minY = Infinity, maxY = - Infinity;
+	for ( let i = 0; i < pos.count; i ++ ) {
+
+		const y = pos.getY( i );
+		if ( y < minY ) minY = y;
+		if ( y > maxY ) maxY = y;
+
+	}
+	if ( ! ( maxY > minY ) ) return { minY: 0, maxY: 0, half };
+
+	const span = maxY - minY;
+	for ( let i = 0; i < pos.count; i ++ ) {
+
+		let b = Math.floor( ( pos.getY( i ) - minY ) / span * bins );
+		if ( b < 0 ) b = 0; else if ( b >= bins ) b = bins - 1;
+		const ax = Math.abs( pos.getX( i ) );
+		if ( ax > half[ b ] ) half[ b ] = ax;
+
+	}
+	// Fill gaps both ways so a bucket no vertex landed in inherits a real
+	// measurement rather than reporting a body of zero width.
+	for ( let b = 1; b < bins; b ++ ) if ( half[ b ] === 0 ) half[ b ] = half[ b - 1 ];
+	for ( let b = bins - 2; b >= 0; b -- ) if ( half[ b ] === 0 ) half[ b ] = half[ b + 1 ];
+	return { minY, maxY, half };
+
+}
+
+/**
+ * The body's half-width where the waterline crosses it.
+ *
+ * @param {{minY:number,maxY:number,half:Float32Array}} profile
+ * @param {number} localY - the waterline in the MESH's own frame, i.e.
+ *   seaLevel - meshOriginWorldY. Clamped into the body: above the top means a
+ *   fully submerged body (report its narrow back, and let the caller's own
+ *   depth fade take it from there), below the keel means it is out of the
+ *   water entirely.
+ * @returns {number} half-width in metres.
+ */
+export function waterlineHalfWidth( profile, localY ) {
+
+	const { minY, maxY, half } = profile;
+	if ( ! ( maxY > minY ) || ! half.length ) return 0;
+	const t = Math.min( Math.max( ( localY - minY ) / ( maxY - minY ), 0 ), 1 );
+	let b = Math.floor( t * half.length );
+	if ( b >= half.length ) b = half.length - 1;
+	return half[ b ];
+
+}

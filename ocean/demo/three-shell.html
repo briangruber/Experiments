@@ -57,7 +57,16 @@
   /* ---- the instrument panel ---------------------------------------------- */
 
   #hud {
-    position: fixed; top: 14px; left: 14px; z-index: 10;
+    /* TOP-ANCHORED, and `bottom` is pinned to auto on purpose: this panel
+       grows and shrinks (it collapses to one header row), so it must be
+       sized by its content, never stretched between two anchors. The classic
+       demo's stylesheet rides along inlined above and styles its own #hud -
+       the same id, a bottom-left readout - and one of its `bottom` rules
+       reaching this element is what stretched the collapsed panel over the
+       whole phone screen. The bundler drops those rules now
+       (tools/bundle-three.mjs's sanitizeUiCss), and this says so locally too
+       so the shell's layout does not depend on that filter being perfect. */
+    position: fixed; top: 14px; bottom: auto; left: 14px; z-index: 10;
     display: flex; flex-direction: column; gap: 10px;
     width: 15.5rem; max-width: calc(100vw - 28px);
     padding: 12px 13px 11px;

@@ -46,6 +46,7 @@ import { TslCraftProbe } from '../src/gpu/tsl/craft-probe.js';
 import {
 	buildCraftGeometry, loadCraftTexture, setCraftTexture, craftFragment,
 	craftVertex, uCraftWetLine, uPropAngle, uPropHub,
+	buildWaterlineProfile, waterlineHalfWidth,
 } from '../src/gpu/tsl/craft.js';
 import {
 	creatureVertex, creatureFragment, setCreatureTexture,
@@ -427,6 +428,10 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	// while the animal was visibly breaching.
 	dragonBuild.geometry.computeBoundingBox();
 	let dragonTopY = dragonBuild.geometry.boundingBox.max.y;
+	// The body's own half-width against height, so its wake is as wide as
+	// whatever part of it is actually cutting the surface - no hand-set beam to
+	// guess per creature. Rebuilt with the geometry, read O(1) per frame.
+	let dragonProfile = buildWaterlineProfile( dragonBuild.geometry );
 
 	// The waterline seam, in metres, scaled with the sea it is cutting. A flat cut
 	// at mean sea level is wrong by whatever the wave is doing at that point, so
@@ -446,6 +451,7 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			dragonLen = params.sdLength;
 			b.geometry.computeBoundingBox();
 			dragonTopY = b.geometry.boundingBox.max.y;
+			dragonProfile = buildWaterlineProfile( b.geometry );
 
 		}
 		uCreatureLen.value = params.sdLength;
@@ -1147,9 +1153,19 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		// describes whoever stamped it last, and holds through their fade-out.
 		if ( dragonStamping ) {
 
+			// MEASURED, not configured: the half-width of the body where the
+			// sea plane actually crosses it, so a back barely breaking the
+			// surface leaves a narrow track and a broad flank rolling up
+			// leaves a wide one - and it changes as the animal rises and
+			// sounds, with no per-creature width to keep re-guessing.
+			const beam = Math.max(
+				waterlineHalfWidth( dragonProfile, params.sdSeaLevel - dragon.pos[ 1 ] )
+					* ( params.wakeWidthScale ?? 1 ),
+				0.3,
+			);
 			lastWakeDims = {
-				beam: Math.max( params.sdWakeBeam, 0.5 ),
-				armW: Math.max( params.wakeWidth, params.sdWakeBeam * 0.3 ),
+				beam,
+				armW: Math.max( params.wakeWidth, beam * 0.3 ),
 				arm: params.wakeArm * ( params.sdWakeArm ?? 0.35 ),
 			};
 

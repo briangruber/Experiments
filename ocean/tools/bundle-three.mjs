@@ -308,6 +308,20 @@ const shell = await readFile(join(ROOT, opt('html', 'demo/three-shell.html')), '
 // #panel-toggle, .panel-hidden, bare html/body/canvas) goes. Media queries
 // are kept but sanitized by the same rule.
 export function sanitizeUiCss(css) {
+	// COMMENTS GO FIRST, and this is load-bearing rather than tidiness. Both
+	// passes below read raw text: the at-rule test is `header.trim()
+	// .startsWith('@')`, and a comment sitting immediately before `@media`
+	// makes that false - so the whole media query fell through to the
+	// TOP-LEVEL branch, which emits `selector + '{' + body + '}'` VERBATIM and
+	// sanitizes nothing inside it. Measured: ui.css's phone block is preceded
+	// by exactly such a comment, so its `#hud{left:12px;bottom:...}` reached
+	// the artifact intact, and against this shell's own `top:14px` that gave
+	// #hud both anchors - a fixed box stretched to the full viewport, which
+	// is why minimising the panel on a phone still buried the sea (reported
+	// twice with screenshots). The selector pass has the same weakness from
+	// the other side: keepParts() splits on ',' and a comment's own commas
+	// become bogus "selector parts" that are always kept.
+	css = css.replace(/\/\*[\s\S]*?\*\//g, '');
 	css = css.replace(/backdrop-filter\s*:[^;}]*;?/g, '');
 	const OWNED = /(#hud|#boot|#panel-toggle|\.panel-hidden)\b/;
 	const BARE = /^\s*(html|body|canvas)\s*$/;

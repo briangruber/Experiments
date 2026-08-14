@@ -42,6 +42,7 @@ import { installWebGPUSwizzleShim } from './webgpu-shim.js';
 import { boot } from '../demo/three-main.js';
 import { uCraftPos, uCraftAmount, uCraftSpeed, uCraftImpact, uCraftLen, uCraftBeam } from '../src/gpu/tsl/spray.js';
 import { uWkActive, uWkStir } from '../src/gpu/tsl/wake.js';
+import { uWakeEdge } from '../src/gpu/tsl/water-common.js';
 
 installWebGPUSwizzleShim();
 
@@ -175,9 +176,35 @@ const work = (async () => {
     log('a shallow dragon stamps a live wake', uWkActive.value === 1, `uWkActive = ${ uWkActive.value }`);
     log('the wake stamp has real stir behind it', wkStirPeak > 0.01,
         `peak uWkStir ${ wkStirPeak.toFixed(3) } across the breach (impact + speed + turn all feed it)`);
-    log('the track renders at the ANIMAL\'s width, not the ski\'s',
-        !! wakeDims && Math.abs(wakeDims.beam - Math.max(A.params.sdWakeBeam, 0.5)) < 0.01,
-        wakeDims ? `dims.beam ${ wakeDims.beam.toFixed(1) }m (sdWakeBeam ${ A.params.sdWakeBeam }), arm share ${ (wakeDims.arm / Math.max(A.params.wakeArm, 1e-6)).toFixed(2) }` : 'no dims handed to wake.uniforms at all');
+    // The buffer is an axis-aligned square in WORLD space, so its far edge is
+    // a line of constant Z and reads on screen as a dead-straight horizontal
+    // cut unless it is feathered - reported as "a weird hard horizontal line
+    // where the wake begins". This checks the feather width actually reaches
+    // the shader from the preset, for every source (it is a global, not a
+    // per-craft dim).
+    A.params.wakeEdgeFade = 0.2;
+    await frames(3);
+    log('the wake buffer edge feather reaches the shader', Math.abs(uWakeEdge.value - 0.2) < 1e-6,
+        `uWakeEdge = ${ uWakeEdge.value } after setting wakeEdgeFade to 0.2`);
+    A.params.wakeEdgeFade = 0.12;
+    await frames(2);
+
+    // The width is MEASURED off the mesh at the waterline now, not configured -
+    // so it must (a) match what the profile reports for this depth and (b)
+    // actually CHANGE when the body rises or sinks. A constant would pass (a)
+    // and fail (b), which is the whole point of the second half.
+    const shallowBeam = wakeDims?.beam ?? 0;
+    log('the track renders at the ANIMAL\'s measured width, not the ski\'s',
+        shallowBeam > 1 && shallowBeam < 20,
+        wakeDims ? `dims.beam ${ shallowBeam.toFixed(2) }m measured at the waterline, arm share ${ (wakeDims.arm / Math.max(A.params.wakeArm, 1e-6)).toFixed(2) }` : 'no dims handed to wake.uniforms at all');
+
+    forcedDepth = A.params.sdMinDepth + 4;   // same body, riding deeper
+    await frames(4);
+    const deeperBeam = wakeDims?.beam ?? 0;
+    log('and it tracks which PART of the body is at the surface', Math.abs(deeperBeam - shallowBeam) > 0.2,
+        `beam ${ shallowBeam.toFixed(2) }m at depth ${ A.params.sdMinDepth } -> ${ deeperBeam.toFixed(2) }m four metres deeper`);
+    forcedDepth = A.params.sdMinDepth;
+    await frames(4);
 
     // ---- diving lets the old wake FADE, not vanish -----------------------
     // uWakeOn used to follow the source's liveness directly, snapping the

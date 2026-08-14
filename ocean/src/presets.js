@@ -6,12 +6,12 @@
 
 export const defaults = {
   // ---- sea state ----
-  windSpeed: 11.0,          // U10, m/s
+  windSpeed: 7,          // U10, m/s
   windDirDeg: 42.0,
-  fetch: 180.0,             // km
-  depth: 900.0,             // m
-  amplitude: 1.0,
-  choppiness: 1.25,
+  fetch: 140,             // km
+  depth: 26,             // m
+  amplitude: 0.8,
+  choppiness: 1.15,
   choppyLong: 1.45,         // extra horizontal displacement on the long cascades
   crestSharpen: 1.0,        // gain on the bound second harmonic; 1 = Stokes
   spread: 1.0,
@@ -25,8 +25,8 @@ export const defaults = {
   seed: 1337,
 
   // ---- swell ----
-  swellAmount: 0.55,        // significant height of the swell train, m
-  swellPeriod: 13.0,
+  swellAmount: 0.4,        // significant height of the swell train, m
+  swellPeriod: 10.5,
   swellDirDeg: 10.0,
   swellSpread: 6.0,
   swellWidth: 0.06,         // relative bandwidth of the swell peak
@@ -68,7 +68,7 @@ export const defaults = {
   foamDrift: 0.6,           // downwind surface drift of foam (m/s)
   foamInject: 4.0,        // saturates the raft: a whitecap is white, not a wash
   foamSpread: 0.40,
-  foamAmount: 0.9,
+  foamAmount: 0.7,
   foamRoughness: 0.62,
   foamTint: 0.35,
   foamDetail: 1.5,
@@ -81,10 +81,10 @@ export const defaults = {
   foamColor: [0.94, 0.965, 0.99],
 
   // ---- water optics ----
-  scatterColor: [0.048, 0.285, 0.360],
-  absorption: [0.42, 0.075, 0.045],
-  scatterAmount: 0.085,
-  sssStrength: 1.2,
+  scatterColor: [0.09, 0.52, 0.57],
+  absorption: [0.3, 0.045, 0.03],
+  scatterAmount: 0.16,
+  sssStrength: 1.5,
   sssPower: 4.0,
   sssHeight: 0.75,
   sssDepth: 1.0,
@@ -96,7 +96,7 @@ export const defaults = {
   waterIOR: 1.333,
   skyAmbient: 1.0,
   skyBlur: 0.5,
-  glitter: 0.55,
+  glitter: 0.65,
   glitterScale: 1.0,
   specIntensity: 1.0,
   // Above the mirror ceiling E/(pi r^2), so the sun's own radiance is the limit
@@ -162,7 +162,7 @@ export const defaults = {
   sprayGrainAniso: 1.5,     // that texture drawn out along the direction of flight
 
   // ---- spindrift & sea mist ----
-  sprayMist: 0.0,           // spindrift removed: it read as grey smear and every
+  sprayMist: 0,           // spindrift removed: it read as grey smear and every
                             // mist parcel is a large, long-lived, overdraw-heavy
                             // billboard. The whole budget now goes to droplets.
   sprayMistWind: 7.0,       // U10 where a mist veil first hangs over the crests
@@ -174,7 +174,7 @@ export const defaults = {
   sprayMistRise: 0.6,
   sprayMistGrow: 2.0,
   sprayMistStretch: 0.30,   // a spindrift filament is a real object, not a blur
-  sprayMistOpacity: 0.0,
+  sprayMistOpacity: 0,
   sprayMistGrain: 0.55,     // spindrift is torn into streaks, not smooth puffs
 
   // ---- spray optics ----
@@ -217,11 +217,11 @@ export const defaults = {
   sprayHazeSteps: 12,
 
   // ---- sun & sky ----
-  sunElevation: 7.5,        // degrees
-  sunAzimuth: 55.0,
-  sunIntensity: 22.0,
+  sunElevation: 68,        // degrees
+  sunAzimuth: 150,
+  sunIntensity: 23,
   sunTint: [1.0, 1.0, 1.0],
-  turbidity: 1.0,
+  turbidity: 1.2,
   ozone: 1.0,
   mieG: 0.76,
   atmoExposure: 1.0,
@@ -235,29 +235,29 @@ export const defaults = {
   sunRefractFlatten: 0.16,  // vertical squash of a disc near the horizon
   moonElevation: -20.0,
   moonAzimuth: 240.0,
-  moonIntensity: 0.0,
-  stars: 0.0,
+  moonIntensity: 0,
+  stars: 0,
   starSize: 0.9,           // point-spread sigma, pixels
   starDensity: 0.34,        // limiting magnitude: how much of the field shows
   starColorTemp: 0.45,      // B-V spread; 0 is a field of white dots
   skyDither: 1.4,           // sub-texel jitter on the sky LUT fetch, texels
 
   // ---- clouds ----
-  cloudCoverage: 0.46,
+  cloudCoverage: 0.36,
   cloudDensity: 1.0,
   cloudAltitude: 1500.0,
   cloudThickness: 2200.0,
   cloudSpeed: 1.0,
   cloudDetail: 0.6,
-  cirrus: 0.28,
+  cirrus: 0.15,
   cloudSteps: 48,
   cloudStepScale: 1.0,      // adaptive multiplier - the cloud march is the
                             // largest single item in a riding frame
   cloudStepMin: 0.4,
-  cloudScale: 16000.0,      // weather-map cluster size, m
-  cloudShape: 1300.0,       // base billow size, m
+  cloudScale: 16000,      // weather-map cluster size, m
+  cloudShape: 1300,       // base billow size, m
   cloudExtinction: 0.045,   // 1/m at full density
-  cloudAnvil: 0.0,          // flattens and spreads the tops
+  cloudAnvil: 0,          // flattens and spreads the tops
   cloudMultiScatter: 0.66,  // per-octave falloff of the MS approximation
   cloudPowder: 0.7,         // dark-edge term on the shadow side
   cloudAmbient: 1.0,
@@ -433,6 +433,22 @@ export const defaults = {
                             // the only thing bounding how much of your own path
                             // the sea still remembers.
   wakeTexSize: 512,         // ...and how finely, at extent/size metres per texel
+  wakeWidthScale: 1.0,      // multiplier on the wake width MEASURED off the
+                            // mesh at the waterline (craft.js's
+                            // buildWaterlineProfile). The width itself is not a
+                            // setting any more - it follows whatever part of
+                            // the body is actually cutting the surface - so
+                            // this is only a thumb on the scale.
+  wakeEdgeFade: 0.12,       // how much of the record buffer's border is
+                            // feathered away, as a fraction of its width. The
+                            // buffer is a square in world space and its far
+                            // edge is a line of constant Z, so too small a
+                            // value ends the wake on a dead-straight
+                            // horizontal cut across the sea - see the note in
+                            // water-common.js. Raise it when a fast craft
+                            // outruns its own record (wakeExtent / speed
+                            // shorter than wakeLife) and the trail is still
+                            // strong when it reaches the wall.
   wakeWidth: 1.5,           // half-width of a cusp arm where it leaves the hull
   wakeSpread: 0.22,         // how much it thickens per second as it travels out
   wakeLife: 14.0,           // how long a patch of water stays disturbed
@@ -504,7 +520,7 @@ export const defaults = {
   // the water: the water column between you and it swallows it over sdFade
   // metres, and sdDepth is really "how solid is it".
   sdEnabled: 1.0,           // 0 turns the animal off entirely, draw and all
-  sdLength: 52.5,           // nose to tail, metres. The mesh is unit-length.
+  sdLength: 60,           // nose to tail, metres. The mesh is unit-length.
                             // Was 22 - a live-tuned default now, a genuine
                             // leviathan rather than something ski-sized.
   sdSpeed: 50.0,            // m/s it will sprint to hold station - faster than
@@ -515,11 +531,11 @@ export const defaults = {
   sdTurnRate: 0.55,         // rad/s at a standstill; a long body turns slower
   sdOrbit: 0.20,            // rad/s it circles you at when you are not moving
   sdFollowRise: 6.0,        // how high the Follow camera sits above the sea, m
-  sdRushSpeed: 26.5,        // ski speed at which it is fully up and fully in
-  sdOffsetClose: 9.0,       // how near it comes at that speed, m
-  sdOffset: 16.0,           // metres off your shoulder it tries to sit
-  sdLead: 6.0,              // ...and how far ahead, so a chase camera sees it
-  sdDepth: 7.0,             // mean depth below the surface, m
+  sdRushSpeed: 30,        // ski speed at which it is fully up and fully in
+  sdOffsetClose: 17.5,       // how near it comes at that speed, m
+  sdOffset: 8,           // metres off your shoulder it tries to sit
+  sdLead: -8,              // ...and how far ahead, so a chase camera sees it
+  sdDepth: 9.6,             // mean depth below the surface, m
   sdDepthSwing: 11.7,        // how far it rises and sounds around that
   sdMinDepth: 1.6,          // never nearer the surface than this. It CAN breach
                             // now - the refraction pass gave it a depth buffer,
@@ -553,8 +569,8 @@ export const defaults = {
                             // to the body now that the body is 52m long, or a
                             // 7.5m-radius mound reads as one wide smear rather
                             // than tracking the spine's actual curve.
-  sdSwellFade: 9.0,        // depth over which the lift dies away, m
-  sdSprayDepth: 1.25,       // metres of water column still counted as "breaking" -
+  sdSwellFade: 7.5,        // depth over which the lift dies away, m
+  sdSprayDepth: 1.1,       // metres of water column still counted as "breaking" -
                             // read off the refraction pass's own depth, so the
                             // spray traces the body's true silhouette (fins and
                             // all), not the swell mound's smooth approximation
@@ -563,7 +579,7 @@ export const defaults = {
                             // gates the real particle spray thrown where it
                             // breaches (three-main.js's dragonSpray, reusing
                             // the vehicles' own emitter) - one slider for both.
-  sdThrough: 0.07,          // how much of the shape survives the surface's own
+  sdThrough: 0.4,          // how much of the shape survives the surface's own
                             // glare. 0 is the pure physics and nearly invisible
                             // at the angle you ride at; this is the fudge. Was
                             // 0.85 - tuned down live, closer to the physics.
@@ -579,12 +595,7 @@ export const defaults = {
   // its track is broad churned water more than a hard Kelvin V, and it fades
   // with how deep the body is running (over sdSwellFade, like the mound).
   sdWake: 1.0,              // gain on how hard it stirs the record; 0 = none
-  sdWakeBeam: 6.0,          // half-width of the churned track, m. The field
-                            // otherwise renders at the ACTIVE HULL's beam -
-                            // ski-width lines under a 50 m animal read as an
-                            // etched stamp, which is exactly how it was
-                            // reported: "like a stamped image on the water".
-  sdWakeArm: 0.35,          // share of the usual Kelvin-arm strength its track
+  sdWakeArm: 0,          // share of the usual Kelvin-arm strength its track
                             // keeps. Mostly-churn is what a body under the
                             // surface actually leaves; 1 gives it a full
                             // planing-hull V.
@@ -663,7 +674,7 @@ export const defaults = {
 
   // ---- post ----
   exposure: 1.0,
-  exposureBias: 0.0,
+  exposureBias: -0.1,
   autoExposure: 1.0,
   exposureSpeed: 1.6,
   exposureSpeedUp: 2.4,     // iris stops down faster than it opens
@@ -692,7 +703,7 @@ export const defaults = {
   halationTint: [1.0, 0.30, 0.10],
   chromatic: 1.2,           // red-to-blue separation AT THE CORNER, in pixels
   distortion: -0.02,        // <0 barrel, >0 pincushion
-  vignette: 0.5,
+  vignette: 0.35,
   vignetteRound: 0.7,
   grain: 0.016,
   grainSize: 1.7,           // px per grain cell
@@ -702,8 +713,8 @@ export const defaults = {
   toeStrength: 0.45,        // stops of extra shadow density under middle grey
   toeRange: 2.6,            // how far down the toe reaches, stops
   chromaRestore: 0.18,      // steer back to scene hue after the per-channel curve
-  contrast: 1.13,           // about middle grey, in log2
-  saturation: 1.02,
+  contrast: 1.05,           // about middle grey, in log2
+  saturation: 1.14,
   postSaturation: 1.04,     // print saturation, after the tone curve
   temperature: 0.0,
   tintCC: 0.0,
@@ -717,12 +728,12 @@ export const defaults = {
   fxaa: 1.0,
 
   // ---- quality ----
-  fftSize: 256,
+  fftSize: 128,
   gridScale: 1.0,           // adaptive multiplier on both grid dimensions
   gridScaleMin: 0.45,       // how far the adaptive controller may thin it
   gridRadial: 400,
   gridAngular: 640,
-  sprayTexSize: 160,
+  sprayTexSize: 64,
   renderScale: 1.0,
   adaptiveQuality: 1,       // trim resolution until the target frame rate is met
   // ---- duty cycle ----
@@ -730,7 +741,7 @@ export const defaults = {
   // allowed to look. The quality knobs below trade picture for frame rate, which
   // is not the same thing: a laptop gets hot because of work per second, and only
   // capping the frame rate or the pixel count reduces that.
-  fpsCap: 60,               // 0 = uncapped (runs at the display's refresh rate)
+  fpsCap: 0,               // 0 = uncapped (runs at the display's refresh rate)
   fpsCapIdle: 10,           // ...and when the window is not in front
   dprCap: 2.0,              // ceiling on device pixel ratio. Was 1.75, which
                             // silently downscaled every plain 2x Retina panel
@@ -742,7 +753,7 @@ export const defaults = {
   powerPref: 'default',     // 'high-performance' explicitly asks a switchable-
                             // graphics laptop for its discrete GPU. Reload to
                             // apply - the context cannot change it afterwards.
-  targetFps: 40,
+  targetFps: 60,
   renderScaleMin: 0.4,
   renderScaleMax: 1.0,
   photoSamples: 24,

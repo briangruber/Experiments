@@ -217,6 +217,9 @@ export const uWakeExtent = /*@__PURE__*/ uniform( 320.0 );    // presets.js wake
 export const uWakeOn = /*@__PURE__*/ uniform( 0.0 );          // 0 = no wake
 export const uWakeLife = /*@__PURE__*/ uniform( 14.0 );       // presets.js wakeLife
 export const uWakeArmW = /*@__PURE__*/ uniform( 1.5 );        // presets.js wakeWidth
+// Fraction of the wake buffer's border feathered out, so the field's square
+// world-space edge never reads as a ruled line. presets.js wakeEdgeFade.
+export const uWakeEdge = /*@__PURE__*/ uniform( 0.12 );
 export const uWakeArm = /*@__PURE__*/ uniform( 1.0 );         // presets.js wakeArm
 export const uWakeChurn = /*@__PURE__*/ uniform( 0.5 );       // presets.js wakeCentre
 export const uWakeSpread = /*@__PURE__*/ uniform( 0.22 );     // presets.js wakeSpread
@@ -612,10 +615,21 @@ export const wakeAt = /*@__PURE__*/ Fn( ( [ p ] ) => {
 		If( stir.greaterThanEqual( 0.002 ).and( age.lessThan( uWakeLife ) ), () => {
 
 			// Don't let the wake end on a straight line ruled across the sea
-			// where the buffer runs out.
+			// where the buffer runs out. The feather was a hardcoded 0.03 of
+			// the buffer, and that is not enough to hide the wall: the field
+			// is an axis-aligned square in WORLD space, so its far edge is a
+			// line of constant Z and reads on screen as a dead-straight
+			// horizontal cut - reported as "a weird hard horizontal line
+			// where the wake begins". 0.03 of a 320 m buffer is under 10 m,
+			// and at the grazing angle you actually view a wake from those
+			// metres compress into a few pixels. Worse, a fast source reaches
+			// the wall long before its trail has aged out: at 50 m/s the edge
+			// arrives 6.4 s in, where the age term alone is still at 54%, so
+			// the cut happens at over half strength. uWakeEdge (wakeEdgeFade)
+			// widens it and makes it tunable per sea.
 			const ed = uv.min( vec2( 1.0 ).sub( uv ) ).toVar();
 			const fade = float( 1.0 ).sub( age.div( uWakeLife ) ).max( 0.0 )
-				.mul( smoothstep( 0.0, 0.03, ed.x.min( ed.y ) ) ).toVar();
+				.mul( smoothstep( 0.0, uWakeEdge.max( 0.005 ), ed.x.min( ed.y ) ) ).toVar();
 
 			// The cusp arms stand where they have got to: a RIDGE AT
 			// |lat| = rate * age, not a falloff from the centreline. That single
@@ -791,6 +805,7 @@ export function setWaterCommonUniforms( p, ctx, ocean, wake ) {
 		uWakeOn.value = wake.uWakeOn;
 		uWakeLife.value = wake.uWakeLife;
 		uWakeArmW.value = wake.uWakeArmW;
+		uWakeEdge.value = wake.uWakeEdge;
 		uWakeArm.value = wake.uWakeArm;
 		uWakeChurn.value = wake.uWakeChurn;
 		uWakeSpread.value = wake.uWakeSpread;

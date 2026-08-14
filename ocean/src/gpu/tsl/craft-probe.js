@@ -32,7 +32,7 @@ import {
 	dispTexture, foamTexture, uPatch, uCascadeCount, uHeightScale, uHorizScale,
 	wakeAt,
 } from './water-common.js';
-import { uSeaLevel } from './water-surface.js';
+import { uSeaLevel, swellLift, uSwellAmp } from './water-surface.js';
 
 
 export const NPROBE = 4;
@@ -152,6 +152,26 @@ export const surfaceAt = /*@__PURE__*/ Fn( ( [ p ] ) => {
 			h.addAssign( wakeAt( x ).y.mul( gate ).mul( uWakeProbe ) );
 
 		} );
+
+	} );
+
+	// THE SEA DRAGON'S MOUND IS REAL WATER to anything floating on it. The
+	// water's vertex stage lifts the surface over the animal's back
+	// (water-surface.js's swellLift), but this probe read only the FFT
+	// cascades, so a hull sat at the flat sea's height while the sea visibly
+	// humped up under it - you could watch the wave pass and not ride it.
+	// Added on the SAME undisplaced coordinate the surface uses (`x` is the
+	// grid point that displaces to the sampled position, which is why the
+	// Lagrangian offset below is x - p), so the hull rides the mound the eye
+	// sees rather than one a metre or two off it.
+	//
+	// The hull's OWN hollow is deliberately still absent, for the reason the
+	// wake block above gives: a body must not read back the dent it is making
+	// or it sinks into a trough it deepens by sinking. The mound belongs to
+	// something else, so it has no such feedback.
+	If( uSwellAmp.greaterThan( 0.0005 ), () => {
+
+		h.addAssign( swellLift( x ) );
 
 	} );
 

@@ -220,6 +220,7 @@ export class TslWake {
 			uWakeOn: active ? 1 : 0,
 			uWakeLife: p.wakeLife,
 			uWakeArmW: dims?.armW ?? p.wakeWidth,
+			uWakeEdge: p.wakeEdgeFade ?? 0.12,
 			uWakeArm: dims?.arm ?? p.wakeArm,
 			uWakeChurn: p.wakeCentre,
 			uWakeSpread: p.wakeSpread,
