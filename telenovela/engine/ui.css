@@ -27,7 +27,7 @@ html, body {
 
 /* --- title cards ----------------------------------------------------------
    The cards themselves are not DOM: main.js drops a transparent canvas in
-   here and engine/cards.js paints them — the same renderer the export and the
+   here and engine/cards.js paints them -- the same renderer the export and the
    offline video use, so the page can never disagree with the file. All this
    layer owns is the hole the canvas sits in. Note that `no-ui` does not touch
    it: captions are content, not chrome. */
