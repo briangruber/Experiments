@@ -402,6 +402,9 @@ export const defaults = {
   sdSwell: 0.85,            // metres the sea lifts over its back at the surface
   sdSwellRadius: 6.0,       // how far to either side that mound reaches, m
   sdSwellFade: 7.0,         // depth over which the lift dies away, m
+  sdThrough: 0.38,          // how much of the shape survives the surface's own
+                            // glare. 0 is the pure physics and nearly invisible
+                            // at the angle you ride at; this is the fudge.
   sdRefract: 0.045,         // how hard the surface's own slope bends the look
                             // through it. This is what makes chop passing over
                             // the animal wobble and break it up.

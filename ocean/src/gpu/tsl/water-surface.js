@@ -348,6 +348,7 @@ export const swellLift = /*@__PURE__*/ Fn( ( [ xz ] ) => {
 // lookup entirely, so the sea is bit-for-bit what it was.
 export const uUnderwaterAmount = /*@__PURE__*/ uniform( 0.0 );
 export const uUnderwaterRefract = /*@__PURE__*/ uniform( 0.045 );
+export const uUnderwaterThrough = /*@__PURE__*/ uniform( 0.38 );
 
 const underwaterTexture = /*@__PURE__*/ texture( /*@__PURE__*/ ( () => {
 
@@ -1249,6 +1250,11 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 	const diffuse = body.add( sss ).toVar();
 
 	// ---- what is UNDER the water at this pixel ------------------------------
+	// Held outside the branch so the composite below can reuse them rather than
+	// sampling the target twice.
+	const uwCov = float( 0.0 ).toVar();
+	const uwSane = float( 0.0 ).greaterThan( 1.0 ).toVar();
+	const uwRgb = vec3( 0.0 ).toVar();
 	//
 	// Anything submerged is rendered into its own target first (see
 	// ./underwater-driver.js) and arrives here as colour and coverage. It goes
@@ -1283,10 +1289,11 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 		// travel; the mix has to be inside it, not upstream of it. Comparisons
 		// against NaN are false, so anything the target holds that is not a sane
 		// 0..1 coverage leaves the sea exactly as it was.
-		const cov = uw.a.mul( uUnderwaterAmount ).toVar();
-		const sane = cov.greaterThan( 0.0 ).and( cov.lessThan( 1.0001 ) )
-			.and( uw.r.lessThan( 1e6 ) ).and( uw.g.lessThan( 1e6 ) ).and( uw.b.lessThan( 1e6 ) ).toVar();
-		diffuse.assign( select( sane, mix( diffuse, uw.rgb, cov.min( 1.0 ) ), diffuse ) );
+		uwCov.assign( uw.a.mul( uUnderwaterAmount ).min( 1.0 ) );
+		uwSane.assign( uwCov.greaterThan( 0.0 ).and( uwCov.lessThan( 1.0001 ) )
+			.and( uw.r.lessThan( 1e6 ) ).and( uw.g.lessThan( 1e6 ) ).and( uw.b.lessThan( 1e6 ) ) );
+		uwRgb.assign( uw.rgb );
+		diffuse.assign( select( uwSane, mix( diffuse, uwRgb, uwCov ), diffuse ) );
 
 	} );
 
@@ -1298,6 +1305,21 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 		.add( skyRefl.mul( Fenv ) )
 		.add( sunSpec.add( moonSpec ).mul( float( 1.0 ).sub( foamMask.mul( 0.9 ) ) ) )
 		.toVar();
+
+	// ...and a little of the shape survives the mirror. Putting the animal ONLY in
+	// the diffuse term is what the physics says, and the physics says that at the
+	// angle you actually ride at, a Fresnel of 0.7 hides almost all of it: the
+	// first build of this measured a mean shift of 9 levels out of 255 across the
+	// whole animal, which is a rumour rather than a sea monster. This is the
+	// fudge, and it is deliberately ABOVE the diffuse and BELOW the foam - so the
+	// shape reads through the glare, and the sea's own whitecaps and the hull's
+	// wake still pass over the top of it, which is the part that made it look
+	// pasted on before.
+	If( uUnderwaterAmount.greaterThan( 0.001 ), () => {
+
+		col.assign( select( uwSane, mix( col, uwRgb, uwCov.mul( uUnderwaterThrough ) ), col ) );
+
+	} );
 
 	// ---- 14. foam shading (739-777) -----------------------------------------
 	If( foamMask.greaterThan( 0.003 ), () => {

@@ -58,7 +58,7 @@ import { PLANE_MESH } from './planeModel.js';
 import { DRAGON_MESH } from './dragonModel.js';
 import {
 	setCraftShadowNode, setUnderwaterTexture, uUnderwaterAmount, uUnderwaterRefract,
-	uSwellPos, uSwellDir, uSwellLen, uSwellRad, uSwellAmp,
+	uSwellPos, uSwellDir, uSwellLen, uSwellRad, uSwellAmp, uUnderwaterThrough,
 } from '../src/gpu/tsl/water-surface.js';
 
 // ---------------------------------------------------------------------------
@@ -1080,6 +1080,7 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		if ( ! submerged ) underwater.clear();
 		uUnderwaterAmount.value = submerged ? params.sdOpacity : 0;
 		uUnderwaterRefract.value = params.sdRefract;
+		uUnderwaterThrough.value = params.sdThrough;
 
 		// THE SEA OVER ITS BACK. A body this size shoulders the water aside, and
 		// the lift dies off as it sounds - which is what turns "a picture under

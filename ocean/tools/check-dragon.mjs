@@ -162,6 +162,7 @@ for (const [on, name] of [[1, 'on'], [0, 'off'], [0, 'off2']]) {
   await page.evaluate((v) => { window.abyssal.params.sdEnabled = v; }, on);
   await page.waitForTimeout(2500);
   shots[name] = await page.screenshot({ timeout: 90000, animations: 'disabled' });
+  if (process.env.SAVE_SHOTS) await (await import('node:fs/promises')).writeFile(`${ROOT}/shots/dbg-${name}.png`, shots[name]);
 }
 await browser.close();
 server.close();
