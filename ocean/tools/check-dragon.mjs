@@ -130,6 +130,21 @@ await page.evaluate(() => {
   A.wake.update = () => {};
   const hud = document.getElementById('hud'); if (hud) hud.style.display = 'none';
   A.params.sdDepth = 3.5; A.params.sdDepthSwing = 0;
+  // Pin the STATE, not just the target. The controller lerps depth at ~7% a
+  // frame, and this rasteriser gives the settle window ~18 frames - enough
+  // when the resting default was 3.2 and the animal started next to the pin,
+  // not from the 7-18 m the current staging (sdDepth 7, sdDepthSwing 11.7)
+  // roams at rest. Measured unpinned: it arrived at ~7 m, the camera aimed at
+  // it pitched the horizon off frame, and the body read at 2.4/255 through
+  // 3.5 m of sdFade - both failures one cause, a check that depended on
+  // defaults it never pinned.
+  A.dragon.depth = 3.5;
+  // The dragon lays a real wake now (three-main.js's dragonWakeRig), and its
+  // uWakeOn gate follows sdEnabled - so the track it stamped while swimming
+  // to station would appear and vanish with the A/B toggle below, polluting a
+  // diff that must contain only the body itself. Same reason craftShadow and
+  // sprayOpacity are zeroed above: other people's claims.
+  A.params.wakeStrength = 0; A.params.wakeDepth = 0; A.params.wakeSlick = 0;
   A.onFrame = () => {
     const c = A.camera;
     c.locked = false;

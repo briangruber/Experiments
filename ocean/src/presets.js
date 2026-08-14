@@ -515,19 +515,19 @@ export const defaults = {
   sdTurnRate: 0.55,         // rad/s at a standstill; a long body turns slower
   sdOrbit: 0.20,            // rad/s it circles you at when you are not moving
   sdFollowRise: 6.0,        // how high the Follow camera sits above the sea, m
-  sdRushSpeed: 23.5,        // ski speed at which it is fully up and fully in
+  sdRushSpeed: 26.5,        // ski speed at which it is fully up and fully in
   sdOffsetClose: 9.0,       // how near it comes at that speed, m
   sdOffset: 16.0,           // metres off your shoulder it tries to sit
   sdLead: 6.0,              // ...and how far ahead, so a chase camera sees it
-  sdDepth: 3.2,             // mean depth below the surface, m
-  sdDepthSwing: 2.0,        // how far it rises and sounds around that
+  sdDepth: 7.0,             // mean depth below the surface, m
+  sdDepthSwing: 11.7,        // how far it rises and sounds around that
   sdMinDepth: 1.6,          // never nearer the surface than this. It CAN breach
                             // now - the refraction pass gave it a depth buffer,
                             // so a fin above the waterline is an ordinary opaque
                             // fragment in front of the sea - this is a staging
                             // choice, not the backstop it used to be.
   sdSeaLevel: 0.0,          // the mean surface it measures depth from
-  sdFade: 4.0,              // metres of WATER COLUMN that swallow the shape.
+  sdFade: 3.5,              // metres of WATER COLUMN that swallow the shape.
                             // Not its depth below the surface - the real
                             // distance from the pixel of sea you are looking at
                             // to the body, reconstructed from the refraction
@@ -547,18 +547,18 @@ export const defaults = {
   // complaint was that the mouth was always open, and a jaw that works as the
   // animal swims reads as alive whatever its resting gape.
   sdGape: 0.30,             // radians the mandible swings up from as-modelled
-  sdSwell: 2.04,            // metres the sea lifts over its back at the surface
-  sdSwellRadius: 3.0,       // how far to either side that mound reaches, m.
+  sdSwell: 2.88,            // metres the sea lifts over its back at the surface
+  sdSwellRadius: 2.5,       // how far to either side that mound reaches, m.
                             // Narrower than the 7.5 it shipped with - tighter
                             // to the body now that the body is 52m long, or a
                             // 7.5m-radius mound reads as one wide smear rather
                             // than tracking the spine's actual curve.
-  sdSwellFade: 17.0,        // depth over which the lift dies away, m
-  sdSprayDepth: 0.85,       // metres of water column still counted as "breaking" -
+  sdSwellFade: 9.0,        // depth over which the lift dies away, m
+  sdSprayDepth: 1.25,       // metres of water column still counted as "breaking" -
                             // read off the refraction pass's own depth, so the
                             // spray traces the body's true silhouette (fins and
                             // all), not the swell mound's smooth approximation
-  sdSpray: 0.98,            // strength of that spray, fed into the sea's own
+  sdSpray: 1.0,             // strength of that spray, fed into the sea's own
                             // foam shading - 0 turns the whole block off. Also
                             // gates the real particle spray thrown where it
                             // breaches (three-main.js's dragonSpray, reusing

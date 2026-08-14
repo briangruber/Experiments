@@ -256,19 +256,19 @@ need `water.rebuildGrid()`.
 | parameter | meaning | default | range | |
 | --- | --- | --- | --- | --- |
 | `sdEnabled` | Sea dragon | `1` | 0 … 1 |  |
-| `sdDepth` | Dragon depth (m) | `3.2` | 1.6 … 25 |  |
-| `sdSwell` | Sea lifts over its back (m) | `2.04` | 0 … 3 |  |
-| `sdSwellRadius` | Lift footprint (m) | `3` | 1 … 25 |  |
-| `sdSwellFade` | Lift dies by depth (m) | `17` | 1 … 20 |  |
-| `sdSpray` | Spray where it breaks the surface | `0.98` | 0 … 1 |  |
-| `sdSprayDepth` | Spray band (m) | `0.85` | 0.05 … 2 |  |
-| `sdDepthSwing` | Dragon rise and sound (m) | `2` | 0 … 12 |  |
-| `sdRushSpeed` | Speed it comes up at (m/s) | `23.5` | 5 … 30 |  |
+| `sdDepth` | Dragon depth (m) | `7` | 1.6 … 25 |  |
+| `sdSwell` | Sea lifts over its back (m) | `2.88` | 0 … 3 |  |
+| `sdSwellRadius` | Lift footprint (m) | `2.5` | 1 … 25 |  |
+| `sdSwellFade` | Lift dies by depth (m) | `9` | 1 … 20 |  |
+| `sdSpray` | Spray where it breaks the surface | `1` | 0 … 1 |  |
+| `sdSprayDepth` | Spray band (m) | `1.25` | 0.05 … 2 |  |
+| `sdDepthSwing` | Dragon rise and sound (m) | `11.7` | 0 … 12 |  |
+| `sdRushSpeed` | Speed it comes up at (m/s) | `26.5` | 5 … 30 |  |
 | `sdOffsetClose` | Closes to (m) at speed | `9` | 3 … 40 |  |
 | `sdOffset` | Dragon station off your shoulder (m) | `16` | 5 … 60 |  |
 | `sdLead` | Dragon station ahead (m) | `6` | -20 … 40 |  |
 | `sdFollowRise` | Follow camera height (m) | `6` | 1 … 40 |  |
-| `sdFade` | Water that swallows it (m) | `4` | 2 … 30 |  |
+| `sdFade` | Water that swallows it (m) | `3.5` | 2 … 30 |  |
 | `sdOpacity` | Dragon strength | `1` | 0 … 1 |  |
 | `sdLength` | Dragon length (m) | `52.5` | 6 … 60 |  |
 | `sdSpeed` | Dragon top speed (m/s) | `50` | 4 … 50 |  |

@@ -2072,8 +2072,14 @@ export function setSpraySimUniforms( p, ctx, dt, frame ) {
 	uCraftPulse.value = p.craftSprayPulse;
 	uCraftLoadFull.value = p.craftLoadFull;
 	// p.wrBeam and p.wrLength - the hull's own dimensions, NOT the wake's.
-	uCraftBeam.value = p.wrBeam;
-	uCraftLen.value = p.wrLength;
+	// ctx may override them: every spawn site below places particles within
+	// these two lengths of uCraftPos, so a NON-vehicle body driving this
+	// emitter (the sea dragon breaching - demo/three-main.js's dragonSpray)
+	// must hand in its own footprint or every particle spawns inside its mesh
+	// and is depth-tested away - measured exactly that way, invisible spray
+	// with every uniform reading correct, before this fallback existed.
+	uCraftBeam.value = ctx?.craftBeam ?? p.wrBeam;
+	uCraftLen.value = ctx?.craftLen ?? p.wrLength;
 	uCraftJet.value = p.craftJet;
 	uCraftJetSpeed.value = p.craftJetSpeed;
 	uCraftJetAngle.value = p.craftJetAngle;

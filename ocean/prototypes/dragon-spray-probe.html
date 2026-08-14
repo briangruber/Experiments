@@ -40,7 +40,8 @@
 import * as THREE from 'three/webgpu';
 import { installWebGPUSwizzleShim } from './webgpu-shim.js';
 import { boot } from '../demo/three-main.js';
-import { uCraftPos, uCraftAmount, uCraftSpeed, uCraftImpact } from '../src/gpu/tsl/spray.js';
+import { uCraftPos, uCraftAmount, uCraftSpeed, uCraftImpact, uCraftLen, uCraftBeam } from '../src/gpu/tsl/spray.js';
+import { uWkActive, uWkStir } from '../src/gpu/tsl/wake.js';
 
 installWebGPUSwizzleShim();
 
@@ -81,6 +82,13 @@ const work = (async () => {
     A.params.sdSprayDepth = 0.4;
     await frames(10);
 
+    // The back's height above the origin, same bounding-box read three-main.js
+    // itself makes - the gates under test key off pos[1] + this, never pos[1].
+    A.dragonMesh.geometry.computeBoundingBox();
+    const topY = A.dragonMesh.geometry.boundingBox.max.y;
+    log('the body reaches well above its origin', topY > 1,
+        `back rides ${ topY.toFixed(2) } m over the spine origin at sdLength ${ A.params.sdLength }`);
+
     // demo/seadragon.js's update() recomputes pos[1] = sdSeaLevel - this.depth
     // FROM SCRATCH every frame - it is not a smoothed follow of the previous
     // pos[1], so writing pos[1] directly (this probe's first version) was
@@ -89,18 +97,29 @@ const work = (async () => {
     // three-main.js calls at the END of its own frame, landing this before
     // the NEXT frame's dragon.update()).
     let forcedDepth = null;
-    A.onFrame = () => { if ( forcedDepth !== null ) A.dragon.depth = forcedDepth; };
+    // Peak, not a point sample: the wake stir rides the impact burst, which
+    // decays within a second - a fixed-latency read would race it.
+    let wkStirPeak = 0;
+    A.onFrame = () => {
+      if ( forcedDepth !== null ) A.dragon.depth = forcedDepth;
+      wkStirPeak = Math.max( wkStirPeak, uWkStir.value );
+    };
 
-    // ---- deep, no vehicle: parked -------------------------------------
-    forcedDepth = 20;
+    // ---- deep, no vehicle: parked, and no wake ---------------------------
+    forcedDepth = topY + 14;   // back a solid 14 m under, whatever sdLength is
     await frames(5);
     log('deep dragon throws no spray', uCraftAmount.value === 0, `uCraftAmount = ${ uCraftAmount.value.toFixed(4) }`);
+    log('deep dragon leaves no wake either', uWkActive.value === 0, `uWkActive = ${ uWkActive.value }`);
 
-    // ---- shallow, breaching: the emitter picks it up -------------------
-    // Negative depth is ABOVE the mean surface - well past it, not just inside
-    // the band, so this is a solid breach rather than a boundary case that
-    // would need exact depth-controller timing to hit.
-    forcedDepth = -1.0;
+    // ---- realistic staging: the case that was silently dead --------------
+    // sdMinDepth (1.6) is as shallow as the depth controller EVER lets the
+    // ORIGIN go - the exact depth a full-rush dragon rides at - and the back,
+    // topY metres higher, is what visibly breaks the surface there. The first
+    // gate read pos[1] against a ~1m band and so could never fire outside a
+    // probe that forced the depth negative, which is precisely what the first
+    // version of THIS probe did - masking the bug it existed to catch,
+    // reported live as "still not spraying" over a screenshot of a breach.
+    forcedDepth = A.params.sdMinDepth;
     await frames(2);   // caught EARLY - the burst is a spike-then-decay, not a level
     const burstAmount = uCraftImpact.value;
     log('the sudden rise through the surface throws a one-shot burst', burstAmount > 0.05,
@@ -112,11 +131,26 @@ const work = (async () => {
         `uCraftImpact ${ burstAmount.toFixed(3) } -> ${ uCraftImpact.value.toFixed(3) }`);
 
     const breachAmount = uCraftAmount.value;
-    log('breaching dragon throws real spray', breachAmount > 0.001, `uCraftAmount = ${ breachAmount.toFixed(4) }`);
-    log('the emitter is positioned AT the dragon', Math.hypot(
-      uCraftPos.value.x - A.dragon.pos[0], uCraftPos.value.y - A.dragon.pos[1], uCraftPos.value.z - A.dragon.pos[2],
-    ) < 0.5, `uCraftPos ${ uCraftPos.value.x.toFixed(2) },${ uCraftPos.value.y.toFixed(2) },${ uCraftPos.value.z.toFixed(2) }`);
+    log('a dragon at its real minimum staging depth throws spray', breachAmount > 0.001,
+        `uCraftAmount = ${ breachAmount.toFixed(4) } at origin depth ${ A.params.sdMinDepth } (back +${ (topY - A.params.sdMinDepth).toFixed(1) }m out of the water)`);
+    log('the emitter sits at the dragon, AT the waterline', Math.hypot(
+      uCraftPos.value.x - A.dragon.pos[0], uCraftPos.value.z - A.dragon.pos[2],
+    ) < 0.5 && Math.abs(uCraftPos.value.y - (A.params.sdSeaLevel ?? 0)) < 0.5,
+        `uCraftPos ${ uCraftPos.value.x.toFixed(2) },${ uCraftPos.value.y.toFixed(2) },${ uCraftPos.value.z.toFixed(2) } (y should be ~sea level, not mid-body)`);
     log('breach severity feeds a nonzero synthetic speed', uCraftSpeed.value > 0, `uCraftSpeed = ${ uCraftSpeed.value.toFixed(2) }`);
+
+    // ---- the emitter footprint is the ANIMAL's, not the ski's ------------
+    // Without this every particle spawned within the ski's 1.6 x 0.6 m of
+    // mid-body - inside a 50m mesh - and was depth-tested away: invisible
+    // spray with every other uniform in this file reading correct.
+    log('spawn footprint spans the animal', Math.abs(uCraftLen.value - A.params.sdLength * 0.5) < 0.01
+        && uCraftBeam.value >= Math.min(A.params.sdSwellRadius, 1) - 0.01,
+        `uCraftLen ${ uCraftLen.value.toFixed(1) }m (sdLength ${ A.params.sdLength }), uCraftBeam ${ uCraftBeam.value.toFixed(1) }m`);
+
+    // ---- and it lays a wake down while working the surface ---------------
+    log('a shallow dragon stamps a live wake', uWkActive.value === 1, `uWkActive = ${ uWkActive.value }`);
+    log('the wake stamp has real stir behind it', wkStirPeak > 0.01,
+        `peak uWkStir ${ wkStirPeak.toFixed(3) } across the breach (impact + speed + turn all feed it)`);
 
     // ---- sdSpray = 0 turns it off, same slider as the foam mask --------
     A.params.sdSpray = 0;

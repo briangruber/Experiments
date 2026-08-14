@@ -363,6 +363,10 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	// like the vehicles' own impact does, so it has to live outside the frame
 	// function to persist between frames the same way followOrbitYaw does.
 	let dragonImpact = 0;
+	// How strongly the dragon is working the near-surface water this frame -
+	// drives both its wake stamp and the water's own uWakeOn gate, so it is
+	// computed once in the frame loop and read again at the render calls.
+	let dragonWakeT = 0;
 	const dragonMat = new THREE.NodeMaterial();
 	dragonMat.name = 'abyssal.dragon';
 	dragonMat.fragmentNode = creatureFragment();
@@ -394,6 +398,17 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	dragonScene.add( dragonMesh );
 	loadCraftTexture( renderer, DRAGON_MESH ).then( ( t ) => setCreatureTexture( t ) );
 	let dragonLen = params.sdLength;
+	// How far the body's BACK reaches above its origin, in metres, read off the
+	// built geometry rather than assumed - at sdLength 52.5 it is ~6.1 m. This
+	// number is the whole reason the breach gates below must not read
+	// dragon.pos[1] directly: the depth controller (demo/seadragon.js) never
+	// lets the ORIGIN shallower than sdMinDepth, while the back rides metres
+	// higher and is what actually breaks the surface. The first version of the
+	// particle-spray gate read the origin, and so never fired outside a probe
+	// that force-pinned the depth - reported live as "still not spraying"
+	// while the animal was visibly breaching.
+	dragonBuild.geometry.computeBoundingBox();
+	let dragonTopY = dragonBuild.geometry.boundingBox.max.y;
 
 	// The waterline seam, in metres, scaled with the sea it is cutting. A flat cut
 	// at mean sea level is wrong by whatever the wave is doing at that point, so
@@ -411,6 +426,8 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			dragonMesh.geometry.dispose();
 			dragonMesh.geometry = b.geometry;
 			dragonLen = params.sdLength;
+			b.geometry.computeBoundingBox();
+			dragonTopY = b.geometry.boundingBox.max.y;
 
 		}
 		uCreatureLen.value = params.sdLength;
@@ -1058,7 +1075,46 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		// means "the floats are working the water" - a flying hull must not go
 		// on digging a hollow into the sea under its shadow. The boat is a
 		// WaveRunner like the rider, so it hands itself over the same way.
-		wake.update( dt, activeParams, plane.active ? plane.floatRig : ( boat.active ? boat : rider ) );
+		//
+		// THE SEA DRAGON LEAVES ONE TOO, when nothing else is riding - the wake
+		// buffer records ONE track per frame, so a vehicle keeps priority the
+		// same way it does over the spray emitter. Faded by how near the BACK
+		// (dragon.pos[1] + dragonTopY - see that variable's note on why never
+		// the origin) is to the surface, over the same sdSwellFade metres the
+		// swell mound already dies off over: a body shouldering water up into a
+		// visible mound is disturbing it, one cruising at depth is not. Reads
+		// LAST frame's dragon state - the animal deliberately updates after the
+		// camera, far below - which on a wake stamp is invisible.
+		dragonWakeT = 0;
+		if ( ! rider.active && ! plane.active && ! boat.active && params.sdEnabled >= 0.5 ) {
+
+			const clear = params.sdSeaLevel - ( dragon.pos[ 1 ] + dragonTopY );
+			dragonWakeT = Math.max( 0, Math.min( 1,
+				1 - Math.max( 0, clear ) / Math.max( params.sdSwellFade, 0.5 ),
+			) );
+
+		}
+		const dragonWakeRig = {
+			// No probe on the animal, so this is the WORLD position rather than
+			// the undisplaced-grid frame the vehicles' surfXZ() converts into.
+			// wake-driver.js's own comment prices that at a metre or two of
+			// slide as waves pass - on a track as broad as this body it reads
+			// as nothing, and hanging a craftProbe channel on the dragon to
+			// remove it is not worth a whole readback.
+			surfXZ: () => [ dragon.pos[ 0 ], dragon.pos[ 2 ] ],
+			speed: dragon.speed * dragonWakeT,
+			yawRate: dragon.yawRate * dragonWakeT,
+			slip: 0,
+			hullLoad: 0,
+			impact: dragonImpact * dragonWakeT,
+			airborne: false,
+			heading: dragon.heading,
+			active: dragonWakeT > 0.001,
+		};
+		wake.update( dt, activeParams, plane.active ? plane.floatRig
+			: ( boat.active ? boat
+				: ( rider.active ? rider
+					: ( dragonWakeT > 0.001 ? dragonWakeRig : rider ) ) ) );
 
 		camera.locked = rider.active || plane.active || boat.active || followDragon;
 		camera.update( dt, params );
@@ -1159,8 +1215,12 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		let dragonSpray = 0;
 		if ( ! veh && params.sdEnabled >= 0.5 && params.sdSpray > 0.0005 ) {
 
+			// The BACK's clearance, not the origin's - see dragonTopY's note. At
+			// the default staging the origin NEVER comes within sdSprayDepth of
+			// the surface (sdMinDepth alone forbids it), while the back is
+			// routinely metres out of the water.
 			// + still under the mean surface, - poking through it.
-			const clearance = params.sdSeaLevel - dragon.pos[ 1 ];
+			const clearance = params.sdSeaLevel - ( dragon.pos[ 1 ] + dragonTopY );
 			dragonSpray = Math.max( 0, Math.min( 1,
 				1 - clearance / Math.max( params.sdSprayDepth, 0.05 ),
 			) );
@@ -1171,7 +1231,7 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			// while actually rising (climb > 0) and already inside the spray
 			// band, so a dragon holding station just under the surface does not
 			// throw a permanent shower.
-			if ( dragon.climb > 0.3 ) {
+			if ( dragon.climb > 0.3 && dragonSpray > 0.001 ) {
 
 				dragonImpact = Math.max( dragonImpact, Math.min( 1, dragon.climb / 6 ) );
 
@@ -1225,10 +1285,24 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 					wet > 0.001 ? ( wetPos ? wetPos[ 2 ] : veh.pos[ 2 ] ) : 0 )
 				: setA3( vCraftPos,
 					dragonSpray > 0.001 ? dragon.pos[ 0 ] : 0,
-					dragonSpray > 0.001 ? dragon.pos[ 1 ] : - 1e4,
+					// AT THE WATERLINE, not at the mid-body origin (which sits
+					// metres under) nor the top of the back (which can be metres
+					// over) - spray leaves from where the body cuts the water,
+					// exactly where the vehicles' own deckY anchor sits for them.
+					dragonSpray > 0.001
+						? Math.min( dragon.pos[ 1 ] + dragonTopY, params.sdSeaLevel )
+						: - 1e4,
 					dragonSpray > 0.001 ? dragon.pos[ 2 ] : 0 ),
 			craftFwd: setA2( vCraftFwd, cf[ 0 ], cf[ 1 ] ),
 			craftRight: setA2( vCraftRight, - cf[ 1 ], cf[ 0 ] ),
+			// THE FIX FOR "STILL NOT SPRAYING": every spawn site in spray.js
+			// places particles within uCraftLen/uCraftBeam of craftPos, and
+			// those default to the SKI's 1.6 x 0.6 m - on a 52 m animal every
+			// particle spawned INSIDE the body mesh and was depth-tested away,
+			// invisible with all the uniforms reading correct. Undefined for
+			// the vehicles, so their existing wr*/boat* mapping is untouched.
+			craftLen: veh ? undefined : params.sdLength * 0.5,
+			craftBeam: veh ? undefined : Math.max( params.sdSwellRadius, 1 ),
 			// The dragon's OWN swim speed is not what this measures - a body can
 			// break the surface nearly stationary, holding station, which is
 			// exactly when a subtle breach mist should still show. What this
@@ -1430,13 +1504,13 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		if ( sky.depthMode !== 'behind' ) {
 
 			sky.drawBackground( params, ctx );
-			water.render( params, ctx, sim, cam3, { wake: wake.uniforms( params, rider.active || boat.active ), hull } );
+			water.render( params, ctx, sim, cam3, { wake: wake.uniforms( params, rider.active || boat.active || dragonWakeT > 0.001 ), hull } );
 			drawDragonOver();
 			drawCraft();
 
 		} else {
 
-			water.render( params, ctx, sim, cam3, { wake: wake.uniforms( params, rider.active || boat.active ), hull } );
+			water.render( params, ctx, sim, cam3, { wake: wake.uniforms( params, rider.active || boat.active || dragonWakeT > 0.001 ), hull } );
 			drawDragonOver();
 			drawCraft();
 			sky.drawBackground( params, ctx );
@@ -1527,7 +1601,7 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		cam3,
 		output,
 		onFrame: null,
-		rider, plane, boat, dragon, wake, craftProbe, craftMesh, planeMesh, boatMesh, hull, refraction,
+		rider, plane, boat, dragon, wake, craftProbe, craftMesh, planeMesh, boatMesh, dragonMesh, hull, refraction,
 		// A FUNCTION, not a getter: the app object gets spread on its way to
 		// window.abyssal, and a spread evaluates a getter ONCE - so the button
 		// read "Follow" forever while the camera was demonstrably following.
