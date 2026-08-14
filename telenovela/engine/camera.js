@@ -33,7 +33,20 @@ export class Cinematographer {
     this.t = 0;
     this.shakeAmp = 0; this.shakeDecay = 4; this.shakeT = 0;
     this.handheld = 0.5;
-    this.focus = 3; this.focusTarget = 3; this.focusRate = 4;
+    this.focus = 3; this.focusTarget = 3;
+    // Rack focus state: a timed S-curve from _rackFrom to wherever the target
+    // is by the time the pull lands.
+    this._rack = null; this._rackFrom = 3; this._rackT = 0; this._rackDur = 1;
+    // The operator's body. Raw noise reads as vibration; what a person's
+    // weight does is drift, so the noise is chased through two cascaded
+    // low-pass stages per channel (x, y, z, aim, roll) — the second stage has
+    // continuous velocity, which is the difference between sway and jitter.
+    this._drift = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    this._breath = 0;            // breathing-rate sway phase
+    // Solver continuity: the framing follows the subject's (head) yaw, and a
+    // chicken can flick its head 40 degrees in a frame — the operator cannot.
+    this._yawS = null;           // low-passed subject yaw
+    this._azS = null;            // last solved azimuth, for rate-limiting
     this.aperture = 1;           // how aggressive the defocus is
     this.whip = 0;               // decaying value the post pass smears with
     this.seed = 0;
@@ -92,17 +105,36 @@ export class Cinematographer {
     this.aperture = s.aperture;
     this.seed += 13.77;
 
-    const smooth = s.cut ? 0.0001 : s.smooth;
+    // The springs always run at real smoothing. A cut still lands exactly
+    // framed — solve(0, true) below snaps them onto the new set-up — but from
+    // the second frame on the shot tracks its subject through the filter
+    // instead of raw: leaving a cut's springs at ~0 smoothing passed every
+    // solver step (a head flick, an avoidance correction) straight to the
+    // rendered camera for the life of the shot. On a cut the smoothing is
+    // capped low: `smooth` is written by scenes as the TRANSITION feel of a
+    // move()-in, and letting a big value drag a cut shot's scripted crane or
+    // push seconds behind its ease would re-time the scene. A snap zoom is
+    // the one move whose punch lives in the spring: cap its lag so the steps
+    // stay steps.
+    let smooth = s.cut ? Math.min(s.smooth, 0.5) : s.smooth;
+    if (s.move && s.move.type === 'snapZoom') smooth = Math.min(smooth, 0.16);
     for (const sp of this.posS) sp.smooth = smooth;
     for (const sp of this.aimS) sp.smooth = smooth * 0.9;
-    this.lensS.smooth = s.cut ? 0.0001 : Math.max(0.25, smooth);
-    this.dutchS.smooth = s.cut ? 0.0001 : 0.9;
+    this.lensS.smooth = Math.max(0.25, smooth);
+    this.dutchS.smooth = 0.9;
 
     if (s.whip) {
       this.whip = 1;
-      for (const sp of this.posS) sp.smooth = 0.075;
-      for (const sp of this.aimS) sp.smooth = 0.06;
+      // A whip that is not a hard cut really swings there: fast springs are
+      // the pan. On a cut the snap below wins and the smear sells it.
+      if (!s.cut) {
+        for (const sp of this.posS) sp.smooth = 0.075;
+        for (const sp of this.aimS) sp.smooth = 0.06;
+      }
     }
+    // Re-anchor the solver's continuity state on the new shot.
+    this._yawS = null;
+    this._azS = null;
     this.label = s.label ?? `${LABELS[s.frame] ?? s.frame.toUpperCase()} · ${Math.round(s.lens)}mm`;
     if (s.cut) this.solve(0, true);
     return this;
@@ -115,10 +147,14 @@ export class Cinematographer {
   }
 
   // Pull focus onto something else without moving the camera. The most
-  // under-rated tool in the drawer.
+  // under-rated tool in the drawer. `rate` keeps its old sense — bigger is
+  // faster — but the pull is a timed S-curve now, not an exponential: it
+  // leaves gently, commits, and settles without the long asymptotic tail.
   rackFocus(target, rate = 1.6) {
     this._rack = target;
-    this.focusRate = rate;
+    this._rackFrom = this.focus;
+    this._rackT = 0;
+    this._rackDur = clamp(1.9 / Math.max(0.2, rate), 0.35, 4);
     return this;
   }
 
@@ -196,7 +232,14 @@ export class Cinematographer {
     if (!s.strictAngle && !s.over && FRAMING_HEAD[s.frame] !== undefined && Math.abs(angle) < 26) {
       angle = (angle < 0 ? -1 : 1) * 38;
     }
-    let az = this.subjectYaw(s) + deg(angle);
+    // The framing follows the subject's yaw — but through an operator, not a
+    // servo. A head flick moves the raw yaw 40 degrees in a frame, and orbiting
+    // the camera with it teleported the solve target metres at close-up
+    // distances. Drift after it instead; a cut re-anchors instantly.
+    const rawYaw = this.subjectYaw(s);
+    if (immediate || this._yawS === null) this._yawS = rawYaw;
+    else this._yawS = lerpAngle(this._yawS, rawYaw, 1 - Math.exp(-3.2 * dt));
+    let az = this._yawS + deg(angle);
     let height;
     const eyeY = look.y;
     if (typeof s.height === 'number') height = s.height;
@@ -209,7 +252,9 @@ export class Cinematographer {
     // Moves modulate the solve rather than fighting it.
     const m = s.move;
     if (m) {
-      const mu = ease[m.ease || 'inOut'](clamp01((s.t - (m.delay || 0)) / (m.dur ?? s.dur)));
+      // Quintic by default: zero velocity AND zero acceleration at both ends,
+      // so a move leaves its mark gently and settles instead of stopping.
+      const mu = ease[m.ease || 'soft'](clamp01((s.t - (m.delay || 0)) / (m.dur ?? s.dur)));
       const amt = m.amount ?? 1;
       switch (m.type) {
         case 'push': dist *= lerp(1, 1 - 0.42 * amt, mu); break;
@@ -227,8 +272,13 @@ export class Cinematographer {
           break;
         }
         case 'snapZoom': {
-          // Three hard steps in, the way a director punches a reaction.
-          const steps = Math.floor(clamp01(mu) * 3.999);
+          // Three hard steps in, the way a director punches a reaction. Each
+          // step attacks in its first third — that is the punch, protect it —
+          // and the shaped ramp plus the (deliberately short) spring give the
+          // landing a tail instead of a wall.
+          const sN = clamp01(mu) * 3;
+          const base = Math.floor(sN);
+          const steps = Math.min(3, base + ease.cubicOut(clamp01((sN - base) / 0.34)));
           dist *= 1 - 0.19 * steps * amt;
           break;
         }
@@ -256,16 +306,16 @@ export class Cinematographer {
     // inside the actor's head). Swing round to the nearest angle that fits and
     // keep the distance, which is what a DP would do on the day.
     const B = this.bounds;
+    // A position is usable if it is inside the walls and not buried in the
+    // fountain, the bench or a potted palm.
+    const inside = (x, z) => {
+      if (x < B.minX || x > B.maxX || z < B.minZ || z > B.maxZ) return false;
+      for (const o of this.obstacles) {
+        if (height < o.top + 0.12 && (x - o.x) * (x - o.x) + (z - o.z) * (z - o.z) < o.r * o.r) return false;
+      }
+      return true;
+    };
     if (B) {
-      // A position is usable if it is inside the walls and not buried in the
-      // fountain, the bench or a potted palm.
-      const inside = (x, z) => {
-        if (x < B.minX || x > B.maxX || z < B.minZ || z > B.maxZ) return false;
-        for (const o of this.obstacles) {
-          if (height < o.top + 0.12 && (x - o.x) * (x - o.x) + (z - o.z) * (z - o.z) < o.r * o.r) return false;
-        }
-        return true;
-      };
       if (!inside(px, pz)) {
         let found = false;
         for (let k = 1; k <= 15 && !found; k++) {
@@ -291,6 +341,27 @@ export class Cinematographer {
       height = clamp(height, B.minY, B.maxY);
     }
 
+    // However the azimuth got here — yaw drift, an orbit, or the avoidance
+    // search snapping to a new answer — the solved angle never jumps: it pans
+    // at most so fast, and the springs downstream only ever see a target that
+    // moves like a camera. The rate is far above any scripted move, so this
+    // only bites on discontinuities. If the rate-limited angle would put the
+    // camera somewhere unusable, take the search's answer at once — clipping
+    // into the set is worse than a hard pan.
+    if (!immediate && this._azS !== null && dt > 0) {
+      let d = (az - this._azS) % TAU;
+      if (d > Math.PI) d -= TAU;
+      if (d < -Math.PI) d += TAU;
+      const maxStep = deg(150) * dt;
+      if (Math.abs(d) > maxStep) {
+        const lim = this._azS + Math.sign(d) * maxStep;
+        const x = aim.x + Math.sin(lim) * dist;
+        const z = aim.z + Math.cos(lim) * dist;
+        if (!B || inside(x, z)) { az = lim; px = x; pz = z; }
+      }
+    }
+    this._azS = az;
+
     if (!s.track && s._frozen) {
       this.pos.copy(s._frozen.pos);
       this.aim.copy(s._frozen.aim);
@@ -311,7 +382,7 @@ export class Cinematographer {
       this.dutchS.set(this.dutch);
       this.focus = this.focusTarget = this.pos.distanceTo(this.aim);
     }
-    void u; void dt;
+    void u;
   }
 
   update(dt, time) {
@@ -329,12 +400,29 @@ export class Cinematographer {
     const lens = this.lensS.step(dt);
     const dutch = this.dutchS.step(dt);
 
-    // Operator drift. Even a locked-off shot breathes a little.
+    // Operator drift. Even a locked-off shot breathes a little. Two layers:
+    // a slow wander (the operator's weight shifting) and a breathing-rate
+    // sway. The wander is noise chased through two cascaded low-pass stages,
+    // so its velocity is continuous — the seed jump at a cut just gives the
+    // drift somewhere new to lean towards, it never pops.
     const hh = this.handheld;
-    const t = time * 0.6 + this.seed;
-    const dx = fbm1(t, 1) * 0.012 * hh;
-    const dy = fbm1(t + 3.1, 2) * 0.009 * hh;
-    const dz = fbm1(t + 7.7, 3) * 0.01 * hh;
+    const t = time * 0.5 + this.seed;
+    const D = this._drift;
+    const driftCh = (ch, i, rate) => {
+      D[i] = approach(D[i], fbm1(t + ch * 3.7, ch), rate, dt);
+      D[i + 1] = approach(D[i + 1], D[i], rate, dt);
+      return D[i + 1];
+    };
+    const wx = driftCh(1, 0, 2.4);
+    const wy = driftCh(2, 2, 2.4);
+    const wz = driftCh(3, 4, 2.4);
+    const wa = driftCh(4, 6, 3.0);
+    const wr = driftCh(5, 8, 3.0);
+    this._breath += dt * TAU * (0.3 + 0.05 * wr);
+    const br = Math.sin(this._breath);
+    const dx = wx * 0.014 * hh;
+    const dy = (wy * 0.008 + br * 0.0035) * hh;
+    const dz = wz * 0.012 * hh;
 
     // Impact shake.
     this.shakeAmp = Math.max(0, this.shakeAmp - dt * this.shakeDecay * this.shakeAmp * 1.4 - dt * 0.02);
@@ -347,19 +435,29 @@ export class Cinematographer {
     const cam = this.camera;
     cam.position.set(px + dx + sx, py + dy + sy, pz + dz);
     cam.up.set(0, 1, 0);
-    cam.lookAt(ax, ay + fbm1(t + 11, 4) * 0.006 * hh, az);
-    cam.rotateZ(dutch + sr + fbm1(t + 17, 5) * 0.004 * hh);
+    cam.lookAt(ax, ay + (wa * 0.006 + br * 0.002) * hh, az);
+    cam.rotateZ(dutch + sr + wr * 0.004 * hh);
     const fov = this.fovFor(lens);
     if (Math.abs(cam.fov - fov) > 1e-4) { cam.fov = fov; cam.updateProjectionMatrix(); }
 
-    // Focus. Auto-follows the subject unless a rack is in progress.
+    // Focus. Auto-follows the subject unless a rack is in progress. Distances
+    // are measured from the spring pose (px, py, pz), not the rendered
+    // position — measuring from a camera that carries handheld sway and shake
+    // fed the sway straight into the focal plane, and the DoF breathed.
     const focusOn = this._rack ?? this.shot.focusOn ?? this.shot.subject;
     this.anchor(focusOn, this.shot.look === 'eye' ? 'eye' : 'head', _p);
+    _r.set(px, py, pz);
     this.focusTarget = focusOn instanceof THREE.Vector3
-      ? cam.position.distanceTo(focusOn)
-      : cam.position.distanceTo(_p);
-    this.focus = approach(this.focus, this.focusTarget, this._rack ? this.focusRate : 5.5, dt);
-    if (this._rack && Math.abs(this.focus - this.focusTarget) < 0.02) this._rack = null;
+      ? _r.distanceTo(focusOn)
+      : _r.distanceTo(_p);
+    if (this._rack) {
+      this._rackT += dt;
+      const u = clamp01(this._rackT / this._rackDur);
+      this.focus = lerp(this._rackFrom, this.focusTarget, ease.soft(u));
+      if (u >= 1) this._rack = null;
+    } else {
+      this.focus = approach(this.focus, this.focusTarget, 5.5, dt);
+    }
 
     this.whip = Math.max(0, this.whip - dt * 3.4);
     this.lensNow = lens;
