@@ -257,21 +257,21 @@ need `water.rebuildGrid()`.
 | --- | --- | --- | --- | --- |
 | `sdEnabled` | Sea dragon | `1` | 0 … 1 |  |
 | `sdDepth` | Dragon depth (m) | `3.2` | 1.6 … 25 |  |
-| `sdSwell` | Sea lifts over its back (m) | `1.35` | 0 … 3 |  |
-| `sdSwellRadius` | Lift footprint (m) | `7.5` | 1 … 25 |  |
-| `sdSwellFade` | Lift dies by depth (m) | `9` | 1 … 20 |  |
-| `sdSpray` | Spray where it breaks the surface | `0.5` | 0 … 1 |  |
-| `sdSprayDepth` | Spray band (m) | `0.4` | 0.05 … 2 |  |
+| `sdSwell` | Sea lifts over its back (m) | `2.04` | 0 … 3 |  |
+| `sdSwellRadius` | Lift footprint (m) | `3` | 1 … 25 |  |
+| `sdSwellFade` | Lift dies by depth (m) | `17` | 1 … 20 |  |
+| `sdSpray` | Spray where it breaks the surface | `0.98` | 0 … 1 |  |
+| `sdSprayDepth` | Spray band (m) | `0.85` | 0.05 … 2 |  |
 | `sdDepthSwing` | Dragon rise and sound (m) | `2` | 0 … 12 |  |
-| `sdRushSpeed` | Speed it comes up at (m/s) | `13` | 5 … 30 |  |
+| `sdRushSpeed` | Speed it comes up at (m/s) | `23.5` | 5 … 30 |  |
 | `sdOffsetClose` | Closes to (m) at speed | `9` | 3 … 40 |  |
 | `sdOffset` | Dragon station off your shoulder (m) | `16` | 5 … 60 |  |
 | `sdLead` | Dragon station ahead (m) | `6` | -20 … 40 |  |
 | `sdFollowRise` | Follow camera height (m) | `6` | 1 … 40 |  |
-| `sdFade` | Water that swallows it (m) | `11` | 2 … 30 |  |
+| `sdFade` | Water that swallows it (m) | `4` | 2 … 30 |  |
 | `sdOpacity` | Dragon strength | `1` | 0 … 1 |  |
-| `sdLength` | Dragon length (m) | `22` | 6 … 60 |  |
-| `sdSpeed` | Dragon top speed (m/s) | `26` | 4 … 50 |  |
+| `sdLength` | Dragon length (m) | `52.5` | 6 … 60 |  |
+| `sdSpeed` | Dragon top speed (m/s) | `50` | 4 … 50 |  |
 | `sdWaves` | Dragon body waves | `1.25` | 0.3 … 3 |  |
 | `sdAmp` | Dragon tail sweep | `0.055` | 0 … 0.2 |  |
 | `sdBeat` | Dragon tail beat (Hz) | `0.35` | 0 … 3 |  |
@@ -279,8 +279,8 @@ need `water.rebuildGrid()`.
 | `sdTurnRate` | Dragon turn rate (rad/s) | `0.55` | 0.1 … 2 |  |
 | `sdOrbit` | Dragon circles you at (rad/s) | `0.2` | 0 … 1 |  |
 | `sdGape` | Jaw shut angle (rad) | `0.3` | 0 … 1.4 |  |
-| `sdThrough` | Shows through the glare | `0.85` | 0 … 1 |  |
-| `sdRefract` | Refraction through the surface | `0.045` | 0 … 0.2 |  |
+| `sdThrough` | Shows through the glare | `0.07` | 0 … 1 |  |
+| `sdRefract` | Refraction through the surface | `0.2` | 0 … 0.2 |  |
 
 ## Wave Runner
 
@@ -417,9 +417,9 @@ need `water.rebuildGrid()`.
 | `boatCamLag` | Chase lag | `4` | 0.5 … 20 |  |
 | `boatLength` | Half-length (m) | `4.5` | 1 … 12 |  |
 | `boatBeam` | Half-beam (m) | `1.65` | 0.5 … 5 |  |
-| `boatLift` | Ride height offset (m) | `0.9` | -1.5 … 2 |  |
+| `boatLift` | Ride height offset (m) | `2.55` | -1.5 … 3.5 |  |
 | `boatScale` | Hull scale | `1` | 0.3 … 3 |  |
-| `boatYawOffset` | Model yaw offset | `0` | -3.15 … 3.15 |  |
+| `boatYawOffset` | Model yaw offset | `3.1416` | -3.15 … 3.15 |  |
 | `boatPitchOffset` | Model pitch offset | `0` | -3.15 … 3.15 |  |
 | `boatRollOffset` | Model roll offset | `0` | -3.15 … 3.15 |  |
 | `boatCamHeight` | Wheelhouse eye height (m) | `2.6` | 0.5 … 5 |  |

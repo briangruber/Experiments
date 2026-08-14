@@ -40,7 +40,7 @@
 import * as THREE from 'three/webgpu';
 import { installWebGPUSwizzleShim } from './webgpu-shim.js';
 import { boot } from '../demo/three-main.js';
-import { uCraftPos, uCraftAmount, uCraftSpeed } from '../src/gpu/tsl/spray.js';
+import { uCraftPos, uCraftAmount, uCraftSpeed, uCraftImpact } from '../src/gpu/tsl/spray.js';
 
 installWebGPUSwizzleShim();
 
@@ -101,7 +101,16 @@ const work = (async () => {
     // the band, so this is a solid breach rather than a boundary case that
     // would need exact depth-controller timing to hit.
     forcedDepth = -1.0;
-    await frames(10);
+    await frames(2);   // caught EARLY - the burst is a spike-then-decay, not a level
+    const burstAmount = uCraftImpact.value;
+    log('the sudden rise through the surface throws a one-shot burst', burstAmount > 0.05,
+        `uCraftImpact = ${ burstAmount.toFixed(3) } right after breaking through (demo/seaplane.js's wingtip touch uses the same channel)`);
+
+    await frames(30);   // held steady since - no more climb, the burst has to fade
+    log('...and it fades rather than holding, once the animal is just sitting there',
+        uCraftImpact.value < burstAmount * 0.5,
+        `uCraftImpact ${ burstAmount.toFixed(3) } -> ${ uCraftImpact.value.toFixed(3) }`);
+
     const breachAmount = uCraftAmount.value;
     log('breaching dragon throws real spray', breachAmount > 0.001, `uCraftAmount = ${ breachAmount.toFixed(4) }`);
     log('the emitter is positioned AT the dragon', Math.hypot(

@@ -401,23 +401,33 @@ export const defaults = {
   boatCamMinClear: 1.0,
   boatCamChaseRoll: 0.15,
   boatScale: 1.0,
-  boatYawOffset: 0.0,       // tools/glb.mjs --forward -z already put the bow at
-                            // -Z (verified against the source mesh: the low-hull
-                            // vertices at -Z taper to a point with the density of
-                            // a modelled bow stem; the +Z end has almost none),
-                            // so no correction is needed here - unlike the ski,
-                            // whose source convention needed the pi below.
+  // Reported live: the boat drove stern-first. It did - tools/glb.mjs's
+  // --forward -z conversion guessed wrong for this asset, and the original
+  // verification here was wrong with it (a vertex-density taper turned out
+  // not to be the tell it was for other hulls; this one's actual bow tapers
+  // to a point at +Z, and -Z is the flat, winch-equipped stern). Confirmed
+  // unambiguously this time with an orthographic top-down render, no
+  // perspective or up-vector to misread: the pointed hull half sits at +Z,
+  // the working aft deck (net reels, davits) sits at -Z. Pi corrects it the
+  // same way the ski's craftYawOffset does for its own reversed source
+  // convention - see that comment for why a basis flip, not a mesh re-export.
+  boatYawOffset: 3.14159265,
   boatPitchOffset: 0.0,
   boatRollOffset: 0.0,
   // The quantiser centres each axis on its OWN bounding box (tools/glb.mjs), so
-  // local Y=0 is the midpoint of keel to masthead, not the waterline - and for
-  // this hull that midpoint measures out at the deck edge (the hull's width
-  // collapses hard right around it, moving from the topsides to the cabin and
-  // rigging above). Deck sits a little above the waterline, so this lifts the
-  // mesh origin that much further above the surface reading the probe returns.
-  // An estimate, not a measurement - the honest thing when the source has no
-  // waterline marked on it - and it is a live knob for exactly that reason.
-  boatLift: 0.9,
+  // local Y=0 is the midpoint of keel to masthead, not the waterline. 0.9 was
+  // an assumption ("the deck edge sits near Y=0") that turned out wrong -
+  // reported live, the hull rode almost entirely submerged with only the
+  // cabin roof showing. Re-derived from an actual measurement instead of a
+  // guess: the hull's own paint scheme marks its waterline (blue topsides
+  // over a thin bottom-paint band, the ordinary convention), and finding
+  // that colour boundary's pixel row in a rendered side view and mapping it
+  // back through the camera to world Y put it at roughly local Y = -2.55 -
+  // most of this hull's 5.4 m keel-to-masthead height is topsides freeboard,
+  // only a shallow sliver is bottom paint. Still an estimate (a pixel
+  // measurement off a render, not a modelled waterline), and still a live
+  // knob for exactly that reason - but a measured one now, not an assumed one.
+  boatLift: 2.55,
 
   wakeExtent: 320,          // metres across the world-space wake buffer. This is
                             // the only thing bounding how much of your own path
@@ -494,14 +504,18 @@ export const defaults = {
   // the water: the water column between you and it swallows it over sdFade
   // metres, and sdDepth is really "how solid is it".
   sdEnabled: 1.0,           // 0 turns the animal off entirely, draw and all
-  sdLength: 22.0,           // nose to tail, metres. The mesh is unit-length.
-  sdSpeed: 26.0,            // m/s it will sprint to hold station - faster than
-                            // the ski's top end, or it could never catch up
+  sdLength: 52.5,           // nose to tail, metres. The mesh is unit-length.
+                            // Was 22 - a live-tuned default now, a genuine
+                            // leviathan rather than something ski-sized.
+  sdSpeed: 50.0,            // m/s it will sprint to hold station - faster than
+                            // the ski's top end, or it could never catch up.
+                            // Raised alongside sdLength: a 52m animal loafing
+                            // at 26 m/s reads as sluggish for its size.
   sdAccel: 0.55,            // 1/s it closes on the speed it wants
   sdTurnRate: 0.55,         // rad/s at a standstill; a long body turns slower
   sdOrbit: 0.20,            // rad/s it circles you at when you are not moving
   sdFollowRise: 6.0,        // how high the Follow camera sits above the sea, m
-  sdRushSpeed: 13.0,        // ski speed at which it is fully up and fully in
+  sdRushSpeed: 23.5,        // ski speed at which it is fully up and fully in
   sdOffsetClose: 9.0,       // how near it comes at that speed, m
   sdOffset: 16.0,           // metres off your shoulder it tries to sit
   sdLead: 6.0,              // ...and how far ahead, so a chase camera sees it
@@ -513,12 +527,15 @@ export const defaults = {
                             // fragment in front of the sea - this is a staging
                             // choice, not the backstop it used to be.
   sdSeaLevel: 0.0,          // the mean surface it measures depth from
-  sdFade: 11.0,             // metres of WATER COLUMN that swallow the shape.
+  sdFade: 4.0,              // metres of WATER COLUMN that swallow the shape.
                             // Not its depth below the surface - the real
                             // distance from the pixel of sea you are looking at
                             // to the body, reconstructed from the refraction
                             // pass's depth buffer. The COLOUR of the swallowing
                             // is the sea's own absorption; this is its scale.
+                            // Was 11 - tuned down live so a 52m animal (see
+                            // sdLength) does not fade to a ghost across its
+                            // own length at a grazing viewing angle.
   sdOpacity: 1.0,           // how hard the shape reads through the surface. It
                             // scales the coverage the sea mixes by, so 0 skips
                             // the lookup in the ocean shader entirely.
@@ -530,21 +547,29 @@ export const defaults = {
   // complaint was that the mouth was always open, and a jaw that works as the
   // animal swims reads as alive whatever its resting gape.
   sdGape: 0.30,             // radians the mandible swings up from as-modelled
-  sdSwell: 1.35,            // metres the sea lifts over its back at the surface
-  sdSwellRadius: 7.5,       // how far to either side that mound reaches, m
-  sdSwellFade: 9.0,         // depth over which the lift dies away, m
-  sdSprayDepth: 0.4,        // metres of water column still counted as "breaking" -
+  sdSwell: 2.04,            // metres the sea lifts over its back at the surface
+  sdSwellRadius: 3.0,       // how far to either side that mound reaches, m.
+                            // Narrower than the 7.5 it shipped with - tighter
+                            // to the body now that the body is 52m long, or a
+                            // 7.5m-radius mound reads as one wide smear rather
+                            // than tracking the spine's actual curve.
+  sdSwellFade: 17.0,        // depth over which the lift dies away, m
+  sdSprayDepth: 0.85,       // metres of water column still counted as "breaking" -
                             // read off the refraction pass's own depth, so the
                             // spray traces the body's true silhouette (fins and
                             // all), not the swell mound's smooth approximation
-  sdSpray: 0.5,             // strength of that spray, fed into the sea's own
-                            // foam shading - 0 turns the whole block off
-  sdThrough: 0.85,          // how much of the shape survives the surface's own
+  sdSpray: 0.98,            // strength of that spray, fed into the sea's own
+                            // foam shading - 0 turns the whole block off. Also
+                            // gates the real particle spray thrown where it
+                            // breaches (three-main.js's dragonSpray, reusing
+                            // the vehicles' own emitter) - one slider for both.
+  sdThrough: 0.07,          // how much of the shape survives the surface's own
                             // glare. 0 is the pure physics and nearly invisible
-                            // at the angle you ride at; this is the fudge.
-  sdRefract: 0.045,         // how hard the surface's own slope bends the look
+                            // at the angle you ride at; this is the fudge. Was
+                            // 0.85 - tuned down live, closer to the physics.
+  sdRefract: 0.2,           // how hard the surface's own slope bends the look
                             // through it. This is what makes chop passing over
-                            // the animal wobble and break it up.
+                            // the animal wobble and break it up. Was 0.045.
   sdWaves: 1.25,            // body waves along its length
   sdAmp: 0.055,             // peak tail sweep, as a fraction of length
   sdBeat: 0.35,             // tail beats per second at rest

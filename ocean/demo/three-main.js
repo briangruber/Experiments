@@ -357,6 +357,12 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	let followOrbitPitch = 0;
 	let lastCamYaw = 0;
 	let lastCamPitch = 0;
+	// A one-shot punch of individual droplets at the MOMENT the dragon actually
+	// breaks the surface - see where it feeds ctx.craftImpact below. Spikes off
+	// the animal's own climb rate (demo/seadragon.js's this.climb) and decays
+	// like the vehicles' own impact does, so it has to live outside the frame
+	// function to persist between frames the same way followOrbitYaw does.
+	let dragonImpact = 0;
 	const dragonMat = new THREE.NodeMaterial();
 	dragonMat.name = 'abyssal.dragon';
 	dragonMat.fragmentNode = creatureFragment();
@@ -1158,8 +1164,23 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			dragonSpray = Math.max( 0, Math.min( 1,
 				1 - clearance / Math.max( params.sdSprayDepth, 0.05 ),
 			) );
+			// The one-shot burst: how the wave runner's own hard-landing splash
+			// and the seaplane's wingtip touch both read as individual droplets
+			// rather than a smooth sheet - a punch tied to the MOMENT it rises
+			// through the surface, not a level held while it sits there. Only
+			// while actually rising (climb > 0) and already inside the spray
+			// band, so a dragon holding station just under the surface does not
+			// throw a permanent shower.
+			if ( dragon.climb > 0.3 ) {
+
+				dragonImpact = Math.max( dragonImpact, Math.min( 1, dragon.climb / 6 ) );
+
+			}
 
 		}
+		// Same decay rate demo/waverunner.js's own impact uses, so a breach
+		// reads with the same punch-then-fade shape a hard landing does.
+		dragonImpact = Math.max( 0, dragonImpact - dt * 2.2 );
 		const cf = veh
 			? [ Math.sin( veh.heading ), - Math.cos( veh.heading ) ]
 			: dragonSpray > 0.001
@@ -1237,7 +1258,7 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			// A cutting wingtip is a hull in the water even though the aircraft
 			// is flying, so the emitter must not be told it is airborne.
 			craftAir: veh && veh.airborne && wet <= 0.001 ? 1 : 0,
-			craftImpact: veh ? veh.impact : 0,
+			craftImpact: veh ? veh.impact : dragonImpact,
 			// THE CRAFT'S IMAGE IN THE SEA (src/shaders/water.js). Separate from
 			// craftPos, which is parked at -1e4 whenever the hull is not working
 			// the water - a flying seaplane still has a reflection, and parking

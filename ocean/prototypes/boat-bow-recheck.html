@@ -1,0 +1,52 @@
+<!doctype html><meta charset="utf-8"><body style="margin:0;background:#111">
+<canvas id="view" width="800" height="800"></canvas>
+<script type="importmap">{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js" } }</script>
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { buildCraftGeometry, loadCraftTexture } from '../src/gpu/tsl/craft.js';
+import { BOAT_MESH } from '../demo/boatModel.js';
+const canvas = document.getElementById('view');
+const r = new THREE.WebGPURenderer({ canvas, forceWebGL: true, antialias: true });
+await r.init(); r.setClearColor(0x202020, 1);
+
+const LEN = 9;
+const geo = buildCraftGeometry(LEN, BOAT_MESH).geometry;
+const tex = await loadCraftTexture(r, BOAT_MESH);
+const mat = new THREE.MeshBasicNodeMaterial({ map: tex, side: THREE.DoubleSide });
+const mesh = new THREE.Mesh(geo, mat);
+const scene = new THREE.Scene(); scene.add(mesh);
+scene.add(new THREE.AmbientLight(0xffffff, 1.3));
+
+// Markers AT the extreme tips this time (+/-4.4, right at the bbox edge, not
+// +/-3 floating over the deck) so there is zero ambiguity about which marker
+// sits over which literal end. BLUE = +Z tip, YELLOW = -Z tip. A thin white
+// line down the +X side (starboard, arbitrary reference) so left/right in the
+// screenshot has a fixed meaning independent of how this description reads it.
+const mkSphere = (z, color) => {
+  const s = new THREE.Mesh(new THREE.SphereGeometry(0.3, 12, 12), new THREE.MeshBasicMaterial({ color }));
+  s.position.set(0, 3.2, z);
+  scene.add(s);
+};
+mkSphere(4.4, 0x2255ff);   // BLUE = +Z tip
+mkSphere(-4.4, 0xffee22);  // YELLOW = -Z tip
+const lineGeo = new THREE.BufferGeometry().setFromPoints([
+  new THREE.Vector3(1.8, 0, -4.5), new THREE.Vector3(1.8, 0, 4.5),
+]);
+scene.add(new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ color: 0xffffff })));
+
+// Pure orthographic straight-down top view - no perspective, no up-vector
+// ambiguity to reason through: screen "up" is fixed as world -Z, screen
+// "right" is fixed as world +X, by construction of an orthographic camera
+// looking down -Y with up = (0,0,-1).
+const half = 6;
+const cam = new THREE.OrthographicCamera(-half, half, half, -half, 0.1, 100);
+cam.position.set(0, 20, 0);
+cam.up.set(0, 0, -1);
+cam.lookAt(0, 0, 0);
+await r.renderAsync(scene, cam);
+
+window.probeResult = { allOk: true, results: [{ name: 'rendered', ok: true, detail: 'orthographic top-down, blue=+Z tip, yellow=-Z tip, white line=+X side' }] };
+</script></body>

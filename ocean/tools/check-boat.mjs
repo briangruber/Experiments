@@ -8,14 +8,22 @@
 // sampling and the same claims about the camera rig and the up-vector apply
 // unchanged. What differs is boat-specific and asserted here on purpose:
 //
-// 1. THE BOW LEADS, SIGN FLIPPED FROM THE SKI. setCraftTransform's local +Z
-//    basis column lands on world direction -forward when modelYaw = 0 - which
-//    is what the boat uses (boatYawOffset: 0.0, see presets.js), unlike the
-//    ski's modelYaw = pi. So the alignment here is compared against the
-//    NEGATED z column, not the raw one. Got this backwards once already in
-//    prototypes/boat-drive-probe.html: alignZ came back -1.000 dead-on before
-//    the fix, +1.000 after - a clean sign flip, not noise, which is exactly
-//    what a modelYaw mixup looks like.
+// 1. THE BOW LEADS, SAME SIGN AS THE SKI NOW. boatYawOffset was 0.0 - "no
+//    correction needed, verified against the source mesh" - and that
+//    verification was wrong: reported live, the boat drove stern-first. An
+//    orthographic top-down render with markers at the exact hull tips (no
+//    perspective or up-vector to misread) showed the actual pointed bow at
+//    +Z and the flat, winch-equipped stern at -Z, the reverse of the
+//    original read. boatYawOffset is now pi (presets.js), the same fix the
+//    ski's craftYawOffset already made for its own reversed source
+//    convention, which is why the alignment here is now the RAW z column,
+//    not negated - matching check-ride.mjs's own convention instead of
+//    diverging from it. Got the sign backwards once already going the OTHER
+//    way in prototypes/boat-drive-probe.html, when boatYawOffset was still
+//    0: alignZ came back -1.000 dead-on there, +1.000 after negating it. With
+//    the yaw offset now corrected instead, negating again would just be
+//    wrong a second way - this comment is the tell if a future edit reverses
+//    boatYawOffset back and forgets this file exists.
 //
 // 2. NO CARVE BONUS. boatCarveTurn is 1.0 - Shift buys nothing extra for a
 //    keel. check-ride.mjs asserts carveGain > 1.3; this file asserts the
@@ -101,8 +109,8 @@ await page.evaluate(() => {
     const want = [Math.sin(b.heading), -Math.cos(b.heading)];
     const nz = norm([e[8], e[10]]), nx = norm([e[0], e[2]]);
     A.__log.push({
-      // NEGATED z column - see header note 1.
-      alignZ: -nz[0] * want[0] - nz[1] * want[1],
+      // RAW z column, matching check-ride.mjs - see header note 1.
+      alignZ: nz[0] * want[0] + nz[1] * want[1],
       alignX: nx[0] * want[0] + nx[1] * want[1],
       offAxis: Math.min(Math.abs(want[0]), Math.abs(want[1])),
       d: Math.hypot(c.position.x - b.pos[0], c.position.z - b.pos[2]),

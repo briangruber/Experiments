@@ -408,7 +408,7 @@ export const SCHEMA = [
       S('boatCamLag', 'Chase lag', 0.5, 20, 0.1),
       S('boatLength', 'Half-length (m)', 1, 12, 0.1),
       S('boatBeam', 'Half-beam (m)', 0.5, 5, 0.05),
-      S('boatLift', 'Ride height offset (m)', -1.5, 2, 0.01),
+      S('boatLift', 'Ride height offset (m)', -1.5, 3.5, 0.01),
       S('boatScale', 'Hull scale', 0.3, 3, 0.01),
       S('boatYawOffset', 'Model yaw offset', -3.15, 3.15, 0.01),
       S('boatPitchOffset', 'Model pitch offset', -3.15, 3.15, 0.01),

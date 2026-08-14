@@ -161,6 +161,12 @@ export class SeaDragon {
     // Nose up or down onto the depth it is taking, so a climb looks like one.
     const climb = (this.pos[1] - prevY) / Math.max(d, 1e-3);
     this.pitch = lerp(this.pitch, clamp(Math.atan2(climb, Math.max(this.speed, 2)), -0.5, 0.5), 1 - Math.exp(-3 * d));
+    // Persisted, not just local: three-main.js reads it to throw a one-shot
+    // burst of spray at the MOMENT it actually breaks the surface, the same
+    // "impact" concept demo/waverunner.js and demo/seaplane.js already use for
+    // a hard landing or a wingtip touch, rather than the continuous sheet
+    // dragonSpray drives on its own (which reads as foam, not spray).
+    this.climb = climb;
 
     // ---- the body ---------------------------------------------------------
     // Tail beat rises with speed: a cruising animal is a slow sweep, a sprinting

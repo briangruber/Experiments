@@ -101,13 +101,13 @@ const work = (async () => {
       const e = A.boatMesh.matrix.elements;
       const want = [Math.sin(b.heading), -Math.cos(b.heading)];
       const nz = norm([e[8], e[10]]);
-      // setCraftTransform's local +Z basis column lands on world direction
-      // bb = -forward when modelYaw = 0 (the boat, seaplane, and dragon all
-      // use modelYaw = 0 - only the ski flips this via craftYawOffset = pi,
-      // which is why check-ride.mjs can compare +nz directly). So the boat's
-      // bow direction is -nz here, not +nz.
+      // boatYawOffset is now pi (presets.js) - the original conversion had
+      // the bow backwards, caught live and re-verified with an orthographic
+      // top-down render (prototypes/boat-bow-recheck.html) - so the boat now
+      // matches the ski's own convention (craftYawOffset = pi) instead of
+      // diverging from it, and this compares the RAW z column, not negated.
       log2.push({
-        alignZ: -nz[0] * want[0] - nz[1] * want[1],
+        alignZ: nz[0] * want[0] + nz[1] * want[1],
         speed: Math.abs(b.speed),
         yaw: Math.abs(b.yawRate),
         rigErr: b.camRig

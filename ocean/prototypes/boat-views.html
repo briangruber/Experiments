@@ -20,19 +20,28 @@ const mesh = new THREE.Mesh(geo, mat);
 const scene = new THREE.Scene(); scene.add(mesh);
 const light = new THREE.AmbientLight(0xffffff, 1); scene.add(light);
 
-// A RED marker at a KNOWN world Z (+3, toward the tool's "tail" end under the
-// --forward -z guess used to convert this model - i.e. away from where -z
-// SHOULD be the bow if the guess was right) and a GREEN one at -3 (toward the
-// guessed bow). Colour, not camera math, is what settles which end is which -
-// three's default up-vector for a near-vertical look direction is an
-// implementation detail not worth hand-deriving when a sphere answers it.
+// A RED marker at world Z=+3 and a GREEN one at Z=-3. Colour, not camera
+// math, is what settles which end is which - three's default up-vector for a
+// near-vertical look direction is an implementation detail not worth
+// hand-deriving when a sphere answers it.
+//
+// THIS PROBE'S OWN FIRST READING OF THESE VIEWS WAS WRONG. It called -Z the
+// bow from a vertex-density taper that turned out not to be the tell it
+// looked like - reported live, the boat drove stern-first. The correct read,
+// unambiguous once checked with an orthographic top-down render and markers
+// at the literal hull tips instead of floating over the deck (see
+// prototypes/boat-bow-recheck.html), is the bow at +Z (RED here) and the
+// flat, winch-equipped stern at -Z (GREEN here) - the reverse of what this
+// file's markers were originally labelled. boatYawOffset is now pi
+// (presets.js) to correct it. Left as a second, cross-checking view rather
+// than deleted - two different camera setups agreeing is worth more than one.
 const mk = (z, color) => {
   const s = new THREE.Mesh(new THREE.SphereGeometry(0.35, 12, 12), new THREE.MeshBasicMaterial({ color }));
   s.position.set(0, 3, z);
   scene.add(s);
 };
-mk(3, 0xff2222);   // RED = +Z = "tail" end under the current guess
-mk(-3, 0x22ff44);  // GREEN = -Z = "bow" end under the current guess, per --forward -z
+mk(3, 0xff2222);   // RED = +Z = the actual bow
+mk(-3, 0x22ff44);  // GREEN = -Z = the actual stern
 
 // Real proportions at LEN=9 (measured from the source bbox): beam ~3.3 m,
 // freeboard+cabin a few metres, a mast reaching well above that - the previous
@@ -41,7 +50,7 @@ mk(-3, 0x22ff44);  // GREEN = -Z = "bow" end under the current guess, per --forw
 // the WATERLINE-ish height rather than the mast.
 const cam = new THREE.PerspectiveCamera(45, 300 / 400, 0.05, 200);
 const views = [
-  { pos: [0, 2.5, -14], look: [0, 1.5, 0], label: 'bow-on (-Z)' },
+  { pos: [0, 2.5, -14], look: [0, 1.5, 0], label: 'stern-on (-Z)' },
   { pos: [14, 2.5, 0], look: [0, 1.5, 0], label: 'side (+X)' },
   { pos: [0.01, 16, 0], look: [0, 0, 0], label: 'top' },
   { pos: [9, 6, -9], look: [0, 1.5, 0], label: '3/4' },
