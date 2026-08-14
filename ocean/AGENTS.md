@@ -105,6 +105,7 @@ top and bottom band means; two near-zero bands means nothing drew.
    | the craft's reflection in the sea | `npm run check:reflect` |
    | the craft's shadow on the sea, and that it has the hull's shape | `npm run check:shadow` |
    | the sea dragon: visible under the sea, swimming, holding station | `npm run check:dragon` |
+   | the refraction pass (what the sea looks down into) | `node tools/run-probe.mjs prototypes/refraction-probe.html` — reads the target back rather than judging the picture |
    | picking up the sea dragon's unfinished work | read [`docs/sea-dragon-handoff.md`](docs/sea-dragon-handoff.md) FIRST - it lists what was already tried and failed |
    | the frame-rate governor / anything performance | `npm run check:adapt` |
    | the dragon's body wave in isolation | `node tools/run-probe.mjs prototypes/dragon-swim.html --shot shots/dragon-swim.png` |
@@ -140,6 +141,8 @@ top and bottom band means; two near-zero bands means nothing drew.
 src/            the library (no DOM, no globals)
   gpu/abyssal.js     createAbyssal() — the facade; also the pass-order reference
   gpu/tsl/           TSL node graphs: sim, sky, water, spray, post (one source → WGSL+GLSL)
+  gpu/tsl/refraction-driver.js  what the sea looks down INTO — colour + its own depth
+  gpu/tsl/water-clip.js         the waterline split, as a uniform (read it before touching that)
   gpu/three-compat.js browser/three shims (swizzle) — must install before device work
   cloud-types.js     the five genera, tuned by measurement (prototypes/cloud-types.html)
   three/             classic WebGL2 adapter
@@ -160,6 +163,14 @@ docs/           parameters.md (generated — edit source, run npm run docs:param
 - The wake field and rideable craft are WebGL2-demo-only; not yet ported to TSL.
 - Clouds march at full resolution; half-res + depth-aware upsample is the
   obvious unclaimed win.
+- The refraction pass (`src/gpu/tsl/refraction-driver.js`) is wired in the demo
+  only — `createAbyssal`'s `scene` option still draws your meshes into the HDR
+  frame against the sea's depth, not into the water. The pieces to change that
+  are exported (`setRefractionTextures`, `applyWaterClip`); the facade does not
+  call them yet.
+- The waterline clip cuts at MEAN sea level plus a seam, not at the displaced
+  surface — see `src/gpu/tsl/water-clip.js`. In a big swell that is wrong by the
+  wave height at that point, which is why the seam exists.
 - Headless WebGPU in CI-like sandboxes renders into targets but cannot present
   to a canvas — checks run the WebGL2 backend or capture to a target; real
   WebGPU presentation needs a real browser/device.

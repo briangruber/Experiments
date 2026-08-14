@@ -13,32 +13,39 @@
 // ---------------------------------------------------------------------------
 // SEEING IT THROUGH THE WATER.
 //
-// The sea is opaque and writes depth (water-driver.js), so anything under it is
-// simply gone. Reading the sea's own colour buffer to refract it would mean a
-// scene-colour copy, a refraction term in the ocean shader and a redo of the
-// golden images that pin it - a lot of machinery for one creature. So the
-// dragon is drawn AFTER the sea with the depth test off and blended in, and the
-// blend does the work the water would have done: it fades with how deep it is
-// and tints toward the water's own colour on the way, which is what a large
-// animal a few metres down actually looks like from a boat.
+// This material is drawn TWICE a frame, by the same pipeline, with two uniforms
+// telling it which half of the world it is in:
 //
-// Two consequences, both deliberate:
+//   the refraction pass   everything below the waterline, into
+//                         ./refraction-driver.js's own colour+depth target,
+//                         which ./water-surface.js then looks through the sea
+//                         at. RGB is the radiance leaving the body; ALPHA is
+//                         coverage. The water column, its extinction and the
+//                         haze are the SEA's job from there - so nothing here
+//                         may apply them, or they are applied twice.
+//   the beauty pass       everything above the waterline, straight into the HDR
+//                         frame after the sea, depth-tested against it. This is
+//                         how a fin breaks the surface: the sea has written
+//                         depth, the fin is nearer, so it draws, and the body it
+//                         is attached to is behind the sea and does not.
 //
-//   - IT IS DRAWN FRONT-FACE ONLY, and that is what makes no depth test
-//     survivable. On a closed body the far side's triangles face away and are
-//     culled, so the near surface is the only thing drawn and there is nothing
-//     to sort. Fins and the open jaw are not closed, and those do ghost
-//     slightly over the body - at the alpha this runs at, that reads as murk.
-//   - IT MUST NOT BREACH. A fragment above the surface would be drawn over the
-//     sky with no depth to stop it, so anything that rises past the waterline is
-//     discarded. The behaviour in demo/seadragon.js keeps it under; the discard
-//     is the backstop.
+// The waterline split is a uniform, not a clipping plane or a material swap -
+// ./water-clip.js has the whole argument, and it is a performance argument.
+//
+// WHAT THIS REPLACES, so nobody re-derives it. The animal used to be drawn once,
+// after the sea, with NO DEPTH TEST, because the sea is opaque and had already
+// written a nearer depth over it. That cost two bugs which were the same bug:
+// its far teeth drew through its own skull (front-face culling sorts a closed
+// convex body, and a head with an open jaw is not one), and it could never
+// breach (anything above the waterline had to be discarded or it would paint
+// over the sky). With a depth buffer of its own it is an ordinary opaque
+// double-sided mesh and both go away. docs/sea-dragon-handoff.md is the history.
 
 import * as THREE from 'three/webgpu';
 import {
-	Fn, If, float, vec2, vec3, vec4, uniform, texture, mix, smoothstep,
+	Fn, If, float, vec2, vec3, vec4, uniform, texture, mix, smoothstep, select,
 	uv, positionLocal, normalLocal, positionWorld, normalWorld, cameraPosition,
-	sin, cos, atan, exp, normalize, Discard,
+	sin, cos, atan, exp, normalize, frontFacing,
 } from 'three/tsl';
 
 import {
@@ -47,6 +54,7 @@ import {
 } from './atmosphere.js';
 import { uSunDir } from './sky-lut.js';
 import { skyLutTexture } from './sky-background.js';
+import { waterClipDiscard } from './water-clip.js';
 
 const PI_C = 3.14159265;
 const TAU_C = 6.28318531;
@@ -108,10 +116,14 @@ export const creatureVertex = /*@__PURE__*/ Fn( () => {
 // ---- what it looks like from up here ----------------------------------------
 
 export const uCreatureSeaY = /*@__PURE__*/ uniform( 0.0 );      // mean surface height, m
-export const uCreatureFade = /*@__PURE__*/ uniform( 9.0 );      // depth over which it fades out, m
 export const uCreatureTint = /*@__PURE__*/ uniform( /*@__PURE__*/ vec3( 0.030, 0.130, 0.180 ) );
-export const uCreatureOpacity = /*@__PURE__*/ uniform( 1.0 );
 export const uCreatureHasTex = /*@__PURE__*/ uniform( 0.0 );
+// 1 in the beauty pass, 0 in the refraction pass. The sea hazes its own pixel
+// with aerial perspective while it composites the lookup in, so a body that
+// arrived already hazed would be hazed twice; above the water there is nothing
+// else to do it and it must be applied here. One uniform, so both passes share
+// a pipeline (see ./water-clip.js on why that matters).
+export const uCreatureAerial = /*@__PURE__*/ uniform( 1.0 );
 export const uCreatureAlbedo = /*@__PURE__*/ uniform( /*@__PURE__*/ vec3( 0.10, 0.13, 0.14 ) );
 
 const creatureBaseColor = /*@__PURE__*/ texture( /*@__PURE__*/ ( () => {
@@ -133,29 +145,43 @@ export function setCreatureTexture( tex ) {
 }
 
 /**
- * Underwater shading: a lambertian body under water that eats the light, faded
- * into the sea by depth.
+ * A lambertian body that eats the light it is lit by.
  *
- * The light itself is the same attenuated sun and the same LUT hemisphere the
- * sea and the hull use, so the animal goes red at sunset and out at night with
+ * The light is the same attenuated sun and the same LUT hemisphere the sea and
+ * the hull use, so the animal goes red at sunset and out at night with
  * everything else - then both are put through Beer-Lambert on the way DOWN to
  * it, because a body six metres under is lit by what got that far, not by the
- * sky. The alpha is the same law applied to the way back UP, which is why the
- * shape sharpens as it rises and dissolves as it sounds.
+ * sky.
+ *
+ * WHAT IS DELIBERATELY NOT HERE: the way back UP. This used to fade the body
+ * toward the water's colour by its own depth below mean sea level, which is the
+ * wrong quantity - it is only right looking straight down, and at the angle you
+ * ride at a body three metres under is thirty metres of water away. That fade
+ * now lives in the sea, over the real column reconstructed from the refraction
+ * pass's depth buffer (./water-surface.js). Doing it in both places would apply
+ * it twice.
  */
 export const creatureFragment = /*@__PURE__*/ Fn( () => {
 
+	// THE WATERLINE, decided by whichever pass is drawing. Below it in the
+	// refraction pass, above it in the beauty pass, everything in neither. First
+	// statement in the function, so the clipped-away half does not pay for the
+	// sky LUT reads below.
+	waterClipDiscard();
+
 	// Depth below the mean surface. THE MEAN, not the displaced surface: the
-	// waves move it by a metre or two either way, this fades over nine, and
-	// sampling the real cascades per fragment would cost more than the whole
-	// creature does.
-	const depth = uCreatureSeaY.sub( positionWorld.y ).toVar();
+	// waves move it by a metre or two either way, the light falls off over
+	// several, and sampling the real cascades per fragment would cost more than
+	// the whole creature does. Clamped at 0 so a breached fin is lit by the whole
+	// sun rather than by exp() of a negative depth, which is a fin brighter than
+	// the sky.
+	const depth = uCreatureSeaY.sub( positionWorld.y ).max( 0.0 ).toVar();
 
-	// The backstop for having no depth test: anything that surfaces would
-	// otherwise be painted over the sky.
-	Discard( depth.lessThan( 0.0 ) );
-
-	const N = normalize( normalWorld ).toVar();
+	// A DOUBLE-SIDED DRAW needs the back faces' normals turned round, or the
+	// inside of the open jaw and the thin fins - the two places this mesh is not
+	// a closed surface, and the two the old draw got wrong - are shaded as though
+	// they faced away from what is actually in front of them.
+	const N = select( frontFacing, normalize( normalWorld ), normalize( normalWorld ).negate() ).toVar();
 	const albedo = mix( uCreatureAlbedo, creatureBaseColor.sample( uv() ).rgb, uCreatureHasTex ).toVar();
 
 	const ro = vec3( 0.0, float( R_PLANET ).add( 1.0 ), 0.0 ).toVar();
@@ -176,41 +202,38 @@ export const creatureFragment = /*@__PURE__*/ Fn( () => {
 		sunRad.mul( NoL ).mul( 0.55 ).add( skyIrr.mul( domeVis ) ),
 	).div( PI_C ).mul( down ).toVar();
 
-	// The way back up: what the sea puts BETWEEN the animal and the eye. The
-	// body dissolves into the water's own colour rather than simply going
-	// transparent, so at depth it reads as a shape in the water instead of a
-	// ghost over it.
-	const veil = float( 1.0 ).sub( exp( depth.div( uCreatureFade.max( 0.5 ) ).negate() ) ).toVar();
-	const col = mix( lit, uCreatureTint.mul( skyIrr ).div( PI_C ), veil ).toVar();
+	// A hint of the water's own colour on the body itself - the light that
+	// scattered into the last metre or so of the path rather than the whole
+	// column, which the sea now owns. Kept small on purpose: turn this up and it
+	// starts doing the sea's job again, badly, from a quantity that does not know
+	// where the eye is.
+	const col = mix( lit, uCreatureTint.mul( skyIrr ).div( PI_C ),
+		float( 1.0 ).sub( exp( depth.mul( - 0.08 ) ) ).mul( 0.45 ) ).toVar();
 
-	// ...and the haze, the way the hull and the sea take it.
-	const eyeDist = cameraPosition.sub( positionWorld ).length().toVar();
-	const { inscatter, transmit } = aerialPerspective(
-		vec3( 0.0, cameraPosition.y.max( 1.0 ).add( R_PLANET ), 0.0 ),
-		normalize( positionWorld.sub( cameraPosition ) ),
-		eyeDist.min( 60000.0 ),
-		uSunDir,
-	);
+	// The haze, the way the hull and the sea take it - but ONLY in the beauty
+	// pass. In the refraction pass the sea hazes the finished pixel, this body
+	// included, and applying it here as well would haze it twice.
+	If( uCreatureAerial.greaterThan( 0.001 ), () => {
 
-	// Alpha: still legible right under the surface, gone by a few fade lengths.
-	// OPAQUE. Alpha was how this faded with depth, and alpha is also why you could
-	// see its teeth through the back of its own head: a blended draw with no
-	// depth buffer lets every triangle show through every other, and no amount of
-	// water tuning fixes that because it is not the water doing it.
-	//
-	// So the depth fade moves OUT of the alpha and INTO the colour. Water eats a
-	// submerged body by turning it the sea's own colour, not by making it
-	// see-through - swim over a dark shape in ten metres of water and it goes
-	// blue-grey and vanishes into the background, it does not become a window.
-	// This mixes the whole body toward that colour on the same Beer-Lambert law
-	// the alpha used, so it still dissolves as it sounds and sharpens as it
-	// rises, with nothing showing through anything.
-	const swallow = float( 1.0 ).sub(
-		exp( depth.div( uCreatureFade.max( 0.5 ) ).mul( - 0.85 ) ).mul( uCreatureOpacity ),
-	).clamp( 0.0, 1.0 ).toVar();
-	const sea = uCreatureTint.mul( skyIrr ).div( PI_C ).toVar();
-	col.assign( mix( col, sea, swallow ) );
+		const eyeDist = cameraPosition.sub( positionWorld ).length().toVar();
+		const { inscatter, transmit } = aerialPerspective(
+			vec3( 0.0, cameraPosition.y.max( 1.0 ).add( R_PLANET ), 0.0 ),
+			normalize( positionWorld.sub( cameraPosition ) ),
+			eyeDist.min( 60000.0 ),
+			uSunDir,
+		);
+		col.assign( col.mul( transmit ).add( inscatter ) );
 
-	return vec4( col.mul( transmit ).add( inscatter ), 1.0 );
+	} );
+
+	// ALPHA IS COVERAGE, nothing else. It is 1 wherever the animal is and 0
+	// wherever it is not, and the sea mixes its lookup by exactly that; how
+	// STRONGLY the shape reads is uRefractAmount, on the other side. Alpha used
+	// to carry the depth fade, and that is why you could see the teeth through
+	// the back of the skull: a blended draw with no depth buffer lets every
+	// triangle show through every other. It also has to stay 1 because the sea
+	// multiplies by this alpha - writing a faded value here and mixing by it
+	// there would darken the body by the square of its own visibility.
+	return vec4( col, 1.0 );
 
 } );

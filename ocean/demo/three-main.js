@@ -33,6 +33,8 @@ import { TslSky } from '../src/gpu/tsl/sky-driver.js';
 import { TslWater } from '../src/gpu/tsl/water-driver.js';
 import { TslSpray } from '../src/gpu/tsl/spray-driver.js';
 import { TslPost } from '../src/gpu/tsl/post-driver.js';
+import { TslRefraction } from '../src/gpu/tsl/refraction-driver.js';
+import { CLIP, setWaterClip } from '../src/gpu/tsl/water-clip.js';
 
 import { newParams, PRESETS, applyPreset } from '../src/presets.js';
 import { CLOUD_TYPE_NAMES, applyCloudType } from '../src/cloud-types.js';
@@ -48,7 +50,7 @@ import {
 import {
 	creatureVertex, creatureFragment, setCreatureTexture,
 	uCreatureLen, uCreaturePhase, uCreatureWaves, uCreatureAmp,
-	uCreatureSeaY, uCreatureFade, uCreatureOpacity,
+	uCreatureSeaY, uCreatureAerial,
 } from '../src/gpu/tsl/creature.js';
 import { WaveRunner } from './waverunner.js';
 import { SeaPlane } from './seaplane.js';
@@ -57,6 +59,8 @@ import { PLANE_MESH } from './planeModel.js';
 import { DRAGON_MESH } from './dragonModel.js';
 import {
 	setCraftShadowNode, uSwellPos, uSwellDir, uSwellLen, uSwellRad, uSwellAmp,
+	setRefractionTextures, uRefractAmount, uRefractDistort, uRefractFade,
+	uRefractThrough,
 } from '../src/gpu/tsl/water-surface.js';
 
 // ---------------------------------------------------------------------------
@@ -284,16 +288,25 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 
 	// ---- the sea dragon -------------------------------------------------------
 	//
-	// Its own scene and its own draw, between the sea and the craft. NO DEPTH
-	// TEST and no depth write, because the sea is opaque and has already written
-	// its own depth over every pixel the animal is behind - see the header of
-	// ./gpu/tsl/creature.js for why this is a blend rather than a refraction, and
-	// why front faces alone make an unsorted draw survivable.
+	// ONE MESH, ONE MATERIAL, TWO PASSES, split at the waterline by a uniform:
 	//
-	// The order is what makes it read as UNDER the water: the sea is laid down
-	// first, the dragon is blended into it by how deep it is, and the craft goes
-	// over the top with a real depth test - so riding past it puts the hull in
-	// front, as it should be.
+	//   drawDragonUnder()  the submerged half, into the refraction target's own
+	//                      colour and depth buffers, BEFORE the sea - because the
+	//                      sea reads that target while it shades itself.
+	//   drawDragonOver()   the breaching half, into the HDR frame AFTER the sea,
+	//                      depth-tested against it.
+	//
+	// The order is what makes it read as being IN the water rather than on it:
+	// the sea is laid down, looks down through itself at the refraction target,
+	// puts the animal into the radiance leaving the water and then applies its
+	// own Fresnel, foam, glitter and haze on top of it. The craft goes over
+	// everything with a real depth test, so riding past puts the hull in front.
+	//
+	// This replaces a depth-test-off draw straight over the sea. Both of that
+	// draw's faults were the missing depth buffer, and both are gone: it can be
+	// double-sided (the open jaw no longer shows its far teeth through the skull)
+	// and it can cross the surface (a fin above the waterline is an ordinary
+	// opaque fragment nearer than the sea).
 	const dragon = new SeaDragon();
 	let followDragon = false;
 	let followYaw = 0;
@@ -301,32 +314,25 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	dragonMat.name = 'abyssal.dragon';
 	dragonMat.fragmentNode = creatureFragment();
 	dragonMat.positionNode = creatureVertex();
-	// FRONT FACES ONLY AND NOT BLENDED. On a closed body the far side's triangles
-	// face away and are culled, so the near surface is the only thing drawn -
-	// which is what makes an unsorted draw survivable at all. It was blended as
-	// well, and that was the mistake: blending let the mouth and the far flank
-	// show through the near one, reported as "I see its teeth through its body".
-	// The depth fade lives in the colour now (see creatureFragment), so this can
-	// be a plain opaque draw.
-	// Front faces only, unblended, and NO DEPTH TEST - which is the one thing
-	// here that is still wrong and cannot be fixed from this file.
+	// AN ORDINARY OPAQUE DEPTH-TESTED DRAW. Double-sided because the jaw is open
+	// and the fins are single sheets - neither is a closed surface, and both are
+	// exactly what front-face culling could not sort.
 	//
-	// Culling the far side sorts a closed convex body, and a head with an open
-	// jaw in it is not one: the far row of teeth faces the camera, so it is
-	// front-facing, so it draws, and with no depth test the last triangle in
-	// index order wins. That is the teeth-through-the-skull.
+	// NOT BLENDED, and that is not a detail. Blending into the refraction target
+	// would premultiply the colour by alpha, and the sea multiplies by that same
+	// alpha again when it mixes the lookup in, so the animal would come out
+	// darkened by the square of its own coverage. Written straight: RGB is the
+	// radiance leaving it, ALPHA is coverage.
 	//
-	// The obvious fix - clear the depth buffer before the draw so the animal has
-	// one of its own - DOES NOT WORK on this renderer: clearing depth mid-frame
-	// restarts the render pass and takes the colour attachment with it, so the
-	// sea it had already drawn came out flat grey. Measured, not guessed. The
-	// animal needs a target with its own depth (src/gpu/tsl/underwater-driver.js,
-	// preserved at 230c301), and that is the fix.
-	dragonMat.side = THREE.FrontSide;
+	// The material's flags are IDENTICAL in both passes on purpose. Swapping
+	// side/depthWrite/blending per pass moves the WebGPU render cache key and
+	// forces a synchronous pipeline creation each time - see
+	// ../src/gpu/tsl/water-clip.js, which is why the waterline split is a uniform.
+	dragonMat.side = THREE.DoubleSide;
 	dragonMat.transparent = false;
 	dragonMat.blending = THREE.NoBlending;
-	dragonMat.depthTest = false;
-	dragonMat.depthWrite = false;
+	dragonMat.depthTest = true;
+	dragonMat.depthWrite = true;
 	const dragonBuild = buildCraftGeometry( params.sdLength, DRAGON_MESH );
 	const dragonMesh = new THREE.Mesh( dragonBuild.geometry, dragonMat );
 	dragonMesh.frustumCulled = false;
@@ -336,9 +342,14 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	loadCraftTexture( renderer, DRAGON_MESH ).then( ( t ) => setCreatureTexture( t ) );
 	let dragonLen = params.sdLength;
 
-	const drawDragon = () => {
+	// The waterline seam, in metres, scaled with the sea it is cutting. A flat cut
+	// at mean sea level is wrong by whatever the wave is doing at that point, so
+	// the two half-spaces overlap rather than meet; ../src/gpu/tsl/water-clip.js
+	// has the argument for erring toward over-inclusion on both sides.
+	const clipSeam = () => Math.max( 0.8, ( params.swellAmount ?? 0.5 ) * 2 );
 
-		if ( params.sdEnabled < 0.5 ) return;
+	const poseDragon = () => {
+
 		// The mesh is built at a length; changing it is a rebuild, not a scale, so
 		// that the swim's wavelength stays in the same units as the body.
 		if ( Math.abs( params.sdLength - dragonLen ) > 0.01 ) {
@@ -354,15 +365,36 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		uCreatureAmp.value = params.sdAmp;
 		uCreaturePhase.value = dragon.phase;
 		uCreatureSeaY.value = params.sdSeaLevel;
-		uCreatureFade.value = params.sdFade;
-		uCreatureOpacity.value = params.sdOpacity;
 		// modelYaw 0: tools/glb.mjs already put this asset's head on -Z.
 		setCraftTransform(
 			dragonMesh,
 			[ dragon.pos[ 0 ], dragon.pos[ 1 ], dragon.pos[ 2 ] ],
 			dragon.heading, dragon.pitch, dragon.roll, 1.0, 0,
 		);
+
+	};
+
+	// Into the refraction target. Returns whether there is anything in it this
+	// frame, which is what switches the sea's lookup on.
+	const drawDragonUnder = () => {
+
+		if ( params.sdEnabled < 0.5 ) return false;
+		poseDragon();
+		// No haze here: the sea hazes the finished pixel, this body included.
+		uCreatureAerial.value = 0;
+		refraction.render( dragonScene, cam3, params.sdSeaLevel, clipSeam() );
+		return true;
+
+	};
+
+	// ...and the half above the waterline, over the sea, sorted against it.
+	const drawDragonOver = () => {
+
+		if ( params.sdEnabled < 0.5 ) return;
+		uCreatureAerial.value = 1;
+		setWaterClip( CLIP.ABOVE, params.sdSeaLevel, clipSeam() );
 		renderer.render( dragonScene, cam3 );
+		setWaterClip( CLIP.OFF, params.sdSeaLevel, clipSeam() );
 
 	};
 
@@ -525,6 +557,10 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 
 	};
 	const post = new TslPost( renderer );
+	// What the sea looks down INTO. Half the HDR target's size: the sea displaces
+	// this lookup by the surface slope and then buries it under a Fresnel term, so
+	// it never shows it sharply. See the driver's header.
+	const refraction = new TslRefraction( renderer, { scale: 0.5 } );
 
 	// The three camera the sea is rasterised through. demo/camera.js owns the
 	// rig; this mirrors its matrices onto a three camera each frame, because
@@ -675,6 +711,13 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 
 		renderer.setSize( w, h, false );
 		post.resize( w, h );
+		{
+
+			const t = refraction.resize( w, h );
+			setRefractionTextures( { color: t.texture, depth: t.depthTexture } );
+
+		}
+
 		if ( hdr ) hdr.dispose();
 		hdr = new THREE.RenderTarget( w, h, {
 			type: THREE.HalfFloatType,
@@ -685,6 +728,22 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			generateMipmaps: false,
 		} );
 		hdr.texture.name = 'abyssal.hdr';
+		// AN EXPLICIT DEPTH TEXTURE ON THE BEAUTY TARGET TOO, and it is not because
+		// anything samples it. Three hashes a RenderContext on the COLOUR signature
+		// alone, so this target and the refraction target - same format, same type,
+		// both depth-buffered - share one context, while WebGPU's pipeline cache key
+		// is built partly from that context's DEPTH format. Leaving three to invent
+		// this one's depth (depth24plus) next to the refraction target's explicit
+		// FloatType one (depth32float) makes the shared context's format flip from
+		// pass to pass, and since the render-object chain key carries no camera and
+		// no target, every render object re-keys twice a frame and recompiles. The
+		// cost is invisible on the WebGL backend, whose cache key is "" - which is
+		// exactly why it reads as a WebGPU problem. The reference implementation
+		// measured this one (saltyfin/src/core/renderer.js).
+		hdr.depthTexture = new THREE.DepthTexture( w, h, THREE.FloatType );
+		hdr.depthTexture.name = 'abyssal.hdrDepth';
+		hdr.depthTexture.minFilter = THREE.NearestFilter;
+		hdr.depthTexture.magFilter = THREE.NearestFilter;
 		diagSrc.value = hdr.texture;
 		cam3.aspect = w / h;
 		cam3.updateProjectionMatrix();
@@ -1102,6 +1161,21 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		// in drawCraft would shadow the sea from where it was last frame.
 		poseCraft();
 
+		// EVERYTHING SUBMERGED GOES INTO ITS OWN TARGET FIRST, because the sea
+		// reads it while it is shading itself. On a frame with nothing down there
+		// the target is cleared anyway rather than left alone: the sea samples it
+		// every frame the lookup is on, and a stale or never-written half-float
+		// buffer is exactly the NaN that once washed the whole ocean white.
+		const submerged = drawDragonUnder();
+		if ( ! submerged ) refraction.clear();
+		// Coverage arrives in the target's ALPHA; this is how hard it reads.
+		// Clamped to 1 because the sea's guard treats anything past that as a
+		// corrupt sample.
+		uRefractAmount.value = submerged ? Math.min( params.sdOpacity, 1 ) : 0;
+		uRefractDistort.value = params.sdRefract;
+		uRefractFade.value = params.sdFade;
+		uRefractThrough.value = params.sdThrough;
+
 		// THE SEA OVER ITS BACK. A body this size shoulders the water aside, and
 		// the lift dies off as it sounds - which is what turns "a picture under
 		// the surface" into "something big is under there". Zeroed when there is
@@ -1139,13 +1213,13 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 
 			sky.drawBackground( params, ctx );
 			water.render( params, ctx, sim, cam3, { wake: wake.uniforms( params, rider.active ), hull } );
-			drawDragon();
+			drawDragonOver();
 			drawCraft();
 
 		} else {
 
 			water.render( params, ctx, sim, cam3, { wake: wake.uniforms( params, rider.active ), hull } );
-			drawDragon();
+			drawDragonOver();
 			drawCraft();
 			sky.drawBackground( params, ctx );
 
@@ -1225,7 +1299,7 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		cam3,
 		output,
 		onFrame: null,
-		rider, plane, dragon, wake, craftProbe, craftMesh, planeMesh, hull,
+		rider, plane, dragon, wake, craftProbe, craftMesh, planeMesh, hull, refraction,
 		// A FUNCTION, not a getter: the app object gets spread on its way to
 		// window.abyssal, and a spread evaluates a getter ONCE - so the button
 		// read "Follow" forever while the camera was demonstrably following.

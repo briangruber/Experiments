@@ -3,13 +3,18 @@
 //
 //   node tools/check-dragon.mjs
 //
-// Three claims, because the animal can fail three separate ways and two of them
+// Four claims, because the animal can fail four separate ways and two of them
 // look fine in a still:
 //
 //   VISIBLE   it is drawn INTO the sea. The ocean is opaque and writes depth,
-//             so the whole thing hangs on the draw order and the blend in
-//             src/gpu/tsl/creature.js; get either wrong and it is simply gone,
-//             or - worse - painted over the sky.
+//             so the whole thing hangs on the refraction pass
+//             (src/gpu/tsl/refraction-driver.js) and the lookup that composites
+//             it in src/gpu/tsl/water-surface.js; get either wrong and it is
+//             simply gone, or - worse - painted over the sky.
+//   BREACHING the half above the waterline is a separate draw, into the beauty
+//             pass instead of the refraction target. It is the capability the
+//             missing depth buffer used to make impossible, and nothing else
+//             here can see whether it happens.
 //   SWIMMING  the body wave advances and the tail beats faster when it sprints.
 //             prototypes/dragon-swim.html pins the SHAPE of the wave; this pins
 //             that the app is actually driving it.
@@ -164,12 +169,41 @@ for (const [on, name] of [[1, 'on'], [0, 'off'], [0, 'off2']]) {
   shots[name] = await page.screenshot({ timeout: 90000, animations: 'disabled' });
   if (process.env.SAVE_SHOTS) await (await import('node:fs/promises')).writeFile(`${ROOT}/shots/dbg-${name}.png`, shots[name]);
 }
+
+// ---- BREACHING ------------------------------------------------------------
+// The half of the animal ABOVE the waterline is a different draw: it goes into
+// the beauty pass after the sea, depth-tested against it, rather than into the
+// refraction target (demo/three-main.js). Nothing else in this file can tell
+// whether it happens, and for most of this feature's life it could not happen
+// at all - without a depth buffer anything that surfaced had to be discarded or
+// it would paint over the sky.
+//
+// Isolate it with two knobs that are already there. sdOpacity 0 switches the
+// sea's lookup off, so the submerged half contributes nothing; sdSwell 0 takes
+// the mound out, so the sea is identical either way. What is left when the
+// animal is brought to the surface and sdEnabled is toggled is the beauty-pass
+// draw and nothing else.
+await page.evaluate(() => {
+  const A = window.abyssal;
+  A.params.sdOpacity = 0;
+  A.params.sdSwell = 0;
+  A.params.sdMinDepth = -4;
+  A.params.sdDepth = 0;
+  A.params.sdDepthSwing = 0;
+  A.dragon.pos[1] = 0;
+});
+for (const [on, name] of [[1, 'breach'], [0, 'breachOff']]) {
+  await page.evaluate((v) => { window.abyssal.params.sdEnabled = v; }, on);
+  await page.waitForTimeout(2500);
+  shots[name] = await page.screenshot({ timeout: 90000, animations: 'disabled' });
+  if (process.env.SAVE_SHOTS) await (await import('node:fs/promises')).writeFile(`${ROOT}/shots/dbg-${name}.png`, shots[name]);
+}
 await browser.close();
 server.close();
 
 const b2 = await launchChromium();
 const p2 = await b2.newPage();
-const pix = await p2.evaluate(async ({ on, off, off2, horizon }) => {
+const pix = await p2.evaluate(async ({ on, off, off2, breach, breachOff, horizon }) => {
   const load = async (b64) => {
     const raw = atob(b64); const u8 = new Uint8Array(raw.length);
     for (let i = 0; i < raw.length; i++) u8[i] = raw.charCodeAt(i);
@@ -179,6 +213,7 @@ const pix = await p2.evaluate(async ({ on, off, off2, horizon }) => {
     return { d: c.getContext('2d').getImageData(0, 0, bmp.width, bmp.height).data, w: bmp.width, h: bmp.height };
   };
   const A = await load(on), B = await load(off), C = await load(off2);
+  const D = await load(breach), E = await load(breachOff);
   const count = (X, Y) => {
     let n = 0, sky = 0, sum = 0, peak = 0;
     for (let i = 0; i < X.d.length; i += 4) {
@@ -191,15 +226,17 @@ const pix = await p2.evaluate(async ({ on, off, off2, horizon }) => {
     }
     return { n, sky, mean: +(sum / Math.max(n, 1)).toFixed(1), peak: +peak.toFixed(0) };
   };
-  return { control: count(B, C), effect: count(A, B) };
+  return { control: count(B, C), effect: count(A, B), breach: count(D, E) };
 }, {
   on: shots.on.toString('base64'), off: shots.off.toString('base64'),
-  off2: shots.off2.toString('base64'), horizon: horizonRow.frac,
+  off2: shots.off2.toString('base64'),
+  breach: shots.breach.toString('base64'), breachOff: shots.breachOff.toString('base64'),
+  horizon: horizonRow.frac,
 });
 await b2.close();
 
-const { control, effect } = pix;
-console.log(JSON.stringify({ chase, beat, horizonRow, control, effect }, null, 1));
+const { control, effect, breach } = pix;
+console.log(JSON.stringify({ chase, beat, horizonRow, control, effect, breach }, null, 1));
 
 const fails = [];
 const need = (c, m) => { if (!c) fails.push(m); };
@@ -219,6 +256,13 @@ need(effect.n > 2500, `barely visible in the water (${effect.n} px changed)`);
 need(effect.mean > 8, `it only shifts the sea by ${effect.mean}/255 where it covers it - too faint to read as a body`);
 need(!horizonRow.offScreen, 'the horizon is off the top of this frame - the sky assertion below is measuring nothing');
 need(effect.sky < effect.n * 0.02, `${effect.sky} of its ${effect.n} pixels are above the horizon (row ${Math.round(horizonRow.frac * 400)}) - it is reaching the sky`);
+// ...and the opposite claim, which is the new capability. With the sea's lookup
+// and the mound both switched off, anything the animal still changes when it is
+// brought to the surface is the ABOVE-water draw. This is deliberately a much
+// lower bar than the submerged one - only the back and the dorsal fin are out -
+// but it is the difference between a body that can breach and one that cannot,
+// and zero here means the beauty pass is not drawing it at all.
+need(breach.n > 300, `nothing above the waterline was drawn (${breach.n} px) - it cannot break the surface`);
 need(errors.length === 0, 'page errors: ' + errors.slice(0, 3).join(' | '));
 
 console.log(fails.length ? 'DRAGON FAILED\n  ' + fails.join('\n  ') : 'DRAGON OK');

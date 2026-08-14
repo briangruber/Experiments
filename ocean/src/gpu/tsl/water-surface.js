@@ -150,9 +150,12 @@
 //    sampleSky would compile and would quietly make every water reflection a
 //    perfect mirror.
 
+import * as THREE from 'three/webgpu';
 import {
-	Fn, If, float, int, vec2, vec3, uniform, attribute, varyingProperty,
+	Fn, If, float, int, vec2, vec3, vec4, uniform, attribute, varyingProperty,
 	mix, clamp, smoothstep, select, reflect, dFdx, dFdy, fwidth, atan, acos,
+	texture, screenUV, step, normalize, exp,
+	cameraNear, cameraFar, cameraViewMatrix, perspectiveDepthToViewZ,
 } from 'three/tsl';
 
 import {
@@ -336,6 +339,89 @@ export const swellLift = /*@__PURE__*/ Fn( ( [ xz ] ) => {
 	return g.mul( taper ).mul( uSwellAmp );
 
 } );
+
+// ---- the refraction pass ----------------------------------------------------
+//
+// What the sea is looking down INTO. A caller renders everything submerged into
+// a colour target and a matching depth target (./refraction-driver.js) and hands
+// both over here; the fragment stage looks them up in screen space, offset by
+// the surface's own slope, and folds the result into the water-leaving radiance.
+//
+// Ported from `claude/saltyfin-webgpu`, saltyfin/src/water/waterMaterial.js.
+// That build keeps its sea opaque and depth-writing exactly as this one does -
+// so opacity was never the difference between "you can see a mesh under the
+// water" and "you cannot". THIS is the difference: a screen-space colour lookup
+// with a DEPTH lookup beside it, because without the depth there is no water
+// column, and without a water column there is no extinction, no sense of how far
+// down the thing is, and nothing to reject a sample that is actually in front of
+// the surface.
+//
+// uRefractAmount 0 - the default, and what every caller with nothing submerged
+// gets - skips the whole block, so the sea is bit-for-bit what it was and the
+// golden images do not move.
+export const uRefractAmount = /*@__PURE__*/ uniform( 0.0 );
+// How hard the surface slope bends the lookup, in screen fractions. This is what
+// makes chop passing over a submerged body wobble it and break it up.
+export const uRefractDistort = /*@__PURE__*/ uniform( 0.045 );
+// Metres of water that swallow the shape. The COLOUR of the swallowing is the
+// sea's own uAbsorption (red first, which is what makes water blue-green); this
+// is only its scale, so a preset's water stays its own colour while the artist
+// still has one honest knob in metres.
+export const uRefractFade = /*@__PURE__*/ uniform( 11.0 );
+// The fudge, and labelled as one. Composited only into the diffuse term the
+// animal is physically right and practically invisible: at the angle you ride
+// at, Fresnel is around 0.7 and the sea's own mirror eats it. This mixes a
+// fraction of the shape into the sea's colour ABOVE the diffuse and BELOW the
+// foam, so it reads through the glare while whitecaps and the hull's wake still
+// pass over the top of it - which is the half that stops it looking pasted on.
+// 0 is the pure physics.
+export const uRefractThrough = /*@__PURE__*/ uniform( 0.38 );
+
+// PLACEHOLDERS WITH THE REAL RESOURCES' FILTER STATE (porting rule 11). On WGSL
+// the sampling instruction is chosen when the graph is BUILT, from whatever is
+// bound at that moment: a DataTexture defaulting to NearestFilter standing in
+// for a linearly-filtered half-float target bakes a texel fetch into the shader
+// and keeps it forever after, and the refraction comes back blocky on WebGPU and
+// smooth on WebGL2 with nothing raising a word.
+const refractionTexture = /*@__PURE__*/ texture( /*@__PURE__*/ ( () => {
+
+	const t = new THREE.DataTexture( new Uint8Array( [ 0, 0, 0, 0 ] ), 1, 1 );
+	t.minFilter = THREE.LinearFilter;
+	t.magFilter = THREE.LinearFilter;
+	t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+	t.needsUpdate = true;
+	return t;
+
+} )() );
+
+// Cleared to the far plane, so an unbound or empty pass reconstructs a column
+// that is kilometres long and the composite falls through to the plain sea.
+const refractionDepthTexture = /*@__PURE__*/ texture( /*@__PURE__*/ ( () => {
+
+	const t = new THREE.DepthTexture( 1, 1, THREE.FloatType );
+	t.minFilter = THREE.NearestFilter;
+	t.magFilter = THREE.NearestFilter;
+	t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+	t.needsUpdate = true;
+	return t;
+
+} )() );
+
+/**
+ * Point the sea at the refraction pass's two targets.
+ *
+ * Both must be the same KIND of resource the graph was built against (porting
+ * rule 11) - a linear, non-mipped, clamped RGBA half-float and a nearest,
+ * clamped float depth - which is what ./refraction-driver.js allocates.
+ *
+ * @param {{color: THREE.Texture, depth: THREE.DepthTexture}} t
+ */
+export function setRefractionTextures( { color, depth } = {} ) {
+
+	if ( color ) refractionTexture.value = color;
+	if ( depth ) refractionDepthTexture.value = depth;
+
+}
 
 // A REAL SHADOW, IF THE CALLER HAS ONE TO GIVE.
 //
@@ -1207,6 +1293,117 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 
 	const diffuse = body.add( sss ).toVar();
 
+	// ---- what is UNDER the water at this pixel ------------------------------
+	//
+	// The refraction pass (./refraction-driver.js) has already drawn everything
+	// submerged into a colour target and a matching depth target. This is where
+	// the sea looks through itself at it - and the placement is the whole
+	// difference between a thing IN the water and a decal ON it. It goes into
+	// the DIFFUSE term, the radiance leaving the sea upward, and nowhere else,
+	// so everything downstream then happens TO it, for free and correctly:
+	//
+	//   * (1 - Fenv) scales it, so at a grazing angle it vanishes behind the
+	//     mirror the way a real submerged shape does;
+	//   * foam covers it, so the sea's own whitecaps and the hull's wake pass
+	//     OVER it instead of under - which is what made it read as a sticker;
+	//   * the sun glitter sits on top of it;
+	//   * aerial perspective hazes it with the rest of the sea.
+	//
+	// Held outside the branch so the "shows through the glare" term at the
+	// composite can reuse the sample rather than taking it a second time.
+	const refrCol = vec3( 0.0 ).toVar();
+	const refrCov = float( 0.0 ).toVar();
+
+	If( uRefractAmount.greaterThan( 0.001 ), () => {
+
+		// The ray this pixel of sea is seen along, and how far it leans off the
+		// camera's forward axis. The depth buffer measures along FORWARD and every
+		// length here is along the RAY, so one divide reconciles the two. Written
+		// as -RD.z in view space rather than by pulling a column out of the view
+		// matrix, because the camera looks down -Z there.
+		const RD = V.negate().toVar();
+		const cosA = cameraViewMatrix.mul( vec4( RD, 0.0 ) ).z.negate().max( 1e-3 ).toVar();
+
+		const suv = screenUV.toVar();
+		const bed0 = perspectiveDepthToViewZ(
+			refractionDepthTexture.sample( suv ), cameraNear, cameraFar,
+		).negate().div( cosA ).toVar();
+
+		// SCREEN-SPACE OFFSETS COME FROM HOW FAR THE NORMAL HAS BEEN BENT AWAY
+		// FROM FLAT, not from the normal itself. The latter is a constant slide of
+		// the whole image with no wobble in it at all - it slews the lookup
+		// wholesale as you turn your head and never ripples, which is the tell
+		// that gives a fake refraction away.
+		const bend = cameraViewMatrix.mul( vec4( N, 0.0 ) ).xy
+			.sub( cameraViewMatrix.mul( vec4( 0.0, 1.0, 0.0, 0.0 ) ).xy ).toVar();
+		// Gated by how much water there actually is to bend the look through, and
+		// flattened with distance: the same metre of lateral displacement is fewer
+		// pixels the further off it is, and a fixed offset makes the far field boil.
+		const distort = uRefractDistort
+			.mul( clamp( bed0.sub( eyeDist ).max( 0.0 ).mul( 0.7 ), 0.0, 1.0 ) )
+			.div( float( 1.0 ).add( dist.mul( 0.045 ) ) ).toVar();
+		// screenUV.y = 0 is the TOP on both backends (porting rule 3) while view
+		// space +Y is up, so the vertical half of the offset is negated. The
+		// lookup itself needs no flip: sampling a render-target texture flips v on
+		// WebGL and not on WebGPU, which cancels against the framebuffer's own row
+		// order (rule 4) - and a DepthTexture takes the same flip, so the colour
+		// and the depth stay in step. The bounds are vec2s rather than scalars
+		// because clamp is built from the same MathNode path as the min/max whose
+		// scalar second operand fails to compile on WebGL2 alone (rule 2).
+		const ruv = clamp(
+			suv.add( vec2( bend.x, bend.y.negate() ).mul( distort ) ),
+			vec2( 0.002 ), vec2( 0.998 ),
+		).toVar();
+		const bed1 = perspectiveDepthToViewZ(
+			refractionDepthTexture.sample( ruv ), cameraNear, cameraFar,
+		).negate().div( cosA ).toVar();
+
+		// If the offset sample sits IN FRONT of the surface, it is something above
+		// the water leaking in - a breached fin that the waterline seam let into
+		// this pass, which is exactly the case the seam is deliberately generous
+		// about. Fall back to the straight sample.
+		const ok = step( eyeDist, bed1 ).toVar();
+		const fuv = mix( suv, ruv, ok ).toVar();
+		const bedDist = mix( bed0, bed1, ok ).toVar();
+
+		const samp = refractionTexture.sample( fuv ).toVar();
+
+		// THE WATER COLUMN, and this is what the depth attachment is for. The old
+		// blend faded the animal by its own depth below mean sea level, which is a
+		// different quantity: it is right only looking straight down, and at the
+		// angle you actually ride at a body three metres down is thirty metres of
+		// water away. Here it is the real distance from this pixel of surface to
+		// the body along the ray.
+		const path = bedDist.sub( eyeDist ).max( 0.0 ).toVar();
+		// Extinction on the way up. The COLOUR is the sea's own uAbsorption, so
+		// red goes first and the shape turns blue-green as it sounds exactly like
+		// the water around it; uRefractFade is only its SCALE, in metres, so the
+		// preset keeps its own water and the artist keeps one honest knob.
+		const kAbs = uAbsorption.div( uAbsorption.dot( vec3( 1.0 / 3.0 ) ).max( 1e-4 ) )
+			.div( uRefractFade.max( 0.5 ) ).toVar();
+		const trans = exp( kAbs.mul( path ).negate() ).toVar();
+		// The body replaces the part of the deep column it blocks, and the metres
+		// of water above it still scatter. At the surface trans -> 1 and you see
+		// the animal; far down trans -> 0 and you see the sea, with no step in
+		// between. Standalone mix, per channel (porting rule 1).
+		const seen = mix( diffuse, samp.rgb, trans ).toVar();
+
+		// THE GUARD GOES AROUND THE WHOLE MIX. Washing the ocean white was a NaN
+		// arriving from the target, and guarding the WEIGHT alone is not enough:
+		// mix(a, b, 0) is a*(1-0) + b*0, and a NaN in b survives being multiplied
+		// by zero. select() picks one of its arms, so a NaN in the arm not taken
+		// cannot travel. Comparisons against NaN are false, so anything the target
+		// holds that is not a sane 0..1 coverage leaves the sea exactly as it was.
+		const cov = samp.a.mul( uRefractAmount ).toVar();
+		const sane = cov.greaterThan( 0.0 ).and( cov.lessThan( 1.0001 ) )
+			.and( samp.r.lessThan( 1e6 ) ).and( samp.g.lessThan( 1e6 ) )
+			.and( samp.b.lessThan( 1e6 ) ).and( path.lessThan( 1e7 ) ).toVar();
+		refrCov.assign( select( sane, cov.min( 1.0 ), float( 0.0 ) ) );
+		refrCol.assign( select( sane, seen, diffuse ) );
+		diffuse.assign( mix( diffuse, refrCol, refrCov ) );
+
+	} );
+
 	// ---- 13. composite water (732-737) --------------------------------------
 	// A foam-covered facet is not a mirror, so it cannot carry the water's
 	// glitter. Leaving the specular under the raft is what made whitecaps read as
@@ -1215,6 +1412,23 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 		.add( skyRefl.mul( Fenv ) )
 		.add( sunSpec.add( moonSpec ).mul( float( 1.0 ).sub( foamMask.mul( 0.9 ) ) ) )
 		.toVar();
+
+	// ---- what shows THROUGH the glare ---------------------------------------
+	//
+	// The fudge, and it is labelled as one. Composited into the diffuse term
+	// alone the animal is physically right and practically invisible: at the
+	// angle you ride at, Fenv is around 0.7, and the measured shift across the
+	// whole creature was 9 levels out of 255. So a fraction of the shape is mixed
+	// into the sea's colour here - ABOVE the Fresnel that hides it and BELOW the
+	// foam, which still passes over the top of it, because foam passing over the
+	// animal is the half that stops it reading as pasted on.
+	//
+	// uRefractThrough 0 is the pure physics.
+	If( refrCov.mul( uRefractThrough ).greaterThan( 0.001 ), () => {
+
+		col.assign( mix( col, refrCol, refrCov.mul( uRefractThrough ).min( 1.0 ) ) );
+
+	} );
 
 	// ---- 14. foam shading (739-777) -----------------------------------------
 	If( foamMask.greaterThan( 0.003 ), () => {

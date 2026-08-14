@@ -372,9 +372,11 @@ export const defaults = {
 
   // ---- the sea dragon (demo/seadragon.js, src/gpu/tsl/creature.js) ----
   // It holds a station off your shoulder rather than wandering, because a sea
-  // monster you have to go looking for is one most riders never see. Depth is
-  // what makes it read as UNDER the water: the renderer fades it out over
-  // sdFade metres, so sdDepth is really "how solid is it".
+  // monster you have to go looking for is one most riders never see. It is
+  // rendered into the refraction pass (src/gpu/tsl/refraction-driver.js) and the
+  // sea looks down through itself at it, so depth is what makes it read as UNDER
+  // the water: the water column between you and it swallows it over sdFade
+  // metres, and sdDepth is really "how solid is it".
   sdEnabled: 1.0,           // 0 turns the animal off entirely, draw and all
   sdLength: 22.0,           // nose to tail, metres. The mesh is unit-length.
   sdSpeed: 26.0,            // m/s it will sprint to hold station - faster than
@@ -389,11 +391,21 @@ export const defaults = {
   sdLead: 6.0,              // ...and how far ahead, so a chase camera sees it
   sdDepth: 3.2,             // mean depth below the surface, m
   sdDepthSwing: 2.0,        // how far it rises and sounds around that
-  sdMinDepth: 1.6,          // never nearer the surface than this - it must not
-                            // breach, see src/gpu/tsl/creature.js
+  sdMinDepth: 1.6,          // never nearer the surface than this. It CAN breach
+                            // now - the refraction pass gave it a depth buffer,
+                            // so a fin above the waterline is an ordinary opaque
+                            // fragment in front of the sea - this is a staging
+                            // choice, not the backstop it used to be.
   sdSeaLevel: 0.0,          // the mean surface it measures depth from
-  sdFade: 11.0,             // metres of depth over which it fades into the sea
-  sdOpacity: 1.0,           // overall strength of the thing in the water
+  sdFade: 11.0,             // metres of WATER COLUMN that swallow the shape.
+                            // Not its depth below the surface - the real
+                            // distance from the pixel of sea you are looking at
+                            // to the body, reconstructed from the refraction
+                            // pass's depth buffer. The COLOUR of the swallowing
+                            // is the sea's own absorption; this is its scale.
+  sdOpacity: 1.0,           // how hard the shape reads through the surface. It
+                            // scales the coverage the sea mixes by, so 0 skips
+                            // the lookup in the ocean shader entirely.
   // The mouth. The mesh ships with the jaw fully dropped and no rig to close it,
   // and its mandible physically ENDS at the mouth corner - there is no
   // articulation aft of it to swing about, so rotating far enough to shut the
