@@ -3,6 +3,7 @@
 //
 //   node tools/shrink-assets.mjs                       # in place, with a report
 //   node tools/shrink-assets.mjs --base 512 --aux 256
+//   node tools/shrink-assets.mjs --dir /path/to/glbs   # any directory of GLBs
 //
 // Tripo returns 2048x2048 for every map. These props are set dressing seen at a
 // few hundred pixels through diffusion, bloom and grain, and the whole episode
@@ -18,9 +19,9 @@ import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const ASSETS = join(ROOT, 'company/props/assets');
 const args = process.argv.slice(2);
 const opt = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i + 1] : d; };
+const ASSETS = resolve(opt('dir', join(ROOT, 'company/props/assets')));
 
 const BASE = +opt('base', 512);      // baseColorTexture and emissive
 const AUX = +opt('aux', 256);        // normal, metallicRoughness, occlusion

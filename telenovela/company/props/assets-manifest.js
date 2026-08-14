@@ -7,6 +7,12 @@ export const ASSET_NAMES = [
   // The one useful survivor of the auto-rigging experiment: a skinned hen with
   // a walk clip, good enough for the far end of a dark courtyard.
   'hen-tripo-walk',
+  // The second dressing pass: depth layers for the courtyard. Overhead colour
+  // (papel picado), practicals (wall lanterns), a big left-side silhouette
+  // (the well), soft fabric (laundry), a rail for the parapet, and floor
+  // clutter (crate, roses, tiles) for foreground edges.
+  'papel-picado', 'wall-lantern', 'stone-well', 'laundry-line',
+  'balcony-rail', 'crate-fruit', 'rose-vine', 'tile-stack',
 ];
 
 export const ASSETS = Object.fromEntries(ASSET_NAMES.map((n) => [n, `./company/props/assets/${n}.glb`]));
