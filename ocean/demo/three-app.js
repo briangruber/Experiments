@@ -648,6 +648,14 @@ function installSettingsPanel( app, presetSel, cloudSel ) {
 		// that survives the HUD being collapsed, unlike #settings-btn. Mirrors
 		// exactly what the btn click handler below does when it is the one
 		// closing rather than opening.
+		if ( ev.type === 'essentials' ) {
+
+			uiRoot.classList.toggle( 'essentials' );
+			ui.syncAll();
+			return;
+
+		}
+
 		if ( ev.type === 'closePanel' ) {
 
 			uiRoot.classList.add( 'hidden' );

@@ -388,3 +388,47 @@ export function waterlineHalfWidth( profile, localY ) {
 	return half[ b ];
 
 }
+
+/**
+ * Which STATIONS along a body are high enough to break the surface - the
+ * lengthwise companion to buildWaterlineProfile's crosswise one.
+ *
+ * For each slice along local Z, the highest local Y any vertex reaches there.
+ * A dorsal fin is a tall, short station; a flank is a low, long one. With
+ * this, "where is this mesh piercing the water" is a lookup rather than a
+ * guess, so spray can leave the fin that is actually out instead of a ring
+ * around the body's centre.
+ *
+ * @param {THREE.BufferGeometry} geometry
+ * @param {number} [bins=48] - slices along the body.
+ * @returns {{minZ:number, maxZ:number, top:Float32Array}}
+ */
+export function buildBreachProfile( geometry, bins = 48 ) {
+
+	const pos = geometry.getAttribute( 'position' );
+	const top = new Float32Array( bins ).fill( - Infinity );
+	let minZ = Infinity, maxZ = - Infinity;
+	for ( let i = 0; i < pos.count; i ++ ) {
+
+		const z = pos.getZ( i );
+		if ( z < minZ ) minZ = z;
+		if ( z > maxZ ) maxZ = z;
+
+	}
+	if ( ! ( maxZ > minZ ) ) return { minZ: 0, maxZ: 0, top: new Float32Array( bins ) };
+
+	const span = maxZ - minZ;
+	for ( let i = 0; i < pos.count; i ++ ) {
+
+		let b = Math.floor( ( pos.getZ( i ) - minZ ) / span * bins );
+		if ( b < 0 ) b = 0; else if ( b >= bins ) b = bins - 1;
+		const y = pos.getY( i );
+		if ( y > top[ b ] ) top[ b ] = y;
+
+	}
+	for ( let b = 1; b < bins; b ++ ) if ( top[ b ] === - Infinity ) top[ b ] = top[ b - 1 ];
+	for ( let b = bins - 2; b >= 0; b -- ) if ( top[ b ] === - Infinity ) top[ b ] = top[ b + 1 ];
+	for ( let b = 0; b < bins; b ++ ) if ( ! Number.isFinite( top[ b ] ) ) top[ b ] = 0;
+	return { minZ, maxZ, top };
+
+}

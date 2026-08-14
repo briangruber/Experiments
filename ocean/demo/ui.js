@@ -84,6 +84,10 @@ export class UI {
       b.addEventListener('click', () => this.onChange({ type }));
       return b;
     };
+    // Hides every control not in schema.js's KEY_PARAMS. The panel is ~420
+    // sliders deep and most of them are the fine tuning behind a master; this
+    // is how you find the master.
+    this.essentialsBtn = mk('Essentials only', 'essentials');
     this.quietBtn = mk('Quiet mode', 'quiet');
     this.rideBtn = mk('Ride', 'ride');
     // The view switch has to be reachable without a keyboard - V is not a control
@@ -108,7 +112,8 @@ export class UI {
     const grid3 = document.createElement('div');
     grid3.className = 'btns';
     grid3.style.marginTop = '6px';
-    grid3.append(mk('Reset', 'reset'));
+    grid3.append(this.essentialsBtn, mk('Reset', 'reset'));
+    grid3.className = 'btns';
     actions.appendChild(grid3);
     root.appendChild(actions);
 
@@ -226,6 +231,8 @@ export class UI {
     // needs no positioning logic, no z-index fight with a scrolling panel,
     // and works identically on every one of the ~400 controls this covers.
     if (item.hint) wrap.title = item.hint;
+    // Marked so the Essentials filter can keep it while hiding the rest.
+    if (item.essential) wrap.classList.add('is-key');
     const p = this.params;
 
     if (item.type === 'color') {
@@ -299,6 +306,10 @@ export class UI {
       const riding = document.body.classList.contains('riding');
       this.viewBtn.style.display = riding ? '' : 'none';
       this.viewBtn.textContent = this.params.wrView >= 0.5 ? 'Rider view' : 'Chase view';
+    }
+    if (this.essentialsBtn) {
+      const on = this.root.classList.contains('essentials');
+      this.essentialsBtn.textContent = on ? 'Show all settings' : 'Essentials only';
     }
     if (this.quietBtn) {
       this.quietBtn.textContent = this.params.fpsCap > 0 && this.params.fpsCap <= 30

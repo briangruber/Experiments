@@ -6,18 +6,40 @@
 
 import { HINTS } from './param-hints.js';
 
+// The handful of knobs that actually decide how each subsystem looks, out of
+// the ~420 here. Reported: "the spray settings are so many it is hard to
+// figure out what the best are" - so the panel can hide everything else
+// (ui.js's Essentials toggle) instead of asking anyone to know which of
+// thirty-three spray sliders is the master. Marked in ONE list rather than at
+// every call site, the same way HINTS attaches tooltips.
+const KEY_PARAMS = new Set([
+  // the sea itself
+  'windSpeed', 'amplitude', 'choppiness', 'swellAmount',
+  'sunElevation', 'sunIntensity', 'cloudCoverage',
+  'scatterColor', 'foamAmount',
+  // spray: the masters, not the thirty knobs behind them
+  'sprayRate', 'sprayOpacity', 'spraySize', 'sprayLifetime', 'sprayWindMin',
+  'craftSprayAmount', 'craftSprayPulse', 'craftSprayOpacity', 'sprayTexSize',
+  // wake
+  'wakeStrength', 'wakeLife', 'wakeWidthScale', 'wakeEdgeFade',
+  // the animal
+  'sdEnabled', 'sdSpray', 'sdSprayDepth', 'sdDepth', 'sdLength', 'sdWake',
+  // displacement + picture
+  'waterDisplaceAmount', 'exposureBias', 'saturation', 'renderScale',
+]);
+
 // Every item picks up its tooltip from HINTS by key automatically, rather
 // than each of the 400-odd S()/E()/C()/B() calls below carrying its own hint
 // string - that would mean editing every call site to add one, and editing
 // every call site again the day the wording needs to change. A key with no
 // entry in param-hints.js just renders with no tooltip.
-const C = (key, label, opts = {}) => ({ key, label, type: 'color', hint: HINTS[key], ...opts });
-const S = (key, label, min, max, step = 0.001, opts = {}) => ({ key, label, type: 'range', min, max, step, hint: HINTS[key], ...opts });
-const B = (key, label) => ({ key, label, type: 'bool', hint: HINTS[key] });
+const C = (key, label, opts = {}) => ({ key, label, type: 'color', hint: HINTS[key], essential: KEY_PARAMS.has(key), ...opts });
+const S = (key, label, min, max, step = 0.001, opts = {}) => ({ key, label, type: 'range', min, max, step, hint: HINTS[key], essential: KEY_PARAMS.has(key), ...opts });
+const B = (key, label) => ({ key, label, type: 'bool', hint: HINTS[key], essential: KEY_PARAMS.has(key) });
 // The fourth argument was being dropped, so E('fftSize', ..., { rebuildSim: true })
 // and E('sprayTexSize', ..., { rebuildSpray: true }) set the parameter and never
 // rebuilt anything - changing either in the UI did nothing at all.
-const E = (key, label, options, opts = {}) => ({ key, label, type: 'enum', options, hint: HINTS[key], ...opts });
+const E = (key, label, options, opts = {}) => ({ key, label, type: 'enum', options, hint: HINTS[key], essential: KEY_PARAMS.has(key), ...opts });
 
 export const SCHEMA = [
   {

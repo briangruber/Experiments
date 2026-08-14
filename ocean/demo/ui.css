@@ -93,6 +93,10 @@ summary:hover{background:rgba(255,255,255,.035)}
 }
 .copy-group:hover{color:var(--fg);background:rgba(255,255,255,.1)}
 .body{padding:2px 14px 12px}
+/* Essentials filter - see schema.js's KEY_PARAMS. Groups whose every control
+   is hidden collapse too, so the list does not become a run of empty headers. */
+#ui.essentials .ctrl:not(.is-key){display:none}
+#ui.essentials details:not(:has(.is-key)){display:none}
 
 .ctrl{margin:9px 0}
 .ctrl .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:3px}

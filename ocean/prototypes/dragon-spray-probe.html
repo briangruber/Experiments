@@ -151,10 +151,18 @@ const work = (async () => {
     const breachAmount = uCraftAmount.value;
     log('a dragon at its real minimum staging depth throws spray', breachAmount > 0.001,
         `uCraftAmount = ${ breachAmount.toFixed(4) } at origin depth ${ A.params.sdMinDepth } (back +${ (topY - A.params.sdMinDepth).toFixed(1) }m out of the water)`);
-    log('the emitter sits at the dragon, AT the waterline', Math.hypot(
-      uCraftPos.value.x - A.dragon.pos[0], uCraftPos.value.z - A.dragon.pos[2],
-    ) < 0.5 && Math.abs(uCraftPos.value.y - (A.params.sdSeaLevel ?? 0)) < 0.5,
-        `uCraftPos ${ uCraftPos.value.x.toFixed(2) },${ uCraftPos.value.y.toFixed(2) },${ uCraftPos.value.z.toFixed(2) } (y should be ~sea level, not mid-body)`);
+    // The emitter no longer sits at the body's ORIGIN - it moves along the
+    // body to whichever stations are actually out of the water (the dorsal
+    // fin, the head), which is the whole point. So: on the animal's axis and
+    // within its own length, at the waterline - not pinned to its centre.
+    const axisOff = Math.hypot(uCraftPos.value.x - A.dragon.pos[0], uCraftPos.value.z - A.dragon.pos[2]);
+    log('the emitter sits on the animal, AT the waterline', axisOff < A.params.sdLength * 0.5
+        && Math.abs(uCraftPos.value.y - (A.params.sdSeaLevel ?? 0)) < 0.5,
+        `uCraftPos ${ uCraftPos.value.x.toFixed(2) },${ uCraftPos.value.y.toFixed(2) },${ uCraftPos.value.z.toFixed(2) }`
+        + ` - ${ axisOff.toFixed(1) }m along the body from its origin (y should be ~sea level, not mid-body)`);
+    log('the emitter footprint is the BREACHING span, not the whole animal',
+        uCraftLen.value > 0 && uCraftLen.value < A.params.sdLength * 0.5,
+        `uCraftLen ${ uCraftLen.value.toFixed(2) }m of a ${ A.params.sdLength }m body`);
     // Loose bound: the physics runs one accel step between the onFrame pin and
     // the read (measured drift ~0.3 m/s, but it scales with dt on a slow
     // rasteriser). The claim is that the REAL speed reaches the emitter -
@@ -168,9 +176,9 @@ const work = (async () => {
     // Without this every particle spawned within the ski's 1.6 x 0.6 m of
     // mid-body - inside a 50m mesh - and was depth-tested away: invisible
     // spray with every other uniform in this file reading correct.
-    log('spawn footprint spans the animal', Math.abs(uCraftLen.value - A.params.sdLength * 0.5) < 0.01
-        && uCraftBeam.value >= Math.min(A.params.sdSwellRadius, 1) - 0.01,
-        `uCraftLen ${ uCraftLen.value.toFixed(1) }m (sdLength ${ A.params.sdLength }), uCraftBeam ${ uCraftBeam.value.toFixed(1) }m`);
+    log('spawn footprint is the animal\'s measured width, not the ski\'s',
+        uCraftBeam.value > 0.5 && uCraftBeam.value < 20,
+        `uCraftBeam ${ uCraftBeam.value.toFixed(2) }m, measured off the hull profile at the waterline`);
 
     // ---- and it lays a wake down while working the surface ---------------
     log('a shallow dragon stamps a live wake', uWkActive.value === 1, `uWkActive = ${ uWkActive.value }`);

@@ -140,6 +140,31 @@ const work = (async () => {
 
   }
 
+  // ---- the Essentials filter -------------------------------------------
+  // ~420 controls is more than anyone can search by eye ("the spray settings
+  // are so many it is hard to figure out what the best are"), so the panel
+  // can hide everything not in schema.js's KEY_PARAMS.
+  const allCtrls = doc.querySelectorAll('#ui .ctrl').length;
+  const marked = doc.querySelectorAll('#ui .ctrl.is-key').length;
+  log('a small subset is marked essential', marked > 5 && marked < allCtrls * 0.2,
+      `${ marked } of ${ allCtrls } controls marked`);
+
+  const essBtn = [...doc.querySelectorAll('#ui button')].find((b) => b.textContent === 'Essentials only');
+  log('the Essentials toggle exists', !! essBtn, essBtn ? essBtn.textContent : 'not found');
+  essBtn.click();
+  await new Promise((r) => setTimeout(r, 60));
+  const visible = [...doc.querySelectorAll('#ui .ctrl')].filter((c) => c.offsetParent !== null).length;
+  log('turning it on hides the long tail', visible > 0 && visible <= marked,
+      `${ visible } controls still visible (of ${ allCtrls })`);
+  const emptyGroups = [...doc.querySelectorAll('#ui details')]
+    .filter((d) => d.offsetParent !== null && d.querySelectorAll('.is-key').length === 0).length;
+  log('and collapses the groups left with nothing in them', emptyGroups === 0,
+      `${ emptyGroups } empty groups still showing`);
+  essBtn.click();
+  await new Promise((r) => setTimeout(r, 60));
+  log('and turning it off brings everything back',
+      [...doc.querySelectorAll('#ui .ctrl')].filter((c) => c.offsetParent !== null).length > marked, '');
+
   return 'done';
 })();
 

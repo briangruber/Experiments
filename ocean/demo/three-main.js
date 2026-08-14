@@ -46,7 +46,7 @@ import { TslCraftProbe } from '../src/gpu/tsl/craft-probe.js';
 import {
 	buildCraftGeometry, loadCraftTexture, setCraftTexture, craftFragment,
 	craftVertex, uCraftWetLine, uPropAngle, uPropHub,
-	buildWaterlineProfile, waterlineHalfWidth,
+	buildWaterlineProfile, waterlineHalfWidth, buildBreachProfile,
 } from '../src/gpu/tsl/craft.js';
 import {
 	creatureVertex, creatureFragment, setCreatureTexture,
@@ -383,9 +383,49 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	// level-posture box says. The first pitch-blind gate was why spray showed
 	// "at one point" and not through the rest of a breach arc it was plainly
 	// making.
-	const dragonHighPoint = () =>
-		dragon.pos[ 1 ] + dragonTopY
-		+ params.sdLength * 0.5 * Math.abs( Math.sin( dragon.pitch ) );
+	// WHERE THIS BODY MEETS THE WATER, station by station, rather than as one
+	// number for the whole animal. Reported: the dorsal fin visibly out of the
+	// water threw no spray, while spray appeared in a ring around the body -
+	// because the emitter is a single point with a footprint (spray.js's
+	// uCraftPos/uCraftLen) and nothing told it WHICH PART was piercing the
+	// surface, so it sprayed around the mid-body centre it was parked at.
+	//
+	// Walks the lengthwise profile: for each station, its top in world Y with
+	// the body's pitch applied (nose at local -Z rises as pitch goes positive,
+	// which is the sign demo/seadragon.js's own climb-driven pitch uses), and
+	// reports both the highest point (what the gates ask about) and the SPAN
+	// of stations actually above the surface (where the spray belongs).
+	const dragonBreachInfo = () => {
+
+		const { minZ, maxZ, top } = dragonStations;
+		const n = top.length;
+		const sea = params.sdSeaLevel ?? 0;
+		if ( ! n || ! ( maxZ > minZ ) ) {
+
+			return { top: dragon.pos[ 1 ] + dragonTopY, zc: 0, half: params.sdLength * 0.5 };
+
+		}
+		const cp = Math.cos( dragon.pitch ), sp = Math.sin( dragon.pitch );
+		let best = - Infinity, bestZ = 0, lo = Infinity, hi = - Infinity;
+		for ( let b = 0; b < n; b ++ ) {
+
+			const z = minZ + ( maxZ - minZ ) * ( b + 0.5 ) / n;
+			const y = dragon.pos[ 1 ] + top[ b ] * cp - z * sp;
+			if ( y > best ) { best = y; bestZ = z; }
+			if ( y > sea ) { if ( z < lo ) lo = z; if ( z > hi ) hi = z; }
+
+		}
+		// Nothing out of the water: fall back to the single tallest station, so
+		// a body just under the surface still has a sensible place to work from.
+		const found = hi >= lo;
+		return {
+			top: best,
+			zc: found ? ( lo + hi ) * 0.5 : bestZ,
+			half: Math.max( found ? ( hi - lo ) * 0.5 : 0, params.sdLength * 0.03 ),
+		};
+
+	};
+	const dragonHighPoint = () => dragonBreachInfo().top;
 	const dragonMat = new THREE.NodeMaterial();
 	dragonMat.name = 'abyssal.dragon';
 	dragonMat.fragmentNode = creatureFragment();
@@ -432,6 +472,8 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	// whatever part of it is actually cutting the surface - no hand-set beam to
 	// guess per creature. Rebuilt with the geometry, read O(1) per frame.
 	let dragonProfile = buildWaterlineProfile( dragonBuild.geometry );
+	// ...and which STATIONS along it are tall enough to pierce the surface.
+	let dragonStations = buildBreachProfile( dragonBuild.geometry );
 
 	// The waterline seam, in metres, scaled with the sea it is cutting. A flat cut
 	// at mean sea level is wrong by whatever the wave is doing at that point, so
@@ -452,6 +494,7 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			b.geometry.computeBoundingBox();
 			dragonTopY = b.geometry.boundingBox.max.y;
 			dragonProfile = buildWaterlineProfile( b.geometry );
+			dragonStations = buildBreachProfile( b.geometry );
 
 		}
 		uCreatureLen.value = params.sdLength;
@@ -1271,6 +1314,7 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		// foam-mask breach effect in water-surface.js - one pair of sliders for
 		// "how much does breaking the surface disturb it", not a second,
 		// redundant set the two effects could disagree about.
+		const dbr = dragonBreachInfo();
 		let dragonSpray = 0;
 		if ( ! veh && params.sdEnabled >= 0.5 && params.sdSpray > 0.0005 ) {
 
@@ -1344,15 +1388,21 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 					wet > 0.001 ? ( wetPos ? wetPos[ 1 ] : ( veh.deckY ?? 0 ) ) : - 1e4,
 					wet > 0.001 ? ( wetPos ? wetPos[ 2 ] : veh.pos[ 2 ] ) : 0 )
 				: setA3( vCraftPos,
-					dragonSpray > 0.001 ? dragon.pos[ 0 ] : 0,
+					// AT THE STATIONS THAT ARE ACTUALLY OUT, not the mid-body
+					// origin. dbr.zc is the centre of the breaching span in the
+					// mesh's own frame; local +Z maps to world -forward for a
+					// modelYaw-0 asset (the same algebra check-boat.mjs's header
+					// works through), so it lands ahead of the origin for a head
+					// or fin and behind it for a tail.
+					dragonSpray > 0.001 ? dragon.pos[ 0 ] - Math.sin( dragon.heading ) * dbr.zc : 0,
 					// AT THE WATERLINE, not at the mid-body origin (which sits
 					// metres under) nor the top of the back (which can be metres
 					// over) - spray leaves from where the body cuts the water,
 					// exactly where the vehicles' own deckY anchor sits for them.
 					dragonSpray > 0.001
-						? Math.min( dragonHighPoint(), params.sdSeaLevel )
+						? Math.min( dbr.top, params.sdSeaLevel )
 						: - 1e4,
-					dragonSpray > 0.001 ? dragon.pos[ 2 ] : 0 ),
+					dragonSpray > 0.001 ? dragon.pos[ 2 ] + Math.cos( dragon.heading ) * dbr.zc : 0 ),
 			craftFwd: setA2( vCraftFwd, cf[ 0 ], cf[ 1 ] ),
 			craftRight: setA2( vCraftRight, - cf[ 1 ], cf[ 0 ] ),
 			// THE FIX FOR "STILL NOT SPRAYING": every spawn site in spray.js
@@ -1361,8 +1411,13 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			// particle spawned INSIDE the body mesh and was depth-tested away,
 			// invisible with all the uniforms reading correct. Undefined for
 			// the vehicles, so their existing wr*/boat* mapping is untouched.
-			craftLen: veh ? undefined : params.sdLength * 0.5,
-			craftBeam: veh ? undefined : Math.max( params.sdSwellRadius, 1 ),
+			// Sized to the BREACHING SPAN and the body's real width there, so a
+			// fin out of the water sprays from the fin rather than seeding
+			// particles down sixty metres of submerged animal.
+			craftLen: veh ? undefined : dbr.half,
+			craftBeam: veh ? undefined : Math.max(
+				waterlineHalfWidth( dragonProfile, ( params.sdSeaLevel ?? 0 ) - dragon.pos[ 1 ] ), 0.5,
+			),
 			// The dragon's REAL swim speed, on purpose - "if any of its body
 			// parts are breaking the surface and it is moving with enough
 			// speed, the spray should be happening" is exactly the contract
