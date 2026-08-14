@@ -170,6 +170,12 @@ document.getElementById('export-close').addEventListener('click', () => { export
 document.getElementById('rec-stop').addEventListener('click', () => finishRecording('cancelado'));
 for (const b of exportPanel.querySelectorAll('[data-cut]')) {
   b.addEventListener('click', () => startRecording(b.dataset.cut));
+  // The panel's markup carries a length, and nothing was updating it — it had
+  // been advertising 4:25 since the episode grew past five minutes. CUTS is the
+  // only place that number should live.
+  const note = b.querySelector('.cut-note');
+  const cut = CUTS[b.dataset.cut];
+  if (note && cut) note.textContent = cut.note + (b.dataset.cut === 'trailer' ? ' · para redes' : '');
 }
 
 async function startRecording(cutName) {
