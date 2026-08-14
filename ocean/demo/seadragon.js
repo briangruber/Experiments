@@ -9,10 +9,10 @@
 // hoping you find it, it is holding a station off your shoulder and keeping it.
 //
 // Three things it must never do, each of which is a line below rather than a
-// note here: surface (the renderer draws it with no depth test - see
-// src/gpu/tsl/creature.js - so a breach paints it over the sky), snap round
-// when you turn hard (bounded yaw rate), or sit exactly on your line where you
-// would ride through it.
+// note here: surface (the renderer composites it INTO the sea, so a breaching
+// fragment is water that is no longer over it - see src/gpu/tsl/creature.js),
+// snap round when you turn hard (bounded yaw rate), or sit exactly on your line
+// where you would ride through it.
 
 import { clamp, lerp, v3 } from '../src/math.js';
 
@@ -31,6 +31,7 @@ export class SeaDragon {
     this.depth = 6;              // below the mean surface, metres
     this.side = 1;               // which shoulder it is holding
     this.pacing = false;         // holding station, or circling
+    this.gape = 0;               // 0 shut, 1 as wide as the mesh was modelled
     this.t = 0;
     this.wanderAngle = 0;
     this._primed = false;
@@ -47,7 +48,7 @@ export class SeaDragon {
     this.depth = p?.sdDepth ?? 6;
     this.pos[1] = - this.depth;
     this.speed = 0; this.roll = 0; this.pitch = 0; this.yawRate = 0;
-    this.t = 0; this.wanderAngle = h; this.pacing = false;
+    this.t = 0; this.wanderAngle = h; this.pacing = false; this.gape = 0;
     this._primed = true;
   }
 
@@ -157,6 +158,15 @@ export class SeaDragon {
     // per metre per second.
     this.phase += (p.sdBeat + this.speed * p.sdBeatSpeed) * TAU * d;
     if (this.phase > TAU * 1024) this.phase -= TAU * 1024;
+    // The mouth. Shut by default - the mesh was modelled with it open, and a
+    // predator that swims permanently gaping looks like a model, which is
+    // exactly how it was reported. It opens on a slow, irregular cycle and
+    // opens WIDER when it is sprinting, so the gape reads as effort.
+    const drive = Math.sin(this.t * 0.37) * 0.6 + Math.sin(this.t * 0.13 + 2.1) * 0.4;
+    const want = Math.max(0, drive - 0.55) / 0.45;          // open maybe a fifth of the time
+    const eager = clamp(this.speed / Math.max(p.sdSpeed, 1), 0, 1);
+    this.gape = lerp(this.gape, clamp(want * (0.45 + 0.55 * eager), 0, 1), 1 - Math.exp(-3.5 * d));
+
     // Bank into the turn, the way anything with fins does.
     this.roll = lerp(this.roll, clamp(-this.yawRate * this.speed * 0.09, -0.6, 0.6), 1 - Math.exp(-3 * d));
   }

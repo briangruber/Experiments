@@ -12,6 +12,7 @@
 <script type="module">
 import * as THREE from 'three/webgpu';
 import { buildCraftGeometry, loadCraftTexture } from '../src/gpu/tsl/craft.js';
+import { creatureVertex, uCreatureLen, uCreatureAmp, uJawHinge, uJawAngle } from '../src/gpu/tsl/creature.js';
 import { DRAGON_MESH } from '../demo/dragonModel.js';
 import { installThreeCompat } from '../src/gpu/three-compat.js';
 installThreeCompat();
@@ -22,22 +23,79 @@ const L = 20;
 const b = buildCraftGeometry(L, DRAGON_MESH);
 const tex = await loadCraftTexture(r, DRAGON_MESH);
 const mat = new THREE.MeshBasicNodeMaterial({ map: tex, side: THREE.DoubleSide });
+// The mouth SHUT, which is the pose it swims in - the mesh ships gaping and
+// the mandible is swung closed in the vertex stage (see creature.js).
+mat.positionNode = creatureVertex();
+uCreatureLen.value = L; uCreatureAmp.value = 0;
+uJawHinge.value.set(b.jawHinge[0], b.jawHinge[1]);
+uJawAngle.value = 0;
 const scene = new THREE.Scene(); scene.add(new THREE.Mesh(b.geometry, mat));
 const cam = new THREE.PerspectiveCamera(32, 1, 0.05, 500);
 // nose-on, port side, above, and a three-quarter
-const eyes = [[0, 0, -34], [-34, 0, 0], [0.01, 34, 0], [-22, 12, -22]];
+// FOUR JAW ANGLES ON ONE HEAD. The mesh ships gaping and there is no rig to
+// shut it, so the mandible is swung about a baked hinge - and the only way to
+// see whether that is working is to hold the camera still and move the angle.
+const JAW_SHUT = 0.42;
+const angles = [0, JAW_SHUT * 0.5, JAW_SHUT, JAW_SHUT * 1.6];
 for (let i = 0; i < 4; i++) {
-  cam.position.set(eyes[i][0], eyes[i][1], eyes[i][2]);
-  cam.up.set(0, i === 2 ? 0 : 1, i === 2 ? -1 : 0);
-  cam.lookAt(0, 0, 0);
+  uJawAngle.value = angles[i];
+  cam.position.set(-9, 2, -13);
+  cam.up.set(0, 1, 0);
+  cam.lookAt(0, 0.3, -9);
   r.setViewport(i * 400, 0, 400, 400); r.setScissor(i * 400, 0, 400, 400); r.setScissorTest(true);
   await r.renderAsync(scene, cam);
 }
 const pos = b.geometry.getAttribute('position');
+const jaw = b.geometry.getAttribute('jaw');
 let zMin = 1e9, zMax = -1e9;
 for (let i = 0; i < pos.count; i++) { const z = pos.getZ(i); if (z < zMin) zMin = z; if (z > zMax) zMax = z; }
+
+// THE JAW, MEASURED ON THE CPU with the shader's own arithmetic. Eyeballing a
+// mouth is exactly how you ship one hinged the wrong way: the swing is obvious
+// in a still and its DIRECTION is not.
+const hinge = b.jawHinge;
+const swing = (i, ang) => {
+  const w = jaw.getX(i);
+  const dy = pos.getY(i) - hinge[0], dz = pos.getZ(i) - hinge[1];
+  const c = Math.cos(ang * w), s = Math.sin(ang * w);
+  return { y: hinge[0] + dy * c - dz * s, z: hinge[1] + dy * s + dz * c };
+};
+// The snout: the front tenth of the body, where the gape is widest. Measured
+// there and NOT at the hinge, because a hinge that shuts nothing at the teeth
+// has not shut the mouth.
+const snout = zMin + (zMax - zMin) * 0.06;
+const gapAt = (ang) => {
+  let jawTop = -1e9, palate = 1e9;
+  for (let i = 0; i < pos.count; i++) {
+    const p = swing(i, ang);
+    if (p.z > snout) continue;
+    if (jaw.getX(i) > 0.5) jawTop = Math.max(jawTop, p.y);
+    else palate = Math.min(palate, p.y);
+  }
+  // How far the tip has swung back as well as up. A hinge in the wrong place
+  // does not shut a mouth, it pulls the jaw into the skull, and that shows up
+  // here rather than in a still.
+  let aft = -1e9;
+  for (let i = 0; i < pos.count; i++) {
+    if (jaw.getX(i) < 0.5) continue;
+    const p = swing(i, ang);
+    if (p.z > snout) continue;
+    aft = Math.max(aft, p.z);
+  }
+  return { gap: palate - jawTop, tip: jawTop, aft };
+};
+const open = gapAt(0), shut = gapAt(JAW_SHUT);
 window.probeResult = { allOk: true, results: [
-  { name: 'four views', ok: true, detail: 'nose / port / above / three-quarter' },
+  { name: 'four jaw angles', ok: true, detail: angles.join(', ') + ' rad' },
   { name: 'length', ok: true, detail: `${(zMax - zMin).toFixed(1)} m, ${b.vertexCount} verts, ${b.triangleCount} tris` },
+  // THE DIRECTION, which is the half a still cannot show. This asset's mandible
+  // is modelled fully dropped and physically ENDS at the mouth corner, so there
+  // is no articulation aft of it to swing about: closing it the whole way would
+  // retract the jaw into the head. So the claim is that the gape NARROWS
+  // substantially and stays positive, not that the teeth meet.
+  { name: 'the jaw swings shut, not open', ok: shut.tip > open.tip + 0.15,
+    detail: `jaw tip ${open.tip.toFixed(2)} m -> ${shut.tip.toFixed(2)} m at ${JAW_SHUT} rad` },
+  { name: 'and does not retract into the head', ok: shut.aft - open.aft < 0.25,
+    detail: `the tip moves ${(shut.aft - open.aft).toFixed(2)} m aft` },
 ] };
 </script></body>
