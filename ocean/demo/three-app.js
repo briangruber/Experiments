@@ -521,17 +521,12 @@ function installSettingsPanel( app, presetSel, cloudSel ) {
 
 		if ( ev.type === 'copy' ) {
 
+			// Same copyText() the per-group Copy buttons use (demo/ui.js) - one
+			// clipboard/fallback path, not two that could disagree about
+			// whether the write actually reached the OS clipboard.
 			const clean = {};
 			for ( const k of Object.keys( defaults ) ) clean[ k ] = app.params[ k ];
-			const text = JSON.stringify( clean, null, 2 );
-			Promise.resolve( navigator.clipboard?.writeText( text ) ?? Promise.reject() )
-				.then( () => ui.toast( 'Settings copied to clipboard' ) )
-				.catch( () => {
-
-					console.log( text );
-					ui.toast( 'Clipboard blocked — settings printed to the console' );
-
-				} );
+			ui.copyText( JSON.stringify( clean, null, 2 ), 'All settings' );
 			return;
 
 		}

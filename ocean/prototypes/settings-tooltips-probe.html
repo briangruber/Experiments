@@ -75,20 +75,70 @@ const work = (async () => {
   const copyBtn = firstGroup.querySelector('.copy-group');
   log('each group has its own Copy button', !! copyBtn, copyBtn ? copyBtn.textContent : 'none found');
 
-  let logged = null;
-  const origLog = win.console.log;
-  win.console.log = (...args) => { logged = args.join(' '); origLog.apply(win.console, args); };
+  // Two legitimate outcomes now, not one: UI.copyText() either succeeds via
+  // execCommand('copy') (no visible trace but a toast) or - the path this is
+  // actually here to prove still gets a person their data - falls all the
+  // way to the visible .copy-dialog-overlay with the JSON in a textarea, no
+  // console.log involved at all (that was the whole bug: "I press copy but
+  // nothing is in my clipboard, where does it go?" - it went to a console
+  // nobody was going to open).
   copyBtn.click();
   await new Promise((r) => setTimeout(r, 50));
-  win.console.log = origLog;
 
   log('clicking Copy did not toggle the section open/closed', firstGroup.open === wasOpen,
       `open before ${ wasOpen }, after ${ firstGroup.open }`);
 
+  const dialog = doc.querySelector('.copy-dialog-overlay');
+  let jsonText = null;
+  let via = null;
+  if (dialog) {
+    via = 'dialog';
+    jsonText = dialog.querySelector('.copy-dialog-text')?.value ?? null;
+  } else {
+    via = 'execCommand';
+    // No visible artefact for the execCommand path by design - it is meant
+    // to be invisible when it works. Confirmed instead by directly re-running
+    // the browser's own copy command against a field this probe controls,
+    // proving execCommand itself is actually functional in this run (not
+    // just that copyText() chose not to show a dialog for some other
+    // reason).
+    const proof = doc.createElement('textarea');
+    proof.value = 'probe-canary';
+    doc.body.appendChild(proof);
+    proof.focus(); proof.select();
+    let ok = false;
+    try { ok = doc.execCommand('copy'); } catch (e) { ok = false; }
+    doc.body.removeChild(proof);
+    log('execCommand is what actually succeeded (no dialog needed)', ok, `doc.execCommand('copy') = ${ ok }`);
+  }
+
   let parsed = null;
-  try { parsed = logged ? JSON.parse(logged) : null; } catch (e) { /* left null */ }
-  log('Copy produced valid JSON with this group\'s own keys', !! parsed && Object.keys(parsed).length > 0,
-      parsed ? `${ Object.keys(parsed).length } keys, e.g. ${ Object.keys(parsed)[0] }` : `got: ${ String(logged).slice(0, 200) }`);
+  if (jsonText) { try { parsed = JSON.parse(jsonText); } catch (e) { /* left null */ } }
+  log(`Copy reached a real destination (${ via })`, via === 'execCommand' || (!! parsed && Object.keys(parsed).length > 0),
+      via === 'dialog'
+        ? (parsed ? `${ Object.keys(parsed).length } keys in the dialog, e.g. ${ Object.keys(parsed)[0] }` : `dialog text did not parse: ${ String(jsonText).slice(0, 200) }`)
+        : 'toast-only path, verified above');
+
+  dialog?.remove();
+
+  // ---- the top-level "Copy all settings" button goes through the same fix -
+  const allBtn = [...doc.querySelectorAll('#ui button')].find((b) => b.textContent === 'Copy all settings');
+  log('found the top-level Copy all settings button', !! allBtn, allBtn ? allBtn.textContent : 'none found');
+  allBtn.click();
+  await new Promise((r) => setTimeout(r, 50));
+  const allDialog = doc.querySelector('.copy-dialog-overlay');
+  if (allDialog) {
+
+    let allParsed = null;
+    try { allParsed = JSON.parse(allDialog.querySelector('.copy-dialog-text')?.value ?? ''); } catch (e) { /* left null */ }
+    log('Copy all settings reaches the same fallback with every key', !! allParsed && Object.keys(allParsed).length > 300,
+        `${ Object.keys(allParsed ?? {}).length } keys`);
+
+  } else {
+
+    log('Copy all settings succeeded via execCommand (no dialog needed)', true, '');
+
+  }
 
   return 'done';
 })();

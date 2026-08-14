@@ -13,6 +13,24 @@ function fmt(v, item) {
   return v.toFixed(3);
 }
 
+/** The legacy copy path, on a throwaway off-screen field. Deprecated, but
+ * still allowed in some sandboxes that refuse the modern Clipboard API
+ * outright - worth trying before giving up and showing the manual dialog. */
+function execCommandCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  ta.style.top = '0';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+  document.body.removeChild(ta);
+  return ok;
+}
+
 export class UI {
   constructor(root, params, onChange) {
     this.root = root;
@@ -127,19 +145,76 @@ export class UI {
     }
   }
 
-  /** Shared by the per-group Copy buttons and, indirectly, the top-level
-   * "Copy all settings" action (demo/three-app.js does its own copy of every
-   * `defaults` key, but the clipboard/fallback dance is identical). */
+  /** Used by the per-group Copy buttons below. */
   _copyKeys(keys, label) {
     const clean = {};
     for (const k of keys) clean[k] = this.params[k];
-    const text = JSON.stringify(clean, null, 2);
-    Promise.resolve(navigator.clipboard?.writeText(text) ?? Promise.reject())
-      .then(() => this.toast(`${label} copied`))
-      .catch(() => {
-        console.log(text);
-        this.toast('Clipboard blocked — settings printed to the console');
-      });
+    this.copyText(JSON.stringify(clean, null, 2), label);
+  }
+
+  /**
+   * Copies text via execCommand('copy'), and only if that fails, falls back
+   * to a visible dialog with the text pre-selected so a person can press
+   * Ctrl/Cmd+C themselves.
+   *
+   * Deliberately NOT using navigator.clipboard.writeText() to decide
+   * success, even though it is the modern API. Its promise is exactly what
+   * an embedding host's Permissions Policy gates - no `clipboard-write`
+   * delegated to this iframe is the ordinary case for a published page, not
+   * an edge one - and in at least this environment it plainly RESOLVES
+   * having done nothing rather than rejecting: the toast said "copied" and
+   * the clipboard stayed empty. Reported live: "I press copy but nothing is
+   * in my clipboard, where does it go?" console.log used to be the last
+   * resort before the dialog, and that was invisible too - nobody looking
+   * at a published page is going to open its devtools to find their
+   * settings.
+   *
+   * execCommand's return value has no such failure mode: it is a plain
+   * synchronous boolean tied straight to whether the browser's own copy
+   * command actually ran, so "true" here is trustworthy in a way an async
+   * Promise's mere resolution was not.
+   */
+  copyText(text, label) {
+    if (execCommandCopy(text)) { this.toast(`${label} copied`); return; }
+    this._showCopyDialog(text, label);
+  }
+
+  _showCopyDialog(text, label) {
+    document.querySelector('.copy-dialog-overlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.className = 'copy-dialog-overlay';
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+    const box = document.createElement('div');
+    box.className = 'copy-dialog';
+    const h = document.createElement('div');
+    h.className = 'copy-dialog-title';
+    h.textContent = `${label} - clipboard is blocked here`;
+    const hint = document.createElement('p');
+    hint.className = 'copy-dialog-hint';
+    hint.textContent = 'The text below is already selected - press Ctrl+C (Cmd+C on a Mac), or copy it by hand.';
+    const ta = document.createElement('textarea');
+    ta.readOnly = true;
+    ta.value = text;
+    ta.className = 'copy-dialog-text';
+    const close = document.createElement('button');
+    close.textContent = 'Close';
+    close.addEventListener('click', () => overlay.remove());
+
+    box.append(h, hint, ta, close);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    // A visible, focused field is what some sandboxes actually require for
+    // execCommand('copy') to work at all - the earlier attempt ran on an
+    // off-screen textarea and could fail purely for being off-screen, so
+    // this tries again on THIS one, already on screen and focused, before
+    // settling for "select it by hand".
+    ta.focus();
+    ta.select();
+    let copied = false;
+    try { copied = document.execCommand('copy'); } catch (e) { copied = false; }
+    if (copied) { overlay.remove(); this.toast(`${label} copied`); }
   }
 
   _control(item) {
