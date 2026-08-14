@@ -55,13 +55,23 @@ export function build(deps) {
       [0.0, (c) => { c.post.setLook({ fade: 0 }); c.score.setMood('credits', 4); c.score.setAmbience(1); }],
       [0.8, (c) => c.titles.show('CORAZÓN DE GALLINA', { kicker: 'reparto', kind: 'main', dur: 5, rule: true, fadeIn: 1.4 })],
 
-      // Each bird gets a bow and a noise of its own.
-      [5.5, (c) => { rosalinda.gesture('bow'); c.score.cluck(); c.titles.show('ROSALINDA', { sub: 'la inocente', kind: 'cast', dur: 2.9 }); }],
-      [8.3, (c) => { esteban.gesture('bow'); c.score.crow(); c.titles.show('ESTEBAN', { sub: 'el galán', kind: 'cast', dur: 2.9 }); }],
-      [11.1, (c) => { valentina.gesture('bow'); c.score.squawk(); c.titles.show('VALENTINA', { sub: 'la villana', kind: 'cast', dur: 2.9 }); }],
-      [13.9, (c) => { donGallo.gesture('bow'); c.score.crow(); c.titles.show('DON GALLO', { sub: 'el patrón', kind: 'cast', dur: 2.9 }); }],
-      [16.7, (c) => { ricardo.gesture('bow'); c.score.squawk(); c.titles.show('RICARDO', { sub: 'el gemelo malvado', kind: 'cast', dur: 2.9 }); }],
-      [19.5, (c) => { pollito.gesture('bow'); c.score.peep(); c.titles.show('POLLITO', { sub: 'el secreto', kind: 'cast', dur: 2.9 }); }],
+      // Each bird gets a bow and a noise of its own. The name card follows the
+      // bow by a beat, so the face is coming back UP — visible — as the name
+      // lands, instead of being buried in the dip for its whole card.
+      [5.5, (c) => { rosalinda.gesture('bow'); c.score.cluck(); }],
+      [6.4, (c) => c.titles.show('ROSALINDA', { sub: 'la inocente', kind: 'cast', dur: 2.9 })],
+      [8.3, (c) => { esteban.gesture('bow'); c.score.crow(); }],
+      [9.2, (c) => c.titles.show('ESTEBAN', { sub: 'el galán', kind: 'cast', dur: 2.9 })],
+      // The footlight leans up for her bow — she stands on an unlit seam and
+      // was taking her own curtain call as a black blob.
+      [11.1, (c) => { valentina.gesture('bow'); c.score.squawk(); c.set.key.intensity = 7.5; }],
+      [12.0, (c) => c.titles.show('VALENTINA', { sub: 'la villana', kind: 'cast', dur: 2.9 })],
+      [13.9, (c) => { donGallo.gesture('bow'); c.score.crow(); c.set.key.intensity = 6.0; }],
+      [14.8, (c) => c.titles.show('DON GALLO', { sub: 'el patrón', kind: 'cast', dur: 2.9 })],
+      [16.7, (c) => { ricardo.gesture('bow'); c.score.squawk(); }],
+      [17.6, (c) => c.titles.show('RICARDO', { sub: 'el gemelo malvado', kind: 'cast', dur: 2.9 })],
+      [19.5, (c) => { pollito.gesture('bow'); c.score.peep(); }],
+      [20.4, (c) => c.titles.show('POLLITO', { sub: 'el secreto', kind: 'cast', dur: 2.9 })],
 
       // And now the people who did this on purpose.
       [22.6, (c) => c.cam.move({
