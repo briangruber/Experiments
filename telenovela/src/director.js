@@ -43,6 +43,9 @@ export class Director {
     this.t = 0;
     this.speed = 1;
     this.speedTarget = 1;
+    // Tempo. The piece was authored at 1 and played a little statelier than it
+    // reads; scenes can override it where a cue is tied to real-time audio.
+    this.pace = 1.32;
     this.freezeT = 0;
     this.paused = false;
     this.onScene = null;
@@ -97,7 +100,7 @@ export class Director {
     }
 
     this.speed = lerp(this.speed, this.speedTarget, 1 - Math.exp(-6 * dt));
-    const sdt = dt * this.speed;
+    const sdt = dt * this.speed * (this.scene.pace ?? this.pace);
     this.t += sdt;
     this.fire(this.t);
     this.tweens.update(sdt);
@@ -112,6 +115,10 @@ function hideAll(ctx) {
   for (const k in ctx.actors) ctx.actors[k].setVisible(false).clearGestures().calm(99).lookAway();
   ctx.props.egg.visible = false;
   ctx.props.cloth.visible = false;
+  // A scene that re-aims the key puts it back for whoever comes next.
+  ctx.set.key.target.position.copy(ctx.set.keyDefault);
+  ctx.set.key.intensity = 4.0;
+  ctx.set.key.color.setHex(ctx.set.keyColorDefault);
 }
 
 function baseLook(ctx, over = {}) {
@@ -168,7 +175,10 @@ export function buildProps(scene) {
 function buildScreenplay(ctx, tw) {
   const { actors } = ctx;
   const { rosalinda, esteban, valentina, donGallo, ricardo, pollito } = actors;
-  const scene = (name, subtitle, dur, setup, cues) => ({ name, subtitle, dur, setup, cues: cues.map(([t, fn]) => ({ t, fn, fired: false })) });
+  const scene = (name, subtitle, dur, setup, cues, opts = {}) => ({
+    name, subtitle, dur, setup, pace: opts.pace,
+    cues: cues.map(([t, fn]) => ({ t, fn, fired: false })),
+  });
 
   // Standing marks.
   const BY_FOUNTAIN = V(-0.75, 0, 0.35);
@@ -178,6 +188,11 @@ function buildScreenplay(ctx, tw) {
   const HIDE_PALM = V(2.25, 0, 1.95);
   const ARCH_IN = V(0, 0, -2.6);
   const ARCH_L = V(-2.35, 0, -2.7);
+  // Offstage: the dark room behind the arches. The back wall spans z -3.7..-3.2,
+  // so anyone placed at -3.5 is standing inside it and appears to pop into
+  // existence the moment the scene cuts.
+  const OFF_CENTRE = V(0, 0, -4.45);
+  const OFF_LEFT = V(-2.35, 0, -4.3);
 
   return [
 
@@ -198,10 +213,11 @@ function buildScreenplay(ctx, tw) {
         });
       },
       [
-        [0.0, (c) => { c.post.setLook({ fade: 0 }); c.score.setMood('theme', 4); }],
+        [0.0, (c) => { c.post.setLook({ fade: 0 }); c.score.setMood('theme', 4); c.score.setAmbience(1); }],
+        [1.6, (c) => c.score.say('vo-title')],
         [1.4, (c) => c.titles.show('CORAZÓN DE GALLINA', { sub: 'una telenovela de corral', kind: 'main', dur: 8, rule: true, fadeIn: 2 })],
-        [6.5, () => rosalinda.gesture('sigh')],
-        [10.0, (c) => c.titles.show('CAPÍTULO FINAL', { kind: 'act', dur: 4.5 })],
+        [6.5, (c) => { rosalinda.gesture('sigh'); c.score.cluck(); }],
+        [10.0, (c) => { c.titles.show('CAPÍTULO FINAL', { kind: 'act', dur: 4.5 }); c.score.say('vo-capitulo', 0.3); }],
         [11.0, (c) => c.cam.move({
           subject: rosalinda, frame: 'mls', lens: 40, angle: 150, height: 'eye',
           move: { type: 'creep', amount: 1 }, dur: 8, smooth: 2.6, handheld: 0.5,
@@ -220,9 +236,10 @@ function buildScreenplay(ctx, tw) {
           rosalinda.gesture('cock', { side: 1 });
           rosalinda.look(V(0, 0.4, -3.2), 1);
           c.score.sting('small');
+          c.score.cluck();
         }],
         [28.5, (c) => c.cam.cut({
-          subject: V(0, 0.5, -3.1), frame: 'mls', lens: 35, angle: 0, height: 0.75,
+          subject: V(0, 0.5, -3.1), frame: 'mls', lens: 35, angle: 17, height: 0.5,
           dur: 6, handheld: 0.6, smooth: 1.2, label: 'THE GATE · 35mm',
         })],
       ]),
@@ -237,31 +254,31 @@ function buildScreenplay(ctx, tw) {
         c.set.wetness = 0;
         rosalinda.setVisible(true).place(HER_MARK.x, HER_MARK.z, deg(178)).setEmotion({ love: 0.3, sorrow: 0.25 });
         rosalinda.look(V(0, 0.5, -3.1), 1);
-        esteban.setVisible(true).place(0, -3.5, deg(180)).setEmotion({ pride: 0.6 });
+        esteban.setVisible(true).place(OFF_CENTRE.x, OFF_CENTRE.z, 0).setEmotion({ pride: 0.6 });
         valentina.setVisible(false).place(HIDE_PALM.x, HIDE_PALM.z, deg(200));
         c.cam.cut({
-          subject: V(0, 0.5, -3.1), frame: 'mls', lens: 35, angle: 0, height: 0.75,
+          subject: V(0, 0.5, -3.1), frame: 'mls', lens: 35, angle: 17, height: 0.5,
           dur: 8, handheld: 0.6, label: 'THE GATE · 35mm',
         });
       },
       [
-        [0.0, (c) => c.score.setMood('romance', 3)],
+        [0.0, (c) => { c.score.setMood('romance', 3); c.score.setAmbience(1); }],
         // He arrives, backlit in the archway.
-        [1.2, () => esteban.walkTo(ARCH_IN.x, ARCH_IN.z, { style: 'strut', speed: 0.5 })],
+        [0.8, () => esteban.walkTo(ARCH_IN.x, ARCH_IN.z, { style: 'strut', speed: 0.52 })],
         [2.0, (c) => c.score.sting('small')],
-        [4.2, () => { esteban.gesture('strutPose'); esteban.look(rosalinda, 1); }],
+        [4.8, (c) => { esteban.gesture('strutPose'); esteban.look(rosalinda, 1); c.score.flap(); }],
         [5.0, (c) => c.cam.cut({
           subject: esteban, frame: 'ms', lens: 50, angle: 8, height: 'low',
           move: { type: 'push', amount: 0.35, dur: 7 }, dur: 7, handheld: 0.5, label: 'LOW ANGLE · 50mm',
         })],
-        [6.0, () => esteban.gesture('crow')],
+        [6.2, (c) => { esteban.gesture('crow'); c.score.crow(); }],
         // Her reaction — shot/reverse-shot begins.
         [9.0, (c) => {
           c.cam.cut({ subject: rosalinda, frame: 'cu', lens: 85, angle: -12, dur: 6, handheld: 0.55, aperture: 1.6 });
           rosalinda.emote({ love: 0.85, sorrow: 0.1 }, 2.2);
           rosalinda.look(esteban, 1);
         }],
-        [10.4, () => rosalinda.gesture('gasp', { weight: 0.55 })],
+        [10.4, (c) => { rosalinda.gesture('gasp', { weight: 0.55 }); c.score.squawk(); }],
         [12.0, (c) => { c.score.harpRun(true); }],
         [13.0, (c) => c.cam.cut({
           subject: esteban, frame: 'cu', lens: 85, angle: -8, dur: 6, handheld: 0.55, aperture: 1.6,
@@ -327,7 +344,7 @@ function buildScreenplay(ctx, tw) {
         esteban.setVisible(true).place(HIS_MARK.x, HIS_MARK.z, deg(-100)).setEmotion({ love: 0.7, pride: 0.3 });
         rosalinda.look(esteban, 1); esteban.look(rosalinda, 1);
         valentina.setVisible(true).place(HIDE_PALM.x, HIDE_PALM.z, deg(210)).setEmotion({ anger: 1 });
-        donGallo.setVisible(false).place(0, -3.6, deg(180)).setEmotion({ anger: 0.4, pride: 0.8 });
+        donGallo.setVisible(false).place(0, -3.3, 0).setEmotion({ anger: 0.4, pride: 0.8 });
         c.props.egg.visible = true;
         c.props.cloth.visible = true;
         c.props.cloth.position.set(-0.55, 0.13, -1.15);
@@ -391,6 +408,7 @@ function buildScreenplay(ctx, tw) {
             cloth.rotation.x = -Math.PI / 2 + u * 1.4;
           }, { ease: 'expoOut', done: () => { cloth.visible = false; } });
           c.score.sting('reveal');
+          c.score.flap();
           c.cam.shake(0.7);
         }],
         [15.9, (c) => c.cam.cut({
@@ -409,6 +427,7 @@ function buildScreenplay(ctx, tw) {
           rosalinda.look(c.props.egg, 1);
           rosalinda.face(c.props.egg.position);
           rosalinda.gesture('gasp');
+          c.score.squawk();
           rosalinda.emote({ fear: 0.8, sorrow: 0.5, love: 0 }, 4);
         }],
         [21.5, (c) => {
@@ -419,6 +438,7 @@ function buildScreenplay(ctx, tw) {
           esteban.look(c.props.egg, 1);
           esteban.face(c.props.egg.position);
           esteban.gesture('gasp');
+          c.score.squawk();
           esteban.emote({ fear: 0.9, anger: 0.2, love: 0 }, 4);
         }],
         [23.5, (c) => {
@@ -443,7 +463,7 @@ function buildScreenplay(ctx, tw) {
           });
         }],
         [27.2, () => donGallo.walkTo(0, -2.35, { style: 'storm', speed: 0.75 })],
-        [29.5, () => { donGallo.gesture('crow'); donGallo.emote({ anger: 0.9, pride: 1 }, 2); }],
+        [29.5, (c) => { donGallo.gesture('crow'); c.score.crow(); donGallo.emote({ anger: 0.9, pride: 1 }, 2); }],
         [30.0, (c) => { c.weather.strike(0.9); c.score.thunder(0.9, 0.15); }],
         [32.5, (c) => c.cam.cut({
           subject: donGallo, frame: 'bcu', lens: 85, angle: -10, height: 'low', dur: 5,
@@ -516,8 +536,8 @@ function buildScreenplay(ctx, tw) {
             handheld: 0.5, dutch: -4, label: 'THE SLAP · 50mm',
           });
         }],
-        [12.1, (c, d) => d.setSpeed(0.3)],
-        [12.6, () => { rosalinda.slapSide = 1; rosalinda.gesture('slap', { side: 1 }); }],
+        [12.1, (c, d) => d.setSpeed(0.22)],
+        [12.6, (c) => { rosalinda.slapSide = 1; rosalinda.gesture('slap', { side: 1 }); c.score.flap(); }],
         [13.9, (c, d) => {
           // Impact: freeze one frame, flash, shake, and cut on the sound.
           esteban.slapFrom = 1;
@@ -574,7 +594,7 @@ function buildScreenplay(ctx, tw) {
         esteban.setVisible(true).place(0.55, -0.35, deg(-70)).setEmotion({ sorrow: 0.9 });
         valentina.setVisible(true).place(1.9, -1.5, deg(215)).setEmotion({ pride: 0.9 });
         donGallo.setVisible(true).place(-0.35, -2.3, deg(170)).setEmotion({ anger: 1, pride: 1 });
-        ricardo.setVisible(false).place(ARCH_L.x, -3.6, deg(170)).setEmotion({ pride: 1, anger: 0.5 });
+        ricardo.setVisible(false).place(OFF_LEFT.x, OFF_LEFT.z, 0).setEmotion({ pride: 1, anger: 0.5 });
         c.props.egg.visible = true;
         c.cam.cut({
           subject: rosalinda, frame: 'mcu', lens: 85, angle: 20, dur: 7, handheld: 0.8, aperture: 1.8,
@@ -587,7 +607,7 @@ function buildScreenplay(ctx, tw) {
         // Footsteps in the left arch. Nobody sees him yet.
         [3.0, (c) => {
           ricardo.setVisible(true);
-          ricardo.walkTo(ARCH_L.x, -2.5, { style: 'strut', speed: 0.55 });
+          ricardo.walkTo(ARCH_L.x, -2.5, { style: 'strut', speed: 0.6 });
           c.cam.cut({
             subject: ricardo, frame: 'mls', lens: 35, angle: 6, height: 0.3, dur: 7,
             handheld: 0.7, dutch: -7, label: 'THE STRANGER · 35mm',
@@ -600,10 +620,12 @@ function buildScreenplay(ctx, tw) {
         [7.0, (c) => {
           c.cam.cut({ subject: esteban, frame: 'cu', lens: 100, angle: -14, dur: 3, whip: true, handheld: 0.9, dutch: 8 });
           esteban.look(ricardo, 1); esteban.gesture('doubleTake'); esteban.emote({ shock: 1, anger: 0.4 }, 6);
+          c.score.squawk();
         }],
         [9.0, (c) => {
           c.cam.cut({ subject: rosalinda, frame: 'cu', lens: 100, angle: 8, dur: 3, whip: true, handheld: 0.9, dutch: -8 });
           rosalinda.look(ricardo, 1); rosalinda.gesture('gasp'); rosalinda.emote({ shock: 1, fear: 0.6, sorrow: 0.4 }, 6);
+          c.score.squawk();
         }],
         [11.0, (c) => {
           c.cam.cut({ subject: donGallo, frame: 'cu', lens: 100, angle: -6, dur: 3, whip: true, handheld: 0.9, dutch: 10 });
@@ -703,7 +725,8 @@ function buildScreenplay(ctx, tw) {
         })],
         [3.4, (c) => { c.score.sting('shock'); }],
         // The faint, and the catch.
-        [4.0, () => {
+        [4.0, (c) => {
+          c.score.flap();
           rosalinda.gesture('faint', { side: -1 });
           esteban.walkTo(-0.28, 0.18, { style: 'hurry', face: rosalinda.pos });
         }],
@@ -748,6 +771,7 @@ function buildScreenplay(ctx, tw) {
         [22.5, (c) => {
           const cr = c.props.egg.userData.cracks;
           c.tw.add(2.4, (u) => cr.scale.setScalar(0.001 + u), { ease: 'backOut' });
+          c.score.eggCrack();
           c.score.sting('small');
           c.cam.shake(0.25);
         }],
@@ -768,11 +792,12 @@ function buildScreenplay(ctx, tw) {
             cracks.scale.setScalar(Math.max(0.001, 1 - u));
             pollito.rig.root.scale.setScalar(Math.max(0.001, u));
           }, { ease: 'backOut' });
-          c.score.sting('small');
+          c.score.eggCrack();
+          c.score.peep();
           c.cam.shake(0.4);
         }],
         [30.0, () => { pollito.emote({ shock: 0.3 }, 3); pollito.gesture('cock', { side: 1 }); }],
-        [31.5, () => { pollito.gesture('peck'); }],
+        [31.5, (c) => { pollito.gesture('peck'); c.score.peep(); }],
         // It looks straight down the lens.
         [33.0, (c) => {
           c.cam.cut({
@@ -792,10 +817,107 @@ function buildScreenplay(ctx, tw) {
           c.score.sting('shock');
         }],
         [38.6, (c, d) => d.setSpeed(0.06)],
-        [39.0, (c) => c.titles.show('CONTINUARÁ…', { kind: 'end', dur: 12, fadeIn: 1.2, rule: true })],
+        [39.0, (c) => { c.titles.show('CONTINUARÁ…', { kind: 'end', dur: 12, fadeIn: 1.2, rule: true }); c.score.say('vo-continuara', 0.6); }],
         [42.0, (c) => { c.score.setMood('theme', 2); }],
         [46.0, (c) => { c.post.setLook({ fade: 1 }); }],
         [48.0, (c, d) => { d.setSpeed(1); c.post.setLook({ freeze: 0 }); }],
       ]),
+
+    // =======================================================================
+    // The curtain call. The cast line up downstage, take a bow each as their
+    // name comes up, and then the crew gets its due.
+    scene('CRÉDITOS', 'el reparto y los culpables', 51,
+      (c) => {
+        hideAll(c);
+        baseLook(c, {
+          fade: 1, exposure: 1.7, diffusion: 0.5, bloom: 0.7, halation: 0.45,
+          warmth: 0.12, vignette: 0.44, grain: 0.034,
+        });
+        c.weather.setRain(0.06, true);
+        c.score.setRain(0.06);
+        c.set.wetness = 0.25;
+        // The line, and where the camera will end up watching it from.
+        const LINE = 0.5, EYE = V(0.55, 1.05, 2.95);
+        const onLine = (actor, x, e) => {
+          actor.setVisible(true).place(x, LINE, Math.atan2(EYE.x - x, EYE.z - LINE)).setEmotion(e);
+          actor.look(c.camera, 0.85);
+        };
+        onLine(rosalinda, -0.9, { love: 0.35, pride: 0.3 });
+        onLine(esteban, -0.3, { pride: 0.8 });
+        onLine(valentina, 0.3, { pride: 0.9, anger: 0.2 });
+        onLine(donGallo, 0.95, { pride: 1 });
+        onLine(ricardo, 1.6, { pride: 0.9 });
+        onLine(pollito, 2.1, { shock: 0.2 });
+        pollito.rig.root.scale.setScalar(1);
+        // Swing the key round onto the line — nobody takes a bow in the dark.
+        // Warm footlights for the curtain call — the cool night key made the
+        // whole company look embalmed.
+        c.set.key.target.position.set(0.55, 0.45, LINE);
+        c.set.key.color.setHex(0xffc98a);
+        c.set.key.intensity = 6.0;
+        c.cam.cut({
+          subject: V(0.55, 0.45, LINE), view: 2.4, lens: 24, angle: 0, height: EYE.y,
+          move: { type: 'crane', amount: 0.5, dur: 46 }, dur: 48, handheld: 0.35, smooth: 2.4,
+          label: 'CURTAIN CALL · 24mm',
+        });
+      },
+      [
+        [0.0, (c) => { c.post.setLook({ fade: 0 }); c.score.setMood('credits', 4); c.score.setAmbience(1); }],
+        [0.8, (c) => c.titles.show('CORAZÓN DE GALLINA', { kicker: 'reparto', kind: 'main', dur: 5, rule: true, fadeIn: 1.4 })],
+
+        // Each bird gets a bow and a noise of its own.
+        [5.5, (c) => { rosalinda.gesture('bow'); c.score.cluck(); c.titles.show('ROSALINDA', { sub: 'la inocente', kind: 'cast', dur: 2.9 }); }],
+        [8.3, (c) => { esteban.gesture('bow'); c.score.crow(); c.titles.show('ESTEBAN', { sub: 'el galán', kind: 'cast', dur: 2.9 }); }],
+        [11.1, (c) => { valentina.gesture('bow'); c.score.squawk(); c.titles.show('VALENTINA', { sub: 'la villana', kind: 'cast', dur: 2.9 }); }],
+        [13.9, (c) => { donGallo.gesture('bow'); c.score.crow(); c.titles.show('DON GALLO', { sub: 'el patrón', kind: 'cast', dur: 2.9 }); }],
+        [16.7, (c) => { ricardo.gesture('bow'); c.score.squawk(); c.titles.show('RICARDO', { sub: 'el gemelo malvado', kind: 'cast', dur: 2.9 }); }],
+        [19.5, (c) => { pollito.gesture('bow'); c.score.peep(); c.titles.show('POLLITO', { sub: 'el secreto', kind: 'cast', dur: 2.9 }); }],
+
+        // And now the people who did this on purpose.
+        [22.6, (c) => c.cam.move({
+          subject: V(0.55, 0.45, 0.5), view: 3.0, lens: 28, angle: 13, height: 1.0,
+          move: { type: 'orbit', amount: 0.5, dur: 26 }, dur: 26, handheld: 0.4, smooth: 3,
+          label: 'THE GUILTY · 30mm',
+        })],
+        [23.4, (c) => {
+          c.score.say('vo-credits-1');
+          c.titles.show('CLAUDE OPUS 5', {
+            kicker: 'dirección · guion · fotografía · vestuario · y todas las plumas',
+            kind: 'credit', dur: 6.5, fadeIn: 1,
+          });
+        }],
+        [28.8, (c) => {
+          c.score.say('vo-credits-2');
+          c.titles.show('THREE.JS', {
+            kicker: 'escenografía construida a mano, polígono por polígono',
+            kind: 'credit', dur: 5.5, fadeIn: 0.9,
+          });
+        }],
+        [34.0, (c) => {
+          c.score.say('vo-credits-3');
+          c.titles.show('ELEVENLABS', {
+            kicker: 'música original · truenos · y todos los suspiros',
+            kind: 'credit', dur: 5.5, fadeIn: 0.9,
+          });
+        }],
+        [39.2, (c) => {
+          c.score.say('vo-credits-4');
+          c.titles.show('BRIAN GRUBER', {
+            kicker: 'productor ejecutivo · jefe supremo de las vibras',
+            kind: 'credit', dur: 5.5, fadeIn: 0.9,
+          });
+          c.score.crow();
+        }],
+        [44.4, (c) => {
+          c.score.say('vo-credits-5');
+          c.titles.show('NINGUNA GALLINA RESULTÓ HERIDA', {
+            sub: 'varias resultaron traicionadas',
+            kind: 'act', dur: 4.5, fadeIn: 0.8,
+          });
+        }],
+        [48.0, (c) => c.post.setLook({ fade: 1 })],
+      ],
+      // The credits run to the announcer's clock, not the director's.
+      { pace: 1.0 }),
   ];
 }

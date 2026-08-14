@@ -330,6 +330,24 @@ export const GESTURES = {
       p.beak += k * 0.18;
     },
   },
+  // Curtain call. Chickens cannot bow, so this is a deep forward pitch with
+  // the wings fanned, which is close enough to bring the house down.
+  bow: {
+    dur: 2.4,
+    apply(p, u, w) {
+      const k = ease.pulse(Math.pow(u, 0.72)) * w;
+      p.bodyPitch += k * 0.6;
+      p.bodyY += k * -0.07;
+      p.neckPitch += k * 0.42;
+      p.headPitch += k * 0.3;
+      p.wingLLift += k * 0.7; p.wingRLift += k * 0.7;
+      p.wingLSweep += k * -0.55; p.wingRSweep += k * -0.55;
+      p.wingSpread += k * 0.85;
+      p.tailPitch += k * -0.4;
+      p.tailFan += k * 0.5;
+      p.lid += k * 0.22;
+    },
+  },
   peck: {
     dur: 0.75,
     apply(p, u, w) {

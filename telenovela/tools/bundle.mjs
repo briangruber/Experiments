@@ -20,11 +20,12 @@ const OUT = opt('out', 'dist/corazon-de-gallina.html');
 // Dependency order. Each module may only import from ones above it.
 const MODULES = [
   'util.js', 'chicken.js', 'acting.js', 'cast.js', 'sets.js',
-  'camera.js', 'post.js', 'score.js', 'titles.js', 'weather.js',
-  'director.js', 'main.js',
+  'camera.js', 'post.js', 'score.js', 'audio-manifest.js', 'audio.js',
+  'titles.js', 'weather.js', 'record.js', 'director.js', 'main.js',
 ];
 
-const modVar = (f) => '__m_' + basename(f, '.js');
+// Hyphens are legal in filenames and illegal in identifiers.
+const modVar = (f) => '__m_' + basename(f, '.js').replace(/[^A-Za-z0-9_$]/g, '_');
 
 // --- ES module statements we need to rewrite --------------------------------
 // Only the forms this codebase actually uses; anything else throws rather than
@@ -120,9 +121,33 @@ return Object.assign({${reexported.map((s) => `${JSON.stringify(s.to)}:__three_c
 `;
 }
 
+// The soundtrack, as base64. This is what makes the single file self-contained
+// rather than merely single: without it the page loads and plays silently.
+async function audioManifestModule() {
+  const { readdir } = await import('node:fs/promises');
+  let files = [];
+  try {
+    files = (await readdir(join(ROOT, 'audio'))).filter((f) => f.endsWith('.mp3')).sort();
+  } catch {
+    console.warn('no audio/ directory — bundling without the soundtrack');
+  }
+  const entries = [];
+  let bytes = 0;
+  for (const f of files) {
+    const buf = await readFile(join(ROOT, 'audio', f));
+    bytes += buf.length;
+    entries.push(`${JSON.stringify(basename(f, '.mp3'))}:"data:audio/mpeg;base64,${buf.toString('base64')}"`);
+  }
+  console.error(`  audio: ${files.length} clips, ${(bytes / 1048576).toFixed(2)} MB`);
+  return `export const AUDIO = {${entries.join(',\n')}};
+export const AUDIO_NAMES = Object.keys(AUDIO);`;
+}
+
 // --- our own modules --------------------------------------------------------
 async function bundleModule(file) {
-  const src = await readFile(join(ROOT, 'src', file), 'utf8');
+  const src = file === 'audio-manifest.js'
+    ? await audioManifestModule()
+    : await readFile(join(ROOT, 'src', file), 'utf8');
   const exported = [];
   let body = src
     // `import * as THREE` — THREE is already a top-level binding in the bundle.

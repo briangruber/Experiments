@@ -1,12 +1,12 @@
 # Corazón de Gallina
 
 A wordless telenovela, performed by chickens, in a hacienda courtyard at
-midnight. Six scenes, four minutes, not one line of dialogue — the plot is
-carried entirely by posture, timing, camera language and a synthesised organ
-sting.
+midnight. Seven scenes, five minutes, not one line of dialogue — the plot is
+carried entirely by posture, timing, camera language and an organ sting.
 
-Everything is generated at load: the birds, the courtyard, the tile and stucco
-textures, the rain, the score. The only asset on disk is three.js itself.
+The birds, the courtyard, the tile and stucco textures and the rain are all
+generated at load; the only assets on disk are three.js and the soundtrack,
+which was generated too (see *Sound*).
 
 ## Running it
 
@@ -23,7 +23,7 @@ the orchestra play).
 | --- | --- |
 | `space` | pause |
 | `←` `→` | previous / next scene |
-| `1`–`6` | jump to a scene |
+| `1`–`7` | jump to a scene |
 | `R` | restart |
 | `M` | mute |
 | `H` | hide the interface |
@@ -38,6 +38,7 @@ the orchestra play).
 | 4 | LA BOFETADA | The slap, in slow motion, held on a frozen frame. |
 | 5 | EL GEMELO MALVADO | Esteban has a twin. A dolly zoom while Rosalinda works it out. |
 | 6 | CONTINUARÁ | The faint, the catch, the laughing villains — and the egg hatches. |
+| 7 | CRÉDITOS | The cast take a bow each, and then the guilty parties are named. |
 
 ## The tropes, and where they live
 
@@ -59,6 +60,30 @@ mechanism in the code rather than a hand-animated moment:
 - **The diffusion filter** — the soft glow that makes everyone look forgiven,
   cranked up for the romance and pulled back for the storm.
 
+Tempo lives on `Director.pace`, a single multiplier over scene time that speeds
+the acting, the camera moves and the cue spacing together. Scenes can opt out —
+the credits run at 1.0 because they are paced by the announcer, who speaks at
+his own speed.
+
+## Sound
+
+`tools/audio.mjs` generates the whole soundtrack with ElevenLabs and writes it
+to `audio/` — six looping music beds, fifteen sound effects, and a Spanish
+announcer who introduces the episode, signs off on the cliffhanger, and reads
+the credits. It skips anything already on disk, so re-running costs nothing.
+
+```
+ELEVENLABS_API_KEY=... node tools/audio.mjs
+node tools/audio.mjs --only vo-title --force     # redo one cue
+```
+
+`src/audio.js` plays it: beds crossfade on mood changes, rain and night
+ambience ride a continuous gain, and the announcer ducks the music under
+himself. It presents exactly the same surface as the procedural synth in
+`src/score.js`, which stands by as a fallback for when the audio can't be
+fetched or decoded — opening `index.html` straight off the filesystem, say.
+The director's cues never have to know which one is running.
+
 ## How it is put together
 
 ```
@@ -71,11 +96,15 @@ src/
   sets.js       the courtyard, generated textures, lighting
   camera.js     the cinematographer — shot sizes, lenses, moves, focus
   director.js   the screenplay: a cue list per scene
+  audio.js      the soundtrack player, with score.js as its fallback
   post.js       DOF, bloom, diffusion, halation, grain, letterbox
   weather.js    rain and lightning
   score.js      the synthesised orchestra
   titles.js     title cards, driven off the director's clock
+audio/          the generated soundtrack
 vendor/three/   three.js r185 (MIT)
+tools/audio.mjs generate the soundtrack (ElevenLabs)
+tools/bundle.mjs flatten everything into one HTML file
 tools/shot.mjs  headless capture and smoke test
 ```
 
@@ -110,7 +139,7 @@ Emotions are continuous (`anger`, `sorrow`, `love`, `fear`, `pride`, `shock`)
 and drive the whole body — brows, lids, hackles, tail carriage, stance.
 Gestures layer on top with their own envelopes: `gasp`, `slap`, `slapped`,
 `swoon`, `faint`, `catcher`, `laugh`, `sob`, `accuse`, `scheme`, `crow`,
-`nuzzle`, `spurn`, `doubleTake`, `shudder`, `sigh`.
+`nuzzle`, `spurn`, `doubleTake`, `shudder`, `sigh`, `bow`.
 
 ### Cinematography
 
@@ -132,7 +161,9 @@ distance, rather than sliding in toward the subject and wrecking the framing.
 ## Capture and smoke test
 
 `tools/shot.mjs` serves the folder, drives it in headless Chromium, seeks to an
-exact scene and time, and exits non-zero on any WebGL/JS error or a dark frame.
+exact scene and time, and exits non-zero on any WebGL/JS error, a dark frame, or
+a soundtrack that failed to decode. `--page` points it at the bundled single
+file instead of the source, so both builds get the same test.
 
 ```
 node tools/shot.mjs --out shots/frame.png --scene 3 --at 14.2
@@ -142,6 +173,43 @@ node tools/shot.mjs --contact shots/contact          # one frame per beat
 
 Sampling happens inside the page's own render frame — a WebGL canvas reads back
 black once the compositor has swapped.
+
+## Exporting video
+
+The **⏺ VIDEO** button records the piece and hands you a file. Two cuts:
+
+- **Tráiler** — 55 s at 720p, assembled from ten beats. It cuts between them,
+  which is both the right length for social and exactly how the genre
+  advertises itself.
+- **Episodio completo** — the whole thing at 540p.
+
+Recording is real time and composites onto a mixing canvas, because
+`MediaRecorder` can only capture a canvas and the title cards are DOM — they are
+redrawn in 2D each frame so they survive into the file. Audio comes off the
+soundtrack's master bus as a `MediaStream` track.
+
+The container is H.264/AAC MP4 where the browser can encode it, falling back to
+VP9/Opus WebM; the interface says which you are getting. Bitrate is chosen from
+the cut's length so the file lands under 14 MiB, which is what the published
+page's `downloads` capability will accept — served normally, it just downloads.
+While recording, frame time is left unclamped: the audio runs on the wall clock
+regardless, so the world has to as well, and a slow machine gets a choppy video
+rather than a desynchronised one.
+
+## Bundling
+
+`tools/bundle.mjs` flattens the whole prototype — sources, three.js and the
+soundtrack — into one self-contained HTML file with nothing to fetch:
+
+```
+node tools/bundle.mjs --out dist/corazon-de-gallina.html
+```
+
+Every module, including the two three.js files, gets its own function scope and
+is handed its imports explicitly, so the minified vendor code can't collide with
+anything and neither can our own top-level names. The audio is inlined as base64
+data URIs, and everything except the `<title>` is escaped to pure ASCII so the
+file survives being served without an explicit charset.
 
 ## Performance
 

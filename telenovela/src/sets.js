@@ -346,7 +346,7 @@ export function buildSet(scene, renderer) {
     floor: new THREE.MeshStandardMaterial({ map: tileTex, roughness: 0.62, metalness: 0.02, color: 0xb8b2ad }),
     stucco: new THREE.MeshStandardMaterial({ map: stuccoTex, roughness: 0.92, color: 0xa89a8c }),
     stuccoWarm: new THREE.MeshStandardMaterial({ map: stuccoWarm, roughness: 0.9, color: 0xa08c78 }),
-    stone: new THREE.MeshStandardMaterial({ color: 0x8d8479, roughness: 0.82 }),
+    stone: new THREE.MeshStandardMaterial({ color: 0x6f675e, roughness: 0.88 }),
     wood: new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.8 }),
     iron: new THREE.MeshStandardMaterial({ color: 0x1b1a1e, roughness: 0.5, metalness: 0.7 }),
   };
@@ -608,6 +608,8 @@ export function buildSet(scene, renderer) {
 
   const state = {
     group: set, floor, mats, palms, lanterns, fountain: f, clouds, sky: skyMat, obstacles,
+    keyDefault: new THREE.Vector3(0, 0.4, -0.5),
+    keyColorDefault: 0xbcd0ff,
     stars: set.userData.stars, moon, halo, moonLight, ambient, doorway, key, fog,
     wetness: 0, flash: 0,
   };

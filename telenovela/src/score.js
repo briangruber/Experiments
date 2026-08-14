@@ -387,6 +387,26 @@ export class Score {
     }
   }
 
+  // Cues the sampled soundtrack covers with recordings. The synth has no
+  // convincing version of a chick peeping, so it stays quiet rather than
+  // playing something that isn't the sound.
+  squawk() {}
+  cluck() {}
+  flap() {}
+  eggCrack() {}
+  peep() {}
+  say() {}
+  setAmbience() {}
+
+  captureStream() {
+    if (!this.ctx) return null;
+    if (!this._capture) {
+      this._capture = this.ctx.createMediaStreamDestination();
+      this.master.connect(this._capture);
+    }
+    return this._capture.stream;
+  }
+
   suspend() { if (this.ctx && this.ctx.state === 'running') this.ctx.suspend(); }
   resume() { if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); }
   setEnabled(v) {

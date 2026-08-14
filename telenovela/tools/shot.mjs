@@ -44,11 +44,12 @@ const NO_UI = !args.includes('--ui');
 // One frame from each act, chosen to land on a beat worth looking at.
 const CONTACT_SHEET = [
   [0, 3], [0, 20], [0, 27],
-  [1, 6], [1, 14], [1, 26], [1, 39],
+  [1, 1.5], [1, 3], [1, 6], [1, 14], [1, 26], [1, 39],
   [2, 10], [2, 16.5], [2, 22], [2, 28], [2, 34],
   [3, 5], [3, 14.2], [3, 18], [3, 27],
   [4, 8], [4, 14], [4, 20], [4, 27], [4, 40],
   [5, 6], [5, 13], [5, 29], [5, 35], [5, 40],
+  [6, 2], [6, 11], [6, 21], [6, 30], [6, 47],
 ];
 
 const MIME = {
@@ -112,12 +113,27 @@ async function seek(scene, at) {
 }
 
 const results = [];
+let audio = null;
 if (!errors.length) {
   await page.evaluate(() => {
     window.__telenovela.score.setEnabled(false);
     document.getElementById('start').classList.add('gone');
   });
   if (NO_UI) await page.evaluate(() => document.body.classList.add('no-ui'));
+
+  // The soundtrack is half the piece; check it actually decodes rather than
+  // silently falling back to the synth.
+  audio = await page.evaluate(async () => {
+    const T = window.__telenovela;
+    const ok = await T.soundtrack.start();
+    await new Promise((r) => setTimeout(r, 2500));
+    return {
+      ok, ready: T.soundtrack.ready, failed: T.soundtrack.failed,
+      clips: Object.keys(T.soundtrack.manifest).length,
+      decoded: T.soundtrack.buffers.size,
+    };
+  });
+  await page.evaluate(() => window.__telenovela.soundtrack.setEnabled(false));
 
   const FRAMES = opt('frames', null);   // e.g. --frames 0:3,2:16.5,5:35
   const list = FRAMES
@@ -140,16 +156,19 @@ await browser.close();
 server.close();
 
 const lit = results.filter((r) => r.stdLuma > 2 && r.maxLuma > 24);
+const audioOk = !audio || audio.clips === 0 || (audio.ready && audio.decoded > 4);
 const report = {
-  ok: errors.length === 0 && results.length > 0 && lit.length === results.length,
+  ok: errors.length === 0 && results.length > 0 && lit.length === results.length && audioOk,
   frames: results.length,
   lit: lit.length,
+  audio,
   results,
   errors: errors.slice(0, 12),
 };
 console.log(JSON.stringify(report, null, 2));
 if (!report.ok) {
-  if (!errors.length) console.error('\nDARK/FLAT FRAMES: ' + results.filter((r) => !lit.includes(r)).map((r) => r.out).join(', '));
+  if (!audioOk) console.error('\nSOUNDTRACK DID NOT LOAD: ' + JSON.stringify(audio));
+  if (!errors.length && lit.length !== results.length) console.error('\nDARK/FLAT FRAMES: ' + results.filter((r) => !lit.includes(r)).map((r) => r.out).join(', '));
   console.error(logs.slice(-40).join('\n'));
   process.exit(1);
 }

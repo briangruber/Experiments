@@ -20,6 +20,12 @@ export class Titles {
   show(text, opts = {}) {
     const node = document.createElement('div');
     node.className = `card card-${opts.kind || 'act'}`;
+    if (opts.kicker) {
+      const k = document.createElement('div');
+      k.className = 'card-kicker';
+      k.textContent = opts.kicker;
+      node.appendChild(k);
+    }
     const t = document.createElement('div');
     t.className = 'card-title';
     t.textContent = text;
@@ -39,6 +45,9 @@ export class Titles {
     this.el.appendChild(node);
     const card = {
       node, t: 0,
+      text, sub: opts.sub || null, kicker: opts.kicker || null,
+      kind: opts.kind || 'act', rule: !!opts.rule,
+      alpha: 0, progress: 0,
       dur: opts.dur ?? 3.4,
       fadeIn: opts.fadeIn ?? 0.9,
       fadeOut: opts.fadeOut ?? 1.1,
@@ -59,9 +68,11 @@ export class Titles {
       const inA = Math.min(1, c.t / c.fadeIn);
       const outA = c.hold ? 1 : 1 - Math.max(0, (c.t - (c.dur - c.fadeOut)) / c.fadeOut);
       const a = Math.max(0, Math.min(inA, outA));
-      c.node.style.opacity = String(a * a * (3 - 2 * a));
+      c.alpha = a * a * (3 - 2 * a);
+      c.node.style.opacity = String(c.alpha);
       // A slow drift, so the card feels optically printed rather than pasted on.
       const k = Math.min(1, c.t / Math.max(0.01, c.dur));
+      c.progress = k;
       c.node.style.transform = `translateX(-50%) translateY(${(0.5 - k) * 6 * c.drift}px) scale(${1 + k * 0.012 * c.drift})`;
       c.node.style.letterSpacing = `${0.22 + k * 0.06}em`;
       if (!c.hold && c.t >= c.dur) { c.node.remove(); this.cards.splice(i, 1); }
