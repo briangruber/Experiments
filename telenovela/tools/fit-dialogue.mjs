@@ -19,13 +19,16 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DRY = process.argv.includes('--dry');
+// Which episode's script — tools/pipeline.mjs passes this per episode.
+const argv = process.argv.slice(2);
+const EP = argv.indexOf('--episode') >= 0 ? argv[argv.indexOf('--episode') + 1] : 'e01-corazon';
 const GAP = 0.3;      // real seconds of silence between two speakers
 
-const { LINES } = await import(new URL('../episodes/e01-corazon/dialogue.js', import.meta.url));
-const { TIMING } = await import(new URL('../episodes/e01-corazon/dialogue-timing.js', import.meta.url));
+const { LINES } = await import(new URL(`../episodes/${EP}/dialogue.js`, import.meta.url));
+const { TIMING } = await import(new URL(`../episodes/${EP}/dialogue-timing.js`, import.meta.url));
 // Scene durations and paces come from the scene modules' meta, via the episode
 // manifest; lines reference scenes by id.
-const { episode } = await import(new URL('../episodes/e01-corazon/episode.js', import.meta.url));
+const { episode } = await import(new URL(`../episodes/${EP}/episode.js`, import.meta.url));
 
 // Director.pace — scenes that don't override the tempo run at this.
 const DEFAULT_PACE = 1.32;
@@ -56,13 +59,13 @@ for (const o of overruns) console.log(`  ${o.id}: runs ${o.over}s past the end o
 if (!moves.length) console.log('  nothing to move');
 
 if (!DRY && moves.length) {
-  let text = await readFile(join(ROOT, 'episodes/e01-corazon/dialogue.js'), 'utf8');
+  let text = await readFile(join(ROOT, `episodes/${EP}/dialogue.js`), 'utf8');
   for (const m of moves) {
     const re = new RegExp(`(\\{ id: '${m.id}', scene: '[^']+', at: )[\\d.]+`);
     if (!re.test(text)) throw new Error(`could not find ${m.id} to rewrite`);
     text = text.replace(re, `$1${m.to}`);
   }
-  await writeFile(join(ROOT, 'episodes/e01-corazon/dialogue.js'), text);
-  console.log(`\nrewrote ${moves.length} cue(s) in episodes/e01-corazon/dialogue.js`);
+  await writeFile(join(ROOT, `episodes/${EP}/dialogue.js`), text);
+  console.log(`\nrewrote ${moves.length} cue(s) in episodes/${EP}/dialogue.js`);
 }
 process.exit(overruns.length ? 1 : 0);

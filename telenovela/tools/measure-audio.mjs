@@ -34,13 +34,19 @@ async function loadPlaywright() {
   throw new Error('playwright not found');
 }
 
-// The clips live in two places now: the library any episode shares, and the
-// voice track of this one. Levelling has to see them all — dialogue is what
-// everything else is levelled against.
-const DIRS = ['company/library/audio', 'episodes/e01-corazon/voice'];
+// The clips live in two kinds of place: the library any episode shares, and
+// each episode's voice track. Levelling has to see them all — dialogue is
+// what everything else is levelled against — so every episode's voice/ is
+// scanned, not just the first one's. An episode without a voice dir yet is
+// simply skipped.
+const DIRS = ['company/library/audio',
+  ...(await readdir(join(ROOT, 'episodes'), { withFileTypes: true }))
+    .filter((d) => d.isDirectory()).map((d) => `episodes/${d.name}/voice`).sort()];
 const clips = [];
 for (const dir of DIRS) {
-  for (const f of (await readdir(join(ROOT, dir))).filter((f) => f.endsWith('.mp3'))) {
+  let files;
+  try { files = await readdir(join(ROOT, dir)); } catch { continue; }
+  for (const f of files.filter((f) => f.endsWith('.mp3'))) {
     clips.push({ id: f.slice(0, -4), url: `/${dir}/${f}` });
   }
 }

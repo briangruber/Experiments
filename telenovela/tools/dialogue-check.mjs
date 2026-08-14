@@ -13,13 +13,17 @@
 // time for every cue after it, so LA BOFETADA's lines from the slap onward have
 // far more room than this reports. The error is in the safe direction.
 
-const { LINES } = await import(new URL('../episodes/e01-corazon/dialogue.js', import.meta.url));
-const { TIMING } = await import(new URL('../episodes/e01-corazon/dialogue-timing.js', import.meta.url));
+// Which episode's script — tools/pipeline.mjs passes this per episode.
+const argv = process.argv.slice(2);
+const EP = argv.indexOf('--episode') >= 0 ? argv[argv.indexOf('--episode') + 1] : 'e01-corazon';
+
+const { LINES } = await import(new URL(`../episodes/${EP}/dialogue.js`, import.meta.url));
+const { TIMING } = await import(new URL(`../episodes/${EP}/dialogue-timing.js`, import.meta.url));
 // Scene lengths and paces come straight from each scene module's meta, via the
 // episode manifest — the numbers the director actually plays, not a regex over
 // the source. Lines reference scenes by id, so an inserted or reordered scene
 // changes nothing here.
-const { episode } = await import(new URL('../episodes/e01-corazon/episode.js', import.meta.url));
+const { episode } = await import(new URL(`../episodes/${EP}/episode.js`, import.meta.url));
 
 // Director.pace — scenes that don't override the tempo run at this.
 const DEFAULT_PACE = 1.32;

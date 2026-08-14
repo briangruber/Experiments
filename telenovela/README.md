@@ -120,8 +120,9 @@ episodes/e01-corazon/
   scenes/         one module per scene: meta (id, length, pace, beats) + cues
   marks.js        the standing marks every scene shares
   dialogue.js     the script, with subtitles.js wiring it into cues
-  voice/          the rendered dialogue clips
+  voice/          the rendered dialogue clips, each with a .mp3.hash sidecar
 vendor/three/     three.js r185 (MIT)
+tools/pipeline.mjs  one command from script to postable file (see below)
 tools/audio.mjs   generate the sound library (ElevenLabs)
 tools/voices.mjs  record and measure the dialogue (ElevenLabs)
 tools/bundle.mjs  flatten everything into one HTML file
@@ -181,6 +182,51 @@ shot. Two house rules worth knowing about:
 The camera is also fenced inside the courtyard walls. When a requested position
 lands outside, it swings round to the nearest angle that fits and keeps its
 distance, rather than sliding in toward the subject and wrecking the framing.
+
+## The pipeline
+
+```
+node tools/pipeline.mjs e01-corazon [--video] [--seconds N] [--skip-slow]
+```
+
+One command from script to postable file. The steps run in order, each prints
+one line, the run stops on the first failure, and a summary table lands at the
+end:
+
+| step | what it does |
+| --- | --- |
+| **voices** | Compares every line in the episode's `dialogue.js` against its clip's committed `.mp3.hash` sidecar — the sha-256 of the Spanish text, the voice id and the delivery settings (`tools/voice-hash.mjs`). Only a missing or stale line is re-recorded, so an unchanged script makes **no** API call; moving a cue or rewording a subtitle never re-records anything. `voices.mjs` writes the sidecar whenever it records, which keeps the check honest. |
+| **measure** | Rewrites the generated timing tables (`dialogue-timing.js`, `audio-timing.js`) only if some mp3 is newer than the table built from it. The tables are committed, so on a clean tree this skips. |
+| **fit** | `tools/fit-dialogue.mjs` — pushes a dialogue cue later only when the line before it is still speaking, and rewrites `dialogue.js` only when something actually moved. |
+| **check** | `tools/dialogue-check.mjs`, then the full audio timeline — which drives the real page through every scene and takes minutes, so `--skip-slow` skips it for tight loops. |
+| **bundle** | `dist/<episode>.html`, plus `dist/corazon-de-gallina.html` for e01 — the name the published artifact expects, so redeploys keep their URL. |
+| **smoke** | `tools/shot.mjs` on the module build and then on the bundle under the published CSP, at the first declared beat of three scenes: every frame lit, `fetch()` really blocked, every one-shot decoded, exactly one music bed, the opening bed alive after pressing play. |
+| **video** | Only with `--video`: `tools/render.mjs`, trailer then full episode, forwarding `--seconds`. When the only ffmpeg around is Playwright's stripped build, this step says so and skips rather than failing the run. |
+
+### Starting episode two
+
+Copy the shape of `episodes/e01-corazon/`: an `episode.js` manifest, `scenes/`
+with one module per scene (new scene ids), `marks.js`, a new `dialogue.js`,
+`subtitles.js`, `voice-manifest.js` and `audio-manifest.js`. Two things to
+know while doing it:
+
+- **Line ids must be unique across episodes** — they name the mp3s and the
+  rows of the shared one-shot timing table, so give e02's lines their own
+  prefix (`e02-0a`, …) rather than reusing `dlg-*`.
+- **The page plays one episode at a time**: `engine/main.js` imports the
+  episode and `tools/bundle.mjs`'s `MODULES` list names its modules, so point
+  both at the new directory.
+
+Then:
+
+```
+ELEVENLABS_API_KEY=... node tools/pipeline.mjs e02-whatever
+```
+
+The pipeline records the new dialogue (no sidecars yet, so every line is
+"stale" exactly once), measures it, fits the cues around the real clip
+lengths, checks the timeline, bundles `dist/e02-whatever.html` and smokes both
+builds. From then on, re-running costs nothing until the script changes.
 
 ## Capture and smoke test
 
