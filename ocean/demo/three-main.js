@@ -45,9 +45,16 @@ import {
 	buildCraftGeometry, loadCraftTexture, setCraftTexture, craftFragment,
 	craftVertex, uCraftWetLine, uPropAngle, uPropHub,
 } from '../src/gpu/tsl/craft.js';
+import {
+	creatureVertex, creatureFragment, setCreatureTexture,
+	uCreatureLen, uCreaturePhase, uCreatureWaves, uCreatureAmp,
+	uCreatureSeaY, uCreatureFade, uCreatureOpacity,
+} from '../src/gpu/tsl/creature.js';
 import { WaveRunner } from './waverunner.js';
 import { SeaPlane } from './seaplane.js';
+import { SeaDragon } from './seadragon.js';
 import { PLANE_MESH } from './planeModel.js';
+import { DRAGON_MESH } from './dragonModel.js';
 import { setCraftShadowNode } from '../src/gpu/tsl/water-surface.js';
 
 // ---------------------------------------------------------------------------
@@ -272,6 +279,66 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	craftScene.add( sunLight );
 	craftScene.add( sunLight.target );
 	shadowCasterScene = craftScene;
+
+	// ---- the sea dragon -------------------------------------------------------
+	//
+	// Its own scene and its own draw, between the sea and the craft. NO DEPTH
+	// TEST and no depth write, because the sea is opaque and has already written
+	// its own depth over every pixel the animal is behind - see the header of
+	// ./gpu/tsl/creature.js for why this is a blend rather than a refraction, and
+	// why front faces alone make an unsorted draw survivable.
+	//
+	// The order is what makes it read as UNDER the water: the sea is laid down
+	// first, the dragon is blended into it by how deep it is, and the craft goes
+	// over the top with a real depth test - so riding past it puts the hull in
+	// front, as it should be.
+	const dragon = new SeaDragon();
+	const dragonMat = new THREE.NodeMaterial();
+	dragonMat.name = 'abyssal.dragon';
+	dragonMat.fragmentNode = creatureFragment();
+	dragonMat.positionNode = creatureVertex();
+	dragonMat.side = THREE.FrontSide;
+	dragonMat.transparent = true;
+	dragonMat.depthTest = false;
+	dragonMat.depthWrite = false;
+	const dragonBuild = buildCraftGeometry( params.sdLength, DRAGON_MESH );
+	const dragonMesh = new THREE.Mesh( dragonBuild.geometry, dragonMat );
+	dragonMesh.frustumCulled = false;
+	dragonMesh.matrixAutoUpdate = false;
+	const dragonScene = new THREE.Scene();
+	dragonScene.add( dragonMesh );
+	loadCraftTexture( renderer, DRAGON_MESH ).then( ( t ) => setCreatureTexture( t ) );
+	let dragonLen = params.sdLength;
+
+	const drawDragon = () => {
+
+		if ( params.sdEnabled < 0.5 ) return;
+		// The mesh is built at a length; changing it is a rebuild, not a scale, so
+		// that the swim's wavelength stays in the same units as the body.
+		if ( Math.abs( params.sdLength - dragonLen ) > 0.01 ) {
+
+			const b = buildCraftGeometry( params.sdLength, DRAGON_MESH );
+			dragonMesh.geometry.dispose();
+			dragonMesh.geometry = b.geometry;
+			dragonLen = params.sdLength;
+
+		}
+		uCreatureLen.value = params.sdLength;
+		uCreatureWaves.value = params.sdWaves;
+		uCreatureAmp.value = params.sdAmp;
+		uCreaturePhase.value = dragon.phase;
+		uCreatureSeaY.value = params.sdSeaLevel;
+		uCreatureFade.value = params.sdFade;
+		uCreatureOpacity.value = params.sdOpacity;
+		// modelYaw 0: tools/glb.mjs already put this asset's head on -Z.
+		setCraftTransform(
+			dragonMesh,
+			[ dragon.pos[ 0 ], dragon.pos[ 1 ], dragon.pos[ 2 ] ],
+			dragon.heading, dragon.pitch, dragon.roll, 1.0, 0,
+		);
+		renderer.render( dragonScene, cam3 );
+
+	};
 
 	// Aim the light down the sun at whatever is out there, and size its box to the
 	// hull. A directional shadow is an ORTHOGRAPHIC box, and the box has to hold
@@ -790,6 +857,15 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		camera.locked = rider.active || plane.active;
 		camera.update( dt, params );
 
+		// The dragon swims after the vehicle has moved and after the camera has,
+		// so it is chasing THIS frame's station rather than last frame's - a lag
+		// that on a hard carve reads as the animal being yanked along behind you.
+		if ( params.sdEnabled >= 0.5 ) {
+
+			dragon.update( dt, params, rider.active ? rider : ( plane.active ? plane : null ), camera );
+
+		}
+
 		// THIS IS NOT OPTIONAL, and leaving it out is invisible until you look up.
 		//
 		// camera.update() advances the position and the fwd/right/up basis, but
@@ -986,11 +1062,13 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 
 			sky.drawBackground( params, ctx );
 			water.render( params, ctx, sim, cam3, { wake: wake.uniforms( params, rider.active ), hull } );
+			drawDragon();
 			drawCraft();
 
 		} else {
 
 			water.render( params, ctx, sim, cam3, { wake: wake.uniforms( params, rider.active ), hull } );
+			drawDragon();
 			drawCraft();
 			sky.drawBackground( params, ctx );
 
@@ -1070,7 +1148,7 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		cam3,
 		output,
 		onFrame: null,
-		rider, plane, wake, craftProbe, craftMesh, planeMesh, hull,
+		rider, plane, dragon, wake, craftProbe, craftMesh, planeMesh, hull,
 		toggleRide: () => {
 
 			rider.active = ! rider.active;
@@ -1163,6 +1241,8 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 					off: () => { const v = params.cloudSteps; params.cloudSteps = 8; return () => { params.cloudSteps = v; }; } },
 				{ name: 'spray', detail: 'GPU particles',
 					off: () => { const f = spray.draw; spray.draw = () => {}; return () => { spray.draw = f; }; } },
+				{ name: 'dragon', detail: 'the animal under the sea',
+					off: () => { const v = params.sdEnabled; params.sdEnabled = 0; return () => { params.sdEnabled = v; }; } },
 				{ name: 'post', detail: 'bloom + grain',
 					off: () => {
 

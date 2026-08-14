@@ -45,6 +45,7 @@ await page.evaluate(() => {
   A.params.adaptiveQuality = 0; A.params.fpsCap = 0;
   A.params.renderScale = 0.4; A.params.cloudSteps = 8;
   A.params.sprayOpacity = 0;            // no billboards in the diff
+  A.params.sdEnabled = 0;               // the dragon swims; this frame must not
   A.toggleFly();
 });
 // FLY, don't float. The reported case is an aircraft in the air - the shadow

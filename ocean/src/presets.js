@@ -370,6 +370,32 @@ export const defaults = {
                             // aliases into a slow backward crawl, which is what
                             // a real propeller does on camera too.
 
+  // ---- the sea dragon (demo/seadragon.js, src/gpu/tsl/creature.js) ----
+  // It holds a station off your shoulder rather than wandering, because a sea
+  // monster you have to go looking for is one most riders never see. Depth is
+  // what makes it read as UNDER the water: the renderer fades it out over
+  // sdFade metres, so sdDepth is really "how solid is it".
+  sdEnabled: 1.0,           // 0 turns the animal off entirely, draw and all
+  sdLength: 22.0,           // nose to tail, metres. The mesh is unit-length.
+  sdSpeed: 26.0,            // m/s it will sprint to hold station - faster than
+                            // the ski's top end, or it could never catch up
+  sdAccel: 0.55,            // 1/s it closes on the speed it wants
+  sdTurnRate: 0.55,         // rad/s at a standstill; a long body turns slower
+  sdOrbit: 0.20,            // rad/s it circles you at when you are not moving
+  sdOffset: 16.0,           // metres off your shoulder it tries to sit
+  sdLead: 6.0,              // ...and how far ahead, so a chase camera sees it
+  sdDepth: 4.0,             // mean depth below the surface, m
+  sdDepthSwing: 2.0,        // how far it rises and sounds around that
+  sdMinDepth: 1.6,          // never nearer the surface than this - it must not
+                            // breach, see src/gpu/tsl/creature.js
+  sdSeaLevel: 0.0,          // the mean surface it measures depth from
+  sdFade: 11.0,             // metres of depth over which it fades into the sea
+  sdOpacity: 1.0,           // overall strength of the thing in the water
+  sdWaves: 1.25,            // body waves along its length
+  sdAmp: 0.055,             // peak tail sweep, as a fraction of length
+  sdBeat: 0.35,             // tail beats per second at rest
+  sdBeatSpeed: 0.030,       // ...plus this many per m/s
+
   hullPush: 0.55,           // depth of the hollow the hull presses, m
   hullRadius: 2.6,          // along-hull extent of that footprint, m
   hullBow: 0.9,             // how much of it stands back up as bow wave

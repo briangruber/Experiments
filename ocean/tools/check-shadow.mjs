@@ -54,6 +54,7 @@ await page.evaluate(() => {
   A.params.adaptiveQuality = 0; A.params.fpsCap = 0;
   A.params.renderScale = 0.5; A.params.cloudSteps = 8;
   A.params.sprayOpacity = 0;              // no billboards in the diff
+  A.params.sdEnabled = 0;               // the dragon swims; this frame must not
   A.params.craftReflect = 0;              // the reflection is check-reflection's claim
   A.params.craftShadow = 1;
   A.toggleFly();
