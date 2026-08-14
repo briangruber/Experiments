@@ -2,7 +2,7 @@
 // Every sound the episode makes, in the order it makes it, with real times.
 //
 //   node tools/audio-timeline.mjs            # the whole episode
-//   node tools/audio-timeline.mjs --scene 3
+//   node tools/audio-timeline.mjs --scene revelacion    # id or index
 //
 // Grepping the screenplay for score.play() misses cues fired from tweens,
 // gestures and event callbacks, and it cannot tell you when a cue in a
@@ -22,7 +22,13 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
-const ONLY = args.indexOf('--scene') >= 0 ? +args[args.indexOf('--scene') + 1] : null;
+// A scene id ('gemelo') or an index ('5') — resolved against the running
+// episode in the page, so this tool carries no scene list of its own.
+const ONLY = args.indexOf('--scene') >= 0
+  ? (/^\d+$/.test(args[args.indexOf('--scene') + 1])
+    ? +args[args.indexOf('--scene') + 1]
+    : args[args.indexOf('--scene') + 1])
+  : null;
 
 // An effect at or above this share of a dialogue line's level will be heard
 // over it rather than under it. Effects duck to SFX_DUCK while someone is
@@ -64,7 +70,10 @@ await page.evaluate(() => window.__telenovela.dressed);
 const scenes = await page.evaluate((only) => {
   const T = window.__telenovela;
   const out = [];
-  const list = only === null ? T.dir.scenes.map((_, i) => i) : [only];
+  const list = only === null
+    ? T.dir.scenes.map((_, i) => i)
+    : [typeof only === 'string' ? T.dir.indexOf(only) : only];
+  if (list.some((i) => i < 0)) throw new Error(`unknown scene '${only}'`);
 
   for (const i of list) {
     const scene = T.dir.scenes[i];

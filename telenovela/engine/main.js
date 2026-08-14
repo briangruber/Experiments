@@ -11,8 +11,8 @@ import { Score } from './score.js';
 import { Soundtrack } from './audio.js';
 import { Titles } from './titles.js';
 import { Director, buildProps } from './director.js';
-import { buildScreenplay } from '../episodes/e01-corazon/screenplay.js';
-import { Recorder, CUTS, deliver, canDeliver, formatLabel, drawCards } from './record.js';
+import { episode } from '../episodes/e01-corazon/episode.js';
+import { Recorder, deliver, canDeliver, formatLabel, drawCards } from './record.js';
 import { clamp } from './util.js';
 
 const canvas = document.getElementById('gl');
@@ -52,8 +52,11 @@ const dressed = dressSet(set).catch((e) => {
   console.warn('set dressing unavailable:', e.message);
   return null;
 });
-const dir = new Director(ctx, buildScreenplay);
+const dir = new Director(ctx, episode);
 ctx.dir = dir;
+// The export cuts come from the episode too; the recorder only ever sees
+// whichever one is being played out.
+const CUTS = episode.cuts;
 
 // --- sizing ----------------------------------------------------------------
 
@@ -297,7 +300,9 @@ window.addEventListener('keydown', (e) => {
   else if (e.key === 'ArrowLeft') dir.prev();
   else if (e.key === 'm' || e.key === 'M') soundBtn.click();
   else if (e.key === 'r' || e.key === 'R') dir.restart();
-  else if (e.key >= "1" && e.key <= "8") dir.goTo(+e.key - 1);
+  // Number keys cover however many scenes the episode has (nine at most —
+  // there is only one row of digits).
+  else if (e.key >= '1' && e.key <= String(Math.min(9, dir.scenes.length))) dir.goTo(+e.key - 1);
   else if (e.key === 'Enter' && !running) begin();
 });
 
@@ -442,14 +447,22 @@ window.__telenovela = {
   get lastExport() { return window.__lastExport || null; },
   get score() { return ctx.score; },
   begin() { begin(); },
-  goTo(i, t = 0) {
+  // `ref` is a scene id or an index — dir.goTo takes both.
+  goTo(ref, t = 0) {
     running = true;
     startCard.classList.add('gone');
-    dir.goTo(i);
+    dir.goTo(ref);
     seekWithin(t);
   },
   measure() { return new Promise((res) => grabWaiters.push(res)); },
   CUTS,
+  // The episode's shape, for the tools: play order, per-scene beats worth
+  // screenshotting, and the export cuts — so no tool hardcodes scene knowledge.
+  episode: {
+    order: episode.order.map((m) => m.id),
+    beats: Object.fromEntries(episode.order.map((m) => [m.id, m.beats])),
+    cuts: episode.cuts,
+  },
   seekWithin(t) { seekWithin(t); },
 
   // --- deterministic offline render ---------------------------------------

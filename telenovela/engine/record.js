@@ -29,34 +29,9 @@ export function formatLabel(mime) {
   return 'WEBM';
 }
 
-// Cuts. The trailer is assembled from beats, which is both the right length
-// for social and exactly how the genre advertises itself.
-export const CUTS = {
-  trailer: {
-    label: 'TRÁILER',
-    note: '55 s · 720p',
-    width: 1280, height: 720,
-    // [scene, from, seconds]
-    segments: [
-      [0, 20.5, 6],     // the company, and the title
-      [2, 3.0, 5],      // he walks in
-      [2, 24.0, 5],     // the almost-kiss
-      [2, 37.5, 4],     // the villainess, watching
-      [3, 14.0, 6],     // the cloth comes off the egg
-      [3, 26.0, 5],     // thunder, the patriarch
-      [4, 11.5, 6],     // the slap
-      [5, 12.5, 5],     // the twin
-      [6, 3.5, 5],      // the faint
-      [6, 28.0, 8],     // the egg hatches, and it looks at you
-    ],
-  },
-  episode: {
-    label: 'EPISODIO COMPLETO',
-    note: '5:37 · 540p',
-    width: 960, height: 540,
-    segments: null,     // the whole thing, start to finish
-  },
-};
+// The cuts themselves — which scenes, which beats — belong to the episode and
+// live in its manifest (episodes/*/episode.js, `cuts`); main.js hands them to
+// the recorder. This file only knows how to record whatever it is given.
 
 const TARGET_BYTES = 14 * 1024 * 1024;   // under the 16 MiB save ceiling
 const FPS = 30;

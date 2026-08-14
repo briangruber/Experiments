@@ -27,11 +27,11 @@ export const SUBTITLES = LINES.map((l) => ({
   env: TIMING[l.id] ? TIMING[l.id].env : '',
 }));
 
-// Turn the script into cues the director can splice into its scenes. A
-// subtitle is a single slot: showing one dismisses whatever was on screen, so
-// a fast volley of reactions reads as a volley rather than a stack.
-export function subtitleCues(sceneIndex) {
-  return SUBTITLES.filter((s) => s.scene === sceneIndex).map((s) => [
+// Turn the script into cues the director can splice into its scenes, keyed by
+// scene id. A subtitle is a single slot: showing one dismisses whatever was on
+// screen, so a fast volley of reactions reads as a volley rather than a stack.
+export function subtitleCues(sceneId) {
+  return SUBTITLES.filter((s) => s.scene === sceneId).map((s) => [
     s.at,
     (c) => {
       c.titles.subtitle(s.text, s.dur, { speaker: s.speaker, narration: !s.speaker });

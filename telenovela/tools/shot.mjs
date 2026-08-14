@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Headless capture + smoke test.
 //
-//   node tools/shot.mjs --out shots/a.png --scene 2 --at 14 --w 1280 --h 720
-//   node tools/shot.mjs --contact shots/contact          # one frame per beat
+//   node tools/shot.mjs --out shots/a.png --scene encuentro --at 14 --w 1280 --h 720
+//   node tools/shot.mjs --contact shots/contact   # one frame per declared beat
 //
 // Exits non-zero on any WebGL/JS error or on a flat/black frame, so it works
 // as the test suite for this prototype.
@@ -33,8 +33,12 @@ const opt = (name, dflt) => {
   return i >= 0 ? args[i + 1] : dflt;
 };
 
+// Scene references are ids ('bofetada') or indices ('4') — the page's
+// dir.goTo takes both, so pass indices through as numbers and ids as strings.
+const sceneRef = (s) => (/^\d+$/.test(s) ? +s : s);
+
 const OUT = opt('out', 'shots/frame.png');
-const SCENE = +opt('scene', 0);
+const SCENE = sceneRef(String(opt('scene', 0)));
 const AT = +opt('at', 6);
 const WIDTH = +opt('w', 1280);
 const HEIGHT = +opt('h', 720);
@@ -47,20 +51,6 @@ const CSP = args.includes('--csp');
 const CSP_HEADER = "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' 'self'; "
   + "style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; "
   + "font-src data:; connect-src 'none'; worker-src blob:;";
-
-// One frame from each act, chosen to land on a beat worth looking at.
-const CONTACT_SHEET = [
-  [0, 5], [0, 12], [0, 19], [0, 24],
-  [1, 3], [1, 20], [1, 27],
-  [2, 1.5], [2, 3], [2, 6], [2, 14], [2, 26], [2, 39],
-  [3, 10], [3, 16.5], [3, 22], [3, 28], [3, 34],
-  [4, 5], [4, 14.2], [4, 18], [4, 27],
-  [5, 8], [5, 14], [5, 20], [5, 27], [5, 40],
-  // Not 40: CONTINUARÁ fades to black at 39.5 and runs to 40.6, so a frame
-  // there is deliberately empty. 39.0 is the freeze and the card.
-  [6, 6], [6, 13], [6, 29], [6, 35], [6, 39],
-  [7, 2], [7, 11], [7, 21], [7, 30], [7, 47],
-];
 
 const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
@@ -184,16 +174,27 @@ if (!errors.length) {
   });
   await page.evaluate(() => window.__telenovela.soundtrack.setEnabled(false));
 
-  const FRAMES = opt('frames', null);   // e.g. --frames 0:3,2:16.5,5:35
+  // e.g. --frames 0:3,encuentro:16.5,5:35 — a scene id or index, then a time.
+  const FRAMES = opt('frames', null);
   const list = FRAMES
-    ? FRAMES.split(',').map((p) => p.split(':').map(Number))
-    : CONTACT ? CONTACT_SHEET : [[SCENE, AT]];
+    ? FRAMES.split(',').map((p) => {
+      const i = p.lastIndexOf(':');
+      return [sceneRef(p.slice(0, i)), +p.slice(i + 1)];
+    })
+    // The contact sheet is the episode's own list of beats worth looking at —
+    // each scene module declares them in its meta, so this tool has no scene
+    // knowledge of its own.
+    : CONTACT ? await page.evaluate(() => {
+      const E = window.__telenovela.episode;
+      return E.order.flatMap((id) => E.beats[id].map((t) => [id, t]));
+    })
+      : [[SCENE, AT]];
   for (let i = 0; i < list.length; i++) {
     const [s, t] = list[i];
     await seek(s, t);
     const stats = await measure();
     const out = list.length > 1
-      ? join(CONTACT || dirname(OUT), `${String(i).padStart(2, '0')}-s${s}-t${String(t).replace('.', '_')}.png`)
+      ? join(CONTACT || dirname(OUT), `${String(i).padStart(2, '0')}-${s}-t${String(t).replace('.', '_')}.png`)
       : OUT;
     await mkdir(dirname(join(ROOT, out)), { recursive: true });
     await page.screenshot({ path: join(ROOT, out), timeout: 60000, animations: 'disabled' });

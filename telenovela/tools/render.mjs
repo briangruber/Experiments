@@ -259,6 +259,7 @@ for (let i = 0; i < total; i++) {
     const seg = segments[segIndex];
     if (!seg) break;
     segFramesLeft = Math.round(seg[2] * FPS);
+    // seg[0] is a scene id; the page's dir.goTo resolves it (indices work too).
     await page.evaluate(([s, t]) => { window.__telenovela.dir.goTo(s); window.__telenovela.seekWithin(t); }, [seg[0], seg[1]]);
   }
   const b64 = await page.evaluate(() => window.__telenovela.offlineFrame());

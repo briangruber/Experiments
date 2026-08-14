@@ -50,7 +50,16 @@ const MODULES = [
   'engine/record.js',
   'episodes/e01-corazon/subtitles.js',
   'engine/director.js',
-  'episodes/e01-corazon/screenplay.js',
+  'episodes/e01-corazon/marks.js',
+  'episodes/e01-corazon/scenes/entrada.js',
+  'episodes/e01-corazon/scenes/preludio.js',
+  'episodes/e01-corazon/scenes/encuentro.js',
+  'episodes/e01-corazon/scenes/revelacion.js',
+  'episodes/e01-corazon/scenes/bofetada.js',
+  'episodes/e01-corazon/scenes/gemelo.js',
+  'episodes/e01-corazon/scenes/continuara.js',
+  'episodes/e01-corazon/scenes/creditos.js',
+  'episodes/e01-corazon/episode.js',
   'engine/main.js',
 ];
 const MODULE_BY_BASE = new Map(MODULES.map((p) => [basename(p), p]));
@@ -66,7 +75,7 @@ const modVar = (f) => '__m_' + basename(f, '.js').replace(/[^A-Za-z0-9_$]/g, '_'
 // --- ES module statements we need to rewrite --------------------------------
 // Only the forms this codebase actually uses; anything else throws rather than
 // silently producing a broken bundle.
-const RE_NS_IMPORT = /^import\s+\*\s+as\s+(\w+)\s+from\s+['"][^'"]+['"];?$/gm;
+const RE_NS_IMPORT = /^import\s+\*\s+as\s+(\w+)\s+from\s+['"]([^'"]+)['"];?$/gm;
 const RE_NAMED_IMPORT = /^import\s*\{([^}]*)\}\s*from\s*['"]([^'"]+)['"];?$/gm;
 const RE_REEXPORT = /^export\s*\{([^}]*)\}\s*from\s*['"]([^'"]+)['"];?$/gm;
 const RE_EXPORT_LIST = /^export\s*\{([^}]*)\};?$/gm;
@@ -222,10 +231,19 @@ async function bundleModule(file, dir = '') {
       : await readFile(join(ROOT, dir, file), 'utf8');
   const exported = [];
   let body = src
-    // `import * as THREE` — THREE is already a top-level binding in the bundle.
-    .replace(RE_NS_IMPORT, (_, name) => (name === 'THREE' ? '' : (() => {
-      throw new Error(`${file}: unexpected namespace import ${name}`);
-    })()))
+    // `import * as THREE` — THREE is already a top-level binding in the
+    // bundle. Any other namespace import (the episode manifest pulls in whole
+    // scene modules this way) binds the module's closure object directly.
+    .replace(RE_NS_IMPORT, (_, name, from) => {
+      if (name === 'THREE') return '';
+      const dep = basename(from);
+      const depPath = MODULE_BY_BASE.get(dep);
+      if (!depPath) throw new Error(`${file}: namespace-imports unknown module ${from}`);
+      if (MODULES.indexOf(depPath) >= MODULES.indexOf(file)) {
+        throw new Error(`${file}: imports ${dep}, which is not bundled before it`);
+      }
+      return `const ${name} = ${modVar(dep)};`;
+    })
     .replace(RE_NAMED_IMPORT, (_, list, from) => {
       const dep = basename(from);
       const specs = parseSpecifiers(list);

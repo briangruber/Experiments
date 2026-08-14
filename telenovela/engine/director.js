@@ -1,8 +1,8 @@
 // The direction: the cue runner, the tween runner, and the staging helpers
-// every scene leans on. The screenplay itself — the scenes and their cues —
-// lives with its episode (episodes/e01-corazon/screenplay.js) and is handed to
-// the Director by main.js. Cue times are in scene-seconds, so slow motion
-// stretches the beats along with the acting.
+// every scene leans on. The scenes themselves live with their episode
+// (episodes/e01-corazon/scenes/), assembled by its manifest (episode.js) and
+// handed to the Director by main.js. Cue times are in scene-seconds, so slow
+// motion stretches the beats along with the acting.
 
 import * as THREE from '../vendor/three/three.module.min.js';
 import { makeEgg } from '../company/cast/index.js';
@@ -36,14 +36,25 @@ class Tweens {
 // --- the production ---------------------------------------------------------
 
 export class Director {
-  // The screenplay is passed in rather than imported: the engine stages any
-  // episode, and the episode's scenes import their staging helpers from here —
-  // importing it back would close a cycle.
-  constructor(ctx, buildScreenplay) {
+  // The episode is passed in rather than imported: the engine stages any
+  // episode, and the episode's manifest imports its staging helpers from here —
+  // importing it back would close a cycle. Scenes are assembled from the
+  // manifest's play order: each scene module builds its setup and cues against
+  // the deps the episode provides, and the episode's dialogue wiring is
+  // spliced in by scene id, so inserting a scene never renumbers anything.
+  constructor(ctx, episode) {
     this.ctx = ctx;
     this.tweens = new Tweens();
     ctx.tw = this.tweens;
-    this.scenes = buildScreenplay(ctx, this.tweens);
+    this.episode = episode;
+    this.scenes = episode.order.map((meta) => {
+      const { setup, cues } = episode.scenes[meta.id].build(episode.deps(ctx));
+      return {
+        id: meta.id, name: meta.name, subtitle: meta.subtitle, dur: meta.dur, pace: meta.pace,
+        setup,
+        cues: [...cues, ...episode.subtitleCues(meta.id)].map(([t, fn]) => ({ t, fn, fired: false })),
+      };
+    });
     this.index = -1;
     this.t = 0;
     this.speed = 1;
@@ -59,7 +70,16 @@ export class Director {
 
   get scene() { return this.scenes[this.index]; }
 
-  goTo(i, { silent = false } = {}) {
+  indexOf(id) { return this.scenes.findIndex((s) => s.id === id); }
+
+  // Scenes are addressed by id or by position — the id is the stable name,
+  // the index is what arrow keys and wrap-around arithmetic want.
+  goTo(ref, { silent = false } = {}) {
+    let i = ref;
+    if (typeof ref === 'string') {
+      i = this.indexOf(ref);
+      if (i < 0) throw new Error(`unknown scene '${ref}'`);
+    }
     i = ((i % this.scenes.length) + this.scenes.length) % this.scenes.length;
     this.index = i;
     this.t = 0;

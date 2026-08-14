@@ -23,7 +23,7 @@ the orchestra play).
 | --- | --- |
 | `space` | pause |
 | `←` `→` | previous / next scene |
-| `1`–`7` | jump to a scene |
+| `1`–`8` | jump to a scene |
 | `R` | restart |
 | `M` | mute |
 | `H` | hide the interface |
@@ -116,7 +116,9 @@ company/          the troupe and its stock
   props/          set dressing, and the generated GLB props under assets/
   library/        the shared sound library: manifest, timings, audio/
 episodes/e01-corazon/
-  screenplay.js   the episode: a cue list per scene
+  episode.js      the manifest: scene order, deps, dialogue wiring, export cuts
+  scenes/         one module per scene: meta (id, length, pace, beats) + cues
+  marks.js        the standing marks every scene shares
   dialogue.js     the script, with subtitles.js wiring it into cues
   voice/          the rendered dialogue clips
 vendor/three/     three.js r185 (MIT)
@@ -126,8 +128,12 @@ tools/bundle.mjs  flatten everything into one HTML file
 tools/shot.mjs    headless capture and smoke test
 ```
 
-The layering is the point. The screenplay never touches a transform: it asks
-for a shot in film terms and gives actors direction in verbs.
+The layering is the point. A scene never touches a transform: it asks for a
+shot in film terms and gives actors direction in verbs. And nothing addresses a
+scene by its position — scenes carry ids (`entrada`, `bofetada`, …), the
+dialogue and the trailer reference those ids, and the tools ask the running
+page for the episode's shape, so a scene can be inserted or reordered without
+renumbering anything.
 
 ```js
 [13.9, (c, d) => {
@@ -184,9 +190,9 @@ a soundtrack that failed to decode. `--page` points it at the bundled single
 file instead of the source, so both builds get the same test.
 
 ```
-node tools/shot.mjs --out shots/frame.png --scene 3 --at 14.2
-node tools/shot.mjs --frames 0:4,2:16.5,5:34 --out shots/x.png
-node tools/shot.mjs --contact shots/contact          # one frame per beat
+node tools/shot.mjs --out shots/frame.png --scene revelacion --at 14.2
+node tools/shot.mjs --frames entrada:4,encuentro:16.5,gemelo:34 --out shots/x.png   # ids or indices
+node tools/shot.mjs --contact shots/contact    # one frame per beat each scene declares
 node tools/shot.mjs --page /dist/corazon-de-gallina.html --csp   # as published
 ```
 

@@ -23,39 +23,30 @@ const GAP = 0.3;      // real seconds of silence between two speakers
 
 const { LINES } = await import(new URL('../episodes/e01-corazon/dialogue.js', import.meta.url));
 const { TIMING } = await import(new URL('../episodes/e01-corazon/dialogue-timing.js', import.meta.url));
+// Scene durations and paces come from the scene modules' meta, via the episode
+// manifest; lines reference scenes by id.
+const { episode } = await import(new URL('../episodes/e01-corazon/episode.js', import.meta.url));
 
-// Scene durations and paces, read out of the screenplay.
-const src = await readFile(join(ROOT, 'episodes/e01-corazon/screenplay.js'), 'utf8');
-const sceneRe = /\n    scene\('([^']+)', '[^']*', ([\d.]+),/g;
-const scenes = [...src.matchAll(sceneRe)].map((m) => ({ name: m[1], dur: +m[2], pace: 1.32, at: m.index }));
-for (const m of src.matchAll(/\n {6}\], \{ pace: ([\d.]+) \}\)/g)) {
-  let owner = 0;
-  for (let i = 0; i < scenes.length; i++) if (scenes[i].at < m.index) owner = i;
-  scenes[owner].pace = +m[1];
-}
-for (const m of src.matchAll(/\n {6}\{ pace: ([\d.]+) \}\)/g)) {
-  let owner = 0;
-  for (let i = 0; i < scenes.length; i++) if (scenes[i].at < m.index) owner = i;
-  scenes[owner].pace = +m[1];
-}
+// Director.pace — scenes that don't override the tempo run at this.
+const DEFAULT_PACE = 1.32;
 
 const moves = [];
 const overruns = [];
-for (let i = 0; i < scenes.length; i++) {
-  const scene = scenes[i];
-  const lines = LINES.filter((l) => l.scene === i).sort((a, b) => a.at - b.at);
+for (const meta of episode.order) {
+  const pace = meta.pace ?? DEFAULT_PACE;
+  const lines = LINES.filter((l) => l.scene === meta.id).sort((a, b) => a.at - b.at);
   let freeAt = -Infinity;
   for (const l of lines) {
     const dur = TIMING[l.id] ? TIMING[l.id].dur : 2.5;
-    let start = l.at / scene.pace;
+    let start = l.at / pace;
     if (start < freeAt) {
-      const to = +(freeAt * scene.pace).toFixed(1);
-      moves.push({ id: l.id, from: l.at, to, scene: scene.name });
-      start = to / scene.pace;
+      const to = +(freeAt * pace).toFixed(1);
+      moves.push({ id: l.id, from: l.at, to, scene: meta.name });
+      start = to / pace;
     }
     freeAt = start + dur + GAP;
-    if (start + dur > scene.dur / scene.pace) {
-      overruns.push({ id: l.id, scene: scene.name, over: +(start + dur - scene.dur / scene.pace).toFixed(2) });
+    if (start + dur > meta.dur / pace) {
+      overruns.push({ id: l.id, scene: meta.name, over: +(start + dur - meta.dur / pace).toFixed(2) });
     }
   }
 }
@@ -67,7 +58,7 @@ if (!moves.length) console.log('  nothing to move');
 if (!DRY && moves.length) {
   let text = await readFile(join(ROOT, 'episodes/e01-corazon/dialogue.js'), 'utf8');
   for (const m of moves) {
-    const re = new RegExp(`(\\{ id: '${m.id}', scene: \\d+, at: )[\\d.]+`);
+    const re = new RegExp(`(\\{ id: '${m.id}', scene: '[^']+', at: )[\\d.]+`);
     if (!re.test(text)) throw new Error(`could not find ${m.id} to rewrite`);
     text = text.replace(re, `$1${m.to}`);
   }
