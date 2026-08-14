@@ -382,9 +382,11 @@ export const defaults = {
   sdAccel: 0.55,            // 1/s it closes on the speed it wants
   sdTurnRate: 0.55,         // rad/s at a standstill; a long body turns slower
   sdOrbit: 0.20,            // rad/s it circles you at when you are not moving
+  sdRushSpeed: 13.0,        // ski speed at which it is fully up and fully in
+  sdOffsetClose: 9.0,       // how near it comes at that speed, m
   sdOffset: 16.0,           // metres off your shoulder it tries to sit
   sdLead: 6.0,              // ...and how far ahead, so a chase camera sees it
-  sdDepth: 4.0,             // mean depth below the surface, m
+  sdDepth: 3.2,             // mean depth below the surface, m
   sdDepthSwing: 2.0,        // how far it rises and sounds around that
   sdMinDepth: 1.6,          // never nearer the surface than this - it must not
                             // breach, see src/gpu/tsl/creature.js
@@ -402,7 +404,7 @@ export const defaults = {
   sdSwell: 0.85,            // metres the sea lifts over its back at the surface
   sdSwellRadius: 6.0,       // how far to either side that mound reaches, m
   sdSwellFade: 7.0,         // depth over which the lift dies away, m
-  sdThrough: 0.38,          // how much of the shape survives the surface's own
+  sdThrough: 0.85,          // how much of the shape survives the surface's own
                             // glare. 0 is the pure physics and nearly invisible
                             // at the angle you ride at; this is the fudge.
   sdRefract: 0.045,         // how hard the surface's own slope bends the look

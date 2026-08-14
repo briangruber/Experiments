@@ -150,11 +150,9 @@
 //    sampleSky would compile and would quietly make every water reflection a
 //    perfect mirror.
 
-import * as THREE from 'three/webgpu';
 import {
 	Fn, If, float, int, vec2, vec3, uniform, attribute, varyingProperty,
 	mix, clamp, smoothstep, select, reflect, dFdx, dFdy, fwidth, atan, acos,
-	texture, screenUV,
 } from 'three/tsl';
 
 import {
@@ -302,74 +300,6 @@ export const uCraftReflAmount = /*@__PURE__*/ uniform( 0.0 );
 // its own through the penumbra and needs no height fade at all.
 export const uCraftShadow = /*@__PURE__*/ uniform( 0.0 );
 
-// ---- a body under the surface, lifting it --------------------------------
-//
-// A capsule: a segment from nose to tail with a Gaussian falloff around it,
-// tapered at both ends so the mound is fat amidships and dies at the tips. It
-// is deliberately the same SHAPE of maths as the hull's hollow above - one
-// primitive, both signs - so a reader who has understood one has understood
-// both, and so the cost is the same handful of instructions.
-export const uSwellPos = /*@__PURE__*/ uniform( 'vec3' );   // world, mid-body
-export const uSwellDir = /*@__PURE__*/ uniform( 'vec2' );   // heading, unit
-export const uSwellLen = /*@__PURE__*/ uniform( 20.0 );     // nose to tail, m
-export const uSwellRad = /*@__PURE__*/ uniform( 7.0 );      // lateral reach, m
-export const uSwellAmp = /*@__PURE__*/ uniform( 0.0 );      // peak lift, m
-uSwellDir.value.set( 0.0, 1.0 );
-
-/**
- * Height the body adds at a point on the water plane. Shared by BOTH stages:
- * the vertex stage adds it to the surface, and the fragment stage differentiates
- * it to tilt the shading normal. That second half is not optional - a smooth
- * mound with the flat sea's normals painted on it is invisible except in
- * silhouette, which is how a lift like this ends up looking like nothing at all.
- */
-export const swellLift = /*@__PURE__*/ Fn( ( [ xz ] ) => {
-
-	const rel = xz.sub( uSwellPos.xz ).toVar();
-	const half = uSwellLen.mul( 0.5 ).max( 0.5 ).toVar();
-	// Distance to the SEGMENT, not to the centre: a twenty-metre animal is a
-	// line, and a round bump on its middle is a buoy.
-	const along = rel.dot( uSwellDir ).clamp( half.negate(), half ).toVar();
-	const off = rel.sub( uSwellDir.mul( along ) ).length().toVar();
-	const R = uSwellRad.max( 0.5 ).toVar();
-	const g = off.mul( off ).div( R.mul( R ) ).negate().exp().toVar();
-	// Fat amidships, nothing past the nose and tail.
-	const taper = smoothstep( 1.0, 0.25, along.abs().div( half ) ).toVar();
-	return g.mul( taper ).mul( uSwellAmp );
-
-} );
-
-// ---- what is under the water --------------------------------------------
-//
-// A caller with submerged geometry renders it into its own target and hands the
-// texture over here; the fragment stage folds it into the water-leaving
-// radiance (see "what is UNDER the water at this pixel"). Amount 0 - the
-// default, and what every caller without a submerged anything gets - skips the
-// lookup entirely, so the sea is bit-for-bit what it was.
-export const uUnderwaterAmount = /*@__PURE__*/ uniform( 0.0 );
-export const uUnderwaterRefract = /*@__PURE__*/ uniform( 0.045 );
-export const uUnderwaterThrough = /*@__PURE__*/ uniform( 0.38 );
-
-const underwaterTexture = /*@__PURE__*/ texture( /*@__PURE__*/ ( () => {
-
-	const t = new THREE.DataTexture( new Uint8Array( [ 0, 0, 0, 0 ] ), 1, 1 );
-	t.needsUpdate = true;
-	return t;
-
-} )() );
-
-/**
- * Point the sea at the target the submerged pass drew into. Like every texture
- * in this renderer it must be the same KIND of texture the graph was built
- * against (porting rule 11) - a linear, non-mipped, clamped RGBA - which is
- * what ./underwater-driver.js allocates.
- */
-export function setUnderwaterTexture( tex ) {
-
-	if ( tex ) underwaterTexture.value = tex;
-
-}
-
 // A REAL SHADOW, IF THE CALLER HAS ONE TO GIVE.
 //
 // The water cannot use receiveShadow: three applies shadows inside
@@ -467,21 +397,6 @@ export const waterPosition = /*@__PURE__*/ Fn( () => {
 
 	vSwellH.assign( swellH );
 	pos.addAssign( disp );
-
-	// ---- a body under the surface lifts it -----------------------------------
-	//
-	// The other half of "it doesn't feel like it is IN the water": water a hull
-	// displaces has to go somewhere, and so does water a swimming body displaces.
-	// Without this the sea runs through the animal as though it were not there,
-	// which is the clipped-into look the hull's own hollow was written to fix.
-	// This is that mechanism turned the other way up - a MOUND along the spine
-	// rather than a hollow under a keel - and it is driven by how shallow the
-	// body is, so it swells as the animal rises and flattens as it sounds.
-	If( uSwellAmp.greaterThan( 0.0005 ), () => {
-
-		pos.y.addAssign( swellLift( xz ) );
-
-	} );
 
 	// ---- hull ---------------------------------------------------------------
 	If( uHullPush.greaterThan( 0.0005 ), () => {
@@ -729,23 +644,6 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 	} );
 
 	// ---- 5. normal, filtered slope variance, Cox-Munk split (435-465) --------
-	// The body's mound goes into the SLOPE, not just the height. The vertex stage
-	// lifting the surface is only half of it: a mound with the flat sea's normals
-	// painted over it is invisible except in silhouette, and the whole point of
-	// the lift is that you can see the water bulge. Differentiated by finite
-	// difference on the analytic function itself - cheaper and steadier than
-	// dFdx over a moved vertex, which on a radial grid is a quad the size of a
-	// bus in the far field.
-	If( uSwellAmp.greaterThan( 0.0005 ), () => {
-
-		const e = uSwellRad.mul( 0.25 ).max( 0.25 ).toVar();
-		const h0 = swellLift( vFlat.xz ).toVar();
-		const hx = swellLift( vFlat.xz.add( vec2( e, 0.0 ) ) ).sub( h0 ).div( e ).toVar();
-		const hz = swellLift( vFlat.xz.add( vec2( 0.0, e ) ) ).sub( h0 ).div( e ).toVar();
-		slope.addAssign( vec2( hx, hz ) );
-
-	} );
-
 	const N = vec3( slope.x.negate(), 1.0, slope.y.negate() ).normalize().toVar();
 
 	// GLSL: `float var = ...`. `var` is a JavaScript reserved word - note 2.
@@ -1249,54 +1147,6 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 
 	const diffuse = body.add( sss ).toVar();
 
-	// ---- what is UNDER the water at this pixel ------------------------------
-	// Held outside the branch so the composite below can reuse them rather than
-	// sampling the target twice.
-	const uwCov = float( 0.0 ).toVar();
-	const uwSane = float( 0.0 ).greaterThan( 1.0 ).toVar();
-	const uwRgb = vec3( 0.0 ).toVar();
-	//
-	// Anything submerged is rendered into its own target first (see
-	// ./underwater-driver.js) and arrives here as colour and coverage. It goes
-	// into the DIFFUSE term - the water-leaving radiance, what comes back up out
-	// of the sea - and nowhere else, and that placement is the whole difference
-	// between a thing in the water and a decal on it. Everything downstream then
-	// happens TO it, for free and correctly:
-	//
-	//   * (1 - Fenv) scales it, so at a grazing angle it vanishes behind the
-	//     mirror the way a real submerged shape does;
-	//   * foam covers it, so the sea's own whitecaps and the hull's wake pass
-	//     OVER it instead of under - which is what made it read as a sticker;
-	//   * the sun glitter sits on top of it;
-	//   * aerial perspective hazes it with the rest of the sea.
-	//
-	// The lookup is displaced by the surface's own slope, which is refraction to
-	// the accuracy that matters here: the shape swims, wobbles and breaks up as
-	// chop passes over it, instead of sitting rock-steady under a moving sea.
-	If( uUnderwaterAmount.greaterThan( 0.001 ), () => {
-
-		// The slope in screen terms. Scaled down with distance because the same
-		// metre of lateral displacement is fewer pixels the further off it is,
-		// and a fixed offset makes the far field boil.
-		const bend = N.xz.mul( uUnderwaterRefract ).div( float( 1.0 ).add( dist.mul( 0.03 ) ) ).toVar();
-		const suv = screenUV.add( vec2( bend.x, bend.y.negate() ) ).clamp( 0.001, 0.999 ).toVar();
-		const uw = underwaterTexture.sample( suv ).toVar();
-		// THE GUARD GOES AROUND THE WHOLE MIX, and that placement is the bug this
-		// cost. Washing the ocean white was a NaN arriving from the target, and
-		// the first guard only sanitised the WEIGHT - but mix(a, b, 0) is
-		// a*(1-0) + b*0, and a NaN in b is still NaN after multiplying by zero.
-		// select() picks one of its arms, so a NaN in the arm not taken cannot
-		// travel; the mix has to be inside it, not upstream of it. Comparisons
-		// against NaN are false, so anything the target holds that is not a sane
-		// 0..1 coverage leaves the sea exactly as it was.
-		uwCov.assign( uw.a.mul( uUnderwaterAmount ).min( 1.0 ) );
-		uwSane.assign( uwCov.greaterThan( 0.0 ).and( uwCov.lessThan( 1.0001 ) )
-			.and( uw.r.lessThan( 1e6 ) ).and( uw.g.lessThan( 1e6 ) ).and( uw.b.lessThan( 1e6 ) ) );
-		uwRgb.assign( uw.rgb );
-		diffuse.assign( select( uwSane, mix( diffuse, uwRgb, uwCov ), diffuse ) );
-
-	} );
-
 	// ---- 13. composite water (732-737) --------------------------------------
 	// A foam-covered facet is not a mirror, so it cannot carry the water's
 	// glitter. Leaving the specular under the raft is what made whitecaps read as
@@ -1305,21 +1155,6 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 		.add( skyRefl.mul( Fenv ) )
 		.add( sunSpec.add( moonSpec ).mul( float( 1.0 ).sub( foamMask.mul( 0.9 ) ) ) )
 		.toVar();
-
-	// ...and a little of the shape survives the mirror. Putting the animal ONLY in
-	// the diffuse term is what the physics says, and the physics says that at the
-	// angle you actually ride at, a Fresnel of 0.7 hides almost all of it: the
-	// first build of this measured a mean shift of 9 levels out of 255 across the
-	// whole animal, which is a rumour rather than a sea monster. This is the
-	// fudge, and it is deliberately ABOVE the diffuse and BELOW the foam - so the
-	// shape reads through the glare, and the sea's own whitecaps and the hull's
-	// wake still pass over the top of it, which is the part that made it look
-	// pasted on before.
-	If( uUnderwaterAmount.greaterThan( 0.001 ), () => {
-
-		col.assign( select( uwSane, mix( col, uwRgb, uwCov.mul( uUnderwaterThrough ) ), col ) );
-
-	} );
 
 	// ---- 14. foam shading (739-777) -----------------------------------------
 	If( foamMask.greaterThan( 0.003 ), () => {

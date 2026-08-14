@@ -93,8 +93,11 @@ export class SeaDragon {
         const dr = Math.hypot(veh.pos[0] + rx * off - this.pos[0], veh.pos[2] + rz * off - this.pos[2]);
         this.side = dr < dl ? 1 : -1;
       }
-      gx = veh.pos[0] + rx * this.side * off + fx * p.sdLead;
-      gz = veh.pos[2] + rz * this.side * off + fz * p.sdLead;
+      // ...and closes in as you push it, down to sdOffsetClose.
+      const rushIn = clamp((vs - 4) / Math.max(p.sdRushSpeed - 4, 1), 0, 1);
+      const stand = lerp(off, Math.max(p.sdOffsetClose, half * 0.45), rushIn);
+      gx = veh.pos[0] + rx * this.side * stand + fx * p.sdLead;
+      gz = veh.pos[2] + rz * this.side * stand + fz * p.sdLead;
       matchTo = vs;
     } else {
       // Circling: around you if you are aboard and idling, around the camera if
@@ -144,7 +147,14 @@ export class SeaDragon {
     // back down instead of hanging at one depth like a decal. Never nearer the
     // surface than sdMinDepth: the renderer discards anything that breaches.
     const swing = Math.sin(this.t * 0.21) * 0.5 + Math.sin(this.t * 0.07 + 1.3) * 0.5;
-    const wantDepth = Math.max(p.sdMinDepth, p.sdDepth + swing * p.sdDepthSwing);
+    // IT COMES UP WHEN YOU GO FAST. Depth is what decides whether you can see it
+    // at all - the sea eats it over sdFade metres - so an animal holding station
+    // at cruising depth is one you never actually meet. Riding hard brings it up
+    // to just under the surface and pulls it in off your shoulder, which is both
+    // the thing worth chasing and the only way the shape reads at speed.
+    const rush = veh ? clamp((vs - 4) / Math.max(p.sdRushSpeed - 4, 1), 0, 1) : 0;
+    const base = lerp(p.sdDepth, p.sdMinDepth + 0.3, rush);
+    const wantDepth = Math.max(p.sdMinDepth, base + swing * p.sdDepthSwing * (1 - rush * 0.7));
     const prevY = this.pos[1];
     this.depth = lerp(this.depth, wantDepth, 1 - Math.exp(-0.7 * d));
     this.pos[1] = (p.sdSeaLevel ?? 0) - this.depth;
