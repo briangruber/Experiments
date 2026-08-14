@@ -1,0 +1,44 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Corazón de Gallina — a wordless chicken telenovela</title>
+<link rel="stylesheet" href="./src/ui.css">
+<canvas id="gl" oncontextmenu="return false"></canvas>
+
+<div id="overlay"></div>
+
+<div id="hud">
+  <div id="hud-left">
+    <div id="hud-scene">—</div>
+    <div id="hud-shot">—</div>
+  </div>
+  <div id="hud-right">
+    <div id="hud-fps">—</div>
+  </div>
+</div>
+
+<div id="progress"><div id="progress-bar"></div></div>
+
+<div id="controls">
+  <div id="chapters"></div>
+  <div id="transport">
+    <button id="btn-prev" type="button" title="Previous scene (←)">◀</button>
+    <button id="btn-pause" type="button" title="Pause (space)">❚❚</button>
+    <button id="btn-next" type="button" title="Next scene (→)">▶</button>
+    <button id="btn-sound" type="button" title="Sound (M)">♪</button>
+  </div>
+</div>
+
+<div id="start">
+  <div class="start-inner">
+    <div class="start-kicker">presenta</div>
+    <h1>CORAZÓN DE GALLINA</h1>
+    <div class="start-rule"></div>
+    <div class="start-sub">una telenovela de corral · sin una sola palabra</div>
+    <button id="play" type="button">▶ &nbsp;REPRODUCIR</button>
+    <div class="start-note">
+      con sonido · 4 minutos · ← → cambia de escena · H oculta la interfaz
+    </div>
+  </div>
+</div>
+
+<script type="module" src="./src/main.js"></script>

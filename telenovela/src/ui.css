@@ -1,0 +1,252 @@
+:root {
+  --gold: #e8c98a;
+  --gold-dim: #a8895a;
+  --ink: #0a0709;
+  --serif: "Hoefler Text", "Playfair Display", Georgia, "Times New Roman", serif;
+  --sans: ui-sans-serif, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: #05060a;
+  overflow: hidden;
+  color: #e9e2d6;
+  font-family: var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+#gl {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+  touch-action: none;
+}
+
+/* --- title cards ---------------------------------------------------------- */
+
+#overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.cards { position: absolute; inset: 0; }
+
+.card {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(88vw, 900px);
+  text-align: center;
+  font-family: var(--serif);
+  color: var(--gold);
+  text-shadow:
+    0 0 1px rgba(0, 0, 0, 0.9),
+    0 2px 26px rgba(0, 0, 0, 0.85),
+    0 0 60px rgba(232, 201, 138, 0.28);
+  will-change: opacity, transform;
+}
+
+.card-title { font-weight: 400; letter-spacing: 0.24em; text-indent: 0.24em; }
+.card-sub {
+  margin-top: 1.1em;
+  font-size: 0.3em;
+  letter-spacing: 0.42em;
+  text-indent: 0.42em;
+  color: #d9c4a0;
+  opacity: 0.86;
+  font-style: italic;
+}
+.card-rule {
+  width: 34%;
+  height: 1px;
+  margin: 0.7em auto 0.1em;
+  background: linear-gradient(90deg, transparent, var(--gold-dim), transparent);
+}
+
+.card-main { top: 34%; font-size: clamp(30px, 6.4vw, 86px); }
+.card-main .card-rule { margin-top: 0.55em; }
+.card-act { top: 62%; font-size: clamp(17px, 2.5vw, 34px); }
+.card-end { top: 40%; font-size: clamp(26px, 5vw, 68px); }
+.card-stinger { top: 20%; font-size: clamp(18px, 3vw, 40px); }
+
+/* --- hud ------------------------------------------------------------------ */
+
+#hud {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: clamp(14px, 3.4vh, 42px) clamp(16px, 3vw, 46px);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(233, 226, 214, 0.5);
+  transition: opacity 0.4s;
+}
+
+#hud-scene { color: var(--gold); opacity: 0.86; }
+#hud-shot { margin-top: 6px; font-size: 10px; opacity: 0.55; }
+#hud-right { text-align: right; opacity: 0.4; }
+
+#progress {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.06);
+  z-index: 7;
+  transition: opacity 0.4s;
+}
+#progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--gold-dim), var(--gold));
+  transform-origin: 0 50%;
+  transform: scaleX(0);
+}
+
+/* --- controls ------------------------------------------------------------- */
+
+#controls {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px 22px;
+  opacity: 0;
+  transition: opacity 0.35s;
+}
+body:hover #controls { opacity: 1; }
+#controls:hover { opacity: 1; }
+
+#chapters { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+#chapters button {
+  background: rgba(12, 10, 14, 0.62);
+  border: 1px solid rgba(232, 201, 138, 0.16);
+  color: rgba(233, 226, 214, 0.6);
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  padding: 6px 11px;
+  border-radius: 2px;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: color 0.2s, border-color 0.2s, background 0.2s;
+}
+#chapters button:hover { color: var(--gold); border-color: rgba(232, 201, 138, 0.45); }
+#chapters button.on {
+  color: var(--ink);
+  background: var(--gold);
+  border-color: var(--gold);
+}
+
+#transport { display: flex; gap: 6px; }
+#transport button {
+  width: 34px; height: 28px;
+  background: rgba(12, 10, 14, 0.62);
+  border: 1px solid rgba(232, 201, 138, 0.16);
+  color: rgba(233, 226, 214, 0.7);
+  font-size: 11px;
+  border-radius: 2px;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+}
+#transport button:hover { color: var(--gold); border-color: rgba(232, 201, 138, 0.45); }
+#transport button.off { color: #7b6a5c; }
+
+body.no-ui #hud,
+body.no-ui #controls,
+body.no-ui #progress { opacity: 0 !important; pointer-events: none; }
+
+/* --- start card ----------------------------------------------------------- */
+
+#start {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(ellipse at 50% 45%, rgba(20, 14, 22, 0.55), rgba(3, 3, 6, 0.94) 72%);
+  backdrop-filter: blur(3px);
+  transition: opacity 1s ease, visibility 1s;
+}
+#start.gone { opacity: 0; visibility: hidden; pointer-events: none; }
+
+.start-inner { text-align: center; padding: 24px; max-width: 760px; }
+
+.start-kicker {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 13px;
+  letter-spacing: 0.5em;
+  text-indent: 0.5em;
+  color: var(--gold-dim);
+  margin-bottom: 18px;
+}
+
+#start h1 {
+  margin: 0;
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: clamp(30px, 6.6vw, 78px);
+  letter-spacing: 0.2em;
+  text-indent: 0.2em;
+  color: var(--gold);
+  text-shadow: 0 2px 30px rgba(0, 0, 0, 0.9), 0 0 70px rgba(232, 201, 138, 0.25);
+}
+
+.start-rule {
+  width: 42%;
+  height: 1px;
+  margin: 22px auto;
+  background: linear-gradient(90deg, transparent, var(--gold-dim), transparent);
+}
+
+.start-sub {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: clamp(12px, 1.7vw, 17px);
+  letter-spacing: 0.28em;
+  text-indent: 0.28em;
+  color: #cbbb9d;
+  opacity: 0.85;
+}
+
+#play {
+  margin-top: 34px;
+  padding: 13px 30px;
+  background: transparent;
+  border: 1px solid var(--gold-dim);
+  color: var(--gold);
+  font-family: var(--sans);
+  font-size: 12px;
+  letter-spacing: 0.34em;
+  text-indent: 0.34em;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background 0.25s, color 0.25s, border-color 0.25s;
+}
+#play:hover { background: var(--gold); color: var(--ink); border-color: var(--gold); }
+
+.start-note {
+  margin-top: 26px;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(233, 226, 214, 0.32);
+}
+
+@media (pointer: coarse) {
+  #controls { opacity: 1; }
+}
