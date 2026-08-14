@@ -36,6 +36,17 @@ const TEX_Q = +opt('tex-quality', 0.85);
 // All values are in NORMALISED model units (the bounding box centred, divided
 // by the length axis), which is what the numbers below were measured in.
 const SPIN = opt('spin', '');
+// --jaw "hy,hz,zBack,feather" bakes a per-vertex JAW WEIGHT: which vertices the
+// renderer may swing about the jaw hinge. Same normalised units as --spin.
+//
+// A PLANE, NOT A FLOOD FILL, and for once that is the right tool. The propeller
+// needed connectivity because its blades sweep past the airframe at the same
+// radius; a mandible does not - forward of the hinge, everything below the mouth
+// line IS the lower jaw, and nothing else is down there. Measured on this asset:
+// at the snout the jaw's top edge sits at y = -0.02 and the skull's underside at
+// y = +0.037, so a cut at the hinge's own height separates them with a body's
+// width of margin either side.
+const JAW = opt('jaw', '');
 if (!IN || !OUT) { console.error('need --in and --out'); process.exit(2); }
 
 const buf = await readFile(IN);
@@ -307,6 +318,47 @@ if (SPIN) {
   spinLine = `  spin: '${b64(spin)}',\n  spinHub: [${parts[0]}, ${parts[1]}, ${parts[2]}],\n`;
 }
 
+// ---- jaw weights -----------------------------------------------------------
+function jawWeights(P, n, spec) {
+  const [hy, hz, zBack, feather] = spec.split(',').map(Number);
+  const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < n; i++) for (let c = 0; c < 3; c++) {
+    min[c] = Math.min(min[c], P[i * 3 + c]); max[c] = Math.max(max[c], P[i * 3 + c]);
+  }
+  const ctr = min.map((m, c) => (m + max[c]) / 2);
+  const L = max[2] - min[2];
+  const out = new Uint8Array(n);
+  let hit = 0;
+  const bb = [9, 9, 9, -9, -9, -9];
+  for (let i = 0; i < n; i++) {
+    const x = (P[i * 3] - ctr[0]) / L, y = (P[i * 3 + 1] - ctr[1]) / L, z = (P[i * 3 + 2] - ctr[2]) / L;
+    if (y >= hy) continue;
+    // Feathered at the hinge rather than cut square: a hard edge there shears the
+    // cheek open every time the mouth moves.
+    const t = (zBack - z) / Math.max(feather, 1e-4);
+    const w = Math.max(0, Math.min(1, t));
+    if (w <= 0) continue;
+    out[i] = Math.round(w * 255); hit++;
+    bb[0] = Math.min(bb[0], x); bb[3] = Math.max(bb[3], x);
+    bb[1] = Math.min(bb[1], y); bb[4] = Math.max(bb[4], y);
+    bb[2] = Math.min(bb[2], z); bb[5] = Math.max(bb[5], z);
+  }
+  console.log(`  jaw: ${hit} of ${n} vertices swing (hinge y ${hy} z ${hz})`);
+  console.log(`    jaw bbox x[${bb[0].toFixed(3)},${bb[3].toFixed(3)}] y[${bb[1].toFixed(3)},${bb[4].toFixed(3)}] z[${bb[2].toFixed(3)},${bb[5].toFixed(3)}]`);
+  return out;
+}
+
+let jawLine = '';
+if (JAW) {
+  const w = jawWeights(P, n, JAW);
+  const full = new Uint8Array(outN);
+  full.set(w);
+  // Duplicates the spin split appended are copies, so they inherit their
+  // source's weight - looked up through `dup` if there was a split at all.
+  const parts = JAW.split(',').map(Number);
+  jawLine = `  jaw: '${b64(full)}',\n  jawHinge: [${parts[0]}, ${parts[1]}],\n`;
+}
+
 const body = `// ${NAME}: generated from ${IN.split('/').pop()} by tools/glb.mjs.
 // Inlined because the artifact CSP blocks every external request. Positions are
 // Int16 with the LENGTH axis spanning +-16000 (decode: * lengthM / 32000),
@@ -318,7 +370,7 @@ export const ${NAME} = {
   nrm: '${b64(outNrm)}',
   uv: '${b64(outUv)}',
   idx: '${b64(outIdx)}',
-${spinLine}  baseColorJpeg: '${jpegB64}',
+${spinLine}${jawLine}  baseColorJpeg: '${jpegB64}',
 };
 `;
 await writeFile(OUT, body);

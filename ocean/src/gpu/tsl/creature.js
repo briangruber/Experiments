@@ -13,30 +13,28 @@
 // ---------------------------------------------------------------------------
 // SEEING IT THROUGH THE WATER.
 //
-// The sea is opaque and writes depth (water-driver.js), so anything under it is
-// simply gone. Reading the sea's own colour buffer to refract it would mean a
-// scene-colour copy, a refraction term in the ocean shader and a redo of the
-// golden images that pin it - a lot of machinery for one creature. So the
-// dragon is drawn AFTER the sea with the depth test off and blended in, and the
-// blend does the work the water would have done: it fades with how deep it is
-// and tints toward the water's own colour on the way, which is what a large
-// animal a few metres down actually looks like from a boat.
+// This pass does NOT draw to the screen. It draws into the submerged target
+// (./underwater-driver.js), which the sea then samples while shading itself,
+// so what leaves here is the radiance heading UP out of the water and an alpha
+// saying how much of it is animal rather than water column.
 //
-// Two consequences, both deliberate:
+// The first cut drew straight over the sea with the depth test off, and the
+// report on it was exact: "it feels like the monster is just a transparent
+// ghost on the water, it doesn't feel like it is IN the water". It was not -
+// it was over the foam, over the hull's wake, at a flat alpha, with none of the
+// things that happen to a submerged shape happening to it. Everything that
+// makes it read as submerged now happens in the sea's own shader; this file's
+// job is only to say what colour the animal is and how much of it survives the
+// climb to the surface.
 //
-//   - IT IS DRAWN FRONT-FACE ONLY, and that is what makes no depth test
-//     survivable. On a closed body the far side's triangles face away and are
-//     culled, so the near surface is the only thing drawn and there is nothing
-//     to sort. Fins and the open jaw are not closed, and those do ghost
-//     slightly over the body - at the alpha this runs at, that reads as murk.
-//   - IT MUST NOT BREACH. A fragment above the surface would be drawn over the
-//     sky with no depth to stop it, so anything that rises past the waterline is
-//     discarded. The behaviour in demo/seadragon.js keeps it under; the discard
-//     is the backstop.
+// Two things still live here because they belong to the animal, not the sea:
+// Beer-Lambert on the way DOWN (red goes first, so it turns blue as it sounds)
+// and the discard above the waterline, which keeps a breaching fragment from
+// being composited into water it is no longer under.
 
 import * as THREE from 'three/webgpu';
 import {
-	Fn, If, float, vec2, vec3, vec4, uniform, texture, mix, smoothstep,
+	Fn, If, float, vec2, vec3, vec4, uniform, texture, mix, smoothstep, attribute,
 	uv, positionLocal, normalLocal, positionWorld, normalWorld, cameraPosition,
 	sin, cos, atan, exp, normalize, Discard,
 } from 'three/tsl';
@@ -57,6 +55,13 @@ export const uCreatureLen = /*@__PURE__*/ uniform( 20.0 );    // nose to tail, m
 export const uCreaturePhase = /*@__PURE__*/ uniform( 0.0 );   // radians, advanced by the app
 export const uCreatureWaves = /*@__PURE__*/ uniform( 1.35 );  // body waves along that length
 export const uCreatureAmp = /*@__PURE__*/ uniform( 0.055 );   // peak sweep, as a fraction of length
+
+// The jaw. The mesh was modelled with the mouth OPEN and there is no rig to
+// close it, so the mandible is swung shut about its hinge in the vertex stage -
+// weight baked by tools/glb.mjs --jaw, hinge in metres on the body's y-z plane.
+// Angle 0 leaves the mouth exactly as modelled; positive shuts it.
+export const uJawHinge = /*@__PURE__*/ uniform( /*@__PURE__*/ vec2( 0.0, 0.0 ) );
+export const uJawAngle = /*@__PURE__*/ uniform( 0.0 );
 
 /**
  * A travelling wave down the body, in the VERTEX stage.
@@ -86,6 +91,27 @@ export const creatureVertex = /*@__PURE__*/ Fn( () => {
 	const amp = uCreatureAmp.mul( uCreatureLen ).mul( ramp ).toVar();
 
 	p.x.addAssign( sin( ph ).mul( amp ) );
+
+	// The jaw swings BEFORE the body wave's normal work below and after the
+	// lateral push, in the body's own frame: it is a hinge on the skull, so it
+	// rides the wave rather than fighting it.
+	const jw = attribute( 'jaw', 'float' ).toVar();
+	If( jw.mul( uJawAngle ).abs().greaterThan( 1e-5 ), () => {
+
+		const ja = uJawAngle.mul( jw ).toVar();
+		const cj = cos( ja ).toVar(), sj = sin( ja ).toVar();
+		const dy = p.y.sub( uJawHinge.x ).toVar();
+		const dz = p.z.sub( uJawHinge.y ).toVar();
+		p.y.assign( uJawHinge.x.add( dy.mul( cj ).sub( dz.mul( sj ) ) ) );
+		p.z.assign( uJawHinge.y.add( dy.mul( sj ).add( dz.mul( cj ) ) ) );
+		const ny = normalLocal.y.toVar(), nz2 = normalLocal.z.toVar();
+		normalLocal.assign( vec3(
+			normalLocal.x,
+			ny.mul( cj ).sub( nz2.mul( sj ) ),
+			ny.mul( sj ).add( nz2.mul( cj ) ),
+		) );
+
+	} );
 
 	// d(offset)/dz, with the ramp's own slope folded in, so the normal turns
 	// with the surface it belongs to.
@@ -183,21 +209,18 @@ export const creatureFragment = /*@__PURE__*/ Fn( () => {
 	const veil = float( 1.0 ).sub( exp( depth.div( uCreatureFade.max( 0.5 ) ).negate() ) ).toVar();
 	const col = mix( lit, uCreatureTint.mul( skyIrr ).div( PI_C ), veil ).toVar();
 
-	// ...and the haze, the way the hull and the sea take it.
-	const eyeDist = cameraPosition.sub( positionWorld ).length().toVar();
-	const { inscatter, transmit } = aerialPerspective(
-		vec3( 0.0, cameraPosition.y.max( 1.0 ).add( R_PLANET ), 0.0 ),
-		normalize( positionWorld.sub( cameraPosition ) ),
-		eyeDist.min( 60000.0 ),
-		uSunDir,
-	);
-
-	// Alpha: still legible right under the surface, gone by a few fade lengths.
+	// NO AERIAL PERSPECTIVE HERE. What this pass produces is the radiance leaving
+	// the animal UPWARD, which ./water-surface.js folds into the sea's own
+	// water-leaving radiance - and the sea then hazes the result with everything
+	// else. Applying it here as well hazed the creature twice, which at any
+	// distance washed it out to nothing.
+	//
+	// Alpha is COVERAGE: how much of what leaves this patch of sea is animal
+	// rather than water column. Still legible right under the surface, gone by a
+	// few fade lengths - which is why it sharpens as it rises.
 	const alpha = exp( depth.div( uCreatureFade.max( 0.5 ) ).mul( - 0.85 ) )
 		.mul( uCreatureOpacity ).clamp( 0.0, 1.0 ).toVar();
 
-	// NOT premultiplied: three's NormalBlending multiplies by alpha itself, and
-	// doing it here as well fades the haze twice.
-	return vec4( col.mul( transmit ).add( inscatter ), alpha );
+	return vec4( col, alpha );
 
 } );
