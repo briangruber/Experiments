@@ -201,7 +201,24 @@ redrawn in 2D each frame so they survive into the file. Audio comes off the
 soundtrack's master bus as a `MediaStream` track.
 
 The container is H.264/AAC MP4 where the browser can encode it, falling back to
-VP9/Opus WebM; the interface says which you are getting. Bitrate is chosen from
+VP9/Opus WebM; the interface says which you are getting.
+
+`MediaRecorder` streams, so it never writes a duration into the file header —
+it does not know how long the recording will be until it stops. Browsers cope by
+scanning the whole file; QuickTime does not, and opens a perfectly good clip as
+`00:00`. So after recording, the fragments are walked, the sample durations
+added up, and the totals written into `mvhd`, `tkhd` and `mdhd`.
+`tools/fixvideo.mjs` runs the same repair on a file from disk, for anything
+recorded before this existed:
+
+```
+node tools/fixvideo.mjs ~/Downloads/corazon-de-gallina-trailer.mp4
+```
+
+Capture runs at a fixed 30fps rather than one frame per render, so a 120Hz
+display doesn't push 120fps at the encoder. And recording stops if the page is
+hidden: a background tab stops `requestAnimationFrame`, so nothing would be
+drawn or captured while the audio and the clock kept going. Bitrate is chosen from
 the cut's length so the file lands under 14 MiB, which is what the published
 page's `downloads` capability will accept — served normally, it just downloads.
 While recording, frame time is left unclamped: the audio runs on the wall clock

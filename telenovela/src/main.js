@@ -192,6 +192,7 @@ async function startRecording(cutName) {
 
   if (!cut.segments) dir.goTo(0);   // the full episode always starts at the top
   program = { cut, cutName, seconds, elapsed: 0, index: -1, segT: 0, wasMuted };
+  document.addEventListener('visibilitychange', onHiddenWhileRecording);
   recBar.hidden = false;
   recLabel.textContent = `${cut.label} · ${formatLabel(recorder.mime)}`;
   running = true;
@@ -225,16 +226,26 @@ function advanceProgram(dt) {
   }
 }
 
+// Recording only works while the page is on screen: a hidden tab stops
+// requestAnimationFrame, so no frames are drawn or captured while the audio and
+// the clock keep running. Stop rather than write a file that is minutes long
+// and three frames deep.
+function onHiddenWhileRecording() {
+  if (program && document.visibilityState === 'hidden') finishRecording('interrumpido: la pestaña se ocultó');
+}
+
 async function finishRecording(note) {
   const p = program;
   if (!p) return;
   program = null;
+  document.removeEventListener('visibilitychange', onHiddenWhileRecording);
   recLabel.textContent = note || 'codificando…';
   const blob = await recorder.finish();
   recBar.hidden = true;
   document.body.classList.remove('no-ui');
   if (p.wasMuted) { sound = false; ctx.score.setEnabled(false); soundBtn.textContent = '✕'; soundBtn.classList.add('off'); }
   if (!blob || !blob.size) return;
+  recTime.textContent = `${(blob.size / 1048576).toFixed(1)} MB`;
   const name = `corazon-de-gallina-${p.cutName}.${recorder.extension}`;
   const res = await deliver(blob, name);
   const failure = {
