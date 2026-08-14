@@ -4,6 +4,21 @@
 //   node tools/render.mjs --cut trailer --out dist/trailer.mp4
 //   node tools/render.mjs --cut episode --fps 30 --w 1280 --h 720
 //
+// On real hardware (not a headless CI box with no GPU), add:
+//
+//   --gpu     use the machine's real GPU for the three.js rendering step
+//             instead of software rasterisation. This is the actual
+//             bottleneck — frames are stepped and captured one at a time,
+//             so rendering speed IS render speed. Off by default because
+//             the default args force software rendering unconditionally,
+//             which is correct on a box with no GPU and merely slow on one
+//             that has a good one.
+//   --hw      encode with the GPU's hardware H.264 encoder (VideoToolbox on
+//             macOS) instead of libx264. Much faster; slightly less
+//             efficient per bit at the same bitrate, so --hwbitrate defaults
+//             high to compensate. Silent no-op if this ffmpeg has no
+//             hardware encoder.
+//
 // Screen recording asks the browser to hand frames to an encoder in real time
 // while the page stays visible and keeps up. This does not: the world is
 // stepped by a fixed amount per frame, every frame is captured, and the
@@ -39,6 +54,9 @@ const VBR = opt('vbr', '4M');           // VP8 only; VP9 and x264 use --crf
 // audio encoder to mux it with — a silent file plus a WAV can still be joined
 // somewhere else, which beats losing half the piece.
 const KEEP_WAV = args.includes('--wav');
+const USE_GPU = args.includes('--gpu');
+const USE_HW_ENCODE = args.includes('--hw');
+const HWBITRATE = opt('hwbitrate', '14M');   // VideoToolbox has no --crf equivalent worth trusting
 const OUT = resolve(ROOT, opt('out', `dist/corazon-de-gallina-${CUT}.mp4`));
 
 function findFfmpeg() {
@@ -69,6 +87,7 @@ function ffCan() {
     return {
       mjpeg: /\bmjpeg\b/.test(dec),
       x264: /\blibx264\b/.test(out),
+      videotoolbox: /\bh264_videotoolbox\b/.test(out),
       aac: /\baac\b/.test(out),
       vp9: /\blibvpx-vp9\b/.test(out),
       vpx: /\blibvpx\b/.test(out),
@@ -105,9 +124,16 @@ const port = server.address().port;
 
 const { chromium } = await loadPlaywright();
 const browser = await chromium.launch({
-  args: ['--enable-unsafe-swiftshader', '--use-angle=swiftshader', '--ignore-gpu-blocklist',
-    '--enable-webgl', '--disable-gpu-sandbox', '--disable-dev-shm-usage',
-    '--autoplay-policy=no-user-gesture-required'],
+  args: USE_GPU
+    // Let Chromium pick its real GPU backend (Metal on macOS, whatever ANGLE
+    // finds elsewhere) instead of forcing software. Not verified against real
+    // hardware from here — this sandbox has none — so if the canvas comes back
+    // black, rerun without --gpu and file it as a bug.
+    ? ['--ignore-gpu-blocklist', '--enable-webgl', '--disable-gpu-sandbox',
+      '--disable-dev-shm-usage', '--autoplay-policy=no-user-gesture-required']
+    : ['--enable-unsafe-swiftshader', '--use-angle=swiftshader', '--ignore-gpu-blocklist',
+      '--enable-webgl', '--disable-gpu-sandbox', '--disable-dev-shm-usage',
+      '--autoplay-policy=no-user-gesture-required'],
 });
 const page = await browser.newPage({ viewport: { width: WIDTH, height: HEIGHT }, deviceScaleFactor: 1 });
 page.on('pageerror', (e) => console.error('page error:', (e.stack || e.message).slice(0, 300)));
@@ -147,22 +173,32 @@ if (!can.mjpeg) {
   process.exit(1);
 }
 const VIDEO_ONLY = args.includes('--silent') || !can.aac;
-// Best first. VP9 at the same CRF is close to x264 and far better than VP8,
-// which is the last resort rather than the fallback.
-const VCODEC = can.x264
-  ? ['-c:v', 'libx264', '-preset', PRESET, '-crf', String(CRF), '-profile:v', 'high', '-level', '4.1']
-  : can.vp9 ? ['-c:v', 'libvpx-vp9', '-crf', String(CRF), '-b:v', '0', '-row-mt', '1']
-    : can.vpx ? ['-c:v', 'libvpx', '-b:v', VBR] : null;
+if (USE_HW_ENCODE && !can.videotoolbox) {
+  console.warn('--hw requested but this ffmpeg has no h264_videotoolbox; using software encode.');
+}
+// --hw first, if it is actually available. Otherwise best software encoder:
+// VP9 at the same CRF is close to x264 and far better than VP8, which is the
+// last resort rather than the fallback.
+const HW = USE_HW_ENCODE && can.videotoolbox;
+const VCODEC = HW
+  ? ['-c:v', 'h264_videotoolbox', '-b:v', HWBITRATE, '-profile:v', 'high']
+  : can.x264
+    ? ['-c:v', 'libx264', '-preset', PRESET, '-crf', String(CRF), '-profile:v', 'high', '-level', '4.1']
+    : can.vp9 ? ['-c:v', 'libvpx-vp9', '-crf', String(CRF), '-b:v', '0', '-row-mt', '1']
+      : can.vpx ? ['-c:v', 'libvpx', '-b:v', VBR] : null;
 if (!VCODEC) {
   console.error(`the ffmpeg at ${FFMPEG} has no usable video encoder (needs libx264, libvpx-vp9 or libvpx).`);
   await browser.close(); server.close();
   process.exit(1);
 }
-const CONTAINER = can.x264 ? 'mp4' : 'webm';
-const VLABEL = can.x264 ? `H.264 crf ${CRF} preset ${PRESET}` : can.vp9 ? `VP9 crf ${CRF}` : 'VP8';
+const H264 = HW || can.x264;
+const CONTAINER = H264 ? 'mp4' : 'webm';
+const VLABEL = HW ? `H.264 VideoToolbox (hardware) ${HWBITRATE}`
+  : can.x264 ? `H.264 crf ${CRF} preset ${PRESET}` : can.vp9 ? `VP9 crf ${CRF}` : 'VP8';
 const OUT_PATH = OUT.replace(/\.(mp4|webm)$/i, '') + '.' + CONTAINER;
 
 console.log(`${CUT}: ${totalSeconds.toFixed(1)}s at ${FPS}fps, ${WIDTH}x${HEIGHT}`);
+console.log(`render: ${USE_GPU ? 'GPU (hardware WebGL)' : 'software (SwiftShader) — try --gpu on a machine with a real GPU'}`);
 console.log(`ffmpeg: ${FFMPEG} (${VLABEL}${VIDEO_ONLY ? ', no audio encoder — video only' : `, AAC ${ABR}`})`);
 if (VIDEO_ONLY && !args.includes('--silent')) {
   console.warn('  this ffmpeg cannot encode audio; the result will be silent.');
