@@ -12,6 +12,7 @@ import { Director, buildProps } from './director.js';
 import { clamp } from './util.js';
 
 const canvas = document.getElementById('gl');
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 const overlay = document.getElementById('overlay');
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -28,6 +29,7 @@ const actors = buildCast(scene);
 const props = buildProps(scene);
 const weather = buildWeather(scene);
 const cam = new Cinematographer(camera);
+cam.obstacles = set.obstacles;
 const titles = new Titles(overlay);
 const score = new Score();
 
@@ -232,7 +234,7 @@ frame();
 
 // Expose a handle for the capture harness.
 window.__telenovela = {
-  dir, cam, post, actors, score, scene, camera, renderer,
+  dir, cam, post, actors, score, scene, camera, renderer, THREE,
   begin() { begin(); },
   goTo(i, t = 0) {
     running = true;

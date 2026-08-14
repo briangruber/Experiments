@@ -89,7 +89,10 @@ page.on('console', (m) => {
 });
 page.on('pageerror', (e) => errors.push('pageerror: ' + (e.stack || e.message)));
 
-await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'load' });
+// --page lets the harness smoke-test the bundled single file as well as the
+// module build it was built from.
+const PAGE = opt('page', '/');
+await page.goto(`http://127.0.0.1:${port}${PAGE.startsWith('/') ? PAGE : '/' + PAGE}`, { waitUntil: 'load' });
 
 try {
   await page.waitForFunction(() => !!window.__telenovela, null, { timeout: 25000 });

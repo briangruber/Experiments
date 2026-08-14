@@ -41,6 +41,8 @@ export class Cinematographer {
     this.frozen = false;
     // The walls of the set, in world units.
     this.bounds = { minX: -4.3, maxX: 4.3, minZ: -4.3, maxZ: 3.6, minY: 0.05, maxY: 2.85 };
+    // Set dressing the camera must not be buried in; filled in by main.js.
+    this.obstacles = [];
   }
 
   setAspect(a) {
@@ -255,7 +257,15 @@ export class Cinematographer {
     // keep the distance, which is what a DP would do on the day.
     const B = this.bounds;
     if (B) {
-      const inside = (x, z) => x >= B.minX && x <= B.maxX && z >= B.minZ && z <= B.maxZ;
+      // A position is usable if it is inside the walls and not buried in the
+      // fountain, the bench or a potted palm.
+      const inside = (x, z) => {
+        if (x < B.minX || x > B.maxX || z < B.minZ || z > B.maxZ) return false;
+        for (const o of this.obstacles) {
+          if (height < o.top + 0.12 && (x - o.x) * (x - o.x) + (z - o.z) * (z - o.z) < o.r * o.r) return false;
+        }
+        return true;
+      };
       if (!inside(px, pz)) {
         let found = false;
         for (let k = 1; k <= 15 && !found; k++) {

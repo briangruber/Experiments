@@ -595,8 +595,19 @@ export function buildSet(scene, renderer) {
   const fog = new THREE.FogExp2(0x161a2c, 0.03);
   scene.fog = fog;
 
+  // Solid dressing the camera must not end up inside. Each is a cylinder with
+  // a height, so a crane shot can still pass over the fountain.
+  const obstacles = [
+    { x: MARKS.fountain.x, z: MARKS.fountain.z, r: 1.2, top: 1.15 },
+    { x: MARKS.bench.x, z: MARKS.bench.z, r: 0.85, top: 0.95 },
+    { x: 2.55, z: 2.15, r: 0.5, top: 2.2 },
+    { x: -3.35, z: 1.7, r: 0.45, top: 1.9 },
+    { x: 3.5, z: -2.2, r: 0.42, top: 1.7 },
+    { x: -3.5, z: -2.4, r: 0.44, top: 1.8 },
+  ];
+
   const state = {
-    group: set, floor, mats, palms, lanterns, fountain: f, clouds, sky: skyMat,
+    group: set, floor, mats, palms, lanterns, fountain: f, clouds, sky: skyMat, obstacles,
     stars: set.userData.stars, moon, halo, moonLight, ambient, doorway, key, fog,
     wetness: 0, flash: 0,
   };
