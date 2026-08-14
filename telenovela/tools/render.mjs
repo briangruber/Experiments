@@ -99,6 +99,9 @@ page.on('pageerror', (e) => console.error('page error:', (e.stack || e.message).
 
 await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'load' });
 await page.waitForFunction(() => !!window.__telenovela, null, { timeout: 30000 });
+// The modelled props load after the first frame; without this the opening
+// seconds render a courtyard that is missing its fountain.
+await page.evaluate(() => window.__telenovela.dressed);
 
 // How long is this cut? The trailer's shot list and the episode's scene lengths
 // both live in the page, so ask rather than duplicate them here.

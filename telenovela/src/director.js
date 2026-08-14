@@ -692,7 +692,7 @@ function buildScreenplay(ctx, tw) {
         // Twin and hero, face to face. The two-shot that pays off the wardrobe.
         [25.5, (c) => {
           c.cam.cut({
-            subject: V(0.2, 0.42, -0.62), view: 1.6, lens: 50, angle: 96, height: 0.4, dur: 10,
+            subject: esteban, frame: 'mls', lens: 50, angle: 96, height: 0.4, dur: 10,
             move: { type: 'orbit', amount: 0.8, dur: 10 }, handheld: 0.5, dutch: 4,
             label: 'CONFRONTATION · 50mm',
           });
