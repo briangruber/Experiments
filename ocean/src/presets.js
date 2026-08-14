@@ -401,9 +401,9 @@ export const defaults = {
   // complaint was that the mouth was always open, and a jaw that works as the
   // animal swims reads as alive whatever its resting gape.
   sdGape: 0.30,             // radians the mandible swings up from as-modelled
-  sdSwell: 0.85,            // metres the sea lifts over its back at the surface
-  sdSwellRadius: 6.0,       // how far to either side that mound reaches, m
-  sdSwellFade: 7.0,         // depth over which the lift dies away, m
+  sdSwell: 1.35,            // metres the sea lifts over its back at the surface
+  sdSwellRadius: 7.5,       // how far to either side that mound reaches, m
+  sdSwellFade: 9.0,         // depth over which the lift dies away, m
   sdThrough: 0.85,          // how much of the shape survives the surface's own
                             // glare. 0 is the pure physics and nearly invisible
                             // at the angle you ride at; this is the fudge.

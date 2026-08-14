@@ -55,7 +55,9 @@ import { SeaPlane } from './seaplane.js';
 import { SeaDragon } from './seadragon.js';
 import { PLANE_MESH } from './planeModel.js';
 import { DRAGON_MESH } from './dragonModel.js';
-import { setCraftShadowNode } from '../src/gpu/tsl/water-surface.js';
+import {
+	setCraftShadowNode, uSwellPos, uSwellDir, uSwellLen, uSwellRad, uSwellAmp,
+} from '../src/gpu/tsl/water-surface.js';
 
 // ---------------------------------------------------------------------------
 // Backend selection.
@@ -1045,6 +1047,27 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		// WATER pass (that is when the water's node graph updates), so a hull posed
 		// in drawCraft would shadow the sea from where it was last frame.
 		poseCraft();
+
+		// THE SEA OVER ITS BACK. A body this size shoulders the water aside, and
+		// the lift dies off as it sounds - which is what turns "a picture under
+		// the surface" into "something big is under there". Zeroed when there is
+		// nothing to lift, so the sea's vertex stage skips the branch entirely.
+		if ( params.sdEnabled >= 0.5 ) {
+
+			const depth = Math.max( 0, params.sdSeaLevel - dragon.pos[ 1 ] );
+			const shallow = Math.max( 0, Math.min( 1, 1 - depth / Math.max( params.sdSwellFade, 0.5 ) ) );
+			uSwellPos.value.set( dragon.pos[ 0 ], dragon.pos[ 1 ], dragon.pos[ 2 ] );
+			uSwellDir.value.set( Math.sin( dragon.heading ), - Math.cos( dragon.heading ) );
+			uSwellLen.value = params.sdLength;
+			uSwellRad.value = params.sdSwellRadius;
+			uSwellAmp.value = params.sdSwell * shallow;
+
+		} else {
+
+			uSwellAmp.value = 0;
+
+		}
+
 		renderer.setRenderTarget( hdr );
 		renderer.setClearColor( 0x000000, 1 );
 		renderer.clear( true, true, false );

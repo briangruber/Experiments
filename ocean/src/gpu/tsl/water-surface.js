@@ -300,6 +300,43 @@ export const uCraftReflAmount = /*@__PURE__*/ uniform( 0.0 );
 // its own through the penumbra and needs no height fade at all.
 export const uCraftShadow = /*@__PURE__*/ uniform( 0.0 );
 
+// ---- a body under the surface, lifting it --------------------------------
+//
+// Water a hull displaces has to go somewhere, and so does water a swimming body
+// displaces. Without this the sea runs straight through the animal as though it
+// were not there - the "clipped into it" look. This is the hull's own hollow
+// turned the other way up: a capsule, a segment from nose to tail with a
+// Gaussian falloff around it, tapered so the mound is fat amidships and dies at
+// the tips. One primitive, both signs.
+export const uSwellPos = /*@__PURE__*/ uniform( 'vec3' );   // world, mid-body
+export const uSwellDir = /*@__PURE__*/ uniform( 'vec2' );   // heading, unit
+export const uSwellLen = /*@__PURE__*/ uniform( 20.0 );     // nose to tail, m
+export const uSwellRad = /*@__PURE__*/ uniform( 7.0 );      // lateral reach, m
+export const uSwellAmp = /*@__PURE__*/ uniform( 0.0 );      // peak lift, m
+uSwellDir.value.set( 0.0, 1.0 );
+
+/**
+ * Height the body adds at a point on the water plane. Shared by BOTH stages:
+ * the vertex stage adds it to the surface, and the fragment stage differentiates
+ * it to tilt the shading normal. That second half is not optional - a smooth
+ * mound wearing the flat sea's normals is invisible except in silhouette, which
+ * is how a lift like this ends up looking like nothing at all.
+ */
+export const swellLift = /*@__PURE__*/ Fn( ( [ xz ] ) => {
+
+	const rel = xz.sub( uSwellPos.xz ).toVar();
+	const half = uSwellLen.mul( 0.5 ).max( 0.5 ).toVar();
+	// Distance to the SEGMENT, not to the centre: a twenty-metre animal is a
+	// line, and a round bump over its middle is a buoy.
+	const along = rel.dot( uSwellDir ).clamp( half.negate(), half ).toVar();
+	const off = rel.sub( uSwellDir.mul( along ) ).length().toVar();
+	const R = uSwellRad.max( 0.5 ).toVar();
+	const g = off.mul( off ).div( R.mul( R ) ).negate().exp().toVar();
+	const taper = smoothstep( 1.0, 0.25, along.abs().div( half ) ).toVar();
+	return g.mul( taper ).mul( uSwellAmp );
+
+} );
+
 // A REAL SHADOW, IF THE CALLER HAS ONE TO GIVE.
 //
 // The water cannot use receiveShadow: three applies shadows inside
@@ -397,6 +434,13 @@ export const waterPosition = /*@__PURE__*/ Fn( () => {
 
 	vSwellH.assign( swellH );
 	pos.addAssign( disp );
+
+	// ---- a body under the surface lifts it -----------------------------------
+	If( uSwellAmp.greaterThan( 0.0005 ), () => {
+
+		pos.y.addAssign( swellLift( xz ) );
+
+	} );
 
 	// ---- hull ---------------------------------------------------------------
 	If( uHullPush.greaterThan( 0.0005 ), () => {
@@ -644,6 +688,22 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 	} );
 
 	// ---- 5. normal, filtered slope variance, Cox-Munk split (435-465) --------
+	// The body's mound goes into the SLOPE as well as the height. Lifting the
+	// surface is only half of it: a mound with the flat sea's normals painted
+	// over it is invisible except in silhouette, and being able to SEE the water
+	// bulge is the whole point. Finite-differenced on the analytic function
+	// rather than dFdx over a moved vertex, which on a radial grid is a quad the
+	// size of a bus in the far field.
+	If( uSwellAmp.greaterThan( 0.0005 ), () => {
+
+		const e = uSwellRad.mul( 0.25 ).max( 0.25 ).toVar();
+		const h0 = swellLift( vFlat.xz ).toVar();
+		const hx = swellLift( vFlat.xz.add( vec2( e, 0.0 ) ) ).sub( h0 ).div( e ).toVar();
+		const hz = swellLift( vFlat.xz.add( vec2( 0.0, e ) ) ).sub( h0 ).div( e ).toVar();
+		slope.addAssign( vec2( hx, hz ) );
+
+	} );
+
 	const N = vec3( slope.x.negate(), 1.0, slope.y.negate() ).normalize().toVar();
 
 	// GLSL: `float var = ...`. `var` is a JavaScript reserved word - note 2.
