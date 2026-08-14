@@ -585,8 +585,13 @@ function buildScreenplay(ctx, tw) {
         })],
         [15.6, (c, d) => d.setSpeed(1)],
         [16.5, (c) => { c.score.sting('shock'); }],
+        // She is looking straight at him, so every front-on angle on her looks
+        // through him — he sat 10cm in front of her on the camera's ray and
+        // defocused into a dark blur across the whole frame. Framing it as an
+        // over-shoulder puts him in the corner where he belongs instead.
         [17.0, (c) => c.cam.cut({
-          subject: rosalinda, frame: 'cu', lens: 85, angle: 14, dur: 6, handheld: 0.8, aperture: 1.8,
+          subject: rosalinda, over: esteban, frame: 'cu', lens: 85, angle: 30, dur: 6,
+          handheld: 0.8, aperture: 1.8, label: 'OVER SHOULDER · 85mm',
         })],
         [17.2, () => { rosalinda.emote({ sorrow: 1, anger: 0.2 }, 1.6); rosalinda.gesture('sob'); }],
         [20.0, () => { rosalinda.gesture('spurn'); rosalinda.face(deg(-20)); rosalinda.lookAway(); }],
