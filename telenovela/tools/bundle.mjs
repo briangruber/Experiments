@@ -27,6 +27,9 @@ const MODULES = [
   'company/library/audio-timing.js',
   'engine/chicken.js',
   'engine/acting.js',
+  'company/cast/models-manifest.js',
+  'engine/bone-actor.js',
+  'company/cast/plumage.js',
   'company/cast/wardrobe.js',
   'company/cast/rosalinda.js',
   'company/cast/esteban.js',
@@ -225,13 +228,38 @@ async function assetManifestModule() {
 export const ASSET_NAMES = Object.keys(ASSETS);`;
 }
 
+// The twins' skinned models and Ricardo's recolored map, as base64, for the
+// same reason as the props: the published page's policy refuses fetch().
+async function castModelsManifestModule() {
+  const { CAST_MODEL_FILES } = await import(new URL('../company/cast/models-manifest.js', import.meta.url));
+  const MIME = { '.glb': 'model/gltf-binary', '.jpg': 'image/jpeg', '.png': 'image/png' };
+  const entries = [];
+  let bytes = 0;
+  for (const f of CAST_MODEL_FILES) {
+    let buf;
+    try {
+      buf = await readFile(join(ROOT, 'company/cast/models', f));
+    } catch {
+      console.error(`  cast models: ${f} missing, skipped (the procedural fallback will play)`);
+      continue;
+    }
+    bytes += buf.length;
+    const mime = MIME[f.slice(f.lastIndexOf('.'))] || 'application/octet-stream';
+    entries.push(`${JSON.stringify(f)}:"data:${mime};base64,${buf.toString('base64')}"`);
+  }
+  console.error(`  cast models: ${entries.length} files, ${(bytes / 1048576).toFixed(2)} MB`);
+  return `export const CAST_MODELS = {${entries.join(',\n')}};
+export const CAST_MODEL_FILES = Object.keys(CAST_MODELS);`;
+}
+
 // --- our own modules --------------------------------------------------------
 // `file` is a root-relative path (or a bare vendor filename with `dir` set);
 // module identity is its basename throughout.
 async function bundleModule(file, dir = '') {
   const src = basename(file) === 'audio-manifest.js' ? await audioManifestModule()
     : basename(file) === 'assets-manifest.js' ? await assetManifestModule()
-      : await readFile(join(ROOT, dir, file), 'utf8');
+      : basename(file) === 'models-manifest.js' ? await castModelsManifestModule()
+        : await readFile(join(ROOT, dir, file), 'utf8');
   const exported = [];
   let body = src
     // `import * as THREE` — THREE is already a top-level binding in the

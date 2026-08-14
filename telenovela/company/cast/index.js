@@ -8,12 +8,14 @@
 import * as THREE from '../../vendor/three/three.module.min.js';
 import { makeChicken } from '../../engine/chicken.js';
 import { Actor } from '../../engine/acting.js';
+import { buildTwinRigs, BoneActor, attachCastFill } from '../../engine/bone-actor.js';
+import { refinePlumage } from './plumage.js';
 import { TAU, deg } from '../../engine/util.js';
 import { spec as rosalinda, wardrobe as dressRosalinda } from './rosalinda.js';
 import { spec as esteban, wardrobe as dressEsteban } from './esteban.js';
 import { spec as valentina, wardrobe as dressValentina } from './valentina.js';
 import { spec as donGallo, wardrobe as dressDonGallo } from './don-gallo.js';
-import { spec as ricardo, wardrobe as dressRicardo } from './ricardo.js';
+import { spec as ricardo, wardrobe as dressRicardo, dressBoneRig as dressRicardoBone } from './ricardo.js';
 import { spec as pollito } from './pollito.js';
 
 export const CAST_SPECS = { rosalinda, esteban, valentina, donGallo, ricardo, pollito };
@@ -32,6 +34,7 @@ export function buildCast(scene) {
   const actors = {};
   for (const key of Object.keys(CAST_SPECS)) {
     const rig = makeChicken(CAST_SPECS[key]);
+    refinePlumage(rig);
     WARDROBE[key]?.(rig);
     scene.add(rig.root);
     const a = new Actor(rig);
@@ -40,6 +43,31 @@ export function buildCast(scene) {
     actors[key] = a;
   }
   return actors;
+}
+
+// The hybrid cast, per the bench verdict: the twins are the Tripo sculpt (one
+// shared skinned scene — identical twins, identical mesh — Ricardo in the
+// offline blue/charcoal recolor with his eyepatch, scar and black kerchief as
+// overlays), everyone else stays procedural. Called after buildCast, same
+// pattern as the set dressing: if a byte of the models fails to arrive, the
+// swap silently does not happen and the procedural leads keep the stage.
+export async function upgradeCast(actors, scene, camera) {
+  const { rigs, errors } = await buildTwinRigs({
+    esteban: { spec: esteban, kerchief: 0xc4342f },
+    ricardo: { spec: ricardo, kerchief: 0x141118 },
+  });
+  if (rigs.ricardo) dressRicardoBone(rigs.ricardo);
+  const swapped = [];
+  for (const key of ['esteban', 'ricardo']) {
+    if (!rigs[key] || !actors[key]) continue;
+    BoneActor.possess(actors[key], rigs[key], scene);
+    swapped.push(key);
+  }
+  // Close-ups on the painted faces get a short-throw warm fill (the bench's
+  // near-black revelacion frame); it costs nothing while no shot is tight.
+  if (swapped.length && camera) attachCastFill(scene, camera);
+  if (errors.length) console.warn('tripo cast partial: ' + errors.join('; '));
+  return { ok: swapped.length > 0, swapped, errors };
 }
 
 // --- the prop that drives the plot -----------------------------------------
