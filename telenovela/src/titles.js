@@ -21,10 +21,13 @@ export class Titles {
   // Subtitles occupy one slot at the bottom of the frame: a new line replaces
   // whatever is there rather than piling on top of it, which is what makes a
   // three-line reaction volley readable.
-  subtitle(text, dur = 3) {
+  // `speaker` puts a name plate beside the line; `narration` styles it as the
+  // announcer rather than as somebody in the courtyard.
+  subtitle(text, dur = 3, opts = {}) {
     if (this.live && this.cards.includes(this.live)) this.dismiss(this.live);
     this.live = this.show(text, {
       kind: 'subtitle', dur, fadeIn: 0.25, fadeOut: 0.3, drift: 0,
+      speaker: opts.speaker || null, narration: !!opts.narration,
     });
     return this.live;
   }
@@ -41,8 +44,15 @@ export class Titles {
     }
     const t = document.createElement('div');
     t.className = 'card-title';
-    t.textContent = text;
+    if (opts.speaker) {
+      const who = document.createElement('span');
+      who.className = 'sub-speaker';
+      who.textContent = opts.speaker;
+      t.appendChild(who);
+    }
+    t.appendChild(document.createTextNode(text));
     node.appendChild(t);
+    if (opts.narration) node.classList.add('card-narration');
     if (opts.sub) {
       const s = document.createElement('div');
       s.className = 'card-sub';
@@ -60,6 +70,7 @@ export class Titles {
       node, t: 0,
       text, sub: opts.sub || null, kicker: opts.kicker || null,
       kind: opts.kind || 'act', rule: !!opts.rule,
+      speaker: opts.speaker || null, narration: !!opts.narration,
       alpha: 0, progress: 0,
       dur: opts.dur ?? 3.4,
       fadeIn: opts.fadeIn ?? 0.9,

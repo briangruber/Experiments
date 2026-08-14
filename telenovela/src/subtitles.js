@@ -6,7 +6,7 @@
 // line that starts the voice, opens the speaker's beak, and puts the English
 // on screen, all on the same frame.
 
-import { LINES } from './dialogue.js';
+import { LINES, SPEAKERS } from './dialogue.js';
 import { TIMING } from './dialogue-timing.js';
 
 // A line with no measured clip still gets a subtitle — reading time by word
@@ -23,6 +23,7 @@ export const SUBTITLES = LINES.map((l) => ({
   dur: TIMING[l.id] ? TIMING[l.id].dur : fallbackDur(l.en),
   clip: l.id,
   who: l.who,
+  speaker: SPEAKERS[l.who] || null,
   env: TIMING[l.id] ? TIMING[l.id].env : '',
 }));
 
@@ -33,7 +34,7 @@ export function subtitleCues(sceneIndex) {
   return SUBTITLES.filter((s) => s.scene === sceneIndex).map((s) => [
     s.at,
     (c) => {
-      c.titles.subtitle(s.text, s.dur);
+      c.titles.subtitle(s.text, s.dur, { speaker: s.speaker, narration: !s.speaker });
       c.score.say(s.clip);
       // The narrator has no beak. Everyone else does.
       const actor = c.actors[s.who];

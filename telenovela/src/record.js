@@ -83,14 +83,16 @@ const CARD_STYLE = {
 };
 
 // Subtitles are the one card kind long enough to need wrapping. Two lines
-// maximum — a third would run into the letterbox bar.
-function wrap(ctx, text, maxWidth, maxLines = 2) {
+// maximum — a third would run into the letterbox bar. `firstIndent` is the
+// width the speaker's name plate takes out of the first line.
+function wrap(ctx, text, maxWidth, maxLines = 2, firstIndent = 0) {
   const words = text.split(' ');
   const lines = [];
   let line = '';
   for (const word of words) {
     const next = line ? `${line} ${word}` : word;
-    if (line && ctx.measureText(next).width > maxWidth && lines.length < maxLines - 1) {
+    const room = maxWidth - (lines.length === 0 ? firstIndent : 0);
+    if (line && ctx.measureText(next).width > room && lines.length < maxLines - 1) {
       lines.push(line);
       line = word;
     } else {
@@ -127,28 +129,67 @@ export function drawCards(ctx, titles, w, h) {
     // Subtitles are set flush, in white, wrapped — everything the gold
     // display treatment below is not.
     if (c.kind === 'subtitle') {
-      const size = Math.max(st.min, Math.min(st.max, (st.vw * w) / 100));
+      const base = Math.max(st.min, Math.min(st.max, (st.vw * w) / 100));
+      // Narration is upright, warm and wider-tracked; dialogue is white italic
+      // with the speaker's name beside it. Mirrors .card-narration in ui.css.
+      const size = c.narration ? base * 0.94 : base;
+      const lineFont = c.narration ? `400 ${size}px ${SERIF}` : `italic 400 ${size}px ${SERIF}`;
+      const lineTrack = c.narration ? '0.1em' : '0.015em';
+      const lineFill = c.narration ? '#f0d9a6' : '#f2ece2';
+
+      // The name plate takes width out of the first line, so measure it first.
+      const ns = size * 0.82;
+      const nameFont = `400 ${ns}px ${SERIF}`;
+      let plate = 0;
+      if (c.speaker) {
+        ctx.save();
+        ctx.font = nameFont;
+        ctx.letterSpacing = '0.14em';
+        plate = ctx.measureText(c.speaker.toUpperCase()).width + size * 0.75;
+        ctx.restore();
+      }
+
       ctx.save();
       ctx.globalAlpha = a;
-      ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
-      ctx.letterSpacing = '0.015em';
-      ctx.font = `italic 400 ${size}px ${SERIF}`;
-      ctx.fillStyle = '#f2ece2';
+      ctx.letterSpacing = lineTrack;
+      ctx.font = lineFont;
       ctx.shadowColor = 'rgba(0,0,0,0.95)';
       ctx.shadowBlur = size * 0.5;
-      const lines = wrap(ctx, c.text, Math.min(w * 0.78, 780));
+
+      const maxW = Math.min(w * 0.78, 780);
+      const lines = wrap(ctx, c.text, maxW, 2, plate);
       // Anchor the block's last line where a single line would sit, so a
       // two-line subtitle grows upward instead of into the letterbox.
       let y = st.top * h - (lines.length - 1) * size * 1.32;
-      const widest = Math.max(...lines.map((l) => ctx.measureText(l).width));
+      const widths = lines.map((l, i) => ctx.measureText(l).width + (i === 0 ? plate : 0));
+      const widest = Math.max(...widths);
       const blockH = lines.length * size * 1.32;
+
       ctx.save();
       ctx.globalAlpha = a;
       scrim(ctx, w / 2, y + blockH / 2 - size * 0.16,
         widest / 2 + size * 1.6, blockH / 2 + size * 0.9, 0.7);
       ctx.restore();
-      for (const l of lines) { ctx.fillText(l, w / 2, y); y += size * 1.32; }
+
+      ctx.textAlign = 'left';
+      for (let i = 0; i < lines.length; i++) {
+        let x = w / 2 - widths[i] / 2;
+        if (i === 0 && c.speaker) {
+          ctx.save();
+          ctx.font = nameFont;
+          ctx.letterSpacing = '0.14em';
+          ctx.fillStyle = GOLD;
+          ctx.fillText(c.speaker.toUpperCase(), x, y + (size - ns) * 0.55);
+          ctx.restore();
+          x += plate;
+        }
+        ctx.font = lineFont;
+        ctx.letterSpacing = lineTrack;
+        ctx.fillStyle = lineFill;
+        ctx.fillText(lines[i], x, y);
+        y += size * 1.32;
+      }
       ctx.restore();
       continue;
     }

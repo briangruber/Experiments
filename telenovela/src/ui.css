@@ -126,6 +126,29 @@ html, body {
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95), 0 0 18px rgba(0, 0, 0, 0.8);
 }
 
+/* Who is speaking, set beside the line the way a broadcast caption does it —
+   gold and upright against the white italic, so the eye separates the label
+   from the words without being told to. */
+.sub-speaker {
+  color: var(--gold);
+  font-style: normal;
+  font-size: 0.82em;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin-right: 0.75em;
+  white-space: nowrap;
+}
+
+/* The narrator is not in the courtyard, so his lines are not dialogue: upright
+   rather than italic, warm gold rather than white, and tracked wider. No name
+   plate — the absence of one is half of what marks him out. */
+.card-narration .card-title {
+  color: #f0d9a6;
+  font-style: normal;
+  letter-spacing: 0.1em;
+  font-size: 0.94em;
+}
+
 /* --- hud ------------------------------------------------------------------ */
 
 #hud {

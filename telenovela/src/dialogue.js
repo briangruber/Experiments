@@ -26,6 +26,18 @@ export const VOICES = {
   donGallo: { voice: '0mAmJOs5QSoLsncK0QRu', stability: 0.5, style: 0.6, speed: 0.92 },
 };
 
+// Who the caption belongs to. The narrator is deliberately absent: he is not
+// on the courtyard and never gets a name plate — his lines are styled as
+// narration instead, which is the distinction the audience needs.
+export const SPEAKERS = {
+  rosalinda: 'Rosalinda',
+  esteban: 'Esteban',
+  valentina: 'Valentina',
+  donGallo: 'Don Gallo',
+  ricardo: 'Ricardo',
+  narrator: null,
+};
+
 export const LINES = [
   // --- PRELUDIO: who she is, what she waits for, and that it was forbidden.
   { id: 'dlg-0a', scene: 1, at: 14.5, who: 'narrator', es: 'Cada noche, Rosalinda espera. Él nunca llega.', en: 'Every night Rosalinda waits. He never comes.' },

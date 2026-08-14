@@ -1062,7 +1062,7 @@ function buildScreenplay(ctx, tw) {
             kicker: 'dirección · guion · fotografía · vestuario · y todas las plumas',
             kind: 'credit', dur: 8.5, fadeIn: 1,
           });
-          c.titles.subtitle('Directed, written, shot, costumed, and every last feather.', 8.3);
+          c.titles.subtitle('Directed, written, shot, costumed, and every last feather.', 8.3, { narration: true });
         }],
         [32.6, (c) => {
           c.score.say('vo-credits-2');
@@ -1070,7 +1070,7 @@ function buildScreenplay(ctx, tw) {
             kicker: 'escenografía construida a mano, polígono por polígono',
             kind: 'credit', dur: 5.8, fadeIn: 0.9,
           });
-          c.titles.subtitle('Sets built by hand, polygon by polygon.', 5.6);
+          c.titles.subtitle('Sets built by hand, polygon by polygon.', 5.6, { narration: true });
         }],
         [39.1, (c) => {
           c.score.say('vo-credits-3');
@@ -1078,7 +1078,7 @@ function buildScreenplay(ctx, tw) {
             kicker: 'música original · truenos · y todos los suspiros',
             kind: 'credit', dur: 5.4, fadeIn: 0.9,
           });
-          c.titles.subtitle('Original music, thunder, and every sigh.', 5.2);
+          c.titles.subtitle('Original music, thunder, and every sigh.', 5.2, { narration: true });
         }],
         [45.2, (c) => {
           c.score.say('vo-credits-4');
@@ -1086,7 +1086,7 @@ function buildScreenplay(ctx, tw) {
             kicker: 'escribió unos cuantos prompts',
             kind: 'credit', dur: 3.3, fadeIn: 0.9,
           });
-          c.titles.subtitle('Wrote a few prompts.', 3.1);
+          c.titles.subtitle('Wrote a few prompts.', 3.1, { narration: true });
         }],
         [49.1, (c) => {
           c.score.say('vo-credits-5');
@@ -1094,7 +1094,7 @@ function buildScreenplay(ctx, tw) {
             sub: 'varias resultaron traicionadas',
             kind: 'act', dur: 6.0, fadeIn: 0.8,
           });
-          c.titles.subtitle('No chicken was harmed in this production. Several were betrayed.', 5.8);
+          c.titles.subtitle('No chicken was harmed in this production. Several were betrayed.', 5.8, { narration: true });
         }],
         // The last sound of the episode.
         [56.2, (c) => c.score.crow()],
