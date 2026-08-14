@@ -77,7 +77,7 @@ const CARD_STYLE = {
   stinger: { top: 0.20, min: 18, vw: 3.0, max: 40 },
 };
 
-function drawCards(ctx, titles, w, h) {
+export function drawCards(ctx, titles, w, h) {
   for (const c of titles.cards) {
     const a = c.alpha ?? 0;
     if (a <= 0.002) continue;
@@ -194,6 +194,7 @@ export class Recorder {
     this.recorder.start(1000);
     this.state = 'recording';
     this.frames = 0;
+    this.startedAt = performance.now();
     return true;
   }
 
@@ -227,6 +228,21 @@ export class Recorder {
   }
 
   get extension() { return this.mime && this.mime.startsWith('video/mp4') ? 'mp4' : 'webm'; }
+
+  // What actually got captured. A recording that starves — the canvas stream
+  // handing the encoder a handful of frames over a minute of wall clock — looks
+  // fine until the file is opened, so the numbers are reported rather than
+  // left to be discovered in a player.
+  stats(blob) {
+    const wall = (performance.now() - this.startedAt) / 1000;
+    return {
+      frames: this.frames,
+      wall: +wall.toFixed(1),
+      fps: +(this.frames / Math.max(0.1, wall)).toFixed(1),
+      mb: blob ? +(blob.size / 1048576).toFixed(1) : 0,
+      mime: this.mime,
+    };
+  }
 }
 
 // Can this view actually hand the viewer a file? A published page needs the

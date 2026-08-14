@@ -1,0 +1,236 @@
+#!/usr/bin/env node
+// Render the episode to a video file without recording the screen.
+//
+//   node tools/render.mjs --cut trailer --out dist/trailer.mp4
+//   node tools/render.mjs --cut episode --fps 30 --w 1280 --h 720
+//
+// Screen recording asks the browser to hand frames to an encoder in real time
+// while the page stays visible and keeps up. This does not: the world is
+// stepped by a fixed amount per frame, every frame is captured, and the
+// soundtrack is rendered separately through an OfflineAudioContext against the
+// same clock. Slower than watching it, and it cannot drop a frame.
+//
+// Needs ffmpeg. Playwright ships one and it will be found automatically.
+
+import { spawn } from 'node:child_process';
+import { mkdir, writeFile, rm, stat } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const args = process.argv.slice(2);
+const opt = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i + 1] : d; };
+
+const CUT = opt('cut', 'trailer');
+const FPS = +opt('fps', 30);
+const WIDTH = +opt('w', CUT === 'trailer' ? 1280 : 960);
+const HEIGHT = +opt('h', CUT === 'trailer' ? 720 : 540);
+const CRF = +opt('crf', 20);
+const OUT = resolve(ROOT, opt('out', `dist/corazon-de-gallina-${CUT}.mp4`));
+
+function findFfmpeg() {
+  if (process.env.FFMPEG) return process.env.FFMPEG;
+  const candidates = [
+    '/opt/pw-browsers/ffmpeg-1011/ffmpeg-linux',
+    ...(process.env.PLAYWRIGHT_BROWSERS_PATH
+      ? [join(process.env.PLAYWRIGHT_BROWSERS_PATH, 'ffmpeg-1011', 'ffmpeg-linux')] : []),
+    '/usr/bin/ffmpeg', '/usr/local/bin/ffmpeg', '/opt/homebrew/bin/ffmpeg',
+  ];
+  for (const c of candidates) if (existsSync(c)) return c;
+  return 'ffmpeg';   // hope it is on PATH
+}
+const FFMPEG = findFfmpeg();
+
+// What can this ffmpeg actually do? Playwright ships a stripped build with VP8
+// and nothing else, which is worth finding out now rather than by watching a
+// pipe stall.
+function ffCan() {
+  const { execFileSync } = require('node:child_process');
+  try {
+    const out = execFileSync(FFMPEG, ['-hide_banner', '-encoders'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    return {
+      x264: /\blibx264\b/.test(out),
+      aac: /\baac\b/.test(out),
+      vpx: /\blibvpx\b/.test(out),
+      opus: /\blibopus\b/.test(out),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function loadPlaywright() {
+  for (const c of ['playwright', '/opt/node22/lib/node_modules/playwright/index.mjs',
+    '/usr/lib/node_modules/playwright/index.mjs', process.env.PLAYWRIGHT_PATH].filter(Boolean)) {
+    try { return await import(c); } catch { /* next */ }
+  }
+  throw new Error('playwright not found; npm i -D playwright, or set PLAYWRIGHT_PATH');
+}
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css', '.mp3': 'audio/mpeg',
+};
+const server = createServer(async (req, res) => {
+  try {
+    const url = decodeURIComponent(req.url.split('?')[0]);
+    const path = join(ROOT, url === '/' ? 'index.html' : url);
+    if (!path.startsWith(ROOT)) { res.writeHead(403).end(); return; }
+    res.writeHead(200, { 'content-type': MIME[path.slice(path.lastIndexOf('.'))] || 'application/octet-stream' });
+    res.end(await readFile(path));
+  } catch { res.writeHead(404).end(); }
+});
+await new Promise((r) => server.listen(0, '127.0.0.1', r));
+const port = server.address().port;
+
+const { chromium } = await loadPlaywright();
+const browser = await chromium.launch({
+  args: ['--enable-unsafe-swiftshader', '--use-angle=swiftshader', '--ignore-gpu-blocklist',
+    '--enable-webgl', '--disable-gpu-sandbox', '--disable-dev-shm-usage',
+    '--autoplay-policy=no-user-gesture-required'],
+});
+const page = await browser.newPage({ viewport: { width: WIDTH, height: HEIGHT }, deviceScaleFactor: 1 });
+page.on('pageerror', (e) => console.error('page error:', (e.stack || e.message).slice(0, 300)));
+
+await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'load' });
+await page.waitForFunction(() => !!window.__telenovela, null, { timeout: 30000 });
+
+// How long is this cut? The trailer's shot list and the episode's scene lengths
+// both live in the page, so ask rather than duplicate them here.
+const seconds = await page.evaluate((cut) => {
+  const T = window.__telenovela;
+  if (cut === 'episode') return T.dir.scenes.reduce((a, s) => a + s.dur / (s.pace ?? T.dir.pace), 0);
+  return null;   // the trailer is driven segment by segment below
+}, CUT);
+
+const trailer = CUT === 'trailer';
+const segments = trailer
+  ? await page.evaluate(() => window.__telenovela.CUTS.trailer.segments)
+  : null;
+const totalSeconds = trailer ? segments.reduce((a, s) => a + s[2], 0) : seconds;
+
+const can = ffCan();
+if (!can) {
+  console.error(`could not run ffmpeg at ${FFMPEG}.\nInstall one (brew install ffmpeg / apt install ffmpeg) or set FFMPEG=/path/to/ffmpeg`);
+  await browser.close(); server.close();
+  process.exit(1);
+}
+const VIDEO_ONLY = args.includes('--silent') || !can.aac;
+const VCODEC = can.x264 ? ['-c:v', 'libx264', '-preset', 'medium', '-crf', String(CRF)]
+  : can.vpx ? ['-c:v', 'libvpx', '-b:v', '2M'] : null;
+if (!VCODEC) {
+  console.error(`the ffmpeg at ${FFMPEG} has no usable video encoder (needs libx264 or libvpx).`);
+  await browser.close(); server.close();
+  process.exit(1);
+}
+const CONTAINER = can.x264 ? 'mp4' : 'webm';
+const OUT_PATH = OUT.replace(/\.(mp4|webm)$/i, '') + '.' + CONTAINER;
+
+console.log(`${CUT}: ${totalSeconds.toFixed(1)}s at ${FPS}fps, ${WIDTH}x${HEIGHT}`);
+console.log(`ffmpeg: ${FFMPEG} (${can.x264 ? 'H.264' : 'VP8'}${VIDEO_ONLY ? ', no audio encoder — video only' : ' + AAC'})`);
+if (VIDEO_ONLY && !args.includes('--silent')) {
+  console.warn('  this ffmpeg cannot encode audio; the result will be silent.');
+}
+
+const begun = await page.evaluate(
+  (o) => window.__telenovela.offlineBegin(o),
+  { fps: FPS, width: WIDTH, height: HEIGHT, seconds: totalSeconds },
+);
+if (!begun.ok) { console.error('could not start:', begun.error); process.exit(1); }
+
+await mkdir(dirname(OUT), { recursive: true });
+const videoOnly = OUT_PATH.replace(/\.(mp4|webm)$/, '.video.' + CONTAINER);
+const wavPath = OUT_PATH.replace(/\.(mp4|webm)$/, '.wav');
+
+const ff = spawn(FFMPEG, [
+  '-y', '-f', 'image2pipe', '-framerate', String(FPS), '-i', 'pipe:0',
+  ...VCODEC, '-pix_fmt', 'yuv420p',
+  ...(CONTAINER === 'mp4' ? ['-movflags', '+faststart'] : []),
+  VIDEO_ONLY ? OUT_PATH : videoOnly,
+], { stdio: ['pipe', 'ignore', 'pipe'] });
+let ffErr = '';
+let ffDead = null;
+ff.stderr.on('data', (d) => { ffErr += d.toString(); });
+ff.on('error', (e) => { ffDead = e; });
+ff.on('close', (code) => {
+  if (code !== 0 && ffDead === null) {
+    ffDead = new Error(`ffmpeg exited ${code}. It may lack the mjpeg decoder this needs.\n${ffErr.slice(-900)}`);
+  }
+});
+
+// If ffmpeg dies, the pipe stops draining; without this the loop waits forever.
+const write = (buf) => new Promise((res, rej) => {
+  if (ffDead) { rej(ffDead); return; }
+  const onErr = (e) => rej(e);
+  ff.stdin.once('error', onErr);
+  if (ff.stdin.write(buf)) { ff.stdin.off('error', onErr); res(); }
+  else ff.stdin.once('drain', () => { ff.stdin.off('error', onErr); res(); });
+});
+
+// Step the world and collect frames. For the trailer, jump to each beat first.
+const total = Math.ceil(totalSeconds * FPS);
+let done = 0, segIndex = -1, segFramesLeft = 0;
+const t0 = Date.now();
+for (let i = 0; i < total; i++) {
+  if (trailer && segFramesLeft <= 0) {
+    segIndex++;
+    const seg = segments[segIndex];
+    if (!seg) break;
+    segFramesLeft = Math.round(seg[2] * FPS);
+    await page.evaluate(([s, t]) => { window.__telenovela.dir.goTo(s); window.__telenovela.seekWithin(t); }, [seg[0], seg[1]]);
+  }
+  const b64 = await page.evaluate(() => window.__telenovela.offlineFrame());
+  if (!b64) break;
+  try {
+    await write(Buffer.from(b64, 'base64'));
+  } catch (e) {
+    console.error(`\nffmpeg stopped accepting frames: ${e.message}`);
+    console.error(`Install a full ffmpeg (brew install ffmpeg) and set FFMPEG=/path/to/ffmpeg.`);
+    await browser.close(); server.close();
+    process.exit(1);
+  }
+  segFramesLeft--;
+  done++;
+  if (done % FPS === 0 || done === total) {
+    const pct = ((done / total) * 100).toFixed(0);
+    const rate = done / ((Date.now() - t0) / 1000);
+    process.stdout.write(`\r  ${done}/${total} frames (${pct}%) · ${rate.toFixed(1)} fps   `);
+  }
+}
+process.stdout.write('\n');
+
+ff.stdin.end();
+await new Promise((res, rej) => {
+  if (ff.exitCode !== null) return ff.exitCode === 0 ? res() : rej(new Error(`ffmpeg exited ${ff.exitCode}\n${ffErr.slice(-1500)}`));
+  ff.on('close', (code) => (code === 0 ? res() : rej(new Error(`ffmpeg exited ${code}\n${ffErr.slice(-1500)}`))));
+});
+
+const wav = VIDEO_ONLY ? null : (console.log('rendering the soundtrack…'),
+  await page.evaluate(() => window.__telenovela.offlineAudio()));
+await browser.close();
+server.close();
+if (wav) await writeFile(wavPath, Buffer.from(wav, 'base64'));
+
+// Mux. Copy the video through untouched; only the audio needs encoding.
+if (wav) {
+  await new Promise((res, rej) => {
+    const mux = spawn(FFMPEG, [
+      '-y', '-i', videoOnly, '-i', wavPath,
+      '-c:v', 'copy', '-c:a', 'aac', '-b:a', '160k', '-shortest',
+      '-movflags', '+faststart', OUT_PATH,
+    ], { stdio: ['ignore', 'ignore', 'pipe'] });
+    let err = '';
+    mux.stderr.on('data', (d) => { err += d.toString(); });
+    mux.on('close', (code) => (code === 0 ? res() : rej(new Error(`mux failed ${code}\n${err.slice(-1500)}`))));
+  });
+  await rm(videoOnly, { force: true });
+  await rm(wavPath, { force: true });
+}
+
+const info = await stat(OUT_PATH);
+console.log(`${OUT_PATH}\n  ${done} frames · ${(done / FPS).toFixed(1)}s · ${(info.size / 1048576).toFixed(1)} MB`);

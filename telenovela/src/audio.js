@@ -29,6 +29,10 @@ export class Soundtrack {
   constructor(manifest = AUDIO) {
     this.manifest = manifest;
     this.ctx = null;
+    // Offline rendering steps the world faster than real time, so scheduling
+    // cannot read ctx.currentTime — it would bunch every cue at zero. When
+    // this is set, it is the clock.
+    this.virtualNow = null;
     this.ready = false;
     this.failed = false;
     this.enabled = true;
@@ -41,6 +45,19 @@ export class Soundtrack {
     this.bedWanted = undefined;
     this.bedGen = 0;
     this.loops = new Map();   // ambience name -> { src, gain, level }
+  }
+
+  now() { return this.virtualNow !== null ? this.virtualNow : this.ctx.currentTime; }
+
+  // Render the soundtrack for a deterministic export: an offline context, the
+  // same cues, scheduled against a clock the caller advances.
+  async openOffline(AudioCtor, seconds, sampleRate = 48000) {
+    this.ctx = new AudioCtor(2, Math.ceil(seconds * sampleRate), sampleRate);
+    this.virtualNow = 0;
+    this.buildGraph();
+    await Promise.all(Object.keys(this.manifest).map((n) => this.load(n).catch(() => {})));
+    this.ready = true;
+    return this.ctx;
   }
 
   // --- loading --------------------------------------------------------------
@@ -92,30 +109,8 @@ export class Soundtrack {
     if (this.ctx) { if (this.ctx.state === 'suspended') await this.ctx.resume(); return this.ready; }
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) { this.failed = true; return false; }
-    const ctx = this.ctx = new AC();
-
-    this.master = ctx.createGain();
-    this.master.gain.value = this.enabled ? this.volume : 0;
-    const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -14; comp.knee.value = 22; comp.ratio.value = 3.2;
-    comp.attack.value = 0.005; comp.release.value = 0.25;
-    this.master.connect(comp).connect(ctx.destination);
-
-    this.musicBus = ctx.createGain(); this.musicBus.gain.value = 1;
-    this.musicBus.connect(this.master);
-    this.duck = ctx.createGain(); this.duck.gain.value = 1;
-    this.musicBus.connect(this.duck);
-    // musicBus -> duck -> master; the direct connection above is removed so the
-    // duck is the only path.
-    this.musicBus.disconnect(this.master);
-    this.duck.connect(this.master);
-
-    this.sfxBus = ctx.createGain(); this.sfxBus.gain.value = 1;
-    this.sfxBus.connect(this.master);
-    this.ambBus = ctx.createGain(); this.ambBus.gain.value = 1;
-    this.ambBus.connect(this.master);
-    this.voxBus = ctx.createGain(); this.voxBus.gain.value = 1.15;
-    this.voxBus.connect(this.master);
+    this.ctx = new AC();
+    this.buildGraph();
 
     // A first decode proves the pipeline before anything is promised.
     try {
@@ -138,10 +133,36 @@ export class Soundtrack {
     return true;
   }
 
+  buildGraph() {
+    const ctx = this.ctx;
+    this.master = ctx.createGain();
+    this.master.gain.value = this.enabled ? this.volume : 0;
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -14; comp.knee.value = 22; comp.ratio.value = 3.2;
+    comp.attack.value = 0.005; comp.release.value = 0.25;
+    this.master.connect(comp).connect(ctx.destination);
+
+    this.musicBus = ctx.createGain(); this.musicBus.gain.value = 1;
+    this.musicBus.connect(this.master);
+    this.duck = ctx.createGain(); this.duck.gain.value = 1;
+    this.musicBus.connect(this.duck);
+    // musicBus -> duck -> master; the direct connection above is removed so the
+    // duck is the only path.
+    this.musicBus.disconnect(this.master);
+    this.duck.connect(this.master);
+
+    this.sfxBus = ctx.createGain(); this.sfxBus.gain.value = 1;
+    this.sfxBus.connect(this.master);
+    this.ambBus = ctx.createGain(); this.ambBus.gain.value = 1;
+    this.ambBus.connect(this.master);
+    this.voxBus = ctx.createGain(); this.voxBus.gain.value = 1.15;
+    this.voxBus.connect(this.master);
+  }
+
   // --- music ----------------------------------------------------------------
 
   startBed(name, buf, fade) {
-    const now = this.ctx.currentTime;
+    const now = this.now();
     const src = this.ctx.createBufferSource();
     src.buffer = buf;
     src.loop = true;
@@ -157,7 +178,7 @@ export class Soundtrack {
   }
 
   stopBed(entry, fade) {
-    const t = this.ctx.currentTime;
+    const t = this.now();
     entry.gain.gain.cancelScheduledValues(t);
     entry.gain.gain.setValueAtTime(entry.gain.gain.value, t);
     entry.gain.gain.linearRampToValueAtTime(0.0001, t + fade);
@@ -205,7 +226,7 @@ export class Soundtrack {
   ambience(name, level, ramp = 1.2) {
     if (!this.ready) { (this._pendingAmbience ||= new Map()).set(name, [level, ramp]); return; }
     let l = this.loops.get(name);
-    const t = this.ctx.currentTime;
+    const t = this.now();
     if (!l) {
       const buf = this.buffers.get(name);
       if (!buf) { this.load(name).then(() => this.ambience(name, level, ramp)).catch(() => {}); return; }
@@ -234,7 +255,7 @@ export class Soundtrack {
     if (!this.ready || !this.enabled) return null;
     const buf = this.buffers.get(name);
     if (!buf) { this.load(name).catch(() => {}); return null; }
-    const t = this.ctx.currentTime + delay;
+    const t = this.now() + delay;
     const src = this.ctx.createBufferSource();
     src.buffer = buf;
     src.playbackRate.value = rate;
@@ -269,7 +290,7 @@ export class Soundtrack {
     if (!shot) { this.load(name).catch(() => {}); return; }
     // Duck the music under him. He is the most important thing in the room and
     // he knows it.
-    const t = this.ctx.currentTime + delay;
+    const t = this.now() + delay;
     const g = this.duck.gain;
     g.cancelScheduledValues(t);
     g.setValueAtTime(g.value, t);

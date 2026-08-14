@@ -225,6 +225,32 @@ While recording, frame time is left unclamped: the audio runs on the wall clock
 regardless, so the world has to as well, and a slow machine gets a choppy video
 rather than a desynchronised one.
 
+## Rendering offline
+
+The in-page export records the screen in real time, which depends on the browser
+handing frames to an encoder while the page stays visible and keeps up.
+`tools/render.mjs` does not depend on any of that: it steps the world by a fixed
+amount per frame, captures every frame, and renders the soundtrack separately
+through an `OfflineAudioContext` against the same clock. Slower than watching it,
+and it cannot drop a frame or drift out of sync.
+
+```
+node tools/render.mjs --cut trailer --out dist/trailer.mp4
+node tools/render.mjs --cut episode --fps 30 --w 1280 --h 720
+```
+
+It needs a full ffmpeg — `brew install ffmpeg`, or set `FFMPEG=/path/to/ffmpeg`.
+It probes the encoders first and says what it found: H.264 + AAC in MP4 where
+available, VP8 WebM otherwise, and it stops with a clear message rather than
+stalling on a pipe if the encoder it needs is missing.
+
+**Verified in part.** The page half — deterministic stepping, per-frame capture,
+and the offline soundtrack render — is tested and works. The ffmpeg half is not
+tested here: the only ffmpeg in this development container is Playwright's
+stripped build, which has no mjpeg decoder and no audio encoder at all, so it
+cannot run this pipeline. Treat the encoding step as unproven until it has run
+against a real ffmpeg.
+
 ## Bundling
 
 `tools/bundle.mjs` flattens the whole prototype — sources, three.js and the

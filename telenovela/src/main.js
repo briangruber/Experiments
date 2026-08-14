@@ -10,7 +10,7 @@ import { Score } from './score.js';
 import { Soundtrack } from './audio.js';
 import { Titles } from './titles.js';
 import { Director, buildProps } from './director.js';
-import { Recorder, CUTS, deliver, canDeliver, formatLabel } from './record.js';
+import { Recorder, CUTS, deliver, canDeliver, formatLabel, drawCards } from './record.js';
 import { clamp } from './util.js';
 
 const canvas = document.getElementById('gl');
@@ -240,13 +240,21 @@ async function finishRecording(note) {
   program = null;
   document.removeEventListener('visibilitychange', onHiddenWhileRecording);
   recLabel.textContent = note || 'codificando…';
+  const stats = recorder.stats(null);
   const blob = await recorder.finish();
+  const info = { ...stats, mb: blob ? +(blob.size / 1048576).toFixed(1) : 0, cut: p.cutName };
+  window.__lastExport = info;
   recBar.hidden = true;
   document.body.classList.remove('no-ui');
   if (p.wasMuted) { sound = false; ctx.score.setEnabled(false); soundBtn.textContent = '✕'; soundBtn.classList.add('off'); }
   if (!blob || !blob.size) return;
-  recTime.textContent = `${(blob.size / 1048576).toFixed(1)} MB`;
   const name = `corazon-de-gallina-${p.cutName}.${recorder.extension}`;
+  // Effective frame rate is the number that says whether the file is any good;
+  // near zero means the capture starved and the clip will be a still.
+  recLabel.textContent = `${info.frames} cuadros · ${info.fps}/s · ${info.wall}s`;
+  recTime.textContent = `${info.mb} MB`;
+  recBar.hidden = false;
+  setTimeout(() => { if (!program) recBar.hidden = true; }, 9000);
   const res = await deliver(blob, name);
   const failure = {
     too_large: 'archivo demasiado grande',
@@ -329,6 +337,7 @@ function seekWithin(sceneSeconds) {
 }
 
 let running = false;
+let offline = null;      // set while tools/render.mjs is driving
 let last = performance.now() / 1000;
 let time = 0;
 let fpsAcc = 0, fpsN = 0, fpsShown = 0;
@@ -336,6 +345,7 @@ let slowFrames = 0;
 
 function frame() {
   requestAnimationFrame(frame);
+  if (offline) return;   // the offline renderer drives the world itself
   const now = performance.now() / 1000;
   // Normally a big step means the tab was hidden and the world should not leap.
   // While recording, though, the audio runs on the wall clock no matter what we
@@ -395,7 +405,8 @@ frame();
 
 // Expose a handle for the capture harness.
 window.__telenovela = {
-  dir, cam, post, actors, scene, camera, renderer, THREE, soundtrack, synth,
+  dir, cam, post, actors, scene, camera, renderer, THREE, soundtrack, synth, recorder,
+  get lastExport() { return window.__lastExport || null; },
   get score() { return ctx.score; },
   begin() { begin(); },
   goTo(i, t = 0) {
@@ -405,6 +416,94 @@ window.__telenovela = {
     seekWithin(t);
   },
   measure() { return new Promise((res) => grabWaiters.push(res)); },
+  CUTS,
+  seekWithin(t) { seekWithin(t); },
+
+  // --- deterministic offline render ---------------------------------------
+  // Real-time screen recording depends on the browser handing frames to an
+  // encoder while the page is visible and keeping up. This does not: the world
+  // is stepped by a fixed amount, each frame is handed back as a JPEG, and the
+  // soundtrack is rendered separately through an OfflineAudioContext against
+  // the same clock. tools/render.mjs drives it and lets ffmpeg encode.
+  async offlineBegin({ fps = 30, width = 1280, height = 720, seconds }) {
+    const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    if (!OAC) return { ok: false, error: 'no OfflineAudioContext' };
+    await soundtrack.openOffline(OAC, seconds + 3);
+    ctx.score = soundtrack;
+
+    running = true;
+    startCard.classList.add('gone');
+    document.body.classList.add('no-ui');
+
+    canvas.width = width; canvas.height = height;
+    renderer.setSize(width, height, false);
+    cam.setAspect(width / height);
+    post.setSize(width, height);
+
+    const mix = document.createElement('canvas');
+    mix.width = width; mix.height = height;
+    offline = {
+      fps, dt: 1 / fps, seconds, width, height, n: 0,
+      mix, mctx: mix.getContext('2d', { alpha: false }),
+    };
+    time = 0;
+    dir.goTo(0);
+    return { ok: true, total: Math.ceil(seconds * fps) };
+  },
+
+  // One step, one frame. Returns base64 JPEG, or null when the run is over.
+  offlineFrame() {
+    const o = offline;
+    if (!o) return null;
+    if (o.n >= Math.ceil(o.seconds * o.fps)) return null;
+    // The soundtrack schedules against this, not against a wall clock.
+    soundtrack.virtualNow = o.n * o.dt;
+    const sdt = dir.update(o.dt);
+    time += sdt;
+    if (sdt > 0) {
+      for (const k in actors) actors[k].update(sdt, time);
+      updateSet(set, sdt, time);
+      updateWeather(weather, sdt, time, set);
+      ctx.score.setRain(weather.amount);
+      cam.update(sdt, time);
+    }
+    titles.update(o.dt);
+    post.grade(o.dt);
+    post.render(scene, camera, time, cam);
+    o.mctx.drawImage(canvas, 0, 0, o.width, o.height);
+    drawCards(o.mctx, titles, o.width, o.height);
+    o.n++;
+    return o.mix.toDataURL('image/jpeg', 0.92).slice('data:image/jpeg;base64,'.length);
+  },
+
+  // Render the scheduled soundtrack and hand it back as a WAV.
+  async offlineAudio() {
+    if (!offline) return null;
+    const buf = await soundtrack.ctx.startRendering();
+    const chans = Math.min(2, buf.numberOfChannels);
+    const n = buf.length;
+    const bytes = new DataView(new ArrayBuffer(44 + n * chans * 2));
+    const put = (o, s) => { for (let i = 0; i < s.length; i++) bytes.setUint8(o + i, s.charCodeAt(i)); };
+    put(0, 'RIFF'); bytes.setUint32(4, 36 + n * chans * 2, true); put(8, 'WAVEfmt ');
+    bytes.setUint32(16, 16, true); bytes.setUint16(20, 1, true); bytes.setUint16(22, chans, true);
+    bytes.setUint32(24, buf.sampleRate, true); bytes.setUint32(28, buf.sampleRate * chans * 2, true);
+    bytes.setUint16(32, chans * 2, true); bytes.setUint16(34, 16, true);
+    put(36, 'data'); bytes.setUint32(40, n * chans * 2, true);
+    const data = [];
+    for (let c = 0; c < chans; c++) data.push(buf.getChannelData(c));
+    let p = 44;
+    for (let i = 0; i < n; i++) {
+      for (let c = 0; c < chans; c++) {
+        const v = Math.max(-1, Math.min(1, data[c][i]));
+        bytes.setInt16(p, v < 0 ? v * 32768 : v * 32767, true);
+        p += 2;
+      }
+    }
+    const u8 = new Uint8Array(bytes.buffer);
+    let bin = '';
+    for (let i = 0; i < u8.length; i += 0x8000) bin += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+    return btoa(bin);
+  },
   // Self-test for the video export: record a few seconds and report the file.
   async testRecord(seconds = 4) {
     await startAudio();
