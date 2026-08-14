@@ -106,6 +106,33 @@ export class CoopAudio {
     this.rainGain.gain.setTargetAtTime(level * 0.22, this.ctx.currentTime, 0.6);
   }
 
+  // The soap organ. A diminished chord, held, with the wobble that says a
+  // revelation has just occurred and we are going to a commercial. Three
+  // rising voicings for the three cuts of a scene, then a resolve.
+  sting(step = 0) {
+    const roots = [147, 175, 208];                    // D3, F3, G#3 — diminished
+    const f = roots[Math.min(step, roots.length - 1)];
+    for (const mul of [1, 1.19, 1.41]) {              // stacked minor thirds
+      const v = this._env('sawtooth', f * mul, 1.5, 0.055);
+      if (!v) continue;
+      // Slow vibrato: the organ, not a synth pad.
+      const lfo = this.ctx.createOscillator();
+      const depth = this.ctx.createGain();
+      lfo.frequency.value = 5.2;
+      depth.gain.value = f * mul * 0.012;
+      lfo.connect(depth).connect(v.osc.frequency);
+      lfo.start(v.t0);
+      lfo.stop(v.t0 + 1.55);
+    }
+  }
+
+  // Down onto the tonic. The scene is over; nothing has been resolved.
+  stingResolve() {
+    for (const [f, at] of [[196, 0], [156, 0.16], [131, 0.32]]) {
+      this._env('sawtooth', f, 1.9, 0.06, at);
+    }
+  }
+
   // A mouse: two tiny squeaks right at the top of the range.
   squeak() {
     for (let i = 0; i < 2; i++) {

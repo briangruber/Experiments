@@ -11,6 +11,8 @@ import { DOOR, YARD, bounds, zoneOf } from './zones.js';
 import { Fox } from './fox.js';
 import { Mouse } from './mouse.js';
 import { Butterfly } from './butterfly.js';
+import { Relationships, seedRelationships } from './drama.js';
+import { Director } from './director.js';
 
 const params = new URLSearchParams(location.search);
 const seedParam = parseInt(params.get('seed') ?? '', 10);
@@ -102,6 +104,7 @@ const world = {
     audio.fanfare();
     audio.bok(1.6);
     for (let i = 0; i < 10; i++) fx.puff(at, 0xf5dc90);
+    world.director?.beat('hatched', mum);
     world.incident();
   },
 
@@ -140,6 +143,12 @@ const world = {
   // always one, and they will queue for it.
   favouriteNest: 0,
 
+  // Reginald's favourite, as an index into world.chickens. He calls her over
+  // to food first and every time, and the rest of them notice. It changes,
+  // roughly twice a day, for no reason anybody could defend.
+  favourite: -1,
+  favouriteNext: 60,
+
   summonMouse() {
     if (world.mouse) return;
     world.mouse = new Mouse(world);
@@ -160,6 +169,7 @@ const world = {
     world.clearMouse();
     audio.squeak();
     fx.puff(c.pos, 0x6b6259);
+    world.director?.beat('caughtMouse', c);
     c.force('mouseVictory');
   },
 
@@ -256,6 +266,11 @@ const world = {
       // would watch a hen leap at nothing. The mouse deliberately is not here:
       // it lives half a minute, restoring it would mean constructing one from
       // the shared RNG, and a joiner who misses one has only missed one.
+      // The feuds are the story, so a joiner has to arrive knowing them —
+      // without these the coop looks the same and behaves differently.
+      rel: world.rel.serialize(),
+      fav: world.favourite,
+      favNest: world.favouriteNest,
       fly: world.butterfly.active
         ? [+world.butterfly.pos.x.toFixed(2), +world.butterfly.pos.y.toFixed(2),
           +world.butterfly.pos.z.toFixed(2), +world.butterfly.t.toFixed(1)]
@@ -287,6 +302,9 @@ const world = {
     if (snap.weather) {
       [world.weather.rain, world.weather.rainT, world.weather.next] = snap.weather;
     }
+    if (snap.rel) world.rel.load(snap.rel);
+    if (snap.fav !== undefined) world.favourite = snap.fav;
+    if (snap.favNest !== undefined) world.favouriteNest = snap.favNest;
     if (snap.fly !== undefined) {
       const b = world.butterfly;
       b.active = !!snap.fly;
@@ -356,6 +374,11 @@ world.bertha = spawnBertha(world);
 // every index in a snapshot — is fixed for the life of the world.
 world.chicks = spawnChicks(world, 4);
 world.chickens = [...flock, world.bertha, ...world.chicks];
+// Fixed for the life of the world, and the key for everything that indexes a
+// chicken: events, snapshots, and who bears a grudge against whom.
+world.chickens.forEach((c, i) => { c.index = i; });
+world.rel = new Relationships(world.chickens.length);
+seedRelationships(flock, rng, world.rel);
 
 // ---- lights ----------------------------------------------------------------
 
@@ -426,6 +449,11 @@ const orbit = {
   lastInput: -10,
 };
 
+// Reads the simulation and drives this viewer's camera. It never writes to
+// the world, so it cannot desync a shared coop; see the note in director.js.
+const director = new Director(world, camera, orbit, VIEWS);
+world.director = director;
+
 function setView(name) {
   const v = VIEWS[name];
   if (!v || orbit.view === name) return;
@@ -439,6 +467,11 @@ function setView(name) {
 }
 
 function applyCamera(dt) {
+  // A scene takes the camera off the rig entirely, and hands it back where it
+  // found it. Everything the director does is local to this viewer.
+  director.consider(orbit.lastInput);
+  if (director.update(dt)) return;
+
   // Idle drift: after a while the camera slowly circles the coop on its own.
   if (world.time - orbit.lastInput > 10) orbit.thetaT += dt * 0.03;
 
@@ -504,6 +537,10 @@ function setNDC(e) {
 
 canvas.addEventListener('pointerdown', (e) => {
   ui.dismissHint();
+  // Being held in someone else's close-up while you are trying to do
+  // something is the fastest way to make this infuriating.
+  director.cancel();
+  orbit.lastInput = world.time;
   // Landing on a chicken picks her up rather than swinging the camera.
   setNDC(e);
   raycaster.setFromCamera(pointerNDC, camera);
@@ -1090,6 +1127,33 @@ function tick() {
   }
 
   world.butterfly.update(TICK_DT);
+
+  // Feelings fade, or every pair would sit at the extremes within the hour
+  // and nothing that happened afterwards would mean anything.
+  world.rel.decay(TICK_DT);
+
+  // He moves on. There is never a reason and it is always a scene.
+  world.favouriteNext -= TICK_DT;
+  if (world.favouriteNext <= 0) {
+    world.favouriteNext = rand(rng, 140, 260);
+    const eligible = hens.filter((h) => h.active);
+    if (eligible.length && world.rooster?.active) {
+      const was = world.favourite;
+      const next = eligible[Math.floor(rng() * eligible.length)];
+      if (next.index !== was) {
+        world.favourite = next.index;
+        // The new favourite is delighted. The old one is not.
+        next.showEmote('heart', 3);
+        const prev = world.chickens[was];
+        if (prev?.active) {
+          prev.showEmote('anger', 3);
+          world.rel.adjust(prev.index, next.index, -0.7);
+          world.rel.adjust(prev.index, world.rooster.index, -0.5);
+          world.director?.beat('newFavourite', next, prev, world.rooster);
+        }
+      }
+    }
+  }
 
   // The hawk's pass is simulation state so every client sees the shadow in
   // the same place at the same moment.

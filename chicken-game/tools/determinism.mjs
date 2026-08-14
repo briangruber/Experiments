@@ -95,6 +95,8 @@ const FINGERPRINT = `(() => {
     dayT: num(w.dayT), phase: w.phase, lastPhase: w.lastPhase,
     weather: [num(w.weather.rain), num(w.weather.rainT), num(w.weather.next)],
     nest: w.favouriteNest,
+    favourite: [w.favourite, num(w.favouriteNext)],
+    rel: Array.from(w.rel.a, num),
     mouse: w.mouse ? [w.mouse.phase, num(w.mouse.pos.x), num(w.mouse.pos.z), num(w.mouse.yaw),
       num(w.mouse.t), num(w.mouse.life), num(w.mouse.dart), !!w.mouse.spotted] : 0,
     mouseNext: num(w.mouseNext),

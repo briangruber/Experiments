@@ -223,6 +223,8 @@ export class Fox {
             this.carrying = true;
             this.eggMesh.visible = true;
             w.audio.pop();
+            // Somebody left the door open, and here is the consequence.
+            w.director?.beat('foxTookEgg', this.nearestChicken(w, 'coop'));
             this.setPhase('leave');
           }
         } else {

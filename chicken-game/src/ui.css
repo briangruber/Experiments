@@ -220,3 +220,29 @@ html, body {
 @media (prefers-reduced-motion: reduce) {
   #egg-counter.pop { animation: none; }
 }
+
+/* ---- the telenovela ------------------------------------------------------
+   Letterbox bars that slide in for a dramatic scene, plus the slight
+   desaturation that says we have left the documentary and entered the soap. */
+#drama {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+#drama.on { opacity: 1; }
+#drama .bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  background: #000;
+}
+#drama .bar.top { top: 0; }
+#drama .bar.bottom { bottom: 0; }
+/* The masthead and the buttons are not part of the story. */
+#ui:has(#drama.on) #masthead,
+#ui:has(#drama.on) #buttons,
+#ui:has(#drama.on) #actions,
+#ui:has(#drama.on) #hint { opacity: 0.12; transition: opacity 0.3s ease; }

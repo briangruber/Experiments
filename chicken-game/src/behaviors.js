@@ -117,6 +117,24 @@ function settleOnNest(c, d) {
   c.sitT = 1;
 }
 
+// A friend of hers is squaring up to someone and nobody is backing her up
+// yet. Loyalty is the whole requirement: needing a grudge against the rival
+// as well made this a three-way coincidence that essentially never occurred,
+// and it is not how taking someone's side works anyway.
+function sidingWith(c, w) {
+  for (const o of others(c, w)) {
+    if (o.bhv.name !== 'standoff' && o.bhv.name !== 'standoffB') continue;
+    if (o.bhv.data.backup) continue;
+    const rival = o.bhv.data.rival;
+    if (!rival || rival === c) continue;
+    if (w.rel.get(c.index, o.index) < 0.35) continue;   // not a friend
+    if (w.rel.get(c.index, rival.index) > 0.35) continue; // ...but not friends with both
+    if (o.pos.distanceTo(c.pos) > 5) continue;
+    return o;
+  }
+  return null;
+}
+
 // Perched neighbours on the same bar, near enough to be an imposition.
 function perchNeighbour(c, w, radius) {
   for (const o of w.chickens) {
@@ -422,21 +440,33 @@ export const BEHAVIORS = {
         if (w.rng() < dt * 0.25) c.bodyRoll = rand(w.rng, -0.16, 0.16);
         c.bodyRoll *= Math.max(0, 1 - dt * 3);
 
-        // Settling down for the night is not a peaceful business. A senior
-        // bird sidles up to a junior one and simply takes the spot; the
-        // junior one goes over the edge and has to come back up.
-        if (w.rng() < dt * 0.4) {
-          const n = perchNeighbour(c, w, 0.7);
-          if (n && c.rank < n.rank && !n.bhv.def?.committed) {
-            const spot = n.pos.x;
-            n.showEmote('bang', 1.6);
-            n.comeDown();
-            n.force('bonk', { fell: true });
+        // Settling down for the night is not a peaceful business — but who
+        // gets shoved depends on how she feels about them, not only on rank.
+        // A bird she is on good terms with keeps her place, and a night spent
+        // shoulder to shoulder deepens it. That is the flywheel: the roost is
+        // where the alliances get made as well as the feuds.
+        //
+        // These two were separate before, and the shove was the likelier of
+        // them, so roosting next to somebody reliably produced a grudge and
+        // bonds never got off the ground.
+        const mate = perchNeighbour(c, w, 0.8);
+        if (mate && !mate.bhv.def?.committed) {
+          const feel = w.rel.get(c.index, mate.index);
+          if (c.rank < mate.rank && feel < 0.3 && w.rng() < dt * 0.4) {
+            const spot = mate.pos.x;
+            mate.showEmote('bang', 1.6);
+            mate.comeDown();
+            mate.force('bonk', { fell: true });
+            w.rel.slight(c.index, mate.index, 'shovedOffRoost');
+            w.director?.beat('shovedOffRoost', mate, c);
             w.audio.squawk(rand(w.rng, 0.8, 1.2));
-            w.fx.feather(c.pos, n.color);
+            w.fx.feather(c.pos, mate.color);
             // Shuffle along into the vacancy.
             c.pos.x = clamp(spot, d.bar.x0 + 0.25, d.bar.x1 - 0.25);
             c.bodyRoll = 0.2;
+          } else if (w.rng() < dt * 0.35) {
+            // Tolerated, or welcome. Either way it counts in the morning.
+            w.rel.kindness(c.index, mate.index, 'roostedTogether');
           }
         }
 
@@ -455,7 +485,25 @@ export const BEHAVIORS = {
 
   dustBath: {
     weight: 0.8, weird: true, dur: [7, 12], cooldown: 25, icon: 'star',
-    enter(c, w) { c.walkTo(randomPoint(w, c, 1.2), 0.8); c.bhv.data.bathing = false; },
+    enter(c, w) {
+      // Chickens dust bathe communally — a hen who sees a wallow in progress
+      // gets into it, preferring one her friends are already in. This is
+      // where the daytime friendships come from, and until it existed bonds
+      // only ever formed at night on the roost, where nobody is squaring up
+      // to anybody, so an alliance never had a fight to matter in.
+      const wallow = others(c, w).filter((o) => o.bhv.name === 'dustBath' && o.bhv.data.bathing);
+      const join = wallow.length
+        ? (w.rel.best(c.index, wallow) ?? pick(w.rng, wallow))
+        : null;
+      if (join) {
+        const a = rand(w.rng, 0, TAU);
+        c.walkTo(hold(c, new THREE.Vector3(
+          join.pos.x + Math.sin(a) * 0.5, 0, join.pos.z + Math.cos(a) * 0.5)), 1.2);
+      } else {
+        c.walkTo(randomPoint(w, c, 1.2), 0.8);
+      }
+      c.bhv.data.bathing = false;
+    },
     update(c, w, dt) {
       const d = c.bhv.data;
       if (!d.bathing) {
@@ -465,6 +513,14 @@ export const BEHAVIORS = {
       c.bodyRoll = Math.sin(w.time * 5.2) * 0.35;
       c.flapT = 0.3 + Math.sin(w.time * 8) * 0.2;
       if (w.rng() < dt * 2.2) w.fx.puff(c.pos, 0x9a7f5c);
+      // Wallowing in the same hole is how hens make friends.
+      if (w.rng() < dt * 1.5) {
+        for (const o of others(c, w)) {
+          if (o.bhv.name === 'dustBath' && o.pos.distanceTo(c.pos) < 1.5) {
+            w.rel.kindness(c.index, o.index, 'bathedTogether');
+          }
+        }
+      }
     },
     exit(c, w) {
       c.sitT = 0; c.bodyRoll = 0; c.flapT = 0;
@@ -534,7 +590,12 @@ export const BEHAVIORS = {
         c.facePoint(v ? v.pos : c.pos, dt, 5);
         if (c.doPeck()) {
           w.audio.squawk(1.15);
-          if (v) { w.fx.feather(v.pos, v.color); v.force('flee', { from: c }); }
+          if (v) {
+            w.fx.feather(v.pos, v.color);
+            w.rel.slight(c.index, v.index, 'evictedFromNest');
+            w.director?.beat('evictedFromNest', v, c);
+            v.force('flee', { from: c });
+          }
           settleOnNest(c, d);
         }
       } else if (d.phase === 'queue') {
@@ -758,6 +819,12 @@ export const BEHAVIORS = {
 
   congaFollow: {
     weight: 0, dur: [10, 16], icon: 'note',
+    enter(c, w) {
+      // Falling in behind someone is the most ordinary way a friendship
+      // starts, and until this was wired up none ever did.
+      const l = c.bhv.data.leader;
+      if (l) w.rel.kindness(l.index, c.index, 'followed');
+    },
     update(c, w, dt) {
       const { leader, slot } = c.bhv.data;
       if (!leader || leader.bhv.name !== 'conga') { c.bhv.t = c.bhv.dur; return; }
@@ -774,11 +841,24 @@ export const BEHAVIORS = {
     weight: 0.6, weird: true, dur: [6, 9], cooldown: 30, icon: 'anger',
     can(c, w) { return !!nearest(c, w, 3.0); },
     enter(c, w) {
-      const rival = nearest(c, w, 3.0);
+      // If there is someone in range she already has a problem with, it is
+      // them. Otherwise whoever happens to be closest.
+      const inRange = others(c, w).filter((o) => o.pos.distanceTo(c.pos) < 3.6);
+      const rival = w.rel.worst(c.index, inRange) ?? nearest(c, w, 3.0);
       if (!rival) { c.bhv.t = c.bhv.dur; return; }
       c.bhv.data.rival = rival;
       rival.force('standoffB', { rival: c });
       c.stop();
+      // She looks round for someone to back her up. This recruits rather than
+      // waiting for a friend to happen to re-pick inside the six seconds a
+      // standoff lasts — the same reason the rooster reacts to fights from
+      // the tick instead of waiting his turn.
+      const allies = others(c, w).filter(
+        (o) => o !== rival && !o.bhv.def?.committed && o.pos.distanceTo(c.pos) < 7.5);
+      // Not every time: backing decides the outcome almost outright, so if
+      // a friend always turned up rank would stop meaning anything.
+      const ally = w.rel.best(c.index, allies);
+      if (ally && w.rng() < 0.45) ally.force('takeSides', { friend: c });
     },
     update(c, w, dt) {
       const r = c.bhv.data.rival;
@@ -795,7 +875,10 @@ export const BEHAVIORS = {
       if (!r) return;
       // The lower bird backs down — unless it doesn't, which is how a pecking
       // order actually changes. An upset swaps the two ranks for good.
-      const upset = w.rng() < 0.18;
+      // Backing counts for more than rank does. Two against one is two
+      // against one.
+      const backing = (c.bhv.data.backup ? 1 : 0) - (r.bhv.data.backup ? 1 : 0);
+      const upset = w.rng() < (backing < 0 ? 0.62 : backing > 0 ? 0.04 : 0.18);
       const cWins = (c.rank < r.rank) !== upset;
       const winner = cWins ? c : r;
       const loser = cWins ? r : c;
@@ -803,7 +886,52 @@ export const BEHAVIORS = {
         const tmp = winner.rank; winner.rank = loser.rank; loser.rank = tmp;
         winner.showEmote('crown', 2.6);
       }
+      w.rel.slight(winner.index, loser.index, upset ? 'deposed' : 'lostStandoff');
+      if (upset) w.director?.beat('deposed', winner, loser);
       loser.force('flee', { from: winner });
+    },
+  },
+
+  // She brought a friend. A bonded bird turns up at her shoulder and glares,
+  // and the pair of them are much harder to face down — the standoff swings
+  // to whoever has backing.
+  takeSides: {
+    weight: 2.2, weird: true, dur: [6, 9], cooldown: 34, icon: 'anger',
+    can: (c, w) => !!sidingWith(c, w),
+    enter(c, w) {
+      // Recruited by the standoff itself, or found on her own initiative.
+      const friend = c.bhv.data.friend ?? sidingWith(c, w);
+      if (!friend || !friend.active || friend.bhv.data.backup) {
+        c.bhv.t = c.bhv.dur;
+        return;
+      }
+      c.bhv.data.friend = friend;
+      friend.bhv.data.backup = c;
+      w.audio.squawk(0.95);
+      w.director?.beat('broughtBackup', c, friend.bhv.data.rival, friend);
+    },
+    update(c, w, dt) {
+      const f = c.bhv.data.friend;
+      if (!f || (f.bhv.name !== 'standoff' && f.bhv.name !== 'standoffB')) {
+        c.bhv.t = c.bhv.dur;
+        return;
+      }
+      // Shoulder to shoulder, both facing the same way.
+      const at = f.pos.clone().add(
+        new THREE.Vector3(Math.cos(f.yaw), 0, -Math.sin(f.yaw)).multiplyScalar(0.5));
+      c.walkTo(hold(c, at), 1.5);
+      if (c.arrived(0.3)) {
+        c.stop();
+        const r = f.bhv.data.rival;
+        if (r) c.facePoint(r.pos, dt, 4);
+        c.neckPitchT = Math.sin(w.time * 3.5 + 0.8) * 0.3;
+      }
+    },
+    exit(c) {
+      c.neckPitchT = 0;
+      c.stop();
+      const f = c.bhv.data.friend;
+      if (f?.bhv.data.backup === c) f.bhv.data.backup = null;
     },
   },
 
@@ -909,6 +1037,7 @@ export const BEHAVIORS = {
     can(c, w) { return !!nearest(c, w, 3.5); },
     enter(c, w) {
       const m = nearest(c, w, 3.5);
+      if (m) w.rel.kindness(m.index, c.index, 'followed');
       // Copy only solo behaviors; the multi-actor ones need their own casting.
       const SOLO = ['peckAround', 'stareWall', 'statue', 'spin', 'moonwalk', 'sidle',
         'zoomies', 'investigate', 'dustBath', 'oneLeg', 'existential', 'stareYou', 'sneeze'];
@@ -1298,7 +1427,9 @@ export const BEHAVIORS = {
     can: (c, w) => pickTargets(c, w).length > 0,
     enter(c, w) {
       const targets = pickTargets(c, w);
-      c.bhv.data.target = targets.length ? pick(w.rng, targets) : null;
+      // Rank says she may; a grudge says who.
+      c.bhv.data.target = w.rel.worst(c.index, targets)
+        ?? (targets.length ? pick(w.rng, targets) : null);
       c.strut = 1;
     },
     update(c, w, dt) {
@@ -1310,6 +1441,7 @@ export const BEHAVIORS = {
         c.showEmote('anger', 2);
         w.audio.squawk(1.1);
         w.fx.feather(t.pos, t.color);
+        w.rel.slight(c.index, t.index, 'displaced');
         t.force('flee', { from: c });
         c.bhv.t = c.bhv.dur;
       }
@@ -1507,8 +1639,20 @@ export const BEHAVIORS = {
       if (w.rng() < dt * 5) { c.doPeck(); w.audio.cluck(1.45); }
       if (!d.called) {
         d.called = true;
+        // Tidbitting is courtship, and he has a favourite. She is called
+        // first and every time; the rest are invited, and notice.
+        const fav = w.chickens[w.favourite];
+        if (fav?.active && fav.zone === c.zone && !fav.big) {
+          fav.force('gawkJoin', { spot: d.spot });
+          w.rel.kindness(c.index, fav.index, 'fedBy');
+          fav.showEmote('heart', 2.4);
+          c.showEmote('heart', 2.4);
+        }
         for (const o of others(c, w)) {
-          if (w.rng() < 0.85) o.force('gawkJoin', { spot: d.spot });
+          if (o === fav) continue;
+          if (w.rng() < 0.8) { o.force('gawkJoin', { spot: d.spot }); w.rel.kindness(c.index, o.index, 'followed'); }
+          // Watching him do that for her, again.
+          if (fav && o !== fav) w.rel.adjust(o.index, w.favourite, -0.16);
         }
       }
     },
