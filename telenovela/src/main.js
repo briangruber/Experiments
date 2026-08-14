@@ -457,7 +457,7 @@ window.__telenovela = {
   // is stepped by a fixed amount, each frame is handed back as a JPEG, and the
   // soundtrack is rendered separately through an OfflineAudioContext against
   // the same clock. tools/render.mjs drives it and lets ffmpeg encode.
-  async offlineBegin({ fps = 30, width = 1280, height = 720, seconds }) {
+  async offlineBegin({ fps = 30, width = 1280, height = 720, seconds, quality = 0.92 }) {
     const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
     if (!OAC) return { ok: false, error: 'no OfflineAudioContext' };
     await soundtrack.openOffline(OAC, seconds + 3);
@@ -475,7 +475,7 @@ window.__telenovela = {
     const mix = document.createElement('canvas');
     mix.width = width; mix.height = height;
     offline = {
-      fps, dt: 1 / fps, seconds, width, height, n: 0,
+      fps, dt: 1 / fps, seconds, width, height, n: 0, quality,
       mix, mctx: mix.getContext('2d', { alpha: false }),
     };
     time = 0;
@@ -506,7 +506,9 @@ window.__telenovela = {
     o.mctx.drawImage(canvas, 0, 0, o.width, o.height);
     drawCards(o.mctx, titles, o.width, o.height);
     o.n++;
-    return o.mix.toDataURL('image/jpeg', 0.92).slice('data:image/jpeg;base64,'.length);
+    // The frame is JPEG'd on its way to ffmpeg, so this is the real quality
+    // ceiling — a crf of 16 cannot recover what 0.92 threw away.
+    return o.mix.toDataURL('image/jpeg', o.quality).slice('data:image/jpeg;base64,'.length);
   },
 
   // Render the scheduled soundtrack and hand it back as a WAV.

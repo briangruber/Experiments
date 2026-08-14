@@ -30,7 +30,10 @@ const CUT = opt('cut', 'trailer');
 const FPS = +opt('fps', 30);
 const WIDTH = +opt('w', CUT === 'trailer' ? 1280 : 960);
 const HEIGHT = +opt('h', CUT === 'trailer' ? 720 : 540);
-const CRF = +opt('crf', 20);
+const CRF = +opt('crf', 20);          // lower is better; 16-18 is near-transparent
+const PRESET = opt('preset', 'medium'); // x264 speed/efficiency: slow, slower, veryslow
+const ABR = opt('abr', '160k');         // audio bitrate for the mux
+const LIMIT = +opt('seconds', 0);       // cap the render, for trying settings out
 const OUT = resolve(ROOT, opt('out', `dist/corazon-de-gallina-${CUT}.mp4`));
 
 function findFfmpeg() {
@@ -53,9 +56,16 @@ function ffCan() {
   const { execFileSync } = require('node:child_process');
   try {
     const out = execFileSync(FFMPEG, ['-hide_banner', '-encoders'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    // Frames arrive as JPEG on stdin, so the DEcoder matters as much as the
+    // encoders. Playwright's bundled build has neither, and without this check
+    // the failure arrives as "Could not find codec parameters for stream 0"
+    // several seconds into a render.
+    const dec = execFileSync(FFMPEG, ['-hide_banner', '-decoders'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
     return {
+      mjpeg: /\bmjpeg\b/.test(dec),
       x264: /\blibx264\b/.test(out),
       aac: /\baac\b/.test(out),
+      vp9: /\blibvpx-vp9\b/.test(out),
       vpx: /\blibvpx\b/.test(out),
       opus: /\blibopus\b/.test(out),
     };
@@ -123,26 +133,39 @@ if (!can) {
   await browser.close(); server.close();
   process.exit(1);
 }
+if (!can.mjpeg) {
+  console.error(`the ffmpeg at ${FFMPEG} cannot decode JPEG, which is how frames reach it.`);
+  console.error('This is Playwright\'s bundled build; it ships an encoder or two and little else.');
+  console.error('Install a real one (brew install ffmpeg / apt install ffmpeg) and either put it');
+  console.error('on PATH or run with FFMPEG=/path/to/ffmpeg.');
+  await browser.close(); server.close();
+  process.exit(1);
+}
 const VIDEO_ONLY = args.includes('--silent') || !can.aac;
-const VCODEC = can.x264 ? ['-c:v', 'libx264', '-preset', 'medium', '-crf', String(CRF)]
-  : can.vpx ? ['-c:v', 'libvpx', '-b:v', '2M'] : null;
+// Best first. VP9 at the same CRF is close to x264 and far better than VP8,
+// which is the last resort rather than the fallback.
+const VCODEC = can.x264
+  ? ['-c:v', 'libx264', '-preset', PRESET, '-crf', String(CRF), '-profile:v', 'high', '-level', '4.1']
+  : can.vp9 ? ['-c:v', 'libvpx-vp9', '-crf', String(CRF), '-b:v', '0', '-row-mt', '1']
+    : can.vpx ? ['-c:v', 'libvpx', '-b:v', '4M'] : null;
 if (!VCODEC) {
-  console.error(`the ffmpeg at ${FFMPEG} has no usable video encoder (needs libx264 or libvpx).`);
+  console.error(`the ffmpeg at ${FFMPEG} has no usable video encoder (needs libx264, libvpx-vp9 or libvpx).`);
   await browser.close(); server.close();
   process.exit(1);
 }
 const CONTAINER = can.x264 ? 'mp4' : 'webm';
+const VLABEL = can.x264 ? `H.264 crf ${CRF} preset ${PRESET}` : can.vp9 ? `VP9 crf ${CRF}` : 'VP8';
 const OUT_PATH = OUT.replace(/\.(mp4|webm)$/i, '') + '.' + CONTAINER;
 
 console.log(`${CUT}: ${totalSeconds.toFixed(1)}s at ${FPS}fps, ${WIDTH}x${HEIGHT}`);
-console.log(`ffmpeg: ${FFMPEG} (${can.x264 ? 'H.264' : 'VP8'}${VIDEO_ONLY ? ', no audio encoder — video only' : ' + AAC'})`);
+console.log(`ffmpeg: ${FFMPEG} (${VLABEL}${VIDEO_ONLY ? ', no audio encoder — video only' : `, AAC ${ABR}`})`);
 if (VIDEO_ONLY && !args.includes('--silent')) {
   console.warn('  this ffmpeg cannot encode audio; the result will be silent.');
 }
 
 const begun = await page.evaluate(
   (o) => window.__telenovela.offlineBegin(o),
-  { fps: FPS, width: WIDTH, height: HEIGHT, seconds: totalSeconds },
+  { fps: FPS, width: WIDTH, height: HEIGHT, seconds: totalSeconds, quality: +opt('jpeg', 0.95) },
 );
 if (!begun.ok) { console.error('could not start:', begun.error); process.exit(1); }
 
@@ -151,7 +174,11 @@ const videoOnly = OUT_PATH.replace(/\.(mp4|webm)$/, '.video.' + CONTAINER);
 const wavPath = OUT_PATH.replace(/\.(mp4|webm)$/, '.wav');
 
 const ff = spawn(FFMPEG, [
-  '-y', '-f', 'image2pipe', '-framerate', String(FPS), '-i', 'pipe:0',
+  // -vcodec mjpeg is not optional: without it ffmpeg tries to probe a pipe it
+  // cannot seek, gives up with "Could not find codec parameters for stream 0",
+  // and writes a file with no streams in it. That is why this never produced a
+  // video, and it was never the missing encoder it looked like.
+  '-y', '-f', 'image2pipe', '-vcodec', 'mjpeg', '-framerate', String(FPS), '-i', 'pipe:0',
   ...VCODEC, '-pix_fmt', 'yuv420p',
   ...(CONTAINER === 'mp4' ? ['-movflags', '+faststart'] : []),
   VIDEO_ONLY ? OUT_PATH : videoOnly,
@@ -176,7 +203,7 @@ const write = (buf) => new Promise((res, rej) => {
 });
 
 // Step the world and collect frames. For the trailer, jump to each beat first.
-const total = Math.ceil(totalSeconds * FPS);
+const total = Math.ceil((LIMIT > 0 ? Math.min(LIMIT, totalSeconds) : totalSeconds) * FPS);
 let done = 0, segIndex = -1, segFramesLeft = 0;
 const t0 = Date.now();
 for (let i = 0; i < total; i++) {
@@ -224,7 +251,7 @@ if (wav) {
   await new Promise((res, rej) => {
     const mux = spawn(FFMPEG, [
       '-y', '-i', videoOnly, '-i', wavPath,
-      '-c:v', 'copy', '-c:a', 'aac', '-b:a', '160k', '-shortest',
+      '-c:v', 'copy', '-c:a', 'aac', '-b:a', ABR, '-shortest',
       '-movflags', '+faststart', OUT_PATH,
     ], { stdio: ['ignore', 'ignore', 'pipe'] });
     let err = '';
