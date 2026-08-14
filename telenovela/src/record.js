@@ -52,7 +52,7 @@ export const CUTS = {
   },
   episode: {
     label: 'EPISODIO COMPLETO',
-    note: '5:45 · 540p',
+    note: '5:37 · 540p',
     width: 960, height: 540,
     segments: null,     // the whole thing, start to finish
   },
@@ -65,6 +65,10 @@ const FPS = 30;
 
 const GOLD = '#e8c98a';
 const GOLD_DIM = '#a8895a';
+// The small type, mirroring ui.css — brighter and less tracked than the
+// display gold, because at a third of the size it needs the help.
+const KICKER = '#cfae7d';
+const CARD_SUB = '#ecd9b6';
 const SERIF = '"Hoefler Text", "Playfair Display", Georgia, "Times New Roman", serif';
 
 // Mirrors the clamp() sizes and top offsets in ui.css.
@@ -97,6 +101,23 @@ function wrap(ctx, text, maxWidth, maxLines = 2) {
   return lines;
 }
 
+// The DOM cards sit on a soft elliptical scrim (see .card::before in ui.css).
+// The video has to carry it too, or every export loses the legibility the page
+// has. Painted as a feathered radial rather than a box, for the same reason.
+function scrim(ctx, cx, cy, rx, ry, strength) {
+  const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, 1);
+  g.addColorStop(0, `rgba(0,0,0,${strength})`);
+  g.addColorStop(0.5, `rgba(0,0,0,${strength * 0.72})`);
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(rx, ry);
+  ctx.translate(-cx, -cy);
+  ctx.fillStyle = g;
+  ctx.fillRect(cx - 1, cy - 1, 2, 2);
+  ctx.restore();
+}
+
 export function drawCards(ctx, titles, w, h) {
   for (const c of titles.cards) {
     const a = c.alpha ?? 0;
@@ -120,6 +141,13 @@ export function drawCards(ctx, titles, w, h) {
       // Anchor the block's last line where a single line would sit, so a
       // two-line subtitle grows upward instead of into the letterbox.
       let y = st.top * h - (lines.length - 1) * size * 1.32;
+      const widest = Math.max(...lines.map((l) => ctx.measureText(l).width));
+      const blockH = lines.length * size * 1.32;
+      ctx.save();
+      ctx.globalAlpha = a;
+      scrim(ctx, w / 2, y + blockH / 2 - size * 0.16,
+        widest / 2 + size * 1.6, blockH / 2 + size * 0.9, 0.7);
+      ctx.restore();
       for (const l of lines) { ctx.fillText(l, w / 2, y); y += size * 1.32; }
       ctx.restore();
       continue;
@@ -129,6 +157,20 @@ export function drawCards(ctx, titles, w, h) {
     const cx = w / 2;
     let y = st.top * h + (c.drift ?? 1) * (0.5 - (c.progress ?? 0)) * 6;
 
+    // Behind the whole card, sized to the title — the kicker and the role line
+    // are the parts that need it, and they sit inside this footprint.
+    {
+      ctx.save();
+      ctx.globalAlpha = a;
+      ctx.font = `400 ${size}px ${SERIF}`;
+      ctx.letterSpacing = '0.24em';
+      const tw = ctx.measureText(c.text).width;
+      const rows = 1 + (c.kicker ? 1 : 0) + (c.sub ? 1 : 0) + (c.rule ? 0.5 : 0);
+      scrim(ctx, cx, y + size * (rows * 0.55 - 0.2),
+        Math.max(tw / 2 + size * 1.7, w * 0.16), size * (rows * 0.95 + 0.8), 0.62);
+      ctx.restore();
+    }
+
     ctx.save();
     ctx.globalAlpha = a;
     ctx.textAlign = 'center';
@@ -137,12 +179,12 @@ export function drawCards(ctx, titles, w, h) {
     ctx.shadowBlur = size * 0.35;
 
     if (c.kicker) {
-      const ks = size * 0.26;
+      const ks = size * 0.33;
       ctx.font = `italic 400 ${ks}px ${SERIF}`;
-      ctx.letterSpacing = '0.36em';
-      ctx.fillStyle = GOLD_DIM;
-      ctx.fillText(c.kicker, cx + ks * 0.18, y);
-      y += ks * 1.2 + ks * 1.2;
+      ctx.letterSpacing = '0.26em';
+      ctx.fillStyle = KICKER;
+      ctx.fillText(c.kicker, cx + ks * 0.13, y);
+      y += ks * 1.05 + ks * 1.2;
     }
 
     ctx.font = `400 ${size}px ${SERIF}`;
@@ -167,12 +209,11 @@ export function drawCards(ctx, titles, w, h) {
     }
 
     if (c.sub) {
-      const ss = size * (c.kind === 'credit' ? 0.34 : 0.3);
+      const ss = size * (c.kind === 'credit' ? 0.42 : 0.4);
       ctx.font = `italic 400 ${ss}px ${SERIF}`;
-      ctx.letterSpacing = '0.42em';
-      ctx.fillStyle = '#d9c4a0';
-      ctx.globalAlpha = a * 0.86;
-      ctx.fillText(c.sub, cx + ss * 0.21, y + ss * 0.6);
+      ctx.letterSpacing = '0.28em';
+      ctx.fillStyle = CARD_SUB;
+      ctx.fillText(c.sub, cx + ss * 0.14, y + ss * 0.5);
     }
     ctx.restore();
   }

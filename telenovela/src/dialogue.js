@@ -15,9 +15,10 @@
 // the audience should be fooled at 4 @13.0 for the same reason. Ricardo's
 // settings are pushed harder, which is the only tell.
 export const VOICES = {
-  // See tools/audio.mjs for why this voice: it is the deepest in the library
-  // and the furthest from Don Gallo, who is the other low male in the cast.
-  narrator: { voice: 'CE9m1PQE2E76CKUkNL7C', stability: 0.45, style: 0.6, speed: 1.15 },
+  // See tools/audio.mjs for why this voice — cast by measurement, twice over.
+  // A Mexican narrator with about half the chest weight of the previous one,
+  // still comfortably lower than any other man in the cast.
+  narrator: { voice: 'TNuNcwk4LzbPpi1XEANc', stability: 0.45, style: 0.6, speed: 1.04 },
   rosalinda: { voice: 'gXNPKp01Qauo3Uoh4uUG', stability: 0.4, style: 0.65, speed: 1.0 },
   esteban: { voice: 'PXKsW7gipTrp5MYwyJVZ', stability: 0.45, style: 0.5, speed: 1.0 },
   ricardo: { voice: 'PXKsW7gipTrp5MYwyJVZ', stability: 0.3, style: 0.8, speed: 0.96 },

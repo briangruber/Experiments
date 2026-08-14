@@ -1000,7 +1000,7 @@ function buildScreenplay(ctx, tw) {
     // =======================================================================
     // The curtain call. The cast line up downstage, take a bow each as their
     // name comes up, and then the crew gets its due.
-    scene('CRÉDITOS', 'el reparto y los culpables', 68,
+    scene('CRÉDITOS', 'el reparto y los culpables', 60,
       (c) => {
         hideAll(c);
         baseLook(c, {
@@ -1053,47 +1053,52 @@ function buildScreenplay(ctx, tw) {
           move: { type: 'orbit', amount: 0.5, dur: 26 }, dur: 26, handheld: 0.4, smooth: 3,
           label: 'THE GUILTY · 30mm',
         })],
-        // The announcer's five credit lines run 31 seconds; they were cued
-        // 5.4s apart, so every one of them talked over the next. Spaced to
-        // their measured lengths, and the scene lengthened to hold them.
+        // Spaced to the announcer's measured lengths, with the English under
+        // him — the credits are in Spanish like everything else he says, and
+        // the joke does not survive being untranslated.
         [23.4, (c) => {
           c.score.say('vo-credits-1');
           c.titles.show('CLAUDE OPUS 5', {
             kicker: 'dirección · guion · fotografía · vestuario · y todas las plumas',
-            kind: 'credit', dur: 10.4, fadeIn: 1,
+            kind: 'credit', dur: 8.5, fadeIn: 1,
           });
+          c.titles.subtitle('Directed, written, shot, costumed, and every last feather.', 8.3);
         }],
-        [35.0, (c) => {
+        [32.6, (c) => {
           c.score.say('vo-credits-2');
           c.titles.show('THREE.JS', {
             kicker: 'escenografía construida a mano, polígono por polígono',
-            kind: 'credit', dur: 7.4, fadeIn: 0.9,
+            kind: 'credit', dur: 5.8, fadeIn: 0.9,
           });
+          c.titles.subtitle('Sets built by hand, polygon by polygon.', 5.6);
         }],
-        [43.1, (c) => {
+        [39.1, (c) => {
           c.score.say('vo-credits-3');
           c.titles.show('ELEVENLABS', {
             kicker: 'música original · truenos · y todos los suspiros',
-            kind: 'credit', dur: 7.0, fadeIn: 0.9,
+            kind: 'credit', dur: 5.4, fadeIn: 0.9,
           });
+          c.titles.subtitle('Original music, thunder, and every sigh.', 5.2);
         }],
-        [50.8, (c) => {
+        [45.2, (c) => {
           c.score.say('vo-credits-4');
           c.titles.show('BRIAN GRUBER', {
-            kicker: 'wrote a few prompts',
-            kind: 'credit', dur: 4.4, fadeIn: 0.9,
+            kicker: 'escribió unos cuantos prompts',
+            kind: 'credit', dur: 3.3, fadeIn: 0.9,
           });
+          c.titles.subtitle('Wrote a few prompts.', 3.1);
         }],
-        [55.5, (c) => {
+        [49.1, (c) => {
           c.score.say('vo-credits-5');
           c.titles.show('NINGUNA GALLINA RESULTÓ HERIDA', {
             sub: 'varias resultaron traicionadas',
-            kind: 'act', dur: 7.2, fadeIn: 0.8,
+            kind: 'act', dur: 6.0, fadeIn: 0.8,
           });
+          c.titles.subtitle('No chicken was harmed in this production. Several were betrayed.', 5.8);
         }],
         // The last sound of the episode.
-        [63.7, (c) => c.score.crow()],
-        [65.2, (c) => c.post.setLook({ fade: 1 })],
+        [56.2, (c) => c.score.crow()],
+        [57.6, (c) => c.post.setLook({ fade: 1 })],
       ],
       // The credits run to the announcer's clock, not the director's.
       { pace: 1.0 }),

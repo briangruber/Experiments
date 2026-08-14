@@ -42,6 +42,7 @@ html, body {
   transform: translateX(-50%);
   width: min(88vw, 900px);
   text-align: center;
+  isolation: isolate;
   font-family: var(--serif);
   color: var(--gold);
   text-shadow:
@@ -51,14 +52,32 @@ html, body {
   will-change: opacity, transform;
 }
 
+/* A soft scrim behind every card. The small text — kickers, role lines,
+   subtitles — is gold-on-courtyard at 10px and was competing with lantern
+   light and bougainvillea. Elliptical and heavily feathered so it reads as
+   vignetting rather than as a box. */
+.card::before {
+  content: '';
+  position: absolute;
+  inset: -1.1em -1.6em;
+  z-index: -1;
+  background: radial-gradient(ellipse at 50% 50%,
+    rgba(0, 0, 0, 0.62) 0%,
+    rgba(0, 0, 0, 0.44) 45%,
+    rgba(0, 0, 0, 0) 76%);
+  pointer-events: none;
+}
+
 .card-title { font-weight: 400; letter-spacing: 0.24em; text-indent: 0.24em; }
+/* Bigger, brighter and less widely tracked than it was. At 0.3em, 0.42em
+   tracking and 86% opacity, "el galán" was a smudge — extreme letter-spacing
+   costs legibility fastest at the smallest size. */
 .card-sub {
-  margin-top: 1.1em;
-  font-size: 0.3em;
-  letter-spacing: 0.42em;
-  text-indent: 0.42em;
-  color: #d9c4a0;
-  opacity: 0.86;
+  margin-top: 0.95em;
+  font-size: 0.4em;
+  letter-spacing: 0.28em;
+  text-indent: 0.28em;
+  color: #ecd9b6;
   font-style: italic;
 }
 .card-rule {
@@ -69,17 +88,17 @@ html, body {
 }
 
 .card-kicker {
-  font-size: 0.26em;
-  letter-spacing: 0.36em;
-  text-indent: 0.36em;
-  color: var(--gold-dim);
+  font-size: 0.33em;
+  letter-spacing: 0.26em;
+  text-indent: 0.26em;
+  color: #cfae7d;
   font-style: italic;
-  margin-bottom: 1.2em;
+  margin-bottom: 1.05em;
 }
 
 .card-main { top: 34%; font-size: clamp(30px, 6.4vw, 86px); }
 .card-credit { top: 58%; font-size: clamp(20px, 3.2vw, 44px); }
-.card-credit .card-sub { margin-top: 0.8em; font-size: 0.34em; }
+.card-credit .card-sub { margin-top: 0.7em; font-size: 0.42em; }
 .card-cast { top: 63%; font-size: clamp(19px, 3vw, 40px); }
 .card-main .card-rule { margin-top: 0.55em; }
 .card-act { top: 62%; font-size: clamp(17px, 2.5vw, 34px); }
@@ -89,6 +108,15 @@ html, body {
 /* Subtitles sit above the lower letterbox bar, in white rather than gold, so
    they read as translation rather than as another title card. */
 .card-subtitle { top: 78%; font-size: clamp(15px, 2.05vw, 27px); width: min(78vw, 780px); }
+/* Tighter and a touch stronger under a subtitle: it is one or two lines of
+   small italic text and it has to be legible over rain. */
+.card-subtitle::before {
+  inset: -0.5em -1.1em;
+  background: radial-gradient(ellipse at 50% 50%,
+    rgba(0, 0, 0, 0.7) 0%,
+    rgba(0, 0, 0, 0.5) 52%,
+    rgba(0, 0, 0, 0) 80%);
+}
 .card-subtitle .card-title {
   letter-spacing: 0.015em;
   text-indent: 0;

@@ -26,12 +26,17 @@ const FORCE = args.includes('--force');
 // matters because it all ends up base64'd inside one HTML file.
 const FMT = 'mp3_44100_64';
 
-// The announcer. Measured against the alternatives, the previous one was the
-// brightest voice in the library — spectral centroid 1711Hz — which is not the
-// register that tells you a chicken has a secret twin. This one sits at 913Hz
-// with 62% of its energy under 300Hz, and stays clear of Don Gallo, who is
-// also deep but carries only 13% down there.
-const ANNOUNCER = 'CE9m1PQE2E76CKUkNL7C';
+// The announcer. Cast by measurement, twice. The first one was the brightest
+// voice in the library (centroid 1711Hz) and sounded like a BBC continuity
+// reader; the second overcorrected — 54% of its energy sat under 300Hz, which
+// is less "telenovela" than "film trailer from 1997".
+//
+// This one is a Mexican narrator, and the settings were measured too: at
+// stability 0.45 / style 0.6 he lands at 1570Hz with 31% under 300Hz — between
+// the two mistakes, and still well clear of Don Gallo's 13% and Esteban's 9%.
+// Pushing style higher for melodrama made him BRIGHTER, not more theatrical,
+// which is the opposite of what the scene wants.
+const ANNOUNCER = 'TNuNcwk4LzbPpi1XEANc';
 
 const MUSIC = {
   'mus-theme': [42, 'Opening theme of a 1980s Mexican telenovela. Solo nylon guitar arpeggios over warm sustained strings, slow, minor key, nostalgic and melodramatic. Instrumental, no vocals, no drums.'],
@@ -146,7 +151,7 @@ for (const [name, text] of Object.entries(VOICE)) {
       text,
       model_id: 'eleven_multilingual_v2',
       // Slow, stable and theatrical: the voice that introduces the episode.
-      voice_settings: { stability: 0.45, similarity_boost: 0.75, style: 0.65, use_speaker_boost: true, speed: 1.12 },
+      voice_settings: { stability: 0.45, similarity_boost: 0.75, style: 0.6, use_speaker_boost: true, speed: 1.04 },
     }, name,
   ))) || 0;
 }
