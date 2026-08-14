@@ -253,6 +253,7 @@ function buildScreenplay(ctx, tw) {
             move: { type: 'push', amount: 0.22, dur: 4.2 }, handheld: 0.35, aperture: 1.8,
           });
           c.titles.show('ROSALINDA', { sub: 'la inocente', kind: 'cast', dur: 3.4, fadeIn: 0.7 });
+          c.score.say('vo-name-rosalinda', 0.25);
         }],
         [5.2, () => rosalinda.gesture('sigh')],
 
@@ -265,6 +266,7 @@ function buildScreenplay(ctx, tw) {
             move: { type: 'push', amount: 0.22, dur: 4.2 }, handheld: 0.35, aperture: 1.8,
           });
           c.titles.show('ESTEBAN', { sub: 'el galán', kind: 'cast', dur: 3.4, fadeIn: 0.7 });
+          c.score.say('vo-name-esteban', 0.25);
         }],
         [8.6, () => esteban.gesture('strutPose')],
 
@@ -277,6 +279,7 @@ function buildScreenplay(ctx, tw) {
             move: { type: 'creep', amount: 0.6 }, handheld: 0.4, aperture: 2,
           });
           c.titles.show('VALENTINA', { sub: 'la villana', kind: 'cast', dur: 3.4, fadeIn: 0.7 });
+          c.score.say('vo-name-valentina', 0.25);
         }],
         [12.3, () => valentina.gesture('scheme')],
 
@@ -289,8 +292,9 @@ function buildScreenplay(ctx, tw) {
             handheld: 0.35, aperture: 2, dutch: -3,
           });
           c.titles.show('DON GALLO', { sub: 'el patrón', kind: 'cast', dur: 3.4, fadeIn: 0.7 });
+          c.score.say('vo-name-dongallo', 0.25);
         }],
-        [15.9, (c) => donGallo.gesture('crow', { onBeat: () => c.score.crow() })],
+        [15.9, () => donGallo.gesture('crow')],
 
         [18.4, (c) => {
           ricardo.setVisible(true).setEmotion({ pride: 0.9, anger: 0.5 });
@@ -301,6 +305,7 @@ function buildScreenplay(ctx, tw) {
             move: { type: 'push', amount: 0.25, dur: 4.2 }, handheld: 0.45, aperture: 2, dutch: 5,
           });
           c.titles.show('RICARDO', { sub: 'el gemelo', kind: 'cast', dur: 3.4, fadeIn: 0.7 });
+          c.score.say('vo-name-ricardo', 0.25);
         }],
         [19.5, () => ricardo.gesture('laugh')],
 
@@ -316,9 +321,12 @@ function buildScreenplay(ctx, tw) {
           c.set.key.intensity = 7.5;
           c.post.setLook({ diffusion: 0.72, bloom: 0.9, halation: 0.62, exposure: 1.75 });
         }],
-        [22.2, (c) => c.titles.show('CORAZÓN DE GALLINA', {
-          sub: 'una telenovela de corral', kind: 'main', dur: 6.6, rule: true, fadeIn: 1.6,
-        })],
+        [22.2, (c) => {
+          c.titles.show('CORAZÓN DE GALLINA', {
+            sub: 'una telenovela de corral', kind: 'main', dur: 6.6, rule: true, fadeIn: 1.6,
+          });
+          c.score.say('vo-title', 0.6);
+        }],
         [23.0, () => { rosalinda.look(esteban, 1); esteban.look(rosalinda, 1); valentina.look(esteban, 1); }],
         [24.4, () => ricardo.gesture('scheme')],
         [28.6, (c) => c.post.setLook({ fade: 1 })],
@@ -349,13 +357,11 @@ function buildScreenplay(ctx, tw) {
       },
       [
         [0.0, (c) => { c.post.setLook({ fade: 0 }); c.score.setMood('theme', 4); c.score.setAmbience(1); }],
-        [1.4, (c) => c.titles.show('CORAZÓN DE GALLINA', { sub: 'una telenovela de corral', kind: 'main', dur: 8, rule: true, fadeIn: 2 })],
-        [1.6, (c) => c.score.say('vo-title')],
-        [6.5, (c) => { rosalinda.gesture('sigh'); c.score.cluck(); }],
-        [10.0, (c) => {
+        [2.0, (c) => {
           c.titles.show('CAPÍTULO FINAL', { kind: 'act', dur: 4.5 });
           c.score.say('vo-capitulo', 0.3);
         }],
+        [6.5, (c) => { rosalinda.gesture('sigh'); c.score.cluck(); }],
         [11.0, (c) => c.cam.move({
           subject: rosalinda, frame: 'mls', lens: 40, angle: 150, height: 'eye',
           move: { type: 'creep', amount: 1 }, dur: 8, smooth: 2.6, handheld: 0.5,
@@ -609,7 +615,7 @@ function buildScreenplay(ctx, tw) {
         }],
         [27.2, () => donGallo.walkTo(0, -2.35, { style: 'storm', speed: 0.75 })],
         [29.5, (c) => { donGallo.gesture('crow', { onBeat: () => c.score.crow() }); donGallo.emote({ anger: 0.9, pride: 1 }, 2); }],
-        [31.8, (c) => { c.weather.strike(0.9); c.score.thunder(0.9, 0.15); }],
+        [31.8, (c) => c.weather.strike(0.9)],
         [32.5, (c) => c.cam.cut({
           subject: donGallo, frame: 'bcu', lens: 85, angle: -10, height: 'low', dur: 5,
           handheld: 0.8, dutch: 8, aperture: 2, label: 'DUTCH · 85mm',
@@ -909,7 +915,7 @@ function buildScreenplay(ctx, tw) {
           subject: rosalinda, frame: 'cu', lens: 100, angle: 40, height: 0.24, dur: 7,
           move: { type: 'creep', amount: 1 }, handheld: 0.6, aperture: 2, label: 'CLOSE · 100mm',
         })],
-        [12.6, (c) => { c.weather.strike(1.2); c.score.thunder(1.1, 0.15); }],
+        [14.2, (c) => { c.weather.strike(1.2); c.score.thunder(1.1, 0.15); }],
         // The villains, silhouetted by the lightning.
         [12.0, (c) => {
           c.cam.cut({
@@ -919,8 +925,8 @@ function buildScreenplay(ctx, tw) {
           valentina.gesture('laugh');
           ricardo.gesture('laugh', { delay: 0.4 });
         }],
-        [13.0, (c) => { c.weather.strike(1.4); c.score.thunder(1.3, 0.05); c.score.sting('shock'); }],
-        [14.2, (c) => {
+        [14.8, (c) => { c.weather.strike(1.4); c.score.thunder(1.3, 0.05); c.score.sting('shock'); }],
+        [18.6, (c) => {
           c.cam.cut({
             subject: donGallo, frame: 'cu', lens: 85, angle: -8, height: 'low', dur: 5,
             handheld: 0.8, dutch: -10,
@@ -994,7 +1000,7 @@ function buildScreenplay(ctx, tw) {
     // =======================================================================
     // The curtain call. The cast line up downstage, take a bow each as their
     // name comes up, and then the crew gets its due.
-    scene('CRÉDITOS', 'el reparto y los culpables', 63,
+    scene('CRÉDITOS', 'el reparto y los culpables', 68,
       (c) => {
         hideAll(c);
         baseLook(c, {
@@ -1057,37 +1063,37 @@ function buildScreenplay(ctx, tw) {
             kind: 'credit', dur: 10.4, fadeIn: 1,
           });
         }],
-        [34.4, (c) => {
+        [35.0, (c) => {
           c.score.say('vo-credits-2');
           c.titles.show('THREE.JS', {
             kicker: 'escenografía construida a mano, polígono por polígono',
-            kind: 'credit', dur: 6.4, fadeIn: 0.9,
+            kind: 'credit', dur: 7.4, fadeIn: 0.9,
           });
         }],
-        [41.4, (c) => {
+        [43.1, (c) => {
           c.score.say('vo-credits-3');
           c.titles.show('ELEVENLABS', {
             kicker: 'música original · truenos · y todos los suspiros',
-            kind: 'credit', dur: 5.3, fadeIn: 0.9,
+            kind: 'credit', dur: 7.0, fadeIn: 0.9,
           });
         }],
-        [47.2, (c) => {
+        [50.8, (c) => {
           c.score.say('vo-credits-4');
           c.titles.show('BRIAN GRUBER', {
             kicker: 'wrote a few prompts',
-            kind: 'credit', dur: 3.8, fadeIn: 0.9,
+            kind: 'credit', dur: 4.4, fadeIn: 0.9,
           });
         }],
-        [51.4, (c) => {
+        [55.5, (c) => {
           c.score.say('vo-credits-5');
           c.titles.show('NINGUNA GALLINA RESULTÓ HERIDA', {
             sub: 'varias resultaron traicionadas',
-            kind: 'act', dur: 6.4, fadeIn: 0.8,
+            kind: 'act', dur: 7.2, fadeIn: 0.8,
           });
         }],
         // The last sound of the episode.
-        [58.2, (c) => c.score.crow()],
-        [59.6, (c) => c.post.setLook({ fade: 1 })],
+        [63.7, (c) => c.score.crow()],
+        [65.2, (c) => c.post.setLook({ fade: 1 })],
       ],
       // The credits run to the announcer's clock, not the director's.
       { pace: 1.0 }),

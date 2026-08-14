@@ -54,5 +54,62 @@ window.__measure = async (ids, hz) => {
   }
   return out;
 };
+
+// How deep is a voice? Two numbers that do not need a pitch tracker: the
+// spectral centroid (the "brightness" of the whole clip) and the share of
+// energy under 300Hz, which is where a chest voice lives.
+window.__spectrum = async (ids) => {
+  const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 44100 });
+  const out = [];
+  for (const id of ids) {
+    const bytes = await (await fetch(`/audio/${id}.mp3`)).arrayBuffer();
+    const buf = await ctx.decodeAudioData(bytes);
+    const off = new OfflineAudioContext(1, buf.length, buf.sampleRate);
+    const src = off.createBufferSource();
+    src.buffer = buf;
+    const an = off.createAnalyser();
+    an.fftSize = 4096;
+    src.connect(an);
+    an.connect(off.destination);
+    src.start();
+
+    // Sample the spectrum across the clip by rendering in chunks is awkward;
+    // instead do a plain DFT-by-bins on windows of the PCM.
+    const pcm = buf.getChannelData(0);
+    const N = 2048;
+    const bins = 64;              // 0..8000Hz in 125Hz steps
+    const binHz = 8000 / bins;
+    const acc = new Float64Array(bins);
+    let windows = 0;
+    for (let start = 0; start + N < pcm.length; start += N * 2) {
+      // Skip near-silence so pauses do not drag the average down.
+      let e = 0;
+      for (let i = 0; i < N; i++) e += pcm[start + i] * pcm[start + i];
+      if (Math.sqrt(e / N) < 0.01) continue;
+      windows++;
+      for (let b = 0; b < bins; b++) {
+        const f = (b + 0.5) * binHz;
+        const w = (2 * Math.PI * f) / buf.sampleRate;
+        let re = 0, im = 0;
+        for (let i = 0; i < N; i++) {
+          const win = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / N);
+          const v = pcm[start + i] * win;
+          re += v * Math.cos(w * i);
+          im += v * Math.sin(w * i);
+        }
+        acc[b] += Math.sqrt(re * re + im * im);
+      }
+    }
+    let total = 0, weighted = 0, low = 0;
+    for (let b = 0; b < bins; b++) {
+      const f = (b + 0.5) * binHz;
+      total += acc[b];
+      weighted += acc[b] * f;
+      if (f < 300) low += acc[b];
+    }
+    out.push({ id, windows, centroid: total ? weighted / total : 0, lowShare: total ? low / total : 0 });
+  }
+  return out;
+};
 </script>
 <p>measuring…

@@ -25,8 +25,12 @@ const args = process.argv.slice(2);
 const ONLY = args.indexOf('--scene') >= 0 ? +args[args.indexOf('--scene') + 1] : null;
 
 // An effect at or above this share of a dialogue line's level will be heard
-// over it rather than under it.
+// over it rather than under it. Effects duck to SFX_DUCK while someone is
+// speaking (see Soundtrack.say), so that is what an overlapping effect is
+// actually worth — comparing raw levels reported problems the mix already
+// solves.
 const MASKS = 0.75;
+const SFX_DUCK = 0.5;
 
 async function loadPlaywright() {
   for (const c of ['playwright', '/opt/node22/lib/node_modules/playwright/index.mjs',
@@ -153,8 +157,11 @@ for (const s of scenes) {
     } else {
       for (const line of speech) {
         const lineEnd = line.t + line.dur;
-        if (e.t > line.t - 0.15 && e.t < lineEnd - 0.1 && e.level >= REF_LOUD * MASKS) {
-          notes.push(`OVER A LINE (${line.name}, ${(e.level / REF_LOUD).toFixed(2)}x)`);
+        // An effect that starts before the line ducks with everything else;
+        // one that starts on top of it gets the same treatment a beat later.
+        const heard = e.level * SFX_DUCK;
+        if (e.t > line.t - 0.15 && e.t < lineEnd - 0.1 && heard >= REF_LOUD * MASKS) {
+          notes.push(`OVER A LINE (${line.name}, ${(heard / REF_LOUD).toFixed(2)}x ducked)`);
           problems++;
         }
       }

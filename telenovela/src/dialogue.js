@@ -15,7 +15,9 @@
 // the audience should be fooled at 4 @13.0 for the same reason. Ricardo's
 // settings are pushed harder, which is the only tell.
 export const VOICES = {
-  narrator: { voice: 'onwK4e9ZLuTAKqWW03F9', stability: 0.45, style: 0.6, speed: 0.94 },
+  // See tools/audio.mjs for why this voice: it is the deepest in the library
+  // and the furthest from Don Gallo, who is the other low male in the cast.
+  narrator: { voice: 'CE9m1PQE2E76CKUkNL7C', stability: 0.45, style: 0.6, speed: 1.15 },
   rosalinda: { voice: 'gXNPKp01Qauo3Uoh4uUG', stability: 0.4, style: 0.65, speed: 1.0 },
   esteban: { voice: 'PXKsW7gipTrp5MYwyJVZ', stability: 0.45, style: 0.5, speed: 1.0 },
   ricardo: { voice: 'PXKsW7gipTrp5MYwyJVZ', stability: 0.3, style: 0.8, speed: 0.96 },
@@ -27,20 +29,20 @@ export const LINES = [
   // --- PRELUDIO: who she is, what she waits for, and that it was forbidden.
   { id: 'dlg-0a', scene: 1, at: 14.5, who: 'narrator', es: 'Cada noche, Rosalinda espera. Él nunca llega.', en: 'Every night Rosalinda waits. He never comes.' },
   { id: 'dlg-0b', scene: 1, at: 23.5, who: 'narrator', es: 'Don Gallo se lo prohibió. Ella lo sigue amando.', en: 'Don Gallo forbade them. She loves him still.' },
-  { id: 'dlg-0c', scene: 1, at: 28.6, who: 'narrator', es: 'Alguien está en el portón…', en: 'Someone is at the gate…' },
+  { id: 'dlg-0c', scene: 1, at: 29.4, who: 'narrator', es: 'Alguien está en el portón…', en: 'Someone is at the gate…' },
 
   // --- EL ENCUENTRO: he returns; the villainess watches, and has a motive.
   { id: 'dlg-1a', scene: 2, at: 4.8, who: 'narrator', es: 'Esteban. Un año entero sin una palabra.', en: 'Esteban. A whole year without a word.' },
   { id: 'dlg-1b', scene: 2, at: 10.4, who: 'rosalinda', es: '¡Volviste!', en: 'You came back!' },
   { id: 'dlg-1c', scene: 2, at: 26.0, who: 'esteban', es: 'Mañana le pediré su bendición a mi padre.', en: "Tomorrow I will ask my father's blessing." },
   { id: 'dlg-1d', scene: 2, at: 33.8, who: 'narrator', es: 'Valentina. A ella se la prometieron primero.', en: 'Valentina. He was promised to her first.' },
-  { id: 'dlg-1e', scene: 2, at: 38.6, who: 'valentina', es: 'Si no puede ser mío, no será de nadie.', en: 'If he cannot be mine, he will be no one’s.' },
+  { id: 'dlg-1e', scene: 2, at: 38.9, who: 'valentina', es: 'Si no puede ser mío, no será de nadie.', en: 'If he cannot be mine, he will be no one’s.' },
   { id: 'dlg-1f', scene: 2, at: 45.5, who: 'valentina', es: 'Pero yo sé lo que ella esconde aquí.', en: 'But I know what she hides here.' },
 
   // --- LA REVELACIÓN: the egg, and the patriarch who gets to judge it.
   { id: 'dlg-2a', scene: 3, at: 9.5, who: 'valentina', es: '¡Pregúntenle qué guarda bajo ese paño!', en: 'Ask her what she keeps under that cloth!' },
   { id: 'dlg-2b', scene: 3, at: 15.9, who: 'narrator', es: 'Un huevo. Escondido en su propio patio.', en: 'An egg. Hidden in her own courtyard.' },
-  { id: 'dlg-2c', scene: 3, at: 19.5, who: 'rosalinda', es: 'Era mi secreto.', en: 'It was to be my secret.' },
+  { id: 'dlg-2c', scene: 3, at: 19.6, who: 'rosalinda', es: 'Era mi secreto.', en: 'It was to be my secret.' },
   { id: 'dlg-2d', scene: 3, at: 21.8, who: 'esteban', es: 'Rosalinda. ¿De quién es?', en: 'Rosalinda. Whose is it?' },
   { id: 'dlg-2e', scene: 3, at: 29.0, who: 'narrator', es: 'Don Gallo. El padre de Esteban.', en: "Don Gallo. Esteban's father." },
   { id: 'dlg-2f', scene: 3, at: 33.2, who: 'donGallo', es: 'Esteban. Respóndele a tu padre.', en: 'Esteban. Answer your father.' },
@@ -49,7 +51,7 @@ export const LINES = [
 
   // --- LA BOFETADA: the misunderstanding, the slap, the plant for the twist.
   { id: 'dlg-3a', scene: 4, at: 0.4, who: 'narrator', es: 'Esa misma noche. La lluvia no ha parado.', en: 'That same night. The rain has not stopped.' },
-  { id: 'dlg-3b', scene: 4, at: 4.5, who: 'rosalinda', es: 'Dilo otra vez. En mi cara.', en: 'Say it again. To my face.' },
+  { id: 'dlg-3b', scene: 4, at: 5.1, who: 'rosalinda', es: 'Dilo otra vez. En mi cara.', en: 'Say it again. To my face.' },
   { id: 'dlg-3c', scene: 4, at: 8.5, who: 'esteban', es: 'No fui yo. Pregúntale a Valentina.', en: 'It was not me. Ask Valentina.' },
   { id: 'dlg-3d', scene: 4, at: 11.6, who: 'rosalinda', es: 'No hay nadie más. Solo tú.', en: 'There is no one else. Only you.' },
   // The slap itself plays silent. Nothing between here and 17.2.
@@ -71,8 +73,8 @@ export const LINES = [
   // --- CONTINUARÁ: the faint, the disinheriting, the cliffhanger.
   { id: 'dlg-5a', scene: 6, at: 1.0, who: 'rosalinda', es: 'El patio… está dando vueltas…', en: 'The courtyard… it is turning…' },
   { id: 'dlg-5b', scene: 6, at: 6.2, who: 'narrator', es: 'Y aun así, es Esteban quien la sostiene.', en: 'And still it is Esteban who catches her.' },
-  { id: 'dlg-5c', scene: 6, at: 9.9, who: 'esteban', es: 'Duerme, palomita. Ya nada puede tocarnos.', en: 'Sleep, little dove. Nothing can touch us now.' },
-  { id: 'dlg-5d', scene: 6, at: 14.0, who: 'donGallo', es: 'Mi hijo. Mi verdadero hijo ha vuelto.', en: 'My son. My true son has come home.' },
-  { id: 'dlg-5e', scene: 6, at: 20.0, who: 'narrator', es: 'Y nadie está mirando el huevo.', en: 'And no one is watching the egg.' },
+  { id: 'dlg-5c', scene: 6, at: 11.1, who: 'esteban', es: 'Duerme, palomita. Ya nada puede tocarnos.', en: 'Sleep, little dove. Nothing can touch us now.' },
+  { id: 'dlg-5d', scene: 6, at: 19.0, who: 'donGallo', es: 'Mi hijo. Mi verdadero hijo ha vuelto.', en: 'My son. My true son has come home.' },
+  { id: 'dlg-5e', scene: 6, at: 25.0, who: 'narrator', es: 'Y nadie está mirando el huevo.', en: 'And no one is watching the egg.' },
   { id: 'dlg-5f', scene: 6, at: 33.0, who: 'narrator', es: '¿Y tú de quién eres, pequeño?', en: 'And whose child are you, little one?' },
 ];

@@ -26,9 +26,12 @@ const FORCE = args.includes('--force');
 // matters because it all ends up base64'd inside one HTML file.
 const FMT = 'mp3_44100_64';
 
-// Voice: a formal broadcaster, which is exactly the register a telenovela
-// announcer uses to tell you a chicken has a secret twin.
-const ANNOUNCER = 'onwK4e9ZLuTAKqWW03F9';
+// The announcer. Measured against the alternatives, the previous one was the
+// brightest voice in the library — spectral centroid 1711Hz — which is not the
+// register that tells you a chicken has a secret twin. This one sits at 913Hz
+// with 62% of its energy under 300Hz, and stays clear of Don Gallo, who is
+// also deep but carries only 13% down there.
+const ANNOUNCER = 'CE9m1PQE2E76CKUkNL7C';
 
 const MUSIC = {
   'mus-theme': [42, 'Opening theme of a 1980s Mexican telenovela. Solo nylon guitar arpeggios over warm sustained strings, slow, minor key, nostalgic and melodramatic. Instrumental, no vocals, no drums.'],
@@ -70,6 +73,13 @@ const VOICE = {
   'vo-title': 'Corazón... de gallina.',
   'vo-capitulo': 'Capítulo final.',
   'vo-continuara': 'Continuará...',
+  // The opening titles. He introduces them one at a time, as he should.
+  // Tight, because the shots are 3.6s apart and this voice is unhurried.
+  'vo-name-rosalinda': 'Rosalinda. La inocente.',
+  'vo-name-esteban': 'Esteban. El galán.',
+  'vo-name-valentina': 'Valentina. La villana.',
+  'vo-name-dongallo': 'Don Gallo. El patrón.',
+  'vo-name-ricardo': 'Ricardo. El gemelo.',
   'vo-credits-1': 'Dirección, guion, fotografía, vestuario, y absolutamente todas las plumas: Claude Opus Cinco.',
   'vo-credits-2': 'Escenografía construida a mano, polígono por polígono, en Three punto JS.',
   'vo-credits-3': 'Música original, truenos, y todos los suspiros: ElevenLabs.',
@@ -136,7 +146,7 @@ for (const [name, text] of Object.entries(VOICE)) {
       text,
       model_id: 'eleven_multilingual_v2',
       // Slow, stable and theatrical: the voice that introduces the episode.
-      voice_settings: { stability: 0.45, similarity_boost: 0.75, style: 0.65, use_speaker_boost: true, speed: 0.9 },
+      voice_settings: { stability: 0.45, similarity_boost: 0.75, style: 0.65, use_speaker_boost: true, speed: 1.12 },
     }, name,
   ))) || 0;
 }

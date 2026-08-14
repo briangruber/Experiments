@@ -52,7 +52,7 @@ export const CUTS = {
   },
   episode: {
     label: 'EPISODIO COMPLETO',
-    note: '5:40 · 540p',
+    note: '5:45 · 540p',
     width: 960, height: 540,
     segments: null,     // the whole thing, start to finish
   },

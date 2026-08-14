@@ -346,7 +346,7 @@ export class Soundtrack {
     const t = this.now() + delay;
     this.dip(this.duck.gain, 0.28, t, shot.duration);
     this.dip(this.ambDuck.gain, 0.42, t, shot.duration);
-    this.dip(this.sfxDuck.gain, 0.6, t, shot.duration);
+    this.dip(this.sfxDuck.gain, 0.5, t, shot.duration);
   }
 
   // Hold a gain down for the length of a line, then let it back up.

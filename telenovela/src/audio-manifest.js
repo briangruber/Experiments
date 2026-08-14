@@ -15,6 +15,9 @@ export const AUDIO_NAMES = [
   'sfx-rain', 'sfx-fountain', 'sfx-night',
   // the announcer
   'vo-title', 'vo-capitulo', 'vo-continuara',
+  // the opening titles, one name at a time
+  'vo-name-rosalinda', 'vo-name-esteban', 'vo-name-valentina',
+  'vo-name-dongallo', 'vo-name-ricardo',
   'vo-credits-1', 'vo-credits-2', 'vo-credits-3', 'vo-credits-4', 'vo-credits-5',
   // and every spoken line, named by the dialogue script
   ...LINES.map((l) => l.id),
