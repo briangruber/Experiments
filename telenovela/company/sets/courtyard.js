@@ -1,8 +1,8 @@
 // The set: a hacienda courtyard at night. Built once, dressed for the whole
 // episode. Everything is generated — tiles, stucco, bougainvillea, the moon.
 
-import * as THREE from '../vendor/three/three.module.min.js';
-import { TAU, clamp01, lerp, deg, mulberry32, fbm1 } from './util.js';
+import * as THREE from '../../vendor/three/three.module.min.js';
+import { TAU, clamp01, lerp, deg, mulberry32, fbm1 } from '../../engine/util.js';
 
 // --- generated textures -----------------------------------------------------
 

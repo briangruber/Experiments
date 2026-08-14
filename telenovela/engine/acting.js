@@ -4,7 +4,7 @@
 
 import * as THREE from '../vendor/three/three.module.min.js';
 import { REST, applyPose, placeFeet } from './chicken.js';
-import { ENV_HZ } from './dialogue-timing.js';
+import { ENV_HZ } from '../episodes/e01-corazon/dialogue-timing.js';
 import { TAU, clamp, clamp01, lerp, lerpAngle, approach, deg, ease, fbm1, mulberry32 } from './util.js';
 
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3();

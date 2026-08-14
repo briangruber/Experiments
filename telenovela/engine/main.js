@@ -1,9 +1,9 @@
 // Bootstrap: build the world, run the episode, wire the few controls.
 
 import * as THREE from '../vendor/three/three.module.min.js';
-import { buildSet, updateSet } from './sets.js';
-import { dressSet, updateDressing } from './dressing.js';
-import { buildCast } from './cast.js';
+import { buildSet, updateSet } from '../company/sets/courtyard.js';
+import { dressSet, updateDressing } from '../company/props/dressing.js';
+import { buildCast } from '../company/cast/index.js';
 import { buildWeather, updateWeather } from './weather.js';
 import { Cinematographer } from './camera.js';
 import { Post } from './post.js';
@@ -11,6 +11,7 @@ import { Score } from './score.js';
 import { Soundtrack } from './audio.js';
 import { Titles } from './titles.js';
 import { Director, buildProps } from './director.js';
+import { buildScreenplay } from '../episodes/e01-corazon/screenplay.js';
 import { Recorder, CUTS, deliver, canDeliver, formatLabel, drawCards } from './record.js';
 import { clamp } from './util.js';
 
@@ -51,7 +52,7 @@ const dressed = dressSet(set).catch((e) => {
   console.warn('set dressing unavailable:', e.message);
   return null;
 });
-const dir = new Director(ctx);
+const dir = new Director(ctx, buildScreenplay);
 ctx.dir = dir;
 
 // --- sizing ----------------------------------------------------------------

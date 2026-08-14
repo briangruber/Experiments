@@ -36,7 +36,7 @@ const server = createServer(async (req, res) => {
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const port = server.address().port;
 
-const files = (await readdir(join(ROOT, 'assets'))).filter((f) => f.endsWith('.glb')).sort();
+const files = (await readdir(join(ROOT, 'company/props/assets'))).filter((f) => f.endsWith('.glb')).sort();
 const cols = Math.ceil(Math.sqrt(files.length));
 const rows = Math.ceil(files.length / cols);
 

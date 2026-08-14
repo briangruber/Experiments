@@ -3,12 +3,14 @@
 <title>measure dialogue</title>
 <script>
 // Decode each clip and report its length and a loudness envelope. Run in the
-// browser only because it is the one audio decoder available here.
-window.__measure = async (ids, hz) => {
+// browser only because it is the one audio decoder available here. Clips are
+// passed as { id, url } because they live in more than one directory — the
+// shared library and each episode's voice track.
+window.__measure = async (clips, hz) => {
   const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 44100 });
   const out = [];
-  for (const id of ids) {
-    const bytes = await (await fetch(`/audio/${id}.mp3`)).arrayBuffer();
+  for (const { id, url } of clips) {
+    const bytes = await (await fetch(url)).arrayBuffer();
     const buf = await ctx.decodeAudioData(bytes);
     const pcm = buf.getChannelData(0);
 
@@ -58,11 +60,11 @@ window.__measure = async (ids, hz) => {
 // How deep is a voice? Two numbers that do not need a pitch tracker: the
 // spectral centroid (the "brightness" of the whole clip) and the share of
 // energy under 300Hz, which is where a chest voice lives.
-window.__spectrum = async (ids) => {
+window.__spectrum = async (clips) => {
   const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 44100 });
   const out = [];
-  for (const id of ids) {
-    const bytes = await (await fetch(`/audio/${id}.mp3`)).arrayBuffer();
+  for (const { id, url } of clips) {
+    const bytes = await (await fetch(url)).arrayBuffer();
     const buf = await ctx.decodeAudioData(bytes);
     const off = new OfflineAudioContext(1, buf.length, buf.sampleRate);
     const src = off.createBufferSource();

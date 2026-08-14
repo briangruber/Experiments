@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Push apart any dialogue cue that now collides, and rewrite src/dialogue.js.
+// Push apart any dialogue cue that now collides, and rewrite the episode's dialogue.js.
 //
 //   node tools/fit-dialogue.mjs --dry     # show what would move
 //   node tools/fit-dialogue.mjs
@@ -21,11 +21,11 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DRY = process.argv.includes('--dry');
 const GAP = 0.3;      // real seconds of silence between two speakers
 
-const { LINES } = await import(new URL('../src/dialogue.js', import.meta.url));
-const { TIMING } = await import(new URL('../src/dialogue-timing.js', import.meta.url));
+const { LINES } = await import(new URL('../episodes/e01-corazon/dialogue.js', import.meta.url));
+const { TIMING } = await import(new URL('../episodes/e01-corazon/dialogue-timing.js', import.meta.url));
 
 // Scene durations and paces, read out of the screenplay.
-const src = await readFile(join(ROOT, 'src/director.js'), 'utf8');
+const src = await readFile(join(ROOT, 'episodes/e01-corazon/screenplay.js'), 'utf8');
 const sceneRe = /\n    scene\('([^']+)', '[^']*', ([\d.]+),/g;
 const scenes = [...src.matchAll(sceneRe)].map((m) => ({ name: m[1], dur: +m[2], pace: 1.32, at: m.index }));
 for (const m of src.matchAll(/\n {6}\], \{ pace: ([\d.]+) \}\)/g)) {
@@ -65,13 +65,13 @@ for (const o of overruns) console.log(`  ${o.id}: runs ${o.over}s past the end o
 if (!moves.length) console.log('  nothing to move');
 
 if (!DRY && moves.length) {
-  let text = await readFile(join(ROOT, 'src/dialogue.js'), 'utf8');
+  let text = await readFile(join(ROOT, 'episodes/e01-corazon/dialogue.js'), 'utf8');
   for (const m of moves) {
     const re = new RegExp(`(\\{ id: '${m.id}', scene: \\d+, at: )[\\d.]+`);
     if (!re.test(text)) throw new Error(`could not find ${m.id} to rewrite`);
     text = text.replace(re, `$1${m.to}`);
   }
-  await writeFile(join(ROOT, 'src/dialogue.js'), text);
-  console.log(`\nrewrote ${moves.length} cue(s) in src/dialogue.js`);
+  await writeFile(join(ROOT, 'episodes/e01-corazon/dialogue.js'), text);
+  console.log(`\nrewrote ${moves.length} cue(s) in episodes/e01-corazon/dialogue.js`);
 }
 process.exit(overruns.length ? 1 : 0);

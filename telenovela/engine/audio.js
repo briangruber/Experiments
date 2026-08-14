@@ -6,8 +6,8 @@
 // continuous gain; one-shots fire and forget. The announcer ducks the music
 // under himself, because of course he does.
 
-import { AUDIO } from './audio-manifest.js';
-import { CLIP } from './audio-timing.js';
+import { AUDIO } from '../episodes/e01-corazon/audio-manifest.js';
+import { CLIP } from '../company/library/audio-timing.js';
 
 // Clips do not arrive comparable. Measured across the library, the quietest
 // dialogue line is 20x quieter than the loudest, and Esteban's lines sit 40x

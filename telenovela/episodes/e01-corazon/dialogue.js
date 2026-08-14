@@ -2,7 +2,7 @@
 //
 // `who` is an actor key, or 'narrator' for the announcer. `at` is scene-seconds
 // and lands on the acting beat the line belongs to — the gesture and the voice
-// are the same cue. `id` names the generated clip in audio/ and is stable, so
+// are the same cue. `id` names the generated clip in voice/ and is stable, so
 // tools/voices.mjs only ever regenerates what changed.
 //
 // Durations are NOT here: they are measured off the rendered audio by

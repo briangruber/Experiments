@@ -18,11 +18,11 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const { LINES } = await import(new URL('../src/dialogue.js', import.meta.url));
-const { TIMING } = await import(new URL('../src/dialogue-timing.js', import.meta.url));
+const { LINES } = await import(new URL('../episodes/e01-corazon/dialogue.js', import.meta.url));
+const { TIMING } = await import(new URL('../episodes/e01-corazon/dialogue-timing.js', import.meta.url));
 
 // Scene lengths and paces, read out of the screenplay rather than duplicated.
-const src = await readFile(join(ROOT, 'src/director.js'), 'utf8');
+const src = await readFile(join(ROOT, 'episodes/e01-corazon/screenplay.js'), 'utf8');
 const scenes = [...src.matchAll(/\n    scene\('([^']+)', '[^']*', ([\d.]+),/g)].map((m) => ({
   name: m[1], dur: +m[2], pace: 1.32,
 }));

@@ -11,7 +11,7 @@
 // made before that existed.
 
 import { readFile, writeFile } from 'node:fs/promises';
-import { fixMp4Duration } from '../src/record.js';
+import { fixMp4Duration } from '../engine/record.js';
 
 const [input, output] = process.argv.slice(2);
 if (!input) {

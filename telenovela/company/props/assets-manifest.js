@@ -9,4 +9,4 @@ export const ASSET_NAMES = [
   'hen-tripo-walk',
 ];
 
-export const ASSETS = Object.fromEntries(ASSET_NAMES.map((n) => [n, `./assets/${n}.glb`]));
+export const ASSETS = Object.fromEntries(ASSET_NAMES.map((n) => [n, `./company/props/assets/${n}.glb`]));

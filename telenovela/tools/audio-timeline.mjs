@@ -104,8 +104,8 @@ const scenes = await page.evaluate((only) => {
 await browser.close();
 server.close();
 
-const { CLIP } = await import(new URL('../src/audio-timing.js', import.meta.url));
-const { LINES } = await import(new URL('../src/dialogue.js', import.meta.url));
+const { CLIP } = await import(new URL('../company/library/audio-timing.js', import.meta.url));
+const { LINES } = await import(new URL('../episodes/e01-corazon/dialogue.js', import.meta.url));
 const REF_LOUD = 0.18;
 const speakerOf = Object.fromEntries(LINES.map((l) => [l.id, l.who]));
 

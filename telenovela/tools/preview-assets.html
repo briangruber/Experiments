@@ -43,7 +43,7 @@ window.__preview = async (files, cols, cell) => {
 
     let gltf;
     try {
-      gltf = await loader.loadAsync(`/assets/${name}`);
+      gltf = await loader.loadAsync(`/company/props/assets/${name}`);
     } catch (e) {
       cap.textContent = `${name} — FAILED`;
       out.push({ name, ok: false, error: String(e).slice(0, 120) });

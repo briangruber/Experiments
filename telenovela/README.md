@@ -68,7 +68,7 @@ his own speed.
 ## Sound
 
 `tools/audio.mjs` generates the whole soundtrack with ElevenLabs and writes it
-to `audio/` — six looping music beds, fifteen sound effects, and a Spanish
+to `company/library/audio/` — six looping music beds, fifteen sound effects, and a Spanish
 announcer who introduces the episode, signs off on the cliffhanger, and reads
 the credits. It skips anything already on disk, so re-running costs nothing.
 
@@ -77,7 +77,7 @@ ELEVENLABS_API_KEY=... node tools/audio.mjs
 node tools/audio.mjs --only vo-title --force     # redo one cue
 ```
 
-`src/audio.js` plays it. There is one music bed per mood and only ever one
+`engine/audio.js` plays it. There is one music bed per mood and only ever one
 sounding at a time: a mood change fades the outgoing cue out over at most 1.2 s
 while the incoming one rises, because two different pieces crossfading slowly is
 mud. Requests are compared against the bed last *asked for* rather than the one
@@ -91,7 +91,7 @@ meant to sit under the music. The announcer ducks it under himself. Clips arrive
 in-process rather than with `fetch` — fetching a data URI is a `connect-src`
 request, which a strict CSP refuses, and the published page has one. Run the
 harness with `--csp` to test under that policy. It presents exactly the same surface as the procedural synth in
-`src/score.js`, which stands by as a fallback for when the audio can't be
+`engine/score.js`, which stands by as a fallback for when the audio can't be
 fetched or decoded — opening `index.html` straight off the filesystem, say.
 The director's cues never have to know which one is running.
 
@@ -99,27 +99,34 @@ The director's cues never have to know which one is running.
 
 ```
 index.html
-src/
-  main.js       bootstrap, loop, controls, capture hooks
-  chicken.js    the rig — one procedural bird, built from primitives
-  acting.js     Actor: emotion, gesture library, look-at, walking, leg IK
-  cast.js       the six characters and their wardrobe
-  sets.js       the courtyard, generated textures, lighting
-  camera.js     the cinematographer — shot sizes, lenses, moves, focus
-  director.js   the screenplay: a cue list per scene
-  audio.js      the soundtrack player, with score.js as its fallback
-  post.js       DOF, bloom, diffusion, halation, grain, letterbox
-  weather.js    rain and lightning
-  score.js      the synthesised orchestra
-  titles.js     title cards, driven off the director's clock
-audio/          the generated soundtrack
-vendor/three/   three.js r185 (MIT)
-tools/audio.mjs generate the soundtrack (ElevenLabs)
-tools/bundle.mjs flatten everything into one HTML file
-tools/shot.mjs  headless capture and smoke test
+engine/           everything that could stage any episode
+  main.js         bootstrap, loop, controls, capture hooks
+  chicken.js      the rig — one procedural bird, built from primitives
+  acting.js       Actor: emotion, gesture library, look-at, walking, leg IK
+  camera.js       the cinematographer — shot sizes, lenses, moves, focus
+  director.js     the cue runner and the staging helpers
+  audio.js        the soundtrack player, with score.js as its fallback
+  post.js         DOF, bloom, diffusion, halation, grain, letterbox
+  weather.js      rain and lightning
+  score.js        the synthesised orchestra
+  titles.js       title cards, driven off the director's clock
+company/          the troupe and its stock
+  cast/           one file per character: spec + wardrobe
+  sets/           courtyard.js — the set, generated textures, lighting
+  props/          set dressing, and the generated GLB props under assets/
+  library/        the shared sound library: manifest, timings, audio/
+episodes/e01-corazon/
+  screenplay.js   the episode: a cue list per scene
+  dialogue.js     the script, with subtitles.js wiring it into cues
+  voice/          the rendered dialogue clips
+vendor/three/     three.js r185 (MIT)
+tools/audio.mjs   generate the sound library (ElevenLabs)
+tools/voices.mjs  record and measure the dialogue (ElevenLabs)
+tools/bundle.mjs  flatten everything into one HTML file
+tools/shot.mjs    headless capture and smoke test
 ```
 
-The layering is the point. `director.js` never touches a transform: it asks
+The layering is the point. The screenplay never touches a transform: it asks
 for a shot in film terms and gives actors direction in verbs.
 
 ```js

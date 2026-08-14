@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Generate the soundtrack with ElevenLabs: music beds, sound effects and the
-// announcer. Writes into audio/ and skips anything already there, so re-running
-// is free.
+// announcer. Writes into company/library/audio/ and skips anything already
+// there, so re-running is free.
 //
 //   ELEVENLABS_API_KEY=... node tools/audio.mjs
 //   node tools/audio.mjs --only vo-title --force
@@ -14,7 +14,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const OUT = join(ROOT, 'audio');
+const OUT = join(ROOT, 'company/library/audio');
 const KEY = process.env.ELEVENLABS_API_KEY;
 if (!KEY) { console.error('ELEVENLABS_API_KEY not set'); process.exit(1); }
 
@@ -73,7 +73,7 @@ const SFX = {
 };
 
 // The announcer: the voice on the title cards and the credits. The cast's own
-// dialogue is a separate job — see tools/voices.mjs and src/dialogue.js.
+// dialogue is a separate job — see tools/voices.mjs and the episode's dialogue.js.
 const VOICE = {
   'vo-title': 'Corazón... de gallina.',
   'vo-capitulo': 'Capítulo final.',

@@ -8,12 +8,12 @@
 // moves, except the obstacle radii, which are updated to match what is now
 // actually standing there.
 
-import * as THREE from '../vendor/three/three.module.min.js';
-import { GLTFLoader } from '../vendor/three/GLTFLoader.js';
-import { clone as cloneSkinned } from '../vendor/three/GLTFLoaderDeps.js';
+import * as THREE from '../../vendor/three/three.module.min.js';
+import { GLTFLoader } from '../../vendor/three/GLTFLoader.js';
+import { clone as cloneSkinned } from '../../vendor/three/GLTFLoaderDeps.js';
 import { ASSETS } from './assets-manifest.js';
-import { MARKS } from './sets.js';
-import { deg } from './util.js';
+import { MARKS } from '../sets/courtyard.js';
+import { deg } from '../../engine/util.js';
 
 // The bundle inlines these as data: URIs, and the published page's policy
 // refuses fetch() — including fetch of a data: URI. Decode in process.

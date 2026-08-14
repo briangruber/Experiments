@@ -17,17 +17,47 @@ const args = process.argv.slice(2);
 const opt = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i + 1] : d; };
 const OUT = opt('out', 'dist/corazon-de-gallina.html');
 
-// Dependency order. Each module may only import from ones above it.
+// Dependency order, as root-relative paths. Each module may only import from
+// ones above it; imports are wired by basename, so basenames must stay unique
+// across the whole list.
 const MODULES = [
-  'util.js', 'dialogue.js', 'dialogue-timing.js', 'audio-timing.js',
-  'chicken.js', 'acting.js', 'cast.js', 'sets.js',
-  'camera.js', 'post.js', 'score.js', 'audio-manifest.js', 'audio.js',
-  'assets-manifest.js', 'dressing.js',
-  'titles.js', 'weather.js', 'record.js', 'subtitles.js', 'director.js', 'main.js',
+  'engine/util.js',
+  'episodes/e01-corazon/dialogue.js',
+  'episodes/e01-corazon/dialogue-timing.js',
+  'company/library/audio-timing.js',
+  'engine/chicken.js',
+  'engine/acting.js',
+  'company/cast/wardrobe.js',
+  'company/cast/rosalinda.js',
+  'company/cast/esteban.js',
+  'company/cast/valentina.js',
+  'company/cast/don-gallo.js',
+  'company/cast/ricardo.js',
+  'company/cast/pollito.js',
+  'company/cast/index.js',
+  'company/sets/courtyard.js',
+  'engine/camera.js',
+  'engine/post.js',
+  'engine/score.js',
+  'company/library/manifest.js',
+  'episodes/e01-corazon/voice-manifest.js',
+  'episodes/e01-corazon/audio-manifest.js',
+  'engine/audio.js',
+  'company/props/assets-manifest.js',
+  'company/props/dressing.js',
+  'engine/titles.js',
+  'engine/weather.js',
+  'engine/record.js',
+  'episodes/e01-corazon/subtitles.js',
+  'engine/director.js',
+  'episodes/e01-corazon/screenplay.js',
+  'engine/main.js',
 ];
+const MODULE_BY_BASE = new Map(MODULES.map((p) => [basename(p), p]));
+if (MODULE_BY_BASE.size !== MODULES.length) throw new Error('MODULES basenames are not unique');
 
 // Vendor ES modules that sit on top of three and are imported by name from
-// src/. Bundled between three and our own code, in this order.
+// our code. Bundled between three and our own code, in this order.
 const VENDOR = ['GLTFLoaderDeps.js', 'GLTFLoader.js'];
 
 // Hyphens are legal in filenames and illegal in identifiers.
@@ -129,22 +159,29 @@ return Object.assign({${reexported.map((s) => `${JSON.stringify(s.to)}:__three_c
 
 // The soundtrack, as base64. This is what makes the single file self-contained
 // rather than merely single: without it the page loads and plays silently.
+// The clips live in two places — the shared library, and this episode's voice
+// track — and this replaces the episode module that merges the two manifests,
+// so it merges the two directories the same way.
+const AUDIO_DIRS = ['company/library/audio', 'episodes/e01-corazon/voice'];
 async function audioManifestModule() {
   const { readdir } = await import('node:fs/promises');
-  let files = [];
-  try {
-    files = (await readdir(join(ROOT, 'audio'))).filter((f) => f.endsWith('.mp3')).sort();
-  } catch {
-    console.warn('no audio/ directory — bundling without the soundtrack');
-  }
   const entries = [];
-  let bytes = 0;
-  for (const f of files) {
-    const buf = await readFile(join(ROOT, 'audio', f));
-    bytes += buf.length;
-    entries.push(`${JSON.stringify(basename(f, '.mp3'))}:"data:audio/mpeg;base64,${buf.toString('base64')}"`);
+  let bytes = 0, count = 0;
+  for (const dir of AUDIO_DIRS) {
+    let files = [];
+    try {
+      files = (await readdir(join(ROOT, dir))).filter((f) => f.endsWith('.mp3')).sort();
+    } catch {
+      console.warn(`no ${dir}/ directory — bundling without those clips`);
+    }
+    for (const f of files) {
+      const buf = await readFile(join(ROOT, dir, f));
+      bytes += buf.length;
+      count++;
+      entries.push(`${JSON.stringify(basename(f, '.mp3'))}:"data:audio/mpeg;base64,${buf.toString('base64')}"`);
+    }
   }
-  console.error(`  audio: ${files.length} clips, ${(bytes / 1048576).toFixed(2)} MB`);
+  console.error(`  audio: ${count} clips, ${(bytes / 1048576).toFixed(2)} MB`);
   return `export const AUDIO = {${entries.join(',\n')}};
 export const AUDIO_NAMES = Object.keys(AUDIO);`;
 }
@@ -153,12 +190,12 @@ export const AUDIO_NAMES = Object.keys(AUDIO);`;
 // page's policy refuses fetch(), so nothing can be loaded at run time.
 async function assetManifestModule() {
   const { readdir } = await import('node:fs/promises');
-  const { ASSET_NAMES } = await import(new URL('../src/assets-manifest.js', import.meta.url));
+  const { ASSET_NAMES } = await import(new URL('../company/props/assets-manifest.js', import.meta.url));
   let present = [];
   try {
-    present = (await readdir(join(ROOT, 'assets'))).filter((f) => f.endsWith('.glb'));
+    present = (await readdir(join(ROOT, 'company/props/assets'))).filter((f) => f.endsWith('.glb'));
   } catch {
-    console.warn('no assets/ directory — bundling without the modelled props');
+    console.warn('no company/props/assets/ directory — bundling without the modelled props');
   }
   const entries = [];
   let bytes = 0;
@@ -167,7 +204,7 @@ async function assetManifestModule() {
       console.error(`  assets: ${name}.glb missing, skipped`);
       continue;
     }
-    const buf = await readFile(join(ROOT, 'assets', `${name}.glb`));
+    const buf = await readFile(join(ROOT, 'company/props/assets', `${name}.glb`));
     bytes += buf.length;
     entries.push(`${JSON.stringify(name)}:"data:model/gltf-binary;base64,${buf.toString('base64')}"`);
   }
@@ -177,9 +214,11 @@ export const ASSET_NAMES = Object.keys(ASSETS);`;
 }
 
 // --- our own modules --------------------------------------------------------
-async function bundleModule(file, dir = 'src') {
-  const src = file === 'audio-manifest.js' ? await audioManifestModule()
-    : file === 'assets-manifest.js' ? await assetManifestModule()
+// `file` is a root-relative path (or a bare vendor filename with `dir` set);
+// module identity is its basename throughout.
+async function bundleModule(file, dir = '') {
+  const src = basename(file) === 'audio-manifest.js' ? await audioManifestModule()
+    : basename(file) === 'assets-manifest.js' ? await assetManifestModule()
       : await readFile(join(ROOT, dir, file), 'utf8');
   const exported = [];
   let body = src
@@ -194,8 +233,9 @@ async function bundleModule(file, dir = 'src') {
       // three itself is the top-level THREE binding.
       if (dep === 'three.module.min.js') return bind('THREE');
       if (VENDOR.includes(dep)) return bind(modVar(dep));
-      if (!MODULES.includes(dep)) throw new Error(`${file}: imports unknown module ${from}`);
-      if (MODULES.indexOf(dep) >= MODULES.indexOf(file)) {
+      const depPath = MODULE_BY_BASE.get(dep);
+      if (!depPath) throw new Error(`${file}: imports unknown module ${from}`);
+      if (MODULES.indexOf(depPath) >= MODULES.indexOf(file)) {
         throw new Error(`${file}: imports ${dep}, which is not bundled before it`);
       }
       return bind(modVar(dep));
@@ -225,7 +265,7 @@ async function bundleModule(file, dir = 'src') {
 // --- page -------------------------------------------------------------------
 const [three, css, html] = await Promise.all([
   bundleThree(),
-  readFile(join(ROOT, 'src/ui.css'), 'utf8'),
+  readFile(join(ROOT, 'engine/ui.css'), 'utf8'),
   readFile(join(ROOT, 'index.html'), 'utf8'),
 ]);
 
