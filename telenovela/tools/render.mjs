@@ -34,6 +34,11 @@ const CRF = +opt('crf', 20);          // lower is better; 16-18 is near-transpar
 const PRESET = opt('preset', 'medium'); // x264 speed/efficiency: slow, slower, veryslow
 const ABR = opt('abr', '160k');         // audio bitrate for the mux
 const LIMIT = +opt('seconds', 0);       // cap the render, for trying settings out
+const VBR = opt('vbr', '4M');           // VP8 only; VP9 and x264 use --crf
+// Write the rendered soundtrack next to the video even when this ffmpeg has no
+// audio encoder to mux it with — a silent file plus a WAV can still be joined
+// somewhere else, which beats losing half the piece.
+const KEEP_WAV = args.includes('--wav');
 const OUT = resolve(ROOT, opt('out', `dist/corazon-de-gallina-${CUT}.mp4`));
 
 function findFfmpeg() {
@@ -147,7 +152,7 @@ const VIDEO_ONLY = args.includes('--silent') || !can.aac;
 const VCODEC = can.x264
   ? ['-c:v', 'libx264', '-preset', PRESET, '-crf', String(CRF), '-profile:v', 'high', '-level', '4.1']
   : can.vp9 ? ['-c:v', 'libvpx-vp9', '-crf', String(CRF), '-b:v', '0', '-row-mt', '1']
-    : can.vpx ? ['-c:v', 'libvpx', '-b:v', '4M'] : null;
+    : can.vpx ? ['-c:v', 'libvpx', '-b:v', VBR] : null;
 if (!VCODEC) {
   console.error(`the ffmpeg at ${FFMPEG} has no usable video encoder (needs libx264, libvpx-vp9 or libvpx).`);
   await browser.close(); server.close();
@@ -240,14 +245,17 @@ await new Promise((res, rej) => {
   ff.on('close', (code) => (code === 0 ? res() : rej(new Error(`ffmpeg exited ${code}\n${ffErr.slice(-1500)}`))));
 });
 
-const wav = VIDEO_ONLY ? null : (console.log('rendering the soundtrack…'),
+const wav = (VIDEO_ONLY && !KEEP_WAV) ? null : (console.log('rendering the soundtrack…'),
   await page.evaluate(() => window.__telenovela.offlineAudio()));
 await browser.close();
 server.close();
 if (wav) await writeFile(wavPath, Buffer.from(wav, 'base64'));
+if (wav && VIDEO_ONLY) {
+  console.log(`${wavPath}\n  the soundtrack, unmuxed — this ffmpeg has no audio encoder`);
+}
 
 // Mux. Copy the video through untouched; only the audio needs encoding.
-if (wav) {
+if (wav && !VIDEO_ONLY) {
   await new Promise((res, rej) => {
     const mux = spawn(FFMPEG, [
       '-y', '-i', videoOnly, '-i', wavPath,
