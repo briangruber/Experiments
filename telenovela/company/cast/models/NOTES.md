@@ -1,4 +1,4 @@
-# Cast models — Esteban (Tripo bench, step 1)
+# Cast models — Esteban (Tripo bench, steps 1–2)
 
 First end-to-end bipedal cast character through the Tripo pipeline:
 text_to_model -> animate_prerigcheck -> animate_rig -> animate_retarget.
@@ -72,3 +72,42 @@ not enumerate the valid set, so further presets have to be probed by name.
   `vendor/three/GLTFLoaderDeps.js`; `Object3D.clone` leaves the copy bound to
   the original bones.
 - Not wired into the game yet — nothing imports these files.
+
+## Step 2: the acting spike (engine/bone-actor.js + tools/bench-shot.mjs)
+
+BoneActor extends Actor and swaps only the commit stage: the same channel
+values (idle/emotion/look/gesture/jaw passes) are mapped onto the skeleton as
+additive rotations about the CHARACTER's world axes, on top of an
+AnimationMixer crossfading `preset:idle` and `preset:walk`. That world-axis
+mapping is what makes it independent of Tripo's arbitrary bone rest
+orientations. The face — eyes/lids/brows and the lip-sync beak — is the
+procedural one from chicken.js, hung on a world-aligned anchor on the Head
+bone over the painted face.
+
+Model-space facts this depends on (from the GLBs, verified):
+
+- The character faces +X in model space, wings along ±Z; the rig wrapper
+  yaws it -90° to the cast's +Z convention.
+- `preset:walk` bakes its root motion into the Hip translation track
+  (~1.08 model-metres per 2.38 s loop ≈ 0.45 m/s); bone-actor strips the
+  linear drift at load and matches the clip's timescale to the actor's real
+  speed. `preset:idle` has no drift.
+- Neck/head tracks are STRIPPED from both clips: the acting layer owns the
+  head outright (as on the procedural rig), and each frame the neck/head
+  bones are re-set to bind orientation in world space (rotated by the actor's
+  yaw) before the channels are applied. Without this the idle clip's spine
+  sway carries the head — and the face overlay — off wherever it likes.
+- Face overlay calibration (baked defaults): faceUp 0.068, faceFwd 0.025,
+  faceScale 1.15, eyeSpread 0.85, all tuned against renders; the painted eye
+  line sits well above the Head bone origin.
+
+The bench harness (tools/bench-shot.mjs) possesses the existing Esteban
+in-place — Object.setPrototypeOf on the live Actor — so every closure the
+Director captured at load keeps working. Pairs land in shots/bench/
+(*-proc.png / *-tripo.png).
+
+Known limits, honestly: feet still slide during turns and walk starts; the
+painted tail/wattle/comb are rigid (no tailFan/tailPitch, no wattle spring);
+puff has no body-scale equivalent; the accuse wing reads thinner than the
+procedural paddle; and the model's baked-contrast albedo sits a touch darker
+than the procedural cast under the night grade even with the 0.82 trim.
