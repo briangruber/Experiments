@@ -46,6 +46,7 @@ const MODULES = [
   'company/props/assets-manifest.js',
   'company/props/dressing.js',
   'engine/titles.js',
+  'engine/cards.js',
   'engine/weather.js',
   'engine/record.js',
   'episodes/e01-corazon/subtitles.js',

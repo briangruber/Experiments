@@ -12,7 +12,8 @@ import { Soundtrack } from './audio.js';
 import { Titles } from './titles.js';
 import { Director, buildProps } from './director.js';
 import { episode } from '../episodes/e01-corazon/episode.js';
-import { Recorder, deliver, canDeliver, formatLabel, drawCards } from './record.js';
+import { Recorder, deliver, canDeliver, formatLabel } from './record.js';
+import { drawCards } from './cards.js';
 import { clamp } from './util.js';
 
 const canvas = document.getElementById('gl');
@@ -34,7 +35,28 @@ const props = buildProps(scene);
 const weather = buildWeather(scene);
 const cam = new Cinematographer(camera);
 cam.obstacles = set.obstacles;
-const titles = new Titles(overlay);
+const titles = new Titles();
+
+// The cards are drawn, not DOM: a transparent canvas above #gl, painted every
+// frame by the same drawCards() the export mixer and the offline renderer use,
+// so what the page shows and what a file carries cannot drift apart. It lives
+// inside #overlay, which the 'no-ui' class deliberately does not touch —
+// captions are content, not chrome, and hiding the interface (or recording,
+// which does the same) must not hide them.
+const cardCanvas = document.createElement('canvas');
+overlay.appendChild(cardCanvas);
+const cardCtx = cardCanvas.getContext('2d');
+let cardsDrawn = false;
+function drawOverlay() {
+  const w = cardCanvas.width, h = cardCanvas.height;
+  // Nothing live and nothing lingering: skip the clear-and-repaint entirely,
+  // which is most frames of most scenes.
+  if (!titles.cards.length && !cardsDrawn) return;
+  cardCtx.clearRect(0, 0, w, h);
+  cardsDrawn = false;
+  for (const c of titles.cards) if (c.alpha > 0.002) cardsDrawn = true;
+  if (cardsDrawn) drawCards(cardCtx, titles, w, h);
+}
 // The generated soundtrack, with the procedural synth standing by in case the
 // audio can't be fetched or decoded (opening index.html off the filesystem,
 // say). Both present the same surface, so the director never has to know.
@@ -75,6 +97,18 @@ function resize() {
   canvas.style.height = h + 'px';
   cam.setAspect(w / h);
   post.setSize(width, height);
+  // The caption overlay renders at the device's real resolution — not scaled
+  // by the adaptive `quality` knob, which trades scene pixels for frame rate;
+  // text is cheap to draw and blurry captions read as a bug. drawCards() is
+  // handed the BACKING size, so type is sized against the same pixels it is
+  // rasterised into and stays crisp on a retina display; at 1x the backing
+  // equals the client size and the clamps behave exactly as the export's do.
+  const cardDpr = Math.min(window.devicePixelRatio || 1, 2);
+  cardCanvas.width = Math.floor(w * cardDpr);
+  cardCanvas.height = Math.floor(h * cardDpr);
+  cardCanvas.style.width = w + 'px';
+  cardCanvas.style.height = h + 'px';
+  cardsDrawn = false;   // resizing wipes the canvas; repaint on the next frame
 }
 window.addEventListener('resize', resize);
 resize();
@@ -400,6 +434,7 @@ function frame() {
     cam.update(dt, time);
     post.grade(dt);
     post.render(scene, camera, time, cam);
+    drawOverlay();
     drainGrab();
     return;
   }
@@ -418,6 +453,7 @@ function frame() {
   titles.update(dt);
   post.grade(dt);
   post.render(scene, camera, time + (sdt > 0 ? 0 : performance.now() * 0.001), cam);
+  drawOverlay();
   if (program) { recorder.capture(canvas, titles); advanceProgram(dt); }
   drainGrab();
 
@@ -480,6 +516,11 @@ window.__telenovela = {
     running = true;
     startCard.classList.add('gone');
     document.body.classList.add('no-ui');
+    // frame() stops running while the offline renderer drives the world, so
+    // wipe the caption overlay rather than leave the last live card frozen
+    // over the page for the length of the render.
+    cardCtx.clearRect(0, 0, cardCanvas.width, cardCanvas.height);
+    cardsDrawn = false;
 
     canvas.width = width; canvas.height = height;
     renderer.setSize(width, height, false);

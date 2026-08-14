@@ -109,7 +109,8 @@ engine/           everything that could stage any episode
   post.js         DOF, bloom, diffusion, halation, grain, letterbox
   weather.js      rain and lightning
   score.js        the synthesised orchestra
-  titles.js       title cards, driven off the director's clock
+  titles.js       title card state, driven off the director's clock
+  cards.js        the one card renderer — live overlay, export and offline alike
 company/          the troupe and its stock
   cast/           one file per character: spec + wardrobe
   sets/           courtyard.js — the set, generated textures, lighting
@@ -255,9 +256,10 @@ The **⏺ VIDEO** button records the piece and hands you a file. Two cuts:
 - **Episodio completo** — the whole thing at 540p.
 
 Recording is real time and composites onto a mixing canvas, because
-`MediaRecorder` can only capture a canvas and the title cards are DOM — they are
-redrawn in 2D each frame so they survive into the file. Audio comes off the
-soundtrack's master bus as a `MediaStream` track.
+`MediaRecorder` can only capture a canvas: the WebGL frame first, then the
+title cards, drawn by the same `engine/cards.js` renderer that paints the live
+page's caption overlay — so the file shows exactly what the page did. Audio
+comes off the soundtrack's master bus as a `MediaStream` track.
 
 The container is H.264/AAC MP4 where the browser can encode it, falling back to
 VP9/Opus WebM; the interface says which you are getting.
