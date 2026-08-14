@@ -340,6 +340,7 @@ export const SCHEMA = [
       S('sdOffset', 'Dragon station off your shoulder (m)', 5, 60, 0.5),
       S('sdOffsetClose', 'Closes to (m) at speed', 3, 40, 0.5),
       S('sdRushSpeed', 'Speed it comes up at (m/s)', 5, 30, 0.5),
+      S('sdFollowRise', 'Follow camera height (m)', 1, 40, 0.5),
       S('sdLead', 'Dragon station ahead (m)', -20, 40, 0.5),
       S('sdDepth', 'Dragon depth (m)', 1.6, 25, 0.1),
       S('sdDepthSwing', 'Dragon rise and sound (m)', 0, 12, 0.1),

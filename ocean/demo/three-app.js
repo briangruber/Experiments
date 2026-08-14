@@ -57,6 +57,15 @@ function syncRide( app ) {
 
 	}
 
+	const gbtn = document.getElementById( 'btn-follow' );
+	if ( gbtn ) {
+
+		const on = !! app.isFollowing?.();
+		gbtn.setAttribute( 'aria-pressed', String( on ) );
+		gbtn.textContent = on ? 'Following' : 'Follow';
+
+	}
+
 	const fbtn = document.getElementById( 'btn-fly' );
 	if ( fbtn ) {
 
@@ -717,6 +726,12 @@ bootWithFallback().then( ( app ) => {
 		panelUI?.syncAll();
 
 	} );
+	document.getElementById( 'btn-follow' )?.addEventListener( 'click', () => {
+
+		app.toggleFollow();
+		syncRide( app );
+
+	} );
 	document.getElementById( 'btn-fly' )?.addEventListener( 'click', () => {
 
 		app.toggleFly();
@@ -741,6 +756,7 @@ bootWithFallback().then( ( app ) => {
 		if ( t && ( t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'BUTTON' ) ) return;
 		if ( e.code === 'KeyR' ) { app.toggleRide(); syncRide( app ); }
 		else if ( e.code === 'KeyF' ) { app.toggleFly(); syncRide( app ); }
+		else if ( e.code === 'KeyG' ) { app.toggleFollow(); syncRide( app ); }
 		else if ( e.code === 'KeyV' ) {
 
 			app.params.wrView = app.params.wrView >= 0.5 ? 0 : 1;

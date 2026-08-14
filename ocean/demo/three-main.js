@@ -295,6 +295,8 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	// over the top with a real depth test - so riding past it puts the hull in
 	// front, as it should be.
 	const dragon = new SeaDragon();
+	let followDragon = false;
+	let followYaw = 0;
 	const dragonMat = new THREE.NodeMaterial();
 	dragonMat.name = 'abyssal.dragon';
 	dragonMat.fragmentNode = creatureFragment();
@@ -856,8 +858,38 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		// on digging a hollow into the sea under its shadow.
 		wake.update( dt, params, plane.active ? plane.floatRig : rider );
 
-		camera.locked = rider.active || plane.active;
+		camera.locked = rider.active || plane.active || followDragon;
 		camera.update( dt, params );
+
+		// Follow mode drives the camera the way the vehicles do, and for the same
+		// reason: the rig has to be written AFTER camera.update() or it spends the
+		// frame fighting the free-look controls.
+		if ( followDragon && params.sdEnabled >= 0.5 ) {
+
+			// Behind, above, and a little to the side - a quarter view, so the
+			// mound over its back and its silhouette are both in the picture. The
+			// camera lags the animal's heading rather than snapping to it, which
+			// keeps a turn readable instead of whipping the frame round.
+			const d = dragon;
+			followYaw += Math.atan2(
+				Math.sin( d.heading - followYaw ), Math.cos( d.heading - followYaw ),
+			) * Math.min( 1, dt * 1.6 );
+			const bx = Math.sin( followYaw ), bz = - Math.cos( followYaw );
+			const rx = Math.cos( followYaw ), rz = Math.sin( followYaw );
+			const back = Math.max( params.sdLength, 8 ) * 1.15;
+			const side = Math.max( params.sdLength, 8 ) * 0.35;
+			const tx = d.pos[ 0 ], tz = d.pos[ 2 ];
+			camera.pos[ 0 ] = tx - bx * back + rx * side;
+			camera.pos[ 1 ] = ( params.sdSeaLevel ?? 0 ) + params.sdFollowRise;
+			camera.pos[ 2 ] = tz - bz * back + rz * side;
+			const ax = tx - camera.pos[ 0 ];
+			const ay = d.pos[ 1 ] * 0.5 - camera.pos[ 1 ];
+			const az = tz - camera.pos[ 2 ];
+			camera.yaw = Math.atan2( ax, - az );
+			camera.pitch = Math.asin( ay / Math.max( Math.hypot( ax, ay, az ), 1e-3 ) );
+			camera.roll = 0;
+
+		}
 
 		// The dragon swims after the vehicle has moved and after the camera has,
 		// so it is chasing THIS frame's station rather than last frame's - a lag
@@ -1172,6 +1204,23 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		output,
 		onFrame: null,
 		rider, plane, dragon, wake, craftProbe, craftMesh, planeMesh, hull,
+		// A FUNCTION, not a getter: the app object gets spread on its way to
+		// window.abyssal, and a spread evaluates a getter ONCE - so the button
+		// read "Follow" forever while the camera was demonstrably following.
+		isFollowing: () => followDragon,
+		// FOLLOW THE MONSTER. Not a vehicle - a camera mode. It exists so the
+		// animal can be TUNED: every slider that shapes it (the mound over its
+		// back, its depth, how it rises at speed) is meaningless to adjust while
+		// it swims out of frame, and chasing a twenty-metre body on the free
+		// camera by hand is most of a minute per change. Toggling it off hands
+		// the camera straight back rather than snapping anywhere.
+		toggleFollow: () => {
+
+			followDragon = ! followDragon;
+			document.body.classList.toggle( 'following', followDragon );
+			return followDragon;
+
+		},
 		toggleRide: () => {
 
 			rider.active = ! rider.active;

@@ -169,8 +169,10 @@
     transition: background .12s ease, color .12s ease, border-color .12s ease;
   }
   #btn-ride, #btn-fly { flex: 3; }
+  #btn-follow { flex: 3; }
   #btn-view { flex: 2; color: var(--haze); }
   #ride-row button:hover { background: var(--hull-2); color: var(--spume); }
+  #btn-follow[aria-pressed="true"],
   #btn-ride[aria-pressed="true"], #btn-fly[aria-pressed="true"] {
     color: var(--abyss);
     background: var(--glint);
@@ -262,6 +264,7 @@
     <button id="btn-ride" aria-pressed="false" title="Ride the wave runner (R)">Ride</button>
     <button id="btn-fly" aria-pressed="false" title="Take the seaplane out (F)">Fly</button>
     <button id="btn-view" title="Switch between the chase camera and the pilot's own view (V)">Chase</button>
+    <button id="btn-follow" aria-pressed="false" title="Follow the sea dragon, so you can tune it while it swims (G)">Follow</button>
   </div>
 
   <select id="preset" aria-label="Sea state preset"></select>

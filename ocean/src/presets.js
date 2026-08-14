@@ -382,6 +382,7 @@ export const defaults = {
   sdAccel: 0.55,            // 1/s it closes on the speed it wants
   sdTurnRate: 0.55,         // rad/s at a standstill; a long body turns slower
   sdOrbit: 0.20,            // rad/s it circles you at when you are not moving
+  sdFollowRise: 6.0,        // how high the Follow camera sits above the sea, m
   sdRushSpeed: 13.0,        // ski speed at which it is fully up and fully in
   sdOffsetClose: 9.0,       // how near it comes at that speed, m
   sdOffset: 16.0,           // metres off your shoulder it tries to sit
