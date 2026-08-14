@@ -237,6 +237,8 @@ export const SCHEMA = [
       S('sdSwell', 'Sea lifts over its back (m)', 0, 3, 0.01),
       S('sdSwellRadius', 'Lift footprint (m)', 1, 25, 0.5),
       S('sdSwellFade', 'Lift dies by depth (m)', 1, 20, 0.5),
+      S('sdSpray', 'Spray where it breaks the surface', 0, 1, 0.01),
+      S('sdSprayDepth', 'Spray band (m)', 0.05, 2, 0.05),
       S('sdDepthSwing', 'Dragon rise and sound (m)', 0, 12, 0.1),
       S('sdRushSpeed', 'Speed it comes up at (m/s)', 5, 30, 0.5),
       S('sdOffsetClose', 'Closes to (m) at speed', 3, 40, 0.5),

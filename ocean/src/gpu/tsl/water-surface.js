@@ -308,14 +308,36 @@ export const uCraftShadow = /*@__PURE__*/ uniform( 0.0 );
 // Water a hull displaces has to go somewhere, and so does water a swimming body
 // displaces. Without this the sea runs straight through the animal as though it
 // were not there - the "clipped into it" look. This is the hull's own hollow
-// turned the other way up: a capsule, a segment from nose to tail with a
-// Gaussian falloff around it, tapered so the mound is fat amidships and dies at
-// the tips. One primitive, both signs.
+// turned the other way up: a Gaussian falloff around the body's SPINE, tapered
+// so the mound is fat amidships and dies at the tips.
+//
+// THE SPINE CURVES. It used to be the straight segment from nose to tail - a
+// capsule, the same primitive as the hull's hollow - and the mound it drew was
+// honest to that: a wide straight ridge under an animal that visibly swims in
+// an S-curve. Reported exactly right: it read as water displaced by a plank,
+// not by the body. So the spine here is the SAME travelling sine wave
+// ./creature.js's vertex stage bends the mesh into - same wave count, same
+// phase, same head-holds-still ramp - fed in by the driver from the identical
+// source values (params.sdWaves, params.sdAmp, the dragon's phase), the same
+// way uSwellLen already duplicates uCreatureLen rather than importing it: this
+// module stays a generic "a body lifts the sea," usable by anything, and the
+// demo is what knows the body happens to be an eel-shaped swimmer.
 export const uSwellPos = /*@__PURE__*/ uniform( 'vec3' );   // world, mid-body
-export const uSwellDir = /*@__PURE__*/ uniform( 'vec2' );   // heading, unit
+export const uSwellDir = /*@__PURE__*/ uniform( 'vec2' );   // heading, unit, toward the NOSE
 export const uSwellLen = /*@__PURE__*/ uniform( 20.0 );     // nose to tail, m
-export const uSwellRad = /*@__PURE__*/ uniform( 7.0 );      // lateral reach, m
+export const uSwellRad = /*@__PURE__*/ uniform( 7.0 );      // lateral reach at the widest point, m
 export const uSwellAmp = /*@__PURE__*/ uniform( 0.0 );      // peak lift, m
+// The travelling wave. 0 waves / 0 sweep is the old straight capsule exactly -
+// sin(-phase)*0 is 0 everywhere - so a caller with a rigid body just leaves
+// these at their defaults and pays nothing extra.
+export const uSwellWaves = /*@__PURE__*/ uniform( 0.0 );    // body waves along the length
+export const uSwellSweep = /*@__PURE__*/ uniform( 0.0 );    // peak lateral sweep, as a fraction of length
+export const uSwellPhase = /*@__PURE__*/ uniform( 0.0 );    // radians
+// The spray at the waterline. Read in the refraction block below (see "spray
+// where it breaks the surface") rather than here - it needs `path`, which is
+// a property of the REFRACTION sample, not of the mound.
+export const uSwellFoamDepth = /*@__PURE__*/ uniform( 0.0 );     // metres of column that still counts as "breaking"
+export const uSwellFoamStrength = /*@__PURE__*/ uniform( 0.0 );  // 0 disables the whole block
 uSwellDir.value.set( 0.0, 1.0 );
 
 /**
@@ -329,13 +351,46 @@ export const swellLift = /*@__PURE__*/ Fn( ( [ xz ] ) => {
 
 	const rel = xz.sub( uSwellPos.xz ).toVar();
 	const half = uSwellLen.mul( 0.5 ).max( 0.5 ).toVar();
-	// Distance to the SEGMENT, not to the centre: a twenty-metre animal is a
-	// line, and a round bump over its middle is a buoy.
+	// Distance ALONG the straight spine, not the curved one - see below for why
+	// that is deliberate. uSwellDir points at the nose, so the nose is where
+	// `along` is largest.
 	const along = rel.dot( uSwellDir ).clamp( half.negate(), half ).toVar();
-	const off = rel.sub( uSwellDir.mul( along ) ).length().toVar();
-	const R = uSwellRad.max( 0.5 ).toVar();
-	const g = off.mul( off ).div( R.mul( R ) ).negate().exp().toVar();
+	// Station 0 at the nose, 1 at the tail - the exact convention creature.js's
+	// `s` uses, so the two are reading the SAME curve rather than two curves
+	// that happen to agree at rest.
+	const s = half.sub( along ).div( half.mul( 2.0 ) ).clamp( 0.0, 1.0 ).toVar();
+
+	// Fat amidships, nothing past the nose and tail - both the lift's strength
+	// (below) and, new here, the mound's WIDTH: a real body is narrower at both
+	// ends than at its middle, and a constant-radius ridge said otherwise.
 	const taper = smoothstep( 1.0, 0.25, along.abs().div( half ) ).toVar();
+
+	// The body's own travelling wave, turned into a world XZ offset off the
+	// straight spine. `perp` is the world direction of the body's local +X axis
+	// - a +90 degree rotation of uSwellDir, the same relationship
+	// demo/three-main.js's setCraftTransform builds between its forward and
+	// right basis vectors, so this bends the SAME way the mesh visibly does.
+	const perp = vec2( uSwellDir.y.negate(), uSwellDir.x ).toVar();
+	const k = uSwellWaves.mul( TAU_A ).toVar();
+	const ph = s.mul( k ).sub( uSwellPhase ).toVar();
+	const ramp = smoothstep( 0.06, 0.85, s ).toVar();
+	const lateral = ph.sin().mul( uSwellSweep ).mul( uSwellLen ).mul( ramp ).toVar();
+
+	// Distance to the CURVED point at this station, not to the straight line.
+	// This is an approximation, not a true closest-point-on-curve search - it
+	// evaluates the curve at the straight-line projection's station rather than
+	// solving for the nearest one - and it is deliberate: the sweep this ships
+	// with is a mild fraction of the body's length, so the two stay close, and
+	// a per-fragment iterative search is a cost this sea cannot spend on one
+	// creature's wake. It is what turns the ridge into something that tracks
+	// the S-curve instead of sitting under it like a plank.
+	const spine = uSwellDir.mul( along ).add( perp.mul( lateral ) ).toVar();
+	const off = rel.sub( spine ).length().toVar();
+
+	// Narrower toward the tips, using the SAME taper the amplitude fades by,
+	// rather than a second tuning knob for a second aspect of the same shape.
+	const R = uSwellRad.max( 0.5 ).mul( mix( 0.55, 1.0, taper ) ).toVar();
+	const g = off.mul( off ).div( R.mul( R ) ).negate().exp().toVar();
 	return g.mul( taper ).mul( uSwellAmp );
 
 } );
@@ -1401,6 +1456,29 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 		refrCov.assign( select( sane, cov.min( 1.0 ), float( 0.0 ) ) );
 		refrCol.assign( select( sane, seen, diffuse ) );
 		diffuse.assign( mix( diffuse, refrCol, refrCov ) );
+
+		// ---- spray where it breaks the surface -------------------------------
+		//
+		// `path` is already the real distance from THIS fragment of sea down to
+		// the body, along the ray - the same quantity the extinction above uses.
+		// Ramping a foam contribution up as it shrinks toward 0 puts the spray
+		// exactly on the body's own silhouette (fins and all - this reads the
+		// refraction pass's actual depth, not the swell mound's capsule
+		// approximation), tracing the true breach line rather than a shape
+		// guessed from the animal's position and length.
+		//
+		// FED INTO THE SEA'S OWN foamMask, not shaded by hand. foamMask already
+		// drives a whole tuned system - the whitewater albedo, the wet-sheen
+		// highlight, the sky tint, the Beer-Lambert opacity that keeps a fresh
+		// crest opaque and a dissipated one a veil - and reusing it is what
+		// keeps the spray looking like the sea's own foam instead of a decal
+		// with a different idea of what foam is. Guarded the same way the
+		// refraction sample above is: the select's arms, not a multiply, are
+		// what a NaN in `path` cannot cross.
+		const near = select(
+			sane, smoothstep( uSwellFoamDepth, 0.0, path ).mul( refrCov ), float( 0.0 ),
+		).toVar();
+		foamMask.assign( clamp( foamMask.add( near.mul( uSwellFoamStrength ) ), 0.0, 1.0 ) );
 
 	} );
 

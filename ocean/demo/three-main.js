@@ -59,6 +59,7 @@ import { PLANE_MESH } from './planeModel.js';
 import { DRAGON_MESH } from './dragonModel.js';
 import {
 	setCraftShadowNode, uSwellPos, uSwellDir, uSwellLen, uSwellRad, uSwellAmp,
+	uSwellWaves, uSwellSweep, uSwellPhase, uSwellFoamDepth, uSwellFoamStrength,
 	setRefractionTextures, uRefractAmount, uRefractDistort, uRefractFade,
 	uRefractThrough,
 } from '../src/gpu/tsl/water-surface.js';
@@ -1189,6 +1190,18 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			uSwellLen.value = params.sdLength;
 			uSwellRad.value = params.sdSwellRadius;
 			uSwellAmp.value = params.sdSwell * shallow;
+			// THE SAME WAVE THE MESH SWIMS, so the mound the sea draws is the mound
+			// this body actually makes rather than a straight ridge under a curved
+			// animal. Same source values as uCreatureWaves/uCreatureAmp/uCreaturePhase
+			// below - not the same uniform, by the same argument uSwellLen already
+			// makes for uCreatureLen: water-surface.js stays a generic "a body lifts
+			// the sea" primitive, and this is the one place that knows the body is an
+			// eel-shaped swimmer.
+			uSwellWaves.value = params.sdWaves;
+			uSwellSweep.value = params.sdAmp;
+			uSwellPhase.value = dragon.phase;
+			uSwellFoamDepth.value = params.sdSprayDepth;
+			uSwellFoamStrength.value = params.sdSpray;
 
 		} else {
 

@@ -1,0 +1,191 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — does spray only show up where the dragon is close to breaking the surface?</title>
+
+<!--
+  Reported: "where it breaks the surface it should leave some subtle spray /
+  foam." The mechanism (src/gpu/tsl/water-surface.js, "spray where it breaks
+  the surface") feeds a term into the sea's own foamMask, gated by `path` - the
+  refraction pass's own reconstructed distance from this pixel of sea down to
+  the body along the view ray, the same quantity the extinction uses. That
+  gating is the claim worth pinning: turning sdSpray on should barely touch a
+  frame where the animal is six metres down and should visibly whiten the sea
+  where it is fifteen centimetres under, because the two differ only in how
+  close the body is to the surface, nothing else.
+
+  Same isolation recipe as refraction-probe.html - nail the camera to a fixed
+  aim point so two captures differ by exactly one thing.
+
+  WRAPPED IN A TIMEOUT RACE, unlike this repo's older probes - a second line
+  of defence, not the actual fix. The actual fix is the missing CSS on the
+  canvas below; keep the race anyway, because a probe that hangs should fail
+  with a message rather than eat run-probe.mjs's whole 240s budget in silence.
+  Isolated by bisection (four throwaway copies, each changing one thing):
+  giving the canvas the border+margin cosmetic style every other probe here
+  uses made clientWidth/clientHeight disagree with getBoundingClientRect() by
+  the border's few pixels, and this probe's repeated dragon-depth/sdSpray
+  toggles land the render loop's resize on that mismatch somewhere in the
+  first round, after which the in-flight readRenderTargetPixelsAsync never
+  resolves. refraction-probe.html carries the same style and does not hit it,
+  so it is call-pattern-sensitive rather than universally fatal - not fully
+  explained. Not styling the canvas is what makes it stop happening, measured
+  three-for-three each way, so that is the fix that shipped.
+
+  node tools/run-probe.mjs prototypes/spray-breach-probe.html
+  node tools/run-probe.mjs prototypes/spray-breach-probe.html --shot shots/spray-breach.png
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}</style>
+<pre id="out">running…</pre>
+<!-- NO CSS ON THE CANVAS - not even for looks. Isolated by bisection: giving it
+     a border+margin here (the cosmetic style every other probe in this
+     directory uses) made clientWidth/clientHeight disagree with
+     getBoundingClientRect() by the border's few pixels, and boot()'s render
+     loop resizes off one of those every frame - this probe's repeated
+     dragon-depth/sdSpray toggles land on that resize somewhere and the next
+     readRenderTargetPixelsAsync never resolves. Measured: identical JS logic
+     hung reliably WITH the style and passed reliably WITHOUT it, three probes
+     in a row each way. Kept bare on purpose; if this page ever needs a
+     `--shot` screenshot, add sizing via HTML width/height only. -->
+<canvas id="view" width="320" height="200"></canvas>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { installWebGPUSwizzleShim } from './webgpu-shim.js';
+import { boot } from '../demo/three-main.js';
+
+installWebGPUSwizzleShim();
+
+const q = new URLSearchParams(location.search);
+const WANT = (q.get('backend') || 'webgl').toLowerCase();
+const OVERRIDES = {
+  fftSize: +(q.get('fft') || 64),
+  sprayTexSize: +(q.get('sprayTex') || 32),
+  cloudSteps: +(q.get('cloudSteps') || 12),
+  gridScale: +(q.get('gridScale') || 0.35),
+};
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+};
+
+const frames = (k) => new Promise((resolve) => {
+  let i = 0;
+  const tick = () => (++i >= k ? resolve() : requestAnimationFrame(tick));
+  requestAnimationFrame(tick);
+});
+
+async function readFrame(app, capture, w, h) {
+  const px = await app.renderer.readRenderTargetPixelsAsync(capture, 0, 0, w, h);
+  const out = new Float32Array(w * h);
+  for (let i = 0, j = 0; i < px.length; i += 4, j++) {
+    out[j] = 0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2];
+  }
+  return out;
+}
+const diff = (a, b) => {
+  let n = 0, sum = 0;
+  for (let i = 0; i < a.length; i++) {
+    const d = a[i] - b[i];   // signed: spray must brighten, not just change
+    if (Math.abs(d) > 0.002) { n++; sum += d; }
+  }
+  return { n, mean: +(sum / Math.max(n, 1)).toFixed(4) };
+};
+
+// THE WORK, as its own promise - see the header on why this matters here.
+const work = (async () => {
+  let backend = '?';
+  try {
+    const canvas = document.getElementById('view');
+    const CW = 320, CH = 200;
+    const capture = new THREE.RenderTarget(CW, CH, {
+      type: THREE.FloatType, format: THREE.RGBAFormat,
+      minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false,
+    });
+    const app = await boot({ canvas, backend: WANT, overrides: OVERRIDES, output: capture });
+    backend = app.backend;
+    log(`${backend}: boot() resolved`, true, app.fellBack ? 'fell back from WebGPU' : `asked for ${WANT}`);
+
+    const A = app;
+    A.params.timeScale = 0;
+    A.params.autoExposure = 0;
+    A.params.adaptiveQuality = 0;
+    A.params.sprayOpacity = 0;
+    A.sim.update = () => {};
+    A.spray.update = () => {};
+    A.wake.update = () => {};
+    A.params.sdDepthSwing = 0;
+    A.params.sdSwell = 0;         // isolate spray from the mound's own lift/slope
+    A.dragon.update = () => {};
+    A.dragon.pos[0] = 0; A.dragon.pos[2] = -30; A.dragon.heading = 0;
+
+    // Camera aimed at a FIXED point just under the mean surface where the dragon
+    // sits - not at the dragon - so moving it deeper does not repoint the camera
+    // and turn "closer to the surface" into "a different picture" (the exact bug
+    // refraction-probe.html's camera note documents).
+    const AIM = [0, -1.0, -30];
+    A.onFrame = () => {
+      const c = A.camera;
+      c.locked = false;
+      c.pos[0] = 16; c.pos[1] = 5; c.pos[2] = -10;
+      const dx = AIM[0] - c.pos[0], dy = AIM[1] - c.pos[1], dz = AIM[2] - c.pos[2];
+      c.yaw = Math.atan2(dx, -dz);
+      c.pitch = Math.asin(dy / Math.hypot(dx, dy, dz));
+    };
+
+    // sdSprayDepth defaults to 0.4 m - "near" sits well inside that band, "far"
+    // sits well outside it (a body six metres down has no water column reading
+    // anywhere near 0).
+    const sprayDelta = async (depth) => {
+      A.dragon.pos[1] = -depth;
+      A.params.sdSpray = 0;
+      await frames(10);
+      const off = await readFrame(app, capture, CW, CH);
+      A.params.sdSpray = 0.5;
+      await frames(10);
+      const on = await readFrame(app, capture, CW, CH);
+      return diff(on, off);
+    };
+
+    const near = await sprayDelta(0.15);
+    log(`${backend}: spray brightens the sea just under the surface`, near.n > 100 && near.mean > 0,
+        `${near.n} px of ${CW * CH} brightened (mean +${near.mean}) at 0.15 m depth`);
+
+    const far = await sprayDelta(6.0);
+    log(`${backend}: and does almost nothing six metres down`, far.n < near.n * 0.25,
+        `${far.n} px changed at 6 m vs ${near.n} at 0.15 m`);
+
+    const mid = await sprayDelta(2.0);
+    log(`${backend}: gating is monotonic with proximity to the surface, not a step`, mid.n <= near.n && mid.n >= far.n,
+        `${far.n} (6 m) <= ${mid.n} (2 m) <= ${near.n} (0.15 m)`);
+
+    return 'done';
+  } catch (e) {
+    log(`${backend}: run the spray probe`, false, String(e.stack || e.message || e).slice(0, 1000));
+    return 'error';
+  }
+})();
+
+const TIMEOUT_MS = 90000;
+const timedOut = Symbol('timeout');
+const outcome = await Promise.race([
+  work,
+  new Promise((resolve) => setTimeout(() => resolve(timedOut), TIMEOUT_MS)),
+]);
+if (outcome === timedOut) {
+  log('the probe itself', false, `no result after ${TIMEOUT_MS / 1000}s - see the header note on this sandbox's flakiness`);
+}
+
+document.getElementById('out').textContent = results
+  .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+window.probeResult = { results, allOk: results.length > 0 && results.every((r) => r.ok) };
+</script>

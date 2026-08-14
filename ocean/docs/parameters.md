@@ -77,7 +77,7 @@ need `water.rebuildGrid()`.
 | `foamDecay` | Decay rate | `0.42` | 0.01 … 3 |  |
 | `foamThin` | Raft thinning | `0.18` | 0 … 0.6 |  |
 | `foamDrift` | Downwind drift (m/s) | `0.6` | 0 … 3 |  |
-| `foamSpread` | Spread rate | `0.4` | 0 … 8 |  |
+| `foamSpread` | Spread rate | `0.4` | 0 … 1.5 |  |
 | `foamDetail` | Bubble relief | `1.5` | 0 … 5 |  |
 | `foamCrisp` | Bubble-edge crispness | `0.8` | 0 … 1 |  |
 | `foamSharp` | Edge erosion | `1.4` | 0.2 … 6 |  |
@@ -106,6 +106,9 @@ need `water.rebuildGrid()`.
 | `windAniso` | Slope anisotropy | `1.45` | 0.3 … 4 |  |
 | `capillary` | Capillary detail | `0.6` | 0 … 3 |  |
 | `capillaryScale` | Capillary range | `1` | 0.2 … 4 |  |
+| `gust` | Gust mottling | `0` | 0 … 1 |  |
+| `gustScale` | Gust patch size | `55` | 8 … 300 |  |
+| `gustDrift` | Gust drift | `0.35` | 0 … 3 |  |
 | `waveAO` | Wave occlusion | `1` | 0 … 2 |  |
 | `waveShadow` | Swell shadowing | `0.85` | 0 … 1 |  |
 | `shadowScale` | Shadow reach | `1.2` | 0.1 … 5 |  |
@@ -241,6 +244,37 @@ need `water.rebuildGrid()`.
 | `cloudSteps` | March steps | `48` | 8 … 128 |  |
 | `cloudStepMin` | Min march scale | `0.4` | 0.2 … 1 |  |
 
+## Sea Dragon
+
+| parameter | meaning | default | range | |
+| --- | --- | --- | --- | --- |
+| `sdEnabled` | Sea dragon | `1` | 0 … 1 |  |
+| `sdDepth` | Dragon depth (m) | `3.2` | 1.6 … 25 |  |
+| `sdSwell` | Sea lifts over its back (m) | `1.35` | 0 … 3 |  |
+| `sdSwellRadius` | Lift footprint (m) | `7.5` | 1 … 25 |  |
+| `sdSwellFade` | Lift dies by depth (m) | `9` | 1 … 20 |  |
+| `sdSpray` | Spray where it breaks the surface | `0.5` | 0 … 1 |  |
+| `sdSprayDepth` | Spray band (m) | `0.4` | 0.05 … 2 |  |
+| `sdDepthSwing` | Dragon rise and sound (m) | `2` | 0 … 12 |  |
+| `sdRushSpeed` | Speed it comes up at (m/s) | `13` | 5 … 30 |  |
+| `sdOffsetClose` | Closes to (m) at speed | `9` | 3 … 40 |  |
+| `sdOffset` | Dragon station off your shoulder (m) | `16` | 5 … 60 |  |
+| `sdLead` | Dragon station ahead (m) | `6` | -20 … 40 |  |
+| `sdFollowRise` | Follow camera height (m) | `6` | 1 … 40 |  |
+| `sdFade` | Water that swallows it (m) | `11` | 2 … 30 |  |
+| `sdOpacity` | Dragon strength | `1` | 0 … 1 |  |
+| `sdLength` | Dragon length (m) | `22` | 6 … 60 |  |
+| `sdSpeed` | Dragon top speed (m/s) | `26` | 4 … 50 |  |
+| `sdWaves` | Dragon body waves | `1.25` | 0.3 … 3 |  |
+| `sdAmp` | Dragon tail sweep | `0.055` | 0 … 0.2 |  |
+| `sdBeat` | Dragon tail beat (Hz) | `0.35` | 0 … 3 |  |
+| `sdBeatSpeed` | Dragon beat per m/s | `0.03` | 0 … 0.15 |  |
+| `sdTurnRate` | Dragon turn rate (rad/s) | `0.55` | 0.1 … 2 |  |
+| `sdOrbit` | Dragon circles you at (rad/s) | `0.2` | 0 … 1 |  |
+| `sdGape` | Jaw shut angle (rad) | `0.3` | 0 … 1.4 |  |
+| `sdThrough` | Shows through the glare | `0.85` | 0 … 1 |  |
+| `sdRefract` | Refraction through the surface | `0.045` | 0 … 0.2 |  |
+
 ## Wave Runner
 
 | parameter | meaning | default | range | |
@@ -329,6 +363,35 @@ need `water.rebuildGrid()`.
 | `wrBoostFov` | Boost FOV punch | `7` | 0 … 30 |  |
 | `wrFovLag` | FOV response | `2.6` | 0.3 … 12 |  |
 | `wrTouchSteer` | Touch steering | `1.6` | 0 … 4 |  |
+
+## Seaplane
+
+| parameter | meaning | default | range | |
+| --- | --- | --- | --- | --- |
+| `spThrust` | Engine thrust | `5.4` | 1 … 12 |  |
+| `spTopSpeed` | Top speed (m/s) | `61` | 20 … 120 |  |
+| `spTakeoff` | Rotation speed (m/s) | `23` | 10 … 45 |  |
+| `spStall` | Stall speed (m/s) | `15` | 6 … 30 |  |
+| `spMaxBank` | Max bank (rad) | `0.78` | 0.2 … 1.2 |  |
+| `spMaxPitch` | Max pitch (rad) | `0.42` | 0.1 … 0.8 |  |
+| `spRollRate` | Roll response | `2.4` | 0.5 … 6 |  |
+| `spPitchRate` | Pitch response | `2` | 0.5 … 6 |  |
+| `spWaterTurn` | Water rudder | `0.45` | 0.05 … 1.5 |  |
+| `spLength` | Length (m) | `10.5` | 6 … 16 |  |
+| `spCgHeight` | Waterline height (m) | `2.05` | 1 … 3.5 |  |
+| `spCamDistance` | Chase distance | `26` | 10 … 60 |  |
+| `spCamRise` | Chase rise | `7` | 2 … 20 |  |
+| `spFovKick` | Speed FOV | `9` | 0 … 25 |  |
+| `craftReflect` | Reflection in the water | `1` | 0 … 2 |  |
+| `craftShadow` | Shadow on the water | `0.85` | 0 … 1 |  |
+| `craftReflectFade` | Reflection fade (m) | `180` | 20 … 600 |  |
+| `spHullPush` | Float hollow x | `0.5` | 0 … 2 |  |
+| `spContactFade` | Contact fade (m) | `1.8` | 0.2 … 6 |  |
+| `spHalfSpan` | Half span / length | `0.66` | 0.3 … 1.2 |  |
+| `spWingBite` | Wing drag in water | `9` | 0 … 30 |  |
+| `spWingRight` | Wing righting | `6` | 0 … 20 |  |
+| `spPropIdle` | Prop idle (rad/s) | `12` | 0 … 40 |  |
+| `spPropRpm` | Prop full power (rad/s) | `95` | 10 … 200 |  |
 
 ## Camera
 
@@ -466,6 +529,11 @@ derived values.
 | `wrWakeTurn` | `0.8` |
 | `wrWakeSlip` | `0.1` |
 | `wakeTexSize` | `512` |
+| `spScale` | `1` |
+| `spCamLook` | `40` |
+| `sdAccel` | `0.55` |
+| `sdMinDepth` | `1.6` |
+| `sdSeaLevel` | `0` |
 | `wrCamLookRise` | `0.75` |
 | `wrCamMinClear` | `0.7` |
 | `craftScale` | `1` |
@@ -490,5 +558,6 @@ value behind.
 | `Peaceful Moonlit Ocean` | 41 |
 | `Trade Winds` | 22 |
 | `Hurricane Sea` | 46 |
+| `Sheltered Water` | 38 |
 | `Deep Blue Afternoon` | 21 |
 

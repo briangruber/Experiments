@@ -417,6 +417,12 @@ export const defaults = {
   sdSwell: 1.35,            // metres the sea lifts over its back at the surface
   sdSwellRadius: 7.5,       // how far to either side that mound reaches, m
   sdSwellFade: 9.0,         // depth over which the lift dies away, m
+  sdSprayDepth: 0.4,        // metres of water column still counted as "breaking" -
+                            // read off the refraction pass's own depth, so the
+                            // spray traces the body's true silhouette (fins and
+                            // all), not the swell mound's smooth approximation
+  sdSpray: 0.5,             // strength of that spray, fed into the sea's own
+                            // foam shading - 0 turns the whole block off
   sdThrough: 0.85,          // how much of the shape survives the surface's own
                             // glare. 0 is the pure physics and nearly invisible
                             // at the angle you ride at; this is the fudge.

@@ -106,6 +106,8 @@ top and bottom band means; two near-zero bands means nothing drew.
    | the craft's shadow on the sea, and that it has the hull's shape | `npm run check:shadow` |
    | the sea dragon: visible under the sea, swimming, holding station | `npm run check:dragon` |
    | the refraction pass (what the sea looks down into) | `node tools/run-probe.mjs prototypes/refraction-probe.html` — reads the target back rather than judging the picture |
+   | the swell mound's curved spine (`swellLift()` in `water-surface.js`) | `node tools/check-swell-curve.mjs` — no GPU: transcribes both the mound's and the mesh's formulas to CPU JS and checks they land on the same point |
+   | spray/foam where the sea dragon breaks the surface | `node tools/run-probe.mjs prototypes/spray-breach-probe.html` — isolates the effect by proximity to the surface, not just presence of the animal |
    | the settings panel's dock-vs-sheet breakpoint (`demo/ui.css`) | `node tools/run-probe.mjs prototypes/settings-dock-probe.html` (mouse, narrow → docked column) and `node tools/run-probe.mjs prototypes/settings-sheet-phone-probe.html --touch` (phone → bottom sheet still fires) |
    | picking up the sea dragon's unfinished work | read [`docs/sea-dragon-handoff.md`](docs/sea-dragon-handoff.md) FIRST - it lists what was already tried and failed |
    | the frame-rate governor / anything performance | `npm run check:adapt` |

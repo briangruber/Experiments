@@ -17,10 +17,23 @@ Everything below is in the three.js demo (`demo/three-main.js` +
 - **The behaviour** (`demo/seadragon.js`): holds a station off your shoulder,
   bounded yaw rate, sprints to keep up, circles you when you stop, and **rises
   and closes in past `sdRushSpeed`**.
-- **The mound.** `swellLift()` in `src/gpu/tsl/water-surface.js` — a capsule
-  along the spine that lifts the surface *and* feeds the slope. The slope half
-  is not optional: a mound wearing the flat sea's normals is invisible except
-  in silhouette.
+- **The mound.** `swellLift()` in `src/gpu/tsl/water-surface.js` lifts the
+  surface *and* feeds the slope (the slope half is not optional: a mound
+  wearing the flat sea's normals is invisible except in silhouette) — and its
+  spine now **curves with the same travelling sine wave the mesh swims**
+  (`uSwellWaves`/`uSwellSweep`/`uSwellPhase`, fed the same source values as
+  `creature.js`'s `uCreatureWaves`/`uCreatureAmp`/`uCreaturePhase`). It used to
+  be a straight capsule and read as water displaced by a plank; reported
+  exactly that. `node tools/check-swell-curve.mjs` is a pure CPU-algebra check
+  that the mound's curve lands on the same point the mesh's own vertex stage
+  does — no GPU needed, since it is two formulas that either agree or don't.
+- **Spray at the waterline.** Fed into the sea's own `foamMask` from inside the
+  refraction block, gated by `path` — the same reconstructed distance from the
+  sea surface down to the body the extinction uses — so it traces the body's
+  ACTUAL silhouette from the refraction pass's depth, not a shape guessed from
+  the mound. `sdSpray` / `sdSprayDepth` in the schema; 0 turns it off.
+  `node tools/run-probe.mjs prototypes/spray-breach-probe.html` isolates it by
+  proximity to the surface (near/mid/far), not just by the animal's presence.
 - **The refraction pass** — see below. This is what puts the animal *in* the
   water rather than on it, and it is what closed the two bugs this document
   used to be about.
