@@ -391,20 +391,6 @@ export const defaults = {
   sdSeaLevel: 0.0,          // the mean surface it measures depth from
   sdFade: 11.0,             // metres of depth over which it fades into the sea
   sdOpacity: 1.0,           // overall strength of the thing in the water
-  // The mouth. The mesh ships with the jaw fully dropped and no rig to close it,
-  // and its mandible physically ENDS at the mouth corner - there is no
-  // articulation aft of it to swing about, so rotating far enough to shut the
-  // teeth would pull the jaw into the skull. Measured: the gape is 1.1 m on a
-  // 1.0 m mandible. So this narrows it and, more to the point, MOVES it: the
-  // complaint was that the mouth was always open, and a jaw that works as the
-  // animal swims reads as alive whatever its resting gape.
-  sdGape: 0.30,             // radians the mandible swings up from as-modelled
-  sdSwell: 0.85,            // metres the sea lifts over its back at the surface
-  sdSwellRadius: 6.0,       // how far to either side that mound reaches, m
-  sdSwellFade: 7.0,         // depth over which the lift dies away, m
-  sdRefract: 0.045,         // how hard the surface's own slope bends the look
-                            // through it. This is what makes chop passing over
-                            // the animal wobble and break it up.
   sdWaves: 1.25,            // body waves along its length
   sdAmp: 0.055,             // peak tail sweep, as a fraction of length
   sdBeat: 0.35,             // tail beats per second at rest

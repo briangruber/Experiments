@@ -128,11 +128,8 @@ await page.evaluate(() => {
   A.onFrame = () => {
     const c = A.camera;
     c.locked = false;
-    // Far enough back and shallow enough that THE HORIZON IS IN FRAME: the sky
-    // assertion below is meaningless without it, and the steeper pose this used
-    // to have put the skyline off the top of the picture.
-    c.pos[0] = d.pos[0] + 26; c.pos[1] = 7; c.pos[2] = d.pos[2] + 26;
-    const dx = -26, dy = d.pos[1] - c.pos[1], dz = -26;
+    c.pos[0] = d.pos[0] + 15; c.pos[1] = 10; c.pos[2] = d.pos[2] + 15;
+    const dx = -15, dy = d.pos[1] - c.pos[1], dz = -15;
     c.yaw = Math.atan2(dx, -dz);
     c.pitch = Math.asin(dy / Math.hypot(dx, dy, dz));
   };
@@ -140,22 +137,6 @@ await page.evaluate(() => {
 await page.waitForTimeout(9000);
 await page.evaluate(() => { window.abyssal.dragon.update = () => {}; });
 await page.waitForTimeout(3000);
-
-// WHERE THE HORIZON IS, in rows, computed rather than guessed. The first
-// version of this called the top fifth of the frame "sky" and asserted nothing
-// changed there. That was a proxy for a failure that no longer exists - the
-// animal is composited inside the water shader now, so it cannot reach a sky
-// pixel by construction - and worse, it was wrong: this camera looks down hard
-// enough that the whole frame is sea, so the moment the sea started LIFTING
-// over the animal's back, 8482 legitimately-changed water pixels were reported
-// as sky. A camera pitched down by |p| puts the horizon tan|p|/tan(fov/2) of a
-// half-frame above centre.
-const horizonRow = await page.evaluate(() => {
-  const A = window.abyssal, c = A.camera;
-  const half = Math.tan((c.fov * Math.PI / 180) / 2);
-  const ndc = Math.tan(Math.max(0, -c.pitch)) / half;
-  return { frac: (1 - Math.min(ndc, 1)) / 2, offScreen: ndc >= 1 };
-});
 
 const shots = {};
 for (const [on, name] of [[1, 'on'], [0, 'off'], [0, 'off2']]) {
@@ -168,7 +149,7 @@ server.close();
 
 const b2 = await launchChromium();
 const p2 = await b2.newPage();
-const pix = await p2.evaluate(async ({ on, off, off2, horizon }) => {
+const pix = await p2.evaluate(async ({ on, off, off2 }) => {
   const load = async (b64) => {
     const raw = atob(b64); const u8 = new Uint8Array(raw.length);
     for (let i = 0; i < raw.length; i++) u8[i] = raw.charCodeAt(i);
@@ -179,26 +160,24 @@ const pix = await p2.evaluate(async ({ on, off, off2, horizon }) => {
   };
   const A = await load(on), B = await load(off), C = await load(off2);
   const count = (X, Y) => {
-    let n = 0, sky = 0, sum = 0, peak = 0;
+    let n = 0, sky = 0;
     for (let i = 0; i < X.d.length; i += 4) {
       const dd = (Math.abs(X.d[i] - Y.d[i]) + Math.abs(X.d[i + 1] - Y.d[i + 1]) + Math.abs(X.d[i + 2] - Y.d[i + 2])) / 3;
       if (dd <= 2) continue;
-      n++; sum += dd; if (dd > peak) peak = dd;
-      // Above the horizon is sky, and nothing submerged may touch it. Two rows
-      // of margin for the horizon's own antialiasing.
-      if (Math.floor((i / 4) / X.w) < X.h * horizon - 2) sky++;
+      n++;
+      // Anything it changed in the top fifth of the frame is sky: the animal is
+      // drawn with NO depth test, and painting it over the horizon is the exact
+      // failure that buys.
+      if (Math.floor((i / 4) / X.w) < X.h * 0.2) sky++;
     }
-    return { n, sky, mean: +(sum / Math.max(n, 1)).toFixed(1), peak: +peak.toFixed(0) };
+    return { n, sky };
   };
   return { control: count(B, C), effect: count(A, B) };
-}, {
-  on: shots.on.toString('base64'), off: shots.off.toString('base64'),
-  off2: shots.off2.toString('base64'), horizon: horizonRow.frac,
-});
+}, { on: shots.on.toString('base64'), off: shots.off.toString('base64'), off2: shots.off2.toString('base64') });
 await b2.close();
 
 const { control, effect } = pix;
-console.log(JSON.stringify({ chase, beat, horizonRow, control, effect }, null, 1));
+console.log(JSON.stringify({ chase, beat, control, effect }, null, 1));
 
 const fails = [];
 const need = (c, m) => { if (!c) fails.push(m); };
@@ -211,13 +190,7 @@ need(beat.slow > 1.5, `the body wave is not advancing (${beat.slow} rad/s of sim
 need(beat.fast > beat.slow * 1.15, `the tail does not beat faster when it sprints (${beat.slow} -> ${beat.fast} rad/s)`);
 need(effect.n > control.n * 6, `the dragon changed ${effect.n} px against a control of ${control.n} - not clear of the noise`);
 need(effect.n > 2500, `barely visible in the water (${effect.n} px changed)`);
-// HOW HARD it changes them, not just how many. Composited into the sea's
-// diffuse term the animal can cover thousands of pixels and still be a whisper
-// - which is exactly what "just a transparent ghost" looks like from the other
-// direction. 8 levels out of 255 is about where a shape stops being a smudge.
-need(effect.mean > 8, `it only shifts the sea by ${effect.mean}/255 where it covers it - too faint to read as a body`);
-need(!horizonRow.offScreen, 'the horizon is off the top of this frame - the sky assertion below is measuring nothing');
-need(effect.sky < effect.n * 0.02, `${effect.sky} of its ${effect.n} pixels are above the horizon (row ${Math.round(horizonRow.frac * 400)}) - it is reaching the sky`);
+need(effect.sky < effect.n * 0.02, `${effect.sky} of its ${effect.n} pixels are above the horizon - it is being drawn over the sky`);
 need(errors.length === 0, 'page errors: ' + errors.slice(0, 3).join(' | '));
 
 console.log(fails.length ? 'DRAGON FAILED\n  ' + fails.join('\n  ') : 'DRAGON OK');

@@ -33,7 +33,6 @@ import { TslSky } from '../src/gpu/tsl/sky-driver.js';
 import { TslWater } from '../src/gpu/tsl/water-driver.js';
 import { TslSpray } from '../src/gpu/tsl/spray-driver.js';
 import { TslPost } from '../src/gpu/tsl/post-driver.js';
-import { TslUnderwater } from '../src/gpu/tsl/underwater-driver.js';
 
 import { newParams, PRESETS, applyPreset } from '../src/presets.js';
 import { CLOUD_TYPE_NAMES, applyCloudType } from '../src/cloud-types.js';
@@ -49,17 +48,14 @@ import {
 import {
 	creatureVertex, creatureFragment, setCreatureTexture,
 	uCreatureLen, uCreaturePhase, uCreatureWaves, uCreatureAmp,
-	uCreatureSeaY, uCreatureFade, uCreatureOpacity, uJawHinge, uJawAngle,
+	uCreatureSeaY, uCreatureFade, uCreatureOpacity,
 } from '../src/gpu/tsl/creature.js';
 import { WaveRunner } from './waverunner.js';
 import { SeaPlane } from './seaplane.js';
 import { SeaDragon } from './seadragon.js';
 import { PLANE_MESH } from './planeModel.js';
 import { DRAGON_MESH } from './dragonModel.js';
-import {
-	setCraftShadowNode, setUnderwaterTexture, uUnderwaterAmount, uUnderwaterRefract,
-	uSwellPos, uSwellDir, uSwellLen, uSwellRad, uSwellAmp,
-} from '../src/gpu/tsl/water-surface.js';
+import { setCraftShadowNode } from '../src/gpu/tsl/water-surface.js';
 
 // ---------------------------------------------------------------------------
 // Backend selection.
@@ -301,20 +297,10 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	dragonMat.name = 'abyssal.dragon';
 	dragonMat.fragmentNode = creatureFragment();
 	dragonMat.positionNode = creatureVertex();
-	// An ORDINARY OPAQUE DRAW, into the submerged target's own depth buffer. It
-	// used to be a depth-test-off blend straight over the sea, which is what made
-	// it a ghost: no sorting (so its fins showed through its own body), no foam
-	// over it, no Fresnel, a flat alpha. See ../src/gpu/tsl/underwater-driver.js.
-	dragonMat.side = THREE.DoubleSide;
-	// NOT blended, and that is not a detail. Blending into the target would
-	// premultiply the colour by the alpha, and the sea then multiplies by that
-	// same alpha again when it mixes the lookup in - the animal would come out
-	// darkened by the square of its own visibility. Written straight, the RGB is
-	// the radiance leaving it and the ALPHA IS THE COVERAGE the sea mixes by.
-	dragonMat.transparent = false;
-	dragonMat.blending = THREE.NoBlending;
-	dragonMat.depthTest = true;
-	dragonMat.depthWrite = true;
+	dragonMat.side = THREE.FrontSide;
+	dragonMat.transparent = true;
+	dragonMat.depthTest = false;
+	dragonMat.depthWrite = false;
 	const dragonBuild = buildCraftGeometry( params.sdLength, DRAGON_MESH );
 	const dragonMesh = new THREE.Mesh( dragonBuild.geometry, dragonMat );
 	dragonMesh.frustumCulled = false;
@@ -324,12 +310,9 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	loadCraftTexture( renderer, DRAGON_MESH ).then( ( t ) => setCreatureTexture( t ) );
 	let dragonLen = params.sdLength;
 
-	// Drawn into the submerged target BEFORE the sea, so the sea can look through
-	// itself at it. Returns whether there is anything in the target this frame,
-	// which is what switches the sea's lookup on.
 	const drawDragon = () => {
 
-		if ( params.sdEnabled < 0.5 || params.sdOpacity <= 0.001 ) return false;
+		if ( params.sdEnabled < 0.5 ) return;
 		// The mesh is built at a length; changing it is a rebuild, not a scale, so
 		// that the swim's wavelength stays in the same units as the body.
 		if ( Math.abs( params.sdLength - dragonLen ) > 0.01 ) {
@@ -347,18 +330,13 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		uCreatureSeaY.value = params.sdSeaLevel;
 		uCreatureFade.value = params.sdFade;
 		uCreatureOpacity.value = params.sdOpacity;
-		// The mesh was modelled with the mouth open, so angle 0 IS open and the
-		// shut position is a full sdGape away from it.
-		uJawHinge.value.set( dragonBuild.jawHinge[ 0 ], dragonBuild.jawHinge[ 1 ] );
-		uJawAngle.value = params.sdGape * ( 1 - dragon.gape );
 		// modelYaw 0: tools/glb.mjs already put this asset's head on -Z.
 		setCraftTransform(
 			dragonMesh,
 			[ dragon.pos[ 0 ], dragon.pos[ 1 ], dragon.pos[ 2 ] ],
 			dragon.heading, dragon.pitch, dragon.roll, 1.0, 0,
 		);
-		underwater.render( dragonScene, cam3 );
-		return true;
+		renderer.render( dragonScene, cam3 );
 
 	};
 
@@ -521,9 +499,6 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 
 	};
 	const post = new TslPost( renderer );
-	// Half the HDR target's size: what it holds is refracted and buried under a
-	// Fresnel term before anyone sees it. See the driver's header.
-	const underwater = new TslUnderwater( renderer, { scale: 0.5 } );
 
 	// The three camera the sea is rasterised through. demo/camera.js owns the
 	// rig; this mirrors its matrices onto a three camera each frame, because
@@ -674,7 +649,6 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 
 		renderer.setSize( w, h, false );
 		post.resize( w, h );
-		setUnderwaterTexture( underwater.resize( w, h ).texture );
 		if ( hdr ) hdr.dispose();
 		hdr = new THREE.RenderTarget( w, h, {
 			type: THREE.HalfFloatType,
@@ -1071,31 +1045,6 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		// WATER pass (that is when the water's node graph updates), so a hull posed
 		// in drawCraft would shadow the sea from where it was last frame.
 		poseCraft();
-		// Everything submerged goes into its own target FIRST, because the sea
-		// reads it while shading itself.
-		const submerged = drawDragon();
-		uUnderwaterAmount.value = submerged ? params.sdOpacity : 0;
-		uUnderwaterRefract.value = params.sdRefract;
-
-		// THE SEA OVER ITS BACK. A body this size shoulders the water aside, and
-		// the lift dies off as it sounds - which is what turns "a picture under
-		// the surface" into "something big is under there". Zeroed when there is
-		// nothing to lift, so the sea's vertex stage skips the whole branch.
-		if ( submerged ) {
-
-			const depth = Math.max( 0, params.sdSeaLevel - dragon.pos[ 1 ] );
-			const shallow = Math.max( 0, Math.min( 1, 1 - depth / Math.max( params.sdSwellFade, 0.5 ) ) );
-			uSwellPos.value.set( dragon.pos[ 0 ], dragon.pos[ 1 ], dragon.pos[ 2 ] );
-			uSwellDir.value.set( Math.sin( dragon.heading ), - Math.cos( dragon.heading ) );
-			uSwellLen.value = params.sdLength;
-			uSwellRad.value = params.sdSwellRadius;
-			uSwellAmp.value = params.sdSwell * shallow;
-
-		} else {
-
-			uSwellAmp.value = 0;
-
-		}
 		renderer.setRenderTarget( hdr );
 		renderer.setClearColor( 0x000000, 1 );
 		renderer.clear( true, true, false );
@@ -1113,11 +1062,13 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 
 			sky.drawBackground( params, ctx );
 			water.render( params, ctx, sim, cam3, { wake: wake.uniforms( params, rider.active ), hull } );
+			drawDragon();
 			drawCraft();
 
 		} else {
 
 			water.render( params, ctx, sim, cam3, { wake: wake.uniforms( params, rider.active ), hull } );
+			drawDragon();
 			drawCraft();
 			sky.drawBackground( params, ctx );
 
@@ -1197,7 +1148,7 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		cam3,
 		output,
 		onFrame: null,
-		rider, plane, dragon, wake, craftProbe, craftMesh, planeMesh, hull, underwater,
+		rider, plane, dragon, wake, craftProbe, craftMesh, planeMesh, hull,
 		toggleRide: () => {
 
 			rider.active = ! rider.active;

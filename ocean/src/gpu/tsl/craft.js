@@ -100,35 +100,18 @@ export function buildCraftGeometry( lengthM = 3.2, record = CRAFT_MESH ) {
 
 	}
 
-	// The jaw weight, baked by tools/glb.mjs --jaw. Same contract as `spin`:
-	// always present, zero-filled when the record has none, because one material
-	// shades every hull here and a missing attribute is an undefined read rather
-	// than a shut mouth.
-	const J = new Float32Array( n );
-	if ( record.jaw ) {
-
-		const jw = unb64( record.jaw, Uint8Array );
-		for ( let i = 0; i < n; i ++ ) J[ i ] = ( jw[ i ] ?? 0 ) / 255;
-
-	}
-
 	const geo = new THREE.BufferGeometry();
 	geo.setAttribute( 'position', new THREE.BufferAttribute( P, 3 ) );
 	geo.setAttribute( 'normal', new THREE.BufferAttribute( N, 3 ) );
 	geo.setAttribute( 'uv', new THREE.BufferAttribute( U, 2 ) );
 	geo.setAttribute( 'spin', new THREE.BufferAttribute( S, 1 ) );
-	geo.setAttribute( 'jaw', new THREE.BufferAttribute( J, 1 ) );
 	geo.setIndex( new THREE.BufferAttribute( idx, 1 ) );
 	geo.computeBoundingSphere();
 	// The hub in METRES, so the caller can point the spin axis at it.
 	const hub = record.spinHub
 		? record.spinHub.map( ( v ) => v * lengthM )
 		: [ 0, 0, 0 ];
-	// The jaw hinge in METRES, on the y-z plane the mandible swings in.
-	const jawHinge = record.jawHinge
-		? record.jawHinge.map( ( v ) => v * lengthM )
-		: [ 0, 0 ];
-	return { geometry: geo, vertexCount: n, triangleCount: idx.length / 3, hub, jawHinge };
+	return { geometry: geo, vertexCount: n, triangleCount: idx.length / 3, hub };
 
 }
 
