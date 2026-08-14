@@ -566,11 +566,21 @@ export class Actor {
   get standHeight() { return 0.52 * this.size * (1 - this.collapsedAmount * 0.6); }
 
   // --- per-frame -------------------------------------------------------------
+  // Split in two so a different body can act the same performance: buildPose
+  // turns direction into channel values (locomotion, emotion, idle, look,
+  // gestures, speech) and commitPose maps those channels onto a rig. The
+  // procedural cast commits through applyPose + the leg IK below; a skinned
+  // cast member (engine/bone-actor.js) overrides ONLY commitPose.
 
   update(dt, time, rdt) {
     if (!this.visible) return;
+    const p = this.buildPose(dt, time, rdt);
+    this.commitPose(p, dt, time, rdt);
+    this.pose = p;
+  }
+
+  buildPose(dt, time, rdt) {
     const p = REST();
-    const rig = this.rig;
 
     // 1. locomotion
     this.updatePath(dt);
@@ -612,12 +622,15 @@ export class Actor {
     // consonant snaps it shut and a held vowel holds it open.
     this.jawPose(p, rdt ?? dt);
 
-    // 7. commit (the gait overlay is applied after posing, in updateFeet)
+    return p;
+  }
+
+  // 7. commit (the gait overlay is applied after posing, in updateFeet)
+  commitPose(p, dt, time, rdt) {
     this.root.position.copy(this.pos);
     this.root.rotation.y = this.yaw;
-    applyPose(rig, p, dt);
+    applyPose(this.rig, p, dt);
     this.updateFeet(dt);
-    this.pose = p;
   }
 
   jawPose(p, dt) {

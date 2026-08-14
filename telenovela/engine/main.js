@@ -3,7 +3,7 @@
 import * as THREE from '../vendor/three/three.module.min.js';
 import { buildSet, updateSet } from '../company/sets/courtyard.js';
 import { dressSet, updateDressing } from '../company/props/dressing.js';
-import { buildCast } from '../company/cast/index.js';
+import { buildCast, upgradeCast } from '../company/cast/index.js';
 import { buildWeather, updateWeather } from './weather.js';
 import { Cinematographer } from './camera.js';
 import { Post } from './post.js';
@@ -75,6 +75,15 @@ const dressed = dressSet(set).catch((e) => {
   console.warn('set dressing unavailable:', e.message);
   return null;
 });
+// Same deal for the leads: the twins upgrade to the Tripo bodies when the
+// models decode, and the procedural cast keeps the stage if they don't.
+// ?proc-cast keeps the whole cast procedural (the bench harness's A side).
+const castReady = new URLSearchParams(location.search).has('proc-cast')
+  ? Promise.resolve({ ok: false, swapped: [] })
+  : upgradeCast(actors, scene, camera).catch((e) => {
+    console.warn('tripo cast unavailable:', e.message);
+    return { ok: false, swapped: [], error: e.message };
+  });
 const dir = new Director(ctx, episode);
 ctx.dir = dir;
 // The export cuts come from the episode too; the recorder only ever sees
@@ -689,7 +698,11 @@ frame();
 
 // Expose a handle for the capture harness.
 window.__telenovela = {
-  dir, cam, post, actors, scene, camera, renderer, THREE, soundtrack, synth, recorder, dressed,
+  dir, cam, post, actors, scene, camera, renderer, THREE, soundtrack, synth, recorder,
+  // Tools wait on `dressed` before framing anything; make it cover the cast
+  // upgrade too, so no harness screenshots a lead mid-transformation.
+  dressed: Promise.all([dressed, castReady]).then(([d]) => d),
+  castReady,
   get lastExport() { return window.__lastExport || null; },
   get score() { return ctx.score; },
   begin() { begin(); },
