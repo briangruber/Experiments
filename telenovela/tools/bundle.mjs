@@ -19,7 +19,7 @@ const OUT = opt('out', 'dist/corazon-de-gallina.html');
 
 // Dependency order. Each module may only import from ones above it.
 const MODULES = [
-  'util.js', 'dialogue.js', 'dialogue-timing.js',
+  'util.js', 'dialogue.js', 'dialogue-timing.js', 'audio-timing.js',
   'chicken.js', 'acting.js', 'cast.js', 'sets.js',
   'camera.js', 'post.js', 'score.js', 'audio-manifest.js', 'audio.js',
   'assets-manifest.js', 'dressing.js',

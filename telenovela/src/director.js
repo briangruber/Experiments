@@ -132,6 +132,14 @@ function baseLook(ctx, over = {}) {
   });
 }
 
+// Hit whoever is on screen with the key. The courtyard is lit for a night
+// scene, which is exactly wrong for a glamour shot of a dark bird.
+function keyOn(ctx, actor, intensity = 9) {
+  ctx.set.key.target.position.set(actor.pos.x, 0.42, actor.pos.z);
+  ctx.set.key.intensity = intensity;
+  ctx.set.key.color.setHex(0xffe0bd);
+}
+
 // A hard cut with a one-frame flash of light — the punctuation of the genre.
 function stingCut(ctx, shot, kind = 'shock') {
   ctx.cam.cut(shot);
@@ -205,6 +213,120 @@ function buildScreenplay(ctx, tw) {
   return [
 
     // =======================================================================
+    // The opening titles. Cut to the song rather than to the director's pace,
+    // which is why this scene runs at 1: the chorus lands at about 21s and the
+    // main card goes up on it.
+    scene('ENTRADA', 'corazón de gallina', 31,
+      (c) => {
+        hideAll(c);
+        baseLook(c, { fade: 1, exposure: 1.7, diffusion: 0.5, bloom: 0.7, halation: 0.5, vignette: 0.5, warmth: 0.1 });
+        c.weather.setRain(0, true);
+        c.score.setRain(0);
+        c.set.wetness = 0;
+        c.props.cloth.visible = true;
+        c.props.cloth.position.set(-0.55, 0.13, -1.15);
+        c.props.cloth.rotation.set(-Math.PI / 2, 0, 0);
+        // Everyone waits in the dark room behind the arches and steps into
+        // their own shot.
+        rosalinda.setVisible(false).place(BY_FOUNTAIN.x, BY_FOUNTAIN.z, deg(-150));
+        esteban.setVisible(false).place(0.85, -0.35, deg(-115));
+        valentina.setVisible(false).place(-0.35, -1.35, deg(155));
+        donGallo.setVisible(false).place(0.35, -2.15, deg(172));
+        ricardo.setVisible(false).place(-1.55, -1.85, deg(120));
+        c.cam.cut({
+          subject: V(-0.2, 0.7, -1.2), view: 5.2, lens: 24, angle: 172, height: 2.1,
+          move: { type: 'descend', amount: 0.5, dur: 8 }, dur: 8, handheld: 0.25, smooth: 2.2,
+          label: 'TITLES · 24mm',
+        });
+      },
+      [
+        [0.0, (c) => { c.post.setLook({ fade: 0 }); c.score.setMood('opening', 2.5); c.score.setAmbience(1); }],
+
+        // Each of them gets one shot and their name. A telenovela tells you
+        // exactly who to distrust before a word is spoken.
+        [4.0, (c) => {
+          rosalinda.setVisible(true).setEmotion({ sorrow: 0.3, love: 0.4 });
+          rosalinda.look(MOON, 0.8);
+          keyOn(c, rosalinda);
+          c.cam.cut({
+            subject: rosalinda, frame: 'mcu', lens: 85, angle: 34, dur: 4.2,
+            move: { type: 'push', amount: 0.22, dur: 4.2 }, handheld: 0.35, aperture: 1.8,
+          });
+          c.titles.show('ROSALINDA', { sub: 'la inocente', kind: 'cast', dur: 3.4, fadeIn: 0.7 });
+        }],
+        [5.2, () => rosalinda.gesture('sigh')],
+
+        [7.6, (c) => {
+          esteban.setVisible(true).setEmotion({ pride: 0.7, love: 0.3 });
+          esteban.look(c.camera, 0.7);
+          keyOn(c, esteban);
+          c.cam.cut({
+            subject: esteban, frame: 'mcu', lens: 85, angle: -30, height: 'low', dur: 4.2,
+            move: { type: 'push', amount: 0.22, dur: 4.2 }, handheld: 0.35, aperture: 1.8,
+          });
+          c.titles.show('ESTEBAN', { sub: 'el galán', kind: 'cast', dur: 3.4, fadeIn: 0.7 });
+        }],
+        [8.6, () => esteban.gesture('strutPose')],
+
+        [11.2, (c) => {
+          valentina.setVisible(true).setEmotion({ anger: 0.7, pride: 0.6 });
+          valentina.look(c.camera, 0.9);
+          keyOn(c, valentina);
+          c.cam.cut({
+            subject: valentina, frame: 'mcu', lens: 100, angle: 28, dur: 4.2,
+            move: { type: 'creep', amount: 0.6 }, handheld: 0.4, aperture: 2,
+          });
+          c.titles.show('VALENTINA', { sub: 'la villana', kind: 'cast', dur: 3.4, fadeIn: 0.7 });
+        }],
+        [12.3, () => valentina.gesture('scheme')],
+
+        [14.8, (c) => {
+          donGallo.setVisible(true).setEmotion({ pride: 1, anger: 0.4 });
+          donGallo.look(c.camera, 0.7);
+          keyOn(c, donGallo);
+          c.cam.cut({
+            subject: donGallo, frame: 'mcu', lens: 85, angle: -24, height: 'low', dur: 4.2,
+            handheld: 0.35, aperture: 2, dutch: -3,
+          });
+          c.titles.show('DON GALLO', { sub: 'el patrón', kind: 'cast', dur: 3.4, fadeIn: 0.7 });
+        }],
+        [15.9, (c) => donGallo.gesture('crow', { onBeat: () => c.score.crow() })],
+
+        [18.4, (c) => {
+          ricardo.setVisible(true).setEmotion({ pride: 0.9, anger: 0.5 });
+          ricardo.look(c.camera, 0.9);
+          keyOn(c, ricardo);
+          c.cam.cut({
+            subject: ricardo, frame: 'cu', lens: 100, angle: -26, dur: 4.2,
+            move: { type: 'push', amount: 0.25, dur: 4.2 }, handheld: 0.45, aperture: 2, dutch: 5,
+          });
+          c.titles.show('RICARDO', { sub: 'el gemelo', kind: 'cast', dur: 3.4, fadeIn: 0.7 });
+        }],
+        [19.5, () => ricardo.gesture('laugh')],
+
+        // The chorus. Everyone in one frame, and the title over the top.
+        [21.6, (c) => {
+          c.cam.cut({
+            subject: V(-0.2, 0.6, -1.1), view: 4.2, lens: 32, angle: 182, height: 1.9,
+            move: { type: 'crane', amount: 0.45, dur: 9 }, dur: 9, handheld: 0.3, smooth: 2.4,
+            label: 'THE COMPANY · 32mm',
+          });
+          for (const a of [rosalinda, esteban, valentina, donGallo, ricardo]) a.setVisible(true);
+          c.set.key.target.position.set(-0.2, 0.45, -1.1);
+          c.set.key.intensity = 7.5;
+          c.post.setLook({ diffusion: 0.72, bloom: 0.9, halation: 0.62, exposure: 1.75 });
+        }],
+        [22.2, (c) => c.titles.show('CORAZÓN DE GALLINA', {
+          sub: 'una telenovela de corral', kind: 'main', dur: 6.6, rule: true, fadeIn: 1.6,
+        })],
+        [23.0, () => { rosalinda.look(esteban, 1); esteban.look(rosalinda, 1); valentina.look(esteban, 1); }],
+        [24.4, () => ricardo.gesture('scheme')],
+        [28.6, (c) => c.post.setLook({ fade: 1 })],
+      ],
+      // Cut to the song, not to the director's tempo.
+      { pace: 1.0 }),
+
+    // =======================================================================
     scene('PRELUDIO', 'la hacienda, medianoche', 32,
       (c) => {
         hideAll(c);
@@ -251,7 +373,7 @@ function buildScreenplay(ctx, tw) {
         [26.0, (c) => {
           rosalinda.gesture('cock', { side: 1 });
           rosalinda.look(V(0, 0.4, -3.2), 1);
-          c.score.play('sfx-gate-creak', { gain: 0.7 });
+          c.score.play('sfx-gate-creak', { gain: 0.65 });
           c.score.sting('small');
           c.score.cluck();
         }],
@@ -295,14 +417,14 @@ function buildScreenplay(ctx, tw) {
           subject: esteban, frame: 'ms', lens: 50, angle: 8, height: 'low',
           move: { type: 'push', amount: 0.35, dur: 7 }, dur: 7, handheld: 0.5, label: 'LOW ANGLE · 50mm',
         })],
-        [6.2, (c) => { esteban.gesture('crow'); c.score.crow(); }],
+        [8.8, (c) => esteban.gesture('crow', { onBeat: () => c.score.crow() })],
         // Her reaction — shot/reverse-shot begins.
         [9.0, (c) => {
           c.cam.cut({ subject: rosalinda, frame: 'cu', lens: 85, angle: -12, dur: 6, handheld: 0.55, aperture: 1.6 });
           rosalinda.emote({ love: 0.85, sorrow: 0.1 }, 2.2);
           rosalinda.look(esteban, 1);
         }],
-        [10.4, (c) => { rosalinda.gesture('gasp', { weight: 0.55 }); c.score.squawk(); }],
+        [10.4, () => rosalinda.gesture('gasp', { weight: 0.55 })],
         [12.0, (c) => { c.score.harpRun(true); }],
         [13.0, (c) => c.cam.cut({
           subject: esteban, frame: 'cu', lens: 85, angle: -8, dur: 6, handheld: 0.55, aperture: 1.6,
@@ -432,7 +554,7 @@ function buildScreenplay(ctx, tw) {
             cloth.rotation.x = -Math.PI / 2 + u * 1.4;
           }, { ease: 'expoOut', done: () => { cloth.visible = false; } });
           c.score.sting('reveal');
-          c.score.play('sfx-cloth-whip', { gain: 0.8 });
+          c.score.play('sfx-cloth-whip', { gain: 0.95 });
           c.score.play('sfx-hen-gasp', { gain: 0.5 });
           c.cam.shake(0.7);
         }],
@@ -448,22 +570,20 @@ function buildScreenplay(ctx, tw) {
           stingCut(c, {
             subject: rosalinda, frame: 'cu', lens: 85, angle: -20, dur: 3, handheld: 0.9,
             move: { type: 'snapZoom', amount: 0.8, dur: 1 }, aperture: 2,
-          });
+          }, 'small');
           rosalinda.look(c.props.egg, 1);
           rosalinda.face(c.props.egg.position);
           rosalinda.gesture('gasp');
-          c.score.squawk();
           rosalinda.emote({ fear: 0.8, sorrow: 0.5, love: 0 }, 4);
         }],
         [21.5, (c) => {
           stingCut(c, {
             subject: esteban, frame: 'bcu', lens: 100, angle: 16, dur: 3, handheld: 0.9,
             move: { type: 'snapZoom', amount: 0.9, dur: 1 }, aperture: 2.2,
-          });
+          }, 'small');
           esteban.look(c.props.egg, 1);
           esteban.face(c.props.egg.position);
           esteban.gesture('doubleTake');
-          c.score.squawk();
           esteban.emote({ shock: 1, anger: 0.5, fear: 0.2, love: 0 }, 4);
         }],
         [23.5, (c) => {
@@ -488,8 +608,8 @@ function buildScreenplay(ctx, tw) {
           });
         }],
         [27.2, () => donGallo.walkTo(0, -2.35, { style: 'storm', speed: 0.75 })],
-        [29.5, (c) => { donGallo.gesture('crow'); c.score.crow(); donGallo.emote({ anger: 0.9, pride: 1 }, 2); }],
-        [30.0, (c) => { c.weather.strike(0.9); c.score.thunder(0.9, 0.15); }],
+        [29.5, (c) => { donGallo.gesture('crow', { onBeat: () => c.score.crow() }); donGallo.emote({ anger: 0.9, pride: 1 }, 2); }],
+        [31.8, (c) => { c.weather.strike(0.9); c.score.thunder(0.9, 0.15); }],
         [32.5, (c) => c.cam.cut({
           subject: donGallo, frame: 'bcu', lens: 85, angle: -10, height: 'low', dur: 5,
           handheld: 0.8, dutch: 8, aperture: 2, label: 'DUTCH · 85mm',
@@ -566,20 +686,26 @@ function buildScreenplay(ctx, tw) {
           });
         }],
         [12.1, (c, d) => d.setSpeed(0.22)],
-        [12.6, (c) => { rosalinda.slapSide = 1; rosalinda.gesture('slap', { side: 1 }); c.score.flap(); }],
-        [13.9, (c, d) => {
-          // Impact: freeze one frame, flash, shake, and cut on the sound.
-          esteban.slapFrom = 1;
-          esteban.gesture('slapped');
-          c.score.slap();
-          c.cam.shake(1.4, 2.6);
-          c.post.snapLook({ flash: 0.5, whipDir: 0 });
-          c.post.setLook({ flash: 0 });
-          d.freeze(0.42);
-          c.weather.strike(0.8);
-          c.score.thunder(0.8, 0.05);
+        [12.6, (c, d) => {
+          rosalinda.slapSide = 1;
+          c.score.flap();
+          rosalinda.gesture('slap', {
+            side: 1,
+            // Impact: freeze one frame, flash, shake, and cut on the sound.
+            onBeat: () => {
+              esteban.slapFrom = 1;
+              esteban.gesture('slapped');
+              c.score.slap();
+              c.cam.shake(1.4, 2.6);
+              c.post.snapLook({ flash: 0.5, whipDir: 0 });
+              c.post.setLook({ flash: 0 });
+              d.freeze(0.42);
+              c.weather.strike(0.8);
+              c.score.thunder(0.8, 0.05);
+            },
+          });
         }],
-        [14.0, (c) => c.cam.cut({
+        [13.45, (c) => c.cam.cut({
           subject: esteban, frame: 'bcu', lens: 100, angle: -34, dur: 5, handheld: 1, dutch: 12,
           aperture: 2.2, label: 'IMPACT · 100mm',
         })],
@@ -601,7 +727,7 @@ function buildScreenplay(ctx, tw) {
         [21.5, () => { esteban.look(valentina, 1); esteban.face(valentina.pos); esteban.emote({ sorrow: 1, anger: 0.4 }, 2); }],
         // The wing points past Rosalinda, at the villainess. This is the plant.
         [23.5, () => esteban.gesture('accuse', { side: -1, weight: 0.7 })],
-        [18.0, () => { donGallo.look(rosalinda, 1); donGallo.gesture('crow'); }],
+        [18.0, () => { donGallo.look(rosalinda, 1); donGallo.gesture('strutPose'); }],
         [26.0, (c) => {
           c.cam.cut({
             subject: valentina, frame: 'cu', lens: 100, angle: -12, dur: 5, handheld: 0.7, aperture: 2,
@@ -614,7 +740,7 @@ function buildScreenplay(ctx, tw) {
           subject: rosalinda, frame: 'ws', lens: 24, angle: 150, height: 1.4, dur: 9,
           move: { type: 'pull', amount: 0.5, dur: 8 }, handheld: 0.5, label: 'PULL BACK · 24mm',
         })],
-        [30.0, (c) => { c.weather.strike(1); c.score.thunder(1, 0.2); }],
+        [33.6, (c) => { c.weather.strike(1); c.score.thunder(1, 0.2); }],
         [34.0, (c) => c.post.setLook({ fade: 1 })],
       ]),
 
@@ -648,7 +774,7 @@ function buildScreenplay(ctx, tw) {
             subject: V(-0.9, 0.5, -1.2), view: 4.6, lens: 28, angle: 8, height: 0.55, dur: 7,
             handheld: 0.7, dutch: -7, label: 'THE STRANGER · 28mm',
           });
-          c.score.play('sfx-footsteps-mud', { gain: 0.75 });
+          c.score.play('sfx-footsteps-mud', { gain: 0.5 });
           c.score.setMood('suspense', 2);
         }],
         [4.0, (c) => { c.weather.strike(1.3); c.score.thunder(1.2, 0.1); }],
@@ -657,12 +783,10 @@ function buildScreenplay(ctx, tw) {
         [7.0, (c) => {
           c.cam.cut({ subject: esteban, frame: 'cu', lens: 100, angle: -14, dur: 3, whip: true, handheld: 0.9, dutch: 8 });
           esteban.look(ricardo, 1); esteban.gesture('doubleTake'); esteban.emote({ shock: 1, anger: 0.4 }, 6);
-          c.score.squawk();
         }],
         [9.0, (c) => {
           c.cam.cut({ subject: rosalinda, frame: 'cu', lens: 100, angle: 8, dur: 3, whip: true, handheld: 0.9, dutch: -8 });
           rosalinda.look(ricardo, 1); rosalinda.gesture('gasp'); rosalinda.emote({ shock: 1, fear: 0.6, sorrow: 0.4 }, 6);
-          c.score.squawk();
         }],
         [11.0, (c) => {
           c.cam.cut({ subject: donGallo, frame: 'cu', lens: 100, angle: -6, dur: 3, whip: true, handheld: 0.9, dutch: 10 });
@@ -675,7 +799,7 @@ function buildScreenplay(ctx, tw) {
             label: 'THE TWIN · 135mm',
           }, 'reveal');
           ricardo.gesture('scheme');
-          c.score.play('sfx-hen-gasp', { gain: 0.6 });
+          c.score.play('sfx-hen-gasp', { gain: 0.5 });
         }],
         [16.0, (c) => { c.score.sting('reveal'); c.cam.shake(0.6); }],
         // The vertigo shot: she understands.
@@ -720,7 +844,7 @@ function buildScreenplay(ctx, tw) {
           valentina.look(ricardo, 1);
         }],
         [39.5, () => { valentina.gesture('nuzzle'); ricardo.gesture('nuzzle'); }],
-        [41.0, (c) => {
+        [41.9, (c) => {
           c.score.sting('reveal');
           c.cam.shake(0.5);
           // The shared glance that makes them the egg's authors.
@@ -738,7 +862,7 @@ function buildScreenplay(ctx, tw) {
       ], { pace: 1.15 }),
 
     // =======================================================================
-    scene('CONTINUARÁ', 'el desmayo y el secreto', 54,
+    scene('CONTINUARÁ', 'el desmayo y el secreto', 40.6,
       (c) => {
         hideAll(c);
         baseLook(c, { fade: 1, exposure: 1.85, contrast: 1.12, saturation: 0.95, vignette: 0.5 });
@@ -768,7 +892,7 @@ function buildScreenplay(ctx, tw) {
           subject: rosalinda, frame: 'ms', lens: 65, angle: 34, height: 0.55, dur: 8,
           move: { type: 'pull', amount: 0.3, dur: 6 }, handheld: 0.7, smooth: 1.1,
         })],
-        [3.4, (c) => { c.score.sting('shock'); }],
+        [5.6, (c) => { c.score.sting('shock'); }],
         // The faint, and the catch.
         [4.0, (c) => {
           c.score.flap();
@@ -785,7 +909,7 @@ function buildScreenplay(ctx, tw) {
           subject: rosalinda, frame: 'cu', lens: 100, angle: 40, height: 0.24, dur: 7,
           move: { type: 'creep', amount: 1 }, handheld: 0.6, aperture: 2, label: 'CLOSE · 100mm',
         })],
-        [10.5, (c) => { c.weather.strike(1.2); c.score.thunder(1.1, 0.15); }],
+        [12.6, (c) => { c.weather.strike(1.2); c.score.thunder(1.1, 0.15); }],
         // The villains, silhouetted by the lightning.
         [12.0, (c) => {
           c.cam.cut({
@@ -796,13 +920,13 @@ function buildScreenplay(ctx, tw) {
           ricardo.gesture('laugh', { delay: 0.4 });
         }],
         [13.0, (c) => { c.weather.strike(1.4); c.score.thunder(1.3, 0.05); c.score.sting('shock'); }],
-        [16.0, (c) => {
+        [14.2, (c) => {
           c.cam.cut({
             subject: donGallo, frame: 'cu', lens: 85, angle: -8, height: 'low', dur: 5,
             handheld: 0.8, dutch: -10,
           });
           donGallo.look(ricardo, 1);
-          donGallo.gesture('crow');
+          donGallo.gesture('strutPose');
         }],
         // Everyone forgets the egg. The camera does not.
         [20.0, (c) => {
@@ -862,15 +986,15 @@ function buildScreenplay(ctx, tw) {
         }],
         [38.6, (c, d) => d.setSpeed(0.06)],
         [39.0, (c) => { c.titles.show('CONTINUARÁ…', { kind: 'end', dur: 12, fadeIn: 1.2, rule: true }); c.score.say('vo-continuara', 0.6); }],
-        [42.0, (c) => { c.score.setMood('theme', 2); }],
-        [46.0, (c) => { c.post.setLook({ fade: 1 }); }],
+        [39.0, (c) => { c.score.setMood('theme', 2); }],
+        [39.5, (c) => { c.post.setLook({ fade: 1 }); }],
         [48.0, (c, d) => { d.setSpeed(1); c.post.setLook({ freeze: 0 }); }],
       ]),
 
     // =======================================================================
     // The curtain call. The cast line up downstage, take a bow each as their
     // name comes up, and then the crew gets its due.
-    scene('CRÉDITOS', 'el reparto y los culpables', 51,
+    scene('CRÉDITOS', 'el reparto y los culpables', 63,
       (c) => {
         hideAll(c);
         baseLook(c, {
@@ -923,43 +1047,47 @@ function buildScreenplay(ctx, tw) {
           move: { type: 'orbit', amount: 0.5, dur: 26 }, dur: 26, handheld: 0.4, smooth: 3,
           label: 'THE GUILTY · 30mm',
         })],
+        // The announcer's five credit lines run 31 seconds; they were cued
+        // 5.4s apart, so every one of them talked over the next. Spaced to
+        // their measured lengths, and the scene lengthened to hold them.
         [23.4, (c) => {
           c.score.say('vo-credits-1');
           c.titles.show('CLAUDE OPUS 5', {
             kicker: 'dirección · guion · fotografía · vestuario · y todas las plumas',
-            kind: 'credit', dur: 6.5, fadeIn: 1,
+            kind: 'credit', dur: 10.4, fadeIn: 1,
           });
         }],
-        [28.8, (c) => {
+        [34.4, (c) => {
           c.score.say('vo-credits-2');
           c.titles.show('THREE.JS', {
             kicker: 'escenografía construida a mano, polígono por polígono',
-            kind: 'credit', dur: 5.5, fadeIn: 0.9,
+            kind: 'credit', dur: 6.4, fadeIn: 0.9,
           });
         }],
-        [34.0, (c) => {
+        [41.4, (c) => {
           c.score.say('vo-credits-3');
           c.titles.show('ELEVENLABS', {
             kicker: 'música original · truenos · y todos los suspiros',
-            kind: 'credit', dur: 5.5, fadeIn: 0.9,
+            kind: 'credit', dur: 5.3, fadeIn: 0.9,
           });
         }],
-        [39.2, (c) => {
+        [47.2, (c) => {
           c.score.say('vo-credits-4');
           c.titles.show('BRIAN GRUBER', {
             kicker: 'wrote a few prompts',
-            kind: 'credit', dur: 5.5, fadeIn: 0.9,
+            kind: 'credit', dur: 3.8, fadeIn: 0.9,
           });
-          c.score.crow();
         }],
-        [44.4, (c) => {
+        [51.4, (c) => {
           c.score.say('vo-credits-5');
           c.titles.show('NINGUNA GALLINA RESULTÓ HERIDA', {
             sub: 'varias resultaron traicionadas',
-            kind: 'act', dur: 4.5, fadeIn: 0.8,
+            kind: 'act', dur: 6.4, fadeIn: 0.8,
           });
         }],
-        [48.0, (c) => c.post.setLook({ fade: 1 })],
+        // The last sound of the episode.
+        [58.2, (c) => c.score.crow()],
+        [59.6, (c) => c.post.setLook({ fade: 1 })],
       ],
       // The credits run to the announcer's clock, not the director's.
       { pace: 1.0 }),

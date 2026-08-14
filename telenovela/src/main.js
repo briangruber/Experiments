@@ -285,7 +285,7 @@ window.addEventListener('keydown', (e) => {
   else if (e.key === 'ArrowLeft') dir.prev();
   else if (e.key === 'm' || e.key === 'M') soundBtn.click();
   else if (e.key === 'r' || e.key === 'R') dir.restart();
-  else if (e.key >= "1" && e.key <= "7") dir.goTo(+e.key - 1);
+  else if (e.key >= "1" && e.key <= "8") dir.goTo(+e.key - 1);
   else if (e.key === 'Enter' && !running) begin();
 });
 

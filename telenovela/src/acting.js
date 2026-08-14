@@ -420,7 +420,9 @@ export class Actor {
   }
 
   on(evt, fn) { (this.listeners[evt] ||= []).push(fn); return this; }
-  emit(evt) { for (const f of this.listeners[evt] || []) f(this); }
+  // Set for the rest of the frame so the gesture that emitted it can pick it
+  // up; the gesture loop clears it.
+  emit(evt) { this._beat = evt; for (const f of this.listeners[evt] || []) f(this); }
 
   get object() { return this.root; }
 
@@ -477,6 +479,9 @@ export class Actor {
       name, def: g, t: -(opts.delay ?? 0),
       dur: (opts.dur ?? g.dur) * (opts.scale ?? 1),
       weight: opts.weight ?? 1, hold: opts.hold ?? g.hold ?? false, fade: 0,
+      // Fires at the gesture's own beat — the frame the wing connects, or the
+      // beak opens — rather than at whatever second the cue was written on.
+      onBeat: opts.onBeat ?? null,
     });
     return this;
   }
@@ -598,7 +603,9 @@ export class Actor {
       } else {
         g.fade = Math.min(1, g.fade + dt / 0.12);
       }
+      this._beat = null;
       g.def.apply(p, clamp01(u), g.weight * g.fade, this);
+      if (this._beat && g.onBeat) { const fn = g.onBeat; g.onBeat = null; fn(this._beat, this); }
     }
 
     // 6.5 speech. The beak tracks the loudness of the line, so a hard

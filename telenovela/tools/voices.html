@@ -39,7 +39,18 @@ window.__measure = async (ids, hz) => {
       .map((v) => Math.min(9, Math.round((v / (peak || 1)) * 9)))
       .join('');
 
-    out.push({ id, dur, lead, peak, env });
+    // Loudness as heard: the hottest 300ms window, which is what a listener
+    // judges a line by. Peak alone says nothing — one consonant can hit full
+    // scale over a whisper.
+    const win = Math.round(buf.sampleRate * 0.3);
+    let loud = 0;
+    for (let i = first; i <= last; i += Math.round(win / 3)) {
+      let sum = 0;
+      const end = Math.min(last, i + win);
+      for (let j = i; j < end; j++) sum += pcm[j] * pcm[j];
+      loud = Math.max(loud, Math.sqrt(sum / Math.max(1, end - i)));
+    }
+    out.push({ id, dur, lead, peak, loud, env });
   }
   return out;
 };

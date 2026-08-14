@@ -18,6 +18,8 @@ const PROGRESSIONS = {
 const MOODS = {
   silence: { bpm: 80, prog: 'theme', pad: 0, guitar: 0, arp: [], tremolo: 0 },
   theme: { bpm: 96, prog: 'theme', pad: 0.5, guitar: 0.55, arp: [0, 1, 2, 1, 0, 2, 1, 2], tremolo: 0.15 },
+  // The synth has no singers; the opening falls back to the main theme.
+  opening: { bpm: 96, prog: 'theme', pad: 0.55, guitar: 0.6, arp: [0, 1, 2, 1, 0, 2, 1, 2], tremolo: 0.15 },
   romance: { bpm: 68, prog: 'romance', pad: 0.62, guitar: 0.34, arp: [0, 2, 3, 2], tremolo: 0.1, harp: true },
   suspense: { bpm: 112, prog: 'suspense', pad: 0.5, guitar: 0.1, arp: [0], tremolo: 0.85 },
   tragedy: { bpm: 58, prog: 'tragedy', pad: 0.66, guitar: 0.28, arp: [0, 1, 2, 1], tremolo: 0.3, solo: true },

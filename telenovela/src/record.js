@@ -38,21 +38,21 @@ export const CUTS = {
     width: 1280, height: 720,
     // [scene, from, seconds]
     segments: [
-      [0, 1.0, 6],      // the title, the courtyard
-      [1, 3.0, 5],      // he walks in
-      [1, 24.0, 5],     // the almost-kiss
-      [1, 37.5, 4],     // the villainess, watching
-      [2, 14.0, 6],     // the cloth comes off the egg
-      [2, 26.0, 5],     // thunder, the patriarch
-      [3, 11.5, 6],     // the slap
-      [4, 12.5, 5],     // the twin
-      [5, 3.5, 5],      // the faint
-      [5, 28.0, 8],     // the egg hatches, and it looks at you
+      [0, 20.5, 6],     // the company, and the title
+      [2, 3.0, 5],      // he walks in
+      [2, 24.0, 5],     // the almost-kiss
+      [2, 37.5, 4],     // the villainess, watching
+      [3, 14.0, 6],     // the cloth comes off the egg
+      [3, 26.0, 5],     // thunder, the patriarch
+      [4, 11.5, 6],     // the slap
+      [5, 12.5, 5],     // the twin
+      [6, 3.5, 5],      // the faint
+      [6, 28.0, 8],     // the egg hatches, and it looks at you
     ],
   },
   episode: {
     label: 'EPISODIO COMPLETO',
-    note: '4:37 · 540p',
+    note: '5:40 · 540p',
     width: 960, height: 540,
     segments: null,     // the whole thing, start to finish
   },

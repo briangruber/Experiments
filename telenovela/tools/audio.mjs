@@ -36,6 +36,8 @@ const MUSIC = {
   'mus-suspense': [30, 'Suspense underscore for a soap opera. Tremolo strings holding a tense minor chord, low pulsing cello drone, ominous, unresolved, creeping dread. Instrumental, no vocals, no drums.'],
   'mus-storm': [30, 'High drama orchestral cue. Urgent tremolo strings, timpani rolls, brass stabs, storm and betrayal, relentless. Instrumental, no vocals.'],
   'mus-tragedy': [34, 'Heartbroken telenovela lament. Solo violin melody over sparse nylon guitar, very slow, tearful, minor key, resigned. Instrumental, no vocals.'],
+  // The opening title song. Sung, because a telenovela announces itself.
+  'mus-opening': [34, 'Opening title song of a 1980s Mexican telenovela, sung in Spanish as a passionate duet between a man and a woman, lush strings, nylon guitar, dramatic bolero rhythm, anthemic and melodramatic. Lyrics: "Corazon de gallina, corazon sin piedad, me juraste tu amor bajo la oscuridad. Corazon de gallina, no te puedo olvidar, en el patio de luna te vuelvo a esperar."'],
   'mus-credits': [50, 'End credits theme of a Latin American telenovela. Nylon guitar and strings, bittersweet but gently uplifting, warm, a little grand, classic television outro. Instrumental, no vocals.'],
 };
 
@@ -52,8 +54,8 @@ const SFX = {
   'sfx-sting': [3, 'dramatic soap opera organ sting, three chords, dun dun DUNNN, cheesy and theatrical, big vibrato on the last chord'],
   'sfx-sting-reveal': [4, 'huge orchestral shock sting for a soap opera plot twist, strings and brass rising then a held dissonant chord with tremolo'],
   'sfx-rain': [14, 'steady heavy rain falling on stone tiles in a courtyard, continuous, no thunder, no music'],
-  'sfx-fountain': [12, 'a small stone fountain trickling water gently in a quiet courtyard at night, continuous, no music'],
-  'sfx-night': [14, 'quiet warm night ambience, distant crickets, very faint breeze, no music, no animals'],
+  'sfx-fountain': [12, 'water splashing and trickling steadily from a stone fountain into a basin, close, continuous, no music'],
+  'sfx-night': [14, 'a warm summer night in the countryside, a steady chorus of crickets and chirping insects, gentle wind in dry leaves, continuous, no music'],
   // Added once the story pass found beats the audience could not hear.
   'sfx-gate-creak': [3, 'a heavy wooden gate latch lifting and an old iron hinge creaking open slowly, night, close, no music'],
   'sfx-cloth-whip': [2, 'a heavy cloth being yanked off something in one sharp motion, fabric snap and whoosh, close, no music'],

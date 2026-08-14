@@ -7,10 +7,28 @@
 // under himself, because of course he does.
 
 import { AUDIO } from './audio-manifest.js';
+import { CLIP } from './audio-timing.js';
+
+// Clips do not arrive comparable. Measured across the library, the quietest
+// dialogue line is 20x quieter than the loudest, and Esteban's lines sit 40x
+// under a thunder crack — which is why he could not be heard over the storm.
+// Every one-shot is levelled to this reference before the director's own gain
+// is applied, so `gain: 1` finally means the same thing for a slap as for a
+// squawk, and the gains authored in the screenplay express intent rather than
+// whatever the generator happened to render.
+const REF_LOUD = 0.18;
+const MAX_TRIM = 12;      // never amplify a near-silent clip into its own hiss
+
+function levelOf(name) {
+  const c = CLIP[name];
+  if (!c || !c.loud) return 1;
+  return Math.min(MAX_TRIM, Math.max(1 / MAX_TRIM, REF_LOUD / c.loud));
+}
 import { clamp01 } from './util.js';
 
 const MOOD_BED = {
   silence: null,
+  opening: 'mus-opening',
   theme: 'mus-theme',
   romance: 'mus-romance',
   suspense: 'mus-suspense',
@@ -23,7 +41,7 @@ const MOOD_BED = {
 const BED_GAIN = 0.7;
 
 // Music is the biggest thing to decode, so only the opening bed is eager.
-const EAGER = (n) => !n.startsWith('mus-') || n === 'mus-theme';
+const EAGER = (n) => !n.startsWith('mus-') || n === 'mus-theme' || n === 'mus-opening';
 
 export class Soundtrack {
   constructor(manifest = AUDIO) {
@@ -159,11 +177,19 @@ export class Soundtrack {
     this.musicBus.disconnect(this.master);
     this.duck.connect(this.master);
 
+    // Effects duck under speech too, gently. A thunder roll that started
+    // before a line should sit behind it rather than swallow it — which is
+    // what a real mix does, and cheaper than moving every cue off every tail.
+    this.sfxDuck = ctx.createGain(); this.sfxDuck.gain.value = 1;
+    this.sfxDuck.connect(this.master);
     this.sfxBus = ctx.createGain(); this.sfxBus.gain.value = 1;
-    this.sfxBus.connect(this.master);
+    this.sfxBus.connect(this.sfxDuck);
+    // Ambience runs through its own duck so speech can push the rain back.
+    this.ambDuck = ctx.createGain(); this.ambDuck.gain.value = 1;
+    this.ambDuck.connect(this.master);
     this.ambBus = ctx.createGain(); this.ambBus.gain.value = 1;
-    this.ambBus.connect(this.master);
-    this.voxBus = ctx.createGain(); this.voxBus.gain.value = 1.15;
+    this.ambBus.connect(this.ambDuck);
+    this.voxBus = ctx.createGain(); this.voxBus.gain.value = 1.45;
     this.voxBus.connect(this.master);
   }
 
@@ -244,22 +270,26 @@ export class Soundtrack {
       gain.gain.value = 0.0001;
       src.connect(gain).connect(this.ambBus);
       src.start(t);
-      l = { src, gain };
+      l = { src, gain, level: levelOf(name) };
       this.loops.set(name, l);
     }
     l.gain.gain.cancelScheduledValues(t);
-    l.gain.gain.setTargetAtTime(Math.max(0.0001, level), t, ramp / 3);
+    // Levelled like everything else: the fountain rendered 19x quieter than the
+    // rain, so at its authored level it was silence next to a downpour.
+    l.gain.gain.setTargetAtTime(Math.max(0.0001, level * l.level), t, ramp / 3);
   }
 
-  setRain(level) { this.ambience('sfx-rain', clamp01(level) * 0.55); }
+  // Levels are now relative to REF_LOUD, so these read as fractions of a
+  // dialogue line rather than as fractions of whatever the generator rendered.
+  setRain(level) { this.ambience('sfx-rain', clamp01(level) * 0.5); }
   setAmbience(level) {
-    this.ambience('sfx-night', clamp01(level) * 0.2);
-    this.ambience('sfx-fountain', clamp01(level) * 0.16);
+    this.ambience('sfx-night', clamp01(level) * 0.22);
+    this.ambience('sfx-fountain', clamp01(level) * 0.2);
   }
 
   // --- one-shots ------------------------------------------------------------
 
-  play(name, { gain = 1, delay = 0, rate = 1, bus = 'sfx' } = {}) {
+  play(name, { gain = 1, delay = 0, rate = 1, bus = 'sfx', level = true } = {}) {
     if (!this.ready || !this.enabled || !this.scheduling) return null;
     const buf = this.buffers.get(name);
     if (!buf) { this.load(name).catch(() => {}); return null; }
@@ -268,25 +298,39 @@ export class Soundtrack {
     src.buffer = buf;
     src.playbackRate.value = rate;
     const g = this.ctx.createGain();
-    g.gain.value = gain;
+    g.gain.value = gain * (level ? levelOf(name) : 1);
     src.connect(g).connect(bus === 'vox' ? this.voxBus : this.sfxBus);
-    src.start(t);
-    return { src, gain: g, duration: buf.duration / rate };
+    // Encoders pad the head of a file with near-silence — 183ms on the egg
+    // crack, which is five frames after the shell is already splitting. Seek
+    // past it so the attack lands on the cue instead of after it.
+    const onset = CLIP[name] ? CLIP[name].onset : 0;
+    src.start(t, onset);
+    return { src, gain: g, duration: (buf.duration - onset) / rate };
   }
 
+  // Gains are multiples of a dialogue line now, so these read as a mix: a
+  // thunder crack and the slap sit two-thirds above speech, a cluck well under
+  // it. Before levelling the slap was the quietest thing in the library and
+  // the thunder the loudest, whatever these numbers said.
   sting(kind = 'shock') {
-    const map = { shock: 'sfx-sting', reveal: 'sfx-sting-reveal', rise: 'sfx-sting-reveal', small: 'sfx-sting' };
-    this.play(map[kind] || 'sfx-sting', { gain: kind === 'small' ? 0.42 : 0.85, rate: kind === 'small' ? 1.35 : 1 });
+    const map = {
+      shock: ['sfx-sting', 1.35, 1],
+      reveal: ['sfx-sting-reveal', 1.55, 1],
+      rise: ['sfx-sting-reveal', 1.35, 1],
+      small: ['sfx-sting', 0.55, 1.35],
+    };
+    const [name, gain, rate] = map[kind] || map.shock;
+    this.play(name, { gain, rate });
   }
-  thunder(power = 1, delay = 0) { this.play('sfx-thunder', { gain: 0.5 + power * 0.45, delay, rate: 0.92 + power * 0.1 }); }
-  slap() { this.play('sfx-slap', { gain: 1 }); }
-  heartbeat(power = 1) { this.play('sfx-heartbeat', { gain: 0.6 * power }); }
-  crow() { this.play('sfx-crow', { gain: 0.75 }); }
-  squawk() { this.play('sfx-squawk', { gain: 0.5, rate: 0.95 + Math.random() * 0.2 }); }
-  cluck() { this.play('sfx-cluck', { gain: 0.3, rate: 0.9 + Math.random() * 0.3 }); }
-  flap() { this.play('sfx-flap', { gain: 0.45 }); }
-  eggCrack() { this.play('sfx-egg-crack', { gain: 0.7 }); }
-  peep() { this.play('sfx-peep', { gain: 0.75 }); }
+  thunder(power = 1, delay = 0) { this.play('sfx-thunder', { gain: 0.9 + power * 0.75, delay, rate: 0.92 + power * 0.1 }); }
+  slap() { this.play('sfx-slap', { gain: 1.65 }); }
+  heartbeat(power = 1) { this.play('sfx-heartbeat', { gain: 0.72 * power }); }
+  crow() { this.play('sfx-crow', { gain: 1.15 }); }
+  squawk() { this.play('sfx-squawk', { gain: 0.78, rate: 0.95 + Math.random() * 0.2 }); }
+  cluck() { this.play('sfx-cluck', { gain: 0.4, rate: 0.9 + Math.random() * 0.3 }); }
+  flap() { this.play('sfx-flap', { gain: 0.55 }); }
+  eggCrack() { this.play('sfx-egg-crack', { gain: 0.9 }); }
+  peep() { this.play('sfx-peep', { gain: 0.9 }); }
   // The synth had a harp flourish; the sampled score covers that ground with
   // its romance bed, so this is deliberately a no-op rather than a wrong sound.
   harpRun() {}
@@ -296,15 +340,22 @@ export class Soundtrack {
   say(name, delay = 0) {
     const shot = this.play(name, { gain: 1, delay, bus: 'vox' });
     if (!shot) { this.load(name).catch(() => {}); return; }
-    // Duck the music under him. He is the most important thing in the room and
-    // he knows it.
+    // Duck everything under the speaker — the music, and the weather. Three of
+    // the six scenes play under rain at 0.85 or more, and that, not the score,
+    // is what a line has to be heard over.
     const t = this.now() + delay;
-    const g = this.duck.gain;
+    this.dip(this.duck.gain, 0.28, t, shot.duration);
+    this.dip(this.ambDuck.gain, 0.42, t, shot.duration);
+    this.dip(this.sfxDuck.gain, 0.6, t, shot.duration);
+  }
+
+  // Hold a gain down for the length of a line, then let it back up.
+  dip(g, to, t, seconds) {
     g.cancelScheduledValues(t);
     g.setValueAtTime(g.value, t);
-    g.linearRampToValueAtTime(0.4, t + 0.25);
-    g.setValueAtTime(0.4, t + shot.duration);
-    g.linearRampToValueAtTime(1, t + shot.duration + 0.7);
+    g.linearRampToValueAtTime(to, t + 0.2);
+    g.setValueAtTime(to, t + seconds);
+    g.linearRampToValueAtTime(1, t + seconds + 0.6);
   }
 
   // --- transport ------------------------------------------------------------
