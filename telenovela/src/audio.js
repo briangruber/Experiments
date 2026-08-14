@@ -20,6 +20,8 @@ const MOOD_BED = {
   credits: 'mus-credits',
 };
 
+const BED_GAIN = 0.7;
+
 // Music is the biggest thing to decode, so only the opening bed is eager.
 const EAGER = (n) => !n.startsWith('mus-') || n === 'mus-theme';
 
@@ -34,7 +36,10 @@ export class Soundtrack {
     this.buffers = new Map();
     this.pending = new Map();
     this.mood = 'silence';
-    this.bed = null;          // { name, src, gain }
+    this.bed = null;          // { name, src, gain } — the one that is sounding
+    this.beds = new Set();    // everything still audible, including fade-outs
+    this.bedWanted = undefined;
+    this.bedGen = 0;
     this.loops = new Map();   // ambience name -> { src, gain, level }
   }
 
@@ -135,41 +140,63 @@ export class Soundtrack {
 
   // --- music ----------------------------------------------------------------
 
+  startBed(name, buf, fade) {
+    const now = this.ctx.currentTime;
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.linearRampToValueAtTime(BED_GAIN, now + Math.max(0.05, fade));
+    src.connect(gain).connect(this.musicBus);
+    const entry = { name, src, gain };
+    src.onended = () => this.beds.delete(entry);
+    src.start(now);
+    this.beds.add(entry);
+    return entry;
+  }
+
+  stopBed(entry, fade) {
+    const t = this.ctx.currentTime;
+    entry.gain.gain.cancelScheduledValues(t);
+    entry.gain.gain.setValueAtTime(entry.gain.gain.value, t);
+    entry.gain.gain.linearRampToValueAtTime(0.0001, t + fade);
+    try { entry.src.stop(t + fade + 0.05); } catch { /* already stopped */ }
+    if (this.bed === entry) this.bed = null;
+  }
+
   setMood(mood, fade = 2) {
     this.mood = mood;
     if (!this.ready) return this;
     const want = MOOD_BED[mood] ?? null;
-    if (this.bed && this.bed.name === want) return this;
-    const t = this.ctx.currentTime;
+    // Compare against what was last *asked for*, not what is currently
+    // sounding: a bed can be several hundred milliseconds of decoding away from
+    // existing, and during that window the old check saw no bed at all and
+    // happily started a second copy of the same music. The duplicate was never
+    // tracked, so nothing ever stopped it, and the opening theme played on
+    // underneath the entire episode.
+    if (this.bedWanted === want) return this;
+    this.bedWanted = want;
+    const gen = ++this.bedGen;
 
-    if (this.bed) {
-      const old = this.bed;
-      old.gain.gain.cancelScheduledValues(t);
-      old.gain.gain.setValueAtTime(old.gain.gain.value, t);
-      old.gain.gain.linearRampToValueAtTime(0.0001, t + fade);
-      try { old.src.stop(t + fade + 0.05); } catch { /* already stopped */ }
-      this.bed = null;
-    }
+    // Out faster than in. Two different pieces of music crossfading over three
+    // seconds is mud; the old cue should be gone by the time the new one lands.
+    const out = Math.min(fade, 1.2);
+    for (const b of Array.from(this.beds)) this.stopBed(b, out);
     if (!want) return this;
 
-    const startBed = (buf) => {
-      // The mood may have moved on while the bed was decoding.
-      if (MOOD_BED[this.mood] !== want || !this.ctx) return;
-      const now = this.ctx.currentTime;
-      const src = this.ctx.createBufferSource();
-      src.buffer = buf;
-      src.loop = true;
-      const gain = this.ctx.createGain();
-      gain.gain.setValueAtTime(0.0001, now);
-      gain.gain.linearRampToValueAtTime(0.7, now + Math.max(0.05, fade));
-      src.connect(gain).connect(this.musicBus);
-      src.start(now);
-      this.bed = { name: want, src, gain };
+    const begin = (buf) => {
+      if (gen !== this.bedGen || !this.ctx) return;   // superseded while decoding
+      this.bed = this.startBed(want, buf, fade);
     };
-
     const cached = this.buffers.get(want);
-    if (cached) startBed(cached);
-    else this.load(want).then(startBed).catch(() => {});
+    if (cached) begin(cached);
+    else {
+      this.load(want).then(begin).catch(() => {
+        // Let a later cue for the same mood try again.
+        if (gen === this.bedGen) this.bedWanted = undefined;
+      });
+    }
     return this;
   }
 

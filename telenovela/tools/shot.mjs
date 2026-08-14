@@ -142,11 +142,20 @@ if (!errors.length) {
     try { await fetch('data:text/plain;base64,YQ=='); } catch { fetchBlocked = true; }
     const ok = await T.soundtrack.start();
     await new Promise((r) => setTimeout(r, 2500));
+    // Music beds must never stack. Ask for the same bed twice while it is
+    // still decoding, then switch — the shape that once left the opening theme
+    // looping under the whole episode.
+    T.soundtrack.setMood('storm', 0.2);
+    T.soundtrack.setMood('storm', 0.2);
+    T.soundtrack.setMood('tragedy', 0.2);
+    await new Promise((r) => setTimeout(r, 2500));
+    const beds = T.soundtrack.beds ? T.soundtrack.beds.size : -1;
+    T.soundtrack.setMood('silence', 0.2);
     return {
       ok, ready: T.soundtrack.ready, failed: T.soundtrack.failed,
       clips: Object.keys(T.soundtrack.manifest).length,
       decoded: T.soundtrack.buffers.size,
-      fetchBlocked,
+      fetchBlocked, beds,
     };
   });
   await page.evaluate(() => window.__telenovela.soundtrack.setEnabled(false));
@@ -172,7 +181,7 @@ await browser.close();
 server.close();
 
 const lit = results.filter((r) => r.stdLuma > 2 && r.maxLuma > 24);
-const audioOk = !audio || audio.clips === 0 || (audio.ready && audio.decoded > 4);
+const audioOk = !audio || audio.clips === 0 || (audio.ready && audio.decoded > 4 && audio.beds === 1);
 const report = {
   ok: errors.length === 0 && results.length > 0 && lit.length === results.length && audioOk,
   frames: results.length,
@@ -183,7 +192,7 @@ const report = {
 };
 console.log(JSON.stringify(report, null, 2));
 if (!report.ok) {
-  if (!audioOk) console.error('\nSOUNDTRACK DID NOT LOAD: ' + JSON.stringify(audio));
+  if (!audioOk) console.error('\nSOUNDTRACK PROBLEM (beds must be exactly 1): ' + JSON.stringify(audio));
   if (!errors.length && lit.length !== results.length) console.error('\nDARK/FLAT FRAMES: ' + results.filter((r) => !lit.includes(r)).map((r) => r.out).join(', '));
   console.error(logs.slice(-40).join('\n'));
   process.exit(1);

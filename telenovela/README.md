@@ -77,9 +77,17 @@ ELEVENLABS_API_KEY=... node tools/audio.mjs
 node tools/audio.mjs --only vo-title --force     # redo one cue
 ```
 
-`src/audio.js` plays it: beds crossfade on mood changes, rain and night
-ambience ride a continuous gain, and the announcer ducks the music under
-himself. Clips arrive as data URIs in the bundled build, and are decoded
+`src/audio.js` plays it. There is one music bed per mood and only ever one
+sounding at a time: a mood change fades the outgoing cue out over at most 1.2 s
+while the incoming one rises, because two different pieces crossfading slowly is
+mud. Requests are compared against the bed last *asked for* rather than the one
+currently playing — a bed can be several hundred milliseconds of decoding away
+from existing, and checking the wrong thing once let a second copy of the
+opening theme start and loop under the entire episode with nothing tracking it.
+`--csp` runs assert exactly one live bed after a deliberately racy sequence.
+
+Rain and night ambience are separate looping layers on their own gain, and are
+meant to sit under the music. The announcer ducks it under himself. Clips arrive as data URIs in the bundled build, and are decoded
 in-process rather than with `fetch` — fetching a data URI is a `connect-src`
 request, which a strict CSP refuses, and the published page has one. Run the
 harness with `--csp` to test under that policy. It presents exactly the same surface as the procedural synth in
