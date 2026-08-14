@@ -55,6 +55,7 @@ import {
 import { WaveRunner } from './waverunner.js';
 import { SeaPlane } from './seaplane.js';
 import { SeaDragon } from './seadragon.js';
+import { BOAT_MESH } from './boatModel.js';
 import { PLANE_MESH } from './planeModel.js';
 import { DRAGON_MESH } from './dragonModel.js';
 import {
@@ -239,6 +240,31 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	// camera locking - and can never be active at the same time.
 	const plane = new SeaPlane( { canvas } );
 
+	// The fishing boat is a SECOND WaveRunner, not a second physics class - a
+	// displacement hull and a planing hull both float, steer and follow the
+	// surface the same way; only the numbers differ (see the "fishing boat"
+	// block in src/presets.js). WaveRunner.update() reads its tuning by name -
+	// `p.wrTopSpeed`, `p.wrAccel`, and so on - so a boat-tuned instance is fed a
+	// PROXY that answers a `wrFoo` read with the params object's `boatFoo`
+	// instead, and passes anything not `wr`-prefixed straight through
+	// (uCraftWetLine, wakeProbe, seaLevel - the shared, unprefixed knobs both
+	// hulls read alike). WaveRunner itself never sees the difference.
+	const remapParams = ( p, from, to ) => new Proxy( p, {
+		get( target, prop ) {
+
+			if ( typeof prop === 'string' && prop.startsWith( from ) ) {
+
+				const mapped = to + prop.slice( from.length );
+				if ( mapped in target ) return target[ mapped ];
+
+			}
+			return target[ prop ];
+
+		},
+	} );
+	const boatParams = remapParams( params, 'wr', 'boat' );
+	const boat = new WaveRunner( null, null, { canvas } );
+
 	// Scratch, so the per-frame ctx does not allocate.
 	//
 	// Float32Array, NOT THREE.Vector3/Vector2. The drivers read these by INDEX -
@@ -265,24 +291,33 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	craftMesh.visible = false;
 	const craftScene = new THREE.Scene();
 	craftScene.add( craftMesh );
-	// Two hulls, ONE material: the modes are mutually exclusive, so the shared
-	// craft shader just gets the active hull's atlas pointed at it before its
-	// draw. Both atlases are the same class of texture (sRGB, mipped, filtered),
-	// so the swap never changes which sampling instruction the graph built
-	// (porting rule 11).
+	// Three hulls now, ONE material: the modes are mutually exclusive, so the
+	// shared craft shader just gets the active hull's atlas pointed at it before
+	// its draw. Every atlas is the same class of texture (sRGB, mipped,
+	// filtered), so the swap never changes which sampling instruction the graph
+	// built (porting rule 11).
 	const planeBuild = buildCraftGeometry( params.spLength, PLANE_MESH );
 	const planeMesh = new THREE.Mesh( planeBuild.geometry, craftMat );
 	planeMesh.frustumCulled = false;
 	planeMesh.visible = false;
 	planeMesh.matrixAutoUpdate = false;
 	craftScene.add( planeMesh );
-	let skiTex = null, planeTex = null;
+	let boatBuild = buildCraftGeometry( params.boatLength * 2, BOAT_MESH );
+	const boatMesh = new THREE.Mesh( boatBuild.geometry, craftMat );
+	boatMesh.frustumCulled = false;
+	boatMesh.visible = false;
+	boatMesh.matrixAutoUpdate = false;
+	craftScene.add( boatMesh );
+	let boatMeshLen = params.boatLength;
+	let skiTex = null, planeTex = null, boatTex = null;
 	loadCraftTexture( renderer ).then( ( t ) => { skiTex = t; setCraftTexture( t ); } );
 	loadCraftTexture( renderer, PLANE_MESH ).then( ( t ) => { planeTex = t; } );
+	loadCraftTexture( renderer, BOAT_MESH ).then( ( t ) => { boatTex = t; } );
 
 	// The casters, and the scene the shadow pass is redirected to (wrinkle 2).
 	craftMesh.castShadow = true;
 	planeMesh.castShadow = true;
+	boatMesh.castShadow = true;
 	craftScene.add( sunLight );
 	craftScene.add( sunLight.target );
 	shadowCasterScene = craftScene;
@@ -407,7 +442,7 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	// box reads as lit, which for an ocean is the right answer.
 	const aimSunLight = () => {
 
-		const veh = rider.active ? rider : ( plane.active ? plane : null );
+		const veh = rider.active ? rider : ( plane.active ? plane : ( boat.active ? boat : null ) );
 		const on = veh !== null && drawCraftEnabled && params.craftShadow > 0.001;
 		sunLight.shadow.needsUpdate = on;
 		if ( ! on ) return;
@@ -415,7 +450,9 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		const s = derived.sunDir;
 		const size = veh === plane
 			? Math.max( params.spLength * params.spHalfSpan, 4 ) * 1.15
-			: Math.max( params.craftLength, 2 ) * 0.9;
+			: veh === boat
+				? Math.max( params.boatLength * 2, 2 ) * 0.9
+				: Math.max( params.craftLength, 2 ) * 0.9;
 		// How far the light travels past the hull to reach the sea under it.
 		// Clamped, because with the sun on the horizon that distance runs away and
 		// an orthographic box that long has no depth precision left to give.
@@ -517,6 +554,7 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			);
 			craftMesh.visible = true;
 			planeMesh.visible = false;
+			boatMesh.visible = false;
 
 		} else if ( plane.active ) {
 
@@ -539,11 +577,50 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			);
 			planeMesh.visible = true;
 			craftMesh.visible = false;
+			boatMesh.visible = false;
+
+		} else if ( boat.active ) {
+
+			// boatLength is the PROBE half-length (bow to centre); the mesh is
+			// built at twice that, the full bow-to-transom span - see the note
+			// where boat and boatBuild are declared. A live slider change is a
+			// rebuild, the same way the sea dragon's length knob is.
+			if ( Math.abs( params.boatLength - boatMeshLen ) > 0.01 ) {
+
+				const b = buildCraftGeometry( params.boatLength * 2, BOAT_MESH );
+				boatMesh.geometry.dispose();
+				boatMesh.geometry = b.geometry;
+				boatMeshLen = params.boatLength;
+
+			}
+			uCraftWetLine.value = boat.probeH[ 0 ];
+			if ( boatTex ) setCraftTexture( boatTex );
+			setCraftTransform(
+				boatMesh,
+				[
+					boat.pos[ 0 ],
+					// See src/presets.js boatLift: the quantiser centred this mesh
+					// on keel-to-masthead, which measures out at the deck edge, so
+					// this rides the deck proud of the surface the same way
+					// craftLift does for the ski.
+					( boat.deckY ?? 0 ) + params.boatLift,
+					boat.pos[ 2 ],
+				],
+				boat.heading,
+				boat.pitchTrim + params.boatPitchOffset,
+				boat.bank + boat.rollTrim + params.boatRollOffset,
+				params.boatScale,
+				params.boatYawOffset,
+			);
+			boatMesh.visible = true;
+			craftMesh.visible = false;
+			planeMesh.visible = false;
 
 		} else {
 
 			craftMesh.visible = false;
 			planeMesh.visible = false;
+			boatMesh.visible = false;
 
 		}
 
@@ -553,7 +630,7 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	const drawCraft = () => {
 
 		if ( ! drawCraftEnabled ) return;
-		if ( ! craftMesh.visible && ! planeMesh.visible ) return;
+		if ( ! craftMesh.visible && ! planeMesh.visible && ! boatMesh.visible ) return;
 		renderer.render( craftScene, cam3 );
 
 	};
@@ -922,6 +999,10 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		// frame every time the rig moved.
 		if ( rider.active ) rider.update( dt, params, camera.keys, camera );
 		else if ( plane.active ) plane.update( dt, params, camera.keys, camera );
+		// boatParams is the wr->boat remap - see where it and boat are declared.
+		// WaveRunner itself is unmodified; it just reads a different set of
+		// numbers back for the same names.
+		else if ( boat.active ) boat.update( dt, boatParams, camera.keys, camera );
 
 		// The propeller. Idle is a real idle - a running engine never stops the
 		// disc - and the rate climbs with the lever, not with airspeed, because
@@ -934,13 +1015,24 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			uPropAngle.value = propAngle;
 
 		}
+		// Whichever of the rider's hulls (ski or boat) is out, if any, hands its
+		// OWN wrFoo-named tuning to every generic system that reads wrFoo params
+		// straight off whatever object it is given rather than off the hull -
+		// wake-driver.js's wrWakeSpeed/Turn/Slip and spray.js's uCraftBeam/Len
+		// (wrBeam/wrLength) are the two that do. boatParams is a transparent
+		// pass-through for everything NOT wr-prefixed, so this never moves a
+		// shared knob (wakeStrength, seaLevel, ...) out from under the plane or
+		// the free-look camera - only the wr-prefixed ones swap.
+		const activeParams = boat.active ? boatParams : params;
+
 		// The wake field is stamped before anything reads it, from the hull state
 		// the update just produced. The plane hands over floatRig, whose `active`
 		// means "the floats are working the water" - a flying hull must not go
-		// on digging a hollow into the sea under its shadow.
-		wake.update( dt, params, plane.active ? plane.floatRig : rider );
+		// on digging a hollow into the sea under its shadow. The boat is a
+		// WaveRunner like the rider, so it hands itself over the same way.
+		wake.update( dt, activeParams, plane.active ? plane.floatRig : ( boat.active ? boat : rider ) );
 
-		camera.locked = rider.active || plane.active || followDragon;
+		camera.locked = rider.active || plane.active || boat.active || followDragon;
 		camera.update( dt, params );
 
 		// Follow mode drives the camera the way the vehicles do, and for the same
@@ -978,7 +1070,7 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		// that on a hard carve reads as the animal being yanked along behind you.
 		if ( params.sdEnabled >= 0.5 ) {
 
-			dragon.update( dt, params, rider.active ? rider : ( plane.active ? plane : null ), camera );
+			dragon.update( dt, params, rider.active ? rider : ( plane.active ? plane : ( boat.active ? boat : null ) ), camera );
 
 		}
 
@@ -998,7 +1090,7 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		// -Z, so forward is (sin, -cos). Whichever hull is out, the spray and the
 		// water read it through the same ctx fields - the emitter does not care
 		// whether the thing shedding water has a handlebar or a yoke.
-		const veh = rider.active ? rider : ( plane.active ? plane : null );
+		const veh = rider.active ? rider : ( plane.active ? plane : ( boat.active ? boat : null ) );
 		const cf = veh
 			? [ Math.sin( veh.heading ), - Math.cos( veh.heading ) ]
 			: [ 0, 1 ];
@@ -1143,8 +1235,10 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 
 		// The rider, the wake and the sim have already run this frame, above the
 		// camera - see the note there. Only the particles are left, and they need
-		// the ctx that the camera produced.
-		spray.update( dt, params, ctx, sim );
+		// the ctx that the camera produced. activeParams so spray.js's
+		// uCraftBeam/uCraftLen (wrBeam/wrLength) size the plume off whichever
+		// hull is actually out.
+		spray.update( dt, activeParams, ctx, sim );
 
 		// The LUT is a function of sun/moon/eye height only, so it is re-baked when
 		// one of those moves rather than every frame - it is 512x256 of scattering
@@ -1225,19 +1319,19 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		if ( sky.depthMode !== 'behind' ) {
 
 			sky.drawBackground( params, ctx );
-			water.render( params, ctx, sim, cam3, { wake: wake.uniforms( params, rider.active ), hull } );
+			water.render( params, ctx, sim, cam3, { wake: wake.uniforms( params, rider.active || boat.active ), hull } );
 			drawDragonOver();
 			drawCraft();
 
 		} else {
 
-			water.render( params, ctx, sim, cam3, { wake: wake.uniforms( params, rider.active ), hull } );
+			water.render( params, ctx, sim, cam3, { wake: wake.uniforms( params, rider.active || boat.active ), hull } );
 			drawDragonOver();
 			drawCraft();
 			sky.drawBackground( params, ctx );
 
 		}
-		spray.draw( params, ctx, sim, cam3 );
+		spray.draw( activeParams, ctx, sim, cam3 );
 
 		// THE PROBE RUNS AFTER THE WATER, and that is not an ordering nicety.
 		// It samples the cascade displacement through the same uniforms the water
@@ -1249,9 +1343,19 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		// nothing to gain by asking earlier.
 		//
 		// Deliberately not awaited: the frame must never wait on a readback.
-		if ( rider.active ) {
+		//
+		// rider OR boat - the plane does not go through this probe at all, which
+		// predates the boat and is not this change's to fix (see veh === plane
+		// below: those branches were already dead code while the gate read
+		// `rider.active` alone). The boat is a WaveRunner, so probePoints() and
+		// surfXZ() are the same methods rider already calls, generalised to
+		// `veh` rather than hardcoded to `rider`.
+		if ( rider.active || boat.active ) {
 
-			craftProbe.update( rider.probePoints( params ), {
+			// wrLength for the ski, boatLength for the boat - both are the same
+			// quantity, probe spacing bow to centre, in each hull's own units.
+			const halfLen = veh === boat ? Math.max( params.boatLength, 0.5 ) : Math.max( params.wrLength, 0.5 );
+			craftProbe.update( veh.probePoints( veh === boat ? boatParams : params ), {
 				seaLevel: params.seaLevel,
 				// THE HULL MUST NOT READ BACK THE HOLE IT IS CURRENTLY DIGGING.
 				//
@@ -1265,22 +1369,22 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 				// it deepens by sinking, then springs out of it. craft-probe.js says
 				// in as many words why that must not happen. Reported as "WAY too
 				// bouncy on the water". demo/waverunner.js:205-207 is the reference.
-				craftXZ: rider.surfXZ(),
+				craftXZ: veh.surfXZ(),
 				wakeProbe: params.wakeProbe,
-				wakeNear: Math.max( params.wrLength, 0.5 ) * 2.5,
+				wakeNear: halfLen * 2.5,
 				// The hull's waterline length - the scale the probe averages the
 				// sea over. craft-probe.js: THE HULL READS A MIPPED SEA.
-				footprint: veh === plane
-					? Math.max( params.spLength * 0.5, 2 )
-					: Math.max( params.wrLength, 0.5 ),
+				footprint: halfLen,
 				// Buoyancy against the LOCAL water, fading out as the hull gets on
 				// the plane. craft-probe.js: THE SEA IS TALLER THAN ITS AVERAGE.
 				// At rest the craft floats on the crest that is actually under it;
 				// at planing speed it skims the averaged sea. craftPlaneFull is the
 				// speed the hull is considered fully planing at, the same knob the
-				// water's hollow uses.
-				chop: veh === plane
-					? 1 - Math.min( 0.95, plane.va / Math.max( params.spTakeoff * 0.7, 1 ) )
+				// water's hollow uses. The boat never planes - it has no such
+				// threshold - so its own top speed stands in as the reference the
+				// fade saturates against instead.
+				chop: veh === boat
+					? 1 - Math.min( 0.9, Math.abs( boat.speed ) / Math.max( params.boatTopSpeed, 1 ) )
 					: 1 - Math.min( 0.9, Math.abs( rider.speed ) / Math.max( params.craftPlaneFull, 1 ) ),
 			} ).then( ( rows ) => veh.acceptProbe( rows ) ).catch( () => {} );
 
@@ -1312,7 +1416,7 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		cam3,
 		output,
 		onFrame: null,
-		rider, plane, dragon, wake, craftProbe, craftMesh, planeMesh, hull, refraction,
+		rider, plane, boat, dragon, wake, craftProbe, craftMesh, planeMesh, boatMesh, hull, refraction,
 		// A FUNCTION, not a getter: the app object gets spread on its way to
 		// window.abyssal, and a spread evaluates a getter ONCE - so the button
 		// read "Follow" forever while the camera was demonstrably following.
@@ -1335,9 +1439,12 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			rider.active = ! rider.active;
 			if ( rider.active ) {
 
-				// One hull at a time; stepping onto the ski steps out of the plane.
+				// One hull at a time; stepping onto the ski steps out of the plane
+				// and off the boat.
 				plane.active = false;
 				planeMesh.visible = false;
+				boat.active = false;
+				boatMesh.visible = false;
 				rider.reset( camera );
 
 			} else {
@@ -1348,6 +1455,7 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 
 			document.body.classList.toggle( 'riding', rider.active );
 			document.body.classList.toggle( 'flying', false );
+			document.body.classList.toggle( 'boating', false );
 			return rider.active;
 
 		},
@@ -1358,6 +1466,8 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 
 				rider.active = false;
 				craftMesh.visible = false;
+				boat.active = false;
+				boatMesh.visible = false;
 				plane.reset( camera );
 				wake.clear?.();
 
@@ -1369,7 +1479,35 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 
 			document.body.classList.toggle( 'flying', plane.active );
 			document.body.classList.toggle( 'riding', false );
+			document.body.classList.toggle( 'boating', false );
 			return plane.active;
+
+		},
+		// Same shape as toggleRide/toggleFly, and boat.reset() is WaveRunner's
+		// own - it needs no boat-specific version, since resetting a hull to the
+		// camera's position and heading has nothing in it that is ski-shaped.
+		toggleBoat: () => {
+
+			boat.active = ! boat.active;
+			if ( boat.active ) {
+
+				rider.active = false;
+				craftMesh.visible = false;
+				plane.active = false;
+				planeMesh.visible = false;
+				boat.reset( camera );
+				wake.clear?.();
+
+			} else {
+
+				boatMesh.visible = false;
+
+			}
+
+			document.body.classList.toggle( 'boating', boat.active );
+			document.body.classList.toggle( 'riding', false );
+			document.body.classList.toggle( 'flying', false );
+			return boat.active;
 
 		},
 		markSkyDirty: () => { skyDirty = true; },
@@ -1482,7 +1620,7 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			const report = {
 				fps: + fpsFull.toFixed( 1 ), frameMs: + msFull.toFixed( 1 ),
 				resolution: `${ c.width }x${ c.height }`,
-				backend, riding: rider.active, flying: plane.active,
+				backend, riding: rider.active, flying: plane.active, boating: boat.active,
 				fft: params.fftSize, cloudSteps: Math.round( params.cloudSteps * ( params.cloudStepScale ?? 1 ) ),
 				renderScale: + params.renderScale.toFixed( 2 ),
 				stages: rows.slice().sort( ( a, b ) => b.ms - a.ms ),

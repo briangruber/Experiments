@@ -154,10 +154,14 @@
     border-color: var(--glint);
   }
 
-  /* The ride pair. Same construction as the backend group, but Ride carries the
-     accent when it is live, because "am I riding?" is state and not a request. */
-  #ride-row { display: flex; gap: 4px; }
-  #ride-row button {
+  /* The ride pair, and the boat below it in its own row - a fifth button in
+     #ride-row itself measured out too tight on the panel's 15.5rem width to
+     read as anything but a typo. Same construction as the backend group, but
+     Ride/Fly/Boat carry the accent when live, because "am I riding this one?"
+     is state and not a request. */
+  #ride-row, #boat-row { display: flex; gap: 4px; }
+  #boat-row { margin-top: 4px; }
+  #ride-row button, #boat-row button {
     font: 500 11px/1 var(--mono);
     color: var(--spume);
     background: var(--hull);
@@ -171,15 +175,16 @@
   #btn-ride, #btn-fly { flex: 3; }
   #btn-follow { flex: 3; }
   #btn-view { flex: 2; color: var(--haze); }
-  #ride-row button:hover { background: var(--hull-2); color: var(--spume); }
+  #btn-boat { flex: 1; }
+  #ride-row button:hover, #boat-row button:hover { background: var(--hull-2); color: var(--spume); }
   #btn-follow[aria-pressed="true"],
-  #btn-ride[aria-pressed="true"], #btn-fly[aria-pressed="true"] {
+  #btn-ride[aria-pressed="true"], #btn-fly[aria-pressed="true"], #btn-boat[aria-pressed="true"] {
     color: var(--abyss);
     background: var(--glint);
     border-color: var(--glint);
   }
   @media (prefers-reduced-motion: reduce) {
-    #ride-row button { transition: none; }
+    #ride-row button, #boat-row button { transition: none; }
   }
 
   select {
@@ -265,6 +270,9 @@
     <button id="btn-fly" aria-pressed="false" title="Take the seaplane out (F)">Fly</button>
     <button id="btn-view" title="Switch between the chase camera and the pilot's own view (V)">Chase</button>
     <button id="btn-follow" aria-pressed="false" title="Follow the sea dragon, so you can tune it while it swims (G)">Follow</button>
+  </div>
+  <div id="boat-row" role="group" aria-label="Boat">
+    <button id="btn-boat" aria-pressed="false" title="Take the fishing boat out (B)">Boat</button>
   </div>
 
   <select id="preset" aria-label="Sea state preset"></select>

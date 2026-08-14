@@ -309,6 +309,99 @@ export const defaults = {
   wrWakeSpeed: 0.55,
   wrWakeTurn: 0.8,
   wrWakeSlip: 0.10,
+
+  // ---- fishing boat (demo/boatModel.js) ----
+  // A second WaveRunner instance, not a second physics model - see
+  // three-main.js's remapParams(). Every wrFoo above has a boatFoo counterpart
+  // here; where they differ is the whole point: this is a nine-metre
+  // displacement hull, not a jet ski, so it accelerates and turns like one
+  // is heavy, never leaves the water, and does not carve.
+  boatTopSpeed: 12.0,       // m/s, ~23 kn - already generous for a boat this size;
+                            // the point is a fishing boat you enjoy driving, not
+                            // a hull true to its rusty state
+  boatAccel: 3.5,           // a hull this heavy takes its time getting there
+  boatBrake: 3.0,
+  boatBoost: 1.0,           // no boost - Space does nothing extra here
+  boatTurnRate: 0.28,       // rad/s at speed, full lock - a long keel resists yaw
+  boatSteerLag: 1.6,        // the wheel itself takes a moment to come round
+  boatYawInertia: 1.1,      // and the hull is slower still to follow it
+  boatGrip: 3.2,            // a keel does not let the stern step out the way a
+                            // planing hull's does
+  boatAirGrip: 0.25,        // unreachable in practice - see the launch block below
+  boatTurnDrag: 0.12,       // turning scrubs little speed; there is no plane to lose
+  boatCoastSteer: 0.5,      // a rudder still bites off the throttle, unlike a jet
+                            // drive vectoring its own thrust
+  boatAirSteer: 0.25,
+  boatBank: 0.05,           // barely heels
+  boatHover: 0.15,          // rides low and close to the surface
+  boatStiffness: 10.0,      // soft: heavy enough not to skip over chop
+  boatDamping: 9.0,
+  boatGravity: 13.0,
+  // THE LAUNCH IS DELIBERATELY UNREACHABLE, not just untuned low. A
+  // displacement hull does not leave the water, and three independent guards
+  // say so: 0 gain even if the trigger fires, a fall-rate threshold no wave in
+  // this sea produces, and a jump-speed floor above anything the hull can
+  // reach - so `fast` in WaveRunner.update() is false at every speed this hull
+  // has.
+  boatLaunch: 0.0,
+  boatLaunchThreshold: 999.0,
+  boatJumpSpeed: 999.0,
+  boatLaunchG: 5.0,
+  boatJumpGain: 0.0,
+  boatSurfFilter: 22.0,
+  boatLandingDrag: 0.35,    // dead code with the launch disabled; kept so the
+                            // remap has a value for every wrFoo WaveRunner reads
+  boatAttitudeRate: 3.0,    // slower to settle into a pitch/roll - more hull to move
+  boatLength: 4.5,          // probe spacing bow to centre, m - half the hull's
+                            // measured length at boatScale 1
+  boatBeam: 1.65,           // half the hull's measured beam
+  boatCamHeight: 2.6,       // eye height in the rider POV, roughly wheelhouse level
+  boatCamTilt: -0.02,
+  boatCamPitchFollow: 0.4,
+  boatCamRollFollow: 0.3,
+  boatShake: 0.4,           // a heavy hull vibrates far less than a ski does
+  boatFovKick: 6.0,         // modest - this hull never gets fast enough to need
+                            // the lens to do the work of selling speed
+  boatBoostFov: 0.0,
+  boatFovLag: 2.6,
+  boatTouchSteer: 1.6,
+  boatProbeSmooth: 16.0,
+  boatCarveTurn: 1.0,       // Shift buys nothing extra - there is no carve to have
+  boatCarveGrip: 1.0,
+  boatCarveDrag: 1.0,
+  boatWakeSpeed: 0.4,
+  boatWakeTurn: 0.5,
+  boatWakeSlip: 0.05,
+  boatView: 1,              // 0 wheelhouse POV, 1 chase
+  boatCamDistance: 20.0,    // further back than the ski's rig - a bigger vessel
+                            // needs more of the frame to read as one
+  boatCamPull: 0.4,
+  boatCamRise: 6.0,
+  boatCamLift: 0.3,
+  boatCamLag: 4.0,
+  boatCamLook: 4.0,
+  boatCamLookRise: 1.2,
+  boatCamMinClear: 1.0,
+  boatCamChaseRoll: 0.15,
+  boatScale: 1.0,
+  boatYawOffset: 0.0,       // tools/glb.mjs --forward -z already put the bow at
+                            // -Z (verified against the source mesh: the low-hull
+                            // vertices at -Z taper to a point with the density of
+                            // a modelled bow stem; the +Z end has almost none),
+                            // so no correction is needed here - unlike the ski,
+                            // whose source convention needed the pi below.
+  boatPitchOffset: 0.0,
+  boatRollOffset: 0.0,
+  // The quantiser centres each axis on its OWN bounding box (tools/glb.mjs), so
+  // local Y=0 is the midpoint of keel to masthead, not the waterline - and for
+  // this hull that midpoint measures out at the deck edge (the hull's width
+  // collapses hard right around it, moving from the topsides to the cabin and
+  // rigging above). Deck sits a little above the waterline, so this lifts the
+  // mesh origin that much further above the surface reading the probe returns.
+  // An estimate, not a measurement - the honest thing when the source has no
+  // waterline marked on it - and it is a live knob for exactly that reason.
+  boatLift: 0.9,
+
   wakeExtent: 320,          // metres across the world-space wake buffer. This is
                             // the only thing bounding how much of your own path
                             // the sea still remembers.

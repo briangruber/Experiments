@@ -393,6 +393,31 @@ need `water.rebuildGrid()`.
 | `spPropIdle` | Prop idle (rad/s) | `12` | 0 … 40 |  |
 | `spPropRpm` | Prop full power (rad/s) | `95` | 10 … 200 |  |
 
+## Fishing Boat
+
+| parameter | meaning | default | range | |
+| --- | --- | --- | --- | --- |
+| `boatTopSpeed` | Top speed (m/s) | `12` | 2 … 30 |  |
+| `boatAccel` | Acceleration | `3.5` | 0.5 … 15 |  |
+| `boatTurnRate` | Turn rate | `0.28` | 0.02 … 1 |  |
+| `boatSteerLag` | Steering response | `1.6` | 0.2 … 8 |  |
+| `boatYawInertia` | Hull yaw inertia | `1.1` | 0.2 … 6 |  |
+| `boatGrip` | Grip (lower drifts) | `3.2` | 0.5 … 8 |  |
+| `boatCoastSteer` | Off-throttle steering | `0.5` | 0 … 1 |  |
+| `boatView` | View | `1` | `Wheelhouse`, `Chase` |  |
+| `boatCamDistance` | Chase distance (m) | `20` | 4 … 40 |  |
+| `boatCamRise` | Chase height (m) | `6` | 0.5 … 15 |  |
+| `boatCamLag` | Chase lag | `4` | 0.5 … 20 |  |
+| `boatLength` | Half-length (m) | `4.5` | 1 … 12 |  |
+| `boatBeam` | Half-beam (m) | `1.65` | 0.5 … 5 |  |
+| `boatLift` | Ride height offset (m) | `0.9` | -1.5 … 2 |  |
+| `boatScale` | Hull scale | `1` | 0.3 … 3 |  |
+| `boatYawOffset` | Model yaw offset | `0` | -3.15 … 3.15 |  |
+| `boatPitchOffset` | Model pitch offset | `0` | -3.15 … 3.15 |  |
+| `boatRollOffset` | Model roll offset | `0` | -3.15 … 3.15 |  |
+| `boatCamHeight` | Wheelhouse eye height (m) | `2.6` | 0.5 … 5 |  |
+| `boatShake` | Ride shake | `0.4` | 0 … 2 |  |
+
 ## Camera
 
 | parameter | meaning | default | range | |
@@ -528,6 +553,44 @@ derived values.
 | `wrWakeSpeed` | `0.55` |
 | `wrWakeTurn` | `0.8` |
 | `wrWakeSlip` | `0.1` |
+| `boatBrake` | `3` |
+| `boatBoost` | `1` |
+| `boatAirGrip` | `0.25` |
+| `boatTurnDrag` | `0.12` |
+| `boatAirSteer` | `0.25` |
+| `boatBank` | `0.05` |
+| `boatHover` | `0.15` |
+| `boatStiffness` | `10` |
+| `boatDamping` | `9` |
+| `boatGravity` | `13` |
+| `boatLaunch` | `0` |
+| `boatLaunchThreshold` | `999` |
+| `boatJumpSpeed` | `999` |
+| `boatLaunchG` | `5` |
+| `boatJumpGain` | `0` |
+| `boatSurfFilter` | `22` |
+| `boatLandingDrag` | `0.35` |
+| `boatAttitudeRate` | `3` |
+| `boatCamTilt` | `-0.02` |
+| `boatCamPitchFollow` | `0.4` |
+| `boatCamRollFollow` | `0.3` |
+| `boatFovKick` | `6` |
+| `boatBoostFov` | `0` |
+| `boatFovLag` | `2.6` |
+| `boatTouchSteer` | `1.6` |
+| `boatProbeSmooth` | `16` |
+| `boatCarveTurn` | `1` |
+| `boatCarveGrip` | `1` |
+| `boatCarveDrag` | `1` |
+| `boatWakeSpeed` | `0.4` |
+| `boatWakeTurn` | `0.5` |
+| `boatWakeSlip` | `0.05` |
+| `boatCamPull` | `0.4` |
+| `boatCamLift` | `0.3` |
+| `boatCamLook` | `4` |
+| `boatCamLookRise` | `1.2` |
+| `boatCamMinClear` | `1` |
+| `boatCamChaseRoll` | `0.15` |
 | `wakeTexSize` | `512` |
 | `spScale` | `1` |
 | `spCamLook` | `40` |

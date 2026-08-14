@@ -36,8 +36,9 @@ const want = wantedBackend();
 // The two control schemes are different enough that showing the flying one
 // while riding is just wrong - and Shift and Space in particular were doing
 // something nobody had been told about.
-const FLY_HINT = 'Drag to look · W A S D to move · scroll to zoom · R to ride · F to fly';
+const FLY_HINT = 'Drag to look · W A S D to move · scroll to zoom · R to ride · F to fly · B for the boat';
 const RIDE_HINT = 'W throttle · A D steer · Shift to carve · Space boost · V view · R to step off';
+const BOAT_HINT = 'W throttle · A D steer · V view · B to step off';
 const PLANE_HINT = 'W/S throttle lever · A D bank · Shift/\u2193 pull and push · V view · F to step out';
 
 // One place that makes the whole panel agree about the ride, whichever of the
@@ -47,8 +48,13 @@ function syncRide( app ) {
 
 	const riding = !! app.rider?.active;
 	const flying = !! app.plane?.active;
+	const boating = !! app.boat?.active;
 	const hint = document.getElementById( 'hint' );
-	if ( hint ) hint.textContent = flying ? PLANE_HINT : riding ? RIDE_HINT : FLY_HINT;
+	if ( hint ) {
+
+		hint.textContent = flying ? PLANE_HINT : riding ? RIDE_HINT : boating ? BOAT_HINT : FLY_HINT;
+
+	}
 	const btn = document.getElementById( 'btn-ride' );
 	if ( btn ) {
 
@@ -71,6 +77,14 @@ function syncRide( app ) {
 
 		fbtn.setAttribute( 'aria-pressed', String( flying ) );
 		fbtn.textContent = flying ? 'Flying' : 'Fly';
+
+	}
+
+	const bbtn = document.getElementById( 'btn-boat' );
+	if ( bbtn ) {
+
+		bbtn.setAttribute( 'aria-pressed', String( boating ) );
+		bbtn.textContent = boating ? 'Boating' : 'Boat';
 
 	}
 
@@ -137,10 +151,20 @@ function hideControlsCard() {
 
 }
 
+// The boat has its own boatView rather than sharing wrView (the ski's, which
+// the seaplane also reads) - see three-main.js's remapParams. So the one
+// on-screen view toggle has to know which vehicle it is currently toggling.
+function activeViewParam( app ) {
+
+	return app.boat?.active ? 'boatView' : 'wrView';
+
+}
+
 function syncView( app ) {
 
 	const v = document.getElementById( 'btn-view' );
-	if ( v ) v.textContent = app.params.wrView >= 0.5 ? 'Chase' : 'Rider';
+	if ( v ) v.textContent = app.params[ activeViewParam( app ) ] >= 0.5
+		? 'Chase' : ( app.boat?.active ? 'Wheel' : 'Rider' );
 
 }
 
@@ -755,9 +779,17 @@ bootWithFallback().then( ( app ) => {
 		panelUI?.syncAll();
 
 	} );
+	document.getElementById( 'btn-boat' )?.addEventListener( 'click', () => {
+
+		app.toggleBoat();
+		syncRide( app );
+		panelUI?.syncAll();
+
+	} );
 	document.getElementById( 'btn-view' )?.addEventListener( 'click', () => {
 
-		app.params.wrView = app.params.wrView >= 0.5 ? 0 : 1;
+		const k = activeViewParam( app );
+		app.params[ k ] = app.params[ k ] >= 0.5 ? 0 : 1;
 		syncView( app );
 		panelUI?.syncAll();
 
@@ -772,10 +804,12 @@ bootWithFallback().then( ( app ) => {
 		if ( t && ( t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'BUTTON' ) ) return;
 		if ( e.code === 'KeyR' ) { app.toggleRide(); syncRide( app ); }
 		else if ( e.code === 'KeyF' ) { app.toggleFly(); syncRide( app ); }
+		else if ( e.code === 'KeyB' ) { app.toggleBoat(); syncRide( app ); }
 		else if ( e.code === 'KeyG' ) { app.toggleFollow(); syncRide( app ); }
 		else if ( e.code === 'KeyV' ) {
 
-			app.params.wrView = app.params.wrView >= 0.5 ? 0 : 1;
+			const k = activeViewParam( app );
+			app.params[ k ] = app.params[ k ] >= 0.5 ? 0 : 1;
 			syncView( app );
 
 		}

@@ -62,6 +62,7 @@
     "check:reflect": "node tools/bundle-three.mjs && node tools/check-reflection.mjs",
     "check:shadow": "node tools/bundle-three.mjs && node tools/check-shadow.mjs",
     "check:dragon": "node tools/bundle-three.mjs && node tools/check-dragon.mjs",
+    "check:boat": "node tools/bundle-three.mjs && node tools/check-boat.mjs",
     "check:adapt": "node tools/bundle-three.mjs && node tools/check-adapt.mjs",
     "check:contact": "node tools/bundle-three.mjs && node tools/check-contact.mjs",
     "check:sim": "node tools/run-probe.mjs \"prototypes/ocean-golden.html?n=64&steps=8\" --save test/out/gl-64.json && node tools/run-probe.mjs \"prototypes/ocean-compute-probe.html?n=64&steps=8\" --save test/out/wgsl-64.json && node tools/compare-fingerprint.mjs test/out/gl-64.json test/out/wgsl-64.json",
