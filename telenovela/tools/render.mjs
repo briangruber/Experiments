@@ -204,9 +204,15 @@ if (VIDEO_ONLY && !args.includes('--silent')) {
   console.warn('  this ffmpeg cannot encode audio; the result will be silent.');
 }
 
+// The OfflineAudioContext is allocated for exactly this many seconds and has
+// to render every one of them, whether or not there is a video frame to match
+// — passing the untrimmed episode length here meant a --seconds 20 test still
+// paid to render all ~309 seconds of audio, most of it a looping bed nothing
+// was ever going to use.
+const renderSeconds = LIMIT > 0 ? Math.min(LIMIT, totalSeconds) : totalSeconds;
 const begun = await page.evaluate(
   (o) => window.__telenovela.offlineBegin(o),
-  { fps: FPS, width: WIDTH, height: HEIGHT, seconds: totalSeconds, quality: +opt('jpeg', 0.95) },
+  { fps: FPS, width: WIDTH, height: HEIGHT, seconds: renderSeconds, quality: +opt('jpeg', 0.95) },
 );
 if (!begun.ok) { console.error('could not start:', begun.error); process.exit(1); }
 
