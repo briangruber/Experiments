@@ -402,26 +402,83 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		const sea = params.sdSeaLevel ?? 0;
 		if ( ! n || ! ( maxZ > minZ ) ) {
 
-			return { top: dragon.pos[ 1 ] + dragonTopY, zc: 0, half: params.sdLength * 0.5 };
+			return { top: dragon.pos[ 1 ] + dragonTopY, runs: [] };
 
 		}
 		const cp = Math.cos( dragon.pitch ), sp = Math.sin( dragon.pitch );
-		let best = - Infinity, bestZ = 0, lo = Infinity, hi = - Infinity;
+		const step = ( maxZ - minZ ) / n;
+		let best = - Infinity, bestZ = 0;
+		// EVERY separate stretch that is out of the water, not one averaged
+		// span. Averaging is what this did first, and on a serpentine body it
+		// is actively wrong: this animal's profile is a head at ~6.5 m, a NECK
+		// THAT DIPS BELOW ZERO, then a dorsal hump at ~4.5 m. Average "head
+		// out" with "fin out" and the answer is the neck between them - which
+		// is underwater, and is precisely where spray must not come from.
+		const runs = [];
+		let start = null;
 		for ( let b = 0; b < n; b ++ ) {
 
-			const z = minZ + ( maxZ - minZ ) * ( b + 0.5 ) / n;
+			const z = minZ + step * ( b + 0.5 );
 			const y = dragon.pos[ 1 ] + top[ b ] * cp - z * sp;
 			if ( y > best ) { best = y; bestZ = z; }
-			if ( y > sea ) { if ( z < lo ) lo = z; if ( z > hi ) hi = z; }
+			const above = y > sea;
+			if ( above && start === null ) start = z;
+			if ( ( ! above || b === n - 1 ) && start !== null ) {
+
+				runs.push( { lo: start, hi: z } );
+				start = null;
+
+			}
 
 		}
-		// Nothing out of the water: fall back to the single tallest station, so
-		// a body just under the surface still has a sensible place to work from.
-		const found = hi >= lo;
+		return { top: best, bestZ, runs };
+
+	};
+
+	// Which breaching stretch this frame's spray leaves from. There is ONE
+	// emitter in the particle system (spray.js reads a single uCraftPos), so
+	// rather than average the stretches into a point that may be underwater,
+	// the emitter is MOVED between them frame to frame. A parcel lives
+	// craftSprayLife-ish seconds - a hundred-odd frames - so at any instant
+	// the air holds particles thrown from every stretch, which is what
+	// simultaneous emitters would look like anyway.
+	//
+	// Chosen by a golden-ratio sequence weighted by each stretch's length, so
+	// a long flank gets proportionally more spawns than a small fin and the
+	// choice never falls into a short repeating cycle (frame % n does, and on
+	// a two-site body that reads as strict alternation).
+	//
+	// The alternative is a uniformArray of sites indexed per particle inside
+	// the spawn shader - genuinely small, ONE line consumes uCraftPos - but
+	// dynamic uniform-array indexing is exactly what this file's own note at
+	// SAMPLE_OCEAN warns is backend-sensitive, and WebGPU cannot be exercised
+	// from this machine's headless harness. Not worth risking every craft's
+	// spray on an untestable path for an effect this is visually equal to.
+	let dragonWasStamping = false;
+	let dragonSiteSeq = 0;
+	const pickBreachSite = ( info ) => {
+
+		const runs = info.runs;
+		if ( ! runs.length ) {
+
+			// Nothing clear of the water: fall back to the single highest
+			// station, so a body just under the surface still has a sane origin.
+			return { zc: info.bestZ ?? 0, half: params.sdLength * 0.03 };
+
+		}
+		const len = ( r ) => ( r.hi - r.lo ) + params.sdLength * 0.02;
+		const total = runs.reduce( ( a, r ) => a + len( r ), 0 );
+		const t = ( ( dragonSiteSeq ++ ) * 0.6180339887 ) % 1;
+		let acc = 0, pick = runs[ runs.length - 1 ];
+		for ( const r of runs ) {
+
+			acc += len( r );
+			if ( t * total <= acc ) { pick = r; break; }
+
+		}
 		return {
-			top: best,
-			zc: found ? ( lo + hi ) * 0.5 : bestZ,
-			half: Math.max( found ? ( hi - lo ) * 0.5 : 0, params.sdLength * 0.03 ),
+			zc: ( pick.lo + pick.hi ) * 0.5,
+			half: Math.max( ( pick.hi - pick.lo ) * 0.5, params.sdLength * 0.02 ),
 		};
 
 	};
@@ -1199,24 +1256,51 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			// MEASURED, not configured: the half-width of the body where the
 			// sea plane actually crosses it, so a back barely breaking the
 			// surface leaves a narrow track and a broad flank rolling up
-			// leaves a wide one - and it changes as the animal rises and
-			// sounds, with no per-creature width to keep re-guessing.
-			const beam = Math.max(
-				waterlineHalfWidth( dragonProfile, params.sdSeaLevel - dragon.pos[ 1 ] )
-					* ( params.wakeWidthScale ?? 1 ),
-				0.3,
-			);
-			lastWakeDims = {
-				beam,
-				armW: Math.max( params.wakeWidth, beam * 0.3 ),
-				arm: params.wakeArm * ( params.sdWakeArm ?? 0.35 ),
-			};
+			// leaves a wide one, with no per-creature width to keep guessing.
+			//
+			// LATCHED FOR THE WHOLE SURFACING, though, and that is the point.
+			// uWakeBeam is ONE uniform applied at render time to the entire
+			// field - the record stores stir, age, lateral offset and rate,
+			// and all four channels are spoken for, so there is nowhere to put
+			// a per-record width. Re-measuring it every frame therefore
+			// rewrites the width of the ENTIRE EXISTING TRAIL, which is what
+			// was reported: the wake visibly stepping wider and narrower along
+			// its whole length as the animal rose and dove. So it is sampled
+			// once when a surfacing begins and held until that surfacing ends;
+			// the next one measures afresh. A truly per-record width needs a
+			// fifth channel (a second target, or a wider format) - a real
+			// change, and this is the honest behaviour until then rather than
+			// a live number that retroactively edits history.
+			if ( ! dragonWasStamping || ! lastWakeDims ) {
+
+				const beam = Math.max(
+					waterlineHalfWidth( dragonProfile, params.sdSeaLevel - dragon.pos[ 1 ] )
+						* ( params.wakeWidthScale ?? 1 ),
+					0.3,
+				);
+				lastWakeDims = {
+					beam,
+					armW: Math.max( params.wakeWidth, beam * 0.3 ),
+					arm: params.wakeArm * ( params.sdWakeArm ?? 0.35 ),
+				};
+
+			} else {
+
+				// The arm share is a plain parameter, not a measurement, so it
+				// may follow the slider live without rewriting any geometry.
+				lastWakeDims.arm = params.wakeArm * ( params.sdWakeArm ?? 0.35 );
+
+			}
 
 		} else if ( stamping ) {
 
 			lastWakeDims = null;   // a vehicle's own wr*/boat* mapping applies
 
 		}
+		// Read by the latch ABOVE on the next frame, so it must be written
+		// AFTER it - written before, every frame looks like a continuation of
+		// the last and the width never gets measured at all.
+		dragonWasStamping = dragonStamping;
 
 		camera.locked = rider.active || plane.active || boat.active || followDragon;
 		camera.update( dt, params );
@@ -1314,7 +1398,9 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		// foam-mask breach effect in water-surface.js - one pair of sliders for
 		// "how much does breaking the surface disturb it", not a second,
 		// redundant set the two effects could disagree about.
-		const dbr = dragonBreachInfo();
+		const dbrInfo = dragonBreachInfo();
+		const dbrSite = pickBreachSite( dbrInfo );
+		const dbr = { top: dbrInfo.top, zc: dbrSite.zc, half: dbrSite.half };
 		let dragonSpray = 0;
 		if ( ! veh && params.sdEnabled >= 0.5 && params.sdSpray > 0.0005 ) {
 

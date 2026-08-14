@@ -197,22 +197,33 @@ const work = (async () => {
     A.params.wakeEdgeFade = 0.12;
     await frames(2);
 
-    // The width is MEASURED off the mesh at the waterline now, not configured -
-    // so it must (a) match what the profile reports for this depth and (b)
-    // actually CHANGE when the body rises or sinks. A constant would pass (a)
-    // and fail (b), which is the whole point of the second half.
+    // The width is measured off the mesh at the waterline, but LATCHED for
+    // the whole surfacing. uWakeBeam is one global uniform applied to the
+    // entire field at render time (the record's four channels are all spoken
+    // for), so re-measuring it live rewrites the width of the ENTIRE EXISTING
+    // TRAIL - reported as the wake stepping wider and narrower along its whole
+    // length as the animal rose and dove.
     const shallowBeam = wakeDims?.beam ?? 0;
     log('the track renders at the ANIMAL\'s measured width, not the ski\'s',
-        shallowBeam > 1 && shallowBeam < 20,
-        wakeDims ? `dims.beam ${ shallowBeam.toFixed(2) }m measured at the waterline, arm share ${ (wakeDims.arm / Math.max(A.params.wakeArm, 1e-6)).toFixed(2) }` : 'no dims handed to wake.uniforms at all');
+        shallowBeam > 1 && shallowBeam < 25,
+        wakeDims ? `dims.beam ${ shallowBeam.toFixed(2) }m measured at the waterline` : 'no dims handed to wake.uniforms at all');
 
-    forcedDepth = A.params.sdMinDepth + 4;   // same body, riding deeper
-    await frames(4);
-    const deeperBeam = wakeDims?.beam ?? 0;
-    log('and it tracks which PART of the body is at the surface', Math.abs(deeperBeam - shallowBeam) > 0.2,
-        `beam ${ shallowBeam.toFixed(2) }m at depth ${ A.params.sdMinDepth } -> ${ deeperBeam.toFixed(2) }m four metres deeper`);
+    forcedDepth = A.params.sdMinDepth + 4;   // same surfacing, riding deeper
+    await frames(6);
+    log('changing depth MID-surfacing does not rewrite the existing trail',
+        Math.abs((wakeDims?.beam ?? 0) - shallowBeam) < 1e-6,
+        `beam held at ${ (wakeDims?.beam ?? 0).toFixed(2) }m through a 4 m depth change (it used to follow live, restyling the whole trail)`);
+
+    // A NEW surfacing must measure afresh: dive right under, then come back.
+    forcedDepth = topY + 20;
+    await frames(6);
+    forcedDepth = A.params.sdMinDepth + 4;
+    await frames(8);
+    log('but a NEW surfacing measures the width again',
+        (wakeDims?.beam ?? 0) > 0 && Math.abs((wakeDims?.beam ?? 0) - shallowBeam) > 1e-6,
+        `re-measured to ${ (wakeDims?.beam ?? 0).toFixed(2) }m for the new surfacing (was ${ shallowBeam.toFixed(2) }m)`);
     forcedDepth = A.params.sdMinDepth;
-    await frames(4);
+    await frames(6);
 
     // ---- diving lets the old wake FADE, not vanish -----------------------
     // uWakeOn used to follow the source's liveness directly, snapping the
