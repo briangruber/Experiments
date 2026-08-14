@@ -301,8 +301,16 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	dragonMat.name = 'abyssal.dragon';
 	dragonMat.fragmentNode = creatureFragment();
 	dragonMat.positionNode = creatureVertex();
+	// FRONT FACES ONLY AND NOT BLENDED. On a closed body the far side's triangles
+	// face away and are culled, so the near surface is the only thing drawn -
+	// which is what makes an unsorted draw survivable at all. It was blended as
+	// well, and that was the mistake: blending let the mouth and the far flank
+	// show through the near one, reported as "I see its teeth through its body".
+	// The depth fade lives in the colour now (see creatureFragment), so this can
+	// be a plain opaque draw.
 	dragonMat.side = THREE.FrontSide;
-	dragonMat.transparent = true;
+	dragonMat.transparent = false;
+	dragonMat.blending = THREE.NoBlending;
 	dragonMat.depthTest = false;
 	dragonMat.depthWrite = false;
 	const dragonBuild = buildCraftGeometry( params.sdLength, DRAGON_MESH );

@@ -193,11 +193,24 @@ export const creatureFragment = /*@__PURE__*/ Fn( () => {
 	);
 
 	// Alpha: still legible right under the surface, gone by a few fade lengths.
-	const alpha = exp( depth.div( uCreatureFade.max( 0.5 ) ).mul( - 0.85 ) )
-		.mul( uCreatureOpacity ).clamp( 0.0, 1.0 ).toVar();
+	// OPAQUE. Alpha was how this faded with depth, and alpha is also why you could
+	// see its teeth through the back of its own head: a blended draw with no
+	// depth buffer lets every triangle show through every other, and no amount of
+	// water tuning fixes that because it is not the water doing it.
+	//
+	// So the depth fade moves OUT of the alpha and INTO the colour. Water eats a
+	// submerged body by turning it the sea's own colour, not by making it
+	// see-through - swim over a dark shape in ten metres of water and it goes
+	// blue-grey and vanishes into the background, it does not become a window.
+	// This mixes the whole body toward that colour on the same Beer-Lambert law
+	// the alpha used, so it still dissolves as it sounds and sharpens as it
+	// rises, with nothing showing through anything.
+	const swallow = float( 1.0 ).sub(
+		exp( depth.div( uCreatureFade.max( 0.5 ) ).mul( - 0.85 ) ).mul( uCreatureOpacity ),
+	).clamp( 0.0, 1.0 ).toVar();
+	const sea = uCreatureTint.mul( skyIrr ).div( PI_C ).toVar();
+	col.assign( mix( col, sea, swallow ) );
 
-	// NOT premultiplied: three's NormalBlending multiplies by alpha itself, and
-	// doing it here as well fades the haze twice.
-	return vec4( col.mul( transmit ).add( inscatter ), alpha );
+	return vec4( col.mul( transmit ).add( inscatter ), 1.0 );
 
 } );
