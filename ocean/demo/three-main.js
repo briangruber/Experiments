@@ -308,6 +308,20 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	// show through the near one, reported as "I see its teeth through its body".
 	// The depth fade lives in the colour now (see creatureFragment), so this can
 	// be a plain opaque draw.
+	// Front faces only, unblended, and NO DEPTH TEST - which is the one thing
+	// here that is still wrong and cannot be fixed from this file.
+	//
+	// Culling the far side sorts a closed convex body, and a head with an open
+	// jaw in it is not one: the far row of teeth faces the camera, so it is
+	// front-facing, so it draws, and with no depth test the last triangle in
+	// index order wins. That is the teeth-through-the-skull.
+	//
+	// The obvious fix - clear the depth buffer before the draw so the animal has
+	// one of its own - DOES NOT WORK on this renderer: clearing depth mid-frame
+	// restarts the render pass and takes the colour attachment with it, so the
+	// sea it had already drawn came out flat grey. Measured, not guessed. The
+	// animal needs a target with its own depth (src/gpu/tsl/underwater-driver.js,
+	// preserved at 230c301), and that is the fix.
 	dragonMat.side = THREE.FrontSide;
 	dragonMat.transparent = false;
 	dragonMat.blending = THREE.NoBlending;
