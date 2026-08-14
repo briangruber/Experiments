@@ -340,7 +340,7 @@ function seekWithin(sceneSeconds) {
       const sdt = dir.update(step);
       time += sdt;
       if (sdt > 0) {
-        for (const k in actors) actors[k].update(sdt, time);
+        for (const k in actors) actors[k].update(sdt, time, step);
         updateSet(set, sdt, time);
         updateDressing(set, sdt);
         updateWeather(weather, sdt, time, set);
@@ -351,6 +351,7 @@ function seekWithin(sceneSeconds) {
     }
   } finally {
     score.scheduling = wasScheduling;
+    for (const k in actors) actors[k].hush();
   }
 }
 
@@ -378,7 +379,7 @@ function frame() {
     updateSet(set, dt, time);
     updateDressing(set, dt);
     updateWeather(weather, dt, time, set);
-    for (const k in actors) actors[k].update(dt, time);
+    for (const k in actors) actors[k].update(dt, time, dt);
     cam.update(dt, time);
     post.grade(dt);
     post.render(scene, camera, time, cam);
@@ -390,7 +391,7 @@ function frame() {
   time += sdt;
 
   if (sdt > 0) {
-    for (const k in actors) actors[k].update(sdt, time);
+    for (const k in actors) actors[k].update(sdt, time, dt);
     updateSet(set, sdt, time);
     updateDressing(set, sdt);
     updateWeather(weather, sdt, time, set);
@@ -481,7 +482,7 @@ window.__telenovela = {
     const sdt = dir.update(o.dt);
     time += sdt;
     if (sdt > 0) {
-      for (const k in actors) actors[k].update(sdt, time);
+      for (const k in actors) actors[k].update(sdt, time, o.dt);
       updateSet(set, sdt, time);
       updateDressing(set, sdt);
       updateWeather(weather, sdt, time, set);

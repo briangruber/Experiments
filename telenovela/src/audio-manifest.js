@@ -2,6 +2,8 @@
 // paths; the bundler swaps this file for one holding base64 data URIs so the
 // single-file build carries its own audio.
 
+import { LINES } from './dialogue.js';
+
 export const AUDIO_NAMES = [
   // music beds, looped
   'mus-theme', 'mus-romance', 'mus-suspense', 'mus-storm', 'mus-tragedy', 'mus-credits',
@@ -12,10 +14,10 @@ export const AUDIO_NAMES = [
   // ambience, looped
   'sfx-rain', 'sfx-fountain', 'sfx-night',
   // the announcer
-  'vo-title', 'vo-capitulo', 'vo-continuara', 'vo-resumen', 'vo-el-gemelo',
-  // the narrator, in English, over the subtitles that explain
-  'vo-nar-rosalinda', 'vo-nar-valentina', 'vo-nar-egg', 'vo-nar-gate', 'vo-nar-chick',
+  'vo-title', 'vo-capitulo', 'vo-continuara',
   'vo-credits-1', 'vo-credits-2', 'vo-credits-3', 'vo-credits-4', 'vo-credits-5',
+  // and every spoken line, named by the dialogue script
+  ...LINES.map((l) => l.id),
 ];
 
 export const AUDIO = Object.fromEntries(AUDIO_NAMES.map((n) => [n, `./audio/${n}.mp3`]));

@@ -62,29 +62,17 @@ const SFX = {
   'sfx-organ-hold': [6, 'a single sustained dissonant church organ chord, held without decay, slowly swelling, dread, no percussion'],
 };
 
-// The announcer. Spanish, because the register only works in Spanish.
+// The announcer: the voice on the title cards and the credits. The cast's own
+// dialogue is a separate job — see tools/voices.mjs and src/dialogue.js.
 const VOICE = {
   'vo-title': 'Corazón... de gallina.',
   'vo-capitulo': 'Capítulo final.',
   'vo-continuara': 'Continuará...',
-  // The recap that plants a year of backstory before the story needs it.
-  'vo-resumen': 'En el capítulo anterior... Rosalinda esperaba a Esteban. Don Gallo se lo prohibió.',
-  'vo-el-gemelo': '¿...Ricardo?',
   'vo-credits-1': 'Dirección, guion, fotografía, vestuario, y absolutamente todas las plumas: Claude Opus Cinco.',
   'vo-credits-2': 'Escenografía construida a mano, polígono por polígono, en Three punto JS.',
   'vo-credits-3': 'Música original, truenos, y todos los suspiros: ElevenLabs.',
   'vo-credits-4': 'Escribió unos cuantos prompts... Brian Gruber.',
   'vo-credits-5': 'Ninguna gallina resultó herida durante esta producción. Varias resultaron traicionadas.',
-};
-
-// The narrator. English, and read rather than announced — these lines are the
-// subtitles that explain rather than the ones that quote.
-const NARRATOR = {
-  'vo-nar-rosalinda': 'Every night, Rosalinda waits. He never comes.',
-  'vo-nar-valentina': 'Valentina. He was promised to her first.',
-  'vo-nar-egg': 'An egg. Hidden in her own courtyard.',
-  'vo-nar-gate': 'That night at the gate... it was him.',
-  'vo-nar-chick': 'And whose child are you, little one?',
 };
 
 async function exists(p) { try { await stat(p); return true; } catch { return false; } }
@@ -147,19 +135,6 @@ for (const [name, text] of Object.entries(VOICE)) {
       model_id: 'eleven_multilingual_v2',
       // Slow, stable and theatrical: the voice that introduces the episode.
       voice_settings: { stability: 0.45, similarity_boost: 0.75, style: 0.65, use_speaker_boost: true, speed: 0.9 },
-    }, name,
-  ))) || 0;
-}
-
-console.log('narrator');
-for (const [name, text] of Object.entries(NARRATOR)) {
-  total += (await gen(name, () => post(
-    `https://api.elevenlabs.io/v1/text-to-speech/${ANNOUNCER}?output_format=${FMT}`,
-    {
-      text,
-      model_id: 'eleven_multilingual_v2',
-      // Confiding rather than declamatory: this one is telling you a secret.
-      voice_settings: { stability: 0.6, similarity_boost: 0.75, style: 0.35, use_speaker_boost: true, speed: 0.94 },
     }, name,
   ))) || 0;
 }

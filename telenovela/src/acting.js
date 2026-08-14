@@ -4,6 +4,7 @@
 
 import * as THREE from '../vendor/three/three.module.min.js';
 import { REST, applyPose, placeFeet } from './chicken.js';
+import { ENV_HZ } from './dialogue-timing.js';
 import { TAU, clamp, clamp01, lerp, lerpAngle, approach, deg, ease, fbm1, mulberry32 } from './util.js';
 
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3();
@@ -485,6 +486,18 @@ export class Actor {
   }
   clearGestures() { this.gestures.length = 0; this.collapsedAmount = 0; return this; }
 
+  // Say a line. `env` is the baked loudness envelope from tools/voices.mjs and
+  // `dur` its length in REAL seconds — speech runs on the wall clock, not the
+  // scene clock, because the recording does. That distinction is the whole
+  // reason updateSpeech takes its own dt: during the slap the director drops
+  // the world to a fifth speed and freezes a frame, and a mouth that slowed
+  // down with it would drift a second behind its own voice.
+  speak(env, dur) {
+    this.speech = { env, dur, t: 0 };
+    return this;
+  }
+  hush() { this.speech = null; return this; }
+
   look(target, weight = 1) {
     this.lookTarget = target;
     this.lookWeightTarget = weight;
@@ -549,7 +562,7 @@ export class Actor {
 
   // --- per-frame -------------------------------------------------------------
 
-  update(dt, time) {
+  update(dt, time, rdt) {
     if (!this.visible) return;
     const p = REST();
     const rig = this.rig;
@@ -588,12 +601,37 @@ export class Actor {
       g.def.apply(p, clamp01(u), g.weight * g.fade, this);
     }
 
+    // 6.5 speech. The beak tracks the loudness of the line, so a hard
+    // consonant snaps it shut and a held vowel holds it open.
+    this.jawPose(p, rdt ?? dt);
+
     // 7. commit (the gait overlay is applied after posing, in updateFeet)
     this.root.position.copy(this.pos);
     this.root.rotation.y = this.yaw;
     applyPose(rig, p, dt);
     this.updateFeet(dt);
     this.pose = p;
+  }
+
+  jawPose(p, dt) {
+    let target = 0;
+    const s = this.speech;
+    if (s) {
+      s.t += dt;
+      if (s.t >= s.dur) this.speech = null;
+      else if (s.env.length) {
+        const i = Math.min(s.env.length - 1, Math.floor(s.t * ENV_HZ));
+        target = (s.env.charCodeAt(i) - 48) / 9;
+      }
+    }
+    // Fast enough to catch a syllable, slow enough that the jaw has mass.
+    this.jaw = approach(this.jaw ?? 0, target, 26, dt);
+    if (this.jaw < 0.004) return;
+    p.beak += this.jaw * 0.95;
+    // A bird talking moves more than its beak.
+    p.neckExtend += this.jaw * 0.05;
+    p.headPitch += this.jaw * -0.045;
+    p.wattleSwing = (p.wattleSwing ?? 0) + this.jaw * 0.1;
   }
 
   updatePath(dt) {

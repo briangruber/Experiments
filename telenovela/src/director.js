@@ -233,7 +233,6 @@ function buildScreenplay(ctx, tw) {
         [10.0, (c) => {
           c.titles.show('CAPÍTULO FINAL', { kind: 'act', dur: 4.5 });
           c.score.say('vo-capitulo', 0.3);
-          c.score.say('vo-resumen', 1.6);
         }],
         [11.0, (c) => c.cam.move({
           subject: rosalinda, frame: 'mls', lens: 40, angle: 150, height: 'eye',
@@ -671,7 +670,6 @@ function buildScreenplay(ctx, tw) {
             label: 'THE TWIN · 135mm',
           }, 'reveal');
           ricardo.gesture('scheme');
-          c.score.say('vo-el-gemelo', 0.35);
           c.score.play('sfx-hen-gasp', { gain: 0.6 });
         }],
         [16.0, (c) => { c.score.sting('reveal'); c.cam.shake(0.6); }],
