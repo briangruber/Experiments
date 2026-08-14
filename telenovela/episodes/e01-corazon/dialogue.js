@@ -42,6 +42,9 @@ export const SPEAKERS = {
 
 export const LINES = [
   // --- PRELUDIO: who she is, what she waits for, and that it was forbidden.
+  // The moon insert gets a line of its own — the shot exists so the eyeline
+  // "gazing at the moon" finally has an object, and the narrator blesses it.
+  { id: 'dlg-0d', scene: 'preludio', at: 8.3, who: 'narrator', es: 'La luna lo ve todo.', en: 'The moon sees everything.' },
   { id: 'dlg-0a', scene: 'preludio', at: 14.5, who: 'narrator', es: 'Cada noche, Rosalinda espera. Él nunca llega.', en: 'Every night Rosalinda waits. He never comes.' },
   { id: 'dlg-0b', scene: 'preludio', at: 23.5, who: 'narrator', es: 'Don Gallo se lo prohibió. Ella lo sigue amando.', en: 'Don Gallo forbade them. She loves him still.' },
   { id: 'dlg-0c', scene: 'preludio', at: 29.4, who: 'narrator', es: 'Alguien está en el portón…', en: 'Someone is at the gate…' },
@@ -50,15 +53,21 @@ export const LINES = [
   { id: 'dlg-1a', scene: 'encuentro', at: 4.8, who: 'narrator', es: 'Esteban. Un año entero sin una palabra.', en: 'Esteban. A whole year without a word.' },
   { id: 'dlg-1b', scene: 'encuentro', at: 10.4, who: 'rosalinda', es: '¡Volviste!', en: 'You came back!' },
   { id: 'dlg-1c', scene: 'encuentro', at: 26.0, who: 'esteban', es: 'Mañana le pediré su bendición a mi padre.', en: "Tomorrow I will ask my father's blessing." },
+  // Her button on the blessing line — sweet on its face, and the dawn is
+  // exactly what destroys them in the next scene.
+  { id: 'dlg-1c2', scene: 'encuentro', at: 29.5, who: 'rosalinda', es: 'Entonces que amanezca pronto.', en: 'Then let the dawn come quickly.' },
   { id: 'dlg-1d', scene: 'encuentro', at: 33.8, who: 'narrator', es: 'Valentina. A ella se la prometieron primero.', en: 'Valentina. He was promised to her first.' },
   { id: 'dlg-1e', scene: 'encuentro', at: 38.9, who: 'valentina', es: 'Si no puede ser mío, no será de nadie.', en: 'If he cannot be mine, he will be no one’s.' },
   { id: 'dlg-1f', scene: 'encuentro', at: 45.5, who: 'valentina', es: 'Pero yo sé lo que ella esconde aquí.', en: 'But I know what she hides here.' },
 
   // --- LA REVELACIÓN: the egg, and the patriarch who gets to judge it.
-  { id: 'dlg-2a', scene: 'revelacion', at: 9.5, who: 'valentina', es: '¡Pregúntenle qué guarda bajo ese paño!', en: 'Ask her what she keeps under that cloth!' },
+  // Only Esteban is present when she strikes, so the plural gave the line to
+  // nobody — naming him aims it, and weaponizes him against Rosalinda.
+  { id: 'dlg-2a', scene: 'revelacion', at: 9.5, who: 'valentina', es: '¡Pregúntale, Esteban! ¿Qué esconde bajo ese paño?', en: 'Ask her, Esteban! What is she hiding under that cloth?' },
   { id: 'dlg-2b', scene: 'revelacion', at: 15.9, who: 'narrator', es: 'Un huevo. Escondido en su propio patio.', en: 'An egg. Hidden in her own courtyard.' },
-  { id: 'dlg-2c', scene: 'revelacion', at: 19.6, who: 'rosalinda', es: 'Era mi secreto.', en: 'It was to be my secret.' },
-  { id: 'dlg-2d', scene: 'revelacion', at: 21.8, who: 'esteban', es: 'Rosalinda. ¿De quién es?', en: 'Rosalinda. Whose is it?' },
+  // 20.5, not 19.6: her gasp at 19.5 opened the beak on top of the line.
+  { id: 'dlg-2c', scene: 'revelacion', at: 20.5, who: 'rosalinda', es: 'Era mi secreto.', en: 'It was to be my secret.' },
+  { id: 'dlg-2d', scene: 'revelacion', at: 22.2, who: 'esteban', es: 'Rosalinda. ¿De quién es?', en: 'Rosalinda. Whose is it?' },
   { id: 'dlg-2e', scene: 'revelacion', at: 29.0, who: 'narrator', es: 'Don Gallo. El padre de Esteban.', en: "Don Gallo. Esteban's father." },
   { id: 'dlg-2f', scene: 'revelacion', at: 33.2, who: 'donGallo', es: 'Esteban. Respóndele a tu padre.', en: 'Esteban. Answer your father.' },
   { id: 'dlg-2g', scene: 'revelacion', at: 36.4, who: 'esteban', es: 'Se lo juro, padre. No es mío.', en: 'I swear it, father. It is not mine.' },
@@ -83,7 +92,9 @@ export const LINES = [
   { id: 'dlg-4f', scene: 'gemelo', at: 23.5, who: 'rosalinda', es: 'Nunca fuiste tú. Perdóname.', en: 'It was never you. Forgive me.' },
   { id: 'dlg-4g', scene: 'gemelo', at: 30.5, who: 'esteban', es: 'Dejaste que ella creyera que eras yo.', en: 'You let her believe you were me.' },
   { id: 'dlg-4h', scene: 'gemelo', at: 39.5, who: 'ricardo', es: 'Todo tal como lo planeamos, mi amor.', en: 'Everything exactly as we planned, my love.' },
-  { id: 'dlg-4i', scene: 'gemelo', at: 42.6, who: 'rosalinda', es: 'Tú lo sabías. Desde la primera noche.', en: 'You knew. From the very first night.' },
+  // 43.6, not 42.6: the egg insert at 41.9 and the whip to her at 43.4 come
+  // first now, so the line lands on her face rather than under the cut.
+  { id: 'dlg-4i', scene: 'gemelo', at: 43.6, who: 'rosalinda', es: 'Tú lo sabías. Desde la primera noche.', en: 'You knew. From the very first night.' },
 
   // --- CONTINUARÁ: the faint, the disinheriting, the cliffhanger.
   { id: 'dlg-5a', scene: 'continuara', at: 1.0, who: 'rosalinda', es: 'El patio… está dando vueltas…', en: 'The courtyard… it is turning…' },

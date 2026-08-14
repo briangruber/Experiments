@@ -5,7 +5,7 @@
 // dialogue, the tools and the trailer all keep pointing at the scenes they
 // meant.
 
-import { V, MOON, hideAll, baseLook, keyOn, stingCut } from '../../engine/director.js';
+import { V, hideAll, baseLook, keyOn, stingCut } from '../../engine/director.js';
 import { deg, lerp } from '../../engine/util.js';
 import { MARKS } from './marks.js';
 import { subtitleCues } from './subtitles.js';
@@ -21,6 +21,13 @@ import * as creditos from './scenes/creditos.js';
 
 // Play order. Each entry is a scene module: { meta, build }.
 const PLAY = [entrada, preludio, encuentro, revelacion, bofetada, gemelo, continuara, creditos];
+
+// Where the moon actually renders. The engine's MOON constant points at empty
+// back-wall sky — the disc, halo and moon light all sit along +z — so every
+// "gazing at the moon" eyeline aimed at nothing, and preludio's moon insert
+// would frame black. This episode hands its scenes the corrected position;
+// fixing the engine constant is the camera track's call.
+const MOON = V(24, 37, 41);
 
 export const episode = {
   id: 'e01-corazon',

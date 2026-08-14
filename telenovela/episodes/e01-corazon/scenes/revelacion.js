@@ -5,7 +5,9 @@ export const meta = {
   id: 'revelacion',
   name: 'LA REVELACIÓN',
   subtitle: 'el secreto bajo el paño',
-  dur: 56,
+  // 52.5: the fade moved up to 50.5 with the retimed crane, so the old 56
+  // left four dead seconds of black.
+  dur: 52.5,
   pace: 1.15,
   // Scene-seconds worth screenshotting: the accusation, the cloth mid-air,
   // the reactions, the patriarch, the dutch close-up.
@@ -13,7 +15,7 @@ export const meta = {
 };
 
 export function build(deps) {
-  const { actors, V, hideAll, baseLook, stingCut, marks, deg, lerp } = deps;
+  const { actors, V, hideAll, baseLook, keyOn, stingCut, marks, deg, lerp } = deps;
   const { rosalinda, esteban, valentina, donGallo } = actors;
   const { HIS_MARK, HIDE_PALM } = marks;
   return {
@@ -40,8 +42,13 @@ export function build(deps) {
     },
     cues: [
       [0.0, (c) => { c.post.setLook({ fade: 0 }); c.score.setMood('suspense', 2); }],
-      // She breaks cover.
-      [1.0, () => { valentina.gesture('strutPose', { weight: 0.5 }); valentina.look(esteban, 1); }],
+      // She breaks cover — under her own cold key, so the accusation is not
+      // delivered by an invisible smear of navy against the night.
+      [1.0, (c) => {
+        valentina.gesture('strutPose', { weight: 0.5 }); valentina.look(esteban, 1);
+        keyOn(c, valentina, 12);
+        c.set.key.color.setHex(0xb9c6ff);
+      }],
       [2.2, () => valentina.walkTo(0.95, 0.55, { style: 'storm', face: rosalinda.pos })],
       [2.4, (c) => c.cam.move({
         subject: valentina, frame: 'mls', lens: 35, angle: 30, height: 0.32, dur: 6,
@@ -64,9 +71,14 @@ export function build(deps) {
         esteban.emote({ love: 0.1, fear: 0.35, anger: 0.3 }, 3);
         esteban.gesture('recoil');
       }],
-      [9.0, (c) => c.cam.cut({
-        subject: valentina, frame: 'ms', lens: 50, angle: 8, height: 0.34, dur: 7, handheld: 0.7,
-      })],
+      // Re-aim her key — she stormed a metre and a half since 1.0.
+      [9.0, (c) => {
+        keyOn(c, valentina, 12);
+        c.set.key.color.setHex(0xb9c6ff);
+        c.cam.cut({
+          subject: valentina, frame: 'ms', lens: 50, angle: 8, height: 0.34, dur: 7, handheld: 0.7,
+        });
+      }],
       [9.5, () => { valentina.gesture('accuse', { side: 1 }); valentina.pointSide = 1; }],
       // The cloth comes off.
       [12.0, () => valentina.walkTo(-0.15, -1.55, { style: 'storm', face: V(-0.55, 0, -1.15) })],
@@ -94,15 +106,28 @@ export function build(deps) {
         c.score.play('sfx-hen-gasp', { gain: 0.5 });
         c.cam.shake(0.7);
       }],
-      [15.9, (c) => c.cam.cut({
-        subject: c.props.egg, view: 0.2, lens: 100, angle: 24, height: 0.12, dur: 6,
-        move: { type: 'snapZoom', amount: 1, dur: 1.4 }, handheld: 0.5, aperture: 2,
-        label: 'CRASH ZOOM · 100mm',
-      })],
+      // The crash zoom was landing on a blown-white featureless blob. Wider
+      // (view 0.34, snapZoom 0.6) so it arrives with the egg readable AS an
+      // egg; exposure drops for the length of the reveal and the key re-aims
+      // low and warm so the shell has a lit side and a shadow core.
+      [15.9, (c) => {
+        c.post.setLook({ exposure: 1.3 });
+        c.set.key.target.position.copy(c.props.egg.position);
+        c.set.key.intensity = 6;
+        c.set.key.color.setHex(0xffe0bd);
+        c.cam.cut({
+          subject: c.props.egg, view: 0.34, lens: 100, angle: 24, height: 0.12, dur: 6,
+          move: { type: 'snapZoom', amount: 0.6, dur: 1.4 }, handheld: 0.5, aperture: 2,
+          label: 'CRASH ZOOM · 100mm',
+        });
+      }],
       [17.5, (c) => { c.score.heartbeat(1); }],
       [18.5, (c) => { c.score.heartbeat(1); }],
-      // Three reactions, each closer than the last.
+      // Three reactions, each closer than the last — cu / bcu / ecu as a clean
+      // ladder, zooms reined in so none of them overshoots into abstraction.
+      // Exposure returns to the scene's base here.
       [19.5, (c) => {
+        c.post.setLook({ exposure: 1.55 });
         stingCut(c, {
           subject: rosalinda, frame: 'cu', lens: 85, angle: -20, dur: 3, handheld: 0.9,
           move: { type: 'snapZoom', amount: 0.8, dur: 1 }, aperture: 2,
@@ -115,19 +140,23 @@ export function build(deps) {
       [21.5, (c) => {
         stingCut(c, {
           subject: esteban, frame: 'bcu', lens: 100, angle: 16, dur: 3, handheld: 0.9,
-          move: { type: 'snapZoom', amount: 0.9, dur: 1 }, aperture: 2.2,
+          move: { type: 'snapZoom', amount: 0.4, dur: 1 }, aperture: 2.2,
         }, 'small');
         esteban.look(c.props.egg, 1);
         esteban.face(c.props.egg.position);
         esteban.gesture('doubleTake');
         esteban.emote({ shock: 1, anger: 0.5, fear: 0.2, love: 0 }, 4);
       }],
+      // The topper. The laugh throws the head back, so the frame is an ecu's
+      // spirit at a cu's size — at 135mm the head left the frame entirely.
       [23.5, (c) => {
+        keyOn(c, valentina, 12);
+        c.set.key.color.setHex(0xb9c6ff);
         stingCut(c, {
-          subject: valentina, frame: 'ecu', lens: 135, angle: -14, look: 'eye', dur: 3.5,
+          subject: valentina, frame: 'cu', lens: 100, angle: -14, look: 'eye', dur: 3.5,
           handheld: 0.9, aperture: 2.6,
         });
-        valentina.gesture('laugh');
+        valentina.gesture('laugh', { weight: 0.7 });
       }],
       // Thunder, and the patriarch in the archway.
       [26.5, (c) => {
@@ -136,7 +165,10 @@ export function build(deps) {
         c.weather.setRain(0.55);
         c.score.setRain(0.55);
         c.score.setMood('storm', 3);
+        // He enters already furious — the thunder push-in used to find a
+        // curious stroller who only remembered to rage at 29.5.
         donGallo.setVisible(true);
+        donGallo.emote({ anger: 0.9, pride: 1 }, 2);
         c.cam.cut({
           subject: donGallo, frame: 'mls', lens: 28, angle: 4, height: 0.28, dur: 8,
           move: { type: 'push', amount: 0.4, dur: 6 }, handheld: 0.8, dutch: -6,
@@ -144,7 +176,7 @@ export function build(deps) {
         });
       }],
       [27.2, () => donGallo.walkTo(0, -2.35, { style: 'storm', speed: 0.75 })],
-      [29.5, (c) => { donGallo.gesture('crow', { onBeat: () => c.score.crow() }); donGallo.emote({ anger: 0.9, pride: 1 }, 2); }],
+      [29.5, (c) => donGallo.gesture('crow', { onBeat: () => c.score.crow() })],
       [31.8, (c) => c.weather.strike(0.9)],
       [32.5, (c) => c.cam.cut({
         subject: donGallo, frame: 'bcu', lens: 85, angle: -10, height: 'low', dur: 5,
@@ -152,11 +184,14 @@ export function build(deps) {
       })],
       [33.0, () => donGallo.gesture('accuse', { side: -1 })],
       [33.2, () => donGallo.look(esteban, 1)],
+      // The oath. He plays it standing tall, not cowering — a recoil here read
+      // as guilt and killed the twin vindication three scenes later.
       [36.0, (c) => {
         c.cam.cut({ subject: esteban, frame: 'cu', lens: 85, angle: 20, dur: 4, whip: true, handheld: 0.9, dutch: -8 });
         esteban.look(donGallo, 1);
-        esteban.emote({ fear: 0.7, sorrow: 0.4 }, 3);
-        esteban.gesture('recoil');
+        esteban.face(donGallo.pos);
+        esteban.gesture('strutPose', { weight: 0.45 });
+        esteban.emote({ fear: 0.3, pride: 0.5 }, 3);
       }],
       [38.5, (c) => {
         c.cam.cut({ subject: rosalinda, frame: 'cu', lens: 85, angle: -26, dur: 5, whip: true, handheld: 0.9, dutch: 6 });
@@ -164,13 +199,22 @@ export function build(deps) {
         rosalinda.gesture('sob');
         rosalinda.emote({ sorrow: 1, anger: 0.4, love: 0.2 }, 2.5);
       }],
-      [42.0, (c) => c.cam.cut({
+      // And her question breaks him — off camera for now; the crane finds him
+      // stooped.
+      [39.6, () => {
+        esteban.look(rosalinda, 1);
+        esteban.gesture('sigh', { weight: 0.5 });
+        esteban.emote({ sorrow: 0.9, love: 0.4 }, 2);
+      }],
+      // The wide waits for "¿qué fui yo para ti?" to finish hanging (~42.7),
+      // then covers her flight instead of nine seconds of nobody moving.
+      [43.4, (c) => c.cam.cut({
         subject: rosalinda, frame: 'ws', lens: 28, angle: 40, height: 1.9, dur: 9,
         move: { type: 'crane', amount: 0.6, dur: 8 }, handheld: 0.5, label: 'CRANE UP · 28mm',
       })],
       [44.0, (c) => { c.weather.strike(0.7); c.score.thunder(0.7, 0.2); }],
-      [48.0, () => rosalinda.walkTo(-0.9, 0.5, { style: 'hurry' })],
-      [52.0, (c) => c.post.setLook({ fade: 1 })],
+      [44.8, () => rosalinda.walkTo(-0.9, 0.5, { style: 'hurry' })],
+      [50.5, (c) => c.post.setLook({ fade: 1 })],
     ],
   };
 }
