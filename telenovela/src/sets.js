@@ -232,7 +232,7 @@ function palm(rng, height = 1.5) {
   soil.position.y = 0.335;
   g.add(soil);
 
-  const leafMat = new THREE.MeshStandardMaterial({ color: 0x2f5a33, roughness: 0.72, side: THREE.DoubleSide });
+  const leafMat = new THREE.MeshStandardMaterial({ color: 0x21402a, roughness: 0.86, side: THREE.DoubleSide });
   const fronds = new THREE.Group();
   fronds.position.y = 0.34;
   g.add(fronds);
@@ -415,7 +415,7 @@ export function buildSet(scene, renderer) {
   set.add(f);
 
   const palms = [];
-  for (const [x, z, h, sc] of [[2.55, 2.15, 1.7, 1.15], [-3.35, 1.7, 1.4, 1.0], [3.5, -2.2, 1.25, 0.9], [-3.5, -2.4, 1.3, 0.95]]) {
+  for (const [x, z, h, sc] of [[3.15, 2.75, 1.7, 1.15], [-4.05, 2.6, 1.4, 1.0], [3.5, -2.2, 1.25, 0.9], [-3.5, -2.4, 1.3, 0.95]]) {
     const p = palm(rng, h);
     p.position.set(x, 0, z);
     p.scale.setScalar(sc);
@@ -427,7 +427,8 @@ export function buildSet(scene, renderer) {
   const vine = bougainvillea(rng);
   set.add(vine);
 
-  // Bench.
+  // Bench. Kept as a reference so the modelled one can retire it.
+  let bench;
   {
     const b = new THREE.Group();
     const seat = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.08, 0.42), mats.wood);
@@ -445,6 +446,7 @@ export function buildSet(scene, renderer) {
     b.position.copy(MARKS.bench);
     b.rotation.y = deg(-104);
     set.add(b);
+    bench = b;
   }
 
   // Lanterns hung from the arches.
@@ -600,14 +602,15 @@ export function buildSet(scene, renderer) {
   const obstacles = [
     { x: MARKS.fountain.x, z: MARKS.fountain.z, r: 1.2, top: 1.15 },
     { x: MARKS.bench.x, z: MARKS.bench.z, r: 0.85, top: 0.95 },
-    { x: 2.55, z: 2.15, r: 0.5, top: 2.2 },
-    { x: -3.35, z: 1.7, r: 0.45, top: 1.9 },
+    { x: 3.15, z: 2.75, r: 0.5, top: 2.2 },
+    { x: -4.05, z: 2.6, r: 0.45, top: 1.9 },
     { x: 3.5, z: -2.2, r: 0.42, top: 1.7 },
     { x: -3.5, z: -2.4, r: 0.44, top: 1.8 },
   ];
 
   const state = {
     group: set, floor, mats, palms, lanterns, fountain: f, clouds, sky: skyMat, obstacles,
+    proceduralBench: bench,
     keyDefault: new THREE.Vector3(0, 0.4, -0.5),
     keyColorDefault: 0xbcd0ff,
     stars: set.userData.stars, moon, halo, moonLight, ambient, doorway, key, fog,

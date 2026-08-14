@@ -1,0 +1,84 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>asset contact sheet</title>
+<style>
+  body { margin: 0; background: #1a1a1e; }
+  .cell { position: absolute; }
+  .cap {
+    position: absolute; left: 0; bottom: 2px; width: 100%; text-align: center;
+    font: 11px ui-sans-serif, sans-serif; color: #cfc7bb; text-shadow: 0 1px 2px #000;
+  }
+</style>
+<script type="module">
+import * as THREE from '../vendor/three/three.module.min.js';
+import { GLTFLoader } from '../vendor/three/GLTFLoader.js';
+
+window.__preview = async (files, cols, cell) => {
+  const loader = new GLTFLoader();
+  const out = [];
+  for (let i = 0; i < files.length; i++) {
+    const name = files[i];
+    const holder = document.createElement('div');
+    holder.className = 'cell';
+    holder.style.left = `${(i % cols) * cell}px`;
+    holder.style.top = `${Math.floor(i / cols) * cell}px`;
+    holder.style.width = holder.style.height = `${cell}px`;
+    document.body.appendChild(holder);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(cell, cell);
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.1;
+    holder.appendChild(renderer.domElement);
+    const cap = document.createElement('div');
+    cap.className = 'cap';
+    holder.appendChild(cap);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x24242a);
+    scene.add(new THREE.HemisphereLight(0xdfe6ff, 0x3a3028, 1.6));
+    const key = new THREE.DirectionalLight(0xfff0dd, 2.4);
+    key.position.set(2, 3, 2.4);
+    scene.add(key);
+
+    let gltf;
+    try {
+      gltf = await loader.loadAsync(`/assets/${name}`);
+    } catch (e) {
+      cap.textContent = `${name} — FAILED`;
+      out.push({ name, ok: false, error: String(e).slice(0, 120) });
+      continue;
+    }
+    const obj = gltf.scene;
+    scene.add(obj);
+
+    const box = new THREE.Box3().setFromObject(obj);
+    const size = box.getSize(new THREE.Vector3());
+    const centre = box.getCenter(new THREE.Vector3());
+    const radius = Math.max(size.x, size.y, size.z) * 0.5 || 1;
+
+    const camera = new THREE.PerspectiveCamera(35, 1, radius * 0.01, radius * 40);
+    const dir = new THREE.Vector3(0.72, 0.42, 1).normalize();
+    camera.position.copy(centre).addScaledVector(dir, radius * 3.5);
+    camera.lookAt(centre);
+    renderer.render(scene, camera);
+
+    let tris = 0, meshes = 0, mats = new Set();
+    obj.traverse((n) => {
+      if (!n.isMesh) return;
+      meshes++;
+      mats.add(n.material?.uuid);
+      const g = n.geometry;
+      tris += (g.index ? g.index.count : g.attributes.position.count) / 3;
+    });
+    cap.textContent = `${name.replace('.glb', '')} · ${size.x.toFixed(2)}×${size.y.toFixed(2)}×${size.z.toFixed(2)}m`;
+    out.push({
+      name, ok: true, meshes, materials: mats.size, triangles: Math.round(tris),
+      size: [+size.x.toFixed(3), +size.y.toFixed(3), +size.z.toFixed(3)],
+      centre: [+centre.x.toFixed(3), +centre.y.toFixed(3), +centre.z.toFixed(3)],
+      animations: gltf.animations.map((a) => `${a.name}:${a.duration.toFixed(2)}s`),
+    });
+  }
+  return out;
+};
+</script>

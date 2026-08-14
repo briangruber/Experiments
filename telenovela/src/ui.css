@@ -86,6 +86,18 @@ html, body {
 .card-end { top: 40%; font-size: clamp(26px, 5vw, 68px); }
 .card-stinger { top: 20%; font-size: clamp(18px, 3vw, 40px); }
 
+/* Subtitles sit above the lower letterbox bar, in white rather than gold, so
+   they read as translation rather than as another title card. */
+.card-subtitle { top: 78%; font-size: clamp(15px, 2.05vw, 27px); width: min(78vw, 780px); }
+.card-subtitle .card-title {
+  letter-spacing: 0.015em;
+  text-indent: 0;
+  color: #f2ece2;
+  line-height: 1.32;
+  font-style: italic;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95), 0 0 18px rgba(0, 0, 0, 0.8);
+}
+
 /* --- hud ------------------------------------------------------------------ */
 
 #hud {

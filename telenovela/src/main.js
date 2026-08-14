@@ -2,6 +2,7 @@
 
 import * as THREE from '../vendor/three/three.module.min.js';
 import { buildSet, updateSet } from './sets.js';
+import { dressSet, updateDressing } from './dressing.js';
 import { buildCast } from './cast.js';
 import { buildWeather, updateWeather } from './weather.js';
 import { Cinematographer } from './camera.js';
@@ -43,6 +44,13 @@ let dpr = 1, width = 0, height = 0;
 const post = new Post(renderer, 1280, 720);
 
 const ctx = { scene, camera, renderer, set, actors, props, weather, cam, post, score: soundtrack, titles };
+
+// The modelled props load over the procedural courtyard. If they never arrive,
+// the piece is exactly what it was before them.
+const dressed = dressSet(set).catch((e) => {
+  console.warn('set dressing unavailable:', e.message);
+  return null;
+});
 const dir = new Director(ctx);
 ctx.dir = dir;
 
@@ -334,6 +342,7 @@ function seekWithin(sceneSeconds) {
       if (sdt > 0) {
         for (const k in actors) actors[k].update(sdt, time);
         updateSet(set, sdt, time);
+        updateDressing(set, sdt);
         updateWeather(weather, sdt, time, set);
         cam.update(sdt, time);
       }
@@ -367,6 +376,7 @@ function frame() {
     // Idle attract state: hold the establishing shot, keep the world alive.
     time += dt;
     updateSet(set, dt, time);
+    updateDressing(set, dt);
     updateWeather(weather, dt, time, set);
     for (const k in actors) actors[k].update(dt, time);
     cam.update(dt, time);
@@ -382,6 +392,7 @@ function frame() {
   if (sdt > 0) {
     for (const k in actors) actors[k].update(sdt, time);
     updateSet(set, sdt, time);
+    updateDressing(set, sdt);
     updateWeather(weather, sdt, time, set);
     ctx.score.setRain(weather.amount);
     cam.update(sdt, time);
@@ -414,7 +425,7 @@ frame();
 
 // Expose a handle for the capture harness.
 window.__telenovela = {
-  dir, cam, post, actors, scene, camera, renderer, THREE, soundtrack, synth, recorder,
+  dir, cam, post, actors, scene, camera, renderer, THREE, soundtrack, synth, recorder, dressed,
   get lastExport() { return window.__lastExport || null; },
   get score() { return ctx.score; },
   begin() { begin(); },
@@ -472,6 +483,7 @@ window.__telenovela = {
     if (sdt > 0) {
       for (const k in actors) actors[k].update(sdt, time);
       updateSet(set, sdt, time);
+      updateDressing(set, sdt);
       updateWeather(weather, sdt, time, set);
       ctx.score.setRain(weather.amount);
       cam.update(sdt, time);

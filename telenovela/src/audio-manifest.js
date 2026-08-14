@@ -8,10 +8,13 @@ export const AUDIO_NAMES = [
   // one-shots
   'sfx-crow', 'sfx-cluck', 'sfx-squawk', 'sfx-flap', 'sfx-thunder', 'sfx-slap',
   'sfx-egg-crack', 'sfx-peep', 'sfx-heartbeat', 'sfx-sting', 'sfx-sting-reveal',
+  'sfx-gate-creak', 'sfx-cloth-whip', 'sfx-hen-gasp', 'sfx-footsteps-mud', 'sfx-organ-hold',
   // ambience, looped
   'sfx-rain', 'sfx-fountain', 'sfx-night',
   // the announcer
-  'vo-title', 'vo-capitulo', 'vo-continuara',
+  'vo-title', 'vo-capitulo', 'vo-continuara', 'vo-resumen', 'vo-el-gemelo',
+  // the narrator, in English, over the subtitles that explain
+  'vo-nar-rosalinda', 'vo-nar-valentina', 'vo-nar-egg', 'vo-nar-gate', 'vo-nar-chick',
   'vo-credits-1', 'vo-credits-2', 'vo-credits-3', 'vo-credits-4', 'vo-credits-5',
 ];
 

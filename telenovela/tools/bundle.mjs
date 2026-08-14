@@ -21,8 +21,13 @@ const OUT = opt('out', 'dist/corazon-de-gallina.html');
 const MODULES = [
   'util.js', 'chicken.js', 'acting.js', 'cast.js', 'sets.js',
   'camera.js', 'post.js', 'score.js', 'audio-manifest.js', 'audio.js',
-  'titles.js', 'weather.js', 'record.js', 'director.js', 'main.js',
+  'assets-manifest.js', 'dressing.js',
+  'titles.js', 'weather.js', 'record.js', 'subtitles.js', 'director.js', 'main.js',
 ];
+
+// Vendor ES modules that sit on top of three and are imported by name from
+// src/. Bundled between three and our own code, in this order.
+const VENDOR = ['GLTFLoaderDeps.js', 'GLTFLoader.js'];
 
 // Hyphens are legal in filenames and illegal in identifiers.
 const modVar = (f) => '__m_' + basename(f, '.js').replace(/[^A-Za-z0-9_$]/g, '_');
@@ -143,11 +148,38 @@ async function audioManifestModule() {
 export const AUDIO_NAMES = Object.keys(AUDIO);`;
 }
 
+// The props, as base64, for the same reason as the soundtrack: the published
+// page's policy refuses fetch(), so nothing can be loaded at run time.
+async function assetManifestModule() {
+  const { readdir } = await import('node:fs/promises');
+  const { ASSET_NAMES } = await import(new URL('../src/assets-manifest.js', import.meta.url));
+  let present = [];
+  try {
+    present = (await readdir(join(ROOT, 'assets'))).filter((f) => f.endsWith('.glb'));
+  } catch {
+    console.warn('no assets/ directory — bundling without the modelled props');
+  }
+  const entries = [];
+  let bytes = 0;
+  for (const name of ASSET_NAMES) {
+    if (!present.includes(`${name}.glb`)) {
+      console.error(`  assets: ${name}.glb missing, skipped`);
+      continue;
+    }
+    const buf = await readFile(join(ROOT, 'assets', `${name}.glb`));
+    bytes += buf.length;
+    entries.push(`${JSON.stringify(name)}:"data:model/gltf-binary;base64,${buf.toString('base64')}"`);
+  }
+  console.error(`  assets: ${entries.length} props, ${(bytes / 1048576).toFixed(2)} MB`);
+  return `export const ASSETS = {${entries.join(',\n')}};
+export const ASSET_NAMES = Object.keys(ASSETS);`;
+}
+
 // --- our own modules --------------------------------------------------------
-async function bundleModule(file) {
-  const src = file === 'audio-manifest.js'
-    ? await audioManifestModule()
-    : await readFile(join(ROOT, 'src', file), 'utf8');
+async function bundleModule(file, dir = 'src') {
+  const src = file === 'audio-manifest.js' ? await audioManifestModule()
+    : file === 'assets-manifest.js' ? await assetManifestModule()
+      : await readFile(join(ROOT, dir, file), 'utf8');
   const exported = [];
   let body = src
     // `import * as THREE` — THREE is already a top-level binding in the bundle.
@@ -156,12 +188,16 @@ async function bundleModule(file) {
     })()))
     .replace(RE_NAMED_IMPORT, (_, list, from) => {
       const dep = basename(from);
+      const specs = parseSpecifiers(list);
+      const bind = (v) => `const {${specs.map((s) => `${s.from}:${s.to}`).join(',')}} = ${v};`;
+      // three itself is the top-level THREE binding.
+      if (dep === 'three.module.min.js') return bind('THREE');
+      if (VENDOR.includes(dep)) return bind(modVar(dep));
       if (!MODULES.includes(dep)) throw new Error(`${file}: imports unknown module ${from}`);
       if (MODULES.indexOf(dep) >= MODULES.indexOf(file)) {
         throw new Error(`${file}: imports ${dep}, which is not bundled before it`);
       }
-      const specs = parseSpecifiers(list);
-      return `const {${specs.map((s) => `${s.from}:${s.to}`).join(',')}} = ${modVar(dep)};`;
+      return bind(modVar(dep));
     })
     .replace(RE_EXPORT_LIST, (_, list) => {
       for (const s of parseSpecifiers(list)) exported.push(s);
@@ -193,6 +229,7 @@ const [three, css, html] = await Promise.all([
 ]);
 
 const mods = [];
+for (const f of VENDOR) mods.push(await bundleModule(f, 'vendor/three'));
 for (const f of MODULES) mods.push(await bundleModule(f));
 
 const markup = html
@@ -234,5 +271,5 @@ console.log(JSON.stringify({
   out: OUT,
   bytes: page.length,
   mb: +(page.length / 1048576).toFixed(2),
-  modules: MODULES.length,
+  modules: MODULES.length + VENDOR.length,
 }, null, 2));

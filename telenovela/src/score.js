@@ -397,6 +397,7 @@ export class Score {
   eggCrack() {}
   peep() {}
   say() {}
+  play() {}
   setAmbience() {}
 
   captureStream() {

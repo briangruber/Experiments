@@ -109,6 +109,9 @@ await page.goto(`http://127.0.0.1:${port}${PAGE.startsWith('/') ? PAGE : '/' + P
 
 try {
   await page.waitForFunction(() => !!window.__telenovela, null, { timeout: 25000 });
+  // The modelled props arrive after the first frame; wait for them, or half
+  // the contact sheet is of a courtyard that no longer exists.
+  await page.evaluate(() => window.__telenovela.dressed);
 } catch {
   errors.push('window.__telenovela never appeared — startup failed');
 }

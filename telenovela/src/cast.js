@@ -132,9 +132,12 @@ export const CAST_SPECS = {
     iris: 0xd8c47a, eyeRing: 0x8d8a93, size: 1.32, rooster: true, breast: 1.12, rump: 1.0, sickle: 0x3a3742, seed: 41,
   },
   ricardo: {
+    // Esteban's colouring exactly. The twist only lands if the audience can
+    // see they are the same bird; the eyepatch, the scar and the black
+    // neckerchief are the only things that separate them.
     name: 'Ricardo', role: 'el gemelo',
-    plumage: 0x8d5330, accent: 0x6b3b25, comb: 0x8f1f27, beak: 0xb08a45, legs: 0xa87c42,
-    iris: 0xe8752c, eyeRing: 0xb08a5a, size: 1.14, rooster: true, sheen: true, sickle: 0x0f1915, breast: 1.06, seed: 11,
+    plumage: 0xb06a35, accent: 0xd99447, comb: 0xd2333c, beak: 0xdcb057, legs: 0xd6a04c,
+    iris: 0xe0a437, eyeRing: 0xa06a44, size: 1.14, rooster: true, sheen: true, sickle: 0x16352b, breast: 1.06, seed: 11,
   },
   pollito: {
     name: 'Pollito', role: 'el secreto',
@@ -187,26 +190,29 @@ const WARDROBE = {
     scar.position.set(0.05 * rig.size, 0.03 * rig.size, 0.03 * rig.size);
     scar.rotation.z = deg(28);
     rig.propAnchor.add(scar);
+    // The same neckerchief as his brother, in black.
+    neckerchief(rig, 0x141118);
   },
-  esteban(rig) {
-    // A neckerchief: the only thing separating a hero from his evil twin.
-    const band = new THREE.Mesh(
-      new THREE.TorusGeometry(0.072 * rig.size, 0.016 * rig.size, 8, 20),
-      new THREE.MeshStandardMaterial({ color: 0xc4342f, roughness: 0.78 }),
-    );
-    band.rotation.x = deg(90);
-    band.position.y = 0.015 * rig.size;
-    band.castShadow = true;
-    rig.neck.add(band);
-    const knot = new THREE.Mesh(
-      new THREE.ConeGeometry(0.03 * rig.size, 0.07 * rig.size, 6),
-      new THREE.MeshStandardMaterial({ color: 0xc4342f, roughness: 0.78 }),
-    );
-    knot.position.set(0, -0.015 * rig.size, 0.07 * rig.size);
-    knot.rotation.x = deg(150);
-    rig.neck.add(knot);
-  },
+  esteban(rig) { neckerchief(rig, 0xc4342f); },
 };
+
+// The neckerchief both brothers wear, in the two colours that tell them apart.
+function neckerchief(rig, color) {
+  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.78 });
+  const band = new THREE.Mesh(
+    new THREE.TorusGeometry(0.072 * rig.size, 0.016 * rig.size, 8, 20), mat,
+  );
+  band.rotation.x = deg(90);
+  band.position.y = 0.015 * rig.size;
+  band.castShadow = true;
+  rig.neck.add(band);
+  const knot = new THREE.Mesh(
+    new THREE.ConeGeometry(0.03 * rig.size, 0.07 * rig.size, 6), mat,
+  );
+  knot.position.set(0, -0.015 * rig.size, 0.07 * rig.size);
+  knot.rotation.x = deg(150);
+  rig.neck.add(knot);
+}
 
 export function buildCast(scene) {
   const actors = {};

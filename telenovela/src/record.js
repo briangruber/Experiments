@@ -52,7 +52,7 @@ export const CUTS = {
   },
   episode: {
     label: 'EPISODIO COMPLETO',
-    note: '4:25 · 540p',
+    note: '4:37 · 540p',
     width: 960, height: 540,
     segments: null,     // the whole thing, start to finish
   },
@@ -75,13 +75,56 @@ const CARD_STYLE = {
   credit: { top: 0.58, min: 20, vw: 3.2, max: 44 },
   cast: { top: 0.63, min: 19, vw: 3.0, max: 40 },
   stinger: { top: 0.20, min: 18, vw: 3.0, max: 40 },
+  subtitle: { top: 0.78, min: 15, vw: 2.05, max: 27 },
 };
+
+// Subtitles are the one card kind long enough to need wrapping. Two lines
+// maximum — a third would run into the letterbox bar.
+function wrap(ctx, text, maxWidth, maxLines = 2) {
+  const words = text.split(' ');
+  const lines = [];
+  let line = '';
+  for (const word of words) {
+    const next = line ? `${line} ${word}` : word;
+    if (line && ctx.measureText(next).width > maxWidth && lines.length < maxLines - 1) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = next;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
 
 export function drawCards(ctx, titles, w, h) {
   for (const c of titles.cards) {
     const a = c.alpha ?? 0;
     if (a <= 0.002) continue;
     const st = CARD_STYLE[c.kind] || CARD_STYLE.act;
+
+    // Subtitles are set flush, in white, wrapped — everything the gold
+    // display treatment below is not.
+    if (c.kind === 'subtitle') {
+      const size = Math.max(st.min, Math.min(st.max, (st.vw * w) / 100));
+      ctx.save();
+      ctx.globalAlpha = a;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.letterSpacing = '0.015em';
+      ctx.font = `italic 400 ${size}px ${SERIF}`;
+      ctx.fillStyle = '#f2ece2';
+      ctx.shadowColor = 'rgba(0,0,0,0.95)';
+      ctx.shadowBlur = size * 0.5;
+      const lines = wrap(ctx, c.text, Math.min(w * 0.78, 780));
+      // Anchor the block's last line where a single line would sit, so a
+      // two-line subtitle grows upward instead of into the letterbox.
+      let y = st.top * h - (lines.length - 1) * size * 1.32;
+      for (const l of lines) { ctx.fillText(l, w / 2, y); y += size * 1.32; }
+      ctx.restore();
+      continue;
+    }
+
     const size = Math.max(st.min, Math.min(st.max, (st.vw * w) / 100));
     const cx = w / 2;
     let y = st.top * h + (c.drift ?? 1) * (0.5 - (c.progress ?? 0)) * 6;

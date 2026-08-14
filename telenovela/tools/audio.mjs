@@ -54,6 +54,12 @@ const SFX = {
   'sfx-rain': [14, 'steady heavy rain falling on stone tiles in a courtyard, continuous, no thunder, no music'],
   'sfx-fountain': [12, 'a small stone fountain trickling water gently in a quiet courtyard at night, continuous, no music'],
   'sfx-night': [14, 'quiet warm night ambience, distant crickets, very faint breeze, no music, no animals'],
+  // Added once the story pass found beats the audience could not hear.
+  'sfx-gate-creak': [3, 'a heavy wooden gate latch lifting and an old iron hinge creaking open slowly, night, close, no music'],
+  'sfx-cloth-whip': [2, 'a heavy cloth being yanked off something in one sharp motion, fabric snap and whoosh, close, no music'],
+  'sfx-hen-gasp': [3, 'a small crowd of hens gasping and clucking in shock all at once, scandalised, offstage, no music'],
+  'sfx-footsteps-mud': [4, 'slow deliberate footsteps of a large bird walking through wet mud and shallow puddles, rain in the background, close'],
+  'sfx-organ-hold': [6, 'a single sustained dissonant church organ chord, held without decay, slowly swelling, dread, no percussion'],
 };
 
 // The announcer. Spanish, because the register only works in Spanish.
@@ -61,11 +67,24 @@ const VOICE = {
   'vo-title': 'Corazón... de gallina.',
   'vo-capitulo': 'Capítulo final.',
   'vo-continuara': 'Continuará...',
+  // The recap that plants a year of backstory before the story needs it.
+  'vo-resumen': 'En el capítulo anterior... Rosalinda esperaba a Esteban. Don Gallo se lo prohibió.',
+  'vo-el-gemelo': '¿...Ricardo?',
   'vo-credits-1': 'Dirección, guion, fotografía, vestuario, y absolutamente todas las plumas: Claude Opus Cinco.',
   'vo-credits-2': 'Escenografía construida a mano, polígono por polígono, en Three punto JS.',
   'vo-credits-3': 'Música original, truenos, y todos los suspiros: ElevenLabs.',
   'vo-credits-4': 'Escribió unos cuantos prompts... Brian Gruber.',
   'vo-credits-5': 'Ninguna gallina resultó herida durante esta producción. Varias resultaron traicionadas.',
+};
+
+// The narrator. English, and read rather than announced — these lines are the
+// subtitles that explain rather than the ones that quote.
+const NARRATOR = {
+  'vo-nar-rosalinda': 'Every night, Rosalinda waits. He never comes.',
+  'vo-nar-valentina': 'Valentina. He was promised to her first.',
+  'vo-nar-egg': 'An egg. Hidden in her own courtyard.',
+  'vo-nar-gate': 'That night at the gate... it was him.',
+  'vo-nar-chick': 'And whose child are you, little one?',
 };
 
 async function exists(p) { try { await stat(p); return true; } catch { return false; } }
@@ -128,6 +147,19 @@ for (const [name, text] of Object.entries(VOICE)) {
       model_id: 'eleven_multilingual_v2',
       // Slow, stable and theatrical: the voice that introduces the episode.
       voice_settings: { stability: 0.45, similarity_boost: 0.75, style: 0.65, use_speaker_boost: true, speed: 0.9 },
+    }, name,
+  ))) || 0;
+}
+
+console.log('narrator');
+for (const [name, text] of Object.entries(NARRATOR)) {
+  total += (await gen(name, () => post(
+    `https://api.elevenlabs.io/v1/text-to-speech/${ANNOUNCER}?output_format=${FMT}`,
+    {
+      text,
+      model_id: 'eleven_multilingual_v2',
+      // Confiding rather than declamatory: this one is telling you a secret.
+      voice_settings: { stability: 0.6, similarity_boost: 0.75, style: 0.35, use_speaker_boost: true, speed: 0.94 },
     }, name,
   ))) || 0;
 }

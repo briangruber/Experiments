@@ -6,6 +6,7 @@ export class Titles {
   constructor(root) {
     this.root = root;
     this.cards = [];
+    this.live = null;      // the subtitle currently holding the bottom slot
     this.el = document.createElement('div');
     this.el.className = 'cards';
     root.appendChild(this.el);
@@ -14,9 +15,21 @@ export class Titles {
   clear() {
     for (const c of this.cards) c.node.remove();
     this.cards.length = 0;
+    this.live = null;
   }
 
-  // kind: 'main' | 'act' | 'end' | 'stinger'
+  // Subtitles occupy one slot at the bottom of the frame: a new line replaces
+  // whatever is there rather than piling on top of it, which is what makes a
+  // three-line reaction volley readable.
+  subtitle(text, dur = 3) {
+    if (this.live && this.cards.includes(this.live)) this.dismiss(this.live);
+    this.live = this.show(text, {
+      kind: 'subtitle', dur, fadeIn: 0.25, fadeOut: 0.3, drift: 0,
+    });
+    return this.live;
+  }
+
+  // kind: 'main' | 'act' | 'end' | 'stinger' | 'subtitle'
   show(text, opts = {}) {
     const node = document.createElement('div');
     node.className = `card card-${opts.kind || 'act'}`;
@@ -74,8 +87,14 @@ export class Titles {
       const k = Math.min(1, c.t / Math.max(0.01, c.dur));
       c.progress = k;
       c.node.style.transform = `translateX(-50%) translateY(${(0.5 - k) * 6 * c.drift}px) scale(${1 + k * 0.012 * c.drift})`;
-      c.node.style.letterSpacing = `${0.22 + k * 0.06}em`;
-      if (!c.hold && c.t >= c.dur) { c.node.remove(); this.cards.splice(i, 1); }
+      // Cards are optically printed and drift; subtitles are read, and text
+      // that breathes while you are reading it is just harder to read.
+      if (c.kind !== 'subtitle') c.node.style.letterSpacing = `${0.22 + k * 0.06}em`;
+      if (!c.hold && c.t >= c.dur) {
+        c.node.remove();
+        this.cards.splice(i, 1);
+        if (c === this.live) this.live = null;
+      }
     }
   }
 }

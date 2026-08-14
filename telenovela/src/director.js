@@ -4,6 +4,7 @@
 
 import * as THREE from '../vendor/three/three.module.min.js';
 import { makeEgg } from './cast.js';
+import { subtitleCues } from './subtitles.js';
 import { deg, clamp01, ease, lerp } from './util.js';
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
@@ -175,10 +176,17 @@ export function buildProps(scene) {
 function buildScreenplay(ctx, tw) {
   const { actors } = ctx;
   const { rosalinda, esteban, valentina, donGallo, ricardo, pollito } = actors;
-  const scene = (name, subtitle, dur, setup, cues, opts = {}) => ({
-    name, subtitle, dur, setup, pace: opts.pace,
-    cues: cues.map(([t, fn]) => ({ t, fn, fired: false })),
-  });
+  // The subtitle script lives apart from the staging, and gets spliced in here
+  // by position — scenes are constructed in order, so the counter is the scene
+  // index the script refers to.
+  let sceneIndex = -1;
+  const scene = (name, subtitle, dur, setup, cues, opts = {}) => {
+    sceneIndex++;
+    return {
+      name, subtitle, dur, setup, pace: opts.pace,
+      cues: [...cues, ...subtitleCues(sceneIndex)].map(([t, fn]) => ({ t, fn, fired: false })),
+    };
+  };
 
   // Standing marks.
   const BY_FOUNTAIN = V(-0.75, 0, 0.35);
@@ -206,6 +214,11 @@ function buildScreenplay(ctx, tw) {
         c.set.wetness = 0;
         rosalinda.setVisible(true).place(BY_FOUNTAIN.x, BY_FOUNTAIN.z, deg(-140)).setEmotion({ sorrow: 0.5 });
         rosalinda.look(MOON, 0.9);
+        // The secret is on screen from the first shot, covered. The genre's
+        // contract is that we see it before the villainess does.
+        c.props.cloth.visible = true;
+        c.props.cloth.position.set(-0.55, 0.13, -1.15);
+        c.props.cloth.rotation.set(-Math.PI / 2, 0, 0);
         c.cam.cut({
           subject: rosalinda, view: 3.4, lens: 20, angle: 196, height: 1.25,
           move: { type: 'descend', amount: 0.45, dur: 17 }, dur: 18, handheld: 0.3, smooth: 1.6,
@@ -214,15 +227,19 @@ function buildScreenplay(ctx, tw) {
       },
       [
         [0.0, (c) => { c.post.setLook({ fade: 0 }); c.score.setMood('theme', 4); c.score.setAmbience(1); }],
-        [1.6, (c) => c.score.say('vo-title')],
         [1.4, (c) => c.titles.show('CORAZÓN DE GALLINA', { sub: 'una telenovela de corral', kind: 'main', dur: 8, rule: true, fadeIn: 2 })],
+        [1.6, (c) => c.score.say('vo-title')],
         [6.5, (c) => { rosalinda.gesture('sigh'); c.score.cluck(); }],
-        [10.0, (c) => { c.titles.show('CAPÍTULO FINAL', { kind: 'act', dur: 4.5 }); c.score.say('vo-capitulo', 0.3); }],
+        [10.0, (c) => {
+          c.titles.show('CAPÍTULO FINAL', { kind: 'act', dur: 4.5 });
+          c.score.say('vo-capitulo', 0.3);
+          c.score.say('vo-resumen', 1.6);
+        }],
         [11.0, (c) => c.cam.move({
           subject: rosalinda, frame: 'mls', lens: 40, angle: 150, height: 'eye',
           move: { type: 'creep', amount: 1 }, dur: 8, smooth: 2.6, handheld: 0.5,
         })],
-        [14.5, () => rosalinda.gesture('sob', { weight: 0.45, scale: 0.9 })],
+        [14.5, (c) => { rosalinda.gesture('sob', { weight: 0.45, scale: 0.9 }); rosalinda.look(c.props.cloth.position, 1); }],
         [19.0, (c) => {
           c.cam.cut({
             subject: rosalinda, frame: 'cu', lens: 85, angle: 28, look: 'head',
@@ -235,6 +252,7 @@ function buildScreenplay(ctx, tw) {
         [26.0, (c) => {
           rosalinda.gesture('cock', { side: 1 });
           rosalinda.look(V(0, 0.4, -3.2), 1);
+          c.score.play('sfx-gate-creak', { gain: 0.7 });
           c.score.sting('small');
           c.score.cluck();
         }],
@@ -255,7 +273,14 @@ function buildScreenplay(ctx, tw) {
         rosalinda.setVisible(true).place(HER_MARK.x, HER_MARK.z, deg(178)).setEmotion({ love: 0.3, sorrow: 0.25 });
         rosalinda.look(V(0, 0.5, -3.1), 1);
         esteban.setVisible(true).place(OFF_CENTRE.x, OFF_CENTRE.z, 0).setEmotion({ pride: 0.6 });
-        valentina.setVisible(false).place(HIDE_PALM.x, HIDE_PALM.z, deg(200));
+        // Valentina is on screen the whole scene, unlit and behind them, so the
+        // rack focus at 34.5 finds someone the audience had half-noticed rather
+        // than conjuring a stranger out of the dark.
+        valentina.setVisible(true).place(2.55, -0.05, deg(-91)).setEmotion({ anger: 0.35 });
+        valentina.lookAway();
+        c.props.cloth.visible = true;
+        c.props.cloth.position.set(-0.55, 0.13, -1.15);
+        c.props.cloth.rotation.set(-Math.PI / 2, 0, 0);
         c.cam.cut({
           subject: V(0, 0.5, -3.1), frame: 'mls', lens: 35, angle: 17, height: 0.5,
           dur: 8, handheld: 0.6, label: 'THE GATE · 35mm',
@@ -306,7 +331,7 @@ function buildScreenplay(ctx, tw) {
         [30.0, (c) => { c.score.setMood('romance', 2); c.score.harpRun(true); }],
         // And behind them, in the dark, someone is watching.
         [32.0, (c) => {
-          valentina.setVisible(true).setEmotion({ anger: 0.5 });
+          valentina.emote({ anger: 0.8, love: 0.4 }, 2);
           valentina.look(esteban, 0.9);
           c.cam.cut({
             subject: rosalinda, frame: 'mcu', lens: 100, angle: 200, height: 0.5, dur: 12,
@@ -329,7 +354,7 @@ function buildScreenplay(ctx, tw) {
           subject: valentina, frame: 'ecu', lens: 135, angle: -22, look: 'eye', dur: 5,
           handheld: 0.9, aperture: 2.6, label: 'EXTREME CLOSE-UP · 135mm',
         })],
-        [43.0, () => valentina.gesture('cock', { side: -1, weight: 0.6 })],
+        [43.0, (c) => { valentina.gesture('cock', { side: -1, weight: 0.6 }); valentina.look(c.props.cloth.position, 1); }],
         [48.5, (c) => c.post.setLook({ fade: 1 })],
       ]),
 
@@ -408,13 +433,14 @@ function buildScreenplay(ctx, tw) {
             cloth.rotation.x = -Math.PI / 2 + u * 1.4;
           }, { ease: 'expoOut', done: () => { cloth.visible = false; } });
           c.score.sting('reveal');
-          c.score.flap();
+          c.score.play('sfx-cloth-whip', { gain: 0.8 });
+          c.score.play('sfx-hen-gasp', { gain: 0.5 });
           c.cam.shake(0.7);
         }],
         [15.9, (c) => c.cam.cut({
-          subject: c.props.egg, frame: 'bcu', lens: 100, angle: 24, height: 0.12, dur: 6,
+          subject: c.props.egg, view: 0.2, lens: 100, angle: 24, height: 0.12, dur: 6,
           move: { type: 'snapZoom', amount: 1, dur: 1.4 }, handheld: 0.5, aperture: 2,
-          label: 'CRASH ZOOM · 100mm', look: 'head',
+          label: 'CRASH ZOOM · 100mm',
         })],
         [17.5, (c) => { c.score.heartbeat(1); }],
         [18.5, (c) => { c.score.heartbeat(1); }],
@@ -437,9 +463,9 @@ function buildScreenplay(ctx, tw) {
           });
           esteban.look(c.props.egg, 1);
           esteban.face(c.props.egg.position);
-          esteban.gesture('gasp');
+          esteban.gesture('doubleTake');
           c.score.squawk();
-          esteban.emote({ fear: 0.9, anger: 0.2, love: 0 }, 4);
+          esteban.emote({ shock: 1, anger: 0.5, fear: 0.2, love: 0 }, 4);
         }],
         [23.5, (c) => {
           stingCut(c, {
@@ -490,7 +516,7 @@ function buildScreenplay(ctx, tw) {
         [44.0, (c) => { c.weather.strike(0.7); c.score.thunder(0.7, 0.2); }],
         [48.0, () => rosalinda.walkTo(-0.9, 0.5, { style: 'hurry' })],
         [52.0, (c) => c.post.setLook({ fade: 1 })],
-      ]),
+      ], { pace: 1.15 }),
 
     // =======================================================================
     scene('LA BOFETADA', 'lo que se dice sin hablar', 38,
@@ -524,10 +550,14 @@ function buildScreenplay(ctx, tw) {
           esteban.gesture('recoil');
           esteban.emote({ sorrow: 0.9, fear: 0.5 }, 2);
         }],
-        [8.5, (c) => c.cam.cut({
-          subject: rosalinda, over: esteban, frame: 'mcu', lens: 85, angle: 24, dur: 5, handheld: 0.6,
-          label: 'OVER SHOULDER · 85mm',
-        })],
+        [8.5, (c) => {
+          c.cam.cut({
+            subject: rosalinda, over: esteban, frame: 'mcu', lens: 85, angle: 24, dur: 5, handheld: 0.6,
+            label: 'OVER SHOULDER · 85mm',
+          });
+          esteban.gesture('spurn', { weight: 0.5 });
+          esteban.look(valentina, 0.8);
+        }],
         [10.5, () => rosalinda.gesture('shudder')],
         // The slap. Time slows on the wind-up.
         [12.0, (c) => {
@@ -564,8 +594,10 @@ function buildScreenplay(ctx, tw) {
         [21.0, (c) => c.cam.cut({
           subject: esteban, frame: 'mcu', lens: 85, angle: -8, dur: 6, handheld: 0.7, dutch: -5,
         })],
-        [21.5, () => { esteban.look(rosalinda, 1); esteban.emote({ sorrow: 1, fear: 0.2 }, 2); }],
-        [23.5, () => esteban.gesture('accuse', { side: -1, weight: 0.55 })],
+        [21.5, () => { esteban.look(valentina, 1); esteban.face(valentina.pos); esteban.emote({ sorrow: 1, anger: 0.4 }, 2); }],
+        // The wing points past Rosalinda, at the villainess. This is the plant.
+        [23.5, () => esteban.gesture('accuse', { side: -1, weight: 0.7 })],
+        [18.0, () => { donGallo.look(rosalinda, 1); donGallo.gesture('crow'); }],
         [26.0, (c) => {
           c.cam.cut({
             subject: valentina, frame: 'cu', lens: 100, angle: -12, dur: 5, handheld: 0.7, aperture: 2,
@@ -609,9 +641,10 @@ function buildScreenplay(ctx, tw) {
           ricardo.setVisible(true);
           ricardo.walkTo(ARCH_L.x, -2.5, { style: 'strut', speed: 0.6 });
           c.cam.cut({
-            subject: ricardo, frame: 'mls', lens: 35, angle: 6, height: 0.3, dur: 7,
-            handheld: 0.7, dutch: -7, label: 'THE STRANGER · 35mm',
+            subject: V(-0.9, 0.5, -1.2), view: 4.6, lens: 28, angle: 8, height: 0.55, dur: 7,
+            handheld: 0.7, dutch: -7, label: 'THE STRANGER · 28mm',
           });
+          c.score.play('sfx-footsteps-mud', { gain: 0.75 });
           c.score.setMood('suspense', 2);
         }],
         [4.0, (c) => { c.weather.strike(1.3); c.score.thunder(1.2, 0.1); }],
@@ -633,11 +666,13 @@ function buildScreenplay(ctx, tw) {
         }],
         [13.0, (c) => {
           stingCut(c, {
-            subject: ricardo, frame: 'bcu', lens: 135, angle: -12, look: 'eye', dur: 5,
+            subject: ricardo, frame: 'cu', lens: 135, angle: -12, look: 'head', dur: 5,
             move: { type: 'snapZoom', amount: 1, dur: 1.3 }, handheld: 0.9, dutch: -12, aperture: 2.4,
             label: 'THE TWIN · 135mm',
           }, 'reveal');
           ricardo.gesture('scheme');
+          c.score.say('vo-el-gemelo', 0.35);
+          c.score.play('sfx-hen-gasp', { gain: 0.6 });
         }],
         [16.0, (c) => { c.score.sting('reveal'); c.cam.shake(0.6); }],
         // The vertigo shot: she understands.
@@ -647,6 +682,7 @@ function buildScreenplay(ctx, tw) {
             move: { type: 'dollyZoom', amount: 1, dur: 6 }, handheld: 0.4, aperture: 1.4,
             label: 'DOLLY ZOOM · 40→100mm',
           });
+          c.score.play('sfx-organ-hold', { gain: 0.55 });
           rosalinda.emote({ shock: 1, fear: 0.5, sorrow: 0.6 }, 3);
         }],
         [18.5, () => rosalinda.gesture('recoil')],
@@ -656,11 +692,11 @@ function buildScreenplay(ctx, tw) {
         // Twin and hero, face to face. The two-shot that pays off the wardrobe.
         [25.5, (c) => {
           c.cam.cut({
-            subject: esteban, frame: 'mls', lens: 50, angle: 96, height: 0.4, dur: 10,
+            subject: V(0.2, 0.42, -0.62), view: 1.6, lens: 50, angle: 96, height: 0.4, dur: 10,
             move: { type: 'orbit', amount: 0.8, dur: 10 }, handheld: 0.5, dutch: 4,
             label: 'CONFRONTATION · 50mm',
           });
-          ricardo.walkTo(-0.75, -1.5, { style: 'storm', face: esteban.pos });
+          ricardo.walkTo(-0.15, -0.9, { style: 'storm', face: esteban.pos });
           esteban.look(ricardo, 1);
           esteban.emote({ anger: 1, pride: 0.5, sorrow: 0.2 }, 2);
         }],
@@ -681,7 +717,13 @@ function buildScreenplay(ctx, tw) {
           valentina.look(ricardo, 1);
         }],
         [39.5, () => { valentina.gesture('nuzzle'); ricardo.gesture('nuzzle'); }],
-        [41.0, (c) => { c.score.sting('reveal'); c.cam.shake(0.5); }],
+        [41.0, (c) => {
+          c.score.sting('reveal');
+          c.cam.shake(0.5);
+          // The shared glance that makes them the egg's authors.
+          valentina.look(c.props.egg, 1);
+          ricardo.look(c.props.egg, 1);
+        }],
         [42.0, (c) => {
           c.cam.cut({ subject: rosalinda, frame: 'cu', lens: 100, angle: 16, dur: 6, whip: true, handheld: 0.9 });
           rosalinda.look(valentina, 1);
@@ -690,7 +732,7 @@ function buildScreenplay(ctx, tw) {
         }],
         [45.0, (c) => { c.weather.strike(1.4); c.score.thunder(1.3, 0.1); }],
         [46.0, (c) => c.post.setLook({ fade: 1 })],
-      ]),
+      ], { pace: 1.15 }),
 
     // =======================================================================
     scene('CONTINUARÁ', 'el desmayo y el secreto', 54,
@@ -734,7 +776,7 @@ function buildScreenplay(ctx, tw) {
           subject: rosalinda, frame: 'ms', lens: 40, angle: 62, height: 0.3, dur: 8,
           handheld: 0.9, dutch: -6, label: 'THE FAINT · 40mm',
         })],
-        [5.6, () => { esteban.gesture('catcher'); esteban.look(rosalinda, 1); esteban.emote({ sorrow: 1, fear: 0.6 }, 2); }],
+        [4.9, () => { esteban.gesture('catcher'); esteban.look(rosalinda, 1); esteban.emote({ sorrow: 1, fear: 0.6 }, 2); }],
         [6.4, (c) => { c.cam.shake(0.35); c.score.sting('small'); }],
         [8.0, (c) => c.cam.cut({
           subject: rosalinda, frame: 'cu', lens: 100, angle: 40, height: 0.24, dur: 7,
@@ -762,7 +804,7 @@ function buildScreenplay(ctx, tw) {
         // Everyone forgets the egg. The camera does not.
         [20.0, (c) => {
           c.cam.cut({
-            subject: c.props.egg, frame: 'ms', lens: 50, angle: 30, height: 0.16, dur: 8,
+            subject: c.props.egg, view: 0.55, lens: 50, angle: 30, height: 0.16, dur: 8,
             move: { type: 'push', amount: 0.5, dur: 7 }, handheld: 0.4, aperture: 1.6,
             label: 'THE EGG · 50mm',
           });
@@ -778,7 +820,7 @@ function buildScreenplay(ctx, tw) {
         [24.5, (c) => { c.score.heartbeat(1); c.cam.shake(0.2); }],
         [26.0, (c) => { c.score.heartbeat(1); c.cam.shake(0.3); }],
         [27.5, (c) => c.cam.cut({
-          subject: c.props.egg, frame: 'bcu', lens: 100, angle: 22, height: 0.11, dur: 9,
+          subject: c.props.egg, view: 0.2, lens: 100, angle: 22, height: 0.11, dur: 9,
           handheld: 0.5, aperture: 2, label: 'BIG CLOSE-UP · 100mm',
         })],
         // Hatch.
@@ -808,7 +850,6 @@ function buildScreenplay(ctx, tw) {
           pollito.look(c.camera, 1);
           c.score.setMood('silence', 1.5);
         }],
-        [34.0, (c) => { c.score.sting('reveal'); }],
         [36.5, () => pollito.gesture('cock', { side: -1, weight: 0.5 })],
         [38.5, (c) => {
           // Freeze frame, hold, and roll the card.
