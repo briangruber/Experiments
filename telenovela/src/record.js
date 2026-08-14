@@ -198,19 +198,11 @@ export function drawCards(ctx, titles, w, h) {
     const cx = w / 2;
     let y = st.top * h + (c.drift ?? 1) * (0.5 - (c.progress ?? 0)) * 6;
 
-    // Behind the whole card, sized to the title — the kicker and the role line
-    // are the parts that need it, and they sit inside this footprint.
-    {
-      ctx.save();
-      ctx.globalAlpha = a;
-      ctx.font = `400 ${size}px ${SERIF}`;
-      ctx.letterSpacing = '0.24em';
-      const tw = ctx.measureText(c.text).width;
-      const rows = 1 + (c.kicker ? 1 : 0) + (c.sub ? 1 : 0) + (c.rule ? 0.5 : 0);
-      scrim(ctx, cx, y + size * (rows * 0.55 - 0.2),
-        Math.max(tw / 2 + size * 1.7, w * 0.16), size * (rows * 0.95 + 0.8), 0.62);
-      ctx.restore();
-    }
+    // The DOM card is `width: min(88vw, 900px)` and wraps inside it. This did
+    // not wrap at all, so CORAZÓN DE GALLINA — 1264px of text — was drawn on
+    // one line into a 1280px frame and lost a letter off each end, while the
+    // page showed it correctly on two. Same box, same wrapping.
+    const cardW = Math.min(w * 0.88, 900);
 
     ctx.save();
     ctx.globalAlpha = a;
@@ -219,13 +211,33 @@ export function drawCards(ctx, titles, w, h) {
     ctx.shadowColor = 'rgba(0,0,0,0.85)';
     ctx.shadowBlur = size * 0.35;
 
+    const ks = size * 0.33;
+    let kickerLines = [];
     if (c.kicker) {
-      const ks = size * 0.33;
+      ctx.font = `italic 400 ${ks}px ${SERIF}`;
+      ctx.letterSpacing = '0.26em';
+      kickerLines = wrap(ctx, c.kicker, cardW, 2);
+    }
+    ctx.font = `400 ${size}px ${SERIF}`;
+    ctx.letterSpacing = '0.24em';
+    const titleLines = wrap(ctx, c.text, cardW, 3);
+    const titleW = Math.max(...titleLines.map((l) => ctx.measureText(l).width));
+
+    // The scrim has to cover however many lines it turned out to be.
+    {
+      const rows = titleLines.length + kickerLines.length + (c.sub ? 1 : 0) + (c.rule ? 0.5 : 0);
+      ctx.save();
+      scrim(ctx, cx, y + size * (rows * 0.55 - 0.2),
+        Math.max(titleW / 2 + size * 1.7, w * 0.16), size * (rows * 0.95 + 0.8), 0.62);
+      ctx.restore();
+    }
+
+    if (kickerLines.length) {
       ctx.font = `italic 400 ${ks}px ${SERIF}`;
       ctx.letterSpacing = '0.26em';
       ctx.fillStyle = KICKER;
-      ctx.fillText(c.kicker, cx + ks * 0.13, y);
-      y += ks * 1.05 + ks * 1.2;
+      for (const l of kickerLines) { ctx.fillText(l, cx + ks * 0.13, y); y += ks * 1.25; }
+      y += ks * 1.0;
     }
 
     ctx.font = `400 ${size}px ${SERIF}`;
@@ -233,8 +245,8 @@ export function drawCards(ctx, titles, w, h) {
     ctx.fillStyle = GOLD;
     // Letter-spacing pads the right edge, so nudge back by half a step to keep
     // the line optically centred.
-    ctx.fillText(c.text, cx + size * 0.12, y);
-    y += size * 1.15;
+    for (const l of titleLines) { ctx.fillText(l, cx + size * 0.12, y); y += size * 1.18; }
+    y -= size * 0.03;
 
     if (c.rule) {
       ctx.shadowBlur = 0;
