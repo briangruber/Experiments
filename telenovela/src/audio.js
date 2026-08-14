@@ -36,10 +36,16 @@ export class Soundtrack {
     this.ready = false;
     this.failed = false;
     this.enabled = true;
-    this.volume = 0.9;
+    // Thunder and the stings are transients on top of a loud bed; at 0.9 the
+    // sum clipped on impacts, in the export and on the speakers alike.
+    this.volume = 0.76;
     this.buffers = new Map();
     this.pending = new Map();
     this.mood = 'silence';
+    // One-shots are suppressed while seeking: running the clock forward through
+    // a scene fires every cue it passes, and they would all land on the same
+    // instant as one pile of thunder.
+    this.scheduling = true;
     this.bed = null;          // { name, src, gain } — the one that is sounding
     this.beds = new Set();    // everything still audible, including fade-outs
     this.bedWanted = undefined;
@@ -138,8 +144,10 @@ export class Soundtrack {
     this.master = ctx.createGain();
     this.master.gain.value = this.enabled ? this.volume : 0;
     const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -14; comp.knee.value = 22; comp.ratio.value = 3.2;
-    comp.attack.value = 0.005; comp.release.value = 0.25;
+    comp.threshold.value = -16; comp.knee.value = 20; comp.ratio.value = 4.5;
+    // Fast enough to catch a thunder crack rather than let its first few
+    // milliseconds through at full scale.
+    comp.attack.value = 0.002; comp.release.value = 0.22;
     this.master.connect(comp).connect(ctx.destination);
 
     this.musicBus = ctx.createGain(); this.musicBus.gain.value = 1;
@@ -252,7 +260,7 @@ export class Soundtrack {
   // --- one-shots ------------------------------------------------------------
 
   play(name, { gain = 1, delay = 0, rate = 1, bus = 'sfx' } = {}) {
-    if (!this.ready || !this.enabled) return null;
+    if (!this.ready || !this.enabled || !this.scheduling) return null;
     const buf = this.buffers.get(name);
     if (!buf) { this.load(name).catch(() => {}); return null; }
     const t = this.now() + delay;

@@ -322,17 +322,26 @@ function drainGrab() {
 // springs, gestures and grade already settled.
 function seekWithin(sceneSeconds) {
   const step = 1 / 60;
-  for (let guard = 0; dir.t < sceneSeconds && guard < 30000; guard++) {
-    const sdt = dir.update(step);
-    time += sdt;
-    if (sdt > 0) {
-      for (const k in actors) actors[k].update(sdt, time);
-      updateSet(set, sdt, time);
-      updateWeather(weather, sdt, time, set);
-      cam.update(sdt, time);
+  // Fast-forwarding passes every cue in between; let the music and the state
+  // follow along, but do not fire the one-shots.
+  const score = ctx.score;
+  const wasScheduling = score.scheduling;
+  score.scheduling = false;
+  try {
+    for (let guard = 0; dir.t < sceneSeconds && guard < 30000; guard++) {
+      const sdt = dir.update(step);
+      time += sdt;
+      if (sdt > 0) {
+        for (const k in actors) actors[k].update(sdt, time);
+        updateSet(set, sdt, time);
+        updateWeather(weather, sdt, time, set);
+        cam.update(sdt, time);
+      }
+      titles.update(step);
+      post.grade(step);
     }
-    titles.update(step);
-    post.grade(step);
+  } finally {
+    score.scheduling = wasScheduling;
   }
 }
 

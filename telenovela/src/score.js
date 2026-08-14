@@ -27,6 +27,7 @@ const MOODS = {
 
 export class Score {
   constructor() {
+    this.scheduling = true;
     this.ctx = null;
     this.ready = false;
     this.enabled = true;
@@ -210,7 +211,7 @@ export class Score {
 
   // The sting. Three brass-organ hits, the last one held and shaking.
   sting(kind = 'shock') {
-    if (!this.ready || !this.enabled) return;
+    if (!this.ready || !this.enabled || !this.scheduling) return;
     const ctx = this.ctx, t = ctx.currentTime + 0.01;
     const notes = kind === 'reveal' ? [[45, 0, 0.34], [45, 0.26, 0.34], [40, 0.52, 1.9]]
       : kind === 'small' ? [[52, 0, 0.5]]

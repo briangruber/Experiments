@@ -244,6 +244,13 @@ It probes the encoders first and says what it found: H.264 + AAC in MP4 where
 available, VP8 WebM otherwise, and it stops with a clear message rather than
 stalling on a pipe if the encoder it needs is missing.
 
+Yes, it carries the sound: the soundtrack is rendered through an
+`OfflineAudioContext` on the same clock as the frames, written out as a WAV, and
+muxed in. Measured on a real run it comes out at RMS 0.23 with peaks under the
+ceiling. Seeking between trailer beats suppresses one-shots — fast-forwarding
+through a scene passes every cue in it, and they would otherwise all land on the
+same instant as one pile of thunder — while letting the music beds follow along.
+
 **Verified in part.** The page half — deterministic stepping, per-frame capture,
 and the offline soundtrack render — is tested and works. The ffmpeg half is not
 tested here: the only ffmpeg in this development container is Playwright's
