@@ -29,6 +29,20 @@ export class UI {
     const brand = document.createElement('div');
     brand.className = 'brand';
     brand.innerHTML = '<h1>ABYSSAL</h1><p>spectral ocean · cinematic renderer</p>';
+    // This panel's OWN close control, not a duplicate of the HUD's settings
+    // button. That one (#settings-btn) lives inside #hud, and collapsing the
+    // small HUD - unrelated, its own toggle - hides everything in it but the
+    // header row, taking the only way to close this panel with it. No
+    // keyboard on a phone and no backdrop-tap-to-dismiss, so that stranded
+    // this panel open over the sea with nothing to get it back. Living here
+    // instead, inside #ui, means collapsing #hud can never take it away.
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'close';
+    closeBtn.setAttribute('aria-label', 'Close settings');
+    closeBtn.textContent = '×';
+    closeBtn.addEventListener('click', () => this.onChange({ type: 'closePanel' }));
+    brand.appendChild(closeBtn);
     root.appendChild(brand);
 
     const presetRow = document.createElement('div');

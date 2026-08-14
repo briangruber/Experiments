@@ -110,6 +110,7 @@ top and bottom band means; two near-zero bands means nothing drew.
    | the swell mound's curved spine (`swellLift()` in `water-surface.js`) | `node tools/check-swell-curve.mjs` — no GPU: transcribes both the mound's and the mesh's formulas to CPU JS and checks they land on the same point |
    | spray/foam where the sea dragon breaks the surface | `node tools/run-probe.mjs prototypes/spray-breach-probe.html` — isolates the effect by proximity to the surface, not just presence of the animal |
    | the settings panel's dock-vs-sheet breakpoint (`demo/ui.css`) | `node tools/run-probe.mjs prototypes/settings-dock-probe.html` (mouse, narrow → docked column) and `node tools/run-probe.mjs prototypes/settings-sheet-phone-probe.html --touch` (phone → bottom sheet still fires) |
+   | the settings panel's own close control (`demo/ui.js`) | `node tools/run-probe.mjs prototypes/settings-stuck-open-probe.html --touch` — collapsing the small HUD used to take #settings-btn, the panel's only close control, with it |
    | picking up the sea dragon's unfinished work | read [`docs/sea-dragon-handoff.md`](docs/sea-dragon-handoff.md) FIRST - it lists what was already tried and failed |
    | the frame-rate governor / anything performance | `npm run check:adapt` |
    | the dragon's body wave in isolation | `node tools/run-probe.mjs prototypes/dragon-swim.html --shot shots/dragon-swim.png` |

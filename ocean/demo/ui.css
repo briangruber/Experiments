@@ -52,7 +52,17 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:
 
 .brand{padding:16px 16px 12px;border-bottom:1px solid var(--line);position:sticky;top:0;
   background:linear-gradient(180deg,rgba(11,14,18,.97),rgba(11,14,18,.86));backdrop-filter:blur(12px);z-index:2}
-.brand h1{margin:0;font-size:14px;letter-spacing:.28em;font-weight:600}
+.brand h1{margin:0 34px 0 0;font-size:14px;letter-spacing:.28em;font-weight:600}
+/* This panel's own escape hatch - see the comment in ui.js on why it lives
+   here rather than on the HUD's settings button. Sticky still establishes a
+   containing block, so it stays pinned to the panel's top edge while the body
+   scrolls underneath it. */
+.brand .close{
+  position:absolute;top:10px;right:10px;width:auto;height:26px;padding:0;
+  display:flex;align-items:center;justify-content:center;
+  font-size:17px;line-height:1;color:var(--dim);
+}
+.brand .close:hover{color:var(--fg);background:rgba(255,255,255,.1)}
 .brand p{margin:3px 0 0;color:var(--dim);font-size:10.5px;letter-spacing:.06em}
 
 .row{padding:10px 14px;border-bottom:1px solid var(--line)}

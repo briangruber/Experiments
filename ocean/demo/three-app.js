@@ -649,6 +649,19 @@ function installSettingsPanel( app, presetSel, cloudSel ) {
 
 		}
 
+		// Fired by the panel's OWN close button (demo/ui.js) - the escape hatch
+		// that survives the HUD being collapsed, unlike #settings-btn. Mirrors
+		// exactly what the btn click handler below does when it is the one
+		// closing rather than opening.
+		if ( ev.type === 'closePanel' ) {
+
+			uiRoot.classList.add( 'hidden' );
+			btn.setAttribute( 'aria-expanded', 'false' );
+			btn.textContent = 'Settings ›';
+			return;
+
+		}
+
 		const it = ev.item;
 		if ( ! it ) return;
 		// The wave spectrum is built from parameters, not read per frame.

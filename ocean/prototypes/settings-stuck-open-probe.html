@@ -1,0 +1,94 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — collapsing the HUD must not strand the settings panel open</title>
+
+<!--
+  Reported live on a phone: open Settings, then collapse the small HUD (the
+  -/+ button top-left) - #settings-btn, the ONLY control that closes #ui,
+  lives INSIDE #hud, and #hud[data-collapsed="true"] hides everything but its
+  header row. Collapse the HUD while the panel is open and the one control
+  that closes it disappears with it. No keyboard on a phone, no
+  backdrop-tap-to-dismiss either, so #ui is stuck open over the sea with
+  nothing in three-shell.html that gets it back.
+
+  This drives the BUILT bundle in an iframe rather than boot() directly - the
+  bug lives in three-shell.html's own DOM and its inline collapse-toggle
+  script, not in the app - so what gets clicked here is exactly what a phone
+  taps.
+
+  node tools/run-probe.mjs prototypes/settings-stuck-open-probe.html --touch
+-->
+
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}iframe{width:390px;height:760px;border:0}</style>
+<pre id="out">running…</pre>
+<iframe id="frame" src="../dist/abyssal-three.html"></iframe>
+
+<script type="module">
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+const work = (async () => {
+  const frame = document.getElementById('frame');
+  await new Promise((resolve, reject) => {
+    frame.addEventListener('load', resolve, { once: true });
+    frame.addEventListener('error', () => reject(new Error('iframe failed to load')), { once: true });
+  });
+  const win = frame.contentWindow, doc = frame.contentDocument;
+  await new Promise((resolve, reject) => {
+    const t0 = performance.now();
+    const poll = () => {
+      if (win.abyssal) return resolve();
+      if (performance.now() - t0 > 120000) return reject(new Error('boot() never resolved'));
+      setTimeout(poll, 100);
+    };
+    poll();
+  });
+  log('the app booted inside the iframe', !! win.abyssal, `backend ${ win.abyssal.backend }`);
+
+  const settingsBtn = doc.getElementById('settings-btn');
+  const hudToggle = doc.getElementById('toggle');
+  const ui = doc.getElementById('ui');
+  const hud = doc.getElementById('hud');
+  log('found the real DOM elements', !! ( settingsBtn && hudToggle && ui && hud ), '');
+
+  settingsBtn.click();
+  await new Promise((r) => setTimeout(r, 50));
+  log('settings panel opens', ! ui.classList.contains('hidden'), `ui.className = "${ ui.className }"`);
+
+  hudToggle.click();
+  await new Promise((r) => setTimeout(r, 50));
+  log('HUD collapses', hud.getAttribute('data-collapsed') === 'true', '');
+
+  // The bug's precondition: with the HUD collapsed, the old close control is
+  // actually gone, not just relabelled.
+  const settingsBtnHidden = getComputedStyle(settingsBtn).display === 'none';
+  log('(bug precondition) the old close control is now hidden', settingsBtnHidden,
+      `display: ${ getComputedStyle(settingsBtn).display }`);
+
+  // The fix: a close control living INSIDE #ui itself, so collapsing the
+  // unrelated HUD panel can never take it away.
+  const closeBtn = ui.querySelector('.close');
+  log('the panel has its own close control', !! closeBtn, closeBtn ? closeBtn.outerHTML.slice(0, 80) : 'none found');
+  if (closeBtn) {
+
+    const visible = getComputedStyle(closeBtn).display !== 'none' && closeBtn.offsetParent !== null;
+    log('and it is actually visible with the HUD collapsed', visible, '');
+    closeBtn.click();
+    await new Promise((r) => setTimeout(r, 50));
+    log('clicking it closes the settings panel', ui.classList.contains('hidden'), `ui.className = "${ ui.className }"`);
+
+  }
+
+  return 'done';
+})();
+
+const timedOut = Symbol('timeout');
+const outcome = await Promise.race([work, new Promise((r) => setTimeout(() => r(timedOut), 90000))]);
+if (outcome === timedOut) log('the probe itself', false, 'no result after 90s');
+
+window.probeResult = { results, allOk: results.length > 0 && results.every((r) => r.ok) };
+</script>
