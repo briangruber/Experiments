@@ -146,7 +146,18 @@ if (!errors.length) {
     // Prove the policy is really biting before trusting the result below.
     let fetchBlocked = false;
     try { await fetch('data:text/plain;base64,YQ=='); } catch { fetchBlocked = true; }
-    const ok = await T.soundtrack.start();
+    // Press play the way a viewer does, and check the opening bed survives
+    // startup. startAudio() used to force 'theme' once the soundtrack came up,
+    // which crossfaded the sung titles out a beat after they started — audible
+    // only on a replay, never on first play, and invisible to every other
+    // check here because they all start the soundtrack directly.
+    document.getElementById('play')?.click();
+    await T.soundtrack.start();
+    await new Promise((r) => setTimeout(r, 2500));
+    const openingBed = T.soundtrack.bed ? T.soundtrack.bed.name : null;
+    // Not start()'s return value: pressing play already started it, so a
+    // second call returns whatever `ready` happened to be mid-decode.
+    const ok = T.soundtrack.ready && !T.soundtrack.failed;
     // The music beds are the last to finish decoding; sampling at a fixed 2.5s
     // reported five clips short on every single run and looked like a failure.
     const total = Object.keys(T.soundtrack.manifest).length;
@@ -167,6 +178,7 @@ if (!errors.length) {
       clips: Object.keys(T.soundtrack.manifest).length,
       decoded: T.soundtrack.buffers.size,
       missing: Object.keys(T.soundtrack.manifest).filter((n) => !T.soundtrack.buffers.has(n)),
+      openingBed, wantOpeningBed: T.soundtrack.manifest['mus-opening'] ? 'mus-opening' : null,
       fetchBlocked, beds,
     };
   });
@@ -198,7 +210,9 @@ const lit = results.filter((r) => r.stdLuma > 2 && r.maxLuma > 24);
 // decode is a character who silently does not speak, and nothing else in the
 // frame would tell you.
 const audioOk = !audio || audio.clips === 0
-  || (audio.ready && audio.beds === 1 && (audio.missing || []).every((n) => n.startsWith('mus-')));
+  || (audio.ready && audio.beds === 1
+    && (audio.missing || []).every((n) => n.startsWith('mus-'))
+    && (!audio.wantOpeningBed || audio.openingBed === audio.wantOpeningBed));
 const report = {
   ok: errors.length === 0 && results.length > 0 && lit.length === results.length && audioOk,
   frames: results.length,
@@ -209,7 +223,7 @@ const report = {
 };
 console.log(JSON.stringify(report, null, 2));
 if (!report.ok) {
-  if (!audioOk) console.error('\nSOUNDTRACK PROBLEM (every non-music clip must decode, beds must be exactly 1): ' + JSON.stringify(audio));
+  if (!audioOk) console.error('\nSOUNDTRACK PROBLEM (every non-music clip must decode, exactly 1 bed, and the opening bed must survive startup): ' + JSON.stringify(audio));
   if (!errors.length && lit.length !== results.length) console.error('\nDARK/FLAT FRAMES: ' + results.filter((r) => !lit.includes(r)).map((r) => r.out).join(', '));
   console.error(logs.slice(-40).join('\n'));
   process.exit(1);

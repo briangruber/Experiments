@@ -121,7 +121,12 @@ async function startAudio() {
   // Which engine actually came up. A silent fall back to the synth once went
   // unnoticed for a whole release, so say so somewhere findable.
   soundBtn.title = ok ? 'Sound (M) · ElevenLabs' : 'Sound (M) · synth fallback';
-  ctx.score.setMood('theme', 3);
+  // Whatever the scene on screen asked for while the audio was still coming
+  // up — not a hardcoded mood. This said 'theme', which was right for exactly
+  // as long as the episode opened on PRELUDIO; once the sung titles became
+  // scene 0 it crossfaded the opening song out a beat after it started, and
+  // the song was only ever audible on the replay, when this path is skipped.
+  ctx.score.setMood(soundtrack.mood ?? 'theme', 3);
 }
 
 function begin() {
