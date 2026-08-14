@@ -22,30 +22,67 @@ function finish(c, repeat = 1, aniso = 8) {
 }
 
 function tileTexture(rng) {
-  const N = 512, [c, g] = canvas(N);
+  // 1024px, 5x5 cells: the floor fills half of every wide, and at 512 the
+  // tiles were visibly the same four squares repeating. One 1024 canvas is
+  // 4 MB of GPU memory — the single biggest map in the set, and worth it.
+  const N = 1024, [c, g] = canvas(N);
   g.fillStyle = '#2a1c17';
   g.fillRect(0, 0, N, N);
-  const cells = 4, s = N / cells;
+  const cells = 5, s = N / cells;
   for (let y = 0; y < cells; y++) {
     for (let x = 0; x < cells; x++) {
       const off = (y % 2) * s * 0.5;
       const px = ((x * s + off) % N) - 2, py = y * s;
-      const h = 14 + rng() * 10, l = 32 + rng() * 13;
-      g.fillStyle = `hsl(${h} 24% ${l}%)`;
-      g.fillRect(px + 3, py + 3, s - 6, s - 6);
-      // Wear: a few lighter scuffs and darker damp patches per tile.
-      for (let i = 0; i < 22; i++) {
-        const a = rng() * 0.14;
+      // Saltillo clay drifts between pink-orange and brown batch to batch.
+      const h = 12 + rng() * 14, sat = 20 + rng() * 12, l = 30 + rng() * 16;
+      g.fillStyle = `hsl(${h} ${sat}% ${l}%)`;
+      g.fillRect(px + 5, py + 5, s - 10, s - 10);
+      // A soft diagonal sheen across each tile, the way hand-smoothed clay
+      // catches light unevenly.
+      const sheen = g.createLinearGradient(px, py, px + s, py + s);
+      const sa = 0.05 + rng() * 0.08;
+      sheen.addColorStop(0, `rgba(255,225,195,${sa})`);
+      sheen.addColorStop(0.55, 'rgba(255,225,195,0)');
+      sheen.addColorStop(1, `rgba(25,12,8,${sa * 0.8})`);
+      g.fillStyle = sheen;
+      g.fillRect(px + 5, py + 5, s - 10, s - 10);
+      // Wear: lighter scuffs and darker damp patches per tile.
+      for (let i = 0; i < 30; i++) {
+        const a = rng() * 0.13;
         g.fillStyle = rng() < 0.5 ? `rgba(255,225,200,${a})` : `rgba(20,10,6,${a})`;
-        const w = 6 + rng() * 40;
-        g.fillRect(px + 3 + rng() * (s - 12), py + 3 + rng() * (s - 12), w, 3 + rng() * 12);
+        const w = 10 + rng() * 80;
+        g.fillRect(px + 5 + rng() * (s - 20), py + 5 + rng() * (s - 20), w, 5 + rng() * 22);
+      }
+      // Chipped corners, reading as missing glaze down to darker clay.
+      for (let i = 0; i < 3; i++) {
+        if (rng() < 0.4) continue;
+        const cx = px + 5 + (rng() < 0.5 ? 0 : s - 10) + (rng() - 0.5) * 14;
+        const cy = py + 5 + (rng() < 0.5 ? 0 : s - 10) + (rng() - 0.5) * 14;
+        g.fillStyle = `rgba(30,16,11,${0.25 + rng() * 0.3})`;
+        g.beginPath();
+        g.arc(cx, cy, 4 + rng() * 12, 0, TAU);
+        g.fill();
+      }
+      // The odd hairline crack.
+      if (rng() < 0.35) {
+        g.strokeStyle = `rgba(22,12,8,${0.3 + rng() * 0.25})`;
+        g.lineWidth = 1 + rng();
+        g.beginPath();
+        let cx = px + 8 + rng() * (s - 16), cy = py + 8 + rng() * (s - 16);
+        g.moveTo(cx, cy);
+        for (let k = 0; k < 5; k++) {
+          cx += (rng() - 0.5) * s * 0.3;
+          cy += (rng() - 0.3) * s * 0.25;
+          g.lineTo(cx, cy);
+        }
+        g.stroke();
       }
     }
   }
   // Grain over the lot so the floor never bands under the moonlight.
   const img = g.getImageData(0, 0, N, N), d = img.data;
   for (let i = 0; i < d.length; i += 4) {
-    const n = (rng() - 0.5) * 26;
+    const n = (rng() - 0.5) * 24;
     d[i] += n; d[i + 1] += n; d[i + 2] += n;
   }
   g.putImageData(img, 0, 0);
@@ -53,15 +90,48 @@ function tileTexture(rng) {
 }
 
 function stuccoTexture(rng, base = [38, 26, 82]) {
-  const N = 256, [c, g] = canvas(N);
+  // 512px: the walls are what every close-up is shot against, and the 256
+  // speckle repeated visibly across an arch. Counts scale with the area.
+  const N = 512, [c, g] = canvas(N);
   g.fillStyle = `hsl(${base[0]} ${base[1]}% ${base[2]}%)`;
   g.fillRect(0, 0, N, N);
-  for (let i = 0; i < 2600; i++) {
+  // Broad colour drift first — big soft patches of slightly different lime
+  // wash, so the wall is never one flat value.
+  for (let i = 0; i < 26; i++) {
+    const a = 0.03 + rng() * 0.05;
+    const warm = rng() < 0.5;
+    const grd = g.createRadialGradient(rng() * N, rng() * N, 0, rng() * N, rng() * N, N * (0.18 + rng() * 0.3));
+    grd.addColorStop(0, warm ? `rgba(235,205,165,${a})` : `rgba(150,150,170,${a})`);
+    grd.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = grd;
+    g.fillRect(0, 0, N, N);
+  }
+  for (let i = 0; i < 10400; i++) {
     const a = rng() * 0.07;
     g.fillStyle = rng() < 0.5 ? `rgba(255,250,235,${a})` : `rgba(60,40,25,${a})`;
     g.beginPath();
     g.arc(rng() * N, rng() * N, 1 + rng() * 9, 0, TAU);
     g.fill();
+  }
+  // Hairline cracks wandering mostly downward, as old render does.
+  for (let i = 0; i < 7; i++) {
+    g.strokeStyle = `rgba(45,30,20,${0.12 + rng() * 0.14})`;
+    g.lineWidth = 0.6 + rng() * 1.2;
+    g.beginPath();
+    let x = rng() * N, y = rng() * N * 0.5;
+    g.moveTo(x, y);
+    for (let k = 0; k < 9; k++) {
+      x += (rng() - 0.5) * 26;
+      y += 10 + rng() * 30;
+      g.lineTo(x, y);
+      // Occasional short side branch.
+      if (rng() < 0.3) {
+        g.moveTo(x, y);
+        g.lineTo(x + (rng() - 0.5) * 34, y + rng() * 18);
+        g.moveTo(x, y);
+      }
+    }
+    g.stroke();
   }
   // Damp rising from the base of the wall.
   const grad = g.createLinearGradient(0, N, 0, N * 0.55);
@@ -295,7 +365,7 @@ function bougainvillea(rng, count = 260) {
   return mesh;
 }
 
-function lantern(mats) {
+function lantern(mats, glowTex) {
   const g = new THREE.Group();
   const cage = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.11, 0.2, 6), mats.iron);
   cage.castShadow = true;
@@ -309,11 +379,21 @@ function lantern(mats) {
     new THREE.MeshBasicMaterial({ color: 0xffcb7a }),
   );
   g.add(glass);
+  // A soft additive halo around the flame, so the practicals bloom in the
+  // frame the way a real bulb does through night air, instead of reading as
+  // a hard lit marble in an unlit cage.
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: glowTex, color: 0xffa050, transparent: true, opacity: 0.34,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  }));
+  glow.scale.setScalar(0.62);
+  g.add(glow);
   const light = new THREE.PointLight(0xffab52, 1.7, 5.6, 1.9);
   light.position.y = 0.01;
   g.add(light);
   g.userData.light = light;
   g.userData.glass = glass;
+  g.userData.glow = glow;
   return g;
 }
 
@@ -451,8 +531,9 @@ export function buildSet(scene, renderer) {
 
   // Lanterns hung from the arches.
   const lanterns = [];
+  const glowTex = discTexture();
   for (const [x, y, z] of [[-2.35, 2.05, -3.15], [2.35, 2.05, -3.15], [-4.3, 2.1, -1.7], [4.3, 2.1, -1.7]]) {
-    const l = lantern(mats);
+    const l = lantern(mats, glowTex);
     l.position.set(x, y, z);
     const hook = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.42, 5), mats.iron);
     hook.position.set(x, y + 0.28, z);
@@ -633,6 +714,8 @@ export function updateSet(set, dt, time) {
     const fl = 0.82 + fbm1(time * 3.1 + i * 7, i) * 0.28 + Math.sin(time * 17 + i) * 0.03;
     l.userData.light.intensity = 1.8 * fl * (1 - set.wetness * 0.25);
     l.userData.glass.material.color.setHSL(0.09, 0.75, 0.55 + fl * 0.16);
+    // The halo breathes with the flame, and swells slightly in wet air.
+    if (l.userData.glow) l.userData.glow.material.opacity = (0.26 + fl * 0.14) * (1 + set.wetness * 0.5);
     l.rotation.z = fbm1(time * 0.9 + i * 3, i + 11) * 0.12 * (0.25 + set.wetness);
     l.rotation.x = fbm1(time * 0.8 + i * 5, i + 21) * 0.1 * (0.25 + set.wetness);
   }
