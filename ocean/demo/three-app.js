@@ -649,8 +649,24 @@ function installSettingsPanel( app, presetSel, cloudSel ) {
 	ui.presetSelect.value = app.presetName ?? 'Golden Hour Swell';
 	ui.syncAll();
 
+	// Keep the sliders docked directly under the HUD however tall it is - the two
+	// are one column, and a fixed offset would either overlap it or leave a gap
+	// the moment a hint line wraps.
+	const hudEl = document.getElementById( 'hud' );
+	const measureHud = () => {
+
+		if ( ! hudEl ) return;
+		const h = Math.ceil( hudEl.getBoundingClientRect().bottom ) + 8;
+		document.documentElement.style.setProperty( '--hud-h', h + 'px' );
+
+	};
+	measureHud();
+	window.addEventListener( 'resize', measureHud );
+	if ( typeof ResizeObserver !== 'undefined' && hudEl ) new ResizeObserver( measureHud ).observe( hudEl );
+
 	btn.addEventListener( 'click', () => {
 
+		measureHud();
 		const open = uiRoot.classList.toggle( 'hidden' ) === false;
 		btn.setAttribute( 'aria-expanded', String( open ) );
 		btn.textContent = open ? 'Settings ‹' : 'Settings ›';

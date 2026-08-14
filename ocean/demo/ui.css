@@ -21,19 +21,25 @@ html,body{margin:0;height:100%;overflow:hidden;background:#05070a;
   color:var(--fg);-webkit-font-smoothing:antialiased}
 canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
 
+/* ONE LEFT COLUMN with the HUD, not a second panel somewhere else. --hud-h is
+   written by demo/three-app.js from the HUD's measured height, so the sliders
+   start exactly where it ends however tall it happens to be, and the two read
+   as one thing. Everything to the right of this stays sea - which is the point:
+   these are tuning sliders, and you cannot tune what the panel is covering. */
 #ui{
-  position:fixed;top:0;right:0;height:100%;width:296px;
+  position:fixed;top:var(--hud-h,0px);left:0;right:auto;
+  height:calc(100% - var(--hud-h,0px));width:340px;
   background:linear-gradient(180deg,var(--bg),var(--bg2));
   backdrop-filter:blur(18px) saturate(1.3);
   -webkit-backdrop-filter:blur(18px) saturate(1.3);
-  border-left:1px solid var(--line);
+  border-right:1px solid var(--line);
   overflow-y:auto;overscroll-behavior:contain;
   padding:0 0 40px;z-index:10;
   transition:transform .28s cubic-bezier(.4,0,.2,1);
 }
 /* Two selectors so the keyboard shortcut, the button and the capture harness
    all drive the same visual state. */
-#ui.hidden,body.panel-hidden #ui{transform:translateX(100%)}
+#ui.hidden,body.panel-hidden #ui{transform:translateX(-100%)}
 #ui::-webkit-scrollbar{width:8px}
 #ui::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:4px}
 
@@ -118,6 +124,7 @@ body.riding #hud-hint-ride{display:block}
 #panel-toggle svg{width:15px;height:15px;stroke:var(--accent);stroke-width:1.7;
   fill:none;stroke-linecap:round;flex:none}
 #ui.hidden ~ #panel-toggle,body.panel-hidden #panel-toggle{right:12px}
+#panel-toggle{right:12px}
 /* The label names what the click will do, so it reads "Hide" while the panel is
    open and "Controls" once it is away. */
 #panel-toggle .open-label{display:none}
@@ -125,12 +132,13 @@ body.riding #hud-hint-ride{display:block}
 body.panel-hidden #panel-toggle .open-label{display:inline}
 body.panel-hidden #panel-toggle .close-label{display:none}
 
-@media (max-width:760px){
+@media (max-width:520px){
   /* A full-height side drawer eats three quarters of a phone screen. As a bottom
      sheet the sea stays visible above it, and it starts closed so the first
      thing a visitor sees is the ocean, not a wall of sliders. */
   #ui{
     top:auto;bottom:0;left:0;right:0;width:100%;
+    height:min(58vh,520px);
     height:min(58vh,520px);
     border-left:none;border-top:1px solid var(--line);
     border-radius:16px 16px 0 0;

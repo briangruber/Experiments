@@ -105,6 +105,7 @@ top and bottom band means; two near-zero bands means nothing drew.
    | the craft's reflection in the sea | `npm run check:reflect` |
    | the craft's shadow on the sea, and that it has the hull's shape | `npm run check:shadow` |
    | the sea dragon: visible under the sea, swimming, holding station | `npm run check:dragon` |
+   | picking up the sea dragon's unfinished work | read [`docs/sea-dragon-handoff.md`](docs/sea-dragon-handoff.md) FIRST - it lists what was already tried and failed |
    | the frame-rate governor / anything performance | `npm run check:adapt` |
    | the dragon's body wave in isolation | `node tools/run-probe.mjs prototypes/dragon-swim.html --shot shots/dragon-swim.png` |
    | the propeller's blades and their spin weights | `node tools/run-probe.mjs prototypes/prop-spin.html --shot shots/prop-spin.png` |
