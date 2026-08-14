@@ -84,7 +84,7 @@ export class UI {
     const grid2 = document.createElement('div');
     grid2.className = 'btns';
     grid2.style.marginTop = '6px';
-    grid2.append(mk('Save PNG', 'save'), mk('Copy settings', 'copy'), mk('Profile', 'profile'));
+    grid2.append(mk('Save PNG', 'save'), mk('Copy all settings', 'copy'), mk('Profile', 'profile'));
     grid2.className = 'btns three';
     actions.appendChild(grid2);
     const grid3 = document.createElement('div');
@@ -98,7 +98,26 @@ export class UI {
       const d = document.createElement('details');
       if (section.open) d.open = true;
       const s = document.createElement('summary');
-      s.textContent = section.group;
+      const title = document.createElement('span');
+      title.className = 'summary-title';
+      title.textContent = section.group;
+      s.appendChild(title);
+      // One category at a time, so a slider that needs tuning can be copied
+      // and handed back without the other 400-odd params drowning it out.
+      const copyGroup = document.createElement('button');
+      copyGroup.type = 'button';
+      copyGroup.className = 'copy-group';
+      copyGroup.textContent = 'Copy';
+      copyGroup.title = `Copy the ${section.group} settings`;
+      copyGroup.addEventListener('click', (e) => {
+        // A <summary>'s default click toggles its <details> open/closed even
+        // for a click that landed on a child button - preventDefault stops
+        // that so Copy doesn't also fold the section shut.
+        e.preventDefault();
+        e.stopPropagation();
+        this._copyKeys(section.items.map((it) => it.key), `${section.group} settings`);
+      });
+      s.appendChild(copyGroup);
       d.appendChild(s);
       const body = document.createElement('div');
       body.className = 'body';
@@ -108,9 +127,30 @@ export class UI {
     }
   }
 
+  /** Shared by the per-group Copy buttons and, indirectly, the top-level
+   * "Copy all settings" action (demo/three-app.js does its own copy of every
+   * `defaults` key, but the clipboard/fallback dance is identical). */
+  _copyKeys(keys, label) {
+    const clean = {};
+    for (const k of keys) clean[k] = this.params[k];
+    const text = JSON.stringify(clean, null, 2);
+    Promise.resolve(navigator.clipboard?.writeText(text) ?? Promise.reject())
+      .then(() => this.toast(`${label} copied`))
+      .catch(() => {
+        console.log(text);
+        this.toast('Clipboard blocked — settings printed to the console');
+      });
+  }
+
   _control(item) {
     const wrap = document.createElement('div');
     wrap.className = 'ctrl';
+    // The whole control is the hover target, not just the label text - the
+    // slider and swatch are at least as much of what a thumb or a mouse
+    // actually lands on. Plain title attribute, not a custom popover: it
+    // needs no positioning logic, no z-index fight with a scrolling panel,
+    // and works identically on every one of the ~400 controls this covers.
+    if (item.hint) wrap.title = item.hint;
     const p = this.params;
 
     if (item.type === 'color') {

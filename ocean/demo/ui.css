@@ -83,6 +83,15 @@ summary::before{content:'';width:5px;height:5px;border-right:1.4px solid var(--a
   border-bottom:1.4px solid var(--accent);transform:rotate(-45deg);transition:transform .18s;opacity:.85}
 details[open] summary::before{transform:rotate(45deg)}
 summary:hover{background:rgba(255,255,255,.035)}
+.summary-title{flex:1}
+/* Sits at the far end of the summary row, same trick as .brand .close - auto
+   margin absorbs the row's slack instead of the button stretching to fill it
+   (the global select,button rule below is width:100%). */
+.copy-group{
+  width:auto;flex:none;margin-left:auto;padding:4px 9px;font-size:9px;letter-spacing:.05em;
+  text-transform:none;border-radius:6px;color:var(--dim);
+}
+.copy-group:hover{color:var(--fg);background:rgba(255,255,255,.1)}
 .body{padding:2px 14px 12px}
 
 .ctrl{margin:9px 0}

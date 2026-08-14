@@ -1,0 +1,142 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — the sea dragon throws real spray where it breaks the surface</title>
+
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}</style>
+<pre id="out">running…</pre>
+<!-- NO CSS ON THE CANVAS - same reasoning as boat-drive-probe.html. -->
+<canvas id="view" width="480" height="300"></canvas>
+
+<!--
+  The dragon breaching now drives the SAME particle emitter the vehicles do
+  (demo/three-main.js's `dragonSpray` branch of the ctx.craft* block) rather
+  than only the pre-existing foam-mask tint in water-surface.js. This reads
+  the emitter's own uniforms straight out of the unbundled module three-main.js
+  mutates (ES modules are singletons per URL), so it is checking the actual
+  wiring:
+
+    1. deep dragon, no vehicle -> emitter parked, exactly like nobody riding.
+    2. dragon forced shallow (breaching) -> emitter picks up ITS position and
+       throws a nonzero amount, gated by the existing sdSpray/sdSprayDepth
+       sliders (no new ones - "let me control the numbers" was already
+       answered by those).
+    3. a vehicle active AT THE SAME TIME as a breaching dragon -> the vehicle
+       wins. There is only one emitter (see the header note above ctx.craftPos
+       in three-main.js), so this is the one designed trade-off, not a bug -
+       your own hull's spray always takes priority over the animal's.
+
+  node tools/run-probe.mjs prototypes/dragon-spray-probe.html
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { installWebGPUSwizzleShim } from './webgpu-shim.js';
+import { boot } from '../demo/three-main.js';
+import { uCraftPos, uCraftAmount, uCraftSpeed } from '../src/gpu/tsl/spray.js';
+
+installWebGPUSwizzleShim();
+
+const q = new URLSearchParams(location.search);
+const WANT = (q.get('backend') || 'webgl').toLowerCase();
+const OVERRIDES = {
+  fftSize: +(q.get('fft') || 64),
+  sprayTexSize: +(q.get('sprayTex') || 32),
+  cloudSteps: +(q.get('cloudSteps') || 12),
+  gridScale: +(q.get('gridScale') || 0.35),
+};
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+const frames = (k) => new Promise((resolve) => {
+  let i = 0;
+  const tick = () => (++i >= k ? resolve() : requestAnimationFrame(tick));
+  requestAnimationFrame(tick);
+});
+
+const work = (async () => {
+  let backend = '?';
+  try {
+    const canvas = document.getElementById('view');
+    const app = await boot({ canvas, backend: WANT, overrides: OVERRIDES });
+    backend = app.backend;
+    log(`${backend}: boot() resolved`, true, '');
+
+    const A = app;
+    A.params.adaptiveQuality = 0; A.params.fpsCap = 0;
+    A.params.sdEnabled = 1;
+    A.params.sdSpray = 0.5;
+    A.params.sdSprayDepth = 0.4;
+    await frames(10);
+
+    // demo/seadragon.js's update() recomputes pos[1] = sdSeaLevel - this.depth
+    // FROM SCRATCH every frame - it is not a smoothed follow of the previous
+    // pos[1], so writing pos[1] directly (this probe's first version) was
+    // discarded before the very next frame's ctx block ever saw it. `depth`
+    // itself is what has to be pinned, every frame, from onFrame (which
+    // three-main.js calls at the END of its own frame, landing this before
+    // the NEXT frame's dragon.update()).
+    let forcedDepth = null;
+    A.onFrame = () => { if ( forcedDepth !== null ) A.dragon.depth = forcedDepth; };
+
+    // ---- deep, no vehicle: parked -------------------------------------
+    forcedDepth = 20;
+    await frames(5);
+    log('deep dragon throws no spray', uCraftAmount.value === 0, `uCraftAmount = ${ uCraftAmount.value.toFixed(4) }`);
+
+    // ---- shallow, breaching: the emitter picks it up -------------------
+    // Negative depth is ABOVE the mean surface - well past it, not just inside
+    // the band, so this is a solid breach rather than a boundary case that
+    // would need exact depth-controller timing to hit.
+    forcedDepth = -1.0;
+    await frames(10);
+    const breachAmount = uCraftAmount.value;
+    log('breaching dragon throws real spray', breachAmount > 0.001, `uCraftAmount = ${ breachAmount.toFixed(4) }`);
+    log('the emitter is positioned AT the dragon', Math.hypot(
+      uCraftPos.value.x - A.dragon.pos[0], uCraftPos.value.y - A.dragon.pos[1], uCraftPos.value.z - A.dragon.pos[2],
+    ) < 0.5, `uCraftPos ${ uCraftPos.value.x.toFixed(2) },${ uCraftPos.value.y.toFixed(2) },${ uCraftPos.value.z.toFixed(2) }`);
+    log('breach severity feeds a nonzero synthetic speed', uCraftSpeed.value > 0, `uCraftSpeed = ${ uCraftSpeed.value.toFixed(2) }`);
+
+    // ---- sdSpray = 0 turns it off, same slider as the foam mask --------
+    A.params.sdSpray = 0;
+    await frames(5);
+    log('sdSpray = 0 silences it, no separate switch needed', uCraftAmount.value === 0, `uCraftAmount = ${ uCraftAmount.value.toFixed(4) }`);
+    A.params.sdSpray = 0.5;
+    await frames(5);
+    log('back on with sdSpray restored', uCraftAmount.value > 0.001, `uCraftAmount = ${ uCraftAmount.value.toFixed(4) }`);
+
+    // ---- a vehicle takes priority over a breaching dragon ---------------
+    A.toggleBoat();
+    await frames(20);
+    const withBoat = uCraftAmount.value;
+    const boatDist = Math.hypot(
+      uCraftPos.value.x - A.boat.pos[0], uCraftPos.value.z - A.boat.pos[2],
+    );
+    log('riding takes over the emitter from a breaching dragon', boatDist < 5,
+        `uCraftPos is ${ boatDist.toFixed(2) }m from the boat (was pinned to the dragon before)`);
+
+    return 'done';
+  } catch (e) {
+    log(`${backend}: run the dragon spray probe`, false, String(e.stack || e.message || e).slice(0, 1000));
+    return 'error';
+  }
+})();
+
+const timedOut = Symbol('timeout');
+const outcome = await Promise.race([work, new Promise((r) => setTimeout(() => r(timedOut), 90000))]);
+if (outcome === timedOut) log('the probe itself', false, 'no result after 90s');
+
+window.probeResult = { results, allOk: results.length > 0 && results.every((r) => r.ok) };
+</script>

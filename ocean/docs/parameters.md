@@ -59,6 +59,13 @@ need `water.rebuildGrid()`.
 | `earthCurve` | Planet curvature | `1` | 0 … 1 |  |
 | `rMax` | Far radius (m) | `42000` | 5000 … 90000 |  |
 
+## Water Displacement
+
+| parameter | meaning | default | range | |
+| --- | --- | --- | --- | --- |
+| `waterDisplaceEnabled` | Meshes displace water | `1` | 0 … 1 |  |
+| `waterDisplaceAmount` | Displacement strength | `1` | 0 … 2 |  |
+
 ## Foam
 
 | parameter | meaning | default | range | |
@@ -154,7 +161,7 @@ need `water.rebuildGrid()`.
 | `spraySizeMax` | Parcel size max (m) | `0.15` | 0.05 … 4 |  |
 | `spraySize` | Size | `1` | 0.1 … 5 |  |
 | `sprayStretch` | Shutter smear (s) | `0.014` | 0 … 0.25 |  |
-| `sprayFadeNear` | Near fade (m) | `0.95` | 0.05 … 4 |  |
+| `sprayFadeNear` | Near fade (m) | `1.6` | 0.05 … 4 |  |
 | `sprayMinPixels` | Min screen size (px) | `1.15` | 0.5 … 8 |  |
 | `sprayFarSoft` | Distant softness | `1.6` | 0 … 6 |  |
 | `spraySurfFade` | Surface soft fade (m) | `0.3` | 0.02 … 3 |  |
@@ -300,14 +307,14 @@ need `water.rebuildGrid()`.
 | `wrCarveTurn` | Carve turn gain (Shift) | `1.9` | 1 … 4 |  |
 | `wrCarveGrip` | Carve grip loss | `0.45` | 0.05 … 1 |  |
 | `wrCarveDrag` | Carve speed scrub | `2.2` | 0.5 … 5 |  |
-| `craftSprayAmount` | Hull spray | `1` | 0 … 3 |  |
+| `craftSprayAmount` | Hull spray | `0.75` | 0 … 3 |  |
 | `hullPush` | Hull displaces water (m) | `0.55` | 0 … 2 |  |
 | `hullRadius` | Hull footprint (m) | `2.6` | 0.5 … 10 |  |
 | `hullBow` | Bow wave | `0.9` | 0 … 3 |  |
 | `craftPlaneSpeed` | Planing speed (m/s) | `6` | 0 … 20 |  |
 | `craftPlaneFull` | Full shedding (m/s) | `14` | 2 … 30 |  |
 | `craftSprayLife` | Hull spray lifetime (s) | `0.85` | 0.1 … 4 |  |
-| `craftSprayPulse` | Hull spray density | `0.3` | 0 … 1.5 |  |
+| `craftSprayPulse` | Hull spray density | `0.22` | 0 … 1.5 |  |
 | `craftLoadFull` | Carve spray saturation | `22` | 4 … 60 |  |
 | `craftSpraySpread` | Hull spray spread | `1` | 0 … 3 |  |
 | `craftSprayUp` | Hull spray lift | `1` | 0 … 3 |  |
@@ -320,8 +327,8 @@ need `water.rebuildGrid()`.
 | `craftCurtain` | Carve curtain | `1.15` | 0 … 3 |  |
 | `craftCurtainSpeed` | Carve curtain speed | `1.8` | 0 … 6 |  |
 | `craftBurst` | Bow burst | `0.9` | 0 … 3 |  |
-| `craftSprayOpacity` | Hull spray density | `1` | 0 … 3 |  |
-| `craftSprayMulti` | Hull spray glow | `0.28` | 0 … 2 |  |
+| `craftSprayOpacity` | Hull spray density | `0.6` | 0 … 3 |  |
+| `craftSprayMulti` | Hull spray glow | `0.15` | 0 … 2 |  |
 | `wakeStrength` | Wake strength | `1.15` | 0 … 3 |  |
 | `wakeWidth` | Wake arm width (m) | `1.5` | 0.2 … 6 |  |
 | `wakeLife` | Wake lifetime (s) | `14` | 1 … 40 |  |
@@ -513,7 +520,7 @@ need `water.rebuildGrid()`.
 | `adaptiveQuality` | Adaptive resolution | `1` | 0 … 1 |  |
 | `fpsCap` | Frame rate cap (0 = off) | `60` | 0 … 144 |  |
 | `fpsCapIdle` | Cap when not in front | `10` | 1 … 60 |  |
-| `dprCap` | Pixel ratio cap | `1.75` | 0.5 … 3 | **resize** |
+| `dprCap` | Pixel ratio cap | `2` | 0.5 … 3 | **resize** |
 | `targetFps` | Target frame rate | `40` | 20 … 120 |  |
 | `renderScaleMin` | Min render scale | `0.4` | 0.25 … 1 |  |
 | `photoSamples` | Photo mode samples | `24` | 1 … 128 |  |

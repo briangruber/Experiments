@@ -1,0 +1,122 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — the water-displacement master switch actually reaches both slots</title>
+
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}</style>
+<pre id="out">running…</pre>
+<!-- NO CSS ON THE CANVAS - same reasoning as boat-drive-probe.html. -->
+<canvas id="view" width="480" height="300"></canvas>
+
+<!--
+  waterDisplaceEnabled/waterDisplaceAmount (src/presets.js) are meant to scale
+  BOTH the hull hollow (ski/plane/boat, one shared slot) and the sea dragon's
+  swell mound (a separate slot) together - water-surface.js's
+  waterDisplaceScale(), applied once where uHullPush is set and once where
+  three-main.js sets uSwellAmp. This reads those two uniforms' actual .value
+  straight out of the SAME module instance three-main.js mutates (ES modules
+  are singletons per URL, and this imports the identical unbundled source
+  path), so it is checking the real wiring, not a copy of it.
+
+  node tools/run-probe.mjs prototypes/water-displace-probe.html
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { installWebGPUSwizzleShim } from './webgpu-shim.js';
+import { boot } from '../demo/three-main.js';
+import { uHullPush, uSwellAmp } from '../src/gpu/tsl/water-surface.js';
+
+installWebGPUSwizzleShim();
+
+const q = new URLSearchParams(location.search);
+const WANT = (q.get('backend') || 'webgl').toLowerCase();
+const OVERRIDES = {
+  fftSize: +(q.get('fft') || 64),
+  sprayTexSize: +(q.get('sprayTex') || 32),
+  cloudSteps: +(q.get('cloudSteps') || 12),
+  gridScale: +(q.get('gridScale') || 0.35),
+};
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+const frames = (k) => new Promise((resolve) => {
+  let i = 0;
+  const tick = () => (++i >= k ? resolve() : requestAnimationFrame(tick));
+  requestAnimationFrame(tick);
+});
+
+const work = (async () => {
+  let backend = '?';
+  try {
+    const canvas = document.getElementById('view');
+    const app = await boot({ canvas, backend: WANT, overrides: OVERRIDES });
+    backend = app.backend;
+    log(`${backend}: boot() resolved`, true, '');
+
+    const A = app;
+    A.params.adaptiveQuality = 0; A.params.fpsCap = 0;
+    A.params.sdEnabled = 1;
+    A.toggleBoat();
+    await frames(20);
+
+    A.params.waterDisplaceEnabled = 1;
+    A.params.waterDisplaceAmount = 1.0;
+    await frames(5);
+    const baseHull = uHullPush.value;
+    const baseSwell = uSwellAmp.value;
+    log('baseline: boat presses a real hollow', baseHull > 0.01, `uHullPush = ${ baseHull.toFixed(4) }`);
+    log('baseline: dragon lifts a real mound', baseSwell > 0.0005, `uSwellAmp = ${ baseSwell.toFixed(4) }`);
+
+    A.params.waterDisplaceEnabled = 0;
+    await frames(5);
+    log('disabled: hull hollow goes to zero', uHullPush.value === 0, `uHullPush = ${ uHullPush.value.toFixed(4) }`);
+    log('disabled: dragon mound goes to zero', uSwellAmp.value === 0, `uSwellAmp = ${ uSwellAmp.value.toFixed(4) }`);
+
+    A.params.waterDisplaceEnabled = 1;
+    A.params.waterDisplaceAmount = 0.4;
+    await frames(5);
+    const halfHull = uHullPush.value, halfSwell = uSwellAmp.value;
+    log('0.4x: hull hollow scales down proportionally', Math.abs(halfHull - baseHull * 0.4) < 1e-4,
+        `expected ${ (baseHull * 0.4).toFixed(4) }, got ${ halfHull.toFixed(4) }`);
+    // Loose ratio window, not an exact match: uSwellAmp is sdSwell * shallow *
+    // waterDisplaceScale(), and `shallow` tracks the animal's own depth, which
+    // drifts a few percent across the handful of frames between this sample
+    // and the baseline one - a live swimmer, not a frozen number. A ratio near
+    // 0.4 still proves the multiplier reached this slot; ~1.0 (unscaled) or 0
+    // (scale not wired up at all) are the failures this is actually watching
+    // for.
+    const swellRatio = halfSwell / baseSwell;
+    log('0.4x: dragon mound scales down proportionally', swellRatio > 0.3 && swellRatio < 0.5,
+        `ratio ${ swellRatio.toFixed(3) } (expected close to 0.4), base ${ baseSwell.toFixed(4) } -> ${ halfSwell.toFixed(4) }`);
+
+    A.params.waterDisplaceAmount = 2.0;
+    await frames(5);
+    log('2x: hull hollow scales up too, not clamped at 1x', uHullPush.value > baseHull * 1.9,
+        `uHullPush = ${ uHullPush.value.toFixed(4) } (baseline was ${ baseHull.toFixed(4) })`);
+
+    return 'done';
+  } catch (e) {
+    log(`${backend}: run the water-displace probe`, false, String(e.stack || e.message || e).slice(0, 1000));
+    return 'error';
+  }
+})();
+
+const timedOut = Symbol('timeout');
+const outcome = await Promise.race([work, new Promise((r) => setTimeout(() => r(timedOut), 90000))]);
+if (outcome === timedOut) log('the probe itself', false, 'no result after 90s');
+
+window.probeResult = { results, allOk: results.length > 0 && results.every((r) => r.ok) };
+</script>

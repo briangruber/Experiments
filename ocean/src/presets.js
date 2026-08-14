@@ -40,6 +40,19 @@ export const defaults = {
   rMin: 0.35,
   rMax: 42000.0,
 
+  // ---- water displacement ----
+  // The one shared control over every mesh that actually pushes the sea's own
+  // geometry around, not just paints foam on it - see water-surface.js's
+  // waterDisplaceScale() for the whole argument. A body above the surface (the
+  // ski, the seaplane, the boat - all through the one `hull` slot three-main.js
+  // fills each frame) always presses a hollow DOWN and shoulders the water it
+  // moved back up around itself as a bow wave; a body below the surface (the
+  // sea dragon, through the separate `swell` slot) always lifts a mound UP.
+  // Both directions come from the shader geometry itself, not from this
+  // switch - this only scales how strongly either one is felt.
+  waterDisplaceEnabled: 1,
+  waterDisplaceAmount: 1.0,
+
   // ---- foam ----
   foamCoverage: 1.0,        // gain on the Monahan whitecap fraction W(U10)
   foamSoftness: 0.28,       // width of the breaking ramp, in sigmas
@@ -132,10 +145,14 @@ export const defaults = {
   spraySize: 1.0,
   sprayStretch: 0.014,      // shutter the motion smear is integrated over, s
   sprayOpacity: 0.85,
-  sprayFadeNear: 0.95,      // billboards this close to the lens fade out: at
-                            // chase range the near plume was a wall of white over
-                            // the craft, and the water on the glass says the same
-                            // thing without hiding what you are steering
+  sprayFadeNear: 1.6,       // billboards this close to the lens fade out. Was
+                            // 0.95m, tuned assuming the wet-glass lens effect
+                            // (demo/main.js's lensWet) would carry the "you are
+                            // getting sprayed" feeling the rest of the way - it
+                            // is not wired up in the three.js demo this ships as
+                            // (ctx.lensWet is never set there), so nothing was
+                            // covering for a rider-POV camera actually inside
+                            // the plume. Widened rather than counting on that.
   sprayMinPixels: 1.15,    // sub-pixel droplets are grown and dimmed, not dropped
   sprayFarSoft: 1.6,       // extra edge softness once held at the pixel floor
   spraySurfFade: 0.30,      // soft fade as a billboard enters the water, m
@@ -422,7 +439,13 @@ export const defaults = {
                             // shading normal painted on it.
   wakeProbe: 0.8,           // how much of that the hull feels when it crosses it
   craftLift: 0.46,          // rides the hull's designed waterline on the surface
-  craftSprayAmount: 1.0,
+  // Was 1.0. At the ski's own chase distance (wrCamDistance 12m, growing with
+  // speed via wrCamPull) sprayFadeNear's <1m radius never touches this plume -
+  // "blocks most of the camera" was craftSprayOpacity/craftSprayMulti below
+  // reading as a genuinely solid wall at that range, not proximity. Trimmed
+  // there and here together rather than gutting the emission itself, which is
+  // the part that was asked to stay.
+  craftSprayAmount: 0.75,
   craftShadow: 0.85,        // how dark the shadow it throws on the water is
   craftReflect: 1.0,        // strength of the craft's own image in the water
   craftReflectFade: 180.0,  // metres of altitude over which that image fades out
@@ -533,9 +556,12 @@ export const defaults = {
   craftPlaneSpeed: 6.0,     // m/s the hull starts to plane; below this, no spray
   craftPlaneFull: 14.0,     // m/s where shedding saturates
   craftSprayLife: 0.85,     // thrown water falls straight back; it must not hang
-  craftSprayPulse: 0.30,    // overall share of the budget the hull may claim. Any
+  craftSprayPulse: 0.22,    // overall share of the budget the hull may claim. Any
                             // higher and the plume is a white ball with the craft
-                            // somewhere inside it.
+                            // somewhere inside it - which is what "it blocks most
+                            // of the camera" turned out to be, at a chase distance
+                            // (wrCamDistance 12m+) sprayFadeNear never reaches.
+                            // Was 0.30.
   craftLoadFull: 22.0,      // hull load (m/s^2) at which carve spray saturates
   craftSpraySpread: 1.0,    // multiplier on every source's cone width
   craftSprayUp: 1.0,        // ...and on how much of each launch is aimed upward
@@ -550,8 +576,11 @@ export const defaults = {
   craftCurtain: 1.15,       // the wall a sideways-sliding hull shovels up
   craftCurtainSpeed: 1.8,   // per m/s of sideslip
   craftBurst: 0.9,          // bow crown on landing or punching a crest
-  craftSprayOpacity: 1.0,   // hull water is a dense sheet, not a few droplets
-  craftSprayMulti: 0.28,    // ...and a dense sheet scatters light many times
+  craftSprayOpacity: 0.6,   // Was 1.0, a fully opaque sheet - dialled back so
+                            // overlapping billboards read as spray you can see
+                            // motion and light through, not a wall painted over
+                            // the view.
+  craftSprayMulti: 0.15,    // ...and a dense sheet scatters light many times
                             // inside itself, which is what makes real hull spray
                             // read bright white whichever way the sun is
   wrView: 1,                // 0 rider POV, 1 chase
@@ -664,9 +693,13 @@ export const defaults = {
   // capping the frame rate or the pixel count reduces that.
   fpsCap: 60,               // 0 = uncapped (runs at the display's refresh rate)
   fpsCapIdle: 10,           // ...and when the window is not in front
-  dprCap: 1.75,             // ceiling on device pixel ratio. A Retina panel at 2
-                            // is 4x the pixels of 1 for a difference you have to
-                            // look for.
+  dprCap: 2.0,              // ceiling on device pixel ratio. Was 1.75, which
+                            // silently downscaled every plain 2x Retina panel
+                            // (dpr 2 > cap 1.75) into a soft image nobody asked
+                            // to trade away - a laptop or an iPad reads that as
+                            // "blurry", not as a frame-rate saving. 2.0 renders
+                            // those natively; a dpr-3 phone still gets capped,
+                            // which is the case this number exists for.
   powerPref: 'default',     // 'high-performance' explicitly asks a switchable-
                             // graphics laptop for its discrete GPU. Reload to
                             // apply - the context cannot change it afterwards.
@@ -890,11 +923,16 @@ const MOBILE_QUALITY = {
   // tile-based GPU pays most for. The budget is spread over the visible disc, so
   // halving it thins the plume rather than shortening it.
   sprayTexSize: 64,
-  renderScale: 0.65,
-  // The governor may trim below this but must not climb past it. A phone that
-  // finds headroom should bank it as battery and heat, not spend it on pixels
-  // nobody can resolve on a six-inch screen.
-  renderScaleMax: 0.85,
+  // Was 0.65 with a 0.85 ceiling - combined with dprCap this put a dpr-3 phone
+  // at roughly 1.14 effective pixel ratio against a native 3, an image soft
+  // enough to read as "upscaled" (because it was) rather than as a deliberate
+  // frame-rate trade a visitor would notice was even happening. adaptiveQuality
+  // is what protects the frame rate here - it is on by default and will pull
+  // this back down live if a real device actually needs it to - so this is a
+  // starting point and a ceiling for a SHORT SESSION, not a permanent
+  // sight-unseen tax on every touch device regardless of what it can do.
+  renderScale: 0.85,
+  renderScaleMax: 1.0,
 };
 
 export const isHandheld = () =>

@@ -4,13 +4,20 @@
 // renderer. src/presets.js is the single source of truth for the values
 // themselves; nothing here is needed to draw a frame.
 
-const C = (key, label, opts = {}) => ({ key, label, type: 'color', ...opts });
-const S = (key, label, min, max, step = 0.001, opts = {}) => ({ key, label, type: 'range', min, max, step, ...opts });
-const B = (key, label) => ({ key, label, type: 'bool' });
+import { HINTS } from './param-hints.js';
+
+// Every item picks up its tooltip from HINTS by key automatically, rather
+// than each of the 400-odd S()/E()/C()/B() calls below carrying its own hint
+// string - that would mean editing every call site to add one, and editing
+// every call site again the day the wording needs to change. A key with no
+// entry in param-hints.js just renders with no tooltip.
+const C = (key, label, opts = {}) => ({ key, label, type: 'color', hint: HINTS[key], ...opts });
+const S = (key, label, min, max, step = 0.001, opts = {}) => ({ key, label, type: 'range', min, max, step, hint: HINTS[key], ...opts });
+const B = (key, label) => ({ key, label, type: 'bool', hint: HINTS[key] });
 // The fourth argument was being dropped, so E('fftSize', ..., { rebuildSim: true })
 // and E('sprayTexSize', ..., { rebuildSpray: true }) set the parameter and never
 // rebuilt anything - changing either in the UI did nothing at all.
-const E = (key, label, options, opts = {}) => ({ key, label, type: 'enum', options, ...opts });
+const E = (key, label, options, opts = {}) => ({ key, label, type: 'enum', options, hint: HINTS[key], ...opts });
 
 export const SCHEMA = [
   {
@@ -50,6 +57,16 @@ export const SCHEMA = [
       S('detailScale', 'Detail distance', 0.25, 4, 0.01),
       S('earthCurve', 'Planet curvature', 0, 1, 0.01),
       S('rMax', 'Far radius (m)', 5000, 90000, 100),
+    ],
+  },
+  {
+    // The one shared control over every mesh that actually pushes the sea's
+    // own geometry around: the ski/seaplane/boat's hollow (they all share one
+    // "hull" slot) and the sea dragon's mound (its own "swell" slot) both
+    // scale from here - see water-surface.js's waterDisplaceScale().
+    group: 'Water Displacement', items: [
+      S('waterDisplaceEnabled', 'Meshes displace water', 0, 1, 1, { integer: true }),
+      S('waterDisplaceAmount', 'Displacement strength', 0, 2, 0.01),
     ],
   },
   {

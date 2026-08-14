@@ -1,0 +1,145 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — dragging in Follow mode actually moves the camera</title>
+
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}</style>
+<pre id="out">running…</pre>
+<!-- NO CSS ON THE CANVAS - same reasoning as boat-drive-probe.html: every
+     claim here reads JS state (camera.pos/yaw/pitch, dragon.pos), not
+     pixels, and a styled canvas plus this probe's many settle-frame waits
+     reproduced the readback-stall class of bug measured there. -->
+<canvas id="view" width="480" height="300"></canvas>
+
+<!--
+  Follow mode used to hard-lock the camera to a fixed quarter-view behind the
+  animal: camera.js's own pointer-drag handler does not check `locked`, so a
+  drag DID land in camera.yaw/pitch for a frame - and then three-main.js's
+  follow-mode block unconditionally overwrote both with its own look-at math
+  before a single frame drew through the nudge. Dragging visibly did nothing.
+
+  This drives the app the same way a drag does: nudging camera.yaw/pitch
+  directly (what the pointer handler itself would write) and letting the
+  follow block's own delta-tracking pick it up, exactly like a real drag
+  event would arrive one pointermove at a time.
+
+  node tools/run-probe.mjs prototypes/dragon-follow-orbit-probe.html
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { installWebGPUSwizzleShim } from './webgpu-shim.js';
+import { boot } from '../demo/three-main.js';
+
+installWebGPUSwizzleShim();
+
+const q = new URLSearchParams(location.search);
+const WANT = (q.get('backend') || 'webgl').toLowerCase();
+const OVERRIDES = {
+  fftSize: +(q.get('fft') || 64),
+  sprayTexSize: +(q.get('sprayTex') || 32),
+  cloudSteps: +(q.get('cloudSteps') || 12),
+  gridScale: +(q.get('gridScale') || 0.35),
+};
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+const frames = (k) => new Promise((resolve) => {
+  let i = 0;
+  const tick = () => (++i >= k ? resolve() : requestAnimationFrame(tick));
+  requestAnimationFrame(tick);
+});
+const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+const norm3 = (v) => { const L = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / L, v[1] / L, v[2] / L]; };
+
+const work = (async () => {
+  let backend = '?';
+  try {
+    const canvas = document.getElementById('view');
+    const app = await boot({ canvas, backend: WANT, overrides: OVERRIDES });
+    backend = app.backend;
+    log(`${backend}: boot() resolved`, true, app.fellBack ? 'fell back from WebGPU' : `asked for ${WANT}`);
+
+    const A = app;
+    A.params.adaptiveQuality = 0; A.params.fpsCap = 0;
+    A.params.sdEnabled = 1;
+
+    const on = A.toggleFollow();
+    log('toggleFollow() activated it', on === true && A.isFollowing() === true, `isFollowing() = ${ A.isFollowing() }`);
+
+    await frames(60);   // let the auto-follow settle in behind the animal's heading
+
+    const dragonPos = () => [A.dragon.pos[0], A.dragon.pos[1], A.dragon.pos[2]];
+    const camPos = () => [A.camera.pos[0], A.camera.pos[1], A.camera.pos[2]];
+
+    const baseline = camPos();
+    const baseDist = dist(baseline, dragonPos());
+    log('settled behind the animal at a sane distance', baseDist > 2 && baseDist < 200,
+        `${ baseDist.toFixed(1) } m from the dragon`);
+
+    // ---- A YAW DRAG ORBITS THE CAMERA -------------------------------------
+    // Exactly what camera.js's pointer 'move' handler itself writes - this IS
+    // the drag, not a proxy for one.
+    A.camera.yaw += 1.2;
+    await frames(45);
+
+    const afterYaw = camPos();
+    const movedYaw = Math.hypot(afterYaw[0] - baseline[0], afterYaw[2] - baseline[2]);
+    log('dragging yaw actually moves the camera', movedYaw > 2,
+        `moved ${ movedYaw.toFixed(2) } m horizontally (was locked to zero before this fix)`);
+
+    const distAfterYaw = dist(afterYaw, dragonPos());
+    log('still roughly the same distance from the animal - an orbit, not a drift',
+        Math.abs(distAfterYaw - baseDist) < Math.max(baseDist * 0.4, 3),
+        `before ${ baseDist.toFixed(1) }m, after ${ distAfterYaw.toFixed(1) }m`);
+
+    const toTarget = norm3([
+      dragonPos()[0] - afterYaw[0],
+      dragonPos()[1] * 0.5 - afterYaw[1],
+      dragonPos()[2] - afterYaw[2],
+    ]);
+    const fwd = norm3([A.camera.fwd[0], A.camera.fwd[1], A.camera.fwd[2]]);
+    const lookDot = toTarget[0] * fwd[0] + toTarget[1] * fwd[1] + toTarget[2] * fwd[2];
+    log('still looking at the animal after orbiting round it', lookDot > 0.9, `dot ${ lookDot.toFixed(3) }`);
+
+    // ---- A PITCH DRAG LIFTS THE RIG, NOT JUST THE HEAD --------------------
+    A.camera.pitch = Math.max(-1.3, Math.min(1.3, A.camera.pitch + 0.6));
+    await frames(45);
+    const afterPitch = camPos();
+    log('dragging pitch lifts the camera around the animal', afterPitch[1] > afterYaw[1] + 1,
+        `y went ${ afterYaw[1].toFixed(2) } -> ${ afterPitch[1].toFixed(2) }`);
+
+    // ---- RE-ENTERING FOLLOW RESETS THE ORBIT, NOT A REGRESSION ------------
+    A.toggleFollow(); A.toggleFollow();
+    await frames(60);
+    const resetDist = dist(camPos(), dragonPos());
+    log('re-entering follow resets to the default quarter view', Math.abs(resetDist - baseDist) < Math.max(baseDist * 0.35, 3),
+        `dist ${ resetDist.toFixed(1) }m vs original ${ baseDist.toFixed(1) }m`);
+
+    log('state stayed finite throughout', [ ...camPos(), A.camera.yaw, A.camera.pitch ].every(Number.isFinite), '');
+
+    return 'done';
+  } catch (e) {
+    log(`${backend}: run the follow-orbit probe`, false, String(e.stack || e.message || e).slice(0, 1000));
+    return 'error';
+  }
+})();
+
+const timedOut = Symbol('timeout');
+const outcome = await Promise.race([work, new Promise((r) => setTimeout(() => r(timedOut), 90000))]);
+if (outcome === timedOut) log('the probe itself', false, 'no result after 90s');
+
+window.probeResult = { results, allOk: results.length > 0 && results.every((r) => r.ok) };
+</script>

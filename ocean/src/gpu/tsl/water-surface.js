@@ -231,6 +231,37 @@ export const uRMax = /*@__PURE__*/ uniform( 42000.0 );
 export const uEarthCurve = /*@__PURE__*/ uniform( 1.0 );
 export const uSeaLevel = /*@__PURE__*/ uniform( 0.0 );
 
+// MESH-DRIVEN DISPLACEMENT, GENERALLY. Two shared slots, not two special
+// cases: uHull* is "a body sitting ON the surface" and always presses a
+// hollow DOWN (see the press/bow/side split lower down - press is negated,
+// bow and side are not, so the water it shoulders aside stands back up around
+// the dent rather than the dent just appearing from nowhere); uSwell* is "a
+// body swimming UNDER the surface" and always lifts a mound UP. Every current
+// vehicle - the ski, the seaplane, the boat - reports into uHull* through the
+// single `hull` object three-main.js hands setWaterSurfaceUniforms() each
+// frame (demo/three-main.js's `hull.push = params.hullPush` etc.); the sea
+// dragon is the only thing that reports into uSwell*, straight from
+// three-main.js's per-frame dragon block. A THIRD kind of body - one more
+// submerged mesh, say - reports into uSwell* the exact same way the dragon
+// does: this primitive already does not know or care that today's occupant
+// happens to be eel-shaped, only that something below the surface wants a
+// mound over it (the eel-specific curve lives in uSwellWaves/uSwellSweep,
+// which default to 0 - a straight-backed body just leaves them alone). Only
+// one occupant of each kind exists in the demo at a time, so this stays two
+// uniform sets rather than an array the shader loops over - the sea dragon
+// and one of {ski, plane, boat} is the whole roster this was built for, and a
+// true N-body array is a bigger change than the roster has ever asked for.
+//
+// waterDisplaceEnabled/waterDisplaceAmount (src/presets.js) are the one knob
+// that scales BOTH slots together, applied here and in three-main.js's own
+// uSwellAmp assignment - see waterDisplaceScale() below.
+export function waterDisplaceScale( p ) {
+
+	if ( ( p.waterDisplaceEnabled ?? 1 ) < 0.5 ) return 0;
+	return p.waterDisplaceAmount ?? 1;
+
+}
+
 // The craft displaces real water, not just foam: the hull presses a hollow into
 // the surface and the water it moves stands up as a bow wave ahead of it and as
 // shoulders either side. Geometry, so it catches light and shadow like the sea.
@@ -1648,7 +1679,7 @@ export function setWaterSurfaceUniforms( p, ctx, hull ) {
 	const h = hull || NO_HULL;
 	uHullPos.value.set( h.pos[ 0 ], h.pos[ 1 ], h.pos[ 2 ] );
 	uHullFwd.value.set( h.fwd[ 0 ], h.fwd[ 1 ] );
-	uHullPush.value = h.push;
+	uHullPush.value = h.push * waterDisplaceScale( p );
 	uHullPlane.value = h.plane;
 	uHullRadius.value = p.hullRadius;
 	uHullBow.value = p.hullBow;

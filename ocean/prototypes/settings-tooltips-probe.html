@@ -1,0 +1,101 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — every settings control has a real tooltip, and the copy buttons work</title>
+
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}iframe{width:390px;height:760px;border:0}</style>
+<pre id="out">running…</pre>
+<iframe id="frame" src="../dist/abyssal-three.html"></iframe>
+
+<!--
+  Two separate claims about the real DOM inside the BUILT bundle, driven from
+  an iframe the same way settings-stuck-open-probe.html does (the bug/feature
+  here lives in demo/ui.js's rendering of demo/param-hints.js and its own
+  per-group Copy buttons, not in boot()'s physics):
+
+  1. Every one of the ~418 .ctrl controls schema.js declares actually carries
+     a non-empty title attribute - not just a sample of them, all of them, so
+     a batch that silently dropped a group's hints would be caught here
+     rather than by spot-checking a few and hoping.
+  2. Each group's Copy button copies ONLY that group's keys (via the fallback
+     console.log path, since a headless page has no real clipboard
+     permission) and doesn't toggle the <details> it lives inside of.
+
+  node tools/run-probe.mjs prototypes/settings-tooltips-probe.html
+-->
+
+<script type="module">
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+const work = (async () => {
+  const frame = document.getElementById('frame');
+  await new Promise((resolve, reject) => {
+    frame.addEventListener('load', resolve, { once: true });
+    frame.addEventListener('error', () => reject(new Error('iframe failed to load')), { once: true });
+  });
+  const win = frame.contentWindow, doc = frame.contentDocument;
+  await new Promise((resolve, reject) => {
+    const t0 = performance.now();
+    const poll = () => {
+      if (win.abyssal) return resolve();
+      if (performance.now() - t0 > 120000) return reject(new Error('boot() never resolved'));
+      setTimeout(poll, 100);
+    };
+    poll();
+  });
+  log('the app booted inside the iframe', !! win.abyssal, '');
+
+  // Open the settings panel so its controls actually exist in the DOM - ui.js
+  // builds them at construction time regardless, but opening it is also how
+  // a person would ever see one.
+  doc.getElementById('settings-btn').click();
+  await new Promise((r) => setTimeout(r, 50));
+
+  const ctrls = [...doc.querySelectorAll('#ui .ctrl')];
+  log('found the real control list', ctrls.length > 300, `${ ctrls.length } .ctrl elements`);
+
+  const missing = ctrls.filter((c) => ! c.title || ! c.title.trim());
+  log('every control has a non-empty tooltip', missing.length === 0,
+      missing.length ? `${ missing.length } missing, e.g. "${ (missing[0].querySelector('.name')?.textContent) || '?' }"` : 'all present');
+
+  const tooShort = ctrls.filter((c) => c.title && c.title.trim().length < 12);
+  log('tooltips read like sentences, not placeholders', tooShort.length === 0,
+      tooShort.length ? `${ tooShort.length } suspiciously short, e.g. "${ tooShort[0].title }"` : '');
+
+  // ---- per-group Copy buttons ---------------------------------------------
+  const groups = [...doc.querySelectorAll('#ui details')];
+  log('found the settings groups', groups.length > 10, `${ groups.length } <details> sections`);
+
+  const firstGroup = groups[0];
+  const wasOpen = firstGroup.open;
+  const copyBtn = firstGroup.querySelector('.copy-group');
+  log('each group has its own Copy button', !! copyBtn, copyBtn ? copyBtn.textContent : 'none found');
+
+  let logged = null;
+  const origLog = win.console.log;
+  win.console.log = (...args) => { logged = args.join(' '); origLog.apply(win.console, args); };
+  copyBtn.click();
+  await new Promise((r) => setTimeout(r, 50));
+  win.console.log = origLog;
+
+  log('clicking Copy did not toggle the section open/closed', firstGroup.open === wasOpen,
+      `open before ${ wasOpen }, after ${ firstGroup.open }`);
+
+  let parsed = null;
+  try { parsed = logged ? JSON.parse(logged) : null; } catch (e) { /* left null */ }
+  log('Copy produced valid JSON with this group\'s own keys', !! parsed && Object.keys(parsed).length > 0,
+      parsed ? `${ Object.keys(parsed).length } keys, e.g. ${ Object.keys(parsed)[0] }` : `got: ${ String(logged).slice(0, 200) }`);
+
+  return 'done';
+})();
+
+const timedOut = Symbol('timeout');
+const outcome = await Promise.race([work, new Promise((r) => setTimeout(() => r(timedOut), 90000))]);
+if (outcome === timedOut) log('the probe itself', false, 'no result after 90s');
+
+window.probeResult = { results, allOk: results.length > 0 && results.every((r) => r.ok) };
+</script>

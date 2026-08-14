@@ -50,7 +50,7 @@ import {
 import {
 	creatureVertex, creatureFragment, setCreatureTexture,
 	uCreatureLen, uCreaturePhase, uCreatureWaves, uCreatureAmp,
-	uCreatureSeaY, uCreatureAerial,
+	uCreatureSeaY, uCreatureAerial, uCreatureTint,
 } from '../src/gpu/tsl/creature.js';
 import { WaveRunner } from './waverunner.js';
 import { SeaPlane } from './seaplane.js';
@@ -62,7 +62,7 @@ import {
 	setCraftShadowNode, uSwellPos, uSwellDir, uSwellLen, uSwellRad, uSwellAmp,
 	uSwellWaves, uSwellSweep, uSwellPhase, uSwellFoamDepth, uSwellFoamStrength,
 	setRefractionTextures, uRefractAmount, uRefractDistort, uRefractFade,
-	uRefractThrough,
+	uRefractThrough, waterDisplaceScale,
 } from '../src/gpu/tsl/water-surface.js';
 
 // ---------------------------------------------------------------------------
@@ -346,6 +346,17 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	const dragon = new SeaDragon();
 	let followDragon = false;
 	let followYaw = 0;
+	// The orbit the user drags into, on top of the auto-follow above. Camera
+	// distance/height reset to a fixed rig every frame like the ride and plane
+	// cameras always have, and camera.js's own drag handler does not check
+	// `locked` - so a nudge here used to land in camera.yaw for one frame and
+	// then get overwritten below before anything was ever drawn through it, and
+	// dragging did nothing. See the follow-mode block for how the nudge is
+	// recovered instead of thrown away.
+	let followOrbitYaw = 0;
+	let followOrbitPitch = 0;
+	let lastCamYaw = 0;
+	let lastCamPitch = 0;
 	const dragonMat = new THREE.NodeMaterial();
 	dragonMat.name = 'abyssal.dragon';
 	dragonMat.fragmentNode = creatureFragment();
@@ -401,6 +412,17 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		uCreatureAmp.value = params.sdAmp;
 		uCreaturePhase.value = dragon.phase;
 		uCreatureSeaY.value = params.sdSeaLevel;
+		// The water's own hint on the body (creature.js's uCreatureTint) was
+		// stuck at its shader-file default forever - never assigned from here at
+		// all - so every preset's very different scatterColor (a murky green-
+		// brown to a bright turquoise, see presets.js) painted the animal with
+		// the same fixed greenish tint regardless of which sea it was actually
+		// swimming in. Synced every pose now, the same live parameter the water
+		// itself reads, so a preset switch or a dragged Scattering albedo swatch
+		// changes it too.
+		uCreatureTint.value.set(
+			params.scatterColor[ 0 ], params.scatterColor[ 1 ], params.scatterColor[ 2 ],
+		);
 		// modelYaw 0: tools/glb.mjs already put this asset's head on -Z.
 		setCraftTransform(
 			dragonMesh,
@@ -1048,13 +1070,31 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			followYaw += Math.atan2(
 				Math.sin( d.heading - followYaw ), Math.cos( d.heading - followYaw ),
 			) * Math.min( 1, dt * 1.6 );
-			const bx = Math.sin( followYaw ), bz = - Math.cos( followYaw );
-			const rx = Math.cos( followYaw ), rz = Math.sin( followYaw );
+
+			// camera.update() just above already folded this frame's drag/pinch
+			// into camera.yaw/pitch - it is what a free-fly camera would read
+			// next. Locked modes overwrite them afterward (below), which is why
+			// that nudge used to vanish before a frame ever drew it: read it as a
+			// DELTA against our own last overwrite and carry it forward as an
+			// orbit around the animal instead, rather than an absolute look
+			// direction that gets stomped every frame.
+			followOrbitYaw += camera.yaw - lastCamYaw;
+			followOrbitPitch = Math.max( - 1.3, Math.min( 1.3,
+				followOrbitPitch + ( camera.pitch - lastCamPitch ),
+			) );
+
+			const orbitYaw = followYaw + followOrbitYaw;
+			const bx = Math.sin( orbitYaw ), bz = - Math.cos( orbitYaw );
+			const rx = Math.cos( orbitYaw ), rz = Math.sin( orbitYaw );
 			const back = Math.max( params.sdLength, 8 ) * 1.15;
 			const side = Math.max( params.sdLength, 8 ) * 0.35;
+			// Orbit pitch swings the rig up over the animal or down to the
+			// waterline around it, on the same radius, rather than just tilting
+			// the camera's own head - dragging up genuinely moves you overhead.
+			const riseSwing = Math.max( params.sdLength, 8 ) * 0.9 * Math.sin( followOrbitPitch );
 			const tx = d.pos[ 0 ], tz = d.pos[ 2 ];
 			camera.pos[ 0 ] = tx - bx * back + rx * side;
-			camera.pos[ 1 ] = ( params.sdSeaLevel ?? 0 ) + params.sdFollowRise;
+			camera.pos[ 1 ] = ( params.sdSeaLevel ?? 0 ) + params.sdFollowRise + riseSwing;
 			camera.pos[ 2 ] = tz - bz * back + rz * side;
 			const ax = tx - camera.pos[ 0 ];
 			const ay = d.pos[ 1 ] * 0.5 - camera.pos[ 1 ];
@@ -1062,6 +1102,16 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			camera.yaw = Math.atan2( ax, - az );
 			camera.pitch = Math.asin( ay / Math.max( Math.hypot( ax, ay, az ), 1e-3 ) );
 			camera.roll = 0;
+			// This IS the overwrite the next frame's delta gets measured against.
+			lastCamYaw = camera.yaw;
+			lastCamPitch = camera.pitch;
+
+		} else {
+
+			// Not following: stay in step so re-entering follow next doesn't read
+			// whatever free-fly drifted to since as one giant orbit snap.
+			lastCamYaw = camera.yaw;
+			lastCamPitch = camera.pitch;
 
 		}
 
@@ -1091,9 +1141,30 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		// water read it through the same ctx fields - the emitter does not care
 		// whether the thing shedding water has a handlebar or a yoke.
 		const veh = rider.active ? rider : ( plane.active ? plane : ( boat.active ? boat : null ) );
+		// The sea dragon breaking the surface reuses this SAME emitter - there is
+		// only one, see the note above ctx.craftPos below - rather than a second
+		// particle system, so it only drives it when nothing else is riding: a
+		// vehicle's own spray always takes priority over the animal's, the same
+		// reason only one veh's state is ever read into ctx.craft* at all. Gated
+		// by sdSpray/sdSprayDepth, the exact controls already driving the
+		// foam-mask breach effect in water-surface.js - one pair of sliders for
+		// "how much does breaking the surface disturb it", not a second,
+		// redundant set the two effects could disagree about.
+		let dragonSpray = 0;
+		if ( ! veh && params.sdEnabled >= 0.5 && params.sdSpray > 0.0005 ) {
+
+			// + still under the mean surface, - poking through it.
+			const clearance = params.sdSeaLevel - dragon.pos[ 1 ];
+			dragonSpray = Math.max( 0, Math.min( 1,
+				1 - clearance / Math.max( params.sdSprayDepth, 0.05 ),
+			) );
+
+		}
 		const cf = veh
 			? [ Math.sin( veh.heading ), - Math.cos( veh.heading ) ]
-			: [ 0, 1 ];
+			: dragonSpray > 0.001
+				? [ Math.sin( dragon.heading ), - Math.cos( dragon.heading ) ]
+				: [ 0, 1 ];
 		// A flying plane sheds no spray; a taxiing one sheds it exactly like a
 		// hull, because it is one.
 		// HOW MUCH WATER IS BEING WORKED, not whether any is.
@@ -1126,18 +1197,37 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			// the rooster tail, the wall of water off a carve and the impact burst
 			// simply never emit, which is what "it lost the spray it used to have"
 			// looks like from outside. Mirrors demo/main.js exactly.
-			craftPos: setA3( vCraftPos,
-				wet > 0.001 ? ( wetPos ? wetPos[ 0 ] : veh.pos[ 0 ] ) : 0,
-				wet > 0.001 ? ( wetPos ? wetPos[ 1 ] : ( veh.deckY ?? 0 ) ) : - 1e4,
-				wet > 0.001 ? ( wetPos ? wetPos[ 2 ] : veh.pos[ 2 ] ) : 0 ),
+			craftPos: veh
+				? setA3( vCraftPos,
+					wet > 0.001 ? ( wetPos ? wetPos[ 0 ] : veh.pos[ 0 ] ) : 0,
+					wet > 0.001 ? ( wetPos ? wetPos[ 1 ] : ( veh.deckY ?? 0 ) ) : - 1e4,
+					wet > 0.001 ? ( wetPos ? wetPos[ 2 ] : veh.pos[ 2 ] ) : 0 )
+				: setA3( vCraftPos,
+					dragonSpray > 0.001 ? dragon.pos[ 0 ] : 0,
+					dragonSpray > 0.001 ? dragon.pos[ 1 ] : - 1e4,
+					dragonSpray > 0.001 ? dragon.pos[ 2 ] : 0 ),
 			craftFwd: setA2( vCraftFwd, cf[ 0 ], cf[ 1 ] ),
 			craftRight: setA2( vCraftRight, - cf[ 1 ], cf[ 0 ] ),
-			craftSpeed: wet > 0.001 ? Math.abs( veh.speed ) : 0,
+			// The dragon's OWN swim speed is not what this measures - a body can
+			// break the surface nearly stationary, holding station, which is
+			// exactly when a subtle breach mist should still show. What this
+			// channel actually gates downstream (spray.js's `plane` factor,
+			// craftPlaneSpeed..craftPlaneFull) is "how planed-in is the source",
+			// so it is driven by breach severity instead: barely poking through
+			// gives a thin mist, fully surfaced gives the full sheet.
+			craftSpeed: veh
+				? ( wet > 0.001 ? Math.abs( veh.speed ) : 0 )
+				: ( dragonSpray > 0.001 ? params.craftPlaneFull * dragonSpray : 0 ),
 			craftTurn: wet > 0.001 ? veh.yawRate : 0,
 			// Scaled BY the wetness, not gated by it: the plume grows as the
 			// floats settle in and thins as they leave, and a wingtip that is
-			// barely touching throws barely any water.
-			craftAmount: wet > 0.001 ? params.craftSprayAmount * wet : 0,
+			// barely touching throws barely any water. sdSpray (not
+			// craftSprayAmount) is the dragon's own master, so it stays whatever
+			// "not too much" the animal was already tuned to independent of the
+			// vehicle's own slider.
+			craftAmount: veh
+				? ( wet > 0.001 ? params.craftSprayAmount * wet : 0 )
+				: params.sdSpray * dragonSpray,
 			craftLoad: wet > 0.001 ? ( veh.hullLoad ?? 0 ) * wet : 0,
 			// The vehicle's inputs and attitude, which is what the spray emitter
 			// needs to point the water anywhere sensible.
@@ -1283,7 +1373,7 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			uSwellDir.value.set( Math.sin( dragon.heading ), - Math.cos( dragon.heading ) );
 			uSwellLen.value = params.sdLength;
 			uSwellRad.value = params.sdSwellRadius;
-			uSwellAmp.value = params.sdSwell * shallow;
+			uSwellAmp.value = params.sdSwell * shallow * waterDisplaceScale( params );
 			// THE SAME WAVE THE MESH SWIMS, so the mound the sea draws is the mound
 			// this body actually makes rather than a straight ridge under a curved
 			// animal. Same source values as uCreatureWaves/uCreatureAmp/uCreaturePhase
@@ -1431,6 +1521,16 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 
 			followDragon = ! followDragon;
 			document.body.classList.toggle( 'following', followDragon );
+			if ( followDragon ) {
+
+				// Start centred behind the animal, not wherever a previous follow
+				// session's drag left the orbit.
+				followOrbitYaw = 0;
+				followOrbitPitch = 0;
+				lastCamYaw = camera.yaw;
+				lastCamPitch = camera.pitch;
+
+			}
 			return followDragon;
 
 		},
