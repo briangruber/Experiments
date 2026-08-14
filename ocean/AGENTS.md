@@ -106,6 +106,7 @@ top and bottom band means; two near-zero bands means nothing drew.
    | the craft's shadow on the sea, and that it has the hull's shape | `npm run check:shadow` |
    | the sea dragon: visible under the sea, swimming, holding station | `npm run check:dragon` |
    | the refraction pass (what the sea looks down into) | `node tools/run-probe.mjs prototypes/refraction-probe.html` — reads the target back rather than judging the picture |
+   | the settings panel's dock-vs-sheet breakpoint (`demo/ui.css`) | `node tools/run-probe.mjs prototypes/settings-dock-probe.html` (mouse, narrow → docked column) and `node tools/run-probe.mjs prototypes/settings-sheet-phone-probe.html --touch` (phone → bottom sheet still fires) |
    | picking up the sea dragon's unfinished work | read [`docs/sea-dragon-handoff.md`](docs/sea-dragon-handoff.md) FIRST - it lists what was already tried and failed |
    | the frame-rate governor / anything performance | `npm run check:adapt` |
    | the dragon's body wave in isolation | `node tools/run-probe.mjs prototypes/dragon-swim.html --shot shots/dragon-swim.png` |
