@@ -189,8 +189,12 @@ export async function dressSet(set) {
   // mesh under a muted brown wash, which reads as somebody else at the depth
   // they stand at and costs no download at all.
   try {
+    // Valentina's mesh, not Rosalinda's: the extras are driven by the cast's
+    // shared walk cycle, and that clip only fits a rig with Tripo's bone rest
+    // orientations. Rosalinda is Brian's own model now and does not have them,
+    // so borrowing her here put a shattered hen in the back of every shot.
     const [body, walk] = await Promise.all([
-      loadCastGLB('rosalinda.glb'), loadCastGLB('anim-walk.glb'),
+      loadCastGLB('valentina.glb'), loadCastGLB('anim-walk.glb'),
     ]);
     const gltf = { scene: body.scene, animations: walk.animations };
     for (const [x, z, yaw, height, offset] of EXTRAS) {
@@ -208,7 +212,7 @@ export async function dressSet(set) {
       hen.traverse((n) => {
         if (!n.isMesh || !n.material) return;
         n.material = n.material.clone();
-        if (n.material.color) n.material.color.setRGB(0.52, 0.42, 0.34);
+        if (n.material.color) n.material.color.setRGB(0.62, 0.5, 0.4);
       });
       shadows(hen);
       set.group.add(hen);

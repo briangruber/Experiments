@@ -67,10 +67,20 @@ export async function upgradeCast(actors, scene, camera) {
   const { rigs, errors } = await buildCastRigs({
     esteban: { spec: esteban, file: 'esteban.glb', height: H(esteban.size), albedo: 1.06 },
     ricardo: { spec: ricardo, file: 'ricardo.glb', height: H(ricardo.size), albedo: 1.1 },
-    // Rosalinda is Brian's own model rather than one of ours. It carries the
-    // same bone NAMES but not the same rest orientations, so it declines the
-    // cast's shared clips and acts purely on the channel mapping.
-    rosalinda: { spec: rosalinda, file: 'rosalinda.glb', height: H(rosalinda.size), albedo: 1.0, clips: false, boneActing: false },
+    // Brian's own hen. Her skeleton was rebuilt from her bind matrices, so the
+    // acting channels drive her fine — but the cast's shared walk and idle are
+    // absolute rotations retargeted onto Tripo's rest orientations, which hers
+    // does not share, so she declines them and stands on her own idle.
+    rosalinda: {
+      spec: rosalinda, file: 'rosalinda.glb', height: H(rosalinda.size), albedo: 1.0,
+      // Two capabilities she does not have, both switched off explicitly.
+      // The cast's shared walk and idle are absolute rotations retargeted onto
+      // Tripo's bone rest orientations, and hers are her own. The per-frame
+      // acting writes break her too — though a single one of the same
+      // rotations, applied once at build time, does not, which is why she can
+      // still be posed out of the A-pose she was sculpted in.
+      clips: false, boneActing: false, restArms: 0.85,
+    },
     valentina: { spec: valentina, file: 'valentina.glb', height: H(valentina.size), albedo: 1.35 },
     donGallo: { spec: donGallo, file: 'don-gallo.glb', height: H(donGallo.size), albedo: 1.06 },
   });

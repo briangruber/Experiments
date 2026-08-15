@@ -119,8 +119,7 @@ function measureHead(model, headIndex) {
   const idx = mesh.geometry.attributes.skinIndex;
   const wgt = mesh.geometry.attributes.skinWeight;
   if (!pos || !idx || !wgt) return null;
-  const toHead = mesh.skeleton.boneInverses[headIndex];
-  if (!toHead) return null;
+  if (!mesh.skeleton.boneInverses[headIndex]) return null;
 
   const xs = [], ys = [], zs = [];
   const v = new THREE.Vector3();
@@ -130,7 +129,11 @@ function measureHead(model, headIndex) {
       if (idx.getComponent(i, k) === headIndex) w += wgt.getComponent(i, k);
     }
     if (w < 0.5) continue;             // mostly-neck vertices would drag it down
-    v.fromBufferAttribute(pos, i).applyMatrix4(mesh.bindMatrix).applyMatrix4(toHead);
+    // Model space, not the head bone's own frame. Reading the box in bone
+    // space only works if that bone's axes happen to line up with the model's
+    // — true of every rig Tripo makes and not true in general, and when it is
+    // false the offset comes out sideways and the close-up frames a dress.
+    v.fromBufferAttribute(pos, i).applyMatrix4(mesh.bindMatrix);
     xs.push(v.x); ys.push(v.y); zs.push(v.z);
   }
   if (xs.length < 24) return null;
@@ -500,13 +503,20 @@ function buildRigFrom(model, clips, spec, opts = {}) {
   // forward), and the anchor already undoes the bone's rotation, so the box's
   // forward reads out on z and its up on y.
   const headBox = sculptFace0 ? measureHead(model, skeletonIndexOf(model, 'Head')) : null;
+  // Where that box sits relative to the Head bone, still in model space.
+  const headAt = bones.Head.getWorldPosition(new THREE.Vector3());
   if (headBox) {
     // Aim at the middle of the face, a little forward of the skull's centre —
     // the eyes and beak are on the front third, and a close-up that centres the
     // whole skull puts the comb in the middle of frame.
-    faceRoot.position.set(0,
-      opts.faceUp ?? headBox.centre.y,
-      opts.faceFwd ?? (headBox.centre.x + headBox.size.x * 0.18));
+    //
+    // Model space has the character facing +X; `orient` turns that to the
+    // company's +Z, so a model-space offset (dx, dy, dz) reads as (-dz, dy, dx)
+    // in the character axes this anchor is expressed in.
+    const dx = (headBox.centre.x - headAt.x) + headBox.size.x * 0.18;
+    const dy = headBox.centre.y - headAt.y;
+    const dz = headBox.centre.z - headAt.z;
+    faceRoot.position.set(opts.faceSide ?? -dz, opts.faceUp ?? dy, opts.faceFwd ?? dx);
   } else {
     faceRoot.position.set(0,
       opts.faceUp ?? (sculptFace0 ? 0 : CAL.faceUp),
@@ -535,7 +545,7 @@ function buildRigFrom(model, clips, spec, opts = {}) {
     // a big close-up.
     const w = headBox ? headBox.size.z * 0.34 : 0.05 * size;
     const up = headBox ? headBox.size.y * 0.04 : 0.02 * size;
-    const fwd = headBox ? headBox.size.x * 0.22 : 0.03 * size;
+    const fwd = headBox ? headBox.size.x * 0.22 : 0.03 * size;   // model +X = character +Z
     for (const sx of [-1, 1]) {
       const g = new THREE.Group();
       g.position.set(sx * w, up, fwd);
@@ -552,6 +562,21 @@ function buildRigFrom(model, clips, spec, opts = {}) {
   // ended in nothing catchable. These have a modelled sickle tail, real
   // primaries and their costume in the mesh, so the only thing left to add is
   // the seam-hiding kerchief, and only where one was asked for.
+  // A rig that cannot take the acting layer still should not stand there in
+  // the A-pose it was sculpted in. This folds the wings down once, at build
+  // time, through the same world-axis rotation the acting uses — so if it
+  // survives this and not the per-frame version, the difference is the
+  // per-frame writes and not the mapping.
+  if (opts.restArms) {
+    for (const sx of [-1, 1]) {
+      const L = sx < 0;
+      _fwd.set(0, 0, 1);
+      rotW(L ? bones.L_Clavicle : bones.R_Clavicle, _fwd, (L ? 1 : -1) * opts.restArms * 0.35);
+      rotW(L ? bones.L_Upperarm : bones.R_Upperarm, _fwd, (L ? 1 : -1) * opts.restArms);
+    }
+    model.updateMatrixWorld(true);
+  }
+
   const neckAnchor = anchorOn(bones.NeckTwist01);
   if (opts.kerchief && !sculptFace) neckAnchor.add(makeNeckerchief(size, opts.kerchief));
 

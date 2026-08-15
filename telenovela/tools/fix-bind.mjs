@@ -19,9 +19,26 @@
 
 import { readFile, writeFile } from 'node:fs/promises';
 
-const [, , inPath, outArg] = process.argv;
-if (!inPath) { console.error('usage: node tools/fix-bind.mjs in.glb [out.glb|--check]'); process.exit(1); }
+const [, , inPath, outArg, mode] = process.argv;
+if (!inPath) { console.error('usage: node tools/fix-bind.mjs in.glb [out.glb|--check] [--rebuild-skeleton]'); process.exit(1); }
 const CHECK = outArg === '--check';
+// Two different breakages need opposite repairs, and picking the wrong one
+// looks like it worked.
+//
+//   default            the skeleton is right and the bind matrices are wrong:
+//                      recompute each as the inverse of the joint's world
+//                      transform.
+//   --rebuild-skeleton the bind matrices are right and the skeleton is not
+//                      there at all — every joint's node transform is
+//                      identity, so the bones are piled at the origin. The
+//                      bind pose is still recoverable, because an inverse bind
+//                      matrix IS the inverse of where that joint stood: invert
+//                      it back and lay the hierarchy out from the result.
+//
+// The tell for the second case is a model that renders perfectly in bind pose
+// (identity bones times identity matrices is a no-op) and collapses the moment
+// anything rotates a bone.
+const REBUILD = mode === '--rebuild-skeleton' || outArg === '--rebuild-skeleton';
 
 const MAGIC = 0x46546c67, JSON_CHUNK = 0x4e4f534a, BIN_CHUNK = 0x004e4942;
 
@@ -114,6 +131,44 @@ const W = (i) => {
   world[i] = parent[i] < 0 ? m : mul(W(parent[i]), m);
   return world[i];
 };
+
+if (REBUILD) {
+  let laid = 0;
+  for (const skin of json.skins) {
+    if (skin.inverseBindMatrices === undefined) continue;
+    const acc = json.accessors[skin.inverseBindMatrices];
+    const bv = json.bufferViews[acc.bufferView];
+    const base = (bv.byteOffset || 0) + (acc.byteOffset || 0);
+    const want = new Map();          // node index -> its world matrix at bind
+    skin.joints.forEach((node, k) => {
+      const ibm = [];
+      for (let e = 0; e < 16; e++) ibm.push(bin.readFloatLE(base + k * 64 + e * 4));
+      want.set(node, invert(ibm));
+    });
+    // Top-down, so a parent's world is settled before its children ask for it.
+    const worldOf = new Array(nodes.length);
+    const roots = nodes.map((_, i) => i).filter((i) => parent[i] < 0);
+    const walk = (i, parentWorld) => {
+      const target = want.get(i);
+      let world = parentWorld;
+      if (target) {
+        const local = mul(invert(parentWorld), target);
+        const n = nodes[i];
+        delete n.translation; delete n.rotation; delete n.scale;
+        n.matrix = local;
+        world = target;
+        laid++;
+      }
+      worldOf[i] = world;
+      for (const c of nodes[i].children || []) walk(c, world);
+    };
+    const I = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+    for (const r of roots) walk(r, I);
+  }
+  await writeFile(outArg, writeGlb(json, bin));
+  console.log(`laid out ${laid} joints from their bind matrices -> ${outArg}`);
+  process.exit(0);
+}
 
 let fixed = 0, worst = 0;
 for (const skin of json.skins) {
