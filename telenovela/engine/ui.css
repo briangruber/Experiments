@@ -332,3 +332,36 @@ body.no-ui #progress { opacity: 0 !important; pointer-events: none; }
 @media (pointer: coarse) {
   #controls { opacity: 1; }
 }
+
+/* --- the editing room (?edit) ------------------------------------------- */
+/* Deliberately plain: it sits over a film, so nothing here should compete
+   with the picture for attention. */
+#editor { position: fixed; inset: 0; pointer-events: none; z-index: 40;
+  font: 12px ui-sans-serif, system-ui, sans-serif; color: #cfd6e4; }
+#editor button, #editor select, #editor input { pointer-events: auto; font: inherit; }
+#editor .ed-bar { position: absolute; left: 0; right: 0; top: 0; display: flex; gap: 8px;
+  align-items: center; padding: 7px 10px; background: rgba(12,13,18,0.86);
+  border-bottom: 1px solid #262b36; pointer-events: auto; }
+#editor .ed-bar .ed-time { flex: 1; }
+#editor .ed-t { min-width: 92px; opacity: 0.75; }
+#editor .ed-shot { min-width: 190px; color: #e8c56a; }
+#editor select, #editor button { background: #1b1e27; color: #cfd6e4;
+  border: 1px solid #333a48; border-radius: 4px; padding: 3px 8px; cursor: pointer; }
+#editor button:hover { border-color: #56617a; }
+#editor button.on { background: #3a2f16; border-color: #e8c56a; color: #ffdc8a; }
+#editor .ed-side { position: absolute; right: 0; top: 40px; width: 320px;
+  max-height: calc(100% - 52px); overflow: auto; padding: 10px;
+  background: rgba(12,13,18,0.86); border-left: 1px solid #262b36; pointer-events: auto; }
+#editor .ed-plan { width: 300px; height: 300px; border: 1px solid #262b36;
+  border-radius: 4px; display: block; touch-action: none; cursor: crosshair; }
+#editor .ed-hint { opacity: 0.5; margin: 5px 0 10px; }
+#editor .ed-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+#editor .ed-row label { width: 68px; opacity: 0.72; }
+#editor .ed-row select, #editor .ed-row .ed-slide { flex: 1; }
+#editor .ed-slide { display: flex; align-items: center; gap: 6px; }
+#editor .ed-slide input { flex: 1; }
+#editor .ed-slide span { width: 42px; text-align: right; opacity: 0.8; }
+#editor .ed-out { margin-top: 10px; padding: 8px; background: #0d0f14;
+  border: 1px solid #262b36; border-radius: 4px; white-space: pre-wrap;
+  font: 11px/1.45 ui-monospace, monospace; color: #9fe0b0; user-select: text;
+  pointer-events: auto; }

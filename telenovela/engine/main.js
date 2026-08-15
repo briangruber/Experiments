@@ -570,6 +570,7 @@ function frame() {
     ctx.score.setRain(weather.amount);
     cam.update(sdt, time);
   }
+  if (editor) editor.tick(dt);
   titles.update(dt);
   post.grade(dt);
   post.render(scene, camera, time + (sdt > 0 ? 0 : performance.now() * 0.001), cam);
@@ -742,6 +743,15 @@ post.snapLook({ fade: 0.35 });
 frame();
 
 // Expose a handle for the capture harness.
+// The editing room, only when asked for: ?edit loads it, the shipped page
+// never downloads or runs a line of it.
+let editor = null;
+if (new URLSearchParams(location.search).has('edit')) {
+  import('./editor.js')
+    .then((m) => { editor = m.attachEditor(window.__telenovela); running = true; startCard.classList.add('gone'); })
+    .catch((e) => console.warn('editor unavailable:', e.message));
+}
+
 window.__telenovela = {
   dir, cam, post, actors, scene, camera, renderer, THREE, soundtrack, synth, recorder,
   // Tools wait on `dressed` before framing anything; make it cover the cast

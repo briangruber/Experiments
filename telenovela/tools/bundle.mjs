@@ -262,6 +262,12 @@ async function bundleModule(file, dir = '') {
         : await readFile(join(ROOT, dir, file), 'utf8');
   const exported = [];
   let body = src
+    // The editing room is a development tool: it is loaded by a dynamic import
+    // behind ?edit so the shipped page never fetches it, and the single file
+    // has nowhere to fetch it FROM. Drop the loader rather than inline an
+    // editor nobody browsing the artifact can use.
+    .replace(/\n\s*import\('\.\/editor\.js'\)[\s\S]*?\.catch\([^;]*\);/g,
+      '\n  /* editor omitted from the single-file build */')
     // `import * as THREE` — THREE is already a top-level binding in the
     // bundle. Any other namespace import (the episode manifest pulls in whole
     // scene modules this way) binds the module's closure object directly.
