@@ -72,7 +72,7 @@ export const episode = {
     },
     episode: {
       label: 'EPISODIO COMPLETO',
-      note: '5:37 · 540p',
+      note: '5:03 · 540p',
       width: 960, height: 540,
       segments: null,     // the whole thing, start to finish
     },

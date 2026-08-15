@@ -103,6 +103,7 @@ engine/           everything that could stage any episode
   main.js         bootstrap, loop, controls, capture hooks
   chicken.js      the rig — one procedural bird, built from primitives
   acting.js       Actor: emotion, gesture library, look-at, walking, leg IK
+  bone-actor.js   the same Actor on a rigged Tripo skeleton — the twins wear it
   camera.js       the cinematographer — shot sizes, lenses, moves, focus
   director.js     the cue runner and the staging helpers
   audio.js        the soundtrack player, with score.js as its fallback
@@ -115,7 +116,8 @@ engine/           everything that could stage any episode
   mp4.js          the minimal MP4 muxer the exporter writes with
   record.js       the realtime MediaRecorder fallback, and file delivery
 company/          the troupe and its stock
-  cast/           one file per character: spec + wardrobe
+  cast/           one file per character: spec + wardrobe; models/ holds the
+                  rigged Tripo twins (procedural remains the fallback)
   sets/           courtyard.js — the set, generated textures, lighting
   props/          set dressing, and the generated GLB props under assets/
   library/        the shared sound library: manifest, timings, audio/

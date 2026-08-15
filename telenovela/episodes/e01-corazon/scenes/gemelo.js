@@ -168,7 +168,10 @@ export function build(deps) {
         rosalinda.look(valentina, 1);
         rosalinda.emote({ shock: 1, sorrow: 1 }, 3);
       }],
-      [45.0, (c) => { c.weather.strike(1.4); c.score.thunder(1.3, 0.1); }],
+      // 46.2 not 45.0: dlg-4i runs to 46.03 scene-seconds and a 1.3 thunder
+      // was burying its tail — now the line lands clean and the strike
+      // punctuates it, still ahead of the 46.8 fade.
+      [46.2, (c) => { c.weather.strike(1.4); c.score.thunder(1.3, 0.1); }],
       [46.8, (c) => c.post.setLook({ fade: 1 })],
     ],
   };
