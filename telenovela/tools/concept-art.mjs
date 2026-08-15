@@ -26,9 +26,9 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const OUT = join(ROOT, 'company/cast/concept');
-
 const args = process.argv.slice(2);
+const OUT = join(ROOT, args.includes('--props') ? 'company/props/concept' : 'company/cast/concept');
+
 const opt = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i + 1] : d; };
 const MODEL = opt('model', 'openai/gpt-image-2');
 const SIZE = opt('size', '1024x1024');
@@ -79,6 +79,45 @@ const SHEET = {
     + 'feather on top of its head. Standing upright, wings out to the sides. Innocent, wide-eyed, adorable.',
 };
 
+// Set dressing. A prop wants a different sheet from a character: three-quarter
+// rather than dead-on (a flat elevation gives the reconstruction nothing to
+// work out the depth from), and grounded, because a fountain floating in a void
+// comes back with a guessed underside.
+const PROP_POSE = 'Single object, isolated, three-quarter view from slightly above, '
+  + 'whole object inside the frame with empty space around it, resting level.';
+const PROP_LOOK = 'Product photograph for 3D scanning: soft even studio lighting from the front, '
+  + 'no harsh shadows, no cast shadow, plain seamless light grey background, nothing else in frame, '
+  + 'no text, no watermark. Photorealistic, weathered and characterful, fine surface detail, '
+  + 'physically plausible materials.';
+
+const PROPS = {
+  fountain: 'A colonial Mexican courtyard fountain carved from weathered pale limestone. '
+    + 'Two round tiers on an octagonal base, a wide lower basin, chipped and stained with age, '
+    + 'patches of moss and mineral streaks in the crevices.',
+  door: 'A heavy old hacienda door of dark weathered timber planks with a rounded arched top, '
+    + 'banded with black wrought iron straps and rows of hand-forged iron studs, a heavy iron '
+    + 'ring handle, set in a pale carved stone surround. Paint worn away at the edges.',
+  bench: 'An old Spanish colonial courtyard bench: scrolled black wrought-iron ends and armrests '
+    + 'with weathered dark wooden slats, chipped paint, a little rust at the joints.',
+  jug: 'A large rustic terracotta water jug, hand-thrown, warm burnt-orange clay with a narrow '
+    + 'neck and two small handles, unglazed and dusty with a chalky bloom and a chipped lip.',
+  'pot-agave': 'A big weathered terracotta planter holding a blue-green agave with thick '
+    + 'spined leaves fanning outward. The clay pot is cracked and salt-stained.',
+  bougainvillea: 'A lush bougainvillea shrub in full bloom, dense magenta and hot-pink bracts '
+    + 'over dark green leaves and woody twisting stems.',
+  'wall-lantern': 'An antique Mexican wrought-iron wall lantern: a black hand-forged iron frame '
+    + 'with four amber glass panes, a pitched cap, a scrolled bracket, a candle inside. '
+    + 'Rusted and pitted with age.',
+  'stone-well': 'An old circular stone well of rough mortared fieldstone with a weathered '
+    + 'timber frame over it, an iron crank, a rope, and a battered wooden bucket. Moss in the joints.',
+  'papel-picado': 'A long string of Mexican papel picado banners: rectangular tissue-paper flags '
+    + 'in magenta, orange, turquoise, yellow and green, each cut with intricate lace-like '
+    + 'patterns, strung on a cord and hanging with a gentle sag.',
+  'crate-fruit': 'A rough wooden produce crate of weathered slats, piled with oranges and limes.',
+  'tile-stack': 'A neat stack of curved terracotta barrel roof tiles, sun-faded orange, '
+    + 'chipped edges, a little moss.',
+};
+
 async function draw(key, prompt, index) {
   const res = await fetch('https://ai-gateway.vercel.sh/v1/images/generations', {
     method: 'POST',
@@ -100,18 +139,22 @@ async function draw(key, prompt, index) {
   return path;
 }
 
+const PROP_MODE = args.includes('--props');
+const BOOK = PROP_MODE ? PROPS : SHEET;
 const keys = args.includes('--all')
-  ? Object.keys(SHEET)
-  : args.filter((a) => !a.startsWith('--') && SHEET[a]);
+  ? Object.keys(BOOK)
+  : args.filter((a) => !a.startsWith('--') && BOOK[a]);
 if (!keys.length) {
-  console.error(`usage: node tools/concept-art.mjs <${Object.keys(SHEET).join('|')}|--all>`);
+  console.error(`usage: node tools/concept-art.mjs [--props] <${Object.keys(BOOK).join('|')}|--all>`);
   process.exit(1);
 }
 if (!process.env.AI_GATEWAY_API_KEY) { console.error('AI_GATEWAY_API_KEY not set'); process.exit(1); }
 
 await mkdir(OUT, { recursive: true });
 for (const key of keys) {
-  const prompt = `${SHEET[key]}\n\n${POSE}\n\n${LOOK}`;
+  const prompt = PROP_MODE
+    ? `${PROPS[key]}\n\n${PROP_POSE}\n\n${PROP_LOOK}`
+    : `${SHEET[key]}\n\n${POSE}\n\n${LOOK}`;
   for (let i = 0; i < VARIANTS; i++) {
     await draw(key, prompt, VARIANTS > 1 ? i : 0);
   }

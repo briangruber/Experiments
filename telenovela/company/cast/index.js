@@ -62,11 +62,11 @@ const H = (size) => 0.78 * (size / 1.14);
 
 export async function upgradeCast(actors, scene, camera) {
   const { rigs, errors } = await buildCastRigs({
-    esteban: { spec: esteban, file: 'esteban.glb', height: H(esteban.size), albedo: 1.5 },
-    ricardo: { spec: ricardo, file: 'ricardo.glb', height: H(ricardo.size), albedo: 1.55 },
-    rosalinda: { spec: rosalinda, file: 'rosalinda.glb', height: H(rosalinda.size), albedo: 1.3 },
-    valentina: { spec: valentina, file: 'valentina.glb', height: H(valentina.size), albedo: 1.9 },
-    donGallo: { spec: donGallo, file: 'don-gallo.glb', height: H(donGallo.size), albedo: 1.4 },
+    esteban: { spec: esteban, file: 'esteban.glb', height: H(esteban.size), albedo: 1.06 },
+    ricardo: { spec: ricardo, file: 'ricardo.glb', height: H(ricardo.size), albedo: 1.1 },
+    rosalinda: { spec: rosalinda, file: 'rosalinda.glb', height: H(rosalinda.size), albedo: 1.0 },
+    valentina: { spec: valentina, file: 'valentina.glb', height: H(valentina.size), albedo: 1.35 },
+    donGallo: { spec: donGallo, file: 'don-gallo.glb', height: H(donGallo.size), albedo: 1.06 },
   });
   const swapped = [];
   for (const key of ['esteban', 'ricardo', 'rosalinda', 'valentina', 'donGallo']) {

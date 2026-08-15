@@ -368,7 +368,22 @@ await page.evaluate(() => {
     const g = c.getContext('2d');
     g.imageSmoothingQuality = 'high';
     g.drawImage(img, 0, 0, c.width, c.height);
-    if (mode === 'ricardo') {
+    if (mode === 'lift') {
+      // A textured PBR bird drinks the night grade where the procedural cast's
+      // flat materials reflected it. Brightening at runtime by multiplying the
+      // material colour clips the red channel first and turns copper plumage
+      // into a saturated postbox red, so the lift happens here instead, as a
+      // gamma curve: it opens the shadows, leaves the highlights alone, and
+      // holds the hue it was painted with.
+      const id = g.getImageData(0, 0, c.width, c.height);
+      const d = id.data;
+      const lut = new Uint8Array(256);
+      for (let i = 0; i < 256; i++) lut[i] = Math.round(255 * Math.pow(i / 255, 1 / 1.42));
+      for (let i = 0; i < d.length; i += 4) {
+        d[i] = lut[d[i]]; d[i + 1] = lut[d[i + 1]]; d[i + 2] = lut[d[i + 2]];
+      }
+      g.putImageData(id, 0, 0);
+    } else if (mode === 'ricardo') {
       const id = g.getImageData(0, 0, c.width, c.height);
       const d = id.data;
       const mix = (a, b, t) => a + (b - a) * t;
@@ -422,8 +437,8 @@ for (const { key, out } of CAST) {
     if (!role) { replace.set(i, Buffer.alloc(0)); notes.push('dropped 1 unused map'); continue; }
     const uri = `data:${json.images[image].mimeType || 'image/png'};base64,${raw.toString('base64')}`;
     const isBase = role === 'base';
-    const res = await page.evaluate(([u, m, q]) => window.__bake(u, m, q, null),
-      [uri, isBase ? BASE : AUX, QUALITY]);
+    const res = await page.evaluate(([u, m, q, md]) => window.__bake(u, m, q, md),
+      [uri, isBase ? BASE : AUX, QUALITY, isBase ? 'lift' : null]);
     const shrunk = Buffer.from(res.uri.slice(res.uri.indexOf(',') + 1), 'base64');
     replace.set(i, shrunk);
     json.images[image].mimeType = 'image/jpeg';

@@ -9,8 +9,33 @@ const SENSOR_H = 24; // mm — full-frame vertical, so lens numbers read normall
 
 // Wide shots are framed off the subject's full height; anything from a medium
 // close-up in is framed off the head, or a chick gets an unusable macro shot.
-const FRAMING_BODY = { ews: 14, ws: 4.2, mls: 2.6, ms: 1.55 };
-const FRAMING_HEAD = { mcu: 5.4, cu: 3.6, bcu: 2.4, ecu: 1.35 };
+//
+// These numbers were measured, not guessed: tools/framing-metric.mjs projects
+// the live subject through the live camera and reports its standing height as
+// a share of the frame. Every shot in the episode came back about twice as
+// wide as its own label — a "close-up" was putting the whole bird on screen
+// with room to spare, which is what makes coverage read as a webcam rather
+// than as photography. Halved, a close-up is now head and shoulders and a
+// medium cuts at the chest, the way the words mean.
+const FRAMING_BODY = { ews: 5.6, ws: 2.3, mls: 1.45, ms: 0.98 };
+const FRAMING_HEAD = { mcu: 2.4, cu: 1.7, bcu: 1.15, ecu: 0.68 };
+
+// Where the subject belongs in the frame, as normalised device coordinates
+// (0 is centre, +1 the top or right edge).
+//
+// COMPOSE_Y is headroom: the eyes ride near the upper third, tighter shots
+// higher, because a face centred vertically leaves a dead half-frame of
+// forehead above it. COMPOSE_X is looking room — the subject is pushed away
+// from the direction they face so they look ACROSS the frame into space
+// rather than off the edge of it. Both are applied by tilting and panning the
+// lens, never by moving the camera: the operator's feet stay where the shot
+// put them, exactly as they would on the day.
+// Looking room peaks in the middle sizes and falls off at both ends: a wide
+// already has scenery to look into, and on a big close-up the head is most of
+// the frame, so leading it hard only jams it into a corner with a dead half
+// frame beside it — which on a night set is a black hole, not composition.
+const COMPOSE_Y = { ecu: 0.10, bcu: 0.18, cu: 0.23, mcu: 0.25, ms: 0.22, mls: 0.18, ws: 0.12, ews: 0.06 };
+const COMPOSE_X = { ecu: 0.05, bcu: 0.10, cu: 0.13, mcu: 0.16, ms: 0.15, mls: 0.11, ws: 0.06, ews: 0.03 };
 const LABELS = {
   ews: 'EXTREME WIDE', ws: 'WIDE', mls: 'MEDIUM LONG', ms: 'MEDIUM',
   mcu: 'MEDIUM CLOSE', cu: 'CLOSE-UP', bcu: 'BIG CLOSE-UP', ecu: 'EXTREME CLOSE-UP',
@@ -98,6 +123,12 @@ export class Cinematographer {
       focusOn: spec.focusOn ?? null,   // an actor/point to hold focus on
       aperture: spec.aperture ?? 1,
       label: spec.label ?? null,
+      // Composition. `false` centres the subject, which a symmetrical frame —
+      // a title card, a bow straight down the barrel — actually wants.
+      compose: spec.compose ?? true,
+      // A subject addressing the lens has no side to look into, so leading it
+      // would just shove it off centre for nothing.
+      toCamera: spec.toCamera ?? (spec.strictAngle === true && (spec.angle ?? 0) === 0),
       t: 0,
       _frozen: null,
     };
@@ -385,6 +416,60 @@ export class Cinematographer {
       }
     }
     this._azS = az;
+
+    // --- composition ---------------------------------------------------------
+    // The camera is standing in the right place; this decides where in the
+    // frame the subject lands once it gets there. Everything above aims the
+    // lens straight at the head, which centres it — the one thing every guide
+    // to framing tells you not to do.
+    //
+    // Offsetting the LOOK target rather than the camera means the geometry the
+    // solver just worked out (the shoulder line of an over, the avoidance
+    // search's angle, the crane height) survives untouched: the operator holds
+    // their mark and reframes with the head, which is also why this cannot
+    // push the lens into a wall.
+    if (s.compose !== false) {
+      const cy = COMPOSE_Y[s.frame] ?? 0.2;
+      const cx = COMPOSE_X[s.frame] ?? 0.12;
+      _r.set(px, height, pz);
+      const toAim = _s.copy(aim).sub(_r);
+      const d = toAim.length();
+      if (d > 1e-4) {
+        toAim.divideScalar(d);
+        const frameH = 2 * d * Math.tan((this.fovFor(lens) * Math.PI) / 360);
+        const frameW = frameH * (this.camera.aspect || 1.78);
+        // Camera basis. Roll is applied downstream, so world up is the
+        // right reference here.
+        const right = _p.set(0, 1, 0).cross(toAim).normalize().negate();
+        const up = new THREE.Vector3().crossVectors(right, toAim);
+
+        // Which way is the subject facing, on screen? A bird turned away from
+        // the lens needs room in front of its beak; one looking down the
+        // barrel needs none, and the term falls to zero on its own.
+        let tx = 0;
+        const sub = s.subject;
+        if (sub && sub.yaw !== undefined && !s.toCamera) {
+          const faceRight = Math.sin(sub.yaw) * right.x + Math.cos(sub.yaw) * right.z;
+          tx = -faceRight * cx;
+        }
+        // An over-the-shoulder already spends one side of the frame on the
+        // foreground head; leading the subject as hard as a clean single would
+        // crush them against the far edge.
+        if (s.over) tx *= 0.5;
+
+        // Compose on the EYES, not on whatever the shot happens to aim at.
+        // On a close-up the eye sits far enough above the head anchor to be a
+        // quarter of the frame by itself, so composing the anchor and hoping
+        // put the eyeline out of the top of the picture.
+        const ref = (sub && sub.eyeWorld) ? sub.eyeWorld(_q.clone(), _r) : aim;
+        const dy = ref.dot(up) - aim.dot(up);
+        const dx = ref.dot(right) - aim.dot(right);
+        this.aim.copy(aim)
+          .addScaledVector(right, dx - tx * frameW * 0.5)
+          .addScaledVector(up, dy - cy * frameH * 0.5);
+        aim.copy(this.aim);
+      }
+    }
 
     if (!s.track && s._frozen) {
       this.pos.copy(s._frozen.pos);

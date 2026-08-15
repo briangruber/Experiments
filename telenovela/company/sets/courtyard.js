@@ -21,6 +21,71 @@ function finish(c, repeat = 1, aniso = 8) {
   return t;
 }
 
+// The same, for a map that carries vectors rather than colour: a normal map
+// pushed through the sRGB transfer function comes out as subtly wrong geometry
+// everywhere, which is worse than having no normal map at all.
+function finishLinear(c, repeat = 1, aniso = 8) {
+  const t = finish(c, repeat, aniso);
+  t.colorSpace = THREE.NoColorSpace;
+  return t;
+}
+
+// Derive a tangent-space normal map from a texture's own luminance.
+//
+// Every surface in this courtyard was a flat diffuse map: the plaster, the
+// tiles, the timber. Under a hard key at night that reads as printed paper
+// rather than as a wall — the light has nothing to catch on, so the eye gets
+// no sense of a real surface. Treating the painted luminance as a height field
+// and differencing it gives cracks a lip, tiles an edge and stucco its tooth,
+// for no download at all: the canvas is already there, and this is one pass
+// over it at load.
+//
+// Sampling wraps with `& (N - 1)`, which is why the source canvases are all
+// powers of two — the seam has to tile as cleanly as the colour does.
+function normalFrom(src, strength = 2.4) {
+  const N = src.width;
+  const [c, g] = canvas(N);
+  const data = src.getContext('2d').getImageData(0, 0, N, N).data;
+  const lum = (x, y) => {
+    const i = (((y & (N - 1)) * N) + (x & (N - 1))) * 4;
+    return (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114) / 255;
+  };
+  const out = g.createImageData(N, N);
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const dx = (lum(x + 1, y) - lum(x - 1, y)) * strength;
+      const dy = (lum(x, y + 1) - lum(x, y - 1)) * strength;
+      const len = Math.hypot(dx, dy, 1);
+      const i = ((y * N) + x) * 4;
+      out.data[i] = ((-dx / len) * 0.5 + 0.5) * 255;
+      out.data[i + 1] = ((-dy / len) * 0.5 + 0.5) * 255;
+      out.data[i + 2] = ((1 / len) * 0.5 + 0.5) * 255;
+      out.data[i + 3] = 255;
+    }
+  }
+  g.putImageData(out, 0, 0);
+  return c;
+}
+
+// A roughness map from the same height field. Anything that sits proud — a
+// tile's crown, the high points of plaster — has been walked on, rained on and
+// polished; the low places hold damp and stay matte. One channel, and it is
+// the difference between a uniform sheen and a floor.
+function roughFrom(src, lo = 0.42, hi = 0.95) {
+  const N = src.width;
+  const [c, g] = canvas(N);
+  const data = src.getContext('2d').getImageData(0, 0, N, N).data;
+  const out = g.createImageData(N, N);
+  for (let i = 0; i < data.length; i += 4) {
+    const l = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114) / 255;
+    const r = Math.round((hi - (hi - lo) * l) * 255);
+    out.data[i] = out.data[i + 1] = out.data[i + 2] = r;
+    out.data[i + 3] = 255;
+  }
+  g.putImageData(out, 0, 0);
+  return c;
+}
+
 function tileTexture(rng) {
   // 1024px, 5x5 cells: the floor fills half of every wide, and at 512 the
   // tiles were visibly the same four squares repeating. One 1024 canvas is
@@ -417,17 +482,44 @@ export function buildSet(scene, renderer) {
   scene.add(set);
 
   const aniso = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-  const tileTex = finish(tileTexture(rng), 3.2, aniso);
-  const stuccoTex = finish(stuccoTexture(rng), 3, aniso);
-  const stuccoWarm = finish(stuccoTexture(rng, [26, 30, 74]), 2, aniso);
-  const woodTex = finish(woodTexture(rng), 2, aniso);
+  // Each surface is painted once and then read three ways — colour, relief and
+  // sheen — so the wall a close-up is shot against has a surface instead of a
+  // print of one. All three come off the same canvas, so the set gains its
+  // depth without gaining a byte.
+  const tileSrc = tileTexture(rng);
+  const stuccoSrc = stuccoTexture(rng);
+  const stuccoWarmSrc = stuccoTexture(rng, [26, 30, 74]);
+  const woodSrc = woodTexture(rng);
 
+  const tileTex = finish(tileSrc, 3.2, aniso);
+  const stuccoTex = finish(stuccoSrc, 3, aniso);
+  const stuccoWarm = finish(stuccoWarmSrc, 2, aniso);
+  const woodTex = finish(woodSrc, 2, aniso);
+
+  const N2 = new THREE.Vector2(1, 1);
   const mats = {
-    floor: new THREE.MeshStandardMaterial({ map: tileTex, roughness: 0.62, metalness: 0.02, color: 0xb8b2ad }),
-    stucco: new THREE.MeshStandardMaterial({ map: stuccoTex, roughness: 0.92, color: 0xa89a8c }),
-    stuccoWarm: new THREE.MeshStandardMaterial({ map: stuccoWarm, roughness: 0.9, color: 0xa08c78 }),
+    floor: new THREE.MeshStandardMaterial({
+      map: tileTex, roughness: 0.62, metalness: 0.02, color: 0xb8b2ad,
+      normalMap: finishLinear(normalFrom(tileSrc, 3.4), 3.2, aniso),
+      normalScale: N2.clone().multiplyScalar(0.9),
+      roughnessMap: finishLinear(roughFrom(tileSrc, 0.34, 0.86), 3.2, aniso),
+    }),
+    stucco: new THREE.MeshStandardMaterial({
+      map: stuccoTex, roughness: 0.92, color: 0xa89a8c,
+      normalMap: finishLinear(normalFrom(stuccoSrc, 2.2), 3, aniso),
+      normalScale: N2.clone().multiplyScalar(0.75),
+    }),
+    stuccoWarm: new THREE.MeshStandardMaterial({
+      map: stuccoWarm, roughness: 0.9, color: 0xa08c78,
+      normalMap: finishLinear(normalFrom(stuccoWarmSrc, 2.2), 2, aniso),
+      normalScale: N2.clone().multiplyScalar(0.75),
+    }),
     stone: new THREE.MeshStandardMaterial({ color: 0x6f675e, roughness: 0.88 }),
-    wood: new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.8 }),
+    wood: new THREE.MeshStandardMaterial({
+      map: woodTex, roughness: 0.8,
+      normalMap: finishLinear(normalFrom(woodSrc, 2.8), 2, aniso),
+      normalScale: N2.clone().multiplyScalar(0.7),
+    }),
     iron: new THREE.MeshStandardMaterial({ color: 0x1b1a1e, roughness: 0.5, metalness: 0.7 }),
   };
 

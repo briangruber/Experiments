@@ -25,9 +25,12 @@ import { dirname, join, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const CONCEPT = join(ROOT, 'company/cast/concept');
-const MODELS = join(ROOT, 'company/cast/models');
-const SRC = join(MODELS, 'src');
+// Set dressing lives beside the props it dresses; --props swings the whole
+// tool over to it. Props are never rigged, so only `model` applies.
+const PROPS = process.argv.includes('--props');
+const CONCEPT = join(ROOT, PROPS ? 'company/props/concept' : 'company/cast/concept');
+const MODELS = join(ROOT, PROPS ? 'company/props' : 'company/cast/models');
+const SRC = join(MODELS, PROPS ? 'src' : 'src');
 const LEDGER = join(MODELS, 'provenance.json');
 
 const API = 'https://api.tripo3d.ai/v2/openapi';
