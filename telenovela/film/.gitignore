@@ -1,0 +1,12 @@
+# The repository root ignores `shots/` and `dist/`, which is right for the
+# engine — those are screenshots and build output, and both regenerate. Here
+# they are neither. This endpoint has no seed input, so a take cannot be
+# reproduced: delete the mp4 and that performance is gone for good, and the
+# most you can do is roll again and hope. The takes are therefore source, and
+# they are kept.
+!shots/
+!dist/
+
+# The one genuine cache: local paths mapped to fal CDN URLs, which expire.
+# Provenance lives in the sidecars next to each take.
+refs/uploads.json
