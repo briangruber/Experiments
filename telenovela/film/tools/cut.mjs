@@ -3,6 +3,8 @@
 //
 //   node tools/cut.mjs                 # dist/s01-testamento.mp4
 //   node tools/cut.mjs --no-bed        # picture and diegetic sound only
+//   node tools/cut.mjs --lang es       # burn the Spanish instead
+//   node tools/cut.mjs --no-subs       # no titles at all
 //   node tools/cut.mjs --print         # show the ffmpeg graph and stop
 //
 // The edit is deliberately plain — trim each shot to its marks, hard cut
@@ -30,6 +32,7 @@ import { promisify } from 'node:util';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import SCENE from '../scenes/s01-testamento/scene.js';
+import { build as buildSubs } from './subs.mjs';
 
 const run = promisify(execFile);
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -38,8 +41,13 @@ const DIST = join(ROOT, 'dist');
 const FFMPEG = process.env.FFMPEG || 'ffmpeg';
 
 const args = process.argv.slice(2);
+const opt = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i + 1] : d; };
 const NO_BED = args.includes('--no-bed');
+const NO_SUBS = args.includes('--no-subs');
 const PRINT = args.includes('--print');
+// Which language gets burned into the picture. Both are muxed as selectable
+// tracks either way, so this only decides the one that cannot be turned off.
+const LANG = opt('lang', 'en');
 const exists = (p) => access(p).then(() => true, () => false);
 
 // Marks. A shot is generated longer than it plays so the edit has handles;
@@ -81,9 +89,34 @@ marks.forEach((m, i) => {
 const chain = marks.map((_, i) => `[v${i}][a${i}]`).join('');
 parts.push(`${chain}concat=n=${marks.length}:v=1:a=1[vcat][acat]`);
 
+// Subtitles are timed off the audio, not off the script — see tools/subs.mjs.
+// They are built here rather than being a separate step you can forget,
+// because a stale .srt against a recut picture is worse than none.
+if (!NO_SUBS) await buildSubs({ quiet: true });
+
 // A gentle fade off the top and tail of the picture. Everything between the
-// two shots is a straight cut.
-parts.push(`[vcat]fade=t=in:st=0:d=0.35,fade=t=out:st=${(total - 0.5).toFixed(2)}:d=0.5[vout]`);
+// shots is a straight cut.
+const fade = `fade=t=in:st=0:d=0.35,fade=t=out:st=${(total - 0.5).toFixed(2)}:d=0.5`;
+
+// Burned last, so the fades do not take the text down with the picture and
+// the type stays at full strength over the opening frames.
+//
+// Styled like a film subtitle rather than a player default: a heavy outline
+// and a soft shadow so it survives both the blown-out candle flames and the
+// near-black corners of this room, which is the whole difficulty with white
+// type over a high-contrast night interior.
+const style = [
+  'FontName=DejaVu Sans', 'FontSize=21', 'Bold=1',
+  'PrimaryColour=&H00FFFFFF', 'OutlineColour=&HC0000000', 'BackColour=&H80000000',
+  'BorderStyle=1', 'Outline=1.6', 'Shadow=0.7',
+  'Alignment=2', 'MarginV=34',
+].join(',');
+
+parts.push(
+  !NO_SUBS
+    ? `[vcat]${fade},subtitles=f=dist/${SCENE.id}.${LANG}.srt:force_style='${style}'[vout]`
+    : `[vcat]${fade}[vout]`,
+);
 
 let AOUT = '[acat]';
 if (useBed) {
@@ -107,14 +140,25 @@ if (useBed) {
 const graph = parts.join(';');
 const out = join(DIST, `${SCENE.id}.mp4`);
 
+// Both languages also ride along as selectable tracks. The burned-in copy is
+// what everyone will actually see, but a soft track costs nothing and means
+// the file can be watched in the other language without a re-encode.
+const softIndex = marks.length + (useBed ? 1 : 0);
+const soft = NO_SUBS ? [] : ['en', 'es'];
+
 const cmd = [
   '-y',
   ...marks.flatMap((m) => ['-i', m.path]),
   ...(useBed ? ['-i', bed] : []),
+  ...soft.flatMap((l) => ['-i', join(DIST, `${SCENE.id}.${l}.srt`)]),
   '-filter_complex', graph,
   '-map', '[vout]', '-map', AOUT,
+  ...soft.flatMap((_, i) => ['-map', `${softIndex + i}:s:0`]),
   '-c:v', 'libx264', '-preset', 'slow', '-crf', '18', '-pix_fmt', 'yuv420p',
-  '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart',
+  '-c:a', 'aac', '-b:a', '192k',
+  ...(soft.length ? ['-c:s', 'mov_text'] : []),
+  ...soft.flatMap((l, i) => [`-metadata:s:s:${i}`, `language=${l === 'en' ? 'eng' : 'spa'}`]),
+  '-movflags', '+faststart',
   out,
 ];
 
@@ -129,7 +173,11 @@ for (const m of marks) {
   console.log(`  ${m.slate.padEnd(24)} ${m.in.toFixed(2)}–${m.out.toFixed(2)}  (${m.length.toFixed(2)}s)`);
 }
 console.log(`  ${'—'.repeat(24)} ${total.toFixed(2)}s total`);
-console.log(`  bed: ${useBed ? 'dist/bed.mp3, ducked under dialogue' : 'none'}\n`);
+console.log(`  bed:  ${useBed ? 'dist/bed.mp3, ducked under dialogue' : 'none'}`);
+console.log(`  subs: ${NO_SUBS ? 'none' : `${LANG} burned in, en+es as selectable tracks`}\n`);
 
-await run(FFMPEG, cmd, { maxBuffer: 1 << 26 });
+// cwd is the unit root so the subtitles filter can name its file with a bare
+// relative path — an absolute one would need its colons escaped inside the
+// filter graph, which is a class of bug not worth inviting.
+await run(FFMPEG, cmd, { maxBuffer: 1 << 26, cwd: ROOT });
 console.log(`  ${((await stat(out)).size / 1e6).toFixed(1)} MB  ->  dist/${SCENE.id}.mp4`);

@@ -8,14 +8,16 @@ the part film crews call preproduction and post: deciding what the shot is,
 making sure the next one matches, and cutting them together so nobody notices
 the joins.
 
-`El Testamento` is the first scene shot this way. Two shots, ten and a half
-seconds, one exchange across a table.
+`El Testamento` is the first scene shot this way. Three shots, just under
+sixteen seconds, one exchange across a table: an accusation, a question, and
+an answer.
 
 ```
 node tools/refs.mjs       # draw the character sheets and the location plate
 node tools/voices.mjs     # cast each character's voice into a plate
 node tools/score.mjs      # compose the music bed
 node tools/shoot.mjs      # shoot the scene, one shot at a time
+node tools/subs.mjs       # time the subtitles off the audio (cut.mjs runs this too)
 node tools/cut.mjs        # cut it together  ->  dist/s01-testamento.mp4
 ```
 
@@ -173,6 +175,40 @@ cut is real. It is not fixed by fading, since a dip at the cut is more audible
 than the seam. It is covered by the one element that runs through the edit
 untouched.
 
+## Subtitles
+
+Seedance will burn text into a shot and must not be allowed to — the `LOOK`
+clause forbids on-screen text for the same reason the `AUDIO` clause forbids
+music. Text baked into the picture cannot be corrected, restyled, translated
+or switched off, and it arrives in whatever font and position the model felt
+like. Titling is a post decision.
+
+The interesting half is the timing, and it is where the model's word is worth
+least. The prompts give beats — "3–4.5s: she asks…" — and a rule that speech
+must finish a second before the end, and both are honoured loosely: the first
+take of 1B ran its line into the final frame, and the voice plates did the
+same after being told twice not to. A subtitle placed on the written beat
+drifts off the mouth.
+
+So nothing trusts the script for time. `tools/speech.py` measures where the
+voiced speech actually is inside each shot's trimmed range — the same
+autocorrelation voicing test as the pitch checker, which conveniently rejects
+rain, thunder and paper, because speech is periodic and they are not — and
+`tools/subs.mjs` aligns the declared lines to what it found. The script says
+*what* is said; the audio says *when*.
+
+It also found the natural breaks. Rosalinda's "Entonces… ¿de quién es?" has a
+0.76s pause on the ellipsis and Doña Perpetua's answer has one between its two
+sentences, so both are declared pre-split and land as two cues each — which is
+where a human subtitler would break them anyway. If a reshoot changes that
+structure the aligner says so and spreads the lines evenly rather than
+silently mismatching them.
+
+English is burned in; English and Spanish both ride along as selectable
+tracks, which costs nothing and means the file can be watched either way
+without a re-encode. `--lang es` burns the Spanish instead, `--no-subs`
+neither.
+
 ## Gotchas found the hard way
 
 - **No seed.** Say it again because it changes everything. A take you like
@@ -197,10 +233,12 @@ untouched.
   as a rule, in every prompt, naming each character's side and eyeline.
 - **Voice cannot be inherited from coverage.** See above; it is the single
   structural mistake that looks like it works on a two-shot scene.
-- **The `TIMING` rule is a nudge, not a guarantee.** The voice plates ran
-  speech to the final frame despite being told to finish a second early.
-  Harmless for a sample that is never cut on, but do not lean on it in a shot
-  whose out-point matters — check, and reshoot if it runs long.
+- **The `TIMING` rule is a nudge, not a guarantee, and nothing downstream
+  should depend on it.** The voice plates ran speech to the final frame after
+  being told twice to finish a second early. Write the rule anyway — it moved
+  1B's line off the last frame — but measure the result rather than assuming
+  it. That is what `tools/speech.py` is for, and why the subtitles are timed
+  off the audio instead of off the beats that produced it.
 - **The reference sheets set the style, and they can disagree.** The two sheets
   here came back at slightly different levels of realism — the ingenue cartoon,
   the matriarch nearly photoreal. It happens to suit this pairing, but it is
@@ -216,7 +254,10 @@ tools/refs.mjs                   draws the character sheets and the location pla
 tools/voices.mjs                 casts each character's voice into a reusable plate
 tools/score.mjs                  composes the one music bed
 tools/shoot.mjs                  assembles the reference stack and shoots each shot
-tools/cut.mjs                    trims to marks, hard cuts, lays and ducks the bed
+tools/speech.py                  finds where speech actually is in a clip
+tools/subs.mjs                   times the subtitles off that, writes en+es SRT
+tools/voicecheck.py              median pitch per clip, to catch voice drift
+tools/cut.mjs                    trims to marks, hard cuts, ducks the bed, burns the titles
 refs/                            the committed references — sheets, plate, voices
 shots/                           the takes, each with a .json sidecar of its provenance
 dist/                            the bed, and the cut scene

@@ -150,6 +150,9 @@ export const SHOTS = [
     // and it means the next shot inherits a consistent read either way.
     audios: ['rosalinda', 'perpetua'],
     videos: [],
+    lines: [
+      { speaker: 'perpetua', es: 'Esta hacienda nunca fue de tu madre.', en: 'This hacienda was never your mother\u2019s.' },
+    ],
     action: `SHOT: A single continuous shot with no cuts, no scene changes and no camera cuts of any kind.
 
 Medium two-shot across the corner of the table, camera at seated eye height. Doña Perpetua sits at the head of the table on the RIGHT of frame, turned to face LEFT. Rosalinda sits along the near side of the table on the LEFT of frame, turned to face RIGHT. The lit candelabra stands between them, a little behind the line between their faces. Both are fully inside the frame from the waist up.
@@ -179,6 +182,13 @@ CAMERA: Locked off on sticks with an almost imperceptible slow push in. No handh
     // picture — light, grade, wardrobe, room.
     audios: ['rosalinda'],
     videos: ['a-dosdisparos'],
+    // Split where she actually breaks, not where the sentence does. The
+    // detector finds a 0.76s pause on the ellipsis, and a subtitle that sat
+    // across it would put the question on screen before she has asked it.
+    lines: [
+      { speaker: 'rosalinda', es: 'Entonces\u2026', en: 'Then\u2026' },
+      { speaker: 'rosalinda', es: '\u00bfde qui\u00e9n es?', en: 'whose is it?' },
+    ],
     action: `SHOT: A single continuous shot with no cuts, no scene changes and no camera cuts of any kind. This is the reverse angle of the same conversation, a new camera setup — a straight cut to a tighter lens on Rosalinda, not a continuation of the previous camera move.
 
 Medium close-up of Rosalinda alone, from the chest up, framed a little LEFT of centre with empty lookroom to the RIGHT, facing RIGHT out of frame towards Doña Perpetua, who is not visible. Behind her, thrown well out of focus, the candle flames and the dark portrait on the stucco wall.
@@ -203,6 +213,10 @@ CAMERA: Slow steady push in on sticks, tightening a little through the shot. No 
     // doing the work and voice continuity has stopped depending on coverage.
     audios: ['perpetua'],
     videos: ['b-reverso'],
+    lines: [
+      { speaker: 'perpetua', es: 'Es m\u00eda, Rosalinda.', en: 'It is mine, Rosalinda.' },
+      { speaker: 'perpetua', es: 'Siempre lo fue.', en: 'It always was.' },
+    ],
     action: `SHOT: A single continuous shot with no cuts, no scene changes and no camera cuts of any kind. This is the answering reverse — a straight cut back across the table to Doña Perpetua, a new camera setup.
 
 Medium close-up of Doña Perpetua alone, from the chest up, framed a little RIGHT of centre with empty lookroom to the LEFT, facing LEFT out of frame towards Rosalinda. Rosalinda is NOT visible anywhere in this shot. Behind Doña Perpetua, thrown well out of focus, the dark oil portrait in its gilt frame on the stucco wall.
