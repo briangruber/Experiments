@@ -164,7 +164,10 @@ CAMERA: Locked off on sticks with an almost imperceptible slow push in. No handh
     id: 'b-reverso',
     slate: '1B — the reverse single',
     duration: '6',
-    cut: { in: 0.2, out: 6.0 },
+    // Out shortly after her question lands. The beat before the answer is
+    // played at the head of 1C, where Perpetua lets it sit — holding it at
+    // both ends would double the pause.
+    cut: { in: 0.2, out: 5.7 },
     // Perpetua is deliberately NOT referenced here. She is off-camera in this
     // shot, and every reference competes for influence — handing the model a
     // full-body sheet of a character it is being told not to show is the
@@ -186,6 +189,29 @@ Medium close-up of Rosalinda alone, from the chest up, framed a little LEFT of c
 4.5–6s: She says nothing further. She holds the look off right, waiting for an answer that does not come. Distant thunder. The candle flames shudder. Hold on her face in silence to the last frame.
 
 CAMERA: Slow steady push in on sticks, tightening a little through the shot. No handheld shake, no whip pan, no orbit, no crash zoom.`,
+  },
+  {
+    id: 'c-respuesta',
+    slate: '1C — the answer',
+    duration: '6',
+    cut: { in: 0.4, out: 6.0 },
+    images: ['perpetua', 'comedor'],
+    // The whole argument for voice plates, run as an experiment. Perpetua last
+    // spoke two shots ago; the shot immediately before this one does not
+    // contain her at all, so there is nothing in @Video1 for her voice to be
+    // inherited from. If she still sounds like herself here, the plate is
+    // doing the work and voice continuity has stopped depending on coverage.
+    audios: ['perpetua'],
+    videos: ['b-reverso'],
+    action: `SHOT: A single continuous shot with no cuts, no scene changes and no camera cuts of any kind. This is the answering reverse — a straight cut back across the table to Doña Perpetua, a new camera setup.
+
+Medium close-up of Doña Perpetua alone, from the chest up, framed a little RIGHT of centre with empty lookroom to the LEFT, facing LEFT out of frame towards Rosalinda. Rosalinda is NOT visible anywhere in this shot. Behind Doña Perpetua, thrown well out of focus, the dark oil portrait in its gilt frame on the stucco wall.
+
+0–1.5s: She lets the question sit unanswered. She does not blink. The candlelight moves on the black lace at her throat.
+1.5–3.5s: Without any change of expression, quietly and with complete certainty, she says in Spanish: "Es mía, Rosalinda. Siempre lo fue." This line must be completely finished by 3.5s.
+3.5–6s: She says nothing more. The faintest tightening at the corner of her beak — not quite satisfaction. She holds the look off left. Distant thunder. Hold on her face in silence to the last frame.
+
+CAMERA: Locked off on sticks with a very slow push in. No handheld shake, no whip pan, no orbit, no crash zoom.`,
   },
 ];
 

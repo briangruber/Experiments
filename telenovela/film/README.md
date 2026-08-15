@@ -13,10 +13,14 @@ seconds, one exchange across a table.
 
 ```
 node tools/refs.mjs       # draw the character sheets and the location plate
+node tools/voices.mjs     # cast each character's voice into a plate
 node tools/score.mjs      # compose the music bed
 node tools/shoot.mjs      # shoot the scene, one shot at a time
 node tools/cut.mjs        # cut it together  ->  dist/s01-testamento.mp4
 ```
+
+The first two steps make the company's assets and only need running once; the
+last two are per scene.
 
 Needs `FAL_KEY` (the video), `AI_GATEWAY_API_KEY` (the reference art),
 `ELEVENLABS_API_KEY` (the bed) and `ffmpeg` on the path.
@@ -79,9 +83,48 @@ the part.
   colour grade in one image, and it is far more reliable than describing a room
   twice in words.
 
-Both get an explicit role sentence in the prompt (`@Image1 is a character
-reference sheet for…`, `@Image3 is the set…`) rather than being left for the
-model to infer.
+- **A voice plate per character** — a few seconds of them alone, saying
+  something that is in no script, filmed for the sole purpose of having their
+  voice on file. See below.
+
+Every reference gets an explicit role sentence in the prompt (`@Image1 is a
+character reference sheet for…`, `@Image3 is the set…`, `@Audio1 is a voice
+sample of…`) rather than being left for the model to infer.
+
+## Voices, and why coverage cannot carry them
+
+A character sheet cannot hold a voice. The obvious workaround is to chain the
+previous shot as a video reference and let the voice come across with
+everything else — and it does, but only if that character happened to be
+speaking in the previous shot. That is true for exactly as long as your scene
+is two shots of two people. It breaks the moment the camera cuts away from
+someone, and it never worked at all for a character who enters later. Voice
+continuity cannot ride on coverage.
+
+So voices are cast the way the faces are: once, deliberately, into a committed
+asset. `tools/voices.mjs` films each character alone, strips the audio to a
+mono mp3, and that file is passed as `@AudioN` into every shot they speak in
+from then on, whatever the shot before it contained.
+
+Two things about how the plate is filmed:
+
+- **480p**, because only the audio survives it. Resolution does not change how
+  a voice comes out and it is less than half the price.
+- **A dead room** — no rain, no thunder, no ambience, no music, explicitly and
+  at length. Anything on that track rides into every scene the sample is used
+  in. A voice reference recorded over rain is a rain reference.
+
+`@AudioN` is labelled harder than any other reference, because it is the one
+whose purpose the model is most likely to guess wrong: an audio file handed
+over without explanation reads as *"play this"* as easily as *"sound like
+this"*. The label says which, twice, and forbids treating its words as
+dialogue for the shot.
+
+Shot 1C is the experiment that justifies all of it. Doña Perpetua last spoke
+two shots earlier, and the shot immediately before it — which it chains as
+`@Video1` — does not contain her at all. There is nothing there for her voice
+to be inherited from. If she still sounds like herself, the plate is carrying
+her and voice has stopped depending on who happened to be in the last frame.
 
 ## The two levers that actually did the work
 
@@ -152,6 +195,12 @@ untouched.
   independently will cheerfully put the same character on opposite sides of
   frame, and the cut then reads as two different conversations. State the line
   as a rule, in every prompt, naming each character's side and eyeline.
+- **Voice cannot be inherited from coverage.** See above; it is the single
+  structural mistake that looks like it works on a two-shot scene.
+- **The `TIMING` rule is a nudge, not a guarantee.** The voice plates ran
+  speech to the final frame despite being told to finish a second early.
+  Harmless for a sample that is never cut on, but do not lean on it in a shot
+  whose out-point matters — check, and reshoot if it runs long.
 - **The reference sheets set the style, and they can disagree.** The two sheets
   here came back at slightly different levels of realism — the ingenue cartoon,
   the matriarch nearly photoreal. It happens to suit this pairing, but it is
@@ -164,10 +213,11 @@ untouched.
 scenes/s01-testamento/scene.js   the bible: spine, cast, location, shots, prompt builder
 tools/fal.mjs                    upload + queue client, no SDK
 tools/refs.mjs                   draws the character sheets and the location plate
+tools/voices.mjs                 casts each character's voice into a reusable plate
 tools/score.mjs                  composes the one music bed
 tools/shoot.mjs                  assembles the reference stack and shoots each shot
 tools/cut.mjs                    trims to marks, hard cuts, lays and ducks the bed
-refs/                            the committed references, and the upload ledger
+refs/                            the committed references — sheets, plate, voices
 shots/                           the takes, each with a .json sidecar of its provenance
 dist/                            the bed, and the cut scene
 ```
