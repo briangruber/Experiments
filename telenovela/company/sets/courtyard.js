@@ -767,7 +767,9 @@ export function buildSet(scene, renderer) {
   key.target.position.set(0, 0.4, -0.5);
   scene.add(key, key.target);
 
-  const fog = new THREE.FogExp2(0x161a2c, 0.03);
+  // A touch heavier than it was: enough night air between the camera and the
+  // back wall that the planes of the courtyard separate by tone alone.
+  const fog = new THREE.FogExp2(0x161a2c, 0.045);
   scene.fog = fog;
 
   // Solid dressing the camera must not end up inside. Each is a cylinder with

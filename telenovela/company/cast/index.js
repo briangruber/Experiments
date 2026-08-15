@@ -36,6 +36,9 @@ export function buildCast(scene) {
     const rig = makeChicken(CAST_SPECS[key]);
     refinePlumage(rig);
     WARDROBE[key]?.(rig);
+    // The portrait lights live on layer 1 and reach the cast only; Pollito is
+    // still procedural and deserves a kicker as much as anybody.
+    rig.root.traverse((n) => { if (n.isMesh) n.layers.enable(1); });
     scene.add(rig.root);
     const a = new Actor(rig);
     a.key = key;

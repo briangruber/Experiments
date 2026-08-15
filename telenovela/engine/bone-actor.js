@@ -421,6 +421,7 @@ function buildRigFrom(model, clips, spec, opts = {}) {
     n.castShadow = true;
     n.receiveShadow = true;
     n.frustumCulled = false;   // the skinned bounds lag the pose
+    n.layers.enable(1);        // reachable by the portrait lights
     if (!n.material) return;
     if (opts.cloneMaterial) n.material = n.material.clone();
     const m = n.material;
@@ -658,7 +659,7 @@ export async function buildCastRigs(perChar) {
 // inside ~1.2 m of a bone-rigged head; the 1.6 m falloff means it lights the
 // head and neck and dies before the set.
 const FILL = {
-  light: null, camera: null, stamp: null, on: 0,
+  light: null, rim: null, camera: null, stamp: null, on: 0, rimOn: 0,
   min: Infinity, head: new THREE.Vector3(), lastHead: new THREE.Vector3(),
 };
 
@@ -669,6 +670,25 @@ export function attachCastFill(scene, camera) {
   light.visible = false;
   scene.add(light);
   FILL.light = light;
+  // The kicker. It sits on the far side of the subject from the lens and a
+  // little above, so a head standing against a dark courtyard gets a bright
+  // edge down the comb, the crown and the line of the neck instead of merging
+  // into the background. It is the oldest trick in portrait lighting and the
+  // single biggest difference between a frame that reads as lit and one that
+  // reads as a photograph of a dark room. Cool, so it separates from the warm
+  // practicals rather than doubling them.
+  const rim = new THREE.PointLight(0xcfe0ff, 0, 2.6, 1.7);
+  rim.castShadow = false;
+  rim.visible = false;
+  // Layer 1 is the cast. Both of these are portrait lights — they exist to
+  // shape a face — and a point light bright enough to edge a comb is bright
+  // enough to blow out the wall a metre behind it. Putting them on a layer
+  // only the birds enable means they can light an actor and nothing else,
+  // which is what a flag and a snoot do on a real set.
+  rim.layers.set(1);
+  light.layers.set(1);
+  scene.add(rim);
+  FILL.rim = rim;
   FILL.camera = camera;
   return light;
 }
@@ -690,6 +710,23 @@ function fillApply(time, dt) {
   if (Number.isFinite(FILL.min)) FILL.lastHead.copy(FILL.head);
   L.position.copy(FILL.camera.position).lerp(FILL.lastHead, 0.45);
   L.position.y += 0.06;
+
+  // The kicker reaches further out than the fill: separation is worth having
+  // on a medium as well as a close-up, and it dies before it can light the set.
+  const R = FILL.rim;
+  if (R) {
+    const near = clamp01((3.4 - FILL.min) / 1.2);
+    FILL.rimOn = approach(FILL.rimOn, near, 9, dt);
+    R.visible = FILL.rimOn > 0.02;
+    R.intensity = FILL.rimOn * 4.2;
+    // Behind the head along the camera's line, lifted into a three-quarter back.
+    _v.copy(FILL.lastHead).sub(FILL.camera.position);
+    _v.y = 0;
+    if (_v.lengthSq() > 1e-6) _v.normalize();
+    R.position.copy(FILL.lastHead)
+      .addScaledVector(_v, 0.5)
+      .add(new THREE.Vector3(_v.z * 0.28, 0.34, -_v.x * 0.28));
+  }
   FILL.min = Infinity;
 }
 

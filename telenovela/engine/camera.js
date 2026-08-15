@@ -126,6 +126,9 @@ export class Cinematographer {
       // Composition. `false` centres the subject, which a symmetrical frame —
       // a title card, a bow straight down the barrel — actually wants.
       compose: spec.compose ?? true,
+      // Hold the frame still and let the actor move inside it. A shot with a
+      // scripted move is being driven on purpose, so it is exempt.
+      hold: spec.hold ?? !spec.move,
       // A subject addressing the lens has no side to look into, so leading it
       // would just shove it off centre for nothing.
       toCamera: spec.toCamera ?? (spec.strictAngle === true && (spec.angle ?? 0) === 0),
@@ -499,6 +502,41 @@ export class Cinematographer {
       }
     }
 
+    // --- holding the frame ----------------------------------------------------
+    // A composed shot is a still one. The solver re-frames every frame, so the
+    // lens crept after every breath and head-turn the subject made and no
+    // picture ever settled — which is the difference between a photograph and
+    // surveillance footage.
+    //
+    // So the frame LOCKS where the cut put it, and the actor moves inside it.
+    // Only when they have drifted far enough across the picture to hurt the
+    // composition does the operator reframe, and then commits to the move
+    // until it is done rather than nibbling. Hysteresis, in other words: a
+    // wide threshold to start moving and a tight one to stop.
+    if (s.hold !== false && !immediate && this._hold) {
+      const h = this._hold;
+      _r.set(px, height, pz);
+      const d = Math.max(1e-3, _r.distanceTo(aim));
+      const frameH = 2 * d * Math.tan((this.fovFor(lens) * Math.PI) / 360);
+      // How far the framing wants to move, as a share of the picture.
+      const err = 2 * h.aim.distanceTo(aim) / frameH;
+      if (!h.moving && err > 0.10) h.moving = true;
+      if (h.moving && err < 0.03) h.moving = false;
+      if (h.moving) {
+        // Catch up at a rate that scales with how far out the framing has got.
+        // A held frame that a walking actor is leaving should be corrected at
+        // the speed they are leaving it, not at one polite constant — that is
+        // how a subject ends up off the edge with the operator still easing.
+        const k = 1 - Math.exp(-(2.2 + 7 * err) * dt);
+        h.pos.lerp(_r, k);
+        h.aim.lerp(aim, k);
+      }
+      px = h.pos.x; height = h.pos.y; pz = h.pos.z;
+      aim.copy(h.aim);
+    } else if (s.hold !== false) {
+      this._hold = { pos: new THREE.Vector3(px, height, pz), aim: aim.clone(), moving: false };
+    }
+
     if (!s.track && s._frozen) {
       this.pos.copy(s._frozen.pos);
       this.aim.copy(s._frozen.aim);
@@ -542,7 +580,13 @@ export class Cinematographer {
     // sway. The wander is noise chased through two cascaded low-pass stages,
     // so its velocity is continuous — the seed jump at a cut just gives the
     // drift somewhere new to lean towards, it never pops.
-    const hh = this.handheld;
+    // Handheld, squared and scaled down hard. The script asks for it on 77
+    // shots, most of them at 0.7 and above, and at full strength that is a
+    // centimetre and a half of wander on every frame in the episode — enough
+    // that nothing ever looked composed, only nervous. Squaring separates the
+    // register: the deliberately unstable shots (the slap, the storm, the
+    // twin's arrival) still breathe, and everything else goes quiet.
+    const hh = this.handheld * this.handheld * 0.34;
     const t = time * 0.5 + this.seed;
     const D = this._drift;
     const driftCh = (ch, i, rate) => {

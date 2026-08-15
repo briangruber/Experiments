@@ -23,7 +23,11 @@ export const LOOK = () => ({
   bloomThreshold: 0.72,
   diffusion: 0.3,        // the soft-focus veil
   halation: 0.35,
-  dof: 1.0,              // multiplier on the defocus strength
+  // Depth of field, up from 1.0. A long lens wide open is the most reliable
+  // signal a picture was photographed rather than rendered: it puts the
+  // subject on a plane of its own, and it turns the courtyard's big flat
+  // stucco panels into soft tone instead of wallpaper.
+  dof: 1.45,             // multiplier on the defocus strength
   grain: 0.028,
   vignette: 0.42,
   chroma: 0.32,
