@@ -3,3 +3,4 @@ shots/
 *.log
 tmp/
 dist/
+.claude/
