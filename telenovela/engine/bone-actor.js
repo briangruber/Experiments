@@ -10,17 +10,28 @@
 //   - body / neck / head acting and every wing gesture come from the SAME
 //     channel values the procedural rig produces, mapped onto the humanoid
 //     skeleton as additive world-axis rotations on top of the mixer's frame;
-//   - the acting face — skull shell, eyes with pupils, lids, brows, wattles
-//     and the articulated beak the lip sync drives — is procedural, built from
-//     the same shapes as engine/chicken.js and parented to the Head bone OVER
-//     the painted face. The shell is what keeps the overlay honest off-profile:
-//     brows and the far eye always sit on a skull, never in empty air, and the
-//     enlarged beak fully occludes the sculpted snout so there is one beak.
+//   - the face is the sculpt's own. The first cast was generated from a
+//     sentence and came back with its features painted flat onto a blob, so it
+//     wore a whole procedural head — shell, eyes, brows, wattles, an
+//     articulated beak — over the top. This cast is generated from concept art
+//     that already had a face, with a modelled brow, a real eye and a beak
+//     that catches light, and burying that under an overlay would throw away
+//     the reason for making it. `faceMode: 'shell'` keeps the old head for
+//     anything cut the old way; the default wears nothing.
 //
-// Only the twins ride this rig (the bench verdict was 'hybrid'); Ricardo is
-// the same skinned scene with an offline-recolored base colour map swapped in.
-// company/cast/index.js upgrades the two Actors in place once the GLBs decode,
-// and the procedural cast stays on stage if a single byte fails to load.
+// Losing the overlay costs the two things it was driving: there is no jaw bone
+// in Tripo's skeleton and no morph targets, so blinks are gone and the beak
+// cannot open. Speech instead drives the head — a nod into each stressed
+// syllable off the same envelope the procedural bill opened on.
+//
+// Where a character's face IS gets measured rather than guessed: see
+// measureHead. The camera aims at the result, so a wrong answer is a close-up
+// of a comb, or of the inside of a chest.
+//
+// Five of the six leads ride this rig; Pollito stays procedural because his
+// comedy is squash and puff. company/cast/index.js upgrades the Actors in
+// place once the GLBs decode, and the procedural cast stays on stage if a
+// single byte fails to load (or if ?proc-cast is set).
 
 import * as THREE from '../vendor/three/three.module.min.js';
 import { GLTFLoader } from '../vendor/three/GLTFLoader.js';
@@ -78,6 +89,67 @@ function loadCastImage(file) {
     img.onerror = () => rej(new Error(`${file}: image decode failed`));
     img.src = url;
   });
+}
+
+// Where is this character's face? Every sculpt is a different bird — Don Gallo
+// is jowly and wears a hat, Rosalinda's skull is half Esteban's — so rather
+// than hand-calibrate an offset per character, measure it: take the vertices
+// the skin binds to the Head bone, put them in that bone's own frame, and read
+// the box off them. Bind pose, so it is a property of the mesh and not of
+// whatever the mixer is doing this frame.
+//
+// The camera lives on the result. Actor.headWorld is what a close-up aims at
+// and eyeWorld is what an over-shoulder frames off, and both were previously
+// offsets tuned for an overlay face that is no longer there.
+// Which joint of the skin is this bone? Skin index, not scene-graph order.
+function skeletonIndexOf(model, name) {
+  let out = -1;
+  model.traverse((n) => {
+    if (out >= 0 || !n.isSkinnedMesh) return;
+    out = n.skeleton.bones.findIndex((b) => b.name === name);
+  });
+  return out;
+}
+
+function measureHead(model, headIndex) {
+  let mesh = null;
+  model.traverse((n) => { if (!mesh && n.isSkinnedMesh) mesh = n; });
+  if (!mesh || headIndex < 0) return null;
+  const pos = mesh.geometry.attributes.position;
+  const idx = mesh.geometry.attributes.skinIndex;
+  const wgt = mesh.geometry.attributes.skinWeight;
+  if (!pos || !idx || !wgt) return null;
+  const toHead = mesh.skeleton.boneInverses[headIndex];
+  if (!toHead) return null;
+
+  const xs = [], ys = [], zs = [];
+  const v = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    let w = 0;
+    for (let k = 0; k < 4; k++) {
+      if (idx.getComponent(i, k) === headIndex) w += wgt.getComponent(i, k);
+    }
+    if (w < 0.5) continue;             // mostly-neck vertices would drag it down
+    v.fromBufferAttribute(pos, i).applyMatrix4(mesh.bindMatrix).applyMatrix4(toHead);
+    xs.push(v.x); ys.push(v.y); zs.push(v.z);
+  }
+  if (xs.length < 24) return null;
+
+  // Percentiles, not extremes. Valentina's lace mantilla is skinned to her
+  // head and hangs to her shoulders; Don Gallo's hat brim overhangs his face.
+  // A min/max box around either lands the aim point in the veil, and the
+  // close-up frames cloth. The middle 90% of the head is the head.
+  const band = (a) => {
+    a.sort((p, q) => p - q);
+    const lo = a[Math.floor(a.length * 0.05)], hi = a[Math.floor(a.length * 0.95)];
+    return { lo, hi, mid: (lo + hi) * 0.5, span: hi - lo };
+  };
+  const bx = band(xs), by = band(ys), bz = band(zs);
+  return {
+    size: new THREE.Vector3(bx.span, by.span, bz.span),
+    centre: new THREE.Vector3(bx.mid, by.mid, bz.mid),
+    count: xs.length,
+  };
 }
 
 // Rotate a bone about a WORLD axis without moving it, on top of whatever the
@@ -332,13 +404,17 @@ function buildRigFrom(model, clips, spec, opts = {}) {
   model.position.set(-feetMid.x, -_box.min.y, -feetMid.z);
   orient.add(model);
 
-  // The sculpt's skull is small against the procedural cast's; a close-up
-  // framed for the show carries too little face. One number, baked in CAL.
-  bones.Head.scale.multiplyScalar(CAL.headScale);
+  // The first cast's skull was small against the procedural one's and a
+  // close-up carried too little face, so the Head bone was scaled up under the
+  // overlay. A sculpted head is already drawn to the right proportions and
+  // scaling it only opens a seam at the neck, so the trim is opt-in now.
+  if ((opts.faceMode ?? 'sculpt') !== 'sculpt') bones.Head.scale.multiplyScalar(CAL.headScale);
 
   // The bench material pass: kill the wet-plastic speculars (roughness up,
   // metalness and its map gone — feathers are not metal) and keep the albedo
-  // as the offline-graded texture put it; `albedo` stays available as a trim.
+  // as the sculpt baked it, lifted by `albedo` — a textured PBR bird drinks the
+  // night grade where the procedural cast's flat materials reflected it, so the
+  // lift is what keeps a face readable rather than a silhouette.
   const albedo = opts.albedo ?? 1.0;
   model.traverse((n) => {
     if (!n.isMesh) return;
@@ -405,36 +481,89 @@ function buildRigFrom(model, clips, spec, opts = {}) {
   headAnchor.add(faceRoot);
   // Where the acting face sits relative to the Head bone, in character metres
   // (x left, y up, z forward). Tuned against renders of the painted head.
-  faceRoot.position.set(0, opts.faceUp ?? CAL.faceUp, opts.faceFwd ?? CAL.faceFwd);
+  // faceRoot is also what the camera aims at — Actor.headWorld is its world
+  // position — so on a sculpted head it has to land on the real face rather
+  // than where an overlay used to be parked. The shell offsets pushed it 8.5 cm
+  // above and 3.5 cm in front of the Head bone, which on a 0.78 m bird put a
+  // 100 mm close-up inside the comb.
+  const sculptFace0 = (opts.faceMode ?? 'sculpt') === 'sculpt';
+  // Model space: the character faces +X before `orient` turns it, so the head
+  // box's +X is forward and its +Y is up. faceRoot is in character axes (z
+  // forward), and the anchor already undoes the bone's rotation, so the box's
+  // forward reads out on z and its up on y.
+  const headBox = sculptFace0 ? measureHead(model, skeletonIndexOf(model, 'Head')) : null;
+  if (headBox) {
+    // Aim at the middle of the face, a little forward of the skull's centre —
+    // the eyes and beak are on the front third, and a close-up that centres the
+    // whole skull puts the comb in the middle of frame.
+    faceRoot.position.set(0,
+      opts.faceUp ?? headBox.centre.y,
+      opts.faceFwd ?? (headBox.centre.x + headBox.size.x * 0.18));
+  } else {
+    faceRoot.position.set(0,
+      opts.faceUp ?? (sculptFace0 ? 0 : CAL.faceUp),
+      opts.faceFwd ?? (sculptFace0 ? 0 : CAL.faceFwd));
+  }
   const faceScale = opts.faceScale ?? CAL.faceScale;
   const faceSize = size * faceScale;
-  const { face, eyes, beakLowerPivot, wattles } = makeFace(spec, faceSize, opts.eyeSpread ?? CAL.eyeSpread);
-  faceRoot.add(face);
 
+  // Two kinds of head. The first cast was sculpted from a sentence and came
+  // back with its face painted flat onto a blob, so it wore a whole procedural
+  // one — shell, eyes, brows, beak, wattles — over the top. These are sculpted
+  // from a painting that already had a face, with a modelled brow, a real eye
+  // and a beak that catches light, and covering that up would throw away the
+  // reason for generating them. So `sculpt` heads wear nothing and act with
+  // the head itself; `shell` is kept for anything cut the old way.
+  const sculptFace = sculptFace0;
+  let eyes = [], beakLowerPivot = new THREE.Group(), wattles = new THREE.Group();
+  if (sculptFace) {
+    // Nothing is drawn, but the camera still asks a rig where its eyes are —
+    // an over-shoulder frames off the near one. Two empty anchors on the front
+    // third of the measured head, at the width a bird's eyes actually sit.
+    const w = headBox ? headBox.size.z * 0.34 : 0.05 * size;
+    const up = headBox ? headBox.size.y * 0.16 : 0.02 * size;
+    const fwd = headBox ? headBox.size.x * 0.22 : 0.03 * size;
+    for (const sx of [-1, 1]) {
+      const g = new THREE.Group();
+      g.position.set(sx * w, up, fwd);
+      faceRoot.add(g);
+      eyes.push({ group: g, side: sx });
+    }
+  } else {
+    ({ eyes, beakLowerPivot, wattles } = Object.assign({},
+      (() => { const f = makeFace(spec, faceSize, opts.eyeSpread ?? CAL.eyeSpread); faceRoot.add(f.face); return f; })()));
+  }
+
+  // The overlay plumage — neckerchief, tail fan, primaries on the hands — was
+  // there because the first sculpt's tail was a painted point and its wing
+  // ended in nothing catchable. These have a modelled sickle tail, real
+  // primaries and their costume in the mesh, so the only thing left to add is
+  // the seam-hiding kerchief, and only where one was asked for.
   const neckAnchor = anchorOn(bones.NeckTwist01);
-  neckAnchor.add(makeNeckerchief(size, opts.kerchief ?? 0xc4342f));
+  if (opts.kerchief && !sculptFace) neckAnchor.add(makeNeckerchief(size, opts.kerchief));
 
-  // Tail fan on a spine anchor, at the painted tail's root. Character space:
-  // x left, y up, z forward — the tail root sits behind and above the hip.
-  const waistAnchor = anchorOn(bones.Waist);
-  const tailFan = makeTailFan(spec, size);
-  const wp = bones.Waist.getWorldPosition(new THREE.Vector3());
-  tailFan.group.position.set(0 - wp.x, 0.5 * height - wp.y, -0.2 * size - wp.z);
-  waistAnchor.add(tailFan.group);
-
-  // Primaries on the hands: anchored at the wing tip in character axes and
-  // carried by the bone, so a lifted or thrust wing ends in a visible fan of
-  // feathers rather than a thin painted point.
+  let tailFan = { group: new THREE.Group(), pivots: [] };
   const handFans = [];
-  for (const sgn of [1, -1]) {
-    const bone = sgn > 0 ? bones.L_Hand : bones.R_Hand;
-    const fan = makeHandFan(spec, size, sgn);
-    anchorOn(bone).add(fan.group);
-    handFans.push({ pivots: fan.pivots, side: sgn });
+  if (!sculptFace) {
+    // Tail fan on a spine anchor, at the painted tail's root. Character space:
+    // x left, y up, z forward — the tail root sits behind and above the hip.
+    const waistAnchor = anchorOn(bones.Waist);
+    tailFan = makeTailFan(spec, size);
+    const wp = bones.Waist.getWorldPosition(new THREE.Vector3());
+    tailFan.group.position.set(0 - wp.x, 0.5 * height - wp.y, -0.2 * size - wp.z);
+    waistAnchor.add(tailFan.group);
+
+    for (const sgn of [1, -1]) {
+      const bone = sgn > 0 ? bones.L_Hand : bones.R_Hand;
+      const fan = makeHandFan(spec, size, sgn);
+      anchorOn(bone).add(fan.group);
+      handFans.push({ pivots: fan.pivots, side: sgn });
+    }
   }
 
   return {
-    spec, name: spec.name, size, root, attitude, model, bones,
+    spec, name: spec.name, size, root, attitude, model, bones, sculptFace,
+    wingFold: opts.wingFold ?? (sculptFace ? -0.62 : 0),
     // What the Actor surface and the camera expect of a rig:
     head: faceRoot, neck: bones.NeckTwist01, body: bones.Spine01,
     eyes, beakLowerPivot, propAnchor: faceRoot, faceSize,
@@ -452,11 +581,21 @@ function buildRigFrom(model, clips, spec, opts = {}) {
 // clone (Object3D.clone would leave him bound to his brother's bones — that
 // bug shipped once already) with the blue/charcoal recolor swapped in. The
 // walk and run clips carry no textures, so they are shared as-is.
-export async function buildTwinRigs(perChar) {
+// Every character Tripo rigs comes back on the same 41-joint skeleton with the
+// same bone names, so the clips are cast-wide rather than anybody's in
+// particular: three animation-only GLBs (tools/bake-cast.mjs strips the mesh
+// and maps a retarget ships with) drive all of them. A character therefore
+// costs one skinned mesh and nothing else.
+//
+// `perChar` is keyed by cast key. Each entry carries the spec, the file its
+// body comes from, and any calibration trims. An entry with `sharesBodyWith`
+// is not a second sculpt: it clones that character's scene and swaps the base
+// colour map, which is how Ricardo is Esteban in a different coat.
+export async function buildCastRigs(perChar) {
   const [idleG, walkG, runG] = await Promise.all([
-    loadCastGLB('esteban-idle.glb'),
-    loadCastGLB('esteban-walk.glb'),
-    loadCastGLB('esteban-run.glb').catch(() => null),
+    loadCastGLB('anim-idle.glb'),
+    loadCastGLB('anim-walk.glb'),
+    loadCastGLB('anim-run.glb').catch(() => null),
   ]);
   const clips = {
     idle: idleG.animations[0],
@@ -472,25 +611,37 @@ export async function buildTwinRigs(perChar) {
 
   const rigs = {};
   const errors = [];
+  const scenes = {};
 
-  const ricardoScene = perChar.ricardo ? cloneSkinned(idleG.scene) : null;
-
-  if (perChar.esteban) {
+  // Bodies first, so a character that shares one has something to clone.
+  for (const [key, cfg] of Object.entries(perChar)) {
+    if (cfg.sharesBodyWith) continue;
     try {
-      rigs.esteban = buildRigFrom(idleG.scene, clips, perChar.esteban.spec, perChar.esteban);
-    } catch (e) { errors.push(`esteban: ${e.message}`); }
+      scenes[key] = (await loadCastGLB(cfg.file)).scene;
+    } catch (e) { errors.push(`${key}: ${e.message}`); }
   }
-  if (perChar.ricardo) {
+
+  for (const [key, cfg] of Object.entries(perChar)) {
     try {
-      const img = await loadCastImage('ricardo-body.jpg');
-      const tex = new THREE.Texture(img);
-      tex.flipY = false;
-      tex.colorSpace = THREE.SRGBColorSpace;
-      tex.needsUpdate = true;
-      rigs.ricardo = buildRigFrom(ricardoScene, clips, perChar.ricardo.spec, {
-        ...perChar.ricardo, cloneMaterial: true, map: tex,
-      });
-    } catch (e) { errors.push(`ricardo: ${e.message}`); }
+      let scene = scenes[key];
+      const opts = { ...cfg };
+      if (cfg.sharesBodyWith) {
+        const host = scenes[cfg.sharesBodyWith];
+        if (!host) throw new Error(`body ${cfg.sharesBodyWith} did not load`);
+        scene = cloneSkinned(host);
+        if (cfg.bodyMap) {
+          const img = await loadCastImage(cfg.bodyMap);
+          const tex = new THREE.Texture(img);
+          tex.flipY = false;
+          tex.colorSpace = THREE.SRGBColorSpace;
+          tex.needsUpdate = true;
+          opts.cloneMaterial = true;
+          opts.map = tex;
+        }
+      }
+      if (!scene) continue;   // its own load already logged an error
+      rigs[key] = buildRigFrom(scene, clips, cfg.spec, opts);
+    } catch (e) { errors.push(`${key}: ${e.message}`); }
   }
   return { rigs, errors };
 }
@@ -638,9 +789,18 @@ export class BoneActor extends Actor {
     rotW(b.NeckTwist01, _left, p.neckPitch + ext * -0.1);
     rotW(b.NeckTwist01, _up, p.neckYaw);
 
-    rotW(b.Head, _left, p.headPitch);
+    // Speech, on a sculpted head. The skeleton Tripo binds has no jaw, and
+    // these faces are too good to bury under an overlay beak that could open —
+    // so the syllable envelope drives the head itself: a small nod into each
+    // stressed beat with a touch of counter-roll, which is what a bird talking
+    // actually looks like from the far side of a courtyard. The channel is the
+    // same p.beak the procedural cast opens its bill with, so a line reads
+    // identically whoever is speaking.
+    const jaw = rig.sculptFace ? p.beak : 0;
+    rotW(b.Head, _left, p.headPitch + jaw * 0.13);
     rotW(b.Head, _up, p.headYaw);
-    rotW(b.Head, _fwd, p.headRoll);
+    rotW(b.Head, _fwd, p.headRoll + jaw * 0.02);
+    if (jaw) rotW(b.NeckTwist02, _left, jaw * -0.05);
 
     // Wings. Lift is a roll about the forward axis (up and away from the
     // flank), sweep swings the wing toward the front, spread carries on into
@@ -657,8 +817,14 @@ export class BoneActor extends Actor {
       const ua = L ? b.L_Upperarm : b.R_Upperarm;
       const fa = L ? b.L_Forearm : b.R_Forearm;
       const ha = L ? b.L_Hand : b.R_Hand;
-      rotW(cl, _fwd, sgn * lift * 0.5);
-      rotW(ua, _fwd, sgn * (lift * 1.0 + p.wingSpread * 0.25));
+      // A sculpt is generated in an A-pose — wings held wide so the mesh does
+      // not fuse them to the flank — and the retargeted idle, being a human's,
+      // never brings them all the way in. Left alone the cast stands like
+      // scarecrows and a close-up finds a wing between the lens and the face,
+      // so the rest pose folds them down against the body and every gesture
+      // lifts from there.
+      rotW(cl, _fwd, sgn * (lift * 0.5 + rig.wingFold * 0.35));
+      rotW(ua, _fwd, sgn * (lift * 1.0 + p.wingSpread * 0.25 + rig.wingFold));
       rotW(ua, _up, (L ? sweep : -sweep) * 1.1);
       rotW(fa, _up, (L ? sweep : -sweep) * 0.5);
       rotW(fa, _fwd, sgn * (p.wingSpread * 0.4 + lift * 0.3));
@@ -698,7 +864,9 @@ export class BoneActor extends Actor {
     }
 
     // The acting face. Same channel formulas as engine/chicken.js applyPose,
-    // at the scale the face was built at.
+    // at the scale the face was built at. A sculpted head has none of it —
+    // its eyes, brows, beak and wattles are in the mesh.
+    if (rig.sculptFace) return;
     const fs = rig.faceSize;
     rig.beakLowerPivot.rotation.x = p.beak * 0.42;
     for (const e of rig.eyes) {

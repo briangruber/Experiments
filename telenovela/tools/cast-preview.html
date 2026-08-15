@@ -1,0 +1,116 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>cast contact sheet</title>
+<style>
+  body { margin: 0; background: #17171b; }
+  .cell { position: absolute; }
+  .cap {
+    position: absolute; left: 0; bottom: 3px; width: 100%; text-align: center;
+    font: 11px ui-sans-serif, sans-serif; color: #d6cec2; text-shadow: 0 1px 2px #000;
+  }
+</style>
+<script type="module">
+import * as THREE from '../vendor/three/three.module.min.js';
+import { GLTFLoader } from '../vendor/three/GLTFLoader.js';
+
+// Three angles, because a character can look fine in one and fall apart in the
+// others: the full figure front-on (silhouette and proportion), a three-quarter
+// medium (how it reads in most coverage), and a face close-up — the shot the
+// first cast lost on, so it is the one the sheet always includes.
+const VIEWS = {
+  full:  { dir: [0.0, 0.05, 1],  fit: 1.0,  fov: 40, aim: 0.5  },
+  three: { dir: [0.72, 0.18, 1], fit: 0.62, fov: 38, aim: 0.66 },
+  face:  { dir: [0.34, 0.06, 1], fit: 0.34, fov: 32, aim: 0.84 },
+};
+
+window.__preview = async (items, cell) => {
+  const loader = new GLTFLoader();
+  const out = [];
+  const cols = Object.keys(VIEWS).length;
+
+  for (let r = 0; r < items.length; r++) {
+    const item = items[r];
+    let gltf = null, err = null;
+    try { gltf = await loader.loadAsync(item.url); } catch (e) { err = String(e).slice(0, 140); }
+
+    let c = 0;
+    for (const [vname, v] of Object.entries(VIEWS)) {
+      const holder = document.createElement('div');
+      holder.className = 'cell';
+      holder.style.left = `${c * cell}px`;
+      holder.style.top = `${r * cell}px`;
+      holder.style.width = holder.style.height = `${cell}px`;
+      document.body.appendChild(holder);
+      const cap = document.createElement('div');
+      cap.className = 'cap';
+      holder.appendChild(cap);
+      c++;
+
+      if (err) { cap.textContent = `${item.label} — FAILED`; continue; }
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(cell, cell);
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.05;
+      holder.appendChild(renderer.domElement);
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x1f1f25);
+      scene.add(new THREE.HemisphereLight(0xdfe6ff, 0x3a3028, 1.5));
+      const key = new THREE.DirectionalLight(0xfff0dd, 2.6);
+      key.position.set(2.2, 3, 2.6);
+      scene.add(key);
+      const fill = new THREE.DirectionalLight(0x93a8d0, 0.8);
+      fill.position.set(-2.4, 1.2, 1.4);
+      scene.add(fill);
+
+      // Each cell gets its own copy: three renderers cannot share one scene graph.
+      const obj = gltf.scene.clone(true);
+      scene.add(obj);
+
+      const box = new THREE.Box3().setFromObject(obj);
+      const size = box.getSize(new THREE.Vector3());
+      const centre = box.getCenter(new THREE.Vector3());
+      const height = size.y || 1;
+      // Aim up the figure by a fraction of its height — 0.9 is the head.
+      const target = new THREE.Vector3(centre.x, box.min.y + height * v.aim, centre.z);
+      const radius = Math.max(size.x, size.y, size.z) * 0.5 * v.fit || 1;
+
+      const camera = new THREE.PerspectiveCamera(v.fov, 1, radius * 0.005, radius * 60);
+      const dir = new THREE.Vector3(...v.dir).normalize();
+      const dist = radius / Math.tan((v.fov * Math.PI / 180) / 2) * 1.15;
+      camera.position.copy(target).addScaledVector(dir, dist);
+      camera.lookAt(target);
+      renderer.render(scene, camera);
+
+      cap.textContent = `${item.label} · ${vname}`;
+      if (vname === 'full') {
+        let tris = 0, meshes = 0, skinned = 0, bones = 0;
+        const mats = new Set(), maps = new Set();
+        obj.traverse((n) => {
+          if (n.isBone) bones++;
+          if (!n.isMesh) return;
+          meshes++;
+          if (n.isSkinnedMesh) skinned++;
+          mats.add(n.material?.uuid);
+          for (const k of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap']) {
+            const t = n.material?.[k];
+            if (t?.image) maps.add(`${k}:${t.image.width}x${t.image.height}`);
+          }
+          const g = n.geometry;
+          tris += (g.index ? g.index.count : g.attributes.position.count) / 3;
+        });
+        out.push({
+          label: item.label, ok: true, meshes, skinned, bones, materials: mats.size,
+          triangles: Math.round(tris), maps: [...maps],
+          size: [+size.x.toFixed(3), +size.y.toFixed(3), +size.z.toFixed(3)],
+          animations: gltf.animations.map((a) => `${a.name}:${a.duration.toFixed(2)}s`),
+        });
+      }
+    }
+    if (err) out.push({ label: item.label, ok: false, error: err });
+  }
+  return out;
+};
+</script>

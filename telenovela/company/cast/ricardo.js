@@ -2,7 +2,7 @@
 // he is Esteban's skinned scene reused wholesale, which is the twist made
 // flesh. What separates them is palette and wardrobe: where Esteban is copper
 // in a red neckerchief, Ricardo is the blue/charcoal recolor (the offline
-// remap tools/retexture-cast.mjs bakes into ricardo-body.jpg) with the same
+// remap tools/bake-cast.mjs bakes into ricardo-body.jpg) with the same
 // neckerchief in black, an eyepatch, and a scar — as close as a chicken gets
 // to a past. The procedural spec below matches that palette so the fallback
 // body and the acting-face overlay (skull shell, lids) sit on the same colour.

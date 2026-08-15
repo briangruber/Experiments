@@ -1,47 +1,71 @@
-# Cast models — the twins (hybrid cast, shipping)
+# Cast models — the sculpted company
 
-The bench verdict was **hybrid**: the Tripo sculpt plays Esteban and Ricardo,
-everyone else stays procedural (with the plumage upgrade in
-`company/cast/plumage.js`). One skinned scene serves both twins — identical
-twins, identical mesh, which is the plot point made literal — Ricardo gets the
-blue/charcoal base-colour recolor swapped in at load. Zero Tripo API spend
-beyond the original Esteban generation.
+Five of the six leads ship as Tripo sculpts. Pollito stays procedural: his
+comedy is squash, puff and a head that doubles in size, none of which a fixed
+skeleton does.
+
+## How a character is made
+
+The first cast was `text_to_model` — a sentence, and Tripo guessing. It came
+back passable and blobby, with a painted face that could not hold a key light.
+The route now is the one a character actually deserves:
+
+```
+tools/concept-art.mjs <key>     # gpt-image-2 paints the character sheet
+tools/tripo.mjs model <key>     # image_to_model, v3.0, from that painting
+tools/tripo.mjs rig <key>       # prerigcheck, then a 41-joint humanoid bind
+tools/tripo.mjs anim <key> walk idle run
+tools/bake-cast.mjs             # src/ -> the files that ship
+```
+
+The concept art is committed in `company/cast/concept/` because it is the
+provenance of the mesh: regenerating a character means going back to the same
+picture, not rolling the dice on a new sentence. It is also where the costume
+comes from — the flamenco ruffles, the lace mantilla and the monocle are
+geometry in the sculpt because they were painted before anything was sculpted,
+which is why the wardrobe overlays those characters used to need are gone.
 
 ## Files
 
 | file | what |
 | --- | --- |
-| `esteban-idle.glb` | skinned scene + 15.38 s idle clip, shrunk + graded (ships) |
-| `esteban-walk.glb` | `preset:walk` clip, 2.38 s loop (ships; scene ignored) |
-| `esteban-run.glb` | `preset:run` clip, 1.29 s loop (ships; blended in above walking speed) |
-| `ricardo-body.jpg` | Ricardo's blue/charcoal recolor of the base colour (ships) |
-| `esteban.glb`, `esteban-rigged.glb` | bench-era static/rigged copies, not bundled |
-| `src/*.glb` | pristine originals as downloaded (2048 px textures) |
+| `esteban.glb` | el galán — and, recoloured, his brother |
+| `rosalinda.glb` | la inocente |
+| `valentina.glb` | la villana |
+| `don-gallo.glb` | el patrón |
+| `anim-idle.glb` | 15.4 s idle, tracks only |
+| `anim-walk.glb` | walk cycle, root drift stripped at load |
+| `anim-run.glb` | run cycle, blended in above walking speed |
+| `ricardo-body.jpg` | Ricardo's blue/charcoal recolor of Esteban's map |
+| `src/*.glb` | pristine downloads, 4096 px maps — never shipped |
+| `src/v25/*.glb` | the superseded text_to_model cast, kept for the A/B |
 
-Shipping copies are regenerated from `src/` by **`tools/retexture-cast.mjs`**:
-shrink (base 512 px, aux 256 px, JPEG q0.86) plus the offline grade — feathers
-brightened and de-reddened toward the identity copper (0xb06a35 ratios), comb
-kept red, and the sculpted beak texels flattened toward plumage so the painted
-snout can never read as a second beak beside the overlay one. The same pass
-cuts `ricardo-body.jpg` (true comb reds kept, everything else onto a
-blue/charcoal ramp). Total shipping weight: **2.27 MB** (against the 4.5 MB
-bound for added GLBs).
+Ricardo is not a fifth generation: he reuses Esteban's skinned scene with the
+recoloured map swapped in at load. Identical twins are a plot point, and a
+shared mesh makes it literal.
 
-`company/cast/models-manifest.js` lists the shipping files; the bundler
-replaces it with data: URIs. Loading is `engine/bone-actor.js` →
-`buildTwinRigs`, wired in `company/cast/index.js` → `upgradeCast` (called from
-main.js, `?proc-cast` disables), with the procedural cast as automatic
-fallback if any byte fails to load.
+## Where the budget went
 
-## Provenance
+A Tripo retarget ships as a whole second copy of the character — mesh,
+skeleton and three 4096 px maps, 3.3 MB to carry 2.4 s of rotation curves —
+and every character comes back on the same 41-joint skeleton with the same
+bone names. So `bake-cast.mjs` strips each retarget to its curves and the
+whole cast shares one set. Within a clip it also drops every scale track
+(bones do not scale) and every translation track but the root's (a joint is
+fixed to its parent; the rest restate the bind offset once per frame).
 
-- Generation task `9b6474f8-174e-4f2b-8ad7-b8519a42b321`, model v2.5-20250123,
-  face_limit 10000 -> 9994 tris, 1 mesh, 1 material, 3 JPEG maps.
-- Prerigcheck: `riggable: true`, `rig_type: "avian"`, `topology: "avian"`.
-- Rig task `bbb067b6-5f07-47b1-b18b-2088961dea87` (the id retargets bind to).
-- Bounding box 0.68 x 0.80 x 1.00 m (w x h x d — the depth is mostly tail).
-- `preset:walk` / `preset:idle` / `preset:run` retarget cleanly; an invalid
-  name is rejected with code 1004 without enumerating the valid set.
+On the meshes: base colour to 512 px and normal to 256 px, the
+metallic-roughness map dropped entirely with metalness forced to 0 and
+roughness to 0.85 — the raw bake is wet-looking plastic under a key light.
+Then the vertex attributes narrow under `KHR_mesh_quantization`: normals to
+signed bytes (a unit vector does not need 32-bit floats), UVs to normalized
+shorts, skin weights to normalized bytes with the rounding error handed to the
+largest weight so every vertex still sums to exactly 1.
+
+| | raw | shipped |
+| --- | --- | --- |
+| four sculpts | 12.6 MB | 2.2 MB |
+| three clips | 10.4 MB | 0.37 MB |
 
 ## Skeleton (41 joints, humanoid biped; wings bound as arms)
 
@@ -58,41 +82,14 @@ Root
         R_Clavicle > R_Upperarm > R_Forearm > R_Hand   (+twists)
 ```
 
-## How the twins act (engine/bone-actor.js)
+`animate_prerigcheck` labels the topology `biped` for some birds and `avian`
+for others, and it makes no difference: both come back on the skeleton above,
+which is what lets one walk cycle fit the company.
 
-BoneActor extends Actor and overrides ONLY `commitPose` — `buildPose`
-(locomotion, emotion, idle, look, gestures, speech) is the shared pipeline.
-Model-space facts this depends on, verified against the GLBs:
+## Provenance
 
-- The character faces +X in model space; the rig wrapper yaws it -90° to the
-  cast's +Z convention and grounds it on the midpoint of the feet.
-- Walk and run bake root motion into the Hip translation track; the drift is
-  stripped at load and the clip timescale is ramped with the actor's real
-  ground speed (idle→walk→run crossfade; turn rate clamped while stepping).
-- Neck/head tracks are STRIPPED from all clips: the acting layer owns the head
-  outright, restoring the bind orientation each frame before the channels.
-- The Head bone is scaled up ×1.2 (CAL.headScale) — the bench found the CU
-  carried too little face — with the overlay recalibrated to match:
-  faceUp 0.085, faceFwd 0.035, faceScale 1.3, eyeSpread 0.92, beakScale 1.3
-  (all in CAL, all tuned against rendered bench frames).
-- The acting face is procedural over the painted head: a plumage skull SHELL
-  (so brows and the far eye always sit on a surface off-profile), eyes, lids,
-  clamped brows, sprung wattles, a crest ridge bridging the sculpted comb, and
-  the enlarged beak that fully occludes the sculpted snout.
-- Lost silhouette channels restored as overlays: tail fan on a Waist anchor
-  (tailFan/tailPitch + spring), primary-feather fans on the Hand bones (the
-  accuse/point/gasp area fix), puff as a small uniform Spine02 scale pulse.
-- Close-ups get a warm short-throw fill (`attachCastFill`): a 1.6 m PointLight
-  riding between the camera and the nearest skinned face, enabled only inside
-  ~1.2 m — the fix for the near-black revelacion CU.
-
-## Gotchas
-
-- Instancing a skinned GLB needs `clone()` from
-  `vendor/three/GLTFLoaderDeps.js`; `Object3D.clone` leaves the copy bound to
-  the original bones (this bug shipped once already). Ricardo is such a clone,
-  with materials cloned per-mesh before his map is swapped.
-- Textures must load through `<img>` (`GLTFLoader.USE_IMAGE_BITMAP = false`)
-  and bytes through the data-URI decoder — the published page blocks fetch().
-- Metalness/roughness maps are dropped at load (roughness ≥ 0.82, metalness 0):
-  feathers are not metal, and the baked speculars read as wet plastic.
+Every task id is in `provenance.json`, written by `tools/tripo.mjs` as it goes:
+which concept painting a mesh came from, which generation a rig was bound to,
+and which rig a clip was retargeted from. `v3.0-20250812` is the newest model
+version the API accepts — the studio's v3.1 is not exposed, and every `v3.1-*`
+string is rejected with code 2017.

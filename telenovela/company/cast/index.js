@@ -8,14 +8,14 @@
 import * as THREE from '../../vendor/three/three.module.min.js';
 import { makeChicken } from '../../engine/chicken.js';
 import { Actor } from '../../engine/acting.js';
-import { buildTwinRigs, BoneActor, attachCastFill } from '../../engine/bone-actor.js';
+import { buildCastRigs, BoneActor, attachCastFill } from '../../engine/bone-actor.js';
 import { refinePlumage } from './plumage.js';
 import { TAU, deg } from '../../engine/util.js';
 import { spec as rosalinda, wardrobe as dressRosalinda } from './rosalinda.js';
 import { spec as esteban, wardrobe as dressEsteban } from './esteban.js';
 import { spec as valentina, wardrobe as dressValentina } from './valentina.js';
 import { spec as donGallo, wardrobe as dressDonGallo } from './don-gallo.js';
-import { spec as ricardo, wardrobe as dressRicardo, dressBoneRig as dressRicardoBone } from './ricardo.js';
+import { spec as ricardo, wardrobe as dressRicardo } from './ricardo.js';
 import { spec as pollito } from './pollito.js';
 
 export const CAST_SPECS = { rosalinda, esteban, valentina, donGallo, ricardo, pollito };
@@ -45,20 +45,31 @@ export function buildCast(scene) {
   return actors;
 }
 
-// The hybrid cast, per the bench verdict: the twins are the Tripo sculpt (one
-// shared skinned scene — identical twins, identical mesh — Ricardo in the
-// offline blue/charcoal recolor with his eyepatch, scar and black kerchief as
-// overlays), everyone else stays procedural. Called after buildCast, same
-// pattern as the set dressing: if a byte of the models fails to arrive, the
-// swap silently does not happen and the procedural leads keep the stage.
+// The sculpted company. Five of the six ride the bone rig; Pollito stays
+// procedural because his comedy is squash, puff and a head that doubles in
+// size, none of which a fixed skeleton does.
+//
+// Their costumes are not overlays any more. Each character was sculpted from a
+// concept painting that already had them dressed, so the flamenco ruffles, the
+// lace mantilla and the monocle are geometry in the mesh rather than shapes
+// bolted to a head anchor — the twins keep theirs (a neckerchief also covers
+// the seam where the Head bone is scaled up) and Ricardo keeps the eyepatch
+// and scar that are the only things separating him from his brother.
+//
+// Heights hold the procedural staging's proportions: spec.size relative to
+// Esteban's 1.14, against the 0.78 m the blocking was written for.
+const H = (size) => 0.78 * (size / 1.14);
+
 export async function upgradeCast(actors, scene, camera) {
-  const { rigs, errors } = await buildTwinRigs({
-    esteban: { spec: esteban, kerchief: 0xc4342f },
-    ricardo: { spec: ricardo, kerchief: 0x141118 },
+  const { rigs, errors } = await buildCastRigs({
+    esteban: { spec: esteban, file: 'esteban.glb', height: H(esteban.size), albedo: 1.5 },
+    ricardo: { spec: ricardo, file: 'ricardo.glb', height: H(ricardo.size), albedo: 1.55 },
+    rosalinda: { spec: rosalinda, file: 'rosalinda.glb', height: H(rosalinda.size), albedo: 1.3 },
+    valentina: { spec: valentina, file: 'valentina.glb', height: H(valentina.size), albedo: 1.9 },
+    donGallo: { spec: donGallo, file: 'don-gallo.glb', height: H(donGallo.size), albedo: 1.4 },
   });
-  if (rigs.ricardo) dressRicardoBone(rigs.ricardo);
   const swapped = [];
-  for (const key of ['esteban', 'ricardo']) {
+  for (const key of ['esteban', 'ricardo', 'rosalinda', 'valentina', 'donGallo']) {
     if (!rigs[key] || !actors[key]) continue;
     BoneActor.possess(actors[key], rigs[key], scene);
     swapped.push(key);
