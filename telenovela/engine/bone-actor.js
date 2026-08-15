@@ -520,8 +520,13 @@ function buildRigFrom(model, clips, spec, opts = {}) {
     // Nothing is drawn, but the camera still asks a rig where its eyes are —
     // an over-shoulder frames off the near one. Two empty anchors on the front
     // third of the measured head, at the width a bird's eyes actually sit.
+    // Near the vertical middle of the measured head, not above it. A bird's
+    // eye sits about halfway up its skull, and anything worn over the crown —
+    // Valentina's mantilla, Don Gallo's hat — stretches the box upward, so an
+    // anchor placed high rides the hat and drops the face out of the bottom of
+    // a big close-up.
     const w = headBox ? headBox.size.z * 0.34 : 0.05 * size;
-    const up = headBox ? headBox.size.y * 0.16 : 0.02 * size;
+    const up = headBox ? headBox.size.y * 0.04 : 0.02 * size;
     const fwd = headBox ? headBox.size.x * 0.22 : 0.03 * size;
     for (const sx of [-1, 1]) {
       const g = new THREE.Group();

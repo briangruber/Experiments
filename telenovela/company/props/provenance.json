@@ -18,5 +18,65 @@
     "concept": "concept/door.png",
     "bytes": 3082124,
     "at": "2026-08-15T03:25:15.802Z"
+  },
+  {
+    "key": "pot-agave",
+    "kind": "model",
+    "task": "7a316dce-258c-4b72-abf4-30c27d622635",
+    "version": "v3.0-20250812",
+    "faces": 8000,
+    "concept": "concept/pot-agave.png",
+    "bytes": 2731916,
+    "at": "2026-08-15T03:30:19.783Z"
+  },
+  {
+    "key": "bougainvillea",
+    "kind": "model",
+    "task": "955001de-e719-4749-843d-e8f6a7f6f10a",
+    "version": "v3.0-20250812",
+    "faces": 8000,
+    "concept": "concept/bougainvillea.png",
+    "bytes": 3802308,
+    "at": "2026-08-15T03:32:40.631Z"
+  },
+  {
+    "key": "bench",
+    "kind": "model",
+    "task": "71e83c7a-ca11-4287-9e74-247be482f7b0",
+    "version": "v3.0-20250812",
+    "faces": 8000,
+    "concept": "concept/bench.png",
+    "bytes": 3364160,
+    "at": "2026-08-15T03:34:20.638Z"
+  },
+  {
+    "key": "jug",
+    "kind": "model",
+    "task": "5cc0b6a1-047c-4d77-9b04-f237edd1e81c",
+    "version": "v3.0-20250812",
+    "faces": 8000,
+    "concept": "concept/jug.png",
+    "bytes": 2740972,
+    "at": "2026-08-15T03:36:25.623Z"
+  },
+  {
+    "key": "papel-picado",
+    "kind": "model",
+    "task": "6a4283e2-03fa-4766-b793-32dfbf46125f",
+    "version": "v3.0-20250812",
+    "faces": 8000,
+    "concept": "concept/papel-picado.png",
+    "bytes": 2467504,
+    "at": "2026-08-15T03:38:34.913Z"
+  },
+  {
+    "key": "wall-lantern",
+    "kind": "model",
+    "task": "3d47452c-1d0f-4afb-ac3a-3522d90a5bd4",
+    "version": "v3.0-20250812",
+    "faces": 8000,
+    "concept": "concept/wall-lantern.png",
+    "bytes": 2534852,
+    "at": "2026-08-15T03:42:39.564Z"
   }
 ]

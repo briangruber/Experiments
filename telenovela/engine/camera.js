@@ -18,7 +18,7 @@ const SENSOR_H = 24; // mm — full-frame vertical, so lens numbers read normall
 // than as photography. Halved, a close-up is now head and shoulders and a
 // medium cuts at the chest, the way the words mean.
 const FRAMING_BODY = { ews: 5.6, ws: 2.3, mls: 1.45, ms: 0.98 };
-const FRAMING_HEAD = { mcu: 2.4, cu: 1.7, bcu: 1.15, ecu: 0.68 };
+const FRAMING_HEAD = { mcu: 2.4, cu: 1.75, bcu: 1.5, ecu: 1.0 };
 
 // Where the subject belongs in the frame, as normalised device coordinates
 // (0 is centre, +1 the top or right edge).
@@ -253,6 +253,13 @@ export class Cinematographer {
       : this.subjectHeight(s) * (FRAMING_BODY[s.frame] ?? 1.5));
     let lens = s.lens;
     let dist = (view / 2) / Math.tan((this.fovFor(lens) * Math.PI) / 360);
+    // Nobody puts a 135 mm lens three quarters of a metre from their subject.
+    // On a bird this small the tightest sizes solve to exactly that, and at
+    // that range a centimetre of anchor error is half a frame — Valentina's
+    // crash zoom was landing on her comb with her face below the bottom edge.
+    // Holding a working minimum costs a little of the size and buys a shot
+    // that survives the actor moving.
+    dist = Math.max(dist, 1.05);
 
     // Azimuth: 0 puts the camera in front of the subject's face. The rig faces
     // +Z at yaw 0, so the front of the bird is straight out along its yaw.
@@ -367,6 +374,27 @@ export class Cinematographer {
       if (x < B.minX || x > B.maxX || z < B.minZ || z > B.maxZ) return false;
       for (const o of this.obstacles) {
         if (height < o.top + 0.12 && (x - o.x) * (x - o.x) + (z - o.z) * (z - o.z) < o.r * o.r) return false;
+      }
+      // Standing somewhere legal is not the same as being able to see. The
+      // avoidance search only ever asked whether the camera was buried in the
+      // fountain, so a set-up could pass with a palm squarely between the lens
+      // and the subject — and the tighter the shot, the likelier that gets, as
+      // Valentina's crash zoom found out by playing her best line to a wall.
+      // So the line of sight has to clear the same obstacles the body does.
+      const sightY = Math.min(height, aim.y);
+      for (const o of this.obstacles) {
+        if (o.top < sightY - 0.05) continue;          // too short to be in the way
+        const dx = aim.x - x, dz = aim.z - z;
+        const len2 = dx * dx + dz * dz;
+        if (len2 < 1e-6) continue;
+        // Nearest approach of the obstacle's centre to the camera-to-subject
+        // segment, clamped to the segment itself.
+        let t = ((o.x - x) * dx + (o.z - z) * dz) / len2;
+        t = clamp(t, 0, 1);
+        const nx = x + dx * t - o.x, nz = z + dz * t - o.z;
+        // A graze at the very edge of the silhouette is fine — a foreground
+        // frond breaking the corner of frame is depth, not an accident.
+        if (nx * nx + nz * nz < o.r * o.r * 0.7) return false;
       }
       return true;
     };
