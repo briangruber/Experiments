@@ -267,7 +267,7 @@ async function startExport(cutName) {
     const capBytes = await saveCapBytes();
     const seconds = cut.segments
       ? cut.segments.reduce((a, s) => a + s[2], 0)
-      : dir.scenes.reduce((a, s) => a + s.dur / (s.pace ?? dir.pace), 0);
+      : measureEpisodeSeconds();
     const floored = capBytes > 0
       && (capBytes * 8) / Math.max(20, seconds) - (probe.audio ? 160_000 : 0) < 220_000;
     if (!floored || !Recorder.supported) return startSteppedExport(cutName, cut, probe, capBytes);
@@ -354,7 +354,7 @@ async function startRecording(cutName) {
 
   const seconds = cut.segments
     ? cut.segments.reduce((a, s) => a + s[2], 0)
-    : dir.scenes.reduce((a, s) => a + s.dur / (s.pace ?? dir.pace), 0);
+    : measureEpisodeSeconds();
 
   const ok = recorder.start({
     width: cut.width, height: cut.height, seconds,
@@ -678,6 +678,51 @@ function offlineEnd() {
   if (dir.scene) dir.goTo(dir.scene.id);
 }
 
+// How long the whole episode actually runs, in wall-clock seconds. The
+// obvious sum(dur / pace) is NOT it: cues bend time mid-scene — setSpeed slow
+// motion stretches wall seconds the scene clock never counts (the slap holds
+// 0.22x for three scene-seconds, the continuará freeze crawls at 0.06x into
+// the card) and freeze() stops the clock outright — so the naive formula
+// undercounts by half a minute, and every full-episode export sized by it
+// ended mid-credits. Measure instead: drive the Director through the episode
+// with the exact arithmetic the offline render uses — dir.update(1/30) per
+// frame — and count the frames until the last scene hands back to the first.
+// Deterministic, so it is measured once and cached.
+let episodeSecondsCache = 0;
+function measureEpisodeSeconds() {
+  if (episodeSecondsCache) return episodeSecondsCache;
+  const fps = 30;
+  const wasIndex = Math.max(0, dir.index);
+  // The dry run passes every cue in the piece and none of them may sound —
+  // the same prototype trick tools/camera-metric.mjs uses: one-shots and mood
+  // changes fall through to no-ops, state reads still reach the real score.
+  const real = ctx.score;
+  const mute = Object.create(real);
+  for (const m of ['play', 'say', 'sting', 'thunder', 'slap', 'heartbeat', 'crow', 'squawk',
+    'cluck', 'flap', 'eggCrack', 'peep', 'setMood', 'setRain', 'setAmbience', 'harpRun']) {
+    mute[m] = () => null;
+  }
+  ctx.score = mute;
+  let frames = 0;
+  try {
+    dir.goTo(0, { silent: true });
+    const lastScene = dir.scenes.length - 1;
+    let sawLast = false;
+    // Guarded at half an hour; the episode is minutes.
+    for (; frames < fps * 1800; frames++) {
+      dir.update(1 / fps);
+      if (dir.index === lastScene) sawLast = true;
+      else if (sawLast && dir.index === 0) break;   // wrapped: the run is over
+    }
+  } finally {
+    ctx.score = real;
+    for (const k in actors) actors[k].hush();
+    dir.goTo(wasIndex, { silent: true });
+  }
+  episodeSecondsCache = frames / fps;
+  return episodeSecondsCache;
+}
+
 // The offline contract as the stepped exporter consumes it (engine/exporter.js
 // documents the shape). The exporter and the harness cannot diverge because
 // both drive these same functions.
@@ -686,7 +731,7 @@ const offlineWorld = {
   frame: () => offlineStep(),
   goTo: (ref, t) => { dir.goTo(ref); seekWithin(t); },
   audio: () => (soundtrack.ctx && soundtrack.virtualNow !== null ? soundtrack.ctx.startRendering() : null),
-  fullSeconds: () => dir.scenes.reduce((a, s) => a + s.dur / (s.pace ?? dir.pace), 0),
+  fullSeconds: () => measureEpisodeSeconds(),
   end: () => offlineEnd(),
 };
 
@@ -723,6 +768,11 @@ window.__telenovela = {
     cuts: episode.cuts,
   },
   seekWithin(t) { seekWithin(t); },
+
+  // The episode's true wall-clock length. Tools ask this rather than summing
+  // dur/pace themselves — slow-motion cues stretch wall time, and the naive
+  // sum is half a minute short.
+  fullSeconds() { return measureEpisodeSeconds(); },
 
   // --- deterministic offline render ---------------------------------------
   // The offline contract lives above as plain functions (offlineBegin /

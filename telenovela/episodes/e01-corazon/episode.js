@@ -72,7 +72,10 @@ export const episode = {
     },
     episode: {
       label: 'EPISODIO COMPLETO',
-      note: '5:03 · 540p',
+      // Wall-clock length, measured (main.js measureEpisodeSeconds — 333.4 s),
+      // not sum(dur/pace): slow-motion cues stretch real time past the scene
+      // clocks, so the naive sum reads 5:03 and is half a minute short.
+      note: '5:33 · 540p',
       width: 960, height: 540,
       segments: null,     // the whole thing, start to finish
     },

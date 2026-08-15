@@ -192,12 +192,33 @@ if (!errors.length) {
   for (let i = 0; i < list.length; i++) {
     const [s, t] = list[i];
     await seek(s, t);
+    // Pin the frame before judging it. measure() samples the canvas inside
+    // the page's own render loop, but page.screenshot() is a separate CDP
+    // round trip that can land seconds later on a contended CPU — long
+    // enough for the scene's wall clock to run on into a fade, so the report
+    // would swear a frame was lit while the saved PNG was black. Pausing the
+    // Director stops the scene clock (no new cues, no scene advance) and
+    // parking the caption clock keeps the card that was measured on screen;
+    // the springs have already settled during seek()'s real-frame wait, so
+    // nothing this freezes was still in flight.
+    await page.evaluate(() => {
+      const T = window.__telenovela;
+      T.dir.paused = true;
+      const titles = T.dir.ctx.titles;
+      if (!titles.__realUpdate) { titles.__realUpdate = titles.update; titles.update = () => {}; }
+    });
     const stats = await measure();
     const out = list.length > 1
       ? join(CONTACT || dirname(OUT), `${String(i).padStart(2, '0')}-${s}-t${String(t).replace('.', '_')}.png`)
       : OUT;
     await mkdir(dirname(join(ROOT, out)), { recursive: true });
     await page.screenshot({ path: join(ROOT, out), timeout: 60000, animations: 'disabled' });
+    await page.evaluate(() => {
+      const T = window.__telenovela;
+      T.dir.paused = false;
+      const titles = T.dir.ctx.titles;
+      if (titles.__realUpdate) { titles.update = titles.__realUpdate; delete titles.__realUpdate; }
+    });
     results.push({ out, scene: s, at: t, ...stats });
   }
 }

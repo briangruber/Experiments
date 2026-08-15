@@ -16,7 +16,7 @@ const LABELS = {
   mcu: 'MEDIUM CLOSE', cu: 'CLOSE-UP', bcu: 'BIG CLOSE-UP', ecu: 'EXTREME CLOSE-UP',
 };
 
-const _p = new THREE.Vector3(), _q = new THREE.Vector3(), _r = new THREE.Vector3();
+const _p = new THREE.Vector3(), _q = new THREE.Vector3(), _r = new THREE.Vector3(), _s = new THREE.Vector3();
 
 export class Cinematographer {
   constructor(camera) {
@@ -47,6 +47,7 @@ export class Cinematographer {
     // chicken can flick its head 40 degrees in a frame — the operator cannot.
     this._yawS = null;           // low-passed subject yaw
     this._azS = null;            // last solved azimuth, for rate-limiting
+    this._overS = null;          // low-passed over-the-shoulder geometry
     this.aperture = 1;           // how aggressive the defocus is
     this.whip = 0;               // decaying value the post pass smears with
     this.seed = 0;
@@ -135,6 +136,7 @@ export class Cinematographer {
     // Re-anchor the solver's continuity state on the new shot.
     this._yawS = null;
     this._azS = null;
+    this._overS = null;
     this.label = s.label ?? `${LABELS[s.frame] ?? s.frame.toUpperCase()} · ${Math.round(s.lens)}mm`;
     if (s.cut) this.solve(0, true);
     return this;
@@ -286,15 +288,37 @@ export class Cinematographer {
       }
     }
 
-    // Over-the-shoulder: sit behind and beside the other actor.
+    // Over-the-shoulder: sit behind and beside the other actor. Two care
+    // points, both learnt from the almost-kiss. The line of the shot comes
+    // from the BODIES, not the heads: two heads leaning in close to
+    // beak-to-beak, and a direction read off that collapsing baseline turned
+    // every head bob into degrees of pan on a 100mm lens. And the derived
+    // set-up is chased through the same low-pass the subject yaw gets — an
+    // operator holding an OTS keeps their feet planted and lets the
+    // foreground shoulder drift in the frame rather than re-framing at
+    // gesture rate. A cut (or the shot's first solve) re-anchors instantly.
     if (s.over) {
       const o = this.anchor(s.over, 'head', _r);
-      const dir = _p.copy(aim).sub(o); dir.y = 0; dir.normalize();
-      az = Math.atan2(-dir.x, -dir.z);
-      const side = deg(s.angle || 22);
-      az += side;
-      dist = Math.max(dist, o.distanceTo(aim) * 1.35);
-      height = lerp(o.y + 0.1, aim.y, 0.35);
+      const ob = this.anchor(s.over, 'body', _s);
+      const sb = this.anchor(s.subject, 'body', _p);
+      const dx = sb.x - ob.x, dz = sb.z - ob.z;
+      // With the bodies on top of each other there is no line to sit on;
+      // hold the last one rather than divide by noise.
+      const oaz = Math.hypot(dx, dz) > 0.05 ? Math.atan2(-dx, -dz) + deg(s.angle || 22) : null;
+      const odist = Math.max(dist, o.distanceTo(aim) * 1.35);
+      const oheight = lerp(o.y + 0.1, aim.y, 0.35);
+      if (immediate || !this._overS) {
+        this._overS = { az: oaz ?? az, dist: odist, height: oheight };
+      } else {
+        const k = 1 - Math.exp(-3.2 * dt);
+        const ov = this._overS;
+        if (oaz !== null) ov.az = lerpAngle(ov.az, oaz, k);
+        ov.dist = lerp(ov.dist, odist, k);
+        ov.height = lerp(ov.height, oheight, k);
+      }
+      az = this._overS.az;
+      dist = this._overS.dist;
+      height = this._overS.height;
     }
 
     let px = aim.x + Math.sin(az) * dist;

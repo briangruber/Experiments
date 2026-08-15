@@ -149,11 +149,13 @@ await page.waitForFunction(() => !!window.__telenovela, null, { timeout: 30000 }
 // seconds render a courtyard that is missing its fountain.
 await page.evaluate(() => window.__telenovela.dressed);
 
-// How long is this cut? The trailer's shot list and the episode's scene lengths
-// both live in the page, so ask rather than duplicate them here.
+// How long is this cut? The trailer's shot list and the episode's length both
+// live in the page, so ask rather than duplicate them here. The episode's
+// length is measured (fullSeconds), not summed from dur/pace: slow-motion
+// cues stretch wall time, and the naive sum truncated exports mid-credits.
 const seconds = await page.evaluate((cut) => {
   const T = window.__telenovela;
-  if (cut === 'episode') return T.dir.scenes.reduce((a, s) => a + s.dur / (s.pace ?? T.dir.pace), 0);
+  if (cut === 'episode') return T.fullSeconds();
   return null;   // the trailer is driven segment by segment below
 }, CUT);
 
