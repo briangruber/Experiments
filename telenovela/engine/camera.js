@@ -36,6 +36,7 @@ const FRAMING_HEAD = { mcu: 2.4, cu: 1.75, bcu: 1.5, ecu: 1.0 };
 // frame beside it — which on a night set is a black hole, not composition.
 const COMPOSE_Y = { ecu: 0.10, bcu: 0.18, cu: 0.23, mcu: 0.25, ms: 0.22, mls: 0.18, ws: 0.12, ews: 0.06 };
 const COMPOSE_X = { ecu: 0.05, bcu: 0.10, cu: 0.13, mcu: 0.16, ms: 0.15, mls: 0.11, ws: 0.06, ews: 0.03 };
+const HOLD_SLACK = { ecu: 0.34, bcu: 0.30, cu: 0.24, mcu: 0.18, ms: 0.13, mls: 0.10, ws: 0.08, ews: 0.06 };
 const LABELS = {
   ews: 'EXTREME WIDE', ws: 'WIDE', mls: 'MEDIUM LONG', ms: 'MEDIUM',
   mcu: 'MEDIUM CLOSE', cu: 'CLOSE-UP', bcu: 'BIG CLOSE-UP', ecu: 'EXTREME CLOSE-UP',
@@ -136,6 +137,14 @@ export class Cinematographer {
       _frozen: null,
     };
     this.shot = s;
+    // Every new set-up re-anchors the drift clamp. Without this a move() —
+    // which never solves "immediately" — inherits the previous shot's
+    // reference yaw and gets clamped against an angle it has nothing to do
+    // with, which is a correction, not a hold. The damped aim is the same
+    // story: carried across a shot boundary it eases from where the LAST
+    // set-up was pointing, which is a swing nobody asked for.
+    this._yaw0 = null;
+    this._lookS = null;
     this.handheld = s.handheld;
     this.aperture = s.aperture;
     this.seed += 13.77;
@@ -176,7 +185,7 @@ export class Cinematographer {
     return this;
   }
 
-  shake(power = 1, decay = 3.5) {
+  shake(power = 1, decay = 5.5) {
     this.shakeAmp = Math.max(this.shakeAmp, power);
     this.shakeDecay = decay;
     return this;
@@ -248,6 +257,22 @@ export class Cinematographer {
     const look = s.look instanceof THREE.Vector3 ? _p.copy(s.look) : this.anchor(s.subject, s.look, _p);
     const aim = _q.copy(look).add(s.aimOffset);
 
+    // Damp the aim itself on tight framings, before anything downstream sees
+    // it. The frame hold takes care of shots that sit still, but a shot with a
+    // scripted move is exempt from it by design — and those were exactly the
+    // ones lurching, because a snap zoom on a big close-up was ALSO chasing
+    // the actor's head as he whipped round to look at the egg. On a 100 mm at
+    // a metre, a few degrees of head turn is half a frame. An operator lets
+    // that happen inside the frame; only the body's travel is worth following.
+    if (!immediate && this._lookS && FRAMING_HEAD[s.frame] !== undefined) {
+      this._lookS.lerp(aim, 1 - Math.exp(-1.8 * dt));
+      aim.copy(this._lookS);
+    } else if (this._lookS) {
+      this._lookS.copy(aim);
+    } else {
+      this._lookS = aim.clone();
+    }
+
     // Framing distance from the lens and the shot size. `view` overrides the
     // subject-relative framing with an explicit frame height in metres, which
     // is how you frame a courtyard rather than a chicken.
@@ -281,7 +306,28 @@ export class Cinematographer {
     // distances. Drift after it instead; a cut re-anchors instantly.
     const rawYaw = this.subjectYaw(s);
     if (immediate || this._yawS === null) this._yawS = rawYaw;
-    else this._yawS = lerpAngle(this._yawS, rawYaw, 1 - Math.exp(-3.2 * dt));
+    // Tight shots follow the subject's yaw more slowly still: the orbit this
+    // drives is proportional to distance, and at close-up distances a fast
+    // follow is a pan.
+    else {
+      const follow = FRAMING_HEAD[s.frame] !== undefined ? 1.1 : 3.2;
+      this._yawS = lerpAngle(this._yawS, rawYaw, 1 - Math.exp(-follow * dt));
+    }
+    // And however far the subject turns, the SET-UP stays where the cut put
+    // it. The azimuth is an orbit around the subject at the framing radius, so
+    // on a close-up a head turning to look at something was walking the camera
+    // most of a metre sideways in under a second — measured at 74 mm a frame.
+    // A operator does not circle an actor because the actor glanced away; they
+    // hold the angle and let the performance play across it, and if the new
+    // side is worth seeing they cut to it. Scripted orbits are applied after
+    // this and are unaffected.
+    if (immediate || this._yaw0 === null || this._yaw0 === undefined) this._yaw0 = this._yawS;
+    if (FRAMING_HEAD[s.frame] !== undefined) {
+      let drift = (this._yawS - this._yaw0) % TAU;
+      if (drift > Math.PI) drift -= TAU;
+      if (drift < -Math.PI) drift += TAU;
+      this._yawS = this._yaw0 + clamp(drift, -deg(14), deg(14));
+    }
     let az = this._yawS + deg(angle);
     let height;
     const eyeY = look.y;
@@ -321,8 +367,15 @@ export class Cinematographer {
           // landing a tail instead of a wall.
           const sN = clamp01(mu) * 3;
           const base = Math.floor(sN);
-          const steps = Math.min(3, base + ease.cubicOut(clamp01((sN - base) / 0.34)));
-          dist *= 1 - 0.19 * steps * amt;
+          // The punch is in the attack, not the throw. Softening the step
+          // ramp and halving the travel keeps the three-beat rhythm of a
+          // director punching in without the lens hurling itself forward.
+          // Short shots get a gentler ramp: three steps crammed into under two
+          // seconds is where the punch turns into a lurch. One 1.8 s snap zoom
+          // was running 598 m/s^3 while the identical move over 3.1 s ran 23.
+          const ramp = clamp(0.45 + 0.55 * clamp01(2.4 / Math.max(0.4, m.dur ?? s.dur)), 0.45, 1);
+          const steps = Math.min(3, base + ease.cubicOut(clamp01((sN - base) / ramp)));
+          dist *= 1 - 0.07 * steps * amt;
           break;
         }
         default: break;
@@ -438,7 +491,12 @@ export class Cinematographer {
       let d = (az - this._azS) % TAU;
       if (d > Math.PI) d -= TAU;
       if (d < -Math.PI) d += TAU;
-      const maxStep = deg(150) * dt;
+      // 150 deg/s was chosen to be "far above any scripted move", which it is
+      // — and also far above anything an operator does. The azimuth is an
+      // orbit at the framing radius, so on a close-up that ceiling let an
+      // avoidance correction sweep the camera the better part of a metre in
+      // under a second. A dolly grip walks; 45 deg/s is walking.
+      const maxStep = deg(80) * dt;
       if (Math.abs(d) > maxStep) {
         const lim = this._azS + Math.sign(d) * maxStep;
         const x = aim.x + Math.sin(lim) * dist;
@@ -520,8 +578,14 @@ export class Cinematographer {
       const frameH = 2 * d * Math.tan((this.fovFor(lens) * Math.PI) / 360);
       // How far the framing wants to move, as a share of the picture.
       const err = 2 * h.aim.distanceTo(aim) / frameH;
-      if (!h.moving && err > 0.10) h.moving = true;
-      if (h.moving && err < 0.03) h.moving = false;
+      // How far the subject may wander before the operator answers, by shot
+      // size. The tighter the lens the MORE slack it gets: on a big close-up a
+      // head flick of a few degrees is half a frame, and chasing it is what
+      // made every reaction shot lurch. Let the actor move inside the frame —
+      // that is the whole point of a close-up being still.
+      const slack = HOLD_SLACK[s.frame] ?? 0.10;
+      if (!h.moving && err > slack) h.moving = true;
+      if (h.moving && err < slack * 0.3) h.moving = false;
       if (h.moving) {
         // Catch up at a rate that scales with how far out the framing has got.
         // A held frame that a walking actor is leaving should be corrected at
@@ -586,7 +650,7 @@ export class Cinematographer {
     // that nothing ever looked composed, only nervous. Squaring separates the
     // register: the deliberately unstable shots (the slap, the storm, the
     // twin's arrival) still breathe, and everything else goes quiet.
-    const hh = this.handheld * this.handheld * 0.34;
+    const hh = this.handheld * this.handheld * 0.16;
     const t = time * 0.5 + this.seed;
     const D = this._drift;
     const driftCh = (ch, i, rate) => {
@@ -606,12 +670,18 @@ export class Cinematographer {
     const dz = wz * 0.012 * hh;
 
     // Impact shake.
-    this.shakeAmp = Math.max(0, this.shakeAmp - dt * this.shakeDecay * this.shakeAmp * 1.4 - dt * 0.02);
+    this.shakeAmp = Math.max(0, this.shakeAmp - dt * this.shakeDecay * this.shakeAmp * 2.6 - dt * 0.05);
     this.shakeT += dt;
     const sh = this.shakeAmp;
-    const sx = fbm1(this.shakeT * 26, 11) * 0.055 * sh;
-    const sy = fbm1(this.shakeT * 23 + 5, 12) * 0.055 * sh;
-    const sr = fbm1(this.shakeT * 19 + 9, 13) * 0.05 * sh;
+    // Down from 5.5 cm at 26 Hz, which is not a camera being knocked — it is a
+    // camera being shaken, for a second and a half, on the loudest beats in
+    // every scene. Measured, the sting shots were running 400 to 2,400 m/s^3
+    // of jerk while the held shots around them sat under 20, and that contrast
+    // is the whole reason the piece read as restless. A punch should land and
+    // be gone: less throw, slower and less buzzy, and out quickly.
+    const sx = fbm1(this.shakeT * 15, 11) * 0.009 * sh;
+    const sy = fbm1(this.shakeT * 13 + 5, 12) * 0.009 * sh;
+    const sr = fbm1(this.shakeT * 11 + 9, 13) * 0.008 * sh;
 
     const cam = this.camera;
     cam.position.set(px + dx + sx, py + dy + sy, pz + dz);
