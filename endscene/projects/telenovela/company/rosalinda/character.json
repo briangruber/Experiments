@@ -5,5 +5,6 @@
   "note": "Rosalinda — the young hen with creamy off-white plumage, large amber eyes, a small scarlet comb, a deep crimson silk dress with black lace at the shoulders, and a gold locket at her throat. Her voice is young, warm and quiet, and it does not shout.",
   "line": "Me llamo Rosalinda. Crecí en esta casa, entre los naranjos y el silencio de mi madre.",
   "direction": "young, warm, soft-spoken and a little guarded; an even middle register, unhurried, never shrill",
-  "defaultLook": "default"
+  "defaultLook": "default",
+  "global": true
 }

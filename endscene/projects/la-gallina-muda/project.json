@@ -1,7 +1,8 @@
 {
-  "id": "telenovela",
-  "title": "Corazón de Gallina",
-  "premise": "A scene from a Spanish-language telenovela.",
+  "id": "la-gallina-muda",
+  "title": "La Gallina Muda",
+  "kind": "film",
+  "premise": "A short film. The same hen, the same room, a different picture.",
   "language": "Spanish",
   "aspect_ratio": "16:9",
   "resolution": "720p",

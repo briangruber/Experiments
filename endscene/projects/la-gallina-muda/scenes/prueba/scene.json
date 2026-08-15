@@ -1,0 +1,34 @@
+{
+  "id": "prueba",
+  "title": "La Carta",
+  "location": "telenovela/comedor",
+  "state": "night-storm",
+  "cast": [
+    {
+      "character": "telenovela/rosalinda",
+      "look": "default",
+      "side": "left"
+    }
+  ],
+  "bed": {
+    "prompt": "Sparse solo nylon-string guitar, minor key, unresolved."
+  },
+  "shots": [
+    {
+      "id": "uno",
+      "slate": "1 — the empty room",
+      "duration": "6",
+      "cut": {
+        "in": 0.4,
+        "out": 6.0
+      },
+      "subjects": [
+        "telenovela/rosalinda"
+      ],
+      "voices": [],
+      "chain": null,
+      "lines": [],
+      "action": "SHOT: A single continuous shot with no cuts.\n\nMedium shot of Rosalinda alone at the long table, on the LEFT of frame, facing RIGHT. The chair at the head of the table is empty.\n\n0–2s: She sits perfectly still, looking at the empty chair.\n2–4s: She reaches out and turns over a folded letter lying on the table in front of her, without picking it up.\n4–6s: She looks away from it, off right, and holds. Distant thunder. Hold on her face in silence to the last frame.\n\nCAMERA: Locked off on sticks with an almost imperceptible slow push in. No handheld shake, no whip pan, no crash zoom."
+    }
+  ]
+}

@@ -27,7 +27,47 @@ const api = async (path, method = 'GET', body) => {
   return json;
 };
 
-const state = { project: null, jobs: new Map(), models: null };
+// `pid` is the project currently open. Everything below the workspace view is
+// scoped to it, and the hash carries it so a link is shareable and a reload
+// lands where you were.
+const state = { ws: null, pid: null, project: null, jobs: new Map(), models: null };
+
+// A film has no episode segment and a series does. Building the path here means
+// no view has to branch on the project's kind.
+const scenePath = (ep, sc) => (ep ? `/episode/${ep}/scene/${sc}` : `/scene/${sc}`);
+
+// Every API path below the workspace is project-scoped. One helper so no call
+// site can forget it.
+const P = (path) => `/project/${state.pid}${path}`;
+
+// Shared / project-only. The toggle refuses to un-share something другие
+// productions are using — the server checks and says which scenes.
+function visibility(kind, id, current, borrowedBy) {
+  return el('div', { className: 'panel' },
+    el('div', { className: 'row', style: 'align-items:center' },
+      el('div', {},
+        el('strong', {}, current ? 'Shared with other projects' : 'This project only'),
+        el('div', { className: 'hint' },
+          current
+            ? `Other projects can borrow this ${kind}. It still lives here, and edits you make show up wherever it is used.`
+            : `Only this project can use this ${kind}. Share it to let other projects borrow it.`),
+        borrowedBy?.length
+          ? el('div', { className: 'hint note-warn', style: 'margin-top:6px' },
+              `Borrowed by ${borrowedBy.map((b) => `${b.project}/${b.scene}`).join(', ')}`)
+          : '',
+      ),
+      el('div', { className: 'fit' },
+        el('button', {
+          onclick: async (ev) => {
+            ev.target.disabled = true;
+            try { await api(P(`/${kind}/${id}`), 'PATCH', { global: !current }); render(); }
+            catch (err) { alert(err.message); ev.target.disabled = false; }
+          },
+        }, current ? 'Make project only' : 'Share with other projects'),
+      ),
+    ),
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Work panel
@@ -115,23 +155,51 @@ function takeGrid(takes, { kind, onSelect }) {
 
 const views = {};
 
-views.overview = async () => {
+views.workspace = async () => {
+  const ws = state.ws || (state.ws = await api('/workspace'));
+  const kindLabel = (k) => (ws.kinds.find((x) => x.id === k) || {}).label || k;
+  return el('div', {},
+    el('h1', {}, 'Projects'),
+    el('p', { className: 'sub' },
+      'A project owns its characters and locations. A film or music video holds scenes directly; a series holds episodes.'),
+    el('div', { className: 'grid' },
+      ws.projects.map((p) =>
+        el('div', { className: 'card', onclick: () => go(`#/p/${p.id}`) },
+          el('div', { className: 'thumb' }, kindLabel(p.kind)),
+          el('div', { className: 'meta' },
+            el('div', { className: 'name' }, p.title),
+            el('div', { className: 'note' },
+              `${p.characters} character(s) · ${p.locations} location(s) · ${p.scenes} scene(s)`),
+          ),
+        ),
+      ),
+      el('div', { className: 'card', onclick: () => newProject(ws.kinds) },
+        el('div', { className: 'thumb' }, '+ new project'),
+        el('div', { className: 'meta' }, el('div', { className: 'note' }, 'Film, music video or series')),
+      ),
+    ),
+    el('div', { className: 'hint', style: 'margin-top:20px' }, ws.root),
+  );
+};
+
+views.project = async () => {
   const p = state.project;
   return el('div', {},
-    el('h1', {}, p.show.title || 'Untitled show'),
-    el('p', { className: 'sub' }, p.show.premise || ''),
-    el('div', { className: 'panel' },
-      el('div', { className: 'mono' }, p.root),
-      el('div', { className: 'hint' },
-        `${p.company.length} in the company · ${p.locations.length} location(s) · ${p.episodes.length} episode(s)`),
+    el('div', { className: 'row', style: 'align-items:flex-start' },
+      el('div', {},
+        el('h1', {}, p.title || p.id),
+        el('p', { className: 'sub' }, p.premise || ''),
+      ),
+      el('div', { className: 'fit' }, el('button', { className: 'ghost', onclick: () => go('#/') }, '← Projects')),
     ),
     el('h2', {}, 'Company'),
     el('div', { className: 'grid' },
       p.company.map((c) =>
-        el('div', { className: 'card', onclick: () => go(`#/character/${c.id}`) },
+        el('div', { className: 'card', onclick: () => go(`#/p/${p.id}/character/${c.id}`) },
           el('div', { className: 'thumb', style: c.sheet ? `background-image:url(${c.sheet})` : '' }, c.sheet ? '' : 'no sheet'),
           el('div', { className: 'meta' },
-            el('div', { className: 'name' }, c.name),
+            el('div', { className: 'name' }, c.name,
+              c.global ? el('span', { className: 'tag on', style: 'margin-left:6px' }, 'shared') : ''),
             el('div', { className: 'note' },
               `${c.looks} look${c.looks === 1 ? '' : 's'} · ${c.hasVoice ? 'voice cast' : 'no voice'}`),
           ),
@@ -142,25 +210,49 @@ views.overview = async () => {
         el('div', { className: 'meta' }, el('div', { className: 'note' }, 'Describe someone and draw them')),
       ),
     ),
-    el('h2', {}, 'Scenes'),
+    el('h2', {}, 'Locations'),
     el('div', { className: 'grid' },
-      p.episodes.flatMap((e) =>
-        e.scenes.map((s) =>
-          el('div', { className: 'card', onclick: () => go(`#/scene/${e.id}/${s}`) },
-            el('div', { className: 'thumb' }, s),
-            el('div', { className: 'meta' },
-              el('div', { className: 'name' }, s),
-              el('div', { className: 'note' }, e.title),
-            ),
+      p.locations.map((l) =>
+        el('div', { className: 'card', onclick: () => go(`#/p/${p.id}/location/${l.id}`) },
+          el('div', { className: 'thumb', style: l.plate ? `background-image:url(${l.plate})` : '' }, l.plate ? '' : 'no plate'),
+          el('div', { className: 'meta' },
+            el('div', { className: 'name' }, l.name,
+              l.global ? el('span', { className: 'tag on', style: 'margin-left:6px' }, 'shared') : ''),
+            el('div', { className: 'note' }, `${l.states.length} lighting state(s)`),
           ),
         ),
       ),
+      el('div', { className: 'card', onclick: () => newLocation(p.id) },
+        el('div', { className: 'thumb' }, '+ new location'),
+        el('div', { className: 'meta' }, el('div', { className: 'note' }, 'A set, and the light it is shot in')),
+      ),
+    ),
+
+    el('h2', {}, p.episodic ? 'Episodes' : 'Scenes'),
+    el('div', { className: 'grid' },
+      p.episodic
+        ? p.episodes.flatMap((e) =>
+            e.scenes.map((s) =>
+              el('div', { className: 'card', onclick: () => go(`#/p/${p.id}/episode/${e.id}/scene/${s}`) },
+                el('div', { className: 'thumb' }, s),
+                el('div', { className: 'meta' },
+                  el('div', { className: 'name' }, s),
+                  el('div', { className: 'note' }, e.title)),
+              ),
+            ),
+          )
+        : p.scenes.map((s) =>
+            el('div', { className: 'card', onclick: () => go(`#/p/${p.id}/scene/${s}`) },
+              el('div', { className: 'thumb' }, s),
+              el('div', { className: 'meta' }, el('div', { className: 'name' }, s)),
+            ),
+          ),
     ),
   );
 };
 
 views.character = async (id) => {
-  const c = await api(`/character/${id}`);
+  const c = await api(P(`/character/${id}`));
   const defaultLook = c.defaultLook || 'default';
 
   const lookPanel = (look) => {
@@ -182,7 +274,7 @@ views.character = async (id) => {
       takeGrid(look.takes, {
         kind: 'image',
         onSelect: async (take) => {
-          await api(`/character/${id}/look/${look.id}/select`, 'POST', { take });
+          await api(P(`/character/${id}/look/${look.id}/select`), 'POST', { take });
           render();
         },
       }),
@@ -199,7 +291,7 @@ views.character = async (id) => {
                   const input = $(`#note-${look.id}`);
                   if (!input.value.trim()) return;
                   ev.target.disabled = true;
-                  await api(`/character/${id}/look/${look.id}/edit`, 'POST', {
+                  await api(P(`/character/${id}/look/${look.id}/edit`), 'POST', {
                     instruction: input.value.trim(), from: 'self',
                   });
                   input.value = '';
@@ -221,8 +313,10 @@ views.character = async (id) => {
         el('h1', {}, c.name),
         el('p', { className: 'sub' }, c.note || c.sheet?.slice(0, 160) || ''),
       ),
-      el('div', { className: 'fit' }, el('button', { className: 'ghost', onclick: () => go('#/') }, '← Company')),
+      el('div', { className: 'fit' }, el('button', { className: 'ghost', onclick: () => go(`#/p/${state.pid}`) }, '← Project')),
     ),
+
+    visibility('character', id, c.global, c.borrowedBy),
 
     el('h2', {}, 'Wardrobe'),
     ...c.looks.sort((a, b) => (a.id === defaultLook ? -1 : b.id === defaultLook ? 1 : 0)).map(lookPanel),
@@ -246,10 +340,10 @@ views.character = async (id) => {
           const wardrobe = $('#lookWardrobe').value.trim();
           if (!label || !wardrobe) return;
           ev.target.disabled = true;
-          const { id: lookId } = await api(`/character/${id}/look`, 'POST', {
+          const { id: lookId } = await api(P(`/character/${id}/look`), 'POST', {
             label, wardrobe, remove: $('#lookRemove').value.trim() || null,
           });
-          await api(`/character/${id}/look/${lookId}/edit`, 'POST', {
+          await api(P(`/character/${id}/look/${lookId}/edit`), 'POST', {
             wardrobe, remove: $('#lookRemove').value.trim() || null,
           });
           $('#jobs').hidden = false;
@@ -272,10 +366,10 @@ views.character = async (id) => {
       el('button', {
         onclick: async (ev) => {
           ev.target.disabled = true;
-          await api(`/character/${id}`, 'PATCH', {
+          await api(P(`/character/${id}`), 'PATCH', {
             line: $('#voiceLine').value, direction: $('#voiceDirection').value,
           });
-          await api(`/character/${id}/voice`, 'POST', {});
+          await api(P(`/character/${id}/voice`), 'POST', {});
           $('#jobs').hidden = false;
           ev.target.disabled = false;
         },
@@ -283,14 +377,15 @@ views.character = async (id) => {
       el('div', { style: 'margin-top:14px' },
         takeGrid(c.voice.takes.filter((t) => t.url?.endsWith('.mp4')), {
           kind: 'video',
-          onSelect: async (take) => { await api(`/character/${id}/voice/select`, 'POST', { take }); render(); },
+          onSelect: async (take) => { await api(P(`/character/${id}/voice/select`), 'POST', { take }); render(); },
         })),
     ),
   );
 };
 
 views.scene = async (ep, sc) => {
-  const s = await api(`/scene/${ep}/${sc}`);
+  const base = scenePath(ep, sc);
+  const s = await api(P(base));
 
   const shotPanel = (shot) =>
     el('div', { className: 'panel' },
@@ -304,14 +399,14 @@ views.scene = async (ep, sc) => {
           el('button', {
             className: 'small',
             onclick: async () => {
-              const p = await api(`/scene/${ep}/${sc}/prompt/${shot.id}`);
+              const p = await api(P(`${base}/prompt/${shot.id}`));
               modal(shot.slate || shot.id, el('pre', { className: 'mono', style: 'white-space:pre-wrap' }, p.prompt));
             },
           }, 'Prompt'),
           ' ',
           el('button', {
             className: 'small',
-            onclick: async () => { await api(`/scene/${ep}/${sc}/shoot`, 'POST', { shots: [shot.id] }); $('#jobs').hidden = false; },
+            onclick: async () => { await api(P(`${base}/shoot`), 'POST', { shots: [shot.id] }); $('#jobs').hidden = false; },
           }, 'Roll another take'),
         ),
       ),
@@ -322,7 +417,7 @@ views.scene = async (ep, sc) => {
       takeGrid(shot.takes, {
         kind: 'video',
         onSelect: async (take) => {
-          await api(`/scene/${ep}/${sc}/shot/${shot.id}/select`, 'POST', { take });
+          await api(P(`${base}/shot/${shot.id}/select`), 'POST', { take });
           render();
         },
       }),
@@ -333,9 +428,10 @@ views.scene = async (ep, sc) => {
       el('div', {},
         el('h1', {}, s.title || sc),
         el('p', { className: 'sub' },
-          `${s.shots.length} shots · ${s.location}/${s.state} · ${s.cast.map((c) => `${c.character} ${c.side}`).join(', ')}`),
+          `${s.shots.length} shots · ${s.location}/${s.state} · ` +
+          s.cast.map((c) => `${c.name || c.character} ${c.side}${c.borrowed ? ` (borrowed from ${c.owner})` : ''}`).join(', ')),
       ),
-      el('div', { className: 'fit' }, el('button', { className: 'ghost', onclick: () => go('#/') }, '← Overview')),
+      el('div', { className: 'fit' }, el('button', { className: 'ghost', onclick: () => go(`#/p/${state.pid}`) }, '← Project')),
     ),
 
     s.cut
@@ -352,11 +448,11 @@ views.scene = async (ep, sc) => {
         ),
         el('div', { className: 'fit' },
           el('button', {
-            onclick: async () => { await api(`/scene/${ep}/${sc}/shoot`, 'POST', { resolution: '480p' }); $('#jobs').hidden = false; },
+            onclick: async () => { await api(P(`${base}/shoot`), 'POST', { resolution: '480p' }); $('#jobs').hidden = false; },
           }, 'Block at 480p'),
           ' ',
           el('button', {
-            onclick: async () => { await api(`/scene/${ep}/${sc}/shoot`, 'POST', {}); $('#jobs').hidden = false; },
+            onclick: async () => { await api(P(`${base}/shoot`), 'POST', {}); $('#jobs').hidden = false; },
           }, 'Shoot all'),
         ),
       ),
@@ -374,10 +470,10 @@ views.scene = async (ep, sc) => {
             'One unbroken bed under the whole scene — never one per shot, or the music restarts at every cut.'),
         ),
         el('div', { className: 'fit' },
-          el('button', { onclick: async () => { await api(`/scene/${ep}/${sc}/bed`, 'POST', {}); $('#jobs').hidden = false; } },
+          el('button', { onclick: async () => { await api(P(`${base}/bed`), 'POST', {}); $('#jobs').hidden = false; } },
             s.bed ? 'Recompose bed' : 'Compose bed'),
           ' ',
-          el('button', { className: 'primary', onclick: async () => { await api(`/scene/${ep}/${sc}/cut`, 'POST', {}); $('#jobs').hidden = false; } },
+          el('button', { className: 'primary', onclick: async () => { await api(P(`${base}/cut`), 'POST', {}); $('#jobs').hidden = false; } },
             'Cut the scene'),
         ),
       ),
@@ -394,7 +490,7 @@ views.scene = async (ep, sc) => {
           el('button', {
             onclick: async (ev) => {
               ev.target.disabled = true;
-              try { modal('Continuity', continuityTable(await api(`/scene/${ep}/${sc}/check`))); }
+              try { modal('Continuity', continuityTable(await api(P(`${base}/check`)))); }
               finally { ev.target.disabled = false; }
             },
           }, 'Run check'),
@@ -437,6 +533,73 @@ function continuityTable(r) {
   return rows;
 }
 
+views.location = async (id) => {
+  const l = await api(P(`/location/${id}`));
+  return el('div', {},
+    el('div', { className: 'row', style: 'align-items:flex-start' },
+      el('div', {},
+        el('h1', {}, l.name),
+        el('p', { className: 'sub' }, l.note || l.sheet?.slice(0, 160) || ''),
+      ),
+      el('div', { className: 'fit' }, el('button', { className: 'ghost', onclick: () => go(`#/p/${state.pid}`) }, '← Project')),
+    ),
+
+    visibility('location', id, l.global, l.borrowedBy),
+
+    el('h2', {}, 'Lighting states'),
+    el('p', { className: 'sub' },
+      'The same geography in different light. A plate is shot empty, from the scene\u2019s own side of the line — it is the room and the grade in one image.'),
+    ...l.states.map((st) =>
+      el('div', { className: 'panel' },
+        el('div', { className: 'row', style: 'align-items:center;margin-bottom:10px' },
+          el('div', {},
+            el('strong', {}, st.label || st.id),
+            st.id === l.defaultState ? el('span', { className: 'tag on', style: 'margin-left:8px' }, 'default') : '',
+            st.lighting ? el('div', { className: 'hint' }, st.lighting) : '',
+          ),
+          el('div', { className: 'fit' },
+            el('button', {
+              onclick: async (ev) => {
+                ev.target.disabled = true;
+                await api(P(`/location/${id}/state/${st.id}/generate`), 'POST', {});
+                $('#jobs').hidden = false;
+                ev.target.disabled = false;
+              },
+            }, 'Draw a take'),
+          ),
+        ),
+        takeGrid(st.takes, {
+          kind: 'image',
+          onSelect: async (take) => {
+            await api(P(`/location/${id}/state/${st.id}/select`), 'POST', { take });
+            render();
+          },
+        }),
+      ),
+    ),
+
+    el('div', { className: 'panel' },
+      el('strong', {}, 'Add a lighting state'),
+      el('div', { className: 'field' }, el('label', {}, 'Name'), el('input', { id: 'stName', placeholder: 'Morning' })),
+      el('div', { className: 'field' },
+        el('label', {}, 'Light and time of day'),
+        el('textarea', { id: 'stLight', placeholder: 'Early morning. Hard low sun through the east window, long shadows across the floor.' })),
+      el('button', {
+        className: 'primary',
+        onclick: async (ev) => {
+          const label = $('#stName').value.trim();
+          if (!label) return;
+          ev.target.disabled = true;
+          const { id: stateId } = await api(P(`/location/${id}/state`), 'POST', { label, lighting: $('#stLight').value.trim() });
+          await api(P(`/location/${id}/state/${stateId}/generate`), 'POST', {});
+          $('#jobs').hidden = false;
+          ev.target.disabled = false;
+        },
+      }, 'Create and draw'),
+    ),
+  );
+};
+
 views.models = async () => {
   const m = state.models || (state.models = await api('/models'));
   const section = (title, list, note) =>
@@ -470,6 +633,81 @@ views.models = async () => {
 // Creating a character
 // ---------------------------------------------------------------------------
 
+function newProject(kinds) {
+  modal('New project', [
+    el('div', { className: 'field' }, el('label', {}, 'Title'), el('input', { id: 'npTitle', placeholder: 'Coraz\u00f3n de Gallina' })),
+    el('div', { className: 'field' },
+      el('label', {}, 'Kind'),
+      el('select', { id: 'npKind' }, kinds.map((k) => el('option', { value: k.id }, `${k.label} — ${k.note}`)))),
+    el('div', { className: 'field' }, el('label', {}, 'Premise'), el('input', { id: 'npPremise', placeholder: 'A scene from a Spanish-language telenovela.' })),
+    el('div', { className: 'row' },
+      el('div', { className: 'field' }, el('label', {}, 'Spoken language'), el('input', { id: 'npLang', value: 'English' })),
+      el('div', { className: 'field' }, el('label', {}, 'Aspect'), el('input', { id: 'npAspect', value: '16:9' })),
+    ),
+    el('div', { className: 'field' },
+      el('label', {}, 'Style — the medium and the register'),
+      el('textarea', { id: 'npStyle', placeholder: 'STYLE: Stylized 3D animated feature film\u2026' })),
+    el('div', { className: 'field' },
+      el('label', {}, 'Look — lens, light and grade'),
+      el('textarea', { id: 'npLook', placeholder: 'LOOK: Cinematic 16:9. 40mm lens, shallow depth of field\u2026' })),
+    el('div', { className: 'hint' },
+      'Style and Look are repeated verbatim in every shot prompt. Repeating them identically is the whole reason two independently generated shots look like the same production, so write them once and carefully.'),
+    el('button', {
+      className: 'primary', style: 'margin-top:12px',
+      onclick: async (ev) => {
+        ev.target.disabled = true;
+        try {
+          const p = await api('/project', 'POST', {
+            title: $('#npTitle').value.trim(), kind: $('#npKind').value,
+            premise: $('#npPremise').value.trim(), language: $('#npLang').value.trim(),
+            aspect_ratio: $('#npAspect').value.trim(),
+            style: $('#npStyle').value.trim(), look: $('#npLook').value.trim(),
+          });
+          closeModal();
+          state.ws = null;
+          go(`#/p/${p.id}`);
+        } catch (err) { alert(err.message); ev.target.disabled = false; }
+      },
+    }, 'Create project'),
+  ]);
+}
+
+function newLocation(pid) {
+  modal('New location', [
+    el('div', { className: 'field' }, el('label', {}, 'Name'), el('input', { id: 'nlName', placeholder: 'The hacienda dining room' })),
+    el('div', { className: 'field' },
+      el('label', {}, 'The set, described empty'),
+      el('textarea', { id: 'nlSheet', style: 'min-height:110px',
+        placeholder: 'The formal dining room of an old hacienda, photographed empty with no people in it. A long dark polished table, a wrought-iron candelabra, whitewashed stucco walls\u2026' })),
+    el('div', { className: 'field' },
+      el('label', {}, 'One-line note for the video model'),
+      el('input', { id: 'nlNote', placeholder: 'the hacienda dining room \u2014 long dark table, candelabra, stucco walls, a rain-streaked window' })),
+    el('div', { className: 'row' },
+      el('div', { className: 'field' }, el('label', {}, 'First lighting state'), el('input', { id: 'nlState', placeholder: 'Night, storm' })),
+      el('div', { className: 'field' }, el('label', {}, 'Its light'), el('input', { id: 'nlLight', placeholder: 'Lit only by the candelabra, cold blue spill from the window.' })),
+    ),
+    el('button', {
+      className: 'primary',
+      onclick: async (ev) => {
+        ev.target.disabled = true;
+        try {
+          const { id } = await api(`/project/${pid}/location`, 'POST', {
+            name: $('#nlName').value.trim(), sheet: $('#nlSheet').value.trim(),
+            note: $('#nlNote').value.trim(),
+            state: $('#nlState').value.trim() || 'default',
+            lighting: $('#nlLight').value.trim(),
+          });
+          const stateId = ($('#nlState').value.trim() || 'default').toLowerCase().replace(/[^a-z0-9-]+/g, '-');
+          await api(`/project/${pid}/location/${id}/state/${stateId}/generate`, 'POST', {});
+          closeModal();
+          go(`#/p/${pid}/location/${id}`);
+          $('#jobs').hidden = false;
+        } catch (err) { alert(err.message); ev.target.disabled = false; }
+      },
+    }, 'Create and draw the plate'),
+  ]);
+}
+
 function newCharacter() {
   modal('New character', [
     el('div', { className: 'field' }, el('label', {}, 'Name'), el('input', { id: 'ncName', placeholder: 'Rosalinda' })),
@@ -495,17 +733,16 @@ function newCharacter() {
       onclick: async (ev) => {
         ev.target.disabled = true;
         try {
-          const { id } = await api('/character', 'POST', {
+          const { id } = await api(P('/character'), 'POST', {
             name: $('#ncName').value.trim(),
             sheet: $('#ncSheet').value.trim(),
             note: $('#ncNote').value.trim(),
             line: $('#ncLine').value.trim(),
             direction: $('#ncDirection').value.trim(),
           });
-          await api(`/character/${id}/look/default/generate`, 'POST', {});
+          await api(P(`/character/${id}/look/default/generate`), 'POST', {});
           closeModal();
-          state.project = await api('/project');
-          go(`#/character/${id}`);
+          go(`#/p/${state.pid}/character/${id}`);
           $('#jobs').hidden = false;
         } catch (err) {
           alert(err.message);
@@ -518,11 +755,11 @@ function newCharacter() {
 }
 
 async function drawLook(id, lookId) {
-  await api(`/character/${id}/look/${lookId}/generate`, 'POST', {});
+  await api(P(`/character/${id}/look/${lookId}/generate`), 'POST', {});
   $('#jobs').hidden = false;
 }
 async function deriveLook(id, look) {
-  await api(`/character/${id}/look/${look.id}/edit`, 'POST', {
+  await api(P(`/character/${id}/look/${look.id}/edit`), 'POST', {
     wardrobe: look.wardrobe, remove: look.remove,
   });
   $('#jobs').hidden = false;
@@ -538,22 +775,52 @@ async function render() {
   const parts = (location.hash.replace(/^#\/?/, '') || '').split('/').filter(Boolean);
   const view = $('#view');
   try {
-    if (!state.project) state.project = await api('/project');
+    // #/                                    workspace
+    // #/p/:pid                              project
+    // #/p/:pid/character/:id                a character
+    // #/p/:pid/location/:id                 a location
+    // #/p/:pid/scene/:sc                    a scene in a film
+    // #/p/:pid/episode/:ep/scene/:sc        a scene in a series
     let node;
-    if (parts[0] === 'character') node = await views.character(parts[1]);
-    else if (parts[0] === 'scene') node = await views.scene(parts[1], parts[2]);
-    else if (parts[0] === 'models') node = await views.models();
-    else node = await views.overview();
+    if (parts[0] === 'models') {
+      node = await views.models();
+    } else if (parts[0] === 'p' && parts[1]) {
+      const pid = parts[1];
+      // Refetched whenever the project changes, so switching projects never
+      // renders one project's cast against another's scenes.
+      if (state.pid !== pid || !state.project) {
+        state.pid = pid;
+        state.project = await api(`/project/${pid}`);
+      } else {
+        state.project = await api(`/project/${pid}`);
+      }
+      const rest = parts.slice(2);
+      if (rest[0] === 'character') node = await views.character(rest[1]);
+      else if (rest[0] === 'location') node = await views.location(rest[1]);
+      else if (rest[0] === 'scene') node = await views.scene(null, rest[1]);
+      else if (rest[0] === 'episode' && rest[2] === 'scene') node = await views.scene(rest[1], rest[3]);
+      else node = await views.project();
+    } else {
+      state.pid = null;
+      state.project = null;
+      state.ws = await api('/workspace');
+      node = await views.workspace();
+    }
     view.replaceChildren(node);
   } catch (err) {
     view.replaceChildren(el('div', { className: 'empty note-bad' }, err.message));
   }
 
-  const here = parts[0] || '';
-  $('#nav').replaceChildren(
-    el('a', { href: '#/', className: here === '' ? 'on' : '' }, 'Overview'),
-    el('a', { href: '#/models', className: here === 'models' ? 'on' : '' }, 'Models'),
-  );
+  // Breadcrumbs rather than tabs: the hierarchy is the navigation.
+  const crumbs = [el('a', { href: '#/', className: parts.length ? '' : 'on' }, 'Projects')];
+  if (state.project) {
+    crumbs.push(el('a', {
+      href: `#/p/${state.pid}`,
+      className: parts.length === 2 ? 'on' : '',
+    }, state.project.title || state.pid));
+  }
+  crumbs.push(el('a', { href: '#/models', className: parts[0] === 'models' ? 'on' : '' }, 'Models'));
+  $('#nav').replaceChildren(...crumbs);
 }
 
 $('#jobsToggle').onclick = () => { $('#jobs').hidden = !$('#jobs').hidden; };

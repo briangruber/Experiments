@@ -1,0 +1,17 @@
+{
+  "id": "telenovela",
+  "title": "Corazón de Gallina",
+  "premise": "A scene from a Spanish-language telenovela.",
+  "language": "Spanish",
+  "aspect_ratio": "16:9",
+  "resolution": "720p",
+  "style": "STYLE: Stylized 3D animated feature film, in the manner of a high-end animated feature — appealing cartoon-realist design, soft subsurface shading on skin and feathers, physically lit, shot as live action rather than as cartoon. The characters are anthropomorphic chickens who stand upright, wear real clothing and act as human characters. They are played completely straight: this is a melodrama, not a comedy, and nobody mugs at the camera.",
+  "look": "LOOK: Cinematic 16:9 framing. 40mm lens, shallow depth of field — the subject crisp, the background softly defocused. The room is lit only by the candelabra standing on the table: a warm amber key that falls off fast into the corners, and a cold deep teal-blue fill spilling in from the rain-streaked window. Rich saturated colour, crushed inky blacks, gentle 35mm film grain. No lens flare, no light leaks, no on-screen text, no subtitles, no watermark.",
+  "audio": "AUDIO: Absolutely no background music. No musical score, no underscore, no soundtrack, no strings, no piano, no ambient musical drone of any kind — music is added later in the edit and anything musical here has to be thrown away. Generate ONLY diegetic sound that physically exists in this room: the characters' speaking voices, steady rain against the window glass, a low roll of distant thunder, the small dry sounds of paper and of wood. Voices are recorded close and intimate, as if by a boom just out of frame.\n\nTIMING: Every spoken line must BEGIN and FULLY FINISH inside the beat it is written on, and all speech must be complete at least one full second before the end of the clip. The final second of the shot is held in silence on the actor's face. Do not let a line still be running at the last frame and do not push dialogue towards the end of the shot.",
+  "models": {
+    "video": "bytedance/seedance-2.5/reference-to-video",
+    "image": "fal-ai/nano-banana-2",
+    "edit": "fal-ai/nano-banana-2/edit"
+  },
+  "kind": "series"
+}

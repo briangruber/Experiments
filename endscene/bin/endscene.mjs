@@ -14,7 +14,7 @@
 
 import { resolve, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadProject, readJSON, listDir, exists } from '../lib/store.mjs';
+import { loadProject, listProjects, readJSON, listDir, exists, allScenes, resolveCharacter, resolveLocation, KINDS } from '../lib/store.mjs';
 import { estimateScene, pricing, EDIT_MODELS } from '../lib/models.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -24,17 +24,44 @@ const flag = (n) => argv.includes(`--${n}`);
 const opt = (n, d) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? argv[i + 1] : d; };
 const positional = argv.slice(1).filter((a, i, all) => !a.startsWith('--') && !all[i - 1]?.startsWith('--'));
 
-const projectRoot = resolve(opt('project', join(HERE, '..', 'projects', 'telenovela')));
+// The workspace holds every project. `--project` names one inside it; with a
+// single project it is inferred, because typing it every time is friction for
+// no benefit.
+const WS = resolve(opt('workspace', join(HERE, '..')));
+
+async function pick() {
+  const wanted = opt('project', null);
+  const all = await listProjects(WS);
+  if (!all.length) throw new Error(`no projects in ${WS}/projects`);
+  if (wanted) {
+    const hit = all.find((p) => p.id === wanted);
+    if (!hit) throw new Error(`no project "${wanted}" — have: ${all.map((p) => p.id).join(', ')}`);
+    return loadProject(WS, hit.id);
+  }
+  if (all.length === 1) return loadProject(WS, all[0].id);
+  throw new Error(`--project is required — have: ${all.map((p) => p.id).join(', ')}`);
+}
+
+// A film has no episode, so its scene commands take one argument and a series
+// takes two. Resolving here keeps every command below free of the distinction.
+function locate(project, args) {
+  if (project.paths.episodic) {
+    if (args.length < 2) throw new Error(`${project.project.title} is a series — give an episode and a scene`);
+    return { episode: args[0], scene: args[1], rest: args.slice(2) };
+  }
+  if (!args.length) throw new Error('give a scene');
+  return { episode: null, scene: args[0], rest: args.slice(1) };
+}
 
 async function loadScene(project, episodeId, sceneId) {
   const scene = await readJSON(project.paths.sceneJSON(episodeId, sceneId));
-  if (!scene) throw new Error(`no scene ${episodeId}/${sceneId}`);
+  if (!scene) throw new Error(`no scene ${[episodeId, sceneId].filter(Boolean).join('/')}`);
+  // Cast and location may be borrowed from another project, which is why this
+  // goes through the resolver rather than reading paths directly.
   const cast = {};
-  for (const c of scene.cast) {
-    cast[c.character] = await readJSON(project.paths.characterJSON(c.character));
-  }
-  const location = await readJSON(project.paths.locationJSON(scene.location));
-  return { scene, cast, location };
+  for (const c of scene.cast) cast[c.character] = (await resolveCharacter(project, c.character)).data;
+  const location = (await resolveLocation(project, scene.location)).data;
+  return { scene: { ...scene, id: sceneId }, cast, location };
 }
 
 // Marks into each generated take. A shot is generated longer than it plays so
@@ -53,15 +80,15 @@ function marksFor(project, episodeId, scene) {
 async function main() {
   switch (cmd) {
     case 'serve': {
-      process.env.ENDSCENE_PROJECT = projectRoot;
+      process.env.ENDSCENE_WORKSPACE = WS;
       process.env.PORT = opt('port', '4000');
       await import('../server.mjs');
       return;
     }
 
     case 'cut': {
-      const [episodeId, sceneId] = positional;
-      const project = await loadProject(projectRoot);
+      const project = await pick();
+      const { episode: episodeId, scene: sceneId } = locate(project, positional);
       const { scene } = await loadScene(project, episodeId, sceneId);
       const shots = marksFor(project, episodeId, scene);
 
@@ -110,8 +137,8 @@ async function main() {
     }
 
     case 'estimate': {
-      const [episodeId, sceneId] = positional;
-      const project = await loadProject(projectRoot);
+      const project = await pick();
+      const { episode: episodeId, scene: sceneId } = locate(project, positional);
       const { scene } = await loadScene(project, episodeId, sceneId);
       const res = opt('res', project.show.resolution || '720p');
       const e = estimateScene(
@@ -128,8 +155,9 @@ async function main() {
     }
 
     case 'prompt': {
-      const [episodeId, sceneId, shotId] = positional;
-      const project = await loadProject(projectRoot);
+      const project = await pick();
+      const { episode: episodeId, scene: sceneId, rest } = locate(project, positional);
+      const shotId = rest[0];
       const { scene, cast, location } = await loadScene(project, episodeId, sceneId);
       const { buildShot } = await import('../lib/prompt.mjs');
       for (const shot of scene.shots) {
@@ -145,8 +173,8 @@ async function main() {
     }
 
     case 'shoot': {
-      const [episodeId, sceneId, ...only] = positional;
-      const project = await loadProject(projectRoot);
+      const project = await pick();
+      const { episode: episodeId, scene: sceneId, rest: only } = locate(project, positional);
       const { scene, cast, location } = await loadScene(project, episodeId, sceneId);
       const { shootShot, uploader, publishSelected } = await import('../lib/shoot.mjs');
       const { select } = await import('../lib/store.mjs');
@@ -179,8 +207,8 @@ async function main() {
     }
 
     case 'check': {
-      const [episodeId, sceneId] = positional;
-      const project = await loadProject(projectRoot);
+      const project = await pick();
+      const { episode: episodeId, scene: sceneId } = locate(project, positional);
       const { scene } = await loadScene(project, episodeId, sceneId);
       const shots = marksFor(project, episodeId, scene);
       const { report } = await import('../lib/continuity.mjs');
@@ -206,8 +234,21 @@ async function main() {
       return;
     }
 
+    case 'projects': {
+      const all = await listProjects(WS);
+      console.log(`\nworkspace ${WS}\n`);
+      for (const meta of all) {
+        const p = await loadProject(WS, meta.id);
+        const scenes = await allScenes(p);
+        const kind = KINDS.find((k) => k.id === meta.kind)?.label || meta.kind;
+        console.log(`  ${meta.id.padEnd(18)} ${String(kind).padEnd(12)} ${scenes.length} scene(s)`);
+      }
+      console.log();
+      return;
+    }
+
     case 'models': {
-      const p = await pricing(EDIT_MODELS.map((m) => m.id), { cacheDir: projectRoot, force: flag('refresh') });
+      const p = await pricing(EDIT_MODELS.map((m) => m.id), { cacheDir: WS, force: flag('refresh') });
       console.log('\nimage editing models — pricing live from fal\n');
       for (const m of EDIT_MODELS) {
         console.log(`  ${m.label}${m.recommended ? ' *' : ''}\n    ${m.id}\n    ${p[m.id]?.pricing || 'pricing unavailable'}\n`);
@@ -216,17 +257,20 @@ async function main() {
     }
 
     default:
-      console.log(`endscene — build a show out of AI-generated coverage
+      console.log(`endscene — build a film or a show out of AI-generated coverage
 
-  endscene serve      [--project P] [--port 4000]
-  endscene cut        <episode> <scene> [--no-bed] [--no-subs] [--lang en]
-  endscene shoot      <episode> <scene> [shot…] [--res 480p] [--takes 2]
-  endscene estimate   <episode> <scene> [--res 480p]
-  endscene prompt     <episode> <scene> [shot]      print prompts, generate nothing
-  endscene check      <episode> <scene>             continuity report
+  endscene serve      [--port 4000]
+  endscene projects                                 what is in the workspace
+  endscene cut        <scene> [--no-bed] [--no-subs] [--lang en]
+  endscene shoot      <scene> [shot…] [--res 480p] [--takes 2]
+  endscene estimate   <scene> [--res 480p]
+  endscene prompt     <scene> [shot]                print prompts, generate nothing
+  endscene check      <scene>                       continuity report
   endscene models     [--refresh]                   editing models and live pricing
 
-  --project defaults to projects/telenovela
+  A series takes <episode> <scene>; a film or music video takes just <scene>.
+  --project picks one when the workspace holds more than one.
+  --workspace defaults to the endscene directory.
 `);
       process.exit(cmd ? 1 : 0);
   }

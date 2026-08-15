@@ -12,7 +12,10 @@ import { createHash } from 'node:crypto';
 import { readFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { upload, run, download } from './fal.mjs';
-import { nextTake, writeJSON, readJSON, exists, hash, selectedTake, listTakes } from './store.mjs';
+import {
+  nextTake, writeJSON, readJSON, exists, hash, selectedTake, listTakes,
+  resolveCharacter, resolveLocation,
+} from './store.mjs';
 import { buildShot } from './prompt.mjs';
 
 // fal's storage is content-addressed only by accident, so we keep a ledger: a
@@ -35,16 +38,29 @@ export async function uploader(cacheDir) {
 // Turns the abstract reference descriptors from buildShot into paths on disk.
 // Kept separate so the UI can show a shot's reference stack — and cost — before
 // anything is generated.
-export function resolveRefs({ project, episode, scene, refs }) {
+//
+// Character and location references may be borrowed from another project, in
+// which case the file lives in *that* project's directory. Resolution goes
+// through the store so a borrow of something un-shared fails here, loudly,
+// rather than turning into a missing-file error three steps later.
+export async function resolveRefs({ project, episode, scene, refs }) {
   const P = project.paths;
   const files = { images: [], audios: [], videos: [] };
 
   for (const r of refs.images) {
-    files.images.push(
-      r.kind === 'sheet' ? P.sheet(r.character, r.look) : P.plate(r.location, r.state),
-    );
+    if (r.kind === 'sheet') {
+      const c = await resolveCharacter(project, r.character);
+      files.images.push(c.paths.sheet(c.id, r.look));
+    } else {
+      const l = await resolveLocation(project, r.location);
+      files.images.push(l.paths.plate(l.id, r.state));
+    }
   }
-  for (const r of refs.audios) files.audios.push(P.voiceAudio(r.character));
+  for (const r of refs.audios) {
+    const c = await resolveCharacter(project, r.character);
+    files.audios.push(c.paths.voiceAudio(c.id));
+  }
+  // Shot chaining is always within the scene, so it is never borrowed.
   for (const r of refs.videos) {
     files.videos.push(join(P.shot(episode, scene, r.shot), 'selected.mp4'));
   }
@@ -56,7 +72,7 @@ export async function shootShot({
   resolution, put, onLog,
 }) {
   const built = buildShot({ show: project.show, scene, shot, cast, location });
-  const files = resolveRefs({ project, episode, scene: scene.id, refs: built });
+  const files = await resolveRefs({ project, episode, scene: scene.id, refs: built });
 
   for (const f of [...files.images, ...files.audios, ...files.videos]) {
     if (!(await exists(f))) {

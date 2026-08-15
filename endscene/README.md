@@ -55,38 +55,80 @@ of two hens arguing over a will — including its reference sheets, voice plates
 and takes. You can cut it without an API key and without spending anything:
 
 ```bash
-node bin/endscene.mjs cut e01 testamento
+node bin/endscene.mjs cut e01 testamento --project telenovela
 ```
 
-## How a show is put together
+There is a second project, *La Gallina Muda*, which is a **film** rather than a
+series and which **borrows** its lead and its set from the telenovela — a worked
+example of both differences.
 
-Four scopes with different lifetimes. Conflating them is what stops a scene
-being reusable.
+## How a production is put together
+
+A workspace holds **projects**. A project is one production and owns its
+characters and its locations. What it *contains* depends on what kind of thing
+it is, and that difference is real rather than cosmetic — a feature does not
+have episodes and a series does not have a flat scene list:
+
+| kind | contains |
+| --- | --- |
+| **Film** | scenes, directly |
+| **Music video** | scenes, directly |
+| **TV series** | episodes, and scenes inside them |
+
+Within a project, four scopes with different lifetimes. Conflating them is what
+stops a scene being reusable.
 
 | scope | lives for | holds |
 | --- | --- | --- |
-| **Show** | everything | style, look and grade, aspect, resolution, the audio rules |
-| **Company** | many episodes | characters: identity, wardrobe looks, voice |
+| **Project** | everything | kind, style, look and grade, aspect, resolution, audio rules |
+| **Company** | many scenes | characters: identity, wardrobe looks, voice |
 | **Locations** | many scenes | sets, each in one or more lighting states |
 | **Scene** | itself | cast and blocking, the line, shots, dialogue |
 
 ```
-projects/<show>/
-  show.json
+projects/<project>/
+  project.json
   company/<character>/
-    character.json
-    voice/            plate.mp4, voice.mp3, takes/
-    looks/<look>/     sheet.png, look.json, takes/
-  locations/<location>/states/<state>/plate.png
-  episodes/<ep>/scenes/<scene>/
+    character.json          global: false by default
+    voice/                  plate.mp4, voice.mp3, takes/
+    looks/<look>/           sheet.png, look.json, takes/
+  locations/<location>/
+    location.json           global: false by default
+    states/<state>/plate.png
+  scenes/<scene>/           ← film, music video
+  episodes/<ep>/scenes/<scene>/  ← series
     scene.json
-    shots/<shot>/     selected.mp4, takes/
-    dist/             the cut, the bed, the subtitles
+    shots/<shot>/           selected.mp4, takes/
+    dist/                   the cut, the bed, the subtitles
 ```
 
 Plain JSON and ordinary files. No database — a production is a thing people
 argue about over months, and being able to read, diff, review and revert it in
 git is worth more than any query you would run against it.
+
+## Sharing between projects
+
+Characters and locations belong to their project and are **private by default**.
+Making one global lets other projects borrow it.
+
+Borrowing is **by reference**: nothing is copied and nothing moves, so the asset
+keeps belonging to the project that made it, and a scene refers to it by a
+qualified id.
+
+```json
+"cast": [{ "character": "telenovela/rosalinda", "look": "default", "side": "left" }]
+```
+
+That trade is deliberate. Sharing a character means sharing their likeness
+*including future changes to it* — re-draw the sheet in its home project and
+every production using it gets the new one. A project that wants its own
+divergent version should copy rather than borrow, which is a different and
+explicit act.
+
+Two guards, because both failures are silent otherwise: borrowing something
+that has not been shared is refused at resolve time with a message saying so,
+and un-sharing something other projects are using is refused with the list of
+scenes that would break.
 
 ## Wardrobe
 
@@ -185,14 +227,18 @@ whether the take is good.
 The UI drives the same library, so anything you can click you can script.
 
 ```
-endscene serve      [--project P] [--port 4000]
-endscene cut        <episode> <scene> [--no-bed] [--no-subs] [--lang en]
-endscene shoot      <episode> <scene> [shot…] [--res 480p] [--takes 2]
-endscene estimate   <episode> <scene> [--res 480p]
-endscene prompt     <episode> <scene> [shot]      print prompts, generate nothing
-endscene check      <episode> <scene>             continuity report
+endscene serve      [--port 4000]
+endscene projects                                 what is in the workspace
+endscene cut        <scene> [--no-bed] [--no-subs] [--lang en]
+endscene shoot      <scene> [shot…] [--res 480p] [--takes 2]
+endscene estimate   <scene> [--res 480p]
+endscene prompt     <scene> [shot]                print prompts, generate nothing
+endscene check      <scene>                       continuity report
 endscene models     [--refresh]                   models and live pricing
 ```
+
+A series takes `<episode> <scene>`; a film or music video takes just `<scene>`.
+`--project` picks one when the workspace holds more than one.
 
 `endscene prompt` is the cheapest tool here — it shows exactly what would be
 sent without sending it.
@@ -253,7 +299,10 @@ lib/
   cut.mjs             the ffmpeg assembly
   score.mjs           the music bed
   continuity.mjs      the advisory checks
-projects/telenovela/  a worked example, with its takes
+bin/migrate.mjs       bring a workspace up to the current schema
+projects/
+  telenovela/         a series — a worked example, with its takes
+  la-gallina-muda/    a film, borrowing its cast and set from the telenovela
 ```
 
 `lib/prompt.mjs` is the one to read first. It is why the whole thing works.
