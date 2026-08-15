@@ -12,6 +12,7 @@ import * as THREE from '../../vendor/three/three.module.min.js';
 import { GLTFLoader } from '../../vendor/three/GLTFLoader.js';
 import { clone as cloneSkinned } from '../../vendor/three/GLTFLoaderDeps.js';
 import { ASSETS } from './assets-manifest.js';
+import { loadCastGLB } from '../../engine/bone-actor.js';
 import { MARKS } from '../sets/courtyard.js';
 import { deg } from '../../engine/util.js';
 
@@ -181,9 +182,17 @@ export async function dressSet(set) {
     set.group.add(p);
   }
 
-  // The animated extras.
+  // The animated extras. They used to be a model of their own — the very first
+  // Tripo hen, cut from a sentence back when that was the only route — carried
+  // for nothing but background walking. The shipping cast is a better sculpt
+  // and its walk cycle is already in the bundle, so the extras are Rosalinda's
+  // mesh under a muted brown wash, which reads as somebody else at the depth
+  // they stand at and costs no download at all.
   try {
-    const gltf = await load('hen-tripo-walk');
+    const [body, walk] = await Promise.all([
+      loadCastGLB('rosalinda.glb'), loadCastGLB('anim-walk.glb'),
+    ]);
+    const gltf = { scene: body.scene, animations: walk.animations };
     for (const [x, z, yaw, height, offset] of EXTRAS) {
       // Object3D.clone leaves a skinned mesh bound to the ORIGINAL bones, so
       // every copy renders at the source hierarchy's transform — unit scale, at
@@ -191,7 +200,16 @@ export async function dressSet(set) {
       const hen = grounded(cloneSkinned(gltf.scene));
       hen.scale.setScalar(height / (hen.userData.size.y || 1));
       hen.position.set(x, 0, z);
-      hen.rotation.y = deg(yaw);
+      // The sculpt faces +X in its own space, like the whole cast; the leads
+      // get turned by their rig wrapper, and an extra has no wrapper.
+      hen.rotation.y = deg(yaw) - Math.PI / 2;
+      // Off the lead's palette, so a background bird is never mistaken for
+      // the ingenue standing somewhere she is not.
+      hen.traverse((n) => {
+        if (!n.isMesh || !n.material) return;
+        n.material = n.material.clone();
+        if (n.material.color) n.material.color.setRGB(0.52, 0.42, 0.34);
+      });
       shadows(hen);
       set.group.add(hen);
       if (gltf.animations.length) {
@@ -204,7 +222,7 @@ export async function dressSet(set) {
         action.play();
         mixers.push(mixer);
       }
-      added.push({ name: 'hen-tripo-walk', node: hen });
+      added.push({ name: 'extra-hen', node: hen });
     }
   } catch (e) {
     console.warn('background hens skipped:', e.message);

@@ -72,7 +72,7 @@ async function bytes(url) {
   return res.arrayBuffer();
 }
 
-async function loadCastGLB(file) {
+export async function loadCastGLB(file) {
   const url = CAST_MODELS[file];
   if (!url) throw new Error(`${file} not in cast models manifest`);
   GLTFLoader.USE_IMAGE_BITMAP = false;

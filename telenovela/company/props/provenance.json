@@ -1,0 +1,22 @@
+[
+  {
+    "key": "fountain",
+    "kind": "model",
+    "task": "9220865f-5ed6-4fa0-b03b-5d19bbc997e1",
+    "version": "v3.0-20250812",
+    "faces": 8000,
+    "concept": "concept/fountain.png",
+    "bytes": 4028452,
+    "at": "2026-08-15T03:21:23.644Z"
+  },
+  {
+    "key": "door",
+    "kind": "model",
+    "task": "f81579b3-2621-4af4-b757-ac6d0df847a6",
+    "version": "v3.0-20250812",
+    "faces": 8000,
+    "concept": "concept/door.png",
+    "bytes": 3082124,
+    "at": "2026-08-15T03:25:15.802Z"
+  }
+]

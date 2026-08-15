@@ -27,10 +27,12 @@ import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const SRC = join(ROOT, 'company/cast/models/src');
-const DST = join(ROOT, 'company/cast/models');
-
 const args = process.argv.slice(2);
+// Set dressing is the same job — shrink the maps, narrow the vertices — minus
+// the skeleton and the clips, so --props swings the paths over and skips them.
+const PROPS = args.includes('--props');
+const SRC = join(ROOT, PROPS ? 'company/props/src' : 'company/cast/models/src');
+const DST = join(ROOT, PROPS ? 'company/props/assets' : 'company/cast/models');
 const opt = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i + 1] : d; };
 const BASE = +opt('base', 512);      // base colour / emissive
 const AUX = +opt('aux', 256);        // normal
@@ -348,6 +350,16 @@ function stripToAnimation(json, bin, stride = 1) {
 
 // --- go ---------------------------------------------------------------------
 
+// Props are listed by whatever has been generated, not by a cast list.
+if (PROPS) {
+  const { readdir } = await import('node:fs/promises');
+  CAST.length = 0;
+  CLIPS.length = 0;
+  for (const f of (await readdir(SRC)).filter((f) => f.endsWith('.glb')).sort()) {
+    CAST.push({ key: f.replace(/\.glb$/, ''), out: f, raw: true });
+  }
+}
+
 await mkdir(DST, { recursive: true });
 const { chromium } = await loadPlaywright();
 const browser = await chromium.launch({ args: ['--disable-dev-shm-usage'] });
@@ -409,7 +421,7 @@ let total = 0;
 
 for (const { key, out } of CAST) {
   let original;
-  try { original = await readFile(join(SRC, `${key}-rigged.glb`)); } catch {
+  try { original = await readFile(join(SRC, PROPS ? `${key}.glb` : `${key}-rigged.glb`)); } catch {
     console.log(`  ${key}: no rigged source, skipped`);
     continue;
   }
@@ -438,7 +450,7 @@ for (const { key, out } of CAST) {
     const uri = `data:${json.images[image].mimeType || 'image/png'};base64,${raw.toString('base64')}`;
     const isBase = role === 'base';
     const res = await page.evaluate(([u, m, q, md]) => window.__bake(u, m, q, md),
-      [uri, isBase ? BASE : AUX, QUALITY, isBase ? 'lift' : null]);
+      [uri, isBase ? BASE : AUX, QUALITY, (isBase && !PROPS) ? 'lift' : null]);
     const shrunk = Buffer.from(res.uri.slice(res.uri.indexOf(',') + 1), 'base64');
     replace.set(i, shrunk);
     json.images[image].mimeType = 'image/jpeg';
