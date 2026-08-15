@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>endscene</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">endscene</div>
+  <nav id="nav"></nav>
+  <div class="spacer"></div>
+  <button id="jobsToggle" class="ghost" type="button">
+    Work <span id="jobCount" class="pill">0</span>
+  </button>
+</header>
+
+<main id="view" class="view">
+  <div class="empty">Loading the project…</div>
+</main>
+
+<aside id="jobs" class="jobs" hidden>
+  <div class="jobs-head">
+    <strong>Work</strong>
+    <button id="jobsClose" class="ghost small" type="button">Close</button>
+  </div>
+  <div id="jobList" class="job-list"></div>
+</aside>
+
+<div id="modal" class="modal" hidden>
+  <div class="modal-card">
+    <div class="modal-head">
+      <strong id="modalTitle">…</strong>
+      <button id="modalClose" class="ghost small" type="button">Close</button>
+    </div>
+    <div id="modalBody" class="modal-body"></div>
+  </div>
+</div>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>

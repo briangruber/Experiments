@@ -1,0 +1,24 @@
+{
+  "take": 1,
+  "kind": "edit",
+  "model": "fal-ai/nano-banana-2/edit",
+  "prompt": "Replace ONLY the wardrobe worn by the character in @Image1. This is a costume change and nothing else.\nChange the costume to: A high-collared black mourning gown of heavy matte silk buttoned to the throat, with black lace at the cuffs and a long black lace veil pinned behind her comb.\nRemove entirely: the gold locket\nKeep the character herself completely unchanged: identical face, identical head shape and features, identical eyes and expression, identical colouring and markings, identical body proportions and build. Keep the identical three views (front, three-quarter, side profile), the identical poses, the identical framing and scale, the identical plain neutral grey backdrop and the identical flat even studio lighting. Do not restyle, redraw or reinterpret the character. Do not change the number of views. No text, no labels, no watermark.",
+  "derivedFrom": "/home/user/Experiments/endscene/projects/telenovela/company/rosalinda/looks/default/sheet.png",
+  "input": {
+    "prompt": "Replace ONLY the wardrobe worn by the character in @Image1. This is a costume change and nothing else.\nChange the costume to: A high-collared black mourning gown of heavy matte silk buttoned to the throat, with black lace at the cuffs and a long black lace veil pinned behind her comb.\nRemove entirely: the gold locket\nKeep the character herself completely unchanged: identical face, identical head shape and features, identical eyes and expression, identical colouring and markings, identical body proportions and build. Keep the identical three views (front, three-quarter, side profile), the identical poses, the identical framing and scale, the identical plain neutral grey backdrop and the identical flat even studio lighting. Do not restyle, redraw or reinterpret the character. Do not change the number of views. No text, no labels, no watermark.",
+    "image_urls": [
+      "<uploaded>"
+    ],
+    "num_images": 1,
+    "aspect_ratio": "3:2",
+    "output_format": "png",
+    "resolution": "2K"
+  },
+  "seed": null,
+  "source": "https://v3b.fal.media/files/b/0aa6797a/D1RsxxJjLYysq1P_v9RES_imibXFXd.png",
+  "made_at": "2026-08-15T19:32:41.791Z",
+  "inputsHash": "486f39a2b43e800c",
+  "character": "rosalinda",
+  "look": "mourning",
+  "derivedFromLook": "default"
+}

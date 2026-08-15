@@ -1,0 +1,16 @@
+node_modules/
+*.log
+*.tmp
+
+# Local caches, not work. The upload ledger maps files to fal CDN URLs that
+# expire, and the pricing cache is a day-old copy of fal's own numbers.
+projects/*/uploads.json
+projects/*/pricing.json
+
+# Intermediate render, deleted on success — present only after a crash mid-cut.
+projects/*/episodes/*/scenes/*/dist/*.raw.mp4
+
+# NOTE what is deliberately NOT ignored: projects/*/**/takes/ and the selected
+# assets beside them. The video endpoint has no seed, so a take cannot be
+# regenerated — delete the file and that performance is gone for good. Takes are
+# source, not build output, and they are committed.
