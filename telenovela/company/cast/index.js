@@ -67,7 +67,10 @@ export async function upgradeCast(actors, scene, camera) {
   const { rigs, errors } = await buildCastRigs({
     esteban: { spec: esteban, file: 'esteban.glb', height: H(esteban.size), albedo: 1.06 },
     ricardo: { spec: ricardo, file: 'ricardo.glb', height: H(ricardo.size), albedo: 1.1 },
-    rosalinda: { spec: rosalinda, file: 'rosalinda.glb', height: H(rosalinda.size), albedo: 1.0 },
+    // Rosalinda is Brian's own model rather than one of ours. It carries the
+    // same bone NAMES but not the same rest orientations, so it declines the
+    // cast's shared clips and acts purely on the channel mapping.
+    rosalinda: { spec: rosalinda, file: 'rosalinda.glb', height: H(rosalinda.size), albedo: 1.0, clips: false, boneActing: false },
     valentina: { spec: valentina, file: 'valentina.glb', height: H(valentina.size), albedo: 1.35 },
     donGallo: { spec: donGallo, file: 'don-gallo.glb', height: H(donGallo.size), albedo: 1.06 },
   });

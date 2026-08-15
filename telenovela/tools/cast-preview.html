@@ -12,6 +12,7 @@
 <script type="module">
 import * as THREE from '../vendor/three/three.module.min.js';
 import { GLTFLoader } from '../vendor/three/GLTFLoader.js';
+import { clone as cloneSkinned } from '../vendor/three/GLTFLoaderDeps.js';
 
 // Three angles, because a character can look fine in one and fall apart in the
 // others: the full figure front-on (silhouette and proportion), a three-quarter
@@ -65,8 +66,10 @@ window.__preview = async (items, cell) => {
       fill.position.set(-2.4, 1.2, 1.4);
       scene.add(fill);
 
-      // Each cell gets its own copy: three renderers cannot share one scene graph.
-      const obj = gltf.scene.clone(true);
+      // Each cell gets its own copy: three renderers cannot share one scene
+      // graph. Object3D.clone leaves a skinned mesh bound to the ORIGINAL
+      // bones, which is how a rigged model comes out as a cloud of shards.
+      const obj = cloneSkinned(gltf.scene);
       scene.add(obj);
 
       const box = new THREE.Box3().setFromObject(obj);

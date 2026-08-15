@@ -446,13 +446,20 @@ function buildRigFrom(model, clips, spec, opts = {}) {
     rest[n] = { pos: bones[n].position.clone(), quat: bones[n].quaternion.clone(), world: null };
   }
 
+  // The clips are cast-wide because every model Tripo rigs comes back on the
+  // same skeleton with the same bone REST ORIENTATIONS. A model rigged
+  // elsewhere can share the bone names and not that, and then these rotations
+  // — which are absolute, not additive — throw its limbs across the room. So a
+  // character can decline them; the acting channels still work, because those
+  // are applied as rotations about the CHARACTER's world axes and never assume
+  // anything about how a bone's own axes are pointed.
+  const useClips = opts.clips !== false;
   const mixer = new THREE.AnimationMixer(model);
-  const idleAction = mixer.clipAction(clips.idle);
-  const walkAction = mixer.clipAction(clips.walk);
-  const runAction = clips.run ? mixer.clipAction(clips.run) : null;
-  idleAction.play();
-  walkAction.play();
-  walkAction.setEffectiveWeight(0);
+  const idleAction = useClips ? mixer.clipAction(clips.idle) : null;
+  const walkAction = useClips ? mixer.clipAction(clips.walk) : null;
+  const runAction = (useClips && clips.run) ? mixer.clipAction(clips.run) : null;
+  if (idleAction) idleAction.play();
+  if (walkAction) { walkAction.play(); walkAction.setEffectiveWeight(0); }
   if (runAction) { runAction.play(); runAction.setEffectiveWeight(0); }
   mixer.update(0);
 
@@ -569,6 +576,7 @@ function buildRigFrom(model, clips, spec, opts = {}) {
 
   return {
     spec, name: spec.name, size, root, attitude, model, bones, sculptFace,
+    boneActing: opts.boneActing !== false,
     wingFold: opts.wingFold ?? (sculptFace ? -0.62 : 0),
     // What the Actor surface and the camera expect of a rig:
     head: faceRoot, neck: bones.NeckTwist01, body: bones.Spine01,
@@ -776,10 +784,10 @@ export class BoneActor extends Actor {
     const runBlend = rig.runAction ? clamp01((sp - 0.72 * s) / (0.3 * s)) : 0;
     rig.walkWeight = approach(rig.walkWeight, movingW * (1 - runBlend), 7, dt);
     rig.runWeight = approach(rig.runWeight, movingW * runBlend, 7, dt);
-    rig.idleAction.setEffectiveWeight(1 - Math.max(rig.walkWeight, rig.runWeight));
-    rig.walkAction.setEffectiveWeight(rig.walkWeight);
+    if (rig.idleAction) rig.idleAction.setEffectiveWeight(1 - Math.max(rig.walkWeight, rig.runWeight));
+    if (rig.walkAction) rig.walkAction.setEffectiveWeight(rig.walkWeight);
     if (rig.runAction) rig.runAction.setEffectiveWeight(rig.runWeight);
-    if (rig.walkWeight > 0.01) {
+    if (rig.walkAction && rig.walkWeight > 0.01) {
       rig.walkAction.timeScale = clamp(sp / Math.max(0.05, rig.walkSpeed), 0.45, 1.9);
     }
     if (rig.runAction && rig.runWeight > 0.01) {
@@ -789,6 +797,9 @@ export class BoneActor extends Actor {
 
     // Body offsets in character space (attitude sits under the yawed root).
     rig.attitude.position.set(0, p.bodyY * s - this.collapsedAmount * 0.1 * s, p.bodyZ * s);
+    // A rig whose bones we cannot safely drive still gets placed, turned and
+    // carried; it just does not gesture.
+    if (!rig.boneActing) return;
 
     // Character axes in world space, given the root yaw.
     const yaw = this.yaw;
