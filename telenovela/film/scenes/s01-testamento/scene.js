@@ -43,11 +43,20 @@ export const CONTINUITY = `CONTINUITY: The camera never crosses to the other sid
 //
 //   sheet  — what the image model draws to make the reference sheet.
 //   note   — the one-line label the video model gets, pinned to @ImageN.
+//   line   — a sample speech, used once to cast the voice (tools/voices.mjs).
 //
 // `note` is deliberately short. The picture is doing the describing; the note
 // only has to say who this is and lock the handful of attributes that a video
 // model reliably loses anyway — hair/plumage colour, the one costume detail
 // that reads at distance, and the voice, which no image can carry.
+//
+// The voice is the reason `line` exists. A character sheet cannot hold a
+// voice, and chaining the previous shot only carries one if that character
+// happened to be speaking in it — which fails the moment a shot cuts away
+// from them, and fails permanently for anyone introduced later in a scene. So
+// each character is cast once, on their own, into a short plate, and the
+// audio stripped off that plate is what gets passed as @AudioN forever after.
+// These are company assets, not scene assets: the plate outlives this scene.
 
 export const CAST = {
   rosalinda: {
@@ -62,6 +71,11 @@ export const CAST = {
       'Rosalinda — the young hen with creamy off-white plumage, large amber eyes, a small ' +
       'scarlet comb, a deep crimson silk dress with black lace at the shoulders, and a gold ' +
       'locket at her throat. Her voice is young, warm and quiet, and it does not shout.',
+    // Deliberately not a line from the scene, so a voice plate can never be
+    // mistaken for coverage and re-used as picture. Long enough to hear the
+    // whole instrument — pitch, weight, pace and how she lands a consonant.
+    line: 'Me llamo Rosalinda. Crecí en esta casa, entre los naranjos y el silencio de mi madre.',
+    direction: 'young, warm, soft-spoken and a little guarded; an even middle register, unhurried, never shrill',
   },
   perpetua: {
     name: 'Doña Perpetua',
@@ -76,6 +90,8 @@ export const CAST = {
       'sharp yellow eyes, a heavy dark red comb falling to one side, a high-collared black ' +
       'lace mourning gown and a black lace mantilla. Her voice is low, dry, aristocratic and ' +
       'perfectly calm; she never raises it.',
+    line: 'Me llamo Perpetua Alcántara. He enterrado a dos maridos y a un hijo, y no me interesa tu compasión.',
+    direction: 'old, low, dry and aristocratic; slow and perfectly level, weight on every word, never raised',
   },
 };
 
@@ -129,6 +145,10 @@ export const SHOTS = [
     // head handle is where that goes.
     cut: { in: 0.9, out: 5.6 },
     images: ['rosalinda', 'perpetua', 'comedor'],
+    // Both are cast by voice even though only Perpetua speaks here: it costs
+    // nothing to keep a character's voice pinned in a shot they are silent in,
+    // and it means the next shot inherits a consistent read either way.
+    audios: ['rosalinda', 'perpetua'],
     videos: [],
     action: `SHOT: A single continuous shot with no cuts, no scene changes and no camera cuts of any kind.
 
@@ -151,6 +171,10 @@ CAMERA: Locked off on sticks with an almost imperceptible slow push in. No handh
     // surest way to have her turn up in frame anyway. Her voice continuity
     // rides on @Video1 instead, which is where it belongs.
     images: ['rosalinda', 'comedor'],
+    // Rosalinda's voice now comes from her own plate rather than from whatever
+    // the previous shot happened to contain. @Video1 stays, but only for the
+    // picture — light, grade, wardrobe, room.
+    audios: ['rosalinda'],
     videos: ['a-dosdisparos'],
     action: `SHOT: A single continuous shot with no cuts, no scene changes and no camera cuts of any kind. This is the reverse angle of the same conversation, a new camera setup — a straight cut to a tighter lens on Rosalinda, not a continuation of the previous camera move.
 
@@ -187,6 +211,15 @@ export function buildPrompt(shot) {
     }
   });
 
+  // Voice references. Labelled hard, because this is the one reference whose
+  // purpose the model is most likely to guess wrong: an audio file handed over
+  // without explanation is as easily read as "put this sound in the scene" as
+  // "make the character sound like this".
+  shot.audios.forEach((key, i) => {
+    const c = CAST[key];
+    lines.push(`@Audio${i + 1} is a voice sample of ${c.name}, recorded on its own. It is the reference for HOW ${c.name} SOUNDS — the pitch, age, weight, accent and pace of their speaking voice. ${c.name} must sound exactly like this sample whenever they speak in this shot. Do NOT play this recording in the scene, do NOT treat its words as dialogue for this shot, and do NOT copy any background from it: use it only to cast the voice.`);
+  });
+
   shot.videos.forEach((_, i) => {
     lines.push(`@Video${i + 1} is the previous shot of this same scene, already filmed. Use it ONLY as the reference for how the characters look and sound, how the room looks, and how it is lit and graded — their faces, their costumes, their speaking voices, the candlelight and the colour. Do NOT continue its camera movement and do NOT repeat the action in it. This is a cut to a new angle later in the same conversation.`);
   });
@@ -214,6 +247,7 @@ export const SCENE = {
   title: 'El Testamento',
   aspect_ratio: '16:9',
   resolution: '720p',
+  style: STYLE,
   cast: CAST,
   location: LOCATION,
   shots: SHOTS,

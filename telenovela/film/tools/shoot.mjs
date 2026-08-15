@@ -65,6 +65,7 @@ async function shoot(shot) {
   if (DRY) {
     console.log(`\n${'='.repeat(72)}\n${shot.slate}  (${shot.duration}s, ${RES})\n${'='.repeat(72)}`);
     console.log(`images: ${shot.images.join(', ')}`);
+    console.log(`voices: ${shot.audios.join(', ') || '—'}`);
     console.log(`videos: ${shot.videos.join(', ') || '—'}`);
     console.log(`\n${prompt}\n`);
     return null;
@@ -76,17 +77,24 @@ async function shoot(shot) {
   process.stdout.write(`  ${shot.slate} — uploading references… `);
   const image_urls = [];
   for (const key of shot.images) image_urls.push(await put(join(REFS, `${key}.png`)));
+  const audio_urls = [];
+  for (const key of shot.audios) {
+    const p = join(REFS, `voice-${key}.mp3`);
+    if (!(await exists(p))) throw new Error(`${shot.id} needs ${key}'s voice — run tools/voices.mjs first`);
+    audio_urls.push(await put(p));
+  }
   const video_urls = [];
   for (const id of shot.videos) {
     const p = join(SHOTS, `${id}.mp4`);
     if (!(await exists(p))) throw new Error(`${shot.id} references ${id}, which has not been shot yet`);
     video_urls.push(await put(p));
   }
-  console.log(`${image_urls.length} image(s), ${video_urls.length} video(s)`);
+  console.log(`${image_urls.length} image(s), ${audio_urls.length} voice(s), ${video_urls.length} video(s)`);
 
   const input = {
     prompt,
     image_urls,
+    ...(audio_urls.length ? { audio_urls } : {}),
     ...(video_urls.length ? { video_urls } : {}),
     resolution: RES,
     duration: shot.duration,
