@@ -340,9 +340,15 @@ void main(){
   float r2max = dot(0.5*asp, 0.5*asp);
   float rn2 = dot(p, p) / r2max;              // 0 at centre, 1 at the corner
 
-  // Radial distortion, normalised so the corners stay pinned to the corners --
-  // otherwise the frame samples outside the render target and smears.
-  float kd = (1.0 + uDistortion * rn2) / (1.0 + uDistortion);
+  // Radial distortion. Positive k (pincushion) is divided by (1+k) so the
+  // corners stay pinned — without that the frame samples past the render
+  // target and smears. Negative k (barrel, the default −0.02) must NOT use
+  // that same divide: (1+k*rn2)/(1+k) is > 1 anywhere inside the rectangle,
+  // so the top and bottom mid-edges look up past the texture and clamp-to-
+  // edge repeats the first/last row as a 5–10 px smeared band. Leaving the
+  // denominator at 1 keeps the centre 1:1 and pulls the corners in slightly.
+  float kDenom = 1.0 + max(uDistortion, 0.0);
+  float kd = (1.0 + uDistortion * rn2) / max(kDenom, 1e-4);
   vec2 pd = p * kd;
   vec2 base = pd / asp;
 

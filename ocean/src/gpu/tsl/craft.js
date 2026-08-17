@@ -46,6 +46,8 @@ import {
 import { uSunDir } from './sky-lut.js';
 import { skyLutTexture } from './sky-background.js';
 import { sampleSky, uSkyBlur } from './water-brdf.js';
+import { MAX_BREACH_EMITTERS, breachRuns, placeBreachEmitters, meshSheathRadii } from '../../breach-emitters.js';
+export { MAX_BREACH_EMITTERS, breachRuns, placeBreachEmitters, meshSheathRadii };
 
 const unb64 = ( s, T ) => {
 
@@ -401,12 +403,23 @@ export function waterlineHalfWidth( profile, localY ) {
  *
  * @param {THREE.BufferGeometry} geometry
  * @param {number} [bins=48] - slices along the body.
- * @returns {{minZ:number, maxZ:number, top:Float32Array}}
+ * @param {number} [yBins=12] - height slices per station, so width can be
+ *   read at the waterline instead of at the widest (usually deepest) point.
+ * @returns {{minZ:number, maxZ:number, top:Float32Array, low:Float32Array, half:Float32Array, yBins:number, band:Float32Array}}
  */
-export function buildBreachProfile( geometry, bins = 48 ) {
+export function buildBreachProfile( geometry, bins = 48, yBins = 12 ) {
 
 	const pos = geometry.getAttribute( 'position' );
 	const top = new Float32Array( bins ).fill( - Infinity );
+	const low = new Float32Array( bins ).fill( Infinity );
+	const half = new Float32Array( bins );
+	const empty = () => ( {
+		minZ: 0, maxZ: 0,
+		top: new Float32Array( bins ),
+		low: new Float32Array( bins ),
+		half: new Float32Array( bins ),
+		yBins, band: new Float32Array( bins * yBins ),
+	} );
 	let minZ = Infinity, maxZ = - Infinity;
 	for ( let i = 0; i < pos.count; i ++ ) {
 
@@ -415,7 +428,7 @@ export function buildBreachProfile( geometry, bins = 48 ) {
 		if ( z > maxZ ) maxZ = z;
 
 	}
-	if ( ! ( maxZ > minZ ) ) return { minZ: 0, maxZ: 0, top: new Float32Array( bins ) };
+	if ( ! ( maxZ > minZ ) ) return empty();
 
 	const span = maxZ - minZ;
 	for ( let i = 0; i < pos.count; i ++ ) {
@@ -424,11 +437,37 @@ export function buildBreachProfile( geometry, bins = 48 ) {
 		if ( b < 0 ) b = 0; else if ( b >= bins ) b = bins - 1;
 		const y = pos.getY( i );
 		if ( y > top[ b ] ) top[ b ] = y;
+		if ( y < low[ b ] ) low[ b ] = y;
+		const ax = Math.abs( pos.getX( i ) );
+		if ( ax > half[ b ] ) half[ b ] = ax;
 
 	}
 	for ( let b = 1; b < bins; b ++ ) if ( top[ b ] === - Infinity ) top[ b ] = top[ b - 1 ];
 	for ( let b = bins - 2; b >= 0; b -- ) if ( top[ b ] === - Infinity ) top[ b ] = top[ b + 1 ];
 	for ( let b = 0; b < bins; b ++ ) if ( ! Number.isFinite( top[ b ] ) ) top[ b ] = 0;
-	return { minZ, maxZ, top };
+	for ( let b = 1; b < bins; b ++ ) if ( ! Number.isFinite( low[ b ] ) ) low[ b ] = low[ b - 1 ];
+	for ( let b = bins - 2; b >= 0; b -- ) if ( ! Number.isFinite( low[ b ] ) ) low[ b ] = low[ b + 1 ];
+	for ( let b = 0; b < bins; b ++ ) if ( ! Number.isFinite( low[ b ] ) ) low[ b ] = 0;
+	for ( let b = 1; b < bins; b ++ ) if ( half[ b ] === 0 ) half[ b ] = half[ b - 1 ];
+	for ( let b = bins - 2; b >= 0; b -- ) if ( half[ b ] === 0 ) half[ b ] = half[ b + 1 ];
+
+	// Width at each height, per station. Not filled across empty Ys: a sparse
+	// fin must not inherit the belly's beam. Lookup uses the nearest measured
+	// band, so a waterline through the fin reads the fin, not the pectorals.
+	const band = new Float32Array( bins * yBins );
+	for ( let i = 0; i < pos.count; i ++ ) {
+
+		let b = Math.floor( ( pos.getZ( i ) - minZ ) / span * bins );
+		if ( b < 0 ) b = 0; else if ( b >= bins ) b = bins - 1;
+		const lo = low[ b ], hi = top[ b ];
+		if ( ! ( hi > lo ) ) continue;
+		let yb = Math.floor( ( pos.getY( i ) - lo ) / ( hi - lo ) * yBins );
+		if ( yb < 0 ) yb = 0; else if ( yb >= yBins ) yb = yBins - 1;
+		const ax = Math.abs( pos.getX( i ) );
+		const idx = b * yBins + yb;
+		if ( ax > band[ idx ] ) band[ idx ] = ax;
+
+	}
+	return { minZ, maxZ, top, low, half, yBins, band };
 
 }

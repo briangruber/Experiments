@@ -27,6 +27,11 @@ class ViewState {
     this.viewProj = mat4();
     this.invViewProj = mat4();
     this.camPos = v3();
+    this.camFwd = v3();
+    this.camRight = v3();
+    this.camUp = v3();
+    this.fov = 40;
+    this.aspect = 1.6;
   }
 
   read(camera) {
@@ -43,6 +48,11 @@ class ViewState {
     invert(this.viewProj, this.invViewProj);
     const e = camera.matrixWorld.elements;
     this.camPos[0] = e[12]; this.camPos[1] = e[13]; this.camPos[2] = e[14];
+    this.camFwd[0] = -e[8]; this.camFwd[1] = -e[9]; this.camFwd[2] = -e[10];
+    this.camRight[0] = e[0]; this.camRight[1] = e[1]; this.camRight[2] = e[2];
+    this.camUp[0] = e[4]; this.camUp[1] = e[5]; this.camUp[2] = e[6];
+    this.fov = camera.fov ?? this.fov;
+    this.aspect = camera.aspect ?? this.aspect;
     return this;
   }
 }
@@ -68,6 +78,11 @@ class Component {
     this.exposure = opts.exposure !== undefined ? opts.exposure : 1.0;
     this._ctx = {
       camPos: this.view.camPos,
+      camFwd: this.view.camFwd,
+      camRight: this.view.camRight,
+      camUp: this.view.camUp,
+      fov: this.view.fov,
+      aspect: this.view.aspect,
       viewProj: this.view.viewProj,
       invViewProj: this.view.invViewProj,
       sunDir: this.derived.sunDir,
@@ -88,6 +103,8 @@ class Component {
     derive(this.params, this.derived);
     this.view.read(camera);
     this._ctx.time = this.time;
+    this._ctx.fov = this.view.fov;
+    this._ctx.aspect = this.view.aspect;
     return this._ctx;
   }
 

@@ -1,20 +1,17 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>Abyssal — collapsing the HUD must not strand the settings panel open</title>
+<title>Abyssal — collapsing the HUD must take the settings with it</title>
 
 <!--
-  Reported live on a phone: open Settings, then collapse the small HUD (the
-  -/+ button top-left) - #settings-btn, the ONLY control that closes #ui,
-  lives INSIDE #hud, and #hud[data-collapsed="true"] hides everything but its
-  header row. Collapse the HUD while the panel is open and the one control
-  that closes it disappears with it. No keyboard on a phone, no
-  backdrop-tap-to-dismiss either, so #ui is stuck open over the sea with
-  nothing in three-shell.html that gets it back.
+  Settings live INSIDE #hud now, not on a second surface opened by
+  #settings-btn. The old bug was the opposite shape: open Settings, collapse
+  the HUD, and the only close control disappeared while #ui stayed covering
+  the sea. That cannot happen if the sliders are a child of the instrument
+  they collapse with.
 
   This drives the BUILT bundle in an iframe rather than boot() directly - the
-  bug lives in three-shell.html's own DOM and its inline collapse-toggle
-  script, not in the app - so what gets clicked here is exactly what a phone
-  taps.
+  claim lives in three-shell.html's own DOM and its inline collapse-toggle
+  script.
 
   node tools/run-probe.mjs prototypes/settings-stuck-open-probe.html --touch
 -->
@@ -49,39 +46,32 @@ const work = (async () => {
   });
   log('the app booted inside the iframe', !! win.abyssal, `backend ${ win.abyssal.backend }`);
 
-  const settingsBtn = doc.getElementById('settings-btn');
   const hudToggle = doc.getElementById('toggle');
   const ui = doc.getElementById('ui');
   const hud = doc.getElementById('hud');
-  log('found the real DOM elements', !! ( settingsBtn && hudToggle && ui && hud ), '');
+  const settingsBtn = doc.getElementById('settings-btn');
+  log('found the real DOM elements', !! ( hudToggle && ui && hud ), '');
+  log('there is no separate Settings › button', ! settingsBtn, settingsBtn ? 'still present' : '');
+  log('settings live inside the HUD', hud.contains(ui), '');
 
-  settingsBtn.click();
-  await new Promise((r) => setTimeout(r, 50));
-  log('settings panel opens', ! ui.classList.contains('hidden'), `ui.className = "${ ui.className }"`);
+  const visible = (el) => getComputedStyle(el).display !== 'none' && el.offsetParent !== null;
+  // The shipped page starts collapsed. Open it before asserting the
+  // sliders are a child of the instrument, not a second surface.
+  if (hud.getAttribute('data-collapsed') === 'true') {
+    hudToggle.click();
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  log('settings are visible with the HUD open', visible(ui), `display: ${ getComputedStyle(ui).display }`);
 
   hudToggle.click();
   await new Promise((r) => setTimeout(r, 50));
   log('HUD collapses', hud.getAttribute('data-collapsed') === 'true', '');
+  log('collapsing the HUD hides the settings with it', ! visible(ui),
+      `display: ${ getComputedStyle(ui).display }`);
 
-  // The bug's precondition: with the HUD collapsed, the old close control is
-  // actually gone, not just relabelled.
-  const settingsBtnHidden = getComputedStyle(settingsBtn).display === 'none';
-  log('(bug precondition) the old close control is now hidden', settingsBtnHidden,
-      `display: ${ getComputedStyle(settingsBtn).display }`);
-
-  // The fix: a close control living INSIDE #ui itself, so collapsing the
-  // unrelated HUD panel can never take it away.
-  const closeBtn = ui.querySelector('.close');
-  log('the panel has its own close control', !! closeBtn, closeBtn ? closeBtn.outerHTML.slice(0, 80) : 'none found');
-  if (closeBtn) {
-
-    const visible = getComputedStyle(closeBtn).display !== 'none' && closeBtn.offsetParent !== null;
-    log('and it is actually visible with the HUD collapsed', visible, '');
-    closeBtn.click();
-    await new Promise((r) => setTimeout(r, 50));
-    log('clicking it closes the settings panel', ui.classList.contains('hidden'), `ui.className = "${ ui.className }"`);
-
-  }
+  hudToggle.click();
+  await new Promise((r) => setTimeout(r, 50));
+  log('expanding the HUD brings settings back', visible(ui), '');
 
   return 'done';
 })();

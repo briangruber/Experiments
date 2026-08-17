@@ -42,7 +42,7 @@
 //   the pixel footprint fwidth()       (WATER_FS:351)
 //   the capillary ripples              (WATER_FS:389)
 //   the procedural foam field          (WATER_FS:469)
-//   the bubble relief noise            (WATER_FS:543-544)
+//   the foam lace field                (WATER_FS foamField)
 //   the swell shadow march             (WATER_FS:568)
 //
 // Indexed by the DISPLACED point - exactly one thing, in two places:
@@ -152,8 +152,8 @@
 
 import * as THREE from 'three/webgpu';
 import {
-	Fn, If, float, int, vec2, vec3, vec4, uniform, attribute, varyingProperty,
-	mix, clamp, smoothstep, select, reflect, dFdx, dFdy, fwidth, atan, acos,
+	Fn, If, float, int, vec2, vec3, vec4, uniform, uniformArray, attribute, varyingProperty,
+	mix, clamp, smoothstep, select, reflect, dFdx, dFdy, fwidth, atan, acos, max,
 	texture, screenUV, step, normalize, exp,
 	cameraNear, cameraFar, cameraViewMatrix, perspectiveDepthToViewZ,
 } from 'three/tsl';
@@ -166,12 +166,16 @@ import {
 import { uSunDir, uMoonDir, uMoonColor } from './sky-lut.js';
 import { skyLutTexture, uSunAngularRadius } from './sky-background.js';
 import { uTime, uCamPos } from './cloud-field.js';
-import { vnoise, fbm2 } from './noise.js';
+import { fbm2, vnoise2 } from './noise.js';
 
 import {
-	PI_W, R_EARTH, uWindDir, uWakeOn, uWakeExtent,
+	PI_W, R_EARTH, uWindDir, uWakeOn, uWakeExtent, uWakeDepth,
+	uWakeHead, uWakeFwd,
 	sampleCascadeDisp, sampleCascadeSurface, wakeAt,
 } from './water-common.js';
+import { kelvinWakeAt, uKelvinOn } from './kelvin-wake.js';
+import { vWakeAt, uVWakeOn } from './v-wake.js';
+export { uVWakeOn };
 
 import {
 	sampleSky, D_GGX, D_GGXAniso, V_SmithGGX, V_SmithAniso,
@@ -181,6 +185,22 @@ import {
 import {
 	scintillation, sunVisibility, capillarySlope, foamField, uGlitter,
 } from './water-detail.js';
+import { horizonPinAmount, UNDER_WAVE_FADE } from '../../horizon-pin.js';
+import { SPLASH_PARCELS, SPLASH_DROPS } from '../../splash-field.js';
+import { BODY_STATIONS, SWELL_SITES } from '../../body-displace.js';
+import {
+	RIPPLE_LAMBDA, RIPPLE_LAMBDA_MIN, RIPPLE_TRAIN, RIPPLE_NEAR,
+	RIPPLE_WOBBLE_A, RIPPLE_WOBBLE_B, RIPPLE_WOBBLE_C,
+	RIPPLE_BREAK_LOBE, RIPPLE_BREAK_FINE, RIPPLE_BREAK_FLOOR,
+	RIPPLE_STACK, RIPPLE_ARC_COS0, RIPPLE_ARC_COS1,
+	BOW_STANDOFF, BOW_ALONG, BOW_ACROSS, BOW_AMP_ALONG, BOW_AMP_ACROSS,
+	BOW_FOAM_SCALE,
+} from '../../cut-ripples.js';
+import {
+	FLUKE_PRINTS, FLUKE_CAP_KILL, FLUKE_FOAM_KILL, FLUKE_ROUGH_KILL,
+	FLUKE_FFT_KILL, FLUKE_SLOPE_KILL,
+} from '../../fluke-slicks.js';
+import { WAKE_FOAM_STAMPS } from '../../wake-foam.js';
 
 // ---- the varyings -----------------------------------------------------------
 // WATER_VS:49-54 and WATER_FS:138-143, one for one. See note 4 in the header.
@@ -214,6 +234,7 @@ export const vRelief = /*@__PURE__*/ varyingProperty( 'float', 'vRelief' );
 // has to be the unweighted one or the shadows creep with distance
 // (./water-common.js note 5).
 export const vSwellH = /*@__PURE__*/ varyingProperty( 'float', 'vSwellH' );
+export const vSplashH = /*@__PURE__*/ varyingProperty( 'float', 'vSplashH' );
 
 // ---- uniforms ---------------------------------------------------------------
 // Only the ones read in main() and nowhere else - the ownership rule the four
@@ -230,6 +251,11 @@ export const uRMin = /*@__PURE__*/ uniform( 0.35 );
 export const uRMax = /*@__PURE__*/ uniform( 42000.0 );
 export const uEarthCurve = /*@__PURE__*/ uniform( 1.0 );
 export const uSeaLevel = /*@__PURE__*/ uniform( 0.0 );
+// 1 = pin the outermost ring to the sightline (closes the horizon coverage
+// gap). 0 = leave that ring on the curved sea. Dropped only once the
+// geometric horizon (including the high-camera dip) is off the top of the
+// frame — src/horizon-pin.js. Dropping it earlier left a black tear.
+export const uHorizonPin = /*@__PURE__*/ uniform( 1.0 );
 
 // MESH-DRIVEN DISPLACEMENT, GENERALLY. Two shared slots, not two special
 // cases: uHull* is "a body sitting ON the surface" and always presses a
@@ -239,14 +265,16 @@ export const uSeaLevel = /*@__PURE__*/ uniform( 0.0 );
 // body swimming UNDER the surface" and always lifts a mound UP. Every current
 // vehicle - the ski, the seaplane, the boat - reports into uHull* through the
 // single `hull` object three-main.js hands setWaterSurfaceUniforms() each
-// frame (demo/three-main.js's `hull.push = params.hullPush` etc.); the sea
-// dragon is the only thing that reports into uSwell*, straight from
-// three-main.js's per-frame dragon block. A THIRD kind of body - one more
+// frame (demo/three-main.js's `hull.push = params.hullPush` etc.). The sea
+// dragon's swim mound is uSwell*. A leap writes the splash field
+// (uSplash*) — cavity, discrete-parcel crown, return stamps — instead of heaving that
+// mound into a hill. A THIRD kind of body - one more
 // submerged mesh, say - reports into uSwell* the exact same way the dragon
 // does: this primitive already does not know or care that today's occupant
 // happens to be eel-shaped, only that something below the surface wants a
-// mound over it (the eel-specific curve lives in uSwellWaves/uSwellSweep,
-// which default to 0 - a straight-backed body just leaves them alone). Only
+// mound over it (the animated curve/heave lives in uSwellWaves,
+// uSwellSweep and uSwellLift, which default to 0 - a rigid body just leaves
+// them alone). Only
 // one occupant of each kind exists in the demo at a time, so this stays two
 // uniform sets rather than an array the shader loops over - the sea dragon
 // and one of {ski, plane, boat} is the whole roster this was built for, and a
@@ -297,15 +325,15 @@ export const uGust = /*@__PURE__*/ uniform( 0.0 );        // cat's-paw strength
 export const uGustScale = /*@__PURE__*/ uniform( 55.0 );  // patch size, m
 export const uGustDrift = /*@__PURE__*/ uniform( 0.35 );  // downwind travel, m/s per unit wind
 
-export const uFoamAmount = /*@__PURE__*/ uniform( 0.9 );
-export const uFoamRoughness = /*@__PURE__*/ uniform( 0.62 );
-export const uFoamTint = /*@__PURE__*/ uniform( 0.35 );
-export const uFoamDetail = /*@__PURE__*/ uniform( 1.5 );
-export const uFoamLift = /*@__PURE__*/ uniform( 0.55 );
-export const uFoamSharp = /*@__PURE__*/ uniform( 1.4 );
-export const uFoamCrisp = /*@__PURE__*/ uniform( 0.8 );    // resolve coverage against the bubble field up close
-export const uFoamOpacity = /*@__PURE__*/ uniform( 0.92 );
-export const uFoamFar = /*@__PURE__*/ uniform( 0.55 );     // grazing self-hiding of distant rafts
+export const uFoamAmount = /*@__PURE__*/ uniform( 0.7 );
+export const uFoamRoughness = /*@__PURE__*/ uniform( 0.58 );
+export const uFoamTint = /*@__PURE__*/ uniform( 0.16 );
+export const uFoamDetail = /*@__PURE__*/ uniform( 1.85 );
+export const uFoamLift = /*@__PURE__*/ uniform( 0.72 );
+export const uFoamSharp = /*@__PURE__*/ uniform( 2.1 );
+export const uFoamCrisp = /*@__PURE__*/ uniform( 0.88 );   // resolve coverage against the lace field up close
+export const uFoamOpacity = /*@__PURE__*/ uniform( 0.78 );
+export const uFoamFar = /*@__PURE__*/ uniform( 0.62 );     // grazing self-hiding of distant rafts
 export const uFoamColor = /*@__PURE__*/ uniform( 'vec3' );
 
 // Set separately from the wake block in src/water.js:169, so these two live here
@@ -334,42 +362,748 @@ export const uCraftReflAmount = /*@__PURE__*/ uniform( 0.0 );
 // its own through the penumbra and needs no height fade at all.
 export const uCraftShadow = /*@__PURE__*/ uniform( 0.0 );
 
-// ---- a body under the surface, lifting it --------------------------------
+// ---- a body under the surface, lifting it (or pressing a hollow) ---------
 //
 // Water a hull displaces has to go somewhere, and so does water a swimming body
 // displaces. Without this the sea runs straight through the animal as though it
-// were not there - the "clipped into it" look. This is the hull's own hollow
-// turned the other way up: a Gaussian falloff around the body's SPINE, tapered
-// so the mound is fat amidships and dies at the tips.
+// were not there - the "clipped into it" look. The FIRST version was a
+// Gaussian around the spine: one fat blob, honest to a sausage, not to the
+// mesh. Nine implicit spheres then read as a ribbed barrel at the waterline.
+// Occupancy (src/body-displace.js / src/cut-ripples.js): compact
+// Gaussians at waterline cuts, plus fading / traveling rings after the
+// mesh leaves. Extruding a ring along the spine drew two rails across
+// the whole screen. A rigid body with no sites still uses the analytic
+// capsule. uSwellAmp is the artist height in metres.
 //
-// THE SPINE CURVES. It used to be the straight segment from nose to tail - a
-// capsule, the same primitive as the hull's hollow - and the mound it drew was
-// honest to that: a wide straight ridge under an animal that visibly swims in
-// an S-curve. Reported exactly right: it read as water displaced by a plank,
-// not by the body. So the spine here is the SAME travelling sine wave
-// ./creature.js's vertex stage bends the mesh into - same wave count, same
-// phase, same head-holds-still ramp - fed in by the driver from the identical
-// source values (params.sdWaves, params.sdAmp, the dragon's phase), the same
-// way uSwellLen already duplicates uCreatureLen rather than importing it: this
-// module stays a generic "a body lifts the sea," usable by anything, and the
-// demo is what knows the body happens to be an eel-shaped swimmer.
-export const uSwellPos = /*@__PURE__*/ uniform( 'vec3' );   // world, mid-body
+// THE SPINE CURVES. Same travelling sine wave ./creature.js's vertex stage
+// bends the mesh into - same wave count, same phase, same head-holds-still
+// ramp - plus pitch so a nose-down landing opens at the wet tip, not under
+// the flying belly. uSwellPos is always the body ORIGIN; occupancy decides
+// which stations are wet. A rigid body leaves the wave uniforms at 0.
+export const uSwellPos = /*@__PURE__*/ uniform( 'vec3' );   // world origin (mid-body)
 export const uSwellDir = /*@__PURE__*/ uniform( 'vec2' );   // heading, unit, toward the NOSE
 export const uSwellLen = /*@__PURE__*/ uniform( 20.0 );     // nose to tail, m
-export const uSwellRad = /*@__PURE__*/ uniform( 7.0 );      // lateral reach at the widest point, m
-export const uSwellAmp = /*@__PURE__*/ uniform( 0.0 );      // peak lift, m
+export const uSwellRad = /*@__PURE__*/ uniform( 1.2 );      // Gaussian radius at each waterline cut, m; analytic: body radius
+export const uSwellAmp = /*@__PURE__*/ uniform( 0.0 );      // peak lift, m (signed: + bulge, − hollow)
+export const uSwellPitch = /*@__PURE__*/ uniform( 0.0 );    // radians; + raises the nose
 // The travelling wave. 0 waves / 0 sweep is the old straight capsule exactly -
 // sin(-phase)*0 is 0 everywhere - so a caller with a rigid body just leaves
 // these at their defaults and pays nothing extra.
 export const uSwellWaves = /*@__PURE__*/ uniform( 0.0 );    // body waves along the length
 export const uSwellSweep = /*@__PURE__*/ uniform( 0.0 );    // peak lateral sweep, as a fraction of length
+export const uSwellLift = /*@__PURE__*/ uniform( 0.0 );     // peak vertical sweep, as a fraction of length
+export const uSwellLiftPhase = /*@__PURE__*/ uniform( 0.0 ); // +pi/2 for the helical "Both" mode
 export const uSwellPhase = /*@__PURE__*/ uniform( 0.0 );    // radians
 // The spray at the waterline. Read in the refraction block below (see "spray
 // where it breaks the surface") rather than here - it needs `path`, which is
 // a property of the REFRACTION sample, not of the mound.
 export const uSwellFoamDepth = /*@__PURE__*/ uniform( 0.0 );     // metres of column that still counts as "breaking"
 export const uSwellFoamStrength = /*@__PURE__*/ uniform( 0.0 );  // 0 disables the whole block
+// Traveling packets only. xy = world XZ, z = ring radius (0 = birth at
+// the cut), w = envelope width. Per-site amp is signed (+ crest, − trough
+// first). uSwellAmp is the artist metres. No static meniscus.
+// Compile-time index only (spray.js / water-common.js).
+export const uSwellSites = /*@__PURE__*/ uniformArray(
+	Array.from( { length: SWELL_SITES }, () => new THREE.Vector4( 0, 0, 0, - 1 ) ),
+	'vec4',
+);
+// Packed amp / stretch / heading. Each uniformArray is its own WebGPU
+// UBO, and the water fragment stage is already against the 12-buffer
+// per-stage cap — do not add another array here without packing it.
+export const uSwellSitePack = /*@__PURE__*/ uniformArray(
+	Array.from( { length: SWELL_SITES }, () => new THREE.Vector4( 0, 0, 0, 1 ) ),
+	'vec4',
+);
+export const uSwellSiteCount = /*@__PURE__*/ uniform( 0.0 );
+// JS mirrors so probes can still read .array[i] as they used to. Not
+// bound — the shader reads uSwellSitePack.
+export const uSwellSiteAmp = { array: Array.from( { length: SWELL_SITES }, () => 0.0 ) };
+export const uSwellSiteDir = {
+	array: Array.from( { length: SWELL_SITES }, () => new THREE.Vector2( 0, 1 ) ),
+};
+export const uSwellSiteStretch = { array: Array.from( { length: SWELL_SITES }, () => 0.0 ) };
+export const uSwellSiteArc = /*@__PURE__*/ uniformArray(
+	Array.from( { length: SWELL_SITES }, () => new THREE.Vector2( RIPPLE_ARC_COS0, RIPPLE_ARC_COS1 ) ),
+	'vec2',
+);
+export const uSwellRippleStretch = /*@__PURE__*/ uniform( 0.0 );
+// Co-moving bow heap: xy = world XZ of the foremost cut, z = metres,
+// w = radius. Lives ahead of the cut; expanding packets cannot.
+export const uSwellBow = /*@__PURE__*/ uniform( new THREE.Vector4( 0, 0, 0, 8 ) );
+export const uSwellBowDir = /*@__PURE__*/ uniform( new THREE.Vector2( 0, 1 ) );
+export const uSwellBowSoft = /*@__PURE__*/ uniform( 1.0 );
+// One ellipse on the dorsal mass when the body is just under — not a
+// spine rail. xy = XZ, z = metres, w = along-radius. Across is uSwellDomeW.
+export const uSwellDome = /*@__PURE__*/ uniform( new THREE.Vector4( 0, 0, 0, 8 ) );
+export const uSwellDomeDir = /*@__PURE__*/ uniform( new THREE.Vector2( 0, 1 ) );
+export const uSwellDomeW = /*@__PURE__*/ uniform( 4.0 );
+// Fluke footprints. xy = XZ, z = radius, w = remaining amp.
+// Vertex flattens the FFT inside the disc; fragment kills chop / foam.
+export const uFlukePrints = /*@__PURE__*/ uniformArray(
+	Array.from( { length: FLUKE_PRINTS }, () => new THREE.Vector4( 0, 0, 0, 0 ) ),
+	'vec4',
+);
+export const uFlukeCount = /*@__PURE__*/ uniform( 0.0 );
+// Leftover waterline / splash foam. Same packing as fluke prints
+// (xy = XZ, z = radius, w = remaining amp) but ADDED to foamMask
+// instead of killing it. Ages on its own clock so a jump-out or
+// a dive cannot snap the white off the sea.
+// Leftover foam is particles now; the unused CPU field still exists
+// (check-leftover-foam.mjs) but must not take a UBO slot. Count stays
+// so probes can assert it is 0.
+export const uLeftoverFoamCount = /*@__PURE__*/ uniform( 0.0 );
+// Persistent body trail, A and B interleaved (2 vec4s per stamp) so
+// they share one UBO. Even index: centre XZ, edge phase, amp.
+// Odd index: unit forward XZ, along radius, across radius.
+export const uWakeFoam = /*@__PURE__*/ uniformArray(
+	Array.from( { length: WAKE_FOAM_STAMPS * 2 }, ( _, i ) => (
+		i % 2 === 0 ? new THREE.Vector4( 0, 0, 0, 0 ) : new THREE.Vector4( 0, 1, 1, 1 )
+	) ),
+	'vec4',
+);
+export const uWakeFoamCount = /*@__PURE__*/ uniform( 0.0 );
 uSwellDir.value.set( 0.0, 1.0 );
+
+// ---- a leap hitting the sea, not a mound --------------------------------
+//
+// splashPush used to be added to uSwellAmp, which is a Gaussian hill under
+// the body. The next try was one expanding sine ring — a pebble ripple, and
+// it read as a cartoon torus on a 60 m animal. The field is an implicit P2G
+// of discrete parcels. Energy 0 is a no-op. TAU_A is a JS number — wrap it
+// in float() before .div.
+//
+// Constants live in src/splash-field.js. This is a transcription, not a
+// second model — a shared Fn used by both stages failed to compile on the
+// headless GL water shader, so the height rides a varying and the fragment
+// recovers slope from its screen derivatives (below).
+export const uSplashPos = /*@__PURE__*/ uniform( 'vec2' );
+export const uSplashDir = /*@__PURE__*/ uniform( 'vec2' );   // heading at the hit
+export const uSplashLen = /*@__PURE__*/ uniform( 60.0 );    // body length, metres
+export const uSplashAge = /*@__PURE__*/ uniform( 10.0 );     // seconds since the hit
+export const uSplashEnergy = /*@__PURE__*/ uniform( 0.0 );   // 0 disables the whole block
+uSplashPos.value.set( 0.0, 0.0 );
+uSplashDir.value.set( 0.0, 1.0 );
+
+// Height and foam cores are layouted Fns (porting rule 17): the vertex
+// evaluates height once and the fragment three times for slope. They take
+// only scalars — no uniforms — so the per-backend Fn cache is safe (rule 18).
+// Numbers match src/splash-field.js. TAU_A / parcel counts are JS numbers:
+// wrap in float() before any node method.
+const splashGauss = ( x, w ) => x.mul( x ).div( w.mul( w ) ).negate().exp();
+const splashTau = /*@__PURE__*/ float( TAU_A );
+const splashNParcels = /*@__PURE__*/ float( SPLASH_PARCELS );
+const splashNDrops = /*@__PURE__*/ float( SPLASH_DROPS );
+
+const splashHashN = ( i ) => i.mul( 127.1 ).add( 311.7 ).sin().mul( 43758.5453 ).fract();
+
+const splashWing = ( ang ) =>
+	ang.sin().abs().pow( 2.2 ).mul( 0.94 ).add( 0.06 );
+
+const splashParcelN = ( i, n ) => {
+
+	const u = splashHashN( i.add( 0.31 ) );
+	const v = splashHashN( i.add( 8.17 ) );
+	const w = splashHashN( i.add( 19.4 ) );
+	const slot = i.add( 0.5 ).div( n ).mul( splashTau );
+	const pAng = slot.add( u.sub( 0.5 ).mul( splashTau.div( n ) ).mul( 0.50 ) );
+	const wing = splashWing( pAng );
+	const mass = float( 0.28 ).add( wing.mul( 0.72 ) ).mul( float( 0.70 ).add( v.mul( 0.50 ) ) );
+	const speed = float( 0.80 ).add( w.mul( 0.40 ) );
+	return { ang: pAng, mass, speed, wing };
+
+};
+
+const splashDropletN = ( i ) => {
+
+	const p = splashParcelN( i.mod( splashNParcels ), splashNParcels );
+	const u = splashHashN( i.add( 41.2 ) );
+	const pAng = p.ang.add( u.sub( 0.5 ).mul( 0.28 ) );
+	const mass = p.mass.mul( float( 0.18 ).add( splashHashN( i.add( 3.9 ) ).mul( 0.16 ) ) );
+	const speed = p.speed.mul( float( 1.15 ).add( splashHashN( i.add( 7.2 ) ).mul( 0.35 ) ) );
+	return { ang: pAng, mass, speed, wing: splashWing( pAng ) };
+
+};
+
+const parcelKernelN = ( r, ang, rP, pAng, wr, wa ) => {
+
+	const dA = atan( ang.sub( pAng ).sin(), ang.sub( pAng ).cos() );
+	return splashGauss( r.sub( rP ), wr ).mul( splashGauss( dA.mul( rP ), wa ) );
+
+};
+
+const splashParcelRadiusN = ( rCrown, speed ) =>
+	rCrown.mul( float( 0.94 ).add( speed.mul( 0.10 ) ) );
+
+const splashCrownAtN = ( t, r0, Lk ) =>
+	r0.add( float( 26.0 ).mul( Lk ).mul( t ).div( float( 1.0 ).add( t.mul( 0.62 ) ) ) );
+
+function splashFrame( xz ) {
+
+	const rel = xz.sub( uSplashPos ).toVar();
+	const along = rel.dot( uSplashDir ).toVar();
+	const across = rel.dot( vec2( uSplashDir.y.negate(), uSplashDir.x ) ).toVar();
+	// A body enters at an angle, so the hole is a slot - but a hard ellipse
+	// reads as a stretched cigar, so this stays mild.
+	const aspect = clamp( float( 1.0 ).add( uSplashLen.mul( 0.012 ) ), 1.2, 2.2 ).toVar();
+	const r = vec2( along.div( aspect ), across ).length().toVar();
+	const ang = atan( across, along ).toVar();
+	const t = uSplashAge.toVar();
+	const E = uSplashEnergy.max( 0.0 ).toVar();
+	// splashLengthScale / splashBaseRadius: a 120 m animal opens twice the
+	// hole a 30 m one does, and a harder hit opens a bigger one still.
+	const Lk = clamp( uSplashLen.div( 60.0 ), 0.3, 3.0 ).pow( 0.6 ).toVar();
+	const r0 = float( 3.4 ).add( E.sqrt().mul( 3.6 ) ).mul( Lk ).toVar();
+	const rCrown = r0.add( float( 26.0 ).mul( Lk ).mul( t )
+		.div( float( 1.0 ).add( t.mul( 0.62 ) ) ) ).toVar();
+	return { r, ang, t, E, Lk, r0, rCrown };
+
+}
+
+const splashHeightCore = /*@__PURE__*/ Fn( ( [ r, ang, t, E, Lk, r0, rCrown ] ) => {
+
+	const crownEnv = smoothstep( 0.0, 0.12, t ).mul( t.mul( - 1.30 ).exp() ).toVar();
+	const craterEnv = smoothstep( 0.0, 0.05, t ).mul( t.mul( - 1.15 ).exp() ).toVar();
+
+	const slot0 = ang.div( splashTau ).fract().mul( splashNParcels ).add( 0.5 ).floor().mod( splashNParcels );
+	const wr = float( 0.16 ).add( t.mul( 0.18 ) ).mul( r0 );
+	const wa0 = float( 0.34 ).mul( splashTau.div( splashNParcels ) );
+	const crown = float( 0.0 ).toVar();
+	const returned = float( 0.0 ).toVar();
+	for ( const di of [ - 1, 0, 1 ] ) {
+
+		const i = slot0.add( float( di + SPLASH_PARCELS ) ).mod( splashNParcels );
+		const p = splashParcelN( i, splashNParcels );
+		const rP = splashParcelRadiusN( rCrown, p.speed );
+		const wa = wa0.mul( rP.max( r0.mul( 0.5 ) ) );
+		const kern = parcelKernelN( r, ang, rP, p.ang, wr, wa );
+		crown.addAssign( E.mul( 2.05 ).mul( Lk ).mul( crownEnv ).mul( p.mass ).mul( kern ) );
+
+		const tLand = float( 0.36 ).add( splashHashN( i.add( 11.0 ) ).mul( 0.22 ) );
+		const landEnv = smoothstep( tLand, tLand.add( 0.10 ), t )
+			.mul( t.sub( tLand ).max( 0.0 ).mul( - 1.55 ).exp() );
+		const rLand = splashParcelRadiusN( splashCrownAtN( tLand, r0, Lk ), p.speed );
+		const wLand = float( 0.22 ).add( t.sub( tLand ).max( 0.0 ).mul( 0.28 ) ).mul( r0 );
+		returned.addAssign( E.mul( 0.42 ).mul( Lk ).mul( landEnv ).mul( p.mass )
+			.mul( parcelKernelN( r, ang, rLand, p.ang, wLand, wa.mul( 1.15 ) ) ) );
+
+	}
+
+	const dropEnv = smoothstep( 0.10, 0.22, t )
+		.mul( t.sub( 0.10 ).max( 0.0 ).mul( - 2.0 ).exp() );
+	const wrD = float( 0.07 ).add( t.mul( 0.10 ) ).mul( r0 );
+	const slotD = ang.div( splashTau ).fract().mul( splashNDrops ).add( 0.5 ).floor().mod( splashNDrops );
+	const waD0 = float( 0.32 ).mul( splashTau.div( splashNDrops ) );
+	const drops = float( 0.0 ).toVar();
+	for ( const di of [ - 1, 0, 1 ] ) {
+
+		const i = slotD.add( float( di + SPLASH_DROPS ) ).mod( splashNDrops );
+		const d = splashDropletN( i );
+		const rD = rCrown.mul( float( 1.06 ).add( d.speed.mul( 0.38 ) ) );
+		const waD = waD0.mul( rD.max( r0.mul( 0.5 ) ) );
+		drops.addAssign( E.mul( 0.55 ).mul( Lk ).mul( dropEnv ).mul( d.mass ).mul( d.wing )
+			.mul( parcelKernelN( r, ang, rD, d.ang, wrD, waD ) ) );
+
+	}
+
+	const crater = E.mul( Lk ).negate()
+		.mul( craterEnv.mul( 0.58 ).add( crownEnv.mul( 0.40 ) ) )
+		.mul( splashGauss( r, r0.mul( 0.70 ) ) );
+
+	const jetEnv = smoothstep( 0.20, 0.42, t ).mul( float( 1.0 ).sub( smoothstep( 0.95, 1.75, t ) ) );
+	const jet = E.mul( Lk ).mul( jetEnv ).mul(
+		splashGauss( r, r0.mul( 0.20 ) ).mul( 0.62 )
+			.add( splashGauss( r, r0.mul( 0.62 ) ).mul( 0.55 ) ),
+	);
+
+	const jet2Env = smoothstep( 1.5, 1.9, t ).mul( float( 1.0 ).sub( smoothstep( 2.3, 3.2, t ) ) );
+	const jet2 = E.mul( 0.45 ).mul( Lk ).mul( jet2Env )
+		.mul( splashGauss( r, r0.mul( 0.30 ) ) );
+
+	const kTrain = float( 0.62 ).div( Lk );
+	const train = E.mul( 0.34 ).mul( Lk ).mul( t.mul( - 0.30 ).exp() )
+		.div( float( 1.0 ).add( r.div( r0 ) ).sqrt() )
+		.mul( smoothstep( 0.10, 0.35, t ) )
+		.mul( float( 1.0 ).sub( smoothstep( rCrown.mul( 0.80 ), rCrown.mul( 1.10 ), r ) ) )
+		.mul( smoothstep( r0.mul( 0.6 ), r0.mul( 1.3 ), r ) )
+		.mul( rCrown.sub( r ).mul( kTrain ).sin() );
+
+	return crown.add( drops ).add( returned ).add( crater ).add( jet ).add( jet2 ).add( train );
+
+} );
+
+splashHeightCore.setLayout( {
+	name: 'abyssal_splashHeightCore',
+	type: 'float',
+	inputs: [
+		{ name: 'r', type: 'float' },
+		{ name: 'ang', type: 'float' },
+		{ name: 't', type: 'float' },
+		{ name: 'E', type: 'float' },
+		{ name: 'Lk', type: 'float' },
+		{ name: 'r0', type: 'float' },
+		{ name: 'rCrown', type: 'float' },
+	],
+} );
+
+function splashHeightAt( xz ) {
+
+	const { r, ang, t, E, Lk, r0, rCrown } = splashFrame( xz );
+	return splashHeightCore( r, ang, t, E, Lk, r0, rCrown );
+
+}
+
+const splashFoamCore = /*@__PURE__*/ Fn( ( [ r, ang, t, E, r0, rCrown, Lk ] ) => {
+
+	const slot0 = ang.div( splashTau ).fract().mul( splashNParcels ).add( 0.5 ).floor().mod( splashNParcels );
+	const wr = float( 0.18 ).add( t.mul( 0.22 ) ).mul( r0 );
+	const wa0 = float( 0.55 ).mul( splashTau.div( splashNParcels ) );
+	const rim = float( 0.0 ).toVar();
+	const landed = float( 0.0 ).toVar();
+	for ( const di of [ - 1, 0, 1 ] ) {
+
+		const i = slot0.add( float( di + SPLASH_PARCELS ) ).mod( splashNParcels );
+		const p = splashParcelN( i, splashNParcels );
+		const rP = splashParcelRadiusN( rCrown, p.speed );
+		const wa = wa0.mul( rP.max( r0.mul( 0.5 ) ) );
+		rim.addAssign( float( 1.25 ).mul( t.mul( - 0.80 ).exp() ).mul( p.mass )
+			.mul( parcelKernelN( r, ang, rP, p.ang, wr, wa ) ) );
+
+		const tLand = float( 0.36 ).add( splashHashN( i.add( 11.0 ) ).mul( 0.22 ) );
+		const landEnv = smoothstep( tLand, tLand.add( 0.10 ), t )
+			.mul( t.sub( tLand ).max( 0.0 ).mul( - 0.85 ).exp() );
+		const rLand = splashParcelRadiusN( splashCrownAtN( tLand, r0, Lk ), p.speed );
+		const wLand = float( 0.28 ).add( t.sub( tLand ).max( 0.0 ).mul( 0.40 ) ).mul( r0 );
+		landed.addAssign( float( 0.72 ).mul( landEnv ).mul( p.mass )
+			.mul( parcelKernelN( r, ang, rLand, p.ang, wLand, wa.mul( 1.20 ) ) ) );
+
+	}
+
+	const dropEnv = smoothstep( 0.10, 0.22, t )
+		.mul( t.sub( 0.10 ).max( 0.0 ).mul( - 1.6 ).exp() );
+	const wrD = float( 0.10 ).add( t.mul( 0.14 ) ).mul( r0 );
+	const slotD = ang.div( splashTau ).fract().mul( splashNDrops ).add( 0.5 ).floor().mod( splashNDrops );
+	const waD0 = float( 0.36 ).mul( splashTau.div( splashNDrops ) );
+	const dropFoam = float( 0.0 ).toVar();
+	for ( const di of [ - 1, 0, 1 ] ) {
+
+		const i = slotD.add( float( di + SPLASH_DROPS ) ).mod( splashNDrops );
+		const d = splashDropletN( i );
+		const rD = rCrown.mul( float( 1.06 ).add( d.speed.mul( 0.38 ) ) );
+		const waD = waD0.mul( rD.max( r0.mul( 0.5 ) ) );
+		dropFoam.addAssign( float( 0.55 ).mul( dropEnv ).mul( d.mass ).mul( d.wing )
+			.mul( parcelKernelN( r, ang, rD, d.ang, wrD, waD ) ) );
+
+	}
+
+	const streaks = float( 0.68 )
+		.add( float( 0.5 ).add( ang.mul( 17.0 ).add( 1.1 ).sin().mul( 0.5 ) ).mul( 0.32 ) )
+		.mul( float( 0.82 ).add( r.mul( 2.6 ).div( r0 ).sin().mul( 0.18 ) ) );
+	const disk = float( 0.80 ).mul( t.mul( - 0.70 ).exp() )
+		.mul( splashGauss( r, r0.mul( float( 0.80 ).add( t.mul( 0.45 ) ) ) ) )
+		.mul( streaks );
+
+	const raft = float( 0.32 ).mul( t.mul( - 0.38 ).exp() )
+		.mul( splashGauss( r, r0.mul( float( 1.0 ).add( t.mul( 0.85 ) ) ) ) )
+		.mul( float( 0.55 ).add( ang.mul( 9.0 ).add( 0.7 ).sin().mul( 0.45 ) ) );
+
+	return clamp( rim.add( landed ).add( dropFoam ).add( disk ).add( raft )
+		.mul( E.min( 2.2 ).div( 2.2 ) ), 0.0, 0.96 );
+
+} );
+
+splashFoamCore.setLayout( {
+	name: 'abyssal_splashFoamCore',
+	type: 'float',
+	inputs: [
+		{ name: 'r', type: 'float' },
+		{ name: 'ang', type: 'float' },
+		{ name: 't', type: 'float' },
+		{ name: 'E', type: 'float' },
+		{ name: 'r0', type: 'float' },
+		{ name: 'rCrown', type: 'float' },
+		{ name: 'Lk', type: 'float' },
+	],
+} );
+
+function splashFoamAt( xz ) {
+
+	const { r, ang, t, E, Lk, r0, rCrown } = splashFrame( xz );
+	return splashFoamCore( r, ang, t, E, r0, rCrown, Lk );
+
+}
+
+// Occupancy core. Layouted (rule 17): the vertex evaluates height once and
+// the fragment three times for slope, and nine stations inlined four times
+// would blow WebKit's 8 KB private-space budget. Parameters and literals
+// only — no uniform reads — so the per-backend Fn cache is safe (rule 18).
+// Numbers match src/body-displace.js. JS numbers (TAU_A, station index,
+// BODY_STATIONS - 1) are wrapped in float() before .div: a bare
+// TAU_A.div(n) throws while building Fns, and idle uSwellAmp = 0 does
+// NOT skip that build.
+const bodyDisplaceCore = /*@__PURE__*/ Fn( ( [
+	relX, relZ, dirX, dirZ, half, len, rad, pitch,
+	waves, sweep, liftAmt, liftPhase, phase, seaRel, amp,
+] ) => {
+
+	const k = waves.mul( float( TAU_A ) ).toVar();
+	const sp = pitch.sin().toVar();
+	const cp = pitch.cos().toVar();
+	const perpX = dirZ.negate().toVar();
+	const perpZ = dirX.toVar();
+	const nM1 = float( BODY_STATIONS - 1 );
+	const mound = float( 0.0 ).toVar();
+	const cavity = float( 0.0 ).toVar();
+	const prevX = float( 0.0 ).toVar();
+	const prevY = float( 0.0 ).toVar();
+	const prevZ = float( 0.0 ).toVar();
+	const prevR = float( 0.5 ).toVar();
+
+	for ( let i = 0; i < BODY_STATIONS; i ++ ) {
+
+		const s = float( i ).div( nM1 );
+		const along = half.mul( float( 1.0 ).sub( float( 2.0 ).mul( s ) ) );
+		const ph = s.mul( k ).sub( phase );
+		const ramp = smoothstep( 0.06, 0.85, s );
+		const lateral = ph.sin().mul( sweep ).mul( len ).mul( ramp );
+		const heave = ph.add( liftPhase ).sin().mul( liftAmt ).mul( len ).mul( ramp );
+		const taper = along.abs().div( half ).smoothstep( 1.0, 0.25 );
+		const r = rad.mul( mix( float( 0.55 ), float( 1.0 ), taper ) );
+		const stX = dirX.mul( along ).add( perpX.mul( lateral ) );
+		const stZ = dirZ.mul( along ).add( perpZ.mul( lateral ) );
+		const stY = along.mul( sp ).add( heave.mul( cp ) );
+		if ( i > 0 ) {
+
+			const abx = stX.sub( prevX );
+			const abz = stZ.sub( prevZ );
+			const len2 = abx.mul( abx ).add( abz.mul( abz ) );
+			const t = select( len2.greaterThan( 1e-8 ),
+				clamp( relX.sub( prevX ).mul( abx ).add( relZ.sub( prevZ ).mul( abz ) ).div( len2 ), 0.0, 1.0 ),
+				float( 0.0 ) );
+			const qx = prevX.add( abx.mul( t ) );
+			const qz = prevZ.add( abz.mul( t ) );
+			const across = relX.sub( qx ).mul( relX.sub( qx ) ).add( relZ.sub( qz ).mul( relZ.sub( qz ) ) ).sqrt();
+			const y = mix( prevY, stY, t );
+			const rr = mix( prevR, r, t ).max( 0.5 );
+			const top = y.add( rr );
+			const bot = y.sub( rr );
+			const pierce = select( top.greaterThan( seaRel ), select( bot.lessThan( seaRel ), float( 1.0 ), float( 0.0 ) ), float( 0.0 ) );
+			const near = select( across.lessThan( rr.mul( 2.2 ) ), float( 1.0 ), float( 0.0 ) );
+			const falloff = across.mul( across ).div( rr.mul( rr ) ).negate().exp().mul( pierce ).mul( near );
+			mound.assign( mound.max( falloff ) );
+			cavity.assign( cavity.max( falloff ) );
+
+		}
+		prevX.assign( stX );
+		prevY.assign( stY );
+		prevZ.assign( stZ );
+		prevR.assign( r );
+
+	}
+
+	const raw = select( amp.lessThan( 0.0 ), cavity.negate(), mound );
+	return raw.mul( amp.abs() );
+
+} );
+
+bodyDisplaceCore.setLayout( {
+	name: 'abyssal_bodyDisplaceCore',
+	type: 'float',
+	inputs: [
+		{ name: 'relX', type: 'float' },
+		{ name: 'relZ', type: 'float' },
+		{ name: 'dirX', type: 'float' },
+		{ name: 'dirZ', type: 'float' },
+		{ name: 'half', type: 'float' },
+		{ name: 'len', type: 'float' },
+		{ name: 'rad', type: 'float' },
+		{ name: 'pitch', type: 'float' },
+		{ name: 'waves', type: 'float' },
+		{ name: 'sweep', type: 'float' },
+		{ name: 'liftAmt', type: 'float' },
+		{ name: 'liftPhase', type: 'float' },
+		{ name: 'phase', type: 'float' },
+		{ name: 'seaRel', type: 'float' },
+		{ name: 'amp', type: 'float' },
+	],
+} );
+
+// One traveling packet. Layouted so the site loop × four stage evals
+// do not inline (rule 17). No uniform reads (rule 18).
+// CPU twin: siteHeight() in src/cut-ripples.js. A forward arc, not a
+// compass ring: wobble + a stretch frozen at emit + a heading mask
+// (live heading would shear waves that have already left).
+const swellSiteCore = /*@__PURE__*/ Fn( ( [ px, pz, sx, sz, ringR, width, amp, dirX, dirY, stretch, arc0, arc1 ] ) => {
+
+	const live = select( width.greaterThan( 0.05 ), float( 1.0 ), float( 0.0 ) );
+	const dx = px.sub( sx );
+	const dz = pz.sub( sz );
+	const dirLen = dirX.mul( dirX ).add( dirY.mul( dirY ) ).sqrt().max( 1e-5 );
+	const fx = dirX.div( dirLen );
+	const fz = dirY.div( dirLen );
+	const along = dx.mul( fx ).add( dz.mul( fz ) );
+	const across = dx.mul( fz ).negate().add( dz.mul( fx ) );
+	const sa = float( 1.0 ).add( stretch );
+	const sc = float( 1.0 ).add( stretch.mul( float( 0.35 ) ) );
+	const d = along.div( sa ).mul( along.div( sa ) ).add( across.mul( sc ).mul( across.mul( sc ) ) ).sqrt();
+	const raw = dx.mul( dx ).add( dz.mul( dz ) ).sqrt();
+	const cosH = along.div( raw.max( 1e-5 ) );
+	const tArc = smoothstep( arc0, arc1, cosH );
+	const arc = select(
+		raw.lessThan( 0.15 ),
+		float( 1.0 ),
+		tArc.mul( tArc ),
+	);
+	const ang = atan( dz, dx );
+	const seed = sx.mul( 127.1 ).add( sz.mul( 311.7 ) ).sin().mul( 43758.5453 ).fract();
+	const wobble = ang.mul( 3.0 ).add( seed.mul( float( 6.283185307179586 ) ) ).sin().mul( float( RIPPLE_WOBBLE_A ) )
+		.add( ang.mul( 5.0 ).add( seed.mul( 4.1 ) ).sin().mul( float( RIPPLE_WOBBLE_B ) ) )
+		.add( ang.mul( 2.0 ).add( seed.mul( 1.7 ) ).sin().mul( float( RIPPLE_WOBBLE_C ) ) );
+	const ringEff = ringR.add( wobble.mul( width ) );
+	const lobe = float( 0.5 ).add( ang.mul( float( RIPPLE_BREAK_LOBE ) ).add( seed.mul( 5.2 ) ).sin().mul( 0.5 ) );
+	const fine = float( 0.55 ).add( ang.mul( float( RIPPLE_BREAK_FINE ) ).add( seed.mul( 2.7 ) ).sin().mul( 0.45 ) );
+	const br = float( RIPPLE_BREAK_FLOOR ).add(
+		float( 1.0 ).sub( float( RIPPLE_BREAK_FLOOR ) ).mul( lobe ).mul( lobe ).mul( fine ),
+	);
+	const a = amp.mul( br ).mul( arc );
+	const dist = d.sub( ringEff ).abs();
+	const w2 = width.mul( width ).max( 1e-4 );
+	const near = select( dist.lessThan( width.mul( float( RIPPLE_NEAR ) ) ), float( 1.0 ), float( 0.0 ) );
+	const env = dist.mul( dist ).div( w2 ).negate().exp().mul( live ).mul( near );
+	const lambda = width.mul( float( RIPPLE_LAMBDA ) ).max( float( RIPPLE_LAMBDA_MIN ) );
+	const k = float( 6.283185307179586 ).div( lambda );
+	const pkt = env.mul( a ).mul( d.sub( ringEff ).mul( k ).cos() );
+	const ring2 = ringEff.sub( lambda ).max( float( 0.0 ) );
+	const dist2 = d.sub( ring2 ).abs();
+	const near2 = select( dist2.lessThan( width.mul( float( RIPPLE_NEAR ) ) ), float( 1.0 ), float( 0.0 ) );
+	const env2 = dist2.mul( dist2 ).div( w2 ).negate().exp().mul( live ).mul( near2 );
+	const trainOn = select( ringR.greaterThan( lambda.mul( float( 0.8 ) ) ), float( 1.0 ), float( 0.0 ) );
+	const packet2 = env2.mul( a ).mul( float( RIPPLE_TRAIN ) )
+		.mul( d.sub( ring2 ).mul( k ).cos() )
+		.mul( trainOn );
+	return pkt.add( packet2 );
+
+} );
+
+swellSiteCore.setLayout( {
+	name: 'abyssal_swellSiteCore',
+	type: 'float',
+	inputs: [
+		{ name: 'px', type: 'float' },
+		{ name: 'pz', type: 'float' },
+		{ name: 'sx', type: 'float' },
+		{ name: 'sz', type: 'float' },
+		{ name: 'ringR', type: 'float' },
+		{ name: 'width', type: 'float' },
+		{ name: 'amp', type: 'float' },
+		{ name: 'dirX', type: 'float' },
+		{ name: 'dirY', type: 'float' },
+		{ name: 'stretch', type: 'float' },
+		{ name: 'arc0', type: 'float' },
+		{ name: 'arc1', type: 'float' },
+	],
+} );
+
+// Co-moving bow. CPU twin: bowHeight() in src/cut-ripples.js.
+const swellBowCore = /*@__PURE__*/ Fn( ( [ px, pz, bx, bz, dirX, dirY, amp, rh, soft ] ) => {
+
+	const dirLen = dirX.mul( dirX ).add( dirY.mul( dirY ) ).sqrt().max( 1e-5 );
+	const fx = dirX.div( dirLen );
+	const fz = dirY.div( dirLen );
+	const dx = px.sub( bx );
+	const dz = pz.sub( bz );
+	const along = dx.mul( fx ).add( dz.mul( fz ) );
+	const across = dx.mul( fz ).negate().add( dz.mul( fx ) );
+	const standoff = rh.mul( float( BOW_STANDOFF ) );
+	// Footprint grows with height. rh alone is capped at ~4 m, so a
+	// 16 m heap was a spike and the radial grid drew a line through it.
+	// soft (sdBowSoft) spreads that same height so the radial
+	// triangles stop reading as facets — same job as sdDomeSoft.
+	const s = soft.max( 0.2 );
+	const L = rh.mul( float( BOW_ALONG ) )
+		.max( amp.abs().mul( float( BOW_AMP_ALONG ) ) )
+		.max( 1e-3 )
+		.mul( s );
+	const W = rh.mul( float( BOW_ACROSS ) )
+		.max( amp.abs().mul( float( BOW_AMP_ACROSS ) ) )
+		.max( 1e-3 )
+		.mul( s );
+	const ga = along.sub( standoff ).div( L );
+	const gb = across.div( W );
+	return amp.mul( ga.mul( ga ).negate().exp() ).mul( gb.mul( gb ).negate().exp() );
+
+} );
+
+swellBowCore.setLayout( {
+	name: 'abyssal_swellBowCore',
+	type: 'float',
+	inputs: [
+		{ name: 'px', type: 'float' },
+		{ name: 'pz', type: 'float' },
+		{ name: 'bx', type: 'float' },
+		{ name: 'bz', type: 'float' },
+		{ name: 'dirX', type: 'float' },
+		{ name: 'dirY', type: 'float' },
+		{ name: 'amp', type: 'float' },
+		{ name: 'rh', type: 'float' },
+		{ name: 'soft', type: 'float' },
+	],
+} );
+
+// Dorsal pressure dome. CPU twin: pressureDomeHeight() in fluke-slicks.js.
+const swellDomeCore = /*@__PURE__*/ Fn( ( [ px, pz, dx, dz, dirX, dirY, amp, alongR, acrossR ] ) => {
+
+	const dirLen = dirX.mul( dirX ).add( dirY.mul( dirY ) ).sqrt().max( 1e-5 );
+	const fx = dirX.div( dirLen );
+	const fz = dirY.div( dirLen );
+	const rx = px.sub( dx );
+	const rz = pz.sub( dz );
+	const along = rx.mul( fx ).add( rz.mul( fz ) );
+	const across = rx.mul( fz ).negate().add( rz.mul( fx ) );
+	const L = alongR.max( 0.5 );
+	const W = acrossR.max( 0.5 );
+	const ga = along.div( L );
+	const gb = across.div( W );
+	return amp.mul( ga.mul( ga ).negate().exp() ).mul( gb.mul( gb ).negate().exp() );
+
+} );
+
+swellDomeCore.setLayout( {
+	name: 'abyssal_swellDomeCore',
+	type: 'float',
+	inputs: [
+		{ name: 'px', type: 'float' },
+		{ name: 'pz', type: 'float' },
+		{ name: 'dx', type: 'float' },
+		{ name: 'dz', type: 'float' },
+		{ name: 'dirX', type: 'float' },
+		{ name: 'dirY', type: 'float' },
+		{ name: 'amp', type: 'float' },
+		{ name: 'alongR', type: 'float' },
+		{ name: 'acrossR', type: 'float' },
+	],
+} );
+
+// One fluke print. CPU twin: flukePrintMask() in src/fluke-slicks.js.
+const flukeSlickCore = /*@__PURE__*/ Fn( ( [ px, pz, sx, sz, radius, amp ] ) => {
+
+	const live = select( amp.greaterThan( 0.002 ).and( radius.greaterThan( 0.2 ) ), float( 1.0 ), float( 0.0 ) );
+	const d = px.sub( sx ).mul( px.sub( sx ) ).add( pz.sub( sz ).mul( pz.sub( sz ) ) ).sqrt();
+	const r = radius.max( 1e-3 );
+	const edge = float( 1.0 ).sub( smoothstep( r.mul( float( 0.52 ) ), r, d ) );
+	return edge.mul( amp ).mul( live );
+
+} );
+
+flukeSlickCore.setLayout( {
+	name: 'abyssal_flukeSlickCore',
+	type: 'float',
+	inputs: [
+		{ name: 'px', type: 'float' },
+		{ name: 'pz', type: 'float' },
+		{ name: 'sx', type: 'float' },
+		{ name: 'sz', type: 'float' },
+		{ name: 'radius', type: 'float' },
+		{ name: 'amp', type: 'float' },
+	],
+} );
+
+// Uniform reads stay HERE (rule 18). Shared by vertex flatten and fragment kill.
+const flukeSlickAccum = /*@__PURE__*/ Fn( ( [ px, pz ] ) => {
+
+	const acc = float( 0.0 ).toVar();
+	If( uFlukeCount.greaterThan( 0.5 ), () => {
+
+		for ( let i = 0; i < FLUKE_PRINTS; i ++ ) {
+
+			const s = uFlukePrints.element( int( i ) );
+			acc.assign( acc.max( flukeSlickCore( px, pz, s.x, s.y, s.z, s.w ) ) );
+
+		}
+
+	} );
+	return acc.min( float( 1.0 ) );
+
+} );
+
+// One persistent wake-foam patch. CPU twin: wakeFoamMask() in wake-foam.js.
+// Scalar layout keeps the uniform-array loop legal on both backends (rule 18).
+const wakeFoamCore = /*@__PURE__*/ Fn( ( [ px, pz, cx, cz, phase, amp, fx, fz, alongR, acrossR ] ) => {
+
+	const dl = fx.mul( fx ).add( fz.mul( fz ) ).sqrt().max( 1e-5 );
+	const dx = px.sub( cx );
+	const dz = pz.sub( cz );
+	const dirX = fx.div( dl );
+	const dirZ = fz.div( dl );
+	const na = dx.mul( dirX ).add( dz.mul( dirZ ) ).div( alongR.max( 0.3 ) );
+	const nc = dx.mul( dirZ ).negate().add( dz.mul( dirX ) ).div( acrossR.max( 0.3 ) );
+	const q = na.mul( na ).add( nc.mul( nc ) ).sqrt();
+	const wobble = clamp(
+		float( 1.0 )
+			.add( phase.mul( na ).mul( nc ).mul( 0.10 ) )
+			.add(
+				float( 1.0 ).sub( phase.abs() ).mul( 0.05 )
+					.mul( na.mul( na ).sub( nc.mul( nc ) ) ),
+			),
+		0.75, 1.25,
+	);
+	// Soft mound. Twin of wakeFoamMask() — a 0.54 plateau was the decal.
+	const mound = float( 1.0 ).sub( smoothstep( 0.10, 1.0, q.div( wobble ) ) );
+	const h = px.mul( 12.9898 ).add( pz.mul( 78.233 ) ).add( phase ).sin().mul( 43758.5453 );
+	const chew = mix( float( 0.62 ), float( 1.0 ), h.sub( h.floor() ) );
+	const live = select( amp.greaterThan( 0.002 ), float( 1.0 ), float( 0.0 ) );
+	return mound.mul( chew ).mul( amp ).mul( live );
+
+} );
+
+wakeFoamCore.setLayout( {
+	name: 'abyssal_wakeFoamCore',
+	type: 'float',
+	inputs: [
+		{ name: 'px', type: 'float' },
+		{ name: 'pz', type: 'float' },
+		{ name: 'cx', type: 'float' },
+		{ name: 'cz', type: 'float' },
+		{ name: 'phase', type: 'float' },
+		{ name: 'amp', type: 'float' },
+		{ name: 'fx', type: 'float' },
+		{ name: 'fz', type: 'float' },
+		{ name: 'alongR', type: 'float' },
+		{ name: 'acrossR', type: 'float' },
+	],
+} );
+
+const wakeFoamAccum = /*@__PURE__*/ Fn( ( [ px, pz ] ) => {
+
+	const acc = float( 0.0 ).toVar();
+	If( uWakeFoamCount.greaterThan( 0.5 ), () => {
+
+		for ( let i = 0; i < WAKE_FOAM_STAMPS; i ++ ) {
+
+			const a = uWakeFoam.element( int( i * 2 ) );
+			const b = uWakeFoam.element( int( i * 2 + 1 ) );
+			If( a.w.greaterThan( 0.002 ), () => {
+
+				acc.assign( acc.max( wakeFoamCore(
+					px, pz, a.x, a.y, a.z, a.w,
+					b.x, b.y, b.z, b.w,
+				) ) );
+
+			} );
+
+		}
+
+	} );
+	return acc.min( float( 1.0 ) );
+
+} );
+
+const swellFieldLive = /*@__PURE__*/ Fn( () => {
+
+	return uSwellAmp.abs().greaterThan( 0.0005 )
+		.or( uSwellBow.z.abs().greaterThan( 0.02 ) )
+		.or( uSwellDome.z.abs().greaterThan( 0.02 ) );
+
+} );
 
 /**
  * Height the body adds at a point on the water plane. Shared by BOTH stages:
@@ -377,52 +1111,120 @@ uSwellDir.value.set( 0.0, 1.0 );
  * it to tilt the shading normal. That second half is not optional - a smooth
  * mound wearing the flat sea's normals is invisible except in silhouette, which
  * is how a lift like this ends up looking like nothing at all.
+ *
+ * Uniform reads stay HERE, not in the layouted core (rule 18).
  */
 export const swellLift = /*@__PURE__*/ Fn( ( [ xz ] ) => {
 
-	const rel = xz.sub( uSwellPos.xz ).toVar();
-	const half = uSwellLen.mul( 0.5 ).max( 0.5 ).toVar();
-	// Distance ALONG the straight spine, not the curved one - see below for why
-	// that is deliberate. uSwellDir points at the nose, so the nose is where
-	// `along` is largest.
-	const along = rel.dot( uSwellDir ).clamp( half.negate(), half ).toVar();
-	// Station 0 at the nose, 1 at the tail - the exact convention creature.js's
-	// `s` uses, so the two are reading the SAME curve rather than two curves
-	// that happen to agree at rest.
-	const s = half.sub( along ).div( half.mul( 2.0 ) ).clamp( 0.0, 1.0 ).toVar();
+	const h = float( 0.0 ).toVar();
+	If( uSwellSiteCount.greaterThan( 0.5 ), () => {
 
-	// Fat amidships, nothing past the nose and tail - both the lift's strength
-	// (below) and, new here, the mound's WIDTH: a real body is narrower at both
-	// ends than at its middle, and a constant-radius ridge said otherwise.
-	const taper = smoothstep( 1.0, 0.25, along.abs().div( half ) ).toVar();
+		const acc = float( 0.0 ).toVar();
+		for ( let i = 0; i < SWELL_SITES; i ++ ) {
 
-	// The body's own travelling wave, turned into a world XZ offset off the
-	// straight spine. `perp` is the world direction of the body's local +X axis
-	// - a +90 degree rotation of uSwellDir, the same relationship
-	// demo/three-main.js's setCraftTransform builds between its forward and
-	// right basis vectors, so this bends the SAME way the mesh visibly does.
-	const perp = vec2( uSwellDir.y.negate(), uSwellDir.x ).toVar();
-	const k = uSwellWaves.mul( TAU_A ).toVar();
-	const ph = s.mul( k ).sub( uSwellPhase ).toVar();
-	const ramp = smoothstep( 0.06, 0.85, s ).toVar();
-	const lateral = ph.sin().mul( uSwellSweep ).mul( uSwellLen ).mul( ramp ).toVar();
+			const s = uSwellSites.element( int( i ) );
+			const pack = uSwellSitePack.element( int( i ) );
+			const a = pack.x;
+			const d = pack.zw;
+			const st = pack.y;
+			const arc = uSwellSiteArc.element( int( i ) );
+			// Empty slots used to run the full packet (atan, three sines,
+			// two Gaussians) and then multiply by live=0. With the dragon
+			// on, siteCount is forced ≥ 1 so bow does not fall through to
+			// bodyDisplace, and every sea pixel paid 24 dead cores × the
+			// slope's three evals. Amp/width are 0 / −1 on a cleared slot.
+			If( a.abs().greaterThan( 0.0005 ).and( s.w.greaterThan( 0.05 ) ), () => {
 
-	// Distance to the CURVED point at this station, not to the straight line.
-	// This is an approximation, not a true closest-point-on-curve search - it
-	// evaluates the curve at the straight-line projection's station rather than
-	// solving for the nearest one - and it is deliberate: the sweep this ships
-	// with is a mild fraction of the body's length, so the two stay close, and
-	// a per-fragment iterative search is a cost this sea cannot spend on one
-	// creature's wake. It is what turns the ridge into something that tracks
-	// the S-curve instead of sitting under it like a plank.
-	const spine = uSwellDir.mul( along ).add( perp.mul( lateral ) ).toVar();
-	const off = rel.sub( spine ).length().toVar();
+				acc.addAssign( swellSiteCore(
+					xz.x, xz.y, s.x, s.y, s.z, s.w, a,
+					d.x, d.y, st, arc.x, arc.y,
+				) );
 
-	// Narrower toward the tips, using the SAME taper the amplitude fades by,
-	// rather than a second tuning knob for a second aspect of the same shape.
-	const R = uSwellRad.max( 0.5 ).mul( mix( 0.55, 1.0, taper ) ).toVar();
-	const g = off.mul( off ).div( R.mul( R ) ).negate().exp().toVar();
-	return g.mul( taper ).mul( uSwellAmp );
+			} );
+
+		}
+		const stacked = acc.div( float( 1.0 ).add( float( RIPPLE_STACK ).mul( acc.abs() ) ) );
+		h.assign( select( uSwellAmp.lessThan( 0.0 ), stacked.negate(), stacked ).mul( uSwellAmp.abs() ) );
+
+	}, () => {
+
+		const rel = xz.sub( uSwellPos.xz );
+		const half = uSwellLen.mul( 0.5 ).max( 0.5 );
+		const rad = uSwellRad.max( 0.15 );
+		const seaRel = uSeaLevel.sub( uSwellPos.y );
+		h.assign( bodyDisplaceCore(
+			rel.x, rel.z, uSwellDir.x, uSwellDir.y,
+			half, uSwellLen, rad, uSwellPitch,
+			uSwellWaves, uSwellSweep, uSwellLift, uSwellLiftPhase, uSwellPhase,
+			seaRel, uSwellAmp,
+		) );
+
+	} );
+	If( uSwellBow.z.abs().greaterThan( 0.02 ), () => {
+
+		h.addAssign( swellBowCore(
+			xz.x, xz.y, uSwellBow.x, uSwellBow.y,
+			uSwellBowDir.x, uSwellBowDir.y, uSwellBow.z, uSwellBow.w,
+			uSwellBowSoft,
+		) );
+
+	} );
+	If( uSwellDome.z.abs().greaterThan( 0.02 ), () => {
+
+		h.addAssign( swellDomeCore(
+			xz.x, xz.y, uSwellDome.x, uSwellDome.y,
+			uSwellDomeDir.x, uSwellDomeDir.y, uSwellDome.z, uSwellDome.w, uSwellDomeW,
+		) );
+
+	} );
+	return h;
+
+} );
+
+// Foam on a traveling crest. Birth at the cut (ringR ~ 0) stays water
+// so the first heap is not a white disc; foam picks up as it runs.
+const swellRippleFoam = /*@__PURE__*/ Fn( ( [ xz ] ) => {
+
+	const f = float( 0.0 ).toVar();
+	If( uSwellSiteCount.greaterThan( 0.5 ), () => {
+
+		const acc = float( 0.0 ).toVar();
+		for ( let i = 0; i < SWELL_SITES; i ++ ) {
+
+			const s = uSwellSites.element( int( i ) );
+			const pack = uSwellSitePack.element( int( i ) );
+			const a = pack.x;
+			If( a.abs().greaterThan( 0.0005 ).and( s.w.greaterThan( 0.05 ) ), () => {
+
+				const traveling = select( s.z.greaterThan( float( 0.2 ) ), float( 1.0 ), float( 0.0 ) );
+				const d = pack.zw;
+				const st = pack.y;
+				const arc = uSwellSiteArc.element( int( i ) );
+				const h = swellSiteCore(
+					xz.x, xz.y, s.x, s.y, s.z, s.w, a,
+					d.x, d.y, st, arc.x, arc.y,
+				);
+				acc.addAssign( h.max( float( 0.0 ) ).mul( traveling ) );
+
+			} );
+
+		}
+		const stacked = acc.div( float( 1.0 ).add( float( RIPPLE_STACK ).mul( acc ) ) );
+		f.assign( stacked.mul( uSwellAmp.abs() ).mul( float( 0.18 ) ).min( float( 0.28 ) ) );
+
+	} );
+	If( uSwellBow.z.abs().greaterThan( 0.02 ), () => {
+
+		const bowH = swellBowCore(
+			xz.x, xz.y, uSwellBow.x, uSwellBow.y,
+			uSwellBowDir.x, uSwellBowDir.y, uSwellBow.z,
+			uSwellBow.w.mul( float( BOW_FOAM_SCALE ) ),
+			uSwellBowSoft,
+		);
+		f.addAssign( bowH.max( float( 0.0 ) ).mul( float( 0.10 ) ).min( float( 0.28 ) ) );
+
+	} );
+	return f;
 
 } );
 
@@ -449,7 +1251,8 @@ export const uRefractAmount = /*@__PURE__*/ uniform( 0.0 );
 // How hard the surface slope bends the lookup, in screen fractions. This is what
 // makes chop passing over a submerged body wobble it and break it up.
 export const uRefractDistort = /*@__PURE__*/ uniform( 0.045 );
-// Metres of water that swallow the shape. The COLOUR of the swallowing is the
+// Metres of water along the camera ray that swallow the shape (mean sea to
+// the body, not depth-below-surface). The COLOUR of the swallowing is the
 // sea's own uAbsorption (red first, which is what makes water blue-green); this
 // is only its scale, so a preset's water stays its own colour while the artist
 // still has one honest knob in metres.
@@ -548,7 +1351,7 @@ uHullPos.value.set( 0.0, - 1e4, 0.0 );          // NO_HULL, src/water.js:19
 uHullFwd.value.set( 0.0, 1.0 );                 // NO_HULL
 uScatterColor.value.set( 0.048, 0.285, 0.360 );
 uAbsorption.value.set( 0.42, 0.075, 0.045 );
-uFoamColor.value.set( 0.94, 0.965, 0.99 );
+uFoamColor.value.set( 0.96, 0.975, 0.995 );
 
 // ---- the vertex stage -------------------------------------------------------
 
@@ -607,10 +1410,33 @@ export const waterPosition = /*@__PURE__*/ Fn( () => {
 	vSwellH.assign( swellH );
 	pos.addAssign( disp );
 
-	// ---- a body under the surface lifts it -----------------------------------
-	If( uSwellAmp.greaterThan( 0.0005 ), () => {
+	// A fluke print is a calmer disc, not a ripple. Killing capillaries
+	// alone vanished under the FFT swell; flatten the cascade inside the
+	// footprint so the circle actually reads.
+	const flukeV = flukeSlickAccum( xz.x, xz.y );
+	If( flukeV.greaterThan( 0.02 ), () => {
+
+		const k = flukeV.mul( float( FLUKE_FFT_KILL ) );
+		pos.subAssign( vec3( disp.x.mul( k ), disp.y.mul( k ), disp.z.mul( k ) ) );
+
+	} );
+
+	// ---- a body under the surface lifts it (or, amp < 0, presses a hollow) ---
+	If( swellFieldLive(), () => {
 
 		pos.y.addAssign( swellLift( xz ) );
+
+	} );
+
+	// Height rides a varying; the fragment recovers world slope from
+	// screen derivatives of that varying. Do not call splashHeightAt
+	// from the fragment — that is the compile failure above.
+	vSplashH.assign( 0.0 );
+	If( uSplashEnergy.greaterThan( 0.0005 ), () => {
+
+		const h = splashHeightAt( xz ).toVar();
+		vSplashH.assign( h );
+		pos.y.addAssign( h );
 
 	} );
 
@@ -658,13 +1484,12 @@ export const waterPosition = /*@__PURE__*/ Fn( () => {
 	// ---- wake ---------------------------------------------------------------
 	If( uWakeOn.greaterThan( 0.5 ), () => {
 
-		// The radial grid's rings stretch to metres wide long before the field
-		// runs out, and a metre-wide ridge sampled by a six-metre triangle only
-		// crawls and pops. So the geometry is faded out well inside the buffer and
-		// the far half of the wake lives on as foam alone, which the fragment
-		// shader can resolve at any distance.
+		// Far rings are coarse, so a wire ridge pops. A diverging wave
+		// thickens with age, so those same triangles can carry height
+		// farther aft — fade later than the old 0.16–0.42 cut, which
+		// killed the V before it had room to open.
 		const wf = float( 1.0 ).sub(
-			smoothstep( uWakeExtent.mul( 0.16 ), uWakeExtent.mul( 0.42 ), r ),
+			smoothstep( uWakeExtent.mul( 0.18 ), uWakeExtent.mul( 0.88 ), r ),
 		).toVar();
 
 		// Undisplaced again: the fragment stage reads wakeAt(vFlat.xz), so this
@@ -678,19 +1503,66 @@ export const waterPosition = /*@__PURE__*/ Fn( () => {
 
 	} );
 
+	// Analytic Kelvin V (sea dragon). Separate from the stamp field so a
+	// vehicle's trail and the animal's gravity-wave chevron cannot double
+	// up, and so uWakeOn can stay off when nothing has been stamped.
+	If( uKelvinOn.greaterThan( 0.5 ), () => {
+
+		const wf = float( 1.0 ).sub(
+			smoothstep( uWakeExtent.mul( 0.18 ), uWakeExtent.mul( 0.88 ), r ),
+		).toVar();
+		If( wf.greaterThan( 0.002 ), () => {
+
+			pos.y.addAssign( kelvinWakeAt( xz ).y.mul( wf ) );
+
+		} );
+
+	} );
+
+	// Simple two-arm V behind a surface-running body. Soft ridges,
+	// nothing ahead, fades with fetch. Stamps freeze when the body
+	// dives and fade on their own life. Not the vehicle stamp field.
+	If( uVWakeOn.greaterThan( 0.5 ), () => {
+
+		const wf = float( 1.0 ).sub(
+			smoothstep( uWakeExtent.mul( 0.18 ), uWakeExtent.mul( 0.88 ), r ),
+		).toVar();
+		If( wf.greaterThan( 0.002 ), () => {
+
+			pos.y.addAssign( vWakeAt( xz.x, xz.y ).x.mul( wf ) );
+
+		} );
+
+	} );
+
 	// Planet curvature drops the far surface away, which is what actually puts
 	// the horizon at the right place and hides the end of the grid.
 	pos.y.subAssign( uEarthCurve.mul( r.mul( r ) ).div( 2.0 * R_EARTH ) );
 
+	// Crossing the waterline used to punch through a full-height crest
+	// (and the last-ring pin followed the eye down), which read as a
+	// wave popping on. Above water this is a no-op — a ski at ~1.4 m
+	// must keep the chop. Under it, displacement grows in over
+	// UNDER_WAVE_FADE metres. Standalone mix (rule 1).
+	const under = uSeaLevel.sub( uCamPos.y ).toVar();
+	If( under.greaterThan( 0.0 ), () => {
+
+		const amt = smoothstep( float( 0.0 ), float( UNDER_WAVE_FADE ), under );
+		pos.y.assign( mix( uSeaLevel, pos.y, amt ) );
+
+	} );
+
 	// THE OUTERMOST RING IS PINNED JUST ABOVE THE SIGHTLINE TANGENT - the fix
 	// for the dark dashed line along the horizon at elevated cameras. The full
 	// account (and the coverage-gap proof) is in src/shaders/water.js at this
-	// same spot; the two sources must stay identical.
+	// same spot; the two sources must stay identical. Blend by the uniform
+	// so a wading fade is gradual; horizonPinAmount is already 0 underwater.
 	If( aRT.x.greaterThan( 0.9999 ), () => {
 
 		const hEye = uCamPos.y.sub( uSeaLevel ).max( 1.0 ).toVar();
 		const dip = hEye.mul( 2.0 ).mul( uEarthCurve.max( 1e-3 ) ).div( R_EARTH ).sqrt().toVar();
-		pos.y.assign( uCamPos.y.sub( dip.sub( 2.5e-3 ).max( dip.mul( 0.1 ) ).mul( r ) ) );
+		const pinned = uCamPos.y.sub( dip.sub( 2.5e-3 ).max( dip.mul( 0.1 ) ).mul( r ) );
+		pos.y.assign( mix( pos.y, pinned, uHorizonPin ) );
 
 	} );
 
@@ -763,6 +1635,15 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 	// them; point-sampling them anyway is pure aliasing.
 	capFade.mulAssign( float( 1.0 ).sub( smoothstep( 0.06, 0.34, foot ) ) );
 
+	// Fluke footprints: flatten chop, foam, and the FFT slope inside the
+	// disc. CPU twin: flukeSlick() in src/fluke-slicks.js.
+	const fluke = flukeSlickAccum( vFlat.x, vFlat.z ).toVar();
+	capFade.mulAssign( float( 1.0 ).sub( fluke.mul( float( FLUKE_CAP_KILL ) ) ) );
+	foamF.mulAssign( float( 1.0 ).sub( fluke.mul( float( FLUKE_FOAM_KILL ) ) ) );
+	foamR.mulAssign( float( 1.0 ).sub( fluke.mul( float( FLUKE_FOAM_KILL ) ) ) );
+	msq.mulAssign( float( 1.0 ).sub( fluke.mul( float( FLUKE_ROUGH_KILL ) ) ) );
+	slope.mulAssign( float( 1.0 ).sub( fluke.mul( float( FLUKE_SLOPE_KILL ) ) ) );
+
 	// ---- wind gusts: the cat's paws -----------------------------------------
 	// The full account is in src/shaders/water.js at this same spot; the two
 	// sources must stay identical. Short version: gusts arrive in patches tens
@@ -772,14 +1653,19 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 	// capillary layer here, and the slope variance below, which is what carries
 	// the patches past the near field.
 	//
-	// Written as an unconditional expression rather than an If: uGust is 0 by
-	// default, and mix() with a zero-width range is exactly 1.0, so the guard
-	// would only be a cost saving on the branch nobody takes.
-	const gustQ = vFlat.xz.sub( uWindDir.mul( uTime.mul( uGustDrift ) ) )
-		.div( uGustScale.max( 4.0 ) ).toVar();
-	const gustN = smoothstep( 0.35, 0.72, fbm2( gustQ, int( 3 ) ) ).toVar();
-	// Standalone mix (rule 1).
-	const gust = mix( float( 1.0 ).sub( uGust.mul( 0.85 ) ), float( 1.0 ).add( uGust.mul( 1.6 ) ), gustN ).toVar();
+	// GLSL gates this on `uGust > 0`. The TSL port ran the 3-octave fbm on
+	// every sea pixel and then mixed with a zero-width range (gust is 0 in
+	// every shipping preset except one). Same picture, a lot less heat.
+	const gust = float( 1.0 ).toVar();
+	If( uGust.greaterThan( 0.0 ), () => {
+
+		const gustQ = vFlat.xz.sub( uWindDir.mul( uTime.mul( uGustDrift ) ) )
+			.div( uGustScale.max( 4.0 ) ).toVar();
+		const gustN = smoothstep( 0.35, 0.72, fbm2( gustQ, int( 3 ) ) ).toVar();
+		// Standalone mix (rule 1).
+		gust.assign( mix( float( 1.0 ).sub( uGust.mul( 0.85 ) ), float( 1.0 ).add( uGust.mul( 1.6 ) ), gustN ) );
+
+	} );
 
 	If( capFade.greaterThan( 0.01 ), () => {
 
@@ -836,22 +1722,87 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 			// than on the buffer bounds skips this for every water pixel that
 			// merely happens to be inside a 320 m square, which is most of them.
 			//
-			// GLSL: `if (uWakeRelief > 0.0 && wk.z > 0.02)`. TSL has no
-			// short-circuit, so the && is .and(); neither test can produce a NaN,
-			// so there is nothing for a short-circuit to have protected.
-			If( uWakeRelief.greaterThan( 0.0 ).and( wk.z.greaterThan( 0.02 ) ), () => {
+			// GLSL used to gate on wk.z (the slick BETWEEN the arms). The
+			// arms themselves have almost no churn, so the ridge never got
+			// a normal and read as foam stuck on flat water. Gate on the
+			// height or the foam — that is the wave. A nested .and(.or())
+			// here failed to compile and left a blank blue frame.
+			// Only the lifted crest. Lighting every foam/slick texel
+			// showed the wake buffer as a grid of lines.
+			If( uWakeRelief.greaterThan( 0.0 ).and( wk.y.abs().greaterThan( 0.22 ) ), () => {
 
 				// GLSL: `const float e = 0.5`. Left as a JS number here, unlike the
 				// 0.09 in section 7: 0.5 and 2.0*0.5 are exactly representable, so
 				// folding them on the CPU is bit-identical to folding them in the
 				// shader.
-				const e = 0.5;
+				// World-axis differences on a knife peak light a cross
+				// through the hump (the horizontal line on the mound,
+				// the vertical line down the V). Step with the wave
+				// so the slope is the face, not a 50 cm cliff.
+				const e = uWakeDepth.mul( 0.45 ).max( 1.2 ).toVar();
 				const hx = wakeAt( vFlat.xz.add( vec2( e, 0.0 ) ) ).y
 					.sub( wakeAt( vFlat.xz.sub( vec2( e, 0.0 ) ) ).y ).toVar();
 				const hz = wakeAt( vFlat.xz.add( vec2( 0.0, e ) ) ).y
 					.sub( wakeAt( vFlat.xz.sub( vec2( 0.0, e ) ) ).y ).toVar();
 
-				slope.addAssign( vec2( hx, hz ).div( 2.0 * e ).mul( uWakeRelief ).mul( k ) );
+				slope.addAssign( vec2( hx, hz ).div( e.mul( 2.0 ) ).mul( uWakeRelief ).mul( k ) );
+
+			} );
+
+		} );
+
+	} );
+
+	// Analytic Kelvin V. Same `wake` accumulator the stamp foam composites
+	// through, so breaking crests on the arms get the coherent-band look
+	// rather than wind-foam clumps. Slope is finite-differenced on the
+	// same function the vertex displaced by — swellLift's pattern.
+	If( uKelvinOn.greaterThan( 0.5 ), () => {
+
+		const k = float( 1.0 ).sub( smoothstep( 1.2, 6.0, foot ) ).toVar();
+		If( k.greaterThan( 0.004 ), () => {
+
+			const wk = kelvinWakeAt( vFlat.xz ).toVar();
+			wake.addAssign( wk.x.mul( k ) );
+			const slick = clamp( wk.z.mul( k ).mul( uWakeSlick ), 0.0, 1.0 ).toVar();
+			foamF.mulAssign( float( 1.0 ).sub( slick ) );
+			foamR.mulAssign( float( 1.0 ).sub( slick ) );
+			msq.mulAssign( float( 1.0 ).sub( slick.mul( 0.6 ) ) );
+			If( uWakeRelief.greaterThan( 0.0 ), () => {
+
+				const e = float( 0.45 );
+				const h0 = wk.y;
+				const hx = kelvinWakeAt( vFlat.xz.add( vec2( e, 0.0 ) ) ).y.sub( h0 ).div( e );
+				const hz = kelvinWakeAt( vFlat.xz.add( vec2( 0.0, e ) ) ).y.sub( h0 ).div( e );
+				slope.addAssign( vec2( hx, hz ).mul( uWakeRelief ).mul( k ) );
+
+			} );
+
+		} );
+
+	} );
+
+	If( uVWakeOn.greaterThan( 0.5 ), () => {
+
+		const k = float( 1.0 ).sub( smoothstep( 1.2, 6.0, foot ) ).toVar();
+		If( k.greaterThan( 0.004 ), () => {
+
+			const vw = vWakeAt( vFlat.x, vFlat.z ).toVar();
+			// Height stays on the arms. .y is the churned lane between
+			// them — the motorboat white water. Persistent leftover foam
+			// is still a separate field and does not ride the ridges.
+			wake.addAssign( vw.y.mul( k ) );
+			const vSlick = clamp( vw.y.mul( k ).mul( uWakeSlick ).mul( 0.7 ), 0.0, 1.0 ).toVar();
+			foamF.mulAssign( float( 1.0 ).sub( vSlick ) );
+			foamR.mulAssign( float( 1.0 ).sub( vSlick ) );
+			msq.mulAssign( float( 1.0 ).sub( vSlick.mul( 0.45 ) ) );
+			If( uWakeRelief.greaterThan( 0.0 ).and( vw.x.abs().greaterThan( 0.002 ) ), () => {
+
+				const e = float( 0.45 );
+				const h0 = vw.x;
+				const hx = vWakeAt( vFlat.x.add( e ), vFlat.z ).x.sub( h0 ).div( e );
+				const hz = vWakeAt( vFlat.x, vFlat.z.add( e ) ).x.sub( h0 ).div( e );
+				slope.addAssign( vec2( hx, hz ).mul( uWakeRelief ).mul( k ) );
 
 			} );
 
@@ -866,13 +1817,50 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 	// bulge is the whole point. Finite-differenced on the analytic function
 	// rather than dFdx over a moved vertex, which on a radial grid is a quad the
 	// size of a bus in the far field.
-	If( uSwellAmp.greaterThan( 0.0005 ), () => {
+	If( swellFieldLive(), () => {
 
-		const e = uSwellRad.mul( 0.25 ).max( 0.25 ).toVar();
+		// Tight step so a 2–3 m ripple packet keeps its slope. uSwellRad
+		// is the meniscus width; using a quarter of that washed the ring
+		// into the same slope as the surrounding chop.
+		const e = float( 0.22 );
 		const h0 = swellLift( vFlat.xz ).toVar();
-		const hx = swellLift( vFlat.xz.add( vec2( e, 0.0 ) ) ).sub( h0 ).div( e ).toVar();
-		const hz = swellLift( vFlat.xz.add( vec2( 0.0, e ) ) ).sub( h0 ).div( e ).toVar();
-		slope.addAssign( vec2( hx, hz ) );
+		// Far from the body the lift is 0 and so is the slope. The two
+		// extra evals were 48 more empty-site cores on every sea pixel.
+		If( h0.abs().greaterThan( 0.002 ), () => {
+
+			const hx = swellLift( vFlat.xz.add( vec2( e, 0.0 ) ) ).sub( h0 ).div( e ).toVar();
+			const hz = swellLift( vFlat.xz.add( vec2( 0.0, e ) ) ).sub( h0 ).div( e ).toVar();
+			slope.addAssign( vec2( hx, hz ) );
+
+		} );
+
+	} );
+
+	If( uSplashEnergy.greaterThan( 0.0005 ), () => {
+
+		// ANALYTIC SLOPE, not screen derivatives of vSplashH.
+		//
+		// The derivative version cost nothing, and it looked it: a varying is
+		// interpolated LINEARLY across a triangle, so its screen derivative is
+		// constant over the whole triangle, and the radial grid's cells are
+		// metres across out where a leap lands. Every cell came out a flat plate
+		// wearing one normal, and the crater read as a heap of pale rectangular
+		// slabs - the facets were the mesh, not the water.
+		//
+		// So the field is evaluated three times here (h, and one step in x and
+		// z) and differenced in world space. That is smooth however coarse the
+		// mesh is - only the silhouette is left to the tessellation. The step is
+		// sub-metre so the crown's fingers survive it.
+		//
+		// The header's "do not call splashHeightAt from the fragment" was about
+		// a shared Fn of both stages, which is what failed to compile; these are
+		// JS builders that inline into whichever stage uses them, exactly like
+		// splashFoamAt does below.
+		const eS = 0.6;
+		const h0 = splashHeightAt( vFlat.xz ).toVar();
+		const hEx = splashHeightAt( vFlat.xz.add( vec2( eS, 0.0 ) ) ).toVar();
+		const hEz = splashHeightAt( vFlat.xz.add( vec2( 0.0, eS ) ) ).toVar();
+		slope.addAssign( vec2( hEx.sub( h0 ).div( eS ), hEz.sub( h0 ).div( eS ) ) );
 
 	} );
 
@@ -917,12 +1905,12 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 	const B = N.cross( T ).toVar();
 
 	// ---- 6. foam mask (467-528) ---------------------------------------------
-	// foamField packs the GLSL's `out float bubbles` into .y - the same
+	// foamField packs the GLSL's `out float thick` into .y - the same
 	// translation ./sky-background.js's cirrusLayer used for its `out float dist`.
-	const fdv = foamField( vFlat.xz, uTime, foot ).toVar();
+	// .x is the streak field; .y is optical thickness. Do not
+	// overwrite .y with the old 25 cm / 6 cm vnoise — that is the sand look.
+	const fdv = foamField( vFlat.xz, uTime, foot, uFoamDetail ).toVar();
 	const fd = fdv.x;
-	// A var, not a plain read: section 7 OVERWRITES this with the finer bubble
-	// field, exactly as the GLSL does at water.js:552.
 	const bubbles = fdv.y.toVar();
 
 	// Two optically different materials share this footprint and they must not be
@@ -938,18 +1926,27 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 	// inflate the coverage the sim computed.
 	const covF = clamp( foamF.mul( uFoamAmount ), 0.0, 1.0 ).toVar();
 	const covR = clamp( foamR.mul( uFoamAmount ), 0.0, 1.0 ).toVar();
+	// Harder Jacobian gate (src/foam-lace.js jacobianGate). A leak of fold
+	// used to sprinkle the lace across calm water. Fold 0 is empty.
+	const gateF = smoothstep( 0.02, 0.12, covF ).toVar();
+	const gateR = smoothstep( 0.02, 0.12, covR ).toVar();
 	// Once the pixel is wider than a clump there is nothing left to resolve and
 	// the contrast has to collapse onto the mean, or the far field turns into
 	// per-pixel confetti.
-	const clumpRes = float( 1.0 ).sub( smoothstep( 0.4, 5.0, foot ) ).toVar();
-	const shape = clamp(
-		float( 1.0 ).add( fd.sub( 0.5 ).mul( 2.6 ).mul( uFoamSharp.max( 0.05 ) ) ), 0.0, 3.2,
+	const clumpRes = float( 1.0 ).sub( smoothstep( 0.12, 2.2, foot ) ).toVar();
+	// A film with brighter clumps, not a threshold that zeros cell interiors
+	// (that was close-up grain / wireframe). foamSharp still widens the
+	// range; the floor keeps covered water looking like foam.
+	const sharpK = uFoamSharp.max( 0.05 ).min( 2.4 ).sub( 0.05 ).div( 2.35 ).toVar();
+	const shape = mix(
+		mix( float( 0.52 ), float( 0.16 ), sharpK ),
+		mix( float( 1.12 ), float( 1.48 ), sharpK ),
+		smoothstep( 0.10, 0.82, fd ),
 	).toVar();
-	// The raft is what is left after the crest that made it has moved on, so it
-	// sits where the field was high a moment ago: a shifted, softer version of the
-	// same clumps, which is what draws the streaks out behind the whitecaps.
-	const shapeR = clamp(
-		float( 1.0 ).add( fd.sub( 0.62 ).mul( 1.7 ).mul( uFoamSharp.max( 0.05 ) ) ), 0.0, 2.4,
+	const shapeR = mix(
+		mix( float( 0.48 ), float( 0.18 ), sharpK ),
+		mix( float( 1.08 ), float( 1.36 ), sharpK ),
+		smoothstep( 0.14, 0.86, fd ),
 	).toVar();
 	// Multiplying a blurry coverage by a detail field keeps the blur: the sim's
 	// foam lives at 1.5 m per texel, so close up the raft was a magnified smudge
@@ -959,20 +1956,27 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 	// the coverage the area it selects still tracks what the sim computed.
 	// Only worth doing while a pixel is narrower than a clump; past that there is
 	// nothing to resolve and the multiplicative mean is the honest answer.
-	const crisp = clumpRes.mul( clamp( uFoamCrisp, 0.0, 1.0 ) ).toVar();
-	const eF = 0.11, eR = 0.20;
+	const crisp = clumpRes.mul( clamp( uFoamCrisp, 0.0, 1.0 ) ).mul( 0.90 ).toVar();
+	const eF = 0.22, eR = 0.34;
 
 	// Four standalone mixes in these two statements. Porting rule 1.
+	// The crisp resolve is `fd > 1 - coverage`, with a soft edge of width e.
+	// Centred on that threshold the edge still has a tail when coverage is 0
+	// (smoothstep(1-e, 1+e, fd) lights the top of the noise field), which is
+	// the white specks that survived Foam amount / Coverage at 0. Gate the
+	// crisp branch by coverage so a zeroed slider is actually empty.
 	const maskF = mix(
 		clamp( covF.mul( mix( float( 1.0 ), shape, clumpRes ) ), 0.0, 1.0 ),
-		smoothstep( float( 1.0 ).sub( covF ).sub( eF ), float( 1.0 ).sub( covF ).add( eF ), fd ),
+		smoothstep( float( 1.0 ).sub( covF ).sub( eF ), float( 1.0 ).sub( covF ).add( eF ), fd )
+			.mul( smoothstep( 0.0, eF, covF ) ),
 		crisp,
-	).toVar();
+	).mul( gateF ).toVar();
 	const maskR = mix(
 		clamp( covR.mul( mix( float( 1.0 ), shapeR, clumpRes ) ), 0.0, 1.0 ),
-		smoothstep( float( 1.0 ).sub( covR ).sub( eR ), float( 1.0 ).sub( covR ).add( eR ), fd ),
+		smoothstep( float( 1.0 ).sub( covR ).sub( eR ), float( 1.0 ).sub( covR ).add( eR ), fd )
+			.mul( smoothstep( 0.0, eR, covR ) ),
 		crisp,
-	).toVar();
+	).mul( gateR ).toVar();
 	const foamMask = clamp( maskF.add( maskR.mul( float( 1.0 ).sub( maskF ) ) ), 0.0, 1.0 ).toVar();
 
 	// What fraction of the covered area is dense crest foam rather than raft. It
@@ -995,74 +1999,138 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 	// separate caps is exactly the wrong shaping for a coherent band with an edge.
 	// So it composites over the top, only lightly textured, and it is fresh - a
 	// hull aerates water far more thoroughly than a collapsing crest does.
+	If( swellFieldLive(), () => {
+
+		const rf = swellRippleFoam( vFlat.xz ).mul( uFoamAmount )
+			.mul( mix( float( 0.72 ), float( 1.0 ), fd ) ).toVar();
+		If( rf.greaterThan( 0.02 ), () => {
+
+			// Bow foam wants the same brilliant aeration as a hull wake
+			// (0.9), not the duller 0.58 crest raft — that is the Jaws
+			// pile at the snout. Packet foam stays a bit quieter.
+			const hot = mix( float( 0.58 ), float( 0.92 ),
+				smoothstep( float( 0.12 ), float( 0.45 ), rf ) );
+			fresh.assign( mix( fresh, hot, rf ) );
+			foamMask.assign( foamMask.add( rf.mul( float( 1.0 ).sub( foamMask ) ) ) );
+
+		} );
+
+	} );
+
 	If( wake.greaterThan( 0.002 ), () => {
 
+		// Aerated film. fd mottles brightness; it does not punch Voronoi
+		// holes. Numbers twin wakeFoamMask / wakeFoamThickness in foam-lace.js.
 		const wakeMask = clamp(
-			wake.mul( float( 0.80 ).add( float( 0.40 ).mul( fd.sub( 0.5 ) ) ) ), 0.0, 1.0,
+			wake.mul( mix(
+				float( 0.78 ), float( 1.0 ), smoothstep( 0.00, 1.00, fd ),
+			) ),
+			0.0, 1.0,
 		).toVar();
-		fresh.assign( mix( fresh, float( 0.9 ), wakeMask ) );
+		const wakeThick = clamp(
+			wake.mul( mix(
+				float( 0.55 ), float( 0.92 ), smoothstep( 0.00, 1.00, fd ),
+			) ),
+			0.0, 1.0,
+		).toVar();
+		// Fibrous film along the heading — Water Pro's streaky stern trail.
+		// Floor stays high so this never punches navy holes (foam-lace.js).
+		const relW = vFlat.xz.sub( uWakeHead ).toVar();
+		const alongW = relW.dot( uWakeFwd ).toVar();
+		const acrossW = relW.x.mul( uWakeFwd.y.negate() ).add( relW.y.mul( uWakeFwd.x ) ).toVar();
+		const fibre = vnoise2( vec2( alongW.mul( 0.22 ), acrossW.mul( 1.15 ) ) ).toVar();
+		const thread = vnoise2( vec2( alongW.mul( 0.07 ), acrossW.mul( 2.6 ) ) ).toVar();
+		wakeMask.mulAssign( mix( float( 0.86 ), float( 1.0 ), fibre ) );
+		wakeThick.mulAssign( mix( float( 0.78 ), float( 1.12 ), smoothstep( 0.48, 0.82, thread ) ) );
+		bubbles.assign( bubbles.max( wakeThick ) );
+		const wakeFresh = mix( float( 0.42 ), float( 0.92 ), smoothstep( 0.10, 0.62, wake ) ).toVar();
+		fresh.assign( mix( fresh, wakeFresh, wakeMask ) );
 		foamMask.assign( foamMask.add( wakeMask.mul( float( 1.0 ).sub( foamMask ) ) ) );
 
 	} );
+
+	// Foam the swimming body actually left in the water. Coverage centres
+	// are world-space stamps. fd mottles the film; it never decides where
+	// the trail is and it does not stencil a web into it.
+	If( uWakeFoamCount.greaterThan( 0.5 ), () => {
+
+		const trailCov = clamp(
+			wakeFoamAccum( vFlat.x, vFlat.z ).mul( uFoamAmount ), 0.0, 1.0,
+		).toVar();
+		If( trailCov.greaterThan( 0.004 ), () => {
+
+			const film = mix(
+				float( 0.62 ), float( 0.92 ), smoothstep( 0.00, 1.00, fd ),
+			).toVar();
+			const trailMask = trailCov.mul( film ).mul( 0.90 ).toVar();
+			const trailThick = trailCov.mul( mix(
+				float( 0.28 ), float( 0.56 ), smoothstep( 0.00, 1.00, fd ),
+			) ).toVar();
+			bubbles.assign( bubbles.max( trailThick ) );
+			const trailFresh = mix(
+				float( 0.10 ), float( 0.42 ), smoothstep( 0.20, 0.78, trailCov ),
+			).toVar();
+			fresh.assign( mix( fresh, trailFresh, trailMask ) );
+			foamMask.assign( foamMask.add( trailMask.mul( float( 1.0 ).sub( foamMask ) ) ) );
+
+		} );
+
+	} );
+
+	// A water entry is not wind foam either, and it went in through the wind
+	// path: the coverage landed here but the SHADING kept coming from the
+	// whitecap clump noise (`bubbles`, at foamBreakScale metres), so a 40 m
+	// crater came out crawling with metre-wide worms - the frame read as a sand
+	// dune, which is exactly the failure the wake note above describes. The
+	// coverage is kept and the clump texture is flattened out of it, below,
+	// once section 7 has finished writing `bubbles`.
+	// uFoamAmount gates it like every other foam path (see the breach veil's
+	// note lower down - this block was the one that had missed the memo).
+	const splashCov = float( 0.0 ).toVar();
+	If( uSplashEnergy.greaterThan( 0.0005 ), () => {
+
+		splashCov.assign( splashFoamAt( vFlat.xz ).mul( uFoamAmount ) );
+		fresh.assign( mix( fresh, float( 0.86 ), splashCov ) );
+		foamMask.assign( foamMask.add( splashCov.mul( float( 1.0 ).sub( foamMask ) ) ) );
+
+	} );
+
+	// Covered water is an emulsion. Optical thickness used to follow only
+	// lace cores, so a filled mask still rendered as grit / wire.
+	bubbles.assign( bubbles.max(
+		mix( float( 0.16 ), float( 0.72 ), fresh )
+			.mul( smoothstep( 0.01, 0.22, foamMask ) ),
+	) );
+
+	// Leftover waterline foam used to be its own UBO. That slot went to
+	// persistent wake foam (12-buffer WebGPU cap). The demo never writes
+	// it — uLeftoverFoamCount stays 0 and probes assert that.
 
 	// ---- 7. foam normal (530-558) -------------------------------------------
 	const Nfoam = N.toVar();
 
 	If( foamMask.greaterThan( 0.003 ), () => {
 
-		// Bubble relief from a cheap analytic gradient, and a slight lift so the
-		// raft sits proud of the water rather than being painted onto it.
-		// Two scales of bubble: clumps of raft a hand's width across, and the
-		// individual bubble caps inside them. One scale alone reads as a noise
-		// texture rather than as whitewater.
-		// Each band dies as its cells drop under the pixel footprint, and it dies
-		// toward its own mean rather than to zero, so a distant raft becomes a flat
-		// patch of the right brightness instead of a field of aliasing sparks.
-		const cf = float( 1.0 ).sub( smoothstep( 0.14, 0.85, foot ) ).toVar();    // 25 cm clumps
-		const bf = float( 1.0 ).sub( smoothstep( 0.035, 0.20, foot ) ).toVar();   // 6 cm bubble caps
-		// A REAL float var, not a JS number, and the products below are left as
-		// shader expressions rather than folded here. `e * 17.0` folded in JS
-		// doubles and then narrowed to float lands one ulp away from what the GLSL
-		// computes from `float e = 0.09` (1.52999997 vs 1.53000009): the shader
-		// multiplies a float by 17, JS multiplies a double. `e * 4.0` happens to
-		// agree because scaling by a power of two is exact, but there is no reason
-		// to rely on that per constant. Emitting `e * 17.0` gives the compiler the
-		// identical expression the GLSL gave it.
-		const e = float( 0.09 ).toVar();
-		const bp = vec3( vFlat.xz.mul( 4.0 ), uTime.mul( 0.45 ) ).toVar();
-		const bq = vec3( vFlat.xz.mul( 17.0 ), uTime.mul( 1.1 ) ).toVar();
-		// Keeps the mean at 0.75, so a distant raft goes flat at the right
-		// brightness instead of sparkling.
-		const base = float( 0.5 ).mul( float( 1.0 ).sub( cf ) )
-			.add( float( 0.25 ).mul( float( 1.0 ).sub( bf ) ) ).toVar();
+		// Thickness stays foamField.y. The old 25 cm / 6 cm vnoise gradient is
+		// what read as sand (and, on a 40 m splash, as worms). A matte foam
+		// film follows the displaced wave; it does not wear its own bump map.
+		//
+		// ...except inside a water entry, where the water is churned through
+		// rather than drained into a lace. A 40 m crater wearing the wind web
+		// would remagnify the same worms the previous relief did. Saturating
+		// EARLY is the point: a quarter of a unit of coverage is already
+		// thoroughly aerated water. So in churn the thickness goes uniform
+		// and the normal stays the wave's, not a lace-edge slope.
+		const churn = smoothstep( 0.02, 0.12, splashCov )
+			.max( smoothstep( 0.12, 0.48, wake ) ).toVar();
+		bubbles.assign( mix( bubbles, float( 0.90 ), churn ) );
 
-		const b0 = vnoise( bp ).mul( cf )
-			.add( float( 0.5 ).mul( vnoise( bq ) ).mul( bf ) ).add( base ).toVar();
-		const bx = vnoise( bp.add( vec3( e.mul( 4.0 ), 0.0, 0.0 ) ) ).mul( cf )
-			.add( float( 0.5 ).mul( vnoise( bq.add( vec3( e.mul( 17.0 ), 0.0, 0.0 ) ) ) ).mul( bf ) )
-			.add( base ).toVar();
-		const bz = vnoise( bp.add( vec3( 0.0, e.mul( 4.0 ), 0.0 ) ) ).mul( cf )
-			.add( float( 0.5 ).mul( vnoise( bq.add( vec3( 0.0, e.mul( 17.0 ), 0.0 ) ) ) ).mul( bf ) )
-			.add( base ).toVar();
-		const bg = vec2( bx.sub( b0 ), bz.sub( b0 ) ).div( e ).toVar();
-
-		// Replace the coarse mask-shaping noise with this finer field: from here on
-		// the bubble term is shading structure, not coverage modulation.
-		bubbles.assign( clamp( b0.mul( 0.75 ), 0.0, 1.2 ) );
-
-		const relief = uFoamDetail.mul( float( 0.3 ).add( float( 0.9 ).mul( fresh ) ) )
-			.mul( float( 1.0 ).div( float( 1.0 ).add( dist.mul( 0.02 ) ) ) ).toVar();
-
-		Nfoam.assign( vec3(
-			slope.x.negate().sub( bg.x.mul( relief ) ),
-			1.0,
-			slope.y.negate().sub( bg.y.mul( relief ) ),
+		// Keep the wave's slope — that is what makes foam ride the ripples
+		// instead of sitting as a sticker. Fresh crests flatten a hair.
+		Nfoam.assign( mix(
+			N, vec3( 0.0, 1.0, 0.0 ),
+			foamMask.mul( mix( float( 0.03 ), float( 0.10 ), fresh ) ),
 		).normalize() );
-
-		// A raft sits proud of the water, so it is a little flatter than the wave
-		// it rides - but only a little, or it stops reading as part of the wave at
-		// all. Standalone mix.
-		Nfoam.assign( mix( Nfoam, vec3( 0.0, 1.0, 0.0 ), foamMask.mul( 0.12 ) ).normalize() );
 
 	} );
 
@@ -1454,13 +2522,15 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 
 		const samp = refractionTexture.sample( fuv ).toVar();
 
-		// THE WATER COLUMN, and this is what the depth attachment is for. The old
-		// blend faded the animal by its own depth below mean sea level, which is a
-		// different quantity: it is right only looking straight down, and at the
-		// angle you actually ride at a body three metres down is thirty metres of
-		// water away. Here it is the real distance from this pixel of surface to
-		// the body along the ray.
-		const path = bedDist.sub( eyeDist ).max( 0.0 ).toVar();
+		// THE WATER COLUMN along the camera ray, not the body's depth under
+		// the local surface. eyeDist is the displaced vertex (waves + the swell
+		// mound), so subtracting it collapsed this to "how far under the hump"
+		// - a side view through thirty metres of sea then read the same as
+		// looking straight down at a body three metres under. tEnter is where
+		// this pixel's ray meets MEAN sea level; everything past that is wet.
+		// Camera already in the water: the whole camera-to-body run is wet.
+		const tEnter = uCamPos.y.sub( uSeaLevel ).div( V.y.max( 1e-3 ) ).max( 0.0 ).toVar();
+		const path = bedDist.sub( tEnter ).max( 0.0 ).toVar();
 		// Extinction on the way up. The COLOUR is the sea's own uAbsorption, so
 		// red goes first and the shape turns blue-green as it sounds exactly like
 		// the water around it; uRefractFade is only its SCALE, in metres, so the
@@ -1499,9 +2569,9 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 		// guessed from the animal's position and length.
 		//
 		// FED INTO THE SEA'S OWN foamMask, not shaded by hand. foamMask already
-		// drives a whole tuned system - the whitewater albedo, the wet-sheen
-		// highlight, the sky tint, the Beer-Lambert opacity that keeps a fresh
-		// crest opaque and a dissipated one a veil - and reusing it is what
+		// drives a whole tuned system - the lace albedo, the cyan underglow,
+		// the Beer-Lambert opacity that keeps a fresh crest opaque and a
+		// dissipated one a veil - and reusing it is what
 		// keeps the spray looking like the sea's own foam instead of a decal
 		// with a different idea of what foam is. Guarded the same way the
 		// refraction sample above is: the select's arms, not a multiply, are
@@ -1509,7 +2579,13 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 		const near = select(
 			sane, smoothstep( uSwellFoamDepth, 0.0, path ).mul( refrCov ), float( 0.0 ),
 		).toVar();
-		foamMask.assign( clamp( foamMask.add( near.mul( uSwellFoamStrength ) ), 0.0, 1.0 ) );
+		// uFoamAmount is the master for every foam path, including the breach
+		// veil. Without it, Sea Dragon → Spray kept painting bubble specks on
+		// the water after Foam amount was already 0.
+		foamMask.assign( clamp(
+			foamMask.add( near.mul( uSwellFoamStrength ).mul( uFoamAmount ) ),
+			0.0, 1.0,
+		) );
 
 	} );
 
@@ -1519,7 +2595,9 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 	// glowing embers with sparkles inside them.
 	const col = diffuse.mul( vec3( 1.0 ).sub( Fenv ) )
 		.add( skyRefl.mul( Fenv ) )
-		.add( sunSpec.add( moonSpec ).mul( float( 1.0 ).sub( foamMask.mul( 0.9 ) ) ) )
+		.add( sunSpec.add( moonSpec ).mul( float( 1.0 ).sub(
+			foamMask.mul( mix( float( 0.38 ), float( 0.90 ), fresh ) ),
+		) ) )
 		.toVar();
 
 	// ---- what shows THROUGH the glare ---------------------------------------
@@ -1544,22 +2622,44 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 
 		const fNoL = Nfoam.dot( L ).max( 0.0 ).toVar();
 		const fNoV = clamp( Nfoam.dot( V ), 1e-4, 1.0 ).toVar();
+		const thick = bubbles.toVar();
 
-		// Whitewater is an optically thick bubble raft: a near-Lambertian
-		// dielectric. Measured whitecap reflectance is far lower than the eye
-		// assumes - a fresh breaking crest is around 0.6-0.8, and the thin
-		// dissipated raft that covers most of the sea is nearer 0.3, which is why a
-		// photographed streak is grey where a painted one is white. Building it as
-		// albedo x irradiance is what bounds it; the raft can never out-emit the
-		// sunlight falling on it.
+		// White only where the lace is optically thick. Filaments stay a
+		// grey-white veil so the navy shows through; clump cores reach the
+		// measured whitecap range (0.6–0.8). Building it as albedo × irradiance
+		// is what bounds it — the raft can never out-emit the sunlight falling
+		// on it. A painted disc is what you get if this ignores `thick`.
 		const albedo = clamp(
-			float( 0.28 ).add( float( 0.44 ).mul( fresh ) )
-				.add( float( 0.10 ).mul( uFoamLift ).mul( fresh ) ), 0.0, 0.82,
+			float( 0.70 ).add( float( 0.26 ).mul( thick ) )
+				.add( float( 0.08 ).mul( uFoamLift ).mul( fresh ).mul( thick ) ),
+			0.62, 0.97,
 		).toVar();
-		albedo.mulAssign( float( 0.72 ).add( float( 0.50 ).mul( bubbles ) ) );
-		albedo.assign( albedo.min( 0.86 ) );
 
-		const Efoam = skyIrr.mul( ao ).add( sunRad.mul( fNoL ) ).toVar();
+		// A BREACH IS A VOLUME, NOT A SURFACE, and shading it as a surface is why
+		// the mound came out looking like wet sand: a hard cosine over a noisy
+		// normal is *literally* how you shade sand, and the reference footage's
+		// churn is a glowing white mass whose lit side and shadow side differ far
+		// less than any Lambertian sheet's do. Metres of aerated water scatter
+		// light through themselves many times, so:
+		//   - the sun's cosine WRAPS (the standard cheap stand-in for multiple
+		//     scattering); the far side is lit by light that went in the near side
+		//   - it sees the whole sky, not a trough's fraction of it
+		//   - its albedo runs to the top of the measured foam range, because this
+		//     is the thickest, freshest whitewater in the scene
+		//   - it has no wet-film sheen: that is a property of a bubble surface,
+		//     and there is no coherent surface left here
+		// Everything outside a water entry is untouched - thickK is zero there.
+		const thickK = smoothstep( 0.05, 0.45, splashCov )
+			.max( smoothstep( 0.18, 0.55, wake ).mul( 0.62 ) ).toVar();
+		// Mild wrap on all foam (a bubble cloud is a volume); strong wrap on
+		// splash. Do not feed splash coverage through the wind lace.
+		const wrap = mix( float( 0.48 ), float( 0.85 ), thickK ).toVar();
+		const fNoLw = Nfoam.dot( L ).add( wrap ).div( float( 1.0 ).add( wrap ) ).max( 0.0 ).toVar();
+		albedo.assign( mix( albedo, float( 0.90 ), thickK ) );
+
+		const Efoam = skyIrr.mul( mix( ao, float( 1.0 ), thickK ) )
+			.add( sunRad.mul( fNoLw ) )
+			.add( sunRad.mul( 0.28 ).mul( float( 0.55 ).add( float( 0.45 ).mul( thick ) ) ) ).toVar();
 		const foamLit = uFoamColor.mul( albedo ).mul( Efoam ).mul( float( 1.0 ).div( PI_W ) ).toVar();
 
 		// Bubble rafts scatter hard forward: a raft lights up when the sun is
@@ -1573,43 +2673,62 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 				.mul( float( 1.0 ).sub( float( 0.55 ).mul( fresh ) ) ),
 		);
 
-		// Wet-sheen highlight off the bubble film, bounded by the same mirror
-		// ceiling the water's own specular uses. D_GGX is the ISOTROPIC one and
-		// D_GGXAniso cannot stand in for it - see ./water-brdf.js.
+		// Matte foam vs glossy water. A wet-film GGX on a noisy normal is how
+		// the old path shaded sand; keep a whisper on thin films only, none
+		// on splash volumes or optically thick clumps. D_GGX is the ISOTROPIC
+		// one and D_GGXAniso cannot stand in for it - see ./water-brdf.js.
 		const fa = clamp( uFoamRoughness.mul( uFoamRoughness ), 0.004, 1.0 ).toVar();
 		const Hf = L.add( V ).normalize().toVar();
 		const fD = D_GGX( clamp( Nfoam.dot( Hf ), 0.0, 1.0 ), fa ).toVar();
 		const fV = V_SmithGGX( fNoV, fNoL, fa ).toVar();
-		foamLit.addAssign( sunRad.mul( fD.mul( fV ).min( mirrorCeil ) ).mul( fNoL ).mul( 0.06 ) );
+		const sheen = float( 0.018 ).mul( float( 1.0 ).sub( thickK ) )
+			.mul( float( 1.0 ).sub( thick.mul( 0.75 ) ) ).toVar();
+		foamLit.addAssign( sunRad.mul( fD.mul( fV ).min( mirrorCeil ) ).mul( fNoL ).mul( sheen ) );
 
 		// Sky reflected off the raft keeps it tied to the light of the scene.
-		foamLit.addAssign( sampleSky( reflect( V.negate(), Nfoam ), float( 0.9 ) ).mul( 0.05 ) );
+		foamLit.addAssign( sampleSky( reflect( V.negate(), Nfoam ), float( 0.9 ) ).mul( 0.04 ) );
 
-		// Standalone mix, twice, nested.
-		foamLit.assign( mix(
-			foamLit,
-			foamLit.mul( mix( vec3( 1.0 ), uScatterColor.mul( 3.0 ), 0.5 ) ),
-			uFoamTint,
-		) );
+		// Sub-surface bubble cloud: the cyan underglow in the reference photo.
+		// Slightly larger footprint than the white (sqrt dilates), only under
+		// thick patches — thin filaments must not glow. Never stains the white
+		// core. foamTint is the gain on this scatter, not a dye on the foam
+		// albedo — dyeing the white is what turned golden-hour rafts tan.
+		const halo = foamMask.sqrt().toVar();
+		const glowW = halo.mul( smoothstep( 0.06, 0.40, thick ) )
+			.mul( float( 0.50 ).add( float( 0.50 ).mul( float( 1.0 ).sub( fresh.mul( 0.35 ) ) ) ) )
+			.mul( float( 1.0 ).sub( thickK ) ).toVar();
+		const cyan = uScatterColor.mul( skyIrr.mul( 0.55 ).add( sunRad.mul( 0.30 ) ) )
+			.mul( float( 1.0 ).div( PI_W ) )
+			.mul( glowW )
+			.mul( float( 0.55 ).add( float( 2.8 ).mul( uFoamTint ) ) ).toVar();
 
 		// Aged foam has thinned into a veil a handful of bubbles deep, so the sea
 		// shows straight through it: a Beer-Lambert opacity in the raft's own
-		// thickness, not a paint layer. Only the fresh crest is optically thick.
-		const tau = float( 0.35 ).add( float( 5.0 ).mul( fresh ) ).toVar();
+		// thickness, not a paint layer. Only the dense clump is optically thick.
+		const tau = float( 0.22 ).add( float( 4.6 ).mul( thick ).mul( float( 0.40 ).add( float( 0.60 ).mul( fresh ) ) ) ).toVar();
+		const opFloor = mix( float( 0.10 ), float( 0.38 ), fresh ).toVar();
 		const opacity = clamp(
 			uFoamOpacity.mul( float( 1.0 ).sub( tau.negate().exp() ) )
-				.mul( float( 0.55 ).add( float( 0.7 ).mul( bubbles ) ) ), 0.0, 1.0,
+				.mul( opFloor.add( float( 1.0 ).sub( opFloor ).mul( thick ) ) ), 0.0, 1.0,
 		).toVar();
 
-		// TWO NESTED STANDALONE mixes. This is precisely the shape that cost the
-		// sky port its worst defect - `col.mix(foamLit, opacity)` compiles and
-		// blends by col. Porting rule 1.
-		col.assign( mix( col, mix( col, foamLit, opacity ), foamMask ) );
+		// Aged foam (the trail) is allowed to sit in the sea's colour. Fresh
+		// crests can still lift a little. A hard 1.12 floor was the white
+		// sticker.
+		foamLit.assign( max( foamLit, col.mul( mix( float( 0.88 ), float( 1.12 ), fresh ) ) ) );
+
+		// TWO NESTED STANDALONE mixes. Porting rule 1. Aged coverage never
+		// fully replaces the water — that is what made leftover foam a stencil.
+		const under = col.add( cyan ).toVar();
+		const cover = foamMask.mul( mix( float( 0.38 ), float( 0.88 ), fresh ) ).toVar();
+		col.assign( mix( col, mix( under, foamLit, opacity ), cover ) );
 
 	} );
 
 	// ---- 15. aerial perspective (779-785) -----------------------------------
-	If( uAerial.greaterThan( 0.0 ), () => {
+	// Atmosphere haze is air. Under the sea the column pass + the
+	// underside branch below own the look.
+	If( uAerial.greaterThan( 0.0 ).and( uCamPos.y.greaterThanEqual( uSeaLevel ) ), () => {
 
 		// aerialPerspective is atmosphere.js's PLAIN JS node-graph builder, not an
 		// Fn: the GLSL hands back two vec3s through `out` parameters, so it returns
@@ -1625,7 +2744,48 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 
 	} );
 
-	// ---- 16. out ------------------------------------------------------------
+	// ---- 16. underside (camera in the water) --------------------------------
+	// The above-water BRDF is a no-op here: from below the sheet is an
+	// interface. Snell's window (cos i > cos 48.6°) shows the refracted
+	// sky; outside it is TIR into the deep, with the same caustic flicker
+	// the column pass uses. Gated so an above-water golden is untouched.
+	If( uCamPos.y.lessThan( uSeaLevel ), () => {
+
+		const I = V.negate().toVar();
+		const cosi = clamp( N.dot( I ), 0.0, 1.0 ).toVar();
+		const eta = uWaterIOR.max( 1.01 ).toVar();
+		// cos(asin(1/n)) = sqrt(1 - 1/n²). No asin — TSL's trig on a
+		// derived float compiled and then discarded the window.
+		const invN = float( 1.0 ).div( eta ).toVar();
+		const crit = float( 1.0 ).sub( invN.mul( invN ) ).max( 0.0 ).sqrt().toVar();
+		const win = smoothstep( crit.sub( 0.08 ), crit.add( 0.04 ), cosi ).toVar();
+		const k = float( 1.0 ).sub( eta.mul( eta ).mul( float( 1.0 ).sub( cosi.mul( cosi ) ) ) ).toVar();
+		const refr = I.mul( eta ).add( N.mul( eta.mul( cosi ).sub( k.max( 0.0 ).sqrt() ) ) ).normalize().toVar();
+		const sky = sampleSky( refr, mix( float( 0.14 ), float( 0.30 ), float( 1.0 ).sub( win ) ) ).toVar();
+		const ph = uTime.mul( 1.65 ).toVar();
+		const caus = vFlat.x.mul( 0.38 ).add( ph ).sin()
+			.mul( vFlat.z.mul( 0.31 ).sub( ph.mul( 1.15 ) ).sin() )
+			.mul( 0.5 ).add( 0.5 ).pow( 3.0 ).mul( 1.6 ).toVar();
+		const deep = uScatterColor.mul( 0.36 ).add( sky.mul( 0.08 ) )
+			.mul( float( 1.0 ).add( caus.mul( 0.22 ) ) ).toVar();
+		const lit = sky.mul( float( 1.55 ).add( caus.mul( 0.55 ) ) ).toVar();
+		col.assign( mix( deep, lit, win ) );
+		// Foam clinging to the underside — wind foam plus a few aerated clumps.
+		const cling = smoothstep( float( 0.60 ), float( 0.88 ),
+			vnoise2( vec2( vFlat.x.mul( 0.07 ).add( uTime.mul( 0.11 ) ), vFlat.z.mul( 0.07 ) ) ),
+		).mul( 0.38 ).toVar();
+		const foamUw = foamMask.mul( mix( float( 0.28 ), float( 0.86 ), fresh ) )
+			.max( cling ).toVar();
+		const foamCol = mix(
+			vec3( 0.70, 0.84, 0.93 ),
+			vec3( 0.94, 0.97, 1.0 ),
+			fresh.max( cling ),
+		).mul( sky.mul( 0.32 ).add( 0.55 ) ).toVar();
+		col.assign( mix( col, foamCol, foamUw ) );
+
+	} );
+
+	// ---- 17. out ------------------------------------------------------------
 	// The GLSL's ABYSSAL_OUT() wrapper is the HDR output guard, which is the
 	// driver's business and a no-op in value terms - the same call
 	// ./sky-background.js made.
@@ -1663,6 +2823,7 @@ export function setWaterSurfaceUniforms( p, ctx, hull ) {
 	uRMax.value = p.rMax;
 	uEarthCurve.value = p.earthCurve;
 	uSeaLevel.value = p.seaLevel;
+	uHorizonPin.value = horizonPinAmount( ctx, p );
 
 	// The craft's image in the sea. Read off ctx, which every driver already
 	// fills; a caller with no craft leaves amount 0 and the branch never runs.
@@ -1681,8 +2842,8 @@ export function setWaterSurfaceUniforms( p, ctx, hull ) {
 	uHullFwd.value.set( h.fwd[ 0 ], h.fwd[ 1 ] );
 	uHullPush.value = h.push * waterDisplaceScale( p );
 	uHullPlane.value = h.plane;
-	uHullRadius.value = p.hullRadius;
-	uHullBow.value = p.hullBow;
+	uHullRadius.value = h.radius ?? p.hullRadius;
+	uHullBow.value = h.bow ?? p.hullBow;
 
 	uScatterColor.value.set( p.scatterColor[ 0 ], p.scatterColor[ 1 ], p.scatterColor[ 2 ] );
 	uAbsorption.value.set( p.absorption[ 0 ], p.absorption[ 1 ], p.absorption[ 2 ] );

@@ -73,9 +73,16 @@ export class UI {
     this.presetSelect = sel;
     root.appendChild(presetRow);
 
-    const actions = document.createElement('div');
-    actions.className = 'row';
-    actions.innerHTML = '<label>Actions</label>';
+    const actions = document.createElement('details');
+    actions.className = 'chrome-fold';
+    const actionsSum = document.createElement('summary');
+    const actionsTitle = document.createElement('span');
+    actionsTitle.className = 'summary-title';
+    actionsTitle.textContent = 'Actions';
+    actionsSum.appendChild(actionsTitle);
+    actions.appendChild(actionsSum);
+    const actionsBody = document.createElement('div');
+    actionsBody.className = 'body';
     const grid = document.createElement('div');
     grid.className = 'btns three';
     const mk = (text, type) => {
@@ -96,25 +103,23 @@ export class UI {
     this.viewBtn = mk('Rider view', 'view');
     this.viewBtn.style.display = 'none';
     grid.append(this.rideBtn, mk('New sea', 'reseed'), mk('Photo', 'photo'));
-    actions.appendChild(grid);
+    actionsBody.appendChild(grid);
     const viewRow = document.createElement('div');
     viewRow.className = 'btns';
     viewRow.style.marginTop = '6px';
-    viewRow.className = 'btns';
     viewRow.append(this.quietBtn, this.viewBtn);
-    actions.appendChild(viewRow);
+    actionsBody.appendChild(viewRow);
     const grid2 = document.createElement('div');
-    grid2.className = 'btns';
+    grid2.className = 'btns three';
     grid2.style.marginTop = '6px';
     grid2.append(mk('Save PNG', 'save'), mk('Copy all settings', 'copy'), mk('Profile', 'profile'));
-    grid2.className = 'btns three';
-    actions.appendChild(grid2);
+    actionsBody.appendChild(grid2);
     const grid3 = document.createElement('div');
     grid3.className = 'btns';
     grid3.style.marginTop = '6px';
     grid3.append(this.essentialsBtn, mk('Reset', 'reset'));
-    grid3.className = 'btns';
-    actions.appendChild(grid3);
+    actionsBody.appendChild(grid3);
+    actions.appendChild(actionsBody);
     root.appendChild(actions);
 
     for (const section of SCHEMA) {

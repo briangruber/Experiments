@@ -30,7 +30,10 @@ import { TslSky } from './tsl/sky-driver.js';
 import { TslWater } from './tsl/water-driver.js';
 import { TslSpray } from './tsl/spray-driver.js';
 import { TslPost } from './tsl/post-driver.js';
+import { TslUnderwater } from './tsl/underwater-driver.js';
+import { setUnderwaterUniforms } from './tsl/underwater.js';
 import { installThreeCompat } from './three-compat.js';
+import { cameraUnderwater } from '../underwater.js';
 
 import { newParams, PRESETS, applyPreset } from '../presets.js';
 import { CLOUD_TYPES, CLOUD_TYPE_NAMES, applyCloudType } from '../cloud-types.js';
@@ -146,6 +149,7 @@ export async function createAbyssal( {
 
 	const post = wantPost ? new TslPost( renderer ) : null;
 	if ( post ) post.seedAdapt();
+	const underwater = new TslUnderwater( renderer );
 
 	let hdr = null;
 	const sizeTo = ( w, h ) => {
@@ -170,8 +174,10 @@ export async function createAbyssal( {
 	// The rig every driver takes, refreshed per frame from the caller's camera.
 	const ctx = {
 		camPos: new Float32Array( 3 ),
+		camFwd: new Float32Array( 3 ),
 		camRight: new Float32Array( 3 ),
 		camUp: new Float32Array( 3 ),
+		fov: 40,
 		viewProj: null,
 		invViewProj: null,
 		sunDir: null, moonDir: null, windVec3: null,
@@ -208,8 +214,12 @@ export async function createAbyssal( {
 		_ivp.copy( _vp ).invert();
 		const e = camera.matrixWorld.elements;
 		ctx.camPos[ 0 ] = e[ 12 ]; ctx.camPos[ 1 ] = e[ 13 ]; ctx.camPos[ 2 ] = e[ 14 ];
+		// Three cameras look down local -Z; that column is the view forward.
+		ctx.camFwd[ 0 ] = - e[ 8 ]; ctx.camFwd[ 1 ] = - e[ 9 ]; ctx.camFwd[ 2 ] = - e[ 10 ];
 		ctx.camRight[ 0 ] = e[ 0 ]; ctx.camRight[ 1 ] = e[ 1 ]; ctx.camRight[ 2 ] = e[ 2 ];
 		ctx.camUp[ 0 ] = e[ 4 ]; ctx.camUp[ 1 ] = e[ 5 ]; ctx.camUp[ 2 ] = e[ 6 ];
+		ctx.fov = camera.fov ?? params.fov;
+		ctx.aspect = camera.aspect ?? ( w / Math.max( h, 1 ) );
 		ctx.viewProj = _vp.elements;
 		ctx.invViewProj = _ivp.elements;
 		ctx.sunDir = derived.sunDir;
@@ -241,7 +251,13 @@ export async function createAbyssal( {
 		// spray on top.
 		if ( scene ) renderer.render( scene, camera );
 		if ( water ) water.render( params, ctx, sim, camera );
-		sky.drawBackground( params, ctx );
+		if ( cameraUnderwater( params, ctx.camPos[ 1 ] ) ) underwater.render( params, ctx );
+		else {
+
+			setUnderwaterUniforms( params, ctx );
+			sky.drawBackground( params, ctx );
+
+		}
 		if ( spray ) spray.draw( params, ctx, sim, camera );
 
 		renderer.setRenderTarget( null );

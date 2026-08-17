@@ -440,11 +440,11 @@ export const uThin = /*@__PURE__*/ uniform( 0.18 );          // p.foamThin
 export const uSpreadRate = /*@__PURE__*/ uniform( 0.40 );    // p.foamSpread
 export const uWeight = /*@__PURE__*/ uniform( 0.20 );        // FOAM_WEIGHTS[c]
 export const uDrift = /*@__PURE__*/ uniform( 0.6 );          // p.foamDrift
-export const uFaceBias = /*@__PURE__*/ uniform( 0.7 );       // p.foamFace
+export const uFaceBias = /*@__PURE__*/ uniform( 0.78 );      // p.foamFace
 export const uBreakScale = /*@__PURE__*/ uniform( 3.2 );     // p.foamBreakScale
-export const uCrestAniso = /*@__PURE__*/ uniform( 4.0 );     // p.foamCrestAniso
+export const uCrestAniso = /*@__PURE__*/ uniform( 1.7 );     // p.foamCrestAniso
 export const uRidge = /*@__PURE__*/ uniform( 0.85 );         // p.foamRidge
-export const uBreakup = /*@__PURE__*/ uniform( 0.55 );       // p.foamBreakup
+export const uBreakup = /*@__PURE__*/ uniform( 0.88 );       // p.foamBreakup
 
 // =============================================================================
 // SPECTRUM  (INIT_SPECTRUM_FS)
@@ -1242,13 +1242,14 @@ export const foamFragment = /*@__PURE__*/ Fn( ( [ prevFoamTex, dispTex, slopeTex
 	// code smeared a raft over eight metres in the 397 m cascade and over thirty
 	// centimetres in the 17 m one, so each cascade grew a differently shaped foam
 	// and the sum was a soft halo around a hard core.
-	const alongUV = float( 0.9 ).mul( bs ).div( uL ).toVar();
-	const acrossUV = float( 0.16 ).mul( bs ).div( uL ).toVar();
+	const alongUV = float( 0.45 ).mul( bs ).div( uL ).toVar();
+	const acrossUV = float( 0.28 ).mul( bs ).div( uL ).toVar();
 
 	const prev = prevFoamTex.sample( uvI.sub( duv ) ).depth( uLayer ).level( 0.0 ).toVar();
 
-	// Anisotropic diffusion: a foam raft smears far further along the wind than
-	// across it, which is what turns blobs into streaks.
+	// Mild along-wind bias (~1.6:1), not the old 5.6:1 smear. That ratio turned
+	// every breaker into a filament; real foam keeps clumps and holes while it
+	// drifts.
 	const blur = prevFoamTex.sample( uvI.sub( duv ).add( wd.mul( alongUV ) ) )
 		.depth( uLayer ).level( 0.0 )
 		.add( prevFoamTex.sample( uvI.sub( duv ).sub( wd.mul( alongUV ) ) )

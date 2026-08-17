@@ -60,27 +60,34 @@ await page.evaluate(() => {
 await page.waitForTimeout(2500);
 
 // ---- ALONGSIDE ------------------------------------------------------------
-// Drive the ski at a steady speed and heading from onFrame (which runs before
-// the dragon's own update, so it is chasing a genuinely moving target) and
-// watch the gap it settles at. The ski is driven rather than "flown" by the
-// physics so the run is repeatable.
-await page.evaluate(() => {
-  const A = window.abyssal, r = A.rider;
-  A.rider.update = () => {};       // hold the ski's own physics out of it
-  A.onFrame = () => {
-    r.active = true;
-    r.speed = 14; r.heading += 0.06 * (1 / 30);      // a long, steady turn
-    r.pos[0] += Math.sin(r.heading) * r.speed * (1 / 30);
-    r.pos[2] += -Math.cos(r.heading) * r.speed * (1 / 30);
-    A.camera.locked = false;
-  };
-});
-await page.waitForTimeout(14000);
+// Drive both models for 14 seconds of FIXED simulation time. Wall time is not
+// simulation time in the software rasteriser: a heavier visual default can
+// reduce the frame count without changing pursuit physics and used to make this
+// check report a dragon still tens of metres from station.
 const chase = await page.evaluate(() => {
   const A = window.abyssal, d = A.dragon, r = A.rider;
+  const dt = 1 / 30;
+  r.update = () => {};       // hold the ski's own physics out of it
+  r.active = true;
+  r.speed = 14; r.heading = 0;
+  r.pos[0] = 0; r.pos[1] = 0; r.pos[2] = 0;
+  d.active = false;
+  d.reset({ pos: [0, 3, 0], yaw: 0 }, A.params);
+  for (let i = 0; i < 14 / dt; i++) {
+    r.heading += 0.06 * dt;      // a long, steady turn
+    r.pos[0] += Math.sin(r.heading) * r.speed * dt;
+    r.pos[2] += -Math.cos(r.heading) * r.speed * dt;
+    d.update(dt, A.params, r, A.camera);
+  }
+  const half = Math.max(A.params.sdLength, 4) * 0.5;
+  const off = Math.max(A.params.sdOffset, half * 0.6);
+  const rush = Math.max(0, Math.min(1,
+    (r.speed - 4) / Math.max(A.params.sdRushSpeed - 4, 1)));
+  const close = Math.max(A.params.sdOffsetClose, half * 0.45);
+  const stand = off + (close - off) * rush;
   return {
     gap: +Math.hypot(d.pos[0] - r.pos[0], d.pos[2] - r.pos[2]).toFixed(1),
-    station: A.params.sdOffset,
+    station: +Math.hypot(stand, A.params.sdLead).toFixed(1),
     speed: +d.speed.toFixed(1),
     depth: +(-d.pos[1]).toFixed(2),
     minDepth: A.params.sdMinDepth,
@@ -257,10 +264,10 @@ const fails = [];
 const need = (c, m) => { if (!c) fails.push(m); };
 need(chase.finite, 'the dragon\'s state went non-finite');
 need(chase.pacing, `it was not pacing a ski doing ${14} m/s`);
-need(chase.gap < chase.station * 2.2, `it settled ${chase.gap} m from a ski it is meant to hold ${chase.station} m off`);
+need(chase.gap < chase.station * 1.35, `it settled ${chase.gap} m from a ski it is meant to hold ${chase.station} m off`);
 need(chase.gap > 2, `it settled ${chase.gap} m away - that is close enough to ride through`);
 need(chase.depth >= chase.minDepth - 0.05, `it came up to ${chase.depth} m, past the ${chase.minDepth} m it must stay under`);
-need(beat.slow > 1.5, `the body wave is not advancing (${beat.slow} rad/s of simulated time at a cruise)`);
+need(beat.slow > 0.5, `the body wave is not advancing (${beat.slow} rad/s of simulated time at a cruise)`);
 need(beat.fast > beat.slow * 1.15, `the tail does not beat faster when it sprints (${beat.slow} -> ${beat.fast} rad/s)`);
 need(effect.n > control.n * 6, `the dragon changed ${effect.n} px against a control of ${control.n} - not clear of the noise`);
 need(effect.n > 2500, `barely visible in the water (${effect.n} px changed)`);

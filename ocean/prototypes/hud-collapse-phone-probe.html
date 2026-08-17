@@ -62,11 +62,17 @@ const work = (async () => {
       + ` (position ${ cs.position }, top ${ cs.top }, bottom ${ cs.bottom }, height ${ cs.height })`;
   };
 
+  // The shipped page starts collapsed. Open it first so we can measure
+  // the expanded panel, then collapse the way a thumb does.
+  if (hud.getAttribute('data-collapsed') === 'true') {
+    toggle.click();
+    await new Promise((r) => setTimeout(r, 120));
+  }
+
   const expanded = rect(hud).h;
   log('expanded, the panel is a panel and not the whole screen', expanded < vh * 0.98,
       `#hud ${ desc(hud) }, viewport ${ vh }px tall`);
 
-  // Collapse it exactly the way a thumb does.
   toggle.click();
   await new Promise((r) => setTimeout(r, 120));
 
@@ -91,10 +97,12 @@ const work = (async () => {
   log('it covers only a sliver of the sea once collapsed', covered < 0.15,
       `${ (covered * 100).toFixed(1) }% of the viewport still under the panel`);
 
-  // The settings panel is a separate element with its own history of covering
-  // the sea (settings-stuck-open-probe.html); it must be away by default here.
-  log('the settings sheet is not in the way either', ui.classList.contains('hidden'),
-      `#ui ${ desc(ui) }, className "${ ui.className }"`);
+  // Settings live inside #hud (#settings-slot). Collapsing the instrument
+  // must take that slot with it — they are not a second surface.
+  const slot = doc.getElementById('settings-slot');
+  log('the settings sheet is not in the way either',
+      !! slot && win.getComputedStyle(slot).display === 'none' && ui.offsetParent === null,
+      `#settings-slot display ${ slot ? win.getComputedStyle(slot).display : 'missing' }, #ui ${ desc(ui) }`);
 
   return 'done';
 })();

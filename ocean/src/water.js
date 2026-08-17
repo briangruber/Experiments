@@ -16,6 +16,7 @@ import { program, setUniforms, texture2D } from './gl.js';
 import { clamp } from './math.js';
 import { WATER_VS, WATER_FS } from './shaders/water.js';
 import { LDR_OUTPUT_GLSL } from './shaders/output.js';
+import { horizonPinAmount } from './horizon-pin.js';
 
 // A hull that is nowhere near the water. Passing this is how you say "no boat":
 // the shader's hull terms all scale by uHullPush and uHullPlane, and the
@@ -69,9 +70,12 @@ export class WaterSurface {
     return {
       uWakeTex: this._dummyWake,
       uWakeOrigin: new Float32Array([0, 0]),
+      uWakeHead: new Float32Array([0, 0]),
+      uWakeFwd: new Float32Array([0, 1]),
+      uWakeSpeed: 0,
       uWakeExtent: 1,
       uWakeOn: 0,
-      uWakeLife: 1, uWakeArmW: 1, uWakeArm: 0, uWakeChurn: 0, uWakeSpread: 1,
+      uWakeLife: 1, uWakeArmW: 1, uWakeEdge: 0.22, uWakeArm: 0, uWakeChurn: 0, uWakeSpread: 1,
       uWakeBeam: 1, uWakeDepth: 0, uWakeStrength: 0,
     };
   }
@@ -149,6 +153,7 @@ export class WaterSurface {
       uRMin: p.rMin, uRMax: p.rMax,
       uHeightScale: p.heightScale, uHorizScale: p.horizScale,
       uEarthCurve: p.earthCurve, uSeaLevel: p.seaLevel,
+      uHorizonPin: horizonPinAmount(ctx, p),
       uSkyLUT: sky.lut, uSunDir: ctx.sunDir, uMoonDir: ctx.moonDir,
       uSunColor: p.sunIrradiance, uMoonColor: p.moonColor,
       uTime: ctx.time,
@@ -162,6 +167,8 @@ export class WaterSurface {
       uFoamAmount: p.foamAmount, uFoamRoughness: p.foamRoughness,
       uFoamTint: p.foamTint, uFoamDetail: p.foamDetail, uFoamLift: p.foamLift,
       uFoamSharp: p.foamSharp, uFoamCrisp: p.foamCrisp, uFoamStreak: p.foamStreak,
+      uFoamDrift: p.foamDrift, uFoamFill: p.foamFill ?? 0.55,
+      uFoamCell: p.foamCell ?? 1,
       uFoamOpacity: p.foamOpacity,
       uFoamColor: p.foamColor,
       uSunAngularRadius: p.sunAngularRadius, uSpecIntensity: p.specIntensity,

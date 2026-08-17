@@ -20,13 +20,13 @@ Everything below is in the three.js demo (`demo/three-main.js` +
 - **The mound.** `swellLift()` in `src/gpu/tsl/water-surface.js` lifts the
   surface *and* feeds the slope (the slope half is not optional: a mound
   wearing the flat sea's normals is invisible except in silhouette) — and its
-  spine now **curves with the same travelling sine wave the mesh swims**
-  (`uSwellWaves`/`uSwellSweep`/`uSwellPhase`, fed the same source values as
-  `creature.js`'s `uCreatureWaves`/`uCreatureAmp`/`uCreaturePhase`). It used to
-  be a straight capsule and read as water displaced by a plank; reported
-  exactly that. `node tools/check-swell-curve.mjs` is a pure CPU-algebra check
-  that the mound's curve lands on the same point the mesh's own vertex stage
-  does — no GPU needed, since it is two formulas that either agree or don't.
+  shape now follows **the same travelling sine wave the mesh swims**: sideways
+  motion curves its XZ spine, while up/down motion raises and lowers the mound
+  along that spine (`uSwellSweep`/`uSwellLift`/`uSwellLiftPhase`, fed the same
+  live amplitude, axis and phase as `creature.js`). It used to be a straight,
+  rigid capsule and read as water displaced by a plank; reported exactly that.
+  `node tools/check-swell-curve.mjs` is a pure CPU-algebra check that both the
+  lateral and vertical mound formulas agree with the mesh's vertex stage.
 - **Spray at the waterline.** Fed into the sea's own `foamMask` from inside the
   refraction block, gated by `path` — the same reconstructed distance from the
   sea surface down to the body the extinction uses — so it traces the body's

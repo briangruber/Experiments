@@ -104,6 +104,56 @@ export const hash13 = Fn(([p]) => {
   return q.x.add(q.y).mul(q.z).fract();
 });
 
+// ---- cellular / Worley ------------------------------------------------------
+//
+// NEW, not part of the bit-exact NOISE_GLSL port. Layouted (rule 18) because
+// a 3×3 Worley search is the kind of helper that blows WebKit's 8 KB
+// private-space budget if inlined. Foam no longer calls this — F2−F1
+// walls were the honeycomb around the hull. Kept layouted so a later
+// caller does not inline a second 3×3 search. CPU twin: src/foam-lace.js.
+//
+// Returns vec3( F1, F2, occ ): distances to the nearest and second-nearest
+// jittered sites, and a hash of the nearest site that is independent of the
+// jitter so "this cell is a clump" is not the same random as "where the seed
+// sits". The 3×3 neighbourhood is unrolled in JS (porting rule 6). F1/F2 are
+// updated branchlessly; occupancy takes the If because it has to track a
+// winner, not a min.
+
+export const cellular3 = /*@__PURE__*/ Fn( ( [ p ] ) => {
+
+	const pV = p.toVar();
+	const i = pV.floor().toVar();
+	const f = pV.fract().toVar();
+	const F1 = float( 8.0 ).toVar();
+	const F2 = float( 8.0 ).toVar();
+	const occ = float( 0.0 ).toVar();
+
+	for ( const oy of [ - 1, 0, 1 ] ) {
+
+		for ( const ox of [ - 1, 0, 1 ] ) {
+
+			const g = vec2( float( ox ), float( oy ) );
+			const cell = i.add( g ).toVar();
+			const o = hash22( cell ).toVar();
+			const r = g.add( o ).sub( f ).toVar();
+			const d = r.dot( r ).toVar();
+			const h = hash12( cell.add( vec2( 19.7, 7.3 ) ) ).toVar();
+			If( d.lessThan( F1 ), () => {
+
+				occ.assign( h );
+
+			} );
+			F2.assign( F2.min( F1.max( d ) ) );
+			F1.assign( F1.min( d ) );
+
+		}
+
+	}
+
+	return vec3( F1.sqrt(), F2.sqrt(), occ );
+
+} );
+
 // ---- value noise ------------------------------------------------------------
 
 // 3D value noise: 8 lattice hashes, Hermite-smoothed trilinear blend.
@@ -323,6 +373,7 @@ hash11.setLayout( { name: 'abyssal_hash11', type: 'float', inputs: [ { name: 'p'
 hash12.setLayout( { name: 'abyssal_hash12', type: 'float', inputs: [ { name: 'p', type: 'vec2' } ] } );
 hash22.setLayout( { name: 'abyssal_hash22', type: 'vec2', inputs: [ { name: 'p', type: 'vec2' } ] } );
 hash13.setLayout( { name: 'abyssal_hash13', type: 'float', inputs: [ { name: 'p', type: 'vec3' } ] } );
+cellular3.setLayout( { name: 'abyssal_cellular3', type: 'vec3', inputs: [ { name: 'p', type: 'vec2' } ] } );
 vnoise.setLayout( { name: 'abyssal_vnoise', type: 'float', inputs: [ { name: 'p', type: 'vec3' } ] } );
 vnoise2.setLayout( { name: 'abyssal_vnoise2', type: 'float', inputs: [ { name: 'p', type: 'vec2' } ] } );
 fbm3.setLayout( { name: 'abyssal_fbm3', type: 'float', inputs: [ { name: 'p', type: 'vec3' }, { name: 'oct', type: 'int' } ] } );

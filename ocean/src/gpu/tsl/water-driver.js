@@ -43,6 +43,7 @@ import { vec4 } from 'three/tsl';
 import {
 	setCascadeTextures, setWakeTexture, setWaterCommonUniforms,
 } from './water-common.js';
+import { setKelvinUniforms } from './kelvin-wake.js';
 import { waterPosition, waterFragment, setWaterSurfaceUniforms } from './water-surface.js';
 import { setWaterDetailUniforms } from './water-detail.js';
 import { setWaterBrdfUniforms } from './water-brdf.js';
@@ -219,6 +220,7 @@ export class TslWater {
 		setCloudUniforms( p, ctx );
 
 		setWaterCommonUniforms( p, ctx, ocean, opts.wake );
+		setKelvinUniforms( opts.wake );
 		setWaterBrdfUniforms( p );
 		setWaterDetailUniforms( p );
 		setWaterSurfaceUniforms( p, ctx, opts.hull || NO_HULL );

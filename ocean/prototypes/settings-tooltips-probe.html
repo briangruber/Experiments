@@ -49,11 +49,8 @@ const work = (async () => {
   });
   log('the app booted inside the iframe', !! win.abyssal, '');
 
-  // Open the settings panel so its controls actually exist in the DOM - ui.js
-  // builds them at construction time regardless, but opening it is also how
-  // a person would ever see one.
-  doc.getElementById('settings-btn').click();
-  await new Promise((r) => setTimeout(r, 50));
+  // Settings live in the HUD now - no Settings › click required. ui.js still
+  // builds the controls at construction time.
 
   const ctrls = [...doc.querySelectorAll('#ui .ctrl')];
   log('found the real control list', ctrls.length > 300, `${ ctrls.length } .ctrl elements`);
@@ -67,7 +64,7 @@ const work = (async () => {
       tooShort.length ? `${ tooShort.length } suspiciously short, e.g. "${ tooShort[0].title }"` : '');
 
   // ---- per-group Copy buttons ---------------------------------------------
-  const groups = [...doc.querySelectorAll('#ui details')];
+  const groups = [...doc.querySelectorAll('#ui details:not(.chrome-fold)')];
   log('found the settings groups', groups.length > 10, `${ groups.length } <details> sections`);
 
   const firstGroup = groups[0];
@@ -156,7 +153,7 @@ const work = (async () => {
   const visible = [...doc.querySelectorAll('#ui .ctrl')].filter((c) => c.offsetParent !== null).length;
   log('turning it on hides the long tail', visible > 0 && visible <= marked,
       `${ visible } controls still visible (of ${ allCtrls })`);
-  const emptyGroups = [...doc.querySelectorAll('#ui details')]
+  const emptyGroups = [...doc.querySelectorAll('#ui details:not(.chrome-fold)')]
     .filter((d) => d.offsetParent !== null && d.querySelectorAll('.is-key').length === 0).length;
   log('and collapses the groups left with nothing in them', emptyGroups === 0,
       `${ emptyGroups } empty groups still showing`);

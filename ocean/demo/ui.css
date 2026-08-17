@@ -76,6 +76,7 @@ select:hover,button:hover{background:rgba(255,255,255,.1);border-color:rgba(255,
 .btns.three{grid-template-columns:1fr 1fr 1fr}
 
 details{border-bottom:1px solid var(--line)}
+details.chrome-fold > summary{color:var(--dim);font-size:10px;letter-spacing:.12em;padding:9px 14px}
 summary{padding:11px 14px;cursor:pointer;list-style:none;font-size:11px;letter-spacing:.13em;
   text-transform:uppercase;color:var(--fg);user-select:none;display:flex;align-items:center;gap:8px}
 summary::-webkit-details-marker{display:none}
@@ -96,7 +97,7 @@ summary:hover{background:rgba(255,255,255,.035)}
 /* Essentials filter - see schema.js's KEY_PARAMS. Groups whose every control
    is hidden collapse too, so the list does not become a run of empty headers. */
 #ui.essentials .ctrl:not(.is-key){display:none}
-#ui.essentials details:not(:has(.is-key)){display:none}
+#ui.essentials details:not(.chrome-fold):not(:has(.is-key)){display:none}
 
 .ctrl{margin:9px 0}
 .ctrl .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:3px}

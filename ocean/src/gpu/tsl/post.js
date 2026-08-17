@@ -1216,9 +1216,15 @@ export const compositeFragment = /*@__PURE__*/ Fn( () => {
 	// 0 at centre, 1 at the corner
 	const rn2 = p.dot( p ).div( r2max ).toVar();
 
-	// Radial distortion, normalised so the corners stay pinned to the corners --
-	// otherwise the frame samples outside the render target and smears.
-	const kd = float( 1.0 ).add( uDistortion.mul( rn2 ) ).div( float( 1.0 ).add( uDistortion ) ).toVar();
+	// Radial distortion. Positive k (pincushion) is divided by (1+k) so the
+	// corners stay pinned — without that the frame samples past the render
+	// target and smears. Negative k (barrel, the default −0.02) must NOT use
+	// that same divide: (1+k*rn2)/(1+k) is > 1 anywhere inside the rectangle,
+	// so the top and bottom mid-edges look up past the texture and clamp-to-
+	// edge repeats the first/last row as a 5–10 px smeared band. Leaving the
+	// denominator at 1 keeps the centre 1:1 and pulls the corners in slightly.
+	const kDenom = float( 1.0 ).add( uDistortion.max( 0.0 ) );
+	const kd = float( 1.0 ).add( uDistortion.mul( rn2 ) ).div( kDenom.max( 1e-4 ) ).toVar();
 	const pd = p.mul( kd ).toVar();
 	const base = pd.div( asp ).toVar();
 

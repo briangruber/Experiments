@@ -12,6 +12,7 @@
 // SPRAY_PARTICLE_GLSL, which both stages include.
 
 import { NOISE_GLSL, ATMOSPHERE_GLSL, SKY_LUT_MAP_GLSL } from './sky.js';
+import { MAX_BREACH_EMITTERS } from '../breach-emitters.js';
 
 const SAMPLE_OCEAN = /* glsl */`
 uniform sampler2DArray uDisp, uFoam;
@@ -157,6 +158,15 @@ uniform float uCraftJet, uCraftJetSpeed, uCraftJetAngle, uCraftJetRise;
 uniform float uCraftSheet, uCraftSheetSpeed;
 uniform float uCraftCurtain, uCraftCurtainSpeed;
 uniform float uCraftBurst;
+uniform vec3  uCraftSites[${ MAX_BREACH_EMITTERS }];
+uniform float uCraftSiteSide[${ MAX_BREACH_EMITTERS }];
+uniform float uCraftSiteCount, uCraftPierce;
+uniform float uCraftSpout;   // 0 = the contact curtain, 1 = the collapse's surge
+// The water entry's own radius in METRES - splashBaseRadius(hit, length), the same
+// number the height field opens its cavity with (ctx.craftEntryRadius). Without it
+// the wings spawn inside a few-metre emitter in the middle of a forty-metre crater
+// and read as a boil rather than as the curtain that made it.
+uniform float uEntryRadius;
 uniform float uDt, uTime, uFrame, uTexSize;
 uniform float uSpawnRadius, uSpawnRate, uSpawnFocus;
 uniform float uFoldThreshold, uFoldSoft, uFoamBias;
@@ -226,8 +236,20 @@ void main(){
     // speed a carve destroys.
     float wCurt  = uCraftCurtain * clamp(slipA*0.40 + load*0.95, 0.0, 2.0) * pCurt * wet;
     float wBurst = uCraftBurst * uCraftImpact * 3.2;
-    float wTot   = wJet + wSheet + wCurt + wBurst;
+    float hullMute = 1.0 - uCraftPierce;
+    wJet   *= hullMute;
+    wSheet *= hullMute;
+    wCurt  *= hullMute;
+    float wPierce = uCraftPierce * plane * wet;
+    float wTot   = wJet + wSheet + wCurt + wPierce + wBurst;
 
+    // Hull water is droplets, never mist. A breach's airborne water IS a mass
+    // rather than a hail of dots, and the mist class was tried for it - big soft
+    // sprites, exactly the right character - but mist is not available: presets
+    // ship sprayMist 0 ("spindrift removed: it read as grey smear"), so uMistFrac
+    // is 0, no particle is mist, and sprayMistOpacity is 0 on top of that. A cloud
+    // built on mist is invisible in every preset that matters. The mass is made in
+    // the draw pass instead, off uEntry - see the size boost in SPRAY_VS.
     float craftDrive = uCraftAmount * (1.0 - mist) * uCraftPulse * clamp(wTot, 0.0, 2.2);
     if (craftDrive > 0.001 && hash12(vec2(fid*0.0173 + 5.7, ep*0.531)) < craftDrive){
       vec2 hA = hash22(vec2(fid*0.311 + 1.3, ep*0.617));   // where on the hull
@@ -252,6 +274,10 @@ void main(){
       vec3 hullVel = F * uCraftSpeed + Rt * slipS;
       float spreadK = max(uCraftSpread, 0.0);
       float liftK   = max(uCraftUp, 0.0);
+      int si = int(mod(fid, max(uCraftSiteCount, 1.0)));
+      si = clamp(si, 0, 7);
+      vec3 site = uCraftSites[si];
+      float siteSide = uCraftSiteSide[si];
 
       vec3  org  = vec3(0.0);   // launch point, hull-relative
       vec3  axis = -F;          // centre of the launch cone
@@ -320,9 +346,69 @@ void main(){
         inherit = 0.45;
         energy  = clamp(0.40 + slipA*0.22 + load*1.10, 0.0, 2.2);
         lifeK   = 1.3;
+      } else if (pick < wJet + wSheet + wCurt + wPierce){
+        // 5. Waterline pierce. The site IS the point on the body that cuts
+        // the sea, so the local offset stays small. Outward on the site's
+        // own flank, up, and a little forward with the body's motion.
+        org  = F*(hA.x - 0.5)*uCraftLen
+             + Rt*siteSide*hA.y*uCraftBeam*0.12 + UP*0.04;
+        axis = normalize(Rt*siteSide*0.68 + UP*0.55*liftK + F*0.28);
+        aWide = (0.35 + 0.25*u) * spreadK;
+        aNar  = (0.12 + 0.10*u) * spreadK;
+        relV  = (uCraftSpeed*0.38 + 1.8) * (0.55 + 0.50*hC.x);
+        inherit = 0.40;
+        energy  = 0.40 + 0.55*plane;
+        lifeK   = 1.0;
+      } else if (uCraftPierce > 0.5){
+        // 4a. Water entry, SAME PARCELS THE HEIGHT FIELD RAISES. Breach footage
+        // (src/splash-field.js) throws water BROADSIDE as discrete sheets, not a
+        // ring. coin picks the wing; hA.x picks a sheet along that flank so the
+        // sprites sit ON the broken wall. uCraftSpout (K) slides the source to
+        // the central surge as the cavity closes. SPLASH_PARCELS is 16.
+        float K = uCraftSpout;
+        float nP = 16.0;
+        float beam = coin > 0.0 ? nP*0.25 : nP*0.75;
+        float iP = mod(floor(beam + (hA.x - 0.5)*nP*0.38 + nP), nP);
+        float uP = fract(sin((iP + 0.31)*127.1 + 311.7)*43758.5453);
+        float wP = fract(sin((iP + 19.4)*127.1 + 311.7)*43758.5453);
+        float pAng = (iP + 0.5)/nP*6.28318530718
+                   + (uP - 0.5)*(6.28318530718/nP)*0.50;
+        float pSpeed = 0.80 + 0.40*wP;
+        float alongP = cos(pAng);
+        float acrossP = sin(pAng);
+        // Metres, from the entry itself - NOT from the emitter site, which is a few
+        // metres wide whatever hit the water.
+        float rE = max(uEntryRadius, 1.0);
+        float lip = step(0.72, hC.y);
+        float rThrow = mix(pSpeed*0.55 + 0.55*hA.y, 0.02 + 0.16*hA.y, K)*(1.0 + lip*0.35);
+        org  = F*alongP*rE*rThrow + Rt*acrossP*rE*rThrow
+             + UP * mix(0.10 + 1.2*hC.y, 0.30 + 5.0*hC.y, K)*(1.0 + lip*0.45);
+        // Steeply up as well as out: the reference wings leave at 50-70 degrees and
+        // stand as tall as they are wide. Mostly-sideways (0.92 out to 0.58 up)
+        // skimmed them along the surface, back in the sea before they read as
+        // anything.
+        axis = normalize(F*alongP*mix(0.80, 0.10, K) + Rt*acrossP*mix(0.80, 0.10, K)
+             + UP*mix(0.85, 1.35, K)*liftK*(1.0 + lip*0.20));
+        // Broad across, thin through: a sheet, which is why the cone below
+        // carries two half-angles instead of one.
+        aWide = mix(0.78 + 0.30*u, 0.20 + 0.12*u, K) * spreadK;
+        aNar  = mix(0.30 + 0.22*u, 0.16 + 0.10*u, K) * spreadK;
+        // SPEED, MEASURED AGAINST THE FOOTAGE. uCraftImpact runs to 4.5 for a leap
+        // landing (three-main.js lets it past 1 on purpose), so the old 9.5
+        // coefficient launched particles at 40-55 m/s: they crossed the whole frame
+        // and the "cloud" came out as dust over the entire sky. A breach plume rises
+        // about half a body length - 20-30 m here - i.e. ~20 m/s at the top end.
+        // Even 3.2 still threw a sparkle field halfway up the sky (shots/w7):
+        // the footage's curtain stands about as tall as it is wide and stays ON
+        // the water.
+        relV  = (uCraftImpact*mix(2.2, 3.6, K) + uCraftSpeed*0.18)
+              * (0.40 + 0.95*hC.x) * (1.0 + lip*0.22);
+        inherit = 0.22;
+        energy  = 0.80 + 1.25*uCraftImpact;
+        lifeK   = mix(1.75, 1.95, K);   // the white HANGS in the footage
       } else {
-        // 4. Bow burst. Landing off a crest or punching through one throws water
-        // forward and up in a crown, and it is left behind almost at once.
+        // 4b. Bow burst. Landing off a crest or punching through one throws
+        // water forward and up, and it is left behind almost at once.
         org  = F*uCraftLen*(0.60 + 0.50*hA.x)
              + Rt*coin*hA.y*uCraftBeam*0.8 + UP*0.04;
         axis = normalize(F*0.42 + UP*0.86*liftK);
@@ -349,7 +435,7 @@ void main(){
       // Whatever leaves the hull immediately meets the craft's own apparent wind.
       v += (uWind - hullVel) * 0.08;
 
-      oPos = vec4(uCraftPos + org, uCraftLife * (0.35 + 0.80*hC.y) * lifeK);
+      oPos = vec4(site + org, uCraftLife * (0.35 + 0.80*hC.y) * lifeK);
       // Negative energy marks this as hull water rather than sea spray. It costs
       // no channel - the draw pass reads the magnitude and the sign separately -
       // and it is what lets a dense sheet thrown by a hull be lit as the thick
@@ -496,6 +582,10 @@ uniform vec3 uCamRight, uCamUp, uCamPos, uWind, uSunDir, uSunColor;
 uniform float uTexSize, uSizeScale, uStretch, uMistStretch;
 uniform float uFadeNear, uFadeFar, uMistGrow, uViewportH, uMinPixels, uFarSoft;
 uniform float uHeightScale, uSeaLevel;
+// 1 while a body is entering the water, and it is what turns hull droplets into
+// the parcels a breach actually throws. Same expression the sim gates the burst
+// on: craftPierce * smoothstep(0.15, 0.8, craftImpact) - see src/spray.js.
+uniform float uEntry;
 out vec2 vCorner;
 out float vFade, vMist, vEnergy, vSoft, vSeed, vSize, vShape, vTex, vSurfDelta, vHull;
 out vec3 vWorld, vSun, vAmb;
@@ -529,6 +619,28 @@ void main(){
   // Droplets hold their size and evaporate; mist keeps spreading as it disperses.
   float grow = mix(mix(0.75, 1.15, age), mix(0.5, uMistGrow, age), mist);
   float size = sprayRadius(fid) * uSizeScale * grow;
+
+  // WHAT A BREACH THROWS IS NOT THE SIZE OF WHAT THE WIND TEARS OFF, and this
+  // radius is tuned for the latter: wind-torn spray, sub-pixel, grown to a pixel
+  // floor below. At that size the entry burst drew as a field of separate dots
+  // with sky between them (shots/w3-0.30.png) where the reference footage is a
+  // solid white mass. A 60 m animal landing throws PARCELS - sheets and lumps
+  // metres across - so during an entry, hull water is drawn several times bigger
+  // and softer. uEntry is the same expression the sim gates the burst on, so it
+  // rises and fades with the event; particles already in flight change size
+  // smoothly with it rather than popping.
+  // Tapered by the particle's own age because a thrown SHEET breaks up into drops
+  // as it flies - and because held at full size to the end of life, the survivors
+  // drifted off as isolated blobs metres across sitting in clear air away from the
+  // splash (shots/w6-0.30.png, the scraps near the frame edges).
+  float hull = step(V.w, 0.0);
+  float entry = hull * uEntry;
+  // 12, not 3.2: sprayRadius is 2-15 cm (tuned for wind-torn spray). At 3.2x the
+  // burst was still a field of separate dots with sky between them
+  // (shots/w7-0.30.png). A thrown sheet is parcels a metre across that overlap
+  // into a mass; 12x on the typical particle is ~20 cm, and the rare large ones
+  // reach a couple of metres.
+  size *= 1.0 + 12.0*entry*(1.0 - 0.70*age);
 
   float dist = distance(uCamPos, P.xyz);
   float far  = sprayReach(fid, uFadeFar);
@@ -584,7 +696,9 @@ void main(){
   vec2 q = ax*(aCorner.x*size*elong) + ay*(aCorner.y*size/sqrt(elong));
   // Now that the quad's real extent is known: nothing may subtend more than a
   // modest fraction of the frame, or one near particle smears over everything.
-  fade *= smoothstep(1.2, 3.2, dist/max(size*elong, 0.02));
+  // Relaxed for an entry: the clamp exists so one near droplet cannot smear the
+  // frame, and at 12x size it was fading the cloud we just grew.
+  fade *= mix(smoothstep(1.2, 3.2, dist/max(size*elong, 0.02)), 1.0, entry*0.85);
 
   vec3 world = P.xyz + uCamRight*q.x + uCamUp*q.y;
   // Height clearance above the water, evaluated per vertex rather than per
@@ -602,11 +716,17 @@ void main(){
   vSize   = size;
   vSeed   = fract(fid*0.618034);
   // Mist has no edge at all, and anything too small to resolve must be a smooth
-  // veil rather than a hard dot, or the whole far field turns to speckle.
-  vSoft   = mix(1.9, 2.8, mist) + uFarSoft * (1.0 - res);
+  // veil rather than a hard dot, or the whole far field turns to speckle. Entry
+  // water is aerated through and through - a parcel of foam, not a lens of clear
+  // water - so it has no hard edge either.
+  vSoft   = mix(1.9, 2.8, mist) + uFarSoft * (1.0 - res) + 1.8*entry;
   // A torn scrap of water has a ragged outline once it is big enough to show one.
-  vShape  = res * (1.0 - 0.6*mist);
-  vTex    = res;
+  // Entry water has no outline: it is a parcel of foam, and a hard ragged edge
+  // on a metre-wide sprite is a paper cutout.
+  vShape  = res * (1.0 - 0.6*mist) * (1.0 - 0.85*entry);
+  // Grain is the sparkle. It is what a wind-torn droplet needs and what a
+  // breach cloud cannot have - it punches holes in the mass.
+  vTex    = res * (1.0 - 0.90*entry);
   gl_Position = uViewProj * vec4(world, 1.0);
 }
 `;

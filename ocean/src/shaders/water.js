@@ -36,6 +36,7 @@ uniform float uRMin, uRMax;
 uniform float uHeightScale, uHorizScale;
 uniform float uEarthCurve;
 uniform float uSeaLevel;
+uniform float uHorizonPin; // 1 = pin last ring to the sightline; 0 when looking down
 // The craft displaces real water, not just foam: the hull presses a hollow into
 // the surface and the water it moves stands up as a bow wave ahead of it and as
 // shoulders either side. Geometry, so it catches light and shadow like the sea.
@@ -106,12 +107,10 @@ void main(){
   }
 
   if (uWakeOn > 0.5) {
-    // The radial grid's rings stretch to metres wide long before the field runs
-    // out, and a metre-wide ridge sampled by a six-metre triangle only crawls
-    // and pops. So the geometry is faded out well inside the buffer and the far
-    // half of the wake lives on as foam alone, which the fragment shader can
-    // resolve at any distance.
-    float wf = 1.0 - smoothstep(uWakeExtent * 0.16, uWakeExtent * 0.42, r);
+    // Far rings are coarse, so a wire ridge pops. A diverging wave
+    // thickens with age, so those same triangles can carry height
+    // farther aft — fade later than the old 0.16-0.42 cut.
+    float wf = 1.0 - smoothstep(uWakeExtent * 0.18, uWakeExtent * 0.88, r);
     if (wf > 0.002) pos.y += wakeAt(xz).y * wf;
   }
 
@@ -142,10 +141,24 @@ void main(){
   // ring's fragments shade as extreme-grazing water, the mirror of the
   // horizon sky, which is exactly what belongs in that band. The dip*0.1
   // floor keeps a wading-height camera's ring below eye level.
+  //
+  // Crossing the waterline used to punch through a full-height crest
+  // (and the last-ring pin followed the eye down). Above water this is
+  // a no-op. Under it, displacement grows in over ~2.5 m.
+  float under = uSeaLevel - uCamPos.y;
+  if (under > 0.0) {
+    float amt = smoothstep(0.0, 2.5, under);
+    pos.y = mix(uSeaLevel, pos.y, amt);
+  }
+
+  // uHorizonPin is 0 when the geometric horizon is off the top of the
+  // frame (src/horizon-pin.js, including the high-camera dip) or the
+  // eye is at/under the sea. Blend so a wading fade is gradual.
   if (aRT.x > 0.9999) {
     float hEye = max(uCamPos.y - uSeaLevel, 1.0);
     float dip = sqrt(2.0 * hEye * max(uEarthCurve, 1e-3) / R_EARTH);
-    pos.y = uCamPos.y - max(dip - 2.5e-3, dip * 0.1) * r;
+    float pinned = uCamPos.y - max(dip - 2.5e-3, dip * 0.1) * r;
+    pos.y = mix(pos.y, pinned, uHorizonPin);
   }
 
   vWorld  = pos;
@@ -183,7 +196,7 @@ uniform float uSSSStrength, uSSSPower, uSSSHeight, uSSSDepth;
 uniform float uBaseRoughness, uRoughnessGain, uRoughnessMax;
 uniform float uWindAniso, uWindSpeed;
 uniform float uFoamAmount, uFoamRoughness, uFoamTint, uFoamDetail, uFoamLift;
-uniform float uFoamSharp, uFoamStreak, uFoamOpacity, uFoamCrisp;
+uniform float uFoamSharp, uFoamStreak, uFoamOpacity, uFoamCrisp, uFoamDrift, uFoamFill, uFoamCell;
 // Craft wake: wakeAt() above. The rest of the knobs are how it is shaded.
 uniform float uWakeRelief, uWakeSlick;
 uniform vec3  uFoamColor;
@@ -359,23 +372,81 @@ vec2 capillarySlope(vec2 p, float t, float amp){
   return (w*g.x*0.35 + q*g.y) * amp;
 }
 
-// Foam field. The streak term stretches clumps into downwind windrows; the
-// bubble term is the close-range structure that stops whitewater looking painted.
-float foamField(vec2 p, float t, float foot, out float bubbles){
+// 2D Worley F1/F2 plus nearest-site hash. Matches src/foam-lace.js and
+// src/gpu/tsl/noise.js cellular3. Occupancy is NOT used as coverage
+// (that was the disc look).
+vec3 cellular3(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  float F1 = 8.0, F2 = 8.0, occ = 0.0;
+  for (int y = -1; y <= 1; y++){
+    for (int x = -1; x <= 1; x++){
+      vec2 g = vec2(float(x), float(y));
+      vec2 cell = i + g;
+      vec2 o = hash22(cell);
+      vec2 r = g + o - f;
+      float d = dot(r, r);
+      float h = hash12(cell + vec2(19.7, 7.3));
+      if (d < F1) occ = h;
+      F2 = min(F2, max(F1, d));
+      F1 = min(F1, d);
+    }
+  }
+  return vec3(sqrt(F1), sqrt(F2), occ);
+}
+
+// Jacobian / fold answers WHERE. Structure inside that footprint is
+// brightness, not a stencil. Unstretched regular F2−F1 was the hex tray;
+// wake × walls was the honeycomb around the hull (wake is a milky film;
+// fd mottles it). CPU twin: src/foam-lace.js.
+float foamField(vec2 p, float t, float foot, float detail, out float thick){
   vec2 w = uWindDirV, q = windPerp();
   vec2 x = vec2(dot(p, w), dot(p, q));
-  vec2 s = vec2(x.x * (1.0 - 0.80*uFoamStreak), x.y * (1.0 + 2.4*uFoamStreak));
-  vec2 drift = w * t * 0.35;
-  float a = fbm3(vec3(s*0.16 + drift.x, t*0.05), 3);
-  // The 15 cm clump band has to converge on its own mean once a pixel spans
-  // several clumps, or the mask it shapes turns into per-pixel confetti right
-  // where the sea is most covered.
-  float bf = 1.0 - smoothstep(0.09, 0.55, foot);
-  bubbles = mix(0.5, fbm3(vec3((p - drift)*6.5, t*0.45), 2), bf);
-  // Centred on its own mean and stretched to fill 0..1. The caller uses this
-  // purely to decide WHERE inside the footprint the foam sits, so a field whose
-  // mean is not 0.5 would silently rescale the coverage the sim computed.
-  return clamp(0.5 + (a - 0.5)*1.6 + (bubbles - 0.5)*0.55, 0.0, 1.0);
+  vec2 s = vec2(x.x * (1.0 - 0.38*uFoamStreak), x.y * (1.0 + 0.70*uFoamStreak));
+  vec2 slide = w * t * max(uFoamDrift, 0.0);
+  float flow = t * 0.08;
+  float wx = vnoise(vec3(s*0.04, flow)) - 0.5;
+  float wy = vnoise(vec3(s*0.04 + 17.3, flow + 3.1)) - 0.5;
+  vec2 sp = s + vec2(wx*3.1, wy*2.7) - slide;
+  float inv = 1.0 / max(uFoamCell, 0.2);
+  float dens = vnoise(vec3(sp*0.07*inv, t*0.03));
+  float localScale = mix(0.68, 1.34, dens);
+  float fillK = clamp(uFoamFill, 0.0, 1.0);
+  float raftN = fbm3(vec3(sp*0.10*inv*localScale, t*0.05), 3);
+  float tearN = vnoise(vec3(sp*0.22*inv, t*0.07));
+  float chewN = vnoise(vec3(sp*0.40*inv, t*0.11));
+  float raft = smoothstep(mix(0.50, 0.26, fillK), 0.70, raftN)
+             * mix(0.48, 1.0, smoothstep(0.12, 0.68, tearN))
+             * mix(0.58, 1.0, smoothstep(0.10, 0.58, chewN));
+  float grain = vnoise(vec3(sp*9.2*inv, t*0.55));
+  float film = raft * (0.70 + 0.30*grain);
+  float width = mix(0.20, 0.36, dens);
+  float broken = smoothstep(0.20, 0.52, vnoise(vec3(sp*0.52*inv, t*0.08)));
+  vec3 c0 = cellular3(sp * 0.72 * inv * localScale);
+  float gap0 = c0.y - c0.x;
+  float wallGate = mix(0.06, 1.0, smoothstep(0.18, 0.78, broken));
+  float fil0 = smoothstep(width, 0.040, gap0) * wallGate;
+  float core0 = smoothstep(width*0.38, 0.016, gap0) * wallGate;
+  float fillN = fillK / 0.55;
+  float extra = clamp((fillK - 0.55) / 0.45, 0.0, 1.0);
+  float fineScale = mix(0.98, 1.52, 1.0 - dens);
+  vec3 c1 = cellular3(sp * fineScale * inv + 8.1);
+  float gap1 = c1.y - c1.x;
+  float chordGate = smoothstep(0.46, 0.76, dens*0.58 + (1.0 - broken)*0.42);
+  float fil1 = smoothstep(mix(0.16, 0.28, dens), 0.028, gap1) * chordGate
+             * min(fillN, 1.0) * mix(1.0, 1.55, extra);
+  float haze = smoothstep(mix(0.46, 0.68, extra), 0.10, gap0) * (1.0 - fil0)
+             * mix(0.05, 0.30, dens) * (0.45 + 0.55*grain) * fillN;
+  float accent = max(fil0, fil1) * mix(0.02, 0.10, fillK) + haze * 0.28;
+  float lace = clamp(film * 0.90 + accent, 0.0, 1.0);
+  float fineAmt = clamp(detail/1.85, 0.0, 2.4);
+  float fineFade = (1.0 - smoothstep(0.08, 0.55, foot)) * fineAmt;
+  float bub = 0.42 + 0.58 * mix(0.50, grain, min(fineFade, 1.0));
+  float core = core0 * mix(0.45, 1.0, dens);
+  float grainAmt = 0.28 * min(fineFade, 1.0);
+  thick = clamp(film*0.78*bub + core*0.35*bub + fil0*0.18*bub + fil1*0.12*bub
+                + haze*0.10*bub + grainAmt*grain*film, 0.0, 1.0);
+  float near = 1.0 - smoothstep(0.12, 1.8, foot);
+  return mix(0.5, clamp(lace, 0.0, 1.0), near);
 }
 
 void main(){
@@ -488,8 +559,11 @@ void main(){
       // wake to shade. Gating on the disturbance rather than on the buffer bounds
       // skips this for every water pixel that merely happens to be inside a
       // 320 m square, which is most of them.
-      if (uWakeRelief > 0.0 && wk.z > 0.02){
-        const float e = 0.5;
+      // Used to gate on wk.z (the slick BETWEEN the arms). The arms
+      // themselves have almost no churn, so the ridge never got a
+      // normal and read as foam stuck on flat water.
+      if (uWakeRelief > 0.0 && abs(wk.y) > 0.22){
+        float e = max(uWakeDepth * 0.45, 1.2);
         float hx = wakeAt(vFlat.xz + vec2(e, 0.0)).y - wakeAt(vFlat.xz - vec2(e, 0.0)).y;
         float hz = wakeAt(vFlat.xz + vec2(0.0, e)).y - wakeAt(vFlat.xz - vec2(0.0, e)).y;
         slope += vec2(hx, hz) / (2.0 * e) * uWakeRelief * k;
@@ -538,7 +612,7 @@ void main(){
 
   // ---- foam mask -----------------------------------------------------------
   float bubbles;
-  float fd = foamField(vFlat.xz, uTime, foot, bubbles);
+  float fd = foamField(vFlat.xz, uTime, foot, uFoamDetail, bubbles);
   // Two optically different materials share this footprint and they must not be
   // shaded as one. Fresh crest foam is an optically thick bubble raft that hides
   // the water completely; the dissipated residue it decays into is a veil a few
@@ -552,15 +626,19 @@ void main(){
   // inflate the coverage the sim computed.
   float covF = clamp(foamF * uFoamAmount, 0.0, 1.0);
   float covR = clamp(foamR * uFoamAmount, 0.0, 1.0);
+  // Harder Jacobian gate (src/foam-lace.js jacobianGate). A leak of fold
+  // used to sprinkle the lace across calm water. Fold 0 is empty.
+  float gateF = smoothstep(0.02, 0.12, covF);
+  float gateR = smoothstep(0.02, 0.12, covR);
   // Once the pixel is wider than a clump there is nothing left to resolve and
   // the contrast has to collapse onto the mean, or the far field turns into
   // per-pixel confetti.
-  float clumpRes = 1.0 - smoothstep(0.4, 5.0, foot);
-  float shape  = clamp(1.0 + (fd - 0.5) * 2.6 * max(uFoamSharp, 0.05), 0.0, 3.2);
-  // The raft is what is left after the crest that made it has moved on, so it
-  // sits where the field was high a moment ago: a shifted, softer version of the
-  // same clumps, which is what draws the streaks out behind the whitecaps.
-  float shapeR = clamp(1.0 + (fd - 0.62) * 1.7 * max(uFoamSharp, 0.05), 0.0, 2.4);
+  float clumpRes = 1.0 - smoothstep(0.12, 2.2, foot);
+  // Film with brighter clumps. High foamSharp still contrasty; the floor
+  // keeps covered water from collapsing to grit / wire.
+  float sharpK = (min(max(uFoamSharp, 0.05), 2.4) - 0.05) / 2.35;
+  float shape  = mix(mix(0.52, 0.16, sharpK), mix(1.12, 1.48, sharpK), smoothstep(0.10, 0.82, fd));
+  float shapeR = mix(mix(0.48, 0.18, sharpK), mix(1.08, 1.36, sharpK), smoothstep(0.14, 0.86, fd));
   // Multiplying a blurry coverage by a detail field keeps the blur: the sim's
   // foam lives at 1.5 m per texel, so close up the raft was a magnified smudge
   // with texture painted over it. Resolving the coverage *against* the detail
@@ -569,12 +647,14 @@ void main(){
   // the coverage the area it selects still tracks what the sim computed.
   // Only worth doing while a pixel is narrower than a clump; past that there is
   // nothing to resolve and the multiplicative mean is the honest answer.
-  float crisp = clumpRes * clamp(uFoamCrisp, 0.0, 1.0);
-  float eF = 0.11, eR = 0.20;
+  float crisp = clumpRes * clamp(uFoamCrisp, 0.0, 1.0) * 0.90;
+  float eF = 0.22, eR = 0.34;
+  // Crisp resolve tails past coverage 0 (smoothstep(1-e, 1+e, fd) still lights
+  // the top of the noise field). Gate by coverage so a zeroed Foam amount is empty.
   float maskF = mix(clamp(covF * mix(1.0, shape,  clumpRes), 0.0, 1.0),
-                    smoothstep(1.0 - covF - eF, 1.0 - covF + eF, fd), crisp);
+                    smoothstep(1.0 - covF - eF, 1.0 - covF + eF, fd) * smoothstep(0.0, eF, covF), crisp) * gateF;
   float maskR = mix(clamp(covR * mix(1.0, shapeR, clumpRes), 0.0, 1.0),
-                    smoothstep(1.0 - covR - eR, 1.0 - covR + eR, fd), crisp);
+                    smoothstep(1.0 - covR - eR, 1.0 - covR + eR, fd) * smoothstep(0.0, eR, covR), crisp) * gateR;
   float foamMask = clamp(maskF + maskR * (1.0 - maskF), 0.0, 1.0);
   // What fraction of the covered area is dense crest foam rather than raft. It
   // drives albedo, opacity and forward scattering below, so it is the single
@@ -594,39 +674,36 @@ void main(){
   // So it composites over the top, only lightly textured, and it is fresh - a
   // hull aerates water far more thoroughly than a collapsing crest does.
   if (wake > 0.002){
-    float wakeMask = clamp(wake * (0.80 + 0.40 * (fd - 0.5)), 0.0, 1.0);
-    fresh = mix(fresh, 0.9, wakeMask);
+    // Aerated film. fd mottles brightness; it does not punch Voronoi holes.
+    // Twin: wakeFoamMask / wakeFoamThickness in src/foam-lace.js.
+    float wakeMask = clamp(wake * mix(0.78, 1.0, smoothstep(0.00, 1.00, fd)), 0.0, 1.0);
+    float wakeThick = clamp(wake * mix(0.55, 0.92, smoothstep(0.00, 1.00, fd)), 0.0, 1.0);
+    // Fibrous film along the heading. Floor stays high (foam-lace.js).
+    vec2 relW = vFlat.xz - uWakeHead;
+    float alongW = dot(relW, uWakeFwd);
+    float acrossW = relW.x * (-uWakeFwd.y) + relW.y * uWakeFwd.x;
+    float fibre = vnoise2(vec2(alongW * 0.22, acrossW * 1.15));
+    float thread = vnoise2(vec2(alongW * 0.07, acrossW * 2.6));
+    wakeMask *= mix(0.86, 1.0, fibre);
+    wakeThick *= mix(0.78, 1.12, smoothstep(0.48, 0.82, thread));
+    bubbles = max(bubbles, wakeThick);
+    float wakeFresh = mix(0.42, 0.92, smoothstep(0.10, 0.62, wake));
+    fresh = mix(fresh, wakeFresh, wakeMask);
     foamMask = foamMask + wakeMask * (1.0 - foamMask);
   }
 
+  // Covered water is an emulsion, not grit on lace cores.
+  bubbles = max(bubbles, mix(0.16, 0.72, fresh) * smoothstep(0.01, 0.22, foamMask));
+
   vec3 Nfoam = N;
   if (foamMask > 0.003){
-    // Bubble relief from a cheap analytic gradient, and a slight lift so the
-    // raft sits proud of the water rather than being painted onto it.
-    // Two scales of bubble: clumps of raft a hand's width across, and the
-    // individual bubble caps inside them. One scale alone reads as a noise
-    // texture rather than as whitewater.
-    // Each band dies as its cells drop under the pixel footprint, and it dies
-    // toward its own mean rather than to zero, so a distant raft becomes a flat
-    // patch of the right brightness instead of a field of aliasing sparks.
-    float cf = 1.0 - smoothstep(0.14, 0.85, foot);   // 25 cm clumps
-    float bf = 1.0 - smoothstep(0.035, 0.20, foot);  // 6 cm bubble caps
-    float e = 0.09;
-    vec3 bp = vec3(vFlat.xz*4.0, uTime*0.45);
-    vec3 bq = vec3(vFlat.xz*17.0, uTime*1.1);
-    float base = 0.5*(1.0 - cf) + 0.25*(1.0 - bf);   // keeps the mean at 0.75
-    float b0 = vnoise(bp)*cf + 0.5*vnoise(bq)*bf + base;
-    float bx = vnoise(bp + vec3(e*4.0, 0.0, 0.0))*cf + 0.5*vnoise(bq + vec3(e*17.0, 0.0, 0.0))*bf + base;
-    float bz = vnoise(bp + vec3(0.0, e*4.0, 0.0))*cf + 0.5*vnoise(bq + vec3(0.0, e*17.0, 0.0))*bf + base;
-    vec2 bg = vec2(bx - b0, bz - b0) / e;
-    // Replace the coarse mask-shaping noise with this finer field: from here on
-    // the bubble term is shading structure, not coverage modulation.
-    bubbles = clamp(b0*0.75, 0.0, 1.2);
-    float relief = uFoamDetail * (0.3 + 0.9*fresh) * (1.0 / (1.0 + dist*0.02));
-    Nfoam = normalize(vec3(-slope.x - bg.x*relief, 1.0, -slope.y - bg.y*relief));
-    // A raft sits proud of the water, so it is a little flatter than the wave it
-    // rides - but only a little, or it stops reading as part of the wave at all.
-    Nfoam = normalize(mix(Nfoam, vec3(0.0, 1.0, 0.0), 0.12*foamMask));
+    // Thickness stays foamField's out-param. The old 25 cm / 6 cm vnoise
+    // gradient is what read as sand. A matte film follows the wave.
+    // Hull churn is a volume, same as a splash — saturate early so the
+    // trail is milky water, not a lace-edge slope.
+    float churn = smoothstep(0.12, 0.48, wake);
+    bubbles = mix(bubbles, 0.90, churn);
+    Nfoam = normalize(mix(N, vec3(0.0, 1.0, 0.0), foamMask * mix(0.03, 0.10, fresh)));
   }
 
   float NoV = clamp(dot(N, V), 1e-4, 1.0);
@@ -882,54 +959,83 @@ void main(){
   // glitter. Leaving the specular under the raft is what made whitecaps read as
   // glowing embers with sparkles inside them.
   vec3 col = diffuse * (1.0 - Fenv) + skyRefl * Fenv
-           + (sunSpec + moonSpec) * (1.0 - 0.9*foamMask);
+           + (sunSpec + moonSpec) * (1.0 - foamMask * mix(0.38, 0.90, fresh));
 
   // ---- foam shading --------------------------------------------------------
   if (foamMask > 0.003){
     float fNoL = max(dot(Nfoam, L), 0.0);
     float fNoV = clamp(dot(Nfoam, V), 1e-4, 1.0);
-    // Whitewater is an optically thick bubble raft: a near-Lambertian dielectric.
-    // Measured whitecap reflectance is far lower than the eye assumes - a fresh
-    // breaking crest is around 0.6-0.8, and the thin dissipated raft that covers
-    // most of the sea is nearer 0.3, which is why a photographed streak is grey
-    // where a painted one is white. Building it as albedo x irradiance is what
-    // bounds it; the raft can never out-emit the sunlight falling on it.
-    float albedo = clamp(0.28 + 0.44*fresh + 0.10*uFoamLift*fresh, 0.0, 0.82);
-    albedo *= 0.72 + 0.50 * bubbles;
-    albedo = min(albedo, 0.86);
-    vec3 Efoam = skyIrr * ao + sunRad * fNoL;
+    // bubbles is foamField's optical thickness. Do not redeclare thick —
+    // main() already uses that name for the SSS path length. White only where
+    // the lace is optically thick; filaments stay a grey-white veil.
+    // A bubble cloud is a volume. Lambertian 0.22-wrap went charcoal at
+    // golden hour while the water's GGX path stayed gold — dark grit on
+    // the crests. Unoriented sun is light that entered the raft.
+    float albedo = clamp(0.70 + 0.26*bubbles + 0.08*uFoamLift*fresh*bubbles, 0.62, 0.97);
+    // Hull churn is a bubble volume (same idea as the TSL splash wrap).
+    float thickK = smoothstep(0.18, 0.55, wake) * 0.62;
+    float wrap = mix(0.48, 0.85, thickK);
+    albedo = mix(albedo, 0.90, thickK);
+    float fNoLw = max((dot(Nfoam, L) + wrap) / (1.0 + wrap), 0.0);
+    vec3 Efoam = skyIrr * ao + sunRad * fNoLw + sunRad * 0.28 * (0.55 + 0.45*bubbles);
     vec3 foamLit = uFoamColor * albedo * Efoam * (1.0/PI);
-    // Bubble rafts scatter hard forward: a raft lights up when the sun is behind
-    // it. That is transmitted light, so it is bounded by what was not reflected,
-    // and a thin dissipated veil transmits far more than a dense fresh crest.
     float fwd = pow(clamp(dot(V, -L), 0.0, 1.0), 2.5);
     foamLit += uFoamColor * sunRad * fwd * (1.0 - albedo) * (0.5/PI) * (1.0 - 0.55*fresh);
-    // Wet-sheen highlight off the bubble film, bounded by the same mirror
-    // ceiling the water's own specular uses.
+    // Matte foam vs glossy water. A whisper of sheen on thin films only.
     float fa = clamp(uFoamRoughness*uFoamRoughness, 0.004, 1.0);
     vec3 Hf = normalize(L + V);
     float fD = D_GGX(clamp(dot(Nfoam,Hf), 0.0, 1.0), fa);
     float fV = V_SmithGGX(fNoV, fNoL, fa);
-    foamLit += sunRad * min(fD*fV, mirrorCeil) * fNoL * 0.06;
-    // Sky reflected off the raft keeps it tied to the light of the scene.
-    foamLit += sampleSky(reflect(-V, Nfoam), 0.9) * 0.05;
+    float sheen = 0.018 * (1.0 - bubbles*0.75);
+    foamLit += sunRad * min(fD*fV, mirrorCeil) * fNoL * sheen;
+    foamLit += sampleSky(reflect(-V, Nfoam), 0.9) * 0.04;
 
-    foamLit = mix(foamLit, foamLit * mix(vec3(1.0), uScatterColor*3.0, 0.5), uFoamTint);
+    // Sub-surface bubble cloud: cyan underglow. foamTint is the gain on this
+    // scatter, not a dye on the foam albedo.
+    float halo = sqrt(foamMask);
+    float glowW = halo * smoothstep(0.06, 0.40, bubbles)
+                * (0.50 + 0.50*(1.0 - fresh*0.35));
+    vec3 cyan = uScatterColor * (skyIrr*0.55 + sunRad*0.30) * (1.0/PI)
+              * glowW * (0.55 + 2.8*uFoamTint);
 
-    // Aged foam has thinned into a veil a handful of bubbles deep, so the sea
-    // shows straight through it: a Beer-Lambert opacity in the raft's own
-    // thickness, not a paint layer. Only the fresh crest is optically thick.
-    float tau = 0.35 + 5.0 * fresh;
-    float opacity = clamp(uFoamOpacity * (1.0 - exp(-tau)) * (0.55 + 0.7*bubbles), 0.0, 1.0);
-    col = mix(col, mix(col, foamLit, opacity), foamMask);
+    float tau = 0.22 + 4.6 * bubbles * (0.40 + 0.60*fresh);
+    float opFloor = mix(0.10, 0.38, fresh);
+    float opacity = clamp(uFoamOpacity * (1.0 - exp(-tau)) * (opFloor + (1.0 - opFloor)*bubbles), 0.0, 1.0);
+    foamLit = max(foamLit, col * mix(0.88, 1.12, fresh));
+    vec3 under = col + cyan;
+    float cover = foamMask * mix(0.38, 0.88, fresh);
+    col = mix(col, mix(under, foamLit, opacity), cover);
   }
 
   // ---- aerial perspective ---------------------------------------------------
-  if (uAerial > 0.0){
+  if (uAerial > 0.0 && uCamPos.y >= uSeaLevel){
     vec3 ins, tr;
     vec3 ro = vec3(0.0, R_PLANET + max(uCamPos.y, 1.0), 0.0);
     aerialPerspective(ro, normalize(vWorld - uCamPos), min(eyeDist, 60000.0), uSunDir, ins, tr);
     col = col * mix(vec3(1.0), tr, uAerial) + ins * uAerial;
+  }
+
+  // ---- underside (camera in the water) -------------------------------------
+  if (uCamPos.y < uSeaLevel) {
+    vec3 I = -V;
+    float cosi = clamp(dot(N, I), 0.0, 1.0);
+    float eta = max(uWaterIOR, 1.01);
+    float invN = 1.0 / eta;
+    float crit = sqrt(max(1.0 - invN * invN, 0.0));
+    float win = smoothstep(crit - 0.08, crit + 0.04, cosi);
+    float k = 1.0 - eta * eta * (1.0 - cosi * cosi);
+    vec3 refr = normalize(I * eta + N * (eta * cosi - sqrt(max(k, 0.0))));
+    vec3 sky = sampleSky(refr, mix(0.14, 0.30, 1.0 - win));
+    float ph = uTime * 1.65;
+    float caus = pow(sin(vFlat.x * 0.38 + ph) * sin(vFlat.z * 0.31 - ph * 1.15) * 0.5 + 0.5, 3.0) * 1.6;
+    vec3 deep = (uScatterColor * 0.36 + sky * 0.08) * (1.0 + caus * 0.22);
+    vec3 lit = sky * (1.55 + caus * 0.55);
+    col = mix(deep, lit, win);
+    float cling = smoothstep(0.60, 0.88, vnoise2(vec2(vFlat.x * 0.07 + uTime * 0.11, vFlat.z * 0.07))) * 0.38;
+    float foamUw = max(foamMask * mix(0.28, 0.86, fresh), cling);
+    vec3 foamCol = mix(vec3(0.70, 0.84, 0.93), vec3(0.94, 0.97, 1.0), max(fresh, cling))
+      * (sky * 0.32 + 0.55);
+    col = mix(col, foamCol, foamUw);
   }
 
   fragColor = ABYSSAL_OUT(col);

@@ -10,6 +10,11 @@
 // second set of skin weights (this asset has JOINTS_0 AND JOINTS_1 - eight
 // influences a vertex, which three's skinning does not carry).
 //
+// The jaw is the same story: the bind pose is fully dropped, the mandible
+// ends at the mouth corner, and sdGape / SeaDragon.gape used to be computed
+// and then thrown away. creatureVertex hinges those verts around that
+// corner (CPU twin: src/creature-jaw.js) before the body wave runs.
+//
 // ---------------------------------------------------------------------------
 // SEEING IT THROUGH THE WATER.
 //
@@ -45,7 +50,7 @@ import * as THREE from 'three/webgpu';
 import {
 	Fn, If, float, vec2, vec3, vec4, uniform, texture, mix, smoothstep, select,
 	uv, positionLocal, normalLocal, positionWorld, normalWorld, cameraPosition,
-	sin, cos, atan, exp, normalize, frontFacing,
+	sin, cos, atan, exp, normalize, frontFacing, reflect, clamp,
 } from 'three/tsl';
 
 import {
@@ -55,6 +60,7 @@ import {
 import { uSunDir } from './sky-lut.js';
 import { skyLutTexture } from './sky-background.js';
 import { waterClipDiscard } from './water-clip.js';
+import { uwCaustic } from './underwater.js';
 
 const PI_C = 3.14159265;
 const TAU_C = 6.28318531;
@@ -65,12 +71,29 @@ export const uCreatureLen = /*@__PURE__*/ uniform( 20.0 );    // nose to tail, m
 export const uCreaturePhase = /*@__PURE__*/ uniform( 0.0 );   // radians, advanced by the app
 export const uCreatureWaves = /*@__PURE__*/ uniform( 1.35 );  // body waves along that length
 export const uCreatureAmp = /*@__PURE__*/ uniform( 0.055 );   // peak sweep, as a fraction of length
+// 1 applies the wave on that axis. Sideways is the anguilliform default;
+// lift is a whale/dolphin heave. Both at once phase-shifts the heave a
+// quarter turn so the body corkscrews instead of flopping on a diagonal.
+export const uCreatureSide = /*@__PURE__*/ uniform( 1.0 );
+export const uCreatureLift = /*@__PURE__*/ uniform( 0.0 );
+// Head and anterior spine turn flex, in radians. When turning left/right,
+// the head and neck bend smoothly into the turn like a real shark/whale
+// rather than revolving like a rigid rod.
+export const uCreatureTurn = /*@__PURE__*/ uniform( 0.0 );
+// Radians the mandible swings up from the modelled-open rest. 0 is the
+// dropped bind pose; the slider (sdGape) and SeaDragon.gape multiply into
+// this in the app. Hinge is a fraction of length so a 20 m animal and a
+// 60 m one close about the same mouth-corner, not the same metre offset.
+export const uCreatureGape = /*@__PURE__*/ uniform( 0.0 );
+export const uCreatureJawHY = /*@__PURE__*/ uniform( 0.0142 );
+export const uCreatureJawHZ = /*@__PURE__*/ uniform( - 0.373 );
 
 /**
  * A travelling wave down the body, in the VERTEX stage.
  *
- * At station s (0 at the nose, 1 at the tail tip) the body is pushed sideways
- * by sin( s*waves*2pi - phase ), with the amplitude ramped in from the head. The
+ * At station s (0 at the nose, 1 at the tail tip) the body is pushed by
+ * sin( s*waves*2pi - phase ), sideways and/or up depending on uCreatureSide
+ * and uCreatureLift, with the amplitude ramped in from the head. The
  * ramp is the whole difference between a swimming animal and a wobbling tube:
  * a real swimmer's head is nearly steady and the sweep grows toward the tail, so
  * the wave looks like it is PUSHING the animal forward rather than shaking it.
@@ -87,26 +110,89 @@ export const creatureVertex = /*@__PURE__*/ Fn( () => {
 	// Nose sits at -Z, so this runs 0 at the nose and 1 at the tail.
 	const s = p.z.add( half ).div( half.mul( 2.0 ) ).clamp( 0.0, 1.0 ).toVar();
 
+	// Mandible, BEFORE the swim wave so the (nearly still) head carries a
+	// closing jaw rather than a jaw that sloshes with the tail. The mesh
+	// has no clip and the mandible ends at the mouth corner — there is no
+	// bone aft of it — so this is a geometric hinge, not skinning. CPU
+	// twin: src/creature-jaw.js. Rule 1: no chained .mix().
+	const hy = uCreatureJawHY.mul( uCreatureLen ).toVar();
+	const hz = uCreatureJawHZ.mul( uCreatureLen ).toVar();
+	const along = p.z.sub( hz ).toVar();
+	const below = hy.sub( p.y ).toVar();
+	const wZ = float( 1.0 ).sub(
+		smoothstep( uCreatureLen.mul( - 0.02 ), uCreatureLen.mul( 0.015 ), along ),
+	).toVar();
+	const wY = smoothstep( float( 0.0 ), uCreatureLen.mul( 0.02 ), below ).toVar();
+	const jawW = wZ.mul( wY ).toVar();
+	const jawAng = uCreatureGape.mul( jawW ).toVar();
+	const cJ = cos( jawAng ).toVar(), sJ = sin( jawAng ).toVar();
+	const dyJ = p.y.sub( hy ).toVar();
+	const dzJ = p.z.sub( hz ).toVar();
+	p.y.assign( hy.add( dyJ.mul( cJ ).sub( dzJ.mul( sJ ) ) ) );
+	p.z.assign( hz.add( dyJ.mul( sJ ).add( dzJ.mul( cJ ) ) ) );
+	const ny0 = normalLocal.y.toVar(), nzJ = normalLocal.z.toVar();
+	normalLocal.assign( vec3(
+		normalLocal.x,
+		ny0.mul( cJ ).sub( nzJ.mul( sJ ) ),
+		ny0.mul( sJ ).add( nzJ.mul( cJ ) ),
+	) );
+
+	// Head & anterior spine steering into turns.
+	// When a shark, whale, or sea creature steers, the rostrum and neck arch smoothly
+	// into the turn direction. s runs 0 at the nose to 1 at the tail.
+	// We curve the front half (s < 0.50) with a smooth cubic falloff toward mid-body (s = 0.50),
+	// rotating vertices and normals around Y.
+	const wTurn = float( 1.0 ).sub( smoothstep( 0.04, 0.50, s ) ).toVar();
+	const turnAng = uCreatureTurn.mul( wTurn ).toVar();
+	const cT = cos( turnAng ).toVar(), sT = sin( turnAng ).toVar();
+	const dxT = p.x.toVar(), dzT = p.z.toVar();
+	p.x.assign( dxT.mul( cT ).sub( dzT.mul( sT ) ) );
+	p.z.assign( dxT.mul( sT ).add( dzT.mul( cT ) ) );
+
+	const nx00 = normalLocal.x.toVar(), nz00 = normalLocal.z.toVar();
+	normalLocal.assign( vec3(
+		nx00.mul( cT ).sub( nz00.mul( sT ) ),
+		normalLocal.y,
+		nx00.mul( sT ).add( nz00.mul( cT ) ),
+	) );
+
 	const k = uCreatureWaves.mul( TAU_C ).toVar();
 	const ph = s.mul( k ).sub( uCreaturePhase ).toVar();
 	// Ramp: the head holds still, the tail does the work.
 	const ramp = smoothstep( 0.06, 0.85, s ).toVar();
 	const amp = uCreatureAmp.mul( uCreatureLen ).mul( ramp ).toVar();
+	const ampX = amp.mul( uCreatureSide ).toVar();
+	const ampY = amp.mul( uCreatureLift ).toVar();
+	// Quarter-turn only when both axes are live, so "Both" is a helix
+	// rather than a single diagonal flop.
+	const phY = ph.add( uCreatureSide.mul( uCreatureLift ).mul( 1.5707963 ) ).toVar();
 
-	p.x.addAssign( sin( ph ).mul( amp ) );
+	p.x.addAssign( sin( ph ).mul( ampX ) );
+	p.y.addAssign( sin( phY ).mul( ampY ) );
 
 	// d(offset)/dz, with the ramp's own slope folded in, so the normal turns
 	// with the surface it belongs to.
 	const dRamp = smoothstep( 0.06, 0.85, s.add( 0.02 ) ).sub( ramp ).div( 0.02 ).toVar();
-	const slope = cos( ph ).mul( amp ).mul( k ).div( uCreatureLen )
-		.add( sin( ph ).mul( uCreatureAmp ).mul( dRamp ) ).toVar();
-	const ang = atan( slope ).toVar();
-	const ca = cos( ang ).toVar(), sa = sin( ang ).toVar();
-	const nx = normalLocal.x.toVar(), nz = normalLocal.z.toVar();
-	normalLocal.assign( vec3(
-		nx.mul( ca ).add( nz.mul( sa ) ),
+	const slopeX = cos( ph ).mul( ampX ).mul( k ).div( uCreatureLen )
+		.add( sin( ph ).mul( uCreatureAmp ).mul( uCreatureSide ).mul( dRamp ) ).toVar();
+	const slopeY = cos( phY ).mul( ampY ).mul( k ).div( uCreatureLen )
+		.add( sin( phY ).mul( uCreatureAmp ).mul( uCreatureLift ).mul( dRamp ) ).toVar();
+
+	const angX = atan( slopeX ).toVar();
+	const cX = cos( angX ).toVar(), sX = sin( angX ).toVar();
+	const nx = normalLocal.x.toVar(), nz0 = normalLocal.z.toVar();
+	const n1 = vec3(
+		nx.mul( cX ).add( nz0.mul( sX ) ),
 		normalLocal.y,
-		nz.mul( ca ).sub( nx.mul( sa ) ),
+		nz0.mul( cX ).sub( nx.mul( sX ) ),
+	).toVar();
+
+	const angY = atan( slopeY ).toVar();
+	const cY = cos( angY ).toVar(), sY = sin( angY ).toVar();
+	normalLocal.assign( vec3(
+		n1.x,
+		n1.y.mul( cY ).add( n1.z.mul( sY ) ),
+		n1.z.mul( cY ).sub( n1.y.mul( sY ) ),
 	) );
 
 	return p;
@@ -198,22 +284,51 @@ export const creatureFragment = /*@__PURE__*/ Fn( () => {
 
 	const NoL = N.dot( uSunDir ).max( 0.0 ).toVar();
 	const domeVis = float( 0.55 ).add( N.y.mul( 0.45 ) ).toVar();
+
+	// Underwater wave-refraction caustics dancing on the submerged body.
+	// Same lace web the column pass projects on the shelf.
+	const causticWave = uwCaustic(
+		positionWorld.x.add( uSunDir.x.mul( depth.mul( 0.25 ) ) ),
+		positionWorld.z.add( uSunDir.z.mul( depth.mul( 0.25 ) ) ),
+		uCreaturePhase.mul( 0.45 ),
+	).toVar();
+	const causticFade = exp( depth.mul( - 0.20 ) ).mul( smoothstep( 0.0, 0.3, NoL ) ).toVar();
+	const causticLight = sunRad.mul( NoL ).mul( causticWave ).mul( causticFade ).mul( 0.42 ).toVar();
+
 	const lit = albedo.mul(
-		sunRad.mul( NoL ).mul( 0.55 ).add( skyIrr.mul( domeVis ) ),
+		sunRad.mul( NoL ).mul( 0.55 ).add( causticLight ).add( skyIrr.mul( domeVis ) ),
 	).div( PI_C ).mul( down ).toVar();
 
-	// A hint of the water's own colour on the body itself - the light that
-	// scattered into the last metre or so of the path rather than the whole
-	// column, which the sea now owns. Kept small on purpose: turn this up and it
-	// starts doing the sea's job again, badly, from a quantity that does not know
-	// where the eye is.
+	// A hint of the water's own colour on the body - scattered in along the
+	// camera ray, not the vertical depth. Sunlight still falls from above
+	// (`down`); this is only the last-metre stain, and the sea still owns the
+	// real column (uRefractFade). Side views through a long stretch of sea
+	// pick up more of the stain than looking straight down at the same depth.
+	const toFrag = positionWorld.sub( cameraPosition ).toVar();
+	const eyeRun = toFrag.length().max( 1e-4 ).toVar();
+	const tAir = cameraPosition.y.sub( uCreatureSeaY )
+		.div( toFrag.y.negate().div( eyeRun ).max( 1e-3 ) ).max( 0.0 ).toVar();
+	const waterToEye = eyeRun.sub( tAir ).max( 0.0 ).toVar();
 	const col = mix( lit, uCreatureTint.mul( skyIrr ).div( PI_C ),
-		float( 1.0 ).sub( exp( depth.mul( - 0.08 ) ) ).mul( 0.45 ) ).toVar();
+		float( 1.0 ).sub( exp( waterToEye.mul( - 0.08 ) ) ).mul( 0.45 ) ).toVar();
 
 	// The haze, the way the hull and the sea take it - but ONLY in the beauty
 	// pass. In the refraction pass the sea hazes the finished pixel, this body
 	// included, and applying it here as well would haze it twice.
 	If( uCreatureAerial.greaterThan( 0.001 ), () => {
+
+		// Breached wet-skin specular reflection (Fresnel + sharp highlight)
+		const V = normalize( cameraPosition.sub( positionWorld ) ).toVar();
+		const H = normalize( uSunDir.add( V ) ).toVar();
+		const NoH = N.dot( H ).max( 0.0 ).toVar();
+		const VoH = V.dot( H ).max( 0.0 ).toVar();
+		const f0 = float( 0.028 );
+		const fFresnel = f0.add( float( 1.0 ).sub( f0 ).mul( float( 1.0 ).sub( VoH ).clamp( 0.0, 1.0 ).pow( 5.0 ) ) ).toVar();
+		const wetSunSpec = NoH.pow( 42.0 ).mul( fFresnel ).mul( sunRad ).mul( NoL ).mul( 1.2 ).toVar();
+		const R = reflect( V.negate(), N ).toVar();
+		const skyTap = skyLutTexture.sample( vec2( 0.5, R.y.mul( 0.5 ).add( 0.5 ).clamp( 0.01, 0.99 ) ) ).level( 5.0 ).rgb.toVar();
+		const wetSkySpec = skyTap.mul( fFresnel ).mul( 0.45 ).toVar();
+		col.addAssign( wetSunSpec.add( wetSkySpec ) );
 
 		const eyeDist = cameraPosition.sub( positionWorld ).length().toVar();
 		const { inscatter, transmit } = aerialPerspective(

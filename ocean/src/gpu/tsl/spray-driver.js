@@ -431,7 +431,14 @@ export class TslSpray {
 
 		// src/spray.js:142, verbatim - and AFTER the haze, which is a separate
 		// layer with its own gate.
-		if ( p.sprayOpacity <= 0.001 && p.sprayMistOpacity <= 0.001 ) return;
+		// The animal's sheet is sdSprayOpacity / sdSplashOpacity, not
+		// the Spray group's Opacity. Zeroing whitecap opacity must not
+		// hide the monster's swim trail or its jump crown.
+		const dragonVisible = ( ctx?.sprayBody === 'dragon'
+			&& ( p.sdSprayOpacity ?? 0 ) > 0.001 )
+			|| ( ctx?.sprayBody === 'dragonSplash'
+				&& ( p.sdSplashOpacity ?? 0 ) > 0.001 );
+		if ( p.sprayOpacity <= 0.001 && p.sprayMistOpacity <= 0.001 && ! dragonVisible ) return;
 
 		setAtmosphereUniforms( p );
 		setSkyLutUniforms( p, ctx.sunDir, Math.max( ctx.camPos[ 1 ], 1 ),

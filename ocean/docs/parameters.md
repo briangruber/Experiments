@@ -24,7 +24,7 @@ need `water.rebuildGrid()`.
 | `windSpeed` | Wind speed (m/s) | `7` | 0.5 … 40 | **rebuild** |
 | `windDirDeg` | Wind direction | `42` | 0 … 360 | **rebuild** |
 | `fetch` | Fetch (km) | `140` | 1 … 1200 | **rebuild** |
-| `depth` | Depth (m) | `26` | 3 … 4000 | **rebuild** |
+| `depth` | Depth (m) | `200` | 3 … 4000 | **rebuild** |
 | `amplitude` | Amplitude | `0.8` | 0 … 3 | **rebuild** |
 | `choppiness` | Choppiness | `1.15` | 0 … 2.5 |  |
 | `choppyLong` | Long-wave choppiness x | `1.45` | 0.5 … 3 |  |
@@ -70,31 +70,15 @@ need `water.rebuildGrid()`.
 
 | parameter | meaning | default | range | |
 | --- | --- | --- | --- | --- |
-| `foamAmount` | Coverage | `0.7` | 0 … 3 |  |
-| `foamCoverage` | Whitecap fraction x | `1` | 0 … 4 |  |
-| `foamSoftness` | Breaking softness | `0.28` | 0.05 … 3 |  |
-| `foamFace` | Forward-face bias | `0.7` | 0 … 1 |  |
-| `foamBreakScale` | Breaker scale (m) | `3.2` | 0.5 … 40 |  |
-| `foamCrestAniso` | Crest elongation | `4` | 1 … 12 |  |
-| `foamRidge` | Crest ridge gate | `0.85` | 0 … 1 |  |
-| `foamBreakup` | Raft breakup | `0.55` | 0 … 2 |  |
-| `foamWindMin` | Whitecap onset (m/s) | `4` | 0 … 12 |  |
-| `foamInject` | Injection | `4` | 0 … 3 |  |
-| `foamFreshDecay` | Fresh foam decay | `0.9` | 0.05 … 4 |  |
-| `foamDecay` | Decay rate | `0.42` | 0.01 … 3 |  |
-| `foamThin` | Raft thinning | `0.18` | 0 … 0.6 |  |
-| `foamDrift` | Downwind drift (m/s) | `0.6` | 0 … 3 |  |
-| `foamSpread` | Spread rate | `0.4` | 0 … 1.5 |  |
-| `foamDetail` | Bubble relief | `1.5` | 0 … 5 |  |
-| `foamCrisp` | Bubble-edge crispness | `0.8` | 0 … 1 |  |
-| `foamSharp` | Edge erosion | `1.4` | 0.2 … 6 |  |
-| `foamStreak` | Downwind streaking | `0.7` | 0 … 1 |  |
-| `foamOpacity` | Opacity | `0.92` | 0 … 1 |  |
-| `foamFar` | Distance self-hiding | `0.55` | 0 … 1 |  |
-| `foamRoughness` | Roughness | `0.62` | 0.05 … 1 |  |
-| `foamTint` | Water tint | `0.35` | 0 … 1 |  |
-| `foamLift` | Crest lift | `0.55` | 0 … 3 |  |
-| `foamColor` | Colour | `[0.94, 0.965, 0.99]` | linear RGB |  |
+| `foamAmount` | Coverage | `0.4` | 0 … 3 |  |
+| `foamFill` | Raft fill | `0.86` | 0 … 1 |  |
+| `foamCell` | Cell size | `1.9` | 0.25 … 3 |  |
+| `foamStreak` | Downwind stretch | `0.16` | 0 … 1 |  |
+| `foamDrift` | Slide (m/s) | `0.6` | 0 … 3 |  |
+| `foamDetail` | Bubble brightness | `1.85` | 0 … 5 |  |
+| `foamTint` | Cyan underglow | `0.22` | 0 … 1 |  |
+| `foamOpacity` | Opacity | `0.78` | 0 … 1 |  |
+| `foamColor` | Colour | `[0.96, 0.975, 0.995]` | linear RGB |  |
 
 ## Water Optics
 
@@ -131,44 +115,45 @@ need `water.rebuildGrid()`.
 | `horizonBend` | Horizon bend | `0.85` | 0 … 1 |  |
 | `aerial` | Aerial perspective | `1` | 0 … 2 |  |
 | `waterIOR` | Index of refraction | `1.333` | 1 … 1.8 |  |
+| `underwater` | Underwater look | `1` | on / off |  |
 
 ## Spray
 
 | parameter | meaning | default | range | |
 | --- | --- | --- | --- | --- |
-| `sprayOpacity` | Opacity | `0.85` | 0 … 2 |  |
-| `sprayRate` | Emission rate | `0.85` | 0 … 1 |  |
+| `sprayOpacity` | Opacity | `1.585` | 0 … 2 |  |
+| `sprayRate` | Emission rate | `0.53` | 0 … 1 |  |
 | `sprayThreshold` | Breaking foam needed | `0.3` | 0.02 … 1 |  |
-| `sprayFoldSoft` | Breaking softness | `0.15` | 0 … 0.95 |  |
-| `sprayFoamBias` | Needs active breaking | `0.85` | 0 … 1 |  |
+| `sprayFoldSoft` | Breaking softness | `0.21` | 0 … 0.95 |  |
+| `sprayFoamBias` | Needs active breaking | `0` | 0 … 1 |  |
 | `sprayWindMin` | Wind onset (m/s) | `4.5` | 0 … 30 |  |
 | `sprayWindFull` | Wind saturation (m/s) | `18` | 2 … 45 |  |
 | `sprayRadius` | Radius (m) | `120` | 20 … 1200 |  |
 | `sprayFocus` | Near-field focus | `1.1` | 0.5 … 4 |  |
-| `sprayLifetime` | Lifetime (s) | `2.2` | 0.3 … 10 |  |
-| `sprayLaunch` | Launch speed | `4.6` | 0 … 14 |  |
+| `sprayLifetime` | Lifetime (s) | `1.65` | 0.3 … 10 |  |
+| `sprayLaunch` | Launch speed | `12.6` | 0 … 14 |  |
 | `sprayLaunchUp` | Launch lift | `0.45` | 0 … 3 |  |
 | `sprayLaunchWind` | Launch wind share | `0.35` | 0 … 1.5 |  |
-| `spraySheet` | Sheet size (particles) | `96` | 1 … 512 |  |
+| `spraySheet` | Sheet size (particles) | `109` | 1 … 512 |  |
 | `spraySheetRate` | Tear-off rate (1/s) | `5` | 0.5 … 30 |  |
 | `spraySheetSpread` | Sheet spread (m) | `2.2` | 0.1 … 12 |  |
 | `sprayShred` | Sheet shred length (m) | `1.6` | 0 … 10 |  |
-| `sprayGravity` | Gravity | `9.4` | 0 … 20 |  |
+| `sprayGravity` | Gravity | `13.1` | 0 … 20 |  |
 | `sprayDrag` | Wind drag | `0.9` | 0 … 5 |  |
 | `sprayTurbulence` | Turbulence | `2` | 0 … 8 |  |
 | `sprayShear` | Wind shear | `0.35` | 0 … 1.5 |  |
-| `spraySizeMin` | Parcel size min (m) | `0.018` | 0.02 … 1 |  |
-| `spraySizeMax` | Parcel size max (m) | `0.15` | 0.05 … 4 |  |
-| `spraySize` | Size | `1` | 0.1 … 5 |  |
+| `spraySizeMin` | Parcel size min (m) | `0.01` | 0.01 … 1 |  |
+| `spraySizeMax` | Parcel size max (m) | `0.22` | 0.05 … 4 |  |
+| `spraySize` | Size | `1.23` | 0.1 … 5 |  |
 | `sprayStretch` | Shutter smear (s) | `0.014` | 0 … 0.25 |  |
-| `sprayFadeNear` | Near fade (m) | `1.6` | 0.05 … 4 |  |
-| `sprayMinPixels` | Min screen size (px) | `1.15` | 0.5 … 8 |  |
+| `sprayFadeNear` | Near fade (m) | `2.65` | 0.05 … 4 |  |
+| `sprayMinPixels` | Min screen size (px) | `0.9` | 0.5 … 8 |  |
 | `sprayFarSoft` | Distant softness | `1.6` | 0 … 6 |  |
-| `spraySurfFade` | Surface soft fade (m) | `0.3` | 0.02 … 3 |  |
-| `sprayAerial` | Aerial extinction (1/m) | `0.0012` | 0 … 0.01 |  |
-| `sprayGrain` | Droplet texture | `0.85` | 0 … 1 |  |
-| `sprayGrainScale` | Droplet texture scale | `5.2` | 0.5 … 12 |  |
-| `sprayGrainAniso` | Droplet texture stretch | `1.5` | 1 … 10 |  |
+| `spraySurfFade` | Surface soft fade (m) | `0.67` | 0.02 … 3 |  |
+| `sprayAerial` | Aerial extinction (1/m) | `0.0025` | 0 … 0.01 |  |
+| `sprayGrain` | Droplet texture | `1` | 0 … 1 |  |
+| `sprayGrainScale` | Droplet texture scale | `6.75` | 0.5 … 12 |  |
+| `sprayGrainAniso` | Droplet texture stretch | `4.95` | 1 … 10 |  |
 
 ## Spindrift
 
@@ -256,33 +241,74 @@ need `water.rebuildGrid()`.
 | parameter | meaning | default | range | |
 | --- | --- | --- | --- | --- |
 | `sdEnabled` | Sea dragon | `1` | 0 … 1 |  |
-| `sdDepth` | Dragon depth (m) | `9.6` | 1.6 … 25 |  |
-| `sdSwell` | Sea lifts over its back (m) | `2.88` | 0 … 3 |  |
-| `sdSwellRadius` | Lift footprint (m) | `2.5` | 1 … 25 |  |
-| `sdSwellFade` | Lift dies by depth (m) | `7.5` | 1 … 20 |  |
+| `sdModel` | Model | `Current` | `Current`, `Sea serpent` |  |
+| `sdDepth` | Dragon depth (m) | `9` | 1.6 … 160 |  |
+| `sdBow` | Bow heap (m) | `10.62` | 0 … 16 |  |
+| `sdBowSoft` | Bow smoothness | `1` | 0.4 … 3 |  |
+| `sdDome` | Pressure dome (m) | `6.25` | 0 … 16 |  |
+| `sdDomeSoft` | Dome smoothness | `1` | 0.4 … 3 |  |
+| `sdDomeNear` | Dome when this close (m) | `10.7` | 0.5 … 16 |  |
+| `sdFluke` | Fluke footprints | `2` | 0 … 2 |  |
+| `sdFlukeSize` | Footprint size (m) | `8.9` | 1 … 24 |  |
+| `sdFlukeLife` | Footprint life (s) | `18` | 2 … 30 |  |
+| `sdFlukeDebug` | Show footprint points | `0` | 0 … 1 |  |
+| `sdRipple` | Thrown ripples | `0` | 0 … 1 |  |
+| `sdSwell` | Ripple height (m) | `3.97` | 0 … 12 |  |
+| `sdSwellRadius` | Ripple width (m) | `2.9` | 0.2 … 6 |  |
+| `sdSwellFade` | Ripples die by depth (m) | `9` | 1 … 20 |  |
+| `sdSwellLife` | Ripple decay (s) | `7` | 0.4 … 10 |  |
+| `sdSwellWave` | Ripple travel | `0` | 0 … 1 |  |
+| `sdSwellSpeedMin` | Ripple speed min (m/s) | `16` | 2 … 40 |  |
+| `sdSwellSpeedMax` | Ripple speed max (m/s) | `32` | 4 … 60 |  |
+| `sdSwellDebug` | Show ripple points | `0` | 0 … 1 |  |
 | `sdSpray` | Spray where it breaks the surface | `1` | 0 … 1 |  |
-| `sdSprayDepth` | Spray band (m) | `1.1` | 0.05 … 2 |  |
+| `sdSpraySize` | Spray size | `0.38` | 0.1 … 5 |  |
+| `sdSprayOpacity` | Spray opacity | `1.71` | 0 … 2 |  |
+| `sdSprayLife` | Spray lifetime (s) | `1.17` | 0.1 … 4 |  |
+| `sdSprayPulse` | Spray density | `0.31` | 0 … 1.5 |  |
+| `sdSprayLaunch` | Spray launch | `0.55` | 0 … 3 |  |
+| `sdSprayDepth` | Spray band (m) | `0.35` | 0.05 … 2 |  |
+| `sdSprayEmitters` | Spray emitters on the waterline | `30` | 1 … 50 |  |
+| `sdSprayDebug` | Show spray / wake emitters | `0` | 0 … 1 |  |
+| `sdSplashParticles` | Jump splash | `0.73` | 0 … 3 |  |
+| `sdSplashSize` | Jump splash size | `0.35` | 0.2 … 3 |  |
+| `sdSplashOpacity` | Jump splash opacity | `1.4` | 0 … 2 |  |
+| `sdSplashLife` | Jump splash lifetime (s) | `0.65` | 0.3 … 4 |  |
+| `sdSplashPulse` | Jump splash density | `0.53` | 0 … 1.5 |  |
+| `sdSplashLaunch` | Jump splash launch | `1.59` | 0 … 3 |  |
+| `sdSplashExit` | Jump-out particles | `1.94` | 0 … 3 |  |
+| `sdSplashLand` | Dive-in particles | `2.04` | 0 … 3 |  |
+| `sdVWake` | V wake | `1.02` | 0 … 2 |  |
+| `sdVWakeAmp` | V wake height (m) | `1.39` | 0 … 2 |  |
+| `sdVWakeLen` | V wake length (m) | `70` | 20 … 220 |  |
+| `sdVWakeWidth` | V wake arm width (m) | `1.3` | 1 … 14 |  |
+| `sdVWakeAngle` | V wake angle (°) | `15` | 12 … 40 |  |
+| `sdVWakeFoam` | Persistent trail foam | `0.75` | 0 … 1 |  |
+| `sdVWakeMid` | V wake centre | `0.83` | 0 … 1 |  |
+| `sdVWakeLife` | V wake lifetime (s) | `8.2` | 0.4 … 20 |  |
 | `sdDepthSwing` | Dragon rise and sound (m) | `11.7` | 0 … 12 |  |
 | `sdRushSpeed` | Speed it comes up at (m/s) | `30` | 5 … 30 |  |
 | `sdOffsetClose` | Closes to (m) at speed | `17.5` | 3 … 40 |  |
 | `sdOffset` | Dragon station off your shoulder (m) | `8` | 5 … 60 |  |
 | `sdLead` | Dragon station ahead (m) | `-8` | -20 … 40 |  |
 | `sdFollowRise` | Follow camera height (m) | `6` | 1 … 40 |  |
-| `sdFade` | Water that swallows it (m) | `3.5` | 2 … 30 |  |
+| `sdView` | Dragon view | `1` | `Rider`, `Chase` |  |
+| `sdClimb` | Dragon rise / dive (rad/s) | `0.45` | 0.1 … 1.4 |  |
+| `sdFade` | Water that swallows it (m) | `23` | 2 … 30 |  |
 | `sdOpacity` | Dragon strength | `1` | 0 … 1 |  |
-| `sdLength` | Dragon length (m) | `60` | 6 … 60 |  |
-| `sdSpeed` | Dragon top speed (m/s) | `50` | 4 … 50 |  |
-| `sdWaves` | Dragon body waves | `1.25` | 0.3 … 3 |  |
-| `sdAmp` | Dragon tail sweep | `0.055` | 0 … 0.2 |  |
-| `sdBeat` | Dragon tail beat (Hz) | `0.35` | 0 … 3 |  |
-| `sdBeatSpeed` | Dragon beat per m/s | `0.03` | 0 … 0.15 |  |
+| `sdLength` | Dragon length (m) | `60` | 6 … 200 |  |
+| `sdSpeed` | Dragon top speed at 60 m (m/s) | `80` | 4 … 80 |  |
+| `sdCruise` | Dragon cruise (m/s) | `45` | 0 … 60 |  |
+| `sdWaves` | Dragon body waves | `0.96` | 0.3 … 3 |  |
+| `sdWaveAxis` | Body wave direction | `1` | `Sideways`, `Up and down`, `Both` |  |
+| `sdAmp` | Dragon tail sweep | `0.11` | 0 … 0.2 |  |
+| `sdBeat` | Dragon tail beat (Hz) | `0.45` | 0 … 3 |  |
+| `sdBeatSpeed` | Dragon Strouhal trim | `0.032` | 0 … 0.15 |  |
 | `sdTurnRate` | Dragon turn rate (rad/s) | `0.55` | 0.1 … 2 |  |
-| `sdOrbit` | Dragon circles you at (rad/s) | `0.2` | 0 … 1 |  |
+| `sdOrbit` | Dragon orbit fallback (rad/s) | `0.2` | 0 … 1 |  |
 | `sdGape` | Jaw shut angle (rad) | `0.3` | 0 … 1.4 |  |
-| `sdThrough` | Shows through the glare | `0.4` | 0 … 1 |  |
-| `sdRefract` | Refraction through the surface | `0.2` | 0 … 0.2 |  |
-| `sdWake` | Wake it stirs up | `1` | 0 … 2 |  |
-| `sdWakeArm` | Wake V-arms share | `0` | 0 … 1 |  |
+| `sdThrough` | Shows through the glare | `0.07` | 0 … 1 |  |
+| `sdRefract` | Refraction through the surface | `0.433` | 0 … 1.5 |  |
 
 ## Wave Runner
 
@@ -339,7 +365,7 @@ need `water.rebuildGrid()`.
 | `wakeRelief` | Wake relief shading | `1` | 0 … 3 |  |
 | `wakeSlick` | Wake slick | `0.8` | 0 … 1 |  |
 | `wakeExtent` | Wake memory (m) | `320` | 80 … 800 |  |
-| `wakeEdgeFade` | Wake buffer edge fade | `0.12` | 0.01 … 0.4 |  |
+| `wakeEdgeFade` | Wake buffer edge fade | `0.28` | 0.01 … 0.4 |  |
 | `wakeWidthScale` | Wake width x (auto-measured) | `1` | 0.2 … 3 |  |
 | `wakeProbe` | Ride your own wake | `0.8` | 0 … 2 |  |
 | `wakeArmRate` | Wake V spread | `1` | 0 … 3 |  |
@@ -522,8 +548,9 @@ need `water.rebuildGrid()`.
 | `sprayTexSize` | Spray particles | `64` | `64`, `128`, `192`, `256`, `384` |  |
 | `renderScale` | Render scale | `1` | 0.35 … 2 | **resize** |
 | `adaptiveQuality` | Adaptive resolution | `1` | 0 … 1 |  |
-| `fpsCap` | Frame rate cap (0 = off) | `0` | 0 … 144 |  |
+| `fpsCap` | Frame rate cap (0 = off) | `60` | 0 … 144 |  |
 | `fpsCapIdle` | Cap when not in front | `10` | 1 … 60 |  |
+| `fpsCapBattery` | Cap on battery | `30` | 0 … 60 |  |
 | `dprCap` | Pixel ratio cap | `2` | 0.5 … 3 | **resize** |
 | `targetFps` | Target frame rate | `60` | 20 … 120 |  |
 | `renderScaleMin` | Min render scale | `0.4` | 0.25 … 1 |  |
@@ -538,6 +565,24 @@ derived values.
 | --- | --- |
 | `seaLevel` | `0` |
 | `rMin` | `0.35` |
+| `foamCoverage` | `1` |
+| `foamSoftness` | `0.28` |
+| `foamFace` | `0.78` |
+| `foamBreakScale` | `1.6` |
+| `foamCrestAniso` | `1.7` |
+| `foamRidge` | `0.85` |
+| `foamBreakup` | `0.88` |
+| `foamWindMin` | `4` |
+| `foamDecay` | `0.42` |
+| `foamFreshDecay` | `0.9` |
+| `foamThin` | `0.18` |
+| `foamInject` | `4` |
+| `foamSpread` | `0.4` |
+| `foamRoughness` | `0.58` |
+| `foamLift` | `0.72` |
+| `foamSharp` | `0.55` |
+| `foamCrisp` | `0.16` |
+| `foamFar` | `0.62` |
 | `absorption` | `[0.3, 0.045, 0.03]` |
 | `sprayMist` | `0` |
 | `sprayMistWind` | `7` |
@@ -608,6 +653,9 @@ derived values.
 | `sdAccel` | `0.55` |
 | `sdMinDepth` | `1.6` |
 | `sdSeaLevel` | `0` |
+| `sdSpraySpread` | `1` |
+| `sdSprayUp` | `1` |
+| `sdSprayMulti` | `0.15` |
 | `wrCamLookRise` | `0.75` |
 | `wrCamMinClear` | `0.7` |
 | `craftScale` | `1` |
@@ -624,14 +672,14 @@ value behind.
 
 | preset | overrides |
 | --- | --- |
-| `Golden Hour Swell` | 27 |
-| `North Atlantic Storm` | 46 |
-| `Glassy Dawn` | 27 |
-| `Tropical Noon` | 26 |
-| `Moonlit Passage` | 32 |
-| `Peaceful Moonlit Ocean` | 41 |
-| `Trade Winds` | 22 |
-| `Hurricane Sea` | 46 |
+| `Golden Hour Swell` | 34 |
+| `North Atlantic Storm` | 54 |
+| `Glassy Dawn` | 28 |
+| `Tropical Noon` | 35 |
+| `Moonlit Passage` | 37 |
+| `Peaceful Moonlit Ocean` | 45 |
+| `Trade Winds` | 29 |
+| `Hurricane Sea` | 56 |
 | `Sheltered Water` | 38 |
-| `Deep Blue Afternoon` | 21 |
+| `Deep Blue Afternoon` | 24 |
 

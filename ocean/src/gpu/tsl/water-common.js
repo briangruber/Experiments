@@ -125,12 +125,11 @@
 //    fidelity of the transcription is the point; "cleaning it up" makes the
 //    next diff against the GLSL harder to read for no gain.
 //
-// 7. THE TWO `||` CHAINS IN wakeAt BECOME THEIR POSITIVE COMPLEMENTS WITH
-//    .and(), which is what sky-background.js's cirrusLayer does. TSL has no
-//    short-circuiting operator, but neither test here can produce a NaN, so
-//    there is nothing for a short-circuit to protect. Both of the GLSL's early
-//    `return vec3(0.0)` paths are simply the untouched initial value of the
-//    result var.
+// 7. wakeAt's FIRST early-out is the inscribed circle (radial < 1). The
+//    old uv.x/y box was four .and()s and its far edge was the horizontal
+//    ruler. The SECOND (stir / age) is still the GLSL `||` written as
+//    its positive complement with .and(). Both early returns are the
+//    untouched zero of the result var.
 //
 // 8. `.mix()` IS BANNED. There are no blends in this file today, but if one
 //    lands here: `mixElement = (t, e1, e2) => mix(e1, e2, t)`, so the RECEIVER
@@ -139,7 +138,7 @@
 //    cost the sky port the most time.
 
 import {
-	Fn, If, float, int, vec2, vec3,
+	Fn, If, float, int, vec2, vec3, mix,
 	uniform, uniformArray, texture, smoothstep, clamp,
 } from 'three/tsl';
 
@@ -216,10 +215,15 @@ export const uWakeOrigin = /*@__PURE__*/ uniform( 'vec2' );   // src/wake.js Wak
 export const uWakeExtent = /*@__PURE__*/ uniform( 320.0 );    // presets.js wakeExtent
 export const uWakeOn = /*@__PURE__*/ uniform( 0.0 );          // 0 = no wake
 export const uWakeLife = /*@__PURE__*/ uniform( 14.0 );       // presets.js wakeLife
+export const uWakeHead = /*@__PURE__*/ uniform( 'vec2' );     // live stamp, world xz
+export const uWakeFwd = /*@__PURE__*/ uniform( 'vec2' );      // heading on xz
+export const uWakeSpeed = /*@__PURE__*/ uniform( 0.0 );       // m/s; >0.5 draws the analytic V
+uWakeHead.value.set( 0, 0 );
+uWakeFwd.value.set( 0, 1 );
 export const uWakeArmW = /*@__PURE__*/ uniform( 1.5 );        // presets.js wakeWidth
 // Fraction of the wake buffer's border feathered out, so the field's square
 // world-space edge never reads as a ruled line. presets.js wakeEdgeFade.
-export const uWakeEdge = /*@__PURE__*/ uniform( 0.12 );
+export const uWakeEdge = /*@__PURE__*/ uniform( 0.28 );
 export const uWakeArm = /*@__PURE__*/ uniform( 1.0 );         // presets.js wakeArm
 export const uWakeChurn = /*@__PURE__*/ uniform( 0.5 );       // presets.js wakeCentre
 export const uWakeSpread = /*@__PURE__*/ uniform( 0.22 );     // presets.js wakeSpread
@@ -556,21 +560,21 @@ export function sampleCascadeSurface( xz, dist ) {
 //
 //   vec3 wakeAt(vec2 p){
 //     vec2 uv = (p - uWakeOrigin) / uWakeExtent + 0.5;
-//     if (uv.x <= 0.0 || uv.x >= 1.0 || uv.y <= 0.0 || uv.y >= 1.0) return vec3(0.0);
+//     float radial = length(uv - 0.5) * 2.0;
+//     if (radial >= 1.0) return vec3(0.0);
 //     vec4 r = texture(uWakeTex, uv);
 //     float stir = r.r, age = r.g, lat = r.b, rate = r.a;
 //     if (stir < 0.002 || age >= uWakeLife) return vec3(0.0);
-//     // Don't let the wake end on a straight line ruled across the sea where the
-//     // buffer runs out.
-//     vec2 ed = min(uv, 1.0 - uv);
-//     float fade = max(1.0 - age / uWakeLife, 0.0) * smoothstep(0.0, 0.03, min(ed.x, ed.y));
+//     float edgeLo = 1.0 - max(uWakeEdge, 0.18) * 1.8;
+//     float edge = 1.0 - smoothstep(edgeLo, 1.0, radial);
+//     float fade = max(1.0 - age / uWakeLife, 0.0) * edge;
 //
 //     // The cusp arms stand where they have got to: a ridge at |lat| = rate * age,
 //     // not a falloff from the centreline. That single fact is the whole difference
 //     // between a Kelvin wedge and a widening smear down the middle of the path.
 //     float arm = rate * age;
-//     float w   = uWakeArmW * (1.0 + uWakeSpread * age);
-//     float q   = (abs(lat) - arm) / max(w, 0.05);
+//     float w   = max(uWakeArmW * (1.0 + uWakeSpread * age), 0.05);
+//     float q   = (abs(lat) - arm) / w;
 //     float ridge = exp(-q * q);
 //     // Between them, entrained air: broad, soft, and much shorter lived than the
 //     // arms, because it is bubbles rather than a surface wave.
@@ -578,15 +582,19 @@ export function sampleCascadeSurface( xz, dist ) {
 //     float churnRaw = exp(-cq * cq);
 //     float churn = churnRaw * max(1.0 - age / (uWakeLife * 0.5), 0.0);
 //
-//     float foam = (ridge * uWakeArm + churn * uWakeChurn) * stir * fade;
-//     float h    = (ridge * uWakeArm * 0.55 - churn * uWakeChurn * 0.9) * stir * fade * uWakeDepth;
+//     float born = smoothstep(0.06, 0.22, age);
+//     float foamW = max(uWakeArmW * (1.0 + 0.28 * age), 0.05);
+//     float trail = exp(-(lat / foamW) * (lat / foamW));
+//     float foam = (trail * uWakeArm + churn * uWakeChurn) * stir * fade * born;
+//     float live = smoothstep(0.0, 0.18, stir);
+//     float h    = ridge * fade * live * born * uWakeDepth;
 //     // The slick is the churned lane between the arms, and only that: it outlives
 //     // the bubbles that made it, which is why a wake stays legible as a smooth dark
 //     // path after the white water has gone. Deliberately not including the arms -
 //     // suppressing the sea's foam along them would take the white off the one part
 //     // of a wake that is supposed to be white.
 //     return vec3(clamp(foam * uWakeStrength, 0.0, 1.0), h,
-//                 clamp(churnRaw * stir * fade, 0.0, 1.0));
+//                 clamp(churnRaw * stir * fade * born, 0.0, 1.0));
 //   }
 //
 // Both early returns are the untouched zero vector of the result var. The two
@@ -597,11 +605,12 @@ export const wakeAt = /*@__PURE__*/ Fn( ( [ p ] ) => {
 
 	const uv = p.sub( uWakeOrigin ).div( uWakeExtent ).add( 0.5 ).toVar();
 
-	// GLSL: if (uv.x <= 0.0 || uv.x >= 1.0 || uv.y <= 0.0 || uv.y >= 1.0) return vec3(0.0);
-	If( uv.x.greaterThan( 0.0 )
-		.and( uv.x.lessThan( 1.0 ) )
-		.and( uv.y.greaterThan( 0.0 ) )
-		.and( uv.y.lessThan( 1.0 ) ), () => {
+	// Inscribed circle, not the square. The square's far edge is a
+	// line of constant Z — a dead-straight horizontal cut, and the
+	// thing Wake stir turns on and off. Twin: wakeEdgeCpu().
+	const fromC = uv.sub( vec2( 0.5 ) ).toVar();
+	const radial = fromC.dot( fromC ).sqrt().mul( 2.0 ).toVar();
+	If( radial.lessThan( 0.999 ), () => {
 
 		// .level(0) unconditionally, in both stages - note 4. Value-identical:
 		// the real uWakeTex has no mip chain.
@@ -614,30 +623,27 @@ export const wakeAt = /*@__PURE__*/ Fn( ( [ p ] ) => {
 		// GLSL: if (stir < 0.002 || age >= uWakeLife) return vec3(0.0);
 		If( stir.greaterThanEqual( 0.002 ).and( age.lessThan( uWakeLife ) ), () => {
 
-			// Don't let the wake end on a straight line ruled across the sea
-			// where the buffer runs out. The feather was a hardcoded 0.03 of
-			// the buffer, and that is not enough to hide the wall: the field
-			// is an axis-aligned square in WORLD space, so its far edge is a
-			// line of constant Z and reads on screen as a dead-straight
-			// horizontal cut - reported as "a weird hard horizontal line
-			// where the wake begins". 0.03 of a 320 m buffer is under 10 m,
-			// and at the grazing angle you actually view a wake from those
-			// metres compress into a few pixels. Worse, a fast source reaches
-			// the wall long before its trail has aged out: at 50 m/s the edge
-			// arrives 6.4 s in, where the age term alone is still at 54%, so
-			// the cut happens at over half strength. uWakeEdge (wakeEdgeFade)
-			// widens it and makes it tunable per sea.
-			const ed = uv.min( vec2( 1.0 ).sub( uv ) ).toVar();
+			// Circular fade. min(ed.x, ed.y) was a square: a line of
+			// constant Z, which is a horizontal ruler on screen. A
+			// 4 m wake wave made that wall a cliff. Fade from inside
+			// the inscribed circle so the hard UV clip is already 0.
+			const edgeLo = float( 1.0 ).sub( uWakeEdge.max( 0.18 ).mul( 1.8 ) );
+			const edge = float( 1.0 ).sub( smoothstep( edgeLo, float( 1.0 ), radial ) ).toVar();
 			const fade = float( 1.0 ).sub( age.div( uWakeLife ) ).max( 0.0 )
-				.mul( smoothstep( 0.0, uWakeEdge.max( 0.005 ), ed.x.min( ed.y ) ) ).toVar();
+				.mul( edge ).toVar();
 
 			// The cusp arms stand where they have got to: a RIDGE AT
 			// |lat| = rate * age, not a falloff from the centreline. That single
 			// fact is the whole difference between a Kelvin wedge and a widening
 			// smear down the middle of the path.
 			const arm = rate.mul( age ).toVar();
-			const w = uWakeArmW.mul( float( 1.0 ).add( uWakeSpread.mul( age ) ) ).toVar();
-			const q = lat.abs().sub( arm ).div( w.max( 0.05 ) ).toVar();
+			// Classic Kelvin face: armW * (1 + spread * age). The later
+			// spread*age*(armW+4) floor filled the wedge into the
+			// rectangle behind the dragon; wing/grow pinned the young
+			// wake to two parallel rails.
+			const w = uWakeArmW.mul( float( 1.0 ).add( uWakeSpread.mul( age ) ) )
+				.max( 0.05 ).toVar();
+			const q = lat.abs().sub( arm ).div( w ).toVar();
 			const ridge = q.mul( q ).negate().exp().toVar();
 
 			// Between them, entrained air: broad, soft, and much shorter lived
@@ -648,23 +654,36 @@ export const wakeAt = /*@__PURE__*/ Fn( ( [ p ] ) => {
 				float( 1.0 ).sub( age.div( uWakeLife.mul( 0.5 ) ) ).max( 0.0 ),
 			).toVar();
 
-			const foam = ridge.mul( uWakeArm ).add( churn.mul( uWakeChurn ) )
-				.mul( stir ).mul( fade ).toVar();
-			const h = ridge.mul( uWakeArm ).mul( 0.55 )
-				.sub( churn.mul( uWakeChurn ).mul( 0.9 ) )
-				.mul( stir ).mul( fade ).mul( uWakeDepth ).toVar();
+			const live = smoothstep( float( 0.0 ), float( 0.18 ), stir ).toVar();
+			// Height only on the cusp. Do not put metres on the whole
+			// stir field — that lit every wake texel as a grid.
+			const crest = ridge.toVar();
+			// Only the age-0 snout strip is silent. A 0.25..1.0 born
+			// hid the V for the first 45 m at cruise.
+			const born = smoothstep( float( 0.06 ), float( 0.22 ), age ).toVar();
+			// Foam stays on the track / churned lane. Height stays on the
+			// travelling ridge. Twin: src/wake.js wakeAt().
+			const foamW = uWakeArmW.mul( float( 1.0 ).add( age.mul( 0.28 ) ) )
+				.max( 0.05 ).toVar();
+			const trailQ = lat.div( foamW ).toVar();
+			const trail = trailQ.mul( trailQ ).negate().exp().toVar();
+			const foam = trail.mul( uWakeArm ).add( churn.mul( uWakeChurn ) )
+				.mul( stir ).mul( fade ).mul( born ).toVar();
+			const h = crest.mul( fade ).mul( live ).mul( born )
+				.mul( uWakeDepth ).toVar();
 
 			// The slick is the churned lane between the arms, and only that: it
 			// outlives the bubbles that made it, which is why a wake stays
 			// legible as a smooth dark path after the white water has gone.
 			// Deliberately not including the arms - suppressing the sea's foam
 			// along them would take the white off the one part of a wake that is
-			// supposed to be white. (So .z uses churnRaw, NOT churn: no age
-			// decay, and no ridge term.)
+			// supposed to be white. (So .z uses churnRaw, NOT churn: no life
+			// decay, and no ridge term. born still applies — without it the
+			// age-0 stamp is a slick ruler through the nose.)
 			outv.assign( vec3(
 				clamp( foam.mul( uWakeStrength ), 0.0, 1.0 ),
 				h,
-				clamp( churnRaw.mul( stir ).mul( fade ), 0.0, 1.0 ),
+				clamp( churnRaw.mul( stir ).mul( fade ).mul( born ), 0.0, 1.0 ),
 			) );
 
 		} );
@@ -801,6 +820,9 @@ export function setWaterCommonUniforms( p, ctx, ocean, wake ) {
 		}
 
 		uWakeOrigin.value.set( wake.uWakeOrigin[ 0 ], wake.uWakeOrigin[ 1 ] );
+		if ( wake.uWakeHead ) uWakeHead.value.set( wake.uWakeHead[ 0 ], wake.uWakeHead[ 1 ] );
+		if ( wake.uWakeFwd ) uWakeFwd.value.set( wake.uWakeFwd[ 0 ], wake.uWakeFwd[ 1 ] );
+		uWakeSpeed.value = wake.uWakeSpeed ?? 0;
 		uWakeExtent.value = wake.uWakeExtent;
 		uWakeOn.value = wake.uWakeOn;
 		uWakeLife.value = wake.uWakeLife;
@@ -816,6 +838,7 @@ export function setWaterCommonUniforms( p, ctx, ocean, wake ) {
 	} else {
 
 		uWakeOn.value = 0.0;
+		uWakeSpeed.value = 0.0;
 
 	}
 

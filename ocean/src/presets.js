@@ -9,7 +9,8 @@ export const defaults = {
   windSpeed: 7,          // U10, m/s
   windDirDeg: 42.0,
   fetch: 140,             // km
-  depth: 26,             // m
+  depth: 200,            // m. Was 26 — coastal; this is deep enough that
+                            // a 14 s swell no longer feels the bed.
   amplitude: 0.8,
   choppiness: 1.15,
   choppyLong: 1.45,         // extra horizontal displacement on the long cascades
@@ -47,38 +48,47 @@ export const defaults = {
   // ski, the seaplane, the boat - all through the one `hull` slot three-main.js
   // fills each frame) always presses a hollow DOWN and shoulders the water it
   // moved back up around itself as a bow wave; a body below the surface (the
-  // sea dragon, through the separate `swell` slot) always lifts a mound UP.
+  // sea dragon, through the separate `swell` slot) throws ripples at the
+  // waterline when it cuts the sea. A dive inverts the packet so the wave
+  // itself opens a hole. The splash-field body crater stays off.
   // Both directions come from the shader geometry itself, not from this
   // switch - this only scales how strongly either one is felt.
   waterDisplaceEnabled: 1,
   waterDisplaceAmount: 1.0,
 
   // ---- foam ----
+  // Coverage is Monahan W(U10) × foamCoverage, floored below force 3. These
+  // defaults are the LOOK of a raft: a fresh crest is white and sits up; the
+  // film it leaves is streaky residual foam (physics.md), not a painted stamp. foamTint is
+  // the cyan bubble-cloud underglow, not a dye on the white — dyeing the
+  // raft the scatter colour is what turned golden-hour foam tan.
   foamCoverage: 1.0,        // gain on the Monahan whitecap fraction W(U10)
   foamSoftness: 0.28,       // width of the breaking ramp, in sigmas
-  foamFace: 0.7,            // how strongly breaking is confined to forward faces
-  foamBreakScale: 3.2,      // size (m) of the surface patch the fold test sees
-  foamCrestAniso: 4.0,      // how far the breaking test reaches along the crest
+  foamFace: 0.78,           // how strongly breaking is confined to forward faces
+  foamBreakScale: 1.6,      // size (m) of the surface patch the fold test sees
+  foamCrestAniso: 1.7,      // how far the breaking test reaches along the crest
   foamRidge: 0.85,          // confines breaking to the ridge of the fold field
-  foamBreakup: 0.55,        // short-wave roughness modulation of the threshold
+  foamBreakup: 0.88,        // short-wave roughness modulation of the threshold
   foamWindMin: 4.0,         // U10 below which the sea carries no whitecaps at all
   foamDecay: 0.42,          // dissipated-raft decay rate (1/s)
   foamFreshDecay: 0.9,      // dense crest-foam decay rate (1/s)
   foamThin: 0.18,           // linear sink; the raft clears instead of filming
-  foamDrift: 0.6,           // downwind surface drift of foam (m/s)
+  foamDrift: 0.6,           // downwind slide of coverage AND the lace (m/s)
   foamInject: 4.0,        // saturates the raft: a whitecap is white, not a wash
   foamSpread: 0.40,
-  foamAmount: 0.7,
-  foamRoughness: 0.62,
-  foamTint: 0.35,
-  foamDetail: 1.5,
-  foamLift: 0.55,
-  foamSharp: 1.4,
-  foamCrisp: 0.8,        // resolve coverage against the bubble field up close
-  foamStreak: 0.7,
-  foamOpacity: 0.92,
-  foamFar: 0.55,            // grazing self-hiding of distant rafts
-  foamColor: [0.94, 0.965, 0.99],
+  foamAmount: 0.4,
+  foamRoughness: 0.58,
+  foamTint: 0.22,
+  foamDetail: 1.85,
+  foamLift: 0.72,
+  foamSharp: 0.55,          // mild clump contrast; high values punch navy holes
+  foamCrisp: 0.16,          // mostly a film; 1 resolves coverage into lace specks
+  foamStreak: 0.16,
+  foamFill: 0.86,           // 0 = walls only; 1 = chords + veil in the cells
+  foamCell: 1.9,            // leftover-raft scale; higher = bigger, softer patches
+  foamOpacity: 0.78,
+  foamFar: 0.62,            // grazing self-hiding of distant rafts
+  foamColor: [0.96, 0.975, 0.995],
 
   // ---- water optics ----
   scatterColor: [0.09, 0.52, 0.57],
@@ -94,6 +104,7 @@ export const defaults = {
   roughnessMax: 0.30,       // alpha ceiling; Cox-Munk mss tops out near 0.06
   windAniso: 1.45,          // Cox-Munk along/cross-wind slope variance ratio
   waterIOR: 1.333,
+  underwater: 1,            // camera-under look: column fog, shelf caustics, Snell's window, shafts
   skyAmbient: 1.0,
   skyBlur: 0.5,
   glitter: 0.65,
@@ -121,45 +132,38 @@ export const defaults = {
 
   // ---- spray ----
   sprayRadius: 120.0,
-  sprayRate: 0.85,
+  sprayRate: 0.53,
   sprayFocus: 1.1,          // radial concentration of the particle budget
   sprayThreshold: 0.30,     // crest-foam fraction at which spray production saturates
-  sprayFoldSoft: 0.15,      // toe of that ramp, as a fraction of the threshold
-  sprayFoamBias: 0.85,      // how strictly droplets require actively breaking water
+  sprayFoldSoft: 0.21,      // toe of that ramp, as a fraction of the threshold
+  sprayFoamBias: 0,         // how strictly droplets require actively breaking water
   sprayWindMin: 4.5,        // U10 where droplets first tear off crests
   sprayWindFull: 18.0,      // U10 where emission saturates
-  sprayLifetime: 2.2,
-  sprayGravity: 9.4,
+  sprayLifetime: 1.65,
+  sprayGravity: 13.1,
   sprayDrag: 0.9,
-  sprayLaunch: 4.6,
+  sprayLaunch: 12.6,
   sprayLaunchUp: 0.45,      // vertical share of the launch impulse
   sprayLaunchWind: 0.35,    // wind velocity inherited at birth
-  spraySheet: 96.0,         // particles sharing one tear-off site
+  spraySheet: 109.0,        // particles sharing one tear-off site
   spraySheetRate: 5.0,      // new tear-off sites per second
   spraySheetSpread: 2.2,    // sheet extent along the crest, m
   sprayShred: 1.6,          // downwind length of a sheet at the moment it tears
   sprayTurbulence: 2.0,
   sprayShear: 0.35,         // log wind gradient with height
-  spraySizeMin: 0.018,     // billboards are parcels of spray, not single drops
-  spraySizeMax: 0.15,
-  spraySize: 1.0,
+  spraySizeMin: 0.01,      // billboards are parcels of spray, not single drops
+  spraySizeMax: 0.22,
+  spraySize: 1.23,
   sprayStretch: 0.014,      // shutter the motion smear is integrated over, s
-  sprayOpacity: 0.85,
-  sprayFadeNear: 1.6,       // billboards this close to the lens fade out. Was
-                            // 0.95m, tuned assuming the wet-glass lens effect
-                            // (demo/main.js's lensWet) would carry the "you are
-                            // getting sprayed" feeling the rest of the way - it
-                            // is not wired up in the three.js demo this ships as
-                            // (ctx.lensWet is never set there), so nothing was
-                            // covering for a rider-POV camera actually inside
-                            // the plume. Widened rather than counting on that.
-  sprayMinPixels: 1.15,    // sub-pixel droplets are grown and dimmed, not dropped
+  sprayOpacity: 1.585,
+  sprayFadeNear: 2.65,      // billboards this close to the lens fade out
+  sprayMinPixels: 0.9,     // sub-pixel droplets are grown and dimmed, not dropped
   sprayFarSoft: 1.6,       // extra edge softness once held at the pixel floor
-  spraySurfFade: 0.30,      // soft fade as a billboard enters the water, m
-  sprayAerial: 0.0012,
-  sprayGrain: 0.85,         // how far each parcel is broken up into droplet texture
-  sprayGrainScale: 5.2,     // droplet clumps across one billboard
-  sprayGrainAniso: 1.5,     // that texture drawn out along the direction of flight
+  spraySurfFade: 0.67,      // soft fade as a billboard enters the water, m
+  sprayAerial: 0.0025,
+  sprayGrain: 1,            // how far each parcel is broken up into droplet texture
+  sprayGrainScale: 6.75,    // droplet clumps across one billboard
+  sprayGrainAniso: 4.95,    // that texture drawn out along the direction of flight
 
   // ---- spindrift & sea mist ----
   sprayMist: 0,           // spindrift removed: it read as grey smear and every
@@ -439,7 +443,7 @@ export const defaults = {
                             // setting any more - it follows whatever part of
                             // the body is actually cutting the surface - so
                             // this is only a thumb on the scale.
-  wakeEdgeFade: 0.12,       // how much of the record buffer's border is
+  wakeEdgeFade: 0.28,       // how much of the record buffer's border is
                             // feathered away, as a fraction of its width. The
                             // buffer is a square in world space and its far
                             // edge is a line of constant Z, so too small a
@@ -520,22 +524,35 @@ export const defaults = {
   // the water: the water column between you and it swallows it over sdFade
   // metres, and sdDepth is really "how solid is it".
   sdEnabled: 1.0,           // 0 turns the animal off entirely, draw and all
+  // Visual mesh only. 'Current' is demo/dragonModel.js; 'Sea serpent' is
+  // models/sea-serpent-rigged.glb (baked in demo/serpentModel.js). Named
+  // presets do not override this, so existing checks keep the original
+  // silhouette. Physics / swim / spray stay the SeaDragon capsule.
+  sdModel: 'Current',
   sdLength: 60,           // nose to tail, metres. The mesh is unit-length.
                             // Was 22 - a live-tuned default now, a genuine
                             // leviathan rather than something ski-sized.
-  sdSpeed: 50.0,            // m/s it will sprint to hold station - faster than
-                            // the ski's top end, or it could never catch up.
-                            // Raised alongside sdLength: a 52m animal loafing
-                            // at 26 m/s reads as sluggish for its size.
+  sdSpeed: 80.0,            // m/s sprint at the 60 m reference length. Actual
+                            // top speed is this times sqrt(length / 60), so a
+                            // bigger body covers more water per beat.
+  sdCruise: 45,             // m/s of water it actually covers when circling
+                            // or loafing. The orbit's angular rate is this
+                            // divided by the circle radius, so the slider
+                            // changes distance travelled, not just a
+                            // chase-speed that never caught a slow station.
   sdAccel: 0.55,            // 1/s it closes on the speed it wants
   sdTurnRate: 0.55,         // rad/s at a standstill; a long body turns slower
   sdOrbit: 0.20,            // rad/s it circles you at when you are not moving
   sdFollowRise: 6.0,        // how high the Follow camera sits above the sea, m
+  sdView: 1,                // 0 on its back, 1 chase — V while piloting
+  sdClimb: 0.45,            // rad/s it pitches when E/Q are held
   sdRushSpeed: 30,        // ski speed at which it is fully up and fully in
   sdOffsetClose: 17.5,       // how near it comes at that speed, m
   sdOffset: 8,           // metres off your shoulder it tries to sit
   sdLead: -8,              // ...and how far ahead, so a chase camera sees it
-  sdDepth: 9.6,             // mean depth below the surface, m
+  sdDepth: 9,               // mean depth below the surface, m. Back of a
+                            // 60 m animal sits ~7 m above the origin, so
+                            // this sits just under and heaves up on the swing.
   sdDepthSwing: 11.7,        // how far it rises and sounds around that
   sdMinDepth: 1.6,          // never nearer the surface than this. It CAN breach
                             // now - the refraction pass gave it a depth buffer,
@@ -543,15 +560,16 @@ export const defaults = {
                             // fragment in front of the sea - this is a staging
                             // choice, not the backstop it used to be.
   sdSeaLevel: 0.0,          // the mean surface it measures depth from
-  sdFade: 3.5,              // metres of WATER COLUMN that swallow the shape.
-                            // Not its depth below the surface - the real
-                            // distance from the pixel of sea you are looking at
-                            // to the body, reconstructed from the refraction
-                            // pass's depth buffer. The COLOUR of the swallowing
-                            // is the sea's own absorption; this is its scale.
-                            // Was 11 - tuned down live so a 52m animal (see
-                            // sdLength) does not fade to a ghost across its
-                            // own length at a grazing viewing angle.
+  sdFade: 23,               // metres of WATER along the camera ray that swallow
+                            // the shape. Measured from mean sea level to the
+                            // body, not from the displaced surface and not the
+                            // body's own depth: a side view through a long
+                            // stretch of sea hides it sooner than looking
+                            // straight down at the same depth. The COLOUR of
+                            // the swallowing is the sea's own absorption; this
+                            // is its scale. Was 11 - tuned down live so a 52m
+                            // animal does not fade to a ghost across its own
+                            // length at a grazing viewing angle.
   sdOpacity: 1.0,           // how hard the shape reads through the surface. It
                             // scales the coverage the sea mixes by, so 0 skips
                             // the lookup in the ocean shader entirely.
@@ -563,43 +581,97 @@ export const defaults = {
   // complaint was that the mouth was always open, and a jaw that works as the
   // animal swims reads as alive whatever its resting gape.
   sdGape: 0.30,             // radians the mandible swings up from as-modelled
-  sdSwell: 2.88,            // metres the sea lifts over its back at the surface
-  sdSwellRadius: 2.5,       // how far to either side that mound reaches, m.
-                            // Narrower than the 7.5 it shipped with - tighter
-                            // to the body now that the body is 52m long, or a
-                            // 7.5m-radius mound reads as one wide smear rather
-                            // than tracking the spine's actual curve.
-  sdSwellFade: 7.5,        // depth over which the lift dies away, m
-  sdSprayDepth: 1.1,       // metres of water column still counted as "breaking" -
+  sdBow: 10.62,             // metres of the co-moving heap at the snout
+  sdBowSoft: 1,             // 1 = the measured heap. Higher spreads the
+                            // same height over more of the water grid so
+                            // the radial triangles stop reading as facets.
+  sdDome: 6.25,             // metres of the dorsal pressure ellipse
+  sdDomeSoft: 1,            // 1 = the measured loaf. Higher spreads the
+                            // same height over more of the water grid so
+                            // the radial triangles stop reading as facets.
+  sdDomeNear: 10.7,         // metres under the sea at which bow / dome
+                            // still reach full strength. Lower = only
+                            // when the head or back is almost at the sea.
+  sdFluke: 2,               // how hard a tail-stroke print flattens the sea
+  sdFlukeSize: 8.9,         // target radius of that glassy disc, m
+  sdFlukeLife: 18,          // seconds a footprint stays on the sea
+  sdFlukeDebug: 0,          // 1 draws amber balls on live footprint centres
+  sdRipple: 0,              // 0 = no expanding rings (the leftover compass arcs)
+  sdSwell: 3.97,            // peak metres of the ripple at a waterline cut; dive inverts the packet
+  sdSwellRadius: 2.9,       // starting width of that packet, m
+  sdSwellFade: 9,           // depth over which the ripples die away, m
+  sdSwellLife: 7,           // seconds a ripple takes to fade out (decay)
+  sdSwellWave: 0,           // 0 = stay on the cut, 1 = full travel away from the cut
+  sdSwellSpeedMin: 16,      // m/s floor on how fast a thrown ring runs out
+  sdSwellSpeedMax: 32,      // m/s ceiling; a hard, fast break sits nearer this
+  sdSwellDebug: 0,          // 1 draws the waterline cuts that throw ripples
+  sdSprayDepth: 0.35,      // metres of water column still counted as "breaking" -
                             // read off the refraction pass's own depth, so the
                             // spray traces the body's true silhouette (fins and
                             // all), not the swell mound's smooth approximation
-  sdSpray: 1.0,             // strength of that spray, fed into the sea's own
+  sdSpray: 1,               // strength of that spray, fed into the sea's own
                             // foam shading - 0 turns the whole block off. Also
                             // gates the real particle spray thrown where it
                             // breaches (three-main.js's dragonSpray, reusing
-                            // the vehicles' own emitter) - one slider for both.
-  sdThrough: 0.4,          // how much of the shape survives the surface's own
+                            // the vehicles' own particle system) - one slider
+                            // for both.
+  // The animal's own particle look. The Spray group is the sea's wind-torn
+  // droplets; these drive the waterline sheet so a Spray tweak does not
+  // resize the monster, and a Wave Runner tweak does not either.
+  sdSpraySize: 0.38,        // parcel size. Independent of the Spray group's Size.
+  sdSprayOpacity: 1.71,     // density of the animal's sheet, not sprayOpacity.
+  sdSprayLife: 1.17,        // hang time. Independent of craftSprayLife.
+  sdSprayPulse: 0.31,       // share of the particle budget.
+  sdSprayLaunch: 0.55,      // throw-speed gain on the waterline sheet
+  sdSpraySpread: 1,         // cone width. Was p.craftSpraySpread.
+  sdSprayUp: 1,             // upward aim. Was p.craftSprayUp.
+  sdSprayMulti: 0.15,       // sheet glow. Was p.craftSprayMulti.
+  sdSprayEmitters: 30,      // how many simultaneous waterline sites a piercing
+                            // mesh gets. Parked on the body where it actually
+                            // cuts the sea (placeBreachEmitters), not hopped
+                            // as one emitter. 1..50; 1 is the old single site.
+  sdSprayDebug: 0,          // 1 draws the waterline sites (magenta) and the
+                            // wake stamp (cyan) so you can see they sit on
+                            // the pierce, not the mid-body origin.
+  // Simple V behind a surface run. The V is height only: aerated water
+  // is deposited separately into a world-space trail that drifts and dies.
+  sdVWake: 1.02,            // master. 0 is no V.
+  sdVWakeAmp: 1.39,         // ridge height at a short fetch, metres
+  sdVWakeLen: 70,           // how far the arms travel, metres
+  sdVWakeWidth: 1.3,        // arm half-width at the start, metres
+  sdVWakeAngle: 15,         // half-angle of the V, degrees
+  sdVWakeFoam: 0.75,        // leftover trail-foam gain. Lane churn lives on the V.
+  sdVWakeMid: 0.83,         // third ridge on the centreline. 0 is the hollow V.
+  sdVWakeLife: 8.2,         // seconds a written V stays after the body dives
+  // Jump splash (jump-out / dive-in). Own look, not the swim-trail
+  // sdSpray* knobs and not the Spray group. The animal has no wake
+  // field and no Kelvin V — this emitter is the white water.
+  sdSplashParticles: 0.73,  // how hard the leap emitter fires (craftAmount +
+                            // craftImpact on the splash). 0 silences particles.
+  sdSplashSize: 0.35,       // parcel size of the jump-out / dive-in crown.
+  sdSplashOpacity: 1.4,     // how solid those parcels draw.
+  sdSplashLife: 0.65,       // how long they hang. Also stretches splash /
+                            // splashPush decay so the crown keeps throwing.
+  sdSplashPulse: 0.53,      // share of the particle budget the crown claims.
+  sdSplashLaunch: 1.59,     // how hard the crown is thrown off the waterline.
+  sdSplashExit: 1.94,       // jump-out particle burst
+  sdSplashLand: 2.04,       // dive-in particle burst (no crater yet)
+  sdThrough: 0.07,          // how much of the shape survives the surface's own
                             // glare. 0 is the pure physics and nearly invisible
                             // at the angle you ride at; this is the fudge. Was
                             // 0.85 - tuned down live, closer to the physics.
-  sdRefract: 0.2,           // how hard the surface's own slope bends the look
+  sdRefract: 0.433,         // how hard the surface's own slope bends the look
                             // through it. This is what makes chop passing over
                             // the animal wobble and break it up. Was 0.045.
-  sdWaves: 1.25,            // body waves along its length
-  sdAmp: 0.055,             // peak tail sweep, as a fraction of length
-  sdBeat: 0.35,             // tail beats per second at rest
-  sdBeatSpeed: 0.030,       // ...plus this many per m/s
-  // Its wake. The same shared field the vehicles stamp (one track per frame,
-  // a vehicle keeps priority), but a submerged swimmer is not a planing hull:
-  // its track is broad churned water more than a hard Kelvin V, and it fades
-  // with how deep the body is running (over sdSwellFade, like the mound).
-  sdWake: 1.0,              // gain on how hard it stirs the record; 0 = none
-  sdWakeArm: 0,          // share of the usual Kelvin-arm strength its track
-                            // keeps. Mostly-churn is what a body under the
-                            // surface actually leaves; 1 gives it a full
-                            // planing-hull V.
-
+  sdWaves: 0.96,            // body waves along its length
+  sdWaveAxis: 1,            // 0 sideways (eel), 1 up-and-down (whale), 2 both
+  sdAmp: 0.11,              // peak tail sweep, as a fraction of length.
+                            // 0.176 made 2A so large that Strouhal cadence
+                            // crawled and the wave barely outran the swim.
+  sdBeat: 0.45,             // loaf cadence at the 60 m reference, Hz
+  sdBeatSpeed: 0.032,       // trim around St = 0.30. Cadence is computed
+                            // from speed, length, sweep and wave count;
+                            // this only nudges the Strouhal number.
   hullPush: 0.55,           // depth of the hollow the hull presses, m
   hullRadius: 2.6,          // along-hull extent of that footprint, m
   hullBow: 0.9,             // how much of it stands back up as bow wave
@@ -741,8 +813,9 @@ export const defaults = {
   // allowed to look. The quality knobs below trade picture for frame rate, which
   // is not the same thing: a laptop gets hot because of work per second, and only
   // capping the frame rate or the pixel count reduces that.
-  fpsCap: 0,               // 0 = uncapped (runs at the display's refresh rate)
+  fpsCap: 60,              // skip frames so a 120 Hz panel does not draw twice
   fpsCapIdle: 10,           // ...and when the window is not in front
+  fpsCapBattery: 30,        // unplugged: same picture, half the GPU·s/s. 0 = off
   dprCap: 2.0,              // ceiling on device pixel ratio. Was 1.75, which
                             // silently downscaled every plain 2x Retina panel
                             // (dpr 2 > cap 1.75) into a soft image nobody asked
@@ -777,7 +850,11 @@ export const PRESETS = {
     sunElevation: 4.2, sunAzimuth: 48, sunIntensity: 24, turbidity: 1.5,
     cloudCoverage: 0.42, cloudAltitude: 1700, cirrus: 0.35,
     scatterColor: [0.060, 0.300, 0.335], absorption: [0.40, 0.075, 0.05],
-    sssStrength: 1.9, glitter: 0.7, foamAmount: 0.85,
+    sssStrength: 1.9, glitter: 0.7,
+    // Force 5, W ≈ 0.8%. Coverage is the look gain, not Monahan — 0.5
+    // keeps crests white without painting the whole sea.
+    foamAmount: 0.5, foamTint: 0.24, foamOpacity: 0.80, foamLift: 0.78,
+    foamBreakScale: 2.4, foamStreak: 0.10, foamCrisp: 0.36, foamSharp: 0.90,
     exposureBias: 0.15, saturation: 1.10, chromatic: 0.7, vignette: 0.5,
     bloomIntensity: 0.06, halation: 0.010, fov: 34,
   },
@@ -788,7 +865,11 @@ export const PRESETS = {
     cloudCoverage: 0.86, cloudDensity: 1.7, cloudAltitude: 620, cloudThickness: 3400,
     cloudDetail: 0.8, cirrus: 0.1, cloudSpeed: 3.0,
     scatterColor: [0.052, 0.185, 0.215], absorption: [0.55, 0.14, 0.10],
-    foamAmount: 1.0, foamDecay: 0.26, foamSpread: 1.8, foamLift: 0.9,
+    // Force 10, W ≈ 26%. Persistence and windrows, not a spreading white
+    // blanket — foamSpread 1.8 was past the slider and turned rafts into stamps.
+    foamAmount: 1.0, foamCoverage: 1.1, foamDecay: 0.22, foamSpread: 0.65,
+    foamThin: 0.12, foamLift: 0.88, foamStreak: 0.36, foamFar: 0.48,
+    foamTint: 0.20, foamOpacity: 0.82, foamBreakScale: 6.5, foamCrestAniso: 2.2,
     sprayOpacity: 1.1, sprayRate: 0.85, sprayThreshold: 0.26, sprayLaunch: 5.4,
     sprayDrag: 1.2, sprayLifetime: 3.0, spraySize: 1.2,
     sprayMist: 0.5, sprayMistOpacity: 0.13, sprayHaze: 0.00055,
@@ -801,7 +882,10 @@ export const PRESETS = {
     sunElevation: 1.4, sunAzimuth: 92, sunIntensity: 25, turbidity: 1.1,
     cloudCoverage: 0.30, cloudAltitude: 2600, cirrus: 0.5,
     scatterColor: [0.050, 0.255, 0.360], absorption: [0.36, 0.06, 0.038],
-    foamAmount: 0.6, glitter: 0.95, baseRoughness: 0.035,
+    // U10 3.2 is below the force-3 gate (W = 0). foamAmount 0.6 used to sit
+    // here as a no-op; say none, and raise the gate so a nudge of wind does
+    // not speckle the glass.
+    foamAmount: 0.0, foamWindMin: 5.0, glitter: 0.95, baseRoughness: 0.035,
     // The dawn calm was first dimmed through OPACITY (0.12 over rate 0.10),
     // which also dimmed the wave runner's plume to a ghost - opacity is shared
     // with the craft's spray, rate is not. Moved to the rate side keeping the
@@ -818,7 +902,11 @@ export const PRESETS = {
     cloudCoverage: 0.36, cloudAltitude: 900, cloudThickness: 1800, cirrus: 0.15,
     scatterColor: [0.090, 0.520, 0.570], absorption: [0.30, 0.045, 0.030],
     scatterAmount: 0.16, sssStrength: 1.5,
-    foamAmount: 0.7, glitter: 0.65,
+    // Force 4, W ≈ 0.3%. Sparse face-breaks, no dye into the turquoise.
+    foamAmount: 0.7, foamCoverage: 0.9, foamTint: 0.08, foamOpacity: 0.74,
+    foamCell: 1.9, foamCrisp: 0.16, foamSharp: 0.55, foamFill: 0.86,
+    foamStreak: 0.26, wakeDepth: 0.58, wakeStrength: 1.22,
+    foamFace: 0.84, foamBreakScale: 2.6, glitter: 0.65,
     saturation: 1.14, contrast: 1.05, exposureBias: -0.1, vignette: 0.35, fov: 42,
   },
   'Moonlit Passage': {
@@ -829,7 +917,11 @@ export const PRESETS = {
     specIntensity: 1.5,
     cloudCoverage: 0.34, cloudAltitude: 1900, cirrus: 0.22,
     scatterColor: [0.035, 0.135, 0.200], absorption: [0.55, 0.16, 0.10],
-    skyAmbient: 1.3, glitter: 0.35, foamAmount: 1.1,
+    skyAmbient: 1.3, glitter: 0.35,
+    // Force 6 at night. The foam is there (W ≈ 2%) but it is grey streaks,
+    // not a daylight whitecap sheet — amount 1.1 read as paint under the moon.
+    foamAmount: 0.85, foamOpacity: 0.62, foamTint: 0.08, foamFar: 0.72,
+    foamLift: 0.55, foamStreak: 0.20,
     // The only preset with the sun below the horizon, and the only one where a
     // fully automatic iris is wrong. autoExposure blends towards
     // exposureTarget/avg, so at 1.0 it normalises *any* scene to the same average
@@ -869,7 +961,10 @@ export const PRESETS = {
     // so the sea is nearly black except where it reflects.
     scatterColor: [0.018, 0.075, 0.135], absorption: [0.62, 0.19, 0.12],
     scatterAmount: 0.055,
-    skyAmbient: 1.0, glitter: 0.62, foamAmount: 0.30, foamOpacity: 0.7,
+    skyAmbient: 1.0, glitter: 0.62,
+    // U10 5 is barely force 3 (W ≈ 0.01%). A single pale streak, if that.
+    foamAmount: 0.22, foamOpacity: 0.55, foamTint: 0.06, foamWindMin: 4.6,
+    foamFar: 0.78, foamLift: 0.40,
     sprayOpacity: 0.5,
     // Mostly-manual iris, as for any night preset - see Moonlit Passage.
     autoExposure: 0.18, exposureBias: -0.15,
@@ -882,7 +977,10 @@ export const PRESETS = {
     swellAmount: 0.85, swellPeriod: 13.5, swellDirDeg: 68,
     sunElevation: 26, sunAzimuth: 96, sunIntensity: 22, turbidity: 1.7,
     cloudCoverage: 0.52, cloudAltitude: 1100, cloudThickness: 2100, cirrus: 0.25,
-    foamAmount: 1.35, sprayOpacity: 0.95, sprayRate: 0.45,
+    // Force 6–7, W ≈ 2.8%. Trades make windrows, not a 1.35× foam blanket.
+    foamAmount: 0.95, foamCoverage: 1.05, foamStreak: 0.30, foamDecay: 0.36,
+    foamSpread: 0.52, foamTint: 0.14, foamLift: 0.80, foamBreakScale: 3.8,
+    sprayOpacity: 0.95, sprayRate: 0.45,
     saturation: 1.06, exposureBias: 0.0, fov: 40,
   },
   'Hurricane Sea': {
@@ -892,7 +990,12 @@ export const PRESETS = {
     cloudCoverage: 0.95, cloudDensity: 2.2, cloudAltitude: 380, cloudThickness: 4200,
     cloudSpeed: 5.0, cloudDetail: 0.9, cirrus: 0.0,
     scatterColor: [0.055, 0.160, 0.180], absorption: [0.62, 0.18, 0.13],
-    foamAmount: 1.1, foamDecay: 0.18, foamSpread: 2.4, foamLift: 1.2,
+    // Saturated W = 42%. Streaks and a lasting film to the horizon, not
+    // foamSpread 2.4 (a bath). Fresh crests stay up; the raft thins slowly.
+    foamAmount: 1.05, foamCoverage: 1.15, foamDecay: 0.14, foamFreshDecay: 0.55,
+    foamSpread: 0.85, foamThin: 0.08, foamLift: 0.95, foamStreak: 0.48,
+    foamFar: 0.34, foamTint: 0.22, foamOpacity: 0.84, foamBreakScale: 8.0,
+    foamCrestAniso: 2.6, foamColor: [0.93, 0.945, 0.96],
     sprayOpacity: 1.3, sprayRate: 1.0, sprayThreshold: 0.22, sprayLaunch: 7.5,
     sprayDrag: 1.6, sprayLifetime: 3.6, spraySize: 1.5, sprayRadius: 200,
     sprayMist: 0.6, sprayMistOpacity: 0.16, sprayMistLife: 9.0, sprayHaze: 0.0012,
@@ -953,7 +1056,10 @@ export const PRESETS = {
     sunElevation: 42, sunAzimuth: 235, sunIntensity: 23, turbidity: 1.3,
     cloudCoverage: 0.40, cloudAltitude: 2200, cirrus: 0.3,
     scatterColor: [0.028, 0.150, 0.300], absorption: [0.48, 0.085, 0.032],
-    foamAmount: 0.95, glitter: 0.6,
+    // Force 5, W ≈ 1%. Open-ocean blue, so a little more water in the veil
+    // than golden hour and no extra gain on top of Monahan.
+    foamAmount: 0.82, foamTint: 0.14, foamOpacity: 0.76, foamLift: 0.70,
+    glitter: 0.6,
     saturation: 1.08, contrast: 1.04, fov: 36,
   },
 };

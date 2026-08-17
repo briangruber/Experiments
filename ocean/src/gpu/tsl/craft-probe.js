@@ -169,7 +169,7 @@ export const surfaceAt = /*@__PURE__*/ Fn( ( [ p ] ) => {
 	// wake block above gives: a body must not read back the dent it is making
 	// or it sinks into a trough it deepens by sinking. The mound belongs to
 	// something else, so it has no such feedback.
-	If( uSwellAmp.greaterThan( 0.0005 ), () => {
+	If( uSwellAmp.abs().greaterThan( 0.0005 ), () => {
 
 		h.addAssign( swellLift( x ) );
 
