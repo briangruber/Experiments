@@ -3,7 +3,7 @@ import { OrbitControls } from '../vendor/three/OrbitControls.js';
 import { defaults, resolve, diff } from './knobs.js';
 import { SCENES, SCENE_IDS } from './scenes.js';
 import { DEFAULT_SELECTION, SLOTS, slotKnobs, deriveKnobs, variant } from './slots/index.js';
-import { polarGrid, fullscreenTriangle } from './grid.js';
+import { ringGrid, fullscreenTriangle } from './grid.js';
 import { oceanMaterial, sandMaterial, skyMaterial, postMaterial, probeMaterial, syncKnobUniforms } from './materials.js';
 
 export function createApp(canvas, opts = {}) {
@@ -29,7 +29,7 @@ export function createApp(canvas, opts = {}) {
     stencilBuffer: false,
   });
 
-  const geo = polarGrid();
+  const geo = ringGrid();
   const tri = fullscreenTriangle();
 
   // ---- mutable state -------------------------------------------------------
@@ -185,11 +185,12 @@ export function createApp(canvas, opts = {}) {
 
   function renderFrame() {
     sync();
-    // Keep the dense middle of the grid under the camera. The wave field is a
-    // function of world position, so sliding the tessellation does not slide
-    // the sea.
-    oceanMesh.position.set(camera.position.x, 0, camera.position.z);
-    sandMesh.position.set(camera.position.x, 0, camera.position.z);
+    // Keep the grid centred on the camera. The wave field is a function of
+    // world position, so sliding the tessellation does not slide the sea. This
+    // is a uniform rather than a model matrix because the vertex shader needs
+    // the origin before it can place the vertex at all.
+    ocean.uniforms.uGridOrigin.value.set(camera.position.x, camera.position.z);
+    ocean.uniforms.uGridCounts.value.set(geo.userData.rings, geo.userData.sectors);
 
     ocean.uniforms.uTime.value = time;
     ocean.uniforms.uCamPos.value.copy(camera.position);

@@ -1,5 +1,6 @@
 import * as THREE from '../vendor/three/three.module.js';
 import { assemble, uniformName } from './slots/index.js';
+import { RING_GLSL } from './grid.js';
 
 // Shared host uniforms - everything that is not a knob.
 export function hostUniforms() {
@@ -9,6 +10,9 @@ export function hostUniforms() {
     uCamPos: { value: new THREE.Vector3() },
     uPixelAngle: { value: 0.001 },
     uResolution: { value: new THREE.Vector2(1, 1) },
+    uGridOrigin: { value: new THREE.Vector2() },
+    uGridCounts: { value: new THREE.Vector2(420, 448) },
+    uGridRange: { value: new THREE.Vector2(0.35, 20000) },
   };
 }
 
@@ -37,6 +41,7 @@ uniform vec3  uSunDir;
 uniform vec3  uCamPos;
 uniform float uPixelAngle;
 uniform vec2  uResolution;
+uniform vec2  uGridOrigin;
 `;
 
 // Two footprints, deliberately.
@@ -66,20 +71,19 @@ export function oceanMaterial(selection, knobs) {
   const uniforms = Object.assign(hostUniforms(), knobUniforms(knobs));
 
   const vertexShader = /* glsl */`
-    in float aSpacing;
+    in float aRing;
     out vec3 vWorld;
     out vec2 vFlat;
     out float vSpacing;
-    out float vDepth;
     ${chain}
+    ${RING_GLSL}
     ${FOOTPRINT}
     void main(){
-      vec4 wp = modelMatrix * vec4(position, 1.0);
-      vFlat = wp.xz;
-      vSpacing = aSpacing;
+      float spacing;
+      vFlat = sw_ringPoint(position, aRing, uGridOrigin, uCamPos.y, spacing);
+      vSpacing = spacing;
       float depth = sw_waterDepth(vFlat);
-      vDepth = depth;
-      float fp = sw_vertexFootprint(vFlat, aSpacing);
+      float fp = sw_vertexFootprint(vFlat, spacing);
       Wave w = sw_waves(vFlat, uTime, max(depth, 0.05), fp);
       vec3 P = vec3(vFlat.x, 0.0, vFlat.y) + w.disp;
       // Fall away with the curve of the earth so the far sea sinks under the
@@ -96,7 +100,6 @@ export function oceanMaterial(selection, knobs) {
     in vec3 vWorld;
     in vec2 vFlat;
     in float vSpacing;
-    in float vDepth;
     out vec4 fragColor;
     ${chain}
     ${FOOTPRINT}
@@ -104,7 +107,15 @@ export function oceanMaterial(selection, knobs) {
       vec3 V = normalize(uCamPos - vWorld);
       float dist = distance(uCamPos, vWorld);
       float fp = sw_pixelFootprint(vFlat);
-      float depth = max(vDepth, 0.02);
+
+      // Depth is evaluated here rather than interpolated from the triangle's
+      // corners. Interpolating it makes every depth-driven term - the breaker
+      // index, the absorption path, the waterline - vary linearly across a
+      // triangle, so they all step at triangle edges. That is most of the
+      // stairstepping in the surf zone, and no amount of extra tessellation
+      // removes it.
+      float bedDepth = sw_waterDepth(vFlat);
+      float depth = max(bedDepth, 0.02);
 
       // Recomputed per pixel at the *pixel* footprint. The position stays as the
       // mesh delivered it; only the normal gains the short trains. This is the
@@ -113,7 +124,7 @@ export function oceanMaterial(selection, knobs) {
 
       // Waves run up the sand and drain back, so the waterline is not where
       // the still-water depth says it is.
-      if (uShoreEnabled > 0.5 && vDepth + w.disp.y * 0.85 < 0.0) discard;
+      if (uShoreEnabled > 0.5 && bedDepth + w.disp.y * 0.85 < 0.0) discard;
 
       Surf s;
       s.P = vWorld;
@@ -163,13 +174,14 @@ export function sandMaterial(selection, knobs, sharedUniforms) {
     side: THREE.DoubleSide,
     uniforms: sharedUniforms,
     vertexShader: /* glsl */`
-      in float aSpacing;
+      in float aRing;
       out vec3 vWorld;
       out vec2 vFlat;
       ${chain}
+      ${RING_GLSL}
       void main(){
-        vec4 wp = modelMatrix * vec4(position, 1.0);
-        vFlat = wp.xz;
+        float spacing;
+        vFlat = sw_ringPoint(position, aRing, uGridOrigin, uCamPos.y, spacing);
         vec3 P = vec3(vFlat.x, sw_seabedHeight(vFlat), vFlat.y);
         float d = distance(P.xz, uCamPos.xz);
         P.y -= (d * d) / 12742000.0 * uEarthCurve;
