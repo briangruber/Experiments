@@ -12,6 +12,7 @@ import * as spectrumJonswap from './spectrum/jonswap-gerstner.js';
 import * as spectrumSine from './spectrum/sine-sum.js';
 import * as breakingFoldRidge from './breaking/fold-ridge.js';
 import * as breakingSlope from './breaking/slope-threshold.js';
+import * as breakingSurfSoft from './breaking/surf-soft.js';
 import * as foamBubbleRaft from './foam/bubble-raft.js';
 import * as waterAbsorbSss from './water/absorb-sss.js';
 
@@ -22,6 +23,7 @@ const ALL = [
   spectrumSine,
   breakingFoldRidge,
   breakingSlope,
+  breakingSurfSoft,
   foamBubbleRaft,
   waterAbsorbSss,
 ];
