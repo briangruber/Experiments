@@ -108,11 +108,13 @@ const launchOptions = {
 	args: [
 		'--enable-unsafe-webgpu',
 		'--enable-features=Vulkan',
-		'--use-webgpu-adapter=swiftshader',
-		'--enable-unsafe-swiftshader',
 		'--ignore-gpu-blocklist',
-		'--disable-gpu-sandbox',
+		// Permits the SwiftShader fallback without forcing it. Where a real
+		// Vulkan driver is installed (mesa-vulkan-drivers / lavapipe), leaving
+		// the choice open avoids the presentation path that loses the device.
+		'--enable-unsafe-swiftshader',
 		'--no-sandbox',
+		'--disable-gpu-sandbox',
 	],
 };
 

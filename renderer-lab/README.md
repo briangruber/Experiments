@@ -141,30 +141,35 @@ view-projection.
 
 ## Environment note
 
-WebGPU **canvas presentation** does not work under SwiftShader in some container
-images. The failure is specifically at **presentation**, not at context
-creation: `getContext('webgpu')` and `configure()` both succeed, and the device
-survives them; it is lost once frames are actually presented and composited, and
-lost silently — nothing throws.
+The container this was built in has no GPU: no `/dev/dri`, no VGA device. What
+WebGPU can do there depends on whether a Vulkan driver is installed.
 
-This is not a three.js or lab issue. A plain WebGPU triangle drawn to a canvas
-with no library involved fails identically, while compute passes and offscreen
-render targets work fine. Nor is it a matter of picking the wrong adapter: with
-no GPU device and no Vulkan ICD present, SwiftShader is the only adapter
-Chromium can offer, and it is selected with or without
-`--use-webgpu-adapter=swiftshader`. Four flag combinations across both the full
-Chromium build and Playwright's headless shell all behave the same.
+**Without one** (`mesa-vulkan-drivers` absent), SwiftShader is the only adapter
+Chromium can offer — selected with or without `--use-webgpu-adapter=swiftshader`
+— and canvas *presentation* loses the device: `getContext('webgpu')` and
+`configure()` both succeed, then the device dies silently once frames are
+presented. Compute passes and offscreen render targets are unaffected. A plain
+WebGPU triangle with no three.js involved fails identically.
+
+**With lavapipe installed** (`apt-get install mesa-vulkan-drivers`) the device
+survives presentation and the demo genuinely runs — frames advance, the compute
+cull drives the HUD live, mode switching works, no exceptions. Canvas *output*
+still never reaches the compositor, so screenshots and `drawImage` of the canvas
+come back empty regardless of flags (`--use-angle=vulkan`, `--in-process-gpu`,
+`--disable-gpu-vsync` all make no difference). So the demo can be exercised
+headlessly but not seen.
 
 Consequences:
 
-- `tools/shot.mjs` (screenshot capture) cannot run in such an environment.
-- `tools/verify.mjs` can, and does — it uses only compute and offscreen render
-  targets.
-- `verify-velocity.html` additionally needs multi-attachment render targets,
-  which also produce no output there, so it reports `SKIPPED` rather than a
-  misleading failure. **The velocity module is therefore reasoned about and
-  written, but not yet verified against the built-in node.** Run it on a machine
-  with a working WebGPU stack to close that gap.
+- `tools/shot.mjs` runs the demo and reports fps, draw calls and culled counts,
+  but its screenshots are blank. Treat it as a smoke test, not a capture tool.
+  Its fps figure is a CPU rasteriser's and means nothing as a benchmark.
+- `tools/verify.mjs` and `tools/capture-spectator.mjs` are unaffected — they use
+  only compute passes and offscreen render targets, which work in both
+  configurations, and the captured PNGs are correct.
+- Multi-attachment render targets produce no output either way, so
+  `verify-velocity.html` reports `SKIPPED`. **The velocity module remains
+  written and reasoned about, but unverified.**
 
 ## Single-file build
 
