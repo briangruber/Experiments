@@ -15,23 +15,27 @@ cd water
 npx http-server .        # or any static server
 ```
 
-`?q=low|med|high` selects the simulation grid (64³ / 81³ / 100³ — default
-high). `?dtcap=0.15` raises the per-frame simulation time cap, useful on slow
-(software) GPUs.
+`?q=low|med|high|ultra` selects the simulation grid (64³ / 81³ / 100³ / 128³
+— default high; ultra wants a discrete GPU). `?dtcap=0.15` raises the
+per-frame simulation time cap, useful on slow (software) GPUs.
 
 **Interaction** — drag the paddle to stir; drag anywhere else to orbit; click
-for a burst; wheel/pinch to zoom. `Space` toggles the auto-stir,
-`C` clears the tank, `Q` cycles quality, `P` pauses, `H` hides the UI.
+for a burst; wheel/pinch to zoom. Buttons (and keys): `B` drops an exploding
+barrel, `R` spins the paddle like a paddle-wheel (slider sets the rate),
+`O` orbits the camera. `Space` toggles the auto-stir, `C` clears the tank,
+`Q` cycles quality, `P` pauses, `H` hides the UI.
 
 ## How it works
 
 - **Simulation** — a 3D stable-fluids solver (semi-Lagrangian RK2 advection,
   buoyancy, vorticity confinement, ~20 Jacobi pressure iterations) runs on the
-  GPU over a Z-slice atlas texture (N³ voxels as N tiles in a 2D RGBA16F
-  target). Neighbour access is exact `texelFetch`; trilinear sampling is two
-  hardware bilinear taps clamped inside their tiles. The paddle injects
-  momentum and "foam" (aerated water) where it sweeps; foam rises, curls, and
-  slowly dissolves.
+  GPU over a Z-slice atlas texture (N³ voxels as N tiles in a 2D target).
+  Neighbour access is exact `texelFetch`; trilinear sampling is two hardware
+  bilinear taps clamped inside their tiles. The foam field advects with a
+  limited MacCormack scheme (forward + reverse + clamped anti-diffusion
+  correction), which keeps plume filaments crisp. The paddle and the barrel
+  couple as rigid bodies (translation + ω×r per voxel), injecting momentum
+  and "foam" (aerated water); foam rises, curls, and slowly dissolves.
 - **Light volume** — per frame, every voxel marches toward the light
   accumulating foam optical depth (plus an analytic clear-water term), giving
   self-shadowed billows.

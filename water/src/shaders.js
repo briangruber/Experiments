@@ -98,6 +98,49 @@ void main() {
   gl_FragColor = sampleVol(uSrc, q) * uDissipation;
 }`;
 
+// MacCormack advection for the foam field: forward semi-Lagrangian step that
+// also records the source-neighbourhood extrema at the backtraced point
+// (rgb = value, min, max), for the limiter in the combine pass.
+export const MM_ADVECT_FRAG = VOL_FRAG + /* glsl */ `
+uniform sampler2D uVel;
+uniform sampler2D uSrc;
+uniform float uDt;
+void main() {
+  ivec3 v = voxelFromFrag();
+  if (v.z >= uNi) { gl_FragColor = vec4(0.0); return; }
+  vec3 p = vec3(v) + 0.5;
+  vec3 vel = fetchVox(uVel, v).xyz;
+  vec3 mid = p - 0.5 * uDt * vel;
+  vec3 q = p - uDt * sampleVol(uVel, mid).xyz;
+  float val = sampleVol(uSrc, q).x;
+  vec3 qf = clamp(q, vec3(0.5), vec3(uNf - 0.5)) - 0.5;
+  ivec3 q0 = ivec3(qf);
+  float mn = 1e9, mx = -1e9;
+  for (int i = 0; i < 8; i++) {
+    float s = fetchVox(uSrc, q0 + ivec3(i & 1, (i >> 1) & 1, (i >> 2) & 1)).x;
+    mn = min(mn, s);
+    mx = max(mx, s);
+  }
+  gl_FragColor = vec4(val, mn, mx, 0.0);
+}`;
+
+// phi = phi1 + (phi0 - phi2)/2, clamped to the recorded extrema so the
+// anti-diffusion correction can't ring or go negative.
+export const MM_COMBINE_FRAG = VOL_FRAG + /* glsl */ `
+uniform sampler2D uPhi0;
+uniform sampler2D uPhi1;
+uniform sampler2D uPhi2;
+uniform float uDissipation;
+void main() {
+  ivec3 v = voxelFromFrag();
+  if (v.z >= uNi) { gl_FragColor = vec4(0.0); return; }
+  vec4 f1 = fetchVox(uPhi1, v);
+  float phi0 = fetchVox(uPhi0, v).x;
+  float phi2 = fetchVox(uPhi2, v).x;
+  float val = clamp(f1.x + 0.5 * (phi0 - phi2), f1.y, f1.z);
+  gl_FragColor = vec4(max(val, 0.0) * uDissipation, 0.0, 0.0, 0.0);
+}`;
+
 // Buoyancy + paddle drag force + click burst impulse + speed clamp.
 export const FORCES_FRAG = VOL_FRAG + /* glsl */ `
 uniform sampler2D uVel;

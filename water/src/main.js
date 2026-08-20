@@ -17,6 +17,7 @@ const QUALITY = {
   low: { N: 64, jacobi: 12, steps: 88, scale: 0.6, ptex: 192 },
   med: { N: 81, jacobi: 18, steps: 116, scale: 0.7, ptex: 288 },
   high: { N: 100, jacobi: 22, steps: 148, scale: 0.8, ptex: 384 },
+  ultra: { N: 128, jacobi: 26, steps: 176, scale: 0.85, ptex: 448 },
 };
 
 const query = new URLSearchParams(location.search);

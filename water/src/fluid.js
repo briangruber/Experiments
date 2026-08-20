@@ -5,8 +5,9 @@
 
 import * as THREE from '../vendor/three.module.min.js';
 import {
-  FS_TRI_VERT, ADVECT_FRAG, FORCES_FRAG, INJECT_FRAG, CURL_FRAG,
-  CONFINE_FRAG, DIVERGENCE_FRAG, JACOBI_FRAG, PROJECT_FRAG, LIGHT_FRAG,
+  FS_TRI_VERT, ADVECT_FRAG, MM_ADVECT_FRAG, MM_COMBINE_FRAG, FORCES_FRAG,
+  INJECT_FRAG, CURL_FRAG, CONFINE_FRAG, DIVERGENCE_FRAG, JACOBI_FRAG,
+  PROJECT_FRAG, LIGHT_FRAG,
 } from './shaders.js';
 
 export class Fluid {
@@ -35,7 +36,9 @@ export class Fluid {
     this.div = rt();
     this.curl = rt(THREE.RGBAFormat);
     this.light = rt();
-    this.bytes = this.W * this.H * (3 * 8 + 6 * 2);
+    this.tmp1 = rt(THREE.RGBAFormat); // MacCormack forward pass (val, min, max)
+    this.tmp2 = rt();                 // MacCormack reverse pass
+    this.bytes = this.W * this.H * (4 * 8 + 7 * 2);
 
     this.scene = new THREE.Scene();
     this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -105,6 +108,13 @@ export class Fluid {
       uBurstPos: { value: new THREE.Vector3() },
       uBurstFoam: { value: 0 },
       uBurstR: { value: 0.18 },
+    });
+    this.mMMAdvect = mat(MM_ADVECT_FRAG, {
+      uVel: { value: null }, uSrc: { value: null }, uDt: { value: 0 },
+    });
+    this.mMMCombine = mat(MM_COMBINE_FRAG, {
+      uPhi0: { value: null }, uPhi1: { value: null }, uPhi2: { value: null },
+      uDissipation: { value: 1 },
     });
     this.mCurl = mat(CURL_FRAG, { uVel: { value: null } });
     this.mConfine = mat(CONFINE_FRAG, {
@@ -210,12 +220,25 @@ export class Fluid {
     this.pass(this.mProject, vel[1]);
     vel.reverse();
 
-    // advect foam with the divergence-free field
+    // advect foam with the divergence-free field. MacCormack (forward,
+    // reverse, limited combine) keeps plume filaments crisp where plain
+    // semi-Lagrangian advection would smear them.
+    this.mMMAdvect.uniforms.uVel.value = vel[0].texture;
+    this.mMMAdvect.uniforms.uSrc.value = foam[0].texture;
+    this.mMMAdvect.uniforms.uDt.value = dt;
+    this.pass(this.mMMAdvect, this.tmp1);
+
     this.mAdvect.uniforms.uVel.value = vel[0].texture;
-    this.mAdvect.uniforms.uSrc.value = foam[0].texture;
-    this.mAdvect.uniforms.uDt.value = dt;
-    this.mAdvect.uniforms.uDissipation.value = Math.pow(0.978, dt * 60);
-    this.pass(this.mAdvect, foam[1]);
+    this.mAdvect.uniforms.uSrc.value = this.tmp1.texture;
+    this.mAdvect.uniforms.uDt.value = -dt;
+    this.mAdvect.uniforms.uDissipation.value = 1;
+    this.pass(this.mAdvect, this.tmp2);
+
+    this.mMMCombine.uniforms.uPhi0.value = foam[0].texture;
+    this.mMMCombine.uniforms.uPhi1.value = this.tmp1.texture;
+    this.mMMCombine.uniforms.uPhi2.value = this.tmp2.texture;
+    this.mMMCombine.uniforms.uDissipation.value = Math.pow(0.978, dt * 60);
+    this.pass(this.mMMCombine, foam[1]);
     foam.reverse();
 
     // inject foam
