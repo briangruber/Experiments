@@ -1,0 +1,94 @@
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  font-family: 'SF Mono', 'Cascadia Code', ui-monospace, Menlo, Consolas, monospace;
+}
+#gl {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+  cursor: default;
+}
+#title {
+  position: fixed;
+  top: 18px;
+  left: 22px;
+  color: #cfe7f2;
+  font-size: 15px;
+  letter-spacing: 0.35em;
+  user-select: none;
+  pointer-events: none;
+  text-shadow: 0 0 18px rgba(80, 180, 220, 0.35);
+}
+#title span {
+  display: block;
+  margin-top: 5px;
+  font-size: 9px;
+  letter-spacing: 0.28em;
+  color: #5d7c8a;
+}
+#stats {
+  position: fixed;
+  top: 16px;
+  right: 20px;
+  min-width: 230px;
+  font-size: 11px;
+  line-height: 1.9;
+  color: #9fb6c0;
+  user-select: none;
+  pointer-events: none;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+#stats div {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+}
+#stats em {
+  font-style: normal;
+  color: #58707c;
+}
+#stats b {
+  font-weight: 500;
+  color: #c4dbe5;
+}
+#hud {
+  position: fixed;
+  bottom: 14px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: #4e6873;
+  user-select: none;
+  pointer-events: none;
+}
+.pointer-coarse { display: none; }
+@media (pointer: coarse) {
+  .pointer-fine { display: none; }
+  .pointer-coarse { display: block; }
+}
+.ui-hidden #stats, .ui-hidden #hud, .ui-hidden #title { display: none; }
+#boot {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: #000;
+  color: #cfe7f2;
+  transition: opacity 0.6s;
+  z-index: 10;
+}
+#boot.hidden { opacity: 0; pointer-events: none; }
+#boot.error .boot-sub { color: #e08080; }
+.boot-title { font-size: 22px; letter-spacing: 0.5em; }
+.boot-sub { font-size: 11px; color: #5d7c8a; letter-spacing: 0.2em; }

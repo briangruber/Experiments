@@ -1,0 +1,232 @@
+// GPU 3D stable-fluids solver on a Z-slice atlas.
+//
+// Fields (all N³, RGBA16F atlases): velocity (voxels/s), foam density,
+// pressure ×2 (warm-started), divergence, curl, light transmittance.
+
+import * as THREE from '../vendor/three.module.min.js';
+import {
+  FS_TRI_VERT, ADVECT_FRAG, FORCES_FRAG, INJECT_FRAG, CURL_FRAG,
+  CONFINE_FRAG, DIVERGENCE_FRAG, JACOBI_FRAG, PROJECT_FRAG, LIGHT_FRAG,
+} from './shaders.js';
+
+export class Fluid {
+  constructor(renderer, { N = 100, jacobi = 22, lightDir }) {
+    this.renderer = renderer;
+    this.N = N;
+    this.jacobi = jacobi;
+    this.T = Math.ceil(Math.sqrt(N));
+    this.R = Math.ceil(N / this.T);
+    this.W = this.T * N;
+    this.H = this.R * N;
+
+    const rt = () => new THREE.WebGLRenderTarget(this.W, this.H, {
+      type: THREE.HalfFloatType,
+      format: THREE.RGBAFormat,
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      depthBuffer: false,
+      stencilBuffer: false,
+    });
+
+    this.vel = [rt(), rt()];
+    this.foam = [rt(), rt()];
+    this.prs = [rt(), rt()];
+    this.div = rt();
+    this.curl = rt();
+    this.light = rt();
+    this.bytes = 9 * this.W * this.H * 8;
+
+    this.scene = new THREE.Scene();
+    this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(
+      new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3));
+    this.quad = new THREE.Mesh(geo, null);
+    this.quad.frustumCulled = false;
+    this.scene.add(this.quad);
+
+    const volUniforms = () => ({
+      uNi: { value: N },
+      uNf: { value: N },
+      uTi: { value: this.T },
+      uAtlas: { value: new THREE.Vector2(this.W, this.H) },
+    });
+    const mat = (frag, uniforms) => new THREE.ShaderMaterial({
+      vertexShader: FS_TRI_VERT,
+      fragmentShader: frag,
+      uniforms: { ...volUniforms(), ...uniforms },
+      depthTest: false,
+      depthWrite: false,
+    });
+
+    this.mAdvect = mat(ADVECT_FRAG, {
+      uVel: { value: null }, uSrc: { value: null },
+      uDt: { value: 0 }, uDissipation: { value: 1 },
+    });
+    this.mForces = mat(FORCES_FRAG, {
+      uVel: { value: null }, uFoam: { value: null },
+      uDt: { value: 0 },
+      uBuoyancy: { value: 24.0 },
+      uMaxVel: { value: N * 2.6 },
+      uPaddleOn: { value: 0 },
+      uPaddlePos: { value: new THREE.Vector3() },
+      uPaddleVel: { value: new THREE.Vector3() },
+      uPaddleHalf: { value: new THREE.Vector3(0.3, 0.05, 0.2) },
+      uPaddleRot: { value: new THREE.Matrix3() },
+      uBurstPos: { value: new THREE.Vector3() },
+      uBurstAmt: { value: 0 },
+    });
+    this.mInject = mat(INJECT_FRAG, {
+      uFoam: { value: null },
+      uDt: { value: 0 }, uTime: { value: 0 },
+      uFoamGain: { value: 1.8 },
+      uPaddleOn: { value: 0 },
+      uPaddlePos: { value: new THREE.Vector3() },
+      uPaddleHalf: { value: new THREE.Vector3(0.3, 0.05, 0.2) },
+      uPaddleRot: { value: new THREE.Matrix3() },
+      uPaddleSpeed: { value: 0 },
+      uBurstPos: { value: new THREE.Vector3() },
+      uBurstFoam: { value: 0 },
+    });
+    this.mCurl = mat(CURL_FRAG, { uVel: { value: null } });
+    this.mConfine = mat(CONFINE_FRAG, {
+      uVel: { value: null }, uCurl: { value: null },
+      uDt: { value: 0 }, uEps: { value: 9.0 },
+    });
+    this.mDiv = mat(DIVERGENCE_FRAG, { uVel: { value: null } });
+    this.mJacobi = mat(JACOBI_FRAG, { uPrs: { value: null }, uDiv: { value: null } });
+    this.mProject = mat(PROJECT_FRAG, { uVel: { value: null }, uPrs: { value: null } });
+    this.mLight = mat(LIGHT_FRAG, {
+      uFoam: { value: null },
+      uLightDir: { value: lightDir.clone() },
+      uStepLen: { value: N / 22 },
+      uSigmaFoam: { value: 0.22 },
+      uSigmaWater: { value: 0.9 / N },
+    });
+
+    // one-shot inputs, armed from main and cleared after the step
+    this.burst = null;   // { pos: Vector3(world), vel: number, foam: number }
+    this.paddle = null;  // { pos, vel(world/s), half, rot: Matrix3, on }
+  }
+
+  pass(material, target) {
+    this.quad.material = material;
+    this.renderer.setRenderTarget(target);
+    this.renderer.render(this.scene, this.camera);
+  }
+
+  step(dt, time) {
+    const { vel, foam, prs } = this;
+    const voxPerWorld = this.N / 2;
+
+    // advect velocity
+    this.mAdvect.uniforms.uVel.value = vel[0].texture;
+    this.mAdvect.uniforms.uSrc.value = vel[0].texture;
+    this.mAdvect.uniforms.uDt.value = dt;
+    this.mAdvect.uniforms.uDissipation.value = 0.999;
+    this.pass(this.mAdvect, vel[1]);
+    vel.reverse();
+
+    // body forces + interaction impulses
+    const fu = this.mForces.uniforms;
+    fu.uVel.value = vel[0].texture;
+    fu.uFoam.value = foam[0].texture;
+    fu.uDt.value = dt;
+    if (this.paddle && this.paddle.on) {
+      fu.uPaddleOn.value = 1;
+      fu.uPaddlePos.value.copy(this.paddle.pos);
+      fu.uPaddleVel.value.copy(this.paddle.vel).multiplyScalar(voxPerWorld);
+      fu.uPaddleHalf.value.copy(this.paddle.half);
+      fu.uPaddleRot.value.copy(this.paddle.rot);
+    } else {
+      fu.uPaddleOn.value = 0;
+    }
+    if (this.burst) {
+      fu.uBurstPos.value.copy(this.burst.pos);
+      fu.uBurstAmt.value = this.burst.vel * voxPerWorld;
+    } else {
+      fu.uBurstAmt.value = 0;
+    }
+    this.pass(this.mForces, vel[1]);
+    vel.reverse();
+
+    // vorticity confinement
+    this.mCurl.uniforms.uVel.value = vel[0].texture;
+    this.pass(this.mCurl, this.curl);
+    this.mConfine.uniforms.uVel.value = vel[0].texture;
+    this.mConfine.uniforms.uCurl.value = this.curl.texture;
+    this.mConfine.uniforms.uDt.value = dt;
+    this.pass(this.mConfine, vel[1]);
+    vel.reverse();
+
+    // pressure solve + projection
+    this.mDiv.uniforms.uVel.value = vel[0].texture;
+    this.pass(this.mDiv, this.div);
+    for (let i = 0; i < this.jacobi; i++) {
+      this.mJacobi.uniforms.uPrs.value = prs[0].texture;
+      this.mJacobi.uniforms.uDiv.value = this.div.texture;
+      this.pass(this.mJacobi, prs[1]);
+      prs.reverse();
+    }
+    this.mProject.uniforms.uVel.value = vel[0].texture;
+    this.mProject.uniforms.uPrs.value = prs[0].texture;
+    this.pass(this.mProject, vel[1]);
+    vel.reverse();
+
+    // advect foam with the divergence-free field
+    this.mAdvect.uniforms.uVel.value = vel[0].texture;
+    this.mAdvect.uniforms.uSrc.value = foam[0].texture;
+    this.mAdvect.uniforms.uDt.value = dt;
+    this.mAdvect.uniforms.uDissipation.value = 0.978;
+    this.pass(this.mAdvect, foam[1]);
+    foam.reverse();
+
+    // inject foam
+    const iu = this.mInject.uniforms;
+    iu.uFoam.value = foam[0].texture;
+    iu.uDt.value = dt;
+    iu.uTime.value = time;
+    if (this.paddle && this.paddle.on) {
+      iu.uPaddleOn.value = 1;
+      iu.uPaddlePos.value.copy(this.paddle.pos);
+      iu.uPaddleHalf.value.copy(this.paddle.half);
+      iu.uPaddleRot.value.copy(this.paddle.rot);
+      iu.uPaddleSpeed.value = this.paddle.vel.length();
+    } else {
+      iu.uPaddleOn.value = 0;
+    }
+    if (this.burst) {
+      iu.uBurstPos.value.copy(this.burst.pos);
+      iu.uBurstFoam.value = this.burst.foam;
+      this.burst = null;
+    } else {
+      iu.uBurstFoam.value = 0;
+    }
+    this.pass(this.mInject, foam[1]);
+    foam.reverse();
+
+    // light transmittance volume
+    this.mLight.uniforms.uFoam.value = foam[0].texture;
+    this.pass(this.mLight, this.light);
+
+    this.renderer.setRenderTarget(null);
+  }
+
+  clear() {
+    const r = this.renderer;
+    const targets = [...this.vel, ...this.foam, ...this.prs, this.div, this.curl];
+    const old = new THREE.Color();
+    r.getClearColor(old);
+    const oldAlpha = r.getClearAlpha();
+    r.setClearColor(0x000000, 0);
+    for (const t of targets) { r.setRenderTarget(t); r.clear(); }
+    r.setClearColor(0xffffff, 1);
+    r.setRenderTarget(this.light);
+    r.clear();
+    r.setClearColor(old, oldAlpha);
+    r.setRenderTarget(null);
+  }
+
+  get foamTexture() { return this.foam[0].texture; }
+  get lightTexture() { return this.light.texture; }
+}

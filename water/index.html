@@ -1,0 +1,25 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Churn — Volumetric Fluid Tank</title>
+<link rel="stylesheet" href="./src/ui.css">
+<canvas id="gl" oncontextmenu="return false"></canvas>
+<div id="title">CHURN<span>volumetric fluid tank</span></div>
+<div id="stats">
+  <div><em>Resolution</em><b data-k="res">—</b></div>
+  <div><em>Grid</em><b data-k="grid">—</b></div>
+  <div><em data-k="simLabel">Simulate, GPU</em><b data-k="sim">—</b></div>
+  <div><em data-k="renLabel">Render, GPU</em><b data-k="ren">—</b></div>
+  <div><em>Particle count</em><b data-k="parts">—</b></div>
+  <div><em>Framerate</em><b data-k="fps">—</b></div>
+  <div><em>VRAM (est)</em><b data-k="vram">—</b></div>
+  <div><em>Stir</em><b data-k="stir">auto</b></div>
+</div>
+<div id="hud">
+  <div class="pointer-fine">drag paddle · stir &nbsp; drag · orbit &nbsp; click · burst &nbsp; wheel · zoom &nbsp; space · auto-stir &nbsp; C · clear &nbsp; Q · quality &nbsp; H · hide UI</div>
+  <div class="pointer-coarse">drag paddle · stir &nbsp; drag · orbit &nbsp; tap · burst &nbsp; pinch · zoom</div>
+</div>
+<div id="boot">
+  <div class="boot-title">CHURN</div>
+  <div class="boot-sub">filling the tank…</div>
+</div>
+<script type="module" src="./src/main.js"></script>

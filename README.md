@@ -16,6 +16,7 @@ collide, and a branch can be merged without reading it first.
 | --- | --- |
 | `ocean/` | Abyssal — a real-time cinematic ocean simulator with a rideable wave runner. Multi-cascade FFT sea, volumetric clouds, GPU spray, persistent Kelvin wake. |
 | `telenovela/` | Corazón de Gallina — a wordless chicken telenovela. Procedural birds, a hacienda courtyard, a cinematographer that speaks in shot sizes, and a synthesised organ sting. |
+| `water/` | Churn — an interactive volumetric fluid tank (after @key_vfx's EmberGen clip). 3D GPU stable-fluids sim, raymarched foam with a light volume, bubble particles, draggable paddle. |
 
 Other prototypes currently live on their own branches and follow the same
 convention (`harbor/`, `boats/`, `cozy-fishing/`). They can be merged here as
