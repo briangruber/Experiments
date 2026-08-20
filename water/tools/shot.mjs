@@ -44,6 +44,8 @@ const BURSTS = multi('burst');
 const HIDE_UI = args.includes('--no-ui');
 const DTCAP = opt('dtcap', '');
 const GPU = args.includes('--gpu');
+const BARREL = args.includes('--barrel');
+const BARREL_TAIL = +opt('barrel-tail', 18000); // ms of sim left after the drop
 
 const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
@@ -113,7 +115,14 @@ if (!errors.length) {
   }, [CAMERA, BURSTS]);
 }
 
-await page.waitForTimeout(WAIT);
+// drop late enough that the splash is still developing when we capture
+if (BARREL) {
+  await page.waitForTimeout(Math.max(WAIT - BARREL_TAIL, 0));
+  await page.evaluate(() => window.water.dropBarrel());
+  await page.waitForTimeout(Math.min(BARREL_TAIL, WAIT));
+} else {
+  await page.waitForTimeout(WAIT);
+}
 if (HIDE_UI) await page.evaluate(() => document.body.classList.add('ui-hidden', 'no-chrome'));
 // WebGPU canvas presentation doesn't composite in headless Chromium; ask the
 // app to read pixels back and blit them onto a capturable 2D canvas.

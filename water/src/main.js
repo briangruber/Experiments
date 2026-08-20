@@ -65,15 +65,20 @@ if (!renderer.getContext().getExtension('EXT_color_buffer_float')) {
 
 const getDPR = () => Math.min(window.devicePixelRatio || 1, 1.75);
 const sunDir = new THREE.Vector3(0.30, -1.0, -0.35).normalize();
+// The tank is filled to here, with air above: a real waterline is what makes
+// plumes mushroom out along the surface instead of piling into a ceiling.
+const SURFACE_Y = 0.72;
 
-const fluid = new Fluid(renderer, { N: Q.N, jacobi: Q.jacobi, lightDir: sunDir });
+const fluid = new Fluid(renderer, {
+  N: Q.N, jacobi: Q.jacobi, lightDir: sunDir, surfaceY: SURFACE_Y,
+});
 fluid.clear();
 const particles = new Particles(renderer, fluid, Q.ptex);
 
 // ----------------------------------------------------------------- camera --
 
 const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 50);
-const orbit = { az: 0.5, el: 0.12, dist: 3.4 };
+const orbit = { az: 0.5, el: 0.30, dist: 3.4 };
 function updateCamera() {
   orbit.el = Math.max(-0.55, Math.min(1.25, orbit.el));
   orbit.dist = Math.max(1.7, Math.min(8, orbit.dist));
@@ -186,10 +191,13 @@ const mRaymarch = new THREE.ShaderMaterial({
     uNear: { value: camera.near }, uFar: { value: camera.far },
     uSteps: { value: Q.steps },
     uFrame: { value: 0 },
+    uTime: { value: 0 },
+    uSurfaceY: { value: SURFACE_Y },
+    uRipples: { value: [0, 1, 2, 3].map(() => new THREE.Vector4(0, 0, -100, 0)) },
     uSunDir: { value: sunDir },
     uSunColor: { value: new THREE.Vector3(3.6, 3.8, 3.9) },
     uWaterAbsorb: { value: new THREE.Vector3(1.30, 0.50, 0.26) },
-    uWaterScatter: { value: new THREE.Vector3(0.012, 0.032, 0.058) },
+    uWaterScatter: { value: new THREE.Vector3(0.020, 0.046, 0.076) },
     uFoamScatter: { value: 7.0 },
     uFoamAbsorb: { value: 0.35 },
     uAmbientTop: { value: new THREE.Vector3(0.11, 0.16, 0.20) },
@@ -587,6 +595,15 @@ function updatePaddle(dt, t) {
 
 // ------------------------------------------------------------------ barrel --
 
+// Impact ripples: a tiny ring buffer the surface shader reads as expanding
+// rings (xz centre, start time, strength).
+let rippleNext = 0;
+function addRipple(x, z, strength) {
+  const r = mRaymarch.uniforms.uRipples.value[rippleNext % 4];
+  rippleNext++;
+  r.set(x, z, clock.elapsedTime % 512, strength);
+}
+
 const barrelState = { active: false, age: 0 };
 const barrelVel = new THREE.Vector3();
 const barrelAngVel = new THREE.Vector3();
@@ -608,13 +625,7 @@ function dropBarrel() {
   barrelVel.set(0, -2.3, 0);
   barrelAngVel.set(1.1, 0.4, 0.8);
   barrel.visible = true;
-  // entry splash: the punched-in air cavity collapses into a billowing cloud
-  // that stays near the surface while the barrel plunges on
-  const x = barrel.position.x, z = barrel.position.z;
-  explosionQueue.push(
-    { pos: new THREE.Vector3(x, 0.87, z), vel: 0.5, up: -1.1, foam: 0.9, radius: 0.19 },
-    { pos: new THREE.Vector3(x, 0.76, z), vel: 0.25, up: 0.55, foam: 0.55, radius: 0.15 },
-  );
+  barrelState.splashed = false;
 }
 
 function updateBarrel(dt, t) {
@@ -622,8 +633,10 @@ function updateBarrel(dt, t) {
   if (!barrelState.active) return;
   barrelState.age += dt;
 
-  barrelVel.y -= 1.8 * dt;                          // heavier than water
-  barrelVel.multiplyScalar(Math.exp(-dt * 2.3));    // strong drag: fast entry, slow drift down
+  const wasAbove = barrel.position.y > SURFACE_Y;
+  // falls freely through the air gap, then meets real drag in the water
+  barrelVel.y -= (wasAbove ? 6.0 : 1.8) * dt;
+  barrelVel.multiplyScalar(Math.exp(-dt * (wasAbove ? 0.15 : 2.3)));
   barrel.position.addScaledVector(barrelVel, dt);
   barrel.position.x = Math.max(-0.8, Math.min(0.8, barrel.position.x));
   barrel.position.z = Math.max(-0.8, Math.min(0.8, barrel.position.z));
@@ -631,6 +644,18 @@ function updateBarrel(dt, t) {
   barrel.rotation.y += barrelAngVel.y * dt;
   barrel.rotation.z += barrelAngVel.z * dt;
   barrel.updateMatrixWorld();
+
+  if (wasAbove && barrel.position.y <= SURFACE_Y && !barrelState.splashed) {
+    // breaking the surface: an air cavity punched in at the waterline, plus
+    // the ring of waves running out from the impact
+    barrelState.splashed = true;
+    const x = barrel.position.x, z = barrel.position.z;
+    explosionQueue.push(
+      { pos: new THREE.Vector3(x, SURFACE_Y - 0.05, z), vel: 0.55, up: -1.2, foam: 1.0, radius: 0.20 },
+      { pos: new THREE.Vector3(x, SURFACE_Y - 0.15, z), vel: 0.28, up: 0.5, foam: 0.6, radius: 0.16 },
+    );
+    addRipple(x, z, 1.0);
+  }
 
   if (barrel.position.y < -0.5 || barrelState.age > 2.2) {
     // implode, then blow: a suck inward, then a radial+upward blast with a
@@ -647,12 +672,13 @@ function updateBarrel(dt, t) {
     );
     lastBlast.pos.copy(p);
     lastBlast.until = t + 1.6;
+    addRipple(p.x, p.z, 1.3);
     return;
   }
 
   barrelRot4.extractRotation(barrel.matrixWorld);
   barrelRot3.setFromMatrix4(barrelRot4).transpose(); // world -> local
-  fluid.barrel = fluidBarrel;
+  if (barrel.position.y < SURFACE_Y) fluid.barrel = fluidBarrel; // no wake in air
 }
 
 function frame() {
@@ -708,6 +734,7 @@ function frame() {
   u.uCamPos.value.copy(camera.position);
   camera.getWorldDirection(u.uCamFwd.value);
   u.uFrame.value = frames % 64;
+  u.uTime.value = t % 512;
   fsPass(mRaymarch, volRT);
 
   // composite + tank edges + bubble sparkle

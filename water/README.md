@@ -2,9 +2,11 @@
 
 An interactive, real-time volumetric water simulation in the browser, after
 [@key_vfx's EmberGen tank clip](https://x.com/key_vfx/status/1696182009922457679):
-a glass box of deep blue water churned into billowing clouds of foam by a
-paddle you drag around, rendered with volumetric light scattering on a black
-void. Built on three.js (WebGL2), no build step.
+a glass tank filled with deep blue water — a real waterline with air above it
+— churned into billowing clouds of foam by a paddle you drag around and
+barrels you drop through the surface. Volumetric light scattering, caustics
+and surface glints on a black void. Built on three.js (WebGL2), no build
+step.
 
 ## Running
 
@@ -33,11 +35,15 @@ class to `<body>` removes that last button too (what `--no-ui` captures use).
 
 ## Backends
 
-The app boots WebGPU when the browser has an adapter (`src/gpu/` —
+WebGPU is opt-in via `?gpu=1` while it catches up — the WebGL2 app has the
+free surface, caustics, bloom and bubble particles that backend does not have
+yet.
+
+The app boots WebGPU when asked with `?gpu=1` (`src/gpu/` —
 `WebGPURenderer` + TSL compute over true 3D storage textures, hardware
 trilinear sampling, grid presets 64³–160³) and falls back to the WebGL2 app
-otherwise (`src/main.js` — the Z-slice-atlas pipeline). `?gpu=0` forces
-WebGL2. The HUD shows the active backend. The WebGPU backend is v1: no bloom
+otherwise (`src/main.js` — the Z-slice-atlas pipeline, the default). The HUD
+shows the active backend. The WebGPU backend is v1: no bloom
 or bubble particles yet, and composite transmittance is scalar.
 
 `src/gpu/compat.js` carries three small shims for older Dawn builds
@@ -49,6 +55,20 @@ completion so readbacks can't starve behind the queue.
 
 ## How it works
 
+- **Free surface** — the tank is filled to `y = 0.72` with air above. The
+  solver treats the waterline as a lid (no flow up through it) and buoyancy
+  fades as bubbles approach, so plumes decelerate and mushroom outward
+  instead of piling into a ceiling; foam that reaches it pops, leaving a raft
+  floating just underneath. The raymarch clips to the water half-space and
+  shades the crossing: sun glint off rippled normals, a Fresnel rim that
+  stays dark because the room is black, refraction of the view ray on entry,
+  and — looking up from below — the silvery mirror of total internal
+  reflection with the foam raft printed on it. Impacts (barrel entry,
+  detonation, bursts) push expanding rings into a small ripple buffer the
+  surface normal reads from.
+- **Caustics** — computed in the light-volume pass (once per voxel per frame,
+  not per march step) by walking back up the light path to the surface, which
+  is what turns the pattern into descending shafts.
 - **Simulation** — a 3D stable-fluids solver (semi-Lagrangian RK2 advection,
   buoyancy, vorticity confinement, ~20 Jacobi pressure iterations) runs on the
   GPU over a Z-slice atlas texture (N³ voxels as N tiles in a 2D target).
@@ -80,5 +100,7 @@ Headless capture + validation harness (serves the folder, renders in
 Chromium/SwiftShader, screenshots, prints image statistics). Exits non-zero
 on any WebGL/JS error or a flat image, so it doubles as a smoke test.
 `--camera az,el,dist` sets the view, `--burst "x,y,z,amount"` (repeatable)
-seeds plumes, `--no-ui` hides the HUD, `--gpu` tests the WebGPU backend
+seeds plumes, `--barrel` (with `--barrel-tail <ms>`) drops one through the
+surface so the splash is still developing at capture time, `--no-ui` hides the
+HUD, `--gpu` tests the WebGPU backend
 (SwiftShader WebGPU adapter + readback-based capture; expect ~0.2 fps).

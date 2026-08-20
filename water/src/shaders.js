@@ -161,6 +161,7 @@ uniform vec3 uBarrelAngVel; // rad/s
 uniform vec3 uBarrelHalf;
 uniform mat3 uBarrelRot;
 uniform vec3 uBurstPos;
+uniform float uSurfaceY;
 uniform float uBurstAmt;   // voxels/s radial impulse (negative = implosion)
 uniform float uBurstUp;    // voxels/s vertical kick
 uniform float uBurstR;     // world-space radius
@@ -171,7 +172,10 @@ void main() {
   float foam = fetchVox(uFoam, v).x;
   vec3 wp = (vec3(v) + 0.5) / uNf * 2.0 - 1.0;
 
-  vel.y += uBuoyancy * clamp(foam, 0.0, 2.5) * uDt;
+  // buoyancy fades out as bubbles near the surface, so plumes decelerate and
+  // spread sideways instead of slamming into a lid
+  float lift = 1.0 - smoothstep(uSurfaceY - 0.07, uSurfaceY, wp.y);
+  vel.y += uBuoyancy * clamp(foam, 0.0, 2.5) * lift * uDt;
 
   if (uPaddleOn > 0.5) {
     float d = sdBox(uPaddleRot * (wp - uPaddlePos), uPaddleHalf);
@@ -221,6 +225,7 @@ uniform mat3 uBarrelRot;
 uniform vec3 uBurstPos;
 uniform float uBurstFoam;
 uniform float uBurstR;
+uniform float uSurfaceY;
 void main() {
   ivec3 v = voxelFromFrag();
   if (v.z >= uNi) { gl_FragColor = vec4(0.0); return; }
@@ -262,6 +267,9 @@ void main() {
     foam += w * uBurstFoam * (0.6 + 0.8 * noise3(wp * 12.0 + uTime));
   }
 
+  // bubbles that reach the waterline surface and pop; what survives collects
+  // in a thin raft just underneath
+  foam *= 1.0 - smoothstep(uSurfaceY - 0.008, uSurfaceY + 0.05, wp.y);
   gl_FragColor = vec4(min(foam, 4.0), 0.0, 0.0, 0.0);
 }`;
 
@@ -336,6 +344,7 @@ void main() {
 export const PROJECT_FRAG = VOL_FRAG + /* glsl */ `
 uniform sampler2D uVel;
 uniform sampler2D uPrs;
+uniform float uSurfaceY;
 void main() {
   ivec3 v = voxelFromFrag();
   if (v.z >= uNi) { gl_FragColor = vec4(0.0); return; }
@@ -344,6 +353,15 @@ void main() {
     fetchVox(uPrs, v + ivec3(1, 0, 0)).x - fetchVox(uPrs, v - ivec3(1, 0, 0)).x,
     fetchVox(uPrs, v + ivec3(0, 1, 0)).x - fetchVox(uPrs, v - ivec3(0, 1, 0)).x,
     fetchVox(uPrs, v + ivec3(0, 0, 1)).x - fetchVox(uPrs, v - ivec3(0, 0, 1)).x);
+  // free surface: air above the waterline is still, and water can't flow up
+  // through it. This lid is what makes rising plumes mushroom outward.
+  float wy = (float(v.y) + 0.5) / uNf * 2.0 - 1.0;
+  if (wy > uSurfaceY) {
+    gl_FragColor = vec4(0.0);
+    return;
+  }
+  if (wy + 2.0 / uNf > uSurfaceY) vel.y = min(vel.y, 0.0);
+
   int n = uNi - 1;
   if (v.x == 0) vel.x = max(vel.x, 0.0); else if (v.x == n) vel.x = min(vel.x, 0.0);
   if (v.y == 0) vel.y = max(vel.y, 0.0); else if (v.y == n) vel.y = min(vel.y, 0.0);
@@ -359,6 +377,20 @@ uniform vec3 uLightDir;     // direction light travels, normalized (y < 0)
 uniform float uStepLen;     // voxels
 uniform float uSigmaFoam;   // extinction per foam unit, per voxel
 uniform float uSigmaWater;  // extinction of clear water, per voxel
+uniform float uSurfaceY;    // waterline, world units
+uniform float uTime;
+uniform float uCaustics;
+
+// Interference of a few travelling waves, sharpened into the bright filaments
+// sunlight makes after refracting through a rippled surface.
+float caustic(vec2 p, float t) {
+  vec2 q = p * 3.4;
+  float a = sin(q.x + t * 0.9) + sin(q.y * 1.3 - t * 1.1) + sin((q.x + q.y) * 0.7 + t * 0.7);
+  float b = sin(q.x * 1.9 - t * 1.4) + sin(q.y * 2.1 + t * 0.5);
+  float v = 0.5 + 0.17 * (a + b);
+  return pow(clamp(v, 0.0, 1.0), 4.0) * 2.4 + 0.35;
+}
+
 void main() {
   ivec3 v = voxelFromFrag();
   if (v.z >= uNi) { gl_FragColor = vec4(1.0); return; }
@@ -376,6 +408,14 @@ void main() {
   vec3 t2 = (vec3(uNf) - p) * inv;
   float tExit = min(min(max(t1.x, t2.x), max(t1.y, t2.y)), max(t1.z, t2.z));
   float t = exp(-od * uSigmaFoam * uStepLen - uSigmaWater * max(tExit, 0.0));
+
+  // Caustics belong here rather than in the raymarch: one evaluation per
+  // voxel per frame instead of one per march step. Walking back up the light
+  // path to the surface is what turns the pattern into descending shafts.
+  vec3 wp = (vec3(v) + 0.5) / uNf * 2.0 - 1.0;
+  float below = max(uSurfaceY - wp.y, 0.0);
+  vec2 cp = wp.xz - uLightDir.xz * (below / max(-uLightDir.y, 1e-3));
+  t *= mix(1.0, caustic(cp, uTime), uCaustics * exp(-below * 0.5));
   gl_FragColor = vec4(t, 0.0, 0.0, 0.0);
 }`;
 
@@ -403,6 +443,9 @@ uniform vec3 uCamFwd;
 uniform float uNear, uFar;
 uniform int uSteps;
 uniform float uFrame;
+uniform float uTime;
+uniform float uSurfaceY;
+uniform vec4 uRipples[4];    // xy = impact centre (world xz), z = start time, w = strength
 uniform vec3 uSunDir;        // direction light travels
 uniform vec3 uSunColor;
 uniform vec3 uWaterAbsorb;   // per world unit
@@ -420,21 +463,115 @@ vec2 boxT(vec3 ro, vec3 rd) {
   return vec2(max(max(lo.x, lo.y), lo.z), min(min(hi.x, hi.y), hi.z));
 }
 
+// Surface displacement: a permanent low chop plus decaying rings from each
+// impact (barrel entry, bursts). Only the normal is used, so amplitude just
+// has to look right rather than displace the medium boundary.
+float waveH(vec2 xz) {
+  float h = 0.010 * sin(xz.x * 5.1 + uTime * 1.3) * sin(xz.y * 4.3 - uTime * 0.9);
+  h += 0.006 * sin((xz.x + xz.y) * 8.3 - uTime * 2.1);
+  // fine chop, so the glint breaks into sparkle instead of a smooth band
+  h += 0.0022 * sin(xz.x * 31.0 - uTime * 3.7) * sin(xz.y * 27.0 + uTime * 3.1);
+  h += 0.0015 * sin((xz.x - xz.y) * 44.0 + uTime * 5.3);
+  for (int i = 0; i < 4; i++) {
+    vec4 r = uRipples[i];
+    if (r.w <= 0.0) continue;
+    float age = uTime - r.z;
+    if (age < 0.0 || age > 7.0) continue;
+    float d = length(xz - r.xy);
+    float ring = d - age * 0.85;              // expanding wavefront
+    h += r.w * 0.05 * sin(ring * 20.0) * exp(-abs(ring) * 4.5)
+         * exp(-age * 0.55) / (1.0 + d * 1.5);
+  }
+  return h;
+}
+
+vec3 waveNormal(vec2 xz) {
+  const float e = 0.005;   // small enough to resolve the fine chop
+  float hx = waveH(xz + vec2(e, 0.0)) - waveH(xz - vec2(e, 0.0));
+  float hz = waveH(xz + vec2(0.0, e)) - waveH(xz - vec2(0.0, e));
+  return normalize(vec3(-hx / (2.0 * e), 1.0, -hz / (2.0 * e)));
+}
+
 void main() {
   vec4 far4 = uInvProjView * vec4(vNdc, 1.0, 1.0);
-  vec3 dir = normalize(far4.xyz / far4.w - uCamPos);
-  vec2 tb = boxT(uCamPos, dir);
+  vec3 rd = normalize(far4.xyz / far4.w - uCamPos);
+  vec3 ro = uCamPos;
+
+  vec2 tb = boxT(ro, rd);
   float t0 = max(tb.x, 0.0), t1 = tb.y;
 
+  float tOpaque = 1e9;
   float d = texture2D(uDepth, vNdc * 0.5 + 0.5).x;
   if (d < 1.0) {
     float dist = (uNear * uFar) / (uFar - d * (uFar - uNear));
-    t1 = min(t1, dist / max(dot(dir, uCamFwd), 1e-4));
+    tOpaque = dist / max(dot(rd, uCamFwd), 1e-4);
+    t1 = min(t1, tOpaque);
   }
 
   outLight = vec4(0.0, 0.0, 0.0, 1.0);
   outTrans = vec4(1.0);
   if (t1 <= t0) return;
+
+  // --- free surface ---------------------------------------------------------
+  // Water occupies y < uSurfaceY. Clip the march to that half-space, and where
+  // the view ray actually crosses the waterline, shade it: sun glint off the
+  // ripples, a Fresnel rim, and any foam raft floating there.
+  vec3 surfaceL = vec3(0.0);
+  if (abs(rd.y) > 1e-5) {
+    float tS = (uSurfaceY - ro.y) / rd.y;
+    if (ro.y > uSurfaceY) {
+      if (rd.y >= 0.0 || tS >= t1) {
+        t1 = t0;                       // ray stays in the air above the water
+      } else if (tS > t0) {
+        vec3 ps = ro + rd * tS;
+        vec3 nrm = waveNormal(ps.xz);
+        vec3 hv = normalize(-uSunDir - rd);
+        // sharp glint plus a broad sheen; the room is black, so what the
+        // surface reflects is mostly nothing — that darkness is the realism
+        float spec = pow(max(dot(nrm, hv), 0.0), 220.0) * 2.6
+                   + pow(max(dot(nrm, hv), 0.0), 24.0) * 0.12;
+        float fres = 0.02 + 0.98 * pow(1.0 - max(dot(-rd, nrm), 0.0), 5.0);
+        float raft = smoothstep(0.12, 1.1, sampleVol(uFoamTex,
+          (vec3(ps.x, uSurfaceY - 0.04, ps.z) * 0.5 + 0.5) * uNf).x);
+        surfaceL = uSunColor * spec
+                 + fres * vec3(0.012, 0.035, 0.055)
+                 + raft * vec3(0.34, 0.45, 0.53);
+        // refract the view ray as it enters the water
+        vec3 rr = refract(rd, nrm, 1.0 / 1.333);
+        if (dot(rr, rr) > 0.0) {
+          ro = ps;
+          rd = normalize(rr);
+          vec2 nb = boxT(ro + rd * 1e-3, rd);
+          t0 = max(nb.x, 0.0) + 1e-3;
+          t1 = nb.y;
+          if (tOpaque < 1e8) t1 = min(t1, max(tOpaque - tS, 0.0));
+        } else {
+          t1 = t0;
+        }
+      }
+    } else if (rd.y > 0.0 && tS > t0 && tS < t1) {
+      // looking up from below: water ends at the underside. Past the critical
+      // angle the surface turns into a mirror, which is why a tank's ceiling
+      // reads as bright silver with the foam raft printed on it.
+      t1 = tS;
+      vec3 ps = ro + rd * tS;
+      vec3 nrm = waveNormal(ps.xz);
+      float cosI = max(dot(rd, nrm), 0.0);
+      float sinT2 = 1.333 * 1.333 * (1.0 - cosI * cosI);
+      float raft = smoothstep(0.10, 1.0, sampleVol(uFoamTex,
+        (vec3(ps.x, uSurfaceY - 0.04, ps.z) * 0.5 + 0.5) * uNf).x);
+      float mirror = smoothstep(0.85, 1.05, sinT2);
+      surfaceL = mix(vec3(0.014, 0.038, 0.058), vec3(0.055, 0.115, 0.155), mirror)
+               + raft * mix(vec3(0.30, 0.40, 0.48), vec3(0.45, 0.56, 0.64), mirror);
+    }
+  } else if (ro.y > uSurfaceY) {
+    t1 = t0;
+  }
+
+  if (t1 <= t0) {
+    outLight = vec4(surfaceL, 1.0);
+    return;
+  }
 
   float n = float(uSteps);
   float dt = (t1 - t0) / n;
@@ -442,7 +579,7 @@ void main() {
   vec3 jp = fract(vec3(gl_FragCoord.xy, uFrame) * 0.1031);
   jp += dot(jp, jp.zyx + 31.32);
   float jit = fract((jp.x + jp.y) * jp.z);
-  float mu = dot(dir, uSunDir);
+  float mu = dot(rd, uSunDir);
   float phase = 0.4 + 0.6 * pow(0.5 * (1.0 + mu), 2.0);
 
   vec3 T = vec3(1.0);
@@ -450,7 +587,7 @@ void main() {
   float t = t0 + jit * dt;
   for (int i = 0; i < 400; i++) {
     if (i >= uSteps || t >= t1) break;
-    vec3 p = uCamPos + dir * t;
+    vec3 p = ro + rd * t;
     vec3 pv = (p * 0.5 + 0.5) * uNf;
     float foam = sampleVol(uFoamTex, pv).x;
     // render-time erosion: fake sub-grid detail the sim can't resolve
@@ -460,7 +597,8 @@ void main() {
     vec3 sigS = uWaterScatter + vec3(uFoamScatter) * foam;
     vec3 sigT = uWaterAbsorb + sigS + vec3(uFoamAbsorb) * foam;
 
-    float h = clamp(p.y * 0.5 + 0.5, 0.0, 1.0);
+    // ambient falls off with depth below the waterline, not box height
+    float h = clamp(1.0 - max(uSurfaceY - p.y, 0.0) / 1.5, 0.0, 1.0);
     vec3 Li = uSunColor * (lt * phase)
             + mix(uAmbientDeep, uAmbientTop, h) * (0.12 + 0.88 * pow(lt, 0.6));
 
@@ -470,7 +608,7 @@ void main() {
     if (max(T.x, max(T.y, T.z)) < 0.004) { T = vec3(0.0); break; }
     t += dt;
   }
-  outLight = vec4(L, 1.0);
+  outLight = vec4(L + surfaceL, 1.0);
   outTrans = vec4(T, 1.0);
 }`;
 
@@ -551,6 +689,7 @@ uniform float uTime;
 uniform float uInit;
 uniform vec3 uPaddlePos;
 uniform float uPaddleSpeed;
+uniform float uSurfaceY;
 
 vec3 hash33(vec3 p) {
   p = fract(p * vec3(0.1031, 0.1030, 0.0973));
@@ -581,9 +720,12 @@ void main() {
     vec3 pv = (p * 0.5 + 0.5) * uNf;
     vec3 v = sampleVol(uVel, pv).xyz / (uNf * 0.5); // world units/s
     vec3 jig = hash33(p * 37.0 + uTime) - 0.5;
-    p += (v + jig * 0.05 + vec3(0.0, 0.03, 0.0)) * uDt;
+    // bubbles rise on their own and wobble as they go
+    float wob = sin(uTime * 5.5 + s.w * 11.0) * 0.035;
+    p += (v + jig * 0.04 + vec3(wob, 0.11, wob * 0.6)) * uDt;
     p = clamp(p, vec3(-0.995), vec3(0.995));
   }
+  if (p.y > uSurfaceY - 0.012) life = -0.001; // burst at the surface
   gl_FragColor = vec4(p, life);
 }`;
 

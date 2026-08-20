@@ -11,7 +11,8 @@ import {
 } from './shaders.js';
 
 export class Fluid {
-  constructor(renderer, { N = 100, jacobi = 22, lightDir }) {
+  constructor(renderer, { N = 100, jacobi = 22, lightDir, surfaceY = 0.72 }) {
+    this.surfaceY = surfaceY;
     this.renderer = renderer;
     this.N = N;
     this.jacobi = jacobi;
@@ -88,6 +89,7 @@ export class Fluid {
       uBurstAmt: { value: 0 },
       uBurstUp: { value: 0 },
       uBurstR: { value: 0.18 },
+      uSurfaceY: { value: surfaceY },
     });
     this.mInject = mat(INJECT_FRAG, {
       uFoam: { value: null },
@@ -108,6 +110,7 @@ export class Fluid {
       uBurstPos: { value: new THREE.Vector3() },
       uBurstFoam: { value: 0 },
       uBurstR: { value: 0.18 },
+      uSurfaceY: { value: surfaceY },
     });
     this.mMMAdvect = mat(MM_ADVECT_FRAG, {
       uVel: { value: null }, uSrc: { value: null }, uDt: { value: 0 },
@@ -125,13 +128,19 @@ export class Fluid {
     });
     this.mDiv = mat(DIVERGENCE_FRAG, { uVel: { value: null } });
     this.mJacobi = mat(JACOBI_FRAG, { uPrs: { value: null }, uDiv: { value: null } });
-    this.mProject = mat(PROJECT_FRAG, { uVel: { value: null }, uPrs: { value: null } });
+    this.mProject = mat(PROJECT_FRAG, {
+      uVel: { value: null }, uPrs: { value: null },
+      uSurfaceY: { value: surfaceY },
+    });
     this.mLight = mat(LIGHT_FRAG, {
       uFoam: { value: null },
       uLightDir: { value: lightDir.clone() },
       uStepLen: { value: N / 22 },
       uSigmaFoam: { value: 22 / N },    // grid-invariant: 11 per world unit
       uSigmaWater: { value: 0.9 / N },
+      uSurfaceY: { value: surfaceY },
+      uTime: { value: 0 },
+      uCaustics: { value: 1.0 },
     });
 
     // one-shot inputs, armed from main and cleared after the step
@@ -279,6 +288,7 @@ export class Fluid {
 
     // light transmittance volume
     this.mLight.uniforms.uFoam.value = foam[0].texture;
+    this.mLight.uniforms.uTime.value = time;
     this.pass(this.mLight, this.light);
 
     this.renderer.setRenderTarget(null);

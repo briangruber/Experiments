@@ -7,6 +7,7 @@ import { FS_TRI_VERT, PARTICLE_UPDATE_FRAG, PARTICLE_VERT, PARTICLE_FRAG } from 
 
 export class Particles {
   constructor(renderer, fluid, texSize) {
+    const surfaceY = fluid.surfaceY ?? 0.72;
     this.renderer = renderer;
     this.fluid = fluid;
     this.size = texSize;
@@ -41,6 +42,7 @@ export class Particles {
         uInit: { value: 1 },
         uPaddlePos: { value: new THREE.Vector3() },
         uPaddleSpeed: { value: 0 },
+        uSurfaceY: { value: surfaceY },
       },
     });
 
