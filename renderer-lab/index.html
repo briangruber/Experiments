@@ -1,0 +1,16 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Renderer Lab — GPU-driven culling</title>
+<link rel="stylesheet" href="./src/ui/ui.css">
+<script type="importmap">
+{
+  "imports": {
+    "three/webgpu": "./vendor/three/three.webgpu.min.js",
+    "three/tsl": "./vendor/three/three.tsl.min.js"
+  }
+}
+</script>
+<canvas id="gl" oncontextmenu="return false"></canvas>
+<div id="ui"></div>
+<div id="boot">initialising WebGPU…</div>
+<script type="module" src="./src/main.js"></script>

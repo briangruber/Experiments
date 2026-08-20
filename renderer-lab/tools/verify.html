@@ -1,0 +1,179 @@
+<meta charset="utf-8">
+<title>renderer-lab — culling verification</title>
+<script type="importmap">
+{
+  "imports": {
+    "three/webgpu": "../vendor/three/three.webgpu.min.js",
+    "three/tsl": "../vendor/three/three.tsl.min.js"
+  }
+}
+</script>
+<pre id="log">running…</pre>
+<script type="module">
+// Correctness harness for the GPU culling pass.
+//
+// It never presents to a canvas — only compute passes and buffer readback — so
+// it runs in environments where WebGPU canvas presentation is unavailable.
+//
+// The reference implementation is three.js's own Frustum/Sphere intersection,
+// which is independent of the Gribb–Hartmann plane extraction inside
+// GPUCuller. If the two agree across a range of camera poses, the compute pass
+// is culling the same set the CPU would have.
+
+import {
+	WebGPURenderer,
+	PerspectiveCamera,
+	Frustum,
+	Sphere,
+	Matrix4,
+	Vector3,
+	WebGPUCoordinateSystem,
+} from 'three/webgpu';
+
+import { GPUCuller } from '../src/culling/GPUCuller.js';
+import { generateInstances, createGeometry } from '../src/scene/stressScene.js';
+
+const results = { ok: false, cases: [], errors: [] };
+globalThis.__verify = results;
+
+const log = ( message ) => {
+
+	document.getElementById( 'log' ).textContent += '\n' + message;
+
+};
+
+try {
+
+	const renderer = new WebGPURenderer( { antialias: false } );
+	await renderer.init();
+
+	if ( renderer.backend.isWebGPUBackend !== true ) {
+
+		throw new Error( 'not a WebGPU backend' );
+
+	}
+
+	const COUNT = 3000;
+	const instances = generateInstances( COUNT );
+	const geometry = createGeometry();
+	const radius = geometry.boundingSphere.radius;
+
+	const culler = new GPUCuller( renderer, {
+		transforms: instances.transforms,
+		colors: instances.colors,
+		geometry,
+	} );
+
+	const camera = new PerspectiveCamera( 60, 16 / 9, 0.5, 900 );
+
+	// Poses chosen to exercise very different visible fractions: inside the
+	// slab looking along it, outside looking in, and pointed away from
+	// everything (which should cull essentially the whole set).
+	const poses = [
+		{ name: 'inside-origin', position: [ 0, 0, 0 ], target: [ 0, 0, - 1 ] },
+		{ name: 'orbit-side', position: [ 150, 20, 0 ], target: [ 0, 0, 0 ] },
+		{ name: 'orbit-diagonal', position: [ 110, 40, 110 ], target: [ 0, 0, 0 ] },
+		{ name: 'far-outside', position: [ 0, 400, 0 ], target: [ 0, 0, 0 ] },
+		{ name: 'looking-away', position: [ 600, 0, 600 ], target: [ 900, 0, 900 ] },
+		{ name: 'near-clip', position: [ 0, 0, 0 ], target: [ 1, 0.2, 0.3 ] },
+
+		// The near plane is the one place where the OpenGL and WebGPU clip
+		// conventions disagree, and with a default near of 0.5 almost nothing
+		// is ever rejected by it — the two forms give indistinguishable
+		// results, so a default-camera test cannot tell them apart. These poses
+		// push the near plane deep into the instance cloud, where choosing the
+		// wrong convention culls a visibly different set.
+		{ name: 'deep-near-120', position: [ 0, 0, 0 ], target: [ 0, 0, - 1 ], near: 120, far: 900 },
+		{ name: 'deep-near-240', position: [ - 260, 0, 0 ], target: [ 260, 0, 0 ], near: 240, far: 900 },
+	];
+
+	const _projScreen = new Matrix4();
+	const _frustum = new Frustum();
+	const _sphere = new Sphere();
+	const _centre = new Vector3();
+
+	let allMatched = true;
+
+	for ( const pose of poses ) {
+
+		camera.near = pose.near ?? 0.5;
+		camera.far = pose.far ?? 900;
+		camera.updateProjectionMatrix();
+
+		camera.position.set( ...pose.position );
+		camera.lookAt( new Vector3( ...pose.target ) );
+		camera.updateMatrixWorld();
+
+		// --- GPU
+		await culler.cull( camera );
+
+		const argsBuffer = await renderer.getArrayBufferAsync( culler.drawArgsAttr );
+		const gpuCount = new Uint32Array( argsBuffer )[ 1 ];
+
+		const visibleBuffer = await renderer.getArrayBufferAsync( culler.visibleAttr );
+		const gpuIndices = new Set( new Uint32Array( visibleBuffer ).slice( 0, gpuCount ) );
+
+		// --- CPU reference, using three's own frustum code
+		_projScreen.multiplyMatrices( camera.projectionMatrix, camera.matrixWorldInverse );
+		_frustum.setFromProjectionMatrix( _projScreen, WebGPUCoordinateSystem );
+
+		const cpuIndices = new Set();
+
+		for ( let i = 0; i < COUNT; i ++ ) {
+
+			_centre.set(
+				instances.transforms[ i * 4 ],
+				instances.transforms[ i * 4 + 1 ],
+				instances.transforms[ i * 4 + 2 ],
+			);
+			_sphere.set( _centre, instances.transforms[ i * 4 + 3 ] * radius );
+
+			if ( _frustum.intersectsSphere( _sphere ) ) cpuIndices.add( i );
+
+		}
+
+		// --- compare
+		const missing = [ ...cpuIndices ].filter( ( i ) => ! gpuIndices.has( i ) );
+		const extra = [ ...gpuIndices ].filter( ( i ) => ! cpuIndices.has( i ) );
+		const matched = missing.length === 0 && extra.length === 0 && gpuCount === gpuIndices.size;
+
+		if ( matched === false ) allMatched = false;
+
+		const record = {
+			pose: pose.name,
+			gpuCount,
+			cpuCount: cpuIndices.size,
+			missing: missing.length,
+			extra: extra.length,
+			matched,
+		};
+
+		results.cases.push( record );
+		log( `${ matched ? 'PASS' : 'FAIL' }  ${ pose.name.padEnd( 16 ) } gpu=${ gpuCount } cpu=${ cpuIndices.size } missing=${ missing.length } extra=${ extra.length }` );
+
+	}
+
+	// A run where every pose culls everything (or nothing) would "pass"
+	// trivially without proving the pass does anything. Require real variation.
+	const counts = results.cases.map( ( c ) => c.gpuCount );
+	const spread = Math.max( ...counts ) - Math.min( ...counts );
+	const meaningful = spread > COUNT * 0.2 && Math.min( ...counts ) < COUNT;
+
+	if ( meaningful === false ) {
+
+		results.errors.push( `culling showed no meaningful variation across poses (spread ${ spread } of ${ COUNT })` );
+
+	}
+
+	results.ok = allMatched && meaningful;
+	log( `\n${ results.ok ? 'ALL PASS' : 'FAILURES PRESENT' }` );
+
+} catch ( error ) {
+
+	results.errors.push( String( error && error.message || error ) );
+	log( 'ERROR ' + String( error && error.message || error ) );
+
+}
+
+results.done = true;
+</script>

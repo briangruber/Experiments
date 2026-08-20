@@ -1,0 +1,206 @@
+<meta charset="utf-8">
+<title>renderer-lab — render verification</title>
+<script type="importmap">
+{
+  "imports": {
+    "three/webgpu": "../vendor/three/three.webgpu.min.js",
+    "three/tsl": "../vendor/three/three.tsl.min.js"
+  }
+}
+</script>
+<pre id="log">running…</pre>
+<script type="module">
+// Verifies that the indirect draw path actually draws, and draws the same
+// image as the uncalled path.
+//
+// The culling test in verify.html proves the compute pass selects the right
+// instances. It does not prove the render pass consumes them: the indirect
+// draw could be issuing zero instances, or the vertex stage could be reading
+// the wrong slot, and the culling numbers would still be perfect.
+//
+// So: render the same view twice, once with a plain InstancedMesh drawing all
+// N instances and once through the GPU-culled indirect path, and require the
+// two images to match. Culling only removes geometry outside the frustum, so a
+// correct implementation is pixel-identical to not culling at all. Any
+// mismatch means the indirect path dropped or misplaced something visible.
+//
+// Renders go to a RenderTarget, never to the canvas, so this runs in
+// environments where WebGPU canvas presentation is unavailable.
+
+import {
+	Scene,
+	PerspectiveCamera,
+	WebGPURenderer,
+	RenderTarget,
+	DirectionalLight,
+	HemisphereLight,
+	Color,
+	Vector3,
+} from 'three/webgpu';
+
+import {
+	generateInstances,
+	createGeometry,
+	buildInstancedMode,
+	buildGPUMode,
+} from '../src/scene/stressScene.js';
+
+const results = { ok: false, cases: [], errors: [] };
+globalThis.__verify = results;
+
+const log = ( message ) => {
+
+	document.getElementById( 'log' ).textContent += '\n' + message;
+
+};
+
+const WIDTH = 480;
+const HEIGHT = 270;
+
+try {
+
+	const renderer = new WebGPURenderer( { antialias: false } );
+	await renderer.init();
+
+	const target = new RenderTarget( WIDTH, HEIGHT );
+
+	const scene = new Scene();
+	scene.background = new Color( 0x0a0d14 );
+	scene.add( new DirectionalLight( 0xfff2e0, 2.4 ).translateX( 60 ).translateY( 90 ).translateZ( 40 ) );
+	scene.add( new HemisphereLight( 0x8fb4ff, 0x1a1208, 1.1 ) );
+
+	const camera = new PerspectiveCamera( 60, WIDTH / HEIGHT, 0.5, 900 );
+	camera.position.set( 120, 35, 120 );
+	camera.lookAt( new Vector3( 0, 0, 0 ) );
+	camera.updateMatrixWorld();
+
+	// Deliberately sparse. With a dense cloud the frame saturates and every
+	// pixel is covered by *some* instance, so a wrongly culled object hides
+	// behind its neighbours and the image comparison proves nothing. At this
+	// count and distance individual instances sit against the background,
+	// where dropping one changes pixels.
+	const COUNT = 1500;
+	const instances = generateInstances( COUNT );
+	const geometry = createGeometry();
+
+	async function renderMode( build ) {
+
+		const mode = build();
+		if ( mode.prepare ) await mode.prepare( camera );
+
+		renderer.setRenderTarget( target );
+		await renderer.renderAsync( scene, camera );
+		renderer.setRenderTarget( null );
+
+		const drawCalls = renderer.info.render.drawCalls;
+		const pixels = await renderer.readRenderTargetPixelsAsync( target, 0, 0, WIDTH, HEIGHT );
+
+		let visible = - 1;
+
+		if ( mode.culler ) {
+
+			const args = await renderer.getArrayBufferAsync( mode.culler.drawArgsAttr );
+			visible = new Uint32Array( args )[ 1 ];
+
+		}
+
+		mode.dispose();
+
+		return { pixels: Uint8Array.from( pixels ), drawCalls, visible };
+
+	}
+
+	// Render the empty scene first to get the true background pixels. Tone
+	// mapping and output colour-space conversion mean the rendered background
+	// is not the raw scene.background hex, so comparing against that constant
+	// reports ~100% coverage for any frame and makes the comparison vacuous.
+	const empty = await renderMode( () => ( { dispose() {} } ) );
+
+	const instanced = await renderMode( () => buildInstancedMode( scene, geometry, instances ) );
+	const gpu = await renderMode( () => buildGPUMode( scene, geometry, instances, renderer ) );
+
+	// --- how much of the frame is covered by geometry?
+	const coverage = ( pixels ) => {
+
+		let lit = 0;
+
+		for ( let i = 0; i < pixels.length; i += 4 ) {
+
+			const delta = Math.abs( pixels[ i ] - empty.pixels[ i ] )
+				+ Math.abs( pixels[ i + 1 ] - empty.pixels[ i + 1 ] )
+				+ Math.abs( pixels[ i + 2 ] - empty.pixels[ i + 2 ] );
+
+			if ( delta > 12 ) lit ++;
+
+		}
+
+		return lit / ( pixels.length / 4 );
+
+	};
+
+	// --- how different are the two images?
+	let differing = 0;
+	let totalDelta = 0;
+
+	for ( let i = 0; i < instanced.pixels.length; i += 4 ) {
+
+		const delta = Math.abs( instanced.pixels[ i ] - gpu.pixels[ i ] )
+			+ Math.abs( instanced.pixels[ i + 1 ] - gpu.pixels[ i + 1 ] )
+			+ Math.abs( instanced.pixels[ i + 2 ] - gpu.pixels[ i + 2 ] );
+
+		totalDelta += delta;
+		if ( delta > 24 ) differing ++;
+
+	}
+
+	const pixelCount = instanced.pixels.length / 4;
+	const differingFraction = differing / pixelCount;
+	const meanDelta = totalDelta / pixelCount;
+
+	const instancedCoverage = coverage( instanced.pixels );
+	const gpuCoverage = coverage( gpu.pixels );
+
+	log( `instanced  drawCalls=${ instanced.drawCalls } coverage=${ ( instancedCoverage * 100 ).toFixed( 1 ) }%` );
+	log( `gpu        drawCalls=${ gpu.drawCalls } coverage=${ ( gpuCoverage * 100 ).toFixed( 1 ) }% visibleInstances=${ gpu.visible }` );
+	log( `difference differingPixels=${ ( differingFraction * 100 ).toFixed( 2 ) }% meanDelta=${ meanDelta.toFixed( 2 ) }` );
+
+	const checks = [
+		{ name: 'gpu path drew something', pass: gpuCoverage > 0.05 },
+		{ name: 'instanced path drew something', pass: instancedCoverage > 0.05 },
+		// If the frame is saturated the image comparison below is vacuous.
+		{ name: 'frame is not saturated (comparison is meaningful)', pass: instancedCoverage < 0.9 },
+		{ name: 'culling actually removed instances', pass: gpu.visible > 0 && gpu.visible < COUNT },
+		{ name: 'gpu path used a single draw call', pass: gpu.drawCalls === 1 },
+		{ name: 'images match', pass: differingFraction < 0.005 },
+		{ name: 'coverage matches', pass: Math.abs( gpuCoverage - instancedCoverage ) < 0.01 },
+	];
+
+	for ( const check of checks ) {
+
+		log( `${ check.pass ? 'PASS' : 'FAIL' }  ${ check.name }` );
+
+	}
+
+	results.cases = checks;
+	results.stats = {
+		instancedDrawCalls: instanced.drawCalls,
+		gpuDrawCalls: gpu.drawCalls,
+		instancedCoverage,
+		gpuCoverage,
+		differingFraction,
+		meanDelta,
+		visibleInstances: gpu.visible,
+	};
+	results.ok = checks.every( ( c ) => c.pass );
+
+	log( `\n${ results.ok ? 'ALL PASS' : 'FAILURES PRESENT' }` );
+
+} catch ( error ) {
+
+	results.errors.push( String( error && error.stack || error ) );
+	log( 'ERROR ' + String( error && error.message || error ) );
+
+}
+
+results.done = true;
+</script>

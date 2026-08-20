@@ -1,0 +1,242 @@
+<meta charset="utf-8">
+<title>renderer-lab — velocity verification</title>
+<script type="importmap">
+{
+  "imports": {
+    "three/webgpu": "../vendor/three/three.webgpu.min.js",
+    "three/tsl": "../vendor/three/three.tsl.min.js"
+  }
+}
+</script>
+<pre id="log">running…</pre>
+<script type="module">
+// Verifies the custom motion vectors used by the GPU-driven path.
+//
+// three.js's built-in `velocity` node derives motion from `positionLocal` and
+// the object's model matrix. The GPU-driven path computes each instance's world
+// position inside the vertex shader instead, so the built-in node sees a single
+// unit icosahedron at the origin and produces motion vectors that are wrong for
+// every instance. src/post/staticVelocity.js replaces it.
+//
+// The check: an InstancedMesh drawing the same instances *does* have real model
+// matrices, so three's built-in velocity node is correct for it. Render both
+// paths through the same camera motion and require the two velocity buffers to
+// agree. That compares the replacement against an independent, known-good
+// implementation rather than against itself.
+
+import {
+	Scene,
+	PerspectiveCamera,
+	WebGPURenderer,
+	RenderTarget,
+	HalfFloatType,
+	NearestFilter,
+	DirectionalLight,
+	Color,
+	Vector3,
+} from 'three/webgpu';
+
+import { mrt, output, velocity } from 'three/tsl';
+
+import {
+	generateInstances,
+	createGeometry,
+	buildInstancedMode,
+	buildGPUMode,
+} from '../src/scene/stressScene.js';
+
+import { createStaticVelocity } from '../src/post/staticVelocity.js';
+
+const results = { ok: false, cases: [], errors: [] };
+globalThis.__verify = results;
+
+const log = ( message ) => {
+
+	document.getElementById( 'log' ).textContent += '\n' + message;
+	( results.log ??= [] ).push( message );
+
+};
+
+const WIDTH = 320;
+const HEIGHT = 180;
+
+// Two camera poses, a small step apart: the motion between them is what the
+// velocity buffers must encode.
+const POSE_A = { position: [ 120, 35, 120 ], target: [ 0, 0, 0 ] };
+const POSE_B = { position: [ 126, 37, 116 ], target: [ 2, 0, 0 ] };
+
+try {
+
+	const renderer = new WebGPURenderer( { antialias: false } );
+	await renderer.init();
+
+	// Two attachments: colour and velocity. Velocity needs a float format —
+	// motion vectors are signed NDC deltas and would be destroyed by RGBA8.
+	const target = new RenderTarget( WIDTH, HEIGHT, {
+		count: 2,
+		type: HalfFloatType,
+		minFilter: NearestFilter,
+		magFilter: NearestFilter,
+	} );
+
+	const scene = new Scene();
+	scene.background = new Color( 0x0a0d14 );
+	scene.add( new DirectionalLight( 0xfff2e0, 2.4 ).translateX( 60 ).translateY( 90 ).translateZ( 40 ) );
+
+	const camera = new PerspectiveCamera( 60, WIDTH / HEIGHT, 0.5, 900 );
+
+	const setPose = ( pose ) => {
+
+		camera.position.set( ...pose.position );
+		camera.lookAt( new Vector3( ...pose.target ) );
+		camera.updateMatrixWorld();
+
+	};
+
+	const COUNT = 1500;
+	const instances = generateInstances( COUNT );
+	const geometry = createGeometry();
+
+	// Renders pose A then pose B, returning the velocity buffer from the second
+	// frame — the one that has a previous frame to compare against.
+	async function captureVelocity( build, configure ) {
+
+		const mode = build();
+		configure?.( mode );
+
+		for ( const pose of [ POSE_A, POSE_B ] ) {
+
+			setPose( pose );
+			mode.onFrame?.( camera );
+			if ( mode.prepare ) await mode.prepare( camera );
+
+			renderer.setRenderTarget( target );
+			await renderer.renderAsync( scene, camera );
+			renderer.setRenderTarget( null );
+
+		}
+
+		const raw = await renderer.readRenderTargetPixelsAsync( target, 0, 0, WIDTH, HEIGHT, 1 );
+
+		// Sanity gate: if even the colour attachment came back empty, the
+		// multi-target render target itself never received anything and no
+		// conclusion about velocity can be drawn from this run.
+		const colour = await renderer.readRenderTargetPixelsAsync( target, 0, 0, WIDTH, HEIGHT, 0 );
+		const colourWritten = colour.some( ( v ) => v !== 0 );
+
+		mode.dispose();
+
+		return { velocity: Float32Array.from( raw ), colourWritten };
+
+	}
+
+	// --- reference: InstancedMesh with three's built-in velocity node
+	const referenceCapture = await captureVelocity(
+		() => buildInstancedMode( scene, geometry, instances ),
+		( mode ) => {
+
+			mode.root.material.mrtNode = mrt( { output, velocity } );
+
+		}
+	);
+
+	// --- subject: GPU-driven path with the custom velocity node
+	const subjectCapture = await captureVelocity(
+		() => buildGPUMode( scene, geometry, instances, renderer ),
+		( mode ) => {
+
+			const staticVelocity = createStaticVelocity( mode.root.material.positionNode );
+			mode.root.material.mrtNode = mrt( { output, velocity: staticVelocity.node } );
+			mode.onFrame = ( cam ) => staticVelocity.update( cam );
+
+		}
+	);
+
+	if ( referenceCapture.colourWritten === false || subjectCapture.colourWritten === false ) {
+
+		// Multi-attachment render targets are unavailable here (this is the
+		// case under SwiftShader in some containers), so the comparison cannot
+		// run. Report that rather than a misleading failure.
+		results.skipped = true;
+		results.skipReason = 'multi-target render targets produced no output in this environment; '
+			+ 'velocity could not be compared. Run on a machine with working WebGPU MRT.';
+		log( 'SKIP  ' + results.skipReason );
+		results.done = true;
+		throw new Error( '__skip__' );
+
+	}
+
+	const reference = referenceCapture.velocity;
+	const subject = subjectCapture.velocity;
+
+	// Compare only where both frames actually rendered geometry. Background
+	// pixels carry no motion vector and would dilute the statistic.
+	let compared = 0;
+	let agreeing = 0;
+	let sumReference = 0;
+	let sumSubject = 0;
+	let sumError = 0;
+
+	for ( let i = 0; i < reference.length; i += 4 ) {
+
+		const rx = reference[ i ], ry = reference[ i + 1 ];
+		const sx = subject[ i ], sy = subject[ i + 1 ];
+
+		const referenceMagnitude = Math.hypot( rx, ry );
+		const subjectMagnitude = Math.hypot( sx, sy );
+
+		// Skip untouched background: velocity there is exactly zero in both.
+		if ( referenceMagnitude < 1e-5 && subjectMagnitude < 1e-5 ) continue;
+
+		compared ++;
+		sumReference += referenceMagnitude;
+		sumSubject += subjectMagnitude;
+
+		const error = Math.hypot( rx - sx, ry - sy );
+		sumError += error;
+
+		// Agreement within 15% of the reference magnitude, with a small floor
+		// so half-float noise on tiny vectors does not count as disagreement.
+		if ( error <= Math.max( referenceMagnitude * 0.15, 2e-3 ) ) agreeing ++;
+
+	}
+
+	const agreementRate = compared > 0 ? agreeing / compared : 0;
+	const meanReference = compared > 0 ? sumReference / compared : 0;
+	const meanSubject = compared > 0 ? sumSubject / compared : 0;
+	const meanError = compared > 0 ? sumError / compared : 0;
+
+	log( `compared ${ compared } moving pixels` );
+	log( `mean |velocity|  reference=${ meanReference.toFixed( 5 ) } subject=${ meanSubject.toFixed( 5 ) }` );
+	log( `mean error       ${ meanError.toFixed( 5 ) }` );
+	log( `agreement        ${ ( agreementRate * 100 ).toFixed( 1 ) }%` );
+
+	const checks = [
+		{ name: 'enough moving pixels to compare', pass: compared > 500 },
+		{ name: 'reference velocity is non-trivial', pass: meanReference > 1e-3 },
+		{ name: 'subject velocity is non-trivial', pass: meanSubject > 1e-3 },
+		{ name: 'magnitudes agree in aggregate', pass: Math.abs( meanSubject - meanReference ) < meanReference * 0.15 },
+		{ name: 'per-pixel agreement above 90%', pass: agreementRate > 0.9 },
+	];
+
+	for ( const check of checks ) log( `${ check.pass ? 'PASS' : 'FAIL' }  ${ check.name }` );
+
+	results.cases = checks;
+	results.stats = { compared, meanReference, meanSubject, meanError, agreementRate };
+	results.ok = checks.every( ( c ) => c.pass );
+
+	log( `\n${ results.ok ? 'ALL PASS' : 'FAILURES PRESENT' }` );
+
+} catch ( error ) {
+
+	if ( results.skipped !== true ) {
+
+		results.errors.push( String( error && error.stack || error ) );
+		log( 'ERROR ' + String( error && error.message || error ) );
+
+	}
+
+}
+
+results.done = true;
+</script>
