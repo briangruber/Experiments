@@ -43,6 +43,7 @@ export class Particles {
         uPaddlePos: { value: new THREE.Vector3() },
         uPaddleSpeed: { value: 0 },
         uSurfaceY: { value: surfaceY },
+        uRise: { value: 0.11 },
       },
     });
 
@@ -87,6 +88,7 @@ export class Particles {
     u.uTime.value = time;
     u.uPaddlePos.value.copy(paddlePos);
     u.uPaddleSpeed.value = paddleSpeed;
+    u.uRise.value = this.fluid.physics.rise * 0.6; // bubbles drift up on their own
     this.material.uniforms.uPaddlePos.value.copy(paddlePos);
     this.renderer.setRenderTarget(this.pos[1]);
     this.renderer.render(this.scene, this.camera);

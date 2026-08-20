@@ -45,6 +45,7 @@ const HIDE_UI = args.includes('--no-ui');
 const DTCAP = opt('dtcap', '');
 const GPU = args.includes('--gpu');
 const BARREL = args.includes('--barrel');
+const NO_PADDLE = args.includes('--no-paddle');
 const BARREL_TAIL = +opt('barrel-tail', 18000); // ms of sim left after the drop
 
 const MIME = {
@@ -113,12 +114,13 @@ if (!errors.length) {
       W.burst(x, y, z, foam || 1.5);
     }
   }, [CAMERA, BURSTS]);
+  if (NO_PADDLE) await page.evaluate(() => window.water.setPaddleHidden(true));
 }
 
 // drop late enough that the splash is still developing when we capture
 if (BARREL) {
   await page.waitForTimeout(Math.max(WAIT - BARREL_TAIL, 0));
-  await page.evaluate(() => window.water.dropBarrel());
+  await page.evaluate(() => { window.water.dropBarrel(); window.water.dropBarrel(); });
   await page.waitForTimeout(Math.min(BARREL_TAIL, WAIT));
 } else {
   await page.waitForTimeout(WAIT);

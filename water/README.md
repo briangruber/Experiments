@@ -24,9 +24,25 @@ per-frame simulation time cap, useful on slow (software) GPUs.
 **Interaction** — drag the paddle to stir; drag anywhere else to orbit; click
 for a burst; wheel/pinch to zoom. Buttons (and keys): `B` drops an exploding
 barrel, `R` spins the paddle like a paddle-wheel (slider sets the rate),
-`O` orbits the camera, `F` goes full screen, `H` hides the interface.
+`O` orbits the camera, `X` takes the paddle out of the tank entirely, `F` goes
+full screen, `H` hides the interface. Every click of `drop barrel` adds
+another barrel — up to six can be in flight at once.
 `Space` toggles the auto-stir, `C` clears the tank, `Q` cycles quality,
 `P` pauses.
+
+**Physics** — the `physics` button opens sliders for the knobs that decide how
+the water behaves; all of them are live and take effect on the next step:
+
+| knob | what it does |
+| --- | --- |
+| bubble rise | how fast bubbles slip upward *through* the water. This is the difference between bubbles and smoke: the foam field advects with `velocity + rise` rather than with the flow alone. |
+| buoyancy | how strongly aerated water lifts the fluid around it, which is what drives the plume. |
+| bubble life | e-folding time of the bubble field. Bubbles mostly leave by popping at the surface, so this can be long. |
+| aeration | foam injected per unit of churn by the paddle and barrels. |
+| swirl | vorticity confinement — how much fine curl the solver puts back after numerical damping. |
+| water drag | velocity damping, the stand-in for viscosity. |
+| caustics | strength of the light filaments. The field is median-normalised, so this redistributes light rather than adding exposure. |
+| surface chop | amplitude of the surface ripples, which drives the glint and the refraction. |
 
 With the interface hidden the tank fills the window and only a faint corner
 button remains, so pointer- and touch-only users can bring the controls back;
@@ -76,8 +92,10 @@ completion so readbacks can't starve behind the queue.
   bilinear taps clamped inside their tiles. The foam field advects with a
   limited MacCormack scheme (forward + reverse + clamped anti-diffusion
   correction), which keeps plume filaments crisp. The paddle and the barrel
-  couple as rigid bodies (translation + ω×r per voxel), injecting momentum
-  and "foam" (aerated water); foam rises, curls, and slowly dissolves.
+  couples as a rigid body (translation + ω×r per voxel) and barrels as spheres
+  from a uniform array, injecting momentum and "foam" (aerated water). Foam
+  advects with the flow *plus* a slip velocity, so bubbles rise through the
+  water instead of drifting with it like smoke.
 - **Light volume** — per frame, every voxel marches toward the light
   accumulating foam optical depth (plus an analytic clear-water term), giving
   self-shadowed billows.

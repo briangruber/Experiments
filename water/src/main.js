@@ -113,10 +113,25 @@ const barrelMat = new THREE.ShaderMaterial({
   fragmentShader: PADDLE_FRAG,
   uniforms: { uSunDir: { value: sunDir }, uHover: { value: 0 } },
 });
-const barrel = new THREE.Mesh(
-  new THREE.BoxGeometry(barrelHalf.x * 2, barrelHalf.y * 2, barrelHalf.z * 2), barrelMat);
-barrel.visible = false;
-opaqueScene.add(barrel);
+// A pool, so every click drops another barrel and several can be in flight.
+const MAX_BARRELS = 6;
+const barrelGeo = new THREE.BoxGeometry(barrelHalf.x * 2, barrelHalf.y * 2, barrelHalf.z * 2);
+const barrels = Array.from({ length: MAX_BARRELS }, () => {
+  const mesh = new THREE.Mesh(barrelGeo, barrelMat);
+  mesh.visible = false;
+  opaqueScene.add(mesh);
+  return {
+    mesh,
+    vel: new THREE.Vector3(),
+    spin: new THREE.Vector3(),
+    age: 0,
+    active: false,
+    splashed: false,
+    // handed to the solver unchanged each frame, so nothing allocates per step
+    desc: { pos: mesh.position, vel: null, radius: 0.16 },
+  };
+});
+for (const b of barrels) b.desc.vel = b.vel;
 
 const edgeScene = new THREE.Scene();
 const edges = new THREE.LineSegments(
@@ -193,6 +208,7 @@ const mRaymarch = new THREE.ShaderMaterial({
     uFrame: { value: 0 },
     uTime: { value: 0 },
     uSurfaceY: { value: SURFACE_Y },
+    uChop: { value: 1 },
     uRipples: { value: [0, 1, 2, 3].map(() => new THREE.Vector4(0, 0, -100, 0)) },
     uSunDir: { value: sunDir },
     uSunColor: { value: new THREE.Vector3(3.6, 3.8, 3.9) },
@@ -304,7 +320,7 @@ canvas.addEventListener('pointerdown', (e) => {
   drag.t0 = performance.now();
   drag.last = { x: e.clientX, y: e.clientY };
   pointerRay(e);
-  const hit = raycaster.intersectObject(paddle, false);
+  const hit = paddleHidden ? [] : raycaster.intersectObject(paddle, false);
   if (hit.length) {
     drag.mode = 'paddle';
     drag.plane.setFromNormalAndCoplanarPoint(
@@ -333,7 +349,8 @@ canvas.addEventListener('pointermove', (e) => {
   if (!drag.mode) {
     // hover highlight
     pointerRay(e);
-    paddleMat.uniforms.uHover.value = raycaster.intersectObject(paddle, false).length ? 1 : 0;
+    paddleMat.uniforms.uHover.value =
+      !paddleHidden && raycaster.intersectObject(paddle, false).length ? 1 : 0;
     return;
   }
   const dx = e.clientX - drag.last.x, dy = e.clientY - drag.last.y;
@@ -401,6 +418,67 @@ spinBtn.addEventListener('click', toggleSpin);
 spinPaddleBtn.addEventListener('click', togglePaddleSpin);
 document.getElementById('barrel-btn').addEventListener('click', () => dropBarrel());
 
+// The paddle can be taken out of the tank entirely: hidden and uncoupled, so
+// the water is left to whatever the barrels and bursts do to it.
+const hidePaddleBtn = document.getElementById('hide-paddle-btn');
+let paddleHidden = false;
+function setPaddleHidden(v) {
+  paddleHidden = v;
+  paddle.visible = !v;
+  hidePaddleBtn.classList.toggle('active', v);
+  hidePaddleBtn.setAttribute('aria-pressed', String(v));
+  spinPaddleBtn.disabled = v;
+  speedSlider.disabled = v;
+  if (v) {
+    paddleVel.set(0, 0, 0);
+    paddleAngVel.set(0, 0, 0);
+  }
+}
+hidePaddleBtn.addEventListener('click', () => setPaddleHidden(!paddleHidden));
+
+// ---- physics knobs ---------------------------------------------------------
+// Everything the solver reads lives in fluid.physics, so a slider is just a
+// write into that object; the next step picks it up.
+const PHYSICS_KNOBS = [
+  { key: 'rise', label: 'bubble rise', min: 0, max: 1.5, step: 0.01, unit: '' },
+  { key: 'buoyancy', label: 'buoyancy', min: 0, max: 2.0, step: 0.01, unit: '' },
+  { key: 'foamLife', label: 'bubble life', min: 0.5, max: 20, step: 0.5, unit: 's' },
+  { key: 'aeration', label: 'aeration', min: 0, max: 4, step: 0.05, unit: '' },
+  { key: 'swirl', label: 'swirl', min: 0, max: 0.3, step: 0.005, unit: '' },
+  { key: 'drag', label: 'water drag', min: 0, max: 1.5, step: 0.01, unit: '' },
+  { key: 'caustics', label: 'caustics', min: 0, max: 2.5, step: 0.05, unit: '' },
+  { key: 'chop', label: 'surface chop', min: 0, max: 3, step: 0.05, unit: '' },
+];
+const physicsPanel = document.getElementById('physics');
+const physicsBtn = document.getElementById('physics-btn');
+for (const k of PHYSICS_KNOBS) {
+  const label = document.createElement('label');
+  label.className = 'slider';
+  const span = document.createElement('span');
+  const name = document.createTextNode(k.label + ' ');
+  const val = document.createElement('b');
+  const input = document.createElement('input');
+  input.type = 'range';
+  input.min = k.min; input.max = k.max; input.step = k.step;
+  input.value = fluid.physics[k.key];
+  input.setAttribute('aria-label', k.label);
+  const show = () => { val.textContent = (+input.value).toFixed(2).replace(/0$/, '') + k.unit; };
+  show();
+  input.addEventListener('input', () => {
+    fluid.physics[k.key] = +input.value;
+    show();
+  });
+  span.append(name, val);
+  label.append(span, input);
+  physicsPanel.append(label);
+}
+physicsBtn.addEventListener('click', () => {
+  const open = physicsPanel.hasAttribute('hidden');
+  physicsPanel.toggleAttribute('hidden', !open);
+  physicsBtn.classList.toggle('active', open);
+  physicsBtn.setAttribute('aria-expanded', String(open));
+});
+
 const speedSlider = document.getElementById('spin-speed-slider');
 const speedVal = document.getElementById('spin-speed-val');
 function syncSpeed() {
@@ -421,6 +499,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Space') { params.stir = !params.stir; e.preventDefault(); }
   else if (e.code === 'KeyO') toggleSpin();
   else if (e.code === 'KeyR') togglePaddleSpin();
+  else if (e.code === 'KeyX') setPaddleHidden(!paddleHidden);
   else if (e.code === 'KeyB') dropBarrel();
   else if (e.code === 'KeyC') fluid.clear();
   else if (e.code === 'KeyP') params.paused = !params.paused;
@@ -500,8 +579,9 @@ function updateHud() {
   statEls.parts.textContent = `${(particles.count / 1000).toFixed(1)} K`;
   statEls.fps.textContent = fpsCounter.fps ? fpsCounter.fps.toFixed(1) : '—';
   statEls.vram.textContent = `${vramMiB} MiB`;
-  statEls.stir.textContent =
-    (params.stir ? 'auto' : 'manual') + (params.paddleSpin ? ' + spin' : '');
+  statEls.stir.textContent = paddleHidden
+    ? 'paddle off'
+    : (params.stir ? 'auto' : 'manual') + (params.paddleSpin ? ' + spin' : '');
 }
 
 // -------------------------------------------------------------------- loop --
@@ -544,6 +624,15 @@ const paddleState = {
 };
 
 function updatePaddle(dt, t) {
+  if (paddleHidden) {
+    // keep the trackers current so re-showing it doesn't spike the velocity
+    prevPaddle.copy(paddle.position);
+    prevQuat.copy(paddle.quaternion);
+    paddleVel.set(0, 0, 0);
+    paddleAngVel.set(0, 0, 0);
+    fluid.paddle = null;
+    return;
+  }
   const stirring = params.stir && (t - lastInteract > 4 || lastInteract < 0);
   if (stirring && drag.mode !== 'paddle') {
     const s = stirPhase + t * params.stirSpeed;
@@ -604,81 +693,76 @@ function addRipple(x, z, strength) {
   r.set(x, z, clock.elapsedTime % 512, strength);
 }
 
-const barrelState = { active: false, age: 0 };
-const barrelVel = new THREE.Vector3();
-const barrelAngVel = new THREE.Vector3();
-const barrelRot3 = new THREE.Matrix3();
-const barrelRot4 = new THREE.Matrix4();
-const fluidBarrel = {
-  on: true, pos: barrel.position, vel: barrelVel, angVel: barrelAngVel,
-  half: barrelHalf, rot: barrelRot3,
-};
 const explosionQueue = [];
 const lastBlast = { pos: new THREE.Vector3(), until: -1 };
+const liveBarrels = [];   // reused array of descriptors for the solver
 
 function dropBarrel() {
-  if (barrelState.active) return;
-  barrelState.active = true;
-  barrelState.age = 0;
-  barrel.position.set((Math.random() - 0.5) * 0.7, 0.95, (Math.random() - 0.5) * 0.7);
-  barrel.rotation.set(Math.random() * 0.5, Math.random() * 6.28, Math.random() * 0.5);
-  barrelVel.set(0, -2.3, 0);
-  barrelAngVel.set(1.1, 0.4, 0.8);
-  barrel.visible = true;
-  barrelState.splashed = false;
+  // reuse a free slot, or recycle the oldest one if all six are busy
+  let b = barrels.find((x) => !x.active);
+  if (!b) b = barrels.reduce((a, x) => (x.age > a.age ? x : a), barrels[0]);
+  b.active = true;
+  b.age = 0;
+  b.splashed = false;
+  b.mesh.position.set((Math.random() - 0.5) * 1.2, 0.95, (Math.random() - 0.5) * 1.2);
+  b.mesh.rotation.set(Math.random() * 0.5, Math.random() * 6.28, Math.random() * 0.5);
+  b.vel.set((Math.random() - 0.5) * 0.2, -2.3, (Math.random() - 0.5) * 0.2);
+  b.spin.set(1.1, 0.4, 0.8);
+  b.mesh.visible = true;
 }
 
-function updateBarrel(dt, t) {
-  fluid.barrel = null;
-  if (!barrelState.active) return;
-  barrelState.age += dt;
+function updateBarrels(dt, t) {
+  liveBarrels.length = 0;
+  for (const b of barrels) {
+    if (!b.active) continue;
+    b.age += dt;
+    const p = b.mesh.position;
+    const wasAbove = p.y > SURFACE_Y;
 
-  const wasAbove = barrel.position.y > SURFACE_Y;
-  // falls freely through the air gap, then meets real drag in the water
-  barrelVel.y -= (wasAbove ? 6.0 : 1.8) * dt;
-  barrelVel.multiplyScalar(Math.exp(-dt * (wasAbove ? 0.15 : 2.3)));
-  barrel.position.addScaledVector(barrelVel, dt);
-  barrel.position.x = Math.max(-0.8, Math.min(0.8, barrel.position.x));
-  barrel.position.z = Math.max(-0.8, Math.min(0.8, barrel.position.z));
-  barrel.rotation.x += barrelAngVel.x * dt;
-  barrel.rotation.y += barrelAngVel.y * dt;
-  barrel.rotation.z += barrelAngVel.z * dt;
-  barrel.updateMatrixWorld();
+    // falls freely through the air gap, then meets real drag in the water
+    b.vel.y -= (wasAbove ? 6.0 : 1.8) * dt;
+    b.vel.multiplyScalar(Math.exp(-dt * (wasAbove ? 0.15 : 2.3)));
+    p.addScaledVector(b.vel, dt);
+    p.x = Math.max(-0.8, Math.min(0.8, p.x));
+    p.z = Math.max(-0.8, Math.min(0.8, p.z));
+    b.mesh.rotation.x += b.spin.x * dt;
+    b.mesh.rotation.y += b.spin.y * dt;
+    b.mesh.rotation.z += b.spin.z * dt;
+    b.mesh.updateMatrixWorld();
 
-  if (wasAbove && barrel.position.y <= SURFACE_Y && !barrelState.splashed) {
-    // breaking the surface: an air cavity punched in at the waterline, plus
-    // the ring of waves running out from the impact
-    barrelState.splashed = true;
-    const x = barrel.position.x, z = barrel.position.z;
-    explosionQueue.push(
-      { pos: new THREE.Vector3(x, SURFACE_Y - 0.05, z), vel: 0.55, up: -1.2, foam: 1.0, radius: 0.20 },
-      { pos: new THREE.Vector3(x, SURFACE_Y - 0.15, z), vel: 0.28, up: 0.5, foam: 0.6, radius: 0.16 },
-    );
-    addRipple(x, z, 1.0);
+    if (wasAbove && p.y <= SURFACE_Y && !b.splashed) {
+      // breaking the surface: an air cavity punched in at the waterline, plus
+      // the ring of waves running out from the impact
+      b.splashed = true;
+      explosionQueue.push(
+        { pos: new THREE.Vector3(p.x, SURFACE_Y - 0.05, p.z), vel: 0.55, up: -1.2, foam: 1.0, radius: 0.20 },
+        { pos: new THREE.Vector3(p.x, SURFACE_Y - 0.15, p.z), vel: 0.28, up: 0.5, foam: 0.6, radius: 0.16 },
+      );
+      addRipple(p.x, p.z, 1.0);
+    }
+
+    if (p.y < -0.5 || b.age > 2.2) {
+      // implode, then blow: a suck inward, then a radial+upward blast with a
+      // huge foam release that buoyancy turns into the erupting column
+      b.active = false;
+      b.mesh.visible = false;
+      const q = p.clone();
+      explosionQueue.push(
+        { pos: q, vel: -2.0, up: -0.3, foam: 0.0, radius: 0.42 },
+        { pos: q, vel: -1.2, up: 0.0, foam: 0.5, radius: 0.36 },
+        { pos: q, vel: 3.4, up: 2.6, foam: 3.0, radius: 0.36 },
+        { pos: q, vel: 2.2, up: 1.9, foam: 1.7, radius: 0.44 },
+        { pos: q, vel: 1.2, up: 1.2, foam: 0.9, radius: 0.52 },
+      );
+      lastBlast.pos.copy(q);
+      lastBlast.until = t + 1.6;
+      addRipple(q.x, q.z, 1.3);
+      continue;
+    }
+
+    if (p.y < SURFACE_Y) liveBarrels.push(b.desc); // no wake while still in air
   }
-
-  if (barrel.position.y < -0.5 || barrelState.age > 2.2) {
-    // implode, then blow: a suck inward, then a radial+upward blast with a
-    // huge foam release that buoyancy turns into the erupting column
-    barrelState.active = false;
-    barrel.visible = false;
-    const p = barrel.position.clone();
-    explosionQueue.push(
-      { pos: p, vel: -2.0, up: -0.3, foam: 0.0, radius: 0.42 },
-      { pos: p, vel: -1.2, up: 0.0, foam: 0.5, radius: 0.36 },
-      { pos: p, vel: 3.4, up: 2.6, foam: 3.0, radius: 0.36 },
-      { pos: p, vel: 2.2, up: 1.9, foam: 1.7, radius: 0.44 },
-      { pos: p, vel: 1.2, up: 1.2, foam: 0.9, radius: 0.52 },
-    );
-    lastBlast.pos.copy(p);
-    lastBlast.until = t + 1.6;
-    addRipple(p.x, p.z, 1.3);
-    return;
-  }
-
-  barrelRot4.extractRotation(barrel.matrixWorld);
-  barrelRot3.setFromMatrix4(barrelRot4).transpose(); // world -> local
-  if (barrel.position.y < SURFACE_Y) fluid.barrel = fluidBarrel; // no wake in air
+  fluid.barrels = liveBarrels;
 }
 
 function frame() {
@@ -699,7 +783,7 @@ function frame() {
 
   if (!params.paused) {
     updatePaddle(dt, t);
-    updateBarrel(dt, t);
+    updateBarrels(dt, t);
     if (!fluid.burst && explosionQueue.length) fluid.burst = explosionQueue.shift();
     timer.begin('sim');
     // wrapped time keeps float hash/noise inputs precise over long sessions
@@ -707,10 +791,12 @@ function frame() {
     // bubble sparkle follows the action: the sinking barrel, then its blast
     // site, otherwise the paddle (tip speed counts when spinning in place)
     let emitter = paddle.position;
-    let effSpeed = Math.max(paddleVel.length(), paddleAngVel.length() * 0.28);
-    if (barrelState.active) {
-      emitter = barrel.position;
-      effSpeed = Math.max(barrelVel.length(), 0.6);
+    let effSpeed = paddleHidden
+      ? 0 : Math.max(paddleVel.length(), paddleAngVel.length() * 0.28);
+    const diving = barrels.find((b) => b.active && b.mesh.position.y < SURFACE_Y);
+    if (diving) {
+      emitter = diving.mesh.position;
+      effSpeed = Math.max(diving.vel.length(), 0.6);
     } else if (t < lastBlast.until) {
       emitter = lastBlast.pos;
       effSpeed = 2.0;
@@ -735,6 +821,7 @@ function frame() {
   camera.getWorldDirection(u.uCamFwd.value);
   u.uFrame.value = frames % 64;
   u.uTime.value = t % 512;
+  u.uChop.value = fluid.physics.chop;
   fsPass(mRaymarch, volRT);
 
   // composite + tank edges + bubble sparkle
@@ -790,6 +877,9 @@ window.water = {
     lastInteract = clock.elapsedTime;
   },
   dropBarrel,
+  physics: fluid.physics,
+  setPaddleHidden: (v) => setPaddleHidden(v),
+  isPaddleHidden: () => paddleHidden,
   camera(az, el, dist) {
     orbit.az = az; orbit.el = el; orbit.dist = dist;
     updateCamera();

@@ -82,6 +82,11 @@ html, body {
   flex-direction: column;
   gap: 8px;
   align-items: stretch;
+  /* the physics panel can make this tall: keep it on screen */
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #2a4450 transparent;
 }
 #controls button {
   font: inherit;
@@ -108,7 +113,7 @@ html, body {
   outline: 1px solid #7fd4f0;
   outline-offset: 2px;
 }
-#spin-speed {
+.slider {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -122,23 +127,23 @@ html, body {
   padding: 8px 12px 10px;
   cursor: pointer;
 }
-#spin-speed span {
+.slider span {
   display: flex;
   justify-content: space-between;
   gap: 12px;
 }
-#spin-speed b {
+.slider b {
   font-weight: 500;
   color: #c4dbe5;
   font-variant-numeric: tabular-nums;
 }
-#spin-speed input {
+.slider input {
   width: 128px;
   margin: 0;
   accent-color: #7fd4f0;
   cursor: pointer;
 }
-#spin-speed input:focus-visible {
+.slider input:focus-visible {
   outline: 1px solid #7fd4f0;
   outline-offset: 2px;
 }
@@ -153,6 +158,21 @@ html, body {
   letter-spacing: 0.08em;
   white-space: nowrap;
 }
+#physics {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+#physics[hidden] { display: none; }
+#physics { gap: 4px; }
+#physics .slider { padding: 5px 10px 6px; gap: 3px; }
+#physics .slider input { width: 120px; }
+#controls button:disabled,
+.slider input:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.slider:has(input:disabled) { opacity: 0.5; }
 /* Hidden interface: everything goes, leaving only the corner peek button so
    pointer- and touch-only users can bring the controls back. */
 .ui-hidden #stats, .ui-hidden #hud, .ui-hidden #title, .ui-hidden #controls { display: none; }

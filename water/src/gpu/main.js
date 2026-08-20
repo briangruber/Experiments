@@ -430,6 +430,11 @@ export async function start() {
   });
   syncButtons();
   initChrome(); // hide-ui + fullscreen (H / F)
+  // controls this backend hasn't caught up with yet
+  for (const id of ['hide-paddle-btn', 'physics-btn']) {
+    const el = document.getElementById(id);
+    if (el) el.hidden = true;
+  }
 
   window.addEventListener('keydown', (e) => {
     if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;

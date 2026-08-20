@@ -13,6 +13,17 @@ import {
 export class Fluid {
   constructor(renderer, { N = 100, jacobi = 22, lightDir, surfaceY = 0.72 }) {
     this.surfaceY = surfaceY;
+    // Tunable physics, in world units. main.js hands these to the sliders.
+    this.physics = {
+      rise: 0.55,      // bubble slip through the water, world/s
+      buoyancy: 0.48,  // lift of aerated water, world/s^2 per unit foam
+      foamLife: 5.0,   // e-folding time of the bubble field, seconds
+      swirl: 0.09,     // vorticity confinement
+      aeration: 1.8,   // foam injected per unit of churn
+      caustics: 1.0,
+      chop: 1.0,
+      drag: 0.06,      // velocity damping, 1/s
+    };
     this.renderer = renderer;
     this.N = N;
     this.jacobi = jacobi;
@@ -50,6 +61,11 @@ export class Fluid {
     this.quad.frustumCulled = false;
     this.scene.add(this.quad);
 
+    const MAX_BARRELS = 6;
+    this.barrelPos = Array.from({ length: MAX_BARRELS }, () => new THREE.Vector4());
+    this.barrelVel = Array.from({ length: MAX_BARRELS }, () => new THREE.Vector4());
+    this.barrels = [];
+
     const volUniforms = () => ({
       uNi: { value: N },
       uNf: { value: N },
@@ -66,7 +82,7 @@ export class Fluid {
 
     this.mAdvect = mat(ADVECT_FRAG, {
       uVel: { value: null }, uSrc: { value: null },
-      uDt: { value: 0 }, uDissipation: { value: 1 },
+      uDt: { value: 0 }, uDissipation: { value: 1 }, uRise: { value: 0 },
     });
     this.mForces = mat(FORCES_FRAG, {
       uVel: { value: null }, uFoam: { value: null },
@@ -79,12 +95,9 @@ export class Fluid {
       uPaddleAngVel: { value: new THREE.Vector3() },
       uPaddleHalf: { value: new THREE.Vector3(0.3, 0.05, 0.2) },
       uPaddleRot: { value: new THREE.Matrix3() },
-      uBarrelOn: { value: 0 },
-      uBarrelPos: { value: new THREE.Vector3() },
-      uBarrelVel: { value: new THREE.Vector3() },
-      uBarrelAngVel: { value: new THREE.Vector3() },
-      uBarrelHalf: { value: new THREE.Vector3(0.13, 0.17, 0.13) },
-      uBarrelRot: { value: new THREE.Matrix3() },
+      uBarrelCount: { value: 0 },
+      uBarrels: { value: this.barrelPos },
+      uBarrelVels: { value: this.barrelVel },
       uBurstPos: { value: new THREE.Vector3() },
       uBurstAmt: { value: 0 },
       uBurstUp: { value: 0 },
@@ -101,12 +114,9 @@ export class Fluid {
       uPaddleAngVel: { value: new THREE.Vector3() },
       uPaddleHalf: { value: new THREE.Vector3(0.3, 0.05, 0.2) },
       uPaddleRot: { value: new THREE.Matrix3() },
-      uBarrelOn: { value: 0 },
-      uBarrelPos: { value: new THREE.Vector3() },
-      uBarrelVelW: { value: new THREE.Vector3() },
-      uBarrelAngVel: { value: new THREE.Vector3() },
-      uBarrelHalf: { value: new THREE.Vector3(0.13, 0.17, 0.13) },
-      uBarrelRot: { value: new THREE.Matrix3() },
+      uBarrelCount: { value: 0 },
+      uBarrels: { value: this.barrelPos },
+      uBarrelVels: { value: this.barrelVel },
       uBurstPos: { value: new THREE.Vector3() },
       uBurstFoam: { value: 0 },
       uBurstR: { value: 0.18 },
@@ -114,6 +124,7 @@ export class Fluid {
     });
     this.mMMAdvect = mat(MM_ADVECT_FRAG, {
       uVel: { value: null }, uSrc: { value: null }, uDt: { value: 0 },
+      uRise: { value: 0 },
     });
     this.mMMCombine = mat(MM_COMBINE_FRAG, {
       uPhi0: { value: null }, uPhi1: { value: null }, uPhi2: { value: null },
@@ -146,7 +157,7 @@ export class Fluid {
     // one-shot inputs, armed from main and cleared after the step
     this.burst = null;   // { pos, vel, up, foam, radius } (world units)
     this.paddle = null;  // { pos, vel(world/s), angVel, half, rot: Matrix3, on }
-    this.barrel = null;  // same shape as paddle
+    // this.barrels: [{ pos, vel (world/s), radius }] — as many as are in flight
   }
 
   pass(material, target) {
@@ -158,6 +169,24 @@ export class Fluid {
   step(dt, time) {
     const { vel, foam, prs } = this;
     const voxPerWorld = this.N / 2;
+    const ph = this.physics;
+
+    // world-unit knobs -> the solver's voxel units
+    const riseVox = ph.rise * voxPerWorld;
+    this.mForces.uniforms.uBuoyancy.value = ph.buoyancy * voxPerWorld;
+    this.mConfine.uniforms.uEps.value = ph.swirl * this.N;
+    this.mInject.uniforms.uFoamGain.value = ph.aeration;
+    this.mLight.uniforms.uCaustics.value = ph.caustics;
+
+    // upload however many barrels are in flight
+    const bs = this.barrels;
+    const nb = Math.min(bs.length, 6);
+    this.mForces.uniforms.uBarrelCount.value = nb;
+    this.mInject.uniforms.uBarrelCount.value = nb;
+    for (let i = 0; i < nb; i++) {
+      this.barrelPos[i].set(bs[i].pos.x, bs[i].pos.y, bs[i].pos.z, bs[i].radius);
+      this.barrelVel[i].set(bs[i].vel.x, bs[i].vel.y, bs[i].vel.z, 0);
+    }
 
     // advect velocity
     this.mAdvect.uniforms.uVel.value = vel[0].texture;
@@ -165,7 +194,8 @@ export class Fluid {
     this.mAdvect.uniforms.uDt.value = dt;
     // decay is time-based (per 1/60 s), not per-frame, so the sim looks the
     // same at any refresh rate
-    this.mAdvect.uniforms.uDissipation.value = Math.pow(0.999, dt * 60);
+    this.mAdvect.uniforms.uDissipation.value = Math.exp(-dt * ph.drag);
+    this.mAdvect.uniforms.uRise.value = 0; // the velocity field itself doesn't rise
     this.pass(this.mAdvect, vel[1]);
     vel.reverse();
 
@@ -183,16 +213,6 @@ export class Fluid {
       fu.uPaddleRot.value.copy(this.paddle.rot);
     } else {
       fu.uPaddleOn.value = 0;
-    }
-    if (this.barrel && this.barrel.on) {
-      fu.uBarrelOn.value = 1;
-      fu.uBarrelPos.value.copy(this.barrel.pos);
-      fu.uBarrelVel.value.copy(this.barrel.vel).multiplyScalar(voxPerWorld);
-      fu.uBarrelAngVel.value.copy(this.barrel.angVel);
-      fu.uBarrelHalf.value.copy(this.barrel.half);
-      fu.uBarrelRot.value.copy(this.barrel.rot);
-    } else {
-      fu.uBarrelOn.value = 0;
     }
     if (this.burst) {
       fu.uBurstPos.value.copy(this.burst.pos);
@@ -235,18 +255,20 @@ export class Fluid {
     this.mMMAdvect.uniforms.uVel.value = vel[0].texture;
     this.mMMAdvect.uniforms.uSrc.value = foam[0].texture;
     this.mMMAdvect.uniforms.uDt.value = dt;
+    this.mMMAdvect.uniforms.uRise.value = riseVox;
     this.pass(this.mMMAdvect, this.tmp1);
 
     this.mAdvect.uniforms.uVel.value = vel[0].texture;
     this.mAdvect.uniforms.uSrc.value = this.tmp1.texture;
     this.mAdvect.uniforms.uDt.value = -dt;
     this.mAdvect.uniforms.uDissipation.value = 1;
+    this.mAdvect.uniforms.uRise.value = riseVox;
     this.pass(this.mAdvect, this.tmp2);
 
     this.mMMCombine.uniforms.uPhi0.value = foam[0].texture;
     this.mMMCombine.uniforms.uPhi1.value = this.tmp1.texture;
     this.mMMCombine.uniforms.uPhi2.value = this.tmp2.texture;
-    this.mMMCombine.uniforms.uDissipation.value = Math.pow(0.978, dt * 60);
+    this.mMMCombine.uniforms.uDissipation.value = Math.exp(-dt / Math.max(ph.foamLife, 0.05));
     this.pass(this.mMMCombine, foam[1]);
     foam.reverse();
 
@@ -264,16 +286,6 @@ export class Fluid {
       iu.uPaddleAngVel.value.copy(this.paddle.angVel);
     } else {
       iu.uPaddleOn.value = 0;
-    }
-    if (this.barrel && this.barrel.on) {
-      iu.uBarrelOn.value = 1;
-      iu.uBarrelPos.value.copy(this.barrel.pos);
-      iu.uBarrelVelW.value.copy(this.barrel.vel);
-      iu.uBarrelAngVel.value.copy(this.barrel.angVel);
-      iu.uBarrelHalf.value.copy(this.barrel.half);
-      iu.uBarrelRot.value.copy(this.barrel.rot);
-    } else {
-      iu.uBarrelOn.value = 0;
     }
     if (this.burst) {
       iu.uBurstPos.value.copy(this.burst.pos);

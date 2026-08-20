@@ -88,13 +88,15 @@ uniform sampler2D uVel;
 uniform sampler2D uSrc;
 uniform float uDt;
 uniform float uDissipation;
+uniform float uRise;   // bubble slip through the water, voxels/s (0 for velocity)
 void main() {
   ivec3 v = voxelFromFrag();
   if (v.z >= uNi) { gl_FragColor = vec4(0.0); return; }
   vec3 p = vec3(v) + 0.5;
-  vec3 vel = fetchVox(uVel, v).xyz;
+  vec3 rise = vec3(0.0, uRise, 0.0);
+  vec3 vel = fetchVox(uVel, v).xyz + rise;
   vec3 mid = p - 0.5 * uDt * vel;
-  vec3 q = p - uDt * sampleVol(uVel, mid).xyz;
+  vec3 q = p - uDt * (sampleVol(uVel, mid).xyz + rise);
   gl_FragColor = sampleVol(uSrc, q) * uDissipation;
 }`;
 
@@ -105,13 +107,15 @@ export const MM_ADVECT_FRAG = VOL_FRAG + /* glsl */ `
 uniform sampler2D uVel;
 uniform sampler2D uSrc;
 uniform float uDt;
+uniform float uRise;   // bubbles rise through the fluid rather than with it
 void main() {
   ivec3 v = voxelFromFrag();
   if (v.z >= uNi) { gl_FragColor = vec4(0.0); return; }
   vec3 p = vec3(v) + 0.5;
-  vec3 vel = fetchVox(uVel, v).xyz;
+  vec3 rise = vec3(0.0, uRise, 0.0);
+  vec3 vel = fetchVox(uVel, v).xyz + rise;
   vec3 mid = p - 0.5 * uDt * vel;
-  vec3 q = p - uDt * sampleVol(uVel, mid).xyz;
+  vec3 q = p - uDt * (sampleVol(uVel, mid).xyz + rise);
   float val = sampleVol(uSrc, q).x;
   vec3 qf = clamp(q, vec3(0.5), vec3(uNf - 0.5)) - 0.5;
   ivec3 q0 = ivec3(qf);
@@ -154,12 +158,9 @@ uniform vec3 uPaddleVel;    // voxels/s
 uniform vec3 uPaddleAngVel; // rad/s, world axes
 uniform vec3 uPaddleHalf;   // world half extents
 uniform mat3 uPaddleRot;    // world -> paddle local
-uniform float uBarrelOn;
-uniform vec3 uBarrelPos;
-uniform vec3 uBarrelVel;    // voxels/s
-uniform vec3 uBarrelAngVel; // rad/s
-uniform vec3 uBarrelHalf;
-uniform mat3 uBarrelRot;
+uniform int uBarrelCount;
+uniform vec4 uBarrels[6];     // xyz = world position, w = radius
+uniform vec4 uBarrelVels[6];  // xyz = world velocity
 uniform vec3 uBurstPos;
 uniform float uSurfaceY;
 uniform float uBurstAmt;   // voxels/s radial impulse (negative = implosion)
@@ -185,10 +186,13 @@ void main() {
     vel += (target - vel) * (w * min(uDt * 16.0, 1.0));
   }
 
-  if (uBarrelOn > 0.5) {
-    float d = sdBox(uBarrelRot * (wp - uBarrelPos), uBarrelHalf);
-    float w = 1.0 - smoothstep(0.0, 0.15, d);
-    vec3 target = uBarrelVel + cross(uBarrelAngVel, wp - uBarrelPos) * (uNf * 0.5);
+  // barrels push water as spheres: several can be in flight at once, and at
+  // this size the box-vs-sphere difference is invisible in the flow
+  for (int i = 0; i < 6; i++) {
+    if (i >= uBarrelCount) break;
+    float d = length(wp - uBarrels[i].xyz) - uBarrels[i].w;
+    float w = 1.0 - smoothstep(0.0, 0.12, d);
+    vec3 target = uBarrelVels[i].xyz * (uNf * 0.5);
     vel += (target - vel) * (w * min(uDt * 16.0, 1.0));
   }
 
@@ -216,12 +220,9 @@ uniform vec3 uPaddleVelW;   // world units/s
 uniform vec3 uPaddleAngVel; // rad/s, world axes
 uniform vec3 uPaddleHalf;
 uniform mat3 uPaddleRot;
-uniform float uBarrelOn;
-uniform vec3 uBarrelPos;
-uniform vec3 uBarrelVelW;   // world units/s
-uniform vec3 uBarrelAngVel;
-uniform vec3 uBarrelHalf;
-uniform mat3 uBarrelRot;
+uniform int uBarrelCount;
+uniform vec4 uBarrels[6];
+uniform vec4 uBarrelVels[6];
 uniform vec3 uBurstPos;
 uniform float uBurstFoam;
 uniform float uBurstR;
@@ -244,15 +245,16 @@ void main() {
     }
   }
 
-  if (uBarrelOn > 0.5) {
-    // the plunging barrel drags an air cavity: entrainment happens in a
-    // capsule wake trailing opposite its motion, strongest at the barrel's
-    // trailing face and fading down the tail
-    float bs = length(uBarrelVelW);
+  // each plunging barrel drags an air cavity: entrainment happens in a capsule
+  // wake trailing opposite its motion, strongest at the trailing face and
+  // fading down the tail
+  for (int i = 0; i < 6; i++) {
+    if (i >= uBarrelCount) break;
+    float bs = length(uBarrelVels[i].xyz);
     if (bs > 0.05) {
-      vec3 dir = uBarrelVelW / bs;
+      vec3 dir = uBarrelVels[i].xyz / bs;
       vec3 ba = -dir * 0.4;                       // tail, world units
-      vec3 pa = wp - uBarrelPos;
+      vec3 pa = wp - uBarrels[i].xyz;
       float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
       float dseg = length(pa - ba * h) - 0.055;
       float w = (1.0 - smoothstep(0.0, 0.10, dseg)) * (1.0 - 0.55 * h);
@@ -383,12 +385,26 @@ uniform float uCaustics;
 
 // Interference of a few travelling waves, sharpened into the bright filaments
 // sunlight makes after refracting through a rippled surface.
+// Iteratively warped domain, then a sharp reciprocal falloff: this is what
+// gives caustics their irregular branching filaments instead of the regular
+// lattice a sum of sines produces. Both the sample point and the divisors are
+// kept away from zero — a 0/0 here turns the whole light volume into NaN.
 float caustic(vec2 p, float t) {
-  vec2 q = p * 3.4;
-  float a = sin(q.x + t * 0.9) + sin(q.y * 1.3 - t * 1.1) + sin((q.x + q.y) * 0.7 + t * 0.7);
-  float b = sin(q.x * 1.9 - t * 1.4) + sin(q.y * 2.1 + t * 0.5);
-  float v = 0.5 + 0.17 * (a + b);
-  return pow(clamp(v, 0.0, 1.0), 4.0) * 2.4 + 0.35;
+  vec2 q = p + 0.137;
+  vec2 i = q;
+  float c = 0.0;
+  const float inten = 0.006;
+  for (int n = 0; n < 3; n++) {
+    float tn = t * (1.0 - 3.0 / float(n + 1));
+    i = q + vec2(cos(tn - i.x) + sin(tn + i.y), sin(tn - i.y) + cos(tn + i.x));
+    vec2 d = vec2(sin(i.x + tn), cos(i.y + tn));
+    d = sign(d + 1e-6) * max(abs(d), 1e-3) / inten;
+    c += 1.0 / max(length(q / d), 1e-4);
+  }
+  // median-normalised (77 matches this inten and domain scale, measured over
+  // the tank footprint): the field averages ~1 with ~10% bright filaments,
+  // so turning caustics up redistributes light rather than adding exposure
+  return clamp(pow(c / 77.0, 1.15), 0.0, 3.0) / 1.25;
 }
 
 void main() {
@@ -415,8 +431,12 @@ void main() {
   vec3 wp = (vec3(v) + 0.5) / uNf * 2.0 - 1.0;
   float below = max(uSurfaceY - wp.y, 0.0);
   vec2 cp = wp.xz - uLightDir.xz * (below / max(-uLightDir.y, 1e-3));
-  t *= mix(1.0, caustic(cp, uTime), uCaustics * exp(-below * 0.5));
-  gl_FragColor = vec4(t, 0.0, 0.0, 0.0);
+  // filaments are sharp just under the surface and wash out with depth
+  float sharp = exp(-below * 0.9);
+  float c = caustic(cp * 4.5, uTime * 0.35);
+  t *= mix(1.0, c, uCaustics * sharp);
+  if (!(t > 0.0)) t = 0.0;   // NaN-safe: a poisoned texel would blacken the tank
+  gl_FragColor = vec4(min(t, 8.0), 0.0, 0.0, 0.0);
 }`;
 
 // -------------------------------------------------------------- raymarch ---
@@ -446,6 +466,7 @@ uniform float uFrame;
 uniform float uTime;
 uniform float uSurfaceY;
 uniform vec4 uRipples[4];    // xy = impact centre (world xz), z = start time, w = strength
+uniform float uChop;         // surface roughness multiplier
 uniform vec3 uSunDir;        // direction light travels
 uniform vec3 uSunColor;
 uniform vec3 uWaterAbsorb;   // per world unit
@@ -472,6 +493,7 @@ float waveH(vec2 xz) {
   // fine chop, so the glint breaks into sparkle instead of a smooth band
   h += 0.0022 * sin(xz.x * 31.0 - uTime * 3.7) * sin(xz.y * 27.0 + uTime * 3.1);
   h += 0.0015 * sin((xz.x - xz.y) * 44.0 + uTime * 5.3);
+  h *= uChop;
   for (int i = 0; i < 4; i++) {
     vec4 r = uRipples[i];
     if (r.w <= 0.0) continue;
@@ -690,6 +712,7 @@ uniform float uInit;
 uniform vec3 uPaddlePos;
 uniform float uPaddleSpeed;
 uniform float uSurfaceY;
+uniform float uRise;   // world units/s
 
 vec3 hash33(vec3 p) {
   p = fract(p * vec3(0.1031, 0.1030, 0.0973));
@@ -722,7 +745,7 @@ void main() {
     vec3 jig = hash33(p * 37.0 + uTime) - 0.5;
     // bubbles rise on their own and wobble as they go
     float wob = sin(uTime * 5.5 + s.w * 11.0) * 0.035;
-    p += (v + jig * 0.04 + vec3(wob, 0.11, wob * 0.6)) * uDt;
+    p += (v + jig * 0.04 + vec3(wob, uRise, wob * 0.6)) * uDt;
     p = clamp(p, vec3(-0.995), vec3(0.995));
   }
   if (p.y > uSurfaceY - 0.012) life = -0.001; // burst at the surface

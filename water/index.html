@@ -17,12 +17,17 @@
 </div>
 <div id="controls">
   <button id="barrel-btn" type="button">drop barrel</button>
-  <button id="spin-paddle-btn" type="button" aria-pressed="false">spin paddle</button>
-  <label id="spin-speed">
+  <div class="row">
+    <button id="spin-paddle-btn" type="button" aria-pressed="false">spin paddle</button>
+    <button id="hide-paddle-btn" type="button" aria-pressed="false">hide paddle</button>
+  </div>
+  <label id="spin-speed" class="slider">
     <span>paddle speed <b id="spin-speed-val">3.0</b></span>
     <input id="spin-speed-slider" type="range" min="0.5" max="10" step="0.1" value="3"
            aria-label="paddle spin speed, radians per second">
   </label>
+  <button id="physics-btn" type="button" aria-expanded="false">physics</button>
+  <div id="physics" hidden></div>
   <button id="spin-btn" type="button" aria-pressed="false">spin view</button>
   <div class="row">
     <button id="fs-btn" type="button" aria-pressed="false">full screen</button>
@@ -31,7 +36,7 @@
 </div>
 <button id="peek" type="button" aria-label="Show controls">UI</button>
 <div id="hud">
-  <div class="pointer-fine">drag paddle · stir &nbsp; drag · orbit &nbsp; click · burst &nbsp; B · drop barrel &nbsp; R · spin paddle &nbsp; O · spin view &nbsp; space · auto-stir &nbsp; C · clear &nbsp; Q · quality &nbsp; F · full screen &nbsp; H · hide UI</div>
+  <div class="pointer-fine">drag paddle · stir &nbsp; drag · orbit &nbsp; click · burst &nbsp; B · drop barrel &nbsp; R · spin paddle &nbsp; X · hide paddle &nbsp; O · spin view &nbsp; space · auto-stir &nbsp; C · clear &nbsp; Q · quality &nbsp; F · full screen &nbsp; H · hide UI</div>
   <div class="pointer-coarse">drag paddle · stir &nbsp; drag · orbit &nbsp; tap · burst &nbsp; pinch · zoom</div>
 </div>
 <div id="boot">
