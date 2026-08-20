@@ -43,6 +43,7 @@ const CAMERA = opt('camera', '');
 const BURSTS = multi('burst');
 const HIDE_UI = args.includes('--no-ui');
 const DTCAP = opt('dtcap', '');
+const GPU = args.includes('--gpu');
 
 const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
@@ -65,8 +66,13 @@ await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const port = server.address().port;
 
 const { chromium } = await loadPlaywright();
+// note: --use-angle=swiftshader breaks the WebGPU SwiftShader adapter, so
+// the flag sets are disjoint per backend
 const browser = await chromium.launch({
-  args: [
+  args: GPU ? [
+    '--enable-unsafe-webgpu', '--use-webgpu-adapter=swiftshader',
+    '--enable-unsafe-swiftshader', '--disable-gpu-sandbox', '--disable-dev-shm-usage',
+  ] : [
     '--enable-unsafe-swiftshader', '--use-angle=swiftshader',
     '--ignore-gpu-blocklist', '--enable-webgl', '--disable-gpu-sandbox',
     '--disable-dev-shm-usage',
@@ -84,7 +90,8 @@ page.on('console', (m) => {
 page.on('pageerror', (e) => errors.push('pageerror: ' + (e.stack || e.message)));
 
 const dtq = DTCAP ? `&dtcap=${encodeURIComponent(DTCAP)}` : '';
-await page.goto(`http://127.0.0.1:${port}/?q=${encodeURIComponent(QUALITY)}${dtq}`, { waitUntil: 'load' });
+const gpq = GPU ? '&gpu=1&present=rt' : '&gpu=0';
+await page.goto(`http://127.0.0.1:${port}/?q=${encodeURIComponent(QUALITY)}${dtq}${gpq}`, { waitUntil: 'load' });
 
 try {
   await page.waitForFunction(() => !!window.water, null, { timeout: 20000 });
@@ -108,6 +115,12 @@ if (!errors.length) {
 
 await page.waitForTimeout(WAIT);
 if (HIDE_UI) await page.evaluate(() => document.body.classList.add('ui-hidden'));
+// WebGPU canvas presentation doesn't composite in headless Chromium; ask the
+// app to read pixels back and blit them onto a capturable 2D canvas.
+if (GPU) {
+  try { await page.evaluate(() => window.water.captureTo2D()); }
+  catch (e) { errors.push('captureTo2D failed: ' + String(e).slice(0, 200)); }
+}
 await page.waitForTimeout(200);
 
 await mkdir(dirname(join(ROOT, OUT)), { recursive: true });

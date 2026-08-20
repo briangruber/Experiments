@@ -480,6 +480,7 @@ const fpsCounter = { frames: 0, t: performance.now() / 1000, fps: 0 };
 function updateHud() {
   const vramMiB = Math.round((fluid.bytes + particles.bytes +
     (W * H * 8) * 3 + (W * H * 8 * Q.scale * Q.scale) * 2) / (1 << 20));
+  if (statEls.backend) statEls.backend.textContent = 'WebGL2';
   statEls.res.textContent = `${W} × ${H}`;
   statEls.grid.textContent = `${Q.N}³ · ${(Q.N ** 3 / 1e6).toFixed(2)} M voxels`;
   const unit = timer.gpuLive ? 'GPU' : 'CPU';

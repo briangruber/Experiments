@@ -25,6 +25,22 @@ barrel, `R` spins the paddle like a paddle-wheel (slider sets the rate),
 `O` orbits the camera. `Space` toggles the auto-stir, `C` clears the tank,
 `Q` cycles quality, `P` pauses, `H` hides the UI.
 
+## Backends
+
+The app boots WebGPU when the browser has an adapter (`src/gpu/` —
+`WebGPURenderer` + TSL compute over true 3D storage textures, hardware
+trilinear sampling, grid presets 64³–160³) and falls back to the WebGL2 app
+otherwise (`src/main.js` — the Z-slice-atlas pipeline). `?gpu=0` forces
+WebGL2. The HUD shows the active backend. The WebGPU backend is v1: no bloom
+or bubble particles yet, and composite transmittance is scalar.
+
+`src/gpu/compat.js` carries three small shims for older Dawn builds
+(createView `swizzle`, implicit 3d view dimension, and stripping
+RENDER_ATTACHMENT from 3d textures, whose zero-init path builds invalid 2d
+views there). `?present=rt` renders the final pass off-swapchain for headless
+capture (`tools/shot.mjs --gpu`), where frames are also paced to real device
+completion so readbacks can't starve behind the queue.
+
 ## How it works
 
 - **Simulation** — a 3D stable-fluids solver (semi-Lagrangian RK2 advection,
@@ -58,4 +74,5 @@ Headless capture + validation harness (serves the folder, renders in
 Chromium/SwiftShader, screenshots, prints image statistics). Exits non-zero
 on any WebGL/JS error or a flat image, so it doubles as a smoke test.
 `--camera az,el,dist` sets the view, `--burst "x,y,z,amount"` (repeatable)
-seeds plumes, `--no-ui` hides the HUD.
+seeds plumes, `--no-ui` hides the HUD, `--gpu` tests the WebGPU backend
+(SwiftShader WebGPU adapter + readback-based capture; expect ~0.2 fps).

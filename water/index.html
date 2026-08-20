@@ -6,6 +6,7 @@
 <div id="title">CHURN<span>volumetric fluid tank</span></div>
 <div id="stats">
   <div><em>Resolution</em><b data-k="res">—</b></div>
+  <div><em>Backend</em><b data-k="backend">—</b></div>
   <div><em>Grid</em><b data-k="grid">—</b></div>
   <div><em data-k="simLabel">Simulate, GPU</em><b data-k="sim">—</b></div>
   <div><em data-k="renLabel">Render, GPU</em><b data-k="ren">—</b></div>
@@ -32,4 +33,7 @@
   <div class="boot-title">CHURN</div>
   <div class="boot-sub">filling the tank…</div>
 </div>
-<script type="module" src="./src/main.js"></script>
+<script type="importmap">
+{"imports":{"three/webgpu":"./vendor/three.webgpu.min.js","three/tsl":"./vendor/three.tsl.min.js"}}
+</script>
+<script type="module" src="./src/boot.js"></script>
