@@ -156,6 +156,11 @@ export function sandMaterial(selection, knobs, sharedUniforms) {
   const chain = HOST_DECLS + assemble(selection, knobs);
   return new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
+    // DoubleSide, like the ocean. The polar grid's winding puts the visible face
+    // away from the camera, so a front-facing sand mesh is silently culled and
+    // the beach renders as the sky's ground lobe — which looks enough like wet
+    // sand from a distance to hide the bug for a long time.
+    side: THREE.DoubleSide,
     uniforms: sharedUniforms,
     vertexShader: /* glsl */`
       in float aSpacing;
@@ -196,7 +201,10 @@ export function sandMaterial(selection, knobs, sharedUniforms) {
 
         vec3 sunRad = sw_sunRadiance(uSunDir);
         vec3 skyRad = sw_skyAmbient(uSunDir);
-        vec3 col = albedo * (sunRad * sat(dot(N, uSunDir)) + skyRad * 0.55) * (1.0 / SW_PI);
+        // skyRad is a radiance; the hemisphere it stands for delivers about pi
+        // times as much irradiance. Same slip as the foam had, and it is what
+        // makes dry sand read as wet asphalt.
+        vec3 col = albedo * (sunRad * sat(dot(N, uSunDir)) + skyRad * SW_PI * 0.55) * (1.0 / SW_PI);
 
         // Wet sand holds a broad specular sheen; dry sand holds none.
         vec3 H = normalize(uSunDir + V);

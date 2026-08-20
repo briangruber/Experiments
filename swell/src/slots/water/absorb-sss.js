@@ -43,8 +43,15 @@ float sw_ggx(vec3 N, vec3 V, vec3 L, float rough){
 }
 
 vec3 sw_seabedAlbedo(vec2 p){
-  float grain = sw_fbm(p * 0.35, 3) * 0.22 + sw_fbm(p * 0.04, 3) * 0.18;
-  return uSandColor * (0.82 + grain);
+  // Three scales: ripple, patch, and a broad drift of darker mineral sand.
+  // A single octave reads as one flat colour the moment the camera is anywhere
+  // near grazing, which on a beach is most of the time.
+  float ripple = sw_fbm(vec2(p.x * 0.9, p.y * 0.25), 3);
+  float blotch = sw_fbm(p * 0.09, 3);
+  float drift  = sw_fbm(p * 0.014, 2);
+  vec3 dark = uSandColor * vec3(0.72, 0.70, 0.76);
+  return mix(uSandColor, dark, sat(drift * 1.3 - 0.15))
+       * (0.80 + 0.24 * blotch + 0.13 * ripple);
 }
 
 vec3 sw_waterShade(Surf s){

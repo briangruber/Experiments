@@ -110,9 +110,9 @@ float sw_breakDrive(Wave w, float depth){
     float gamma = H / max(depth, 0.08);
     // These are added in fold units and then normalised with everything else, so
     // they are scaled to land well above the breaking level once divided.
-    drive += smoothstep(uFoamGamma * 0.6, uFoamGamma, gamma) * 1.9 * w.foldRms * uFoamLevel;
+    drive += smoothstep(uFoamGamma * 0.55, uFoamGamma * 1.15, gamma) * 1.15 * w.foldRms * uFoamLevel;
     // Anything still wet on dry-ish sand is swash, and swash is white.
-    drive += smoothstep(1.2, 0.15, depth) * 0.9 * w.foldRms * uFoamLevel;
+    drive += smoothstep(0.9, 0.1, depth) * 0.5 * w.foldRms * uFoamLevel;
   }
   return drive;
 }

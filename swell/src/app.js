@@ -231,6 +231,9 @@ export function createApp(canvas, opts = {}) {
     setSize,
     renderFrame,
     probe,
+    // Handles on the two meshes, so a harness can isolate which one is drawing
+    // a given pixel instead of guessing from colour.
+    get meshes() { return { ocean: oceanMesh, sand: sandMesh }; },
     applyCamera,
     // Free camera, for a human nudging the view before capturing a fixture.
     cameraState() {

@@ -66,14 +66,14 @@ export const SCENES = {
     note: 'A shelving beach with the swell running in from -Z. Shoaling, refraction and ' +
           'the depth-limited break all have to work at once, and the waterline has to ' +
           'move. This is the scene that separates a real spectrum from a sine sum.',
-    camera: { position: [-9, 2.2, -47], target: [15, 0.35, -128] },
+    camera: { position: [-11, 7.2, -26], target: [13, 0.2, -118] },
     knobs: {
       shoreEnabled: 1, shoreZ: -60, beachSlope: 0.028, seaFloorDepth: 55,
       windSpeed: 6.8, windDirDeg: 90, fetch: 240, spread: 0.9,
       swellHeight: 1.6, swellPeriod: 12.5, swellDirDeg: 90, swellSpread: 0.08,
       shoalStrength: 1.0, foamCoverage: 1.15, foamDecay: 0.5,
       sunElevationDeg: 26, sunAzimuthDeg: 150, sunIntensity: 1.0,
-      turbidity: 3.0, fogDensity: 0.7, exposure: 0.85,
+      turbidity: 3.0, fogDensity: 0.7, exposure: 0.62,
       absorption: 0.16, refract: 0.7,
       waterShallow: [0.10, 0.34, 0.33], sandColor: [0.66, 0.57, 0.45],
       fov: 46,

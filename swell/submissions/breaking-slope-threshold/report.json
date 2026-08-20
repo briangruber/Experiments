@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-20T18:18:43.649Z",
+  "generated": "2026-08-20T18:35:18.211Z",
   "domain": "swell",
   "slot": "breaking",
   "candidate": "slope-threshold",
@@ -60,7 +60,7 @@
   "verdict": {
     "blocked": false,
     "blockedBy": [],
-    "costRatio": 0.7300911711352798,
+    "costRatio": 0.768843671370722,
     "physics": [
       {
         "id": "whitecap",
@@ -116,8 +116,8 @@
       "title": "Temporal stability",
       "kind": "gate",
       "unit": "index",
-      "candidate": 0.21730440323542183,
-      "champion": 0.25129925054608554,
+      "candidate": 0.21936228364778182,
+      "champion": 0.2501109851616381,
       "error": null,
       "championError": null,
       "movedCloser": null,
@@ -131,12 +131,12 @@
       "title": "Frame cost",
       "kind": "measure",
       "unit": "ms",
-      "candidate": 1554.5374999999767,
-      "champion": 2129.2374999997555,
+      "candidate": 1581.2999999999302,
+      "champion": 2056.7249999999767,
       "error": null,
       "championError": null,
       "movedCloser": null,
-      "ratio": 0.7300911711352798,
+      "ratio": 0.768843671370722,
       "pass": null,
       "skipped": 0,
       "failures": []

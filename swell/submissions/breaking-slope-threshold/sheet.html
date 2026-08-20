@@ -27,8 +27,8 @@
   footer { color:var(--dim); margin-top:28px; font-size:11.5px; }
 </style>
 <h1>breaking &nbsp;·&nbsp; slope-threshold <span style="color:var(--dim)">vs</span> fold-ridge</h1>
-<p class="sub">2026-08-20T18:18:43.649Z &middot; 8 fixtures &middot; chromium / swiftshader</p>
-<div class="banner good"><b>Gates pass.</b> Costs 0.73× the champion.
+<p class="sub">2026-08-20T18:35:18.211Z &middot; 8 fixtures &middot; chromium / swiftshader</p>
+<div class="banner good"><b>Gates pass.</b> Costs 0.77× the champion.
        Physics: whitecap moved further from its reference.
        <br><span style="color:var(--dim)">Untouched by this slot: waveHeight, spectralSlope.</span>
        <br>The measurements cannot tell you whether it looks better. That is what the frames below are for.</div>
@@ -50,7 +50,7 @@
 <tr class="good">
     <td>Temporal stability</td>
     <td class="mono">pass</td>
-    <td class="mono">0.217 index</td>
+    <td class="mono">0.219 index</td>
     <td class="note">Two frames one 60th of a second apart, differenced and high-pass filtered, then divided by the high-frequency detail already in the frame. A wave crossing the screen produces a smooth difference; aliasing produces a speckled one. The normalisation is what makes the number comparable between a millpond and a storm — unnormalised it mostly measures how much detail a scene has. This is the gate that catches &quot;I turned the detail up and the screenshot looks amazing&quot;, which is the most common regression in this project.</td>
   </tr></table>
 
@@ -58,10 +58,10 @@
 <table><tr><th>Measure</th><th>Champion</th><th>Candidate</th><th>Reference</th><th>Δ</th><th>What it is</th></tr>
 <tr>
     <td>Frame cost</td>
-    <td class="mono">2129.237</td>
-    <td class="mono">1554.537 ms</td>
-    <td class="mono">1976.200</td>
-    <td class="mono good">0.73×</td>
+    <td class="mono">2056.725</td>
+    <td class="mono">1581.300 ms</td>
+    <td class="mono">1966.500</td>
+    <td class="mono good">0.77×</td>
     <td class="note">Median frame time over a short burst, measured inside the page with an explicit glFinish. Absolute numbers come from a software rasteriser and are not a frame budget for real hardware; the ratio against the champion is the number that travels.</td>
   </tr>
 <tr>
