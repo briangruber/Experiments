@@ -95,3 +95,22 @@ select {
   .toggle { left: auto; right: 10px; }
   .toggle.shifted { left: auto; right: 10px; }
 }
+
+.tuning-out {
+  position: fixed; inset: 12% 14%; z-index: 20;
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 14px; border-radius: 9px;
+  background: var(--panel); border: 1px solid var(--line);
+  backdrop-filter: blur(16px);
+}
+.tuning-out p { margin: 0; color: var(--dim); }
+.tuning-out textarea {
+  flex: 1; resize: none; font: inherit; padding: 8px;
+  background: rgba(0,0,0,.35); color: var(--text);
+  border: 1px solid var(--line); border-radius: 6px;
+}
+.tuning-out button {
+  align-self: flex-end; padding: 7px 14px; border-radius: 6px; cursor: pointer; font: inherit;
+  background: rgba(95,208,224,.12); color: var(--accent); border: 1px solid rgba(95,208,224,.35);
+}
+.row input[type=checkbox] { accent-color: var(--accent); justify-self: start; }

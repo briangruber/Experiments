@@ -42,6 +42,11 @@ export function createApp(canvas, opts = {}) {
   let time = 0;
   let lastWall = 0;
   const frameTimes = [];
+
+  // Presentation size in CSS pixels, and the fraction of it we actually
+  // rasterise. Captures always run at 1.0 so a fixture is a fixture; the
+  // interactive viewer is free to trade resolution for framerate.
+  let cssW = 1280, cssH = 720, renderScale = 1, adaptive = false;
   const timingPixel = new Uint8Array(4);
   let frameNo = 0;
 
@@ -109,16 +114,21 @@ export function createApp(canvas, opts = {}) {
     controls.maxDistance = 900;
   }
 
-  function setSize(w, h) {
+  function applyScale() {
+    const w = Math.max(1, Math.round(cssW * renderScale));
+    const h = Math.max(1, Math.round(cssH * renderScale));
     renderer.setSize(w, h, false);
     hdr.setSize(w, h);
-    camera.aspect = w / h;
+    camera.aspect = cssW / cssH;          // framing follows the element, not the buffer
     camera.updateProjectionMatrix();
     ocean.uniforms.uResolution.value.set(w, h);
-    // World units covered by one pixel, per unit of distance. Both shader
-    // stages derive their level of detail from this.
+    // World units covered by one pixel, per unit of distance. Both shader stages
+    // derive their level of detail from this, so dropping the scale also widens
+    // the wave filter - a half-resolution frame is softer, not more aliased.
     ocean.uniforms.uPixelAngle.value = (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / h;
   }
+
+  function setSize(w, h) { cssW = w; cssH = h; applyScale(); }
 
   // Sample the wave field on a regular world-space grid and read it back as
   // floats. Slow (a GPU stall), so it is never on the render path - the
@@ -231,6 +241,10 @@ export function createApp(canvas, opts = {}) {
     setSize,
     renderFrame,
     probe,
+    get renderScale() { return renderScale; },
+    setRenderScale(s) { renderScale = Math.max(0.25, Math.min(1, s)); applyScale(); },
+    get adaptive() { return adaptive; },
+    setAdaptive(on) { adaptive = !!on; },
     // Handles on the two meshes, so a harness can isolate which one is drawing
     // a given pixel instead of guessing from colour.
     get meshes() { return { ocean: oceanMesh, sand: sandMesh }; },
@@ -264,6 +278,21 @@ export function createApp(canvas, opts = {}) {
   // frame.
   const origError = console.error.bind(console);
   console.error = (...a) => { errors.push(a.map(String).join(' ')); origError(...a); };
+
+  // Resolution governor. Aims for a 60 Hz budget with a wide dead band, and
+  // only moves once per second, because a scaler that chases every frame spends
+  // its life oscillating and reads as a flickering image.
+  let govAt = 0;
+  function governor() {
+    if (frameTimes.length < 30) return;
+    const now = performance.now();
+    if (now - govAt < 1000) return;
+    govAt = now;
+    const s = frameTimes.slice(-30).sort((a, b) => a - b);
+    const median = s[15];
+    if (median > 19 && renderScale > 0.4) api.setRenderScale(renderScale - 0.1);
+    else if (median < 9 && renderScale < 1) api.setRenderScale(Math.min(1, renderScale + 0.1));
+  }
 
   api.startLoop = (onFrame) => {
     let raf;

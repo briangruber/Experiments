@@ -7,6 +7,7 @@ const unhex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255)
 
 export function buildUI(app, root, hud) {
   let rows = [];
+  let quality = null;
 
   function baseFor(key) {
     const merged = Object.assign({}, defaults, slotKnobs(app.selection), SCENES[app.sceneId].knobs);
@@ -69,6 +70,39 @@ export function buildUI(app, root, hud) {
       if (sec.body.children.length) root.appendChild(sec.el);
     }
 
+    // ---- display ----
+    const disp = section('Display', false);
+    const adaptRow = document.createElement('div');
+    adaptRow.className = 'row';
+    adaptRow.innerHTML = '<label title="Track a 60 Hz budget by trading resolution">adaptive</label>';
+    const adapt = document.createElement('input');
+    adapt.type = 'checkbox';
+    adapt.checked = app.adaptive;
+    const scaleVal = document.createElement('span');
+    scaleVal.className = 'val';
+    adapt.onchange = () => app.setAdaptive(adapt.checked);
+    adaptRow.append(adapt, scaleVal);
+    disp.body.appendChild(adaptRow);
+
+    const scaleRow = document.createElement('div');
+    scaleRow.className = 'row';
+    scaleRow.innerHTML = '<label title="Fraction of the window actually rasterised">render scale</label>';
+    const scale = document.createElement('input');
+    scale.type = 'range';
+    scale.min = 0.25; scale.max = 1; scale.step = 0.05;
+    scale.value = app.renderScale;
+    const sv = document.createElement('span');
+    sv.className = 'val';
+    scale.oninput = () => { app.setAdaptive(false); adapt.checked = false; app.setRenderScale(+scale.value); };
+    scaleRow.append(scale, sv);
+    disp.body.appendChild(scaleRow);
+    disp.body.insertAdjacentHTML('beforeend',
+      '<p class="note">Wave count and foam history taps are the two knobs that cost the most. ' +
+      'Dropping render scale widens the wave filter as well, so a half-resolution sea is softer ' +
+      'rather than noisier.</p>');
+    root.appendChild(disp.el);
+    quality = { adapt, scale, sv, scaleVal };
+
     // ---- actions ----
     const actions = document.createElement('div');
     actions.className = 'actions';
@@ -79,9 +113,13 @@ export function buildUI(app, root, hud) {
         knobs: app.tuning(),
         camera: app.cameraState(),
       }, null, 2);
-      try { await navigator.clipboard.writeText(payload); } catch { /* fall through to the log */ }
+      // Sandboxed frames refuse the clipboard, and a silent failure here loses
+      // the one artefact a human tuner actually produces. Show it instead.
+      let copied = false;
+      try { await navigator.clipboard.writeText(payload); copied = true; } catch { /* shown below */ }
       console.log(payload);
-      flash('copied — paste it to your agent');
+      if (copied) flash('copied — paste it to your agent');
+      else showTuning(payload);
     }));
     actions.appendChild(button('Reset to scene', () => { app.resetKnobs(); render(); }, true));
     actions.appendChild(button('Reset camera', () => app.applyCamera(), true));
@@ -160,16 +198,40 @@ export function buildUI(app, root, hud) {
     }
   }
 
+  function showTuning(text) {
+    document.getElementById('tuning-out')?.remove();
+    const box = document.createElement('div');
+    box.id = 'tuning-out';
+    box.className = 'tuning-out';
+    const ta = document.createElement('textarea');
+    ta.readOnly = true;
+    ta.value = text;
+    const close = document.createElement('button');
+    close.textContent = 'Close';
+    close.onclick = () => box.remove();
+    box.insertAdjacentHTML('beforeend', '<p>Select and copy — this frame cannot reach the clipboard.</p>');
+    box.append(ta, close);
+    document.body.appendChild(box);
+    ta.focus(); ta.select();
+  }
+
   let flashUntil = 0, flashMsg = '';
   function flash(msg) { flashMsg = msg; flashUntil = performance.now() + 2400; }
 
   function updateHud() {
     const s = app.stats();
     const n = Object.keys(app.tuning()).length;
+    const pctScale = Math.round(app.renderScale * 100);
     hud.textContent =
       `${s.fps.toFixed(0)} fps   ${s.medianMs.toFixed(1)} ms (p95 ${s.p95Ms.toFixed(1)})\n` +
-      `t=${app.getTime().toFixed(1)}s   ${n} knob${n === 1 ? '' : 's'} changed` +
+      `${pctScale}% scale   t=${app.getTime().toFixed(1)}s   ${n} knob${n === 1 ? '' : 's'} changed` +
       (performance.now() < flashUntil ? `\n${flashMsg}` : '');
+    if (quality) {
+      quality.scale.value = app.renderScale;
+      quality.sv.textContent = `${pctScale}%`;
+      quality.scaleVal.textContent = app.adaptive ? 'auto' : 'fixed';
+      quality.adapt.checked = app.adaptive;
+    }
   }
 
   render();
