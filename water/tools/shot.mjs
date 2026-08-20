@@ -111,7 +111,7 @@ if (HIDE_UI) await page.evaluate(() => document.body.classList.add('ui-hidden'))
 await page.waitForTimeout(200);
 
 await mkdir(dirname(join(ROOT, OUT)), { recursive: true });
-const shotBuffer = await page.screenshot({ path: join(ROOT, OUT), timeout: 60000, animations: 'disabled' });
+const shotBuffer = await page.screenshot({ path: join(ROOT, OUT), timeout: 180000, animations: 'disabled' });
 
 // Image statistics are computed from the captured PNG (decoded back in the
 // page); reading the WebGL canvas directly comes back blank under SwiftShader.
