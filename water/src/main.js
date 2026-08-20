@@ -602,9 +602,16 @@ function dropBarrel() {
   barrelState.age = 0;
   barrel.position.set((Math.random() - 0.5) * 0.7, 0.95, (Math.random() - 0.5) * 0.7);
   barrel.rotation.set(Math.random() * 0.5, Math.random() * 6.28, Math.random() * 0.5);
-  barrelVel.set(0, -1.7, 0);
+  barrelVel.set(0, -2.3, 0);
   barrelAngVel.set(1.1, 0.4, 0.8);
   barrel.visible = true;
+  // entry splash: the punched-in air cavity collapses into a billowing cloud
+  // that stays near the surface while the barrel plunges on
+  const x = barrel.position.x, z = barrel.position.z;
+  explosionQueue.push(
+    { pos: new THREE.Vector3(x, 0.87, z), vel: 0.5, up: -1.1, foam: 0.9, radius: 0.19 },
+    { pos: new THREE.Vector3(x, 0.76, z), vel: 0.25, up: 0.55, foam: 0.55, radius: 0.15 },
+  );
 }
 
 function updateBarrel(dt, t) {
@@ -612,8 +619,8 @@ function updateBarrel(dt, t) {
   if (!barrelState.active) return;
   barrelState.age += dt;
 
-  barrelVel.y -= 2.6 * dt;                          // heavier than water
-  barrelVel.multiplyScalar(Math.exp(-dt * 1.1));    // hydrodynamic drag
+  barrelVel.y -= 1.8 * dt;                          // heavier than water
+  barrelVel.multiplyScalar(Math.exp(-dt * 2.3));    // strong drag: fast entry, slow drift down
   barrel.position.addScaledVector(barrelVel, dt);
   barrel.position.x = Math.max(-0.8, Math.min(0.8, barrel.position.x));
   barrel.position.z = Math.max(-0.8, Math.min(0.8, barrel.position.z));

@@ -197,13 +197,19 @@ void main() {
   }
 
   if (uBarrelOn > 0.5) {
-    // a sinking barrel entrains a bubble wake
-    float speed = min(length(uBarrelVelW + cross(uBarrelAngVel, wp - uBarrelPos)), 3.0);
-    if (speed > 0.02) {
-      float d = sdBox(uBarrelRot * (wp - uBarrelPos), uBarrelHalf);
-      float w = 1.0 - smoothstep(0.0, 0.12, d);
-      float churn = 0.5 + 1.0 * noise3(wp * 16.0 + vec3(0.0, uTime * 2.7, uTime * 1.9));
-      foam += w * uFoamGain * speed * churn * 0.8 * uDt;
+    // the plunging barrel drags an air cavity: entrainment happens in a
+    // capsule wake trailing opposite its motion, strongest at the barrel's
+    // trailing face and fading down the tail
+    float bs = length(uBarrelVelW);
+    if (bs > 0.05) {
+      vec3 dir = uBarrelVelW / bs;
+      vec3 ba = -dir * 0.4;                       // tail, world units
+      vec3 pa = wp - uBarrelPos;
+      float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+      float dseg = length(pa - ba * h) - 0.055;
+      float w = (1.0 - smoothstep(0.0, 0.10, dseg)) * (1.0 - 0.55 * h);
+      float churn = 0.4 + 1.3 * noise3(wp * 17.0 + vec3(0.0, uTime * 2.7, uTime * 1.9));
+      foam += w * uFoamGain * min(bs, 3.0) * churn * 1.4 * uDt;
     }
   }
 
