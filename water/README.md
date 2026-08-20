@@ -22,8 +22,14 @@ per-frame simulation time cap, useful on slow (software) GPUs.
 **Interaction** — drag the paddle to stir; drag anywhere else to orbit; click
 for a burst; wheel/pinch to zoom. Buttons (and keys): `B` drops an exploding
 barrel, `R` spins the paddle like a paddle-wheel (slider sets the rate),
-`O` orbits the camera. `Space` toggles the auto-stir, `C` clears the tank,
-`Q` cycles quality, `P` pauses, `H` hides the UI.
+`O` orbits the camera, `F` goes full screen, `H` hides the interface.
+`Space` toggles the auto-stir, `C` clears the tank, `Q` cycles quality,
+`P` pauses.
+
+With the interface hidden the tank fills the window and only a faint corner
+button remains, so pointer- and touch-only users can bring the controls back;
+`F` plus `H` gives an uninterrupted full-screen view. Adding the `no-chrome`
+class to `<body>` removes that last button too (what `--no-ui` captures use).
 
 ## Backends
 

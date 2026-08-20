@@ -16,6 +16,7 @@ const {
   float, vec2, vec3, vec4, normalWorld, positionWorld, cameraPosition,
 } = THREE.TSL;
 import { Fluid3D } from './fluid3d.js';
+import { initChrome } from '../chrome.js';
 
 const QUALITY = {
   low: { N: 64, jacobi: 14, steps: 96, scale: 0.6, dpr: 1.0 },
@@ -428,6 +429,7 @@ export async function start() {
     if (!params.paddleSpin) { params.paddleSpin = true; syncButtons(); }
   });
   syncButtons();
+  initChrome(); // hide-ui + fullscreen (H / F)
 
   window.addEventListener('keydown', (e) => {
     if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -436,7 +438,6 @@ export async function start() {
     else if (e.code === 'KeyR') togglePaddleSpin();
     else if (e.code === 'KeyB') dropBarrel();
     else if (e.code === 'KeyC') fluid.clear();
-    else if (e.code === 'KeyH') document.body.classList.toggle('ui-hidden');
     else if (e.code === 'KeyP') params.paused = !params.paused;
     else if (e.code === 'KeyQ') {
       const names = Object.keys(QUALITY);

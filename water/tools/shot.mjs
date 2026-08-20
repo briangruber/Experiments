@@ -114,7 +114,7 @@ if (!errors.length) {
 }
 
 await page.waitForTimeout(WAIT);
-if (HIDE_UI) await page.evaluate(() => document.body.classList.add('ui-hidden'));
+if (HIDE_UI) await page.evaluate(() => document.body.classList.add('ui-hidden', 'no-chrome'));
 // WebGPU canvas presentation doesn't composite in headless Chromium; ask the
 // app to read pixels back and blit them onto a capturable 2D canvas.
 if (GPU) {

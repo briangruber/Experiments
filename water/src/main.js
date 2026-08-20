@@ -8,6 +8,7 @@
 import * as THREE from '../vendor/three.module.min.js';
 import { Fluid } from './fluid.js';
 import { Particles } from './particles.js';
+import { initChrome } from './chrome.js';
 import {
   FS_TRI_VERT, RAYMARCH_VERT, RAYMARCH_FRAG, COMPOSITE_FRAG,
   BRIGHT_FRAG, BLUR_FRAG, POST_FRAG, PADDLE_VERT, PADDLE_FRAG,
@@ -405,6 +406,7 @@ speedSlider.addEventListener('input', () => {
 });
 syncSpeed();
 syncButtons();
+initChrome(); // hide-ui + fullscreen (H / F)
 
 window.addEventListener('keydown', (e) => {
   if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -413,7 +415,6 @@ window.addEventListener('keydown', (e) => {
   else if (e.code === 'KeyR') togglePaddleSpin();
   else if (e.code === 'KeyB') dropBarrel();
   else if (e.code === 'KeyC') fluid.clear();
-  else if (e.code === 'KeyH') document.body.classList.toggle('ui-hidden');
   else if (e.code === 'KeyP') params.paused = !params.paused;
   else if (e.code === 'KeyQ') {
     const names = Object.keys(QUALITY);
