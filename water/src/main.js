@@ -100,6 +100,17 @@ const paddle = new THREE.Mesh(
 paddle.position.set(0.45, -0.25, 0.1);
 opaqueScene.add(paddle);
 
+const barrelHalf = new THREE.Vector3(0.13, 0.17, 0.13);
+const barrelMat = new THREE.ShaderMaterial({
+  vertexShader: PADDLE_VERT,
+  fragmentShader: PADDLE_FRAG,
+  uniforms: { uSunDir: { value: sunDir }, uHover: { value: 0 } },
+});
+const barrel = new THREE.Mesh(
+  new THREE.BoxGeometry(barrelHalf.x * 2, barrelHalf.y * 2, barrelHalf.z * 2), barrelMat);
+barrel.visible = false;
+opaqueScene.add(barrel);
+
 const edgeScene = new THREE.Scene();
 const edges = new THREE.LineSegments(
   new THREE.EdgesGeometry(new THREE.BoxGeometry(2, 2, 2)),
@@ -378,6 +389,7 @@ function togglePaddleSpin() {
 }
 spinBtn.addEventListener('click', toggleSpin);
 spinPaddleBtn.addEventListener('click', togglePaddleSpin);
+document.getElementById('barrel-btn').addEventListener('click', () => dropBarrel());
 
 const speedSlider = document.getElementById('spin-speed-slider');
 const speedVal = document.getElementById('spin-speed-val');
@@ -398,6 +410,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Space') { params.stir = !params.stir; e.preventDefault(); }
   else if (e.code === 'KeyO') toggleSpin();
   else if (e.code === 'KeyR') togglePaddleSpin();
+  else if (e.code === 'KeyB') dropBarrel();
   else if (e.code === 'KeyC') fluid.clear();
   else if (e.code === 'KeyH') document.body.classList.toggle('ui-hidden');
   else if (e.code === 'KeyP') params.paused = !params.paused;
@@ -535,9 +548,11 @@ function updatePaddle(dt, t) {
     }
   }
   if (params.paddleSpin) {
-    // mixer-blade mode: fast yaw spin on a slightly tilted blade
+    // paddle-wheel mode: the blade turns end-over-end about a horizontal
+    // axle (like a paddle-boat motor), sweeping down through the water and
+    // driving a directional current
     spinAngle += dt * params.paddleSpinSpeed;
-    paddle.rotation.set(0.35, spinAngle, 0.15);
+    paddle.rotation.set(spinAngle, 0.35, 0.0);
   }
   const k = 1 - Math.exp(-dt * (drag.mode === 'paddle' ? 20 : 6));
   paddle.position.lerp(paddleTarget, k);
@@ -567,6 +582,69 @@ function updatePaddle(dt, t) {
   fluid.paddle = paddleState;
 }
 
+// ------------------------------------------------------------------ barrel --
+
+const barrelState = { active: false, age: 0 };
+const barrelVel = new THREE.Vector3();
+const barrelAngVel = new THREE.Vector3();
+const barrelRot3 = new THREE.Matrix3();
+const barrelRot4 = new THREE.Matrix4();
+const fluidBarrel = {
+  on: true, pos: barrel.position, vel: barrelVel, angVel: barrelAngVel,
+  half: barrelHalf, rot: barrelRot3,
+};
+const explosionQueue = [];
+const lastBlast = { pos: new THREE.Vector3(), until: -1 };
+
+function dropBarrel() {
+  if (barrelState.active) return;
+  barrelState.active = true;
+  barrelState.age = 0;
+  barrel.position.set((Math.random() - 0.5) * 0.7, 0.95, (Math.random() - 0.5) * 0.7);
+  barrel.rotation.set(Math.random() * 0.5, Math.random() * 6.28, Math.random() * 0.5);
+  barrelVel.set(0, -1.7, 0);
+  barrelAngVel.set(1.1, 0.4, 0.8);
+  barrel.visible = true;
+}
+
+function updateBarrel(dt, t) {
+  fluid.barrel = null;
+  if (!barrelState.active) return;
+  barrelState.age += dt;
+
+  barrelVel.y -= 2.6 * dt;                          // heavier than water
+  barrelVel.multiplyScalar(Math.exp(-dt * 1.1));    // hydrodynamic drag
+  barrel.position.addScaledVector(barrelVel, dt);
+  barrel.position.x = Math.max(-0.8, Math.min(0.8, barrel.position.x));
+  barrel.position.z = Math.max(-0.8, Math.min(0.8, barrel.position.z));
+  barrel.rotation.x += barrelAngVel.x * dt;
+  barrel.rotation.y += barrelAngVel.y * dt;
+  barrel.rotation.z += barrelAngVel.z * dt;
+  barrel.updateMatrixWorld();
+
+  if (barrel.position.y < -0.5 || barrelState.age > 2.2) {
+    // implode, then blow: a suck inward, then a radial+upward blast with a
+    // huge foam release that buoyancy turns into the erupting column
+    barrelState.active = false;
+    barrel.visible = false;
+    const p = barrel.position.clone();
+    explosionQueue.push(
+      { pos: p, vel: -2.0, up: -0.3, foam: 0.0, radius: 0.42 },
+      { pos: p, vel: -1.2, up: 0.0, foam: 0.5, radius: 0.36 },
+      { pos: p, vel: 3.4, up: 2.6, foam: 3.0, radius: 0.36 },
+      { pos: p, vel: 2.2, up: 1.9, foam: 1.7, radius: 0.44 },
+      { pos: p, vel: 1.2, up: 1.2, foam: 0.9, radius: 0.52 },
+    );
+    lastBlast.pos.copy(p);
+    lastBlast.until = t + 1.6;
+    return;
+  }
+
+  barrelRot4.extractRotation(barrel.matrixWorld);
+  barrelRot3.setFromMatrix4(barrelRot4).transpose(); // world -> local
+  fluid.barrel = fluidBarrel;
+}
+
 function frame() {
   requestAnimationFrame(frame);
   resize();
@@ -585,12 +663,23 @@ function frame() {
 
   if (!params.paused) {
     updatePaddle(dt, t);
+    updateBarrel(dt, t);
+    if (!fluid.burst && explosionQueue.length) fluid.burst = explosionQueue.shift();
     timer.begin('sim');
     // wrapped time keeps float hash/noise inputs precise over long sessions
     fluid.step(dt, t % 512);
-    // spinning in place emits too: count blade-tip speed toward respawn rate
-    const effSpeed = Math.max(paddleVel.length(), paddleAngVel.length() * 0.28);
-    particles.step(dt, t % 512, paddle.position, effSpeed);
+    // bubble sparkle follows the action: the sinking barrel, then its blast
+    // site, otherwise the paddle (tip speed counts when spinning in place)
+    let emitter = paddle.position;
+    let effSpeed = Math.max(paddleVel.length(), paddleAngVel.length() * 0.28);
+    if (barrelState.active) {
+      emitter = barrel.position;
+      effSpeed = Math.max(barrelVel.length(), 0.6);
+    } else if (t < lastBlast.until) {
+      emitter = lastBlast.pos;
+      effSpeed = 2.0;
+    }
+    particles.step(dt, t % 512, emitter, effSpeed);
     timer.end();
   }
 
@@ -663,6 +752,7 @@ window.water = {
     paddleTarget.set(x, y, z).clampScalar(-0.66, 0.66);
     lastInteract = clock.elapsedTime;
   },
+  dropBarrel,
   camera(az, el, dist) {
     orbit.az = az; orbit.el = el; orbit.dist = dist;
     updateCamera();

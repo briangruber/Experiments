@@ -75,8 +75,16 @@ export class Fluid {
       uPaddleAngVel: { value: new THREE.Vector3() },
       uPaddleHalf: { value: new THREE.Vector3(0.3, 0.05, 0.2) },
       uPaddleRot: { value: new THREE.Matrix3() },
+      uBarrelOn: { value: 0 },
+      uBarrelPos: { value: new THREE.Vector3() },
+      uBarrelVel: { value: new THREE.Vector3() },
+      uBarrelAngVel: { value: new THREE.Vector3() },
+      uBarrelHalf: { value: new THREE.Vector3(0.13, 0.17, 0.13) },
+      uBarrelRot: { value: new THREE.Matrix3() },
       uBurstPos: { value: new THREE.Vector3() },
       uBurstAmt: { value: 0 },
+      uBurstUp: { value: 0 },
+      uBurstR: { value: 0.18 },
     });
     this.mInject = mat(INJECT_FRAG, {
       uFoam: { value: null },
@@ -88,8 +96,15 @@ export class Fluid {
       uPaddleAngVel: { value: new THREE.Vector3() },
       uPaddleHalf: { value: new THREE.Vector3(0.3, 0.05, 0.2) },
       uPaddleRot: { value: new THREE.Matrix3() },
+      uBarrelOn: { value: 0 },
+      uBarrelPos: { value: new THREE.Vector3() },
+      uBarrelVelW: { value: new THREE.Vector3() },
+      uBarrelAngVel: { value: new THREE.Vector3() },
+      uBarrelHalf: { value: new THREE.Vector3(0.13, 0.17, 0.13) },
+      uBarrelRot: { value: new THREE.Matrix3() },
       uBurstPos: { value: new THREE.Vector3() },
       uBurstFoam: { value: 0 },
+      uBurstR: { value: 0.18 },
     });
     this.mCurl = mat(CURL_FRAG, { uVel: { value: null } });
     this.mConfine = mat(CONFINE_FRAG, {
@@ -110,8 +125,9 @@ export class Fluid {
     });
 
     // one-shot inputs, armed from main and cleared after the step
-    this.burst = null;   // { pos: Vector3(world), vel: number, foam: number }
-    this.paddle = null;  // { pos, vel(world/s), half, rot: Matrix3, on }
+    this.burst = null;   // { pos, vel, up, foam, radius } (world units)
+    this.paddle = null;  // { pos, vel(world/s), angVel, half, rot: Matrix3, on }
+    this.barrel = null;  // same shape as paddle
   }
 
   pass(material, target) {
@@ -149,11 +165,24 @@ export class Fluid {
     } else {
       fu.uPaddleOn.value = 0;
     }
+    if (this.barrel && this.barrel.on) {
+      fu.uBarrelOn.value = 1;
+      fu.uBarrelPos.value.copy(this.barrel.pos);
+      fu.uBarrelVel.value.copy(this.barrel.vel).multiplyScalar(voxPerWorld);
+      fu.uBarrelAngVel.value.copy(this.barrel.angVel);
+      fu.uBarrelHalf.value.copy(this.barrel.half);
+      fu.uBarrelRot.value.copy(this.barrel.rot);
+    } else {
+      fu.uBarrelOn.value = 0;
+    }
     if (this.burst) {
       fu.uBurstPos.value.copy(this.burst.pos);
       fu.uBurstAmt.value = this.burst.vel * voxPerWorld;
+      fu.uBurstUp.value = (this.burst.up ?? 0) * voxPerWorld;
+      fu.uBurstR.value = this.burst.radius ?? 0.18;
     } else {
       fu.uBurstAmt.value = 0;
+      fu.uBurstUp.value = 0;
     }
     this.pass(this.mForces, vel[1]);
     vel.reverse();
@@ -204,9 +233,20 @@ export class Fluid {
     } else {
       iu.uPaddleOn.value = 0;
     }
+    if (this.barrel && this.barrel.on) {
+      iu.uBarrelOn.value = 1;
+      iu.uBarrelPos.value.copy(this.barrel.pos);
+      iu.uBarrelVelW.value.copy(this.barrel.vel);
+      iu.uBarrelAngVel.value.copy(this.barrel.angVel);
+      iu.uBarrelHalf.value.copy(this.barrel.half);
+      iu.uBarrelRot.value.copy(this.barrel.rot);
+    } else {
+      iu.uBarrelOn.value = 0;
+    }
     if (this.burst) {
       iu.uBurstPos.value.copy(this.burst.pos);
       iu.uBurstFoam.value = this.burst.foam;
+      iu.uBurstR.value = this.burst.radius ?? 0.18;
       this.burst = null;
     } else {
       iu.uBurstFoam.value = 0;

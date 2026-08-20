@@ -111,8 +111,16 @@ uniform vec3 uPaddleVel;    // voxels/s
 uniform vec3 uPaddleAngVel; // rad/s, world axes
 uniform vec3 uPaddleHalf;   // world half extents
 uniform mat3 uPaddleRot;    // world -> paddle local
+uniform float uBarrelOn;
+uniform vec3 uBarrelPos;
+uniform vec3 uBarrelVel;    // voxels/s
+uniform vec3 uBarrelAngVel; // rad/s
+uniform vec3 uBarrelHalf;
+uniform mat3 uBarrelRot;
 uniform vec3 uBurstPos;
-uniform float uBurstAmt;   // voxels/s impulse
+uniform float uBurstAmt;   // voxels/s radial impulse (negative = implosion)
+uniform float uBurstUp;    // voxels/s vertical kick
+uniform float uBurstR;     // world-space radius
 void main() {
   ivec3 v = voxelFromFrag();
   if (v.z >= uNi) { gl_FragColor = vec4(0.0); return; }
@@ -130,11 +138,18 @@ void main() {
     vel += (target - vel) * (w * min(uDt * 16.0, 1.0));
   }
 
-  if (uBurstAmt > 0.0) {
+  if (uBarrelOn > 0.5) {
+    float d = sdBox(uBarrelRot * (wp - uBarrelPos), uBarrelHalf);
+    float w = 1.0 - smoothstep(0.0, 0.15, d);
+    vec3 target = uBarrelVel + cross(uBarrelAngVel, wp - uBarrelPos) * (uNf * 0.5);
+    vel += (target - vel) * (w * min(uDt * 16.0, 1.0));
+  }
+
+  if (uBurstAmt != 0.0 || uBurstUp != 0.0) {
     vec3 dp = wp - uBurstPos;
-    float w = exp(-dot(dp, dp) * 30.0);
+    float w = exp(-dot(dp, dp) / (uBurstR * uBurstR));
     vec3 dir = dp / max(length(dp), 1e-4);
-    vel += (dir + vec3(0.0, 0.8, 0.0)) * (uBurstAmt * w);
+    vel += dir * (uBurstAmt * w) + vec3(0.0, uBurstUp * w, 0.0);
   }
 
   float m = length(vel);
@@ -154,8 +169,15 @@ uniform vec3 uPaddleVelW;   // world units/s
 uniform vec3 uPaddleAngVel; // rad/s, world axes
 uniform vec3 uPaddleHalf;
 uniform mat3 uPaddleRot;
+uniform float uBarrelOn;
+uniform vec3 uBarrelPos;
+uniform vec3 uBarrelVelW;   // world units/s
+uniform vec3 uBarrelAngVel;
+uniform vec3 uBarrelHalf;
+uniform mat3 uBarrelRot;
 uniform vec3 uBurstPos;
 uniform float uBurstFoam;
+uniform float uBurstR;
 void main() {
   ivec3 v = voxelFromFrag();
   if (v.z >= uNi) { gl_FragColor = vec4(0.0); return; }
@@ -174,9 +196,21 @@ void main() {
     }
   }
 
+  if (uBarrelOn > 0.5) {
+    // a sinking barrel entrains a bubble wake
+    float speed = min(length(uBarrelVelW + cross(uBarrelAngVel, wp - uBarrelPos)), 3.0);
+    if (speed > 0.02) {
+      float d = sdBox(uBarrelRot * (wp - uBarrelPos), uBarrelHalf);
+      float w = 1.0 - smoothstep(0.0, 0.12, d);
+      float churn = 0.5 + 1.0 * noise3(wp * 16.0 + vec3(0.0, uTime * 2.7, uTime * 1.9));
+      foam += w * uFoamGain * speed * churn * 0.8 * uDt;
+    }
+  }
+
   if (uBurstFoam > 0.0) {
     vec3 dp = wp - uBurstPos;
-    foam += exp(-dot(dp, dp) * 26.0) * uBurstFoam;
+    float w = exp(-dot(dp, dp) / (uBurstR * uBurstR));
+    foam += w * uBurstFoam * (0.6 + 0.8 * noise3(wp * 12.0 + uTime));
   }
 
   gl_FragColor = vec4(min(foam, 4.0), 0.0, 0.0, 0.0);
