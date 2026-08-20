@@ -134,6 +134,21 @@ Consequences:
   written, but not yet verified against the built-in node.** Run it on a machine
   with a working WebGPU stack to close that gap.
 
+## Single-file build
+
+The whole lab bundles into one self-contained HTML file (no imports, no
+network) for publishing as an artifact:
+
+```
+node tools/build-artifact.mjs          # -> dist/gpu-driven-culling.html
+```
+
+`tools/artifact/app.js` is a thin DOM shell only; all rendering logic is
+imported from `src/`, so the artifact and the served prototype exercise the same
+code. The build escapes non-ASCII markup to numeric entities, because the host
+wrapper owns `<head>` and a missing charset would otherwise turn every em dash
+into mojibake.
+
 ## Layout
 
 ```

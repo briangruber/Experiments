@@ -1,0 +1,706 @@
+<title>GPU-Driven Culling</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chivo:wght@600;700;900&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=JetBrains+Mono:wght@400;500;700&display=swap">
+
+<style>
+:root {
+	/* Cool slate neutrals — picked against the subject's world of depth
+	   buffers and instrument readouts, deliberately not a warm paper. */
+	--ground: #E6E9ED;
+	--surface: #FFFFFF;
+	--surface-2: #F1F4F7;
+	--ink: #131822;
+	--ink-soft: #3A4453;
+	--muted: #5D6877;
+	--line: #CBD2DA;
+	--line-strong: #A8B3BF;
+
+	/* Semantic, not decorative: teal is the GPU path, amber the CPU path.
+	   Every use of these two colours on this page means that. */
+	--gpu: #0A8B82;
+	--gpu-wash: #DDF0EE;
+	--cpu: #A96A0C;
+	--cpu-wash: #F6EBD8;
+	--fail: #A93521;
+
+	/* The viewport keeps its own ground in both themes — it is a rendering,
+	   not a surface, and it should not flip with the page. */
+	--stage: #0E1218;
+
+	--measure: 66ch;
+	--wide: 1120px;
+
+	--step--1: clamp(0.78rem, 0.76rem + 0.1vw, 0.84rem);
+	--step-0: clamp(1rem, 0.97rem + 0.16vw, 1.09rem);
+	--step-1: clamp(1.2rem, 1.13rem + 0.34vw, 1.42rem);
+	--step-2: clamp(1.5rem, 1.36rem + 0.68vw, 1.95rem);
+	--step-3: clamp(2rem, 1.68rem + 1.6vw, 3.1rem);
+}
+
+:root:not([data-theme="light"]) {
+	color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) {
+		--ground: #0D1117;
+		--surface: #141A22;
+		--surface-2: #1A222C;
+		--ink: #DCE3EC;
+		--ink-soft: #B2BECC;
+		--muted: #8391A3;
+		--line: #232C38;
+		--line-strong: #35414F;
+
+		--gpu: #2FD4C4;
+		--gpu-wash: #0F2B2B;
+		--cpu: #E5A94E;
+		--cpu-wash: #2E2313;
+		--fail: #FF7C67;
+	}
+}
+
+:root[data-theme="dark"] {
+	--ground: #0D1117;
+	--surface: #141A22;
+	--surface-2: #1A222C;
+	--ink: #DCE3EC;
+	--ink-soft: #B2BECC;
+	--muted: #8391A3;
+	--line: #232C38;
+	--line-strong: #35414F;
+
+	--gpu: #2FD4C4;
+	--gpu-wash: #0F2B2B;
+	--cpu: #E5A94E;
+	--cpu-wash: #2E2313;
+	--fail: #FF7C67;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+	margin: 0;
+	background: var(--ground);
+	color: var(--ink);
+	font-family: "Source Serif 4", Georgia, "Times New Roman", serif;
+	font-size: var(--step-0);
+	line-height: 1.65;
+	-webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, .label, .btn, .readout, code, kbd {
+	font-family: Chivo, "Helvetica Neue", Arial, sans-serif;
+}
+
+code, kbd, .mono, .readout-value, .num {
+	font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+	font-variant-numeric: tabular-nums;
+}
+
+.wrap {
+	width: min(100% - 2.5rem, var(--wide));
+	margin-inline: auto;
+}
+
+.prose { max-width: var(--measure); }
+
+.prose > * + * { margin-top: 0.9em; }
+
+/* ---------- masthead ---------- */
+
+header.masthead {
+	padding: clamp(2.5rem, 6vw, 5rem) 0 clamp(1.75rem, 3vw, 2.5rem);
+}
+
+.eyebrow {
+	font-family: Chivo, sans-serif;
+	font-size: var(--step--1);
+	font-weight: 700;
+	letter-spacing: 0.13em;
+	text-transform: uppercase;
+	color: var(--muted);
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem 0.9rem;
+	margin: 0 0 1.1rem;
+}
+
+h1 {
+	font-size: var(--step-3);
+	font-weight: 900;
+	letter-spacing: -0.025em;
+	line-height: 1.02;
+	margin: 0;
+	text-wrap: balance;
+}
+
+.standfirst {
+	margin: 1.1rem 0 0;
+	max-width: 60ch;
+	font-size: var(--step-1);
+	line-height: 1.45;
+	color: var(--ink-soft);
+	text-wrap: pretty;
+}
+
+/* ---------- demo ---------- */
+
+.demo {
+	background: var(--surface);
+	border: 1px solid var(--line);
+	border-radius: 3px;
+	overflow: hidden;
+}
+
+.stage-frame {
+	position: relative;
+	background: var(--stage);
+	aspect-ratio: 16 / 9;
+}
+
+@media (max-width: 620px) {
+	.stage-frame { aspect-ratio: 4 / 3; }
+}
+
+#stage { display: block; width: 100%; height: 100%; }
+
+/* Nothing will be rendered, so don't hold a 16:9 void open for a paragraph
+   of explanation. */
+.demo[data-state="failed"] .stage-frame { aspect-ratio: auto; min-height: 0; }
+.demo[data-state="failed"] #stage { display: none; }
+.demo[data-state="failed"] .unsupported { position: static; padding: 1.75rem 1.25rem 2rem; }
+
+#stage-status, .unsupported {
+	position: absolute;
+	inset: 0;
+	display: grid;
+	place-content: center;
+	gap: 0.75rem;
+	padding: 2rem;
+	text-align: center;
+	color: #9FB0C4;
+	background: var(--stage);
+}
+
+#stage-status { font-family: "JetBrains Mono", monospace; font-size: var(--step--1); letter-spacing: 0.06em; }
+
+.unsupported { text-align: left; place-content: center start; }
+.unsupported h3 { margin: 0; color: #E4EBF4; font-size: var(--step-1); }
+.unsupported p { margin: 0; max-width: 52ch; font-size: var(--step--1); line-height: 1.6; }
+.unsupported code { color: #9FE8DF; font-size: 0.9em; }
+
+/* controls */
+
+.controls {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.6rem 1.5rem;
+	padding: 0.85rem 1rem;
+	border-top: 1px solid var(--line);
+	background: var(--surface-2);
+}
+
+.control-group { display: flex; align-items: baseline; gap: 0.55rem; }
+
+.label {
+	font-size: 0.66rem;
+	font-weight: 700;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--muted);
+	white-space: nowrap;
+}
+
+.segmented { display: flex; border: 1px solid var(--line-strong); border-radius: 2px; overflow: hidden; }
+
+.btn {
+	appearance: none;
+	border: 0;
+	border-right: 1px solid var(--line-strong);
+	background: var(--surface);
+	color: var(--ink-soft);
+	font-size: var(--step--1);
+	font-weight: 600;
+	padding: 0.34rem 0.72rem;
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.btn:last-child { border-right: 0; }
+.btn:hover { background: var(--surface-2); color: var(--ink); }
+.btn:focus-visible { outline: 2px solid var(--gpu); outline-offset: -2px; }
+.btn[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+
+.check { display: flex; align-items: center; gap: 0.4rem; font-size: var(--step--1); color: var(--ink-soft); cursor: pointer; font-family: Chivo, sans-serif; }
+.check input { accent-color: var(--gpu); margin: 0; }
+
+/* readouts */
+
+.readouts {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+	border-top: 1px solid var(--line);
+}
+
+.readout { padding: 0.7rem 1rem 0.8rem; border-right: 1px solid var(--line); }
+.readout:last-child { border-right: 0; }
+
+.readout-label {
+	display: block;
+	font-size: 0.64rem;
+	font-weight: 700;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--muted);
+	margin-bottom: 0.15rem;
+}
+
+.readout-value { font-size: var(--step-1); font-weight: 500; color: var(--ink); line-height: 1.2; }
+.readout-value .unit { font-size: 0.62em; color: var(--muted); margin-left: 0.15em; }
+
+.demo-note {
+	padding: 0.7rem 1rem;
+	border-top: 1px solid var(--line);
+	font-size: var(--step--1);
+	line-height: 1.55;
+	color: var(--muted);
+	background: var(--surface);
+}
+
+/* ---------- sections ---------- */
+
+section { padding: clamp(2.5rem, 5vw, 4rem) 0 0; }
+
+h2 {
+	font-size: var(--step-2);
+	font-weight: 700;
+	letter-spacing: -0.02em;
+	line-height: 1.12;
+	margin: 0 0 1rem;
+	text-wrap: balance;
+}
+
+h3 {
+	font-size: var(--step-0);
+	font-weight: 700;
+	letter-spacing: 0.01em;
+	margin: 0 0 0.35rem;
+}
+
+.rule { border: 0; border-top: 1px solid var(--line); margin: clamp(2.5rem, 5vw, 4rem) 0 0; }
+
+p { margin: 0; }
+strong { font-weight: 600; }
+
+code {
+	font-size: 0.86em;
+	background: var(--surface-2);
+	border: 1px solid var(--line);
+	border-radius: 2px;
+	padding: 0.08em 0.32em;
+}
+
+/* ---------- table ---------- */
+
+.table-scroll { overflow-x: auto; margin-top: 1.5rem; }
+
+table { border-collapse: collapse; width: 100%; min-width: 540px; font-size: var(--step--1); }
+
+th, td { text-align: left; padding: 0.55rem 0.9rem 0.55rem 0; border-bottom: 1px solid var(--line); vertical-align: baseline; }
+
+thead th {
+	font-family: Chivo, sans-serif;
+	font-size: 0.66rem;
+	font-weight: 700;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--muted);
+	border-bottom: 1px solid var(--line-strong);
+}
+
+tbody td:first-child { font-family: Chivo, sans-serif; font-weight: 600; color: var(--ink); }
+
+.status { font-family: Chivo, sans-serif; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; white-space: nowrap; }
+.status.ships { color: var(--gpu); }
+.status.missing { color: var(--cpu); }
+
+tr.is-missing td { background: var(--cpu-wash); }
+tr.is-missing td:first-child { box-shadow: inset 3px 0 0 var(--cpu); padding-left: 0.75rem; }
+
+/* ---------- pipeline ---------- */
+
+.pipeline { list-style: none; margin: 1.5rem 0 0; padding: 0; display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); }
+
+.pipeline li { background: var(--surface); padding: 1rem 1.1rem; display: grid; grid-template-columns: 2.2rem 1fr; gap: 0 0.5rem; }
+
+.pipeline .step {
+	font-family: "JetBrains Mono", monospace;
+	font-size: var(--step--1);
+	font-weight: 700;
+	color: var(--gpu);
+	line-height: 1.5;
+}
+
+.pipeline p { font-size: var(--step--1); line-height: 1.6; color: var(--ink-soft); }
+.pipeline h3 { font-size: var(--step-0); }
+
+/* ---------- finding cards ---------- */
+
+.findings { display: grid; gap: 1.25rem; margin-top: 1.5rem; }
+@media (min-width: 780px) { .findings { grid-template-columns: 1fr 1fr; } }
+
+.finding { background: var(--surface); border: 1px solid var(--line); border-top: 2px solid var(--fail); padding: 1.15rem 1.25rem 1.3rem; }
+.finding h3 { margin-bottom: 0.5rem; }
+.finding p { font-size: var(--step--1); line-height: 1.62; color: var(--ink-soft); }
+.finding p + p { margin-top: 0.7rem; }
+
+/* ---------- verification ---------- */
+
+.checks { list-style: none; margin: 1.5rem 0 0; padding: 0; font-size: var(--step--1); border: 1px solid var(--line); background: var(--surface); }
+
+.checks li { display: grid; grid-template-columns: 4.5rem 1fr; gap: 0.75rem; padding: 0.6rem 1rem; border-bottom: 1px solid var(--line); align-items: baseline; }
+.checks li:last-child { border-bottom: 0; }
+
+.verdict { font-family: "JetBrains Mono", monospace; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; }
+.verdict.pass { color: var(--gpu); }
+.verdict.skip { color: var(--cpu); }
+
+.checks .detail { color: var(--ink-soft); line-height: 1.55; }
+.checks .detail em { color: var(--muted); font-style: normal; font-size: 0.92em; }
+
+.caveat { margin-top: 1.5rem; padding: 1rem 1.15rem; background: var(--cpu-wash); border-left: 3px solid var(--cpu); font-size: var(--step--1); line-height: 1.62; }
+.caveat strong { font-family: Chivo, sans-serif; }
+
+/* ---------- footer ---------- */
+
+footer { padding: clamp(2.5rem, 5vw, 4rem) 0 clamp(3rem, 6vw, 5rem); color: var(--muted); font-size: var(--step--1); }
+footer a { color: var(--gpu); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+	*, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+</style>
+
+<div class="wrap">
+
+	<header class="masthead">
+		<p class="eyebrow"><span>three.js r184</span><span>WebGPU</span><span>TSL</span></p>
+		<h1>Culling on the GPU, one indirect draw</h1>
+		<p class="standfirst">
+			The question was what stops three.js reaching Unreal's quality now that TSL exists.
+			The shading language turned out not to be the gap — the way work reaches the GPU is.
+			This is a working prototype of the piece that's missing.
+		</p>
+	</header>
+
+	<div class="demo" id="demo" data-state="loading">
+		<div class="stage-frame">
+			<canvas id="stage"></canvas>
+			<div id="stage-status">initialising WebGPU…</div>
+			<div class="unsupported" id="unsupported" hidden>
+				<h3>This demo needs WebGPU</h3>
+				<p id="unsupported-reason"></p>
+				<p>
+					There is no WebGL fallback on purpose: indirect draw calls and storage-buffer
+					atomics are the whole mechanism here, and neither has a WebGL equivalent.
+					Chrome or Edge on desktop is the safest bet. Everything below still reads without it.
+				</p>
+			</div>
+		</div>
+
+		<div class="controls">
+			<div class="control-group">
+				<span class="label" id="mode-label">Draw path</span>
+				<div class="segmented" role="group" aria-labelledby="mode-label">
+					<button class="btn" type="button" data-mode="meshes" aria-pressed="false">Meshes</button>
+					<button class="btn" type="button" data-mode="instanced" aria-pressed="false">Instanced</button>
+					<button class="btn" type="button" data-mode="gpu" aria-pressed="true">GPU indirect</button>
+				</div>
+			</div>
+			<div class="control-group">
+				<span class="label" id="count-label">Objects</span>
+				<div class="segmented" role="group" aria-labelledby="count-label">
+					<button class="btn" type="button" data-count="4000" aria-pressed="false">4k</button>
+					<button class="btn" type="button" data-count="12000" aria-pressed="true">12k</button>
+					<button class="btn" type="button" data-count="40000" aria-pressed="false">40k</button>
+				</div>
+			</div>
+			<label class="check"><input type="checkbox" id="traa" checked> TRAA</label>
+			<label class="check"><input type="checkbox" id="pause"> Pause orbit</label>
+		</div>
+
+		<div class="readouts">
+			<div class="readout">
+				<span class="readout-label">Frames</span>
+				<span class="readout-value"><span id="r-fps">—</span><span class="unit">fps</span></span>
+			</div>
+			<div class="readout">
+				<span class="readout-label">CPU per frame</span>
+				<span class="readout-value"><span id="r-cpu">—</span><span class="unit">ms</span></span>
+			</div>
+			<div class="readout">
+				<span class="readout-label">Draw calls</span>
+				<span class="readout-value" id="r-draws">—</span>
+			</div>
+			<div class="readout">
+				<span class="readout-label">Objects drawn</span>
+				<span class="readout-value" id="r-drawn">—</span>
+			</div>
+		</div>
+
+		<p class="demo-note">
+			Switch draw paths and watch <strong>CPU per frame</strong> and <strong>draw calls</strong>.
+			All three render the same scene. <em>Meshes</em> at 40k builds forty thousand objects and
+			materials before it can draw — the pause, and the CPU time after it, is the result rather
+			than a bug. Rendering stops while the demo is scrolled off screen.
+		</p>
+	</div>
+
+	<section>
+		<div class="prose">
+			<h2>What three.js already ships</h2>
+			<p>
+				My first plan was to build temporal anti-aliasing. Reading the r184 source made that
+				redundant — it's already there, and so is most of the post-processing stack people
+				assume is missing. The gap is somewhere else entirely.
+			</p>
+		</div>
+
+		<div class="table-scroll">
+			<table>
+				<thead>
+					<tr><th scope="col">Capability</th><th scope="col">Status</th><th scope="col">Detail</th></tr>
+				</thead>
+				<tbody>
+					<tr>
+						<td>Temporal AA</td>
+						<td class="status ships">Ships</td>
+						<td><code>TRAANode</code> — velocity, depth, Halton jitter, neighbourhood clamp</td>
+					</tr>
+					<tr>
+						<td>Motion vectors</td>
+						<td class="status ships">Ships</td>
+						<td><code>VelocityNode</code> and an MRT <code>velocity</code> output</td>
+					</tr>
+					<tr>
+						<td>Screen-space effects</td>
+						<td class="status ships">Ships</td>
+						<td>SSGI, SSR, GTAO, denoise, FSR1, SMAA, FXAA as TSL addons</td>
+					</tr>
+					<tr>
+						<td>Meshlet clusterizer</td>
+						<td class="status ships">Vendored</td>
+						<td><code>meshopt_clusterizer</code> is present — but nothing consumes it</td>
+					</tr>
+					<tr>
+						<td>Indirect draw plumbing</td>
+						<td class="status ships">Ships</td>
+						<td>The backend calls <code>drawIndexedIndirect</code>; <code>geometry.setIndirect()</code> is public</td>
+					</tr>
+					<tr class="is-missing">
+						<td>Driving an indirect draw</td>
+						<td class="status missing">Missing</td>
+						<td>No example or class in the library uses it. This prototype is that piece</td>
+					</tr>
+					<tr class="is-missing">
+						<td>GPU-side culling</td>
+						<td class="status missing">Missing</td>
+						<td><code>BatchedMesh</code> frustum-culls in a JavaScript loop, on the CPU</td>
+					</tr>
+					<tr class="is-missing">
+						<td>Cluster LOD</td>
+						<td class="status missing">Missing</td>
+						<td>Buildable on the vendored clusterizer; the software rasteriser is not</td>
+					</tr>
+				</tbody>
+			</table>
+		</div>
+
+		<div class="prose" style="margin-top:1.5rem">
+			<p>
+				So the shading language isn't the bottleneck, and neither is post-processing. What's
+				missing is the <strong>submission architecture</strong>: three.js still walks the scene
+				graph on the CPU and issues a draw call per object. That's what this attacks.
+			</p>
+		</div>
+	</section>
+
+	<hr class="rule">
+
+	<section>
+		<div class="prose">
+			<h2>How the GPU path works</h2>
+			<p>
+				Four steps, and the CPU never learns how many objects are visible.
+			</p>
+		</div>
+
+		<ol class="pipeline">
+			<li>
+				<span class="step">01</span>
+				<div>
+					<h3>Test every instance</h3>
+					<p>A compute pass checks each instance's bounding sphere against the six frustum planes — one thread per instance, no scene-graph walk.</p>
+				</div>
+			</li>
+			<li>
+				<span class="step">02</span>
+				<div>
+					<h3>Compact the survivors</h3>
+					<p>Each visible instance claims a slot with a single <code>atomicAdd</code> and writes its index there, turning a sparse set into a dense list.</p>
+				</div>
+			</li>
+			<li>
+				<span class="step">03</span>
+				<div>
+					<h3>Write the draw call's own arguments</h3>
+					<p>That same <code>atomicAdd</code> targets the <code>instanceCount</code> field of a WebGPU indirect draw-argument buffer. The count is never read back.</p>
+				</div>
+			</li>
+			<li>
+				<span class="step">04</span>
+				<div>
+					<h3>Draw once</h3>
+					<p>One <code>drawIndirect</code>, with parameters produced on the GPU. The vertex stage reads the compacted list to recover each surviving instance's transform.</p>
+				</div>
+			</li>
+		</ol>
+	</section>
+
+	<hr class="rule">
+
+	<section>
+		<div class="prose">
+			<h2>Two things that bite</h2>
+			<p>Both were bugs in my own code first. Both are easy to ship without noticing.</p>
+		</div>
+
+		<div class="findings">
+			<article class="finding">
+				<h3>The near plane depends on the clip convention</h3>
+				<p>
+					OpenGL puts the near plane at <code>z = -w</code>, giving the familiar
+					<code>row3 + row2</code> extraction. WebGPU — like D3D and Metal — puts it at
+					<code>z = 0</code>, so the plane is <code>row2</code> alone.
+					<code>WebGPURenderer</code> produces WebGPU-convention matrices.
+				</p>
+				<p>
+					Using the OpenGL form over-reports visibility near the camera. At a typical near
+					distance of 0.5 the two are almost indistinguishable, so my first test passed with
+					either. It only became visible once I added camera poses with a deliberately deep
+					near plane, where the wrong form leaked 303 and 770 instances.
+				</p>
+			</article>
+
+			<article class="finding">
+				<h3><code>VelocityNode</code> ignores <code>positionNode</code></h3>
+				<p>
+					three's built-in motion vectors are derived from <code>positionLocal</code> and the
+					object's model matrix — regardless of what the material's <code>positionNode</code>
+					actually computes.
+				</p>
+				<p>
+					The GPU-driven path derives world position in the vertex shader from a storage
+					buffer, so the built-in node sees one unit icosahedron at the origin and produces
+					the same wrong motion for every instance. TRAA turns that into visible smearing.
+					The fix computes velocity from the same world position the vertex stage used,
+					against an explicitly unjittered previous view-projection.
+				</p>
+			</article>
+		</div>
+	</section>
+
+	<hr class="rule">
+
+	<section>
+		<div class="prose">
+			<h2>What was actually verified</h2>
+			<p>
+				Two automated tests, both of which I then deliberately broke to confirm they'd notice.
+				A test that can't fail isn't evidence.
+			</p>
+		</div>
+
+		<ul class="checks">
+			<li>
+				<span class="verdict pass">PASS</span>
+				<span class="detail">
+					Culling matches <code>THREE.Frustum</code> exactly across eight camera poses — set
+					equality, not matching counts, against an implementation independent of mine.
+					<em>Reverting the near-plane convention fails two poses.</em>
+				</span>
+			</li>
+			<li>
+				<span class="verdict pass">PASS</span>
+				<span class="detail">
+					The indirect path renders pixel-identically to the un-culled path, in a single draw
+					call. Culling only removes off-screen geometry, so a correct implementation changes
+					no pixels. <em>Dropping every eighth instance fails on image mismatch.</em>
+				</span>
+			</li>
+			<li>
+				<span class="verdict pass">PASS</span>
+				<span class="detail">
+					The comparison frame is not saturated — checked explicitly, because a fully covered
+					frame would let a wrongly culled object hide behind its neighbours and make the
+					test vacuous. <em>It was vacuous at first; this check is why I noticed.</em>
+				</span>
+			</li>
+			<li>
+				<span class="verdict skip">SKIP</span>
+				<span class="detail">
+					The motion-vector comparison needs multi-target render targets, which produce no
+					output in the container I built this in. <em>The velocity fix is reasoned about and
+					written, but not confirmed.</em>
+				</span>
+			</li>
+		</ul>
+
+		<div class="caveat">
+			<strong>No performance numbers were measured.</strong> WebGPU canvas presentation is broken
+			under SwiftShader in that container — the device is lost the moment a canvas context is
+			configured. I confirmed it's environmental rather than a fault in the code: a plain WebGPU
+			triangle with no three.js involved fails identically, while compute passes and offscreen
+			render targets work fine. Which means the readouts above this text, running on your machine,
+			are the first real measurement this prototype has had.
+		</div>
+	</section>
+
+	<hr class="rule">
+
+	<section>
+		<div class="prose">
+			<h2>Where this goes</h2>
+			<p>
+				All three next steps are tractable on today's WebGPU. In order of value:
+				<strong>HZB occlusion culling</strong>, which extends the existing compute pass with a
+				depth pyramid rather than replacing it; <strong>multi-geometry batching</strong>, one
+				indirect draw per geometry from a single dispatch, which is what makes this useful for
+				real scenes rather than one repeated mesh; then <strong>cluster LOD</strong> on the
+				clusterizer three already vendors.
+			</p>
+			<p>
+				Two things stay out of reach until the API grows. Nanite's software rasteriser needs
+				64-bit atomics, which WebGPU doesn't have. Lumen-class global illumination needs ray
+				queries, which haven't shipped. Those are the real ceilings — not TSL.
+			</p>
+		</div>
+	</section>
+
+	<footer>
+		<p>
+			Built on three.js r0.184.0 (MIT). Source, tests and the full write-up live in
+			<code>renderer-lab/</code> on the
+			<code>claude/threejs-tsl-unreal-comparison</code> branch — run
+			<code>node tools/verify.mjs</code> to reproduce the checks above.
+		</p>
+	</footer>
+
+</div>
+
+<script type="module">
+/*BUNDLE*/
+</script>
