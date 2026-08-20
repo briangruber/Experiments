@@ -19,7 +19,7 @@ async function loadEsbuild() {
 	const candidates = [
 		'esbuild',
 		process.env.ESBUILD_PATH,
-		'/tmp/claude-0/-home-user-Experiments/15183aac-51eb-5780-aa6d-84c4fc8a63bb/scratchpad/node_modules/esbuild/lib/main.js',
+		resolve( ROOT, 'node_modules/esbuild/lib/main.js' ),
 	].filter( Boolean );
 
 	for ( const candidate of candidates ) {
