@@ -1,0 +1,206 @@
+<meta charset="utf-8">
+<title>renderer-lab — spectator capture</title>
+<script type="importmap">
+{
+  "imports": {
+    "three/webgpu": "../vendor/three/three.webgpu.min.js",
+    "three/tsl": "../vendor/three/three.tsl.min.js"
+  }
+}
+</script>
+<pre id="log">running…</pre>
+<script type="module">
+// Renders the culling demonstration offscreen and hands back PNGs.
+//
+// Two views matter here. The *shot camera* is what we render from — parked
+// above and behind the scene. The *cull camera* is what the culler tests
+// against, drawn as a wireframe outline. Because they are different cameras,
+// the effect of culling becomes visible: objects outside the outline stop being
+// drawn, which is impossible to see when you render from the same camera you
+// cull against.
+//
+// Everything goes to a RenderTarget and comes back as pixels, so this runs
+// where WebGPU canvas presentation does not.
+
+import {
+	Scene,
+	PerspectiveCamera,
+	WebGPURenderer,
+	RenderTarget,
+	DirectionalLight,
+	HemisphereLight,
+	Color,
+	Vector3,
+	GridHelper,
+} from 'three/webgpu';
+
+import { generateInstances, createGeometry, buildGPUMode } from '../src/scene/stressScene.js';
+import { createFrustumOutline } from '../src/scene/frustumOutline.js';
+
+const results = { ok: false, shots: {}, errors: [], log: [] };
+globalThis.__capture = results;
+
+const log = ( message ) => {
+
+	document.getElementById( 'log' ).textContent += '\n' + message;
+	results.log.push( message );
+
+};
+
+// WebGPU requires a texture-to-buffer copy's bytesPerRow to be a multiple of
+// 256, so the readback pads each row unless width * 4 already satisfies that.
+// A padded row read back as if it were tight shears the whole image. 1152 * 4
+// is 4608 = 256 * 18, so nothing is padded and no de-striding is needed.
+const WIDTH = 1152;
+const HEIGHT = 648;
+
+try {
+
+	const renderer = new WebGPURenderer( { antialias: false } );
+	await renderer.init();
+
+	const target = new RenderTarget( WIDTH, HEIGHT );
+
+	const scene = new Scene();
+	scene.background = new Color( 0x0e1218 );
+	scene.add( new DirectionalLight( 0xfff4e6, 3.1 ).translateX( 80 ).translateY( 140 ).translateZ( 90 ) );
+	scene.add( new HemisphereLight( 0xa8c8ff, 0x2a1e10, 1.7 ) );
+
+	// A ground grid anchors the view. Without it the cloud floats and the
+	// frustum has nothing to sit against.
+	const grid = new GridHelper( 460, 23, 0x33414f, 0x1e2732 );
+	grid.position.y = - 34;
+	scene.add( grid );
+
+	// The camera being culled against. A far plane of 420 sits inside the
+	// instance cloud, so the far plane does real work rather than enclosing
+	// everything.
+	const cullCamera = new PerspectiveCamera( 42, 16 / 9, 0.5, 250 );
+	cullCamera.position.set( 118, 14, 118 );
+	cullCamera.lookAt( new Vector3( - 60, 0, - 60 ) );
+	cullCamera.updateMatrixWorld();
+	scene.add( cullCamera );
+
+	const outline = createFrustumOutline( cullCamera );
+	outline.update();
+
+	// The camera we photograph from — high, wide, and looking at the whole slab.
+	const shotCamera = new PerspectiveCamera( 46, WIDTH / HEIGHT, 1, 3000 );
+	shotCamera.position.set( 30, 250, 330 );
+	shotCamera.lookAt( new Vector3( 0, - 6, 0 ) );
+	shotCamera.updateMatrixWorld();
+
+	// Fewer, larger objects in a tighter slab. The point of these frames is to
+	// read the shape of what survives, and at the stress-test scale every
+	// instance is a single dark pixel.
+	const COUNT = 2600;
+	const instances = generateInstances( COUNT, 150, 2.6 );
+	const geometry = createGeometry();
+	const mode = buildGPUMode( scene, geometry, instances, renderer );
+
+	// --- confirm the drawn outline is the volume actually being tested ------
+	//
+	// The wireframe is built from the camera's fov/near/far; the culler builds
+	// planes from the projection matrix. If those two ever disagree the picture
+	// becomes a lie, so check that all eight corners lie inside all six planes.
+	mode.culler.updateFrustum( cullCamera );
+
+	const corners = outline.getWorldCorners();
+	const PLANE_NAMES = [ 'left', 'right', 'bottom', 'top', 'near', 'far' ];
+	let worstDistance = Infinity;
+
+	for ( let i = 0; i < 6; i ++ ) {
+
+		const plane = mode.culler.planes.array[ i ];
+		let planeWorst = Infinity;
+
+		for ( const corner of corners ) {
+
+			const distance = plane.x * corner.x + plane.y * corner.y + plane.z * corner.z + plane.w;
+			planeWorst = Math.min( planeWorst, distance );
+
+		}
+
+		log( `  plane ${ PLANE_NAMES[ i ].padEnd( 6 ) } worst corner distance ${ planeWorst.toFixed( 4 ) }` );
+		worstDistance = Math.min( worstDistance, planeWorst );
+
+	}
+
+	// Scale-relative tolerance: the far plane is hundreds of units out, so
+	// float error there is not measured in thousandths.
+	const cornersAgree = worstDistance > - 0.05;
+	log( `frustum outline vs cull planes: worst corner distance ${ worstDistance.toFixed( 4 ) } (${ cornersAgree ? 'agree' : 'DISAGREE' })` );
+
+	// --- capture ------------------------------------------------------------
+
+	const encoder = document.createElement( 'canvas' );
+	encoder.width = WIDTH;
+	encoder.height = HEIGHT;
+	const context = encoder.getContext( '2d' );
+
+	async function shoot( label, cullEnabled ) {
+
+		mode.culler.setEnabled( cullEnabled );
+		await mode.prepare( cullCamera );
+
+		renderer.setRenderTarget( target );
+		await renderer.renderAsync( scene, shotCamera );
+		renderer.setRenderTarget( null );
+
+		const args = await renderer.getArrayBufferAsync( mode.culler.drawArgsAttr );
+		const drawn = new Uint32Array( args )[ 1 ];
+
+		const pixels = await renderer.readRenderTargetPixelsAsync( target, 0, 0, WIDTH, HEIGHT );
+		const image = context.createImageData( WIDTH, HEIGHT );
+
+		// Render target rows come back bottom-up; PNG wants top-down.
+		for ( let y = 0; y < HEIGHT; y ++ ) {
+
+			const source = ( HEIGHT - 1 - y ) * WIDTH * 4;
+			const destination = y * WIDTH * 4;
+
+			for ( let x = 0; x < WIDTH * 4; x ++ ) {
+
+				image.data[ destination + x ] = pixels[ source + x ];
+
+			}
+
+		}
+
+		context.putImageData( image, 0, 0 );
+
+		results.shots[ label ] = {
+			png: encoder.toDataURL( 'image/png' ),
+			drawn,
+		};
+
+		log( `${ label }: ${ drawn } of ${ COUNT } instances drawn` );
+
+		return drawn;
+
+	}
+
+	const withoutCulling = await shoot( 'before', false );
+	const withCulling = await shoot( 'after', true );
+
+	const checks = [
+		{ name: 'outline matches the culled volume', pass: cornersAgree },
+		{ name: 'culling off draws everything', pass: withoutCulling === COUNT },
+		{ name: 'culling on draws a strict subset', pass: withCulling > 0 && withCulling < COUNT },
+		{ name: 'the difference is large enough to see', pass: withCulling < COUNT * 0.75 },
+	];
+
+	for ( const check of checks ) log( `${ check.pass ? 'PASS' : 'FAIL' }  ${ check.name }` );
+
+	results.counts = { total: COUNT, before: withoutCulling, after: withCulling };
+	results.ok = checks.every( ( c ) => c.pass );
+
+} catch ( error ) {
+
+	results.errors.push( String( error && error.stack || error ) );
+	log( 'ERROR ' + String( error && error.message || error ) );
+
+}
+
+results.done = true;
+</script>

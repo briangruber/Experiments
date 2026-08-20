@@ -28,6 +28,7 @@ import {
 	Matrix4,
 	Vector3,
 	WebGPUCoordinateSystem,
+	WebGLCoordinateSystem,
 } from 'three/webgpu';
 
 import { GPUCuller } from '../src/culling/GPUCuller.js';
@@ -94,11 +95,29 @@ try {
 
 	let allMatched = true;
 
+	// Sweep both clip conventions.
+	//
+	// This is not hypothetical tidiness. `Camera.coordinateSystem` starts as
+	// WebGL for every camera and the renderer flips it to WebGPU on that
+	// camera's first render, so a long-lived camera is genuinely seen in both
+	// states. An earlier version of this file hardcoded WebGPUCoordinateSystem
+	// in the reference below, which meant the test and the code under test
+	// shared the same wrong assumption and agreed with each other while both
+	// were wrong. Driving the flag explicitly is what closes that hole.
+	const conventions = [
+		{ name: 'webgl', system: WebGLCoordinateSystem },
+		{ name: 'webgpu', system: WebGPUCoordinateSystem },
+	];
+
+	for ( const convention of conventions ) {
+
+	camera.coordinateSystem = convention.system;
+
 	for ( const pose of poses ) {
 
 		camera.near = pose.near ?? 0.5;
 		camera.far = pose.far ?? 900;
-		camera.updateProjectionMatrix();
+		camera.updateProjectionMatrix(); // rebuilds under the active convention
 
 		camera.position.set( ...pose.position );
 		camera.lookAt( new Vector3( ...pose.target ) );
@@ -115,7 +134,8 @@ try {
 
 		// --- CPU reference, using three's own frustum code
 		_projScreen.multiplyMatrices( camera.projectionMatrix, camera.matrixWorldInverse );
-		_frustum.setFromProjectionMatrix( _projScreen, WebGPUCoordinateSystem );
+		// Reference follows the camera's own flag rather than a hardcoded one.
+		_frustum.setFromProjectionMatrix( _projScreen, camera.coordinateSystem );
 
 		const cpuIndices = new Set();
 
@@ -140,7 +160,7 @@ try {
 		if ( matched === false ) allMatched = false;
 
 		const record = {
-			pose: pose.name,
+			pose: `${ convention.name }/${ pose.name }`,
 			gpuCount,
 			cpuCount: cpuIndices.size,
 			missing: missing.length,
@@ -149,7 +169,9 @@ try {
 		};
 
 		results.cases.push( record );
-		log( `${ matched ? 'PASS' : 'FAIL' }  ${ pose.name.padEnd( 16 ) } gpu=${ gpuCount } cpu=${ cpuIndices.size } missing=${ missing.length } extra=${ extra.length }` );
+		log( `${ matched ? 'PASS' : 'FAIL' }  ${ record.pose.padEnd( 24 ) } gpu=${ gpuCount } cpu=${ cpuIndices.size } missing=${ missing.length } extra=${ extra.length }` );
+
+	}
 
 	}
 

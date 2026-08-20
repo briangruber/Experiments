@@ -71,6 +71,19 @@ if ( bundle.includes( '</script' ) ) {
 
 const template = await readFile( resolve( ROOT, 'tools/artifact/page.html' ), 'utf8' );
 
+// Inline the captured frames as data URIs. They are build inputs living in
+// tools/artifact/assets/, not scratch output — shots/ is gitignored, and the
+// page must not depend on a file that may not exist.
+const images = {};
+
+for ( const name of [ 'spectator-before', 'spectator-after' ] ) {
+
+	const bytes = await readFile( resolve( ROOT, `tools/artifact/assets/${ name }.png` ) );
+	images[ name ] = `data:image/png;base64,${ bytes.toString( 'base64' ) }`;
+
+}
+
+
 if ( template.includes( '/*BUNDLE*/' ) === false ) {
 
 	throw new Error( 'page.html is missing the /*BUNDLE*/ marker' );
@@ -82,7 +95,17 @@ if ( template.includes( '/*BUNDLE*/' ) === false ) {
 // precedes our content; if the document is decoded as anything but UTF-8, every
 // em dash becomes mojibake. Pure-ASCII markup is immune either way. esbuild
 // already emits ASCII-only JS, so the bundle needs no such treatment.
-const asciiTemplate = template.replace(
+const withImages = template.replace(
+	/\{\{IMG:([a-z-]+)\}\}/g,
+	( match, name ) => {
+
+		if ( images[ name ] === undefined ) throw new Error( `unknown image placeholder: ${ name }` );
+		return images[ name ];
+
+	}
+);
+
+const asciiTemplate = withImages.replace(
 	/[\u0080-\uFFFF]/g,
 	( character ) => `&#${ character.codePointAt( 0 ) };`
 );

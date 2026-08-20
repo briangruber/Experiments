@@ -49,7 +49,7 @@ function makeRandom( seed = 1337 ) {
 /**
  * Generates the instance data shared by all three modes.
  */
-export function generateInstances( count, extent = 260 ) {
+export function generateInstances( count, extent = 260, scale = 1 ) {
 
 	const random = makeRandom();
 	const transforms = new Float32Array( count * 4 );
@@ -64,7 +64,7 @@ export function generateInstances( count, extent = 260 ) {
 		transforms[ i * 4 + 0 ] = ( random() - 0.5 ) * extent * 2;
 		transforms[ i * 4 + 1 ] = ( random() - 0.5 ) * extent * 0.35;
 		transforms[ i * 4 + 2 ] = ( random() - 0.5 ) * extent * 2;
-		transforms[ i * 4 + 3 ] = 0.5 + random() * 1.6;
+		transforms[ i * 4 + 3 ] = ( 0.5 + random() * 1.6 ) * scale;
 
 		_colour.setHSL( 0.55 + random() * 0.22, 0.45 + random() * 0.3, 0.45 + random() * 0.2 );
 		colors[ i * 3 + 0 ] = _colour.r;

@@ -15,12 +15,13 @@
 import {
 	IndirectStorageBufferAttribute,
 	StorageBufferAttribute,
+	WebGPUCoordinateSystem,
 	Vector4,
 	Matrix4,
 } from 'three/webgpu';
 
 import {
-	Fn, If, storage, instanceIndex, atomicAdd, atomicStore, uniformArray, uint,
+	Fn, If, storage, instanceIndex, atomicAdd, atomicStore, uniformArray, uniform, uint,
 } from 'three/tsl';
 
 // WebGPU indirect draw-argument layouts. Both put the instance count in slot 1,
@@ -97,6 +98,12 @@ export class GPUCuller {
 		// there is no conflict.
 		this.drawArgsBuffer = storage( this.drawArgsAttr, 'uint', stride ).toAtomic();
 
+		// Lets the cull test be switched off without changing the draw path:
+		// the render still goes through drawIndirect, only the visibility test
+		// stops rejecting anything. That keeps an A/B honest — it compares
+		// culling against no culling, not two different renderers.
+		this.enabled = uniform( 1, 'uint' );
+
 		// Six frustum planes in world space, as vec4(nx, ny, nz, d).
 		this.planes = uniformArray( [
 			new Vector4(), new Vector4(), new Vector4(),
@@ -144,6 +151,12 @@ export class GPUCuller {
 
 			}
 
+			If( this.enabled.equal( uint( 0 ) ), () => {
+
+				visible.assign( uint( 1 ) );
+
+			} );
+
 			If( visible.equal( uint( 1 ) ), () => {
 
 				// atomicAdd returns the pre-increment value, which is exactly
@@ -170,20 +183,31 @@ export class GPUCuller {
 
 		const m = _projScreen.elements;
 
-		// Gribb–Hartmann plane extraction. three.js stores matrices column-major,
+		// Gribb-Hartmann plane extraction. three.js stores matrices column-major,
 		// so row i is elements[i], [i+4], [i+8], [i+12].
 		//
-		// The near plane is convention-dependent and this is easy to get wrong:
-		// OpenGL clip space puts near at z = -w, giving `row3 + row2`, but WebGPU
-		// (like D3D and Metal) puts near at z = 0, so the near plane is `row2`
-		// alone. WebGPURenderer produces WebGPU-convention projection matrices,
-		// so using the GL form here silently culls geometry near the camera.
+		// The near plane differs between clip conventions, and which one applies
+		// here is not a constant — it is a property of the camera's *current
+		// state*. `Camera.coordinateSystem` starts out as WebGLCoordinateSystem
+		// for every camera, and `Renderer.render()` flips it to
+		// WebGPUCoordinateSystem (rebuilding the projection matrix) the first
+		// time that camera is rendered. So the same camera yields an OpenGL-form
+		// projection matrix before its first render and a WebGPU-form one after.
+		//
+		// Hardcoding either form gives a near plane that is wrong by roughly the
+		// near distance in the other state. Read the flag instead.
+		const isWebGPU = camera.coordinateSystem === WebGPUCoordinateSystem;
+
+		const near = isWebGPU
+			? [ m[ 2 ], m[ 6 ], m[ 10 ], m[ 14 ] ]                                  // z from 0 at near
+			: [ m[ 3 ] + m[ 2 ], m[ 7 ] + m[ 6 ], m[ 11 ] + m[ 10 ], m[ 15 ] + m[ 14 ] ]; // z from -1 at near
+
 		const rows = [
 			[ m[ 3 ] + m[ 0 ], m[ 7 ] + m[ 4 ], m[ 11 ] + m[ 8 ], m[ 15 ] + m[ 12 ] ], // left
 			[ m[ 3 ] - m[ 0 ], m[ 7 ] - m[ 4 ], m[ 11 ] - m[ 8 ], m[ 15 ] - m[ 12 ] ], // right
 			[ m[ 3 ] + m[ 1 ], m[ 7 ] + m[ 5 ], m[ 11 ] + m[ 9 ], m[ 15 ] + m[ 13 ] ], // bottom
 			[ m[ 3 ] - m[ 1 ], m[ 7 ] - m[ 5 ], m[ 11 ] - m[ 9 ], m[ 15 ] - m[ 13 ] ], // top
-			[ m[ 2 ], m[ 6 ], m[ 10 ], m[ 14 ] ], // near (WebGPU zero-to-one depth)
+			near,
 			[ m[ 3 ] - m[ 2 ], m[ 7 ] - m[ 6 ], m[ 11 ] - m[ 10 ], m[ 15 ] - m[ 14 ] ], // far
 		];
 
@@ -243,6 +267,16 @@ export class GPUCuller {
 	attachTo( geometry ) {
 
 		geometry.setIndirect( this.drawArgsAttr );
+
+	}
+
+	/**
+	 * Turns the frustum test on or off. The indirect draw path is unchanged
+	 * either way.
+	 */
+	setEnabled( value ) {
+
+		this.enabled.value = value ? 1 : 0;
 
 	}
 

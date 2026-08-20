@@ -145,6 +145,84 @@ h1 {
 	text-wrap: pretty;
 }
 
+/* ---------- before/after wipe ---------- */
+
+.compare {
+	border: 1px solid var(--line);
+	border-radius: 3px;
+	overflow: hidden;
+	background: var(--surface);
+}
+
+.wipe {
+	--wipe: 50%;
+	position: relative;
+	aspect-ratio: 1152 / 648;
+	background: #000;
+	overflow: hidden;
+	cursor: ew-resize;
+	touch-action: none;
+}
+
+.wipe img {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	display: block;
+	user-select: none;
+	-webkit-user-drag: none;
+}
+
+/* The un-culled frame is revealed to the left of the handle. */
+.wipe .before { clip-path: inset(0 calc(100% - var(--wipe)) 0 0); }
+
+.wipe .handle {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	left: var(--wipe);
+	width: 2px;
+	margin-left: -1px;
+	background: var(--gpu);
+	pointer-events: none;
+}
+
+.wipe .handle::after {
+	content: "";
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	width: 34px;
+	height: 34px;
+	transform: translate(-50%, -50%);
+	border: 2px solid var(--gpu);
+	border-radius: 50%;
+	background: rgba(8, 14, 20, 0.55);
+}
+
+.wipe figcaption {
+	position: absolute;
+	top: 0.75rem;
+	font-family: Chivo, sans-serif;
+	font-size: 0.68rem;
+	font-weight: 700;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	padding: 0.3rem 0.6rem;
+	border-radius: 2px;
+	background: rgba(8, 14, 20, 0.72);
+	pointer-events: none;
+	white-space: nowrap;
+}
+
+.wipe .tag-before { left: 0.85rem; color: #E5A94E; }
+.wipe .tag-after { right: 0.85rem; color: #2FD4C4; }
+
+.wipe-control { display: flex; align-items: center; gap: 0.8rem; padding: 0.75rem 1rem; border-top: 1px solid var(--line); background: var(--surface-2); }
+.wipe-control input { flex: 1; accent-color: var(--gpu); }
+.wipe-control input:focus-visible { outline: 2px solid var(--gpu); outline-offset: 3px; }
+
 /* ---------- demo ---------- */
 
 .demo {
@@ -396,7 +474,28 @@ footer a { color: var(--gpu); text-decoration-thickness: 1px; text-underline-off
 		</p>
 	</header>
 
-	<div class="demo" id="demo" data-state="loading">
+	<figure class="compare" style="margin:0">
+		<div class="wipe" id="wipe">
+			<img class="after" src="{{IMG:spectator-after}}" alt="The same scene with GPU culling on: only the objects inside the camera's frustum outline remain.">
+			<img class="before" src="{{IMG:spectator-before}}" alt="A cloud of 2,600 objects with culling off, spilling well beyond the wireframe frustum.">
+			<figcaption class="tag-before">Culling off &middot; 2,600 drawn</figcaption>
+			<figcaption class="tag-after">Culling on &middot; 1,233 drawn</figcaption>
+			<div class="handle"></div>
+		</div>
+		<div class="wipe-control">
+			<span class="label">Drag</span>
+			<input type="range" id="wipe-range" min="0" max="100" value="50" aria-label="Wipe between culling off and culling on">
+		</div>
+		<p class="demo-note" style="border-top:1px solid var(--line)">
+			Both frames are rendered from a camera parked above the scene, while the culler tests
+			against a <em>different</em> camera &mdash; the teal wireframe. That separation is the only
+			reason there is anything to see: rendered from the camera being culled against, the two
+			frames would be pixel-identical, because correct culling only ever removes objects that
+			were off screen anyway. Slightly over half the cloud survives here.
+		</p>
+	</figure>
+
+	<div class="demo" id="demo" data-state="loading" style="margin-top:2rem">
 		<div class="stage-frame">
 			<canvas id="stage"></canvas>
 			<div id="stage-status">initialising WebGPU…</div>
@@ -574,24 +673,45 @@ footer a { color: var(--gpu); text-decoration-thickness: 1px; text-underline-off
 
 	<section>
 		<div class="prose">
-			<h2>Two things that bite</h2>
-			<p>Both were bugs in my own code first. Both are easy to ship without noticing.</p>
+			<h2>Four things that bite</h2>
+			<p>
+				All four were bugs in my own code first, and the second one is the reason the first
+				survived a passing test suite.
+			</p>
 		</div>
 
 		<div class="findings">
 			<article class="finding">
-				<h3>The near plane depends on the clip convention</h3>
+				<h3>The clip convention is not a constant</h3>
 				<p>
-					OpenGL puts the near plane at <code>z = -w</code>, giving the familiar
-					<code>row3 + row2</code> extraction. WebGPU — like D3D and Metal — puts it at
-					<code>z = 0</code>, so the plane is <code>row2</code> alone.
-					<code>WebGPURenderer</code> produces WebGPU-convention matrices.
+					Extracting frustum planes from a projection matrix needs to know where the near
+					plane sits in clip space &mdash; OpenGL puts it at <code>z = -w</code>, WebGPU at
+					<code>z = 0</code> &mdash; and the two forms differ by roughly the near distance.
+					I assumed a WebGPU renderer implies the WebGPU form. It does not.
 				</p>
 				<p>
-					Using the OpenGL form over-reports visibility near the camera. At a typical near
-					distance of 0.5 the two are almost indistinguishable, so my first test passed with
-					either. It only became visible once I added camera poses with a deliberately deep
-					near plane, where the wrong form leaked 303 and 770 instances.
+					<code>Camera.coordinateSystem</code> starts as <em>WebGL</em> for every camera, and
+					<code>Renderer.render()</code> flips it to WebGPU, rebuilding the projection matrix,
+					the first time that camera is rendered. The same camera therefore hands you an
+					OpenGL-form matrix before its first frame and a WebGPU-form one after. Hardcoding
+					either is wrong half the time; the fix is to read the flag.
+				</p>
+			</article>
+
+			<article class="finding">
+				<h3>A test can inherit the bug it is testing for</h3>
+				<p>
+					The check above compared my planes against three's own <code>Frustum</code> &mdash; a
+					genuinely independent implementation &mdash; but I passed it a hardcoded
+					<code>WebGPUCoordinateSystem</code>. So the reference was mis-parameterised in
+					exactly the way the code was wrong, the two agreed, and eight poses reported PASS
+					while both were wrong.
+				</p>
+				<p>
+					What caught it was a different kind of check: take the eight corners of the drawn
+					frustum wireframe and confirm each one lies inside all six extracted planes. It
+					assumes no convention at all, so it had nothing to inherit. The test now drives
+					<code>coordinateSystem</code> explicitly and runs every pose under both.
 				</p>
 			</article>
 
@@ -599,18 +719,33 @@ footer a { color: var(--gpu); text-decoration-thickness: 1px; text-underline-off
 				<h3><code>VelocityNode</code> ignores <code>positionNode</code></h3>
 				<p>
 					three's built-in motion vectors are derived from <code>positionLocal</code> and the
-					object's model matrix — regardless of what the material's <code>positionNode</code>
+					object's model matrix, regardless of what the material's <code>positionNode</code>
 					actually computes.
 				</p>
 				<p>
 					The GPU-driven path derives world position in the vertex shader from a storage
 					buffer, so the built-in node sees one unit icosahedron at the origin and produces
 					the same wrong motion for every instance. TRAA turns that into visible smearing.
-					The fix computes velocity from the same world position the vertex stage used,
-					against an explicitly unjittered previous view-projection.
+					The replacement computes velocity from the same world position the vertex stage
+					used, against an explicitly unjittered previous view-projection.
+				</p>
+			</article>
+
+			<article class="finding">
+				<h3>Readback rows are padded</h3>
+				<p>
+					WebGPU requires a texture-to-buffer copy's <code>bytesPerRow</code> to be a multiple
+					of 256. Reading back a render target whose width times four is not, and treating the
+					result as tightly packed, shears the image into diagonal streaks.
+				</p>
+				<p>
+					The frames above were captured at 1152 pixels wide precisely because
+					1152 &times; 4 = 4608 = 256 &times; 18. It is worth knowing before you conclude
+					your renderer is broken.
 				</p>
 			</article>
 		</div>
+
 	</section>
 
 	<hr class="rule">
@@ -619,8 +754,9 @@ footer a { color: var(--gpu); text-decoration-thickness: 1px; text-underline-off
 		<div class="prose">
 			<h2>What was actually verified</h2>
 			<p>
-				Two automated tests, both of which I then deliberately broke to confirm they'd notice.
-				A test that can't fail isn't evidence.
+				Every check below was deliberately broken first, to confirm it would notice. A test
+				that can't fail isn't evidence &mdash; and as the previous section shows, one that can
+				fail may still be asking the wrong question.
 			</p>
 		</div>
 
@@ -628,25 +764,27 @@ footer a { color: var(--gpu); text-decoration-thickness: 1px; text-underline-off
 			<li>
 				<span class="verdict pass">PASS</span>
 				<span class="detail">
-					Culling matches <code>THREE.Frustum</code> exactly across eight camera poses — set
-					equality, not matching counts, against an implementation independent of mine.
-					<em>Reverting the near-plane convention fails two poses.</em>
+					Culling matches <code>THREE.Frustum</code> exactly across eight camera poses &mdash; set
+					equality, not matching counts. Now run under <strong>both</strong> clip conventions,
+					sixteen cases, with the reference following the camera's own flag.
+					<em>Reverting to a hardcoded convention fails half of them.</em>
+				</span>
+			</li>
+			<li>
+				<span class="verdict pass">PASS</span>
+				<span class="detail">
+					All eight corners of the drawn frustum wireframe lie inside all six extracted planes,
+					to within 1e-4. <em>This is the check that assumes no convention, and the one that
+					caught the bug the test above had inherited.</em>
 				</span>
 			</li>
 			<li>
 				<span class="verdict pass">PASS</span>
 				<span class="detail">
 					The indirect path renders pixel-identically to the un-culled path, in a single draw
-					call. Culling only removes off-screen geometry, so a correct implementation changes
-					no pixels. <em>Dropping every eighth instance fails on image mismatch.</em>
-				</span>
-			</li>
-			<li>
-				<span class="verdict pass">PASS</span>
-				<span class="detail">
-					The comparison frame is not saturated — checked explicitly, because a fully covered
-					frame would let a wrongly culled object hide behind its neighbours and make the
-					test vacuous. <em>It was vacuous at first; this check is why I noticed.</em>
+					call, on a frame checked not to be saturated &mdash; a fully covered frame would let a
+					wrongly culled object hide behind its neighbours.
+					<em>Dropping every eighth instance fails on image mismatch.</em>
 				</span>
 			</li>
 			<li>

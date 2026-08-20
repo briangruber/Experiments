@@ -42,6 +42,68 @@ const readout = {
 	drawn: document.getElementById( 'r-drawn' ),
 };
 
+// --- before/after wipe -------------------------------------------------------
+//
+// Set up first and independently of everything else: these are captured frames,
+// so this has to keep working in browsers where the live demo below cannot run.
+
+( function setupWipe() {
+
+	const wipe = document.getElementById( 'wipe' );
+	const range = document.getElementById( 'wipe-range' );
+	if ( wipe === null || range === null ) return;
+
+	const set = ( percent ) => {
+
+		const clamped = Math.min( 100, Math.max( 0, percent ) );
+		wipe.style.setProperty( '--wipe', `${ clamped }%` );
+		range.value = String( Math.round( clamped ) );
+
+	};
+
+	range.addEventListener( 'input', () => set( Number( range.value ) ) );
+
+	// Dragging anywhere on the image is the gesture people reach for first; the
+	// range input stays as the keyboard-accessible path.
+	let dragging = false;
+
+	const fromPointer = ( event ) => {
+
+		const bounds = wipe.getBoundingClientRect();
+		set( ( event.clientX - bounds.left ) / bounds.width * 100 );
+
+	};
+
+	wipe.addEventListener( 'pointerdown', ( event ) => {
+
+		dragging = true;
+		wipe.setPointerCapture( event.pointerId );
+		fromPointer( event );
+
+	} );
+
+	wipe.addEventListener( 'pointermove', ( event ) => {
+
+		if ( dragging ) fromPointer( event );
+
+	} );
+
+	const stop = ( event ) => {
+
+		dragging = false;
+		if ( wipe.hasPointerCapture?.( event.pointerId ) ) wipe.releasePointerCapture( event.pointerId );
+
+	};
+
+	wipe.addEventListener( 'pointerup', stop );
+	wipe.addEventListener( 'pointercancel', stop );
+
+	set( 50 );
+
+} )();
+
+// --- live demo ---------------------------------------------------------------
+
 let running = true;
 
 const fail = ( message ) => {

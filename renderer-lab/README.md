@@ -72,6 +72,7 @@ than silently degrading.
 xvfb-run -a node tools/verify.mjs                     # culling correctness
 xvfb-run -a node tools/verify.mjs verify-render.html  # indirect draw correctness
 xvfb-run -a node tools/verify.mjs verify-velocity.html
+xvfb-run -a node tools/capture-spectator.mjs          # before/after frames + outline check
 ```
 
 `verify.mjs` exits non-zero on failure, so all three double as regression tests.
@@ -90,20 +91,43 @@ xvfb-run -a node tools/verify.mjs verify-velocity.html
   built-in `velocity` node. It **skips** in environments without working
   multi-target render targets — see below.
 
-Both shipped tests were checked against deliberate breakage: reverting the
-near-plane convention makes `verify.html` fail two poses (303 and 770 instances
-leaking through), and dropping every eighth instance makes `verify-render.html`
-fail on image mismatch.
+- **`capture-spectator.html`** renders the culling demonstration from a camera
+  *other* than the one being culled against, so the effect is visible at all, and
+  writes before/after PNGs. It also asserts that the eight corners of the drawn
+  frustum outline lie inside all six extracted planes — the convention-free check
+  described below.
+
+Every check was tried against deliberate breakage: hardcoding a clip convention
+fails half the pose sweep, and dropping every eighth instance fails
+`verify-render.html` on image mismatch.
 
 ## Two things worth knowing if you build on this
 
-**The near plane is convention-dependent.** OpenGL clip space puts the near
-plane at `z = -w`, giving the familiar `row3 + row2` extraction. WebGPU, like
-D3D and Metal, puts it at `z = 0`, so the near plane is `row2` alone.
-`WebGPURenderer` produces WebGPU-convention matrices. Using the GL form silently
-over-reports visibility near the camera — and with a typical near distance of
-0.5 it is nearly undetectable, which is why `verify.html` includes two poses
-with a deliberately deep near plane.
+**The clip convention is not a constant — read `camera.coordinateSystem`.**
+Extracting frustum planes needs to know where the near plane sits in clip space:
+OpenGL puts it at `z = -w` (`row3 + row2`), WebGPU at `z = 0` (`row2`). It is
+tempting to assume a WebGPU renderer implies the WebGPU form. It does not.
+`Camera.coordinateSystem` starts as `WebGLCoordinateSystem` for *every* camera,
+and `Renderer.render()` flips it to `WebGPUCoordinateSystem` — rebuilding the
+projection matrix — the first time that camera is rendered. The same camera
+therefore yields an OpenGL-form matrix before its first frame and a WebGPU-form
+one after, and hardcoding either is wrong by roughly the near distance in the
+other state.
+
+**A test can inherit the bug it is testing for.** `verify.html` compares against
+`THREE.Frustum`, a genuinely independent implementation — but an earlier version
+passed it a hardcoded `WebGPUCoordinateSystem`. The reference was
+mis-parameterised in exactly the way the code was wrong, so the two agreed and
+eight poses reported PASS while both were wrong. What caught it was a check that
+assumes no convention at all: take the eight corners of the frustum wireframe
+and confirm each lies inside all six extracted planes (`capture-spectator.html`).
+The pose sweep now drives `coordinateSystem` explicitly and runs every pose under
+both conventions — sixteen cases.
+
+**Readback rows are padded.** WebGPU requires a texture-to-buffer copy's
+`bytesPerRow` to be a multiple of 256. Read back a render target whose width × 4
+is not, treat the result as tightly packed, and the image shears into diagonal
+streaks. Capture at a width that is a multiple of 64.
 
 **The built-in velocity node does not respect `positionNode`.** `VelocityNode`
 builds its motion vector from `positionLocal` and the object's model matrix,
@@ -156,9 +180,12 @@ index.html                   entry point
 src/culling/GPUCuller.js     compute cull + indirect draw args  ← the core
 src/post/staticVelocity.js   motion vectors for shader-positioned geometry
 src/scene/stressScene.js     the three draw modes
+src/scene/frustumOutline.js  wireframe of the volume being tested
 src/ui/                      HUD
 tools/verify.mjs             test runner
 tools/verify*.html           the tests
+tools/capture-spectator.mjs  before/after frames for the write-up
+tools/artifact/              single-file build (shell, page, captured frames)
 tools/shot.mjs               screenshot capture
 vendor/three/                three.js r0.184.0, MIT
 ```
