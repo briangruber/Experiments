@@ -48,6 +48,7 @@ const BARREL = args.includes('--barrel');
 const NO_PADDLE = args.includes('--no-paddle');
 const BARREL_TAIL = +opt('barrel-tail', 18000); // ms of sim left after the drop
 const BARREL_COUNT = +opt('barrels', 1);
+const VIEW = opt('view', '');
 
 const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
@@ -95,7 +96,8 @@ page.on('pageerror', (e) => errors.push('pageerror: ' + (e.stack || e.message)))
 
 const dtq = DTCAP ? `&dtcap=${encodeURIComponent(DTCAP)}` : '';
 const gpq = GPU ? '&gpu=1&present=rt' : '&gpu=0';
-await page.goto(`http://127.0.0.1:${port}/?q=${encodeURIComponent(QUALITY)}${dtq}${gpq}`, { waitUntil: 'load' });
+const vwq = VIEW ? `&view=${encodeURIComponent(VIEW)}` : '';
+await page.goto(`http://127.0.0.1:${port}/?q=${encodeURIComponent(QUALITY)}${dtq}${gpq}${vwq}`, { waitUntil: 'load' });
 
 try {
   await page.waitForFunction(() => !!window.water, null, { timeout: 20000 });

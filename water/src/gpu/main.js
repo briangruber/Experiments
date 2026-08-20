@@ -8,7 +8,7 @@
 // captures (WebGPU canvas presentation doesn't composite in headless
 // Chromium, so captures read pixels back and blit them to a 2D canvas).
 
-import { applyWebGPUCompat } from './compat.js';
+import { applyWebGPUCompat, applyVolumeCompat } from './compat.js';
 import * as THREE from '../../vendor/three.webgpu.min.js';
 
 const {
@@ -66,9 +66,28 @@ export async function start() {
   // passes composite into shared targets, so clears are explicit — otherwise
   // drawing particles into compRT would wipe the composite underneath them
   renderer.autoClear = false;
-  renderer.backend.device.lost.then((info) => {
-    console.error('[devicelost]', info.reason || 'unknown', info.message);
-  });
+
+  // Anything that goes wrong on a WebGPU device does so silently: validation
+  // errors are dropped, a failed pipeline just never runs, and the frame still
+  // composites. Route all of it to a visible banner so a broken backend can be
+  // reported from a screenshot instead of a devtools session.
+  const diagEl = document.getElementById('diag');
+  const diagMsgs = [];
+  function diag(msg) {
+    if (diagMsgs.length >= 4 || diagMsgs.includes(msg)) return;
+    diagMsgs.push(msg);
+    console.error('[churn]', msg);
+    if (!diagEl) return;
+    diagEl.textContent = 'WebGPU error — the simulation is probably not running,\nso the tank will look like clear water:\n\n' + diagMsgs.join('\n\n');
+    diagEl.hidden = false;
+  }
+  const device = renderer.backend.device;
+  device.lost.then((info) => diag(`device lost (${info.reason || 'unknown'}): ${info.message}`));
+  device.addEventListener('uncapturederror', (e) => diag(String(e.error && e.error.message || e.error)));
+
+  // must run before Fluid3D allocates its volumes
+  const compatForce = query.has('compat') ? query.get('compat') === '1' : undefined;
+  const compat = await applyVolumeCompat(compatForce);
   // stage bisection for debugging: ?skip=sim,opaque,ray,final
   const skip = new Set((query.get('skip') || '').split(',').filter(Boolean));
   // ?present=rt keeps the final pass off the swapchain (headless Chromium's
@@ -199,6 +218,8 @@ export async function start() {
   const uExposure = uniform(params.exposure);
   const uSurfaceY = uniform(SURFACE_Y);
   const uChop = uniform(1);
+  const debugFoam = query.get('view') === 'foam';
+  const uDebugFoam = uniform(debugFoam ? 1 : 0);
   const rippleArr = Array.from({ length: 4 }, () => new THREE.Vector4(0, 0, -100, 0));
   const uRipples = THREE.TSL.uniformArray(rippleArr);
   const N = Q.N;
@@ -336,6 +357,7 @@ export async function start() {
 
     const L = vec3(0).toVar();
     const T = vec3(1).toVar();
+    const peakFoam = float(0).toVar();
     If(t1.greaterThan(t0), () => {
       const n = float(uSteps);
       const dt = t1.sub(t0).div(n);
@@ -352,6 +374,7 @@ export async function start() {
         const pv = p.mul(0.5).add(0.5).mul(N);
         const foamRaw = texture3D(fluid.foamTexture, pv.div(N), float(0)).x;
         const foam = foamRaw.mul(noise3(pv.mul(0.55)).mul(0.8).add(0.6));
+        peakFoam.assign(peakFoam.max(foamRaw));
         const lt = texture3D(fluid.lightTexture, pv.div(N), float(0)).x;
 
         const sigS = uWaterScatter.add(vec3(uFoamScatter).mul(foam));
@@ -370,8 +393,15 @@ export async function start() {
         t.addAssign(dt);
       });
     });
-    const meanT = T.x.add(T.y).add(T.z).div(3);
-    return vec4(L.add(surfaceL), meanT);
+    // ?view=foam bypasses lighting entirely: black means the sim produced no
+    // foam; a visible plume means the problem is downstream in the shading
+    const alpha = T.x.add(T.y).add(T.z).div(3).toVar();
+    If(uDebugFoam.greaterThan(0.5), () => {
+      L.assign(vec3(peakFoam.mul(0.8)));
+      surfaceL.assign(vec3(0));
+      alpha.assign(float(0));
+    });
+    return vec4(L.add(surfaceL), alpha);
   })();
 
   const raymarchScene = quadPass(raymarchMaterial);
@@ -629,7 +659,7 @@ export async function start() {
   function updateHud() {
     statEls.res.textContent = `${W} × ${H}`;
     statEls.grid.textContent = `${Q.N}³ · ${(Q.N ** 3 / 1e6).toFixed(2)} M voxels`;
-    if (statEls.backend) statEls.backend.textContent = 'WebGPU';
+    if (statEls.backend) statEls.backend.textContent = compat.on ? 'WebGPU' : 'WebGPU · no compat';
     statEls.simLabel.textContent = 'Simulate, CPU';
     statEls.renLabel.textContent = 'Render, CPU';
     statEls.sim.textContent = `${simMs.v.toFixed(2)} ms`;
@@ -809,6 +839,7 @@ export async function start() {
   const uPDt = uniform(0);
   const uPTime = uniform(0);
   const uPInit = uniform(1);
+  const uPRise = uniform(0.33);
   try {
     particleCount = { low: 30000, med: 60000, high: 110000, ultra: 150000 }[qName] || 60000;
     const posAttr = new THREE.StorageBufferAttribute(particleCount, 4);
@@ -843,7 +874,7 @@ export async function start() {
         const jig = hash33(p.mul(37).add(uPTime)).sub(0.5);
         const wob = uPTime.mul(5.5).add(s.w.mul(11)).sin().mul(0.035);
         p.assign(p.add(v.add(jig.mul(0.04))
-          .add(vec3(wob, float(fluid.physics.rise * 0.6), wob.mul(0.6))).mul(uPDt))
+          .add(vec3(wob, uPRise, wob.mul(0.6))).mul(uPDt))
           .clamp(vec3(-0.995), vec3(0.995)));
       });
       If(p.y.greaterThan(uSurfaceY.sub(0.012)), () => { life.assign(-0.001); });
@@ -883,7 +914,9 @@ export async function start() {
     particlePoints = new THREE.Points(pGeo, pMat);
     particlePoints.frustumCulled = false;
   } catch (e) {
-    console.warn('WebGPU particles unavailable; continuing without them.', e);
+    // this used to fail silently, which reads on screen as "the bubbles are
+    // gone" with nothing to point at
+    diag('bubble particles failed to initialise: ' + (e && e.message || e));
     particleCount = 0;
     particleUpdate = null;
     particlePoints = null;
@@ -911,7 +944,8 @@ export async function start() {
     if (!skip.has('final')) {
       renderer.setRenderTarget(compRT);
       renderer.render(compositeScene, fsCamera);
-      if (particlePoints) renderer.render(particleScene, camera);
+      // the foam view is meant to show the solver's output alone
+      if (particlePoints && !debugFoam) renderer.render(particleScene, camera);
 
       renderer.setRenderTarget(bloomA);
       renderer.render(brightScene, fsCamera);
@@ -972,6 +1006,7 @@ export async function start() {
         uPSpeed.value = effSpeed;
         uPDt.value = dt;
         uPTime.value = t % 512;
+        uPRise.value = fluid.physics.rise * 0.6;
         renderer.compute(particleUpdate);
         uPInit.value = 0;
       }

@@ -488,6 +488,7 @@ uniform float uTime;
 uniform float uSurfaceY;
 uniform vec4 uRipples[4];    // xy = impact centre (world xz), z = start time, w = strength
 uniform float uChop;         // surface roughness multiplier
+uniform float uDebugFoam;    // 1 = show raw foam density, no lighting
 uniform vec3 uSunDir;        // direction light travels
 uniform vec3 uSunColor;
 uniform vec3 uWaterAbsorb;   // per world unit
@@ -627,12 +628,14 @@ void main() {
 
   vec3 T = vec3(1.0);
   vec3 L = vec3(0.0);
+  float peakFoam = 0.0;
   float t = t0 + jit * dt;
   for (int i = 0; i < 400; i++) {
     if (i >= uSteps || t >= t1) break;
     vec3 p = ro + rd * t;
     vec3 pv = (p * 0.5 + 0.5) * uNf;
     float foam = sampleVol(uFoamTex, pv).x;
+    peakFoam = max(peakFoam, foam);
     // render-time erosion: fake sub-grid detail the sim can't resolve
     foam *= 0.60 + 0.80 * noise3(pv * 0.55);
     float lt = sampleVol(uLightTex, pv).x;
@@ -650,6 +653,12 @@ void main() {
     T *= aStep;
     if (max(T.x, max(T.y, T.z)) < 0.004) { T = vec3(0.0); break; }
     t += dt;
+  }
+  if (uDebugFoam > 0.5) {
+    // raw foam density, no lighting: isolates the simulation from the shading
+    outLight = vec4(vec3(peakFoam * 0.8), 1.0);
+    outTrans = vec4(0.0, 0.0, 0.0, 1.0);
+    return;
   }
   outLight = vec4(L + surfaceL, 1.0);
   outTrans = vec4(T, 1.0);

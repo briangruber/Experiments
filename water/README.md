@@ -69,12 +69,46 @@ barrel pool and bloom. Two small differences remain in the WebGPU path: its
 composite carries scalar rather than rgb transmittance, and its points have no
 sprite coordinate, so bubbles are flat 2px dots rather than soft discs.
 
-`src/gpu/compat.js` carries three small shims for older Dawn builds
-(createView `swizzle`, implicit 3d view dimension, and stripping
-RENDER_ATTACHMENT from 3d textures, whose zero-init path builds invalid 2d
-views there). `?present=rt` renders the final pass off-swapchain for headless
+`src/gpu/compat.js` carries three Dawn shims. Two are the spec-derived
+defaults (createView `swizzle`, implicit 3d view dimension). The third is
+load-bearing: three.js ORs `RENDER_ATTACHMENT` onto every storage texture, and
+Dawn zero-initialises a 3d texture carrying that bit through **per-slice 2d
+views**, which are illegal against a 3d texture. Dawn does this lazily, at the
+submit that first reads the volume, so the rejected command buffer is the one
+carrying the solver's compute passes and the whole simulation silently stops
+running. Volumes are never render targets here, so the bit is dropped.
+`?compat=0` turns the strip off — which is how to test whether it is implicated
+in a failure on a machine we can't reproduce on — and the HUD's backend line
+then reads `WebGPU · no compat`.
+
+`?present=rt` renders the final pass off-swapchain for headless
 capture (`tools/shot.mjs --gpu`), where frames are also paced to real device
 completion so readbacks can't starve behind the queue.
+
+### When the WebGPU tank looks empty
+
+A WebGPU device fails quietly, and the failure mode is confusing: a rejected
+command buffer takes every compute pass in it down with it, but the *render*
+passes are in different command buffers and keep working. The tank goes on
+drawing water, glinting surface and all, at a healthy frame rate — it simply
+never simulates. So "no bubbles" is what a dead solver looks like, not a
+shading bug, and the frame rate being high is a symptom rather than reassurance.
+Two things make that legible:
+
+- **The diagnostics banner.** Uncaptured device errors, a lost device, and a
+  compute kernel that failed to initialise are printed to a red panel in the
+  bottom-left corner instead of only to the console, where nobody sees them
+  without devtools open. If bubbles are missing and that panel is empty, the
+  compute pipeline built and its submits were accepted.
+- **`?view=foam`** renders the raw foam density along each ray with lighting,
+  water colour and surface shading bypassed — it works on both backends, so the
+  same URL with and without `&gpu=1` is a direct comparison. A black tank means
+  the simulation produced no foam; a visible plume means the foam is there and
+  the problem is downstream in the shading.
+
+Note that bubbles only exist where something has aerated the water. With the
+paddle hidden and no barrel dropped the tank is *correctly* empty, and
+switching backends reloads the page, which empties it.
 
 ## How it works
 
@@ -125,6 +159,7 @@ completion so readbacks can't starve behind the queue.
 
 ```
 node tools/shot.mjs --out shots/frame.png --q low --dtcap 0.15 --wait 20000
+node tools/bundle.mjs --out churn-artifact.html
 ```
 
 Headless capture + validation harness (serves the folder, renders in
@@ -133,5 +168,10 @@ on any WebGL/JS error or a flat image, so it doubles as a smoke test.
 `--camera az,el,dist` sets the view, `--burst "x,y,z,amount"` (repeatable)
 seeds plumes, `--barrel` (with `--barrel-tail <ms>`) drops one through the
 surface so the splash is still developing at capture time, `--no-ui` hides the
-HUD, `--gpu` tests the WebGPU backend
+HUD, `--view foam` captures the foam-density debug view, `--gpu` tests the
+WebGPU backend
 (SwiftShader WebGPU adapter + readback-based capture; expect ~0.2 fps).
+
+`bundle.mjs` inlines the CSS and an esbuild bundle of `src/boot.js` — three.js
+and both backends — into one self-contained HTML file, for hosts that allow no
+external requests.

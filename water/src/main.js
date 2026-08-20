@@ -23,6 +23,9 @@ const QUALITY = {
 };
 
 const query = new URLSearchParams(location.search);
+// ?view=foam: raw foam density, no lighting and no particles — isolates what
+// the solver produced from how it is shaded
+const debugFoam = query.get('view') === 'foam';
 const qName = QUALITY[query.get('q')] ? query.get('q') : 'high';
 const Q = QUALITY[qName];
 
@@ -210,6 +213,7 @@ const mRaymarch = new THREE.ShaderMaterial({
     uTime: { value: 0 },
     uSurfaceY: { value: SURFACE_Y },
     uChop: { value: 1 },
+    uDebugFoam: { value: debugFoam ? 1 : 0 },
     uRipples: { value: [0, 1, 2, 3].map(() => new THREE.Vector4(0, 0, -100, 0)) },
     uSunDir: { value: sunDir },
     uSunColor: { value: new THREE.Vector3(3.6, 3.8, 3.9) },
@@ -791,7 +795,8 @@ function frame() {
   fsPass(mComposite, compRT);
   renderer.setRenderTarget(compRT);
   renderer.render(edgeScene, camera);
-  particles.draw(camera, H);
+  // the foam view is meant to show the solver's output alone
+  if (!debugFoam) particles.draw(camera, H);
 
   // bloom
   fsPass(mBright, bloom1);
