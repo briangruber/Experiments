@@ -23,6 +23,8 @@ export class Fluid {
       caustics: 1.0,
       chop: 1.0,
       drag: 0.06,      // velocity damping, 1/s
+      blast: 1.0,      // explosion strength
+      ring: 1.0,       // vortex-ring circulation seeded by a blast
     };
     this.renderer = renderer;
     this.N = N;
@@ -102,6 +104,8 @@ export class Fluid {
       uBurstAmt: { value: 0 },
       uBurstUp: { value: 0 },
       uBurstR: { value: 0.18 },
+      uBurstRing: { value: 0 },
+      uBurstRingR: { value: 0.3 },
       uSurfaceY: { value: surfaceY },
     });
     this.mInject = mat(INJECT_FRAG, {
@@ -219,9 +223,12 @@ export class Fluid {
       fu.uBurstAmt.value = this.burst.vel * voxPerWorld;
       fu.uBurstUp.value = (this.burst.up ?? 0) * voxPerWorld;
       fu.uBurstR.value = this.burst.radius ?? 0.18;
+      fu.uBurstRing.value = (this.burst.ring ?? 0) * voxPerWorld;
+      fu.uBurstRingR.value = this.burst.ringR ?? 0.3;
     } else {
       fu.uBurstAmt.value = 0;
       fu.uBurstUp.value = 0;
+      fu.uBurstRing.value = 0;
     }
     this.pass(this.mForces, vel[1]);
     vel.reverse();

@@ -13,10 +13,12 @@ import * as THREE from '../../vendor/three.webgpu.min.js';
 
 const {
   Fn, If, Loop, Break, uniform, texture, texture3D, uv,
-  float, vec2, vec3, vec4, normalWorld, positionWorld, cameraPosition,
+  float, int, vec2, vec3, vec4, smoothstep, storage, instanceIndex, varying,
+  normalWorld, positionWorld, cameraPosition,
 } = THREE.TSL;
 import { Fluid3D } from './fluid3d.js';
 import { initChrome } from '../chrome.js';
+import { buildPhysicsPanel, armBurst } from '../panel.js';
 
 const QUALITY = {
   low: { N: 64, jacobi: 14, steps: 96, scale: 0.6, dpr: 1.0 },
@@ -48,6 +50,7 @@ export async function start() {
   const canvas = document.getElementById('gl');
   const boot = document.getElementById('boot');
   const sunDir = new THREE.Vector3(0.30, -1.0, -0.35).normalize();
+  const SURFACE_Y = 0.72;
 
   // headless capture mode renders on a detached canvas: the composited-but-
   // never-presented swapchain of a DOM canvas wedges the device timeline on
@@ -60,6 +63,9 @@ export async function start() {
     renderer.dispose();
     throw new Error('WebGPURenderer fell back to WebGL2; using the native WebGL2 app instead.');
   }
+  // passes composite into shared targets, so clears are explicit — otherwise
+  // drawing particles into compRT would wipe the composite underneath them
+  renderer.autoClear = false;
   renderer.backend.device.lost.then((info) => {
     console.error('[devicelost]', info.reason || 'unknown', info.message);
   });
@@ -69,13 +75,15 @@ export async function start() {
   // WebGPU presentation crashes the GPU process); pair with captureTo2D()
   const presentToRT = query.get('present') === 'rt';
 
-  const fluid = new Fluid3D(renderer, { N: Q.N, jacobi: Q.jacobi, lightDir: sunDir });
+  const fluid = new Fluid3D(renderer, {
+    N: Q.N, jacobi: Q.jacobi, lightDir: sunDir, surfaceY: SURFACE_Y,
+  });
   fluid.clear();
 
   // --------------------------------------------------------------- camera --
 
   const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 50);
-  const orbit = { az: 0.5, el: 0.12, dist: 3.4 };
+  const orbit = { az: 0.5, el: 0.30, dist: 3.4 };
   function updateCamera() {
     orbit.el = Math.max(-0.55, Math.min(1.25, orbit.el));
     orbit.dist = Math.max(1.7, Math.min(8, orbit.dist));
@@ -116,10 +124,20 @@ export async function start() {
   opaqueScene.add(paddle);
 
   const barrelHalf = new THREE.Vector3(0.13, 0.17, 0.13);
-  const barrel = new THREE.Mesh(
-    new THREE.BoxGeometry(barrelHalf.x * 2, barrelHalf.y * 2, barrelHalf.z * 2), bodyMaterial());
-  barrel.visible = false;
-  opaqueScene.add(barrel);
+  const MAX_BARRELS = 6;
+  const barrelGeo = new THREE.BoxGeometry(barrelHalf.x * 2, barrelHalf.y * 2, barrelHalf.z * 2);
+  const barrelMat = bodyMaterial();
+  const barrels = Array.from({ length: MAX_BARRELS }, () => {
+    const mesh = new THREE.Mesh(barrelGeo, barrelMat);
+    mesh.visible = false;
+    opaqueScene.add(mesh);
+    const b = {
+      mesh, vel: new THREE.Vector3(), spin: new THREE.Vector3(),
+      age: 0, active: false, splashed: false, desc: null,
+    };
+    b.desc = { pos: mesh.position, vel: b.vel, radius: 0.16 };
+    return b;
+  });
 
   const edges = new THREE.LineSegments(
     new THREE.EdgesGeometry(new THREE.BoxGeometry(2, 2, 2)),
@@ -143,6 +161,15 @@ export async function start() {
     minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
   });
   const capRT = new THREE.RenderTarget(W, H, { depthBuffer: false });
+  const compRT = new THREE.RenderTarget(W, H, {
+    type: THREE.HalfFloatType, depthBuffer: false,
+    minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
+  });
+  const bloomRT = () => new THREE.RenderTarget(W, H, {
+    type: THREE.HalfFloatType, depthBuffer: false,
+    minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
+  });
+  const bloomA = bloomRT(), bloomB = bloomRT();
 
   // ---------------------------------------------------- fullscreen passes --
 
@@ -164,12 +191,16 @@ export async function start() {
   const uSun = uniform(sunDir);
   const uSunColor = uniform(new THREE.Vector3(3.6, 3.8, 3.9));
   const uWaterAbsorb = uniform(new THREE.Vector3(1.30, 0.50, 0.26));
-  const uWaterScatter = uniform(new THREE.Vector3(0.012, 0.032, 0.058));
+  const uWaterScatter = uniform(new THREE.Vector3(0.020, 0.046, 0.076));
   const uFoamScatter = uniform(7.0);
   const uFoamAbsorb = uniform(0.35);
   const uAmbientTop = uniform(new THREE.Vector3(0.11, 0.16, 0.20));
   const uAmbientDeep = uniform(new THREE.Vector3(0.008, 0.03, 0.055));
   const uExposure = uniform(params.exposure);
+  const uSurfaceY = uniform(SURFACE_Y);
+  const uChop = uniform(1);
+  const rippleArr = Array.from({ length: 4 }, () => new THREE.Vector4(0, 0, -100, 0));
+  const uRipples = THREE.TSL.uniformArray(rippleArr);
   const N = Q.N;
 
   const hash12 = (p) => {
@@ -194,27 +225,113 @@ export async function start() {
   };
 
   const raymarchMaterial = new THREE.MeshBasicNodeMaterial();
+  // WebGPU render targets are stored flipped relative to quad uv; every pass
+  // that samples one applies the same flip.
+  const flipUV = (u) => vec2(u.x, float(1).sub(u.y));
+
+  // Surface displacement: permanent chop plus decaying rings from impacts.
+  const waveH = (xz) => {
+    const h = xz.x.mul(5.1).add(uTimeR.mul(1.3)).sin()
+      .mul(xz.y.mul(4.3).sub(uTimeR.mul(0.9)).sin()).mul(0.010)
+      .add(xz.x.add(xz.y).mul(8.3).sub(uTimeR.mul(2.1)).sin().mul(0.006))
+      .add(xz.x.mul(31.0).sub(uTimeR.mul(3.7)).sin()
+        .mul(xz.y.mul(27.0).add(uTimeR.mul(3.1)).sin()).mul(0.0022))
+      .add(xz.x.sub(xz.y).mul(44.0).add(uTimeR.mul(5.3)).sin().mul(0.0015))
+      .toVar();
+    Loop({ start: int(0), end: int(4) }, ({ i }) => {
+      const r = uRipples.element(i);
+      If(r.w.greaterThan(0), () => {
+        const age = uTimeR.sub(r.z);
+        If(age.greaterThan(0).and(age.lessThan(7)), () => {
+          const dd = xz.sub(vec2(r.x, r.y)).length();
+          const ring = dd.sub(age.mul(0.85));
+          h.addAssign(r.w.mul(0.05).mul(ring.mul(20.0).sin())
+            .mul(ring.abs().mul(-4.5).exp()).mul(age.mul(-0.55).exp())
+            .div(dd.mul(1.5).add(1)));
+        });
+      });
+    });
+    return h.mul(uChop);
+  };
+  const waveNormal = (xz) => {
+    const e = 0.005;
+    const hx = waveH(xz.add(vec2(e, 0))).sub(waveH(xz.sub(vec2(e, 0))));
+    const hz = waveH(xz.add(vec2(0, e))).sub(waveH(xz.sub(vec2(0, e))));
+    return vec3(hx.div(-2 * e), 1, hz.div(-2 * e)).normalize();
+  };
+  const foamAt = (p) => texture3D(fluid.foamTexture, p.mul(0.5).add(0.5), float(0)).x;
+
   raymarchMaterial.colorNode = Fn(() => {
     const suv = uv();
     const ndc = suv.mul(2).sub(1);
     const far4 = uInvProjView.mul(vec4(ndc, 1, 1));
-    const dir = far4.xyz.div(far4.w).sub(uCamPos).normalize();
+    const rd = far4.xyz.div(far4.w).sub(uCamPos).normalize().toVar();
+    const ro = uCamPos.toVar();
 
-    const inv = vec3(1).div(dir);
-    const ta = vec3(-1).sub(uCamPos).mul(inv);
-    const tb = vec3(1).sub(uCamPos).mul(inv);
-    const lo = ta.min(tb);
-    const hi = ta.max(tb);
-    const t0 = lo.x.max(lo.y).max(lo.z).max(0).toVar();
-    const t1 = hi.x.min(hi.y).min(hi.z).toVar();
+    const boxT = (o, d) => {
+      const inv = vec3(1).div(d);
+      const ta = vec3(-1).sub(o).mul(inv);
+      const tb = vec3(1).sub(o).mul(inv);
+      const lo = ta.min(tb);
+      const hi = ta.max(tb);
+      return vec2(lo.x.max(lo.y).max(lo.z), hi.x.min(hi.y).min(hi.z));
+    };
+    const tb0 = boxT(ro, rd);
+    const t0 = tb0.x.max(0).toVar();
+    const t1 = tb0.y.toVar();
 
-    // depth clamp against the opaque pass. WebGPU render targets store
-    // top-down; every RT sampled through bottom-up quad uv gets the same flip
-    const d = texture(depthTexture, vec2(suv.x, float(1).sub(suv.y))).x;
-    If(d.lessThan(1), () => {
+    // depth clamp against the opaque pass
+    const dep = texture(depthTexture, flipUV(suv)).x;
+    const tOpaque = float(1e9).toVar();
+    If(dep.lessThan(1), () => {
       const near = float(camera.near), far = float(camera.far);
-      const dist = near.mul(far).div(far.sub(d.mul(far.sub(near))));
-      t1.assign(t1.min(dist.div(dir.dot(uCamFwd).max(1e-4))));
+      const dist = near.mul(far).div(far.sub(dep.mul(far.sub(near))));
+      tOpaque.assign(dist.div(rd.dot(uCamFwd).max(1e-4)));
+      t1.assign(t1.min(tOpaque));
+    });
+
+    // --- free surface -------------------------------------------------------
+    const surfaceL = vec3(0).toVar();
+    If(rd.y.abs().greaterThan(1e-5), () => {
+      const tS = uSurfaceY.sub(ro.y).div(rd.y);
+      If(ro.y.greaterThan(uSurfaceY), () => {
+        If(rd.y.greaterThanEqual(0).or(tS.greaterThanEqual(t1)), () => {
+          t1.assign(t0);                       // stays in the air above the water
+        }).ElseIf(tS.greaterThan(t0), () => {
+          const ps = ro.add(rd.mul(tS));
+          const nrm = waveNormal(vec2(ps.x, ps.z));
+          const hv = uSun.negate().sub(rd).normalize();
+          const spec = nrm.dot(hv).max(0).pow(220).mul(2.6)
+            .add(nrm.dot(hv).max(0).pow(24).mul(0.12));
+          const fres = float(0.02).add(float(0.98)
+            .mul(float(1).sub(rd.negate().dot(nrm).max(0)).pow(5)));
+          const raft = smoothstep(0.12, 1.1, foamAt(vec3(ps.x, uSurfaceY.sub(0.04), ps.z)));
+          surfaceL.assign(uSunColor.mul(spec)
+            .add(vec3(0.012, 0.035, 0.055).mul(fres))
+            .add(vec3(0.34, 0.45, 0.53).mul(raft)));
+          // refract the view ray as it enters the water
+          const rr = THREE.TSL.refract(rd, nrm, float(1 / 1.333));
+          If(rr.dot(rr).greaterThan(0), () => {
+            ro.assign(ps);
+            rd.assign(rr.normalize());
+            const nb = boxT(ro.add(rd.mul(1e-3)), rd);
+            t0.assign(nb.x.max(0).add(1e-3));
+            t1.assign(nb.y);
+            If(tOpaque.lessThan(1e8), () => { t1.assign(t1.min(tOpaque.sub(tS).max(0))); });
+          }).Else(() => { t1.assign(t0); });
+        });
+      }).ElseIf(rd.y.greaterThan(0).and(tS.greaterThan(t0)).and(tS.lessThan(t1)), () => {
+        // from below: past the critical angle the underside is a mirror
+        const ps = ro.add(rd.mul(tS));
+        const nrm = waveNormal(vec2(ps.x, ps.z));
+        const cosI = rd.dot(nrm).max(0);
+        const sinT2 = float(1.333 * 1.333).mul(float(1).sub(cosI.mul(cosI)));
+        const raft = smoothstep(0.10, 1.0, foamAt(vec3(ps.x, uSurfaceY.sub(0.04), ps.z)));
+        const mirror = smoothstep(0.85, 1.05, sinT2);
+        t1.assign(tS);
+        surfaceL.assign(vec3(0.014, 0.038, 0.058).mix(vec3(0.055, 0.115, 0.155), mirror)
+          .add(vec3(0.30, 0.40, 0.48).mix(vec3(0.45, 0.56, 0.64), mirror).mul(raft)));
+      });
     });
 
     const L = vec3(0).toVar();
@@ -225,13 +342,13 @@ export async function start() {
       const jp = vec3(suv.mul(997), uFrame).mul(0.1031).fract();
       const jq = jp.add(jp.dot(jp.zyx.add(31.32)));
       const jit = jq.x.add(jq.y).mul(jq.z).fract();
-      const mu = dir.dot(uSun);
+      const mu = rd.dot(uSun);
       const phase = mu.add(1).mul(0.5).pow(2).mul(0.6).add(0.4);
       const t = t0.add(jit.mul(dt)).toVar();
 
       Loop({ start: 0, end: 400 }, ({ i }) => {
         If(float(i).greaterThanEqual(n).or(t.greaterThanEqual(t1)), () => { Break(); });
-        const p = uCamPos.add(dir.mul(t));
+        const p = ro.add(rd.mul(t));
         const pv = p.mul(0.5).add(0.5).mul(N);
         const foamRaw = texture3D(fluid.foamTexture, pv.div(N), float(0)).x;
         const foam = foamRaw.mul(noise3(pv.mul(0.55)).mul(0.8).add(0.6));
@@ -239,7 +356,7 @@ export async function start() {
 
         const sigS = uWaterScatter.add(vec3(uFoamScatter).mul(foam));
         const sigT = uWaterAbsorb.add(sigS).add(vec3(uFoamAbsorb).mul(foam));
-        const h = p.y.mul(0.5).add(0.5).clamp(0, 1);
+        const h = float(1).sub(uSurfaceY.sub(p.y).max(0).div(1.5)).clamp(0, 1);
         const Li = uSunColor.mul(lt.mul(phase))
           .add(uAmbientDeep.mix(uAmbientTop, h).mul(lt.pow(0.6).mul(0.88).add(0.12)));
 
@@ -254,18 +371,52 @@ export async function start() {
       });
     });
     const meanT = T.x.add(T.y).add(T.z).div(3);
-    return vec4(L, meanT);
+    return vec4(L.add(surfaceL), meanT);
   })();
+
   const raymarchScene = quadPass(raymarchMaterial);
 
-  const finalMaterial = new THREE.MeshBasicNodeMaterial();
-  finalMaterial.colorNode = Fn(() => {
+  // composite: opaque scene attenuated by the volume, plus its inscatter
+  const compositeMaterial = new THREE.MeshBasicNodeMaterial();
+  compositeMaterial.colorNode = Fn(() => {
     const suv = uv();
     const flip = vec2(suv.x, float(1).sub(suv.y));
     const scene = texture(opaqueRT.texture, flip);
     const vol = texture(volRT.texture, flip);
-    const col = scene.rgb.mul(vol.a).add(vol.rgb).toVar();
-    // vignette, ACES, grain (output color space handles the sRGB transform)
+    return vec4(scene.rgb.mul(vol.a).add(vol.rgb), 1);
+  })();
+  const compositeScene = quadPass(compositeMaterial);
+
+  const uBloomThreshold = uniform(0.75);
+  const brightMaterial = new THREE.MeshBasicNodeMaterial();
+  brightMaterial.colorNode = Fn(() => {
+    const c = texture(compRT.texture, flipUV(uv())).rgb;
+    const l = c.dot(vec3(0.2126, 0.7152, 0.0722));
+    return vec4(c.mul(smoothstep(uBloomThreshold, uBloomThreshold.mul(2).add(0.15), l)), 1);
+  })();
+  const brightScene = quadPass(brightMaterial);
+
+  const uBlurDir = uniform(new THREE.Vector2());
+  const uBlurTex = texture(bloomA.texture);
+  const blurMaterial = new THREE.MeshBasicNodeMaterial();
+  blurMaterial.colorNode = Fn(() => {
+    const suv = uv();
+    const o1 = uBlurDir.mul(1.3846153846);
+    const o2 = uBlurDir.mul(3.2307692308);
+    const fuv = flipUV(suv);
+    const tex = (off) => texture(uBlurTex).sample(fuv.add(off)).rgb;
+    return vec4(tex(vec2(0, 0)).mul(0.227027)
+      .add(tex(o1).add(tex(o1.negate())).mul(0.3162162162))
+      .add(tex(o2).add(tex(o2.negate())).mul(0.0702702703)), 1);
+  })();
+  const blurScene = quadPass(blurMaterial);
+
+  const finalMaterial = new THREE.MeshBasicNodeMaterial();
+  finalMaterial.colorNode = Fn(() => {
+    const suv = uv();
+    const fuv = flipUV(suv);
+    const col = texture(compRT.texture, fuv).rgb
+      .add(texture(bloomA.texture, fuv).rgb.mul(0.28)).toVar();
     const q = suv.sub(0.5);
     col.mulAssign(float(1).sub(q.dot(q).mul(2.2).mul(0.32)));
     col.mulAssign(uExposure);
@@ -273,7 +424,7 @@ export async function start() {
     const b = col.mul(col.mul(2.43).add(0.59)).add(0.14);
     col.assign(a.div(b).clamp(0, 1));
     col.addAssign(hash12(suv.mul(913.7).add(uTimeR.fract().mul(71.3))).sub(0.5).mul(0.012));
-    // the readback target gets no renderer color-space encode; the canvas
+    // the readback target gets no renderer colour-space encode; the canvas
     // path does, so only encode manually in headless capture mode
     if (headlessCapture) col.assign(col.max(0).pow(1 / 2.2));
     return vec4(col, 1);
@@ -292,6 +443,9 @@ export async function start() {
     opaqueRT.setSize(w, h);
     volRT.setSize(Math.floor(w * Q.scale), Math.floor(h * Q.scale));
     capRT.setSize(w, h);
+    compRT.setSize(w, h);
+    bloomA.setSize(Math.max(w >> 2, 2), Math.max(h >> 2, 2));
+    bloomB.setSize(Math.max(w >> 2, 2), Math.max(h >> 2, 2));
   }
   window.addEventListener('resize', resize);
 
@@ -339,7 +493,7 @@ export async function start() {
     drag.t0 = performance.now();
     drag.last = { x: e.clientX, y: e.clientY };
     pointerRay(e);
-    const hit = raycaster.intersectObject(paddle, false);
+    const hit = paddleHidden ? [] : raycaster.intersectObject(paddle, false);
     if (hit.length) {
       drag.mode = 'paddle';
       drag.plane.setFromNormalAndCoplanarPoint(
@@ -392,7 +546,8 @@ export async function start() {
       const t = rayBox(ray);
       if (t) {
         const p = ray.origin.clone().addScaledVector(ray.direction, t[0] + (t[1] - t[0]) * 0.35);
-        fluid.burst = { pos: p.clampScalar(-0.92, 0.92), vel: 1.4, up: 1.1, foam: 1.6, radius: 0.18 };
+        fluid.burst = { pos: p.clampScalar(-0.92, 0.92), vel: 1.4, up: 1.1, foam: 0.55, radius: 0.18 };
+        addRipple(p.x, p.z, 0.35 + 0.55 * Math.max(0, (p.y + 0.6) / 1.3));
         lastInteract = clock.elapsedTime;
       }
     }
@@ -428,19 +583,31 @@ export async function start() {
     speedVal.textContent = params.paddleSpinSpeed.toFixed(1);
     if (!params.paddleSpin) { params.paddleSpin = true; syncButtons(); }
   });
-  syncButtons();
-  initChrome(); // hide-ui + fullscreen (H / F)
-  // controls this backend hasn't caught up with yet
-  for (const id of ['hide-paddle-btn', 'physics-btn']) {
-    const el = document.getElementById(id);
-    if (el) el.hidden = true;
+  const hidePaddleBtn = document.getElementById('hide-paddle-btn');
+  let paddleHidden = false;
+  function setPaddleHidden(v) {
+    paddleHidden = v;
+    paddle.visible = !v;
+    hidePaddleBtn.classList.toggle('active', v);
+    hidePaddleBtn.setAttribute('aria-pressed', String(v));
+    spinPaddleBtn.disabled = v;
+    speedSlider.disabled = v;
+    if (v) {
+      paddleVel.set(0, 0, 0);
+      paddleAngVel.set(0, 0, 0);
+    }
   }
+  hidePaddleBtn.addEventListener('click', () => setPaddleHidden(!paddleHidden));
+  buildPhysicsPanel(fluid.physics);
+  syncButtons();
+  initChrome({ backend: 'WebGPU' }); // hide-ui + fullscreen + backend switch
 
   window.addEventListener('keydown', (e) => {
     if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
     if (e.code === 'Space') { params.stir = !params.stir; e.preventDefault(); }
     else if (e.code === 'KeyO') toggleSpin();
     else if (e.code === 'KeyR') togglePaddleSpin();
+    else if (e.code === 'KeyX') setPaddleHidden(!paddleHidden);
     else if (e.code === 'KeyB') dropBarrel();
     else if (e.code === 'KeyC') fluid.clear();
     else if (e.code === 'KeyP') params.paused = !params.paused;
@@ -467,7 +634,7 @@ export async function start() {
     statEls.renLabel.textContent = 'Render, CPU';
     statEls.sim.textContent = `${simMs.v.toFixed(2)} ms`;
     statEls.ren.textContent = '—';
-    statEls.parts.textContent = '—';
+    statEls.parts.textContent = particleCount ? `${(particleCount / 1000).toFixed(1)} K` : '—';
     statEls.fps.textContent = fpsCounter.fps ? fpsCounter.fps.toFixed(1) : '—';
     statEls.vram.textContent = `${Math.round((fluid.bytes + W * H * 8 * 2) / (1 << 20))} MiB`;
     statEls.stir.textContent =
@@ -511,6 +678,14 @@ export async function start() {
   };
 
   function updatePaddle(dt, t) {
+    if (paddleHidden) {
+      prevPaddle.copy(paddle.position);
+      prevQuat.copy(paddle.quaternion);
+      paddleVel.set(0, 0, 0);
+      paddleAngVel.set(0, 0, 0);
+      fluid.paddle = null;
+      return;
+    }
     const stirring = params.stir && (t - lastInteract > 4 || lastInteract < 0);
     if (stirring && drag.mode !== 'paddle') {
       const s = stirPhase + t * params.stirSpeed;
@@ -553,70 +728,175 @@ export async function start() {
     fluid.paddle = paddleState;
   }
 
-  const barrelState = { active: false, age: 0 };
-  const barrelVel = new THREE.Vector3();
-  const barrelAngVel = new THREE.Vector3();
-  const barrelRot3 = new THREE.Matrix3();
-  const barrelRot4 = new THREE.Matrix4();
-  const fluidBarrel = {
-    on: true, pos: barrel.position, vel: barrelVel, angVel: barrelAngVel,
-    half: barrelHalf, rot: barrelRot3,
-  };
   const explosionQueue = [];
+  const lastBlast = { pos: new THREE.Vector3(), until: -1 };
+  const liveBarrels = [];
+  let rippleNext = 0;
+  function addRipple(x, z, strength) {
+    rippleArr[rippleNext % 4].set(x, z, clock.elapsedTime % 512, strength);
+    rippleNext++;
+  }
 
   function dropBarrel() {
-    if (barrelState.active) return;
-    barrelState.active = true;
-    barrelState.age = 0;
-    barrel.position.set((Math.random() - 0.5) * 0.7, 0.95, (Math.random() - 0.5) * 0.7);
-    barrel.rotation.set(Math.random() * 0.5, Math.random() * 6.28, Math.random() * 0.5);
-    barrelVel.set(0, -2.3, 0);
-    barrelAngVel.set(1.1, 0.4, 0.8);
-    barrel.visible = true;
-    const x = barrel.position.x, z = barrel.position.z;
-    explosionQueue.push(
-      { pos: new THREE.Vector3(x, 0.87, z), vel: 0.5, up: -1.1, foam: 0.9, radius: 0.19 },
-      { pos: new THREE.Vector3(x, 0.76, z), vel: 0.25, up: 0.55, foam: 0.55, radius: 0.15 },
-    );
+    let b = barrels.find((x) => !x.active);
+    if (!b) b = barrels.reduce((a, x) => (x.age > a.age ? x : a), barrels[0]);
+    b.active = true;
+    b.age = 0;
+    b.splashed = false;
+    b.mesh.position.set((Math.random() - 0.5) * 1.2, 0.95, (Math.random() - 0.5) * 1.2);
+    b.mesh.rotation.set(Math.random() * 0.5, Math.random() * 6.28, Math.random() * 0.5);
+    b.vel.set((Math.random() - 0.5) * 0.2, -2.3, (Math.random() - 0.5) * 0.2);
+    b.spin.set(1.1, 0.4, 0.8);
+    b.mesh.visible = true;
   }
 
-  function updateBarrel(dt) {
-    fluid.barrel = null;
-    if (!barrelState.active) return;
-    barrelState.age += dt;
-    barrelVel.y -= 1.8 * dt;
-    barrelVel.multiplyScalar(Math.exp(-dt * 2.3));
-    barrel.position.addScaledVector(barrelVel, dt);
-    barrel.position.x = Math.max(-0.8, Math.min(0.8, barrel.position.x));
-    barrel.position.z = Math.max(-0.8, Math.min(0.8, barrel.position.z));
-    barrel.rotation.x += barrelAngVel.x * dt;
-    barrel.rotation.y += barrelAngVel.y * dt;
-    barrel.rotation.z += barrelAngVel.z * dt;
-    barrel.updateMatrixWorld();
+  function updateBarrels(dt, t) {
+    liveBarrels.length = 0;
+    for (const b of barrels) {
+      if (!b.active) continue;
+      b.age += dt;
+      const p = b.mesh.position;
+      const wasAbove = p.y > SURFACE_Y;
+      b.vel.y -= (wasAbove ? 6.0 : 1.8) * dt;
+      b.vel.multiplyScalar(Math.exp(-dt * (wasAbove ? 0.15 : 2.3)));
+      p.addScaledVector(b.vel, dt);
+      p.x = Math.max(-0.8, Math.min(0.8, p.x));
+      p.z = Math.max(-0.8, Math.min(0.8, p.z));
+      b.mesh.rotation.x += b.spin.x * dt;
+      b.mesh.rotation.y += b.spin.y * dt;
+      b.mesh.rotation.z += b.spin.z * dt;
+      b.mesh.updateMatrixWorld();
 
-    if (barrel.position.y < -0.5 || barrelState.age > 2.2) {
-      barrelState.active = false;
-      barrel.visible = false;
-      const p = barrel.position.clone();
-      explosionQueue.push(
-        { pos: p, vel: -2.0, up: -0.3, foam: 0.0, radius: 0.42 },
-        { pos: p, vel: -1.2, up: 0.0, foam: 0.5, radius: 0.36 },
-        { pos: p, vel: 3.4, up: 2.6, foam: 3.0, radius: 0.36 },
-        { pos: p, vel: 2.2, up: 1.9, foam: 1.7, radius: 0.44 },
-        { pos: p, vel: 1.2, up: 1.2, foam: 0.9, radius: 0.52 },
-      );
-      return;
+      if (wasAbove && p.y <= SURFACE_Y && !b.splashed) {
+        b.splashed = true;
+        explosionQueue.push(
+          { pos: new THREE.Vector3(p.x, SURFACE_Y - 0.05, p.z), vel: 0.55, up: -1.2, foam: 0.35, radius: 0.20 },
+          { pos: new THREE.Vector3(p.x, SURFACE_Y - 0.15, p.z), vel: 0.28, up: 0.5, foam: 0.2, radius: 0.16 },
+        );
+        addRipple(p.x, p.z, 1.0);
+      }
+
+      if (p.y < -0.5 || b.age > 2.2) {
+        b.active = false;
+        b.mesh.visible = false;
+        const q = p.clone();
+        explosionQueue.push(
+          { pos: q, vel: -2.0, up: -0.3, foam: 0.0, radius: 0.42 },
+          { pos: q, vel: -1.2, up: 0.0, foam: 0.18, radius: 0.36 },
+          { pos: q, vel: 3.2, up: 1.2, foam: 0.42, radius: 0.36, ring: 2.6, ringR: 0.28 },
+          { pos: q, vel: 1.8, up: 0.9, foam: 0.24, radius: 0.44, ring: 2.0, ringR: 0.36 },
+          { pos: q, vel: 0.9, up: 0.6, foam: 0.14, radius: 0.52, ring: 1.4, ringR: 0.44 },
+        );
+        lastBlast.pos.copy(q);
+        lastBlast.until = t + 1.6;
+        addRipple(q.x, q.z, 1.3);
+        continue;
+      }
+      if (p.y < SURFACE_Y) liveBarrels.push(b.desc);
     }
-    barrelRot4.extractRotation(barrel.matrixWorld);
-    barrelRot3.setFromMatrix4(barrelRot4).transpose();
-    fluid.barrel = fluidBarrel;
+    fluid.barrels = liveBarrels;
   }
+
+  // ------------------------------------------------------------ particles --
+  // Bubble sparkle: positions live in a storage buffer advected by the
+  // velocity field, drawn additively and gated to the shell of the plumes.
+  // Wrapped so that a shader failure costs the sparkle, not the backend.
+  let particleCount = 0;
+  let particleUpdate = null;
+  let particlePoints = null;
+  const uPEmitter = uniform(new THREE.Vector3());
+  const uPSpeed = uniform(0);
+  const uPDt = uniform(0);
+  const uPTime = uniform(0);
+  const uPInit = uniform(1);
+  try {
+    particleCount = { low: 30000, med: 60000, high: 110000, ultra: 150000 }[qName] || 60000;
+    const posAttr = new THREE.StorageBufferAttribute(particleCount, 4);
+    const posBuf = storage(posAttr, 'vec4', particleCount);
+
+    const hash33 = (p) => {
+      const q = p.mul(vec3(0.1031, 0.1030, 0.0973)).fract();
+      const r = q.add(q.dot(q.yxz.add(33.33)));
+      return r.xxy.add(r.yxx).mul(r.zyx).fract();
+    };
+
+    particleUpdate = Fn(() => {
+      const s = posBuf.element(instanceIndex).toVar();
+      const seed = vec3(float(instanceIndex), uPTime, float(instanceIndex).mul(0.37));
+      const life = s.w.sub(uPDt).toVar();
+      const p = s.xyz.toVar();
+
+      If(uPInit.greaterThan(0.5), () => {
+        const r = hash33(seed);
+        p.assign(r.mul(1.7).sub(0.85));
+        life.assign(r.x.mul(13.7).fract().mul(6));
+      }).ElseIf(life.lessThanEqual(0).or(p.abs().greaterThan(vec3(0.99)).any()), () => {
+        const r = hash33(seed);
+        p.assign(uPEmitter.add(r.mul(2).sub(1).mul(0.34)).clamp(vec3(-0.98), vec3(0.98)));
+        life.assign(r.y.mul(7.31).fract().mul(4).add(2.5));
+        If(uPSpeed.lessThan(0.05).and(r.z.mul(5.17).fract().greaterThan(0.15)), () => {
+          life.assign(-0.001);
+        });
+      }).Else(() => {
+        const pv = p.mul(0.5).add(0.5);
+        const v = texture3D(fluid.vel0, pv, float(0)).xyz.div(N * 0.5);
+        const jig = hash33(p.mul(37).add(uPTime)).sub(0.5);
+        const wob = uPTime.mul(5.5).add(s.w.mul(11)).sin().mul(0.035);
+        p.assign(p.add(v.add(jig.mul(0.04))
+          .add(vec3(wob, float(fluid.physics.rise * 0.6), wob.mul(0.6))).mul(uPDt))
+          .clamp(vec3(-0.995), vec3(0.995)));
+      });
+      If(p.y.greaterThan(uSurfaceY.sub(0.012)), () => { life.assign(-0.001); });
+      posBuf.element(instanceIndex).assign(vec4(p, life));
+    })().compute(particleCount);
+
+    const pMat = new THREE.PointsNodeMaterial({
+      transparent: true, blending: THREE.AdditiveBlending,
+      depthWrite: false, depthTest: false,
+    });
+    const pData = posBuf.toAttribute();
+    pMat.positionNode = pData.xyz;
+    pMat.sizeNode = float(2.0);
+    const vAlpha = varying(Fn(() => {
+      const s = pData;
+      const pv = s.xyz.mul(0.5).add(0.5);
+      const foam = texture3D(fluid.foamTexture, pv, float(0)).x;
+      const shell = smoothstep(0.02, 0.18, foam).mul(float(1).sub(smoothstep(0.7, 1.8, foam)));
+      const away = smoothstep(0.14, 0.40, s.xyz.distance(uPEmitter));
+      const alive = s.w.greaterThan(0).select(float(1), float(0));
+      return shell.mul(away).mul(alive).mul(s.w.mul(2).min(1));
+    })());
+    const vLight = varying(Fn(() => {
+      const pv = pData.xyz.mul(0.5).add(0.5);
+      return texture3D(fluid.lightTexture, pv, float(0)).x;
+    })());
+    pMat.colorNode = Fn(() => {
+      // no per-point sprite coordinate in the WebGPU points path, so these are
+      // flat 2px dots rather than soft discs — indistinguishable at that size
+      const a = vAlpha.mul(0.30);
+      const col = vec3(0.55, 0.75, 0.9).add(vec3(1.0, 0.95, 0.85).mul(vLight.mul(1.6))).mul(0.5);
+      return vec4(col.mul(a), 1);
+    })();
+
+    const pGeo = new THREE.BufferGeometry();
+    pGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(particleCount * 3), 3));
+    particlePoints = new THREE.Points(pGeo, pMat);
+    particlePoints.frustumCulled = false;
+  } catch (e) {
+    console.warn('WebGPU particles unavailable; continuing without them.', e);
+    particleCount = 0;
+    particleUpdate = null;
+    particlePoints = null;
+  }
+  const particleScene = new THREE.Scene();
+  if (particlePoints) particleScene.add(particlePoints);
 
   // ----------------------------------------------------------------- loop --
 
   function renderFrame(target) {
     if (!skip.has('opaque')) {
       renderer.setRenderTarget(opaqueRT);
+      renderer.clear();
       renderer.render(opaqueScene, camera);
     }
     uInvProjView.value.copy(camera.projectionMatrix)
@@ -629,6 +909,21 @@ export async function start() {
       renderer.render(raymarchScene, fsCamera);
     }
     if (!skip.has('final')) {
+      renderer.setRenderTarget(compRT);
+      renderer.render(compositeScene, fsCamera);
+      if (particlePoints) renderer.render(particleScene, camera);
+
+      renderer.setRenderTarget(bloomA);
+      renderer.render(brightScene, fsCamera);
+      uBlurTex.value = bloomA.texture;
+      uBlurDir.value.set(1 / Math.max(bloomA.width, 2), 0);
+      renderer.setRenderTarget(bloomB);
+      renderer.render(blurScene, fsCamera);
+      uBlurTex.value = bloomB.texture;
+      uBlurDir.value.set(0, 1 / Math.max(bloomB.height, 2));
+      renderer.setRenderTarget(bloomA);
+      renderer.render(blurScene, fsCamera);
+
       renderer.setRenderTarget(presentToRT && target === null ? capRT : target);
       renderer.render(finalScene, fsCamera);
     }
@@ -655,13 +950,35 @@ export async function start() {
     }
     if (!params.paused && !skip.has('sim')) {
       updatePaddle(dt, t);
-      updateBarrel(dt);
-      if (!fluid.burst && explosionQueue.length) fluid.burst = explosionQueue.shift();
+      updateBarrels(dt, t);
+      if (!fluid.burst && explosionQueue.length) {
+        fluid.burst = armBurst(explosionQueue.shift(), fluid.physics);
+      }
       const s0 = performance.now();
       fluid.step(dt, t % 512);
+      if (particleUpdate) {
+        let emitter = paddle.position;
+        let effSpeed = paddleHidden
+          ? 0 : Math.max(paddleVel.length(), paddleAngVel.length() * 0.28);
+        const diving = barrels.find((b) => b.active && b.mesh.position.y < SURFACE_Y);
+        if (diving) {
+          emitter = diving.mesh.position;
+          effSpeed = Math.max(diving.vel.length(), 0.6);
+        } else if (t < lastBlast.until) {
+          emitter = lastBlast.pos;
+          effSpeed = 2.0;
+        }
+        uPEmitter.value.copy(emitter);
+        uPSpeed.value = effSpeed;
+        uPDt.value = dt;
+        uPTime.value = t % 512;
+        renderer.compute(particleUpdate);
+        uPInit.value = 0;
+      }
       simMs.v = simMs.v * 0.9 + (performance.now() - s0) * 0.1;
     }
-    uTimeR.value = t;
+    uTimeR.value = t % 512;
+    uChop.value = fluid.physics.chop;
     renderFrame(null);
     if (headlessCapture) {
       // pace submissions to real completion: an unthrottled loop on the
@@ -687,8 +1004,9 @@ export async function start() {
 
   window.water = {
     params, fluid, orbit, frames: 0, backend: 'WebGPU', renderer, capRT,
+    _rts: { opaqueRT, volRT, compRT, bloomA },
     setHalt(v) { capturing = v; },
-    burst(x, y, z, foam = 1.5, vel = 1.2) {
+    burst(x, y, z, foam = 0.5, vel = 1.2) {
       fluid.burst = {
         pos: new THREE.Vector3(x, y, z).clampScalar(-0.92, 0.92),
         vel, up: 1.0, foam, radius: 0.18,
@@ -699,6 +1017,9 @@ export async function start() {
       lastInteract = clock.elapsedTime;
     },
     dropBarrel,
+    physics: fluid.physics,
+    setPaddleHidden: (v) => setPaddleHidden(v),
+    isPaddleHidden: () => paddleHidden,
     camera(az, el, dist) {
       orbit.az = az; orbit.el = el; orbit.dist = dist;
       updateCamera();

@@ -6,7 +6,7 @@
 // the controls back without a keyboard. Adding `no-chrome` to <body> removes
 // even that, for clean captures.
 
-export function initChrome() {
+export function initChrome({ backend } = {}) {
   const body = document.body;
   const hideBtn = document.getElementById('hide-btn');
   const fsBtn = document.getElementById('fs-btn');
@@ -48,6 +48,23 @@ export function initChrome() {
   document.addEventListener('fullscreenchange', syncFullscreen);
   document.addEventListener('webkitfullscreenchange', syncFullscreen);
   syncFullscreen();
+
+  // Backend switch. The two renderers can't be swapped in place, so this
+  // reloads with ?gpu= flipped, keeping every other parameter.
+  const backendBtn = document.getElementById('backend-btn');
+  if (backendBtn) {
+    const other = backend === 'WebGPU' ? 'WebGL2' : 'WebGPU';
+    if (navigator.gpu) {
+      backendBtn.hidden = false;
+      backendBtn.textContent = `switch to ${other.toLowerCase()}`;
+      backendBtn.title = `Currently running ${backend || 'WebGL2'}`;
+      backendBtn.addEventListener('click', () => {
+        const q = new URLSearchParams(location.search);
+        q.set('gpu', backend === 'WebGPU' ? '0' : '1');
+        location.search = `?${q}`;
+      });
+    }
+  }
 
   hideBtn.addEventListener('click', toggleHide);
   fsBtn.addEventListener('click', toggleFullscreen);

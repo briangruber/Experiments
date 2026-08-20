@@ -9,6 +9,7 @@ import * as THREE from '../vendor/three.module.min.js';
 import { Fluid } from './fluid.js';
 import { Particles } from './particles.js';
 import { initChrome } from './chrome.js';
+import { buildPhysicsPanel, armBurst } from './panel.js';
 import {
   FS_TRI_VERT, RAYMARCH_VERT, RAYMARCH_FRAG, COMPOSITE_FRAG,
   BRIGHT_FRAG, BLUR_FRAG, POST_FRAG, PADDLE_VERT, PADDLE_FRAG,
@@ -383,7 +384,7 @@ function endPointer(e, cancelled) {
     const t = rayBox(ray);
     if (t) {
       const p = ray.origin.clone().addScaledVector(ray.direction, t[0] + (t[1] - t[0]) * 0.35);
-      fluid.burst = { pos: p.clampScalar(-0.92, 0.92), vel: 1.4, foam: 1.6 };
+      fluid.burst = { pos: p.clampScalar(-0.92, 0.92), vel: 1.4, foam: 0.55 };
       lastInteract = clock.elapsedTime;
     }
   }
@@ -418,6 +419,17 @@ spinBtn.addEventListener('click', toggleSpin);
 spinPaddleBtn.addEventListener('click', togglePaddleSpin);
 document.getElementById('barrel-btn').addEventListener('click', () => dropBarrel());
 
+// paddle spin rate
+const speedSlider = document.getElementById('spin-speed-slider');
+const speedVal = document.getElementById('spin-speed-val');
+speedSlider.value = params.paddleSpinSpeed;
+speedVal.textContent = params.paddleSpinSpeed.toFixed(1);
+speedSlider.addEventListener('input', () => {
+  params.paddleSpinSpeed = +speedSlider.value;
+  speedVal.textContent = params.paddleSpinSpeed.toFixed(1);
+  if (!params.paddleSpin) { params.paddleSpin = true; syncButtons(); }
+});
+
 // The paddle can be taken out of the tank entirely: hidden and uncoupled, so
 // the water is left to whatever the barrels and bursts do to it.
 const hidePaddleBtn = document.getElementById('hide-paddle-btn');
@@ -436,63 +448,9 @@ function setPaddleHidden(v) {
 }
 hidePaddleBtn.addEventListener('click', () => setPaddleHidden(!paddleHidden));
 
-// ---- physics knobs ---------------------------------------------------------
-// Everything the solver reads lives in fluid.physics, so a slider is just a
-// write into that object; the next step picks it up.
-const PHYSICS_KNOBS = [
-  { key: 'rise', label: 'bubble rise', min: 0, max: 1.5, step: 0.01, unit: '' },
-  { key: 'buoyancy', label: 'buoyancy', min: 0, max: 2.0, step: 0.01, unit: '' },
-  { key: 'foamLife', label: 'bubble life', min: 0.5, max: 20, step: 0.5, unit: 's' },
-  { key: 'aeration', label: 'aeration', min: 0, max: 4, step: 0.05, unit: '' },
-  { key: 'swirl', label: 'swirl', min: 0, max: 0.3, step: 0.005, unit: '' },
-  { key: 'drag', label: 'water drag', min: 0, max: 1.5, step: 0.01, unit: '' },
-  { key: 'caustics', label: 'caustics', min: 0, max: 2.5, step: 0.05, unit: '' },
-  { key: 'chop', label: 'surface chop', min: 0, max: 3, step: 0.05, unit: '' },
-];
-const physicsPanel = document.getElementById('physics');
-const physicsBtn = document.getElementById('physics-btn');
-for (const k of PHYSICS_KNOBS) {
-  const label = document.createElement('label');
-  label.className = 'slider';
-  const span = document.createElement('span');
-  const name = document.createTextNode(k.label + ' ');
-  const val = document.createElement('b');
-  const input = document.createElement('input');
-  input.type = 'range';
-  input.min = k.min; input.max = k.max; input.step = k.step;
-  input.value = fluid.physics[k.key];
-  input.setAttribute('aria-label', k.label);
-  const show = () => { val.textContent = (+input.value).toFixed(2).replace(/0$/, '') + k.unit; };
-  show();
-  input.addEventListener('input', () => {
-    fluid.physics[k.key] = +input.value;
-    show();
-  });
-  span.append(name, val);
-  label.append(span, input);
-  physicsPanel.append(label);
-}
-physicsBtn.addEventListener('click', () => {
-  const open = physicsPanel.hasAttribute('hidden');
-  physicsPanel.toggleAttribute('hidden', !open);
-  physicsBtn.classList.toggle('active', open);
-  physicsBtn.setAttribute('aria-expanded', String(open));
-});
-
-const speedSlider = document.getElementById('spin-speed-slider');
-const speedVal = document.getElementById('spin-speed-val');
-function syncSpeed() {
-  speedSlider.value = params.paddleSpinSpeed;
-  speedVal.textContent = params.paddleSpinSpeed.toFixed(1);
-}
-speedSlider.addEventListener('input', () => {
-  params.paddleSpinSpeed = +speedSlider.value;
-  speedVal.textContent = params.paddleSpinSpeed.toFixed(1);
-  if (!params.paddleSpin) { params.paddleSpin = true; syncButtons(); }
-});
-syncSpeed();
+buildPhysicsPanel(fluid.physics);
 syncButtons();
-initChrome(); // hide-ui + fullscreen (H / F)
+initChrome({ backend: 'WebGL2' }); // hide-ui, fullscreen, backend switch
 
 window.addEventListener('keydown', (e) => {
   if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -604,9 +562,9 @@ const clock = {
 };
 let frames = 0;
 const seedBursts = [
-  { t: 0.15, pos: new THREE.Vector3(-0.30, -0.45, 0.05), vel: 1.2, foam: 1.5 },
-  { t: 0.45, pos: new THREE.Vector3(0.35, -0.25, 0.30), vel: 1.0, foam: 1.2 },
-  { t: 0.80, pos: new THREE.Vector3(0.05, -0.55, -0.30), vel: 1.3, foam: 1.4 },
+  { t: 0.15, pos: new THREE.Vector3(-0.30, -0.45, 0.05), vel: 1.2, foam: 0.5 },
+  { t: 0.45, pos: new THREE.Vector3(0.35, -0.25, 0.30), vel: 1.0, foam: 0.4 },
+  { t: 0.80, pos: new THREE.Vector3(0.05, -0.55, -0.30), vel: 1.3, foam: 0.45 },
 ];
 
 const prevPaddle = paddle.position.clone();
@@ -735,8 +693,8 @@ function updateBarrels(dt, t) {
       // the ring of waves running out from the impact
       b.splashed = true;
       explosionQueue.push(
-        { pos: new THREE.Vector3(p.x, SURFACE_Y - 0.05, p.z), vel: 0.55, up: -1.2, foam: 1.0, radius: 0.20 },
-        { pos: new THREE.Vector3(p.x, SURFACE_Y - 0.15, p.z), vel: 0.28, up: 0.5, foam: 0.6, radius: 0.16 },
+        { pos: new THREE.Vector3(p.x, SURFACE_Y - 0.05, p.z), vel: 0.55, up: -1.2, foam: 0.35, radius: 0.20 },
+        { pos: new THREE.Vector3(p.x, SURFACE_Y - 0.15, p.z), vel: 0.28, up: 0.5, foam: 0.2, radius: 0.16 },
       );
       addRipple(p.x, p.z, 1.0);
     }
@@ -747,12 +705,14 @@ function updateBarrels(dt, t) {
       b.active = false;
       b.mesh.visible = false;
       const q = p.clone();
+      // implosion, then the blast — and the blast seeds a vortex ring that
+      // widens as it rises, which is what rolls the cap into a mushroom
       explosionQueue.push(
         { pos: q, vel: -2.0, up: -0.3, foam: 0.0, radius: 0.42 },
-        { pos: q, vel: -1.2, up: 0.0, foam: 0.5, radius: 0.36 },
-        { pos: q, vel: 3.4, up: 2.6, foam: 3.0, radius: 0.36 },
-        { pos: q, vel: 2.2, up: 1.9, foam: 1.7, radius: 0.44 },
-        { pos: q, vel: 1.2, up: 1.2, foam: 0.9, radius: 0.52 },
+        { pos: q, vel: -1.2, up: 0.0, foam: 0.18, radius: 0.36 },
+        { pos: q, vel: 3.2, up: 1.2, foam: 0.42, radius: 0.36, ring: 2.6, ringR: 0.28 },
+        { pos: q, vel: 1.8, up: 0.9, foam: 0.24, radius: 0.44, ring: 2.0, ringR: 0.36 },
+        { pos: q, vel: 0.9, up: 0.6, foam: 0.14, radius: 0.52, ring: 1.4, ringR: 0.44 },
       );
       lastBlast.pos.copy(q);
       lastBlast.until = t + 1.6;
@@ -784,7 +744,10 @@ function frame() {
   if (!params.paused) {
     updatePaddle(dt, t);
     updateBarrels(dt, t);
-    if (!fluid.burst && explosionQueue.length) fluid.burst = explosionQueue.shift();
+    if (!fluid.burst && explosionQueue.length) {
+      // scale on arming, so the sliders affect explosions already queued
+      fluid.burst = armBurst(explosionQueue.shift(), fluid.physics);
+    }
     timer.begin('sim');
     // wrapped time keeps float hash/noise inputs precise over long sessions
     fluid.step(dt, t % 512);
@@ -869,7 +832,7 @@ function frame() {
 
 window.water = {
   params, fluid, orbit, frames: 0,
-  burst(x, y, z, foam = 1.5, vel = 1.2) {
+  burst(x, y, z, foam = 0.5, vel = 1.2) {
     fluid.burst = { pos: new THREE.Vector3(x, y, z).clampScalar(-0.92, 0.92), vel, foam };
   },
   paddleTo(x, y, z) {

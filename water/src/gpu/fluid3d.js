@@ -11,13 +11,21 @@ import * as THREE from '../../vendor/three.webgpu.min.js';
 // THREE.TSL carries the full node namespace (the standalone tsl build misses
 // some exports, e.g. texture3DLoad)
 const {
-  Fn, If, Loop, uniform, instanceIndex, textureStore, texture3DLoad,
-  float, int, uint, vec3, vec4, ivec3, uvec3, smoothstep,
+  Fn, If, Loop, Break, uniform, uniformArray, instanceIndex, textureStore,
+  texture3DLoad, float, int, uint, vec2, vec3, vec4, ivec3, uvec3, smoothstep,
 } = THREE.TSL;
 
+const MAX_BARRELS = 6;
+
 export class Fluid3D {
-  constructor(renderer, { N = 128, jacobi = 26, lightDir }) {
+  constructor(renderer, { N = 128, jacobi = 26, lightDir, surfaceY = 0.72 }) {
     this.renderer = renderer;
+    this.surfaceY = surfaceY;
+    // same knobs, same units as the WebGL solver
+    this.physics = {
+      rise: 0.55, buoyancy: 0.48, foamLife: 5.0, swirl: 0.09, aeration: 1.8,
+      caustics: 1.0, chop: 1.0, drag: 0.06, blast: 1.0, ring: 1.0,
+    };
     this.N = N;
     this.jacobi = jacobi + (jacobi % 2); // even, so pressure ends in prs0
 
@@ -57,23 +65,28 @@ export class Fluid3D {
       paddleAng: uniform(new THREE.Vector3()),
       paddleHalf: uniform(new THREE.Vector3(0.30, 0.05, 0.20)),
       paddleRot: uniform(new THREE.Matrix3()),
-      barrelOn: uniform(0),
-      barrelPos: uniform(new THREE.Vector3()),
-      barrelVel: uniform(new THREE.Vector3()),
-      barrelVelW: uniform(new THREE.Vector3()),
-      barrelAng: uniform(new THREE.Vector3()),
-      barrelHalf: uniform(new THREE.Vector3(0.13, 0.17, 0.13)),
-      barrelRot: uniform(new THREE.Matrix3()),
+      barrelCount: uniform(0),
       burstPos: uniform(new THREE.Vector3()),
       burstAmt: uniform(0),
       burstUp: uniform(0),
       burstFoam: uniform(0),
       burstR: uniform(0.18),
+      burstRing: uniform(0),
+      burstRingR: uniform(0.3),
+      surfaceY: uniform(surfaceY),
+      rise: uniform(0),
       lightDir: uniform(lightDir.clone()),
       sigmaFoam: uniform(22 / N),
       sigmaWater: uniform(0.9 / N),
       lightStep: uniform(N / 22),
+      caustics: uniform(1),
     };
+    // barrels as spheres: xyz = world position, w = radius / world velocity
+    this.barrelPosArr = Array.from({ length: MAX_BARRELS }, () => new THREE.Vector4());
+    this.barrelVelArr = Array.from({ length: MAX_BARRELS }, () => new THREE.Vector4());
+    const uBarrels = uniformArray(this.barrelPosArr);
+    const uBarrelVels = uniformArray(this.barrelVelArr);
+    this.barrels = [];
 
     // ---- helpers -----------------------------------------------------------
 
@@ -147,7 +160,9 @@ export class Fluid3D {
       const wp = world(v);
       const vel = fetch(vel1, v).xyz.toVar();
       const foam = fetch(foam0, v).x;
-      vel.y.addAssign(u.buoyancy.mul(foam.clamp(0, 2.5)).mul(u.dt));
+      // buoyancy fades near the waterline, so plumes spread instead of piling up
+      const lift = float(1).sub(smoothstep(u.surfaceY.sub(0.07), u.surfaceY, wp.y));
+      vel.y.addAssign(u.buoyancy.mul(foam.clamp(0, 2.5)).mul(lift).mul(u.dt));
 
       If(u.paddleOn.greaterThan(0.5), () => {
         const d = sdBox(u.paddleRot.mul(wp.sub(u.paddlePos)), u.paddleHalf);
@@ -155,10 +170,12 @@ export class Fluid3D {
         const target = u.paddleVel.add(u.paddleAng.cross(wp.sub(u.paddlePos)).mul(N * 0.5));
         vel.addAssign(target.sub(vel).mul(w.mul(u.dt.mul(16).min(1))));
       });
-      If(u.barrelOn.greaterThan(0.5), () => {
-        const d = sdBox(u.barrelRot.mul(wp.sub(u.barrelPos)), u.barrelHalf);
-        const w = float(1).sub(smoothstep(0.0, 0.15, d));
-        const target = u.barrelVel.add(u.barrelAng.cross(wp.sub(u.barrelPos)).mul(N * 0.5));
+      Loop({ start: int(0), end: int(MAX_BARRELS) }, ({ i }) => {
+        If(int(i).greaterThanEqual(u.barrelCount), () => { Break(); });
+        const b = uBarrels.element(i);
+        const d = wp.sub(b.xyz).length().sub(b.w);
+        const w = float(1).sub(smoothstep(0.0, 0.12, d));
+        const target = uBarrelVels.element(i).xyz.mul(N * 0.5);
         vel.addAssign(target.sub(vel).mul(w.mul(u.dt.mul(16).min(1))));
       });
       If(u.burstAmt.notEqual(0).or(u.burstUp.notEqual(0)), () => {
@@ -166,6 +183,21 @@ export class Fluid3D {
         const w = dp.dot(dp).div(u.burstR.mul(u.burstR)).negate().exp();
         const dir = dp.div(dp.length().max(1e-4));
         vel.addAssign(dir.mul(u.burstAmt.mul(w)).add(vec3(0, 1, 0).mul(u.burstUp.mul(w))));
+      });
+
+      // Vortex ring: a rising blob only mushrooms if its cap rolls outward and
+      // under, and that circulation is something a purely radial impulse never
+      // creates. The blast seeds a torus of poloidal rotation.
+      If(u.burstRing.greaterThan(0), () => {
+        const dp = wp.sub(u.burstPos);
+        const rxz = vec2(dp.x, dp.z).length();
+        const er = vec3(dp.x, 0, dp.z).div(rxz.max(1e-4));
+        const s = dp.sub(er.mul(u.burstRingR));
+        const ls = s.length().max(1e-4);
+        const core = u.burstRingR.mul(0.9);
+        const w = ls.mul(ls).div(core.mul(core)).negate().exp();
+        const omega = vec3(0, 1, 0).cross(er).mul(u.burstRing);
+        vel.addAssign(omega.cross(s.div(ls)).mul(w));
       });
 
       const m = vel.length();
@@ -236,6 +268,12 @@ export class Fluid3D {
         fetchOff(prs0, v, 1, 0, 0).x.sub(fetchOff(prs0, v, -1, 0, 0).x),
         fetchOff(prs0, v, 0, 1, 0).x.sub(fetchOff(prs0, v, 0, -1, 0).x),
         fetchOff(prs0, v, 0, 0, 1).x.sub(fetchOff(prs0, v, 0, 0, -1).x)).mul(0.5));
+      // free surface: air above the waterline is still, and water cannot flow
+      // up through it — the lid is what makes plumes mushroom outward
+      const wy = float(v.y).add(0.5).div(N).mul(2).sub(1);
+      If(wy.add(2 / N).greaterThan(u.surfaceY), () => { vel.y.assign(vel.y.min(0)); });
+      If(wy.greaterThan(u.surfaceY), () => { vel.assign(vec3(0)); });
+
       const n = uint(N - 1);
       If(v.x.equal(uint(0)), () => { vel.x.assign(vel.x.max(0)); });
       If(v.x.equal(n), () => { vel.x.assign(vel.x.min(0)); });
@@ -250,9 +288,10 @@ export class Fluid3D {
     this.kMMForward = K(Fn(() => {
       const v = voxel();
       const p = vec3(v).add(0.5);
-      const vel = fetch(vel0, v).xyz;
+      const rise = vec3(0, u.rise, 0);
+      const vel = fetch(vel0, v).xyz.add(rise);
       const mid = p.sub(vel.mul(u.dt.mul(0.5)));
-      const q = p.sub(sample(vel0, mid).xyz.mul(u.dt));
+      const q = p.sub(sample(vel0, mid).xyz.add(rise).mul(u.dt));
       const val = sample(foam0, q).x;
       const q0 = ivec3(q.clamp(vec3(0.5), vec3(N - 0.5)).sub(0.5).floor());
       const mn = float(1e9).toVar();
@@ -270,9 +309,10 @@ export class Fluid3D {
     this.kMMReverse = K(Fn(() => {
       const v = voxel();
       const p = vec3(v).add(0.5);
-      const vel = fetch(vel0, v).xyz;
+      const rise = vec3(0, u.rise, 0);
+      const vel = fetch(vel0, v).xyz.add(rise);
       const mid = p.add(vel.mul(u.dt.mul(0.5)));
-      const q = p.add(sample(vel0, mid).xyz.mul(u.dt));
+      const q = p.add(sample(vel0, mid).xyz.add(rise).mul(u.dt));
       textureStore(tmp2, v, vec4(sample(tmp1, q).x, 0, 0, 0));
     }));
 
@@ -302,12 +342,14 @@ export class Fluid3D {
           foam.addAssign(w.mul(u.foamGain).mul(speed).mul(churn).mul(u.dt));
         });
       });
-      If(u.barrelOn.greaterThan(0.5), () => {
-        const bs = u.barrelVelW.length();
+      Loop({ start: int(0), end: int(MAX_BARRELS) }, ({ i }) => {
+        If(int(i).greaterThanEqual(u.barrelCount), () => { Break(); });
+        const bvel = uBarrelVels.element(i).xyz;
+        const bs = bvel.length();
         If(bs.greaterThan(0.05), () => {
-          const dir = u.barrelVelW.div(bs);
+          const dir = bvel.div(bs);
           const ba = dir.mul(-0.4);
-          const pa = wp.sub(u.barrelPos);
+          const pa = wp.sub(uBarrels.element(i).xyz);
           const h = pa.dot(ba).div(ba.dot(ba)).clamp(0, 1);
           const dseg = pa.sub(ba.mul(h)).length().sub(0.055);
           const w = float(1).sub(smoothstep(0.0, 0.10, dseg)).mul(float(1).sub(h.mul(0.55)));
@@ -321,6 +363,8 @@ export class Fluid3D {
         const w = dp.dot(dp).div(u.burstR.mul(u.burstR)).negate().exp();
         foam.addAssign(w.mul(u.burstFoam).mul(noise3(wp.mul(12).add(u.time)).mul(0.8).add(0.6)));
       });
+      // bubbles that reach the waterline pop; what survives rafts underneath
+      foam.mulAssign(float(1).sub(smoothstep(u.surfaceY.sub(0.008), u.surfaceY.add(0.05), wp.y)));
       textureStore(foam0, v, vec4(foam.min(4), 0, 0, 0));
     }));
 
@@ -344,9 +388,34 @@ export class Fluid3D {
       const t1 = vec3(0).sub(p).mul(inv);
       const t2 = vec3(N).sub(p).mul(inv);
       const tExit = t1.max(t2).x.min(t1.max(t2).y).min(t1.max(t2).z);
-      const t = od.mul(u.sigmaFoam).mul(u.lightStep)
-        .add(u.sigmaWater.mul(tExit.max(0))).negate().exp();
-      textureStore(light, v, vec4(t, 0, 0, 0));
+      const tr = od.mul(u.sigmaFoam).mul(u.lightStep)
+        .add(u.sigmaWater.mul(tExit.max(0))).negate().exp().toVar();
+
+      // caustics, walked back up the light path to the surface so the pattern
+      // reads as descending shafts (see the WebGL shader for the derivation)
+      const wp = world(v);
+      const below = u.surfaceY.sub(wp.y).max(0);
+      const cp = vec2(wp.x, wp.z).sub(vec2(u.lightDir.x, u.lightDir.z)
+        .mul(below.div(u.lightDir.y.negate().max(1e-3)))).mul(4.5);
+      const ct = u.time.mul(0.35);
+      const q = cp.add(0.137);
+      const ii = q.toVar();
+      const cc = float(0).toVar();
+      Loop({ start: int(0), end: int(3) }, ({ i }) => {
+        const tn = ct.mul(float(1).sub(float(3).div(float(i).add(1))));
+        ii.assign(q.add(vec2(
+          tn.sub(ii.x).cos().add(tn.add(ii.y).sin()),
+          tn.sub(ii.y).sin().add(tn.add(ii.x).cos()))));
+        const d = vec2(ii.x.add(tn).sin(), ii.y.add(tn).cos());
+        const ds = vec2(d.x.sign(), d.y.sign()).mul(vec2(d.x.abs().max(1e-3), d.y.abs().max(1e-3)))
+          .div(0.006);
+        cc.addAssign(float(1).div(q.div(ds).length().max(1e-4)));
+      });
+      // median-normalised exactly as in the WebGL shader: averages ~1 with
+      // ~10% bright filaments, so the knob redistributes rather than exposes
+      const cv = cc.div(77).pow(1.15).clamp(0, 3).div(1.25);
+      tr.mulAssign(float(1).mix(cv, u.caustics.mul(below.mul(0.9).negate().exp())));
+      textureStore(light, v, vec4(tr.max(0).min(8), 0, 0, 0));
     }));
 
     // clear kernels
@@ -359,16 +428,22 @@ export class Fluid3D {
     // one-shot inputs, same interface as the WebGL Fluid class
     this.burst = null;
     this.paddle = null;
-    this.barrel = null;
+    // this.barrels: [{ pos, vel (world/s), radius }] — as many as are in flight
   }
 
   step(dt, time) {
     const { u, renderer } = this;
     const voxPerWorld = this.N / 2;
+    const ph = this.physics;
     u.dt.value = dt;
     u.time.value = time;
-    u.dissV.value = Math.pow(0.999, dt * 60);
-    u.dissF.value = Math.pow(0.978, dt * 60);
+    u.dissV.value = Math.exp(-dt * ph.drag);
+    u.dissF.value = Math.exp(-dt / Math.max(ph.foamLife, 0.05));
+    u.rise.value = ph.rise * voxPerWorld;
+    u.buoyancy.value = ph.buoyancy * voxPerWorld;
+    u.eps.value = ph.swirl * this.N;
+    u.foamGain.value = ph.aeration;
+    u.caustics.value = ph.caustics;
 
     if (this.paddle && this.paddle.on) {
       u.paddleOn.value = 1;
@@ -381,16 +456,12 @@ export class Fluid3D {
     } else {
       u.paddleOn.value = 0;
     }
-    if (this.barrel && this.barrel.on) {
-      u.barrelOn.value = 1;
-      u.barrelPos.value.copy(this.barrel.pos);
-      u.barrelVel.value.copy(this.barrel.vel).multiplyScalar(voxPerWorld);
-      u.barrelVelW.value.copy(this.barrel.vel);
-      u.barrelAng.value.copy(this.barrel.angVel);
-      u.barrelHalf.value.copy(this.barrel.half);
-      u.barrelRot.value.copy(this.barrel.rot);
-    } else {
-      u.barrelOn.value = 0;
+    const bs = this.barrels;
+    const nb = Math.min(bs.length, 6);
+    u.barrelCount.value = nb;
+    for (let i = 0; i < nb; i++) {
+      this.barrelPosArr[i].set(bs[i].pos.x, bs[i].pos.y, bs[i].pos.z, bs[i].radius);
+      this.barrelVelArr[i].set(bs[i].vel.x, bs[i].vel.y, bs[i].vel.z, 0);
     }
     if (this.burst) {
       u.burstPos.value.copy(this.burst.pos);
@@ -398,11 +469,14 @@ export class Fluid3D {
       u.burstUp.value = (this.burst.up ?? 0) * voxPerWorld;
       u.burstFoam.value = this.burst.foam ?? 0;
       u.burstR.value = this.burst.radius ?? 0.18;
+      u.burstRing.value = (this.burst.ring ?? 0) * voxPerWorld;
+      u.burstRingR.value = this.burst.ringR ?? 0.3;
       this.burst = null;
     } else {
       u.burstAmt.value = 0;
       u.burstUp.value = 0;
       u.burstFoam.value = 0;
+      u.burstRing.value = 0;
     }
 
     const seq = [this.kAdvectVel, this.kForces, this.kCurl, this.kConfine, this.kDiv];

@@ -42,6 +42,8 @@ the water behaves; all of them are live and take effect on the next step:
 | swirl | vorticity confinement — how much fine curl the solver puts back after numerical damping. |
 | water drag | velocity damping, the stand-in for viscosity. |
 | caustics | strength of the light filaments. The field is median-normalised, so this redistributes light rather than adding exposure. |
+| blast power | scales an explosion's impulse, foam and ring as it is armed, so the slider reaches explosions already queued. |
+| vortex ring | circulation the blast seeds. A radial impulse alone just spreads and dies; the ring is what rolls the cap into a mushroom. |
 | surface chop | amplitude of the surface ripples, which drives the glint and the refraction. |
 
 With the interface hidden the tank fills the window and only a faint corner
@@ -51,16 +53,21 @@ class to `<body>` removes that last button too (what `--no-ui` captures use).
 
 ## Backends
 
-WebGPU is opt-in via `?gpu=1` while it catches up — the WebGL2 app has the
-free surface, caustics, bloom and bubble particles that backend does not have
-yet.
+Two complete implementations, switchable at runtime: the `switch to webgpu` /
+`switch to webgl2` button reloads with `?gpu=` flipped (keeping every other
+parameter), and the HUD names the one you're on. The button hides itself when
+the browser has no WebGPU adapter. WebGL2 is the default; `?gpu=1` opts in.
 
-The app boots WebGPU when asked with `?gpu=1` (`src/gpu/` —
-`WebGPURenderer` + TSL compute over true 3D storage textures, hardware
-trilinear sampling, grid presets 64³–160³) and falls back to the WebGL2 app
-otherwise (`src/main.js` — the Z-slice-atlas pipeline, the default). The HUD
-shows the active backend. The WebGPU backend is v1: no bloom
-or bubble particles yet, and composite transmittance is scalar.
+- `src/main.js` — WebGL2: the Z-slice-atlas pipeline (N³ voxels as tiles of a
+  2D texture), MRT raymarch, ping-pong float-texture particles.
+- `src/gpu/` — WebGPU: `WebGPURenderer` with the solver as TSL compute kernels
+  over true 3D storage textures, hardware trilinear sampling, storage-buffer
+  particles, grid presets 64³–160³.
+
+Both have the free surface, caustics, bubble slip, the physics knobs, the
+barrel pool and bloom. Two small differences remain in the WebGPU path: its
+composite carries scalar rather than rgb transmittance, and its points have no
+sprite coordinate, so bubbles are flat 2px dots rather than soft discs.
 
 `src/gpu/compat.js` carries three small shims for older Dawn builds
 (createView `swizzle`, implicit 3d view dimension, and stripping
@@ -82,6 +89,12 @@ completion so readbacks can't starve behind the queue.
   reflection with the foam raft printed on it. Impacts (barrel entry,
   detonation, bursts) push expanding rings into a small ripple buffer the
   surface normal reads from.
+- **Underwater explosions** — a barrel detonates as an implosion followed by a
+  blast, and the blast seeds a torus of poloidal circulation (up through the
+  middle, out over the top, down the outside) that widens as it rises. Without
+  that, a symmetric impulse just spreads and dies: the mushroom is circulation
+  the solver has no reason to invent, and a uniform bubble slip velocity
+  translates the plume rigidly, removing the very shear a cap rolls from.
 - **Caustics** — computed in the light-volume pass (once per voxel per frame,
   not per march step) by walking back up the light path to the surface, which
   is what turns the pattern into descending shafts.

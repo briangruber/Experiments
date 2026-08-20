@@ -166,6 +166,8 @@ uniform float uSurfaceY;
 uniform float uBurstAmt;   // voxels/s radial impulse (negative = implosion)
 uniform float uBurstUp;    // voxels/s vertical kick
 uniform float uBurstR;     // world-space radius
+uniform float uBurstRing;  // vortex-ring circulation, voxels/s
+uniform float uBurstRingR; // ring radius, world
 void main() {
   ivec3 v = voxelFromFrag();
   if (v.z >= uNi) { gl_FragColor = vec4(0.0); return; }
@@ -201,6 +203,25 @@ void main() {
     float w = exp(-dot(dp, dp) / (uBurstR * uBurstR));
     vec3 dir = dp / max(length(dp), 1e-4);
     vel += dir * (uBurstAmt * w) + vec3(0.0, uBurstUp * w, 0.0);
+  }
+
+  // Vortex ring. A rising blob only mushrooms if its cap rolls outward and
+  // under, and that roll is circulation the solver has no reason to invent:
+  // a purely radial impulse just spreads and dies. So the blast seeds a
+  // torus of poloidal circulation — up through the middle, out over the top,
+  // down the outside — which is the mushroom.
+  if (uBurstRing > 0.0) {
+    vec3 dp = wp - uBurstPos;
+    float rxz = length(dp.xz);
+    vec3 er = rxz > 1e-4 ? vec3(dp.x, 0.0, dp.z) / rxz : vec3(1.0, 0.0, 0.0);
+    vec3 s = dp - er * uBurstRingR;          // offset from the ring core
+    float ls = length(s);
+    if (ls > 1e-4) {
+      float core = uBurstRingR * 0.9;
+      float w = exp(-(ls * ls) / (core * core));
+      vec3 omega = cross(vec3(0.0, 1.0, 0.0), er) * uBurstRing;
+      vel += cross(omega, s / max(ls, 1e-4)) * w;
+    }
   }
 
   float m = length(vel);
