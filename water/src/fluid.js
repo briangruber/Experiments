@@ -72,6 +72,7 @@ export class Fluid {
       uPaddleOn: { value: 0 },
       uPaddlePos: { value: new THREE.Vector3() },
       uPaddleVel: { value: new THREE.Vector3() },
+      uPaddleAngVel: { value: new THREE.Vector3() },
       uPaddleHalf: { value: new THREE.Vector3(0.3, 0.05, 0.2) },
       uPaddleRot: { value: new THREE.Matrix3() },
       uBurstPos: { value: new THREE.Vector3() },
@@ -83,9 +84,10 @@ export class Fluid {
       uFoamGain: { value: 1.8 },
       uPaddleOn: { value: 0 },
       uPaddlePos: { value: new THREE.Vector3() },
+      uPaddleVelW: { value: new THREE.Vector3() },
+      uPaddleAngVel: { value: new THREE.Vector3() },
       uPaddleHalf: { value: new THREE.Vector3(0.3, 0.05, 0.2) },
       uPaddleRot: { value: new THREE.Matrix3() },
-      uPaddleSpeed: { value: 0 },
       uBurstPos: { value: new THREE.Vector3() },
       uBurstFoam: { value: 0 },
     });
@@ -141,6 +143,7 @@ export class Fluid {
       fu.uPaddleOn.value = 1;
       fu.uPaddlePos.value.copy(this.paddle.pos);
       fu.uPaddleVel.value.copy(this.paddle.vel).multiplyScalar(voxPerWorld);
+      fu.uPaddleAngVel.value.copy(this.paddle.angVel);
       fu.uPaddleHalf.value.copy(this.paddle.half);
       fu.uPaddleRot.value.copy(this.paddle.rot);
     } else {
@@ -196,7 +199,8 @@ export class Fluid {
       iu.uPaddlePos.value.copy(this.paddle.pos);
       iu.uPaddleHalf.value.copy(this.paddle.half);
       iu.uPaddleRot.value.copy(this.paddle.rot);
-      iu.uPaddleSpeed.value = this.paddle.vel.length();
+      iu.uPaddleVelW.value.copy(this.paddle.vel);
+      iu.uPaddleAngVel.value.copy(this.paddle.angVel);
     } else {
       iu.uPaddleOn.value = 0;
     }

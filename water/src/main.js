@@ -28,7 +28,9 @@ const params = {
   stir: query.get('stir') !== '0',
   stirSpeed: 1.0,
   autoSpin: query.get('spin') === '1',
-  spinSpeed: 0.22, // rad/s
+  spinSpeed: 0.22, // camera orbit, rad/s
+  paddleSpin: query.get('pspin') === '1',
+  paddleSpinSpeed: 3.0, // rad/s
   exposure: 1.25,
   paused: false,
   dtCap: Math.min(Math.max(+(query.get('dtcap') || 0) || 1 / 30, 1 / 240), 0.15),
@@ -359,21 +361,30 @@ canvas.addEventListener('wheel', (e) => {
 }, { passive: false });
 
 const spinBtn = document.getElementById('spin-btn');
-function syncSpinBtn() {
+const spinPaddleBtn = document.getElementById('spin-paddle-btn');
+function syncButtons() {
   spinBtn.classList.toggle('active', params.autoSpin);
   spinBtn.setAttribute('aria-pressed', String(params.autoSpin));
+  spinPaddleBtn.classList.toggle('active', params.paddleSpin);
+  spinPaddleBtn.setAttribute('aria-pressed', String(params.paddleSpin));
 }
 function toggleSpin() {
   params.autoSpin = !params.autoSpin;
-  syncSpinBtn();
+  syncButtons();
+}
+function togglePaddleSpin() {
+  params.paddleSpin = !params.paddleSpin;
+  syncButtons();
 }
 spinBtn.addEventListener('click', toggleSpin);
-syncSpinBtn();
+spinPaddleBtn.addEventListener('click', togglePaddleSpin);
+syncButtons();
 
 window.addEventListener('keydown', (e) => {
   if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.code === 'Space') { params.stir = !params.stir; e.preventDefault(); }
   else if (e.code === 'KeyO') toggleSpin();
+  else if (e.code === 'KeyR') togglePaddleSpin();
   else if (e.code === 'KeyC') fluid.clear();
   else if (e.code === 'KeyH') document.body.classList.toggle('ui-hidden');
   else if (e.code === 'KeyP') params.paused = !params.paused;
@@ -452,7 +463,8 @@ function updateHud() {
   statEls.parts.textContent = `${(particles.count / 1000).toFixed(1)} K`;
   statEls.fps.textContent = fpsCounter.fps ? fpsCounter.fps.toFixed(1) : '—';
   statEls.vram.textContent = `${vramMiB} MiB`;
-  statEls.stir.textContent = params.stir ? 'auto' : 'manual';
+  statEls.stir.textContent =
+    (params.stir ? 'auto' : 'manual') + (params.paddleSpin ? ' + spin' : '');
 }
 
 // -------------------------------------------------------------------- loop --
@@ -484,8 +496,14 @@ const prevPaddle = paddle.position.clone();
 const instVel = new THREE.Vector3();
 const rotMat3 = new THREE.Matrix3();
 const rotMat4 = new THREE.Matrix4();
+const paddleAngVel = new THREE.Vector3();
+const prevQuat = paddle.quaternion.clone();
+const dQuat = new THREE.Quaternion();
+const angInst = new THREE.Vector3();
+let spinAngle = 0;
 const paddleState = {
-  on: true, pos: paddle.position, vel: paddleVel, half: paddleHalf, rot: rotMat3,
+  on: true, pos: paddle.position, vel: paddleVel, angVel: paddleAngVel,
+  half: paddleHalf, rot: rotMat3,
 };
 
 function updatePaddle(dt, t) {
@@ -496,10 +514,17 @@ function updatePaddle(dt, t) {
       0.55 * Math.sin(0.62 * s + 1.0),
       -0.12 + 0.42 * Math.sin(0.47 * s + 2.1),
       0.55 * Math.sin(0.83 * s + 4.0));
-    paddle.rotation.set(
-      0.55 * Math.sin(0.50 * s),
-      0.35 * s,
-      0.45 * Math.sin(0.71 * s + 1.0));
+    if (!params.paddleSpin) {
+      paddle.rotation.set(
+        0.55 * Math.sin(0.50 * s),
+        0.35 * s,
+        0.45 * Math.sin(0.71 * s + 1.0));
+    }
+  }
+  if (params.paddleSpin) {
+    // mixer-blade mode: fast yaw spin on a slightly tilted blade
+    spinAngle += dt * params.paddleSpinSpeed;
+    paddle.rotation.set(0.35, spinAngle, 0.15);
   }
   const k = 1 - Math.exp(-dt * (drag.mode === 'paddle' ? 20 : 6));
   paddle.position.lerp(paddleTarget, k);
@@ -508,6 +533,21 @@ function updatePaddle(dt, t) {
   instVel.copy(paddle.position).sub(prevPaddle).divideScalar(Math.max(dt, 1e-4));
   paddleVel.lerp(instVel, 1 - Math.exp(-dt * 12));
   prevPaddle.copy(paddle.position);
+
+  // angular velocity measured from the quaternion delta, so tumbling and
+  // spinning both transfer rotational momentum into the fluid
+  dQuat.copy(prevQuat).invert().premultiply(paddle.quaternion);
+  if (dQuat.w < 0) { dQuat.x *= -1; dQuat.y *= -1; dQuat.z *= -1; dQuat.w *= -1; }
+  const half = Math.min(Math.acos(Math.min(dQuat.w, 1)), 1.5);
+  const sinHalf = Math.sin(half);
+  if (sinHalf > 1e-5 && dt > 1e-4) {
+    angInst.set(dQuat.x, dQuat.y, dQuat.z).divideScalar(sinHalf)
+      .multiplyScalar(2 * half / dt).clampLength(0, 8);
+  } else {
+    angInst.set(0, 0, 0);
+  }
+  paddleAngVel.lerp(angInst, 1 - Math.exp(-dt * 12));
+  prevQuat.copy(paddle.quaternion);
 
   rotMat4.extractRotation(paddle.matrixWorld);
   rotMat3.setFromMatrix4(rotMat4).transpose(); // world -> local
@@ -535,7 +575,9 @@ function frame() {
     timer.begin('sim');
     // wrapped time keeps float hash/noise inputs precise over long sessions
     fluid.step(dt, t % 512);
-    particles.step(dt, t % 512, paddle.position, paddleVel.length());
+    // spinning in place emits too: count blade-tip speed toward respawn rate
+    const effSpeed = Math.max(paddleVel.length(), paddleAngVel.length() * 0.28);
+    particles.step(dt, t % 512, paddle.position, effSpeed);
     timer.end();
   }
 

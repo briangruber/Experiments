@@ -74,10 +74,16 @@ html, body {
   .pointer-fine { display: none; }
   .pointer-coarse { display: block; }
 }
-#spin-btn {
+#controls {
   position: fixed;
   right: 20px;
   bottom: 42px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: stretch;
+}
+#controls button {
   font: inherit;
   font-size: 10px;
   letter-spacing: 0.18em;
@@ -89,20 +95,20 @@ html, body {
   padding: 8px 14px;
   cursor: pointer;
 }
-#spin-btn:hover {
+#controls button:hover {
   color: #cfe7f2;
   border-color: #3d6273;
 }
-#spin-btn.active {
+#controls button.active {
   color: #0b1418;
   background: #7fd4f0;
   border-color: #7fd4f0;
 }
-#spin-btn:focus-visible {
+#controls button:focus-visible {
   outline: 1px solid #7fd4f0;
   outline-offset: 2px;
 }
-.ui-hidden #stats, .ui-hidden #hud, .ui-hidden #title, .ui-hidden #spin-btn { display: none; }
+.ui-hidden #stats, .ui-hidden #hud, .ui-hidden #title, .ui-hidden #controls { display: none; }
 #boot {
   position: fixed;
   inset: 0;

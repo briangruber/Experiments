@@ -106,10 +106,11 @@ uniform float uDt;
 uniform float uBuoyancy;   // voxels/s^2 per unit foam
 uniform float uMaxVel;     // voxels/s
 uniform float uPaddleOn;
-uniform vec3 uPaddlePos;   // world [-1,1]
-uniform vec3 uPaddleVel;   // voxels/s
-uniform vec3 uPaddleHalf;  // world half extents
-uniform mat3 uPaddleRot;   // world -> paddle local
+uniform vec3 uPaddlePos;    // world [-1,1]
+uniform vec3 uPaddleVel;    // voxels/s
+uniform vec3 uPaddleAngVel; // rad/s, world axes
+uniform vec3 uPaddleHalf;   // world half extents
+uniform mat3 uPaddleRot;    // world -> paddle local
 uniform vec3 uBurstPos;
 uniform float uBurstAmt;   // voxels/s impulse
 void main() {
@@ -124,7 +125,9 @@ void main() {
   if (uPaddleOn > 0.5) {
     float d = sdBox(uPaddleRot * (wp - uPaddlePos), uPaddleHalf);
     float w = 1.0 - smoothstep(0.0, 0.18, d);
-    vel += (uPaddleVel - vel) * (w * min(uDt * 16.0, 1.0));
+    // rigid-body velocity of the paddle at this voxel: translation + omega x r
+    vec3 target = uPaddleVel + cross(uPaddleAngVel, wp - uPaddlePos) * (uNf * 0.5);
+    vel += (target - vel) * (w * min(uDt * 16.0, 1.0));
   }
 
   if (uBurstAmt > 0.0) {
@@ -147,9 +150,10 @@ uniform float uTime;
 uniform float uFoamGain;
 uniform float uPaddleOn;
 uniform vec3 uPaddlePos;
+uniform vec3 uPaddleVelW;   // world units/s
+uniform vec3 uPaddleAngVel; // rad/s, world axes
 uniform vec3 uPaddleHalf;
 uniform mat3 uPaddleRot;
-uniform float uPaddleSpeed; // world units/s
 uniform vec3 uBurstPos;
 uniform float uBurstFoam;
 void main() {
@@ -158,12 +162,16 @@ void main() {
   float foam = fetchVox(uFoam, v).x;
   vec3 wp = (vec3(v) + 0.5) / uNf * 2.0 - 1.0;
 
-  if (uPaddleOn > 0.5 && uPaddleSpeed > 0.02) {
-    float d = sdBox(uPaddleRot * (wp - uPaddlePos), uPaddleHalf);
-    float w = 1.0 - smoothstep(0.0, 0.14, d);
-    float speed = min(uPaddleSpeed, 3.0);
-    float churn = 0.45 + 1.2 * noise3(wp * 14.0 + vec3(0.0, uTime * 2.1, uTime * 1.3));
-    foam += w * uFoamGain * speed * churn * uDt;
+  if (uPaddleOn > 0.5) {
+    // aeration follows the local rigid-body speed, so a paddle spinning in
+    // place foams at its sweeping edges, not at its still centre
+    float speed = min(length(uPaddleVelW + cross(uPaddleAngVel, wp - uPaddlePos)), 3.0);
+    if (speed > 0.02) {
+      float d = sdBox(uPaddleRot * (wp - uPaddlePos), uPaddleHalf);
+      float w = 1.0 - smoothstep(0.0, 0.14, d);
+      float churn = 0.45 + 1.2 * noise3(wp * 14.0 + vec3(0.0, uTime * 2.1, uTime * 1.3));
+      foam += w * uFoamGain * speed * churn * uDt;
+    }
   }
 
   if (uBurstFoam > 0.0) {
