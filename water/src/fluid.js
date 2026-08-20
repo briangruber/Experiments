@@ -19,22 +19,23 @@ export class Fluid {
     this.W = this.T * N;
     this.H = this.R * N;
 
-    const rt = () => new THREE.WebGLRenderTarget(this.W, this.H, {
+    const rt = (format = THREE.RedFormat) => new THREE.WebGLRenderTarget(this.W, this.H, {
       type: THREE.HalfFloatType,
-      format: THREE.RGBAFormat,
+      format,
       minFilter: THREE.LinearFilter,
       magFilter: THREE.LinearFilter,
       depthBuffer: false,
       stencilBuffer: false,
     });
 
-    this.vel = [rt(), rt()];
+    // vector fields need rgba; scalar fields are R16F
+    this.vel = [rt(THREE.RGBAFormat), rt(THREE.RGBAFormat)];
     this.foam = [rt(), rt()];
     this.prs = [rt(), rt()];
     this.div = rt();
-    this.curl = rt();
+    this.curl = rt(THREE.RGBAFormat);
     this.light = rt();
-    this.bytes = 9 * this.W * this.H * 8;
+    this.bytes = this.W * this.H * (3 * 8 + 6 * 2);
 
     this.scene = new THREE.Scene();
     this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -66,7 +67,7 @@ export class Fluid {
     this.mForces = mat(FORCES_FRAG, {
       uVel: { value: null }, uFoam: { value: null },
       uDt: { value: 0 },
-      uBuoyancy: { value: 24.0 },
+      uBuoyancy: { value: 0.24 * N },   // grid-invariant: 0.48 world units/s^2
       uMaxVel: { value: N * 2.6 },
       uPaddleOn: { value: 0 },
       uPaddlePos: { value: new THREE.Vector3() },
@@ -91,7 +92,9 @@ export class Fluid {
     this.mCurl = mat(CURL_FRAG, { uVel: { value: null } });
     this.mConfine = mat(CONFINE_FRAG, {
       uVel: { value: null }, uCurl: { value: null },
-      uDt: { value: 0 }, uEps: { value: 9.0 },
+      uDt: { value: 0 },
+      uEps: { value: 0.09 * N },        // grid-invariant confinement strength
+      uMaxVel: { value: N * 2.6 },
     });
     this.mDiv = mat(DIVERGENCE_FRAG, { uVel: { value: null } });
     this.mJacobi = mat(JACOBI_FRAG, { uPrs: { value: null }, uDiv: { value: null } });
@@ -100,7 +103,7 @@ export class Fluid {
       uFoam: { value: null },
       uLightDir: { value: lightDir.clone() },
       uStepLen: { value: N / 22 },
-      uSigmaFoam: { value: 0.22 },
+      uSigmaFoam: { value: 22 / N },    // grid-invariant: 11 per world unit
       uSigmaWater: { value: 0.9 / N },
     });
 
@@ -123,7 +126,9 @@ export class Fluid {
     this.mAdvect.uniforms.uVel.value = vel[0].texture;
     this.mAdvect.uniforms.uSrc.value = vel[0].texture;
     this.mAdvect.uniforms.uDt.value = dt;
-    this.mAdvect.uniforms.uDissipation.value = 0.999;
+    // decay is time-based (per 1/60 s), not per-frame, so the sim looks the
+    // same at any refresh rate
+    this.mAdvect.uniforms.uDissipation.value = Math.pow(0.999, dt * 60);
     this.pass(this.mAdvect, vel[1]);
     vel.reverse();
 
@@ -177,7 +182,7 @@ export class Fluid {
     this.mAdvect.uniforms.uVel.value = vel[0].texture;
     this.mAdvect.uniforms.uSrc.value = foam[0].texture;
     this.mAdvect.uniforms.uDt.value = dt;
-    this.mAdvect.uniforms.uDissipation.value = 0.978;
+    this.mAdvect.uniforms.uDissipation.value = Math.pow(0.978, dt * 60);
     this.pass(this.mAdvect, foam[1]);
     foam.reverse();
 

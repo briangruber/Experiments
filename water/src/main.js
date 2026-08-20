@@ -41,16 +41,23 @@ function fail(msg) {
   throw new Error(msg);
 }
 
-if (!canvas.getContext('webgl2')) fail('WebGL2 is required and not available in this browser.');
+// Probe WebGL2 on a throwaway canvas: calling getContext on the real canvas
+// would fix its context attributes before WebGLRenderer sets its own.
+if (!document.createElement('canvas').getContext('webgl2')) {
+  fail('WebGL2 is required and not available in this browser.');
+}
 
 const renderer = new THREE.WebGLRenderer({
   canvas, antialias: false, alpha: false,
-  powerPreference: 'high-performance', preserveDrawingBuffer: true,
+  powerPreference: 'high-performance',
 });
 renderer.setClearColor(0x000000, 1);
 renderer.autoClear = false;
+if (!renderer.getContext().getExtension('EXT_color_buffer_float')) {
+  fail('This browser cannot render to float textures (EXT_color_buffer_float).');
+}
 
-const DPR = Math.min(window.devicePixelRatio || 1, 1.75);
+const getDPR = () => Math.min(window.devicePixelRatio || 1, 1.75);
 const sunDir = new THREE.Vector3(0.30, -1.0, -0.35).normalize();
 
 const fluid = new Fluid(renderer, { N: Q.N, jacobi: Q.jacobi, lightDir: sunDir });
@@ -204,8 +211,9 @@ const mPost = new THREE.ShaderMaterial({
 });
 
 function resize() {
-  const w = Math.max(2, Math.floor(canvas.clientWidth * DPR));
-  const h = Math.max(2, Math.floor(canvas.clientHeight * DPR));
+  const dpr = getDPR();
+  const w = Math.max(2, Math.floor(canvas.clientWidth * dpr));
+  const h = Math.max(2, Math.floor(canvas.clientHeight * dpr));
   if (w === W && h === H) return;
   W = w; H = h;
   renderer.setSize(w, h, false);
@@ -266,16 +274,18 @@ canvas.addEventListener('pointerdown', (e) => {
     drag.mode = 'pinch';
     return;
   }
+  if (pointers.size > 2) return; // extra fingers don't disturb an active pinch
   drag.moved = 0;
   drag.t0 = performance.now();
   drag.last = { x: e.clientX, y: e.clientY };
-  const ray = pointerRay(e);
+  pointerRay(e);
   const hit = raycaster.intersectObject(paddle, false);
   if (hit.length) {
     drag.mode = 'paddle';
     drag.plane.setFromNormalAndCoplanarPoint(
       camera.getWorldDirection(new THREE.Vector3()).negate(), paddle.position);
     drag.offset.copy(hit[0].point).sub(paddle.position);
+    paddleTarget.copy(paddle.position); // don't dart back to the auto-stir path
     lastInteract = clock.elapsedTime;
   } else {
     drag.mode = 'orbit';
@@ -284,14 +294,17 @@ canvas.addEventListener('pointerdown', (e) => {
 
 canvas.addEventListener('pointermove', (e) => {
   if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-  if (drag.mode === 'pinch' && pointers.size === 2) {
-    const [p1, p2] = [...pointers.values()];
-    const d = Math.hypot(p1.x - p2.x, p1.y - p2.y);
-    if (drag.pinch > 0) orbit.dist *= drag.pinch / d;
-    drag.pinch = d;
-    updateCamera();
+  if (drag.mode === 'pinch') {
+    if (pointers.size >= 2) {
+      const [p1, p2] = [...pointers.values()];
+      const d = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+      if (drag.pinch > 0) orbit.dist *= drag.pinch / d;
+      drag.pinch = d;
+      updateCamera();
+    }
     return;
   }
+  if (pointers.size > 1) return;
   if (!drag.mode) {
     // hover highlight
     pointerRay(e);
@@ -310,16 +323,19 @@ canvas.addEventListener('pointermove', (e) => {
     const p = new THREE.Vector3();
     if (ray.intersectPlane(drag.plane, p)) {
       paddleTarget.copy(p.sub(drag.offset));
-      paddleTarget.clampScalar(-0.82, 0.82);
+      paddleTarget.clampScalar(-0.66, 0.66); // keeps the paddle inside the glass
     }
     lastInteract = clock.elapsedTime;
   }
 });
 
-function endPointer(e) {
+function endPointer(e, cancelled) {
   pointers.delete(e.pointerId);
-  if (drag.mode === 'pinch') { drag.mode = null; return; }
-  const quick = performance.now() - drag.t0 < 280 && drag.moved < 8;
+  if (drag.mode === 'pinch') {
+    if (pointers.size < 2) drag.mode = null;
+    return;
+  }
+  const quick = !cancelled && performance.now() - drag.t0 < 280 && drag.moved < 8;
   if (quick && drag.mode === 'orbit') {
     const ray = pointerRay(e);
     const t = rayBox(ray);
@@ -331,8 +347,8 @@ function endPointer(e) {
   }
   drag.mode = null;
 }
-canvas.addEventListener('pointerup', endPointer);
-canvas.addEventListener('pointercancel', endPointer);
+canvas.addEventListener('pointerup', (e) => endPointer(e, false));
+canvas.addEventListener('pointercancel', (e) => endPointer(e, true));
 
 canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
@@ -341,40 +357,49 @@ canvas.addEventListener('wheel', (e) => {
 }, { passive: false });
 
 window.addEventListener('keydown', (e) => {
+  if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.code === 'Space') { params.stir = !params.stir; e.preventDefault(); }
   else if (e.code === 'KeyC') fluid.clear();
   else if (e.code === 'KeyH') document.body.classList.toggle('ui-hidden');
   else if (e.code === 'KeyP') params.paused = !params.paused;
   else if (e.code === 'KeyQ') {
     const names = Object.keys(QUALITY);
-    const next = names[(names.indexOf(params.quality) + 1) % names.length];
-    location.search = `?q=${next}${params.stir ? '' : '&stir=0'}`;
+    const q = new URLSearchParams(location.search);
+    q.set('q', names[(names.indexOf(params.quality) + 1) % names.length]);
+    if (params.stir) q.delete('stir'); else q.set('stir', '0');
+    location.search = `?${q}`;
   }
 });
 
 // -------------------------------------------------------------- gpu timers --
 
+// GPU timer with CPU fallback: CPU wall time always fills the readout, and
+// real GPU query results overwrite it whenever they resolve (they may never
+// resolve on software renderers).
 class GpuTimer {
   constructor(gl) {
     this.gl = gl;
     this.ext = gl.getExtension('EXT_disjoint_timer_query_webgl2');
     this.pending = [];
     this.ms = {};
+    this.gpuLive = false;
   }
   begin(name) {
-    if (!this.ext) { this.cpu = performance.now(); this.name = name; return; }
+    this.cpu = performance.now();
+    this.name = name;
+    if (!this.ext) return;
     this.query = this.gl.createQuery();
     this.gl.beginQuery(this.ext.TIME_ELAPSED_EXT, this.query);
-    this.name = name;
   }
   end() {
-    if (!this.ext) {
-      const name = this.name;
+    const name = this.name;
+    if (!this.gpuLive) {
       this.ms[name] = (this.ms[name] ?? 0) * 0.9 + (performance.now() - this.cpu) * 0.1;
-      return;
     }
+    if (!this.ext) return;
     this.gl.endQuery(this.ext.TIME_ELAPSED_EXT);
-    this.pending.push({ name: this.name, query: this.query });
+    this.pending.push({ name, query: this.query });
+    while (this.pending.length > 8) this.gl.deleteQuery(this.pending.shift().query);
   }
   poll() {
     if (!this.ext) return;
@@ -383,7 +408,8 @@ class GpuTimer {
       if (!this.gl.getQueryParameter(query, this.gl.QUERY_RESULT_AVAILABLE)) break;
       if (!this.gl.getParameter(this.ext.GPU_DISJOINT_EXT)) {
         const ns = this.gl.getQueryParameter(query, this.gl.QUERY_RESULT);
-        this.ms[name] = (this.ms[name] ?? 0) * 0.8 + (ns / 1e6) * 0.2;
+        this.ms[name] = this.gpuLive ? (this.ms[name] ?? 0) * 0.8 + (ns / 1e6) * 0.2 : ns / 1e6;
+        this.gpuLive = true;
       }
       this.gl.deleteQuery(query);
       this.pending.shift();
@@ -396,14 +422,14 @@ const timer = new GpuTimer(renderer.getContext());
 
 const statEls = {};
 for (const el of document.querySelectorAll('#stats [data-k]')) statEls[el.dataset.k] = el;
-const fpsCounter = { frames: 0, t: 0, fps: 0 };
+const fpsCounter = { frames: 0, t: performance.now() / 1000, fps: 0 };
 
 function updateHud() {
   const vramMiB = Math.round((fluid.bytes + particles.bytes +
     (W * H * 8) * 3 + (W * H * 8 * Q.scale * Q.scale) * 2) / (1 << 20));
   statEls.res.textContent = `${W} × ${H}`;
   statEls.grid.textContent = `${Q.N}³ · ${(Q.N ** 3 / 1e6).toFixed(2)} M voxels`;
-  const unit = timer.ext ? 'GPU' : 'CPU';
+  const unit = timer.gpuLive ? 'GPU' : 'CPU';
   statEls.simLabel.textContent = `Simulate, ${unit}`;
   statEls.renLabel.textContent = `Render, ${unit}`;
   statEls.sim.textContent = timer.ms.sim ? `${timer.ms.sim.toFixed(2)} ms` : '—';
@@ -422,9 +448,9 @@ function updateHud() {
 const clock = {
   last: performance.now() / 1000,
   elapsedTime: 0,
-  getDelta() {
+  getDelta(paused) {
     const now = performance.now() / 1000;
-    const dt = Math.min(now - this.last, params.dtCap);
+    const dt = paused ? 0 : Math.min(now - this.last, params.dtCap);
     this.last = now;
     this.elapsedTime += dt;
     return dt;
@@ -441,6 +467,9 @@ const prevPaddle = paddle.position.clone();
 const instVel = new THREE.Vector3();
 const rotMat3 = new THREE.Matrix3();
 const rotMat4 = new THREE.Matrix4();
+const paddleState = {
+  on: true, pos: paddle.position, vel: paddleVel, half: paddleHalf, rot: rotMat3,
+};
 
 function updatePaddle(dt, t) {
   const stirring = params.stir && (t - lastInteract > 4 || lastInteract < 0);
@@ -465,20 +494,13 @@ function updatePaddle(dt, t) {
 
   rotMat4.extractRotation(paddle.matrixWorld);
   rotMat3.setFromMatrix4(rotMat4).transpose(); // world -> local
-
-  fluid.paddle = {
-    on: true,
-    pos: paddle.position,
-    vel: paddleVel,
-    half: paddleHalf,
-    rot: rotMat3,
-  };
+  fluid.paddle = paddleState;
 }
 
 function frame() {
   requestAnimationFrame(frame);
   resize();
-  const dt = clock.getDelta();
+  const dt = clock.getDelta(params.paused);
   const t = clock.elapsedTime;
 
   while (seedBursts.length && seedBursts[0].t <= t) {
@@ -489,8 +511,9 @@ function frame() {
   if (!params.paused) {
     updatePaddle(dt, t);
     timer.begin('sim');
-    fluid.step(dt, t);
-    particles.step(dt, t, paddle.position, paddleVel.length());
+    // wrapped time keeps float hash/noise inputs precise over long sessions
+    fluid.step(dt, t % 512);
+    particles.step(dt, t % 512, paddle.position, paddleVel.length());
     timer.end();
   }
 
@@ -542,10 +565,11 @@ function frame() {
   frames++;
   window.water.frames = frames;
   fpsCounter.frames++;
-  if (t - fpsCounter.t > 0.5) {
-    fpsCounter.fps = fpsCounter.frames / (t - fpsCounter.t);
+  const wall = performance.now() / 1000; // real time, not the capped sim clock
+  if (wall - fpsCounter.t > 0.5) {
+    fpsCounter.fps = fpsCounter.frames / (wall - fpsCounter.t);
     fpsCounter.frames = 0;
-    fpsCounter.t = t;
+    fpsCounter.t = wall;
     updateHud();
   }
   if (frames === 3) boot.classList.add('hidden');
@@ -559,7 +583,7 @@ window.water = {
     fluid.burst = { pos: new THREE.Vector3(x, y, z).clampScalar(-0.92, 0.92), vel, foam };
   },
   paddleTo(x, y, z) {
-    paddleTarget.set(x, y, z).clampScalar(-0.82, 0.82);
+    paddleTarget.set(x, y, z).clampScalar(-0.66, 0.66);
     lastInteract = clock.elapsedTime;
   },
   camera(az, el, dist) {

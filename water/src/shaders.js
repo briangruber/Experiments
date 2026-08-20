@@ -194,6 +194,7 @@ uniform sampler2D uVel;
 uniform sampler2D uCurl;
 uniform float uDt;
 uniform float uEps;
+uniform float uMaxVel;
 void main() {
   ivec3 v = voxelFromFrag();
   if (v.z >= uNi) { gl_FragColor = vec4(0.0); return; }
@@ -207,6 +208,8 @@ void main() {
     vec3 curl = fetchVox(uCurl, v).xyz;
     vel += uEps * cross(eta / m, curl) * uDt;
   }
+  float s = length(vel);
+  if (s > uMaxVel) vel *= uMaxVel / s; // confinement output must stay bounded too
   gl_FragColor = vec4(vel, 0.0);
 }`;
 
@@ -344,7 +347,10 @@ void main() {
 
   float n = float(uSteps);
   float dt = (t1 - t0) / n;
-  float jit = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453 + uFrame * 0.618034);
+  // sinless hash: stable on mobile GPUs where sin() loses precision
+  vec3 jp = fract(vec3(gl_FragCoord.xy, uFrame) * 0.1031);
+  jp += dot(jp, jp.zyx + 31.32);
+  float jit = fract((jp.x + jp.y) * jp.z);
   float mu = dot(dir, uSunDir);
   float phase = 0.4 + 0.6 * pow(0.5 * (1.0 + mu), 2.0);
 
@@ -477,7 +483,7 @@ void main() {
   if (life <= 0.0 || any(greaterThan(abs(p), vec3(0.99)))) {
     vec3 r = hash33(seed);
     // respawn near the paddle; more eagerly the faster it moves
-    p = uPaddlePos + (r * 2.0 - 1.0) * 0.34;
+    p = clamp(uPaddlePos + (r * 2.0 - 1.0) * 0.34, vec3(-0.98), vec3(0.98));
     life = 2.5 + 4.0 * fract(r.y * 7.31);
     if (uPaddleSpeed < 0.05 && fract(r.z * 5.17) > 0.15) life = -0.001;
   } else {
@@ -496,6 +502,7 @@ uniform sampler2D uFoamTex;
 uniform sampler2D uLightTex;
 uniform int uTexSize;
 uniform float uPointScale; // px at distance 1
+uniform vec3 uPaddlePos;
 varying float vAlpha;
 varying vec3 vColor;
 void main() {
@@ -510,7 +517,10 @@ void main() {
   // visible on the shell of plumes: fade in with foam, fade out when buried
   float shell = smoothstep(0.02, 0.18, foam) * (1.0 - smoothstep(0.7, 1.8, foam));
   float flick = 0.65 + 0.35 * sin(s.w * 23.0 + float(gl_VertexID));
-  vAlpha = shell * flick * min(s.w * 2.0, 1.0);
+  // freshly spawned particles cluster on the paddle box; keep them hidden
+  // until the flow has carried them away
+  float away = smoothstep(0.14, 0.40, distance(s.xyz, uPaddlePos));
+  vAlpha = shell * flick * away * min(s.w * 2.0, 1.0);
   vColor = (vec3(0.55, 0.75, 0.9) + vec3(1.0, 0.95, 0.85) * lt * 1.6) * 0.5;
 
   vec4 mv = viewMatrix * vec4(s.xyz, 1.0);

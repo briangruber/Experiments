@@ -68,6 +68,7 @@ export class Particles {
         uLightTex: { value: null },
         uTexSize: { value: texSize },
         uPointScale: { value: 3.0 },
+        uPaddlePos: { value: new THREE.Vector3() },
       },
     });
     this.points = new THREE.Points(geo, this.material);
@@ -84,6 +85,7 @@ export class Particles {
     u.uTime.value = time;
     u.uPaddlePos.value.copy(paddlePos);
     u.uPaddleSpeed.value = paddleSpeed;
+    this.material.uniforms.uPaddlePos.value.copy(paddlePos);
     this.renderer.setRenderTarget(this.pos[1]);
     this.renderer.render(this.scene, this.camera);
     this.pos.reverse();
