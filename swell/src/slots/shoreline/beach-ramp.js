@@ -13,12 +13,14 @@ export const meta = {
 };
 
 export const knobs = {
+  duneHeight: 3.2,      // m above still water where the beach flattens into dune
   sandbarHeight: 1.1,   // m of relief on the offshore bars
   sandbarSpacing: 95.0, // m between bars
   shoreWander: 22.0,    // m of lateral meander in the waterline
 };
 
 export const schema = [
+  ['duneHeight', 0.5, 30, 0.1, 'm'],
   ['sandbarHeight', 0, 4, 0.05, 'm'],
   ['sandbarSpacing', 20, 400, 1, 'm'],
   ['shoreWander', 0, 120, 1, 'm'],
@@ -49,6 +51,9 @@ float sw_seabedHeight(vec2 p){
   // Texture on the bed so shallow water is not glassy-flat.
   h += (sw_fbm(p * 0.012, 3) - 0.5) * 0.9 * smoothstep(-400.0, -20.0, d);
 
+  // Flatten into a dune line rather than climbing forever: an unbounded ramp
+  // puts a hillside in front of the camera and the sea behind it.
+  h = -sw_softFloor(-h, -uDuneHeight, 0.6);
   return sw_softFloor(h, -uSeaFloorDepth, 0.05);
 }
 

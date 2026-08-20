@@ -50,6 +50,21 @@ export function slotKnobs(selection) {
   return out;
 }
 
+// Values a variant computes in JavaScript from the current knobs, delivered as
+// uniforms like any other knob. This exists so a variant can do setup work once
+// per frame instead of once per pixel — normalising a spectrum, say, which needs
+// a sum over every wave train and would otherwise be 42 extra pow() calls in the
+// inner loop. A derived knob must also appear in `knobs` with a placeholder, so
+// its uniform is declared even before the first derive runs.
+export function deriveKnobs(selection, knobs) {
+  const out = {};
+  for (const slot of SLOTS) {
+    const v = variant(slot, selection[slot]);
+    if (typeof v.derive === 'function') Object.assign(out, v.derive(knobs));
+  }
+  return out;
+}
+
 export function slotSchema(selection) {
   const groups = [];
   for (const slot of SLOTS) {

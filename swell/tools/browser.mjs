@@ -20,11 +20,18 @@ export async function open({ width = 1280, height = 720, scene = 'golden-hour', 
   const { chromium } = await loadPlaywright();
   const { server, port } = await serve(root);
 
+  // Hardware where there is any, software where there is not. Cross-machine
+  // pixel identity is deliberately *not* required: the determinism gate
+  // compares two renders inside one process, and cost is only ever reported as
+  // a ratio measured on the same machine in the same run. Forcing everyone onto
+  // a software rasteriser to buy identity nobody uses just makes the harness
+  // too slow to run, which is the failure mode that actually matters.
+  const software = (process.env.SWELL_GL || 'auto') === 'software';
   const browser = await chromium.launch({
     args: [
       '--use-gl=angle',
-      '--use-angle=swiftshader',      // deterministic across machines; see bench.mjs
-      '--enable-unsafe-swiftshader',
+      ...(software ? ['--use-angle=swiftshader'] : []),
+      '--enable-unsafe-swiftshader',   // the fallback when there is no GPU
       '--disable-lcd-text',
       '--force-device-scale-factor=1',
     ],

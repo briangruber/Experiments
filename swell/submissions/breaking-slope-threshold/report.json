@@ -1,0 +1,190 @@
+{
+  "generated": "2026-08-20T18:18:43.649Z",
+  "domain": "swell",
+  "slot": "breaking",
+  "candidate": "slope-threshold",
+  "champion": "fold-ridge",
+  "budget": "standard",
+  "selection": {
+    "champion": {
+      "sky": "single-scatter",
+      "shoreline": "beach-ramp",
+      "spectrum": "jonswap-gerstner",
+      "breaking": "fold-ridge",
+      "foam": "bubble-raft",
+      "water": "absorb-sss"
+    },
+    "candidate": {
+      "sky": "single-scatter",
+      "shoreline": "beach-ramp",
+      "spectrum": "jonswap-gerstner",
+      "breaking": "slope-threshold",
+      "foam": "bubble-raft",
+      "water": "absorb-sss"
+    }
+  },
+  "fixtures": [
+    {
+      "scene": "golden-hour",
+      "time": 7
+    },
+    {
+      "scene": "golden-hour",
+      "time": 33.25
+    },
+    {
+      "scene": "deep-ocean",
+      "time": 7
+    },
+    {
+      "scene": "deep-ocean",
+      "time": 33.25
+    },
+    {
+      "scene": "hurricane",
+      "time": 7
+    },
+    {
+      "scene": "hurricane",
+      "time": 33.25
+    },
+    {
+      "scene": "sandy-beach",
+      "time": 7
+    },
+    {
+      "scene": "sandy-beach",
+      "time": 33.25
+    }
+  ],
+  "verdict": {
+    "blocked": false,
+    "blockedBy": [],
+    "costRatio": 0.7300911711352798,
+    "physics": [
+      {
+        "id": "whitecap",
+        "movedCloser": false,
+        "error": 1,
+        "baselineError": 0.2563283288575403
+      }
+    ],
+    "unchanged": [
+      "waveHeight",
+      "spectralSlope"
+    ],
+    "needsPreference": true
+  },
+  "eligibleBudgets": [
+    "lean",
+    "standard",
+    "lavish"
+  ],
+  "metrics": [
+    {
+      "id": "errors",
+      "title": "Runs clean",
+      "kind": "gate",
+      "unit": "",
+      "candidate": 0,
+      "champion": 0,
+      "error": null,
+      "championError": null,
+      "movedCloser": null,
+      "ratio": null,
+      "pass": true,
+      "skipped": 0,
+      "failures": []
+    },
+    {
+      "id": "determinism",
+      "title": "Same input, same pixels",
+      "kind": "gate",
+      "unit": "",
+      "candidate": 1,
+      "champion": 1,
+      "error": null,
+      "championError": null,
+      "movedCloser": null,
+      "ratio": null,
+      "pass": true,
+      "skipped": 0,
+      "failures": []
+    },
+    {
+      "id": "flicker",
+      "title": "Temporal stability",
+      "kind": "gate",
+      "unit": "index",
+      "candidate": 0.21730440323542183,
+      "champion": 0.25129925054608554,
+      "error": null,
+      "championError": null,
+      "movedCloser": null,
+      "ratio": null,
+      "pass": true,
+      "skipped": 0,
+      "failures": []
+    },
+    {
+      "id": "cost",
+      "title": "Frame cost",
+      "kind": "measure",
+      "unit": "ms",
+      "candidate": 1554.5374999999767,
+      "champion": 2129.2374999997555,
+      "error": null,
+      "championError": null,
+      "movedCloser": null,
+      "ratio": 0.7300911711352798,
+      "pass": null,
+      "skipped": 0,
+      "failures": []
+    },
+    {
+      "id": "waveHeight",
+      "title": "Significant wave height vs JONSWAP",
+      "kind": "measure",
+      "unit": "m",
+      "candidate": 5.181403461688529,
+      "champion": 5.181403461688529,
+      "error": 0.0998406045252808,
+      "championError": 0.0998406045252808,
+      "movedCloser": "unchanged",
+      "ratio": null,
+      "pass": null,
+      "skipped": 2,
+      "failures": []
+    },
+    {
+      "id": "whitecap",
+      "title": "Whitecap coverage vs Monahan",
+      "kind": "measure",
+      "unit": "fraction",
+      "candidate": 0,
+      "champion": 0.12636046254245106,
+      "error": 1,
+      "championError": 0.2563283288575403,
+      "movedCloser": false,
+      "ratio": null,
+      "pass": null,
+      "skipped": 2,
+      "failures": []
+    },
+    {
+      "id": "spectralSlope",
+      "title": "Spectral tail slope",
+      "kind": "measure",
+      "unit": "exponent",
+      "candidate": -4.107574080830441,
+      "champion": -4.107574080830441,
+      "error": 1.1075740808304406,
+      "championError": 1.1075740808304406,
+      "movedCloser": "unchanged",
+      "ratio": null,
+      "pass": null,
+      "skipped": 2,
+      "failures": []
+    }
+  ]
+}

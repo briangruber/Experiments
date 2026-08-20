@@ -1,0 +1,184 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>breaking: slope-threshold vs fold-ridge</title>
+<style>
+  :root { color-scheme: dark; --bg:#0b0f14; --panel:#121821; --line:#22303f; --text:#dfe6ee; --dim:#8c9aab;
+          --good:#5fd08a; --bad:#ff6b6b; --warn:#f0c25f; }
+  body { margin:0; padding:28px; background:var(--bg); color:var(--text);
+         font:13px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace; }
+  h1 { font-size:17px; margin:0 0 2px; } h2 { font-size:13px; margin:26px 0 8px; color:var(--dim);
+       text-transform:uppercase; letter-spacing:.06em; }
+  .sub { color:var(--dim); margin:0 0 18px; }
+  .banner { padding:12px 14px; border-radius:8px; margin-bottom:20px; border:1px solid var(--line); background:var(--panel); }
+  .banner.good { border-color:rgba(95,208,138,.45); } .banner.bad { border-color:rgba(255,107,107,.5); }
+  table { border-collapse:collapse; width:100%; background:var(--panel); border:1px solid var(--line); border-radius:8px; }
+  th,td { text-align:left; padding:7px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--dim); font-weight:500; } tr:last-child td { border-bottom:none; }
+  .mono { font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .note { color:var(--dim); font-size:11.5px; line-height:1.5; }
+  .good { color:var(--good); } .bad { color:var(--bad); } .warn { color:var(--warn); }
+  .cmp { margin:0 0 22px; } .cmp figcaption { color:var(--dim); margin-bottom:6px; }
+  .wipe { position:relative; border:1px solid var(--line); border-radius:8px; overflow:hidden; line-height:0; }
+  .wipe img { width:100%; display:block; } .wipe .before { position:absolute; inset:0; }
+  .tagL,.tagR { position:absolute; top:8px; padding:2px 7px; border-radius:4px; background:rgba(0,0,0,.6);
+                font-size:11px; line-height:1.6; }
+  .tagL { left:8px; } .tagR { right:8px; }
+  input[type=range] { width:100%; margin-top:6px; accent-color:#5fd0e0; }
+  footer { color:var(--dim); margin-top:28px; font-size:11.5px; }
+</style>
+<h1>breaking &nbsp;·&nbsp; slope-threshold <span style="color:var(--dim)">vs</span> fold-ridge</h1>
+<p class="sub">2026-08-20T18:18:43.649Z &middot; 8 fixtures &middot; chromium / swiftshader</p>
+<div class="banner good"><b>Gates pass.</b> Costs 0.73× the champion.
+       Physics: whitecap moved further from its reference.
+       <br><span style="color:var(--dim)">Untouched by this slot: waveHeight, spectralSlope.</span>
+       <br>The measurements cannot tell you whether it looks better. That is what the frames below are for.</div>
+
+<h2>Gates — a variant either clears these or it is not a variant</h2>
+<table><tr><th>Gate</th><th>Result</th><th>Worst fixture</th><th>What it is</th></tr>
+<tr class="good">
+    <td>Runs clean</td>
+    <td class="mono">pass</td>
+    <td class="mono">0.000</td>
+    <td class="note">Any WebGL, shader-compile or JavaScript error on any fixture. A variant that throws is not a slower variant, it is not a variant.</td>
+  </tr>
+<tr class="good">
+    <td>Same input, same pixels</td>
+    <td class="mono">pass</td>
+    <td class="mono">1.000</td>
+    <td class="note">The fixture is rendered twice at one simulation time and the frames must be byte-identical. Anything reading the wall clock, an unseeded random, or a persistent buffer fails here — and would otherwise make every comparison against this variant unrepeatable.</td>
+  </tr>
+<tr class="good">
+    <td>Temporal stability</td>
+    <td class="mono">pass</td>
+    <td class="mono">0.217 index</td>
+    <td class="note">Two frames one 60th of a second apart, differenced and high-pass filtered, then divided by the high-frequency detail already in the frame. A wave crossing the screen produces a smooth difference; aliasing produces a speckled one. The normalisation is what makes the number comparable between a millpond and a storm — unnormalised it mostly measures how much detail a scene has. This is the gate that catches &quot;I turned the detail up and the screenshot looks amazing&quot;, which is the most common regression in this project.</td>
+  </tr></table>
+
+<h2>Measurements — objective, and deliberately not a score</h2>
+<table><tr><th>Measure</th><th>Champion</th><th>Candidate</th><th>Reference</th><th>Δ</th><th>What it is</th></tr>
+<tr>
+    <td>Frame cost</td>
+    <td class="mono">2129.237</td>
+    <td class="mono">1554.537 ms</td>
+    <td class="mono">1976.200</td>
+    <td class="mono good">0.73×</td>
+    <td class="note">Median frame time over a short burst, measured inside the page with an explicit glFinish. Absolute numbers come from a software rasteriser and are not a frame budget for real hardware; the ratio against the champion is the number that travels.</td>
+  </tr>
+<tr>
+    <td>Significant wave height vs JONSWAP</td>
+    <td class="mono">5.181</td>
+    <td class="mono">5.181 m</td>
+    <td class="mono">2.135</td>
+    <td class="mono ">unchanged</td>
+    <td class="note">Hs measured as 4x the standard deviation of the height field, read back from the shipped shader over a 1 km patch. The reference is the fetch-limited energy growth law capped at the fully developed sea, in quadrature with the swell train. This is a conformance check, not a discovery: the champion spectrum normalises itself to this law on purpose, so what the metric catches is a variant that departs from it — a plain sine sum, or a regression. A patch sampled every 4 m cannot see trains shorter than about 20 m, so a small under-read is expected and is inside the tolerance. Deep water only.</td>
+  </tr>
+<tr>
+    <td>Whitecap coverage vs Monahan</td>
+    <td class="mono">0.126</td>
+    <td class="mono">0.000 fraction</td>
+    <td class="mono">0.005</td>
+    <td class="mono warn">further</td>
+    <td class="note">Plan-view foam area fraction, sampled from the shipped shader on a regular world grid — the same quantity the surveys measured. The law is calibrated roughly 4-20 m/s; outside that the reference is extrapolated and marked. Deep-water fixtures only.</td>
+  </tr>
+<tr>
+    <td>Spectral tail slope</td>
+    <td class="mono">-4.108</td>
+    <td class="mono">-4.108 exponent</td>
+    <td class="mono">-3.000</td>
+    <td class="mono ">unchanged</td>
+    <td class="note">Least-squares slope of log power against log wavenumber, fitted only above the spectral peak — the saturation range, where Phillips argued the shape is fixed by breaking rather than by the wind — and averaged over every row and column of a 512 m probe sampled every metre. Expected near -3 for a wind sea.</td>
+  </tr></table>
+
+<h2>Preference — the part no number settles</h2>
+<p class="sub">Same scene, same sun, same wave phase, same camera. Drag to wipe.</p>
+
+    <figure class="cmp">
+      <figcaption>golden-hour &middot; t = 7s</figcaption>
+      <div class="wipe" id="w0">
+        <img class="after" src="after/golden-hour-t7.png" alt="candidate">
+        <img class="before" src="before/golden-hour-t7.png" alt="champion" style="clip-path:inset(0 50% 0 0)">
+        <span class="tagL">champion</span><span class="tagR">candidate</span>
+      </div>
+      <input type="range" min="0" max="100" value="50" oninput="
+        document.querySelector('#w0 .before').style.clipPath = 'inset(0 ' + (100 - this.value) + '% 0 0)'">
+    </figure>
+
+    <figure class="cmp">
+      <figcaption>golden-hour &middot; t = 33.25s</figcaption>
+      <div class="wipe" id="w1">
+        <img class="after" src="after/golden-hour-t33_25.png" alt="candidate">
+        <img class="before" src="before/golden-hour-t33_25.png" alt="champion" style="clip-path:inset(0 50% 0 0)">
+        <span class="tagL">champion</span><span class="tagR">candidate</span>
+      </div>
+      <input type="range" min="0" max="100" value="50" oninput="
+        document.querySelector('#w1 .before').style.clipPath = 'inset(0 ' + (100 - this.value) + '% 0 0)'">
+    </figure>
+
+    <figure class="cmp">
+      <figcaption>deep-ocean &middot; t = 7s</figcaption>
+      <div class="wipe" id="w2">
+        <img class="after" src="after/deep-ocean-t7.png" alt="candidate">
+        <img class="before" src="before/deep-ocean-t7.png" alt="champion" style="clip-path:inset(0 50% 0 0)">
+        <span class="tagL">champion</span><span class="tagR">candidate</span>
+      </div>
+      <input type="range" min="0" max="100" value="50" oninput="
+        document.querySelector('#w2 .before').style.clipPath = 'inset(0 ' + (100 - this.value) + '% 0 0)'">
+    </figure>
+
+    <figure class="cmp">
+      <figcaption>deep-ocean &middot; t = 33.25s</figcaption>
+      <div class="wipe" id="w3">
+        <img class="after" src="after/deep-ocean-t33_25.png" alt="candidate">
+        <img class="before" src="before/deep-ocean-t33_25.png" alt="champion" style="clip-path:inset(0 50% 0 0)">
+        <span class="tagL">champion</span><span class="tagR">candidate</span>
+      </div>
+      <input type="range" min="0" max="100" value="50" oninput="
+        document.querySelector('#w3 .before').style.clipPath = 'inset(0 ' + (100 - this.value) + '% 0 0)'">
+    </figure>
+
+    <figure class="cmp">
+      <figcaption>hurricane &middot; t = 7s</figcaption>
+      <div class="wipe" id="w4">
+        <img class="after" src="after/hurricane-t7.png" alt="candidate">
+        <img class="before" src="before/hurricane-t7.png" alt="champion" style="clip-path:inset(0 50% 0 0)">
+        <span class="tagL">champion</span><span class="tagR">candidate</span>
+      </div>
+      <input type="range" min="0" max="100" value="50" oninput="
+        document.querySelector('#w4 .before').style.clipPath = 'inset(0 ' + (100 - this.value) + '% 0 0)'">
+    </figure>
+
+    <figure class="cmp">
+      <figcaption>hurricane &middot; t = 33.25s</figcaption>
+      <div class="wipe" id="w5">
+        <img class="after" src="after/hurricane-t33_25.png" alt="candidate">
+        <img class="before" src="before/hurricane-t33_25.png" alt="champion" style="clip-path:inset(0 50% 0 0)">
+        <span class="tagL">champion</span><span class="tagR">candidate</span>
+      </div>
+      <input type="range" min="0" max="100" value="50" oninput="
+        document.querySelector('#w5 .before').style.clipPath = 'inset(0 ' + (100 - this.value) + '% 0 0)'">
+    </figure>
+
+    <figure class="cmp">
+      <figcaption>sandy-beach &middot; t = 7s</figcaption>
+      <div class="wipe" id="w6">
+        <img class="after" src="after/sandy-beach-t7.png" alt="candidate">
+        <img class="before" src="before/sandy-beach-t7.png" alt="champion" style="clip-path:inset(0 50% 0 0)">
+        <span class="tagL">champion</span><span class="tagR">candidate</span>
+      </div>
+      <input type="range" min="0" max="100" value="50" oninput="
+        document.querySelector('#w6 .before').style.clipPath = 'inset(0 ' + (100 - this.value) + '% 0 0)'">
+    </figure>
+
+    <figure class="cmp">
+      <figcaption>sandy-beach &middot; t = 33.25s</figcaption>
+      <div class="wipe" id="w7">
+        <img class="after" src="after/sandy-beach-t33_25.png" alt="candidate">
+        <img class="before" src="before/sandy-beach-t33_25.png" alt="champion" style="clip-path:inset(0 50% 0 0)">
+        <span class="tagL">champion</span><span class="tagR">candidate</span>
+      </div>
+      <input type="range" min="0" max="100" value="50" oninput="
+        document.querySelector('#w7 .before').style.clipPath = 'inset(0 ' + (100 - this.value) + '% 0 0)'">
+    </figure>
+
+<footer>Generated by <code>tools/evaluate.mjs</code>. Cost ratios come from a software rasteriser:
+the ratio is meaningful, the absolute milliseconds are not a frame budget.</footer>

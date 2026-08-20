@@ -2,9 +2,9 @@ import * as THREE from '../vendor/three/three.module.js';
 import { OrbitControls } from '../vendor/three/OrbitControls.js';
 import { defaults, resolve, diff } from './knobs.js';
 import { SCENES, SCENE_IDS } from './scenes.js';
-import { DEFAULT_SELECTION, SLOTS, slotKnobs, variant } from './slots/index.js';
+import { DEFAULT_SELECTION, SLOTS, slotKnobs, deriveKnobs, variant } from './slots/index.js';
 import { polarGrid, fullscreenTriangle } from './grid.js';
-import { oceanMaterial, sandMaterial, skyMaterial, postMaterial, syncKnobUniforms } from './materials.js';
+import { oceanMaterial, sandMaterial, skyMaterial, postMaterial, probeMaterial, syncKnobUniforms } from './materials.js';
 
 export function createApp(canvas, opts = {}) {
   const errors = [];
@@ -38,9 +38,12 @@ export function createApp(canvas, opts = {}) {
   let overrides = {};                 // user edits on top of the scene
   let knobs = {};
   let ocean, sand, sky, post, oceanMesh, sandMesh;
+  let probeMat = null, probeRT = null, probeScene = null;
   let time = 0;
   let lastWall = 0;
   const frameTimes = [];
+  const timingPixel = new Uint8Array(4);
+  let frameNo = 0;
 
   function baseKnobs() {
     return resolve(defaults, slotKnobs(selection), SCENES[sceneId].knobs);
@@ -48,8 +51,10 @@ export function createApp(canvas, opts = {}) {
 
   function rebuild() {
     knobs = resolve(baseKnobs(), overrides);
+    Object.assign(knobs, deriveKnobs(selection, knobs));
 
-    for (const m of [ocean, sand, sky, post]) m?.dispose();
+    for (const m of [ocean, sand, sky, post, probeMat]) m?.dispose();
+    probeMat = null; probeScene = null;
     scene.clear(); skyScene.clear(); postScene.clear();
 
     ocean = oceanMaterial(selection, knobs);
@@ -75,6 +80,8 @@ export function createApp(canvas, opts = {}) {
 
   function sync() {
     knobs = resolve(baseKnobs(), overrides);
+    // Derived last: a variant computing from wind speed must see the final one.
+    Object.assign(knobs, deriveKnobs(selection, knobs));
     syncKnobUniforms(ocean.uniforms, knobs);
     sandMesh.visible = knobs.shoreEnabled > 0.5;
 
@@ -111,6 +118,57 @@ export function createApp(canvas, opts = {}) {
     // World units covered by one pixel, per unit of distance. Both shader
     // stages derive their level of detail from this.
     ocean.uniforms.uPixelAngle.value = (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / h;
+  }
+
+  // Sample the wave field on a regular world-space grid and read it back as
+  // floats. Slow (a GPU stall), so it is never on the render path - the
+  // measurement harness calls it directly.
+  function probe({ resolution = 256, extent = 512, origin = [0, 0], time: t } = {}) {
+    sync();
+    if (!probeMat) {
+      probeMat = probeMaterial(selection, knobs, ocean.uniforms);
+      probeScene = new THREE.Scene();
+      probeScene.add(new THREE.Mesh(tri, probeMat));
+    }
+    if (!probeRT || probeRT.width !== resolution) {
+      probeRT?.dispose();
+      probeRT = new THREE.WebGLRenderTarget(resolution, resolution, {
+        type: THREE.FloatType,
+        depthBuffer: false,
+        stencilBuffer: false,
+        minFilter: THREE.NearestFilter,
+        magFilter: THREE.NearestFilter,
+      });
+    }
+    probeMat.uniforms.uProbeOrigin.value.set(origin[0], origin[1]);
+    probeMat.uniforms.uProbeExtent.value = extent;
+    probeMat.uniforms.uProbeRes.value = resolution;
+    ocean.uniforms.uTime.value = t ?? time;
+
+    renderer.setRenderTarget(probeRT);
+    renderer.clear(true, false, false);
+    renderer.render(probeScene, flatCam);
+    const buf = new Float32Array(resolution * resolution * 4);
+    renderer.readRenderTargetPixels(probeRT, 0, 0, resolution, resolution, buf);
+    renderer.setRenderTarget(null);
+
+    // Interleaved RGBA -> named planes, so a metric reads `height` not `[i*4]`.
+    const n = resolution * resolution;
+    const out = {
+      resolution, extent, origin, time: t ?? time,
+      metresPerSample: extent / resolution,
+      height: new Float32Array(n),
+      coverage: new Float32Array(n),
+      fold: new Float32Array(n),
+      subRough: new Float32Array(n),
+    };
+    for (let i = 0; i < n; i++) {
+      out.height[i] = buf[i * 4];
+      out.coverage[i] = buf[i * 4 + 1];
+      out.fold[i] = buf[i * 4 + 2];
+      out.subRough[i] = buf[i * 4 + 3];
+    }
+    return out;
   }
 
   const invVP = new THREE.Matrix4();
@@ -172,6 +230,7 @@ export function createApp(canvas, opts = {}) {
     getTime() { return time; },
     setSize,
     renderFrame,
+    probe,
     applyCamera,
     // Free camera, for a human nudging the view before capturing a fixture.
     cameraState() {
@@ -211,10 +270,21 @@ export function createApp(canvas, opts = {}) {
       lastWall = now;
       time += dt;
       if (controls) controls.update();
+      // Timing a frame requires forcing it to finish, and forcing it every frame
+      // would itself cost more than it measures. So sample: one frame in thirty
+      // is followed by a one-pixel readback, which blocks until the GPU is
+      // actually done. Without this the counter reports command-submission time
+      // and cheerfully claims 700fps on a 2-second frame.
+      const measure = (frameNo % 30) === 0;
       const t0 = performance.now();
       renderFrame();
-      frameTimes.push(performance.now() - t0);
-      if (frameTimes.length > 240) frameTimes.shift();
+      if (measure) {
+        const gl = renderer.getContext();
+        gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, timingPixel);
+        frameTimes.push(performance.now() - t0);
+        if (frameTimes.length > 90) frameTimes.shift();
+      }
+      frameNo++;
       onFrame?.(api);
     };
     raf = requestAnimationFrame(tick);

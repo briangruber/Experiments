@@ -41,18 +41,20 @@ export const SCENES = {
 
   hurricane: {
     label: 'Hurricane',
-    note: 'Storm force ten. Streaked windrows, a sea that is more white than blue, and a ' +
+    note: 'Storm force ten at short fetch — a young, steep sea rather than the long ' +
+          '350 m swell a fully developed one would give, because that reads as a gentle ' +
+          'slope from any camera you can put on it. Streaked windrows, and a ' +
           'flat overcast that removes the sun as a crutch - if a foam model only looks ' +
           'good in sunlight, this is where it falls over.',
-    camera: { position: [0, 8.5, 0], target: [52, 2.0, 30] },
+    camera: { position: [0, 4.6, 0], target: [46, 1.2, 27] },
     knobs: {
-      windSpeed: 31.0, windDirDeg: 30, fetch: 500,
+      windSpeed: 31.0, windDirDeg: 30, fetch: 130,
       amplitude: 1.1, choppiness: 1.35, crestSharpen: 0.85, spread: 0.9, detail: 1.3,
       swellHeight: 4.2, swellPeriod: 13.0, swellDirDeg: 26,
-      foamCoverage: 2.3, foamThreshold: 0.3, foamSoftness: 0.34,
+      foamCoverage: 0.55, foamSoftness: 0.34,
       foamDecay: 0.34, foamStreak: 0.8, foamScale: 0.055,
       sunElevationDeg: 21, sunAzimuthDeg: 30, sunIntensity: 0.9,
-      overcast: 0.93, turbidity: 6.2, fogDensity: 1.7, exposure: 1.5,
+      overcast: 0.93, turbidity: 6.2, fogDensity: 1.4, exposure: 0.85,
       waterDeep: [0.012, 0.034, 0.045], waterShallow: [0.10, 0.20, 0.21],
       roughness: 0.11, fov: 50,
     },
@@ -64,7 +66,7 @@ export const SCENES = {
     note: 'A shelving beach with the swell running in from -Z. Shoaling, refraction and ' +
           'the depth-limited break all have to work at once, and the waterline has to ' +
           'move. This is the scene that separates a real spectrum from a sine sum.',
-    camera: { position: [-16, 2.4, -18], target: [8, 0.9, -110] },
+    camera: { position: [-9, 2.2, -47], target: [15, 0.35, -128] },
     knobs: {
       shoreEnabled: 1, shoreZ: -60, beachSlope: 0.028, seaFloorDepth: 55,
       windSpeed: 6.8, windDirDeg: 90, fetch: 240, spread: 0.9,

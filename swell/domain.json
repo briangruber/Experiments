@@ -1,0 +1,84 @@
+{
+  "domain": "swell",
+  "title": "swell — a shared Three.js ocean",
+  "entry": "index.html",
+  "capture": {
+    "width": 640,
+    "height": 360
+  },
+  "probe": {
+    "fieldResolution": 512,
+    "fieldExtent": 2048,
+    "detailResolution": 512,
+    "detailExtent": 512,
+    "benchFrames": 0
+  },
+  "fixtures": [
+    {
+      "scene": "golden-hour",
+      "times": [
+        7.0,
+        33.25
+      ]
+    },
+    {
+      "scene": "deep-ocean",
+      "times": [
+        7.0,
+        33.25
+      ]
+    },
+    {
+      "scene": "hurricane",
+      "times": [
+        7.0,
+        33.25
+      ]
+    },
+    {
+      "scene": "sandy-beach",
+      "times": [
+        7.0,
+        33.25
+      ]
+    }
+  ],
+  "metrics": [
+    {
+      "id": "errors"
+    },
+    {
+      "id": "determinism"
+    },
+    {
+      "id": "flicker",
+      "options": {
+        "max": 0.9,
+        "maxRatio": 1.35,
+        "slack": 0.02
+      }
+    },
+    {
+      "id": "cost"
+    },
+    {
+      "id": "waveHeight",
+      "options": {
+        "tolerance": 0.4
+      }
+    },
+    {
+      "id": "whitecap",
+      "options": {
+        "tolerance": 0.6
+      }
+    },
+    {
+      "id": "spectralSlope",
+      "options": {
+        "target": -3,
+        "tolerance": 0.9
+      }
+    }
+  ]
+}

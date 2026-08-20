@@ -14,10 +14,11 @@ export const CONTRACTS = {
   sky: {
     provides: [
       'vec3 sw_sky(vec3 dir, vec3 sunDir)',
+      'vec3 sw_skyNoSun(vec3 dir, vec3 sunDir)',
       'vec3 sw_sunRadiance(vec3 sunDir)',
       'vec3 sw_skyAmbient(vec3 sunDir)',
     ],
-    note: 'Radiance looking along `dir`, plus the two light quantities the water shading uses. Owning the sky means owning the light.',
+    note: 'Radiance looking along `dir`, plus the two light quantities the water shading uses. Owning the sky means owning the light. `sw_skyNoSun` is the same sky without the solar disc: shading slots handle the sun with their own specular lobe, so a reflection that also samples the disc counts it twice and smears a grey blob across the water.',
   },
   shoreline: {
     provides: [
@@ -31,7 +32,7 @@ export const CONTRACTS = {
       'Wave sw_waves(vec2 p, float t, float depth, float footprint)',
       'Wave sw_wavesN(vec2 p, float t, float depth, float footprint, int n)',
     ],
-    note: 'The wave field. `footprint` is the world size of one pixel: fade wave trains shorter than it or the sea will crawl with aliasing. Must fill Wave.fold honestly — that is the currency the breaking slot spends. `sw_wavesN` is the same field truncated to the `n` longest trains, so downstream slots can take cheap extra samples.',
+    note: 'The wave field. `footprint` is the world size of one pixel: fade wave trains shorter than it or the sea will crawl with aliasing. Must fill Wave.fold honestly — that is the currency the breaking slot spends. `sw_wavesN` is the same field truncated to the `n` longest trains, so downstream slots can take cheap extra samples. Must also fill Wave.foldRms.',
   },
   breaking: {
     provides: ['vec2 sw_breaking(Wave w, vec2 p, float t, float depth, float footprint)'],
@@ -61,6 +62,11 @@ struct Wave {
   float fold;    // surface compression. 0 = flat, >1 = folding over on itself
   float slope;   // |horizontal gradient| of the height field
   float face;    // +1 the crest faces downwind, -1 it faces upwind
+  float foldRms; // RMS of the fold field *as band-limited at this footprint*.
+                 // Breaking variants divide fold by it, which is what lets one
+                 // threshold mean the same thing in a millpond and a hurricane.
+                 // It has to be computed here rather than on the CPU because
+                 // only the shader knows which trains survived the fade.
   float subRough; // RMS slope of the wave trains too small to resolve here.
                   // Filtering them out of the geometry does not make the sea
                   // glassy in reality - it makes it rough - so shading slots

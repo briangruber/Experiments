@@ -13,8 +13,11 @@ export const meta = {
     'roughly a third of the cost of fold-ridge and is the right pick on a phone.',
 };
 
-export const knobs = { slopeBias: 0.55 };
-export const schema = [['slopeBias', 0, 2, 0.01, '']];
+export const knobs = { slopeBias: 0.55, slopeCut: 0.42 };
+export const schema = [
+  ['slopeBias', 0, 2, 0.01, ''],
+  ['slopeCut', 0, 2, 0.005, ''],
+];
 
 export const glsl = /* glsl */`
 vec2 sw_breaking(Wave w, vec2 p, float t, float depth, float footprint){
@@ -25,8 +28,11 @@ vec2 sw_breaking(Wave w, vec2 p, float t, float depth, float footprint){
   }
   vec2 q = p * uFoamScale;
   float n = sw_fbm(q + vec2(t * 0.03, 0.0), 4);
-  float cov = sat(smoothstep(uFoamThreshold,
-                             uFoamThreshold + max(uFoamSoftness, 0.01),
+  // An absolute cut on slope, which is exactly the naivety this variant is here
+  // to represent: it has no idea how steep the sea it is looking at happens to
+  // be, so coverage drifts with every change to the spectrum.
+  float cov = sat(smoothstep(uSlopeCut,
+                             uSlopeCut + max(uFoamSoftness, 0.01),
                              drive * (0.5 + 1.05 * n)));
   return vec2(cov, 1.0);
 }

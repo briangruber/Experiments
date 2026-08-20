@@ -22,7 +22,7 @@ export const schema = [
 export const glsl = /* glsl */`
 Wave sw_wavesN(vec2 p, float t, float depth, float footprint, int n){
   Wave w;
-  w.disp = vec3(0.0); w.fold = 0.0; w.slope = 0.0; w.face = 0.0; w.subRough = 0.0;
+  w.disp = vec3(0.0); w.fold = 0.0; w.slope = 0.0; w.face = 0.0; w.subRough = 0.0; w.foldRms = 0.0;
   vec2 dydp = vec2(0.0), Jx = vec2(0.0), Jz = vec2(0.0);
   float baseLen = max(uSineBase, 1.0);
   float amp = 0.055 * baseLen * uAmplitude * sat(uWindSpeed / 12.0);
@@ -49,6 +49,8 @@ Wave sw_wavesN(vec2 p, float t, float depth, float footprint, int n){
     float ph = dot(kv, p) - om * t * uTimeScale + h * SW_TAU;
     float s = sin(ph), c = cos(ph);
     float Q = min(uChoppiness, 0.9 / max(k * A, 1e-4));
+    float ka = k * A * Q;
+    w.foldRms += 0.5 * ka * ka;
     w.disp.y  += A * c;
     w.disp.xz -= D * (Q * A * s);
     dydp      -= A * s * kv;
@@ -62,6 +64,7 @@ Wave sw_wavesN(vec2 p, float t, float depth, float footprint, int n){
   w.fold = 1.0 - ((1.0 + Jx.x) * (1.0 + Jz.y) - Jx.y * Jz.x);
   w.slope = length(dydp);
   w.subRough = sqrt(w.subRough);
+  w.foldRms = max(sqrt(w.foldRms), 1e-4);
   w.face = -dot(normalize(dydp + vec2(1e-6)),
                 vec2(cos(radians(uWindDirDeg)), sin(radians(uWindDirDeg))));
   return w;

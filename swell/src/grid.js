@@ -5,7 +5,7 @@ import * as THREE from '../vendor/three/three.module.js';
 // the tessellation grows linearly with distance - which is exactly how a pixel
 // footprint grows, and is why one `aSpacing` attribute is enough to drive
 // level of detail everywhere.
-export function polarGrid({ rings = 420, sectors = 448, rMin = 0.4, rMax = 20000 } = {}) {
+export function polarGrid({ rings = 300, sectors = 352, rMin = 0.4, rMax = 20000 } = {}) {
   const vertCount = (rings + 1) * (sectors + 1);
   const pos = new Float32Array(vertCount * 3);
   const spacing = new Float32Array(vertCount);

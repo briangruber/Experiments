@@ -63,7 +63,9 @@ vec3 sw_waterShade(Surf s){
   R.y = abs(R.y) * 0.55 + R.y * 0.45;
   R = normalize(mix(R, normalize(vec3(R.x, max(R.y, 0.02), R.z)), 0.85));
   vec3 blurDir = normalize(mix(R, vec3(0.0, 1.0, 0.0), rough * uReflectBlur * 2.2));
-  vec3 refl = sw_sky(blurDir, s.L);
+  // Disc-free: the GGX lobe below is already the sun. Sampling the disc here as
+  // well paints a second, blurry sun onto the water.
+  vec3 refl = sw_skyNoSun(blurDir, s.L);
 
   // --- transmission --------------------------------------------------------
   // Real refracted path length, not the vertical depth: at grazing angles the

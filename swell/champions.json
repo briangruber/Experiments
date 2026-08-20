@@ -1,0 +1,91 @@
+{
+  "note": "The ladder is Pareto, not scalar. A variant that looks better and costs more does not beat one that looks worse and costs less - they win different budgets. Cost ratios are measured by swapping a single slot into the `standard` stack and re-rendering the fixture matrix in domain.json, so a budget ceiling is 'what one slot may cost relative to the standard stack', not a whole-stack frame budget.",
+  "reference": {
+    "sky": "single-scatter",
+    "shoreline": "beach-ramp",
+    "spectrum": "jonswap-gerstner",
+    "breaking": "fold-ridge",
+    "foam": "bubble-raft",
+    "water": "absorb-sss"
+  },
+  "budgets": {
+    "lean": {
+      "label": "Lean",
+      "maxCostRatio": 0.85,
+      "intent": "Phones and low-end laptops. Correctness of silhouette over correctness of physics."
+    },
+    "standard": {
+      "label": "Standard",
+      "maxCostRatio": 1.15,
+      "intent": "The default stack. Should hold 60fps on a mid-range discrete GPU at 1080p."
+    },
+    "lavish": {
+      "label": "Lavish",
+      "maxCostRatio": 3.0,
+      "intent": "Stills, trailers and cutscenes, where a frame may cost whatever it costs."
+    }
+  },
+  "champions": {
+    "lean": {
+      "sky": "single-scatter",
+      "shoreline": "beach-ramp",
+      "spectrum": "sine-sum",
+      "breaking": "slope-threshold",
+      "foam": "bubble-raft",
+      "water": "absorb-sss"
+    },
+    "standard": {
+      "sky": "single-scatter",
+      "shoreline": "beach-ramp",
+      "spectrum": "jonswap-gerstner",
+      "breaking": "fold-ridge",
+      "foam": "bubble-raft",
+      "water": "absorb-sss"
+    },
+    "lavish": {
+      "sky": "single-scatter",
+      "shoreline": "beach-ramp",
+      "spectrum": "jonswap-gerstner",
+      "breaking": "fold-ridge",
+      "foam": "bubble-raft",
+      "water": "absorb-sss"
+    }
+  },
+  "ledger": [
+    {
+      "date": "2026-08-20",
+      "budget": "standard",
+      "slot": "*",
+      "promoted": "seed",
+      "evidence": null,
+      "why": "Founding stack. Nothing had been compared against anything; every champion here is waiting to be beaten."
+    },
+    {
+      "date": "2026-08-20",
+      "budget": "*",
+      "slot": "spectrum",
+      "promoted": "jonswap-gerstner",
+      "evidence": null,
+      "why": "Taking JONSWAP's alpha at face value made every sea about 1.7x too big, because alpha and the significant-height growth law are separate empirical fits that disagree. The spectrum now carries JONSWAP's shape and takes its total energy from the growth law. Measured Hs error fell from roughly 75% to 1% on golden-hour and 13% on hurricane.",
+      "openProblem": "Deep-ocean still reads 24% high. Most of that is sampling: a 350 m swell across a 2 km patch is only six wavelengths, and the variance estimate is genuinely noisy at that count."
+    },
+    {
+      "date": "2026-08-20",
+      "budget": "*",
+      "slot": "breaking",
+      "promoted": "fold-ridge",
+      "evidence": null,
+      "why": "Coverage used to be thresholded at an absolute fold value, so it tracked whatever the spectrum happened to normalise to rather than the wind. Deep-ocean at 11.5 m/s had less foam than golden-hour at 8.2 m/s, and golden-hour had none at all. Breaking now cuts the fold field at the level whose exceedance probability equals Monahan's whitecap fraction, and coverage is stable to within 15% across a 64x range of sampling footprint.",
+      "openProblem": "The fold field is not quite Gaussian - the Jacobian determinant's quadratic term skews the upper tail - so the cut needs an empirical foamSigma of 1.25 to land. A breaking model that did not need that fudge would be a real improvement."
+    },
+    {
+      "date": "2026-08-20",
+      "budget": "*",
+      "slot": "spectrum",
+      "promoted": null,
+      "evidence": null,
+      "why": "Open bounty, not a promotion.",
+      "openProblem": "The spectral tail measures k^-3.5 to k^-4.3 where Phillips says k^-3. The high-frequency trains fan too far off the wind, which smears their energy toward lower wavenumbers when measured along a transect. A narrower high-frequency spreading function is the obvious fix; nobody has written it."
+    }
+  ]
+}

@@ -39,12 +39,25 @@ uniform float uPixelAngle;
 uniform vec2  uResolution;
 `;
 
-// Footprint is computed identically in both stages so the displaced position
-// and the shading normal always agree about which wave trains exist.
+// Two footprints, deliberately.
+//
+// Geometry cannot show a wave shorter than the gap between two vertices, so the
+// vertex stage filters at the tessellation spacing. Shading has no such limit —
+// it runs per pixel — so it filters at the pixel footprint instead, and picks up
+// every train the mesh was too coarse to carry.
+//
+// That split is the difference between an ocean and a set of smooth bands: the
+// long waves are geometry, the short ones are normals. Making both stages agree
+// on one conservative footprint, which is the obvious thing to do, throws away
+// all the detail between pixel size and vertex size — and at 100 m out that is
+// everything below about 18 m.
 const FOOTPRINT = /* glsl */`
-float sw_footprint(vec3 world, float spacing){
-  float d = distance(world, uCamPos);
-  return max(spacing, d * uPixelAngle);
+float sw_pixelFootprint(vec2 pFlat){
+  float d = distance(vec3(pFlat.x, 0.0, pFlat.y), uCamPos);
+  return max(d * uPixelAngle, 0.02);
+}
+float sw_vertexFootprint(vec2 pFlat, float spacing){
+  return max(spacing, sw_pixelFootprint(pFlat));
 }
 `;
 
@@ -66,7 +79,7 @@ export function oceanMaterial(selection, knobs) {
       vSpacing = aSpacing;
       float depth = sw_waterDepth(vFlat);
       vDepth = depth;
-      float fp = sw_footprint(vec3(vFlat.x, 0.0, vFlat.y), aSpacing);
+      float fp = sw_vertexFootprint(vFlat, aSpacing);
       Wave w = sw_waves(vFlat, uTime, max(depth, 0.05), fp);
       vec3 P = vec3(vFlat.x, 0.0, vFlat.y) + w.disp;
       // Fall away with the curve of the earth so the far sea sinks under the
@@ -90,11 +103,12 @@ export function oceanMaterial(selection, knobs) {
     void main(){
       vec3 V = normalize(uCamPos - vWorld);
       float dist = distance(uCamPos, vWorld);
-      float fp = sw_footprint(vec3(vFlat.x, 0.0, vFlat.y), vSpacing);
+      float fp = sw_pixelFootprint(vFlat);
       float depth = max(vDepth, 0.02);
 
-      // Recomputed per pixel: the vertex normal would be a facet normal, and a
-      // faceted ocean is the single most common tell of a first-pass sea.
+      // Recomputed per pixel at the *pixel* footprint. The position stays as the
+      // mesh delivered it; only the normal gains the short trains. This is the
+      // classic geometry-plus-normal-detail split, done analytically.
       Wave w = sw_waves(vFlat, uTime, depth, fp);
 
       // Waves run up the sand and drain back, so the waterline is not where
@@ -223,6 +237,52 @@ export function skyMaterial(selection, knobs, sharedUniforms) {
         vec4 near = uInvViewProj * vec4(vNdc, -1.0, 1.0);
         vec3 dir = normalize(far.xyz / far.w - near.xyz / near.w);
         fragColor = vec4(sw_sky(dir, uSunDir), 1.0);
+      }
+    `,
+  });
+}
+
+// A measurement pass, not a picture: each texel is one sample of the wave field
+// at a known world position, written out as raw floats for readback.
+//
+// This exists so the physical checks in tools/harness/metrics measure the shader
+// that actually ships. A metric that re-implemented the spectrum in JavaScript
+// would be testing the re-implementation, and could be satisfied by a variant
+// that renders nothing at all.
+export function probeMaterial(selection, knobs, sharedUniforms) {
+  const chain = HOST_DECLS + assemble(selection, knobs);
+  return new THREE.RawShaderMaterial({
+    glslVersion: THREE.GLSL3,
+    uniforms: Object.assign({
+      uProbeOrigin: { value: new THREE.Vector2() },
+      uProbeExtent: { value: 512 },
+      uProbeRes: { value: 256 },
+    }, sharedUniforms),
+    depthTest: false,
+    depthWrite: false,
+    vertexShader: `
+      in vec3 position;
+      out vec2 vUv;
+      void main(){
+        vUv = position.xy * 0.5 + 0.5;
+        gl_Position = vec4(position.xy, 0.0, 1.0);
+      }
+    `,
+    fragmentShader: /* glsl */`
+      precision highp float;
+      uniform vec2 uProbeOrigin;
+      uniform float uProbeExtent;
+      uniform float uProbeRes;
+      in vec2 vUv;
+      out vec4 fragColor;
+      ${chain}
+      void main(){
+        vec2 p = uProbeOrigin + (vUv - 0.5) * uProbeExtent;
+        float depth = max(sw_waterDepth(p), 0.05);
+        float fp = uProbeExtent / max(uProbeRes, 1.0);
+        Wave w = sw_waves(p, uTime, depth, fp);
+        vec2 fb = sw_breaking(w, p, uTime, depth, fp);
+        fragColor = vec4(w.disp.y, fb.x, w.fold, w.subRough);
       }
     `,
   });

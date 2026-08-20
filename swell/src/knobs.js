@@ -28,8 +28,8 @@ export const defaults = {
   swellSpread: 0.15,
 
   // ---- breaking (where whitecaps appear) -----------------------------------
-  foamCoverage: 1.0,        // gain on breaking area
-  foamThreshold: 0.42,      // fold value at which the surface starts to break
+  foamCoverage: 1.0,        // gain on the whitecap fraction the wind law asks for
+  foamThreshold: 0.0,       // shift of the breaking level, in fold sigmas
   foamSoftness: 0.28,       // width of the breaking ramp
   foamDecay: 0.55,          // 1/s; how fast a raft dissipates behind the crest
   foamScale: 0.09,          // size of the clump noise, cycles/m
@@ -96,7 +96,7 @@ export const SCHEMA = [
   ]},
   { group: 'Breaking', keys: [
     ['foamCoverage', 0, 3, 0.01, '×'],
-    ['foamThreshold', 0, 1.2, 0.005, ''],
+    ['foamThreshold', -2, 2, 0.02, 'sigma'],
     ['foamSoftness', 0.01, 1, 0.005, ''],
     ['foamDecay', 0.02, 3, 0.01, '1/s'],
     ['foamScale', 0.005, 0.5, 0.001, '/m'],

@@ -7,13 +7,15 @@ export const meta = {
   license: 'MIT',
   parent: null,
   summary:
-    'N Gerstner trains with amplitudes drawn from a JONSWAP spectrum, log-spaced in ' +
+    'N Gerstner trains carrying a JONSWAP *shape* normalised to the measured energy ' +
+    'growth law, log-spaced in ' +
     'frequency. Shallow water is handled properly: Guo dispersion, Green shoaling, ' +
     'Snell refraction toward the beach, and a depth-limited amplitude clamp. Crests ' +
     'get a bound second harmonic so troughs flatten instead of turning into sine waves.',
 };
 
 export const knobs = {
+  spectrumScale: 1.0,  // derived; see derive() below
   gamma: 3.3,          // JONSWAP peak enhancement
   omegaMax: 9.5,       // rad/s; the short end of the resolved band
   shortSpread: 1.0,    // how much more the short waves fan out than the long ones
@@ -26,6 +28,52 @@ export const schema = [
   ['shortSpread', 0, 2, 0.01, 'x'],
   ['breakerLimit', 0.1, 0.9, 0.005, 'x depth'],
 ];
+
+const G = 9.81;
+
+// JONSWAP's alpha fit and the significant-height growth law are separate
+// empirical results and they disagree by about 1.7x at moderate fetch. Taking
+// alpha at face value makes every sea too big, which is why so many of these
+// oceans look like they are shot from a dinghy in a gale.
+//
+// So: keep JONSWAP's *shape*, and set the total energy from the growth law,
+// which is the better attested of the two. The scale factor needs a sum over
+// every band, so it is computed here, once per frame, rather than 42 pow() calls
+// deep inside the pixel loop.
+export function derive(k) {
+  const U = Math.max(k.windSpeed, 0.4);
+  const F = Math.max(k.fetch, 0.1) * 1000;
+  const x = (G * F) / (U * U);
+
+  const fp = 3.5 * (G / U) * Math.pow(Math.min(Math.max(x, 1e2), 1e7), -0.33);
+  const omp = 2 * Math.PI * fp;
+  const alpha = 0.076 * Math.pow(Math.min(Math.max(x, 1e2), 1e7), -0.22);
+
+  const n = Math.max(1, Math.round(k.waveCount));
+  const omLo = omp * 0.55;
+  const omHi = Math.max(k.omegaMax, omLo * 1.5);
+  const ln = Math.log(omHi / omLo);
+
+  let m0 = 0;
+  for (let i = 0; i < n; i++) {
+    const om = omLo * Math.exp((ln * (i + 0.5)) / n);
+    const dom = (om * ln) / n;
+    const sigma = om <= omp ? 0.07 : 0.09;
+    const r = Math.exp(-Math.pow(om - omp, 2) / (2 * sigma * sigma * omp * omp));
+    const S = ((alpha * G * G) / Math.pow(om, 5)) *
+      Math.exp(-1.25 * Math.pow(omp / om, 4)) * Math.pow(k.gamma, r);
+    // The short-tail gain is part of the shape, so it is inside the normalisation.
+    const detail = 1 + (k.detail - 1) * Math.min(1, Math.max(0, (om - omp) / Math.max(omHi - omp, 1e-3)));
+    m0 += S * dom * detail * detail;
+  }
+
+  // Dimensionless energy against dimensionless fetch, capped at the fully
+  // developed sea. This is the relation the waveHeight metric checks against.
+  const eps = Math.min(1.6e-7 * x, 3.64e-3);
+  const target = (eps * Math.pow(U, 4)) / (G * G);
+
+  return { spectrumScale: m0 > 1e-12 ? Math.sqrt(target / m0) : 1 };
+}
 
 export const glsl = /* glsl */`
 const float SW_G = 9.81;
@@ -80,6 +128,7 @@ Wave sw_wavesN(vec2 p, float t, float depth, float footprint, int n){
   w.slope = 0.0;
   w.face = 0.0;
   w.subRough = 0.0;
+  w.foldRms = 0.0;
 
   n = clamp(n, 1, SW_MAX_WAVES);
   float U = max(uWindSpeed, 0.4);
@@ -105,7 +154,7 @@ Wave sw_wavesN(vec2 p, float t, float depth, float footprint, int n){
     float h2 = sw_hash(vec2(float(i) * 5.3, 9.7));
 
     float S = sw_jonswap(om, omp, U, uFetch * 1000.0);
-    float A = sqrt(max(2.0 * S * dom, 0.0)) * uAmplitude;
+    float A = sqrt(max(2.0 * S * dom, 0.0)) * uSpectrumScale * uAmplitude;
 
     // The short tail is its own knob: this is the "texture" of the sea.
     A *= mix(1.0, uDetail, sat((om - omp) / max(omHi - omp, 1e-3)));
@@ -148,6 +197,11 @@ Wave sw_wavesN(vec2 p, float t, float depth, float footprint, int n){
     // Per-train steepness ceiling; beyond kA ~ 1 a Gerstner wave ties a knot.
     float Q = min(uChoppiness, 0.9 / max(k * A, 1e-4));
 
+    // Variance of this train's contribution to fold. Phases are independent, so
+    // the variances add and the RMS is the root of the sum.
+    float ka = k * A * Q;
+    w.foldRms += 0.5 * ka * ka;
+
     w.disp.y  += A * c;
     w.disp.xz -= D * (Q * A * s);
     dydp      -= A * s * kv;
@@ -171,7 +225,9 @@ Wave sw_wavesN(vec2 p, float t, float depth, float footprint, int n){
       float hj = sw_hash(vec2(float(j) * 12.9, 78.2));
       float th = base + (hj * 2.0 - 1.0) * uSwellSpread * 1.2;
       vec2 D = vec2(cos(th), sin(th));
-      float A = uSwellHeight * 0.5 * 0.5 * uAmplitude;   // H/2, split over 4 trains
+      // Four independent trains whose variances add: a_i = Hs / (4 * sqrt(4/2)),
+      // so that 4 * a^2 / 2 = (Hs/4)^2 and the train measures the height it claims.
+      float A = uSwellHeight * 0.1767767 * uAmplitude;
       float k = shallow ? sw_waveNumber(om, max(depth, 0.05)) : om * om / SW_G;
       if (shallow){
         A *= sw_shoalGain(om, k, max(depth, 0.05)) * uShoalStrength;
@@ -208,6 +264,7 @@ Wave sw_wavesN(vec2 p, float t, float depth, float footprint, int n){
   w.slope = length(dydp);
   w.face = -dot(normalize(dydp + vec2(1e-6)), windDir);
   w.subRough = sqrt(w.subRough);
+  w.foldRms = max(sqrt(w.foldRms), 1e-4);
   return w;
 }
 

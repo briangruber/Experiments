@@ -38,7 +38,10 @@ if (headless) {
     panel.classList.toggle('hidden');
     toggle.classList.toggle('shifted');
   };
-  app.startLoop(() => ui.updateHud());
+  // Exposed so a harness (or a debugging session) can stop the animation and
+  // hold a frame still. Under a software rasteriser a 2 s frame otherwise
+  // occupies the main thread permanently and nothing else can happen.
+  window.__swellStop = app.startLoop(() => ui.updateHud());
 }
 
 window.__swellReady = true;

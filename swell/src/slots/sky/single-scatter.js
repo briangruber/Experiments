@@ -49,7 +49,7 @@ float sw_airMass(float sinElev){
 
 vec3 sw_extinction(float airMass){
   float T = uTurbidity;
-  return exp(-(SW_BETA_R * 0.42 + SW_BETA_M * 0.06 * T) * airMass);
+  return exp(-(SW_BETA_R * 0.42 + SW_BETA_M * 0.035 * T) * airMass);
 }
 
 vec3 sw_sunRadiance(vec3 sunDir){
@@ -65,29 +65,30 @@ vec3 sw_skyInscatter(vec3 dir, vec3 sunDir){
   vec3  sunTrans = sw_extinction(sw_airMass(sunDir.y));
 
   vec3 betaR = SW_BETA_R * 0.42;
-  vec3 betaM = SW_BETA_M * 0.06 * uTurbidity;
+  vec3 betaM = SW_BETA_M * 0.035 * uTurbidity;
   vec3 betaT = betaR + betaM;
 
   vec3 scatter = betaR * sw_rayleighPhase(mu) + betaM * sw_miePhase(mu, uMieG);
   // Closed-form integral of in-scattering through a uniform slab.
   vec3 depthTerm = (1.0 - exp(-betaT * amView)) / max(betaT, vec3(1e-4));
-  vec3 col = scatter * depthTerm * sunTrans * 24.0 * uSunIntensity;
+  vec3 col = scatter * depthTerm * sunTrans * 10.0 * uSunIntensity;
 
-  // Multiple scattering, faked: keeps the zenith from going black and the
-  // horizon from going neon at high turbidity.
-  col += sunTrans * vec3(0.014, 0.024, 0.042) * uSunIntensity
-         * (0.35 + 0.65 * sat(sunDir.y + 0.12)) * (1.0 + 0.6 * amView / 12.0);
+  // Multiple scattering. Light that reaches the zenith at sunset has bounced
+  // more than once and entered the atmosphere high up, so it is nowhere near as
+  // reddened as the direct beam — extincting it at the sun's full air mass is
+  // what turns an evening sky uniformly orange instead of leaving a blue dome
+  // over an orange horizon. Capping the air mass at one is the cheapest way to
+  // say "this light did not come along the horizon".
+  vec3 msTrans = sw_extinction(min(sw_airMass(sunDir.y), 1.0));
+  col += vec3(0.10, 0.22, 0.55) * depthTerm * msTrans * 0.30 * uSunIntensity
+         * sat(sunDir.y * 2.6 + 0.30);
   return col;
 }
 
-vec3 sw_sky(vec3 dir, vec3 sunDir){
+// The sky without the solar disc. Everything except a camera ray looking
+// straight at the sun wants this one.
+vec3 sw_skyNoSun(vec3 dir, vec3 sunDir){
   vec3 col = sw_skyInscatter(dir, sunDir);
-
-  // Sun disc, softened at the limb.
-  float cosSize = cos(radians(0.265 * uSunAngularSize));
-  float mu = dot(dir, sunDir);
-  float disc = smoothstep(cosSize, mix(cosSize, 1.0, 0.35), mu);
-  col += sw_sunRadiance(sunDir) * disc * 42.0;
 
   // Below the horizon: dim ground bounce rather than a hard black band.
   float below = smoothstep(0.0, -0.05, dir.y);
@@ -103,12 +104,20 @@ vec3 sw_sky(vec3 dir, vec3 sunDir){
   return max(col, vec3(0.0));
 }
 
+vec3 sw_sky(vec3 dir, vec3 sunDir){
+  // Sun disc, softened at the limb.
+  float cosSize = cos(radians(0.265 * uSunAngularSize));
+  float mu = dot(dir, sunDir);
+  float disc = smoothstep(cosSize, mix(cosSize, 1.0, 0.35), mu);
+  return sw_skyNoSun(dir, sunDir) + sw_sunRadiance(sunDir) * disc * 42.0;
+}
+
 // Hemispherical ambient, sampled rather than integrated: cheap, and stable
 // under the overcast blend above.
 vec3 sw_skyAmbient(vec3 sunDir){
-  vec3 a = sw_sky(vec3(0.0, 1.0, 0.0), sunDir);
-  vec3 b = sw_sky(normalize(vec3(sunDir.x, 0.28, sunDir.z)), sunDir);
-  vec3 c = sw_sky(normalize(vec3(-sunDir.x, 0.28, -sunDir.z)), sunDir);
+  vec3 a = sw_skyNoSun(vec3(0.0, 1.0, 0.0), sunDir);
+  vec3 b = sw_skyNoSun(normalize(vec3(sunDir.x, 0.28, sunDir.z)), sunDir);
+  vec3 c = sw_skyNoSun(normalize(vec3(-sunDir.x, 0.28, -sunDir.z)), sunDir);
   return (a * 0.5 + b * 0.3 + c * 0.2) * 2.4;
 }
 `;

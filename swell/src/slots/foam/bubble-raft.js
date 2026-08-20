@@ -17,7 +17,7 @@ export const knobs = {
   foamRelief: 0.9,      // strength of the bubble-scale normal perturbation
   foamSheen: 0.35,      // wet specular sheen on top of the raft
   foamWrap: 0.45,       // diffuse wrap; a raft is lit round its own shoulder
-  foamVeilAlbedo: 0.26, // reflectance of the old dissipating raft
+  foamVeilAlbedo: 0.42, // reflectance of the old dissipating raft
 };
 
 export const schema = [
@@ -52,7 +52,10 @@ vec3 sw_foamShade(Surf s, float coverage, float fresh){
   float wrap = uFoamWrap;
   float diff = sat((NoL + wrap) / (1.0 + wrap));
 
-  vec3 E = s.skyRad * (0.55 + 0.45 * sat(N.y)) + s.sunRad * diff;
+  // skyRad is a radiance, so the hemisphere it stands for carries roughly pi
+  // times as much irradiance. Dropping that factor is what makes foam under an
+  // overcast read as grey shingle instead of as whitecaps.
+  vec3 E = s.skyRad * SW_PI * (0.55 + 0.45 * sat(N.y)) + s.sunRad * diff;
   vec3 lit = uFoamColor * albedo * E * (1.0 / SW_PI);
 
   // Forward scatter through the thin veil when the sun is behind it.
