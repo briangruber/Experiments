@@ -30,7 +30,7 @@ const params = {
   autoSpin: query.get('spin') === '1',
   spinSpeed: 0.22, // camera orbit, rad/s
   paddleSpin: query.get('pspin') === '1',
-  paddleSpinSpeed: 3.0, // rad/s
+  paddleSpinSpeed: Math.min(Math.max(+(query.get('pss') || 0) || 3.0, 0.5), 10), // rad/s
   exposure: 1.25,
   paused: false,
   dtCap: Math.min(Math.max(+(query.get('dtcap') || 0) || 1 / 30, 1 / 240), 0.15),
@@ -378,6 +378,19 @@ function togglePaddleSpin() {
 }
 spinBtn.addEventListener('click', toggleSpin);
 spinPaddleBtn.addEventListener('click', togglePaddleSpin);
+
+const speedSlider = document.getElementById('spin-speed-slider');
+const speedVal = document.getElementById('spin-speed-val');
+function syncSpeed() {
+  speedSlider.value = params.paddleSpinSpeed;
+  speedVal.textContent = params.paddleSpinSpeed.toFixed(1);
+}
+speedSlider.addEventListener('input', () => {
+  params.paddleSpinSpeed = +speedSlider.value;
+  speedVal.textContent = params.paddleSpinSpeed.toFixed(1);
+  if (!params.paddleSpin) { params.paddleSpin = true; syncButtons(); }
+});
+syncSpeed();
 syncButtons();
 
 window.addEventListener('keydown', (e) => {
@@ -542,7 +555,7 @@ function updatePaddle(dt, t) {
   const sinHalf = Math.sin(half);
   if (sinHalf > 1e-5 && dt > 1e-4) {
     angInst.set(dQuat.x, dQuat.y, dQuat.z).divideScalar(sinHalf)
-      .multiplyScalar(2 * half / dt).clampLength(0, 8);
+      .multiplyScalar(2 * half / dt).clampLength(0, 12);
   } else {
     angInst.set(0, 0, 0);
   }

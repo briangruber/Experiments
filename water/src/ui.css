@@ -108,6 +108,40 @@ html, body {
   outline: 1px solid #7fd4f0;
   outline-offset: 2px;
 }
+#spin-speed {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #9fb6c0;
+  background: rgba(16, 28, 34, 0.55);
+  border: 1px solid #2a4450;
+  border-radius: 3px;
+  padding: 8px 12px 10px;
+  cursor: pointer;
+}
+#spin-speed span {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+#spin-speed b {
+  font-weight: 500;
+  color: #c4dbe5;
+  font-variant-numeric: tabular-nums;
+}
+#spin-speed input {
+  width: 128px;
+  margin: 0;
+  accent-color: #7fd4f0;
+  cursor: pointer;
+}
+#spin-speed input:focus-visible {
+  outline: 1px solid #7fd4f0;
+  outline-offset: 2px;
+}
 .ui-hidden #stats, .ui-hidden #hud, .ui-hidden #title, .ui-hidden #controls { display: none; }
 #boot {
   position: fixed;
