@@ -74,7 +74,35 @@ html, body {
   .pointer-fine { display: none; }
   .pointer-coarse { display: block; }
 }
-.ui-hidden #stats, .ui-hidden #hud, .ui-hidden #title { display: none; }
+#spin-btn {
+  position: fixed;
+  right: 20px;
+  bottom: 42px;
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #9fb6c0;
+  background: rgba(16, 28, 34, 0.55);
+  border: 1px solid #2a4450;
+  border-radius: 3px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+#spin-btn:hover {
+  color: #cfe7f2;
+  border-color: #3d6273;
+}
+#spin-btn.active {
+  color: #0b1418;
+  background: #7fd4f0;
+  border-color: #7fd4f0;
+}
+#spin-btn:focus-visible {
+  outline: 1px solid #7fd4f0;
+  outline-offset: 2px;
+}
+.ui-hidden #stats, .ui-hidden #hud, .ui-hidden #title, .ui-hidden #spin-btn { display: none; }
 #boot {
   position: fixed;
   inset: 0;

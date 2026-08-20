@@ -27,6 +27,8 @@ const params = {
   quality: qName,
   stir: query.get('stir') !== '0',
   stirSpeed: 1.0,
+  autoSpin: query.get('spin') === '1',
+  spinSpeed: 0.22, // rad/s
   exposure: 1.25,
   paused: false,
   dtCap: Math.min(Math.max(+(query.get('dtcap') || 0) || 1 / 30, 1 / 240), 0.15),
@@ -356,9 +358,22 @@ canvas.addEventListener('wheel', (e) => {
   updateCamera();
 }, { passive: false });
 
+const spinBtn = document.getElementById('spin-btn');
+function syncSpinBtn() {
+  spinBtn.classList.toggle('active', params.autoSpin);
+  spinBtn.setAttribute('aria-pressed', String(params.autoSpin));
+}
+function toggleSpin() {
+  params.autoSpin = !params.autoSpin;
+  syncSpinBtn();
+}
+spinBtn.addEventListener('click', toggleSpin);
+syncSpinBtn();
+
 window.addEventListener('keydown', (e) => {
   if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.code === 'Space') { params.stir = !params.stir; e.preventDefault(); }
+  else if (e.code === 'KeyO') toggleSpin();
   else if (e.code === 'KeyC') fluid.clear();
   else if (e.code === 'KeyH') document.body.classList.toggle('ui-hidden');
   else if (e.code === 'KeyP') params.paused = !params.paused;
@@ -448,8 +463,10 @@ function updateHud() {
 const clock = {
   last: performance.now() / 1000,
   elapsedTime: 0,
+  rawDelta: 0, // uncapped wall-clock dt, for camera motion that ignores pause/warp
   getDelta(paused) {
     const now = performance.now() / 1000;
+    this.rawDelta = Math.min(now - this.last, 0.1);
     const dt = paused ? 0 : Math.min(now - this.last, params.dtCap);
     this.last = now;
     this.elapsedTime += dt;
@@ -502,6 +519,11 @@ function frame() {
   resize();
   const dt = clock.getDelta(params.paused);
   const t = clock.elapsedTime;
+
+  if (params.autoSpin && drag.mode !== 'orbit' && drag.mode !== 'pinch') {
+    orbit.az += clock.rawDelta * params.spinSpeed;
+    updateCamera();
+  }
 
   while (seedBursts.length && seedBursts[0].t <= t) {
     const b = seedBursts.shift();
