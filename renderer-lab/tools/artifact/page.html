@@ -798,12 +798,16 @@ footer a { color: var(--gpu); text-decoration-thickness: 1px; text-underline-off
 		</ul>
 
 		<div class="caveat">
-			<strong>No performance numbers were measured.</strong> WebGPU canvas presentation is broken
-			under SwiftShader in that container — the device is lost the moment a canvas context is
-			configured. I confirmed it's environmental rather than a fault in the code: a plain WebGPU
-			triangle with no three.js involved fails identically, while compute passes and offscreen
-			render targets work fine. Which means the readouts above this text, running on your machine,
-			are the first real measurement this prototype has had.
+			<strong>No performance numbers were measured.</strong> WebGPU canvas presentation
+			is broken under SwiftShader in the container this was built in &mdash; not at context
+			creation, which succeeds, but at presentation, where the device is lost silently.
+			It is not a matter of choosing a different adapter: with no GPU and no Vulkan driver
+			present, SwiftShader is the only adapter Chromium can offer, with or without the flag
+			that asks for it, across every flag combination and both browser builds I tried.
+			A plain WebGPU triangle with no three.js involved fails identically, while compute
+			passes and offscreen render targets work fine &mdash; which is how the frames above
+			and every check below were produced. The readouts in the live demo, running on your
+			machine, are the first real measurement this prototype has had.
 		</div>
 	</section>
 

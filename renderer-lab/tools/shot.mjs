@@ -13,12 +13,15 @@
 // signal, not a benchmark. Real numbers need a real GPU.
 //
 // Also: WebGPU *canvas presentation* is broken under SwiftShader in some
-// container images — the device is lost the moment a canvas context is
-// configured, which kills this tool before it can capture anything. That is an
-// environment limitation, not a fault in the lab; a plain WebGPU triangle drawn
-// to a canvas fails the same way with no three.js involved. Where that is the
-// case, use tools/verify.mjs instead: it exercises the same code through
-// compute passes and offscreen render targets, which do work.
+// container images, which kills this tool before it can capture anything.
+// Creating and configuring the context both succeed — the device is lost once
+// frames are actually presented, and lost silently. It is not an adapter
+// choice: where no GPU or Vulkan ICD is present, SwiftShader is the only
+// adapter on offer regardless of flags. That is an environment limitation, not
+// a fault in the lab; a plain WebGPU triangle fails the same way with no
+// three.js involved. Where that is the case, use tools/verify.mjs instead: it
+// exercises the same code through compute passes and offscreen render targets,
+// which do work.
 
 import { createServer } from 'node:http';
 import { readFile, mkdir } from 'node:fs/promises';

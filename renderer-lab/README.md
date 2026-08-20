@@ -142,10 +142,18 @@ view-projection.
 ## Environment note
 
 WebGPU **canvas presentation** does not work under SwiftShader in some container
-images: the device is lost the moment a canvas context is configured. This is
-not a three.js or lab issue — a plain WebGPU triangle drawn to a canvas fails
-identically with no library involved, while compute passes and offscreen render
-targets work fine.
+images. The failure is specifically at **presentation**, not at context
+creation: `getContext('webgpu')` and `configure()` both succeed, and the device
+survives them; it is lost once frames are actually presented and composited, and
+lost silently — nothing throws.
+
+This is not a three.js or lab issue. A plain WebGPU triangle drawn to a canvas
+with no library involved fails identically, while compute passes and offscreen
+render targets work fine. Nor is it a matter of picking the wrong adapter: with
+no GPU device and no Vulkan ICD present, SwiftShader is the only adapter
+Chromium can offer, and it is selected with or without
+`--use-webgpu-adapter=swiftshader`. Four flag combinations across both the full
+Chromium build and Playwright's headless shell all behave the same.
 
 Consequences:
 
