@@ -22,8 +22,9 @@ npx http-server .        # or any static server
 per-frame simulation time cap, useful on slow (software) GPUs.
 
 **Interaction** — drag the paddle to stir; drag anywhere else to orbit; tap or
-click the water to set off a full detonation there (the same implosion, blast
-and vortex ring a barrel makes, not a lesser puff); wheel/pinch to zoom. Buttons (and keys): `B` or `Space` drops an
+click the water to send a barrel down to that spot — it splashes in on the way
+and detonates when it arrives, rather than going off instantly where you
+pointed; wheel/pinch to zoom. Buttons (and keys): `B` or `Space` drops an
 exploding barrel, `R` spins the paddle like a paddle-wheel (slider sets the
 rate), `O` orbits the camera, `X` takes the paddle out of the tank entirely,
 `F` goes full screen, `H` hides the interface. Every click of `drop barrel`
@@ -246,6 +247,18 @@ switching backends reloads the page, which empties it.
   ping-pong float texture) sparkle on the shell of the plumes. Composite,
   two-level bloom, ACES tonemap, vignette and grain finish the frame.
 
+## Framing
+
+The view fills the window rather than framing the tank inside it: the camera
+distance is chosen to *cover* the viewport (fit the **wider** of the two fields
+of view, so the tank's edges fall outside the frame) rather than to *contain*
+it (fit the narrower, which leaves a black surround). On a 16:9 window covering
+means sitting close to the glass, which would put the waterline above the top
+edge and leave nothing but a wall of water, so the camera also aims high enough
+to keep the surface just inside the top of frame. The result is an underwater
+view with the waterline overhead. Pinching or scrolling to zoom takes over and
+the automatic framing stops.
+
 ## On a phone
 
 The desktop layout is a right-hand column of controls with the statistics in
@@ -257,14 +270,9 @@ the one action worth having without opening anything, and `controls`, which
 raises the sheet. The sheet closes from its own button at the top. Keyboard
 hints go away and touch targets grow.
 
-The framing changes too, and in the opposite direction to the desktop. A
-desktop frames the whole glass with a margin around it (*contain*: fit the
-narrower of the two fields of view). A phone fills the screen with water
-instead (*cover*: fit the **wider** one, and crop harder), so there is no black
-void around the tank — the tank's corners fall outside the frame and the water
-reaches every edge. The default grid also drops one preset, because a phone
-spends its entire frame budget solving 128³. Both are overridden the moment you
-pinch to zoom.
+The default grid drops one preset on a small or touch screen, because a phone
+spends its entire frame budget solving 128³. That is overridden the moment you
+pass `?q=`.
 
 ## Tools
 

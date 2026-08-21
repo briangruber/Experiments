@@ -183,16 +183,13 @@ export async function start() {
   // narrower horizontal field than a desktop window at the same vertical
   // fov, so without this the tank is cropped off the sides.
   function fitDistance() {
-    // On a desktop, frame the whole tank (contain). On a phone, fill the
-    // screen with water instead (cover) — taking the WIDER of the two fields
-    // rather than the narrower one, so the tank's edges fall outside the
-    // frame and there is no black void around it.
-    // a phone crops harder so the water reaches every edge; a desktop keeps
-    // enough margin to see the whole glass
-    const r = (smallScreen ? 0.98 : 1.34) * tankHalf;
+    // Cover, not contain: take the WIDER of the two fields of view so the
+    // tank's edges fall outside the frame and water reaches every edge of the
+    // window. Fitting it (the narrower field) leaves a black surround.
+    const r = 0.98 * tankHalf;
     const vfov = camera.fov * Math.PI / 180;
     const hfov = 2 * Math.atan(Math.tan(vfov / 2) * camera.aspect);
-    const fov = smallScreen ? Math.max(vfov, hfov) : Math.min(vfov, hfov);
+    const fov = Math.max(vfov, hfov);
     return Math.max(1.75, r / Math.sin(fov / 2));
   }
   function updateCamera() {
@@ -203,7 +200,13 @@ export async function start() {
       Math.sin(orbit.az) * ce * orbit.dist,
       Math.sin(orbit.el) * orbit.dist,
       Math.cos(orbit.az) * ce * orbit.dist);
-    camera.lookAt(0, 0, 0);
+    // Covering a wide window means sitting close to the glass, which would put
+    // the waterline above the top edge and leave nothing but a wall of water.
+    // Aim so the surface lands just inside the top of frame instead.
+    const halfV = orbit.dist * Math.tan(camera.fov * Math.PI / 360);
+    const aim = Math.max(-0.35 * tankHalf,
+      Math.min(0.15 * tankHalf, SURFACE_Y - halfV * 0.88));
+    camera.lookAt(0, aim, 0);
     camera.updateMatrixWorld();
   }
   updateCamera();
@@ -672,8 +675,9 @@ export async function start() {
       const t = rayBox(ray);
       if (t) {
         const p = ray.origin.clone().addScaledVector(ray.direction, t[0] + (t[1] - t[0]) * 0.35);
-        // a tap on the water sets off the same blast a barrel makes
-        detonate(p.clampScalar(-0.92 * tankHalf, 0.92 * tankHalf), clock.elapsedTime);
+        // a tap sends a barrel down to that spot, splashing in on the way, and
+        // it detonates when it gets there
+        dropBarrel(p.clampScalar(-0.78 * tankHalf, 0.78 * tankHalf));
         addRipple(p.x, p.z, 0.35 + 0.55 * Math.max(0, (p.y + 0.6) / 1.3));
         lastInteract = clock.elapsedTime;
       }
@@ -924,16 +928,28 @@ export async function start() {
     rippleNext++;
   }
 
-  function dropBarrel() {
+  // `at` aims the drop: the barrel falls straight down onto that x/z and
+  // detonates when it reaches that depth, so a click lands the blast where
+  // you pointed. Without it the barrel is scattered and blows up on the floor.
+  function dropBarrel(at) {
+    // reuse a free slot, or recycle the oldest one if all six are busy
     let b = barrels.find((x) => !x.active);
     if (!b) b = barrels.reduce((a, x) => (x.age > a.age ? x : a), barrels[0]);
     b.active = true;
     b.age = 0;
     b.splashed = false;
-    b.mesh.position.set((Math.random() - 0.5) * 1.2 * tankHalf, 0.95 * tankHalf,
-      (Math.random() - 0.5) * 1.2 * tankHalf);
+    if (at) {
+      b.mesh.position.set(at.x, 0.95 * tankHalf, at.z);
+      // never above the waterline, or it would detonate before it got wet
+      b.targetY = Math.min(at.y, SURFACE_Y - 0.06);
+      b.vel.set(0, -2.3, 0);
+    } else {
+      b.mesh.position.set((Math.random() - 0.5) * 1.2 * tankHalf, 0.95 * tankHalf,
+        (Math.random() - 0.5) * 1.2 * tankHalf);
+      b.targetY = null;
+      b.vel.set((Math.random() - 0.5) * 0.2, -2.3, (Math.random() - 0.5) * 0.2);
+    }
     b.mesh.rotation.set(Math.random() * 0.5, Math.random() * 6.28, Math.random() * 0.5);
-    b.vel.set((Math.random() - 0.5) * 0.2, -2.3, (Math.random() - 0.5) * 0.2);
     b.spin.set(1.1, 0.4, 0.8);
     b.mesh.visible = true;
   }
@@ -986,7 +1002,8 @@ export async function start() {
         addRipple(p.x, p.z, 1.0);
       }
 
-      if (p.y < -0.5 * tankHalf || b.age > 2.2) {
+      if ((b.targetY != null && p.y <= b.targetY)
+        || p.y < -0.5 * tankHalf || b.age > 2.2) {
         b.active = false;
         b.mesh.visible = false;
         detonate(p.clone(), t);
