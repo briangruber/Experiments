@@ -78,12 +78,17 @@ export function createVisitor(THREE, mesh, tankHalf) {
     mesh.updateMatrixWorld();
   }
 
-  // typing the word, rather than a single key: every letter is already taken
+  // A word rather than a single key, because every single key is already a
+  // shortcut — and the word has to avoid them too. `fish` was the obvious
+  // choice and the wrong one: F is fullscreen and H hides the interface, so
+  // typing it summoned the fish behind a hidden interface in fullscreen.
+  // s/w/i/m are all unbound (Space O R X B C P Q H F are not).
+  const WORD = 'swim';
   let typed = '';
   window.addEventListener('keydown', (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey || e.key.length !== 1) return;
-    typed = (typed + e.key.toLowerCase()).slice(-4);
-    if (typed === 'fish' && !mesh.visible) begin();
+    typed = (typed + e.key.toLowerCase()).slice(-WORD.length);
+    if (typed === WORD && !mesh.visible) begin();
   });
 
   return { update, begin, state };
