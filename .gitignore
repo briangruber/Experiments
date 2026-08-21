@@ -4,3 +4,4 @@ shots/
 tmp/
 dist/
 .claude/
+churn-artifact.html

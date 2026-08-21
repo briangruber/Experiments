@@ -17,6 +17,7 @@ const {
   normalWorld, positionWorld, cameraPosition,
 } = THREE.TSL;
 import { Fluid3D } from './fluid3d.js';
+import { barrelGeometry, barrelTexture, BARREL_HALF } from '../barrel.js';
 import { initChrome } from '../chrome.js';
 import {
   buildPhysicsPanel, buildScenePanel, buildCodePanel, armBurst,
@@ -183,18 +184,18 @@ export async function start() {
   // narrower horizontal field than a desktop window at the same vertical
   // fov, so without this the tank is cropped off the sides.
   function fitDistance() {
-    // Cover, not contain: take the WIDER of the two fields of view so the
-    // tank's edges fall outside the frame and water reaches every edge of the
-    // window. Fitting it (the narrower field) leaves a black surround.
-    const r = 0.98 * tankHalf;
-    const vfov = camera.fov * Math.PI / 180;
-    const hfov = 2 * Math.atan(Math.tan(vfov / 2) * camera.aspect);
-    const fov = Math.max(vfov, hfov);
-    return Math.max(1.75, r / Math.sin(fov / 2));
+    // Fit the frame's DIAGONAL inside the tank's INSCRIBED sphere, so every
+    // corner of the window lands in water whatever the aspect ratio. Fitting
+    // the bounding sphere, or either axis on its own, leaves the corners
+    // outside the cube's silhouette — which is where the black wedges came
+    // from on a tall phone.
+    const vt = Math.tan(camera.fov * Math.PI / 360);
+    const diag = Math.atan(Math.hypot(vt, vt * camera.aspect));
+    return tankHalf / Math.sin(diag);
   }
   function updateCamera() {
     orbit.el = Math.max(-0.55, Math.min(1.25, orbit.el));
-    orbit.dist = Math.max(1.7, Math.min(12, orbit.dist));
+    orbit.dist = Math.max(0.15, Math.min(12, orbit.dist));
     const ce = Math.cos(orbit.el);
     camera.position.set(
       Math.sin(orbit.az) * ce * orbit.dist,
@@ -239,19 +240,40 @@ export async function start() {
   paddle.position.set(0.45, -0.25, 0.1);
   opaqueScene.add(paddle);
 
-  const barrelHalf = new THREE.Vector3(0.13, 0.17, 0.13);
+  // A small drum. The mesh is the baked model, whose largest half extent is 1,
+  // so one scale factor sets its size in tank units.
+  const BARREL_SCALE = 0.085;
+  const barrelHalf = new THREE.Vector3(
+    BARREL_SCALE * BARREL_HALF[0], BARREL_SCALE * BARREL_HALF[1], BARREL_SCALE * BARREL_HALF[2]);
   const MAX_BARRELS = 6;
-  const barrelGeo = new THREE.BoxGeometry(barrelHalf.x * 2, barrelHalf.y * 2, barrelHalf.z * 2);
-  const barrelMat = bodyMaterial();
+  const barrelGeo = barrelGeometry(THREE);
+  // The same shading as the paddle, but over the model's baked base colour and
+  // tinted toward the water so it reads as submerged rather than pasted on.
+  const barrelMat = (() => {
+    const m = new THREE.MeshBasicNodeMaterial();
+    const map = texture(barrelTexture(THREE), uv());
+    m.colorNode = Fn(() => {
+      const n = normalWorld.normalize();
+      const v = cameraPosition.sub(positionWorld).normalize();
+      const fr = float(1).sub(n.dot(v).abs()).pow(3);
+      const diff = n.dot(uniform(sunDir).negate()).max(0);
+      return vec4(
+        map.rgb.mul(float(0.22).add(diff.mul(0.85))).mul(vec3(0.92, 0.94, 1.0))
+          .add(fr.mul(vec3(0.14, 0.28, 0.40))),
+        1);
+    })();
+    return m;
+  })();
   const barrels = Array.from({ length: MAX_BARRELS }, () => {
     const mesh = new THREE.Mesh(barrelGeo, barrelMat);
+    mesh.scale.setScalar(BARREL_SCALE);
     mesh.visible = false;
     opaqueScene.add(mesh);
     const b = {
       mesh, vel: new THREE.Vector3(), spin: new THREE.Vector3(),
       age: 0, active: false, splashed: false, desc: null,
     };
-    b.desc = { pos: mesh.position, vel: b.vel, radius: 0.16 };
+    b.desc = { pos: mesh.position, vel: b.vel, radius: barrelHalf.length() * 0.62 };
     return b;
   });
 
@@ -653,9 +675,8 @@ export async function start() {
     drag.moved += Math.abs(dx) + Math.abs(dy);
     drag.last = { x: e.clientX, y: e.clientY };
     if (drag.mode === 'orbit') {
-      orbit.az -= dx * 0.005;
-      orbit.el += dy * 0.005;
-      updateCamera();
+      // deliberately inert: the view is fixed, so a drag on the water is only
+      // ever a tap that missed. `spin view` still orbits on request.
     } else if (drag.mode === 'paddle') {
       const ray = pointerRay(e);
       const p = new THREE.Vector3();
@@ -745,7 +766,9 @@ export async function start() {
     if (!params.paddleSpin) { params.paddleSpin = true; syncButtons(); }
   });
   const hidePaddleBtn = document.getElementById('hide-paddle-btn');
-  let paddleHidden = false;
+  // starts out of the tank: the water is left to barrels and taps unless you
+  // bring the paddle back in
+  let paddleHidden = true;
   function setPaddleHidden(v) {
     paddleHidden = v;
     paddle.visible = !v;
@@ -1000,8 +1023,8 @@ export async function start() {
       if (wasAbove && p.y <= SURFACE_Y && !b.splashed) {
         b.splashed = true;
         explosionQueue.push(
-          { pos: new THREE.Vector3(p.x, SURFACE_Y - 0.05, p.z), vel: 0.55, up: -1.2, foam: 0.35, radius: 0.20 },
-          { pos: new THREE.Vector3(p.x, SURFACE_Y - 0.15, p.z), vel: 0.28, up: 0.5, foam: 0.2, radius: 0.16 },
+          { pos: new THREE.Vector3(p.x, SURFACE_Y - 0.05, p.z), vel: 0.55, up: -1.2, foam: 0.35, radius: 0.13 },
+          { pos: new THREE.Vector3(p.x, SURFACE_Y - 0.15, p.z), vel: 0.28, up: 0.5, foam: 0.2, radius: 0.10 },
         );
         addRipple(p.x, p.z, 1.0);
       }
@@ -1287,6 +1310,8 @@ export async function start() {
 
   resize();
   updateCamera();
+  // last, so every binding it touches (paddle velocities, the buttons) exists
+  setPaddleHidden(paddleHidden);
   // first frame before declaring success, so boot.js can fall back on failure
   renderFrame(null);
   requestAnimationFrame(frame);

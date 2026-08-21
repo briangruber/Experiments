@@ -892,3 +892,38 @@ void main() {
   }
   gl_FragColor = vec4(mf, mv, mp, md);
 }`;
+
+// The barrel: same underwater shading as the paddle, but reading its baked
+// base-colour texture rather than a flat tint.
+export const BARREL_VERT = /* glsl */ `
+varying vec3 vN;
+varying vec3 vWp;
+varying vec2 vUv;
+void main() {
+  vN = normalize(mat3(modelMatrix) * normal);
+  vec4 wp = modelMatrix * vec4(position, 1.0);
+  vWp = wp.xyz;
+  vUv = uv;
+  gl_Position = projectionMatrix * viewMatrix * wp;
+}`;
+
+export const BARREL_FRAG = /* glsl */ `
+varying vec3 vN;
+varying vec3 vWp;
+varying vec2 vUv;
+uniform vec3 uSunDir;
+uniform sampler2D uMap;
+void main() {
+  vec3 n = normalize(vN);
+  vec3 v = normalize(cameraPosition - vWp);
+  vec3 base = texture2D(uMap, vUv).rgb;
+  float fr = pow(1.0 - abs(dot(n, v)), 3.0);
+  float diff = max(dot(n, -uSunDir), 0.0);
+  // Tinted toward the water so it reads as submerged rather than as a sticker
+  // floating in front of the tank — but only lightly: the volume in front of
+  // it already does most of the tinting, and a heavy tint here left the model
+  // a colourless white blob in the plume.
+  vec3 col = base * (0.22 + 0.85 * diff) * vec3(0.92, 0.94, 1.0)
+           + fr * vec3(0.14, 0.28, 0.40);
+  gl_FragColor = vec4(col, 1.0);
+}`;
