@@ -1,3 +1,16 @@
+:root {
+  --ui-sans: system-ui, -apple-system, 'Segoe UI', Inter, Roboto, sans-serif;
+  --panel: rgba(9, 17, 24, 0.74);
+  --row: rgba(255, 255, 255, 0.035);
+  --row-hi: rgba(255, 255, 255, 0.075);
+  --edge: rgba(120, 180, 210, 0.16);
+  --edge-hi: rgba(140, 200, 230, 0.34);
+  --ink: #d6e8f2;
+  --ink-dim: #9db4c1;
+  --muted: #62808f;
+  --icon: #7fa8bd;
+  --accent: #3ea8e0;
+}
 html, body {
   margin: 0;
   height: 100%;
@@ -18,6 +31,13 @@ html, body {
   position: fixed;
   top: 18px;
   left: 22px;
+  padding: 9px 14px;
+  border-radius: 11px;
+  /* the water reaches every edge and a plume can be near white, so the
+     wordmark and the frame rate both need their own ground to stay legible */
+  border: 1px solid var(--edge);
+  background: var(--panel);
+  backdrop-filter: blur(14px);
   color: #cfe7f2;
   font-size: 15px;
   letter-spacing: 0.35em;
@@ -36,15 +56,21 @@ html, body {
   /* opt-in: the frame rate is always on screen and opens this on click */
   display: none;
   position: fixed;
-  top: 40px;
-  right: 20px;
-  min-width: 230px;
-  font-size: 11px;
-  line-height: 1.9;
-  color: #9fb6c0;
+  top: 50px;
+  right: 24px;
+  min-width: 244px;
+  padding: 12px 14px;
+  font-family: var(--ui-sans);
+  font-size: 11.5px;
+  line-height: 1.95;
+  color: var(--ink-dim);
+  border-radius: 12px;
+  border: 1px solid var(--edge);
+  background: var(--panel);
+  backdrop-filter: blur(14px);
   user-select: none;
   pointer-events: none;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  z-index: 28;
 }
 body.stats-open #stats { display: block; }
 #stats div {
@@ -52,180 +78,384 @@ body.stats-open #stats { display: block; }
   justify-content: space-between;
   gap: 18px;
 }
-#stats em {
-  font-style: normal;
-  color: #58707c;
-}
-#stats b {
-  font-weight: 500;
-  color: #c4dbe5;
-}
+#stats em { font-style: normal; color: var(--muted); }
+#stats b { font-weight: 600; color: #cfe3ee; font-variant-numeric: tabular-nums; }
 #hud {
   position: fixed;
-  bottom: 14px;
-  left: 0;
-  right: 0;
-  text-align: center;
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  color: #4e6873;
+  left: 22px;
+  bottom: 22px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 16px;
+  font-family: var(--ui-sans);
+  font-size: 12px;
+  color: var(--ink-dim);
+  border-radius: 999px;
+  border: 1px solid var(--edge);
+  background: var(--panel);
+  backdrop-filter: blur(14px);
   user-select: none;
   pointer-events: none;
 }
+#hud .hint { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+#hud .ico { width: 15px; height: 15px; color: var(--icon); }
+#hud .sep { width: 3px; height: 3px; border-radius: 50%; background: #3a5361; }
 .pointer-coarse { display: none; }
 @media (pointer: coarse) {
   .pointer-fine { display: none; }
   .pointer-coarse { display: block; }
 }
+/* ---------------------------------------------------------------------------
+   The control panel. One card, three labelled groups, and three row shapes
+   inside them: an action (icon + label), a switch (label + track), and a
+   disclosure (icon + label + chevron over a body). Everything is a <button>
+   with aria state the app already sets, so the styling reads that state rather
+   than needing its own. */
 #controls {
   position: fixed;
-  right: 20px;
-  bottom: 42px;
+  right: 22px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 268px;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  align-items: stretch;
-  /* the physics panel can make this tall: keep it on screen */
-  max-height: calc(100vh - 80px);
+  gap: 18px;
+  padding: 16px 14px;
+  font-family: var(--ui-sans);
+  border-radius: 14px;
+  border: 1px solid var(--edge);
+  background: var(--panel);
+  backdrop-filter: blur(14px) saturate(1.1);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  max-height: calc(100vh - 120px);
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: #2a4450 transparent;
+  scrollbar-color: #24404e transparent;
 }
-#controls button {
-  font: inherit;
+#controls::-webkit-scrollbar { width: 8px; }
+#controls::-webkit-scrollbar-thumb { background: #24404e; border-radius: 4px; }
+
+.group { display: flex; flex-direction: column; gap: 6px; }
+.group-label {
+  margin: 0 0 2px 4px;
   font-size: 10px;
-  letter-spacing: 0.18em;
+  font-weight: 600;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: #9fb6c0;
-  background: rgba(16, 28, 34, 0.55);
-  border: 1px solid #2a4450;
-  border-radius: 3px;
-  padding: 8px 14px;
+  color: var(--muted);
+}
+
+/* the shared row body: every control in the panel is this box */
+#controls .row-btn,
+#controls .switch-row,
+#controls .disc-btn,
+#controls .slider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  color: var(--ink);
+  background: var(--row);
+  border: 1px solid var(--edge);
+  border-radius: 9px;
   cursor: pointer;
+  transition: background 0.14s, border-color 0.14s, color 0.14s;
 }
-#controls button:hover {
-  color: #cfe7f2;
-  border-color: #3d6273;
+#controls .row-btn:hover,
+#controls .switch-row:hover,
+#controls .disc-btn:hover { background: var(--row-hi); border-color: var(--edge-hi); }
+#controls button:focus-visible,
+.slider input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.ico { width: 17px; height: 17px; flex: none; color: var(--icon); }
+svg.ico, svg.chev { fill: none; stroke: currentColor; stroke-width: 1.6;
+  stroke-linecap: round; stroke-linejoin: round; }
+#sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+/* the one action worth reaching for without reading the panel */
+#controls .row-btn.primary {
+  color: #dcf0fb;
+  background: linear-gradient(180deg, rgba(46, 130, 180, 0.30), rgba(30, 92, 132, 0.24));
+  border-color: rgba(96, 176, 216, 0.55);
 }
-#controls button.active {
-  color: #0b1418;
-  background: #7fd4f0;
-  border-color: #7fd4f0;
+#controls .row-btn.primary .ico { color: #8fd4f2; }
+#controls .row-btn.primary:hover { border-color: rgba(140, 208, 240, 0.75); }
+
+/* Switches. The app toggles `.active` and aria-pressed on these already, so the
+   track reads that rather than carrying a checkbox of its own. */
+.switch-row { justify-content: space-between; }
+.switch-row .sw {
+  flex: none;
+  position: relative;
+  width: 34px;
+  height: 19px;
+  border-radius: 10px;
+  background: #1b2b34;
+  border: 1px solid var(--edge);
+  transition: background 0.16s, border-color 0.16s;
 }
-#controls button:focus-visible {
-  outline: 1px solid #7fd4f0;
-  outline-offset: 2px;
+.switch-row .sw::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #6b8492;
+  transition: transform 0.16s, background 0.16s;
 }
-.slider {
+.switch-row.active { color: #eaf6fd; }
+.switch-row.active .sw { background: var(--accent); border-color: var(--accent); }
+.switch-row.active .sw::after { transform: translateX(15px); background: #08161d; }
+
+/* Disclosures. The chevron points down closed and up open; the body it reveals
+   is indented under it so the two read as one block. */
+.disc-btn .chev {
+  width: 15px;
+  height: 15px;
+  margin-left: auto;
+  color: var(--muted);
+  transition: transform 0.18s;
+}
+.disc-btn.active { color: #eaf6fd; border-color: var(--edge-hi); background: var(--row-hi); }
+.disc-btn.active .chev { transform: rotate(180deg); color: var(--accent); }
+.disc-btn.active { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+
+#physics, #scene, #emitter, #renderer, #code {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  font-size: 9px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: #9fb6c0;
-  background: rgba(16, 28, 34, 0.55);
-  border: 1px solid #2a4450;
-  border-radius: 3px;
-  padding: 8px 12px 10px;
-  cursor: pointer;
+  gap: 5px;
+  margin-top: -6px;
+  padding: 9px 8px;
+  border: 1px solid var(--edge);
+  border-top: 0;
+  border-radius: 0 0 9px 9px;
+  background: rgba(6, 14, 20, 0.5);
+}
+#physics[hidden], #scene[hidden], #emitter[hidden],
+#renderer[hidden], #code[hidden] { display: none; }
+
+/* Sliders. Label and value on one line, track under it at full width. */
+#controls .slider {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 7px;
+  cursor: default;
+  font-size: 12px;
 }
 .slider span {
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
   gap: 12px;
   min-width: 0;
+  color: var(--ink-dim);
 }
 .slider span :first-child { min-width: 0; overflow-wrap: anywhere; }
 .slider b {
-  font-weight: 500;
-  color: #c4dbe5;
+  font-weight: 600;
+  color: #dbeef9;
   font-variant-numeric: tabular-nums;
+  font-size: 12px;
 }
 .slider input {
-  /* fill the row rather than a fixed 128px: the desktop column happens to be
-     about that wide, the mobile sheet is the full screen */
+  -webkit-appearance: none;
+  appearance: none;
   width: 100%;
-  min-width: 120px;
+  min-width: 0;
+  height: 4px;
   box-sizing: border-box;
   margin: 0;
-  accent-color: #7fd4f0;
+  border-radius: 3px;
+  background: #1b2b34;
   cursor: pointer;
 }
-.slider input:focus-visible {
-  outline: 1px solid #7fd4f0;
-  outline-offset: 2px;
+.slider input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 0;
+  box-shadow: 0 0 0 3px rgba(62, 168, 224, 0.18);
+  cursor: pointer;
 }
-#controls .row {
-  display: flex;
-  gap: 8px;
+.slider input::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
 }
-#controls .row button {
+/* the panel bodies are denser than the standalone paddle-speed slider */
+#physics .slider, #emitter .slider, #scene .slider {
+  padding: 7px 9px 9px;
+  gap: 5px;
+  font-size: 11.5px;
+  border-radius: 7px;
+}
+
+#emitter > button, #renderer > button, #code > button {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 10px;
+  font: inherit;
+  font-family: var(--ui-sans);
+  font-size: 12px;
+  color: var(--ink-dim);
+  background: var(--row);
+  border: 1px solid var(--edge);
+  border-radius: 7px;
+  cursor: pointer;
+}
+#emitter > button:hover, #renderer > button:hover, #code > button:hover {
+  color: var(--ink);
+  border-color: var(--edge-hi);
+}
+#emitter > button.active {
+  color: #08161d;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* Presets sit above the sliders they move, so they read as what they are:
+   whole settings rather than another knob. */
+.preset-row { display: flex; gap: 5px; }
+.preset-row button {
   flex: 1;
-  padding: 8px 6px;
-  font-size: 9px;
-  letter-spacing: 0.08em;
-  white-space: nowrap;
+  padding: 7px 4px;
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: capitalize;
+  color: var(--ink-dim);
+  background: var(--row);
+  border: 1px solid var(--edge);
+  border-radius: 7px;
+  cursor: pointer;
 }
-#physics {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.preset-row button:hover { color: var(--ink); border-color: var(--edge-hi); }
+
+#sheet-close {
+  display: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--ink-dim);
+  background: var(--row);
+  border: 1px solid var(--edge);
+  border-radius: 9px;
+  padding: 10px;
+  cursor: pointer;
 }
-#physics[hidden] { display: none; }
-/* the emitter panel is the physics panel's twin: a stack of live sliders */
-#emitter {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-#emitter[hidden] { display: none; }
-#emitter .slider { padding: 5px 10px 6px; gap: 3px; }
-#emitter .slider input { width: 100%; }
-#physics { gap: 4px; }
-#physics .slider { padding: 5px 10px 6px; gap: 3px; }
-#physics .slider input { width: 100%; }
-/* Preset row: whole physics settings, so they sit above the sliders they move. */
-.preset-row {
-  display: flex;
-  gap: 4px;
-}
-.preset-row button { flex: 1; padding: 6px 4px; }
+
 #controls button:disabled,
-.slider input:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
+.slider input:disabled { opacity: 0.35; cursor: default; }
 .slider:has(input:disabled) { opacity: 0.5; }
+
+/* The dock: the two things you reach for while looking at the tank rather than
+   at the panel. */
+#dock {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  display: flex;
+  gap: 10px;
+  z-index: 26;
+}
+#dock button {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  color: var(--icon);
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 50%;
+  backdrop-filter: blur(14px);
+  cursor: pointer;
+  transition: color 0.14s, border-color 0.14s;
+}
+#dock button:hover { color: var(--ink); border-color: var(--edge-hi); }
+#dock button.active { color: #08161d; background: var(--accent); border-color: var(--accent); }
+#dock .ico { width: 19px; height: 19px; }
+
+/* Keyboard shortcuts, behind the ? in the dock. */
+#keys {
+  position: fixed;
+  right: 22px;
+  bottom: 76px;
+  z-index: 26;
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  font-family: var(--ui-sans);
+  font-size: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--edge);
+  background: var(--panel);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+}
+#keys[hidden] { display: none; }
+#keys div { display: flex; align-items: center; gap: 12px; }
+#keys b {
+  min-width: 22px;
+  padding: 2px 6px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: #cfe7f2;
+  background: #14242d;
+  border: 1px solid var(--edge);
+  border-radius: 5px;
+}
+#keys em { font-style: normal; color: var(--ink-dim); }
+
 /* Hidden interface: everything goes, leaving only the corner peek button so
    pointer- and touch-only users can bring the controls back. */
-.ui-hidden #stats, .ui-hidden #hud, .ui-hidden #title, .ui-hidden #controls { display: none; }
-.ui-hidden #fps-badge { opacity: 0.55; }
+.ui-hidden #stats, .ui-hidden #hud, .ui-hidden #title,
+.ui-hidden #controls, .ui-hidden #dock, .ui-hidden #keys { display: none; }
+/* The peek button: with the interface hidden this is the only way back for
+   anyone without a keyboard, so it survives `ui-hidden` and only `no-chrome`
+   (captures, kiosk) takes it away. */
 #peek {
   position: fixed;
-  right: 18px;
-  bottom: 16px;
+  right: 22px;
+  bottom: 22px;
   display: none;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 42px;
+  height: 42px;
   padding: 0;
-  font: inherit;
-  font-size: 9px;
-  letter-spacing: 0.12em;
-  color: #cfe7f2;
-  background: rgba(16, 28, 34, 0.55);
-  border: 1px solid #2a4450;
+  font-family: var(--ui-sans);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--edge);
   border-radius: 50%;
+  backdrop-filter: blur(14px);
   cursor: pointer;
-  opacity: 0.22;
+  opacity: 0.28;
   transition: opacity 0.25s;
+  z-index: 27;
 }
 .ui-hidden #peek { display: flex; }
 #peek:hover, #peek:focus-visible { opacity: 1; }
 /* captures and kiosk use: no interface at all */
-.no-chrome #peek { display: none; }
+.no-chrome #peek, .no-chrome #dock, .no-chrome #keys { display: none; }
+
 #boot {
   position: fixed;
   inset: 0;
@@ -237,65 +467,77 @@ body.stats-open #stats { display: block; }
   background: #000;
   color: #cfe7f2;
   transition: opacity 0.6s;
-  z-index: 10;
+  z-index: 50;
 }
 #boot.hidden { opacity: 0; pointer-events: none; }
 #boot.error .boot-sub { color: #e08080; }
 .boot-title { font-size: 22px; letter-spacing: 0.5em; }
-.boot-sub { font-size: 11px; color: #5d7c8a; letter-spacing: 0.2em; }
+.boot-sub {
+  font-family: var(--ui-sans);
+  font-size: 12px;
+  color: var(--muted);
+  letter-spacing: 0.14em;
+}
 
 /* Failure surface: WebGPU validation errors, a lost device and a kernel that
    refused to compile are otherwise invisible without devtools open, which is
-   how "no bubbles" reaches a user with no way to say why. */
+   how "no bubbles" reaches a user with no way to say why. Deliberately
+   survives `hide ui` and no-chrome: an error state matters more than a clean
+   screenshot, and this is the only place it is visible. */
 #diag {
   position: fixed;
-  left: 12px;
-  bottom: 34px;
-  max-width: min(52ch, calc(100vw - 24px));
+  left: 22px;
+  bottom: 76px;
+  max-width: min(52ch, calc(100vw - 44px));
   z-index: 40;
-  padding: 8px 10px;
+  padding: 10px 12px;
   border: 1px solid #7a3a3a;
-  border-radius: 4px;
-  background: rgba(30, 10, 10, 0.86);
+  border-radius: 9px;
+  background: rgba(30, 10, 10, 0.88);
   color: #f0b8b8;
-  font-size: 10px;
+  font-family: var(--ui-sans);
+  font-size: 11.5px;
   line-height: 1.5;
-  letter-spacing: 0.04em;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   user-select: text;
 }
 #diag[hidden] { display: none; }
-/* deliberately survives `hide ui` and no-chrome: an error state matters more
-   than a clean screenshot, and this is the only place it is visible */
 
 /* Kept out of .ui-hidden's reach on purpose: the frame rate is the one number
    worth watching while the interface is hidden, and on a GPU simulation an
    unexpectedly high value is a symptom worth noticing. */
+.ui-hidden #fps-badge { opacity: 0.5; }
 #fps-badge {
   position: fixed;
-  top: 16px;
-  right: 20px;
+  top: 20px;
+  right: 24px;
   z-index: 30;
-  font-size: 11px;
-  letter-spacing: 0.16em;
-  color: #5d7c8a;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 13px;
+  font-family: var(--ui-sans);
+  font-size: 13px;
+  color: var(--ink-dim);
+  border-radius: 999px;
+  border: 1px solid var(--edge);
+  background: var(--panel);
+  backdrop-filter: blur(14px);
   user-select: none;
-  pointer-events: none;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
-  opacity: 0.75;
-  transition: opacity 0.2s ease;
-  pointer-events: auto;
   cursor: pointer;
-  font: inherit;
-  font-size: 11px;
-  letter-spacing: 0.16em;
-  background: none;
-  border: 0;
-  padding: 2px 4px;
+  opacity: 0.85;
+  transition: opacity 0.2s ease;
 }
 #fps-badge:hover, #fps-badge:focus-visible, body.stats-open #fps-badge { opacity: 1; }
-#fps-badge b { font-weight: 500; color: #c4dbe5; }
+#fps-badge i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px rgba(62, 168, 224, 0.8);
+}
+#fps-badge b { font-weight: 600; color: #d6e8f2; font-variant-numeric: tabular-nums; }
 
 .panel-note {
   margin: 2px 2px 0;
@@ -331,69 +573,52 @@ body.stats-open #stats { display: block; }
    which frees the corner for the stats and gives the tank the top two-thirds
    of the screen — the part actually worth looking at. */
 @media (max-width: 760px) {
-  #title { top: 10px; left: 12px; font-size: 12px; letter-spacing: 0.28em; }
+  #title { top: 12px; left: 14px; font-size: 12px; letter-spacing: 0.28em; }
   #title span { margin-top: 3px; font-size: 8px; }
+  #fps-badge { top: 12px; right: 14px; font-size: 12px; }
+  #stats { top: 52px; right: 14px; min-width: 0; max-width: 62vw; font-size: 10.5px; line-height: 1.7; }
 
-  #stats {
-    top: 10px;
-    right: 12px;
-    min-width: 0;
-    max-width: 58vw;
-    font-size: 9px;
-    line-height: 1.65;
-    /* the water now reaches every edge, so the readout needs its own ground
-       to stay legible over a bright plume */
-    padding: 7px 9px;
-    border-radius: 5px;
-    background: rgba(3, 10, 15, 0.42);
-    backdrop-filter: blur(3px);
-  }
-  #stats div { gap: 10px; }
-
+  /* A bottom sheet rather than a floating card: the panel is the full width,
+     the tank keeps the top of the screen, and the rows stay one per line so
+     the switches and sliders are thumb-sized. */
   #controls {
     right: 0;
     left: 0;
+    top: auto;
     bottom: 0;
-    /* a sheet, not a column: two buttons per row so it stays shallow */
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 7px;
-    align-content: start;
-    max-height: 46vh;
-    padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
-    background: linear-gradient(to bottom, rgba(3, 9, 13, 0.72), rgba(3, 9, 13, 0.94) 22%);
-    border-top: 1px solid #162a35;
+    transform: none;
+    width: auto;
+    max-height: 62vh;
+    gap: 16px;
+    padding: 14px 14px calc(14px + env(safe-area-inset-bottom, 0px));
+    border-radius: 16px 16px 0 0;
+    border-left: 0;
+    border-right: 0;
+    border-bottom: 0;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
   }
-  /* rows are already pairs — let their children join the sheet's grid */
-  #controls .row { display: contents; }
-  /* anything with its own layout spans the full width */
-  #controls > .slider,
-  #controls > #physics,
-  #controls > #scene,
-  #controls > #code,
-  #controls > #barrel-btn { grid-column: 1 / -1; }
+  #controls .row-btn,
+  #controls .switch-row,
+  #controls .disc-btn { padding: 13px 14px; font-size: 14px; }
+  #sheet-close { display: block; order: -1; }
 
-  #controls button { padding: 11px 10px; font-size: 10px; letter-spacing: 0.12em; }
-  /* an open panel's toggle spans the row, so it sits directly above its
-     contents instead of leaving a gap beside it */
-  #physics-btn.active, #scene-btn.active, #code-btn.active { grid-column: 1 / -1; }
-  #physics, #scene { max-height: none; }
-  #code pre { max-height: 30vh; font-size: 9px; }
+  /* the dock would sit under the sheet; the sheet has its own close */
+  #dock { right: 14px; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
+  body.sheet-open #dock { display: none; }
+  #keys { right: 14px; left: 14px; bottom: 70px; }
 
-  /* the keyboard hints are meaningless without a keyboard */
+  /* the hint bar is about a mouse */
   #hud { display: none; }
-  #fps-badge { top: 12px; right: 12px; bottom: auto; }
-  #stats { top: 38px; }
-  #diag { bottom: calc(46vh + 8px); font-size: 9px; }
+  #diag { bottom: calc(62vh + 8px); font-size: 9px; }
   #peek { bottom: calc(12px + env(safe-area-inset-bottom, 0px)); right: 12px; }
+  #code pre { max-height: 30vh; font-size: 9px; }
 }
 
 /* Short landscape phones: the sheet would eat the whole view, so keep it
    shallower and let it scroll. */
 @media (max-width: 900px) and (max-height: 480px) {
-  #controls { max-height: 60vh; grid-template-columns: 1fr 1fr 1fr; }
+  #controls { max-height: 78vh; }
   #fps-badge, #diag { bottom: auto; top: 10px; }
 }
 
@@ -408,39 +633,43 @@ body.stats-open #stats { display: block; }
    without opening anything, so it gets a permanent button; everything else
    lives behind `controls`. Desktop keeps the full column and never sees this. */
 #fab { display: none; }
-#sheet-close { display: none; }
+/* #sheet-close's own rule already defaults it to none; repeating it here would
+   land AFTER the narrow-screen block above and quietly win, leaving the mobile
+   sheet with no way to close. */
 
 @media (max-width: 760px) {
   #fab {
     display: grid;
     grid-template-columns: 1fr auto;
-    gap: 8px;
+    gap: 10px;
     position: fixed;
-    left: 12px;
-    right: 12px;
-    bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    left: 14px;
+    right: 88px;
+    bottom: calc(14px + env(safe-area-inset-bottom, 0px));
     z-index: 25;
   }
   #fab button {
-    font: inherit;
-    font-size: 11px;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: #cfe7f2;
-    background: rgba(10, 22, 30, 0.82);
-    border: 1px solid #2f5a6e;
-    border-radius: 4px;
-    padding: 14px 16px;
+    font-family: var(--ui-sans);
+    font-size: 14px;
+    color: var(--ink);
+    background: var(--panel);
+    border: 1px solid var(--edge);
+    border-radius: 11px;
+    padding: 14px 18px;
     cursor: pointer;
-    backdrop-filter: blur(6px);
+    backdrop-filter: blur(14px);
   }
-  #fab-barrel { border-color: #37677d; }
+  #fab-barrel {
+    color: #dcf0fb;
+    background: linear-gradient(180deg, rgba(46, 130, 180, 0.34), rgba(30, 92, 132, 0.28));
+    border-color: rgba(96, 176, 216, 0.55);
+  }
 
   /* the sheet starts closed — the tank is what you came for */
   #controls { display: none; }
-  body.sheet-open #controls { display: grid; }
+  body.sheet-open #controls { display: flex; }
   body.sheet-open #fab { display: none; }
-  #sheet-close { display: block; grid-column: 1 / -1; }
+
 
   /* nothing floats over a hidden interface */
   .ui-hidden #fab { display: none; }

@@ -750,7 +750,13 @@ void main() {
           t1 = t0;
         }
       }
-    } else if (rd.y > 0.0 && tS > t0 && tS < t1) {
+    } else if (rd.y > 0.0 && tS <= t0) {
+      // The ray crossed the waterline BEFORE it reached the tank, so its whole
+      // span inside the box is air. Nothing was clipping that case, so the
+      // march ran air as if it were lit water and the caustic shafts carried
+      // on above the surface.
+      t1 = t0;
+    } else if (rd.y > 0.0 && tS < t1) {
       // Looking up from below. Inside Snell's window the surface is a window
       // onto a dark room; outside it the surface is a MIRROR — and a mirror of
       // the tank itself, so the ceiling should carry the plumes and the floor

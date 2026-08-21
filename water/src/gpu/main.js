@@ -556,7 +556,11 @@ export async function start() {
             If(tOpaque.lessThan(1e8), () => { t1.assign(t1.min(tOpaque.sub(tS).max(0))); });
           }).Else(() => { t1.assign(t0); });
         });
-      }).ElseIf(rd.y.greaterThan(0).and(tS.greaterThan(t0)).and(tS.lessThan(t1)), () => {
+      }).ElseIf(rd.y.greaterThan(0).and(tS.lessThanEqual(t0)), () => {
+        // crossed the waterline before reaching the tank: the whole span in the
+        // box is air — see the WebGL shader
+        t1.assign(t0);
+      }).ElseIf(rd.y.greaterThan(0).and(tS.lessThan(t1)), () => {
         // Looking up from below. Inside Snell's window the surface is a window
         // onto a dark room; outside it, it is a mirror of the tank itself, so
         // the ceiling carries the plumes and the floor upside down.
@@ -863,6 +867,7 @@ export async function start() {
   document.getElementById('fab-barrel').addEventListener('click', () => dropBarrel());
   document.getElementById('fab-menu').addEventListener('click', () => sheet(true));
   document.getElementById('sheet-close').addEventListener('click', () => sheet(false));
+  document.getElementById('clear-btn').addEventListener('click', () => fluid.clear());
   document.getElementById('calm-btn').addEventListener('click', () => {
     setStir(false);
     fluid.still();

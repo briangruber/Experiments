@@ -56,7 +56,9 @@ export function initChrome({ backend } = {}) {
     const other = backend === 'WebGPU' ? 'WebGL2' : 'WebGPU';
     if (navigator.gpu) {
       backendBtn.hidden = false;
-      backendBtn.textContent = `switch to ${other.toLowerCase()}`;
+      const label = backendBtn.querySelector('span');
+      if (label) label.textContent = `Switch to ${other}`;
+      else backendBtn.textContent = `Switch to ${other}`;
       backendBtn.title = `Currently running ${backend || 'WebGL2'}`;
       backendBtn.addEventListener('click', () => {
         const q = new URLSearchParams(location.search);
@@ -69,6 +71,30 @@ export function initChrome({ backend } = {}) {
   hideBtn.addEventListener('click', toggleHide);
   fsBtn.addEventListener('click', toggleFullscreen);
   peek.addEventListener('click', () => setHidden(false));
+
+  // The shortcut sheet, and the Renderer disclosure. Both are markup-only —
+  // nothing builds their contents — so they are wired here rather than in the
+  // panel builders, and both apps get them from the one place.
+  const helpBtn = document.getElementById('help-btn');
+  const keys = document.getElementById('keys');
+  if (helpBtn && keys) {
+    helpBtn.addEventListener('click', () => {
+      const open = keys.hasAttribute('hidden');
+      keys.toggleAttribute('hidden', !open);
+      helpBtn.classList.toggle('active', open);
+      helpBtn.setAttribute('aria-expanded', String(open));
+    });
+  }
+  const rendBtn = document.getElementById('renderer-btn');
+  const rendPanel = document.getElementById('renderer');
+  if (rendBtn && rendPanel) {
+    rendBtn.addEventListener('click', () => {
+      const open = rendPanel.hasAttribute('hidden');
+      rendPanel.toggleAttribute('hidden', !open);
+      rendBtn.classList.toggle('active', open);
+      rendBtn.setAttribute('aria-expanded', String(open));
+    });
+  }
 
   window.addEventListener('keydown', (e) => {
     if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;

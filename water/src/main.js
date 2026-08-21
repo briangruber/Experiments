@@ -540,6 +540,7 @@ const sheet = (open) => document.body.classList.toggle('sheet-open', open);
 document.getElementById('fab-barrel').addEventListener('click', () => dropBarrel());
 document.getElementById('fab-menu').addEventListener('click', () => sheet(true));
 document.getElementById('sheet-close').addEventListener('click', () => sheet(false));
+document.getElementById('clear-btn').addEventListener('click', () => fluid.clear());
 document.getElementById('calm-btn').addEventListener('click', () => {
   setStir(false);
   fluid.still();
