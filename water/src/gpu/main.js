@@ -178,7 +178,9 @@ export async function start() {
   // --------------------------------------------------------------- camera --
 
   const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 50);
-  const orbit = { az: 0.5, el: 0.30, dist: 3.4 };
+  // Square on to the front wall. Any yaw puts a vertical corner seam down the
+  // middle of the frame, which reads as a box rather than as open water.
+  const orbit = { az: 0, el: 0.12, dist: 3.4 };
   let userZoomed = false;   // once true, resizing stops re-framing the tank
   // Distance that fits the tank in BOTH axes. A portrait phone has a much
   // narrower horizontal field than a desktop window at the same vertical
@@ -189,9 +191,13 @@ export async function start() {
     // the bounding sphere, or either axis on its own, leaves the corners
     // outside the cube's silhouette — which is where the black wedges came
     // from on a tall phone.
+    // The 0.68 sits closer still. Square on to a wall that fit shows both side
+    // walls and the top edge in frame, which reads as a box; moving in pushes
+    // them past the edges so the middle of the frame is uninterrupted water.
+    // Closing in can only ever add coverage, so the corners stay safe.
     const vt = Math.tan(camera.fov * Math.PI / 360);
     const diag = Math.atan(Math.hypot(vt, vt * camera.aspect));
-    return tankHalf / Math.sin(diag);
+    return 0.68 * tankHalf / Math.sin(diag);
   }
   function updateCamera() {
     orbit.el = Math.max(-0.55, Math.min(1.25, orbit.el));
@@ -246,6 +252,8 @@ export async function start() {
   const barrelHalf = new THREE.Vector3(
     BARREL_SCALE * BARREL_HALF[0], BARREL_SCALE * BARREL_HALF[1], BARREL_SCALE * BARREL_HALF[2]);
   const MAX_BARRELS = 6;
+  // Slowest an aimed barrel may sink, in tank units a second.
+  const MIN_SINK = 0.75;
   const barrelGeo = barrelGeometry(THREE);
   // The same shading as the paddle, but over the model's baked base colour and
   // tinted toward the water so it reads as submerged rather than pasted on.
@@ -1012,6 +1020,13 @@ export async function start() {
       const kDrag = wasAbove ? 0.15 : 2.3 + fluid.physics.drag * 1.5;
       b.vel.y -= (wasAbove ? 6.0 : 1.8) * dt;
       b.vel.multiplyScalar(Math.exp(-dt * kDrag));
+      // An aimed drop is a promise: it detonates at the depth you clicked. Drag
+      // shapes how it gets there but must not be able to stall it — at `water
+      // drag` 10 the terminal sink rate is under a fifth of a tank a second, so
+      // the barrel would still be drifting down when its fuse ran out and would
+      // blow up near the surface instead. Floor the sink rate so it always
+      // arrives, in about a second and a half from the waterline.
+      if (b.targetY != null && !wasAbove) b.vel.y = Math.min(b.vel.y, -MIN_SINK);
       p.addScaledVector(b.vel, dt);
       p.x = Math.max(-0.8 * tankHalf, Math.min(0.8 * tankHalf, p.x));
       p.z = Math.max(-0.8 * tankHalf, Math.min(0.8 * tankHalf, p.z));
@@ -1029,8 +1044,14 @@ export async function start() {
         addRipple(p.x, p.z, 1.0);
       }
 
-      if ((b.targetY != null && p.y <= b.targetY)
-        || p.y < -0.5 * tankHalf || b.age > 2.2) {
+      // Reaching the mark is the only thing that fires an aimed barrel: neither
+      // the fuse nor the floor gets to pre-empt it, or a deep click would
+      // detonate short of where it was pointed. The long fuse is a safety net
+      // for a barrel that somehow never arrives.
+      const done = b.targetY != null
+        ? (p.y <= b.targetY || b.age > 8)
+        : (p.y < -0.5 * tankHalf || b.age > 2.2);
+      if (done) {
         b.active = false;
         b.mesh.visible = false;
         detonate(p.clone(), t);

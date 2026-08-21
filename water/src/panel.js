@@ -43,10 +43,50 @@ export const PHYSICS_KNOBS = [
         + 'glint and how much the view refracts as it crosses the surface.' },
 ];
 
+// Named starting points, because these ten knobs interact and the interesting
+// looks sit in narrow corners of that space. Each is a whole physics setting,
+// not a nudge, so applying one moves every slider.
+export const PRESETS = {
+  // A detonation reads as a mushroom only if four things happen in order: a
+  // hard impulse punches a stem, the ring rolls the top of that stem outward
+  // and back down into a cap, buoyancy keeps feeding the stem from below, and
+  // the foam lasts long enough to still be there when the cap finishes
+  // turning over. Drag is the enemy of all four — it is the single change
+  // that matters most — and `bubble rise` is nearly as important: foam that
+  // slips upward fast enough outruns the flow carrying it and shreds the cap
+  // into a curtain, so a mushroom wants the foam to behave like smoke.
+  mushroom: {
+    rise: 0.18, buoyancy: 16, foamLife: 6, aeration: 5, swirl: 0.06,
+    drag: 0.9, blast: 2.2, ring: 7,
+  },
+  // The opposite corner: a stiff, syrupy tank where a blast makes a compact
+  // ball of froth that lifts slowly and holds together.
+  churn: {
+    rise: 0.65, buoyancy: 20.65, foamLife: 2.5, aeration: 4, swirl: 0.015,
+    drag: 3.45, blast: 0.3, ring: 3,
+  },
+};
+
 export function buildPhysicsPanel(physics) {
   const panel = document.getElementById('physics');
   const btn = document.getElementById('physics-btn');
   panel.textContent = '';
+  // filled in as the sliders are built, so a preset can move them
+  const sync = [];
+  const row = document.createElement('div');
+  row.className = 'preset-row';
+  for (const name of Object.keys(PRESETS)) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = name;
+    b.title = `Apply the "${name}" preset to every slider below.`;
+    b.addEventListener('click', () => {
+      Object.assign(physics, PRESETS[name]);
+      for (const f of sync) f();
+    });
+    row.append(b);
+  }
+  panel.append(row);
   for (const k of PHYSICS_KNOBS) {
     const label = document.createElement('label');
     label.className = 'slider';
@@ -66,6 +106,7 @@ export function buildPhysicsPanel(physics) {
       physics[k.key] = +input.value;
       show();
     });
+    sync.push(() => { input.value = physics[k.key]; show(); });
     span.append(document.createTextNode(k.label + ' '), val);
     label.append(span, input);
     panel.append(label);

@@ -176,6 +176,12 @@ body.stats-open #stats { display: block; }
 #physics { gap: 4px; }
 #physics .slider { padding: 5px 10px 6px; gap: 3px; }
 #physics .slider input { width: 100%; }
+/* Preset row: whole physics settings, so they sit above the sliders they move. */
+.preset-row {
+  display: flex;
+  gap: 4px;
+}
+.preset-row button { flex: 1; padding: 6px 4px; }
 #controls button:disabled,
 .slider input:disabled {
   opacity: 0.35;
