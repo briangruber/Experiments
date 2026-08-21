@@ -405,8 +405,14 @@ export class Fluid3D {
       const dir = u.lightDir.negate();
       const od = float(0).toVar();
       const done = float(0).toVar();
+      // Offset each voxel's march by its own fraction of a step — see the
+      // WebGL light shader. A comb this coarse aliases against the foam, and
+      // with the sun near vertical the aliasing lines up into horizontal
+      // planes; the offset puts neighbours out of phase so it breaks up into
+      // noise instead. Stable per voxel, so it never shimmers.
+      const jit = vec3(v).dot(vec3(0.7548776662, 0.5698402909, 0.6180339887)).fract();
       Loop({ start: int(1), end: int(25) }, ({ i }) => {
-        const q = p.add(dir.mul(u.lightStep.mul(float(i))));
+        const q = p.add(dir.mul(u.lightStep.mul(float(i).add(jit))));
         If(q.lessThan(vec3(0)).any().or(q.greaterThan(vec3(N)).any()), () => {
           done.assign(1);
         });

@@ -454,8 +454,18 @@ void main() {
   vec3 p = vec3(v) + 0.5;
   vec3 dir = -uLightDir; // toward the light
   float od = 0.0;
+  // 24 taps this far apart is a coarse comb through a field that has structure
+  // at the same spacing, so the sum aliases — and since the sun sits within ten
+  // degrees of straight down, every voxel's comb is in step with the one below
+  // it and the aliasing lines up into near-exactly horizontal planes. Offset
+  // each voxel's march by its own fraction of a step: neighbours then sample
+  // different phases, and the terraces become a fine noise that the trilinear
+  // light lookup and the raymarch's own integration average away. The offset
+  // is a function of the voxel alone, so it is stable frame to frame — an
+  // animated one would shimmer.
+  float jit = fract(dot(vec3(v), vec3(0.7548776662, 0.5698402909, 0.6180339887)));
   for (int i = 1; i <= 24; i++) {
-    vec3 q = p + dir * (uStepLen * float(i));
+    vec3 q = p + dir * (uStepLen * (float(i) + jit));
     if (any(lessThan(q, vec3(0.0))) || any(greaterThan(q, vec3(uNf)))) break;
     od += sampleVol(uFoam, q).x;
   }
