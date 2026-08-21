@@ -7,7 +7,7 @@ export const PHYSICS_KNOBS = [
         + 'difference between bubbles and smoke: the foam is carried by the '
         + 'flow plus this rise, rather than by the flow alone. At 0 the foam '
         + 'drifts like smoke.' },
-  { key: 'buoyancy', label: 'buoyancy', min: 0, max: 10, step: 0.05,
+  { key: 'buoyancy', label: 'buoyancy', min: 0, max: 25, step: 0.05,
     desc: 'How hard aerated water lifts the fluid around it. This is what '
         + 'drives a plume upward and makes it billow — the single biggest '
         + 'knob on how violent the tank looks.' },
@@ -15,7 +15,7 @@ export const PHYSICS_KNOBS = [
     desc: 'How long bubbles last before fading, as an e-folding time. Bubbles '
         + 'mostly leave by popping at the surface rather than by decaying, so '
         + 'this can be set long without the tank filling up.' },
-  { key: 'aeration', label: 'aeration', min: 0, max: 4, step: 0.05,
+  { key: 'aeration', label: 'aeration', min: 0, max: 10, step: 0.05,
     desc: 'How much foam the paddle and barrels inject per unit of churn. '
         + 'Turn it up for a milkier tank, down for a few sparse strands.' },
   { key: 'swirl', label: 'vorticity', min: 0, max: 0.3, step: 0.005,
@@ -30,7 +30,7 @@ export const PHYSICS_KNOBS = [
   { key: 'blast', label: 'blast power', min: 0, max: 3, step: 0.05,
     desc: "Scales an explosion's impulse, foam and ring at the moment it is "
         + 'armed, so moving this reaches explosions already queued.' },
-  { key: 'ring', label: 'vortex ring', min: 0, max: 3, step: 0.05,
+  { key: 'ring', label: 'vortex ring', min: 0, max: 8, step: 0.05,
     desc: 'How much circulation a blast seeds. A purely radial impulse just '
         + 'spreads and dies; this rolling torus is what turns the rising cap '
         + 'into a mushroom. At 0 you get a puff instead.' },

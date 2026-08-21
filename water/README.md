@@ -55,8 +55,8 @@ the water behaves; all of them are live and take effect on the next step:
 | knob | what it does |
 | --- | --- |
 | bubble rise | how fast bubbles slip upward *through* the water. This is the difference between bubbles and smoke: the foam field advects with `velocity + rise` rather than with the flow alone. |
-| buoyancy | how strongly aerated water lifts the fluid around it, which is what drives the plume. |
-| bubble life | e-folding time of the bubble field. Bubbles mostly leave by popping at the surface, so this can be long. |
+| buoyancy | how strongly aerated water lifts the fluid around it, which is what drives the plume. The default is high, which throws foam at the surface rather than letting it hang in the water. |
+| bubble life | e-folding time of the bubble field. Bubbles mostly leave by popping at the surface, so this can be long — the default is short, which pairs with the high buoyancy to keep the tank from silting up. |
 | aeration | foam injected per unit of churn by the paddle and barrels. |
 | vorticity | vorticity confinement — how much fine curl the solver puts back after numerical damping. It sharpens eddies that already exist rather than creating them, so turning it to zero makes the flow smoother, not still. |
 | water drag | velocity damping, the stand-in for viscosity. It slows a sinking barrel as well as the fluid: the barrel's underwater drag is its own form drag plus this, so at the top of the range a barrel almost hovers (terminal speed 0.75 → 0.09 world units/s). |
