@@ -47,6 +47,10 @@ export class Fluid3D {
     this.foam0 = foam0;
     this.light = light;
     this.vel0 = vel0;
+    this.prs0 = prs0;
+    this.divTex = div;
+    this.vel1 = vel1;
+    this.curlTex = curl;
     this.bytes = 11 * N * N * N * 8;
 
     const u = this.u = {
@@ -64,7 +68,11 @@ export class Fluid3D {
       paddleVelW: uniform(new THREE.Vector3()),  // world/s
       paddleAng: uniform(new THREE.Vector3()),
       paddleHalf: uniform(new THREE.Vector3(0.30, 0.05, 0.20)),
-      paddleRot: uniform(new THREE.Matrix3()),
+      // the paddle's world->local rotation, as three row vectors rather than a
+      // mat3 uniform. Equivalent, and it keeps the uniform block to vec3s.
+      paddleRotX: uniform(new THREE.Vector3(1, 0, 0)),
+      paddleRotY: uniform(new THREE.Vector3(0, 1, 0)),
+      paddleRotZ: uniform(new THREE.Vector3(0, 0, 1)),
       barrelCount: uniform(0),
       burstPos: uniform(new THREE.Vector3()),
       burstAmt: uniform(0),
@@ -97,6 +105,13 @@ export class Fluid3D {
       const z = id.div(uint(N * N));
       return uvec3(x, y, z);
     };
+    // lerp written out rather than a.mix(b, t): in this three.js build the
+    // method form binds the receiver as mix()'s THIRD argument, so a.mix(b, t)
+    // compiles to mix(b, t, a) — the sampled texel ends up as the interpolation
+    // weight. That silently turned every trilinear fetch into a wild
+    // extrapolation and blew the velocity field up to float16 infinity.
+    const lerp = (a, b, t) => a.add(b.sub(a).mul(t));
+
     const fetch = (tex, v) => texture3DLoad(tex, v, int(0));
     const fetchOff = (tex, v, ox, oy, oz) =>
       texture3DLoad(tex, ivec3(v).add(ivec3(ox, oy, oz)).clamp(ivec3(0), ivec3(N - 1)), int(0));
@@ -108,16 +123,20 @@ export class Fluid3D {
       const f = pc.fract();
       const c = (ox, oy, oz) =>
         texture3DLoad(tex, i0.add(ivec3(ox, oy, oz)).clamp(ivec3(0), ivec3(N - 1)), int(0));
-      const x00 = c(0, 0, 0).mix(c(1, 0, 0), f.x);
-      const x10 = c(0, 1, 0).mix(c(1, 1, 0), f.x);
-      const x01 = c(0, 0, 1).mix(c(1, 0, 1), f.x);
-      const x11 = c(0, 1, 1).mix(c(1, 1, 1), f.x);
-      return x00.mix(x10, f.y).mix(x01.mix(x11, f.y), f.z);
+      const x00 = lerp(c(0, 0, 0), c(1, 0, 0), f.x);
+      const x10 = lerp(c(0, 1, 0), c(1, 1, 0), f.x);
+      const x01 = lerp(c(0, 0, 1), c(1, 0, 1), f.x);
+      const x11 = lerp(c(0, 1, 1), c(1, 1, 1), f.x);
+      return lerp(lerp(x00, x10, f.y), lerp(x01, x11, f.y), f.z);
     };
     // nearest-voxel load: enough for the soft shadow march
     const samplePoint = (tex, p) =>
       texture3DLoad(tex, ivec3(p.clamp(vec3(0.5), vec3(N - 0.5))), int(0));
     const world = (v) => vec3(v).add(0.5).div(N).mul(2).sub(1);
+
+    // world -> paddle local, done as three dot products
+    const toPaddleLocal = (rel) => vec3(
+      u.paddleRotX.dot(rel), u.paddleRotY.dot(rel), u.paddleRotZ.dot(rel));
 
     const sdBox = (p, b) => {
       const d = p.abs().sub(b);
@@ -133,11 +152,11 @@ export class Fluid3D {
       const f = p.fract();
       const s = f.mul(f).mul(f.mul(-2).add(3));
       const c = (ox, oy, oz) => hash13(i.add(vec3(ox, oy, oz)));
-      const nx0 = c(0, 0, 0).mix(c(1, 0, 0), s.x);
-      const nx1 = c(0, 1, 0).mix(c(1, 1, 0), s.x);
-      const nx2 = c(0, 0, 1).mix(c(1, 0, 1), s.x);
-      const nx3 = c(0, 1, 1).mix(c(1, 1, 1), s.x);
-      return nx0.mix(nx1, s.y).mix(nx2.mix(nx3, s.y), s.z);
+      const nx0 = lerp(c(0, 0, 0), c(1, 0, 0), s.x);
+      const nx1 = lerp(c(0, 1, 0), c(1, 1, 0), s.x);
+      const nx2 = lerp(c(0, 0, 1), c(1, 0, 1), s.x);
+      const nx3 = lerp(c(0, 1, 1), c(1, 1, 1), s.x);
+      return lerp(lerp(nx0, nx1, s.y), lerp(nx2, nx3, s.y), s.z);
     };
 
     const K = (fn) => fn().compute(N * N * N);
@@ -165,7 +184,7 @@ export class Fluid3D {
       vel.y.addAssign(u.buoyancy.mul(foam.clamp(0, 2.5)).mul(lift).mul(u.dt));
 
       If(u.paddleOn.greaterThan(0.5), () => {
-        const d = sdBox(u.paddleRot.mul(wp.sub(u.paddlePos)), u.paddleHalf);
+        const d = sdBox(toPaddleLocal(wp.sub(u.paddlePos)), u.paddleHalf);
         const w = float(1).sub(smoothstep(0.0, 0.18, d));
         const target = u.paddleVel.add(u.paddleAng.cross(wp.sub(u.paddlePos)).mul(N * 0.5));
         vel.addAssign(target.sub(vel).mul(w.mul(u.dt.mul(16).min(1))));
@@ -335,7 +354,7 @@ export class Fluid3D {
         const rel = wp.sub(u.paddlePos);
         const speed = u.paddleVelW.add(u.paddleAng.cross(rel)).length().min(3);
         If(speed.greaterThan(0.02), () => {
-          const d = sdBox(u.paddleRot.mul(rel), u.paddleHalf);
+          const d = sdBox(toPaddleLocal(rel), u.paddleHalf);
           const w = float(1).sub(smoothstep(0.0, 0.14, d));
           const churn = noise3(wp.mul(14).add(vec3(0, u.time.mul(2.1), u.time.mul(1.3))))
             .mul(1.2).add(0.45);
@@ -414,7 +433,7 @@ export class Fluid3D {
       // median-normalised exactly as in the WebGL shader: averages ~1 with
       // ~10% bright filaments, so the knob redistributes rather than exposes
       const cv = cc.div(77).pow(1.15).clamp(0, 3).div(1.25);
-      tr.mulAssign(float(1).mix(cv, u.caustics.mul(below.mul(0.9).negate().exp())));
+      tr.mulAssign(lerp(float(1), cv, u.caustics.mul(below.mul(0.9).negate().exp())));
       textureStore(light, v, vec4(tr.max(0).min(8), 0, 0, 0));
     }));
 
@@ -452,7 +471,10 @@ export class Fluid3D {
       u.paddleVelW.value.copy(this.paddle.vel);
       u.paddleAng.value.copy(this.paddle.angVel);
       u.paddleHalf.value.copy(this.paddle.half);
-      u.paddleRot.value.copy(this.paddle.rot);
+      const e = this.paddle.rot.elements;
+      u.paddleRotX.value.set(e[0], e[3], e[6]);
+      u.paddleRotY.value.set(e[1], e[4], e[7]);
+      u.paddleRotZ.value.set(e[2], e[5], e[8]);
     } else {
       u.paddleOn.value = 0;
     }

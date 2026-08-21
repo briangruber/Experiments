@@ -47,6 +47,10 @@ export async function start() {
     dtCap: Math.min(Math.max(+(query.get('dtcap') || 0) || 1 / 30, 1 / 240), 0.15),
   };
 
+  // see src/gpu/fluid3d.js: a.mix(b, t) binds the receiver as mix()'s third
+  // argument in this three.js build, so the lerp is written out by hand
+  const lerp = (a, b, t) => a.add(b.sub(a).mul(t));
+
   const canvas = document.getElementById('gl');
   const boot = document.getElementById('boot');
   const sunDir = new THREE.Vector3(0.30, -1.0, -0.35).normalize();
@@ -97,6 +101,62 @@ export async function start() {
   const fluid = new Fluid3D(renderer, {
     N: Q.N, jacobi: Q.jacobi, lightDir: sunDir, surfaceY: SURFACE_Y,
   });
+
+  // ?diag=1: reduce the foam and velocity volumes to a peak each, read back
+  // occasionally and print them in the HUD. A solver that isn't running reads
+  // 0.000 / 0.000 while the tank still renders, which is otherwise impossible
+  // to tell apart from "nothing has aerated the water yet".
+  const wantProbe = query.get('diag') === '1';
+  const PROBE_LANES = 64;
+  let probeAttr = null, probeKernel = null, probeText = '—', probeBusy = false;
+  if (wantProbe) {
+    try {
+      probeAttr = new THREE.StorageBufferAttribute(PROBE_LANES, 4);
+      const probeBuf = THREE.TSL.storage(probeAttr, 'vec4', PROBE_LANES);
+      const NP = Q.N;
+      // each lane strides the volume so the whole grid is covered without atomics
+      probeKernel = Fn(() => {
+        const lane = instanceIndex;                 // one lane per z-slice
+        const mf = float(0).toVar();
+        const mv = float(0).toVar();
+        const mp = float(0).toVar();
+        const sv = float(0).toVar();                // a sum, so NaN survives
+        Loop({ start: int(0), end: int(NP * NP) }, ({ i }) => {
+          const c = THREE.TSL.ivec3(int(i).mod(int(NP)), int(i).div(int(NP)), int(lane));
+          const vv = THREE.TSL.texture3DLoad(fluid.vel0, c, int(0)).xyz;
+          mf.assign(mf.max(THREE.TSL.texture3DLoad(fluid.foamTexture, c, int(0)).x));
+          mv.assign(mv.max(vv.length()));
+          mp.assign(mp.max(THREE.TSL.texture3DLoad(fluid.prs0, c, int(0)).x.abs()));
+          sv.addAssign(vv.x);
+        });
+        probeBuf.element(lane).assign(vec4(mf, mv, mp, sv));
+      })().compute(PROBE_LANES);
+    } catch (e) {
+      probeText = 'probe unavailable';
+      probeKernel = null;
+    }
+  }
+  async function readProbe() {
+    if (!probeKernel || probeBusy) return;
+    probeBusy = true;
+    try {
+      renderer.compute(probeKernel);
+      const raw = await renderer.getArrayBufferAsync(probeAttr);
+      const f = new Float32Array(raw);
+      let mf = 0, mv = 0, mp = 0, nan = false;
+      for (let i = 0; i < PROBE_LANES; i++) {
+        mf = Math.max(mf, f[i * 4]);
+        mv = Math.max(mv, f[i * 4 + 1]);
+        mp = Math.max(mp, f[i * 4 + 2]);
+        if (!Number.isFinite(f[i * 4 + 3])) nan = true;
+      }
+      probeText = `${mf.toFixed(3)} / ${mv.toFixed(1)} / p${mp.toFixed(1)}`
+        + (nan ? '  !! NaN in velocity' : '');
+    } catch (e) {
+      probeText = 'probe failed';
+    }
+    probeBusy = false;
+  }
   fluid.clear();
 
   // --------------------------------------------------------------- camera --
@@ -238,11 +298,11 @@ export async function start() {
       const r = q.add(q.dot(q.zyx.add(31.32)));
       return r.x.add(r.y).mul(r.z).fract();
     };
-    const nx0 = h(0, 0, 0).mix(h(1, 0, 0), s.x);
-    const nx1 = h(0, 1, 0).mix(h(1, 1, 0), s.x);
-    const nx2 = h(0, 0, 1).mix(h(1, 0, 1), s.x);
-    const nx3 = h(0, 1, 1).mix(h(1, 1, 1), s.x);
-    return nx0.mix(nx1, s.y).mix(nx2.mix(nx3, s.y), s.z);
+    const nx0 = lerp(h(0, 0, 0), h(1, 0, 0), s.x);
+    const nx1 = lerp(h(0, 1, 0), h(1, 1, 0), s.x);
+    const nx2 = lerp(h(0, 0, 1), h(1, 0, 1), s.x);
+    const nx3 = lerp(h(0, 1, 1), h(1, 1, 1), s.x);
+    return lerp(lerp(nx0, nx1, s.y), lerp(nx2, nx3, s.y), s.z);
   };
 
   const raymarchMaterial = new THREE.MeshBasicNodeMaterial();
@@ -350,8 +410,8 @@ export async function start() {
         const raft = smoothstep(0.10, 1.0, foamAt(vec3(ps.x, uSurfaceY.sub(0.04), ps.z)));
         const mirror = smoothstep(0.85, 1.05, sinT2);
         t1.assign(tS);
-        surfaceL.assign(vec3(0.014, 0.038, 0.058).mix(vec3(0.055, 0.115, 0.155), mirror)
-          .add(vec3(0.30, 0.40, 0.48).mix(vec3(0.45, 0.56, 0.64), mirror).mul(raft)));
+        surfaceL.assign(lerp(vec3(0.014, 0.038, 0.058), vec3(0.055, 0.115, 0.155), mirror)
+          .add(lerp(vec3(0.30, 0.40, 0.48), vec3(0.45, 0.56, 0.64), mirror).mul(raft)));
       });
     });
 
@@ -381,7 +441,7 @@ export async function start() {
         const sigT = uWaterAbsorb.add(sigS).add(vec3(uFoamAbsorb).mul(foam));
         const h = float(1).sub(uSurfaceY.sub(p.y).max(0).div(1.5)).clamp(0, 1);
         const Li = uSunColor.mul(lt.mul(phase))
-          .add(uAmbientDeep.mix(uAmbientTop, h).mul(lt.pow(0.6).mul(0.88).add(0.12)));
+          .add(lerp(uAmbientDeep, uAmbientTop, h).mul(lt.pow(0.6).mul(0.88).add(0.12)));
 
         const aStep = sigT.mul(dt).negate().exp();
         L.addAssign(T.mul(sigS).mul(Li).mul(vec3(1).sub(aStep)).div(sigT.max(vec3(1e-4))));
@@ -667,6 +727,7 @@ export async function start() {
     statEls.parts.textContent = particleCount ? `${(particleCount / 1000).toFixed(1)} K` : '—';
     statEls.fps.textContent = fpsCounter.fps ? fpsCounter.fps.toFixed(1) : '—';
     statEls.vram.textContent = `${Math.round((fluid.bytes + W * H * 8 * 2) / (1 << 20))} MiB`;
+    if (wantProbe) { readProbe(); statEls.vram.textContent += `  ·  foam/vel ${probeText}`; }
     statEls.stir.textContent =
       (params.stir ? 'auto' : 'manual') + (params.paddleSpin ? ' + spin' : '');
   }

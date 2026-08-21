@@ -851,3 +851,31 @@ void main() {
            + fr * vec3(0.22, 0.45, 0.62) * (0.5 + 0.8 * uHover);
   gl_FragColor = vec4(col, 1.0);
 }`;
+
+// ?diag=1 liveness probe: reduce the foam and velocity volumes to a 16x16 grid
+// of local maxima, cheap enough to run every few frames and read back. A tank
+// that renders but never simulates reads exactly zero here, which is otherwise
+// indistinguishable from "nothing has aerated the water yet".
+export const PROBE_FRAG = /* glsl */ `
+precision highp float;
+uniform sampler2D uFoam;
+uniform sampler2D uVel;
+uniform sampler2D uPrs;
+uniform sampler2D uDiv;
+void main() {
+  vec2 cell = floor(gl_FragCoord.xy);
+  float mf = 0.0;
+  float mv = 0.0;
+  float mp = 0.0;
+  float md = 0.0;
+  for (int j = 0; j < 8; j++) {
+    for (int i = 0; i < 8; i++) {
+      vec2 uv = (cell + vec2(float(i), float(j)) * 0.125) * 0.0625;
+      mf = max(mf, texture2D(uFoam, uv).x);
+      mv = max(mv, length(texture2D(uVel, uv).xyz));
+      mp = max(mp, abs(texture2D(uPrs, uv).x));
+      md = max(md, abs(texture2D(uDiv, uv).x));
+    }
+  }
+  gl_FragColor = vec4(mf, mv, mp, md);
+}`;

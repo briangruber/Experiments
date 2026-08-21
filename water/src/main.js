@@ -12,7 +12,7 @@ import { initChrome } from './chrome.js';
 import { buildPhysicsPanel, armBurst } from './panel.js';
 import {
   FS_TRI_VERT, RAYMARCH_VERT, RAYMARCH_FRAG, COMPOSITE_FRAG,
-  BRIGHT_FRAG, BLUR_FRAG, POST_FRAG, PADDLE_VERT, PADDLE_FRAG,
+  BRIGHT_FRAG, BLUR_FRAG, POST_FRAG, PADDLE_VERT, PADDLE_FRAG, PROBE_FRAG,
 } from './shaders.js';
 
 const QUALITY = {
@@ -26,6 +26,8 @@ const query = new URLSearchParams(location.search);
 // ?view=foam: raw foam density, no lighting and no particles — isolates what
 // the solver produced from how it is shaded
 const debugFoam = query.get('view') === 'foam';
+// ?diag=1: peak foam / peak speed, read back from the GPU into the HUD
+const wantProbe = query.get('diag') === '1';
 const qName = QUALITY[query.get('q')] ? query.get('q') : 'high';
 const Q = QUALITY[qName];
 
@@ -188,6 +190,41 @@ function fsPass(material, target) {
   fsMesh.material = material;
   renderer.setRenderTarget(target);
   renderer.render(fsScene, fsCamera);
+}
+
+// ?diag=1 liveness probe (see PROBE_FRAG): a 16x16 reduction of the foam and
+// velocity volumes, read back every few frames. Costs nothing when off.
+let probeRT = null, mProbe = null, probePixels = null, probeText = '—';
+if (wantProbe) {
+  probeRT = new THREE.WebGLRenderTarget(16, 16, {
+    type: THREE.FloatType, depthBuffer: false, stencilBuffer: false,
+    minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
+  });
+  mProbe = new THREE.ShaderMaterial({
+    vertexShader: FS_TRI_VERT, fragmentShader: PROBE_FRAG,
+    depthTest: false, depthWrite: false,
+    uniforms: { uFoam: { value: null }, uVel: { value: null },
+      uPrs: { value: null }, uDiv: { value: null } },
+  });
+  probePixels = new Float32Array(16 * 16 * 4);
+}
+function readProbe() {
+  if (!mProbe) return;
+  mProbe.uniforms.uFoam.value = fluid.foamTexture;
+  mProbe.uniforms.uVel.value = fluid.vel[0].texture;
+  mProbe.uniforms.uPrs.value = fluid.prs[0].texture;
+  mProbe.uniforms.uDiv.value = fluid.div.texture;
+  fsPass(mProbe, probeRT);
+  renderer.readRenderTargetPixels(probeRT, 0, 0, 16, 16, probePixels);
+  let mf = 0, mv = 0, mp = 0, md = 0;
+  for (let i = 0; i < 16 * 16; i++) {
+    mf = Math.max(mf, probePixels[i * 4]);
+    mv = Math.max(mv, probePixels[i * 4 + 1]);
+    mp = Math.max(mp, probePixels[i * 4 + 2]);
+    md = Math.max(md, probePixels[i * 4 + 3]);
+  }
+  probeText = `${mf.toFixed(3)} / ${mv.toFixed(1)} / p${mp.toFixed(1)} / d${md.toFixed(1)}`;
+  renderer.setRenderTarget(null);
 }
 
 const volUniforms = {
@@ -541,6 +578,7 @@ function updateHud() {
   statEls.parts.textContent = `${(particles.count / 1000).toFixed(1)} K`;
   statEls.fps.textContent = fpsCounter.fps ? fpsCounter.fps.toFixed(1) : '—';
   statEls.vram.textContent = `${vramMiB} MiB`;
+  if (wantProbe) { readProbe(); statEls.vram.textContent += `  ·  foam/vel ${probeText}`; }
   statEls.stir.textContent = paddleHidden
     ? 'paddle off'
     : (params.stir ? 'auto' : 'manual') + (params.paddleSpin ? ' + spin' : '');
