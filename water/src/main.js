@@ -185,7 +185,12 @@ const barrelGeo = barrelGeometry(THREE);
 const barrelMat = new THREE.ShaderMaterial({
   vertexShader: BARREL_VERT,
   fragmentShader: BARREL_FRAG,
-  uniforms: { uSunDir: { value: sunDir }, uMap: { value: barrelTexture(THREE) } },
+  uniforms: {
+    uSunDir: { value: sunDir },
+    uMap: { value: barrelTexture(THREE) },
+    uFade: { value: 0 },                       // barrels never dissolve
+    uFogColor: { value: new THREE.Vector3() },
+  },
 });
 // A pool, so every click drops another barrel and several can be in flight.
 const MAX_BARRELS = 6;
@@ -223,7 +228,12 @@ const diverScale = 0.30;
 const diver = new THREE.Mesh(diverGeometry(THREE), new THREE.ShaderMaterial({
   vertexShader: BARREL_VERT,
   fragmentShader: BARREL_FRAG,
-  uniforms: { uSunDir: { value: sunDir }, uMap: { value: diverTexture(THREE) } },
+  uniforms: {
+    uSunDir: { value: sunDir },
+    uMap: { value: diverTexture(THREE) },
+    uFade: { value: 1 },
+    uFogColor: { value: new THREE.Vector3() },
+  },
 }));
 diver.scale.setScalar(diverScale);
 opaqueScene.add(diver);
@@ -996,6 +1006,11 @@ function frame() {
     updatePaddle(dt, t);
     updateBarrels(dt, t);
     visitor.update(dt, tankHalf);
+    // The water it is dissolving into is the ambient at its own depth, so the
+    // fade lands on the colour that would be there if it were not.
+    diver.material.uniforms.uFade.value = visitor.state.fade;
+    diver.material.uniforms.uFogColor.value.copy(mRaymarch.uniforms.uAmbientDeep.value)
+      .lerp(mRaymarch.uniforms.uAmbientTop.value, 0.5).multiplyScalar(2.2);
     // Phases are HELD for a duration rather than fired one per frame. An
     // implosion two entries long lasted 33ms at 60fps, so all anyone ever saw
     // was the pop. Each frame takes its dt share of the phase, which keeps the

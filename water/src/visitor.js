@@ -23,7 +23,7 @@ export function createVisitor(THREE, mesh, tankHalf) {
     t: 0,                       // 0..1 across the tank, or -1 when away
     next: IDLE_MIN + Math.random() * (IDLE_MAX - IDLE_MIN),
     // each visit picks its own lane and direction, so it is never the same
-    lane: 0, depth: 0, dir: 1, phase: 0,
+    lane: 0, depth: 0, dir: 1, phase: 0, fade: 1,
   };
   mesh.visible = false;
 
@@ -59,7 +59,11 @@ export function createVisitor(THREE, mesh, tankHalf) {
     // rather than as something glimpsed.
     const u = state.t;
     const s = Math.sin(Math.PI * u);            // 0 at both ends, 1 at the apex
-    const z = (-1.55 + 1.25 * s) * h;
+    // Stays INSIDE the tank. Starting outside it was the whole reason it
+    // seemed to blink into existence: beyond the glass there is no water in
+    // front of it to fog it and nothing behind it but black, so it arrived as
+    // a crisp lit object on an empty background.
+    const z = (-0.95 + 0.85 * s) * h;
     const drift = (u - 0.5) * 0.8 * h * state.dir;
     const sway = Math.sin(u * 9.0 + state.phase);
     const x = state.lane + drift + sway * 0.13 * h;
@@ -68,13 +72,17 @@ export function createVisitor(THREE, mesh, tankHalf) {
 
     // Heading from the path's own tangent, so the turn at the apex comes out
     // as an arc rather than a snap. The tail beat is added on top of it.
-    const dz = 1.25 * Math.PI * Math.cos(Math.PI * u);
+    const dz = 0.85 * Math.PI * Math.cos(Math.PI * u);
     const dx = 0.8 * state.dir + Math.cos(u * 9.0 + state.phase) * 9.0 * 0.13;
     const beat = Math.cos(u * 9.0 + state.phase);
     mesh.rotation.set(
       Math.sin(u * 5.5 + state.phase) * 0.09,
       Math.atan2(dx, dz) + beat * 0.16,
       -beat * 0.14);
+    // Dissolve in and out. The volume does most of the work — it is deepest
+    // in the water at both ends — but the last of it has to be faded or the
+    // mesh still switches off mid-swim.
+    state.fade = 1 - Math.min(1, Math.min(u, 1 - u) / 0.22);
     mesh.updateMatrixWorld();
   }
 

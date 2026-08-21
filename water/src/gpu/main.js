@@ -310,6 +310,11 @@ export async function start() {
   // The visitor: same shading as the barrel, in the opaque pass so the volume
   // fogs it — it has to arrive already half dissolved.
   const diverScale = 0.30;
+  // 0 = the fish itself, 1 = gone into the water. It fades toward the FOG
+  // COLOUR rather than toward alpha because it is drawn in the opaque pass —
+  // see the WebGL shader.
+  const diverFade = uniform(1);
+  const diverFog = uniform(new THREE.Vector3());
   const diverMat = (() => {
     const m = new THREE.MeshBasicNodeMaterial();
     const map = texture(diverTexture(THREE), uv());
@@ -318,10 +323,9 @@ export async function start() {
       const v = cameraPosition.sub(positionWorld).normalize();
       const fr = float(1).sub(n.dot(v).abs()).pow(3);
       const diff = n.dot(uniform(sunDir).negate()).max(0);
-      return vec4(
-        map.rgb.mul(float(0.22).add(diff.mul(0.85))).mul(vec3(0.92, 0.94, 1.0))
-          .add(fr.mul(vec3(0.14, 0.28, 0.40))),
-        1);
+      const lit = map.rgb.mul(float(0.22).add(diff.mul(0.85))).mul(vec3(0.92, 0.94, 1.0))
+        .add(fr.mul(vec3(0.14, 0.28, 0.40)));
+      return vec4(lerp(lit, diverFog, diverFade.clamp(0, 1)), 1);
     })();
     return m;
   })();
@@ -1380,6 +1384,9 @@ export async function start() {
       updatePaddle(dt, t);
       updateBarrels(dt, t);
       visitor.update(dt, tankHalf);
+      // the water it is dissolving into is the ambient at its own depth
+      diverFade.value = visitor.state.fade;
+      diverFog.value.copy(uAmbientDeep.value).lerp(uAmbientTop.value, 0.5).multiplyScalar(2.2);
       // Phases are HELD for a duration rather than fired one per frame. An
       // implosion two entries long lasted 33ms at 60fps, so all anyone ever saw
       // was the pop. Each frame takes its dt share of the phase, which keeps

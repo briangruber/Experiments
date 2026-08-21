@@ -1116,6 +1116,12 @@ varying vec3 vWp;
 varying vec2 vUv;
 uniform vec3 uSunDir;
 uniform sampler2D uMap;
+// 0 = the object itself, 1 = gone into the water. Fading toward the FOG COLOUR
+// rather than toward black or toward alpha: this is drawn in the opaque pass,
+// so a mesh faded to black leaves a dark patch where the water behind it
+// should be, and alpha would need it out of the depth buffer entirely.
+uniform float uFade;
+uniform vec3 uFogColor;
 void main() {
   vec3 n = normalize(vN);
   vec3 v = normalize(cameraPosition - vWp);
@@ -1128,5 +1134,6 @@ void main() {
   // a colourless white blob in the plume.
   vec3 col = base * (0.22 + 0.85 * diff) * vec3(0.92, 0.94, 1.0)
            + fr * vec3(0.14, 0.28, 0.40);
+  col = mix(col, uFogColor, clamp(uFade, 0.0, 1.0));
   gl_FragColor = vec4(col, 1.0);
 }`;
