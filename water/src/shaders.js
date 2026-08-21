@@ -564,8 +564,8 @@ vec2 boxT(vec3 ro, vec3 rd) {
 }
 
 // Surface displacement: a permanent low chop plus decaying rings from each
-// impact (barrel entry, bursts). Only the normal is used, so amplitude just
-// has to look right rather than displace the medium boundary.
+// impact (barrel entry, bursts). Both the normal AND the boundary itself come
+// from this, so the amplitude is a real height in world units.
 float waveH(vec2 xz) {
   float h = 0.010 * sin(xz.x * 5.1 + uTime * 1.3) * sin(xz.y * 4.3 - uTime * 0.9);
   h += 0.006 * sin((xz.x + xz.y) * 8.3 - uTime * 2.1);
@@ -584,6 +584,36 @@ float waveH(vec2 xz) {
          * exp(-age * 0.55) / (1.0 + d * 1.5);
   }
   return h;
+}
+
+// Where the ray meets the DISPLACED surface, rather than its mean plane. A
+// flat plane seen near edge-on is a perfectly straight line, which is what made
+// the waterline read as a sheet of glass laid across the tank. March the band
+// the waves can reach and take the first crossing: a fixed-point solve diverges
+// at exactly the grazing angles that matter most here, where near crests stand
+// in front of far troughs and the waterline gets its ragged silhouette.
+float surfaceT(vec3 ro, vec3 rd, float t0, float t1, float flatT) {
+  const float A = 0.14;   // bound on |waveH| across the chop and ripple ranges
+  float ia = (uSurfaceY + A - ro.y) / rd.y;
+  float ib = (uSurfaceY - A - ro.y) / rd.y;
+  float ta = max(min(ia, ib), t0);
+  float tb = min(max(ia, ib), t1);
+  if (tb <= ta) return flatT;
+  float dt = (tb - ta) / 20.0;
+  float tp = ta;
+  vec3 q = ro + rd * ta;
+  float fp = q.y - uSurfaceY - waveH(q.xz);
+  for (int i = 1; i <= 20; i++) {
+    float t = ta + dt * float(i);
+    q = ro + rd * t;
+    float f = q.y - uSurfaceY - waveH(q.xz);
+    if (f * fp <= 0.0) {
+      float dn = fp - f;
+      return tp + (t - tp) * (abs(dn) > 1e-8 ? clamp(fp / dn, 0.0, 1.0) : 0.0);
+    }
+    tp = t; fp = f;
+  }
+  return flatT;
 }
 
 vec3 waveNormal(vec2 xz) {
@@ -618,8 +648,9 @@ void main() {
   // the view ray actually crosses the waterline, shade it: sun glint off the
   // ripples, a Fresnel rim, and any foam raft floating there.
   vec3 surfaceL = vec3(0.0);
+  float surfMirror = 0.0;     // >0 when the march is drawing a reflection
   if (abs(rd.y) > 1e-5) {
-    float tS = (uSurfaceY - ro.y) / rd.y;
+    float tS = surfaceT(ro, rd, t0, t1, (uSurfaceY - ro.y) / rd.y);
     if (ro.y > uSurfaceY) {
       if (rd.y >= 0.0 || tS >= t1) {
         t1 = t0;                       // ray stays in the air above the water
@@ -651,19 +682,40 @@ void main() {
         }
       }
     } else if (rd.y > 0.0 && tS > t0 && tS < t1) {
-      // looking up from below: water ends at the underside. Past the critical
-      // angle the surface turns into a mirror, which is why a tank's ceiling
-      // reads as bright silver with the foam raft printed on it.
-      t1 = tS;
+      // Looking up from below. Inside Snell's window the surface is a window
+      // onto a dark room; outside it the surface is a MIRROR — and a mirror of
+      // the tank itself, so the ceiling should carry the plumes and the floor
+      // upside down. A flat grey card stood in for that, and at a near-level
+      // view like this the ceiling is most of what you see.
       vec3 ps = ro + rd * tS;
       vec3 nrm = waveNormal(ps.xz);
       float cosI = max(dot(rd, nrm), 0.0);
       float sinT2 = 1.333 * 1.333 * (1.0 - cosI * cosI);
       float raft = smoothstep(0.10, 1.0, sampleVol(uFoamTex,
         (vec3(ps.x, uSurfaceY - 0.04, ps.z) * 0.5 + 0.5) * uNf).x);
-      float mirror = smoothstep(0.85, 1.05, sinT2);
-      surfaceL = mix(vec3(0.014, 0.038, 0.058), vec3(0.055, 0.115, 0.155), mirror)
+      float mirror = smoothstep(0.80, 1.02, sinT2);
+      // through the window: a dark room, plus the sun's disc wobbling with the
+      // chop — the thing the eye actually reads the surface by from underneath
+      vec3 through = vec3(0.014, 0.038, 0.058);
+      vec3 rt = refract(rd, -nrm, 1.333);
+      if (dot(rt, rt) > 0.0) {
+        through += uSunColor
+                 * pow(max(dot(normalize(rt), -uSunDir), 0.0), 600.0) * 2.2;
+      }
+      surfaceL = through * (1.0 - mirror)
                + raft * mix(vec3(0.30, 0.40, 0.48), vec3(0.45, 0.56, 0.64), mirror);
+      if (mirror > 0.002) {
+        // fold the ray back down and let the same march that draws the water
+        // draw its reflection, so the ceiling costs nothing extra to shade
+        surfMirror = mirror;
+        ro = ps;
+        rd = reflect(rd, nrm);
+        vec2 nb = boxT(ro + rd * 1e-3, rd);
+        t0 = max(nb.x, 0.0) + 1e-3;
+        t1 = nb.y;
+      } else {
+        t1 = tS;
+      }
     }
   } else if (ro.y > uSurfaceY) {
     t1 = t0;
@@ -717,8 +769,19 @@ void main() {
     outTrans = vec4(0.0, 0.0, 0.0, 1.0);
     return;
   }
-  outLight = vec4(L + surfaceL, 1.0);
-  outTrans = vec4(T, 1.0);
+  if (surfMirror > 0.0) {
+    // A reflected ray leaves through a wall of the tank, not out into the room,
+    // so whatever transmittance it has left lands on the tank's own dim
+    // interior. Letting the real background through there is what turned the
+    // ceiling into torn black patches wherever the reflection ran clear.
+    L += T * mix(uAmbientDeep, uAmbientTop, 0.35) * 1.6;
+    // only the part of the surface still inside Snell's window is a window
+    outLight = vec4(L * surfMirror + surfaceL, 1.0);
+    outTrans = vec4(vec3(1.0 - surfMirror), 1.0);
+  } else {
+    outLight = vec4(L + surfaceL, 1.0);
+    outTrans = vec4(T, 1.0);
+  }
 }`;
 
 // ------------------------------------------------------------- composite ---

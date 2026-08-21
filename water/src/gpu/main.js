@@ -411,6 +411,39 @@ export async function start() {
     });
     return h.mul(uChop);
   };
+  // Where the ray meets the DISPLACED surface, not its mean plane — see the
+  // WebGL shader for why a fixed-point solve will not do here.
+  const surfaceT = (ro, rd, t0, t1, flatT) => {
+    const A = float(0.14);   // bound on |waveH| across the chop and ripple ranges
+    const ia = uSurfaceY.add(A).sub(ro.y).div(rd.y);
+    const ib = uSurfaceY.sub(A).sub(ro.y).div(rd.y);
+    const ta = ia.min(ib).max(t0).toVar();
+    const tb = ia.max(ib).min(t1).toVar();
+    const out = flatT.toVar();
+    If(tb.greaterThan(ta), () => {
+      const dt = tb.sub(ta).div(20);
+      const tp = ta.toVar();
+      const qa = ro.add(rd.mul(ta));
+      const fp = qa.y.sub(uSurfaceY).sub(waveH(vec2(qa.x, qa.z))).toVar();
+      const hit = float(0).toVar();
+      Loop({ start: 1, end: 21 }, ({ i }) => {
+        const t = ta.add(dt.mul(float(i)));
+        const q = ro.add(rd.mul(t));
+        const f = q.y.sub(uSurfaceY).sub(waveH(vec2(q.x, q.z)));
+        If(f.mul(fp).lessThanEqual(0).and(hit.equal(0)), () => {
+          const dn = fp.sub(f);
+          out.assign(tp.add(t.sub(tp).mul(fp.div(dn.abs().max(1e-8).mul(dn.sign()))
+            .clamp(0, 1))));
+          hit.assign(1);
+          Break();
+        });
+        tp.assign(t);
+        fp.assign(f);
+      });
+    });
+    return out;
+  };
+
   const waveNormal = (xz) => {
     const e = 0.005;
     const hx = waveH(xz.add(vec2(e, 0))).sub(waveH(xz.sub(vec2(e, 0))));
@@ -450,8 +483,9 @@ export async function start() {
 
     // --- free surface -------------------------------------------------------
     const surfaceL = vec3(0).toVar();
+    const surfMirror = float(0).toVar();   // >0 when the march draws a reflection
     If(rd.y.abs().greaterThan(1e-5), () => {
-      const tS = uSurfaceY.sub(ro.y).div(rd.y);
+      const tS = surfaceT(ro, rd, t0, t1, uSurfaceY.sub(ro.y).div(rd.y));
       If(ro.y.greaterThan(uSurfaceY), () => {
         If(rd.y.greaterThanEqual(0).or(tS.greaterThanEqual(t1)), () => {
           t1.assign(t0);                       // stays in the air above the water
@@ -479,16 +513,34 @@ export async function start() {
           }).Else(() => { t1.assign(t0); });
         });
       }).ElseIf(rd.y.greaterThan(0).and(tS.greaterThan(t0)).and(tS.lessThan(t1)), () => {
-        // from below: past the critical angle the underside is a mirror
+        // Looking up from below. Inside Snell's window the surface is a window
+        // onto a dark room; outside it, it is a mirror of the tank itself, so
+        // the ceiling carries the plumes and the floor upside down.
         const ps = ro.add(rd.mul(tS));
         const nrm = waveNormal(vec2(ps.x, ps.z));
         const cosI = rd.dot(nrm).max(0);
         const sinT2 = float(1.333 * 1.333).mul(float(1).sub(cosI.mul(cosI)));
         const raft = smoothstep(0.10, 1.0, foamAt(vec3(ps.x, uSurfaceY.sub(0.04), ps.z)));
-        const mirror = smoothstep(0.85, 1.05, sinT2);
-        t1.assign(tS);
-        surfaceL.assign(lerp(vec3(0.014, 0.038, 0.058), vec3(0.055, 0.115, 0.155), mirror)
+        const mirror = smoothstep(0.80, 1.02, sinT2);
+        // through the window: a dark room, plus the sun's disc wobbling with
+        // the chop — what the eye actually reads the surface by from below
+        const through = vec3(0.014, 0.038, 0.058).toVar();
+        const rt = THREE.TSL.refract(rd, nrm.negate(), float(1.333));
+        If(rt.dot(rt).greaterThan(0), () => {
+          through.addAssign(uSunColor
+            .mul(rt.normalize().dot(uSun.negate()).max(0).pow(600)).mul(2.2));
+        });
+        surfaceL.assign(through.mul(float(1).sub(mirror))
           .add(lerp(vec3(0.30, 0.40, 0.48), vec3(0.45, 0.56, 0.64), mirror).mul(raft)));
+        If(mirror.greaterThan(0.002), () => {
+          // fold the ray back down and let the same march draw the reflection
+          surfMirror.assign(mirror);
+          ro.assign(ps);
+          rd.assign(THREE.TSL.reflect(rd, nrm));
+          const nb = boxT(ro.add(rd.mul(1e-3)), rd);
+          t0.assign(nb.x.max(0).add(1e-3));
+          t1.assign(nb.y);
+        }).Else(() => { t1.assign(tS); });
       });
     });
 
@@ -533,6 +585,15 @@ export async function start() {
     // ?view=foam bypasses lighting entirely: black means the sim produced no
     // foam; a visible plume means the problem is downstream in the shading
     const alpha = T.x.add(T.y).add(T.z).div(3).toVar();
+    If(surfMirror.greaterThan(0), () => {
+      // A reflected ray leaves through a wall of the tank, not into the room,
+      // so its remaining transmittance lands on the tank's own dim interior.
+      // Letting the real background through there tore the ceiling into black
+      // patches wherever the reflection ran clear.
+      L.addAssign(T.mul(lerp(uAmbientDeep, uAmbientTop, float(0.35))).mul(1.6));
+      L.assign(L.mul(surfMirror));
+      alpha.assign(float(1).sub(surfMirror));
+    });
     If(uDebugFoam.greaterThan(0.5), () => {
       L.assign(vec3(peakFoam.mul(0.8)));
       surfaceL.assign(vec3(0));
