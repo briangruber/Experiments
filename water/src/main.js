@@ -31,7 +31,11 @@ const query = new URLSearchParams(location.search);
 const debugFoam = query.get('view') === 'foam';
 // ?diag=1: peak foam / peak speed, read back from the GPU into the HUD
 const wantProbe = query.get('diag') === '1';
-const qName = QUALITY[query.get('q')] ? query.get('q') : 'high';
+// A phone rendering 128³ is spending its whole frame on the solver; start
+// it one preset down unless ?q= says otherwise.
+const smallScreen = matchMedia('(max-width: 760px), (pointer: coarse)').matches;
+const qName = QUALITY[query.get('q')] ? query.get('q')
+  : (smallScreen ? 'med' : 'high');
 // ?n= and ?p= override the preset's grid and particle count independently, so
 // the two halves of "quality" can be traded off against each other
 const Q = { ...QUALITY[qName] };
@@ -98,15 +102,29 @@ const particles = new Particles(renderer, fluid, Q.ptex);
 
 const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 50);
 const orbit = { az: 0.5, el: 0.30, dist: 3.4 };
+let userZoomed = false;   // once true, resizing stops re-framing the tank
+// Distance that fits the tank in BOTH axes. A portrait phone has a much
+// narrower horizontal field than a desktop window at the same vertical
+// fov, so without this the tank is cropped off the sides.
+function fitDistance() {
+  // the silhouette's radius, not the full 3D diagonal: clipping the far
+  // corners slightly is much better than a frame mostly full of void
+  const r = 1.34 * tankHalf;
+  const vfov = camera.fov * Math.PI / 180;
+  const hfov = 2 * Math.atan(Math.tan(vfov / 2) * camera.aspect);
+  return r / Math.sin(Math.min(vfov, hfov) / 2);
+}
 function updateCamera() {
   orbit.el = Math.max(-0.55, Math.min(1.25, orbit.el));
-  orbit.dist = Math.max(1.7, Math.min(8, orbit.dist));
+  orbit.dist = Math.max(1.7, Math.min(12, orbit.dist));
   const ce = Math.cos(orbit.el);
   camera.position.set(
     Math.sin(orbit.az) * ce * orbit.dist,
     Math.sin(orbit.el) * orbit.dist,
     Math.cos(orbit.az) * ce * orbit.dist);
-  camera.lookAt(0, 0, 0);
+  // on a phone the bottom of the screen is the control sheet, so aim low and
+  // let the tank ride up into the part that is actually visible
+  camera.lookAt(0, smallScreen ? -0.42 * tankHalf : 0, 0);
   camera.updateMatrixWorld();
 }
 updateCamera();
@@ -318,6 +336,7 @@ function resize() {
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+  if (!userZoomed) { orbit.dist = fitDistance(); updateCamera(); }
   opaqueRT.setSize(w, h);
   const vw = Math.floor(w * Q.scale), vh = Math.floor(h * Q.scale);
   volRT.setSize(vw, vh);
@@ -397,7 +416,7 @@ canvas.addEventListener('pointermove', (e) => {
     if (pointers.size >= 2) {
       const [p1, p2] = [...pointers.values()];
       const d = Math.hypot(p1.x - p2.x, p1.y - p2.y);
-      if (drag.pinch > 0) orbit.dist *= drag.pinch / d;
+      if (drag.pinch > 0) { orbit.dist *= drag.pinch / d; userZoomed = true; }
       drag.pinch = d;
       updateCamera();
     }
@@ -453,6 +472,7 @@ canvas.addEventListener('pointercancel', (e) => endPointer(e, true));
 canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
   orbit.dist *= Math.exp(e.deltaY * 0.0012);
+  userZoomed = true;
   updateCamera();
 }, { passive: false });
 
@@ -789,12 +809,17 @@ function updateBarrels(dt, t) {
     const p = b.mesh.position;
     const wasAbove = p.y > SURFACE_Y;
 
-    // falls freely through the air gap, then meets real drag in the water
-    b.vel.y -= (wasAbove ? 6.0 : 1.8) * dt;
-    b.vel.multiplyScalar(Math.exp(-dt * (wasAbove ? 0.15 : 2.3)));
+  // Falls freely through the air gap, then meets real drag in the water.
+  // Underwater drag is the barrel's own form drag plus the tank's
+  // viscosity, so the `water drag` knob slows the barrel as well as the
+  // fluid. Gravity is cut to about a third below the waterline, which is
+  // the stand-in for the buoyancy of the water it displaces.
+  const kDrag = wasAbove ? 0.15 : 2.3 + fluid.physics.drag * 1.5;
+  b.vel.y -= (wasAbove ? 6.0 : 1.8) * dt;
+  b.vel.multiplyScalar(Math.exp(-dt * kDrag));
     p.addScaledVector(b.vel, dt);
-    p.x = Math.max(-0.8, Math.min(0.8, p.x));
-    p.z = Math.max(-0.8, Math.min(0.8, p.z));
+    p.x = Math.max(-0.8 * tankHalf, Math.min(0.8 * tankHalf, p.x));
+    p.z = Math.max(-0.8 * tankHalf, Math.min(0.8 * tankHalf, p.z));
     b.mesh.rotation.x += b.spin.x * dt;
     b.mesh.rotation.y += b.spin.y * dt;
     b.mesh.rotation.z += b.spin.z * dt;
@@ -811,7 +836,7 @@ function updateBarrels(dt, t) {
       addRipple(p.x, p.z, 1.0);
     }
 
-    if (p.y < -0.5 || b.age > 2.2) {
+    if (p.y < -0.5 * tankHalf || b.age > 2.2) {
       // implode, then blow: a suck inward, then a radial+upward blast with a
       // huge foam release that buoyancy turns into the erupting column
       b.active = false;

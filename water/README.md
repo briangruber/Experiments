@@ -58,7 +58,7 @@ the water behaves; all of them are live and take effect on the next step:
 | bubble life | e-folding time of the bubble field. Bubbles mostly leave by popping at the surface, so this can be long. |
 | aeration | foam injected per unit of churn by the paddle and barrels. |
 | vorticity | vorticity confinement — how much fine curl the solver puts back after numerical damping. It sharpens eddies that already exist rather than creating them, so turning it to zero makes the flow smoother, not still. |
-| water drag | velocity damping, the stand-in for viscosity. |
+| water drag | velocity damping, the stand-in for viscosity. It slows a sinking barrel as well as the fluid: the barrel's underwater drag is its own form drag plus this, so at the top of the range a barrel almost hovers (terminal speed 0.75 → 0.09 world units/s). |
 | caustics | strength of the light filaments. The field is median-normalised, so this redistributes light rather than adding exposure. |
 | blast power | scales an explosion's impulse, foam and ring as it is armed, so the slider reaches explosions already queued. |
 | vortex ring | circulation the blast seeds. A radial impulse alone just spreads and dies; the ring is what rolls the cap into a mushroom. |
@@ -187,6 +187,15 @@ switching backends reloads the page, which empties it.
   reflection with the foam raft printed on it. Impacts (barrel entry,
   detonation, bursts) push expanding rings into a small ripple buffer the
   surface normal reads from.
+- **Barrels** — a barrel falls under gravity with almost no drag through the
+  air gap, then at the waterline gravity is cut to about a third (standing in
+  for the buoyancy of the water it displaces) and drag jumps by an order of
+  magnitude. The coupling to the fluid is one-way: the barrel is uploaded to
+  the solver as a sphere and drives momentum through the rigid-body term, but
+  the flow does not push back on it — a barrel dropped into a rising plume
+  falls exactly like one dropped into still water. What the flow *does* affect
+  it through is the `water drag` knob, which is added to the barrel's own form
+  drag.
 - **Underwater explosions** — a barrel detonates as an implosion followed by a
   blast, and the blast seeds a torus of poloidal circulation (up through the
   middle, out over the top, down the outside) that widens as it rises. Without
@@ -218,6 +227,25 @@ switching backends reloads the page, which empties it.
   GPU bubble particles (positions advected by the velocity field in a
   ping-pong float texture) sparkle on the shell of the plumes. Composite,
   two-level bloom, ACES tonemap, vignette and grain finish the frame.
+
+## On a phone
+
+The desktop layout is a right-hand column of controls with the statistics in
+the top-right corner, which on a narrow screen lands one on top of the other.
+Under 760px the controls become a bottom sheet across the full width, two
+buttons to a row, which frees the corner for the statistics and leaves the top
+of the screen for the tank. The keyboard hints go away, touch targets grow, and
+`hide ui` collapses the sheet to a single corner button when you want the whole
+screen.
+
+Two other things change on a small or touch screen. The default grid drops one
+preset (a phone spends its entire frame budget solving 128³), and the camera
+distance is chosen to fit the tank in *both* axes rather than just vertically —
+a portrait viewport has a far narrower horizontal field than a desktop window
+at the same vertical fov, so without that the tank is cropped off the sides.
+The camera also aims a little below centre so the tank rides up into the part
+of the screen the control sheet isn't covering. Any of this is overridden the
+moment you pinch to zoom.
 
 ## Tools
 
