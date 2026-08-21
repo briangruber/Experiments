@@ -17,7 +17,11 @@ const {
   normalWorld, positionWorld, cameraPosition,
 } = THREE.TSL;
 import { Fluid3D } from './fluid3d.js';
-import { barrelGeometry, barrelTexture, BARREL_HALF } from '../barrel.js';
+import {
+  barrelGeometry, barrelTexture, BARREL_HALF,
+  diverGeometry, diverTexture, DIVER_HALF,
+} from '../model.js';
+import { createVisitor } from '../visitor.js';
 import { initChrome } from '../chrome.js';
 import {
   buildPhysicsPanel, buildScenePanel, buildCodePanel, buildEmitterPanel, armBurst,
@@ -301,6 +305,29 @@ export async function start() {
     b.desc = { pos: mesh.position, vel: b.vel, radius: barrelHalf.length() * 0.62 };
     return b;
   });
+
+  // The visitor: same shading as the barrel, in the opaque pass so the volume
+  // fogs it — it has to arrive already half dissolved.
+  const diverScale = 0.30;
+  const diverMat = (() => {
+    const m = new THREE.MeshBasicNodeMaterial();
+    const map = texture(diverTexture(THREE), uv());
+    m.colorNode = Fn(() => {
+      const n = normalWorld.normalize();
+      const v = cameraPosition.sub(positionWorld).normalize();
+      const fr = float(1).sub(n.dot(v).abs()).pow(3);
+      const diff = n.dot(uniform(sunDir).negate()).max(0);
+      return vec4(
+        map.rgb.mul(float(0.22).add(diff.mul(0.85))).mul(vec3(0.92, 0.94, 1.0))
+          .add(fr.mul(vec3(0.14, 0.28, 0.40))),
+        1);
+    })();
+    return m;
+  })();
+  const diver = new THREE.Mesh(diverGeometry(THREE), diverMat);
+  diver.scale.setScalar(diverScale);
+  opaqueScene.add(diver);
+  const visitor = createVisitor(THREE, diver, tankHalf);
 
   // Drawn only once the camera has backed far enough out that the tank reads as
   // an object. At the default framing the window IS the tank, and a wireframe
@@ -1362,6 +1389,7 @@ export async function start() {
     if (!params.paused && !skip.has('sim')) {
       updatePaddle(dt, t);
       updateBarrels(dt, t);
+      visitor.update(dt, tankHalf);
       // Phases are HELD for a duration rather than fired one per frame. An
       // implosion two entries long lasted 33ms at 60fps, so all anyone ever saw
       // was the pop. Each frame takes its dt share of the phase, which keeps
@@ -1445,6 +1473,8 @@ export async function start() {
       lastInteract = clock.elapsedTime;
     },
     dropBarrel,
+    visitor,   // the easter egg, exposed so a capture can step into it
+
     physics: fluid.physics,
     setPaddleHidden: (v) => setPaddleHidden(v),
     isPaddleHidden: () => paddleHidden,

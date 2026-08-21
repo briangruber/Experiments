@@ -18,7 +18,11 @@ import {
   BRIGHT_FRAG, BLUR_FRAG, POST_FRAG, PADDLE_VERT, PADDLE_FRAG, PROBE_FRAG,
   BARREL_VERT, BARREL_FRAG,
 } from './shaders.js';
-import { barrelGeometry, barrelTexture, BARREL_HALF } from './barrel.js';
+import {
+  barrelGeometry, barrelTexture, BARREL_HALF,
+  diverGeometry, diverTexture, DIVER_HALF,
+} from './model.js';
+import { createVisitor } from './visitor.js';
 
 const QUALITY = {
   low: { N: 64, jacobi: 12, steps: 88, scale: 0.6, ptex: 192 },
@@ -209,6 +213,20 @@ const barrels = Array.from({ length: MAX_BARRELS }, () => {
   };
 });
 for (const b of barrels) b.desc.vel = b.vel;
+
+// The visitor. Same shading as the barrel, drawn in the opaque pass so the
+// volume fogs it — which is the whole effect: it has to arrive already half
+// dissolved. `DIVER_HALF` is unused beyond documenting its proportions; one
+// scale sets its size because the bake normalised the longest axis to 1.
+const diverScale = 0.30;
+const diver = new THREE.Mesh(diverGeometry(THREE), new THREE.ShaderMaterial({
+  vertexShader: BARREL_VERT,
+  fragmentShader: BARREL_FRAG,
+  uniforms: { uSunDir: { value: sunDir }, uMap: { value: diverTexture(THREE) } },
+}));
+diver.scale.setScalar(diverScale);
+opaqueScene.add(diver);
+const visitor = createVisitor(THREE, diver, tankHalf);
 
 const edgeScene = new THREE.Scene();
 // Drawn only once the camera has backed far enough out that the tank reads as
@@ -987,6 +1005,7 @@ function frame() {
   if (!params.paused) {
     updatePaddle(dt, t);
     updateBarrels(dt, t);
+    visitor.update(dt, tankHalf);
     // Phases are HELD for a duration rather than fired one per frame. An
     // implosion two entries long lasted 33ms at 60fps, so all anyone ever saw
     // was the pop. Each frame takes its dt share of the phase, which keeps the
@@ -1099,6 +1118,8 @@ window.water = {
     lastInteract = clock.elapsedTime;
   },
   dropBarrel,
+visitor,   // the easter egg, exposed so a capture can step into it
+
   physics: fluid.physics,
   setPaddleHidden: (v) => setPaddleHidden(v),
   isPaddleHidden: () => paddleHidden,
