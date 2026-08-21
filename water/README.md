@@ -22,13 +22,24 @@ npx http-server .        # or any static server
 per-frame simulation time cap, useful on slow (software) GPUs.
 
 **Interaction** — drag the paddle to stir; drag anywhere else to orbit; click
-for a burst; wheel/pinch to zoom. Buttons (and keys): `B` drops an exploding
-barrel, `R` spins the paddle like a paddle-wheel (slider sets the rate),
-`O` orbits the camera, `X` takes the paddle out of the tank entirely, `F` goes
-full screen, `H` hides the interface. Every click of `drop barrel` adds
-another barrel — up to six can be in flight at once.
-`Space` toggles the auto-stir, `C` clears the tank, `Q` cycles quality,
-`P` pauses.
+for a burst; wheel/pinch to zoom. Buttons (and keys): `B` or `Space` drops an
+exploding barrel, `R` spins the paddle like a paddle-wheel (slider sets the
+rate), `O` orbits the camera, `X` takes the paddle out of the tank entirely,
+`F` goes full screen, `H` hides the interface. Every click of `drop barrel`
+adds another barrel — up to six can be in flight at once. `C` clears the tank,
+`Q` cycles quality, `P` pauses.
+
+The `auto-stir` button controls the paddle wandering the tank on its own. That
+wandering is why the water starts moving a second or two after load with nobody
+touching it — it is the paddle, not anything in the physics panel. In
+particular the `swirl` knob is vorticity confinement: it sharpens curl the
+solver already has, and turning it to zero makes the flow smoother without
+stopping the stirring. To stop the motion, switch off `auto-stir` or hide the
+paddle.
+
+Every control carries a hover tooltip explaining what it does, and `get the
+code` prints the three.js that reproduces the settings currently on screen,
+with a copy button.
 
 **Physics** — the `physics` button opens sliders for the knobs that decide how
 the water behaves; all of them are live and take effect on the next step:
@@ -45,6 +56,22 @@ the water behaves; all of them are live and take effect on the next step:
 | blast power | scales an explosion's impulse, foam and ring as it is armed, so the slider reaches explosions already queued. |
 | vortex ring | circulation the blast seeds. A radial impulse alone just spreads and dies; the ring is what rolls the cap into a mushroom. |
 | surface chop | amplitude of the surface ripples, which drives the glint and the refraction. |
+
+The `scene` panel holds the knobs that decide how much there is to simulate:
+
+| knob | what it does |
+| --- | --- |
+| grid | simulation resolution, 32³–160³. Cost goes as the cube of the side, so this is the main performance dial. Reallocates the volumes, so it reloads. |
+| particles | how many bubble sprites are advected, 5 K–300 K. Decoration on top of the volumetric foam; they do not affect the fluid. Reloads. |
+| tank size | the size of the glass the water sits in. The grid stays cubic and uniformly spaced — the tank is a box inside it and everything outside is solid wall — so resizing never disturbs the solver's finite differences. Live. |
+| paddle size | how big a blade is doing the stirring. Live. |
+
+`?n=`, `?p=` and `?tank=` set those three from the URL.
+
+The frame rate stays on screen in the corner once the interface is hidden,
+because on a GPU simulation it is the number most worth watching — twice now a
+bug in this project has shown up first as a frame rate that was suspiciously
+*good* (see "When the WebGPU tank looks empty").
 
 With the interface hidden the tank fills the window and only a faint corner
 button remains, so pointer- and touch-only users can bring the controls back;

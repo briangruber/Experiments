@@ -248,6 +248,7 @@ uniform vec3 uBurstPos;
 uniform float uBurstFoam;
 uniform float uBurstR;
 uniform float uSurfaceY;
+uniform float uTank;
 void main() {
   ivec3 v = voxelFromFrag();
   if (v.z >= uNi) { gl_FragColor = vec4(0.0); return; }
@@ -293,6 +294,7 @@ void main() {
   // bubbles that reach the waterline surface and pop; what survives collects
   // in a thin raft just underneath
   foam *= 1.0 - smoothstep(uSurfaceY - 0.008, uSurfaceY + 0.05, wp.y);
+  if (any(greaterThan(abs(wp), vec3(uTank)))) foam = 0.0;
   gl_FragColor = vec4(min(foam, 4.0), 0.0, 0.0, 0.0);
 }`;
 
@@ -368,6 +370,7 @@ export const PROJECT_FRAG = VOL_FRAG + /* glsl */ `
 uniform sampler2D uVel;
 uniform sampler2D uPrs;
 uniform float uSurfaceY;
+uniform float uTank;         // tank half-extent; outside it is solid
 void main() {
   ivec3 v = voxelFromFrag();
   if (v.z >= uNi) { gl_FragColor = vec4(0.0); return; }
@@ -385,10 +388,18 @@ void main() {
   }
   if (wy + 2.0 / uNf > uSurfaceY) vel.y = min(vel.y, 0.0);
 
-  int n = uNi - 1;
-  if (v.x == 0) vel.x = max(vel.x, 0.0); else if (v.x == n) vel.x = min(vel.x, 0.0);
-  if (v.y == 0) vel.y = max(vel.y, 0.0); else if (v.y == n) vel.y = min(vel.y, 0.0);
-  if (v.z == 0) vel.z = max(vel.z, 0.0); else if (v.z == n) vel.z = min(vel.z, 0.0);
+  // Tank walls. The grid stays cubic and uniformly spaced — the tank is a box
+  // inside it and everything outside is solid — so the finite differences stay
+  // isotropic however the tank is resized.
+  vec3 wp = (vec3(v) + 0.5) / uNf * 2.0 - 1.0;
+  float h = uTank;
+  vec3 cell = vec3(2.0 / uNf);
+  if (any(greaterThan(abs(wp), vec3(h)))) { gl_FragColor = vec4(0.0); return; }
+  if (wp.x - cell.x < -h) vel.x = max(vel.x, 0.0);
+  if (wp.x + cell.x > h) vel.x = min(vel.x, 0.0);
+  if (wp.y - cell.y < -h) vel.y = max(vel.y, 0.0);
+  if (wp.z - cell.z < -h) vel.z = max(vel.z, 0.0);
+  if (wp.z + cell.z > h) vel.z = min(vel.z, 0.0);
   gl_FragColor = vec4(vel, 0.0);
 }`;
 
@@ -489,6 +500,7 @@ uniform float uSurfaceY;
 uniform vec4 uRipples[4];    // xy = impact centre (world xz), z = start time, w = strength
 uniform float uChop;         // surface roughness multiplier
 uniform float uDebugFoam;    // 1 = show raw foam density, no lighting
+uniform float uTank;         // tank half-extent
 uniform vec3 uSunDir;        // direction light travels
 uniform vec3 uSunColor;
 uniform vec3 uWaterAbsorb;   // per world unit
@@ -500,8 +512,8 @@ uniform vec3 uAmbientDeep;
 
 vec2 boxT(vec3 ro, vec3 rd) {
   vec3 inv = 1.0 / rd;
-  vec3 a = (vec3(-1.0) - ro) * inv;
-  vec3 b = (vec3(1.0) - ro) * inv;
+  vec3 a = (vec3(-uTank) - ro) * inv;
+  vec3 b = (vec3(uTank) - ro) * inv;
   vec3 lo = min(a, b), hi = max(a, b);
   return vec2(max(max(lo.x, lo.y), lo.z), min(min(hi.x, hi.y), hi.z));
 }
@@ -743,6 +755,7 @@ uniform vec3 uPaddlePos;
 uniform float uPaddleSpeed;
 uniform float uSurfaceY;
 uniform float uRise;   // world units/s
+uniform float uTank;   // tank half-extent
 
 vec3 hash33(vec3 p) {
   p = fract(p * vec3(0.1031, 0.1030, 0.0973));
@@ -763,10 +776,10 @@ void main() {
 
   vec3 p = s.xyz;
   float life = s.w - uDt;
-  if (life <= 0.0 || any(greaterThan(abs(p), vec3(0.99)))) {
+  if (life <= 0.0 || any(greaterThan(abs(p), vec3(uTank * 0.995)))) {
     vec3 r = hash33(seed);
     // respawn near the paddle; more eagerly the faster it moves
-    p = clamp(uPaddlePos + (r * 2.0 - 1.0) * 0.34, vec3(-0.98), vec3(0.98));
+    p = clamp(uPaddlePos + (r * 2.0 - 1.0) * 0.34, vec3(-uTank * 0.98), vec3(uTank * 0.98));
     life = 2.5 + 4.0 * fract(r.y * 7.31);
     if (uPaddleSpeed < 0.05 && fract(r.z * 5.17) > 0.15) life = -0.001;
   } else {
@@ -776,7 +789,7 @@ void main() {
     // bubbles rise on their own and wobble as they go
     float wob = sin(uTime * 5.5 + s.w * 11.0) * 0.035;
     p += (v + jig * 0.04 + vec3(wob, uRise, wob * 0.6)) * uDt;
-    p = clamp(p, vec3(-0.995), vec3(0.995));
+    p = clamp(p, vec3(-uTank * 0.995), vec3(uTank * 0.995));
   }
   if (p.y > uSurfaceY - 0.012) life = -0.001; // burst at the surface
   gl_FragColor = vec4(p, life);

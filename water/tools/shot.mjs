@@ -50,6 +50,7 @@ const BARREL_TAIL = +opt('barrel-tail', 18000); // ms of sim left after the drop
 const BARREL_COUNT = +opt('barrels', 1);
 const VIEW = opt('view', '');
 const DIAG = args.includes('--diag');
+const PARAMS = multi('param');   // --param tank=0.55 (repeatable)
 
 const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
@@ -97,7 +98,8 @@ page.on('pageerror', (e) => errors.push('pageerror: ' + (e.stack || e.message)))
 
 const dtq = DTCAP ? `&dtcap=${encodeURIComponent(DTCAP)}` : '';
 const gpq = GPU ? '&gpu=1&present=rt' : '&gpu=0';
-const vwq = (VIEW ? `&view=${encodeURIComponent(VIEW)}` : '') + (DIAG ? '&diag=1' : '');
+const vwq = (VIEW ? `&view=${encodeURIComponent(VIEW)}` : '') + (DIAG ? '&diag=1' : '')
+  + PARAMS.map((p) => `&${p}`).join('');
 await page.goto(`http://127.0.0.1:${port}/?q=${encodeURIComponent(QUALITY)}${dtq}${gpq}${vwq}`, { waitUntil: 'load' });
 
 try {

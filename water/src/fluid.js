@@ -11,8 +11,10 @@ import {
 } from './shaders.js';
 
 export class Fluid {
-  constructor(renderer, { N = 100, jacobi = 22, lightDir, surfaceY = 0.72 }) {
+  constructor(renderer, { N = 100, jacobi = 22, lightDir, surfaceY = 0.72, tank = 1 }) {
     this.surfaceY = surfaceY;
+    // tank half-extent inside the [-1,1] grid; live, so the panel can resize it
+    this.tank = tank;
     // Tunable physics, in world units. main.js hands these to the sliders.
     this.physics = {
       rise: 0.55,      // bubble slip through the water, world/s
@@ -106,7 +108,7 @@ export class Fluid {
       uBurstR: { value: 0.18 },
       uBurstRing: { value: 0 },
       uBurstRingR: { value: 0.3 },
-      uSurfaceY: { value: surfaceY },
+      uSurfaceY: { value: surfaceY }, uTank: { value: tank },
     });
     this.mInject = mat(INJECT_FRAG, {
       uFoam: { value: null },
@@ -124,7 +126,7 @@ export class Fluid {
       uBurstPos: { value: new THREE.Vector3() },
       uBurstFoam: { value: 0 },
       uBurstR: { value: 0.18 },
-      uSurfaceY: { value: surfaceY },
+      uSurfaceY: { value: surfaceY }, uTank: { value: tank },
     });
     this.mMMAdvect = mat(MM_ADVECT_FRAG, {
       uVel: { value: null }, uSrc: { value: null }, uDt: { value: 0 },
@@ -145,7 +147,7 @@ export class Fluid {
     this.mJacobi = mat(JACOBI_FRAG, { uPrs: { value: null }, uDiv: { value: null } });
     this.mProject = mat(PROJECT_FRAG, {
       uVel: { value: null }, uPrs: { value: null },
-      uSurfaceY: { value: surfaceY },
+      uSurfaceY: { value: surfaceY }, uTank: { value: tank },
     });
     this.mLight = mat(LIGHT_FRAG, {
       uFoam: { value: null },
@@ -153,7 +155,7 @@ export class Fluid {
       uStepLen: { value: N / 22 },
       uSigmaFoam: { value: 22 / N },    // grid-invariant: 11 per world unit
       uSigmaWater: { value: 0.9 / N },
-      uSurfaceY: { value: surfaceY },
+      uSurfaceY: { value: surfaceY }, uTank: { value: tank },
       uTime: { value: 0 },
       uCaustics: { value: 1.0 },
     });
@@ -180,6 +182,10 @@ export class Fluid {
     this.mForces.uniforms.uBuoyancy.value = ph.buoyancy * voxPerWorld;
     this.mConfine.uniforms.uEps.value = ph.swirl * this.N;
     this.mInject.uniforms.uFoamGain.value = ph.aeration;
+    this.mInject.uniforms.uTank.value = this.tank;
+    this.mProject.uniforms.uTank.value = this.tank;
+    this.mInject.uniforms.uSurfaceY.value = this.surfaceY;
+    this.mProject.uniforms.uSurfaceY.value = this.surfaceY;
     this.mLight.uniforms.uCaustics.value = ph.caustics;
 
     // upload however many barrels are in flight

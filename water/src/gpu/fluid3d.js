@@ -18,9 +18,11 @@ const {
 const MAX_BARRELS = 6;
 
 export class Fluid3D {
-  constructor(renderer, { N = 128, jacobi = 26, lightDir, surfaceY = 0.72 }) {
+  constructor(renderer, { N = 128, jacobi = 26, lightDir, surfaceY = 0.72, tank = 1 }) {
     this.renderer = renderer;
     this.surfaceY = surfaceY;
+    // tank half-extent inside the grid; outside it is solid wall
+    this.tank = tank;
     // same knobs, same units as the WebGL solver
     this.physics = {
       rise: 0.55, buoyancy: 0.48, foamLife: 5.0, swirl: 0.09, aeration: 1.8,
@@ -82,6 +84,7 @@ export class Fluid3D {
       burstRing: uniform(0),
       burstRingR: uniform(0.3),
       surfaceY: uniform(surfaceY),
+      tank: uniform(tank),
       rise: uniform(0),
       lightDir: uniform(lightDir.clone()),
       sigmaFoam: uniform(22 / N),
@@ -293,13 +296,17 @@ export class Fluid3D {
       If(wy.add(2 / N).greaterThan(u.surfaceY), () => { vel.y.assign(vel.y.min(0)); });
       If(wy.greaterThan(u.surfaceY), () => { vel.assign(vec3(0)); });
 
-      const n = uint(N - 1);
-      If(v.x.equal(uint(0)), () => { vel.x.assign(vel.x.max(0)); });
-      If(v.x.equal(n), () => { vel.x.assign(vel.x.min(0)); });
-      If(v.y.equal(uint(0)), () => { vel.y.assign(vel.y.max(0)); });
-      If(v.y.equal(n), () => { vel.y.assign(vel.y.min(0)); });
-      If(v.z.equal(uint(0)), () => { vel.z.assign(vel.z.max(0)); });
-      If(v.z.equal(n), () => { vel.z.assign(vel.z.min(0)); });
+      // tank walls: the grid stays cubic and uniformly spaced, the tank is a box
+      // inside it, so resizing never disturbs the finite differences
+      const wp = world(v);
+      const h = u.tank;
+      const cell = float(2 / N);
+      If(wp.abs().greaterThan(vec3(h)).any(), () => { vel.assign(vec3(0)); });
+      If(wp.x.sub(cell).lessThan(h.negate()), () => { vel.x.assign(vel.x.max(0)); });
+      If(wp.x.add(cell).greaterThan(h), () => { vel.x.assign(vel.x.min(0)); });
+      If(wp.y.sub(cell).lessThan(h.negate()), () => { vel.y.assign(vel.y.max(0)); });
+      If(wp.z.sub(cell).lessThan(h.negate()), () => { vel.z.assign(vel.z.max(0)); });
+      If(wp.z.add(cell).greaterThan(h), () => { vel.z.assign(vel.z.min(0)); });
       textureStore(vel0, v, vec4(vel, 0));
     }));
 
@@ -384,6 +391,7 @@ export class Fluid3D {
       });
       // bubbles that reach the waterline pop; what survives rafts underneath
       foam.mulAssign(float(1).sub(smoothstep(u.surfaceY.sub(0.008), u.surfaceY.add(0.05), wp.y)));
+      If(wp.abs().greaterThan(vec3(u.tank)).any(), () => { foam.assign(float(0)); });
       textureStore(foam0, v, vec4(foam.min(4), 0, 0, 0));
     }));
 
@@ -463,6 +471,8 @@ export class Fluid3D {
     u.eps.value = ph.swirl * this.N;
     u.foamGain.value = ph.aeration;
     u.caustics.value = ph.caustics;
+    u.tank.value = this.tank;
+    u.surfaceY.value = this.surfaceY;
 
     if (this.paddle && this.paddle.on) {
       u.paddleOn.value = 1;

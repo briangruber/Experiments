@@ -5,41 +5,50 @@
 <canvas id="gl" oncontextmenu="return false"></canvas>
 <div id="title">CHURN<span>volumetric fluid tank</span></div>
 <div id="stats">
-  <div><em>Resolution</em><b data-k="res">—</b></div>
-  <div><em>Backend</em><b data-k="backend">—</b></div>
-  <div><em>Grid</em><b data-k="grid">—</b></div>
-  <div><em data-k="simLabel">Simulate, GPU</em><b data-k="sim">—</b></div>
-  <div><em data-k="renLabel">Render, GPU</em><b data-k="ren">—</b></div>
-  <div><em>Particle count</em><b data-k="parts">—</b></div>
-  <div><em>Framerate</em><b data-k="fps">—</b></div>
-  <div><em>VRAM (est)</em><b data-k="vram">—</b></div>
-  <div><em>Stir</em><b data-k="stir">auto</b></div>
+  <div title="Canvas size in device pixels — the resolution actually being rendered, which is the display size times the pixel ratio."><em>Resolution</em><b data-k="res">—</b></div>
+  <div title="Which graphics API is driving the simulation. WebGL2 runs the solver as fragment shaders over a Z-slice atlas; WebGPU runs it as compute kernels over true 3D textures."><em>Backend</em><b data-k="backend">—</b></div>
+  <div title="Simulation resolution: the voxel cube the fluid is solved on. Cost scales with the cube of the side length."><em>Grid</em><b data-k="grid">—</b></div>
+  <div title="Time spent per frame advancing the fluid — advection, forces, pressure solve, foam. Measured on the GPU where timer queries are available, otherwise CPU wall time."><em data-k="simLabel">Simulate, GPU</em><b data-k="sim">—</b></div>
+  <div title="Time spent per frame drawing: the volumetric raymarch, light volume, bloom and post."><em data-k="renLabel">Render, GPU</em><b data-k="ren">—</b></div>
+  <div title="How many bubble sprites are being simulated. Decoration on top of the volumetric foam; they do not affect the fluid."><em>Particle count</em><b data-k="parts">—</b></div>
+  <div title="Frames per second. On a GPU simulation an unexpectedly HIGH number is worth investigating — it can mean the solver is not actually running."><em>Framerate</em><b data-k="fps">—</b></div>
+  <div title="Rough GPU memory for the simulation volumes and render targets."><em>VRAM (est)</em><b data-k="vram">—</b></div>
+  <div title="Whether the paddle is wandering on its own (auto), waiting for you to drag it (manual), spinning like a paddle-wheel, or out of the tank entirely."><em>Stir</em><b data-k="stir">auto</b></div>
 </div>
 <div id="controls">
-  <button id="barrel-btn" type="button">drop barrel</button>
+  <button title="Drop another barrel through the surface (B or space). Each click adds one — up to six can be in flight at once. They sink, drag an air cavity behind them, then detonate." id="barrel-btn" type="button">drop barrel</button>
   <div class="row">
-    <button id="spin-paddle-btn" type="button" aria-pressed="false">spin paddle</button>
-    <button id="hide-paddle-btn" type="button" aria-pressed="false">hide paddle</button>
+    <button title="Turn the paddle end-over-end about a horizontal axle, like a paddle-boat wheel, driving a directional current (R)." id="spin-paddle-btn" type="button" aria-pressed="false">spin paddle</button>
+    <button title="Take the paddle out of the tank entirely, leaving barrels as the only thing stirring the water (X)." id="hide-paddle-btn" type="button" aria-pressed="false">hide paddle</button>
   </div>
+  <button title="Let the paddle wander the tank on its own. This is what makes the water start moving by itself on load — turn it off and the tank only moves when you drag the paddle or drop something." id="stir-btn" type="button" aria-pressed="true">auto-stir</button>
   <label id="spin-speed" class="slider">
     <span>paddle speed <b id="spin-speed-val">3.0</b></span>
     <input id="spin-speed-slider" type="range" min="0.5" max="10" step="0.1" value="3"
            aria-label="paddle spin speed, radians per second">
   </label>
-  <button id="physics-btn" type="button" aria-expanded="false">physics</button>
+  <button title="Sliders for how the water behaves. All live: they take effect on the next simulation step." id="physics-btn" type="button" aria-expanded="false">physics</button>
   <div id="physics" hidden></div>
-  <button id="spin-btn" type="button" aria-pressed="false">spin view</button>
-  <button id="backend-btn" type="button" hidden>switch to webgpu</button>
+  <button title="Sliders for how much there is to simulate — grid resolution, particle count, tank and paddle size." id="scene-btn" type="button" aria-expanded="false">scene</button>
+  <div id="scene" hidden></div>
+  <button title="Show the three.js code that reproduces exactly the settings you have right now, ready to copy." id="code-btn" type="button" aria-expanded="false">get the code</button>
+  <div id="code" hidden>
+    <pre id="code-text"></pre>
+    <button id="code-copy" type="button">copy</button>
+  </div>
+  <button title="Slowly orbit the camera around the tank (O)." id="spin-btn" type="button" aria-pressed="false">spin view</button>
+  <button title="Reload on the other graphics backend, keeping every other setting." id="backend-btn" type="button" hidden>switch to webgpu</button>
   <div class="row">
-    <button id="fs-btn" type="button" aria-pressed="false">full screen</button>
-    <button id="hide-btn" type="button" aria-pressed="false">hide ui</button>
+    <button title="Fill the screen (F)." id="fs-btn" type="button" aria-pressed="false">full screen</button>
+    <button title="Hide the interface for an uninterrupted view (H). The frame rate stays visible in the corner." id="hide-btn" type="button" aria-pressed="false">hide ui</button>
   </div>
 </div>
 <button id="peek" type="button" aria-label="Show controls">UI</button>
 <div id="hud">
-  <div class="pointer-fine">drag paddle · stir &nbsp; drag · orbit &nbsp; click · burst &nbsp; B · drop barrel &nbsp; R · spin paddle &nbsp; X · hide paddle &nbsp; O · spin view &nbsp; space · auto-stir &nbsp; C · clear &nbsp; Q · quality &nbsp; F · full screen &nbsp; H · hide UI</div>
+  <div class="pointer-fine">drag paddle · stir &nbsp; drag · orbit &nbsp; click · burst &nbsp; B / space · drop barrel &nbsp; R · spin paddle &nbsp; X · hide paddle &nbsp; O · spin view &nbsp; C · clear &nbsp; Q · quality &nbsp; F · full screen &nbsp; H · hide UI</div>
   <div class="pointer-coarse">drag paddle · stir &nbsp; drag · orbit &nbsp; tap · burst &nbsp; pinch · zoom</div>
 </div>
+<div id="fps-badge"><b data-k="fpsBadge">—</b> fps</div>
 <div id="diag" hidden></div>
 <div id="boot">
   <div class="boot-title">CHURN</div>

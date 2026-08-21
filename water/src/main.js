@@ -9,7 +9,10 @@ import * as THREE from '../vendor/three.module.min.js';
 import { Fluid } from './fluid.js';
 import { Particles } from './particles.js';
 import { initChrome } from './chrome.js';
-import { buildPhysicsPanel, armBurst } from './panel.js';
+import {
+  buildPhysicsPanel, buildScenePanel, buildCodePanel, armBurst,
+  gridOverride, particleOverride, tankOverride,
+} from './panel.js';
 import {
   FS_TRI_VERT, RAYMARCH_VERT, RAYMARCH_FRAG, COMPOSITE_FRAG,
   BRIGHT_FRAG, BLUR_FRAG, POST_FRAG, PADDLE_VERT, PADDLE_FRAG, PROBE_FRAG,
@@ -29,7 +32,12 @@ const debugFoam = query.get('view') === 'foam';
 // ?diag=1: peak foam / peak speed, read back from the GPU into the HUD
 const wantProbe = query.get('diag') === '1';
 const qName = QUALITY[query.get('q')] ? query.get('q') : 'high';
-const Q = QUALITY[qName];
+// ?n= and ?p= override the preset's grid and particle count independently, so
+// the two halves of "quality" can be traded off against each other
+const Q = { ...QUALITY[qName] };
+Q.N = gridOverride(query, Q.N);
+const particleTarget = particleOverride(query, Q.ptex * Q.ptex);
+Q.ptex = Math.max(16, Math.round(Math.sqrt(particleTarget)));
 
 const params = {
   quality: qName,
@@ -73,10 +81,15 @@ const getDPR = () => Math.min(window.devicePixelRatio || 1, 1.75);
 const sunDir = new THREE.Vector3(0.30, -1.0, -0.35).normalize();
 // The tank is filled to here, with air above: a real waterline is what makes
 // plumes mushroom out along the surface instead of piling into a ceiling.
-const SURFACE_Y = 0.72;
+// The tank is a box inside the [-1,1] grid; everything outside it is solid, so
+// resizing it never disturbs the solver's uniform voxel spacing. The waterline
+// keeps the same fraction of the tank height whatever the size.
+const FILL = 0.72;
+let tankHalf = tankOverride(query, 1);
+let SURFACE_Y = FILL * tankHalf;
 
 const fluid = new Fluid(renderer, {
-  N: Q.N, jacobi: Q.jacobi, lightDir: sunDir, surfaceY: SURFACE_Y,
+  N: Q.N, jacobi: Q.jacobi, lightDir: sunDir, surfaceY: SURFACE_Y, tank: tankHalf,
 });
 fluid.clear();
 const particles = new Particles(renderer, fluid, Q.ptex);
@@ -102,7 +115,9 @@ updateCamera();
 
 const opaqueScene = new THREE.Scene();
 
-const paddleHalf = new THREE.Vector3(0.30, 0.05, 0.20);
+const PADDLE_HALF_BASE = new THREE.Vector3(0.30, 0.05, 0.20);
+const paddleHalf = PADDLE_HALF_BASE.clone();
+let paddleScale = 1;
 const paddleMat = new THREE.ShaderMaterial({
   vertexShader: PADDLE_VERT,
   fragmentShader: PADDLE_FRAG,
@@ -249,6 +264,7 @@ const mRaymarch = new THREE.ShaderMaterial({
     uFrame: { value: 0 },
     uTime: { value: 0 },
     uSurfaceY: { value: SURFACE_Y },
+    uTank: { value: tankHalf },
     uChop: { value: 1 },
     uDebugFoam: { value: debugFoam ? 1 : 0 },
     uRipples: { value: [0, 1, 2, 3].map(() => new THREE.Vector4(0, 0, -100, 0)) },
@@ -407,7 +423,7 @@ canvas.addEventListener('pointermove', (e) => {
     const p = new THREE.Vector3();
     if (ray.intersectPlane(drag.plane, p)) {
       paddleTarget.copy(p.sub(drag.offset));
-      paddleTarget.clampScalar(-0.66, 0.66); // keeps the paddle inside the glass
+      paddleTarget.clampScalar(-0.66 * tankHalf, 0.66 * tankHalf); // inside the glass
     }
     lastInteract = clock.elapsedTime;
   }
@@ -425,7 +441,7 @@ function endPointer(e, cancelled) {
     const t = rayBox(ray);
     if (t) {
       const p = ray.origin.clone().addScaledVector(ray.direction, t[0] + (t[1] - t[0]) * 0.35);
-      fluid.burst = { pos: p.clampScalar(-0.92, 0.92), vel: 1.4, foam: 0.55 };
+      fluid.burst = { pos: p.clampScalar(-0.92 * tankHalf, 0.92 * tankHalf), vel: 1.4, foam: 0.55 };
       lastInteract = clock.elapsedTime;
     }
   }
@@ -442,12 +458,23 @@ canvas.addEventListener('wheel', (e) => {
 
 const spinBtn = document.getElementById('spin-btn');
 const spinPaddleBtn = document.getElementById('spin-paddle-btn');
+const stirBtn = document.getElementById('stir-btn');
 function syncButtons() {
   spinBtn.classList.toggle('active', params.autoSpin);
   spinBtn.setAttribute('aria-pressed', String(params.autoSpin));
   spinPaddleBtn.classList.toggle('active', params.paddleSpin);
   spinPaddleBtn.setAttribute('aria-pressed', String(params.paddleSpin));
+  stirBtn.classList.toggle('active', params.stir);
+  stirBtn.setAttribute('aria-pressed', String(params.stir));
 }
+// The paddle wanders on its own until you touch it; this is what "swirl kicks
+// in by itself" is. The physics panel's swirl knob is vorticity confinement and
+// does not drive the paddle, so stopping the motion belongs on its own control.
+function setStir(v) {
+  params.stir = v;
+  syncButtons();
+}
+stirBtn.addEventListener('click', () => setStir(!params.stir));
 function toggleSpin() {
   params.autoSpin = !params.autoSpin;
   syncButtons();
@@ -490,12 +517,45 @@ function setPaddleHidden(v) {
 hidePaddleBtn.addEventListener('click', () => setPaddleHidden(!paddleHidden));
 
 buildPhysicsPanel(fluid.physics);
+function setTank(v) {
+  tankHalf = v;
+  SURFACE_Y = FILL * tankHalf;
+  fluid.tank = tankHalf;
+  fluid.surfaceY = SURFACE_Y;
+  mRaymarch.uniforms.uTank.value = tankHalf;
+  mRaymarch.uniforms.uSurfaceY.value = SURFACE_Y;
+  edges.scale.setScalar(tankHalf);
+  paddleTarget.clampScalar(-0.66 * tankHalf, 0.66 * tankHalf);
+  paddle.position.clampScalar(-0.66 * tankHalf, 0.66 * tankHalf);
+}
+
+buildScenePanel({
+  gridN: Q.N,
+  particleCount: particles.count,
+  tankHalf,
+  onTank: setTank,
+  paddleScale,
+  onPaddleScale: (v) => {
+    paddleScale = v;
+    // the geometry is authored once, so the mesh scales and the solver's
+    // half-extents follow; extractRotation drops the scale, so the rigid-body
+    // coupling is unaffected
+    paddleHalf.copy(PADDLE_HALF_BASE).multiplyScalar(v);
+    paddle.scale.setScalar(v);
+    paddle.updateMatrixWorld();
+  },
+});
+setTank(tankHalf);   // apply ?tank= to the glass, surface and clamps
+buildCodePanel(() => ({
+  backend: 'WebGL2', N: Q.N, jacobi: Q.jacobi, particleCount: particles.count,
+  tankHalf, paddleScale, physics: fluid.physics,
+}));
 syncButtons();
 initChrome({ backend: 'WebGL2' }); // hide-ui, fullscreen, backend switch
 
 window.addEventListener('keydown', (e) => {
   if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
-  if (e.code === 'Space') { params.stir = !params.stir; e.preventDefault(); }
+  if (e.code === 'Space') { dropBarrel(); e.preventDefault(); }
   else if (e.code === 'KeyO') toggleSpin();
   else if (e.code === 'KeyR') togglePaddleSpin();
   else if (e.code === 'KeyX') setPaddleHidden(!paddleHidden);
@@ -561,7 +621,7 @@ const timer = new GpuTimer(renderer.getContext());
 // --------------------------------------------------------------------- hud --
 
 const statEls = {};
-for (const el of document.querySelectorAll('#stats [data-k]')) statEls[el.dataset.k] = el;
+for (const el of document.querySelectorAll('[data-k]')) statEls[el.dataset.k] = el;
 const fpsCounter = { frames: 0, t: performance.now() / 1000, fps: 0 };
 
 function updateHud() {
@@ -577,6 +637,8 @@ function updateHud() {
   statEls.ren.textContent = timer.ms.render ? `${timer.ms.render.toFixed(2)} ms` : '—';
   statEls.parts.textContent = `${(particles.count / 1000).toFixed(1)} K`;
   statEls.fps.textContent = fpsCounter.fps ? fpsCounter.fps.toFixed(1) : '—';
+  if (statEls.fpsBadge) statEls.fpsBadge.textContent = fpsCounter.fps
+    ? fpsCounter.fps.toFixed(fpsCounter.fps < 10 ? 1 : 0) : '—';
   statEls.vram.textContent = `${vramMiB} MiB`;
   if (wantProbe) { readProbe(); statEls.vram.textContent += `  ·  foam/vel ${probeText}`; }
   statEls.stir.textContent = paddleHidden
@@ -704,7 +766,8 @@ function dropBarrel() {
   b.active = true;
   b.age = 0;
   b.splashed = false;
-  b.mesh.position.set((Math.random() - 0.5) * 1.2, 0.95, (Math.random() - 0.5) * 1.2);
+  b.mesh.position.set((Math.random() - 0.5) * 1.2 * tankHalf, 0.95 * tankHalf,
+    (Math.random() - 0.5) * 1.2 * tankHalf);
   b.mesh.rotation.set(Math.random() * 0.5, Math.random() * 6.28, Math.random() * 0.5);
   b.vel.set((Math.random() - 0.5) * 0.2, -2.3, (Math.random() - 0.5) * 0.2);
   b.spin.set(1.1, 0.4, 0.8);
@@ -876,10 +939,10 @@ function frame() {
 window.water = {
   params, fluid, orbit, frames: 0,
   burst(x, y, z, foam = 0.5, vel = 1.2) {
-    fluid.burst = { pos: new THREE.Vector3(x, y, z).clampScalar(-0.92, 0.92), vel, foam };
+    fluid.burst = { pos: new THREE.Vector3(x, y, z).clampScalar(-0.92 * tankHalf, 0.92 * tankHalf), vel, foam };
   },
   paddleTo(x, y, z) {
-    paddleTarget.set(x, y, z).clampScalar(-0.66, 0.66);
+    paddleTarget.set(x, y, z).clampScalar(-0.66 * tankHalf, 0.66 * tankHalf);
     lastInteract = clock.elapsedTime;
   },
   dropBarrel,

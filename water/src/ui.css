@@ -243,3 +243,52 @@ html, body {
 #diag[hidden] { display: none; }
 /* deliberately survives `hide ui` and no-chrome: an error state matters more
    than a clean screenshot, and this is the only place it is visible */
+
+/* Kept out of .ui-hidden's reach on purpose: the frame rate is the one number
+   worth watching while the interface is hidden, and on a GPU simulation an
+   unexpectedly high value is a symptom worth noticing. */
+#fps-badge {
+  position: fixed;
+  top: 16px;
+  right: 20px;
+  z-index: 30;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: #5d7c8a;
+  user-select: none;
+  pointer-events: none;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+#fps-badge b { font-weight: 500; color: #c4dbe5; }
+/* only shown once the stats panel is out of the way, so the two never disagree
+   side by side */
+.ui-hidden #fps-badge, body.no-chrome #fps-badge { opacity: 1; }
+
+.panel-note {
+  margin: 2px 2px 0;
+  font-size: 9px;
+  line-height: 1.5;
+  letter-spacing: 0.04em;
+  color: #4e6873;
+}
+
+/* The code panel: a snippet of the current settings, for copying out. */
+#code pre {
+  margin: 4px 2px 6px;
+  padding: 8px 9px;
+  max-height: 42vh;
+  overflow: auto;
+  border: 1px solid #1d3542;
+  border-radius: 4px;
+  background: rgba(6, 14, 20, 0.9);
+  color: #a8c6d4;
+  font-size: 9.5px;
+  line-height: 1.6;
+  white-space: pre;
+  user-select: text;
+}
+#code pre::selection, #code pre *::selection { background: #1d5570; }
+#code-copy { width: 100%; }
+#code-copy.done { color: #86e0b0; border-color: #2c6b4d; }
