@@ -59,11 +59,11 @@ export const PRESETS = {
     rise: 0.18, buoyancy: 16, foamLife: 6, aeration: 5, swirl: 0.06,
     drag: 0.9, blast: 2.2, ring: 7,
   },
-  // The opposite corner: a stiff, syrupy tank where a blast makes a compact
-  // ball of froth that lifts slowly and holds together.
+  // The opposite corner, and the tank's own defaults: stiff and syrupy, where
+  // a blast makes a compact ball of froth that lifts slowly and holds together.
   churn: {
-    rise: 0.65, buoyancy: 20.65, foamLife: 2.5, aeration: 4, swirl: 0.015,
-    drag: 3.45, blast: 0.3, ring: 3,
+    rise: 0.34, buoyancy: 12.2, foamLife: 2.5, aeration: 7.45, swirl: 0.14,
+    drag: 10.0, blast: 0.25, ring: 4.45, caustics: 2.45, chop: 2.9,
   },
 };
 
@@ -219,6 +219,73 @@ export function buildScenePanel({
   note.className = 'panel-note';
   note.textContent = 'grid and particles reallocate GPU memory, so they reload the page';
   panel.append(note);
+
+  btn.addEventListener('click', () => {
+    const open = panel.hasAttribute('hidden');
+    panel.toggleAttribute('hidden', !open);
+    btn.classList.toggle('active', open);
+    btn.setAttribute('aria-expanded', String(open));
+  });
+}
+
+// Bubble diffuser on the tank floor: an always-on source, as opposed to the
+// paddle (which aerates only what it sweeps) and barrels (one-shot). Every
+// control is live — the solver reads the object each step, so mutating it in
+// place is all that is needed.
+export function buildEmitterPanel(emitter) {
+  const panel = document.getElementById('emitter');
+  const btn = document.getElementById('emitter-btn');
+  if (!panel || !btn) return;
+  panel.textContent = '';
+
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.textContent = 'bubbles off';
+  toggle.title = 'Run a stream of bubbles up from the floor of the tank.';
+  const syncToggle = () => {
+    toggle.textContent = emitter.on ? 'bubbles on' : 'bubbles off';
+    toggle.classList.toggle('active', emitter.on);
+    toggle.setAttribute('aria-pressed', String(emitter.on));
+  };
+  toggle.addEventListener('click', () => { emitter.on = !emitter.on; syncToggle(); });
+  syncToggle();
+  panel.append(toggle);
+
+  slider(panel, {
+    label: 'bubble rate', min: 0, max: 8, step: 0.1, value: emitter.rate,
+    desc: 'How much air the diffuser puts out per second. This is what the '
+        + 'plume is made of; buoyancy over in physics decides how hard it rises.',
+    format: (v) => v.toFixed(1),
+    oninput: (v) => { emitter.rate = v; },
+  });
+
+  slider(panel, {
+    label: 'nozzle width', min: 0.04, max: 0.6, step: 0.01, value: emitter.radius,
+    desc: 'How wide the mouth is. Narrow gives a single rope of bubbles that '
+        + 'wanders; wide gives a broad curtain that breaks up as it climbs.',
+    format: (v) => v.toFixed(2),
+    oninput: (v) => { emitter.radius = v; },
+  });
+
+  slider(panel, {
+    label: 'jet', min: 0, max: 4, step: 0.05, value: emitter.jet,
+    desc: 'Upward push at the nozzle itself, on top of what buoyancy does to '
+        + 'the bubbles. Turn it up for a pressurised jet with a stem, down for '
+        + 'a lazy column that only rises because it is lighter than water.',
+    format: (v) => v.toFixed(2),
+    oninput: (v) => { emitter.jet = v; },
+  });
+
+  for (const axis of ['x', 'z']) {
+    const key = axis === 'x' ? 'fx' : 'fz';
+    slider(panel, {
+      label: `position ${axis}`, min: -0.9, max: 0.9, step: 0.01, value: emitter[key],
+      desc: `Where the diffuser sits on the floor along ${axis}, as a fraction `
+          + 'of the way to the wall — so it keeps its place if the tank is resized.',
+      format: (v) => v.toFixed(2),
+      oninput: (v) => { emitter[key] = v; },
+    });
+  }
 
   btn.addEventListener('click', () => {
     const open = panel.hasAttribute('hidden');

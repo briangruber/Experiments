@@ -168,6 +168,9 @@ uniform float uBurstUp;    // voxels/s vertical kick
 uniform float uBurstR;     // world-space radius
 uniform float uBurstRing;  // vortex-ring circulation, voxels/s
 uniform float uBurstRingR; // ring radius, world
+uniform vec3 uEmitPos;     // bubble diffuser, world
+uniform float uEmitR;      // world radius of the mouth
+uniform float uEmitJet;    // upward push at the mouth, voxels/s^2
 void main() {
   ivec3 v = voxelFromFrag();
   if (v.z >= uNi) { gl_FragColor = vec4(0.0); return; }
@@ -179,6 +182,14 @@ void main() {
   // spread sideways instead of slamming into a lid
   float lift = 1.0 - smoothstep(uSurfaceY - 0.07, uSurfaceY, wp.y);
   vel.y += uBuoyancy * clamp(foam, 0.0, 2.5) * lift * uDt;
+
+  // The diffuser's own updraught. Buoyancy on the foam does most of the work;
+  // this is the momentum the bubbles carry off the nozzle, which is what gives
+  // the plume a stem before it starts to billow.
+  if (uEmitJet > 0.0) {
+    vec3 dpe = (wp - uEmitPos) / max(uEmitR, 1e-3);
+    vel.y += uEmitJet * exp(-dot(dpe, dpe)) * uDt;
+  }
 
   if (uPaddleOn > 0.5) {
     float d = sdBox(uPaddleRot * (wp - uPaddlePos), uPaddleHalf);
@@ -247,6 +258,9 @@ uniform vec4 uBarrelVels[6];
 uniform vec3 uBurstPos;
 uniform float uBurstFoam;
 uniform float uBurstR;
+uniform vec3 uEmitPos;      // world, sits on the floor
+uniform float uEmitR;       // world radius of the mouth
+uniform float uEmitRate;    // foam per second at the centre
 uniform float uSurfaceY;
 uniform float uTank;
 void main() {
@@ -298,6 +312,18 @@ void main() {
     vec3 dp = wp - uBurstPos;
     float w = exp(-dot(dp, dp) / (uBurstR * uBurstR));
     foam += w * uBurstFoam * (0.6 + 0.8 * noise3(wp * 12.0 + uTime));
+  }
+
+  // A diffuser on the floor: a steady stream rather than a one-off puff, so it
+  // is rate per second and integrates with dt. The noise is coarse across the
+  // mouth and drifts, which is what makes it break into separate strings of
+  // bubbles instead of rising as one solid post.
+  if (uEmitRate > 0.0) {
+    vec3 dp = (wp - uEmitPos) / max(uEmitR, 1e-3);
+    float w = exp(-dot(dp, dp));
+    float g = 0.35 + 1.3 * noise3(wp * vec3(21.0, 6.0, 21.0)
+                                + vec3(uTime * 1.7, uTime * 0.9, uTime * 1.3));
+    foam += w * uEmitRate * g * uDt;
   }
 
   // bubbles that reach the waterline surface and pop; what survives collects

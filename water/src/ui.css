@@ -173,6 +173,15 @@ body.stats-open #stats { display: block; }
   gap: 6px;
 }
 #physics[hidden] { display: none; }
+/* the emitter panel is the physics panel's twin: a stack of live sliders */
+#emitter {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+#emitter[hidden] { display: none; }
+#emitter .slider { padding: 5px 10px 6px; gap: 3px; }
+#emitter .slider input { width: 100%; }
 #physics { gap: 4px; }
 #physics .slider { padding: 5px 10px 6px; gap: 3px; }
 #physics .slider input { width: 100%; }

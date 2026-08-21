@@ -20,7 +20,7 @@ import { Fluid3D } from './fluid3d.js';
 import { barrelGeometry, barrelTexture, BARREL_HALF } from '../barrel.js';
 import { initChrome } from '../chrome.js';
 import {
-  buildPhysicsPanel, buildScenePanel, buildCodePanel, armBurst,
+  buildPhysicsPanel, buildScenePanel, buildCodePanel, buildEmitterPanel, armBurst,
   gridOverride, particleOverride, tankOverride,
 } from '../panel.js';
 
@@ -186,18 +186,14 @@ export async function start() {
   // narrower horizontal field than a desktop window at the same vertical
   // fov, so without this the tank is cropped off the sides.
   function fitDistance() {
-    // Fit the frame's DIAGONAL inside the tank's INSCRIBED sphere, so every
-    // corner of the window lands in water whatever the aspect ratio. Fitting
-    // the bounding sphere, or either axis on its own, leaves the corners
-    // outside the cube's silhouette — which is where the black wedges came
-    // from on a tall phone.
-    // The 0.68 sits closer still. Square on to a wall that fit shows both side
-    // walls and the top edge in frame, which reads as a box; moving in pushes
-    // them past the edges so the middle of the frame is uninterrupted water.
-    // Closing in can only ever add coverage, so the corners stay safe.
+    // Contain, not cover: the whole tank in frame with room around it. Fitting
+    // the cube's BOUNDING sphere rather than its inscribed one is what keeps
+    // every corner in view at any aspect, and at any yaw the spin view swings
+    // through — the bounding sphere is the one shape a rotating cube never
+    // pokes out of.
     const vt = Math.tan(camera.fov * Math.PI / 360);
-    const diag = Math.atan(Math.hypot(vt, vt * camera.aspect));
-    return 0.68 * tankHalf / Math.sin(diag);
+    const half = Math.atan(Math.min(vt, vt * camera.aspect));
+    return tankHalf * Math.sqrt(3) / Math.sin(half);
   }
   function updateCamera() {
     orbit.el = Math.max(-0.55, Math.min(1.25, orbit.el));
@@ -207,12 +203,16 @@ export async function start() {
       Math.sin(orbit.az) * ce * orbit.dist,
       Math.sin(orbit.el) * orbit.dist,
       Math.cos(orbit.az) * ce * orbit.dist);
-    // Covering a wide window means sitting close to the glass, which would put
-    // the waterline above the top edge and leave nothing but a wall of water.
-    // Aim so the surface lands just inside the top of frame instead.
+    // Zoomed right in, the waterline would sit above the top edge and leave
+    // nothing but a wall of water, so the camera aims below it. Once the frame
+    // is tall enough to hold the whole tank there is nothing to dodge and the
+    // tank should simply sit centred. Ease between the two so the wheel does
+    // not make the view jump as it crosses over.
     const halfV = orbit.dist * Math.tan(camera.fov * Math.PI / 360);
-    const aim = Math.max(-0.35 * tankHalf,
+    const near = Math.max(-0.35 * tankHalf,
       Math.min(0.15 * tankHalf, SURFACE_Y - halfV * 0.88));
+    const wide = Math.min(1, Math.max(0, (halfV / tankHalf - 0.7) / 0.5));
+    const aim = near * (1 - wide);
     camera.lookAt(0, aim, 0);
     camera.updateMatrixWorld();
   }
@@ -240,7 +240,10 @@ export async function start() {
 
   const PADDLE_HALF_BASE = new THREE.Vector3(0.30, 0.05, 0.20);
   const paddleHalf = PADDLE_HALF_BASE.clone();
-  let paddleScale = 1;
+  // Half size to start: the full-size blade fills a lot of a tank seen whole,
+  // and the slider goes up from here.
+  const PADDLE_SCALE0 = 0.5;
+  let paddleScale = PADDLE_SCALE0;
   const paddle = new THREE.Mesh(
     new THREE.BoxGeometry(paddleHalf.x * 2, paddleHalf.y * 2, paddleHalf.z * 2), bodyMaterial());
   paddle.position.set(0.45, -0.25, 0.1);
@@ -253,7 +256,13 @@ export async function start() {
     BARREL_SCALE * BARREL_HALF[0], BARREL_SCALE * BARREL_HALF[1], BARREL_SCALE * BARREL_HALF[2]);
   const MAX_BARRELS = 6;
   // Slowest an aimed barrel may sink, in tank units a second.
-  const MIN_SINK = 0.75;
+  // Only a guard against a true stall, not a speed. It used to be 0.75, which
+  // sat above the terminal velocity `water drag` implies for anything past
+  // about 1 — so the floor, not the slider, decided how fast an aimed barrel
+  // sank, and turning drag up did nothing to it. Low enough now that drag has
+  // the whole range: a barrel takes about 1.6s to reach the mark at drag 0 and
+  // about 7s at drag 10.
+  const MIN_SINK = 0.18;
   const barrelGeo = barrelGeometry(THREE);
   // The same shading as the paddle, but over the model's baked base colour and
   // tinted toward the water so it reads as submerged rather than pasted on.
@@ -803,20 +812,26 @@ export async function start() {
   }
 
   buildPhysicsPanel(fluid.physics);
+  // the geometry is authored once, so the mesh scales and the solver's
+  // half-extents follow; extractRotation drops the scale, so the rigid-body
+  // coupling is unaffected
+  function setPaddleScale(v) {
+    paddleScale = v;
+    paddleHalf.copy(PADDLE_HALF_BASE).multiplyScalar(v);
+    paddle.scale.setScalar(v);
+    paddle.updateMatrixWorld();
+  }
   buildScenePanel({
     gridN: Q.N,
     particleCount: particleTarget,
     tankHalf,
     onTank: setTank,
     paddleScale,
-    onPaddleScale: (v) => {
-      paddleScale = v;
-      paddleHalf.copy(PADDLE_HALF_BASE).multiplyScalar(v);
-      paddle.scale.setScalar(v);
-      paddle.updateMatrixWorld();
-    },
+    onPaddleScale: setPaddleScale,
   });
   setTank(tankHalf);   // apply ?tank= to the glass, surface and clamps
+  setPaddleScale(paddleScale);   // the blade starts at PADDLE_SCALE0
+  buildEmitterPanel(fluid.emitter);   // mutated in place; the solver reads it each step
   buildCodePanel(() => ({
     backend: 'WebGPU', N: Q.N, jacobi: Q.jacobi, particleCount,
     tankHalf, paddleScale, physics: fluid.physics,
@@ -1049,7 +1064,7 @@ export async function start() {
       // detonate short of where it was pointed. The long fuse is a safety net
       // for a barrel that somehow never arrives.
       const done = b.targetY != null
-        ? (p.y <= b.targetY || b.age > 8)
+        ? (p.y <= b.targetY || b.age > 20)
         : (p.y < -0.5 * tankHalf || b.age > 2.2);
       if (done) {
         b.active = false;

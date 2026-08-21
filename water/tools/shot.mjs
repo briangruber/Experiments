@@ -46,6 +46,7 @@ const DTCAP = opt('dtcap', '');
 const GPU = args.includes('--gpu');
 const BARREL = args.includes('--barrel');
 const NO_PADDLE = args.includes('--no-paddle');
+const EMIT = args.includes('--emit');   // run the floor bubble diffuser
 const BARREL_TAIL = +opt('barrel-tail', 18000); // ms of sim left after the drop
 const BARREL_COUNT = +opt('barrels', 1);
 const VIEW = opt('view', '');
@@ -121,6 +122,10 @@ if (!errors.length) {
     }
   }, [CAMERA, BURSTS]);
   if (NO_PADDLE) await page.evaluate(() => window.water.setPaddleHidden(true));
+  if (EMIT) {
+    await page.evaluate(() => Object.assign(window.water.fluid.emitter,
+      { on: true, rate: 4.0, radius: 0.16, jet: 1.4, fx: -0.35 }));
+  }
 }
 
 // drop late enough that the splash is still developing when we capture

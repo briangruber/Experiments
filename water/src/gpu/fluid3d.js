@@ -23,10 +23,16 @@ export class Fluid3D {
     this.surfaceY = surfaceY;
     // tank half-extent inside the grid; outside it is solid wall
     this.tank = tank;
+    // A diffuser sitting on the floor. Off until asked for; the mouth is held
+    // just clear of the wall so its plume starts in water, not inside the
+    // boundary where the projection would immediately cancel it.
+    // fx/fz are fractions of the way to the wall, so it keeps its place if
+    // the tank is resized under it
+    this.emitter = { on: false, fx: 0, fz: 0, radius: 0.18, rate: 2.4, jet: 0.9 };
     // same knobs, same units as the WebGL solver
     this.physics = {
-      rise: 0.34, buoyancy: 10.0, foamLife: 2.5, swirl: 0.015, aeration: 4.0,
-      caustics: 1.6, chop: 1.5, drag: 3.45, blast: 0.3, ring: 3.0,
+      rise: 0.34, buoyancy: 12.2, foamLife: 2.5, swirl: 0.14, aeration: 7.45,
+      caustics: 2.45, chop: 2.9, drag: 10.0, blast: 0.25, ring: 4.45,
     };
     this.N = N;
     this.jacobi = jacobi + (jacobi % 2); // even, so pressure ends in prs0
@@ -76,6 +82,10 @@ export class Fluid3D {
       paddleRotY: uniform(new THREE.Vector3(0, 1, 0)),
       paddleRotZ: uniform(new THREE.Vector3(0, 0, 1)),
       barrelCount: uniform(0),
+      emitPos: uniform(new THREE.Vector3()),  // diffuser mouth, world
+      emitR: uniform(0.18),                   // world radius of the mouth
+      emitRate: uniform(0),                   // foam per second at the centre
+      emitJet: uniform(0),                    // upward push, voxels/s^2
       burstPos: uniform(new THREE.Vector3()),
       burstAmt: uniform(0),
       burstUp: uniform(0),
@@ -185,6 +195,13 @@ export class Fluid3D {
       // buoyancy fades near the waterline, so plumes spread instead of piling up
       const lift = float(1).sub(smoothstep(u.surfaceY.sub(0.07), u.surfaceY, wp.y));
       vel.y.addAssign(u.buoyancy.mul(foam.clamp(0, 2.5)).mul(lift).mul(u.dt));
+
+      // The diffuser's own updraught — buoyancy on the foam does most of the
+      // work, this is the momentum the bubbles carry off the nozzle.
+      If(u.emitJet.greaterThan(0), () => {
+        const dpe = wp.sub(u.emitPos).div(u.emitR.max(1e-3));
+        vel.y.addAssign(u.emitJet.mul(dpe.dot(dpe).negate().exp()).mul(u.dt));
+      });
 
       If(u.paddleOn.greaterThan(0.5), () => {
         const d = sdBox(toPaddleLocal(wp.sub(u.paddlePos)), u.paddleHalf);
@@ -392,6 +409,19 @@ export class Fluid3D {
         const w = dp.dot(dp).div(u.burstR.mul(u.burstR)).negate().exp();
         foam.addAssign(w.mul(u.burstFoam).mul(noise3(wp.mul(12).add(u.time)).mul(0.8).add(0.6)));
       });
+
+      // A diffuser on the floor: a steady stream, so it is a rate and
+      // integrates with dt. The noise is coarse across the mouth and drifts,
+      // which breaks the plume into separate strings of bubbles rather than
+      // one solid post.
+      If(u.emitRate.greaterThan(0), () => {
+        const dp = wp.sub(u.emitPos).div(u.emitR.max(1e-3));
+        const w = dp.dot(dp).negate().exp();
+        const g = noise3(wp.mul(vec3(21, 6, 21))
+          .add(vec3(u.time.mul(1.7), u.time.mul(0.9), u.time.mul(1.3))))
+          .mul(1.3).add(0.35);
+        foam.addAssign(w.mul(u.emitRate).mul(g).mul(u.dt));
+      });
       // bubbles that reach the waterline pop; what survives rafts underneath
       foam.mulAssign(float(1).sub(smoothstep(u.surfaceY.sub(0.008), u.surfaceY.add(0.05), wp.y)));
       If(wp.abs().greaterThan(vec3(u.tank)).any(), () => { foam.assign(float(0)); });
@@ -505,6 +535,16 @@ export class Fluid3D {
     for (let i = 0; i < nb; i++) {
       this.barrelPosArr[i].set(bs[i].pos.x, bs[i].pos.y, bs[i].pos.z, bs[i].radius);
       this.barrelVelArr[i].set(bs[i].vel.x, bs[i].vel.y, bs[i].vel.z, 0);
+    }
+    const em = this.emitter;
+    if (em && em.on) {
+      u.emitPos.value.set(em.fx * this.tank, -this.tank + 0.06, em.fz * this.tank);
+      u.emitR.value = em.radius;
+      u.emitRate.value = em.rate;
+      u.emitJet.value = em.jet * voxPerWorld;
+    } else {
+      u.emitRate.value = 0;
+      u.emitJet.value = 0;
     }
     if (this.burst) {
       u.burstPos.value.copy(this.burst.pos);

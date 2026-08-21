@@ -15,18 +15,24 @@ export class Fluid {
     this.surfaceY = surfaceY;
     // tank half-extent inside the [-1,1] grid; live, so the panel can resize it
     this.tank = tank;
+    // A diffuser sitting on the floor. Off until asked for; the mouth is held
+    // just clear of the wall so its plume starts in water, not inside the
+    // boundary where the projection would immediately cancel it.
+    // fx/fz are fractions of the way to the wall, so it keeps its place if
+    // the tank is resized under it
+    this.emitter = { on: false, fx: 0, fz: 0, radius: 0.18, rate: 2.4, jet: 0.9 };
     // Tunable physics, in world units. main.js hands these to the sliders.
     this.physics = {
       rise: 0.34,      // bubble slip through the water, world/s
-      buoyancy: 10.0,  // lift of aerated water, world/s^2 per unit foam
+      buoyancy: 12.2,  // lift of aerated water, world/s^2 per unit foam
       foamLife: 2.5,   // e-folding time of the bubble field, seconds
-      swirl: 0.015,    // vorticity confinement
-      aeration: 4.0,   // foam injected per unit of churn
-      caustics: 1.6,
-      chop: 1.5,
-      drag: 3.45,      // velocity damping, 1/s
-      blast: 0.3,      // explosion strength
-      ring: 3.0,       // vortex-ring circulation seeded by a blast
+      swirl: 0.14,     // vorticity confinement
+      aeration: 7.45,  // foam injected per unit of churn
+      caustics: 2.45,
+      chop: 2.9,
+      drag: 10.0,      // velocity damping, 1/s
+      blast: 0.25,     // explosion strength
+      ring: 4.45,      // vortex-ring circulation seeded by a blast
     };
     this.renderer = renderer;
     this.N = N;
@@ -108,6 +114,9 @@ export class Fluid {
       uBurstR: { value: 0.18 },
       uBurstRing: { value: 0 },
       uBurstRingR: { value: 0.3 },
+      uEmitPos: { value: new THREE.Vector3() },
+      uEmitR: { value: 0.18 },
+      uEmitJet: { value: 0 },
       uSurfaceY: { value: surfaceY }, uTank: { value: tank },
     });
     this.mInject = mat(INJECT_FRAG, {
@@ -126,6 +135,9 @@ export class Fluid {
       uBurstPos: { value: new THREE.Vector3() },
       uBurstFoam: { value: 0 },
       uBurstR: { value: 0.18 },
+      uEmitPos: { value: new THREE.Vector3() },
+      uEmitR: { value: 0.18 },
+      uEmitRate: { value: 0 },
       uSurfaceY: { value: surfaceY }, uTank: { value: tank },
     });
     this.mMMAdvect = mat(MM_ADVECT_FRAG, {
@@ -236,6 +248,14 @@ export class Fluid {
       fu.uBurstUp.value = 0;
       fu.uBurstRing.value = 0;
     }
+    const em = this.emitter;
+    if (em && em.on) {
+      fu.uEmitPos.value.set(em.fx * this.tank, -this.tank + 0.06, em.fz * this.tank);
+      fu.uEmitR.value = em.radius;
+      fu.uEmitJet.value = em.jet * voxPerWorld;
+    } else {
+      fu.uEmitJet.value = 0;
+    }
     this.pass(this.mForces, vel[1]);
     vel.reverse();
 
@@ -307,6 +327,13 @@ export class Fluid {
       this.burst = null;
     } else {
       iu.uBurstFoam.value = 0;
+    }
+    if (em && em.on) {
+      iu.uEmitPos.value.set(em.fx * this.tank, -this.tank + 0.06, em.fz * this.tank);
+      iu.uEmitR.value = em.radius;
+      iu.uEmitRate.value = em.rate;
+    } else {
+      iu.uEmitRate.value = 0;
     }
     this.pass(this.mInject, foam[1]);
     foam.reverse();
