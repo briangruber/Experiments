@@ -656,17 +656,21 @@ float waveH(vec2 xz) {
 // at exactly the grazing angles that matter most here, where near crests stand
 // in front of far troughs and the waterline gets its ragged silhouette.
 float surfaceT(vec3 ro, vec3 rd, float t0, float t1, float flatT) {
-  const float A = 0.17;   // bound on |waveH| across the chop and ripple ranges
+  // Bound on |waveH|: the wave sum can reach 0.0305 per unit of chop, and an
+  // impact ring another 0.065. Deriving it rather than fixing it at the worst
+  // case keeps the steps below fine enough to resolve the crossing — a loose
+  // band spends most of them above the water.
+  float A = 0.0305 * uChop + 0.07;
   float ia = (uSurfaceY + A - ro.y) / rd.y;
   float ib = (uSurfaceY - A - ro.y) / rd.y;
   float ta = max(min(ia, ib), t0);
   float tb = min(max(ia, ib), t1);
   if (tb <= ta) return flatT;
-  float dt = (tb - ta) / 20.0;
+  float dt = (tb - ta) / 24.0;
   float tp = ta;
   vec3 q = ro + rd * ta;
   float fp = q.y - uSurfaceY - waveH(q.xz);
-  for (int i = 1; i <= 20; i++) {
+  for (int i = 1; i <= 24; i++) {
     float t = ta + dt * float(i);
     q = ro + rd * t;
     float f = q.y - uSurfaceY - waveH(q.xz);
@@ -795,7 +799,16 @@ void main() {
   }
 
   if (t1 <= t0) {
-    outLight = vec4(surfaceL, 1.0);
+    // A reflected ray can leave the tank immediately — a crest right against a
+    // wall — and this early out used to skip the mirror's handling entirely,
+    // letting the black room through as a scatter of holes along the waterline.
+    if (surfMirror > 0.0) {
+      outLight = vec4(mix(uAmbientDeep, uAmbientTop, 0.35) * 1.6 * surfMirror
+                      + surfaceL, 1.0);
+      outTrans = vec4(vec3(1.0 - surfMirror), 1.0);
+    } else {
+      outLight = vec4(surfaceL, 1.0);
+    }
     return;
   }
 

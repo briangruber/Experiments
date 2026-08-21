@@ -111,14 +111,17 @@ let userZoomed = false;   // once true, resizing stops re-framing the tank
 // narrower horizontal field than a desktop window at the same vertical
 // fov, so without this the tank is cropped off the sides.
 function fitDistance() {
-  // Contain, not cover: the whole tank in frame with room around it. Fitting
-  // the cube's BOUNDING sphere rather than its inscribed one is what keeps
-  // every corner in view at any aspect, and at any yaw the spin view swings
-  // through — the bounding sphere is the one shape a rotating cube never
-  // pokes out of.
+  // Cover, not contain: the window IS the tank, so every pixel of it should be
+  // water. Fit the frame's DIAGONAL inside the tank's INSCRIBED sphere — fit
+  // the bounding sphere, or either axis on its own, and the corners fall
+  // outside the cube's silhouette, which is where the black wedges came from
+  // on a tall phone. The 0.68 sits closer still: square on to a wall, that fit
+  // leaves both side walls and the top edge in frame, which reads as a box.
+  // Moving in pushes them past the edges. Closing in only ever adds coverage,
+  // so the corners stay safe.
   const vt = Math.tan(camera.fov * Math.PI / 360);
-  const half = Math.atan(Math.min(vt, vt * camera.aspect));
-  return tankHalf * Math.sqrt(3) / Math.sin(half);
+  const diag = Math.atan(Math.hypot(vt, vt * camera.aspect));
+  return 0.68 * tankHalf / Math.sin(diag);
 }
 function updateCamera() {
   orbit.el = Math.max(-0.55, Math.min(1.25, orbit.el));
@@ -138,10 +141,15 @@ function updateCamera() {
     Math.min(0.15 * tankHalf, SURFACE_Y - halfV * 0.88));
   const wide = Math.min(1, Math.max(0, (halfV / tankHalf - 0.7) / 0.5));
   const aim = near * (1 - wide);
+  // `wide` is already the test the wireframe wants: it is exactly the point
+  // where the frame outgrows the tank. Fade it in rather than popping it on.
+  edges.visible = wide > 0.002;
+  edges.material.opacity = 0.14 * wide;
   camera.lookAt(0, aim, 0);
   camera.updateMatrixWorld();
 }
-updateCamera();
+// Positioned at the end of the module rather than here: it now sets the
+// wireframe's visibility, and the wireframe does not exist yet.
 
 // ----------------------------------------------------------------- scenes --
 
@@ -203,6 +211,9 @@ const barrels = Array.from({ length: MAX_BARRELS }, () => {
 for (const b of barrels) b.desc.vel = b.vel;
 
 const edgeScene = new THREE.Scene();
+// Drawn only once the camera has backed far enough out that the tank reads as
+// an object. At the default framing the window IS the tank, and a wireframe
+// across it announces the box the whole look is trying not to be.
 const edges = new THREE.LineSegments(
   new THREE.EdgesGeometry(new THREE.BoxGeometry(2, 2, 2)),
   new THREE.LineBasicMaterial({
