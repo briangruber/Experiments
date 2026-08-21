@@ -39,11 +39,14 @@ const readAccessor = (i) => {
   const a = json.accessors[i];
   const v = json.bufferViews[a.bufferView];
   const start = (v.byteOffset || 0) + (a.byteOffset || 0);
-  const comps = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 }[a.type];
+  const comps = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT4: 16 }[a.type];
   const n = a.count * comps;
   if (a.componentType === 5126) return new Float32Array(bin.buffer, bin.byteOffset + start, n);
   if (a.componentType === 5125) return new Uint32Array(bin.buffer, bin.byteOffset + start, n);
   if (a.componentType === 5123) return new Uint16Array(bin.buffer, bin.byteOffset + start, n);
+  // joint indices commonly arrive as unsigned bytes
+  if (a.componentType === 5121) return new Uint8Array(bin.buffer, bin.byteOffset + start, n);
+  if (a.componentType === 5120) return new Int8Array(bin.buffer, bin.byteOffset + start, n);
   throw new Error('unhandled componentType ' + a.componentType);
 };
 
@@ -101,6 +104,63 @@ const qidx = new Uint16Array(idx);
 
 const b64 = (ta) => Buffer.from(ta.buffer, ta.byteOffset, ta.byteLength).toString('base64');
 
+// --- rig -------------------------------------------------------------------
+// glTF allows more than four influences per vertex (this model ships JOINTS_0
+// and JOINTS_1). three carries exactly four, so the four heaviest are kept and
+// renormalised; the ones dropped here are small enough that the silhouette does
+// not move, and carrying eight would mean a custom skinning shader for one fish.
+// --rig extracts the skeleton too. Off by default: the extraction below is
+// believed correct but the consuming side is not finished — a mesh built from
+// it deforms wrongly even in bind pose — so shipping it would only add weight
+// to the asset for something nothing reads.
+let rig = null;
+if (process.argv.includes('--rig')
+    && json.skins && json.skins.length && prim.attributes.JOINTS_0 !== undefined) {
+  const skin = json.skins[0];
+  const j0 = readAccessor(prim.attributes.JOINTS_0);
+  const w0 = readAccessor(prim.attributes.WEIGHTS_0);
+  const j1 = prim.attributes.JOINTS_1 !== undefined ? readAccessor(prim.attributes.JOINTS_1) : null;
+  const w1 = prim.attributes.WEIGHTS_1 !== undefined ? readAccessor(prim.attributes.WEIGHTS_1) : null;
+  const si = new Uint16Array(vertexCount * 4);
+  const sw = new Float32Array(vertexCount * 4);
+  for (let v = 0; v < vertexCount; v++) {
+    const all = [];
+    for (let k = 0; k < 4; k++) all.push([j0[v * 4 + k], w0[v * 4 + k]]);
+    if (j1) for (let k = 0; k < 4; k++) all.push([j1[v * 4 + k], w1[v * 4 + k]]);
+    all.sort((a, b) => b[1] - a[1]);
+    let sum = 0;
+    for (let k = 0; k < 4; k++) sum += all[k][1];
+    sum = sum || 1;
+    for (let k = 0; k < 4; k++) { si[v * 4 + k] = all[k][0]; sw[v * 4 + k] = all[k][1] / sum; }
+  }
+  const parent = {};
+  json.nodes.forEach((n, i) => (n.children || []).forEach((c) => { parent[c] = i; }));
+  const order = new Map(skin.joints.map((n, i) => [n, i]));
+  // The real bind matrices, not the ones three would derive: deriving assumes
+  // the rig as authored IS the bind pose, which is only true if nothing has
+  // been moved since it was skinned.
+  const ibm = readAccessor(skin.inverseBindMatrices);
+  rig = {
+    // local TRS per joint, plus the parent's index WITHIN the joint list
+    // (-1 for a root), which is all three needs to rebuild the hierarchy
+    joints: skin.joints.map((n, i) => {
+      const node = json.nodes[n];
+      const p = parent[n];
+      return {
+        name: node.name || `joint${i}`,
+        parent: order.has(p) ? order.get(p) : -1,
+        t: node.translation || [0, 0, 0],
+        r: node.rotation || [0, 0, 0, 1],
+        s: node.scale || [1, 1, 1],
+      };
+    }),
+    inverseBind: b64(Float32Array.from(ibm)),
+    skinIndex: b64(si),
+    skinWeight: b64(Uint16Array.from(sw, (v) => Math.round(v * 65535))),
+  };
+}
+
+
 // base colour only, downscaled in a real browser (no image libraries here)
 const texIdx = json.materials[0].pbrMetallicRoughness.baseColorTexture.index;
 const imgIdx = json.textures[texIdx].source;
@@ -126,11 +186,17 @@ export const ${CONST} = {
   // half extents in the asset's own units: positions are centred and scaled so
   // the largest of the three is exactly 1
   half: [${half.map((v) => v.toFixed(4)).join(', ')}],
+  // What the normalisation did, so a rigged model can undo it: the bind
+  // matrices are in the file's own space and stop matching the vertices the
+  // moment those are centred and rescaled.
+  posScale: ${scale},
+  posOffset: [${mid.join(', ')}],
   // int16 positions
   positions: '${b64(qpos)}',
   normals: '${b64(qnrm)}',   // int8
   uvs: '${b64(quv)}',        // uint16
   indices: '${b64(qidx)}',   // uint16
+  rig: ${rig ? JSON.stringify(rig) : 'null'},
   texture: '${dataUrl}',
 };
 `;
