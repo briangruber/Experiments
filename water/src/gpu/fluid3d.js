@@ -379,7 +379,10 @@ export class Fluid3D {
           const h = pa.dot(ba).div(ba.dot(ba)).clamp(0, 1);
           const dseg = pa.sub(ba.mul(h)).length().sub(0.055);
           const w = float(1).sub(smoothstep(0.0, 0.10, dseg)).mul(float(1).sub(h.mul(0.55)));
-          const churn = noise3(wp.mul(17).add(vec3(0, u.time.mul(2.7), u.time.mul(1.9))))
+          // Fine ACROSS the wake and stretched ALONG it — see the WebGL
+          // shader for why an isotropic churn banded the trail into discs.
+          const churn = noise3(wp.mul(vec3(26, 7, 26))
+            .add(vec3(u.time.mul(1.9), 0, u.time.mul(2.3))))
             .mul(1.3).add(0.4);
           foam.addAssign(w.mul(u.foamGain).mul(bs.min(3)).mul(churn).mul(1.4).mul(u.dt));
         });

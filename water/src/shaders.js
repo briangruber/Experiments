@@ -280,7 +280,16 @@ void main() {
       float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
       float dseg = length(pa - ba * h) - 0.055;
       float w = (1.0 - smoothstep(0.0, 0.10, dseg)) * (1.0 - 0.55 * h);
-      float churn = 0.4 + 1.3 * noise3(wp * 17.0 + vec3(0.0, uTime * 2.7, uTime * 1.9));
+      // Fine ACROSS the wake and stretched ALONG it, so entrainment reads as
+      // streaks trailing the barrel. Isotropic noise at this frequency spans
+      // barely two cells across a wake this narrow, so at any one height its
+      // value was near enough uniform across the column — and a barrel
+      // sinking at a steady rate stamped that height-varying value down the
+      // trail as a ladder of evenly spaced discs. Barrels always fall, so the
+      // axis to stretch is y; drifting the pattern sideways rather than along
+      // the fall keeps the deposit's phase from sliding down the trail too.
+      float churn = 0.4 + 1.3 * noise3(wp * vec3(26.0, 7.0, 26.0)
+                                     + vec3(uTime * 1.9, 0.0, uTime * 2.3));
       foam += w * uFoamGain * min(bs, 3.0) * churn * 1.4 * uDt;
     }
   }
