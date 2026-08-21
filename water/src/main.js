@@ -459,6 +459,13 @@ canvas.addEventListener('wheel', (e) => {
 const spinBtn = document.getElementById('spin-btn');
 const spinPaddleBtn = document.getElementById('spin-paddle-btn');
 const stirBtn = document.getElementById('stir-btn');
+// Stopping the water means stopping what is driving it too: the paddle
+// re-forces the flow within a single frame, so zeroing velocity on its own
+// is undone before it is ever seen.
+document.getElementById('calm-btn').addEventListener('click', () => {
+  setStir(false);
+  fluid.still();
+});
 function syncButtons() {
   spinBtn.classList.toggle('active', params.autoSpin);
   spinBtn.setAttribute('aria-pressed', String(params.autoSpin));

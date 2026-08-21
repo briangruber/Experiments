@@ -18,11 +18,12 @@ export const PHYSICS_KNOBS = [
   { key: 'aeration', label: 'aeration', min: 0, max: 4, step: 0.05,
     desc: 'How much foam the paddle and barrels inject per unit of churn. '
         + 'Turn it up for a milkier tank, down for a few sparse strands.' },
-  { key: 'swirl', label: 'swirl · vorticity', min: 0, max: 0.3, step: 0.005,
+  { key: 'swirl', label: 'vorticity', min: 0, max: 0.3, step: 0.005,
     desc: 'Vorticity confinement: it puts back the fine curl the solver damps '
-        + 'away numerically, so it sharpens eddies that are already there. It '
-        + 'does NOT drive the stirring — to stop the motion use the auto-stir '
-        + 'button or hide the paddle.' },
+        + 'away numerically, so it sharpens eddies that already exist. It does '
+        + 'NOT create the motion, so turning it to zero makes the flow smoother '
+        + 'rather than still — what keeps a tank churning is the buoyancy of the '
+        + 'foam already in it. Use "calm water" to stop the flow.' },
   { key: 'drag', label: 'water drag', min: 0, max: 10, step: 0.05,
     desc: 'Velocity damping — the stand-in for viscosity. High values make the '
         + 'water syrupy and kill motion quickly after the paddle stops.' },

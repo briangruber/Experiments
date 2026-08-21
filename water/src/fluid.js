@@ -319,6 +319,24 @@ export class Fluid {
     this.renderer.setRenderTarget(null);
   }
 
+  // Stop the water without emptying the tank: zero the velocity and the
+  // pressure state, leave the foam where it is. Foam is buoyant, so it is what
+  // keeps a tank moving long after whatever stirred it has gone — killing the
+  // velocity alone lets the bubbles settle instead of driving a new plume.
+  still() {
+    const r = this.renderer;
+    const old = new THREE.Color();
+    r.getClearColor(old);
+    const oldAlpha = r.getClearAlpha();
+    r.setClearColor(0x000000, 0);
+    for (const t of [...this.vel, ...this.prs, this.div, this.curl]) {
+      r.setRenderTarget(t);
+      r.clear();
+    }
+    r.setClearColor(old, oldAlpha);
+    r.setRenderTarget(null);
+  }
+
   clear() {
     const r = this.renderer;
     const targets = [...this.vel, ...this.foam, ...this.prs, this.div, this.curl];

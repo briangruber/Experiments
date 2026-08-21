@@ -21,6 +21,9 @@
     <button title="Turn the paddle end-over-end about a horizontal axle, like a paddle-boat wheel, driving a directional current (R)." id="spin-paddle-btn" type="button" aria-pressed="false">spin paddle</button>
     <button title="Take the paddle out of the tank entirely, leaving barrels as the only thing stirring the water (X)." id="hide-paddle-btn" type="button" aria-pressed="false">hide paddle</button>
   </div>
+  <div class="row">
+    <button title="Stop the water dead. Zeroes the flow and switches off auto-stir, since the paddle would otherwise re-force it within a frame. The bubbles are kept and settle on their own — the tank is not emptied; C does that." id="calm-btn" type="button">calm water</button>
+  </div>
   <button title="Let the paddle wander the tank on its own. This is what makes the water start moving by itself on load — turn it off and the tank only moves when you drag the paddle or drop something." id="stir-btn" type="button" aria-pressed="true">auto-stir</button>
   <label id="spin-speed" class="slider">
     <span>paddle speed <b id="spin-speed-val">3.0</b></span>

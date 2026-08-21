@@ -34,8 +34,15 @@ wandering is why the water starts moving a second or two after load with nobody
 touching it — it is the paddle, not anything in the physics panel. In
 particular the `swirl` knob is vorticity confinement: it sharpens curl the
 solver already has, and turning it to zero makes the flow smoother without
-stopping the stirring. To stop the motion, switch off `auto-stir` or hide the
-paddle.
+stopping the stirring. To stop the motion, use `calm water`.
+
+`calm water` is worth explaining, because "why won't it stop moving" has an
+unobvious answer: foam is buoyant, so a tank goes on churning under its own
+steam long after whatever stirred it has gone — the bubbles keep lifting the
+water around them. So the button zeroes the velocity field *and* switches off
+auto-stir, since the paddle re-forces the flow within a single frame and
+zeroing velocity alone is undone before it is ever seen. The bubbles are kept
+and settle on their own; `C` is what empties the tank.
 
 Every control carries a hover tooltip explaining what it does, and `get the
 code` prints the three.js that reproduces the settings currently on screen,
@@ -50,7 +57,7 @@ the water behaves; all of them are live and take effect on the next step:
 | buoyancy | how strongly aerated water lifts the fluid around it, which is what drives the plume. |
 | bubble life | e-folding time of the bubble field. Bubbles mostly leave by popping at the surface, so this can be long. |
 | aeration | foam injected per unit of churn by the paddle and barrels. |
-| swirl | vorticity confinement — how much fine curl the solver puts back after numerical damping. |
+| vorticity | vorticity confinement — how much fine curl the solver puts back after numerical damping. It sharpens eddies that already exist rather than creating them, so turning it to zero makes the flow smoother, not still. |
 | water drag | velocity damping, the stand-in for viscosity. |
 | caustics | strength of the light filaments. The field is median-normalised, so this redistributes light rather than adding exposure. |
 | blast power | scales an explosion's impulse, foam and ring as it is armed, so the slider reaches explosions already queued. |

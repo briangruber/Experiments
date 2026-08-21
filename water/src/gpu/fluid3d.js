@@ -451,6 +451,8 @@ export class Fluid3D {
     }));
     this.clearKernels = [vel0, vel1, foam0, foam1, prs0, prs1, div, curl].map((t) => clearK(t, 0));
     this.clearKernels.push(clearK(light, 1));
+    // velocity and pressure only — see still() below
+    this.stillKernels = [vel0, vel1, prs0, prs1, div, curl].map((t) => clearK(t, 0));
 
     // one-shot inputs, same interface as the WebGL Fluid class
     this.burst = null;
@@ -522,6 +524,13 @@ export class Fluid3D {
 
   clear() {
     for (const k of this.clearKernels) this.renderer.compute(k);
+  }
+
+  // Stop the water without emptying the tank: foam is buoyant, so it is what
+  // keeps a tank moving after the paddle has gone. Killing the velocity alone
+  // lets the bubbles settle instead of driving a fresh plume.
+  still() {
+    for (const k of this.stillKernels) this.renderer.compute(k);
   }
 
   get foamTexture() { return this.foam0; }
