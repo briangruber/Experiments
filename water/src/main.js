@@ -370,6 +370,8 @@ const paddleTarget = paddle.position.clone();
 const paddleVel = new THREE.Vector3();
 let lastInteract = -10;
 let stirPhase = Math.random() * 20;
+// advanced only while stirring, so pausing and resuming is continuous
+let stirClock = 0;
 
 function pointerRay(e) {
   const r = canvas.getBoundingClientRect();
@@ -467,9 +469,10 @@ function endPointer(e, cancelled) {
     if (t) {
       const p = ray.origin.clone().addScaledVector(ray.direction, t[0] + (t[1] - t[0]) * 0.35);
       // a tap sends a barrel down to that spot, splashing in on the way, and
-      // it detonates when it gets there
+      // it detonates when it gets there. It deliberately does NOT touch
+      // lastInteract: that pauses the auto-stir, and it exists for dragging the
+      // paddle, not for anything else you do to the tank.
       dropBarrel(p.clampScalar(-0.78 * tankHalf, 0.78 * tankHalf));
-      lastInteract = clock.elapsedTime;
     }
   }
   drag.mode = null;
@@ -745,7 +748,8 @@ function updatePaddle(dt, t) {
   }
   const stirring = params.stir && (t - lastInteract > 4 || lastInteract < 0);
   if (stirring && drag.mode !== 'paddle') {
-    const s = stirPhase + t * params.stirSpeed;
+    stirClock += dt * params.stirSpeed;
+    const s = stirPhase + stirClock;
     paddleTarget.set(
       0.55 * Math.sin(0.62 * s + 1.0),
       -0.12 + 0.42 * Math.sin(0.47 * s + 2.1),
