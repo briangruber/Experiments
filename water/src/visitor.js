@@ -5,10 +5,11 @@
 // tank, and goes back into it. Typing `fish` brings it out on demand, which is
 // how anyone who suspects it can confirm it.
 //
-// It is a rigid mesh with no skeleton, so the swimming is faked: yaw sway is
-// the tail beat, roll leans it into the turn, and a slow bob carries the whole
-// body. Read together at a distance through this much fog, that is enough —
-// what sells it is that it is barely visible, not that it articulates.
+// It arrives rigged, so the swimming is the rig's: a travelling wave down the
+// tail, driven by sines, with the body's own sway and lean phase-locked to the
+// same beat. That last part is what stops it reading as two animations played
+// over each other — in a real fish the beat IS the propulsion, so the body
+// sways because the tail beat threw it, and both have to come off one clock.
 //
 // Both backends drive this the same way; only the mesh construction differs, so
 // they hand one in.
@@ -16,8 +17,41 @@
 const CROSS = 22;        // seconds end to end: slow enough to be uncanny
 const IDLE_MIN = 150;    // earliest it will come out on its own, seconds
 const IDLE_MAX = 420;    // and the latest
+const BEAT = 3.4;        // rad/s, about half a tail beat a second — a big fish
+const LAG = 0.85;        // phase each joint trails the one ahead of it
 
-export function createVisitor(THREE, mesh, tankHalf) {
+// The rig, by index into the baked joint list. Worked out from the joints'
+// world positions and their world AXES, not their names — UniRig calls them
+// Bone_000..013 in no useful order. The fish faces +Z; 10 -> 11 -> 12 -> 13 is
+// the chain running back to the tail tip at z = -0.92.
+//
+// Every bone here points along its own local +Y, which is the convention and
+// also the trap: a sideways beat is not rotation.y, that is the bone twisting
+// about its own length. For the tail chain local Z comes out as world up, so
+// the beat is about local Z. The jaw pair is the other case — bone 4 runs
+// forward and DOWN, bone 6 forward and up, and both keep local X on world X,
+// so the mouth opens by turning them about local X in opposite directions.
+const TAIL = [10, 11, 12, 13];
+const TAIL_AMP = [0.06, 0.11, 0.17, 0.24];
+const DORSAL = [8, 9];
+const JAW = [[4, 1], [6, -1]];   // bone, and which way it swings open
+
+// `model` is { mesh, bones, sync } from riggedModel.
+export function createVisitor(THREE, model, tankHalf) {
+  const mesh = model.mesh;
+  const bones = model.bones;
+  // The pose out of the file, kept so every beat COMPOSES with it. Writing
+  // bone.rotation.z would instead replace the z term of the bind rotation's
+  // own euler, which throws the joint off its rest pose before it has bent
+  // anywhere.
+  const rest = bones ? bones.map((b) => b.quaternion.clone()) : null;
+  const AX_Z = bones ? new THREE.Vector3(0, 0, 1) : null;
+  const AX_X = bones ? new THREE.Vector3(1, 0, 0) : null;
+  const spin = bones ? new THREE.Quaternion() : null;
+  const bend = (i, axis, angle) => {
+    const b = bones[i];
+    if (b) b.quaternion.copy(rest[i]).multiply(spin.setFromAxisAngle(axis, angle));
+  };
   const state = {
     mesh,
     t: 0,                       // 0..1 across the tank, or -1 when away
@@ -59,26 +93,52 @@ export function createVisitor(THREE, mesh, tankHalf) {
     // rather than as something glimpsed.
     const u = state.t;
     const s = Math.sin(Math.PI * u);            // 0 at both ends, 1 at the apex
+    // One clock for the whole animal, in seconds rather than in crossing
+    // fraction so the beat does not change rate if CROSS is retuned.
+    const beat = u * CROSS * BEAT + state.phase;
+
     // Stays INSIDE the tank. Starting outside it was the whole reason it
     // seemed to blink into existence: beyond the glass there is no water in
     // front of it to fog it and nothing behind it but black, so it arrived as
     // a crisp lit object on an empty background.
     const z = (-0.95 + 0.85 * s) * h;
     const drift = (u - 0.5) * 0.8 * h * state.dir;
-    const sway = Math.sin(u * 9.0 + state.phase);
-    const x = state.lane + drift + sway * 0.13 * h;
-    const y = state.depth + Math.sin(u * 5.5 + state.phase) * 0.05 * h;
+    // Small now: the tail carries the beat, so the body only needs the recoil
+    // it would actually get. At the old amplitude the whole fish slalomed.
+    const x = state.lane + drift + Math.sin(beat) * 0.035 * h;
+    const y = state.depth + Math.sin(beat * 0.5) * 0.03 * h;
     mesh.position.set(x, y, z);
 
-    // Heading from the path's own tangent, so the turn at the apex comes out
-    // as an arc rather than a snap. The tail beat is added on top of it.
+    // A travelling wave down the tail, which is what a fish actually does: each
+    // joint lags the one ahead of it and swings further, so the bend moves
+    // BACKWARDS along the body while the body moves forwards. One phase for
+    // every joint would wag it like a metronome.
+    if (bones) {
+      for (let i = 0; i < TAIL.length; i++) {
+        bend(TAIL[i], AX_Z, Math.sin(beat - (i + 1) * LAG) * TAIL_AMP[i]);
+      }
+      // the dorsal fin trails the wave, further behind again
+      for (const j of DORSAL) bend(j, AX_Z, Math.sin(beat - 2.2) * 0.05);
+      // and the jaw works slowly and off the beat, so it never looks like one
+      // mechanism driving both. Cubed, because a fish's mouth is shut most of
+      // the time and then opens.
+      const gape = Math.max(0, Math.sin(u * CROSS * 0.9 + state.phase * 2.3)) ** 3;
+      for (const [j, way] of JAW) bend(j, AX_X, way * gape * 0.13);
+      model.sync();
+    }
+
+    // Heading from the path's own tangent, so the turn at the apex comes out as
+    // an arc rather than a snap — plus the yaw the beat itself puts into the
+    // head, and the roll a quarter cycle behind it, which is how a fish leans
+    // into its own stroke. The sway is deliberately NOT differentiated into the
+    // heading any more; at this beat rate its derivative swamps the tangent and
+    // the fish shakes its head instead of swimming.
     const dz = 0.85 * Math.PI * Math.cos(Math.PI * u);
-    const dx = 0.8 * state.dir + Math.cos(u * 9.0 + state.phase) * 9.0 * 0.13;
-    const beat = Math.cos(u * 9.0 + state.phase);
+    const dx = 0.8 * state.dir;
     mesh.rotation.set(
-      Math.sin(u * 5.5 + state.phase) * 0.09,
-      Math.atan2(dx, dz) + beat * 0.16,
-      -beat * 0.14);
+      Math.sin(beat * 0.5) * 0.05,
+      Math.atan2(dx, dz) + Math.sin(beat) * 0.06,
+      -Math.cos(beat) * 0.09);
     // Dissolve in and out. The volume does most of the work — it is deepest
     // in the water at both ends — but the last of it has to be faded or the
     // mesh still switches off mid-swim.

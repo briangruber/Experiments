@@ -1110,6 +1110,43 @@ void main() {
   gl_Position = projectionMatrix * viewMatrix * wp;
 }`;
 
+// The fish. Same shading as the barrel; the vertex stage is its own because
+// it skins, and because the barrel has no business paying for a bone lookup.
+//
+// Three rows per bone rather than a mat4 array: the affine part is all a rigid
+// deform needs, and it is the one uniform shape the WebGPU side agrees on too,
+// which keeps the two implementations reading the same.
+export const FISH_VERT = /* glsl */ `
+varying vec3 vN;
+varying vec3 vWp;
+varying vec2 vUv;
+attribute vec4 skinIndex;
+attribute vec4 skinWeight;
+uniform vec4 uBones[42];        // 14 bones x 3 rows
+
+mat4 boneMat(int i) {
+  vec4 a = uBones[i * 3], b = uBones[i * 3 + 1], c = uBones[i * 3 + 2];
+  // rows back to a column-major matrix
+  return mat4(a.x, b.x, c.x, 0.0,
+              a.y, b.y, c.y, 0.0,
+              a.z, b.z, c.z, 0.0,
+              a.w, b.w, c.w, 1.0);
+}
+
+void main() {
+  mat4 skin = boneMat(int(skinIndex.x)) * skinWeight.x
+            + boneMat(int(skinIndex.y)) * skinWeight.y
+            + boneMat(int(skinIndex.z)) * skinWeight.z
+            + boneMat(int(skinIndex.w)) * skinWeight.w;
+  vec3 sp = (skin * vec4(position, 1.0)).xyz;
+  vec3 sn = mat3(skin) * normal;
+  vN = normalize(mat3(modelMatrix) * sn);
+  vec4 wp = modelMatrix * vec4(sp, 1.0);
+  vWp = wp.xyz;
+  vUv = uv;
+  gl_Position = projectionMatrix * viewMatrix * wp;
+}`;
+
 export const BARREL_FRAG = /* glsl */ `
 varying vec3 vN;
 varying vec3 vWp;

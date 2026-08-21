@@ -16,11 +16,11 @@ import {
 import {
   FS_TRI_VERT, RAYMARCH_VERT, RAYMARCH_FRAG, COMPOSITE_FRAG,
   BRIGHT_FRAG, BLUR_FRAG, POST_FRAG, PADDLE_VERT, PADDLE_FRAG, PROBE_FRAG,
-  BARREL_VERT, BARREL_FRAG,
+  BARREL_VERT, BARREL_FRAG, FISH_VERT,
 } from './shaders.js';
 import {
   barrelGeometry, barrelTexture, BARREL_HALF,
-  diverGeometry, diverTexture, DIVER_HALF,
+  diverModel, diverTexture, DIVER_HALF,
 } from './model.js';
 import { createVisitor } from './visitor.js';
 
@@ -224,19 +224,22 @@ for (const b of barrels) b.desc.vel = b.vel;
 // dissolved. `DIVER_HALF` is unused beyond documenting its proportions; one
 // scale sets its size because the bake normalised the longest axis to 1.
 const diverScale = 0.30;
-const diver = new THREE.Mesh(diverGeometry(THREE), new THREE.ShaderMaterial({
-  vertexShader: BARREL_VERT,
+const diverParts = diverModel(THREE, new THREE.ShaderMaterial({
+  vertexShader: FISH_VERT,
   fragmentShader: BARREL_FRAG,
   uniforms: {
     uSunDir: { value: sunDir },
     uMap: { value: diverTexture(THREE) },
     uFade: { value: 1 },
     uFogColor: { value: new THREE.Vector3() },
+    uBones: { value: null },
   },
 }));
+const diver = diverParts.mesh;
+diver.material.uniforms.uBones.value = diverParts.rows;
 diver.scale.setScalar(diverScale);
 opaqueScene.add(diver);
-const visitor = createVisitor(THREE, diver, tankHalf);
+const visitor = createVisitor(THREE, diverParts, tankHalf);
 
 const edgeScene = new THREE.Scene();
 // Drawn only once the camera has backed far enough out that the tank reads as
@@ -1133,7 +1136,7 @@ window.water = {
     lastInteract = clock.elapsedTime;
   },
   dropBarrel,
-visitor,   // the easter egg, exposed so a capture can step into it
+  visitor,   // the easter egg, exposed so a capture can step into it
 
   physics: fluid.physics,
   setPaddleHidden: (v) => setPaddleHidden(v),

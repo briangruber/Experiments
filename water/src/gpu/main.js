@@ -13,13 +13,14 @@ import * as THREE from '../../vendor/three.webgpu.min.js';
 
 const {
   Fn, If, Loop, Break, uniform, texture, texture3D, uv,
-  float, int, vec2, vec3, vec4, smoothstep, storage, instanceIndex, varying,
+  float, int, vec2, vec3, vec4, mat4, smoothstep, storage, instanceIndex, varying,
   normalWorld, positionWorld, cameraPosition,
+  attribute, uniformArray, positionGeometry, normalGeometry, modelWorldMatrix,
 } = THREE.TSL;
 import { Fluid3D } from './fluid3d.js';
 import {
   barrelGeometry, barrelTexture, BARREL_HALF,
-  diverGeometry, diverTexture, DIVER_HALF,
+  diverModel, diverTexture, DIVER_HALF,
 } from '../model.js';
 import { createVisitor } from '../visitor.js';
 import { initChrome } from '../chrome.js';
@@ -314,11 +315,38 @@ export async function start() {
   // see the WebGL shader.
   const diverFade = uniform(1);
   const diverFog = uniform(new THREE.Vector3());
-  const diverMat = (() => {
-    const m = new THREE.MeshBasicNodeMaterial();
+  const diverMat = new THREE.MeshBasicNodeMaterial();
+  const diverParts = diverModel(THREE, diverMat);
+  (() => {
     const map = texture(diverTexture(THREE), uv());
-    m.colorNode = Fn(() => {
-      const n = normalWorld.normalize();
+    // The same skinning the WebGL shader does, written out the same way: the
+    // three rows per bone come in as a uniform array, and the deform is the
+    // weighted sum of the four influences. Nothing here leans on three's own
+    // skinning path — see src/model.js for why both backends do it by hand.
+    const rows = uniformArray(diverParts.rows, 'vec4');
+    const sIdx = attribute('skinIndex', 'uvec4');
+    const sW = attribute('skinWeight', 'vec4');
+    const boneMat = (i) => {
+      const j = int(i).mul(3);
+      const a = rows.element(j), b = rows.element(j.add(1)), c = rows.element(j.add(2));
+      return mat4(a.x, b.x, c.x, float(0),
+                  a.y, b.y, c.y, float(0),
+                  a.z, b.z, c.z, float(0),
+                  a.w, b.w, c.w, float(1));
+    };
+    const skin = boneMat(sIdx.x).mul(sW.x)
+      .add(boneMat(sIdx.y).mul(sW.y))
+      .add(boneMat(sIdx.z).mul(sW.z))
+      .add(boneMat(sIdx.w).mul(sW.w));
+    diverMat.positionNode = skin.mul(vec4(positionGeometry, 1)).xyz;
+    // The normal has to ride the same deform, and a w of 0 drops the
+    // translation column — which is mat3(skin) without needing a cast WGSL
+    // has no constructor for. Carried across as an explicit varying because
+    // the built-in normalWorld is built from the UNSKINNED attribute.
+    const nWorld = varying(modelWorldMatrix.mul(
+      vec4(skin.mul(vec4(normalGeometry, 0)).xyz, 0)).xyz);
+    diverMat.colorNode = Fn(() => {
+      const n = nWorld.normalize();
       const v = cameraPosition.sub(positionWorld).normalize();
       const fr = float(1).sub(n.dot(v).abs()).pow(3);
       const diff = n.dot(uniform(sunDir).negate()).max(0);
@@ -326,12 +354,11 @@ export async function start() {
         .add(fr.mul(vec3(0.14, 0.28, 0.40)));
       return vec4(lerp(lit, diverFog, diverFade.clamp(0, 1)), 1);
     })();
-    return m;
   })();
-  const diver = new THREE.Mesh(diverGeometry(THREE), diverMat);
+  const diver = diverParts.mesh;
   diver.scale.setScalar(diverScale);
   opaqueScene.add(diver);
-  const visitor = createVisitor(THREE, diver, tankHalf);
+  const visitor = createVisitor(THREE, diverParts, tankHalf);
 
   // Drawn only once the camera has backed far enough out that the tank reads as
   // an object. At the default framing the window IS the tank, and a wireframe
