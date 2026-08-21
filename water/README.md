@@ -85,15 +85,39 @@ then reads `WebGPU · no compat`.
 capture (`tools/shot.mjs --gpu`), where frames are also paced to real device
 completion so readbacks can't starve behind the queue.
 
+### The `.mix()` trap
+
+`a.mix(b, t)` does **not** compile to `mix(a, b, t)` in this three.js build. The
+method form binds the receiver as mix()'s *third* argument, so it emits
+`mix(b, t, a)` — and in a trilinear fetch that makes the sampled texel the
+interpolation weight. The generated WGSL for `c(0,1,1).mix(c(1,1,1), f.x)` is:
+
+    mix( nodeVar4, vec4<f32>( nodeVar5.x ), nodeVar6 )
+    //   c(1,1,1)   the blend factor f.x     c(0,1,1)
+
+Every `sample()` extrapolated instead of interpolating, so the velocity field
+went 0 → 16 → 59840 in two steps, saturated float16, and filled with NaN. The
+tank then rendered beautifully and simulated nothing: foam was still injected,
+but with no velocity to advect it, it clung where it spawned. WebGL never had
+this because its `mix()` is hand-written GLSL.
+
+Everything in `src/gpu/` therefore uses an explicit
+`lerp(a, b, t) = a + (b - a) * t` rather than `.mix()`. If you add a `.mix()`
+back, check the generated WGSL first.
+
 ### When the WebGPU tank looks empty
 
-A WebGPU device fails quietly, and the failure mode is confusing: a rejected
-command buffer takes every compute pass in it down with it, but the *render*
-passes are in different command buffers and keep working. The tank goes on
-drawing water, glinting surface and all, at a healthy frame rate — it simply
-never simulates. So "no bubbles" is what a dead solver looks like, not a
-shading bug, and the frame rate being high is a symptom rather than reassurance.
-Two things make that legible:
+A dead solver and a tank nobody has stirred look identical on screen. Both of
+the real bugs found here presented the same way — clear water, no foam, no
+bubbles, at a *healthy* frame rate — by two unrelated mechanisms:
+
+- a rejected command buffer takes every compute pass in it down with it, while
+  the render passes, submitted separately, keep drawing; and
+- a NaN in the velocity field, which is perfectly legal and raises nothing.
+
+In both cases the water, the surface glints and the frame rate all look right
+while nothing is being simulated, so a high frame rate is a symptom to check
+rather than reassurance. Three things make that legible:
 
 - **The diagnostics banner.** Uncaptured device errors, a lost device, and a
   compute kernel that failed to initialise are printed to a red panel in the
@@ -101,10 +125,16 @@ Two things make that legible:
   without devtools open. If bubbles are missing and that panel is empty, the
   compute pipeline built and its submits were accepted.
 - **`?view=foam`** renders the raw foam density along each ray with lighting,
-  water colour and surface shading bypassed — it works on both backends, so the
-  same URL with and without `&gpu=1` is a direct comparison. A black tank means
-  the simulation produced no foam; a visible plume means the foam is there and
-  the problem is downstream in the shading.
+  water colour, surface shading and the particle pass all bypassed — it works on
+  both backends, so the same URL with and without `&gpu=1` is a direct
+  comparison. A black tank means the simulation produced no foam; a visible
+  plume means the foam is there and the problem is downstream in the shading.
+- **`?diag=1`** reduces the volumes on the GPU each second and prints peak foam
+  / velocity / pressure into the HUD's VRAM line, with an explicit `!! NaN in
+  velocity` flag. Reach for this when the tank renders but nothing moves: a dead
+  solver and an un-aerated tank look identical on screen and completely
+  different here. Note that a GPU-side `max()` *hides* NaN — WGSL `max` returns
+  the non-NaN operand — so the probe carries a sum alongside every maximum.
 
 Note that bubbles only exist where something has aerated the water. With the
 paddle hidden and no barrel dropped the tank is *correctly* empty, and
@@ -168,7 +198,8 @@ on any WebGL/JS error or a flat image, so it doubles as a smoke test.
 `--camera az,el,dist` sets the view, `--burst "x,y,z,amount"` (repeatable)
 seeds plumes, `--barrel` (with `--barrel-tail <ms>`) drops one through the
 surface so the splash is still developing at capture time, `--no-ui` hides the
-HUD, `--view foam` captures the foam-density debug view, `--gpu` tests the
+HUD, `--view foam` captures the foam-density debug view, `--diag` turns on the
+GPU field probe, `--gpu` tests the
 WebGPU backend
 (SwiftShader WebGPU adapter + readback-based capture; expect ~0.2 fps).
 
