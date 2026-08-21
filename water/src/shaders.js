@@ -261,6 +261,7 @@ uniform float uBurstR;
 uniform vec3 uEmitPos;      // world, sits on the floor
 uniform float uEmitR;       // world radius of the mouth
 uniform float uEmitRate;    // foam per second at the centre
+uniform float uEmitSize;    // bubble coarseness: scales the churn wavelength
 uniform float uSurfaceY;
 uniform float uTank;
 void main() {
@@ -321,7 +322,9 @@ void main() {
   if (uEmitRate > 0.0) {
     vec3 dp = (wp - uEmitPos) / max(uEmitR, 1e-3);
     float w = exp(-dot(dp, dp));
-    float g = 0.35 + 1.3 * noise3(wp * vec3(21.0, 6.0, 21.0)
+    // dividing the frequency is what makes the bubbles bigger: coarser noise
+    // across the mouth breaks the column into fewer, fatter strings
+    float g = 0.35 + 1.3 * noise3(wp * (vec3(21.0, 6.0, 21.0) / max(uEmitSize, 0.05))
                                 + vec3(uTime * 1.7, uTime * 0.9, uTime * 1.3));
     foam += w * uEmitRate * g * uDt;
   }

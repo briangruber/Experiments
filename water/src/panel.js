@@ -122,13 +122,16 @@ export function buildPhysicsPanel(physics) {
 // Scale a queued explosion by the blast/ring knobs at the moment it is armed,
 // so moving the sliders affects explosions already in the queue.
 // `k` is this frame's share of a phase that is being held over several — see
-// the explosion queue in main.js.
+// the explosion queue in main.js. A `raw` phase skips the blast scaling: a
+// barrel holds the same pocket of air whatever `blast power` is set to, so the
+// air is a property of the object rather than of the explosion.
 export function armBurst(b, physics, k = 1) {
+  const s = (b.raw ? 1 : physics.blast) * k;
   return {
     pos: b.pos,
-    vel: (b.vel ?? 0) * physics.blast * k,
-    up: (b.up ?? 0) * physics.blast * k,
-    foam: (b.foam ?? 0) * physics.blast * k,
+    vel: (b.vel ?? 0) * s,
+    up: (b.up ?? 0) * s,
+    foam: (b.foam ?? 0) * s,
     radius: b.radius,
     ring: (b.ring ?? 0) * physics.ring * physics.blast * k,
     ringR: b.ringR ?? 0.3,
@@ -240,18 +243,17 @@ export function buildEmitterPanel(emitter) {
   if (!panel || !btn) return;
   panel.textContent = '';
 
-  const toggle = document.createElement('button');
-  toggle.type = 'button';
-  toggle.textContent = 'bubbles off';
-  toggle.title = 'Run a stream of bubbles up from the floor of the tank.';
-  const syncToggle = () => {
-    toggle.textContent = emitter.on ? 'bubbles on' : 'bubbles off';
-    toggle.classList.toggle('active', emitter.on);
-    toggle.setAttribute('aria-pressed', String(emitter.on));
-  };
-  toggle.addEventListener('click', () => { emitter.on = !emitter.on; syncToggle(); });
-  syncToggle();
-  panel.append(toggle);
+  // On/off lives up top with the other actions, not buried in here — running
+  // the diffuser is a thing you do, tuning it is a thing you set.
+  const toggle = document.getElementById('bubbles-btn');
+  if (toggle) {
+    const sync = () => {
+      toggle.classList.toggle('active', emitter.on);
+      toggle.setAttribute('aria-pressed', String(emitter.on));
+    };
+    toggle.addEventListener('click', () => { emitter.on = !emitter.on; sync(); });
+    sync();
+  }
 
   slider(panel, {
     label: 'bubble rate', min: 0, max: 8, step: 0.1, value: emitter.rate,
@@ -259,6 +261,15 @@ export function buildEmitterPanel(emitter) {
         + 'plume is made of; buoyancy over in physics decides how hard it rises.',
     format: (v) => v.toFixed(1),
     oninput: (v) => { emitter.rate = v; },
+  });
+
+  slider(panel, {
+    label: 'bubble size', min: 0.3, max: 3, step: 0.05, value: emitter.size,
+    desc: 'How coarsely the stream breaks up. The solver has no individual '
+        + 'bubbles — foam is a density — so this is the scale it breaks into: '
+        + 'low gives a fine mist of small bubbles, high gives fat lazy ones.',
+    format: (v) => `${v.toFixed(2)}×`,
+    oninput: (v) => { emitter.size = v; },
   });
 
   slider(panel, {

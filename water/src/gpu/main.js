@@ -1130,11 +1130,14 @@ export async function start() {
     // atmosphere while the water around it is not, so the water crushes it
     // first, the trapped air compresses, and it is the REBOUND that throws the
     // plume — the bubble pulse that makes a depth charge boom twice. The
-    // implosion carries no foam because nothing has broken yet: it reads as the
-    // water drawing inward and the tank going still for a moment.
+    // pocket is injected as foam — aerated water is the only air this solver has —
+    // because an inward pull through water that looks the same before and after
+    // reads as nothing happening at all. Give the pocket to look at first, then
+    // crush it: the crush phases add no air, so what is there gets squeezed.
     explosionQueue.push(
-      { pos: q, vel: -3.4, up: -0.5, foam: 0.0, radius: 0.40, hold: 0.20 },
-      { pos: q, vel: -2.0, up: -0.2, foam: 0.0, radius: 0.26, hold: 0.08 },
+      { pos: q, vel: 1.1, up: 0.1, foam: 3.8, radius: 0.095, hold: 0.10, raw: true },
+      { pos: q, vel: -3.6, up: -0.5, foam: 0.0, radius: 0.24, hold: 0.24 },
+      { pos: q, vel: -2.4, up: -0.2, foam: 0.0, radius: 0.20, hold: 0.08 },
       { pos: q, vel: 3.2, up: 1.2, foam: 0.42, radius: 0.36, ring: 2.6, ringR: 0.28, hold: 0.05 },
       { pos: q, vel: 1.8, up: 0.9, foam: 0.24, radius: 0.44, ring: 2.0, ringR: 0.36, hold: 0.05 },
       { pos: q, vel: 0.9, up: 0.6, foam: 0.14, radius: 0.52, ring: 1.4, ringR: 0.44, hold: 0.05 },

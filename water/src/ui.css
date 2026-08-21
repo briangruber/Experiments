@@ -121,8 +121,8 @@ body.stats-open #stats { display: block; }
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  padding: 16px 14px;
+  gap: 7px;
+  padding: 14px 13px;
   font-family: var(--ui-sans);
   border-radius: 14px;
   border: 1px solid var(--edge);
@@ -228,6 +228,22 @@ svg.ico, svg.chev { fill: none; stroke: currentColor; stroke-width: 1.6;
 .disc-btn.active { color: #eaf6fd; border-color: var(--edge-hi); background: var(--row-hi); }
 .disc-btn.active .chev { transform: rotate(180deg); color: var(--accent); }
 .disc-btn.active { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+
+/* The Settings door's contents: its own column, indented under the button so
+   the two read as one block. */
+#more-btn { margin-top: 5px; }
+#more {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: -6px;
+  padding: 12px 9px 10px;
+  border: 1px solid var(--edge);
+  border-top: 0;
+  border-radius: 0 0 9px 9px;
+  background: rgba(6, 14, 20, 0.42);
+}
+#more[hidden] { display: none; }
 
 #physics, #scene, #emitter, #renderer, #code {
   display: flex;

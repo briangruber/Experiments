@@ -85,6 +85,18 @@ export function initChrome({ backend } = {}) {
       helpBtn.setAttribute('aria-expanded', String(open));
     });
   }
+  // The Settings door. Everything that is not one of the four actions lives
+  // behind it, so the panel at rest is four buttons and this.
+  const moreBtn = document.getElementById('more-btn');
+  const more = document.getElementById('more');
+  if (moreBtn && more) {
+    moreBtn.addEventListener('click', () => {
+      const open = more.hasAttribute('hidden');
+      more.toggleAttribute('hidden', !open);
+      moreBtn.classList.toggle('active', open);
+      moreBtn.setAttribute('aria-expanded', String(open));
+    });
+  }
   const rendBtn = document.getElementById('renderer-btn');
   const rendPanel = document.getElementById('renderer');
   if (rendBtn && rendPanel) {

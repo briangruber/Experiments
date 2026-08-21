@@ -20,7 +20,7 @@ export class Fluid {
     // boundary where the projection would immediately cancel it.
     // fx/fz are fractions of the way to the wall, so it keeps its place if
     // the tank is resized under it
-    this.emitter = { on: false, fx: 0, fz: 0, radius: 0.18, rate: 2.4, jet: 0.9 };
+    this.emitter = { on: false, fx: 0, fz: 0, radius: 0.18, rate: 2.4, jet: 0.9, size: 1 };
     // Tunable physics, in world units. main.js hands these to the sliders.
     this.physics = {
       rise: 0.34,      // bubble slip through the water, world/s
@@ -138,6 +138,7 @@ export class Fluid {
       uEmitPos: { value: new THREE.Vector3() },
       uEmitR: { value: 0.18 },
       uEmitRate: { value: 0 },
+      uEmitSize: { value: 1 },
       uSurfaceY: { value: surfaceY }, uTank: { value: tank },
     });
     this.mMMAdvect = mat(MM_ADVECT_FRAG, {
@@ -332,6 +333,7 @@ export class Fluid {
       iu.uEmitPos.value.set(em.fx * this.tank, -this.tank + 0.06, em.fz * this.tank);
       iu.uEmitR.value = em.radius;
       iu.uEmitRate.value = em.rate;
+      iu.uEmitSize.value = em.size;
     } else {
       iu.uEmitRate.value = 0;
     }

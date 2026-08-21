@@ -28,7 +28,7 @@ export class Fluid3D {
     // boundary where the projection would immediately cancel it.
     // fx/fz are fractions of the way to the wall, so it keeps its place if
     // the tank is resized under it
-    this.emitter = { on: false, fx: 0, fz: 0, radius: 0.18, rate: 2.4, jet: 0.9 };
+    this.emitter = { on: false, fx: 0, fz: 0, radius: 0.18, rate: 2.4, jet: 0.9, size: 1 };
     // same knobs, same units as the WebGL solver
     this.physics = {
       rise: 0.34, buoyancy: 12.2, foamLife: 2.5, swirl: 0.14, aeration: 7.45,
@@ -85,6 +85,7 @@ export class Fluid3D {
       emitPos: uniform(new THREE.Vector3()),  // diffuser mouth, world
       emitR: uniform(0.18),                   // world radius of the mouth
       emitRate: uniform(0),                   // foam per second at the centre
+      emitSize: uniform(1),                   // bubble coarseness
       emitJet: uniform(0),                    // upward push, voxels/s^2
       burstPos: uniform(new THREE.Vector3()),
       burstAmt: uniform(0),
@@ -417,7 +418,8 @@ export class Fluid3D {
       If(u.emitRate.greaterThan(0), () => {
         const dp = wp.sub(u.emitPos).div(u.emitR.max(1e-3));
         const w = dp.dot(dp).negate().exp();
-        const g = noise3(wp.mul(vec3(21, 6, 21))
+        // dividing the frequency makes the bubbles bigger — see the WebGL shader
+        const g = noise3(wp.mul(vec3(21, 6, 21).div(u.emitSize.max(0.05)))
           .add(vec3(u.time.mul(1.7), u.time.mul(0.9), u.time.mul(1.3))))
           .mul(1.3).add(0.35);
         foam.addAssign(w.mul(u.emitRate).mul(g).mul(u.dt));
@@ -541,6 +543,7 @@ export class Fluid3D {
       u.emitPos.value.set(em.fx * this.tank, -this.tank + 0.06, em.fz * this.tank);
       u.emitR.value = em.radius;
       u.emitRate.value = em.rate;
+      u.emitSize.value = em.size;
       u.emitJet.value = em.jet * voxPerWorld;
     } else {
       u.emitRate.value = 0;

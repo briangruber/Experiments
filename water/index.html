@@ -11,6 +11,10 @@
   <symbol id="i-cube" viewBox="0 0 24 24">
     <path d="M12 2.6 21 7.3v9.4L12 21.4 3 16.7V7.3Z"/><path d="M3 7.3 12 12l9-4.7M12 12v9.4"/>
   </symbol>
+  <symbol id="i-stir" viewBox="0 0 24 24">
+    <path d="M7 4.5v7.2a5 5 0 0 0 5 5 5 5 0 0 0 5-5V4.5"/>
+    <rect x="4.6" y="16.4" width="14.8" height="3.4" rx="1.2"/>
+  </symbol>
   <symbol id="i-drop" viewBox="0 0 24 24">
     <path d="M12 3.2c3.4 4 5.4 6.8 5.4 9.3a5.4 5.4 0 0 1-10.8 0c0-2.5 2-5.3 5.4-9.3Z"/>
   </symbol>
@@ -59,6 +63,10 @@
   <symbol id="i-expand" viewBox="0 0 24 24">
     <path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/>
   </symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="3"/>
+    <path d="M19.2 14.4a1.5 1.5 0 0 0 .3 1.7l.1.1a1.8 1.8 0 1 1-2.6 2.6l-.1-.1a1.5 1.5 0 0 0-2.6 1.1v.2a1.8 1.8 0 1 1-3.6 0v-.1a1.5 1.5 0 0 0-2.6-1.1l-.1.1a1.8 1.8 0 1 1-2.6-2.6l.1-.1a1.5 1.5 0 0 0-1.1-2.6h-.2a1.8 1.8 0 1 1 0-3.6h.1a1.5 1.5 0 0 0 1.1-2.6l-.1-.1a1.8 1.8 0 1 1 2.6-2.6l.1.1a1.5 1.5 0 0 0 1.7.3h.1a1.5 1.5 0 0 0 .9-1.4v-.2a1.8 1.8 0 1 1 3.6 0v.1a1.5 1.5 0 0 0 2.6 1.1l.1-.1a1.8 1.8 0 1 1 2.6 2.6l-.1.1a1.5 1.5 0 0 0 1.1 2.6h.2a1.8 1.8 0 1 1 0 3.6h-.1a1.5 1.5 0 0 0-1.4.9Z"/>
+  </symbol>
   <symbol id="i-swap" viewBox="0 0 24 24">
     <path d="M4.5 8.5h13l-3-3M19.5 15.5h-13l3 3"/>
   </symbol>
@@ -81,82 +89,90 @@
 <div id="controls">
   <button id="sheet-close" type="button" title="Close the controls and get the tank back.">Close ✕</button>
 
-  <section class="group">
-    <h2 class="group-label">Actions</h2>
-    <button id="barrel-btn" class="row-btn primary" type="button"
-            title="Drop another barrel through the surface (B or space). Each click adds one — up to six can be in flight at once. They sink, drag an air cavity behind them, then implode and blow.">
-      <svg class="ico"><use href="#i-cube"/></svg><span>Drop Barrel</span></button>
-    <button id="calm-btn" class="row-btn" type="button"
-            title="Stop the water dead. Zeroes the flow and switches off auto-stir, since the paddle would otherwise re-force it within a frame. The bubbles are kept and settle on their own.">
-      <svg class="ico"><use href="#i-drop"/></svg><span>Calm Water</span></button>
-    <button id="clear-btn" class="row-btn" type="button"
-            title="Empty the tank: the flow and every bubble in it, back to still clear water (C).">
-      <svg class="ico"><use href="#i-empty"/></svg><span>Empty Tank</span></button>
-  </section>
+  <!-- Four things you actually do, then everything else behind one door. -->
+  <button id="barrel-btn" class="row-btn primary" type="button"
+          title="Drop another barrel through the surface (B or space). Each click adds one — up to six can be in flight at once. They sink, open an air pocket, the water crushes it, and the rebound throws the plume.">
+    <svg class="ico"><use href="#i-cube"/></svg><span>Drop Barrel</span></button>
+  <button id="clear-btn" class="row-btn" type="button"
+          title="Empty the tank: the flow and every bubble in it, back to still clear water (C).">
+    <svg class="ico"><use href="#i-empty"/></svg><span>Clear Tank</span></button>
+  <button id="bubbles-btn" class="row-btn" type="button" aria-pressed="false"
+          title="Run the floor diffuser: a steady stream of bubbles rising through the tank. Tune it under Settings.">
+    <svg class="ico"><use href="#i-bubbles"/></svg><span>Bubbles</span></button>
+  <button id="hide-paddle-btn" class="row-btn" type="button" aria-pressed="false"
+          title="Put the stirring paddle into the tank or take it out again (X). Out, the water is left to barrels and the diffuser.">
+    <svg class="ico"><use href="#i-stir"/></svg><span>Toggle Paddle</span></button>
 
-  <section class="group">
-    <h2 class="group-label">Controls</h2>
-    <button id="stir-btn" class="switch-row" type="button" aria-pressed="true"
-            title="Let the paddle wander the tank on its own. This is what makes the water start moving by itself on load — turn it off and the tank only moves when you drag the paddle or drop something.">
-      <span>Auto Stir</span><i class="sw"></i></button>
-    <button id="spin-paddle-btn" class="switch-row" type="button" aria-pressed="false"
-            title="Turn the paddle end-over-end about a horizontal axle, like a paddle-boat wheel, driving a directional current (R).">
-      <span>Spin Paddle</span><i class="sw"></i></button>
-    <button id="hide-paddle-btn" class="switch-row" type="button" aria-pressed="false"
-            title="Take the paddle out of the tank entirely, leaving barrels and the diffuser as the only things stirring the water (X).">
-      <span>Hide Paddle</span><i class="sw"></i></button>
-    <button id="spin-btn" class="switch-row" type="button" aria-pressed="false"
-            title="Slowly orbit the camera around the tank (O).">
-      <span>Orbit View</span><i class="sw"></i></button>
-    <label id="spin-speed" class="slider">
-      <span>Paddle Speed <b id="spin-speed-val">3.0</b></span>
-      <input id="spin-speed-slider" type="range" min="0.5" max="10" step="0.1" value="3"
-             aria-label="paddle spin speed, radians per second">
-    </label>
-  </section>
+  <button id="more-btn" class="disc-btn" type="button" aria-expanded="false"
+          title="Everything else: how the water behaves, how much is simulated, and how it is drawn.">
+    <svg class="ico"><use href="#i-gear"/></svg><span>Settings</span>
+    <svg class="chev"><use href="#i-chev"/></svg></button>
 
-  <section class="group">
-    <h2 class="group-label">Settings</h2>
-    <button id="emitter-btn" class="disc-btn" type="button" aria-expanded="false"
-            title="A bubble diffuser on the floor of the tank: a steady stream you can place and tune, as opposed to the paddle, which only aerates what it sweeps.">
-      <svg class="ico"><use href="#i-bubbles"/></svg><span>Bubbles</span>
-      <svg class="chev"><use href="#i-chev"/></svg></button>
-    <div id="emitter" hidden></div>
+  <div id="more" hidden>
+    <section class="group">
+      <h2 class="group-label">Stirring</h2>
+      <button id="calm-btn" class="row-btn" type="button"
+              title="Stop the water dead. Zeroes the flow and switches off auto-stir, since the paddle would otherwise re-force it within a frame. The bubbles are kept and settle on their own.">
+        <svg class="ico"><use href="#i-drop"/></svg><span>Calm Water</span></button>
+      <button id="stir-btn" class="switch-row" type="button" aria-pressed="true"
+              title="Let the paddle wander the tank on its own. This is what makes the water start moving by itself on load — turn it off and the tank only moves when you drag the paddle or drop something.">
+        <span>Auto Stir</span><i class="sw"></i></button>
+      <button id="spin-paddle-btn" class="switch-row" type="button" aria-pressed="false"
+              title="Turn the paddle end-over-end about a horizontal axle, like a paddle-boat wheel, driving a directional current (R).">
+        <span>Spin Paddle</span><i class="sw"></i></button>
+      <button id="spin-btn" class="switch-row" type="button" aria-pressed="false"
+              title="Slowly orbit the camera around the tank (O).">
+        <span>Orbit View</span><i class="sw"></i></button>
+      <label id="spin-speed" class="slider">
+        <span>Paddle Speed <b id="spin-speed-val">3.0</b></span>
+        <input id="spin-speed-slider" type="range" min="0.5" max="10" step="0.1" value="3"
+               aria-label="paddle spin speed, radians per second">
+      </label>
+    </section>
 
-    <button id="scene-btn" class="disc-btn" type="button" aria-expanded="false"
-            title="How much there is to simulate — grid resolution, particle count, tank and paddle size.">
-      <svg class="ico"><use href="#i-globe"/></svg><span>Scene</span>
-      <svg class="chev"><use href="#i-chev"/></svg></button>
-    <div id="scene" hidden></div>
+    <section class="group">
+      <h2 class="group-label">Tuning</h2>
+      <button id="emitter-btn" class="disc-btn" type="button" aria-expanded="false"
+              title="How the floor diffuser behaves — how much air, how coarse the bubbles, how hard the jet, and where it sits.">
+        <svg class="ico"><use href="#i-bubbles"/></svg><span>Bubbles</span>
+        <svg class="chev"><use href="#i-chev"/></svg></button>
+      <div id="emitter" hidden></div>
 
-    <button id="physics-btn" class="disc-btn" type="button" aria-expanded="false"
-            title="How the water behaves. All live: they take effect on the next simulation step.">
-      <svg class="ico"><use href="#i-atom"/></svg><span>Physics</span>
-      <svg class="chev"><use href="#i-chev"/></svg></button>
-    <div id="physics" hidden></div>
+      <button id="physics-btn" class="disc-btn" type="button" aria-expanded="false"
+              title="How the water behaves. All live: they take effect on the next simulation step.">
+        <svg class="ico"><use href="#i-atom"/></svg><span>Physics</span>
+        <svg class="chev"><use href="#i-chev"/></svg></button>
+      <div id="physics" hidden></div>
 
-    <button id="renderer-btn" class="disc-btn" type="button" aria-expanded="false"
-            title="Which graphics backend is driving the tank, and how the view is presented.">
-      <svg class="ico"><use href="#i-monitor"/></svg><span>Renderer</span>
-      <svg class="chev"><use href="#i-chev"/></svg></button>
-    <div id="renderer" hidden>
-      <button id="backend-btn" class="row-btn" type="button" hidden
-              title="Reload on the other graphics backend, keeping every other setting.">
-        <svg class="ico"><use href="#i-swap"/></svg><span>Switch to WebGPU</span></button>
-      <button id="fs-btn" class="row-btn" type="button" aria-pressed="false"
-              title="Fill the screen (F).">
-        <svg class="ico"><use href="#i-expand"/></svg><span>Full Screen</span></button>
-    </div>
+      <button id="scene-btn" class="disc-btn" type="button" aria-expanded="false"
+              title="How much there is to simulate — grid resolution, particle count, tank and paddle size.">
+        <svg class="ico"><use href="#i-globe"/></svg><span>Scene</span>
+        <svg class="chev"><use href="#i-chev"/></svg></button>
+      <div id="scene" hidden></div>
 
-    <button id="code-btn" class="disc-btn" type="button" aria-expanded="false"
-            title="Show the three.js code that reproduces exactly the settings you have right now, ready to copy.">
-      <svg class="ico"><use href="#i-code"/></svg><span>Get the Code</span>
-      <svg class="chev"><use href="#i-chev"/></svg></button>
-    <div id="code" hidden>
-      <pre id="code-text"></pre>
-      <button id="code-copy" type="button">Copy</button>
-    </div>
-  </section>
+      <button id="renderer-btn" class="disc-btn" type="button" aria-expanded="false"
+              title="Which graphics backend is driving the tank, and how the view is presented.">
+        <svg class="ico"><use href="#i-monitor"/></svg><span>Renderer</span>
+        <svg class="chev"><use href="#i-chev"/></svg></button>
+      <div id="renderer" hidden>
+        <button id="backend-btn" class="row-btn" type="button" hidden
+                title="Reload on the other graphics backend, keeping every other setting.">
+          <svg class="ico"><use href="#i-swap"/></svg><span>Switch to WebGPU</span></button>
+        <button id="fs-btn" class="row-btn" type="button" aria-pressed="false"
+                title="Fill the screen (F).">
+          <svg class="ico"><use href="#i-expand"/></svg><span>Full Screen</span></button>
+      </div>
+
+      <button id="code-btn" class="disc-btn" type="button" aria-expanded="false"
+              title="Show the three.js code that reproduces exactly the settings you have right now, ready to copy.">
+        <svg class="ico"><use href="#i-code"/></svg><span>Get the Code</span>
+        <svg class="chev"><use href="#i-chev"/></svg></button>
+      <div id="code" hidden>
+        <pre id="code-text"></pre>
+        <button id="code-copy" type="button">Copy</button>
+      </div>
+    </section>
+  </div>
 </div>
 
 <div id="fab">
