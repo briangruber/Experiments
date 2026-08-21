@@ -696,6 +696,13 @@ export async function start() {
   // is undone before it is ever seen.
   // The mobile bar: a barrel is the one thing worth doing without opening
   // anything, so it stays on screen; everything else is behind `controls`.
+  // The frame rate is the one number always on screen; the rest of the
+  // readout hides behind it until asked for.
+  const fpsBtn = document.getElementById('fps-badge');
+  fpsBtn.addEventListener('click', () => {
+    const open = document.body.classList.toggle('stats-open');
+    fpsBtn.setAttribute('aria-expanded', String(open));
+  });
   const sheet = (open) => document.body.classList.toggle('sheet-open', open);
   document.getElementById('fab-barrel').addEventListener('click', () => dropBarrel());
   document.getElementById('fab-menu').addEventListener('click', () => sheet(true));

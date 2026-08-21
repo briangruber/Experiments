@@ -75,10 +75,12 @@ The `scene` panel holds the knobs that decide how much there is to simulate:
 
 `?n=`, `?p=` and `?tank=` set those three from the URL.
 
-The frame rate stays on screen in the corner once the interface is hidden,
-because on a GPU simulation it is the number most worth watching — twice now a
-bug in this project has shown up first as a frame rate that was suspiciously
-*good* (see "When the WebGPU tank looks empty").
+The frame rate is the only statistic on screen by default; clicking it opens
+the full readout (resolution, grid, timings, memory) and clicking again puts it
+away. It keeps that spot even when the interface is hidden, because on a GPU
+simulation it is the number most worth watching — twice now a bug in this
+project has shown up first as a frame rate that was suspiciously *good* (see
+"When the WebGPU tank looks empty").
 
 With the interface hidden the tank fills the window and only a faint corner
 button remains, so pointer- and touch-only users can bring the controls back;
@@ -89,8 +91,23 @@ class to `<body>` removes that last button too (what `--no-ui` captures use).
 
 Two complete implementations, switchable at runtime: the `switch to webgpu` /
 `switch to webgl2` button reloads with `?gpu=` flipped (keeping every other
-parameter), and the HUD names the one you're on. The button hides itself when
-the browser has no WebGPU adapter. WebGL2 is the default; `?gpu=1` opts in.
+parameter), and the readout names the one you're on. The button hides itself
+when the browser has no WebGPU adapter.
+
+**WebGPU is the default** where it works, falling back to WebGL2 otherwise;
+`?gpu=0` forces WebGL2 and `?gpu=1` expresses intent but still falls back
+rather than showing nothing. Falling back is fiddlier than it looks, and both
+guards in `src/boot.js` are there because the naive version hangs:
+
+- `navigator.gpu` existing does **not** mean WebGPU works. Plenty of browsers
+  expose it with no usable adapter, so the adapter is probed before anything
+  is imported.
+- Even with an adapter, three.js can die *asynchronously* inside init rather
+  than rejecting the promise you awaited, so a plain try/catch waits forever on
+  a page that still says "filling the tank…". The start is raced against a
+  timeout, and a wedged start may still hold a device and a render loop — so
+  that path reloads with `?gpu=0` rather than running a second app on top of
+  the first.
 
 - `src/main.js` — WebGL2: the Z-slice-atlas pipeline (N³ voxels as tiles of a
   2D texture), MRT raymarch, ping-pong float-texture particles.

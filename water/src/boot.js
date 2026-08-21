@@ -2,23 +2,49 @@
 // simulation runs on true 3D textures there), fall back to the WebGL2 app
 // otherwise or if the WebGPU app fails to boot. `?gpu=0` forces WebGL2,
 // `?gpu=1` expresses intent but still falls back rather than showing nothing.
+//
+// Falling back is fiddlier than it looks. `navigator.gpu` existing does NOT
+// mean WebGPU works: plenty of browsers expose it with no usable adapter, and
+// three.js then dies *asynchronously* inside init rather than rejecting the
+// promise we awaited — so a plain try/catch waits forever on a page that says
+// "filling the tank…". Hence two guards: probe for an adapter before importing
+// anything, and race the start against a timeout in case it wedges anyway.
 
-// WebGPU is opt-in (`?gpu=1`) while that backend catches up: the WebGL2 app
-// has the free surface, caustics, bloom and bubble particles the WebGPU one
-// does not have yet.
 const want = new URLSearchParams(location.search).get('gpu');
+const START_TIMEOUT = 8000;
+
+async function hasAdapter() {
+  if (!navigator.gpu) return false;
+  try {
+    return !!(await navigator.gpu.requestAdapter());
+  } catch {
+    return false;
+  }
+}
 
 async function boot() {
-  // No adapter pre-probe: a second requestAdapter can invalidate the first
-  // instance on some Chromium builds. The gpu app throws if WebGPURenderer
-  // ends up on its WebGL fallback, and we land on the native WebGL2 app.
-  if (want === '1' && navigator.gpu) {
+  if (want !== '0' && await hasAdapter()) {
     try {
       const { start } = await import('./gpu/main.js');
-      await start();
+      let timer;
+      await Promise.race([
+        start(),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('WebGPU start timed out')), START_TIMEOUT);
+        }),
+      ]);
+      clearTimeout(timer);
       return;
     } catch (e) {
-      console.warn('WebGPU backend failed to start; falling back to WebGL2.', e);
+      console.warn('WebGPU backend unavailable; using WebGL2.', e);
+      // A wedged start may still be holding a device and a render loop, so
+      // reload rather than run a second app on top of it.
+      if (String(e && e.message).includes('timed out')) {
+        const q = new URLSearchParams(location.search);
+        q.set('gpu', '0');
+        location.search = `?${q}`;
+        return;
+      }
     }
   }
   await import('./main.js');
