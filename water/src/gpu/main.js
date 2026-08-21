@@ -388,33 +388,64 @@ export async function start() {
   const flipUV = (u) => vec2(u.x, float(1).sub(u.y));
 
   // Surface displacement: permanent chop plus decaying rings from impacts.
-  const waveH = (xz) => {
-    const h = xz.x.mul(5.1).add(uTimeR.mul(1.3)).sin()
-      .mul(xz.y.mul(4.3).sub(uTimeR.mul(0.9)).sin()).mul(0.010)
-      .add(xz.x.add(xz.y).mul(8.3).sub(uTimeR.mul(2.1)).sin().mul(0.006))
-      .add(xz.x.mul(31.0).sub(uTimeR.mul(3.7)).sin()
-        .mul(xz.y.mul(27.0).add(uTimeR.mul(3.1)).sin()).mul(0.0022))
-      .add(xz.x.sub(xz.y).mul(44.0).add(uTimeR.mul(5.3)).sin().mul(0.0015))
-      .toVar();
+  // Ocean spectrum — see the WebGL shader for the model and why each part of
+  // it is there. Returns height and slope together as vec3(h, dh/dx, dh/dz):
+  // taking the normal by finite differences would cost four more evaluations
+  // of the whole sum, and every component's slope falls out of the same
+  // sin/cos anyway.
+  const WAVE_N = 10, WAVE_K0 = 6.2, WAVE_STEP = 1.34;
+  const WAVE_FALL = 0.62, WAVE_SCALE = 0.0085, WAVE_G = 2.4, WIND_ANGLE = 0.62;
+
+  const waveField = (xz) => {
+    const h = float(0).toVar();
+    const gx = float(0).toVar();
+    const gz = float(0).toVar();
+    for (let i = 0; i < WAVE_N; i++) {
+      // unrolled on the JS side: k, direction and amplitude are constants per
+      // component, so none of this reaches the shader as arithmetic
+      const k = WAVE_K0 * Math.pow(WAVE_STEP, i);
+      const amp = Math.pow(WAVE_FALL, i);
+      const jit = ((i * 0.6180339887) % 1) * 2 - 1;
+      const spread = 0.30 + 1.05 * i / (WAVE_N - 1);
+      const ang = WIND_ANGLE + jit * spread;
+      const dx = Math.cos(ang), dz = Math.sin(ang);
+      const ph = xz.x.mul(dx * k).add(xz.y.mul(dz * k))
+        .sub(uTimeR.mul(Math.sqrt(WAVE_G * k))).add(i * 2.3999632);
+      const sn = ph.sin().mul(0.5).add(0.5);
+      h.addAssign(sn.mul(sn).mul(sn).mul(2).sub(0.625).mul(amp));
+      const dh = sn.mul(sn).mul(ph.cos()).mul(3 * amp * k);
+      gx.addAssign(dh.mul(dx));
+      gz.addAssign(dh.mul(dz));
+    }
+    const sc = uChop.mul(WAVE_SCALE);
+    h.mulAssign(sc); gx.mulAssign(sc); gz.mulAssign(sc);
+
     Loop({ start: int(0), end: int(4) }, ({ i }) => {
       const r = uRipples.element(i);
       If(r.w.greaterThan(0), () => {
         const age = uTimeR.sub(r.z);
         If(age.greaterThan(0).and(age.lessThan(7)), () => {
-          const dd = xz.sub(vec2(r.x, r.y)).length();
+          const dv = xz.sub(vec2(r.x, r.y));
+          const dd = dv.length();
           const ring = dd.sub(age.mul(0.85));
-          h.addAssign(r.w.mul(0.05).mul(ring.mul(20.0).sin())
-            .mul(ring.abs().mul(-4.5).exp()).mul(age.mul(-0.55).exp())
-            .div(dd.mul(1.5).add(1)));
+          const env = r.w.mul(0.05).mul(ring.abs().mul(-4.5).exp())
+            .mul(age.mul(-0.55).exp()).div(dd.mul(1.5).add(1));
+          h.addAssign(env.mul(ring.mul(20.0).sin()));
+          const rg = env.mul(20.0).mul(ring.mul(20.0).cos()).div(dd.max(1e-4));
+          gx.addAssign(dv.x.mul(rg));
+          gz.addAssign(dv.y.mul(rg));
         });
       });
     });
-    return h.mul(uChop);
+    return vec3(h, gx, gz);
   };
+
+  const waveH = (xz) => waveField(xz).x;
+
   // Where the ray meets the DISPLACED surface, not its mean plane — see the
   // WebGL shader for why a fixed-point solve will not do here.
   const surfaceT = (ro, rd, t0, t1, flatT) => {
-    const A = float(0.14);   // bound on |waveH| across the chop and ripple ranges
+    const A = float(0.17);   // bound on |waveH| across the chop and ripple ranges
     const ia = uSurfaceY.add(A).sub(ro.y).div(rd.y);
     const ib = uSurfaceY.sub(A).sub(ro.y).div(rd.y);
     const ta = ia.min(ib).max(t0).toVar();
@@ -445,10 +476,8 @@ export async function start() {
   };
 
   const waveNormal = (xz) => {
-    const e = 0.005;
-    const hx = waveH(xz.add(vec2(e, 0))).sub(waveH(xz.sub(vec2(e, 0))));
-    const hz = waveH(xz.add(vec2(0, e))).sub(waveH(xz.sub(vec2(0, e))));
-    return vec3(hx.div(-2 * e), 1, hz.div(-2 * e)).normalize();
+    const f = waveField(xz);
+    return vec3(f.y.negate(), 1, f.z.negate()).normalize();
   };
   const foamAt = (p) => texture3D(fluid.foamTexture, p.mul(0.5).add(0.5), float(0)).x;
 
@@ -491,7 +520,9 @@ export async function start() {
           t1.assign(t0);                       // stays in the air above the water
         }).ElseIf(tS.greaterThan(t0), () => {
           const ps = ro.add(rd.mul(tS));
-          const nrm = waveNormal(vec2(ps.x, ps.z));
+          const wf = waveField(vec2(ps.x, ps.z));
+          const nrm = vec3(wf.y.negate(), 1, wf.z.negate()).normalize();
+          const cap = smoothstep(0.75, 2.1, vec2(wf.y, wf.z).length());
           const hv = uSun.negate().sub(rd).normalize();
           const spec = nrm.dot(hv).max(0).pow(220).mul(2.6)
             .add(nrm.dot(hv).max(0).pow(24).mul(0.12));
@@ -500,7 +531,7 @@ export async function start() {
           const raft = smoothstep(0.12, 1.1, foamAt(vec3(ps.x, uSurfaceY.sub(0.04), ps.z)));
           surfaceL.assign(uSunColor.mul(spec)
             .add(vec3(0.012, 0.035, 0.055).mul(fres))
-            .add(vec3(0.34, 0.45, 0.53).mul(raft)));
+            .add(vec3(0.34, 0.45, 0.53).mul(raft.max(cap))));
           // refract the view ray as it enters the water
           const rr = THREE.TSL.refract(rd, nrm, float(1 / 1.333));
           If(rr.dot(rr).greaterThan(0), () => {
@@ -517,7 +548,11 @@ export async function start() {
         // onto a dark room; outside it, it is a mirror of the tank itself, so
         // the ceiling carries the plumes and the floor upside down.
         const ps = ro.add(rd.mul(tS));
-        const nrm = waveNormal(vec2(ps.x, ps.z));
+        const wf = waveField(vec2(ps.x, ps.z));
+        const nrm = vec3(wf.y.negate(), 1, wf.z.negate()).normalize();
+        // whitecaps: slope stands in for the displacement Jacobian a height
+        // field has no fold to test — see the WebGL shader
+        const cap = smoothstep(0.75, 2.1, vec2(wf.y, wf.z).length());
         const cosI = rd.dot(nrm).max(0);
         const sinT2 = float(1.333 * 1.333).mul(float(1).sub(cosI.mul(cosI)));
         const raft = smoothstep(0.10, 1.0, foamAt(vec3(ps.x, uSurfaceY.sub(0.04), ps.z)));
@@ -531,7 +566,8 @@ export async function start() {
             .mul(rt.normalize().dot(uSun.negate()).max(0).pow(600)).mul(2.2));
         });
         surfaceL.assign(through.mul(float(1).sub(mirror))
-          .add(lerp(vec3(0.30, 0.40, 0.48), vec3(0.45, 0.56, 0.64), mirror).mul(raft)));
+          .add(lerp(vec3(0.30, 0.40, 0.48), vec3(0.45, 0.56, 0.64), mirror)
+            .mul(raft.max(cap.mul(0.8)))));
         If(mirror.greaterThan(0.002), () => {
           // fold the ray back down and let the same march draw the reflection
           surfMirror.assign(mirror);
@@ -1031,6 +1067,8 @@ export async function start() {
   }
 
   const explosionQueue = [];
+  let blastPhase = null;   // the phase being held, and what is left of it
+  let blastLeft = 0;
   const lastBlast = { pos: new THREE.Vector3(), until: -1 };
   const liveBarrels = [];
   let rippleNext = 0;
@@ -1070,12 +1108,18 @@ export async function start() {
   // mushroom. Shared by a barrel reaching the end of its life and by a tap on
   // the water.
   function detonate(q, t) {
+    // An air-filled barrel does not simply burst. The cavity is at one
+    // atmosphere while the water around it is not, so the water crushes it
+    // first, the trapped air compresses, and it is the REBOUND that throws the
+    // plume — the bubble pulse that makes a depth charge boom twice. The
+    // implosion carries no foam because nothing has broken yet: it reads as the
+    // water drawing inward and the tank going still for a moment.
     explosionQueue.push(
-      { pos: q, vel: -2.0, up: -0.3, foam: 0.0, radius: 0.42 },
-      { pos: q, vel: -1.2, up: 0.0, foam: 0.18, radius: 0.36 },
-      { pos: q, vel: 3.2, up: 1.2, foam: 0.42, radius: 0.36, ring: 2.6, ringR: 0.28 },
-      { pos: q, vel: 1.8, up: 0.9, foam: 0.24, radius: 0.44, ring: 2.0, ringR: 0.36 },
-      { pos: q, vel: 0.9, up: 0.6, foam: 0.14, radius: 0.52, ring: 1.4, ringR: 0.44 },
+      { pos: q, vel: -3.4, up: -0.5, foam: 0.0, radius: 0.40, hold: 0.20 },
+      { pos: q, vel: -2.0, up: -0.2, foam: 0.0, radius: 0.26, hold: 0.08 },
+      { pos: q, vel: 3.2, up: 1.2, foam: 0.42, radius: 0.36, ring: 2.6, ringR: 0.28, hold: 0.05 },
+      { pos: q, vel: 1.8, up: 0.9, foam: 0.24, radius: 0.44, ring: 2.0, ringR: 0.36, hold: 0.05 },
+      { pos: q, vel: 0.9, up: 0.6, foam: 0.14, radius: 0.52, ring: 1.4, ringR: 0.44, hold: 0.05 },
     );
     lastBlast.pos.copy(q);
     lastBlast.until = t + 1.6;
@@ -1297,8 +1341,24 @@ export async function start() {
     if (!params.paused && !skip.has('sim')) {
       updatePaddle(dt, t);
       updateBarrels(dt, t);
-      if (!fluid.burst && explosionQueue.length) {
-        fluid.burst = armBurst(explosionQueue.shift(), fluid.physics);
+      // Phases are HELD for a duration rather than fired one per frame. An
+      // implosion two entries long lasted 33ms at 60fps, so all anyone ever saw
+      // was the pop. Each frame takes its dt share of the phase, which keeps
+      // the total impulse the same however fast the machine runs and makes the
+      // collapse something you can watch. Scaling happens on arming, so the
+      // sliders still reach explosions already queued.
+      if (!fluid.burst) {
+        if (blastLeft <= 0 && explosionQueue.length) {
+          blastPhase = explosionQueue.shift();
+          blastLeft = blastPhase.hold ?? 0;
+        }
+        if (blastPhase) {
+          const hold = blastPhase.hold ?? 0;
+          fluid.burst = armBurst(blastPhase, fluid.physics,
+            hold > 0 ? Math.min(dt / hold, 1) : 1);
+          blastLeft -= dt;
+          if (blastLeft <= 0) blastPhase = null;
+        }
       }
       const s0 = performance.now();
       fluid.step(dt, t % 512);

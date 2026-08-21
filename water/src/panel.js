@@ -121,14 +121,16 @@ export function buildPhysicsPanel(physics) {
 
 // Scale a queued explosion by the blast/ring knobs at the moment it is armed,
 // so moving the sliders affects explosions already in the queue.
-export function armBurst(b, physics) {
+// `k` is this frame's share of a phase that is being held over several — see
+// the explosion queue in main.js.
+export function armBurst(b, physics, k = 1) {
   return {
     pos: b.pos,
-    vel: (b.vel ?? 0) * physics.blast,
-    up: (b.up ?? 0) * physics.blast,
-    foam: (b.foam ?? 0) * physics.blast,
+    vel: (b.vel ?? 0) * physics.blast * k,
+    up: (b.up ?? 0) * physics.blast * k,
+    foam: (b.foam ?? 0) * physics.blast * k,
     radius: b.radius,
-    ring: (b.ring ?? 0) * physics.ring * physics.blast,
+    ring: (b.ring ?? 0) * physics.ring * physics.blast * k,
     ringR: b.ringR ?? 0.3,
   };
 }

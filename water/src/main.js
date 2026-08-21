@@ -836,6 +836,8 @@ function addRipple(x, z, strength) {
 }
 
 const explosionQueue = [];
+let blastPhase = null;   // the phase being held, and what is left of it
+let blastLeft = 0;
 const lastBlast = { pos: new THREE.Vector3(), until: -1 };
 const liveBarrels = [];   // reused array of descriptors for the solver
 
@@ -870,12 +872,18 @@ function dropBarrel(at) {
 // mushroom. Shared by a barrel reaching the end of its life and by a tap on
 // the water.
 function detonate(q, t) {
+  // An air-filled barrel does not simply burst. The cavity is at one
+  // atmosphere while the water around it is not, so the water crushes it
+  // first, the trapped air compresses, and it is the REBOUND that throws the
+  // plume — the bubble pulse that makes a depth charge boom twice. The
+  // implosion carries no foam because nothing has broken yet: it reads as the
+  // water drawing inward and the tank going still for a moment.
   explosionQueue.push(
-    { pos: q, vel: -2.0, up: -0.3, foam: 0.0, radius: 0.42 },
-    { pos: q, vel: -1.2, up: 0.0, foam: 0.18, radius: 0.36 },
-    { pos: q, vel: 3.2, up: 1.2, foam: 0.42, radius: 0.36, ring: 2.6, ringR: 0.28 },
-    { pos: q, vel: 1.8, up: 0.9, foam: 0.24, radius: 0.44, ring: 2.0, ringR: 0.36 },
-    { pos: q, vel: 0.9, up: 0.6, foam: 0.14, radius: 0.52, ring: 1.4, ringR: 0.44 },
+    { pos: q, vel: -3.4, up: -0.5, foam: 0.0, radius: 0.40, hold: 0.20 },
+    { pos: q, vel: -2.0, up: -0.2, foam: 0.0, radius: 0.26, hold: 0.08 },
+    { pos: q, vel: 3.2, up: 1.2, foam: 0.42, radius: 0.36, ring: 2.6, ringR: 0.28, hold: 0.05 },
+    { pos: q, vel: 1.8, up: 0.9, foam: 0.24, radius: 0.44, ring: 2.0, ringR: 0.36, hold: 0.05 },
+    { pos: q, vel: 0.9, up: 0.6, foam: 0.14, radius: 0.52, ring: 1.4, ringR: 0.44, hold: 0.05 },
   );
   lastBlast.pos.copy(q);
   lastBlast.until = t + 1.6;
@@ -964,9 +972,24 @@ function frame() {
   if (!params.paused) {
     updatePaddle(dt, t);
     updateBarrels(dt, t);
-    if (!fluid.burst && explosionQueue.length) {
-      // scale on arming, so the sliders affect explosions already queued
-      fluid.burst = armBurst(explosionQueue.shift(), fluid.physics);
+    // Phases are HELD for a duration rather than fired one per frame. An
+    // implosion two entries long lasted 33ms at 60fps, so all anyone ever saw
+    // was the pop. Each frame takes its dt share of the phase, which keeps the
+    // total impulse the same however fast the machine runs and makes the
+    // collapse something you can watch. Scaling happens on arming, so the
+    // sliders still reach explosions already queued.
+    if (!fluid.burst) {
+      if (blastLeft <= 0 && explosionQueue.length) {
+        blastPhase = explosionQueue.shift();
+        blastLeft = blastPhase.hold ?? 0;
+      }
+      if (blastPhase) {
+        const hold = blastPhase.hold ?? 0;
+        fluid.burst = armBurst(blastPhase, fluid.physics,
+          hold > 0 ? Math.min(dt / hold, 1) : 1);
+        blastLeft -= dt;
+        if (blastLeft <= 0) blastPhase = null;
+      }
     }
     timer.begin('sim');
     // wrapped time keeps float hash/noise inputs precise over long sessions

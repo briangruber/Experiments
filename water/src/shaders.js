@@ -563,26 +563,89 @@ vec2 boxT(vec3 ro, vec3 rd) {
   return vec2(max(max(lo.x, lo.y), lo.z), min(min(hi.x, hi.y), hi.z));
 }
 
-// Surface displacement: a permanent low chop plus decaying rings from each
-// impact (barrel entry, bursts). Both the normal AND the boundary itself come
-// from this, so the amplitude is a real height in world units.
-float waveH(vec2 xz) {
-  float h = 0.010 * sin(xz.x * 5.1 + uTime * 1.3) * sin(xz.y * 4.3 - uTime * 0.9);
-  h += 0.006 * sin((xz.x + xz.y) * 8.3 - uTime * 2.1);
-  // fine chop, so the glint breaks into sparkle instead of a smooth band
-  h += 0.0022 * sin(xz.x * 31.0 - uTime * 3.7) * sin(xz.y * 27.0 + uTime * 3.1);
-  h += 0.0015 * sin((xz.x - xz.y) * 44.0 + uTime * 5.3);
-  h *= uChop;
+// Ocean spectrum, after the Tessendorf/Horvath model Poseidon builds its FFT
+// cascades from (github.com/owenyuwono/poseidon). What an FFT buys over a sum
+// like this is a continuum of wavenumbers and no tiling; ten components is
+// enough to lose the criss-cross of the four plain sines that were here, at a
+// price the raymarch can pay per pixel.
+//
+// Three things carry the look. Amplitude falls as a steep power of wavenumber
+// so there is a DOMINANT wave rather than uniform roughness — hold a flat slope
+// spectrum and every octave contributes the same tilt, which reads as one rough
+// texture with no scale to it. Direction spreads around the wind and the spread
+// WIDENS with wavenumber, because short wind waves are far more broadly spread
+// than the swell they ride on; comb every scale into one direction and you get
+// corduroy rather than sea. And each component runs at its own deep-water
+// speed, w = sqrt(g k), so long waves outrun short ones and the field never
+// settles into a repeat.
+//
+// Crest shape is the other half. A sine's crests and troughs are the same
+// width; real waves are trochoidal — narrow peaked crests over long shallow
+// troughs. An FFT ocean gets that from horizontal (Gerstner) displacement,
+// which a height field cannot have, so each component is squared into the same
+// profile instead. Cheap, and the silhouette is what the eye reads.
+const int WAVE_N = 10;
+const float WAVE_K0 = 6.2;        // dominant wavenumber: ~1 unit crest to crest
+const float WAVE_STEP = 1.34;     // geometric spacing between components
+const float WAVE_FALL = 0.62;     // amplitude decay per step — the spectrum tail
+const float WAVE_SCALE = 0.0085;  // overall height, before uChop
+const float WAVE_G = 2.4;         // absolute speed; sqrt(g/k) sets the ratios
+const float WIND_ANGLE = 0.62;    // radians, the direction the sea runs
+
+// Height and slope together. Taking the normal by finite differences would cost
+// four more evaluations of the whole sum; every component's slope falls out of
+// the same sin/cos, so the gradient is nearly free and the normal ends up
+// cheaper than it was on four sines.
+void waveField(vec2 xz, out float h, out vec2 grad) {
+  h = 0.0;
+  grad = vec2(0.0);
+  float k = WAVE_K0;
+  float amp = 1.0;
+  for (int i = 0; i < WAVE_N; i++) {
+    float fi = float(i);
+    // golden-angle sequence: directions and phases that never line up, with no
+    // texture fetch and no hash
+    float jit = fract(fi * 0.6180339887) * 2.0 - 1.0;
+    float spread = 0.30 + 1.05 * fi / float(WAVE_N - 1);
+    float ang = WIND_ANGLE + jit * spread;
+    vec2 d = vec2(cos(ang), sin(ang));
+    float ph = dot(d, xz) * k - sqrt(WAVE_G * k) * uTime + fi * 2.3999632;
+    float sn = 0.5 + 0.5 * sin(ph);
+    // Cubed rather than squared: the higher the power the narrower the crest
+    // and the longer the shallow back face, which is the trochoidal profile a
+    // Gerstner displacement produces and a sine never can. 2u^3 averages 0.625
+    // over a cycle, and subtracting that keeps the mean surface on the
+    // waterline instead of sunk below it.
+    h += amp * (2.0 * sn * sn * sn - 0.625);
+    grad += d * (amp * k * 3.0 * sn * sn * cos(ph));
+    k *= WAVE_STEP;
+    amp *= WAVE_FALL;
+  }
+  float sc = uChop * WAVE_SCALE;
+  h *= sc;
+  grad *= sc;
+
+  // impact rings from barrel entries and bursts, spreading and decaying. The
+  // slope keeps only the ring's own term: the envelope's derivative is smaller
+  // by the ring frequency and never shows.
   for (int i = 0; i < 4; i++) {
     vec4 r = uRipples[i];
     if (r.w <= 0.0) continue;
     float age = uTime - r.z;
     if (age < 0.0 || age > 7.0) continue;
-    float d = length(xz - r.xy);
-    float ring = d - age * 0.85;              // expanding wavefront
-    h += r.w * 0.05 * sin(ring * 20.0) * exp(-abs(ring) * 4.5)
-         * exp(-age * 0.55) / (1.0 + d * 1.5);
+    vec2 dv = xz - r.xy;
+    float dist = length(dv);
+    float ring = dist - age * 0.85;                 // expanding wavefront
+    float env = r.w * 0.05 * exp(-abs(ring) * 4.5)
+              * exp(-age * 0.55) / (1.0 + dist * 1.5);
+    h += env * sin(ring * 20.0);
+    grad += (dv / max(dist, 1e-4)) * (env * 20.0 * cos(ring * 20.0));
   }
+}
+
+float waveH(vec2 xz) {
+  float h; vec2 g;
+  waveField(xz, h, g);
   return h;
 }
 
@@ -593,7 +656,7 @@ float waveH(vec2 xz) {
 // at exactly the grazing angles that matter most here, where near crests stand
 // in front of far troughs and the waterline gets its ragged silhouette.
 float surfaceT(vec3 ro, vec3 rd, float t0, float t1, float flatT) {
-  const float A = 0.14;   // bound on |waveH| across the chop and ripple ranges
+  const float A = 0.17;   // bound on |waveH| across the chop and ripple ranges
   float ia = (uSurfaceY + A - ro.y) / rd.y;
   float ib = (uSurfaceY - A - ro.y) / rd.y;
   float ta = max(min(ia, ib), t0);
@@ -617,10 +680,9 @@ float surfaceT(vec3 ro, vec3 rd, float t0, float t1, float flatT) {
 }
 
 vec3 waveNormal(vec2 xz) {
-  const float e = 0.005;   // small enough to resolve the fine chop
-  float hx = waveH(xz + vec2(e, 0.0)) - waveH(xz - vec2(e, 0.0));
-  float hz = waveH(xz + vec2(0.0, e)) - waveH(xz - vec2(0.0, e));
-  return normalize(vec3(-hx / (2.0 * e), 1.0, -hz / (2.0 * e)));
+  float h; vec2 g;
+  waveField(xz, h, g);
+  return normalize(vec3(-g.x, 1.0, -g.y));
 }
 
 void main() {
@@ -656,7 +718,10 @@ void main() {
         t1 = t0;                       // ray stays in the air above the water
       } else if (tS > t0) {
         vec3 ps = ro + rd * tS;
-        vec3 nrm = waveNormal(ps.xz);
+        float wh; vec2 wg;
+        waveField(ps.xz, wh, wg);
+        vec3 nrm = normalize(vec3(-wg.x, 1.0, -wg.y));
+        float cap = smoothstep(0.75, 2.1, length(wg));
         vec3 hv = normalize(-uSunDir - rd);
         // sharp glint plus a broad sheen; the room is black, so what the
         // surface reflects is mostly nothing — that darkness is the realism
@@ -667,7 +732,7 @@ void main() {
           (vec3(ps.x, uSurfaceY - 0.04, ps.z) * 0.5 + 0.5) * uNf).x);
         surfaceL = uSunColor * spec
                  + fres * vec3(0.012, 0.035, 0.055)
-                 + raft * vec3(0.34, 0.45, 0.53);
+                 + max(raft, cap) * vec3(0.34, 0.45, 0.53);
         // refract the view ray as it enters the water
         vec3 rr = refract(rd, nrm, 1.0 / 1.333);
         if (dot(rr, rr) > 0.0) {
@@ -688,7 +753,14 @@ void main() {
       // upside down. A flat grey card stood in for that, and at a near-level
       // view like this the ceiling is most of what you see.
       vec3 ps = ro + rd * tS;
-      vec3 nrm = waveNormal(ps.xz);
+      float wh; vec2 wg;
+      waveField(ps.xz, wh, wg);
+      vec3 nrm = normalize(vec3(-wg.x, 1.0, -wg.y));
+      // Whitecaps. Poseidon draws foam where the displacement Jacobian folds; a
+      // height field has no fold to test, but the steepest faces are the ones
+      // that would, so slope stands in for it. This is what puts white on the
+      // crests rather than an even scum over the whole surface.
+      float cap = smoothstep(0.75, 2.1, length(wg));
       float cosI = max(dot(rd, nrm), 0.0);
       float sinT2 = 1.333 * 1.333 * (1.0 - cosI * cosI);
       float raft = smoothstep(0.10, 1.0, sampleVol(uFoamTex,
@@ -703,7 +775,8 @@ void main() {
                  * pow(max(dot(normalize(rt), -uSunDir), 0.0), 600.0) * 2.2;
       }
       surfaceL = through * (1.0 - mirror)
-               + raft * mix(vec3(0.30, 0.40, 0.48), vec3(0.45, 0.56, 0.64), mirror);
+               + max(raft, cap * 0.8)
+                 * mix(vec3(0.30, 0.40, 0.48), vec3(0.45, 0.56, 0.64), mirror);
       if (mirror > 0.002) {
         // fold the ray back down and let the same march that draws the water
         // draw its reflection, so the ceiling costs nothing extra to shade
