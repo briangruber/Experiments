@@ -233,19 +233,20 @@ switching backends reloads the page, which empties it.
 The desktop layout is a right-hand column of controls with the statistics in
 the top-right corner, which on a narrow screen lands one on top of the other.
 Under 760px the controls become a bottom sheet across the full width, two
-buttons to a row, which frees the corner for the statistics and leaves the top
-of the screen for the tank. The keyboard hints go away, touch targets grow, and
-`hide ui` collapses the sheet to a single corner button when you want the whole
-screen.
+buttons to a row — and the sheet **starts closed**, because the tank is what
+you came for. What stays on screen is a bar with two buttons: `drop barrel`,
+the one action worth having without opening anything, and `controls`, which
+raises the sheet. The sheet closes from its own button at the top. Keyboard
+hints go away and touch targets grow.
 
-Two other things change on a small or touch screen. The default grid drops one
-preset (a phone spends its entire frame budget solving 128³), and the camera
-distance is chosen to fit the tank in *both* axes rather than just vertically —
-a portrait viewport has a far narrower horizontal field than a desktop window
-at the same vertical fov, so without that the tank is cropped off the sides.
-The camera also aims a little below centre so the tank rides up into the part
-of the screen the control sheet isn't covering. Any of this is overridden the
-moment you pinch to zoom.
+The framing changes too, and in the opposite direction to the desktop. A
+desktop frames the whole glass with a margin around it (*contain*: fit the
+narrower of the two fields of view). A phone fills the screen with water
+instead (*cover*: fit the **wider** one, and crop harder), so there is no black
+void around the tank — the tank's corners fall outside the frame and the water
+reaches every edge. The default grid also drops one preset, because a phone
+spends its entire frame budget solving 128³. Both are overridden the moment you
+pinch to zoom.
 
 ## Tools
 

@@ -183,12 +183,17 @@ export async function start() {
   // narrower horizontal field than a desktop window at the same vertical
   // fov, so without this the tank is cropped off the sides.
   function fitDistance() {
-    // the silhouette's radius, not the full 3D diagonal: clipping the far
-    // corners slightly is much better than a frame mostly full of void
-    const r = 1.34 * tankHalf;
+    // On a desktop, frame the whole tank (contain). On a phone, fill the
+    // screen with water instead (cover) — taking the WIDER of the two fields
+    // rather than the narrower one, so the tank's edges fall outside the
+    // frame and there is no black void around it.
+    // a phone crops harder so the water reaches every edge; a desktop keeps
+    // enough margin to see the whole glass
+    const r = (smallScreen ? 0.98 : 1.34) * tankHalf;
     const vfov = camera.fov * Math.PI / 180;
     const hfov = 2 * Math.atan(Math.tan(vfov / 2) * camera.aspect);
-    return r / Math.sin(Math.min(vfov, hfov) / 2);
+    const fov = smallScreen ? Math.max(vfov, hfov) : Math.min(vfov, hfov);
+    return Math.max(1.75, r / Math.sin(fov / 2));
   }
   function updateCamera() {
     orbit.el = Math.max(-0.55, Math.min(1.25, orbit.el));
@@ -198,9 +203,7 @@ export async function start() {
       Math.sin(orbit.az) * ce * orbit.dist,
       Math.sin(orbit.el) * orbit.dist,
       Math.cos(orbit.az) * ce * orbit.dist);
-    // on a phone the bottom of the screen is the control sheet, so aim low and
-    // let the tank ride up into the part that is actually visible
-    camera.lookAt(0, smallScreen ? -0.42 * tankHalf : 0, 0);
+    camera.lookAt(0, 0, 0);
     camera.updateMatrixWorld();
   }
   updateCamera();
@@ -691,6 +694,12 @@ export async function start() {
   // Stopping the water means stopping what is driving it too: the paddle
   // re-forces the flow within a single frame, so zeroing velocity on its own
   // is undone before it is ever seen.
+  // The mobile bar: a barrel is the one thing worth doing without opening
+  // anything, so it stays on screen; everything else is behind `controls`.
+  const sheet = (open) => document.body.classList.toggle('sheet-open', open);
+  document.getElementById('fab-barrel').addEventListener('click', () => dropBarrel());
+  document.getElementById('fab-menu').addEventListener('click', () => sheet(true));
+  document.getElementById('sheet-close').addEventListener('click', () => sheet(false));
   document.getElementById('calm-btn').addEventListener('click', () => {
     setStir(false);
     fluid.still();

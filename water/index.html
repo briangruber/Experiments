@@ -16,6 +16,7 @@
   <div title="Whether the paddle is wandering on its own (auto), waiting for you to drag it (manual), spinning like a paddle-wheel, or out of the tank entirely."><em>Stir</em><b data-k="stir">auto</b></div>
 </div>
 <div id="controls">
+  <button id="sheet-close" type="button" title="Close the controls and get the tank back.">close ✕</button>
   <button title="Drop another barrel through the surface (B or space). Each click adds one — up to six can be in flight at once. They sink, drag an air cavity behind them, then detonate." id="barrel-btn" type="button">drop barrel</button>
   <div class="row">
     <button title="Turn the paddle end-over-end about a horizontal axle, like a paddle-boat wheel, driving a directional current (R)." id="spin-paddle-btn" type="button" aria-pressed="false">spin paddle</button>
@@ -43,6 +44,10 @@
     <button title="Fill the screen (F)." id="fs-btn" type="button" aria-pressed="false">full screen</button>
     <button title="Hide the interface for an uninterrupted view (H). The frame rate stays visible in the corner." id="hide-btn" type="button" aria-pressed="false">hide ui</button>
   </div>
+</div>
+<div id="fab">
+  <button id="fab-barrel" type="button" title="Drop a barrel — works without opening the controls.">drop barrel</button>
+  <button id="fab-menu" type="button" title="Open the controls.">controls</button>
 </div>
 <button id="peek" type="button" aria-label="Show controls">UI</button>
 <div id="hud">

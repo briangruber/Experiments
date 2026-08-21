@@ -310,6 +310,12 @@ html, body {
     max-width: 58vw;
     font-size: 9px;
     line-height: 1.65;
+    /* the water now reaches every edge, so the readout needs its own ground
+       to stay legible over a bright plume */
+    padding: 7px 9px;
+    border-radius: 5px;
+    background: rgba(3, 10, 15, 0.42);
+    backdrop-filter: blur(3px);
   }
   #stats div { gap: 10px; }
 
@@ -361,4 +367,46 @@ html, body {
   input[type="range"] { height: 30px; }
   input[type="range"]::-webkit-slider-thumb { width: 22px; height: 22px; }
   input[type="range"]::-moz-range-thumb { width: 22px; height: 22px; }
+}
+
+/* The always-there mobile bar. Dropping a barrel is the one thing worth doing
+   without opening anything, so it gets a permanent button; everything else
+   lives behind `controls`. Desktop keeps the full column and never sees this. */
+#fab { display: none; }
+#sheet-close { display: none; }
+
+@media (max-width: 760px) {
+  #fab {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    z-index: 25;
+  }
+  #fab button {
+    font: inherit;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #cfe7f2;
+    background: rgba(10, 22, 30, 0.82);
+    border: 1px solid #2f5a6e;
+    border-radius: 4px;
+    padding: 14px 16px;
+    cursor: pointer;
+    backdrop-filter: blur(6px);
+  }
+  #fab-barrel { border-color: #37677d; }
+
+  /* the sheet starts closed — the tank is what you came for */
+  #controls { display: none; }
+  body.sheet-open #controls { display: grid; }
+  body.sheet-open #fab { display: none; }
+  #sheet-close { display: block; grid-column: 1 / -1; }
+
+  /* nothing floats over a hidden interface */
+  .ui-hidden #fab { display: none; }
 }
