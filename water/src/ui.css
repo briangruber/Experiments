@@ -134,14 +134,20 @@ body.stats-open #stats { display: block; }
   display: flex;
   justify-content: space-between;
   gap: 12px;
+  min-width: 0;
 }
+.slider span :first-child { min-width: 0; overflow-wrap: anywhere; }
 .slider b {
   font-weight: 500;
   color: #c4dbe5;
   font-variant-numeric: tabular-nums;
 }
 .slider input {
-  width: 128px;
+  /* fill the row rather than a fixed 128px: the desktop column happens to be
+     about that wide, the mobile sheet is the full screen */
+  width: 100%;
+  min-width: 120px;
+  box-sizing: border-box;
   margin: 0;
   accent-color: #7fd4f0;
   cursor: pointer;
@@ -169,7 +175,7 @@ body.stats-open #stats { display: block; }
 #physics[hidden] { display: none; }
 #physics { gap: 4px; }
 #physics .slider { padding: 5px 10px 6px; gap: 3px; }
-#physics .slider input { width: 120px; }
+#physics .slider input { width: 100%; }
 #controls button:disabled,
 .slider input:disabled {
   opacity: 0.35;
@@ -355,6 +361,9 @@ body.stats-open #stats { display: block; }
   #controls > #barrel-btn { grid-column: 1 / -1; }
 
   #controls button { padding: 11px 10px; font-size: 10px; letter-spacing: 0.12em; }
+  /* an open panel's toggle spans the row, so it sits directly above its
+     contents instead of leaving a gap beside it */
+  #physics-btn.active, #scene-btn.active, #code-btn.active { grid-column: 1 / -1; }
   #physics, #scene { max-height: none; }
   #code pre { max-height: 30vh; font-size: 9px; }
 
