@@ -31,7 +31,7 @@
 
 const LAMBDA = 0.62;     // each pulse reaches this fraction of the last radius
 const PULSES = 3;        // beyond the third there is nothing left to see
-const R_K = 0.80;        // calibrated for the tank; Cole's is 3.36 (TNT, metres)
+const R_K = 1.60;        // calibrated for the tank; Cole's is 3.36 (TNT, metres)
 const T_K = 5.6;         // calibrated for watchability; Cole's is 2.11
 const P_ATM = 10.33;     // atmosphere as a head of water, metres
 
@@ -46,7 +46,7 @@ export function createBlast() {
     alive: false,
     x: 0, y: 0, z: 0,
     rMax: 0.3, period: 0.7,
-    cycle: 0, t: 0, r: 0, rPrev: 0, charged: false,
+    cycle: 0, t: 0, r: 0, rPrev: 0, charged: false, dose: 0,
     pulse: 0,          // >0 on the frame a collapse rebounds
   };
 
@@ -61,6 +61,7 @@ export function createBlast() {
     s.cycle = 0; s.t = 0; s.alive = true;
     s.r = 0; s.rPrev = 0; s.pulse = 1;   // the shock leaves on frame one
     s.charged = true;                    // the gas has not gone in yet
+    s.dose = 0;
     return s;
   }
 
@@ -118,20 +119,49 @@ export function createBlast() {
     // accumulates into anything you can see. One pocket that then gets carried
     // out and hauled back is both what the gas actually does and the only
     // version of it that reads.
+    // The gas fills the cavity AS IT GROWS, in a few substantial doses rather
+    // than one small pocket. One pocket is what the conservation argument
+    // suggests, and it is what made the plume a thin stem: at `water drag` 10
+    // the outward flow dies long before it can carry a compact charge out to
+    // the bubble wall, so the gas never occupies the volume the bubble opened.
+    // Dosing across the expansion fills it, and is still bounded by R_max —
+    // which is the whole point of the model.
+    const DOSES = [
+      { at: 0, foam: 3.6, rad: 0.36 },
+      { at: 0.28, foam: 2.6, rad: 0.72 },
+      { at: 0.58, foam: 1.8, rad: 1.00 },
+    ];
+    let dose = null;
+    if (s.cycle === 0 && s.dose < DOSES.length && u >= DOSES[s.dose].at) {
+      dose = DOSES[s.dose];
+      s.dose++;
+    }
     const charging = s.charged;
     s.charged = false;
+    const blast = physics.blast;
+
+    // The bubble is the SHAPE of the event; it is not the whole of it. The
+    // shock leaving on frame one and the ring shed at every collapse are what
+    // throw the plume, and modelling only the cavity lost both — the result
+    // was correct and dead. These are genuine impulses, so unlike the wall
+    // terms they are not scaled by dt.
+    const kick = charging ? 1 : 0;
 
     return {
       pos: { x: s.x, y: s.y, z: s.z },
-      radius: charging ? Math.max(s.rMax * 0.30, 0.05) : Math.max(s.r, 0.05),
+      radius: dose ? Math.max(s.rMax * dose.rad, 0.06) : Math.max(s.r, 0.05),
       // Outward while expanding, inward while collapsing — the sign of the
       // wall velocity is the whole reason this reads as a bubble rather than
-      // as a puff. The pulse terms are genuine impulses and stay unscaled.
-      vel: wall * 9 * dt + pulsed * 2.2,
-      up: pulsed * 0.8,
-      foam: (charging ? 3.6 : 0) + pulsed * 0.6,
-      ring: pulsed * 2.4 * physics.ring * physics.blast,
-      ringR: rMax * 1.1,
+      // as a puff.
+      vel: wall * 9 * dt + kick * 3.4 * blast + pulsed * 2.6 * blast,
+      // A bubble under a free surface is not symmetric: it drives water upward
+      // harder than sideways, and that asymmetry is the plume.
+      up: (wall > 0 ? wall * 5 * dt : 0) + kick * 1.5 * blast + pulsed * 1.2 * blast,
+      foam: (dose ? dose.foam : 0) + pulsed * 0.8,
+      // Circulation is shed at the shock and at each collapse — the rolling
+      // torus is what turns a rising cap into a mushroom rather than a puff.
+      ring: (kick * 2.8 + pulsed * 2.4) * physics.ring * blast,
+      ringR: rMax * 1.15,
       _pulse: pulsed,
     };
   }
