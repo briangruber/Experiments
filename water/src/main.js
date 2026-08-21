@@ -23,6 +23,7 @@ import {
   diverGeometry, diverTexture, DIVER_HALF,
 } from './model.js';
 import { createVisitor } from './visitor.js';
+import { createBlast } from './undex.js';
 
 const QUALITY = {
   low: { N: 64, jacobi: 12, steps: 88, scale: 0.6, ptex: 192 },
@@ -865,6 +866,7 @@ function addRipple(x, z, strength) {
   r.set(x, z, clock.elapsedTime % 512, strength);
 }
 
+const blast = createBlast();
 const explosionQueue = [];
 let blastPhase = null;   // the phase being held, and what is left of it
 let blastLeft = 0;
@@ -902,22 +904,10 @@ function dropBarrel(at) {
 // mushroom. Shared by a barrel reaching the end of its life and by a tap on
 // the water.
 function detonate(q, t) {
-  // An air-filled barrel does not simply burst. The cavity is at one
-  // atmosphere while the water around it is not, so the water crushes it
-  // first, the trapped air compresses, and it is the REBOUND that throws the
-  // plume — the bubble pulse that makes a depth charge boom twice. The
-  // pocket is injected as foam — aerated water is the only air this solver has —
-  // because an inward pull through water that looks the same before and after
-  // reads as nothing happening at all. Give the pocket to look at first, then
-  // crush it: the crush phases add no air, so what is there gets squeezed.
-  explosionQueue.push(
-    { pos: q, vel: 1.1, up: 0.1, foam: 3.8, radius: 0.095, hold: 0.10, raw: true },
-    { pos: q, vel: -3.6, up: -0.5, foam: 0.0, radius: 0.24, hold: 0.24 },
-    { pos: q, vel: -2.4, up: -0.2, foam: 0.0, radius: 0.20, hold: 0.08 },
-    { pos: q, vel: 3.2, up: 1.2, foam: 0.42, radius: 0.36, ring: 2.6, ringR: 0.28, hold: 0.05 },
-    { pos: q, vel: 1.8, up: 0.9, foam: 0.24, radius: 0.44, ring: 2.0, ringR: 0.36, hold: 0.05 },
-    { pos: q, vel: 0.9, up: 0.6, foam: 0.14, radius: 0.52, ring: 1.4, ringR: 0.44, hold: 0.05 },
-  );
+  // The barrel's air pocket opens as the bubble's first expansion — see
+  // src/undex.js for the model. Everything the explosion does from here is the
+  // bubble oscillating, fed to the solver a frame at a time.
+  blast.fire(q.x, q.y, q.z, fluid.physics.blast, SURFACE_Y - q.y);
   lastBlast.pos.copy(q);
   lastBlast.until = t + 1.6;
   addRipple(q.x, q.z, 1.3);
@@ -1013,16 +1003,25 @@ function frame() {
     // collapse something you can watch. Scaling happens on arming, so the
     // sliders still reach explosions already queued.
     if (!fluid.burst) {
-      if (blastLeft <= 0 && explosionQueue.length) {
-        blastPhase = explosionQueue.shift();
-        blastLeft = blastPhase.hold ?? 0;
-      }
-      if (blastPhase) {
-        const hold = blastPhase.hold ?? 0;
-        fluid.burst = armBurst(blastPhase, fluid.physics,
-          hold > 0 ? Math.min(dt / hold, 1) : 1);
-        blastLeft -= dt;
-        if (blastLeft <= 0) blastPhase = null;
+      // The bubble owns the solver's one burst slot while it is alive: it IS the
+      // explosion, every frame of it. The queue is left for the one-shot splashes
+      // a barrel makes on the way in.
+      const bubble = blast.update(dt, fluid.physics);
+      if (bubble) {
+        fluid.burst = bubble;
+        if (bubble._pulse) addRipple(blast.state.x, blast.state.z, 0.5);
+      } else {
+        if (blastLeft <= 0 && explosionQueue.length) {
+          blastPhase = explosionQueue.shift();
+          blastLeft = blastPhase.hold ?? 0;
+        }
+        if (blastPhase) {
+          const hold = blastPhase.hold ?? 0;
+          fluid.burst = armBurst(blastPhase, fluid.physics,
+            hold > 0 ? Math.min(dt / hold, 1) : 1);
+          blastLeft -= dt;
+          if (blastLeft <= 0) blastPhase = null;
+        }
       }
     }
     timer.begin('sim');
@@ -1119,6 +1118,7 @@ window.water = {
   },
   dropBarrel,
 visitor,   // the easter egg, exposed so a capture can step into it
+blast,     // and the explosion, so a capture can fire one without waiting
 
   physics: fluid.physics,
   setPaddleHidden: (v) => setPaddleHidden(v),
