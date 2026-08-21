@@ -25,8 +25,8 @@ export class Fluid3D {
     this.tank = tank;
     // same knobs, same units as the WebGL solver
     this.physics = {
-      rise: 0.55, buoyancy: 0.48, foamLife: 5.0, swirl: 0.09, aeration: 1.8,
-      caustics: 1.0, chop: 1.0, drag: 0.06, blast: 1.0, ring: 1.0,
+      rise: 0.55, buoyancy: 0.48, foamLife: 5.0, swirl: 0.03, aeration: 1.8,
+      caustics: 1.0, chop: 1.0, drag: 0.35, blast: 1.0, ring: 1.0,
     };
     this.N = N;
     this.jacobi = jacobi + (jacobi % 2); // even, so pressure ends in prs0

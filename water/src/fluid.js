@@ -20,11 +20,11 @@ export class Fluid {
       rise: 0.55,      // bubble slip through the water, world/s
       buoyancy: 0.48,  // lift of aerated water, world/s^2 per unit foam
       foamLife: 5.0,   // e-folding time of the bubble field, seconds
-      swirl: 0.09,     // vorticity confinement
+      swirl: 0.03,     // vorticity confinement
       aeration: 1.8,   // foam injected per unit of churn
       caustics: 1.0,
       chop: 1.0,
-      drag: 0.06,      // velocity damping, 1/s
+      drag: 0.35,      // velocity damping, 1/s
       blast: 1.0,      // explosion strength
       ring: 1.0,       // vortex-ring circulation seeded by a blast
     };

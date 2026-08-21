@@ -21,8 +21,9 @@ npx http-server .        # or any static server
 — default high; ultra wants a discrete GPU). `?dtcap=0.15` raises the
 per-frame simulation time cap, useful on slow (software) GPUs.
 
-**Interaction** — drag the paddle to stir; drag anywhere else to orbit; click
-for a burst; wheel/pinch to zoom. Buttons (and keys): `B` or `Space` drops an
+**Interaction** — drag the paddle to stir; drag anywhere else to orbit; tap or
+click the water to set off a full detonation there (the same implosion, blast
+and vortex ring a barrel makes, not a lesser puff); wheel/pinch to zoom. Buttons (and keys): `B` or `Space` drops an
 exploding barrel, `R` spins the paddle like a paddle-wheel (slider sets the
 rate), `O` orbits the camera, `X` takes the paddle out of the tank entirely,
 `F` goes full screen, `H` hides the interface. Every click of `drop barrel`

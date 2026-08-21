@@ -379,8 +379,8 @@ function pointerRay(e) {
 
 function rayBox(ray) {
   const inv = new THREE.Vector3(1 / ray.direction.x, 1 / ray.direction.y, 1 / ray.direction.z);
-  const a = new THREE.Vector3(-1, -1, -1).sub(ray.origin).multiply(inv);
-  const b = new THREE.Vector3(1, 1, 1).sub(ray.origin).multiply(inv);
+  const a = new THREE.Vector3(-tankHalf, -tankHalf, -tankHalf).sub(ray.origin).multiply(inv);
+  const b = new THREE.Vector3(tankHalf, tankHalf, tankHalf).sub(ray.origin).multiply(inv);
   const lo = a.clone().min(b), hi = a.clone().max(b);
   const t0 = Math.max(lo.x, lo.y, lo.z), t1 = Math.min(hi.x, hi.y, hi.z);
   return t1 > Math.max(t0, 0) ? [Math.max(t0, 0), t1] : null;
@@ -463,7 +463,8 @@ function endPointer(e, cancelled) {
     const t = rayBox(ray);
     if (t) {
       const p = ray.origin.clone().addScaledVector(ray.direction, t[0] + (t[1] - t[0]) * 0.35);
-      fluid.burst = { pos: p.clampScalar(-0.92 * tankHalf, 0.92 * tankHalf), vel: 1.4, foam: 0.55 };
+      // a tap on the water sets off the same blast a barrel makes
+      detonate(p.clampScalar(-0.92 * tankHalf, 0.92 * tankHalf), clock.elapsedTime);
       lastInteract = clock.elapsedTime;
     }
   }
@@ -817,6 +818,23 @@ function dropBarrel() {
   b.mesh.visible = true;
 }
 
+// A full detonation: implosion, then the blast — and the blast seeds a
+// vortex ring that widens as it rises, which is what rolls the cap into a
+// mushroom. Shared by a barrel reaching the end of its life and by a tap on
+// the water.
+function detonate(q, t) {
+  explosionQueue.push(
+    { pos: q, vel: -2.0, up: -0.3, foam: 0.0, radius: 0.42 },
+    { pos: q, vel: -1.2, up: 0.0, foam: 0.18, radius: 0.36 },
+    { pos: q, vel: 3.2, up: 1.2, foam: 0.42, radius: 0.36, ring: 2.6, ringR: 0.28 },
+    { pos: q, vel: 1.8, up: 0.9, foam: 0.24, radius: 0.44, ring: 2.0, ringR: 0.36 },
+    { pos: q, vel: 0.9, up: 0.6, foam: 0.14, radius: 0.52, ring: 1.4, ringR: 0.44 },
+  );
+  lastBlast.pos.copy(q);
+  lastBlast.until = t + 1.6;
+  addRipple(q.x, q.z, 1.3);
+}
+
 function updateBarrels(dt, t) {
   liveBarrels.length = 0;
   for (const b of barrels) {
@@ -857,19 +875,7 @@ function updateBarrels(dt, t) {
       // huge foam release that buoyancy turns into the erupting column
       b.active = false;
       b.mesh.visible = false;
-      const q = p.clone();
-      // implosion, then the blast — and the blast seeds a vortex ring that
-      // widens as it rises, which is what rolls the cap into a mushroom
-      explosionQueue.push(
-        { pos: q, vel: -2.0, up: -0.3, foam: 0.0, radius: 0.42 },
-        { pos: q, vel: -1.2, up: 0.0, foam: 0.18, radius: 0.36 },
-        { pos: q, vel: 3.2, up: 1.2, foam: 0.42, radius: 0.36, ring: 2.6, ringR: 0.28 },
-        { pos: q, vel: 1.8, up: 0.9, foam: 0.24, radius: 0.44, ring: 2.0, ringR: 0.36 },
-        { pos: q, vel: 0.9, up: 0.6, foam: 0.14, radius: 0.52, ring: 1.4, ringR: 0.44 },
-      );
-      lastBlast.pos.copy(q);
-      lastBlast.until = t + 1.6;
-      addRipple(q.x, q.z, 1.3);
+      detonate(p.clone(), t);
       continue;
     }
 
