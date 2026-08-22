@@ -41,6 +41,13 @@ export const TUNE = {
   // their own gas — two explosions. Too high and the site outruns the plume.
   cavityRise: 0.35,
 
+  // --- meshes in the light ------------------------------------------------
+  // How dark a solid mesh's shadow goes in the volumetric light, and how far
+  // the penumbra spreads as a multiple of the proxy radius. 0 strength puts it
+  // back to light marching straight through the barrels as if they were water.
+  meshShadow: 0.75,
+  shadowSoft: 2.0,
+
   // --- framing -------------------------------------------------------------
   // 1 puts the tank's full width exactly at the frame's edges. Below 1 pushes
   // the side walls out of shot, above 1 pulls them inside it.
@@ -54,4 +61,8 @@ export const TUNE = {
   reach: 1.5,           // how far behind the tank it starts, in tank halves
   fadeStart: 0.55,      // depth where it begins to dissolve, in tank halves
   fadeSpan: 0.55,       // and how much further until it is gone
+  // Fade at which the fish starts being eaten away by the dither rather than
+  // just tinted. Tinting alone cannot hide it — see FISH_FRAG — so this is
+  // what actually makes it disappear. 1 switches the dissolve off entirely.
+  dissolveAt: 0.25,
 };

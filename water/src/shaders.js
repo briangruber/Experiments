@@ -452,6 +452,17 @@ uniform float uSigmaWater;  // extinction of clear water, per voxel
 uniform float uSurfaceY;    // waterline, world units
 uniform float uTime;
 uniform float uCaustics;
+// Mesh occluders, as spheres in the same [-1,1] tank space as wp below. The
+// meshes are drawn in the opaque pass and are not in the volume at all, so
+// without these the light marches straight through a barrel as if it were
+// water. One analytic test per voxel per frame is all it takes to put them in
+// the light — and because this volume is what every shaft, every scattering
+// sample and every caustic beam reads, the shadow lands in all of them at once
+// rather than being marched again per pixel.
+uniform int uOccN;
+uniform vec4 uOcc[12];      // xyz centre, w radius
+uniform float uOccK;        // how dark the shadows go; 0 switches them off
+uniform float uOccSoft;     // penumbra, as a multiple of each radius
 
 // Interference of a few travelling waves, sharpened into the bright filaments
 // sunlight makes after refracting through a rippled surface.
@@ -515,6 +526,26 @@ void main() {
   float sharp = exp(-below * 0.9);
   float c = caustic(cp * 4.5, uTime * 0.35);
   t *= mix(1.0, c, uCaustics * sharp);
+
+  // Anything solid between this voxel and the light. Perpendicular distance
+  // from the sphere's centre to the light ray, which is the cheapest form of
+  // this that still gives a soft edge: inside the radius it is fully blocked,
+  // and it feathers out to uOccSoft times the radius. Occluders BEHIND the
+  // voxel are skipped on the sign of t, or a barrel would shadow the water
+  // above it as well as below.
+  if (uOccN > 0 && uOccK > 0.0) {
+    vec3 ld = -uLightDir;
+    for (int i = 0; i < 12; i++) {
+      if (i >= uOccN) break;
+      vec3 rel = uOcc[i].xyz - wp;
+      float ct = dot(rel, ld);
+      if (ct <= 0.0) continue;
+      float d2 = dot(rel, rel) - ct * ct;
+      float r = uOcc[i].w;
+      float ro = r * uOccSoft;
+      t *= mix(1.0, smoothstep(r * r, ro * ro, d2), uOccK);
+    }
+  }
   if (!(t > 0.0)) t = 0.0;   // NaN-safe: a poisoned texel would blacken the tank
   gl_FragColor = vec4(min(t, 8.0), 0.0, 0.0, 0.0);
 }`;
@@ -1172,5 +1203,47 @@ void main() {
   vec3 col = base * (0.22 + 0.85 * diff) * vec3(0.92, 0.94, 1.0)
            + fr * vec3(0.14, 0.28, 0.40);
   col = mix(col, uFogColor, clamp(uFade, 0.0, 1.0));
+  gl_FragColor = vec4(col, 1.0);
+}`;
+
+// The fish's fragment shader is the barrel's plus a dissolve, because tinting
+// alone can never actually hide it.
+//
+// This is drawn in the OPAQUE pass and the volume is composited in front of it
+// afterwards, so the pixel that comes out is the fish's colour attenuated by
+// the water in front, plus that water's in-scatter. The background beside it is
+// the same in-scatter plus everything the ray picks up over the REST of the
+// column — the part the fish is standing in the way of. There is no colour this
+// shader can output that reproduces that, because it does not know how much
+// water is behind it; tint it dark and it reads as a silhouette, tint it light
+// and it reads as a ghost. It was reading as a ghost.
+//
+// So past a point it stops trying and stops writing pixels instead. Discarded
+// fragments leave the raymarch to march the full column, which IS the answer,
+// exactly, for nothing. Ordered dither over a 4x4 Bayer matrix with a hash to
+// break up the grid, so the fish thins out rather than vanishing in one step —
+// and at uFade = 1 every fragment goes and it is genuinely, completely gone.
+export const FISH_FRAG = /* glsl */ `
+varying vec3 vN;
+varying vec3 vWp;
+varying vec2 vUv;
+uniform vec3 uSunDir;
+uniform sampler2D uMap;
+uniform float uFade;
+uniform vec3 uFogColor;
+uniform float uDissolve;   // fade at which the dither starts eating it
+
+void main() {
+  float f = clamp(uFade, 0.0, 1.0);
+  float th = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+  if (th < (f - uDissolve) / max(1.0 - uDissolve, 1e-3)) discard;
+  vec3 n = normalize(vN);
+  vec3 v = normalize(cameraPosition - vWp);
+  vec3 base = texture2D(uMap, vUv).rgb;
+  float fr = pow(1.0 - abs(dot(n, v)), 3.0);
+  float diff = max(dot(n, -uSunDir), 0.0);
+  vec3 col = base * (0.22 + 0.85 * diff) * vec3(0.92, 0.94, 1.0)
+           + fr * vec3(0.14, 0.28, 0.40);
+  col = mix(col, uFogColor, f);
   gl_FragColor = vec4(col, 1.0);
 }`;

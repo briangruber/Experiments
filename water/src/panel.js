@@ -227,6 +227,15 @@ export function buildTunePanel(TUNE, hooks = {}) {
   action('Detonate at mid depth', () => hooks.blast?.(),
     'Set one off immediately, without waiting for a barrel to sink to its mark.');
 
+  head('Meshes in the Light');
+  knob('meshShadow', 'shadow strength', 0, 1, 0.02,
+    'How dark a solid mesh goes in the volumetric light. The meshes are drawn '
+    + 'in the opaque pass and are not in the volume at all, so at 0 the light '
+    + 'marches straight through a barrel as if it were water.');
+  knob('shadowSoft', 'shadow softness', 1.05, 5, 0.05,
+    'How far the penumbra spreads, as a multiple of each proxy sphere\'s '
+    + 'radius. Low is a hard cut, high is a broad smudge.');
+
   head('Framing');
   knob('fitWidth', 'frame width', 0.55, 1.6, 0.01,
     'How much of the tank\'s width the window spans. 1 puts the side walls '
@@ -256,6 +265,11 @@ export function buildTunePanel(TUNE, hooks = {}) {
     + 'starts fading closer to the camera.');
   knob('fadeSpan', 'fade over', 0.1, 1.5, 0.02,
     'How much further, in tank halves, until it is completely gone.');
+  knob('dissolveAt', 'dissolve from', 0, 1, 0.02,
+    'Fade at which the fish stops being merely tinted and starts being eaten '
+    + 'away pixel by pixel. Tinting alone can never hide it, because it is '
+    + 'drawn before the water in front of it — so this is the control that '
+    + 'actually makes it disappear. 1 switches the dissolve off.');
   const scrub = slider(panel, {
     label: 'scrub', min: 0, max: 1, step: 0.005, value: 0,
     desc: 'Drag the fish through its whole crossing by hand. This is the fast '

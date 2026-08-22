@@ -17,7 +17,7 @@ import {
 import {
   FS_TRI_VERT, RAYMARCH_VERT, RAYMARCH_FRAG, COMPOSITE_FRAG,
   BRIGHT_FRAG, BLUR_FRAG, POST_FRAG, PADDLE_VERT, PADDLE_FRAG, PROBE_FRAG,
-  BARREL_VERT, BARREL_FRAG, FISH_VERT,
+  BARREL_VERT, BARREL_FRAG, FISH_VERT, FISH_FRAG,
 } from './shaders.js';
 import {
   barrelGeometry, barrelTexture, BARREL_HALF,
@@ -243,12 +243,13 @@ function sizeBarrel(b, sc) {
 const diverScale = 0.30;
 const diverParts = diverModel(THREE, new THREE.ShaderMaterial({
   vertexShader: FISH_VERT,
-  fragmentShader: BARREL_FRAG,
+  fragmentShader: FISH_FRAG,
   uniforms: {
     uSunDir: { value: sunDir },
     uMap: { value: diverTexture(THREE) },
     uFade: { value: 1 },
     uFogColor: { value: new THREE.Vector3() },
+    uDissolve: { value: 0.25 },
     uBones: { value: null },
   },
 }));
@@ -902,6 +903,55 @@ let blastLeft = 0;
 const lastBlast = { pos: new THREE.Vector3(), until: -1 };
 const liveBarrels = [];   // reused array of descriptors for the solver
 
+// Sphere proxies for the solid meshes, rebuilt each frame and handed to the
+// light pass so the volumetric light has something to break on. Spheres only,
+// because the shader test is a point-to-ray distance and that is what keeps it
+// to a few instructions per voxel; anything that is not round is covered by
+// laying two or three of them along its longest axis, which at this softness
+// is indistinguishable from the real silhouette.
+const OCC_MAX = 12;
+const occluders = Array.from({ length: OCC_MAX }, () => ({ x: 0, y: 0, z: 0, r: 0 }));
+const occLocal = new THREE.Vector3();
+function addOcc(n, x, y, z, r) {
+  if (n >= OCC_MAX) return n;
+  const o = occluders[n];
+  o.x = x; o.y = y; o.z = z; o.r = r;
+  return n + 1;
+}
+function buildOccluders() {
+  let n = 0;
+  // The paddle is a flat blade, so it gets three spheres down its long axis
+  // rather than one fat one around the whole thing.
+  if (!paddleHidden) {
+    const h = paddleHalf;
+    const long = h.x > h.y && h.x > h.z ? 0 : (h.y > h.z ? 1 : 2);
+    const half = long === 0 ? h.x : long === 1 ? h.y : h.z;
+    const rad = 0.85 * Math.max(
+      long === 0 ? h.y : h.x,
+      long === 2 ? h.y : h.z);
+    for (let k = -1; k <= 1; k++) {
+      occLocal.set(0, 0, 0);
+      occLocal.setComponent(long, k * half * 0.62);
+      occLocal.applyMatrix4(paddle.matrixWorld);
+      n = addOcc(n, occLocal.x, occLocal.y, occLocal.z, rad);
+    }
+  }
+  // The fish, while it is solid enough to block anything
+  if (diver.visible && visitor.state.fade < 0.85) {
+    const p = diver.position;
+    n = addOcc(n, p.x, p.y, p.z, 0.62 * diverScale * (1 - visitor.state.fade));
+  }
+  // and every barrel still in the water
+  for (const b of barrels) {
+    if (!b.active || b.mesh.position.y > SURFACE_Y) continue;
+    const p = b.mesh.position;
+    n = addOcc(n, p.x, p.y, p.z, b.scale * BARREL_R * 1.15);
+    if (n >= OCC_MAX) break;
+  }
+  for (let i = n; i < OCC_MAX; i++) occluders[i].r = 0;
+  return n;
+}
+
 // `at` aims the drop: the barrel falls straight down onto that x/z and
 // detonates when it reaches that depth, so a click lands the blast where
 // you pointed. Without it the barrel is scattered and blows up on the floor.
@@ -949,9 +999,17 @@ function dropBarrel(at) {
 // k^3 with nothing further to do. A bigger barrel therefore blows a bigger
 // hole, not a denser one, which is what the physics says and also what reads.
 function detonate(q, t, k = 1) {
-  // The cavity does not stay put while this plays out — see the rise
-  // integration in the animation loop. Every phase shares one position vector
-  // and one rise state, so moving it moves the whole remaining sequence.
+  // Every phase shares one position vector and one rise state, so moving it
+  // moves the whole remaining sequence — see the rise integration in the
+  // animation loop.
+  //
+  // `lift` says which phases float. The cavity STAYS WHERE IT WENT OFF while it
+  // is opening and being crushed, and only the rebound rises. That is the
+  // Rayleigh picture: a bubble at full size is displacing a great deal of water
+  // and hardly migrates at all, and it is at the collapse — when it is small
+  // and drags almost nothing with it — that it jumps. Letting the pocket float
+  // from the first frame read as the explosion sliding upward out of its own
+  // hole.
   const rise = { vy: 0 };
   // An air-filled barrel does not simply burst. The cavity is at one
   // atmosphere while the water around it is not, so the water crushes it
@@ -962,12 +1020,12 @@ function detonate(q, t, k = 1) {
   // reads as nothing happening at all. Give the pocket to look at first, then
   // crush it: the crush phases add no air, so what is there gets squeezed.
   explosionQueue.push(
-    { pos: q, rise, vel: 1.1 * k, up: 0.1 * k, foam: 3.8, radius: 0.095 * k, hold: 0.10, raw: true },
-    { pos: q, rise, vel: -3.6 * k, up: -0.5 * k, foam: 0.0, radius: 0.24 * k, hold: 0.24 },
-    { pos: q, rise, vel: -2.4 * k, up: -0.2 * k, foam: 0.0, radius: 0.20 * k, hold: 0.08 },
-    { pos: q, rise, vel: 3.2 * k, up: 1.2 * k, foam: 0.42, radius: 0.36 * k, ring: 2.6 * k, ringR: 0.28 * k, hold: 0.05 },
-    { pos: q, rise, vel: 1.8 * k, up: 0.9 * k, foam: 0.24, radius: 0.44 * k, ring: 2.0 * k, ringR: 0.36 * k, hold: 0.05 },
-    { pos: q, rise, vel: 0.9 * k, up: 0.6 * k, foam: 0.14, radius: 0.52 * k, ring: 1.4 * k, ringR: 0.44 * k, hold: 0.05 },
+    { pos: q, rise, lift: 0, vel: 1.1 * k, up: 0.1 * k, foam: 3.8, radius: 0.095 * k, hold: 0.10, raw: true },
+    { pos: q, rise, lift: 0, vel: -3.6 * k, up: -0.5 * k, foam: 0.0, radius: 0.24 * k, hold: 0.24 },
+    { pos: q, rise, lift: 0, vel: -2.4 * k, up: -0.2 * k, foam: 0.0, radius: 0.20 * k, hold: 0.08 },
+    { pos: q, rise, lift: 1, vel: 3.2 * k, up: 1.2 * k, foam: 0.42, radius: 0.36 * k, ring: 2.6 * k, ringR: 0.28 * k, hold: 0.05 },
+    { pos: q, rise, lift: 1, vel: 1.8 * k, up: 0.9 * k, foam: 0.24, radius: 0.44 * k, ring: 2.0 * k, ringR: 0.36 * k, hold: 0.05 },
+    { pos: q, rise, lift: 1, vel: 0.9 * k, up: 0.6 * k, foam: 0.14, radius: 0.52 * k, ring: 1.4 * k, ringR: 0.44 * k, hold: 0.05 },
   );
   // Aliased, not copied, so the bubble sparkle rides up with the cavity
   // instead of staying behind at the point of detonation.
@@ -1075,6 +1133,7 @@ function frame() {
       (diver.position.y + tankHalf) / (SURFACE_Y + tankHalf)));
     diver.material.uniforms.uFogColor.value.copy(mRaymarch.uniforms.uAmbientDeep.value)
       .lerp(mRaymarch.uniforms.uAmbientTop.value, lift * 0.35);
+    diver.material.uniforms.uDissolve.value = TUNE.dissolveAt;
     // Phases are HELD for a duration rather than fired one per frame. An
     // implosion two entries long lasted 33ms at 60fps, so all anyone ever saw
     // was the pop. Each frame takes its dt share of the phase, which keeps the
@@ -1099,7 +1158,8 @@ function frame() {
         const r = blastPhase.rise;
         if (r) {
           const ph = fluid.physics;
-          r.vy += (ph.buoyancy * TUNE.cavityRise - ph.drag * r.vy) * dt;
+          r.vy += (ph.buoyancy * TUNE.cavityRise * (blastPhase.lift ?? 1)
+                  - ph.drag * r.vy) * dt;
           blastPhase.pos.y = Math.min(SURFACE_Y - 0.03,
             blastPhase.pos.y + r.vy * dt);
         }
@@ -1110,6 +1170,10 @@ function frame() {
         if (blastLeft <= 0) blastPhase = null;
       }
     }
+    buildOccluders();
+    fluid.occluders = occluders;
+    fluid.mLight.uniforms.uOccK.value = TUNE.meshShadow;
+    fluid.mLight.uniforms.uOccSoft.value = TUNE.shadowSoft;
     timer.begin('sim');
     // wrapped time keeps float hash/noise inputs precise over long sessions
     fluid.step(dt, t % 512);

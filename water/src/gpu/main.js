@@ -14,6 +14,7 @@ import * as THREE from '../../vendor/three.webgpu.min.js';
 const {
   Fn, If, Loop, Break, uniform, texture, texture3D, uv,
   float, int, vec2, vec3, vec4, mat4, smoothstep, storage, instanceIndex, varying,
+  Discard, screenCoordinate, fract, sin,
   normalWorld, positionWorld, cameraPosition,
   attribute, uniformArray, positionGeometry, normalGeometry, modelWorldMatrix,
 } = THREE.TSL;
@@ -317,6 +318,7 @@ export async function start() {
   // see the WebGL shader.
   const diverFade = uniform(1);
   const diverFog = uniform(new THREE.Vector3());
+  const diverDissolve = uniform(0.25);
   const diverMat = new THREE.MeshBasicNodeMaterial();
   const diverParts = diverModel(THREE, diverMat);
   (() => {
@@ -348,6 +350,16 @@ export async function start() {
     const nWorld = varying(modelWorldMatrix.mul(
       vec4(skin.mul(vec4(normalGeometry, 0)).xyz, 0)).xyz);
     diverMat.colorNode = Fn(() => {
+      // The same dissolve the WebGL fish uses, and for the same reason: this is
+      // drawn before the volume is composited in front of it, so no colour it
+      // can output matches the water column it is standing in the way of.
+      // Past `diverDissolve` it stops writing pixels instead and lets the
+      // raymarch fill in the real thing — exact, by construction.
+      const f = diverFade.clamp(0, 1);
+      const sc = screenCoordinate;
+      const th = fract(sin(sc.x.mul(12.9898).add(sc.y.mul(78.233))).mul(43758.5453));
+      const amt = f.sub(diverDissolve).div(float(1).sub(diverDissolve).max(1e-3));
+      Discard(th.lessThan(amt));
       const n = nWorld.normalize();
       const v = cameraPosition.sub(positionWorld).normalize();
       const fr = float(1).sub(n.dot(v).abs()).pow(3);
@@ -1196,8 +1208,10 @@ export async function start() {
   // that goes in amplitude x radius^3 — already k^3. A bigger barrel blows a
   // bigger hole, not a denser one.
   function detonate(q, t, k = 1) {
-    // Shared by every phase, so carrying it up carries the whole sequence —
-    // see the rise integration in the frame loop.
+    // Shared by every phase, so carrying it up carries the whole sequence.
+    // `lift` says which of them float: the cavity stays where it went off while
+    // it opens and is crushed, and only the rebound rises — a bubble at full
+    // size displaces too much water to migrate, and jumps at the collapse.
     const rise = { vy: 0 };
     // An air-filled barrel does not simply burst. The cavity is at one
     // atmosphere while the water around it is not, so the water crushes it
@@ -1208,12 +1222,12 @@ export async function start() {
     // reads as nothing happening at all. Give the pocket to look at first, then
     // crush it: the crush phases add no air, so what is there gets squeezed.
     explosionQueue.push(
-      { pos: q, rise, vel: 1.1 * k, up: 0.1 * k, foam: 3.8, radius: 0.095 * k, hold: 0.10, raw: true },
-      { pos: q, rise, vel: -3.6 * k, up: -0.5 * k, foam: 0.0, radius: 0.24 * k, hold: 0.24 },
-      { pos: q, rise, vel: -2.4 * k, up: -0.2 * k, foam: 0.0, radius: 0.20 * k, hold: 0.08 },
-      { pos: q, rise, vel: 3.2 * k, up: 1.2 * k, foam: 0.42, radius: 0.36 * k, ring: 2.6 * k, ringR: 0.28 * k, hold: 0.05 },
-      { pos: q, rise, vel: 1.8 * k, up: 0.9 * k, foam: 0.24, radius: 0.44 * k, ring: 2.0 * k, ringR: 0.36 * k, hold: 0.05 },
-      { pos: q, rise, vel: 0.9 * k, up: 0.6 * k, foam: 0.14, radius: 0.52 * k, ring: 1.4 * k, ringR: 0.44 * k, hold: 0.05 },
+      { pos: q, rise, lift: 0, vel: 1.1 * k, up: 0.1 * k, foam: 3.8, radius: 0.095 * k, hold: 0.10, raw: true },
+      { pos: q, rise, lift: 0, vel: -3.6 * k, up: -0.5 * k, foam: 0.0, radius: 0.24 * k, hold: 0.24 },
+      { pos: q, rise, lift: 0, vel: -2.4 * k, up: -0.2 * k, foam: 0.0, radius: 0.20 * k, hold: 0.08 },
+      { pos: q, rise, lift: 1, vel: 3.2 * k, up: 1.2 * k, foam: 0.42, radius: 0.36 * k, ring: 2.6 * k, ringR: 0.28 * k, hold: 0.05 },
+      { pos: q, rise, lift: 1, vel: 1.8 * k, up: 0.9 * k, foam: 0.24, radius: 0.44 * k, ring: 2.0 * k, ringR: 0.36 * k, hold: 0.05 },
+      { pos: q, rise, lift: 1, vel: 0.9 * k, up: 0.6 * k, foam: 0.14, radius: 0.52 * k, ring: 1.4 * k, ringR: 0.44 * k, hold: 0.05 },
     );
     // Aliased, not copied, so the bubble sparkle rides up with the cavity.
     lastBlast.pos = q;
@@ -1447,6 +1461,7 @@ export async function start() {
       const lift = Math.min(1, Math.max(0,
         (diver.position.y + tankHalf) / (SURFACE_Y + tankHalf)));
       diverFog.value.copy(uAmbientDeep.value).lerp(uAmbientTop.value, lift * 0.35);
+      diverDissolve.value = TUNE.dissolveAt;
       // Phases are HELD for a duration rather than fired one per frame. An
       // implosion two entries long lasted 33ms at 60fps, so all anyone ever saw
       // was the pop. Each frame takes its dt share of the phase, which keeps
@@ -1467,7 +1482,8 @@ export async function start() {
           const r = blastPhase.rise;
           if (r) {
             const ph = fluid.physics;
-            r.vy += (ph.buoyancy * TUNE.cavityRise - ph.drag * r.vy) * dt;
+            r.vy += (ph.buoyancy * TUNE.cavityRise * (blastPhase.lift ?? 1)
+                    - ph.drag * r.vy) * dt;
             blastPhase.pos.y = Math.min(SURFACE_Y - 0.03,
               blastPhase.pos.y + r.vy * dt);
           }
