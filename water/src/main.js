@@ -1033,9 +1033,9 @@ function detonate(q, t, k = 1) {
   // reads as nothing happening at all. Give the pocket to look at first, then
   // crush it: the crush phases add no air, so what is there gets squeezed.
   explosionQueue.push(
-    { pos: q, rise, lift: 0, vel: 1.1 * k, up: 0.1 * k, foam: 3.8, radius: 0.095 * k, hold: 0.10, raw: true },
-    { pos: q, rise, lift: 0, vel: -3.6 * k, up: -0.5 * k, foam: 0.0, radius: 0.24 * k, hold: 0.24 },
-    { pos: q, rise, lift: 0, vel: -2.4 * k, up: -0.2 * k, foam: 0.0, radius: 0.20 * k, hold: 0.08 },
+    { pos: q, rise, lift: 0, vel: 1.1 * k, up: 0.1 * k, foam: 3.8, radius: 0.095 * k * TUNE.cavitySize, hold: 0.10, raw: true },
+    { pos: q, rise, lift: 0, vel: -3.6 * k, up: -0.5 * k, foam: 0.0, radius: 0.24 * k * TUNE.cavitySize, hold: 0.24 },
+    { pos: q, rise, lift: 0, vel: -2.4 * k, up: -0.2 * k, foam: 0.0, radius: 0.20 * k * TUNE.cavitySize, hold: 0.08 },
     { pos: q, rise, lift: 1, vel: 3.2 * k, up: 1.2 * k, foam: 0.42, radius: 0.36 * k, ring: 2.6 * k, ringR: 0.28 * k, hold: 0.05 },
     { pos: q, rise, lift: 1, vel: 1.8 * k, up: 0.9 * k, foam: 0.24, radius: 0.44 * k, ring: 2.0 * k, ringR: 0.36 * k, hold: 0.05 },
     { pos: q, rise, lift: 1, vel: 0.9 * k, up: 0.6 * k, foam: 0.14, radius: 0.52 * k, ring: 1.4 * k, ringR: 0.44 * k, hold: 0.05 },
@@ -1157,6 +1157,10 @@ function frame() {
     // total impulse the same however fast the machine runs and makes the
     // collapse something you can watch. Scaling happens on arming, so the
     // sliders still reach explosions already queued.
+    // Cleared every frame and re-armed below only while a cavity phase is
+    // actually running, so a finished blast never leaves a hole in the
+    // buoyancy field behind it.
+    fluid.mForces.uniforms.uPin.value.w = 0;
     if (!fluid.burst) {
       if (blastLeft <= 0 && explosionQueue.length) {
         blastPhase = explosionQueue.shift();
@@ -1183,19 +1187,18 @@ function frame() {
         const hold = phaseHold(blastPhase);
         fluid.burst = armBurst(blastPhase, fluid.physics,
           hold > 0 ? Math.min(dt / hold, 1) : 1);
-        // Hold the cavity DOWN while it is opening and being crushed.
-        // `cavity rise` only ever moved the injection SITE; what the eye
-        // follows is the foam, and the solver does not know that pocket is one
-        // coherent bubble — to it the gas is buoyant scalar like any other, and
-        // at foam 3.8 against buoyancy 12.2 it accelerates upward at something
-        // like 46 units a second squared. Over the 0.4s before the rebound
-        // arrives it has long since left its own hole, which is exactly the
-        // small explosion that rises followed by a big one somewhere else.
-        // A gas cavity at full size displaces far too much water to migrate
-        // like that, so cancel the buoyancy it should not have. Pinned phases
-        // only: once the rebound fires, the plume is supposed to rise.
+        // Pin the cavity while it opens and is crushed: buoyancy is switched
+        // OFF inside it rather than fought with a downward push. See
+        // FORCES_FRAG — one constant force can never balance a foam field that
+        // varies across the pocket, which is why the push drove the blast into
+        // the floor at the edges while the core still rose.
+        const pin = fluid.mForces.uniforms.uPin.value;
         if (blastPhase.lift === 0) {
-          fluid.burst.up -= TUNE.cavityAnchor * fluid.physics.buoyancy * dt;
+          pin.set(blastPhase.pos.x, blastPhase.pos.y, blastPhase.pos.z,
+            Math.max(blastPhase.radius * 1.5, 0.05));
+          fluid.mForces.uniforms.uPinK.value = TUNE.cavityAnchor;
+        } else {
+          pin.w = 0;
         }
         blastLeft -= dt;
         if (blastLeft <= 0) blastPhase = null;

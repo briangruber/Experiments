@@ -95,6 +95,8 @@ export class Fluid {
       uDt: { value: 0 }, uDissipation: { value: 1 }, uRise: { value: 0 },
     });
     this.mForces = mat(FORCES_FRAG, {
+      uPin: { value: new THREE.Vector4(0, 0, 0, 0) },
+      uPinK: { value: 0 },
       uVel: { value: null }, uFoam: { value: null },
       uDt: { value: 0 },
       uBuoyancy: { value: 0.24 * N },   // grid-invariant: 0.48 world units/s^2

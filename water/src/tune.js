@@ -50,16 +50,24 @@ export const TUNE = {
   // the time it counts — and at 2 the anchor beat buoyancy outright and drove
   // the whole cavity downward. Rising still means raise it, sinking means
   // lower it, and the value that hangs is the one where they cancel.
-  cavityAnchor: 0.9,
+  // Now a fraction of the cavity's buoyancy to WITHHOLD, not a force to push
+  // back with, so 1 is "held perfectly still" and there is no value that can
+  // drive it downward. The old push could not work at any setting: one constant
+  // cannot balance a foam field that varies across the pocket.
+  cavityAnchor: 1.0,
+  // How big the cavity is BORN. Waiting for the injected pocket to spread into
+  // an engulfing bubble is what made the whole thing feel slow — opening it at
+  // size instead costs nothing and lets the hold come back down.
+  cavitySize: 1.9,
   // Stretches or squeezes the pinned phases together, so how long the cavity
   // sits there before the rebound is one number instead of three.
-  cavityHold: 1.0,
+  cavityHold: 1.35,
 
   // --- meshes in the light ------------------------------------------------
   // How dark a solid mesh's shadow goes in the volumetric light, and how far
   // the penumbra spreads as a multiple of the proxy radius. 0 strength puts it
   // back to light marching straight through the barrels as if they were water.
-  meshShadow: 0.75,
+  meshShadow: 1.5,
   // How far a mesh steps back up the beam before reading the light volume. It
   // has to clear its OWN occluder or it reads its own shadow and goes flat
   // dark; too far and it is lit by water well above it.

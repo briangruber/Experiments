@@ -151,6 +151,8 @@ uniform sampler2D uVel;
 uniform sampler2D uFoam;
 uniform float uDt;
 uniform float uBuoyancy;   // voxels/s^2 per unit foam
+uniform vec4 uPin;         // blast cavity: xyz centre (world), w radius; w=0 off
+uniform float uPinK;       // 0..1, how much of its buoyancy is held back
 uniform float uMaxVel;     // voxels/s
 uniform float uPaddleOn;
 uniform vec3 uPaddlePos;    // world [-1,1]
@@ -181,7 +183,25 @@ void main() {
   // buoyancy fades out as bubbles near the surface, so plumes decelerate and
   // spread sideways instead of slamming into a lid
   float lift = 1.0 - smoothstep(uSurfaceY - 0.07, uSurfaceY, wp.y);
-  vel.y += uBuoyancy * clamp(foam, 0.0, 2.5) * lift * uDt;
+
+  // While a blast cavity is opening and being crushed, the gas in it is ONE
+  // coherent bubble, not a cloud of loose ones — and a bubble at full size
+  // displaces far too much water to migrate. The solver has no way to know
+  // that: foam is buoyant wherever it is. So buoyancy is switched off inside
+  // the cavity for as long as it is pinned.
+  //
+  // Suppressing the force is the only version of this that cannot overshoot.
+  // Pushing DOWN with a matching force was the first attempt and it cannot
+  // work, because one constant can never balance a foam field that varies
+  // across the pocket: set it to hold the dense core and it drives the thin
+  // edges into the floor, set it to suit the edges and the core still rises.
+  // There is nothing to balance here — the force simply is not applied.
+  float pin = 0.0;
+  if (uPin.w > 0.0) {
+    vec3 dpin = (wp - uPin.xyz) / uPin.w;
+    pin = clamp(uPinK * exp(-dot(dpin, dpin)), 0.0, 1.0);
+  }
+  vel.y += uBuoyancy * clamp(foam, 0.0, 2.5) * lift * (1.0 - pin) * uDt;
 
   // The diffuser's own updraught. Buoyancy on the foam does most of the work;
   // this is the momentum the bubbles carry off the nozzle, which is what gives
@@ -543,7 +563,12 @@ void main() {
       float d2 = dot(rel, rel) - ct * ct;
       float r = uOcc[i].w;
       float ro = r * uOccSoft;
-      t *= mix(1.0, smoothstep(r * r, ro * ro, d2), uOccK);
+      // A POWER rather than a mix. Blending toward the shadow tops out at 1,
+      // where the core is already black and there is nowhere further to go —
+      // and past 1 a mix goes negative, which is not light. Raised to a power
+      // the core stays black and the PENUMBRA is what darkens, so turning this
+      // up widens the part of the shaft that visibly reads as blocked.
+      t *= pow(smoothstep(r * r, ro * ro, d2), uOccK);
     }
   }
   if (!(t > 0.0)) t = 0.0;   // NaN-safe: a poisoned texel would blacken the tank

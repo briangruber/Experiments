@@ -68,6 +68,10 @@ export class Fluid3D {
       dissV: uniform(1),
       dissF: uniform(1),
       buoyancy: uniform(0.24 * N),
+      // blast cavity: xyz centre (world), w radius; pinK 0..1 is how much of
+      // its buoyancy is withheld while it opens and is crushed
+      pin: uniform(new THREE.Vector4(0, 0, 0, 0)),
+      pinK: uniform(0),
       maxVel: uniform(2.6 * N),
       eps: uniform(0.09 * N),
       foamGain: uniform(1.8),
@@ -204,7 +208,14 @@ export class Fluid3D {
       const foam = fetch(foam0, v).x;
       // buoyancy fades near the waterline, so plumes spread instead of piling up
       const lift = float(1).sub(smoothstep(u.surfaceY.sub(0.07), u.surfaceY, wp.y));
-      vel.y.addAssign(u.buoyancy.mul(foam.clamp(0, 2.5)).mul(lift).mul(u.dt));
+      // A blast cavity is ONE coherent bubble while it is pinned, and a bubble
+      // at full size displaces far too much water to migrate — so buoyancy is
+      // switched off inside it rather than fought with a downward push. See the
+      // WebGL FORCES_FRAG for why the push could never balance.
+      const dpin = wp.sub(u.pin.xyz).div(u.pin.w.max(1e-3));
+      const pinAmt = u.pinK.mul(dpin.dot(dpin).negate().exp()).clamp(0, 1);
+      vel.y.addAssign(u.buoyancy.mul(foam.clamp(0, 2.5)).mul(lift)
+        .mul(float(1).sub(pinAmt)).mul(u.dt));
 
       // The diffuser's own updraught — buoyancy on the foam does most of the
       // work, this is the momentum the bubbles carry off the nozzle.
@@ -508,7 +519,8 @@ export class Fluid3D {
           const d2 = rel.dot(rel).sub(ct2.mul(ct2));
           const r = o.w;
           const ro = r.mul(u.occSoft);
-          tr.mulAssign(lerp(float(1), smoothstep(r.mul(r), ro.mul(ro), d2), u.occK));
+          // a power, not a blend — see the WebGL light shader
+          tr.mulAssign(smoothstep(r.mul(r), ro.mul(ro), d2).max(1e-4).pow(u.occK));
         });
       });
       textureStore(light, v, vec4(tr.max(0).min(8), 0, 0, 0));

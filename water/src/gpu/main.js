@@ -1261,9 +1261,9 @@ export async function start() {
     // reads as nothing happening at all. Give the pocket to look at first, then
     // crush it: the crush phases add no air, so what is there gets squeezed.
     explosionQueue.push(
-      { pos: q, rise, lift: 0, vel: 1.1 * k, up: 0.1 * k, foam: 3.8, radius: 0.095 * k, hold: 0.10, raw: true },
-      { pos: q, rise, lift: 0, vel: -3.6 * k, up: -0.5 * k, foam: 0.0, radius: 0.24 * k, hold: 0.24 },
-      { pos: q, rise, lift: 0, vel: -2.4 * k, up: -0.2 * k, foam: 0.0, radius: 0.20 * k, hold: 0.08 },
+      { pos: q, rise, lift: 0, vel: 1.1 * k, up: 0.1 * k, foam: 3.8, radius: 0.095 * k * TUNE.cavitySize, hold: 0.10, raw: true },
+      { pos: q, rise, lift: 0, vel: -3.6 * k, up: -0.5 * k, foam: 0.0, radius: 0.24 * k * TUNE.cavitySize, hold: 0.24 },
+      { pos: q, rise, lift: 0, vel: -2.4 * k, up: -0.2 * k, foam: 0.0, radius: 0.20 * k * TUNE.cavitySize, hold: 0.08 },
       { pos: q, rise, lift: 1, vel: 3.2 * k, up: 1.2 * k, foam: 0.42, radius: 0.36 * k, ring: 2.6 * k, ringR: 0.28 * k, hold: 0.05 },
       { pos: q, rise, lift: 1, vel: 1.8 * k, up: 0.9 * k, foam: 0.24, radius: 0.44 * k, ring: 2.0 * k, ringR: 0.36 * k, hold: 0.05 },
       { pos: q, rise, lift: 1, vel: 0.9 * k, up: 0.6 * k, foam: 0.14, radius: 0.52 * k, ring: 1.4 * k, ringR: 0.44 * k, hold: 0.05 },
@@ -1508,6 +1508,9 @@ export async function start() {
       // the total impulse the same however fast the machine runs and makes the
       // collapse something you can watch. Scaling happens on arming, so the
       // sliders still reach explosions already queued.
+      // Cleared every frame and re-armed below only while a cavity phase is
+      // running, so a finished blast leaves no hole in the buoyancy field.
+      fluid.u.pinK.value = 0;
       if (!fluid.burst) {
         if (blastLeft <= 0 && explosionQueue.length) {
           blastPhase = explosionQueue.shift();
@@ -1530,11 +1533,13 @@ export async function start() {
           const hold = phaseHold(blastPhase);
           fluid.burst = armBurst(blastPhase, fluid.physics,
             hold > 0 ? Math.min(dt / hold, 1) : 1);
-          // Hold the cavity down while it opens and is crushed — see the WebGL
-          // app: the solver treats the pocket as ordinary buoyant foam, so it
-          // leaves its own hole well before the rebound arrives.
+          // Buoyancy is switched OFF inside the cavity while it opens and is
+          // crushed, rather than fought with a downward push — see the WebGL
+          // app for why a push can never balance.
           if (blastPhase.lift === 0) {
-            fluid.burst.up -= TUNE.cavityAnchor * fluid.physics.buoyancy * dt;
+            fluid.u.pin.value.set(blastPhase.pos.x, blastPhase.pos.y, blastPhase.pos.z,
+              Math.max(blastPhase.radius * 1.5, 0.05));
+            fluid.u.pinK.value = TUNE.cavityAnchor;
           }
           blastLeft -= dt;
           if (blastLeft <= 0) blastPhase = null;

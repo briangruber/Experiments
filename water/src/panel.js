@@ -224,13 +224,17 @@ export function buildTunePanel(TUNE, hooks = {}) {
     'How fast the blast site floats while its phases play out. Too low and the '
     + 'late phases fire below their own gas, which looks like two explosions in '
     + 'two places. Too high and the site outruns the plume it is feeding.');
-  knob('cavityAnchor', 'cavity anchor', 0, 6, 0.05,
-    'How hard the cavity is pinned while it opens and is crushed, as a '
-    + 'multiple of the buoyancy it would otherwise feel. The solver has no idea '
-    + 'the pocket is one bubble — it is just buoyant foam to it — so at 0 the '
-    + 'cavity floats off before the rebound arrives and you get a small '
-    + 'explosion rising followed by a big one somewhere else. Too high and it '
-    + 'digs downward instead.');
+  knob('cavityAnchor', 'cavity anchor', 0, 1, 0.02,
+    'How much of the cavity\'s buoyancy is withheld while it opens and is '
+    + 'crushed. The solver has no idea the pocket is one coherent bubble — it '
+    + 'is just buoyant foam to it — so at 0 the cavity floats off before the '
+    + 'rebound arrives and you get a small explosion rising followed by a big '
+    + 'one somewhere else. 1 holds it perfectly still. It withholds the force '
+    + 'rather than pushing back, so nothing here can drive it downward.');
+  knob('cavitySize', 'cavity size', 0.5, 4, 0.05,
+    'How big the cavity is BORN. The pocket used to be injected small and left '
+    + 'to spread into an engulfing bubble, which is slow; opening it at size '
+    + 'costs nothing and lets the hold come back down.');
   knob('cavityHold', 'cavity hold', 0.2, 4, 0.05,
     'How long the cavity sits there before the rebound throws the plume. '
     + 'Stretches the pocket and both crush phases together.');
@@ -238,10 +242,11 @@ export function buildTunePanel(TUNE, hooks = {}) {
     'Set one off immediately, without waiting for a barrel to sink to its mark.');
 
   head('Meshes in the Light');
-  knob('meshShadow', 'shadow strength', 0, 1, 0.02,
-    'How dark a solid mesh goes in the volumetric light. The meshes are drawn '
-    + 'in the opaque pass and are not in the volume at all, so at 0 the light '
-    + 'marches straight through a barrel as if it were water.');
+  knob('meshShadow', 'shadow strength', 0, 10, 0.1,
+    'How hard a solid mesh blocks the light. 0 lets the light march straight '
+    + 'through a barrel as if it were water. It is an exponent, so past 1 the '
+    + 'core of the shadow is already black and what keeps darkening is the '
+    + 'penumbra around it — which is what makes the blocked shaft read.', 1);
   knob('shadowSoft', 'shadow softness', 1.05, 5, 0.05,
     'How far the penumbra spreads, as a multiple of each proxy sphere\'s '
     + 'radius. Low is a hard cut, high is a broad smudge.');
