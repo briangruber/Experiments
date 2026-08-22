@@ -233,8 +233,13 @@ export function buildTunePanel(TUNE, hooks = {}) {
     + 'number — turn it up for a good crush and the rebound swamps the tank. '
     + 'This and the next knob set the balance; blast power still sets the size.');
   knob('mainBlast', 'main blast', 0, 3, 0.05,
-    'The rebound that throws the plume, on its own. Pull it down to keep a big '
-    + 'implosion without the blast filling the frame.');
+    'How much of the cavity\'s gas survives the collapse to become a plume. '
+    + 'Almost all of the plume IS that gas — the rebound\'s own contribution is '
+    + 'under one per cent of it — so scaling the rebound alone did nothing you '
+    + 'could see. Below 1 the collapse vents the rest, which is also what a '
+    + 'real one does: it fragments the bubble and most of the gas goes into '
+    + 'solution rather than up. Above 1 nothing is vented and the impulses '
+    + 'themselves grow.');
   knob('cavityOn', 'cavity', 0, 1, 1,
     'The cavity is the pocket opening and the water crushing it, before the '
     + 'rebound throws the plume. Off leaves the bare blast, which is what this '

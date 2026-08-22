@@ -1336,7 +1336,7 @@ export async function start() {
       );
     }
     explosionQueue.push(
-      { pos: q, rise, lift: 1, vel: 3.2 * k, up: 1.2 * k, foam: 0.42, radius: 0.36 * k, ring: 2.6 * k, ringR: 0.28 * k, hold: 0.05 },
+      { pos: q, rise, lift: 1, vent: TUNE.cavityOn ? 3.8 : 0, vel: 3.2 * k, up: 1.2 * k, foam: 0.42, radius: 0.36 * k, ring: 2.6 * k, ringR: 0.28 * k, hold: 0.05 },
       { pos: q, rise, lift: 1, vel: 1.8 * k, up: 0.9 * k, foam: 0.24, radius: 0.44 * k, ring: 2.0 * k, ringR: 0.36 * k, hold: 0.05 },
       { pos: q, rise, lift: 1, vel: 0.9 * k, up: 0.6 * k, foam: 0.14, radius: 0.52 * k, ring: 1.4 * k, ringR: 0.44 * k, hold: 0.05 },
     );
@@ -1641,6 +1641,28 @@ export async function start() {
             fluid.burst.up *= gain;
             fluid.burst.foam *= gain;
             fluid.burst.ring *= gain;
+          }
+          // Vent, and this is what `main blast` actually needed to be.
+            //
+            // The plume is not made of the rebound. Almost all of its gas is the
+            // POCKET the cavity opened — at implosion 2.1 that is 3.8 x 2.1 = 8
+            // units of foam against the rebound's 0.07, so the plume is 99% cavity
+            // gas and buoyancy lifts it whatever the blast does. Scaling the
+            // rebound's own impulses, which is all `main blast` did, could never
+            // touch it: turning it down to 0.05 changed nothing anyone could see.
+            //
+            // So the rebound now THROWS AWAY what it does not carry. That is also
+            // what a collapse does — it fragments the bubble and most of the gas
+            // goes into solution rather than up — and it makes `main blast` mean
+            // what its name says: the fraction of the cavity's gas that survives
+            // to become a plume. The cube law is the radius correction, since the
+            // pocket went in through a tighter Gaussian than this one comes out
+            // of, and removing at this radius with the pocket's amplitude would
+            // take out eight times too much.
+            if (blastPhase.vent) {
+            const keep = Math.min(Math.max(TUNE.mainBlast, 0), 1);
+            fluid.burst.foam -= blastPhase.vent * TUNE.implosion * (1 - keep);
+            blastPhase.vent = 0;
           }
           // Buoyancy is switched OFF inside the cavity while it opens and is
           // crushed, rather than fought with a downward push — see the WebGL

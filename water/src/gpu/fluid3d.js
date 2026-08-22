@@ -432,10 +432,13 @@ export class Fluid3D {
           foam.addAssign(w.mul(u.foamGain).mul(bs.min(3)).mul(churn).mul(1.4).mul(u.dt));
         });
       });
-      If(u.burstFoam.greaterThan(0), () => {
+      // Signed: a negative burst VENTS gas — see the WebGL shader and the vent
+      // in gpu/main.js. Clamped at zero below.
+      If(u.burstFoam.notEqual(0), () => {
         const dp = wp.sub(u.burstPos);
         const w = dp.dot(dp).div(u.burstR.mul(u.burstR)).negate().exp();
         foam.addAssign(w.mul(u.burstFoam).mul(noise3(wp.mul(12).add(u.time)).mul(0.8).add(0.6)));
+        foam.assign(foam.max(0));
       });
 
       // A diffuser on the floor: a steady stream, so it is a rate and

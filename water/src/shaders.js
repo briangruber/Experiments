@@ -329,10 +329,14 @@ void main() {
     }
   }
 
-  if (uBurstFoam > 0.0) {
+  // Signed. A NEGATIVE burst vents gas instead of adding it, which is what
+  // lets the rebound throw away most of what the cavity was holding — see the
+  // vent in main.js. Clamped at zero, so over-venting empties the region
+  // rather than driving the field negative.
+  if (uBurstFoam != 0.0) {
     vec3 dp = wp - uBurstPos;
     float w = exp(-dot(dp, dp) / (uBurstR * uBurstR));
-    foam += w * uBurstFoam * (0.6 + 0.8 * noise3(wp * 12.0 + uTime));
+    foam = max(foam + w * uBurstFoam * (0.6 + 0.8 * noise3(wp * 12.0 + uTime)), 0.0);
   }
 
   // A diffuser on the floor: a steady stream rather than a one-off puff, so it
