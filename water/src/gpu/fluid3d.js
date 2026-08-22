@@ -106,14 +106,6 @@ export class Fluid3D {
       sigmaWater: uniform(0.9 / N),
       lightStep: uniform(N / 22),
       caustics: uniform(1),
-      // The sun's own depth map, so meshes block the light with their real
-      // silhouettes. See the WebGL LIGHT_FRAG for why this belongs in the light
-      // pass rather than in the raymarch.
-      sunVP: uniform(new THREE.Matrix4()),
-      shadowTexel: uniform(1 / 1024),
-      tankW: uniform(tank),
-      occK: uniform(1.5),
-      occSoft: uniform(2.0),
     };
     // barrels as spheres: xyz = world position, w = radius / world velocity
     this.barrelPosArr = Array.from({ length: MAX_BARRELS }, () => new THREE.Vector4());
@@ -458,8 +450,6 @@ export class Fluid3D {
       textureStore(foam0, v, vec4(foam.min(4), 0, 0, 0));
     }));
 
-    const sunDepth = this.sunRT.depthTexture;
-
     // 12. light transmittance: foam0 -> light
     this.kLight = K(Fn(() => {
       const v = voxel();
@@ -514,26 +504,6 @@ export class Fluid3D {
       const cv = cc.div(77).pow(1.15).clamp(0, 3).div(1.25);
       tr.mulAssign(lerp(float(1), cv, u.caustics.mul(below.mul(0.9).negate().exp())));
 
-      // Solid geometry between this voxel and the sun, from the sun's own depth
-      // map. Four taps so the edge is a penumbra rather than a staircase.
-      If(u.occK.greaterThan(0), () => {
-        const lp = u.sunVP.mul(vec4(wp.mul(u.tankW), 1));
-        const ndc = lp.xyz.div(lp.w.max(1e-6));
-        const suv = ndc.xy.mul(0.5).add(0.5);
-        const sd = ndc.z.mul(0.5).add(0.5).sub(0.0028);
-        const inside = sd.greaterThan(0).and(sd.lessThan(1))
-          .and(suv.x.greaterThan(0)).and(suv.x.lessThan(1))
-          .and(suv.y.greaterThan(0)).and(suv.y.lessThan(1));
-        If(inside, () => {
-          const r = u.occSoft.mul(u.shadowTexel);
-          const tap = (dx, dy) => sd.lessThanEqual(
-            texture(sunDepth, suv.add(vec2(dx, dy)), float(0)).x).select(float(1), float(0));
-          const lit = tap(r, r).add(tap(r.negate(), r))
-            .add(tap(r, r.negate())).add(tap(r.negate(), r.negate()));
-          // a power, not a blend — see the WebGL light shader
-          tr.mulAssign(lit.mul(0.25).clamp(0, 1).max(1e-4).pow(u.occK));
-        });
-      });
       textureStore(light, v, vec4(tr.max(0).min(8), 0, 0, 0));
     }));
 
@@ -550,9 +520,9 @@ export class Fluid3D {
     this.burst = null;
     this.paddle = null;
     // this.barrels: [{ pos, vel (world/s), radius }] — as many as are in flight
-    // this.sunRT holds the sun's depth map; main renders the opaque scene into
-    // it and sets u.sunVP, which is the only thing telling the light that the
-    // solid meshes exist at all.
+    // this.sunRT holds the sun's depth map. Main renders the opaque scene into
+    // it and the RAYMARCH tests it per step — not this light volume, which at
+    // 64 voxels across the whole tank is far too coarse to hold a silhouette.
   }
 
   step(dt, time) {
@@ -592,7 +562,6 @@ export class Fluid3D {
       this.barrelPosArr[i].set(bs[i].pos.x, bs[i].pos.y, bs[i].pos.z, bs[i].radius);
       this.barrelVelArr[i].set(bs[i].vel.x, bs[i].vel.y, bs[i].vel.z, 0);
     }
-    u.tankW.value = this.tank;
     const em = this.emitter;
     if (em && em.on) {
       u.emitPos.value.set(em.fx * this.tank, -this.tank + 0.06, em.fz * this.tank);

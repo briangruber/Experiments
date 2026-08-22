@@ -246,14 +246,14 @@ export function buildTunePanel(TUNE, hooks = {}) {
     'Set one off immediately, without waiting for a barrel to sink to its mark.');
 
   head('Meshes in the Light');
-  knob('meshShadow', 'shadow strength', 0, 10, 0.1,
-    'How hard a solid mesh blocks the light. 0 lets the light march straight '
-    + 'through a barrel as if it were water. It is an exponent, so past 1 the '
-    + 'core of the shadow is already black and what keeps darkening is the '
-    + 'penumbra around it — which is what makes the blocked shaft read.', 1);
-  knob('shadowSoft', 'shadow softness', 1.05, 5, 0.05,
-    'How far the penumbra spreads, as a multiple of each proxy sphere\'s '
-    + 'radius. Low is a hard cut, high is a broad smudge.');
+  knob('meshShadow', 'shadow strength', 0, 1, 0.02,
+    'How much of the light a blocked step loses. The shadow comes from a depth '
+    + 'map rendered from the sun and is tested at every march step, so 1 really '
+    + 'is fully blocked — there is nothing past it to reach for.');
+  knob('shadowSoft', 'shadow softness', 0, 12, 0.1,
+    'Jitter radius of the shadow lookup, in shadow-map texels. One tap per '
+    + 'march step is jittered and the eighty-odd steps average into a penumbra '
+    + 'on their own, so this widens that penumbra. 0 is a hard edge.');
 
   knob('lightLift', 'mesh light offset', 0.02, 0.6, 0.01,
     'How far back up the beam a mesh looks when it reads the light. It has to '

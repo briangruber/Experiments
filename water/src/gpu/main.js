@@ -430,6 +430,10 @@ export async function start() {
   const uSkyHorizon = uniform(new THREE.Vector3(0.52, 0.66, 0.78));
   const uSkyDeep = uniform(new THREE.Vector3(0.014, 0.038, 0.058));
   const uSkyGain = uniform(0.55);
+  const uSunVP = uniform(new THREE.Matrix4());
+  const uShadowTexel = uniform(1 / 1024);
+  const uOccK = uniform(1.0);
+  const uOccSoft = uniform(2.0);
   const uChop = uniform(1);
   const debugFoam = query.get('view') === 'foam';
   const uDebugFoam = uniform(debugFoam ? 1 : 0);
@@ -691,7 +695,32 @@ export async function start() {
         const foamRaw = texture3D(fluid.foamTexture, pv.div(N), float(0)).x;
         const foam = foamRaw.mul(noise3(pv.mul(0.55)).mul(0.8).add(0.6));
         peakFoam.assign(peakFoam.max(foamRaw));
-        const lt = texture3D(fluid.lightTexture, pv.div(N), float(0)).x;
+        const lt = texture3D(fluid.lightTexture, pv.div(N), float(0)).x.toVar();
+
+        // Geometry shadow, tested HERE rather than baked into the light volume
+        // — see the WebGL raymarch: that volume is 64 voxels across the whole
+        // tank, so a silhouette lands on a handful of them and the trilinear
+        // filter wipes out what survives. One tap per step, jittered, and the
+        // eighty-odd steps average into a penumbra on their own.
+        If(uOccK.greaterThan(0), () => {
+          const lp = uSunVP.mul(vec4(p.mul(uTank), 1));
+          const nd = lp.xyz.div(lp.w.max(1e-6));
+          const ssuv = nd.xy.mul(0.5).add(0.5);
+          const sdp = nd.z.mul(0.5).add(0.5).sub(0.0028);
+          const ok = sdp.greaterThan(0).and(sdp.lessThan(1))
+            .and(ssuv.x.greaterThan(0)).and(ssuv.x.lessThan(1))
+            .and(ssuv.y.greaterThan(0)).and(ssuv.y.lessThan(1));
+          If(ok, () => {
+            const hp = vec3(suv.mul(997), float(i).add(uFrame)).mul(0.1031).fract();
+            const hq = hp.add(hp.dot(hp.zyx.add(19.19)));
+            const jt = vec2(hq.x.add(hq.y).mul(hq.z).fract(),
+              hq.y.add(hq.z).mul(hq.x).fract()).sub(0.5);
+            const gs = sdp.lessThanEqual(texture(fluid.sunRT.depthTexture,
+              ssuv.add(jt.mul(uOccSoft.mul(2).mul(uShadowTexel))), float(0)).x)
+              .select(float(1), float(0));
+            lt.mulAssign(float(1).sub(uOccK.mul(float(1).sub(gs))));
+          });
+        });
 
         const sigS = uWaterScatter.add(vec3(uFoamScatter).mul(foam));
         const sigT = uWaterAbsorb.add(sigS).add(vec3(uFoamAbsorb).mul(foam));
@@ -1495,10 +1524,10 @@ export async function start() {
       renderer.setRenderTarget(fluid.sunRT);
       renderer.render(opaqueScene, sunCam);
       renderer.setRenderTarget(null);
-      fluid.u.sunVP.value.copy(sunVP);
-      fluid.u.shadowTexel.value = 1 / fluid.shadowSize;
-      fluid.u.occK.value = TUNE.meshShadow;
-      fluid.u.occSoft.value = TUNE.shadowSoft;
+      uSunVP.value.copy(sunVP);
+      uShadowTexel.value = 1 / fluid.shadowSize;
+      uOccK.value = TUNE.meshShadow;
+      uOccSoft.value = TUNE.shadowSoft;
       uLightLift.value = TUNE.lightLift;
       uSkyGain.value = TUNE.skyGain;
       // the water it is dissolving into is the ambient at its own depth

@@ -425,6 +425,11 @@ const mRaymarch = new THREE.ShaderMaterial({
     uSkyHorizon: { value: new THREE.Vector3(0.52, 0.66, 0.78) },
     uSkyDeep: { value: new THREE.Vector3(0.014, 0.038, 0.058) },
     uSkyGain: { value: 0.55 },
+    uSunDepth: { value: null },
+    uSunVP: { value: new THREE.Matrix4() },
+    uShadowTexel: { value: 1 / 1024 },
+    uOccK: { value: 1.0 },
+    uOccSoft: { value: 2.0 },
   },
 });
 const mComposite = new THREE.ShaderMaterial({
@@ -1218,11 +1223,11 @@ function frame() {
     renderer.clear(true, true, false);
     renderer.render(opaqueScene, sunCam);
     renderer.setRenderTarget(null);
-    fluid.sunDepth = sunRT.depthTexture;
-    fluid.sunVP = sunVP;
-    fluid.mLight.uniforms.uOccK.value = TUNE.meshShadow;
-    fluid.mLight.uniforms.uOccSoft.value = TUNE.shadowSoft;
-    fluid.mLight.uniforms.uShadowTexel.value = 1 / SHADOW_N;
+    mRaymarch.uniforms.uSunDepth.value = sunRT.depthTexture;
+    mRaymarch.uniforms.uSunVP.value.copy(sunVP);
+    mRaymarch.uniforms.uShadowTexel.value = 1 / SHADOW_N;
+    mRaymarch.uniforms.uOccK.value = TUNE.meshShadow;
+    mRaymarch.uniforms.uOccSoft.value = TUNE.shadowSoft;
     timer.begin('sim');
     // wrapped time keeps float hash/noise inputs precise over long sessions
     fluid.step(dt, t % 512);

@@ -479,17 +479,7 @@ uniform float uCaustics;
 // the light — and because this volume is what every shaft, every scattering
 // sample and every caustic beam reads, the shadow lands in all of them at once
 // rather than being marched again per pixel.
-// A real depth map rendered from the sun, so a mesh blocks the light with its
-// actual silhouette rather than with a stand-in sphere. One projection and four
-// taps per voxel — and because this volume is what every shaft, every
-// scattering sample and every caustic beam reads, the shadow lands in all of
-// them at once instead of being marched again per pixel.
-uniform sampler2D uSunDepth;
-uniform mat4 uSunVP;        // world -> sun clip
-uniform float uShadowTexel; // 1 / shadow map size
-uniform float uTankW;       // world half extent: wp is [-1,1], the map is world
-uniform float uOccK;        // exponent; 0 switches shadows off
-uniform float uOccSoft;     // PCF radius, in texels
+
 
 // Interference of a few travelling waves, sharpened into the bright filaments
 // sunlight makes after refracting through a rippled surface.
@@ -554,30 +544,6 @@ void main() {
   float c = caustic(cp * 4.5, uTime * 0.35);
   t *= mix(1.0, c, uCaustics * sharp);
 
-  // Solid geometry between this voxel and the sun, from the sun's own depth
-  // map — so a mesh blocks the light with its actual silhouette rather than
-  // with a stand-in sphere. Four taps rather than one so the edge is a
-  // penumbra and not a staircase; uOccSoft is that radius in texels. The
-  // bias is the usual trade: too little and a surface shadows itself into
-  // stripes, too much and the shadow detaches from what is casting it.
-  if (uOccK > 0.0) {
-    vec4 lp = uSunVP * vec4(wp * uTankW, 1.0);
-    vec3 ndc = lp.xyz / max(lp.w, 1e-6);
-    vec2 suv = ndc.xy * 0.5 + 0.5;
-    float sd = ndc.z * 0.5 + 0.5 - 0.0028;
-    if (sd > 0.0 && sd < 1.0
-        && all(greaterThanEqual(suv, vec2(0.0))) && all(lessThanEqual(suv, vec2(1.0)))) {
-      float r = uOccSoft * uShadowTexel;
-      float lit = step(sd, texture2D(uSunDepth, suv + vec2( r,  r)).x)
-                + step(sd, texture2D(uSunDepth, suv + vec2(-r,  r)).x)
-                + step(sd, texture2D(uSunDepth, suv + vec2( r, -r)).x)
-                + step(sd, texture2D(uSunDepth, suv + vec2(-r, -r)).x);
-      // A POWER rather than a blend: the core is already black at 1 and there
-      // is nowhere further to go, so what keeps darkening past that is the
-      // PENUMBRA — which is the part that makes a blocked shaft read.
-      t *= pow(clamp(lit * 0.25, 0.0, 1.0), uOccK);
-    }
-  }
   if (!(t > 0.0)) t = 0.0;   // NaN-safe: a poisoned texel would blacken the tank
   gl_FragColor = vec4(min(t, 8.0), 0.0, 0.0, 0.0);
 }`;
@@ -605,6 +571,17 @@ uniform vec3 uCamPos;
 uniform vec3 uCamFwd;
 uniform float uNear, uFar;
 uniform int uSteps;
+// The sun's depth map, tested per march step rather than baked into the light
+// volume. That volume is 64 voxels across the WHOLE tank at low quality, so a
+// fish's silhouette lands on a handful of them and the trilinear filter wipes
+// out what survives — the shadow was being thrown away before the marcher ever
+// saw it. The march takes 88 steps, so testing here keeps the shadow map's own
+// resolution and the shafts come out with edges on them.
+uniform sampler2D uSunDepth;
+uniform mat4 uSunVP;        // world -> sun clip
+uniform float uShadowTexel; // 1 / shadow map size
+uniform float uOccK;        // 0..1, how much light a blocked step loses
+uniform float uOccSoft;     // jitter radius, in texels
 uniform float uFrame;
 uniform float uTime;
 uniform float uSurfaceY;
@@ -934,6 +911,25 @@ void main() {
     // render-time erosion: fake sub-grid detail the sim can't resolve
     foam *= 0.60 + 0.80 * noise3(pv * 0.55);
     float lt = sampleVol(uLightTex, pv).x;
+
+    if (uOccK > 0.0) {
+      vec4 lp = uSunVP * vec4(p * uTank, 1.0);
+      vec3 nd = lp.xyz / max(lp.w, 1e-6);
+      vec2 suv = nd.xy * 0.5 + 0.5;
+      float sdp = nd.z * 0.5 + 0.5 - 0.0028;
+      if (sdp > 0.0 && sdp < 1.0
+          && all(greaterThanEqual(suv, vec2(0.0))) && all(lessThanEqual(suv, vec2(1.0)))) {
+        // ONE tap, jittered per step. Eighty-eight of them average into a
+        // penumbra on their own, where four taps each would cost four times as
+        // much to reach the same place.
+        vec3 hp = fract(vec3(gl_FragCoord.xy, float(i) + uFrame) * 0.1031);
+        hp += dot(hp, hp.zyx + 19.19);
+        vec2 jt = fract(vec2((hp.x + hp.y) * hp.z, (hp.y + hp.z) * hp.x)) - 0.5;
+        float gs = step(sdp, texture2D(uSunDepth,
+          suv + jt * (uOccSoft * 2.0 * uShadowTexel)).x);
+        lt *= 1.0 - uOccK * (1.0 - gs);
+      }
+    }
 
     vec3 sigS = uWaterScatter + vec3(uFoamScatter) * foam;
     vec3 sigT = uWaterAbsorb + sigS + vec3(uFoamAbsorb) * foam;
