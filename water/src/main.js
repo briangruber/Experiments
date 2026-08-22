@@ -979,79 +979,6 @@ const lastBlast = { pos: new THREE.Vector3(), until: -1 };
 const flash = { pos: new THREE.Vector3(), t: 0, span: 0.18, peak: 0, r: 0.22 };
 const liveBarrels = [];   // reused array of descriptors for the solver
 
-// Debris.
-//
-// The barrel used to switch itself off at the instant it went, which left the
-// plume to carry the whole event and made the drum look like it had been
-// deleted rather than destroyed. A steel drum does not vanish: it opens, and
-// the pieces go outward fast, tumble, then lose to the water and sink. Even a
-// handful of shards reads as the object having come apart, because they carry
-// the same texture and lighting the barrel had a frame earlier.
-//
-// They are the barrel's own mesh at a fraction of its size and a random
-// orientation. Nothing here is trying to be a real fracture — at this size,
-// through this much water, what registers is that SOMETHING solid flew out.
-const SHARD_MAX = 64;
-const shards = [];
-function newShard() {
-  const mesh = new THREE.Mesh(barrelGeo, barrelMat);
-  mesh.visible = false;
-  opaqueScene.add(mesh);
-  const sh = { mesh, vel: new THREE.Vector3(), spin: new THREE.Vector3(),
-    life: 0, span: 1, size: 0.02, active: false };
-  shards.push(sh);
-  return sh;
-}
-function shatter(pos, scale, k) {
-  const n = Math.min(SHARD_MAX, Math.round((6 + 6 * k) * TUNE.debris));
-  for (let i = 0; i < n; i++) {
-    const sh = shards.find((x) => !x.active) || (shards.length < SHARD_MAX ? newShard() : null);
-    if (!sh) break;
-    sh.active = true;
-    sh.mesh.visible = true;
-    // Thrown from a point ON the drum rather than from its centre, so the
-    // pieces start spread across its silhouette instead of all from one dot.
-    const dir = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5)
-      .normalize();
-    sh.mesh.position.copy(pos).addScaledVector(dir, scale * 0.8);
-    sh.mesh.rotation.set(Math.random() * 6.28, Math.random() * 6.28, Math.random() * 6.28);
-    // Outward, with a bias upward: the water below is undisturbed and the
-    // cavity above is already opening.
-    const sp = (1.6 + 2.4 * Math.random()) * k * TUNE.debrisSpeed;
-    sh.vel.copy(dir).multiplyScalar(sp);
-    sh.vel.y += 0.5 * sp;
-    sh.spin.set((Math.random() - 0.5) * 26, (Math.random() - 0.5) * 26, (Math.random() - 0.5) * 26);
-    sh.span = 2.2 + Math.random() * 2.0;
-    sh.life = sh.span;
-    sh.size = scale * (0.16 + 0.22 * Math.random());
-    sh.mesh.scale.setScalar(sh.size);
-  }
-}
-function updateShards(dt) {
-  for (const sh of shards) {
-    if (!sh.active) continue;
-    sh.life -= dt;
-    if (sh.life <= 0) { sh.active = false; sh.mesh.visible = false; continue; }
-    // Steel in water: it sinks, and the drag is high enough that the throw is
-    // spent in well under a second. Which is right — the violence is all in the
-    // first moment, and what follows is debris settling.
-    const kDrag = 3.4 + fluid.physics.drag * 1.2;
-    sh.vel.y -= 1.4 * dt;
-    sh.vel.multiplyScalar(Math.exp(-dt * kDrag));
-    sh.mesh.position.addScaledVector(sh.vel, dt);
-    sh.mesh.rotation.x += sh.spin.x * dt;
-    sh.mesh.rotation.y += sh.spin.y * dt;
-    sh.mesh.rotation.z += sh.spin.z * dt;
-    sh.spin.multiplyScalar(Math.exp(-dt * 1.6));
-    // Shrunk away rather than faded: the material is shared across every
-    // shard, so there is no per-piece opacity to animate, and scale is
-    // per-mesh. It reads as sinking out of sight through the murk.
-    const f = Math.min(1, sh.life / (sh.span * 0.45));
-    sh.mesh.scale.setScalar(sh.size * f);
-    sh.mesh.updateMatrixWorld();
-    if (sh.mesh.position.y < -0.98 * tankHalf) { sh.vel.y = Math.abs(sh.vel.y) * 0.15; }
-  }
-}
 
 
 
@@ -1208,7 +1135,6 @@ function updateBarrels(dt, t) {
       // huge foam release that buoyancy turns into the erupting column
       b.active = false;
       b.mesh.visible = false;
-      shatter(p, b.scale, b.k);
       detonate(p.clone(), t, Math.pow(b.k, TUNE.blastPow));
       continue;
     }
@@ -1237,7 +1163,6 @@ function frame() {
   if (!params.paused) {
     updatePaddle(dt, t);
     updateBarrels(dt, t);
-    updateShards(dt);
     // Squared falloff, so it is at its brightest on the frame it fires and
     // essentially gone by the third.
     if (flash.t > 0) {
@@ -1437,8 +1362,7 @@ window.water = {
   },
   dropBarrel,
   visitor,   // the easter egg, exposed so a capture can step into it
-  barrels,
-  shards,    // debris, likewise exposed so a capture can count them   // likewise: a capture needs to know when one reaches its mark
+  barrels,   // likewise: a capture needs to know when one reaches its mark
   sunRT,     // and a capture needs to see what the sun sees
   tune: TUNE,   // live knobs, also driven by the Tuning panel
 

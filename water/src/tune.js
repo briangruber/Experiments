@@ -68,10 +68,6 @@ export const TUNE = {
   // before these existed.
   implosion: 1.0,
   mainBlast: 1.0,
-  // Debris thrown by the burst, and how hard. The barrel used to switch off at
-  // the instant it went, which read as deletion rather than destruction.
-  debris: 1.0,
-  debrisSpeed: 1.0,
   // Brightness of the shock's own flash. 0 leaves the blast lit only by the
   // sun, which is what it was.
   flash: 2.4,

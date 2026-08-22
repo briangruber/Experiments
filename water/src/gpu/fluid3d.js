@@ -31,8 +31,8 @@ export class Fluid3D {
     this.emitter = { on: false, fx: 0, fz: 0, radius: 0.18, rate: 2.4, jet: 0.9, size: 1 };
     // same knobs, same units as the WebGL solver
     this.physics = {
-      rise: 0.34, buoyancy: 12.2, foamLife: 2.5, swirl: 0.14, aeration: 7.45,
-      caustics: 2.45, chop: 2.9, drag: 10.0, blast: 0.25, ring: 4.45,
+      rise: 0.18, buoyancy: 16.0, foamLife: 6.0, swirl: 0.06, aeration: 5.0,
+      caustics: 2.45, chop: 2.9, drag: 7.75, blast: 1.85, ring: 7.0,
     };
     this.N = N;
     this.jacobi = jacobi + (jacobi % 2); // even, so pressure ends in prs0

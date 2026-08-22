@@ -23,16 +23,16 @@ export class Fluid {
     this.emitter = { on: false, fx: 0, fz: 0, radius: 0.18, rate: 2.4, jet: 0.9, size: 1 };
     // Tunable physics, in world units. main.js hands these to the sliders.
     this.physics = {
-      rise: 0.34,      // bubble slip through the water, world/s
-      buoyancy: 12.2,  // lift of aerated water, world/s^2 per unit foam
-      foamLife: 2.5,   // e-folding time of the bubble field, seconds
-      swirl: 0.14,     // vorticity confinement
-      aeration: 7.45,  // foam injected per unit of churn
+      rise: 0.18,      // bubble slip through the water, world/s
+      buoyancy: 16.0,  // lift of aerated water, world/s^2 per unit foam
+      foamLife: 6.0,   // e-folding time of the bubble field, seconds
+      swirl: 0.06,     // vorticity confinement
+      aeration: 5.0,   // foam injected per unit of churn
       caustics: 2.45,
       chop: 2.9,
-      drag: 10.0,      // velocity damping, 1/s
-      blast: 0.25,     // explosion strength
-      ring: 4.45,      // vortex-ring circulation seeded by a blast
+      drag: 7.75,      // velocity damping, 1/s
+      blast: 1.85,     // explosion strength
+      ring: 7.0,       // vortex-ring circulation seeded by a blast
     };
     this.renderer = renderer;
     this.N = N;

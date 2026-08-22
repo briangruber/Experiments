@@ -1267,60 +1267,7 @@ export async function start() {
     rippleNext++;
   }
 
-  // Debris — see the WebGL app. The barrel used to switch itself off at the
-  // instant it went, which read as deletion rather than destruction.
-  const SHARD_MAX = 64;
-  const shards = [];
-  function newShard() {
-    const mesh = new THREE.Mesh(barrelGeo, barrelMat);
-    mesh.visible = false;
-    opaqueScene.add(mesh);
-    const sh = { mesh, vel: new THREE.Vector3(), spin: new THREE.Vector3(),
-      life: 0, span: 1, size: 0.02, active: false };
-    shards.push(sh);
-    return sh;
-  }
-  function shatter(pos, scale, k) {
-    const n = Math.min(SHARD_MAX, Math.round((6 + 6 * k) * TUNE.debris));
-    for (let i = 0; i < n; i++) {
-      const sh = shards.find((x) => !x.active) || (shards.length < SHARD_MAX ? newShard() : null);
-      if (!sh) break;
-      sh.active = true;
-      sh.mesh.visible = true;
-      const dir = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5)
-        .normalize();
-      sh.mesh.position.copy(pos).addScaledVector(dir, scale * 0.8);
-      sh.mesh.rotation.set(Math.random() * 6.28, Math.random() * 6.28, Math.random() * 6.28);
-      const sp = (1.6 + 2.4 * Math.random()) * k * TUNE.debrisSpeed;
-      sh.vel.copy(dir).multiplyScalar(sp);
-      sh.vel.y += 0.5 * sp;
-      sh.spin.set((Math.random() - 0.5) * 26, (Math.random() - 0.5) * 26, (Math.random() - 0.5) * 26);
-      sh.span = 2.2 + Math.random() * 2.0;
-      sh.life = sh.span;
-      sh.size = scale * (0.16 + 0.22 * Math.random());
-      sh.mesh.scale.setScalar(sh.size);
-    }
-  }
-  function updateShards(dt) {
-    for (const sh of shards) {
-      if (!sh.active) continue;
-      sh.life -= dt;
-      if (sh.life <= 0) { sh.active = false; sh.mesh.visible = false; continue; }
-      const kDrag = 3.4 + fluid.physics.drag * 1.2;
-      sh.vel.y -= 1.4 * dt;
-      sh.vel.multiplyScalar(Math.exp(-dt * kDrag));
-      sh.mesh.position.addScaledVector(sh.vel, dt);
-      sh.mesh.rotation.x += sh.spin.x * dt;
-      sh.mesh.rotation.y += sh.spin.y * dt;
-      sh.mesh.rotation.z += sh.spin.z * dt;
-      sh.spin.multiplyScalar(Math.exp(-dt * 1.6));
-      const f = Math.min(1, sh.life / (sh.span * 0.45));
-      sh.mesh.scale.setScalar(sh.size * f);
-      sh.mesh.updateMatrixWorld();
-      if (sh.mesh.position.y < -0.98 * tankHalf) sh.vel.y = Math.abs(sh.vel.y) * 0.15;
-    }
-  }
-
+  
 
 
   // `at` aims the drop: the barrel falls straight down onto that x/z and
@@ -1452,7 +1399,6 @@ export async function start() {
       if (done) {
         b.active = false;
         b.mesh.visible = false;
-        shatter(p, b.scale, b.k);
         detonate(p.clone(), t, Math.pow(b.k, TUNE.blastPow));
         continue;
       }
@@ -1640,7 +1586,6 @@ export async function start() {
       updatePaddle(dt, t);
       updateBarrels(dt, t);
       visitor.update(dt, tankHalf);
-      updateShards(dt);
       if (flash.t > 0) {
         flash.t = Math.max(0, flash.t - dt);
         const fu = flash.t / flash.span;
@@ -1775,7 +1720,6 @@ export async function start() {
     dropBarrel,
     visitor,   // the easter egg, exposed so a capture can step into it
     barrels,
-    shards,    // debris, likewise exposed so a capture can count them
     tune: TUNE,
 
     physics: fluid.physics,

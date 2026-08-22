@@ -59,8 +59,11 @@ export const PRESETS = {
     rise: 0.18, buoyancy: 16, foamLife: 6, aeration: 5, swirl: 0.06,
     drag: 0.9, blast: 2.2, ring: 7,
   },
-  // The opposite corner, and the tank's own defaults: stiff and syrupy, where
-  // a blast makes a compact ball of froth that lifts slowly and holds together.
+  // The opposite corner: stiff and syrupy, where a blast makes a compact ball
+  // of froth that lifts slowly and holds together. The tank no longer starts
+  // here — the defaults now sit near `mushroom`, with the drag well up from
+  // its 0.9 and the blast pulled back, which keeps the cap turning over
+  // without the whole thing tearing loose.
   churn: {
     rise: 0.34, buoyancy: 12.2, foamLife: 2.5, aeration: 7.45, swirl: 0.14,
     drag: 10.0, blast: 0.25, ring: 4.45, caustics: 2.45, chop: 2.9,
@@ -250,13 +253,6 @@ export function buildTunePanel(TUNE, hooks = {}) {
   knob('cavityHold', 'cavity hold', 0.2, 4, 0.05,
     'How long the cavity sits there before the rebound throws the plume. '
     + 'Stretches the pocket and both crush phases together.');
-  knob('debris', 'debris', 0, 3, 0.05,
-    'How many pieces the drum comes apart into. 0 is the old behaviour, where '
-    + 'it simply switched off at the instant it went and left the plume to '
-    + 'carry the whole event.');
-  knob('debrisSpeed', 'debris throw', 0.2, 3, 0.05,
-    'How hard they are thrown. Water takes it back within about a second '
-    + 'whatever this is set to — the violence is all in the first moment.');
   knob('flash', 'shock flash', 0, 8, 0.1,
     'Brightness of the light the detonation makes for itself. A charge going '
     + 'off underwater is briefly the brightest thing in the water; at 0 the '
