@@ -224,6 +224,14 @@ export function buildTunePanel(TUNE, hooks = {}) {
     'How fast the blast site floats while its phases play out. Too low and the '
     + 'late phases fire below their own gas, which looks like two explosions in '
     + 'two places. Too high and the site outruns the plume it is feeding.');
+  knob('implosion', 'implosion', 0, 3, 0.05,
+    'The crush, on its own. `blast power` in physics scales the whole event, '
+    + 'so the implosion and the blast that follows it used to come off one '
+    + 'number — turn it up for a good crush and the rebound swamps the tank. '
+    + 'This and the next knob set the balance; blast power still sets the size.');
+  knob('mainBlast', 'main blast', 0, 3, 0.05,
+    'The rebound that throws the plume, on its own. Pull it down to keep a big '
+    + 'implosion without the blast filling the frame.');
   knob('cavityOn', 'cavity', 0, 1, 1,
     'The cavity is the pocket opening and the water crushing it, before the '
     + 'rebound throws the plume. Off leaves the bare blast, which is what this '
@@ -242,6 +250,17 @@ export function buildTunePanel(TUNE, hooks = {}) {
   knob('cavityHold', 'cavity hold', 0.2, 4, 0.05,
     'How long the cavity sits there before the rebound throws the plume. '
     + 'Stretches the pocket and both crush phases together.');
+  knob('debris', 'debris', 0, 3, 0.05,
+    'How many pieces the drum comes apart into. 0 is the old behaviour, where '
+    + 'it simply switched off at the instant it went and left the plume to '
+    + 'carry the whole event.');
+  knob('debrisSpeed', 'debris throw', 0.2, 3, 0.05,
+    'How hard they are thrown. Water takes it back within about a second '
+    + 'whatever this is set to — the violence is all in the first moment.');
+  knob('flash', 'shock flash', 0, 8, 0.1,
+    'Brightness of the light the detonation makes for itself. A charge going '
+    + 'off underwater is briefly the brightest thing in the water; at 0 the '
+    + 'blast is lit only by the sun, which is what it was.');
   action('Detonate at mid depth', () => hooks.blast?.(),
     'Set one off immediately, without waiting for a barrel to sink to its mark.');
 

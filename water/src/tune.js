@@ -62,6 +62,19 @@ export const TUNE = {
   // 0 drops the cavity entirely and leaves the bare rebound blast — the whole
   // implosion-then-boom sequence is the three pinned phases.
   cavityOn: 1,
+  // The balance between the two halves of the event. `blast power` over in
+  // physics scales BOTH, which is what made them fight: an implosion worth
+  // watching forced a rebound that swamped the tank. 1 and 1 is how it behaved
+  // before these existed.
+  implosion: 1.0,
+  mainBlast: 1.0,
+  // Debris thrown by the burst, and how hard. The barrel used to switch off at
+  // the instant it went, which read as deletion rather than destruction.
+  debris: 1.0,
+  debrisSpeed: 1.0,
+  // Brightness of the shock's own flash. 0 leaves the blast lit only by the
+  // sun, which is what it was.
+  flash: 2.4,
   // Stretches or squeezes the pinned phases together, so how long the cavity
   // sits there before the rebound is one number instead of three.
   cavityHold: 1.35,

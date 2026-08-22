@@ -582,6 +582,14 @@ uniform mat4 uSunVP;        // world -> sun clip
 uniform float uShadowTexel; // 1 / shadow map size
 uniform float uOccK;        // 0..1, how much light a blocked step loses
 uniform float uOccSoft;     // jitter radius, in texels
+// The shock's own light. A charge going off underwater is briefly the
+// brightest thing in the water, and without it the blast was lit entirely by
+// the sun — which is why the barrel read as being deleted rather than
+// detonating. Emissive rather than a light source: this is the fireball, so it
+// ADDS radiance along the ray instead of illuminating the medium.
+uniform vec3 uFlashPos;
+uniform float uFlashAmt;
+uniform float uFlashR;
 uniform float uFrame;
 uniform float uTime;
 uniform float uSurfaceY;
@@ -951,6 +959,10 @@ void main() {
 
     vec3 aStep = exp(-sigT * dt);
     L += T * sigS * Li * (1.0 - aStep) / max(sigT, vec3(1e-4));
+    if (uFlashAmt > 0.0) {
+      vec3 fd = (p - uFlashPos) / uFlashR;
+      L += T * uFlashAmt * exp(-dot(fd, fd)) * vec3(1.0, 0.86, 0.62) * dt;
+    }
     T *= aStep;
     if (max(T.x, max(T.y, T.z)) < 0.004) { T = vec3(0.0); break; }
     t += dt;

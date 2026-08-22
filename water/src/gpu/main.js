@@ -442,6 +442,11 @@ export async function start() {
   const uShadowTexel = uniform(1 / 1024);
   const uOccK = uniform(1.0);
   const uOccSoft = uniform(2.0);
+  // The shock's own light — emissive, not a light source: this is the fireball,
+  // so it ADDS radiance along the ray rather than lighting the medium.
+  const uFlashPos = uniform(new THREE.Vector3());
+  const uFlashAmt = uniform(0);
+  const uFlashR = uniform(0.22);
   const uChop = uniform(1);
   const debugFoam = query.get('view') === 'foam';
   const uDebugFoam = uniform(debugFoam ? 1 : 0);
@@ -755,6 +760,11 @@ export async function start() {
 
         const aStep = sigT.mul(dt).negate().exp();
         L.addAssign(T.mul(sigS).mul(Li).mul(vec3(1).sub(aStep)).div(sigT.max(vec3(1e-4))));
+        If(uFlashAmt.greaterThan(0), () => {
+          const fd = p.sub(uFlashPos).div(uFlashR);
+          L.addAssign(T.mul(uFlashAmt).mul(fd.dot(fd).negate().exp())
+            .mul(vec3(1.0, 0.86, 0.62)).mul(dt));
+        });
         T.mulAssign(aStep);
         If(T.x.max(T.y).max(T.z).lessThan(0.004), () => {
           T.assign(vec3(0));
@@ -1249,7 +1259,67 @@ export async function start() {
   let blastPhase = null;   // the phase being held, and what is left of it
   let blastLeft = 0;
   const lastBlast = { pos: new THREE.Vector3(), until: -1 };
+  const flash = { pos: new THREE.Vector3(), t: 0, span: 0.18, peak: 0, r: 0.22 };
   const liveBarrels = [];
+  let rippleNext = 0;
+  function addRipple(x, z, strength) {
+    rippleArr[rippleNext % 4].set(x, z, clock.elapsedTime % 512, strength);
+    rippleNext++;
+  }
+
+  // Debris — see the WebGL app. The barrel used to switch itself off at the
+  // instant it went, which read as deletion rather than destruction.
+  const SHARD_MAX = 64;
+  const shards = [];
+  function newShard() {
+    const mesh = new THREE.Mesh(barrelGeo, barrelMat);
+    mesh.visible = false;
+    opaqueScene.add(mesh);
+    const sh = { mesh, vel: new THREE.Vector3(), spin: new THREE.Vector3(),
+      life: 0, span: 1, size: 0.02, active: false };
+    shards.push(sh);
+    return sh;
+  }
+  function shatter(pos, scale, k) {
+    const n = Math.min(SHARD_MAX, Math.round((6 + 6 * k) * TUNE.debris));
+    for (let i = 0; i < n; i++) {
+      const sh = shards.find((x) => !x.active) || (shards.length < SHARD_MAX ? newShard() : null);
+      if (!sh) break;
+      sh.active = true;
+      sh.mesh.visible = true;
+      const dir = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5)
+        .normalize();
+      sh.mesh.position.copy(pos).addScaledVector(dir, scale * 0.8);
+      sh.mesh.rotation.set(Math.random() * 6.28, Math.random() * 6.28, Math.random() * 6.28);
+      const sp = (1.6 + 2.4 * Math.random()) * k * TUNE.debrisSpeed;
+      sh.vel.copy(dir).multiplyScalar(sp);
+      sh.vel.y += 0.5 * sp;
+      sh.spin.set((Math.random() - 0.5) * 26, (Math.random() - 0.5) * 26, (Math.random() - 0.5) * 26);
+      sh.span = 2.2 + Math.random() * 2.0;
+      sh.life = sh.span;
+      sh.size = scale * (0.16 + 0.22 * Math.random());
+      sh.mesh.scale.setScalar(sh.size);
+    }
+  }
+  function updateShards(dt) {
+    for (const sh of shards) {
+      if (!sh.active) continue;
+      sh.life -= dt;
+      if (sh.life <= 0) { sh.active = false; sh.mesh.visible = false; continue; }
+      const kDrag = 3.4 + fluid.physics.drag * 1.2;
+      sh.vel.y -= 1.4 * dt;
+      sh.vel.multiplyScalar(Math.exp(-dt * kDrag));
+      sh.mesh.position.addScaledVector(sh.vel, dt);
+      sh.mesh.rotation.x += sh.spin.x * dt;
+      sh.mesh.rotation.y += sh.spin.y * dt;
+      sh.mesh.rotation.z += sh.spin.z * dt;
+      sh.spin.multiplyScalar(Math.exp(-dt * 1.6));
+      const f = Math.min(1, sh.life / (sh.span * 0.45));
+      sh.mesh.scale.setScalar(sh.size * f);
+      sh.mesh.updateMatrixWorld();
+      if (sh.mesh.position.y < -0.98 * tankHalf) sh.vel.y = Math.abs(sh.vel.y) * 0.15;
+    }
+  }
 
 
 
@@ -1323,6 +1393,10 @@ export async function start() {
       { pos: q, rise, lift: 1, vel: 1.8 * k, up: 0.9 * k, foam: 0.24, radius: 0.44 * k, ring: 2.0 * k, ringR: 0.36 * k, hold: 0.05 },
       { pos: q, rise, lift: 1, vel: 0.9 * k, up: 0.6 * k, foam: 0.14, radius: 0.52 * k, ring: 1.4 * k, ringR: 0.44 * k, hold: 0.05 },
     );
+    flash.pos.copy(q);
+    flash.t = flash.span;
+    flash.peak = TUNE.flash * (0.6 + 0.9 * k);
+    flash.r = 0.20 * k;
     // Aliased, not copied, so the bubble sparkle rides up with the cavity.
     lastBlast.pos = q;
     lastBlast.until = t + 1.6;
@@ -1378,6 +1452,7 @@ export async function start() {
       if (done) {
         b.active = false;
         b.mesh.visible = false;
+        shatter(p, b.scale, b.k);
         detonate(p.clone(), t, Math.pow(b.k, TUNE.blastPow));
         continue;
       }
@@ -1565,6 +1640,16 @@ export async function start() {
       updatePaddle(dt, t);
       updateBarrels(dt, t);
       visitor.update(dt, tankHalf);
+      updateShards(dt);
+      if (flash.t > 0) {
+        flash.t = Math.max(0, flash.t - dt);
+        const fu = flash.t / flash.span;
+        uFlashAmt.value = flash.peak * fu * fu;
+        uFlashPos.value.copy(flash.pos);
+        uFlashR.value = flash.r;
+      } else {
+        uFlashAmt.value = 0;
+      }
       // the water it is dissolving into is the ambient at its own depth
       // Fades to BLACK, which is exact — see the WebGL app. By the time it is
       // fully faded it is behind the back wall with no water between it and
@@ -1602,6 +1687,16 @@ export async function start() {
           const hold = phaseHold(blastPhase);
           fluid.burst = armBurst(blastPhase, fluid.physics,
             hold > 0 ? Math.min(dt / hold, 1) : 1);
+          // `blast power` scales the whole event, which made the crush and the
+          // rebound fight each other — see the WebGL app. These two set the
+          // balance between them.
+          const gain = blastPhase.lift === 0 ? TUNE.implosion : TUNE.mainBlast;
+          if (gain !== 1) {
+            fluid.burst.vel *= gain;
+            fluid.burst.up *= gain;
+            fluid.burst.foam *= gain;
+            fluid.burst.ring *= gain;
+          }
           // Buoyancy is switched OFF inside the cavity while it opens and is
           // crushed, rather than fought with a downward push — see the WebGL
           // app for why a push can never balance.
@@ -1680,6 +1775,7 @@ export async function start() {
     dropBarrel,
     visitor,   // the easter egg, exposed so a capture can step into it
     barrels,
+    shards,    // debris, likewise exposed so a capture can count them
     tune: TUNE,
 
     physics: fluid.physics,
