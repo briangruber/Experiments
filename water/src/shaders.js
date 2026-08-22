@@ -912,6 +912,7 @@ void main() {
     foam *= 0.60 + 0.80 * noise3(pv * 0.55);
     float lt = sampleVol(uLightTex, pv).x;
 
+    float blocked = 0.0;
     if (uOccK > 0.0) {
       vec4 lp = uSunVP * vec4(p * uTank, 1.0);
       vec3 nd = lp.xyz / max(lp.w, 1e-6);
@@ -927,7 +928,15 @@ void main() {
         vec2 jt = fract(vec2((hp.x + hp.y) * hp.z, (hp.y + hp.z) * hp.x)) - 0.5;
         float gs = step(sdp, texture2D(uSunDepth,
           suv + jt * (uOccSoft * 2.0 * uShadowTexel)).x);
-        lt *= 1.0 - uOccK * (1.0 - gs);
+        // Up to 1 this is the physical thing: the step loses the direct sun it
+        // cannot see. That alone tops out around a tenth of a pixel's
+        // brightness, because a ray only crosses the shadow cone for part of
+        // its length and the rest of it is lit as before — true, and far too
+        // polite to notice. Past 1 the step loses its ambient as well, down to
+        // contributing nothing at all at 2, which is darker than the water
+        // really goes but is the only way the beam reads as blocked.
+        blocked = (1.0 - gs) * uOccK;
+        lt *= 1.0 - min(blocked, 1.0);
       }
     }
 
@@ -936,8 +945,9 @@ void main() {
 
     // ambient falls off with depth below the waterline, not box height
     float h = clamp(1.0 - max(uSurfaceY - p.y, 0.0) / 1.5, 0.0, 1.0);
-    vec3 Li = uSunColor * (lt * phase)
-            + mix(uAmbientDeep, uAmbientTop, h) * (0.12 + 0.88 * pow(lt, 0.6));
+    vec3 Li = (uSunColor * (lt * phase)
+            + mix(uAmbientDeep, uAmbientTop, h) * (0.12 + 0.88 * pow(lt, 0.6)))
+            * (1.0 - clamp(blocked - 1.0, 0.0, 1.0));
 
     vec3 aStep = exp(-sigT * dt);
     L += T * sigS * Li * (1.0 - aStep) / max(sigT, vec3(1e-4));
@@ -1261,6 +1271,8 @@ uniform vec3 uFogColor;
 uniform sampler2D uLightTex;
 uniform float uTank;
 uniform float uLightLift;   // how far toward the light to step before sampling
+uniform vec3 uFillUp;       // ambient arriving from above
+uniform vec3 uFillDown;     // and the much dimmer amount from below
 void main() {
   vec3 n = normalize(vN);
   vec3 v = normalize(cameraPosition - vWp);
@@ -1280,11 +1292,19 @@ void main() {
   // it already does most of the tinting, and a heavy tint here left the model
   // a colourless white blob in the plume.
   // Direct sun rides the light volume outright, so a caustic filament crossing
-  // the mesh brightens it past 1 and a plume overhead puts it in shadow. The
-  // ambient keeps a floor, the same way the water's does, or anything under
-  // foam would go to pure black.
-  float amb = 0.22 * (0.25 + 0.75 * pow(min(lt, 1.0), 0.6));
-  vec3 col = base * (amb + 0.85 * diff * lt) * vec3(0.92, 0.94, 1.0)
+  // the mesh brightens it past 1 and a plume overhead puts it in shadow.
+  //
+  // The fill is HEMISPHERIC, and that is the part that was missing. Ambient
+  // light underwater is nothing like uniform — almost all of it arrives from
+  // above, through the surface. An up-facing patch sees the bright window
+  // overhead and a down-facing one sees the dark floor, and that vertical
+  // gradient is most of what tells you which way up a fish is. A single flat
+  // ambient term gave the back and the belly the same value and left the whole
+  // animal looking like a sticker.
+  float upness = clamp(vN.y * 0.5 + 0.5, 0.0, 1.0);
+  vec3 fill = mix(uFillDown, uFillUp, pow(upness, 1.4))
+            * (0.25 + 0.75 * pow(min(lt, 1.0), 0.6));
+  vec3 col = base * (fill + vec3(0.85 * diff * lt)) * vec3(0.92, 0.94, 1.0)
            + fr * vec3(0.14, 0.28, 0.40);
   col = mix(col, uFogColor, clamp(uFade, 0.0, 1.0));
   gl_FragColor = vec4(col, 1.0);

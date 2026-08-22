@@ -70,7 +70,7 @@ export const TUNE = {
   // How dark a solid mesh's shadow goes in the volumetric light, and how far
   // the penumbra spreads as a multiple of the proxy radius. 0 strength puts it
   // back to light marching straight through the barrels as if they were water.
-  meshShadow: 1.0,
+  meshShadow: 1.6,
   // How far a mesh steps back up the beam before reading the light volume. It
   // has to clear its OWN occluder or it reads its own shadow and goes flat
   // dark; too far and it is lit by water well above it.

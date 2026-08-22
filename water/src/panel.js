@@ -246,10 +246,13 @@ export function buildTunePanel(TUNE, hooks = {}) {
     'Set one off immediately, without waiting for a barrel to sink to its mark.');
 
   head('Meshes in the Light');
-  knob('meshShadow', 'shadow strength', 0, 1, 0.02,
-    'How much of the light a blocked step loses. The shadow comes from a depth '
-    + 'map rendered from the sun and is tested at every march step, so 1 really '
-    + 'is fully blocked — there is nothing past it to reach for.');
+  knob('meshShadow', 'shadow strength', 0, 2, 0.05,
+    'How much a blocked step loses. Up to 1 it loses the direct sun it cannot '
+    + 'see, which is the physical answer and barely visible — a ray only '
+    + 'crosses the shadow for part of its length, so the most it can take off a '
+    + 'pixel is about a tenth. Past 1 it loses its ambient too, contributing '
+    + 'nothing at all at 2. Darker than water really goes, and the only setting '
+    + 'where the beam reads as blocked.');
   knob('shadowSoft', 'shadow softness', 0, 12, 0.1,
     'Jitter radius of the shadow lookup, in shadow-map texels. One tap per '
     + 'march step is jittered and the eighty-odd steps average into a penumbra '

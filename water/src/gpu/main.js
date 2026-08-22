@@ -269,14 +269,22 @@ export async function start() {
       .x.clamp(0, 1.6);
   };
   // the shared body of both mesh shaders: base colour, volume-lit
+  const uFillUp = uniform(new THREE.Vector3(0.42, 0.52, 0.60));
+  const uFillDown = uniform(new THREE.Vector3(0.045, 0.085, 0.115));
   const litByVolume = (map, n, wp) => {
     const v = cameraPosition.sub(wp).normalize();
     const fr = float(1).sub(n.dot(v).abs()).pow(3);
     const diff = n.dot(uSunU.negate()).max(0);
     const lt = volLight(wp);
-    const amb = float(0.22).mul(float(0.25).add(lt.min(1).pow(0.6).mul(0.75)));
-    return map.rgb.mul(amb.add(diff.mul(0.85).mul(lt))).mul(vec3(0.92, 0.94, 1.0))
-      .add(fr.mul(vec3(0.14, 0.28, 0.40)));
+    // Hemispheric fill — see the WebGL shader. Ambient underwater arrives
+    // almost entirely from above, and that vertical gradient is most of what
+    // tells you which way up a fish is; one flat term gave the back and the
+    // belly the same value.
+    const upness = n.y.mul(0.5).add(0.5).clamp(0, 1);
+    const fill = lerp(uFillDown, uFillUp, upness.pow(1.4))
+      .mul(float(0.25).add(lt.min(1).pow(0.6).mul(0.75)));
+    return map.rgb.mul(fill.add(vec3(diff.mul(0.85).mul(lt))))
+      .mul(vec3(0.92, 0.94, 1.0)).add(fr.mul(vec3(0.14, 0.28, 0.40)));
   };
 
   // A small drum. The mesh is the baked model, whose largest half extent is 1,
@@ -702,6 +710,7 @@ export async function start() {
         // tank, so a silhouette lands on a handful of them and the trilinear
         // filter wipes out what survives. One tap per step, jittered, and the
         // eighty-odd steps average into a penumbra on their own.
+        const blocked = float(0).toVar();
         If(uOccK.greaterThan(0), () => {
           const lp = uSunVP.mul(vec4(p.mul(uTank), 1));
           const nd = lp.xyz.div(lp.w.max(1e-6));
@@ -718,7 +727,11 @@ export async function start() {
             const gs = sdp.lessThanEqual(texture(fluid.sunRT.depthTexture,
               ssuv.add(jt.mul(uOccSoft.mul(2).mul(uShadowTexel))), float(0)).x)
               .select(float(1), float(0));
-            lt.mulAssign(float(1).sub(uOccK.mul(float(1).sub(gs))));
+            // up to 1 the step loses the direct sun it cannot see, which is
+            // the physical thing and far too polite to notice; past 1 it loses
+            // its ambient too — see the WebGL raymarch
+            blocked.assign(float(1).sub(gs).mul(uOccK));
+            lt.mulAssign(float(1).sub(blocked.min(1)));
           });
         });
 
@@ -726,7 +739,8 @@ export async function start() {
         const sigT = uWaterAbsorb.add(sigS).add(vec3(uFoamAbsorb).mul(foam));
         const h = float(1).sub(uSurfaceY.sub(p.y).max(0).div(1.5)).clamp(0, 1);
         const Li = uSunColor.mul(lt.mul(phase))
-          .add(lerp(uAmbientDeep, uAmbientTop, h).mul(lt.pow(0.6).mul(0.88).add(0.12)));
+          .add(lerp(uAmbientDeep, uAmbientTop, h).mul(lt.pow(0.6).mul(0.88).add(0.12)))
+          .mul(float(1).sub(blocked.sub(1).clamp(0, 1)));
 
         const aStep = sigT.mul(dt).negate().exp();
         L.addAssign(T.mul(sigS).mul(Li).mul(vec3(1).sub(aStep)).div(sigT.max(vec3(1e-4))));
@@ -1462,6 +1476,19 @@ export async function start() {
   // ----------------------------------------------------------------- loop --
 
   function renderFrame(target) {
+    // The sun's view of the solids, and the settings that read it. This lives
+    // in the RENDER phase, not the simulation one: a paused tank is still being
+    // drawn and can still be orbited, so the shadow map and its knobs have to
+    // keep reaching the shader either way. Having it inside the sim branch is
+    // also what made a frozen A/B measure nothing — the uniforms never moved.
+    renderer.setRenderTarget(fluid.sunRT);
+    renderer.render(opaqueScene, sunCam);
+    uSunVP.value.copy(sunVP);
+    uShadowTexel.value = 1 / fluid.shadowSize;
+    uOccK.value = TUNE.meshShadow;
+    uOccSoft.value = TUNE.shadowSoft;
+    uLightLift.value = TUNE.lightLift;
+    uSkyGain.value = TUNE.skyGain;
     if (!skip.has('opaque')) {
       renderer.setRenderTarget(opaqueRT);
       renderer.clear();
@@ -1521,15 +1548,6 @@ export async function start() {
       updatePaddle(dt, t);
       updateBarrels(dt, t);
       visitor.update(dt, tankHalf);
-      renderer.setRenderTarget(fluid.sunRT);
-      renderer.render(opaqueScene, sunCam);
-      renderer.setRenderTarget(null);
-      uSunVP.value.copy(sunVP);
-      uShadowTexel.value = 1 / fluid.shadowSize;
-      uOccK.value = TUNE.meshShadow;
-      uOccSoft.value = TUNE.shadowSoft;
-      uLightLift.value = TUNE.lightLift;
-      uSkyGain.value = TUNE.skyGain;
       // the water it is dissolving into is the ambient at its own depth
       // Fades to BLACK, which is exact — see the WebGL app. By the time it is
       // fully faded it is behind the back wall with no water between it and

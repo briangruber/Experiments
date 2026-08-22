@@ -236,6 +236,8 @@ const barrelMat = new THREE.ShaderMaterial({
     uTi: { value: fluid.T }, uAtlas: { value: new THREE.Vector2(fluid.W, fluid.H) },
     uTank: { value: tankHalf },
     uLightLift: { value: 0.16 },
+    uFillUp: { value: new THREE.Vector3(0.42, 0.52, 0.60) },
+    uFillDown: { value: new THREE.Vector3(0.045, 0.085, 0.115) },
   },
 });
 // A pool that GROWS. It used to hold six and recycle the oldest live barrel
@@ -298,6 +300,8 @@ const diverParts = diverModel(THREE, new THREE.ShaderMaterial({
     uTi: { value: fluid.T }, uAtlas: { value: new THREE.Vector2(fluid.W, fluid.H) },
     uTank: { value: tankHalf },
     uLightLift: { value: 0.16 },
+    uFillUp: { value: new THREE.Vector3(0.42, 0.52, 0.60) },
+    uFillDown: { value: new THREE.Vector3(0.045, 0.085, 0.115) },
     uBones: { value: null },
   },
 }));
@@ -1218,16 +1222,6 @@ function frame() {
         if (blastLeft <= 0) blastPhase = null;
       }
     }
-    // The sun's view of the solids, rendered before the light pass reads it.
-    renderer.setRenderTarget(sunRT);
-    renderer.clear(true, true, false);
-    renderer.render(opaqueScene, sunCam);
-    renderer.setRenderTarget(null);
-    mRaymarch.uniforms.uSunDepth.value = sunRT.depthTexture;
-    mRaymarch.uniforms.uSunVP.value.copy(sunVP);
-    mRaymarch.uniforms.uShadowTexel.value = 1 / SHADOW_N;
-    mRaymarch.uniforms.uOccK.value = TUNE.meshShadow;
-    mRaymarch.uniforms.uOccSoft.value = TUNE.shadowSoft;
     timer.begin('sim');
     // wrapped time keeps float hash/noise inputs precise over long sessions
     fluid.step(dt, t % 512);
@@ -1249,6 +1243,17 @@ function frame() {
   }
 
   timer.begin('render');
+  // The sun's view of the solids. Outside the paused branch on purpose: a
+  // paused tank is still being drawn and still orbits, so the shadow map and
+  // its settings have to keep reaching the shader either way.
+  renderer.setRenderTarget(sunRT);
+  renderer.clear(true, true, false);
+  renderer.render(opaqueScene, sunCam);
+  mRaymarch.uniforms.uSunDepth.value = sunRT.depthTexture;
+  mRaymarch.uniforms.uSunVP.value.copy(sunVP);
+  mRaymarch.uniforms.uShadowTexel.value = 1 / SHADOW_N;
+  mRaymarch.uniforms.uOccK.value = TUNE.meshShadow;
+  mRaymarch.uniforms.uOccSoft.value = TUNE.shadowSoft;
   // opaque
   renderer.setRenderTarget(opaqueRT);
   renderer.clear(true, true);
@@ -1322,6 +1327,7 @@ window.water = {
   dropBarrel,
   visitor,   // the easter egg, exposed so a capture can step into it
   barrels,   // likewise: a capture needs to know when one reaches its mark
+  sunRT,     // and a capture needs to see what the sun sees
   tune: TUNE,   // live knobs, also driven by the Tuning panel
 
   physics: fluid.physics,
