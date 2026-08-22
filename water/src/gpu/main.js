@@ -1493,6 +1493,12 @@ export async function start() {
     // keep reaching the shader either way. Having it inside the sim branch is
     // also what made a frozen A/B measure nothing — the uniforms never moved.
     renderer.setRenderTarget(fluid.sunRT);
+    // Explicitly, because this renderer runs with autoClear off for its own
+    // multi-pass work. Without it the shadow map's DEPTH buffer is never
+    // cleared, and since the depth test keeps the nearest fragment ever
+    // written, every place the fish has swum through stays an occluder for the
+    // rest of the session — a trail of shadows hanging in the water behind it.
+    renderer.clear();
     renderer.render(opaqueScene, sunCam);
     uSunVP.value.copy(sunVP);
     uShadowTexel.value = 1 / fluid.shadowSize;
