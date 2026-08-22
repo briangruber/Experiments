@@ -490,9 +490,42 @@ svg.ico, svg.chev { fill: none; stroke: currentColor; stroke-width: 1.6;
 }
 #keys em { font-style: normal; color: var(--ink-dim); }
 
+/* The signature, bottom left where the hint bar used to be. Quiet enough to
+   ignore and legible over anything the water does: the plumes go near white,
+   so it carries its own ground the way the wordmark and the frame rate do.
+   The X mark is a filled glyph rather than a stroked one, unlike the rest of
+   the set, so it opts out of the shared icon stroke. */
+#sig {
+  position: fixed;
+  left:1.6923rem;
+  bottom:1.6923rem;
+  display: flex;
+  align-items: center;
+  gap:0.4615rem;
+  padding:0.5385rem 0.9231rem;
+  font-family: var(--ui-sans);
+  font-size:0.8462rem;
+  letter-spacing: 0.02em;
+  color: var(--ink-dim);
+  text-decoration: none;
+  border-radius:76.8462rem;
+  border: 1px solid var(--edge);
+  background: var(--panel);
+  backdrop-filter: blur(14px);
+  opacity: 0.62;
+  transition: opacity 0.16s, color 0.16s, border-color 0.16s;
+}
+#sig .ico {
+  width:0.9231rem;
+  height:0.9231rem;
+  fill: currentColor;
+  stroke: none;
+}
+#sig:hover, #sig:focus-visible { opacity: 1; color: #cfe7f2; border-color: var(--edge-hi); }
+
 /* Hidden interface: everything goes, leaving only the corner peek button so
    pointer- and touch-only users can bring the controls back. */
-.ui-hidden #stats, .ui-hidden #title,
+.ui-hidden #stats, .ui-hidden #title, .ui-hidden #sig,
 .ui-hidden #controls, .ui-hidden #dock, .ui-hidden #keys { display: none; }
 /* The peek button: with the interface hidden this is the only way back for
    anyone without a keyboard, so it survives `ui-hidden` and only `no-chrome`
@@ -523,7 +556,8 @@ svg.ico, svg.chev { fill: none; stroke: currentColor; stroke-width: 1.6;
 .ui-hidden #peek { display: flex; }
 #peek:hover, #peek:focus-visible { opacity: 1; }
 /* captures and kiosk use: no interface at all */
-.no-chrome #peek, .no-chrome #dock, .no-chrome #keys { display: none; }
+.no-chrome #peek, .no-chrome #dock, .no-chrome #keys,
+.no-chrome #sig { display: none; }
 
 #boot {
   position: fixed;
@@ -679,6 +713,10 @@ svg.ico, svg.chev { fill: none; stroke: currentColor; stroke-width: 1.6;
 
   #diag { bottom:calc(62vh + 0.6154rem); font-size:0.6923rem; }
   #peek { bottom:calc(0.9231rem + env(safe-area-inset-bottom, 0px)); right:0.9231rem; }
+  /* the action bar owns the bottom-left corner here, so the signature sits
+     above it rather than under it */
+  #sig { bottom:calc(4.4615rem + env(safe-area-inset-bottom, 0px));
+    left:1.0769rem; font-size:0.7692rem; padding:0.4615rem 0.7692rem; }
   #code pre { max-height:30vh; font-size:0.6923rem; }
 }
 
