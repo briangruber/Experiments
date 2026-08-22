@@ -952,8 +952,10 @@ export async function start() {
   function setPaddleHidden(v) {
     paddleHidden = v;
     paddle.visible = !v;
-    hidePaddleBtn.classList.toggle('active', v);
-    hidePaddleBtn.setAttribute('aria-pressed', String(v));
+    // The check box says whether the paddle is IN the tank, so it reads the
+    // opposite way round to the flag behind it.
+    hidePaddleBtn.classList.toggle('active', !v);
+    hidePaddleBtn.setAttribute('aria-pressed', String(!v));
     spinPaddleBtn.disabled = v;
     speedSlider.disabled = v;
     if (v) {
