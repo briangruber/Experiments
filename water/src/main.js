@@ -28,9 +28,13 @@ import { TUNE } from './tune.js';
 
 const QUALITY = {
   low: { N: 64, jacobi: 12, steps: 88, scale: 0.6, ptex: 192 },
-  med: { N: 81, jacobi: 18, steps: 116, scale: 0.7, ptex: 288 },
-  high: { N: 100, jacobi: 22, steps: 148, scale: 0.8, ptex: 384 },
-  ultra: { N: 128, jacobi: 26, steps: 176, scale: 0.85, ptex: 448 },
+  med: { N: 80, jacobi: 18, steps: 116, scale: 0.7, ptex: 288 },
+  // 548^2 is 300K sprites, and 96 keeps the solver inside a frame while still
+  // resolving filaments. Both are values the Scene sliders can actually land
+  // on — 81 and 100 were not in GRID_SIZES, so the grid slider had nothing to
+  // point at and fell to its end stop.
+  high: { N: 96, jacobi: 22, steps: 148, scale: 0.8, ptex: 548 },
+  ultra: { N: 128, jacobi: 26, steps: 176, scale: 0.85, ptex: 548 },
 };
 
 const query = new URLSearchParams(location.search);

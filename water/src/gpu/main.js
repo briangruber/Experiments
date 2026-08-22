@@ -33,9 +33,9 @@ import {
 
 const QUALITY = {
   low: { N: 64, jacobi: 14, steps: 96, scale: 0.6, dpr: 1.0 },
-  med: { N: 96, jacobi: 20, steps: 128, scale: 0.7, dpr: 1.0 },
-  high: { N: 128, jacobi: 26, steps: 160, scale: 0.8, dpr: 1.25 },
-  ultra: { N: 160, jacobi: 30, steps: 200, scale: 0.9, dpr: 1.25 },
+  med: { N: 80, jacobi: 20, steps: 128, scale: 0.7, dpr: 1.0 },
+  high: { N: 96, jacobi: 26, steps: 160, scale: 0.8, dpr: 1.25 },
+  ultra: { N: 128, jacobi: 30, steps: 200, scale: 0.9, dpr: 1.25 },
 };
 
 export async function start() {
@@ -51,7 +51,7 @@ export async function start() {
   const Q = { ...QUALITY[qName] };
   Q.N = gridOverride(query, Q.N);
   const particleTarget = particleOverride(query,
-    { low: 30000, med: 60000, high: 110000, ultra: 150000 }[qName] || 60000);
+    { low: 30000, med: 90000, high: 300000, ultra: 300000 }[qName] || 90000);
 
   const params = {
     quality: qName,
