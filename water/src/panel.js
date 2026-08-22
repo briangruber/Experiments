@@ -175,6 +175,112 @@ function reloadWith(key, value) {
   location.search = `?${q}`;
 }
 
+// ---------------------------------------------------------------------------
+// The tuning panel. Temporary — see src/tune.js. Every knob writes straight
+// into TUNE, which is read at the point of use rather than cached, so a drag
+// lands on the next frame with no reload and nothing to rebuild.
+export function buildTunePanel(TUNE, hooks = {}) {
+  const panel = document.getElementById('tune');
+  const btn = document.getElementById('tune-btn');
+  if (!panel || !btn) return;
+  panel.textContent = '';
+
+  const head = (t) => {
+    const h = document.createElement('h3');
+    h.className = 'tune-head';
+    h.textContent = t;
+    panel.append(h);
+  };
+  const knob = (key, label, min, max, step, desc, dp = 2) => slider(panel, {
+    label, min, max, step, value: TUNE[key], desc,
+    format: (v) => v.toFixed(dp),
+    oninput: (v) => { TUNE[key] = v; hooks.onChange?.(key, v); },
+  });
+  const action = (label, fn, title) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'row-btn';
+    b.textContent = label;
+    if (title) b.title = title;
+    b.addEventListener('click', fn);
+    panel.append(b);
+    return b;
+  };
+
+  head('Barrels');
+  knob('barrelMin', 'size min', 0.02, 0.12, 0.002,
+    'Smallest drum a random drop can pick.', 3);
+  knob('barrelMax', 'size max', 0.04, 0.30, 0.002,
+    'Largest drum a random drop can pick.', 3);
+  knob('barrelFixed', 'fixed size', 0, 0.30, 0.002,
+    'Zero picks at random between the two above. Anything else forces every '
+    + 'drop to exactly this size, which is how you compare two sizes fairly.', 3);
+  knob('blastPow', 'blast from size', 0, 2.5, 0.05,
+    'How hard the barrel\'s size drives its explosion. 1 is what the physics '
+    + 'says: cavity radius goes as the barrel\'s size, linearly. Higher '
+    + 'exaggerates the gap between a small drum and a big one; 0 makes every '
+    + 'barrel blow the same hole whatever its size.');
+  knob('cavityRise', 'cavity rise', 0, 1.5, 0.01,
+    'How fast the blast site floats while its phases play out. Too low and the '
+    + 'late phases fire below their own gas, which looks like two explosions in '
+    + 'two places. Too high and the site outruns the plume it is feeding.');
+  action('Detonate at mid depth', () => hooks.blast?.(),
+    'Set one off immediately, without waiting for a barrel to sink to its mark.');
+
+  head('Framing');
+  knob('fitWidth', 'frame width', 0.55, 1.6, 0.01,
+    'How much of the tank\'s width the window spans. 1 puts the side walls '
+    + 'exactly at the frame\'s edges; below 1 pushes them out of shot, above 1 '
+    + 'pulls them inside it. Takes effect on the next resize or on Refit.');
+  action('Refit view', () => hooks.refit?.(),
+    'Re-frame the tank now, using the width above.');
+
+  head('The Fish');
+  knob('cross', 'crossing time', 6, 60, 0.5,
+    'Seconds from first appearing to gone, end to end.', 1);
+  knob('beat', 'tail beat', 0.5, 9, 0.05,
+    'Radians a second. This is the whole animal\'s clock: the body\'s sway, '
+    + 'yaw and roll all come off it, so raising it speeds up everything at once.');
+  knob('tailAmp', 'tail amplitude', 0, 3, 0.02,
+    'Multiplier on how far each tail joint swings. The per-joint amounts still '
+    + 'grow toward the tip; this scales all four together.');
+  knob('lag', 'phase lag', 0, 2.5, 0.02,
+    'Radians each joint trails the one ahead of it. This is what makes the bend '
+    + 'travel backwards down the body instead of the tail wagging as one piece. '
+    + 'At 0 it is a metronome.');
+  knob('reach', 'swims out to', 0.9, 3, 0.02,
+    'How far behind the tank it goes, in tank halves, before turning around. '
+    + 'Past about 1.1 it is fully dissolved before it turns.');
+  knob('fadeStart', 'fade starts at', 0.2, 1.5, 0.02,
+    'Depth at which it begins to dissolve, in tank halves. Smaller means it '
+    + 'starts fading closer to the camera.');
+  knob('fadeSpan', 'fade over', 0.1, 1.5, 0.02,
+    'How much further, in tank halves, until it is completely gone.');
+  const scrub = slider(panel, {
+    label: 'scrub', min: 0, max: 1, step: 0.005, value: 0,
+    desc: 'Drag the fish through its whole crossing by hand. This is the fast '
+        + 'way to judge the fade: 0 and 1 are the far ends, 0.5 is closest.',
+    format: (v) => v.toFixed(3),
+    oninput: (v) => hooks.scrub?.(v),
+  });
+  action('Summon fish', () => { hooks.summon?.(); scrub.value = 0; },
+    'Bring it out now rather than waiting for it to wander in.');
+
+  const copy = action('Copy Tuning', async () => {
+    const txt = JSON.stringify(TUNE, null, 2);
+    try { await navigator.clipboard.writeText(txt); copy.textContent = 'Copied'; }
+    catch { copy.textContent = 'Copy failed'; }
+    setTimeout(() => { copy.textContent = 'Copy Tuning'; }, 1400);
+  }, 'Copy every value above, ready to paste back so they can be folded into the code.');
+
+  btn.addEventListener('click', () => {
+    const open = panel.hasAttribute('hidden');
+    panel.toggleAttribute('hidden', !open);
+    btn.classList.toggle('active', open);
+    btn.setAttribute('aria-expanded', String(open));
+  });
+}
+
 export function buildScenePanel({
   gridN, particleCount, tankHalf, onTank, paddleScale, onPaddleScale,
 }) {

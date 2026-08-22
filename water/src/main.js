@@ -10,7 +10,8 @@ import { Fluid } from './fluid.js';
 import { Particles } from './particles.js';
 import { initChrome } from './chrome.js';
 import {
-  buildPhysicsPanel, buildScenePanel, buildCodePanel, buildEmitterPanel, armBurst,
+  buildPhysicsPanel, buildScenePanel, buildCodePanel, buildEmitterPanel,
+  buildTunePanel, armBurst,
   gridOverride, particleOverride, tankOverride,
 } from './panel.js';
 import {
@@ -23,6 +24,7 @@ import {
   diverModel, diverTexture, DIVER_HALF,
 } from './model.js';
 import { createVisitor } from './visitor.js';
+import { TUNE } from './tune.js';
 
 const QUALITY = {
   low: { N: 64, jacobi: 12, steps: 88, scale: 0.6, ptex: 192 },
@@ -115,17 +117,22 @@ let userZoomed = false;   // once true, resizing stops re-framing the tank
 // narrower horizontal field than a desktop window at the same vertical
 // fov, so without this the tank is cropped off the sides.
 function fitDistance() {
-  // Cover, not contain: the window IS the tank, so every pixel of it should be
-  // water. Fit the frame's DIAGONAL inside the tank's INSCRIBED sphere — fit
-  // the bounding sphere, or either axis on its own, and the corners fall
-  // outside the cube's silhouette, which is where the black wedges came from
-  // on a tall phone. The 0.68 sits closer still: square on to a wall, that fit
-  // leaves both side walls and the top edge in frame, which reads as a box.
-  // Moving in pushes them past the edges. Closing in only ever adds coverage,
-  // so the corners stay safe.
+  // The window spans the tank's FULL WIDTH, measured at the tank's mid-plane
+  // rather than at its front wall. Fitting the front wall is the literal
+  // reading and it is the one that puts black wedges down the sides: a ray
+  // through the very edge of the frame enters at the wall and leaves through
+  // it immediately, so it crosses no water and comes back as background.
+  // Measured at the middle, every ray enters the front face well inside the
+  // glass and has half a tank to cross before it can reach a side wall, so
+  // the frame is full of water edge to edge and the walls still reach the
+  // frame's edges where the eye reads the tank's width.
+  //
+  // Landscape only. On a portrait phone the same fit would put the frame's
+  // top and bottom outside the tank, and empty sky above the water is worse
+  // than not seeing the last of the width, so the aspect floor of 1 turns it
+  // back into a height fit.
   const vt = Math.tan(camera.fov * Math.PI / 360);
-  const diag = Math.atan(Math.hypot(vt, vt * camera.aspect));
-  return 0.68 * tankHalf / Math.sin(diag);
+  return TUNE.fitWidth * tankHalf / (vt * Math.max(camera.aspect, 1));
 }
 function updateCamera() {
   orbit.el = Math.max(-0.55, Math.min(1.25, orbit.el));
@@ -145,15 +152,9 @@ function updateCamera() {
     Math.min(0.15 * tankHalf, SURFACE_Y - halfV * 0.88));
   const wide = Math.min(1, Math.max(0, (halfV / tankHalf - 0.7) / 0.5));
   const aim = near * (1 - wide);
-  // `wide` is already the test the wireframe wants: it is exactly the point
-  // where the frame outgrows the tank. Fade it in rather than popping it on.
-  edges.visible = wide > 0.002;
-  edges.material.opacity = 0.14 * wide;
   camera.lookAt(0, aim, 0);
   camera.updateMatrixWorld();
 }
-// Positioned at the end of the module rather than here: it now sets the
-// wireframe's visibility, and the wireframe does not exist yet.
 
 // ----------------------------------------------------------------- scenes --
 
@@ -176,10 +177,12 @@ paddle.position.set(0.45, -0.25, 0.1);
 opaqueScene.add(paddle);
 
 // A small drum. The mesh is the baked model, whose largest half extent is 1,
-// so one scale factor sets its size in tank units.
-const BARREL_SCALE = 0.085;
-const barrelHalf = new THREE.Vector3(
-  BARREL_SCALE * BARREL_HALF[0], BARREL_SCALE * BARREL_HALF[1], BARREL_SCALE * BARREL_HALF[2]);
+// so one scale factor sets its size in tank units. Every barrel draws its own
+// size on the way in, and that size is the only thing that decides how big its
+// explosion is — see detonate().
+const BARREL_SCALE = 0.085;    // the middle of the range, and the unit for `k`
+// the model's own radius, at scale 1; 0.62 of it is the wake the solver sees
+const BARREL_R = Math.hypot(BARREL_HALF[0], BARREL_HALF[1], BARREL_HALF[2]) * 0.62;
 const barrelGeo = barrelGeometry(THREE);
 const barrelMat = new THREE.ShaderMaterial({
   vertexShader: BARREL_VERT,
@@ -191,8 +194,11 @@ const barrelMat = new THREE.ShaderMaterial({
     uFogColor: { value: new THREE.Vector3() },
   },
 });
-// A pool, so every click drops another barrel and several can be in flight.
-const MAX_BARRELS = 6;
+// A pool that GROWS. It used to hold six and recycle the oldest live barrel
+// once they were all busy, which quietly deleted a barrel mid-fall if you kept
+// clicking. Reuse whatever has finished and allocate when nothing has, so the
+// pool settles at the most that were ever in the air at once and there is no
+// ceiling on how many you can drop.
 // Slowest an aimed barrel may sink, in tank units a second.
 // Only a guard against a true stall, not a speed. It used to be 0.75, which
 // sat above the terminal velocity `water drag` implies for anything past
@@ -201,23 +207,34 @@ const MAX_BARRELS = 6;
 // the whole range: a barrel takes about 1.6s to reach the mark at drag 0 and
 // about 7s at drag 10.
 const MIN_SINK = 0.18;
-const barrels = Array.from({ length: MAX_BARRELS }, () => {
+const barrels = [];
+function newBarrel() {
   const mesh = new THREE.Mesh(barrelGeo, barrelMat);
-  mesh.scale.setScalar(BARREL_SCALE);
   mesh.visible = false;
   opaqueScene.add(mesh);
-  return {
+  const b = {
     mesh,
     vel: new THREE.Vector3(),
     spin: new THREE.Vector3(),
     age: 0,
     active: false,
     splashed: false,
+    scale: BARREL_SCALE,
+    k: 1,                  // size relative to BARREL_SCALE; drives everything
+    targetY: null,
     // handed to the solver unchanged each frame, so nothing allocates per step
-    desc: { pos: mesh.position, vel: null, radius: barrelHalf.length() * 0.62 },
+    desc: { pos: mesh.position, vel: null, radius: BARREL_SCALE * BARREL_R },
   };
-});
-for (const b of barrels) b.desc.vel = b.vel;
+  b.desc.vel = b.vel;
+  barrels.push(b);
+  return b;
+}
+function sizeBarrel(b, sc) {
+  b.scale = sc;
+  b.k = sc / BARREL_SCALE;
+  b.mesh.scale.setScalar(sc);
+  b.desc.radius = sc * BARREL_R;
+}
 
 // The visitor. Same shading as the barrel, drawn in the opaque pass so the
 // volume fogs it — which is the whole effect: it has to arrive already half
@@ -240,20 +257,6 @@ diver.material.uniforms.uBones.value = diverParts.rows;
 diver.scale.setScalar(diverScale);
 opaqueScene.add(diver);
 const visitor = createVisitor(THREE, diverParts, tankHalf);
-
-const edgeScene = new THREE.Scene();
-// Drawn only once the camera has backed far enough out that the tank reads as
-// an object. At the default framing the window IS the tank, and a wireframe
-// across it announces the box the whole look is trying not to be.
-const edges = new THREE.LineSegments(
-  new THREE.EdgesGeometry(new THREE.BoxGeometry(2, 2, 2)),
-  new THREE.LineBasicMaterial({
-    color: new THREE.Color(0.10, 0.22, 0.30),
-    transparent: true, opacity: 0.14,
-    blending: THREE.AdditiveBlending,
-    depthTest: false, depthWrite: false,
-  }));
-edgeScene.add(edges);
 
 // ---------------------------------------------------------- render targets --
 
@@ -624,8 +627,10 @@ let paddleHidden = true;
 function setPaddleHidden(v) {
   paddleHidden = v;
   paddle.visible = !v;
-  hidePaddleBtn.classList.toggle('active', v);
-  hidePaddleBtn.setAttribute('aria-pressed', String(v));
+  // The check box says whether the paddle is IN the tank, so it reads the
+  // opposite way round to the flag behind it.
+  hidePaddleBtn.classList.toggle('active', !v);
+  hidePaddleBtn.setAttribute('aria-pressed', String(!v));
   spinPaddleBtn.disabled = v;
   speedSlider.disabled = v;
   if (v) {
@@ -643,7 +648,6 @@ function setTank(v) {
   fluid.surfaceY = SURFACE_Y;
   mRaymarch.uniforms.uTank.value = tankHalf;
   mRaymarch.uniforms.uSurfaceY.value = SURFACE_Y;
-  edges.scale.setScalar(tankHalf);
   paddleTarget.clampScalar(-0.66 * tankHalf, 0.66 * tankHalf);
   paddle.position.clampScalar(-0.66 * tankHalf, 0.66 * tankHalf);
 }
@@ -668,6 +672,20 @@ buildScenePanel({
 setTank(tankHalf);   // apply ?tank= to the glass, surface and clamps
 setPaddleScale(paddleScale);   // the blade starts at PADDLE_SCALE0
 buildEmitterPanel(fluid.emitter);   // mutated in place; the solver reads it each step
+buildTunePanel(TUNE, {
+  // Instant feedback for the two things that otherwise need waiting out: a
+  // barrel takes seconds to sink to its mark, and the fish comes out once
+  // every few minutes.
+  blast: () => detonate(new THREE.Vector3(0, -0.1 * tankHalf, 0), clock.elapsedTime, 1),
+  refit: () => { userZoomed = false; orbit.dist = fitDistance(); updateCamera(); },
+  summon: () => visitor.begin(),
+  scrub: (v) => {
+    if (!visitor.state.mesh.visible) visitor.begin();
+    visitor.state.t = v;
+    visitor.update(0, tankHalf);
+  },
+});
+
 buildCodePanel(() => ({
   backend: 'WebGL2', N: Q.N, jacobi: Q.jacobi, particleCount: particles.count,
   tankHalf, paddleScale, physics: fluid.physics,
@@ -888,12 +906,12 @@ const liveBarrels = [];   // reused array of descriptors for the solver
 // detonates when it reaches that depth, so a click lands the blast where
 // you pointed. Without it the barrel is scattered and blows up on the floor.
 function dropBarrel(at) {
-  // reuse a free slot, or recycle the oldest one if all six are busy
-  let b = barrels.find((x) => !x.active);
-  if (!b) b = barrels.reduce((a, x) => (x.age > a.age ? x : a), barrels[0]);
+  const b = barrels.find((x) => !x.active) || newBarrel();
   b.active = true;
   b.age = 0;
   b.splashed = false;
+  sizeBarrel(b, TUNE.barrelFixed > 0 ? TUNE.barrelFixed
+    : TUNE.barrelMin + Math.random() * (TUNE.barrelMax - TUNE.barrelMin));
   if (at) {
     b.mesh.position.set(at.x, 0.95 * tankHalf, at.z);
     // never above the waterline, or it would detonate before it got wet
@@ -902,7 +920,12 @@ function dropBarrel(at) {
   } else {
     b.mesh.position.set((Math.random() - 0.5) * 1.2 * tankHalf, 0.95 * tankHalf,
       (Math.random() - 0.5) * 1.2 * tankHalf);
-    b.targetY = null;
+    // An unaimed drop picks its own depth rather than running a fuse out to
+    // the floor: every barrel now goes off somewhere deliberate, and a handful
+    // dropped together stagger themselves up and down the tank instead of all
+    // piling into the bottom.
+    const lo = -0.72 * tankHalf, hi = SURFACE_Y - 0.15 * tankHalf;
+    b.targetY = lo + Math.random() * (hi - lo);
     b.vel.set((Math.random() - 0.5) * 0.2, -2.3, (Math.random() - 0.5) * 0.2);
   }
   b.mesh.rotation.set(Math.random() * 0.5, Math.random() * 6.28, Math.random() * 0.5);
@@ -914,7 +937,22 @@ function dropBarrel(at) {
 // vortex ring that widens as it rises, which is what rolls the cap into a
 // mushroom. Shared by a barrel reaching the end of its life and by a tap on
 // the water.
-function detonate(q, t) {
+// `k` is the barrel's size against BARREL_SCALE, and it is the only thing that
+// separates a small drum's pop from a big one's boom.
+//
+// Which quantities it scales is Cole's arithmetic rather than taste. The
+// charge goes as the barrel's VOLUME, k^3, and the bubble a charge opens goes
+// as the cube root of the charge — so the cavity radius goes as k, linearly.
+// The foam amplitude is then left alone on purpose: the solver injects foam as
+// an amplitude through a Gaussian of `radius`, so the gas that actually goes in
+// is amplitude x radius^3, and with the radius already carrying k the total is
+// k^3 with nothing further to do. A bigger barrel therefore blows a bigger
+// hole, not a denser one, which is what the physics says and also what reads.
+function detonate(q, t, k = 1) {
+  // The cavity does not stay put while this plays out — see the rise
+  // integration in the animation loop. Every phase shares one position vector
+  // and one rise state, so moving it moves the whole remaining sequence.
+  const rise = { vy: 0 };
   // An air-filled barrel does not simply burst. The cavity is at one
   // atmosphere while the water around it is not, so the water crushes it
   // first, the trapped air compresses, and it is the REBOUND that throws the
@@ -924,16 +962,18 @@ function detonate(q, t) {
   // reads as nothing happening at all. Give the pocket to look at first, then
   // crush it: the crush phases add no air, so what is there gets squeezed.
   explosionQueue.push(
-    { pos: q, vel: 1.1, up: 0.1, foam: 3.8, radius: 0.095, hold: 0.10, raw: true },
-    { pos: q, vel: -3.6, up: -0.5, foam: 0.0, radius: 0.24, hold: 0.24 },
-    { pos: q, vel: -2.4, up: -0.2, foam: 0.0, radius: 0.20, hold: 0.08 },
-    { pos: q, vel: 3.2, up: 1.2, foam: 0.42, radius: 0.36, ring: 2.6, ringR: 0.28, hold: 0.05 },
-    { pos: q, vel: 1.8, up: 0.9, foam: 0.24, radius: 0.44, ring: 2.0, ringR: 0.36, hold: 0.05 },
-    { pos: q, vel: 0.9, up: 0.6, foam: 0.14, radius: 0.52, ring: 1.4, ringR: 0.44, hold: 0.05 },
+    { pos: q, rise, vel: 1.1 * k, up: 0.1 * k, foam: 3.8, radius: 0.095 * k, hold: 0.10, raw: true },
+    { pos: q, rise, vel: -3.6 * k, up: -0.5 * k, foam: 0.0, radius: 0.24 * k, hold: 0.24 },
+    { pos: q, rise, vel: -2.4 * k, up: -0.2 * k, foam: 0.0, radius: 0.20 * k, hold: 0.08 },
+    { pos: q, rise, vel: 3.2 * k, up: 1.2 * k, foam: 0.42, radius: 0.36 * k, ring: 2.6 * k, ringR: 0.28 * k, hold: 0.05 },
+    { pos: q, rise, vel: 1.8 * k, up: 0.9 * k, foam: 0.24, radius: 0.44 * k, ring: 2.0 * k, ringR: 0.36 * k, hold: 0.05 },
+    { pos: q, rise, vel: 0.9 * k, up: 0.6 * k, foam: 0.14, radius: 0.52 * k, ring: 1.4 * k, ringR: 0.44 * k, hold: 0.05 },
   );
-  lastBlast.pos.copy(q);
+  // Aliased, not copied, so the bubble sparkle rides up with the cavity
+  // instead of staying behind at the point of detonation.
+  lastBlast.pos = q;
   lastBlast.until = t + 1.6;
-  addRipple(q.x, q.z, 1.3);
+  addRipple(q.x, q.z, 1.3 * k);
 }
 
 function updateBarrels(dt, t) {
@@ -949,7 +989,11 @@ function updateBarrels(dt, t) {
   // viscosity, so the `water drag` knob slows the barrel as well as the
   // fluid. Gravity is cut to about a third below the waterline, which is
   // the stand-in for the buoyancy of the water it displaces.
-  const kDrag = wasAbove ? 0.15 : 2.3 + fluid.physics.drag * 1.5;
+  // Drag acts on the barrel's area and inertia on its volume, so the
+  // deceleration a given drag produces falls off as 1/size: a big drum sinks
+  // visibly faster and holds its line, a small one dawdles and gets pushed
+  // around by the flow.
+  const kDrag = (wasAbove ? 0.15 : 2.3 + fluid.physics.drag * 1.5) / b.k;
   b.vel.y -= (wasAbove ? 6.0 : 1.8) * dt;
   b.vel.multiplyScalar(Math.exp(-dt * kDrag));
     // An aimed drop is a promise: it detonates at the depth you clicked. Drag
@@ -972,25 +1016,26 @@ function updateBarrels(dt, t) {
       // the ring of waves running out from the impact
       b.splashed = true;
       explosionQueue.push(
-        { pos: new THREE.Vector3(p.x, SURFACE_Y - 0.05, p.z), vel: 0.55, up: -1.2, foam: 0.35, radius: 0.13 },
-        { pos: new THREE.Vector3(p.x, SURFACE_Y - 0.15, p.z), vel: 0.28, up: 0.5, foam: 0.2, radius: 0.10 },
+        { pos: new THREE.Vector3(p.x, SURFACE_Y - 0.05, p.z), vel: 0.55 * b.k, up: -1.2 * b.k, foam: 0.35, radius: 0.13 * b.k },
+        { pos: new THREE.Vector3(p.x, SURFACE_Y - 0.15, p.z), vel: 0.28 * b.k, up: 0.5 * b.k, foam: 0.2, radius: 0.10 * b.k },
       );
-      addRipple(p.x, p.z, 1.0);
+      addRipple(p.x, p.z, 1.0 * b.k);
     }
 
     // Reaching the mark is the only thing that fires an aimed barrel: neither
     // the fuse nor the floor gets to pre-empt it, or a deep click would
     // detonate short of where it was pointed. The long fuse is a safety net
     // for a barrel that somehow never arrives.
-    const done = b.targetY != null
-      ? (p.y <= b.targetY || b.age > 20)
-      : (p.y < -0.5 * tankHalf || b.age > 2.2);
+    // Every barrel has a mark now, aimed or drawn, so there is one rule: it
+    // goes off when it gets there. The fuse is only a safety net for one that
+    // somehow never arrives.
+    const done = p.y <= b.targetY || b.age > 20;
     if (done) {
       // implode, then blow: a suck inward, then a radial+upward blast with a
       // huge foam release that buoyancy turns into the erupting column
       b.active = false;
       b.mesh.visible = false;
-      detonate(p.clone(), t);
+      detonate(p.clone(), t, Math.pow(b.k, TUNE.blastPow));
       continue;
     }
 
@@ -1019,11 +1064,17 @@ function frame() {
     updatePaddle(dt, t);
     updateBarrels(dt, t);
     visitor.update(dt, tankHalf);
-    // The water it is dissolving into is the ambient at its own depth, so the
-    // fade lands on the colour that would be there if it were not.
+    // The water it dissolves into is the ambient at its own depth — and only
+    // that. This used to lerp half way to the surface ambient and then
+    // multiply by 2.2, which is a pale blue far brighter than anything behind
+    // the fish: instead of sinking into the murk it turned into a bright blob
+    // and switched off. Where it fades out, at the very back of the tank, the
+    // water is nearly black, so that is what it has to become.
     diver.material.uniforms.uFade.value = visitor.state.fade;
+    const lift = Math.min(1, Math.max(0,
+      (diver.position.y + tankHalf) / (SURFACE_Y + tankHalf)));
     diver.material.uniforms.uFogColor.value.copy(mRaymarch.uniforms.uAmbientDeep.value)
-      .lerp(mRaymarch.uniforms.uAmbientTop.value, 0.5).multiplyScalar(2.2);
+      .lerp(mRaymarch.uniforms.uAmbientTop.value, lift * 0.35);
     // Phases are HELD for a duration rather than fired one per frame. An
     // implosion two entries long lasted 33ms at 60fps, so all anyone ever saw
     // was the pop. Each frame takes its dt share of the phase, which keeps the
@@ -1036,6 +1087,22 @@ function frame() {
         blastLeft = blastPhase.hold ?? 0;
       }
       if (blastPhase) {
+        // The cavity RISES while its own sequence plays out. The six phases
+        // span the better part of a second, and the foam the first one injects
+        // is buoyant, so holding the later phases at the point of detonation
+        // fired them well below the gas that had already floated off — which
+        // is what read as a second explosion somewhere else. Carry the site up
+        // with its gas instead, integrating the same balance the solver
+        // integrates for a foam parcel: buoyancy against drag, settling at
+        // buoyancy * aeration / drag. Off the same knobs, so turning buoyancy
+        // up moves the plume and the site together rather than parting them.
+        const r = blastPhase.rise;
+        if (r) {
+          const ph = fluid.physics;
+          r.vy += (ph.buoyancy * TUNE.cavityRise - ph.drag * r.vy) * dt;
+          blastPhase.pos.y = Math.min(SURFACE_Y - 0.03,
+            blastPhase.pos.y + r.vy * dt);
+        }
         const hold = blastPhase.hold ?? 0;
         fluid.burst = armBurst(blastPhase, fluid.physics,
           hold > 0 ? Math.min(dt / hold, 1) : 1);
@@ -1082,10 +1149,9 @@ function frame() {
   u.uChop.value = fluid.physics.chop;
   fsPass(mRaymarch, volRT);
 
-  // composite + tank edges + bubble sparkle
+  // composite + bubble sparkle
   fsPass(mComposite, compRT);
   renderer.setRenderTarget(compRT);
-  renderer.render(edgeScene, camera);
   // the foam view is meant to show the solver's output alone
   if (!debugFoam) particles.draw(camera, H);
 
@@ -1137,6 +1203,8 @@ window.water = {
   },
   dropBarrel,
   visitor,   // the easter egg, exposed so a capture can step into it
+  barrels,   // likewise: a capture needs to know when one reaches its mark
+  tune: TUNE,   // live knobs, also driven by the Tuning panel
 
   physics: fluid.physics,
   setPaddleHidden: (v) => setPaddleHidden(v),

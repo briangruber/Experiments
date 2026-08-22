@@ -14,11 +14,10 @@
 // Both backends drive this the same way; only the mesh construction differs, so
 // they hand one in.
 
-const CROSS = 22;        // seconds end to end: slow enough to be uncanny
+import { TUNE } from './tune.js';
+
 const IDLE_MIN = 150;    // earliest it will come out on its own, seconds
 const IDLE_MAX = 420;    // and the latest
-const BEAT = 3.4;        // rad/s, about half a tail beat a second — a big fish
-const LAG = 0.85;        // phase each joint trails the one ahead of it
 
 // The rig, by index into the baked joint list. Worked out from the joints'
 // world positions and their world AXES, not their names — UniRig calls them
@@ -32,7 +31,7 @@ const LAG = 0.85;        // phase each joint trails the one ahead of it
 // forward and DOWN, bone 6 forward and up, and both keep local X on world X,
 // so the mouth opens by turning them about local X in opposite directions.
 const TAIL = [10, 11, 12, 13];
-const TAIL_AMP = [0.06, 0.11, 0.17, 0.24];
+const TAIL_AMP = [0.06, 0.11, 0.17, 0.24];   // scaled by TUNE.tailAmp
 const DORSAL = [8, 9];
 const JAW = [[4, 1], [6, -1]];   // bone, and which way it swings open
 
@@ -84,7 +83,7 @@ export function createVisitor(THREE, model, tankHalf) {
       return;
     }
 
-    state.t += dt / CROSS;
+    state.t += dt / TUNE.cross;
     if (state.t >= 1) { mesh.visible = false; state.t = -1; return; }
 
     // Comes forward out of the far fog, turns at the near end and goes back
@@ -95,13 +94,15 @@ export function createVisitor(THREE, model, tankHalf) {
     const s = Math.sin(Math.PI * u);            // 0 at both ends, 1 at the apex
     // One clock for the whole animal, in seconds rather than in crossing
     // fraction so the beat does not change rate if CROSS is retuned.
-    const beat = u * CROSS * BEAT + state.phase;
+    const beat = u * TUNE.cross * TUNE.beat + state.phase;
 
-    // Stays INSIDE the tank. Starting outside it was the whole reason it
-    // seemed to blink into existence: beyond the glass there is no water in
-    // front of it to fog it and nothing behind it but black, so it arrived as
-    // a crisp lit object on an empty background.
-    const z = (-0.95 + 0.85 * s) * h;
+    // It comes from WELL behind the tank and goes back there — far enough that
+    // it has finished dissolving long before it turns around, so nothing is
+    // ever switched on or off while it can be seen. Keeping it inside the
+    // glass was the previous attempt at this and it only moved the problem:
+    // the back wall is barely a tank-length away, which is not enough water to
+    // hide anything in, so it still surfaced out of nothing.
+    const z = (-TUNE.reach + (TUNE.reach - 0.1) * s) * h;
     const drift = (u - 0.5) * 0.8 * h * state.dir;
     // Small now: the tail carries the beat, so the body only needs the recoil
     // it would actually get. At the old amplitude the whole fish slalomed.
@@ -115,14 +116,14 @@ export function createVisitor(THREE, model, tankHalf) {
     // every joint would wag it like a metronome.
     if (bones) {
       for (let i = 0; i < TAIL.length; i++) {
-        bend(TAIL[i], AX_Z, Math.sin(beat - (i + 1) * LAG) * TAIL_AMP[i]);
+        bend(TAIL[i], AX_Z, Math.sin(beat - (i + 1) * TUNE.lag) * TAIL_AMP[i] * TUNE.tailAmp);
       }
       // the dorsal fin trails the wave, further behind again
       for (const j of DORSAL) bend(j, AX_Z, Math.sin(beat - 2.2) * 0.05);
       // and the jaw works slowly and off the beat, so it never looks like one
       // mechanism driving both. Cubed, because a fish's mouth is shut most of
       // the time and then opens.
-      const gape = Math.max(0, Math.sin(u * CROSS * 0.9 + state.phase * 2.3)) ** 3;
+      const gape = Math.max(0, Math.sin(u * TUNE.cross * 0.9 + state.phase * 2.3)) ** 3;
       for (const [j, way] of JAW) bend(j, AX_X, way * gape * 0.13);
       model.sync();
     }
@@ -133,16 +134,21 @@ export function createVisitor(THREE, model, tankHalf) {
     // into its own stroke. The sway is deliberately NOT differentiated into the
     // heading any more; at this beat rate its derivative swamps the tangent and
     // the fish shakes its head instead of swimming.
-    const dz = 0.85 * Math.PI * Math.cos(Math.PI * u);
+    const dz = (TUNE.reach - 0.1) * Math.PI * Math.cos(Math.PI * u);
     const dx = 0.8 * state.dir;
     mesh.rotation.set(
       Math.sin(beat * 0.5) * 0.05,
       Math.atan2(dx, dz) + Math.sin(beat) * 0.06,
       -Math.cos(beat) * 0.09);
-    // Dissolve in and out. The volume does most of the work — it is deepest
-    // in the water at both ends — but the last of it has to be faded or the
-    // mesh still switches off mid-swim.
-    state.fade = 1 - Math.min(1, Math.min(u, 1 - u) / 0.22);
+    // Dissolve by DEPTH, not by how far through the crossing it is. Fog is a
+    // property of the water between it and the camera, so distance is the
+    // honest input, and it is also the robust one: however the path is retuned
+    // the fish cannot appear anywhere but far away. Gone by z = -1.1h, still
+    // travelling to -1.5h, so it is invisible for a good while before the
+    // mesh is switched off. The clock term is only a backstop for the very
+    // ends, in case the path is ever changed to start closer.
+    const deep = Math.min(1, Math.max(0, (-z / h - TUNE.fadeStart) / TUNE.fadeSpan));
+    state.fade = Math.max(deep, 1 - Math.min(1, Math.min(u, 1 - u) / 0.10));
     mesh.updateMatrixWorld();
   }
 

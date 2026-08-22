@@ -97,14 +97,18 @@ export function initChrome({ backend } = {}) {
       moreBtn.setAttribute('aria-expanded', String(open));
     });
   }
-  const rendBtn = document.getElementById('renderer-btn');
-  const rendPanel = document.getElementById('renderer');
-  if (rendBtn && rendPanel) {
-    rendBtn.addEventListener('click', () => {
-      const open = rendPanel.hasAttribute('hidden');
-      rendPanel.toggleAttribute('hidden', !open);
-      rendBtn.classList.toggle('active', open);
-      rendBtn.setAttribute('aria-expanded', String(open));
+  // The paddle's own settings, in a drawer under the paddle row — the same
+  // shape the diffuser's tab has. Whether the paddle is in the tank and how it
+  // moves are two different questions, and they now sit one above the other
+  // rather than one on top and the other three levels down under Settings.
+  const padTab = document.getElementById('paddle-tweak-btn');
+  const padPanel = document.getElementById('paddle-settings');
+  if (padTab && padPanel) {
+    padTab.addEventListener('click', () => {
+      const open = padPanel.hasAttribute('hidden');
+      padPanel.toggleAttribute('hidden', !open);
+      padTab.classList.toggle('active', open);
+      padTab.setAttribute('aria-expanded', String(open));
     });
   }
 

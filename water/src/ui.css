@@ -188,14 +188,69 @@ svg.ico, svg.chev { fill: none; stroke: currentColor; stroke-width: 1.6;
   stroke-linecap: round; stroke-linejoin: round; }
 #sprite { position: absolute; width:0; height:0; overflow: hidden; }
 
-/* the one action worth reaching for without reading the panel */
-#controls .row-btn.primary {
-  color: #dcf0fb;
-  background: linear-gradient(180deg, rgba(46, 130, 180, 0.30), rgba(30, 92, 132, 0.24));
-  border-color: rgba(96, 176, 216, 0.55);
+/* Check boxes, on the two top-level rows that carry state rather than doing
+   something. A highlight in this panel means ON and nothing else — that is the
+   whole reason Drop Barrel lost its accent treatment, since an action has no
+   on for a highlight to mean. */
+.row-btn.check .chk {
+  flex: none;
+  margin-left: auto;
+  position: relative;
+  width:1.3077rem;
+  height:1.3077rem;
+  border-radius:0.3077rem;
+  border: 1px solid var(--edge);
+  background: #16242c;
+  transition: background 0.16s, border-color 0.16s;
 }
-#controls .row-btn.primary .ico { color: #8fd4f2; }
-#controls .row-btn.primary:hover { border-color: rgba(140, 208, 240, 0.75); }
+#controls .row-btn.check.active {
+  color: #eaf6fd;
+  background: var(--row-hi);
+  border-color: var(--edge-hi);
+}
+.row-btn.check.active .ico { color: #8fd4f2; }
+.row-btn.check.active .chk { background: var(--accent); border-color: var(--accent); }
+.row-btn.check.active .chk::after {
+  content: "";
+  position: absolute;
+  left:0.4231rem;
+  top:0.1538rem;
+  width:0.3077rem;
+  height:0.6154rem;
+  border: solid #08161d;
+  border-width: 0 2px 2px 0;
+  transform: rotate(42deg);
+}
+
+/* A state and its settings on one line: the row toggles, the tab beside it
+   opens the drawer underneath. Two hit targets, because they are two
+   different questions — whether the thing is running, and how it behaves. */
+.combo { display: flex; gap:0.3077rem; }
+.combo .row-btn { flex: 1 1 auto; }
+#controls .tweak {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width:2.7692rem;
+  padding: 0;
+  color: var(--ink);
+  background: var(--row);
+  border: 1px solid var(--edge);
+  border-radius:0.6923rem;
+  cursor: pointer;
+  transition: background 0.14s, border-color 0.14s, color 0.14s;
+}
+#controls .tweak:hover { background: var(--row-hi); border-color: var(--edge-hi); }
+.tweak .chev { width:1.1538rem; height:1.1538rem; color: var(--muted); transition: transform 0.18s; }
+#controls .tweak.active { background: var(--row-hi); border-color: var(--edge-hi); }
+.tweak.active .chev { transform: rotate(180deg); color: var(--accent); }
+/* Squared off where the drawer meets it, so the two read as one block. Keyed
+   off the tab's own open state so nothing has to tell the wrapper about it. */
+.combo:has(.tweak.active) > * {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
 
 /* Switches. The app toggles `.active` and aria-pressed on these already, so the
    track reads that rather than carrying a checkbox of its own. */
@@ -254,7 +309,7 @@ svg.ico, svg.chev { fill: none; stroke: currentColor; stroke-width: 1.6;
 }
 #more[hidden] { display: none; }
 
-#physics, #scene, #emitter, #renderer, #code {
+#physics, #scene, #emitter, #paddle-settings, #tune, #code {
   display: flex;
   flex-direction: column;
   gap:0.3846rem;
@@ -266,7 +321,17 @@ svg.ico, svg.chev { fill: none; stroke: currentColor; stroke-width: 1.6;
   background: rgba(6, 14, 20, 0.5);
 }
 #physics[hidden], #scene[hidden], #emitter[hidden],
-#renderer[hidden], #code[hidden] { display: none; }
+#paddle-settings[hidden], #tune[hidden], #code[hidden] { display: none; }
+/* section headings inside the tuning drawer */
+.tune-head {
+  margin:0.6154rem 0 0 0.1538rem;
+  font-size:0.7692rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.tune-head:first-child { margin-top: 0; }
 
 /* Sliders. Label and value on one line, track under it at full width. */
 #controls .slider {
@@ -329,7 +394,7 @@ svg.ico, svg.chev { fill: none; stroke: currentColor; stroke-width: 1.6;
   border-radius:0.5385rem;
 }
 
-#emitter > button, #renderer > button, #code > button {
+#emitter > button, #tune > button, #code > button {
   width:100%;
   box-sizing: border-box;
   padding:0.6923rem 0.7692rem;
@@ -342,7 +407,7 @@ svg.ico, svg.chev { fill: none; stroke: currentColor; stroke-width: 1.6;
   border-radius:0.5385rem;
   cursor: pointer;
 }
-#emitter > button:hover, #renderer > button:hover, #code > button:hover {
+#emitter > button:hover, #tune > button:hover, #code > button:hover {
   color: var(--ink);
   border-color: var(--edge-hi);
 }
