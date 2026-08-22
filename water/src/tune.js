@@ -93,8 +93,11 @@ export const TUNE = {
 
   // --- framing -------------------------------------------------------------
   // 1 puts the tank's full width exactly at the frame's edges. Below 1 pushes
-  // the side walls out of shot, above 1 pulls them inside it.
-  fitWidth: 1.0,
+  // the side walls out of shot; above 1 pulls them inside it, so the tank sits
+  // in frame with its own walls falling away at the sides. Past about 1.2 the
+  // waterline comes into view along the top, which is what makes it read as
+  // being under a surface rather than in a blue room.
+  fitWidth: 1.35,
 
   // --- the fish ------------------------------------------------------------
   cross: 28,            // seconds end to end

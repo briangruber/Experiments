@@ -89,27 +89,6 @@ body.stats-open #stats { display: block; }
 }
 #stats em { font-style: normal; color: var(--muted); }
 #stats b { font-weight: 600; color: #cfe3ee; font-variant-numeric: tabular-nums; }
-#hud {
-  position: fixed;
-  left:1.6923rem;
-  bottom:1.6923rem;
-  display: flex;
-  align-items: center;
-  gap:1.0769rem;
-  padding:0.8462rem 1.2308rem;
-  font-family: var(--ui-sans);
-  font-size:0.9231rem;
-  color: var(--ink-dim);
-  border-radius:76.8462rem;
-  border: 1px solid var(--edge);
-  background: var(--panel);
-  backdrop-filter: blur(14px);
-  user-select: none;
-  pointer-events: none;
-}
-#hud .hint { display: flex; align-items: center; gap:0.5385rem; white-space: nowrap; }
-#hud .ico { width:1.1538rem; height:1.1538rem; color: var(--icon); }
-#hud .sep { width:0.2308rem; height:0.2308rem; border-radius:50%; background: #3a5361; }
 .pointer-coarse { display: none; }
 @media (pointer: coarse) {
   .pointer-fine { display: none; }
@@ -513,7 +492,7 @@ svg.ico, svg.chev { fill: none; stroke: currentColor; stroke-width: 1.6;
 
 /* Hidden interface: everything goes, leaving only the corner peek button so
    pointer- and touch-only users can bring the controls back. */
-.ui-hidden #stats, .ui-hidden #hud, .ui-hidden #title,
+.ui-hidden #stats, .ui-hidden #title,
 .ui-hidden #controls, .ui-hidden #dock, .ui-hidden #keys { display: none; }
 /* The peek button: with the interface hidden this is the only way back for
    anyone without a keyboard, so it survives `ui-hidden` and only `no-chrome`
@@ -698,8 +677,6 @@ svg.ico, svg.chev { fill: none; stroke: currentColor; stroke-width: 1.6;
   body.sheet-open #dock { display: none; }
   #keys { right:1.0769rem; left:1.0769rem; bottom:5.3846rem; }
 
-  /* the hint bar is about a mouse */
-  #hud { display: none; }
   #diag { bottom:calc(62vh + 0.6154rem); font-size:0.6923rem; }
   #peek { bottom:calc(0.9231rem + env(safe-area-inset-bottom, 0px)); right:0.9231rem; }
   #code pre { max-height:30vh; font-size:0.6923rem; }
