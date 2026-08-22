@@ -1259,7 +1259,7 @@ export async function start() {
   let blastPhase = null;   // the phase being held, and what is left of it
   let blastLeft = 0;
   const lastBlast = { pos: new THREE.Vector3(), until: -1 };
-  const flash = { pos: new THREE.Vector3(), t: 0, span: 0.18, peak: 0, r: 0.22 };
+  const flash = { pos: new THREE.Vector3(), t: 0, span: 0.32, peak: 0, r: 0.22 };
   const liveBarrels = [];
   let rippleNext = 0;
   function addRipple(x, z, strength) {
@@ -1344,8 +1344,13 @@ export async function start() {
     );
     flash.pos.copy(q);
     flash.t = flash.span;
-    flash.peak = TUNE.flash * (0.6 + 0.9 * k);
-    flash.r = 0.20 * k;
+    // The 0.3 pays for the radius. Widening the flash from 0.20 to 0.46 grew
+    // the emitting volume by better than a factor of ten, and the knob got
+    // that much stronger with it — at the same setting it went from lifting
+    // the frame 4 levels to lifting it 43. Scaled back here rather than in
+    // the knob, so the number on the slider still means what it did.
+    flash.peak = TUNE.flash * (0.6 + 0.9 * k) * 0.3;
+    flash.r = 0.46 * k;
     // Aliased, not copied, so the bubble sparkle rides up with the cavity.
     lastBlast.pos = q;
     lastBlast.until = t + 1.6;

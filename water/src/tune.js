@@ -66,8 +66,8 @@ export const TUNE = {
   // physics scales BOTH, which is what made them fight: an implosion worth
   // watching forced a rebound that swamped the tank. 1 and 1 is how it behaved
   // before these existed.
-  implosion: 1.0,
-  mainBlast: 1.0,
+  implosion: 2.95,
+  mainBlast: 0.15,
   // Brightness of the shock's own flash. 0 leaves the blast lit only by the
   // sun, which is what it was.
   flash: 2.4,

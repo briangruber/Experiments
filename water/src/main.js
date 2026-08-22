@@ -973,10 +973,13 @@ const phaseHold = (ph) => (ph.hold ?? 0) * (ph.lift === 0 ? TUNE.cavityHold : 1)
 let blastPhase = null;   // the phase being held, and what is left of it
 let blastLeft = 0;
 const lastBlast = { pos: new THREE.Vector3(), until: -1 };
-// The shock's flash: bright, and over almost before it registers. Anything
-// longer than about a fifth of a second stops reading as a detonation and
-// starts reading as a lamp someone left on in the water.
-const flash = { pos: new THREE.Vector3(), t: 0, span: 0.18, peak: 0, r: 0.22 };
+// The shock's flash. It was a fifth of a second at a radius of 0.20, which put
+// it INSIDE the cavity's own pocket — that goes in white and bright on the very
+// same frame, so the flash was lighting the middle of something already lit and
+// then gone before anyone could catch it. Wider than the pocket now, so it
+// haloes the foam rather than hiding in it, and long enough to register without
+// starting to read as a lamp someone left on.
+const flash = { pos: new THREE.Vector3(), t: 0, span: 0.32, peak: 0, r: 0.22 };
 const liveBarrels = [];   // reused array of descriptors for the solver
 
 
@@ -1069,8 +1072,13 @@ function detonate(q, t, k = 1) {
   );
   flash.pos.copy(q);
   flash.t = flash.span;
-  flash.peak = TUNE.flash * (0.6 + 0.9 * k);
-  flash.r = 0.20 * k;
+  // The 0.3 pays for the radius. Widening the flash from 0.20 to 0.46 grew
+  // the emitting volume by better than a factor of ten, and the knob got
+  // that much stronger with it — at the same setting it went from lifting
+  // the frame 4 levels to lifting it 43. Scaled back here rather than in
+  // the knob, so the number on the slider still means what it did.
+  flash.peak = TUNE.flash * (0.6 + 0.9 * k) * 0.3;
+  flash.r = 0.46 * k;
   // Aliased, not copied, so the bubble sparkle rides up with the cavity
   // instead of staying behind at the point of detonation.
   lastBlast.pos = q;
