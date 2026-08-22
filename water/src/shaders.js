@@ -1178,7 +1178,19 @@ void main() {
   gl_Position = projectionMatrix * viewMatrix * wp;
 }`;
 
-export const BARREL_FRAG = /* glsl */ `
+// The solid meshes, lit BY the volume rather than only casting into it.
+//
+// This used to be a flat sun-diffuse, which is why the tank never felt like one
+// scene: the bubble sprites read the light volume, the water reads the light
+// volume, and the barrel sitting between them was lit by a constant. It went
+// through a caustic shaft without brightening and sat in the shadow of the
+// plume above it without darkening.
+//
+// Sampling the same volume everything else reads fixes both directions at once,
+// and the sample has to be taken a step TOWARD the light rather than at the
+// surface — the mesh now puts its own occluder into that volume, so reading it
+// where the mesh is reads the mesh's own shadow and it goes uniformly dark.
+export const BARREL_FRAG = VOL_COMMON + /* glsl */ `
 varying vec3 vN;
 varying vec3 vWp;
 varying vec2 vUv;
@@ -1190,17 +1202,33 @@ uniform sampler2D uMap;
 // should be, and alpha would need it out of the depth buffer entirely.
 uniform float uFade;
 uniform vec3 uFogColor;
+uniform sampler2D uLightTex;
+uniform float uTank;
+uniform float uLightLift;   // how far toward the light to step before sampling
 void main() {
   vec3 n = normalize(vN);
   vec3 v = normalize(cameraPosition - vWp);
   vec3 base = texture2D(uMap, vUv).rgb;
   float fr = pow(1.0 - abs(dot(n, v)), 3.0);
   float diff = max(dot(n, -uSunDir), 0.0);
+  // uSunDir is the direction light TRAVELS, so stepping against it walks back
+  // up the beam, out of this mesh's own shadow and into the water that is
+  // actually lighting it.
+  vec3 sp = (vWp - uSunDir * uLightLift) / uTank;
+  // capped well below what a caustic filament can reach: the direct term is
+  // already multiplied by the base colour and then bloomed, and letting the
+  // full 2.4x of a filament through burns the mesh to flat white
+  float lt = clamp(sampleVol(uLightTex, (sp * 0.5 + 0.5) * uNf).x, 0.0, 1.6);
   // Tinted toward the water so it reads as submerged rather than as a sticker
   // floating in front of the tank — but only lightly: the volume in front of
   // it already does most of the tinting, and a heavy tint here left the model
   // a colourless white blob in the plume.
-  vec3 col = base * (0.22 + 0.85 * diff) * vec3(0.92, 0.94, 1.0)
+  // Direct sun rides the light volume outright, so a caustic filament crossing
+  // the mesh brightens it past 1 and a plume overhead puts it in shadow. The
+  // ambient keeps a floor, the same way the water's does, or anything under
+  // foam would go to pure black.
+  float amb = 0.22 * (0.25 + 0.75 * pow(min(lt, 1.0), 0.6));
+  vec3 col = base * (amb + 0.85 * diff * lt) * vec3(0.92, 0.94, 1.0)
            + fr * vec3(0.14, 0.28, 0.40);
   col = mix(col, uFogColor, clamp(uFade, 0.0, 1.0));
   gl_FragColor = vec4(col, 1.0);

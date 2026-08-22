@@ -246,6 +246,11 @@ export function buildTunePanel(TUNE, hooks = {}) {
     'How far the penumbra spreads, as a multiple of each proxy sphere\'s '
     + 'radius. Low is a hard cut, high is a broad smudge.');
 
+  knob('lightLift', 'mesh light offset', 0.02, 0.6, 0.01,
+    'How far back up the beam a mesh looks when it reads the light. It has to '
+    + 'clear its own shadow — it puts an occluder into that same volume — or it '
+    + 'goes flat dark; too far and it is lit by water well above it.');
+
   head('Framing');
   knob('fitWidth', 'frame width', 0.55, 1.6, 0.01,
     'How much of the tank\'s width the window spans. 1 puts the side walls '

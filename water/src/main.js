@@ -192,6 +192,11 @@ const barrelMat = new THREE.ShaderMaterial({
     uMap: { value: barrelTexture(THREE) },
     uFade: { value: 0 },                       // barrels never dissolve
     uFogColor: { value: new THREE.Vector3() },
+    uLightTex: { value: fluid.lightTexture },
+    uNi: { value: Q.N }, uNf: { value: Q.N },
+    uTi: { value: fluid.T }, uAtlas: { value: new THREE.Vector2(fluid.W, fluid.H) },
+    uTank: { value: tankHalf },
+    uLightLift: { value: 0.16 },
   },
 });
 // A pool that GROWS. It used to hold six and recycle the oldest live barrel
@@ -249,6 +254,11 @@ const diverParts = diverModel(THREE, new THREE.ShaderMaterial({
     uMap: { value: diverTexture(THREE) },
     uFade: { value: 1 },
     uFogColor: { value: new THREE.Vector3() },
+    uLightTex: { value: fluid.lightTexture },
+    uNi: { value: Q.N }, uNf: { value: Q.N },
+    uTi: { value: fluid.T }, uAtlas: { value: new THREE.Vector2(fluid.W, fluid.H) },
+    uTank: { value: tankHalf },
+    uLightLift: { value: 0.16 },
     uBones: { value: null },
   },
 }));
@@ -1136,6 +1146,11 @@ function frame() {
     // a ghost, and no amount of tinting could ever have been right, because
     // this shader has no idea what is behind it.
     diver.material.uniforms.uFade.value = visitor.state.fade;
+    for (const m of [barrelMat, diver.material]) {
+      m.uniforms.uLightTex.value = fluid.lightTexture;
+      m.uniforms.uTank.value = tankHalf;
+      m.uniforms.uLightLift.value = TUNE.lightLift;
+    }
     // Phases are HELD for a duration rather than fired one per frame. An
     // implosion two entries long lasted 33ms at 60fps, so all anyone ever saw
     // was the pop. Each frame takes its dt share of the phase, which keeps the

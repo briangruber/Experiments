@@ -254,6 +254,31 @@ export async function start() {
   paddle.position.set(0.45, -0.25, 0.1);
   opaqueScene.add(paddle);
 
+  // Meshes lit BY the volume, not only casting into it. The bubble sprites and
+  // the water both read this light volume; the solids between them were lit by
+  // a flat constant, so a barrel crossed a caustic shaft without brightening
+  // and sat under a plume without darkening. The sample is taken a step back up
+  // the beam because the mesh puts its own occluder into that volume — read it
+  // where the mesh is and it reads its own shadow.
+  const uMeshTank = uniform(tankHalf);
+  const uLightLift = uniform(0.16);
+  const uSunU = uniform(sunDir);
+  const volLight = (wp) => {
+    const sp = wp.sub(uSunU.mul(uLightLift)).div(uMeshTank);
+    return texture3D(fluid.lightTexture, sp.mul(0.5).add(0.5), float(0))
+      .x.clamp(0, 1.6);
+  };
+  // the shared body of both mesh shaders: base colour, volume-lit
+  const litByVolume = (map, n, wp) => {
+    const v = cameraPosition.sub(wp).normalize();
+    const fr = float(1).sub(n.dot(v).abs()).pow(3);
+    const diff = n.dot(uSunU.negate()).max(0);
+    const lt = volLight(wp);
+    const amb = float(0.22).mul(float(0.25).add(lt.min(1).pow(0.6).mul(0.75)));
+    return map.rgb.mul(amb.add(diff.mul(0.85).mul(lt))).mul(vec3(0.92, 0.94, 1.0))
+      .add(fr.mul(vec3(0.14, 0.28, 0.40)));
+  };
+
   // A small drum. The mesh is the baked model, whose largest half extent is 1,
   // so one scale factor sets its size in tank units. Every barrel draws its own
   // size on the way in, and that size decides how big its explosion is — see
@@ -274,16 +299,8 @@ export async function start() {
   const barrelMat = (() => {
     const m = new THREE.MeshBasicNodeMaterial();
     const map = texture(barrelTexture(THREE), uv());
-    m.colorNode = Fn(() => {
-      const n = normalWorld.normalize();
-      const v = cameraPosition.sub(positionWorld).normalize();
-      const fr = float(1).sub(n.dot(v).abs()).pow(3);
-      const diff = n.dot(uniform(sunDir).negate()).max(0);
-      return vec4(
-        map.rgb.mul(float(0.22).add(diff.mul(0.85))).mul(vec3(0.92, 0.94, 1.0))
-          .add(fr.mul(vec3(0.14, 0.28, 0.40))),
-        1);
-    })();
+    m.colorNode = Fn(() => vec4(
+      litByVolume(map, normalWorld.normalize(), positionWorld), 1))();
     return m;
   })();
   // A pool that GROWS: it used to hold six and recycle the oldest live barrel,
@@ -348,12 +365,7 @@ export async function start() {
     const nWorld = varying(modelWorldMatrix.mul(
       vec4(skin.mul(vec4(normalGeometry, 0)).xyz, 0)).xyz);
     diverMat.colorNode = Fn(() => {
-      const n = nWorld.normalize();
-      const v = cameraPosition.sub(positionWorld).normalize();
-      const fr = float(1).sub(n.dot(v).abs()).pow(3);
-      const diff = n.dot(uniform(sunDir).negate()).max(0);
-      const lit = map.rgb.mul(float(0.22).add(diff.mul(0.85))).mul(vec3(0.92, 0.94, 1.0))
-        .add(fr.mul(vec3(0.14, 0.28, 0.40)));
+      const lit = litByVolume(map, nWorld.normalize(), positionWorld);
       return vec4(lerp(lit, diverFog, diverFade.clamp(0, 1)), 1);
     })();
   })();
@@ -970,6 +982,7 @@ export async function start() {
     fluid.tank = tankHalf;
     fluid.surfaceY = SURFACE_Y;
     uTank.value = tankHalf;
+    uMeshTank.value = tankHalf;
     uSurfaceY.value = SURFACE_Y;
     paddleTarget.clampScalar(-0.66 * tankHalf, 0.66 * tankHalf);
     paddle.position.clampScalar(-0.66 * tankHalf, 0.66 * tankHalf);
@@ -1482,6 +1495,7 @@ export async function start() {
       fluid.occluders = occluders;
       fluid.u.occK.value = TUNE.meshShadow;
       fluid.u.occSoft.value = TUNE.shadowSoft;
+      uLightLift.value = TUNE.lightLift;
       // the water it is dissolving into is the ambient at its own depth
       // Fades to BLACK, which is exact — see the WebGL app. By the time it is
       // fully faded it is behind the back wall with no water between it and

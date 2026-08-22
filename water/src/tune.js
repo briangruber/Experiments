@@ -40,12 +40,17 @@ export const TUNE = {
   // floats while its phases play out. Too low and the late phases fire below
   // their own gas — two explosions. Too high and the site outruns the plume.
   cavityRise: 0.35,
-  // How hard the cavity is pinned while it opens and is crushed, as a multiple
-  // of the buoyant acceleration it would otherwise get. 0 lets the pocket float
-  // off the way any other patch of foam would, which is what made the blast
-  // read as a small explosion rising and then a big one somewhere else. Around
-  // 2 holds it still; too much and it digs downward.
-  cavityAnchor: 2.0,
+  // How hard the cavity is pinned while it opens and is crushed. It is a
+  // multiple of `buoyancy`, and the value that exactly cancels is the LOCAL
+  // FOAM FRACTION, because that is what buoyancy is multiplied by: the foam
+  // feels buoyancy * foam upward, so anchoring at 1 balances a foam of 1.
+  // The first guess of 2 assumed the pocket kept something near its injected
+  // peak of 3.8, but the burst spreads it through a Gaussian immediately and
+  // the crush phases add none, so the number that matters is well under 1 by
+  // the time it counts — and at 2 the anchor beat buoyancy outright and drove
+  // the whole cavity downward. Rising still means raise it, sinking means
+  // lower it, and the value that hangs is the one where they cancel.
+  cavityAnchor: 0.9,
   // Stretches or squeezes the pinned phases together, so how long the cavity
   // sits there before the rebound is one number instead of three.
   cavityHold: 1.0,
@@ -55,6 +60,10 @@ export const TUNE = {
   // the penumbra spreads as a multiple of the proxy radius. 0 strength puts it
   // back to light marching straight through the barrels as if they were water.
   meshShadow: 0.75,
+  // How far a mesh steps back up the beam before reading the light volume. It
+  // has to clear its OWN occluder or it reads its own shadow and goes flat
+  // dark; too far and it is lit by water well above it.
+  lightLift: 0.16,
   shadowSoft: 2.0,
 
   // --- framing -------------------------------------------------------------
