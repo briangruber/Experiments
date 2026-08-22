@@ -74,6 +74,11 @@ export const TUNE = {
   lightLift: 0.16,
   shadowSoft: 2.0,
 
+  // --- the surface, seen from underneath ------------------------------------
+  // How much of the sky comes through Snell's window. 0 is the flat dark room
+  // it used to be, which is what made the surface read as a lid.
+  skyGain: 0.55,
+
   // --- framing -------------------------------------------------------------
   // 1 puts the tank's full width exactly at the frame's edges. Below 1 pushes
   // the side walls out of shot, above 1 pulls them inside it.

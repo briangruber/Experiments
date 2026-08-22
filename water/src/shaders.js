@@ -613,6 +613,12 @@ uniform float uFoamScatter;
 uniform float uFoamAbsorb;
 uniform vec3 uAmbientTop;
 uniform vec3 uAmbientDeep;
+// Snell's window: what the sky looks like through it, and how much of it to
+// let in. uSkyGain 0 puts back the dark room this used to be.
+uniform vec3 uSkyZenith;
+uniform vec3 uSkyHorizon;
+uniform vec3 uSkyDeep;
+uniform float uSkyGain;
 
 vec2 boxT(vec3 ro, vec3 rd) {
   vec3 inv = 1.0 / rd;
@@ -834,14 +840,36 @@ void main() {
       float sinT2 = 1.333 * 1.333 * (1.0 - cosI * cosI);
       float raft = smoothstep(0.10, 1.0, sampleVol(uFoamTex,
         (vec3(ps.x, uSurfaceY - 0.04, ps.z) * 0.5 + 0.5) * uNf).x);
-      float mirror = smoothstep(0.80, 1.02, sinT2);
-      // through the window: a dark room, plus the sun's disc wobbling with the
-      // chop — the thing the eye actually reads the surface by from underneath
-      vec3 through = vec3(0.014, 0.038, 0.058);
+      // Fresnel on top of the hard critical-angle cutoff. Reflectance for
+      // water looking out into air climbs smoothly all the way to 1 as the
+      // angle opens, so the window gets a soft bright rim instead of an edge
+      // that switches on — which is most of why this read as a lid.
+      float fres = 0.02 + 0.98 * pow(1.0 - cosI, 5.0);
+      float mirror = clamp(max(smoothstep(0.80, 1.02, sinT2), fres), 0.0, 1.0);
+      // Through the window: the SKY.
+      //
+      // This was a flat dark room, and that single value is why the surface
+      // read as a ceiling rather than as water. From underneath, EVERYTHING
+      // above the waterline is squeezed into Snell's window — a cone about 97
+      // degrees wide straight overhead — and inside that cone you are looking
+      // at open sky. Dark inside the window and a mirror of dark water outside
+      // it leaves nothing bright anywhere for the eye to read the surface by.
+      //
+      // The compression is the good part and it comes out for free: as the
+      // refracted ray swings toward the rim it flattens toward the horizon, so
+      // the whole 90 degrees from zenith to horizon lands in the last few
+      // degrees of the window and the horizon arrives as a bright RING rather
+      // than a line.
+      vec3 through = uSkyDeep;
       vec3 rt = refract(rd, -nrm, 1.333);
       if (dot(rt, rt) > 0.0) {
-        through += uSunColor
-                 * pow(max(dot(normalize(rt), -uSunDir), 0.0), 600.0) * 2.2;
+        vec3 sdir = normalize(rt);
+        float up = clamp(sdir.y, 0.0, 1.0);
+        vec3 sky = mix(uSkyHorizon, uSkyZenith, pow(up, 0.55));
+        float sd = max(dot(sdir, -uSunDir), 0.0);
+        // the disc, and the glare around it that the chop smears into a sheet
+        sky += uSunColor * (pow(sd, 600.0) * 2.2 + pow(sd, 26.0) * 0.18);
+        through = mix(uSkyDeep, sky, uSkyGain);
       }
       surfaceL = through * (1.0 - mirror)
                + max(raft, cap * 0.8)

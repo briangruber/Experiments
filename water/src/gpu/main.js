@@ -1167,6 +1167,7 @@ export async function start() {
   // Sphere proxies for the solid meshes, rebuilt each frame and handed to the
   // light pass — see the WebGL app for why spheres are enough.
   const OCC_MAX = 12;
+  const FISH_PROXY = [[0.62, 0.34], [0.18, 0.52], [-0.28, 0.38], [-0.72, 0.20]];
   const occluders = Array.from({ length: OCC_MAX }, () => ({ x: 0, y: 0, z: 0, r: 0 }));
   const occLocal = new THREE.Vector3();
   function buildOccluders() {
@@ -1181,16 +1182,20 @@ export async function start() {
       const long = h.x > h.y && h.x > h.z ? 0 : (h.y > h.z ? 1 : 2);
       const half = long === 0 ? h.x : long === 1 ? h.y : h.z;
       const rad = 0.85 * Math.max(long === 0 ? h.y : h.x, long === 2 ? h.y : h.z);
-      for (let k = -1; k <= 1; k++) {
+      for (let k = -1; k <= 1; k += 2) {
         occLocal.set(0, 0, 0);
-        occLocal.setComponent(long, k * half * 0.62);
+        occLocal.setComponent(long, k * half * 0.5);
         occLocal.applyMatrix4(paddle.matrixWorld);
         put(occLocal.x, occLocal.y, occLocal.z, rad);
       }
     }
+    // a chain down the body, not one ball — see the WebGL app
     if (diver.visible && visitor.state.fade < 0.85) {
-      const p = diver.position;
-      put(p.x, p.y, p.z, 0.62 * diverScale * (1 - visitor.state.fade));
+      const solid = 1 - visitor.state.fade;
+      for (const [z, r] of FISH_PROXY) {
+        occLocal.set(0, 0, z).applyMatrix4(diver.matrixWorld);
+        put(occLocal.x, occLocal.y, occLocal.z, r * diverScale * solid);
+      }
     }
     for (const b of barrels) {
       if (!b.active || b.mesh.position.y > SURFACE_Y) continue;

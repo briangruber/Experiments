@@ -256,6 +256,14 @@ export function buildTunePanel(TUNE, hooks = {}) {
     + 'clear its own shadow — it puts an occluder into that same volume — or it '
     + 'goes flat dark; too far and it is lit by water well above it.');
 
+  head('The Surface');
+  knob('skyGain', 'sky through window', 0, 1.6, 0.02,
+    'How much sky comes through Snell\'s window — the cone about 97 degrees '
+    + 'wide straight overhead that everything above the waterline is squeezed '
+    + 'into. 0 is the flat dark room this used to be, which is why the surface '
+    + 'read as a lid: nothing was bright anywhere, so there was no contrast to '
+    + 'read the water by.');
+
   head('Framing');
   knob('fitWidth', 'frame width', 0.55, 1.6, 0.01,
     'How much of the tank\'s width the window spans. 1 puts the side walls '

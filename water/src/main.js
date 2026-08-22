@@ -379,6 +379,13 @@ const mRaymarch = new THREE.ShaderMaterial({
     uFoamAbsorb: { value: 0.35 },
     uAmbientTop: { value: new THREE.Vector3(0.11, 0.16, 0.20) },
     uAmbientDeep: { value: new THREE.Vector3(0.008, 0.03, 0.055) },
+    // Snell's window. Kept dim and cool rather than a holiday sky — this is a
+    // tank in a dark room, and the window only has to be the brightest thing in
+    // frame, not a bright thing in absolute terms.
+    uSkyZenith: { value: new THREE.Vector3(0.10, 0.26, 0.46) },
+    uSkyHorizon: { value: new THREE.Vector3(0.52, 0.66, 0.78) },
+    uSkyDeep: { value: new THREE.Vector3(0.014, 0.038, 0.058) },
+    uSkyGain: { value: 0.55 },
   },
 });
 const mComposite = new THREE.ShaderMaterial({
@@ -923,6 +930,8 @@ const liveBarrels = [];   // reused array of descriptors for the solver
 // laying two or three of them along its longest axis, which at this softness
 // is indistinguishable from the real silhouette.
 const OCC_MAX = 12;
+// [local z along the body, radius] in baked units — head to tail
+const FISH_PROXY = [[0.62, 0.34], [0.18, 0.52], [-0.28, 0.38], [-0.72, 0.20]];
 const occluders = Array.from({ length: OCC_MAX }, () => ({ x: 0, y: 0, z: 0, r: 0 }));
 const occLocal = new THREE.Vector3();
 function addOcc(n, x, y, z, r) {
@@ -949,10 +958,17 @@ function buildOccluders() {
       n = addOcc(n, occLocal.x, occLocal.y, occLocal.z, rad);
     }
   }
-  // The fish, while it is solid enough to block anything
+// The fish, as a short chain down its body rather than one ball. It is
+  // long and thin and it yaws as it swims, so a single sphere big enough to
+  // cover it casts a shadow nothing like its silhouette — which is most of
+  // why its shadow did not read as a fish. Local +Z is the body axis; the
+  // mesh transform carries the yaw and roll, so the chain leans with it.
   if (diver.visible && visitor.state.fade < 0.85) {
-    const p = diver.position;
-    n = addOcc(n, p.x, p.y, p.z, 0.62 * diverScale * (1 - visitor.state.fade));
+    const solid = 1 - visitor.state.fade;
+    for (const [z, r] of FISH_PROXY) {
+      occLocal.set(0, 0, z).applyMatrix4(diver.matrixWorld);
+      n = addOcc(n, occLocal.x, occLocal.y, occLocal.z, r * diverScale * solid);
+    }
   }
   // and every barrel still in the water
   for (const b of barrels) {
@@ -1146,6 +1162,7 @@ function frame() {
     // a ghost, and no amount of tinting could ever have been right, because
     // this shader has no idea what is behind it.
     diver.material.uniforms.uFade.value = visitor.state.fade;
+    mRaymarch.uniforms.uSkyGain.value = TUNE.skyGain;
     for (const m of [barrelMat, diver.material]) {
       m.uniforms.uLightTex.value = fluid.lightTexture;
       m.uniforms.uTank.value = tankHalf;
