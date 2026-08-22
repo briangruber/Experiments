@@ -714,7 +714,18 @@ export async function start() {
         If(uOccK.greaterThan(0), () => {
           const lp = uSunVP.mul(vec4(p.mul(uTank), 1));
           const nd = lp.xyz.div(lp.w.max(1e-6));
-          const ssuv = nd.xy.mul(0.5).add(0.5);
+          // The UV is FLIPPED IN Y against the WebGL version, and that one
+          // character is the whole difference between the two backends. A
+          // render target sampled through a hand-built projection addresses the
+          // opposite way up here, so without it the sun's depth map is read
+          // upside down: the shadow still lands somewhere and still darkens
+          // pixels, which is why it looked like a weak shadow rather than a
+          // broken one — but it lands on the WRONG SIDE of the fish. The sun
+          // travels +x, so the shadow belongs to the right; unflipped it fell
+          // to the left. The z remap stays: this camera's projection is built
+          // before the renderer claims it, so its clip z is still [-1,1].
+          const uv0 = nd.xy.mul(0.5).add(0.5);
+          const ssuv = vec2(uv0.x, float(1).sub(uv0.y));
           const sdp = nd.z.mul(0.5).add(0.5).sub(0.0028);
           const ok = sdp.greaterThan(0).and(sdp.lessThan(1))
             .and(ssuv.x.greaterThan(0)).and(ssuv.x.lessThan(1))

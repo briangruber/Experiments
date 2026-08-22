@@ -120,6 +120,13 @@ export class Fluid3D {
       magFilter: THREE.NearestFilter,
       depthTexture: new THREE.DepthTexture(SHADOW_N, SHADOW_N),
     });
+    // Nearest on the DEPTH texture specifically. The filters above apply to
+    // the colour attachment, which nothing reads; left to interpolate, a depth
+    // comparison blends across the silhouette's edge and the core of the
+    // shadow comes out shallow — the same shadow in the same place, but
+    // without the depth that makes it read.
+    this.sunRT.depthTexture.minFilter = THREE.NearestFilter;
+    this.sunRT.depthTexture.magFilter = THREE.NearestFilter;
     this.shadowSize = SHADOW_N;
     this.barrels = [];
 
