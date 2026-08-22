@@ -40,6 +40,15 @@ export const TUNE = {
   // floats while its phases play out. Too low and the late phases fire below
   // their own gas — two explosions. Too high and the site outruns the plume.
   cavityRise: 0.35,
+  // How hard the cavity is pinned while it opens and is crushed, as a multiple
+  // of the buoyant acceleration it would otherwise get. 0 lets the pocket float
+  // off the way any other patch of foam would, which is what made the blast
+  // read as a small explosion rising and then a big one somewhere else. Around
+  // 2 holds it still; too much and it digs downward.
+  cavityAnchor: 2.0,
+  // Stretches or squeezes the pinned phases together, so how long the cavity
+  // sits there before the rebound is one number instead of three.
+  cavityHold: 1.0,
 
   // --- meshes in the light ------------------------------------------------
   // How dark a solid mesh's shadow goes in the volumetric light, and how far
@@ -61,8 +70,4 @@ export const TUNE = {
   reach: 1.5,           // how far behind the tank it starts, in tank halves
   fadeStart: 0.55,      // depth where it begins to dissolve, in tank halves
   fadeSpan: 0.55,       // and how much further until it is gone
-  // Fade at which the fish starts being eaten away by the dither rather than
-  // just tinted. Tinting alone cannot hide it — see FISH_FRAG — so this is
-  // what actually makes it disappear. 1 switches the dissolve off entirely.
-  dissolveAt: 0.25,
 };

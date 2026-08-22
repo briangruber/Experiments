@@ -17,7 +17,7 @@ import {
 import {
   FS_TRI_VERT, RAYMARCH_VERT, RAYMARCH_FRAG, COMPOSITE_FRAG,
   BRIGHT_FRAG, BLUR_FRAG, POST_FRAG, PADDLE_VERT, PADDLE_FRAG, PROBE_FRAG,
-  BARREL_VERT, BARREL_FRAG, FISH_VERT, FISH_FRAG,
+  BARREL_VERT, BARREL_FRAG, FISH_VERT,
 } from './shaders.js';
 import {
   barrelGeometry, barrelTexture, BARREL_HALF,
@@ -243,13 +243,12 @@ function sizeBarrel(b, sc) {
 const diverScale = 0.30;
 const diverParts = diverModel(THREE, new THREE.ShaderMaterial({
   vertexShader: FISH_VERT,
-  fragmentShader: FISH_FRAG,
+  fragmentShader: BARREL_FRAG,
   uniforms: {
     uSunDir: { value: sunDir },
     uMap: { value: diverTexture(THREE) },
     uFade: { value: 1 },
     uFogColor: { value: new THREE.Vector3() },
-    uDissolve: { value: 0.25 },
     uBones: { value: null },
   },
 }));
@@ -898,6 +897,10 @@ function addRipple(x, z, strength) {
 }
 
 const explosionQueue = [];
+// How long a phase is held. The cavity's own phases stretch and squeeze
+// together under `cavity hold`, so how long it sits there before the rebound
+// is one number rather than three.
+const phaseHold = (ph) => (ph.hold ?? 0) * (ph.lift === 0 ? TUNE.cavityHold : 1);
 let blastPhase = null;   // the phase being held, and what is left of it
 let blastLeft = 0;
 const lastBlast = { pos: new THREE.Vector3(), until: -1 };
@@ -1122,18 +1125,17 @@ function frame() {
     updatePaddle(dt, t);
     updateBarrels(dt, t);
     visitor.update(dt, tankHalf);
-    // The water it dissolves into is the ambient at its own depth — and only
-    // that. This used to lerp half way to the surface ambient and then
-    // multiply by 2.2, which is a pale blue far brighter than anything behind
-    // the fish: instead of sinking into the murk it turned into a bright blob
-    // and switched off. Where it fades out, at the very back of the tank, the
-    // water is nearly black, so that is what it has to become.
+    // It fades to BLACK, and that is exact rather than approximate.
+    //
+    // The composite is `scene * transmittance + inscatter`, and the scene is
+    // cleared to black. By the time the fish is fully faded it is behind the
+    // back wall, so there is no water between it and that black — which means
+    // the pixel the fish leaves and the pixel it never occupied differ only by
+    // the fish's own colour. Take that to zero and the two are identical.
+    // Every other target is a guess: the ambient was too bright and it read as
+    // a ghost, and no amount of tinting could ever have been right, because
+    // this shader has no idea what is behind it.
     diver.material.uniforms.uFade.value = visitor.state.fade;
-    const lift = Math.min(1, Math.max(0,
-      (diver.position.y + tankHalf) / (SURFACE_Y + tankHalf)));
-    diver.material.uniforms.uFogColor.value.copy(mRaymarch.uniforms.uAmbientDeep.value)
-      .lerp(mRaymarch.uniforms.uAmbientTop.value, lift * 0.35);
-    diver.material.uniforms.uDissolve.value = TUNE.dissolveAt;
     // Phases are HELD for a duration rather than fired one per frame. An
     // implosion two entries long lasted 33ms at 60fps, so all anyone ever saw
     // was the pop. Each frame takes its dt share of the phase, which keeps the
@@ -1143,7 +1145,7 @@ function frame() {
     if (!fluid.burst) {
       if (blastLeft <= 0 && explosionQueue.length) {
         blastPhase = explosionQueue.shift();
-        blastLeft = blastPhase.hold ?? 0;
+        blastLeft = phaseHold(blastPhase);
       }
       if (blastPhase) {
         // The cavity RISES while its own sequence plays out. The six phases
@@ -1163,9 +1165,23 @@ function frame() {
           blastPhase.pos.y = Math.min(SURFACE_Y - 0.03,
             blastPhase.pos.y + r.vy * dt);
         }
-        const hold = blastPhase.hold ?? 0;
+        const hold = phaseHold(blastPhase);
         fluid.burst = armBurst(blastPhase, fluid.physics,
           hold > 0 ? Math.min(dt / hold, 1) : 1);
+        // Hold the cavity DOWN while it is opening and being crushed.
+        // `cavity rise` only ever moved the injection SITE; what the eye
+        // follows is the foam, and the solver does not know that pocket is one
+        // coherent bubble — to it the gas is buoyant scalar like any other, and
+        // at foam 3.8 against buoyancy 12.2 it accelerates upward at something
+        // like 46 units a second squared. Over the 0.4s before the rebound
+        // arrives it has long since left its own hole, which is exactly the
+        // small explosion that rises followed by a big one somewhere else.
+        // A gas cavity at full size displaces far too much water to migrate
+        // like that, so cancel the buoyancy it should not have. Pinned phases
+        // only: once the rebound fires, the plume is supposed to rise.
+        if (blastPhase.lift === 0) {
+          fluid.burst.up -= TUNE.cavityAnchor * fluid.physics.buoyancy * dt;
+        }
         blastLeft -= dt;
         if (blastLeft <= 0) blastPhase = null;
       }

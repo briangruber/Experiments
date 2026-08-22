@@ -16,6 +16,7 @@ const {
 } = THREE.TSL;
 
 const MAX_BARRELS = 6;
+const OCC_MAX = 12;   // sphere proxies for the solid meshes
 
 export class Fluid3D {
   constructor(renderer, { N = 128, jacobi = 26, lightDir, surfaceY = 0.72, tank = 1 }) {
@@ -102,12 +103,20 @@ export class Fluid3D {
       sigmaWater: uniform(0.9 / N),
       lightStep: uniform(N / 22),
       caustics: uniform(1),
+      // Solid meshes as sphere proxies, so the volumetric light has something
+      // to break on. See the WebGL LIGHT_FRAG for why this belongs in the light
+      // pass rather than in the raymarch.
+      occN: uniform(0),
+      occK: uniform(0.75),
+      occSoft: uniform(2.0),
     };
     // barrels as spheres: xyz = world position, w = radius / world velocity
     this.barrelPosArr = Array.from({ length: MAX_BARRELS }, () => new THREE.Vector4());
     this.barrelVelArr = Array.from({ length: MAX_BARRELS }, () => new THREE.Vector4());
     const uBarrels = uniformArray(this.barrelPosArr);
     const uBarrelVels = uniformArray(this.barrelVelArr);
+    this.occArr = Array.from({ length: OCC_MAX }, () => new THREE.Vector4());
+    const uOcc = uniformArray(this.occArr);
     this.barrels = [];
 
     // ---- helpers -----------------------------------------------------------
@@ -483,6 +492,25 @@ export class Fluid3D {
       // ~10% bright filaments, so the knob redistributes rather than exposes
       const cv = cc.div(77).pow(1.15).clamp(0, 3).div(1.25);
       tr.mulAssign(lerp(float(1), cv, u.caustics.mul(below.mul(0.9).negate().exp())));
+
+      // Anything solid between this voxel and the light. Perpendicular distance
+      // from each sphere's centre to the light ray: fully blocked inside the
+      // radius, feathering out to occSoft times it. Occluders behind the voxel
+      // are skipped on the sign of the projection, or a barrel would shadow the
+      // water above it as well as below.
+      const ld = u.lightDir.negate();
+      Loop({ start: int(0), end: int(OCC_MAX) }, ({ i }) => {
+        If(int(i).greaterThanEqual(u.occN), () => { Break(); });
+        const o = uOcc.element(i);
+        const rel = o.xyz.sub(wp);
+        const ct2 = rel.dot(ld);
+        If(ct2.greaterThan(0), () => {
+          const d2 = rel.dot(rel).sub(ct2.mul(ct2));
+          const r = o.w;
+          const ro = r.mul(u.occSoft);
+          tr.mulAssign(lerp(float(1), smoothstep(r.mul(r), ro.mul(ro), d2), u.occK));
+        });
+      });
       textureStore(light, v, vec4(tr.max(0).min(8), 0, 0, 0));
     }));
 
@@ -499,6 +527,9 @@ export class Fluid3D {
     this.burst = null;
     this.paddle = null;
     // this.barrels: [{ pos, vel (world/s), radius }] — as many as are in flight
+    // this.occluders: [{ x, y, z, r }] in WORLD units — sphere proxies for the
+    // solid meshes, which the solver otherwise knows nothing about
+    this.occluders = null;
   }
 
   step(dt, time) {
@@ -538,6 +569,18 @@ export class Fluid3D {
       this.barrelPosArr[i].set(bs[i].pos.x, bs[i].pos.y, bs[i].pos.z, bs[i].radius);
       this.barrelVelArr[i].set(bs[i].vel.x, bs[i].vel.y, bs[i].vel.z, 0);
     }
+    // Mesh proxies, world units into the [-1,1] space the light kernel works in
+    const occ = this.occluders;
+    let no = 0;
+    if (occ) {
+      const inv = 1 / this.tank;
+      for (let i = 0; i < occ.length && no < OCC_MAX; i++) {
+        const o = occ[i];
+        if (!(o.r > 0)) continue;
+        this.occArr[no++].set(o.x * inv, o.y * inv, o.z * inv, o.r * inv);
+      }
+    }
+    u.occN.value = no;
     const em = this.emitter;
     if (em && em.on) {
       u.emitPos.value.set(em.fx * this.tank, -this.tank + 0.06, em.fz * this.tank);

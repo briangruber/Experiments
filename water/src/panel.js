@@ -224,6 +224,16 @@ export function buildTunePanel(TUNE, hooks = {}) {
     'How fast the blast site floats while its phases play out. Too low and the '
     + 'late phases fire below their own gas, which looks like two explosions in '
     + 'two places. Too high and the site outruns the plume it is feeding.');
+  knob('cavityAnchor', 'cavity anchor', 0, 6, 0.05,
+    'How hard the cavity is pinned while it opens and is crushed, as a '
+    + 'multiple of the buoyancy it would otherwise feel. The solver has no idea '
+    + 'the pocket is one bubble — it is just buoyant foam to it — so at 0 the '
+    + 'cavity floats off before the rebound arrives and you get a small '
+    + 'explosion rising followed by a big one somewhere else. Too high and it '
+    + 'digs downward instead.');
+  knob('cavityHold', 'cavity hold', 0.2, 4, 0.05,
+    'How long the cavity sits there before the rebound throws the plume. '
+    + 'Stretches the pocket and both crush phases together.');
   action('Detonate at mid depth', () => hooks.blast?.(),
     'Set one off immediately, without waiting for a barrel to sink to its mark.');
 
@@ -265,11 +275,6 @@ export function buildTunePanel(TUNE, hooks = {}) {
     + 'starts fading closer to the camera.');
   knob('fadeSpan', 'fade over', 0.1, 1.5, 0.02,
     'How much further, in tank halves, until it is completely gone.');
-  knob('dissolveAt', 'dissolve from', 0, 1, 0.02,
-    'Fade at which the fish stops being merely tinted and starts being eaten '
-    + 'away pixel by pixel. Tinting alone can never hide it, because it is '
-    + 'drawn before the water in front of it — so this is the control that '
-    + 'actually makes it disappear. 1 switches the dissolve off.');
   const scrub = slider(panel, {
     label: 'scrub', min: 0, max: 1, step: 0.005, value: 0,
     desc: 'Drag the fish through its whole crossing by hand. This is the fast '

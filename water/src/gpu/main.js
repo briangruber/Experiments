@@ -14,7 +14,6 @@ import * as THREE from '../../vendor/three.webgpu.min.js';
 const {
   Fn, If, Loop, Break, uniform, texture, texture3D, uv,
   float, int, vec2, vec3, vec4, mat4, smoothstep, storage, instanceIndex, varying,
-  Discard, screenCoordinate, fract, sin,
   normalWorld, positionWorld, cameraPosition,
   attribute, uniformArray, positionGeometry, normalGeometry, modelWorldMatrix,
 } = THREE.TSL;
@@ -318,7 +317,6 @@ export async function start() {
   // see the WebGL shader.
   const diverFade = uniform(1);
   const diverFog = uniform(new THREE.Vector3());
-  const diverDissolve = uniform(0.25);
   const diverMat = new THREE.MeshBasicNodeMaterial();
   const diverParts = diverModel(THREE, diverMat);
   (() => {
@@ -350,16 +348,6 @@ export async function start() {
     const nWorld = varying(modelWorldMatrix.mul(
       vec4(skin.mul(vec4(normalGeometry, 0)).xyz, 0)).xyz);
     diverMat.colorNode = Fn(() => {
-      // The same dissolve the WebGL fish uses, and for the same reason: this is
-      // drawn before the volume is composited in front of it, so no colour it
-      // can output matches the water column it is standing in the way of.
-      // Past `diverDissolve` it stops writing pixels instead and lets the
-      // raymarch fill in the real thing — exact, by construction.
-      const f = diverFade.clamp(0, 1);
-      const sc = screenCoordinate;
-      const th = fract(sin(sc.x.mul(12.9898).add(sc.y.mul(78.233))).mul(43758.5453));
-      const amt = f.sub(diverDissolve).div(float(1).sub(diverDissolve).max(1e-3));
-      Discard(th.lessThan(amt));
       const n = nWorld.normalize();
       const v = cameraPosition.sub(positionWorld).normalize();
       const fr = float(1).sub(n.dot(v).abs()).pow(3);
@@ -1157,10 +1145,48 @@ export async function start() {
   }
 
   const explosionQueue = [];
+  const phaseHold = (ph) => (ph.hold ?? 0) * (ph.lift === 0 ? TUNE.cavityHold : 1);
   let blastPhase = null;   // the phase being held, and what is left of it
   let blastLeft = 0;
   const lastBlast = { pos: new THREE.Vector3(), until: -1 };
   const liveBarrels = [];
+
+  // Sphere proxies for the solid meshes, rebuilt each frame and handed to the
+  // light pass — see the WebGL app for why spheres are enough.
+  const OCC_MAX = 12;
+  const occluders = Array.from({ length: OCC_MAX }, () => ({ x: 0, y: 0, z: 0, r: 0 }));
+  const occLocal = new THREE.Vector3();
+  function buildOccluders() {
+    let n = 0;
+    const put = (x, y, z, r) => {
+      if (n >= OCC_MAX) return;
+      const o = occluders[n++];
+      o.x = x; o.y = y; o.z = z; o.r = r;
+    };
+    if (!paddleHidden) {
+      const h = paddleHalf;
+      const long = h.x > h.y && h.x > h.z ? 0 : (h.y > h.z ? 1 : 2);
+      const half = long === 0 ? h.x : long === 1 ? h.y : h.z;
+      const rad = 0.85 * Math.max(long === 0 ? h.y : h.x, long === 2 ? h.y : h.z);
+      for (let k = -1; k <= 1; k++) {
+        occLocal.set(0, 0, 0);
+        occLocal.setComponent(long, k * half * 0.62);
+        occLocal.applyMatrix4(paddle.matrixWorld);
+        put(occLocal.x, occLocal.y, occLocal.z, rad);
+      }
+    }
+    if (diver.visible && visitor.state.fade < 0.85) {
+      const p = diver.position;
+      put(p.x, p.y, p.z, 0.62 * diverScale * (1 - visitor.state.fade));
+    }
+    for (const b of barrels) {
+      if (!b.active || b.mesh.position.y > SURFACE_Y) continue;
+      const p = b.mesh.position;
+      put(p.x, p.y, p.z, b.scale * BARREL_R * 1.15);
+      if (n >= OCC_MAX) break;
+    }
+    for (let i = n; i < OCC_MAX; i++) occluders[i].r = 0;
+  }
   let rippleNext = 0;
   function addRipple(x, z, strength) {
     rippleArr[rippleNext % 4].set(x, z, clock.elapsedTime % 512, strength);
@@ -1452,16 +1478,16 @@ export async function start() {
       updatePaddle(dt, t);
       updateBarrels(dt, t);
       visitor.update(dt, tankHalf);
+      buildOccluders();
+      fluid.occluders = occluders;
+      fluid.u.occK.value = TUNE.meshShadow;
+      fluid.u.occSoft.value = TUNE.shadowSoft;
       // the water it is dissolving into is the ambient at its own depth
-      // Only the ambient at its own depth — see the WebGL app: half way to the
-      // surface ambient and then x2.2 is a pale blue brighter than anything
-      // behind the fish, so it turned into a bright blob instead of sinking
-      // into the murk.
+      // Fades to BLACK, which is exact — see the WebGL app. By the time it is
+      // fully faded it is behind the back wall with no water between it and
+      // the black the scene is cleared to, so taking its own colour to zero
+      // makes the pixel identical to one it never occupied.
       diverFade.value = visitor.state.fade;
-      const lift = Math.min(1, Math.max(0,
-        (diver.position.y + tankHalf) / (SURFACE_Y + tankHalf)));
-      diverFog.value.copy(uAmbientDeep.value).lerp(uAmbientTop.value, lift * 0.35);
-      diverDissolve.value = TUNE.dissolveAt;
       // Phases are HELD for a duration rather than fired one per frame. An
       // implosion two entries long lasted 33ms at 60fps, so all anyone ever saw
       // was the pop. Each frame takes its dt share of the phase, which keeps
@@ -1471,7 +1497,7 @@ export async function start() {
       if (!fluid.burst) {
         if (blastLeft <= 0 && explosionQueue.length) {
           blastPhase = explosionQueue.shift();
-          blastLeft = blastPhase.hold ?? 0;
+          blastLeft = phaseHold(blastPhase);
         }
         if (blastPhase) {
           // The cavity rises while its own sequence plays out — holding the
@@ -1487,9 +1513,15 @@ export async function start() {
             blastPhase.pos.y = Math.min(SURFACE_Y - 0.03,
               blastPhase.pos.y + r.vy * dt);
           }
-          const hold = blastPhase.hold ?? 0;
+          const hold = phaseHold(blastPhase);
           fluid.burst = armBurst(blastPhase, fluid.physics,
             hold > 0 ? Math.min(dt / hold, 1) : 1);
+          // Hold the cavity down while it opens and is crushed — see the WebGL
+          // app: the solver treats the pocket as ordinary buoyant foam, so it
+          // leaves its own hole well before the rebound arrives.
+          if (blastPhase.lift === 0) {
+            fluid.burst.up -= TUNE.cavityAnchor * fluid.physics.buoyancy * dt;
+          }
           blastLeft -= dt;
           if (blastLeft <= 0) blastPhase = null;
         }
