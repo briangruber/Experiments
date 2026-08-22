@@ -1336,7 +1336,9 @@ export async function start() {
       );
     }
     explosionQueue.push(
-      { pos: q, rise, lift: 1, vent: TUNE.cavityOn ? 3.8 : 0, vel: 3.2 * k, up: 1.2 * k, foam: 0.42, radius: 0.36 * k, ring: 2.6 * k, ringR: 0.28 * k, hold: 0.05 },
+      { pos: q, rise, lift: 1, vent: TUNE.cavityOn ? 3.8 : 0, vel: 0, up: 0, foam: 0,
+        radius: 0.35 * k * TUNE.cavitySize, hold: 0.02 },
+      { pos: q, rise, lift: 1, vel: 3.2 * k, up: 1.2 * k, foam: 0.42, radius: 0.36 * k, ring: 2.6 * k, ringR: 0.28 * k, hold: 0.05 },
       { pos: q, rise, lift: 1, vel: 1.8 * k, up: 0.9 * k, foam: 0.24, radius: 0.44 * k, ring: 2.0 * k, ringR: 0.36 * k, hold: 0.05 },
       { pos: q, rise, lift: 1, vel: 0.9 * k, up: 0.6 * k, foam: 0.14, radius: 0.52 * k, ring: 1.4 * k, ringR: 0.44 * k, hold: 0.05 },
     );
@@ -1661,7 +1663,7 @@ export async function start() {
             // take out eight times too much.
             if (blastPhase.vent) {
             const keep = Math.min(Math.max(TUNE.mainBlast, 0), 1);
-            fluid.burst.foam -= blastPhase.vent * TUNE.implosion * (1 - keep);
+            fluid.burst.foam = -blastPhase.vent * TUNE.implosion * (1 - keep);
             blastPhase.vent = 0;
           }
           // Buoyancy is switched OFF inside the cavity while it opens and is
