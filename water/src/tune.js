@@ -59,6 +59,9 @@ export const TUNE = {
   // an engulfing bubble is what made the whole thing feel slow — opening it at
   // size instead costs nothing and lets the hold come back down.
   cavitySize: 1.9,
+  // 0 drops the cavity entirely and leaves the bare rebound blast — the whole
+  // implosion-then-boom sequence is the three pinned phases.
+  cavityOn: 1,
   // Stretches or squeezes the pinned phases together, so how long the cavity
   // sits there before the rebound is one number instead of three.
   cavityHold: 1.35,

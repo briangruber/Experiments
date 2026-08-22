@@ -425,6 +425,11 @@ export async function start() {
   const uExposure = uniform(params.exposure);
   const uSurfaceY = uniform(SURFACE_Y);
   const uTank = uniform(tankHalf);
+  // Snell's window: what the sky looks like through it, and how much gets in.
+  const uSkyZenith = uniform(new THREE.Vector3(0.10, 0.26, 0.46));
+  const uSkyHorizon = uniform(new THREE.Vector3(0.52, 0.66, 0.78));
+  const uSkyDeep = uniform(new THREE.Vector3(0.014, 0.038, 0.058));
+  const uSkyGain = uniform(0.55);
   const uChop = uniform(1);
   const debugFoam = query.get('view') === 'foam';
   const uDebugFoam = uniform(debugFoam ? 1 : 0);
@@ -633,14 +638,23 @@ export async function start() {
         const cosI = rd.dot(nrm).max(0);
         const sinT2 = float(1.333 * 1.333).mul(float(1).sub(cosI.mul(cosI)));
         const raft = smoothstep(0.10, 1.0, foamAt(vec3(ps.x, uSurfaceY.sub(0.04), ps.z)));
-        const mirror = smoothstep(0.80, 1.02, sinT2);
-        // through the window: a dark room, plus the sun's disc wobbling with
-        // the chop — what the eye actually reads the surface by from below
-        const through = vec3(0.014, 0.038, 0.058).toVar();
+        // Fresnel on top of the hard critical-angle cutoff, so the rim of the
+        // window brightens smoothly instead of switching on.
+        const fres = float(0.02).add(float(0.98).mul(float(1).sub(cosI).pow(5)));
+        const mirror = smoothstep(0.80, 1.02, sinT2).max(fres).clamp(0, 1);
+        // Through the window: the SKY. See the WebGL shader — a flat dark room
+        // in here is the single reason the surface read as a lid, since dark
+        // inside the window and a mirror of dark water outside leaves nothing
+        // bright anywhere to read the water by.
+        const through = uSkyDeep.toVar();
         const rt = THREE.TSL.refract(rd, nrm.negate(), float(1.333));
         If(rt.dot(rt).greaterThan(0), () => {
-          through.addAssign(uSunColor
-            .mul(rt.normalize().dot(uSun.negate()).max(0).pow(600)).mul(2.2));
+          const sdir = rt.normalize();
+          const upness = sdir.y.clamp(0, 1);
+          const sky = lerp(uSkyHorizon, uSkyZenith, upness.pow(0.55)).toVar();
+          const sd = sdir.dot(uSun.negate()).max(0);
+          sky.addAssign(uSunColor.mul(sd.pow(600).mul(2.2).add(sd.pow(26).mul(0.18))));
+          through.assign(lerp(uSkyDeep, sky, uSkyGain));
         });
         surfaceL.assign(through.mul(float(1).sub(mirror))
           .add(lerp(vec3(0.30, 0.40, 0.48), vec3(0.45, 0.56, 0.64), mirror)
@@ -976,6 +990,24 @@ export async function start() {
     }
   }
   hidePaddleBtn.addEventListener('click', () => setPaddleHidden(!paddleHidden));
+  // The sun's view of the solids. Rendered before the light pass reads it, with
+  // the meshes keeping their OWN materials — the fish is skinned in a custom
+  // shader, and an override material would cast its bind pose.
+  const sunCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 10);
+  const sunVP = new THREE.Matrix4();
+  function updateSunCamera() {
+    const d = 3.0 * tankHalf;
+    const e = 1.45 * tankHalf;
+    sunCam.position.copy(sunDir).multiplyScalar(-d);
+    sunCam.lookAt(0, 0, 0);
+    sunCam.left = -e; sunCam.right = e; sunCam.top = e; sunCam.bottom = -e;
+    sunCam.near = 0.01; sunCam.far = 2.2 * d;
+    sunCam.updateProjectionMatrix();
+    sunCam.updateMatrixWorld();
+    sunVP.multiplyMatrices(sunCam.projectionMatrix, sunCam.matrixWorldInverse);
+  }
+  updateSunCamera();
+
   function setTank(v) {
     tankHalf = v;
     SURFACE_Y = FILL * tankHalf;
@@ -983,6 +1015,7 @@ export async function start() {
     fluid.surfaceY = SURFACE_Y;
     uTank.value = tankHalf;
     uMeshTank.value = tankHalf;
+    updateSunCamera();
     uSurfaceY.value = SURFACE_Y;
     paddleTarget.clampScalar(-0.66 * tankHalf, 0.66 * tankHalf);
     paddle.position.clampScalar(-0.66 * tankHalf, 0.66 * tankHalf);
@@ -1164,52 +1197,7 @@ export async function start() {
   const lastBlast = { pos: new THREE.Vector3(), until: -1 };
   const liveBarrels = [];
 
-  // Sphere proxies for the solid meshes, rebuilt each frame and handed to the
-  // light pass — see the WebGL app for why spheres are enough.
-  const OCC_MAX = 12;
-  const FISH_PROXY = [[0.62, 0.34], [0.18, 0.52], [-0.28, 0.38], [-0.72, 0.20]];
-  const occluders = Array.from({ length: OCC_MAX }, () => ({ x: 0, y: 0, z: 0, r: 0 }));
-  const occLocal = new THREE.Vector3();
-  function buildOccluders() {
-    let n = 0;
-    const put = (x, y, z, r) => {
-      if (n >= OCC_MAX) return;
-      const o = occluders[n++];
-      o.x = x; o.y = y; o.z = z; o.r = r;
-    };
-    if (!paddleHidden) {
-      const h = paddleHalf;
-      const long = h.x > h.y && h.x > h.z ? 0 : (h.y > h.z ? 1 : 2);
-      const half = long === 0 ? h.x : long === 1 ? h.y : h.z;
-      const rad = 0.85 * Math.max(long === 0 ? h.y : h.x, long === 2 ? h.y : h.z);
-      for (let k = -1; k <= 1; k += 2) {
-        occLocal.set(0, 0, 0);
-        occLocal.setComponent(long, k * half * 0.5);
-        occLocal.applyMatrix4(paddle.matrixWorld);
-        put(occLocal.x, occLocal.y, occLocal.z, rad);
-      }
-    }
-    // a chain down the body, not one ball — see the WebGL app
-    if (diver.visible && visitor.state.fade < 0.85) {
-      const solid = 1 - visitor.state.fade;
-      for (const [z, r] of FISH_PROXY) {
-        occLocal.set(0, 0, z).applyMatrix4(diver.matrixWorld);
-        put(occLocal.x, occLocal.y, occLocal.z, r * diverScale * solid);
-      }
-    }
-    for (const b of barrels) {
-      if (!b.active || b.mesh.position.y > SURFACE_Y) continue;
-      const p = b.mesh.position;
-      put(p.x, p.y, p.z, b.scale * BARREL_R * 1.15);
-      if (n >= OCC_MAX) break;
-    }
-    for (let i = n; i < OCC_MAX; i++) occluders[i].r = 0;
-  }
-  let rippleNext = 0;
-  function addRipple(x, z, strength) {
-    rippleArr[rippleNext % 4].set(x, z, clock.elapsedTime % 512, strength);
-    rippleNext++;
-  }
+
 
   // `at` aims the drop: the barrel falls straight down onto that x/z and
   // detonates when it reaches that depth, so a click lands the blast where
@@ -1265,10 +1253,18 @@ export async function start() {
     // because an inward pull through water that looks the same before and after
     // reads as nothing happening at all. Give the pocket to look at first, then
     // crush it: the crush phases add no air, so what is there gets squeezed.
-    explosionQueue.push(
+    // The cavity is the three pinned phases: the pocket opening and the water
+    // crushing it. Switching it off leaves only the rebound, which is the
+    // plain blast this had before any of it — useful for telling how much of
+    // the look is the cavity and how much is the plume it throws.
+    if (TUNE.cavityOn) {
+      explosionQueue.push(
       { pos: q, rise, lift: 0, vel: 1.1 * k, up: 0.1 * k, foam: 3.8, radius: 0.095 * k * TUNE.cavitySize, hold: 0.10, raw: true },
       { pos: q, rise, lift: 0, vel: -3.6 * k, up: -0.5 * k, foam: 0.0, radius: 0.24 * k * TUNE.cavitySize, hold: 0.24 },
       { pos: q, rise, lift: 0, vel: -2.4 * k, up: -0.2 * k, foam: 0.0, radius: 0.20 * k * TUNE.cavitySize, hold: 0.08 },
+      );
+    }
+    explosionQueue.push(
       { pos: q, rise, lift: 1, vel: 3.2 * k, up: 1.2 * k, foam: 0.42, radius: 0.36 * k, ring: 2.6 * k, ringR: 0.28 * k, hold: 0.05 },
       { pos: q, rise, lift: 1, vel: 1.8 * k, up: 0.9 * k, foam: 0.24, radius: 0.44 * k, ring: 2.0 * k, ringR: 0.36 * k, hold: 0.05 },
       { pos: q, rise, lift: 1, vel: 0.9 * k, up: 0.6 * k, foam: 0.14, radius: 0.52 * k, ring: 1.4 * k, ringR: 0.44 * k, hold: 0.05 },
@@ -1496,11 +1492,15 @@ export async function start() {
       updatePaddle(dt, t);
       updateBarrels(dt, t);
       visitor.update(dt, tankHalf);
-      buildOccluders();
-      fluid.occluders = occluders;
+      renderer.setRenderTarget(fluid.sunRT);
+      renderer.render(opaqueScene, sunCam);
+      renderer.setRenderTarget(null);
+      fluid.u.sunVP.value.copy(sunVP);
+      fluid.u.shadowTexel.value = 1 / fluid.shadowSize;
       fluid.u.occK.value = TUNE.meshShadow;
       fluid.u.occSoft.value = TUNE.shadowSoft;
       uLightLift.value = TUNE.lightLift;
+      uSkyGain.value = TUNE.skyGain;
       // the water it is dissolving into is the ambient at its own depth
       // Fades to BLACK, which is exact — see the WebGL app. By the time it is
       // fully faded it is behind the back wall with no water between it and

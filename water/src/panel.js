@@ -224,6 +224,10 @@ export function buildTunePanel(TUNE, hooks = {}) {
     'How fast the blast site floats while its phases play out. Too low and the '
     + 'late phases fire below their own gas, which looks like two explosions in '
     + 'two places. Too high and the site outruns the plume it is feeding.');
+  knob('cavityOn', 'cavity', 0, 1, 1,
+    'The cavity is the pocket opening and the water crushing it, before the '
+    + 'rebound throws the plume. Off leaves the bare blast, which is what this '
+    + 'was before any of it.', 0);
   knob('cavityAnchor', 'cavity anchor', 0, 1, 0.02,
     'How much of the cavity\'s buoyancy is withheld while it opens and is '
     + 'crushed. The solver has no idea the pocket is one coherent bubble — it '

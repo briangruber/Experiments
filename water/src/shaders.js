@@ -479,10 +479,17 @@ uniform float uCaustics;
 // the light — and because this volume is what every shaft, every scattering
 // sample and every caustic beam reads, the shadow lands in all of them at once
 // rather than being marched again per pixel.
-uniform int uOccN;
-uniform vec4 uOcc[12];      // xyz centre, w radius
-uniform float uOccK;        // how dark the shadows go; 0 switches them off
-uniform float uOccSoft;     // penumbra, as a multiple of each radius
+// A real depth map rendered from the sun, so a mesh blocks the light with its
+// actual silhouette rather than with a stand-in sphere. One projection and four
+// taps per voxel — and because this volume is what every shaft, every
+// scattering sample and every caustic beam reads, the shadow lands in all of
+// them at once instead of being marched again per pixel.
+uniform sampler2D uSunDepth;
+uniform mat4 uSunVP;        // world -> sun clip
+uniform float uShadowTexel; // 1 / shadow map size
+uniform float uTankW;       // world half extent: wp is [-1,1], the map is world
+uniform float uOccK;        // exponent; 0 switches shadows off
+uniform float uOccSoft;     // PCF radius, in texels
 
 // Interference of a few travelling waves, sharpened into the bright filaments
 // sunlight makes after refracting through a rippled surface.
@@ -547,28 +554,28 @@ void main() {
   float c = caustic(cp * 4.5, uTime * 0.35);
   t *= mix(1.0, c, uCaustics * sharp);
 
-  // Anything solid between this voxel and the light. Perpendicular distance
-  // from the sphere's centre to the light ray, which is the cheapest form of
-  // this that still gives a soft edge: inside the radius it is fully blocked,
-  // and it feathers out to uOccSoft times the radius. Occluders BEHIND the
-  // voxel are skipped on the sign of t, or a barrel would shadow the water
-  // above it as well as below.
-  if (uOccN > 0 && uOccK > 0.0) {
-    vec3 ld = -uLightDir;
-    for (int i = 0; i < 12; i++) {
-      if (i >= uOccN) break;
-      vec3 rel = uOcc[i].xyz - wp;
-      float ct = dot(rel, ld);
-      if (ct <= 0.0) continue;
-      float d2 = dot(rel, rel) - ct * ct;
-      float r = uOcc[i].w;
-      float ro = r * uOccSoft;
-      // A POWER rather than a mix. Blending toward the shadow tops out at 1,
-      // where the core is already black and there is nowhere further to go —
-      // and past 1 a mix goes negative, which is not light. Raised to a power
-      // the core stays black and the PENUMBRA is what darkens, so turning this
-      // up widens the part of the shaft that visibly reads as blocked.
-      t *= pow(smoothstep(r * r, ro * ro, d2), uOccK);
+  // Solid geometry between this voxel and the sun, from the sun's own depth
+  // map — so a mesh blocks the light with its actual silhouette rather than
+  // with a stand-in sphere. Four taps rather than one so the edge is a
+  // penumbra and not a staircase; uOccSoft is that radius in texels. The
+  // bias is the usual trade: too little and a surface shadows itself into
+  // stripes, too much and the shadow detaches from what is casting it.
+  if (uOccK > 0.0) {
+    vec4 lp = uSunVP * vec4(wp * uTankW, 1.0);
+    vec3 ndc = lp.xyz / max(lp.w, 1e-6);
+    vec2 suv = ndc.xy * 0.5 + 0.5;
+    float sd = ndc.z * 0.5 + 0.5 - 0.0028;
+    if (sd > 0.0 && sd < 1.0
+        && all(greaterThanEqual(suv, vec2(0.0))) && all(lessThanEqual(suv, vec2(1.0)))) {
+      float r = uOccSoft * uShadowTexel;
+      float lit = step(sd, texture2D(uSunDepth, suv + vec2( r,  r)).x)
+                + step(sd, texture2D(uSunDepth, suv + vec2(-r,  r)).x)
+                + step(sd, texture2D(uSunDepth, suv + vec2( r, -r)).x)
+                + step(sd, texture2D(uSunDepth, suv + vec2(-r, -r)).x);
+      // A POWER rather than a blend: the core is already black at 1 and there
+      // is nowhere further to go, so what keeps darkening past that is the
+      // PENUMBRA — which is the part that makes a blocked shaft read.
+      t *= pow(clamp(lit * 0.25, 0.0, 1.0), uOccK);
     }
   }
   if (!(t > 0.0)) t = 0.0;   // NaN-safe: a poisoned texel would blacken the tank

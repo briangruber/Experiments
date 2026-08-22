@@ -158,6 +158,45 @@ function updateCamera() {
 
 // ----------------------------------------------------------------- scenes --
 
+// The sun's shadow map.
+//
+// The meshes are drawn in the opaque pass and the solver knows nothing about
+// them, so without this the light marches straight through a barrel as if it
+// were water. Sphere proxies stood in for a while and they were never going to
+// be enough: a fish is long and thin and yaws as it swims, and no small set of
+// spheres casts its silhouette. This renders the opaque scene depth-only from
+// the sun instead, and the light pass compares each voxel against it — the same
+// thing a game engine does, and the same thing the froxel implementations do.
+//
+// The meshes keep their OWN materials for this pass rather than taking an
+// override, which matters for exactly one of them: the fish is skinned in a
+// custom vertex shader, and an override material would cast its bind pose.
+// Only the depth attachment is read, so whatever colour they write is thrown
+// away.
+const SHADOW_N = 1024;
+const sunRT = new THREE.WebGLRenderTarget(SHADOW_N, SHADOW_N, {
+  minFilter: THREE.NearestFilter,
+  magFilter: THREE.NearestFilter,
+  depthTexture: new THREE.DepthTexture(SHADOW_N, SHADOW_N),
+});
+sunRT.depthTexture.type = THREE.UnsignedIntType;
+const sunCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 10);
+const sunVP = new THREE.Matrix4();
+function updateSunCamera() {
+  const d = 3.0 * tankHalf;
+  // The tank's corner-to-corner extent, so nothing leaves the frustum however
+  // the sun is angled.
+  const e = 1.45 * tankHalf;
+  sunCam.position.copy(sunDir).multiplyScalar(-d);
+  sunCam.lookAt(0, 0, 0);
+  sunCam.left = -e; sunCam.right = e; sunCam.top = e; sunCam.bottom = -e;
+  sunCam.near = 0.01; sunCam.far = 2.2 * d;
+  sunCam.updateProjectionMatrix();
+  sunCam.updateMatrixWorld();
+  sunVP.multiplyMatrices(sunCam.projectionMatrix, sunCam.matrixWorldInverse);
+}
+updateSunCamera();
+
 const opaqueScene = new THREE.Scene();
 
 const PADDLE_HALF_BASE = new THREE.Vector3(0.30, 0.05, 0.20);
@@ -667,6 +706,7 @@ function setTank(v) {
   mRaymarch.uniforms.uSurfaceY.value = SURFACE_Y;
   paddleTarget.clampScalar(-0.66 * tankHalf, 0.66 * tankHalf);
   paddle.position.clampScalar(-0.66 * tankHalf, 0.66 * tankHalf);
+  updateSunCamera();
 }
 
 // the geometry is authored once, so the mesh scales and the solver's
@@ -923,63 +963,7 @@ let blastLeft = 0;
 const lastBlast = { pos: new THREE.Vector3(), until: -1 };
 const liveBarrels = [];   // reused array of descriptors for the solver
 
-// Sphere proxies for the solid meshes, rebuilt each frame and handed to the
-// light pass so the volumetric light has something to break on. Spheres only,
-// because the shader test is a point-to-ray distance and that is what keeps it
-// to a few instructions per voxel; anything that is not round is covered by
-// laying two or three of them along its longest axis, which at this softness
-// is indistinguishable from the real silhouette.
-const OCC_MAX = 12;
-// [local z along the body, radius] in baked units — head to tail
-const FISH_PROXY = [[0.62, 0.34], [0.18, 0.52], [-0.28, 0.38], [-0.72, 0.20]];
-const occluders = Array.from({ length: OCC_MAX }, () => ({ x: 0, y: 0, z: 0, r: 0 }));
-const occLocal = new THREE.Vector3();
-function addOcc(n, x, y, z, r) {
-  if (n >= OCC_MAX) return n;
-  const o = occluders[n];
-  o.x = x; o.y = y; o.z = z; o.r = r;
-  return n + 1;
-}
-function buildOccluders() {
-  let n = 0;
-  // The paddle is a flat blade, so it gets three spheres down its long axis
-  // rather than one fat one around the whole thing.
-  if (!paddleHidden) {
-    const h = paddleHalf;
-    const long = h.x > h.y && h.x > h.z ? 0 : (h.y > h.z ? 1 : 2);
-    const half = long === 0 ? h.x : long === 1 ? h.y : h.z;
-    const rad = 0.85 * Math.max(
-      long === 0 ? h.y : h.x,
-      long === 2 ? h.y : h.z);
-    for (let k = -1; k <= 1; k++) {
-      occLocal.set(0, 0, 0);
-      occLocal.setComponent(long, k * half * 0.62);
-      occLocal.applyMatrix4(paddle.matrixWorld);
-      n = addOcc(n, occLocal.x, occLocal.y, occLocal.z, rad);
-    }
-  }
-// The fish, as a short chain down its body rather than one ball. It is
-  // long and thin and it yaws as it swims, so a single sphere big enough to
-  // cover it casts a shadow nothing like its silhouette — which is most of
-  // why its shadow did not read as a fish. Local +Z is the body axis; the
-  // mesh transform carries the yaw and roll, so the chain leans with it.
-  if (diver.visible && visitor.state.fade < 0.85) {
-    const solid = 1 - visitor.state.fade;
-    for (const [z, r] of FISH_PROXY) {
-      occLocal.set(0, 0, z).applyMatrix4(diver.matrixWorld);
-      n = addOcc(n, occLocal.x, occLocal.y, occLocal.z, r * diverScale * solid);
-    }
-  }
-  // and every barrel still in the water
-  for (const b of barrels) {
-    if (!b.active || b.mesh.position.y > SURFACE_Y) continue;
-    const p = b.mesh.position;
-    n = addOcc(n, p.x, p.y, p.z, b.scale * BARREL_R * 1.15);
-    if (n >= OCC_MAX) break;
-  }
-  for (let i = n; i < OCC_MAX; i++) occluders[i].r = 0;
-  return n;
-}
+
 
 // `at` aims the drop: the barrel falls straight down onto that x/z and
 // detonates when it reaches that depth, so a click lands the blast where
@@ -1048,10 +1032,18 @@ function detonate(q, t, k = 1) {
   // because an inward pull through water that looks the same before and after
   // reads as nothing happening at all. Give the pocket to look at first, then
   // crush it: the crush phases add no air, so what is there gets squeezed.
-  explosionQueue.push(
+  // The cavity is the three pinned phases: the pocket opening and the water
+  // crushing it. Switching it off leaves only the rebound, which is the
+  // plain blast this had before any of it — useful for telling how much of
+  // the look is the cavity and how much is the plume it throws.
+  if (TUNE.cavityOn) {
+    explosionQueue.push(
     { pos: q, rise, lift: 0, vel: 1.1 * k, up: 0.1 * k, foam: 3.8, radius: 0.095 * k * TUNE.cavitySize, hold: 0.10, raw: true },
     { pos: q, rise, lift: 0, vel: -3.6 * k, up: -0.5 * k, foam: 0.0, radius: 0.24 * k * TUNE.cavitySize, hold: 0.24 },
     { pos: q, rise, lift: 0, vel: -2.4 * k, up: -0.2 * k, foam: 0.0, radius: 0.20 * k * TUNE.cavitySize, hold: 0.08 },
+    );
+  }
+  explosionQueue.push(
     { pos: q, rise, lift: 1, vel: 3.2 * k, up: 1.2 * k, foam: 0.42, radius: 0.36 * k, ring: 2.6 * k, ringR: 0.28 * k, hold: 0.05 },
     { pos: q, rise, lift: 1, vel: 1.8 * k, up: 0.9 * k, foam: 0.24, radius: 0.44 * k, ring: 2.0 * k, ringR: 0.36 * k, hold: 0.05 },
     { pos: q, rise, lift: 1, vel: 0.9 * k, up: 0.6 * k, foam: 0.14, radius: 0.52 * k, ring: 1.4 * k, ringR: 0.44 * k, hold: 0.05 },
@@ -1221,10 +1213,16 @@ function frame() {
         if (blastLeft <= 0) blastPhase = null;
       }
     }
-    buildOccluders();
-    fluid.occluders = occluders;
+    // The sun's view of the solids, rendered before the light pass reads it.
+    renderer.setRenderTarget(sunRT);
+    renderer.clear(true, true, false);
+    renderer.render(opaqueScene, sunCam);
+    renderer.setRenderTarget(null);
+    fluid.sunDepth = sunRT.depthTexture;
+    fluid.sunVP = sunVP;
     fluid.mLight.uniforms.uOccK.value = TUNE.meshShadow;
     fluid.mLight.uniforms.uOccSoft.value = TUNE.shadowSoft;
+    fluid.mLight.uniforms.uShadowTexel.value = 1 / SHADOW_N;
     timer.begin('sim');
     // wrapped time keeps float hash/noise inputs precise over long sessions
     fluid.step(dt, t % 512);

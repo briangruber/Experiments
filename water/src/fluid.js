@@ -173,20 +173,23 @@ export class Fluid {
       uSurfaceY: { value: surfaceY }, uTank: { value: tank },
       uTime: { value: 0 },
       uCaustics: { value: 1.0 },
-      // Sphere proxies for the solid meshes, so they cast into the light.
-      // Filled from `this.occluders` on the way into the light pass.
-      uOcc: { value: Array.from({ length: 12 }, () => new THREE.Vector4()) },
-      uOccN: { value: 0 },
-      uOccK: { value: 0.75 },
+      // The sun's own depth map, so meshes block the light with their real
+      // silhouettes. Set from main each frame.
+      uSunDepth: { value: null },
+      uSunVP: { value: new THREE.Matrix4() },
+      uShadowTexel: { value: 1 / 1024 },
+      uTankW: { value: tank },
+      uOccK: { value: 1.5 },
       uOccSoft: { value: 2.0 },
     });
 
     // one-shot inputs, armed from main and cleared after the step
     this.burst = null;   // { pos, vel, up, foam, radius } (world units)
-    // Sphere proxies for whatever solid is in the tank this frame, in WORLD
-    // units: [{ x, y, z, r }]. Meshes live in the opaque pass and are invisible
-    // to the solver, so this is the only thing that tells the light they exist.
-    this.occluders = null;
+    // The sun's depth map and its view-projection, set from main each frame.
+    // Meshes live in the opaque pass and are invisible to the solver, so this
+    // is the only thing that tells the light they exist.
+    this.sunDepth = null;
+    this.sunVP = null;
     this.paddle = null;  // { pos, vel(world/s), angVel, half, rot: Matrix3, on }
     // this.barrels: [{ pos, vel (world/s), radius }] — as many as are in flight
   }
@@ -355,19 +358,9 @@ export class Fluid {
     // light transmittance volume
     this.mLight.uniforms.uFoam.value = foam[0].texture;
     this.mLight.uniforms.uTime.value = time;
-    // World units into the [-1,1] tank space the light shader works in.
-    const occ = this.occluders;
-    const slots = this.mLight.uniforms.uOcc.value;
-    let n = 0;
-    if (occ) {
-      const inv = 1 / this.tank;
-      for (let i = 0; i < occ.length && n < slots.length; i++) {
-        const o = occ[i];
-        if (!(o.r > 0)) continue;
-        slots[n++].set(o.x * inv, o.y * inv, o.z * inv, o.r * inv);
-      }
-    }
-    this.mLight.uniforms.uOccN.value = n;
+    this.mLight.uniforms.uSunDepth.value = this.sunDepth;
+    if (this.sunVP) this.mLight.uniforms.uSunVP.value.copy(this.sunVP);
+    this.mLight.uniforms.uTankW.value = this.tank;
     this.pass(this.mLight, this.light);
 
     this.renderer.setRenderTarget(null);
