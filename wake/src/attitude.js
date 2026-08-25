@@ -30,7 +30,12 @@ export function attitude(speed) {
   // Through the hump the bow climbs; on plane it settles back to a shallower
   // running trim. The hump term is faded as the plane term takes over, so the
   // two cannot add into an angle no hull would run at.
-  const trim = get('boat.trimHump') * hump * (1 - planed * 0.75)
+  // Below the hump the hull is pushing water aside and sits BOW DOWN -- the
+  // slowest, smallest-wake regime. Then it climbs, then it settles.
+  const displacement = 1 - smoothstep(0, frh * 0.8, Fr);
+
+  const trim = -get('boat.trimRest') * displacement
+             + get('boat.trimHump') * hump * (1 - planed * 0.75)
              + get('boat.trimPlane') * planed;
 
   const rise = get('boat.riseMax') * planed;       // the hull lifts once planing

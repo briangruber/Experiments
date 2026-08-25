@@ -63,7 +63,7 @@ page.on('pageerror', (e) => errors.push(String(e)));
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 
 await page.goto(base + '?' + qs.toString(), { waitUntil: 'load' });
-await page.waitForFunction('window.__ready === true', { timeout: 30000 }).catch(() => {});
+await page.waitForFunction('window.__ready === true', { timeout: 180000 }).catch(() => {});
 await page.waitForTimeout(WAIT * 1000);
 if (argv.includes('--field')) await page.keyboard.press('f');
 // Guarded: when the module fails to load there is no __wake, and the useful
@@ -79,7 +79,7 @@ await page.evaluate(() => document.body.classList.add('hide-ui'));
 await page.waitForTimeout(300);
 
 await mkdir(dirname(OUT), { recursive: true });
-await page.screenshot({ path: OUT });
+await page.screenshot({ path: OUT, timeout: 240000 });
 await browser.close();
 server.close();
 

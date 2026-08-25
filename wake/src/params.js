@@ -13,6 +13,7 @@ export const PARAMS = {
     hardTurn:     { v: 2.4, min: 1,   max: 5,   step: 0.05, label: 'Shift turn ×' },
     throttleRate: { v: 7, min: 0.5, max: 30,  step: 0.5,  label: 'Throttle rate (m/s²)' },
     humpFroude:   { v: 0.95, min: 0.3, max: 2,   step: 0.01, label: 'Hump Froude no.' },
+    trimRest:     { v: 1.2,  min: 0,   max: 6,   step: 0.1,  label: 'Bow-down at rest (°)' },
     trimHump:     { v: 5.5,  min: 0,   max: 15,  step: 0.1,  label: 'Trim at hump (°)' },
     trimPlane:    { v: 2.6,  min: 0,   max: 12,  step: 0.1,  label: 'Trim on plane (°)' },
     riseMax:      { v: 0.42, min: 0,   max: 2,   step: 0.01, label: 'Hull rise (m)' },
@@ -180,9 +181,21 @@ export const PARAMS = {
     cloud:        { v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Cloud cover' },
     cloudScale:   { v: 0.55, min: 0.05,max: 3,   step: 0.01, label: 'Cloud scale' },
     cloudSoft:    { v: 0.30, min: 0.02,max: 1,   step: 0.01, label: 'Cloud softness' },
-    treeline:     { v: 0.024, min: 0,   max: 0.08,step: 0.001,label: 'Shore height' },
+    treeline:     { v: 0.008, min: 0,   max: 0.08,step: 0.001,label: 'Shore height' },
     treeRough:    { v: 0.45, min: 0,   max: 1.5, step: 0.01, label: 'Shore roughness' },
     treeDark:     { v: 0.02, min: 0,   max: 0.6, step: 0.005,label: 'Shore lightness' },
+  },
+
+  // The lake itself -- real geometry, not a painted horizon.
+  lake: {
+    radius:       { v: 1850, min: 200, max: 4000,step: 10,   label: 'Lake radius (m)' },
+    depth:        { v: 14,   min: 2,   max: 60,  step: 1,    label: 'Basin depth (m)' },
+    rim:          { v: 70,   min: 10,  max: 400, step: 5,    label: 'Hill height (m)' },
+    relief:       { v: 34,   min: 0,   max: 120, step: 1,    label: 'Relief (m)' },
+    wobble:       { v: 0.30, min: 0,   max: 0.8, step: 0.01, label: 'Shoreline wobble' },
+    islands:      { v: 55,   min: 0,   max: 200, step: 1,    label: 'Islands' },
+    avoid:        { v: 1.00, min: 0,   max: 3,   step: 0.01, label: 'Shore avoidance' },
+    canopy:       { v: 0.10, min: 0.01,max: 0.6, step: 0.005,label: 'Canopy lightness' },
   },
 
   quality: {

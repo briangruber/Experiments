@@ -103,6 +103,15 @@ const RIBBON_FRAG = /* glsl */`
     float planedS = smoothstep(uHumpFr * 1.05, uHumpFr * 2.3, frS);
     float wet = uHullLen * uWetShift * planedS;
     float wa = max(arc - wet, 0.0);          // arc measured from the contact point
+
+    // Wake magnitude by regime: least while displacing, largest through the
+    // transition where the hull plows along with its bow up, and back down
+    // again on plane where far less of it is in the water. Same Froude curve
+    // the wave amplitude uses, so the churn and the waves agree about which
+    // speed is the expensive one.
+    float hw = frS / max(uFrPeak, 0.05);
+    float regime = max(hw * hw * exp(1.0 - hw * hw),
+                       uHumpFloor * smoothstep(0.12, 0.70, hw));
     float planing = smoothstep(uPlaning * 0.45, uPlaning, spd);
     float moving  = smoothstep(0.15, 1.6, spd);          // anything under way
     float churn   = smoothstep(0.4, uPlaning * 0.8, spd);  // prop working hard
@@ -177,7 +186,7 @@ const RIBBON_FRAG = /* glsl */`
       wg += exp(-dd * dd);
     }
     wg = min(wg, 1.4);
-    float washFoam = astern * wg * (uWashFoam * exp(-arc / uWashLen) + uWashTail) * near * churn;
+    float washFoam = astern * wg * (uWashFoam * exp(-arc / uWashLen) + uWashTail) * near * churn * regime;
     float washH   = -astern * wg * uWashDepth * exp(-arc / (uWashLen * 1.6));
 
     // ------------------------------------------------------- inside the V ----
@@ -368,7 +377,7 @@ const RIBBON_FRAG = /* glsl */`
       bg += exp(-dd * dd);
     }
     bg = min(bg, 1.4);
-    float plume = astern * bg * uBubPlume * exp(-arc / max(uBubLen, 1.0)) * churn;
+    float plume = astern * bg * uBubPlume * exp(-arc / max(uBubLen, 1.0)) * churn * regime;
 
     // Spray plunging back in entrains its own air along each arm.
     float entrain = armG * uBubArms * armFade * exp(-arc / max(uBubArmsLen, 1.0)) * planing;

@@ -28,7 +28,9 @@ const MODULES = [
   ['params', 'src/params.js',    {}],
   ['noise',  'src/noise.js',     {}],
   ['sky',    'src/sky.js',       {}],
+  ['lakeh',  'src/lakeHeight.js',{ './params.js': 'params' }],
   ['attitude','src/attitude.js', { './params.js': 'params' }],
+  ['terrain','src/terrain.js', { three: 'three', './params.js': 'params', './sky.js': 'sky', './lakeHeight.js': 'lakeh' }],
   ['backdrop','src/backdrop.js', { three: 'three', './params.js': 'params', './sky.js': 'sky' }],
   ['boat',   'src/boat.js',      { three: 'three', './params.js': 'params' }],
   ['ocean',  'src/ocean.js',     { three: 'three', './params.js': 'params', './noise.js': 'noise', './sky.js': 'sky' }],
@@ -36,7 +38,8 @@ const MODULES = [
   ['ui',     'src/ui.js',        { './params.js': 'params' }],
   ['main',   'src/main.js',      { three: 'three', './params.js': 'params', './wakeField.js': 'wake',
                                    './ocean.js': 'ocean', './boat.js': 'boat', './ui.js': 'ui',
-                                   './backdrop.js': 'backdrop', './attitude.js': 'attitude' }],
+                                   './backdrop.js': 'backdrop', './attitude.js': 'attitude', './terrain.js': 'terrain',
+                                   './lakeHeight.js': 'lakeh' }],
 ];
 
 // A JS string literal safe to sit inside an inline <script>: JSON handles the
@@ -50,6 +53,33 @@ const literal = (s) => JSON.stringify(s)
 const sources = [];
 for (const [key, path, deps] of MODULES) {
   sources.push({ key, deps, src: await readFile(resolve(ROOT, path), 'utf8') });
+}
+
+// Every relative import must be accounted for. Left unmapped, the specifier
+// survives into the blob and the browser fails to resolve it against a blob:
+// URL -- which shows up as a blank page, a long way from this file.
+const keys = new Set(MODULES.map(([k]) => k));
+const problems = [];
+for (const { key, deps, src } of sources) {
+  for (const m of src.matchAll(/(?:\bfrom|\bimport)\s*["']([^"']+)["']/g)) {
+    const spec = m[1];
+    if (!spec.startsWith('.') && spec !== 'three') continue;      // bare specifiers are fine
+    if (!(spec in deps)) problems.push(`${key}: "${spec}" has no mapping`);
+    else if (!keys.has(deps[spec])) problems.push(`${key}: "${spec}" maps to unknown module "${deps[spec]}"`);
+  }
+}
+// ...and a module must be created before anything naming it.
+const seen = new Set();
+for (const [key, , deps] of MODULES) {
+  for (const target of Object.values(deps)) {
+    if (!seen.has(target)) problems.push(`${key}: depends on "${target}", which is bundled later`);
+  }
+  seen.add(key);
+}
+if (problems.length) {
+  console.error('bundle graph is incomplete:');
+  for (const p of problems) console.error('  ' + p);
+  process.exit(1);
 }
 
 const css = await readFile(resolve(ROOT, 'src/ui.css'), 'utf8');

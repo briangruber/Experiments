@@ -5,6 +5,8 @@ import { Ocean } from './ocean.js';
 import { makeBoat } from './boat.js';
 import { Backdrop } from './backdrop.js';
 import { attitude } from './attitude.js';
+import { Terrain } from './terrain.js';
+import { heightAt } from './lakeHeight.js';
 import { buildUI } from './ui.js';
 
 const canvas = document.getElementById('gl');
@@ -26,7 +28,8 @@ const narrow = matchMedia('(max-width: 720px)').matches;
 const wake = new WakeField(renderer, narrow ? 1024 : 2048);
 const ocean = new Ocean(wake, 520, 560);
 const backdrop = new Backdrop();
-scene.add(backdrop.sky, backdrop.sea, ocean.mesh);
+const terrain = new Terrain();
+scene.add(backdrop.sky, backdrop.sea, terrain.mesh, ocean.mesh);
 
 const boat = makeBoat();
 scene.add(boat);
@@ -227,6 +230,24 @@ function stepSim(dt) {
   let target = get('boat.speed');
   let turn = get('boat.turnRate') * Math.PI / 180;
 
+  // Shore avoidance: look ahead, and if the water is running out, put the helm
+  // over towards whichever side is deeper. Without it the boat simply drives up
+  // the hillside, which is a strange thing for a lake to allow.
+  const av = get('lake.avoid');
+  if (av > 0.001) {
+    const hx0 = Math.sin(state.heading), hz0 = Math.cos(state.heading);
+    const reach = 70 + state.speed * 4;
+    if (heightAt(state.x + hx0 * reach, state.z + hz0 * reach) > -2.0) {
+      const a = 0.85;
+      // Heading DECREASES for positive turn (see the helm note below), so this
+      // is the side a positive turn actually takes the boat towards.
+      const hp = state.heading - a, hn = state.heading + a;
+      const dStar = heightAt(state.x + Math.sin(hp) * reach, state.z + Math.cos(hp) * reach);
+      const dPort = heightAt(state.x + Math.sin(hn) * reach, state.z + Math.cos(hn) * reach);
+      turn += (dStar < dPort ? 1 : -1) * get('boat.steerRate') * Math.PI / 180 * av;
+    }
+  }
+
   const hard = keys.has('shift') ? get('boat.hardTurn') : 1;
   const steer = get('boat.steerRate') * Math.PI / 180 * hard;
   if (keys.has('arrowleft') || keys.has('a')) turn -= steer;
@@ -319,6 +340,7 @@ function frame(now) {
 
   ocean.update(state.t, camera.position, state.x, state.z, wake);
   backdrop.update(camera, sd, state.t);
+  terrain.update(camera, sd, state.t);
 
   renderer.setViewport(0, 0, viewport.w, viewport.h);
   renderer.setScissorTest(false);
