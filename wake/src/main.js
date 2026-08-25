@@ -7,6 +7,7 @@ import { Backdrop } from './backdrop.js';
 import { attitude } from './attitude.js';
 import { Terrain } from './terrain.js';
 import { heightAt } from './lakeHeight.js';
+import { AbyssalSea } from './abyssalSea.js';
 import { buildUI } from './ui.js';
 
 const canvas = document.getElementById('gl');
@@ -29,7 +30,29 @@ const wake = new WakeField(renderer, narrow ? 1024 : 2048);
 const ocean = new Ocean(wake, 520, 560);
 const backdrop = new Backdrop();
 const terrain = new Terrain();
-scene.add(backdrop.sky, backdrop.sea, terrain.mesh, ocean.mesh);
+
+// Two seas, one at a time. The lab's own is a single analytic shader built to
+// iterate on the wake; Abyssal is an FFT sea with a volumetric sky, vendored
+// whole (see abyssalSea.js) with every one of its wake and foam systems shut
+// off. Kept side by side rather than swapped outright so the two can be
+// compared on the same wake, in the same frame, without a reload -- which is
+// the only way to tell whether a difference is the water or the wake.
+let sea = null;
+try {
+  sea = new AbyssalSea(renderer);
+} catch (e) {
+  // A vendored sea that fails to build must not take the prototype with it:
+  // the wake is the point, and the analytic ocean can still carry it.
+  console.warn('Abyssal sea unavailable, falling back to the lab ocean:', e.message);
+}
+const useAbyssal = () => sea !== null && get('scene.abyssal') > 0.5;
+
+scene.add(terrain.mesh);
+// Only the analytic path owns a sky dome, a far sea and a water plane; Abyssal
+// draws all three itself, around the scene rather than inside it.
+const labSky = new THREE.Group();
+labSky.add(backdrop.sky, backdrop.sea, ocean.mesh);
+scene.add(labSky);
 
 const boat = makeBoat();
 scene.add(boat);
@@ -338,13 +361,24 @@ function frame(now) {
   const planeSize = THREE.MathUtils.lerp(520, bucket, get('field.adaptive'));
   ocean.setDetail(get('quality.oceanDetail'), Math.round(planeSize / 10) * 10);
 
-  ocean.update(state.t, camera.position, state.x, state.z, wake);
-  backdrop.update(camera, sd, state.t);
+  const abyssal = useAbyssal();
+  labSky.visible = !abyssal;
+  if (!abyssal) {
+    ocean.update(state.t, camera.position, state.x, state.z, wake);
+    backdrop.update(camera, sd, state.t);
+  }
   terrain.update(camera, sd, state.t);
 
   renderer.setViewport(0, 0, viewport.w, viewport.h);
   renderer.setScissorTest(false);
-  renderer.render(scene, camera);
+  if (abyssal) {
+    // Sea, scene, sky -- in that order, for the reasons in abyssalSea.js.
+    sea.update(dt, camera);
+    sea.render(scene, camera);
+  } else {
+    renderer.autoClear = true;
+    renderer.render(scene, camera);
+  }
 
   if (hud.dataset.field === '1') {
     const s = Math.round(Math.min(viewport.w, viewport.h) * 0.3);

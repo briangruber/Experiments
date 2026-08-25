@@ -10,7 +10,7 @@
 //   node tools/artifact.mjs --out dist/wake-lab.html
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { dirname, resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -20,27 +20,66 @@ const opt = (n, d) => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i
 const OUT = resolve(ROOT, opt('out', 'dist/wake-lab.html'));
 const PREWARM = +opt('prewarm', 55);
 
-// Dependency order. Each entry lists the specifiers it imports, mapped to the
-// key of the module that satisfies them.
-const MODULES = [
-  ['core',   'vendor/three/three.core.min.js',   {}],
-  ['three',  'vendor/three/three.module.min.js', { './three.core.min.js': 'core' }],
-  ['params', 'src/params.js',    {}],
-  ['noise',  'src/noise.js',     {}],
-  ['sky',    'src/sky.js',       {}],
-  ['lakeh',  'src/lakeHeight.js',{ './params.js': 'params' }],
-  ['attitude','src/attitude.js', { './params.js': 'params' }],
-  ['terrain','src/terrain.js', { three: 'three', './params.js': 'params', './sky.js': 'sky', './lakeHeight.js': 'lakeh' }],
-  ['backdrop','src/backdrop.js', { three: 'three', './params.js': 'params', './sky.js': 'sky' }],
-  ['boat',   'src/boat.js',      { three: 'three', './params.js': 'params' }],
-  ['ocean',  'src/ocean.js',     { three: 'three', './params.js': 'params', './noise.js': 'noise', './sky.js': 'sky' }],
-  ['wake',   'src/wakeField.js', { three: 'three', './params.js': 'params', './noise.js': 'noise' }],
-  ['ui',     'src/ui.js',        { './params.js': 'params' }],
-  ['main',   'src/main.js',      { three: 'three', './params.js': 'params', './wakeField.js': 'wake',
-                                   './ocean.js': 'ocean', './boat.js': 'boat', './ui.js': 'ui',
-                                   './backdrop.js': 'backdrop', './attitude.js': 'attitude', './terrain.js': 'terrain',
-                                   './lakeHeight.js': 'lakeh' }],
-];
+// The module graph is DISCOVERED, not declared.
+//
+// It used to be a hand-written list of [key, path, deps] triples, and that list
+// was wrong twice: once when a new module was added and never listed (the
+// specifier survived into the blob, failed to resolve against a blob: URL, and
+// showed up as a blank page a long way from this file), and once when an entry
+// landed out of dependency order. Both are mechanical facts about the imports,
+// so read them from the source instead of restating them.
+//
+// Vendored three is the one special case: it is minified, ships as two files
+// that import each other, and is reached by the bare specifier 'three'.
+const ENTRY = 'src/main.js';
+const BARE = { three: 'vendor/three/three.module.min.js' };
+
+const IMPORT_RE = /(?:\bfrom|\bimport)\s*["']([^"']+)["']/g;
+
+// Depth-first post-order: a module is emitted only after everything it imports,
+// which is exactly the order the Blob URLs have to be created in.
+const MODULES = [];
+const state = new Map();          // path -> 'visiting' | 'done'
+const keyOf = (rel) => rel.replace(/[^a-zA-Z0-9]/g, '_');
+
+async function visit( rel, from ) {
+
+  if ( state.get( rel ) === 'done' ) return;
+  if ( state.get( rel ) === 'visiting' ) {
+    // An import cycle has no valid Blob creation order, so say so here rather
+    // than shipping a bundle whose second module names a URL that does not
+    // exist yet.
+    throw new Error( `import cycle through ${ rel } (reached from ${ from })` );
+  }
+  state.set( rel, 'visiting' );
+
+  let src;
+  try {
+    src = await readFile( resolve( ROOT, rel ), 'utf8' );
+  } catch {
+    throw new Error( `${ from || ENTRY } imports "${ rel }", which does not exist` );
+  }
+
+  const deps = {};
+  for ( const [ , spec ] of src.matchAll( IMPORT_RE ) ) {
+    let target;
+    if ( spec.startsWith( '.' ) ) {
+      target = relative( ROOT, resolve( dirname( resolve( ROOT, rel ) ), spec ) );
+    } else if ( BARE[ spec ] ) {
+      target = BARE[ spec ];
+    } else {
+      continue;                   // a genuine bare import; nothing to rehost
+    }
+    await visit( target, rel );
+    deps[ spec ] = keyOf( target );
+  }
+
+  state.set( rel, 'done' );
+  MODULES.push( [ keyOf( rel ), rel, deps ] );
+
+}
+
+await visit( ENTRY, null );
 
 // A JS string literal safe to sit inside an inline <script>: JSON handles the
 // quoting, then `</` is escaped so nothing can close the script tag early, and
@@ -55,32 +94,19 @@ for (const [key, path, deps] of MODULES) {
   sources.push({ key, deps, src: await readFile(resolve(ROOT, path), 'utf8') });
 }
 
-// Every relative import must be accounted for. Left unmapped, the specifier
-// survives into the blob and the browser fails to resolve it against a blob:
-// URL -- which shows up as a blank page, a long way from this file.
-const keys = new Set(MODULES.map(([k]) => k));
-const problems = [];
-for (const { key, deps, src } of sources) {
-  for (const m of src.matchAll(/(?:\bfrom|\bimport)\s*["']([^"']+)["']/g)) {
-    const spec = m[1];
-    if (!spec.startsWith('.') && spec !== 'three') continue;      // bare specifiers are fine
-    if (!(spec in deps)) problems.push(`${key}: "${spec}" has no mapping`);
-    else if (!keys.has(deps[spec])) problems.push(`${key}: "${spec}" maps to unknown module "${deps[spec]}"`);
-  }
-}
-// ...and a module must be created before anything naming it.
+// Discovery should make this impossible, which is exactly why it is asserted:
+// a module must exist before anything naming it.
 const seen = new Set();
-for (const [key, , deps] of MODULES) {
-  for (const target of Object.values(deps)) {
-    if (!seen.has(target)) problems.push(`${key}: depends on "${target}", which is bundled later`);
+for (const [key, path, deps] of MODULES) {
+  for (const [spec, target] of Object.entries(deps)) {
+    if (!seen.has(target)) {
+      console.error(`bundle order is wrong: ${path} imports "${spec}", which is bundled later`);
+      process.exit(1);
+    }
   }
   seen.add(key);
 }
-if (problems.length) {
-  console.error('bundle graph is incomplete:');
-  for (const p of problems) console.error('  ' + p);
-  process.exit(1);
-}
+console.log(`  ${MODULES.length} modules discovered from ${ENTRY}`);
 
 const css = await readFile(resolve(ROOT, 'src/ui.css'), 'utf8');
 const html = await readFile(resolve(ROOT, 'index.html'), 'utf8');

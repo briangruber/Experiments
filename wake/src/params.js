@@ -177,6 +177,10 @@ export const PARAMS = {
   // Cost, not looks. Auto-set on load from the device, then yours to override.
   // Sky, weather and shore.
   scene: {
+    // 1 draws the vendored Abyssal FFT sea and volumetric sky; 0 the lab's own
+    // analytic ocean. Both carry the same wake -- that is the point of keeping
+    // the switch rather than deleting the loser.
+    abyssal:      { v: 1,    min: 0,   max: 1,   step: 1,    label: 'Abyssal sea' },
     warmth:       { v: 1.15, min: 0,   max: 1.5, step: 0.01, label: 'Sunset warmth' },
     cloud:        { v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Cloud cover' },
     cloudScale:   { v: 0.55, min: 0.05,max: 3,   step: 0.01, label: 'Cloud scale' },
