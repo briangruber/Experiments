@@ -28,7 +28,7 @@ regrown. It makes tuning a conversation instead of a wait.
    (`age`), and the path tangent frozen in at birth.
 3. **Ribbon shader** — draws the whole wake procedurally from those numbers into
    a top-down float texture that follows the boat:
-   `R` foam · `G` displacement · `B` swell flattening.
+   `R` foam · `G` displacement · `B` swell flattening · `A` subsurface bubbles.
 4. **Ocean shader** (`ocean.js`) — one texture lookup. The wake composites with
    no seams, and no wake maths lives in the water shader.
 
@@ -42,11 +42,32 @@ Read from the reference footage, and each piece is a separate slider group:
 | **Feathering** | Periodic crests leaning back off each arm, lengthening with age. Confined to the arm's inner edge; the outer face stays continuous. |
 | **Prop wash** | Turbulent water off the transom. Brightest foam in the wake, shortest-lived. |
 | **Inside the V** | Flattened water carrying the transverse wave train. |
+| **Subsurface bubbles** | Air the prop drags *under* the surface. Not foam — see below. |
 | **Foam texture** | A reticulated bubble raft (noise contours) + flow-aligned streaks. |
 | **Foam on water** | How the foam sits *in* the water rather than on it: aeration halo, opacity build, translucency, relief, trough pooling. |
 
 Foam noise is sampled in **world space**, so bubbles stay locked to the water
 instead of swimming along with the boat.
+
+### Above and below the surface
+
+The prop is underwater, so most of the air it entrains never surfaces as foam.
+It stays as a plume in the water column, wider and much longer-lived than the
+white above it, and it behaves nothing like foam:
+
+- It scatters light back **through water**, so it takes the water's colour
+  brightened toward turquoise — never white.
+- It does not break the surface, so the water above it goes on reflecting the
+  sky and catching the sun exactly as before.
+
+So it is resolved as part of the **water body colour**, before the surface is
+applied — a bubble plume works like a bright scattering floor, stopping light
+escaping down into the dark, which is the same reason water over sand reads
+shallow and turquoise. Surface foam is composited after, on top.
+
+That ordering is the whole trick. Tint the water *after* adding reflection and
+specular and you get a flat turquoise decal; tint the body *before*, and the
+glints ride over the churn the way they do in real footage.
 
 ### Where the foam is decided
 

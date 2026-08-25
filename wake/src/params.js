@@ -73,11 +73,27 @@ export const PARAMS = {
     softness:     { v: 0.42, min: 0.02,max: 1,   step: 0.01, label: 'Edge softness' },
   },
 
+  // Air the prop drags UNDER the surface. Not foam: these bubbles scatter light
+  // back up through water, so they tint it turquoise rather than whitening it,
+  // and the surface above them still reflects the sky.
+  bubbles: {
+    plume:        { v: 0.86, min: 0,   max: 4,   step: 0.01, label: 'Plume density' },
+    width:        { v: 1.90, min: 0.2, max: 10,  step: 0.05, label: 'Plume width (m)' },
+    spread:       { v: 0.085,min: 0,   max: 0.5, step: 0.005,label: 'Spread (m/m)' },
+    length:       { v: 46.0,min: 5,   max: 400, step: 1,    label: 'Decay length (m)' },
+    fromArms:     { v: 0.42, min: 0,   max: 2,   step: 0.01, label: 'Entrained by arms' },
+    life:         { v: 78.0, min: 2,   max: 200, step: 1,    label: 'Bubble life (s)' },
+    mottle:       { v: 0.72, min: 0,   max: 1,   step: 0.01, label: 'Cloudiness' },
+    brightness:   { v: 0.66, min: 0,   max: 3,   step: 0.01, label: 'Backscatter' },
+    tint:         { v: 0.50, min: 0,   max: 1,   step: 0.01, label: 'Green / blue' },
+    milkiness:    { v: 0.35, min: 0,   max: 1,   step: 0.01, label: 'Milkiness' },
+  },
+
   // How the foam sits on the water rather than on top of it.
   foamMix: {
     density:      { v: 2.30, min: 0.3, max: 8,   step: 0.05, label: 'Opacity build' },
     translucency: { v: 0.42, min: 0,   max: 1,   step: 0.01, label: 'Water shows through' },
-    aeration:     { v: 0.76, min: 0,   max: 1.5, step: 0.01, label: 'Aerated teal halo' },
+    aeration:     { v: 0.45, min: 0,   max: 1.5, step: 0.01, label: 'Aerated teal halo' },
     relief:       { v: 0.75, min: 0,   max: 3,   step: 0.01, label: 'Bubble relief' },
     troughBias:   { v: 0.40, min: 0,   max: 1.5, step: 0.01, label: 'Pools in troughs' },
     warmth:       { v: 0.18, min: 0,   max: 1,   step: 0.01, label: 'Sunlit warmth' },

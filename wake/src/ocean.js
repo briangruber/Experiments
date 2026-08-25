@@ -89,6 +89,8 @@ const FRAG = /* glsl */`
   uniform float uSpecular, uExposure, uFar;
   uniform float uFoamDensity, uTranslucency, uAeration, uRelief, uTroughBias, uWarmth;
   uniform float uLaceScale, uLaceAmt, uSoftness;
+  uniform float uBubBright, uMilk;
+  uniform vec3  uBubCol;
   #define uEye uEyePos
 
   void main(){
@@ -131,10 +133,23 @@ const FRAG = /* glsl */`
     fres = mix(0.02, 1.0, fres);
 
     vec3 sky = mix(uSky, uHorizon, pow(1.0 - clamp(N.y, 0.0, 1.0), 1.5));
-    vec3 col = mix(uDeep, sky, fres);
+
+    // ------------------------------------------------- subsurface bubbles --
+    // These are IN the water, not on it, so they belong to the body colour --
+    // resolved before the surface is applied. A bubble plume works like a
+    // bright scattering floor: it stops light escaping down into the dark, so
+    // the water reads shallow and turquoise, the same reason water over sand
+    // does. Crucially the surface above is still water, so it goes on
+    // reflecting the sky and catching the sun exactly as it did.
+    float bub = clamp(w.a, 0.0, 3.0);
+    float scat = 1.0 - exp(-bub * uBubBright * 1.5);
+    vec3 bubCol = mix(uBubCol, vec3(0.66, 0.80, 0.82), uMilk * scat);
+    vec3 body = mix(uDeep, bubCol, scat);
+
+    vec3 col = mix(body, sky, fres);
     col += uSky * pow(max(dot(N, H), 0.0), 70.0) * uSpecular
          * (1.0 - smoothstep(0.05, 0.30, px));
-    col += uDeep * max(dot(N, L), 0.0) * 0.25;
+    col += body * max(dot(N, L), 0.0) * 0.25;
 
     // ------------------------------------------------------------------ foam --
     // Foam is a scattering layer sitting IN the water, not a white decal laid
@@ -223,6 +238,7 @@ export class Ocean {
       uFoamDensity: { value: 2 }, uTranslucency: { value: 0 }, uAeration: { value: 1 },
       uRelief: { value: 0 }, uTroughBias: { value: 0 }, uWarmth: { value: 0 },
       uLaceScale: { value: 1 }, uLaceAmt: { value: 0 }, uSoftness: { value: 0.3 },
+      uBubBright: { value: 1 }, uMilk: { value: 0 }, uBubCol: { value: new THREE.Color() },
       uFar: { value: size * 0.55 },
     };
 
@@ -278,6 +294,12 @@ export class Ocean {
     u.uLaceScale.value = get('foamLook.lace') * 0.55;
     u.uLaceAmt.value = get('foamLook.laceAmount');
     u.uSoftness.value = get('foamLook.softness');
+    u.uBubBright.value = get('bubbles.brightness');
+    u.uMilk.value = get('bubbles.milkiness');
+    // Green through blue-green: the colour a bubble cloud scatters back up
+    // depends on how much water is still above it.
+    const bt = get('bubbles.tint');
+    u.uBubCol.value.setRGB(0.06 + bt * 0.06, 0.40 + bt * 0.07, 0.34 + bt * 0.30);
 
     // Follow the boat, snapped to the vertex grid so the mesh doesn't crawl.
     const step = this.size / this.seg * 8;

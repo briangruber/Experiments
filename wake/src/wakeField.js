@@ -54,6 +54,7 @@ const RIBBON_FRAG = /* glsl */`
   uniform float uTransAmp, uTransLen, uTransDecay, uFlatten;
   uniform float uFoamScale, uFoamContrast, uBreakup, uFoamLife, uDissolve;
   uniform float uLace, uLaceAmt, uSoftness;
+  uniform float uBubPlume, uBubW, uBubSpread, uBubLen, uBubArms, uBubLife, uBubMottle;
 
   ${NOISE_GLSL}
 
@@ -164,6 +165,25 @@ const RIBBON_FRAG = /* glsl */`
     float hull = 1.0 - smoothstep(0.62, 1.05, length(hp));
     foam *= 1.0 - hull * 0.92;
 
+    // ------------------------------------------------- subsurface bubbles --
+    // The prop is underwater, so most of the air it drags in never reaches the
+    // surface as foam. It stays as a plume in the water column: wider and much
+    // longer-lived than the foam above it, still there long after the white has
+    // gone. Seen through water it is cloudy rather than granular, so this is
+    // deliberately low frequency -- and cheap to bake, unlike the lace.
+    float bw = max(uBubW + arc * uBubSpread, 0.1);
+    float bg = exp(-(d / bw) * (d / bw));
+    float plume = astern * bg * uBubPlume * exp(-arc / max(uBubLen, 1.0));
+
+    // Spray plunging back in entrains its own air along each arm.
+    float entrain = armG * uBubArms * armFade;
+
+    float bubAge = clamp(age / max(uBubLife, 0.01), 0.0, 1.0);
+    float bub = (plume + entrain) * pow(1.0 - bubAge, 1.15);
+    float cloud = fbm(vWorld * uFoamScale * 0.55) * 0.65
+                + fbm(vWorld * uFoamScale * 1.45) * 0.45;
+    bub *= mix(1.0, 0.18 + 1.55 * cloud, uBubMottle);
+
     // The oldest end of the trail is a mesh boundary, not a physical edge.
     float tailFade = 1.0 - smoothstep(uMaxArc - min(70.0, uMaxArc * 0.3), uMaxArc, arc);
     foam *= tailFade;
@@ -171,7 +191,7 @@ const RIBBON_FRAG = /* glsl */`
     float height  = (armH + washH + trans) * mix(0.35, 1.0, alive) * tailFade;
     float flatten = clamp((insideV + wg) * uFlatten * alive, 0.0, 1.0) * tailFade;
 
-    gl_FragColor = vec4(foam * edge, height * edge, flatten * edge, 1.0);
+    gl_FragColor = vec4(foam * edge, height * edge, flatten * edge, max(bub, 0.0) * tailFade * edge);
   }
 `;
 
@@ -247,6 +267,8 @@ export class WakeField {
       uFoamScale: { value: 1 }, uFoamContrast: { value: 1 }, uBreakup: { value: 0 },
       uFoamLife: { value: 1 }, uDissolve: { value: 1 },
       uLace: { value: 1 }, uLaceAmt: { value: 0 }, uSoftness: { value: 0.2 },
+      uBubPlume: { value: 0 }, uBubW: { value: 1 }, uBubSpread: { value: 0 },
+      uBubLen: { value: 1 }, uBubArms: { value: 0 }, uBubLife: { value: 1 }, uBubMottle: { value: 0 },
     };
 
     this.material = new THREE.ShaderMaterial({
@@ -389,6 +411,13 @@ export class WakeField {
     u.uLace.value = get('foamLook.lace');
     u.uLaceAmt.value = get('foamLook.laceAmount');
     u.uSoftness.value = get('foamLook.softness');
+    u.uBubPlume.value = get('bubbles.plume');
+    u.uBubW.value = get('bubbles.width');
+    u.uBubSpread.value = get('bubbles.spread');
+    u.uBubLen.value = get('bubbles.length');
+    u.uBubArms.value = get('bubbles.fromArms');
+    u.uBubLife.value = get('bubbles.life');
+    u.uBubMottle.value = get('bubbles.mottle');
   }
 
   /** Point the field at a world position (snapped, so the texture doesn't crawl). */

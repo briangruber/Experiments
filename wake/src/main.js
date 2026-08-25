@@ -156,7 +156,10 @@ const fieldQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.Shader
     varying vec2 vUv; uniform sampler2D uTex;
     void main(){
       vec4 t = texture2D(uTex, vUv);
-      vec3 c = vec3(clamp(t.r,0.0,1.5)*0.66, clamp(t.g*1.6+0.5,0.0,1.0)*0.5, clamp(t.b,0.0,1.0)*0.5);
+      // white = surface foam, teal = subsurface bubbles, dim red = displacement
+      vec3 c = vec3(clamp(t.r, 0.0, 1.5)) * 0.8;
+      c += vec3(0.0, 0.55, 0.62) * clamp(t.a, 0.0, 1.5) * 0.75;
+      c.r += clamp(abs(t.g) * 0.9, 0.0, 0.5) * 0.35;
       gl_FragColor = vec4(pow(c, vec3(0.85)), 1.0);
     }`,
 }));

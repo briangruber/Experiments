@@ -14,6 +14,7 @@ const GROUP_TITLES = {
   wash: 'Prop wash',
   inner: 'Inside the V',
   foamLook: 'Foam texture',
+  bubbles: 'Subsurface bubbles',
   foamMix: 'Foam on water',
   ocean: 'Water & light',
   quality: 'Performance',
