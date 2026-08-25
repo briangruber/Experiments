@@ -82,6 +82,12 @@ export const PARAMS = {
     exposure:     { v: 1.0,  min: 0.2, max: 3,   step: 0.01, label: 'Exposure' },
   },
 
+  // Cost, not looks. Auto-set on load from the device, then yours to override.
+  quality: {
+    renderScale:  { v: 2.0,  min: 0.5, max: 2,   step: 0.25, label: 'Render scale' },
+    oceanDetail:  { v: 560,  min: 140, max: 760, step: 20,   label: 'Ocean detail' },
+  },
+
   field: {
     extent:       { v: 340,  min: 80,  max: 700, step: 10,   label: 'Wake field size (m)' },
     trailLength:  { v: 620,  min: 50,  max: 1200,step: 10,   label: 'Trail length (m)' },

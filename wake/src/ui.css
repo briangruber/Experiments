@@ -82,9 +82,11 @@ html, body {
   margin-left: auto;
 }
 
-.views { display: flex; gap: 5px; }
+.views, .zoom { display: flex; gap: 5px; }
+.zoom button { min-width: 30px; font-size: 15px; line-height: 1; padding: 5px 8px; }
 
 .views button,
+.zoom button,
 #rail-toggle,
 .bar button {
   font-family: var(--font-ui);
@@ -101,6 +103,7 @@ html, body {
 }
 
 .views button:hover,
+.zoom button:hover,
 #rail-toggle:hover,
 .bar button:hover { color: var(--foam); border-color: var(--dimmer); }
 
@@ -117,7 +120,7 @@ html, body {
 
 /* -------------------------------------------------------------- control rail -- */
 
-#rail-toggle { position: fixed; top: 9px; right: 12px; z-index: 7; display: none; }
+#rail-toggle { display: none; }
 
 #ui {
   position: fixed;
@@ -231,17 +234,32 @@ input[type=range]::-moz-range-thumb {
 @media (max-width: 720px) {
   :root { --rail: 0px; }
 
-  #hud { right: 0; padding-right: 108px; }
+  /* Let the strip wrap rather than letting the Controls button land on top of
+     the view buttons. */
+  #hud {
+    right: 0;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    padding: 8px 10px;
+  }
+
   #hud .hint { display: none; }
+  #hud .brand { font-size: 13px; letter-spacing: 0.1em; }
+  #fps { min-width: 0; margin-right: auto; }
   #rail-toggle { display: block; }
 
+  .views button, .zoom button, #rail-toggle { font-size: 12px; padding: 4px 8px 3px; }
+
+  /* A sheet, not a wall: the canvas keeps most of the screen, and the sheet is
+     closed on load. */
   #ui {
     top: auto;
     bottom: 0;
     width: 100%;
-    height: 58%;
+    height: 62svh;
     border-left: none;
     border-top: 1px solid var(--hair);
+    box-shadow: 0 -18px 40px #0007;
   }
 
   body.rail-closed #ui { display: none; }

@@ -31,17 +31,34 @@ const HEIGHT_GLSL = /* glsl */`
 
   // px: the world-space width of one screen pixel here. Any wave shorter than a
   // couple of pixels is just a moire generator, so it is faded out.
-  float swellAt(vec2 p, float px){
+  //
+  // Returns height in .x and the surface gradient in .yz. The gradient is
+  // analytic -- these are sums of sines, so differentiating them costs one cos
+  // per term instead of four extra evaluations of the whole function.
+  vec3 swellHG(vec2 p, float px){
     float lod  = 1.0 - smoothstep(0.10, 0.42, px / max(uSwellLen * 0.17, 0.5));
     float lodS = 1.0 - smoothstep(0.10, 0.42, px / max(uSwellLen, 1.0));
-    float k = 6.28318 / max(uSwellLen, 1.0);
-    float h = sin(p.x * k * 0.86 + p.y * k * 0.51 - uTime * 0.55) * uSwellAmp * lodS;
-    h += sin(p.x * k * -0.42 + p.y * k * 1.13 - uTime * 0.79) * uSwellAmp * 0.55 * lodS;
+    float k  = 6.28318 / max(uSwellLen, 1.0);
     float kc = 6.28318 / (max(uSwellLen, 1.0) * 0.17);
-    h += sin(p.x * kc * 1.1 + p.y * kc * 0.7 - uTime * 2.4) * uChopAmp * lod;
-    h += sin(p.x * kc * -0.6 + p.y * kc * 1.4 - uTime * 3.1) * uChopAmp * 0.7 * lod;
-    return h;
+
+    // Each wave: (kx, kz, amplitude, phase).
+    vec2 k1 = vec2( 0.86,  0.51) * k;   float a1 = uSwellAmp * lodS;
+    vec2 k2 = vec2(-0.42,  1.13) * k;   float a2 = uSwellAmp * 0.55 * lodS;
+    vec2 k3 = vec2( 1.10,  0.70) * kc;  float a3 = uChopAmp * lod;
+    vec2 k4 = vec2(-0.60,  1.40) * kc;  float a4 = uChopAmp * 0.7 * lod;
+
+    float p1 = dot(p, k1) - uTime * 0.55;
+    float p2 = dot(p, k2) - uTime * 0.79;
+    float p3 = dot(p, k3) - uTime * 2.40;
+    float p4 = dot(p, k4) - uTime * 3.10;
+
+    float h = a1 * sin(p1) + a2 * sin(p2) + a3 * sin(p3) + a4 * sin(p4);
+    vec2 g = a1 * cos(p1) * k1 + a2 * cos(p2) * k2
+           + a3 * cos(p3) * k3 + a4 * cos(p4) * k4;
+    return vec3(h, g);
   }
+
+  float swellAt(vec2 p, float px){ return swellHG(p, px).x; }
 
   // One height function, used for both displacement and normals.
   float heightAt(vec2 p, float px){
@@ -80,11 +97,21 @@ const FRAG = /* glsl */`
     px = max(px, uVertexStep);
     float e = max(0.18, px * 1.2);
 
-    float hL = heightAt(vWorld.xz - vec2(e, 0.0), px);
-    float hR = heightAt(vWorld.xz + vec2(e, 0.0), px);
-    float hD = heightAt(vWorld.xz - vec2(0.0, e), px);
-    float hU = heightAt(vWorld.xz + vec2(0.0, e), px);
-    vec3 N = normalize(vec3(hL - hR, 2.0 * e, hD - hU));
+    // Swell: height and slope in one evaluation.
+    vec3 sw = swellHG(vWorld.xz, px);
+
+    // Wake: only the texture needs differencing, and these are cache-friendly
+    // fetches from a small target rather than another pass over the waves.
+    vec4 w  = wakeAt(vWorld.xz);
+    float gL = wakeAt(vWorld.xz - vec2(e, 0.0)).g;
+    float gR = wakeAt(vWorld.xz + vec2(e, 0.0)).g;
+    float gD = wakeAt(vWorld.xz - vec2(0.0, e)).g;
+    float gU = wakeAt(vWorld.xz + vec2(0.0, e)).g;
+
+    // d/dp [ swell * (1 - flatten) + wakeHeight ], with the flatten term
+    // folded in as a scale on the swell slope.
+    vec2 grad = sw.yz * (1.0 - w.b) + vec2(gR - gL, gU - gD) / (2.0 * e);
+    vec3 N = normalize(vec3(-grad.x, 1.0, -grad.y));
 
     vec3 V = normalize(uEye - vWorld);
     vec3 L = normalize(uSunDir);
@@ -100,7 +127,6 @@ const FRAG = /* glsl */`
     col += uDeep * max(dot(N, L), 0.0) * 0.25;
 
     // ------------------------------------------------------------------ foam --
-    vec4 w = wakeAt(vWorld.xz);
     float foam = clamp(w.r, 0.0, 1.6);
     // Foam is thick where it is dense and thins to a bubble veil at the edges,
     // so it reads as coverage rather than as a painted-on white decal.
@@ -136,7 +162,7 @@ export class Ocean {
       uSwellAmp: { value: 0 }, uSwellLen: { value: 20 }, uChopAmp: { value: 0 },
       uTime: { value: 0 },
       uEyePos: { value: new THREE.Vector3() },
-      uVertexStep: { value: size / seg },
+      uVertexStep: { value: size / seg },  // reset by setDetail()
       uSunDir: { value: new THREE.Vector3(0, 1, 0) },
       uDeep: { value: new THREE.Color() },
       uSky: { value: new THREE.Color() },
@@ -145,14 +171,27 @@ export class Ocean {
       uFar: { value: size * 0.55 },
     };
 
-    const g = new THREE.PlaneGeometry(size, size, seg, seg);
-    g.rotateX(-Math.PI / 2);
-    this.mesh = new THREE.Mesh(g, new THREE.ShaderMaterial({
+    this.material = new THREE.ShaderMaterial({
       uniforms: this.uniforms,
       vertexShader: VERT,
       fragmentShader: FRAG,
-    }));
+    });
+    this.mesh = new THREE.Mesh(new THREE.BufferGeometry(), this.material);
     this.mesh.frustumCulled = false;
+    this.setDetail(seg);
+  }
+
+  /** Retessellate. The vertex spacing is also the level-of-detail floor, since
+   *  the surface cannot show detail finer than its own geometry. */
+  setDetail(seg) {
+    seg = Math.max(32, Math.round(seg));
+    if (seg === this.seg) return;
+    this.seg = seg;
+    this.mesh.geometry?.dispose();
+    const g = new THREE.PlaneGeometry(this.size, this.size, seg, seg);
+    g.rotateX(-Math.PI / 2);
+    this.mesh.geometry = g;
+    this.uniforms.uVertexStep.value = this.size / seg;
   }
 
   update(t, eye, focusX, focusZ, wakeField) {
@@ -177,7 +216,7 @@ export class Ocean {
     u.uExposure.value = get('ocean.exposure');
 
     // Follow the boat, snapped to the vertex grid so the mesh doesn't crawl.
-    const step = this.size / 560 * 8;
+    const step = this.size / this.seg * 8;
     this.mesh.position.set(Math.round(focusX / step) * step, 0, Math.round(focusZ / step) * step);
   }
 }

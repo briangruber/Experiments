@@ -6,8 +6,11 @@ wake right, fast, with every parameter on a slider.
     npx serve .        # or any static server
     open http://localhost:3000
 
-`drag` orbit · `wheel` zoom · `T` top-down · `A/D` steer · `W/S` throttle ·
-`F` show the raw wake buffer · `H` hide UI
+`drag` orbit · `wheel` zoom · `double-click` reframe · `T` top-down ·
+`A/D` steer · `W/S` throttle · `F` show the raw wake buffer · `H` hide UI
+
+On touch: one finger orbits, two fingers pinch to zoom and twist. The control
+rail is a bottom sheet, closed on load so the canvas gets the whole screen.
 
 ## How it works
 
@@ -60,6 +63,19 @@ starts with a full-length wake. The sim is stepped independently of rendering �
 without that, a slow headless frame rate silently shortens the wake.
 
 Exits non-zero on any WebGL/JS error, so it doubles as a smoke test.
+
+## Performance
+
+The Performance group sets render scale and ocean tessellation. Both are
+auto-set on load — phones and >2x displays start at scale 1 / 260 segments —
+and both stay editable.
+
+The fragment shader is the cost centre: it evaluates the surface height for
+normals as well as for displacement. The swell's gradient is computed
+analytically rather than by finite differences, which is what keeps that from
+being four extra evaluations of the whole wave sum per pixel. Only the wake
+texture is differenced, since a fetch is cheaper than another pass over the
+waves.
 
 ## Known gaps
 

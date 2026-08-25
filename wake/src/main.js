@@ -28,29 +28,111 @@ scene.add(boat);
 // Position is the BOW: the arms are born there, so that is the anchor.
 const state = { x: 0, z: 0, heading: 0, t: 0 };
 
+// --------------------------------------------------------------------- boot --
+const hud = document.getElementById('hud');
+
+function setView(mode) {
+  if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
+  if (mode === 'chase') { view.topDown = false; view.pitch = -0.42; view.yaw = 0; view.dist = 46; }
+  if (mode === 'field') hud.dataset.field = hud.dataset.field === '1' ? '' : '1';
+  syncViewButtons();
+}
+
+function syncViewButtons() {
+  for (const b of hud.querySelectorAll('[data-view]')) {
+    const m = b.dataset.view;
+    b.classList.toggle('on', m === 'field' ? hud.dataset.field === '1'
+                           : m === 'top' ? view.topDown : !view.topDown);
+  }
+}
+
+for (const b of hud.querySelectorAll('[data-view]'))
+  b.addEventListener('click', () => setView(b.dataset.view));
+
+for (const b of hud.querySelectorAll('[data-zoom]'))
+  b.addEventListener('click', () => zoomBy(b.dataset.zoom === 'in' ? 0.72 : 1.38));
+
+// On a phone the rail covers most of the screen, so the canvas gets it first.
+const narrow = matchMedia('(max-width: 720px)').matches;
+if (narrow) document.body.classList.add('rail-closed');
+
+const railToggle = document.getElementById('rail-toggle');
+railToggle?.addEventListener('click', () => {
+  const closed = document.body.classList.toggle('rail-closed');
+  railToggle.setAttribute('aria-expanded', String(!closed));
+});
+railToggle?.setAttribute('aria-expanded', String(!narrow));
+
+// Cost defaults follow the device; both stay editable in the Performance group.
+if (narrow || devicePixelRatio > 2.5) {
+  set('quality.renderScale', 1);
+  set('quality.oceanDetail', 260);
+} else {
+  set('quality.renderScale', Math.min(devicePixelRatio, 2));
+}
+buildUI(document.getElementById('ui'), {
+  onChange: () => boat.userData.scaleTo(),
+});
+
 // ------------------------------------------------------------------- camera --
 // Straight down by default, because that is the view the reference is shot from
 // and the only one where the wake's geometry is unambiguous.
 const view = { pitch: -Math.PI / 2, yaw: 0, dist: 155, topDown: true, follow: true };
 
-let drag = null;
+// Camera input. One pointer orbits, two pinch to zoom and twist the heading —
+// on a phone there is no wheel, so pinch is the only way to get the whole wake
+// in frame, and without it the view is stuck wherever it started.
+const pointers = new Map();
+let pinch = null;
+
+const zoomBy = (f) => { view.dist = THREE.MathUtils.clamp(view.dist * f, 6, 1400); };
+
 canvas.addEventListener('pointerdown', (e) => {
-  drag = { x: e.clientX, y: e.clientY };
   canvas.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  pinch = null;
 });
+
 canvas.addEventListener('pointermove', (e) => {
-  if (!drag) return;
-  view.yaw -= (e.clientX - drag.x) * 0.005;
-  view.pitch = THREE.MathUtils.clamp(view.pitch - (e.clientY - drag.y) * 0.005, -Math.PI / 2, -0.03);
-  view.topDown = false;
-  syncViewButtons();
-  drag = { x: e.clientX, y: e.clientY };
+  const prev = pointers.get(e.pointerId);
+  if (!prev) return;
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+  if (pointers.size === 1) {
+    view.yaw -= (e.clientX - prev.x) * 0.005;
+    view.pitch = THREE.MathUtils.clamp(view.pitch - (e.clientY - prev.y) * 0.005, -Math.PI / 2, -0.03);
+    view.topDown = false;
+    syncViewButtons();
+  } else if (pointers.size === 2) {
+    const [a, b] = [...pointers.values()];
+    const span = Math.hypot(a.x - b.x, a.y - b.y);
+    const ang = Math.atan2(b.y - a.y, b.x - a.x);
+    if (pinch) {
+      if (pinch.span > 1) zoomBy(pinch.span / Math.max(span, 1));
+      let d = ang - pinch.ang;
+      while (d > Math.PI) d -= Math.PI * 2;
+      while (d < -Math.PI) d += Math.PI * 2;
+      view.yaw += d;
+    }
+    pinch = { span, ang };
+  }
 });
-addEventListener('pointerup', () => (drag = null));
+
+const release = (e) => {
+  pointers.delete(e.pointerId);
+  if (pointers.size < 2) pinch = null;
+};
+canvas.addEventListener('pointerup', release);
+canvas.addEventListener('pointercancel', release);
+addEventListener('pointerup', release);
+
 canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
-  view.dist = THREE.MathUtils.clamp(view.dist * Math.exp(e.deltaY * 0.0012), 8, 900);
+  zoomBy(Math.exp(e.deltaY * 0.0012));
 }, { passive: false });
+
+// Double-tap / double-click reframes, so a lost view is always one gesture away.
+canvas.addEventListener('dblclick', () => setView('top'));
 
 const keys = new Set();
 addEventListener('keydown', (e) => {
@@ -80,36 +162,6 @@ const fieldQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.Shader
 }));
 fieldScene.add(fieldQuad);
 
-// --------------------------------------------------------------------- boot --
-const hud = document.getElementById('hud');
-
-function setView(mode) {
-  if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
-  if (mode === 'chase') { view.topDown = false; view.pitch = -0.42; view.yaw = 0; view.dist = 46; }
-  if (mode === 'field') hud.dataset.field = hud.dataset.field === '1' ? '' : '1';
-  syncViewButtons();
-}
-
-function syncViewButtons() {
-  for (const b of hud.querySelectorAll('[data-view]')) {
-    const m = b.dataset.view;
-    b.classList.toggle('on', m === 'field' ? hud.dataset.field === '1'
-                           : m === 'top' ? view.topDown : !view.topDown);
-  }
-}
-
-for (const b of hud.querySelectorAll('[data-view]'))
-  b.addEventListener('click', () => setView(b.dataset.view));
-
-const railToggle = document.getElementById('rail-toggle');
-railToggle?.addEventListener('click', () => {
-  const closed = document.body.classList.toggle('rail-closed');
-  railToggle.setAttribute('aria-expanded', String(!closed));
-});
-buildUI(document.getElementById('ui'), {
-  onChange: () => boat.userData.scaleTo(),
-});
-
 // URL overrides: ?arms.angle=18&boat.speed=15 — handy for headless captures.
 for (const [k, v] of new URLSearchParams(location.search)) {
   if (k.includes('.')) set(k, v);
@@ -131,6 +183,7 @@ resize();
 // --------------------------------------------------------------------- loop --
 let last = performance.now();
 let fpsAcc = 0, fpsN = 0;
+let lastScale = -1;
 
 // Sim is stepped independently of rendering, so a slow (or headless) frame rate
 // shortens the wake rather than silently rewinding the boat.
@@ -185,6 +238,10 @@ function frame(now) {
   sun.position.copy(sd).multiplyScalar(200).add(boat.position);
   sun.target.position.copy(boat.position);
   sun.target.updateMatrixWorld();
+
+  const scale = Math.min(devicePixelRatio, get('quality.renderScale'));
+  if (scale !== lastScale) { lastScale = scale; renderer.setPixelRatio(scale); resize(); }
+  ocean.setDetail(get('quality.oceanDetail'));
 
   ocean.update(state.t, camera.position, state.x, state.z, wake);
 
