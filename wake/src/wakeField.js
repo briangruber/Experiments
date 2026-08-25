@@ -37,10 +37,11 @@ const RIBBON_VERT = /* glsl */`
   attribute float aU;
   attribute vec2 aTan;
   attribute float aSpd;
+  attribute float aTurn;
   varying float vArc; varying float vLat; varying float vAge; varying float vU;
-  varying vec2 vWorld; varying vec2 vTan; varying float vSpd;
+  varying vec2 vWorld; varying vec2 vTan; varying float vSpd; varying float vTurn;
   void main(){
-    vArc = aArc; vLat = aLat; vAge = aAge; vU = aU; vTan = aTan; vSpd = aSpd;
+    vArc = aArc; vLat = aLat; vAge = aAge; vU = aU; vTan = aTan; vSpd = aSpd; vTurn = aTurn;
     vWorld = position.xz;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
@@ -49,7 +50,7 @@ const RIBBON_VERT = /* glsl */`
 const RIBBON_FRAG = /* glsl */`
   precision highp float;
   varying float vArc; varying float vLat; varying float vAge; varying float vU;
-  varying vec2 vWorld; varying vec2 vTan; varying float vSpd;
+  varying vec2 vWorld; varying vec2 vTan; varying float vSpd; varying float vTurn;
 
   uniform float uMaxArc, uPlaning;
   uniform float uBeam, uHullLen, uEngines, uEngineGap;
@@ -57,6 +58,7 @@ const RIBBON_FRAG = /* glsl */`
   uniform float uRim, uRimW, uNearBoost, uNearLen, uCarve;
   uniform float uFeatSpace, uFeatGrow, uFeatLean, uFeatDepth, uFeatJitter, uFeatSharp;
   uniform float uWashW, uWashWGrow, uWashFoam, uWashLen, uWashTail, uWashDepth;
+  uniform float uFrPeak, uBeamGain, uInterf, uTurnBias;
   uniform float uKelvinScale, uKelvinProp, uKelvinAmp, uKelvinDiv, uKelvinTrans, uKelvinCusp, uKelvinDecay, uKelvinLife, uKelvinMin;
   uniform float uFoamScale, uFoamContrast, uBreakup, uFoamLife, uDissolve;
   uniform float uLace, uLaceAmt, uSoftness;
@@ -204,8 +206,33 @@ const RIBBON_FRAG = /* glsl */`
       float cusp = 1.0 + uKelvinCusp * exp(-6.0 * disc / (u * u + 1.0));
 
       float kAge = pow(1.0 - clamp(age / max(uKelvinLife, 0.01), 0.0, 1.0), 1.1);
+
+      // ---- how big a wave this hull makes, at this speed ------------------
+      // Length Froude number. Wave-making is not linear in speed: it climbs,
+      // peaks near hull speed where the hull is trapped between its own bow
+      // and stern crests, and falls away again once it lifts and planes.
+      float Fr = kv / sqrt(9.81 * max(uHullLen, 0.5));
+      float fr = Fr / max(uFrPeak, 0.05);
+      float hump = fr * fr * exp(1.0 - fr * fr);          // peaks at 1.0, at Fr = uFrPeak
+
+      // Bow and stern each raise their own system, separated by the hull's
+      // length. They add or cancel depending on how many wavelengths fit
+      // between them -- the classic humps and hollows in a hull's resistance
+      // curve, and the reason a given hull has speeds that feel cheap and
+      // speeds that feel expensive.
+      float interf = mix(1.0, abs(cos(k0 * uHullLen * 0.5)) * 1.6, uInterf);
+
+      // A beamier hull pushes more water aside.
+      float beam = mix(1.0, uBeam / 2.6, uBeamGain);
+
+      // In a turn the outside of the curve is where the hull is throwing its
+      // water, so that side runs bigger.
+      float side = clamp(vTurn * sign(d) * -6.0, -1.0, 1.0);
+      float turnGain = 1.0 + side * uTurnBias * 0.5;
+
       kelvinH = (cos(pd) * uKelvinDiv * fd + cos(pt) * uKelvinTrans * ft)
-              * fall * cusp * kAge * uKelvinAmp * moving;
+              * fall * cusp * kAge * uKelvinAmp * moving
+              * hump * interf * beam * turnGain;
     }
 
     // ------------------------------------------------------------ foam look --
@@ -347,6 +374,7 @@ export class WakeField {
     this.uu = new Float32Array(nv);
     this.tan = new Float32Array(nv * 2);
     this.spd = new Float32Array(nv);
+    this.trn = new Float32Array(nv);
     g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('aArc', new THREE.BufferAttribute(this.arc, 1).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('aLat', new THREE.BufferAttribute(this.lat, 1).setUsage(THREE.DynamicDrawUsage));
@@ -354,6 +382,7 @@ export class WakeField {
     g.setAttribute('aU', new THREE.BufferAttribute(this.uu, 1).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('aTan', new THREE.BufferAttribute(this.tan, 2).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('aSpd', new THREE.BufferAttribute(this.spd, 1).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute('aTurn', new THREE.BufferAttribute(this.trn, 1).setUsage(THREE.DynamicDrawUsage));
 
     const idx = new Uint32Array((MAX_SAMPLES - 1) * LAT_SEG * 6);
     let o = 0;
@@ -382,7 +411,8 @@ export class WakeField {
       uWashW: { value: 1 }, uWashWGrow: { value: 0 }, uWashFoam: { value: 1 },
       uWashLen: { value: 1 }, uWashTail: { value: 0 }, uWashDepth: { value: 0 },
       uBubDepth: { value: 1 }, uBubRise: { value: 0.2 }, uBubExt: { value: 0.4 },
-      uKelvinScale: { value: 0.5 }, uKelvinProp: { value: 1 }, uPlaning: { value: 6.5 }, uKelvinAmp: { value: 0 }, uKelvinDiv: { value: 1 },
+      uKelvinScale: { value: 0.5 }, uKelvinProp: { value: 1 }, uPlaning: { value: 6.5 },
+      uFrPeak: { value: 0.5 }, uBeamGain: { value: 1 }, uInterf: { value: 0.5 }, uTurnBias: { value: 0.5 }, uKelvinAmp: { value: 0 }, uKelvinDiv: { value: 1 },
       uKelvinTrans: { value: 0.5 }, uKelvinCusp: { value: 1 }, uKelvinDecay: { value: 100 },
       uKelvinLife: { value: 100 }, uKelvinMin: { value: 3 },
       uFoamScale: { value: 1 }, uFoamContrast: { value: 1 }, uBreakup: { value: 0 },
@@ -412,13 +442,13 @@ export class WakeField {
   }
 
   /** Record where the bow is now. Called every frame; samples are decimated. */
-  pushSample(x, z, hx, hz, t, speed = 0) {
+  pushSample(x, z, hx, hz, t, speed = 0, turn = 0) {
     const last = this.path[0];
     if (last) {
       const dx = x - last.x, dz = z - last.z;
-      if (dx * dx + dz * dz < STEP * STEP) { this.head = { x, z, hx, hz, t, speed }; return; }
+      if (dx * dx + dz * dz < STEP * STEP) { this.head = { x, z, hx, hz, t, speed, turn }; return; }
     }
-    this.path.unshift({ x, z, hx, hz, t, speed });
+    this.path.unshift({ x, z, hx, hz, t, speed, turn });
     this.head = null;
     const maxArc = get('field.trailLength');
     // Trim to the requested trail length.
@@ -482,12 +512,13 @@ export class WakeField {
         this.tan[vi * 2] = tx;
         this.tan[vi * 2 + 1] = tz;
         this.spd[vi] = p.speed || 0;
+        this.trn[vi] = p.turn || 0;
       }
       o += LAT_SEG + 1;
     }
 
     const g = this.geometry;
-    for (const name of ['position', 'aArc', 'aLat', 'aAge', 'aU', 'aTan', 'aSpd']) {
+    for (const name of ['position', 'aArc', 'aLat', 'aAge', 'aU', 'aTan', 'aSpd', 'aTurn']) {
       const n = name === 'position' ? o * 3 : name === 'aTan' ? o * 2 : o;
       g.getAttribute(name).addUpdateRange(0, n);
       g.getAttribute(name).needsUpdate = true;
@@ -539,6 +570,10 @@ export class WakeField {
     // scale slider stretches it because the hull size here is a stand-in.
     u.uKelvinScale.value = Math.max(get('kelvin.waveScale'), 0.05);
     u.uKelvinProp.value = get('kelvin.propagate');
+    u.uFrPeak.value = get('kelvin.froudePeak');
+    u.uBeamGain.value = get('kelvin.beamGain');
+    u.uInterf.value = get('kelvin.interference');
+    u.uTurnBias.value = get('kelvin.turnBias');
     u.uPlaning.value = get('boat.planing');
     u.uKelvinAmp.value = get('kelvin.amp');
     u.uKelvinDiv.value = get('kelvin.divergent');

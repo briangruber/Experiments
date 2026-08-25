@@ -147,6 +147,35 @@ html, body {
 body.hide-ui #ui,
 body.hide-ui #hud { display: none; }
 
+/* Lives outside both panels so it survives hiding them, and fades to a ghost
+ * once they are gone -- present enough to find, quiet enough to shoot past. */
+#chrome-toggle {
+  position: fixed;
+  top: 10px;
+  right: calc(var(--rail) + 12px);
+  z-index: 8;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--dim);
+  background: var(--raised);
+  border: 1px solid var(--hair);
+  border-radius: 3px;
+  padding: 4px 11px 3px;
+  cursor: pointer;
+  transition: opacity 0.2s, color 0.14s, border-color 0.14s;
+}
+#chrome-toggle:hover { color: var(--foam); border-color: var(--dimmer); }
+
+body.hide-ui #chrome-toggle {
+  right: 12px;
+  opacity: 0.22;
+  background: transparent;
+  border-color: transparent;
+}
+body.hide-ui #chrome-toggle:hover { opacity: 1; }
+
 details {
   border: 1px solid var(--hair);
   border-radius: 4px;
@@ -245,6 +274,7 @@ input[type=range]::-moz-range-thumb {
 
   #hud .hint { display: none; }
   #hud .brand { font-size: 13px; letter-spacing: 0.1em; }
+  #chrome-toggle { top: auto; bottom: 12px; right: 12px; font-size: 12px; }
   #fps { min-width: 0; margin-right: auto; }
   #rail-toggle { display: block; }
 

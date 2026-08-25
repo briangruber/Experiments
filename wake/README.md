@@ -54,6 +54,24 @@ Read from the reference footage, and each piece is a separate slider group:
 Foam noise is sampled in **world space**, so bubbles stay locked to the water
 instead of swimming along with the boat.
 
+### Wave size comes from the hull, not from a slider
+
+Kelvin amplitude is computed from the boat rather than dialled in:
+
+- **Length Froude number**, `Fr = V / sqrt(gL)`. Wave-making is not linear in
+  speed — it climbs, peaks near hull speed where the hull is trapped between its
+  own bow and stern crests, then falls away as it lifts and planes.
+- **Bow/stern interference.** Both ends raise their own system, separated by the
+  hull's length, and they add or cancel depending on how many wavelengths fit
+  between them. These are the humps and hollows in a hull's resistance curve —
+  why a given hull has speeds that feel cheap and speeds that feel expensive.
+- **Beam** scales it: a beamier hull pushes more water aside.
+- **Turn rate**, carried per path sample, runs the outside of a curve bigger
+  than the inside.
+- **Acceleration** needs no special term: since every sample carries the speed
+  it was made at, the wake behind an accelerating boat is genuinely not
+  self-similar — the wavelength shortens towards its tail on its own.
+
 ### Speed, and why the wake has to remember it
 
 Every source scales by the speed the boat was doing **when it passed that spot**,

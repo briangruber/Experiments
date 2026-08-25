@@ -30,7 +30,7 @@ scene.add(boat);
 
 // --------------------------------------------------------------- boat state --
 // Position is the BOW: the arms are born there, so that is the anchor.
-const state = { x: 0, z: 0, heading: 0, t: 0, speed: 0 };
+const state = { x: 0, z: 0, heading: 0, t: 0, speed: 0, turn: 0 };
 
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
@@ -58,6 +58,14 @@ for (const b of hud.querySelectorAll('[data-zoom]'))
 
 // On a phone the rail covers most of the screen, so the canvas gets it first.
 if (narrow) document.body.classList.add('rail-closed');
+
+const chromeToggle = document.getElementById('chrome-toggle');
+function setChrome(hidden) {
+  document.body.classList.toggle('hide-ui', hidden);
+  chromeToggle.textContent = hidden ? 'Show UI' : 'Hide UI';
+  chromeToggle.setAttribute('aria-pressed', String(hidden));
+}
+chromeToggle.addEventListener('click', () => setChrome(!document.body.classList.contains('hide-ui')));
 
 const railToggle = document.getElementById('rail-toggle');
 railToggle?.addEventListener('click', () => {
@@ -146,7 +154,7 @@ addEventListener('keydown', (e) => {
   // Arrows would scroll the page out from under the canvas.
   if (STEER_KEYS.has(k)) e.preventDefault();
   if (k === 't') setView('top');
-  if (k === 'h') document.body.classList.toggle('hide-ui');
+  if (k === 'h') setChrome(!document.body.classList.contains('hide-ui'));
   if (k === 'f') setView('field');
 });
 addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
@@ -229,11 +237,16 @@ function stepSim(dt) {
   const a = get('boat.accel') * dt;
   state.speed += Math.sign(target - state.speed) * Math.min(a, Math.abs(target - state.speed));
 
-  state.heading += turn * dt;
+  // Negated: the chase camera sits behind the hull, and in that view a rising
+  // heading swings the bow toward +X, which is screen LEFT. So starboard helm
+  // has to decrease heading -- and this makes a positive Turn slider mean
+  // "to starboard" as well.
+  state.turn = -turn;
+  state.heading += state.turn * dt;
   const hx = Math.sin(state.heading), hz = Math.cos(state.heading);
   state.x += hx * state.speed * dt;
   state.z += hz * state.speed * dt;
-  wake.pushSample(state.x, state.z, hx, hz, state.t, state.speed);
+  wake.pushSample(state.x, state.z, hx, hz, state.t, state.speed, state.turn);
   return { hx, hz };
 }
 
