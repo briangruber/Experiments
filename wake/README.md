@@ -43,6 +43,7 @@ Read from the reference footage, and each piece is a separate slider group:
 | **Prop wash** | Turbulent water off the transom. Brightest foam in the wake, shortest-lived. |
 | **Inside the V** | Flattened water carrying the transverse wave train. |
 | **Subsurface bubbles** | Air the prop drags *under* the surface. Not foam — see below. |
+| **Foam motion** | The lace surges with the swell, shears in the churn, and its cells burst and re-form — all as local motion. |
 | **Foam texture** | A reticulated bubble raft (noise contours) + flow-aligned streaks. |
 | **Foam on water** | How the foam sits *in* the water rather than on it: aeration halo, opacity build, translucency, relief, trough pooling. |
 
@@ -68,6 +69,29 @@ shallow and turquoise. Surface foam is composited after, on top.
 That ordering is the whole trick. Tint the water *after* adding reflection and
 specular and you get a flat turquoise decal; tint the body *before*, and the
 glints ride over the churn the way they do in real footage.
+
+### Keeping the lace alive without letting it drift
+
+Foam noise is world-locked, which is right — but it also makes it frozen.
+Animating it has one hard constraint: every motion must be a *bounded local
+offset*. Anything with a net translation slides the foam across water it is
+supposed to be floating on, which reads worse than no animation at all.
+
+Three motions, none of which translate:
+
+- **Surge with the swell.** Water in a wave moves in orbits, and the horizontal
+  part of that orbit follows the surface slope — already computed for the
+  normal, so this costs nothing and is automatically coherent with the waves.
+- **Turbulent shear.** A warp field whose own sample point travels a *circle*
+  rather than a line, so it evolves without going anywhere.
+- **Cells burst and re-form**, by the same circling trick applied to the lace
+  coordinates.
+
+`tools/motion.mjs` measures this: change between frames (is it animating?) and
+foam-centroid shift (is it drifting?). Run `--still` as a control — with the
+motion parameters zeroed, change must be zero. Note it flattens the swell
+first: moving water changes the shading under perfectly static foam, and that
+baseline is large enough to swamp what is being measured.
 
 ### Where the foam is decided
 
@@ -102,6 +126,10 @@ params** puts a state back. Everything is also settable by URL:
 `?arms.angle=18&boat.turnRate=6`.
 
 ## Headless captures
+
+    node tools/motion.mjs            # lace animates in place
+    node tools/motion.mjs --still    # control: nothing else may animate it
+    node tools/motion.mjs --drift    # the swell-surge term is live
 
     node tools/shot.mjs --out shots/a.png --cam -1.5708,0,150
     node tools/shot.mjs --out shots/turn.png --set boat.turnRate=6 --prewarm 120

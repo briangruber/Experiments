@@ -55,6 +55,7 @@ const RIBBON_FRAG = /* glsl */`
   uniform float uFoamScale, uFoamContrast, uBreakup, uFoamLife, uDissolve;
   uniform float uLace, uLaceAmt, uSoftness;
   uniform float uBubPlume, uBubW, uBubSpread, uBubLen, uBubArms, uBubLife, uBubMottle;
+  uniform float uTime, uSwirl;
 
   ${NOISE_GLSL}
 
@@ -180,8 +181,13 @@ const RIBBON_FRAG = /* glsl */`
 
     float bubAge = clamp(age / max(uBubLife, 0.01), 0.0, 1.0);
     float bub = (plume + entrain) * pow(1.0 - bubAge, 1.15);
-    float cloud = fbm(vWorld * uFoamScale * 0.55) * 0.65
-                + fbm(vWorld * uFoamScale * 1.45) * 0.45;
+    // The plume is the most turbulent part of the wake, so its clouds churn
+    // rather than sitting still. Circling sample offsets again: the cloud
+    // evolves in place instead of drifting off the water it belongs to.
+    vec2 sw1 = vec2(cos(uTime * 0.31), sin(uTime * 0.31)) * uSwirl * 1.3;
+    vec2 sw2 = vec2(cos(uTime * -0.19 + 2.1), sin(uTime * -0.19 + 2.1)) * uSwirl * 0.8;
+    float cloud = fbm(vWorld * uFoamScale * 0.55 + sw1) * 0.65
+                + fbm(vWorld * uFoamScale * 1.45 + sw2) * 0.45;
     bub *= mix(1.0, 0.18 + 1.55 * cloud, uBubMottle);
 
     // The oldest end of the trail is a mesh boundary, not a physical edge.
@@ -269,6 +275,7 @@ export class WakeField {
       uLace: { value: 1 }, uLaceAmt: { value: 0 }, uSoftness: { value: 0.2 },
       uBubPlume: { value: 0 }, uBubW: { value: 1 }, uBubSpread: { value: 0 },
       uBubLen: { value: 1 }, uBubArms: { value: 0 }, uBubLife: { value: 1 }, uBubMottle: { value: 0 },
+      uTime: { value: 0 }, uSwirl: { value: 0 },
     };
 
     this.material = new THREE.ShaderMaterial({
@@ -366,6 +373,7 @@ export class WakeField {
     g.setDrawRange(0, (n - 1) * LAT_SEG * 6);
 
     this._syncUniforms();
+    this.uniforms.uTime.value = now;
     this._bake();
   }
 
@@ -418,6 +426,7 @@ export class WakeField {
     u.uBubArms.value = get('bubbles.fromArms');
     u.uBubLife.value = get('bubbles.life');
     u.uBubMottle.value = get('bubbles.mottle');
+    u.uSwirl.value = get('foamMotion.plumeSwirl');
   }
 
   /** Point the field at a world position (snapped, so the texture doesn't crawl). */

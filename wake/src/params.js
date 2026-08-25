@@ -89,6 +89,17 @@ export const PARAMS = {
     milkiness:    { v: 0.35, min: 0,   max: 1,   step: 0.01, label: 'Milkiness' },
   },
 
+  // The lace is alive: it surges with the waves, shears in the churn, and its
+  // cells burst and re-form. All of it is LOCAL motion — nothing here may drift,
+  // or the foam would slide across water it is supposed to be floating on.
+  foamMotion: {
+    drift:        { v: 0.55, min: 0,   max: 3,   step: 0.01, label: 'Rides the swell' },
+    churn:        { v: 0.52, min: 0,   max: 2,   step: 0.01, label: 'Churn distortion (m)' },
+    churnSpeed:   { v: 0.46, min: 0,   max: 2,   step: 0.01, label: 'Churn speed' },
+    boil:         { v: 0.72, min: 0,   max: 2,   step: 0.01, label: 'Cells burst / re-form' },
+    plumeSwirl:   { v: 0.45, min: 0,   max: 2,   step: 0.01, label: 'Plume swirl' },
+  },
+
   // How the foam sits on the water rather than on top of it.
   foamMix: {
     density:      { v: 2.30, min: 0.3, max: 8,   step: 0.05, label: 'Opacity build' },

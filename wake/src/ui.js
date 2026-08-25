@@ -15,6 +15,7 @@ const GROUP_TITLES = {
   inner: 'Inside the V',
   foamLook: 'Foam texture',
   bubbles: 'Subsurface bubbles',
+  foamMotion: 'Foam motion',
   foamMix: 'Foam on water',
   ocean: 'Water & light',
   quality: 'Performance',

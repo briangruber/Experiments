@@ -90,6 +90,7 @@ const FRAG = /* glsl */`
   uniform float uFoamDensity, uTranslucency, uAeration, uRelief, uTroughBias, uWarmth;
   uniform float uLaceScale, uLaceAmt, uSoftness;
   uniform float uBubBright, uMilk;
+  uniform float uDrift, uChurn, uChurnSpeed, uBoil;
   uniform vec3  uBubCol;
   #define uEye uEyePos
 
@@ -175,9 +176,28 @@ const FRAG = /* glsl */`
     float alpha = 0.0;
     vec3 fN = N;
     if (foam > 0.004) {
-      vec2 lp = vWorld.xz * uLaceScale;
-      float cells = lattice1(lp, 0.115);
-      float grain = fbm3(lp * 2.6 + 7.0);
+      // --- motion -------------------------------------------------------
+      // Every term here is a bounded local offset. None of them translate, so
+      // the lace still belongs to the water rather than sliding over it.
+
+      // Surge with the passing swell. Water in a wave moves in orbits, and the
+      // horizontal part of that orbit goes with the surface slope -- which is
+      // already in hand from the normal, so this costs nothing.
+      vec2 orbit = sw.yz * uDrift * 5.0;
+
+      // Slow turbulent shear. The sample point of the warp field travels a
+      // circle rather than a line, so the field evolves without going anywhere.
+      vec2 co = vec2(cos(uTime * uChurnSpeed), sin(uTime * uChurnSpeed)) * 2.3;
+      vec2 churn = vec2(vnoise(vWorld.xz * 0.21 + co),
+                        vnoise(vWorld.xz * 0.21 + co.yx + 37.0)) - 0.5;
+
+      vec2 lp = (vWorld.xz + orbit + churn * uChurn * 3.4) * uLaceScale;
+
+      // Cells burst and re-form in place, by the same circling trick.
+      vec2 boil = vec2(cos(uTime * uBoil * 1.7), sin(uTime * uBoil * 1.7)) * uBoil * 0.85;
+
+      float cells = lattice1(lp + boil, 0.115);
+      float grain = fbm3(lp * 2.6 + 7.0 - boil);
       float detail = clamp(cells * 0.55 + grain * 0.62, 0.0, 1.0);
 
       // Sub-pixel lace would alias into sparkle, so it fades toward flat
@@ -239,6 +259,7 @@ export class Ocean {
       uRelief: { value: 0 }, uTroughBias: { value: 0 }, uWarmth: { value: 0 },
       uLaceScale: { value: 1 }, uLaceAmt: { value: 0 }, uSoftness: { value: 0.3 },
       uBubBright: { value: 1 }, uMilk: { value: 0 }, uBubCol: { value: new THREE.Color() },
+      uDrift: { value: 0 }, uChurn: { value: 0 }, uChurnSpeed: { value: 0 }, uBoil: { value: 0 },
       uFar: { value: size * 0.55 },
     };
 
@@ -294,6 +315,10 @@ export class Ocean {
     u.uLaceScale.value = get('foamLook.lace') * 0.55;
     u.uLaceAmt.value = get('foamLook.laceAmount');
     u.uSoftness.value = get('foamLook.softness');
+    u.uDrift.value = get('foamMotion.drift');
+    u.uChurn.value = get('foamMotion.churn');
+    u.uChurnSpeed.value = get('foamMotion.churnSpeed');
+    u.uBoil.value = get('foamMotion.boil');
     u.uBubBright.value = get('bubbles.brightness');
     u.uMilk.value = get('bubbles.milkiness');
     // Green through blue-green: the colour a bubble cloud scatters back up
