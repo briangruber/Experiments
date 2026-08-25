@@ -68,6 +68,17 @@ const RIBBON_FRAG = /* glsl */`
 
   ${NOISE_GLSL}
 
+  // The hull's own waterline, matching the shape boat.js extrudes: a point at
+  // the stem, full beam a little past midships, tucked very slightly at the
+  // transom. Everything the hull makes has to start from THIS, not from a
+  // constant half-beam -- otherwise the wake springs from a point at the bow
+  // already at full width, and lays foam across and ahead of the stem.
+  float hullHalf(float arc){
+    float t = clamp(arc / max(uHullLen, 0.1), 0.0, 1.0);
+    float w = pow(smoothstep(0.0, 0.55, t), 0.62);   // entry, fine forward
+    return uBeam * 0.5 * mix(w, 0.92, t * t);        // slight tuck aft
+  }
+
   void main(){
     float arc = max(vArc, 0.0);
     float d   = vLat;
@@ -96,8 +107,14 @@ const RIBBON_FRAG = /* glsl */`
     // half-angle. The outer edge is a hard bright line; the inner edge is soft
     // and combed — that asymmetry is most of the read.
     float wander = (fbm(vec2(arc * 0.018, sign(d) * 3.7)) - 0.5) * (1.0 + arc * 0.045);
-    float armC = uBeam * 0.5 + arc * uArmTan + wander;
-    float armW = max(uArmW0 + arc * uArmWGrow, 0.05);
+    // The arms leave the hull along its side, so they start at the waterline
+    // and open from there. At the stem that is zero, which closes the V to a
+    // point at the bow instead of a band across it.
+    float armC = hullHalf(arc) + arc * uArmTan + wander;
+    // Thin where the hull is fine and the sheet has barely formed, thickening
+    // as the water is thrown clear.
+    float armW = max(uArmW0 + arc * uArmWGrow, 0.05)
+               * mix(0.18, 1.0, smoothstep(0.0, uHullLen * 0.55, arc));
     float x = (ad - armC) / armW;
     float xb = (x < 0.0) ? x / (1.0 + uInnerBias * 2.6) : x;
     float armG = exp(-xb * xb * (x < 0.0 ? 1.7 : 3.4));
@@ -313,11 +330,12 @@ const RIBBON_FRAG = /* glsl */`
 
     // Carve out the hull's own footprint: the boat displaces the water it is
     // sitting in, it does not float on top of its own spray.
-    // Rounded, not a box -- a rectangular cut-out shows up as straight edges in
-    // the foam either side of the hull.
-    vec2 hp = vec2(ad / max(uBeam * 0.62, 0.1), arc / max(uHullLen * 0.98, 0.1));
-    float hull = 1.0 - smoothstep(0.62, 1.05, length(hp));
-    foam *= 1.0 - hull * 0.92;
+    // Cut to the hull's actual waterline rather than to an ellipse, so the foam
+    // runs along the topsides instead of standing off them in a lozenge.
+    float hb = max(hullHalf(arc), 0.02);
+    float hull = (1.0 - smoothstep(hb * 0.82, hb * 1.10, ad))
+               * (1.0 - smoothstep(uHullLen * 0.96, uHullLen * 1.04, arc));
+    foam *= 1.0 - hull * 0.94;
 
     // ------------------------------------------------- subsurface bubbles --
     // The prop is underwater, so most of the air it drags in never reaches the

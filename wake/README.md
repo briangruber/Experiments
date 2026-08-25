@@ -54,6 +54,19 @@ Read from the reference footage, and each piece is a separate slider group:
 Foam noise is sampled in **world space**, so bubbles stay locked to the water
 instead of swimming along with the boat.
 
+### The wake starts at the hull, not at a point
+
+Everything the hull makes is anchored to its waterline — a point at the stem,
+full beam a little past midships, tucked slightly at the transom, matching the
+shape `boat.js` extrudes. The arms open from that line rather than from a
+constant half-beam, so the V closes to a point at the bow; the arm sheets are
+thin where the entry is fine and thicken as the water is thrown clear; and the
+hull's own footprint is cut to the same curve, so foam runs along the topsides
+instead of standing off them.
+
+Anchored to a constant half-beam instead, the wake springs from a point at the
+stem already at full width, and lays a band of foam across and ahead of the bow.
+
 ### Foam is where waves break
 
 The foam V used to be a *drawn shape* — a half-angle slider, set to whatever
