@@ -32,6 +32,17 @@ import { newParams } from '../vendor/abyssal/src/presets.js';
 
 
 /**
+ * A calm lake at a high sun.
+ *
+ * Not the prettiest preset on offer — Golden Hour Swell is — but a wake is
+ * only legible on water that is not already busy, and under light that is
+ * actually reaching it. Calm Lake runs the sun at 38 degrees with 2.2 m/s of
+ * wind and 0.48 choppiness, so there is almost no whitecap competing with the
+ * foam, and it happens to be what this scene actually is.
+ */
+export const DEFAULT_PRESET = 'Calm Lake';
+
+/**
  * Everything in Abyssal that draws its own wake, foam ribbon or whitewater,
  * set to nothing.
  *
@@ -77,7 +88,7 @@ export const QUIET = {
 
 export class AbyssalSea {
 
-	constructor( renderer, { preset = 'Golden Hour Swell' } = {} ) {
+	constructor( renderer, { preset = DEFAULT_PRESET } = {} ) {
 
 		// One shared parameter set, so the sea and the sky agree about the sun,
 		// the wind and the air, and the atmosphere table is built once.

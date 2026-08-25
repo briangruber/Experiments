@@ -115,9 +115,75 @@ const ui = buildUI(document.getElementById('ui'), {
 });
 
 // ------------------------------------------------------------------- camera --
-// Straight down by default, because that is the view the reference is shot from
-// and the only one where the wake's geometry is unambiguous.
-const view = { pitch: -Math.PI / 2, yaw: 0, dist: 155, topDown: true, follow: true };
+// A set of shots, cycled with C, and nothing that moves discontinuously.
+//
+// Every quantity the camera is built from -- yaw, pitch, distance and the point
+// it looks at -- is smoothed toward its target rather than assigned. That is
+// what makes a turn feel like a camera following a boat instead of a rig bolted
+// to it, and it means switching shots ANIMATES between them for free: the
+// target changes, the smoothing carries the eye across, and there is no cut.
+//
+// The smoothing is exponential and frame-rate independent: 1 - exp(-dt/tau),
+// not a fixed per-frame fraction. A fixed fraction ties the response to the
+// frame rate, so the same camera drifts lazily at 30 fps and snaps at 120 --
+// and this prototype's frame time swings hard whenever the field is re-baked.
+//
+// tau is the time constant in seconds: roughly, how long to cover two thirds of
+// the remaining gap. Bigger is looser. The wide shots are tight because their
+// geometry is what you are reading; the close ones are loose because at that
+// range a tight camera transmits every twitch of the helm.
+const CAMERAS = [
+  { id: 'top',     label: 'Top-down',   pitch: -Math.PI / 2, dist: 155, yaw: 0,
+    world: true,  lead: 0.00, tau: 0.30, lookTau: 0.30 },
+  { id: 'chase',   label: 'Chase',      pitch: -0.42, dist: 78, yaw: 0,
+    world: false, lead: 0.16, tau: 0.70, lookTau: 0.45 },
+  { id: 'quarter', label: 'Quarter',    pitch: -0.20, dist: 52, yaw: 0.85,
+    world: false, lead: 0.10, tau: 1.00, lookTau: 0.60 },
+  { id: 'water',   label: 'Waterline',  pitch: -0.05, dist: 38, yaw: 2.10,
+    world: false, lead: 0.04, tau: 1.30, lookTau: 0.80 },
+  { id: 'free',    label: 'Free orbit', pitch: -0.55, dist: 130, yaw: 0,
+    world: true,  lead: 0.00, tau: 0.18, lookTau: 0.18 },
+];
+
+let camIndex = 0;
+const view = { pitch: CAMERAS[0].pitch, yaw: 0, dist: CAMERAS[0].dist,
+               topDown: true, follow: true };
+
+// Where the eye actually is, as opposed to where the shot says it should be.
+const smooth = { yaw: 0, pitch: view.pitch, dist: view.dist,
+                 look: new THREE.Vector3(), ready: false };
+
+/** Frame-rate independent approach: covers 1-1/e of the gap every tau seconds. */
+const approach = (cur, target, tau, dt) =>
+  cur + (target - cur) * (1 - Math.exp(-dt / Math.max(tau, 1e-3)));
+
+/**
+ * The same, on a circle. A heading crossing +/-pi must take the short way
+ * round: unwrapped, the camera swings 350 degrees to follow a 10 degree turn,
+ * which reads as the whole world spinning rather than the boat turning.
+ */
+const approachAngle = (cur, target, tau, dt) => {
+  const d = ((target - cur + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+  return cur + d * (1 - Math.exp(-dt / Math.max(tau, 1e-3)));
+};
+
+function useCamera(i, { snap = false } = {}) {
+  camIndex = ((i % CAMERAS.length) + CAMERAS.length) % CAMERAS.length;
+  const c = CAMERAS[camIndex];
+  view.pitch = c.pitch;
+  view.dist = c.dist;
+  view.yaw = c.yaw;
+  view.topDown = c.id === 'top';
+  if (snap) { smooth.ready = false; }
+  const tag = document.getElementById('cam-name');
+  if (tag) {
+    tag.textContent = c.label;
+    tag.classList.add('show');
+    clearTimeout(useCamera._t);
+    useCamera._t = setTimeout(() => tag.classList.remove('show'), 1400);
+  }
+  return c;
+}
 
 // Camera input. One pointer orbits, two pinch to zoom and twist the heading —
 // on a phone there is no wheel, so pinch is the only way to get the whole wake
@@ -185,6 +251,9 @@ addEventListener('keydown', (e) => {
   if (k === 't') setView('top');
   if (k === 'h') setChrome(!document.body.classList.contains('hide-ui'));
   if (k === 'f') setView('field');
+  // Shift+C steps back through the shots, so overshooting the one you wanted
+  // does not mean going round the whole cycle again.
+  if (k === 'c') useCamera(camIndex + (e.shiftKey ? -1 : 1));
 });
 addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 
@@ -324,24 +393,47 @@ function frame(now) {
   // times the resolution. It costs nothing to change: the field is re-baked from
   // the path every frame, so there is no accumulated state to invalidate.
   const baseExtent = get('field.extent');
-  const wantExtent = THREE.MathUtils.clamp(view.dist * 2.2, 45, baseExtent);
+  const wantExtent = THREE.MathUtils.clamp(smooth.dist * 2.2, 45, baseExtent);
   const fieldExtent = THREE.MathUtils.lerp(baseExtent, wantExtent, get('field.adaptive'));
   wake.focus(state.x - hx * fieldExtent * 0.28, state.z - hz * fieldExtent * 0.28, fieldExtent);
   wake.update(state.t);
 
-  // Camera: chase from behind and above, or straight down.
-  const cy = Math.sin(-view.pitch), cr = Math.cos(-view.pitch);
-  // Top-down holds a fixed world heading and does not swing with the boat.
-  // Rotating the frame with the hull makes the boat look stationary and the
-  // whole sea look like it is turning, which is the opposite of what a turn
-  // should read as -- and it hides the very thing a turn is worth watching for.
-  const yaw = view.topDown ? view.yaw : state.heading + view.yaw;
-  const off = new THREE.Vector3(-Math.sin(yaw) * cr, cy, -Math.cos(yaw) * cr).multiplyScalar(view.dist);
-  const lead = view.topDown ? 0.0 : 0.16;    // no chase offset when overhead
-  const look = new THREE.Vector3(state.x - hx * view.dist * lead, 0, state.z - hz * view.dist * lead);
-  camera.position.copy(look).add(off);
+  // Camera. Nothing here is assigned straight from state: every term is
+  // smoothed toward its target, which is what stops a turn from snapping the
+  // whole frame and what animates the cut when C changes shot.
+  const shot = CAMERAS[camIndex];
+  // A world-locked shot holds a fixed heading and does not swing with the boat.
+  // Rotating the frame with the hull makes the boat look stationary and the sea
+  // look like it is turning -- the opposite of what a turn should read as, and
+  // it hides the very thing a turn is worth watching for.
+  const targetYaw = shot.world ? view.yaw : state.heading + view.yaw;
+  const lookTarget = new THREE.Vector3(
+    state.x - hx * view.dist * shot.lead, 0, state.z - hz * view.dist * shot.lead);
+
+  if (!smooth.ready) {
+    // First frame, or straight after a snap: start ON the target rather than
+    // sliding in from wherever the last shot left the eye.
+    smooth.yaw = targetYaw; smooth.pitch = view.pitch; smooth.dist = view.dist;
+    smooth.look.copy(lookTarget);
+    smooth.ready = true;
+  } else {
+    smooth.yaw = approachAngle(smooth.yaw, targetYaw, shot.tau, dt);
+    smooth.pitch = approach(smooth.pitch, view.pitch, shot.tau * 0.6, dt);
+    smooth.dist = approach(smooth.dist, view.dist, shot.tau * 0.6, dt);
+    const k = 1 - Math.exp(-dt / Math.max(shot.lookTau, 1e-3));
+    smooth.look.lerp(lookTarget, k);
+  }
+
+  const cy = Math.sin(-smooth.pitch), cr = Math.cos(-smooth.pitch);
+  const off = new THREE.Vector3(
+    -Math.sin(smooth.yaw) * cr, cy, -Math.cos(smooth.yaw) * cr).multiplyScalar(smooth.dist);
+  camera.position.copy(smooth.look).add(off);
+  // Never let the eye sink under the sea: the waterline shot sits low enough
+  // that a crest passing the camera would otherwise put it briefly underwater,
+  // which reads as the picture glitching rather than as a wave.
+  camera.position.y = Math.max(camera.position.y, 0.6);
   camera.up.set(0, 1, 0);
-  camera.lookAt(look);
+  camera.lookAt(smooth.look);
 
   const sd = new THREE.Vector3(
     Math.cos(get('ocean.sunElev') * Math.PI / 180) * Math.sin(get('ocean.sunAzim') * Math.PI / 180),
@@ -356,7 +448,7 @@ function frame(now) {
   if (scale !== lastScale) { lastScale = scale; renderer.setPixelRatio(scale); resize(); }
   // Same trick as the wake field: close in, a smaller plane puts the vertices
   // where they are visible. Quantised to a few buckets so it rebuilds rarely.
-  const wantPlane = THREE.MathUtils.clamp(view.dist * 6, 70, 520);
+  const wantPlane = THREE.MathUtils.clamp(smooth.dist * 6, 70, 520);
   const bucket = [80, 130, 200, 320, 520].find((b) => b >= wantPlane) ?? 520;
   const planeSize = THREE.MathUtils.lerp(520, bucket, get('field.adaptive'));
   ocean.setDetail(get('quality.oceanDetail'), Math.round(planeSize / 10) * 10);
