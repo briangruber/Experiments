@@ -2219,27 +2219,6 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 			const churn = max( hRaw, 0.0 ).smoothstep( 0.008, 0.10 ).mul( 0.72 )
 				.add( steep.smoothstep( 0.045, 0.26 ).mul( 0.40 ) )
 				.min( 0.90 ).toVar();
-			// ...and the same question answered from the water instead.
-			//
-			// For a wave, the magnitude of the surface slope IS ak — the very
-			// steepness that decides whether a crest can hold together. So the
-			// quantity the lines above already computed and then fed to a pair
-			// of tuned smoothsteps is, unmodified, the physical criterion:
-			// past critical the crest spills, below it there is no foam at all.
-			// That zero is the point. It is what lets the wave field drive
-			// coverage without painting white over every disturbed square metre,
-			// and it is why the arms need no locus of their own — they are
-			// where the field is steepest, which is where they were always going
-			// to be. Height stands in for phase (the leftover tile carries no
-			// phase), so the crest-face gate still keeps troughs as water.
-			If( uSudsBreak.greaterThan( 0.001 ), () => {
-
-				const phase = hRaw.div( uSudsCrest ).clamp( - 1.0, 1.0 ).toVar();
-				const broke = sudsBreak( steep, float( 1.0 ), phase, uSudsSteep )
-					.mul( 0.90 ).toVar();
-				churn.assign( mix( churn, broke, uSudsBreak ) );
-
-			} );
 			// Mean leftoverChurn() stays above. Ribbon vary then samples
 			// leftover at a wobble (foam only) and chews the crest into
 			// patches. Twin: wakeFoamRibbonWarp() / wakeFoamRibbonBreak().
@@ -2269,6 +2248,35 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 					.mul( islandK ).mul( breakK ).mul( chewK ).mul( patchK ).mul( frayK )
 					.min( 0.90 ).toVar();
 				churn.assign( mix( churn, churnVar, ribbonK ) );
+
+			} );
+			// ...and the same question answered from the water instead.
+			//
+			// LAST, deliberately. Everything above answers "where is the foam"
+			// by painting the hull's path and then eroding the paint with five
+			// independent noise masks. This answers it from the water, so it
+			// has to be the one that survives — sitting before the ribbon block
+			// it was overwritten by the chew stack on every frame that had
+			// wakeFoamRibbonVary above zero, which is the shipped default. The
+			// crossfade existed and did nothing.
+			//
+			// For a wave, the magnitude of the surface slope IS ak — the very
+			// steepness that decides whether a crest can hold together. So the
+			// quantity computed above and then fed to a pair of tuned
+			// smoothsteps is, unmodified, the physical criterion: past critical
+			// the crest spills, below it there is no foam at all. That zero is
+			// the point. It is what lets the wave field drive coverage without
+			// painting white over every disturbed square metre, and it is why
+			// the arms need no locus of their own — they are where the field is
+			// steepest, which is where they were always going to be. Height
+			// stands in for phase (the leftover tile carries none), so the
+			// crest-face gate still keeps troughs as water.
+			If( uSudsBreak.greaterThan( 0.001 ), () => {
+
+				const phase = hRaw.div( uSudsCrest ).clamp( - 1.0, 1.0 ).toVar();
+				const broke = sudsBreak( steep, float( 1.0 ), phase, uSudsSteep )
+					.mul( 0.90 ).toVar();
+				churn.assign( mix( churn, broke, uSudsBreak ) );
 
 			} );
 			If( uRippleFoam.greaterThan( 0.001 ), () => {

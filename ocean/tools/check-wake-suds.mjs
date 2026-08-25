@@ -308,6 +308,17 @@ const near = ( a, b, eps = 1e-6 ) => Math.abs( a - b ) <= eps;
 		/import \{[^}]*sudsBreak[^}]*\} from '\.\/wake-suds\.js'/.test( TSL_WATER ) );
 	need( 'the water shader crossfades the painted churn to breaking coverage',
 		TSL_WATER.includes( 'mix( churn, broke, uSudsBreak )' ) );
+	// Existing is not surviving. Sitting before the ribbon block, the
+	// crossfade was overwritten by the chew stack on every frame with
+	// wakeFoamRibbonVary above zero -- the shipped default -- so it compiled,
+	// ran, and changed nothing. Breaking must have the last word on coverage.
+	need( 'breaking coverage is the LAST assignment to churn, not an earlier one',
+		( () => {
+			const region = TSL_WATER.slice( 0, TSL_WATER.indexOf( 'uRippleFoam.greaterThan' ) );
+			const writes = [ ...region.matchAll( /churn\.assign\(([^;]*)\)/g ) ];
+			return writes.length >= 2
+				&& writes[ writes.length - 1 ][ 1 ].includes( 'uSudsBreak' );
+		} )() );
 	need( 'breaking reads the leftover slope, which IS ak',
 		/sudsBreak\( steep, float\( 1\.0 \), phase, uSudsSteep \)/.test( TSL_WATER ) );
 	need( 'height stands in for the phase the leftover tile does not carry',
