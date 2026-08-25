@@ -493,6 +493,18 @@ export const defaults = {
                             // water — the quarter-wave shoulders are glassy and only breaking
                             // crests go white.
   wakeFoamRibbonVary: 1.0,  // leftover foam: contour wobble, chew, opacity. 0 is a solid stencil.
+  wakeSudsBreak: 0,         // crossfade leftover-crest churn to coverage derived from BREAKING.
+                            // Slope magnitude is ak, so the leftover field's own steepness is the
+                            // criterion: past critical a crest spills, below it there is no foam
+                            // at all. That zero is what lets waves drive coverage without painting
+                            // white over every disturbed square metre, and why the arms need no
+                            // locus — they are simply where the field is steepest. 0 keeps the
+                            // painted film exactly as it was. See src/wake-suds.js.
+  wakeSudsSteep: 0.08,      // critical steepness ak. The Stokes limit is 0.443, but that is where
+                            // an ideal wave ceases to exist; real wake crests shed white well
+                            // before it. Lower froths the transverse system too.
+  wakeSudsCrest: 0.06,      // metres of leftover height that count as a full crest. Stands in for
+                            // wave phase, which the leftover tile does not carry.
   wakeStrength: 1.15,
   wakeArmRate: 1.0,         // multiplier on the Kelvin half-angle spread rate
   wakeArm: 1.0,             // strength of the arms themselves

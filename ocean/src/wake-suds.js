@@ -84,9 +84,9 @@ export function sudsWavenumber( speed ) {
 
 	const u = Math.abs( speed );
 	const c = Math.max( u, SUDS_CRAWL );
-	// Branchless on purpose: the TSL twin has to be, since a select node is
-	// unexercised on both backends in this repo, and a twin that branches
-	// where its shader ramps is not a twin.
+	// A ramp, not a cutoff: coverage reaches zero at rest instead of the whole
+	// wake popping on at the moment of casting off. Written branchlessly so
+	// the shader twin is the same expression rather than a lookalike.
 	return SUDS_G / ( c * c ) * smoothstep( 0, SUDS_CRAWL, u );
 
 }

@@ -11,6 +11,10 @@ import {
 	sudsWallWidth, sudsLacePoint, sudsDetail, sudsCrisp, sudsLace,
 	sudsOpacity, sudsTroughBias, sudsWashLanes, sudsWash,
 } from '../src/wake-suds.js';
+import {
+	uSudsBreak, uSudsSteep, setWakeSudsUniforms,
+} from '../src/gpu/tsl/wake-suds.js';
+import { defaults } from '../src/presets.js';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +22,8 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join( dirname( fileURLToPath( import.meta.url ) ), '..' );
 const TSL_SUDS = readFileSync( join( ROOT, 'src/gpu/tsl/wake-suds.js' ), 'utf8' );
 const CPU_SUDS = readFileSync( join( ROOT, 'src/wake-suds.js' ), 'utf8' );
+const TSL_WATER = readFileSync( join( ROOT, 'src/gpu/tsl/water-surface.js' ), 'utf8' );
+const TSL_DRIVER = readFileSync( join( ROOT, 'src/gpu/tsl/water-driver.js' ), 'utf8' );
 
 const results = [];
 const need = ( name, ok, detail = '' ) => results.push( { name, ok, detail } );
@@ -290,6 +296,44 @@ const near = ( a, b, eps = 1e-6 ) => Math.abs( a - b ) <= eps;
 			const defined = [ ...TSL_SUDS.matchAll( /export const (\w+) = \/\*@__PURE__\*\/ Fn\(/g ) ]
 				.map( ( m ) => m[ 1 ] );
 			return defined.length > 0 && defined.every( ( n ) => declared.has( n ) );
+		} )() );
+}
+
+// ----------------------------------------------------------------- wiring --
+//
+// A film nothing calls is a file, not a change. These assert the path from
+// the parameter to the pixel actually exists.
+{
+	need( 'the water shader imports the film rather than restating it',
+		/import \{[^}]*sudsBreak[^}]*\} from '\.\/wake-suds\.js'/.test( TSL_WATER ) );
+	need( 'the water shader crossfades the painted churn to breaking coverage',
+		TSL_WATER.includes( 'mix( churn, broke, uSudsBreak )' ) );
+	need( 'breaking reads the leftover slope, which IS ak',
+		/sudsBreak\( steep, float\( 1\.0 \), phase, uSudsSteep \)/.test( TSL_WATER ) );
+	need( 'height stands in for the phase the leftover tile does not carry',
+		TSL_WATER.includes( 'hRaw.div( uSudsCrest )' ) );
+	need( 'the driver writes the uniforms every frame',
+		TSL_DRIVER.includes( 'setWakeSudsUniforms( p )' )
+			&& /import \{ setWakeSudsUniforms \} from '\.\/wake-suds\.js'/.test( TSL_DRIVER ) );
+	need( 'this module owns its uniforms and nobody else declares them',
+		( () => {
+			for ( const u of [ 'uSudsBreak', 'uSudsSteep', 'uSudsCrest' ] ) {
+				if ( ! new RegExp( `export const ${ u } = ` ).test( TSL_SUDS ) ) return false;
+				if ( new RegExp( `const ${ u } = .*uniform\\(` ).test( TSL_WATER ) ) return false;
+			}
+			return true;
+		} )() );
+	need( 'the parameters exist and default to leaving the old film alone',
+		defaults.wakeSudsBreak === 0
+			&& defaults.wakeSudsSteep === SUDS_BREAK_STEEP
+			&& Number.isFinite( defaults.wakeSudsCrest ),
+		`break ${ defaults.wakeSudsBreak }, steep ${ defaults.wakeSudsSteep }` );
+	need( 'the setter clamps the crossfade and falls back to the authored numbers',
+		( () => {
+			setWakeSudsUniforms( { wakeSudsBreak: 5 } );
+			if ( uSudsBreak.value !== 1 || uSudsSteep.value !== SUDS_BREAK_STEEP ) return false;
+			setWakeSudsUniforms( {} );
+			return uSudsBreak.value === 0 && uSudsSteep.value === SUDS_BREAK_STEEP;
 		} )() );
 }
 

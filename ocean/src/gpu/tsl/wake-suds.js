@@ -20,7 +20,7 @@
 //    straight into the generated source, so a `const filter = ...toVar()`
 //    would kill the whole water shader on the WebGL2 backend.
 
-import { Fn, If, float, int, mix, smoothstep } from 'three/tsl';
+import { Fn, If, float, int, mix, smoothstep, uniform } from 'three/tsl';
 import { fbm2 } from './noise.js';
 import {
 	SUDS_G, SUDS_CRAWL, SUDS_BREAK_STEEP, SUDS_BREAK_SPAN, SUDS_TRANSVERSE,
@@ -31,14 +31,46 @@ import {
 /** Most screws anyone fits to one transom; the JS-unrolled loop bound. */
 export const SUDS_ENGINE_CAP = 8;
 
+// Rule 7: this module owns its uniforms and exports one setter. Nothing else
+// may redeclare them. They are read at the CALL SITE and passed into the
+// layouted helpers as parameters — a layouted Fn that reads a uniform bakes
+// the first program's binding into three's per-Fn code cache (rule 18).
+
+/**
+ * Crossfade from the painted leftover-crest churn to coverage derived from
+ * breaking. 0 leaves the existing film exactly as it was, which is what keeps
+ * the six checks that describe the ribbon honest while the two are compared.
+ */
+export const uSudsBreak = /*@__PURE__*/ uniform( 0.0 );
+/** Critical steepness ak. Live knob over SUDS_BREAK_STEEP. */
+export const uSudsSteep = /*@__PURE__*/ uniform( SUDS_BREAK_STEEP );
+/**
+ * Height, in metres, that counts as a full crest for the crest-face gate.
+ * The leftover field carries height and slope but no phase, so this is what
+ * stands in for cos(phase): a wave this tall is all crest, its mirror all
+ * trough. Leftover crests are wide plateaus, so it is deliberately small.
+ */
+export const uSudsCrest = /*@__PURE__*/ uniform( 0.06 );
+
+/** Live knobs. Missing keys keep the authored defaults. */
+export function setWakeSudsUniforms( p = {} ) {
+
+	uSudsBreak.value = Math.min( Math.max( Number( p.wakeSudsBreak ) || 0, 0 ), 1 );
+	const steep = Number( p.wakeSudsSteep );
+	uSudsSteep.value = Number.isFinite( steep ) && steep > 0 ? steep : SUDS_BREAK_STEEP;
+	const crest = Number( p.wakeSudsCrest );
+	uSudsCrest.value = Number.isFinite( crest ) && crest > 0 ? crest : 0.06;
+
+}
+
 /**
  * k = g/U² — the deep-water wave that keeps station with the hull.
  *
- * Branchless: the denominator is bounded at a crawl, where the wavelength
- * would otherwise run away to infinity, and a ramp takes it to zero at rest
- * so the wake fades in instead of popping on at the moment of casting off.
- * (A `select` node would read more directly, but it is unexercised on both
- * backends in this repo — the same reason the porting rules avoid `Break()`.)
+ * Branchless, and a ramp rather than a cutoff: the denominator is bounded at
+ * a crawl, where the wavelength would otherwise run away to infinity, and the
+ * smoothstep takes coverage to zero at rest so the wake fades in instead of
+ * popping on whole at the moment of casting off. `select` would express a
+ * hard cutoff more directly, but a hard cutoff is the thing being avoided.
  */
 export const sudsWavenumber = /*@__PURE__*/ Fn( ( [ speed ] ) => {
 
