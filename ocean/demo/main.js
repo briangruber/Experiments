@@ -10,6 +10,7 @@ import { Wake } from '../src/wake.js';
 import { Craft } from './craft.js';
 import { UI } from './ui.js';
 import { defaults, PRESETS, applyPreset } from '../src/presets.js';
+import { liveFpsCap, fpsCappedOut, shouldSkipFrame } from '../src/fps-cap.js';
 import { createDerived, derive as deriveScene } from '../src/derive.js';
 import { clamp } from '../src/math.js';
 
@@ -349,8 +350,19 @@ let qAccum = 0, qFrames = 0;
 // Without this the controller reads "we have headroom" from a frame rate the cap
 // itself is setting, and climbs quality until it has spent exactly the power the
 // cap was meant to save.
+let battCharging = true;
+if (typeof navigator !== 'undefined' && navigator.getBattery) {
+  navigator.getBattery().then((b) => {
+    battCharging = b.charging;
+    b.addEventListener('chargingchange', () => { battCharging = b.charging; });
+  }).catch(() => {});
+}
+const liveCap = () => liveFpsCap(params, {
+  focused: typeof document === 'undefined' || document.hasFocus(),
+  charging: battCharging,
+});
 function cappedOut(fps) {
-  return params.fpsCap > 0 && fps >= params.fpsCap * 0.92;
+  return fpsCappedOut(fps, liveCap());
 }
 
 function adaptQuality(dtRaw) {
@@ -364,7 +376,7 @@ function adaptQuality(dtRaw) {
   // fifth of it - the spray draw is next, and the water grid is third; trimming
   // pixels touches all of them at once, so it goes first and furthest.
   const lo = params.renderScaleMin, hi = params.renderScaleMax;
-  if (fps < params.targetFps * 0.9) {
+  if (fps < params.targetFps * 0.9 && !cappedOut(fps)) {
     if (params.renderScale > lo) {
       params.renderScale = Math.max(lo, params.renderScale - 0.08);
     } else if (params.cloudStepScale > params.cloudStepMin) {
@@ -401,14 +413,8 @@ const fmtFps = (f) => (f < 10 ? f.toFixed(1) : f.toFixed(0));
 // doing less work per second does.
 let lastPresent = 0;
 function shouldSkip(now) {
-  if (params.fpsCap <= 0) return false;
-  // A visible but unfocused window keeps getting rAF at full rate; only a hidden
-  // tab is throttled by the browser. Idling here is what stops it heating the
-  // machine behind whatever you switched to.
-  const cap = document.hasFocus() ? params.fpsCap : Math.min(params.fpsCap, params.fpsCapIdle);
-  // A hair under the period, or a cap equal to the refresh rate lands just the
-  // wrong side of every other vsync and halves the frame rate instead.
-  if (now - lastPresent < 1000 / cap - 1.2) return true;
+  const cap = liveCap();
+  if (shouldSkipFrame(now, lastPresent, cap)) return true;
   lastPresent = now;
   return false;
 }
@@ -444,6 +450,7 @@ function frame(now) {
     // the hull state the update just produced.
     wake.update(dt, params, waveRunner);
   }
+  wake.energy?.update(dt, params, waveRunner.active ? waveRunner : [], { follow: wake });
   camera.locked = waveRunner.active;
   // Handheld drift and sea bob nudge the camera every frame, which would reset
   // the accumulator every frame; photo mode locks the tripod off.
@@ -459,7 +466,9 @@ function frame(now) {
     : [0, 1];
 
   const ctx = {
-    camPos: camera.pos, camRight: camera.right, camUp: camera.up,
+    camPos: camera.pos, camFwd: camera.fwd, fov: camera.fov ?? params.fov,
+    aspect: W / Math.max(H, 1),
+    camRight: camera.right, camUp: camera.up,
     viewProj: camera.viewProj, invViewProj: camera.invViewProj,
     sunDir, moonDir, windVec3, time: simTime,
     craftPos: waveRunner.active
@@ -600,10 +609,17 @@ function frame(now) {
 
 derive();
 resize();
-ocean.buildSpectrum(params);
-// Two warm-up steps so the very first presented frame already has foam history.
-ocean.update(1 / 60, params);
-document.getElementById('boot').classList.add('gone');
+{
+  const boot = document.getElementById('boot');
+  const sub = document.getElementById('boot-sub');
+  if (window.__bootTimer) clearInterval(window.__bootTimer);
+  if (sub) sub.textContent = 'building spectra…';
+  ocean.buildSpectrum(params);
+  // Two warm-up steps so the very first presented frame already has foam history.
+  if (sub) sub.textContent = 'warming the sea…';
+  ocean.update(1 / 60, params);
+  boot.classList.add('gone');
+}
 requestAnimationFrame(frame);
 
 window.abyssal = {

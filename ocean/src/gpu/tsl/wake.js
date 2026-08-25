@@ -44,7 +44,7 @@
 //    everywhere (see ./noise.js).
 
 import {
-	Fn, If, float, vec2, vec4, uniform, texture, clamp, select, uv,
+	Fn, If, float, vec2, vec4, uniform, texture, clamp, select, uv, smoothstep,
 } from 'three/tsl';
 
 import { DataTexture, RGBAFormat, FloatType } from 'three';
@@ -154,10 +154,12 @@ export const wakeUpdateFragment = /*@__PURE__*/ Fn( () => {
 		// in front. See the long note in src/wake.js: a symmetric window put a
 		// shimmering edge a metre AHEAD of the bow, and a wake is what is behind
 		// you.
-		const abeam = alo.lessThan( 0.1 )
-			.and( alo.greaterThan( - 1.5 ) )
-			.and( lat.abs().lessThan( uWkReach ) );
-
+		//
+		// The old boolean window was 1.6 m thick and `reach` wide — two
+		// texels by 144 m, a ruler through an open-water snout. Feather
+		// the front and the far-lat ends so the record does not turn on
+		// as a wall. Stir ramps with the along window only; far-lat
+		// texels keep full stir so the arms can still grow into them.
 		// Keep whichever passage came closest, so a second lap adds to the
 		// history instead of resetting the clock on a 150 m strip of it.
 		//
@@ -167,9 +169,34 @@ export const wakeUpdateFragment = /*@__PURE__*/ Fn( () => {
 		const closer = lat.abs().lessThanEqual( rec.z.abs().add( 0.01 ) );
 		const keep = select( empty, float( 1.0 ), select( closer, float( 1.0 ), float( 0.0 ) ) ).toVar();
 
-		If( abeam.and( keep.greaterThan( 0.5 ) ), () => {
+		// Full reach, thick enough along that a fast swim cannot skip
+		// texels. Age RESETS only on the front mound. Far-lat is first
+		// touch only, then ages so the Kelvin arms leave the track
+		// (the V). Resetting a 13 m corridor every frame froze those
+		// arms as two parallel rails.
+		const alongW = smoothstep( float( 1.2 ), float( - 0.4 ), alo )
+			.mul( smoothstep( float( - 12.0 ), float( - 6.0 ), alo ) ).toVar();
+		const inReach = float( 1.0 ).sub(
+			smoothstep( uWkReach.mul( 0.88 ), uWkReach, lat.abs() ),
+		).toVar();
+		const nearLat = float( 1.0 ).sub(
+			smoothstep( float( 6.0 ), float( 9.0 ), lat.abs() ),
+		).toVar();
+		const near = alongW.mul( inReach ).mul( nearLat ).mul( keep ).toVar();
+		const far = alongW.mul( inReach )
+			.mul( select( empty, float( 1.0 ), float( 0.0 ) ) ).toVar();
 
-			rec.assign( vec4( uWkStir, 0.0, lat, uWkRate ) );
+		If( near.greaterThan( 0.02 ), () => {
+
+			rec.assign( vec4( uWkStir.mul( alongW ), 0.0, lat, uWkRate ) );
+
+		}, () => {
+
+			If( far.greaterThan( 0.02 ), () => {
+
+				rec.assign( vec4( uWkStir.mul( alongW ), 0.0, lat, uWkRate ) );
+
+			} );
 
 		} );
 

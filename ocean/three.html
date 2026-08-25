@@ -89,6 +89,21 @@ try {
 
   // A window handle so the profiler and the console can reach the live app.
   window.abyssal = app;
+
+  window.addEventListener('keydown', (e) => {
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA')) return;
+    if (e.code === 'KeyR') app.toggleRide?.();
+    else if (e.code === 'KeyF') app.toggleFly?.();
+    else if (e.code === 'KeyB') app.toggleBoat?.();
+    else if (e.code === 'KeyM') app.toggleDragon?.();
+    else if (e.code === 'KeyL') app.levelDragon?.();
+    else if (e.code === 'KeyG') app.toggleFollow?.();
+    else if (e.code === 'KeyV') {
+      const k = app.dragon?.active ? 'sdView' : app.boat?.active ? 'boatView' : 'wrView';
+      app.params[k] = app.params[k] >= 0.5 ? 0 : 1;
+    }
+  });
 } catch (e) {
   statusEl.innerHTML = `<span class="err">${String(e.message || e)}</span>`;
   if (want === 'webgpu') {

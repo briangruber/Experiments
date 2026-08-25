@@ -8,19 +8,23 @@
 //   scintillation   water.js:252-275    sub-cascade facet glitter
 //   sunVisibility   water.js:282-302    swell-scale sun occlusion, a 3-tap march
 //   capillarySlope  water.js:307-320    parasitic capillary ripple slope
-//   foamField       water.js:324-339    foam clump/streak/bubble field
+//   foamField       water.js foamField  foam: drained Worley lace + grain
 //
 // One source, both backends: Three compiles these node graphs to WGSL on WebGPU
 // and to GLSL on WebGL2. No wgslFn, no glslFn — a raw-source node compiles for
 // exactly one backend and would put the fallback back where it started
 // (docs/webgpu-port.md).
 //
-// The physics is unchanged. Every constant, sign, clamp and magic number below
-// is the one that shipped, and the GLSL comment explaining *why* each is what it
-// is is carried across with it. Several of these numbers look arbitrary and are
-// not — 0.3844 and 0.1444 are 0.62^2 and 0.38^2, the second moments the
-// log-normal mean correction needs — so the comments are load-bearing
-// documentation, not decoration.
+// The physics is unchanged except foamField, which is a Jacobian-gated
+// brightness field (thickened F2−F1 lace + grain) inside a coverage film,
+// not occupancy discs, not a 1-pixel wireframe, not cloudy fbm patches, not
+// the old sand relief, and not an unstretched hex tray.
+// Every other constant, sign, clamp and magic number below is the one that
+// shipped, and the GLSL comment explaining *why* each is what it is is carried
+// across with it. Several of these numbers look arbitrary and are not —
+// 0.3844 and 0.1444 are 0.62^2 and 0.38^2, the second moments the log-normal
+// mean correction needs — so the comments are load-bearing documentation, not
+// decoration.
 //
 // Consumers: ./water-surface.js calls all four of the non-trivial ones from
 // main(), and imports uGlitter from here for the gate around the scintillation
@@ -35,7 +39,8 @@
 // and uFoamFar all look like they belong here and do not. They shape the CALL
 // SITES (WATER_FS:378-390 and 467-528), not these function bodies: capillarySlope
 // receives the whole capillary strength pre-multiplied as its `amp` argument, and
-// foamField receives nothing but p, t and foot. They live in ./water-surface.js,
+// foamField receives p, t, foot and detail (foamDetail, passed in to avoid a
+// cycle). They live in ./water-surface.js,
 // where main() is. The five below are the only uniforms these five bodies read
 // (plus uWindDir, uPatch, uHeightScale and uTime/uSunDir, all imported).
 //
@@ -45,9 +50,9 @@
 // 1. `.mix()` IS BANNED. `mixElement = (t, e1, e2) => mix(e1, e2, t)`, so the
 //    RECEIVER IS THE BLEND FACTOR and `a.mix(b, t)` computes mix(b, t, a). It
 //    compiles, it runs, and it blends by the wrong variable. There is exactly
-//    one blend in this file — `bubbles` in foamField — and it uses the
-//    standalone mix(a, b, t), whose argument order is GLSL's. Porting rule 1;
-//    it is the defect that cost the sky port the most time.
+//    one far-field blend in foamField — collapsing the streaks onto 0.5 — and it
+//    uses the standalone mix(a, b, t), whose argument order is GLSL's.
+//    Porting rule 1; it is the defect that cost the sky port the most time.
 //
 // 2. THE mat2 IN scintillation IS WRITTEN OUT BY HAND, and must stay that way.
 //    The GLSL is
@@ -93,13 +98,14 @@
 //    fixed loops are unrolled in JS when the index only picks compile-time
 //    constants"; the same call sky-background.js made for its star lattice.
 //
-// 5. foamField's `out float bubbles` IS THE PACKED .y OF A vec2 RETURN. Out
-//    parameters do not exist in TSL. .x is the GLSL's return value (the 0..1
-//    field), .y is `bubbles`. Same translation sky-background.js's cirrusLayer
-//    used for its `out float dist`. Unlike cirrusLayer there is no early-return
-//    path here, so BOTH components are always meaningful — the caller must read
-//    both, and ./water-surface.js keeps .y in a float .toVar() because section 7
-//    of main() (water.js:552) overwrites it with the finer bubble field.
+// 5. foamField's `out float thick` IS THE PACKED .y OF A vec2 RETURN. Out
+//    parameters do not exist in TSL. .x is the 0..1 streak field, .y is optical
+//    thickness (streak cores high, mid-edge low). Same translation
+//    sky-background.js's cirrusLayer used for its `out float dist`. There is
+//    no early-return path, so BOTH components are always meaningful. The
+//    caller must not overwrite .y with the old 25 cm / 6 cm vnoise — that
+//    field is what read as sand. Splash churn may flatten it; wind foam keeps
+//    it. Grain writes .y only — never coverage.
 //
 // 6. THE TWO HEIGHT TAPS IN sunVisibility ARE .level(0), AND THAT IS BOTH WHAT
 //    THE GLSL SAYS AND WHAT KEEPS THEM LEGAL. The GLSL already spells them
@@ -123,25 +129,22 @@
 //    m/s. At the default windSpeed of 11 they differ by a factor of 11. Both
 //    capillarySlope and foamField use it as an ORTHONORMAL FRAME —
 //    `vec2(dot(p,w), dot(p,q))` — so a velocity there would rescale the whole
-//    capillary and foam lattice by the wind speed: a silent, preset-dependent
+//    capillary and foam field by the wind speed: a silent, preset-dependent
 //    wrong image, not a crash. See note 1 in ./water-common.js. Never import
 //    uWindDirV into a water module.
 //
-// 9. THE DRIFT ASYMMETRY IN foamField LOOKS LIKE A TYPO AND IS NOT.
-//
-//      float a = fbm3(vec3(s*0.16 + drift.x, t*0.05), 3);
-//      bubbles = mix(0.5, fbm3(vec3((p - drift)*6.5, t*0.45), 2), bf);
-//
-//    The streak field adds only drift.X to BOTH components of the rotated
-//    coordinate `s`, while the bubble field subtracts the full vec2 `drift` —
-//    and it does so from `p`, the raw world xz, not from the rotated `s`. Both
-//    are transcribed exactly as written. Do not "fix" either one.
+// 9. foamField TAKES A FOURTH ARGUMENT `detail` (foamDetail). The GLSL reads
+//    uFoamDetail from the shared block; TSL cannot import that uniform from
+//    ./water-surface.js (cycle), so the caller passes it. The field is
+//    layouted cellular3 (rule 18) plus vnoise. Occupancy fills, thin
+//    wires, fbm clouds, and an unstretched hex tray are the looks
+//    already rejected. Wake is leftover lace (coverage × the web).
 
 import {
 	Fn, If, float, int, vec2, vec3, mix, clamp, smoothstep, uniform,
 } from 'three/tsl';
 
-import { vnoise, fbm3 } from './noise.js';
+import { vnoise, fbm3, cellular3 } from './noise.js';
 import { uTime } from './cloud-field.js';
 import { uSunDir } from './sky-lut.js';
 import { uWindDir, uPatch, uHeightScale, dispTexture } from './water-common.js';
@@ -159,7 +162,10 @@ export const uGlitterScale = /*@__PURE__*/ uniform( 1.0 );    // presets.js glit
 export const uWaveShadow = /*@__PURE__*/ uniform( 0.85 );     // presets.js waveShadow
 export const uShadowScale = /*@__PURE__*/ uniform( 1.2 );     // presets.js shadowScale
 
-export const uFoamStreak = /*@__PURE__*/ uniform( 0.7 );      // presets.js foamStreak
+export const uFoamStreak = /*@__PURE__*/ uniform( 0.16 );     // presets.js foamStreak
+export const uFoamDrift = /*@__PURE__*/ uniform( 0.6 );      // presets.js foamDrift — lace slide
+export const uFoamFill = /*@__PURE__*/ uniform( 0.55 );      // presets.js foamFill — cell web / veil
+export const uFoamCell = /*@__PURE__*/ uniform( 1.0 );       // presets.js foamCell — honeycomb size (1 = authored)
 
 // ---- the wind frame ---------------------------------------------------------
 
@@ -443,85 +449,112 @@ export const capillarySlope = /*@__PURE__*/ Fn( ( [ p, t, amp ] ) => {
 } );
 
 // ---- foam field -------------------------------------------------------------
-
-// Foam field. The streak term stretches clumps into downwind windrows; the
-// bubble term is the close-range structure that stops whitewater looking painted.
 //
-//   float foamField(vec2 p, float t, float foot, out float bubbles){
-//     vec2 w = uWindDirV, q = windPerp();
-//     vec2 x = vec2(dot(p, w), dot(p, q));
-//     vec2 s = vec2(x.x * (1.0 - 0.80*uFoamStreak), x.y * (1.0 + 2.4*uFoamStreak));
-//     vec2 drift = w * t * 0.35;
-//     float a = fbm3(vec3(s*0.16 + drift.x, t*0.05), 3);
-//     // The 15 cm clump band has to converge on its own mean once a pixel spans
-//     // several clumps, or the mask it shapes turns into per-pixel confetti right
-//     // where the sea is most covered.
-//     float bf = 1.0 - smoothstep(0.09, 0.55, foot);
-//     bubbles = mix(0.5, fbm3(vec3((p - drift)*6.5, t*0.45), 2), bf);
-//     // Centred on its own mean and stretched to fill 0..1. The caller uses this
-//     // purely to decide WHERE inside the footprint the foam sits, so a field whose
-//     // mean is not 0.5 would silently rescale the coverage the sim computed.
-//     return clamp(0.5 + (a - 0.5)*1.6 + (bubbles - 0.5)*0.55, 0.0, 1.0);
-//   }
+// Jacobian / fold coverage (foamF/foamR) still answers WHERE. This field
+// mottles brightness inside that footprint; it is not a coverage stencil.
+// Occupied (1−F1) cells were discs; thin F2−F1-only was a wireframe; fbm
+// patches were a cloud; unstretched regular F2−F1 was a hex tray; wake ×
+// walls was the honeycomb around the hull. Do not restore the 25 cm / 6 cm
+// sand relief. CPU twin: src/foam-lace.js.
 //
-// RETURNS vec2( field, bubbles ): .x is the GLSL's return value, .y is its
-// `out float bubbles`. See note 5 — there is no early-return path here, so both
-// components are always meaningful.
+// RETURNS vec2( field, thick ): .x is the 0..1 lace field used to resolve
+// coverage, .y is optical thickness (cores brighter than mid-edge). See note 5.
 //
-// The streak stretch is the two halves of one squash: the along-wind axis
-// shortened by (1 - 0.80*streak) and the cross-wind axis lengthened by
-// (1 + 2.4*streak), which is what draws the clumps out into downwind windrows
-// rather than merely scaling them.
-//
-// Note the drift asymmetry — `+ drift.x` on both components of the streak field,
-// full `(p - drift)` on the bubbles, and off the RAW p rather than the rotated
-// coordinate. It looks like a typo, it is not, and it is transcribed as written.
-// See note 9.
-export const foamField = /*@__PURE__*/ Fn( ( [ p, t, foot ] ) => {
+// Far-field collapse onto 0.5 is load-bearing: the multiplicative coverage
+// path assumes a mean-centred field, and a sparse field whose mean stayed
+// 0.25 would silently shrink every distant raft.
+export const foamField = /*@__PURE__*/ Fn( ( [ p, t, foot, detail ] ) => {
 
 	const pV = p.toVar();
 	const tV = t.toVar();
+	const footV = foot.toVar();
+	const detailV = detail.toVar();
 
 	const w = uWindDir.toVar();
 	const q = windPerp().toVar();
 	const x = vec2( pV.dot( w ), pV.dot( q ) ).toVar();
 
 	const s = vec2(
-		x.x.mul( float( 1.0 ).sub( float( 0.80 ).mul( uFoamStreak ) ) ),
-		x.y.mul( float( 1.0 ).add( float( 2.4 ).mul( uFoamStreak ) ) ),
+		x.x.mul( float( 1.0 ).sub( float( 0.38 ).mul( uFoamStreak ) ) ),
+		x.y.mul( float( 1.0 ).add( float( 0.70 ).mul( uFoamStreak ) ) ),
 	).toVar();
 
-	const drift = w.mul( tV ).mul( 0.35 ).toVar();
+	const slide = w.mul( tV ).mul( uFoamDrift.max( 0.0 ) ).toVar();
+	const flow = tV.mul( 0.08 ).toVar();
+	const wx = vnoise( vec3( s.mul( 0.04 ), flow ) ).sub( 0.5 ).toVar();
+	const wy = vnoise( vec3( s.mul( 0.04 ).add( 17.3 ), flow.add( 3.1 ) ) ).sub( 0.5 ).toVar();
+	const sp = s.add( vec2( wx.mul( 3.1 ), wy.mul( 2.7 ) ) ).sub( slide ).toVar();
 
-	// GLSL: fbm3(vec3(s*0.16 + drift.x, t*0.05), 3) — drift.X only, added to
-	// BOTH components of s. Note 9.
-	const a = fbm3( vec3( s.mul( 0.16 ).add( drift.x ), tV.mul( 0.05 ) ), int( 3 ) ).toVar();
+	const inv = float( 1.0 ).div( uFoamCell.max( 0.2 ) ).toVar();
+	const dens = vnoise( vec3( sp.mul( 0.07 ).mul( inv ), tV.mul( 0.03 ) ) ).toVar();
+	const localScale = mix( float( 0.68 ), float( 1.34 ), dens ).toVar();
+	const fillK = uFoamFill.max( 0.0 ).min( 1.0 ).toVar();
 
-	// The 15 cm clump band has to converge on its own mean once a pixel spans
-	// several clumps, or the mask it shapes turns into per-pixel confetti right
-	// where the sea is most covered.
-	const bf = float( 1.0 ).sub( smoothstep( 0.09, 0.55, foot ) ).toVar();
+	const raftN = fbm3( vec3( sp.mul( 0.10 ).mul( inv ).mul( localScale ), tV.mul( 0.05 ) ), int( 3 ) ).toVar();
+	const tearN = vnoise( vec3( sp.mul( 0.22 ).mul( inv ), tV.mul( 0.07 ) ) ).toVar();
+	const chewN = vnoise( vec3( sp.mul( 0.40 ).mul( inv ), tV.mul( 0.11 ) ) ).toVar();
+	const raft = smoothstep( mix( float( 0.50 ), float( 0.26 ), fillK ), 0.70, raftN )
+		.mul( mix( float( 0.48 ), float( 1.0 ), smoothstep( 0.12, 0.68, tearN ) ) )
+		.mul( mix( float( 0.58 ), float( 1.0 ), smoothstep( 0.10, 0.58, chewN ) ) ).toVar();
 
-	// STANDALONE mix( a, b, t ), never `.mix()` — note 1. The band converges on
-	// its own mean of 0.5 as bf goes to zero, which is the whole point: it dies
-	// toward the mean rather than toward zero.
-	const bubbles = mix(
-		float( 0.5 ),
-		fbm3( vec3( pV.sub( drift ).mul( 6.5 ), tV.mul( 0.45 ) ), int( 2 ) ),
-		bf,
+	const grain = vnoise( vec3( sp.mul( 9.2 ).mul( inv ), tV.mul( 0.55 ) ) ).toVar();
+	const film = raft.mul( float( 0.70 ).add( float( 0.30 ).mul( grain ) ) ).toVar();
+
+	const width = mix( float( 0.20 ), float( 0.36 ), dens ).toVar();
+	const broken = smoothstep( 0.20, 0.52, vnoise( vec3( sp.mul( 0.52 ).mul( inv ), tV.mul( 0.08 ) ) ) ).toVar();
+	const c0 = cellular3( sp.mul( 0.72 ).mul( inv ).mul( localScale ) ).toVar();
+	const gap0 = c0.y.sub( c0.x ).toVar();
+	const wallGate = mix(
+		float( 0.06 ), float( 1.0 ), smoothstep( 0.18, 0.78, broken ),
 	).toVar();
+	const fil0 = smoothstep( width, 0.040, gap0 ).mul( wallGate ).toVar();
+	const core0 = smoothstep( width.mul( 0.38 ), 0.016, gap0 ).mul( wallGate ).toVar();
 
-	// Centred on its own mean and stretched to fill 0..1. The caller uses this
-	// purely to decide WHERE inside the footprint the foam sits, so a field whose
-	// mean is not 0.5 would silently rescale the coverage the sim computed.
-	const field = clamp(
-		float( 0.5 )
-			.add( a.sub( 0.5 ).mul( 1.6 ) )
-			.add( bubbles.sub( 0.5 ).mul( 0.55 ) ),
+	const fillN = fillK.div( 0.55 ).toVar();
+	const extra = fillK.sub( 0.55 ).div( 0.45 ).max( 0.0 ).min( 1.0 ).toVar();
+
+	const fineScale = mix( float( 0.98 ), float( 1.52 ), float( 1.0 ).sub( dens ) ).toVar();
+	const c1 = cellular3( sp.mul( fineScale ).mul( inv ).add( 8.1 ) ).toVar();
+	const gap1 = c1.y.sub( c1.x ).toVar();
+	const chordGate = smoothstep(
+		0.46, 0.76,
+		dens.mul( 0.58 ).add( float( 1.0 ).sub( broken ).mul( 0.42 ) ),
+	).toVar();
+	const fil1 = smoothstep( mix( float( 0.16 ), float( 0.28 ), dens ), 0.028, gap1 )
+		.mul( chordGate )
+		.mul( fillN.min( 1.0 ) )
+		.mul( mix( float( 1.0 ), float( 1.55 ), extra ) ).toVar();
+
+	const hazeLo = mix( float( 0.46 ), float( 0.68 ), extra ).toVar();
+	const haze = smoothstep( hazeLo, 0.10, gap0 ).mul( float( 1.0 ).sub( fil0 ) )
+		.mul( mix( float( 0.05 ), float( 0.30 ), dens ) )
+		.mul( float( 0.45 ).add( float( 0.55 ).mul( grain ) ) )
+		.mul( fillN ).toVar();
+
+	const accent = fil0.max( fil1 ).mul( mix( float( 0.02 ), float( 0.10 ), fillK ) )
+		.add( haze.mul( 0.28 ) ).toVar();
+	const lace = clamp( film.mul( 0.90 ).add( accent ), 0.0, 1.0 ).toVar();
+
+	const fineAmt = clamp( detailV.div( float( 1.85 ) ), 0.0, 2.4 ).toVar();
+	const fineFade = float( 1.0 ).sub( smoothstep( 0.08, 0.55, footV ) ).mul( fineAmt ).toVar();
+	const bub = float( 0.42 ).add( float( 0.58 ).mul( mix( float( 0.50 ), grain, fineFade.min( 1.0 ) ) ) ).toVar();
+	const core = core0.mul( mix( float( 0.45 ), float( 1.0 ), dens ) ).toVar();
+	const grainAmt = float( 0.28 ).mul( fineFade.min( 1.0 ) ).toVar();
+	const thick = clamp(
+		film.mul( 0.78 ).mul( bub )
+			.add( core.mul( 0.35 ).mul( bub ) )
+			.add( fil0.mul( 0.18 ).mul( bub ) )
+			.add( fil1.mul( 0.12 ).mul( bub ) )
+			.add( haze.mul( 0.10 ).mul( bub ) )
+			.add( grainAmt.mul( grain ).mul( film ) ),
 		0.0, 1.0,
 	).toVar();
 
-	return vec2( field, bubbles );
+	// STANDALONE mix — note 1.
+	const near = float( 1.0 ).sub( smoothstep( 0.12, 1.8, footV ) ).toVar();
+	const field = mix( float( 0.5 ), clamp( lace, 0.0, 1.0 ), near ).toVar();
+
+	return vec2( field, clamp( thick, 0.0, 1.0 ) );
 
 } );
 
@@ -540,5 +573,8 @@ export function setWaterDetailUniforms( p ) {
 	uShadowScale.value = p.shadowScale;
 
 	uFoamStreak.value = p.foamStreak;
+	uFoamDrift.value = p.foamDrift;
+	uFoamFill.value = p.foamFill ?? 0.55;
+	uFoamCell.value = p.foamCell ?? 1;
 
 }

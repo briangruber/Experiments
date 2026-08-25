@@ -24,7 +24,7 @@
 // ---------------------------------------------------------------------------
 // SEVEN THINGS A READER COMING FROM THE GLSL WILL OTHERWISE GET WRONG
 //
-// 1. THE MARCH'S `break` IS A GUARD FLAG, NOT A break. The GLSL is
+// 1. THE MARCH'S `break` IS `Break()`. The GLSL is
 //
 //      for (int i=0;i<256;i++){
 //        if (i >= maxIter || t > t1 || trans < 0.015) break;
@@ -35,26 +35,11 @@
 //    break at all, so it becomes `Loop({ end: maxIter })` directly — maxIter is
 //    min(steps*4, 256), so the GLSL's hard 256 cap survives as the cap on
 //    maxIter rather than as the loop's own bound, and the two are exactly
-//    equivalent. The OTHER TWO become a `done` flag: when either fires, `done`
-//    is set to 1 and every remaining iteration does nothing but test it.
-//
-//    What that costs, stated plainly: the GLSL leaves the loop, this spins to
-//    maxIter. A ray that saturates at iteration 10 of 192 still pays 182
-//    iterations of one integer compare. It is the one place in this file where
-//    the port is slower than the source, and on a deck that fills the frame
-//    (`trans < 0.015` firing early for most pixels) it is not a rounding error.
-//    `Break()` IS exported by three/tsl in r185 and does generate a plain
-//    `break` on both backends, but nothing in this repo's probes exercises it
-//    (see note 2 in ./noise.js, which made the same call for the octave loops).
-//    If a real-browser profile shows this loop dominating, replacing the three
-//    `done.assign( int( 1 ) )` sites with `Break()` is the change to make — and
-//    it has to be re-verified on both backends, because a `break` inside nested
-//    `If`s inside a `Loop` is exactly the shape Three's WebGL codegen is least
-//    likely to have been tested against.
-//
-//    The guard is *value*-equivalent regardless: on a skipped iteration the GLSL
-//    body never ran either, so scatter, trans, t, inside, empty, distSum and
-//    distW are all untouched.
+//    equivalent. The OTHER TWO are `Break()` — the GLSL leaves the loop, and
+//    so does this. A `done` flag used to spin the remaining iterations as
+//    empty compares; on a deck that fills the frame (`trans < 0.015` at
+//    iteration 10 of 192) that was most of the march. prototypes/tsl-sky-compile-probe.html
+//    compiles this on both backends.
 //
 // 2. `continue` DOES NOT TRANSLATE EITHER. The march body has three of them and
 //    they encode the mode machine: search (coarse steps), re-entry (back up and
@@ -64,8 +49,8 @@
 //
 // 3. bool AND int LOCALS ARE int FLAGS. The GLSL keeps `bool inside` and
 //    `int empty`. A bool var is not something this repo's probes have exercised
-//    (./atmosphere.js:329 makes the same point and avoids one), so `inside` and
-//    `done` are `int` vars holding 0/1. `empty` is already an int. Compared with
+//    (./atmosphere.js:329 makes the same point and avoids one), so `inside` is
+//    an `int` var holding 0/1. `empty` is already an int. Compared with
 //    `.equal( int( 0 ) )` rather than truthiness, because TSL has no truthiness.
 //
 // 4. `dt` IS SNAPSHOTTED AT THE TOP OF THE ITERATION, and that matters. The GLSL
@@ -118,7 +103,7 @@
 // march; and TSL does no implicit int→float promotion, so every mixed expression
 // is explicit (`float( steps )`, `int( 4 )`).
 
-import { Fn, If, Loop, float, int, vec3, vec4, uniform, select, mix, clamp } from 'three/tsl';
+import { Fn, If, Loop, Break, float, int, vec3, vec4, uniform, select, mix, clamp } from 'three/tsl';
 
 import {
   R_PLANET,
@@ -548,30 +533,16 @@ export const marchClouds = /*@__PURE__*/ Fn( ( [ ro, rd, sunDir, sunColor, moonD
             const distSum = float( 0.0 ).toVar();
             const distW = float( 0.0 ).toVar();
 
-            // The break guard. See note 1 in the header: once this is 1 the
-            // remaining iterations run to maxIter doing nothing, which is
-            // value-identical to the GLSL's `break` and slower than it.
-            const done = int( 0 ).toVar();
-
             Loop( { start: int( 0 ), end: maxIter }, () => {
 
-              If( done.equal( int( 0 ) ), () => {
+              // The two remaining clauses of the GLSL's
+              // `if (i >= maxIter || t > t1 || trans < 0.015) break;`.
+              // Tested in the GLSL's order, before anything is read.
+              If( t.greaterThan( t1 ).or( trans.lessThan( 0.015 ) ), () => {
 
-                // The two remaining clauses of the GLSL's
-                // `if (i >= maxIter || t > t1 || trans < 0.015) break;`.
-                // Tested in the GLSL's order, before anything is read.
-                If( t.greaterThan( t1 ), () => {
+                Break();
 
-                  done.assign( int( 1 ) );
-
-                } );
-                If( trans.lessThan( 0.015 ), () => {
-
-                  done.assign( int( 1 ) );
-
-                } );
-
-                If( done.equal( int( 0 ) ), () => {
+              } );
 
                   // Snapshotted before the tree can change `inside`. See note 4.
                   const dt = select( inside.equal( int( 1 ) ), dtF, dtC ).toVar();
@@ -678,10 +649,6 @@ export const marchClouds = /*@__PURE__*/ Fn( ( [ ro, rd, sunDir, sunColor, moonD
                     } );
 
                   } );
-
-                } );
-
-              } );
 
             } );
 

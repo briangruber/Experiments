@@ -26,6 +26,18 @@
 //   .a  rate the cusp arms leave that track, m/s
 
 import { program, setUniforms, texture2D, framebuffer, FS_VERT } from './gl.js';
+import { planWakeFrame, sourceStir } from './wake-interact.js';
+import { FoamEnergy } from './foam-energy.js';
+import { WAKE_ZONE_FLOOR, WAKE_ZONE_CREST } from './foam-lace.js';
+
+function nearestStamp(pnt, prevs, max = 4) {
+  let best = pnt, bestD = max;
+  for (const p of prevs) {
+    const d = Math.hypot(p[0] - pnt[0], p[1] - pnt[1]);
+    if (d < bestD) { bestD = d; best = p; }
+  }
+  return best;
+}
 
 // Shared by the water vertex and fragment shaders: both have to agree exactly on
 // the shape of the wake, since one displaces the surface by it and the other
@@ -33,44 +45,127 @@ import { program, setUniforms, texture2D, framebuffer, FS_VERT } from './gl.js';
 export const WAKE_SAMPLE_GLSL = /* glsl */`
 uniform sampler2D uWakeTex;
 uniform vec2  uWakeOrigin;
+uniform vec2  uWakeHead, uWakeFwd;
+uniform float uWakeSpeed;
 uniform float uWakeExtent, uWakeOn, uWakeLife, uWakeArmW, uWakeArm, uWakeChurn;
-uniform float uWakeSpread, uWakeBeam, uWakeDepth, uWakeStrength;
+uniform float uWakeSpread, uWakeBeam, uWakeDepth, uWakeStrength, uWakeEdge;
+uniform float uWakeWidth0, uWakeWidth1, uWakeArms, uWakeTrail, uWakeTurb;
+uniform float uWakeCut;
+uniform vec4  uWakeBow;
+// Hand-mirrored from src/foam-lace.js. check-foam-lace.mjs asserts they match.
+const float WAKE_ZONE_FLOOR = ${ WAKE_ZONE_FLOOR };
+const float WAKE_ZONE_CREST = ${ WAKE_ZONE_CREST };
 
 // x: foam coverage 0..1   y: surface height, metres (signed)   z: how disturbed
 // this water is at all, which is what kills the sea's own ripples inside a track
+// Record shading info at p as vec4(ageN, zone, lat, vDist). x is normalised age: 0 the
+// instant the hull passed, 1 at the end of uWakeLife. y is the across-track
+// zone (twin of wakeFoamZone): aerated prop wash on the sailing line, a thin
+// breaking crest on each cusp arm, mostly open water between. z is lat (m),
+// w is vDist (m along track). Where there is no record this is (-1, 1, 0, 0)
+// — x < 0 is the flag. Twin: wakeAgeAt() in gpu/tsl/water-common.js.
+vec4 wakeAgeAt(vec2 p){
+  vec2 uv = (p - uWakeOrigin) / uWakeExtent + 0.5;
+  if (length(uv - 0.5) * 2.0 >= 0.999) return vec4(-1.0, 1.0, 0.0, 0.0);
+  vec4 r = texture(uWakeTex, uv);
+  if (r.r < 0.002) return vec4(-1.0, 1.0, 0.0, 0.0);
+  float age = r.g, lat = r.b;
+  // Same arm locus wakeAt() reconstructs the ridge from.
+  float arm = uWakeWidth0 + r.a * age;
+  // Prop wash is narrow down the center line.
+  float px = max(fwidth(lat), 0.12);
+  float coreW = max(max(uWakeWidth0 * 0.75, 0.45) * (1.0 + 0.18 * age), px * 1.05);
+  float cn = lat / coreW;
+  float core = exp(-cn * cn);
+  float vDist = age * max(uWakeSpeed, 6.0);
+  float scallop = sin(vDist * 1.6 + lat * 0.4) * 0.14;
+  float crestW = max(max(uWakeArmW * (1.0 + uWakeSpread * age), 0.55), px * 1.15);
+  float rn = (abs(lat) - arm + scallop * crestW) / (crestW * 0.65);
+  float crest = exp(-rn * rn);
+  float outerCut = 1.0 - smoothstep(arm + crestW * 0.2, arm + crestW * 1.2, abs(lat));
+  float interior = smoothstep(coreW * 1.2, arm * 0.85, abs(lat));
+  return vec4(
+    clamp(age / max(uWakeLife, 0.001), 0.0, 1.0),
+    clamp((core * 0.95 + crest * 0.85 + interior * WAKE_ZONE_FLOOR) * outerCut, 0.0, 1.0),
+    lat,
+    vDist
+  );
+}
+
 vec3 wakeAt(vec2 p){
   vec2 uv = (p - uWakeOrigin) / uWakeExtent + 0.5;
-  if (uv.x <= 0.0 || uv.x >= 1.0 || uv.y <= 0.0 || uv.y >= 1.0) return vec3(0.0);
+  // Inscribed circle, not the square. The square's far edge is a
+  // line of constant Z — a dead-straight horizontal cut.
+  float radial = length(uv - 0.5) * 2.0;
+  if (radial >= 1.0) return vec3(0.0);
   vec4 r = texture(uWakeTex, uv);
   float stir = r.r, age = r.g, lat = r.b, rate = r.a;
   if (stir < 0.002 || age >= uWakeLife) return vec3(0.0);
-  // Don't let the wake end on a straight line ruled across the sea where the
-  // buffer runs out.
-  vec2 ed = min(uv, 1.0 - uv);
-  float fade = max(1.0 - age / uWakeLife, 0.0) * smoothstep(0.0, 0.03, min(ed.x, ed.y));
+  float edgeLo = 1.0 - max(uWakeEdge, 0.18) * 1.8;
+  float edge = 1.0 - smoothstep(edgeLo, 1.0, radial);
+  float fade = max(1.0 - age / uWakeLife, 0.0) * edge;
 
-  // The cusp arms stand where they have got to: a ridge at |lat| = rate * age,
-  // not a falloff from the centreline. That single fact is the whole difference
-  // between a Kelvin wedge and a widening smear down the middle of the path.
-  float arm = rate * age;
-  float w   = uWakeArmW * (1.0 + uWakeSpread * age);
-  float q   = (abs(lat) - arm) / max(w, 0.05);
-  float ridge = exp(-q * q);
-  // Between them, entrained air: broad, soft, and much shorter lived than the
-  // arms, because it is bubbles rather than a surface wave.
-  float cq = lat / max(uWakeBeam * (1.0 + 0.55 * age), 0.15);
+  // width0 is the half-width the V starts at (hull beam). 0 keeps the
+  // historical point-origin: arm = rate * age.
+  float arm = uWakeWidth0 + rate * age;
+  float w   = max(uWakeArmW * (1.0 + uWakeSpread * age), 0.05);
+  float q   = (abs(lat) - arm) / w;
+  float ridge = uWakeArms > 0.5 ? exp(-q * q) : 0.0;
+  float tAge = clamp(age / max(uWakeLife, 0.001), 0.0, 1.0);
+  float beamW = uWakeWidth1 > 0.01
+    ? mix(max(uWakeWidth0, 0.15), uWakeWidth1, tAge)
+    : max(uWakeBeam * (1.0 + 0.55 * age), 0.15);
+  float cq = lat / beamW;
   float churnRaw = exp(-cq * cq);
-  float churn = churnRaw * max(1.0 - age / (uWakeLife * 0.5), 0.0);
 
-  float foam = (ridge * uWakeArm + churn * uWakeChurn) * stir * fade;
-  float h    = (ridge * uWakeArm * 0.55 - churn * uWakeChurn * 0.9) * stir * fade * uWakeDepth;
-  // The slick is the churned lane between the arms, and only that: it outlives
-  // the bubbles that made it, which is why a wake stays legible as a smooth dark
-  // path after the white water has gone. Deliberately not including the arms -
-  // suppressing the sea's foam along them would take the white off the one part
-  // of a wake that is supposed to be white.
+  float born = smoothstep(0.06, 0.22, age);
+  // Historical (width0 = 0): foam stays on the track, height on the
+  // travelling ridge — a drawn line on the arms was the failure mode.
+  // Photo recipe (width0 set): the V IS the white water (both Kelvin
+  // arms + a short prop boil). Foam born is earlier so the transom is not a gap.
+  float photo = step(0.05, uWakeWidth0);
+  float foamBorn = mix(born, smoothstep(0.0, 0.10, age), photo);
+  float foamW = max(uWakeArmW * mix(1.0 + 0.28 * age, 0.42, photo), 0.08);
+  float trail = exp(-(lat / foamW) * (lat / foamW));
+  float parked = 0.0;
+  if (uWakeWidth0 > 0.05 && uWakeArms > 0.5) {
+    float pq = (abs(lat) - uWakeWidth0) / max(uWakeArmW, 0.05);
+    parked = exp(-pq * pq);
+  }
+  float boilLife = uWakeLife * mix(0.5, 0.26, photo);
+  float boil = churnRaw * max(1.0 - age / max(boilLife, 0.12), 0.0);
+  float armFoam = photo * ridge * uWakeArm;
+  // Historical: foam on the track + a parked V + the travelling ridge.
+  // Photo: white on both Kelvin arms and a short prop boil — no stacked
+  // trail/parked blob, and no age-hashed fleck. Age in the hash made the
+  // V flicker left/right every frame; punching the arms to 0.16 read as
+  // dither, not foam.
+  float histFoam = trail * uWakeArm * uWakeTrail + boil * uWakeChurn * uWakeTrail
+    + parked * uWakeArm + armFoam;
+  float photoFoam = ridge * uWakeArm + boil * uWakeChurn * uWakeTrail;
+  float foam = mix(histFoam, photoFoam, photo) * stir * fade * foamBorn;
+  float n = fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+  foam *= 1.0 + (n - 0.5) * uWakeTurb * mix(1.4, 0.45, photo);
+  float live = smoothstep(0.0, 0.18, stir);
+  // Historical: a positive tube on the travelling ridge. Photo recipe
+  // (width0 set): Kelvin mounds on the arms and a carved trough between
+  // them — the boat's actual displacement, not a foam decal.
+  float osc = mix(1.0, 0.72 + 0.28 * cos(age * 4.4), photo);
+  float trough = -churnRaw * (1.0 - ridge) * photo * uWakeCut;
+  float h = (ridge * osc + trough) * fade * live * born * uWakeDepth;
+  if (uWakeBow.z > 0.001) {
+    vec2 br = p - uWakeBow.xy;
+    float blo = dot(br, uWakeFwd);
+    float bla = br.x * (-uWakeFwd.y) + br.y * uWakeFwd.x;
+    float brh = max(uWakeBow.w, 0.08);
+    float bq = bla / (brh * 0.45);
+    float bAlong = blo / brh;
+    float bowMask = exp(-bq * bq) * exp(-bAlong * bAlong);
+    foam += uWakeBow.z * bowMask;
+    h += uWakeBow.z * bowMask * uWakeDepth * 0.85;
+  }
   return vec3(clamp(foam * uWakeStrength, 0.0, 1.0), h,
-              clamp(churnRaw * stir * fade, 0.0, 1.0));
+              clamp(churnRaw * stir * fade * born, 0.0, 1.0));
 }
 `;
 
@@ -123,14 +218,30 @@ void main(){
     // it should never have been there at all - a wake is what is behind you.
     // Ending the record at the craft's own origin puts the discontinuity under
     // the middle of the hull, where the hull covers it.
-    bool abeam = alo < 0.1 && alo > -1.5 && abs(lat) < uReach;
+    //
+    // The old boolean window was 1.6 m thick and reach wide — two
+    // texels by 144 m, a ruler through an open-water snout. Feather
+    // the front and the far-lat ends so the record does not turn on
+    // as a wall. Stir ramps with the along window only; far-lat
+    // texels keep full stir so the arms can still grow into them.
     // Keep whichever passage came closest. The stamp has to reach out as far as
     // the arms will ever travel, and without this a second lap would reset the
     // clock on a strip 150 m wide and wipe the history it was supposed to be
     // adding to.
     bool empty = rec.r < 0.002;
-    if (abeam && (empty || abs(lat) <= abs(rec.b) + 0.01)) {
-      rec = vec4(uStir, 0.0, lat, uRate);
+    bool closer = abs(lat) <= abs(rec.b) + 0.01;
+    // Full reach. Age resets only on the front mound. Far-lat is
+    // first touch only, then ages so the Kelvin arms leave the
+    // track. Resetting a 13 m corridor froze them as two rails.
+    float alongW = smoothstep(1.2, -0.4, alo) * smoothstep(-12.0, -6.0, alo);
+    float inReach = 1.0 - smoothstep(uReach * 0.88, uReach, abs(lat));
+    float nearLat = 1.0 - smoothstep(6.0, 9.0, abs(lat));
+    if (alongW > 0.02 && inReach > 0.02) {
+      if (nearLat > 0.02 && (empty || closer)) {
+        rec = vec4(uStir * alongW, 0.0, lat, uRate);
+      } else if (empty) {
+        rec = vec4(uStir * alongW, 0.0, lat, uRate);
+      }
     }
   }
 
@@ -156,7 +267,14 @@ export class Wake {
     this.extent = 320;
     this.prevExtent = 320;
     this.prevPos = null;
+    this.prevStamps = [];
     this.rate = 0;
+    this.head = [0, 0];
+    this.fwd = [0, 1];
+    this.speed = 0;
+    this._hadWet = false;
+    this.lastPlan = { stamps: [], stepDt: 1 / 60 };
+    this.energy = new FoamEnergy(gl, blit, { size });
     this.clear();
   }
 
@@ -172,11 +290,15 @@ export class Wake {
     }
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     this.prevPos = null;
+    this.prevStamps = [];
+    this.lastPlan = { stamps: [], stepDt: 1 / 60 };
+    this.energy?.clear();
   }
 
-  update(dt, p, wr) {
+  update(dt, p, wr, opts = {}) {
     const gl = this.gl;
     if (dt <= 0) return;
+    if (Array.isArray(wr)) return this._updateMany(dt, p, wr, opts);
 
     this.extent = Math.max(p.wakeExtent, 40);
     // Snapping the centre to the texel grid is what keeps the reprojection above
@@ -189,61 +311,175 @@ export class Wake {
     // position lands a metre or two off the craft and slides around as the waves
     // pass - which is exactly what a wake must not do, since a wake belongs to
     // the water rather than to the sea floor.
-    const cxz = wr.surfXZ();
     this.prevOrigin[0] = this.origin[0]; this.prevOrigin[1] = this.origin[1];
-    this.origin[0] = Math.round(cxz[0] / texel) * texel;
-    this.origin[1] = Math.round(cxz[1] / texel) * texel;
+    const points = wr.active && wr.stampPoints?.length ? wr.stampPoints : null;
+    let a = this.prevPos || [this.origin[0], this.origin[1]];
+    let b = a;
+    if (wr.active) {
+      const cxz = wr.surfXZ();
+      this.origin[0] = Math.round(cxz[0] / texel) * texel;
+      this.origin[1] = Math.round(cxz[1] / texel) * texel;
+      if (!points) {
+        b = wr.stampB || [cxz[0], cxz[1]];
+        a = wr.stampA || this.prevPos || b;
+        this.prevPos = b;
+        this.prevStamps = [];
+      }
+    } else {
+      this.prevStamps = [];
+    }
 
-    const a = this.prevPos || [cxz[0], cxz[1]];
-    const b = [cxz[0], cxz[1]];
-    this.prevPos = b;
-
-    const speedT = Math.min(Math.abs(wr.speed) / Math.max(p.wrTopSpeed * 0.45, 1), 1);
     // Same reading the spray emitter uses: a hard carve is a large load that
     // *sheds* speed, so anything driven off speed alone gets a turn backwards.
     // A hull in the air is not touching the water, so it leaves nothing behind
     // it - which is what makes the gap in the wake read as a jump.
-    const stir = wr.airborne ? 0 : Math.min(
-      speedT * p.wrWakeSpeed +
-      Math.abs(wr.yawRate) * p.wrWakeTurn +
-      wr.slip * p.wrWakeSlip +
-      (wr.hullLoad ?? 0) * 0.035 +
-      wr.impact * 1.2,
-      1.4,
-    );
+    const stir = sourceStir( wr, p );
     // A Kelvin wedge holds a fixed half-angle, so the arms leave the track at a
     // rate proportional to how fast the hull is laying it down. tan(19.47
     // degrees) is 0.3536; a fixed lateral speed only gets that angle right at
     // exactly one hull speed.
     this.rate = 0.3536 * Math.abs(wr.speed) * p.wakeArmRate;
 
+    const fwd = [Math.sin(wr.heading), -Math.cos(wr.heading)];
+    const reach = Math.min(this.rate * p.wakeLife * 1.15 + 4, this.extent * 0.45);
+    const stepDt = Math.min(dt, 1 / 15);
+
+    const beam = Math.max(p.wrBeam ?? 0.6, 0.3) * 1.6;
+    const gain = 1;
+    if (points) {
+      // Age once, then stamp every spray site. Extra passes use dt=0 and an
+      // identity reproject so the field is not aged N times or thrown by a
+      // moving origin.
+      const first = points[0];
+      const energyStamps = points.map((pnt) => ({
+        a: nearestStamp(pnt, this.prevStamps), b: pnt, fwd, stir, reach, beam, gain, active: true,
+      }));
+      this._flush({ a: energyStamps[0].a, b: first, fwd, stir, reach, dt: stepDt, life: p.wakeLife, active: true });
+      for (let i = 1; i < points.length; i++) {
+        this.prevOrigin[0] = this.origin[0];
+        this.prevOrigin[1] = this.origin[1];
+        const pnt = points[i];
+        this._flush({ a: energyStamps[i].a, b: pnt, fwd, stir, reach, dt: 0, life: p.wakeLife, active: true });
+      }
+      this.prevStamps = points.map((pnt) => [pnt[0], pnt[1]]);
+      this.prevPos = first;
+      this.lastPlan = { stepDt, stamps: energyStamps };
+    } else {
+      this._flush({ a, b, fwd, stir, reach, dt: stepDt, life: p.wakeLife, active: !!wr.active });
+      this.lastPlan = {
+        stepDt,
+        stamps: wr.active ? [{ a, b, fwd, stir, reach, beam, gain, active: !!wr.active }] : [],
+      };
+    }
+
+    this.prevExtent = this.extent;
+    this.fwd = fwd;
+    this.head = points && points[0] ? [points[0][0], points[0][1]] : [b[0], b[1]];
+    this.speed = wr.active && !wr.airborne ? Math.abs(wr.speed) : 0;
+    this._hadWet = !!wr.active && !wr.airborne;
+  }
+
+  _updateMany(dt, p, sources, opts) {
+    this.extent = Math.max(p.wakeExtent, 40);
+    const planned = planWakeFrame(dt, p, sources, {
+      origin: [this.origin[0], this.origin[1]],
+      prevOrigin: [this.prevOrigin[0], this.prevOrigin[1]],
+      prevPos: this.prevPos,
+      prevStamps: this.prevStamps,
+      hadWet: this._hadWet,
+      extent: this.extent,
+      size: this.size,
+      fwd: this.fwd,
+    }, { camera: opts.camera });
+
+    this.prevOrigin[0] = this.origin[0];
+    this.prevOrigin[1] = this.origin[1];
+    this.origin[0] = planned.origin[0];
+    this.origin[1] = planned.origin[1];
+    this.rate = planned.rate;
+
+    if (!planned.stamps.length) {
+      const hold = this.prevPos || [this.origin[0], this.origin[1]];
+      this._flush({
+        a: hold, b: hold, fwd: this.fwd, stir: 0,
+        reach: 4, dt: planned.stepDt, life: planned.life, active: false,
+      });
+      this.prevStamps = [];
+      this.speed = 0;
+      this._hadWet = false;
+    } else {
+      for (let i = 0; i < planned.stamps.length; i++) {
+        if (i > 0) {
+          this.prevOrigin[0] = this.origin[0];
+          this.prevOrigin[1] = this.origin[1];
+        }
+        this._flush(planned.stamps[i]);
+      }
+      this.prevStamps = planned.nextStamps;
+      this.prevPos = planned.nextPos;
+      this.fwd = planned.fwd;
+      this.head = planned.head;
+      this.speed = planned.speed;
+      this._hadWet = true;
+    }
+
+    this.prevExtent = this.extent;
+    this.lastPlan = { stepDt: planned.stepDt, stamps: planned.stamps };
+  }
+
+  trackWindow(dt, p, sources, opts = {}) {
+    this.extent = Math.max(p.wakeExtent, 40);
+    const planned = planWakeFrame(dt, p, sources, {
+      origin: [this.origin[0], this.origin[1]],
+      prevOrigin: [this.prevOrigin[0], this.prevOrigin[1]],
+      prevPos: this.prevPos,
+      prevStamps: this.prevStamps,
+      hadWet: this._hadWet,
+      extent: this.extent,
+      size: this.size,
+      fwd: this.fwd,
+    }, { camera: opts.camera });
+    this.prevOrigin[0] = this.origin[0];
+    this.prevOrigin[1] = this.origin[1];
+    this.origin[0] = planned.origin[0];
+    this.origin[1] = planned.origin[1];
+    this.rate = planned.rate;
+    if (planned.stamps.length) {
+      this.prevStamps = planned.nextStamps;
+      this.prevPos = planned.nextPos;
+      this.fwd = planned.fwd;
+      this.head = planned.head;
+      this.speed = planned.speed;
+      this._hadWet = true;
+    }
+    this.prevExtent = this.extent;
+    this.lastPlan = { stepDt: planned.stepDt, stamps: planned.stamps };
+  }
+
+  _flush({ a, b, fwd, stir, reach, dt, life, active, rate }) {
+    const gl = this.gl;
     const dst = 1 - this.src;
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo[dst]);
     gl.viewport(0, 0, this.size, this.size);
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.BLEND);
     gl.useProgram(this.prog);
-    const fwd = [Math.sin(wr.heading), -Math.cos(wr.heading)];
     setUniforms(gl, this.prog, {
       uPrev: this.tex[this.src],
       uOrigin: this.origin, uPrevOrigin: this.prevOrigin,
       uExtent: this.extent, uPrevExtent: this.prevExtent,
-      uDt: Math.min(dt, 1 / 15),
-      uLife: p.wakeLife,
+      uDt: dt,
+      uLife: life,
       uA: new Float32Array(a), uB: new Float32Array(b),
       uFwd: new Float32Array(fwd),
       uRight: new Float32Array([-fwd[1], fwd[0]]),
-      uStir: stir, uRate: this.rate,
-      // Reach far enough for the arms to have somewhere to go, and no further:
-      // every extra metre is a wider swath of records a later lap can overwrite.
-      uReach: Math.min(this.rate * p.wakeLife * 1.15 + 4, this.extent * 0.45),
-      uActive: wr.active ? 1 : 0,
+      uStir: stir, uRate: rate ?? this.rate,
+      uReach: reach,
+      uActive: active ? 1 : 0,
     });
     this.blit.draw();
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-
     this.src = dst;
-    this.prevExtent = this.extent;
   }
 
   // Everything the water shaders need to reconstruct the pattern.
@@ -251,16 +487,29 @@ export class Wake {
     return {
       uWakeTex: this.field,
       uWakeOrigin: this.origin,
+      uWakeHead: new Float32Array(this.head),
+      uWakeFwd: new Float32Array(this.fwd),
+      uWakeSpeed: this.speed,
       uWakeExtent: this.extent,
       uWakeOn: active ? 1 : 0,
       uWakeLife: p.wakeLife,
       uWakeArmW: p.wakeWidth,
+      uWakeEdge: p.wakeEdgeFade ?? 0.22,
       uWakeArm: p.wakeArm,
       uWakeChurn: p.wakeCentre,
       uWakeSpread: p.wakeSpread,
       uWakeBeam: Math.max(p.wrBeam, 0.3) * 1.6,
       uWakeDepth: p.wakeDepth,
       uWakeStrength: p.wakeStrength,
+      uWakeWidth0: 0,
+      uWakeWidth1: 0,
+      uWakeArms: 2,
+      uWakeTrail: 1,
+      uWakeTurb: 0,
+      uWakeCut: 0.55,
+      uWakeBow: new Float32Array([0, 0, 0, 8]),
+      uFoamEnergy: this.energy.field,
+      uFoamEnergyOn: 1,
     };
   }
 }

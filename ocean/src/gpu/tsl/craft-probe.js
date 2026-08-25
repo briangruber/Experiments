@@ -18,26 +18,33 @@
 // choppiness the sim allows. Skipping the inversion looks almost right in calm
 // water and puts the craft through the face of every steep wave.
 //
-// The width is 64, not 4: a WebGPU buffer copy needs a 256-byte row pitch and
-// four RGBA32F texels is 64 bytes (porting rule 10). Only the first four are
-// read; the rest cost one wasted quad of fragments, once a frame.
+// The width is 64: a WebGPU buffer copy needs a 256-byte row pitch
+// (porting rule 10). That is exactly sixteen RGBA32F probes — a pool of
+// four hulls × four samples, or sixteen crates. Unused columns stay zero.
 
 import * as THREE from 'three/webgpu';
 import {
-	Fn, If, Loop, float, int, vec2, vec3, vec4, uniform, uniformArray,
+	Fn, If, Loop, float, int, vec2, vec4, uniform, uniformArray,
 	smoothstep, distance, uv,
 } from 'three/tsl';
 
 import {
 	dispTexture, foamTexture, uPatch, uCascadeCount, uHeightScale, uHorizScale,
-	wakeAt,
+	cascadeArrayElement, CASCADE_CAP, wakeAt,
 } from './water-common.js';
-import { uSeaLevel } from './water-surface.js';
+import { uSeaLevel, swellLift, uSwellAmp, uSwellBow, uSwellDome } from './water-surface.js';
+import { wakeWaveProbeAt, uWakeWaveCount } from './wake-wave.js';
 
 
+/** Points on a typical hull (centre, bow, port, starboard). */
 export const NPROBE = 4;
+/** Pool width: four hulls × four samples, one 256-byte row. */
+export const MAX_PROBES = 16;
 
-export const uProbePts = /*@__PURE__*/ uniformArray( [ 0, 0, 0, 0 ].map( () => new THREE.Vector2() ), 'vec2' );
+export const uProbePts = /*@__PURE__*/ uniformArray(
+	Array.from( { length: MAX_PROBES }, () => new THREE.Vector2() ),
+	'vec2',
+);
 export const uCraftXZ = /*@__PURE__*/ uniform( 'vec2' );
 export const uWakeProbe = /*@__PURE__*/ uniform( 0.0 );
 export const uWakeNear = /*@__PURE__*/ uniform( 6.0 );
@@ -91,15 +98,32 @@ export const surfaceAt = /*@__PURE__*/ Fn( ( [ p ] ) => {
 	// derivatives applied inside this loop as well, and inverting a smoothed
 	// field with full-resolution taps would converge to a different x than the
 	// height read below expects.
+	//
+	// The OUTER loop is a TSL Loop: its index picks nothing, it just runs three
+	// times. Every CASCADE loop in this file is UNROLLED IN JS instead, because
+	// c indexes both a uniformArray and the disp/foam array LAYER, and both must
+	// be compile-time constants - ./water-common.js note 2. A dynamic index does
+	// not fail loudly: it silently returned cascade 0 for every c, so the hull
+	// felt the long swell and nothing else. Measured on Tropical Lagoon, where
+	// the whole sea lives in cascades 1-3, the probe reported 0.00000 m on a sea
+	// standing 0.0165 m above datum at that point, and the boat sat dead still
+	// on visibly moving water.
 	Loop( { start: 0, end: 3, type: 'int', condition: '<' }, () => {
 
 		const d = vec2( 0.0 ).toVar();
-		Loop( { start: 0, end: uCascadeCount, type: 'int', condition: '<' }, ( { i } ) => {
+		for ( let c = 0; c < CASCADE_CAP; c ++ ) {
 
-			const s = dispTexture.sample( vec3( x.div( uPatch.element( i ) ), float( i ) ) ).level( uProbeLod.element( i ) );
-			d.addAssign( s.xz.mul( uHorizScale ) );
+			If( int( c ).lessThan( uCascadeCount ), () => {
 
-		} );
+				const s = dispTexture
+					.sample( x.div( cascadeArrayElement( uPatch, c ) ) )
+					.depth( int( c ) )
+					.level( cascadeArrayElement( uProbeLod, c ) );
+				d.addAssign( s.xz.mul( uHorizScale ) );
+
+			} );
+
+		}
 		x.assign( p.sub( d ) );
 
 	} );
@@ -130,14 +154,23 @@ export const surfaceAt = /*@__PURE__*/ Fn( ( [ p ] ) => {
 	const h = float( 0.0 ).toVar();
 	const hLight = float( 0.0 ).toVar();
 	const foam = float( 0.0 ).toVar();
-	Loop( { start: 0, end: uCascadeCount, type: 'int', condition: '<' }, ( { i } ) => {
+	// Unrolled in JS, layer picked with .depth( int( c ) ) - see the inversion
+	// loop above for what a dynamic index costs here.
+	for ( let c = 0; c < CASCADE_CAP; c ++ ) {
 
-		const uvc = vec3( x.div( uPatch.element( i ) ), float( i ) );
-		h.addAssign( dispTexture.sample( uvc ).level( uProbeLod.element( i ) ).y.mul( uHeightScale ) );
-		hLight.addAssign( dispTexture.sample( uvc ).level( uProbeLodLight.element( i ) ).y.mul( uHeightScale ) );
-		foam.addAssign( foamTexture.sample( uvc ).level( uProbeLod.element( i ) ).x );
+		If( int( c ).lessThan( uCascadeCount ), () => {
 
-	} );
+			const uvc = x.div( cascadeArrayElement( uPatch, c ) ).toVar();
+			h.addAssign( dispTexture.sample( uvc ).depth( int( c ) )
+				.level( cascadeArrayElement( uProbeLod, c ) ).y.mul( uHeightScale ) );
+			hLight.addAssign( dispTexture.sample( uvc ).depth( int( c ) )
+				.level( cascadeArrayElement( uProbeLodLight, c ) ).y.mul( uHeightScale ) );
+			foam.addAssign( foamTexture.sample( uvc ).depth( int( c ) )
+				.level( cascadeArrayElement( uProbeLod, c ) ).x );
+
+		} );
+
+	}
 	h.addAssign( hLight.sub( h ).max( 0.0 ).mul( uProbeChop ) );
 
 	// Everything the hull has already done to the sea - but only beyond a few
@@ -152,6 +185,42 @@ export const surfaceAt = /*@__PURE__*/ Fn( ( [ p ] ) => {
 			h.addAssign( wakeAt( x ).y.mul( gate ).mul( uWakeProbe ) );
 
 		} );
+
+	} );
+
+	// THE SEA DRAGON'S MOUND IS REAL WATER to anything floating on it. The
+	// water's vertex stage lifts the surface over the animal's back
+	// (water-surface.js's swellLift), but this probe read only the FFT
+	// cascades, so a hull sat at the flat sea's height while the sea visibly
+	// humped up under it - you could watch the wave pass and not ride it.
+	// Added on the SAME undisplaced coordinate the surface uses (`x` is the
+	// grid point that displaces to the sampled position, which is why the
+	// Lagrangian offset below is x - p), so the hull rides the mound the eye
+	// sees rather than one a metre or two off it.
+	//
+	// The hull's OWN hollow is deliberately still absent, for the reason the
+	// wake block above gives: a body must not read back the dent it is making
+	// or it sinks into a trough it deepens by sinking. The mound belongs to
+	// something else, so it has no such feedback.
+	If(
+		uSwellAmp.abs().greaterThan( 0.0005 )
+			.or( uSwellBow.z.abs().greaterThan( 0.02 ) )
+			.or( uSwellDome.z.abs().greaterThan( 0.02 ) ),
+		() => {
+
+			h.addAssign( swellLift( x ) );
+
+		},
+	);
+
+	// Leftover rings are real water once their newborn crest has cleared its
+	// source hull. Reading a just-emitted ring here creates a positive loop:
+	// the ring lifts the hull, the hull lands and emits another ring. The
+	// probe-specific sampler delays only that first fraction of a second; an
+	// older crest can still catch the box or be crossed after turning around.
+	If( uWakeWaveCount.greaterThan( 0.5 ), () => {
+
+		h.addAssign( wakeWaveProbeAt( x ) );
 
 	} );
 
@@ -177,10 +246,10 @@ export const probeFragment = /*@__PURE__*/ Fn( () => {
 	// ./wake.js note 1, arrived at the same way: by measuring.
 	const col = uv().x.mul( uProbeWidth ).floor().toVar();
 	const out = vec4( 0.0 ).toVar();
-	// A switch over four constants rather than a dynamic index: uniformArray
+	// A switch over constants rather than a dynamic index: uniformArray
 	// indexing by a computed value is the kind of thing that differs between
-	// backends, and four branches costs nothing in a 64x1 pass.
-	for ( let i = 0; i < NPROBE; i ++ ) {
+	// backends, and sixteen branches cost nothing in a 64x1 pass.
+	for ( let i = 0; i < MAX_PROBES; i ++ ) {
 
 		If( col.equal( float( i ) ), () => {
 
@@ -252,13 +321,15 @@ export class TslCraftProbe {
 		this.quad = new THREE.QuadMesh( this.material );
 
 		// height, foam and the Lagrangian offset per probe - seeded flat so
-		// frame 1 has an answer.
-		this.result = Array.from( { length: NPROBE }, () => ( { h: 0, foam: 0, dx: 0, dz: 0 } ) );
+		// frame 1 has an answer. update() returns only the count it was asked for.
+		this.result = Array.from( { length: MAX_PROBES }, () => ( { h: 0, foam: 0, dx: 0, dz: 0 } ) );
+		this.issuedN = [ 0, 0, 0 ];
+		this.lastCount = NPROBE;
 
 	}
 
 	/**
-	 * @param {Array<[number,number]>} points - NPROBE world xz pairs.
+	 * @param {Array<[number,number]>|Float32Array} points - up to MAX_PROBES world xz pairs.
 	 * @param {object} o - { seaLevel, craftXZ:[x,z], wakeProbe, wakeNear }.
 	 *
 	 * seaLevel is passed rather than inherited. uSeaLevel belongs to
@@ -275,7 +346,7 @@ export class TslCraftProbe {
 		// The GPU is more than a full ring behind; skip this frame's issue rather
 		// than queueing into the past.
 		const slot = this.seq % this.ring.length;
-		if ( this.pending[ slot ] ) return this.result;
+		if ( this.pending[ slot ] ) return this.result.slice( 0, this.lastCount );
 		this.pending[ slot ] = true;
 		const mySeq = ++ this.seq;
 
@@ -289,11 +360,18 @@ export class TslCraftProbe {
 			// which reads as a hull that pitches but will not roll. Both shapes
 			// accepted, since a caller with real pairs is the obvious thing to
 			// write.
-			const flat = points && points.length === NPROBE * 2 && typeof points[ 0 ] === 'number';
-			for ( let i = 0; i < NPROBE; i ++ ) {
+			const flat = ! ! ( points && typeof points[ 0 ] === 'number' );
+			const nIn = flat ? ( points.length >> 1 ) : ( points?.length ?? 0 );
+			const count = Math.max( 1, Math.min( MAX_PROBES, nIn ) );
+			this.issuedN[ slot ] = count;
+			for ( let i = 0; i < MAX_PROBES; i ++ ) {
 
-				const x = flat ? points[ i * 2 ] : ( points?.[ i ]?.[ 0 ] ?? 0 );
-				const z = flat ? points[ i * 2 + 1 ] : ( points?.[ i ]?.[ 1 ] ?? 0 );
+				const x = i < count
+					? ( flat ? points[ i * 2 ] : ( points?.[ i ]?.[ 0 ] ?? 0 ) )
+					: 0;
+				const z = i < count
+					? ( flat ? points[ i * 2 + 1 ] : ( points?.[ i ]?.[ 1 ] ?? 0 ) )
+					: 0;
 				uProbePts.array[ i ].set( x, z );
 
 			}
@@ -344,7 +422,9 @@ export class TslCraftProbe {
 
 				this.applied = mySeq;
 				const px = raw instanceof Float32Array ? raw : new Float32Array( raw.buffer ?? raw );
-				for ( let i = 0; i < NPROBE; i ++ ) {
+				const n = this.issuedN[ slot ] || NPROBE;
+				this.lastCount = n;
+				for ( let i = 0; i < n; i ++ ) {
 
 					this.result[ i ] = {
 						h: px[ i * 4 ], foam: px[ i * 4 + 1 ],
@@ -361,7 +441,7 @@ export class TslCraftProbe {
 
 		}
 
-		return this.result;
+		return this.result.slice( 0, this.lastCount );
 
 	}
 

@@ -1,10 +1,46 @@
 import { program, setUniforms, texture2D, framebuffer, FS_VERT } from './gl.js';
 import { SPRAY_SIM_FS, SPRAY_VS, SPRAY_FS, SPRAY_HAZE_FS } from './shaders/spray.js';
+import { MAX_BREACH_EMITTERS } from './breach-emitters.js';
+import { decodeSplashAtlas, uploadWebGLMask } from './water-assets.js';
 
 const smoothstep = (a, b, x) => {
   const t = Math.max(0, Math.min(1, (x - a) / Math.max(b - a, 1e-4)));
   return t * t * (3 - 2 * t);
 };
+
+const SITE_N = MAX_BREACH_EMITTERS;
+const PARKED = [0, -1e4, 0];
+
+function craftSiteUniforms(ctx) {
+  const cp = ctx?.craftPos ?? PARKED;
+  const handed = ctx?.craftSites;
+  const n = Math.max(1, Math.min(SITE_N, Math.round(ctx?.craftSiteCount ?? (handed?.length || 1))));
+  const sites = new Float32Array(SITE_N * 3);
+  const sides = new Float32Array(SITE_N);
+  for (let i = 0; i < SITE_N; i++) {
+    const s = handed?.[i];
+    if (s && i < n) {
+      sites[i * 3] = s.x ?? s[0];
+      sites[i * 3 + 1] = s.y ?? s[1];
+      sites[i * 3 + 2] = s.z ?? s[2];
+      sides[i] = s.side ?? 1;
+    } else if (i === 0) {
+      sites[0] = cp[0]; sites[1] = cp[1]; sites[2] = cp[2];
+      sides[0] = 1;
+    } else {
+      sites[i * 3 + 1] = -1e4;
+      sides[i] = 1;
+    }
+  }
+  return {
+    uCraftSites: sites,
+    uCraftSiteSide: sides,
+    uCraftSiteCount: n,
+    uCraftPierce: ctx?.craftPierce ?? 0,
+    uCraftSpout: ctx?.craftSpout ?? 0,
+    uEntryRadius: ctx?.craftEntryRadius ?? 2.0,
+  };
+}
 
 export class Spray {
   constructor(gl, blit, { size = 256 } = {}) {
@@ -22,6 +58,13 @@ export class Spray {
     };
     this.pos = [texture2D(gl, opts), texture2D(gl, opts)];
     this.vel = [texture2D(gl, opts), texture2D(gl, opts)];
+    this.splashAtlas = texture2D(gl, {
+      width: 1, height: 1,
+      internalFormat: gl.R8, format: gl.RED, type: gl.UNSIGNED_BYTE,
+      filter: gl.LINEAR, wrap: gl.CLAMP_TO_EDGE,
+      data: new Uint8Array([255]), mips: true, aniso: 8,
+    });
+    void uploadWebGLMask(gl, this.splashAtlas, decodeSplashAtlas);
     this.fbo = [
       framebuffer(gl, [this.pos[0], this.vel[0]]),
       framebuffer(gl, [this.pos[1], this.vel[1]]),
@@ -86,25 +129,26 @@ export class Spray {
       uCraftPos: ctx.craftPos ?? new Float32Array([0, -1e4, 0]),
       uCraftFwd: ctx.craftFwd ?? new Float32Array([0, 1]),
       uCraftRight: ctx.craftRight ?? new Float32Array([1, 0]),
+      ...craftSiteUniforms(ctx),
       uCraftSpeed: ctx.craftSpeed ?? 0,
       uCraftTurn: ctx.craftTurn ?? 0,
       uCraftAmount: ctx.craftAmount ?? 0,
       uCraftSpread: p.craftSpraySpread, uCraftUp: p.craftSprayUp,
-      uCraftPlane: p.craftPlaneSpeed, uCraftPlaneFull: p.craftPlaneFull,
-      uCraftLife: p.craftSprayLife, uCraftPulse: p.craftSprayPulse,
+      uCraftPlane: ctx.craftPlane ?? p.craftPlaneSpeed, uCraftPlaneFull: ctx.craftPlaneFull ?? p.craftPlaneFull,
+      uCraftLife: p.craftSprayLife * (ctx.entryLifeScale ?? 1), uCraftPulse: p.craftSprayPulse,
       uCraftLoad: ctx.craftLoad ?? 0, uCraftLoadFull: p.craftLoadFull,
-      uCraftBeam: p.wrBeam, uCraftLen: p.wrLength,
+      uCraftBeam: ctx.craftBeam ?? p.wrBeam, uCraftLen: ctx.craftLen ?? p.wrLength,
       // What the rider is doing, which is what decides where the water goes.
       uCraftSteer: ctx.craftSteer ?? 0,
       uCraftThrottle: ctx.craftThrottle ?? 0,
       uCraftSlip: ctx.craftSlip ?? 0,
       uCraftAir: ctx.craftAir ?? 0,
       uCraftImpact: ctx.craftImpact ?? 0,
-      uCraftJet: p.craftJet, uCraftJetSpeed: p.craftJetSpeed,
-      uCraftJetAngle: p.craftJetAngle, uCraftJetRise: p.craftJetRise,
-      uCraftSheet: p.craftSheet, uCraftSheetSpeed: p.craftSheetSpeed,
-      uCraftCurtain: p.craftCurtain, uCraftCurtainSpeed: p.craftCurtainSpeed,
-      uCraftBurst: p.craftBurst,
+      uCraftJet: ctx.craftJet ?? p.craftJet, uCraftJetSpeed: ctx.craftJetSpeed ?? p.craftJetSpeed,
+      uCraftJetAngle: ctx.craftJetAngle ?? p.craftJetAngle, uCraftJetRise: ctx.craftJetRise ?? p.craftJetRise,
+      uCraftSheet: ctx.craftSheet ?? p.craftSheet, uCraftSheetSpeed: p.craftSheetSpeed,
+      uCraftCurtain: ctx.craftCurtain ?? p.craftCurtain, uCraftCurtainSpeed: p.craftCurtainSpeed,
+      uCraftBurst: ctx.craftBurst ?? p.craftBurst,
     });
     this.blit.draw();
     this.idx = next;
@@ -164,7 +208,9 @@ export class Spray {
       // horizontal line across the sea that travels with you.
       uFadeNear: p.sprayFadeNear, uFadeFar: p.sprayRadius,
       uViewportH: gl.drawingBufferHeight, uMinPixels: p.sprayMinPixels,
-      uFarSoft: p.sprayFarSoft,
+      uFarSoft: p.sprayFarSoft, uEntry: 0,
+      uSplashAtlas: this.splashAtlas,
+      uSplashPlateAmount: 0,
       uSkyLUT: skyLut, uSunDir: ctx.sunDir, uSunColor: p.sunIrradiance,
       uOpacity: p.sprayOpacity, uMistOpacity: p.sprayMistOpacity,
       uScatter: p.sprayScatter, uAmbient: p.sprayAmbient, uMulti: p.sprayMulti,

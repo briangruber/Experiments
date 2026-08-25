@@ -226,7 +226,7 @@ struct FFTParams {
 @group(0) @binding(4) var<storage, read_write> dst0      : array<vec4<f32>>;
 @group(0) @binding(5) var<storage, read_write> dst1      : array<vec4<f32>>;
 
-const LINE : u32 = 256u;         // must be >= N
+const LINE : u32 = 256u;         // must be >= N; fftSharedWgsl() rewrites this
 const WG   : u32 = 256u;         // must match @workgroup_size below
 
 var<workgroup> line0 : array<vec4<f32>, LINE>;   // was uSrc0 / o0
@@ -314,5 +314,34 @@ fn main(@builtin(workgroup_id)         wid : vec3<u32>,
 `;
 
 // The drop-in replacement for FFT_FS is the per-stage kernel: same schedule, same
-// dispatch count, same ping-pong. FFT_SHARED_WGSL is the optimisation.
+// dispatch count, same ping-pong. FFT_SHARED_WGSL is the optimisation, and
+// fftSharedWgsl(N) is what the compute driver actually ships (LINE raised to N
+// so fftSize 512 still fits, up to the 16 KiB workgroup-storage cap).
 export const FFT_WGSL = FFT_STAGE_WGSL;
+
+/** Workgroup-memory FFT module sized for a given N. LINE must be >= N. */
+export function fftSharedWgsl( line, workgroup = 256 ) {
+
+	const n = line >>> 0;
+	const wg = workgroup >>> 0;
+	if ( n < 2 || ( n & ( n - 1 ) ) ) {
+
+		throw new Error( `fftSharedWgsl: LINE must be a power of two, got ${ line }` );
+
+	}
+	if ( wg < 1 || wg > 256 ) {
+
+		throw new Error( `fftSharedWgsl: workgroup size ${ workgroup } is outside 1..256` );
+
+	}
+	if ( n * 2 * 16 > 16384 ) {
+
+		throw new Error( `fftSharedWgsl: LINE=${ n } needs ${ n * 32 } bytes of workgroup storage (cap 16384)` );
+
+	}
+	return FFT_SHARED_WGSL
+		.replace( 'const LINE : u32 = 256u;', `const LINE : u32 = ${ n }u;` )
+		.replace( 'const WG   : u32 = 256u;', `const WG   : u32 = ${ wg }u;` )
+		.replace( '@workgroup_size(256, 1, 1)', `@workgroup_size(${ wg }, 1, 1)` );
+
+}

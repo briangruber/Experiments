@@ -151,6 +151,7 @@ import { setAtmosphereUniforms } from './atmosphere.js';
 import { setSkyLutUniforms, moonDirOf } from './sky-lut.js';
 import { setSkyBackgroundUniforms } from './sky-background.js';
 import { setCloudUniforms } from './cloud-field.js';
+import { loadWaterAssetTextures } from './water-assets.js';
 
 // The two triangles of the billboard, in the GLSL's vertex order
 // (src/spray.js:39-41).
@@ -214,6 +215,7 @@ export class TslSpray {
 	constructor( renderer, { size = 256 } = {} ) {
 
 		this.renderer = renderer;
+		void loadWaterAssetTextures();
 		this.size = size;
 		this.frame = 0;
 		// The READABLE parity - see note 1.
@@ -431,7 +433,11 @@ export class TslSpray {
 
 		// src/spray.js:142, verbatim - and AFTER the haze, which is a separate
 		// layer with its own gate.
-		if ( p.sprayOpacity <= 0.001 && p.sprayMistOpacity <= 0.001 ) return;
+		// The animal's sheet is sdSprayOpacity, not the Spray group's
+		// Opacity. Zeroing whitecap opacity must not hide the swim trail.
+		const dragonVisible = ctx?.sprayBody === 'dragon'
+			&& ( p.sdSprayOpacity ?? 0 ) > 0.001;
+		if ( p.sprayOpacity <= 0.001 && p.sprayMistOpacity <= 0.001 && ! dragonVisible ) return;
 
 		setAtmosphereUniforms( p );
 		setSkyLutUniforms( p, ctx.sunDir, Math.max( ctx.camPos[ 1 ], 1 ),

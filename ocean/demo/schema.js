@@ -4,13 +4,54 @@
 // renderer. src/presets.js is the single source of truth for the values
 // themselves; nothing here is needed to draw a frame.
 
-const C = (key, label, opts = {}) => ({ key, label, type: 'color', ...opts });
-const S = (key, label, min, max, step = 0.001, opts = {}) => ({ key, label, type: 'range', min, max, step, ...opts });
-const B = (key, label) => ({ key, label, type: 'bool' });
+import { HINTS } from './param-hints.js';
+
+// The handful of knobs that actually decide how each subsystem looks, out of
+// the ~420 here. Reported: "the spray settings are so many it is hard to
+// figure out what the best are" - so the panel can hide everything else
+// (ui.js's Essentials toggle) instead of asking anyone to know which of
+// thirty-three spray sliders is the master. Marked in ONE list rather than at
+// every call site, the same way HINTS attaches tooltips.
+const KEY_PARAMS = new Set([
+  // the sea itself
+  'windSpeed', 'amplitude', 'choppiness', 'swellAmount',
+  'sunElevation', 'sunIntensity', 'cloudCoverage',
+  'scatterColor', 'foamAmount', 'foamFill', 'foamCell', 'foamTextureAmount',
+  'foamLaceStretch', 'foamLaceMorph', 'foamLaceMorphRate',
+  'floorDepth', 'floorDepthMin', 'floorDepthMax', 'floorCaustic', 'floorCausticSize', 'sdRefract', 'shoreFoamAmount',
+  // spray: the masters, not the thirty knobs behind them
+  'sprayRate', 'sprayOpacity', 'spraySize', 'sprayLifetime', 'sprayWindMin',
+  'spraySizeMin', 'spraySizeMax',
+  'craftSprayAmount', 'craftSprayPulse', 'craftSprayOpacity', 'craftSprayLife',
+  'craftSpraySpread', 'craftSprayUp', 'sprayTexSize',
+  // wake
+  'wakeStrength', 'wakeLife', 'wakeFoamDecay', 'wakeFoamWaveCarry',
+  'wakeFoamCrestLook', 'wakeFoamDiverge', 'wakeFoamRibbonVary',
+  'wakeWidthScale', 'wakeEdgeFade',
+  // the animal
+  'sdEnabled', 'sdModel', 'sdSpray', 'sdSpraySize', 'sdSprayOpacity', 'sdSprayLife',
+  'sdSprayPulse', 'sdSprayLaunch', 'sdSprayDepth', 'sdSprayEmitters', 'sdSprayDebug',
+  'sdBow', 'sdBowSoft', 'sdDome', 'sdDomeSoft', 'sdDomeNear', 'sdFluke', 'sdFlukeSize', 'sdFlukeLife', 'sdFlukeDebug', 'sdRipple',
+  'sdSwell', 'sdSwellRadius', 'sdSwellLife', 'sdSwellWave',
+  'sdSwellSpeedMin', 'sdSwellSpeedMax', 'sdSwellDebug',
+  'sdVWake', 'sdVWakeAmp', 'sdVWakeLen', 'sdVWakeMid', 'sdVWakeLife',
+  'sdDepth', 'sdLength', 'sdSpeed', 'sdCruise',
+  // displacement + picture
+  'waterDisplaceAmount', 'exposureBias', 'saturation', 'renderScale',
+]);
+
+// Every item picks up its tooltip from HINTS by key automatically, rather
+// than each of the 400-odd S()/E()/C()/B() calls below carrying its own hint
+// string - that would mean editing every call site to add one, and editing
+// every call site again the day the wording needs to change. A key with no
+// entry in param-hints.js just renders with no tooltip.
+const C = (key, label, opts = {}) => ({ key, label, type: 'color', hint: HINTS[key], essential: KEY_PARAMS.has(key), ...opts });
+const S = (key, label, min, max, step = 0.001, opts = {}) => ({ key, label, type: 'range', min, max, step, hint: HINTS[key], essential: KEY_PARAMS.has(key), ...opts });
+const B = (key, label) => ({ key, label, type: 'bool', hint: HINTS[key], essential: KEY_PARAMS.has(key) });
 // The fourth argument was being dropped, so E('fftSize', ..., { rebuildSim: true })
 // and E('sprayTexSize', ..., { rebuildSpray: true }) set the parameter and never
 // rebuilt anything - changing either in the UI did nothing at all.
-const E = (key, label, options, opts = {}) => ({ key, label, type: 'enum', options, ...opts });
+const E = (key, label, options, opts = {}) => ({ key, label, type: 'enum', options, hint: HINTS[key], essential: KEY_PARAMS.has(key), ...opts });
 
 export const SCHEMA = [
   {
@@ -53,31 +94,34 @@ export const SCHEMA = [
     ],
   },
   {
+    // The one shared control over every mesh that actually pushes the sea's
+    // own geometry around: the ski/seaplane/boat's hollow (they all share one
+    // "hull" slot) and the sea dragon's mound (its own "swell" slot) both
+    // scale from here - see water-surface.js's waterDisplaceScale().
+    group: 'Water Displacement', items: [
+      S('waterDisplaceEnabled', 'Meshes displace water', 0, 1, 1, { integer: true }),
+      S('waterDisplaceAmount', 'Displacement strength', 0, 2, 0.01),
+    ],
+  },
+  {
     group: 'Foam', items: [
       S('foamAmount', 'Coverage', 0, 3, 0.005),
-      S('foamCoverage', 'Whitecap fraction x', 0, 4, 0.005),
-      S('foamSoftness', 'Breaking softness', 0.05, 3, 0.005),
-      S('foamFace', 'Forward-face bias', 0, 1, 0.005),
-      S('foamBreakScale', 'Breaker scale (m)', 0.5, 40, 0.1),
-      S('foamCrestAniso', 'Crest elongation', 1, 12, 0.05),
-      S('foamRidge', 'Crest ridge gate', 0, 1, 0.005),
-      S('foamBreakup', 'Raft breakup', 0, 2, 0.005),
-      S('foamWindMin', 'Whitecap onset (m/s)', 0, 12, 0.1),
-      S('foamInject', 'Injection', 0, 3, 0.005),
-      S('foamFreshDecay', 'Fresh foam decay', 0.05, 4, 0.005),
-      S('foamDecay', 'Decay rate', 0.01, 3, 0.005),
-      S('foamThin', 'Raft thinning', 0, 0.6, 0.002),
-      S('foamDrift', 'Downwind drift (m/s)', 0, 3, 0.005),
-      S('foamSpread', 'Spread rate', 0, 1.5, 0.005),
-      S('foamDetail', 'Bubble relief', 0, 5, 0.01),
-      S('foamCrisp', 'Bubble-edge crispness', 0, 1, 0.005),
-      S('foamSharp', 'Edge erosion', 0.2, 6, 0.01),
-      S('foamStreak', 'Downwind streaking', 0, 1, 0.005),
+      S('foamFill', 'Raft fill', 0, 1, 0.005),
+      S('foamCell', 'Cell size', 0.25, 3, 0.01),
+      S('foamTextureAmount', 'Texture lace', 0, 1, 0.005),
+      S('foamTextureScale', 'Texture tile (m)', 2, 30, 0.1),
+      S('foamTextureCarry', 'Wave carry', 0, 1.5, 0.01),
+      S('foamTextureShear', 'Slope slide', 0, 2, 0.01),
+      S('foamTextureStrain', 'Slope strain', 0, 2, 0.01),
+      S('foamLaceStretch', 'Face stretch', 0, 6, 0.05),
+      S('foamLaceStretchBlock', 'Stretch block (m)', 6, 80, 1),
+      S('foamLaceMorph', 'Morph amount', 0, 4, 0.05),
+      S('foamLaceMorphRate', 'Morph rate', 0, 0.4, 0.005),
+      S('foamStreak', 'Downwind stretch', 0, 1, 0.005),
+      S('foamDrift', 'Slide (m/s)', 0, 3, 0.01),
+      S('foamDetail', 'Bubble brightness', 0, 5, 0.01),
+      S('foamTint', 'Cyan underglow', 0, 1, 0.005),
       S('foamOpacity', 'Opacity', 0, 1, 0.005),
-      S('foamFar', 'Distance self-hiding', 0, 1, 0.005),
-      S('foamRoughness', 'Roughness', 0.05, 1, 0.005),
-      S('foamTint', 'Water tint', 0, 1, 0.005),
-      S('foamLift', 'Crest lift', 0, 3, 0.005),
       C('foamColor', 'Colour'),
     ],
   },
@@ -114,6 +158,16 @@ export const SCHEMA = [
       S('horizonBend', 'Horizon bend', 0, 1, 0.005),
       S('aerial', 'Aerial perspective', 0, 2, 0.005),
       S('waterIOR', 'Index of refraction', 1.0, 1.8, 0.001),
+      B('underwater', 'Underwater look'),
+      S('floorDepth', 'Seafloor depth (m)', 0, 100, 0.1),
+      S('floorDepthMin', 'Seafloor min depth (m)', 0, 100, 0.1),
+      S('floorDepthMax', 'Seafloor max depth (m)', 0, 100, 0.1),
+      S('floorTerrainScale', 'Seafloor terrain size (m)', 8, 200, 1),
+      S('floorCaustic', 'Floor caustics', 0, 3, 0.01),
+      S('floorCausticSize', 'Caustic size', 0.25, 3, 0.01),
+      S('sdRefract', 'Underwater refraction', 0, 1.5, 0.001),
+      S('shoreFoamAmount', 'Shore break foam', 0, 3, 0.01),
+      S('shoreFoamRange', 'Breaker depth (m)', 0.25, 8, 0.05),
     ],
   },
   {
@@ -139,7 +193,7 @@ export const SCHEMA = [
       S('sprayDrag', 'Wind drag', 0, 5, 0.01),
       S('sprayTurbulence', 'Turbulence', 0, 8, 0.01),
       S('sprayShear', 'Wind shear', 0, 1.5, 0.005),
-      S('spraySizeMin', 'Parcel size min (m)', 0.02, 1, 0.005),
+      S('spraySizeMin', 'Parcel size min (m)', 0.01, 1, 0.001),
       S('spraySizeMax', 'Parcel size max (m)', 0.05, 4, 0.005),
       S('spraySize', 'Size', 0.1, 5, 0.01),
       S('sprayStretch', 'Shutter smear (s)', 0, 0.25, 0.001),
@@ -233,29 +287,66 @@ export const SCHEMA = [
   {
     group: 'Sea Dragon', items: [
       S('sdEnabled', 'Sea dragon', 0, 1, 1),
-      S('sdDepth', 'Dragon depth (m)', 1.6, 25, 0.1),
-      S('sdSwell', 'Sea lifts over its back (m)', 0, 3, 0.01),
-      S('sdSwellRadius', 'Lift footprint (m)', 1, 25, 0.5),
-      S('sdSwellFade', 'Lift dies by depth (m)', 1, 20, 0.5),
+      E('sdModel', 'Model', ['Current', 'Sea serpent']),
+      S('sdDepth', 'Dragon depth (m)', 1.6, 160, 0.1),
+      S('sdBow', 'Bow heap (m)', 0, 16, 0.01),
+      S('sdBowSoft', 'Bow smoothness', 0.4, 3, 0.01),
+      S('sdDome', 'Pressure dome (m)', 0, 16, 0.01),
+      S('sdDomeSoft', 'Dome smoothness', 0.4, 3, 0.01),
+      S('sdDomeNear', 'Dome when this close (m)', 0.5, 16, 0.1),
+      S('sdFluke', 'Fluke footprints', 0, 2, 0.01),
+      S('sdFlukeSize', 'Footprint size (m)', 1, 24, 0.1),
+      S('sdFlukeLife', 'Footprint life (s)', 2, 30, 0.5),
+      S('sdFlukeDebug', 'Show footprint points', 0, 1, 1),
+      S('sdRipple', 'Thrown ripples', 0, 1, 0.01),
+      S('sdSwell', 'Ripple height (m)', 0, 12, 0.01),
+      S('sdSwellRadius', 'Ripple width (m)', 0.2, 6, 0.1),
+      S('sdSwellFade', 'Ripples die by depth (m)', 1, 20, 0.5),
+      S('sdSwellLife', 'Ripple decay (s)', 0.4, 10, 0.05),
+      S('sdSwellWave', 'Ripple travel', 0, 1, 0.01),
+      S('sdSwellSpeedMin', 'Ripple speed min (m/s)', 2, 40, 0.5),
+      S('sdSwellSpeedMax', 'Ripple speed max (m/s)', 4, 60, 0.5),
+      S('sdSwellDebug', 'Show ripple points', 0, 1, 1),
+      S('sdSpray', 'Spray where it breaks the surface', 0, 2, 0.01),
+      S('sdSpraySize', 'Spray size', 0.1, 5, 0.01),
+      S('sdSprayOpacity', 'Spray opacity', 0, 2, 0.005),
+      S('sdSprayLife', 'Spray lifetime (s)', 0.1, 4, 0.01),
+      S('sdSprayPulse', 'Spray density', 0, 1.5, 0.01),
+      S('sdSprayLaunch', 'Spray launch', 0, 3, 0.01),
+      S('sdSprayDepth', 'Spray band (m)', 0.05, 2, 0.05),
+      S('sdSprayEmitters', 'Spray emitters on the waterline', 1, 50, 1, { integer: true }),
+      S('sdSprayDebug', 'Show spray / wake emitters', 0, 1, 1),
+      S('sdVWake', 'V wake', 0, 2, 0.01),
+      S('sdVWakeAmp', 'V wake height (m)', 0, 2, 0.01),
+      S('sdVWakeLen', 'V wake length (m)', 20, 220, 2),
+      S('sdVWakeWidth', 'V wake arm width (m)', 1, 14, 0.1),
+      S('sdVWakeAngle', 'V wake angle (°)', 12, 40, 0.5),
+      S('sdVWakeFoam', 'Persistent trail foam', 0, 1, 0.01),
+      S('sdVWakeMid', 'V wake centre', 0, 1, 0.01),
+      S('sdVWakeLife', 'V wake lifetime (s)', 0.4, 20, 0.1),
       S('sdDepthSwing', 'Dragon rise and sound (m)', 0, 12, 0.1),
       S('sdRushSpeed', 'Speed it comes up at (m/s)', 5, 30, 0.5),
       S('sdOffsetClose', 'Closes to (m) at speed', 3, 40, 0.5),
       S('sdOffset', 'Dragon station off your shoulder (m)', 5, 60, 0.5),
       S('sdLead', 'Dragon station ahead (m)', -20, 40, 0.5),
       S('sdFollowRise', 'Follow camera height (m)', 1, 40, 0.5),
-      S('sdFade', 'Dragon fades over (m)', 2, 30, 0.5),
-      S('sdOpacity', 'Dragon strength', 0, 2, 0.01),
-      S('sdLength', 'Dragon length (m)', 6, 60, 0.5),
-      S('sdSpeed', 'Dragon top speed (m/s)', 4, 50, 0.5),
+      E('sdView', 'Dragon view', ['Rider', 'Chase']),
+      S('sdClimb', 'Dragon rise / dive (rad/s)', 0.1, 1.4, 0.01),
+      S('sdFade', 'Water that swallows it (m)', 2, 30, 0.5),
+      S('sdOpacity', 'Dragon strength', 0, 1, 0.01),
+      S('sdLength', 'Dragon length (m)', 6, 200, 0.5),
+      S('sdSpeed', 'Dragon top speed at 60 m (m/s)', 4, 80, 0.5),
+      S('sdCruise', 'Dragon cruise (m/s)', 0, 60, 0.5),
       S('sdWaves', 'Dragon body waves', 0.3, 3, 0.01),
+      E('sdWaveAxis', 'Body wave direction', [ 'Sideways', 'Up and down', 'Both' ]),
       S('sdAmp', 'Dragon tail sweep', 0, 0.2, 0.001),
       S('sdBeat', 'Dragon tail beat (Hz)', 0, 3, 0.01),
-      S('sdBeatSpeed', 'Dragon beat per m/s', 0, 0.15, 0.001),
+      S('sdBeatSpeed', 'Dragon Strouhal trim', 0, 0.15, 0.001),
       S('sdTurnRate', 'Dragon turn rate (rad/s)', 0.1, 2, 0.01),
-      S('sdOrbit', 'Dragon circles you at (rad/s)', 0, 1, 0.01),
+      S('sdOrbit', 'Dragon orbit fallback (rad/s)', 0, 1, 0.01),
       S('sdGape', 'Jaw shut angle (rad)', 0, 1.4, 0.01),
       S('sdThrough', 'Shows through the glare', 0, 1, 0.01),
-      S('sdRefract', 'Refraction through the surface', 0, 0.2, 0.001),
+      S('sdRefract', 'Refraction through the surface', 0, 1.5, 0.001),
     ],
   },
   {
@@ -306,11 +397,21 @@ export const SCHEMA = [
       S('wakeStrength', 'Wake strength', 0, 3, 0.01),
       S('wakeWidth', 'Wake arm width (m)', 0.2, 6, 0.05),
       S('wakeLife', 'Wake lifetime (s)', 1, 40, 0.1),
+      S('wakeFoamDecay', 'Wake foam persist (s)', 0.12, 12, 0.05),
+      S('wakeFoamWaveCarry', 'Wake foam wave influence', 0, 3, 0.05),
+      S('wakeFoamCrestLook', 'Leftover crest foam look', 0, 3, 0.05),
+      S('wakeFoamWaveMax', 'Wake foam drift cap (m/s)', 0, 3, 0.05),
+      S('wakeFoamWaveSpread', 'Wake foam wave spread', 0, 5, 0.05),
+      S('wakeFoamDiverge', 'Wake foam Kelvin diverge', 0, 3, 0.05),
+      S('wakeFoamRibbonVary', 'Wake foam ribbon vary', 0, 1.6, 0.02),
       S('wakeSpread', 'Wake arm thickening', 0, 1.5, 0.01),
       S('wakeDepth', 'Wake surface relief (m)', 0, 2, 0.01),
       S('wakeRelief', 'Wake relief shading', 0, 3, 0.01),
       S('wakeSlick', 'Wake slick', 0, 1, 0.01),
+      S('wakePlume', 'Wake plume', 0, 2, 0.05),
       S('wakeExtent', 'Wake memory (m)', 80, 800, 5),
+      S('wakeEdgeFade', 'Wake buffer edge fade', 0.01, 0.4, 0.005),
+      S('wakeWidthScale', 'Wake width x (auto-measured)', 0.2, 3, 0.01),
       S('wakeProbe', 'Ride your own wake', 0, 2, 0.01),
       S('wakeArmRate', 'Wake V spread', 0, 3, 0.01),
       S('wakeArm', 'Wake arm strength', 0, 3, 0.01),
@@ -372,6 +473,30 @@ export const SCHEMA = [
       S('spWingRight', 'Wing righting', 0, 20, 0.5),
       S('spPropIdle', 'Prop idle (rad/s)', 0, 40, 0.5),
       S('spPropRpm', 'Prop full power (rad/s)', 10, 200, 1),
+    ],
+  },
+  {
+    group: 'Fishing Boat', items: [
+      S('boatTopSpeed', 'Top speed (m/s)', 2, 30, 0.5),
+      S('boatAccel', 'Acceleration', 0.5, 15, 0.1),
+      S('boatTurnRate', 'Turn rate', 0.02, 1, 0.01),
+      S('boatSteerLag', 'Steering response', 0.2, 8, 0.05),
+      S('boatYawInertia', 'Hull yaw inertia', 0.2, 6, 0.05),
+      S('boatGrip', 'Grip (lower drifts)', 0.5, 8, 0.02),
+      S('boatCoastSteer', 'Off-throttle steering', 0, 1, 0.01),
+      E('boatView', 'View', ['Wheelhouse', 'Chase']),
+      S('boatCamDistance', 'Chase distance (m)', 4, 40, 0.1),
+      S('boatCamRise', 'Chase height (m)', 0.5, 15, 0.05),
+      S('boatCamLag', 'Chase lag', 0.5, 20, 0.1),
+      S('boatLength', 'Half-length (m)', 1, 12, 0.1),
+      S('boatBeam', 'Half-beam (m)', 0.5, 5, 0.05),
+      S('boatLift', 'Ride height offset (m)', -1.5, 3.5, 0.01),
+      S('boatScale', 'Hull scale', 0.3, 3, 0.01),
+      S('boatYawOffset', 'Model yaw offset', -3.15, 3.15, 0.01),
+      S('boatPitchOffset', 'Model pitch offset', -3.15, 3.15, 0.01),
+      S('boatRollOffset', 'Model roll offset', -3.15, 3.15, 0.01),
+      S('boatCamHeight', 'Wheelhouse eye height (m)', 0.5, 5, 0.05),
+      S('boatShake', 'Ride shake', 0, 2, 0.01),
     ],
   },
   {
@@ -465,6 +590,7 @@ export const SCHEMA = [
       S('adaptiveQuality', 'Adaptive resolution', 0, 1, 1, { integer: true }),
       S('fpsCap', 'Frame rate cap (0 = off)', 0, 144, 1),
       S('fpsCapIdle', 'Cap when not in front', 1, 60, 1),
+      S('fpsCapBattery', 'Cap on battery', 0, 60, 1),
       S('dprCap', 'Pixel ratio cap', 0.5, 3, 0.05, { resize: true }),
       S('targetFps', 'Target frame rate', 20, 120, 1),
       S('renderScaleMin', 'Min render scale', 0.25, 1, 0.05),

@@ -30,22 +30,21 @@
 
 import * as THREE from 'three/webgpu';
 import {
-	Fn, If, float, vec2, vec3, vec4, uniform, texture, mix, clamp, smoothstep,
+	Fn, float, vec3, uniform, texture, mix, smoothstep,
 	attribute, cos, sin,
-	positionLocal, normalLocal, uv, positionWorld, normalWorld, cameraPosition,
-	modelWorldMatrix, transformNormalToView, varyingProperty, max, dot, normalize,
-	pow, exp, faceDirection,
+	positionLocal, normalLocal, uv, positionWorld,
 } from 'three/tsl';
 
 import { CRAFT_MESH } from '../../../demo/craftModel.js';
 
 import {
-	uSunIrradiance, uAtmoExposure, R_PLANET,
-	sunTransmittance, aerialPerspective,
-} from './atmosphere.js';
-import { uSunDir } from './sky-lut.js';
-import { skyLutTexture } from './sky-background.js';
-import { sampleSky, uSkyBlur } from './water-brdf.js';
+	skyLitColor, createOceanLitMaterial,
+	uCraftWetLine, uCraftWetDarken, uCraftSkyAmbient, uCraftAerial,
+} from './ocean-lit.js';
+export { uCraftWetLine, uCraftWetDarken, uCraftSkyAmbient, uCraftAerial };
+export { createOceanLitMaterial };
+import { MAX_BREACH_EMITTERS, breachRuns, placeBreachEmitters, meshSheathRadii } from '../../breach-emitters.js';
+export { MAX_BREACH_EMITTERS, breachRuns, placeBreachEmitters, meshSheathRadii };
 
 const unb64 = ( s, T ) => {
 
@@ -206,12 +205,8 @@ export const craftVertex = /*@__PURE__*/ Fn( () => {
 // ---- material ---------------------------------------------------------------
 
 export const uCraftGloss = /*@__PURE__*/ uniform( 0.8 );
-export const uCraftWetLine = /*@__PURE__*/ uniform( 0.0 );      // world y of the waterline
-export const uCraftWetDarken = /*@__PURE__*/ uniform( 0.55 );
 export const uCraftHasTex = /*@__PURE__*/ uniform( 0.0 );
 export const uCraftFallback = /*@__PURE__*/ uniform( /*@__PURE__*/ new THREE.Color( 0.47, 0.78, 0.75 ) );
-export const uCraftSkyAmbient = /*@__PURE__*/ uniform( 1.0 );
-export const uCraftAerial = /*@__PURE__*/ uniform( 1.0 );
 
 const craftBaseColor = /*@__PURE__*/ texture( /*@__PURE__*/ ( () => {
 
@@ -237,80 +232,232 @@ export function setCraftTexture( tex ) {
  */
 export const craftFragment = /*@__PURE__*/ Fn( () => {
 
-	// faceDirection is -1 on a back face; the hull is not watertight everywhere
-	// and demo/craft.js draws it double-sided for the same reason.
-	const N = normalize( normalWorld ).mul( faceDirection ).toVar();
-	const V = normalize( cameraPosition.sub( positionWorld ) ).toVar();
-
 	const albedo = mix( uCraftFallback, craftBaseColor.sample( uv() ).rgb, uCraftHasTex ).toVar();
-
-	// Below the waterline the paint is wet: darker and much glossier.
 	const wet = smoothstep( 0.06, - 0.06, positionWorld.y.sub( uCraftWetLine ) ).toVar();
 	albedo.mulAssign( mix( float( 1.0 ), uCraftWetDarken, wet ) );
-
 	const rough = mix( mix( float( 0.20 ), float( 0.48 ), uCraftGloss.oneMinus() ), float( 0.10 ), wet ).toVar();
-	const a = rough.mul( rough ).max( 1e-3 ).toVar();
-
-	// The sun as the sea sees it: through the atmosphere, and switched off below
-	// the horizon rather than lighting the craft after sunset.
-	const ro = vec3( 0.0, positionWorld.y.max( 1.0 ).add( R_PLANET ), 0.0 ).toVar();
-	const sunRad = uSunIrradiance
-		.mul( sunTransmittance( ro, uSunDir ) )
-		.mul( uAtmoExposure )
-		.mul( smoothstep( - 0.09, 0.02, uSunDir.y ) ).toVar();
-
-	const NoL = N.dot( uSunDir ).max( 0.0 ).toVar();
-	const NoV = N.dot( V ).clamp( 1e-4, 1.0 ).toVar();
-
-	// GGX, the same D and V the water uses, with a dielectric F0.
-	const H = normalize( uSunDir.add( V ) ).toVar();
-	const NoH = N.dot( H ).clamp( 0.0, 1.0 ).toVar();
-	const a2 = a.mul( a ).toVar();
-	const dd = NoH.mul( NoH ).mul( a2.sub( 1.0 ) ).add( 1.0 ).toVar();
-	const D = a2.div( dd.mul( dd ).mul( 3.14159265 ).max( 1e-9 ) ).toVar();
-	const k = a.mul( 0.5 ).toVar();
-	const Vis = float( 0.5 ).div(
-		NoL.mul( NoV.mul( k.oneMinus() ).add( k ) )
-			.add( NoV.mul( NoL.mul( k.oneMinus() ).add( k ) ) ).max( 1e-6 ) ).toVar();
 	const f0 = mix( float( 0.04 ), float( 0.03 ), wet ).toVar();
-	const VoH = V.dot( H ).clamp( 0.0, 1.0 ).toVar();
-	const F = f0.add( float( 1.0 ).sub( f0 ).mul( pow( float( 1.0 ).sub( VoH ), 5.0 ) ) ).toVar();
-
-	const direct = sunRad.mul( NoL ).mul(
-		albedo.mul( F.oneMinus() ).div( 3.14159265 ).add( vec3( D.mul( Vis ).mul( F ).min( 40.0 ) ) ) ).toVar();
-
-	// Ambient: the LUT's own hemisphere, weighted by how much sky this normal
-	// can see. mip 9 at the horizon row is the wide average, NOT a zenith patch.
-	const skyIrr = skyLutTexture.sample( vec2( 0.5, 0.78 ) ).level( 9.0 ).rgb
-		.mul( 3.14159265 ).mul( uCraftSkyAmbient ).toVar();
-	const domeVis = float( 0.5 ).add( N.y.mul( 0.5 ) ).toVar();
-	const ambient = albedo.mul( skyIrr ).mul( domeVis ).div( 3.14159265 ).toVar();
-
-	// A blurred environment reflection, so the topsides pick up the sky rather
-	// than reading as matte plastic.
-	const R = N.mul( N.dot( V ).mul( 2.0 ) ).sub( V ).toVar();
-	const envF = f0.add( float( 1.0 ).sub( f0 ).mul( pow( float( 1.0 ).sub( NoV ), 5.0 ) ) ).toVar();
-	const envSpec = sampleSky( normalize( R ), a ).mul( envF ).toVar();
-
-	const col = direct.add( ambient ).add( envSpec ).toVar();
-
-	// ...and put it in the haze rather than in front of it.
-	const eyeDist = cameraPosition.sub( positionWorld ).length().toVar();
-	// aerialPerspective returns { inscatter, transmit } - two vec3s, not a
-	// packed vector. Reading it as `.xyz` compiles perfectly and multiplies the
-	// hull by nothing: measured as 63% of the craft's pixels at exactly zero
-	// while the rest stayed bright. Applied the way the water applies it
-	// (src/shaders/water.js): scale by transmittance, then add the inscatter.
-	const { inscatter, transmit } = aerialPerspective(
-		vec3( 0.0, cameraPosition.y.max( 1.0 ).add( R_PLANET ), 0.0 ),
-		normalize( positionWorld.sub( cameraPosition ) ),
-		eyeDist.min( 60000.0 ),
-		uSunDir,
-	);
-
-	return vec4(
-		col.mul( mix( vec3( 1.0 ), transmit, uCraftAerial ) ).add( inscatter.mul( uCraftAerial ) ),
-		1.0,
-	);
+	return skyLitColor( albedo, rough, f0 );
 
 } );
+
+/**
+ * A mesh's own half-width profile against height, so a wake can be as wide as
+ * the part of the body ACTUALLY cutting the surface instead of a number
+ * somebody had to guess and re-guess per craft.
+ *
+ * Built once from the geometry (and rebuilt only when the geometry is), then
+ * read O(1) per frame by waterlineHalfWidth(). Bucketed by LOCAL y: for each
+ * slice of height, the widest |x| any vertex reaches there. Empty buckets are
+ * filled from their neighbours so a sparse mesh cannot punch holes in the
+ * profile.
+ *
+ * APPROXIMATION, stated plainly: local y is treated as world-vertical, so a
+ * pitched or rolled body is measured as though it were level. Correcting it
+ * would mean transforming every vertex every frame - the whole cost this
+ * exists to avoid - and at the angles anything here actually swims or floats
+ * at, the error is far smaller than the guessed constant it replaces.
+ *
+ * @param {THREE.BufferGeometry} geometry - as returned by buildCraftGeometry.
+ * @param {number} [bins=64] - height slices.
+ * @returns {{minY:number, maxY:number, half:Float32Array}}
+ */
+export function buildWaterlineProfile( geometry, bins = 64 ) {
+
+	const pos = geometry.getAttribute( 'position' );
+	const half = new Float32Array( bins );
+	let minY = Infinity, maxY = - Infinity;
+	for ( let i = 0; i < pos.count; i ++ ) {
+
+		const y = pos.getY( i );
+		if ( y < minY ) minY = y;
+		if ( y > maxY ) maxY = y;
+
+	}
+	if ( ! ( maxY > minY ) ) return { minY: 0, maxY: 0, half };
+
+	const span = maxY - minY;
+	for ( let i = 0; i < pos.count; i ++ ) {
+
+		let b = Math.floor( ( pos.getY( i ) - minY ) / span * bins );
+		if ( b < 0 ) b = 0; else if ( b >= bins ) b = bins - 1;
+		const ax = Math.abs( pos.getX( i ) );
+		if ( ax > half[ b ] ) half[ b ] = ax;
+
+	}
+	// Fill gaps both ways so a bucket no vertex landed in inherits a real
+	// measurement rather than reporting a body of zero width.
+	for ( let b = 1; b < bins; b ++ ) if ( half[ b ] === 0 ) half[ b ] = half[ b - 1 ];
+	for ( let b = bins - 2; b >= 0; b -- ) if ( half[ b ] === 0 ) half[ b ] = half[ b + 1 ];
+	return { minY, maxY, half };
+
+}
+
+/**
+ * The body's half-width where the waterline crosses it.
+ *
+ * @param {{minY:number,maxY:number,half:Float32Array}} profile
+ * @param {number} localY - the waterline in the MESH's own frame, i.e.
+ *   seaLevel - meshOriginWorldY. Clamped into the body: above the top means a
+ *   fully submerged body (report its narrow back, and let the caller's own
+ *   depth fade take it from there), below the keel means it is out of the
+ *   water entirely.
+ * @returns {number} half-width in metres.
+ */
+export function waterlineHalfWidth( profile, localY ) {
+
+	const { minY, maxY, half } = profile;
+	if ( ! ( maxY > minY ) || ! half.length ) return 0;
+	const t = Math.min( Math.max( ( localY - minY ) / ( maxY - minY ), 0 ), 1 );
+	let b = Math.floor( t * half.length );
+	if ( b >= half.length ) b = half.length - 1;
+	return half[ b ];
+
+}
+
+/**
+ * Which STATIONS along a body are high enough to break the surface - the
+ * lengthwise companion to buildWaterlineProfile's crosswise one.
+ *
+ * For each slice along local Z, the highest local Y any vertex reaches there.
+ * A dorsal fin is a tall, short station; a flank is a low, long one. With
+ * this, "where is this mesh piercing the water" is a lookup rather than a
+ * guess, so spray can leave the fin that is actually out instead of a ring
+ * around the body's centre.
+ *
+ * @param {THREE.BufferGeometry} geometry
+ * @param {number} [bins=48] - slices along the body.
+ * @param {number} [yBins=12] - height slices per station, so width can be
+ *   read at the waterline instead of at the widest (usually deepest) point.
+ * @returns {{minZ:number, maxZ:number, top:Float32Array, low:Float32Array, half:Float32Array, yBins:number, band:Float32Array}}
+ */
+export function buildBreachProfile( geometry, bins = 48, yBins = 12 ) {
+
+	const pos = geometry.getAttribute( 'position' );
+	const top = new Float32Array( bins ).fill( - Infinity );
+	const low = new Float32Array( bins ).fill( Infinity );
+	const half = new Float32Array( bins );
+	const empty = () => ( {
+		minZ: 0, maxZ: 0,
+		top: new Float32Array( bins ),
+		low: new Float32Array( bins ),
+		half: new Float32Array( bins ),
+		yBins, band: new Float32Array( bins * yBins ),
+	} );
+	let minZ = Infinity, maxZ = - Infinity;
+	for ( let i = 0; i < pos.count; i ++ ) {
+
+		const z = pos.getZ( i );
+		if ( z < minZ ) minZ = z;
+		if ( z > maxZ ) maxZ = z;
+
+	}
+	if ( ! ( maxZ > minZ ) ) return empty();
+
+	const span = maxZ - minZ;
+	for ( let i = 0; i < pos.count; i ++ ) {
+
+		let b = Math.floor( ( pos.getZ( i ) - minZ ) / span * bins );
+		if ( b < 0 ) b = 0; else if ( b >= bins ) b = bins - 1;
+		const y = pos.getY( i );
+		if ( y > top[ b ] ) top[ b ] = y;
+		if ( y < low[ b ] ) low[ b ] = y;
+		const ax = Math.abs( pos.getX( i ) );
+		if ( ax > half[ b ] ) half[ b ] = ax;
+
+	}
+	for ( let b = 1; b < bins; b ++ ) if ( top[ b ] === - Infinity ) top[ b ] = top[ b - 1 ];
+	for ( let b = bins - 2; b >= 0; b -- ) if ( top[ b ] === - Infinity ) top[ b ] = top[ b + 1 ];
+	for ( let b = 0; b < bins; b ++ ) if ( ! Number.isFinite( top[ b ] ) ) top[ b ] = 0;
+	for ( let b = 1; b < bins; b ++ ) if ( ! Number.isFinite( low[ b ] ) ) low[ b ] = low[ b - 1 ];
+	for ( let b = bins - 2; b >= 0; b -- ) if ( ! Number.isFinite( low[ b ] ) ) low[ b ] = low[ b + 1 ];
+	for ( let b = 0; b < bins; b ++ ) if ( ! Number.isFinite( low[ b ] ) ) low[ b ] = 0;
+	for ( let b = 1; b < bins; b ++ ) if ( half[ b ] === 0 ) half[ b ] = half[ b - 1 ];
+	for ( let b = bins - 2; b >= 0; b -- ) if ( half[ b ] === 0 ) half[ b ] = half[ b + 1 ];
+
+	// Width at each height, per station. Not filled across empty Ys: a sparse
+	// fin must not inherit the belly's beam. Lookup uses the nearest measured
+	// band, so a waterline through the fin reads the fin, not the pectorals.
+	const band = new Float32Array( bins * yBins );
+	for ( let i = 0; i < pos.count; i ++ ) {
+
+		let b = Math.floor( ( pos.getZ( i ) - minZ ) / span * bins );
+		if ( b < 0 ) b = 0; else if ( b >= bins ) b = bins - 1;
+		const lo = low[ b ], hi = top[ b ];
+		if ( ! ( hi > lo ) ) continue;
+		let yb = Math.floor( ( pos.getY( i ) - lo ) / ( hi - lo ) * yBins );
+		if ( yb < 0 ) yb = 0; else if ( yb >= yBins ) yb = yBins - 1;
+		const ax = Math.abs( pos.getX( i ) );
+		const idx = b * yBins + yb;
+		if ( ax > band[ idx ] ) band[ idx ] = ax;
+
+	}
+	return { minZ, maxZ, top, low, half, yBins, band };
+
+}
+
+/**
+ * Breach profile from a posed Object3D, in that object's local frame.
+ * Walks every mesh so a GLB hull (not a single BufferGeometry) can drive
+ * foam / spray the same way buildBreachProfile() does for the ski.
+ */
+export function breachProfileFromObject( root, bins = 48, yBins = 12 ) {
+
+	if ( ! root ) return null;
+	root.updateMatrixWorld( true );
+	const pos = [];
+	const v = new THREE.Vector3();
+	root.traverse( ( obj ) => {
+
+		if ( ! obj.isMesh || ! obj.geometry?.getAttribute ) return;
+		const att = obj.geometry.getAttribute( 'position' );
+		if ( ! att ) return;
+		for ( let i = 0; i < att.count; i ++ ) {
+
+			v.fromBufferAttribute( att, i );
+			obj.localToWorld( v );
+			root.worldToLocal( v );
+			pos.push( v.x, v.y, v.z );
+
+		}
+
+	} );
+	if ( pos.length < 9 ) return null;
+	const geom = new THREE.BufferGeometry();
+	geom.setAttribute( 'position', new THREE.Float32BufferAttribute( pos, 3 ) );
+	const profile = buildBreachProfile( geom, bins, yBins );
+	geom.dispose();
+	return profile;
+
+}
+
+/** Scale a breach profile when the parent group is stretched. */
+export function scaleBreachProfile( raw, sx = 1, sy = 1, sz = 1 ) {
+
+	if ( ! raw ) return raw;
+	if ( sx === 1 && sy === 1 && sz === 1 ) return raw;
+	const half = raw.half ? raw.half.slice() : new Float32Array();
+	const top = raw.top ? raw.top.slice() : new Float32Array();
+	const low = raw.low ? raw.low.slice() : new Float32Array();
+	for ( let i = 0; i < half.length; i ++ ) half[ i ] *= sx;
+	for ( let i = 0; i < top.length; i ++ ) {
+
+		top[ i ] *= sy;
+		if ( low.length ) low[ i ] *= sy;
+
+	}
+	let band = raw.band;
+	if ( band ) {
+
+		band = band.slice();
+		for ( let i = 0; i < band.length; i ++ ) band[ i ] *= sx;
+
+	}
+	return {
+		...raw,
+		minZ: raw.minZ * sz,
+		maxZ: raw.maxZ * sz,
+		top, low, half, band,
+	};
+
+}

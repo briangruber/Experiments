@@ -76,6 +76,14 @@ the thinning raft it decays into, which is a Beer–Lambert veil in its own
 thickness with the sea showing through. Painting aged foam as opaque white is the
 single most common thing that makes CG water look like a bath.
 
+The *structure* inside that footprint is a bubble emulsion, not a stencil.
+Breaking injects air at the fold (Tessendorf Jacobian — our FFT foamF/foamR);
+that coverage is a hard gate, so calm water stays empty. Inside the gate a
+wind-stretched Worley field only mottles brightness: thicker at junctions,
+thinner in the cells. Coverage itself stays a film — hull wake especially,
+where multiplying by the walls was a white Voronoi V on the ski. White where
+the emulsion is optically thick; cyan under-scatters under those thick bits.
+
 ---
 
 ## The sky
@@ -126,6 +134,13 @@ and how far off the track it was. The **Kelvin** pattern — arms at the classic
 19.47° half-angle — is then reconstructed analytically from that record at sample
 time. Age drives decay, so a circle you drove a minute ago is still there, still
 the right shape.
+
+The sea dragon does not write that field. Behind a surface run it writes a
+simple two-arm V (`src/v-wake.js`): soft ridges leaving the first
+waterline cut, nothing ahead, fading with fetch, and an optional third
+ridge down the middle. Generation follows depth; a written chevron
+stays on the sea and dies on its own lifetime. White water on a breach
+is still the waterline particle sheet.
 
 ---
 

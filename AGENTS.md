@@ -1,5 +1,15 @@
 # Experiments — agent routing
 
+**File-only unless asked.** Do not load, preview, or run a prototype to
+look at it (no browser MCP, no headed Chromium, no screenshot loops).
+The user is the eyes. Open a live page only when they explicitly ask.
+
+**Do not run the check suite during look-and-feel work.** When the user is
+iterating visually, running `check-*.mjs` burns their CPU and their time for
+a verdict they are about to give you themselves. Make the change, say what to
+look for, and stop. Run checks when you have changed behaviour they cannot
+see, or when they ask.
+
 One folder per prototype, nothing at the root (see [README.md](README.md) for
 why). Work inside the folder your task names; never move a prototype's files
 into the root or into `tools/` of another prototype.

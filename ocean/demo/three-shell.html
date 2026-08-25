@@ -57,10 +57,21 @@
   /* ---- the instrument panel ---------------------------------------------- */
 
   #hud {
-    position: fixed; top: 14px; left: 14px; z-index: 10;
-    display: flex; flex-direction: column; gap: 10px;
-    width: 15.5rem; max-width: calc(100vw - 28px);
-    padding: 12px 13px 11px;
+    /* TOP-ANCHORED, and `bottom` is pinned to auto on purpose: this panel
+       grows and shrinks (it collapses to one header row), so it must be
+       sized by its content, never stretched between two anchors. The classic
+       demo's stylesheet rides along inlined above and styles its own #hud -
+       the same id, a bottom-left readout - and one of its `bottom` rules
+       reaching this element is what stretched the collapsed panel over the
+       whole phone screen. The bundler drops those rules now
+       (tools/bundle-three.mjs's sanitizeUiCss), and this says so locally too
+       so the shell's layout does not depend on that filter being perfect. */
+    position: fixed; top: 14px; bottom: auto; left: 14px; z-index: 10;
+    display: flex; flex-direction: column; gap: 6px;
+    width: 18rem; max-width: calc(100vw - 28px);
+    max-height: calc(100dvh - 28px);
+    padding: 10px 13px 8px;
+    overflow: hidden;
     font: 400 12px/1.5 var(--mono);
     color: var(--spume);
     /* No backdrop-filter. It looked better and it cost the canvas: over a WebGPU
@@ -91,7 +102,7 @@
   #toggle:hover { color: var(--spume); }
 
   #hint {
-    margin: 0;
+    margin: 0 0 8px;
     font: 400 11px/1.45 var(--sans);
     color: var(--dim);
   }
@@ -154,33 +165,71 @@
     border-color: var(--glint);
   }
 
-  /* The ride pair. Same construction as the backend group, but Ride carries the
-     accent when it is live, because "am I riding?" is state and not a request. */
-  #ride-row { display: flex; gap: 4px; }
-  #ride-row button {
-    font: 500 11px/1 var(--mono);
+  /* One compact craft row stays visible so leaving swim is one tap. Chase,
+     Follow, Level, the backend, and the preset live in #scene so the
+     category list is what the column is for. */
+  #mode-row, #view-row { display: flex; gap: 4px; }
+  #mode-row button, #view-row button {
+    flex: 1;
+    font: 500 10px/1 var(--mono);
     color: var(--spume);
     background: var(--hull);
     border: 1px solid var(--rule);
     border-radius: 6px;
-    padding: 8px 4px;
+    padding: 6px 3px;
     cursor: pointer;
     -webkit-appearance: none;
     transition: background .12s ease, color .12s ease, border-color .12s ease;
   }
-  #btn-ride, #btn-fly { flex: 3; }
-  #btn-follow { flex: 3; }
-  #btn-view { flex: 2; color: var(--haze); }
-  #ride-row button:hover { background: var(--hull-2); color: var(--spume); }
-  #btn-follow[aria-pressed="true"],
-  #btn-ride[aria-pressed="true"], #btn-fly[aria-pressed="true"] {
+  #btn-view { color: var(--haze); }
+  #btn-level { color: var(--haze); }
+  #btn-level:disabled { opacity: .4; cursor: default; }
+  #mode-row button:hover, #view-row button:hover { background: var(--hull-2); color: var(--spume); }
+  #btn-follow[aria-pressed="true"], #btn-perf[aria-pressed="true"],
+  #btn-look[aria-pressed="true"], #btn-ride[aria-pressed="true"],
+  #btn-fly[aria-pressed="true"], #btn-boat[aria-pressed="true"],
+  #btn-swim[aria-pressed="true"] {
     color: var(--abyss);
     background: var(--glint);
     border-color: var(--glint);
   }
   @media (prefers-reduced-motion: reduce) {
-    #ride-row button { transition: none; }
+    #mode-row button, #view-row button { transition: none; }
   }
+
+  /* Same compact fold language as #stats: dim header, no category chevron. */
+  #scene {
+    flex: none;
+    border-top: 1px solid var(--rule);
+    margin: 0 -13px;
+    padding: 0 13px;
+  }
+  #scene > summary {
+    list-style: none;
+    cursor: pointer;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    font: 500 10px/1 var(--mono);
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--dim);
+    padding: 7px 2px;
+    user-select: none;
+    background: none;
+  }
+  #scene > summary::-webkit-details-marker { display: none; }
+  #scene > summary::before { display: none; content: none; }
+  #scene > summary::after { content: ' ▸'; flex: none; }
+  #scene[open] > summary { color: var(--haze); }
+  #scene[open] > summary::after { content: ' ▾'; }
+  #scene > summary:hover { color: var(--spume); }
+  #scene-state { font-weight: 400; letter-spacing: .04em; text-transform: none; color: var(--haze); }
+  #scene-body { display: flex; flex-direction: column; gap: 6px; padding: 0 0 8px; }
+  #scene #backend { margin-top: 2px; }
+  #scene #backend button { padding: 5px 4px; font-size: 10px; }
+  #scene select { padding: 6px 8px; }
 
   select {
     font: 400 11px/1 var(--mono);
@@ -195,27 +244,87 @@
   }
   select:hover { background: var(--hull-2); }
 
-  #settings-btn {
-    font: 400 11px/1 var(--mono);
-    width: 100%;
-    color: var(--spume);
-    background: var(--hull);
-    border: 1px solid var(--rule);
-    border-radius: 6px;
-    padding: 7px 8px;
-    text-align: left;
-    cursor: pointer;
+  /* Settings live IN this column, not behind a second surface. The classic
+     demo's #ui is a fixed overlay; nested here those rules are undone so the
+     sliders scroll with the rest of the instrument. */
+  #settings-slot {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    margin: 0 -13px;
+    border-top: 1px solid var(--rule);
+    overflow: hidden;
   }
-  #settings-btn:hover { background: var(--hull-2); }
-  #settings-btn[aria-expanded="true"] { color: var(--glint); border-color: var(--glint); }
+  #hud #ui {
+    position: static;
+    inset: auto;
+    width: auto;
+    height: auto;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: none;
+    border: 0;
+    border-radius: 0;
+    padding: 0 0 8px;
+    transform: none !important;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    z-index: auto;
+  }
+  #hud #ui.hidden { display: block; transform: none !important; }
+  #hud #ui .brand,
+  #hud #ui .close,
+  #hud #ui > .brand + .row { display: none; }
+  /* Actions is a fold, not a category — same dim language as #scene / #stats. */
+  #hud #ui details.chrome-fold { border-bottom: 1px solid var(--rule); }
+  #hud #ui details.chrome-fold > summary {
+    font: 500 10px/1 var(--mono);
+    letter-spacing: .12em;
+    color: var(--dim);
+    padding: 7px 14px;
+  }
+  #hud #ui details.chrome-fold > summary::before { display: none; content: none; }
+  #hud #ui details.chrome-fold > summary::after { content: ' ▸'; }
+  #hud #ui details.chrome-fold[open] > summary { color: var(--haze); }
+  #hud #ui details.chrome-fold[open] > summary::after { content: ' ▾'; }
 
-  /* Readouts. Row of label + value, hairline between, digits aligned. */
-  #readout { display: flex; flex-direction: column; gap: 6px; padding-top: 9px; border-top: 1px solid var(--rule); }
-  .row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-  .k { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); }
-  .v { font-size: 11px; color: var(--spume); font-variant-numeric: tabular-nums; text-align: right; }
-  .v.live { color: var(--glint); }
-  .v.warn { color: var(--amber); }
+  /* Debug numbers, folded away until asked for. */
+  #stats {
+    border-top: 1px solid var(--rule);
+    padding-top: 2px;
+    flex: none;
+  }
+  #stats > summary {
+    list-style: none;
+    cursor: pointer;
+    display: block;
+    font: 500 10px/1 var(--mono);
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--dim);
+    padding: 7px 2px;
+    user-select: none;
+    background: none;
+  }
+  #stats > summary::-webkit-details-marker { display: none; }
+  #stats > summary::before { display: none; content: none; }
+  #stats > summary::after { content: ' ▸'; }
+  #stats[open] > summary { color: var(--haze); }
+  #stats[open] > summary::after { content: ' ▾'; }
+  #stats > summary:hover { color: var(--spume); }
+
+  /* Readouts. Row of label + value, hairline between, digits aligned.
+     Scoped to #readout so it cannot restyle the settings panel's own .row. */
+  #readout { display: flex; flex-direction: column; gap: 6px; padding: 2px 0 4px; }
+  #readout .row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  #readout .k { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); }
+  #readout .v { font-size: 11px; color: var(--spume); font-variant-numeric: tabular-nums; text-align: right; }
+  #readout .v.live { color: var(--glint); }
+  #readout .v.warn { color: var(--amber); }
   #note { margin: 0; font: 400 10px/1.45 var(--sans); color: var(--amber); }
   #note:empty { display: none; }
   .err { color: var(--coral); }
@@ -230,8 +339,127 @@
     #backend button { transition: none; }
   }
 
+  /* Live hull speed while you are aboard (swim / ski / boat). Top-right
+     so it is not inside the collapsed instrument. */
+  #craft-speed {
+    display: none;
+    position: fixed;
+    top: 14px;
+    right: 14px;
+    z-index: 9;
+    margin: 0;
+    padding: 8px 12px 7px;
+    font: 400 12px/1.2 var(--mono);
+    color: var(--spume);
+    background: rgba(6, 13, 20, 0.93);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    text-align: right;
+    pointer-events: none;
+  }
+  #craft-speed:not([hidden]) { display: block; }
+  #craft-speed .k {
+    display: block;
+    font-size: 10px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+  #craft-speed .v {
+    display: block;
+    margin-top: 2px;
+    font-size: 22px;
+    font-variant-numeric: tabular-nums;
+    color: var(--glint);
+  }
+  #craft-speed .u {
+    font-size: 11px;
+    letter-spacing: .04em;
+    color: var(--haze);
+  }
+
+  /* Stage toggles + live meters. Outside #hud so collapsing the instrument
+     does not hide the thing you opened to watch FPS. */
+  #perf-debug {
+    position: fixed;
+    right: 14px;
+    bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+    z-index: 11;
+    width: 20rem;
+    max-width: calc(100vw - 28px);
+    max-height: calc(70dvh - 28px);
+    overflow: auto;
+    padding: 10px 12px 8px;
+    font: 400 11px/1.45 var(--mono);
+    color: var(--spume);
+    background: rgba(6, 13, 20, 0.95);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+  }
+  #perf-debug[hidden] { display: none; }
+  #perf-debug .perf-head {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+    margin-bottom: 8px;
+  }
+  #perf-debug .perf-head strong {
+    font: 600 10px/1 var(--mono);
+    letter-spacing: .18em; text-transform: uppercase; color: var(--haze);
+  }
+  #perf-debug .perf-actions { display: flex; gap: 4px; }
+  #perf-debug .perf-actions button {
+    font: 500 10px/1 var(--mono);
+    color: var(--spume); background: var(--hull);
+    border: 1px solid var(--rule); border-radius: 5px;
+    padding: 5px 7px; cursor: pointer;
+  }
+  #perf-debug .perf-actions button:hover { background: var(--hull-2); }
+  #perf-debug .perf-actions button:disabled { opacity: .45; cursor: default; }
+  #perf-debug .perf-meters { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+  #perf-debug .perf-meters .row,
+  #perf-debug .perf-row {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  }
+  #perf-debug .k { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); }
+  #perf-debug .v { font-variant-numeric: tabular-nums; color: var(--glint); }
+  #perf-debug .v.hot { color: var(--coral); }
+  #perf-debug .perf-stages { display: flex; flex-direction: column; gap: 3px; margin: 8px 0; }
+  #perf-debug .perf-row {
+    padding: 4px 0;
+    border-top: 1px solid var(--rule);
+    cursor: pointer;
+  }
+  #perf-debug .perf-row.off .perf-lab { color: var(--dim); text-decoration: line-through; }
+  #perf-debug .perf-lab { flex: 1; }
+  #perf-debug .perf-js { color: var(--haze); font-variant-numeric: tabular-nums; min-width: 3.6em; text-align: right; }
+  #perf-debug .perf-ab { color: var(--amber); font-variant-numeric: tabular-nums; min-width: 5.5em; text-align: right; }
+  #perf-debug .perf-warn, #perf-debug .perf-note, #perf-debug .perf-report {
+    margin: 6px 0 0; font: 400 10px/1.45 var(--sans); color: var(--dim);
+  }
+  #perf-debug .perf-warn { color: var(--amber); }
+  #perf-debug .perf-report { color: var(--haze); }
+  #perf-debug .perf-hot-wrap { margin: 8px 0 4px; }
+  #perf-debug .perf-hot-wrap .k span { font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--haze); }
+  #perf-debug .perf-live { margin: 4px 0 0; font: 400 11px/1.4 var(--mono); color: var(--glint); font-variant-numeric: tabular-nums; }
+  #perf-debug .perf-hot {
+    margin: 4px 0 0; padding: 0; list-style: none;
+    display: flex; flex-direction: column; gap: 3px;
+  }
+  #perf-debug .perf-hot li {
+    display: flex; justify-content: space-between; gap: 8px;
+    font-variant-numeric: tabular-nums;
+  }
+  #perf-debug .perf-hot li:first-child b { color: var(--coral); }
+  #perf-debug .perf-hot li.off b,
+  #perf-debug .perf-hot li.off span { color: var(--dim); text-decoration: line-through; }
+  #perf-debug .perf-hot li span { color: var(--amber); }
+  #perf-debug .perf-hot li.hint { color: var(--dim); font: 400 10px/1.45 var(--sans); }
+
   @media (max-width: 520px) {
     #hud { width: calc(100vw - 28px); }
+    #craft-speed { top: 58px; }
+  }
+  @media (max-width: 520px) and (pointer: coarse) {
+    #hud { max-height: 64vh; }
   }
 </style>
 
@@ -241,53 +469,65 @@
      flying. It never takes a pointer event (see the CSS), so it cannot come
      between a thumb and the throttle. -->
 <div id="controls-card" aria-hidden="true"></div>
-
-<div id="hud" data-collapsed="false">
-  <div id="hud-head">
-    <h1>Abyssal</h1>
-    <button id="toggle" aria-expanded="true" aria-controls="hud" title="Collapse panel">—</button>
-  </div>
-
-  <p id="hint">Drag to look · W A S D to move · scroll to zoom · R to ride</p>
-  <p id="hint-touch">Hold anywhere for throttle · slide sideways to steer · slide up and down to climb and dive.</p>
-
-  <div id="backend" role="group" aria-label="Renderer backend">
-    <button id="btn-auto"   aria-pressed="false" title="Prefer WebGPU, fall back to WebGL2">Auto</button>
-    <button id="btn-webgpu" aria-pressed="false" title="Request WebGPU">WebGPU</button>
-    <button id="btn-webgl"  aria-pressed="false" title="Force the WebGL2 fallback">WebGL2</button>
-  </div>
-
-  <!-- R and V are keys, and a phone has neither. The ride was reachable only
-       through the Settings panel, which is a long way to go for the one control
-       that changes what the app IS. -->
-  <div id="ride-row" role="group" aria-label="Craft">
-    <button id="btn-ride" aria-pressed="false" title="Ride the wave runner (R)">Ride</button>
-    <button id="btn-fly" aria-pressed="false" title="Take the seaplane out (F)">Fly</button>
-    <button id="btn-view" title="Switch between the chase camera and the pilot's own view (V)">Chase</button>
-    <button id="btn-follow" aria-pressed="false" title="Follow the sea dragon, so you can tune it while it swims (G)">Follow</button>
-  </div>
-
-  <select id="preset" aria-label="Sea state preset"></select>
-
-  <select id="clouds" aria-label="Cloud type" title="Real cloud genera over the active preset">
-    <option value="preset">Clouds · preset’s own</option>
-  </select>
-
-  <button id="settings-btn" aria-expanded="false" aria-controls="ui"
-    title="Every parameter of the sea and the sky">Settings ›</button>
-
-  <div id="readout">
-    <div class="row"><span class="k">Running</span><span class="v" id="status">starting…</span></div>
-    <div class="row"><span class="k">Frame</span><span class="v" id="fps">—</span></div>
-    <div class="row"><span class="k">Bands</span><span class="v" id="bands">—</span></div>
-    <div class="row"><span class="k">Build</span><span class="v" id="build">—</span></div>
-  </div>
-  <p id="note"></p>
+<div id="craft-speed" hidden>
+  <span class="k">Speed</span>
+  <span class="v">— <span class="u">m/s</span></span>
 </div>
 
-<!-- The classic demo's full parameter panel (demo/ui.js), docked right, hidden
-     until the Settings button opens it. -->
-<div id="ui" class="hidden"></div>
+<div id="hud" data-collapsed="true">
+  <div id="hud-head">
+    <h1>Abyssal</h1>
+    <button id="toggle" aria-expanded="false" aria-controls="hud" title="Expand panel">+</button>
+  </div>
+
+  <!-- Craft stays one tap away; everything else folds so the category list
+       is what this column is for. R/F/B/M are keys a phone does not have. -->
+  <div id="mode-row" role="group" aria-label="Craft">
+    <button id="btn-look" aria-pressed="false" title="Top-down view of the sea, no craft, no follow (O)">Look</button>
+    <button id="btn-ride" aria-pressed="false" title="Ride the wave runner (R)">Ride</button>
+    <button id="btn-fly" aria-pressed="false" title="Take the seaplane out (F)">Fly</button>
+    <button id="btn-boat" aria-pressed="false" title="Take the fishing boat out (B)">Boat</button>
+    <button id="btn-swim" aria-pressed="false" title="Pilot the sea dragon (M)">Swim</button>
+  </div>
+
+  <details id="scene">
+    <summary>Scene <span id="scene-state"></span></summary>
+    <div id="scene-body">
+      <p id="hint">Drag to look · W A S D to move · scroll to zoom · O for a top-down sea · R to ride · M to swim · P for perf</p>
+      <p id="hint-touch">Hold anywhere for throttle · slide sideways to steer · slide up and down to climb and dive.</p>
+      <div id="backend" role="group" aria-label="Renderer backend">
+        <button id="btn-auto"   aria-pressed="false" title="Prefer WebGPU, fall back to WebGL2">Auto</button>
+        <button id="btn-webgpu" aria-pressed="false" title="Request WebGPU">WebGPU</button>
+        <button id="btn-webgl"  aria-pressed="false" title="Force the WebGL2 fallback">WebGL2</button>
+      </div>
+      <div id="view-row" role="group" aria-label="Camera">
+        <button id="btn-view" title="Switch between the chase camera and the pilot's own view (V)">Chase</button>
+        <button id="btn-follow" aria-pressed="false" title="Follow the sea dragon, so you can tune it while it swims (G)">Follow</button>
+        <button id="btn-level" disabled title="Flatten pitch so it holds this depth (L)">Level</button>
+        <button id="btn-perf" aria-pressed="false" title="Toggle stages and watch FPS / energy (P)">Perf</button>
+      </div>
+      <select id="preset" aria-label="Sea state preset"></select>
+      <select id="clouds" aria-label="Cloud type" title="Real cloud genera over the active preset">
+        <option value="preset">Clouds · preset’s own</option>
+      </select>
+    </div>
+  </details>
+
+  <div id="settings-slot">
+    <div id="ui"></div>
+  </div>
+
+  <details id="stats">
+    <summary>Stats</summary>
+    <div id="readout">
+      <div class="row"><span class="k">Running</span><span class="v" id="status">starting…</span></div>
+      <div class="row"><span class="k">Frame</span><span class="v" id="fps">—</span></div>
+      <div class="row"><span class="k">Bands</span><span class="v" id="bands">—</span></div>
+      <div class="row"><span class="k">Build</span><span class="v" id="build">—</span></div>
+    </div>
+    <p id="note"></p>
+  </details>
+</div>
 
 <script>
   (function () {

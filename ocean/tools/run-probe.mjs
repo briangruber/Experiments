@@ -3,9 +3,17 @@
 // window.probeResult.
 //
 //   node tools/run-probe.mjs prototypes/three-native-probe.html
+//   node tools/run-probe.mjs prototypes/some-touch-probe.html --touch
 //
 // Same CDN-to-node_modules interception as tools/check-examples.mjs, so the page
 // can import 'three' the way a reader would while the test stays hermetic.
+//
+// --touch sets hasTouch, which is also what a page's own `(pointer: coarse)`
+// media query resolves against - the one distinction this project draws
+// between a phone and a small desktop window (src/presets.js isHandheld(),
+// demo/ui.css's settings-panel breakpoint). Without it every probe here runs
+// with a mouse, which is correct for everything except the handful of probes
+// asking specifically what a touch device sees.
 
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
@@ -50,8 +58,9 @@ const server = createServer(async (req, res) => {
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const port = server.address().port;
 
+const TOUCH = process.argv.includes('--touch');
 const browser = await launchChromium();
-const page = await browser.newPage({ viewport: { width: 500, height: 400 } });
+const page = await browser.newPage({ viewport: { width: 500, height: 400 }, hasTouch: TOUCH });
 const pageErrors = [];
 page.on('pageerror', (e) => pageErrors.push(e.stack || e.message));
 

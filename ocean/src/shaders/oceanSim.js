@@ -468,12 +468,13 @@ void main(){
   // same code smeared a raft over eight metres in the 397 m cascade and over
   // thirty centimetres in the 17 m one, so each cascade grew a differently
   // shaped foam and the sum was a soft halo around a hard core.
-  float alongUV  = 0.9 * bs / uL;
-  float acrossUV = 0.16 * bs / uL;
+  float alongUV  = 0.45 * bs / uL;
+  float acrossUV = 0.28 * bs / uL;
 
   vec4 prev = textureLod(uPrevFoam, vec3(uv - duv, float(uLayer)), 0.0);
-  // Anisotropic diffusion: a foam raft smears far further along the wind than
-  // across it, which is what turns blobs into streaks.
+  // Mild along-wind bias (~1.6:1), not the old 5.6:1 smear. That ratio turned
+  // every breaker into a filament; real foam keeps clumps and holes while it
+  // drifts.
   vec4 blur = 0.25 * (
       textureLod(uPrevFoam, vec3(uv - duv + wd*alongUV,  float(uLayer)), 0.0)
     + textureLod(uPrevFoam, vec3(uv - duv - wd*alongUV,  float(uLayer)), 0.0)

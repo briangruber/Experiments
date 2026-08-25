@@ -1,0 +1,124 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — you can ride the wave the sea dragon makes</title>
+
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}</style>
+<pre id="out">running…</pre>
+<!-- NO CSS ON THE CANVAS - same reasoning as boat-drive-probe.html. -->
+<canvas id="view" width="480" height="300"></canvas>
+
+<!--
+  The water's vertex stage lifts the surface over the animal's back
+  (water-surface.js's swellLift), but the craft probe read only the FFT
+  cascades - so a hull sat at the flat sea's height while the sea visibly
+  humped up underneath it. Reported as wanting to ride over the displaced
+  wave the monster makes.
+
+  This drives the REAL probe: park the animal directly under the ski, let the
+  readback settle (it is a GPU round trip, several frames late), and compare
+  the height the rider is actually floating on against the same instant with
+  the mound switched off. Nothing here reimplements swellLift - it reads
+  rider.probeH, the number the physics itself uses.
+
+  node tools/run-probe.mjs prototypes/ride-the-swell-probe.html
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { installWebGPUSwizzleShim } from './webgpu-shim.js';
+import { boot } from '../demo/three-main.js';
+
+installWebGPUSwizzleShim();
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+const frames = (k) => new Promise((resolve) => {
+  let i = 0;
+  const tick = () => (++i >= k ? resolve() : requestAnimationFrame(tick));
+  requestAnimationFrame(tick);
+});
+
+const work = (async () => {
+  try {
+    const app = await boot({
+      canvas: document.getElementById('view'), backend: 'webgl',
+      overrides: { fftSize: 64, sprayTexSize: 32, cloudSteps: 12, gridScale: 0.35 },
+    });
+    const A = app;
+    A.params.adaptiveQuality = 0; A.params.fpsCap = 0;
+    A.params.sdEnabled = 1;
+    // A still sea, so the only thing moving the probe is the animal.
+    A.params.timeScale = 0;
+    log('booted', true, `backend ${ A.backend }`);
+
+    A.toggleRide();
+    await frames(40);
+    log('riding', A.rider.active === true, `rider.active = ${ A.rider.active }`);
+
+    // Park the animal directly beneath the ski and hold it there - the swim
+    // controller would otherwise carry it off station, and its own depth
+    // controller rewrites pos[1] from `depth` every frame (see
+    // dragon-spray-probe.html's note), so pin `depth`, not pos[1].
+    A.onFrame = () => {
+      const s = A.rider.surfXZ();
+      A.dragon.pos[0] = s[0]; A.dragon.pos[2] = s[1];
+      A.dragon.depth = 3.0;
+      A.dragon.heading = A.rider.heading;
+    };
+    await frames(60);   // the probe is a GPU readback; give it time to land
+
+    const withMound = A.rider.probeH[0];
+    A.params.sdSwell = 0;                 // same animal, no displaced water
+    await frames(60);
+    const without = A.rider.probeH[0];
+
+    log('the probe is reading a real surface at all', Number.isFinite(withMound) && Number.isFinite(without),
+        `probeH ${ withMound } / ${ without }`);
+    log('the water under the ski RISES when the animal is under it', withMound - without > 0.15,
+        `probe height ${ without.toFixed(3) } m with the mound off -> ${ withMound.toFixed(3) } m with it on `
+        + `(+${ (withMound - without).toFixed(3) } m of the animal's own displaced water)`);
+
+    // ...and it has to be the ANIMAL's mound, not a drift: put it back and the
+    // lift must come back with it.
+    A.params.sdSwell = 2.88;
+    await frames(60);
+    const again = A.rider.probeH[0];
+    // NOT exact equality with the first reading: the hull FLOATS on the mound,
+    // so putting it back moves the ski, which moves where it samples, which
+    // moves the reading - a coupled system, not a pure function. Measured
+    // 1.907 -> 1.687 m across an off/on cycle. The claim worth making is that
+    // the lift is the animal's and comes back with it, which is this.
+    log('and the lift comes back when the mound does', again - without > 0.15,
+        `${ again.toFixed(3) } m, still +${ (again - without).toFixed(3) } m over the ${ without.toFixed(3) } m flat-sea reading`);
+
+    // The hull must NOT read back its own hollow - that is the feedback loop
+    // craft-probe.js's own comment warns about, and the reason the swell is
+    // added but the hull dent is not.
+    log('the rider is floating, not sinking into its own dent', A.rider.probeH.every(Number.isFinite),
+        `all four probes finite: ${ [ ...A.rider.probeH ].map((v) => v.toFixed(2)).join(', ') }`);
+
+    return 'done';
+  } catch (e) {
+    log('run the ride-the-swell probe', false, String(e.stack || e.message || e).slice(0, 900));
+    return 'error';
+  }
+})();
+
+const timedOut = Symbol('timeout');
+const outcome = await Promise.race([work, new Promise((r) => setTimeout(() => r(timedOut), 90000))]);
+if (outcome === timedOut) log('the probe itself', false, 'no result after 90s');
+
+window.probeResult = { results, allOk: results.length > 0 && results.every((r) => r.ok) };
+</script>

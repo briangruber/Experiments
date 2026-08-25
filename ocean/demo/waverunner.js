@@ -14,6 +14,23 @@ import { clamp, lerp, v3 } from '../src/math.js';
 // Probe points, in hull-local metres: centre, bow, port, starboard.
 const NPROBE = 4;
 
+// Boat knobs live as boatTopSpeed / boatBeam / … on the same params object.
+// A prefix of 'boat' answers wrFoo from boatFoo so this class stays one
+// integrator. The demo used to wrap params in a Proxy; that remapping now
+// lives here so three-main can delete remapParams.
+function hullParams(p, prefix) {
+  if (!prefix || prefix === 'wr') return p;
+  return new Proxy(p, {
+    get(target, prop) {
+      if (typeof prop === 'string' && prop.startsWith('wr')) {
+        const mapped = prefix + prop.slice(2);
+        if (mapped in target) return target[mapped];
+      }
+      return target[prop];
+    },
+  });
+}
+
 const PROBE_FS = /* glsl */`
 ${WAKE_SAMPLE_GLSL}
 uniform sampler2DArray uDisp, uFoam;
@@ -77,6 +94,7 @@ export class WaveRunner {
     this.gl = gl;
     this.blit = blit;
     this.canvas = opts.canvas || gl?.canvas || null;
+    this.prefix = opts.prefix || 'wr';
     this.active = false;
 
     if (gl) {
@@ -167,8 +185,11 @@ export class WaveRunner {
     this._lastSurf = undefined;
   }
 
+  paramsView(p) { return hullParams(p, this.prefix); }
+
   // Local offsets of the four probes, rotated into world space.
   _probePoints(p) {
+    p = hullParams(p, this.prefix);
     const c = Math.cos(this.heading), s = Math.sin(this.heading);
     // Heading matches the camera convention: forward is (sin, -cos) in XZ.
     const fx = s, fz = -c, rx = c, rz = s;
@@ -244,6 +265,7 @@ export class WaveRunner {
   }
 
   update(dt, p, keys, camera) {
+    p = hullParams(p, this.prefix);
     const d = Math.min(dt, 1 / 20);
     const k = keys;
     const held = (...codes) => codes.some((c) => k.has(c));

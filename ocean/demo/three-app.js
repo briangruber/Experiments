@@ -6,7 +6,32 @@
 
 import { boot, wantedBackend } from './three-main.js';
 import { UI } from './ui.js';
-import { defaults } from '../src/presets.js';
+import { defaults, PRESETS } from '../src/presets.js';
+
+// Golden Hour Swell (4.2° sun) paints a look-down frame orange; Deep Blue
+// Afternoon's navy body is so dark from overhead that aerial + auto-exposure
+// lift it to gray. Tropical Noon is the working default — high sun, bright
+// turquoise scatter — so foam and the animal read against blue water.
+// The other seas stay in the Scene menu.
+const DEMO_PRESET = 'Tropical Noon';
+const PRESET_STORE = 'abyssal.preset';
+
+function resolveStartPreset() {
+
+	const q = new URLSearchParams( location.search ).get( 'preset' );
+	let saved = null;
+	try { saved = localStorage.getItem( PRESET_STORE ); } catch { /* private mode */ }
+	const name = q || saved || DEMO_PRESET;
+	return PRESETS[ name ] ? name : DEMO_PRESET;
+
+}
+
+function rememberPreset( name ) {
+
+	if ( ! PRESETS[ name ] ) return;
+	try { localStorage.setItem( PRESET_STORE, name ); } catch { /* private mode */ }
+
+}
 
 // ---- error capture ----------------------------------------------------------
 // A phone has no console. On Safari a WGSL pipeline that fails validation draws
@@ -36,9 +61,12 @@ const want = wantedBackend();
 // The two control schemes are different enough that showing the flying one
 // while riding is just wrong - and Shift and Space in particular were doing
 // something nobody had been told about.
-const FLY_HINT = 'Drag to look · W A S D to move · scroll to zoom · R to ride · F to fly';
+const FLY_HINT = 'Drag to look · W A S D to move · scroll to zoom · O for a top-down sea · R to ride · F to fly · B for the boat · M to swim';
+const LOOK_HINT = 'Top-down over the sea · W A S D to pan · scroll to zoom · O to re-centre · R/F/B/M to board';
 const RIDE_HINT = 'W throttle · A D steer · Shift to carve · Space boost · V view · R to step off';
+const BOAT_HINT = 'W throttle · A D steer · V view · B to step off';
 const PLANE_HINT = 'W/S throttle lever · A D bank · Shift/\u2193 pull and push · V view · F to step out';
+const SWIM_HINT = '↑/↓ or W/S speed · Shift boosts the step · A D turn · Space leap · E rise · Q dive · L level · V view · M to leave';
 
 // One place that makes the whole panel agree about the ride, whichever of the
 // four ways in was used: the HUD button, the Settings panel's own Ride button,
@@ -47,8 +75,22 @@ function syncRide( app ) {
 
 	const riding = !! app.rider?.active;
 	const flying = !! app.plane?.active;
+	const boating = !! app.boat?.active;
+	const swimming = !! app.dragon?.active;
+	const looking = !! app.isLooking?.();
 	const hint = document.getElementById( 'hint' );
-	if ( hint ) hint.textContent = flying ? PLANE_HINT : riding ? RIDE_HINT : FLY_HINT;
+	if ( hint ) {
+
+		hint.textContent = swimming ? SWIM_HINT
+			: flying ? PLANE_HINT
+				: riding ? RIDE_HINT
+					: boating ? BOAT_HINT
+						: looking ? LOOK_HINT
+							: FLY_HINT;
+
+	}
+	const lkb = document.getElementById( 'btn-look' );
+	if ( lkb ) lkb.setAttribute( 'aria-pressed', String( looking ) );
 	const btn = document.getElementById( 'btn-ride' );
 	if ( btn ) {
 
@@ -74,12 +116,81 @@ function syncRide( app ) {
 
 	}
 
+	const bbtn = document.getElementById( 'btn-boat' );
+	if ( bbtn ) {
+
+		bbtn.setAttribute( 'aria-pressed', String( boating ) );
+		bbtn.textContent = boating ? 'Boating' : 'Boat';
+
+	}
+
+	const sbtn = document.getElementById( 'btn-swim' );
+	if ( sbtn ) {
+
+		sbtn.setAttribute( 'aria-pressed', String( swimming ) );
+		sbtn.textContent = swimming ? 'Swimming' : 'Swim';
+
+	}
+
+	const lbtn = document.getElementById( 'btn-level' );
+	if ( lbtn ) lbtn.disabled = ! swimming;
+
+	const sceneState = document.getElementById( 'scene-state' );
+	if ( sceneState ) {
+
+		sceneState.textContent = swimming ? 'Swim'
+			: flying ? 'Fly'
+				: riding ? 'Ride'
+					: boating ? 'Boat'
+						: 'Look';
+
+	}
+
 	// Stepping aboard shows the card; stepping off takes it away immediately.
 	if ( flying && ! wasFlying ) showControlsCard( app );
 	else if ( ! flying ) hideControlsCard();
 	wasFlying = flying;
 
 	syncView( app );
+	syncCraftSpeed( app );
+
+}
+
+function syncCraftSpeed( app ) {
+
+	const el = document.getElementById( 'craft-speed' );
+	if ( ! el ) return;
+	let label = '', ms = 0;
+	if ( app.dragon?.active ) {
+
+		label = 'Monster';
+		ms = Math.abs( app.dragon.speed ?? 0 );
+
+	} else if ( app.rider?.active ) {
+
+		label = 'Ski';
+		ms = Math.abs( app.rider.speed ?? 0 );
+
+	} else if ( app.boat?.active ) {
+
+		label = 'Boat';
+		ms = Math.abs( app.boat.speed ?? 0 );
+
+	} else {
+
+		el.hidden = true;
+		return;
+
+	}
+	el.hidden = false;
+	const n = ms >= 10 ? ms.toFixed( 0 ) : ms.toFixed( 1 );
+	const key = `${ label }:${ n }`;
+	if ( el.dataset.v === key ) return;
+	el.dataset.v = key;
+	const k = el.querySelector( '.k' );
+	const v = el.querySelector( '.v' );
+	if ( k ) k.textContent = label;
+	if ( v ) v.innerHTML = `${ n } <span class="u">m/s</span>`;
 
 }
 
@@ -137,10 +248,21 @@ function hideControlsCard() {
 
 }
 
+// The boat has its own boatView rather than sharing wrView (the ski's, which
+// the seaplane also reads) - WaveRunner prefix: 'boat'. So the one
+// on-screen view toggle has to know which vehicle it is currently toggling.
+function activeViewParam( app ) {
+
+	if ( app.dragon?.active ) return 'sdView';
+	return app.boat?.active ? 'boatView' : 'wrView';
+
+}
+
 function syncView( app ) {
 
 	const v = document.getElementById( 'btn-view' );
-	if ( v ) v.textContent = app.params.wrView >= 0.5 ? 'Chase' : 'Rider';
+	if ( v ) v.textContent = app.params[ activeViewParam( app ) ] >= 0.5
+		? 'Chase' : ( app.boat?.active ? 'Wheel' : 'Rider' );
 
 }
 
@@ -223,9 +345,10 @@ function kickCompositor() {
 async function bootWithFallback() {
 
 	const canvas = document.getElementById( 'view' );
+	const startPreset = resolveStartPreset();
 	try {
 
-		const app = await boot( { canvas } );
+		const app = await boot( { canvas, preset: startPreset } );
 
 		// A WebGPU device can initialise, compile every shader, raise no error -
 		// and still present nothing, if the platform cannot hand the swapchain to
@@ -351,7 +474,7 @@ async function bootWithFallback() {
 				}
 
 				app.renderer.setAnimationLoop?.( null );
-				const fb = await boot( { canvas: freshCanvas(), backend: 'webgl' } );
+				const fb = await boot( { canvas: freshCanvas(), backend: 'webgl', preset: startPreset } );
 				fb.fellBack = true;
 				fb.fallbackReason = `WebGPU initialised but produced a black frame (${ bands }).`;
 				return fb;
@@ -366,7 +489,7 @@ async function bootWithFallback() {
 
 		if ( want === 'webgl' ) throw err;          // already the fallback
 		console.warn( 'WebGPU boot failed, falling back to WebGL2:', err );
-		const app = await boot( { canvas: freshCanvas(), backend: 'webgl' } );
+		const app = await boot( { canvas: freshCanvas(), backend: 'webgl', preset: startPreset } );
 		app.fellBack = true;
 		app.fallbackReason = String( err?.message || err );
 		return app;
@@ -461,14 +584,14 @@ let noteHoldUntil = 0;
 function installSettingsPanel( app, presetSel, cloudSel ) {
 
 	const uiRoot = document.getElementById( 'ui' );
-	const btn = document.getElementById( 'settings-btn' );
-	if ( ! uiRoot || ! btn ) return;
+	if ( ! uiRoot ) return;
 
 	const ui = new UI( uiRoot, app.params, ( ev ) => {
 
 		if ( ev.type === 'preset' ) {
 
 			app.applyPreset( ev.name );
+			rememberPreset( ev.name );
 			if ( presetSel ) presetSel.value = ev.name;
 			if ( cloudSel ) cloudSel.value = 'preset';
 			ui.syncAll();
@@ -489,6 +612,7 @@ function installSettingsPanel( app, presetSel, cloudSel ) {
 		if ( ev.type === 'reset' ) {
 
 			app.applyPreset( ui.presetSelect.value );
+			rememberPreset( ui.presetSelect.value );
 			if ( cloudSel ) cloudSel.value = 'preset';
 			ui.syncAll();
 			return;
@@ -497,17 +621,12 @@ function installSettingsPanel( app, presetSel, cloudSel ) {
 
 		if ( ev.type === 'copy' ) {
 
+			// Same copyText() the per-group Copy buttons use (demo/ui.js) - one
+			// clipboard/fallback path, not two that could disagree about
+			// whether the write actually reached the OS clipboard.
 			const clean = {};
 			for ( const k of Object.keys( defaults ) ) clean[ k ] = app.params[ k ];
-			const text = JSON.stringify( clean, null, 2 );
-			Promise.resolve( navigator.clipboard?.writeText( text ) ?? Promise.reject() )
-				.then( () => ui.toast( 'Settings copied to clipboard' ) )
-				.catch( () => {
-
-					console.log( text );
-					ui.toast( 'Clipboard blocked — settings printed to the console' );
-
-				} );
+			ui.copyText( JSON.stringify( clean, null, 2 ), 'All settings' );
 			return;
 
 		}
@@ -573,10 +692,11 @@ function installSettingsPanel( app, presetSel, cloudSel ) {
 
 		if ( ev.type === 'view' ) {
 
-			app.params.wrView = app.params.wrView >= 0.5 ? 0 : 1;
+			const k = activeViewParam( app );
+			app.params[ k ] = app.params[ k ] >= 0.5 ? 0 : 1;
 			ui.syncAll();
 			syncView( app );
-			ui.toast( app.params.wrView >= 0.5 ? 'Chase camera' : 'Rider view' );
+			ui.toast( app.params[ k ] >= 0.5 ? 'Chase camera' : 'Rider view' );
 			return;
 
 		}
@@ -625,6 +745,26 @@ function installSettingsPanel( app, presetSel, cloudSel ) {
 
 		}
 
+		// Fired by the panel's own close button (demo/ui.js). In this shell
+		// that control is hidden - settings live in the HUD - and the handler
+		// collapses the instrument instead.
+		if ( ev.type === 'essentials' ) {
+
+			uiRoot.classList.toggle( 'essentials' );
+			ui.syncAll();
+			return;
+
+		}
+
+		if ( ev.type === 'closePanel' ) {
+
+			// Settings live inside the HUD now. The old close hid a second
+			// surface; collapsing the instrument (the header —) is the hatch.
+			document.getElementById( 'toggle' )?.click();
+			return;
+
+		}
+
 		const it = ev.item;
 		if ( ! it ) return;
 		// The wave spectrum is built from parameters, not read per frame.
@@ -642,38 +782,14 @@ function installSettingsPanel( app, presetSel, cloudSel ) {
 
 	} );
 
-	// Ride and the view switch are live now; photo accumulation and quiet mode
-	// are still classic-demo-only, so they are not offered.
-	for ( const b of [ ui.quietBtn ] ) if ( b ) b.style.display = 'none';
+	// Ride and the view switch are on the HUD; photo and quiet mode are still
+	// classic-demo-only. The in-panel Ride / preset row are hidden in CSS.
+	for ( const b of [ ui.quietBtn, ui.rideBtn ] ) if ( b ) b.style.display = 'none';
 
-	ui.presetSelect.value = app.presetName ?? 'Golden Hour Swell';
+	ui.presetSelect.value = app.presetName ?? DEMO_PRESET;
 	ui.syncAll();
 
-	// Keep the sliders docked directly under the HUD however tall it is - the two
-	// are one column, and a fixed offset would either overlap it or leave a gap
-	// the moment a hint line wraps.
-	const hudEl = document.getElementById( 'hud' );
-	const measureHud = () => {
-
-		if ( ! hudEl ) return;
-		const h = Math.ceil( hudEl.getBoundingClientRect().bottom ) + 8;
-		document.documentElement.style.setProperty( '--hud-h', h + 'px' );
-
-	};
-	measureHud();
-	window.addEventListener( 'resize', measureHud );
-	if ( typeof ResizeObserver !== 'undefined' && hudEl ) new ResizeObserver( measureHud ).observe( hudEl );
-
-	btn.addEventListener( 'click', () => {
-
-		measureHud();
-		const open = uiRoot.classList.toggle( 'hidden' ) === false;
-		btn.setAttribute( 'aria-expanded', String( open ) );
-		btn.textContent = open ? 'Settings ‹' : 'Settings ›';
-
-	} );
-
-	// The instrument panel's own selects stay live; keep the big panel in step
+	// The instrument panel's own selects stay live; keep the sliders in step
 	// when they change.
 	presetSel?.addEventListener( 'change', () => { ui.presetSelect.value = presetSel.value; ui.syncAll(); } );
 	cloudSel?.addEventListener( 'change', () => ui.syncAll() );
@@ -696,10 +812,11 @@ bootWithFallback().then( ( app ) => {
 
 		}
 
-		sel.value = app.params.preset ?? 'Golden Hour Swell';
+		sel.value = app.presetName ?? DEMO_PRESET;
 		sel.addEventListener( 'change', () => {
 
 			app.applyPreset( sel.value );
+			rememberPreset( sel.value );
 			// A preset brings its own sky; the cloud dropdown follows.
 			const cl = document.getElementById( 'clouds' );
 			if ( cl ) cl.value = 'preset';
@@ -736,6 +853,13 @@ bootWithFallback().then( ( app ) => {
 	// phone the ride was reachable only by opening the full parameter panel and
 	// finding a button in it, which is a long way to go for the control that
 	// decides what the app is.
+	document.getElementById( 'btn-look' )?.addEventListener( 'click', () => {
+
+		app.lookAtSea();
+		syncRide( app );
+		panelUI?.syncAll();
+
+	} );
 	document.getElementById( 'btn-ride' )?.addEventListener( 'click', () => {
 
 		syncRide( app, app.toggleRide() );
@@ -755,13 +879,34 @@ bootWithFallback().then( ( app ) => {
 		panelUI?.syncAll();
 
 	} );
+	document.getElementById( 'btn-boat' )?.addEventListener( 'click', () => {
+
+		app.toggleBoat();
+		syncRide( app );
+		panelUI?.syncAll();
+
+	} );
+	document.getElementById( 'btn-swim' )?.addEventListener( 'click', () => {
+
+		app.toggleDragon();
+		syncRide( app );
+		panelUI?.syncAll();
+
+	} );
+	document.getElementById( 'btn-level' )?.addEventListener( 'click', () => {
+
+		app.levelDragon?.();
+
+	} );
 	document.getElementById( 'btn-view' )?.addEventListener( 'click', () => {
 
-		app.params.wrView = app.params.wrView >= 0.5 ? 0 : 1;
+		const k = activeViewParam( app );
+		app.params[ k ] = app.params[ k ] >= 0.5 ? 0 : 1;
 		syncView( app );
 		panelUI?.syncAll();
 
 	} );
+	if ( ! app.dragon?.active ) app.toggleDragon();
 	syncRide( app );
 
 	// The same keys the classic demo uses. Ignored while a control has focus, so
@@ -769,13 +914,29 @@ bootWithFallback().then( ( app ) => {
 	window.addEventListener( 'keydown', ( e ) => {
 
 		const t = e.target;
-		if ( t && ( t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'BUTTON' ) ) return;
-		if ( e.code === 'KeyR' ) { app.toggleRide(); syncRide( app ); }
+		// INPUT/SELECT/TEXTAREA only. Ignoring BUTTON too meant L (and R, M, …)
+		// did nothing after you clicked Swim — focus stayed on the button.
+		if ( t && ( t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA' ) ) return;
+		if ( e.code === 'KeyO' ) { app.lookAtSea(); syncRide( app ); }
+		else if ( e.code === 'KeyR' ) { app.toggleRide(); syncRide( app ); }
 		else if ( e.code === 'KeyF' ) { app.toggleFly(); syncRide( app ); }
+		else if ( e.code === 'KeyB' ) { app.toggleBoat(); syncRide( app ); }
+		else if ( e.code === 'KeyM' ) { app.toggleDragon(); syncRide( app ); }
+		else if ( e.code === 'KeyL' ) { app.levelDragon?.(); }
 		else if ( e.code === 'KeyG' ) { app.toggleFollow(); syncRide( app ); }
+		else if ( e.code === 'KeyP' ) {
+
+			window.abyssal?._perfDebug?.toggle();
+			document.getElementById( 'btn-perf' )?.setAttribute(
+				'aria-pressed',
+				String( !! window.abyssal?._perfDebug?.isOpen() ),
+			);
+
+		}
 		else if ( e.code === 'KeyV' ) {
 
-			app.params.wrView = app.params.wrView >= 0.5 ? 0 : 1;
+			const k = activeViewParam( app );
+			app.params[ k ] = app.params[ k ] >= 0.5 ? 0 : 1;
 			syncView( app );
 
 		}
@@ -900,8 +1061,28 @@ bootWithFallback().then( ( app ) => {
 		}
 
 	}, 1000 );
-	app.onFrame = () => { frames ++; };
+	app.onFrame = () => {
 
+		frames ++;
+		syncCraftSpeed( app );
+
+	};
+
+	const perfDbg = app.attachPerfDebug?.( document.body );
+	const perfBtn = document.getElementById( 'btn-perf' );
+	const syncPerfBtn = () => {
+
+		if ( ! perfBtn ) return;
+		const on = !! perfDbg?.isOpen();
+		perfBtn.setAttribute( 'aria-pressed', String( on ) );
+
+	};
+	perfBtn?.addEventListener( 'click', () => {
+
+		perfDbg?.toggle();
+		syncPerfBtn();
+
+	} );
 } ).catch( ( err ) => {
 
 	window.abyssalError = err;

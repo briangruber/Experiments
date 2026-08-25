@@ -1,0 +1,1475 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Abyssal — Tropical Noon</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap');
+  :root {
+    --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+    --spume: #e6eef4; --haze: #9aafbf; --dim: #6d8494;
+    --glint: #c9e4f6; --coral: #e07a5f; --amber: #e8b86d;
+    --hull: #0c1a26; --hull-2: #163044; --rule: #2a4458;
+    --glass: rgba(8, 16, 24, 0.72);
+  }
+  html, body { margin: 0; height: 100%; background: #070b10; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #hud {
+    position: fixed; top: 14px; left: 14px; z-index: 2;
+    display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+    max-width: calc(100vw - 28px);
+  }
+  #hud.sea-open { left: calc(22rem + 28px); }
+  #dock, #bar, #props, #params, #btn-ui {
+    color: var(--spume);
+    background: var(--glass);
+    border: 1px solid var(--rule);
+    backdrop-filter: blur(16px) saturate(1.15);
+  }
+  #dock {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px;
+    padding: 8px 10px 8px 14px; border-radius: 8px;
+  }
+  #readout {
+    font: 500 12px/1.2 var(--mono);
+    letter-spacing: 0.02em;
+    color: var(--glint);
+    font-variant-numeric: tabular-nums;
+    min-width: 14ch;
+  }
+  #hud-row { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+  #keys { position: relative; }
+  #keys summary {
+    cursor: pointer; list-style: none;
+    font: 500 11px/1 var(--mono); color: var(--spume);
+    background: var(--hull); border: 1px solid var(--rule); border-radius: 5px;
+    padding: 6px 9px;
+  }
+  #keys summary::-webkit-details-marker { display: none; }
+  #keys[open] summary { background: #1a3d56; border-color: #5a8fb0; color: var(--glint); }
+  #keys dl {
+    position: absolute; top: calc(100% + 8px); left: 0; z-index: 4;
+    margin: 0; min-width: 22rem; padding: 10px 12px;
+    display: grid; gap: 5px 12px; grid-template-columns: auto 1fr;
+    background: var(--glass); border: 1px solid var(--rule); border-radius: 8px;
+    backdrop-filter: blur(16px) saturate(1.15);
+    font: 400 11px/1.45 var(--sans); color: var(--haze);
+  }
+  #keys dt { font: 500 11px/1.3 var(--mono); color: var(--spume); }
+  #keys dd { margin: 0; }
+  kbd {
+    font: 500 10px/1 var(--mono); color: var(--spume);
+    border: 1px solid var(--rule); border-radius: 3px;
+    padding: 1px 5px; background: var(--hull);
+  }
+  #props, #params {
+    position: fixed; top: 14px; z-index: 12;
+    width: 22rem; max-width: calc(100vw - 28px); max-height: calc(100dvh - 28px);
+    overflow: auto; padding: 12px 14px 14px; border-radius: 8px;
+    font: 400 11px/1.45 var(--mono);
+  }
+  #props { right: 14px; }
+  #params { left: 14px; }
+  #props[hidden], #params[hidden], #bar[hidden] { display: none; }
+  #props-head, #params .insp-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+  #props-lead { display: flex; flex-direction: column; gap: 8px; }
+  #props-tabs { display: flex; gap: 5px; }
+  #props-tabs button[aria-selected="true"] { background: #1a3d56; border-color: #5a8fb0; color: var(--glint); }
+  #props-ski[hidden], #props-dragon[hidden] { display: none; }
+  #params .insp-tools { display: flex; gap: 6px; margin: 0 0 2px; }
+  #props h2, #params h2 { margin: 0; font: 500 10px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--haze); }
+  #props .sec, #params .sec { margin: 12px 0 0; font: 500 10px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+  #params details { margin: 8px 0 0; padding-top: 6px; border-top: 1px solid var(--rule); }
+  #params details:first-of-type { border-top: 0; padding-top: 0; }
+  #params summary.sec { cursor: pointer; list-style: none; margin: 0; }
+  #params summary.sec::-webkit-details-marker { display: none; }
+  #params summary.sec::after { content: ' ▸'; }
+  #params details[open] > summary.sec::after { content: ' ▾'; }
+  #params.essentials .prop:not(.is-key) { display: none; }
+  #params.essentials details:not(:has(.is-key)) { display: none; }
+  #props .hint, #params .hint { margin: 8px 0 0; font: 400 10px/1.45 var(--sans); color: var(--dim); }
+  #params .hint.note { color: var(--amber); }
+  #btn-props, #btn-params, #btn-box, #btn-sea, #btn-view, #btn-cruise, #btn-swim,
+  #btn-scene, #btn-hide, #btn-ui, #btn-perf, #props-tabs button, #params .insp-tool, #bar button {
+    font: 500 11px/1 var(--mono); color: var(--spume); background: var(--hull);
+    border: 1px solid var(--rule); border-radius: 5px; padding: 6px 9px; cursor: pointer;
+  }
+  #btn-props, #btn-params { padding: 4px 8px; }
+  #btn-ui, #hud-row button, #keys summary, #view-pick summary, #bar button { transition: background 0.15s ease, border-color 0.15s ease; }
+  #btn-ui:hover, #hud-row button:hover, #keys summary:hover, #view-pick summary:hover, #bar button:hover, #props-tabs button:hover, #props button.reset:hover, #view-list button:hover { background: var(--hull-2); }
+  #view-ctrl { display: inline-flex; align-items: stretch; position: relative; }
+  #view-ctrl #btn-view { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+  #view-pick { position: relative; }
+  #view-pick summary {
+    cursor: pointer; list-style: none; height: 100%; box-sizing: border-box;
+    font: 500 11px/1 var(--mono); color: var(--spume);
+    background: var(--hull); border: 1px solid var(--rule); border-left: 0;
+    border-radius: 0 5px 5px 0; padding: 6px 7px;
+  }
+  #view-pick summary::-webkit-details-marker { display: none; }
+  #view-pick[open] summary { background: #1a3d56; border-color: #5a8fb0; color: var(--glint); }
+  #view-list {
+    position: absolute; top: calc(100% + 8px); right: 0; z-index: 4;
+    margin: 0; min-width: 11.5rem; padding: 8px;
+    display: flex; flex-direction: column; gap: 4px;
+    background: var(--glass); border: 1px solid var(--rule); border-radius: 8px;
+    backdrop-filter: blur(16px) saturate(1.15);
+  }
+  #view-list .view-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; }
+  #view-list button {
+    font: 500 11px/1 var(--mono); color: var(--spume); background: var(--hull);
+    border: 1px solid var(--rule); border-radius: 5px; padding: 6px 8px; cursor: pointer;
+    text-align: left;
+  }
+  #view-list button[aria-current="true"] { background: #1a3d56; border-color: #5a8fb0; color: var(--glint); }
+  #view-list input[type="checkbox"] { accent-color: #4d7ea8; }
+  #view-list .hint { margin: 4px 2px 0; font: 400 10px/1.45 var(--sans); color: var(--dim); }
+  #hud-row button[hidden] { display: none; }
+  #btn-perf[aria-pressed="true"], #btn-cruise[aria-pressed="true"], #btn-swim[aria-pressed="true"],
+  #btn-scene[aria-pressed="true"], #btn-box[aria-pressed="true"], #btn-sea[aria-pressed="true"] {
+    background: #1a3d56; border-color: #5a8fb0; color: var(--glint);
+  }
+  #props label.prop, #params label.prop { display: grid; grid-template-columns: 7.2rem 1fr 3.2rem; align-items: center; gap: 6px; margin: 5px 0; }
+  #props label.prop span:first-child, #params label.prop span:first-child { color: var(--haze); }
+  #props label.prop .v, #params label.prop .v { font-variant-numeric: tabular-nums; color: var(--glint); text-align: right; }
+  #props input[type="range"], #params input[type="range"] { width: 100%; accent-color: #4d7ea8; }
+  #props input[type="checkbox"] { justify-self: start; accent-color: #4d7ea8; }
+  #props input[type="range"]:disabled { opacity: 0.45; }
+  #props input[type="color"], #params input[type="color"] { width: 100%; height: 22px; padding: 0; border: 1px solid var(--rule); background: var(--hull); border-radius: 4px; }
+  #props select, #params select {
+    width: 100%; font: inherit; color: var(--spume); background: var(--hull);
+    border: 1px solid var(--rule); border-radius: 4px;
+  }
+  #props button.reset {
+    margin-top: 10px; width: 100%;
+    font: 500 11px/1 var(--mono); color: var(--spume); background: var(--hull);
+    border: 1px solid var(--rule); border-radius: 5px; padding: 7px 8px; cursor: pointer;
+  }
+  #btn-ui {
+    position: fixed; top: 14px; left: 14px; z-index: 20; display: none;
+    min-width: 2.1rem; letter-spacing: 0.14em;
+  }
+  body.ui-hidden #hud, body.ui-hidden #bar, body.ui-hidden #props,
+  body.ui-hidden #params, body.ui-hidden #perf-debug { display: none !important; }
+  body.ui-hidden #btn-ui { display: inline-block; }
+  #bar {
+    display: flex; flex-direction: column; gap: 10px;
+    width: min(36rem, calc(100vw - 28px));
+    padding: 10px 12px 12px; border-radius: 8px;
+  }
+  #bar .scene-block { display: flex; flex-direction: column; gap: 6px; }
+  #bar .scene-lab {
+    font: 500 10px/1 var(--mono); letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--dim);
+  }
+  #bar-sea, #bar-sky { display: flex; flex-wrap: wrap; gap: 5px; }
+  #perf-debug {
+    position: fixed; right: 14px; bottom: 14px; z-index: 11;
+    width: 20rem; max-width: calc(100vw - 28px); max-height: calc(70dvh - 28px);
+    overflow: auto; padding: 10px 12px 8px;
+    font: 400 11px/1.45 var(--mono); color: var(--spume);
+    background: rgba(6, 13, 20, 0.95); border: 1px solid var(--rule); border-radius: 10px;
+  }
+  #perf-debug[hidden] { display: none; }
+  #perf-debug .perf-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+  #perf-debug .perf-head strong { font: 600 10px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--haze); }
+  #perf-debug .perf-actions { display: flex; gap: 4px; }
+  #perf-debug .perf-actions button {
+    font: 500 10px/1 var(--mono); color: var(--spume); background: var(--hull);
+    border: 1px solid var(--rule); border-radius: 5px; padding: 5px 7px; cursor: pointer;
+  }
+  #perf-debug .perf-actions button:hover { background: var(--hull-2); }
+  #perf-debug .perf-actions button:disabled { opacity: .45; cursor: default; }
+  #perf-debug .perf-meters { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+  #perf-debug .perf-meters .row, #perf-debug .perf-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  #perf-debug .k { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); }
+  #perf-debug .v { font-variant-numeric: tabular-nums; color: var(--glint); }
+  #perf-debug .v.hot { color: var(--coral); }
+  #perf-debug .perf-stages { display: flex; flex-direction: column; gap: 3px; margin: 8px 0; }
+  #perf-debug .perf-row { padding: 4px 0; border-top: 1px solid var(--rule); cursor: pointer; }
+  #perf-debug .perf-row.off .perf-lab { color: var(--dim); text-decoration: line-through; }
+  #perf-debug .perf-lab { flex: 1; }
+  #perf-debug .perf-js { color: var(--haze); font-variant-numeric: tabular-nums; min-width: 3.6em; text-align: right; }
+  #perf-debug .perf-ab { color: var(--amber); font-variant-numeric: tabular-nums; min-width: 5.5em; text-align: right; }
+  #perf-debug .perf-warn, #perf-debug .perf-note, #perf-debug .perf-report { margin: 6px 0 0; font: 400 10px/1.45 var(--sans); color: var(--dim); }
+  #perf-debug .perf-warn { color: var(--amber); }
+  #perf-debug .perf-report { color: var(--haze); }
+  #perf-debug .perf-hot-wrap { margin: 8px 0 4px; }
+  #perf-debug .perf-hot-wrap .k span { font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--haze); }
+  #perf-debug .perf-live { margin: 4px 0 0; font: 400 11px/1.4 var(--mono); color: var(--glint); font-variant-numeric: tabular-nums; }
+  #perf-debug .perf-hot { margin: 4px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
+  #perf-debug .perf-hot li { display: flex; justify-content: space-between; gap: 8px; font-variant-numeric: tabular-nums; }
+  #perf-debug .perf-hot li:first-child b { color: var(--coral); }
+  #perf-debug .perf-hot li.off b, #perf-debug .perf-hot li.off span { color: var(--dim); text-decoration: line-through; }
+  #perf-debug .perf-hot li span { color: var(--amber); }
+  #perf-debug .perf-hot li.hint { color: var(--dim); font: 400 10px/1.45 var(--sans); }
+</style>
+
+<body class="ui-hidden">
+<canvas id="c"></canvas>
+<button id="btn-ui" type="button" title="Show controls (U)">U</button>
+<div id="hud">
+  <div id="dock">
+    <span id="readout">…</span>
+    <nav id="hud-row">
+      <button id="btn-swim" type="button" aria-pressed="false" title="Swim or ski (M)">Swim</button>
+      <div id="view-ctrl">
+        <button id="btn-view" type="button" title="Cycle camera (C)">chase</button>
+        <details id="view-pick">
+          <summary title="Which cameras C cycles">▾</summary>
+          <div id="view-list"></div>
+        </details>
+      </div>
+      <button id="btn-cruise" type="button" aria-pressed="false" title="Hold speed (X)">Cruise</button>
+      <button id="btn-box" type="button" aria-pressed="false" title="Mesh panel (H)">Mesh</button>
+      <button id="btn-sea" type="button" aria-pressed="false" title="Sea panel (K)">Sea</button>
+      <button id="btn-scene" type="button" aria-pressed="false" title="Presets and clouds">Scene</button>
+      <details id="keys">
+        <summary title="Keyboard shortcuts">Keys</summary>
+        <dl>
+          <dt><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd></dt><dd>swim or drive</dd>
+          <dt><kbd>Q</kbd> <kbd>E</kbd></dt><dd>dive / rise · orbit on ski</dd>
+          <dt><kbd>Space</kbd></dt><dd>leap · ski boost</dd>
+          <dt><kbd>Shift</kbd></dt><dd>sprint · carve</dd>
+          <dt><kbd>L</kbd> <kbd>M</kbd> <kbd>X</kbd></dt><dd>level · ski/swim · cruise</dd>
+          <dt><kbd>C</kbd> <kbd>H</kbd> <kbd>K</kbd> <kbd>P</kbd> <kbd>U</kbd></dt><dd>view · mesh · sea · perf · chrome</dd>
+        </dl>
+      </details>
+      <button id="btn-perf" type="button" aria-pressed="false" title="Performance (P)">Perf</button>
+      <button id="btn-hide" type="button" title="Hide controls (U)">Hide</button>
+    </nav>
+  </div>
+  <div id="bar" hidden>
+    <div class="scene-block">
+      <span class="scene-lab">Sea</span>
+      <div id="bar-sea"></div>
+    </div>
+    <div class="scene-block">
+      <span class="scene-lab">Cloud</span>
+      <div id="bar-sky"></div>
+    </div>
+  </div>
+</div>
+<div id="props" hidden>
+  <div id="props-head">
+    <div id="props-lead">
+      <h2 id="props-title">Dragon</h2>
+      <div id="props-tabs">
+        <button id="tab-ski" type="button" aria-selected="false">Ski</button>
+        <button id="tab-dragon" type="button" aria-selected="true">Dragon</button>
+      </div>
+    </div>
+    <button id="btn-props" type="button" title="Hide this panel (H)">Hide</button>
+  </div>
+  <div id="props-ski" hidden>
+  <div class="sec">Mesh</div>
+  <label class="prop"><span>tint</span><input id="p-color" type="color" value="#ffffff"><span></span></label>
+  <label class="prop"><span>width</span><input id="p-sx" type="range" min="0.4" max="4" step="0.05"><span class="v"></span></label>
+  <label class="prop"><span>height</span><input id="p-sy" type="range" min="0.2" max="2.4" step="0.05"><span class="v"></span></label>
+  <label class="prop"><span>length</span><input id="p-sz" type="range" min="1" max="6" step="0.05"><span class="v"></span></label>
+  <label class="prop"><span>SCALE</span><input id="p-scale" type="range" min="0.35" max="2.5" step="0.02"><span class="v"></span></label>
+  <label class="prop"><span>debug</span><input id="p-debug" type="range" min="0" max="1" step="1"><span class="v"></span></label>
+  <p class="hint">Cyan balls are the buoyancy probes the ski rides. Magenta balls are spray contacts — waterline cuts, plus the hull jet when hull is on.</p>
+  <div class="sec">Water</div>
+  <label class="prop"><span>mass</span><input id="p-mass" type="range" min="40" max="4000" step="10"><span class="v"></span></label>
+  <label class="prop"><span>volume</span><input id="p-volume" type="range" min="0.2" max="16" step="0.05"><span class="v"></span></label>
+  <label class="prop"><span>hover</span><input id="p-hover" type="range" min="0" max="1.4" step="0.01"><span class="v"></span></label>
+  <p class="hint">Hover is metres the ski sits above the water. 0 is the mass/volume waterline. It is not the motor — W/S still drives. Buoyancy is ρ × volume (1025 kg/m³). The SKI hull only wets the bottom few centimetres (closed foam, not a displacement hull).</p>
+  <label class="prop"><span>stiffness</span><input id="p-stiffness" type="range" min="4" max="60" step="1"><span class="v"></span></label>
+  <label class="prop"><span>damping</span><input id="p-damping" type="range" min="1" max="20" step="0.5"><span class="v"></span></label>
+  <label class="prop"><span>springiness</span><input id="p-launch" type="range" min="0" max="2.4" step="0.05"><span class="v"></span></label>
+  <p class="hint">How readily the hull leaves a falling face. 0 stays glued to the swell; higher can launch off a crest. Independent of hover.</p>
+  <label class="prop"><span>grip</span><input id="p-grip" type="range" min="0.2" max="5" step="0.05"><span class="v"></span></label>
+  <div class="sec">Drive</div>
+  <label class="prop"><span>top speed</span><input id="p-topSpeed" type="range" min="8" max="70" step="1"><span class="v"></span></label>
+  <label class="prop"><span>accel</span><input id="p-accel" type="range" min="4" max="40" step="1"><span class="v"></span></label>
+  <label class="prop"><span>turn rate</span><input id="p-turnRate" type="range" min="0.2" max="2.4" step="0.05"><span class="v"></span></label>
+  <label class="prop"><span>bank</span><input id="p-bank" type="range" min="0" max="1.4" step="0.05"><span class="v"></span></label>
+  <div class="sec">Hull carve</div>
+  <p class="hint">The hull presses a hollow into the sea and stands the water up as a bow heap and shoulder mounds. Depth is metres of wake-arm / trough relief behind it.</p>
+  <label class="prop"><span>push</span><input id="p-hullPush" type="range" min="0" max="2" step="0.02"><span class="v"></span></label>
+  <label class="prop"><span>radius</span><input id="p-hullRad" type="range" min="0.4" max="4" step="0.05"><span class="v"></span></label>
+  <label class="prop"><span>bow heap</span><input id="p-hullBow" type="range" min="0" max="2.4" step="0.02"><span class="v"></span></label>
+  <div class="sec">Wake</div>
+  <p class="hint">Leftover gravity waves (<code>wake.physics</code>) plus the foam-energy ribbon. <code>foam</code> is the white film; <code>motor</code> is stern prop wash on craft. Airborne whitewater is spray emitters — not leftover splash particles. Rings / cut / painted V stay off while physics is on.</p>
+  <label class="prop"><span>on</span><input id="p-wakeOn" type="range" min="0" max="1" step="0.01"><span class="v"></span></label>
+  <label class="prop"><span>origin</span><input id="p-wakeOrigin" type="range" min="-3" max="1.2" step="0.02"><span class="v"></span></label>
+  <label class="prop"><span>height</span><input id="p-wakeDepth" type="range" min="0" max="1.2" step="0.02"><span class="v"></span></label>
+  <label class="prop"><span>width</span><input id="p-wakeBeam" type="range" min="0.3" max="4" step="0.05"><span class="v"></span></label>
+  <label class="prop"><span>width auto</span><input id="p-wakeBeamAuto" type="checkbox"><span class="v">mesh</span></label>
+  <label class="prop"><span>cut</span><input id="p-wakeCut" type="range" min="0" max="1.6" step="0.02"><span class="v"></span></label>
+  <label class="prop"><span>foam</span><input id="p-wakeFoam" type="range" min="0" max="1.5" step="0.02"><span class="v"></span></label>
+  <label class="prop"><span>persist</span><input id="p-wakePersist" type="range" min="0.12" max="14" step="0.05"><span class="v"></span></label>
+  <label class="prop"><span>motor</span><input id="p-wakeMotor" type="range" min="0" max="1.2" step="0.02"><span class="v"></span></label>
+  <label class="prop"><span>wave life</span><input id="p-wakeDamp" type="range" min="0.2" max="4" step="0.05"><span class="v"></span></label>
+  <label class="prop"><span>strength</span><input id="p-wake" type="range" min="0.1" max="2" step="0.05"><span class="v"></span></label>
+  <div class="sec">Swell</div>
+  <p class="hint">The sea dragon's just-under look, on any mesh. Off until you turn swell up. Dome is the loaf on the back, bow is the heap at the nose, mound is the laminar sheet along the body. They peak at the waterline and die when you fly out or dive deep.</p>
+  <label class="prop"><span>swell</span><input id="p-swell" type="range" min="0" max="1" step="0.01"><span class="v"></span></label>
+  <label class="prop"><span>dome</span><input id="p-dome" type="range" min="0" max="4" step="0.02"><span class="v"></span></label>
+  <label class="prop"><span>bow</span><input id="p-bow" type="range" min="0" max="4" step="0.02"><span class="v"></span></label>
+  <label class="prop"><span>mound</span><input id="p-mound" type="range" min="0" max="3" step="0.02"><span class="v"></span></label>
+  <label class="prop"><span>soft</span><input id="p-soft" type="range" min="0.4" max="2.5" step="0.05"><span class="v"></span></label>
+  <div class="sec">Spray</div>
+    <p class="hint">Particles where the mesh cuts the sea. Sites is how many of those cuts emit at once. Band is extra metres of depth that still count as cutting. Hull keeps the ski jet / chine / curtain; off, water sheds from the contact points. Size, hang time and the jet recipe stay on the Sea panel (K).</p>
+  <label class="prop"><span>on</span><input id="p-sprayOn" type="range" min="0" max="1" step="0.01"><span class="v"></span></label>
+  <label class="prop"><span>sites</span><input id="p-spraySites" type="range" min="1" max="24" step="1"><span class="v"></span></label>
+  <label class="prop"><span>hull</span><input id="p-sprayHull" type="range" min="0" max="1" step="1"><span class="v"></span></label>
+  <label class="prop"><span>amount</span><input id="p-sprayAmt" type="range" min="0" max="2" step="0.02"><span class="v"></span></label>
+  <label class="prop"><span>band</span><input id="p-sprayBand" type="range" min="0" max="0.6" step="0.01"><span class="v"></span></label>
+  <button class="reset" id="p-reset" type="button">Reset to SKI</button>
+  </div>
+  <div id="props-dragon">
+    <div class="sec">Mesh</div>
+    <label class="prop"><span>tint</span><input id="d-color" type="color" value="#ffffff"><span></span></label>
+    <label class="prop"><span>model</span><select id="d-model"><option>Current</option><option>Sea serpent</option></select><span></span></label>
+    <label class="prop"><span>length</span><input id="d-length" type="range" min="6" max="200" step="0.5"><span class="v"></span></label>
+    <label class="prop"><span>width</span><input id="d-fat" type="range" min="0.4" max="2.5" step="0.02"><span class="v"></span></label>
+    <label class="prop"><span>height</span><input id="d-tall" type="range" min="0.4" max="2.5" step="0.02"><span class="v"></span></label>
+    <label class="prop"><span>SCALE</span><input id="d-scale" type="range" min="0.2" max="3.5" step="0.02"><span class="v"></span></label>
+    <label class="prop"><span>debug</span><input id="d-debug" type="range" min="0" max="1" step="1"><span class="v"></span></label>
+    <p class="hint">Length rebuilds the mesh. Width and height fatten it. Cyan balls are buoyancy probes; magenta balls are waterline spray cuts; the amber cylinder is the rod on the middle of the back.</p>
+    <div class="sec">Pole cut</div>
+    <p class="hint">Occupancy cut is off for the gravity-wave experiment. Turning this on does nothing while <code>wake.physics</code> is set.</p>
+    <label class="prop"><span>on</span><input id="d-pierceOn" type="range" min="0" max="1" step="0.01"><span class="v"></span></label>
+    <label class="prop"><span>pole</span><input id="d-pierceMarker" type="range" min="0" max="1" step="1"><span class="v"></span></label>
+    <label class="prop"><span>height</span><input id="d-pierceHeight" type="range" min="0" max="40" step="0.1"><span class="v"></span></label>
+    <label class="prop"><span>linger</span><input id="d-pierceLife" type="range" min="0" max="20" step="0.1"><span class="v"></span></label>
+    <label class="prop"><span>radius</span><input id="d-pierceR" type="range" min="0.05" max="4" step="0.02"><span class="v"></span></label>
+    <label class="prop"><span>gain</span><input id="d-pierceGain" type="range" min="0" max="3" step="0.02"><span class="v"></span></label>
+    <label class="prop"><span>collar</span><input id="d-pierceRim" type="range" min="0" max="0.6" step="0.005"><span class="v"></span></label>
+    <label class="prop"><span>heap</span><input id="d-pierceBow" type="range" min="0" max="2" step="0.01"><span class="v"></span></label>
+    <label class="prop"><span>draw-down</span><input id="d-pierceSide" type="range" min="0" max="2" step="0.01"><span class="v"></span></label>
+    <label class="prop"><span>hollow</span><input id="d-pierceTrench" type="range" min="0" max="2" step="0.01"><span class="v"></span></label>
+    <div class="sec">Swim</div>
+    <label class="prop"><span>top speed</span><input id="d-speed" type="range" min="4" max="80" step="0.5"><span class="v"></span></label>
+    <label class="prop"><span>cruise</span><input id="d-cruise" type="range" min="0" max="60" step="0.5"><span class="v"></span></label>
+    <label class="prop"><span>turn</span><input id="d-turn" type="range" min="0.1" max="2" step="0.01"><span class="v"></span></label>
+    <label class="prop"><span>waves</span><input id="d-waves" type="range" min="0.3" max="3" step="0.01"><span class="v"></span></label>
+    <label class="prop"><span>axis</span><select id="d-axis"><option>Sideways</option><option>Up and down</option><option>Both</option></select><span></span></label>
+    <label class="prop"><span>tail sweep</span><input id="d-amp" type="range" min="0" max="0.2" step="0.001"><span class="v"></span></label>
+    <label class="prop"><span>beat</span><input id="d-beat" type="range" min="0" max="3" step="0.01"><span class="v"></span></label>
+    <label class="prop"><span>gape</span><input id="d-gape" type="range" min="0" max="1.4" step="0.01"><span class="v"></span></label>
+    <div class="sec">Swell</div>
+    <p class="hint">Dome is the loaf on the back, bow is the heap at the nose, mound is the laminar sheet. They peak at the waterline.</p>
+    <label class="prop"><span>swell</span><input id="d-swell" type="range" min="0" max="1" step="0.01"><span class="v"></span></label>
+    <label class="prop"><span>dome</span><input id="d-dome" type="range" min="0" max="16" step="0.01"><span class="v"></span></label>
+    <label class="prop"><span>bow</span><input id="d-bow" type="range" min="0" max="16" step="0.01"><span class="v"></span></label>
+    <label class="prop"><span>mound</span><input id="d-mound" type="range" min="0" max="3" step="0.02"><span class="v"></span></label>
+    <label class="prop"><span>soft</span><input id="d-soft" type="range" min="0.4" max="3" step="0.01"><span class="v"></span></label>
+    <label class="prop"><span>near</span><input id="d-near" type="range" min="0.5" max="16" step="0.1"><span class="v"></span></label>
+    <div class="sec">Wake</div>
+    <p class="hint">Leftover gravity waves plus the foam-energy ribbon (no prop motor on the animal). Spray emitters own airborne whitewater. Rings and the painted V stay off while physics is on. At cruise near hull speed (U ≈ c) leftover piles astern; slower than c, circles outrun it.</p>
+    <label class="prop"><span>on</span><input id="d-wakeOn" type="range" min="0" max="1" step="0.01"><span class="v"></span></label>
+    <label class="prop"><span>origin</span><input id="d-wakeOrigin" type="range" min="-3" max="1.2" step="0.02"><span class="v"></span></label>
+    <label class="prop"><span>height</span><input id="d-wakeDepth" type="range" min="0" max="1.2" step="0.02"><span class="v"></span></label>
+    <label class="prop"><span>strength</span><input id="d-wake" type="range" min="0.1" max="2" step="0.05"><span class="v"></span></label>
+    <label class="prop"><span>wave</span><input id="d-wakeWave" type="range" min="0" max="4" step="0.05"><span class="v"></span></label>
+    <label class="prop"><span>thickness</span><input id="d-wakeWaveWidth" type="range" min="0.2" max="8" step="0.1"><span class="v"></span></label>
+    <label class="prop"><span>life</span><input id="d-wakeWaveLife" type="range" min="0.8" max="24" step="0.2"><span class="v"></span></label>
+    <label class="prop"><span>gap</span><input id="d-wakeWaveGap" type="range" min="0" max="40" step="0.5"><span class="v"></span></label>
+    <label class="prop"><span>foam</span><input id="d-wakeFoam" type="range" min="0" max="1.5" step="0.02"><span class="v"></span></label>
+    <label class="prop"><span>persist</span><input id="d-wakePersist" type="range" min="0.12" max="14" step="0.05"><span class="v"></span></label>
+    <label class="prop"><span>wave life</span><input id="d-wakeDamp" type="range" min="0.2" max="4" step="0.05"><span class="v"></span></label>
+    <div class="sec">Wake V</div>
+    <p class="hint">Two ridges leaving the foremost waterline cut. Height and spread already follow how much of the mesh is through the sea — these are the shape. Angle is the half-angle; centre fills the hollow between the arms; length is how far aft the arms run.</p>
+    <label class="prop"><span>V</span><input id="d-wakeV" type="range" min="0" max="3" step="0.02"><span class="v"></span></label>
+    <label class="prop"><span>height</span><input id="d-wakeVAmp" type="range" min="0" max="4" step="0.02"><span class="v"></span></label>
+    <label class="prop"><span>length</span><input id="d-wakeVLen" type="range" min="20" max="400" step="5"><span class="v"></span></label>
+    <label class="prop"><span>arm width</span><input id="d-wakeVWidth" type="range" min="1" max="20" step="0.2"><span class="v"></span></label>
+    <label class="prop"><span>angle</span><input id="d-wakeVAngle" type="range" min="8" max="45" step="0.5"><span class="v"></span></label>
+    <label class="prop"><span>centre</span><input id="d-wakeVMid" type="range" min="0" max="1" step="0.02"><span class="v"></span></label>
+    <label class="prop"><span>V life</span><input id="d-wakeVLife" type="range" min="0.4" max="24" step="0.2"><span class="v"></span></label>
+    <label class="prop"><span>churn</span><input id="d-wakeVChurn" type="range" min="0" max="1" step="0.02"><span class="v"></span></label>
+    <div class="sec">Spray</div>
+    <p class="hint">Only while this mesh is cutting the sea (near the surface or a leap). Deep cruise is quiet. Sites is how many waterline cuts emit at once. Band is extra metres of depth that still count as cutting, so a just-under fin still sheds. Size, hang time, density and throw are this animal's look — not the ocean whitecap spray. Turn debug on to see the cuts as magenta balls.</p>
+    <label class="prop"><span>on</span><input id="d-sprayOn" type="range" min="0" max="1" step="0.01"><span class="v"></span></label>
+    <label class="prop"><span>sites</span><input id="d-spraySites" type="range" min="1" max="50" step="1"><span class="v"></span></label>
+    <label class="prop"><span>amount</span><input id="d-sprayAmt" type="range" min="0" max="2" step="0.02"><span class="v"></span></label>
+    <label class="prop"><span>band</span><input id="d-sprayBand" type="range" min="0.05" max="2" step="0.05"><span class="v"></span></label>
+    <label class="prop"><span>size</span><input id="d-spraySize" type="range" min="0.1" max="5" step="0.01"><span class="v"></span></label>
+    <label class="prop"><span>life</span><input id="d-sprayLife" type="range" min="0.1" max="4" step="0.01"><span class="v"></span></label>
+    <label class="prop"><span>opacity</span><input id="d-sprayOpacity" type="range" min="0" max="2" step="0.01"><span class="v"></span></label>
+    <label class="prop"><span>density</span><input id="d-sprayPulse" type="range" min="0" max="1.5" step="0.01"><span class="v"></span></label>
+    <label class="prop"><span>throw</span><input id="d-sprayLaunch" type="range" min="0" max="3" step="0.01"><span class="v"></span></label>
+    <button class="reset" id="d-reset" type="button">Reset dragon</button>
+  </div>
+</div>
+<div id="params" hidden></div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js",
+  "three/addons/": "https://unpkg.com/three@0.185.1/examples/jsm/"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import {
+  createAbyssal, SKI, createOceanLitMaterial, loadFloorPropAssets, plantSeafloorProps,
+  buildCraftGeometry, buildBreachProfile, loadCraftTexture, createCreatureMaterial, setCreatureTexture,
+  parsePierce,
+  uCreatureLen, uCreaturePhase, uCreatureWaves, uCreatureAmp,
+  uCreatureSide, uCreatureLift, uCreatureTurn, uCreatureGape,
+  uCreatureJawHY, uCreatureJawHZ, uCreatureSeaY, uCreatureTint, uCreaturePaint,
+} from '../src/gpu/abyssal.js';
+import { installPerfDebug } from '../demo/perf-debug.js';
+import { installParamsInspector } from '../demo/params-inspector.js';
+import { SeaDragon, loafSpeed } from '../demo/seadragon.js';
+import { resolveDragonModel } from '../demo/dragon-models.js';
+import { jawShutAngle } from '../src/creature-jaw.js';
+import { floorDepthAt, floorDepthBounds } from '../src/seafloor.js';
+import { wakePhysicsInfo } from '../src/wake-physics.js';
+
+// The public body API: the jet-ski GLB with the ski water-response
+// numbers planes, launches, and wakes. Input only writes throttle /
+// steer. The ocean does the rest. The file's nose is +Z; we yaw it
+// onto −Z so heading 0 drives bow-first.
+
+const canvas = document.getElementById('c');
+const scene = new THREE.Scene();
+const backend = new URLSearchParams(location.search).get('backend') || 'auto';
+
+const loader = new GLTFLoader();
+const [abyssal, gltf, floorAssets] = await Promise.all([
+  createAbyssal({
+    canvas,
+    backend,
+    preset: 'Tropical Noon',
+    scene,
+  }),
+  loader.loadAsync('../models/jet-ski.glb'),
+  loadFloorPropAssets(loader),
+]);
+
+const hullMats = [];
+gltf.scene.traverse((obj) => {
+  if (!obj.isMesh) return;
+  obj.castShadow = true;
+  obj.receiveShadow = true;
+  const src = obj.material;
+  const mat = createOceanLitMaterial({
+    color: 0xffffff,
+    gloss: 0.55,
+    map: src?.map ?? null,
+  });
+  if (src && src !== mat) src.dispose?.();
+  obj.material = mat;
+  hullMats.push(mat);
+});
+
+// Authored nose sits on +Z. OceanBody's heading is −Z, so yaw the
+// child — not the body group, or syncMesh would overwrite it.
+const model = gltf.scene;
+model.rotation.y = Math.PI;
+model.updateMatrixWorld(true);
+const meshBox = new THREE.Box3().setFromObject(model);
+const native = meshBox.getSize(new THREE.Vector3());
+const center = meshBox.getCenter(new THREE.Vector3());
+const meshScale = SKI.size.z / Math.max(native.z, 1e-4);
+// Keel on the SKI box's keel so the hull sits in the water the way
+// the orange box did. Centering on the handlebars buried it.
+model.position.set(
+  model.position.x - center.x,
+  model.position.y - meshBox.min.y - SKI.size.y / (2 * meshScale),
+  model.position.z - center.z,
+);
+const craft = new THREE.Group();
+craft.name = 'ski';
+craft.add(model);
+craft.scale.setScalar(meshScale);
+craft.position.set(0, SKI.hover, 0);
+scene.add(craft);
+
+const floorProps = plantSeafloorProps(scene, {
+  assets: floorAssets,
+  params: abyssal.params,
+});
+const floorKeyOf = (p) => [
+  p.floorDepth, p.floorDepthMin, p.floorDepthMax, p.floorTerrainScale, p.seaLevel,
+].join('|');
+let lastFloorKey = floorKeyOf(abyssal.params);
+
+const ski = abyssal.bodies.add(craft, { ...SKI });
+ski.throttle = 0;
+ski.steer = 0;
+
+// Sea monster: same OceanBody path as the ski (scene + waterline clip +
+// swell slot). SeaDragon still owns the swim; creatureVertex is the
+// travelling body wave the old demo used (the GLB has bones but no clips).
+const dragon = new SeaDragon();
+let dragonSpec = resolveDragonModel(abyssal.params.sdModel);
+let dragonLen = abyssal.params.sdLength;
+const dragonBuild = buildCraftGeometry(dragonLen, dragonSpec.record);
+const dragonMat = createCreatureMaterial();
+const dragonMesh = new THREE.Mesh(dragonBuild.geometry, dragonMat);
+dragonMesh.name = 'sea-dragon';
+dragonMesh.frustumCulled = false;
+dragonMesh.matrixAutoUpdate = false;
+scene.add(dragonMesh);
+loadCraftTexture(abyssal.renderer, dragonSpec.record).then((t) => setCreatureTexture(t));
+const dragonFit = { fat: 1, tall: 1 };
+// A fixed mound rather than one scaled from the body length: this is a
+// tuned figure, so the length slider no longer rescales it.
+const dragonSwell = { on: 0.94, mound: 1.44 };
+const dragonSpray = { on: 1 };
+const dragonPierce = { on: 0, r: 0.4, gain: 1, height: 8, life: 6, marker: 0 };
+const dragonWake = {
+  // Gravity-wave leftover + foam-energy ribbon. Spray owns airborne
+  // whitewater — no leftover bubble splash on the animal.
+  on: 1, physics: 1, strength: 1.15, beam: 1.4,
+  foam: 1.1, persist: 10.9, damp: 1.8, motor: 0, emit: 6,
+  wave: 0, v: 0, kelvin: 0, cut: 0,
+};
+const sizeFromLen = (L) => ({
+  x: L * 0.14 * dragonFit.fat,
+  y: L * 0.18 * dragonFit.tall,
+  z: L,
+});
+const scaleStations = (raw, fat, tall) => {
+  if (!raw) return raw;
+  if (fat === 1 && tall === 1) return raw;
+  const top = raw.top.slice();
+  const low = raw.low.slice();
+  const half = raw.half.slice();
+  for (let i = 0; i < top.length; i++) {
+    top[i] *= tall;
+    low[i] *= tall;
+    half[i] *= fat;
+  }
+  return { ...raw, top, low, half };
+};
+let dragonStations = buildBreachProfile(dragonBuild.geometry);
+const swellFromParams = (p) => ({
+  on: (p.sdEnabled ?? 1) >= 0.5 ? dragonSwell.on : 0,
+  dome: p.sdDome, bow: p.sdBow,
+  mound: dragonSwell.mound ?? Math.max(0.08, (p.sdLength ?? 60) * 0.0025),
+  soft: p.sdDomeSoft, bowSoft: p.sdBowSoft,
+  near: p.sdDomeNear,
+  // sdFade is camera-ray absorption, not swell reach. Using it here
+  // heaved a mound from twenty metres down.
+  fade: Math.max((p.sdDomeNear ?? 2.4) * 1.35, 3.2),
+  emerge: Math.max((p.sdLength ?? 60) * 0.04, 1.4),
+});
+const sprayFromParams = (p) => ({
+  on: (p.sdEnabled ?? 1) >= 0.5 && dragonSpray.on && (p.sdSpray ?? 1) > 0.0005 ? 1 : 0,
+  hull: 0,
+  sites: p.sdSprayEmitters ?? 40,
+  amount: p.sdSpray ?? 1,
+  band: Math.max(0.12, p.sdSprayDepth ?? 0.7),
+});
+const wakeFromParams = (p) => ({
+  ...dragonWake,
+  on: (p.sdEnabled ?? 1) >= 0.5 ? dragonWake.on : 0,
+});
+const swimParams = (p) => {
+  const out = { ...p, sdSeaLevel: p.seaLevel ?? 0 };
+  const bed = floorDepthBounds(p.floorDepthMin, p.floorDepthMax, p.floorDepth);
+  if (!bed.live) return out;
+  const keel = Math.max(0.35, (p.sdLength ?? 60) * 0.04);
+  const typical = p.floorDepth > 0.1 ? p.floorDepth : (bed.min + bed.max) * 0.5;
+  const room = Math.max(p.sdMinDepth ?? 1.6, typical - keel);
+  out.sdDepth = Math.min(p.sdDepth, room);
+  out.sdDepthSwing = Math.min(p.sdDepthSwing, Math.max(0.2, room - (p.sdMinDepth ?? 1.6)));
+  return out;
+};
+const clampDragonToBed = (p) => {
+  const bed = floorDepthBounds(p.floorDepthMin, p.floorDepthMax, p.floorDepth);
+  if (!bed.live) return;
+  const d = floorDepthAt(dragon.pos[0], dragon.pos[2], bed.min, bed.max, p.floorTerrainScale);
+  const keel = Math.max(0.35, (p.sdLength ?? dragonLen) * 0.04);
+  const minY = (p.seaLevel ?? 0) - d + keel;
+  if (dragon.pos[1] < minY) {
+    dragon.pos[1] = minY;
+    dragon.depth = (p.seaLevel ?? 0) - minY;
+  }
+};
+const dragonBody = abyssal.bodies.add(dragonMesh, {
+  mass: 4e4,
+  float: false,
+  hull: false,
+  splash: 'waterline',
+  size: sizeFromLen(dragonLen),
+  length: dragonLen,
+  swell: swellFromParams(abyssal.params),
+  spray: sprayFromParams(abyssal.params),
+  wake: wakeFromParams(abyssal.params),
+  pierce: dragonPierce,
+}).attach(dragon);
+dragonBody.sprayLook = 'dragon';
+dragonBody.sprayStations = dragonStations;
+dragon.reset({ pos: [ski.pos[0], ski.pos[1], ski.pos[2]], yaw: ski.heading }, abyssal.params);
+
+const poseDragon = (p) => {
+  const spec = resolveDragonModel(p.sdModel);
+  if (spec.id !== dragonSpec.id || Math.abs(p.sdLength - dragonLen) > 0.01) {
+    if (spec.id !== dragonSpec.id) {
+      dragonSpec = spec;
+      loadCraftTexture(abyssal.renderer, spec.record).then((t) => setCreatureTexture(t));
+    }
+    const b = buildCraftGeometry(p.sdLength, spec.record);
+    dragonMesh.geometry.dispose();
+    dragonMesh.geometry = b.geometry;
+    dragonLen = p.sdLength;
+    dragonStations = buildBreachProfile(b.geometry);
+  }
+  dragonMesh.scale.set(dragonFit.fat, dragonFit.tall, 1);
+  dragonBody.size = sizeFromLen(p.sdLength);
+  dragonBody.length = p.sdLength;
+  dragonBody.sprayStations = scaleStations(dragonStations, dragonFit.fat, dragonFit.tall);
+  dragonBody.spraySwim = {
+    length: p.sdLength,
+    waves: p.sdWaves,
+    amp: dragon.swimAmp ?? p.sdAmp,
+    phase: dragon.phase,
+    axis: p.sdWaveAxis,
+  };
+  const on = (p.sdEnabled ?? 1) >= 0.5;
+  dragonMesh.visible = on;
+  dragonBody.swell = swellFromParams(p);
+  dragonBody.spray = sprayFromParams(p);
+  dragonBody.wake = wakeFromParams(p);
+  dragonBody.pierce = dragonPierce;
+  // Only a landing slap is impact. Exit splash used to keep the wake
+  // and the dorsal loaf writing while the body was already in the air.
+  dragon.impact = dragon.splashKind === 'land' ? Math.max(dragon.splash ?? 0, 0) : 0;
+  dragon.airborne = !!dragon.jumpAirborne;
+  if (!on) return;
+  clampDragonToBed(p);
+  p.sdSeaLevel = p.seaLevel ?? 0;
+  uCreatureLen.value = p.sdLength;
+  uCreatureWaves.value = p.sdWaves;
+  uCreatureAmp.value = dragon.swimAmp ?? p.sdAmp;
+  const axis = p.sdWaveAxis;
+  const upDown = axis === 1 || axis === 'Up and down';
+  const sideways = axis === 0 || axis === 'Sideways' || axis == null;
+  uCreatureSide.value = upDown ? 0 : 1;
+  uCreatureLift.value = sideways ? 0 : 1;
+  uCreatureTurn.value = dragon.headYaw ?? 0;
+  uCreaturePhase.value = dragon.phase;
+  uCreatureGape.value = jawShutAngle(p.sdGape, dragon.gape);
+  uCreatureJawHY.value = spec.jawHY;
+  uCreatureJawHZ.value = spec.jawHZ;
+  uCreatureSeaY.value = p.sdSeaLevel;
+  uCreatureTint.value.set(p.scatterColor[0], p.scatterColor[1], p.scatterColor[2]);
+};
+const SWELL0 = { on: 0, dome: 0.4, bow: 0.5, mound: 0.22, soft: 1, bowSoft: 1 };
+ski.swell = { ...SWELL0 };
+// Leftover gravity waves + foam-energy ribbon. Spray owns splash.
+const WAKE0 = {
+  on: 1, ...SKI.wake,
+  physics: 1, wave: 0, v: 0, kelvin: 0, cut: 0,
+};
+ski.wake = { ...WAKE0 };
+const HULL0 = { ...SKI.hull };
+ski.hull = { ...HULL0 };
+const SPRAY0 = { on: 1, sites: 4, hull: 1, amount: 1, band: 0.22 };
+ski.spray = { ...SPRAY0 };
+
+const SKI0 = { ...SKI, size: { ...SKI.size }, wake: { ...WAKE0 }, hull: { ...HULL0 }, swell: { ...SWELL0 }, spray: { ...SPRAY0 } };
+const bind = (id, get, set, digits = 2) => {
+  const input = document.getElementById(id);
+  const val = input.parentElement.querySelector('.v');
+  const paint = () => {
+    input.value = get();
+    if (val) val.textContent = Number(input.value).toFixed(digits);
+  };
+  input.addEventListener('input', () => {
+    set(Number(input.value));
+    if (val) val.textContent = Number(input.value).toFixed(digits);
+  });
+  paint();
+  return paint;
+};
+const wakeBeamAuto = document.getElementById('p-wakeBeamAuto');
+const wakeBeamInput = document.getElementById('p-wakeBeam');
+const syncWakeBeamAuto = () => {
+  const auto = !!(ski.wake && ski.wake.beam === 'auto');
+  wakeBeamAuto.checked = auto;
+  wakeBeamInput.disabled = auto;
+};
+let paintWakeBeam = () => {};
+let paintSx = () => {};
+let paintSy = () => {};
+let paintSz = () => {};
+let paintScale = () => {};
+const applySize = (x, y, z) => {
+  craft.scale.set(
+    x / Math.max(native.x, 1e-4),
+    y / Math.max(native.y, 1e-4),
+    z / Math.max(native.z, 1e-4),
+  );
+  ski.size = { x, y, z };
+  ski.volume = x * y * z;
+  ski.length = z * (SKI0.length / SKI0.size.z);
+  ski.beam = x * (SKI0.beam / SKI0.size.x);
+  if (ski.wake && typeof ski.wake === 'object') {
+    ski.wake.depth = SKI0.wake.depth * (y / SKI0.size.y);
+  }
+  if (ski.hull && typeof ski.hull === 'object') {
+    ski.hull.radius = SKI0.hull.radius * (z / SKI0.size.z);
+  }
+  syncWakeBeamAuto();
+  paintWakeBeam();
+  paintSx();
+  paintSy();
+  paintSz();
+  paintScale();
+};
+const paints = [
+  ( paintSx = bind('p-sx', () => ski.size.x, (v) => applySize(v, ski.size.y, ski.size.z)) ),
+  ( paintSy = bind('p-sy', () => ski.size.y, (v) => applySize(ski.size.x, v, ski.size.z)) ),
+  ( paintSz = bind('p-sz', () => ski.size.z, (v) => applySize(ski.size.x, ski.size.y, v)) ),
+  ( paintScale = bind('p-scale', () => (
+    ski.size.x / SKI0.size.x + ski.size.y / SKI0.size.y + ski.size.z / SKI0.size.z
+  ) / 3, (v) => applySize(SKI0.size.x * v, SKI0.size.y * v, SKI0.size.z * v)) ),
+  bind('p-mass', () => ski.mass, (v) => { ski.mass = v; }, 0),
+  bind('p-volume', () => ski.volume, (v) => { ski.volume = v; }),
+  bind('p-hover', () => ski.hover, (v) => { ski.hover = v; }),
+  bind('p-stiffness', () => ski.stiffness, (v) => { ski.stiffness = v; }, 0),
+  bind('p-damping', () => ski.damping, (v) => { ski.damping = v; }),
+  bind('p-launch', () => ski.springiness, (v) => { ski.springiness = v; ski.launch = v; }),
+  bind('p-grip', () => ski.grip, (v) => { ski.grip = v; }),
+  bind('p-topSpeed', () => ski.topSpeed, (v) => { ski.topSpeed = v; }, 0),
+  bind('p-accel', () => ski.accel, (v) => { ski.accel = v; }, 0),
+  bind('p-turnRate', () => ski.turnRate, (v) => { ski.turnRate = v; }),
+  bind('p-bank', () => ski.bankGain, (v) => { ski.bankGain = v; }),
+  bind('p-wakeOn', () => (ski.wake && ski.wake.on) ?? 1, (v) => {
+    if (ski.wake && typeof ski.wake === 'object') ski.wake.on = v;
+  }),
+  bind('p-wakeOrigin', () => (ski.wake && ski.wake.origin) ?? -1, (v) => {
+    if (ski.wake && typeof ski.wake === 'object') ski.wake.origin = v;
+  }),
+  bind('p-wakeDepth', () => (ski.wake && ski.wake.depth) ?? 0.56, (v) => {
+    if (ski.wake && typeof ski.wake === 'object') ski.wake.depth = v;
+  }),
+  ( paintWakeBeam = bind('p-wakeBeam', () => (
+    ski.wake && ski.wake.beam === 'auto' ? ski.size.x : ( ski.wake && ski.wake.beam ) ?? 0.9
+  ), (v) => {
+    if (ski.wake && typeof ski.wake === 'object') {
+      ski.wake.beam = v;
+      syncWakeBeamAuto();
+    }
+  }) ),
+  bind('p-wakeCut', () => (ski.wake && ski.wake.cut) ?? 0.52, (v) => {
+    if (ski.wake && typeof ski.wake === 'object') ski.wake.cut = v;
+  }),
+  bind('p-wakeFoam', () => (ski.wake && ski.wake.foam) ?? 1.1, (v) => {
+    if (ski.wake && typeof ski.wake === 'object') ski.wake.foam = v;
+  }),
+  bind('p-wakePersist', () => {
+    const persist = ski.wake && ski.wake.persist;
+    return persist > 0 ? persist : 10.9;
+  }, (v) => {
+    if (ski.wake && typeof ski.wake === 'object') ski.wake.persist = v;
+  }),
+  bind('p-wakeMotor', () => (ski.wake && ski.wake.motor) ?? 0.4, (v) => {
+    if (ski.wake && typeof ski.wake === 'object') ski.wake.motor = v;
+  }),
+  bind('p-wakeDamp', () => (ski.wake && ski.wake.damp) ?? 1.8, (v) => {
+    if (ski.wake && typeof ski.wake === 'object') ski.wake.damp = v;
+  }),
+  bind('p-wake', () => (ski.wake && ski.wake.strength) || 1, (v) => {
+    if (ski.wake && typeof ski.wake === 'object') ski.wake.strength = v;
+  }),
+  bind('p-hullPush', () => (ski.hull && ski.hull.push) ?? 1.05, (v) => {
+    if (ski.hull && typeof ski.hull === 'object') ski.hull.push = v;
+  }),
+  bind('p-hullRad', () => (ski.hull && ski.hull.radius) ?? 2.4, (v) => {
+    if (ski.hull && typeof ski.hull === 'object') ski.hull.radius = v;
+  }),
+  bind('p-hullBow', () => (ski.hull && ski.hull.bow) ?? 1.25, (v) => {
+    if (ski.hull && typeof ski.hull === 'object') ski.hull.bow = v;
+  }),
+  bind('p-swell', () => ski.swell.on, (v) => { ski.swell.on = v; }),
+  bind('p-dome', () => ski.swell.dome, (v) => { ski.swell.dome = v; }),
+  bind('p-bow', () => ski.swell.bow, (v) => { ski.swell.bow = v; }),
+  bind('p-mound', () => ski.swell.mound, (v) => { ski.swell.mound = v; }),
+  bind('p-soft', () => ski.swell.soft, (v) => { ski.swell.soft = v; ski.swell.bowSoft = v; }),
+  bind('p-sprayOn', () => (ski.spray && ski.spray.on) ?? 1, (v) => {
+    if (ski.spray && typeof ski.spray === 'object') ski.spray.on = v;
+  }),
+  bind('p-spraySites', () => (ski.spray && ski.spray.sites) ?? 4, (v) => {
+    if (ski.spray && typeof ski.spray === 'object') ski.spray.sites = v;
+  }, 0),
+  bind('p-sprayHull', () => (ski.spray && ski.spray.hull) ?? 1, (v) => {
+    if (ski.spray && typeof ski.spray === 'object') ski.spray.hull = v;
+  }, 0),
+  bind('p-sprayAmt', () => (ski.spray && ski.spray.amount) ?? 1, (v) => {
+    if (ski.spray && typeof ski.spray === 'object') ski.spray.amount = v;
+  }),
+  bind('p-sprayBand', () => (ski.spray && ski.spray.band) ?? 0.22, (v) => {
+    if (ski.spray && typeof ski.spray === 'object') ski.spray.band = v;
+  }),
+  bind('p-debug', () => ski.debug ? 1 : 0, (v) => { ski.debug = v >= 0.5; }, 0),
+];
+wakeBeamAuto.addEventListener('change', () => {
+  if (!ski.wake || typeof ski.wake !== 'object') return;
+  ski.wake.beam = wakeBeamAuto.checked ? 'auto' : ski.size.x;
+  syncWakeBeamAuto();
+  paintWakeBeam();
+});
+syncWakeBeamAuto();
+const colorEl = document.getElementById('p-color');
+const tintHull = (hex) => {
+  for (const mat of hullMats) mat.userData.color.value.set(hex);
+};
+colorEl.addEventListener('input', () => tintHull(colorEl.value));
+document.getElementById('p-reset').addEventListener('click', () => {
+  Object.assign(ski, {
+    mass: SKI0.mass, volume: SKI0.volume, hover: SKI0.hover, stiffness: SKI0.stiffness, damping: SKI0.damping,
+    launch: SKI0.launch, springiness: SKI0.springiness ?? SKI0.launch, grip: SKI0.grip, topSpeed: SKI0.topSpeed, accel: SKI0.accel,
+    turnRate: SKI0.turnRate, bankGain: SKI0.bank, volume: SKI0.volume,
+    length: SKI0.length, beam: SKI0.beam,
+  });
+  ski.wake = { ...SKI0.wake };
+  ski.hull = { ...SKI0.hull };
+  ski.spray = { ...SKI0.spray };
+  ski.debug = false;
+  Object.assign(ski.swell, SKI0.swell);
+  applySize(SKI0.size.x, SKI0.size.y, SKI0.size.z);
+  tintHull(0xffffff);
+  colorEl.value = '#ffffff';
+  syncWakeBeamAuto();
+  for (const paint of paints) paint();
+});
+
+const perfDbg = installPerfDebug(abyssal, document.body);
+const perfBtn = document.getElementById('btn-perf');
+const syncPerfBtn = () => perfBtn.setAttribute('aria-pressed', String(!!perfDbg?.isOpen()));
+perfBtn.addEventListener('click', () => { perfDbg.toggle(); syncPerfBtn(); });
+
+const hideBtn = document.getElementById('btn-hide');
+const uiBtn = document.getElementById('btn-ui');
+const setUiHidden = (hidden) => {
+  document.body.classList.toggle('ui-hidden', hidden);
+};
+const toggleUi = () => setUiHidden(!document.body.classList.contains('ui-hidden'));
+const revealUi = () => setUiHidden(false);
+hideBtn.addEventListener('click', toggleUi);
+uiBtn.addEventListener('click', revealUi);
+
+const propsEl = document.getElementById('props');
+const paramsEl = document.getElementById('params');
+const boxBtn = document.getElementById('btn-box');
+const seaBtn = document.getElementById('btn-sea');
+const hudEl = document.getElementById('hud');
+let lastPreset = 'Tropical Noon';
+const paramsUI = installParamsInspector(abyssal, paramsEl, {
+  preset: () => lastPreset,
+  keepGroups: ['Sea Dragon'],
+  open: ['Spray', 'Wave Runner', 'Sea Dragon'],
+});
+const skiPane = document.getElementById('props-ski');
+const dragonPane = document.getElementById('props-dragon');
+const tabSki = document.getElementById('tab-ski');
+const tabDragon = document.getElementById('tab-dragon');
+const propsTitle = document.getElementById('props-title');
+const setPropsTab = (tab) => {
+  const isDragon = tab === 'dragon';
+  skiPane.hidden = isDragon;
+  dragonPane.hidden = !isDragon;
+  tabSki.setAttribute('aria-selected', String(!isDragon));
+  tabDragon.setAttribute('aria-selected', String(isDragon));
+  propsTitle.textContent = isDragon ? 'Dragon' : 'Ski';
+};
+const setPropsOpen = (open, tab) => {
+  if (open && tab) setPropsTab(tab);
+  else if (open && propsEl.hidden) setPropsTab(dragon.active ? 'dragon' : 'ski');
+  propsEl.hidden = !open;
+  boxBtn.setAttribute('aria-pressed', String(!!open));
+};
+const setParamsOpen = (open) => {
+  paramsEl.hidden = !open;
+  seaBtn.setAttribute('aria-pressed', String(!!open));
+  hudEl.classList.toggle('sea-open', open);
+};
+paramsUI.hideBtn.addEventListener('click', () => setParamsOpen(false));
+seaBtn.addEventListener('click', () => setParamsOpen(paramsEl.hidden));
+document.getElementById('btn-props').addEventListener('click', () => setPropsOpen(false));
+boxBtn.addEventListener('click', () => setPropsOpen(propsEl.hidden));
+tabSki.addEventListener('click', () => setPropsTab('ski'));
+tabDragon.addEventListener('click', () => setPropsTab('dragon'));
+setPropsTab('dragon');
+const sceneBtn = document.getElementById('btn-scene');
+const sceneEl = document.getElementById('bar');
+const setSceneOpen = (open) => {
+  sceneEl.hidden = !open;
+  sceneBtn.setAttribute('aria-pressed', String(!!open));
+};
+sceneBtn.addEventListener('click', () => setSceneOpen(sceneEl.hidden));
+setPropsOpen(false);
+setParamsOpen(false);
+setSceneOpen(false);
+
+const REF_LEN = 60;
+const AXIS = ['Sideways', 'Up and down', 'Both'];
+const axisName = (v) => (typeof v === 'number' ? AXIS[v] : v) || 'Up and down';
+// This animal's swell and spray, over the library defaults. Set before the
+// snapshot below so Reset dragon comes back here.
+Object.assign(abyssal.params, {
+  sdDome: 3.47,
+  sdBow: 7.01,
+  sdDomeSoft: 1.71,
+  sdBowSoft: 1.71,
+  sdDomeNear: 5.4,
+  sdSpray: 1.92,
+  sdSprayEmitters: 50,
+  sdSprayDepth: 0.7,
+  sdSpraySize: 1.02,
+  sdSprayLife: 0.37,
+  sdSprayOpacity: 1.62,
+  sdSprayPulse: 1.5,
+});
+const SD0 = {
+  sdModel: abyssal.params.sdModel,
+  sdLength: abyssal.params.sdLength,
+  sdSpeed: abyssal.params.sdSpeed,
+  sdCruise: abyssal.params.sdCruise,
+  sdTurnRate: abyssal.params.sdTurnRate,
+  sdWaves: abyssal.params.sdWaves,
+  sdWaveAxis: abyssal.params.sdWaveAxis,
+  sdAmp: abyssal.params.sdAmp,
+  sdBeat: abyssal.params.sdBeat,
+  sdGape: abyssal.params.sdGape,
+  sdDome: abyssal.params.sdDome,
+  sdBow: abyssal.params.sdBow,
+  sdDomeSoft: abyssal.params.sdDomeSoft,
+  sdBowSoft: abyssal.params.sdBowSoft,
+  sdDomeNear: abyssal.params.sdDomeNear,
+  sdSpray: abyssal.params.sdSpray,
+  sdSprayEmitters: abyssal.params.sdSprayEmitters,
+  sdSprayDepth: abyssal.params.sdSprayDepth,
+  sdSpraySize: abyssal.params.sdSpraySize,
+  sdSprayLife: abyssal.params.sdSprayLife,
+  sdSprayOpacity: abyssal.params.sdSprayOpacity,
+  sdSprayPulse: abyssal.params.sdSprayPulse,
+  sdSprayLaunch: abyssal.params.sdSprayLaunch,
+};
+const DRAGON_WAKE0 = { ...dragonWake };
+const DRAGON_SWELL0 = { ...dragonSwell };
+const DRAGON_PIERCE0 = { ...dragonPierce };
+const pierceLive = () => parsePierce(dragonPierce, dragonBody.size, { length: dragonBody.length }) || {};
+const autoMound = () => Math.max(0.08, (abyssal.params.sdLength ?? REF_LEN) * 0.0025);
+const bindSelect = (id, get, set) => {
+  const el = document.getElementById(id);
+  const paint = () => { el.value = get(); };
+  el.addEventListener('change', () => set(el.value));
+  paint();
+  return paint;
+};
+const bindParam = (id, key, digits = 2) => bind(id, () => abyssal.params[key], (v) => {
+  abyssal.params[key] = v;
+  paramsUI.sync();
+}, digits);
+let paintDLength = () => {};
+let paintDScale = () => {};
+const applyDragonLength = (L) => {
+  abyssal.params.sdLength = Math.max(6, Math.min(200, L));
+  paramsUI.sync();
+  paintDLength();
+  paintDScale();
+};
+const dragonPaints = [
+  (paintDLength = bind('d-length', () => abyssal.params.sdLength, applyDragonLength)),
+  (paintDScale = bind('d-scale', () => abyssal.params.sdLength / REF_LEN, (v) => applyDragonLength(REF_LEN * v))),
+  bind('d-fat', () => dragonFit.fat, (v) => { dragonFit.fat = v; }),
+  bind('d-tall', () => dragonFit.tall, (v) => { dragonFit.tall = v; }),
+  bindParam('d-speed', 'sdSpeed', 1),
+  bindParam('d-cruise', 'sdCruise', 1),
+  bindParam('d-turn', 'sdTurnRate'),
+  bindParam('d-waves', 'sdWaves'),
+  bindParam('d-amp', 'sdAmp', 3),
+  bindParam('d-beat', 'sdBeat'),
+  bindParam('d-gape', 'sdGape'),
+  bind('d-swell', () => dragonSwell.on, (v) => { dragonSwell.on = v; }),
+  bindParam('d-dome', 'sdDome'),
+  bindParam('d-bow', 'sdBow'),
+  bind('d-mound', () => dragonSwell.mound ?? autoMound(), (v) => { dragonSwell.mound = v; }),
+  bind('d-soft', () => abyssal.params.sdDomeSoft, (v) => {
+    abyssal.params.sdDomeSoft = v;
+    abyssal.params.sdBowSoft = v;
+    paramsUI.sync();
+  }),
+  bindParam('d-near', 'sdDomeNear', 1),
+  bind('d-wakeOn', () => dragonWake.on, (v) => { dragonWake.on = v; }),
+  bind('d-wakeOrigin', () => dragonWake.origin, (v) => { dragonWake.origin = v; }),
+  bind('d-wakeDepth', () => dragonWake.depth, (v) => { dragonWake.depth = v; }),
+  bind('d-wake', () => dragonWake.strength, (v) => { dragonWake.strength = v; }),
+  bind('d-wakeWave', () => dragonWake.wave, (v) => { dragonWake.wave = v; }),
+  bind('d-wakeWaveWidth', () => dragonWake.waveWidth, (v) => { dragonWake.waveWidth = v; }, 1),
+  bind('d-wakeWaveLife', () => dragonWake.waveLife, (v) => { dragonWake.waveLife = v; }, 1),
+  bind('d-wakeWaveGap', () => dragonWake.waveGap, (v) => { dragonWake.waveGap = v; }, 1),
+  bind('d-wakeFoam', () => dragonWake.foam, (v) => { dragonWake.foam = v; }),
+  bind('d-wakePersist', () => dragonWake.persist ?? 10.9, (v) => { dragonWake.persist = v; }),
+  bind('d-wakeDamp', () => dragonWake.damp ?? 1.8, (v) => { dragonWake.damp = v; }),
+  bind('d-wakeV', () => dragonWake.v, (v) => { dragonWake.v = v; }),
+  bind('d-wakeVAmp', () => dragonWake.vAmp, (v) => { dragonWake.vAmp = v; }),
+  bind('d-wakeVLen', () => dragonWake.vLen, (v) => { dragonWake.vLen = v; }, 0),
+  bind('d-wakeVWidth', () => dragonWake.vWidth, (v) => { dragonWake.vWidth = v; }, 1),
+  bind('d-wakeVAngle', () => dragonWake.vAngle, (v) => { dragonWake.vAngle = v; }, 1),
+  bind('d-wakeVMid', () => dragonWake.vMid, (v) => { dragonWake.vMid = v; }),
+  bind('d-wakeVLife', () => dragonWake.vLife, (v) => { dragonWake.vLife = v; }, 1),
+  bind('d-wakeVChurn', () => dragonWake.vChurn, (v) => { dragonWake.vChurn = v; }),
+  bind('d-sprayOn', () => dragonSpray.on, (v) => { dragonSpray.on = v; }),
+  bind('d-spraySites', () => abyssal.params.sdSprayEmitters, (v) => {
+    abyssal.params.sdSprayEmitters = Math.round(v);
+    paramsUI.sync();
+  }, 0),
+  bindParam('d-sprayAmt', 'sdSpray'),
+  bindParam('d-sprayBand', 'sdSprayDepth'),
+  bindParam('d-spraySize', 'sdSpraySize'),
+  bindParam('d-sprayLife', 'sdSprayLife'),
+  bindParam('d-sprayOpacity', 'sdSprayOpacity'),
+  bindParam('d-sprayPulse', 'sdSprayPulse'),
+  bind('d-sprayLaunch', () => abyssal.params.sdSprayLaunch, (v) => {
+    abyssal.params.sdSprayLaunch = v;
+    paramsUI.sync();
+  }),
+  bind('d-pierceOn', () => dragonPierce.on ?? 1, (v) => { dragonPierce.on = v; }),
+  bind('d-pierceMarker', () => dragonPierce.marker ?? 0, (v) => { dragonPierce.marker = v; }, 0),
+  bind('d-pierceHeight', () => pierceLive().height ?? 8, (v) => { dragonPierce.height = v; }, 1),
+  bind('d-pierceLife', () => pierceLive().life ?? 6, (v) => { dragonPierce.life = v; }, 1),
+  bind('d-pierceR', () => pierceLive().r ?? 0.4, (v) => { dragonPierce.r = v; }),
+  bind('d-pierceGain', () => pierceLive().gain ?? 1, (v) => { dragonPierce.gain = v; }),
+  bind('d-pierceRim', () => pierceLive().rim ?? 0.06, (v) => { dragonPierce.rim = v; }, 3),
+  bind('d-pierceBow', () => pierceLive().bow ?? 0.3, (v) => { dragonPierce.bow = v; }),
+  bind('d-pierceSide', () => pierceLive().side ?? 0.22, (v) => { dragonPierce.side = v; }),
+  bind('d-pierceTrench', () => pierceLive().trench ?? 0.4, (v) => { dragonPierce.trench = v; }),
+  bind('d-debug', () => dragonBody.debug ? 1 : 0, (v) => { dragonBody.debug = v >= 0.5; }, 0),
+];
+bindSelect('d-model', () => abyssal.params.sdModel, (v) => {
+  abyssal.params.sdModel = v;
+  paramsUI.sync();
+});
+bindSelect('d-axis', () => axisName(abyssal.params.sdWaveAxis), (v) => {
+  abyssal.params.sdWaveAxis = v;
+  paramsUI.sync();
+});
+const dColor = document.getElementById('d-color');
+const tintCreature = (hex) => {
+  const c = new THREE.Color(hex);
+  uCreaturePaint.value.set(c.r, c.g, c.b);
+};
+dColor.addEventListener('input', () => tintCreature(dColor.value));
+document.getElementById('d-reset').addEventListener('click', () => {
+  Object.assign(abyssal.params, SD0);
+  Object.assign(dragonWake, DRAGON_WAKE0);
+  dragonFit.fat = 1;
+  dragonFit.tall = 1;
+  Object.assign(dragonSwell, DRAGON_SWELL0);
+  Object.assign(dragonPierce, DRAGON_PIERCE0);
+  dragonSpray.on = 1;
+  dragonBody.debug = false;
+  tintCreature('#ffffff');
+  dColor.value = '#ffffff';
+  paramsUI.sync();
+  for (const paint of dragonPaints) paint();
+  document.getElementById('d-model').value = SD0.sdModel;
+  document.getElementById('d-axis').value = axisName(SD0.sdWaveAxis);
+});
+
+const VIEWS = [
+  { id: 'chase', on: true, yaw: 0, pitch: 0.18, zoom: 1, ahead: 4, rise: 2.2, pull: 1 },
+  { id: 'ride', on: true, yaw: 0, pitch: 0.05, zoom: 0.2, ahead: 14, rise: 0.65, pull: 0.12 },
+  { id: 'side', on: true, yaw: Math.PI * 0.5, pitch: 0.1, zoom: 0.8, ahead: 0, rise: 1.4, pull: 0.35 },
+  { id: 'bow', on: true, yaw: Math.PI, pitch: 0.12, zoom: 0.85, ahead: 0, rise: 1.6, pull: 0.35 },
+  { id: 'high', on: true, yaw: 0.4, pitch: 0.72, zoom: 1.55, ahead: 2, rise: 3.5, pull: 0.7 },
+  { id: 'top', on: true, yaw: 0, pitch: 1.18, zoom: 2.1, ahead: 0, rise: 4, pull: 0.2 },
+];
+const look = {
+  yaw: 0, pitch: 0.18, zoom: 1,
+  yawT: 0, pitchT: 0.18, zoomT: 1,
+  ahead: 4, rise: 2.2, pull: 1,
+  aheadT: 4, riseT: 2.2, pullT: 1,
+  ride: 0, rideT: 0, viewBlend: false,
+  i: 0, dragging: false, px: 0, py: 0,
+};
+const ZOOM_MIN = 0.16, ZOOM_MAX = 4.5;
+const ORBIT_YAW_TAU = 0.14;
+const ORBIT_ZOOM_TAU = 0.22;
+const VIEW_TAU = 0.32;
+const easeToward = ( cur, dest, dt, tau ) => cur + ( dest - cur ) * ( 1 - Math.exp( -dt / tau ) );
+const shortestYaw = ( from, to ) => from + Math.atan2( Math.sin( to - from ), Math.cos( to - from ) );
+const viewBtn = document.getElementById('btn-view');
+const cruiseBtn = document.getElementById('btn-cruise');
+const swimBtn = document.getElementById('btn-swim');
+let cruiseOn = false;
+let cruiseSpeed = 0;
+let viewBeforeSwim = 0;
+const knots = (ms) => Math.round(ms * 1.94384);
+const syncCruiseBtn = () => {
+  cruiseBtn.setAttribute('aria-pressed', String(cruiseOn));
+  cruiseBtn.textContent = cruiseOn ? `Cruise ${knots(cruiseSpeed)} kn` : 'Cruise';
+};
+const setCruise = (on) => {
+  cruiseOn = !!on;
+  if (cruiseOn) {
+    const spd = Math.abs(ski.speed);
+    cruiseSpeed = spd > 2 ? spd : ski.topSpeed;
+  } else {
+    cruiseSpeed = 0;
+  }
+  syncCruiseBtn();
+};
+const toggleCruise = () => setCruise(!cruiseOn);
+cruiseBtn.addEventListener('click', toggleCruise);
+syncCruiseBtn();
+const syncSwimBtn = () => {
+  swimBtn.setAttribute('aria-pressed', String(!!dragon.active));
+  swimBtn.textContent = dragon.active ? 'Swimming' : 'Swim';
+};
+const setSwimming = (on) => {
+  const want = !!on;
+  if (want === !!dragon.active) {
+    syncSwimBtn();
+    return;
+  }
+  if (want) {
+    abyssal.params.sdEnabled = 1;
+    paramsUI.sync();
+    setCruise(false);
+    viewBeforeSwim = look.i;
+    const chaseI = VIEWS.findIndex((v) => v.id === 'chase');
+    applyView(chaseI >= 0 ? chaseI : 0);
+    dragon.active = true;
+    const sp = swimParams(abyssal.params);
+    const loaf = loafSpeed(sp);
+    if (dragon.speed < loaf * 0.85) {
+      dragon.cruiseSpeed = loaf;
+      dragon.speed = loaf;
+    } else {
+      dragon.cruiseSpeed = dragon.speed;
+    }
+    dragon.cruiseDepth = dragon.depth;
+    dragon.level();
+    cruiseBtn.hidden = true;
+    if (!propsEl.hidden) setPropsTab('dragon');
+  } else {
+    cruiseBtn.hidden = false;
+    if (!propsEl.hidden) setPropsTab('ski');
+    dragon.active = false;
+    dragon.level();
+    applyView(viewBeforeSwim);
+  }
+  syncSwimBtn();
+};
+const toggleSwim = () => setSwimming(!dragon.active);
+swimBtn.addEventListener('click', toggleSwim);
+syncSwimBtn();
+let paintViewList = () => {};
+const applyView = (i) => {
+  const v = VIEWS[i];
+  look.i = i;
+  look.yawT = shortestYaw(look.yaw, v.yaw);
+  look.pitchT = v.pitch;
+  look.zoomT = v.zoom;
+  look.aheadT = v.ahead;
+  look.riseT = v.rise;
+  look.pullT = v.pull;
+  look.rideT = v.id === 'ride' ? 1 : 0;
+  look.viewBlend = true;
+  viewBtn.textContent = v.id;
+  paintViewList();
+};
+const cycleView = () => {
+  const n = VIEWS.length;
+  for (let step = 1; step <= n; step++) {
+    const i = (look.i + step) % n;
+    if (VIEWS[i].on) {
+      applyView(i);
+      return;
+    }
+  }
+};
+const viewList = document.getElementById('view-list');
+paintViewList = () => {
+  const onCount = VIEWS.reduce((n, v) => n + (v.on ? 1 : 0), 0);
+  for (const row of viewList.querySelectorAll('.view-row')) {
+    const i = Number(row.dataset.i);
+    const box = row.querySelector('input');
+    const btn = row.querySelector('button');
+    box.checked = !!VIEWS[i].on;
+    box.disabled = VIEWS[i].on && onCount <= 1;
+    btn.setAttribute('aria-current', String(look.i === i));
+  }
+};
+for (const [i, v] of VIEWS.entries()) {
+  const row = document.createElement('div');
+  row.className = 'view-row';
+  row.dataset.i = String(i);
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.textContent = v.id;
+  btn.addEventListener('click', () => applyView(i));
+  const box = document.createElement('input');
+  box.type = 'checkbox';
+  box.checked = true;
+  box.title = 'Include in C cycle';
+  box.setAttribute('aria-label', `Include ${v.id} in C cycle`);
+  box.addEventListener('change', () => {
+    const onCount = VIEWS.reduce((n, x) => n + (x.on ? 1 : 0), 0);
+    if (!box.checked && VIEWS[i].on && onCount <= 1) {
+      box.checked = true;
+      return;
+    }
+    VIEWS[i].on = box.checked;
+    paintViewList();
+  });
+  row.append(btn, box);
+  viewList.append(row);
+}
+const viewHint = document.createElement('p');
+viewHint.className = 'hint';
+viewHint.textContent = 'C cycles the checked cameras.';
+viewList.append(viewHint);
+viewBtn.addEventListener('click', cycleView);
+applyView(VIEWS.findIndex((v) => v.id === 'top')); // remembered for M → ski
+setSwimming(true);
+setUiHidden(true);
+const keys = new Set();
+addEventListener('keydown', (e) => {
+  if (e.target.matches('input, select, textarea')) return;
+  if (e.code === 'KeyU') {
+    e.preventDefault();
+    toggleUi();
+    return;
+  }
+  if (e.code === 'KeyP') {
+    e.preventDefault();
+    revealUi();
+    perfDbg.toggle();
+    syncPerfBtn();
+    return;
+  }
+  if (e.code === 'KeyH') {
+    e.preventDefault();
+    revealUi();
+    setPropsOpen(propsEl.hidden);
+    return;
+  }
+  if (e.code === 'KeyK') {
+    e.preventDefault();
+    revealUi();
+    setParamsOpen(paramsEl.hidden);
+    return;
+  }
+  if (e.code === 'KeyC') {
+    e.preventDefault();
+    cycleView();
+    return;
+  }
+  if (e.code === 'KeyX') {
+    e.preventDefault();
+    if (!dragon.active) toggleCruise();
+    return;
+  }
+  if (e.code === 'KeyM') {
+    e.preventDefault();
+    toggleSwim();
+    return;
+  }
+  if (e.code === 'KeyL') {
+    e.preventDefault();
+    if (dragon.active) dragon.level();
+    return;
+  }
+  keys.add(e.code);
+  if (e.code === 'Space') e.preventDefault();
+});
+addEventListener('keyup', (e) => keys.delete(e.code));
+
+canvas.style.cursor = 'grab';
+canvas.addEventListener('pointerdown', (e) => {
+  look.dragging = true;
+  look.px = e.clientX; look.py = e.clientY;
+  canvas.setPointerCapture(e.pointerId);
+  canvas.style.cursor = 'grabbing';
+});
+canvas.addEventListener('pointerup', (e) => {
+  look.dragging = false;
+  canvas.releasePointerCapture(e.pointerId);
+  canvas.style.cursor = 'grab';
+});
+canvas.addEventListener('pointermove', (e) => {
+  if (!look.dragging) return;
+  look.yawT -= (e.clientX - look.px) * 0.003;
+  look.pitchT = Math.max(-0.15, Math.min(1.25, look.pitchT + (e.clientY - look.py) * 0.0024));
+  look.px = e.clientX; look.py = e.clientY;
+});
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const ticks = e.deltaMode === 1 ? e.deltaY : e.deltaY / 120;
+  look.zoomT = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, look.zoomT * (1 + Math.max(-1, Math.min(1, ticks)) * 0.045)));
+  look.viewBlend = false;
+}, { passive: false });
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.5, 40000);
+const readout = document.getElementById('readout');
+const throttleForSpeed = (target) => {
+  const top = Math.max(ski.topSpeed * (ski.boost ? ski.boostMul : 1), 1);
+  const hold = (Math.max(target, 0) / top) ** 2;
+  return Math.max(0, Math.min(1, hold + (target - ski.speed) * 0.12));
+};
+let prevDrive = performance.now();
+
+const into = (host) => (label, fn) => {
+  const el = document.createElement('button');
+  el.textContent = label;
+  el.onclick = fn;
+  host.appendChild(el);
+};
+const addSea = into(document.getElementById('bar-sea'));
+const addSky = into(document.getElementById('bar-sky'));
+for (const name of abyssal.presets) addSea(name, () => {
+  lastPreset = name;
+  abyssal.setPreset(name);
+  floorProps.sync(abyssal.params);
+  paramsUI.sync();
+});
+for (const name of abyssal.cloudTypes) addSky(name, () => {
+  abyssal.setClouds(name);
+  paramsUI.sync();
+});
+
+const resize = () => {
+  abyssal.renderer.setSize(innerWidth, innerHeight, false);
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+};
+resize();
+addEventListener('resize', resize);
+
+function chase(dt) {
+  const swimming = !!dragon.active;
+  if (!swimming) {
+    if (keys.has('KeyQ')) { look.yawT += 0.55 * dt; look.viewBlend = false; }
+    if (keys.has('KeyE')) { look.yawT -= 0.55 * dt; look.viewBlend = false; }
+  }
+  if (keys.has('KeyR')) {
+    look.pitchT = Math.min(1.25, look.pitchT + 0.35 * dt);
+    look.viewBlend = false;
+  }
+  if (keys.has('KeyF')) {
+    look.pitchT = Math.max(-0.15, look.pitchT - 0.35 * dt);
+    look.viewBlend = false;
+  }
+  if (look.dragging) look.viewBlend = false;
+  const yawTau = look.viewBlend ? VIEW_TAU : ORBIT_YAW_TAU;
+  const zoomTau = look.viewBlend ? VIEW_TAU : ORBIT_ZOOM_TAU;
+  look.zoom = easeToward(look.zoom, look.zoomT, dt, zoomTau);
+  look.yaw = easeToward(look.yaw, look.yawT, dt, yawTau);
+  look.pitch = easeToward(look.pitch, look.pitchT, dt, yawTau);
+  look.ahead = easeToward(look.ahead, look.aheadT, dt, VIEW_TAU);
+  look.rise = easeToward(look.rise, look.riseT, dt, VIEW_TAU);
+  look.pull = easeToward(look.pull, look.pullT, dt, VIEW_TAU);
+  look.ride = easeToward(look.ride, look.rideT, dt, VIEW_TAU);
+  if (look.viewBlend
+    && Math.abs(look.yaw - look.yawT) < 0.002
+    && Math.abs(look.pitch - look.pitchT) < 0.002
+    && Math.abs(look.zoom - look.zoomT) < 0.002
+    && Math.abs(look.ride - look.rideT) < 0.002) {
+    look.viewBlend = false;
+  }
+  const body = swimming ? dragon : ski;
+  const heading = body.heading + look.yaw;
+  const fx = Math.sin(heading), fz = -Math.cos(heading);
+  const hx = Math.sin(body.heading), hz = -Math.cos(body.heading);
+  if (swimming) {
+    const L = Math.max(abyssal.params.sdLength, 8);
+    const sea = abyssal.params.seaLevel ?? 0;
+    const ride = look.ride;
+    const follow = 1 - ride;
+    const dist = (L * 1.15 * follow + L * 0.22 * ride) * look.zoom;
+    const rise = Math.sin(look.pitch) * dist
+      + Math.max(abyssal.params.sdFollowRise ?? 4, L * 0.18) * follow
+      + Math.max(2.4, L * 0.08) * ride;
+    const back = Math.cos(look.pitch) * dist;
+    camera.position.set(
+      body.pos[0] - fx * back,
+      Math.max(body.pos[1] + rise, sea + Math.max(2.2, L * 0.16) * follow + 0.6 * ride),
+      body.pos[2] - fz * back,
+    );
+    camera.lookAt(
+      body.pos[0] + hx * (L * 0.08 * follow + L * 0.28 * ride),
+      Math.max(body.pos[1] * 0.35, sea) * follow + (body.pos[1] + L * 0.04) * ride,
+      body.pos[2] + hz * (L * 0.08 * follow + L * 0.28 * ride),
+    );
+  } else {
+    const spd = Math.min(Math.abs(ski.speed) / Math.max(ski.topSpeed, 1), 1.2);
+    const dist = (12 + 14 * spd * spd * look.pull) * look.zoom;
+    const rise = Math.sin(look.pitch) * dist + look.rise + 1.4 * spd * spd * look.pull;
+    const back = Math.cos(look.pitch) * dist;
+    camera.position.set(
+      ski.pos[0] - fx * back,
+      Math.max(ski.pos[1] + rise, ski.surf + 0.8),
+      ski.pos[2] - fz * back,
+    );
+    camera.lookAt(
+      ski.pos[0] + hx * look.ahead,
+      ski.pos[1] + 0.15 + 0.25 * Math.min(1, Math.abs(look.ahead) / 4),
+      ski.pos[2] + hz * look.ahead,
+    );
+  }
+  camera.updateMatrixWorld(true);
+}
+
+abyssal.renderer.setAnimationLoop(() => {
+  const now = performance.now();
+  const dt = Math.min(0.05, Math.max(1 / 240, (now - prevDrive) / 1000));
+  prevDrive = now;
+  const swimming = !!dragon.active;
+  if (swimming) {
+    ski.steer = null;
+    ski.carve = false;
+    ski.boost = false;
+    ski.throttle = null;
+  } else {
+    const gas = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0)
+      - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
+    ski.steer = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0)
+      - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
+    ski.carve = keys.has('ShiftLeft') || keys.has('ShiftRight');
+    ski.boost = keys.has('Space');
+    if (cruiseOn && gas !== 0) {
+      cruiseSpeed = Math.max(0, Math.min(ski.topSpeed, cruiseSpeed + gas * ski.accel * dt));
+      if (cruiseSpeed < 0.5) setCruise(false);
+      else syncCruiseBtn();
+    }
+    ski.throttle = cruiseOn ? (ski.boost ? 1 : throttleForSpeed(cruiseSpeed)) : gas;
+  }
+  const fk = floorKeyOf(abyssal.params);
+  if (fk !== lastFloorKey) {
+    lastFloorKey = fk;
+    floorProps.sync(abyssal.params);
+  }
+  const p = abyssal.params;
+  if ((p.sdEnabled ?? 1) >= 0.5) {
+    dragon.update(dt, swimParams(p), swimming ? null : ski, {
+      pos: [camera.position.x, camera.position.y, camera.position.z],
+      yaw: swimming ? dragon.heading : ski.heading,
+      keys,
+    });
+  }
+  poseDragon(p);
+  chase(dt);
+  abyssal.frame(camera);
+  const kn = knots(swimming ? dragon.speed : ski.speed);
+  const info = wakePhysicsInfo({
+    speed: swimming ? dragon.speed : ski.speed,
+    length: swimming ? (dragonBody.length ?? abyssal.params.sdLength ?? 60) : (ski.length ?? ski.size.z),
+    depth: abyssal.params.floorDepth ?? abyssal.params.depth ?? 28,
+    amp: swimming ? dragonWake.strength : (ski.wake?.strength ?? 1),
+  });
+  readout.textContent = swimming
+    ? `Swim  ${kn} kn  ${dragon.depth.toFixed(1)} m${dragon.jumpAirborne ? '  air' : ''}  Fr ${info.Fr.toFixed(2)}  λ ${info.lambda.toFixed(0)}m  ${info.regime}`
+    : `Ski  ${kn} kn${cruiseOn ? `  hold ${knots(cruiseSpeed)}` : ''}${ski.airborne ? '  air' : ''}  Fr ${info.Fr.toFixed(2)}  λ ${info.lambda.toFixed(0)}m  ${info.regime}`;
+});
+
+window.abyssalExample = { renderer: abyssal.renderer, abyssal, scene, camera, ski, craft, hullMats, floorProps, dragon, dragonBody, dragonMesh, toggleSwim, perfDbg, paramsUI };
+</script>

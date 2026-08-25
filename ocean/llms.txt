@@ -23,6 +23,9 @@ verification patterns.
 ## Examples
 
 - [examples/webgpu-ocean.html](examples/webgpu-ocean.html): the whole stack in one call, with user meshes sharing depth
+- [examples/webgpu-bodies.html](examples/webgpu-bodies.html): OceanBody — drop crates, float hulls, overlapping wakes
+- [examples/webgpu-box-ski.html](examples/webgpu-box-ski.html): OceanBody + SKI coefficients — jet-ski GLB that planes; sea dragon as a second OceanBody (`SeaDragon` + `creatureVertex` swim, M to pilot); gravity-wave wake (`wake.physics`) / spray / swell / debug are body properties (Ski / Dragon panels); spray size / life / hull jet / sea state / Sea Dragon live on `abyssal.params` (Sea panel)
+- [examples/webgpu-wake-physics.html](examples/webgpu-wake-physics.html): leftover gravity-wave experiment — hull displaces water, crests travel in world XZ and add; plow / hull-speed / hump / plane presets
 - [examples/webgpu-sky.html](examples/webgpu-sky.html): sky-only mode with live cloud-genus switching
 - [examples/water-and-sky.html](examples/water-and-sky.html): classic WebGL2 adapter, both components
 - [examples/index.html](examples/index.html): index of all examples

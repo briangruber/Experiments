@@ -1,10 +1,10 @@
-# Sea dragon — state, the open bug, and what was already tried
+# Sea dragon — how it is rendered, and what is still open
 
 Hand this file to a fresh session. It is written so that reading it plus
 `AGENTS.md` is enough to continue without the conversation it came from.
 
-Branch: `claude/three-webgpu-port`. Everything below is in the three.js demo
-(`demo/three-main.js` + `src/gpu/tsl/`), not the raw-GL one.
+Everything below is in the three.js demo (`demo/three-main.js` +
+`src/gpu/tsl/`), not the raw-GL one.
 
 ## What works
 
@@ -17,99 +17,150 @@ Branch: `claude/three-webgpu-port`. Everything below is in the three.js demo
 - **The behaviour** (`demo/seadragon.js`): holds a station off your shoulder,
   bounded yaw rate, sprints to keep up, circles you when you stop, and **rises
   and closes in past `sdRushSpeed`**.
-- **The mound.** `swellLift()` in `src/gpu/tsl/water-surface.js` — a capsule
-  along the spine that lifts the surface *and* feeds the slope. The slope half
-  is not optional: a mound wearing the flat sea's normals is invisible except
-  in silhouette.
+- **The mound.** `swellLift()` in `src/gpu/tsl/water-surface.js` lifts the
+  surface *and* feeds the slope (the slope half is not optional: a mound
+  wearing the flat sea's normals is invisible except in silhouette) — and its
+  shape now follows **the same travelling sine wave the mesh swims**: sideways
+  motion curves its XZ spine, while up/down motion raises and lowers the mound
+  along that spine (`uSwellSweep`/`uSwellLift`/`uSwellLiftPhase`, fed the same
+  live amplitude, axis and phase as `creature.js`). It used to be a straight,
+  rigid capsule and read as water displaced by a plank; reported exactly that.
+  `node tools/check-swell-curve.mjs` is a pure CPU-algebra check that both the
+  lateral and vertical mound formulas agree with the mesh's vertex stage.
+- **Spray at the waterline.** Fed into the sea's own `foamMask` from inside the
+  refraction block, gated by `path` — the same reconstructed distance from the
+  sea surface down to the body the extinction uses — so it traces the body's
+  ACTUAL silhouette from the refraction pass's depth, not a shape guessed from
+  the mound. `sdSpray` / `sdSprayDepth` in the schema; 0 turns it off.
+  `node tools/run-probe.mjs prototypes/spray-breach-probe.html` isolates it by
+  proximity to the surface (near/mid/far), not just by the animal's presence.
+- **The refraction pass** — see below. This is what puts the animal *in* the
+  water rather than on it, and it is what closed the two bugs this document
+  used to be about.
 - **Follow** button / `G` — a camera mode for tuning it while it swims.
 - **Settings**: its own `SEA DRAGON` group in `demo/schema.js`.
-- `npm run check:dragon` covers visible / swimming / holding station, with the
-  horizon row computed from the camera rather than assumed.
+- `npm run check:dragon` covers visible / swimming / holding station /
+  breaching, with the horizon row computed from the camera rather than assumed.
+  `node tools/run-probe.mjs prototypes/refraction-probe.html` covers the pass
+  itself, off the buffer rather than off the picture.
 
-## The one open bug, and it explains two symptoms
+## How it is drawn now: the refraction pass
 
-**The animal has no depth buffer of its own.** It is drawn straight over the
-sea with `depthTest: false`, because the sea is opaque and has already written
-a nearer depth. Two things follow, and they are the same bug:
+The ocean is opaque, writes depth, and computes everything about the water
+analytically — it never reads what is behind it. So a submerged mesh drawn
+before the sea is hidden and one drawn after it is pasted on top. There are now
+three pieces, ported from `claude/saltyfin-webgpu`, which had already solved
+this on the same three.js node renderer:
 
-1. **You can see its teeth through its skull.** Front-face culling sorts a
-   closed convex body; a head with an open jaw is not one, so the far teeth are
-   front-facing, they draw, and the last triangle in index order wins.
-2. **Fins cannot break the surface.** Anything above the waterline is
+| file | what it is |
+| --- | --- |
+| `src/gpu/tsl/refraction-driver.js` | a half-resolution RGBA half-float target **with its own float depth texture**. Cleared to transparent black and the far plane; alpha is coverage by contract. |
+| `src/gpu/tsl/water-clip.js` | the waterline split, as **two uniforms** (`sign`, `height`) hung off `maskNode` — or `waterClipDiscard()` for the hand-written materials this project is mostly made of. |
+| `src/gpu/tsl/water-surface.js` | the lookup: screen-space UV offset by how far the surface normal has been bent from flat, the offset sample rejected when it lands nearer than the surface, and the **depth reconstructing the water column** that drives the extinction. |
+
+Order in the frame (`demo/three-main.js`):
+
+1. `drawDragonUnder()` — the submerged half, into the refraction target, with
+   the clip at `CLIP.BELOW`. Before anything else, because the sea reads this
+   target while it shades itself.
+2. the sea, which composites the lookup into its **diffuse** term — the
+   radiance leaving the water upward.
+3. `drawDragonOver()` — the breaching half, into the HDR frame with the clip at
+   `CLIP.ABOVE`, depth-tested against the sea that just wrote depth.
+
+Four things that are load-bearing, three of them bought with a real defect:
+
+- **The composite belongs in the sea's diffuse term.** Put it there and
+  Fresnel, foam, glitter and haze all apply themselves — foam passing *over*
+  the animal is what stops it reading as pasted on.
+- **Do not blend into the target.** Blending premultiplies by alpha and the sea
+  multiplies by it again. RGB is radiance, ALPHA is coverage.
+- **Guard the sample with `select( sane, mix( … ), diffuse )`** — the guard must
+  be **around the whole mix**, because `mix(a, b, 0)` is still NaN if `b` is.
+  A NaN there washes the entire ocean white.
+- **The split is a uniform, not a material flag.** `clippingContextCacheKey`,
+  `side`, `depthWrite`, `transparent` and blending are all components of
+  `WebGPUBackend.getRenderCacheKey`, so toggling any of them per pass forces a
+  synchronous pipeline creation per material per pass — measured on the
+  reference implementation at ~55 pipeline creations a frame and 11 fps on a
+  phone. `src/gpu/tsl/water-clip.js` has the argument in full; read it before
+  touching the waterline split.
+
+### What this replaced, and what not to try again
+
+The animal used to be drawn once, after the sea, with `depthTest: false`. Two
+symptoms followed, and they were the same bug — it had no depth buffer:
+
+1. **You could see its teeth through its skull.** Front-face culling sorts a
+   closed convex body; a head with an open jaw is not one, so the far teeth were
+   front-facing, they drew, and the last triangle in index order won.
+2. **Fins could not break the surface.** Anything above the waterline had to be
    discarded, because without depth it would paint over the sky.
 
-### What was tried, and why each failed — do not repeat these
+Both are gone: it is a double-sided depth-tested mesh in both passes, and
+`sdMinDepth` is now a staging choice rather than a backstop.
 
-- **Clear the depth buffer before the draw.** Does not work on this renderer:
-  clearing depth mid-frame restarts the render pass and takes the colour
-  attachment with it. The sea came out flat grey. Measured, reverted.
-- **Alpha blending to fade it with depth.** That IS the see-through. The fade
-  now lives in the colour instead (mix toward the sea's own colour on the same
-  Beer-Lambert law), which is what water actually does to a submerged body.
+Do not repeat these:
 
-### The fix
+- **Clearing the depth buffer before the draw.** Does not work on this
+  renderer: clearing depth mid-frame restarts the render pass and takes the
+  colour attachment with it. The sea came out flat grey. Measured, reverted.
+- **Alpha blending to fade it with depth.** That IS the see-through.
+- **Fading the body by its own depth below mean sea level** (which is what the
+  first two attempts did, first in alpha and then in colour). It is the wrong
+  quantity: it is only right looking straight down, and at the angle you ride
+  at a body three metres under is thirty metres of water away. The fade is the
+  reconstructed column now, and it lives in the sea.
 
-Render it into a target that has its own depth, and composite that into the
-sea. The implementation exists and is preserved at commit **`230c301`**
-(`src/gpu/tsl/underwater-driver.js`, plus the sampling in
-`water-surface.js`). Revert-the-revert onto it rather than rewriting.
+## Measured
 
-**It has one unexplained fault, and this is the thing to debug first:** the
-submerged pass renders *nothing*. Proven by isolation — with the mound
-switched off, turning the whole animal on changed **130 pixels of a 256000
-pixel frame**. First suspect is a silently-failed shader compile in that pass;
-check the console for a program-link error and try the creature material on an
-ordinary on-screen mesh to see whether it compiles at all.
+`npm run check:dragon`, Sheltered Water, 640x400, WebGL2 backend, A/B on
+`sdEnabled` against a two-frame control of 0 changed pixels:
 
-Also on that branch, already correct and worth keeping:
+| | pixels changed | mean shift | above the horizon |
+| --- | --- | --- | --- |
+| the old depth-test-off draw | 25066 | 18.7 / 255 | 0 |
+| the refraction pass | 24995 | 22.4 / 255 | 0 |
 
-- The composite belongs in the sea's **diffuse** term (the radiance leaving the
-  water upward). Put it there and Fresnel, foam, glitter and haze all apply
-  themselves — foam passing *over* the animal is what stops it reading as
-  pasted on.
-- Do **not** blend into the target. Blending premultiplies by alpha and the sea
-  multiplies by it again. RGB is radiance, ALPHA is coverage.
-- Guard the sample with `select( sane, mix( … ), diffuse )` — the guard must be
-  **around the whole mix**, because `mix(a, b, 0)` is still NaN if `b` is.
-  A NaN there washes the entire ocean white.
+So it covers the same amount of sea and reads about a fifth harder, with
+nothing reaching the sky.
 
-## THE ANSWER IS ALREADY IN THIS REPO: `claude/saltyfin-webgpu`
+The same check's BREACHING claim — the animal brought to the surface with the
+sea's lookup and the mound both switched off, so the only thing left is the
+above-water draw — reports **4432 px changed at mean 50.7 / 255**. Under the old
+draw that number was zero by construction.
 
-Do not design this from scratch. That branch renders meshes *and* a leviathan
-under water, seen through the surface with refraction, caustics and depth, on
-the same three.js node renderer. It is the reference implementation.
+`node tools/run-probe.mjs prototypes/refraction-probe.html`, which measures the
+buffer rather than the picture:
 
-What it does that Abyssal does not:
+- the refraction target comes back with **352 of its 104x65 texels covered**
+  (5.2%), mean radiance 0.0177, **0 non-finite** — against **0 covered** with
+  `sdEnabled 0`. The pass that used to render nothing renders the animal.
+- switching ONLY the sea's lookup moves **4700 of 64000 pixels**, mean 0.039 —
+  so the ocean shader is genuinely sampling it, which is the half that used to
+  fail silently.
+- the same animal at 12 m instead of 3.5 m shifts the sea by **0.0168 instead of
+  0.039**. Nothing but the reconstructed water column can produce that: the
+  body's own colour does not know where the eye is.
 
-- `saltyfin/src/water/waterMaterial.js` keeps the sea **opaque**
-  (`transparent = false`, `depthWrite = true`) exactly as Abyssal does - so
-  opacity was never the difference. What it adds is a **REFRACTION PASS**: a
-  colour target `tRefraction` *and* a matching depth target
-  `tRefractionDepth`, sampled at a screen-space UV offset by the surface
-  normal, with the depth used to reconstruct the water column and drive the
-  extinction. Abyssal's ocean computes everything analytically and never reads
-  what is behind it; that, and only that, is why a mesh cannot be seen through
-  it here.
-- The submerged pass renders into a target **with its own depth buffer**, which
-  is precisely the missing piece behind both symptoms above. Its own comment
-  notes the refraction pass "contains the boat's own submerged hull".
-- `saltyfin/src/water/clip.js` solves the waterline split with a **uniform, not
-  a clipping plane**, and explains why at length: `material.clippingPlanes`
-  feeds `clippingContextCacheKey`, one of the 29 components of
-  `WebGPUBackend.getRenderCacheKey`, so toggling it per pass forces a
-  synchronous pipeline creation per material per pass - measured there at ~55
-  pipeline creations a frame and 11 fps on a phone. The same argument rules out
-  swapping `side`, `depthWrite`, `transparent`, blending or stencil per pass.
-  **Read that file before touching the waterline split**; it is the answer to
-  "how do fins break the surface" and it is already written.
-- It sorts objects into passes by LAYER (`LAYER.REFLECTED` / `LAYER.UNDERWATER`)
-  rather than by juggling material flags.
+## Still open
 
-So the plan is a port, not an invention: bring the refraction colour+depth
-target and the clip uniform across, then the animal is an ordinary opaque
-depth-tested mesh and the sea does the rest - which is what "why can't three.js
-just handle it" is really asking, and the answer is that it can, once the water
-has a refraction pass to hand it to.
+- **The waterline cuts at MEAN sea level plus a seam**, not at the displaced
+  surface. `demo/three-main.js` scales the seam with `swellAmount`, and both
+  half-spaces deliberately over-include, but in a big swell a fin at the
+  waterline is still cut by up to the local wave height. Fixing it properly
+  means evaluating the cascade displacement in the mask — four array texture
+  reads and a mip chain in the vertex stage of every clipped material — and is
+  out of scope until something needs it.
+- **The facade does not use any of this.** `createAbyssal`'s `scene` option
+  still draws the caller's meshes into the HDR frame against the sea's depth,
+  so a user's submerged mesh is hidden rather than refracted. The pieces are
+  exported (`setRefractionTextures`, `applyWaterClip`, `TslRefraction`); the
+  wiring in `src/gpu/abyssal.js` is not written.
+- **`drawDragonOver()` runs every frame**, even when the animal is entirely
+  submerged and the clip discards all of it. One mesh, so it has not been worth
+  a CPU-side gate — and a gate that guessed the swum body's extent wrong would
+  clip fins off, which is worse than the draw.
 
 ## Two process notes that cost real time here
 
@@ -120,4 +171,6 @@ has a refraction pass to hand it to.
 - **Isolate before tuning.** Three commits were spent tuning the brightness of
   a buffer that was empty. If a change is not doing what you expect, switch off
   everything else that touches the same pixels and confirm the thing you are
-  tuning is contributing at all.
+  tuning is contributing at all. `prototypes/refraction-probe.html` exists
+  because of that: it reads the target back and counts covered texels rather
+  than judging the finished picture.

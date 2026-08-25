@@ -1,0 +1,852 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Abyssal — gravity-wave wake</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap');
+  :root {
+    --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+    --spume: #e6eef4; --haze: #9aafbf; --dim: #6d8494;
+    --glint: #c9e4f6; --amber: #e8b86d; --coral: #e07a6a;
+    --hull: #0c1a26; --hull-2: #163044; --rule: #2a4458;
+    --glass: rgba(8, 16, 24, 0.72);
+  }
+  html, body { margin: 0; height: 100%; background: #070b10; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #hud {
+    position: fixed; top: 14px; left: 14px; z-index: 2;
+    display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+    max-width: calc(100vw - 28px);
+  }
+  #dock, #panel {
+    color: var(--spume);
+    background: var(--glass);
+    border: 1px solid var(--rule);
+    backdrop-filter: blur(16px) saturate(1.15);
+  }
+  #dock {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px;
+    padding: 8px 10px 8px 14px; border-radius: 8px;
+  }
+  #readout {
+    font: 500 12px/1.35 var(--mono);
+    letter-spacing: 0.02em;
+    color: var(--glint);
+    font-variant-numeric: tabular-nums;
+  }
+  #formula { font: 400 11px/1.45 var(--sans); color: var(--haze); }
+  #formula b { font: 500 11px/1.45 var(--mono); color: var(--spume); }
+  #keys { font: 400 11px/1.45 var(--sans); color: var(--dim); }
+  kbd {
+    font: 500 10px/1 var(--mono); color: var(--spume);
+    border: 1px solid var(--rule); border-radius: 3px;
+    padding: 1px 5px; background: var(--hull);
+  }
+  #fps {
+    position: fixed; top: 14px; right: 14px; z-index: 20;
+    font: 500 12px/1.2 var(--mono);
+    letter-spacing: 0.02em;
+    color: var(--glint);
+    font-variant-numeric: tabular-nums;
+    background: var(--glass);
+    border: 1px solid var(--rule);
+    backdrop-filter: blur(16px) saturate(1.15);
+    padding: 7px 11px; border-radius: 8px;
+    cursor: pointer;
+  }
+  #fps:hover, #fps[aria-pressed="true"] {
+    background: #1a3d56; border-color: #5a8fb0;
+  }
+  #perf-debug {
+    position: fixed; left: 14px; bottom: 14px; z-index: 21;
+    width: 22rem; max-width: calc(100vw - 28px); max-height: calc(70dvh - 28px);
+    overflow: auto; padding: 10px 12px 8px;
+    font: 400 11px/1.45 var(--mono); color: var(--spume);
+    background: rgba(6, 13, 20, 0.95); border: 1px solid var(--rule); border-radius: 10px;
+  }
+  #perf-debug[hidden] { display: none; }
+  #perf-debug .perf-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+  #perf-debug .perf-head strong { font: 600 10px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--haze); }
+  #perf-debug .perf-actions { display: flex; gap: 4px; }
+  #perf-debug .perf-actions button {
+    font: 500 10px/1 var(--mono); color: var(--spume); background: var(--hull);
+    border: 1px solid var(--rule); border-radius: 5px; padding: 5px 7px; cursor: pointer;
+  }
+  #perf-debug .perf-actions button:hover { background: var(--hull-2); }
+  #perf-debug .perf-actions button:disabled { opacity: .45; cursor: default; }
+  #perf-debug .perf-meters { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+  #perf-debug .perf-meters .row, #perf-debug .perf-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  #perf-debug .k { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); }
+  #perf-debug .v { font-variant-numeric: tabular-nums; color: var(--glint); }
+  #perf-debug .v.hot { color: var(--coral); }
+  #perf-debug .perf-stages { display: flex; flex-direction: column; gap: 3px; margin: 8px 0; }
+  #perf-debug .perf-row { padding: 4px 0; border-top: 1px solid var(--rule); cursor: pointer; }
+  #perf-debug .perf-row.off .perf-lab { color: var(--dim); text-decoration: line-through; }
+  #perf-debug .perf-lab { flex: 1; }
+  #perf-debug .perf-js { color: var(--haze); font-variant-numeric: tabular-nums; min-width: 3.6em; text-align: right; }
+  #perf-debug .perf-ab { color: var(--amber); font-variant-numeric: tabular-nums; min-width: 5.5em; text-align: right; }
+  #perf-debug .perf-warn, #perf-debug .perf-note, #perf-debug .perf-report { margin: 6px 0 0; font: 400 10px/1.45 var(--sans); color: var(--dim); }
+  #perf-debug .perf-warn { color: var(--amber); }
+  #perf-debug .perf-report { color: var(--haze); }
+  #perf-debug .perf-hot-wrap { margin: 8px 0 4px; }
+  #perf-debug .perf-hot-wrap .k span { font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--haze); }
+  #perf-debug .perf-live { margin: 4px 0 0; font: 400 11px/1.4 var(--mono); color: var(--glint); font-variant-numeric: tabular-nums; }
+  #perf-debug .perf-hot { margin: 4px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
+  #perf-debug .perf-hot li { display: flex; justify-content: space-between; gap: 8px; font-variant-numeric: tabular-nums; }
+  #perf-debug .perf-hot li:first-child b { color: var(--coral); }
+  #perf-debug .perf-hot li.off b, #perf-debug .perf-hot li.off span { color: var(--dim); text-decoration: line-through; }
+  #perf-debug .perf-hot li span { color: var(--amber); }
+  #perf-debug .perf-hot li.hint { color: var(--dim); font: 400 10px/1.45 var(--sans); }
+  #panel {
+    position: fixed; top: 56px; right: 14px; z-index: 12;
+    width: 22rem; max-width: calc(100vw - 28px); max-height: calc(100dvh - 28px);
+    overflow: auto; padding: 12px 14px 14px; border-radius: 8px;
+    font: 400 11px/1.45 var(--mono);
+  }
+  #panel h2 { margin: 0; font: 500 10px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--haze); }
+  #panel .sec { margin: 12px 0 0; font: 500 10px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+  #panel .hint { margin: 8px 0 0; font: 400 10px/1.45 var(--sans); color: var(--dim); }
+  #panel label.prop { display: grid; grid-template-columns: 7.2rem 1fr 3.2rem; align-items: center; gap: 6px; margin: 5px 0; }
+  #panel label.prop span:first-child { color: var(--haze); }
+  #panel label.prop .v { font-variant-numeric: tabular-nums; color: var(--glint); text-align: right; }
+  #panel input[type="range"] { width: 100%; accent-color: #4d7ea8; }
+  #panel select {
+    width: 100%; font: 500 11px/1.3 var(--mono); color: var(--spume);
+    background: var(--hull); border: 1px solid var(--rule); border-radius: 5px;
+    padding: 5px 6px;
+  }
+  #panel label.prop.wide { grid-template-columns: 7.2rem 1fr; }
+  #modes { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+  #modes button, #dock button {
+    font: 500 11px/1 var(--mono); color: var(--spume); background: var(--hull);
+    border: 1px solid var(--rule); border-radius: 5px; padding: 6px 9px; cursor: pointer;
+  }
+  #modes button[aria-current="true"], #dock button[aria-pressed="true"] {
+    background: #1a3d56; border-color: #5a8fb0; color: var(--glint);
+  }
+  body.hud-hidden #panel,
+  body.hud-hidden #formula,
+  body.hud-hidden #keys { display: none; }
+</style>
+
+<canvas id="c"></canvas>
+<button id="fps" type="button" aria-pressed="false" title="Performance stages (P)">-- fps</button>
+<div id="hud">
+  <div id="dock">
+    <div id="readout">starting…</div>
+    <button id="btn-look" type="button" title="Overhead look at the leftover field and the foam ribbon. Wheel zoom leaves this view.">Look down</button>
+    <button id="btn-cruise" type="button" aria-pressed="false" title="Hold the current speed, or the last regime target. W/S then nudge that held speed.">Free throttle</button>
+    <button id="btn-debug" type="button" aria-pressed="false" title="Tint leftover gravity-wave height. Turn it off to judge foam and the real sea. G.">Debug waves</button>
+    <button id="btn-wire" type="button" aria-pressed="false" title="Unlit sea mesh with cell edges. Same leftover displacement. GPU line-wireframe is slower than the shaded sea on this grid. F.">Wireframe</button>
+    <button id="btn-emit" type="button" aria-pressed="false" title="Show the waterline cuts that stamp leftover height. Not foam. E.">Emit points</button>
+    <button id="btn-buoy" type="button" aria-pressed="false" title="Show buoyancy probes on the hull. B.">Buoyancy</button>
+    <button id="btn-hud" type="button" aria-pressed="true" title="Show or hide this settings panel. H.">Hide settings</button>
+  </div>
+  <div id="formula">
+    <b>Fr = U / √(g L)</b>
+    — leftover speed <b>c = √(g L / 2π)</b>.
+    The hull only displaces water. Leftover is a short / mid / long spectrum — long crests outrun short ones. That leftover height <b>moves the sea mesh</b> (same vertices the shader shades). <b>Wireframe</b> shows those facets. <b>Debug waves</b> paints leftover height (turn it off to judge the sea). Whitewater is the hull foam ribbon plus an optional transom jet. Leftover crests stay water.
+  </div>
+  <div id="keys"><kbd>W</kbd> faster · <kbd>S</kbd> slower · release holds · <kbd>Shift</kbd> 3× step · <kbd>A</kbd><kbd>D</kbd> steer · <kbd>H</kbd> settings · <kbd>P</kbd> perf · <kbd>G</kbd> debug waves · <kbd>F</kbd> wireframe · <kbd>E</kbd> emit points · <kbd>B</kbd> buoyancy · drag to look · wheel zoom</div>
+</div>
+<div id="panel">
+  <h2>Wake physics</h2>
+  <p class="hint">A displacement hull on a calm lake. The wave equation carries leftover height. Whitewater is the hull foam ribbon plus an optional transom jet — leftover crests stay water. U &lt; c: circles outrun the boat. U = c: stern pile-up. U &gt; c: a leftover Mach V (height only).</p>
+  <div class="sec">Scene</div>
+  <label class="prop wide" title="Lighting and sea colour only. Does not change leftover or the foam ribbon. The painted seafloor stays off."><span>preset</span><select id="p-preset" autocomplete="off"></select></label>
+  <div class="sec">Regime</div>
+  <div id="modes"></div>
+  <div class="sec">Hull</div>
+  <label class="prop" title="Waterline length in metres. Sets Froude number, leftover wavelength, and hull-speed c = √(gL / 2π)."><span>length L</span><input id="p-len" type="range" min="4" max="40" step="0.5" autocomplete="off"><span class="v"></span></label>
+  <label class="prop" title="Waterline beam in metres. Scales the leftover footprint and stretches the hull mesh. Foam follows the mesh waterline, not this number as a rectangle."><span>beam</span><input id="p-beam" type="range" min="0.8" max="8" step="0.1" autocomplete="off"><span class="v"></span></label>
+  <label class="prop" title="Leftover gravity-wave height gain. Taller leftover water, not more foam."><span>strength</span><input id="p-amp" type="range" min="0.2" max="2.4" step="0.05" autocomplete="off"><span class="v"></span></label>
+  <label class="prop" title="Water depth in metres for shallow-water Froude (Fr_h). Not a painted seafloor — the bed stays off."><span>depth h</span><input id="p-depth" type="range" min="2" max="80" step="0.5" autocomplete="off"><span class="v"></span></label>
+  <label class="prop" title="Hull top speed in knots. Caps cruise and how hard leftover writes fill with speed."><span>top speed kn</span><input id="p-top" type="range" min="8" max="100" step="1" autocomplete="off"><span class="v"></span></label>
+  <label class="prop" title="How many waterline cuts stamp leftover gravity-wave height. 0 writes no leftover, including bow boil. This is water, not foam."><span>leftover writes</span><input id="p-emit" type="range" min="0" max="40" step="1" autocomplete="off"><span class="v"></span></label>
+  <label class="prop" title="How long leftover height stays in the tile. 1.8 is the default persist; 0.3 dies fast. Not foam life."><span>leftover life</span><input id="p-wave-life" type="range" min="0.3" max="3" step="0.05" autocomplete="off"><span class="v"></span></label>
+  <div class="sec">Whitewater</div>
+  <label class="prop" title="Entrained air in the water COLUMN, not white foam on the surface. Bubbles scatter light back up before the water can absorb it, so churned water goes pale milky turquoise you can still see through. In real wake photography this is most of the wake's area and the white is a minority of it — painting only the white is what makes a wake read as a decal on untouched sea. 0 is the old behaviour."><span>bubble plume</span><input id="p-plume" type="range" min="0" max="2" step="0.05" autocomplete="off"><span class="v"></span></label>
+  <label class="prop" title="Filled surface film along the sailing line — bow to transom plus a short wash. This is the solid ribbon, not the 3-stripe. 0 leaves only the reconstructed rails and prop wash (center streak, clear water, two cusp arms). 0.1 is a veil; 1 is a solid strip. Leftover wave crests stay water."><span>foam ribbon</span><input id="p-bub-amt" type="range" min="0" max="1.5" step="0.05" autocomplete="off"><span class="v"></span></label>
+  <label class="prop" title="How far the wake reaches sideways. Leftover gravity waves tug existing foam along their faces — transport, not paint, so leftover crests stay water — and the analytic Kelvin wedge opens with the same knob. 0 is a painted stripe the V cannot move. 1.25 is the physical 19.47° cusp; past that the arms fan wider than nature. Saturates at 10."><span>foam carry</span><input id="p-foam-carry" type="range" min="0" max="10" step="0.05" autocomplete="off"><span class="v"></span></label>
+  <label class="prop" title="Airborne droplets where the mesh cuts the sea — bow and chines, not the foam ribbon. hull: 0 waterline emitters. 0 parks them. Sites is how many cuts fire at once."><span>waterline spray</span><input id="p-spray-amt" type="range" min="0" max="2" step="0.05" autocomplete="off"><span class="v"></span></label>
+  <label class="prop" title="How many waterline cuts may emit spray at once. More is a longer sheet along the hull. The ski hull-jet path is off on this yacht."><span>spray sites</span><input id="p-spray-sites" type="range" min="1" max="16" step="1" autocomplete="off"><span class="v"></span></label>
+  <label class="prop" title="How thick the waterline band is when picking spray cuts. Wider includes more of the hull’s wet outline."><span>spray band</span><input id="p-spray-band" type="range" min="0" max="0.6" step="0.01" autocomplete="off"><span class="v"></span></label>
+  <label class="prop" title="Parcel size of the airborne droplets. This is the billboard scale — not how many fire, and not how far they travel. 0.4 is fine mist; 1.2 is the sea default; 2 is chunky blobs. Amount (above) is how much; this is how big each puff is."><span>spray size</span><input id="p-spray-size" type="range" min="0.2" max="2.4" step="0.02" autocomplete="off"><span class="v"></span></label>
+  <label class="prop" title="How wide the waterline cone opens. 0.6 stays close to the hull; 1.4 throws a broader wing. Does not move the birth point — that stays on the mesh cut."><span>spray spread</span><input id="p-spray-spread" type="range" min="0.2" max="2.2" step="0.02" autocomplete="off"><span class="v"></span></label>
+  <label class="prop" title="How long a waterline parcel hangs (seconds). Lower falls back into the sea faster. Separate from leftover foam persist."><span>spray hang</span><input id="p-spray-life" type="range" min="0.2" max="2.4" step="0.02" autocomplete="off"><span class="v"></span></label>
+  <label class="prop" title="Prop / rooster wash pinned to the live transom. Unlike the foam ribbon, this does not paint the historical track — it stays on the back of the boat. Amount is a ceiling: live speed, accel, yaw, and slip fill it. Punch throws harder; a brake eases it. 0 is off."><span>jet tail</span><input id="p-jet-amt" type="range" min="0" max="1.5" step="0.05" autocomplete="off"><span class="v"></span></label>
+  <label class="prop" title="Half-width of the jet as a fraction of beam. 0.16 is a narrow centreline. Wider is more transom wash, still a finite brush — not a heading strip."><span>jet width</span><input id="p-jet-w" type="range" min="0.04" max="0.45" step="0.01" autocomplete="off"><span class="v"></span></label>
+  <label class="prop" title="Metres astern the jet foam dies. ~4 m is a short wash. Longer is a rooster tail. It never becomes an infinite live-heading strip."><span>jet reach</span><input id="p-jet-reach" type="range" min="0.6" max="10" step="0.1" autocomplete="off"><span class="v"></span></label>
+  <label class="prop" title="Leftover height boil at the transom — water mound, not the airborne rooster. 0 is foam-only. 0.42 is the default ski jet. Needs leftover writes above 0."><span>jet height</span><input id="p-jet-h" type="range" min="0" max="1.2" step="0.02" autocomplete="off"><span class="v"></span></label>
+  <label class="prop" title="Airborne rooster from the live transom — droplets, not leftover height. Independent of jet tail: 0 is no droplets; the foam mound can stay off. A ceiling: speed, accel, and turn fill it. Stacks on waterline spray. Ski chines and curtain stay off."><span>jet spray</span><input id="p-jet-spray" type="range" min="0" max="2" step="0.05" autocomplete="off"><span class="v"></span></label>
+  <label class="prop" title="Ceiling on exit speed (m/s). Live throw tracks hull speed and accel up to this number."><span>jet spray speed</span><input id="p-jet-spd" type="range" min="4" max="36" step="0.5" autocomplete="off"><span class="v"></span></label>
+  <label class="prop" title="Ceiling on how much the rooster can stand up. Speed and accel fill it; a brake lays it flatter."><span>jet spray rise</span><input id="p-jet-rise" type="range" min="0" max="1.4" step="0.02" autocomplete="off"><span class="v"></span></label>
+  <label class="prop" title="Ceiling on how far the rooster can sweep. Live yaw and slip steer it — not only the helm stick."><span>jet spray angle</span><input id="p-jet-ang" type="range" min="0" max="1.2" step="0.02" autocomplete="off"><span class="v"></span></label>
+  <p class="hint"><b>Foam ribbon</b> is the filled sailing-line film only. At 0 you should still see the 3-stripe: center prop wash, clear water, two thin cusp rails. <b>Bubble plume</b> is column scatter, not those stripes. <b>Foam carry</b> lets leftover waves tug the film along their faces — leftover crests stay water. <b>Waterline spray</b> is droplets born on the mesh cut: amount is how much, size is how big each puff is, spread is the cone, hang is lifetime. <kbd>E</kbd> shows the magenta cuts — they should sit on the hull, not a metre off the stem. <b>Jet tail</b> is pinned to the live transom: foam + leftover mound + optional airborne rooster. Amount and shape follow speed, accel, and turn — the sliders are ceilings. Ski chines / curtain, splash specks, and leftover-crest paint stay off. <kbd>G</kbd> paints leftover height. <kbd>F</kbd> sea + hull wireframe. <kbd>H</kbd> hides this panel.</p>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js",
+  "three/addons/": "https://unpkg.com/three@0.185.1/examples/jsm/"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { createAbyssal, SKI, createOceanLitMaterial, breachProfileFromObject, scaleBreachProfile } from '../src/gpu/abyssal.js';
+import { hullSpeed, wakePhysicsInfo } from '../src/wake-physics.js';
+import { installPerfDebug } from '../demo/perf-debug.js';
+
+const readoutEl = document.getElementById('readout');
+const fail = (e) => {
+  console.error(e);
+  readoutEl.textContent = (e && e.message) ? e.message : String(e);
+};
+window.addEventListener('unhandledrejection', (ev) => fail(ev.reason));
+try {
+
+let canvas = document.getElementById('c');
+const scene = new THREE.Scene();
+
+const wantBackend = new URLSearchParams(location.search).get('backend') || 'auto';
+const loader = new GLTFLoader();
+// Breakup amount on the wake film: contour wobble, chew, holes, fray.
+// These all MULTIPLY, so this is the one texture knob — turn it up alone,
+// not alongside another opacity remover. 0 is a solid stencil.
+const RIBBON_VARY = 0.45;
+// Trough wipe. Off: one remover at a time until the base look is right.
+const CREST_GATE = 0;
+const overrides = {
+  foamAmount: 0,
+  // depth h is Fr_h only — never paint a bed under the wake bench.
+  floorDepth: 0,
+  floorDepthMin: 0,
+  floorDepthMax: 0,
+  // Isolate leftover-crest *paint*. Carry still moves the existing
+  // film along leftover faces. Crest look 0 keeps leftover water.
+  wakeFoamWaveCarry: 1.25,
+  // Additive crest PAINT stays off — that is the detached white V.
+  wakeFoamCrestLook: 0,
+  // Multiplicative trough WIPE is on. Real quarter-wave shoulders are
+  // glassy; white belongs on breaking crests, not spread evenly over
+  // every wave face. Removes foam only, so it cannot paint a V.
+  wakeFoamCrestGate: CREST_GATE,
+  // Ribbon vary 0 is the old SOLID stencil — no chew, no holes, no
+  // jittered edge, no fray on dying foam. That is what made the trail
+  // read as two hard contrails. Real wash is lacy and eats itself.
+  wakeFoamRibbonVary: RIBBON_VARY,
+  // This bench is the leftover field. Do not 60-cap, idle-10, or
+  // adapt resolution when the tab is unfocused — that is how a
+  // crawl plus click-away stood leftover up as a vertex tower.
+  fpsCap: 0,
+  fpsCapIdle: 0,
+  fpsCapBattery: 0,
+  adaptiveQuality: 0,
+  // Full desktop clouds + 400×640 sea at native DPR was ~160 ms GPU
+  // / 10 fps here (CPU was 4 ms). Leftover is a near-hull vertex
+  // field; it does not need a riding-demo sky march.
+  cloudSteps: 12,
+  cloudStepScale: 0.55,
+  gridRadial: 240,
+  gridAngular: 384,
+  renderScale: 0.78,
+  renderScaleMax: 0.78,
+  dprCap: 1.35,
+};
+const timed = (p, ms, msg) => {
+  let t;
+  return Promise.race([
+    p.finally(() => clearTimeout(t)),
+    new Promise((_, rej) => {
+      t = setTimeout(() => rej(new Error(msg)), ms);
+    }),
+  ]);
+};
+const bootAbyssal = (el, be) => createAbyssal({
+  canvas: el,
+  backend: be,
+  preset: 'Tropical Lagoon',
+  scene,
+  // GPU spray emitter on. The yacht drives waterline cuts; the ski
+  // hull-jet path stays off (body.spray.hull = 0).
+  spray: true,
+  overrides,
+});
+// Cursor's preview is Electron: requestAdapter() often never resolves and
+// can starve timers, so a 12s Promise.race stays on "starting GPU…".
+// Probe the adapter first; skip WebGPU entirely in that shell.
+const adapterOk = async (ms) => {
+  const gpu = navigator.gpu;
+  if (!gpu?.requestAdapter) return false;
+  try {
+    const adapter = await timed(gpu.requestAdapter(), ms, 'adapter-timeout');
+    return !!adapter;
+  } catch {
+    return false;
+  }
+};
+const pickBackend = async () => {
+  if (wantBackend === 'webgl' || wantBackend === 'webgpu') return wantBackend;
+  if (/Electron/i.test(navigator.userAgent)) return 'webgl';
+  return (await adapterOk(2000)) ? 'auto' : 'webgl';
+};
+readoutEl.textContent = 'starting GPU…';
+const backend = await pickBackend();
+if (backend === 'webgl') readoutEl.textContent = 'WebGL2…';
+let abyssal;
+try {
+  abyssal = await bootAbyssal(canvas, backend);
+} catch (err) {
+  if (backend === 'webgl') throw err;
+  console.warn(err);
+  readoutEl.textContent = 'WebGPU failed — trying WebGL2…';
+  // A canvas holds one context type for life.
+  const next = document.createElement('canvas');
+  next.id = 'c';
+  canvas.replaceWith(next);
+  canvas = next;
+  abyssal = await bootAbyssal(canvas, 'webgl');
+}
+readoutEl.textContent = 'loading yacht…';
+const gltf = await timed(
+  loader.loadAsync('../models/luxury-yacht.glb'),
+  60000,
+  'Yacht model timed out (56 MB). Open this page in Chrome if the preview is stuck.',
+);
+
+gltf.scene.traverse((obj) => {
+  if (!obj.isMesh) return;
+  obj.castShadow = false;
+  obj.receiveShadow = false;
+  const src = obj.material;
+  const mat = createOceanLitMaterial({
+    color: 0xffffff,
+    gloss: 0.58,
+    map: src?.map ?? null,
+  });
+  if (src && src !== mat) src.dispose?.();
+  obj.material = mat;
+});
+
+// Authored nose is typically +Z; OceanBody heading 0 is −Z.
+const model = gltf.scene;
+model.rotation.y = Math.PI;
+model.updateMatrixWorld(true);
+const rawBox = new THREE.Box3().setFromObject(model);
+const rawSize = rawBox.getSize(new THREE.Vector3());
+
+const FOAM_PERSIST = 4.8;
+const state = {
+  length: 12,
+  beam: 3.4,
+  strength: 0.75,
+  depth: 6.0,
+  topKn: 100,
+  emit: 4,
+  wakeFoam: 0.82,
+  waveLife: 1.80,
+  jetAmt: 0.40,
+  jetWidth: 0.15,
+  jetReach: 5,
+  jetHeight: 0.42,
+  jetSpray: 0.85,
+  jetSpraySpeed: 14,
+  jetSprayRise: 0.32,
+  jetSprayAngle: 0.22,
+  sprayAmt: 1,
+  spraySites: 8,
+  sprayBand: 0.18,
+  spraySize: 0.72,
+  spraySpread: 0.85,
+  sprayLife: 0.7,
+  foamCarry: 1.25,
+  plume: 1.0,
+};
+
+const fit = state.length / Math.max(rawSize.z, 1e-4);
+model.scale.setScalar(fit);
+model.updateMatrixWorld(true);
+const fitBox = new THREE.Box3().setFromObject(model);
+const fitSize = fitBox.getSize(new THREE.Vector3());
+const fitCenter = fitBox.getCenter(new THREE.Vector3());
+const hullY = 1.25;
+model.position.set(
+  model.position.x - fitCenter.x,
+  model.position.y - fitBox.min.y - hullY * 0.5,
+  model.position.z - fitCenter.z,
+);
+
+const hull = new THREE.Group();
+hull.name = 'yacht';
+hull.add(model);
+scene.add(hull);
+const HULL_FIT = { x: Math.max(fitSize.x, 0.5), z: Math.max(fitSize.z, 0.5) };
+
+const boat = abyssal.bodies.add(hull, {
+  ...SKI,
+  mass: 8200,
+  volume: 13.5,
+  size: { x: state.beam, y: hullY, z: state.length },
+  length: state.length,
+  beam: state.beam,
+  wake: {
+    on: 1, physics: 1, strength: state.strength, beam: state.beam,
+    foam: state.wakeFoam, persist: FOAM_PERSIST,
+    wave: 0, v: 0, kelvin: 0, cut: 0, emit: state.emit,
+    damp: state.waveLife, motor: state.jetAmt,
+    jet: { amount: state.jetAmt, width: state.jetWidth, reach: state.jetReach, height: 0.42, spray: 0.85, spraySpeed: 14, sprayRise: 0.32, sprayAngle: 0.22 },
+    bubbles: { on: 0, amount: 0, splash: 0 },
+  },
+  spray: { on: 1, hull: 0, sites: 8, amount: 1, band: 0.18 },
+  pierce: { on: 0 },
+  splash: 'impact',
+  hover: 0.05,
+  springiness: 0.28,
+  launch: 0.06,
+  // Soft leftover follow — own bow/motor boil must not pitch-snap the deck.
+  heightSmoothing: 0.22,
+  rotationSmoothing: 0.28,
+  rotationInfluence: 0.38,
+  probeLayout: 'corners',
+  topSpeed: state.topKn * 0.514444,
+  accel: 5.5,
+  brake: 9,
+  turnRate: 0.48,
+  bank: 1.25,
+  grip: 1.35,
+  hull: { push: 0.16, radius: 2.1, bow: 0.2 },
+});
+boat.throttle = 0;
+boat.steer = 0;
+const HULL_STATIONS = breachProfileFromObject(hull);
+const BASE_ACCEL = 5.5;
+const BASE_BRAKE = 9;
+
+let cruiseOn = false;
+let cruiseSpeed = hullSpeed(state.length);
+let holdSpeed = 0;
+const throttleForSpeed = (target) => {
+  const top = Math.max(boat.topSpeed, 1);
+  const hold = (Math.max(target, 0) / top) ** 2;
+  return Math.max(0, Math.min(1, hold + (target - boat.speed) * 0.12));
+};
+
+const applyHull = () => {
+  boat.length = state.length;
+  boat.beam = state.beam;
+  boat.size.x = state.beam;
+  boat.size.z = state.length;
+  boat.topSpeed = state.topKn * 0.514444;
+  hull.scale.set(
+    state.beam / HULL_FIT.x,
+    1,
+    state.length / HULL_FIT.z,
+  );
+  boat.sprayStations = scaleBreachProfile(
+    HULL_STATIONS, hull.scale.x, hull.scale.y, hull.scale.z,
+  );
+  if (boat.wake && typeof boat.wake === 'object') {
+    boat.wake.strength = state.strength;
+    boat.wake.beam = state.beam;
+    boat.wake.physics = 1;
+    boat.wake.foam = state.wakeFoam;
+    boat.wake.persist = FOAM_PERSIST;
+    boat.wake.emit = state.emit;
+    boat.wake.damp = state.waveLife;
+    boat.wake.jet = {
+      amount: state.jetAmt,
+      width: state.jetWidth,
+      reach: state.jetReach,
+      height: state.jetHeight,
+      spray: state.jetSpray,
+      spraySpeed: state.jetSpraySpeed,
+      sprayRise: state.jetSprayRise,
+      sprayAngle: state.jetSprayAngle,
+    };
+    boat.wake.motor = state.jetAmt;
+    boat.wake.bubbles = { on: 0, amount: 0, splash: 0 };
+  }
+  if (typeof boat.spray !== 'object' || !boat.spray) boat.spray = {};
+  boat.spray.on = state.sprayAmt > 0.001 ? 1 : 0;
+  boat.spray.hull = 0;
+  boat.spray.amount = state.sprayAmt;
+  boat.spray.sites = state.spraySites;
+  boat.spray.band = state.sprayBand;
+  abyssal.params.spraySize = state.spraySize;
+  abyssal.params.craftSpraySpread = state.spraySpread;
+  abyssal.params.craftSprayLife = state.sprayLife;
+  // Hydrodynamic depth only — do not drive the visual seafloor from
+  // this slider or the lake turns into a green mud shelf.
+  abyssal.params.depth = state.depth;
+  abyssal.params.wakeFoamWaveCarry = state.foamCarry;
+  abyssal.params.wakePlume = state.plume;
+  abyssal.params.wakeFoamCrestLook = 0;
+  abyssal.params.wakeFoamCrestGate = CREST_GATE;
+  // Re-forced per frame, so pinning this to 0 also defeated the slider.
+  abyssal.params.wakeFoamRibbonVary = RIBBON_VARY;
+};
+
+const modes = [
+  { id: 'plow', label: 'Plow', fr: 0.22, tip: 'Hold cruise at Fr ≈ 0.22 — a displacement crawl. Leftover circles outrun the boat.' },
+  { id: 'hull', label: 'Hull speed', fr: 0.40, tip: 'Hold cruise at Fr ≈ 0.40 — one gravity wavelength fits the waterline.' },
+  { id: 'hump', label: 'Hump', fr: 0.50, tip: 'Hold cruise at Fr ≈ 0.50 — peak leftover wavemaking, bow-up trim.' },
+  { id: 'plane', label: 'Plane', fr: 1.15, tip: 'Hold cruise at Fr ≈ 1.15 — leftover opens as a Mach V of height. Foam is the hull ribbon plus an optional transom jet.' },
+];
+const modeBar = document.getElementById('modes');
+let mode = 'hull';
+const setMode = (id, hold = true) => {
+  mode = id;
+  const m = modes.find((x) => x.id === id);
+  cruiseSpeed = m.fr * Math.sqrt(9.81 * state.length);
+  if (hold) cruiseOn = true;
+  syncCruise();
+  for (const b of modeBar.querySelectorAll('button')) {
+    b.setAttribute('aria-current', b.dataset.id === id ? 'true' : 'false');
+  }
+};
+for (const m of modes) {
+  const b = document.createElement('button');
+  b.textContent = m.label;
+  b.dataset.id = m.id;
+  b.title = m.tip;
+  b.onclick = () => setMode(m.id);
+  modeBar.appendChild(b);
+}
+
+const bind = (id, get, set, digits = 1) => {
+  const el = document.getElementById(id);
+  const v = el.parentElement.querySelector('.v');
+  const sync = () => {
+    const n = get();
+    if (el.value !== String(n)) el.value = n;
+    v.textContent = Number(n).toFixed(digits);
+  };
+  el.addEventListener('input', () => {
+    set(+el.value);
+    applyHull();
+    sync();
+  });
+  sync();
+  return sync;
+};
+bind('p-len', () => state.length, (v) => {
+  state.length = v;
+  if (cruiseOn) cruiseSpeed = modes.find((x) => x.id === mode).fr * Math.sqrt(9.81 * v);
+}, 1);
+bind('p-beam', () => state.beam, (v) => { state.beam = v; }, 1);
+bind('p-amp', () => state.strength, (v) => { state.strength = v; }, 2);
+const syncDepth = bind('p-depth', () => state.depth, (v) => { state.depth = v; }, 1);
+bind('p-top', () => state.topKn, (v) => { state.topKn = v; }, 0);
+bind('p-emit', () => state.emit, (v) => { state.emit = v; }, 0);
+bind('p-wave-life', () => state.waveLife, (v) => { state.waveLife = v; }, 2);
+bind('p-bub-amt', () => state.wakeFoam, (v) => { state.wakeFoam = v; }, 2);
+bind('p-foam-carry', () => state.foamCarry, (v) => { state.foamCarry = v; }, 2);
+bind('p-plume', () => state.plume, (v) => { state.plume = v; }, 2);
+bind('p-spray-amt', () => state.sprayAmt, (v) => { state.sprayAmt = v; }, 2);
+bind('p-spray-sites', () => state.spraySites, (v) => { state.spraySites = v; }, 0);
+bind('p-spray-band', () => state.sprayBand, (v) => { state.sprayBand = v; }, 2);
+bind('p-spray-size', () => state.spraySize, (v) => { state.spraySize = v; }, 2);
+bind('p-spray-spread', () => state.spraySpread, (v) => { state.spraySpread = v; }, 2);
+bind('p-spray-life', () => state.sprayLife, (v) => { state.sprayLife = v; }, 2);
+bind('p-jet-amt', () => state.jetAmt, (v) => { state.jetAmt = v; }, 2);
+bind('p-jet-w', () => state.jetWidth, (v) => { state.jetWidth = v; }, 2);
+bind('p-jet-reach', () => state.jetReach, (v) => { state.jetReach = v; }, 1);
+bind('p-jet-h', () => state.jetHeight, (v) => { state.jetHeight = v; }, 2);
+bind('p-jet-spray', () => state.jetSpray, (v) => { state.jetSpray = v; }, 2);
+bind('p-jet-spd', () => state.jetSpraySpeed, (v) => { state.jetSpraySpeed = v; }, 1);
+bind('p-jet-rise', () => state.jetSprayRise, (v) => { state.jetSprayRise = v; }, 2);
+bind('p-jet-ang', () => state.jetSprayAngle, (v) => { state.jetSprayAngle = v; }, 2);
+for (const label of document.querySelectorAll('#panel label.prop[title]')) {
+  const ctrl = label.querySelector('input, select');
+  if (ctrl && !ctrl.title) ctrl.title = label.title;
+}
+
+const presetEl = document.getElementById('p-preset');
+for (const name of abyssal.presets) {
+  const o = document.createElement('option');
+  o.value = name;
+  o.textContent = name;
+  presetEl.appendChild(o);
+}
+presetEl.value = 'Tropical Lagoon';
+presetEl.addEventListener('change', () => {
+  abyssal.setPreset(presetEl.value);
+  state.depth = abyssal.params.depth || state.depth;
+  // depth h is Fr_h only — never the painted bed.
+  abyssal.params.floorDepth = 0;
+  abyssal.params.floorDepthMin = 0;
+  abyssal.params.floorDepthMax = 0;
+  abyssal.params.foamAmount = 0;
+  // Calm Lake / Sheltered Water are authored as olive/mud. Fine in the
+  // main demo; here that shelf reads as a missing sea.
+  if (presetEl.value === 'Calm Lake' || presetEl.value === 'Sheltered Water') {
+    abyssal.params.scatterColor = [ 0.045, 0.22, 0.34 ];
+    abyssal.params.absorption = [ 0.38, 0.065, 0.04 ];
+    abyssal.params.scatterAmount = 0.11;
+  }
+  applyHull();
+  syncDepth();
+});
+// Keep Fr depth on the tuned default when opening Tropical Lagoon.
+state.depth = 6.0;
+abyssal.params.depth = state.depth;
+applyHull();
+
+let settingsOn = true;
+let debugOn = false;
+let wireOn = false;
+let emitOn = false;
+let buoyOn = false;
+const btnHud = document.getElementById('btn-hud');
+const btnDebug = document.getElementById('btn-debug');
+const btnWire = document.getElementById('btn-wire');
+const btnEmit = document.getElementById('btn-emit');
+const btnBuoy = document.getElementById('btn-buoy');
+const fpsEl = document.getElementById('fps');
+const perfDbg = installPerfDebug(abyssal, document.body);
+const syncPerf = () => fpsEl.setAttribute('aria-pressed', perfDbg?.isOpen() ? 'true' : 'false');
+const togglePerf = () => { perfDbg?.toggle(); syncPerf(); };
+fpsEl.addEventListener('click', togglePerf);
+syncPerf();
+if (perfDbg?.el) {
+  new MutationObserver(syncPerf).observe(perfDbg.el, { attributes: true, attributeFilter: ['hidden'] });
+}
+const syncHud = () => {
+  document.body.classList.toggle('hud-hidden', !settingsOn);
+  btnHud.setAttribute('aria-pressed', settingsOn ? 'true' : 'false');
+  btnHud.textContent = settingsOn ? 'Hide settings' : 'Settings';
+};
+const syncDebug = () => {
+  abyssal.bodies.rippleDebug = debugOn ? 1 : 0;
+  // Paint leftover, do not scale it — the hull rides the same metres.
+  abyssal.bodies.rippleVis = 1;
+  btnDebug.setAttribute('aria-pressed', debugOn ? 'true' : 'false');
+};
+const hullWire = (on) => {
+  hull.traverse((obj) => {
+    if (!obj.isMesh || !obj.material) return;
+    if (on) {
+      if (!obj.userData._beautyMat) obj.userData._beautyMat = obj.material;
+      if (!obj.userData._wireMat) {
+        obj.userData._wireMat = new THREE.MeshBasicMaterial({
+          color: 0xc8cdd4,
+          wireframe: false,
+          toneMapped: false,
+        });
+      }
+      obj.material = obj.userData._wireMat;
+    } else if (obj.userData._beautyMat) {
+      obj.material = obj.userData._beautyMat;
+    }
+  });
+};
+const syncWire = () => {
+  abyssal.water?.setWireframe?.(wireOn);
+  hullWire(wireOn);
+  // Cloud march + bloom are not the mesh. Leave them off in this view.
+  if (abyssal.perf) {
+    abyssal.perf.sky = !wireOn;
+    abyssal.perf.post = !wireOn;
+  }
+  btnWire.setAttribute('aria-pressed', wireOn ? 'true' : 'false');
+};
+const syncEmit = () => {
+  abyssal.bodies.rippleEmitDebug = emitOn ? 1 : 0;
+  btnEmit.setAttribute('aria-pressed', emitOn ? 'true' : 'false');
+};
+const syncBuoy = () => {
+  abyssal.bodies.buoyDebug = buoyOn ? 1 : 0;
+  btnBuoy.setAttribute('aria-pressed', buoyOn ? 'true' : 'false');
+};
+btnHud.onclick = () => { settingsOn = !settingsOn; syncHud(); };
+btnDebug.onclick = () => { debugOn = !debugOn; syncDebug(); };
+btnWire.onclick = () => { wireOn = !wireOn; syncWire(); };
+btnEmit.onclick = () => { emitOn = !emitOn; syncEmit(); };
+btnBuoy.onclick = () => { buoyOn = !buoyOn; syncBuoy(); };
+syncHud();
+syncDebug();
+syncWire();
+syncEmit();
+syncBuoy();
+
+const keys = new Set();
+addEventListener('keydown', (e) => {
+  keys.add(e.code);
+  if (e.repeat) return;
+  if (e.code === 'KeyH') { settingsOn = !settingsOn; syncHud(); }
+  if (e.code === 'KeyG') { debugOn = !debugOn; syncDebug(); }
+  if (e.code === 'KeyF') { wireOn = !wireOn; syncWire(); }
+  if (e.code === 'KeyE') { emitOn = !emitOn; syncEmit(); }
+  if (e.code === 'KeyB') { buoyOn = !buoyOn; syncBuoy(); }
+  if (e.code === 'KeyP') { togglePerf(); }
+});
+addEventListener('keyup', (e) => { keys.delete(e.code); });
+
+const look = {
+  yaw: 0.42, pitch: 0.28, zoom: 1,
+  pitchT: 0.28, zoomT: 1,
+  dragging: false, px: 0, py: 0, down: false,
+};
+const ZOOM_MIN = 0.35, ZOOM_MAX = 14;
+const ORBIT_ZOOM_TAU = 0.28;
+const VIEW_TAU = 0.34;
+const easeToward = (cur, dest, dt, tau) =>
+  cur + (dest - cur) * (1 - Math.exp(-dt / Math.max(tau, 1e-4)));
+const btnLook = document.getElementById('btn-look');
+const btnCruise = document.getElementById('btn-cruise');
+const syncCruise = () => {
+  btnCruise.setAttribute('aria-pressed', cruiseOn ? 'true' : 'false');
+  btnCruise.textContent = cruiseOn ? 'Hold cruise' : 'Free throttle';
+};
+btnCruise.onclick = () => {
+  cruiseOn = !cruiseOn;
+  if (cruiseOn) cruiseSpeed = Math.max(boat.speed, hullSpeed(state.length));
+  else holdSpeed = Math.max(0, boat.speed);
+  syncCruise();
+};
+setMode('hull', false);
+btnLook.onclick = () => {
+  look.down = !look.down;
+  btnLook.setAttribute('aria-pressed', look.down ? 'true' : 'false');
+  look.pitchT = look.down ? 1.18 : 0.28;
+  look.zoomT = look.down ? 4.2 : 1;
+};
+canvas.style.cursor = 'grab';
+canvas.addEventListener('pointerdown', (e) => {
+  look.dragging = true; look.px = e.clientX; look.py = e.clientY;
+  canvas.setPointerCapture(e.pointerId);
+  canvas.style.cursor = 'grabbing';
+});
+canvas.addEventListener('pointerup', (e) => {
+  look.dragging = false;
+  canvas.releasePointerCapture(e.pointerId);
+  canvas.style.cursor = 'grab';
+});
+canvas.addEventListener('pointermove', (e) => {
+  if (!look.dragging) return;
+  look.yaw -= (e.clientX - look.px) * 0.004;
+  look.pitchT = Math.max(-0.05, Math.min(1.25, look.pitchT + (e.clientY - look.py) * 0.003));
+  look.pitch = look.pitchT;
+  look.px = e.clientX; look.py = e.clientY;
+});
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const ticks = e.deltaY / 100;
+  const step = Math.max(-1, Math.min(1, ticks)) * 0.055;
+  look.zoomT = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, look.zoomT * (1 + step)));
+  look.down = false;
+  btnLook.setAttribute('aria-pressed', 'false');
+}, { passive: false });
+
+const camera = new THREE.PerspectiveCamera(48, innerWidth / innerHeight, 0.5, 40000);
+const resize = () => {
+  abyssal.renderer.setSize(innerWidth, innerHeight, false);
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+};
+resize();
+addEventListener('resize', resize);
+
+const knots = (ms) => (ms * 1.94384).toFixed(1);
+const readout = document.getElementById('readout');
+let prev = performance.now();
+let fpsFrames = 0, fpsAccum = 0;
+
+abyssal.renderer.setAnimationLoop(() => {
+  const now = performance.now();
+  const dt = Math.min(0.05, Math.max(1 / 240, (now - prev) / 1000));
+  prev = now;
+  const camTau = look.down ? VIEW_TAU : ORBIT_ZOOM_TAU;
+  look.zoom = easeToward(look.zoom, look.zoomT, dt, camTau);
+  look.pitch = easeToward(look.pitch, look.pitchT, dt, camTau);
+  const gas = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0)
+    - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
+  // Shift scales the W/S target step. On reverse, also scale boat.brake —
+  // throttleForSpeed only returns ≥0, so without a negative throttle the
+  // hull only coasts and Shift felt like it did nothing on S.
+  const step = (keys.has('ShiftLeft') || keys.has('ShiftRight')) ? 3 : 1;
+  boat.accel = BASE_ACCEL;
+  boat.brake = BASE_BRAKE;
+  boat.steer = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0)
+    - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
+  if (cruiseOn) {
+    if (gas !== 0) {
+      const rate = (gas > 0 ? BASE_ACCEL : BASE_BRAKE) * step;
+      cruiseSpeed = Math.max(0, Math.min(boat.topSpeed, cruiseSpeed + gas * rate * dt));
+    }
+    holdSpeed = cruiseSpeed;
+    if (gas < 0) {
+      boat.brake = BASE_BRAKE * step;
+      const err = Math.max(0, boat.speed - cruiseSpeed);
+      boat.throttle = -Math.min(1, 0.3 + err * 0.18);
+    } else {
+      boat.throttle = throttleForSpeed(cruiseSpeed);
+    }
+  } else if (gas > 0) {
+    holdSpeed = Math.min(boat.topSpeed, Math.max(holdSpeed, boat.speed) + BASE_ACCEL * step * dt);
+    boat.throttle = throttleForSpeed(holdSpeed);
+  } else if (gas < 0) {
+    holdSpeed = Math.max(0, Math.min(holdSpeed, boat.speed) - BASE_BRAKE * step * dt);
+    boat.brake = BASE_BRAKE * step;
+    const err = Math.max(0, boat.speed - holdSpeed);
+    boat.throttle = -Math.min(1, 0.3 + err * 0.18);
+  } else {
+    boat.throttle = throttleForSpeed(holdSpeed);
+  }
+
+  // Aim from inside frame(), after the hull has stepped. Placing the camera
+  // out here chased last frame's position, so the mesh drew velocity × dt
+  // further on — and with frame times jittering that lag swung by over a
+  // metre each frame at planing speed, which reads as the hull stuttering
+  // fore and aft even though its track is perfectly smooth.
+  const aimCamera = () => {
+    const heading = boat.heading + look.yaw;
+    const fx = Math.sin(heading), fz = -Math.cos(heading);
+    const hx = Math.sin(boat.heading), hz = -Math.cos(boat.heading);
+    const L = state.length;
+    const dist = (18 + L * 0.55) * look.zoom;
+    const rise = Math.sin(look.pitch) * dist + 4;
+    const back = Math.cos(look.pitch) * dist;
+    camera.position.set(
+      boat.pos[0] - fx * back,
+      Math.max(boat.pos[1] + rise, 3),
+      boat.pos[2] - fz * back,
+    );
+    camera.lookAt(boat.pos[0] + hx * 4, boat.pos[1] + 0.35, boat.pos[2] + hz * 4);
+    camera.updateMatrixWorld(true);
+  };
+  aimCamera();
+  abyssal.frame(camera, null, { onBodies: aimCamera });
+
+  const info = wakePhysicsInfo({
+    speed: boat.speed,
+    length: state.length,
+    depth: state.depth,
+    amp: state.strength,
+  });
+  const c = info.hullSpeed;
+  const mach = boat.speed / Math.max(c, 0.01);
+  readout.textContent =
+    `${knots(boat.speed)} kn   Fr ${info.Fr.toFixed(2)}   U/c ${mach.toFixed(2)}   ${info.regime}`
+    + `   c ${knots(c)} kn`;
+  fpsFrames ++;
+  fpsAccum += dt;
+  if ( fpsAccum >= 0.25 ) {
+
+    fpsEl.textContent = `${ Math.round( fpsFrames / fpsAccum ) } fps`;
+    fpsFrames = 0;
+    fpsAccum = 0;
+
+  }
+});
+
+window.abyssalExample = { renderer: abyssal.renderer, abyssal, scene, camera, boat };
+} catch (e) {
+  fail(e);
+}
+</script>

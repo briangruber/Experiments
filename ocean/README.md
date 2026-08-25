@@ -109,13 +109,13 @@ terms, and an analytic multiple-scattering tail.
 
 **Extras**, exported but optional: `Spray` (GPU particle spray for a moving hull),
 `Wake` (a persistent Kelvin wake that remembers where you have been), and `Post`
-(HDR bloom, auto-exposure, tonemap, grain).
+(HDR bloom, auto-exposure, tonemap).
 
 ![A calm sea under a low moon](docs/images/peaceful-moonlit.png)
 
-Nine presets, from `Glassy Dawn` through `North Atlantic Storm` to `Peaceful
-Moonlit Ocean` (above), and about 380 parameters — all of it plain-object state you can read
-and write.
+Eleven presets, from `Glassy Dawn` through `Tropical Lagoon` (a shallow bed you
+can see through) and `North Atlantic Storm` to `Peaceful Moonlit Ocean` (above),
+and about 380 parameters — all of it plain-object state you can read and write.
 
 ## Using it
 
@@ -192,10 +192,10 @@ integration usually produces a blank frame rather than an exception.
 
 ## Known gaps
 
-- **CPU-side wave height / buoyancy is not exposed.** The wave field lives in GPU
-  textures and reading it back needs an asynchronous probe. The demo has a working
-  one in `demo/waverunner.js`; it is not yet a general API. This is the top of
-  the list.
+- **Ride / fly / swim controllers are still demo-only.** Any mesh can already
+  plane or float via `abyssal.bodies.add` (spread `SKI` for the ski numbers) —
+  see [`examples/webgpu-box-ski.html`](examples/webgpu-box-ski.html). The ride
+  HUD has not been moved off `WaveRunner` yet.
 - **Clouds render at full resolution.** Half-res with a depth-aware upsample is
   the obvious win and is not done; the march is about a fifth of a frame.
 - Three's fog, shadow maps and tone mapping do not reach the sea or the sky. See

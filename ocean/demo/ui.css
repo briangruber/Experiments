@@ -28,7 +28,14 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:
    these are tuning sliders, and you cannot tune what the panel is covering. */
 #ui{
   position:fixed;top:var(--hud-h,0px);left:0;right:auto;
-  height:calc(100% - var(--hud-h,0px));width:340px;
+  height:calc(100% - var(--hud-h,0px));
+  /* Capped by viewport, not just 340px flat - an artifact preview pane can be
+     genuinely narrow with a mouse rather than a phone (see the media query
+     below), and a fixed 340px there leaves no sea to look at, which is the
+     one thing this panel exists not to do. 62vw keeps the usual 340px on
+     anything wider than ~550px and still leaves a real strip of ocean at
+     narrower widths instead of eating the whole frame. */
+  width:min(340px,62vw);
   background:linear-gradient(180deg,var(--bg),var(--bg2));
   backdrop-filter:blur(18px) saturate(1.3);
   -webkit-backdrop-filter:blur(18px) saturate(1.3);
@@ -45,7 +52,17 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:
 
 .brand{padding:16px 16px 12px;border-bottom:1px solid var(--line);position:sticky;top:0;
   background:linear-gradient(180deg,rgba(11,14,18,.97),rgba(11,14,18,.86));backdrop-filter:blur(12px);z-index:2}
-.brand h1{margin:0;font-size:14px;letter-spacing:.28em;font-weight:600}
+.brand h1{margin:0 34px 0 0;font-size:14px;letter-spacing:.28em;font-weight:600}
+/* This panel's own escape hatch - see the comment in ui.js on why it lives
+   here rather than on the HUD's settings button. Sticky still establishes a
+   containing block, so it stays pinned to the panel's top edge while the body
+   scrolls underneath it. */
+.brand .close{
+  position:absolute;top:10px;right:10px;width:auto;height:26px;padding:0;
+  display:flex;align-items:center;justify-content:center;
+  font-size:17px;line-height:1;color:var(--dim);
+}
+.brand .close:hover{color:var(--fg);background:rgba(255,255,255,.1)}
 .brand p{margin:3px 0 0;color:var(--dim);font-size:10.5px;letter-spacing:.06em}
 
 .row{padding:10px 14px;border-bottom:1px solid var(--line)}
@@ -59,6 +76,7 @@ select:hover,button:hover{background:rgba(255,255,255,.1);border-color:rgba(255,
 .btns.three{grid-template-columns:1fr 1fr 1fr}
 
 details{border-bottom:1px solid var(--line)}
+details.chrome-fold > summary{color:var(--dim);font-size:10px;letter-spacing:.12em;padding:9px 14px}
 summary{padding:11px 14px;cursor:pointer;list-style:none;font-size:11px;letter-spacing:.13em;
   text-transform:uppercase;color:var(--fg);user-select:none;display:flex;align-items:center;gap:8px}
 summary::-webkit-details-marker{display:none}
@@ -66,7 +84,20 @@ summary::before{content:'';width:5px;height:5px;border-right:1.4px solid var(--a
   border-bottom:1.4px solid var(--accent);transform:rotate(-45deg);transition:transform .18s;opacity:.85}
 details[open] summary::before{transform:rotate(45deg)}
 summary:hover{background:rgba(255,255,255,.035)}
+.summary-title{flex:1}
+/* Sits at the far end of the summary row, same trick as .brand .close - auto
+   margin absorbs the row's slack instead of the button stretching to fill it
+   (the global select,button rule below is width:100%). */
+.copy-group{
+  width:auto;flex:none;margin-left:auto;padding:4px 9px;font-size:9px;letter-spacing:.05em;
+  text-transform:none;border-radius:6px;color:var(--dim);
+}
+.copy-group:hover{color:var(--fg);background:rgba(255,255,255,.1)}
 .body{padding:2px 14px 12px}
+/* Essentials filter - see schema.js's KEY_PARAMS. Groups whose every control
+   is hidden collapse too, so the list does not become a run of empty headers. */
+#ui.essentials .ctrl:not(.is-key){display:none}
+#ui.essentials details:not(.chrome-fold):not(:has(.is-key)){display:none}
 
 .ctrl{margin:9px 0}
 .ctrl .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:3px}
@@ -100,12 +131,37 @@ body.riding #hud-hint-ride{display:block}
 #boot.gone{opacity:0;pointer-events:none}
 .boot-title{font-size:15px;letter-spacing:.55em;color:var(--fg);opacity:.9}
 .boot-sub{font-size:10.5px;letter-spacing:.16em;color:var(--dim);text-transform:uppercase}
+.boot-bar{width:148px;height:2px;margin-top:8px;background:rgba(255,255,255,.08);overflow:hidden;border-radius:1px}
+.boot-bar i{display:block;width:40%;height:100%;background:var(--accent);
+  animation:boot-slide 1.15s ease-in-out infinite}
+@keyframes boot-slide{0%{transform:translateX(-140%)}100%{transform:translateX(350%)}}
 
 .toast{position:fixed;left:50%;bottom:34px;transform:translateX(-50%);
   background:rgba(12,16,20,.92);border:1px solid var(--line);border-radius:8px;
   padding:8px 14px;font-size:11px;letter-spacing:.05em;z-index:40;
   opacity:0;transition:opacity .25s;pointer-events:none}
 .toast.show{opacity:1}
+
+/* The guaranteed fallback when neither copy mechanism can be trusted to have
+   actually reached the OS clipboard - see UI.copyText()'s own note on why
+   navigator.clipboard.writeText() resolving is not treated as proof here.
+   Above everything else in the panel (z-index 10-20) and the toast (40). */
+.copy-dialog-overlay{
+  position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;
+  background:rgba(3,5,7,.72);backdrop-filter:blur(4px);padding:20px;
+}
+.copy-dialog{
+  width:min(420px,100%);background:var(--bg2);border:1px solid var(--line);border-radius:12px;
+  padding:16px;box-shadow:0 12px 40px rgba(0,0,0,.5);
+}
+.copy-dialog-title{font-size:12px;letter-spacing:.05em;color:var(--fg);margin-bottom:6px}
+.copy-dialog-hint{margin:0 0 10px;font-size:10.5px;color:var(--dim);line-height:1.5}
+.copy-dialog-text{
+  width:100%;height:180px;resize:vertical;background:rgba(0,0,0,.35);color:var(--fg);
+  border:1px solid var(--line);border-radius:7px;padding:8px;font:11px/1.5 var(--mono,monospace);
+  margin-bottom:10px;
+}
+.copy-dialog button{width:auto;padding:7px 14px}
 
 /* The panel has to be escapable without a keyboard, so the toggle is a real
    on-screen control. It rides just outside the panel edge and slides with it. */
@@ -132,7 +188,15 @@ body.riding #hud-hint-ride{display:block}
 body.panel-hidden #panel-toggle .open-label{display:inline}
 body.panel-hidden #panel-toggle .close-label{display:none}
 
-@media (max-width:520px){
+/* PHONE ONLY, not just narrow. This used to key off width alone, and an
+   artifact preview pane is exactly the case that broke: it has a mouse, so it
+   is not a phone, but it is routinely narrower than 520px - so the panel came
+   up as a full-width bottom sheet burying the sea, on a surface with plenty of
+   room for the real side column right below it. Requiring pointer:coarse too
+   is the same distinction demo/three-app.js already draws for handheld quality
+   (isHandheld() in src/presets.js) and #hint-touch in three-shell.html - a
+   narrow window with a mouse is a small desktop, not a phone. */
+@media (max-width:520px) and (pointer:coarse){
   /* A full-height side drawer eats three quarters of a phone screen. As a bottom
      sheet the sea stays visible above it, and it starts closed so the first
      thing a visitor sees is the ocean, not a wall of sliders. */

@@ -17,46 +17,74 @@
 // See docs/tsl-porting-rules.md for what that cost and what it taught.
 //
 // ---------------------------------------------------------------------------
-// NOT YET HERE: the craft and its wake.
-//
-// demo/craft.js and src/wake.js are still raw GL and are not part of this entry
-// point. The sea, sky, spray and post chain are complete; riding the waverunner
-// is demo/main.js only, for now. water-common.js already carries the wake
-// sampling and its uniforms, so the remaining work is the wake field simulation
-// and the craft mesh, not the water's side of it.
+// Craft, boat, plane and dragon are OceanBodies on one BodyList. Controllers
+// still own ride / fly / swim; the list owns the shared wake stamp and the
+// probe pool. The dragon is wake:false (particle sheet / swell only).
 
 import * as THREE from 'three/webgpu';
-import { texture, uv, vec4, float, shadow } from 'three/tsl';
+import { texture, uv, vec3, vec4, float, shadow } from 'three/tsl';
 
 import { TslOceanSim } from '../src/gpu/tsl/sim-driver.js';
 import { TslSky } from '../src/gpu/tsl/sky-driver.js';
 import { TslWater } from '../src/gpu/tsl/water-driver.js';
 import { TslSpray } from '../src/gpu/tsl/spray-driver.js';
 import { TslPost } from '../src/gpu/tsl/post-driver.js';
+import { TslRefraction } from '../src/gpu/tsl/refraction-driver.js';
+import { TslUnderwater } from '../src/gpu/tsl/underwater-driver.js';
+import { setUnderwaterUniforms } from '../src/gpu/tsl/underwater.js';
+import { cameraUnderwater } from '../src/underwater.js';
+import { CLIP, setWaterClip } from '../src/gpu/tsl/water-clip.js';
 
 import { newParams, PRESETS, applyPreset } from '../src/presets.js';
+import { liveFpsCap, fpsCappedOut, shouldSkipFrame } from '../src/fps-cap.js';
 import { CLOUD_TYPE_NAMES, applyCloudType } from '../src/cloud-types.js';
 import { createDerived, derive } from '../src/derive.js';
 import { Camera } from './camera.js';
 import { installThreeCompat } from '../src/gpu/three-compat.js';
 import { TslWake } from '../src/gpu/tsl/wake-driver.js';
 import { TslCraftProbe } from '../src/gpu/tsl/craft-probe.js';
+import { BodyList } from '../src/ocean-body.js';
 import {
 	buildCraftGeometry, loadCraftTexture, setCraftTexture, craftFragment,
 	craftVertex, uCraftWetLine, uPropAngle, uPropHub,
+	buildWaterlineProfile, waterlineHalfWidth, buildBreachProfile,
+	placeBreachEmitters, MAX_BREACH_EMITTERS,
 } from '../src/gpu/tsl/craft.js';
+import { SWELL_SITES } from '../src/body-displace.js';
+import { VWakeField } from '../src/v-wake.js';
+import { WakeFoamField, WAKE_FOAM_STAMPS } from '../src/wake-foam.js';
+import { setVWakeUniforms } from '../src/gpu/tsl/v-wake.js';
+import { CutRippleField, RIPPLE_STRETCH_MAX, RIPPLE_ARC_COS0, RIPPLE_ARC_COS1, swellProximity } from '../src/cut-ripples.js';
+import { swellReleased } from '../src/body-swell.js';
+import { FlukeSlickField, flukeWorld, FLUKE_PRINTS, pressureDomeRadii } from '../src/fluke-slicks.js';
 import {
 	creatureVertex, creatureFragment, setCreatureTexture,
 	uCreatureLen, uCreaturePhase, uCreatureWaves, uCreatureAmp,
-	uCreatureSeaY, uCreatureFade, uCreatureOpacity,
+	uCreatureSide, uCreatureLift, uCreatureTurn,
+	uCreatureGape, uCreatureJawHY, uCreatureJawHZ,
+	uCreatureSeaY, uCreatureAerial, uCreatureTint,
 } from '../src/gpu/tsl/creature.js';
+import { jawShutAngle } from '../src/creature-jaw.js';
 import { WaveRunner } from './waverunner.js';
 import { SeaPlane } from './seaplane.js';
-import { SeaDragon } from './seadragon.js';
+import { SeaDragon, swimTopSpeed, loafSpeed } from './seadragon.js';
+import { createPerfFlags, installPerfDebug } from './perf-debug.js';
+import { BOAT_MESH } from './boatModel.js';
 import { PLANE_MESH } from './planeModel.js';
-import { DRAGON_MESH } from './dragonModel.js';
+import { resolveDragonModel } from './dragon-models.js';
 import {
 	setCraftShadowNode, uSwellPos, uSwellDir, uSwellLen, uSwellRad, uSwellAmp,
+	uSwellPitch, uSwellWaves, uSwellSweep, uSwellLift, uSwellLiftPhase, uSwellPhase,
+	uSwellFoamDepth, uSwellFoamStrength, uSwellSites, uSwellSiteAmp, uSwellSiteCount,
+	uSwellSiteDir, uSwellSiteStretch, uSwellSitePack, uSwellSiteArc, uSwellRippleStretch,
+	uSwellBow, uSwellBowDir, uSwellBowSoft, uSwellDome, uSwellDomeDir, uSwellDomeW,
+	uFlukePrints, uFlukeCount,
+	uLeftoverFoamCount,
+	uWakeFoam, uWakeFoamCount,
+	uVWakeOn,
+	uSplashPos, uSplashDir, uSplashLen, uSplashAge, uSplashEnergy,
+	setRefractionTextures, uRefractAmount, uRefractDistort, uRefractFade,
+	uRefractThrough, waterDisplaceScale,
 } from '../src/gpu/tsl/water-surface.js';
 
 // ---------------------------------------------------------------------------
@@ -218,6 +246,29 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	const water = new TslWater( renderer, params );
 	water.setFields( { disp: sim.disp, slope: sim.slope, foam: sim.foamTex } );
 
+	// Perf "Sea surface" off used to skip the water draw and then hand every
+	// newly-empty pixel to the cloud march — looking down at the ocean, Heat
+	// stayed pegged because the sky filled the hole. This plane writes the
+	// same horizon depth for a flat colour, so turning the sea off ablates
+	// the water shader, not the occlusion it was giving the sky.
+	const seaOccMat = new THREE.MeshBasicNodeMaterial();
+	seaOccMat.name = 'abyssal.seaOccluder';
+	seaOccMat.colorNode = vec3( 0.015, 0.04, 0.07 );
+	seaOccMat.depthWrite = true;
+	seaOccMat.depthTest = true;
+	const seaOcc = new THREE.Mesh( new THREE.PlaneGeometry( 80000, 80000 ), seaOccMat );
+	seaOcc.rotation.x = - Math.PI / 2;
+	seaOcc.frustumCulled = false;
+	const seaOccScene = new THREE.Scene();
+	seaOccScene.add( seaOcc );
+	const drawSeaOccluder = () => {
+
+		seaOcc.position.y = params.seaLevel ?? 0;
+		seaOcc.updateMatrixWorld();
+		renderer.render( seaOccScene, cam3 );
+
+	};
+
 	const spray = new TslSpray( renderer, { size: params.sprayTexSize } );
 
 	// ---- the wave runner ----------------------------------------------------
@@ -233,6 +284,13 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	// The seaplane shares the rider's whole support system - probe, wake, spray,
 	// camera locking - and can never be active at the same time.
 	const plane = new SeaPlane( { canvas } );
+
+	// The fishing boat is a SECOND WaveRunner, not a second physics class - a
+	// displacement hull and a planing hull both float, steer and follow the
+	// surface the same way; only the numbers differ (see the "fishing boat"
+	// block in src/presets.js). prefix: 'boat' answers wrFoo from boatFoo
+	// inside WaveRunner, so this file no longer wraps params in a Proxy.
+	const boat = new WaveRunner( null, null, { canvas, prefix: 'boat' } );
 
 	// Scratch, so the per-frame ctx does not allocate.
 	//
@@ -260,109 +318,383 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	craftMesh.visible = false;
 	const craftScene = new THREE.Scene();
 	craftScene.add( craftMesh );
-	// Two hulls, ONE material: the modes are mutually exclusive, so the shared
-	// craft shader just gets the active hull's atlas pointed at it before its
-	// draw. Both atlases are the same class of texture (sRGB, mipped, filtered),
-	// so the swap never changes which sampling instruction the graph built
-	// (porting rule 11).
+	// Three hulls now, ONE material: the modes are mutually exclusive, so the
+	// shared craft shader just gets the active hull's atlas pointed at it before
+	// its draw. Every atlas is the same class of texture (sRGB, mipped,
+	// filtered), so the swap never changes which sampling instruction the graph
+	// built (porting rule 11).
 	const planeBuild = buildCraftGeometry( params.spLength, PLANE_MESH );
 	const planeMesh = new THREE.Mesh( planeBuild.geometry, craftMat );
 	planeMesh.frustumCulled = false;
 	planeMesh.visible = false;
 	planeMesh.matrixAutoUpdate = false;
 	craftScene.add( planeMesh );
-	let skiTex = null, planeTex = null;
+	let boatBuild = buildCraftGeometry( params.boatLength * 2, BOAT_MESH );
+	const boatMesh = new THREE.Mesh( boatBuild.geometry, craftMat );
+	boatMesh.frustumCulled = false;
+	boatMesh.visible = false;
+	boatMesh.matrixAutoUpdate = false;
+	craftScene.add( boatMesh );
+	let boatMeshLen = params.boatLength;
+	let skiTex = null, planeTex = null, boatTex = null;
 	loadCraftTexture( renderer ).then( ( t ) => { skiTex = t; setCraftTexture( t ); } );
 	loadCraftTexture( renderer, PLANE_MESH ).then( ( t ) => { planeTex = t; } );
+	loadCraftTexture( renderer, BOAT_MESH ).then( ( t ) => { boatTex = t; } );
 
 	// The casters, and the scene the shadow pass is redirected to (wrinkle 2).
 	craftMesh.castShadow = true;
 	planeMesh.castShadow = true;
+	boatMesh.castShadow = true;
 	craftScene.add( sunLight );
 	craftScene.add( sunLight.target );
 	shadowCasterScene = craftScene;
 
 	// ---- the sea dragon -------------------------------------------------------
 	//
-	// Its own scene and its own draw, between the sea and the craft. NO DEPTH
-	// TEST and no depth write, because the sea is opaque and has already written
-	// its own depth over every pixel the animal is behind - see the header of
-	// ./gpu/tsl/creature.js for why this is a blend rather than a refraction, and
-	// why front faces alone make an unsorted draw survivable.
+	// ONE MESH, ONE MATERIAL, TWO PASSES, split at the waterline by a uniform:
 	//
-	// The order is what makes it read as UNDER the water: the sea is laid down
-	// first, the dragon is blended into it by how deep it is, and the craft goes
-	// over the top with a real depth test - so riding past it puts the hull in
-	// front, as it should be.
+	//   drawDragonUnder()  the submerged half, into the refraction target's own
+	//                      colour and depth buffers, BEFORE the sea - because the
+	//                      sea reads that target while it shades itself.
+	//   drawDragonOver()   the breaching half, into the HDR frame AFTER the sea,
+	//                      depth-tested against it.
+	//
+	// The order is what makes it read as being IN the water rather than on it:
+	// the sea is laid down, looks down through itself at the refraction target,
+	// puts the animal into the radiance leaving the water and then applies its
+	// own Fresnel, foam, glitter and haze on top of it. The craft goes over
+	// everything with a real depth test, so riding past puts the hull in front.
+	//
+	// This replaces a depth-test-off draw straight over the sea. Both of that
+	// draw's faults were the missing depth buffer, and both are gone: it can be
+	// double-sided (the open jaw no longer shows its far teeth through the skull)
+	// and it can cross the surface (a fin above the waterline is an ordinary
+	// opaque fragment nearer than the sea).
 	const dragon = new SeaDragon();
 	let followDragon = false;
 	let followYaw = 0;
+	// The orbit the user drags into, on top of the auto-follow above. Camera
+	// distance/height reset to a fixed rig every frame like the ride and plane
+	// cameras always have, and camera.js's own drag handler does not check
+	// `locked` - so a nudge here used to land in camera.yaw for one frame and
+	// then get overwritten below before anything was ever drawn through it, and
+	// dragging did nothing. See the follow-mode block for how the nudge is
+	// recovered instead of thrown away.
+	let followOrbitYaw = 0;
+	let followOrbitPitch = 0;
+	let lastCamYaw = 0;
+	let lastCamPitch = 0;
+	// A one-shot punch of individual droplets at the MOMENT the dragon actually
+	// breaks the surface - see where it feeds ctx.craftImpact below. Spikes off
+	// the animal's own climb rate (demo/seadragon.js's this.climb) and decays
+	// like the vehicles' own impact does, so it has to live outside the frame
+	// function to persist between frames the same way followOrbitYaw does.
+	// Seconds of already-laid vehicle wake still worth drawing. uWakeOn
+	// used to follow the SOURCE's liveness directly, which snapped the
+	// whole surviving track off the sea the instant a ride ended. The
+	// field's records already decay over wakeLife; this latch just keeps
+	// the water sampling them until the last stamp has actually died.
+	// Vehicle wake records live here. The sea dragon stamps this same
+	// field like a boat — one hull track, not a body-length corridor.
+	let wakeHold = 0;
+	let lastWakeDims = { kelvinOn: 0 };
+	// Generation ease for the simple V. Written stamps live on
+	// their own clock — this only smooths how hard NEW wake is.
+	let vWakeEase = 0;
+	const vWakeField = new VWakeField();
+	// Aerated water is deposited where the body cuts the sea. It is independent
+	// of the V's travelling height, so it can drift, shear and die in place.
+	const wakeFoamField = new WakeFoamField();
+	// The body's highest point right now, world Y. Not the resting bounding
+	// box top: a porpoising body PITCHES (demo/seadragon.js swings it +-0.5
+	// rad on the depth it is taking), and at 52 m long a pitched nose or tail
+	// rides up to sdLength/2 * sin(pitch) - up to ~12 m - above what the
+	// level-posture box says. The first pitch-blind gate was why spray showed
+	// "at one point" and not through the rest of a breach arc it was plainly
+	// making.
+	// WHERE THIS BODY CUTS THE WATER. Each pierce run gets a site before
+	// any run gets a second one, so a tail spike is not starved by the
+	// shoulder belt. Short/thin runs sit on the spine at their peak;
+	// sdSprayDepth lowers the pierce test so a spike in the spray band
+	// still counts.
+	const dragonBreach = () => placeBreachEmitters( dragonStations, {
+		origin: dragon.pos,
+		heading: dragon.heading,
+		pitch: dragon.pitch,
+		seaLevel: params.sdSeaLevel ?? 0,
+		band: params.sdSprayDepth ?? 0,
+		count: params.sdSprayEmitters,
+		swim: {
+			length: params.sdLength,
+			waves: params.sdWaves,
+			// The vertex shader uses the speed-shaped live amplitude, not only
+			// the slider's resting value. The waterline source must follow the
+			// same body that is actually drawn.
+			amp: dragon.swimAmp ?? params.sdAmp,
+			phase: dragon.phase,
+			axis: params.sdWaveAxis,
+		},
+	} );
+	const dragonHighPoint = () => dragonBreach().top;
+
+	// Debug markers for the waterline sites. MeshBasicMaterial so they do not
+	// pick up the sea's lighting or the waterline clip; depth-tested against
+	// the HDR frame so they sit ON the water, not pasted over the sky.
+	const debugMatSpray = new THREE.NodeMaterial();
+	debugMatSpray.name = 'abyssal.sprayDebug';
+	debugMatSpray.fragmentNode = vec4( 1.0, 0.24, 0.48, 1.0 );
+	debugMatSpray.depthTest = true;
+	debugMatSpray.depthWrite = false;
+	const debugMatWake = new THREE.NodeMaterial();
+	debugMatWake.name = 'abyssal.wakeDebug';
+	debugMatWake.fragmentNode = vec4( 0.24, 0.91, 1.0, 1.0 );
+	debugMatWake.depthTest = true;
+	debugMatWake.depthWrite = false;
+	const debugMatFluke = new THREE.NodeMaterial();
+	debugMatFluke.name = 'abyssal.flukeDebug';
+	debugMatFluke.fragmentNode = vec4( 1.0, 0.72, 0.18, 1.0 );
+	debugMatFluke.depthTest = true;
+	debugMatFluke.depthWrite = false;
+	const debugBall = new THREE.SphereGeometry( 0.55, 12, 8 );
+	const debugSprayMeshes = [];
+	for ( let i = 0; i < MAX_BREACH_EMITTERS; i ++ ) {
+
+		const m = new THREE.Mesh( debugBall, debugMatSpray );
+		m.visible = false;
+		m.frustumCulled = false;
+		m.matrixAutoUpdate = true;
+		debugSprayMeshes.push( m );
+
+	}
+	const debugWakeMesh = new THREE.Mesh( debugBall, debugMatWake );
+	debugWakeMesh.visible = false;
+	debugWakeMesh.scale.setScalar( 1.35 );
+	debugWakeMesh.frustumCulled = false;
+	const debugFlukeMeshes = [];
+	for ( let i = 0; i < FLUKE_PRINTS; i ++ ) {
+
+		const m = new THREE.Mesh( debugBall, debugMatFluke );
+		m.visible = false;
+		m.frustumCulled = false;
+		m.matrixAutoUpdate = true;
+		debugFlukeMeshes.push( m );
+
+	}
+	const debugScene = new THREE.Scene();
+	for ( const m of debugSprayMeshes ) debugScene.add( m );
+	debugScene.add( debugWakeMesh );
+	for ( const m of debugFlukeMeshes ) debugScene.add( m );
+	let lastFlukeSites = [];
+	const poseDebugEmitters = ( breach, spraying ) => {
+
+		const sprayOn = params.sdSprayDebug >= 0.5 && params.sdEnabled >= 0.5;
+		const swellOn = params.sdSwellDebug >= 0.5 && params.sdEnabled >= 0.5;
+		const pierce = breach?.runs?.length ? ( breach.sites ?? [] ) : [];
+		// Spray debug wants every emitter. Ripple debug wants the cuts
+		// that actually throw (the first maxHeld sites). Either flag
+		// shows those points on the mesh, not the mid-body origin.
+		const sites = ( sprayOn && spraying ) || swellOn ? pierce : [];
+		for ( let i = 0; i < debugSprayMeshes.length; i ++ ) {
+
+			const m = debugSprayMeshes[ i ];
+			const s = sites[ i ];
+			if ( ! s ) { m.visible = false; continue; }
+			m.visible = true;
+			m.position.set( s.x, s.y + 0.15, s.z );
+
+		}
+		// Pink balls ARE the wake stamps now. The old cyan marker sat on
+		// the spine run-end, which is exactly the "foam starts behind the
+		// emitters" the stamps used to do.
+		debugWakeMesh.visible = false;
+		const flukeOn = params.sdFlukeDebug >= 0.5 && params.sdEnabled >= 0.5;
+		const seaY = params.sdSeaLevel ?? 0;
+		for ( let i = 0; i < debugFlukeMeshes.length; i ++ ) {
+
+			const m = debugFlukeMeshes[ i ];
+			const p = flukeOn ? lastFlukeSites[ i ] : null;
+			if ( ! p || ! ( p.amp > 0.02 ) ) { m.visible = false; continue; }
+			m.visible = true;
+			m.position.set( p.x, seaY + 0.2, p.z );
+			m.scale.setScalar( 1.15 );
+
+		}
+
+	};
 	const dragonMat = new THREE.NodeMaterial();
 	dragonMat.name = 'abyssal.dragon';
 	dragonMat.fragmentNode = creatureFragment();
 	dragonMat.positionNode = creatureVertex();
-	// FRONT FACES ONLY AND NOT BLENDED. On a closed body the far side's triangles
-	// face away and are culled, so the near surface is the only thing drawn -
-	// which is what makes an unsorted draw survivable at all. It was blended as
-	// well, and that was the mistake: blending let the mouth and the far flank
-	// show through the near one, reported as "I see its teeth through its body".
-	// The depth fade lives in the colour now (see creatureFragment), so this can
-	// be a plain opaque draw.
-	// Front faces only, unblended, and NO DEPTH TEST - which is the one thing
-	// here that is still wrong and cannot be fixed from this file.
+	// AN ORDINARY OPAQUE DEPTH-TESTED DRAW. Double-sided because the jaw is open
+	// and the fins are single sheets - neither is a closed surface, and both are
+	// exactly what front-face culling could not sort.
 	//
-	// Culling the far side sorts a closed convex body, and a head with an open
-	// jaw in it is not one: the far row of teeth faces the camera, so it is
-	// front-facing, so it draws, and with no depth test the last triangle in
-	// index order wins. That is the teeth-through-the-skull.
+	// NOT BLENDED, and that is not a detail. Blending into the refraction target
+	// would premultiply the colour by alpha, and the sea multiplies by that same
+	// alpha again when it mixes the lookup in, so the animal would come out
+	// darkened by the square of its own coverage. Written straight: RGB is the
+	// radiance leaving it, ALPHA is coverage.
 	//
-	// The obvious fix - clear the depth buffer before the draw so the animal has
-	// one of its own - DOES NOT WORK on this renderer: clearing depth mid-frame
-	// restarts the render pass and takes the colour attachment with it, so the
-	// sea it had already drawn came out flat grey. Measured, not guessed. The
-	// animal needs a target with its own depth (src/gpu/tsl/underwater-driver.js,
-	// preserved at 230c301), and that is the fix.
-	dragonMat.side = THREE.FrontSide;
+	// The material's flags are IDENTICAL in both passes on purpose. Swapping
+	// side/depthWrite/blending per pass moves the WebGPU render cache key and
+	// forces a synchronous pipeline creation each time - see
+	// ../src/gpu/tsl/water-clip.js, which is why the waterline split is a uniform.
+	dragonMat.side = THREE.DoubleSide;
 	dragonMat.transparent = false;
 	dragonMat.blending = THREE.NoBlending;
-	dragonMat.depthTest = false;
-	dragonMat.depthWrite = false;
-	const dragonBuild = buildCraftGeometry( params.sdLength, DRAGON_MESH );
+	dragonMat.depthTest = true;
+	dragonMat.depthWrite = true;
+	let dragonSpec = resolveDragonModel( params.sdModel );
+	let dragonRecord = dragonSpec.record;
+	const dragonBuild = buildCraftGeometry( params.sdLength, dragonRecord );
 	const dragonMesh = new THREE.Mesh( dragonBuild.geometry, dragonMat );
 	dragonMesh.frustumCulled = false;
 	dragonMesh.matrixAutoUpdate = false;
 	const dragonScene = new THREE.Scene();
 	dragonScene.add( dragonMesh );
-	loadCraftTexture( renderer, DRAGON_MESH ).then( ( t ) => setCreatureTexture( t ) );
+	loadCraftTexture( renderer, dragonRecord ).then( ( t ) => setCreatureTexture( t ) );
 	let dragonLen = params.sdLength;
+	let dragonKey = dragonSpec.id;
+	// How far the body's BACK reaches above its origin, in metres, read off the
+	// built geometry rather than assumed - at sdLength 52.5 it is ~6.1 m. This
+	// number is the whole reason the breach gates below must not read
+	// dragon.pos[1] directly: the depth controller (demo/seadragon.js) never
+	// lets the ORIGIN shallower than sdMinDepth, while the back rides metres
+	// higher and is what actually breaks the surface. The first version of the
+	// particle-spray gate read the origin, and so never fired outside a probe
+	// that force-pinned the depth - reported live as "still not spraying"
+	// while the animal was visibly breaching.
+	dragonBuild.geometry.computeBoundingBox();
+	let dragonTopY = dragonBuild.geometry.boundingBox.max.y;
+	// The body's own half-width against height, so its wake is as wide as
+	// whatever part of it is actually cutting the surface - no hand-set beam to
+	// guess per creature. Rebuilt with the geometry, read O(1) per frame.
+	let dragonProfile = buildWaterlineProfile( dragonBuild.geometry );
+	// ...and which STATIONS along it are tall enough to pierce the surface.
+	let dragonStations = buildBreachProfile( dragonBuild.geometry );
+	const cutRipples = new CutRippleField();
+	const flukeSlicks = new FlukeSlickField();
+	let swellEase = { bow: 0, dome: 0 };
 
-	const drawDragon = () => {
+	// The waterline seam, in metres, scaled with the sea it is cutting. A flat cut
+	// at mean sea level is wrong by whatever the wave is doing at that point, so
+	// the two half-spaces overlap rather than meet; ../src/gpu/tsl/water-clip.js
+	// has the argument for erring toward over-inclusion on both sides.
+	const clipSeam = () => Math.max( 0.8, ( params.swellAmount ?? 0.5 ) * 2 );
 
-		if ( params.sdEnabled < 0.5 ) return;
+	// Four bodies, one list. Controllers keep their own integrators; the list
+	// owns the shared wake stamp and the probe pool. The dragon is wake:false
+	// so it cannot recenter the field and wipe a vehicle trail.
+	const bodies = new BodyList();
+	const skiBody = bodies.add( craftMesh, {
+		mass: 280, float: true, wake: true, splash: 'impact',
+		hull: true, samples: 4, paramPrefix: 'wr',
+	} ).attach( rider );
+	const boatBody = bodies.add( boatMesh, {
+		mass: 1400, float: true, wake: true, splash: 'impact',
+		hull: true, samples: 4, paramPrefix: 'boat',
+	} ).attach( boat );
+	const planeBody = bodies.add( planeMesh, {
+		mass: 1800, float: true, wake: true, splash: 'impact',
+		hull: true, samples: 4, paramPrefix: 'sp',
+	} ).attach( plane );
+	const dragonBody = bodies.add( dragonMesh, {
+		mass: 4e4, float: false, wake: false, splash: 'waterline',
+		hull: false,
+	} ).attach( dragon );
+
+	const poseDragon = () => {
+
 		// The mesh is built at a length; changing it is a rebuild, not a scale, so
-		// that the swim's wavelength stays in the same units as the body.
-		if ( Math.abs( params.sdLength - dragonLen ) > 0.01 ) {
+		// that the swim's wavelength stays in the same units as the body. Same
+		// rebuild when sdModel swaps the record — live, no reload.
+		const spec = resolveDragonModel( params.sdModel );
+		if ( spec.id !== dragonKey || Math.abs( params.sdLength - dragonLen ) > 0.01 ) {
 
-			const b = buildCraftGeometry( params.sdLength, DRAGON_MESH );
+			if ( spec.id !== dragonKey ) {
+
+				dragonSpec = spec;
+				dragonRecord = spec.record;
+				dragonKey = spec.id;
+				loadCraftTexture( renderer, dragonRecord ).then( ( t ) => setCreatureTexture( t ) );
+
+			}
+			const b = buildCraftGeometry( params.sdLength, dragonRecord );
 			dragonMesh.geometry.dispose();
 			dragonMesh.geometry = b.geometry;
 			dragonLen = params.sdLength;
+			b.geometry.computeBoundingBox();
+			dragonTopY = b.geometry.boundingBox.max.y;
+			dragonProfile = buildWaterlineProfile( b.geometry );
+			dragonStations = buildBreachProfile( b.geometry );
 
 		}
 		uCreatureLen.value = params.sdLength;
 		uCreatureWaves.value = params.sdWaves;
-		uCreatureAmp.value = params.sdAmp;
+		uCreatureAmp.value = dragon.swimAmp ?? params.sdAmp;
+		// 0 sideways (eel), 1 up-and-down (whale), 2 both (helix).
+		// The panel enum stores the label once you touch it; presets store 0/1/2.
+		const axis = params.sdWaveAxis;
+		const upDown = axis === 1 || axis === 'Up and down';
+		const sideways = axis === 0 || axis === 'Sideways' || axis == null;
+		uCreatureSide.value = upDown ? 0 : 1;
+		uCreatureLift.value = sideways ? 0 : 1;
+		uCreatureTurn.value = dragon.headYaw ?? 0;
 		uCreaturePhase.value = dragon.phase;
+		// sdGape is radians of shut from the modelled-open bind pose.
+		// dragon.gape is 0 = apply that shut, 1 = release it back to
+		// bind pose. Both existed for years and never reached the mesh.
+		uCreatureGape.value = jawShutAngle( params.sdGape, dragon.gape );
+		uCreatureJawHY.value = dragonSpec.jawHY;
+		uCreatureJawHZ.value = dragonSpec.jawHZ;
 		uCreatureSeaY.value = params.sdSeaLevel;
-		uCreatureFade.value = params.sdFade;
-		uCreatureOpacity.value = params.sdOpacity;
-		// modelYaw 0: tools/glb.mjs already put this asset's head on -Z.
+		// The water's own hint on the body (creature.js's uCreatureTint) was
+		// stuck at its shader-file default forever - never assigned from here at
+		// all - so every preset's very different scatterColor (a murky green-
+		// brown to a bright turquoise, see presets.js) painted the animal with
+		// the same fixed greenish tint regardless of which sea it was actually
+		// swimming in. Synced every pose now, the same live parameter the water
+		// itself reads, so a preset switch or a dragged Scattering albedo swatch
+		// changes it too.
+		uCreatureTint.value.set(
+			params.scatterColor[ 0 ], params.scatterColor[ 1 ], params.scatterColor[ 2 ],
+		);
+		// Per-model yaw/lift: both baked meshes already have the nose on -Z
+		// and a centred box, so the catalog's remaps are 0. Kept on the spec
+		// so a future asset that arrives stern-first can be corrected here
+		// without another bake (boatYawOffset / boatLift taught that).
 		setCraftTransform(
 			dragonMesh,
-			[ dragon.pos[ 0 ], dragon.pos[ 1 ], dragon.pos[ 2 ] ],
-			dragon.heading, dragon.pitch, dragon.roll, 1.0, 0,
+			[ dragon.pos[ 0 ], dragon.pos[ 1 ] + dragonSpec.lift, dragon.pos[ 2 ] ],
+			dragon.heading, dragon.pitch, dragon.roll, 1.0, dragonSpec.yaw,
 		);
+
+	};
+
+	// Into the refraction target. Returns whether there is anything in it this
+	// frame, which is what switches the sea's lookup on.
+	const drawDragonUnder = () => {
+
+		if ( params.sdEnabled < 0.5 ) return false;
+		poseDragon();
+		// No haze here: the sea hazes the finished pixel, this body included.
+		uCreatureAerial.value = 0;
+		refraction.render( dragonScene, cam3, params.sdSeaLevel, clipSeam() );
+		return true;
+
+	};
+
+	// ...and the half above the waterline, over the sea, sorted against it.
+	const drawDragonOver = ( camUnder ) => {
+
+		if ( params.sdEnabled < 0.5 ) return;
+		uCreatureAerial.value = camUnder ? 0 : 1;
+		// In the water the whole body is in front of the camera, not just
+		// the half that breaches. Above water the clip still splits at the
+		// waterline so the sea can own the submerged half.
+		setWaterClip( camUnder ? CLIP.OFF : CLIP.ABOVE, params.sdSeaLevel, clipSeam() );
 		renderer.render( dragonScene, cam3 );
+		setWaterClip( CLIP.OFF, params.sdSeaLevel, clipSeam() );
 
 	};
 
@@ -374,15 +706,17 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	// box reads as lit, which for an ocean is the right answer.
 	const aimSunLight = () => {
 
-		const veh = rider.active ? rider : ( plane.active ? plane : null );
-		const on = veh !== null && drawCraftEnabled && params.craftShadow > 0.001;
+		const veh = rider.active ? rider : ( plane.active ? plane : ( boat.active ? boat : null ) );
+		const on = veh !== null && perf.craft && params.craftShadow > 0.001;
 		sunLight.shadow.needsUpdate = on;
 		if ( ! on ) return;
 
 		const s = derived.sunDir;
 		const size = veh === plane
 			? Math.max( params.spLength * params.spHalfSpan, 4 ) * 1.15
-			: Math.max( params.craftLength, 2 ) * 0.9;
+			: veh === boat
+				? Math.max( params.boatLength * 2, 2 ) * 0.9
+				: Math.max( params.craftLength, 2 ) * 0.9;
 		// How far the light travels past the hull to reach the sea under it.
 		// Clamped, because with the sun on the horizon that distance runs away and
 		// an orthographic box that long has no depth precision left to give.
@@ -451,8 +785,9 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 
 	};
 
-	// Flipped by api.profile()'s craft ablation; nothing else touches it.
-	let drawCraftEnabled = true;
+	// Live stage gates for the Perf overlay. profile() flips these too.
+	const perf = createPerfFlags();
+	const perfTimes = { cpu: 0, stages: {}, ran: {} };
 
 	// POSING IS SEPARATE FROM DRAWING, and the split is load-bearing. The craft is
 	// drawn AFTER the water, but its shadow is cast DURING the water pass (the
@@ -484,6 +819,7 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			);
 			craftMesh.visible = true;
 			planeMesh.visible = false;
+			boatMesh.visible = false;
 
 		} else if ( plane.active ) {
 
@@ -506,11 +842,50 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			);
 			planeMesh.visible = true;
 			craftMesh.visible = false;
+			boatMesh.visible = false;
+
+		} else if ( boat.active ) {
+
+			// boatLength is the PROBE half-length (bow to centre); the mesh is
+			// built at twice that, the full bow-to-transom span - see the note
+			// where boat and boatBuild are declared. A live slider change is a
+			// rebuild, the same way the sea dragon's length knob is.
+			if ( Math.abs( params.boatLength - boatMeshLen ) > 0.01 ) {
+
+				const b = buildCraftGeometry( params.boatLength * 2, BOAT_MESH );
+				boatMesh.geometry.dispose();
+				boatMesh.geometry = b.geometry;
+				boatMeshLen = params.boatLength;
+
+			}
+			uCraftWetLine.value = boat.probeH[ 0 ];
+			if ( boatTex ) setCraftTexture( boatTex );
+			setCraftTransform(
+				boatMesh,
+				[
+					boat.pos[ 0 ],
+					// See src/presets.js boatLift: the quantiser centred this mesh
+					// on keel-to-masthead, which measures out at the deck edge, so
+					// this rides the deck proud of the surface the same way
+					// craftLift does for the ski.
+					( boat.deckY ?? 0 ) + params.boatLift,
+					boat.pos[ 2 ],
+				],
+				boat.heading,
+				boat.pitchTrim + params.boatPitchOffset,
+				boat.bank + boat.rollTrim + params.boatRollOffset,
+				params.boatScale,
+				params.boatYawOffset,
+			);
+			boatMesh.visible = true;
+			craftMesh.visible = false;
+			planeMesh.visible = false;
 
 		} else {
 
 			craftMesh.visible = false;
 			planeMesh.visible = false;
+			boatMesh.visible = false;
 
 		}
 
@@ -519,12 +894,17 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	};
 	const drawCraft = () => {
 
-		if ( ! drawCraftEnabled ) return;
-		if ( ! craftMesh.visible && ! planeMesh.visible ) return;
+		if ( ! perf.craft ) return;
+		if ( ! craftMesh.visible && ! planeMesh.visible && ! boatMesh.visible ) return;
 		renderer.render( craftScene, cam3 );
 
 	};
 	const post = new TslPost( renderer );
+	// What the sea looks down INTO. Half the HDR target's size: the sea displaces
+	// this lookup by the surface slope and then buries it under a Fresnel term, so
+	// it never shows it sharply. See the driver's header.
+	const refraction = new TslRefraction( renderer, { scale: 0.5 } );
+	const underwater = new TslUnderwater( renderer );
 
 	// The three camera the sea is rasterised through. demo/camera.js owns the
 	// rig; this mirrors its matrices onto a three camera each frame, because
@@ -675,6 +1055,13 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 
 		renderer.setSize( w, h, false );
 		post.resize( w, h );
+		{
+
+			const t = refraction.resize( w, h );
+			setRefractionTextures( { color: t.texture, depth: t.depthTexture } );
+
+		}
+
 		if ( hdr ) hdr.dispose();
 		hdr = new THREE.RenderTarget( w, h, {
 			type: THREE.HalfFloatType,
@@ -685,6 +1072,22 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			generateMipmaps: false,
 		} );
 		hdr.texture.name = 'abyssal.hdr';
+		// AN EXPLICIT DEPTH TEXTURE ON THE BEAUTY TARGET TOO, and it is not because
+		// anything samples it. Three hashes a RenderContext on the COLOUR signature
+		// alone, so this target and the refraction target - same format, same type,
+		// both depth-buffered - share one context, while WebGPU's pipeline cache key
+		// is built partly from that context's DEPTH format. Leaving three to invent
+		// this one's depth (depth24plus) next to the refraction target's explicit
+		// FloatType one (depth32float) makes the shared context's format flip from
+		// pass to pass, and since the render-object chain key carries no camera and
+		// no target, every render object re-keys twice a frame and recompiles. The
+		// cost is invisible on the WebGL backend, whose cache key is "" - which is
+		// exactly why it reads as a WebGPU problem. The reference implementation
+		// measured this one (saltyfin/src/core/renderer.js).
+		hdr.depthTexture = new THREE.DepthTexture( w, h, THREE.FloatType );
+		hdr.depthTexture.name = 'abyssal.hdrDepth';
+		hdr.depthTexture.minFilter = THREE.NearestFilter;
+		hdr.depthTexture.magFilter = THREE.NearestFilter;
 		diagSrc.value = hdr.texture;
 		cam3.aspect = w / h;
 		cam3.updateProjectionMatrix();
@@ -749,7 +1152,104 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	// Without this the controller reads "we have headroom" from a frame rate the
 	// cap itself is setting, and climbs quality until it has spent exactly the
 	// power the cap was meant to save.
-	const cappedOut = ( fps ) => params.fpsCap > 0 && fps >= params.fpsCap * 0.92;
+	// Plugged-in / idle / battery can each tighten the ceiling. Adaptive
+	// quality must key off the LIVE cap, or a 30 fps battery hold against
+	// targetFps 60 reads as "too slow" and drops the picture the cap was
+	// meant to keep.
+	let battCharging = true;
+	if ( typeof navigator !== 'undefined' && navigator.getBattery ) {
+
+		navigator.getBattery().then( ( b ) => {
+
+			battCharging = b.charging;
+			b.addEventListener( 'chargingchange', () => { battCharging = b.charging; } );
+
+		} ).catch( () => {} );
+
+	}
+	const liveCap = () => liveFpsCap( params, {
+		focused: typeof document === 'undefined' || document.hasFocus(),
+		charging: battCharging,
+	} );
+	const cappedOut = ( fps ) => fpsCappedOut( fps, liveCap() );
+
+	// GPU timestamps (WebGPU timestamp-query, or WebGL disjoint timer).
+	// Off until the Perf overlay asks — the queries themselves cost a little,
+	// and a visitor who never opens Perf should not pay. Resolve is async and
+	// must not stall the frame; we keep the last good sample on perfTimes.
+	let gpuResolveBusy = false;
+	function enableGpuTimers() {
+
+		const b = renderer.backend;
+		if ( ! b ) return false;
+		try {
+
+			if ( renderer.hasFeature?.( 'timestamp-query' ) ) {
+
+				b.trackTimestamp = true;
+				return true;
+
+			}
+
+		} catch { /* hasFeature throws before init on some builds */ }
+		if ( b.gl ) {
+
+			b.trackTimestamp = true;
+			return true;
+
+		}
+		return false;
+
+	}
+	async function sampleGpu() {
+
+		if ( ! enableGpuTimers() ) return null;
+		try {
+
+			const render = await renderer.resolveTimestampsAsync( 'render' );
+			const compute = await renderer.resolveTimestampsAsync( 'compute' );
+			const r = Number( render ) || 0;
+			const c = Number( compute ) || 0;
+			return { render: r, compute: c, total: r + c };
+
+		} catch {
+
+			return null;
+
+		}
+
+	}
+	function armGpuTimers() {
+
+		const b = renderer.backend;
+		if ( ! b ) return;
+		if ( api._perfDebug?.isOpen() && ! gpuResolveBusy ) enableGpuTimers();
+		else b.trackTimestamp = false;
+
+	}
+	function pumpGpuTimers() {
+
+		if ( ! api._perfDebug?.isOpen() ) {
+
+			if ( renderer.backend ) renderer.backend.trackTimestamp = false;
+			return;
+
+		}
+		if ( gpuResolveBusy ) return;
+		if ( ! enableGpuTimers() ) return;
+		gpuResolveBusy = true;
+		sampleGpu().then( ( g ) => {
+
+			if ( ! g ) return;
+			perfTimes.gpuRender = g.render;
+			perfTimes.gpuCompute = g.compute;
+			perfTimes.gpu = g.total;
+			perfTimes.gpuOk = true;
+			perfTimes.gpuAt = performance.now();
+
+		} ).finally( () => { gpuResolveBusy = false; } );
+
+	}
 
 	function adaptQuality( dtRaw ) {
 
@@ -761,7 +1261,7 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		api.adaptFps = fps;
 
 		const lo = params.renderScaleMin, hi = params.renderScaleMax;
-		if ( fps < params.targetFps * 0.9 ) {
+		if ( fps < params.targetFps * 0.9 && ! cappedOut( fps ) ) {
 
 			if ( params.renderScale > lo ) {
 
@@ -799,21 +1299,15 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 
 	}
 
-	// The duty cycle. Uncapped, this runs at the display's refresh rate and the
-	// governor above then raises quality until it is JUST missing the target, so
-	// between them they consume every watt the device will give - right for a
-	// benchmark, wrong for something you leave open on a phone. Capping has to
-	// SKIP FRAMES rather than lower quality: quality knobs trade picture for
-	// frame rate, and neither of those is what makes a device hot. Only doing
-	// less work per second does.
+	// The duty cycle. Default 60 (30 on battery) SKIPS FRAMES rather than
+	// lowering quality: same picture, fewer GPU-seconds per wall-second.
+	// Uncapped (fpsCap 0) plus the governor consumes every watt — right for
+	// a benchmark, wrong for a laptop you leave open.
 	let lastPresent = 0;
 	function shouldSkip( now ) {
 
-		if ( params.fpsCap <= 0 ) return false;
-		const cap = document.hasFocus() ? params.fpsCap : Math.min( params.fpsCap, params.fpsCapIdle );
-		// A hair under the period: a cap equal to the refresh rate otherwise
-		// lands just the wrong side of every other vsync and halves the rate.
-		if ( now - lastPresent < 1000 / cap - 1.2 ) return true;
+		const cap = liveCap();
+		if ( shouldSkipFrame( now, lastPresent, cap ) ) return true;
 		lastPresent = now;
 		return false;
 
@@ -822,6 +1316,30 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 	function frame( now ) {
 
 		if ( shouldSkip( now ) ) { requestAnimationFrame( frame ); return; }
+
+		// This loop is our own rAF, not renderer.setAnimationLoop. Three
+		// only bumps info.frame / resets frameCalls inside Animation.js, so
+		// without this every timestamp query is tagged `:f0`. resolve then
+		// sums every pass from every frame that piled up while the async
+		// readback was in flight — 4 × 18 ms reads as 74 ms and Heat sticks
+		// at ~400% while the panel still shows 56 fps. Three's own note on
+		// info.autoReset: an app that owns the loop must reset once a frame.
+		armGpuTimers();
+		renderer.info.reset();
+		renderer.info.frame ++;
+
+		const cpu0 = performance.now();
+		for ( const k of Object.keys( perfTimes.stages ) ) perfTimes.stages[ k ] = 0;
+		for ( const k of Object.keys( perfTimes.ran ) ) perfTimes.ran[ k ] = 0;
+		const mark = ( id, fn ) => {
+
+			if ( ! perf[ id ] ) return;
+			const t0 = performance.now();
+			fn();
+			perfTimes.stages[ id ] = ( perfTimes.stages[ id ] || 0 ) + ( performance.now() - t0 );
+			perfTimes.ran[ id ] = 1;
+
+		};
 
 		const dtRaw = ( now - last ) / 1000;
 		const dt = Math.min( dtRaw, 0.1 );
@@ -833,7 +1351,7 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		derive( params, derived );
 
 		// The ocean first: the craft has to read the surface the sim just wrote.
-		sim.update( dt, params );
+		mark( 'sim', () => sim.update( dt, params ) );
 
 		// THE RIDER RUNS BEFORE THE CAMERA, AND THE CAMERA IS LOCKED WHILE IT DOES.
 		//
@@ -862,6 +1380,16 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		// frame every time the rig moved.
 		if ( rider.active ) rider.update( dt, params, camera.keys, camera );
 		else if ( plane.active ) plane.update( dt, params, camera.keys, camera );
+		else if ( boat.active ) boat.update( dt, params, camera.keys, camera );
+		// Piloting the animal is a vehicle as far as the camera is concerned:
+		// move it THIS frame, then lock the rig onto the pose that produced.
+		// The AI path still updates after the camera, further down, so it
+		// chases this frame's station rather than last frame's.
+		else if ( dragon.active && params.sdEnabled >= 0.5 ) {
+
+			dragon.update( dt, params, null, camera );
+
+		}
 
 		// The propeller. Idle is a real idle - a running engine never stops the
 		// disc - and the rate climbs with the lever, not with airspeed, because
@@ -874,74 +1402,164 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			uPropAngle.value = propAngle;
 
 		}
-		// The wake field is stamped before anything reads it, from the hull state
-		// the update just produced. The plane hands over floatRig, whose `active`
-		// means "the floats are working the water" - a flying hull must not go
-		// on digging a hollow into the sea under its shadow.
-		wake.update( dt, params, plane.active ? plane.floatRig : rider );
+		// Boat handling knobs stay boat* on params; spray still wants wrBeam
+		// etc. for the hull that is out, so the boat's prefix view is only
+		// handed to systems that read wrFoo. The wake stamp no longer takes
+		// a single vehicleWr — BodyList ages once and stamps every wet
+		// wake-body. The dragon is wake:false and never joins that list.
+		const activeParams = boat.active ? boat.paramsView( params ) : params;
 
-		camera.locked = rider.active || plane.active || followDragon;
+		mark( 'craft', () => bodies.stampWake( wake, dt, activeParams, camera ) );
+		const sources = bodies.wakeSources( activeParams );
+		const stamping = sources.length > 0;
+		wakeHold = stamping ? Math.max( params.wakeLife, 0.5 ) : Math.max( 0, wakeHold - dt );
+		if ( stamping ) {
+
+			const stamped = boat.active ? boatBody : ( plane.active ? planeBody : skiBody );
+			lastWakeDims = stamped.wakeRenderDims( params );
+
+		}
+
+		camera.locked = rider.active || plane.active || boat.active
+			|| followDragon || dragon.active;
 		camera.update( dt, params );
 
 		// Follow mode drives the camera the way the vehicles do, and for the same
 		// reason: the rig has to be written AFTER camera.update() or it spends the
-		// frame fighting the free-look controls.
-		if ( followDragon && params.sdEnabled >= 0.5 ) {
+		// frame fighting the free-look controls. Piloting uses the same rig, and
+		// tracks the body in depth so a dive does not leave the camera at the
+		// surface staring at empty water.
+		if ( ( followDragon || dragon.active ) && params.sdEnabled >= 0.5 ) {
 
 			// Behind, above, and a little to the side - a quarter view, so the
 			// mound over its back and its silhouette are both in the picture. The
 			// camera lags the animal's heading rather than snapping to it, which
 			// keeps a turn readable instead of whipping the frame round.
 			const d = dragon;
+			const ridingMonster = dragon.active;
+			const riderView = ridingMonster && params.sdView < 0.5;
 			followYaw += Math.atan2(
 				Math.sin( d.heading - followYaw ), Math.cos( d.heading - followYaw ),
-			) * Math.min( 1, dt * 1.6 );
-			const bx = Math.sin( followYaw ), bz = - Math.cos( followYaw );
-			const rx = Math.cos( followYaw ), rz = Math.sin( followYaw );
-			const back = Math.max( params.sdLength, 8 ) * 1.15;
-			const side = Math.max( params.sdLength, 8 ) * 0.35;
+			) * Math.min( 1, dt * ( ridingMonster ? 4.2 : 1.6 ) );
+
+			// camera.update() just above already folded this frame's drag/pinch
+			// into camera.yaw/pitch - it is what a free-fly camera would read
+			// next. Locked modes overwrite them afterward (below), which is why
+			// that nudge used to vanish before a frame ever drew it: read it as a
+			// DELTA against our own last overwrite and carry it forward as an
+			// orbit around the animal instead, rather than an absolute look
+			// direction that gets stomped every frame.
+			followOrbitYaw += camera.yaw - lastCamYaw;
+			followOrbitPitch = Math.max( - 1.3, Math.min( 1.3,
+				followOrbitPitch + ( camera.pitch - lastCamPitch ),
+			) );
+
+			const L = Math.max( params.sdLength, 8 );
+			const sea = params.sdSeaLevel ?? 0;
+			const orbitYaw = followYaw + followOrbitYaw;
+			const bx = Math.sin( orbitYaw ), bz = - Math.cos( orbitYaw );
+			const rx = Math.cos( orbitYaw ), rz = Math.sin( orbitYaw );
+			const back = L * ( riderView ? 0.22 : ( ridingMonster ? 1.35 : 1.15 ) );
+			const side = L * ( riderView ? 0.05 : 0.35 );
+			// Orbit pitch swings the rig up over the animal or down to the
+			// waterline around it, on the same radius, rather than just tilting
+			// the camera's own head - dragging up genuinely moves you overhead.
+			const riseSwing = L * ( riderView ? 0.18 : 0.9 ) * Math.sin( followOrbitPitch );
 			const tx = d.pos[ 0 ], tz = d.pos[ 2 ];
 			camera.pos[ 0 ] = tx - bx * back + rx * side;
-			camera.pos[ 1 ] = ( params.sdSeaLevel ?? 0 ) + params.sdFollowRise;
+			// Tuning-follow stays a few metres over the sea so the mound is in
+			// frame. Swim chase used to glue itself to the submerged origin
+			// (sdFollowRise on top of a body at -10 m is underwater) - it now
+			// sits in the air and only lifts further if the animal climbs past
+			// that floor. Rider view still rides the back.
+			const swimRise = Math.max( params.sdFollowRise * 4.5, L * 0.5 );
+			camera.pos[ 1 ] = riderView
+				? d.pos[ 1 ] + Math.max( 2.4, L * 0.08 ) + riseSwing
+				: ridingMonster
+					? Math.max( sea + swimRise, d.pos[ 1 ] + L * 0.22 ) + riseSwing
+					: sea + params.sdFollowRise + riseSwing;
 			camera.pos[ 2 ] = tz - bz * back + rz * side;
-			const ax = tx - camera.pos[ 0 ];
-			const ay = d.pos[ 1 ] * 0.5 - camera.pos[ 1 ];
-			const az = tz - camera.pos[ 2 ];
+			const lookX = riderView ? tx + Math.sin( d.heading ) * L * 0.28 : tx;
+			const lookY = riderView ? d.pos[ 1 ] + L * 0.04 : ( ridingMonster ? sea : d.pos[ 1 ] * 0.5 );
+			const lookZ = riderView ? tz - Math.cos( d.heading ) * L * 0.28 : tz;
+			const ax = lookX - camera.pos[ 0 ];
+			const ay = lookY - camera.pos[ 1 ];
+			const az = lookZ - camera.pos[ 2 ];
 			camera.yaw = Math.atan2( ax, - az );
 			camera.pitch = Math.asin( ay / Math.max( Math.hypot( ax, ay, az ), 1e-3 ) );
-			camera.roll = 0;
+			camera.roll = riderView ? d.roll * 0.35 : 0;
+			// This IS the overwrite the next frame's delta gets measured against.
+			lastCamYaw = camera.yaw;
+			lastCamPitch = camera.pitch;
+
+		} else {
+
+			// Not following: stay in step so re-entering follow next doesn't read
+			// whatever free-fly drifted to since as one giant orbit snap.
+			lastCamYaw = camera.yaw;
+			lastCamPitch = camera.pitch;
 
 		}
 
 		// The dragon swims after the vehicle has moved and after the camera has,
 		// so it is chasing THIS frame's station rather than last frame's - a lag
 		// that on a hard carve reads as the animal being yanked along behind you.
-		if ( params.sdEnabled >= 0.5 ) {
+		if ( params.sdEnabled >= 0.5 && ! dragon.active ) {
 
-			dragon.update( dt, params, rider.active ? rider : ( plane.active ? plane : null ), camera );
+			dragon.update( dt, params, rider.active ? rider : ( plane.active ? plane : ( boat.active ? boat : null ) ), camera );
 
 		}
 
 		// THIS IS NOT OPTIONAL, and leaving it out is invisible until you look up.
 		//
-		// camera.update() advances the position and the fwd/right/up basis, but
-		// viewProj and invViewProj are only built by matrices(). Without this call
-		// they stay at the identity they were constructed with - and the SEA still
-		// draws correctly, because it is rasterised through the three camera built
-		// from pos and fwd below. Only the sky notices: its background pass takes a
-		// ray from invViewProj, and through an identity matrix every ray points
-		// somewhere near straight down, so the sky renders as though the camera were
-		// buried. The frame looks like a sea with no sky above it.
+		// matrices() rebuilds fwd/right/up from the yaw/pitch/roll that the
+		// chase and follow rigs just wrote, then builds viewProj. Without that
+		// rebuild a fast look left the sea aimed at last frame's fwd while the
+		// sky unprojected this frame's angles — a black seam at the horizon.
+		// Without the call at all, invViewProj stays identity and the sky
+		// renders as though the camera were buried.
 		camera.matrices( canvas.width, canvas.height );
 
 		// Forward in the convention the whole renderer uses: heading 0 looks down
 		// -Z, so forward is (sin, -cos). Whichever hull is out, the spray and the
 		// water read it through the same ctx fields - the emitter does not care
 		// whether the thing shedding water has a handlebar or a yoke.
-		const veh = rider.active ? rider : ( plane.active ? plane : null );
+		const veh = rider.active ? rider : ( plane.active ? plane : ( boat.active ? boat : null ) );
+		// The sea dragon breaking the surface reuses the vehicles' particle
+		// system rather than a second one, so it only drives it when nothing
+		// else is riding: a vehicle's own spray always takes priority. Gated
+		// by sdSpray/sdSprayDepth, the exact controls already driving the
+		// foam-mask breach effect in water-surface.js - one pair of sliders
+		// for "how much does breaking the surface disturb it". Sites along
+		// the waterline are simultaneous (ctx.craftSites), not hopped.
+		const dbr = dragonBreach();
+		let dragonSpray = 0;
+		if ( ! veh && params.sdEnabled >= 0.5 && params.sdSpray > 0.0005 ) {
+
+			// The highest BODY PART's clearance - pitched nose or tail included
+			// (dragonHighPoint), never the origin - see dragonTopY's note. At
+			// the default staging the origin NEVER comes within sdSprayDepth of
+			// the surface (sdMinDepth alone forbids it), while the back is
+			// routinely metres out of the water.
+			// + still under the mean surface, - poking through it.
+			const clearance = params.sdSeaLevel - dragonHighPoint();
+			dragonSpray = dbr.runs.length
+				? Math.max( 0, Math.min( 1,
+					1 - clearance / Math.max( params.sdSprayDepth, 0.05 ),
+				) )
+				: 0;
+
+		}
+		// Waterline cut spray only. Leap / landing crowns are out.
+		const piercing = dbr.runs.length > 0;
+		poseDebugEmitters( dbr, ! veh && piercing );
+		const dragonSites = piercing ? dbr.sites : [];
+		const dragonSprayOn = piercing && dragonSpray > 0.001;
 		const cf = veh
 			? [ Math.sin( veh.heading ), - Math.cos( veh.heading ) ]
-			: [ 0, 1 ];
+			: dragonSprayOn
+				? [ Math.sin( dragon.heading ), - Math.cos( dragon.heading ) ]
+				: [ 0, 1 ];
 		// A flying plane sheds no spray; a taxiing one sheds it exactly like a
 		// hull, because it is one.
 		// HOW MUCH WATER IS BEING WORKED, not whether any is.
@@ -962,6 +1580,9 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		// The rig, in the shape every driver takes.
 		const ctx = {
 			camPos: camera.pos,
+			camFwd: camera.fwd,
+			fov: camera.fov ?? params.fov,
+			aspect: canvas.width / Math.max( canvas.height, 1 ),
 			viewProj: camera.viewProj,
 			invViewProj: camera.invViewProj,
 			camRight: camera.right,
@@ -974,18 +1595,73 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			// the rooster tail, the wall of water off a carve and the impact burst
 			// simply never emit, which is what "it lost the spray it used to have"
 			// looks like from outside. Mirrors demo/main.js exactly.
-			craftPos: setA3( vCraftPos,
-				wet > 0.001 ? ( wetPos ? wetPos[ 0 ] : veh.pos[ 0 ] ) : 0,
-				wet > 0.001 ? ( wetPos ? wetPos[ 1 ] : ( veh.deckY ?? 0 ) ) : - 1e4,
-				wet > 0.001 ? ( wetPos ? wetPos[ 2 ] : veh.pos[ 2 ] ) : 0 ),
+			craftPos: veh
+				? setA3( vCraftPos,
+					wet > 0.001 ? ( wetPos ? wetPos[ 0 ] : veh.pos[ 0 ] ) : 0,
+					wet > 0.001 ? ( wetPos ? wetPos[ 1 ] : ( veh.deckY ?? 0 ) ) : - 1e4,
+					wet > 0.001 ? ( wetPos ? wetPos[ 2 ] : veh.pos[ 2 ] ) : 0 )
+				: setA3( vCraftPos,
+					// First waterline site, so existing probes that read
+					// uCraftPos still see the animal at the sea, not the
+					// mid-body origin. The rest of the sites go through
+					// craftSites below and emit the same frame.
+					dragonSprayOn && dragonSites[ 0 ] ? dragonSites[ 0 ].x : 0,
+					dragonSprayOn && dragonSites[ 0 ] ? dragonSites[ 0 ].y : - 1e4,
+					dragonSprayOn && dragonSites[ 0 ] ? dragonSites[ 0 ].z : 0 ),
 			craftFwd: setA2( vCraftFwd, cf[ 0 ], cf[ 1 ] ),
 			craftRight: setA2( vCraftRight, - cf[ 1 ], cf[ 0 ] ),
-			craftSpeed: wet > 0.001 ? Math.abs( veh.speed ) : 0,
+			// Simultaneous waterline sites + pierce spawn. Vehicles leave
+			// these undefined so they keep the one-hull, four-source path.
+			// craftLen is the half-spacing between sites (the local scatter),
+			// craftBeam stays the measured waterline half-width so a particle
+			// that inherits a hull-sized org cannot spawn inside a 52 m mesh.
+			craftSites: veh || ! dragonSprayOn ? undefined : dragonSites,
+			craftSiteCount: veh || ! dragonSprayOn ? undefined : dragonSites.length,
+			// Pierce sheet at each waterline site. Burst radius is the
+			// mesh beam, not the old crater — Splash-style splash stays
+			// on the shape that hit the water.
+			craftPierce: veh || ! dragonSprayOn ? 0 : 1,
+			craftSpout: 0,
+			craftLen: veh ? undefined : ( dbr.halfLen ?? Math.max( params.sdLength, 8 ) * 0.14 ),
+			// THE PARTICLES HAVE TO USE THE SEA'S OWN SCALE, or they contradict it.
+			// The emitter's geometry is metres wide (a waterline site's half-width),
+			// while the water entry it belongs to is TENS of metres - so the wings
+			// spawned as a five-metre blob in the middle of a forty-metre crater
+			// (shots/w5-0.30.png: a central boil sitting between the two peaks it
+			// was supposed to have thrown). This is the same radius the height
+			// field opens its cavity with, so the curtain of particles leaves from
+			// the curtain of water.
+			craftEntryRadius: 0,
+			entrySizeScale: 0,
+			entryDraw: 0,
+			entryLifeScale: 1,
+			craftBeam: veh ? undefined : Math.max(
+				dragonSites.reduce( ( a, s ) => a + ( s.half ?? 0 ), 0 ) / Math.max( dragonSites.length, 1 ),
+				0.5,
+			),
+			// The dragon's REAL swim speed, on purpose - "if any of its body
+			// parts are breaking the surface and it is moving with enough
+			// speed, the spray should be happening" is exactly the contract
+			// spray.js's `plane` factor already enforces for the vehicles.
+			// The animal uses the same 6..14 m/s ramp, pinned in the
+			// emitter so a Wave Runner slider cannot change it: a
+			// fast surface run sheds the full sheet, a slow breach only gets
+			// the one-shot impact burst, which doesn't gate on speed. An
+			// earlier version fed a synthetic "breach severity" speed here so
+			// a stationary breach could mist - that muddied the very speed
+			// gate the vehicles obey, so the animal follows the same rule now.
+			craftSpeed: veh
+				? ( wet > 0.001 ? Math.abs( veh.speed ) : 0 )
+				: ( dragonSprayOn ? Math.abs( dragon.speed ) : 0 ),
 			craftTurn: wet > 0.001 ? veh.yawRate : 0,
 			// Scaled BY the wetness, not gated by it: the plume grows as the
 			// floats settle in and thins as they leave, and a wingtip that is
-			// barely touching throws barely any water.
-			craftAmount: wet > 0.001 ? params.craftSprayAmount * wet : 0,
+			// barely touching throws barely any water. sdSpray is the swim-trail
+			// master; leap bursts use splashAmount (sdSplashParticles) so a
+			// jump still throws a crown when the swim slider is at zero.
+			craftAmount: veh
+				? ( wet > 0.001 ? params.craftSprayAmount * wet : 0 )
+				: params.sdSpray * dragonSpray,
 			craftLoad: wet > 0.001 ? ( veh.hullLoad ?? 0 ) * wet : 0,
 			// The vehicle's inputs and attitude, which is what the spray emitter
 			// needs to point the water anywhere sensible.
@@ -996,6 +1672,7 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			// is flying, so the emitter must not be told it is airborne.
 			craftAir: veh && veh.airborne && wet <= 0.001 ? 1 : 0,
 			craftImpact: veh ? veh.impact : 0,
+			sprayBody: veh ? undefined : ( dragonSprayOn ? 'dragon' : undefined ),
 			// THE CRAFT'S IMAGE IN THE SEA (src/shaders/water.js). Separate from
 			// craftPos, which is parked at -1e4 whenever the hull is not working
 			// the water - a flying seaplane still has a reflection, and parking
@@ -1040,12 +1717,16 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 				: params.hullPush;
 			// The hollow only exists once the hull is actually loading the water.
 			hull.plane = Math.min( 1, 0.35 + 0.65 * Math.abs( veh.speed ) / Math.max( params.craftPlaneFull, 1 ) );
+			hull.radius = undefined;
+			hull.bow = undefined;
 
 		} else {
 
 			hull.pos[ 0 ] = 0; hull.pos[ 1 ] = - 1e4; hull.pos[ 2 ] = 0;
 			hull.push = 0;
 			hull.plane = 0;
+			hull.radius = undefined;
+			hull.bow = undefined;
 
 		}
 		hull.fwd[ 0 ] = cf[ 0 ]; hull.fwd[ 1 ] = cf[ 1 ];
@@ -1083,8 +1764,10 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 
 		// The rider, the wake and the sim have already run this frame, above the
 		// camera - see the note there. Only the particles are left, and they need
-		// the ctx that the camera produced.
-		spray.update( dt, params, ctx, sim );
+		// the ctx that the camera produced. activeParams so spray.js's
+		// uCraftBeam/uCraftLen (wrBeam/wrLength) size the plume off whichever
+		// hull is actually out.
+		mark( 'spray', () => spray.update( dt, activeParams, ctx, sim ) );
 
 		// The LUT is a function of sun/moon/eye height only, so it is re-baked when
 		// one of those moves rather than every frame - it is 512x256 of scattering
@@ -1102,25 +1785,326 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		// in drawCraft would shadow the sea from where it was last frame.
 		poseCraft();
 
-		// THE SEA OVER ITS BACK. A body this size shoulders the water aside, and
-		// the lift dies off as it sounds - which is what turns "a picture under
-		// the surface" into "something big is under there". Zeroed when there is
-		// nothing to lift, so the sea's vertex stage skips the branch entirely.
+		// EVERYTHING SUBMERGED GOES INTO ITS OWN TARGET FIRST, because the sea
+		// reads it while it is shading itself. On a frame with nothing down there
+		// the target is cleared anyway rather than left alone: the sea samples it
+		// every frame the lookup is on, and a stale or never-written half-float
+		// buffer is exactly the NaN that once washed the whole ocean white.
+		let submerged = false;
+		if ( perf.dragon ) mark( 'dragon', () => { submerged = drawDragonUnder(); } );
+		if ( ! submerged ) refraction.clear();
+		// Coverage arrives in the target's ALPHA; this is how hard it reads.
+		// Clamped to 1 because the sea's guard treats anything past that as a
+		// corrupt sample.
+		uRefractAmount.value = submerged ? Math.min( params.sdOpacity, 1 ) : 0;
+		uRefractDistort.value = params.sdRefract;
+		uRefractFade.value = params.sdFade;
+		uRefractThrough.value = params.sdThrough;
+
+		// THE SEA AT THE CUT. Traveling packets on the same waterline
+		// sites the spray uses — not a ridge along the spine, and not a
+		// static meniscus on the pierce. The wave's own crest / trough
+		// is the mound or hole. No body-length landing crater.
 		if ( params.sdEnabled >= 0.5 ) {
 
-			const depth = Math.max( 0, params.sdSeaLevel - dragon.pos[ 1 ] );
-			const shallow = Math.max( 0, Math.min( 1, 1 - depth / Math.max( params.sdSwellFade, 0.5 ) ) );
+			const sea = params.sdSeaLevel ?? 0;
+			const depth = sea - dragon.pos[ 1 ];
+			const depthFade = Math.max( 0, Math.min( 1,
+				1 - Math.max( depth, 0 ) / Math.max( params.sdSwellFade, 0.5 ),
+			) );
+			const bodyBottom = dbr.bottom ?? dragon.pos[ 1 ];
+			const lowerReach = Math.max( dragon.pos[ 1 ] - bodyBottom, 0.5 );
+			const bodyContact = Math.max( 0, Math.min( 1,
+				( sea - bodyBottom ) / lowerReach,
+			) );
+			const shallow = depthFade * bodyContact;
 			uSwellPos.value.set( dragon.pos[ 0 ], dragon.pos[ 1 ], dragon.pos[ 2 ] );
 			uSwellDir.value.set( Math.sin( dragon.heading ), - Math.cos( dragon.heading ) );
+			uSwellRippleStretch.value = Math.min( RIPPLE_STRETCH_MAX, Math.abs( dragon.speed ?? 0 ) / 14 );
 			uSwellLen.value = params.sdLength;
 			uSwellRad.value = params.sdSwellRadius;
-			uSwellAmp.value = params.sdSwell * shallow;
+			uSwellPitch.value = dragon.pitch ?? 0;
+			// THE SAME WAVE THE MESH SWIMS, so the mound the sea draws is the mound
+			// this body actually makes rather than a straight ridge under a curved
+			// animal. Same source values as uCreatureWaves/uCreatureAmp/uCreaturePhase
+			// below - not the same uniform, by the same argument uSwellLen already
+			// makes for uCreatureLen: water-surface.js stays a generic "a body lifts
+			// the sea" primitive, and this is the one place that knows the body is an
+			// eel-shaped swimmer.
+			uSwellWaves.value = params.sdWaves;
+			const axis = params.sdWaveAxis;
+			const upDown = axis === 1 || axis === 'Up and down';
+			const sideways = axis === 0 || axis === 'Sideways' || axis == null;
+			const liveAmp = dragon.swimAmp ?? params.sdAmp;
+			uSwellSweep.value = ( upDown ? 0 : 1 ) * liveAmp;
+			uSwellLift.value = ( sideways ? 0 : 1 ) * liveAmp;
+			uSwellLiftPhase.value = ! upDown && ! sideways ? Math.PI * 0.5 : 0;
+			uSwellPhase.value = dragon.phase;
+			uSwellFoamDepth.value = params.sdSprayDepth;
+			uSwellFoamStrength.value = params.sdSpray;
+			// Head sites drive a co-moving bow (the animal outruns any
+			// expanding packet). Flank / tail sites throw wake arms that
+			// get left behind. Jump-out and landing both write — the old
+			// swellContactSign zero was why a landing looked empty.
+			const cuts = dbr.runs.length ? dbr.sites : [];
+			// Same points as spray — every waterline site throws.
+			// Swim uses the animal's own climb (E/Q). A leap uses jumpVy
+			// so a leftover cruise climb cannot invert a rise, and a
+			// leftover jumpVy cannot invert a level swim.
+			const climb = dragon.jumping
+				? ( dragon.jumpVy ?? dragon.climb ?? 0 )
+				: ( dragon.climb ?? 0 );
+			// Probes that never heard of sdRipple still throw (?? 1).
+			// The demo default is 0 — expanding rings were the leftover
+			// compass arcs; the whale look is bow + dome + fluke slicks.
+			const rippleMix = params.sdRipple ?? 1;
+			cutRipples.step( dt, cuts, {
+				width: Math.max( params.sdSwellRadius, 0.2 ),
+				life: params.sdSwellLife ?? 4.5,
+				wave: ( params.sdSwellWave ?? 0.7 ) * ( rippleMix > 0.02 ? 1 : 0 ),
+				speed: dragon.speed ?? 0,
+				climb,
+				maxHeld: Math.min( params.sdSprayEmitters ?? cuts.length, 50 ),
+				maxRings: SWELL_SITES,
+				speedMin: params.sdSwellSpeedMin ?? 0,
+				speedMax: params.sdSwellSpeedMax ?? 40,
+				dirX: Math.sin( dragon.heading ),
+				dirZ: - Math.cos( dragon.heading ),
+				stretch: Math.min( RIPPLE_STRETCH_MAX, Math.abs( dragon.speed ?? 0 ) / 14 ),
+				deep: depth > Math.max( params.sdSwellFade, 3 ) * 0.45
+					&& ( dbr.top ?? dragon.pos[ 1 ] ) < sea,
+				fore: dbr.fore,
+				// Pitch-aware tip, no swim wobble. The breach-profile nose
+				// still rides the body wave and was walking the heap aft.
+				nose: ( () => {
+
+					const along = Math.max( params.sdLength ?? 60, 8 ) * 0.48;
+					const pitch = dragon.pitch ?? 0;
+					const cp = Math.cos( pitch );
+					return {
+						x: dragon.pos[ 0 ] + Math.sin( dragon.heading ) * along * cp,
+						y: dragon.pos[ 1 ] + along * Math.sin( pitch ),
+						z: dragon.pos[ 2 ] - Math.cos( dragon.heading ) * along * cp,
+						half: dbr.nose?.half ?? 2.2,
+					};
+
+				} )(),
+				headWet: !! dbr.headWet,
+			} );
+			const ripples = cutRipples.sites( SWELL_SITES );
+			const bow = cutRipples.bow;
+			const scale = waterDisplaceScale( params );
+			const nearM = Math.max( params.sdDomeNear ?? 7, 0.5 );
+			const seaY = params.sdSeaLevel ?? 0;
+			const alongN = Math.max( params.sdLength ?? 60, 8 ) * 0.48;
+			const noseClear = seaY - ( dragon.pos[ 1 ] + alongN * Math.sin( dragon.pitch ?? 0 ) );
+			const top = dbr.top ?? dragon.pos[ 1 ];
+			const backClear = seaY - top;
+			// Approach still uses the waterline curve. A leap that has
+			// already cleared the sea snaps the loaf off — easing it
+			// while writing the current XZ dragged a hill out with the body.
+			const released = swellReleased( dragon, { noseClear, backClear } );
+			const bowProx = released ? 0 : swellProximity( noseClear, nearM );
+			const domeProx = released ? 0 : swellProximity( backClear, nearM );
+			const ease = 1 - Math.exp( - dt / ( released ? 0.03 : 0.16 ) );
+			const bowWant = ( params.sdBow ?? 1.6 ) * scale * bowProx;
+			if ( released ) swellEase.bow = 0;
+			else swellEase.bow += ( bowWant - swellEase.bow ) * ease;
+			uSwellSiteCount.value = Math.max( ripples.length, swellEase.bow > 0.02 ? 1 : 0 );
+			uSwellBow.value.set( bow.x, bow.z, swellEase.bow, bow.rh );
+			uSwellBowDir.value.set( bow.dirX, bow.dirZ );
+			uSwellBowSoft.value = params.sdBowSoft ?? 1;
+			const hx = Math.sin( dragon.heading );
+			const hz = - Math.cos( dragon.heading );
+			// Wake is the shared boat field (one hull track at the aft
+			// cut). The analytic V and stamp-foam layers painted a
+			// stencil on the neck; they stay off.
+			vWakeEase = 0;
+			vWakeField.reset();
+			setVWakeUniforms( { stamps: [] } );
+			const fluke = flukeWorld(
+				dragon.pos, dragon.heading, params.sdLength, dragon.pitch ?? 0,
+			);
+			const beam = Math.max(
+				waterlineHalfWidth( dragonProfile, ( params.sdSeaLevel ?? 0 ) - dragon.pos[ 1 ] ) * 2,
+				params.sdSwellRadius ?? 2, 1.2,
+			);
+			// When the tail is cutting the sea, print on that waterline
+			// site — a computed fluke 25 m aft of the origin is often
+			// underwater and never fires.
+			let fx = fluke.x, fz = fluke.z, fy = fluke.y;
+			if ( cuts.length ) {
+
+				let aft = cuts[ 0 ];
+				for ( let i = 1; i < cuts.length; i ++ ) {
+
+					if ( ( cuts[ i ].along ?? - Infinity ) > ( aft.along ?? - Infinity ) ) aft = cuts[ i ];
+
+				}
+				fx = aft.x;
+				fz = aft.z;
+				fy = aft.y ?? fluke.y;
+
+			}
+			flukeSlicks.step( dt, {
+				x: fx, z: fz,
+				phase: dragon.phase,
+				speed: dragon.speed ?? 0,
+				beam,
+				clearance: ( params.sdSeaLevel ?? 0 ) - fy,
+				fade: params.sdSwellFade ?? 9,
+				r0: params.sdFlukeSize ?? undefined,
+				life: params.sdFlukeLife ?? undefined,
+				gain: params.sdFluke ?? 1,
+			} );
+			const isLandingHit = dragon.splashHit > 0.5 && dragon.splashAge < dt * 2.0 && dragon.splashKind === 'land';
+			if ( isLandingHit ) {
+
+				flukeSlicks.dropPrint( dragon.splashX, dragon.splashZ, {
+					beam: beam * 1.6,
+					gain: params.sdFluke ?? 1,
+					r0: ( params.sdFlukeSize ?? 8.9 ) * 1.3,
+					life: params.sdFlukeLife ?? 18,
+				} );
+
+			}
+			if ( ( flukeSlicks.hit || isLandingHit ) && rippleMix > 0.02 ) {
+
+				const rx = isLandingHit ? dragon.splashX : fx;
+				const rz = isLandingHit ? dragon.splashZ : fz;
+				cutRipples.throwAt( rx, rz, {
+					width: Math.max( params.sdSwellRadius ?? 2.9, isLandingHit ? 4.0 : 2.9 ),
+					speed: dragon.speed ?? 0,
+					life: params.sdSwellLife ?? 7,
+					wave: params.sdSwellWave ?? 0.82,
+					gain: ( params.sdSwell ?? 1 ) * ( isLandingHit ? 1.5 : 1.0 ),
+					dirX: hx, dirZ: hz,
+				} );
+
+			}
+			const prints = flukeSlicks.sites( FLUKE_PRINTS );
+			lastFlukeSites = prints;
+			uFlukeCount.value = prints.length;
+			for ( let i = 0; i < FLUKE_PRINTS; i ++ ) {
+
+				const p = prints[ i ];
+				if ( p ) uFlukePrints.array[ i ].set( p.x, p.z, p.radius, p.amp );
+				else uFlukePrints.array[ i ].set( 0, 0, 0, 0 );
+
+			}
+			uLeftoverFoamCount.value = 0;
+			// Dorsal pressure ellipse on the mass. Bow keys off the
+			// snout; this keys off the back. sdDomeNear is how close
+			// that station must be.
+			const domeWant = ( params.sdDome ?? 1.2 ) * scale * domeProx;
+			if ( released ) swellEase.dome = 0;
+			else swellEase.dome += ( domeWant - swellEase.dome ) * ease;
+			if ( swellEase.dome > 0.02 ) {
+
+				const domeR = pressureDomeRadii(
+					params.sdLength, beam, swellEase.dome,
+					params.sdDomeSoft ?? 1,
+				);
+				uSwellDome.value.set(
+					dragon.pos[ 0 ], dragon.pos[ 2 ], swellEase.dome,
+					domeR.along,
+				);
+				uSwellDomeDir.value.set( hx, hz );
+				uSwellDomeW.value = domeR.across;
+
+			} else {
+
+				uSwellDome.value.set( 0, 0, 0, 8 );
+				uSwellDomeDir.value.set( hx, hz );
+				uSwellDomeW.value = 4;
+
+			}
+			for ( let i = 0; i < SWELL_SITES; i ++ ) {
+
+				const s = ripples[ i ];
+				if ( s ) {
+
+					uSwellSites.array[ i ].set( s.x, s.z, s.ring, s.width );
+					const amp = s.amp * rippleMix;
+					const stretch = s.stretch ?? 0;
+					const dx = s.dirX ?? 0, dz = s.dirZ ?? 1;
+					uSwellSiteAmp.array[ i ] = amp;
+					uSwellSiteDir.array[ i ].set( dx, dz );
+					uSwellSiteStretch.array[ i ] = stretch;
+					uSwellSitePack.array[ i ].set( amp, stretch, dx, dz );
+					uSwellSiteArc.array[ i ].set( s.arc0 ?? RIPPLE_ARC_COS0, s.arc1 ?? RIPPLE_ARC_COS1 );
+
+				} else {
+
+					uSwellSites.array[ i ].set( 0, 0, 0, - 1 );
+					uSwellSiteAmp.array[ i ] = 0;
+					uSwellSiteDir.array[ i ].set( 0, 1 );
+					uSwellSiteStretch.array[ i ] = 0;
+					uSwellSitePack.array[ i ].set( 0, 0, 0, 1 );
+					uSwellSiteArc.array[ i ].set( RIPPLE_ARC_COS0, RIPPLE_ARC_COS1 );
+
+				}
+
+			}
+			// Packets only. Bow / dome carry their own metres so a
+			// zeroed ripple knob does not kill the snout heap.
+			const gain = params.sdSwell * scale * rippleMix;
+			uSwellAmp.value = ! ripples.length
+				? 0
+				: gain * ( cutRipples.held.some( ( h ) => ! h.released )
+					? Math.max( shallow, 0.2 )
+					: 1 );
 
 		} else {
 
 			uSwellAmp.value = 0;
+			uSwellSiteCount.value = 0;
+			uSwellBow.value.set( 0, 0, 0, 8 );
+			uSwellBowDir.value.set( 0, 1 );
+			uSwellDome.value.set( 0, 0, 0, 8 );
+			uSwellDomeDir.value.set( 0, 1 );
+			uSwellDomeW.value = 4;
+			uFlukeCount.value = 0;
+			uLeftoverFoamCount.value = 0;
+			lastFlukeSites = [];
+			swellEase.bow = 0;
+			swellEase.dome = 0;
+			cutRipples.reset();
+			flukeSlicks.reset();
+			vWakeEase = 0;
+			vWakeField.reset();
+			setVWakeUniforms( { stamps: [] } );
+			for ( let i = 0; i < FLUKE_PRINTS; i ++ ) uFlukePrints.array[ i ].set( 0, 0, 0, 0 );
+			for ( let i = 0; i < SWELL_SITES; i ++ ) {
+
+				uSwellSites.array[ i ].set( 0, 0, 0, - 1 );
+				uSwellSiteAmp.array[ i ] = 0;
+				uSwellSiteDir.array[ i ].set( 0, 1 );
+				uSwellSiteStretch.array[ i ] = 0;
+				uSwellSitePack.array[ i ].set( 0, 0, 0, 1 );
+				uSwellSiteArc.array[ i ].set( RIPPLE_ARC_COS0, RIPPLE_ARC_COS1 );
+
+			}
 
 		}
+
+		// Stamp-foam stays empty. The boat field is the trail; leftover
+		// white ovals from this buffer were the stencil.
+		wakeFoamField.reset();
+		uWakeFoamCount.value = 0;
+		for ( let i = 0; i < WAKE_FOAM_STAMPS; i ++ ) {
+
+			uWakeFoam.array[ i * 2 ].set( 0, 0, 0, 0 );
+			uWakeFoam.array[ i * 2 + 1 ].set( 0, 1, 1, 1 );
+
+		}
+
+		// The splash-field crater is still off. Landing distortions are
+		// the same waterline cuts + ripples a jump-out uses.
+		uSplashEnergy.value = 0;
+		// Fluke markers are posed from this frame's prints (the earlier
+		// call ran before the field stepped).
+		poseDebugEmitters( dbr, ! veh && dbr.runs.length > 0 );
 
 		renderer.setRenderTarget( hdr );
 		renderer.setClearColor( 0x000000, 1 );
@@ -1135,22 +2119,47 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		// rung drew its fullscreen quad AFTER the sea with the depth test off and
 		// painted the LUT's dark below-horizon hemisphere over the ocean. Measured
 		// on the reporting phone as "a sky comes in and the ocean becomes black".
+		const waterOpts = {
+			wake: wake.uniforms( activeParams, wakeHold > 0, lastWakeDims ),
+			hull,
+			wakeWaves: bodies.waves,
+		};
+		const drawSea = () => {
+
+			if ( perf.sea ) mark( 'sea', () => water.render( params, ctx, sim, cam3, waterOpts ) );
+			else drawSeaOccluder();
+
+		};
+		const camUnder = cameraUnderwater( params, camera.pos[ 1 ] );
+		const drawSkyOrUnder = () => {
+
+			if ( camUnder ) underwater.render( params, ctx );
+			else {
+
+				setUnderwaterUniforms( params, ctx );
+				sky.drawBackground( params, ctx );
+
+			}
+
+		};
 		if ( sky.depthMode !== 'behind' ) {
 
-			sky.drawBackground( params, ctx );
-			water.render( params, ctx, sim, cam3, { wake: wake.uniforms( params, rider.active ), hull } );
-			drawDragon();
-			drawCraft();
+			mark( 'sky', drawSkyOrUnder );
+			drawSea();
+			if ( perf.dragon ) mark( 'dragon', () => drawDragonOver( camUnder ) );
+			mark( 'craft', () => drawCraft() );
+			if ( params.sdSprayDebug >= 0.5 || params.sdSwellDebug >= 0.5 || params.sdFlukeDebug >= 0.5 ) renderer.render( debugScene, cam3 );
 
 		} else {
 
-			water.render( params, ctx, sim, cam3, { wake: wake.uniforms( params, rider.active ), hull } );
-			drawDragon();
-			drawCraft();
-			sky.drawBackground( params, ctx );
+			drawSea();
+			if ( perf.dragon ) mark( 'dragon', () => drawDragonOver( camUnder ) );
+			mark( 'craft', () => drawCraft() );
+			if ( params.sdSprayDebug >= 0.5 || params.sdSwellDebug >= 0.5 || params.sdFlukeDebug >= 0.5 ) renderer.render( debugScene, cam3 );
+			mark( 'sky', drawSkyOrUnder );
 
 		}
-		spray.draw( params, ctx, sim, cam3 );
+		mark( 'spray', () => spray.draw( activeParams, ctx, sim, cam3 ) );
 
 		// THE PROBE RUNS AFTER THE WATER, and that is not an ordering nicety.
 		// It samples the cascade displacement through the same uniforms the water
@@ -1162,50 +2171,38 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		// nothing to gain by asking earlier.
 		//
 		// Deliberately not awaited: the frame must never wait on a readback.
-		if ( rider.active ) {
-
-			craftProbe.update( rider.probePoints( params ), {
-				seaLevel: params.seaLevel,
-				// THE HULL MUST NOT READ BACK THE HOLE IT IS CURRENTLY DIGGING.
-				//
-				// surfaceAt() gates the wake it adds by distance from uCraftXZ, and
-				// the port had both halves of that gate wrong: it centred it on the
-				// world position instead of surfXZ() - the Lagrangian coordinate the
-				// wake field is actually indexed by, one to two metres away and
-				// swinging with the wave phase - and it shrank the exclusion radius
-				// from 2.5 hull lengths to 1.5. Between them the craft was reading a
-				// large part of its own live stamp: a hull that sinks into a trough
-				// it deepens by sinking, then springs out of it. craft-probe.js says
-				// in as many words why that must not happen. Reported as "WAY too
-				// bouncy on the water". demo/waverunner.js:205-207 is the reference.
-				craftXZ: rider.surfXZ(),
-				wakeProbe: params.wakeProbe,
-				wakeNear: Math.max( params.wrLength, 0.5 ) * 2.5,
-				// The hull's waterline length - the scale the probe averages the
-				// sea over. craft-probe.js: THE HULL READS A MIPPED SEA.
-				footprint: veh === plane
-					? Math.max( params.spLength * 0.5, 2 )
-					: Math.max( params.wrLength, 0.5 ),
-				// Buoyancy against the LOCAL water, fading out as the hull gets on
-				// the plane. craft-probe.js: THE SEA IS TALLER THAN ITS AVERAGE.
-				// At rest the craft floats on the crest that is actually under it;
-				// at planing speed it skims the averaged sea. craftPlaneFull is the
-				// speed the hull is considered fully planing at, the same knob the
-				// water's hollow uses.
-				chop: veh === plane
-					? 1 - Math.min( 0.95, plane.va / Math.max( params.spTakeoff * 0.7, 1 ) )
-					: 1 - Math.min( 0.9, Math.abs( rider.speed ) / Math.max( params.craftPlaneFull, 1 ) ),
-			} ).then( ( rows ) => veh.acceptProbe( rows ) ).catch( () => {} );
-
-		}
+		//
+		// One probe pool for every floating / ridden body (ski, boat, plane).
+		// The dragon is wake:false and does not sample this pass. Fired after
+		// the water so the cascade uniforms are the live ones — see the note
+		// above. Deliberately not awaited.
+		if ( perf.craft ) bodies.issueProbe( craftProbe, activeParams );
 
 		renderer.setRenderTarget( null );
 
 		// The post chain's last pass writes to opts.output ?? null - the canvas by
 		// default, or a capture target when one was handed in.
-		post.render( hdr.texture, params, dt, time, output ? { output } : {} );
+		{
+			const t0 = performance.now();
+			const p = perf.post ? params
+				: { ...params, bloomIntensity: 0, grain: 0, chromatic: 0, halation: 0 };
+			post.render( hdr.texture, p, dt, time, output ? { output } : {} );
+			perfTimes.stages.post = performance.now() - t0;
+			perfTimes.ran.post = perf.post ? 1 : 0;
+		}
 
+		perfTimes.cpu = performance.now() - cpu0;
+		const info = renderer.info?.render;
+		// WebGPU's info.reset() clears drawCalls / frameCalls / triangles.
+		// render.calls is lifetime and would climb into the hundreds of thousands.
+		perfTimes.draws = info?.drawCalls ?? 0;
+		perfTimes.passes = info?.frameCalls ?? 0;
+		perfTimes.tris = info?.triangles ?? 0;
+		let billed = 0;
+		for ( const k of Object.keys( perfTimes.stages ) ) billed += perfTimes.stages[ k ] || 0;
+		perfTimes.unaccounted = Math.max( 0, perfTimes.cpu - billed );
 		api.onFrame?.();
+		pumpGpuTimers();
 
 		// Once a second, and never overlapping itself.
 		if ( now - diagAt > 1000 ) { diagAt = now; readDiag(); }
@@ -1218,6 +2215,8 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 
 	Object.assign( api, {
 		renderer, backend, fellBack, params, derived, camera, sim, sky, water, spray, post,
+		liveFpsCap: () => liveCap(),
+		perf, perfTimes, enableGpuTimers, attachPerfDebug: ( host ) => installPerfDebug( api, host ),
 		// The camera the frame was actually rasterised through, which is not the
 		// same object as `camera` and need not agree with it. Exposed because that
 		// disagreement was the bug: verification that samples `camera` after the
@@ -1225,11 +2224,44 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		cam3,
 		output,
 		onFrame: null,
-		rider, plane, dragon, wake, craftProbe, craftMesh, planeMesh, hull,
+		rider, plane, boat, dragon, wake, craftProbe, bodies,
+		skiBody, boatBody, planeBody, dragonBody,
+		craftMesh, planeMesh, boatMesh, dragonMesh, hull, refraction,
 		// A FUNCTION, not a getter: the app object gets spread on its way to
 		// window.abyssal, and a spread evaluates a getter ONCE - so the button
 		// read "Follow" forever while the camera was demonstrably following.
-		isFollowing: () => followDragon,
+		isFollowing: () => followDragon || dragon.active,
+		isSwimming: () => dragon.active,
+		// No hull, no chase: a top-down station over the sea so foam / optics
+		// sliders can be judged without the camera locked to anyone. Clicking
+		// it again re-centres the same pose (WASD will have wandered).
+		isLooking: () => ! rider.active && ! plane.active && ! boat.active
+			&& ! dragon.active && ! followDragon,
+		lookAtSea: () => {
+
+			rider.active = false;
+			craftMesh.visible = false;
+			plane.active = false;
+			planeMesh.visible = false;
+			boat.active = false;
+			boatMesh.visible = false;
+			dragon.active = false;
+			followDragon = false;
+			document.body.classList.remove( 'riding', 'flying', 'boating', 'swimming', 'following' );
+
+			const sea = params.seaLevel ?? 0;
+			camera.pos[ 1 ] = sea + 95;
+			camera.yaw = 0.15;
+			camera.pitch = - 1.42;
+			camera.roll = 0;
+			camera.fov = 42;
+			camera.locked = false;
+			lastCamYaw = camera.yaw;
+			lastCamPitch = camera.pitch;
+			camera.moved = true;
+			return true;
+
+		},
 		// FOLLOW THE MONSTER. Not a vehicle - a camera mode. It exists so the
 		// animal can be TUNED: every slider that shapes it (the mound over its
 		// back, its depth, how it rises at speed) is meaningless to adjust while
@@ -1238,8 +2270,27 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 		// the camera straight back rather than snapping anywhere.
 		toggleFollow: () => {
 
+			if ( dragon.active ) {
+
+				followOrbitYaw = 0;
+				followOrbitPitch = 0;
+				lastCamYaw = camera.yaw;
+				lastCamPitch = camera.pitch;
+				return true;
+
+			}
 			followDragon = ! followDragon;
 			document.body.classList.toggle( 'following', followDragon );
+			if ( followDragon ) {
+
+				// Start centred behind the animal, not wherever a previous follow
+				// session's drag left the orbit.
+				followOrbitYaw = 0;
+				followOrbitPitch = 0;
+				lastCamYaw = camera.yaw;
+				lastCamPitch = camera.pitch;
+
+			}
 			return followDragon;
 
 		},
@@ -1248,9 +2299,15 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			rider.active = ! rider.active;
 			if ( rider.active ) {
 
-				// One hull at a time; stepping onto the ski steps out of the plane.
+				// One hull at a time; stepping onto the ski steps out of the plane
+				// and off the boat.
 				plane.active = false;
 				planeMesh.visible = false;
+				boat.active = false;
+				boatMesh.visible = false;
+				dragon.active = false;
+				followDragon = false;
+				document.body.classList.remove( 'swimming', 'following' );
 				rider.reset( camera );
 
 			} else {
@@ -1261,6 +2318,7 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 
 			document.body.classList.toggle( 'riding', rider.active );
 			document.body.classList.toggle( 'flying', false );
+			document.body.classList.toggle( 'boating', false );
 			return rider.active;
 
 		},
@@ -1271,6 +2329,11 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 
 				rider.active = false;
 				craftMesh.visible = false;
+				boat.active = false;
+				boatMesh.visible = false;
+				dragon.active = false;
+				followDragon = false;
+				document.body.classList.remove( 'swimming', 'following' );
 				plane.reset( camera );
 				wake.clear?.();
 
@@ -1282,7 +2345,102 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 
 			document.body.classList.toggle( 'flying', plane.active );
 			document.body.classList.toggle( 'riding', false );
+			document.body.classList.toggle( 'boating', false );
 			return plane.active;
+
+		},
+		// Same shape as toggleRide/toggleFly, and boat.reset() is WaveRunner's
+		// own - it needs no boat-specific version, since resetting a hull to the
+		// camera's position and heading has nothing in it that is ski-shaped.
+		toggleBoat: () => {
+
+			boat.active = ! boat.active;
+			if ( boat.active ) {
+
+				rider.active = false;
+				craftMesh.visible = false;
+				plane.active = false;
+				planeMesh.visible = false;
+				dragon.active = false;
+				followDragon = false;
+				document.body.classList.remove( 'swimming', 'following' );
+				boat.reset( camera );
+				wake.clear?.();
+
+			} else {
+
+				boatMesh.visible = false;
+
+			}
+
+			document.body.classList.toggle( 'boating', boat.active );
+			document.body.classList.toggle( 'riding', false );
+			document.body.classList.toggle( 'flying', false );
+			return boat.active;
+
+		},
+		// Take the helm of the animal. Not a hull - the same cruise-hold
+		// kinematics as a swimming body, with the follow camera locked on.
+		// Stepping off hands pursuit back from wherever you left it.
+		toggleDragon: () => {
+
+			dragon.active = ! dragon.active;
+			if ( dragon.active ) {
+
+				params.sdEnabled = 1;
+				rider.active = false;
+				craftMesh.visible = false;
+				plane.active = false;
+				planeMesh.visible = false;
+				boat.active = false;
+				boatMesh.visible = false;
+				followDragon = true;
+				followOrbitYaw = 0;
+				// Start a little overhead so the first frame is a sky quarter
+				// view, not the waterline the old zero-pitch chase sat on.
+				followOrbitPitch = 0.28;
+				lastCamYaw = camera.yaw;
+				lastCamPitch = camera.pitch;
+				if ( ! dragon._primed ) dragon.reset( camera, params );
+				// A slow cruise you can see, not the crawl a just-started AI
+				// has ramped to (a few m/s) and not the old 0.13·L loaf that
+				// read as parked on a 60 m body. Keep a faster swim if it
+				// already has one.
+				const loaf = loafSpeed( params );
+				if ( dragon.speed < loaf * 0.85 ) {
+
+					dragon.cruiseSpeed = loaf;
+					dragon.speed = loaf;
+
+				} else {
+
+					dragon.cruiseSpeed = dragon.speed;
+
+				}
+				dragon.cruiseDepth = dragon.depth;
+				dragon.level();
+				document.body.classList.add( 'swimming' );
+				document.body.classList.remove( 'riding', 'flying', 'boating' );
+				document.body.classList.add( 'following' );
+
+			} else {
+
+				followDragon = false;
+				document.body.classList.remove( 'swimming', 'following' );
+
+			}
+
+			document.body.classList.toggle( 'riding', false );
+			document.body.classList.toggle( 'flying', false );
+			document.body.classList.toggle( 'boating', false );
+			return dragon.active;
+
+		},
+		levelDragon: () => {
+
+			if ( ! dragon.active ) return false;
+			dragon.level();
+			return true;
 
 		},
 		markSkyDirty: () => { skyDirty = true; },
@@ -1312,6 +2470,7 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			// saving on quality instead of reporting it. Both off for the run.
 			params.fpsCap = 0; params.fpsCapIdle = 0; params.adaptiveQuality = 0;
 
+			enableGpuTimers();
 			const settle = ( ms ) => new Promise( ( r ) => setTimeout( r, ms ) );
 			const measure = ( secs ) => new Promise( ( resolve ) => {
 
@@ -1327,36 +2486,33 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 				}, secs * 1000 );
 
 			} );
+			const averageGpu = async ( samples = 8 ) => {
+
+				const vals = [];
+				for ( let i = 0; i < samples; i ++ ) {
+
+					await settle( 50 );
+					const g = await sampleGpu();
+					if ( g && g.total > 0.01 ) vals.push( g.total );
+
+				}
+				if ( ! vals.length ) return null;
+				return vals.reduce( ( a, b ) => a + b, 0 ) / vals.length;
+
+			};
 
 			const stages = [
-				{ name: 'sim', detail: 'FFT cascades + foam',
-					off: () => { const f = sim.update; sim.update = () => {}; return () => { sim.update = f; }; } },
-				{ name: 'clouds', detail: `${ Math.round( params.cloudSteps ) } steps to 8`,
-					off: () => { const v = params.cloudSteps; params.cloudSteps = 8; return () => { params.cloudSteps = v; }; } },
-				{ name: 'spray', detail: 'GPU particles',
-					off: () => { const f = spray.draw; spray.draw = () => {}; return () => { spray.draw = f; }; } },
-				{ name: 'dragon', detail: 'the animal under the sea',
-					off: () => { const v = params.sdEnabled; params.sdEnabled = 0; return () => { params.sdEnabled = v; }; } },
-				{ name: 'post', detail: 'bloom + grain',
-					off: () => {
-
-						const f = post.render;
-						post.render = ( tex, p, d, t, o ) => f.call( post, tex,
-							{ ...p, bloomIntensity: 0, grain: 0, chromatic: 0, halation: 0 }, d, t, o );
-						return () => { post.render = f; };
-
-					} },
-				{ name: 'craft', detail: 'hull + wake + probe',
-					off: () => {
-
-						const a = wake.update, b = craftProbe.update;
-						wake.update = () => {};
-						craftProbe.update = () => Promise.resolve( craftProbe.result );
-						drawCraftEnabled = false;
-						return () => { wake.update = a; craftProbe.update = b; drawCraftEnabled = true; };
-
-					} },
+				{ name: 'sim', detail: 'FFT cascades + foam' },
+				{ name: 'sea', detail: 'water mesh + shading' },
+				{ name: 'sky', detail: 'dome + cloud march' },
+				{ name: 'spray', detail: 'GPU particles' },
+				{ name: 'dragon', detail: 'the animal + refraction' },
+				{ name: 'craft', detail: 'hull + wake + probe' },
+				{ name: 'floor', detail: 'instanced rocks / coral' },
+				{ name: 'post', detail: 'bloom + grain' },
 			];
+			const savedFlags = { ...perf };
+			for ( const k of Object.keys( perf ) ) perf[ k ] = true;
 
 			// WARM UP FIRST, and bracket the run with a second baseline. Measured
 			// while building this: a baseline taken six seconds after boot ran at
@@ -1365,29 +2521,36 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			// frame. If the two baselines disagree, the report says so rather
 			// than quietly presenting warm-up as stage cost.
 			onProgress?.( 'warming up…' );
-			await settle( 2500 );
-			const fpsFull = await measure( 4 );
-			const msFull = 1000 / fpsFull;
+			await settle( 1200 );
+			const gpuProbe = await averageGpu( 6 );
+			const useGpu = gpuProbe != null;
+			onProgress?.( useGpu ? 'ranking GPU…' : 'ranking by frame time…' );
+			const fpsFull = await measure( useGpu ? 1.2 : 3 );
+			const msFull = useGpu ? gpuProbe : 1000 / fpsFull;
 
 			const rows = [];
 			for ( const st of stages ) {
 
 				onProgress?.( `measuring ${ st.name }…` );
-				const undo = st.off();
-				await settle( 700 );
-				const ms = 1000 / await measure( 3 );
-				undo();
+				perf[ st.name ] = false;
+				await settle( useGpu ? 350 : 700 );
+				const ms = useGpu
+					? await averageGpu( 6 )
+					: 1000 / await measure( 2.2 );
+				perf[ st.name ] = true;
+				const cost = ms == null ? 0 : msFull - ms;
 				rows.push( { stage: st.name, detail: st.detail,
-					ms: + ( msFull - ms ).toFixed( 2 ),
-					share: + ( 100 * ( msFull - ms ) / msFull ).toFixed( 1 ) } );
+					ms: + cost.toFixed( 2 ),
+					share: + ( 100 * Math.max( 0, cost ) / Math.max( msFull, 1e-6 ) ).toFixed( 1 ) } );
 
 			}
 
 			onProgress?.( 'confirming…' );
-			await settle( 700 );
-			const fpsEnd = await measure( 3 );
+			await settle( useGpu ? 350 : 700 );
+			const fpsEnd = await measure( useGpu ? 1 : 2.2 );
 			const drift = Math.abs( fpsEnd - fpsFull ) / Math.max( fpsFull, 1e-6 );
 
+			Object.assign( perf, savedFlags );
 			params.fpsCap = saved.cap; params.fpsCapIdle = saved.idle;
 			params.adaptiveQuality = saved.adapt;
 
@@ -1395,13 +2558,15 @@ export async function boot( { canvas, preset = 'Golden Hour Swell', onReady, bac
 			const report = {
 				fps: + fpsFull.toFixed( 1 ), frameMs: + msFull.toFixed( 1 ),
 				resolution: `${ c.width }x${ c.height }`,
-				backend, riding: rider.active, flying: plane.active,
+				backend, riding: rider.active, flying: plane.active, boating: boat.active,
 				fft: params.fftSize, cloudSteps: Math.round( params.cloudSteps * ( params.cloudStepScale ?? 1 ) ),
 				renderScale: + params.renderScale.toFixed( 2 ),
 				stages: rows.slice().sort( ( a, b ) => b.ms - a.ms ),
 				unaccounted: + ( msFull - rows.reduce( ( a, r ) => a + Math.max( 0, r.ms ), 0 ) ).toFixed( 2 ),
 				driftPct: + ( drift * 100 ).toFixed( 0 ),
 				trustworthy: drift < 0.15,
+				byGpu: useGpu,
+				at: performance.now(),
 			};
 			api.lastProfile = report;
 			return report;

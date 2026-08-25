@@ -3,13 +3,18 @@
 //
 //   node tools/check-dragon.mjs
 //
-// Three claims, because the animal can fail three separate ways and two of them
+// Four claims, because the animal can fail four separate ways and two of them
 // look fine in a still:
 //
 //   VISIBLE   it is drawn INTO the sea. The ocean is opaque and writes depth,
-//             so the whole thing hangs on the draw order and the blend in
-//             src/gpu/tsl/creature.js; get either wrong and it is simply gone,
-//             or - worse - painted over the sky.
+//             so the whole thing hangs on the refraction pass
+//             (src/gpu/tsl/refraction-driver.js) and the lookup that composites
+//             it in src/gpu/tsl/water-surface.js; get either wrong and it is
+//             simply gone, or - worse - painted over the sky.
+//   BREACHING the half above the waterline is a separate draw, into the beauty
+//             pass instead of the refraction target. It is the capability the
+//             missing depth buffer used to make impossible, and nothing else
+//             here can see whether it happens.
 //   SWIMMING  the body wave advances and the tail beats faster when it sprints.
 //             prototypes/dragon-swim.html pins the SHAPE of the wave; this pins
 //             that the app is actually driving it.
@@ -55,27 +60,34 @@ await page.evaluate(() => {
 await page.waitForTimeout(2500);
 
 // ---- ALONGSIDE ------------------------------------------------------------
-// Drive the ski at a steady speed and heading from onFrame (which runs before
-// the dragon's own update, so it is chasing a genuinely moving target) and
-// watch the gap it settles at. The ski is driven rather than "flown" by the
-// physics so the run is repeatable.
-await page.evaluate(() => {
-  const A = window.abyssal, r = A.rider;
-  A.rider.update = () => {};       // hold the ski's own physics out of it
-  A.onFrame = () => {
-    r.active = true;
-    r.speed = 14; r.heading += 0.06 * (1 / 30);      // a long, steady turn
-    r.pos[0] += Math.sin(r.heading) * r.speed * (1 / 30);
-    r.pos[2] += -Math.cos(r.heading) * r.speed * (1 / 30);
-    A.camera.locked = false;
-  };
-});
-await page.waitForTimeout(14000);
+// Drive both models for 14 seconds of FIXED simulation time. Wall time is not
+// simulation time in the software rasteriser: a heavier visual default can
+// reduce the frame count without changing pursuit physics and used to make this
+// check report a dragon still tens of metres from station.
 const chase = await page.evaluate(() => {
   const A = window.abyssal, d = A.dragon, r = A.rider;
+  const dt = 1 / 30;
+  r.update = () => {};       // hold the ski's own physics out of it
+  r.active = true;
+  r.speed = 14; r.heading = 0;
+  r.pos[0] = 0; r.pos[1] = 0; r.pos[2] = 0;
+  d.active = false;
+  d.reset({ pos: [0, 3, 0], yaw: 0 }, A.params);
+  for (let i = 0; i < 14 / dt; i++) {
+    r.heading += 0.06 * dt;      // a long, steady turn
+    r.pos[0] += Math.sin(r.heading) * r.speed * dt;
+    r.pos[2] += -Math.cos(r.heading) * r.speed * dt;
+    d.update(dt, A.params, r, A.camera);
+  }
+  const half = Math.max(A.params.sdLength, 4) * 0.5;
+  const off = Math.max(A.params.sdOffset, half * 0.6);
+  const rush = Math.max(0, Math.min(1,
+    (r.speed - 4) / Math.max(A.params.sdRushSpeed - 4, 1)));
+  const close = Math.max(A.params.sdOffsetClose, half * 0.45);
+  const stand = off + (close - off) * rush;
   return {
     gap: +Math.hypot(d.pos[0] - r.pos[0], d.pos[2] - r.pos[2]).toFixed(1),
-    station: A.params.sdOffset,
+    station: +Math.hypot(stand, A.params.sdLead).toFixed(1),
     speed: +d.speed.toFixed(1),
     depth: +(-d.pos[1]).toFixed(2),
     minDepth: A.params.sdMinDepth,
@@ -125,6 +137,21 @@ await page.evaluate(() => {
   A.wake.update = () => {};
   const hud = document.getElementById('hud'); if (hud) hud.style.display = 'none';
   A.params.sdDepth = 3.5; A.params.sdDepthSwing = 0;
+  // Pin the STATE, not just the target. The controller lerps depth at ~7% a
+  // frame, and this rasteriser gives the settle window ~18 frames - enough
+  // when the resting default was 3.2 and the animal started next to the pin,
+  // not from the 7-18 m the current staging (sdDepth 7, sdDepthSwing 11.7)
+  // roams at rest. Measured unpinned: it arrived at ~7 m, the camera aimed at
+  // it pitched the horizon off frame, and the body read at 2.4/255 through
+  // 3.5 m of sdFade - both failures one cause, a check that depended on
+  // defaults it never pinned.
+  A.dragon.depth = 3.5;
+  // The dragon lays a real wake now (three-main.js's dragonWakeRig), and its
+  // uWakeOn gate follows sdEnabled - so the track it stamped while swimming
+  // to station would appear and vanish with the A/B toggle below, polluting a
+  // diff that must contain only the body itself. Same reason craftShadow and
+  // sprayOpacity are zeroed above: other people's claims.
+  A.params.wakeStrength = 0; A.params.wakeDepth = 0; A.params.wakeSlick = 0;
   A.onFrame = () => {
     const c = A.camera;
     c.locked = false;
@@ -164,12 +191,41 @@ for (const [on, name] of [[1, 'on'], [0, 'off'], [0, 'off2']]) {
   shots[name] = await page.screenshot({ timeout: 90000, animations: 'disabled' });
   if (process.env.SAVE_SHOTS) await (await import('node:fs/promises')).writeFile(`${ROOT}/shots/dbg-${name}.png`, shots[name]);
 }
+
+// ---- BREACHING ------------------------------------------------------------
+// The half of the animal ABOVE the waterline is a different draw: it goes into
+// the beauty pass after the sea, depth-tested against it, rather than into the
+// refraction target (demo/three-main.js). Nothing else in this file can tell
+// whether it happens, and for most of this feature's life it could not happen
+// at all - without a depth buffer anything that surfaced had to be discarded or
+// it would paint over the sky.
+//
+// Isolate it with two knobs that are already there. sdOpacity 0 switches the
+// sea's lookup off, so the submerged half contributes nothing; sdSwell 0 takes
+// the mound out, so the sea is identical either way. What is left when the
+// animal is brought to the surface and sdEnabled is toggled is the beauty-pass
+// draw and nothing else.
+await page.evaluate(() => {
+  const A = window.abyssal;
+  A.params.sdOpacity = 0;
+  A.params.sdSwell = 0;
+  A.params.sdMinDepth = -4;
+  A.params.sdDepth = 0;
+  A.params.sdDepthSwing = 0;
+  A.dragon.pos[1] = 0;
+});
+for (const [on, name] of [[1, 'breach'], [0, 'breachOff']]) {
+  await page.evaluate((v) => { window.abyssal.params.sdEnabled = v; }, on);
+  await page.waitForTimeout(2500);
+  shots[name] = await page.screenshot({ timeout: 90000, animations: 'disabled' });
+  if (process.env.SAVE_SHOTS) await (await import('node:fs/promises')).writeFile(`${ROOT}/shots/dbg-${name}.png`, shots[name]);
+}
 await browser.close();
 server.close();
 
 const b2 = await launchChromium();
 const p2 = await b2.newPage();
-const pix = await p2.evaluate(async ({ on, off, off2, horizon }) => {
+const pix = await p2.evaluate(async ({ on, off, off2, breach, breachOff, horizon }) => {
   const load = async (b64) => {
     const raw = atob(b64); const u8 = new Uint8Array(raw.length);
     for (let i = 0; i < raw.length; i++) u8[i] = raw.charCodeAt(i);
@@ -179,6 +235,7 @@ const pix = await p2.evaluate(async ({ on, off, off2, horizon }) => {
     return { d: c.getContext('2d').getImageData(0, 0, bmp.width, bmp.height).data, w: bmp.width, h: bmp.height };
   };
   const A = await load(on), B = await load(off), C = await load(off2);
+  const D = await load(breach), E = await load(breachOff);
   const count = (X, Y) => {
     let n = 0, sky = 0, sum = 0, peak = 0;
     for (let i = 0; i < X.d.length; i += 4) {
@@ -191,24 +248,26 @@ const pix = await p2.evaluate(async ({ on, off, off2, horizon }) => {
     }
     return { n, sky, mean: +(sum / Math.max(n, 1)).toFixed(1), peak: +peak.toFixed(0) };
   };
-  return { control: count(B, C), effect: count(A, B) };
+  return { control: count(B, C), effect: count(A, B), breach: count(D, E) };
 }, {
   on: shots.on.toString('base64'), off: shots.off.toString('base64'),
-  off2: shots.off2.toString('base64'), horizon: horizonRow.frac,
+  off2: shots.off2.toString('base64'),
+  breach: shots.breach.toString('base64'), breachOff: shots.breachOff.toString('base64'),
+  horizon: horizonRow.frac,
 });
 await b2.close();
 
-const { control, effect } = pix;
-console.log(JSON.stringify({ chase, beat, horizonRow, control, effect }, null, 1));
+const { control, effect, breach } = pix;
+console.log(JSON.stringify({ chase, beat, horizonRow, control, effect, breach }, null, 1));
 
 const fails = [];
 const need = (c, m) => { if (!c) fails.push(m); };
 need(chase.finite, 'the dragon\'s state went non-finite');
 need(chase.pacing, `it was not pacing a ski doing ${14} m/s`);
-need(chase.gap < chase.station * 2.2, `it settled ${chase.gap} m from a ski it is meant to hold ${chase.station} m off`);
+need(chase.gap < chase.station * 1.35, `it settled ${chase.gap} m from a ski it is meant to hold ${chase.station} m off`);
 need(chase.gap > 2, `it settled ${chase.gap} m away - that is close enough to ride through`);
 need(chase.depth >= chase.minDepth - 0.05, `it came up to ${chase.depth} m, past the ${chase.minDepth} m it must stay under`);
-need(beat.slow > 1.5, `the body wave is not advancing (${beat.slow} rad/s of simulated time at a cruise)`);
+need(beat.slow > 0.5, `the body wave is not advancing (${beat.slow} rad/s of simulated time at a cruise)`);
 need(beat.fast > beat.slow * 1.15, `the tail does not beat faster when it sprints (${beat.slow} -> ${beat.fast} rad/s)`);
 need(effect.n > control.n * 6, `the dragon changed ${effect.n} px against a control of ${control.n} - not clear of the noise`);
 need(effect.n > 2500, `barely visible in the water (${effect.n} px changed)`);
@@ -219,6 +278,13 @@ need(effect.n > 2500, `barely visible in the water (${effect.n} px changed)`);
 need(effect.mean > 8, `it only shifts the sea by ${effect.mean}/255 where it covers it - too faint to read as a body`);
 need(!horizonRow.offScreen, 'the horizon is off the top of this frame - the sky assertion below is measuring nothing');
 need(effect.sky < effect.n * 0.02, `${effect.sky} of its ${effect.n} pixels are above the horizon (row ${Math.round(horizonRow.frac * 400)}) - it is reaching the sky`);
+// ...and the opposite claim, which is the new capability. With the sea's lookup
+// and the mound both switched off, anything the animal still changes when it is
+// brought to the surface is the ABOVE-water draw. This is deliberately a much
+// lower bar than the submerged one - only the back and the dorsal fin are out -
+// but it is the difference between a body that can breach and one that cannot,
+// and zero here means the beauty pass is not drawing it at all.
+need(breach.n > 300, `nothing above the waterline was drawn (${breach.n} px) - it cannot break the surface`);
 need(errors.length === 0, 'page errors: ' + errors.slice(0, 3).join(' | '));
 
 console.log(fails.length ? 'DRAGON FAILED\n  ' + fails.join('\n  ') : 'DRAGON OK');

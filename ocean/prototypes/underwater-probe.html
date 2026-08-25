@@ -1,0 +1,140 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — going under the sea fills a water column</title>
+
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}</style>
+<pre id="out">running…</pre>
+<canvas id="view" width="480" height="300"></canvas>
+
+<!--
+  There is no dry-air sky under the sea. This parks the camera below the
+  surface and checks the column pass is on, that looking down is a blue-green
+  fade (not the sky's tan nadir — a fogged shelf with caustics is fine),
+  and that the look-off switch works.
+
+  node tools/run-probe.mjs prototypes/underwater-probe.html
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { installWebGPUSwizzleShim } from './webgpu-shim.js';
+import { boot } from '../demo/three-main.js';
+import { uUwOn, uUwDepth } from '../src/gpu/tsl/underwater.js';
+
+installWebGPUSwizzleShim();
+
+const q = new URLSearchParams(location.search);
+const WANT = (q.get('backend') || 'webgl').toLowerCase();
+const OVERRIDES = {
+  fftSize: +(q.get('fft') || 64),
+  sprayTexSize: +(q.get('sprayTex') || 32),
+  cloudSteps: +(q.get('cloudSteps') || 8),
+  gridScale: +(q.get('gridScale') || 0.35),
+};
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+const frames = (k) => new Promise((resolve) => {
+  let i = 0;
+  const tick = () => (++i >= k ? resolve() : requestAnimationFrame(tick));
+  requestAnimationFrame(tick);
+});
+
+const band = (canvas) => {
+  const s = document.createElement('canvas');
+  s.width = 160; s.height = 100;
+  const c = s.getContext('2d');
+  c.drawImage(canvas, 0, 0, s.width, s.height);
+  const d = c.getImageData(0, 0, s.width, s.height).data;
+  let r = 0, g = 0, b = 0, n = 0;
+  for (let i = 0; i < d.length; i += 4) {
+    r += d[i]; g += d[i + 1]; b += d[i + 2]; n++;
+  }
+  return { r: r / n, g: g / n, b: b / n };
+};
+
+const work = (async () => {
+  let backend = '?';
+  try {
+    const canvas = document.getElementById('view');
+    const app = await boot({ canvas, backend: WANT, overrides: OVERRIDES });
+    backend = app.backend;
+    log(`${backend}: boot() resolved`, true, '');
+
+    const A = app;
+    A.params.adaptiveQuality = 0; A.params.fpsCap = 0;
+    A.params.underwater = 1;
+    A.lookAtSea();
+    A.camera.locked = true;
+    await frames(4);
+
+    let holdY = -8;
+    let holdPitch = 1.05;
+    A.onFrame = () => {
+      A.camera.pos[0] = 0;
+      A.camera.pos[1] = holdY;
+      A.camera.pos[2] = 0;
+      A.camera.pitch = holdPitch;
+      A.camera.yaw = 0;
+      A.camera.roll = 0;
+      A.camera.locked = true;
+    };
+    await frames(10);
+    log('a camera under the sea turns the column on',
+      uUwOn.value === 1 && uUwDepth.value > 7,
+      `uUwOn ${ uUwOn.value } depth ${ uUwDepth.value.toFixed(2) } y ${ A.camera.pos[1].toFixed(1) }`);
+
+    holdPitch = -1.15;
+    await frames(12);
+    const down = band(canvas);
+    log('looking down is blue-green, not the sky\'s tan nadir',
+      down.b > down.r && down.g > down.r && down.b + down.g > down.r * 2,
+      `mean RGB ${ down.r.toFixed(1) }, ${ down.g.toFixed(1) }, ${ down.b.toFixed(1) } pitch ${ A.camera.pitch.toFixed(2) }`);
+
+    holdPitch = 1.05;
+    await frames(12);
+    const up = band(canvas);
+    log('looking up is brighter than looking down',
+      (up.r + up.g + up.b) > (down.r + down.g + down.b) * 0.85,
+      `up ${(up.r+up.g+up.b).toFixed(0)} vs down ${(down.r+down.g+down.b).toFixed(0)} pitch ${ A.camera.pitch.toFixed(2) }`);
+
+    A.params.underwater = 0;
+    await frames(4);
+    log('Underwater look = 0 leaves the column off',
+      uUwOn.value === 0,
+      `uUwOn ${ uUwOn.value }`);
+
+    A.params.underwater = 1;
+    holdY = 12;
+    holdPitch = 0.1;
+    await frames(4);
+    log('a camera back above the sea turns the column off',
+      uUwOn.value === 0,
+      `uUwOn ${ uUwOn.value } y ${ A.camera.pos[1].toFixed(1) }`);
+
+    return 'done';
+  } catch (e) {
+    log(`${backend}: run the underwater probe`, false, String(e.stack || e.message || e).slice(0, 1000));
+    return 'error';
+  }
+})();
+
+const timedOut = Symbol('timeout');
+const outcome = await Promise.race([work, new Promise((r) => setTimeout(() => r(timedOut), 60000))]);
+if (outcome === timedOut) log('the probe itself', false, 'no result after 60s');
+
+window.probeResult = { results, allOk: results.length > 0 && results.every((r) => r.ok) };
+</script>

@@ -1,5 +1,39 @@
 import { v3, mat4, mul, perspective, lookAt, invert, vNorm, vCross, clamp, DEG } from '../src/math.js';
 
+const WORLD_UP = [ 0, 1, 0 ];
+
+/**
+ * Fill fwd/right/up from yaw, pitch, roll. matrices() calls this so the
+ * sea (cam3.lookAt(fwd)) and the sky (invViewProj from the same basis)
+ * cannot disagree after a later write to yaw/pitch — a fast look used
+ * to tear a black seam at the horizon.
+ */
+export function applyCameraBasis( yaw, pitch, roll, fwd, right, up ) {
+
+	const cp = Math.cos( pitch ), sp = Math.sin( pitch );
+	const cy = Math.cos( yaw ), sy = Math.sin( yaw );
+	fwd[ 0 ] = cp * sy; fwd[ 1 ] = sp; fwd[ 2 ] = - cp * cy;
+	vNorm( fwd, fwd );
+	vCross( fwd, WORLD_UP, right );
+	vNorm( right, right );
+	vCross( right, fwd, up );
+	if ( roll ) {
+
+		const cr = Math.cos( roll ), sr = Math.sin( roll );
+		const r0 = right[ 0 ], r1 = right[ 1 ], r2 = right[ 2 ];
+		const u0 = up[ 0 ], u1 = up[ 1 ], u2 = up[ 2 ];
+		right[ 0 ] = r0 * cr + u0 * sr;
+		right[ 1 ] = r1 * cr + u1 * sr;
+		right[ 2 ] = r2 * cr + u2 * sr;
+		up[ 0 ] = u0 * cr - r0 * sr;
+		up[ 1 ] = u1 * cr - r1 * sr;
+		up[ 2 ] = u2 * cr - r2 * sr;
+
+	}
+	return fwd;
+
+}
+
 export class Camera {
   constructor(canvas) {
     this.canvas = canvas;
@@ -79,6 +113,10 @@ export class Camera {
     window.addEventListener('keydown', (e) => {
       if (e.target && /input|select|textarea/i.test(e.target.tagName)) return;
       this.keys.add(e.code);
+      // Arrows scroll the page; Space pages down. Both are vehicle keys.
+      if (e.code === 'ArrowUp' || e.code === 'ArrowDown'
+        || e.code === 'ArrowLeft' || e.code === 'ArrowRight'
+        || e.code === 'Space') e.preventDefault();
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     window.addEventListener('blur', () => this.keys.clear());
@@ -98,25 +136,7 @@ export class Camera {
     if (k.has('KeyE') || k.has('Space')) my += 1;
     if (k.has('KeyQ') || k.has('ControlLeft')) my -= 1;
 
-    const cp = Math.cos(this.pitch), sp2 = Math.sin(this.pitch);
-    const cy = Math.cos(this.yaw), sy = Math.sin(this.yaw);
-    this.fwd[0] = cp * sy; this.fwd[1] = sp2; this.fwd[2] = -cp * cy;
-    vNorm(this.fwd, this.fwd);
-    vCross(this.fwd, v3(0, 1, 0), this.right);
-    vNorm(this.right, this.right);
-    vCross(this.right, this.fwd, this.up);
-
-    // Roll the basis, not just the view matrix, so anything built from the
-    // camera axes - spray billboards especially - banks with the horizon.
-    if (this.roll) {
-      const cr = Math.cos(this.roll), sr = Math.sin(this.roll);
-      const r0 = [this.right[0], this.right[1], this.right[2]];
-      const u0 = [this.up[0], this.up[1], this.up[2]];
-      for (let i = 0; i < 3; i++) {
-        this.right[i] = r0[i] * cr + u0[i] * sr;
-        this.up[i] = u0[i] * cr - r0[i] * sr;
-      }
-    }
+    this.rebuildBasis();
 
     // Something else is driving this camera; it still needs its basis, but the
     // flying controls must not fight it.
@@ -146,14 +166,34 @@ export class Camera {
       this.moved = true;
     }
 
-    this.pos[1] = Math.max(this.pos[1], p.minAltitude);
+    // minAltitude is the air floor (a ski eye). With the underwater look
+    // on, Q can take you through the surface — the column pass owns that
+    // side. Off, the old clamp still stops you punching through the sea.
+    const floor = ( p.underwater ?? 1 ) >= 0.5
+      ? ( p.seaLevel ?? 0 ) - 80
+      : p.minAltitude;
+    this.pos[1] = Math.max(this.pos[1], floor);
+  }
+
+  rebuildBasis(extraYaw = 0, extraPitch = 0) {
+    applyCameraBasis(
+      this.yaw + extraYaw,
+      this.pitch + extraPitch,
+      this.roll,
+      this.fwd, this.right, this.up,
+    );
+    return this;
   }
 
   matrices(w, h, jitterX = 0, jitterY = 0) {
+    // Rebuild AFTER any chase/follow write to yaw/pitch, and with the
+    // same handheld drift the look target used to apply only here. The
+    // sea aims with fwd; the sky unprojects with this view matrix.
+    this.rebuildBasis(this._driftY, this._driftP);
     const target = v3(
-      this.pos[0] + Math.cos(this.pitch + this._driftP) * Math.sin(this.yaw + this._driftY),
-      this.pos[1] + Math.sin(this.pitch + this._driftP),
-      this.pos[2] - Math.cos(this.pitch + this._driftP) * Math.cos(this.yaw + this._driftY),
+      this.pos[0] + this.fwd[0],
+      this.pos[1] + this.fwd[1],
+      this.pos[2] + this.fwd[2],
     );
     lookAt(this.pos, target, this.up, this.view);
     perspective(this.fov * DEG, w / h, this.near, this.far, this.proj);
