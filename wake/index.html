@@ -1,0 +1,25 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Boat wake — prototype</title>
+<link rel="stylesheet" href="./src/ui.css">
+
+<canvas id="gl" oncontextmenu="return false"></canvas>
+
+<div id="hud">
+  <span id="fps">—</span>
+  <span class="hint">drag&nbsp;·&nbsp;orbit &nbsp; wheel&nbsp;·&nbsp;zoom &nbsp; T&nbsp;·&nbsp;top-down &nbsp; A/D&nbsp;·&nbsp;steer &nbsp; W/S&nbsp;·&nbsp;throttle &nbsp; F&nbsp;·&nbsp;field &nbsp; H&nbsp;·&nbsp;hide UI</span>
+</div>
+
+<div id="ui"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/three.module.min.js",
+    "three/webgpu": "./vendor/three/three.module.min.js",
+    "three/tsl": "./vendor/three/three.module.min.js"
+  }
+}
+</script>
+<script type="module" src="./src/main.js"></script>

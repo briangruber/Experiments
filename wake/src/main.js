@@ -1,0 +1,187 @@
+import * as THREE from 'three';
+import { PARAMS, get, set } from './params.js';
+import { WakeField } from './wakeField.js';
+import { Ocean } from './ocean.js';
+import { makeBoat } from './boat.js';
+import { buildUI } from './ui.js';
+
+const canvas = document.getElementById('gl');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setClearColor(0x0a1017);
+
+const scene = new THREE.Scene();
+scene.add(new THREE.AmbientLight(0xa8c0d8, 1.1));
+const sun = new THREE.DirectionalLight(0xfff2e0, 2.2);
+scene.add(sun);
+
+const camera = new THREE.PerspectiveCamera(38, 1, 0.5, 3000);
+
+const wake = new WakeField(renderer, 1024);
+const ocean = new Ocean(wake);
+scene.add(ocean.mesh);
+
+const boat = makeBoat();
+scene.add(boat);
+
+// --------------------------------------------------------------- boat state --
+// Position is the BOW: the arms are born there, so that is the anchor.
+const state = { x: 0, z: 0, heading: 0, t: 0 };
+
+// ------------------------------------------------------------------- camera --
+// Straight down by default, because that is the view the reference is shot from
+// and the only one where the wake's geometry is unambiguous.
+const view = { pitch: -Math.PI / 2, yaw: 0, dist: 105, topDown: true, follow: true };
+
+let drag = null;
+canvas.addEventListener('pointerdown', (e) => {
+  drag = { x: e.clientX, y: e.clientY };
+  canvas.setPointerCapture(e.pointerId);
+});
+canvas.addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  view.yaw -= (e.clientX - drag.x) * 0.005;
+  view.pitch = THREE.MathUtils.clamp(view.pitch - (e.clientY - drag.y) * 0.005, -Math.PI / 2, -0.03);
+  view.topDown = false;
+  drag = { x: e.clientX, y: e.clientY };
+});
+addEventListener('pointerup', () => (drag = null));
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  view.dist = THREE.MathUtils.clamp(view.dist * Math.exp(e.deltaY * 0.0012), 8, 900);
+}, { passive: false });
+
+const keys = new Set();
+addEventListener('keydown', (e) => {
+  const k = e.key.toLowerCase();
+  keys.add(k);
+  if (k === 't') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
+  if (k === 'h') document.body.classList.toggle('hide-ui');
+  if (k === 'f') { hud.dataset.field = hud.dataset.field === '1' ? '' : '1'; }
+});
+addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
+
+// ----------------------------------------------------------------- wake view --
+// A small inset showing the raw field texture, so it is obvious whether an odd
+// look is coming from the wake maths or from the water shading.
+const fieldScene = new THREE.Scene();
+const fieldCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const fieldQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
+  uniforms: { uTex: { value: wake.rt.texture } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy,0.0,1.0); }',
+  fragmentShader: `
+    varying vec2 vUv; uniform sampler2D uTex;
+    void main(){
+      vec4 t = texture2D(uTex, vUv);
+      vec3 c = vec3(clamp(t.r,0.0,1.5)*0.66, clamp(t.g*1.6+0.5,0.0,1.0)*0.5, clamp(t.b,0.0,1.0)*0.5);
+      gl_FragColor = vec4(pow(c, vec3(0.85)), 1.0);
+    }`,
+}));
+fieldScene.add(fieldQuad);
+
+// --------------------------------------------------------------------- boot --
+const hud = document.getElementById('hud');
+buildUI(document.getElementById('ui'), {
+  onChange: () => boat.userData.scaleTo(),
+});
+
+// URL overrides: ?arms.angle=18&boat.speed=15 — handy for headless captures.
+for (const [k, v] of new URLSearchParams(location.search)) {
+  if (k.includes('.')) set(k, v);
+  else if (k === 'cam') { const [p, y, d] = v.split(',').map(Number); view.pitch = p; view.yaw = y; view.dist = d; view.topDown = false; }
+}
+
+function resize() {
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize);
+resize();
+
+// --------------------------------------------------------------------- loop --
+let last = performance.now();
+let fpsAcc = 0, fpsN = 0;
+
+// Sim is stepped independently of rendering, so a slow (or headless) frame rate
+// shortens the wake rather than silently rewinding the boat.
+function stepSim(dt) {
+  state.t += dt;
+  let speed = get('boat.speed');
+  let turn = get('boat.turnRate') * Math.PI / 180;
+  if (keys.has('a')) turn -= 0.42;
+  if (keys.has('d')) turn += 0.42;
+  if (keys.has('w')) speed *= 1.6;
+  if (keys.has('s')) speed *= 0.35;
+
+  state.heading += turn * dt;
+  const hx = Math.sin(state.heading), hz = Math.cos(state.heading);
+  state.x += hx * speed * dt;
+  state.z += hz * speed * dt;
+  wake.pushSample(state.x, state.z, hx, hz, state.t);
+  return { hx, hz };
+}
+
+// ?prewarm=90 — run 90 seconds of boat before the first frame, so a capture (or
+// a reload mid-tuning) starts with a full-length wake instead of a stub.
+const PREWARM = +(new URLSearchParams(location.search).get('prewarm') || 0);
+for (let i = 0; i < PREWARM * 30; i++) stepSim(1 / 30);
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min((now - last) / 1000, 0.05);
+  last = now;
+
+  const { hx, hz } = stepSim(dt);
+  boat.position.set(state.x, 0, state.z);
+  boat.rotation.y = state.heading;
+  // Centre the field a little astern: that is where the wake actually is.
+  wake.focus(state.x - hx * get('field.extent') * 0.28, state.z - hz * get('field.extent') * 0.28);
+  wake.update(state.t);
+
+  // Camera: chase from behind and above, or straight down.
+  const cy = Math.sin(-view.pitch), cr = Math.cos(-view.pitch);
+  const yaw = view.topDown ? state.heading : state.heading + view.yaw;
+  const off = new THREE.Vector3(-Math.sin(yaw) * cr, cy, -Math.cos(yaw) * cr).multiplyScalar(view.dist);
+  const look = new THREE.Vector3(state.x - hx * view.dist * 0.16, 0, state.z - hz * view.dist * 0.16);
+  camera.position.copy(look).add(off);
+  camera.up.set(0, 1, 0);
+  camera.lookAt(look);
+
+  const sd = new THREE.Vector3(
+    Math.cos(get('ocean.sunElev') * Math.PI / 180) * Math.sin(get('ocean.sunAzim') * Math.PI / 180),
+    Math.sin(get('ocean.sunElev') * Math.PI / 180),
+    Math.cos(get('ocean.sunElev') * Math.PI / 180) * Math.cos(get('ocean.sunAzim') * Math.PI / 180),
+  );
+  sun.position.copy(sd).multiplyScalar(200).add(boat.position);
+  sun.target.position.copy(boat.position);
+  sun.target.updateMatrixWorld();
+
+  ocean.update(state.t, camera.position, state.x, state.z, wake);
+
+  renderer.setViewport(0, 0, renderer.domElement.width, renderer.domElement.height);
+  renderer.setScissorTest(false);
+  renderer.render(scene, camera);
+
+  if (hud.dataset.field === '1') {
+    const s = Math.round(Math.min(renderer.domElement.width, renderer.domElement.height) * 0.3);
+    const m = 12;
+    renderer.setScissorTest(true);
+    renderer.setViewport(m, m, s, s);
+    renderer.setScissor(m, m, s, s);
+    renderer.render(fieldScene, fieldCam);
+    renderer.setScissorTest(false);
+  }
+
+  fpsAcc += 1 / Math.max(dt, 1e-4); fpsN++;
+  if (fpsN >= 30) {
+    hud.querySelector('#fps').textContent = `${Math.round(fpsAcc / fpsN)} fps`;
+    fpsAcc = 0; fpsN = 0;
+  }
+  window.__ready = true;
+}
+requestAnimationFrame(frame);
+
+// Expose for the headless capture harness.
+window.__wake = { PARAMS, set, get, state, view, renderer, wake, ocean };
