@@ -29,7 +29,7 @@
 
 import { AbyssalWater, AbyssalSky } from '../vendor/abyssal/src/three/index.js';
 import { newParams } from '../vendor/abyssal/src/presets.js';
-import { get } from './params.js';
+
 
 /**
  * Everything in Abyssal that draws its own wake, foam ribbon or whitewater,
@@ -59,14 +59,21 @@ export const QUIET = {
 	sdVWakeFoam: 0,
 };
 
-/** Parameters the prototype drives from its own UI, mapped onto Abyssal's. */
-function liveParams( p ) {
-
-	p.sunElevation = get( 'ocean.sunElev' );
-	p.sunAzimuth = get( 'ocean.sunAzim' );
-	return p;
-
-}
+// The sun deliberately flows the OTHER way: Abyssal owns it, and the lab
+// follows.
+//
+// The first pass had the lab's ocean.sunElev driving Abyssal's sunElevation,
+// and it rendered a nearly black sea. The value is 3 degrees — tuned against
+// the lab's own analytic sky function, where a low number is simply a warmer
+// gradient and costs nothing. Abyssal has a real atmosphere: at 3 degrees the
+// sun is through so much air that almost no light reaches the water, and from
+// overhead, with no sky to reflect and no seafloor beneath, the sea is
+// genuinely, correctly black.
+//
+// So the two numbers were never on the same scale, and the direction of the
+// mapping was the bug. Abyssal's preset owns the sun now; sunDirection() hands
+// it back so the prototype's own directional light, terrain and boat are lit
+// by the same sun the sea and sky are.
 
 export class AbyssalSea {
 
@@ -96,9 +103,20 @@ export class AbyssalSea {
 	/** Step the wave simulation and the atmosphere. `dt` in seconds. */
 	update( dt, camera ) {
 
-		liveParams( this.params );
 		this.water.update( dt, camera );
 		this.sky.update( dt, camera );
+
+	}
+
+	/**
+	 * Unit vector toward the sun, so everything the prototype draws itself is
+	 * lit by the same one the sea and sky use. Returns null before the first
+	 * update, which is the caller's cue to keep its own.
+	 */
+	sunDirection() {
+
+		const d = this.water?.sunDirection;
+		return d && d.length === 3 ? d : null;
 
 	}
 

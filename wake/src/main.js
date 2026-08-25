@@ -363,6 +363,18 @@ function frame(now) {
 
   const abyssal = useAbyssal();
   labSky.visible = !abyssal;
+  if (abyssal) {
+    // One sun for the whole frame. Abyssal's atmosphere owns it, so the boat
+    // and the terrain take their light from there rather than from the lab's
+    // own sun slider, which is on a different scale entirely (see abyssalSea.js).
+    const asd = sea.sunDirection();
+    if (asd) {
+      sd.set(asd[0], asd[1], asd[2]);
+      sun.position.copy(sd).multiplyScalar(200).add(boat.position);
+      sun.target.position.copy(boat.position);
+      sun.target.updateMatrixWorld();
+    }
+  }
   if (!abyssal) {
     ocean.update(state.t, camera.position, state.x, state.z, wake);
     backdrop.update(camera, sd, state.t);
