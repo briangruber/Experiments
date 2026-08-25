@@ -6,8 +6,11 @@ wake right, fast, with every parameter on a slider.
     npx serve .        # or any static server
     open http://localhost:3000
 
-`drag` orbit · `wheel` zoom · `double-click` reframe · `T` top-down ·
-`A/D` steer · `W/S` throttle · `F` show the raw wake buffer · `H` hide UI
+`←/→` steer · `↑/↓` throttle · `Shift` hard turn · `drag` orbit · `wheel` zoom ·
+`double-click` reframe · `T` top-down · `F` raw wake buffer · `H` hide UI
+
+The throttle moves a *target*; the hull has inertia and takes seconds to reach
+it. That matters for more than feel — see below.
 
 On touch: one finger orbits, two fingers pinch to zoom and twist. The control
 rail is a bottom sheet, closed on load so the canvas gets the whole screen.
@@ -50,6 +53,30 @@ Read from the reference footage, and each piece is a separate slider group:
 
 Foam noise is sampled in **world space**, so bubbles stay locked to the water
 instead of swimming along with the boat.
+
+### Speed, and why the wake has to remember it
+
+Every source scales by the speed the boat was doing **when it passed that spot**,
+carried per path sample, not by its speed now. Spray arms need planing speed to
+exist at all — below it a hull pushes water aside rather than throwing it — so
+they fade out entirely at low speed, leaving a narrow displacement-mode trail.
+
+Two consequences worth stating, because both were bugs first:
+
+- Without inertia, a slider step made the emission step too, laying a wake that
+  went from nothing to full strength in one frame and left a straight cut across
+  the water. The hull now accelerates.
+- The Kelvin phase must not be anchored to `arc`, the distance behind the boat
+  *now*. That ties the whole pattern rigidly to the hull, so slowing down
+  freezes waves already on the water. The steady solution is steady for a source
+  that *kept going* at the emission speed, so the anchor is `V_emit × age`.
+  Identical at constant speed; they part company exactly when they should.
+
+`tools/coast.mjs` stops the boat dead and checks the water keeps moving.
+`--locked` is the control: with the pattern pinned to the hull it measures 0%
+change, which is precisely the bug. `tools/accel.mjs` opens the throttle from
+rest and checks the wake builds, and that `maxArc` tracks distance travelled —
+if the wake were stuck to the boat, it would not.
 
 ### The Kelvin system
 

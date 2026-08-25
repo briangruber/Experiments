@@ -47,6 +47,14 @@ qs.set('foamLook.dissolve', '0.2');
 // Flat, still water: with the swell running, shading changes under static foam
 // and drowns out what is being measured.
 if (!DRIFT) { qs.set('ocean.swellAmp', '0'); qs.set('ocean.chopAmp', '0'); }
+// Kelvin waves keep propagating after the boat stops -- correct, and measured
+// by coast.mjs. Here they are just another moving thing under the foam, so they
+// go to zero: this test is about the lace and nothing else.
+qs.set('kelvin.amp', '0');
+// Same for the bubble plume: it now brightens as the cloud rises, which is
+// motion of its own and would be read here as the lace moving.
+qs.set('bubbles.plume', '0');
+qs.set('bubbles.fromArms', '0');
 if (STILL) for (const k of ['drift','ringAmount','ringRelief','boil','plumeSwirl']) qs.set('foamMotion.' + k, '0');
 
 const { chromium } = await import('/opt/node22/lib/node_modules/playwright/index.mjs');
@@ -60,7 +68,9 @@ page.on('pageerror', (e) => errors.push(String(e)));
 await page.goto(`http://127.0.0.1:${server.address().port}/?${qs}`, { waitUntil: 'load' });
 await page.waitForFunction('window.__ready === true', { timeout: 60000 }).catch(() => {});
 // Stop the boat: with it moving, everything shifts and nothing can be told apart.
-await page.evaluate(() => window.__wake.set('boat.speed', 0));
+// Zero the ACTUAL speed, not just the target: the boat has inertia now, so
+// setting the slider to zero leaves it coasting for several seconds.
+await page.evaluate(() => { window.__wake.set('boat.speed', 0); window.__wake.state.speed = 0; });
 await page.waitForTimeout(2500);
 await page.evaluate(() => document.body.classList.add('hide-ui'));
 

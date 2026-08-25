@@ -4,7 +4,12 @@
 // float texture that follows the boat:
 //
 //   R = foam coverage       G = surface displacement (m)
-//   B = swell flattening    A = (spare)
+//   B = surfaced bubbles    A = bubble density
+//
+// B is the SURFACED portion of A, so B/A recovers how much of the cloud has
+// reached the top -- which is what sets its colour. Swell flattening used to
+// live in B and is now derived in the ocean shader from foam and bubbles,
+// since water is flattened because it is churned.
 //
 // The ocean shader then samples that texture — so the wake composites with the
 // water with no seams, and none of the wake maths lives in the ocean shader.
@@ -31,10 +36,11 @@ const RIBBON_VERT = /* glsl */`
   attribute float aAge;
   attribute float aU;
   attribute vec2 aTan;
+  attribute float aSpd;
   varying float vArc; varying float vLat; varying float vAge; varying float vU;
-  varying vec2 vWorld; varying vec2 vTan;
+  varying vec2 vWorld; varying vec2 vTan; varying float vSpd;
   void main(){
-    vArc = aArc; vLat = aLat; vAge = aAge; vU = aU; vTan = aTan;
+    vArc = aArc; vLat = aLat; vAge = aAge; vU = aU; vTan = aTan; vSpd = aSpd;
     vWorld = position.xz;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
@@ -43,20 +49,19 @@ const RIBBON_VERT = /* glsl */`
 const RIBBON_FRAG = /* glsl */`
   precision highp float;
   varying float vArc; varying float vLat; varying float vAge; varying float vU;
-  varying vec2 vWorld; varying vec2 vTan;
+  varying vec2 vWorld; varying vec2 vTan; varying float vSpd;
 
-  uniform float uMaxArc;
+  uniform float uMaxArc, uPlaning;
   uniform float uBeam, uHullLen, uEngines, uEngineGap;
   uniform float uArmTan, uArmW0, uArmWGrow, uArmFoam, uArmHeight, uInnerBias, uFadeStart, uFadeLen;
   uniform float uRim, uRimW, uNearBoost, uNearLen, uCarve;
   uniform float uFeatSpace, uFeatGrow, uFeatLean, uFeatDepth, uFeatJitter, uFeatSharp;
   uniform float uWashW, uWashWGrow, uWashFoam, uWashLen, uWashTail, uWashDepth;
-  uniform float uFlatten;
-  uniform float uKelvinK, uKelvinAmp, uKelvinDiv, uKelvinTrans, uKelvinCusp, uKelvinDecay, uKelvinLife, uKelvinMin;
+  uniform float uKelvinScale, uKelvinProp, uKelvinAmp, uKelvinDiv, uKelvinTrans, uKelvinCusp, uKelvinDecay, uKelvinLife, uKelvinMin;
   uniform float uFoamScale, uFoamContrast, uBreakup, uFoamLife, uDissolve;
   uniform float uLace, uLaceAmt, uSoftness;
   uniform float uBubPlume, uBubW, uBubSpread, uBubLen, uBubArms, uBubLife, uBubMottle;
-  uniform float uTime, uSwirl, uBubArmsLen;
+  uniform float uTime, uSwirl, uBubArmsLen, uBubDepth, uBubRise, uBubExt;
 
   ${NOISE_GLSL}
 
@@ -65,6 +70,19 @@ const RIBBON_FRAG = /* glsl */`
     float d   = vLat;
     float ad  = abs(d);
     float age = vAge;
+
+    // How hard was the water hit here? Every source below scales by the speed
+    // the boat was ACTUALLY doing when it passed this spot, not by its speed
+    // now -- so a wake built while accelerating gets narrower and fainter
+    // towards its tail, instead of the whole thing appearing at full strength
+    // the moment the throttle moves.
+    //
+    // Spray arms need planing speed to exist at all: below it a hull pushes
+    // water aside rather than throwing it, and there are no sheets to break.
+    float spd = max(vSpd, 0.0);
+    float planing = smoothstep(uPlaning * 0.45, uPlaning, spd);
+    float moving  = smoothstep(0.15, 1.6, spd);          // anything under way
+    float churn   = smoothstep(0.4, uPlaning * 0.8, spd);  // prop working hard
 
     // Ribbon edge: never let the mesh boundary show as a hard line.
     float edge = 1.0 - smoothstep(0.80, 1.0, abs(vU));
@@ -103,8 +121,8 @@ const RIBBON_FRAG = /* glsl */`
     // structure only emerges once it has spread and started to die.
     float near = 1.0 + uNearBoost * exp(-arc / max(uNearLen, 1.0));
 
-    float armFoam = (armG * comb + rim) * uArmFoam * armFade * near;
-    float armH    = (armG * mix(0.65, 1.0, comb) + rim * 0.5) * uArmHeight * armFade;
+    float armFoam = (armG * comb + rim) * uArmFoam * armFade * near * planing;
+    float armH    = (armG * mix(0.65, 1.0, comb) + rim * 0.5) * uArmHeight * armFade * planing;
 
     // ------------------------------------------------------------ prop wash --
     // Turbulent water dragged off the transom: brightest foam in the wake and
@@ -123,12 +141,10 @@ const RIBBON_FRAG = /* glsl */`
       wg += exp(-dd * dd);
     }
     wg = min(wg, 1.4);
-    float washFoam = astern * wg * (uWashFoam * exp(-arc / uWashLen) + uWashTail) * near;
+    float washFoam = astern * wg * (uWashFoam * exp(-arc / uWashLen) + uWashTail) * near * churn;
     float washH   = -astern * wg * uWashDepth * exp(-arc / (uWashLen * 1.6));
 
     // ------------------------------------------------------- inside the V ----
-    float insideV = 1.0 - smoothstep(armC * 0.70, armC * 1.02, ad);
-
     // -------------------------------------------------------- Kelvin waves --
     // Deep-water gravity waves from a moving source, by stationary phase.
     //
@@ -144,7 +160,22 @@ const RIBBON_FRAG = /* glsl */`
     // is WIDER than the spray arms, and being displacement rather than foam
     // these waves keep rolling long after the white has gone.
     float kelvinH = 0.0;
-    float u = arc;
+    // k0 = g / V^2 for the speed THIS water was disturbed at. Slow water makes
+    // short, small waves; the pattern behind an accelerating boat is genuinely
+    // not self-similar, and using one speed for the whole wake hides that.
+    float kv = max(spd, 1.2);
+    float k0 = 9.81 / (kv * kv) / uKelvinScale;
+
+    // Anchor: how far astern the pattern thinks it is.
+    //
+    // arc is distance behind the boat RIGHT NOW, which ties the whole pattern
+    // rigidly to the hull -- slow down and waves already on the water freeze
+    // with it. But the steady solution is steady for a source that KEPT GOING
+    // at the speed this water was disturbed at, so that is the anchor: emission
+    // speed times age. The two are identical at constant speed, and they part
+    // company exactly when they should, letting waves already made carry on
+    // under their own momentum after the boat has slowed or stopped.
+    float u = mix(arc, max(spd, 0.0) * age, uKelvinProp);
     float v = max(ad, 0.4);
     float disc = u * u - 8.0 * v * v;
     if (disc > 0.0 && u > 1.0) {
@@ -153,14 +184,14 @@ const RIBBON_FRAG = /* glsl */`
       float Tt = (-u + sq) / (4.0 * v);         // transverse root
       float sd = sqrt(1.0 + Td * Td);
       float st = sqrt(1.0 + Tt * Tt);
-      float pd = uKelvinK * sd * (u + v * Td);
-      float pt = uKelvinK * st * (u + v * Tt);
+      float pd = k0 * sd * (u + v * Td);
+      float pt = k0 * st * (u + v * Tt);
 
       // The divergent system runs to arbitrarily short waves as psi approaches
       // 90 degrees. Anything shorter than the field texture can carry becomes
       // moire rather than wave, so it is faded out at its own local wavelength.
-      float ld = 6.28318 / max(uKelvinK * sd, 1e-4);
-      float lt = 6.28318 / max(uKelvinK * st, 1e-4);
+      float ld = 6.28318 / max(k0 * sd, 1e-4);
+      float lt = 6.28318 / max(k0 * st, 1e-4);
       float fd = smoothstep(uKelvinMin * 0.6, uKelvinMin * 1.8, ld);
       float ft = smoothstep(uKelvinMin * 0.6, uKelvinMin * 1.8, lt);
 
@@ -174,7 +205,7 @@ const RIBBON_FRAG = /* glsl */`
 
       float kAge = pow(1.0 - clamp(age / max(uKelvinLife, 0.01), 0.0, 1.0), 1.1);
       kelvinH = (cos(pd) * uKelvinDiv * fd + cos(pt) * uKelvinTrans * ft)
-              * fall * cusp * kAge * uKelvinAmp;
+              * fall * cusp * kAge * uKelvinAmp * moving;
     }
 
     // ------------------------------------------------------------ foam look --
@@ -237,13 +268,23 @@ const RIBBON_FRAG = /* glsl */`
       bg += exp(-dd * dd);
     }
     bg = min(bg, 1.4);
-    float plume = astern * bg * uBubPlume * exp(-arc / max(uBubLen, 1.0));
+    float plume = astern * bg * uBubPlume * exp(-arc / max(uBubLen, 1.0)) * churn;
 
     // Spray plunging back in entrains its own air along each arm.
-    float entrain = armG * uBubArms * armFade * exp(-arc / max(uBubArmsLen, 1.0));
+    float entrain = armG * uBubArms * armFade * exp(-arc / max(uBubArmsLen, 1.0)) * planing;
+
+    // Bubbles are injected at the prop, BELOW the surface, and take time to
+    // rise. A cloud injected age seconds ago has climbed rise*age, so it
+    // starts deep right at the transom and only breaks the top some way
+    // astern. Light reaching it has to cross that depth twice, down and back,
+    // so a deep cloud is dim -- which makes the churn bloom a little behind
+    // the boat rather than peaking at the transom.
+    float depth = max(uBubDepth - uBubRise * age, 0.0);
+    float surfaced = 1.0 - depth / max(uBubDepth, 0.01);
+    float vis = exp(-depth * uBubExt * 2.0);
 
     float bubAge = clamp(age / max(uBubLife, 0.01), 0.0, 1.0);
-    float bub = (plume + entrain) * pow(1.0 - bubAge, 1.15);
+    float bub = (plume + entrain) * pow(1.0 - bubAge, 1.15) * vis;
     // The plume is the most turbulent part of the wake, so its clouds churn
     // rather than sitting still. Circling sample offsets again: the cloud
     // evolves in place instead of drifting off the water it belongs to.
@@ -261,9 +302,12 @@ const RIBBON_FRAG = /* glsl */`
     // their own, much longer, life -- outliving the white is the whole point of
     // them.
     float height  = (armH + washH) * mix(0.35, 1.0, alive) * tailFade + kelvinH * tailFade;
-    float flatten = clamp((insideV + wg) * uFlatten * alive, 0.0, 1.0) * tailFade;
+    float bubOut = max(bub, 0.0) * tailFade;
 
-    gl_FragColor = vec4(foam * edge, height * edge, flatten * edge, max(bub, 0.0) * tailFade * edge);
+    gl_FragColor = vec4(foam * edge,
+                        height * edge,
+                        bubOut * surfaced * edge,
+                        bubOut * edge);
   }
 `;
 
@@ -302,12 +346,14 @@ export class WakeField {
     this.age = new Float32Array(nv);
     this.uu = new Float32Array(nv);
     this.tan = new Float32Array(nv * 2);
+    this.spd = new Float32Array(nv);
     g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('aArc', new THREE.BufferAttribute(this.arc, 1).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('aLat', new THREE.BufferAttribute(this.lat, 1).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('aAge', new THREE.BufferAttribute(this.age, 1).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('aU', new THREE.BufferAttribute(this.uu, 1).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('aTan', new THREE.BufferAttribute(this.tan, 2).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute('aSpd', new THREE.BufferAttribute(this.spd, 1).setUsage(THREE.DynamicDrawUsage));
 
     const idx = new Uint32Array((MAX_SAMPLES - 1) * LAT_SEG * 6);
     let o = 0;
@@ -335,8 +381,8 @@ export class WakeField {
       uFeatDepth: { value: 0 }, uFeatJitter: { value: 0 }, uFeatSharp: { value: 1 },
       uWashW: { value: 1 }, uWashWGrow: { value: 0 }, uWashFoam: { value: 1 },
       uWashLen: { value: 1 }, uWashTail: { value: 0 }, uWashDepth: { value: 0 },
-      uFlatten: { value: 0 },
-      uKelvinK: { value: 0.05 }, uKelvinAmp: { value: 0 }, uKelvinDiv: { value: 1 },
+      uBubDepth: { value: 1 }, uBubRise: { value: 0.2 }, uBubExt: { value: 0.4 },
+      uKelvinScale: { value: 0.5 }, uKelvinProp: { value: 1 }, uPlaning: { value: 6.5 }, uKelvinAmp: { value: 0 }, uKelvinDiv: { value: 1 },
       uKelvinTrans: { value: 0.5 }, uKelvinCusp: { value: 1 }, uKelvinDecay: { value: 100 },
       uKelvinLife: { value: 100 }, uKelvinMin: { value: 3 },
       uFoamScale: { value: 1 }, uFoamContrast: { value: 1 }, uBreakup: { value: 0 },
@@ -366,13 +412,13 @@ export class WakeField {
   }
 
   /** Record where the bow is now. Called every frame; samples are decimated. */
-  pushSample(x, z, hx, hz, t) {
+  pushSample(x, z, hx, hz, t, speed = 0) {
     const last = this.path[0];
     if (last) {
       const dx = x - last.x, dz = z - last.z;
-      if (dx * dx + dz * dz < STEP * STEP) { this.head = { x, z, hx, hz, t }; return; }
+      if (dx * dx + dz * dz < STEP * STEP) { this.head = { x, z, hx, hz, t, speed }; return; }
     }
-    this.path.unshift({ x, z, hx, hz, t });
+    this.path.unshift({ x, z, hx, hz, t, speed });
     this.head = null;
     const maxArc = get('field.trailLength');
     // Trim to the requested trail length.
@@ -435,12 +481,13 @@ export class WakeField {
         this.uu[vi] = u;
         this.tan[vi * 2] = tx;
         this.tan[vi * 2 + 1] = tz;
+        this.spd[vi] = p.speed || 0;
       }
       o += LAT_SEG + 1;
     }
 
     const g = this.geometry;
-    for (const name of ['position', 'aArc', 'aLat', 'aAge', 'aU', 'aTan']) {
+    for (const name of ['position', 'aArc', 'aLat', 'aAge', 'aU', 'aTan', 'aSpd']) {
       const n = name === 'position' ? o * 3 : name === 'aTan' ? o * 2 : o;
       g.getAttribute(name).addUpdateRange(0, n);
       g.getAttribute(name).needsUpdate = true;
@@ -485,11 +532,14 @@ export class WakeField {
     u.uWashLen.value = get('wash.length');
     u.uWashTail.value = get('wash.tailFoam');
     u.uWashDepth.value = get('wash.depth');
-    u.uFlatten.value = get('inner.flatten');
+    u.uBubDepth.value = get('bubbles.depth');
+    u.uBubRise.value = get('bubbles.rise');
+    u.uBubExt.value = get('bubbles.extinction');
     // k0 = g / V^2 is the actual deep-water wavenumber for this speed; the
     // scale slider stretches it because the hull size here is a stand-in.
-    const V = Math.max(get('boat.speed'), 2.0);
-    u.uKelvinK.value = 9.81 / (V * V) / Math.max(get('kelvin.waveScale'), 0.05);
+    u.uKelvinScale.value = Math.max(get('kelvin.waveScale'), 0.05);
+    u.uKelvinProp.value = get('kelvin.propagate');
+    u.uPlaning.value = get('boat.planing');
     u.uKelvinAmp.value = get('kelvin.amp');
     u.uKelvinDiv.value = get('kelvin.divergent');
     u.uKelvinTrans.value = get('kelvin.transverse');

@@ -30,7 +30,7 @@ scene.add(boat);
 
 // --------------------------------------------------------------- boat state --
 // Position is the BOW: the arms are born there, so that is the anchor.
-const state = { x: 0, z: 0, heading: 0, t: 0 };
+const state = { x: 0, z: 0, heading: 0, t: 0, speed: 0 };
 
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
@@ -73,7 +73,7 @@ if (narrow || devicePixelRatio > 2.5) {
 } else {
   set('quality.renderScale', Math.min(devicePixelRatio, 2));
 }
-buildUI(document.getElementById('ui'), {
+const ui = buildUI(document.getElementById('ui'), {
   onChange: () => boat.userData.scaleTo(),
 });
 
@@ -138,9 +138,13 @@ canvas.addEventListener('wheel', (e) => {
 canvas.addEventListener('dblclick', () => setView('top'));
 
 const keys = new Set();
+const STEER_KEYS = new Set(['arrowleft', 'arrowright', 'arrowup', 'arrowdown']);
+
 addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   keys.add(k);
+  // Arrows would scroll the page out from under the canvas.
+  if (STEER_KEYS.has(k)) e.preventDefault();
   if (k === 't') setView('top');
   if (k === 'h') document.body.classList.toggle('hide-ui');
   if (k === 'f') setView('field');
@@ -195,18 +199,41 @@ let lastScale = -1;
 // shortens the wake rather than silently rewinding the boat.
 function stepSim(dt) {
   state.t += dt;
-  let speed = get('boat.speed');
+
+  // Up/down arrows work the throttle rather than setting a speed: they move the
+  // target, the hull's own inertia does the rest, and the slider follows so the
+  // panel never disagrees with the boat.
+  const rate = get('boat.throttleRate') * dt;
+  let throttle = 0;
+  if (keys.has('arrowup')) throttle += rate;
+  if (keys.has('arrowdown')) throttle -= rate;
+  if (throttle !== 0) {
+    const lim = PARAMS.boat.speed;
+    set('boat.speed', Math.max(lim.min, Math.min(lim.max, get('boat.speed') + throttle)));
+    ui.refresh();
+  }
+
+  let target = get('boat.speed');
   let turn = get('boat.turnRate') * Math.PI / 180;
-  if (keys.has('a')) turn -= 0.42;
-  if (keys.has('d')) turn += 0.42;
-  if (keys.has('w')) speed *= 1.6;
-  if (keys.has('s')) speed *= 0.35;
+
+  const hard = keys.has('shift') ? get('boat.hardTurn') : 1;
+  const steer = get('boat.steerRate') * Math.PI / 180 * hard;
+  if (keys.has('arrowleft') || keys.has('a')) turn -= steer;
+  if (keys.has('arrowright') || keys.has('d')) turn += steer;
+  if (keys.has('w')) target *= 1.6;
+  if (keys.has('s')) target *= 0.35;
+
+  // The slider is a target, not the speed. A hull cannot step from rest to
+  // planing in one frame, and if it does the wake it emits steps with it --
+  // which is what puts a straight cut across the water behind.
+  const a = get('boat.accel') * dt;
+  state.speed += Math.sign(target - state.speed) * Math.min(a, Math.abs(target - state.speed));
 
   state.heading += turn * dt;
   const hx = Math.sin(state.heading), hz = Math.cos(state.heading);
-  state.x += hx * speed * dt;
-  state.z += hz * speed * dt;
-  wake.pushSample(state.x, state.z, hx, hz, state.t);
+  state.x += hx * state.speed * dt;
+  state.z += hz * state.speed * dt;
+  wake.pushSample(state.x, state.z, hx, hz, state.t, state.speed);
   return { hx, hz };
 }
 
@@ -275,4 +302,4 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // Expose for the headless capture harness.
-window.__wake = { PARAMS, set, get, state, view, renderer, wake, ocean };
+window.__wake = { PARAMS, set, get, state, view, renderer, wake, ocean, stepSim };

@@ -16,7 +16,7 @@ const HEIGHT_GLSL = /* glsl */`
   uniform sampler2D uWake;
   uniform vec2  uWakeCenter;
   uniform float uWakeExtent;
-  uniform float uSwellAmp, uSwellLen, uChopAmp, uTime;
+  uniform float uSwellAmp, uSwellLen, uChopAmp, uTime, uFlatten;
   uniform vec3  uEyePos;
   uniform float uVertexStep;
 
@@ -70,9 +70,16 @@ const HEIGHT_GLSL = /* glsl */`
   float swellAt(vec2 p, float px){ return swellHG(p, px).x; }
 
   // One height function, used for both displacement and normals.
+  // Swell flattening is derived rather than stored: water is flattened because
+  // it is churned, so foam and bubbles already say where. That frees the field
+  // texture's B channel to carry how much of the bubble cloud has surfaced.
+  float wakeFlatten(vec4 w){
+    return clamp((w.r * 1.25 + w.a * 1.55) * uFlatten, 0.0, 1.0);
+  }
+
   float heightAt(vec2 p, float px){
     vec4 w = wakeAt(p);
-    return swellAt(p, px) * (1.0 - w.b) + w.g;
+    return swellAt(p, px) * (1.0 - wakeFlatten(w)) + w.g;
   }
 `;
 
@@ -97,7 +104,7 @@ const FRAG = /* glsl */`
   uniform float uSpecular, uExposure, uFar, uSheen;
   uniform float uFoamDensity, uTranslucency, uAeration, uRelief, uTroughBias, uWarmth;
   uniform float uLaceScale, uLaceAmt, uSoftness;
-  uniform float uBubBright, uMilk;
+  uniform float uBubBright, uMilk, uDeepTint;
   uniform float uDrift, uRingAmt, uRingScale, uRingSpeed, uRingWidth, uRingRelief, uBoil;
   uniform float uCellGrow, uCoarsen;
   uniform vec3  uBubCol;
@@ -132,7 +139,7 @@ const FRAG = /* glsl */`
 
     // d/dp [ swell * (1 - flatten) + wakeHeight ], with the flatten term
     // folded in as a scale on the swell slope.
-    vec2 grad = sw.yz * (1.0 - w.b) + vec2(gR - gL, gU - gD) / (2.0 * e);
+    vec2 grad = sw.yz * (1.0 - wakeFlatten(w)) + vec2(gR - gL, gU - gD) / (2.0 * e);
     vec3 N = normalize(vec3(-grad.x, 1.0, -grad.y));
 
     // ------------------------------------------------------- ring ripples --
@@ -166,7 +173,15 @@ const FRAG = /* glsl */`
     // reflecting the sky and catching the sun exactly as it did.
     float bub = clamp(w.a, 0.0, 3.0);
     float scat = 1.0 - exp(-bub * uBubBright * 1.5);
-    vec3 bubCol = mix(uBubCol, vec3(0.66, 0.80, 0.82), uMilk * scat);
+
+    // How much of this cloud has made it to the top. Light coming back from a
+    // cloud still down in the water column has crossed metres of it twice, and
+    // water takes the red out first and then the green -- so deep churn reads
+    // dark blue-green and only turns pale turquoise once it surfaces.
+    float surfaced = clamp(w.b / max(w.a, 1e-4), 0.0, 1.0);
+    vec3 deepCol = mix(uBubCol, uDeep * 1.8 + vec3(0.01, 0.10, 0.13), uDeepTint);
+    vec3 bubCol = mix(deepCol, uBubCol, surfaced);
+    bubCol = mix(bubCol, vec3(0.66, 0.80, 0.82), uMilk * scat * surfaced);
     vec3 body = mix(uDeep, bubCol, scat);
 
     // Reflection direction, so the sky's own gradient varies with slope rather
@@ -310,6 +325,7 @@ export class Ocean {
       uRelief: { value: 0 }, uTroughBias: { value: 0 }, uWarmth: { value: 0 },
       uLaceScale: { value: 1 }, uLaceAmt: { value: 0 }, uSoftness: { value: 0.3 },
       uBubBright: { value: 1 }, uMilk: { value: 0 }, uBubCol: { value: new THREE.Color() },
+      uDeepTint: { value: 0 }, uFlatten: { value: 0.7 },
       uDrift: { value: 0 }, uBoil: { value: 0 },
       uRingAmt: { value: 0 }, uRingScale: { value: 5 }, uRingSpeed: { value: 0.4 },
       uRingWidth: { value: 1 }, uRingRelief: { value: 0 },
@@ -380,6 +396,8 @@ export class Ocean {
     u.uCoarsen.value = get('foamLook.coarsen');
     u.uBoil.value = get('foamMotion.boil');
     u.uBubBright.value = get('bubbles.brightness');
+    u.uDeepTint.value = get('bubbles.deepTint');
+    u.uFlatten.value = get('inner.flatten');
     u.uMilk.value = get('bubbles.milkiness');
     // Green through blue-green: the colour a bubble cloud scatters back up
     // depends on how much water is still above it.
