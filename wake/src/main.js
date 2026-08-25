@@ -4,6 +4,7 @@ import { WakeField } from './wakeField.js';
 import { Ocean } from './ocean.js';
 import { makeBoat } from './boat.js';
 import { Backdrop } from './backdrop.js';
+import { attitude } from './attitude.js';
 import { buildUI } from './ui.js';
 
 const canvas = document.getElementById('gl');
@@ -263,8 +264,16 @@ function frame(now) {
   last = now;
 
   const { hx, hz } = stepSim(dt);
-  boat.position.set(state.x, 0, state.z);
-  boat.rotation.y = state.heading;
+  // Sit the hull the way its speed says it should. The model's origin is at the
+  // stem, so trimming about it would swing the bow instead of lifting it: the
+  // rotation is compensated to hold a pivot near the aft quarter at the
+  // waterline, which is roughly where a planing hull actually pivots.
+  const att = attitude(state.speed);
+  const trim = att.trim * Math.PI / 180;
+  const PIVOT = 0.72;                       // fraction of hull length aft of the stem
+  const L = get('boat.length');
+  boat.rotation.set(-trim, state.heading, 0, 'YXZ');
+  boat.position.set(state.x, att.rise + Math.sin(trim) * L * PIVOT, state.z);
   // Centre the field a little astern: that is where the wake actually is.
   // Zoomed in you cannot see the far wake anyway, and a smaller window puts far
   // more texels where you ARE looking -- at close range this is worth several
@@ -309,7 +318,7 @@ function frame(now) {
   ocean.setDetail(get('quality.oceanDetail'), Math.round(planeSize / 10) * 10);
 
   ocean.update(state.t, camera.position, state.x, state.z, wake);
-  backdrop.update(camera, sd);
+  backdrop.update(camera, sd, state.t);
 
   renderer.setViewport(0, 0, viewport.w, viewport.h);
   renderer.setScissorTest(false);

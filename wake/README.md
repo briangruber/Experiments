@@ -54,6 +54,20 @@ Read from the reference footage, and each piece is a separate slider group:
 Foam noise is sampled in **world space**, so bubbles stay locked to the water
 instead of swimming along with the boat.
 
+### How the hull sits, and where it touches
+
+`attitude.js` works out trim and heave from speed. A planing hull does not tilt
+further the faster it goes: it climbs its own bow wave through the hump — bow
+up, stern squatting, the steepest trim it ever runs — and then settles *back*
+down as dynamic lift takes over. At the defaults that is 5.5° at Fr 1.0 falling
+to 2.6° once planing, with the hull lifting 0.42 m.
+
+The part that matters for the wake: as the bow lifts, the wetted length
+shortens, so spray stops leaving from the stem and starts leaving from a contact
+point that moves aft — about 5 m at the defaults. That is computed per path
+sample from the speed at emission, so a wake laid while slow still starts at the
+stem while the fresh wake starts aft.
+
 ### The wake starts at the hull, not at a point
 
 Everything the hull makes is anchored to its waterline — a point at the stem,
@@ -294,6 +308,18 @@ in seconds and in metres. The individual controls stay where they are (foam
 life, bubble life, wave life, the arm fade, the wash and plume decay lengths) —
 this multiplies all of them, because "make it die faster" should not mean
 hunting through four groups.
+
+## Sky, weather and shore
+
+The sky carries a warm horizon band that grows as the sun drops, a projected
+cloud deck, and a treeline silhouette — all in `sky.js`, which both water
+shaders import. That sharing is what gets the shore and the clouds into the
+water for free: a reflection near the horizon looks straight at the treeline.
+
+One thing this exposed: distant water must haze towards **the sky in that
+direction**, not towards a fixed colour. Fading to a constant left a cool grey
+band along the horizon the moment the sky turned warm — visible as a bright seam
+between the shore and its reflection.
 
 ## Holding up close in
 

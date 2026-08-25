@@ -6,15 +6,20 @@
 
 export const PARAMS = {
   boat: {
-    speed:        { v: 13, min: 0,   max: 26,  step: 0.1,  label: 'Speed (m/s)' },
+    speed:        { v: 13, min: 0,   max: 100,  step: 0.1,  label: 'Speed (m/s)' },
     turnRate:     { v: 0,  min: -25, max: 25,  step: 0.5,  label: 'Turn (°/s)' },
-    accel:        { v: 1.6, min: 0.1, max: 12,  step: 0.05, label: 'Acceleration (m/s²)' },
+    accel:        { v: 5.3, min: 0.1, max: 12,  step: 0.05, label: 'Acceleration (m/s²)' },
     steerRate:    { v: 26, min: 2,   max: 90,  step: 1,    label: 'Steer rate (°/s)' },
     hardTurn:     { v: 2.4, min: 1,   max: 5,   step: 0.05, label: 'Shift turn ×' },
     throttleRate: { v: 7, min: 0.5, max: 30,  step: 0.5,  label: 'Throttle rate (m/s²)' },
+    humpFroude:   { v: 0.95, min: 0.3, max: 2,   step: 0.01, label: 'Hump Froude no.' },
+    trimHump:     { v: 5.5,  min: 0,   max: 15,  step: 0.1,  label: 'Trim at hump (°)' },
+    trimPlane:    { v: 2.6,  min: 0,   max: 12,  step: 0.1,  label: 'Trim on plane (°)' },
+    riseMax:      { v: 0.42, min: 0,   max: 2,   step: 0.01, label: 'Hull rise (m)' },
+    wetShift:     { v: 0.52, min: 0,   max: 0.9, step: 0.01, label: 'Contact point aft' },
     planing:      { v: 6.5, min: 0.5, max: 20,  step: 0.1,  label: 'Planing speed (m/s)' },
-    length:       { v: 8.5,  min: 3,   max: 20,  step: 0.1,  label: 'Hull length (m)' },
-    beam:         { v: 2.6,  min: 1,   max: 8,   step: 0.05, label: 'Hull beam (m)' },
+    length:       { v: 9.9,  min: 3,   max: 20,  step: 0.1,  label: 'Hull length (m)' },
+    beam:         { v: 2.65,  min: 1,   max: 8,   step: 0.05, label: 'Hull beam (m)' },
     engines:      { v: 2,    min: 1,   max: 4,   step: 1,    label: 'Engines' },
     engineSpacing:{ v: 2.4, min: 0.2, max: 4,   step: 0.05, label: 'Engine spacing (m)' },
   },
@@ -25,8 +30,8 @@ export const PARAMS = {
     fromWaves:    { v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Foam from breaking' },
     waveFoam:     { v: 1.6, min: 0,   max: 5,   step: 0.01, label: 'Breaking foam gain' },
     angle:        { v: 13, min: 4,   max: 40,  step: 0.1,  label: 'Half-angle (°)' },
-    width0:       { v: 2.1, min: 0.1, max: 4,   step: 0.05, label: 'Width at bow (m)' },
-    widthGrow:    { v: 0.022,min: 0,   max: 0.6, step: 0.001,label: 'Width growth (m/m)' },
+    width0:       { v: 0.9, min: 0.1, max: 4,   step: 0.05, label: 'Width at bow (m)' },
+    widthGrow:    { v: 0,min: 0,   max: 0.6, step: 0.001,label: 'Width growth (m/m)' },
     foam:         { v: 0.95, min: 0,   max: 3,   step: 0.01, label: 'Foam density' },
     height:       { v: 0.42, min: 0,   max: 2,   step: 0.01, label: 'Crest height (m)' },
     innerBias:    { v: 0.38, min: 0,   max: 1,   step: 0.01, label: 'Outer-edge bias' },
@@ -93,15 +98,15 @@ export const PARAMS = {
 
   // Foam appearance: how the bubble field breaks up and dies.
   foamLook: {
-    scale:        { v: 1.05, min: 0.1, max: 6,   step: 0.01, label: 'Bubble scale' },
-    contrast:     { v: 1.5,  min: 0.2, max: 4,   step: 0.01, label: 'Bubble contrast' },
+    scale:        { v: 1.65, min: 0.1, max: 6,   step: 0.01, label: 'Bubble scale' },
+    contrast:     { v: 1.45,  min: 0.2, max: 4,   step: 0.01, label: 'Bubble contrast' },
     breakup:      { v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Break-up with age' },
-    life:         { v: 34, min: 1,   max: 120, step: 0.5,  label: 'Foam life (s)' },
+    life:         { v: 72.5, min: 1,   max: 120, step: 0.5,  label: 'Foam life (s)' },
     dissolve:     { v: 3.35,  min: 0.2, max: 5,   step: 0.05, label: 'Dissolve curve' },
-    lace:         { v: 1.6, min: 0.5, max: 8,   step: 0.05, label: 'Lace fineness' },
+    lace:         { v: 4.05, min: 0.5, max: 8,   step: 0.05, label: 'Lace fineness' },
     laceAmount:   { v: 0.62, min: 0,   max: 1.5, step: 0.01, label: 'Lace reach' },
-    coarsen:      { v: 0.45, min: 0,   max: 1,   step: 0.01, label: 'Cells coarsen with age' },
-    softness:     { v: 0.39, min: 0.02,max: 1,   step: 0.01, label: 'Edge softness' },
+    coarsen:      { v: 0.24, min: 0,   max: 1,   step: 0.01, label: 'Cells coarsen with age' },
+    softness:     { v: 0.58, min: 0.02,max: 1,   step: 0.01, label: 'Edge softness' },
   },
 
 
@@ -137,7 +142,7 @@ export const PARAMS = {
     ringSpeed:    { v: 0.4, min: 0.02,max: 2,   step: 0.01, label: 'Ring speed' },
     ringWidth:    { v: 0.7, min: 0.1, max: 5,   step: 0.05, label: 'Wavefront width (m)' },
     cellGrowth:   { v: 0, min: 0,   max: 0.8, step: 0.005,label: 'Cells expand' },
-    ringRelief:   { v: 0.85, min: 0,   max: 3,   step: 0.01, label: 'Rings show in water' },
+    ringRelief:   { v: 0, min: 0,   max: 3,   step: 0.01, label: 'Rings show in water' },
     boil:         { v: 0.45, min: 0,   max: 2,   step: 0.01, label: 'Cells burst / re-form' },
     plumeSwirl:   { v: 0.45, min: 0,   max: 2,   step: 0.01, label: 'Plume swirl' },
   },
@@ -153,22 +158,33 @@ export const PARAMS = {
   },
 
   ocean: {
-    swellAmp:     { v: 0.15, min: 0,   max: 2,   step: 0.01, label: 'Swell amp (m)' },
+    swellAmp:     { v: 0.05, min: 0,   max: 2,   step: 0.01, label: 'Swell amp (m)' },
     swellLen:     { v: 26, min: 3,   max: 120, step: 0.5,  label: 'Swell λ (m)' },
-    chopAmp:      { v: 0.016, min: 0,   max: 0.6, step: 0.001,label: 'Chop amp (m)' },
+    chopAmp:      { v: 0.006, min: 0,   max: 0.6, step: 0.001,label: 'Chop amp (m)' },
     deepColor:    { v: 0.021,min: 0,   max: 0.4, step: 0.001,label: 'Water lightness' },
     tint:         { v: 0.42, min: 0,   max: 1,   step: 0.01, label: 'Blue / teal' },
-    sunElev:      { v: 52, min: 5,   max: 88,  step: 1,    label: 'Sun elevation (°)' },
-    sunAzim:      { v: 140,min: 0,   max: 360, step: 1,    label: 'Sun azimuth (°)' },
-    reflectivity: { v: 0.55, min: 0,   max: 1.5, step: 0.01, label: 'Mirror / reflectivity' },
+    sunElev:      { v: 3, min: 0,   max: 88,  step: 1,    label: 'Sun elevation (°)' },
+    sunAzim:      { v: 0,min: 0,   max: 360, step: 1,    label: 'Sun azimuth (°)' },
+    reflectivity: { v: 1.15, min: 0,   max: 1.5, step: 0.01, label: 'Mirror / reflectivity' },
     hazeStart:    { v: 1400, min: 100, max: 8000,step: 50,   label: 'Haze onset (m)' },
     sunGlow:      { v: 0.55, min: 0,   max: 2,   step: 0.01, label: 'Sun glow' },
     sheen:        { v: 0.04, min: 0,   max: 1.5, step: 0.01, label: 'Wave sheen' },
     specular:     { v: 0.55, min: 0,   max: 2,   step: 0.01, label: 'Specular' },
-    exposure:     { v: 1,  min: 0.2, max: 3,   step: 0.01, label: 'Exposure' },
+    exposure:     { v: 1.2,  min: 0.2, max: 3,   step: 0.01, label: 'Exposure' },
   },
 
   // Cost, not looks. Auto-set on load from the device, then yours to override.
+  // Sky, weather and shore.
+  scene: {
+    warmth:       { v: 1.15, min: 0,   max: 1.5, step: 0.01, label: 'Sunset warmth' },
+    cloud:        { v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Cloud cover' },
+    cloudScale:   { v: 0.55, min: 0.05,max: 3,   step: 0.01, label: 'Cloud scale' },
+    cloudSoft:    { v: 0.30, min: 0.02,max: 1,   step: 0.01, label: 'Cloud softness' },
+    treeline:     { v: 0.024, min: 0,   max: 0.08,step: 0.001,label: 'Shore height' },
+    treeRough:    { v: 0.45, min: 0,   max: 1.5, step: 0.01, label: 'Shore roughness' },
+    treeDark:     { v: 0.02, min: 0,   max: 0.6, step: 0.005,label: 'Shore lightness' },
+  },
+
   quality: {
     renderScale:  { v: 2,  min: 0.5, max: 2,   step: 0.25, label: 'Render scale' },
     oceanDetail:  { v: 560,  min: 140, max: 760, step: 20,   label: 'Ocean detail' },

@@ -134,6 +134,9 @@ const FRAG = /* glsl */`
   uniform vec3  uSunDir, uDeep, uSky, uHorizon;
   uniform float uSpecular, uExposure, uFar, uSheen, uHazeStart, uSunGlow, uReflect;
   uniform vec3  uZenith;
+  uniform vec3  uSunset, uTree;
+  uniform float uSkyWarm, uCloud, uCloudScale, uCloudSoft, uTreeHt, uTreeRough;
+
   ${SKY_GLSL}
   uniform float uFoamDensity, uTranslucency, uAeration, uRelief, uTroughBias, uWarmth;
   uniform float uLaceScale, uLaceAmt, uSoftness;
@@ -356,7 +359,10 @@ const FRAG = /* glsl */`
     // saturated a few hundred metres out, turning the whole sea flat grey the
     // moment the camera gained any altitude, and leaving the detail plane a
     // visibly different colour from the water beyond its edge.
-    col = mix(col, uHorizon, smoothstep(uHazeStart, uHazeStart * 9.0, dist));
+    // Same aerial perspective as the far water, or the two disagree wherever
+    // the sky is not the colour uHorizon happens to be.
+    vec3 airCol = skyColour(normalize(vec3(-V.x, 0.05, -V.z)));
+    col = mix(col, airCol, smoothstep(uHazeStart, uHazeStart * 9.0, dist));
 
     gl_FragColor = vec4(tonemap(col), 1.0);
   }
@@ -381,6 +387,10 @@ export class Ocean {
       uHorizon: { value: new THREE.Color() }, uZenith: { value: new THREE.Color() },
       uSunGlow: { value: 0.5 },
       uSpecular: { value: 1 }, uExposure: { value: 1 }, uSheen: { value: 0 }, uReflect: { value: 1 },
+      uSunset: { value: new THREE.Color() }, uTree: { value: new THREE.Color() },
+      uSkyWarm: { value: 0 }, uCloud: { value: 0 }, uCloudScale: { value: 0.5 },
+      uCloudSoft: { value: 0.3 }, uTreeHt: { value: 0 }, uTreeRough: { value: 0.5 },
+
       uFoamDensity: { value: 2 }, uTranslucency: { value: 0 }, uAeration: { value: 1 },
       uRelief: { value: 0 }, uTroughBias: { value: 0 }, uWarmth: { value: 0 },
       uLaceScale: { value: 1 }, uLaceAmt: { value: 0 }, uSoftness: { value: 0.3 },
@@ -447,6 +457,18 @@ export class Ocean {
     u.uSpecular.value = get('ocean.specular');
     u.uSheen.value = get('ocean.sheen');
     u.uReflect.value = get('ocean.reflectivity');
+    const scWarm = get('scene.warmth');
+    u.uSkyWarm.value = scWarm;
+    u.uCloud.value = get('scene.cloud');
+    u.uCloudScale.value = get('scene.cloudScale');
+    u.uCloudSoft.value = get('scene.cloudSoft');
+    u.uTreeHt.value = get('scene.treeline');
+    u.uTreeRough.value = get('scene.treeRough');
+    const td = get('scene.treeDark');
+    u.uTree.value.setRGB(td * 0.70, td * 0.92, td * 0.80);
+    // Warm end of the sunset: pushed towards orange as the sun drops.
+    u.uSunset.value.setRGB(1.25, 0.58, 0.26);
+
     u.uHazeStart.value = get('ocean.hazeStart');
     u.uExposure.value = get('ocean.exposure');
     u.uFoamDensity.value = get('foamMix.density');

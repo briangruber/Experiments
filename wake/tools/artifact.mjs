@@ -28,6 +28,7 @@ const MODULES = [
   ['params', 'src/params.js',    {}],
   ['noise',  'src/noise.js',     {}],
   ['sky',    'src/sky.js',       {}],
+  ['attitude','src/attitude.js', { './params.js': 'params' }],
   ['backdrop','src/backdrop.js', { three: 'three', './params.js': 'params', './sky.js': 'sky' }],
   ['boat',   'src/boat.js',      { three: 'three', './params.js': 'params' }],
   ['ocean',  'src/ocean.js',     { three: 'three', './params.js': 'params', './noise.js': 'noise', './sky.js': 'sky' }],
@@ -35,7 +36,7 @@ const MODULES = [
   ['ui',     'src/ui.js',        { './params.js': 'params' }],
   ['main',   'src/main.js',      { three: 'three', './params.js': 'params', './wakeField.js': 'wake',
                                    './ocean.js': 'ocean', './boat.js': 'boat', './ui.js': 'ui',
-                                   './backdrop.js': 'backdrop' }],
+                                   './backdrop.js': 'backdrop', './attitude.js': 'attitude' }],
 ];
 
 // A JS string literal safe to sit inside an inline <script>: JSON handles the

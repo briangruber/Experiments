@@ -19,7 +19,10 @@ import { SKY_GLSL } from './sky.js';
 
 const SHARED = /* glsl */`
   uniform vec3  uDeep, uSky, uHorizon, uZenith, uSunDir;
-  uniform float uExposure, uHazeStart, uHazeEnd, uSunGlow, uReflect;
+  uniform float uExposure, uHazeStart, uHazeEnd, uSunGlow, uReflect, uTime;
+  uniform vec3  uSunset, uTree;
+  uniform float uSkyWarm, uCloud, uCloudScale, uCloudSoft, uTreeHt, uTreeRough;
+
 
   ${SKY_GLSL}
 `;
@@ -41,9 +44,11 @@ const SKY_FRAG = /* glsl */`
   ${SHARED}
   void main(){
     vec3 d = normalize(vDir);
-    // Below the horizon the dome should read as distant water, not as sky, for
-    // the sliver visible past the far plane's edge at extreme angles.
-    vec3 c = d.y >= 0.0 ? skyColour(d) : mix(uHorizon, uDeep, pow(-d.y, 0.35));
+    // skyColour for every direction, including below the horizon: it carries
+    // the treeline, and branching away from it there cut the shore off at the
+    // waterline and left a grey sliver between the trees and their reflection.
+    // Only well below does it settle towards deep water.
+    vec3 c = mix(skyColour(d), uDeep, smoothstep(0.0, 0.22, -d.y));
     gl_FragColor = vec4(tonemap(c), 1.0);
   }
 `;
@@ -75,8 +80,12 @@ const SEA_FRAG = /* glsl */`
 
     // Haze over kilometres, not hundreds of metres. Keyed too close, it turns
     // the whole sea into flat grey the moment the camera gains any altitude.
+    // Distant water fades into the AIR IN THAT DIRECTION, not into a fixed
+    // colour. Hazing towards a constant leaves a cool grey band along the
+    // horizon that the sky no longer matches the moment it turns warm.
     float d = distance(vWorld.xz, uEye.xz);
-    col = mix(col, uHorizon, smoothstep(uHazeStart, uHazeEnd, d));
+    vec3 airCol = skyColour(normalize(vec3(-V.x, 0.05, -V.z)));
+    col = mix(col, airCol, smoothstep(uHazeStart, uHazeEnd, d));
 
     gl_FragColor = vec4(tonemap(col), 1.0);
   }
@@ -93,7 +102,11 @@ export class Backdrop {
       uExposure: { value: 1 },
       uHazeStart: { value: 1200 },
       uHazeEnd: { value: 14000 },
-      uSunGlow: { value: 1 }, uReflect: { value: 1 },
+      uSunGlow: { value: 1 }, uReflect: { value: 1 }, uTime: { value: 0 },
+      uSunset: { value: new THREE.Color() }, uTree: { value: new THREE.Color() },
+      uSkyWarm: { value: 0 }, uCloud: { value: 0 }, uCloudScale: { value: 0.5 },
+      uCloudSoft: { value: 0.3 }, uTreeHt: { value: 0 }, uTreeRough: { value: 0.5 },
+
       uEye: { value: new THREE.Vector3() },
     };
 
@@ -121,9 +134,10 @@ export class Backdrop {
     this.sea.scale.setScalar(40000);
   }
 
-  update(camera, sunDir) {
+  update(camera, sunDir, time = 0) {
     const u = this.uniforms;
     u.uEye.value.copy(camera.position);
+    u.uTime.value = time;
     u.uSunDir.value.copy(sunDir);
 
     const lum = get('ocean.deepColor');
@@ -137,6 +151,18 @@ export class Backdrop {
     u.uHazeEnd.value = get('ocean.hazeStart') * 9.0;
     u.uSunGlow.value = get('ocean.sunGlow');
     u.uReflect.value = get('ocean.reflectivity');
+    const scWarm = get('scene.warmth');
+    u.uSkyWarm.value = scWarm;
+    u.uCloud.value = get('scene.cloud');
+    u.uCloudScale.value = get('scene.cloudScale');
+    u.uCloudSoft.value = get('scene.cloudSoft');
+    u.uTreeHt.value = get('scene.treeline');
+    u.uTreeRough.value = get('scene.treeRough');
+    const td = get('scene.treeDark');
+    u.uTree.value.setRGB(td * 0.70, td * 0.92, td * 0.80);
+    // Warm end of the sunset: pushed towards orange as the sun drops.
+    u.uSunset.value.setRGB(1.25, 0.58, 0.26);
+
 
     this.sky.position.copy(camera.position);
     this.sky.scale.setScalar(Math.max(camera.far * 0.4, 500));

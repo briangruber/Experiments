@@ -52,7 +52,7 @@ const RIBBON_FRAG = /* glsl */`
   varying float vArc; varying float vLat; varying float vAge; varying float vU;
   varying vec2 vWorld; varying vec2 vTan; varying float vSpd; varying float vTurn;
 
-  uniform float uMaxArc, uPlaning;
+  uniform float uMaxArc, uPlaning, uHumpFr, uWetShift;
   uniform float uBeam, uHullLen, uEngines, uEngineGap;
   uniform float uArmTan, uArmW0, uArmWGrow, uArmFoam, uArmHeight, uInnerBias, uFadeStart, uFadeLen;
   uniform float uRim, uRimW, uNearBoost, uNearLen, uCarve;
@@ -94,6 +94,15 @@ const RIBBON_FRAG = /* glsl */`
     // Spray arms need planing speed to exist at all: below it a hull pushes
     // water aside rather than throwing it, and there are no sheets to break.
     float spd = max(vSpd, 0.0);
+
+    // Where the hull was actually touching when it passed here. Once it is up
+    // on plane the bow is clear of the water, so spray leaves from a contact
+    // point well aft of the stem -- and this is per-sample, from the speed at
+    // emission, so a wake laid while slow still starts at the stem.
+    float frS = spd / sqrt(9.81 * max(uHullLen, 0.5));
+    float planedS = smoothstep(uHumpFr * 1.05, uHumpFr * 2.3, frS);
+    float wet = uHullLen * uWetShift * planedS;
+    float wa = max(arc - wet, 0.0);          // arc measured from the contact point
     float planing = smoothstep(uPlaning * 0.45, uPlaning, spd);
     float moving  = smoothstep(0.15, 1.6, spd);          // anything under way
     float churn   = smoothstep(0.4, uPlaning * 0.8, spd);  // prop working hard
@@ -110,11 +119,11 @@ const RIBBON_FRAG = /* glsl */`
     // The arms leave the hull along its side, so they start at the waterline
     // and open from there. At the stem that is zero, which closes the V to a
     // point at the bow instead of a band across it.
-    float armC = hullHalf(arc) + arc * uArmTan + wander;
+    float armC = hullHalf(max(arc, wet)) + wa * uArmTan + wander;
     // Thin where the hull is fine and the sheet has barely formed, thickening
     // as the water is thrown clear.
-    float armW = max(uArmW0 + arc * uArmWGrow, 0.05)
-               * mix(0.18, 1.0, smoothstep(0.0, uHullLen * 0.55, arc));
+    float armW = max(uArmW0 + wa * uArmWGrow, 0.05)
+               * mix(0.18, 1.0, smoothstep(0.0, uHullLen * 0.55, wa));
     float x = (ad - armC) / armW;
     float xb = (x < 0.0) ? x / (1.0 + uInnerBias * 2.6) : x;
     float armG = exp(-xb * xb * (x < 0.0 ? 1.7 : 3.4));
@@ -125,7 +134,7 @@ const RIBBON_FRAG = /* glsl */`
     // texture lookup spreads the step into a dome standing ahead of the stem.
     // It also stops both arm crests piling into a single spike at arc = 0,
     // where the two of them meet on the centreline.
-    float nose = smoothstep(0.0, uHullLen * 0.30, arc);
+    float nose = smoothstep(0.0, uHullLen * 0.30, wa);
 
     // Feathering: periodic crests leaning back off the arm axis, stretching out
     // as the wake ages.
@@ -476,6 +485,7 @@ export class WakeField {
       uWashLen: { value: 1 }, uWashTail: { value: 0 }, uWashDepth: { value: 0 },
       uBubDepth: { value: 1 }, uBubRise: { value: 0.2 }, uBubExt: { value: 0.4 },
       uKelvinScale: { value: 0.5 }, uKelvinProp: { value: 1 }, uPlaning: { value: 6.5 },
+      uHumpFr: { value: 0.95 }, uWetShift: { value: 0.5 },
       uFrPeak: { value: 0.5 }, uHumpFloor: { value: 0.5 },
       uBreakSteep: { value: 0.08 }, uWaveFoam: { value: 1 }, uFromWaves: { value: 0 }, uBeamGain: { value: 1 }, uInterf: { value: 0.5 }, uTurnBias: { value: 0.5 }, uKelvinAmp: { value: 0 }, uKelvinDiv: { value: 1 },
       uKelvinTrans: { value: 0.5 }, uKelvinCusp: { value: 1 }, uKelvinDecay: { value: 100 },
@@ -647,6 +657,8 @@ export class WakeField {
     u.uInterf.value = get('kelvin.interference');
     u.uTurnBias.value = get('kelvin.turnBias');
     u.uPlaning.value = get('boat.planing');
+    u.uHumpFr.value = get('boat.humpFroude');
+    u.uWetShift.value = get('boat.wetShift');
     u.uKelvinAmp.value = get('kelvin.amp');
     u.uKelvinDiv.value = get('kelvin.divergent');
     u.uKelvinTrans.value = get('kelvin.transverse');

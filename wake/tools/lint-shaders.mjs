@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const FILES = ['src/ocean.js', 'src/wakeField.js', 'src/noise.js',
                'src/params.js', 'src/main.js', 'src/ui.js', 'src/boat.js',
-               'src/backdrop.js', 'src/sky.js'];
+               'src/backdrop.js', 'src/sky.js', 'src/attitude.js'];
 
 let bad = 0;
 for (const f of FILES) {
