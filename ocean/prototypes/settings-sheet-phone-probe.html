@@ -1,0 +1,54 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — a real phone still gets the bottom sheet</title>
+
+<!--
+  The other half of the claim in settings-dock-probe.html: gating the sheet on
+  pointer:coarse must not quietly turn it off for the device it was written
+  for. Run this one under touch emulation - narrow AND coarse - and the sheet
+  must still fire. Same DOM/CSS-only technique as the sibling probe; see there
+  for why border-top-left-radius is the discriminator.
+
+  node tools/run-probe.mjs prototypes/settings-sheet-phone-probe.html --touch
+-->
+
+<div id="out">running…</div>
+
+<script type="module">
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+try {
+  const html = await (await fetch('../dist/abyssal-three.html')).text();
+  if (!html || html.length < 1000) throw new Error('dist/abyssal-three.html missing or empty - run `node tools/bundle-three.mjs` first');
+  const styleBlocks = [...html.matchAll(/<style>([\s\S]*?)<\/style>/g)].map((m) => m[1]);
+  if (styleBlocks.length < 2) throw new Error(`expected 2 inlined <style> blocks, found ${styleBlocks.length}`);
+
+  const style = document.createElement('style');
+  style.textContent = styleBlocks.join('\n');
+  document.head.appendChild(style);
+
+  document.documentElement.style.setProperty('--hud-h', '160px');
+  document.body.appendChild(Object.assign(document.createElement('div'), { id: 'hud' }));
+  const ui = document.body.appendChild(Object.assign(document.createElement('div'), { id: 'ui' }));
+
+  const coarse = window.matchMedia('(pointer:coarse)').matches;
+  const narrow = window.matchMedia('(max-width:520px)').matches;
+  log('this run is actually touch-emulated', coarse, `pointer:coarse = ${coarse} (pass --touch to run-probe.mjs if this fails)`);
+  log('and narrow', narrow, `${window.innerWidth}px`);
+
+  const cs = getComputedStyle(ui);
+  const radius = parseFloat(cs.borderTopLeftRadius);
+  const isSheet = radius > 4;
+  log('a real phone still gets the bottom sheet', isSheet,
+      `#ui width ${cs.width}, border-top-left-radius ${radius}px (>4px means sheet)`);
+} catch (e) {
+  log('run the probe', false, String(e.stack || e.message || e).slice(0, 500));
+}
+
+window.probeResult = { results, allOk: results.every((r) => r.ok) };
+</script>

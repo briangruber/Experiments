@@ -1,0 +1,52 @@
+<!doctype html><meta charset="utf-8"><body style="margin:0;background:#0a1622">
+<canvas id="view" width="900" height="500"></canvas>
+<!--
+  Static scene, no boot() and no live loop - the earlier attempt at an
+  in-game screenshot (boat-visual-recheck.html) hung the same way
+  spray-breach-probe.html once did (documented there: canvas CSS sizing plus
+  a live readback-driven loop). This sidesteps it entirely: place the boat
+  mesh exactly where three-main.js's poseCraft() would (mesh Y = deckY +
+  boatLift, deckY = 0 for calm water here) next to a plain translucent plane
+  at Y=0 standing in for the sea surface, and just look at how much of the
+  hull actually clears it.
+
+  node tools/run-probe.mjs prototypes/boat-waterline-recheck.html --shot shots/x.png
+-->
+<script type="importmap">{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js" } }</script>
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { buildCraftGeometry, loadCraftTexture } from '../src/gpu/tsl/craft.js';
+import { BOAT_MESH } from '../demo/boatModel.js';
+import { newParams } from '../src/presets.js';
+
+const canvas = document.getElementById('view');
+const r = new THREE.WebGPURenderer({ canvas, forceWebGL: true, antialias: true });
+await r.init(); r.setClearColor(0x0a1622, 1);
+
+const params = newParams();
+const LEN = params.boatLength * 2;
+const geo = buildCraftGeometry(LEN, BOAT_MESH).geometry;
+const tex = await loadCraftTexture(r, BOAT_MESH);
+const mat = new THREE.MeshBasicNodeMaterial({ map: tex, side: THREE.DoubleSide });
+const mesh = new THREE.Mesh(geo, mat);
+mesh.position.set(0, params.boatLift, 0);   // exactly poseCraft()'s deckY(=0) + boatLift
+const scene = new THREE.Scene(); scene.add(mesh);
+scene.add(new THREE.AmbientLight(0xffffff, 1.3));
+
+// The sea surface stand-in: a big translucent plane at world Y=0.
+const seaGeo = new THREE.PlaneGeometry(60, 60);
+const seaMat = new THREE.MeshBasicMaterial({ color: 0x2a6f8f, transparent: true, opacity: 0.55, side: THREE.DoubleSide });
+const sea = new THREE.Mesh(seaGeo, seaMat);
+sea.rotation.x = -Math.PI / 2;
+scene.add(sea);
+
+const cam = new THREE.PerspectiveCamera(40, 900 / 500, 0.05, 200);
+cam.position.set(16, 2.0, 0);   // near-eye-level side view, the angle that shows waterline clearest
+cam.lookAt(0, params.boatLift - 1.5, 0);
+await r.renderAsync(scene, cam);
+
+window.probeResult = { allOk: true, results: [{ name: 'rendered', ok: true, detail: `boatLift = ${ params.boatLift }` }] };
+</script>

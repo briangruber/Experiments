@@ -1,0 +1,156 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — sky reference image</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}canvas{margin-top:12px;border:1px solid #23384c;image-rendering:pixelated}</style>
+<pre id="out">running…</pre>
+<canvas id="view" width="160" height="100"></canvas>
+
+<!--
+  The sky as the shipping WebGL2 renderer draws it, at a fixed camera and fixed
+  parameters, in linear HDR before any tonemapping. This is what the TSL port has
+  to reproduce.
+
+  HDR on purpose: comparing after the post chain would fold exposure, bloom and
+  the tonemap into the measurement, and an auto-exposure difference of a third of
+  a stop would swamp a real error in the scattering.
+
+    node tools/run-probe.mjs prototypes/sky-golden.html --save test/golden/sky.json
+-->
+
+<script type="module">
+import { getContext, texture2D, framebuffer, Blitter } from '../src/gl.js';
+import { Sky } from '../src/sky.js';
+import { newParams } from '../src/presets.js';
+import { createDerived, derive } from '../src/derive.js';
+import { perspective, lookAt, mul, invert, mat4, v3, DEG } from '../src/math.js';
+
+const q = new URLSearchParams(location.search);
+const W = +(q.get('w') || 160), H = +(q.get('h') || 100);
+const PRESET = q.get('preset') || 'Golden Hour Swell';
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+// A fixed rig. Nothing here may drift: no handheld, no bob, no time-varying
+// camera, or the reference is not reproducible and the diff measures the wrong
+// thing.
+export const RIG = {
+  pos: [0, 12, 0],
+  yaw: -0.6, pitch: -0.02,
+  fov: 44, near: 0.1, far: 60000,
+  time: 12.0,
+};
+// Rig overrides for A/B hunts away from the golden view (?camy=30&pitch=-0.01&fov=10).
+// Defaults untouched, so the golden itself cannot drift. compare-image checks the
+// rig in the fingerprint, so a mismatched comparison still refuses to run.
+if (q.get('camy')) RIG.pos[1] = +q.get('camy');
+if (q.get('pitch')) RIG.pitch = +q.get('pitch');
+if (q.get('fov')) RIG.fov = +q.get('fov');
+
+let fingerprint = null;
+try {
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const gl = getContext(canvas, {});
+  const blit = new Blitter(gl);
+
+  const params = newParams(PRESET);
+  // ?set=cirrus:0,cloudCoverage:0 - ablation, applied identically here and in
+  // prototypes/sky-tsl.html so a term can be switched off on BOTH sides at once
+  // and the remainder compared. Turning it off on one side only measures the
+  // term, not the port.
+  for (const kv of (q.get('set') || '').split(',').filter(Boolean)) {
+    const [k, v] = kv.split(':');
+    params[k] = +v;
+  }
+  const d = createDerived();
+  derive(params, d);
+
+  const sky = new Sky(gl, blit);
+  sky.updateLUT(params, d.sunDir, Math.max(RIG.pos[1], 1));
+
+  // Same matrix convention as demo/camera.js: forward is built with the cos/sin
+  // form derive() uses, so yaw is an azimuth in the same frame as sunAzimuth.
+  const target = v3(
+    RIG.pos[0] + Math.cos(RIG.pitch) * Math.sin(RIG.yaw),
+    RIG.pos[1] + Math.sin(RIG.pitch),
+    RIG.pos[2] - Math.cos(RIG.pitch) * Math.cos(RIG.yaw),
+  );
+  const view = lookAt(new Float32Array(RIG.pos), target, v3(0, 1, 0), mat4());
+  const proj = perspective(RIG.fov * DEG, W / H, RIG.near, RIG.far, mat4());
+  const viewProj = mul(proj, view, mat4());
+  const invViewProj = invert(viewProj, mat4());
+
+  const hdr = texture2D(gl, {
+    width: W, height: H, internalFormat: gl.RGBA32F, format: gl.RGBA, type: gl.FLOAT,
+    filter: gl.NEAREST, wrap: gl.CLAMP_TO_EDGE,
+  });
+  const fbo = framebuffer(gl, [hdr]);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+  gl.viewport(0, 0, W, H);
+  gl.clearColor(0, 0, 0, 1);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+  sky.drawBackground(params, {
+    camPos: new Float32Array(RIG.pos),
+    invViewProj, viewProj,
+    sunDir: d.sunDir, moonDir: d.moonDir, windVec3: d.windVec3,
+    time: RIG.time,
+  });
+
+  const px = new Float32Array(W * H * 4);
+  gl.readPixels(0, 0, W, H, gl.RGBA, gl.FLOAT, px);
+
+  // Show it, tonemapped only for the human looking at the page.
+  const view2d = document.getElementById('view').getContext('2d');
+  const img = view2d.createImageData(W, H);
+  for (let i = 0; i < W * H; i++) {
+    for (let k = 0; k < 3; k++) {
+      const v = px[i * 4 + k];
+      img.data[i * 4 + k] = Math.min(255, 255 * Math.pow(v / (1 + v), 1 / 2.2));
+    }
+    img.data[i * 4 + 3] = 255;
+  }
+  // Rows come back bottom-up from readPixels; flip for display only.
+  const flipped = view2d.createImageData(W, H);
+  for (let y = 0; y < H; y++) {
+    const src = (H - 1 - y) * W * 4;
+    flipped.data.set(img.data.subarray(src, src + W * 4), y * W * 4);
+  }
+  view2d.putImageData(flipped, 0, 0);
+
+  let sum = 0, sum2 = 0, min = Infinity, max = -Infinity;
+  for (let i = 0; i < W * H; i++) {
+    const l = 0.2126 * px[i * 4] + 0.7152 * px[i * 4 + 1] + 0.0722 * px[i * 4 + 2];
+    sum += l; sum2 += l * l;
+    if (l < min) min = l; if (l > max) max = l;
+  }
+  const n = W * H;
+  const mean = sum / n;
+
+  fingerprint = {
+    config: { W, H, preset: PRESET, rig: RIG },
+    stats: {
+      mean: +mean.toFixed(6),
+      rms: +Math.sqrt(sum2 / n).toFixed(6),
+      min: +min.toFixed(6), max: +max.toFixed(6),
+    },
+    // Every pixel, rounded. The sky is smooth, so a localised error - a wrong
+    // cloud layer, a mis-mapped LUT direction - moves a region and not the mean.
+    pixels: Array.from(px).map((v) => +v.toFixed(4)),
+  };
+
+  log('sky rendered', mean > 1e-4, `mean radiance ${mean.toFixed(4)}, peak ${max.toFixed(3)}`);
+  log('not uniform', Math.sqrt(sum2 / n - mean * mean) > 1e-3,
+      `std ${Math.sqrt(Math.max(sum2 / n - mean * mean, 0)).toFixed(4)}`);
+  log('all finite', px.every(Number.isFinite));
+} catch (e) {
+  log('render sky reference', false, String(e.stack || e.message || e).slice(0, 600));
+}
+
+window.probeResult = { results, allOk: results.every((r) => r.ok), fingerprint };
+</script>

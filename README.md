@@ -14,7 +14,7 @@ collide, and a branch can be merged without reading it first.
 
 | folder | what it is |
 | --- | --- |
-| `ocean/` | Abyssal — a real-time cinematic ocean simulator with a rideable wave runner. Multi-cascade FFT sea, volumetric clouds, GPU spray, persistent Kelvin wake. |
+| `ocean/` | **Abyssal** — a real-time cinematic ocean simulator with a rideable wave runner, and the reusable water and sky components behind it. Multi-cascade FFT sea, volumetric clouds, GPU spray, persistent Kelvin wake. Published as `abyssal-ocean`, droppable into a Three.js scene. See [ocean/README.md](ocean/README.md). |
 | `telenovela/` | Corazón de Gallina — a wordless chicken telenovela. Procedural birds, a hacienda courtyard, a cinematographer that speaks in shot sizes, and a synthesised organ sting. |
 
 Other prototypes currently live on their own branches and follow the same

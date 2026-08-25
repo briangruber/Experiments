@@ -1,0 +1,79 @@
+<!doctype html><meta charset="utf-8"><body style="margin:0;background:#0a0e14">
+<canvas id="view" width="1600" height="400"></canvas>
+<script type="importmap">{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js" } }</script>
+<!--
+  The travelling body wave, from above, at four phases of one beat. The wave has
+  to MOVE DOWN THE BODY - crests marching from head to tail - with the head
+  nearly still and the tail sweeping widest. A body that flexes all at once, or
+  one whose crests stand still, is not swimming.
+
+  Rendered flat-lit on purpose: the point here is the shape, and the creature's
+  own shader deliberately fades it into the water, which is exactly what would
+  make an animation bug invisible.
+-->
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { buildCraftGeometry, loadCraftTexture } from '../src/gpu/tsl/craft.js';
+import {
+  creatureVertex, uCreatureLen, uCreaturePhase, uCreatureWaves, uCreatureAmp,
+} from '../src/gpu/tsl/creature.js';
+import { DRAGON_MESH } from '../demo/dragonModel.js';
+import { installThreeCompat } from '../src/gpu/three-compat.js';
+installThreeCompat();
+const canvas = document.getElementById('view');
+const r = new THREE.WebGPURenderer({ canvas, forceWebGL: true, antialias: true });
+await r.init(); r.setClearColor(0x0a0e14, 1);
+const L = 22;
+const b = buildCraftGeometry(L, DRAGON_MESH);
+const tex = await loadCraftTexture(r, DRAGON_MESH);
+const mat = new THREE.MeshBasicNodeMaterial({ map: tex, side: THREE.DoubleSide });
+mat.positionNode = creatureVertex();
+uCreatureLen.value = L;
+uCreatureWaves.value = 1.25;
+uCreatureAmp.value = 0.055;
+const scene = new THREE.Scene(); scene.add(new THREE.Mesh(b.geometry, mat));
+const cam = new THREE.PerspectiveCamera(30, 1, 0.05, 500);
+cam.position.set(0.01, 44, 0); cam.up.set(0, 0, -1); cam.lookAt(0, 0, 0);
+
+// Measure the wave on the CPU the same way the shader applies it, so the claim
+// is a number and not a look: where is the crest at each phase, and how wide
+// does the body sweep at the head against the tail?
+const wave = (s, phase) => {
+  const ramp = (x) => { const t = Math.min(1, Math.max(0, (x - 0.06) / (0.85 - 0.06))); return t * t * (3 - 2 * t); };
+  return Math.sin(s * uCreatureWaves.value * Math.PI * 2 - phase) * uCreatureAmp.value * L * ramp(s);
+};
+const crestAt = (phase) => {
+  let best = 0, bs = 0;
+  for (let i = 0; i <= 200; i++) { const s = i / 200, v = wave(s, phase); if (v > best) { best = v; bs = s; } }
+  return bs;
+};
+const phases = [0, Math.PI / 2, Math.PI, Math.PI * 1.5];
+for (let i = 0; i < 4; i++) {
+  uCreaturePhase.value = phases[i];
+  r.setViewport(i * 400, 0, 400, 400); r.setScissor(i * 400, 0, 400, 400); r.setScissorTest(true);
+  await r.renderAsync(scene, cam);
+}
+const crests = phases.map(crestAt);
+// The crest must march AFT (toward s = 1) as the phase advances. Measured on
+// the CIRCLE: with 1.25 waves on the body a crest runs off the tail every 0.8
+// of a cycle and the next one is already on the back, so a plain "is it bigger
+// than last time" reads that hand-off as the wave running backwards.
+let marched = 0;
+for (let i = 1; i < crests.length; i++) {
+  const step = ((crests[i] - crests[i - 1]) % 1 + 1) % 1;
+  if (step > 0.02 && step < 0.5) marched++;
+}
+const headSweep = Math.max(...phases.map((p) => Math.abs(wave(0.05, p))));
+const tailSweep = Math.max(...phases.map((p) => Math.abs(wave(1.0, p))));
+
+const results = [
+  { name: 'four phases', ok: true, detail: phases.map((p) => p.toFixed(2)).join(', ') + ' rad' },
+  { name: 'the wave travels aft', ok: marched === 3, detail: `crest at s = ${crests.map((c) => c.toFixed(2)).join(' -> ')}` },
+  { name: 'the head is steady', ok: headSweep < tailSweep * 0.12, detail: `head ${headSweep.toFixed(3)} m against tail ${tailSweep.toFixed(2)} m` },
+  { name: 'the tail sweeps', ok: tailSweep > L * 0.03, detail: `${tailSweep.toFixed(2)} m of a ${L} m body` },
+];
+window.probeResult = { allOk: results.every((x) => x.ok), results };
+</script></body>

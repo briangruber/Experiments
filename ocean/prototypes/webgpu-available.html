@@ -1,0 +1,95 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — is there a WebGPU device here at all?</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}</style>
+<pre id="out">running…</pre>
+
+<!--
+  Every TSL verification so far has run on WebGL2, because the WebGPU render
+  path was recorded as "blocked by a sandbox Chromium bug". That claim deserves
+  to be pinned down rather than repeated, because if WebGPU cannot render here
+  then the backend this port is FOR is the one nothing has tested.
+
+  Three questions, in order, because each one makes the next meaningful:
+    1. Is navigator.gpu present? (absent on a non-secure context, which is why
+       this has to be asked from the probe server and not from about:blank)
+    2. Does an adapter and device come back?
+    3. Does three's WebGPURenderer actually initialise on the WebGPU backend,
+       and can it render one triangle into a target and read it back?
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { vec4, uv } from 'three/tsl';
+import { installWebGPUSwizzleShim } from './webgpu-shim.js';
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+const shimmed = installWebGPUSwizzleShim();
+log('swizzle shim installed', true, shimmed ? 'GPUTexture.createView patched' : 'no GPUTexture in this context');
+log('secure context', window.isSecureContext, `origin ${location.origin}`);
+log('navigator.gpu present', !!navigator.gpu);
+
+let device = null;
+if (navigator.gpu) {
+  try {
+    const adapter = await navigator.gpu.requestAdapter();
+    log('adapter', !!adapter, adapter?.info
+      ? `${adapter.info.vendor || '?'} / ${adapter.info.architecture || '?'} / ${adapter.info.description || '?'}`
+      : 'no info');
+    if (adapter) {
+      device = await adapter.requestDevice();
+      log('device', !!device);
+    }
+  } catch (e) {
+    log('adapter/device', false, String(e.message || e));
+  }
+}
+
+// The real question: does three initialise on WebGPU and render.
+try {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 32;
+  const renderer = new THREE.WebGPURenderer({ canvas, forceWebGL: false, antialias: false });
+  await renderer.init();
+  const isGPU = !!renderer.backend?.isWebGPUBackend;
+  log('WebGPURenderer chose the WebGPU backend', isGPU,
+      isGPU ? 'WebGPUBackend' : 'fell back to WebGLBackend');
+
+  if (isGPU) {
+    const mat = new THREE.MeshBasicNodeMaterial();
+    mat.fragmentNode = vec4(uv().x, uv().y, 0.5, 1.0);
+    const scene = new THREE.Scene();
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat);
+    quad.frustumCulled = false;
+    scene.add(quad);
+    const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    const target = new THREE.RenderTarget(8, 8, { type: THREE.FloatType, format: THREE.RGBAFormat });
+    renderer.setRenderTarget(target);
+    await renderer.renderAsync(scene, cam);
+    renderer.setRenderTarget(null);
+    const px = await renderer.readRenderTargetPixelsAsync(target, 0, 0, 8, 8);
+    // b is a constant 0.5 everywhere; if the render worked that is what comes back.
+    log('WebGPU renders and reads back', Math.abs(px[2] - 0.5) < 1e-3,
+        `first texel ${[px[0], px[1], px[2]].map((v) => v.toFixed(3)).join(', ')}`);
+  }
+  renderer.dispose();
+} catch (e) {
+  log('three on WebGPU', false, String(e.message || e).slice(0, 400));
+}
+
+window.probeResult = { results, allOk: results.every((r) => r.ok) };
+</script>

@@ -1,0 +1,264 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — the TSL spray, at the golden's rig</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}canvas{margin-top:12px;border:1px solid #23384c;image-rendering:pixelated}</style>
+<pre id="out">running…</pre>
+<canvas id="view" width="160" height="100"></canvas>
+
+<!--
+  The counterpart of prototypes/spray-golden.html: the same frame through the TSL
+  sea, sky and spray instead of the GLSL ones.
+
+  The cascade fields come from the shipping simulation, read back and re-uploaded,
+  exactly as prototypes/water-tsl.html does - so the wave field is identical on
+  both sides and the number measures the SHADING and the PARTICLES.
+
+  The same non-triviality guard as the reference: the frame is drawn with and
+  without the spray system and the two must differ, because a reference of an
+  invisible system is one any broken port reproduces perfectly.
+
+    node tools/run-probe.mjs prototypes/spray-tsl.html --save test/out/spray-tsl.json
+    node tools/compare-image.mjs test/golden/spray.json test/out/spray-tsl.json
+
+  ?backend=webgl (default) or ?backend=webgpu.
+
+  ON THE WebGPU NUMBER. This runs a STORM preset, and a steep sea is the hardest
+  case for the software rasteriser this sandbox provides: WebGPU comes in at
+  ~1.15% of pixels beyond the 2% bound where WebGL2 is at 0.01%. That is not the
+  spray. Rendering the SAME frame with no spray at all gives 1.16% with the worst
+  pixel at the identical index, and TSL-on-WebGL2 against TSL-on-WebGPU gives
+  1.14% - so the residual is SwiftShader drawing a steep, high-frequency sea,
+  not anything this port did. On the calm preset the same water comes in at
+  0.61%, and the sky at 0.02%.
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { installWebGPUSwizzleShim } from './webgpu-shim.js';
+import { readPixelsBottomUp } from './readback.js';
+import { TslWater, cascadeArrayTexture } from '../src/gpu/tsl/water-driver.js';
+import { TslSky } from '../src/gpu/tsl/sky-driver.js';
+import { TslSpray } from '../src/gpu/tsl/spray-driver.js';
+import { getContext } from '../src/gl.js';
+import { Ocean, DEFAULT_CASCADES } from '../src/ocean.js';
+import { newParams } from '../src/presets.js';
+import { createDerived, derive } from '../src/derive.js';
+import { perspective, lookAt, mul, invert, mat4, v3, DEG } from '../src/math.js';
+
+const q = new URLSearchParams(location.search);
+const W = +(q.get('w') || 160), H = +(q.get('h') || 100);
+const PRESET = q.get('preset') || 'North Atlantic Storm';
+const SEED = +(q.get('seed') || 1337);
+const N = +(q.get('n') || 128);
+const STEPS = +(q.get('steps') || 8);
+const SPRAY_STEPS = +(q.get('spraySteps') || 24);
+const SPRAY_SIZE = +(q.get('spraySize') || 128);
+const DT = 1 / 60;
+const FORCE_WEBGL = (q.get('backend') || 'webgl') === 'webgl';
+
+installWebGPUSwizzleShim();
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+const RIG = {
+  pos: [0, 12, 0], yaw: -0.6, pitch: -0.02,
+  fov: 44, near: 0.1, far: 60000, time: 12.0,
+};
+
+let fingerprint = null;
+let backend = '?';
+try {
+  // ---- the shipping simulation, in its own GL context, read back -----------
+  const simCanvas = document.createElement('canvas');
+  simCanvas.width = simCanvas.height = 16;
+  const gl = getContext(simCanvas, {});
+
+  const params = newParams(PRESET);
+  params.seed = SEED;
+  params.fftSize = N;
+  params.gridScale = 1;
+  for (const kv of (q.get('set') || '').split(',').filter(Boolean)) {
+    const [k, v] = kv.split(':');
+    params[k] = +v;
+  }
+  const d = createDerived();
+  derive(params, d);
+
+  const ocean = new Ocean(gl, { size: N, cascades: DEFAULT_CASCADES });
+  ocean.setSeed(SEED);
+  ocean.buildSpectrum(params);
+  for (let i = 0; i < STEPS; i++) ocean.update(DT, params);
+
+  const C = ocean.cascadeCount;
+  const readLayer = (fbo, att) => {
+    const buf = new Float32Array(N * N * 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.readBuffer(att);
+    gl.readPixels(0, 0, N, N, gl.RGBA, gl.FLOAT, buf);
+    return buf;
+  };
+  const dispLayers = [], slopeLayers = [], foamLayers = [];
+  for (let c = 0; c < C; c++) {
+    dispLayers.push(readLayer(ocean.fbo.assemble[c], gl.COLOR_ATTACHMENT0));
+    slopeLayers.push(readLayer(ocean.fbo.assemble[c], gl.COLOR_ATTACHMENT1));
+    foamLayers.push(readLayer(ocean.fbo.foam[ocean.foamIdx][c], gl.COLOR_ATTACHMENT0));
+  }
+
+  // ---- the three renderer ---------------------------------------------------
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const renderer = new THREE.WebGPURenderer({ canvas, forceWebGL: FORCE_WEBGL, antialias: false });
+  await renderer.init();
+  backend = renderer.backend?.isWebGPUBackend ? 'WebGPU' : 'WebGL2';
+
+  // TslSky FIRST: its constructor calls setSkyLut(), so the real mipped table is
+  // bound before any other material is built. See porting rule 11 - on WGSL the
+  // sampling instruction is chosen from whatever is bound at build time.
+  const sky = new TslSky(renderer);
+  sky.updateLUT(params, d.sunDir, Math.max(RIG.pos[1], 1));
+
+  const water = new TslWater(renderer, params);
+  const dispTex = cascadeArrayTexture(dispLayers, N, true);
+  const slopeTex = cascadeArrayTexture(slopeLayers, N, true);
+  const foamTex = cascadeArrayTexture(foamLayers, N, true);
+  water.setFields({ disp: dispTex, slope: slopeTex, foam: foamTex });
+
+  const spray = new TslSpray(renderer, { size: SPRAY_SIZE });
+
+  const targetPt = v3(
+    RIG.pos[0] + Math.cos(RIG.pitch) * Math.sin(RIG.yaw),
+    RIG.pos[1] + Math.sin(RIG.pitch),
+    RIG.pos[2] - Math.cos(RIG.pitch) * Math.cos(RIG.yaw),
+  );
+  const view = lookAt(new Float32Array(RIG.pos), targetPt, v3(0, 1, 0), mat4());
+  const proj = perspective(RIG.fov * DEG, W / H, RIG.near, RIG.far, mat4());
+  const viewProj = mul(proj, view, mat4());
+  const invViewProj = invert(viewProj, mat4());
+
+  const fwd = (() => {
+    const f = [targetPt[0] - RIG.pos[0], targetPt[1] - RIG.pos[1], targetPt[2] - RIG.pos[2]];
+    const L = Math.hypot(f[0], f[1], f[2]);
+    return [f[0] / L, f[1] / L, f[2] / L];
+  })();
+  const camRight = (() => {
+    const r = [fwd[2], 0, -fwd[0]];
+    const L = Math.hypot(r[0], r[1], r[2]);
+    return new Float32Array([r[0] / L, r[1] / L, r[2] / L]);
+  })();
+  const camUp = new Float32Array([
+    camRight[1] * fwd[2] - camRight[2] * fwd[1],
+    camRight[2] * fwd[0] - camRight[0] * fwd[2],
+    camRight[0] * fwd[1] - camRight[1] * fwd[0],
+  ]);
+
+  const ctx = {
+    camPos: new Float32Array(RIG.pos), viewProj, invViewProj,
+    camRight, camUp,
+    sunDir: d.sunDir, moonDir: d.moonDir, windVec3: d.windVec3, time: RIG.time,
+  };
+
+  const camera = new THREE.PerspectiveCamera(RIG.fov, W / H, RIG.near, RIG.far);
+  camera.position.set(RIG.pos[0], RIG.pos[1], RIG.pos[2]);
+  camera.lookAt(targetPt[0], targetPt[1], targetPt[2]);
+  camera.updateMatrixWorld(true);
+  camera.updateProjectionMatrix();
+
+  for (let i = 0; i < SPRAY_STEPS; i++) spray.update(DT, params, ctx, ocean);
+
+  const target = new THREE.RenderTarget(W, H, {
+    type: THREE.FloatType, format: THREE.RGBAFormat,
+    minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true,
+  });
+
+  renderer.autoClear = false;
+  const renderFrame = async (withSpray) => {
+    renderer.setRenderTarget(target);
+    renderer.setClearColor(0x000000, 1);
+    renderer.clear(true, true, false);
+    water.render(params, ctx, ocean, camera);
+    sky.drawBackground(params, ctx);
+    if (withSpray) spray.draw(params, ctx, ocean, camera);
+    renderer.setRenderTarget(null);
+    return await readPixelsBottomUp(renderer, target, W, H);
+  };
+
+  const px = await renderFrame(true);
+  const noSpray = await renderFrame(false);
+  const again = await renderFrame(true);
+
+  const lum = (p, i) => 0.2126 * p[i * 4] + 0.7152 * p[i * 4 + 1] + 0.0722 * p[i * 4 + 2];
+  let sprayDelta = 0, sprayPixels = 0, repeatDrift = 0;
+  for (let i = 0; i < W * H; i++) {
+    const dlt = Math.abs(lum(px, i) - lum(noSpray, i));
+    sprayDelta += dlt;
+    if (dlt > 1e-3) sprayPixels++;
+    repeatDrift = Math.max(repeatDrift, Math.abs(lum(px, i) - lum(again, i)));
+  }
+
+  const view2d = document.getElementById('view').getContext('2d');
+  const img = view2d.createImageData(W, H);
+  for (let i = 0; i < W * H; i++) {
+    for (let k = 0; k < 3; k++) {
+      const v = Math.max(px[i * 4 + k], 0);
+      img.data[i * 4 + k] = Math.min(255, 255 * Math.pow(v / (1 + v), 1 / 2.2));
+    }
+    img.data[i * 4 + 3] = 255;
+  }
+  const flipped = view2d.createImageData(W, H);
+  for (let y = 0; y < H; y++) {
+    const s = (H - 1 - y) * W * 4;
+    flipped.data.set(img.data.subarray(s, s + W * 4), y * W * 4);
+  }
+  view2d.putImageData(flipped, 0, 0);
+
+  let sum = 0, sum2 = 0, min = Infinity, max = -Infinity;
+  for (let i = 0; i < W * H; i++) {
+    const l = lum(px, i);
+    sum += l; sum2 += l * l;
+    if (l < min) min = l; if (l > max) max = l;
+  }
+  const n = W * H, mean = sum / n;
+
+  fingerprint = {
+    config: { W, H, preset: PRESET, rig: RIG, seed: SEED, n: N, steps: STEPS,
+              spraySteps: SPRAY_STEPS, spraySize: SPRAY_SIZE },
+    stats: {
+      mean: +mean.toFixed(6), rms: +Math.sqrt(sum2 / n).toFixed(6),
+      min: +min.toFixed(6), max: +max.toFixed(6),
+    },
+    pixels: Array.from(px).map((v) => +v.toFixed(4)),
+  };
+
+  log(`${backend}: frame rendered`, mean > 1e-4 && px.every(Number.isFinite),
+      `mean radiance ${mean.toFixed(4)}, peak ${max.toFixed(3)}`);
+  // The guard: a reference of an invisible system is one any broken port passes.
+  log(`${backend}: spray actually contributes to the frame`, sprayPixels > 50,
+      `${sprayPixels} pixels changed by drawing it, total |delta| ${sprayDelta.toFixed(3)}`);
+  // 1e-4 rather than the reference's exact 0: on the WebGL2 backend three
+  // re-resolves some per-draw state and the repeat frame lands within 3.4e-5 of
+  // the first rather than on top of it. That is four orders of magnitude below
+  // the 2%-of-rms the comparison cares about, and WebGPU does reproduce exactly.
+  // Stated rather than hidden, because a threshold quietly widened to make a
+  // check pass is worth less than no check.
+  log(`${backend}: reproducible across repeat draws`, repeatDrift < 1e-4,
+      `worst luminance drift ${repeatDrift.toExponential(2)}` +
+      (repeatDrift > 0 ? ' (reference is exactly 0; see the note above)' : ''));
+} catch (e) {
+  log(`${backend}: render the TSL spray`, false, String(e.stack || e.message || e).slice(0, 900));
+}
+
+window.probeResult = { results, allOk: results.every((r) => r.ok), fingerprint };
+</script>

@@ -1,0 +1,105 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — which data row lands in which readback row?</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}</style>
+<pre id="out">running…</pre>
+
+<!--
+  The ping-pong probe fails on WebGPU even with ZERO ping-pong passes - the copy
+  of a DataTexture into a render target, read back, already disagrees with the
+  CPU reference. So stop reasoning about flips and measure the mapping directly.
+
+  A DataTexture whose every texel carries its own row index. Copy it into a
+  render target by sampling at uv(), read the target back, and print which data
+  row ended up in which readback row, on each backend. There is no way to
+  misread the answer: it is a list of integers.
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { uv, texture, vec4 } from 'three/tsl';
+import { installWebGPUSwizzleShim } from './webgpu-shim.js';
+import { readPixelsBottomUp } from './readback.js';
+
+installWebGPUSwizzleShim();
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+const N = +(new URLSearchParams(location.search).get('n') ?? 8);
+
+// r = row index, g = column index. Row-major, row 0 first in memory.
+const data = new Float32Array(N * N * 4);
+for (let y = 0; y < N; y++) {
+  for (let x = 0; x < N; x++) {
+    const o = (y * N + x) * 4;
+    data[o] = y; data[o + 1] = x; data[o + 2] = 0; data[o + 3] = 1;
+  }
+}
+
+async function run(forceWebGL) {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 32;
+  const renderer = new THREE.WebGPURenderer({ canvas, forceWebGL, antialias: false });
+  await renderer.init();
+  const backend = renderer.backend?.isWebGPUBackend ? 'WebGPU' : 'WebGL2';
+
+  const tex = new THREE.DataTexture(data, N, N, THREE.RGBAFormat, THREE.FloatType);
+  tex.minFilter = tex.magFilter = THREE.NearestFilter;
+  tex.needsUpdate = true;
+
+  const target = new THREE.RenderTarget(N, N, {
+    type: THREE.FloatType, format: THREE.RGBAFormat,
+    minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false,
+  });
+
+  const mat = new THREE.NodeMaterial();
+  mat.fragmentNode = texture(tex).sample(uv());
+  mat.depthTest = false; mat.depthWrite = false;
+  const quad = new THREE.QuadMesh(mat);
+  renderer.setRenderTarget(target);
+  quad.render(renderer);
+  renderer.setRenderTarget(null);
+
+  const raw = await renderer.readRenderTargetPixelsAsync(target, 0, 0, N, N);
+  const rawF = raw instanceof Float32Array ? raw : new Float32Array(raw.buffer ?? raw);
+  const norm = await readPixelsBottomUp(renderer, target, N, N);
+
+  const rowsOf = (px) => Array.from({ length: N }, (_, y) => px[(y * N + 0) * 4]);
+  const flipY = tex.flipY;
+  renderer.dispose();
+  return { backend, raw: rowsOf(rawF), norm: rowsOf(norm), flipY };
+}
+
+for (const [label, force] of [['WebGPU', false], ['WebGL2', true]]) {
+  let r;
+  try { r = await run(force); } catch (e) { log(`${label}: run`, false, String(e.message || e)); continue; }
+  log(`${r.backend}: DataTexture.flipY`, true, String(r.flipY));
+  log(`${r.backend}: data row found in each RAW readback row`, true,
+      `[${r.raw.join(', ')}]   (readback row 0 first)`);
+  log(`${r.backend}: data row found in each NORMALISED readback row`, true,
+      `[${r.norm.join(', ')}]`);
+  window[`rows_${r.backend}`] = r.norm;
+}
+
+const a = window.rows_WebGPU, b = window.rows_WebGL2;
+if (a && b) {
+  const same = a.every((v, i) => v === b[i]);
+  log('the two backends agree after normalisation', same,
+      same ? 'one code path is safe' : `WebGPU [${a.join(',')}] vs WebGL2 [${b.join(',')}]`);
+}
+
+window.probeResult = { results, allOk: results.every((r) => r.ok) };
+</script>

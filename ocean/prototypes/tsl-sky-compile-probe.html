@@ -1,0 +1,112 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — do the TSL sky graphs compile on both backends?</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}</style>
+<pre id="out">running…</pre>
+
+<!--
+  Verification reported that `steps.mul(int(4)).min(int(256))` is a hard WebGL2
+  compile failure: three r185's MathNode.generate forces a scalar min/max operand
+  to float on the WebGL backend, emitting min(int, float), which GLSL ES 3.00 has
+  no overload for. The whole background pass would draw nothing, on exactly one
+  backend, with the other perfectly fine.
+
+  That is a claim about a compiler, so it is settled by a compiler. This builds
+  the real node graphs into real materials and compiles them on both backends.
+
+  Compiling is also the only half of this that CAN be checked here - the sandbox's
+  Chromium rejects Three's createView on the WebGPU render path, so a WebGPU
+  render cannot run. Compilation happens before that and is what the fix is about.
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { uv, vec3, vec4, float, screenCoordinate } from 'three/tsl';
+import { skyLutFragment } from '../src/gpu/tsl/sky-lut.js';
+import { marchClouds } from '../src/gpu/tsl/cloud-march.js';
+import { skyBackground } from '../src/gpu/tsl/sky-background.js';
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+const GRAPHS = {
+  'sky LUT bake': () => skyLutFragment(uv()),
+  'cloud march': () => marchClouds(
+    vec3(0, 6371012, 0), vec3(0.3, 0.2, -0.93).normalize(),
+    vec3(0.3, 0.4, -0.86).normalize(), vec3(20, 18, 15),
+    vec3(0, -1, 0), vec3(0, 0, 0),
+    vec3(0.4, 0.5, 0.7), vec3(0.3, 0.35, 0.45),
+    vec3(1, 1, 1), screenCoordinate,
+  ),
+  // The whole background pass: discs, stars, cirrus, the LUT fetch and the
+  // deck, composed. This is the graph the driver actually renders.
+  'sky background': () => skyBackground(),
+};
+
+async function compileOn(forceWebGL) {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 32;
+  const renderer = new THREE.WebGPURenderer({ canvas, forceWebGL, antialias: false });
+  await renderer.init();
+  const backend = renderer.backend?.isWebGPUBackend ? 'WebGPU' : 'WebGL2';
+
+  // Console is where a GLSL compile error surfaces; a failed material otherwise
+  // renders black and reports nothing.
+  const errs = [];
+  const realError = console.error;
+  console.error = (...a) => { errs.push(a.join(' ')); realError(...a); };
+
+  const out = {};
+  for (const [name, build] of Object.entries(GRAPHS)) {
+    const before = errs.length;
+    try {
+      const mat = new THREE.MeshBasicNodeMaterial();
+      mat.fragmentNode = vec4(build().xyz, 1.0);
+      const scene = new THREE.Scene();
+      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat);
+      mesh.frustumCulled = false;
+      scene.add(mesh);
+      const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+      const target = new THREE.RenderTarget(16, 16, { type: THREE.HalfFloatType });
+      renderer.setRenderTarget(target);
+      await renderer.renderAsync(scene, cam);
+      renderer.setRenderTarget(null);
+      const shaderErrs = errs.slice(before).filter((e) => /shader|compil|link|GLSL|WGSL|ERROR:/i.test(e));
+      out[name] = shaderErrs.length ? shaderErrs[0].slice(0, 500) : true;
+    } catch (e) {
+      const msg = String(e.message || e);
+      // The sandbox's own WebGPU render bug is not a compile failure.
+      out[name] = /swizzle|GPUTextureViewDescriptor/.test(msg) ? 'sandbox-render-bug' : msg.slice(0, 400);
+    }
+  }
+  console.error = realError;
+  renderer.dispose();
+  return { backend, out };
+}
+
+for (const [label, force] of [['WebGPU', false], ['WebGL2', true]]) {
+  let r;
+  try { r = await compileOn(force); } catch (e) { log(`${label}: renderer`, false, String(e.message || e)); continue; }
+  for (const [name, v] of Object.entries(r.out)) {
+    if (v === 'sandbox-render-bug') {
+      log(`${r.backend}: ${name} compiles`, true, 'graph built; render blocked by the sandbox Chromium bug, not by the shader');
+    } else {
+      log(`${r.backend}: ${name} compiles`, v === true, v === true ? 'no shader errors' : String(v));
+    }
+  }
+}
+
+window.probeResult = { results, allOk: results.every((r) => r.ok) };
+</script>

@@ -1,118 +1,46 @@
-// Multi-cascade FFT ocean.
+// The FFT ocean simulation on raw WebGL2.
 //
-// Four independent spectra with deliberately non-commensurate patch sizes are
-// summed in the surface shader. Because the periods share no common multiple at
-// any believable viewing distance, the surface never shows a repeating tile.
+// The pure, GPU-free half of this file now lives in ./ocean-shared.js so a
+// three.js/TSL renderer can share it without dragging src/gl.js and the GLSL
+// simulation shaders in with it. Every name is re-exported here, so callers that
+// imported them from this module keep working.
 
 import { program, setUniforms, texture2D, textureArray, framebuffer, Blitter, FS_VERT } from './gl.js';
 import { INIT_SPECTRUM_FS, TIME_EVOLVE_FS, FFT_FS, ASSEMBLE_FS, FOAM_FS } from './shaders/oceanSim.js';
 import { mulberry32, gauss2 } from './math.js';
+import {
+  ACTIVE_SHARE,
+  DEFAULT_CASCADES,
+  FOAM_WEIGHTS,
+  GATE_PASS,
+  bandLimitsOf,
+  breakLodsOf,
+  breakWeightsOf,
+  butterflyData,
+  cascadeNoise,
+  choppinessOf,
+  foamCutoffOf,
+  kCharOf,
+  probit,
+  whitecapFraction,
+} from './ocean-shared.js';
 
-// Patch sizes chosen so no pair has a simple rational ratio. The largest patch
-// has to resolve the peak of the spectrum with enough modes that the swell reads
-// as travelling wave groups rather than one slow lump. Groups are a beat between
-// neighbouring modes, so a peak carried by three or four of them cannot make
-// any: at 3137 m a 14 s swell lands on mode 10 and the 17 s peak of a full gale
-// on mode 7, both with enough neighbours to beat against. Cascade 0 never
-// carries anything shorter than 66 m, so its 12 m texels are not the constraint
-// - the mode count at the peak is.
-export const DEFAULT_CASCADES = [3137.0, 397.0, 87.0, 17.3];
-
-// How much of each cascade's whitecap contribution the surface shader should
-// see. Every cascade now tests the same combined Jacobian, so without a
-// partition the four foam layers would simply stack up in the near field. The
-// weights sum to one when all four are visible.
-//
-// The split is a resolution argument, not a distance one. Cascade 0's texels are
-// twelve metres across, so *any* structure it stores is at least a twenty metre
-// blob - which is exactly what a third of the foam budget living there looked
-// like. A breaker is metres wide, so the budget belongs in the cascades whose
-// texels can hold that shape (1.6 m and 0.34 m). Cascade 0 keeps a token share
-// for the far field, where a whitecap is sub-pixel anyway and only its area
-// matters. Cascade 3 gets none at all: every cascade evaluates the same
-// world-space fold field but can only store the part of it that falls inside its
-// own tile, so a 17 m patch would stamp the same whitecap every 17 metres - and
-// a 17 m window is too small a sample of a two-percent-coverage field to even
-// contain one reliably. The bulk sits in the 397 m tile for the same reason in
-// reverse: it is the longest period that still resolves a breaker.
-// Each cascade's foam is periodic in that cascade's own tile - unavoidably, it
-// lives in that tile's texture. So no single cascade may dominate, or its period
-// prints a lattice of whitecaps across a sea whose waves do not repeat. Spread
-// across incommensurate periods the sum has no period, exactly as the wave field
-// does not. The bias toward the middle two is where breaking waves actually are.
-const FOAM_WEIGHTS = [0.20, 0.34, 0.30, 0.16];
-
-// Monahan & O'Muircheartaigh's whitecap law, W = 3.84e-6 U10^3.41. It is the one
-// number in the foam model with a boat and a camera behind it, so the breaking
-// threshold is derived from it rather than dialled in by eye: ~0.3% at force 4,
-// ~3% at force 6, ~25% at force 10. Above force 11 the fit runs away and real
-// seas saturate, hence the cap.
-// `windMin` is a hard gate below it: the fit is a power law and never quite
-// reaches zero, but a real sea below force 3 has no whitecaps at all, and a
-// glassy preset showing its statistical quota of three rafts per square
-// kilometre is worse than showing none.
-export function whitecapFraction(U10, gain = 1, windMin = 4.0) {
-  const U = Math.max(U10, 0.1);
-  const gate = windMin > 0 ? Math.min(Math.max((U - windMin) / 2.5, 0), 1) ** 2 : 1;
-  return Math.min(3.84e-6 * Math.pow(U, 3.41) * gain * gate, 0.42);
-}
-
-// Upper-tail quantile of a unit normal (Abramowitz & Stegun 26.2.23), good to
-// 5e-4 over the range of coverages we ask for. The low-passed compression is a
-// linear functional of a Gaussian wave field, so its own tail is Gaussian too
-// and this converts "I want W of the surface breaking" into a cutoff in sigmas.
-function probit(p) {
-  const q = Math.min(Math.max(p, 1e-6), 0.5);
-  const t = Math.sqrt(-2 * Math.log(q));
-  return t - (2.30753 + 0.27061 * t) / (1 + 0.99229 * t + 0.04481 * t * t);
-}
-
-// Share of the total whitecap coverage that is *actively* folding at any
-// instant; the rest of W is the dissipating raft the breaker leaves behind.
-// Calibrated against the measured mean of the foam texture.
-const ACTIVE_SHARE = 0.38;
-
-// The breaking test is gated after the threshold - on the forward face and on
-// the ridge of the fold field - and the injection gain then re-saturates
-// whatever survives, so the area that ends up white is not the area of the
-// Gaussian tail the probit sized. Measured against the mean of the foam texture
-// across the preset range.
-const GATE_PASS = 0.85;
-
-function butterflyData(N) {
-  const stages = Math.round(Math.log2(N));
-  const bits = stages;
-  const rev = new Uint32Array(N);
-  for (let i = 0; i < N; i++) {
-    let r = 0;
-    for (let b = 0; b < bits; b++) if (i & (1 << b)) r |= 1 << (bits - 1 - b);
-    rev[i] = r;
-  }
-  const data = new Float32Array(stages * N * 4);
-  for (let s = 0; s < stages; s++) {
-    const span = 1 << s;
-    for (let y = 0; y < N; y++) {
-      // k carries the wing sign implicitly: the lower wing lands on k + N/2.
-      const k = ((y * (N / (span * 2))) % N);
-      const ang = 2 * Math.PI * k / N;             // e^{+i.} => inverse transform
-      const topWing = (y % (span * 2)) < span;
-      let top, bot;
-      if (s === 0) {
-        top = topWing ? rev[y] : rev[y - 1];
-        bot = topWing ? rev[y + 1] : rev[y];
-      } else {
-        top = topWing ? y : y - span;
-        bot = topWing ? y + span : y;
-      }
-      const o = (y * stages + s) * 4;              // texture is stages wide, N tall
-      data[o + 0] = Math.cos(ang);
-      data[o + 1] = Math.sin(ang);
-      data[o + 2] = top;
-      data[o + 3] = bot;
-    }
-  }
-  return { data, stages };
-}
+export {
+  ACTIVE_SHARE,
+  DEFAULT_CASCADES,
+  FOAM_WEIGHTS,
+  GATE_PASS,
+  bandLimitsOf,
+  breakLodsOf,
+  breakWeightsOf,
+  butterflyData,
+  cascadeNoise,
+  choppinessOf,
+  foamCutoffOf,
+  kCharOf,
+  probit,
+  whitecapFraction,
+};
 
 export class Ocean {
   constructor(gl, { size = 256, cascades = DEFAULT_CASCADES } = {}) {
@@ -184,16 +112,11 @@ export class Ocean {
 
   _makeNoise(seed) {
     const gl = this.gl, N = this.N, C = this.C;
-    const rand = mulberry32(seed);
-    const data = new Float32Array(N * N * 4);
+    const all = cascadeNoise(N, C, seed);
     this.noise?.forEach?.((t) => gl.deleteTexture(t.tex));
     this.noise = [];
     for (let c = 0; c < C; c++) {
-      for (let i = 0; i < N * N; i++) {
-        const [a, b] = gauss2(rand);
-        const [d, e] = gauss2(rand);
-        data[i * 4 + 0] = a; data[i * 4 + 1] = b; data[i * 4 + 2] = d; data[i * 4 + 3] = e;
-      }
+      const data = all.subarray(c * N * N * 4, (c + 1) * N * N * 4);
       this.noise.push(texture2D(gl, {
         width: N, height: N,
         internalFormat: gl.RGBA32F, format: gl.RGBA, type: gl.FLOAT,
@@ -218,13 +141,7 @@ export class Ocean {
     this.dirty = true;
   }
 
-  bandLimits(c) {
-    // Each cascade owns the band up to a comfortable margin below the next
-    // cascade's fundamental, so the four spectra tile k-space without overlap.
-    const low = c === 0 ? 0.0 : (2 * Math.PI / this.L[c]) * 6.0;
-    const high = c === this.C - 1 ? 1e9 : (2 * Math.PI / this.L[c + 1]) * 6.0;
-    return [low, high];
-  }
+  bandLimits(c) { return bandLimitsOf(this.L, this.C, c); }
 
   // Horizontal (Gerstner) displacement is what turns a sinusoid into a wave with
   // a peaked crest and a flat trough, and that asymmetry is the main cue for the
@@ -232,49 +149,19 @@ export class Ocean {
   // *longest* waves, but the short cascades contribute almost nothing to the
   // shape of a swell while contributing most of the Jacobian, so spending the
   // budget on the long end buys crest sharpening for free.
-  choppinessFor(c, p) {
-    const t = this.C > 1 ? (this.C - 1 - c) / (this.C - 1) : 1;
-    return p.choppiness * (1 + (p.choppyLong - 1) * t);
-  }
+  choppinessFor(c, p) { return choppinessOf(this.C, c, p); }
 
   // Energy centre of a cascade's band, used as the carrier wavenumber of the
   // bound second harmonic. Cascade 0 has no lower limit, so its centre is taken
   // from the top of the band, which is where the JONSWAP peak sits.
-  kChar(c) {
-    const [lo, hi] = this.bandLimits(c);
-    const top = Math.min(hi, Math.PI * this.N / this.L[c]);
-    return lo > 0 ? Math.sqrt(lo * top) : 0.75 * top;
-  }
+  kChar(c) { return kCharOf(this.L, this.C, this.N, c); }
 
-  // Per-cascade weight of the folding test that drives spray. Droplets tear off
-  // waves that can carry a plunging crest; anything shorter than `scale` metres
-  // just wrinkles. Rolls off over two octaves above that.
-  breakWeights(scale) {
-    const kb = 2 * Math.PI / Math.max(scale, 0.2);
-    const w = new Float32Array(4);
-    for (let c = 0; c < this.C; c++) {
-      const [lo, hi] = this.bandLimits(c);
-      const nyq = Math.PI * this.N / this.L[c];
-      const kMid = c === 0 ? Math.min(hi, nyq) * 0.3 : Math.sqrt(lo * Math.min(hi, nyq));
-      const t = Math.log(kMid / kb) / Math.log(4.0);
-      w[c] = 1 - Math.min(Math.max(t, 0), 1);
-    }
-    return w;
-  }
+  // See breakWeightsOf / breakLodsOf above; the bodies were hoisted so the TSL
+  // simulation can share them. These stay as methods because that is the shape
+  // every caller already holds.
+  breakWeights(scale) { return breakWeightsOf(this.L, this.C, this.N, scale); }
 
-  // Mip level per cascade whose footprint is `scale` metres across, i.e. the
-  // level at which the breaking test sees a breaker-sized patch of surface
-  // rather than one texel of ripple. Cascades whose texels are already coarser
-  // than a breaker clamp to level 0.
-  breakLods(scale) {
-    const lods = new Float32Array(4);
-    const maxLod = Math.log2(this.N) - 2;
-    for (let c = 0; c < this.C; c++) {
-      const texel = this.L[c] / this.N;
-      lods[c] = Math.min(Math.max(Math.log2(Math.max(scale, 0.05) / texel), 0), maxLod);
-    }
-    return lods;
-  }
+  breakLods(scale) { return breakLodsOf(this.L, this.C, this.N, scale); }
 
   buildSpectrum(p) {
     const gl = this.gl, N = this.N;
@@ -384,7 +271,7 @@ export class Ocean {
     const patch = this.patchSizes;
     const lods = this.breakLods(p.foamBreakScale);
     this.whitecap = whitecapFraction(p.windSpeed, p.foamCoverage, p.foamWindMin);
-    const cutoff = probit(this.whitecap * ACTIVE_SHARE / GATE_PASS);
+    const cutoff = foamCutoffOf(this.whitecap);
     for (let c = 0; c < this.C; c++) {
       gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo.foam[nextFoam][c]);
       setUniforms(gl, this.pFoam, {

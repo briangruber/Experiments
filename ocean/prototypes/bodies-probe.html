@@ -1,0 +1,159 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — reusable ocean bodies, drop and overlapping wakes</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}canvas{margin-top:12px;border:1px solid #23384c}</style>
+<pre id="out">running…</pre>
+<canvas id="view" width="320" height="180"></canvas>
+
+<!--
+  createAbyssal owns BodyList + the shared wake field + the probe pool.
+  This page drops a crate, drives two hulls past each other, and registers
+  a wake:false body. The claims:
+
+    1. a crate starts in the air, hits, and floats near mass/volume equilibrium
+    2. two moving hulls are both wake sources (one field, two tracks)
+    3. a wake:false body never joins that list
+    4. float:false is a statue — it does not fall
+
+    node tools/run-probe.mjs prototypes/bodies-probe.html --shot shots/bodies.png
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { createAbyssal } from '../src/gpu/abyssal.js';
+import { floatEquilibriumY } from '../src/ocean-body.js';
+
+const q = new URLSearchParams(location.search);
+const BACKEND = q.get('backend') || 'webgl';
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+const tick = () => new Promise( ( r ) => requestAnimationFrame( r ) );
+
+( async () => {
+
+	try {
+
+		const canvas = document.getElementById( 'view' );
+		const scene = new THREE.Scene();
+		scene.add( new THREE.DirectionalLight( 0xffffff, 2.2 ) );
+		scene.add( new THREE.HemisphereLight( 0x9fc4e8, 0x223344, 1.0 ) );
+
+		const hullGeo = new THREE.BoxGeometry( 2.0, 0.6, 3.6 );
+		const hullA = new THREE.Mesh( hullGeo, new THREE.MeshStandardMaterial( { color: 0x8a6a3a } ) );
+		hullA.position.set( - 10, 4, 3 );
+		scene.add( hullA );
+		const hullB = new THREE.Mesh( hullGeo.clone(), new THREE.MeshStandardMaterial( { color: 0x6a8a4a } ) );
+		hullB.position.set( 10, 4, - 3 );
+		scene.add( hullB );
+
+		const crateMesh = new THREE.Mesh(
+			new THREE.BoxGeometry( 0.85, 0.85, 0.85 ),
+			new THREE.MeshStandardMaterial( { color: 0xc4a36a } ),
+		);
+		crateMesh.position.set( 0, 14, - 6 );
+		scene.add( crateMesh );
+
+		const ghostMesh = new THREE.Mesh(
+			new THREE.BoxGeometry( 1.2, 0.5, 2.4 ),
+			new THREE.MeshStandardMaterial( { color: 0x446688 } ),
+		);
+		ghostMesh.position.set( 0, 3, 8 );
+		scene.add( ghostMesh );
+
+		const statue = new THREE.Mesh(
+			new THREE.SphereGeometry( 0.8, 16, 12 ),
+			new THREE.MeshStandardMaterial( { color: 0xd8451f } ),
+		);
+		statue.position.set( 6, 2.2, - 10 );
+		scene.add( statue );
+
+		const abyssal = await createAbyssal( {
+			canvas,
+			backend: BACKEND,
+			preset: 'Tropical Noon',
+			scene,
+			overrides: { fftSize: 64, sprayTexSize: 32, cloudSteps: 8, gridScale: 0.35 },
+		} );
+		log( 'createAbyssal exposes bodies', ! ! abyssal.bodies && ! ! abyssal.wake && ! ! abyssal.probe, '' );
+
+		const a = abyssal.bodies.add( hullA, {
+			mass: 480, float: true, wake: { strength: 0.8, beam: 1.2, depth: 0.25 }, splash: 'impact',
+		} );
+		a.vel[ 0 ] = 6;
+		const b = abyssal.bodies.add( hullB, {
+			mass: 480, float: true, wake: { strength: 0.8, beam: 1.2, depth: 0.25 }, splash: 'impact',
+		} );
+		b.vel[ 0 ] = - 6;
+		b.heading = Math.PI;
+
+		const crate = abyssal.bodies.add( crateMesh, {
+			mass: 40, volume: 0.08, float: true, wake: true, splash: 'impact',
+		} );
+		const ghost = abyssal.bodies.add( ghostMesh, {
+			mass: 200, float: true, wake: false, splash: false,
+		} );
+		ghost.vel[ 0 ] = 4;
+		const deco = abyssal.bodies.add( statue, { float: false, wake: false } );
+		const statueY = deco.pos[ 1 ];
+
+		log( 'a crate starts in the air', crate.airborne && crate.pos[ 1 ] > 10,
+			`air ${ crate.airborne } y ${ crate.pos[ 1 ].toFixed( 2 ) }` );
+
+		const camera = new THREE.PerspectiveCamera( 50, canvas.width / canvas.height, 0.5, 40000 );
+		camera.position.set( 18, 12, 22 );
+		camera.lookAt( 0, 2, 0 );
+		abyssal.renderer.setSize( canvas.width, canvas.height, false );
+
+		let sawSplash = false;
+		for ( let i = 0; i < 120; i ++ ) {
+
+			abyssal.frame( camera, 1 / 30 );
+			if ( crate.lastSplash?.kind === 'impact' ) sawSplash = true;
+			if ( i % 8 === 7 ) await tick();
+
+		}
+
+		const yEq = floatEquilibriumY( abyssal.params.seaLevel ?? 0, crate.mass, crate.volume, crate.size.y );
+		log( 'the crate hits and floats',
+			sawSplash && ! crate.airborne && crate.wet && Math.abs( crate.pos[ 1 ] - yEq ) < 0.35,
+			`splash ${ sawSplash } air ${ crate.airborne } wet ${ crate.wet } y ${ crate.pos[ 1 ].toFixed( 3 ) } eq ${ yEq.toFixed( 3 ) }` );
+
+		const sources = abyssal.bodies.wakeSources( abyssal.params );
+		const ids = new Set( sources.map( ( s ) => s.id ) );
+		log( 'two moving hulls both stamp the shared field',
+			ids.has( a.id ) && ids.has( b.id ),
+			`n ${ sources.length } ids ${ [ ...ids ].join( ',' ) }` );
+		log( 'a wake:false body is not a source, even when wet and moving',
+			! ids.has( ghost.id ) && ghost.asWakeSource() === null,
+			`ghost in list ${ ids.has( ghost.id ) } wet ${ ghost.wet }` );
+		log( 'float:false stays a statue',
+			Math.abs( deco.pos[ 1 ] - statueY ) < 1e-4 && deco.asWakeSource() === null,
+			`y ${ deco.pos[ 1 ].toFixed( 3 ) } start ${ statueY.toFixed( 3 ) }` );
+		log( 'the wake window followed the hulls, not the no-wake body',
+			abyssal.wake._hadWet === true && Math.abs( abyssal.wake.origin[ 0 ] - ghost.pos[ 0 ] ) > 2,
+			`hadWet ${ abyssal.wake._hadWet } origin ${ abyssal.wake.origin[ 0 ].toFixed( 2 ) } ghost ${ ghost.pos[ 0 ].toFixed( 2 ) }` );
+
+	} catch ( e ) {
+
+		log( 'probe', false, String( e.stack || e.message || e ).slice( 0, 900 ) );
+
+	}
+
+	window.probeResult = { results, allOk: results.every( ( r ) => r.ok ) };
+
+} )();
+</script>

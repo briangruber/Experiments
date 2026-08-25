@@ -1,0 +1,280 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>verify cloud-march TSL vs GLSL</title>
+<pre id="out">running…</pre>
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { Fn, vec2, vec3, vec4, uv, uniform, float } from 'three/tsl';
+
+import { marchClouds, setCloudMarchUniforms } from '/src/gpu/tsl/cloud-march.js';
+import { setCloudUniforms } from '/src/gpu/tsl/cloud-field.js';
+import { setAtmosphereUniforms } from '/src/gpu/tsl/atmosphere.js';
+import { NOISE_GLSL, ATMOSPHERE_GLSL, SKY_BG_FS } from '/src/shaders/sky.js';
+
+const W = 64, H = 64;
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent =
+    results.map(r => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+// ---- shared scene parameters ------------------------------------------------
+const P = {
+  turbidity: 1.0, ozone: 1.0, sunIrradiance: [22, 22, 22], mieG: 0.76,
+  atmoExposure: 1.0, skyMultiScatter: 1.0, skyMSFloor: 0.12, skyMSHeight: 12000.0,
+  cloudCoverage: 0.46, cloudDensity: 1.0, cloudAltitude: 1500.0, cloudThickness: 2200.0,
+  cloudSpeed: 1.0, cloudDetail: 0.6, cloudScale: 16000.0, cloudShape: 1300.0,
+  cloudAnvil: 0.0, cloudDistance: 55000.0, cloudFade: 0.55,
+  cloudSteps: 48, cloudStepScale: 1.0, cloudExtinction: 0.045, cloudMultiScatter: 0.66,
+  cloudPowder: 0.7, cloudSilver: 1.0, cloudAmbient: 1.0, cloudAmbientFloor: 0.32,
+  cloudHaze: 1.0,
+};
+const CTX = { time: 12.5, camPos: [0, 20, 0], windVec3: [Math.cos(42 * Math.PI / 180) * 11, 0, Math.sin(42 * Math.PI / 180) * 11] };
+
+const SUN = (() => { const e = 12 * Math.PI / 180, a = 30 * Math.PI / 180;
+  return [Math.cos(e) * Math.sin(a), Math.sin(e), -Math.cos(e) * Math.cos(a)]; })();
+const MOON = [0.3, -0.4, 0.86];
+const SUNCOL = [18.0, 14.0, 9.0];
+const MOONCOL = [0.0, 0.0, 0.0];
+const SKYTOP = [0.9, 1.3, 2.2];
+const SKYLOW = [1.6, 1.7, 1.9];
+const AIR = [1.2, 1.5, 2.0];
+
+// ---- TSL side ---------------------------------------------------------------
+const uSunDir = uniform(new THREE.Vector3(...SUN));
+const uMoonDir = uniform(new THREE.Vector3(...MOON));
+const uSunCol = uniform(new THREE.Vector3(...SUNCOL));
+const uMoonCol = uniform(new THREE.Vector3(...MOONCOL));
+const uSkyTop = uniform(new THREE.Vector3(...SKYTOP));
+const uSkyLow = uniform(new THREE.Vector3(...SKYLOW));
+const uAir = uniform(new THREE.Vector3(...AIR));
+const uRo = uniform(new THREE.Vector3(...CTX.camPos));
+
+setAtmosphereUniforms(P);
+setCloudUniforms(P, CTX);
+setCloudMarchUniforms(P);
+
+let tslPixels = null, tslAlpha = null, refAlpha = null, generated = null, buildErr = null, renderErr = null;
+try {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = W;
+  const renderer = new THREE.WebGPURenderer({ canvas, forceWebGL: true, antialias: false });
+  await renderer.init();
+
+  const target = new THREE.RenderTarget(W, H, {
+    type: THREE.FloatType, format: THREE.RGBAFormat,
+    minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
+  });
+  const scene = new THREE.Scene();
+  const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  // --- control: does the harness render anything at all? ---
+  const ctlMat = new THREE.MeshBasicNodeMaterial();
+  ctlMat.colorNode = Fn(() => {
+    const u = uv().toVar();
+    const rd = vec3(u.x.mul(2.0).sub(1.0), u.y.mul(0.55).add(0.02), 1.0).normalize().toVar();
+    return vec4(rd, 1.0);
+  })();
+  const ctlQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), ctlMat);
+  ctlQuad.frustumCulled = false;
+  const ctlScene = new THREE.Scene(); ctlScene.add(ctlQuad);
+  renderer.setRenderTarget(target);
+  await renderer.renderAsync(ctlScene, cam);
+  renderer.setRenderTarget(null);
+  const ctlPx = await renderer.readRenderTargetPixelsAsync(target, 0, 0, W, H);
+  let ctlSum = 0; for (const v of ctlPx) ctlSum += Math.abs(v);
+  log('control: harness renders a non-zero image', ctlSum > 1, `sum=${ctlSum.toFixed(2)} px0=${[...ctlPx.slice(0,4)]}`);
+
+  const mat = new THREE.MeshBasicNodeMaterial();
+  mat.colorNode = Fn(() => {
+    const u = uv().toVar();
+    const rd = vec3(u.x.mul(2.0).sub(1.0), u.y.mul(0.55).add(0.02), 1.0).normalize().toVar();
+    const fc = vec2(u.x.mul(W), u.y.mul(H)).toVar();
+    return marchClouds(uRo, rd, uSunDir, uSunCol, uMoonDir, uMoonCol, uSkyTop, uSkyLow, uAir, fc);
+  })();
+  const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat);
+  quad.frustumCulled = false;
+  scene.add(quad);
+
+  try {
+    const s = await renderer.debug.getShaderAsync(scene, cam, quad);
+    generated = s.fragmentShader;
+  } catch (e) { generated = 'getShaderAsync failed: ' + (e.message || e); }
+
+  renderer.setRenderTarget(target);
+  await renderer.renderAsync(scene, cam);
+  renderer.setRenderTarget(null);
+  tslPixels = await renderer.readRenderTargetPixelsAsync(target, 0, 0, W, H);
+  log('TSL: marchClouds builds and renders on WebGL2', true, `${tslPixels.length} floats`);
+
+  const amat = new THREE.MeshBasicNodeMaterial();
+  amat.colorNode = Fn(() => {
+    const u = uv().toVar();
+    const rd = vec3(u.x.mul(2.0).sub(1.0), u.y.mul(0.55).add(0.02), 1.0).normalize().toVar();
+    const fc = vec2(u.x.mul(W), u.y.mul(H)).toVar();
+    const cl = marchClouds(uRo, rd, uSunDir, uSunCol, uMoonDir, uMoonCol, uSkyTop, uSkyLow, uAir, fc).toVar();
+    return vec4(cl.w, cl.w, cl.w, 1.0);
+  })();
+  const aq = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), amat);
+  aq.frustumCulled = false;
+  const ascene = new THREE.Scene(); ascene.add(aq);
+  renderer.setRenderTarget(target);
+  await renderer.renderAsync(ascene, cam);
+  renderer.setRenderTarget(null);
+  tslAlpha = await renderer.readRenderTargetPixelsAsync(target, 0, 0, W, H);
+} catch (e) {
+  renderErr = String(e.stack || e.message || e);
+  log('TSL: marchClouds builds and renders on WebGL2', false, renderErr);
+}
+
+// ---- GLSL reference ---------------------------------------------------------
+const start = SKY_BG_FS.indexOf('// ---- clouds ---');
+const end = SKY_BG_FS.indexOf('// ---- cirrus ---');
+let cloudGLSL = SKY_BG_FS.slice(start, end);
+cloudGLSL = cloudGLSL.split('sampleSky(rd)').join('uAir');
+cloudGLSL = cloudGLSL.split('gl_FragCoord.xy').join('(vUv*uRes)');
+
+const REF_FS = `#version 300 es
+precision highp float; precision highp int;
+in vec2 vUv;
+out vec4 fragColor;
+uniform vec2 uRes;
+uniform vec3 uCamPos, uWindDirV, uAir;
+uniform vec3 uSunDir, uMoonDir, uSunCol, uMoonCol, uSkyTop, uSkyLow;
+uniform float uTime;
+uniform float uCloudCoverage, uCloudDensity, uCloudAltitude, uCloudThickness;
+uniform float uCloudSpeed, uCloudDetail, uCloudSteps;
+uniform float uCloudScale, uCloudShape, uCloudExtinction, uCloudAnvil;
+uniform float uCloudMS, uCloudPowder, uCloudAmbient, uCloudSilver, uCloudMaxDist;
+uniform float uCloudAmbFloor, uCloudHaze, uCloudFade;
+uniform float uMode;
+${ATMOSPHERE_GLSL}
+${NOISE_GLSL}
+${cloudGLSL}
+void main(){
+  vec3 rd = normalize(vec3(vUv.x*2.0-1.0, vUv.y*0.55+0.02, 1.0));
+  vec4 cl = marchClouds(uCamPos, rd, uSunDir, uSunCol, uMoonDir, uMoonCol, uSkyTop, uSkyLow);
+  fragColor = uMode < 0.5 ? vec4(cl.rgb, 1.0) : vec4(cl.a, cl.a, cl.a, 1.0);
+}`;
+
+const REF_VS = `#version 300 es
+precision highp float;
+out vec2 vUv;
+void main(){
+  vec2 p = vec2((gl_VertexID<<1)&2, gl_VertexID&2);
+  vUv = p; gl_Position = vec4(p*2.0-1.0, 0.0, 1.0);
+}`;
+
+let refPixels = null, refErr = null;
+try {
+  const c2 = document.createElement('canvas'); c2.width = W; c2.height = H;
+  const gl = c2.getContext('webgl2', { antialias: false });
+  if (!gl) throw new Error('no webgl2');
+  if (!gl.getExtension('EXT_color_buffer_float')) throw new Error('no EXT_color_buffer_float');
+  const sh = (t, src) => { const s = gl.createShader(t); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
+  const pr = gl.createProgram();
+  gl.attachShader(pr, sh(gl.VERTEX_SHADER, REF_VS));
+  gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, REF_FS));
+  gl.linkProgram(pr);
+  if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(pr));
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, W, H);
+  const fbo = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+  gl.viewport(0, 0, W, H);
+  gl.useProgram(pr);
+  const U = (n) => gl.getUniformLocation(pr, n);
+  gl.uniform2f(U('uRes'), W, H);
+  gl.uniform3fv(U('uCamPos'), CTX.camPos);
+  gl.uniform3fv(U('uWindDirV'), CTX.windVec3);
+  gl.uniform3fv(U('uAir'), AIR);
+  gl.uniform3fv(U('uSunDir'), SUN);
+  gl.uniform3fv(U('uMoonDir'), MOON);
+  gl.uniform3fv(U('uSunCol'), SUNCOL);
+  gl.uniform3fv(U('uMoonCol'), MOONCOL);
+  gl.uniform3fv(U('uSkyTop'), SKYTOP);
+  gl.uniform3fv(U('uSkyLow'), SKYLOW);
+  gl.uniform1f(U('uTime'), CTX.time);
+  gl.uniform3fv(U('uSunIrradiance'), P.sunIrradiance);
+  const f = {
+    uTurbidity: P.turbidity, uOzone: P.ozone, uMieG: P.mieG, uAtmoExposure: P.atmoExposure,
+    uMultiScatter: P.skyMultiScatter, uMSFloor: P.skyMSFloor, uMSHeight: P.skyMSHeight,
+    uCloudCoverage: P.cloudCoverage, uCloudDensity: P.cloudDensity, uCloudAltitude: P.cloudAltitude,
+    uCloudThickness: P.cloudThickness, uCloudSpeed: P.cloudSpeed, uCloudDetail: P.cloudDetail,
+    uCloudSteps: Math.max(8, Math.round(P.cloudSteps * (P.cloudStepScale ?? 1))),
+    uCloudScale: P.cloudScale, uCloudShape: P.cloudShape, uCloudExtinction: P.cloudExtinction,
+    uCloudAnvil: P.cloudAnvil, uCloudMS: P.cloudMultiScatter, uCloudPowder: P.cloudPowder,
+    uCloudAmbient: P.cloudAmbient, uCloudSilver: P.cloudSilver, uCloudMaxDist: P.cloudDistance,
+    uCloudAmbFloor: P.cloudAmbientFloor, uCloudHaze: P.cloudHaze, uCloudFade: P.cloudFade,
+  };
+  for (const k in f) { const l = U(k); if (l) gl.uniform1f(l, f[k]); }
+  const va = gl.createVertexArray(); gl.bindVertexArray(va);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.uniform1f(U('uMode'), 0.0);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  refPixels = new Float32Array(W * H * 4);
+  gl.readPixels(0, 0, W, H, gl.RGBA, gl.FLOAT, refPixels);
+  gl.uniform1f(U('uMode'), 1.0);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  refAlpha = new Float32Array(W * H * 4);
+  gl.readPixels(0, 0, W, H, gl.RGBA, gl.FLOAT, refAlpha);
+  log('GLSL reference compiles and renders', true, '');
+} catch (e) {
+  refErr = String(e.message || e);
+  log('GLSL reference compiles and renders', false, refErr);
+}
+
+// ---- compare ----------------------------------------------------------------
+let cmp = null;
+if (tslPixels && refPixels) {
+  const score = (flip) => {
+    const worstCh = [0, 0, 0, 0]; const sample = [null, null, null, null];
+    let nz = 0, sumA = 0, sumB = 0;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const ai = (y * W + x) * 4;
+      const bi = ((flip ? H - 1 - y : y) * W + x) * 4;
+      for (let k = 0; k < 4; k++) {
+        const a = tslPixels[ai + k], b = refPixels[bi + k];
+        if (k < 3) { sumA += Math.abs(a); sumB += Math.abs(b); }
+        const d = Math.abs(a - b);
+        if (d > worstCh[k]) { worstCh[k] = d; sample[k] = { x, y, tsl: a, glsl: b }; }
+      }
+      if (Math.abs(refPixels[bi + 3]) > 1e-4) nz++;
+    }
+    return { worstCh, sample, nz, sumA, sumB, rgb: Math.max(worstCh[0], worstCh[1], worstCh[2]) };
+  };
+  const a = score(false), b = score(true);
+  cmp = a.rgb <= b.rgb ? { ...a, flip: false } : { ...b, flip: true };
+  log('TSL == GLSL, RGB pixel for pixel', cmp.rgb < 1e-3,
+    `flip=${cmp.flip} worstRGB=${cmp.rgb.toExponential(3)} worstA=${cmp.worstCh[3].toExponential(3)}` +
+    ` nonzero-alpha px=${cmp.nz}/${W * H} sumRGB|tsl|=${cmp.sumA.toFixed(3)} sumRGB|glsl|=${cmp.sumB.toFixed(3)}`);
+  log('worst-pixel detail', true, JSON.stringify(cmp.sample));
+  if (tslAlpha && refAlpha) {
+    let wa = 0, nzA = 0, sA = 0, sB = 0;
+    for (let i = 0; i < W * H; i++) {
+      const a = tslAlpha[i * 4], b = refAlpha[i * 4];
+      sA += a; sB += b; if (b > 1e-4) nzA++;
+      wa = Math.max(wa, Math.abs(a - b));
+    }
+    log('TSL alpha == GLSL alpha', wa < 1e-6,
+      `worst=${wa.toExponential(3)} sum|tsl|=${sA.toFixed(4)} sum|glsl|=${sB.toFixed(4)} nonzero=${nzA}`);
+  }
+}
+
+window.probeResult = {
+  results, allOk: results.every(r => r.ok),
+  buildErr, renderErr, refErr, cmp,
+  generatedLen: generated ? generated.length : 0,
+  generated: generated ? generated.slice(0, 200000) : null,
+};
+</script>

@@ -1,14 +1,31 @@
 // Thin WebGL2 layer: program cache, texture/FBO builders, fullscreen blitter.
 
-export function getContext(canvas) {
+export function getContext(canvas, opts = {}) {
   const gl = canvas.getContext('webgl2', {
     alpha: false,
     antialias: false,
     depth: true,
     stencil: false,
     premultipliedAlpha: false,
-    preserveDrawingBuffer: true,
-    powerPreference: 'high-performance',
+    // Both of these were costing power on every frame to serve something that
+    // happens rarely or not at all.
+    //
+    // preserveDrawingBuffer keeps a copy of the backbuffer after every swap and
+    // disables some compositor fast paths, and it existed solely so canvas.toBlob
+    // would work for the Save PNG button. main.js now reads the buffer inside the
+    // frame that drew it instead, which needs no copy at all.
+    //
+    // The headless harness is the exception: it screenshots the page from
+    // outside the frame callback, so without the copy it reads a cleared
+    // buffer and every capture comes back black. ?keepbuffer=1 turns it on
+    // for that one caller.
+    preserveDrawingBuffer: !!opts.keepBuffer,
+    // 'high-performance' is an explicit request for the DISCRETE GPU on any
+    // laptop with switchable graphics - asked for unconditionally, including
+    // while sitting still on a calm preset. 'default' lets the machine decide;
+    // set powerPref to 'high-performance' in the Quality section to force it back
+    // when it is plugged in.
+    powerPreference: opts.powerPref || 'default',
     desynchronized: false,
   });
   if (!gl) throw new Error('WebGL2 is required.');

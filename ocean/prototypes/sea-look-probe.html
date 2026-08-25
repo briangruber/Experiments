@@ -1,0 +1,111 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — Look parks a top-down sea view and follows no one</title>
+
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}</style>
+<pre id="out">running…</pre>
+<canvas id="view" width="480" height="300"></canvas>
+
+<!--
+  Foam / optics tuning needs a camera that is not locked to a hull or the
+  animal. lookAtSea() is that station: step off every craft, drop follow,
+  park overhead looking down. Clicking it again re-centres the same pose.
+
+  node tools/run-probe.mjs prototypes/sea-look-probe.html
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { installWebGPUSwizzleShim } from './webgpu-shim.js';
+import { boot } from '../demo/three-main.js';
+
+installWebGPUSwizzleShim();
+
+const q = new URLSearchParams(location.search);
+const WANT = (q.get('backend') || 'webgl').toLowerCase();
+const OVERRIDES = {
+  fftSize: +(q.get('fft') || 64),
+  sprayTexSize: +(q.get('sprayTex') || 32),
+  cloudSteps: +(q.get('cloudSteps') || 12),
+  gridScale: +(q.get('gridScale') || 0.35),
+};
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+const frames = (k) => new Promise((resolve) => {
+  let i = 0;
+  const tick = () => (++i >= k ? resolve() : requestAnimationFrame(tick));
+  requestAnimationFrame(tick);
+});
+
+const work = (async () => {
+  let backend = '?';
+  try {
+    const canvas = document.getElementById('view');
+    const app = await boot({ canvas, backend: WANT, overrides: OVERRIDES });
+    backend = app.backend;
+    log(`${backend}: boot() resolved`, true, app.fellBack ? 'fell back from WebGPU' : `asked for ${WANT}`);
+
+    const A = app;
+    A.params.adaptiveQuality = 0; A.params.fpsCap = 0;
+    A.params.sdEnabled = 1;
+
+    A.toggleDragon();
+    await frames(20);
+    log('started from swim / follow', A.dragon.active === true && A.isFollowing() === true,
+      `active ${ A.dragon.active } following ${ A.isFollowing() }`);
+
+    const xz0 = [ A.camera.pos[ 0 ], A.camera.pos[ 2 ] ];
+    const ok = A.lookAtSea();
+    log('lookAtSea() returns true', ok === true, '');
+    log('every craft is off', ! A.rider.active && ! A.plane.active && ! A.boat.active && ! A.dragon.active,
+      `ride ${ A.rider.active } fly ${ A.plane.active } boat ${ A.boat.active } swim ${ A.dragon.active }`);
+    log('follow is off', A.isFollowing() === false, `isFollowing() = ${ A.isFollowing() }`);
+    log('isLooking() is on', A.isLooking() === true, '');
+    log('camera looks down', A.camera.pitch < - 1.2, `pitch ${ A.camera.pitch.toFixed( 3 ) }`);
+    log('camera is overhead', A.camera.pos[ 1 ] > 50, `y ${ A.camera.pos[ 1 ].toFixed( 1 ) } m`);
+    log('xz stays on the patch you were over',
+      Math.hypot( A.camera.pos[ 0 ] - xz0[ 0 ], A.camera.pos[ 2 ] - xz0[ 1 ] ) < 0.01,
+      `Δxz ${ Math.hypot( A.camera.pos[ 0 ] - xz0[ 0 ], A.camera.pos[ 2 ] - xz0[ 1 ] ).toFixed( 3 ) }`);
+
+    const parked = [ A.camera.pos[ 0 ], A.camera.pos[ 1 ], A.camera.pos[ 2 ] ];
+    const dragon0 = [ A.dragon.pos[ 0 ], A.dragon.pos[ 2 ] ];
+    await frames(45);
+    const drift = Math.hypot(
+      A.camera.pos[ 0 ] - parked[ 0 ],
+      A.camera.pos[ 1 ] - parked[ 1 ],
+      A.camera.pos[ 2 ] - parked[ 2 ],
+    );
+    const animalMoved = Math.hypot( A.dragon.pos[ 0 ] - dragon0[ 0 ], A.dragon.pos[ 2 ] - dragon0[ 1 ] );
+    log('camera stays put after lookAtSea (not a chase)', drift < 0.05,
+      `cam drift ${ drift.toFixed( 3 ) } m, animal moved ${ animalMoved.toFixed( 2 ) } m`);
+    log('camera.locked is false so WASD can pan', A.camera.locked === false, '');
+
+    A.lookAtSea();
+    log('a second lookAtSea() re-centres the same overhead pose',
+      A.camera.pos[ 1 ] > 50 && A.camera.pitch < - 1.2 && A.isLooking(),
+      `y ${ A.camera.pos[ 1 ].toFixed( 1 ) } pitch ${ A.camera.pitch.toFixed( 3 ) }`);
+
+  } catch ( e ) {
+
+    log(`${backend}: run the sea-look probe`, false, String(e.stack || e.message || e).slice(0, 1000));
+
+  }
+
+  const failed = results.filter((r) => ! r.ok).length;
+  window.probeResult = { allOk: failed === 0, results };
+})();
+</script>

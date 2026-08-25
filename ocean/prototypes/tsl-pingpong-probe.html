@@ -1,0 +1,260 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — can a TSL fragment ping-pong run the simulation on both backends?</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}</style>
+<pre id="out">running…</pre>
+
+<!--
+  prototypes/tsl-mechanics-probe.html settled that TSL COMPUTE does not work on
+  the WebGL2 backend at all - all four mechanics fail, one of them inside three
+  itself (dualAttributeData.switchBuffers is not a function). That is fine for
+  WebGPU and fatal for the fallback, so a compute-only simulation cannot be the
+  whole answer for a project that has to run on both.
+
+  The way GPGPU is done on WebGL2 is a fragment ping-pong: two render targets,
+  read one, write the other, swap. That is exactly what the shipping simulation
+  already does with raw GLSL. The question is whether TSL can express it, on
+  BOTH backends, with the same source - because if it can, the simulation can be
+  three-native everywhere and the WGSL compute path becomes an optimisation
+  rather than a requirement.
+
+  Four things the FFT actually needs, each checked against a CPU reference:
+
+    1. Read a float render target as a texture and write another.
+    2. Do it repeatedly, swapping - the FFT is log2(N) dependent passes, so a
+       stale read or a missed swap compounds instead of cancelling.
+    3. Fetch at a COMPUTED integer texel, not just the interpolated uv. Every
+       butterfly reads two elements chosen by a table.
+    4. Multiple render targets in one pass. The assemble step writes
+       displacement and slope together.
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { Fn, texture, uv, vec2, vec3, vec4, float, int, ivec2, uniform, screenCoordinate } from 'three/tsl';
+import { installWebGPUSwizzleShim } from './webgpu-shim.js';
+import { readPixelsBottomUp } from './readback.js';
+
+installWebGPUSwizzleShim();
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+// 16 minimum: an RGBA32F row must be a multiple of 256 bytes or the WebGPU
+// readback returns interleaved padding. See prototypes/readback.js.
+const N = +(new URLSearchParams(location.search).get('n') ?? 16);
+const PASSES = +(new URLSearchParams(location.search).get('passes') ?? 3);
+
+// Seed: not a ramp, so an off-by-one or a wrong fetch cannot look right.
+const seed = new Float32Array(N * N * 4);
+for (let i = 0; i < N * N; i++) {
+  seed[i * 4 + 0] = Math.sin(i * 0.7) * 2;
+  seed[i * 4 + 1] = Math.cos(i * 1.3);
+  seed[i * 4 + 2] = i * 0.25;
+  seed[i * 4 + 3] = 1;
+}
+
+// CPU reference: each pass replaces v with v.x + partner.x at a permuted texel,
+// which is the shape of a butterfly - a gather at a computed index, iterated.
+function reference() {
+  let cur = Array.from(seed);
+  for (let p = 0; p < PASSES; p++) {
+    const next = cur.slice();
+    for (let i = 0; i < N * N; i++) {
+      const j = (i * 37 + 11) % (N * N);
+      next[i * 4 + 0] = cur[i * 4 + 0] + cur[j * 4 + 0] * 0.5;
+      next[i * 4 + 1] = cur[i * 4 + 1] * 2;
+    }
+    cur = next;
+  }
+  return cur;
+}
+
+function seedTexture() {
+  const t = new THREE.DataTexture(seed, N, N, THREE.RGBAFormat, THREE.FloatType);
+  t.minFilter = t.magFilter = THREE.NearestFilter;
+  t.needsUpdate = true;
+  return t;
+}
+
+async function run(forceWebGL) {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 32;
+  const renderer = new THREE.WebGPURenderer({ canvas, forceWebGL, antialias: false });
+  await renderer.init();
+  const backend = renderer.backend?.isWebGPUBackend ? 'WebGPU' : 'WebGL2';
+  const steps = {};
+
+  const mk = () => new THREE.RenderTarget(N, N, {
+    type: THREE.FloatType, format: THREE.RGBAFormat,
+    minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
+    depthBuffer: false, generateMipmaps: false,
+  });
+
+  let A = mk(), B = mk();
+  let out = null;
+
+  try {
+    // Pass 0: copy the seed in, so the chain starts from a render target and
+    // every later pass is target -> target like the real FFT.
+    const srcTex = uniform(0);   // placeholder to keep the graph shape stable
+    void srcTex;
+
+    const inputNode = texture(seedTexture());
+    inputNode.value.needsUpdate = true;
+
+    // The node the ping-pong passes share. `src` is swapped between draws.
+    const src = texture(A.texture);
+
+    // Index space is defined by uv, NOT by screenCoordinate + .load().
+    //
+    // Mixing those two double-flips on WebGL and silently permutes the field:
+    // screenCoordinate is already y-flipped by ScreenNode.generate when
+    // builder.isFlipY(), and TextureNode.setupUV flips AGAIN for a .load() on a
+    // render-target texture (three.webgpu.js:12690 - the non-sampler branch
+    // rewrites y as textureSize.y - y - 1). Destination and source then disagree
+    // about which row is row 0. Measured: worst error 1.5e+1 on BOTH backends.
+    //
+    // Working in uv makes the flips cancel for exactly the reason the sky LUT
+    // bake round-trips (see src/gpu/tsl/sky-driver.js): the destination's uv and
+    // the sampler's uv are transformed the same way, so a gather expressed as a
+    // uv is orientation-independent. NearestFilter makes the sample a texel
+    // fetch, so nothing is interpolated.
+    const texelUv = (idx) => vec2(
+      idx.mod(int(N)).toFloat().add(0.5).div(float(N)),
+      idx.div(int(N)).toFloat().add(0.5).div(float(N)),
+    );
+
+    const butterfly = Fn(([tex]) => {
+      const xy = uv().mul(float(N)).floor().toVar();
+      const i = int(xy.y).mul(int(N)).add(int(xy.x)).toVar();
+      const j = i.mul(int(37)).add(int(11)).mod(int(N * N)).toVar();
+      const self = tex.sample(texelUv(i)).toVar();
+      const partner = tex.sample(texelUv(j)).toVar();
+      return vec4(self.x.add(partner.x.mul(0.5)), self.y.mul(2.0), self.z, self.w);
+    });
+
+    const copyMat = new THREE.NodeMaterial();
+    copyMat.fragmentNode = inputNode.sample(uv());
+    copyMat.depthTest = false; copyMat.depthWrite = false;
+    const copyQuad = new THREE.QuadMesh(copyMat);
+    renderer.setRenderTarget(A);
+    copyQuad.render(renderer);
+
+    // TWO materials, one bound to each target, alternated - rather than one
+    // material whose TextureNode value is reassigned between draws.
+    //
+    // Mutating src.value is the obvious way to write a ping-pong and it is
+    // measurably wrong on WebGPU: the bind group is built once and reassigning
+    // the node's value does not invalidate it, so every pass reads whichever
+    // texture was bound first. It happens to work on WebGL2, where the sampler
+    // uniform is re-resolved per draw, which is exactly the shape of bug that
+    // ships green on the fallback and silently produces a stale field on the
+    // backend it was written for.
+    const srcA = texture(A.texture);
+    const srcB = texture(B.texture);
+    const matA = new THREE.NodeMaterial();   // reads A
+    matA.fragmentNode = butterfly(srcA);
+    matA.depthTest = false; matA.depthWrite = false;
+    const matB = new THREE.NodeMaterial();   // reads B
+    matB.fragmentNode = butterfly(srcB);
+    matB.depthTest = false; matB.depthWrite = false;
+    const quadA = new THREE.QuadMesh(matA);
+    const quadB = new THREE.QuadMesh(matB);
+    void src;
+    steps.built = true;
+
+    const T = [A, B];
+    let readIdx = 0;
+    for (let p = 0; p < PASSES; p++) {
+      const q = readIdx === 0 ? quadA : quadB;   // read T[readIdx]
+      renderer.setRenderTarget(T[1 - readIdx]);  // write the other
+      q.render(renderer);
+      readIdx = 1 - readIdx;
+    }
+    A = T[readIdx];
+    renderer.setRenderTarget(null);
+    steps.ran = true;
+
+    out = await readPixelsBottomUp(renderer, A, N, N);
+  } catch (e) {
+    steps.error = String(e.message || e).slice(0, 300);
+  }
+
+  // 4. two targets in one pass
+  let mrtOk = 'not reached';
+  try {
+    const mrt = new THREE.RenderTarget(N, N, {
+      type: THREE.FloatType, format: THREE.RGBAFormat, count: 2,
+      minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false,
+    });
+    const m = new THREE.NodeMaterial();
+    m.fragmentNode = vec4(1, 2, 3, 4);
+    m.mrtNode = null;
+    const q = new THREE.QuadMesh(m);
+    renderer.setRenderTarget(mrt);
+    q.render(renderer);
+    renderer.setRenderTarget(null);
+    mrtOk = mrt.textures.length === 2 ? true : `count ${mrt.textures.length}`;
+  } catch (e) { mrtOk = String(e.message || e).slice(0, 200); }
+
+  renderer.dispose();
+  return { backend, steps, out, mrtOk };
+}
+
+const ref = reference();
+
+for (const [label, force] of [['WebGPU', false], ['WebGL2', true]]) {
+  let r;
+  try { r = await run(force); } catch (e) { log(`${label}: renderer`, false, String(e.message || e)); continue; }
+
+  log(`${r.backend}: ping-pong graph builds`, r.steps.built === true, r.steps.error || '');
+  log(`${r.backend}: ${PASSES} dependent passes run`, r.steps.ran === true, r.steps.error || '');
+
+  if (r.out) {
+    // The readback is in the project's bottom-up convention; the shader's index
+    // space is uv, whose row 0 is the NDC top. So readback row y holds index row
+    // N-1-y. Both mappings are measured rather than assumed, and the probe says
+    // which one holds - if the answer ever differs between the two backends,
+    // that is a real finding and not something to paper over.
+    const worstUnder = (map) => {
+      let worst = 0, at = -1;
+      for (let y = 0; y < N; y++) {
+        for (let x = 0; x < N; x++) {
+          const o = (y * N + x) * 4, i = (map(y) * N + x) * 4;
+          for (let k = 0; k < 2; k++) {
+            const d = Math.abs(r.out[o + k] - ref[i + k]);
+            if (d > worst) { worst = d; at = y * N + x; }
+          }
+        }
+      }
+      return { worst, at };
+    };
+    const direct = worstUnder((y) => y);
+    const flipped = worstUnder((y) => N - 1 - y);
+    const ok = flipped.worst < 1e-4;
+    log(`${r.backend}: matches the CPU reference`, ok,
+        `row-flipped ${flipped.worst.toExponential(2)}` +
+        `, direct ${direct.worst.toExponential(2)}` +
+        (ok ? ' — uv row 0 is the NDC top, readback row 0 is the bottom' : ` (worst at ${flipped.at})`));
+  } else {
+    log(`${r.backend}: matches the CPU reference`, false, 'no readback');
+  }
+
+  log(`${r.backend}: two colour attachments in one pass`, r.mrtOk === true, String(r.mrtOk));
+}
+
+window.probeResult = { results, allOk: results.every((r) => r.ok) };
+</script>

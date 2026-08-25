@@ -307,7 +307,11 @@ void lensLayer(vec2 p, float rn, float scale, float stretch, float sizeK,
   // streak as elongation rather than as bodily translation is what keeps the
   // droplet inside the cell that owns it - sliding it out culls most of them
   // against the cell test before they are ever drawn.
-  float tail = 1.0 + age * uLensStreak * 3.0 * (1.0 + 0.9 * rn);
+  // Streaking grows toward the frame edge, where the airflow is faster - but only
+  // mildly. At 0.9 the edge droplets were drawn out nearly twice as far as the
+  // central ones, which thinned them and made the middle of the frame look like
+  // where the water was landing.
+  float tail = 1.0 + age * uLensStreak * 3.0 * (1.0 + 0.45 * rn);
   c.x += (age - 0.5) * uLensStreak * 0.30;
   float rad = (0.17 + 0.20 * h.y) * sizeK;
   vec2 dv = (local - c) / vec2(tail, 1.0);
@@ -336,9 +340,15 @@ void main(){
   float r2max = dot(0.5*asp, 0.5*asp);
   float rn2 = dot(p, p) / r2max;              // 0 at centre, 1 at the corner
 
-  // Radial distortion, normalised so the corners stay pinned to the corners --
-  // otherwise the frame samples outside the render target and smears.
-  float kd = (1.0 + uDistortion * rn2) / (1.0 + uDistortion);
+  // Radial distortion. Positive k (pincushion) is divided by (1+k) so the
+  // corners stay pinned — without that the frame samples past the render
+  // target and smears. Negative k (barrel, the default −0.02) must NOT use
+  // that same divide: (1+k*rn2)/(1+k) is > 1 anywhere inside the rectangle,
+  // so the top and bottom mid-edges look up past the texture and clamp-to-
+  // edge repeats the first/last row as a 5–10 px smeared band. Leaving the
+  // denominator at 1 keeps the centre 1:1 and pulls the corners in slightly.
+  float kDenom = 1.0 + max(uDistortion, 0.0);
+  float kd = (1.0 + uDistortion * rn2) / max(kDenom, 1e-4);
   vec2 pd = p * kd;
   vec2 base = pd / asp;
 
@@ -352,9 +362,16 @@ void main(){
   float lensBlur = 0.0, lensRim = 0.0, lensCover = 0.0;
   if (uLensWet > 0.003){
     // The airflow over a housing at speed carries water up and off the glass.
-    lensLayer(p, rn2,  5.0, 2.4, 1.00 * uLensSize,  0.0, uLensWet * uLensDrops,
+    // Cell counts matter more than they look. At scale 5 with stretch 2.4 the
+    // coarse layer had 2.1 rows across the whole frame height, so a big droplet
+    // could only ever land in one of two vertical bands - and since the expected
+    // count at riding wetness was 0.4, the one droplet you did get was almost
+    // always the middle one. That is the "they mostly hit the centre". Finer
+    // lattice, lower occupancy per cell: same number of droplets, spread over
+    // ten times as many possible positions, and half the size.
+    lensLayer(p, rn2, 10.0, 2.0, 1.00 * uLensSize,  0.0, uLensWet * uLensDrops,
               lensOff, lensBlur, lensRim, lensCover);
-    lensLayer(p, rn2, 12.5, 1.8, 0.55 * uLensSize, 41.7, uLensWet * uLensDrops * 1.25,
+    lensLayer(p, rn2, 21.0, 1.6, 0.50 * uLensSize, 41.7, uLensWet * uLensDrops * 0.6,
               lensOff, lensBlur, lensRim, lensCover);
     // Before it beads up it is an unbroken film, which does not draw shapes - it
     // just softens and slightly swims.

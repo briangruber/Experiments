@@ -1,0 +1,258 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — the TSL water, at the golden's rig</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}canvas{margin-top:12px;border:1px solid #23384c;image-rendering:pixelated}</style>
+<pre id="out">running…</pre>
+<canvas id="view" width="160" height="100"></canvas>
+
+<!--
+  The same image prototypes/water-golden.html renders through the shipping
+  WebGL2 path, rendered instead through the TSL node graphs.
+
+  THE CASCADE FIELDS COME FROM THE SHIPPING SIMULATION, ON PURPOSE.
+
+  A GL context runs the real Ocean for a fixed number of steps, and the assembled
+  displacement, slope and foam are read back and re-uploaded as three
+  DataArrayTextures. So both sides shade THE SAME WAVE FIELD, and any difference
+  in the image is a difference in the SHADING - which is what this port changed.
+  Simulating twice would fold two unrelated questions into one number, and the
+  simulation already has its own fingerprint (prototypes/ocean-golden.html).
+
+  The sky is drawn by the TSL sky, which is already verified pixel-identical to
+  the GLSL one on both backends, so the frame also covers the water/sky seam.
+
+    node tools/run-probe.mjs prototypes/water-tsl.html --save test/out/water-tsl.json
+    node tools/compare-image.mjs test/golden/water.json test/out/water-tsl.json
+
+  ?backend=webgl (default) or ?backend=webgpu.
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { installWebGPUSwizzleShim } from './webgpu-shim.js';
+import { readPixelsBottomUp } from './readback.js';
+import { TslWater, cascadeArrayTexture } from '../src/gpu/tsl/water-driver.js';
+import { TslSky } from '../src/gpu/tsl/sky-driver.js';
+import { getContext } from '../src/gl.js';
+import { Ocean, DEFAULT_CASCADES } from '../src/ocean.js';
+import { newParams } from '../src/presets.js';
+import { createDerived, derive } from '../src/derive.js';
+import { perspective, lookAt, mul, invert, mat4, v3, DEG } from '../src/math.js';
+
+installWebGPUSwizzleShim();
+
+const q = new URLSearchParams(location.search);
+const W = +(q.get('w') || 160), H = +(q.get('h') || 100);
+const PRESET = q.get('preset') || 'Golden Hour Swell';
+const SEED = +(q.get('seed') || 1337);
+const N = +(q.get('n') || 128);
+const STEPS = +(q.get('steps') || 8);
+const DT = 1 / 60;
+const FORCE_WEBGL = (q.get('backend') || 'webgl') === 'webgl';
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+const RIG = {
+  pos: [0, 12, 0],
+  yaw: -0.6, pitch: -0.02,
+  fov: 44, near: 0.1, far: 60000,
+  time: 12.0,
+};
+// Same rig overrides as prototypes/water-golden.html, for A/B hunts off-golden.
+if (q.get('camy')) RIG.pos[1] = +q.get('camy');
+if (q.get('pitch')) RIG.pitch = +q.get('pitch');
+if (q.get('fov')) RIG.fov = +q.get('fov');
+
+let fingerprint = null;
+let backend = '?';
+try {
+  const params = newParams(PRESET);
+  params.seed = SEED;
+  params.fftSize = N;
+  params.gridScale = 1;
+  for (const kv of (q.get('set') || '').split(',').filter(Boolean)) {
+    const [k, v] = kv.split(':');
+    params[k] = +v;
+  }
+  const d = createDerived();
+  derive(params, d);
+
+  // ---- run the shipping simulation in its own GL context and read it back ----
+  const simCanvas = document.createElement('canvas');
+  simCanvas.width = simCanvas.height = 16;
+  const gl = getContext(simCanvas, {});
+  const ocean = new Ocean(gl, { size: N, cascades: DEFAULT_CASCADES });
+  ocean.setSeed(SEED);
+  ocean.buildSpectrum(params);
+  for (let i = 0; i < STEPS; i++) ocean.update(DT, params);
+
+  const C = ocean.cascadeCount;
+  const readLayer = (fbo, attachment) => {
+    const buf = new Float32Array(N * N * 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.readBuffer(attachment);
+    gl.readPixels(0, 0, N, N, gl.RGBA, gl.FLOAT, buf);
+    return buf;
+  };
+  const dispLayers = [], slopeLayers = [], foamLayers = [];
+  for (let c = 0; c < C; c++) {
+    dispLayers.push(readLayer(ocean.fbo.assemble[c], gl.COLOR_ATTACHMENT0));
+    slopeLayers.push(readLayer(ocean.fbo.assemble[c], gl.COLOR_ATTACHMENT1));
+    foamLayers.push(readLayer(ocean.fbo.foam[ocean.foamIdx][c], gl.COLOR_ATTACHMENT0));
+  }
+  const fieldSum = dispLayers[0].reduce((a, b) => a + Math.abs(b), 0);
+  log('simulation field read back', fieldSum > 1e-3 && dispLayers.every((l) => l.every(Number.isFinite)),
+      `cascade 0 displacement sum|.| = ${fieldSum.toFixed(2)} over ${C} cascades`);
+
+  // ---- the three renderer -------------------------------------------------
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const renderer = new THREE.WebGPURenderer({ canvas, forceWebGL: FORCE_WEBGL, antialias: false });
+  await renderer.init();
+  backend = renderer.backend?.isWebGPUBackend ? 'WebGPU' : 'WebGL2';
+
+  const sky = new TslSky(renderer);
+  sky.updateLUT(params, d.sunDir, Math.max(RIG.pos[1], 1));
+
+  const water = new TslWater(renderer, params);
+  water.setFields({
+    disp: cascadeArrayTexture(dispLayers, N, true),
+    slope: cascadeArrayTexture(slopeLayers, N, true),
+    foam: cascadeArrayTexture(foamLayers, N, true),
+  });
+
+  // Same rig, expressed as a three camera. positionNode returns world space and
+  // the mesh matrix is identity, so modelViewProjection reduces to viewProj.
+  const camera = new THREE.PerspectiveCamera(RIG.fov, W / H, RIG.near, RIG.far);
+  camera.position.set(RIG.pos[0], RIG.pos[1], RIG.pos[2]);
+  camera.lookAt(
+    RIG.pos[0] + Math.cos(RIG.pitch) * Math.sin(RIG.yaw),
+    RIG.pos[1] + Math.sin(RIG.pitch),
+    RIG.pos[2] - Math.cos(RIG.pitch) * Math.cos(RIG.yaw),
+  );
+  camera.updateMatrixWorld(true);
+  camera.updateProjectionMatrix();
+
+  // The same matrices by the project's own math, for the uniforms that still
+  // take them (the sky background's uInvViewProj).
+  const targetPt = v3(
+    RIG.pos[0] + Math.cos(RIG.pitch) * Math.sin(RIG.yaw),
+    RIG.pos[1] + Math.sin(RIG.pitch),
+    RIG.pos[2] - Math.cos(RIG.pitch) * Math.cos(RIG.yaw),
+  );
+  const view = lookAt(new Float32Array(RIG.pos), targetPt, v3(0, 1, 0), mat4());
+  const proj = perspective(RIG.fov * DEG, W / H, RIG.near, RIG.far, mat4());
+  const viewProj = mul(proj, view, mat4());
+  const invViewProj = invert(viewProj, mat4());
+
+  // The sea is rasterised through THREE's camera; the sky background builds its
+  // ray from the project's own uInvViewProj. If those two disagree by even a
+  // fraction of a pixel the sea shifts relative to a correct sky, which on a
+  // surface this high-frequency shows up as a large per-pixel error with the
+  // distribution intact. So check they are the same matrix.
+  const threeVP = camera.projectionMatrix.clone().multiply(camera.matrixWorldInverse);
+  let vpErr = 0;
+  for (let i = 0; i < 16; i++) vpErr = Math.max(vpErr, Math.abs(threeVP.elements[i] - viewProj[i]));
+  log('three camera viewProj == the project\'s', vpErr < 1e-5,
+      `max |elementwise difference| = ${vpErr.toExponential(3)}`);
+
+  const ctx = {
+    camPos: new Float32Array(RIG.pos),
+    viewProj, invViewProj,
+    sunDir: d.sunDir, moonDir: d.moonDir, windVec3: d.windVec3,
+    time: RIG.time,
+  };
+
+  const target = new THREE.RenderTarget(W, H, {
+    type: THREE.FloatType, format: THREE.RGBAFormat,
+    minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
+    depthBuffer: true,
+  });
+
+  // autoClear OFF: both TslWater.render and QuadMesh.render go through
+  // renderer.render(), which clears the bound target first when autoClear is on.
+  // Left on, the sky pass wipes the sea that was just drawn and the frame comes
+  // back as sky-only - which is exactly what it did, at a mean radiance
+  // identical to the sky reference's, so it read as "water is black" rather than
+  // as "water was erased".
+  renderer.autoClear = false;
+  renderer.setRenderTarget(target);
+  renderer.setClearColor(0x000000, 1);
+  renderer.clear(true, true, false);
+  // Shipping order: sea first, then the sky depth-tested against it, so the
+  // cloud raymarch never runs on a pixel the sea already covered.
+  // ?pass=water | sky | both (default). Isolates which pass is responsible when
+  // the composed frame disagrees with the reference.
+  const PASS = q.get('pass') || 'both';
+  if (PASS === 'water' || PASS === 'both') water.render(params, ctx, ocean, camera);
+  if (PASS === 'sky' || PASS === 'both') sky.drawBackground(params, ctx);
+  renderer.setRenderTarget(null);
+
+  const px = await readPixelsBottomUp(renderer, target, W, H);
+
+  const view2d = document.getElementById('view').getContext('2d');
+  const img = view2d.createImageData(W, H);
+  for (let i = 0; i < W * H; i++) {
+    for (let k = 0; k < 3; k++) {
+      const v = Math.max(px[i * 4 + k], 0);
+      img.data[i * 4 + k] = Math.min(255, 255 * Math.pow(v / (1 + v), 1 / 2.2));
+    }
+    img.data[i * 4 + 3] = 255;
+  }
+  const flipped = view2d.createImageData(W, H);
+  for (let y = 0; y < H; y++) {
+    const src = (H - 1 - y) * W * 4;
+    flipped.data.set(img.data.subarray(src, src + W * 4), y * W * 4);
+  }
+  view2d.putImageData(flipped, 0, 0);
+
+  let sum = 0, sum2 = 0, min = Infinity, max = -Infinity;
+  for (let i = 0; i < W * H; i++) {
+    const l = 0.2126 * px[i * 4] + 0.7152 * px[i * 4 + 1] + 0.0722 * px[i * 4 + 2];
+    sum += l; sum2 += l * l;
+    if (l < min) min = l; if (l > max) max = l;
+  }
+  const n = W * H;
+  const mean = sum / n;
+
+  fingerprint = {
+    config: { W, H, preset: PRESET, rig: RIG, seed: SEED, n: N, steps: STEPS },
+    stats: {
+      mean: +mean.toFixed(6), rms: +Math.sqrt(sum2 / n).toFixed(6),
+      min: +min.toFixed(6), max: +max.toFixed(6),
+    },
+    pixels: Array.from(px).map((v) => +v.toFixed(4)),
+  };
+
+  let seaSum = 0, seaVar = 0, seaN = 0;
+  for (let y = 0; y < 45; y++) {
+    for (let x = 0; x < W; x++) {
+      const l = 0.2126 * px[(y * W + x) * 4] + 0.7152 * px[(y * W + x) * 4 + 1] + 0.0722 * px[(y * W + x) * 4 + 2];
+      seaSum += l; seaVar += l * l; seaN++;
+    }
+  }
+  const seaMean = seaSum / seaN, seaStd = Math.sqrt(Math.max(seaVar / seaN - seaMean * seaMean, 0));
+
+  log(`${backend}: water rendered`, mean > 1e-4, `mean radiance ${mean.toFixed(4)}, peak ${max.toFixed(3)}`);
+  log(`${backend}: sea is in frame and not flat`, seaMean > 1e-3 && seaStd > 1e-3,
+      `lower-frame mean ${seaMean.toFixed(4)}, std ${seaStd.toFixed(4)}`);
+  log(`${backend}: all finite`, px.every(Number.isFinite));
+} catch (e) {
+  log(`${backend}: render the TSL water`, false, String(e.stack || e.message || e).slice(0, 1200));
+}
+
+window.probeResult = { results, allOk: results.every((r) => r.ok), fingerprint };
+</script>

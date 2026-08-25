@@ -1,0 +1,98 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — how far can the real sea rise above the smoothed one?</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}</style>
+<pre id="out">running…</pre>
+
+<!--
+  The hull rides the footprint-averaged sea (craft-probe.js: THE HULL READS A
+  MIPPED SEA) while the renderer draws the full-resolution one. Wherever the
+  full sea is HIGHER than the averaged sea, water can stand above the hull's
+  waterline - reported as "it sometimes sinks". This page measures the
+  distribution of that difference across many points of a developed sea, which
+  says whether attenuation CAN explain the sinking and how much one-sided
+  chop-lift would cure it.
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { TslOceanSim } from '../src/gpu/tsl/sim-driver.js';
+import { TslCraftProbe } from '../src/gpu/tsl/craft-probe.js';
+import { setWaterCommonUniforms } from '../src/gpu/tsl/water-common.js';
+import { newParams } from '../src/presets.js';
+import { createDerived, derive } from '../src/derive.js';
+import { installThreeCompat } from '../src/gpu/three-compat.js';
+installThreeCompat();
+
+const q = new URLSearchParams(location.search);
+const N = +(q.get('n') || 256);
+
+const out = document.getElementById('out');
+try {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 64;
+  const renderer = new THREE.WebGPURenderer({ canvas, forceWebGL: true, antialias: false });
+  await renderer.init();
+  renderer.autoClear = false;
+
+  const params = newParams('Golden Hour Swell');
+  params.fftSize = N;
+  const d = createDerived();
+  derive(params, d);
+
+  const sim = new TslOceanSim(renderer, { size: N });
+  sim.setSeed(params.seed);
+  sim.buildSpectrum(params);
+  for (let i = 0; i < 40; i++) sim.update(1 / 30, params);
+  setWaterCommonUniforms(params, { camPos: new Float32Array([0, 5, 0]), time: 2 }, sim, null);
+
+  const probe = new TslCraftProbe(renderer);
+  // Deterministic pseudo-random points over a few hundred metres.
+  const rng = (s => () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff)(42);
+  const diffs = [];
+  const liftDiffs = [];
+  for (let batch = 0; batch < 24; batch++) {
+    const pts = Array.from({ length: 4 }, () => [rng() * 400 - 200, rng() * 400 - 200]);
+    const smooth = await probe.update(pts, { seaLevel: 0, wakeProbe: 0, footprint: 1.6 });
+    const hs = smooth.map(r => r.h);
+    const exact = await probe.update(pts, { seaLevel: 0, wakeProbe: 0, footprint: 0 });
+    // The cure, measured the same way: at rest the one-sided chop lift floats
+    // the hull on the local water, so the exact surface should barely stand
+    // above the chop-lifted read.
+    const lifted = await probe.update(pts, { seaLevel: 0, wakeProbe: 0, footprint: 1.6, chop: 1 });
+    for (let i = 0; i < 4; i++) {
+      diffs.push(exact[i].h - hs[i]);
+      liftDiffs.push(exact[i].h - lifted[i].h);
+    }
+  }
+  diffs.sort((a, b) => a - b);
+  liftDiffs.sort((a, b) => a - b);
+  const pct = p => diffs[Math.min(diffs.length - 1, Math.floor(p * diffs.length))];
+  const report = {
+    n: diffs.length,
+    p05: +pct(0.05).toFixed(3), p50: +pct(0.5).toFixed(3),
+    p90: +pct(0.90).toFixed(3), p95: +pct(0.95).toFixed(3), max: +diffs[diffs.length - 1].toFixed(3),
+    // How far the REAL water can stand above the hull's ride height.
+    burial: +Math.max(0, diffs[diffs.length - 1]).toFixed(3),
+    // And above it once the chop lift floats the hull at rest.
+    burialLifted: +Math.max(0, liftDiffs[liftDiffs.length - 1]).toFixed(3),
+    liftedP95: +liftDiffs[Math.floor(0.95 * liftDiffs.length)].toFixed(3),
+  };
+  // The lift must cure most of the burial the averaging created. The remainder
+  // is the light read's own quarter-footprint smoothing - centimetres.
+  const ok = report.burialLifted < Math.max(0.35, report.burial * 0.35);
+  out.textContent = JSON.stringify(report, null, 1);
+  window.probeResult = { allOk: ok, results: [{ name: 'chop lift cures the burial', ok, detail: JSON.stringify(report) }], ...report };
+} catch (e) {
+  out.textContent = 'FAIL ' + (e?.message || e);
+  window.probeResult = { allOk: false, error: String(e?.message || e) };
+}
+</script>

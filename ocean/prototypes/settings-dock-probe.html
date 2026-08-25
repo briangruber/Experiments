@@ -1,0 +1,88 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — does the settings panel dock rather than sheet on a narrow mouse-driven frame?</title>
+
+<!--
+  THE BUG THIS PINS. An artifact preview pane is mouse-driven but routinely
+  narrower than 520 CSS px - and demo/ui.css used to switch the settings panel
+  to a full-width bottom sheet on width alone, which is the phone treatment,
+  on a surface that has a mouse and plenty of room for the real docked column
+  right below the HUD. This probe opens the real bundled shell (no app boot
+  required - the layout claim is pure CSS) at that exact width/pointer
+  combination and asserts the panel is a narrow LEFT COLUMN, not a sheet.
+
+  Run it directly against the built bundle rather than three-shell.html, so
+  what is asserted is what actually ships: node tools/bundle-three.mjs first,
+  then node tools/run-probe.mjs prototypes/settings-dock-probe.html.
+-->
+
+<div id="out">running…</div>
+
+<script type="module">
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+try {
+  const html = await (await fetch('../dist/abyssal-three.html')).text();
+  if (!html || html.length < 1000) throw new Error('dist/abyssal-three.html missing or empty - run `node tools/bundle-three.mjs` first');
+
+  // Isolate JUST the CSS: parse the shell's inlined stylesheets into a real
+  // stylesheet and lay out a stand-in #ui/#hud pair against it. This is a CSS
+  // claim, not an app-boot claim - the actual renderer needs a real GPU device
+  // this harness's viewport tricks would only complicate.
+  const styleBlocks = [...html.matchAll(/<style>([\s\S]*?)<\/style>/g)].map((m) => m[1]);
+  if (styleBlocks.length < 2) throw new Error(`expected 2 inlined <style> blocks, found ${styleBlocks.length}`);
+
+  const style = document.createElement('style');
+  style.textContent = styleBlocks.join('\n');
+  document.head.appendChild(style);
+
+  document.documentElement.style.setProperty('--hud-h', '160px');
+  const hud = document.createElement('div');
+  hud.id = 'hud';
+  document.body.appendChild(hud);
+  const ui = document.createElement('div');
+  ui.id = 'ui';
+  document.body.appendChild(ui);
+
+  const cs = () => getComputedStyle(ui);
+  const vw = () => window.innerWidth;
+
+  // matchMedia is what the browser ACTUALLY evaluated the stylesheet against -
+  // reading it back is what makes this a claim about the real breakpoint
+  // rather than a guess from window.innerWidth alone.
+  const narrow = window.matchMedia('(max-width:520px)').matches;
+  const coarse = window.matchMedia('(pointer:coarse)').matches;
+  log('viewport is narrow enough to matter', narrow, `${vw()}px, matchMedia(max-width:520px) = ${narrow}`);
+
+  // border-top-left-radius, not width or bottom, is the discriminator: for a
+  // fixed box whose top+height already reach the viewport's bottom edge, an
+  // auto `bottom` resolves (getComputedStyle reports the USED value, not the
+  // literal 'auto') to 0px either way, so bottom/width alone cannot tell the
+  // two layouts apart at this exact height. Only the sheet rounds its top
+  // corners (the grab-handle look); the docked column never does.
+  const width = cs().width;
+  const radius = parseFloat(cs().borderTopLeftRadius);
+  const isSheet = radius > 4;
+
+  log(`pointer:${coarse ? 'coarse' : 'fine'} at ${vw()}px gets the ${coarse ? 'sheet' : 'docked column'}`,
+      coarse ? isSheet : !isSheet,
+      `#ui computed width ${width}, border-top-left-radius ${radius}px`);
+
+  if (!coarse) {
+    // The whole point: something wider than the panel must remain unobstructed
+    // ocean. min(340px,62vw) guarantees at least 38% of the frame stays clear.
+    const frac = parseFloat(width) / vw();
+    log('a real strip of the frame stays outside the panel', frac < 0.7,
+        `panel is ${(frac * 100).toFixed(1)}% of the viewport width`);
+  }
+} catch (e) {
+  log('run the probe', false, String(e.stack || e.message || e).slice(0, 500));
+}
+
+window.probeResult = { results, allOk: results.every((r) => r.ok) };
+</script>

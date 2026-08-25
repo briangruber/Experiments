@@ -1,0 +1,98 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — can WebGPU present to a canvas here?</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}canvas{margin-top:12px;border:1px solid #23384c}</style>
+<pre id="out">running…</pre>
+<canvas id="view" width="64" height="64"></canvas>
+
+<!--
+  The whole app boots and renders on WebGL2 but drops the WebGPU device with
+  "A valid external Instance reference no longer exists" - and it does so at any
+  workload, including a 64-point FFT with 32x32 particles, which rules out
+  resource exhaustion.
+
+  Every WebGPU verification in this port so far rendered into a RenderTarget.
+  The app is the first thing that PRESENTS: its post chain's final pass writes to
+  `null`, the canvas swapchain. So the question is not "can WebGPU draw" - that
+  is settled - but "can WebGPU present to a canvas in this headless sandbox".
+
+  Two draws, deliberately ordered so the answer is unambiguous:
+    1. into a RenderTarget, which is known to work and re-proves the device is live
+    2. to the canvas
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { vec4, uv } from 'three/tsl';
+import { installWebGPUSwizzleShim } from './webgpu-shim.js';
+
+installWebGPUSwizzleShim();
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+const q = new URLSearchParams(location.search);
+const FORCE_WEBGL = (q.get('backend') || 'webgpu') === 'webgl';
+
+let backend = '?';
+try {
+  const canvas = document.getElementById('view');
+  const renderer = new THREE.WebGPURenderer({ canvas, forceWebGL: FORCE_WEBGL, antialias: false });
+  await renderer.init();
+  backend = renderer.backend?.isWebGPUBackend ? 'WebGPU' : 'WebGL2';
+  renderer.setSize(64, 64, false);
+
+  const mat = new THREE.NodeMaterial();
+  mat.fragmentNode = vec4(uv().x, uv().y, 0.5, 1.0);
+  mat.depthTest = false; mat.depthWrite = false;
+  const quad = new THREE.QuadMesh(mat);
+
+  // 1. into a render target
+  const rt = new THREE.RenderTarget(64, 64, { type: THREE.FloatType, format: THREE.RGBAFormat });
+  renderer.autoClear = false;
+  renderer.setRenderTarget(rt);
+  quad.render(renderer);
+  renderer.setRenderTarget(null);
+  const px = await renderer.readRenderTargetPixelsAsync(rt, 0, 0, 64, 64);
+  log(`${backend}: draws into a RenderTarget`, Math.abs(px[2] - 0.5) < 1e-3,
+      `first texel b = ${px[2]}`);
+
+  // 2. to the canvas
+  let presented = 'ok';
+  try {
+    renderer.setRenderTarget(null);
+    quad.render(renderer);
+    // Force the queue to drain so a device loss surfaces here rather than later.
+    if (renderer.backend?.device) await renderer.backend.device.queue.onSubmittedWorkDone();
+  } catch (e) {
+    presented = String(e.message || e).slice(0, 300);
+  }
+  log(`${backend}: presents to the canvas`, presented === 'ok', presented);
+
+  // 3. and the pixels actually arrived
+  const c2 = document.createElement('canvas');
+  c2.width = c2.height = 64;
+  c2.getContext('2d').drawImage(canvas, 0, 0);
+  const d = c2.getContext('2d').getImageData(0, 0, 64, 64).data;
+  let nonBlack = 0;
+  for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 8) nonBlack++;
+  log(`${backend}: canvas has the drawn pixels`, nonBlack > 64 * 64 * 0.5,
+      `${nonBlack} / ${64 * 64} non-black`);
+} catch (e) {
+  log(`${backend}: present test`, false, String(e.message || e).slice(0, 400));
+}
+
+window.probeResult = { results, allOk: results.every((r) => r.ok) };
+</script>

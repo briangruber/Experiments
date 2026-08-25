@@ -1,0 +1,215 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — wind-foam field, top-down</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}canvas{margin-top:12px;border:1px solid #23384c;image-rendering:pixelated}</style>
+<pre id="out">running…</pre>
+<canvas id="view" width="320" height="200"></canvas>
+
+<!--
+  Isolates the wind-foam field the way the reference photo sees it: from above,
+  over deep-blue water, with enough coverage that the lace is in frame.
+
+  Shipping WebGL2 path on purpose (WaterSurface + Sky). The TSL water fragment
+  is currently sharing a file with a parallel swell rewrite; this probe answers
+  the LOOK question against the GLSL twin, which is the foamField contract.
+
+  Two questions, both numbers:
+    1. The sea is not a flat disc (luma std, and the bright tail is a
+       minority of pixels — a painted raft fails the second).
+    2. Mid-bright pixels are more cyan than the darkest navy (the subsurface
+       bubble-cloud underglow). A white sticker on navy fails this.
+    3. Foam is irregular clumps, not a tray of equal Voronoi bowls.
+
+  Calm vs storm is `?preset=Glassy Dawn` / `?preset=Hurricane Sea`.
+  Default is Deep Blue Afternoon with foam pushed up so the lace is visible
+  at 320×200.
+
+    node tools/run-probe.mjs prototypes/foam-lace-probe.html --shot shots/foam-lace.png
+-->
+
+<script type="module">
+import { getContext, texture2D, framebuffer, Blitter } from '../src/gl.js';
+import { Ocean, DEFAULT_CASCADES } from '../src/ocean.js';
+import { WaterSurface } from '../src/water.js';
+import { Sky } from '../src/sky.js';
+import { newParams } from '../src/presets.js';
+import { createDerived, derive } from '../src/derive.js';
+import { perspective, lookAt, mul, invert, mat4, v3, DEG } from '../src/math.js';
+
+const q = new URLSearchParams(location.search);
+const W = +(q.get('w') || 320), H = +(q.get('h') || 200);
+const PRESET = q.get('preset') || 'Deep Blue Afternoon';
+const SEED = +(q.get('seed') || 1337);
+const N = +(q.get('n') || 128);
+const STEPS = +(q.get('steps') || 10);
+const DT = 1 / 60;
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+// Top-down, like the reference photo. High enough that several swell lengths
+// fit, low enough that the streaks are not a pixel.
+const RIG = {
+  pos: [0, 95, 0],
+  yaw: 0.15, pitch: -1.42,
+  fov: 42, near: 0.5, far: 40000,
+  time: 14.0,
+};
+
+try {
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const gl = getContext(canvas, {});
+  const blit = new Blitter(gl);
+
+  const params = newParams(PRESET);
+  params.seed = SEED;
+  params.fftSize = N;
+  params.gridScale = 1;
+  // Enough coverage that the streaks are in frame; not so much that it fills solid.
+  if (!q.get('set')) {
+    params.foamAmount = Math.max(params.foamAmount, 1.15);
+    params.foamCoverage = Math.max(params.foamCoverage, 1.2);
+    params.foamTint = Math.max(params.foamTint, 0.22);
+  }
+  for (const kv of (q.get('set') || '').split(',').filter(Boolean)) {
+    const [k, v] = kv.split(':');
+    params[k] = +v;
+  }
+  const d = createDerived();
+  derive(params, d);
+
+  const ocean = new Ocean(gl, { size: N, cascades: DEFAULT_CASCADES });
+  ocean.setSeed(SEED);
+  ocean.buildSpectrum(params);
+  for (let i = 0; i < STEPS; i++) ocean.update(DT, params);
+
+  const sky = new Sky(gl, blit);
+  sky.updateLUT(params, d.sunDir, Math.max(RIG.pos[1], 1));
+
+  const water = new WaterSurface(gl, params, { output: 'hdr' });
+
+  const targetPt = v3(
+    RIG.pos[0] + Math.cos(RIG.pitch) * Math.sin(RIG.yaw),
+    RIG.pos[1] + Math.sin(RIG.pitch),
+    RIG.pos[2] - Math.cos(RIG.pitch) * Math.cos(RIG.yaw),
+  );
+  const view = lookAt(new Float32Array(RIG.pos), targetPt, v3(0, 1, 0), mat4());
+  const proj = perspective(RIG.fov * DEG, W / H, RIG.near, RIG.far, mat4());
+  const viewProj = mul(proj, view, mat4());
+  const invViewProj = invert(viewProj, mat4());
+
+  const hdr = texture2D(gl, {
+    width: W, height: H, internalFormat: gl.RGBA32F, format: gl.RGBA, type: gl.FLOAT,
+    filter: gl.NEAREST, wrap: gl.CLAMP_TO_EDGE,
+  });
+  const depth = gl.createRenderbuffer();
+  gl.bindRenderbuffer(gl.RENDERBUFFER, depth);
+  gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, W, H);
+  const fbo = framebuffer(gl, [hdr]);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+  gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depth);
+  gl.viewport(0, 0, W, H);
+  gl.clearColor(0, 0, 0, 1);
+  gl.clearDepth(1.0);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+  const ctx = {
+    camPos: new Float32Array(RIG.pos),
+    viewProj, invViewProj,
+    sunDir: d.sunDir, moonDir: d.moonDir, windVec3: d.windVec3,
+    time: RIG.time,
+  };
+
+  water.render(params, ctx, ocean, sky);
+  sky.drawBackground(params, ctx);
+
+  const px = new Float32Array(W * H * 4);
+  gl.readPixels(0, 0, W, H, gl.RGBA, gl.FLOAT, px);
+
+  const view2d = document.getElementById('view').getContext('2d');
+  const img = view2d.createImageData(W, H);
+  for (let i = 0; i < W * H; i++) {
+    for (let k = 0; k < 3; k++) {
+      const v = Math.max(px[i * 4 + k], 0);
+      img.data[i * 4 + k] = Math.min(255, 255 * Math.pow(v / (1 + v), 1 / 2.2));
+    }
+    img.data[i * 4 + 3] = 255;
+  }
+  const flipped = view2d.createImageData(W, H);
+  for (let y = 0; y < H; y++) {
+    const src = (H - 1 - y) * W * 4;
+    flipped.data.set(img.data.subarray(src, src + W * 4), y * W * 4);
+  }
+  view2d.putImageData(flipped, 0, 0);
+
+  let sum = 0, sum2 = 0, n = W * H;
+  let bright = 0;
+  let darkB = 0, darkN = 0, midB = 0, midG = 0, midN = 0;
+  const luma = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const r = px[i * 4], g = px[i * 4 + 1], b = px[i * 4 + 2];
+    const l = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    luma[i] = l;
+    sum += l; sum2 += l * l;
+    if (l > 0.45) bright++;
+    if (l < 0.08) { darkB += b; darkN++; }
+    if (l > 0.12 && l < 0.40) { midB += b; midG += g; midN++; }
+  }
+  const mean = sum / n;
+  const std = Math.sqrt(Math.max(sum2 / n - mean * mean, 0));
+  const brightFrac = bright / n;
+  const darkBlue = darkN ? darkB / darkN : 0;
+  const midCyan = midN ? (midB / midN) / Math.max(midG / midN, 1e-4) : 0;
+
+  // Compact bright pockets = Voronoi cells. Streaks leave elongated
+  // components, not a tray of bowls.
+  const T = mean + 0.6 * std;
+  const seen = new Uint8Array(n);
+  let compact = 0, comps = 0;
+  for (let i = 0; i < n; i++) {
+    if (luma[i] < T || seen[i]) continue;
+    const stack = [i];
+    seen[i] = 1;
+    let area = 0, perim = 0;
+    let minX = i % W, maxX = minX, minY = (i / W) | 0, maxY = minY;
+    while (stack.length) {
+      const k = stack.pop();
+      area++;
+      const x = k % W, y = (k / W) | 0;
+      minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const xx = x + dx, yy = y + dy;
+        if (xx < 0 || yy < 0 || xx >= W || yy >= H) { perim++; continue; }
+        const kk = yy * W + xx;
+        if (luma[kk] < T) { perim++; continue; }
+        if (!seen[kk]) { seen[kk] = 1; stack.push(kk); }
+      }
+    }
+    comps++;
+    const bw = maxX - minX + 1, bh = maxY - minY + 1;
+    const circ = (4 * Math.PI * area) / (perim * perim);
+    const aspect = Math.max(bw, bh) / Math.max(Math.min(bw, bh), 1);
+    if (area >= 8 && area <= 80 && circ > 0.35 && aspect < 2.4) compact++;
+  }
+
+  log('GL: sea rendered', mean > 1e-4 && Array.from(px).every(Number.isFinite),
+      `mean ${mean.toFixed(4)}, std ${std.toFixed(4)}`);
+  log('not a flat disc', std > 0.02, `luma std ${std.toFixed(4)}`);
+  log('bright foam is a minority (streaks, not a fill)', brightFrac < 0.45,
+      `${(brightFrac * 100).toFixed(1)}% of pixels above luma 0.45`);
+  log('mid-bright band is more cyan than the navy', midN > 20 && midCyan > 0.85,
+      `B/G ${midCyan.toFixed(3)} over ${midN} mid pixels; navy B ${darkBlue.toFixed(4)}`);
+  log('foam is irregular clumps, not a tray of bowls', compact < 90 && comps > 200,
+      `${compact} compact bright pockets over ${comps} components`);
+} catch (e) {
+  log('render the foam field', false, String(e.stack || e.message || e).slice(0, 1200));
+}
+
+window.probeResult = { results, allOk: results.every((r) => r.ok) };
+</script>

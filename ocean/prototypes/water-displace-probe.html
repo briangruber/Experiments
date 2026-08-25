@@ -1,0 +1,356 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — the water-displacement master switch actually reaches both slots</title>
+
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}</style>
+<pre id="out">running…</pre>
+<!-- NO CSS ON THE CANVAS - same reasoning as boat-drive-probe.html. -->
+<canvas id="view" width="480" height="300"></canvas>
+
+<!--
+  waterDisplaceEnabled/waterDisplaceAmount (src/presets.js) are meant to scale
+  BOTH the hull hollow (ski/plane/boat, one shared slot) and the sea dragon's
+  back mound (a separate slot) together - water-surface.js's
+  waterDisplaceScale(), applied once where uHullPush is set and once where
+  three-main.js sets uSwellAmp. This reads those two uniforms' actual .value
+  straight out of the SAME module instance three-main.js mutates (ES modules
+  are singletons per URL, and this imports the identical unbundled source
+  path), so it is checking the real wiring, not a copy of it.
+
+  node tools/run-probe.mjs prototypes/water-displace-probe.html
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { installWebGPUSwizzleShim } from './webgpu-shim.js';
+import { boot } from '../demo/three-main.js';
+import {
+  uHullPush, uSwellAmp, uSwellPos, uSwellPitch, uSwellSweep, uSwellLift, uSwellLiftPhase,
+  uSwellSites, uSwellSiteAmp, uSwellSiteCount,
+} from '../src/gpu/tsl/water-surface.js';
+import { SWELL_SITES } from '../src/body-displace.js';
+
+installWebGPUSwizzleShim();
+
+const q = new URLSearchParams(location.search);
+const WANT = (q.get('backend') || 'webgl').toLowerCase();
+const OVERRIDES = {
+  fftSize: +(q.get('fft') || 64),
+  sprayTexSize: +(q.get('sprayTex') || 32),
+  cloudSteps: +(q.get('cloudSteps') || 12),
+  gridScale: +(q.get('gridScale') || 0.35),
+};
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+const frames = (k) => new Promise((resolve) => {
+  let i = 0;
+  const tick = () => (++i >= k ? resolve() : requestAnimationFrame(tick));
+  requestAnimationFrame(tick);
+});
+
+const work = (async () => {
+  let backend = '?';
+  try {
+    const canvas = document.getElementById('view');
+    const app = await boot({ canvas, backend: WANT, overrides: OVERRIDES });
+    backend = app.backend;
+    log(`${backend}: boot() resolved`, true, '');
+
+    const A = app;
+    A.params.adaptiveQuality = 0; A.params.fpsCap = 0;
+    A.params.sdEnabled = 1;
+    A.params.sdRipple = 1;
+    A.toggleBoat();
+    // This probe measures the displacement multiplier, not the live depth
+    // cycle. Keep the animal inside sdSwellFade so the baseline cannot become
+    // exactly zero when a tuned default stages it deeper than the mound fades.
+    A.params.sdDepth = 2;
+    A.params.sdDepthSwing = 0;
+    A.dragon.depth = 2;
+    A.dragon.pos[1] = (A.params.sdSeaLevel ?? 0) - 2;
+    await frames(20);
+
+    A.params.waterDisplaceEnabled = 1;
+    A.params.waterDisplaceAmount = 1.0;
+    await frames(5);
+    const baseHull = uHullPush.value;
+    const baseSwell = uSwellAmp.value;
+    log('baseline: boat presses a real hollow', baseHull > 0.01, `uHullPush = ${ baseHull.toFixed(4) }`);
+    log('baseline: the sea sits over the dragon\'s back', baseSwell > 0.2, `uSwellAmp = ${ baseSwell.toFixed(4) }`);
+    const nCut = uSwellSiteCount.value;
+    const cuts = [];
+    for ( let i = 0; i < SWELL_SITES; i ++ ) {
+
+      const s = uSwellSites.array[ i ];
+      if ( s.w > 0.05 ) cuts.push( { x: s.x, z: s.y, r: s.w } );
+
+    }
+    const bodyX = A.dragon.pos[ 0 ], bodyZ = A.dragon.pos[ 2 ];
+    const near = cuts.filter( ( s ) => Math.hypot( s.x - bodyX, s.z - bodyZ ) < 40 ).length;
+    log('baseline: swell is local waterline cuts, not a spine rail',
+        nCut >= 1 && nCut === cuts.length && near === cuts.length,
+        `count ${ nCut } near-body ${ near } / ${ cuts.length }`);
+    log('up/down swim sends vertical heave, not lateral sweep, into the mound',
+        uSwellLift.value > 0.001 && Math.abs(uSwellSweep.value) < 1e-6,
+        `uSwellLift ${ uSwellLift.value.toFixed(4) }, uSwellSweep ${ uSwellSweep.value.toFixed(4) }`);
+
+    A.params.sdWaveAxis = 'Sideways';
+    await frames(2);
+    log('sideways swim bends the mound spine without vertical heave',
+        uSwellSweep.value > 0.001 && Math.abs(uSwellLift.value) < 1e-6,
+        `uSwellSweep ${ uSwellSweep.value.toFixed(4) }, uSwellLift ${ uSwellLift.value.toFixed(4) }`);
+
+    A.params.sdWaveAxis = 'Both';
+    await frames(2);
+    log('Both mode carries both axes with the mesh quarter-phase',
+        uSwellSweep.value > 0.001 && uSwellLift.value > 0.001
+          && Math.abs(uSwellLiftPhase.value - Math.PI * 0.5) < 1e-6,
+        `sweep ${ uSwellSweep.value.toFixed(4) }, lift ${ uSwellLift.value.toFixed(4) }, phase ${ uSwellLiftPhase.value.toFixed(3) }`);
+    A.params.sdWaveAxis = 'Up and down';
+    await frames(2);
+
+    A.params.waterDisplaceEnabled = 0;
+    await frames(5);
+    log('disabled: hull hollow goes to zero', uHullPush.value === 0, `uHullPush = ${ uHullPush.value.toFixed(4) }`);
+    log('disabled: dragon mound goes to zero', uSwellAmp.value === 0, `uSwellAmp = ${ uSwellAmp.value.toFixed(4) }`);
+
+    A.params.waterDisplaceEnabled = 1;
+    A.params.waterDisplaceAmount = 0.4;
+    await frames(5);
+    const halfHull = uHullPush.value, halfSwell = uSwellAmp.value;
+    log('0.4x: hull hollow scales down proportionally', Math.abs(halfHull - baseHull * 0.4) < 1e-4,
+        `expected ${ (baseHull * 0.4).toFixed(4) }, got ${ halfHull.toFixed(4) }`);
+    // Loose ratio window, not an exact match: uSwellAmp is sdSwell * shallow *
+    // waterDisplaceScale(), and `shallow` tracks the animal's own depth, which
+    // drifts a few percent across the handful of frames between this sample
+    // and the baseline one - a live swimmer, not a frozen number. A ratio near
+    // 0.4 still proves the multiplier reached this slot; ~1.0 (unscaled) or 0
+    // (scale not wired up at all) are the failures this is actually watching
+    // for.
+    log('0.4x: dragon mound scales down proportionally',
+        Math.abs(halfSwell - baseSwell * 0.4) < Math.max(0.15, Math.abs(baseSwell) * 0.15),
+        `expected ~${ (baseSwell * 0.4).toFixed(4) }, got ${ halfSwell.toFixed(4) }`);
+
+    A.params.waterDisplaceAmount = 2.0;
+    await frames(5);
+    log('2x: hull hollow scales up too, not clamped at 1x', uHullPush.value > baseHull * 1.9,
+        `uHullPush = ${ uHullPush.value.toFixed(4) } (baseline was ${ baseHull.toFixed(4) })`);
+
+    // Crossing mean sea level used to flip jumpAirborne and zero the mound in
+    // one frame, even with half of this pitched 60 m body still underwater.
+    // Pin the pose while the boat owns the update slot, then read the real
+    // uniform on both sides of that old cliff and farther through the breach.
+    A.params.waterDisplaceAmount = 1;
+    A.dragon.active = true;       // skips the later pursuit update
+    A.dragon.jumping = false;
+    A.dragon.speed = 0;
+    A.dragon.pitch = 0;
+    A.dragon.climb = 0;
+    const sea = A.params.sdSeaLevel ?? 0;
+    const moundAt = async (y, airborne) => {
+      A.dragon.pos[1] = y;
+      A.dragon.depth = sea - y;
+      A.dragon.jumpAirborne = airborne;
+      await frames(2);
+      return uSwellAmp.value;
+    };
+    const deepSwim = await moundAt(sea - 8, false);
+    log('a deep swim fades the mound, it does not invert it',
+        deepSwim >= 0 && deepSwim < baseSwell * 0.7,
+        `uSwellAmp ${ deepSwim.toFixed(4) } 8m under (near-surface was ${ baseSwell.toFixed(4) })`);
+
+    A.dragon.pitch = 0.55;
+    const breaching = await moundAt(sea - 0.05, false);
+    log('a piercing body still lifts the sea over its back',
+        breaching > 0.2,
+        `uSwellAmp ${ breaching.toFixed(4) } while the mesh cuts the sea`);
+
+    const liveMeniscus = () => {
+      let n = 0;
+      for ( let i = 0; i < SWELL_SITES; i ++ ) {
+        const s = uSwellSites.array[ i ];
+        if ( s.w > 0.05 && s.z < 0.05 && Math.abs( uSwellSiteAmp.array[ i ] ) > 0.05 ) n ++;
+      }
+      return n;
+    };
+    A.params.sdSwellLife = 4.5;
+    A.params.sdSwellWave = 1;
+    const fullyClear = await moundAt(sea + A.params.sdLength, true);
+    await frames(25);
+    log('the live meniscus is gone once the entire body clears the surface',
+        liveMeniscus() === 0,
+        `live cuts ${ liveMeniscus() }, uSwellAmp ${ uSwellAmp.value.toFixed(4) } (traveling ripples may remain)`);
+
+    // Coming up through the surface keeps the back mound. A landing
+    // pierce uses the same waterline cuts (craters + ripples), not the
+    // splash-field body crater.
+    A.dragon.jumping = true;
+    A.dragon.jumpPhase = 'rise';
+    A.dragon.jumpVy = 8;
+    A.dragon.pitch = 0;
+    const rising = await moundAt(sea - 0.05, false);
+    log('coming up through the waterline still drapes the sea over the back',
+        rising > 0.2,
+        `uSwellAmp ${ rising.toFixed(4) } in rise, vy=+8`);
+    A.dragon.jumpPhase = 'air';
+    A.dragon.jumpVy = 6;
+    const airUp = await moundAt(sea + A.params.sdLength, true);
+    await frames(25);
+    log('an airborne climb releases the live meniscus once the body is clear',
+        liveMeniscus() === 0,
+        `live cuts ${ liveMeniscus() }, uSwellAmp ${ uSwellAmp.value.toFixed(4) } in air, vy=+6`);
+
+    A.dragon.jumpPhase = 'air';
+    A.dragon.jumpVy = -14;
+    A.dragon.pitch = 0;
+    const landing = await moundAt(sea + A.params.sdLength, true);
+    await frames(16);
+    log('a body still in the air does not write a live meniscus',
+        liveMeniscus() === 0,
+        `live cuts ${ liveMeniscus() }, uSwellAmp ${ uSwellAmp.value.toFixed(4) } while falling, still clear`);
+
+    A.dragon.heading = 0;
+    A.dragon.pitch = -0.55;
+    A.dragon.pos[0] = 40;
+    A.dragon.pos[2] = -80;
+    await moundAt(sea + 0.05, true);
+    await frames(16);
+    const ox = A.dragon.pos[0], oz = A.dragon.pos[2];
+    const dOrigin = Math.hypot(uSwellPos.value.x - ox, uSwellPos.value.z - oz);
+    const landAmps = [];
+    for ( let i = 0; i < SWELL_SITES; i ++ ) {
+      if ( uSwellSites.array[ i ].w > 0.05 ) landAmps.push( uSwellSiteAmp.array[ i ] );
+    }
+    log('a landing pierce throws ripples, not a body-length hollow',
+        uSwellAmp.value > 0.15 && dOrigin < 0.05 && liveMeniscus() === 0
+          && landAmps.length > 0,
+        `uSwellAmp ${ uSwellAmp.value.toFixed(4) }, packets ${ landAmps.length }, Δxz ${ dOrigin.toFixed(3) }`);
+    log('pitch still reaches the water so the back ridge can use it',
+        Math.abs(uSwellPitch.value - (-0.55)) < 1e-5,
+        `uSwellPitch ${ uSwellPitch.value.toFixed(3) }`);
+
+    A.dragon.jumpPhase = 'water';
+    A.dragon.jumpVy = -8;
+    const sounding = await moundAt(sea - 2, false);
+    await frames(12);
+    log('a landing still sounding still moves the waterline',
+        uSwellAmp.value > 0.15,
+        `uSwellAmp ${ uSwellAmp.value.toFixed(4) } in water phase, vy=-8`);
+
+    A.dragon.jumpVy = 1.2;
+    const floating = await moundAt(sea - 2, false);
+    log('floating back after a landing returns the back mound',
+        floating > 0.2,
+        `uSwellAmp ${ floating.toFixed(4) } in water phase, vy=+1.2`);
+
+    A.dragon.jumping = false;
+    A.dragon.jumpPhase = null;
+    A.dragon.jumpVy = -3;
+    A.dragon.pitch = 0;
+    A.dragon.climb = 0;
+    const diving = await moundAt(sea - 2, false);
+    log('a swimming body near the surface still lifts the sea over its back',
+        diving > 0.2,
+        `uSwellAmp ${ diving.toFixed(4) } while swimming, 2m under`);
+
+    // Push sign lives on the packet amps, not on uSwellAmp. A dive
+    // inverts the wave; the master metres stay positive so this is
+    // not the landing crater swellContactSign used to write.
+    const ringAmps = () => {
+      const a = [];
+      for ( let i = 0; i < SWELL_SITES; i ++ ) {
+        const s = uSwellSites.array[ i ];
+        if ( s.w > 0.05 ) a.push( uSwellSiteAmp.array[ i ] );
+      }
+      return a;
+    };
+    A.params.sdSwellLife = 4.5;
+    A.params.sdSwellWave = 1;
+    A.dragon.speed = 6;
+    A.dragon.climb = 0;
+    A.dragon.pitch = 0;
+    await moundAt(sea - 0.05, false);
+    await frames(40);
+    const levelAmps = ringAmps();
+    let traveling = 0, maxRing = 0;
+    for ( let i = 0; i < SWELL_SITES; i ++ ) {
+      const s = uSwellSites.array[ i ];
+      if ( s.w > 0.05 && s.z > 1.0 && Math.abs( uSwellSiteAmp.array[ i ] ) > 0.04 ) {
+        traveling ++;
+        if ( s.z > maxRing ) maxRing = s.z;
+      }
+    }
+    log('a pierce does not write a static meniscus',
+        liveMeniscus() === 0 && traveling > 0,
+        `live cuts ${ liveMeniscus() }, ${ traveling } traveling`);
+    log('a held cut throws a ring that has left the point',
+        traveling > 0 && maxRing > 2,
+        `${ traveling } traveling, farthest ${ maxRing.toFixed( 2 ) } m`);
+    const earlyFar = maxRing;
+    await frames(45);
+    let laterFar = 0, laterN = 0;
+    for ( let i = 0; i < SWELL_SITES; i ++ ) {
+      const s = uSwellSites.array[ i ];
+      if ( s.w > 0.05 && s.z > 1.0 && Math.abs( uSwellSiteAmp.array[ i ] ) > 0.02 ) {
+        laterN ++;
+        if ( s.z > laterFar ) laterFar = s.z;
+      }
+    }
+    log('those rings keep running instead of vanishing',
+        laterN > 0 && laterFar > 3,
+        `${ laterN } still going, farthest ${ laterFar.toFixed( 2 ) } m (was ${ earlyFar.toFixed( 2 ) })`);
+    log('a level pierce throws a raised packet',
+        levelAmps.length > 0 && levelAmps.some( ( v ) => v > 0.08 ),
+        `${ levelAmps.length } packets, min ${ Math.min( ...levelAmps, 0 ).toFixed( 3 ) }, max ${ Math.max( ...levelAmps, 0 ).toFixed( 3 ) }`);
+
+    A.dragon.climb = -1;
+    A.dragon.speed = 4;
+    A.dragon.pitch = -0.25;
+    await frames(40);
+    const softAmps = ringAmps();
+    A.dragon.climb = -5;
+    A.dragon.speed = 12;
+    A.dragon.pitch = -0.55;
+    await frames(40);
+    const diveAmps = ringAmps();
+    const softMin = Math.min( ...softAmps, 0 );
+    const diveMin = Math.min( ...diveAmps, 0 );
+    log('a downward push inverts the packet, harder when the force is harder',
+        diveAmps.length > 0 && uSwellAmp.value > 0.2,
+        `soft min ${ softMin.toFixed( 3 ) }, hard min ${ diveMin.toFixed( 3 ) }, uSwellAmp ${ uSwellAmp.value.toFixed( 4 ) }`);
+
+    A.dragon.climb = 3;
+    A.dragon.pitch = 0.4;
+    await frames(40);
+    const riseAmps = ringAmps();
+    log('an upward push throws a raised packet again',
+        riseAmps.length > 0 && riseAmps.some( ( v ) => v > 0.08 ),
+        `${ riseAmps.length } packets, max ${ Math.max( ...riseAmps, 0 ).toFixed( 3 ) }`);
+
+    return 'done';
+  } catch (e) {
+    log(`${backend}: run the water-displace probe`, false, String(e.stack || e.message || e).slice(0, 1000));
+    return 'error';
+  }
+})();
+
+const timedOut = Symbol('timeout');
+const outcome = await Promise.race([work, new Promise((r) => setTimeout(() => r(timedOut), 90000))]);
+if (outcome === timedOut) log('the probe itself', false, 'no result after 90s');
+
+window.probeResult = { results, allOk: results.length > 0 && results.every((r) => r.ok) };
+</script>

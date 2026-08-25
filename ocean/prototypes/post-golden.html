@@ -1,0 +1,232 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — post chain reference image</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}canvas{margin-top:12px;border:1px solid #23384c;image-rendering:pixelated}</style>
+<pre id="out">running…</pre>
+<canvas id="view" width="160" height="100"></canvas>
+
+<!--
+  The full frame as the shipping WebGL2 renderer delivers it: sea, sky, then the
+  post chain - auto exposure, bloom, tonemap, grain, FXAA. Display-referred, not
+  HDR, because the post chain is exactly the thing that turns one into the other
+  and its output is the thing a viewer sees.
+
+  AUTO EXPOSURE IS MEASURED SEPARATELY, AND HERE IS WHY
+
+  The iris is a temporal feedback loop: each frame's exposure depends on the
+  previous frame's adapt texture. Fed a constant HDR source it does NOT settle -
+  measured, it was still moving the worst channel by 2/255 after 120 frames, and
+  by 8/255 after 122, so it is not converging and it is not a 2-cycle either. A
+  reference captured mid-walk would be a snapshot of a moving target, and any
+  timing difference in a port would read as a shading defect.
+
+  So the IMAGE reference is captured with autoExposure = 0, which makes the
+  whole chain a pure function of the source (verified: 0/255 drift over repeated
+  frames). That still exercises everything the port has to get right per pixel -
+  bloom prefilter, the down/up pyramid, the tonemap, grain, vignette, FXAA.
+
+  The metering loop is then fingerprinted NUMERICALLY instead: the 1x1 adapt
+  texture read back after each of a fixed number of frames, with autoExposure on.
+  That is a far sharper test of it than an image - it compares the actual iris
+  value to six figures per frame rather than after it has been quantised to 8
+  bits and smeared through a tonemap.
+
+    node tools/run-probe.mjs prototypes/post-golden.html --save test/golden/post.json
+-->
+
+<script type="module">
+import { getContext, texture2D, framebuffer, Blitter } from '../src/gl.js';
+import { Ocean, DEFAULT_CASCADES } from '../src/ocean.js';
+import { WaterSurface } from '../src/water.js';
+import { Sky } from '../src/sky.js';
+import { Post } from '../src/post.js';
+import { newParams } from '../src/presets.js';
+import { createDerived, derive } from '../src/derive.js';
+import { perspective, lookAt, mul, invert, mat4, v3, DEG } from '../src/math.js';
+
+const q = new URLSearchParams(location.search);
+const W = +(q.get('w') || 160), H = +(q.get('h') || 100);
+const PRESET = q.get('preset') || 'Golden Hour Swell';
+const SEED = +(q.get('seed') || 1337);
+const N = +(q.get('n') || 128);
+const STEPS = +(q.get('steps') || 8);
+const POST_FRAMES = +(q.get('postFrames') || 4);
+// The image reference runs with a fixed iris; see the header.
+const AUTO_EXPOSURE = +(q.get('autoExposure') ?? 0);
+const ADAPT_FRAMES = +(q.get('adaptFrames') || 16);
+const DT = 1 / 60;
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+const RIG = {
+  pos: [0, 12, 0],
+  yaw: -0.6, pitch: -0.02,
+  fov: 44, near: 0.1, far: 60000,
+  time: 12.0,
+};
+
+let fingerprint = null;
+try {
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const gl = getContext(canvas, {});
+  const blit = new Blitter(gl);
+
+  const params = newParams(PRESET);
+  params.seed = SEED;
+  params.fftSize = N;
+  params.gridScale = 1;
+  for (const kv of (q.get('set') || '').split(',').filter(Boolean)) {
+    const [k, v] = kv.split(':');
+    params[k] = +v;
+  }
+  params.autoExposure = AUTO_EXPOSURE;
+  const d = createDerived();
+  derive(params, d);
+
+  const ocean = new Ocean(gl, { size: N, cascades: DEFAULT_CASCADES });
+  ocean.setSeed(SEED);
+  ocean.buildSpectrum(params);
+  for (let i = 0; i < STEPS; i++) ocean.update(DT, params);
+
+  const sky = new Sky(gl, blit);
+  sky.updateLUT(params, d.sunDir, Math.max(RIG.pos[1], 1));
+  const water = new WaterSurface(gl, params, { output: 'hdr' });
+  const post = new Post(gl, blit);
+  post.resize(W, H);
+
+  const target = v3(
+    RIG.pos[0] + Math.cos(RIG.pitch) * Math.sin(RIG.yaw),
+    RIG.pos[1] + Math.sin(RIG.pitch),
+    RIG.pos[2] - Math.cos(RIG.pitch) * Math.cos(RIG.yaw),
+  );
+  const view = lookAt(new Float32Array(RIG.pos), target, v3(0, 1, 0), mat4());
+  const proj = perspective(RIG.fov * DEG, W / H, RIG.near, RIG.far, mat4());
+  const viewProj = mul(proj, view, mat4());
+  const invViewProj = invert(viewProj, mat4());
+
+  const hdr = texture2D(gl, {
+    width: W, height: H, internalFormat: gl.RGBA16F, format: gl.RGBA, type: gl.HALF_FLOAT,
+    filter: gl.LINEAR, wrap: gl.CLAMP_TO_EDGE,
+  });
+  const depth = gl.createRenderbuffer();
+  gl.bindRenderbuffer(gl.RENDERBUFFER, depth);
+  gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, W, H);
+  const sceneFbo = framebuffer(gl, [hdr]);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, sceneFbo);
+  gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depth);
+
+  const ctx = {
+    camPos: new Float32Array(RIG.pos),
+    viewProj, invViewProj,
+    sunDir: d.sunDir, moonDir: d.moonDir, windVec3: d.windVec3,
+    time: RIG.time,
+  };
+
+  // The scene, once. Only the iris evolves after this.
+  gl.bindFramebuffer(gl.FRAMEBUFFER, sceneFbo);
+  gl.viewport(0, 0, W, H);
+  gl.clearColor(0, 0, 0, 1);
+  gl.clearDepth(1.0);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  water.render(params, ctx, ocean, sky);
+  sky.drawBackground(params, ctx);
+
+  const readLDR = () => {
+    const px = new Uint8Array(W * H * 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    return px;
+  };
+
+  // Fixed count, fixed dt: a deterministic adaptation sequence.
+  for (let i = 0; i < POST_FRAMES; i++) {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, W, H);
+    post.render(hdr, params, DT, RIG.time);
+  }
+  const px = readLDR();
+
+  // One more frame from the settled iris must reproduce itself, or the sequence
+  // has not converged and the reference is a snapshot of a moving target.
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, W, H);
+  post.render(hdr, params, DT, RIG.time);
+  const px2 = readLDR();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, W, H);
+  post.render(hdr, params, DT, RIG.time);
+  const px3 = readLDR();
+  let drift = 0, drift2 = 0;
+  for (let i = 0; i < px.length; i++) {
+    drift = Math.max(drift, Math.abs(px[i] - px2[i]));
+    drift2 = Math.max(drift2, Math.abs(px[i] - px3[i]));
+  }
+  log('deterministic: +1 and +2 frames reproduce', drift === 0 && drift2 === 0,
+      `+1 = ${drift}/255, +2 = ${drift2}/255`);
+
+  // --- the metering loop, numerically ---------------------------------------
+  // A second Post, with auto exposure ON, fed the same constant HDR source. The
+  // 1x1 adapt texture after each frame IS the iris; comparing the sequence
+  // compares the metering and the adaptation directly.
+  const meterParams = { ...params, autoExposure: 1 };
+  const post2 = new Post(gl, blit);
+  post2.resize(W, H);
+  const adaptSeq = [];
+  const one = new Float32Array(4);
+  for (let i = 0; i < ADAPT_FRAMES; i++) {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, W, H);
+    post2.render(hdr, meterParams, DT, RIG.time);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, post2.adaptFbo[post2.adaptIdx]);
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.FLOAT, one);
+    adaptSeq.push(+one[0].toFixed(6));
+  }
+  log('metering loop moves and stays finite', adaptSeq.every(Number.isFinite) &&
+      Math.abs(adaptSeq[ADAPT_FRAMES - 1] - adaptSeq[0]) > 1e-6,
+      `adapt ${adaptSeq[0]} -> ${adaptSeq[ADAPT_FRAMES - 1]} over ${ADAPT_FRAMES} frames`);
+
+  const view2d = document.getElementById('view').getContext('2d');
+  const img = view2d.createImageData(W, H);
+  for (let y = 0; y < H; y++) {
+    const src = (H - 1 - y) * W * 4;
+    img.data.set(px.subarray(src, src + W * 4), y * W * 4);
+  }
+  view2d.putImageData(img, 0, 0);
+
+  // Store as floats in 0..1 so tools/compare-image.mjs works unchanged.
+  const f = new Float32Array(px.length);
+  for (let i = 0; i < px.length; i++) f[i] = px[i] / 255;
+
+  let sum = 0, sum2 = 0, min = Infinity, max = -Infinity;
+  for (let i = 0; i < W * H; i++) {
+    const l = 0.2126 * f[i * 4] + 0.7152 * f[i * 4 + 1] + 0.0722 * f[i * 4 + 2];
+    sum += l; sum2 += l * l;
+    if (l < min) min = l; if (l > max) max = l;
+  }
+  const n = W * H;
+  const mean = sum / n;
+
+  fingerprint = {
+    config: { W, H, preset: PRESET, rig: RIG, seed: SEED, n: N, steps: STEPS, postFrames: POST_FRAMES, autoExposure: AUTO_EXPOSURE },
+    stats: {
+      mean: +mean.toFixed(6), rms: +Math.sqrt(sum2 / n).toFixed(6),
+      min: +min.toFixed(6), max: +max.toFixed(6),
+    },
+    pixels: Array.from(f).map((v) => +v.toFixed(4)),
+    adaptSeq,
+  };
+
+  log('post rendered', mean > 1e-3, `mean ${mean.toFixed(4)}, peak ${max.toFixed(3)}`);
+  log('not clipped to black or white', min < 0.5 && max > 0.5, `min ${min.toFixed(3)}, max ${max.toFixed(3)}`);
+} catch (e) {
+  log('render post reference', false, String(e.stack || e.message || e).slice(0, 800));
+}
+
+window.probeResult = { results, allOk: results.every((r) => r.ok), fingerprint };
+</script>

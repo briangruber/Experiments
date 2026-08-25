@@ -1,0 +1,76 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Abyssal in Three.js — water only</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0a0e14; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #hud { position: fixed; top: 12px; left: 12px; color: #cfe4f5; font: 12px/1.5 ui-monospace, monospace; text-shadow: 0 1px 3px #000a; }
+</style>
+
+<canvas id="c"></canvas>
+<div id="hud">water only — the background is Three's own scene.background</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.185.1/build/three.module.js" } }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { AbyssalWater } from '../src/three/index.js';
+
+// The sea on its own, with no Abyssal sky.
+//
+// The water still needs an atmosphere to reflect, so AbyssalWater keeps a private
+// radiance table built from the same sun and turbidity parameters - it is just
+// never drawn. What you see above the horizon here is Three's own background, and
+// the sea reflects the physical sky rather than that colour. Matching the two is
+// the trade you make by using the water alone; the sky component exists so you
+// do not have to.
+
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.autoClear = false;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x9db9d4);
+
+const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.5, 40000);
+camera.position.set(0, 11, 42);
+camera.lookAt(0, 3, 0);
+
+const water = new AbyssalWater(renderer, { preset: 'Golden Hour Swell' });
+
+const sun = new THREE.DirectionalLight(0xffffff, 3);
+scene.add(sun, new THREE.HemisphereLight(0x9fc4e8, 0x223344, 1.2));
+
+const buoy = new THREE.Mesh(
+  new THREE.SphereGeometry(2, 32, 20),
+  new THREE.MeshStandardMaterial({ color: 0xd8451f, roughness: 0.45 }),
+);
+scene.add(buoy);
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 1 / 20);
+  water.update(dt, camera);
+  sun.position.set(...water.sunDirection).multiplyScalar(500);
+  sun.color.setRGB(...water.sunColor);
+
+  // scene.background is painted by renderer.render, so the sea has to come after
+  // it here - the opposite order from the water-and-sky example.
+  renderer.clear();
+  renderer.render(scene, camera);
+  water.render(camera);
+});
+
+window.abyssalExample = { renderer, scene, camera, water };
+</script>

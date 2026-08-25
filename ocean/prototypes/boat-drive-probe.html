@@ -1,0 +1,150 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — does the fishing boat float, drive, and look right doing it?</title>
+
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}</style>
+<pre id="out">running…</pre>
+<!-- NO CSS ON THE CANVAS, same reasoning as prototypes/spray-breach-probe.html:
+     a styled canvas plus this probe's own repeated toggling (boat state
+     changes over many onFrame-sampled frames, each landing an async
+     craftProbe readback) reproduced the same class of stall, measured
+     directly - adding back exactly three-app-smoke.html's proven style block
+     hung this file too. EVERY CLAIM HERE READS JS STATE, not pixels - boat
+     position, heading, matrix elements, camera position - none of it needs a
+     correctly-sized render buffer, so the canvas is left bare on purpose and
+     no --shot is taken. A visual bow/stern check belongs in a page with no
+     boot() and no toggling at all - see boat-views.html, which already
+     confirmed it with marker spheres and a low-hull taper measurement. -->
+<canvas id="view" width="480" height="300"></canvas>
+
+<!--
+  Three claims: it is visible, sitting on the water rather than floating
+  above/through it; it moves and turns under throttle+steer, bow leading
+  travel (the same claim tools/check-ride.mjs makes for the ski, transcribed
+  for a WaveRunner instance tuned as a boat rather than re-derived); and the
+  camera is on ITS rig, not just somewhere plausible behind it.
+
+  node tools/run-probe.mjs prototypes/boat-drive-probe.html
+  node tools/run-probe.mjs prototypes/boat-drive-probe.html --shot shots/boat-drive.png
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { installWebGPUSwizzleShim } from './webgpu-shim.js';
+import { boot } from '../demo/three-main.js';
+
+installWebGPUSwizzleShim();
+
+const q = new URLSearchParams(location.search);
+const WANT = (q.get('backend') || 'webgl').toLowerCase();
+const OVERRIDES = {
+  fftSize: +(q.get('fft') || 64),
+  sprayTexSize: +(q.get('sprayTex') || 32),
+  cloudSteps: +(q.get('cloudSteps') || 12),
+  gridScale: +(q.get('gridScale') || 0.35),
+};
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+const work = (async () => {
+  let backend = '?';
+  try {
+    const canvas = document.getElementById('view');
+    const app = await boot({ canvas, backend: WANT, overrides: OVERRIDES });
+    backend = app.backend;
+    log(`${backend}: boot() resolved`, true, app.fellBack ? 'fell back from WebGPU' : `asked for ${WANT}`);
+
+    const A = app;
+    A.params.adaptiveQuality = 0; A.params.fpsCap = 0;
+    A.params.craftShadow = 0;   // other people's claims
+
+    A.toggleBoat();
+    log('toggleBoat() activated it', A.boat.active === true, `boat.active = ${A.boat.active}`);
+
+    // ---- VISIBLE, sitting ON the water --------------------------------------
+    const frames = (k) => new Promise((resolve) => {
+      let i = 0;
+      const tick = () => (++i >= k ? resolve() : requestAnimationFrame(tick));
+      requestAnimationFrame(tick);
+    });
+    await frames(30);   // let the probe readback settle (async, lands a few frames late)
+
+    const seaAtBoat = A.boat.probeH?.[0] ?? NaN;
+    const deckY = A.boat.deckY ?? NaN;
+    log('it is floating near the water it is over', Math.abs(deckY - seaAtBoat) < 6,
+        `deckY ${deckY.toFixed(2)}, sea there ${seaAtBoat.toFixed(2)}, diff ${(deckY - seaAtBoat).toFixed(2)} m`);
+    log('the mesh is actually in the scene', A.boatMesh.visible === true,
+        `boatMesh.visible = ${A.boatMesh.visible}`);
+
+    // ---- MOVES, TURNS, BOW LEADS --------------------------------------------
+    // Sampled every frame from inside onFrame, same technique as
+    // tools/check-ride.mjs - a couple of frames a second on this rasteriser
+    // would miss excursions polling from outside.
+    const log2 = [];
+    const norm = (v) => { const L = Math.hypot(v[0], v[1]) || 1; return [v[0] / L, v[1] / L]; };
+    A.onFrame = () => {
+      const b = A.boat, c = A.cam3;
+      if (!b.active) return;
+      const e = A.boatMesh.matrix.elements;
+      const want = [Math.sin(b.heading), -Math.cos(b.heading)];
+      const nz = norm([e[8], e[10]]);
+      // boatYawOffset is now pi (presets.js) - the original conversion had
+      // the bow backwards, caught live and re-verified with an orthographic
+      // top-down render (prototypes/boat-bow-recheck.html) - so the boat now
+      // matches the ski's own convention (craftYawOffset = pi) instead of
+      // diverging from it, and this compares the RAW z column, not negated.
+      log2.push({
+        alignZ: nz[0] * want[0] + nz[1] * want[1],
+        speed: Math.abs(b.speed),
+        yaw: Math.abs(b.yawRate),
+        rigErr: b.camRig
+          ? Math.hypot(c.position.x - b.camRig[0], c.position.y - b.camRig[1], c.position.z - b.camRig[2])
+          : 0,
+      });
+    };
+    A.camera.keys.add('KeyW');
+    await frames(60);
+    A.camera.keys.add('KeyD');
+    await frames(60);
+
+    const settled = log2.slice(Math.floor(log2.length / 2));
+    const mean = (f) => settled.reduce((s, r) => s + f(r), 0) / Math.max(settled.length, 1);
+    const maxOf = (f) => Math.max(...settled.map(f));
+
+    log(`${backend}: it moves under throttle`, mean((r) => r.speed) > 0.5,
+        `mean speed ${mean((r) => r.speed).toFixed(2)} m/s over ${settled.length} sampled frames`);
+    log(`${backend}: it turns under steer`, mean((r) => r.yaw) > 0.01,
+        `mean |yawRate| ${mean((r) => r.yaw).toFixed(3)} rad/s`);
+    log(`${backend}: the bow leads travel`, Math.min(...settled.map((r) => r.alignZ)) > 0.95,
+        `worst alignZ ${Math.min(...settled.map((r) => r.alignZ)).toFixed(3)} (1.0 is dead-on)`);
+    log(`${backend}: the camera is on its own rig`, maxOf((r) => r.rigErr) < 0.05,
+        `worst rig error ${maxOf((r) => r.rigErr).toFixed(3)} m`);
+    log('it never went non-finite', [A.boat.pos[0], A.boat.pos[1], A.boat.pos[2], A.boat.heading, A.boat.speed]
+        .every(Number.isFinite), '');
+
+    return 'done';
+  } catch (e) {
+    log(`${backend}: run the boat probe`, false, String(e.stack || e.message || e).slice(0, 1000));
+    return 'error';
+  }
+})();
+
+const timedOut = Symbol('timeout');
+const outcome = await Promise.race([work, new Promise((r) => setTimeout(() => r(timedOut), 90000))]);
+if (outcome === timedOut) log('the probe itself', false, 'no result after 90s');
+
+window.probeResult = { results, allOk: results.length > 0 && results.every((r) => r.ok) };
+</script>

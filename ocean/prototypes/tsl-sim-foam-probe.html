@@ -1,0 +1,157 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — does the TSL foam pass match the GLSL one?</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}</style>
+<pre id="out">running…</pre>
+
+<!--
+  prototypes/ocean-tsl.html fingerprints the DISPLACEMENT field, which covers the
+  spectrum, the evolve, the FFT and the assemble - stages A through D of
+  docs/ocean-sim-port-notes.md §3. It does not touch the foam pass at all, and a
+  foam pass that produced garbage would sail through it.
+
+  This is stage E. It runs the shipping WebGL2 Ocean and the TSL TslOceanSim side
+  by side in one page, from the same preset, seed and step count, and diffs the
+  foam field texel for texel.
+
+  The bar is looser than the displacement's and §3 says why: both foam buffers are
+  RGBA16F (~5e-4 relative), eleven of the samples per texel go through hardware
+  bilinear with fixed-point subtexel weights, and inversesqrt is not correctly
+  rounded. 1e-2 relative, on a field whose values are in [0, 1].
+
+  It also reports total coverage against whitecapFraction(), which is a CPU number
+  neither path can influence - but note that the two paths agreeing matters more
+  than either matching that number, because the foam model's calibration is a
+  function of N and the shipping N is 256.
+
+    node tools/run-probe.mjs "prototypes/tsl-sim-foam-probe.html?n=64&steps=8"
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { getContext } from '../src/gl.js';
+import { Ocean, DEFAULT_CASCADES, whitecapFraction } from '../src/ocean.js';
+import { TslOceanSim } from '../src/gpu/tsl/sim-driver.js';
+import { newParams } from '../src/presets.js';
+import { createDerived, derive } from '../src/derive.js';
+import { installWebGPUSwizzleShim } from './webgpu-shim.js';
+
+installWebGPUSwizzleShim();
+
+const q = new URLSearchParams(location.search);
+const N = +(q.get('n') || 64);
+const STEPS = +(q.get('steps') || 8);
+const PRESET = q.get('preset') || 'Golden Hour Swell';
+const SEED = +(q.get('seed') || 1337);
+const BACKEND = (q.get('backend') || 'webgl').toLowerCase();
+const DT = 1 / 60;
+const TOL = 1e-2;
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+const mkParams = () => {
+  const p = newParams(PRESET);
+  p.seed = SEED;
+  p.fftSize = N;
+  derive(p, createDerived());
+  return p;
+};
+
+try {
+  // ---- the shipping WebGL2 path ----
+  const glCanvas = document.createElement('canvas');
+  glCanvas.width = glCanvas.height = 16;
+  const gl = getContext(glCanvas, {});
+  const glParams = mkParams();
+  const ocean = new Ocean(gl, { size: N, cascades: DEFAULT_CASCADES });
+  ocean.setSeed(SEED);
+  ocean.buildSpectrum(glParams);
+  for (let i = 0; i < STEPS; i++) ocean.update(DT, glParams);
+
+  // gl.readPixels on the foam FBO of the CURRENT buffer. Row j is texture row j
+  // is index row j on this path (gl_FragCoord row r writes texture row r).
+  const glFoam = [];
+  const buf = new Float32Array(N * N * 4);
+  for (let c = 0; c < ocean.cascadeCount; c++) {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, ocean.fbo.foam[ocean.foamIdx][c]);
+    gl.readBuffer(gl.COLOR_ATTACHMENT0);
+    gl.readPixels(0, 0, N, N, gl.RGBA, gl.FLOAT, buf);
+    glFoam.push(buf.slice());
+  }
+  const glWhitecap = ocean.whitecap;
+
+  // ---- the TSL path ----
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 16;
+  const renderer = new THREE.WebGPURenderer({
+    canvas, forceWebGL: BACKEND !== 'webgpu', antialias: false,
+  });
+  await renderer.init();
+  const backend = renderer.backend?.isWebGPUBackend ? 'WebGPU' : 'WebGL2';
+
+  const tslParams = mkParams();
+  const sim = new TslOceanSim(renderer, { size: N, cascades: DEFAULT_CASCADES });
+  sim.setSeed(SEED);
+  sim.buildSpectrum(tslParams);
+  for (let i = 0; i < STEPS; i++) sim.update(DT, tslParams);
+
+  log('same whitecap target on both paths',
+      Math.abs(sim.whitecap - glWhitecap) < 1e-12,
+      `${sim.whitecap.toFixed(6)} vs ${glWhitecap.toFixed(6)} ` +
+      `(whitecapFraction = ${whitecapFraction(tslParams.windSpeed, tslParams.foamCoverage, tslParams.foamWindMin).toFixed(6)})`);
+
+  let glCoverage = 0, tslCoverage = 0;
+  for (let c = 0; c < sim.cascadeCount; c++) {
+    const t = await sim.readLayer('foam', c);
+    const g = glFoam[c];
+
+    let worst = 0, at = -1, beyond = 0, gs = 0, ts = 0;
+    for (let i = 0; i < N * N; i++) {
+      gs += g[i * 4];
+      ts += t[i * 4];
+      for (let k = 0; k < 4; k++) {
+        // The channels live in [0, 1] (channel 3 is x*x and is unbounded above
+        // but small), so an absolute-vs-scale comparison is the honest one:
+        // relative error on a texel whose true value is 1e-9 means nothing.
+        const d = Math.abs(g[i * 4 + k] - t[i * 4 + k]) / Math.max(Math.abs(g[i * 4 + k]), 0.02);
+        if (d > TOL) beyond++;
+        if (d > worst) { worst = d; at = i * 4 + k; }
+      }
+    }
+    glCoverage += gs / (N * N);
+    tslCoverage += ts / (N * N);
+
+    const frac = beyond / (N * N * 4);
+    log(`cascade ${c} foam matches the GLSL pass`, frac < 0.005,
+        `${beyond}/${N * N * 4} beyond ${TOL} (${(frac * 100).toFixed(2)}%), worst ${worst.toExponential(2)} at ${at}` +
+        `   mean coverage gl ${(gs / (N * N)).toFixed(5)} tsl ${(ts / (N * N)).toFixed(5)}`);
+  }
+
+  log('total coverage agrees between the two paths',
+      Math.abs(glCoverage - tslCoverage) < 0.01 * Math.max(glCoverage, 1e-6),
+      `gl ${glCoverage.toFixed(5)}  tsl ${tslCoverage.toFixed(5)}  whitecapFraction ${glWhitecap.toFixed(5)}` +
+      `  (ratio to target ${(glCoverage / glWhitecap).toFixed(2)}x on BOTH paths at N=${N})`);
+
+  log('backend', BACKEND === 'webgpu' ? backend === 'WebGPU' : backend === 'WebGL2', backend);
+
+  sim.dispose();
+  renderer.dispose();
+} catch (e) {
+  log('foam comparison', false, String(e.stack || e.message || e));
+}
+
+window.probeResult = { results, allOk: results.every((r) => r.ok) };
+</script>

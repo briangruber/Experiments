@@ -1,0 +1,114 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Abyssal — Three.js examples</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; min-height: 100vh; background: #070b11; color: #d6e4f0;
+    font: 15px/1.6 ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+    display: flex; align-items: center; justify-content: center; padding: 32px;
+  }
+  main { max-width: 720px; width: 100%; }
+  h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: 0.02em; }
+  p.sub { margin: 0 0 28px; color: #7f95ab; font-size: 14px; }
+  a.card {
+    display: block; text-decoration: none; color: inherit;
+    border: 1px solid #1d2c3c; border-radius: 10px; padding: 16px 18px;
+    margin-bottom: 12px; background: #0b1220; transition: border-color .15s, background .15s;
+  }
+  a.card:hover { border-color: #33546f; background: #101b2c; }
+  a.card b { display: block; font-size: 16px; margin-bottom: 3px; }
+  a.card span { color: #8ba3b8; font-size: 13.5px; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; color: #9fc9e8; }
+  footer { margin-top: 26px; color: #61758a; font-size: 13px; }
+  footer a { color: #7fb0d8; }
+</style>
+
+<main>
+  <h1>Abyssal · Three.js examples</h1>
+  <p class="sub">Serve this directory (<code>npm start</code>) — ES modules will not load from <code>file://</code>.</p>
+
+  <a class="card" href="./webgpu-ocean.html">
+    <b>WebGPU — the whole ocean in one call</b>
+    <span>The <code>createAbyssal()</code> facade: FFT sea, volumetric sky, spray and
+    HDR post, on WebGPU with WebGL2 as the automatic fallback. Presets and real
+    cloud genera as buttons; your meshes share the frame's depth.</span>
+  </a>
+
+  <a class="card" href="./webgpu-bodies.html">
+    <b>WebGPU — drop a crate, cross two wakes</b>
+    <span><code>abyssal.bodies.add(mesh, { mass, float, wake })</code>: hulls
+    float from mass vs volume, splash on impact, and write one shared wake
+    field so crossing trails mix. A mesh you only <code>scene.add()</code> is
+    still a statue.</span>
+  </a>
+
+  <a class="card" href="./webgpu-wake-physics.html">
+    <b>WebGPU — gravity-wave wake</b>
+    <span>Drop the occupancy cut and leftover stamps. The hull only
+    displaces water; leftover crests travel in world XZ at
+    <code>c = √(g L / 2π)</code> and add. <code>U / c</code> is plow
+    (circles), hull speed (stern pile-up), or a leftover Mach V.
+    Stop or turn and the old waves stay in the water.</span>
+  </a>
+
+  <a class="card" href="./webgpu-box-ski.html">
+    <b>WebGPU — a jet ski that planes</b>
+    <span>The same <code>OceanBody</code> as a crate, with the <code>SKI</code>
+    coefficients: hover (ride height), springiness, grip. The
+    <code>models/jet-ski.glb</code> hull. W/S throttle, A/D steer, X holds a cruise speed, U hides the chrome. The Ski panel dials the wake trail
+    (height, width, center cut, foam), spray (waterline sites,
+    hull jet, amount), the sea-dragon swell (dome, bow heap, laminar
+    mound), and a debug toggle for spray / buoyancy contact points. A
+    second Sea panel writes <code>abyssal.params</code> — spray size,
+    lifetime, hull jet, sea state. <code>Tropical Noon</code> is a
+    5–100 m bed with sand, reef, brighter floor caustics, and scattered
+    rocks / coral from <code>models/</code>.</span>
+  </a>
+
+  <a class="card" href="./pierce-lab.html">
+    <b>Pierce lab — a fin through a calm surface</b>
+    <span>The bench, not the ocean: no FFT, no sky, no spray, so it opens
+    instantly. Drag a shark fin (or a rod) through a nearly flat sea and
+    watch <code>src/pierce.js</code> — the collar of displaced water, the
+    heap ahead, the shoulders drawn down, the hollow astern — plus the
+    rings it sheds from <code>src/wake-wave.js</code>. Every reach is a
+    multiple of the site's own size, so <b>copy knobs</b> gives you
+    numbers that still work on a mesh ten times bigger. The <b>near
+    field</b> button swaps that painted model for
+    <code>src/ripple-field.js</code>, a simulated height field where you
+    only displace water and a wave equation produces the hollow and the V
+    by itself.</span>
+  </a>
+
+  <a class="card" href="./webgpu-sky.html">
+    <b>WebGPU — a sky of real clouds, no water</b>
+    <span><code>water: false</code>: the atmosphere and cloud raymarch over your own
+    ground. Cirrus, cumulus, stratus, nimbus, cumulonimbus — measured recipes,
+    switchable live, with a sun-elevation slider.</span>
+  </a>
+
+  <a class="card" href="./water-and-sky.html">
+    <b>Water and sky</b>
+    <span>Both components sharing one parameter set, with Three.js pilings standing
+    in the sea. Watch the waterline move across them — that is a shared depth buffer.</span>
+  </a>
+
+  <a class="card" href="./water-only.html">
+    <b>Water only</b>
+    <span>The sea under Three's own <code>scene.background</code>. Shows the ordering
+    change a background forces, and what you give up without the matching sky.</span>
+  </a>
+
+  <a class="card" href="./sky-only.html">
+    <b>Sky only</b>
+    <span>Atmosphere and volumetric clouds over a scene with no water at all,
+    with live sun-elevation and cloud-cover controls.</span>
+  </a>
+
+  <footer>
+    Each page loads Three from a CDN and Abyssal from <code>../src</code>.
+    Start with the <a href="../docs/threejs.md">integration guide</a>.
+  </footer>
+</main>

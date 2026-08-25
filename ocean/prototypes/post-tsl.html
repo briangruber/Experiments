@@ -1,0 +1,280 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — the TSL post chain, at the golden's rig</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}canvas{margin-top:12px;border:1px solid #23384c;image-rendering:pixelated}</style>
+<pre id="out">running…</pre>
+<canvas id="view" width="160" height="100"></canvas>
+
+<!--
+  The counterpart of prototypes/post-golden.html: the same frame through the TSL
+  post chain instead of the GLSL one.
+
+  THE HDR SOURCE COMES FROM THE SHIPPING RENDERER, ON PURPOSE.
+
+  A GL context renders sea + sky exactly as post-golden.html does, and that HDR
+  image is read back and uploaded as the source texture for the TSL chain. So
+  both sides post-process THE SAME PIXELS, and any difference is a difference in
+  the post chain - which is what this port changed. The water and sky already
+  have their own references; folding them in again would mean three questions
+  and one number.
+
+  TWO MEASUREMENTS, for the reason post-golden.html explains at length:
+
+    the IMAGE with autoExposure = 0, because the iris is a temporal feedback loop
+    that does NOT settle on a constant source (measured: still moving 2/255 after
+    120 frames). That still exercises the bloom pyramid, the tonemap, grain,
+    vignette and FXAA - everything per-pixel.
+
+    the METERING as the 1x1 adapt value after each of 16 frames with the iris on,
+    compared to six figures against the golden's adaptSeq.
+
+    node tools/run-probe.mjs prototypes/post-tsl.html --save test/out/post-tsl.json
+    node tools/compare-image.mjs test/golden/post.json test/out/post-tsl.json
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { installWebGPUSwizzleShim } from './webgpu-shim.js';
+import { readPixelsBottomUp } from './readback.js';
+import { TslPost } from '../src/gpu/tsl/post-driver.js';
+import { getContext, texture2D, framebuffer, Blitter } from '../src/gl.js';
+import { Ocean, DEFAULT_CASCADES } from '../src/ocean.js';
+import { WaterSurface } from '../src/water.js';
+import { Sky } from '../src/sky.js';
+import { newParams } from '../src/presets.js';
+import { createDerived, derive } from '../src/derive.js';
+import { perspective, lookAt, mul, invert, mat4, v3, DEG } from '../src/math.js';
+
+installWebGPUSwizzleShim();
+
+const q = new URLSearchParams(location.search);
+const W = +(q.get('w') || 160), H = +(q.get('h') || 100);
+const PRESET = q.get('preset') || 'Golden Hour Swell';
+const SEED = +(q.get('seed') || 1337);
+const N = +(q.get('n') || 128);
+const STEPS = +(q.get('steps') || 8);
+const POST_FRAMES = +(q.get('postFrames') || 4);
+const ADAPT_FRAMES = +(q.get('adaptFrames') || 16);
+const AUTO_EXPOSURE = +(q.get('autoExposure') ?? 0);
+const DT = 1 / 60;
+const FORCE_WEBGL = (q.get('backend') || 'webgl') === 'webgl';
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+const RIG = {
+  pos: [0, 12, 0], yaw: -0.6, pitch: -0.02,
+  fov: 44, near: 0.1, far: 60000, time: 12.0,
+};
+
+let fingerprint = null;
+let backend = '?';
+try {
+  const params = newParams(PRESET);
+  params.seed = SEED;
+  params.fftSize = N;
+  params.gridScale = 1;
+  for (const kv of (q.get('set') || '').split(',').filter(Boolean)) {
+    const [k, v] = kv.split(':');
+    params[k] = +v;
+  }
+  params.autoExposure = AUTO_EXPOSURE;
+  const d = createDerived();
+  derive(params, d);
+
+  // ---- the HDR source, from the shipping renderer -------------------------
+  const simCanvas = document.createElement('canvas');
+  simCanvas.width = W; simCanvas.height = H;
+  const gl = getContext(simCanvas, {});
+  const blit = new Blitter(gl);
+
+  const ocean = new Ocean(gl, { size: N, cascades: DEFAULT_CASCADES });
+  ocean.setSeed(SEED);
+  ocean.buildSpectrum(params);
+  for (let i = 0; i < STEPS; i++) ocean.update(DT, params);
+
+  const sky = new Sky(gl, blit);
+  sky.updateLUT(params, d.sunDir, Math.max(RIG.pos[1], 1));
+  const water = new WaterSurface(gl, params, { output: 'hdr' });
+
+  const targetPt = v3(
+    RIG.pos[0] + Math.cos(RIG.pitch) * Math.sin(RIG.yaw),
+    RIG.pos[1] + Math.sin(RIG.pitch),
+    RIG.pos[2] - Math.cos(RIG.pitch) * Math.cos(RIG.yaw),
+  );
+  const view = lookAt(new Float32Array(RIG.pos), targetPt, v3(0, 1, 0), mat4());
+  const proj = perspective(RIG.fov * DEG, W / H, RIG.near, RIG.far, mat4());
+  const viewProj = mul(proj, view, mat4());
+  const invViewProj = invert(viewProj, mat4());
+
+  const hdrTex = texture2D(gl, {
+    width: W, height: H, internalFormat: gl.RGBA32F, format: gl.RGBA, type: gl.FLOAT,
+    filter: gl.LINEAR, wrap: gl.CLAMP_TO_EDGE,
+  });
+  const depth = gl.createRenderbuffer();
+  gl.bindRenderbuffer(gl.RENDERBUFFER, depth);
+  gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, W, H);
+  const sceneFbo = framebuffer(gl, [hdrTex]);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, sceneFbo);
+  gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depth);
+  gl.viewport(0, 0, W, H);
+  gl.clearColor(0, 0, 0, 1);
+  gl.clearDepth(1.0);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+  const ctx = {
+    camPos: new Float32Array(RIG.pos), viewProj, invViewProj,
+    sunDir: d.sunDir, moonDir: d.moonDir, windVec3: d.windVec3, time: RIG.time,
+  };
+  water.render(params, ctx, ocean, sky);
+  sky.drawBackground(params, ctx);
+
+  const hdr = new Float32Array(W * H * 4);
+  gl.readPixels(0, 0, W, H, gl.RGBA, gl.FLOAT, hdr);
+  const hdrSum = hdr.reduce((a, b) => a + Math.abs(b), 0);
+  log('HDR source rendered', hdrSum > 1e-3 && hdr.every(Number.isFinite),
+      `sum|.| = ${hdrSum.toFixed(0)}`);
+
+  // ---- the three renderer -------------------------------------------------
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const renderer = new THREE.WebGPURenderer({ canvas, forceWebGL: FORCE_WEBGL, antialias: false });
+  await renderer.init();
+  backend = renderer.backend?.isWebGPUBackend ? 'WebGPU' : 'WebGL2';
+
+  // The source has to be a render-target-like HalfFloat texture with LINEAR
+  // filtering: the chain samples it with a filtering sampler, and on WGSL the
+  // instruction is chosen at build time from what is bound (porting rule 11).
+  // gl.readPixels gives rows bottom-up; the GLSL chain read the same buffer the
+  // same way, so uploading it verbatim keeps both sides on identical pixels.
+  const srcRT = new THREE.RenderTarget(W, H, {
+    type: THREE.HalfFloatType, format: THREE.RGBAFormat,
+    minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
+    depthBuffer: false, generateMipmaps: false,
+  });
+  {
+    // Blit the CPU-side HDR into a real render target so srcTexture is the
+    // render-target texture the graph was built for.
+    // gl.readPixels hands back rows BOTTOM-UP; a QuadMesh blit writes the fragment
+    // whose uv().y = 0 at the NDC top, and a DataTexture is not a render target so
+    // no sampler flip compensates. Uploading the buffer verbatim therefore lands
+    // the scene upside down in srcRT, and the whole chain then post-processes a
+    // mirrored image - which matched the reference's distribution to 3e-5 with
+    // 96.6% of individual pixels wrong. Flip once, here, so the source the TSL
+    // chain sees is the same picture the GLSL chain saw.
+    const hdrTopDown = new Float32Array(hdr.length);
+    for (let y = 0; y < H; y++) {
+      hdrTopDown.set(hdr.subarray((H - 1 - y) * W * 4, (H - y) * W * 4), y * W * 4);
+    }
+    const upload = new THREE.DataTexture(hdrTopDown, W, H, THREE.RGBAFormat, THREE.FloatType);
+    upload.minFilter = upload.magFilter = THREE.LinearFilter;
+    upload.wrapS = upload.wrapT = THREE.ClampToEdgeWrapping;
+    upload.needsUpdate = true;
+    const { texture: texNode, uv: uvNode, vec4: v4 } =
+      await import('three/tsl').then((m) => ({ texture: m.texture, uv: m.uv, vec4: m.vec4 }));
+    const mat = new THREE.NodeMaterial();
+    mat.fragmentNode = v4(texNode(upload).sample(uvNode()).xyz, 1.0);
+    mat.depthTest = false; mat.depthWrite = false;
+    const quad = new THREE.QuadMesh(mat);
+    renderer.autoClear = false;
+    renderer.setRenderTarget(srcRT);
+    quad.render(renderer);
+    renderer.setRenderTarget(null);
+  }
+
+  const post = new TslPost(renderer);
+  post.resize(W, H);
+  post.seedAdapt();
+
+  // FloatType, not HalfFloat: WebGLTextureUtils._getTypedArrayType has no case for
+  // HalfFloatType, so readRenderTargetPixelsAsync throws "Unsupported WebGL type:
+  // undefined" on the WebGL backend. The post output is display-referred 0..1, so
+  // the extra precision costs nothing and 160 wide is 2560 bytes a row, which
+  // clears WebGPU's 256-byte pitch rule.
+  const outRT = new THREE.RenderTarget(W, H, {
+    type: THREE.FloatType, format: THREE.RGBAFormat,
+    minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false,
+  });
+
+  // The chain's last pass (FXAA) renders to `opts.output ?? null` - the canvas by
+  // default, exactly as the GLSL path draws to the default framebuffer. Binding a
+  // target beforehand does NOT redirect it: the pass sets its own. So the capture
+  // target goes through opts.output.
+  renderer.autoClear = false;
+  for (let i = 0; i < POST_FRAMES; i++) {
+    post.render(srcRT.texture, params, DT, RIG.time, { output: outRT });
+  }
+  renderer.setRenderTarget(null);
+
+  const px = await readPixelsBottomUp(renderer, outRT, W, H);
+
+  const view2d = document.getElementById('view').getContext('2d');
+  const img = view2d.createImageData(W, H);
+  for (let i = 0; i < W * H; i++) {
+    for (let k = 0; k < 3; k++) {
+      img.data[i * 4 + k] = Math.min(255, Math.max(0, Math.round(px[i * 4 + k] * 255)));
+    }
+    img.data[i * 4 + 3] = 255;
+  }
+  const flipped = view2d.createImageData(W, H);
+  for (let y = 0; y < H; y++) {
+    const src = (H - 1 - y) * W * 4;
+    flipped.data.set(img.data.subarray(src, src + W * 4), y * W * 4);
+  }
+  view2d.putImageData(flipped, 0, 0);
+
+  let sum = 0, sum2 = 0, min = Infinity, max = -Infinity;
+  for (let i = 0; i < W * H; i++) {
+    const l = 0.2126 * px[i * 4] + 0.7152 * px[i * 4 + 1] + 0.0722 * px[i * 4 + 2];
+    sum += l; sum2 += l * l;
+    if (l < min) min = l; if (l > max) max = l;
+  }
+  const n = W * H, mean = sum / n;
+
+  // ---- the metering loop, numerically -------------------------------------
+  const meterParams = { ...params, autoExposure: 1 };
+  const post2 = new TslPost(renderer);
+  post2.resize(W, H);
+  post2.seedAdapt();
+  const adaptSeq = [];
+  for (let i = 0; i < ADAPT_FRAMES; i++) {
+    post2.render(srcRT.texture, meterParams, DT, RIG.time, { output: outRT });
+    const a = await post2.readAdapt();
+    adaptSeq.push(+a[0].toFixed(6));
+  }
+
+  fingerprint = {
+    config: { W, H, preset: PRESET, rig: RIG, seed: SEED, n: N, steps: STEPS,
+              postFrames: POST_FRAMES, autoExposure: AUTO_EXPOSURE },
+    stats: {
+      mean: +mean.toFixed(6), rms: +Math.sqrt(sum2 / n).toFixed(6),
+      min: +min.toFixed(6), max: +max.toFixed(6),
+    },
+    pixels: Array.from(px).map((v) => +v.toFixed(4)),
+    adaptSeq,
+  };
+
+  log(`${backend}: post rendered`, mean > 1e-3, `mean ${mean.toFixed(4)}, peak ${max.toFixed(3)}`);
+  log(`${backend}: not clipped to black or white`, min < 0.5 && max > 0.5,
+      `min ${min.toFixed(3)}, max ${max.toFixed(3)}`);
+  log(`${backend}: metering moves and stays finite`,
+      adaptSeq.every(Number.isFinite) && Math.abs(adaptSeq[ADAPT_FRAMES - 1] - adaptSeq[0]) > 1e-6,
+      `adapt ${adaptSeq[0]} -> ${adaptSeq[ADAPT_FRAMES - 1]}`);
+} catch (e) {
+  log(`${backend}: render the TSL post chain`, false, String(e.stack || e.message || e).slice(0, 1200));
+}
+
+window.probeResult = { results, allOk: results.every((r) => r.ok), fingerprint };
+</script>

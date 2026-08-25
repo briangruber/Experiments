@@ -1,0 +1,173 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — the createAbyssal facade, measured</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}canvas{margin-top:12px;border:1px solid #23384c;image-rendering:pixelated}</style>
+<pre id="out">running…</pre>
+<canvas id="view" width="486" height="104"></canvas>
+
+<!--
+  The facade (src/gpu/abyssal.js) is the packaged form of everything already
+  verified piece by piece against the goldens. What THIS probe verifies is the
+  packaging itself - the claims the facade's docs make:
+
+    - one call on a bare canvas produces a frame with a sea below and a sky
+      above, through a caller-supplied THREE.PerspectiveCamera (the ctx rig
+      derived from camera.matrixWorld is the part that is new here);
+    - setClouds('nimbus') visibly changes the sky and only the sky-ish;
+    - water:false is a working sky dome;
+    - the finished frame is LDR (post ran): every value in [0,1].
+
+    node tools/run-probe.mjs prototypes/facade-probe.html --shot shots/facade.png
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { readPixelsBottomUp } from './readback.js';
+import { createAbyssal } from '../src/gpu/abyssal.js';
+
+const q = new URLSearchParams(location.search);
+const W = 160, H = 100;
+const BACKEND = q.get('backend') || 'webgl';
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+const view2d = document.getElementById('view').getContext('2d');
+view2d.fillStyle = '#0a0e14'; view2d.fillRect(0, 0, 486, 104);
+const drawTile = (px, slot, label) => {
+  const img = view2d.createImageData(W, H);
+  for (let i = 0; i < W * H; i++) {
+    const y = H - 1 - Math.floor(i / W), x = i % W;
+    const o = (y * W + x) * 4;
+    for (let k = 0; k < 3; k++) img.data[o + k] = Math.min(255, 255 * Math.max(px[i * 4 + k], 0));
+    img.data[o + 3] = 255;
+  }
+  view2d.putImageData(img, slot * (W + 3), 0);
+  view2d.fillStyle = '#dff1ff'; view2d.font = '10px ui-monospace,monospace';
+  view2d.fillText(label, slot * (W + 3) + 4, 12);
+};
+
+// Band statistics on a bottom-up pixel array: rows 0.. are the BOTTOM of the
+// image. "top" here means the upper (sky) part of the picture.
+const bands = (px) => {
+  let top = 0, bot = 0;
+  const rows = Math.floor(H * 0.25);
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < W; x++) {
+      const iB = (y * W + x) * 4, iT = ((H - 1 - y) * W + x) * 4;
+      bot += 0.2126 * px[iB] + 0.7152 * px[iB + 1] + 0.0722 * px[iB + 2];
+      top += 0.2126 * px[iT] + 0.7152 * px[iT + 1] + 0.0722 * px[iT + 2];
+    }
+  }
+  return { top: top / (rows * W), bot: bot / (rows * W) };
+};
+
+try {
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+
+  const output = () => new THREE.RenderTarget(W, H, {
+    type: THREE.FloatType, format: THREE.RGBAFormat,
+    minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false,
+  });
+
+  // ---- the full stack ------------------------------------------------------
+  const target = output();
+  const abyssal = await createAbyssal({
+    canvas,
+    backend: BACKEND,
+    preset: 'Tropical Noon',
+    output: target,
+    // A software rasteriser carries this probe: shrink the FFT and the march.
+    overrides: { fftSize: 64, cloudSteps: 24, sprayTexSize: 64 },
+  });
+  log('create() resolves', true, `backend ${abyssal.backend}`);
+
+  // A reader's camera: near the sea surface, looking at the horizon.
+  const camera = new THREE.PerspectiveCamera(44, W / H, 0.1, 60000);
+  camera.position.set(0, 12, 0);
+  camera.lookAt(-40, 10.5, -60);
+
+  for (let i = 0; i < 10; i++) abyssal.frame(camera, 1 / 30);
+  const px1 = await readPixelsBottomUp(abyssal.renderer, target, W, H);
+  drawTile(px1, 0, 'tropical noon');
+
+  const b1 = bands(px1);
+  log('sea below, sky above', b1.top > 0.02 && b1.bot > 0.005 && b1.top !== b1.bot,
+      `sky band ${b1.top.toFixed(4)}, sea band ${b1.bot.toFixed(4)}`);
+  log('frame is finite LDR', px1.every((v) => Number.isFinite(v) && v >= 0 && v <= 1.001),
+      `post chain ran; range [${Math.min(...px1).toFixed(3)}, ${Math.max(...px1).toFixed(3)}]`);
+
+  // ---- a cloud genus lands -------------------------------------------------
+  // dt = 0 so the simulation and the cloud drift hold still: the ONLY thing
+  // that differs from px1's last frame is the recipe. (An earlier draft let
+  // time advance here and the drift alone changed every sky pixel - the
+  // assertion passed with the recipe not applied at all.)
+  abyssal.frame(camera, 0);
+  const pxHold = await readPixelsBottomUp(abyssal.renderer, target, W, H);
+  abyssal.setClouds('nimbus');
+  const uCov = (await import('../src/gpu/tsl/cloud-field.js')).uCloudCoverage;
+  abyssal.frame(camera, 0);
+  log('setClouds reaches the uniforms', Math.abs(uCov.value - 1.4) < 1e-6,
+      `uCloudCoverage.value = ${uCov.value} (nimbus recipe says 1.4)`);
+  const px2 = await readPixelsBottomUp(abyssal.renderer, target, W, H);
+  drawTile(px2, 1, 'setClouds(nimbus)');
+
+  let skyChanged = 0;
+  for (let y = Math.floor(H * 0.75); y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const i = (y * W + x) * 4;
+      if (Math.abs(px2[i] - pxHold[i]) + Math.abs(px2[i + 1] - pxHold[i + 1]) > 0.06) skyChanged++;
+    }
+  }
+  const skyFrac = skyChanged / (Math.ceil(H * 0.25) * W);
+  const b2 = bands(px2);
+  log('setClouds(nimbus) rewrites the sky', skyFrac > 0.5,
+      `${(skyFrac * 100).toFixed(1)}% of the top quarter changed at frozen time (need > 50%)`);
+  log('nimbus darkens the noon sky', b2.top < b1.top * 0.8,
+      `sky band ${b2.top.toFixed(4)} vs clear-ish ${b1.top.toFixed(4)} (need < 0.8x)`);
+  log('unknown genus throws', (() => {
+    try { abyssal.setClouds('mammatus'); return false; } catch { return true; }
+  })());
+
+  abyssal.dispose();
+
+  // ---- sky-only mode -------------------------------------------------------
+  const canvas2 = document.createElement('canvas');
+  canvas2.width = W; canvas2.height = H;
+  const target2 = output();
+  const skyOnly = await createAbyssal({
+    canvas: canvas2,
+    backend: BACKEND,
+    preset: 'Tropical Noon',
+    clouds: 'cumulus',
+    water: false,
+    output: target2,
+    overrides: { cloudSteps: 24 },
+  });
+  for (let i = 0; i < 3; i++) skyOnly.frame(camera, 1 / 30);
+  const px3 = await readPixelsBottomUp(skyOnly.renderer, target2, W, H);
+  drawTile(px3, 2, 'water:false');
+  const b3 = bands(px3);
+  log('water:false still gives a sky', b3.top > 0.02 && px3.every(Number.isFinite),
+      `sky band ${b3.top.toFixed(4)}`);
+  log('sky-only instance has no sim', skyOnly.sim === null && skyOnly.water === null);
+  skyOnly.dispose();
+} catch (e) {
+  log('facade probe', false, String(e.stack || e.message || e).slice(0, 900));
+}
+
+window.probeResult = { results, allOk: results.every((r) => r.ok) };
+</script>

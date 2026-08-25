@@ -1,0 +1,84 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — collapsing the HUD must take the settings with it</title>
+
+<!--
+  Settings live INSIDE #hud now, not on a second surface opened by
+  #settings-btn. The old bug was the opposite shape: open Settings, collapse
+  the HUD, and the only close control disappeared while #ui stayed covering
+  the sea. That cannot happen if the sliders are a child of the instrument
+  they collapse with.
+
+  This drives the BUILT bundle in an iframe rather than boot() directly - the
+  claim lives in three-shell.html's own DOM and its inline collapse-toggle
+  script.
+
+  node tools/run-probe.mjs prototypes/settings-stuck-open-probe.html --touch
+-->
+
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}iframe{width:390px;height:760px;border:0}</style>
+<pre id="out">running…</pre>
+<iframe id="frame" src="../dist/abyssal-three.html"></iframe>
+
+<script type="module">
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+const work = (async () => {
+  const frame = document.getElementById('frame');
+  await new Promise((resolve, reject) => {
+    frame.addEventListener('load', resolve, { once: true });
+    frame.addEventListener('error', () => reject(new Error('iframe failed to load')), { once: true });
+  });
+  const win = frame.contentWindow, doc = frame.contentDocument;
+  await new Promise((resolve, reject) => {
+    const t0 = performance.now();
+    const poll = () => {
+      if (win.abyssal) return resolve();
+      if (performance.now() - t0 > 120000) return reject(new Error('boot() never resolved'));
+      setTimeout(poll, 100);
+    };
+    poll();
+  });
+  log('the app booted inside the iframe', !! win.abyssal, `backend ${ win.abyssal.backend }`);
+
+  const hudToggle = doc.getElementById('toggle');
+  const ui = doc.getElementById('ui');
+  const hud = doc.getElementById('hud');
+  const settingsBtn = doc.getElementById('settings-btn');
+  log('found the real DOM elements', !! ( hudToggle && ui && hud ), '');
+  log('there is no separate Settings › button', ! settingsBtn, settingsBtn ? 'still present' : '');
+  log('settings live inside the HUD', hud.contains(ui), '');
+
+  const visible = (el) => getComputedStyle(el).display !== 'none' && el.offsetParent !== null;
+  // The shipped page starts collapsed. Open it before asserting the
+  // sliders are a child of the instrument, not a second surface.
+  if (hud.getAttribute('data-collapsed') === 'true') {
+    hudToggle.click();
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  log('settings are visible with the HUD open', visible(ui), `display: ${ getComputedStyle(ui).display }`);
+
+  hudToggle.click();
+  await new Promise((r) => setTimeout(r, 50));
+  log('HUD collapses', hud.getAttribute('data-collapsed') === 'true', '');
+  log('collapsing the HUD hides the settings with it', ! visible(ui),
+      `display: ${ getComputedStyle(ui).display }`);
+
+  hudToggle.click();
+  await new Promise((r) => setTimeout(r, 50));
+  log('expanding the HUD brings settings back', visible(ui), '');
+
+  return 'done';
+})();
+
+const timedOut = Symbol('timeout');
+const outcome = await Promise.race([work, new Promise((r) => setTimeout(() => r(timedOut), 90000))]);
+if (outcome === timedOut) log('the probe itself', false, 'no result after 90s');
+
+window.probeResult = { results, allOk: results.length > 0 && results.every((r) => r.ok) };
+</script>

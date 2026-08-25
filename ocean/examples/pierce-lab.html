@@ -1,0 +1,520 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pierce lab — drag a fin through a calm surface</title>
+<!--
+  The tuning bench for ONE question: what does the surface do where a
+  solid actually goes through it?
+
+  Deliberately not the ocean. No FFT, no sky sim, no spray, no foam
+  fields — a 40 m plane, a couple of long sines for the calm, and the
+  two things under test:
+
+    src/pierce.js      the near field stuck to the object (collar, bow
+                       heap, shoulders drawn down, hollow astern)
+    src/wake-wave.js   the rings it sheds, which are what travels
+
+  Both are the same modules OceanBody drives, so a setting that looks
+  right here is a setting you can paste onto a mesh. Copy knobs does
+  exactly that.
+-->
+<style>
+  :root {
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+    --ink: #e8eef4; --dim: #8ba0b2; --line: #23323d; --pane: #0d151bd9;
+  }
+  html, body { margin: 0; height: 100%; background: #070b0f; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #hud {
+    position: fixed; top: 12px; left: 14px; color: var(--ink);
+    font: 11px/1.7 var(--mono); text-shadow: 0 1px 3px #000c; pointer-events: none;
+  }
+  #hud b { color: #6fd3ff; font-weight: 500; }
+  #hud .keys { color: var(--dim); }
+  #panel {
+    position: fixed; top: 12px; right: 12px; width: 236px; max-height: calc(100vh - 24px);
+    overflow-y: auto; padding: 10px 12px 14px; box-sizing: border-box;
+    background: var(--pane); border: 1px solid var(--line); border-radius: 8px;
+    color: var(--ink); font: 11px/1.5 var(--mono); backdrop-filter: blur(8px);
+  }
+  #panel .sec {
+    margin: 12px 0 6px; font-size: 10px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--dim);
+  }
+  #panel .sec:first-child { margin-top: 0; }
+  #panel .hint { margin: 0 0 8px; font-size: 10px; line-height: 1.45; color: var(--dim); }
+  label.prop { display: grid; grid-template-columns: 92px 1fr 38px; gap: 6px; align-items: center; }
+  label.prop span:last-child { text-align: right; color: var(--dim); }
+  input[type=range] { width: 100%; height: 16px; accent-color: #3aa8d8; }
+  .row { display: flex; gap: 6px; margin-top: 10px; }
+  button {
+    flex: 1; font: 10px var(--mono); color: var(--ink); background: #16242e;
+    border: 1px solid var(--line); border-radius: 4px; padding: 5px 6px; cursor: pointer;
+  }
+  button:hover { background: #1d3341; }
+  button.on { background: #235d7a; border-color: #3f8fb5; }
+</style>
+
+<canvas id="c"></canvas>
+<div id="hud">
+  <div>pierce lab — <span id="backend">starting…</span></div>
+  <div>speed <b id="v">0.00</b> m/s · head <b id="eta">0.00</b> m · rings <b id="rings">0</b></div>
+  <div><b id="mode">analytic</b></div>
+  <div class="keys">drag the fin · right-drag orbit · wheel zoom · WASD drive · space stop · Q/E turn · [ ] draft</div>
+</div>
+<div id="panel"></div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import {
+  Fn, vec2, vec3, vec4, float, uniform, positionLocal, varying,
+  normalize, cameraPosition, mix, dot, reflect,
+} from 'three/tsl';
+import { PIERCE_DEFAULTS, pierceScale } from '../src/pierce.js';
+import { pierceAt, setPierceUniforms } from '../src/gpu/tsl/pierce.js';
+import { WakeWaveField, wakeWaveContactsFrom } from '../src/wake-wave.js';
+import { wakeWaveAt, setWakeWaveUniforms } from '../src/gpu/tsl/wake-wave.js';
+import { RippleField, RIPPLE_DEFAULTS } from '../src/ripple-field.js';
+import { rippleAt, setRippleUniforms } from '../src/gpu/tsl/ripple-field.js';
+
+// ── knobs ────────────────────────────────────────────────────────────
+// `pierce` and `rings` are exactly the shapes src/pierce.js and a mesh's
+// `wake` recipe take, so Copy knobs produces something you can paste.
+const pierce = { ...PIERCE_DEFAULTS };
+const rings = {
+  depth: 0.8, strength: 1,
+  wave: 1.4, waveWidth: 1, waveLife: 0, waveGap: 0,
+};
+const rig = { chop: 0.06, drive: 3, draft: 0.55, chord: 0.6, thick: 0.12, shape: 'fin' };
+// The simulated field is the other way of getting a wake: displace water
+// and let a wave equation carry it. `mode` picks which one is answering.
+const sim = {
+  speed: RIPPLE_DEFAULTS.speed,
+  damping: RIPPLE_DEFAULTS.damping,
+  displace: RIPPLE_DEFAULTS.displace,
+};
+const MODES = ['analytic', 'sim', 'both'];
+let mode = 'analytic';
+const PIERCE0 = { ...pierce }, RINGS0 = { ...rings }, RIG0 = { ...rig }, SIM0 = { ...sim };
+
+// ── scene ────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGPURenderer({ canvas, antialias: true });
+await renderer.init();
+document.getElementById('backend').textContent =
+  renderer.backend.isWebGPUBackend ? 'WebGPU' : 'WebGL2';
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(48, innerWidth / innerHeight, 0.05, 400);
+
+const uChop = uniform(rig.chop);
+const uTime = uniform(0);
+// Where this 44 m tile currently sits in the endless sea. Everything
+// world-anchored (the site, the rings) is shifted back to the middle
+// when the fin wanders, and the calm reads through this so the shift
+// cannot be seen.
+const uOrigin = uniform(new THREE.Vector2(0, 0));
+const SUN = new THREE.Vector3(0.42, 0.46, -0.78).normalize();
+const uSun = uniform(SUN);
+
+// Calm: two long swells and one cross ripple, centimetres tall. Enough
+// for light to run over the surface so a dent reads as a dent.
+const calmAt = Fn(([local]) => {
+  const xz = local.add(uOrigin);
+  const a = xz.x.mul(0.21).add(xz.y.mul(0.09)).add(uTime.mul(0.55)).sin();
+  const b = xz.x.mul(-0.07).add(xz.y.mul(0.24)).add(uTime.mul(0.42)).sin();
+  const c = xz.x.mul(0.62).add(xz.y.mul(0.51)).add(uTime.mul(1.6)).sin();
+  return a.mul(0.55).add(b.mul(0.38).add(c.mul(0.12))).mul(uChop);
+});
+
+const heightAt = Fn(([xz]) => calmAt(xz)
+  .add(pierceAt(xz)).add(wakeWaveAt(xz)).add(rippleAt(xz)));
+
+// The plane stays at the origin so local XY *is* world XZ — the pierce
+// site and the rings are world-anchored, and sliding the mesh under them
+// would drag the sea past the fin.
+const seaXZ = vec2(positionLocal.x, positionLocal.y);
+const seaPoint = vec3(seaXZ.x, heightAt(seaXZ), seaXZ.y);
+// Central differences at the grid pitch: steadier than a per-fragment
+// normal, and at 13 cm spacing there is nothing finer to resolve.
+const seaNormal = Fn(([xz]) => {
+  const e = float(0.13);
+  const hx = heightAt(vec2(xz.x.add(e), xz.y)).sub(heightAt(vec2(xz.x.sub(e), xz.y)));
+  const hz = heightAt(vec2(xz.x, xz.y.add(e))).sub(heightAt(vec2(xz.x, xz.y.sub(e))));
+  return normalize(vec3(hx.negate(), e.mul(2), hz.negate()));
+})(seaXZ);
+
+const vWorld = varying(seaPoint, 'vWorld');
+const vNormal = varying(seaNormal, 'vNormal');
+
+// Two tiers, one height function: a dense 44 m tile where the work
+// happens, and a coarse ring out to the horizon so the tile's edge is
+// not the skyline. The ring samples the same heightAt, so a ring that
+// opens past 22 m crosses the seam without a step in it.
+const water = new THREE.Mesh(
+  new THREE.PlaneGeometry(44, 44, 340, 340),
+  new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide }),
+);
+water.material.positionNode = seaPoint;
+const far = new THREE.Mesh(
+  new THREE.RingGeometry(21.9, 900, 128, 40),
+  new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide }),
+);
+far.material.positionNode = seaPoint;
+scene.add(far);
+
+// Bright at the horizon, dark overhead — the gradient the water borrows
+// so a tilted facet changes colour and a dent reads as a dent.
+const skyColor = Fn(([dir]) => mix(
+  vec3(0.58, 0.68, 0.76), vec3(0.13, 0.25, 0.40), dir.y.clamp(0, 1).pow(0.65),
+));
+
+const dome = new THREE.Mesh(
+  new THREE.SphereGeometry(180, 24, 16),
+  new THREE.MeshBasicNodeMaterial({ side: THREE.BackSide }),
+);
+dome.material.colorNode = vec4(skyColor(normalize(positionLocal)), 1);
+scene.add(dome);
+
+// Fake but honest water shading: that sky in the reflection, a deep body
+// colour, Fresnel between them, one tight sun. No env map, no lights —
+// this page is about the shape of the surface, not its material.
+water.material.colorNode = Fn(() => {
+  const n = normalize(vNormal);
+  const v = normalize(cameraPosition.sub(vWorld));
+  const r = reflect(v.negate(), n);
+  const sky = skyColor(r);
+  const deep = vec3(0.016, 0.062, 0.086);
+  const f = float(1).sub(dot(n, v).max(0)).pow(4.2).mul(0.92).add(0.03);
+  const spec = dot(r, uSun).max(0).pow(380).mul(3.4);
+  // Slope shading: a shoulder pulled down goes dark, a crest catches sky.
+  return vec4(mix(deep, sky, f).add(spec).mul(n.y.clamp(0, 1).mul(0.42).add(0.72)), 1);
+})();
+far.material.colorNode = water.material.colorNode;
+scene.add(water);
+
+// ── the thing that pierces ───────────────────────────────────────────
+const steel = new THREE.MeshBasicNodeMaterial({ color: 0x1c2228 });
+const finGeo = (() => {
+  // Chord along the shape's x, tip swept AFT. rotateY below puts +x on
+  // −Z, which is this repo's forward, so the sweep trails properly.
+  const s = new THREE.Shape();
+  s.moveTo(0.62, 0);
+  s.quadraticCurveTo(0.42, 0.72, -0.1, 1.15);
+  s.quadraticCurveTo(-0.2, 0.4, -0.62, 0.02);
+  s.lineTo(0.62, 0);
+  const g = new THREE.ExtrudeGeometry(s, { depth: 0.12, bevelEnabled: false });
+  g.translate(0, 0, -0.06);
+  g.rotateY(Math.PI / 2);
+  return g;
+})();
+// Both shapes have their root at y = 0 and stand up from it, so the
+// mesh sits at −draft and the surface line is where it belongs.
+const rodGeo = new THREE.CylinderGeometry(0.22, 0.22, 7, 18);
+rodGeo.translate(0, 1 - 3.5, 0);
+const PROBE_TOP = { fin: 1.15, rod: 1 };
+
+const probe = new THREE.Mesh(finGeo, steel);
+scene.add(probe);
+
+const site = { x: 0, z: 0, yaw: 0, vx: 0, vz: 0 };
+
+function shapeProbe() {
+  probe.geometry = rig.shape === 'fin' ? finGeo : rodGeo;
+  rig.chord = rig.shape === 'fin' ? 0.6 : 0;
+  rig.thick = rig.shape === 'fin' ? 0.12 : 0.22;
+  paintAll();
+}
+
+// ── control ──────────────────────────────────────────────────────────
+const view = { yaw: 0.62, pitch: -0.45, dist: 8 };
+let orbiting = false, dragging = false, lx = 0, ly = 0;
+const keys = new Set();
+const ray = new THREE.Raycaster();
+const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const hit = new THREE.Vector3();
+
+const pointerToSea = (e) => {
+  ray.setFromCamera(
+    new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1),
+    camera,
+  );
+  return ray.ray.intersectPlane(plane, hit) ? hit.clone() : null;
+};
+
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+canvas.addEventListener('pointerdown', (e) => {
+  canvas.setPointerCapture(e.pointerId);
+  lx = e.clientX; ly = e.clientY;
+  if (e.button === 0) { dragging = true; keys.clear(); } else orbiting = true;
+});
+canvas.addEventListener('pointerup', (e) => {
+  dragging = orbiting = false;
+  canvas.releasePointerCapture(e.pointerId);
+});
+canvas.addEventListener('pointermove', (e) => {
+  if (orbiting) {
+    view.yaw -= (e.clientX - lx) * 0.005;
+    view.pitch = Math.max(-1.15, Math.min(0.25, view.pitch - (e.clientY - ly) * 0.004));
+  } else if (dragging) {
+    const p = pointerToSea(e);
+    if (p) { site.x = p.x; site.z = p.z; }
+  }
+  lx = e.clientX; ly = e.clientY;
+});
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  view.dist = Math.max(2, Math.min(60, view.dist * (1 + Math.sign(e.deltaY) * 0.1)));
+}, { passive: false });
+addEventListener('keydown', (e) => {
+  const k = e.key.toLowerCase();
+  if (k === ' ') { keys.clear(); site.vx = site.vz = 0; e.preventDefault(); return; }
+  if (k === '[') { rig.draft = Math.max(0, rig.draft - 0.05); paintAll(); return; }
+  if (k === ']') { rig.draft = Math.min(2.4, rig.draft + 0.05); paintAll(); return; }
+  keys.add(k);
+});
+addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
+
+// ── panel ────────────────────────────────────────────────────────────
+const panel = document.getElementById('panel');
+const paints = [];
+const paintAll = () => { for (const p of paints) p(); };
+const section = (title, hint) => {
+  panel.insertAdjacentHTML('beforeend',
+    `<div class="sec">${title}</div>${hint ? `<p class="hint">${hint}</p>` : ''}`);
+};
+const slider = (label, bag, key, min, max, step, digits = 2) => {
+  const id = `k-${label.replace(/\W/g, '')}-${key}`;
+  panel.insertAdjacentHTML('beforeend',
+    `<label class="prop"><span>${label}</span>` +
+    `<input id="${id}" type="range" min="${min}" max="${max}" step="${step}">` +
+    `<span class="v"></span></label>`);
+  const el = document.getElementById(id);
+  const out = el.parentElement.querySelector('.v');
+  const paint = () => { el.value = bag[key]; out.textContent = Number(bag[key]).toFixed(digits); };
+  el.addEventListener('input', () => { bag[key] = parseFloat(el.value); paint(); });
+  paints.push(paint);
+  paint();
+};
+
+section('Rig', 'Drag the fin with the left button. WASD drives it at a steady speed instead, which is what you want when tuning the trail. Draft is how deep the root sits — lift it clear and the surface goes quiet.');
+slider('draft', rig, 'draft', 0, 2.4, 0.01);
+slider('drive', rig, 'drive', 0, 14, 0.1, 1);
+slider('chop', rig, 'chop', 0, 0.6, 0.01);
+
+section('Near field', 'Stuck to the object. The four heights are fractions of the dynamic head v²/2g, so speed does the work and a bigger body is not a taller one. Rim is the collar of displaced water and the only one alive at a dead stop.');
+slider('gain', pierce, 'gain', 0, 3, 0.02);
+slider('rim', pierce, 'rim', 0, 0.6, 0.005, 3);
+slider('bow heap', pierce, 'bow', 0, 2, 0.01);
+slider('side draw', pierce, 'side', 0, 2, 0.01);
+slider('hollow', pierce, 'trench', 0, 2, 0.01);
+section('Near field reach', 'Multiples of the site\'s own size, never metres — that is what lets a setting tuned on this fin work on a hull cut ten times bigger. Site size here is <span id="sc">0.30</span> m.');
+slider('rim ×', pierce, 'rimReach', 0.2, 8, 0.05);
+slider('bow ×', pierce, 'bowReach', 0.2, 20, 0.1);
+slider('side ×', pierce, 'sideReach', 0.2, 20, 0.1);
+slider('hollow wide ×', pierce, 'trenchWide', 0.2, 12, 0.05);
+slider('hollow run ×', pierce, 'trenchRun', 0.5, 40, 0.5, 1);
+slider('head cap', pierce, 'headCap', 0.1, 6, 0.05);
+slider('wet depth', pierce, 'wetDepth', 0.02, 2, 0.02);
+
+section('Shed rings', 'What actually travels. Each ring is born at the site and keeps opening after you stop; their interference is the V. Gap is metres of travel between rings.');
+slider('height', rings, 'depth', 0, 2, 0.02);
+slider('strength', rings, 'strength', 0, 2, 0.02);
+slider('wave', rings, 'wave', 0, 4, 0.05);
+slider('thickness', rings, 'waveWidth', 0.2, 8, 0.1);
+slider('life', rings, 'waveLife', 0, 24, 0.2, 1);
+slider('gap', rings, 'waveGap', 0, 20, 0.1, 1);
+
+section('Simulated field', 'The other way round: displace water — add back what the body left, take away what it now fills — and let a wave equation do the collar, the heap, the hollow and the rings as one thing. Speed is a single wave speed for every wavelength, so this is a ripple tank, not dispersive deep water: right at fin scale, wrong for a fast 60 m animal.');
+slider('wave speed', sim, 'speed', 0.4, 8, 0.05);
+slider('damping', sim, 'damping', 0, 3, 0.01);
+slider('displace', sim, 'displace', 0, 1.2, 0.005, 3);
+
+panel.insertAdjacentHTML('beforeend', '<div class="row">' +
+  '<button id="b-mode">near field: analytic</button></div><div class="row">' +
+  '<button id="b-shape">fin / rod</button><button id="b-reset">reset</button></div>' +
+  '<div class="row"><button id="b-copy">copy knobs</button></div>');
+const modeBtn = document.getElementById('b-mode');
+const paintMode = () => {
+  modeBtn.textContent = `near field: ${mode}`;
+  modeBtn.classList.toggle('on', mode !== 'analytic');
+};
+modeBtn.onclick = () => {
+  mode = MODES[(MODES.indexOf(mode) + 1) % MODES.length];
+  if (mode === 'analytic') ripple.reset();
+  paintMode();
+};
+paints.push(paintMode);
+document.getElementById('b-shape').onclick = () => {
+  rig.shape = rig.shape === 'fin' ? 'rod' : 'fin';
+  shapeProbe();
+};
+document.getElementById('b-reset').onclick = () => {
+  Object.assign(pierce, PIERCE0);
+  Object.assign(rings, RINGS0);
+  Object.assign(rig, RIG0);
+  Object.assign(sim, SIM0);
+  field.reset();
+  ripple.reset();
+  paintAll();
+};
+document.getElementById('b-copy').onclick = async () => {
+  const text = `// tuned in examples/pierce-lab.html (${mode})\nconst pierce = ${
+    JSON.stringify(pierce, null, 2)};\nconst wake = ${JSON.stringify(rings, null, 2)
+    };\nconst ripple = ${JSON.stringify(sim, null, 2)};\n`;
+  try { await navigator.clipboard.writeText(text); } catch { /* clipboard denied */ }
+  const b = document.getElementById('b-copy');
+  b.classList.add('on');
+  b.textContent = 'copied';
+  setTimeout(() => { b.classList.remove('on'); b.textContent = 'copy knobs'; }, 900);
+};
+
+// ── loop ─────────────────────────────────────────────────────────────
+const field = new WakeWaveField();
+// 128 cells at 22 cm is a 28 m tile: fine enough for a fin's ripples,
+// wide enough that the sponge eats them before the edge does.
+const ripple = new RippleField({ size: 128, cell: 0.22 });
+let lastSite = null;
+const hudV = document.getElementById('v');
+const hudEta = document.getElementById('eta');
+const hudRings = document.getElementById('rings');
+const hudSc = document.getElementById('sc');
+const hudMode = document.getElementById('mode');
+let simMs = 0;
+let last = performance.now();
+let px = site.x, pz = site.z;
+
+const resize = () => {
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+};
+resize();
+addEventListener('resize', resize);
+
+renderer.setAnimationLoop(() => {
+  const now = performance.now();
+  const dt = Math.min((now - last) / 1000, 0.05);
+  last = now;
+  uTime.value += dt;
+  uChop.value = rig.chop;
+
+  // Keys drive; the pointer teleports. Either way velocity is measured
+  // from where the thing actually went, so a flick reads as a flick.
+  if (keys.size) {
+    const f = (keys.has('w') ? 1 : 0) - (keys.has('s') ? 1 : 0);
+    const r = (keys.has('d') ? 1 : 0) - (keys.has('a') ? 1 : 0);
+    const l = Math.hypot(f, r);
+    if (l > 0) {
+      site.x += (r / l) * rig.drive * dt;
+      site.z += (-f / l) * rig.drive * dt;
+    }
+  }
+  if (keys.has('q')) site.yaw -= dt * 1.6;
+  if (keys.has('e')) site.yaw += dt * 1.6;
+
+  const k = dt > 0 ? 1 - Math.exp(-dt / 0.06) : 1;
+  site.vx += ((site.x - px) / Math.max(dt, 1e-3) - site.vx) * k;
+  site.vz += ((site.z - pz) / Math.max(dt, 1e-3) - site.vz) * k;
+  px = site.x; pz = site.z;
+  const speed = Math.hypot(site.vx, site.vz);
+
+  // Drag the sea back under the fin rather than fencing it in: the fin
+  // returns to the middle of the tile and every world-anchored thing
+  // moves with it, so you can drive one direction for ever.
+  if (Math.abs(site.x) > 8 || Math.abs(site.z) > 8) {
+    const ox = site.x, oz = site.z;
+    site.x = 0; site.z = 0;
+    px -= ox; pz -= oz;
+    for (const s of field.stamps) { s.x -= ox; s.z -= oz; }
+    for (const at of field.spawnAt.values()) { at.x -= ox; at.z -= oz; }
+    // The simulated tile only needs its label moved: relabelling its
+    // origin keeps every cell where it was relative to the fin.
+    ripple.ox -= ox; ripple.oz -= oz;
+    if (lastSite) { lastSite.x -= ox; lastSite.z -= oz; }
+    uOrigin.value.x += ox; uOrigin.value.y += oz;
+  }
+
+  probe.position.set(site.x, -rig.draft, site.z);
+  probe.rotation.y = site.yaw;
+
+  // The outline axis is the blade's own chord; a fin swims along it, so
+  // it turns with the yaw and is NOT the direction of travel.
+  const topY = -rig.draft + PROBE_TOP[rig.shape];
+  const straddles = topY > 0 && rig.draft > 0;
+  const u = {
+    ...pierce,
+    x: site.x, z: site.z,
+    ax: Math.sin(site.yaw), az: -Math.cos(site.yaw),
+    half: rig.chord, r: rig.thick,
+    vx: site.vx, vz: site.vz,
+    submerged: straddles ? rig.draft : 0,
+  };
+  const analytic = mode !== 'sim';
+  setPierceUniforms(straddles && analytic ? u : null);
+
+  field.step(dt, straddles && analytic ? wakeWaveContactsFrom({
+    stampRings: [[site.x, site.z]],
+    airborne: false,
+    speed,
+    heading: Math.atan2(site.vx, -site.vz),
+    length: Math.max(rig.chord * 2, 0.5),
+    wakeCfg: rings,
+    id: 'probe',
+  }) : null);
+  setWakeWaveUniforms(field);
+
+  // The simulated field: one displacement, then physics. Note it takes
+  // no velocity — where the body WAS is the only history it needs.
+  const here = {
+    x: site.x, z: site.z, ax: u.ax, az: u.az,
+    half: rig.chord, r: rig.thick, submerged: u.submerged,
+  };
+  if (mode === 'analytic') {
+    setRippleUniforms(null);
+    lastSite = null;
+  } else {
+    const t0 = performance.now();
+    ripple.speed = sim.speed;
+    ripple.damping = sim.damping;
+    ripple.recentreOn(site.x, site.z);
+    if (lastSite) ripple.displaceMove(lastSite, here, sim.displace);
+    ripple.step(dt);
+    setRippleUniforms(ripple);
+    lastSite = here;
+    simMs = simMs * 0.9 + (performance.now() - t0) * 0.1;
+  }
+
+  const h = Math.cos(view.pitch) * view.dist;
+  camera.position.set(
+    site.x + Math.sin(view.yaw) * h,
+    Math.max(0.5, 1.2 + Math.sin(-view.pitch) * view.dist),
+    site.z + Math.cos(view.yaw) * h,
+  );
+  camera.lookAt(site.x, 0, site.z);
+
+  hudSc.textContent = pierceScale(u).toFixed(2);
+  hudV.textContent = speed.toFixed(2);
+  hudEta.textContent = Math.min(speed * speed / 19.62, pierce.headCap).toFixed(2);
+  hudRings.textContent = field.stamps.length;
+  hudMode.textContent = mode === 'analytic'
+    ? 'analytic'
+    : `${mode} · sim ${simMs.toFixed(2)} ms · ${ripple.substeps} substep${ripple.substeps === 1 ? '' : 's'}`;
+
+  renderer.render(scene, camera);
+});
+
+window.pierceLab = {
+  renderer, scene, camera, site, view, pierce, rings, rig, sim, field, ripple, keys,
+  setMode: (m) => { mode = MODES.includes(m) ? m : mode; paintMode(); },
+};
+</script>

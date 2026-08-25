@@ -1,0 +1,399 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — the sea dragon throws real spray where it breaks the surface</title>
+
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}</style>
+<pre id="out">running…</pre>
+<!-- NO CSS ON THE CANVAS - same reasoning as boat-drive-probe.html. -->
+<canvas id="view" width="480" height="300"></canvas>
+
+<!--
+  The dragon breaching now drives the SAME particle system the vehicles do
+  (demo/three-main.js's `dragonSpray` branch of the ctx.craft* block) rather
+  than only the pre-existing foam-mask tint in water-surface.js. A piercing
+  mesh gets sdSprayEmitters simultaneous waterline sites (uCraftSites), not
+  one hopped uCraftPos. This reads the uniforms straight out of the unbundled
+  module three-main.js mutates (ES modules are singletons per URL):
+
+    1. deep dragon, no vehicle -> emitter parked, exactly like nobody riding.
+    2. dragon forced shallow (breaching) -> several sites sit on the waterline
+       along the body and throw a nonzero amount, gated by sdSpray /
+       sdSprayDepth / sdSprayEmitters.
+    3. a near-surface swim writes no boat wake / Kelvin / simple V / stamp-foam.
+    4. a vehicle active AT THE SAME TIME as a breaching dragon -> the vehicle
+       wins. The particle system is still shared, so this is the one designed
+       trade-off, not a bug - your own hull's spray always takes priority.
+
+  node tools/run-probe.mjs prototypes/dragon-spray-probe.html
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { installWebGPUSwizzleShim } from './webgpu-shim.js';
+import { boot } from '../demo/three-main.js';
+import { uCraftPos, uCraftAmount, uCraftSpeed, uCraftImpact, uCraftLen, uCraftBeam, uCraftSites, uCraftSiteCount, uCraftPierce, uCraftSpout, uCraftLife, uCraftPulse, uCraftLaunch, uDragonLook, uHullSize, uHullOpacity, uSizeScale, uOpacity } from '../src/gpu/tsl/spray.js';
+import { uSplashPos, uSplashDir, uSplashLen, uSplashAge, uSplashEnergy, uLeftoverFoamCount, uWakeFoam, uWakeFoamCount, uVWakeOn } from '../src/gpu/tsl/water-surface.js';
+import { uWkActive, uWkStir, uWkA, uWkB } from '../src/gpu/tsl/wake.js';
+import { uWakeEdge } from '../src/gpu/tsl/water-common.js';
+
+installWebGPUSwizzleShim();
+
+const q = new URLSearchParams(location.search);
+const WANT = (q.get('backend') || 'webgl').toLowerCase();
+const OVERRIDES = {
+  fftSize: +(q.get('fft') || 64),
+  sprayTexSize: +(q.get('sprayTex') || 32),
+  cloudSteps: +(q.get('cloudSteps') || 12),
+  gridScale: +(q.get('gridScale') || 0.35),
+};
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+const frames = (k) => new Promise((resolve) => {
+  let i = 0;
+  const tick = () => (++i >= k ? resolve() : requestAnimationFrame(tick));
+  requestAnimationFrame(tick);
+});
+
+const work = (async () => {
+  let backend = '?';
+  try {
+    const canvas = document.getElementById('view');
+    const app = await boot({ canvas, backend: WANT, overrides: OVERRIDES });
+    backend = app.backend;
+    log(`${backend}: boot() resolved`, true, '');
+
+    const A = app;
+    A.params.adaptiveQuality = 0; A.params.fpsCap = 0;
+    A.params.sdEnabled = 1;
+    A.params.sdSpray = 0.5;
+    A.params.sdSprayDepth = 0.4;
+    // The full demo now boots in pilot/Swim mode. This probe controls depth
+    // through the pursuit model, so make that fixture explicit instead of
+    // inheriting whichever interaction mode the shell chooses by default.
+    if (A.dragon.active) A.toggleDragon();
+    await frames(10);
+
+    // The back's height above the origin, same bounding-box read three-main.js
+    // itself makes - the gates under test key off pos[1] + this, never pos[1].
+    A.dragonMesh.geometry.computeBoundingBox();
+    const topY = A.dragonMesh.geometry.boundingBox.max.y;
+    log('the body reaches well above its origin', topY > 1,
+        `back rides ${ topY.toFixed(2) } m over the spine origin at sdLength ${ A.params.sdLength }`);
+
+    // demo/seadragon.js's update() recomputes pos[1] = sdSeaLevel - this.depth
+    // FROM SCRATCH every frame - it is not a smoothed follow of the previous
+    // pos[1], so writing pos[1] directly (this probe's first version) was
+    // discarded before the very next frame's ctx block ever saw it. `depth`
+    // itself is what has to be pinned, every frame, from onFrame (which
+    // three-main.js calls at the END of its own frame, landing this before
+    // the NEXT frame's dragon.update()).
+    let forcedDepth = null;
+    // After the one-shot rise has been captured, also pin pos[1] and climb.
+    // Pinning depth alone leaves pos[1] at whatever update() lerped toward
+    // wantDepth, so the next frame's climb = (shallow - leftover-deep) / dt
+    // is a fake breach every frame and the burst never fades.
+    let holdStation = false;
+    // Pinned alongside depth: craftSpeed now carries the animal's REAL swim
+    // speed (the same craftPlaneSpeed..Full gate the vehicles obey), and an
+    // unpinned dragon holding station near a still camera idles below the
+    // planing threshold - the sheet spray under test would be legitimately
+    // absent. 20 m/s is a fast surface run, well past craftPlaneFull.
+    const forcedSpeed = 20;
+    // Peak, not a point sample: the wake stir rides the impact burst, which
+    // decays within a second - a fixed-latency read would race it.
+    let wkStirPeak = 0;
+    A.onFrame = () => {
+      if ( forcedDepth !== null ) {
+        A.dragon.depth = forcedDepth;
+        A.dragon.speed = forcedSpeed;
+        if ( holdStation ) {
+          A.dragon.pos[ 1 ] = ( A.params.sdSeaLevel ?? 0 ) - forcedDepth;
+          A.dragon.climb = 0;
+        }
+      }
+      wkStirPeak = Math.max( wkStirPeak, uWkStir.value );
+    };
+
+    // The REAL uniforms call the water render makes, captured rather than
+    // reimplemented: gate (does the sea sample the field) and dims (whose
+    // track is it drawn as).
+    let wakeGate = null, wakeDims = null;
+    const origUniforms = A.wake.uniforms.bind( A.wake );
+    A.wake.uniforms = ( p, a, d ) => { wakeGate = a; wakeDims = d; return origUniforms( p, a, d ); };
+
+    // ---- deep, no vehicle: parked, and no wake ---------------------------
+    // 20 m of clearance, not a boundary case: the gates read the PITCHED high
+    // point now, and the dive's own nose-down pitch can hoist a tail tip
+    // sdLength/2 * sin(0.5) - ~12 m at this length - above the level posture
+    // while the pitch decays back out.
+    // Boot may have already swum near the surface and latched leftover
+    // foam. Drop those so this claim is "a body that is only ever deep
+    // writes nothing", not "diving erases what it made".
+    forcedDepth = topY + 20;
+    holdStation = true;
+    A.params.sdEnabled = 0;
+    await frames(2);
+    A.params.sdEnabled = 1;
+    await frames(5);
+    log('deep dragon throws no spray', uCraftAmount.value === 0, `uCraftAmount = ${ uCraftAmount.value.toFixed(4) }`);
+    log('deep dragon leaves no stamp wake', uWkActive.value === 0, `uWkActive = ${ uWkActive.value }`);
+    log('deep dragon writes no Kelvin V',
+        ! wakeDims || wakeDims.kelvinOn !== 1,
+        `kelvinOn ${ wakeDims?.kelvinOn }`);
+    log('deep dragon writes no simple V either',
+        uVWakeOn.value < 0.5,
+        `uVWakeOn ${ uVWakeOn.value }`);
+    wkStirPeak = 0;
+
+    // ---- realistic staging: the case that was silently dead --------------
+    // sdMinDepth (1.6) is as shallow as the depth controller EVER lets the
+    // ORIGIN go - the exact depth a full-rush dragon rides at - and the back,
+    // topY metres higher, is what visibly breaks the surface there. The first
+    // gate read pos[1] against a ~1m band and so could never fire outside a
+    // probe that forced the depth negative, which is precisely what the first
+    // version of THIS probe did - masking the bug it existed to catch,
+    // reported live as "still not spraying" over a screenshot of a breach.
+    holdStation = false;
+    forcedDepth = A.params.sdMinDepth;
+    await frames(2);   // caught EARLY - the burst is a spike-then-decay, not a level
+    const burstAmount = uCraftImpact.value;
+    log('the sudden rise through the surface throws a one-shot burst', burstAmount > 0.05,
+        `uCraftImpact = ${ burstAmount.toFixed(3) } right after breaking through (demo/seaplane.js's wingtip touch uses the same channel)`);
+
+    holdStation = true;
+    // Wall time, not a frame count: decay is `impact -= dt * 2.2`, and a
+    // headless rasteriser can burn 30 frames in ~100 ms, which is not enough
+    // to drop a 0.9 spike below half. Half a second is past that regardless
+    // of how fast the loop is running.
+    await new Promise((r) => setTimeout(r, 500));
+    await frames(2);
+    log('...and it fades rather than holding, once the animal is just sitting there',
+        uCraftImpact.value < burstAmount * 0.5,
+        `uCraftImpact ${ burstAmount.toFixed(3) } -> ${ uCraftImpact.value.toFixed(3) }`);
+
+    const breachAmount = uCraftAmount.value;
+    log('a dragon at its real minimum staging depth throws spray', breachAmount > 0.001,
+        `uCraftAmount = ${ breachAmount.toFixed(4) } at origin depth ${ A.params.sdMinDepth } (back +${ (topY - A.params.sdMinDepth).toFixed(1) }m out of the water)`);
+    // Sites sit on the animal at the waterline, not at the mid-body origin,
+    // and not stacked on one hopped point. uCraftPos is site 0, kept so
+    // anything that still reads the historical single uniform stays honest.
+    const axisOff = Math.hypot(uCraftPos.value.x - A.dragon.pos[0], uCraftPos.value.z - A.dragon.pos[2]);
+    log('the primary site sits on the animal, AT the waterline', axisOff < A.params.sdLength * 0.5
+        && Math.abs(uCraftPos.value.y - (A.params.sdSeaLevel ?? 0)) < 0.5,
+        `uCraftPos ${ uCraftPos.value.x.toFixed(2) },${ uCraftPos.value.y.toFixed(2) },${ uCraftPos.value.z.toFixed(2) }`
+        + ` - ${ axisOff.toFixed(1) }m along the body from its origin (y should be ~sea level, not mid-body)`);
+    const nSites = uCraftSiteCount.value;
+    const wantSites = A.params.sdSprayEmitters;
+    log('a breaching mesh gets simultaneous waterline emitters, capped by the slider',
+        nSites >= 2 && nSites <= wantSites && uCraftPierce.value > 0.5,
+        `uCraftSiteCount ${ nSites } (sdSprayEmitters cap ${ wantSites }), uCraftPierce ${ uCraftPierce.value }`);
+    let siteSpan = 0, sitesAtSea = true;
+    for (let i = 0; i < nSites; i++) {
+      const s = uCraftSites.array[i];
+      if (Math.abs(s.y - (A.params.sdSeaLevel ?? 0)) > 0.5) sitesAtSea = false;
+      for (let j = i + 1; j < nSites; j++) {
+        const t = uCraftSites.array[j];
+        siteSpan = Math.max(siteSpan, Math.hypot(s.x - t.x, s.z - t.z));
+      }
+    }
+    log('every live site is at the waterline', sitesAtSea,
+        `${ nSites } sites, all y ≈ sea level`);
+    log('those sites are spread along the cut, not stacked on one point',
+        siteSpan > 2,
+        `widest pair ${ siteSpan.toFixed(1) }m apart on a ${ A.params.sdLength }m body`);
+    log('the local spawn footprint is a site spacing, not the whole animal',
+        uCraftLen.value > 0 && uCraftLen.value < A.params.sdLength * 0.5,
+        `uCraftLen ${ uCraftLen.value.toFixed(2) }m of a ${ A.params.sdLength }m body`);
+    // Loose bound: the physics runs one accel step between the onFrame pin and
+    // the read (measured drift ~0.3 m/s, but it scales with dt on a slow
+    // rasteriser). The claim is that the REAL speed reaches the emitter -
+    // "well past craftPlaneFull, nowhere near the old synthetic 14" - not
+    // exact equality with the pin.
+    log('its real swim speed drives the emitter, same gate as the vehicles',
+        Math.abs(uCraftSpeed.value - forcedSpeed) < 3,
+        `uCraftSpeed = ${ uCraftSpeed.value.toFixed(2) } (pinned swim speed ${ forcedSpeed }; craftPlaneSpeed..Full decide the sheet from here)`);
+
+    // ---- the emitter footprint is the ANIMAL's, not the ski's ------------
+    // Without this every particle spawned within the ski's 1.6 x 0.6 m of
+    // mid-body - inside a 50m mesh - and was depth-tested away: invisible
+    // spray with every other uniform in this file reading correct.
+    log('spawn footprint is the animal\'s measured width, not the ski\'s',
+        uCraftBeam.value > 0.5 && uCraftBeam.value < 20,
+        `uCraftBeam ${ uCraftBeam.value.toFixed(2) }m, measured off the hull profile at the waterline`);
+
+    // The animal does not stamp the shared vehicle field (that corridor
+    // read as dashed white slabs) and it does not write Kelvin, a simple
+    // V, or stamp-foam ovals. Spray is the waterline particle sheet.
+    log('the dragon does not stamp a wake',
+        uWkActive.value === 0 && wkStirPeak < 0.01,
+        `uWkActive = ${ uWkActive.value }, peak stir ${ wkStirPeak.toFixed(3) }`);
+    log('a near-surface swim writes no Kelvin V',
+        ! wakeDims || wakeDims.kelvinOn !== 1,
+        `kelvinOn ${ wakeDims?.kelvinOn } amp ${ ( wakeDims?.kelvinAmp ?? 0 ).toFixed( 3 ) }`);
+    log('a near-surface swim writes no simple V',
+        uVWakeOn.value < 0.5,
+        `uVWakeOn ${ uVWakeOn.value }`);
+    log('stamp-foam stays off — the boat field is the trail',
+        uWakeFoamCount.value === 0,
+        `uWakeFoamCount ${ uWakeFoamCount.value }`);
+
+    // The animal's particles are Sea Dragon sliders, not the Spray group.
+    // A Spray Size / Opacity tweak must not resize the waterline sheet.
+    A.params.sdSpraySize = 2.4;
+    A.params.sdSprayOpacity = 1.4;
+    A.params.sdSprayLife = 1.7;
+    A.params.spraySize = 0.2;
+    A.params.sprayOpacity = 0.05;
+    A.params.craftSprayLife = 0.2;
+    await frames(3);
+    log('the animal\'s spray look is the Sea Dragon sliders, not Spray',
+        uDragonLook.value > 0.5
+          && Math.abs( uHullSize.value - 2.4 ) < 0.01
+          && Math.abs( uHullOpacity.value - 1.4 ) < 0.01
+          && Math.abs( uCraftLife.value - 1.7 ) < 0.01
+          && Math.abs( uSizeScale.value - 0.2 ) < 0.01
+          && Math.abs( uOpacity.value - 0.05 ) < 0.01,
+        `uDragonLook ${ uDragonLook.value } uHullSize ${ uHullSize.value.toFixed( 2 ) } (sd 2.4) uSizeScale ${ uSizeScale.value.toFixed( 2 ) } (spray 0.2)`);
+    A.params.sdSpraySize = 1.23;
+    A.params.sdSprayOpacity = 0.951;
+    A.params.sdSprayLife = 0.85;
+    A.params.spraySize = 1.23;
+    A.params.sprayOpacity = 1.585;
+    A.params.craftSprayLife = 0.85;
+
+    // ---- sdSpray = 0 turns it off, same slider as the foam mask --------
+    A.params.sdSpray = 0;
+    await frames(5);
+    log('sdSpray = 0 silences it, no separate switch needed', uCraftAmount.value === 0, `uCraftAmount = ${ uCraftAmount.value.toFixed(4) }`);
+    A.params.sdSpray = 0.5;
+    await frames(5);
+    log('back on with sdSpray restored', uCraftAmount.value > 0.001, `uCraftAmount = ${ uCraftAmount.value.toFixed(4) }`);
+
+    // Leap splash is particles only, and only while the mesh still cuts
+    // the sea. A leftover splash after the body is airborne must not keep
+    // a fountain on the old waterline stamp.
+    // Deep + leftover splash energy: the old path kept a fountain on the
+    // exit stamp. Emitters must go quiet once the mesh is not cutting.
+    forcedDepth = topY + 20;
+    holdStation = true;
+    await frames(5);
+    A.dragon.splash = 2;
+    A.dragon.splashPush = 2;
+    A.dragon.splashHit = 2;
+    A.dragon.splashAge = 0.2;
+    await frames(3);
+    log('leftover splash with the body clear of the waterline does not keep emitters',
+        uCraftAmount.value === 0 && uCraftPos.value.y < -100,
+        `uCraftAmount ${ uCraftAmount.value.toFixed(3) }, uCraftPos.y ${ uCraftPos.value.y.toFixed(1) }`);
+    log('diving writes no Kelvin V to fade',
+        ! wakeDims || wakeDims.kelvinOn !== 1,
+        `kelvinOn ${ wakeDims?.kelvinOn }`);
+    A.params.sdEnabled = 0;
+    await frames(2);
+    A.params.sdEnabled = 1;
+    await frames(2);
+    log('a body that is only deep writes no simple V',
+        uVWakeOn.value < 0.5,
+        `uVWakeOn ${ uVWakeOn.value }`);
+    log('diving writes no boat wake to fade',
+        uWkActive.value === 0,
+        `uWkActive ${ uWkActive.value }`);
+    log('the animal writes no leftover foam patches',
+        uLeftoverFoamCount.value === 0,
+        `uLeftoverFoamCount ${ uLeftoverFoamCount.value }`);
+
+    A.dragon.jumping = true;
+    A.dragon.jumpPhase = 'water';
+    forcedDepth = 0;
+    holdStation = true;
+    A.dragon.pitch = 0.4;
+    A.dragon.jumpVy = -14;
+    A.dragon.speed = 18;
+    A.dragon.throwSplash(A.params, true);
+    await frames(3);
+    log('a landing does not open a crater on the sea',
+        uSplashEnergy.value === 0,
+        `uSplashEnergy ${ uSplashEnergy.value.toFixed(2) }`);
+    log('a landing at the waterline fires spray on the mesh, not a surface field',
+        uCraftAmount.value > 0.001 && uCraftSiteCount.value >= 1,
+        `uCraftAmount ${ uCraftAmount.value.toFixed(3) }, sites ${ uCraftSiteCount.value }`);
+    A.params.sdSplashSize = 2.1;
+    A.params.sdSplashOpacity = 1.55;
+    A.params.sdSplashLife = 2.2;
+    A.params.sdSplashPulse = 0.72;
+    A.params.sdSplashLaunch = 1.4;
+    A.params.sdSpraySize = 0.2;
+    A.params.sdSprayOpacity = 0.1;
+    A.params.sdSprayLife = 0.3;
+    A.params.sdSprayPulse = 0.05;
+    A.params.sdSprayLaunch = 0.1;
+    await frames(3);
+    log('a landing does not switch to the retired jump-splash sliders',
+        uDragonLook.value > 0.5
+          && Math.abs( uHullSize.value - 0.2 ) < 0.01
+          && Math.abs( uHullOpacity.value - 0.1 ) < 0.01
+          && Math.abs( uCraftLife.value - 0.3 ) < 0.05
+          && uCraftImpact.value < 0.01,
+        `uHullSize ${ uHullSize.value.toFixed( 2 ) } (spray 0.2) uHullOpacity ${ uHullOpacity.value.toFixed( 2 ) } impact ${ uCraftImpact.value.toFixed( 2 ) }`);
+    A.params.sdSpraySize = 1.23;
+    A.params.sdSprayOpacity = 0.951;
+    A.params.sdSprayLife = 0.85;
+    A.params.sdSprayPulse = 0.3;
+    A.params.sdSprayLaunch = 0.55;
+    log('no Worthington spout on a particle-only landing',
+        uCraftSpout.value < 0.01,
+        `uCraftSpout ${ uCraftSpout.value.toFixed(2) }`);
+    const bodyOff = Math.hypot(
+      uCraftPos.value.x - A.dragon.pos[0],
+      uCraftPos.value.z - A.dragon.pos[2],
+    );
+    log('those emitters sit on the body, not a detached stamp',
+        bodyOff < ( A.params.sdLength ?? 60 ) * 0.6,
+        `emitter ${ bodyOff.toFixed(2) }m from the origin`);
+    A.dragon.jumping = false;
+    A.dragon.jumpPhase = null;
+    A.dragon.splashHit = 0;
+    A.dragon.splashAge = 99;
+    A.dragon.splash = 0;
+    A.dragon.splashPush = 0;
+    await frames(3);
+    log('a spent splash leaves the sea alone', uSplashEnergy.value === 0,
+        `uSplashEnergy ${ uSplashEnergy.value }`);
+
+    // ---- a vehicle takes priority over a breaching dragon ---------------
+    A.toggleBoat();
+    await frames(20);
+    const withBoat = uCraftAmount.value;
+    const boatDist = Math.hypot(
+      uCraftPos.value.x - A.boat.pos[0], uCraftPos.value.z - A.boat.pos[2],
+    );
+    log('riding takes over the emitter from a breaching dragon', boatDist < 5,
+        `uCraftPos is ${ boatDist.toFixed(2) }m from the boat (was pinned to the dragon before)`);
+
+    return 'done';
+  } catch (e) {
+    log(`${backend}: run the dragon spray probe`, false, String(e.stack || e.message || e).slice(0, 1000));
+    return 'error';
+  }
+})();
+
+const timedOut = Symbol('timeout');
+const outcome = await Promise.race([work, new Promise((r) => setTimeout(() => r(timedOut), 90000))]);
+if (outcome === timedOut) log('the probe itself', false, 'no result after 90s');
+
+window.probeResult = { results, allOk: results.length > 0 && results.every((r) => r.ok) };
+</script>

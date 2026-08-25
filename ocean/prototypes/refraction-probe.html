@@ -1,0 +1,237 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — is there anything in the refraction pass?</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}canvas{margin-top:12px;border:1px solid #23384c;width:320px;height:200px}</style>
+<pre id="out">running…</pre>
+<canvas id="view" width="320" height="200"></canvas>
+
+<!--
+  ISOLATE BEFORE TUNING. The last attempt at putting the sea dragon into the
+  water spent three commits tuning the brightness of a buffer that turned out to
+  be empty - "with the mound switched off, turning the whole animal on changed
+  130 pixels of a 256000 pixel frame" - and the tuning could not have worked at
+  any setting. docs/sea-dragon-handoff.md records it as a process failure, and
+  this page is the answer to it: it asks the one question the whole composite
+  rests on, of the buffer itself rather than of the finished picture.
+
+  Four claims, in the order a failure would have to be diagnosed:
+
+    1. THE PASS DRAWS. Read the refraction target back and count the texels whose
+       ALPHA is non-zero. Alpha is coverage by contract (src/gpu/tsl/creature.js
+       returns 1, the target is cleared to 0), so this is "how much of the screen
+       has something submerged behind it" and it is measured off the buffer, not
+       inferred from the picture.
+    2. IT IS THE ANIMAL. The coverage collapses to nothing with sdEnabled 0, so
+       what was counted is the creature and not a failed clear.
+    3. THE SEA READS IT. Toggling ONLY the sea's lookup - the same target, the
+       same everything else - moves the finished frame. This is the half that
+       used to fail silently.
+    4. THE DEPTH BUFFER IS DOING WORK. The same animal at twice the depth is
+       swallowed harder. Nothing but the reconstructed water column can produce
+       that: the body's own colour does not know how far away the eye is.
+
+  Run it:
+    node tools/run-probe.mjs prototypes/refraction-probe.html
+    node tools/run-probe.mjs prototypes/refraction-probe.html --shot shots/refraction.png
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { installWebGPUSwizzleShim } from './webgpu-shim.js';
+import { boot } from '../demo/three-main.js';
+
+installWebGPUSwizzleShim();
+
+const q = new URLSearchParams(location.search);
+const WANT = (q.get('backend') || 'webgl').toLowerCase();
+// The same shrink every probe in here uses: the software rasteriser cannot carry
+// the shipping workload, and every code path still runs, just smaller.
+const OVERRIDES = {
+  fftSize: +(q.get('fft') || 64),
+  sprayTexSize: +(q.get('sprayTex') || 32),
+  cloudSteps: +(q.get('cloudSteps') || 12),
+  gridScale: +(q.get('gridScale') || 0.35),
+};
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+const errors = [];
+const realError = console.error;
+console.error = (...a) => { errors.push(a.join(' ').slice(0, 300)); realError(...a); };
+
+// The refraction target is HALF FLOAT, and readRenderTargetPixelsAsync hands
+// half floats back as a Uint16Array of raw bit patterns - it does not convert,
+// and reinterpreting that buffer as a Float32Array (which is what the shared
+// readback helper does for its float targets) silently produces a plausible
+// wrong field. So decode. 10 lines against an hour of chasing a phantom.
+function halfToFloat(h) {
+  const s = (h & 0x8000) ? -1 : 1;
+  const e = (h >> 10) & 0x1f;
+  const f = h & 0x03ff;
+  if (e === 0) return s * Math.pow(2, -14) * (f / 1024);
+  if (e === 31) return f ? NaN : s * Infinity;
+  return s * Math.pow(2, e - 15) * (1 + f / 1024);
+}
+
+// Coverage and mean radiance off the refraction target itself.
+async function readTarget(app) {
+  const t = app.refraction.target;
+  const w = t.width, h = t.height;
+  const raw = await app.renderer.readRenderTargetPixelsAsync(t, 0, 0, w, h);
+  let covered = 0, sum = 0, nan = 0;
+  for (let i = 0; i < w * h * 4; i += 4) {
+    const a = halfToFloat(raw[i + 3]);
+    const r = halfToFloat(raw[i]), g = halfToFloat(raw[i + 1]), b = halfToFloat(raw[i + 2]);
+    if (!Number.isFinite(r + g + b + a)) { nan++; continue; }
+    if (a > 0.01) { covered++; sum += (r + g + b) / 3; }
+  }
+  return {
+    size: `${w}x${h}`,
+    covered,
+    frac: +(covered / (w * h)).toFixed(4),
+    mean: +(sum / Math.max(covered, 1)).toFixed(4),
+    nan,
+  };
+}
+
+// Luma of the finished frame, off the capture target.
+async function readFrame(app, capture, w, h) {
+  const px = await app.renderer.readRenderTargetPixelsAsync(capture, 0, 0, w, h);
+  const out = new Float32Array(w * h);
+  for (let i = 0, j = 0; i < px.length; i += 4, j++) {
+    out[j] = 0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2];
+  }
+  return out;
+}
+
+const diff = (a, b) => {
+  let n = 0, sum = 0;
+  for (let i = 0; i < a.length; i++) {
+    const d = Math.abs(a[i] - b[i]);
+    if (d > 0.002) { n++; sum += d; }
+  }
+  return { n, mean: +(sum / Math.max(n, 1)).toFixed(4) };
+};
+
+const frames = (k) => new Promise((resolve) => {
+  let i = 0;
+  const tick = () => (++i >= k ? resolve() : requestAnimationFrame(tick));
+  requestAnimationFrame(tick);
+});
+
+let backend = '?';
+try {
+  const canvas = document.getElementById('view');
+  // 320 wide is 5120 bytes a row, clear of WebGPU's 256-byte pitch rule; the
+  // refraction target at half that is 160 wide = 1280 bytes, also clear.
+  const CW = 320, CH = 200;
+  const capture = new THREE.RenderTarget(CW, CH, {
+    type: THREE.FloatType, format: THREE.RGBAFormat,
+    minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false,
+  });
+  const app = await boot({ canvas, backend: WANT, overrides: OVERRIDES, output: capture });
+  backend = app.backend;
+  log(`${backend}: boot() resolved`, true, app.fellBack ? 'fell back from WebGPU' : `asked for ${WANT}`);
+
+  // Freeze everything that moves, and put the camera on the animal, so two
+  // captures of the same configuration are the same picture.
+  const A = app;
+  A.params.timeScale = 0;
+  A.params.autoExposure = 0;
+  A.params.adaptiveQuality = 0;
+  A.params.sprayOpacity = 0;
+  A.sim.update = () => {};
+  A.spray.update = () => {};
+  A.wake.update = () => {};
+  A.params.sdDepth = 3.5;
+  A.params.sdDepthSwing = 0;
+  A.dragon.update = () => {};
+  A.dragon.pos[0] = 0; A.dragon.pos[2] = -30; A.dragon.heading = 0;
+  // THE CAMERA IS NAILED DOWN, and it is aimed at a FIXED point rather than at
+  // the animal. The first version of this pointed it at the dragon, so moving
+  // the dragon deeper repointed the camera and 63816 of 64000 pixels changed -
+  // a whole different picture, reported as the depth test failing. Two captures
+  // that are meant to differ by one thing have to differ by one thing.
+  const AIM = [0, -3.5, -30];
+  A.onFrame = () => {
+    const c = A.camera;
+    c.locked = false;
+    c.pos[0] = 22; c.pos[1] = 7; c.pos[2] = -8;
+    const dx = AIM[0] - c.pos[0], dy = AIM[1] - c.pos[1], dz = AIM[2] - c.pos[2];
+    c.yaw = Math.atan2(dx, -dz);
+    c.pitch = Math.asin(dy / Math.hypot(dx, dy, dz));
+  };
+  const place = (depth) => { A.dragon.pos[1] = -depth; };
+
+  // ---- 1. the pass draws --------------------------------------------------
+  place(3.5);
+  await frames(12);
+  const on = await readTarget(app);
+  log(`${backend}: the refraction pass drew something`, on.covered > 200 && on.nan === 0,
+      `${on.covered} of ${on.size} texels covered (${(on.frac * 100).toFixed(1)}%), ` +
+      `mean radiance ${on.mean}, ${on.nan} non-finite`);
+
+  // ---- 2. it is the animal ------------------------------------------------
+  A.params.sdEnabled = 0;
+  await frames(12);
+  const off = await readTarget(app);
+  log(`${backend}: that coverage is the creature`, off.covered < on.covered * 0.02,
+      `${on.covered} px with it on, ${off.covered} with it off`);
+  A.params.sdEnabled = 1;
+
+  // ---- 3 and 4. the sea reads it, and the water column does the work ------
+  //
+  // At each depth, the ONLY thing that changes between the two captures is the
+  // sea's lookup: same camera, same animal, same mound, same everything, with
+  // sdOpacity 0 skipping the composite in the ocean shader. So the difference
+  // IS the composite - which separates "is the ocean shader sampling the
+  // target" from "did the pass run", the half that used to fail silently.
+  //
+  // Doing it at two depths then asks the second question. The animal's own
+  // colour does not know where the eye is; only the column reconstructed from
+  // the refraction pass's depth buffer does. If the deeper one is not fainter,
+  // the depth attachment is not being used.
+  const composite = async (depth) => {
+    const held = A.params.sdOpacity;
+    place(depth);
+    await frames(12);
+    const seeing = await readFrame(app, capture, CW, CH);
+    A.params.sdOpacity = 0;
+    await frames(12);
+    const blind = await readFrame(app, capture, CW, CH);
+    A.params.sdOpacity = held;
+    return diff(seeing, blind);
+  };
+
+  const shallow = await composite(3.5);
+  log(`${backend}: the sea composites it`, shallow.n > 400,
+      `${shallow.n} px of ${CW * CH} moved when only the sea's lookup was switched on, ` +
+      `mean ${shallow.mean}`);
+
+  const deep = await composite(12.0);
+  log(`${backend}: the water column swallows it`, deep.mean < shallow.mean * 0.9,
+      `mean shift ${shallow.mean} at 3.5 m, ${deep.mean} at 12 m ` +
+      `(${shallow.n} / ${deep.n} px)`);
+
+  log(`${backend}: no shader or console errors`, errors.length === 0,
+      errors.length ? `${errors.length} error(s), first: ${errors[0]}` : 'clean');
+} catch (e) {
+  log(`${backend}: run the refraction pass`, false, String(e.stack || e.message || e).slice(0, 1000));
+}
+
+console.error = realError;
+window.probeResult = { results, allOk: results.every((r) => r.ok) };
+</script>

@@ -1,0 +1,140 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Abyssal on WebGPU — a sky of real clouds, no water</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0a0e14; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #hud { position: fixed; top: 12px; left: 12px; color: #dfe9f2; font: 12px/1.6 ui-monospace, monospace; text-shadow: 0 1px 3px #000a; }
+  #hud input { vertical-align: middle; }
+  #bar { position: fixed; bottom: 12px; left: 12px; display: flex; flex-wrap: wrap; gap: 6px; max-width: calc(100vw - 24px); }
+  #bar button { font: 12px ui-monospace, monospace; color: #dfe9f2; background: #10202eaa; border: 1px solid #2c4a60; border-radius: 4px; padding: 5px 10px; cursor: pointer; }
+  #bar button.on { border-color: #52d6c4; color: #52d6c4; }
+</style>
+
+<canvas id="c"></canvas>
+<div id="hud">
+  the five genera on any field guide — pick one — <span id="backend">starting…</span><br>
+  sun elevation <input id="elev" type="range" min="-4" max="75" step="0.5" value="34">
+  <span id="elevVal">34°</span>
+</div>
+<div id="bar"></div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { createAbyssal } from '../src/gpu/abyssal.js';
+
+// The volumetric sky as a component over YOUR ground: water:false skips the
+// whole ocean (simulation, surface, spray) and leaves the atmosphere, the
+// cloud raymarch and the tonemapper. The cloud buttons are real genera -
+// cirrus, cumulus, stratus, nimbus, cumulonimbus - as measured recipes
+// (src/cloud-types.js), not just coverage settings with names.
+
+const canvas = document.getElementById('c');
+
+// ------------------------------------------------------------ your scene -----
+const scene = new THREE.Scene();
+scene.add(new THREE.DirectionalLight(0xffffff, 3));
+scene.add(new THREE.HemisphereLight(0xa8c8e8, 0x2a2620, 1.4));
+
+const ground = new THREE.Mesh(
+  new THREE.CylinderGeometry(60, 60, 2, 64),
+  new THREE.MeshStandardMaterial({ color: 0x4a5a3a, roughness: 0.95 }),
+);
+ground.position.y = -1;
+scene.add(ground);
+
+const stoneMat = new THREE.MeshStandardMaterial({ color: 0x8a8578, roughness: 0.9 });
+for (let i = 0; i < 9; i++) {
+  const a = (i / 9) * Math.PI * 2;
+  const stone = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.5 + (i % 3), 1.2), stoneMat);
+  stone.position.set(Math.cos(a) * 14, 1.2, Math.sin(a) * 14);
+  stone.rotation.y = a;
+  scene.add(stone);
+}
+
+// ---------------------------------------------------------------- Abyssal ----
+const backend = new URLSearchParams(location.search).get('backend') || 'auto';
+
+const abyssal = await createAbyssal({
+  canvas,
+  backend,
+  preset: 'Tropical Noon',
+  clouds: 'cumulus',
+  water: false,
+  scene,
+});
+document.getElementById('backend').textContent =
+  `running on ${abyssal.backend === 'webgpu' ? 'WebGPU' : 'WebGL2'}${abyssal.fellBack ? ' (no WebGPU here)' : ''}`;
+
+abyssal.params.sunElevation = 34;
+abyssal.markSkyDirty();
+
+// ------------------------------------------------------------ camera rig -----
+const camera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, 0.5, 40000);
+let yaw = 0.6, pitch = 0.18, dragging = false, px = 0, py = 0;
+canvas.addEventListener('pointerdown', (e) => { dragging = true; px = e.clientX; py = e.clientY; canvas.setPointerCapture(e.pointerId); });
+canvas.addEventListener('pointerup', (e) => { dragging = false; canvas.releasePointerCapture(e.pointerId); });
+canvas.addEventListener('pointermove', (e) => {
+  if (!dragging) return;
+  yaw -= (e.clientX - px) * 0.004;
+  pitch = Math.max(-0.15, Math.min(1.25, pitch + (e.clientY - py) * 0.003));
+  px = e.clientX; py = e.clientY;
+});
+
+function placeCamera() {
+  camera.position.set(0, 4, 24);
+  camera.lookAt(
+    -Math.sin(yaw) * 100,
+    4 + Math.tan(pitch) * 100,
+    24 - Math.cos(yaw) * 100,
+  );
+}
+
+// ------------------------------------------------------------- controls ------
+const bar = document.getElementById('bar');
+const buttons = [];
+for (const name of abyssal.cloudTypes) {
+  const b = document.createElement('button');
+  b.textContent = name;
+  b.onclick = () => {
+    abyssal.setClouds(name);
+    for (const o of buttons) o.classList.toggle('on', o === b);
+  };
+  if (name === 'cumulus') b.classList.add('on');
+  bar.appendChild(b); buttons.push(b);
+}
+
+const elev = document.getElementById('elev');
+elev.addEventListener('input', () => {
+  abyssal.params.sunElevation = +elev.value;
+  document.getElementById('elevVal').textContent = `${elev.value}°`;
+  abyssal.markSkyDirty();   // the radiance table depends on the sun
+});
+
+// ---------------------------------------------------------------- resize -----
+const resize = () => {
+  abyssal.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  abyssal.renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+};
+resize();
+addEventListener('resize', resize);
+
+// ------------------------------------------------------------------ loop -----
+abyssal.renderer.setAnimationLoop(() => {
+  placeCamera();
+  abyssal.frame(camera);
+});
+
+window.abyssalExample = { renderer: abyssal.renderer, abyssal, scene, camera };
+</script>

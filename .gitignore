@@ -3,4 +3,5 @@ shots/
 *.log
 tmp/
 dist/
+test/out/
 .claude/
