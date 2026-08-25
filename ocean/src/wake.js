@@ -73,7 +73,15 @@ vec4 wakeAgeAt(vec2 p){
   // Same arm locus wakeAt() reconstructs the ridge from.
   float arm = uWakeWidth0 + r.a * age;
   // Prop wash is narrow down the center line.
+  // fwidth() is fragment-only, and WAKE_SAMPLE_GLSL is included in WATER_VS as
+  // well, where wakeAgeAt() is never called but still has to compile. Without
+  // this guard the vertex shader fails on 'fwidth', the water program never
+  // links, and the sea does not draw at all.
+#ifdef ABYSSAL_FRAGMENT
   float px = max(fwidth(lat), 0.12);
+#else
+  float px = 0.12;
+#endif
   float coreW = max(max(uWakeWidth0 * 0.75, 0.45) * (1.0 + 0.18 * age), px * 1.05);
   float cn = lat / coreW;
   float core = exp(-cn * cn);

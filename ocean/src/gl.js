@@ -57,8 +57,13 @@ function shader(gl, type, src, label) {
 
 export function program(gl, vsSrc, fsSrc, label = 'prog', defines = '') {
   const pre = VERSION + 'precision highp float;\nprecision highp int;\nprecision highp sampler2D;\nprecision highp sampler2DArray;\n' + defines;
-  const vs = shader(gl, gl.VERTEX_SHADER, pre + vsSrc, label + '.vs');
-  const fs = shader(gl, gl.FRAGMENT_SHADER, pre + fsSrc, label + '.fs');
+  // Both stages share `pre`, so a chunk included in both -- and several are --
+  // has no way to tell which one it is being compiled into. That matters for
+  // the stage-only builtins: fwidth/dFdx exist in the fragment stage and
+  // nowhere else, so a fragment-only helper sitting in a shared chunk breaks
+  // the VERTEX compile even when nothing there ever calls it.
+  const vs = shader(gl, gl.VERTEX_SHADER, pre + '#define ABYSSAL_VERTEX 1\n' + vsSrc, label + '.vs');
+  const fs = shader(gl, gl.FRAGMENT_SHADER, pre + '#define ABYSSAL_FRAGMENT 1\n' + fsSrc, label + '.fs');
   const p = gl.createProgram();
   gl.attachShader(p, vs); gl.attachShader(p, fs);
   gl.linkProgram(p);
