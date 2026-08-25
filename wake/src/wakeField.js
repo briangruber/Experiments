@@ -18,34 +18,12 @@
 
 import * as THREE from 'three';
 import { get } from './params.js';
+import { NOISE_GLSL } from './noise.js';
 
 const MAX_SAMPLES = 640;   // path history points
 const LAT_SEG = 20;        // lateral divisions of the ribbon
 const STEP = 1.4;          // metres between path samples
 
-const NOISE_GLSL = /* glsl */`
-  float hash21(vec2 p){ p = fract(p*vec2(123.34,345.45)); p += dot(p,p+34.345); return fract(p.x*p.y); }
-  float vnoise(vec2 p){
-    vec2 i = floor(p), f = fract(p);
-    f = f*f*(3.0-2.0*f);
-    float a = hash21(i), b = hash21(i+vec2(1,0)), c = hash21(i+vec2(0,1)), d = hash21(i+vec2(1,1));
-    return mix(mix(a,b,f.x), mix(c,d,f.x), f.y);
-  }
-  float fbm(vec2 p){
-    float s = 0.0, a = 0.5;
-    for (int i = 0; i < 4; i++){ s += a*vnoise(p); p = p*2.03 + 17.1; a *= 0.5; }
-    return s / 0.9375;
-  }
-
-  // Sea foam is a bubble raft, not a cloud: open cells with bright walls
-  // between them. Contours of a noise field give exactly that lattice, and it
-  // is far cheaper than real Worley cells.
-  float lattice(vec2 p, float w){
-    float a = 1.0 - smoothstep(0.0, w,        abs(fbm(p)        - 0.50));
-    float b = 1.0 - smoothstep(0.0, w * 0.86, abs(fbm(p * 2.17 + 41.3) - 0.47));
-    return max(a, b * 0.85);
-  }
-`;
 
 const RIBBON_VERT = /* glsl */`
   attribute float aArc;
@@ -75,6 +53,7 @@ const RIBBON_FRAG = /* glsl */`
   uniform float uWashW, uWashWGrow, uWashFoam, uWashLen, uWashTail, uWashDepth;
   uniform float uTransAmp, uTransLen, uTransDecay, uFlatten;
   uniform float uFoamScale, uFoamContrast, uBreakup, uFoamLife, uDissolve;
+  uniform float uLace, uLaceAmt, uSoftness;
 
   ${NOISE_GLSL}
 
@@ -151,10 +130,12 @@ const RIBBON_FRAG = /* glsl */`
     float streak = fbm(flow * uFoamScale * vec2(0.40, 2.4));
     float blob   = fbm(vWorld * uFoamScale * 0.55);
 
-    // One combined field. Foam density then acts as a *threshold* on it, so a
-    // dying wake thins into cell walls and streaks instead of just dimming.
-    // Normalised to roughly [0,1] with a mean near 0.5, so that the threshold
-    // below behaves the same at every foam density.
+    // One combined field, normalised to roughly [0,1] with a mean near 0.5.
+    // This is MACRO variation only -- clumps and streaks a metre or two across.
+    // The fine bubble lace is not baked here: this texture is 0.33 m per texel,
+    // which is coarser than lace, so baking it produces visible squares up
+    // close. The ocean shader adds it per-pixel instead, where it has no
+    // resolution limit at all.
     float field = blob * 0.42 + raft * 0.42 + streak * 0.16;
     field = clamp((field - 0.5) * uFoamContrast + 0.5, 0.0, 1.0);
     field = clamp(field - (1.0 - comb) * uCarve * inner, 0.0, 1.0);
@@ -162,21 +143,18 @@ const RIBBON_FRAG = /* glsl */`
     float ageN = clamp(age / max(uFoamLife, 0.01), 0.0, 1.0);
     float alive = pow(1.0 - ageN, uDissolve);
 
-    // Coverage: how much of the water here is aerated at all.
+    // Coverage: how much of the water here is aerated. Smooth and continuous --
+    // no threshold, so nothing here can produce a hard edge. Break-up with age
+    // eats into coverage, which the ocean's threshold then turns into holes.
     float cover = (armFoam + washFoam) * alive;
+    cover *= mix(1.0, 0.35 + 0.95 * field, mix(0.45, 1.0, ageN * uBreakup + 0.35));
 
-    // Break-up widens the threshold band as the wake ages, opening holes.
-    // Coverage slides a threshold down through the field: dense foam takes the
-    // whole thing, thin foam keeps only the cell walls and streak peaks.
-    float band = mix(0.16, 0.16 + uBreakup * 0.55, ageN);
-    float hi = 1.0 - clamp(cover, 0.0, 1.0);
-    float foam = smoothstep(hi - band, hi + band, field);
-    foam *= 0.45 + 0.75 * field;      // thickness varies within the covered area
+    float foam = cover;
 
-    // Right at the bow the spray is a smooth unbroken sheet; it only breaks into
-    // bubbles once it has fallen back onto the water.
-    float sheet = 1.0 - smoothstep(1.5, 11.0, arc);
-    foam = mix(foam, min(cover * 1.4, 1.0), sheet * 0.55);
+    // Right at the bow the spray is a smooth unbroken sheet; it only breaks
+    // into bubbles once it has fallen back onto the water.
+    float sheet = 1.0 - smoothstep(0.5, 7.0, arc);
+    foam = mix(foam, max(foam, (armFoam + washFoam) * alive * 1.1), sheet * 0.34);
 
     // Carve out the hull's own footprint: the boat displaces the water it is
     // sitting in, it does not float on top of its own spray.
@@ -268,6 +246,7 @@ export class WakeField {
       uTransAmp: { value: 0 }, uTransLen: { value: 1 }, uTransDecay: { value: 1 }, uFlatten: { value: 0 },
       uFoamScale: { value: 1 }, uFoamContrast: { value: 1 }, uBreakup: { value: 0 },
       uFoamLife: { value: 1 }, uDissolve: { value: 1 },
+      uLace: { value: 1 }, uLaceAmt: { value: 0 }, uSoftness: { value: 0.2 },
     };
 
     this.material = new THREE.ShaderMaterial({
@@ -407,6 +386,9 @@ export class WakeField {
     u.uBreakup.value = get('foamLook.breakup');
     u.uFoamLife.value = get('foamLook.life');
     u.uDissolve.value = get('foamLook.dissolve');
+    u.uLace.value = get('foamLook.lace');
+    u.uLaceAmt.value = get('foamLook.laceAmount');
+    u.uSoftness.value = get('foamLook.softness');
   }
 
   /** Point the field at a world position (snapped, so the texture doesn't crawl). */

@@ -42,10 +42,37 @@ Read from the reference footage, and each piece is a separate slider group:
 | **Feathering** | Periodic crests leaning back off each arm, lengthening with age. Confined to the arm's inner edge; the outer face stays continuous. |
 | **Prop wash** | Turbulent water off the transom. Brightest foam in the wake, shortest-lived. |
 | **Inside the V** | Flattened water carrying the transverse wave train. |
-| **Foam look** | A reticulated bubble raft (noise contours) + flow-aligned streaks, thresholded by coverage — so dying foam thins into cell walls rather than dimming flat. |
+| **Foam texture** | A reticulated bubble raft (noise contours) + flow-aligned streaks. |
+| **Foam on water** | How the foam sits *in* the water rather than on it: aeration halo, opacity build, translucency, relief, trough pooling. |
 
 Foam noise is sampled in **world space**, so bubbles stay locked to the water
 instead of swimming along with the boat.
+
+### Where the foam is decided
+
+Split deliberately across the two stages:
+
+- The **ribbon** bakes *structure* — arms, comb, wash, age — as smooth,
+  continuous coverage. Nothing here thresholds, so nothing here can produce a
+  hard edge.
+- The **ocean shader** shades *texture* — the bubble lace — per-pixel, using
+  coverage to slide a threshold through a fine noise field. Dense foam takes
+  all of it; thin foam keeps only the cell walls; the transition between is the
+  lacy fringe.
+
+The split exists because the field texture is ~0.33 m per texel, which is
+coarser than lace: baking it produces visible squares up close. Shading it
+costs nothing on the ~90% of the screen that is open water.
+
+Opacity then builds as `1 - exp(-foam · density)` — Beer-Lambert for an
+accumulating scattering layer — so foam approaches white asymptotically instead
+of landing on a cut-out edge, and thin lace keeps some of the colour of the
+water beneath it.
+
+Note the two pixel footprints in the ocean fragment shader. Waves cannot be
+shown finer than the mesh carrying them, so their LOD is floored at the vertex
+spacing; foam lace is pure shading with no geometry behind it, so it uses the
+true screen footprint. Feeding the floored one to the lace blanks it entirely.
 
 ## Tuning loop
 

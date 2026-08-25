@@ -68,14 +68,27 @@ export const PARAMS = {
     breakup:      { v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Break-up with age' },
     life:         { v: 65.0, min: 1,   max: 120, step: 0.5,  label: 'Foam life (s)' },
     dissolve:     { v: 1.6,  min: 0.2, max: 5,   step: 0.05, label: 'Dissolve curve' },
+    lace:         { v: 1.75, min: 0.5, max: 8,   step: 0.05, label: 'Lace fineness' },
+    laceAmount:   { v: 0.62, min: 0,   max: 1.5, step: 0.01, label: 'Lace reach' },
+    softness:     { v: 0.42, min: 0.02,max: 1,   step: 0.01, label: 'Edge softness' },
+  },
+
+  // How the foam sits on the water rather than on top of it.
+  foamMix: {
+    density:      { v: 2.30, min: 0.3, max: 8,   step: 0.05, label: 'Opacity build' },
+    translucency: { v: 0.42, min: 0,   max: 1,   step: 0.01, label: 'Water shows through' },
+    aeration:     { v: 0.76, min: 0,   max: 1.5, step: 0.01, label: 'Aerated teal halo' },
+    relief:       { v: 0.75, min: 0,   max: 3,   step: 0.01, label: 'Bubble relief' },
+    troughBias:   { v: 0.40, min: 0,   max: 1.5, step: 0.01, label: 'Pools in troughs' },
+    warmth:       { v: 0.18, min: 0,   max: 1,   step: 0.01, label: 'Sunlit warmth' },
   },
 
   ocean: {
     swellAmp:     { v: 0.22, min: 0,   max: 2,   step: 0.01, label: 'Swell amp (m)' },
     swellLen:     { v: 26.0, min: 3,   max: 120, step: 0.5,  label: 'Swell λ (m)' },
     chopAmp:      { v: 0.07, min: 0,   max: 0.6, step: 0.005,label: 'Chop amp (m)' },
-    deepColor:    { v: 0.040,min: 0,   max: 0.4, step: 0.005,label: 'Water lightness' },
-    tint:         { v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Blue / teal' },
+    deepColor:    { v: 0.021,min: 0,   max: 0.4, step: 0.005,label: 'Water lightness' },
+    tint:         { v: 0.42, min: 0,   max: 1,   step: 0.01, label: 'Blue / teal' },
     sunElev:      { v: 52.0, min: 5,   max: 88,  step: 1,    label: 'Sun elevation (°)' },
     sunAzim:      { v: 140.0,min: 0,   max: 360, step: 1,    label: 'Sun azimuth (°)' },
     specular:     { v: 0.55, min: 0,   max: 2,   step: 0.01, label: 'Specular' },
