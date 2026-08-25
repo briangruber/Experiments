@@ -46,7 +46,7 @@ const RIBBON_FRAG = /* glsl */`
   varying vec2 vWorld; varying vec2 vTan;
 
   uniform float uMaxArc;
-  uniform float uBeam, uHullLen;
+  uniform float uBeam, uHullLen, uEngines, uEngineGap;
   uniform float uArmTan, uArmW0, uArmWGrow, uArmFoam, uArmHeight, uInnerBias, uFadeStart, uFadeLen;
   uniform float uRim, uRimW, uNearBoost, uNearLen, uCarve;
   uniform float uFeatSpace, uFeatGrow, uFeatLean, uFeatDepth, uFeatJitter, uFeatSharp;
@@ -55,7 +55,7 @@ const RIBBON_FRAG = /* glsl */`
   uniform float uFoamScale, uFoamContrast, uBreakup, uFoamLife, uDissolve;
   uniform float uLace, uLaceAmt, uSoftness;
   uniform float uBubPlume, uBubW, uBubSpread, uBubLen, uBubArms, uBubLife, uBubMottle;
-  uniform float uTime, uSwirl;
+  uniform float uTime, uSwirl, uBubArmsLen;
 
   ${NOISE_GLSL}
 
@@ -110,7 +110,18 @@ const RIBBON_FRAG = /* glsl */`
     // the shortest-lived, trailing off into a thin centreline streak.
     float astern = smoothstep(uHullLen * 0.55, uHullLen * 1.05, arc);
     float ww = max(uWashW + arc * uWashWGrow, 0.05);
-    float wg = exp(-(d / ww) * (d / ww));
+
+    // One plume per engine, spread about the centreline. They start as separate
+    // channels and merge as each spreads -- which is exactly what a twin- or
+    // triple-screw wake looks like from above.
+    float wg = 0.0;
+    for (int i = 0; i < 4; i++) {
+      if (float(i) >= uEngines) break;
+      float off = (float(i) - (uEngines - 1.0) * 0.5) * uEngineGap;
+      float dd = (d - off) / ww;
+      wg += exp(-dd * dd);
+    }
+    wg = min(wg, 1.4);
     float washFoam = astern * wg * (uWashFoam * exp(-arc / uWashLen) + uWashTail) * near;
     float washH   = -astern * wg * uWashDepth * exp(-arc / (uWashLen * 1.6));
 
@@ -173,11 +184,18 @@ const RIBBON_FRAG = /* glsl */`
     // gone. Seen through water it is cloudy rather than granular, so this is
     // deliberately low frequency -- and cheap to bake, unlike the lace.
     float bw = max(uBubW + arc * uBubSpread, 0.1);
-    float bg = exp(-(d / bw) * (d / bw));
+    float bg = 0.0;
+    for (int i = 0; i < 4; i++) {
+      if (float(i) >= uEngines) break;
+      float off = (float(i) - (uEngines - 1.0) * 0.5) * uEngineGap;
+      float dd = (d - off) / bw;
+      bg += exp(-dd * dd);
+    }
+    bg = min(bg, 1.4);
     float plume = astern * bg * uBubPlume * exp(-arc / max(uBubLen, 1.0));
 
     // Spray plunging back in entrains its own air along each arm.
-    float entrain = armG * uBubArms * armFade;
+    float entrain = armG * uBubArms * armFade * exp(-arc / max(uBubArmsLen, 1.0));
 
     float bubAge = clamp(age / max(uBubLife, 0.01), 0.0, 1.0);
     float bub = (plume + entrain) * pow(1.0 - bubAge, 1.15);
@@ -259,7 +277,7 @@ export class WakeField {
 
     this.uniforms = {
       uMaxArc: { value: 1 },
-      uBeam: { value: 1 }, uHullLen: { value: 1 },
+      uBeam: { value: 1 }, uHullLen: { value: 1 }, uEngines: { value: 1 }, uEngineGap: { value: 1 },
       uArmTan: { value: 0 }, uArmW0: { value: 1 }, uArmWGrow: { value: 0 },
       uArmFoam: { value: 1 }, uArmHeight: { value: 0 }, uInnerBias: { value: 0 },
       uFadeStart: { value: 1 }, uFadeLen: { value: 1 },
@@ -275,7 +293,7 @@ export class WakeField {
       uLace: { value: 1 }, uLaceAmt: { value: 0 }, uSoftness: { value: 0.2 },
       uBubPlume: { value: 0 }, uBubW: { value: 1 }, uBubSpread: { value: 0 },
       uBubLen: { value: 1 }, uBubArms: { value: 0 }, uBubLife: { value: 1 }, uBubMottle: { value: 0 },
-      uTime: { value: 0 }, uSwirl: { value: 0 },
+      uTime: { value: 0 }, uSwirl: { value: 0 }, uBubArmsLen: { value: 1 },
     };
 
     this.material = new THREE.ShaderMaterial({
@@ -382,6 +400,8 @@ export class WakeField {
     u.uMaxArc.value = Math.max(this.maxArc || 1, 1);
     u.uBeam.value = get('boat.beam');
     u.uHullLen.value = get('boat.length');
+    u.uEngines.value = Math.round(get('boat.engines'));
+    u.uEngineGap.value = get('boat.engineSpacing');
     u.uArmTan.value = Math.tan(get('arms.angle') * Math.PI / 180);
     u.uArmW0.value = get('arms.width0');
     u.uArmWGrow.value = get('arms.widthGrow');
@@ -427,6 +447,7 @@ export class WakeField {
     u.uBubLife.value = get('bubbles.life');
     u.uBubMottle.value = get('bubbles.mottle');
     u.uSwirl.value = get('foamMotion.plumeSwirl');
+    u.uBubArmsLen.value = get('bubbles.armsLength');
   }
 
   /** Point the field at a world position (snapped, so the texture doesn't crawl). */

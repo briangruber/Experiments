@@ -90,7 +90,8 @@ const FRAG = /* glsl */`
   uniform float uFoamDensity, uTranslucency, uAeration, uRelief, uTroughBias, uWarmth;
   uniform float uLaceScale, uLaceAmt, uSoftness;
   uniform float uBubBright, uMilk;
-  uniform float uDrift, uChurn, uChurnSpeed, uBoil;
+  uniform float uDrift, uRingAmt, uRingScale, uRingSpeed, uRingWidth, uRingRelief, uBoil;
+  uniform float uCellGrow, uCoarsen;
   uniform vec3  uBubCol;
   #define uEye uEyePos
 
@@ -125,6 +126,19 @@ const FRAG = /* glsl */`
     // folded in as a scale on the swell slope.
     vec2 grad = sw.yz * (1.0 - w.b) + vec2(gR - gL, gU - gD) / (2.0 * e);
     vec3 N = normalize(vec3(-grad.x, 1.0, -grad.y));
+
+    // ------------------------------------------------------- ring ripples --
+    // Bursting bubbles and surfacing eddies throw ripples that spread and die.
+    // They exist in the water, so they are resolved here, BEFORE it is lit --
+    // tilting the surface after the reflection has been computed would change
+    // nothing. Gated on churn, which is both where ripples physically come from
+    // and what keeps this off the open-water pixels.
+    float churnMask = clamp(max(w.r * 1.6, w.a * 1.2), 0.0, 1.0);
+    vec2 rings = vec2(0.0);
+    if (churnMask > 0.004) {
+      rings = ringWarp(vWorld.xz, uTime, uRingScale, uRingSpeed, uRingWidth, uCellGrow) * churnMask;
+      N = normalize(N + vec3(rings.x, 0.0, rings.y) * uRingRelief * 0.5);
+    }
 
     vec3 V = normalize(uEye - vWorld);
     vec3 L = normalize(uSunDir);
@@ -185,20 +199,28 @@ const FRAG = /* glsl */`
       // already in hand from the normal, so this costs nothing.
       vec2 orbit = sw.yz * uDrift * 5.0;
 
-      // Slow turbulent shear. The sample point of the warp field travels a
-      // circle rather than a line, so the field evolves without going anywhere.
-      vec2 co = vec2(cos(uTime * uChurnSpeed), sin(uTime * uChurnSpeed)) * 2.3;
-      vec2 churn = vec2(vnoise(vWorld.xz * 0.21 + co),
-                        vnoise(vWorld.xz * 0.21 + co.yx + 37.0)) - 0.5;
-
-      vec2 lp = (vWorld.xz + orbit + churn * uChurn * 3.4) * uLaceScale;
+      // The lace is shoved outward as each wavefront sweeps past. Every push
+      // returns to zero once its ring has passed, so this distorts the foam
+      // without ever transporting it.
+      vec2 lp = (vWorld.xz + orbit + rings * uRingAmt) * uLaceScale;
 
       // Cells burst and re-form in place, by the same circling trick.
       vec2 boil = vec2(cos(uTime * uBoil * 1.7), sin(uTime * uBoil * 1.7)) * uBoil * 0.85;
 
-      float cells = lattice1(lp + boil, 0.115);
+      // Thinning foam is old foam, and a bubble raft coarsens as it ages -- but
+      // that must NOT be done by scaling the sample position by foam. Scaling
+      // coordinates by a spatially varying quantity warps the noise along that
+      // quantity's gradient, and the lace snaps onto iso-contours of foam,
+      // reading as a contour map. Widening the cell walls is safe: it changes
+      // how the pattern looks without moving where it is.
+      float wall = 0.125 + uCoarsen * 0.085 * (1.0 - clamp(foam, 0.0, 1.0));
+      float cells = lattice1(lp + boil, wall);
       float grain = fbm3(lp * 2.6 + 7.0 - boil);
-      float detail = clamp(cells * 0.55 + grain * 0.62, 0.0, 1.0);
+      // Grain-dominant on purpose. The lattice is a ridge function -- bright ON
+      // the contour and dark either side -- so thresholding it directly yields
+      // nested outlines like a contour map, not cells. It belongs here as an
+      // accent on smooth noise; cell SIZE comes from the sampling scale.
+      float detail = clamp(grain * 0.68 + cells * 0.46, 0.0, 1.0);
 
       // Sub-pixel lace would alias into sparkle, so it fades toward flat
       // coverage as a cell drops below a couple of pixels.
@@ -259,7 +281,10 @@ export class Ocean {
       uRelief: { value: 0 }, uTroughBias: { value: 0 }, uWarmth: { value: 0 },
       uLaceScale: { value: 1 }, uLaceAmt: { value: 0 }, uSoftness: { value: 0.3 },
       uBubBright: { value: 1 }, uMilk: { value: 0 }, uBubCol: { value: new THREE.Color() },
-      uDrift: { value: 0 }, uChurn: { value: 0 }, uChurnSpeed: { value: 0 }, uBoil: { value: 0 },
+      uDrift: { value: 0 }, uBoil: { value: 0 },
+      uRingAmt: { value: 0 }, uRingScale: { value: 5 }, uRingSpeed: { value: 0.4 },
+      uRingWidth: { value: 1 }, uRingRelief: { value: 0 },
+      uCellGrow: { value: 0 }, uCoarsen: { value: 0 },
       uFar: { value: size * 0.55 },
     };
 
@@ -316,8 +341,13 @@ export class Ocean {
     u.uLaceAmt.value = get('foamLook.laceAmount');
     u.uSoftness.value = get('foamLook.softness');
     u.uDrift.value = get('foamMotion.drift');
-    u.uChurn.value = get('foamMotion.churn');
-    u.uChurnSpeed.value = get('foamMotion.churnSpeed');
+    u.uRingAmt.value = get('foamMotion.ringAmount');
+    u.uRingScale.value = get('foamMotion.ringScale');
+    u.uRingSpeed.value = get('foamMotion.ringSpeed');
+    u.uRingWidth.value = get('foamMotion.ringWidth');
+    u.uRingRelief.value = get('foamMotion.ringRelief');
+    u.uCellGrow.value = get('foamMotion.cellGrowth');
+    u.uCoarsen.value = get('foamLook.coarsen');
     u.uBoil.value = get('foamMotion.boil');
     u.uBubBright.value = get('bubbles.brightness');
     u.uMilk.value = get('bubbles.milkiness');

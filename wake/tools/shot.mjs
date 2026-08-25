@@ -66,8 +66,11 @@ await page.goto(base + '?' + qs.toString(), { waitUntil: 'load' });
 await page.waitForFunction('window.__ready === true', { timeout: 30000 }).catch(() => {});
 await page.waitForTimeout(WAIT * 1000);
 if (argv.includes('--field')) await page.keyboard.press('f');
+// Guarded: when the module fails to load there is no __wake, and the useful
+// output is the error that caused it -- not a crash inside the probe.
 const diag = await page.evaluate(() => {
   const w = window.__wake;
+  if (!w) return { loaded: false };
   return { pathPts: w.wake.path.length, maxArc: +(w.wake.maxArc || 0).toFixed(1),
            travelled: +Math.hypot(w.state.x, w.state.z).toFixed(1),
            extent: w.wake.extent, drawn: w.wake.geometry.drawRange.count };

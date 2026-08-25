@@ -87,11 +87,27 @@ Three motions, none of which translate:
 - **Cells burst and re-form**, by the same circling trick applied to the lace
   coordinates.
 
+Two traps here, both found the hard way. Cell size must come from the sampling
+scale, never from scaling the sample position by a per-pixel quantity like foam
+— scaling coordinates by something that varies in space warps the noise along
+that quantity's gradient, and the lace snaps onto iso-contours of foam, reading
+as a contour map. And the lattice is a *ridge* function: thresholding it
+directly gives nested outlines, not cells, so it belongs as an accent on smooth
+noise rather than as the field itself.
+
 `tools/motion.mjs` measures this: change between frames (is it animating?) and
 foam-centroid shift (is it drifting?). Run `--still` as a control — with the
 motion parameters zeroed, change must be zero. Note it flattens the swell
 first: moving water changes the shading under perfectly static foam, and that
-baseline is large enough to swamp what is being measured.
+baseline is large enough to swamp what is being measured. It also advances sim
+time explicitly rather than waiting — `dt` is clamped per frame, so on a
+headless renderer at ~2 fps a two-second wait buys a fraction of a second of
+animation and a working lace reads as a dead one.
+
+`tools/probe.mjs` reads the field texture directly and prints a lateral slice,
+counting wash channels by prominence. Foam saturates to white on screen, so
+structure has to be counted in the data: `--expect N` asserts N channels for N
+engines.
 
 ### Where the foam is decided
 

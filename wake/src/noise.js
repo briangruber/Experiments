@@ -34,6 +34,57 @@ export const NOISE_GLSL = /* glsl */`
     return max(a, b * 0.85);
   }
 
+  // Expanding ring ripples.
+  //
+  // Space is divided into cells, each hosting one emitter at a jittered
+  // position that fires, spreads and dies on its own offset schedule. A point
+  // is pushed radially outward as each wavefront sweeps past it, so the whole
+  // field is made of rings going out from scattered origins — which is what
+  // churning water actually does as bubbles burst and eddies surface.
+  //
+  // Returns a displacement in metres. Purely local: every emitter's push
+  // returns to zero once its ring has passed and died, so nothing accumulates
+  // and the foam never drifts.
+  vec2 ringWarp(vec2 p, float t, float cell, float speed, float width, float expand){
+    vec2 gi = floor(p / cell);
+    vec2 acc = vec2(0.0);
+    for (int y = -1; y <= 1; y++){
+      for (int x = -1; x <= 1; x++){
+        vec2 c = gi + vec2(float(x), float(y));
+        float h1 = hash21(c);
+        float h2 = hash21(c + 17.3);
+        vec2  e  = (c + vec2(h1, h2)) * cell;      // emitter, jittered in its cell
+        vec2  d  = p - e;
+        float r  = length(d) + 1e-4;
+
+        // Each emitter runs its own cycle, at its own slightly different rate.
+        float ph = fract(t * speed * (0.72 + 0.56 * h1) + h2);
+        float radius = ph * cell * 1.45;
+
+        // The wavefront profile is two-lobed -- a crest with a trough behind
+        // it, the derivative of a gaussian. Water in a passing ripple moves
+        // out and then back, so a one-sided push reads as a shove rather than
+        // as a wave. It also gives the ring a light and a dark side, which is
+        // what makes it legible in the shading.
+        float front = (r - radius) / max(width, 0.02);
+        float prof = front * exp(-front * front) * 1.65;
+
+        // Fades in at birth so nothing pops, then decays as the ring spreads
+        // and its energy thins around a longer and longer circumference.
+        float env = smoothstep(0.0, 0.08, ph) * (1.0 - ph);
+        acc += (d / r) * prof * env;
+
+        // Expansion. Scaling the pattern about a centre is a displacement
+        // proportional to DISTANCE from that centre -- so this term grows the
+        // cells inside the ring rather than just shoving them around, which a
+        // wavefront bump alone can only ever do.
+        float inside = 1.0 - smoothstep(radius * 0.70, radius * 1.20, r);
+        acc += d * expand * inside * env;
+      }
+    }
+    return acc;
+  }
+
   // Single-contour version for per-pixel work, where the second octave is not
   // worth its cost.
   float lattice1(vec2 p, float w){

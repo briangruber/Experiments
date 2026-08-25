@@ -10,6 +10,8 @@ export const PARAMS = {
     turnRate:     { v: 0.0,  min: -25, max: 25,  step: 0.5,  label: 'Turn (°/s)' },
     length:       { v: 8.5,  min: 3,   max: 20,  step: 0.1,  label: 'Hull length (m)' },
     beam:         { v: 2.6,  min: 1,   max: 8,   step: 0.05, label: 'Hull beam (m)' },
+    engines:      { v: 2,    min: 1,   max: 4,   step: 1,    label: 'Engines' },
+    engineSpacing:{ v: 2.40, min: 0.2, max: 4,   step: 0.05, label: 'Engine spacing (m)' },
   },
 
   // The V of spray sheets. In the reference these originate at the BOW, not the
@@ -23,10 +25,10 @@ export const PARAMS = {
     innerBias:    { v: 0.38, min: 0,   max: 1,   step: 0.01, label: 'Outer-edge bias' },
     rim:          { v: 0.70, min: 0,   max: 2,   step: 0.01, label: 'Outer rim line' },
     rimWidth:     { v: 0.45, min: 0.05,max: 3,   step: 0.01, label: 'Rim thickness (m)' },
-    nearBoost:    { v: 0.85, min: 0,   max: 3,   step: 0.01, label: 'Near-field boost' },
+    nearBoost:    { v: 0.58, min: 0,   max: 3,   step: 0.01, label: 'Near-field boost' },
     nearLength:   { v: 34.0, min: 3,   max: 150, step: 1,    label: 'Near-field length (m)' },
-    fadeStart:    { v: 120.0, min: 2,   max: 200, step: 1,    label: 'Fade start (m)' },
-    fadeLength:   { v: 380.0, min: 5,   max: 400, step: 1,    label: 'Fade length (m)' },
+    fadeStart:    { v: 46.0, min: 2,   max: 200, step: 1,    label: 'Fade start (m)' },
+    fadeLength:   { v: 240.0, min: 5,   max: 400, step: 1,    label: 'Fade length (m)' },
   },
 
   // The comb / scallop texture riding along each arm: periodic crests that lean
@@ -44,8 +46,8 @@ export const PARAMS = {
   // Turbulent water dragged behind the transom: the brightest, shortest-lived
   // foam in the whole wake.
   wash: {
-    width:        { v: 2.10, min: 0.2, max: 8,   step: 0.05, label: 'Width (m)' },
-    widthGrow:    { v: 0.038,min: 0,   max: 0.5, step: 0.005,label: 'Width growth (m/m)' },
+    width:        { v: 0.45, min: 0.2, max: 8,   step: 0.05, label: 'Width (m)' },
+    widthGrow:    { v: 0.022,min: 0,   max: 0.5, step: 0.005,label: 'Width growth (m/m)' },
     foam:         { v: 1.5,  min: 0,   max: 3,   step: 0.01, label: 'Foam density' },
     length:       { v: 20.0, min: 2,   max: 200, step: 1,    label: 'Decay length (m)' },
     tailFoam:     { v: 0.035, min: 0,   max: 1,   step: 0.01, label: 'Long tail streak' },
@@ -66,10 +68,11 @@ export const PARAMS = {
     scale:        { v: 1.05, min: 0.1, max: 6,   step: 0.01, label: 'Bubble scale' },
     contrast:     { v: 1.5,  min: 0.2, max: 4,   step: 0.01, label: 'Bubble contrast' },
     breakup:      { v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Break-up with age' },
-    life:         { v: 65.0, min: 1,   max: 120, step: 0.5,  label: 'Foam life (s)' },
-    dissolve:     { v: 1.6,  min: 0.2, max: 5,   step: 0.05, label: 'Dissolve curve' },
-    lace:         { v: 1.75, min: 0.5, max: 8,   step: 0.05, label: 'Lace fineness' },
+    life:         { v: 34.0, min: 1,   max: 120, step: 0.5,  label: 'Foam life (s)' },
+    dissolve:     { v: 2.10,  min: 0.2, max: 5,   step: 0.05, label: 'Dissolve curve' },
+    lace:         { v: 1.05, min: 0.5, max: 8,   step: 0.05, label: 'Lace fineness' },
     laceAmount:   { v: 0.62, min: 0,   max: 1.5, step: 0.01, label: 'Lace reach' },
+    coarsen:      { v: 0.45, min: 0,   max: 1,   step: 0.01, label: 'Cells coarsen with age' },
     softness:     { v: 0.42, min: 0.02,max: 1,   step: 0.01, label: 'Edge softness' },
   },
 
@@ -78,11 +81,12 @@ export const PARAMS = {
   // and the surface above them still reflects the sky.
   bubbles: {
     plume:        { v: 0.86, min: 0,   max: 4,   step: 0.01, label: 'Plume density' },
-    width:        { v: 1.90, min: 0.2, max: 10,  step: 0.05, label: 'Plume width (m)' },
-    spread:       { v: 0.085,min: 0,   max: 0.5, step: 0.005,label: 'Spread (m/m)' },
+    width:        { v: 0.50, min: 0.2, max: 10,  step: 0.05, label: 'Plume width (m)' },
+    spread:       { v: 0.028,min: 0,   max: 0.5, step: 0.005,label: 'Spread (m/m)' },
     length:       { v: 46.0,min: 5,   max: 400, step: 1,    label: 'Decay length (m)' },
     fromArms:     { v: 0.42, min: 0,   max: 2,   step: 0.01, label: 'Entrained by arms' },
-    life:         { v: 78.0, min: 2,   max: 200, step: 1,    label: 'Bubble life (s)' },
+    armsLength:   { v: 70.0, min: 5,   max: 400, step: 1,    label: 'Entrained decay (m)' },
+    life:         { v: 44.0, min: 2,   max: 200, step: 1,    label: 'Bubble life (s)' },
     mottle:       { v: 0.72, min: 0,   max: 1,   step: 0.01, label: 'Cloudiness' },
     brightness:   { v: 0.66, min: 0,   max: 3,   step: 0.01, label: 'Backscatter' },
     tint:         { v: 0.50, min: 0,   max: 1,   step: 0.01, label: 'Green / blue' },
@@ -94,15 +98,19 @@ export const PARAMS = {
   // or the foam would slide across water it is supposed to be floating on.
   foamMotion: {
     drift:        { v: 0.55, min: 0,   max: 3,   step: 0.01, label: 'Rides the swell' },
-    churn:        { v: 0.52, min: 0,   max: 2,   step: 0.01, label: 'Churn distortion (m)' },
-    churnSpeed:   { v: 0.46, min: 0,   max: 2,   step: 0.01, label: 'Churn speed' },
-    boil:         { v: 0.72, min: 0,   max: 2,   step: 0.01, label: 'Cells burst / re-form' },
+    ringAmount:   { v: 0.75, min: 0,   max: 3,   step: 0.01, label: 'Ring push (m)' },
+    ringScale:    { v: 3.40, min: 0.8, max: 30,  step: 0.1,  label: 'Ring spacing (m)' },
+    ringSpeed:    { v: 0.40, min: 0.02,max: 2,   step: 0.01, label: 'Ring speed' },
+    ringWidth:    { v: 0.70, min: 0.1, max: 5,   step: 0.05, label: 'Wavefront width (m)' },
+    cellGrowth:   { v: 0.30, min: 0,   max: 0.8, step: 0.005,label: 'Cells expand' },
+    ringRelief:   { v: 0.85, min: 0,   max: 3,   step: 0.01, label: 'Rings show in water' },
+    boil:         { v: 0.45, min: 0,   max: 2,   step: 0.01, label: 'Cells burst / re-form' },
     plumeSwirl:   { v: 0.45, min: 0,   max: 2,   step: 0.01, label: 'Plume swirl' },
   },
 
   // How the foam sits on the water rather than on top of it.
   foamMix: {
-    density:      { v: 2.30, min: 0.3, max: 8,   step: 0.05, label: 'Opacity build' },
+    density:      { v: 1.75, min: 0.3, max: 8,   step: 0.05, label: 'Opacity build' },
     translucency: { v: 0.42, min: 0,   max: 1,   step: 0.01, label: 'Water shows through' },
     aeration:     { v: 0.45, min: 0,   max: 1.5, step: 0.01, label: 'Aerated teal halo' },
     relief:       { v: 0.75, min: 0,   max: 3,   step: 0.01, label: 'Bubble relief' },

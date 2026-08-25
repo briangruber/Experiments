@@ -6,6 +6,10 @@
 // So this measures both, with the boat stopped and foam life pinned long so
 // decay cannot be mistaken for motion.
 //
+// Sim time is advanced explicitly rather than by waiting: dt is clamped per
+// frame, so on a headless renderer at ~2 fps a two-second wait buys only a
+// fraction of a second of animation, and a working lace reads as a dead one.
+//
 // The swell must be flattened for either measurement to mean anything: moving
 // water changes shading under perfectly static foam, and that baseline is large
 // enough to swamp the signal being looked for.
@@ -21,6 +25,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const argv = process.argv.slice(2);
+const opt = (n, d) => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : d; };
 const STILL = argv.includes('--still');
 const DRIFT = argv.includes('--drift');
 
@@ -36,13 +41,13 @@ const server = createServer(async (req, res) => {
 });
 await new Promise((r) => server.listen(0, r));
 
-const qs = new URLSearchParams({ prewarm: '90', cam: '-1.5708,0,90' });
+const qs = new URLSearchParams({ prewarm: '90', cam: opt('cam', '-1.5708,0,90') });
 qs.set('foamLook.life', '120');      // decay must not masquerade as motion
 qs.set('foamLook.dissolve', '0.2');
 // Flat, still water: with the swell running, shading changes under static foam
 // and drowns out what is being measured.
 if (!DRIFT) { qs.set('ocean.swellAmp', '0'); qs.set('ocean.chopAmp', '0'); }
-if (STILL) for (const k of ['drift','churn','churnSpeed','boil','plumeSwirl']) qs.set('foamMotion.' + k, '0');
+if (STILL) for (const k of ['drift','ringAmount','ringRelief','boil','plumeSwirl']) qs.set('foamMotion.' + k, '0');
 
 const { chromium } = await import('/opt/node22/lib/node_modules/playwright/index.mjs');
 const browser = await chromium.launch({
@@ -60,24 +65,35 @@ await page.waitForTimeout(2500);
 await page.evaluate(() => document.body.classList.add('hide-ui'));
 
 const grab = async () => (await page.screenshot()).toString('base64');
+// Advance the simulation by a known amount of ITS time, then let a frame land.
+const advance = async (sec) => {
+  await page.evaluate((d) => { window.__wake.state.t += d; }, sec);
+  await page.waitForTimeout(900);
+};
 let a, b;
 if (DRIFT) {
   // Compare the same instant at two drift settings, so time is not a variable
   // and only the swell-surge term can account for a difference.
   await page.evaluate(() => { window.__wake.set('foamMotion.drift', 0);
-                              window.__wake.set('foamMotion.churn', 0);
+                              window.__wake.set('foamMotion.ringAmount', 0);
+                              window.__wake.set('foamMotion.ringRelief', 0);
                               window.__wake.set('foamMotion.boil', 0); });
-  await page.waitForTimeout(700);
+  await page.waitForTimeout(900);
   a = await grab();
   await page.evaluate(() => window.__wake.set('foamMotion.drift', 2.5));
   await page.waitForTimeout(120);
   b = await grab();
 } else {
   a = await grab();
-  await page.waitForTimeout(2200);
+  await advance(2.6);
   b = await grab();
 }
 
+if (argv.includes('--save')) {
+  const { writeFile } = await import('node:fs/promises');
+  await writeFile(resolve(ROOT, 'shots/motion-a.png'), Buffer.from(a, 'base64'));
+  await writeFile(resolve(ROOT, 'shots/motion-b.png'), Buffer.from(b, 'base64'));
+}
 const probe = await browser.newPage();
 const stats = await probe.evaluate(async ([A, B]) => {
   const load = async (b64) => {
@@ -110,7 +126,7 @@ const stats = await probe.evaluate(async ([A, B]) => {
 }, [a, b]);
 await probe.close();
 
-const mode = DRIFT ? 'drift term' : STILL ? 'still (control)' : 'churn + boil';
+const mode = DRIFT ? 'drift term' : STILL ? 'still (control)' : 'rings + boil';
 console.log(JSON.stringify({ mode, stats, errors }, null, 2));
 await browser.close(); server.close();
 
