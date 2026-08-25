@@ -73,6 +73,7 @@ export const PARAMS = {
   kelvin: {
     amp:          { v: 0.38, min: 0,   max: 1.5, step: 0.005,label: 'Wave height (m)' },
     froudePeak:   { v: 0.52, min: 0.15,max: 1.5, step: 0.01, label: 'Peak Froude no.' },
+    humpFloor:    { v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Planing floor' },
     beamGain:     { v: 0.85, min: 0,   max: 2,   step: 0.01, label: 'Beam → amplitude' },
     interference: { v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Bow/stern interference' },
     turnBias:     { v: 0.60, min: 0,   max: 2,   step: 0.01, label: 'Outside-of-turn gain' },

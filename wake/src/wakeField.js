@@ -58,7 +58,7 @@ const RIBBON_FRAG = /* glsl */`
   uniform float uRim, uRimW, uNearBoost, uNearLen, uCarve;
   uniform float uFeatSpace, uFeatGrow, uFeatLean, uFeatDepth, uFeatJitter, uFeatSharp;
   uniform float uWashW, uWashWGrow, uWashFoam, uWashLen, uWashTail, uWashDepth;
-  uniform float uFrPeak, uBeamGain, uInterf, uTurnBias;
+  uniform float uFrPeak, uHumpFloor, uBeamGain, uInterf, uTurnBias;
   uniform float uKelvinScale, uKelvinProp, uKelvinAmp, uKelvinDiv, uKelvinTrans, uKelvinCusp, uKelvinDecay, uKelvinLife, uKelvinMin;
   uniform float uFoamScale, uFoamContrast, uBreakup, uFoamLife, uDissolve;
   uniform float uLace, uLaceAmt, uSoftness;
@@ -213,7 +213,12 @@ const RIBBON_FRAG = /* glsl */`
       // and stern crests, and falls away again once it lifts and planes.
       float Fr = kv / sqrt(9.81 * max(uHullLen, 0.5));
       float fr = Fr / max(uFrPeak, 0.05);
-      float hump = fr * fr * exp(1.0 - fr * fr);          // peaks at 1.0, at Fr = uFrPeak
+      // Peaks at 1.0 at Fr = uFrPeak, but floored rather than allowed to decay
+      // to nothing: past the hump a hull lifts and its wave-making resistance
+      // falls away, yet a planing boat plainly still leaves a wake. Without the
+      // floor the waves switch off entirely at ordinary planing speeds.
+      float hump = fr * fr * exp(1.0 - fr * fr);
+      hump = max(hump, uHumpFloor * smoothstep(0.12, 0.70, fr));
 
       // Bow and stern each raise their own system, separated by the hull's
       // length. They add or cancel depending on how many wavelengths fit
@@ -412,7 +417,7 @@ export class WakeField {
       uWashLen: { value: 1 }, uWashTail: { value: 0 }, uWashDepth: { value: 0 },
       uBubDepth: { value: 1 }, uBubRise: { value: 0.2 }, uBubExt: { value: 0.4 },
       uKelvinScale: { value: 0.5 }, uKelvinProp: { value: 1 }, uPlaning: { value: 6.5 },
-      uFrPeak: { value: 0.5 }, uBeamGain: { value: 1 }, uInterf: { value: 0.5 }, uTurnBias: { value: 0.5 }, uKelvinAmp: { value: 0 }, uKelvinDiv: { value: 1 },
+      uFrPeak: { value: 0.5 }, uHumpFloor: { value: 0.5 }, uBeamGain: { value: 1 }, uInterf: { value: 0.5 }, uTurnBias: { value: 0.5 }, uKelvinAmp: { value: 0 }, uKelvinDiv: { value: 1 },
       uKelvinTrans: { value: 0.5 }, uKelvinCusp: { value: 1 }, uKelvinDecay: { value: 100 },
       uKelvinLife: { value: 100 }, uKelvinMin: { value: 3 },
       uFoamScale: { value: 1 }, uFoamContrast: { value: 1 }, uBreakup: { value: 0 },
@@ -571,6 +576,7 @@ export class WakeField {
     u.uKelvinScale.value = Math.max(get('kelvin.waveScale'), 0.05);
     u.uKelvinProp.value = get('kelvin.propagate');
     u.uFrPeak.value = get('kelvin.froudePeak');
+    u.uHumpFloor.value = get('kelvin.humpFloor');
     u.uBeamGain.value = get('kelvin.beamGain');
     u.uInterf.value = get('kelvin.interference');
     u.uTurnBias.value = get('kelvin.turnBias');

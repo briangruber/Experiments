@@ -60,7 +60,11 @@ Kelvin amplitude is computed from the boat rather than dialled in:
 
 - **Length Froude number**, `Fr = V / sqrt(gL)`. Wave-making is not linear in
   speed — it climbs, peaks near hull speed where the hull is trapped between its
-  own bow and stern crests, then falls away as it lifts and planes.
+  own bow and stern crests, then falls away as it lifts and planes — but floored,
+  not decayed to nothing. Past the hump a hull's wave-making *resistance* does
+  collapse, yet a planing boat plainly still leaves a wake; without the floor the
+  waves switched off entirely at ordinary planing speeds (`Fr = 1.4` on an 8.5 m
+  hull put the term at 0.01), which `coast.mjs` caught as a dead flat sea.
 - **Bow/stern interference.** Both ends raise their own system, separated by the
   hull's length, and they add or cancel depending on how many wavelengths fit
   between them. These are the humps and hollows in a hull's resistance curve —
