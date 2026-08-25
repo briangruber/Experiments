@@ -1,81 +1,248 @@
+/* Boat Wake Lab — instrument surface.
+ *
+ * Deliberately single-theme. The canvas is dark water; a light control rail
+ * beside it would be glare, not a choice. So every colour is painted
+ * explicitly and nothing is left to inherit from a host page's theme.
+ *
+ * Neutrals are biased toward the accent's cyan rather than being pure grey —
+ * the panel should read as part of the same instrument as the water. */
+
 :root {
-  --bg: #070b10;
-  --panel: rgba(12, 18, 26, 0.82);
-  --line: rgba(255, 255, 255, 0.09);
-  --fg: #d6e2ee;
-  --dim: #7f93a8;
-  --accent: #58c9f3;
+  --abyss:   #070d12;   /* ground: the water beyond the wake */
+  --panel:   #0e161ee6; /* control rail */
+  --raised:  #16222d;
+  --hair:    #1c2b37;
+  --foam:    #e9f2f7;   /* brightest text — the colour of the wake itself */
+  --dim:     #7d93a3;
+  --dimmer:  #4d616f;
+  --accent:  #5ad0e8;
+  --accent-q:#5ad0e82e;
+
+  --rail: 300px;
+  --font-ui: 'Barlow Condensed', 'Avenir Next Condensed', 'Roboto Condensed', system-ui, sans-serif;
+  --font-num: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 * { box-sizing: border-box; }
 
 html, body {
-  margin: 0; height: 100%; overflow: hidden;
-  background: var(--bg); color: var(--fg);
-  font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--abyss);
+  color: var(--foam);
+  font-family: var(--font-num);
+  font-size: 12px;
+  line-height: 1.45;
   -webkit-font-smoothing: antialiased;
 }
 
-#gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+#gl {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+
+/* ------------------------------------------------------------ status strip -- */
 
 #hud {
-  position: fixed; top: 10px; left: 12px; z-index: 5;
-  display: flex; gap: 14px; align-items: center;
-  pointer-events: none; color: var(--dim);
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: var(--rail);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 9px 16px;
+  background: linear-gradient(var(--abyss) 15%, #070d1200);
 }
-#fps { color: var(--accent); }
-#hud .hint { font-size: 11px; opacity: 0.75; }
+
+#hud .brand {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--foam);
+}
+
+#fps {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  min-width: 4.5em;
+}
+
+#hud .hint {
+  color: var(--dimmer);
+  font-size: 11px;
+  margin-left: auto;
+}
+
+.views { display: flex; gap: 5px; }
+
+.views button,
+#rail-toggle,
+.bar button {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--dim);
+  background: var(--raised);
+  border: 1px solid var(--hair);
+  border-radius: 3px;
+  padding: 4px 11px 3px;
+  cursor: pointer;
+  transition: color 0.14s, border-color 0.14s, background 0.14s;
+}
+
+.views button:hover,
+#rail-toggle:hover,
+.bar button:hover { color: var(--foam); border-color: var(--dimmer); }
+
+.views button.on {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-q);
+}
+
+:where(button, input, summary):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* -------------------------------------------------------------- control rail -- */
+
+#rail-toggle { position: fixed; top: 9px; right: 12px; z-index: 7; display: none; }
 
 #ui {
-  position: fixed; top: 0; right: 0; z-index: 4;
-  width: 292px; height: 100%; overflow-y: auto;
-  padding: 10px 10px 24px;
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 4;
+  width: var(--rail);
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 12px 28px;
   background: var(--panel);
-  backdrop-filter: blur(14px);
-  border-left: 1px solid var(--line);
+  backdrop-filter: blur(16px);
+  border-left: 1px solid var(--hair);
 }
-#ui::-webkit-scrollbar { width: 8px; }
-#ui::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.14); border-radius: 4px; }
 
-body.hide-ui #ui, body.hide-ui #hud { display: none; }
+#ui::-webkit-scrollbar { width: 7px; }
+#ui::-webkit-scrollbar-thumb { background: var(--hair); border-radius: 4px; }
+#ui::-webkit-scrollbar-track { background: transparent; }
+
+body.hide-ui #ui,
+body.hide-ui #hud { display: none; }
 
 details {
-  border: 1px solid var(--line); border-radius: 6px;
-  margin-bottom: 7px; padding: 4px 8px 7px;
-  background: rgba(255, 255, 255, 0.018);
+  border: 1px solid var(--hair);
+  border-radius: 4px;
+  background: #0b131b8c;
 }
-summary {
-  cursor: pointer; padding: 4px 0; list-style: none;
-  color: var(--accent); letter-spacing: 0.04em; text-transform: uppercase; font-size: 10.5px;
-}
-summary::-webkit-details-marker { display: none; }
-summary::before { content: '▸ '; opacity: 0.6; }
-details[open] > summary::before { content: '▾ '; }
 
-.row { display: grid; grid-template-columns: 1fr auto; gap: 1px 6px; margin: 5px 0; }
+summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 7px 10px 5px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+summary::-webkit-details-marker { display: none; }
+summary::before { content: '+'; margin-right: 7px; color: var(--dimmer); }
+details[open] > summary { border-bottom: 1px solid var(--hair); }
+details[open] > summary::before { content: '−'; }
+details > .row:last-of-type { margin-bottom: 9px; }
+
+/* A slider row is a readout first and a control second: label and value on one
+ * line so the numbers stack into a scannable column down the rail. */
+.row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: 2px 8px;
+  margin: 7px 10px 0;
+}
+
 .lbl { color: var(--dim); font-size: 11px; }
-.val { color: var(--fg); font-size: 11px; font-variant-numeric: tabular-nums; }
-.row input { grid-column: 1 / -1; width: 100%; }
+
+.val {
+  color: var(--foam);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.row input { grid-column: 1 / -1; width: 100%; margin: 2px 0 0; }
 
 input[type=range] {
-  -webkit-appearance: none; appearance: none;
-  height: 3px; background: rgba(255, 255, 255, 0.14); border-radius: 2px; outline: none;
-}
-input[type=range]::-webkit-slider-thumb {
-  -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%;
-  background: var(--accent); cursor: pointer; border: none;
-}
-input[type=range]::-moz-range-thumb {
-  width: 12px; height: 12px; border-radius: 50%;
-  background: var(--accent); cursor: pointer; border: none;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 2px;
+  background: var(--hair);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
 }
 
-.bar { display: flex; gap: 6px; margin-top: 10px; }
-.bar button {
-  flex: 1; padding: 7px 6px; cursor: pointer;
-  background: rgba(88, 201, 243, 0.12); color: var(--accent);
-  border: 1px solid rgba(88, 201, 243, 0.32); border-radius: 5px;
-  font: inherit; font-size: 11px;
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: none;
+  cursor: pointer;
 }
-.bar button:hover { background: rgba(88, 201, 243, 0.22); }
+
+input[type=range]::-moz-range-thumb {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: none;
+  cursor: pointer;
+}
+
+.bar { display: flex; gap: 6px; margin-top: 4px; }
+.bar button { flex: 1; padding: 7px 4px 6px; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+
+/* ------------------------------------------------------------------ narrow -- */
+/* The rail becomes a bottom sheet: the canvas is the point, so it keeps the
+ * top two-thirds of the screen. */
+
+@media (max-width: 720px) {
+  :root { --rail: 0px; }
+
+  #hud { right: 0; padding-right: 108px; }
+  #hud .hint { display: none; }
+  #rail-toggle { display: block; }
+
+  #ui {
+    top: auto;
+    bottom: 0;
+    width: 100%;
+    height: 58%;
+    border-left: none;
+    border-top: 1px solid var(--hair);
+  }
+
+  body.rail-closed #ui { display: none; }
+}

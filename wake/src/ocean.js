@@ -127,7 +127,7 @@ const FRAG = /* glsl */`
 `;
 
 export class Ocean {
-  constructor(wakeField, size = 520, seg = 700) {
+  constructor(wakeField, size = 520, seg = 560) {
     this.size = size;
     this.uniforms = {
       uWake: { value: wakeField.rt.texture },
@@ -177,7 +177,7 @@ export class Ocean {
     u.uExposure.value = get('ocean.exposure');
 
     // Follow the boat, snapped to the vertex grid so the mesh doesn't crawl.
-    const step = this.size / 700 * 8;
+    const step = this.size / 560 * 8;
     this.mesh.position.set(Math.round(focusX / step) * step, 0, Math.round(focusZ / step) * step);
   }
 }

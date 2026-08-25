@@ -4,3 +4,5 @@ shots/
 tmp/
 dist/
 .claude/
+wake/dist/
+wake/shots/

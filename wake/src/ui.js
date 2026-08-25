@@ -42,7 +42,7 @@ export function buildUI(root, hooks = {}) {
       row.appendChild(input);
       sec.appendChild(row);
       show();
-      rows.push({ path, input, show, p });
+      rows.push({ path, input, show, p, defaults: p.v });
     }
     root.appendChild(sec);
   }
@@ -78,7 +78,14 @@ export function buildUI(root, hooks = {}) {
     } catch (e) { alert('Could not parse: ' + e.message); }
   };
 
-  bar.append(copy, paste);
+  const reset = document.createElement('button');
+  reset.textContent = 'Reset';
+  reset.onclick = () => {
+    for (const r of rows) { r.p.v = r.defaults; r.input.value = r.p.v; r.show(); }
+    hooks.onChange?.('*');
+  };
+
+  bar.append(copy, paste, reset);
   root.appendChild(bar);
 
   return { rows, refresh: () => { for (const r of rows) { r.input.value = r.p.v; r.show(); } } };

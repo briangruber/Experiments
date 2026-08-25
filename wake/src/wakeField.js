@@ -180,8 +180,10 @@ const RIBBON_FRAG = /* glsl */`
 
     // Carve out the hull's own footprint: the boat displaces the water it is
     // sitting in, it does not float on top of its own spray.
-    float hull = (1.0 - smoothstep(uBeam * 0.34, uBeam * 0.62, ad))
-               * (1.0 - smoothstep(uHullLen * 0.80, uHullLen * 1.02, arc));
+    // Rounded, not a box -- a rectangular cut-out shows up as straight edges in
+    // the foam either side of the hull.
+    vec2 hp = vec2(ad / max(uBeam * 0.62, 0.1), arc / max(uHullLen * 0.98, 0.1));
+    float hull = 1.0 - smoothstep(0.62, 1.05, length(hp));
     foam *= 1.0 - hull * 0.92;
 
     // The oldest end of the trail is a mesh boundary, not a physical edge.

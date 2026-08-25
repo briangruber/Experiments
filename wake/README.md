@@ -69,3 +69,15 @@ Exits non-zero on any WebGL/JS error, so it doubles as a smoke test.
 - Water is deliberately plain — anything interesting in a shot is the wake.
 
 `ref/` holds the frames pulled from the source footage for comparison.
+
+## Testing it in a browser
+
+The whole prototype bundles into one self-contained HTML file:
+
+    node tools/artifact.mjs --out dist/wake-lab.html
+    node tools/verify-bundle.mjs      # loads it the way a host will; non-zero on failure
+
+There is no build tool here, and three.js ships as two files that import each
+other by relative path. Rather than flattening the module graph, the bundler
+rehosts it: every module becomes a Blob URL and each import specifier is
+rewritten to point at its dependency, created in dependency order. ~780 KB.

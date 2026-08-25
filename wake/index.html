@@ -6,10 +6,18 @@
 
 <canvas id="gl" oncontextmenu="return false"></canvas>
 
-<div id="hud">
+<header id="hud">
+  <span class="brand">Boat&nbsp;Wake&nbsp;Lab</span>
   <span id="fps">—</span>
-  <span class="hint">drag&nbsp;·&nbsp;orbit &nbsp; wheel&nbsp;·&nbsp;zoom &nbsp; T&nbsp;·&nbsp;top-down &nbsp; A/D&nbsp;·&nbsp;steer &nbsp; W/S&nbsp;·&nbsp;throttle &nbsp; F&nbsp;·&nbsp;field &nbsp; H&nbsp;·&nbsp;hide UI</span>
-</div>
+  <nav class="views">
+    <button type="button" data-view="top" class="on">Top-down</button>
+    <button type="button" data-view="chase">Chase</button>
+    <button type="button" data-view="field">Field buffer</button>
+  </nav>
+  <span class="hint">drag&nbsp;orbit · wheel&nbsp;zoom · A/D&nbsp;steer · W/S&nbsp;throttle</span>
+</header>
+
+<button id="rail-toggle" type="button" aria-controls="ui" aria-expanded="true">Controls</button>
 
 <div id="ui"></div>
 

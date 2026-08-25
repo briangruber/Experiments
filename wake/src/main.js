@@ -18,7 +18,7 @@ scene.add(sun);
 const camera = new THREE.PerspectiveCamera(38, 1, 0.5, 3000);
 
 const wake = new WakeField(renderer, 1024);
-const ocean = new Ocean(wake);
+const ocean = new Ocean(wake, 520, 560);
 scene.add(ocean.mesh);
 
 const boat = makeBoat();
@@ -31,7 +31,7 @@ const state = { x: 0, z: 0, heading: 0, t: 0 };
 // ------------------------------------------------------------------- camera --
 // Straight down by default, because that is the view the reference is shot from
 // and the only one where the wake's geometry is unambiguous.
-const view = { pitch: -Math.PI / 2, yaw: 0, dist: 105, topDown: true, follow: true };
+const view = { pitch: -Math.PI / 2, yaw: 0, dist: 155, topDown: true, follow: true };
 
 let drag = null;
 canvas.addEventListener('pointerdown', (e) => {
@@ -43,6 +43,7 @@ canvas.addEventListener('pointermove', (e) => {
   view.yaw -= (e.clientX - drag.x) * 0.005;
   view.pitch = THREE.MathUtils.clamp(view.pitch - (e.clientY - drag.y) * 0.005, -Math.PI / 2, -0.03);
   view.topDown = false;
+  syncViewButtons();
   drag = { x: e.clientX, y: e.clientY };
 });
 addEventListener('pointerup', () => (drag = null));
@@ -55,9 +56,9 @@ const keys = new Set();
 addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   keys.add(k);
-  if (k === 't') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
+  if (k === 't') setView('top');
   if (k === 'h') document.body.classList.toggle('hide-ui');
-  if (k === 'f') { hud.dataset.field = hud.dataset.field === '1' ? '' : '1'; }
+  if (k === 'f') setView('field');
 });
 addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 
@@ -81,6 +82,30 @@ fieldScene.add(fieldQuad);
 
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
+
+function setView(mode) {
+  if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
+  if (mode === 'chase') { view.topDown = false; view.pitch = -0.42; view.yaw = 0; view.dist = 46; }
+  if (mode === 'field') hud.dataset.field = hud.dataset.field === '1' ? '' : '1';
+  syncViewButtons();
+}
+
+function syncViewButtons() {
+  for (const b of hud.querySelectorAll('[data-view]')) {
+    const m = b.dataset.view;
+    b.classList.toggle('on', m === 'field' ? hud.dataset.field === '1'
+                           : m === 'top' ? view.topDown : !view.topDown);
+  }
+}
+
+for (const b of hud.querySelectorAll('[data-view]'))
+  b.addEventListener('click', () => setView(b.dataset.view));
+
+const railToggle = document.getElementById('rail-toggle');
+railToggle?.addEventListener('click', () => {
+  const closed = document.body.classList.toggle('rail-closed');
+  railToggle.setAttribute('aria-expanded', String(!closed));
+});
 buildUI(document.getElementById('ui'), {
   onChange: () => boat.userData.scaleTo(),
 });
@@ -125,7 +150,7 @@ function stepSim(dt) {
 
 // ?prewarm=90 — run 90 seconds of boat before the first frame, so a capture (or
 // a reload mid-tuning) starts with a full-length wake instead of a stub.
-const PREWARM = +(new URLSearchParams(location.search).get('prewarm') || 0);
+const PREWARM = +(new URLSearchParams(location.search).get('prewarm') ?? NaN) || window.__PREWARM || 0;
 for (let i = 0; i < PREWARM * 30; i++) stepSim(1 / 30);
 
 function frame(now) {
