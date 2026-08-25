@@ -248,6 +248,25 @@ without that, a slow headless frame rate silently shortens the wake.
 
 Exits non-zero on any WebGL/JS error, so it doubles as a smoke test.
 
+## Why the sea washes out from a low angle
+
+At a shallow angle most of what you see is reflected sky, so the sea goes pale
+and the wake stops reading against it. That is correct physics, not a bug — but
+`Water & light → Mirror / reflectivity` scales it, and it is the single biggest
+lever when nothing is visible.
+
+Two things had to match between the detailed plane and the far water, and both
+showed up as a rectangle drawn on the sea until they did:
+
+- Specular fades out at the plane's rim along with the waves. The far water has
+  none, so carrying it to the edge leaves a step exactly on the join.
+- The diffuse term. The detailed plane adds `deep × N·L × 0.25`; without the
+  same term the far sea sat about a fifth darker.
+
+Sampling a vertical profile across the join is the quickest way to find these —
+a step of four luma units is invisible to reasoning and obvious in a column of
+numbers.
+
 ## Making it die faster
 
 `Field & decay → Wake decay ×` scales every lifetime and decay length at once,

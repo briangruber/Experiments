@@ -119,7 +119,7 @@ const FRAG = /* glsl */`
   ${HEIGHT_GLSL}
   ${NOISE_GLSL}
   uniform vec3  uSunDir, uDeep, uSky, uHorizon;
-  uniform float uSpecular, uExposure, uFar, uSheen, uHazeStart, uSunGlow;
+  uniform float uSpecular, uExposure, uFar, uSheen, uHazeStart, uSunGlow, uReflect;
   uniform vec3  uZenith;
   ${SKY_GLSL}
   uniform float uFoamDensity, uTranslucency, uAeration, uRelief, uTroughBias, uWarmth;
@@ -218,7 +218,10 @@ const FRAG = /* glsl */`
     // Reflection direction, so the sky's own gradient varies with slope rather
     // than being a constant overhead colour.
     vec3 R = reflect(-V, N);
-    vec3 col = mix(body, skyColour(R), fres);
+    // At a shallow angle almost all of what you see is reflected sky, which is
+    // correct and also why the sea washes out and the wake stops reading. This
+    // scales how mirror-like the water is, so that can be dialled back.
+    vec3 col = mix(body, skyColour(R), fres * uReflect);
 
     // Seen from overhead the surface is near normal incidence, where Fresnel is
     // about 2% and hardly varies -- so waves would be invisible on reflection
@@ -235,8 +238,17 @@ const FRAG = /* glsl */`
     // is nowhere near the mirror direction, while a face tilted toward the sun
     // is exactly in it. That is sun glitter, and it separates crests from calm
     // water far better than a broad lobe, which mostly just lifts everything.
-    col += uSky * pow(ndh, 70.0) * uSpecular * lod;
-    col += uSky * pow(ndh, 26.0) * uSheen * lod;
+    // Specular is a REFLECTION, so it obeys Fresnel like the sky term does.
+    // Added unweighted it lit the water at every angle, and from a low chase
+    // view that washed the whole sea to a pale grey the wake could not be seen
+    // against. Not driven all the way to Fresnel, though: glitter off wave
+    // facets is genuinely visible from overhead, where Fresnel is ~2%.
+    // Faded at the rim along with the waves: the far sea beyond has no
+    // specular at all, so carrying it to the plane's edge leaves a step in
+    // brightness exactly on the join.
+    float specW = mix(0.30, 1.0, fres) * lod * planeFade(vWorld.xz);
+    col += uSky * pow(ndh, 70.0) * uSpecular * specW;
+    col += uSky * pow(ndh, 26.0) * uSheen * specW;
     col += body * max(dot(N, L), 0.0) * 0.25;
 
     // ------------------------------------------------------------------ foam --
@@ -354,7 +366,7 @@ export class Ocean {
       uSky: { value: new THREE.Color() },
       uHorizon: { value: new THREE.Color() }, uZenith: { value: new THREE.Color() },
       uSunGlow: { value: 0.5 },
-      uSpecular: { value: 1 }, uExposure: { value: 1 }, uSheen: { value: 0 },
+      uSpecular: { value: 1 }, uExposure: { value: 1 }, uSheen: { value: 0 }, uReflect: { value: 1 },
       uFoamDensity: { value: 2 }, uTranslucency: { value: 0 }, uAeration: { value: 1 },
       uRelief: { value: 0 }, uTroughBias: { value: 0 }, uWarmth: { value: 0 },
       uLaceScale: { value: 1 }, uLaceAmt: { value: 0 }, uSoftness: { value: 0.3 },
@@ -407,11 +419,12 @@ export class Ocean {
     const tint = get('ocean.tint');
     u.uDeep.value.setRGB(lum * 0.55, lum * (0.9 + tint * 0.5), lum * (1.6 - tint * 0.35));
     u.uSky.value.setRGB(0.42, 0.55, 0.72);
-    u.uHorizon.value.setRGB(0.34, 0.44, 0.56);
+    u.uHorizon.value.setRGB(0.26, 0.35, 0.46);
     u.uZenith.value.setRGB(0.09, 0.20, 0.42);
     u.uSunGlow.value = get('ocean.sunGlow');
     u.uSpecular.value = get('ocean.specular');
     u.uSheen.value = get('ocean.sheen');
+    u.uReflect.value = get('ocean.reflectivity');
     u.uHazeStart.value = get('ocean.hazeStart');
     u.uExposure.value = get('ocean.exposure');
     u.uFoamDensity.value = get('foamMix.density');

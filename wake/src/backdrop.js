@@ -19,7 +19,7 @@ import { SKY_GLSL } from './sky.js';
 
 const SHARED = /* glsl */`
   uniform vec3  uDeep, uSky, uHorizon, uZenith, uSunDir;
-  uniform float uExposure, uHazeStart, uHazeEnd, uSunGlow;
+  uniform float uExposure, uHazeStart, uHazeEnd, uSunGlow, uReflect;
 
   ${SKY_GLSL}
 `;
@@ -67,7 +67,11 @@ const SEA_FRAG = /* glsl */`
 
     float fres = mix(0.02, 1.0, pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 5.0));
     vec3 R = reflect(-V, N);
-    vec3 col = mix(uDeep, skyColour(R), fres);
+    vec3 col = mix(uDeep, skyColour(R), fres * uReflect);
+
+    // The detailed plane adds this; without it here the far sea sits about a
+    // fifth darker and the join between them shows as a rectangle on the water.
+    col += uDeep * max(dot(N, normalize(uSunDir)), 0.0) * 0.25;
 
     // Haze over kilometres, not hundreds of metres. Keyed too close, it turns
     // the whole sea into flat grey the moment the camera gains any altitude.
@@ -89,7 +93,7 @@ export class Backdrop {
       uExposure: { value: 1 },
       uHazeStart: { value: 1200 },
       uHazeEnd: { value: 14000 },
-      uSunGlow: { value: 1 },
+      uSunGlow: { value: 1 }, uReflect: { value: 1 },
       uEye: { value: new THREE.Vector3() },
     };
 
@@ -126,12 +130,13 @@ export class Backdrop {
     const tint = get('ocean.tint');
     u.uDeep.value.setRGB(lum * 0.55, lum * (0.9 + tint * 0.5), lum * (1.6 - tint * 0.35));
     u.uSky.value.setRGB(0.42, 0.55, 0.72);
-    u.uHorizon.value.setRGB(0.34, 0.44, 0.56);
+    u.uHorizon.value.setRGB(0.26, 0.35, 0.46);
     u.uZenith.value.setRGB(0.09, 0.20, 0.42);
     u.uExposure.value = get('ocean.exposure');
     u.uHazeStart.value = get('ocean.hazeStart');
     u.uHazeEnd.value = get('ocean.hazeStart') * 9.0;
     u.uSunGlow.value = get('ocean.sunGlow');
+    u.uReflect.value = get('ocean.reflectivity');
 
     this.sky.position.copy(camera.position);
     this.sky.scale.setScalar(Math.max(camera.far * 0.4, 500));
