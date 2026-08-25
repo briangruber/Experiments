@@ -41,7 +41,8 @@ Read from the reference footage, and each piece is a separate slider group:
 | **Spray arms** | The V. Springs from the **bow**, not the transom. Hard bright outer rim, soft combed inner edge — that asymmetry is most of the read. |
 | **Feathering** | Periodic crests leaning back off each arm, lengthening with age. Confined to the arm's inner edge; the outer face stays continuous. |
 | **Prop wash** | Turbulent water off the transom. Brightest foam in the wake, shortest-lived. |
-| **Inside the V** | Flattened water carrying the transverse wave train. |
+| **Inside the V** | Flattened water. |
+| **Kelvin waves** | The gravity waves. Displacement only, so they roll on long after the foam has died, and they reach the full 19.47° wedge — wider than the spray arms. |
 | **Subsurface bubbles** | Air the prop drags *under* the surface. Not foam — see below. |
 | **Foam motion** | The lace surges with the swell, shears in the churn, and its cells burst and re-form — all as local motion. |
 | **Foam texture** | A reticulated bubble raft (noise contours) + flow-aligned streaks. |
@@ -49,6 +50,29 @@ Read from the reference footage, and each piece is a separate slider group:
 
 Foam noise is sampled in **world space**, so bubbles stay locked to the water
 instead of swimming along with the boat.
+
+### The Kelvin system
+
+Solved rather than faked. A wave train at angle ψ to the track has
+`k = g/(V² cos²ψ)` and reaches the point (u astern, v abeam) with phase
+`k(u cos ψ + v sin ψ)`. Stationary phase in ψ reduces to
+
+    2v·T² + u·T + v = 0,     T = tan ψ
+
+whose two roots are the divergent and transverse systems. Real roots require
+`u² ≥ 8v²` — the 19.47° wedge, arriving out of the algebra rather than being
+drawn on. The two roots merge at the wedge edge, which is why the cusp line is
+the brightest feature of a real wake.
+
+Because these are displacement and carry no foam, they need their own life:
+multiplying them by the foam's decay (which is what happened first) kills them
+exactly where they are supposed to take over.
+
+Two resolution limits bite here. The divergent system runs to arbitrarily short
+waves as ψ → 90°, so anything shorter than the field texture can carry is faded
+out at its own local wavelength, or it becomes moiré. And at 1024 over a 340 m
+window (~0.33 m/texel) the cusp lines visibly stair-step; 2048 fixes it, so
+desktop gets the larger field and phones keep the smaller one.
 
 ### Above and below the surface
 

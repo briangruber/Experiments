@@ -13,6 +13,7 @@ const GROUP_TITLES = {
   feather: 'Feathering / comb',
   wash: 'Prop wash',
   inner: 'Inside the V',
+  kelvin: 'Kelvin waves',
   foamLook: 'Foam texture',
   bubbles: 'Subsurface bubbles',
   foamMotion: 'Foam motion',

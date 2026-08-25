@@ -17,7 +17,11 @@ scene.add(sun);
 
 const camera = new THREE.PerspectiveCamera(38, 1, 0.5, 3000);
 
-const wake = new WakeField(renderer, 1024);
+// The Kelvin waves are the finest thing the field has to carry, and at 1024
+// over a 340 m window (~0.33 m/texel) their cusp lines visibly stair-step.
+// 2048 fixes it, at 4x the memory -- so phones keep the smaller one.
+const narrow = matchMedia('(max-width: 720px)').matches;
+const wake = new WakeField(renderer, narrow ? 1024 : 2048);
 const ocean = new Ocean(wake, 520, 560);
 scene.add(ocean.mesh);
 
@@ -53,7 +57,6 @@ for (const b of hud.querySelectorAll('[data-zoom]'))
   b.addEventListener('click', () => zoomBy(b.dataset.zoom === 'in' ? 0.72 : 1.38));
 
 // On a phone the rail covers most of the screen, so the canvas gets it first.
-const narrow = matchMedia('(max-width: 720px)').matches;
 if (narrow) document.body.classList.add('rail-closed');
 
 const railToggle = document.getElementById('rail-toggle');

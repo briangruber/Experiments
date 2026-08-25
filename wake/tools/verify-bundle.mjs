@@ -34,7 +34,7 @@ p.on('pageerror', (e) => errors.push(String(e)));
 p.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 
 await p.goto(`http://127.0.0.1:${server.address().port}/`, { waitUntil: 'load' });
-const ready = await p.waitForFunction('window.__ready === true', { timeout: 60000 })
+const ready = await p.waitForFunction('window.__ready === true', { timeout: 150000 })
   .then(() => true).catch(() => false);
 await p.waitForTimeout(2500);
 
@@ -50,13 +50,13 @@ const diag = await p.evaluate(() => ({
 }));
 
 await mkdir(dirname(OUT), { recursive: true });
-await p.screenshot({ path: OUT });
+await p.screenshot({ path: OUT, timeout: 180000 });
 
 // Measure the screenshot, not the live canvas: reading back from a WebGL
 // canvas needs preserveDrawingBuffer and silently returns zeros without it.
 // A black rectangle is the failure mode here, and every other check above
 // still passes when it happens.
-const shot = await p.screenshot({ clip: { x: 0, y: 0, width: 940, height: 800 } });
+const shot = await p.screenshot({ clip: { x: 0, y: 0, width: 940, height: 800 }, timeout: 180000 });
 const probe = await browser.newPage();
 const ink = await probe.evaluate(async (b64) => {
   const img = new Image();

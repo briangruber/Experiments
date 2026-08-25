@@ -56,12 +56,26 @@ export const PARAMS = {
 
   // Water between the arms: flattened, with the transverse (following) wave
   // train arcing across it.
+  // Water between the arms: flattened, and no longer carrying its own ad-hoc
+  // ripple -- the Kelvin system below does that properly.
   inner: {
-    transAmp:     { v: 0.16, min: 0,   max: 1.2, step: 0.01, label: 'Transverse amp (m)' },
-    transLen:     { v: 11.0, min: 2,   max: 80,  step: 0.5,  label: 'Transverse λ (m)' },
-    transDecay:   { v: 48.0, min: 3,   max: 250, step: 1,    label: 'Transverse decay (m)' },
     flatten:      { v: 0.7,  min: 0,   max: 1,   step: 0.01, label: 'Swell flattening' },
   },
+
+  // The gravity waves. These are displacement only -- no foam -- so they carry
+  // on rolling outward long after the white churn has died, and they reach the
+  // full 19.47 degree wedge, which is wider than the spray arms.
+  kelvin: {
+    amp:          { v: 0.38, min: 0,   max: 1.5, step: 0.005,label: 'Wave height (m)' },
+    waveScale:    { v: 0.26, min: 0.1, max: 3,   step: 0.01, label: 'Wavelength scale' },
+    divergent:    { v: 1.00, min: 0,   max: 2,   step: 0.01, label: 'Divergent train' },
+    transverse:   { v: 0.45, min: 0,   max: 2,   step: 0.01, label: 'Transverse train' },
+    cusp:         { v: 1.40, min: 0,   max: 4,   step: 0.01, label: 'Cusp emphasis' },
+    decay:        { v: 150.0,min: 10,  max: 800, step: 5,    label: 'Amplitude decay (m)' },
+    life:         { v: 120.0,min: 5,   max: 300, step: 1,    label: 'Wave life (s)' },
+    minWave:      { v: 3.60, min: 0.5, max: 20,  step: 0.1,  label: 'Shortest wave (m)' },
+  },
+
 
   // Foam appearance: how the bubble field breaks up and dies.
   foamLook: {
@@ -75,6 +89,7 @@ export const PARAMS = {
     coarsen:      { v: 0.45, min: 0,   max: 1,   step: 0.01, label: 'Cells coarsen with age' },
     softness:     { v: 0.42, min: 0.02,max: 1,   step: 0.01, label: 'Edge softness' },
   },
+
 
   // Air the prop drags UNDER the surface. Not foam: these bubbles scatter light
   // back up through water, so they tint it turquoise rather than whitening it,
@@ -119,13 +134,14 @@ export const PARAMS = {
   },
 
   ocean: {
-    swellAmp:     { v: 0.22, min: 0,   max: 2,   step: 0.01, label: 'Swell amp (m)' },
+    swellAmp:     { v: 0.15, min: 0,   max: 2,   step: 0.01, label: 'Swell amp (m)' },
     swellLen:     { v: 26.0, min: 3,   max: 120, step: 0.5,  label: 'Swell λ (m)' },
-    chopAmp:      { v: 0.07, min: 0,   max: 0.6, step: 0.005,label: 'Chop amp (m)' },
+    chopAmp:      { v: 0.016, min: 0,   max: 0.6, step: 0.005,label: 'Chop amp (m)' },
     deepColor:    { v: 0.021,min: 0,   max: 0.4, step: 0.005,label: 'Water lightness' },
     tint:         { v: 0.42, min: 0,   max: 1,   step: 0.01, label: 'Blue / teal' },
     sunElev:      { v: 52.0, min: 5,   max: 88,  step: 1,    label: 'Sun elevation (°)' },
     sunAzim:      { v: 140.0,min: 0,   max: 360, step: 1,    label: 'Sun azimuth (°)' },
+    sheen:        { v: 0.10, min: 0,   max: 1.5, step: 0.01, label: 'Wave sheen' },
     specular:     { v: 0.55, min: 0,   max: 2,   step: 0.01, label: 'Specular' },
     exposure:     { v: 1.0,  min: 0.2, max: 3,   step: 0.01, label: 'Exposure' },
   },
@@ -151,7 +167,11 @@ export const flat = () => {
 
 export const get = (path) => {
   const [g, k] = path.split('.');
-  return PARAMS[g][k].v;
+  const entry = PARAMS[g]?.[k];
+  // A missing parameter otherwise surfaces as "cannot read 'v' of undefined"
+  // somewhere in a shader uniform sync, a long way from the actual cause.
+  if (!entry) throw new Error(`unknown parameter: ${path}`);
+  return entry.v;
 };
 
 export const set = (path, value) => {

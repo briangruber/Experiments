@@ -21,7 +21,7 @@ import { get } from './params.js';
 import { NOISE_GLSL } from './noise.js';
 
 const MAX_SAMPLES = 640;   // path history points
-const LAT_SEG = 20;        // lateral divisions of the ribbon
+const LAT_SEG = 48;        // lateral divisions of the ribbon
 const STEP = 1.4;          // metres between path samples
 
 
@@ -51,7 +51,8 @@ const RIBBON_FRAG = /* glsl */`
   uniform float uRim, uRimW, uNearBoost, uNearLen, uCarve;
   uniform float uFeatSpace, uFeatGrow, uFeatLean, uFeatDepth, uFeatJitter, uFeatSharp;
   uniform float uWashW, uWashWGrow, uWashFoam, uWashLen, uWashTail, uWashDepth;
-  uniform float uTransAmp, uTransLen, uTransDecay, uFlatten;
+  uniform float uFlatten;
+  uniform float uKelvinK, uKelvinAmp, uKelvinDiv, uKelvinTrans, uKelvinCusp, uKelvinDecay, uKelvinLife, uKelvinMin;
   uniform float uFoamScale, uFoamContrast, uBreakup, uFoamLife, uDissolve;
   uniform float uLace, uLaceAmt, uSoftness;
   uniform float uBubPlume, uBubW, uBubSpread, uBubLen, uBubArms, uBubLife, uBubMottle;
@@ -126,11 +127,55 @@ const RIBBON_FRAG = /* glsl */`
     float washH   = -astern * wg * uWashDepth * exp(-arc / (uWashLen * 1.6));
 
     // ------------------------------------------------------- inside the V ----
-    // Flattened water carrying the transverse (following) wave train. Crests
-    // bow backwards towards the arms rather than running straight across.
     float insideV = 1.0 - smoothstep(armC * 0.70, armC * 1.02, ad);
-    float tPhase = (arc + ad * ad * 0.016) / max(uTransLen, 0.5);
-    float trans = sin(6.28318 * tPhase) * exp(-arc / uTransDecay) * uTransAmp * insideV;
+
+    // -------------------------------------------------------- Kelvin waves --
+    // Deep-water gravity waves from a moving source, by stationary phase.
+    //
+    // A wave train travelling at angle psi to the track has k = g/(V^2 cos^2
+    // psi) and reaches the point (u astern, v abeam) with phase
+    // k*(u cos psi + v sin psi). Stationary phase in psi reduces to
+    //
+    //     2 v T^2 + u T + v = 0,    T = tan(psi)
+    //
+    // whose two roots are the divergent and transverse systems. Real roots
+    // need u^2 >= 8 v^2, i.e. |v/u| <= 1/(2*sqrt2) -- the 19.47 degree Kelvin
+    // wedge, arriving out of the maths rather than being drawn on. That wedge
+    // is WIDER than the spray arms, and being displacement rather than foam
+    // these waves keep rolling long after the white has gone.
+    float kelvinH = 0.0;
+    float u = arc;
+    float v = max(ad, 0.4);
+    float disc = u * u - 8.0 * v * v;
+    if (disc > 0.0 && u > 1.0) {
+      float sq = sqrt(disc);
+      float Td = (-u - sq) / (4.0 * v);         // divergent root
+      float Tt = (-u + sq) / (4.0 * v);         // transverse root
+      float sd = sqrt(1.0 + Td * Td);
+      float st = sqrt(1.0 + Tt * Tt);
+      float pd = uKelvinK * sd * (u + v * Td);
+      float pt = uKelvinK * st * (u + v * Tt);
+
+      // The divergent system runs to arbitrarily short waves as psi approaches
+      // 90 degrees. Anything shorter than the field texture can carry becomes
+      // moire rather than wave, so it is faded out at its own local wavelength.
+      float ld = 6.28318 / max(uKelvinK * sd, 1e-4);
+      float lt = 6.28318 / max(uKelvinK * st, 1e-4);
+      float fd = smoothstep(uKelvinMin * 0.6, uKelvinMin * 1.8, ld);
+      float ft = smoothstep(uKelvinMin * 0.6, uKelvinMin * 1.8, lt);
+
+      // Amplitude thins as the energy spreads around a longer wavefront.
+      float R = sqrt(u * u + v * v);
+      float fall = 1.0 / sqrt(1.0 + R / max(uKelvinDecay, 1.0));
+
+      // The two systems merge at the wedge edge and the amplitude piles up
+      // there -- the cusp line, the brightest feature of a real wake.
+      float cusp = 1.0 + uKelvinCusp * exp(-6.0 * disc / (u * u + 1.0));
+
+      float kAge = pow(1.0 - clamp(age / max(uKelvinLife, 0.01), 0.0, 1.0), 1.1);
+      kelvinH = (cos(pd) * uKelvinDiv * fd + cos(pt) * uKelvinTrans * ft)
+              * fall * cusp * kAge * uKelvinAmp;
+    }
 
     // ------------------------------------------------------------ foam look --
     // Two textures, both locked to the water rather than to the boat:
@@ -212,7 +257,10 @@ const RIBBON_FRAG = /* glsl */`
     float tailFade = 1.0 - smoothstep(uMaxArc - min(70.0, uMaxArc * 0.3), uMaxArc, arc);
     foam *= tailFade;
 
-    float height  = (armH + washH + trans) * mix(0.35, 1.0, alive) * tailFade;
+    // Foam decay applies to the foam-borne crests only. The gravity waves carry
+    // their own, much longer, life -- outliving the white is the whole point of
+    // them.
+    float height  = (armH + washH) * mix(0.35, 1.0, alive) * tailFade + kelvinH * tailFade;
     float flatten = clamp((insideV + wg) * uFlatten * alive, 0.0, 1.0) * tailFade;
 
     gl_FragColor = vec4(foam * edge, height * edge, flatten * edge, max(bub, 0.0) * tailFade * edge);
@@ -287,7 +335,10 @@ export class WakeField {
       uFeatDepth: { value: 0 }, uFeatJitter: { value: 0 }, uFeatSharp: { value: 1 },
       uWashW: { value: 1 }, uWashWGrow: { value: 0 }, uWashFoam: { value: 1 },
       uWashLen: { value: 1 }, uWashTail: { value: 0 }, uWashDepth: { value: 0 },
-      uTransAmp: { value: 0 }, uTransLen: { value: 1 }, uTransDecay: { value: 1 }, uFlatten: { value: 0 },
+      uFlatten: { value: 0 },
+      uKelvinK: { value: 0.05 }, uKelvinAmp: { value: 0 }, uKelvinDiv: { value: 1 },
+      uKelvinTrans: { value: 0.5 }, uKelvinCusp: { value: 1 }, uKelvinDecay: { value: 100 },
+      uKelvinLife: { value: 100 }, uKelvinMin: { value: 3 },
       uFoamScale: { value: 1 }, uFoamContrast: { value: 1 }, uBreakup: { value: 0 },
       uFoamLife: { value: 1 }, uDissolve: { value: 1 },
       uLace: { value: 1 }, uLaceAmt: { value: 0 }, uSoftness: { value: 0.2 },
@@ -360,8 +411,15 @@ export class WakeField {
       tx /= tl; tz /= tl;
       const nx = -tz, nz = tx;
 
-      // Half-width: enough to hold the arms plus their falloff, with margin.
-      const halfW = beam * 0.5 + arc * armTan + (w0 + arc * wg) * 3.2 + 1.5;
+      // Half-width: enough for the arms plus their falloff -- and for the
+      // Kelvin wedge, which is wider than the arms at 19.47 degrees. Clipping
+      // the ribbon narrower than the wedge would cut the divergent waves off
+      // along a straight line.
+      const KELVIN_TAN = 0.35355;   // tan(19.47 degrees) = 1 / (2 * sqrt 2)
+      const halfW = Math.max(
+        beam * 0.5 + arc * armTan + (w0 + arc * wg) * 3.2 + 1.5,
+        beam * 0.5 + arc * KELVIN_TAN * 1.06 + 2.0,
+      );
       const age = now - p.t;
 
       for (let l = 0; l <= LAT_SEG; l++) {
@@ -427,10 +485,18 @@ export class WakeField {
     u.uWashLen.value = get('wash.length');
     u.uWashTail.value = get('wash.tailFoam');
     u.uWashDepth.value = get('wash.depth');
-    u.uTransAmp.value = get('inner.transAmp');
-    u.uTransLen.value = get('inner.transLen');
-    u.uTransDecay.value = get('inner.transDecay');
     u.uFlatten.value = get('inner.flatten');
+    // k0 = g / V^2 is the actual deep-water wavenumber for this speed; the
+    // scale slider stretches it because the hull size here is a stand-in.
+    const V = Math.max(get('boat.speed'), 2.0);
+    u.uKelvinK.value = 9.81 / (V * V) / Math.max(get('kelvin.waveScale'), 0.05);
+    u.uKelvinAmp.value = get('kelvin.amp');
+    u.uKelvinDiv.value = get('kelvin.divergent');
+    u.uKelvinTrans.value = get('kelvin.transverse');
+    u.uKelvinCusp.value = get('kelvin.cusp');
+    u.uKelvinDecay.value = get('kelvin.decay');
+    u.uKelvinLife.value = get('kelvin.life');
+    u.uKelvinMin.value = get('kelvin.minWave');
     u.uFoamScale.value = get('foamLook.scale') * 0.35;
     u.uFoamContrast.value = get('foamLook.contrast');
     u.uBreakup.value = get('foamLook.breakup');

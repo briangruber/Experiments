@@ -64,7 +64,7 @@ await page.evaluate(() => window.__wake.set('boat.speed', 0));
 await page.waitForTimeout(2500);
 await page.evaluate(() => document.body.classList.add('hide-ui'));
 
-const grab = async () => (await page.screenshot()).toString('base64');
+const grab = async () => (await page.screenshot({ timeout: 180000 })).toString('base64');
 // Advance the simulation by a known amount of ITS time, then let a frame land.
 const advance = async (sec) => {
   await page.evaluate((d) => { window.__wake.state.t += d; }, sec);

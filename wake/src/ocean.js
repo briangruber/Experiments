@@ -45,17 +45,25 @@ const HEIGHT_GLSL = /* glsl */`
     // Each wave: (kx, kz, amplitude, phase).
     vec2 k1 = vec2( 0.86,  0.51) * k;   float a1 = uSwellAmp * lodS;
     vec2 k2 = vec2(-0.42,  1.13) * k;   float a2 = uSwellAmp * 0.55 * lodS;
-    vec2 k3 = vec2( 1.10,  0.70) * kc;  float a3 = uChopAmp * lod;
-    vec2 k4 = vec2(-0.60,  1.40) * kc;  float a4 = uChopAmp * 0.7 * lod;
+    // Four chop components, not two, on deliberately unrelated headings and
+    // incommensurate frequencies. Two crossed sines beat into a visible grid --
+    // which stayed hidden only while the sun was switched off.
+    vec2 k3 = vec2( 1.10,  0.70) * kc;         float a3 = uChopAmp * lod;
+    vec2 k4 = vec2(-0.60,  1.40) * kc * 1.31;  float a4 = uChopAmp * 0.72 * lod;
+    vec2 k5 = vec2( 0.24, -1.32) * kc * 0.79;  float a5 = uChopAmp * 0.62 * lod;
+    vec2 k6 = vec2(-1.36, -0.31) * kc * 1.73;  float a6 = uChopAmp * 0.44 * lod;
 
     float p1 = dot(p, k1) - uTime * 0.55;
     float p2 = dot(p, k2) - uTime * 0.79;
     float p3 = dot(p, k3) - uTime * 2.40;
     float p4 = dot(p, k4) - uTime * 3.10;
+    float p5 = dot(p, k5) - uTime * 2.07;
+    float p6 = dot(p, k6) - uTime * 3.83;
 
-    float h = a1 * sin(p1) + a2 * sin(p2) + a3 * sin(p3) + a4 * sin(p4);
-    vec2 g = a1 * cos(p1) * k1 + a2 * cos(p2) * k2
-           + a3 * cos(p3) * k3 + a4 * cos(p4) * k4;
+    float h = a1 * sin(p1) + a2 * sin(p2) + a3 * sin(p3)
+            + a4 * sin(p4) + a5 * sin(p5) + a6 * sin(p6);
+    vec2 g = a1 * cos(p1) * k1 + a2 * cos(p2) * k2 + a3 * cos(p3) * k3
+           + a4 * cos(p4) * k4 + a5 * cos(p5) * k5 + a6 * cos(p6) * k6;
     return vec3(h, g);
   }
 
@@ -86,7 +94,7 @@ const FRAG = /* glsl */`
   ${HEIGHT_GLSL}
   ${NOISE_GLSL}
   uniform vec3  uSunDir, uDeep, uSky, uHorizon;
-  uniform float uSpecular, uExposure, uFar;
+  uniform float uSpecular, uExposure, uFar, uSheen;
   uniform float uFoamDensity, uTranslucency, uAeration, uRelief, uTroughBias, uWarmth;
   uniform float uLaceScale, uLaceAmt, uSoftness;
   uniform float uBubBright, uMilk;
@@ -161,9 +169,30 @@ const FRAG = /* glsl */`
     vec3 bubCol = mix(uBubCol, vec3(0.66, 0.80, 0.82), uMilk * scat);
     vec3 body = mix(uDeep, bubCol, scat);
 
-    vec3 col = mix(body, sky, fres);
-    col += uSky * pow(max(dot(N, H), 0.0), 70.0) * uSpecular
-         * (1.0 - smoothstep(0.05, 0.30, px));
+    // Reflection direction, so the sky's own gradient varies with slope rather
+    // than being a constant overhead colour.
+    vec3 R = reflect(-V, N);
+    vec3 skyR = mix(uHorizon, uSky, pow(clamp(R.y, 0.0, 1.0), 0.55));
+
+    vec3 col = mix(body, skyR, fres);
+
+    // Seen from overhead the surface is near normal incidence, where Fresnel is
+    // about 2% and hardly varies -- so waves would be invisible on reflection
+    // alone. What actually shows them in aerial footage is the sun: a broad
+    // sheen off faces tilted toward it, with a tight glint riding on top.
+    float ndh = max(dot(N, H), 0.0);
+    // Keyed off the RAW screen footprint, not the geometry-floored one. px is
+    // floored at the vertex spacing (~0.9 m), which sits far above any sensible
+    // cutoff here -- feeding it in switches the sun off completely, at every
+    // zoom, and leaves the water matte.
+    float lod = 1.0 - smoothstep(0.25, 1.10, pxRaw);
+    // The narrow lobe is the mechanism, and it works precisely because it is
+    // narrow: with the sun at ~50 degrees and the camera overhead, FLAT water
+    // is nowhere near the mirror direction, while a face tilted toward the sun
+    // is exactly in it. That is sun glitter, and it separates crests from calm
+    // water far better than a broad lobe, which mostly just lifts everything.
+    col += uSky * pow(ndh, 70.0) * uSpecular * lod;
+    col += uSky * pow(ndh, 26.0) * uSheen * lod;
     col += body * max(dot(N, L), 0.0) * 0.25;
 
     // ------------------------------------------------------------------ foam --
@@ -276,7 +305,7 @@ export class Ocean {
       uDeep: { value: new THREE.Color() },
       uSky: { value: new THREE.Color() },
       uHorizon: { value: new THREE.Color() },
-      uSpecular: { value: 1 }, uExposure: { value: 1 },
+      uSpecular: { value: 1 }, uExposure: { value: 1 }, uSheen: { value: 0 },
       uFoamDensity: { value: 2 }, uTranslucency: { value: 0 }, uAeration: { value: 1 },
       uRelief: { value: 0 }, uTroughBias: { value: 0 }, uWarmth: { value: 0 },
       uLaceScale: { value: 1 }, uLaceAmt: { value: 0 }, uSoftness: { value: 0.3 },
@@ -330,6 +359,7 @@ export class Ocean {
     u.uSky.value.setRGB(0.42, 0.55, 0.72);
     u.uHorizon.value.setRGB(0.30, 0.40, 0.53);
     u.uSpecular.value = get('ocean.specular');
+    u.uSheen.value = get('ocean.sheen');
     u.uExposure.value = get('ocean.exposure');
     u.uFoamDensity.value = get('foamMix.density');
     u.uTranslucency.value = get('foamMix.translucency');
