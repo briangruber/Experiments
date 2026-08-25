@@ -120,6 +120,13 @@ const RIBBON_FRAG = /* glsl */`
     float armG = exp(-xb * xb * (x < 0.0 ? 1.7 : 3.4));
     float armFade = 1.0 - smoothstep(uFadeStart, uFadeStart + uFadeLen, arc);
 
+    // The ribbon simply ends at the bow. Without a ramp, height and foam step
+    // from nothing to full across that one leading edge, and the smoothed
+    // texture lookup spreads the step into a dome standing ahead of the stem.
+    // It also stops both arm crests piling into a single spike at arc = 0,
+    // where the two of them meet on the centreline.
+    float nose = smoothstep(0.0, uHullLen * 0.30, arc);
+
     // Feathering: periodic crests leaning back off the arm axis, stretching out
     // as the wake ages.
     float sp = max(uFeatSpace + arc * uFeatGrow, 0.1);
@@ -141,8 +148,8 @@ const RIBBON_FRAG = /* glsl */`
     // structure only emerges once it has spread and started to die.
     float near = 1.0 + uNearBoost * exp(-arc / max(uNearLen, 1.0));
 
-    float armFoam = (armG * comb + rim) * uArmFoam * armFade * near * planing;
-    float armH    = (armG * mix(0.65, 1.0, comb) + rim * 0.5) * uArmHeight * armFade * planing;
+    float armFoam = (armG * comb + rim) * uArmFoam * armFade * near * planing * nose;
+    float armH    = (armG * mix(0.65, 1.0, comb) + rim * 0.5) * uArmHeight * armFade * planing * nose;
 
     // ------------------------------------------------------------ prop wash --
     // Turbulent water dragged off the transom: brightest foam in the wake and
@@ -385,7 +392,7 @@ const RIBBON_FRAG = /* glsl */`
     // Foam decay applies to the foam-borne crests only. The gravity waves carry
     // their own, much longer, life -- outliving the white is the whole point of
     // them.
-    float height  = (armH + washH) * mix(0.35, 1.0, alive) * tailFade + kelvinH * tailFade;
+    float height  = ((armH + washH) * mix(0.35, 1.0, alive) + kelvinH * nose) * tailFade;
     float bubOut = max(bub, 0.0) * tailFade;
 
     gl_FragColor = vec4(foam * edge,

@@ -55,24 +55,88 @@ export function buildUI(root, hooks = {}) {
   const bar = document.createElement('div');
   bar.className = 'bar';
 
-  const copy = document.createElement('button');
-  copy.textContent = 'Copy params';
-  copy.onclick = async () => {
+  // Copying out of an embedded artifact is harder than it looks: the async
+  // clipboard API is blocked in a cross-origin iframe, and falling back to
+  // console.log is useless when there is no console to reach. So: try the
+  // modern API, then the old execCommand path (which is a synchronous
+  // user-gesture copy and often survives where the async one does not), and
+  // failing both, show the text selected and ready for a manual copy.
+  const copyText = async (txt) => {
+    try {
+      await navigator.clipboard.writeText(txt);
+      return 'clipboard';
+    } catch { /* blocked in this frame — fall through */ }
+
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = txt;
+      ta.setAttribute('readonly', '');
+      ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none';
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, txt.length);
+      const ok = document.execCommand('copy');
+      ta.remove();
+      if (ok) return 'execCommand';
+    } catch { /* fall through */ }
+
+    return null;
+  };
+
+  const showForManualCopy = (txt) => {
+    const back = document.createElement('div');
+    back.className = 'sheet-back';
+    const box = document.createElement('div');
+    box.className = 'sheet';
+    box.innerHTML = '<p>Copying is blocked in this frame. The text is selected — '
+                  + 'press <b>⌘C</b> or <b>Ctrl+C</b>.</p>';
+    const ta = document.createElement('textarea');
+    ta.value = txt;
+    ta.spellcheck = false;
+    const close = document.createElement('button');
+    close.textContent = 'Done';
+    box.append(ta, close);
+    back.appendChild(box);
+    document.body.appendChild(back);
+    ta.focus();
+    ta.select();
+    const dismiss = () => back.remove();
+    close.onclick = dismiss;
+    back.onclick = (e) => { if (e.target === back) dismiss(); };
+    addEventListener('keydown', function esc(e) {
+      if (e.key === 'Escape') { dismiss(); removeEventListener('keydown', esc); }
+    });
+  };
+
+  const asJSON = () => {
     const out = {};
     for (const [g, entries] of Object.entries(PARAMS)) {
       out[g] = {};
       for (const [k, p] of Object.entries(entries)) out[g][k] = +(+p.v).toFixed(4);
     }
-    const txt = JSON.stringify(out, null, 2);
-    try { await navigator.clipboard.writeText(txt); copy.textContent = 'Copied ✓'; }
-    catch { console.log(txt); copy.textContent = 'See console'; }
-    setTimeout(() => (copy.textContent = 'Copy params'), 1400);
+    return JSON.stringify(out, null, 2);
+  };
+
+  const copy = document.createElement('button');
+  copy.textContent = 'Copy params';
+  copy.onclick = async () => {
+    const txt = asJSON();
+    const how = await copyText(txt);
+    if (how) {
+      copy.textContent = 'Copied ✓';
+      setTimeout(() => (copy.textContent = 'Copy params'), 1400);
+    } else {
+      showForManualCopy(txt);
+    }
   };
 
   const paste = document.createElement('button');
   paste.textContent = 'Paste params';
   paste.onclick = () => {
-    const txt = prompt('Paste params JSON');
+    // prompt() is blocked in some embedded frames; fall back to the same sheet.
+    let txt = null;
+    try { txt = prompt('Paste params JSON'); } catch { /* blocked */ }
+    if (txt === null) { pasteSheet(); return; }
     if (!txt) return;
     try {
       const o = JSON.parse(txt);
@@ -89,6 +153,33 @@ export function buildUI(root, hooks = {}) {
     for (const r of rows) { r.p.v = r.defaults; r.input.value = r.p.v; r.show(); }
     hooks.onChange?.('*');
   };
+
+  function pasteSheet() {
+    const back = document.createElement('div');
+    back.className = 'sheet-back';
+    const box = document.createElement('div');
+    box.className = 'sheet';
+    box.innerHTML = '<p>Paste params JSON here, then apply.</p>';
+    const ta = document.createElement('textarea');
+    ta.spellcheck = false;
+    const apply = document.createElement('button');
+    apply.textContent = 'Apply';
+    apply.onclick = () => {
+      try {
+        const o = JSON.parse(ta.value);
+        for (const [g, entries] of Object.entries(o))
+          for (const [k, v] of Object.entries(entries)) set(`${g}.${k}`, v);
+        for (const r of rows) { r.input.value = r.p.v; r.show(); }
+        hooks.onChange?.('*');
+        back.remove();
+      } catch (e) { box.querySelector('p').textContent = 'Could not parse: ' + e.message; }
+    };
+    box.append(ta, apply);
+    back.appendChild(box);
+    document.body.appendChild(back);
+    ta.focus();
+    back.onclick = (e) => { if (e.target === back) back.remove(); };
+  }
 
   bar.append(copy, paste, reset);
   root.appendChild(bar);

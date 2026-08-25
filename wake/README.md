@@ -243,7 +243,14 @@ true screen footprint. Feeding the floored one to the lace blanks it entirely.
 ## Tuning loop
 
 Move sliders → **Copy params** → paste the JSON into a conversation. **Paste
-params** puts a state back. Everything is also settable by URL:
+params** puts a state back.
+
+Copying out of an embedded frame is harder than it looks: the async clipboard
+API is blocked cross-origin, and falling back to `console.log` is useless where
+there is no console to open. So it tries the modern API, then `execCommand`
+(a synchronous user-gesture copy, which often survives where the async one does
+not), and failing both shows the text selected and ready for ⌘C. Paste falls
+back the same way, since `prompt()` is blocked in some frames too. Everything is also settable by URL:
 `?arms.angle=18&boat.turnRate=6`.
 
 ## Headless captures
