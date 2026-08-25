@@ -17,6 +17,7 @@ const HEIGHT_GLSL = /* glsl */`
   uniform sampler2D uWake;
   uniform vec2  uWakeCenter;
   uniform float uWakeExtent;
+  uniform float uWakeTexels;
   uniform float uSwellAmp, uSwellLen, uChopAmp, uTime, uFlatten;
   uniform vec3  uEyePos;
   uniform float uVertexStep;
@@ -25,12 +26,24 @@ const HEIGHT_GLSL = /* glsl */`
 
   vec2 wakeUV(vec2 p){ return (p - uWakeCenter) / uWakeExtent * vec2(1.0, -1.0) + 0.5; }
 
+  // Smoothed bilinear. Plain bilinear is only C0 -- its iso-contours run along
+  // texel diagonals, and the foam threshold turns that into a sawtooth along
+  // every edge as soon as a texel covers more than a pixel or two. Easing the
+  // fractional part before the lookup makes the interpolation C1 for the cost
+  // of a few instructions and one unchanged fetch.
+  vec2 smoothUV(vec2 uv){
+    vec2 t = uv * uWakeTexels - 0.5;
+    vec2 i = floor(t), f = fract(t);
+    f = f * f * (3.0 - 2.0 * f);
+    return (i + 0.5 + f) / uWakeTexels;
+  }
+
   vec4 wakeAt(vec2 p){
     vec2 uv = wakeUV(p);
     if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return vec4(0.0);
     // Feather the field edge so the wake doesn't end on a straight cut.
     vec2 e = smoothstep(vec2(0.0), vec2(0.03), uv) * (1.0 - smoothstep(vec2(0.97), vec2(1.0), uv));
-    return texture2D(uWake, uv) * (e.x * e.y);
+    return texture2D(uWake, smoothUV(uv)) * (e.x * e.y);
   }
 
   // px: the world-space width of one screen pixel here. Any wave shorter than a
@@ -356,6 +369,7 @@ export class Ocean {
       uWake: { value: wakeField.rt.texture },
       uWakeCenter: { value: wakeField.center },
       uWakeExtent: { value: wakeField.extent },
+      uWakeTexels: { value: wakeField.rt.width },
       uSwellAmp: { value: 0 }, uSwellLen: { value: 20 }, uChopAmp: { value: 0 },
       uTime: { value: 0 },
       uEyePos: { value: new THREE.Vector3() },
@@ -390,16 +404,23 @@ export class Ocean {
   }
 
   /** Retessellate. The vertex spacing is also the level-of-detail floor, since
-   *  the surface cannot show detail finer than its own geometry. */
-  setDetail(seg) {
+   *  the surface cannot show detail finer than its own geometry.
+   *
+   *  `size` shrinks when the camera comes close: at 520 m across, the vertices
+   *  sit 0.93 m apart, which is nearly sixty pixels in a close-up and terraces
+   *  the whole wake. Quantised, so this rebuilds a handful of times rather than
+   *  every frame, and the far water covers whatever the smaller plane leaves. */
+  setDetail(seg, size = this.size) {
     seg = Math.max(32, Math.round(seg));
-    if (seg === this.seg) return;
+    if (seg === this.seg && size === this.size) return;
     this.seg = seg;
+    this.size = size;
+    this.uniforms.uFar.value = size * 0.55;
     this.mesh.geometry?.dispose();
-    const g = new THREE.PlaneGeometry(this.size, this.size, seg, seg);
+    const g = new THREE.PlaneGeometry(size, size, seg, seg);
     g.rotateX(-Math.PI / 2);
     this.mesh.geometry = g;
-    this.uniforms.uVertexStep.value = this.size / seg;
+    this.uniforms.uVertexStep.value = size / seg;
   }
 
   update(t, eye, focusX, focusZ, wakeField) {
@@ -409,6 +430,7 @@ export class Ocean {
     u.uSwellLen.value = get('ocean.swellLen');
     u.uChopAmp.value = get('ocean.chopAmp');
     u.uWakeExtent.value = wakeField.extent;
+    u.uWakeTexels.value = wakeField.rt.width;
     u.uEyePos.value.copy(eye);
 
     const el = get('ocean.sunElev') * Math.PI / 180;

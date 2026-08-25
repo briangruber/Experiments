@@ -179,6 +179,7 @@ export const PARAMS = {
     // ones stay where they are; this scales all of them at once, because
     // "make it die faster" should not mean hunting through four groups.
     decay:        { v: 1.85, min: 0.2, max: 8,   step: 0.05, label: 'Wake decay ×' },
+    adaptive:     { v: 0.85, min: 0,   max: 1,   step: 0.01, label: 'Shrink field on zoom-in' },
     extent:       { v: 270,  min: 80,  max: 700, step: 10,   label: 'Wake field size (m)' },
     trailLength:  { v: 280,  min: 50,  max: 1200,step: 10,   label: 'Trail length (m)' },
   },

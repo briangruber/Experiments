@@ -209,6 +209,12 @@ const RIBBON_FRAG = /* glsl */`
 
       float kAge = pow(1.0 - clamp(age / max(uKelvinLife, 0.01), 0.0, 1.0), 1.1);
 
+      // The wedge boundary is a hard on/off in the maths (disc crosses zero),
+      // and baking that straight into the field leaves a jagged diagonal edge
+      // one texel wide, which is exactly what a close-up shows. Ramped over a
+      // small band of disc instead, so it resolves at any magnification.
+      float wedge = smoothstep(0.0, u * u * 0.035 + 1.0, disc);
+
       // ---- how big a wave this hull makes, at this speed ------------------
       // Length Froude number. Wave-making is not linear in speed: it climbs,
       // peaks near hull speed where the hull is trapped between its own bow
@@ -240,7 +246,7 @@ const RIBBON_FRAG = /* glsl */`
       float ampLoc = fall * cusp * kAge * uKelvinAmp * moving
                    * hump * interf * beam * turnGain;
 
-      kelvinH = (cos(pd) * uKelvinDiv * fd + cos(pt) * uKelvinTrans * ft) * ampLoc;
+      kelvinH = (cos(pd) * uKelvinDiv * fd + cos(pt) * uKelvinTrans * ft) * ampLoc * wedge;
 
       // ---- where the water actually breaks -------------------------------
       // Foam is not a shape to be drawn at a chosen angle. It is what happens
@@ -259,8 +265,8 @@ const RIBBON_FRAG = /* glsl */`
       float crestD = smoothstep(-0.15, 0.80, cos(pd));
       float crestT = smoothstep(-0.15, 0.80, cos(pt));
 
-      waveBreak = smoothstep(uBreakSteep, uBreakSteep * 2.4, steepD) * crestD
-                + smoothstep(uBreakSteep, uBreakSteep * 2.4, steepT) * crestT * 0.55;
+      waveBreak = (smoothstep(uBreakSteep, uBreakSteep * 2.4, steepD) * crestD
+                 + smoothstep(uBreakSteep, uBreakSteep * 2.4, steepT) * crestT * 0.55) * wedge;
     }
 
     // ------------------------------------------------------------ foam look --
@@ -643,8 +649,8 @@ export class WakeField {
   }
 
   /** Point the field at a world position (snapped, so the texture doesn't crawl). */
-  focus(x, z) {
-    this.extent = get('field.extent');
+  focus(x, z, extent) {
+    this.extent = extent || get('field.extent');
     const snap = this.extent / this.rt.width * 4;
     this.center.set(Math.round(x / snap) * snap, Math.round(z / snap) * snap);
     const h = this.extent * 0.5;

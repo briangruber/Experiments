@@ -275,6 +275,28 @@ life, bubble life, wave life, the arm fade, the wash and plume decay lengths) �
 this multiplies all of them, because "make it die faster" should not mean
 hunting through four groups.
 
+## Holding up close in
+
+Three separate things terraced a close-up, none of them the same fix:
+
+- **The ocean mesh.** At 520 m across, its vertices sit 0.93 m apart — nearly
+  sixty pixels in a close-up, which faceted the whole wake.
+- **The wake field's texels.** Plain bilinear is only C0: its iso-contours run
+  along texel diagonals, and the foam threshold turns that into a sawtooth on
+  every edge. Easing the fractional part before the lookup makes it C1 for a few
+  instructions and the same single fetch.
+- **The Kelvin wedge boundary**, which is a hard on/off in the maths where the
+  discriminant crosses zero. Baked straight in, it leaves a jagged diagonal one
+  texel wide. It is ramped over a small band of the discriminant now.
+
+The first two are fixed by *shrinking* rather than by adding resolution: zoomed
+in you cannot see the far wake anyway, so both the field window and the ocean
+plane contract with the camera, putting the samples where you are actually
+looking. That costs nothing here precisely because nothing accumulates — the
+field is re-baked from the path every frame, so there is no state to invalidate
+when the window changes size. `Field & decay → Shrink field on zoom-in` controls
+it; the plane is quantised into a few buckets so it rebuilds rarely.
+
 ## Performance
 
 The Performance group sets render scale and ocean tessellation. Both are

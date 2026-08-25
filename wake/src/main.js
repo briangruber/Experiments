@@ -266,14 +266,26 @@ function frame(now) {
   boat.position.set(state.x, 0, state.z);
   boat.rotation.y = state.heading;
   // Centre the field a little astern: that is where the wake actually is.
-  wake.focus(state.x - hx * get('field.extent') * 0.28, state.z - hz * get('field.extent') * 0.28);
+  // Zoomed in you cannot see the far wake anyway, and a smaller window puts far
+  // more texels where you ARE looking -- at close range this is worth several
+  // times the resolution. It costs nothing to change: the field is re-baked from
+  // the path every frame, so there is no accumulated state to invalidate.
+  const baseExtent = get('field.extent');
+  const wantExtent = THREE.MathUtils.clamp(view.dist * 2.2, 45, baseExtent);
+  const fieldExtent = THREE.MathUtils.lerp(baseExtent, wantExtent, get('field.adaptive'));
+  wake.focus(state.x - hx * fieldExtent * 0.28, state.z - hz * fieldExtent * 0.28, fieldExtent);
   wake.update(state.t);
 
   // Camera: chase from behind and above, or straight down.
   const cy = Math.sin(-view.pitch), cr = Math.cos(-view.pitch);
-  const yaw = view.topDown ? state.heading : state.heading + view.yaw;
+  // Top-down holds a fixed world heading and does not swing with the boat.
+  // Rotating the frame with the hull makes the boat look stationary and the
+  // whole sea look like it is turning, which is the opposite of what a turn
+  // should read as -- and it hides the very thing a turn is worth watching for.
+  const yaw = view.topDown ? view.yaw : state.heading + view.yaw;
   const off = new THREE.Vector3(-Math.sin(yaw) * cr, cy, -Math.cos(yaw) * cr).multiplyScalar(view.dist);
-  const look = new THREE.Vector3(state.x - hx * view.dist * 0.16, 0, state.z - hz * view.dist * 0.16);
+  const lead = view.topDown ? 0.0 : 0.16;    // no chase offset when overhead
+  const look = new THREE.Vector3(state.x - hx * view.dist * lead, 0, state.z - hz * view.dist * lead);
   camera.position.copy(look).add(off);
   camera.up.set(0, 1, 0);
   camera.lookAt(look);
@@ -289,7 +301,12 @@ function frame(now) {
 
   const scale = Math.min(devicePixelRatio, get('quality.renderScale'));
   if (scale !== lastScale) { lastScale = scale; renderer.setPixelRatio(scale); resize(); }
-  ocean.setDetail(get('quality.oceanDetail'));
+  // Same trick as the wake field: close in, a smaller plane puts the vertices
+  // where they are visible. Quantised to a few buckets so it rebuilds rarely.
+  const wantPlane = THREE.MathUtils.clamp(view.dist * 6, 70, 520);
+  const bucket = [80, 130, 200, 320, 520].find((b) => b >= wantPlane) ?? 520;
+  const planeSize = THREE.MathUtils.lerp(520, bucket, get('field.adaptive'));
+  ocean.setDetail(get('quality.oceanDetail'), Math.round(planeSize / 10) * 10);
 
   ocean.update(state.t, camera.position, state.x, state.z, wake);
   backdrop.update(camera, sd);
