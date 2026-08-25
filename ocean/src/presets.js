@@ -76,7 +76,7 @@ export const defaults = {
   foamDrift: 0.6,           // downwind slide of coverage AND the lace (m/s)
   foamInject: 4.0,        // saturates the raft: a whitecap is white, not a wash
   foamSpread: 0.40,
-  foamAmount: 0.4,
+  foamAmount: 0,
   foamRoughness: 0.58,
   foamTint: 0.22,
   foamDetail: 1.85,
@@ -84,8 +84,17 @@ export const defaults = {
   foamSharp: 0.55,          // mild clump contrast; high values punch navy holes
   foamCrisp: 0.16,          // mostly a film; 1 resolves coverage into lace specks
   foamStreak: 0.16,
-  foamFill: 0.86,           // 0 = walls only; 1 = chords + veil in the cells
-  foamCell: 1.9,            // leftover-raft scale; higher = bigger, softer patches
+  foamFill: 0,              // 0 = walls only; 1 = chords + veil in the cells
+  foamCell: 0.25,           // leftover-raft scale; higher = bigger, softer patches
+  foamTextureAmount: 1,     // generated lace blended into physical coverage
+  foamTextureScale: 9.0,    // metres per seamless tile
+  foamTextureCarry: 0.55,   // how far FFT orbit carries the lace
+  foamTextureShear: 0.30,   // slope slides the lace
+  foamTextureStrain: 0.38,  // extra slide on a steep face
+  foamLaceStretch: 0,       // cell elongation along the wave face (off)
+  foamLaceStretchBlock: 28, // metres of parcel that stretch together
+  foamLaceMorph: 0,         // breathe magnitude, metres (off)
+  foamLaceMorphRate: 0,     // breathe speed (off)
   foamOpacity: 0.78,
   foamFar: 0.62,            // grazing self-hiding of distant rafts
   foamColor: [0.96, 0.975, 0.995],
@@ -105,6 +114,19 @@ export const defaults = {
   windAniso: 1.45,          // Cox-Munk along/cross-wind slope variance ratio
   waterIOR: 1.333,
   underwater: 1,            // camera-under look: column fog, shelf caustics, Snell's window, shafts
+  // Metres of water to a virtual bed the surface can look down onto.
+  // 0 = no bed (the open-ocean default). Not FFT `depth` — that is
+  // wave dispersion. 4–8 m is a tropical lagoon: sand, reef, and
+  // sunlight focused by the real FFT slopes. Min/max 0 fall back to
+  // floorDepth (a flat shelf). A live range is sandbars and channels.
+  floorDepth: 0,
+  floorDepthMin: 0,
+  floorDepthMax: 0,
+  floorTerrainScale: 36,
+  floorCaustic: 1,
+  floorCausticSize: 1,      // 1 = shipped ~0.3 m cells; higher is bigger
+  shoreFoamAmount: 0,
+  shoreFoamRange: 3,
   skyAmbient: 1.0,
   skyBlur: 0.5,
   glitter: 0.65,
@@ -164,6 +186,7 @@ export const defaults = {
   sprayGrain: 1,            // how far each parcel is broken up into droplet texture
   sprayGrainScale: 6.75,    // droplet clumps across one billboard
   sprayGrainAniso: 4.95,    // that texture drawn out along the direction of flight
+  splashPlateAmount: 0,     // jump-splash atlas plates are out; start over later
 
   // ---- spindrift & sea mist ----
   sprayMist: 0,           // spindrift removed: it read as grey smear and every
@@ -333,7 +356,7 @@ export const defaults = {
 
   // ---- fishing boat (demo/boatModel.js) ----
   // A second WaveRunner instance, not a second physics model - see
-  // three-main.js's remapParams(). Every wrFoo above has a boatFoo counterpart
+  // WaveRunner's prefix: 'boat'. Every wrFoo above has a boatFoo counterpart
   // here; where they differ is the whole point: this is a nine-metre
   // displacement hull, not a jet ski, so it accelerates and turns like one
   // is heavy, never leaves the water, and does not carve.
@@ -456,6 +479,20 @@ export const defaults = {
   wakeWidth: 1.5,           // half-width of a cusp arm where it leaves the hull
   wakeSpread: 0.22,         // how much it thickens per second as it travels out
   wakeLife: 14.0,           // how long a patch of water stays disturbed
+  wakeFoamDecay: 1.4,       // leftover stern-foam e-folding time, seconds.
+                            // wake.persist on a body overrides this.
+  wakeFoamWaveCarry: 1.25,  // leftover gravity waves carry existing foam along their faces
+  // undefined: leftover-crest look follows carry (riding demo).
+  // 0: leftover height stays water — carry can still move the film.
+  wakeFoamWaveMax: 0.45,    // displacement-speed floor; planing film rides leftover at leftover c
+  wakeFoamWaveSpread: 2.2,  // local, mass-neutral breakup on active wave faces
+  wakeFoamDiverge: 0,       // scalar film has no birth heading; do not steer it from the live hull
+  wakeFoamCrestGate: 0,     // wipe the film out of leftover TROUGHS. Multiplicative: it removes
+                            // white, never adds it, so it cannot draw a V or punch a ring the way
+                            // the additive wakeFoamCrestLook can. A real wake is mostly smooth
+                            // water — the quarter-wave shoulders are glassy and only breaking
+                            // crests go white.
+  wakeFoamRibbonVary: 1.0,  // leftover foam: contour wobble, chew, opacity. 0 is a solid stencil.
   wakeStrength: 1.15,
   wakeArmRate: 1.0,         // multiplier on the Kelvin half-angle spread rate
   wakeArm: 1.0,             // strength of the arms themselves
@@ -463,6 +500,12 @@ export const defaults = {
   wakeDepth: 0.45,          // how far the wake actually deforms the surface, m
   wakeSlick: 0.8,           // how completely the churn wipes out the sea's own
                             // ripples and wind foam inside the track
+  wakePlume: 1.0,           // entrained air in the water COLUMN, not white foam
+                            // on the surface. Bubbles scatter light back up
+                            // before it can be absorbed, so churned water goes
+                            // pale milky turquoise. In wake photography this is
+                            // most of the wake's area and the white is a
+                            // minority of it.
   wakeRelief: 1.0,          // ...and how much of that deformation lights up. The
                             // vertex shader moves the surface; without this the
                             // ridge would be a silhouette with a flat sea's
@@ -581,15 +624,17 @@ export const defaults = {
   // complaint was that the mouth was always open, and a jaw that works as the
   // animal swims reads as alive whatever its resting gape.
   sdGape: 0.30,             // radians the mandible swings up from as-modelled
-  sdBow: 10.62,             // metres of the co-moving heap at the snout
-  sdBowSoft: 1,             // 1 = the measured heap. Higher spreads the
+  sdBow: 2.15,              // metres of the co-moving heap at the snout.
+                            // 10 m was a triangular mountain, not a bow wave.
+  sdBowSoft: 1.4,           // 1 = the measured heap. Higher spreads the
                             // same height over more of the water grid so
                             // the radial triangles stop reading as facets.
-  sdDome: 6.25,             // metres of the dorsal pressure ellipse
-  sdDomeSoft: 1,            // 1 = the measured loaf. Higher spreads the
+  sdDome: 1.25,             // metres of the dorsal pressure ellipse.
+                            // A just-under loaf, not a 6 m pyramid.
+  sdDomeSoft: 1.4,          // 1 = the measured loaf. Higher spreads the
                             // same height over more of the water grid so
                             // the radial triangles stop reading as facets.
-  sdDomeNear: 10.7,         // metres under the sea at which bow / dome
+  sdDomeNear: 2.4,          // metres under the sea at which bow / dome
                             // still reach full strength. Lower = only
                             // when the head or back is almost at the sea.
   sdFluke: 2,               // how hard a tail-stroke print flattens the sea
@@ -605,7 +650,7 @@ export const defaults = {
   sdSwellSpeedMin: 16,      // m/s floor on how fast a thrown ring runs out
   sdSwellSpeedMax: 32,      // m/s ceiling; a hard, fast break sits nearer this
   sdSwellDebug: 0,          // 1 draws the waterline cuts that throw ripples
-  sdSprayDepth: 0.35,      // metres of water column still counted as "breaking" -
+  sdSprayDepth: 0.7,       // metres of water column still counted as "breaking" -
                             // read off the refraction pass's own depth, so the
                             // spray traces the body's true silhouette (fins and
                             // all), not the swell mound's smooth approximation
@@ -618,15 +663,15 @@ export const defaults = {
   // The animal's own particle look. The Spray group is the sea's wind-torn
   // droplets; these drive the waterline sheet so a Spray tweak does not
   // resize the monster, and a Wave Runner tweak does not either.
-  sdSpraySize: 0.38,        // parcel size. Independent of the Spray group's Size.
+  sdSpraySize: 0.72,        // parcel size. Independent of the Spray group's Size.
   sdSprayOpacity: 1.71,     // density of the animal's sheet, not sprayOpacity.
   sdSprayLife: 1.17,        // hang time. Independent of craftSprayLife.
-  sdSprayPulse: 0.31,       // share of the particle budget.
-  sdSprayLaunch: 0.55,      // throw-speed gain on the waterline sheet
+  sdSprayPulse: 0.62,       // share of the particle budget.
+  sdSprayLaunch: 0.88,      // throw-speed gain on the waterline sheet
   sdSpraySpread: 1,         // cone width. Was p.craftSpraySpread.
   sdSprayUp: 1,             // upward aim. Was p.craftSprayUp.
   sdSprayMulti: 0.15,       // sheet glow. Was p.craftSprayMulti.
-  sdSprayEmitters: 30,      // how many simultaneous waterline sites a piercing
+  sdSprayEmitters: 40,      // how many simultaneous waterline sites a piercing
                             // mesh gets. Parked on the body where it actually
                             // cuts the sea (placeBreachEmitters), not hopped
                             // as one emitter. 1..50; 1 is the old single site.
@@ -643,24 +688,21 @@ export const defaults = {
   sdVWakeFoam: 0.75,        // leftover trail-foam gain. Lane churn lives on the V.
   sdVWakeMid: 0.83,         // third ridge on the centreline. 0 is the hollow V.
   sdVWakeLife: 8.2,         // seconds a written V stays after the body dives
-  // Jump splash (jump-out / dive-in). Own look, not the swim-trail
-  // sdSpray* knobs and not the Spray group. The animal has no wake
-  // field and no Kelvin V — this emitter is the white water.
-  sdSplashParticles: 0.73,  // how hard the leap emitter fires (craftAmount +
-                            // craftImpact on the splash). 0 silences particles.
-  sdSplashSize: 0.35,       // parcel size of the jump-out / dive-in crown.
-  sdSplashOpacity: 1.4,     // how solid those parcels draw.
-  sdSplashLife: 0.65,       // how long they hang. Also stretches splash /
-                            // splashPush decay so the crown keeps throwing.
-  sdSplashPulse: 0.53,      // share of the particle budget the crown claims.
-  sdSplashLaunch: 1.59,     // how hard the crown is thrown off the waterline.
-  sdSplashExit: 1.94,       // jump-out particle burst
-  sdSplashLand: 2.04,       // dive-in particle burst (no crater yet)
+  // Jump splash knobs are unused. The leap crown is out; waterline
+  // cut spray is sdSpray*. Kept so old saved settings still load.
+  sdSplashParticles: 0,
+  sdSplashSize: 0.52,
+  sdSplashOpacity: 0,
+  sdSplashLife: 0.65,
+  sdSplashPulse: 0,
+  sdSplashLaunch: 1.59,
+  sdSplashExit: 1.94,       // still scales throwSplash hit energy (rings / ripples)
+  sdSplashLand: 2.04,
   sdThrough: 0.07,          // how much of the shape survives the surface's own
                             // glare. 0 is the pure physics and nearly invisible
                             // at the angle you ride at; this is the fudge. Was
                             // 0.85 - tuned down live, closer to the physics.
-  sdRefract: 0.433,         // how hard the surface's own slope bends the look
+  sdRefract: 0.433,         // how hard the surface slope warps rocks, coral, and the seafloor caustics
                             // through it. This is what makes chop passing over
                             // the animal wobble and break it up. Was 0.045.
   sdWaves: 0.96,            // body waves along its length
@@ -777,7 +819,7 @@ export const defaults = {
   distortion: -0.02,        // <0 barrel, >0 pincushion
   vignette: 0.35,
   vignetteRound: 0.7,
-  grain: 0.016,
+  grain: 0,                 // off. filmGrain early-returns; do not sprinkle sensor noise on the sea
   grainSize: 1.7,           // px per grain cell
   grainChroma: 0.22,
   grainShadow: 0.35,        // 0 = film granularity (midtones), 1 = read noise (toe)
@@ -874,7 +916,7 @@ export const PRESETS = {
     sprayDrag: 1.2, sprayLifetime: 3.0, spraySize: 1.2,
     sprayMist: 0.5, sprayMistOpacity: 0.13, sprayHaze: 0.00055,
     saturation: 0.86, contrast: 1.10, exposureBias: 0.15, vignette: 0.62,
-    grain: 0.020, fov: 44, handheld: 1.1, cameraBob: 0.35, minAltitude: 3.0,
+    fov: 44, handheld: 1.1, cameraBob: 0.35, minAltitude: 3.0,
   },
   'Glassy Dawn': {
     windSpeed: 3.2, fetch: 60, amplitude: 0.85, choppiness: 0.75, shortWaveFade: 0.8,
@@ -898,6 +940,8 @@ export const PRESETS = {
   'Tropical Noon': {
     windSpeed: 7.0, fetch: 140, amplitude: 0.8, choppiness: 1.15,
     swellAmount: 0.4, swellPeriod: 10.5, depth: 26,
+    floorDepth: 28, floorDepthMin: 5, floorDepthMax: 100,
+    floorTerrainScale: 72, floorCaustic: 2.2,
     sunElevation: 68, sunAzimuth: 150, sunIntensity: 23, turbidity: 1.2,
     cloudCoverage: 0.36, cloudAltitude: 900, cloudThickness: 1800, cirrus: 0.15,
     scatterColor: [0.090, 0.520, 0.570], absorption: [0.30, 0.045, 0.030],
@@ -909,13 +953,43 @@ export const PRESETS = {
     foamFace: 0.84, foamBreakScale: 2.6, glitter: 0.65,
     saturation: 1.14, contrast: 1.05, exposureBias: -0.1, vignette: 0.35, fov: 42,
   },
+  // Aerial lagoon: look down through a few metres of clear water at
+  // sand and reef. The column is a pale sky-cyan (B > G, not a lime
+  // dye) so it sits under the noon atmosphere; the bed and a light
+  // caustic carry the tropical. Glitter and capillaries stay low so
+  // the high sun does not speckle. Film grain stays off.
+  'Tropical Lagoon': {
+    windSpeed: 4.4, fetch: 12, amplitude: 0.58, choppiness: 0.78, shortWaveFade: 0.72,
+    swellAmount: 0.14, swellPeriod: 5.5, depth: 6,
+    floorDepth: 5.2, floorDepthMin: 0.7, floorDepthMax: 8.4,
+    floorTerrainScale: 42, floorCaustic: 1.15,
+    shoreFoamAmount: 0.95, shoreFoamRange: 3.0,
+    sunElevation: 72, sunAzimuth: 142, sunIntensity: 24, turbidity: 1.0,
+    cloudCoverage: 0.18, cloudAltitude: 1400, cloudThickness: 1200, cirrus: 0.08,
+    scatterColor: [ 0.055, 0.22, 0.34 ], absorption: [ 0.19, 0.036, 0.026 ],
+    scatterAmount: 0.10, sssStrength: 0.55, skyAmbient: 1.15,
+    foamAmount: 0, foamWindMin: 5.8, foamCoverage: 0.55, foamTint: 0.06,
+    foamTextureAmount: 1, foamTextureScale: 7.5,
+    foamFill: 0, foamCell: 0.25, foamLaceMorph: 0, foamLaceMorphRate: 0,
+    baseRoughness: 0.048, glitter: 0.28, capillary: 0.55, capillaryScale: 1.0,
+    // Light-air lagoon: wind arrives in patches. Off (the default) is the
+    // same chop everywhere. Large slicks — tens of metres of calmer water,
+    // not a colour wash.
+    gust: 0.46, gustScale: 50, gustDrift: 0.28,
+    specAA: 1.15,
+    saturation: 1.04, contrast: 1.02, exposureBias: 0.02, vignette: 0.28,
+    fov: 44,
+  },
   'Moonlit Passage': {
     windSpeed: 12.5, fetch: 300, amplitude: 0.85, choppiness: 1.05,
     swellAmount: 0.9, swellPeriod: 13.5,
-    sunElevation: -16.0, sunAzimuth: 300, sunIntensity: 22, turbidity: 0.9,
-    moonIntensity: 0.28, moonElevation: 26, moonAzimuth: 318, stars: 1.0,
+    sunElevation: -16.0, sunAzimuth: 300, sunIntensity: 22, turbidity: 1.15,
+    moonIntensity: 0.32, moonElevation: 28, moonAzimuth: 318, stars: 1.15,
+    starDensity: 0.78, starSize: 0.85, starColorTemp: 0.55,
     specIntensity: 1.5,
-    cloudCoverage: 0.34, cloudAltitude: 1900, cirrus: 0.22,
+    cloudCoverage: 0.22, cloudAltitude: 1900, cloudThickness: 1400, cirrus: 0.28,
+    cloudAmbient: 1.35, cloudAmbientFloor: 0.48, cloudPowder: 0.38,
+    cloudSilver: 1.55, cloudHaze: 1.25, cloudFade: 0.42,
     scatterColor: [0.035, 0.135, 0.200], absorption: [0.55, 0.16, 0.10],
     skyAmbient: 1.3, glitter: 0.35,
     // Force 6 at night. The foam is there (W ≈ 2%) but it is grey streaks,
@@ -930,10 +1004,10 @@ export const PRESETS = {
     // enough adaptation to follow moonIntensity without erasing the night.
     autoExposure: 0.3,
     sprayOpacity: 0.6, exposureBias: 0.1, saturation: 0.9, contrast: 1.08,
-    bloomIntensity: 0.09, vignette: 0.7, grain: 0.022, fov: 40,
+    bloomIntensity: 0.16, vignette: 0.7, fov: 40,
   },
   // A calm sea under a low moon. The point of interest is the moon's glitter
-  // path, so the moon sits low (22 degrees) to stretch it across the water, and
+  // path, so the moon sits low (24 degrees) to stretch it across the water, and
   // the sea is calm enough not to break it up.
   //
   // sunElevation is the parameter that decides whether a night reads as night.
@@ -943,20 +1017,22 @@ export const PRESETS = {
   'Peaceful Moonlit Ocean': {
     windSpeed: 5.0, fetch: 160, windDirDeg: 30, amplitude: 0.62, choppiness: 0.75,
     swellAmount: 0.95, swellPeriod: 15.5, swellDirDeg: 18, spread: 0.85,
-    sunElevation: -18.0, sunAzimuth: 250, sunIntensity: 22, turbidity: 0.55,
+    sunElevation: -18.0, sunAzimuth: 250, sunIntensity: 22, turbidity: 0.85,
     // Azimuth matters more than it looks: the camera's default yaw of -0.6 rad
     // IS an azimuth in this convention (326 degrees), because Camera.matrices
     // builds its forward vector with the same cos/sin form derive() uses for the
     // sun and moon. A moon 80 degrees off that is simply not in the frame, and
     // its glitter path - the entire point of a moonlit sea - is off-screen with
     // it. 332 puts it just off centre.
-    moonIntensity: 0.30, moonElevation: 20, moonAzimuth: 332,
+    moonIntensity: 0.30, moonElevation: 24, moonAzimuth: 332,
     // The moon's specular lobe, not the sky's brightness. Raising moonIntensity
     // instead would light the whole atmosphere and give a brighter night rather
     // than a brighter path.
     specIntensity: 1.6,
-    stars: 1.0, starDensity: 0.55, starSize: 1.0, starColorTemp: 0.5,
-    cloudCoverage: 0.20, cloudAltitude: 2400, cloudThickness: 1200, cirrus: 0.16,
+    stars: 1.2, starDensity: 0.82, starSize: 0.8, starColorTemp: 0.58,
+    cloudCoverage: 0.12, cloudAltitude: 2400, cloudThickness: 1200, cirrus: 0.24,
+    cloudAmbient: 1.45, cloudAmbientFloor: 0.52, cloudPowder: 0.32,
+    cloudSilver: 1.7, cloudHaze: 1.35, cloudFade: 0.38,
     // Deep, dark water: at night there is no sunlight to scatter back out of it,
     // so the sea is nearly black except where it reflects.
     scatterColor: [0.018, 0.075, 0.135], absorption: [0.62, 0.19, 0.12],
@@ -968,8 +1044,8 @@ export const PRESETS = {
     sprayOpacity: 0.5,
     // Mostly-manual iris, as for any night preset - see Moonlit Passage.
     autoExposure: 0.18, exposureBias: -0.15,
-    saturation: 0.86, contrast: 1.16, bloomIntensity: 0.20,
-    vignette: 0.85, grain: 0.020, fov: 42,
+    saturation: 0.86, contrast: 1.16, bloomIntensity: 0.28,
+    vignette: 0.85, fov: 42,
   },
 
   'Trade Winds': {
@@ -1000,7 +1076,7 @@ export const PRESETS = {
     sprayDrag: 1.6, sprayLifetime: 3.6, spraySize: 1.5, sprayRadius: 200,
     sprayMist: 0.6, sprayMistOpacity: 0.16, sprayMistLife: 9.0, sprayHaze: 0.0012,
     saturation: 0.72, contrast: 1.14, exposureBias: 0.25, vignette: 0.75,
-    grain: 0.028, fov: 52, handheld: 2.0, cameraBob: 0.8, minAltitude: 6.0,
+    fov: 52, handheld: 2.0, cameraBob: 0.8, minAltitude: 6.0,
   },
   // Built against photographs of sheltered water on a bright, light-air day
   // (a Florida marina reach, midday, scattered cumulus). What the reference
@@ -1049,6 +1125,25 @@ export const PRESETS = {
     // exists - so this costs the glass nothing.
     foamAmount: 0.0, sprayOpacity: 0.85, sprayRate: 0.0,
     saturation: 1.02, contrast: 1.02, exposureBias: -0.05, vignette: 0.3, fov: 46,
+  },
+  // Inland still water. Not ocean glass (Glassy Dawn) and not a mottled
+  // marina reach (Sheltered Water). A short-fetch lake: light air, no
+  // swell train, freshwater olive, a mud/sand shelf you can just see.
+  'Calm Lake': {
+    windSpeed: 2.2, fetch: 4, windDirDeg: 18, amplitude: 0.42, choppiness: 0.48,
+    shortWaveFade: 0.92,
+    swellAmount: 0.02, swellPeriod: 4.5, depth: 12,
+    floorDepth: 9, floorDepthMin: 3.5, floorDepthMax: 16,
+    floorTerrainScale: 90, floorCaustic: 0.45,
+    capillary: 0.85, capillaryScale: 1.15,
+    gust: 0.18, gustScale: 70, gustDrift: 0.25,
+    sunElevation: 38, sunAzimuth: 118, sunIntensity: 21, turbidity: 1.6,
+    cloudCoverage: 0.28, cloudAltitude: 1600, cloudThickness: 1400, cirrus: 0.12,
+    scatterColor: [ 0.055, 0.145, 0.095 ], absorption: [ 0.55, 0.22, 0.38 ],
+    scatterAmount: 0.07, sssStrength: 0.65,
+    baseRoughness: 0.028, skyBlur: 0.28, grazeFocus: 0.12, glitter: 0.38,
+    foamAmount: 0, foamWindMin: 6.0, sprayRate: 0, sprayOpacity: 0.85,
+    saturation: 1.04, contrast: 1.03, exposureBias: 0.0, vignette: 0.32, fov: 40,
   },
   'Deep Blue Afternoon': {
     windSpeed: 10.0, fetch: 600, amplitude: 0.85, choppiness: 1.05,

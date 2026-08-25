@@ -131,6 +131,10 @@ body.riding #hud-hint-ride{display:block}
 #boot.gone{opacity:0;pointer-events:none}
 .boot-title{font-size:15px;letter-spacing:.55em;color:var(--fg);opacity:.9}
 .boot-sub{font-size:10.5px;letter-spacing:.16em;color:var(--dim);text-transform:uppercase}
+.boot-bar{width:148px;height:2px;margin-top:8px;background:rgba(255,255,255,.08);overflow:hidden;border-radius:1px}
+.boot-bar i{display:block;width:40%;height:100%;background:var(--accent);
+  animation:boot-slide 1.15s ease-in-out infinite}
+@keyframes boot-slide{0%{transform:translateX(-140%)}100%{transform:translateX(350%)}}
 
 .toast{position:fixed;left:50%;bottom:34px;transform:translateX(-50%);
   background:rgba(12,16,20,.92);border:1px solid var(--line);border-radius:8px;

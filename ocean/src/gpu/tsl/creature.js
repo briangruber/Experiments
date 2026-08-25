@@ -106,9 +106,12 @@ export const uCreatureJawHZ = /*@__PURE__*/ uniform( - 0.373 );
 export const creatureVertex = /*@__PURE__*/ Fn( () => {
 
 	const p = positionLocal.toVar();
-	const half = uCreatureLen.mul( 0.5 ).max( 1e-3 ).toVar();
+	// Not `half`: that is a reserved word in GLSL and toVar() carries the
+	// JS name straight into the generated source, so the whole shader
+	// fails to compile on the WebGL2 backend.
+	const halfLen = uCreatureLen.mul( 0.5 ).max( 1e-3 ).toVar();
 	// Nose sits at -Z, so this runs 0 at the nose and 1 at the tail.
-	const s = p.z.add( half ).div( half.mul( 2.0 ) ).clamp( 0.0, 1.0 ).toVar();
+	const s = p.z.add( halfLen ).div( halfLen.mul( 2.0 ) ).clamp( 0.0, 1.0 ).toVar();
 
 	// Mandible, BEFORE the swim wave so the (nearly still) head carries a
 	// closing jaw rather than a jaw that sloshes with the tail. The mesh
@@ -211,6 +214,7 @@ export const uCreatureHasTex = /*@__PURE__*/ uniform( 0.0 );
 // a pipeline (see ./water-clip.js on why that matters).
 export const uCreatureAerial = /*@__PURE__*/ uniform( 1.0 );
 export const uCreatureAlbedo = /*@__PURE__*/ uniform( /*@__PURE__*/ vec3( 0.10, 0.13, 0.14 ) );
+export const uCreaturePaint = /*@__PURE__*/ uniform( /*@__PURE__*/ vec3( 1.0, 1.0, 1.0 ) );
 
 const creatureBaseColor = /*@__PURE__*/ texture( /*@__PURE__*/ ( () => {
 
@@ -268,7 +272,8 @@ export const creatureFragment = /*@__PURE__*/ Fn( () => {
 	// a closed surface, and the two the old draw got wrong - are shaded as though
 	// they faced away from what is actually in front of them.
 	const N = select( frontFacing, normalize( normalWorld ), normalize( normalWorld ).negate() ).toVar();
-	const albedo = mix( uCreatureAlbedo, creatureBaseColor.sample( uv() ).rgb, uCreatureHasTex ).toVar();
+	const albedo = mix( uCreatureAlbedo, creatureBaseColor.sample( uv() ).rgb, uCreatureHasTex )
+		.mul( uCreaturePaint ).toVar();
 
 	const ro = vec3( 0.0, float( R_PLANET ).add( 1.0 ), 0.0 ).toVar();
 	const sunRad = uSunIrradiance
@@ -352,3 +357,19 @@ export const creatureFragment = /*@__PURE__*/ Fn( () => {
 	return vec4( col, 1.0 );
 
 } );
+
+/** One mesh, waterline clip, travelling swim wave. Same flags both passes. */
+export function createCreatureMaterial() {
+
+	const mat = new THREE.NodeMaterial();
+	mat.name = 'abyssal.dragon';
+	mat.fragmentNode = creatureFragment();
+	mat.positionNode = creatureVertex();
+	mat.side = THREE.DoubleSide;
+	mat.transparent = false;
+	mat.blending = THREE.NoBlending;
+	mat.depthTest = true;
+	mat.depthWrite = true;
+	return mat;
+
+}

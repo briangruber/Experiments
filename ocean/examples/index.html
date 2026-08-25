@@ -36,6 +36,52 @@
     cloud genera as buttons; your meshes share the frame's depth.</span>
   </a>
 
+  <a class="card" href="./webgpu-bodies.html">
+    <b>WebGPU — drop a crate, cross two wakes</b>
+    <span><code>abyssal.bodies.add(mesh, { mass, float, wake })</code>: hulls
+    float from mass vs volume, splash on impact, and write one shared wake
+    field so crossing trails mix. A mesh you only <code>scene.add()</code> is
+    still a statue.</span>
+  </a>
+
+  <a class="card" href="./webgpu-wake-physics.html">
+    <b>WebGPU — gravity-wave wake</b>
+    <span>Drop the occupancy cut and leftover stamps. The hull only
+    displaces water; leftover crests travel in world XZ at
+    <code>c = √(g L / 2π)</code> and add. <code>U / c</code> is plow
+    (circles), hull speed (stern pile-up), or a leftover Mach V.
+    Stop or turn and the old waves stay in the water.</span>
+  </a>
+
+  <a class="card" href="./webgpu-box-ski.html">
+    <b>WebGPU — a jet ski that planes</b>
+    <span>The same <code>OceanBody</code> as a crate, with the <code>SKI</code>
+    coefficients: hover (ride height), springiness, grip. The
+    <code>models/jet-ski.glb</code> hull. W/S throttle, A/D steer, X holds a cruise speed, U hides the chrome. The Ski panel dials the wake trail
+    (height, width, center cut, foam), spray (waterline sites,
+    hull jet, amount), the sea-dragon swell (dome, bow heap, laminar
+    mound), and a debug toggle for spray / buoyancy contact points. A
+    second Sea panel writes <code>abyssal.params</code> — spray size,
+    lifetime, hull jet, sea state. <code>Tropical Noon</code> is a
+    5–100 m bed with sand, reef, brighter floor caustics, and scattered
+    rocks / coral from <code>models/</code>.</span>
+  </a>
+
+  <a class="card" href="./pierce-lab.html">
+    <b>Pierce lab — a fin through a calm surface</b>
+    <span>The bench, not the ocean: no FFT, no sky, no spray, so it opens
+    instantly. Drag a shark fin (or a rod) through a nearly flat sea and
+    watch <code>src/pierce.js</code> — the collar of displaced water, the
+    heap ahead, the shoulders drawn down, the hollow astern — plus the
+    rings it sheds from <code>src/wake-wave.js</code>. Every reach is a
+    multiple of the site's own size, so <b>copy knobs</b> gives you
+    numbers that still work on a mesh ten times bigger. The <b>near
+    field</b> button swaps that painted model for
+    <code>src/ripple-field.js</code>, a simulated height field where you
+    only displace water and a wave equation produces the hollow and the V
+    by itself.</span>
+  </a>
+
   <a class="card" href="./webgpu-sky.html">
     <b>WebGPU — a sky of real clouds, no water</b>
     <span><code>water: false</code>: the atmosphere and cloud raymarch over your own

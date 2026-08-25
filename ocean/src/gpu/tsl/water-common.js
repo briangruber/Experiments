@@ -29,7 +29,7 @@
 // WHY THE TWO CASCADE LOOPS LIVE HERE AND NOT IN water-surface.js
 //
 // They are the only readers of uPatch / uFade / uCascadeCount / uDetailScale /
-// uHorizScale, and cascadeWeight is their only caller. Keeping the four
+// uHorizScale / uFloorCausticLod, and cascadeWeight is their only caller. Keeping the four
 // together is what lets water-surface.js import six numbers instead of five
 // uniforms and a sampler array.
 //
@@ -138,8 +138,8 @@
 //    cost the sky port the most time.
 
 import {
-	Fn, If, float, int, vec2, vec3, mix,
-	uniform, uniformArray, texture, smoothstep, clamp,
+	Fn, If, float, int, vec2, vec3, vec4, mix, min, step, cos,
+	uniform, uniformArray, texture, smoothstep, clamp, fwidth,
 } from 'three/tsl';
 
 import {
@@ -149,6 +149,10 @@ import {
 
 import { R_PLANET } from './atmosphere.js';
 import { clamp as clampJS } from '../../math.js';
+import { WAKE_ZONE_FLOOR, WAKE_ZONE_CREST } from '../../foam-lace.js';
+import {
+	FLOOR_CAUSTIC_FOOTPRINT, FLOOR_CAUSTIC_SPAN, FLOOR_CAUSTIC_MIN_PATCH, floorCausticLod,
+} from '../../seafloor.js';
 
 // ---- constants --------------------------------------------------------------
 
@@ -192,6 +196,16 @@ export const uFade = /*@__PURE__*/ uniformArray( [ 60000.0, 15086.0, 3306.0, 657
 // min(int, float) overload, so it breaks WebGL2 while WebGPU is fine).
 export const uCascadeCount = /*@__PURE__*/ uniform( 4, 'int' );
 
+// Lod table kept for the hull-probe formula. The live floor tap skips
+// the short cascade and reads LOD 0 on the rest (sampleCascadeSlope).
+export const uFloorCausticLod = /*@__PURE__*/ uniformArray( [
+	floorCausticLod( 3137.0, 128 ),
+	floorCausticLod( 397.0, 128 ),
+	floorCausticLod( 87.0, 128 ),
+	floorCausticLod( 17.3, 128 ),
+], 'float' );
+export const uFloorCausticSpan = /*@__PURE__*/ uniform( FLOOR_CAUSTIC_SPAN );
+
 export const uDetailScale = /*@__PURE__*/ uniform( 1.0 );
 // Read by sampleCascadeDisp here AND by sunVisibility in ./water-detail.js -
 // the shadow march reads the same height field the vertex stage displaced by,
@@ -230,6 +244,17 @@ export const uWakeSpread = /*@__PURE__*/ uniform( 0.22 );     // presets.js wake
 export const uWakeBeam = /*@__PURE__*/ uniform( 0.96 );       // max(p.wrBeam, 0.3) * 1.6
 export const uWakeDepth = /*@__PURE__*/ uniform( 0.45 );      // presets.js wakeDepth
 export const uWakeStrength = /*@__PURE__*/ uniform( 1.15 );   // presets.js wakeStrength
+// Per-mesh recipe (body-wake.js). 0 width / turb / bow keeps the
+// historical reconstruction so a body that only sets strength/beam/depth
+// still looks like it did.
+export const uWakeWidth0 = /*@__PURE__*/ uniform( 0.0 );      // start half-width, m
+export const uWakeWidth1 = /*@__PURE__*/ uniform( 0.0 );      // end half-width, m
+export const uWakeArms = /*@__PURE__*/ uniform( 2.0 );        // 0 = no V, 2 = Kelvin pair
+export const uWakeTrail = /*@__PURE__*/ uniform( 1.0 );       // centre boil gain
+export const uWakeTurb = /*@__PURE__*/ uniform( 0.0 );        // spatial grain on foam
+export const uWakeCut = /*@__PURE__*/ uniform( 0.55 );        // centerline trough, photo recipe
+export const uWakeBow = /*@__PURE__*/ uniform( 'vec4' );      // xz, amp, radius
+uWakeBow.value.set( 0, 0, 0, 8 );
 
 // ---- textures ---------------------------------------------------------------
 // Four TextureNodes whose values the driver swaps for the real fields. The
@@ -306,6 +331,9 @@ const wakePlaceholder = /*@__PURE__*/ ( () => {
 // the real one filter LINEAR with no mipmaps.
 export const wakeTexture = /*@__PURE__*/ texture( wakePlaceholder );
 
+export const uFoamEnergyOn = /*@__PURE__*/ uniform( 0.0 );
+export const foamEnergyTexture = /*@__PURE__*/ texture( wakePlaceholder );
+
 // Point the three cascade samplers at an Ocean's real DataArrayTextures. Any
 // field left undefined is not touched, so a partial call cannot silently unbind
 // the others.
@@ -326,6 +354,40 @@ export function setWakeTexture( tex ) {
 	wakeTexture.value = tex || wakePlaceholder;
 
 }
+
+export function setFoamEnergyTexture( tex ) {
+
+	foamEnergyTexture.value = tex || wakePlaceholder;
+
+}
+
+/** Twin of foamEnergyAt() in src/foam-energy.js FOAM_ENERGY_SAMPLE_GLSL. */
+export const foamEnergyAt = /*@__PURE__*/ Fn( ( [ p ] ) => {
+
+	const outv = float( 0.0 ).toVar();
+	If( uFoamEnergyOn.greaterThan( 0.5 ), () => {
+
+		const uv = p.sub( uWakeOrigin ).div( uWakeExtent ).add( 0.5 ).toVar();
+		const fromC = uv.sub( vec2( 0.5 ) ).toVar();
+		const radial = fromC.dot( fromC ).sqrt().mul( 2.0 ).toVar();
+		If( radial.lessThan( 0.999 ), () => {
+
+			const edgeLo = float( 1.0 ).sub( uWakeEdge.max( 0.18 ).mul( 1.8 ) );
+			const edge = float( 1.0 ).sub( smoothstep( edgeLo, float( 1.0 ), radial ) );
+			const packed = foamEnergyTexture.sample( uv ).level( 0 ).toVar();
+			// G concentrates thin arm foam on crests. Do not multiply the
+			// whole film by it — bow birth sits where leftover height is
+			// still quiet, and a hard gather erased hull churn while motor
+			// splash (tall height) survived.
+			const gather = mix( float( 1.0 ), packed.g.max( 0.62 ), packed.b.mul( 0.45 ) );
+			outv.assign( packed.r.mul( gather ).mul( edge ) );
+
+		} );
+
+	} );
+	return outv;
+
+} );
 
 // ---- cascade weight ---------------------------------------------------------
 
@@ -356,11 +418,23 @@ export function cascadeWeight( c, dist ) {
 
 }
 
+// Twin of cascadeGustWeight() in WATER_FS. Swell (c = 0) stays even.
+// Mid-sea and the shortest band ride the cat's-paw field so a look-down
+// is not the same chop everywhere. `c` is a JS integer; `gust` is a node.
+export function cascadeGustWeight( c, gust ) {
+
+	const shortK = c === 0 ? 0 : c === 1 ? 0.7 : 1;
+	if ( shortK === 0 ) return float( 1.0 );
+	return mix( float( 1.0 ), gust, shortK );
+
+}
+
 // uniformArray.element() builds its index as `uint` unless the index node is
 // already an integer type, which would emit `uPatch[ uint( 0.0 ) ]`. Wrapping
 // the JS number in int() keeps the generated index a plain integer literal on
-// both backends. One helper so the three call sites cannot disagree.
-function cascadeArrayElement( arr, c ) {
+// both backends. One helper so the call sites cannot disagree - including
+// ./craft-probe.js's, which is why this is exported.
+export function cascadeArrayElement( arr, c ) {
 
 	return arr.element( int( c ) );
 
@@ -480,10 +554,11 @@ export function sampleCascadeDisp( xz, r ) {
 //   for (int c=0;c<4;c++){
 //     if (c >= uCascadeCount) break;
 //     float w = cascadeWeight(c, dist);
+//     float gw = cascadeGustWeight(c, gust);
 //     vec3 uvc = vec3(vFlat.xz / uPatch[c], float(c));
 //     vec4 sl = texture(uSlope, uvc);
 //     vec4 fo = texture(uFoam, uvc);
-//     slope += sl.xy * w;
+//     slope += sl.xy * w * gw;
 //     msq   += sl.w * w * w;
 //     // What the fade threw away still roughens the surface statistically.
 //     float full = textureLod(uSlope, uvc, 8.0).w;
@@ -495,16 +570,18 @@ export function sampleCascadeDisp( xz, r ) {
 //
 // PLAIN JS NODE-GRAPH BUILDER, NOT an Fn. Call it from inside an Fn body:
 //
-//   const { slope, msq, lost, foamT, foamF, foamR } = sampleCascadeSurface( vFlat.xz, dist );
+//   const { slope, msq, lost, foamT, foamF, foamR } = sampleCascadeSurface( vFlat.xz, dist, gust );
 //
 // slope comes back as a vec2 .toVar() and the other five as float .toVar()s.
 // water-surface.js MUTATES slope, msq, foamF and foamR afterwards (the wake
 // slick and the capillary layer), which is why they have to be vars and not
-// expressions. foamT is never read - see note 6.
-export function sampleCascadeSurface( xz, dist ) {
+// expressions. foamT is never read - see note 6. `gust` defaults to 1 so a
+// caller that has not sampled the cat's-paw field leaves the FFT even.
+export function sampleCascadeSurface( xz, dist, gust ) {
 
 	const xzV = xz.toVar();
 	const distV = dist.toVar();
+	const gustV = ( gust ?? float( 1.0 ) ).toVar();
 
 	const slope = vec2( 0.0 ).toVar();
 	const msq = float( 0.0 ).toVar();     // mean square slope inside the pixel footprint
@@ -522,6 +599,7 @@ export function sampleCascadeSurface( xz, dist ) {
 		If( int( c ).lessThan( uCascadeCount ), () => {
 
 			const w = cascadeWeight( c, distV ).toVar();
+			const gw = cascadeGustWeight( c, gustV ).toVar();
 
 			// The GLSL packs the layer into a vec3 uv; TSL takes it as .depth().
 			const uv = xzV.div( cascadeArrayElement( uPatch, c ) ).toVar();
@@ -532,7 +610,7 @@ export function sampleCascadeSurface( xz, dist ) {
 			const sl = slopeTexture.sample( uv ).depth( int( c ) ).toVar();
 			const fo = foamTexture.sample( uv ).depth( int( c ) ).toVar();
 
-			slope.addAssign( sl.xy.mul( w ) );
+			slope.addAssign( sl.xy.mul( w ).mul( gw ) );
 			msq.addAssign( sl.w.mul( w ).mul( w ) );
 
 			// What the fade threw away still roughens the surface statistically.
@@ -548,6 +626,37 @@ export function sampleCascadeSurface( xz, dist ) {
 	}
 
 	return { slope, msq, lost, foamT, foamF, foamR };
+
+}
+
+/**
+ * Look-down film / refraction. Explicit LOD 0 (legal inside the floor
+ * If). Skips the short chop cascade so a nadir view is not grit.
+ * Twin: cascadeSlopeAt() in WATER_FS.
+ */
+export function sampleCascadeSlope( xz, dist ) {
+
+	const xzV = xz.toVar();
+	const distV = dist.toVar();
+	const slope = vec2( 0.0 ).toVar();
+	for ( let c = 0; c < CASCADE_CAP; c ++ ) {
+
+		If( int( c ).lessThan( uCascadeCount ), () => {
+
+			If( cascadeArrayElement( uPatch, c ).greaterThan( FLOOR_CAUSTIC_MIN_PATCH ), () => {
+
+				const w = cascadeWeight( c, distV ).toVar();
+				const uv = xzV.div( cascadeArrayElement( uPatch, c ) ).toVar();
+				const sl = slopeTexture.sample( uv ).depth( int( c ) )
+					.level( 0 ).toVar();
+				slope.addAssign( sl.xy.mul( w ) );
+
+			} );
+
+		} );
+
+	}
+	return slope;
 
 }
 
@@ -572,7 +681,7 @@ export function sampleCascadeSurface( xz, dist ) {
 //     // The cusp arms stand where they have got to: a ridge at |lat| = rate * age,
 //     // not a falloff from the centreline. That single fact is the whole difference
 //     // between a Kelvin wedge and a widening smear down the middle of the path.
-//     float arm = rate * age;
+//     float arm = uWakeWidth0 + rate * age;
 //     float w   = max(uWakeArmW * (1.0 + uWakeSpread * age), 0.05);
 //     float q   = (abs(lat) - arm) / w;
 //     float ridge = exp(-q * q);
@@ -587,7 +696,8 @@ export function sampleCascadeSurface( xz, dist ) {
 //     float trail = exp(-(lat / foamW) * (lat / foamW));
 //     float foam = (trail * uWakeArm + churn * uWakeChurn) * stir * fade * born;
 //     float live = smoothstep(0.0, 0.18, stir);
-//     float h    = ridge * fade * live * born * uWakeDepth;
+//     float h    = (ridge * osc + trough) * fade * live * born * uWakeDepth;
+//     trough uses uWakeCut (was 0.55) so a body can carve without a following V.
 //     // The slick is the churned lane between the arms, and only that: it outlives
 //     // the bubbles that made it, which is why a wake stays legible as a smooth dark
 //     // path after the white water has gone. Deliberately not including the arms -
@@ -633,10 +743,9 @@ export const wakeAt = /*@__PURE__*/ Fn( ( [ p ] ) => {
 				.mul( edge ).toVar();
 
 			// The cusp arms stand where they have got to: a RIDGE AT
-			// |lat| = rate * age, not a falloff from the centreline. That single
-			// fact is the whole difference between a Kelvin wedge and a widening
-			// smear down the middle of the path.
-			const arm = rate.mul( age ).toVar();
+			// |lat| = width0 + rate * age, not a falloff from the centreline.
+			// width0 = 0 is the historical point-origin. Twin: src/wake.js.
+			const arm = uWakeWidth0.add( rate.mul( age ) ).toVar();
 			// Classic Kelvin face: armW * (1 + spread * age). The later
 			// spread*age*(armW+4) floor filled the wedge into the
 			// rectangle behind the dragon; wing/grow pinned the young
@@ -645,14 +754,24 @@ export const wakeAt = /*@__PURE__*/ Fn( ( [ p ] ) => {
 				.max( 0.05 ).toVar();
 			const q = lat.abs().sub( arm ).div( w ).toVar();
 			const ridge = q.mul( q ).negate().exp().toVar();
+			If( uWakeArms.lessThanEqual( 0.5 ), () => {
+
+				ridge.assign( float( 0.0 ) );
+
+			} );
 
 			// Between them, entrained air: broad, soft, and much shorter lived
 			// than the arms, because it is bubbles rather than a surface wave.
-			const cq = lat.div( uWakeBeam.mul( float( 1.0 ).add( age.mul( 0.55 ) ) ).max( 0.15 ) ).toVar();
+			// width1 > 0 grows the boil from start to end instead of beam*(1+0.55*age).
+			const tAge = clamp( age.div( uWakeLife.max( 0.001 ) ), 0.0, 1.0 ).toVar();
+			const beamW = uWakeBeam.mul( float( 1.0 ).add( age.mul( 0.55 ) ) ).max( 0.15 ).toVar();
+			If( uWakeWidth1.greaterThan( 0.01 ), () => {
+
+				beamW.assign( mix( uWakeWidth0.max( 0.15 ), uWakeWidth1, tAge ) );
+
+			} );
+			const cq = lat.div( beamW ).toVar();
 			const churnRaw = cq.mul( cq ).negate().exp().toVar();
-			const churn = churnRaw.mul(
-				float( 1.0 ).sub( age.div( uWakeLife.mul( 0.5 ) ) ).max( 0.0 ),
-			).toVar();
 
 			const live = smoothstep( float( 0.0 ), float( 0.18 ), stir ).toVar();
 			// Height only on the cusp. Do not put metres on the whole
@@ -661,16 +780,65 @@ export const wakeAt = /*@__PURE__*/ Fn( ( [ p ] ) => {
 			// Only the age-0 snout strip is silent. A 0.25..1.0 born
 			// hid the V for the first 45 m at cruise.
 			const born = smoothstep( float( 0.06 ), float( 0.22 ), age ).toVar();
-			// Foam stays on the track / churned lane. Height stays on the
-			// travelling ridge. Twin: src/wake.js wakeAt().
-			const foamW = uWakeArmW.mul( float( 1.0 ).add( age.mul( 0.28 ) ) )
-				.max( 0.05 ).toVar();
+			// width0 = 0 keeps foam on the track. width0 set is the photo
+			// look: white on the V arms + a short prop boil.
+			const photo = step( float( 0.05 ), uWakeWidth0 ).toVar();
+			const foamBorn = mix( born, smoothstep( float( 0.0 ), float( 0.10 ), age ), photo ).toVar();
+			const foamW = uWakeArmW.mul( mix( float( 1.0 ).add( age.mul( 0.28 ) ), float( 0.42 ), photo ) )
+				.max( 0.08 ).toVar();
 			const trailQ = lat.div( foamW ).toVar();
 			const trail = trailQ.mul( trailQ ).negate().exp().toVar();
-			const foam = trail.mul( uWakeArm ).add( churn.mul( uWakeChurn ) )
-				.mul( stir ).mul( fade ).mul( born ).toVar();
-			const h = crest.mul( fade ).mul( live ).mul( born )
-				.mul( uWakeDepth ).toVar();
+			const parked = float( 0.0 ).toVar();
+			If( uWakeWidth0.greaterThan( 0.05 ).and( uWakeArms.greaterThan( 0.5 ) ), () => {
+
+				const pq = lat.abs().sub( uWakeWidth0 ).div( uWakeArmW.max( 0.05 ) );
+				parked.assign( pq.mul( pq ).negate().exp() );
+
+			} );
+			const boilLife = uWakeLife.mul( mix( float( 0.5 ), float( 0.26 ), photo ) ).toVar();
+			const boil = churnRaw.mul(
+				float( 1.0 ).sub( age.div( boilLife.max( 0.12 ) ) ).max( 0.0 ),
+			).toVar();
+			const armFoam = photo.mul( ridge ).mul( uWakeArm ).toVar();
+			// Historical: track + parked V + ridge. Photo: both Kelvin arms
+			// and a short prop boil. Twin: src/wake.js. Age must not enter
+			// the hash — that flickered the V left/right every frame.
+			const histFoam = trail.mul( uWakeArm ).mul( uWakeTrail )
+				.add( boil.mul( uWakeChurn ).mul( uWakeTrail ) )
+				.add( parked.mul( uWakeArm ) )
+				.add( armFoam ).toVar();
+			const photoFoam = ridge.mul( uWakeArm )
+				.add( boil.mul( uWakeChurn ).mul( uWakeTrail ) ).toVar();
+			const foam = mix( histFoam, photoFoam, photo )
+				.mul( stir ).mul( fade ).mul( foamBorn ).toVar();
+			const n = p.x.mul( 12.9898 ).add( p.y.mul( 78.233 ) )
+				.sin().mul( 43758.5453 ).fract();
+			foam.mulAssign( float( 1.0 ).add(
+				n.sub( 0.5 ).mul( uWakeTurb ).mul( mix( float( 1.4 ), float( 0.45 ), photo ) ),
+			) );
+			const osc = mix(
+				float( 1.0 ),
+				float( 0.72 ).add( age.mul( 4.4 ).cos().mul( 0.28 ) ),
+				photo,
+			).toVar();
+			const trough = churnRaw.mul( float( 1.0 ).sub( ridge ) )
+				.mul( photo ).mul( uWakeCut ).negate().toVar();
+			const h = crest.mul( osc ).add( trough )
+				.mul( fade ).mul( live ).mul( born ).mul( uWakeDepth ).toVar();
+			If( uWakeBow.z.greaterThan( 0.001 ), () => {
+
+				const br = p.sub( vec2( uWakeBow.x, uWakeBow.y ) ).toVar();
+				const blo = br.dot( uWakeFwd ).toVar();
+				const bla = br.x.mul( uWakeFwd.y.negate() ).add( br.y.mul( uWakeFwd.x ) ).toVar();
+				const brh = uWakeBow.w.max( 0.08 ).toVar();
+				const bq = bla.div( brh.mul( 0.45 ) ).toVar();
+				const bAlong = blo.div( brh ).toVar();
+				const bowMask = bq.mul( bq ).negate().exp()
+					.mul( bAlong.mul( bAlong ).negate().exp() ).toVar();
+				foam.addAssign( uWakeBow.z.mul( bowMask ) );
+				h.addAssign( uWakeBow.z.mul( bowMask ).mul( uWakeDepth ).mul( 0.85 ) );
+
+			} );
 
 			// The slick is the churned lane between the arms, and only that: it
 			// outlives the bubbles that made it, which is why a wake stays
@@ -685,6 +853,81 @@ export const wakeAt = /*@__PURE__*/ Fn( ( [ p ] ) => {
 				h,
 				clamp( churnRaw.mul( stir ).mul( fade ).mul( born ), 0.0, 1.0 ),
 			) );
+
+		} );
+
+	} );
+
+	return outv;
+
+} );
+
+/**
+ * Shading info from the record at p, as vec4(ageN, zone, lat, vDist).
+ *
+ * `x` is the normalised age: 0 the instant the hull passed, 1 at the end of
+ * uWakeLife. 0 where there is no record — callers gate on coverage, so water
+ * the hull never crossed is never shaded as foam in the first place.
+ *
+ * `y` is the across-track zone, twin of wakeFoamZone(): aerated prop wash on
+ * the sailing line, a thin breaking crest on each cusp arm, and mostly open
+ * water in between. Defaults to 1 (no shaping) where there is no record.
+ *
+ * `z` is the signed lateral coordinate `lat` in metres from the path.
+ * `w` is the along-track distance `vDist` in metres along the sailing path.
+ *
+ * A second fetch rather than more components on wakeAt(): the vertex stage
+ * calls wakeAt() too and has no use for either of these.
+ *
+ * Twin: GLSL wakeAgeAt() in src/wake.js.
+ */
+export const wakeAgeAt = /*@__PURE__*/ Fn( ( [ p ] ) => {
+
+	// x < 0 means no record. Callers must not treat (0,1,0,0) as a
+	// centreline hit — that collapsed path UVs to a single texel.
+	const outv = vec4( - 1.0, 1.0, 0.0, 0.0 ).toVar();
+	const uv = p.sub( uWakeOrigin ).div( uWakeExtent ).add( 0.5 ).toVar();
+	const fromC = uv.sub( vec2( 0.5 ) ).toVar();
+	const radial = fromC.dot( fromC ).sqrt().mul( 2.0 ).toVar();
+	If( radial.lessThan( 0.999 ), () => {
+
+		// .level(0) unconditionally — same reason as wakeAt(), note 4.
+		const r = wakeTexture.sample( uv ).level( 0 ).toVar();
+		If( r.r.greaterThanEqual( 0.002 ), () => {
+
+			const age = r.g.toVar();
+			const lat = r.b.toVar();
+			outv.x.assign( clamp( age.div( uWakeLife.max( 0.001 ) ), 0.0, 1.0 ) );
+			// Same arm locus wakeAt() reconstructs the ridge from.
+			const arm = uWakeWidth0.add( r.a.mul( age ) ).toVar();
+			// Prop wash is narrow down the center line.
+			const px = fwidth( lat ).max( 0.12 ).toVar();
+			const coreW = uWakeWidth0.mul( 0.75 ).max( 0.45 )
+				.mul( age.mul( 0.18 ).add( 1.0 ) )
+				.max( px.mul( 1.05 ) ).toVar();
+			const cn = lat.div( coreW ).toVar();
+			const core = cn.mul( cn ).negate().exp().toVar();
+			const vDist = age.mul( uWakeSpeed.max( 6.0 ) ).toVar();
+			const scallop = vDist.mul( 1.6 ).add( lat.mul( 0.4 ) ).sin().mul( 0.14 ).toVar();
+			const crestW = uWakeArmW.mul( uWakeSpread.mul( age ).add( 1.0 ) )
+				.max( 0.55 ).max( px.mul( 1.15 ) ).toVar();
+			const rn = lat.abs().sub( arm ).add( scallop.mul( crestW ) )
+				.div( crestW.mul( 0.65 ) ).toVar();
+			const crest = rn.mul( rn ).negate().exp().toVar();
+			const outerCut = float( 1.0 ).sub(
+				smoothstep( arm.add( crestW.mul( 0.2 ) ), arm.add( crestW.mul( 1.2 ) ), lat.abs() ),
+			).toVar();
+			const interior = smoothstep( coreW.mul( 1.2 ), arm.mul( 0.85 ), lat.abs() ).toVar();
+
+			outv.y.assign( clamp(
+				core.mul( 0.95 )
+					.add( crest.mul( 0.85 ) )
+					.add( interior.mul( WAKE_ZONE_FLOOR ) )
+					.mul( outerCut ),
+				0.0, 1.0,
+			) );
+			outv.z.assign( lat );
+			outv.w.assign( vDist );
 
 		} );
 
@@ -752,6 +995,11 @@ export function setWaterCommonUniforms( p, ctx, ocean, wake ) {
 			// a uniform buffer is not something to leave lying in the frame.
 			uPatch.array[ i ] = patch[ i ] ?? 1;
 			uFade.array[ i ] = fade[ i ];
+			uFloorCausticLod.array[ i ] = floorCausticLod(
+				patch[ i ] ?? 1,
+				ocean.N ?? p.fftSize ?? 128,
+				FLOOR_CAUSTIC_FOOTPRINT,
+			);
 
 		}
 
@@ -775,6 +1023,7 @@ export function setWaterCommonUniforms( p, ctx, ocean, wake ) {
 
 	}
 
+	uFloorCausticSpan.value = FLOOR_CAUSTIC_SPAN;
 	uDetailScale.value = p.detailScale;
 	uHeightScale.value = p.heightScale;
 	uHorizScale.value = p.horizScale;
@@ -834,11 +1083,38 @@ export function setWaterCommonUniforms( p, ctx, ocean, wake ) {
 		uWakeBeam.value = wake.uWakeBeam;
 		uWakeDepth.value = wake.uWakeDepth;
 		uWakeStrength.value = wake.uWakeStrength;
+		uWakeWidth0.value = wake.uWakeWidth0 ?? 0;
+		uWakeWidth1.value = wake.uWakeWidth1 ?? 0;
+		uWakeArms.value = wake.uWakeArms ?? 2;
+		uWakeTrail.value = wake.uWakeTrail ?? 1;
+		uWakeTurb.value = wake.uWakeTurb ?? 0;
+		uWakeCut.value = wake.uWakeCut ?? 0.55;
+		const bow = wake.uWakeBow;
+		if ( bow ) {
+
+			uWakeBow.value.set( bow[ 0 ] ?? 0, bow[ 1 ] ?? 0, bow[ 2 ] ?? 0, bow[ 3 ] ?? 8 );
+
+		} else {
+
+			uWakeBow.value.set( 0, 0, 0, 8 );
+
+		}
+
+		if ( wake.uFoamEnergyTex?.isTexture ) foamEnergyTexture.value = wake.uFoamEnergyTex;
+		uFoamEnergyOn.value = wake.uFoamEnergyOn ?? 0;
 
 	} else {
 
 		uWakeOn.value = 0.0;
 		uWakeSpeed.value = 0.0;
+		uWakeWidth0.value = 0.0;
+		uWakeWidth1.value = 0.0;
+		uWakeArms.value = 2.0;
+		uWakeTrail.value = 1.0;
+		uWakeTurb.value = 0.0;
+		uWakeCut.value = 0.55;
+		uWakeBow.value.set( 0, 0, 0, 8 );
+		uFoamEnergyOn.value = 0.0;
 
 	}
 

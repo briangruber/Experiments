@@ -342,19 +342,13 @@ const work = (async () => {
     A.params.sdSprayPulse = 0.05;
     A.params.sdSprayLaunch = 0.1;
     await frames(3);
-    log('jump splash look is the Jump splash sliders, not the swim Spray sliders',
+    log('a landing does not switch to the retired jump-splash sliders',
         uDragonLook.value > 0.5
-          && Math.abs( uHullSize.value - 2.1 ) < 0.01
-          && Math.abs( uHullOpacity.value - 1.55 ) < 0.01
-          && Math.abs( uCraftLife.value - 2.2 ) < 0.05
-          && Math.abs( uCraftPulse.value - 0.72 ) < 0.01
-          && Math.abs( uCraftLaunch.value - 1.4 ) < 0.01,
-        `uHullSize ${ uHullSize.value.toFixed( 2 ) } (splash 2.1) uHullOpacity ${ uHullOpacity.value.toFixed( 2 ) } uCraftLife ${ uCraftLife.value.toFixed( 2 ) }`);
-    A.params.sdSplashSize = 0.35;
-    A.params.sdSplashOpacity = 1.4;
-    A.params.sdSplashLife = 0.65;
-    A.params.sdSplashPulse = 0.53;
-    A.params.sdSplashLaunch = 1.59;
+          && Math.abs( uHullSize.value - 0.2 ) < 0.01
+          && Math.abs( uHullOpacity.value - 0.1 ) < 0.01
+          && Math.abs( uCraftLife.value - 0.3 ) < 0.05
+          && uCraftImpact.value < 0.01,
+        `uHullSize ${ uHullSize.value.toFixed( 2 ) } (spray 0.2) uHullOpacity ${ uHullOpacity.value.toFixed( 2 ) } impact ${ uCraftImpact.value.toFixed( 2 ) }`);
     A.params.sdSpraySize = 1.23;
     A.params.sdSprayOpacity = 0.951;
     A.params.sdSprayLife = 0.85;

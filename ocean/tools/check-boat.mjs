@@ -4,7 +4,7 @@
 //   node tools/check-boat.mjs            # dist/abyssal-three.html, WebGL2 backend
 //
 // This is check-ride.mjs's structure reused, not re-derived - the boat IS a
-// second WaveRunner instance (three-main.js's remapParams()), so the same
+// second WaveRunner instance (prefix: 'boat'), so the same
 // sampling and the same claims about the camera rig and the up-vector apply
 // unchanged. What differs is boat-specific and asserted here on purpose:
 //
@@ -79,11 +79,10 @@ await page.evaluate(() => {
   const A = window.abyssal;
   A.__log = [];
   const norm = (v) => { const L = Math.hypot(v[0], v[1]) || 1; return [v[0] / L, v[1] / L]; };
-  // Mirrors three-main.js's remapParams() exactly - the boat IS a WaveRunner
-  // reading wrFoo fields, and boatParams is what redirects those onto the
-  // boatFoo preset values without a second physics model. Duplicated here,
-  // not imported, because this runs inside the page against the BUILT
-  // bundle, not against source modules.
+  // The boat WaveRunner uses prefix: 'boat' in the demo. This page-side
+  // proxy is the same mapping so extra physics steps in the check still
+  // read boatFoo knobs. Duplicated here, not imported, because this runs
+  // inside the page against the BUILT bundle, not against source modules.
   const remapParams = (p, from, to) => new Proxy(p, {
     get(target, prop) {
       if (typeof prop === 'string' && prop.startsWith(from)) {

@@ -5,8 +5,9 @@
 
 import {
 	vWakeAt, vWakeChurnAt, vWakeTan, vWakeDepthT, V_WAKE_TAN,
-	VWakeField, vWakeFieldAt,
+	VWakeField, vWakeFieldAt, vWakeWrite,
 } from '../src/v-wake.js';
+import { OceanBody, BodyList, wakeLeadContact } from '../src/ocean-body.js';
 
 const results = [];
 const need = ( name, ok, detail = '' ) => results.push( { name, ok, detail } );
@@ -195,6 +196,168 @@ const U = {
 	need( 'the height V still carries no foam of its own',
 		ridge.foam < 0.001 && ridge.h > 0.05,
 		`foam ${ ridge.foam.toFixed( 3 ) }` );
+}
+
+function spikeStations( spikes, n = 16, minZ = - 12, maxZ = 12 ) {
+
+	const top = new Float32Array( n ).fill( - 2 );
+	const low = new Float32Array( n ).fill( - 6 );
+	const half = new Float32Array( n ).fill( 1.2 );
+	const span = maxZ - minZ;
+	for ( const s of spikes ) {
+
+		let b = Math.floor( ( s.z - minZ ) / span * n );
+		if ( b < 0 ) b = 0; else if ( b >= n ) b = n - 1;
+		top[ b ] = s.top;
+		if ( s.low != null ) low[ b ] = s.low;
+
+	}
+	return { minZ, maxZ, top, low, half };
+
+}
+
+function profiled( stations, opts = {} ) {
+
+	const body = new OceanBody( null, {
+		mass: 4e4, float: false, hull: false,
+		wake: { on: 1, origin: - 1, foam: 0.5 },
+		size: { x: 4, y: 6, z: 24 },
+		length: 24,
+		pos: opts.pos ?? [ 0, 0, 0 ],
+		heading: 0,
+	} );
+	body.sprayStations = stations;
+	body.speed = opts.speed ?? 12;
+	if ( opts.attach !== false ) {
+
+		body.attach( {
+			pos: opts.pos ?? [ 0, 0, 0 ],
+			heading: 0,
+			speed: opts.speed ?? 12,
+			active: opts.active ?? true,
+			jumpAirborne: !! opts.jumpAirborne,
+		} );
+
+	}
+	return body;
+
+}
+
+const P = {
+	sdVWake: 1, sdVWakeAmp: 1.39, sdVWakeWidth: 1.3, sdVWakeLen: 70,
+	sdVWakeAngle: 15, sdVWakeMid: 0.83, sdVWakeLife: 8.2, seaLevel: 0,
+};
+
+{
+	const deep = profiled( spikeStations( [ { z: - 11, top: 2, low: - 4 } ] ), {
+		pos: [ 0, - 10, 0 ],
+	} );
+	need( 'a fully submerged profile does not invent a lead cut',
+		wakeLeadContact( deep, { seaLevel: 0 } ) === null );
+
+	const head = profiled( spikeStations( [ { z: - 11, top: 2.4, low: - 4 } ] ) );
+	const headCut = wakeLeadContact( head, { seaLevel: 0 } );
+	need( 'a nose pierce is the first cut along heading',
+		!! headCut && headCut.along < - 8,
+		`along ${ headCut?.along }` );
+
+	const spine = profiled( spikeStations( [ { z: 0.5, top: 2.2, low: - 4 } ] ) );
+	const spineCut = wakeLeadContact( spine, { seaLevel: 0 } );
+	need( 'a spine pierce writes from that spike, not the origin',
+		!! spineCut && Math.abs( spineCut.along ) < 3,
+		`along ${ spineCut?.along }` );
+
+	const both = profiled( spikeStations( [
+		{ z: - 11, top: 2.4, low: - 4 },
+		{ z: 0.5, top: 2.2, low: - 4 },
+	] ) );
+	const first = wakeLeadContact( both, { seaLevel: 0 } );
+	need( 'head and spine together still start the V at the head',
+		!! first && first.along < - 8,
+		`along ${ first?.along }` );
+}
+
+{
+	const kiss = profiled( spikeStations( [ { z: - 11, top: 0.25, low: - 4 } ] ) );
+	const through = profiled( spikeStations( [ { z: - 11, top: 2.8, low: - 4 } ] ) );
+	const a = vWakeWrite( kiss, P, { seaLevel: 0 } );
+	const b = vWakeWrite( through, P, { seaLevel: 0 } );
+	need( 'a deeper pierce writes a stronger, wider V than a kiss',
+		!! a?.contact && !! b?.contact
+			&& b.contact.amp > a.contact.amp * 1.4
+			&& b.width > a.width * 1.25,
+		`kiss amp ${ a?.contact?.amp?.toFixed( 3 ) } w ${ a?.width?.toFixed( 2 ) } through amp ${ b?.contact?.amp?.toFixed( 3 ) } w ${ b?.width?.toFixed( 2 ) }` );
+
+	kiss.speed = 0;
+	kiss.controller.speed = 0;
+	const parked = vWakeWrite( kiss, P, { seaLevel: 0 } );
+	need( 'heading speed 0 does not start a new V',
+		!! parked && parked.contact === null );
+
+	const leap = profiled( spikeStations( [ { z: - 11, top: 2.4, low: - 4 } ] ), {
+		jumpAirborne: true,
+	} );
+	need( 'a leap does not write a V under the flying body',
+		vWakeWrite( leap, P, { seaLevel: 0 } ) === null );
+
+	const idle = profiled( spikeStations( [ { z: - 11, top: 2.4, low: - 4 } ] ), {
+		active: false,
+	} );
+	need( 'an escort that is still cutting writes a V',
+		!! vWakeWrite( idle, P, { seaLevel: 0 } )?.contact );
+}
+
+{
+	// The mesh carries its own V so two animals in one sea are not
+	// forced to share the sd* sliders.
+	const stations = spikeStations( [ { z: - 11, top: 2.8, low: - 4 } ] );
+	const plain = profiled( stations );
+	const mine = profiled( stations );
+	mine.wake = {
+		on: 1, origin: - 1, foam: 0,
+		v: 1, vAmp: 2.78, vLen: 150, vWidth: 4, vAngle: 30,
+		vMid: 0.2, vLife: 12, vChurn: 0,
+	};
+	const base = vWakeWrite( plain, P, { seaLevel: 0 } );
+	const own = vWakeWrite( mine, P, { seaLevel: 0 } );
+	need( 'the recipe height, length, arm width, angle and life win over sd*',
+		own.contact.amp > base.contact.amp * 1.9
+			&& own.len > base.len * 2
+			&& own.width > base.width * 2.9
+			&& Math.abs( own.tan - vWakeTan( 30 ) ) < 1e-9
+			&& own.mid === 0.2 && own.life === 12,
+		`amp ${ own.contact.amp.toFixed( 3 ) } len ${ own.len.toFixed( 1 ) } w ${ own.width.toFixed( 2 ) }` );
+	need( 'churn 0 on the mesh is a wake of displaced water only',
+		own.churn === 0 && base.churn === 1
+			&& vWakeChurnAt( 0, 40, { ...U, ...own, hx: 0, hz: 0, amp: own.contact.amp } ) === 0
+			&& vWakeAt( 0, 40, { ...U, ...own, hx: 0, hz: 0, amp: own.contact.amp } ).h > 0.01,
+		`churn ${ own.churn }` );
+
+	const off = profiled( stations );
+	off.wake = { on: 1, origin: - 1, foam: 0, v: 0 };
+	need( 'v 0 on the mesh refuses the chevron even with sdVWake up',
+		vWakeWrite( off, P, { seaLevel: 0 } ) === null );
+}
+
+{
+	const list = new BodyList();
+	const body = profiled( spikeStations( [ { z: - 11, top: 2.4, low: - 4 } ] ) );
+	list.add( body );
+	list.stepVWake( 0.05, P );
+	need( 'BodyList writes the chevron from a piloted pierce',
+		list.vWake.stamps.length === 1 && list.vWake.stamps[ 0 ].amp > 0.05,
+		`n ${ list.vWake.stamps.length } amp ${ list.vWake.stamps[ 0 ]?.amp }` );
+	body.controller.active = false;
+	for ( let i = 0; i < 4; i ++ ) list.stepVWake( 0.05, P );
+	need( 'turning the helm off still writes while the escort is cutting',
+		list.vWake.stamps.length === 1 && list.vWake.stamps[ 0 ].amp > 0.05,
+		`n ${ list.vWake.stamps.length } amp ${ list.vWake.stamps[ 0 ]?.amp }` );
+	body.controller.jumpAirborne = true;
+	const aged = list.vWake.stamps[ 0 ].age;
+	for ( let i = 0; i < 4; i ++ ) list.stepVWake( 0.05, P );
+	need( 'a leap stops new stamps and leaves leftover fade',
+		list.vWake.stamps.length === 1 && list.vWake.stamps[ 0 ].age > aged,
+		`n ${ list.vWake.stamps.length } age ${ list.vWake.stamps[ 0 ]?.age }` );
 }
 
 const failed = results.filter( ( r ) => ! r.ok );

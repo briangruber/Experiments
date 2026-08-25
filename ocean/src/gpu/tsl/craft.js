@@ -30,22 +30,19 @@
 
 import * as THREE from 'three/webgpu';
 import {
-	Fn, If, float, vec2, vec3, vec4, uniform, texture, mix, clamp, smoothstep,
+	Fn, float, vec3, uniform, texture, mix, smoothstep,
 	attribute, cos, sin,
-	positionLocal, normalLocal, uv, positionWorld, normalWorld, cameraPosition,
-	modelWorldMatrix, transformNormalToView, varyingProperty, max, dot, normalize,
-	pow, exp, faceDirection,
+	positionLocal, normalLocal, uv, positionWorld,
 } from 'three/tsl';
 
 import { CRAFT_MESH } from '../../../demo/craftModel.js';
 
 import {
-	uSunIrradiance, uAtmoExposure, R_PLANET,
-	sunTransmittance, aerialPerspective,
-} from './atmosphere.js';
-import { uSunDir } from './sky-lut.js';
-import { skyLutTexture } from './sky-background.js';
-import { sampleSky, uSkyBlur } from './water-brdf.js';
+	skyLitColor, createOceanLitMaterial,
+	uCraftWetLine, uCraftWetDarken, uCraftSkyAmbient, uCraftAerial,
+} from './ocean-lit.js';
+export { uCraftWetLine, uCraftWetDarken, uCraftSkyAmbient, uCraftAerial };
+export { createOceanLitMaterial };
 import { MAX_BREACH_EMITTERS, breachRuns, placeBreachEmitters, meshSheathRadii } from '../../breach-emitters.js';
 export { MAX_BREACH_EMITTERS, breachRuns, placeBreachEmitters, meshSheathRadii };
 
@@ -208,12 +205,8 @@ export const craftVertex = /*@__PURE__*/ Fn( () => {
 // ---- material ---------------------------------------------------------------
 
 export const uCraftGloss = /*@__PURE__*/ uniform( 0.8 );
-export const uCraftWetLine = /*@__PURE__*/ uniform( 0.0 );      // world y of the waterline
-export const uCraftWetDarken = /*@__PURE__*/ uniform( 0.55 );
 export const uCraftHasTex = /*@__PURE__*/ uniform( 0.0 );
 export const uCraftFallback = /*@__PURE__*/ uniform( /*@__PURE__*/ new THREE.Color( 0.47, 0.78, 0.75 ) );
-export const uCraftSkyAmbient = /*@__PURE__*/ uniform( 1.0 );
-export const uCraftAerial = /*@__PURE__*/ uniform( 1.0 );
 
 const craftBaseColor = /*@__PURE__*/ texture( /*@__PURE__*/ ( () => {
 
@@ -239,81 +232,12 @@ export function setCraftTexture( tex ) {
  */
 export const craftFragment = /*@__PURE__*/ Fn( () => {
 
-	// faceDirection is -1 on a back face; the hull is not watertight everywhere
-	// and demo/craft.js draws it double-sided for the same reason.
-	const N = normalize( normalWorld ).mul( faceDirection ).toVar();
-	const V = normalize( cameraPosition.sub( positionWorld ) ).toVar();
-
 	const albedo = mix( uCraftFallback, craftBaseColor.sample( uv() ).rgb, uCraftHasTex ).toVar();
-
-	// Below the waterline the paint is wet: darker and much glossier.
 	const wet = smoothstep( 0.06, - 0.06, positionWorld.y.sub( uCraftWetLine ) ).toVar();
 	albedo.mulAssign( mix( float( 1.0 ), uCraftWetDarken, wet ) );
-
 	const rough = mix( mix( float( 0.20 ), float( 0.48 ), uCraftGloss.oneMinus() ), float( 0.10 ), wet ).toVar();
-	const a = rough.mul( rough ).max( 1e-3 ).toVar();
-
-	// The sun as the sea sees it: through the atmosphere, and switched off below
-	// the horizon rather than lighting the craft after sunset.
-	const ro = vec3( 0.0, positionWorld.y.max( 1.0 ).add( R_PLANET ), 0.0 ).toVar();
-	const sunRad = uSunIrradiance
-		.mul( sunTransmittance( ro, uSunDir ) )
-		.mul( uAtmoExposure )
-		.mul( smoothstep( - 0.09, 0.02, uSunDir.y ) ).toVar();
-
-	const NoL = N.dot( uSunDir ).max( 0.0 ).toVar();
-	const NoV = N.dot( V ).clamp( 1e-4, 1.0 ).toVar();
-
-	// GGX, the same D and V the water uses, with a dielectric F0.
-	const H = normalize( uSunDir.add( V ) ).toVar();
-	const NoH = N.dot( H ).clamp( 0.0, 1.0 ).toVar();
-	const a2 = a.mul( a ).toVar();
-	const dd = NoH.mul( NoH ).mul( a2.sub( 1.0 ) ).add( 1.0 ).toVar();
-	const D = a2.div( dd.mul( dd ).mul( 3.14159265 ).max( 1e-9 ) ).toVar();
-	const k = a.mul( 0.5 ).toVar();
-	const Vis = float( 0.5 ).div(
-		NoL.mul( NoV.mul( k.oneMinus() ).add( k ) )
-			.add( NoV.mul( NoL.mul( k.oneMinus() ).add( k ) ) ).max( 1e-6 ) ).toVar();
 	const f0 = mix( float( 0.04 ), float( 0.03 ), wet ).toVar();
-	const VoH = V.dot( H ).clamp( 0.0, 1.0 ).toVar();
-	const F = f0.add( float( 1.0 ).sub( f0 ).mul( pow( float( 1.0 ).sub( VoH ), 5.0 ) ) ).toVar();
-
-	const direct = sunRad.mul( NoL ).mul(
-		albedo.mul( F.oneMinus() ).div( 3.14159265 ).add( vec3( D.mul( Vis ).mul( F ).min( 40.0 ) ) ) ).toVar();
-
-	// Ambient: the LUT's own hemisphere, weighted by how much sky this normal
-	// can see. mip 9 at the horizon row is the wide average, NOT a zenith patch.
-	const skyIrr = skyLutTexture.sample( vec2( 0.5, 0.78 ) ).level( 9.0 ).rgb
-		.mul( 3.14159265 ).mul( uCraftSkyAmbient ).toVar();
-	const domeVis = float( 0.5 ).add( N.y.mul( 0.5 ) ).toVar();
-	const ambient = albedo.mul( skyIrr ).mul( domeVis ).div( 3.14159265 ).toVar();
-
-	// A blurred environment reflection, so the topsides pick up the sky rather
-	// than reading as matte plastic.
-	const R = N.mul( N.dot( V ).mul( 2.0 ) ).sub( V ).toVar();
-	const envF = f0.add( float( 1.0 ).sub( f0 ).mul( pow( float( 1.0 ).sub( NoV ), 5.0 ) ) ).toVar();
-	const envSpec = sampleSky( normalize( R ), a ).mul( envF ).toVar();
-
-	const col = direct.add( ambient ).add( envSpec ).toVar();
-
-	// ...and put it in the haze rather than in front of it.
-	const eyeDist = cameraPosition.sub( positionWorld ).length().toVar();
-	// aerialPerspective returns { inscatter, transmit } - two vec3s, not a
-	// packed vector. Reading it as `.xyz` compiles perfectly and multiplies the
-	// hull by nothing: measured as 63% of the craft's pixels at exactly zero
-	// while the rest stayed bright. Applied the way the water applies it
-	// (src/shaders/water.js): scale by transmittance, then add the inscatter.
-	const { inscatter, transmit } = aerialPerspective(
-		vec3( 0.0, cameraPosition.y.max( 1.0 ).add( R_PLANET ), 0.0 ),
-		normalize( positionWorld.sub( cameraPosition ) ),
-		eyeDist.min( 60000.0 ),
-		uSunDir,
-	);
-
-	return vec4(
-		col.mul( mix( vec3( 1.0 ), transmit, uCraftAerial ) ).add( inscatter.mul( uCraftAerial ) ),
-		1.0,
-	);
+	return skyLitColor( albedo, rough, f0 );
 
 } );
 
@@ -469,5 +393,71 @@ export function buildBreachProfile( geometry, bins = 48, yBins = 12 ) {
 
 	}
 	return { minZ, maxZ, top, low, half, yBins, band };
+
+}
+
+/**
+ * Breach profile from a posed Object3D, in that object's local frame.
+ * Walks every mesh so a GLB hull (not a single BufferGeometry) can drive
+ * foam / spray the same way buildBreachProfile() does for the ski.
+ */
+export function breachProfileFromObject( root, bins = 48, yBins = 12 ) {
+
+	if ( ! root ) return null;
+	root.updateMatrixWorld( true );
+	const pos = [];
+	const v = new THREE.Vector3();
+	root.traverse( ( obj ) => {
+
+		if ( ! obj.isMesh || ! obj.geometry?.getAttribute ) return;
+		const att = obj.geometry.getAttribute( 'position' );
+		if ( ! att ) return;
+		for ( let i = 0; i < att.count; i ++ ) {
+
+			v.fromBufferAttribute( att, i );
+			obj.localToWorld( v );
+			root.worldToLocal( v );
+			pos.push( v.x, v.y, v.z );
+
+		}
+
+	} );
+	if ( pos.length < 9 ) return null;
+	const geom = new THREE.BufferGeometry();
+	geom.setAttribute( 'position', new THREE.Float32BufferAttribute( pos, 3 ) );
+	const profile = buildBreachProfile( geom, bins, yBins );
+	geom.dispose();
+	return profile;
+
+}
+
+/** Scale a breach profile when the parent group is stretched. */
+export function scaleBreachProfile( raw, sx = 1, sy = 1, sz = 1 ) {
+
+	if ( ! raw ) return raw;
+	if ( sx === 1 && sy === 1 && sz === 1 ) return raw;
+	const half = raw.half ? raw.half.slice() : new Float32Array();
+	const top = raw.top ? raw.top.slice() : new Float32Array();
+	const low = raw.low ? raw.low.slice() : new Float32Array();
+	for ( let i = 0; i < half.length; i ++ ) half[ i ] *= sx;
+	for ( let i = 0; i < top.length; i ++ ) {
+
+		top[ i ] *= sy;
+		if ( low.length ) low[ i ] *= sy;
+
+	}
+	let band = raw.band;
+	if ( band ) {
+
+		band = band.slice();
+		for ( let i = 0; i < band.length; i ++ ) band[ i ] *= sx;
+
+	}
+	return {
+		...raw,
+		minZ: raw.minZ * sz,
+		maxZ: raw.maxZ * sz,
+		top, low, half, band,
+	};
 
 }

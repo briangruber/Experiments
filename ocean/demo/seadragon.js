@@ -9,17 +9,17 @@
 // When `this.active` it is a PILOT MODEL instead. Speed, heading and pitch
 // hold until the player changes them. W/S and Arrow Up/Down change speed;
 // Shift multiplies that step (not a dive — the ski's carve and the
-// plane's pull stay theirs). A/D turn, E rises and Q dives. Space is a
-// one-shot leap: it stores cruise speed and depth, surges FORWARD in
-// the water first, then pitches up and climbs
-// out (no velocity snap), arcs under gravity, keeps the entry speed so
-// it sounds as deep as that fall goes, then floats back to the start
-// depth and restores that speed. The AI's slow depth cycle is off
+// plane's pull stay theirs). A/D turn, E rises and Q dives. A fast
+// climb that breaks the surface is a gravity arc — no Space needed,
+// and no hover at a ceiling. Space is a one-shot leap: it stores cruise
+// speed and depth, surges FORWARD in the water first, then pitches up
+// and climbs out, then the same gravity arc — higher when the run is
+// fast — sounds a little deeper than it started, then floats back
+// to the start depth and restores that speed. The AI's slow depth cycle is off
 // entirely in this mode. The tail beat is Strouhal-matched to travel
 // speed in both modes, so a sprint reads as a sprint and a loaf as a loaf.
-// A leap is the exception: once airborne the stroke eases to a slowed
-// swimming wave (cadence down, sweep mostly kept) and the body lags
-// the ballistic rod a little, then both ramp back on re-entry.
+// A leap keeps that cadence in the air and follows a gravity arc — no
+// slow-mo beat, no hanging pose.
 //
 // It may breach - the refraction pass gave it a depth buffer, so a fin above
 // the waterline is an ordinary opaque fragment. It must not snap round when
@@ -35,10 +35,9 @@ const TAU = Math.PI * 2;
 // with a slow sweep instead of an eel thrash.
 export const SWIM_REF_LENGTH = 60;
 
-// Airborne stroke: a slowed swim, not a freeze. Cadence drops more than
-// sweep, so the travelling wave is still readable in the air.
-const AIR_BEAT = 0.48;
-const AIR_AMP = 0.82;
+// Airborne stroke used to drop to 0.48× cadence. That read as slow
+// motion on a breach. The wave now holds travel speed in the air;
+// gravity owns the arc, not a beat-down.
 
 /** Fastest travel this body can produce at full effort, m/s. */
 export function swimTopSpeed( p ) {
@@ -57,6 +56,22 @@ export function maxDiveDepth( p ) {
   const water = Math.max( +( p?.depth ?? 200 ), 40 );
   const half = Math.max( p?.sdLength ?? SWIM_REF_LENGTH, 8 ) * 0.45;
   return Math.max( water - half, 40 );
+
+}
+
+/**
+ * How far above the sea a leap aims, metres. A crawl stays a short
+ * breach; enough speed throws the body higher. The air phase is then
+ * gravity only — this is the v²/2g of the exit, not a hang.
+ */
+export function jumpApexOf( speed, length = SWIM_REF_LENGTH ) {
+
+  const L = Math.max( length, 8 );
+  const climb = Math.max( speed, 0 ) * Math.sin( 0.55 ) * 0.65;
+  const fromSpeed = ( climb * climb ) / ( 2 * 9.81 );
+  const floor = Math.min( 4.6, 2.2 + 0.025 * L );
+  const ceil = Math.min( L * 0.26, 16 );
+  return clamp( Math.max( floor, fromSpeed ), 1.2, ceil );
 
 }
 
@@ -204,7 +219,7 @@ export class SeaDragon {
     this._lastSdCruise = null;   // so a live slider edit can retarget a held loaf
     this.cruiseDepth = 6;        // held until rise/dive changes it
     this.swimAmp = 0.055;        // body-wave amplitude, grows with speed
-    this.beatGain = 1;           // 1 = full wet cadence; eases to AIR_BEAT in air
+    this.beatGain = 1;           // travel-speed cadence, wet or airborne
     this.climb = 0;
     this.jumping = false;
     this.jumpAirborne = false;
@@ -263,21 +278,17 @@ export class SeaDragon {
    * the Strouhal invert of speed / (2 · amplitude), so a longer animal
    * covers more water per beat and thrashes less.
    *
-   * jumpAirborne is the wet/dry gate (origin vs sea, set by the leap
-   * state machine). Cadence eases to AIR_BEAT; sweep holds AIR_AMP so
-   * the body keeps a real wave. ~0.3 s down, ~0.5 s back — no pop.
+   * jumpAirborne is the wet/dry gate (origin vs sea), whether the
+   * body left on Space or just swam out. Cadence stays Strouhal-matched
+   * to travel speed in the air — a breach is a gravity arc, not a
+   * slow-mo swim.
    */
   advanceSwim(d, p) {
-    const airborne = this.jumpAirborne;
-    const want = airborne ? AIR_BEAT : 1;
-    const k = airborne ? 8 : 4.5;
-    this.beatGain = lerp(this.beatGain, want, 1 - Math.exp(-k * d));
-    const airT = clamp((1 - this.beatGain) / (1 - AIR_BEAT), 0, 1);
-    const ampGain = 1 + airT * (AIR_AMP - 1);
+    this.beatGain = 1;
     const { f, ampFrac } = swimStroke(p, this.speed);
-    this.phase += f * this.beatGain * TAU * d;
+    this.phase += f * TAU * d;
     if (this.phase > TAU * 1024) this.phase -= TAU * 1024;
-    this.swimAmp = ampFrac * ampGain;
+    this.swimAmp = ampFrac;
   }
 
   express(d, p) {
@@ -306,7 +317,7 @@ export class SeaDragon {
   pilot(d, p, keys) {
     const held = (...codes) => codes.some((c) => keys?.has(c));
     const space = held('Space');
-    if (space && !this._spaceWasDown && !this.jumping) this.beginJump(p);
+    if (space && !this._spaceWasDown && !this.jumping && !this.jumpAirborne) this.beginJump(p);
     this._spaceWasDown = space;
     if (this.jumping) {
 
@@ -337,7 +348,9 @@ export class SeaDragon {
       this.cruiseSpeed = loaf;
     }
     this._lastSdCruise = p.sdCruise ?? loaf;
-    this.speed = lerp(this.speed, this.cruiseSpeed, 1 - Math.exp(-2.4 * d));
+    if (!this.jumpAirborne) {
+      this.speed = lerp(this.speed, this.cruiseSpeed, 1 - Math.exp(-2.4 * d));
+    }
 
     const agility = p.sdTurnRate * (0.45 + 0.55 / (1 + this.speed / 12));
     const yawWant = steer * agility;
@@ -345,29 +358,54 @@ export class SeaDragon {
     this.heading += this.yawRate * d;
 
     const pitchRate = p.sdClimb ?? 0.45;
-    if (climbIn !== 0) {
+    if (climbIn !== 0 && !this.jumpAirborne) {
       this.pitch = clamp(this.pitch + climbIn * pitchRate * d, -0.72, 0.72);
     }
 
-    const cosp = Math.cos(this.pitch);
-    const sinp = Math.sin(this.pitch);
-    this.pos[0] += Math.sin(this.heading) * cosp * this.speed * d;
-    this.pos[1] += sinp * this.speed * d;
-    this.pos[2] += -Math.cos(this.heading) * cosp * this.speed * d;
-
     const sea = p.sdSeaLevel ?? 0;
     const minY = sea - maxDiveDepth(p);
-    const maxY = sea + 8;
-    if (this.pos[1] > maxY) {
-      this.pos[1] = maxY;
-      if (this.pitch > 0) this.pitch *= 0.82;
-    } else if (this.pos[1] < minY) {
+    const g = 9.81;
+    const cosp = Math.cos(this.pitch);
+    const sinp = Math.sin(this.pitch);
+
+    if (this.jumpAirborne) {
+      // Same air as a Space leap: hold the run, gravity owns height.
+      this.pos[0] += Math.sin(this.heading) * this.speed * d;
+      this.pos[2] += -Math.cos(this.heading) * this.speed * d;
+      this.jumpVy -= g * d;
+      this.pos[1] += this.jumpVy * d;
+      const ballistic = clamp(Math.atan2(this.jumpVy, Math.max(this.speed, 2)), -0.9, 0.9);
+      this.pitch = lerp(this.pitch, ballistic, 1 - Math.exp(-14 * d));
+      this.climb = this.jumpVy;
+      if (this.pos[1] <= sea && this.jumpVy < 0) {
+        this.throwSplash(p, true);
+        this.jumpAirborne = false;
+        this.pos[1] = sea - 0.05;
+        this.jumpVy = 0;
+      }
+    } else {
+      this.pos[0] += Math.sin(this.heading) * cosp * this.speed * d;
+      this.pos[1] += sinp * this.speed * d;
+      this.pos[2] += -Math.cos(this.heading) * cosp * this.speed * d;
+      this.climb = sinp * this.speed;
+      // Fast enough, and a climb that breaks the surface, leaves the
+      // water. Takeoff is the swim-up it actually has, capped by the
+      // same speed-scaled apex as Space — then gravity, not a +8 m shelf.
+      if (this.pos[1] >= sea) {
+        const exitVy = Math.sqrt(2 * g * jumpApexOf(this.speed, L));
+        this.jumpVy = Math.min(Math.max(sinp * this.speed, 0), exitVy);
+        this.jumpAirborne = true;
+        this.jumpRollSign = Math.sign(this.yawRate) || (Math.sin(this.heading + this.t) >= 0 ? 1 : -1);
+        this.throwSplash(p, false);
+      }
+    }
+
+    if (this.pos[1] < minY) {
       this.pos[1] = minY;
       if (this.pitch < 0) this.pitch *= 0.82;
     }
     this.depth = sea - this.pos[1];
     this.cruiseDepth = this.depth;
-    this.climb = sinp * this.speed;
 
     this.advanceSwim(d, p);
     this.express(d, p);
@@ -388,10 +426,10 @@ export class SeaDragon {
     this.jumpResumeSpeed = this.cruiseSpeed;
     this.jumpResumeDepth = Math.max(0.4, sea - this.pos[1]);
     this.jumpRollSign = Math.sign(this.yawRate) || (Math.sin(this.heading + this.t) >= 0 ? 1 : -1);
-    // A hard forward punch so the run-up is a surge, not a nudge the
-    // follow camera can miss. Capped by the body's own top speed.
-    this.jumpLaunch = Math.min(top, Math.max(this.speed + 10, this.speed * 1.4, 0.46 * L));
-    this.jumpApex = 0.18 * L + 5;
+    // Punch forward, but do not invent a sprint. Height comes from
+    // the speed it actually has at takeoff, not a fixed body-length hop.
+    this.jumpLaunch = Math.min(top, Math.max(this.speed + 6, this.speed * 1.2));
+    this.jumpApex = jumpApexOf(this.jumpLaunch, L);
     this.jumpVy = 0;
     this.splash = 0;
     this.splashPush = 0;
@@ -441,7 +479,7 @@ export class SeaDragon {
     const steer = (held('KeyD', 'ArrowRight') ? 1 : 0) - (held('KeyA', 'ArrowLeft') ? 1 : 0);
     const L = Math.max(p.sdLength ?? SWIM_REF_LENGTH, 8);
     const sea = p.sdSeaLevel ?? 0;
-    const g = 11;
+    const g = 9.81;
     const agility = (p.sdTurnRate ?? 0.55) * 0.55;
     this.yawRate = lerp(this.yawRate, steer * agility, 1 - Math.exp(-4.5 * d));
     this.heading += this.yawRate * d;
@@ -469,29 +507,33 @@ export class SeaDragon {
       this.speed = lerp(this.speed, this.jumpLaunch, 1 - Math.exp(-3.4 * d));
       this.pitch = lerp(this.pitch, 0.55, 1 - Math.exp(-1.7 * d));
       const mass = Math.sqrt(L / SWIM_REF_LENGTH);
-      const surge = (14 + 0.28 * L) / mass;
+      const surge = (7.2 + 0.055 * L) / mass;
+      const exitVy = Math.sqrt(2 * g * Math.max(this.jumpApex, 1.2));
       this.jumpVy += surge * d;
-      this.jumpVy += Math.sin(this.pitch) * this.speed * 0.35 * d;
-      this.jumpVy -= 0.055 * this.jumpVy * Math.abs(this.jumpVy) * d;
+      this.jumpVy += Math.sin(this.pitch) * this.speed * 0.08 * d;
+      this.jumpVy -= 0.012 * this.jumpVy * Math.abs(this.jumpVy) * d;
+      if (this.jumpVy > exitVy) this.jumpVy = exitVy;
       this.pos[1] += this.jumpVy * d;
       this.climb = this.jumpVy;
       if (!this.jumpSplashedOut && this.pos[1] > sea - 0.12 * L) {
         this.throwSplash(p, false);
         this.jumpSplashedOut = true;
       }
+      // A shallow start runs out of water before the surge hits the
+      // takeoff speed the run earned. Spend the rest as it breaks;
+      // after that the arc is gravity only.
       if (this.pos[1] >= sea) {
+        if (this.jumpVy < exitVy) this.jumpVy = exitVy;
         this.jumpPhase = 'air';
         this.jumpAirborne = true;
       }
     } else if (this.jumpPhase === 'air') {
-      this.speed = lerp(this.speed, this.jumpLaunch, 1 - Math.exp(-3 * d));
       this.jumpVy -= g * d;
       this.pos[1] += this.jumpVy * d;
-      // Trajectory is jumpVy / pos. Pitch only follows the rod, with a
-      // lag and a wave-driven flex so the spine still breathes in the air.
+      // Horizontal speed holds. Pitch follows the ballistic tangent
+      // so the body arcs instead of hanging in a slow-mo pose.
       const ballistic = clamp(Math.atan2(this.jumpVy, Math.max(this.speed, 2)), -0.9, 0.9);
-      const flex = Math.sin(this.phase) * 0.10;
-      this.pitch = lerp(this.pitch, ballistic + flex, 1 - Math.exp(-4.2 * d));
+      this.pitch = lerp(this.pitch, ballistic, 1 - Math.exp(-14 * d));
       this.climb = this.jumpVy;
       if (!this.jumpSplashedOut && this.pos[1] > sea - 0.12 * L) {
         this.throwSplash(p, false);
@@ -504,6 +546,9 @@ export class SeaDragon {
         this.jumpEntered = true;
         this.jumpPhase = 'water';
         this.pos[1] = sea - 0.05;
+        // Sound after the slap. The air arc is short; this punch is
+        // what carries it deeper than it started, not a 16 m hang.
+        this.jumpVy -= Math.min(6.5, 0.09 * L);
       }
     } else {
       // Neutral in the water: weight and buoyancy cancel, so the leftover
@@ -564,6 +609,10 @@ export class SeaDragon {
       this.jumpVy = 0;
       this.cruiseSpeed = this.jumpResumeSpeed;
       this.speed = this.jumpResumeSpeed;
+    } else if (this.jumpAirborne) {
+      this.jumpAirborne = false;
+      this.jumpVy = 0;
+      if (this.pos[1] > -0.05) this.pos[1] = -0.05;
     }
     this.pitch = 0;
     this.climb = 0;

@@ -249,7 +249,7 @@ function hideControlsCard() {
 }
 
 // The boat has its own boatView rather than sharing wrView (the ski's, which
-// the seaplane also reads) - see three-main.js's remapParams. So the one
+// the seaplane also reads) - WaveRunner prefix: 'boat'. So the one
 // on-screen view toggle has to know which vehicle it is currently toggling.
 function activeViewParam( app ) {
 

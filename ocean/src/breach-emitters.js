@@ -129,6 +129,48 @@ export function breachRuns( stations, pose = {} ) {
 }
 
 /**
+ * Half-width of the mesh at local `z` where the waterline crosses that
+ * station. Uses the height `band` so a flybridge does not widen the hull.
+ */
+export function waterlineHalfAt( stations, z, pose = {} ) {
+
+	const { minZ, maxZ, half, top, low, band, yBins } = stations ?? {};
+	const bins = top?.length ?? half?.length ?? 0;
+	const minHalf = pose.minHalf ?? 0.08;
+	if ( ! bins || ! ( maxZ > minZ ) ) return minHalf;
+	let b = Math.floor( ( z - minZ ) / ( maxZ - minZ ) * bins );
+	if ( b < 0 ) b = 0;
+	else if ( b >= bins ) b = bins - 1;
+	const fallback = ( half && Number.isFinite( half[ b ] ) && half[ b ] > 0 )
+		? Math.max( half[ b ], minHalf )
+		: minHalf;
+	const lo = low?.[ b ], hi = top?.[ b ];
+	if ( ! band || ! yBins || ! ( hi > lo ) ) return fallback;
+	const originY = pose.originY ?? pose.origin?.[ 1 ] ?? 0;
+	const pitch = pose.pitch ?? 0;
+	const seaLevel = pose.seaLevel ?? 0;
+	const cp = Math.cos( pitch ), sp = Math.sin( pitch );
+	const yW = ( seaLevel - originY + z * sp ) / Math.max( cp, 1e-4 );
+	const ybWant = ( yW - lo ) / ( hi - lo ) * ( yBins - 1 );
+	let best = 0, bestD = Infinity;
+	for ( let yb = 0; yb < yBins; yb ++ ) {
+
+		const v = band[ b * yBins + yb ];
+		if ( ! ( v > 0 ) ) continue;
+		const d = Math.abs( yb - ybWant );
+		if ( d < bestD ) {
+
+			bestD = d;
+			best = v;
+
+		}
+
+	}
+	return best > 0 ? Math.max( best, minHalf ) : fallback;
+
+}
+
+/**
  * Occupancy-station radii from the mesh waterline, not the implicit eel.
  *
  * Each breach-profile bin that actually pierces (same test as breachRuns)

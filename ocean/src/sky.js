@@ -124,7 +124,7 @@ export class Sky {
       uStarSize: p.starSize,
       // The knob reads as "how much of the field shows"; the shader wants the
       // hash cutoff, which runs the other way.
-      uStarCutoff: 1.0 - 0.05 * p.starDensity,
+      uStarCutoff: 1.0 - 0.14 * p.starDensity,
       uStarColorTemp: p.starColorTemp,
       uSunLimb: p.sunLimbDarkening,
       uDiscFlatten: p.sunRefractFlatten,

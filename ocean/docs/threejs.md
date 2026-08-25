@@ -183,20 +183,23 @@ nothing here has verified them, so they are not claimed.
 
 ## Buoyancy and CPU-side wave height
 
-**Not provided yet.** This is the largest known gap.
+On the WebGPU path this is `abyssal.bodies.add(mesh, { mass, float, wake })`.
+Spread `SKI` for planing / launch / grip on any mesh (a box is enough — see
+[`examples/webgpu-box-ski.html`](../examples/webgpu-box-ski.html)).
+`createAbyssal()` owns a `BodyList`, a shared `TslWake` field, a height-probe
+pool (`TslCraftProbe`, up to 16 points), and — when you pass a `scene` — the
+refraction pass that photographs that scene under the waterline. `frame()`
+steps free bodies after the sim and before the water draw; the probe runs after
+the water so it reads the live cascade uniforms. A mesh you only `scene.add()`
+still only occludes — see
+[`examples/webgpu-bodies.html`](../examples/webgpu-bodies.html).
 
-The wave field lives in GPU textures. Reading it back on the CPU is possible — the
-demo does it, with a four-point probe shader and an asynchronous `PIXEL_PACK_BUFFER`
-readback with a fence, because a synchronous `readPixels` stalls the pipeline
-behind the entire ocean simulation — but that machinery is currently entangled with
-the demo's craft and wake and is not exposed as a general API.
+The wave field is Lagrangian: the value at world point *p* is not the value at
+texture coordinate *p*. The probe inverts that with a fixed-point iteration
+(`src/gpu/tsl/craft-probe.js`). Readings are asynchronous (one frame late).
 
-Until it is: `water.ocean` gives you the `Ocean` instance, whose `disp` texture
-array holds the per-cascade displacement, indexed by *undisplaced* coordinate.
-`demo/waverunner.js` has a working probe to copy from. Note the subtlety that
-made it hard the first time — the fields are Lagrangian, so the value at world
-point *p* is not the value at texture coordinate *p*, and inverting that takes a
-fixed-point iteration the probe shader performs.
+This classic WebGL2 adapter (`AbyssalWater`) does not run that pool. The demo's
+`WaveRunner` still has its own four-point GL probe if you are on this path.
 
 ---
 

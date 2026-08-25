@@ -13,10 +13,11 @@
 // ./ocean-sim.js; read that file's header first - the index-space and
 // orientation argument lives there and everything here depends on it.
 //
-// At N = 256, C = 4, stages = 8 a steady frame is
+// At N = 256, C = 4, stages = 8 a WebGL2 frame is
 //   4 evolve + 64 fft + 4 assemble + 4 foam + 4 publish = 80 renderer.render()
-// calls; the shipping GL path issues 76 equivalent draws through Blitter. A
-// rebuild frame adds 4 spectrum draws and 30 x 4 spin-up foam draws.
+// calls. On WebGPU the 64 fragment butterflies become 8 workgroup-memory
+// dispatches (SharedFftCompute). A rebuild frame adds 4 spectrum draws and
+// 30 x 4 spin-up foam draws.
 //
 // ---------------------------------------------------------------------------
 // 1. NEVER REASSIGN A TextureNode's .value TO ANOTHER RENDER TARGET
@@ -160,6 +161,7 @@ import {
 	butterflyData, cascadeNoise, bandLimitsOf, kCharOf, choppinessOf,
 	whitecapFraction, breakLodsOf, breakWeightsOf, foamCutoffOf,
 } from '../../ocean-shared.js';
+import { SharedFftCompute, canSharedFft } from '../shared-fft.js';
 
 /**
  * The gaussian field h0 is seeded from, as ONE array texture indexed by uLayer.
@@ -299,6 +301,28 @@ export class TslOceanSim {
 		// about passes that must sit BEHIND geometry, and these render into their
 		// own offscreen targets where QuadMesh's own ortho camera is exactly right.
 		this.quad = new THREE.QuadMesh( this.matPrime1 );
+
+		// Dan's win: one workgroup per line, all log2(N) stages in shared
+		// memory. TSL cannot say var<workgroup>, so this is raw WGSL on the
+		// WebGPU device. WebGL2 and N > 512 keep the fragment butterflies.
+		this.fftShared = false;
+		this._sharedFft = null;
+		if ( canSharedFft( renderer, this.N ) ) {
+
+			try {
+
+				this._sharedFft = new SharedFftCompute( renderer.backend.device, {
+					size: this.N, cascades: this.C,
+				} );
+				this.fftShared = true;
+
+			} catch ( err ) {
+
+				console.warn( 'TslOceanSim: workgroup FFT failed to build, using fragment butterflies', err );
+
+			}
+
+		}
 
 		this._prime();
 
@@ -650,22 +674,55 @@ export class TslOceanSim {
 				} );
 				this._draw( this.pingRT, c, this.matEvolve );
 
-				// 2. 2 * log2(N) butterfly passes, horizontal then vertical
-				let readIsPing = true;
-				for ( let v = 0; v < 2; v ++ ) {
+			}
 
-					for ( let s = 0; s < this.stages; s ++ ) {
+			// 2. FFT. Workgroup memory on WebGPU (two dispatches per cascade);
+			//    fragment butterflies on WebGL2 or if the GPU textures are not
+			//    ready yet (first frame before Three has allocated them).
+			let sharedOk = false;
+			if ( this._sharedFft ) {
 
-						setFftUniforms( { stage: s, layer: c } );
-						this._draw(
-							readIsPing ? this.pongRT : this.pingRT, c,
-							this.matFft[ v ][ readIsPing ? 0 : 1 ],
-						);
-						readIsPing = ! readIsPing;
+				try {
+
+					sharedOk = this._sharedFft.run( this.renderer, this.pingRT );
+					this.fftShared = sharedOk;
+
+				} catch ( err ) {
+
+					console.warn( 'TslOceanSim: workgroup FFT failed, using fragment butterflies', err );
+					this._sharedFft.dispose();
+					this._sharedFft = null;
+					this.fftShared = false;
+
+				}
+
+			}
+
+			if ( ! sharedOk ) {
+
+				for ( let c = 0; c < this.C; c ++ ) {
+
+					let readIsPing = true;
+					for ( let v = 0; v < 2; v ++ ) {
+
+						for ( let s = 0; s < this.stages; s ++ ) {
+
+							setFftUniforms( { stage: s, layer: c } );
+							this._draw(
+								readIsPing ? this.pongRT : this.pingRT, c,
+								this.matFft[ v ][ readIsPing ? 0 : 1 ],
+							);
+							readIsPing = ! readIsPing;
+
+						}
 
 					}
 
 				}
+
+			}
+
+			for ( let c = 0; c < this.C; c ++ ) {
 
 				// 3. assemble displacement + slope + Jacobian. Reads ping - note 4.
 				setAssembleUniforms( p, { kChar: this.kChar( c ), layer: c } );
@@ -847,6 +904,8 @@ export class TslOceanSim {
 
 		this.noiseTex.dispose();
 		this.butterflyTex.dispose();
+		this._sharedFft?.dispose();
+		this._sharedFft = null;
 
 	}
 

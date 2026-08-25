@@ -13,7 +13,7 @@
 
 import { INIT_SPECTRUM_WGSL } from './kernels/spectrum.js';
 import { TIME_EVOLVE_WGSL } from './kernels/evolve.js';
-import { FFT_STAGE_WGSL } from './kernels/fft.js';
+import { FFT_STAGE_WGSL, fftSharedWgsl } from './kernels/fft.js';
 import { ASSEMBLE_WGSL } from './kernels/assemble.js';
 // Shared with the WebGL2 simulation rather than reproduced. Reproducing them is
 // how this driver was first written and every one of the five was subtly wrong -
@@ -141,10 +141,14 @@ export class OceanCompute {
 
     const spec = wrapSpectrumKernel(INIT_SPECTRUM_WGSL);
     this.spectrumScalars = spec.scalars;
+    // Workgroup FFT when the line fits in the 16 KiB shared-memory guarantee
+    // (N <= 512). Stage-wise ping-pong is the portable fallback.
+    const storeCap = d.limits?.maxComputeWorkgroupStorageSize ?? 16384;
+    this.fftShared = N <= 512 && storeCap >= N * 32;
     this.pipelines = {
       spectrum: this._pipeline(spec.code),
       evolve: this._pipeline(TIME_EVOLVE_WGSL),
-      fft: this._pipeline(FFT_STAGE_WGSL),
+      fft: this._pipeline(this.fftShared ? fftSharedWgsl(N) : FFT_STAGE_WGSL),
       assemble: this._pipeline(ASSEMBLE_WGSL),
     };
     // One uniform buffer per pass per cascade per stage would be hundreds of
@@ -181,11 +185,11 @@ export class OceanCompute {
     });
   }
 
-  _dispatch(pass, pipeline, entries, ubo) {
+  _dispatch(pass, pipeline, entries, ubo, groups = null) {
     pass.setPipeline(pipeline);
     pass.setBindGroup(0, this._bind(pipeline, [ubo, ...entries]));
-    const g = Math.ceil(this.N / 8);
-    pass.dispatchWorkgroups(g, g, 1);
+    const g = groups || [Math.ceil(this.N / 8), Math.ceil(this.N / 8), 1];
+    pass.dispatchWorkgroups(g[0], g[1], g[2]);
   }
 
   bandLimits(c) { return bandLimitsOf(this.L, this.C, c); }
@@ -242,21 +246,36 @@ export class OceanCompute {
         pass.end();
       }
 
-      // 2. 2 * log2(N) butterfly stages, alternating axis then ping-pong. An
-      //    even number of swaps, so the result always lands back in ping - which
-      //    is why assemble can bind it without asking.
+      // 2. FFT. Shared-memory: two dispatches (horiz, then vert) and the
+      //    result lands in ping. Stage-wise: 2 * log2(N) ping-pongs, also
+      //    even, also ping. Assemble binds ping either way.
       let srcA = this.pingA, srcB = this.pingB, dstA = this.pongA, dstB = this.pongB;
-      for (let axis = 0; axis < 2; axis++) {
-        for (let s = 0; s < this.stages; s++) {
+      if (this.fftShared) {
+        const pass = enc.beginComputePass();
+        for (let axis = 0; axis < 2; axis++) {
           const f = new Float32Array(8);
           const u = new Uint32Array(f.buffer);
-          f[0] = N; u[1] = this.stages; u[2] = s; u[3] = axis; u[4] = c;
-          const pass = enc.beginComputePass();
+          f[0] = N; u[1] = this.stages; u[2] = 0; u[3] = axis; u[4] = c;
           this._dispatch(pass, this.pipelines.fft,
-            [this.butterfly, srcA, srcB, dstA, dstB], this._uniform('fft', f));
-          pass.end();
+            [this.butterfly, srcA, srcB, dstA, dstB], this._uniform('fft', f),
+            [N, 1, 1]);
           [srcA, dstA] = [dstA, srcA];
           [srcB, dstB] = [dstB, srcB];
+        }
+        pass.end();
+      } else {
+        for (let axis = 0; axis < 2; axis++) {
+          for (let s = 0; s < this.stages; s++) {
+            const f = new Float32Array(8);
+            const u = new Uint32Array(f.buffer);
+            f[0] = N; u[1] = this.stages; u[2] = s; u[3] = axis; u[4] = c;
+            const pass = enc.beginComputePass();
+            this._dispatch(pass, this.pipelines.fft,
+              [this.butterfly, srcA, srcB, dstA, dstB], this._uniform('fft', f));
+            pass.end();
+            [srcA, dstA] = [dstA, srcA];
+            [srcB, dstB] = [dstB, srcB];
+          }
         }
       }
 

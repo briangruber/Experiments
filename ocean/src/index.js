@@ -22,7 +22,21 @@ export { Sky } from './sky.js';
 // water. Post is the HDR bloom / exposure / tonemap chain the demo finishes with.
 export { Spray } from './spray.js';
 export { Wake, WAKE_SAMPLE_GLSL } from './wake.js';
+export {
+	FoamEnergy, FoamEnergyField, FOAM_ENERGY_SAMPLE_GLSL,
+	foamEnergyDecay, foamEnergyHullInject, foamEnergyAcross, foamEnergyCrestInject,
+	foamEnergyStep, foamEnergyMask, wakeFoamDecayOf,
+} from './foam-energy.js';
 export { Post } from './post.js';
+export {
+	OceanBody, BodyList, SKI, craftBasis, parseSwell, parseWake, parseSpray,
+	parsePierce, parseDebug, debugContacts, hullRideHeight, hullPitchFrom,
+	hullRollFrom, WATER_DENSITY, GRAVITY,
+	froudeLength, froudeDepth, froudeHumpFactor, froudeShallowResonance,
+	isPhysicsWake, wakePhysicsAt, wakePhysicsInfo, hullSpeed, gravityWavelength,
+	wakeRegime, LeftoverBubbleField, parseLeftoverBubbles, leftoverBubbleAlpha,
+	leftoverBubbleRide,
+} from './ocean-body.js';
 
 // --- parameters -------------------------------------------------------------
 // `defaults` is the full parameter set with every knob at its default value;

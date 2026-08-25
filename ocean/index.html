@@ -19,6 +19,35 @@
 </div>
 <div id="boot">
   <div class="boot-title">ABYSSAL</div>
-  <div class="boot-sub">building spectra…</div>
+  <div class="boot-sub" id="boot-sub">loading…</div>
+  <div class="boot-bar" role="progressbar" aria-labelledby="boot-sub" aria-valuetext="loading">
+    <i></i>
+  </div>
 </div>
+<script>
+  // The module graph + first shader compile is all sync, so the splash would
+  // otherwise sit on one line with no sign of life. These labels are a clock,
+  // not a percent — the last one stays up until main.js hides #boot.
+  (function () {
+    const el = document.getElementById('boot-sub');
+    const bar = document.querySelector('#boot .boot-bar');
+    const steps = [
+      'loading modules…',
+      'compiling shaders…',
+      'building spectra…',
+      'warming the sea…',
+    ];
+    let i = 0;
+    const tick = () => {
+      el.textContent = i < steps.length
+        ? steps[i]
+        : 'still working — first compile can take a minute';
+      if (bar) bar.setAttribute('aria-valuetext', el.textContent);
+      if (i >= steps.length && window.__bootTimer) clearInterval(window.__bootTimer);
+      i++;
+    };
+    tick();
+    window.__bootTimer = setInterval(tick, 2200);
+  })();
+</script>
 <script type="module" src="./demo/main.js"></script>

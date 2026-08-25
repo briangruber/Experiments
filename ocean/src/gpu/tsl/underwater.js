@@ -17,6 +17,7 @@ import * as THREE from 'three/webgpu';
 import { uTime } from './cloud-field.js';
 import { glScreenUV, uInvViewProj } from './sky-background.js';
 import { UNDER_VIS, UNDER_ABSORB_SCALE, UNDER_FLOOR } from '../../underwater.js';
+import { floorDepthAt, floorDepthBounds } from '../../seafloor.js';
 
 export const uUwOn = /*@__PURE__*/ uniform( 0.0 );
 export const uUwDepth = /*@__PURE__*/ uniform( 0.0 );
@@ -165,7 +166,12 @@ export function setUnderwaterUniforms( p, ctx ) {
 	uUwOn.value = on ? 1 : 0;
 	uUwDepth.value = Math.max( depth, 0 );
 	const simDepth = p?.depth ?? UNDER_FLOOR;
-	uUwFloor.value = Math.min( Math.max( simDepth, 12 ), UNDER_FLOOR );
+	const bed = floorDepthBounds( p?.floorDepthMin, p?.floorDepthMax, p?.floorDepth );
+	const camX = ctx?.camPos?.[ 0 ] ?? 0;
+	const camZ = ctx?.camPos?.[ 2 ] ?? 0;
+	uUwFloor.value = bed.live
+		? floorDepthAt( camX, camZ, bed.min, bed.max, p?.floorTerrainScale )
+		: Math.min( Math.max( simDepth, 12 ), UNDER_FLOOR );
 	const a = p?.absorption ?? [ 0.3, 0.045, 0.03 ];
 	const s = p?.scatterColor ?? [ 0.09, 0.52, 0.57 ];
 	uUwAbsorb.value.set( a[ 0 ], a[ 1 ], a[ 2 ] );

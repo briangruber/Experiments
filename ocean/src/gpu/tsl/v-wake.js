@@ -16,10 +16,13 @@ export const uVWakeLen = /*@__PURE__*/ uniform( 70.0 );
 export const uVWakeWidth = /*@__PURE__*/ uniform( 1.3 );
 export const uVWakeTan = /*@__PURE__*/ uniform( 0.2679 ); // tan(15°)
 export const uVWakeMid = /*@__PURE__*/ uniform( 0.83 );
+// Gain on the churned lane between the arms. 0 is a wake of displaced
+// water only — the ridges keep their height and nothing turns white.
+export const uVWakeChurn = /*@__PURE__*/ uniform( 1.0 );
 
 // Twin of vWakeAt() / vWakeChurnAt() — height in x, motorboat-lane
 // churn in y. y is the water BETWEEN the arms, never the ridges.
-const vWakeCore = /*@__PURE__*/ Fn( ( [ px, pz, hx, hz, fx, fz, amp, len, width, tanA, mid ] ) => {
+const vWakeCore = /*@__PURE__*/ Fn( ( [ px, pz, hx, hz, fx, fz, amp, len, width, tanA, mid, churnK ] ) => {
 
 	const dirLen = fx.mul( fx ).add( fz.mul( fz ) ).sqrt().max( 1e-5 );
 	const fxx = fx.div( dirLen );
@@ -49,7 +52,7 @@ const vWakeCore = /*@__PURE__*/ Fn( ( [ px, pz, hx, hz, fx, fz, amp, len, width,
 	const h = amp.mul( ridge ).mul( fade2 ).mul( born ).mul( live );
 	const lane = width.max( 0.8 ).mul( 2.8 ).add( fetch.mul( 0.14 ) );
 	const track = across.div( lane ).mul( across.div( lane ) ).negate().exp();
-	const gain = amp.div( 1.39 ).min( 1.2 ).mul( 0.88 );
+	const gain = amp.div( 1.39 ).min( 1.2 ).mul( 0.88 ).mul( churnK.max( 0.0 ) );
 	const churn = track.mul( fade2 ).mul( born ).mul( live ).mul( gain );
 	return vec2( h, churn.min( 1.0 ) );
 
@@ -70,6 +73,7 @@ vWakeCore.setLayout( {
 		{ name: 'width', type: 'float' },
 		{ name: 'tanA', type: 'float' },
 		{ name: 'mid', type: 'float' },
+		{ name: 'churnK', type: 'float' },
 	],
 } );
 
@@ -83,7 +87,7 @@ export const vWakeAt = /*@__PURE__*/ Fn( ( [ px, pz ] ) => {
 			px, pz,
 			uVWakeHead.x, uVWakeHead.y,
 			uVWakeFwd.x, uVWakeFwd.y,
-			uVWakeAmp, uVWakeLen, uVWakeWidth, uVWakeTan, uVWakeMid,
+			uVWakeAmp, uVWakeLen, uVWakeWidth, uVWakeTan, uVWakeMid, uVWakeChurn,
 		) );
 
 	} );
@@ -133,5 +137,6 @@ export function setVWakeUniforms( u ) {
 	uVWakeWidth.value = u?.width ?? 1.3;
 	uVWakeTan.value = u?.tan ?? 0.2679;
 	uVWakeMid.value = u?.mid ?? 0.83;
+	uVWakeChurn.value = u?.churn ?? 1;
 
 }

@@ -438,6 +438,8 @@
   #perf-debug .perf-warn { color: var(--amber); }
   #perf-debug .perf-report { color: var(--haze); }
   #perf-debug .perf-hot-wrap { margin: 8px 0 4px; }
+  #perf-debug .perf-hot-wrap .k span { font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--haze); }
+  #perf-debug .perf-live { margin: 4px 0 0; font: 400 11px/1.4 var(--mono); color: var(--glint); font-variant-numeric: tabular-nums; }
   #perf-debug .perf-hot {
     margin: 4px 0 0; padding: 0; list-style: none;
     display: flex; flex-direction: column; gap: 3px;
@@ -447,6 +449,8 @@
     font-variant-numeric: tabular-nums;
   }
   #perf-debug .perf-hot li:first-child b { color: var(--coral); }
+  #perf-debug .perf-hot li.off b,
+  #perf-debug .perf-hot li.off span { color: var(--dim); text-decoration: line-through; }
   #perf-debug .perf-hot li span { color: var(--amber); }
   #perf-debug .perf-hot li.hint { color: var(--dim); font: 400 10px/1.45 var(--sans); }
 

@@ -17,6 +17,11 @@ import { clamp } from './math.js';
 import { WATER_VS, WATER_FS } from './shaders/water.js';
 import { LDR_OUTPUT_GLSL } from './shaders/output.js';
 import { horizonPinAmount } from './horizon-pin.js';
+import {
+	decodeFoamLace, decodeWakeFoamPack, uploadWebGLMask, uploadWebGLRgba,
+} from './water-assets.js';
+import { FLOOR_CAUSTIC_SPAN, floorCausticLods } from './seafloor.js';
+import { WAKE_FOAM_RIBBON_VARY } from './foam-lace.js';
 
 // A hull that is nowhere near the water. Passing this is how you say "no boat":
 // the shader's hull terms all scale by uHullPush and uHullPlane, and the
@@ -45,6 +50,24 @@ export class WaterSurface {
     this._vWind = new Float32Array(2);
     this._vFade = new Float32Array(4);
     this._dummyWake = null;
+    // Histogram-balanced R8 mask. Coverage still comes from the FFT Jacobian
+    // and terrain depth; this texture only resolves its bubble-scale edge.
+    this._foamLace = texture2D(gl, {
+      width: 1, height: 1,
+      internalFormat: gl.R8, format: gl.RED, type: gl.UNSIGNED_BYTE,
+      filter: gl.LINEAR, wrap: gl.REPEAT,
+      data: new Uint8Array([128]), mips: true, aniso: 8,
+    });
+    // R = coarse cells, G = fine lace, B = sparse breakup. One packed
+    // sampler lets the wake age through three looks without three bindings.
+    this._wakeFoam = texture2D(gl, {
+      width: 1, height: 1,
+      internalFormat: gl.RGBA8, format: gl.RGBA, type: gl.UNSIGNED_BYTE,
+      filter: gl.LINEAR, wrap: gl.REPEAT,
+      data: new Uint8Array([128, 128, 128, 255]), mips: true, aniso: 8,
+    });
+    void uploadWebGLMask(gl, this._foamLace, decodeFoamLace);
+    void uploadWebGLRgba(gl, this._wakeFoam, decodeWakeFoamPack);
     this.buildGrid(params);
   }
 
@@ -77,6 +100,11 @@ export class WaterSurface {
       uWakeOn: 0,
       uWakeLife: 1, uWakeArmW: 1, uWakeEdge: 0.22, uWakeArm: 0, uWakeChurn: 0, uWakeSpread: 1,
       uWakeBeam: 1, uWakeDepth: 0, uWakeStrength: 0,
+      uWakeWidth0: 0, uWakeWidth1: 0, uWakeArms: 2, uWakeTrail: 1, uWakeTurb: 0,
+      uWakeCut: 0.55,
+      uWakeBow: new Float32Array([0, 0, 0, 8]),
+      uFoamEnergy: this._dummyWake,
+      uFoamEnergyOn: 0,
     };
   }
 
@@ -169,16 +197,41 @@ export class WaterSurface {
       uFoamSharp: p.foamSharp, uFoamCrisp: p.foamCrisp, uFoamStreak: p.foamStreak,
       uFoamDrift: p.foamDrift, uFoamFill: p.foamFill ?? 0.55,
       uFoamCell: p.foamCell ?? 1,
+      uFoamLace: this._foamLace,
+      uWakeFoamPack: this._wakeFoam,
+      uFoamTextureAmount: p.foamTextureAmount ?? 0,
+      uFoamTextureScale: p.foamTextureScale ?? 9,
+      uFoamTextureCarry: p.foamTextureCarry ?? 0.55,
+      uFoamTextureShear: p.foamTextureShear ?? 0.30,
+      uFoamTextureStrain: p.foamTextureStrain ?? 0.38,
+      uFoamLaceStretch: p.foamLaceStretch ?? 0,
+      uFoamLaceStretchBlock: p.foamLaceStretchBlock ?? 28,
+      uFoamLaceMorph: p.foamLaceMorph ?? 0,
+      uFoamLaceMorphRate: p.foamLaceMorphRate ?? 0,
+      uWakeFoamRibbonVary: p.wakeFoamRibbonVary ?? WAKE_FOAM_RIBBON_VARY,
+      uFoamRibbon: Number.isFinite( opts.foamRibbon ) ? Math.max( opts.foamRibbon, 0 ) : 1,
       uFoamOpacity: p.foamOpacity,
       uFoamColor: p.foamColor,
       uSunAngularRadius: p.sunAngularRadius, uSpecIntensity: p.specIntensity,
       uSkyAmbient: p.skyAmbient, uSkyBlur: p.skyBlur,
       uGlitter: p.glitter, uGlitterScale: p.glitterScale,
       uWaterIOR: p.waterIOR, uAerial: p.aerial,
+      uFloorDepth: p.floorDepth ?? 0,
+      uFloorDepthMin: p.floorDepthMin ?? 0,
+      uFloorDepthMax: p.floorDepthMax ?? 0,
+      uFloorTerrainScale: p.floorTerrainScale ?? 36,
+      uFloorCaustic: p.floorCaustic ?? 1,
+      uFloorCausticSize: p.floorCausticSize ?? 1,
+      uRefractDistort: p.sdRefract ?? 0.43,
+      uFloorCausticLod: floorCausticLods( ocean.patchSizes, ocean.N ?? p.fftSize ?? 128 ),
+      uFloorCausticSpan: FLOOR_CAUSTIC_SPAN,
+      uShoreFoamAmount: p.shoreFoamAmount ?? 0,
+      uShoreFoamRange: p.shoreFoamRange ?? 3,
       uWindDirV: set2(this._vWind, Math.cos(p.windDir), Math.sin(p.windDir)),
       uSpecClamp: p.specClamp, uHorizonBend: p.horizonBend,
       ...wake,
       uWakeRelief: p.wakeRelief, uWakeSlick: p.wakeSlick,
+      uWakePlume: p.wakePlume ?? 1.0,
       uHullPos: hull.pos, uHullFwd: hull.fwd,
       uHullPush: hull.push,
       uHullRadius: p.hullRadius, uHullBow: p.hullBow,
@@ -213,6 +266,8 @@ export class WaterSurface {
       this.grid = null;
     }
     if (this._dummyWake) gl.deleteTexture(this._dummyWake.tex);
+    if (this._foamLace) gl.deleteTexture(this._foamLace.tex);
+    if (this._wakeFoam) gl.deleteTexture(this._wakeFoam.tex);
     gl.deleteProgram(this.prog);
   }
 }

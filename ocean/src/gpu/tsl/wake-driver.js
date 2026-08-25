@@ -26,6 +26,8 @@ import {
 	uWkOrigin, uWkPrevOrigin, uWkExtent, uWkPrevExtent, uWkDt, uWkLife,
 	uWkA, uWkB, uWkFwd, uWkRight, uWkStir, uWkRate, uWkReach, uWkActive, uWkSize,
 } from './wake.js';
+import { planWakeFrame, sourceStir } from '../../wake-interact.js';
+import { TslFoamEnergy } from './foam-energy-driver.js';
 
 // A new waterline crossing shifts the site list. Joining by index would
 // draw a foam slash between unrelated fins; joining by proximity keeps
@@ -95,6 +97,9 @@ export class TslWake {
 		this.head = [ 0, 0 ];
 		this.fwd = [ 0, 1 ];
 		this.speed = 0;
+		this._hadWet = false;
+		this.lastPlan = { stamps: [], stepDt: 1 / 60 };
+		this.energy = new TslFoamEnergy( renderer, { size } );
 
 		this.clear();
 
@@ -125,6 +130,8 @@ export class TslWake {
 		r.autoClear = prevAuto;
 		this.prevPos = null;
 		this.prevStamps = [];
+		this.lastPlan = { stamps: [], stepDt: 1 / 60 };
+		this.energy?.clear();
 
 	}
 
@@ -134,12 +141,15 @@ export class TslWake {
 	 *
 	 * @param {number} dt
 	 * @param {object} p - the parameter set.
-	 * @param {object} wr - the rider: { surfXZ(), speed, yawRate, slip, hullLoad,
-	 *   impact, airborne, heading, active, stampA?, stampB?, stampPoints? }.
+	 * @param {object|object[]} wr - one rider, or every wet wake-body this frame.
+	 *   An array ages once and stamps each source so trails add in the same
+	 *   field. A single object keeps the historical path (wake-tsl.html).
+	 * @param {object} [opts] - { camera: [x, z] } for the empty-window follow.
 	 */
-	update( dt, p, wr ) {
+	update( dt, p, wr, opts = {} ) {
 
 		if ( dt <= 0 ) return;
+		if ( Array.isArray( wr ) ) return this._updateMany( dt, p, wr, opts );
 
 		this.extent = Math.max( p.wakeExtent, 40 );
 
@@ -182,18 +192,10 @@ export class TslWake {
 
 		}
 
-		const speedT = Math.min( Math.abs( wr.speed ) / Math.max( p.wrTopSpeed * 0.45, 1 ), 1 );
 		// A hard carve is a large load that SHEDS speed, so anything driven off
 		// speed alone gets a turn backwards. A hull in the air leaves nothing
 		// behind it, which is what makes the gap in the wake read as a jump.
-		const stir = wr.airborne ? 0 : Math.min(
-			speedT * p.wrWakeSpeed
-			+ Math.abs( wr.yawRate ) * p.wrWakeTurn
-			+ wr.slip * p.wrWakeSlip
-			+ ( wr.hullLoad ?? 0 ) * 0.035
-			+ wr.impact * 1.2,
-			1.4,
-		);
+		const stir = sourceStir( wr, p );
 		// A Kelvin wedge holds a fixed half-angle, so the arms leave the track at
 		// a rate proportional to how fast the hull is laying it down. tan(19.47
 		// degrees) is 0.3536.
@@ -203,6 +205,8 @@ export class TslWake {
 		const reach = Math.min( this.rate * p.wakeLife * 1.15 + 4, this.extent * 0.45 );
 		const stepDt = Math.min( dt, 1 / 15 );
 
+		const beam = Math.max( p.wrBeam ?? 0.6, 0.3 ) * 1.6;
+		const gain = 1;
 		if ( points ) {
 
 			// Age once, then stamp every spray site. Extra passes use dt=0 and
@@ -211,8 +215,11 @@ export class TslWake {
 			// a new fin crossing shifts the list and an index join would
 			// slash foam across the body.
 			const first = points[ 0 ];
+			const energyStamps = points.map( ( pnt ) => ( {
+				a: nearestStamp( pnt, this.prevStamps ), b: pnt, fwd, stir, reach, beam, gain, active: true,
+			} ) );
 			this._flush( {
-				a: nearestStamp( first, this.prevStamps ), b: first, fwd, stir, reach,
+				a: energyStamps[ 0 ].a, b: first, fwd, stir, reach,
 				dt: stepDt, life: p.wakeLife, active: true,
 			} );
 			for ( let i = 1; i < points.length; i ++ ) {
@@ -221,13 +228,14 @@ export class TslWake {
 				this.prevOrigin[ 1 ] = this.origin[ 1 ];
 				const pnt = points[ i ];
 				this._flush( {
-					a: nearestStamp( pnt, this.prevStamps ), b: pnt, fwd, stir, reach,
+					a: energyStamps[ i ].a, b: pnt, fwd, stir, reach,
 					dt: 0, life: p.wakeLife, active: true,
 				} );
 
 			}
 			this.prevStamps = points.map( ( pnt ) => [ pnt[ 0 ], pnt[ 1 ] ] );
 			this.prevPos = first;
+			this.lastPlan = { stepDt, stamps: energyStamps };
 
 		} else {
 
@@ -235,6 +243,10 @@ export class TslWake {
 				a, b, fwd, stir, reach,
 				dt: stepDt, life: p.wakeLife, active: !! wr.active,
 			} );
+			this.lastPlan = {
+				stepDt,
+				stamps: wr.active ? [ { a, b, fwd, stir, reach, beam, gain, active: !! wr.active } ] : [],
+			};
 
 		}
 
@@ -244,10 +256,112 @@ export class TslWake {
 			? [ points[ 0 ][ 0 ], points[ 0 ][ 1 ] ]
 			: [ b[ 0 ], b[ 1 ] ];
 		this.speed = wr.active && ! wr.airborne ? Math.abs( wr.speed ) : 0;
+		this._hadWet = !! wr.active && ! wr.airborne;
 
 	}
 
-	_flush( { a, b, fwd, stir, reach, dt, life, active } ) {
+	/**
+	 * N wet wake-bodies, one age. Window from their centroid (or the camera
+	 * before any track exists); a wake:false body never recentres the buffer.
+	 */
+	_updateMany( dt, p, sources, opts ) {
+
+		this.extent = Math.max( p.wakeExtent, 40 );
+		const planned = planWakeFrame( dt, p, sources, {
+			origin: [ this.origin[ 0 ], this.origin[ 1 ] ],
+			prevOrigin: [ this.prevOrigin[ 0 ], this.prevOrigin[ 1 ] ],
+			prevPos: this.prevPos,
+			prevStamps: this.prevStamps,
+			hadWet: this._hadWet,
+			extent: this.extent,
+			size: this.size,
+			fwd: this.fwd,
+		}, { camera: opts.camera } );
+
+		this.prevOrigin[ 0 ] = this.origin[ 0 ];
+		this.prevOrigin[ 1 ] = this.origin[ 1 ];
+		this.origin[ 0 ] = planned.origin[ 0 ];
+		this.origin[ 1 ] = planned.origin[ 1 ];
+		this.rate = planned.rate;
+
+		if ( ! planned.stamps.length ) {
+
+			const hold = this.prevPos || [ this.origin[ 0 ], this.origin[ 1 ] ];
+			this._flush( {
+				a: hold, b: hold, fwd: this.fwd, stir: 0,
+				reach: 4, dt: planned.stepDt, life: planned.life, active: false,
+			} );
+			this.prevStamps = [];
+			this.speed = 0;
+			this._hadWet = false;
+
+		} else {
+
+			for ( let i = 0; i < planned.stamps.length; i ++ ) {
+
+				if ( i > 0 ) {
+
+					this.prevOrigin[ 0 ] = this.origin[ 0 ];
+					this.prevOrigin[ 1 ] = this.origin[ 1 ];
+
+				}
+
+				this._flush( planned.stamps[ i ] );
+
+			}
+
+			this.prevStamps = planned.nextStamps;
+			this.prevPos = planned.nextPos;
+			this.fwd = planned.fwd;
+			this.head = planned.head;
+			this.speed = planned.speed;
+			this._hadWet = true;
+
+		}
+
+		this.prevExtent = this.extent;
+		this.lastPlan = { stepDt: planned.stepDt, stamps: planned.stamps };
+
+	}
+
+	/**
+	 * Recenter the leftover-foam window on foam sources without
+	 * writing stamp height. Physics hulls use this.
+	 */
+	trackWindow( dt, p, sources, opts = {} ) {
+
+		this.extent = Math.max( p.wakeExtent, 40 );
+		const planned = planWakeFrame( dt, p, sources, {
+			origin: [ this.origin[ 0 ], this.origin[ 1 ] ],
+			prevOrigin: [ this.prevOrigin[ 0 ], this.prevOrigin[ 1 ] ],
+			prevPos: this.prevPos,
+			prevStamps: this.prevStamps,
+			hadWet: this._hadWet,
+			extent: this.extent,
+			size: this.size,
+			fwd: this.fwd,
+		}, { camera: opts.camera } );
+		this.prevOrigin[ 0 ] = this.origin[ 0 ];
+		this.prevOrigin[ 1 ] = this.origin[ 1 ];
+		this.origin[ 0 ] = planned.origin[ 0 ];
+		this.origin[ 1 ] = planned.origin[ 1 ];
+		this.rate = planned.rate;
+		if ( planned.stamps.length ) {
+
+			this.prevStamps = planned.nextStamps;
+			this.prevPos = planned.nextPos;
+			this.fwd = planned.fwd;
+			this.head = planned.head;
+			this.speed = planned.speed;
+			this._hadWet = true;
+
+		}
+		this.prevExtent = this.extent;
+		this.lastPlan = { stepDt: planned.stepDt, stamps: planned.stamps };
+
+	}
+
+	_flush( { a, b, fwd, stir, reach, dt, life, active, rate } ) {
 
 		const r = this.renderer;
 		uWkOrigin.value.set( this.origin[ 0 ], this.origin[ 1 ] );
@@ -261,7 +375,7 @@ export class TslWake {
 		uWkFwd.value.set( fwd[ 0 ], fwd[ 1 ] );
 		uWkRight.value.set( - fwd[ 1 ], fwd[ 0 ] );
 		uWkStir.value = stir;
-		uWkRate.value = this.rate;
+		uWkRate.value = rate ?? this.rate;
 		uWkReach.value = reach;
 		uWkActive.value = active ? 1 : 0;
 		uWkSize.value = this.size;
@@ -294,7 +408,8 @@ export class TslWake {
 	 * @param {boolean} active - whether the water samples the field at all.
 	 * @param {object} [dims] - per-source render overrides for a track laid by
 	 *   something that is not the active wr-hull at all (the sea dragon):
-	 *   { beam, armW, arm, depth, strength, churn, spread }. The FIELD is shared and so are these uniforms -
+	 *   { beam, armW, arm, depth, strength, churn, spread, life,
+	 *   width0, width1, arms, trail, turb, bow }. The FIELD is shared and so are these uniforms -
 	 *   one track exists at a time, so whoever stamped it describes it.
 	 */
 	uniforms( p, active, dims ) {
@@ -306,8 +421,14 @@ export class TslWake {
 			uWakeFwd: dims?.kelvinFwd ?? this.fwd,
 			uWakeSpeed: dims?.kelvinSpeed ?? this.speed,
 			uWakeExtent: this.extent,
-			uWakeOn: active ? 1 : 0,
-			uWakeLife: p.wakeLife,
+			// A physics wake keeps its HEIGHT on the leftover tile, but it
+			// still wants the record's foam wedge: that reconstruction is
+			// the only thing here that opens with distance astern. Arms 0
+			// means nothing to rebuild, so stay off and save the fetch.
+			uWakeOn: dims?.kelvinOn > 0.5 ? 0
+				: ( dims?.physicsOn > 0.5 && ! ( dims?.arms > 0.5 ) ) ? 0
+					: ( active ? 1 : 0 ),
+			uWakeLife: dims?.life ?? p.wakeLife,
 			uWakeArmW: dims?.armW ?? p.wakeWidth,
 			uWakeEdge: dims?.edge ?? p.wakeEdgeFade ?? 0.12,
 			uWakeArm: dims?.arm ?? p.wakeArm,
@@ -316,12 +437,35 @@ export class TslWake {
 			uWakeBeam: dims?.beam ?? Math.max( p.wrBeam, 0.3 ) * 1.6,
 			uWakeDepth: dims?.depth ?? p.wakeDepth,
 			uWakeStrength: dims?.strength ?? p.wakeStrength,
-			uKelvinOn: dims?.kelvinOn ?? 0,
+			uWakeWidth0: dims?.width0 ?? 0,
+			uWakeWidth1: dims?.width1 ?? 0,
+			uWakeArms: dims?.arms ?? 2,
+			uWakeTrail: dims?.trail ?? 1,
+			uWakeTurb: dims?.turb ?? 0,
+			uWakeCut: dims?.cut ?? 0.55,
+			uWakeBow: dims?.bow
+				? [ dims.bow.x, dims.bow.z, dims.bow.amp, dims.bow.rad ]
+				: [ 0, 0, 0, 8 ],
+			uKelvinOn: dims?.physicsOn > 0.5 ? 0 : ( dims?.kelvinOn ?? 0 ),
+			// Leftover waves live on the ripple tile. The following
+			// analytic V stays in wake-physics.js for the headless
+			// check — it must not ride the mesh on the surface.
+			uWakePhysOn: 0,
+			uWakePhysAmp: dims?.physicsAmp ?? 0,
+			uWakePhysLen: dims?.physicsLen ?? 12,
+			uWakePhysBeam: dims?.physicsBeam ?? 2,
+			uWakePhysDepth: dims?.physicsDepth ?? 40,
+			uWakePhysDecay: dims?.physicsDecay ?? 80,
 			uKelvinAmp: dims?.kelvinAmp ?? 0,
 			uKelvinWidth: dims?.kelvinWidth ?? 0,
 			uKelvinDecay: dims?.kelvinDecay ?? 140,
 			uKelvinFoam: dims?.kelvinFoam ?? 0,
 			uKelvinLen: dims?.kelvinLen ?? p.sdLength ?? 60,
+			uKelvinCut: dims?.kelvinCut ?? 0,
+			uFoamEnergyTex: this.energy.field,
+			// Physics leftover remains height. An explicit wake.foam enables
+			// the separate packed surface ribbon; omitted / 0 stays particle-only.
+			uFoamEnergyOn: dims?.physicsOn > 0.5 ? ( dims?.foamOn ?? 0 ) : 1,
 		};
 
 	}
@@ -330,6 +474,7 @@ export class TslWake {
 
 		this.rt.forEach( ( t ) => t.dispose() );
 		this.material.dispose?.();
+		this.energy?.dispose();
 
 	}
 

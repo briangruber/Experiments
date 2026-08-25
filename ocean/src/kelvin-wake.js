@@ -48,17 +48,54 @@ function smoothstep( e0, e1, x ) {
 /**
  * Half-angle tangent of the wedge. Classical 0.3536 below Fr ~ 1;
  * then θ ≈ 1/(2√2 Fr) so the V pinches in at speed.
+ * In shallow water, as Fr_h = U / √(g h) approaches 1, the wedge
+ * opens up towards a transverse wave.
  *
  * @param {number} speed m/s
  * @param {number} length body length, m
+ * @param {number} [depth] water depth, m
  */
-export function kelvinTan( speed, length ) {
+export function kelvinTan( speed, length, depth ) {
 
 	const U = Math.max( Math.abs( speed ), 0.5 );
 	const L = Math.max( length, 1 );
-	const Fr = U / Math.sqrt( KELVIN_G * L );
-	const tanNarrow = 1 / ( 2 * Math.SQRT2 * Fr );
-	return Math.min( KELVIN_TAN, tanNarrow );
+	let tanW = KELVIN_TAN;
+	// A ski at 40 kn is Fr ~ 8. The high-Fr pinch then makes θ ≈ 2°,
+	// which reads as a thread, not a V. Boat-scale keeps the textbook
+	// 19.47°. Ships (L ≥ 12 m) still narrow with speed.
+	if ( L >= 12 ) {
+
+		const Fr = U / Math.sqrt( KELVIN_G * L );
+		const tanNarrow = 1 / ( 2 * Math.SQRT2 * Fr );
+		tanW = Math.min( KELVIN_TAN, tanNarrow );
+
+	}
+	if ( Number.isFinite( depth ) && depth > 0.1 ) {
+
+		const Fr_h = U / Math.sqrt( KELVIN_G * depth );
+		if ( Fr_h < 1.0 ) {
+
+			tanW = tanW / Math.sqrt( Math.max( 1.0 - Fr_h * Fr_h, 0.08 ) );
+
+		}
+
+	}
+	return tanW;
+
+}
+
+/**
+ * Stationary wavelength. Deep-water λ = 2π U²/g is tens of metres at
+ * ski speed, so a 3 m box would draw one huge swell. Cap at 4 body
+ * lengths — a ship keeps the physical wave, a ski keeps boat-sized
+ * wavelets along the same 19.47° V.
+ */
+export function kelvinLambda( speed, length ) {
+
+	const U = Math.max( Math.abs( speed ), 2 );
+	const L = Math.max( length ?? 60, 4 );
+	const phys = 2 * Math.PI * U * U / KELVIN_G;
+	return Math.min( phys, L * 4 );
 
 }
 
@@ -66,7 +103,7 @@ export function kelvinTan( speed, length ) {
  * @param {{ x: number, z: number }} p world xz
  * @param {{ head: number[], fwd: number[], speed: number, length: number,
  *   amp: number, decay: number, foam: number, strength?: number,
- *   width?: number }} u
+ *   width?: number, cut?: number }} u
  * @returns {{ foam: number, h: number, z: number }}
  */
 export function kelvinWakeAt( p, u ) {
@@ -84,8 +121,8 @@ export function kelvinWakeAt( p, u ) {
 	const lat = relX * ( - u.fwd[ 1 ] ) + relZ * u.fwd[ 0 ];
 	if ( alo < 0.5 ) return { foam: 0, h: 0, z: 0 };
 
-	const U = Math.max( Math.abs( u.speed ), 2 );
-	const k0 = KELVIN_G / ( U * U );
+	const lambda = kelvinLambda( u.speed, u.length ?? 60 );
+	const k0 = ( 2 * Math.PI ) / lambda;
 	const tanW = kelvinTan( u.speed, u.length ?? 60 );
 	// Finite beam: a point source is width 0. A real body opens the
 	// V from ±width/2, then the Kelvin angle takes over.
@@ -99,11 +136,10 @@ export function kelvinWakeAt( p, u ) {
 		* Math.sqrt( KELVIN_REF_M / Math.max( r, KELVIN_REF_M ) )
 		* Math.exp( - r / decay );
 
-	const lambda = 2 * Math.PI / k0;
-	// The V starts at the source (Wikipedia: the body is the vertex).
-	// Fading in over a wavelength hid the pattern for the first 150 m
-	// at sprint — a long gravity wave still has a wedge at the snout.
-	const born = smoothstep( 4, 12, alo );
+	// Geometric fade at the vertex. A ski is a few metres long, so the
+	// 4–12 m window used for a ship hid the whole V behind the box.
+	const L = Math.max( u.length ?? 60, 1 );
+	const born = smoothstep( Math.max( 0.35, L * 0.12 ), Math.max( 1.5, L * 0.40 ), alo );
 
 	const dArm = absLat - arm;
 	const face = Math.max( 1.2, 0.22 * Math.sqrt( lambda * r ) );
@@ -119,7 +155,12 @@ export function kelvinWakeAt( p, u ) {
 	const inside = 1 - smoothstep( arm * 0.15, arm + face * 0.6, absLat );
 	const transverse = inside * 0.35 * Math.cos( k0 * alo );
 
-	const wave = ( diverging + transverse ) * amp * born;
+	// Centerline cut: the hull / prop track is a trough down the
+	// middle of the V. Arms stay oscillating gravity waves.
+	const cutW = Math.max( ( u.width ?? 0 ) * 0.28, 0.45 );
+	const cut = Math.exp( - ( lat * lat ) / ( cutW * cutW ) )
+		* born * amp * ( u.cut ?? 0 );
+	const wave = ( diverging + transverse ) * amp * born - cut;
 	const steep = Math.max( 0, diverging ) * envArm;
 	const foam = clamp( steep * amp * born * ( u.foam ?? 0.45 ) * 1.4, 0, 1 );
 	const slick = clamp( inside * born * 0.45, 0, 1 );

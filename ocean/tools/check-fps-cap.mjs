@@ -5,7 +5,14 @@
 //
 //   node tools/check-fps-cap.mjs
 
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { liveFpsCap, fpsCappedOut, shouldSkipFrame } from '../src/fps-cap.js';
+
+const ROOT = join( dirname( fileURLToPath( import.meta.url ) ), '..' );
+const ABYSSAL = readFileSync( join( ROOT, 'src/gpu/abyssal.js' ), 'utf8' );
+const RIDE = readFileSync( join( ROOT, 'demo/three-main.js' ), 'utf8' );
 
 let failed = 0;
 const check = ( name, cond, detail = '' ) => {
@@ -68,6 +75,17 @@ check( 'a real miss under the live cap is not marked held',
 	fpsCappedOut( 20, batteryCap ) === false );
 check( 'uncapped never claims to be holding',
 	fpsCappedOut( 120, 0 ) === false );
+
+check( 'createAbyssal skips at the live cap — not the display refresh',
+	ABYSSAL.includes( 'shouldSkipFrame' )
+		&& ABYSSAL.includes( 'lastPresent' )
+		&& ABYSSAL.includes( 'liveCap()' ) );
+check( 'the ride demo skips at the live cap',
+	RIDE.includes( 'shouldSkipFrame' ) && RIDE.includes( 'shouldSkip(' ) );
+check( 'GPU timestamps do not pile while a resolve is in flight',
+	ABYSSAL.includes( 'function armGpuTimers' )
+		&& ABYSSAL.includes( 'gpuResolveBusy' )
+		&& RIDE.includes( 'function armGpuTimers' ) );
 
 if ( failed ) {
 

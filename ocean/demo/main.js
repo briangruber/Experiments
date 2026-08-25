@@ -450,6 +450,7 @@ function frame(now) {
     // the hull state the update just produced.
     wake.update(dt, params, waveRunner);
   }
+  wake.energy?.update(dt, params, waveRunner.active ? waveRunner : [], { follow: wake });
   camera.locked = waveRunner.active;
   // Handheld drift and sea bob nudge the camera every frame, which would reset
   // the accumulator every frame; photo mode locks the tripod off.
@@ -608,10 +609,17 @@ function frame(now) {
 
 derive();
 resize();
-ocean.buildSpectrum(params);
-// Two warm-up steps so the very first presented frame already has foam history.
-ocean.update(1 / 60, params);
-document.getElementById('boot').classList.add('gone');
+{
+  const boot = document.getElementById('boot');
+  const sub = document.getElementById('boot-sub');
+  if (window.__bootTimer) clearInterval(window.__bootTimer);
+  if (sub) sub.textContent = 'building spectra…';
+  ocean.buildSpectrum(params);
+  // Two warm-up steps so the very first presented frame already has foam history.
+  if (sub) sub.textContent = 'warming the sea…';
+  ocean.update(1 / 60, params);
+  boot.classList.add('gone');
+}
 requestAnimationFrame(frame);
 
 window.abyssal = {

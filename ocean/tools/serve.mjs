@@ -161,12 +161,39 @@ for (const dir of ['demo', 'src']) {
 }
 watch(join(ROOT, 'three.html'), () => onChange('three.html'));
 
-server.listen(PORT, async () => {
-  lastKey = await sourceKey();
-  console.log(`Abyssal serving ${ROOT}`);
-  console.log(`  demo      http://localhost:${PORT}/`);
-  console.log(`  three     http://localhost:${PORT}/three.html`);
-  console.log(`  bundle    http://localhost:${PORT}/dist/abyssal-three.html`);
-  console.log(`  examples  http://localhost:${PORT}/examples/`);
-  console.log('  watch     demo/ src/ → rebuild bundle + reload tabs');
+// Bind IPv4 so http://127.0.0.1:PORT is us. Default listen() can take IPv6
+// :8080 while Herd Reverb already owns IPv4 :8080 — that URL is a blank 404.
+const bindIpv4 = (port) => new Promise((resolve, reject) => {
+  const onErr = (err) => {
+    server.off('listening', onOk);
+    reject(err);
+  };
+  const onOk = () => {
+    server.off('error', onErr);
+    resolve(port);
+  };
+  server.once('error', onErr);
+  server.listen(port, '127.0.0.1', onOk);
 });
+
+let bound = PORT;
+for (let i = 0; i < 12; i++) {
+  try {
+    bound = await bindIpv4(PORT + i);
+    break;
+  } catch (err) {
+    if (err.code !== 'EADDRINUSE') throw err;
+    if (i === 11) throw err;
+  }
+}
+
+lastKey = await sourceKey();
+console.log(`Abyssal serving ${ROOT}`);
+console.log(`  demo      http://127.0.0.1:${bound}/`);
+console.log(`  three     http://127.0.0.1:${bound}/three.html`);
+console.log(`  bundle    http://127.0.0.1:${bound}/dist/abyssal-three.html`);
+console.log(`  examples  http://127.0.0.1:${bound}/examples/`);
+console.log('  watch     demo/ src/ → rebuild bundle + reload tabs');
+if (bound !== PORT) {
+  console.log(`  note      ${PORT} IPv4 is another process — using ${bound}`);
+}

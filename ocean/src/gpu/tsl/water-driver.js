@@ -38,22 +38,58 @@
 //    level 8 out of it for the variance the cascade fade discarded.
 
 import * as THREE from 'three/webgpu';
-import { vec4 } from 'three/tsl';
+import {
+	Fn, attribute, varyingProperty, uniform, float, vec2, vec3, vec4,
+	min, mix, smoothstep, fwidth,
+} from 'three/tsl';
 
 import {
 	setCascadeTextures, setWakeTexture, setWaterCommonUniforms,
 } from './water-common.js';
 import { setKelvinUniforms } from './kelvin-wake.js';
-import { waterPosition, waterFragment, setWaterSurfaceUniforms } from './water-surface.js';
+import { setWakeWaveUniforms } from './wake-wave.js';
+import { setWakePhysicsUniforms } from './wake-physics.js';
+import { setRippleUniforms, setRippleLook } from './ripple-field.js';
+import { waterPosition, waterFragment, setWaterSurfaceUniforms, uFoamRibbon } from './water-surface.js';
 import { setWaterDetailUniforms } from './water-detail.js';
 import { setWaterBrdfUniforms } from './water-brdf.js';
 import { setAtmosphereUniforms } from './atmosphere.js';
 import { setSkyLutUniforms, moonDirOf } from './sky-lut.js';
 import { setCloudUniforms } from './cloud-field.js';
+import { loadWaterAssetTextures } from './water-assets.js';
 
 const NO_HULL = {
 	pos: [ 0, 0, 0 ], fwd: [ 1, 0 ], push: 0, plane: 0,
 };
+
+const uWireCells = /*@__PURE__*/ uniform( new THREE.Vector2( 240, 384 ) );
+const vWireRT = /*@__PURE__*/ varyingProperty( 'vec2', 'vAbyssalWireRT' );
+
+/** Same leftover displacement as the sea; fragment is unlit filled + edges. */
+const wirePosition = /*@__PURE__*/ Fn( () => {
+
+	vWireRT.assign( attribute( 'aRT', 'vec2' ) );
+	return waterPosition();
+
+} );
+
+/**
+ * Screen-space grid lines on filled triangles. Hardware `wireframe`
+ * rasterizes every edge as a line — on a 240×384 polar fan that is
+ * more fragments than the shaded sea, which is why F was slower.
+ */
+const wireFragment = /*@__PURE__*/ Fn( () => {
+
+	const g = vWireRT.mul( uWireCells );
+	const f = g.sub( g.floor() );
+	const fw = fwidth( g ).max( 1e-4 );
+	const dist = min( min( f.x, f.y ), min( float( 1.0 ).sub( f.x ), float( 1.0 ).sub( f.y ) ) );
+	const line = float( 1.0 ).sub(
+		smoothstep( float( 0.0 ), fw.x.add( fw.y ).mul( 0.35 ).max( 0.012 ), dist ),
+	);
+	return vec4( mix( vec3( 0.06, 0.08, 0.11 ), vec3( 0.78, 0.90, 1.0 ), line ), 1.0 );
+
+} );
 
 /**
  * Build the radial fan grid as a BufferGeometry.
@@ -151,10 +187,14 @@ export class TslWater {
 	constructor( renderer, p ) {
 
 		this.renderer = renderer;
+		void loadWaterAssetTextures();
 
-		const { geo, count } = buildWaterGrid( p );
+		const { geo, count, R, A } = buildWaterGrid( p );
 		this.geometry = geo;
 		this.vertexCount = count;
+		this._gridR = R;
+		this._gridA = A;
+		uWireCells.value.set( R, A );
 
 		this.material = new THREE.NodeMaterial();
 		this.material.name = 'abyssal.water';
@@ -174,6 +214,33 @@ export class TslWater {
 		this.scene = new THREE.Scene();
 		this.scene.add( this.mesh );
 		this._gridScale = Math.min( Math.max( p.gridScale ?? 1, 0.25 ), 1 );
+		this._wireOn = false;
+		this._wireMaterial = null;
+
+	}
+
+	/**
+	 * Unlit filled sea with screen-space cell edges. Same leftover
+	 * displacement. Do not use GPU wireframe — line raster of this
+	 * fan is slower than the beauty pass.
+	 */
+	setWireframe( on ) {
+
+		this._wireOn = !! on;
+		uWireCells.value.set( this._gridR, this._gridA );
+		if ( this._wireOn && ! this._wireMaterial ) {
+
+			this._wireMaterial = new THREE.NodeMaterial();
+			this._wireMaterial.name = 'abyssal.water.wire';
+			this._wireMaterial.positionNode = wirePosition();
+			this._wireMaterial.fragmentNode = wireFragment();
+			this._wireMaterial.depthTest = true;
+			this._wireMaterial.depthWrite = true;
+			this._wireMaterial.side = THREE.DoubleSide;
+			this._wireMaterial.transparent = false;
+
+		}
+		this.mesh.material = this._wireOn ? this._wireMaterial : this.material;
 
 	}
 
@@ -201,29 +268,32 @@ export class TslWater {
 	 */
 	render( p, ctx, ocean, camera, opts = {} ) {
 
-		setAtmosphereUniforms( p );
-		setSkyLutUniforms( p, ctx.sunDir, Math.max( ctx.camPos[ 1 ], 1 ),
-			ctx.moonDir ?? moonDirOf( p ) );
-
-		// THE SHARED PER-FRAME UNIFORMS. These live in ./cloud-field.js because the
-		// cloud field was the first module to need them, but they are not the cloud's
-		// - uCamPos is the eye, uTime is the clock and uWindDirV is the wind, and the
-		// water stages read all three (the view vector for Fresnel and the BRDF, the
-		// clock for capillaries and scintillation, the wind for the slope anisotropy).
-		//
-		// Setting them here is what makes TslWater.render self-sufficient. It was not,
-		// and the failure was instructive: with the sky drawn first, setCloudUniforms
-		// had already written them and the sea came out pixel-exact; drawing the sea
-		// FIRST left uCamPos at its (0,0,0) default, so every view vector was computed
-		// from the origin and the near sea came back 4.5x too bright. Correct in one
-		// draw order and wrong in the other, with nothing raising a word.
+		// uCamPos / uTime live on the cloud uniform block but the vertex
+		// stage reads them too (underwater fade). Always write them.
 		setCloudUniforms( p, ctx );
 
 		setWaterCommonUniforms( p, ctx, ocean, opts.wake );
 		setKelvinUniforms( opts.wake );
-		setWaterBrdfUniforms( p );
-		setWaterDetailUniforms( p );
+		setWakeWaveUniforms( opts.wakeWaves );
+		setWakePhysicsUniforms( opts.wake );
+		setRippleUniforms( opts.ripples, opts.rippleGain ?? 1 );
+		setRippleLook(
+			opts.rippleDebug, opts.rippleVis ?? 1, opts.rippleFoam ?? 0,
+			opts.rippleCrestGate ?? 0,
+		);
 		setWaterSurfaceUniforms( p, ctx, opts.hull || NO_HULL );
+		uFoamRibbon.value = Number.isFinite( opts.foamRibbon )
+			? Math.max( opts.foamRibbon, 0 )
+			: 1;
+		if ( ! this._wireOn ) {
+
+			setAtmosphereUniforms( p );
+			setSkyLutUniforms( p, ctx.sunDir, Math.max( ctx.camPos[ 1 ], 1 ),
+				ctx.moonDir ?? moonDirOf( p ) );
+			setWaterBrdfUniforms( p );
+			setWaterDetailUniforms( p );
+
+		}
 
 		this.renderer.render( this.scene, camera );
 
@@ -244,9 +314,12 @@ export class TslWater {
 		this._gridScale = g;
 
 		const old = this.geometry;
-		const { geo, count } = buildWaterGrid( p );
+		const { geo, count, R, A } = buildWaterGrid( p );
 		this.geometry = geo;
 		this.vertexCount = count;
+		this._gridR = R;
+		this._gridA = A;
+		uWireCells.value.set( R, A );
 		this.mesh.geometry = geo;
 		old.dispose();
 		return true;
@@ -257,6 +330,7 @@ export class TslWater {
 
 		this.geometry.dispose();
 		this.material.dispose();
+		this._wireMaterial?.dispose();
 
 	}
 

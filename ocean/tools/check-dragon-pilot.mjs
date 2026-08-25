@@ -8,13 +8,16 @@
 // frame is ever drawn: release a key and speed / heading / pitch stay put;
 // hold W or ArrowUp and it accelerates; Shift+Up is a bigger step;
 // hold A and it turns; hold E and it climbs;
-// Space surges forward first, then leaps, sounds deeper than it started,
+// a fast E climb that breaks the surface leaves the water without Space
+// and falls on gravity (higher when the run is fast);
+// Space surges forward first, then leaps higher when the run is fast,
+// falls on gravity, sounds deeper than it started,
 // then floats back to that depth at the previous cruise speed;
-// while airborne the tail beat slows to a swimming residual (not a freeze) and resumes on re-entry;
+// while airborne the tail beat holds travel cadence (not slow motion) and the body follows a gravity arc;
 // Level zeros pitch and holds depth; a sprint's tail phase advances faster
 // than a loaf's.
 
-import { SeaDragon, swimStroke, swimTopSpeed, loafSpeed, splashEnergy, STROUHAL_REF, SWIM_PADDLE, maxDiveDepth } from '../demo/seadragon.js';
+import { SeaDragon, swimStroke, swimTopSpeed, loafSpeed, jumpApexOf, splashEnergy, STROUHAL_REF, SWIM_PADDLE, maxDiveDepth } from '../demo/seadragon.js';
 
 const p = {
   sdSpeed: 40,
@@ -79,6 +82,11 @@ above(d.headYaw, 0.10, 'D arches the head & neck to starboard (right turn)');
 step(d, empty, 60);
 near(d.headYaw, 0, 0.05, 'released turn centers the head');
 
+d.level();
+d.pos[1] = -12;
+d.depth = 12;
+d.pitch = 0;
+d.jumpAirborne = false;
 const y1 = d.pos[1];
 step(d, new Set([ 'KeyE' ]), 60);
 above(d.pos[1], y1 + 0.4, 'E pitches up and climbs');
@@ -129,7 +137,82 @@ for (let i = 0; i < 720; i++) {
   if (!d.jumping && cleared) break;
 }
 above(maxY, 1, 'the leap clears the water');
-above(startY - minY, 6, 'the fall carries it deeper than it started');
+above(8 - maxY, 0, 'a modest-speed leap stays a few metres above the sea');
+above(3.2 - airN / 60, 0, 'the breach is a short arc, not a long hang');
+above(jumpApexOf(36, 60) - jumpApexOf(12, 60), 2.5, 'more speed aims a higher apex');
+{
+  const fast = new SeaDragon();
+  fast.active = true;
+  fast.reset({ yaw: 0, pos: [ 0, -3, 0 ] }, p);
+  fast.pos[1] = -3;
+  fast.depth = 3;
+  fast.speed = 36;
+  fast.cruiseSpeed = 36;
+  fast.pitch = 0;
+  step(fast, new Set([ 'Space' ]), 1);
+  let fastY = fast.pos[1], airVy0 = null, airVy1 = null, airDt = 0;
+  for (let i = 0; i < 480; i++) {
+    const wasAir = fast.jumpPhase === 'air';
+    const vy0 = fast.jumpVy;
+    step(fast, empty, 1);
+    if (fast.pos[1] > fastY) fastY = fast.pos[1];
+    if (!wasAir && fast.jumpPhase === 'air') airVy0 = fast.jumpVy;
+    if (wasAir && fast.jumpPhase === 'air' && airVy0 != null && airDt < 0.2) {
+      airDt += 1 / 60;
+      airVy1 = fast.jumpVy;
+    }
+    if (!fast.jumping && fastY > 1) break;
+  }
+  above(fastY, maxY + 2.5, 'a faster run jumps higher');
+  above(fastY, 8, 'enough speed clears more than a hop');
+  above(20 - fastY, 0, 'even a fast leap is a gravity arc, not a hang-glider');
+  above(airVy0 != null && airVy1 != null ? 1 : 0, 0.5, 'the fast leap has an airborne fall to measure');
+  if (airVy0 != null && airVy1 != null) {
+    const g = (airVy0 - airVy1) / Math.max(airDt, 1 / 60);
+    above(g, 8, 'airborne fall is gravity, not a float');
+    above(12 - g, 0, 'airborne fall is not a slam faster than g');
+  }
+}
+{
+  const swimOut = ( speed ) => {
+    const body = new SeaDragon();
+    body.active = true;
+    body.reset({ yaw: 0, pos: [ 0, -2, 0 ] }, p);
+    body.pos[1] = -2;
+    body.depth = 2;
+    body.speed = speed;
+    body.cruiseSpeed = speed;
+    body.pitch = 0.55;
+    let peak = body.pos[1], airVy0 = null, airVy1 = null, airDt = 0, landed = false;
+    for (let i = 0; i < 480; i++) {
+      const wasAir = body.jumpAirborne;
+      step(body, new Set([ 'KeyE' ]), 1);
+      if (body.jumping) fail.push('a swim-out started a Space leap');
+      if (body.pos[1] > peak) peak = body.pos[1];
+      if (!wasAir && body.jumpAirborne) airVy0 = body.jumpVy;
+      if (wasAir && body.jumpAirborne && airVy0 != null && airDt < 0.2) {
+        airDt += 1 / 60;
+        airVy1 = body.jumpVy;
+      }
+      if (wasAir && !body.jumpAirborne && peak > 1) { landed = true; break; }
+    }
+    return { body, peak, airVy0, airVy1, airDt, landed };
+  };
+  const fastSwim = swimOut(36);
+  const slowSwim = swimOut(12);
+  above(fastSwim.peak, 1, 'a fast climb leaves the water without Space');
+  above(fastSwim.landed ? 1 : 0, 0.5, 'a swim-out falls back into the sea');
+  above(fastSwim.body.jumping ? 0 : 1, 0.5, 'a swim-out is not a Space leap');
+  above(20 - fastSwim.peak, 0, 'a swim-out is a gravity arc, not a hang-glider');
+  above(fastSwim.peak, slowSwim.peak + 2, 'a faster swim-out jumps higher');
+  above(fastSwim.airVy0 != null && fastSwim.airVy1 != null ? 1 : 0, 0.5, 'a swim-out has an airborne fall to measure');
+  if (fastSwim.airVy0 != null && fastSwim.airVy1 != null) {
+    const g = (fastSwim.airVy0 - fastSwim.airVy1) / Math.max(fastSwim.airDt, 1 / 60);
+    above(g, 8, 'a swim-out fall is gravity, not a float');
+    above(12 - g, 0, 'a swim-out fall is not a slam faster than g');
+  }
+}
+above(startY - minY, 2.4, 'the fall carries it deeper than it started');
 above(cleared && !d.jumping ? 1 : 0, 0.5, 'the leap ends after it floats back');
 near(d.speed, resume, 0.8, 'float-back restores the previous cruise speed');
 near(d.cruiseSpeed, resume, 0.8, 'float-back restores cruiseSpeed');
@@ -140,14 +223,14 @@ above(landSplash, splashEnergy(8, 12, 60, true) - 0.05, 'a harder fall throws mo
 above(maxPush, 1.5, 'the landing leaves a lingering spray crown');
 above(d.splashHit, 1.2, 'the hit feeds the ripple field');
 above(0.05 - landAge, 0, 'the ripple clock restarts on landing');
-above(lateAirN, 10, 'the leap stays airborne long enough to measure a slowed beat');
+above(lateAirN, 10, 'the leap stays airborne long enough to measure the air beat');
 above(lateAir / lateAirN, 0.04, 'airborne beat keeps a clear travelling wave');
 {
   const cruisePerFrame = swimStroke(p, resume).f * Math.PI * 2 / 60;
-  above(cruisePerFrame, lateAir / lateAirN, 'airborne beat is slower than wet cruise');
+  above(lateAir / lateAirN, cruisePerFrame * 0.85, 'airborne beat holds travel cadence, not a slow-mo drop');
 }
-above(lateWetN, 10, 'the landing lasts long enough to measure a resumed beat');
-above(lateWet / lateWetN, (lateAir / lateAirN) * 1.08, 'beat resumes after re-entry');
+above(lateWetN, 10, 'the landing lasts long enough to measure the wet beat');
+above(lateWet / lateWetN, 0.04, 're-entry still has a travelling wave');
 {
   const cruiseF = swimStroke(p, resume).f;
   let post = 0;

@@ -41,15 +41,19 @@
 //   the wake field, in BOTH stages     (WATER_VS:115 and WATER_FS:408/428-429)
 //   the pixel footprint fwidth()       (WATER_FS:351)
 //   the capillary ripples              (WATER_FS:389)
-//   the procedural foam field          (WATER_FS:469)
-//   the foam lace field                (WATER_FS foamField)
 //   the swell shadow march             (WATER_FS:568)
 //
-// Indexed by the DISPLACED point - exactly one thing, in two places:
+// Visual-only detail may respond to the displaced point without moving the
+// physical fields it resolves. Scintillation uses it directly; foam starts in
+// vFlat and takes only part of the orbital displacement plus a small slope
+// shear, so its lace stretches with the water while coverage stays attached to
+// the correct Lagrangian patch.
+//
+// Indexed by the DISPLACED point:
 //   scintillation, in the sun lobe     (WATER_FS:653, vWorld.xz)
 //   scintillation, in the moon lobe    (WATER_FS:677, vWorld.xz + 71.3)
 //
-// That single exception is load-bearing and the GLSL says why (water.js:650-652):
+// The scintillation exception is load-bearing and the GLSL says why (water.js:650-652):
 // the glitter flashes have to LIVE ON the water and be carried by it. Sampling
 // them at the undisplaced grid instead leaves the whole pattern sliding across
 // the waves it is supposed to belong to - which reads as a shimmer travelling
@@ -166,15 +170,26 @@ import {
 import { uSunDir, uMoonDir, uMoonColor } from './sky-lut.js';
 import { skyLutTexture, uSunAngularRadius } from './sky-background.js';
 import { uTime, uCamPos } from './cloud-field.js';
-import { fbm2, vnoise2 } from './noise.js';
+import { fbm2, vnoise, vnoise2, cellular3, hash22 } from './noise.js';
 
 import {
-	PI_W, R_EARTH, uWindDir, uWakeOn, uWakeExtent, uWakeDepth,
-	uWakeHead, uWakeFwd,
-	sampleCascadeDisp, sampleCascadeSurface, wakeAt,
+	PI_W, R_EARTH, uWindDir, uWakeOn, uWakeExtent, uWakeDepth, uWakeArmW,
+	uWakeArm,
+	sampleCascadeDisp, sampleCascadeSurface, sampleCascadeSlope, wakeAt, wakeAgeAt,
+	foamEnergyAt, uFoamEnergyOn,
 } from './water-common.js';
 import { kelvinWakeAt, uKelvinOn } from './kelvin-wake.js';
 import { vWakeAt, uVWakeOn } from './v-wake.js';
+import { wakeWaveAt, uWakeWaveCount } from './wake-wave.js';
+import {
+	wakePhysicsAt, wakePhysicsContactAt, wakePhysicsGeometryMaskAt, uWakePhysOn,
+} from './wake-physics.js';
+import {
+	rippleAt, rippleVelAt, uRippleOn, uRippleDebug, uRippleVis, uRippleFoam,
+	uRippleCrestGate,
+} from './ripple-field.js';
+import { pierceFieldAt, uPierceOn } from './pierce.js';
+import { pierceCutAt } from './pierce-carve.js';
 export { uVWakeOn };
 
 import {
@@ -183,8 +198,21 @@ import {
 } from './water-brdf.js';
 
 import {
-	scintillation, sunVisibility, capillarySlope, foamField, uGlitter,
+	scintillation, sunVisibility, capillarySlope, foamField, uGlitter, uFoamDrift,
 } from './water-detail.js';
+import { foamLaceTexture, wakeFoamTexture } from './water-assets.js';
+import {
+	FLOOR_LACE_NEAR, FLOOR_LACE_FAR, FLOOR_LACE_DEPTH_K, FLOOR_LACE_MUL,
+} from '../../seafloor.js';
+import {
+	FOAM_TEXTURE_CARRY, FOAM_TEXTURE_SHEAR, FOAM_TEXTURE_STRAIN,
+	FOAM_LACE_STRETCH_BLOCK,
+	WAKE_FOAM_FRESH, WAKE_FOAM_RESIDUE,
+	WAKE_FOAM_WASH, WAKE_FOAM_TAIL, WAKE_FOAM_BROKEN,
+	WAKE_FOAM_ENERGY_LO, WAKE_FOAM_ENERGY_HI,
+	WAKE_FOAM_RIBBON_VARY, WAKE_FOAM_RIBBON_VARY_MAX,
+	WAKE_FOAM_RIBBON_WARP0, WAKE_FOAM_RIBBON_WARP1,
+} from '../../foam-lace.js';
 import { horizonPinAmount, UNDER_WAVE_FADE } from '../../horizon-pin.js';
 import { SPLASH_PARCELS, SPLASH_DROPS } from '../../splash-field.js';
 import { BODY_STATIONS, SWELL_SITES } from '../../body-displace.js';
@@ -201,6 +229,93 @@ import {
 	FLUKE_FFT_KILL, FLUKE_SLOPE_KILL,
 } from '../../fluke-slicks.js';
 import { WAKE_FOAM_STAMPS } from '../../wake-foam.js';
+
+// Focused sunlight on the bed. Twin: floorLace() in seafloor.js / WATER_FS.
+// Layouted so the floor If does not inline cellular3 six times.
+const floorLaceLayer = /*@__PURE__*/ Fn( ( [ x, z, t, scale, driftX, driftZ, phase ] ) => {
+
+	const u = x.mul( scale ).add( t.mul( driftX ) ).toVar();
+	const v = z.mul( scale ).add( t.mul( driftZ ) ).toVar();
+	u.assign( u
+		.add( v.mul( 1.7 ).add( t.mul( 0.7 ) ).add( phase ).sin().mul( 0.06 ) )
+		.add( v.mul( 0.55 ).add( t.mul( 0.21 ) ).add( phase ).sin().mul( 0.04 ) ) );
+	v.assign( v
+		.add( u.mul( 1.4 ).add( t.mul( 0.55 ) ).add( phase ).cos().mul( 0.06 ) )
+		.add( u.mul( 0.48 ).sub( t.mul( 0.17 ) ).add( phase ).cos().mul( 0.04 ) ) );
+	const c = cellular3( vec2( u, v ) ).toVar();
+	const gap = c.y.sub( c.x );
+	const glow = float( 1.0 ).sub( smoothstep( float( 0.02 ), float( 0.22 ), gap ) ).pow( 1.15 );
+	const ridge = float( 1.0 ).sub( smoothstep( float( 0.0 ), float( 0.07 ), gap ) ).pow( 2.2 );
+	const broken = smoothstep( float( 0.18 ), float( 0.58 ), c.z );
+	const flare = float( 1.0 ).sub( smoothstep( float( 0.0 ), float( 0.18 ), c.y ) ).pow( 2.6 )
+		.mul( ridge );
+	return glow.mul( 0.38 ).add( ridge.mul( 0.55 ) ).mul( broken ).add( flare.mul( 0.85 ) );
+
+} );
+floorLaceLayer.setLayout( {
+	name: 'abyssal_floorLaceLayer',
+	type: 'float',
+	inputs: [
+		{ name: 'x', type: 'float' },
+		{ name: 'z', type: 'float' },
+		{ name: 't', type: 'float' },
+		{ name: 'scale', type: 'float' },
+		{ name: 'driftX', type: 'float' },
+		{ name: 'driftZ', type: 'float' },
+		{ name: 'phase', type: 'float' },
+	],
+} );
+
+const floorLaceCore = /*@__PURE__*/ Fn( ( [ x, z, t ] ) => {
+
+	const a = floorLaceLayer( x, z, t, 2.85, 0.11, - 0.07, 0.0 );
+	const b = floorLaceLayer( x, z, t, 1.95, - 0.08, 0.10, 2.1 );
+	const c = floorLaceLayer( x, z, t, 3.55, 0.04, 0.09, 4.4 );
+	const raw = a.mul( 0.52 ).add( b.mul( 0.34 ) ).add( c.mul( 0.22 ) ).min( 1.2 );
+	const field = smoothstep( float( 0.04 ), float( 0.28 ), raw );
+	const hot = smoothstep( float( 0.22 ), float( 0.74 ), raw ).pow( 1.7 );
+	return field.mul( 0.42 ).add( hot.mul( 0.72 ) ).min( 1.0 );
+
+} );
+floorLaceCore.setLayout( {
+	name: 'abyssal_floorLace',
+	type: 'float',
+	inputs: [
+		{ name: 'x', type: 'float' },
+		{ name: 'z', type: 'float' },
+		{ name: 't', type: 'float' },
+	],
+} );
+
+// Sun-facing / focusing swell punches the web. Twin: floorSunGain().
+const floorSunGainCore = /*@__PURE__*/ Fn( ( [ sx, sz, sun, depth ] ) => {
+
+	const sl = sun.length().max( 1e-4 );
+	const L = sun.div( sl );
+	const Ly = L.y.max( 0.0 );
+	const Nf = vec3( sx.negate(), 1.0, sz.negate() ).normalize();
+	const NoL = Nf.dot( L ).max( 0.0 );
+	const along = sx.mul( L.x ).add( sz.mul( L.z ) );
+	const focus = clamp(
+		float( 1.0 ).div( float( 1.0 ).sub( along.mul( 1.85 ).mul( depth ).mul( 0.55 ) ).max( 0.22 ) ),
+		0.25, 2.8,
+	);
+	const punch = float( 0.42 ).add( focus.mul( 0.48 ) );
+	const face = float( 0.40 ).add( NoL.mul( 0.72 ) );
+	const height = float( 0.16 ).add( Ly.mul( 0.84 ) );
+	return clamp( face.mul( punch ).mul( height ), 0.0, 1.65 );
+
+} );
+floorSunGainCore.setLayout( {
+	name: 'abyssal_floorSunGain',
+	type: 'float',
+	inputs: [
+		{ name: 'sx', type: 'float' },
+		{ name: 'sz', type: 'float' },
+		{ name: 'sun', type: 'vec3' },
+		{ name: 'depth', type: 'float' },
+	],
+} );
 
 // ---- the varyings -----------------------------------------------------------
 // WATER_VS:49-54 and WATER_FS:138-143, one for one. See note 4 in the header.
@@ -303,6 +418,35 @@ export const uHullRadius = /*@__PURE__*/ uniform( 2.6 );   // along-hull extent,
 export const uHullBow = /*@__PURE__*/ uniform( 0.9 );      // how much stands back up as bow wave
 export const uHullPlane = /*@__PURE__*/ uniform( 0.0 );
 
+/** Twin of hullLift() in shaders/water.js. Signed metres. */
+export const hullLift = /*@__PURE__*/ Fn( ( [ xz ] ) => {
+
+	const h = float( 0.0 ).toVar();
+	If( uHullPush.greaterThan( 0.0005 ), () => {
+
+		const rel = xz.sub( uHullPos.xz ).toVar();
+		const d2 = rel.dot( rel ).toVar();
+		const Rh = uHullRadius.max( 0.5 ).toVar();
+		If( d2.lessThan( Rh.mul( Rh ).mul( 4.0 ) ), () => {
+
+			const along = rel.dot( uHullFwd ).toVar();
+			const lat = rel.dot( vec2( uHullFwd.y.negate(), uHullFwd.x ) ).toVar();
+			const g = along.mul( along ).div( Rh.mul( Rh ) )
+				.add( lat.mul( lat ).div( Rh.mul( Rh ).mul( 0.30 ) ) )
+				.negate().exp().toVar();
+			const press = g.negate().mul( smoothstep( float( 1.2 ), float( - 1.6 ), along ) ).toVar();
+			const bow = g.mul( smoothstep( float( - 0.1 ), float( 1.3 ), along ) ).mul( uHullBow ).toVar();
+			const side = g.mul( smoothstep( float( 0.25 ), float( 1.0 ), lat.abs().div( Rh ) ) )
+				.mul( uHullBow ).mul( 0.5 ).toVar();
+			h.assign( press.add( bow ).add( side ).mul( uHullPush ).mul( uHullPlane ) );
+
+		} );
+
+	} );
+	return h;
+
+} );
+
 export const uScatterColor = /*@__PURE__*/ uniform( 'vec3' );   // volumetric scattering albedo
 export const uAbsorption = /*@__PURE__*/ uniform( 'vec3' );     // 1/m per channel
 export const uScatterAmount = /*@__PURE__*/ uniform( 0.085 );
@@ -335,12 +479,39 @@ export const uFoamCrisp = /*@__PURE__*/ uniform( 0.88 );   // resolve coverage a
 export const uFoamOpacity = /*@__PURE__*/ uniform( 0.78 );
 export const uFoamFar = /*@__PURE__*/ uniform( 0.62 );     // grazing self-hiding of distant rafts
 export const uFoamColor = /*@__PURE__*/ uniform( 'vec3' );
+// Original histogram-balanced mask. It resolves physical coverage into
+// filaments and bubble holes; it never decides how much foam exists.
+export const uFoamTextureAmount = /*@__PURE__*/ uniform( 0.0 );
+export const uFoamTextureScale = /*@__PURE__*/ uniform( 9.0 ); // metres per tile
+export const uFoamTextureCarry = /*@__PURE__*/ uniform( FOAM_TEXTURE_CARRY );
+export const uFoamTextureShear = /*@__PURE__*/ uniform( FOAM_TEXTURE_SHEAR );
+export const uFoamTextureStrain = /*@__PURE__*/ uniform( FOAM_TEXTURE_STRAIN );
+export const uFoamLaceStretch = /*@__PURE__*/ uniform( 0 );
+export const uFoamLaceStretchBlock = /*@__PURE__*/ uniform( FOAM_LACE_STRETCH_BLOCK );
+export const uFoamLaceMorph = /*@__PURE__*/ uniform( 0 );
+export const uFoamLaceMorphRate = /*@__PURE__*/ uniform( 0 );
+export const uWakeFoamRibbonVary = /*@__PURE__*/ uniform( WAKE_FOAM_RIBBON_VARY );
+// Twin of wakeFoamRibbonAmount() — recipe foam, not energy. Energy
+// saturates at planing; this is the veil → solid look.
+export const uFoamRibbon = /*@__PURE__*/ uniform( 1.0 );
 
 // Set separately from the wake block in src/water.js:169, so these two live here
 // rather than in ./water-common.js: they are how the wake is SHADED, not what it
 // is. wakeAt() and the twelve uniforms that shape the field are common.
 export const uWakeRelief = /*@__PURE__*/ uniform( 1.0 );
 export const uWakeSlick = /*@__PURE__*/ uniform( 0.8 );
+// Entrained air in the water COLUMN, as opposed to white foam on the surface.
+// In wake photography most of the wake's area is this and not foam: a pale
+// milky turquoise plume you can see straight through, with a comparatively
+// small amount of actual white on top. Painting only the white is what makes
+// a wake read as a decal laid over untouched sea.
+export const uWakePlume = /*@__PURE__*/ uniform( 1.0 );
+// Bubbles scatter far more than clear water...
+const WAKE_PLUME_GAIN = 6.5;
+// ...and they turn the column back before it can absorb, so the effective
+// path shortens. Together these are what make aerated water go pale rather
+// than simply brighter — the long red-absorbing path is what made it blue.
+const WAKE_PLUME_PATH = 0.26;
 
 export const uSpecIntensity = /*@__PURE__*/ uniform( 1.0 );
 export const uSpecClamp = /*@__PURE__*/ uniform( 20000.0 );
@@ -741,7 +912,9 @@ function splashFoamAt( xz ) {
 // TAU_A.div(n) throws while building Fns, and idle uSwellAmp = 0 does
 // NOT skip that build.
 const bodyDisplaceCore = /*@__PURE__*/ Fn( ( [
-	relX, relZ, dirX, dirZ, half, len, rad, pitch,
+	// `half` is a reserved word in GLSL ES — a layout input by that name
+	// makes the whole water shader fail to compile on the WebGL2 backend.
+	relX, relZ, dirX, dirZ, halfLen, len, rad, pitch,
 	waves, sweep, liftAmt, liftPhase, phase, seaRel, amp,
 ] ) => {
 
@@ -761,12 +934,12 @@ const bodyDisplaceCore = /*@__PURE__*/ Fn( ( [
 	for ( let i = 0; i < BODY_STATIONS; i ++ ) {
 
 		const s = float( i ).div( nM1 );
-		const along = half.mul( float( 1.0 ).sub( float( 2.0 ).mul( s ) ) );
+		const along = halfLen.mul( float( 1.0 ).sub( float( 2.0 ).mul( s ) ) );
 		const ph = s.mul( k ).sub( phase );
 		const ramp = smoothstep( 0.06, 0.85, s );
 		const lateral = ph.sin().mul( sweep ).mul( len ).mul( ramp );
 		const heave = ph.add( liftPhase ).sin().mul( liftAmt ).mul( len ).mul( ramp );
-		const taper = along.abs().div( half ).smoothstep( 1.0, 0.25 );
+		const taper = along.abs().div( halfLen ).smoothstep( 1.0, 0.25 );
 		const r = rad.mul( mix( float( 0.55 ), float( 1.0 ), taper ) );
 		const stX = dirX.mul( along ).add( perpX.mul( lateral ) );
 		const stZ = dirZ.mul( along ).add( perpZ.mul( lateral ) );
@@ -813,7 +986,7 @@ bodyDisplaceCore.setLayout( {
 		{ name: 'relZ', type: 'float' },
 		{ name: 'dirX', type: 'float' },
 		{ name: 'dirZ', type: 'float' },
-		{ name: 'half', type: 'float' },
+		{ name: 'halfLen', type: 'float' },
 		{ name: 'len', type: 'float' },
 		{ name: 'rad', type: 'float' },
 		{ name: 'pitch', type: 'float' },
@@ -1149,12 +1322,12 @@ export const swellLift = /*@__PURE__*/ Fn( ( [ xz ] ) => {
 	}, () => {
 
 		const rel = xz.sub( uSwellPos.xz );
-		const half = uSwellLen.mul( 0.5 ).max( 0.5 );
+		const halfLen = uSwellLen.mul( 0.5 ).max( 0.5 );
 		const rad = uSwellRad.max( 0.15 );
 		const seaRel = uSeaLevel.sub( uSwellPos.y );
 		h.assign( bodyDisplaceCore(
 			rel.x, rel.z, uSwellDir.x, uSwellDir.y,
-			half, uSwellLen, rad, uSwellPitch,
+			halfLen, uSwellLen, rad, uSwellPitch,
 			uSwellWaves, uSwellSweep, uSwellLift, uSwellLiftPhase, uSwellPhase,
 			seaRel, uSwellAmp,
 		) );
@@ -1248,8 +1421,9 @@ const swellRippleFoam = /*@__PURE__*/ Fn( ( [ xz ] ) => {
 // gets - skips the whole block, so the sea is bit-for-bit what it was and the
 // golden images do not move.
 export const uRefractAmount = /*@__PURE__*/ uniform( 0.0 );
-// How hard the surface slope bends the lookup, in screen fractions. This is what
-// makes chop passing over a submerged body wobble it and break it up.
+// How hard the surface slope bends the look-through. Rocks/coral use it as a
+// screen-space UV bend; the virtual bed (sand + caustics) uses the same knob
+// as a world-XZ slide. `params.sdRefract`.
 export const uRefractDistort = /*@__PURE__*/ uniform( 0.045 );
 // Metres of water along the camera ray that swallow the shape (mean sea to
 // the body, not depth-below-surface). The COLOUR of the swallowing is the
@@ -1345,6 +1519,47 @@ export const uWaterIOR = /*@__PURE__*/ uniform( 1.333 );
 
 export const uAerial = /*@__PURE__*/ uniform( 1.0 );
 
+// Virtual bed the surface looks down onto. 0 = deep ocean, no bed.
+export const uFloorDepth = /*@__PURE__*/ uniform( 0.0 );
+export const uFloorDepthMin = /*@__PURE__*/ uniform( 0.0 );
+export const uFloorDepthMax = /*@__PURE__*/ uniform( 0.0 );
+export const uFloorTerrainScale = /*@__PURE__*/ uniform( 36.0 );
+export const uFloorCaustic = /*@__PURE__*/ uniform( 1.0 );
+export const uFloorCausticSize = /*@__PURE__*/ uniform( 1.0 );
+export const uShoreFoamAmount = /*@__PURE__*/ uniform( 0.0 );
+export const uShoreFoamRange = /*@__PURE__*/ uniform( 3.0 );
+
+// Twin of floorDepthAt() in src/seafloor.js. 1 on the heightfield is
+// a sandbar (shallow). Layouted scalars only (rule 18).
+const floorTerrainCore = /*@__PURE__*/ Fn( ( [ px, pz, lo, hi, scale ] ) => {
+
+	const s = scale.max( 4.0 );
+	const u = px.div( s );
+	const v = pz.div( s );
+	const bars = u.mul( 1.7 ).add( v.mul( 0.9 ).sin().mul( 0.65 ) ).sin();
+	const channels = v.mul( 1.15 ).sub( u.mul( 0.55 ).sin().mul( 0.8 ) ).sin();
+	const dunes = u.mul( 2.4 ).sub( v.mul( 1.3 ) ).add( u.mul( 0.7 ).sin().mul( 0.45 ) ).sin();
+	const w = clamp(
+		bars.mul( 0.48 ).add( channels.mul( 0.34 ) ).add( dunes.mul( 0.18 ) )
+			.mul( 0.5 ).add( 0.5 ),
+		0.0, 1.0,
+	);
+	return select( hi.sub( lo ).greaterThan( 0.05 ), mix( hi, lo, w ), hi );
+
+} );
+
+floorTerrainCore.setLayout( {
+	name: 'abyssal_floorTerrainCore',
+	type: 'float',
+	inputs: [
+		{ name: 'px', type: 'float' },
+		{ name: 'pz', type: 'float' },
+		{ name: 'lo', type: 'float' },
+		{ name: 'hi', type: 'float' },
+		{ name: 'scale', type: 'float' },
+	],
+} );
+
 // Vector defaults, spelled out because uniform('vecN') starts at zero.
 uGridCenter.value.set( 0.0, 0.0 );
 uHullPos.value.set( 0.0, - 1e4, 0.0 );          // NO_HULL, src/water.js:19
@@ -1428,6 +1643,15 @@ export const waterPosition = /*@__PURE__*/ Fn( () => {
 
 	} );
 
+	// Collar / heap / hollow only. The well is a per-pixel look-through
+	// in the fragment (pierceCutAt) — snapping vertices several metres
+	// made shark-fin triangles from the side.
+	If( uPierceOn.greaterThan( 0.5 ), () => {
+
+		pos.y.addAssign( pierceFieldAt( xz ) );
+
+	} );
+
 	// Height rides a varying; the fragment recovers world slope from
 	// screen derivatives of that varying. Do not call splashHeightAt
 	// from the fragment — that is the compile failure above.
@@ -1441,45 +1665,8 @@ export const waterPosition = /*@__PURE__*/ Fn( () => {
 	} );
 
 	// ---- hull ---------------------------------------------------------------
-	If( uHullPush.greaterThan( 0.0005 ), () => {
-
-		const rel = xz.sub( uHullPos.xz ).toVar();
-		const d2 = rel.dot( rel ).toVar();
-		// GLSL: `float R = max(uHullRadius, 0.5)`. Renamed Rh only because `R` is
-		// the reflection vector in the fragment stage and the two are easy to
-		// confuse when reading them side by side.
-		const Rh = uHullRadius.max( 0.5 ).toVar();
-
-		If( d2.lessThan( Rh.mul( Rh ).mul( 4.0 ) ), () => {
-
-			const along = rel.dot( uHullFwd ).toVar();
-			const lat = rel.dot( vec2( uHullFwd.y.negate(), uHullFwd.x ) ).toVar();
-
-			// Anisotropic footprint: a hull is long and narrow, so the hollow it
-			// makes is too. Squashing across the beam (the 0.30) is what keeps
-			// this from reading as a round dent following the craft.
-			const g = along.mul( along ).div( Rh.mul( Rh ) )
-				.add( lat.mul( lat ).div( Rh.mul( Rh ).mul( 0.30 ) ) )
-				.negate().exp().toVar();
-
-			// Pressed down under and just aft of the hull...
-			//
-			// EDGES DESCENDING, 1.2 then -1.6, ON PURPOSE - see note 3 in the
-			// header. Do not reorder them and do not rewrite this as
-			// smoothstep(-1.6, 1.2, along).oneMinus().
-			const press = g.negate().mul( smoothstep( float( 1.2 ), float( - 1.6 ), along ) ).toVar();
-
-			// ...and the displaced water has to go somewhere: up at the bow and
-			// out to the sides, which is the shoulder the wake arms grow out of.
-			const bow = g.mul( smoothstep( float( - 0.1 ), float( 1.3 ), along ) ).mul( uHullBow ).toVar();
-			const side = g.mul( smoothstep( float( 0.25 ), float( 1.0 ), lat.abs().div( Rh ) ) )
-				.mul( uHullBow ).mul( 0.5 ).toVar();
-
-			pos.y.addAssign( press.add( bow ).add( side ).mul( uHullPush ).mul( uHullPlane ) );
-
-		} );
-
-	} );
+	// EDGES DESCENDING on press, 1.2 then -1.6, ON PURPOSE — see note 3.
+	pos.y.addAssign( hullLift( xz ) );
 
 	// ---- wake ---------------------------------------------------------------
 	If( uWakeOn.greaterThan( 0.5 ), () => {
@@ -1503,9 +1690,9 @@ export const waterPosition = /*@__PURE__*/ Fn( () => {
 
 	} );
 
-	// Analytic Kelvin V (sea dragon). Separate from the stamp field so a
-	// vehicle's trail and the animal's gravity-wave chevron cannot double
-	// up, and so uWakeOn can stay off when nothing has been stamped.
+	// Analytic Kelvin V — a following mask. OceanBody vehicles leave this off.
+	// Their wave height is the expanding rings below. Leftover stern foam is
+	// the hull-sweep energy field, not the ring crests.
 	If( uKelvinOn.greaterThan( 0.5 ), () => {
 
 		const wf = float( 1.0 ).sub(
@@ -1524,14 +1711,34 @@ export const waterPosition = /*@__PURE__*/ Fn( () => {
 	// dives and fade on their own life. Not the vehicle stamp field.
 	If( uVWakeOn.greaterThan( 0.5 ), () => {
 
-		const wf = float( 1.0 ).sub(
-			smoothstep( uWakeExtent.mul( 0.18 ), uWakeExtent.mul( 0.88 ), r ),
-		).toVar();
-		If( wf.greaterThan( 0.002 ), () => {
+		pos.y.addAssign( vWakeAt( xz.x, xz.y ).x );
 
-			pos.y.addAssign( vWakeAt( xz.x, xz.y ).x.mul( wf ) );
+	} );
 
-		} );
+	// Expanding rings left at the stern. No camera-extent fade — a leftover
+	// crest has to stay in the water so you can turn around and drive through it.
+	If( uWakeWaveCount.greaterThan( 0.5 ), () => {
+
+		pos.y.addAssign( wakeWaveAt( xz ) );
+
+	} );
+
+	// Physics contact is fragment-only close to the hull. Fade geometric
+	// displacement in over a broad beam-scaled shoulder so coarse triangles
+	// cannot draw a cut; the same wave heights still bend the normal below.
+	const wakeGeometryKeep = float( 1.0 ).sub( wakePhysicsGeometryMaskAt( xz ) ).toVar();
+	// Gravity-wave experiment: bound hull wave + Kelvin modes.
+	If( uWakePhysOn.greaterThan( 0.5 ), () => {
+
+		pos.y.addAssign( wakePhysicsAt( xz ).x.mul( wakeGeometryKeep ) );
+
+	} );
+
+	// Leftover gravity waves. The hull only displaced water; this
+	// height already lives in world XZ and keeps travelling.
+	If( uRippleOn.greaterThan( 0.001 ), () => {
+
+		pos.y.addAssign( rippleAt( xz ).mul( uRippleVis ).mul( wakeGeometryKeep ) );
 
 	} );
 
@@ -1603,12 +1810,50 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 	const fpv = fwidth( vFlat.xz ).toVar();
 	const foot = fpv.x.max( fpv.y ).max( 1e-5 ).toVar();
 
+	// Shark-fin cut: occupancy opens the surface film so you look
+	// into the ocean (refraction / darker column), not a painted
+	// ribbon and not a vertex pit.
+	const cut = pierceCutAt( vFlat.xz ).toVar();
+
+	// ---- wind gusts: the cat's paws -----------------------------------------
+	// The full account is in src/shaders/water.js at this same spot; the two
+	// sources must stay identical. Short version: gusts arrive in patches tens
+	// of metres across and roughen their own patch of water into a matte
+	// cat's-paw while the lull beside it stays a mirror, and on sheltered water
+	// that mottling IS the surface texture. Scales the short-wave energy - the
+	// FFT slope of every cascade shorter than swell (the ripple a look-down
+	// sees), the capillary layer here, and the slope variance below, which is
+	// what carries the patches past the near field.
+	//
+	// GLSL gates this on `uGust > 0`. The TSL port ran the 3-octave fbm on
+	// every sea pixel and then mixed with a zero-width range (gust is 0 in
+	// every shipping preset except one). Same picture, a lot less heat.
+	//
+	// Evaluated BEFORE the cascade loop so short-band slope can ride the
+	// same field. Swell stays even (cascadeGustWeight).
+	const gust = float( 1.0 ).toVar();
+	If( uGust.greaterThan( 0.0 ), () => {
+
+		const gustQ = vFlat.xz.sub( uWindDir.mul( uTime.mul( uGustDrift ) ) )
+			.div( uGustScale.max( 4.0 ) ).toVar();
+		// Two scales: wind-streak slicks, then smaller cat's paws on top.
+		const large = smoothstep( 0.32, 0.70, fbm2( gustQ, int( 3 ) ) ).toVar();
+		const small = smoothstep(
+			0.38, 0.76,
+			fbm2( gustQ.mul( 3.1 ).add( vec2( 17.2, - 8.4 ) ), int( 2 ) ),
+		).toVar();
+		const gustN = mix( large, small, 0.34 ).toVar();
+		// Standalone mix (rule 1).
+		gust.assign( mix( float( 1.0 ).sub( uGust.mul( 0.85 ) ), float( 1.0 ).add( uGust.mul( 1.6 ) ), gustN ) );
+
+	} );
+
 	// ---- 2. surface normal + microfacet statistics from the cascades (354-376)
 	// slope, msq, foamF and foamR are MUTATED below (the capillary layer and the
 	// wake slick), which is why ./water-common.js hands them back as .toVar()s.
 	// foamT is accumulated and never read - in the GLSL too (declared 359,
 	// written 372, no reader). Kept for the 1:1 diff.
-	const { slope, msq, lost, foamF, foamR } = sampleCascadeSurface( vFlat.xz, dist );
+	const { slope, msq, lost, foamF, foamR } = sampleCascadeSurface( vFlat.xz, dist, gust );
 
 	// ---- 3. sub-cascade capillary detail, near field only (378-390) ----------
 	//
@@ -1644,29 +1889,6 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 	msq.mulAssign( float( 1.0 ).sub( fluke.mul( float( FLUKE_ROUGH_KILL ) ) ) );
 	slope.mulAssign( float( 1.0 ).sub( fluke.mul( float( FLUKE_SLOPE_KILL ) ) ) );
 
-	// ---- wind gusts: the cat's paws -----------------------------------------
-	// The full account is in src/shaders/water.js at this same spot; the two
-	// sources must stay identical. Short version: gusts arrive in patches tens
-	// of metres across and roughen their own patch of water into a matte
-	// cat's-paw while the lull beside it stays a mirror, and on sheltered water
-	// that mottling IS the surface texture. Scales the short-wave energy - the
-	// capillary layer here, and the slope variance below, which is what carries
-	// the patches past the near field.
-	//
-	// GLSL gates this on `uGust > 0`. The TSL port ran the 3-octave fbm on
-	// every sea pixel and then mixed with a zero-width range (gust is 0 in
-	// every shipping preset except one). Same picture, a lot less heat.
-	const gust = float( 1.0 ).toVar();
-	If( uGust.greaterThan( 0.0 ), () => {
-
-		const gustQ = vFlat.xz.sub( uWindDir.mul( uTime.mul( uGustDrift ) ) )
-			.div( uGustScale.max( 4.0 ) ).toVar();
-		const gustN = smoothstep( 0.35, 0.72, fbm2( gustQ, int( 3 ) ) ).toVar();
-		// Standalone mix (rule 1).
-		gust.assign( mix( float( 1.0 ).sub( uGust.mul( 0.85 ) ), float( 1.0 ).add( uGust.mul( 1.6 ) ), gustN ) );
-
-	} );
-
 	If( capFade.greaterThan( 0.01 ), () => {
 
 		const amp = uCapillary.mul( 0.16 ).mul( capFade )
@@ -1691,61 +1913,69 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 	// for real (the vertex shader displaced by the same field), and a ridge whose
 	// shading normal does not know it is a ridge reads as a decal on flat water.
 	const wake = float( 0.0 ).toVar();
+	// Reconstructed Kelvin 3-stripe from the stamp record. Not the
+	// filled energy ribbon — that one is uFoamRibbon.
+	const wakeRecon = float( 0.0 ).toVar();
 
 	If( uWakeOn.greaterThan( 0.5 ), () => {
 
 		// Once a pixel is wider than the pattern there is nothing left to resolve
 		// and point-sampling it is pure aliasing, exactly as for the foam sim.
 		const k = float( 1.0 ).sub( smoothstep( 1.2, 6.0, foot ) ).toVar();
+		// Look-down is several metres per pixel. The tight fade above
+		// erased the rails exactly when you are trying to judge the
+		// corridor. Keep a longer fade for the reconstructed 3-stripe.
+		const reconK = float( 1.0 ).sub( smoothstep( 8.0, 28.0, foot ) ).toVar();
 
-		If( k.greaterThan( 0.004 ), () => {
+		If( reconK.greaterThan( 0.004 ), () => {
 
 			const wk = wakeAt( vFlat.xz ).toVar();
-			wake.assign( wk.x.mul( k ) );
+			wakeRecon.assign( wk.x.mul( reconK ) );
 
-			// A wake leaves a slick. Churned water has lost the short ripples and
-			// the wind foam that were riding on it, and that smooth lane is most of
-			// why a boat's path stays legible on a broken sea long after the white
-			// water behind it has gone. Without it the wake is just more foam
-			// among foam.
-			const slick = clamp( wk.z.mul( k ).mul( uWakeSlick ), 0.0, 1.0 ).toVar();
-			foamF.mulAssign( float( 1.0 ).sub( slick ) );
-			foamR.mulAssign( float( 1.0 ).sub( slick ) );
-			msq.mulAssign( float( 1.0 ).sub( slick.mul( 0.6 ) ) );
+			If( k.greaterThan( 0.004 ), () => {
 
-			// The ridge is real geometry - the vertex shader displaced by wk.y - so
-			// it needs a normal that knows it is a ridge, or it reads as a decal
-			// lying on flat water. Central differences at half a metre, which is
-			// inside the arm width and wide enough not to be lost in the record's
-			// own quantisation. Four extra fetches for the gradient, so only where
-			// there is actually a wake to shade. Gating on the DISTURBANCE rather
-			// than on the buffer bounds skips this for every water pixel that
-			// merely happens to be inside a 320 m square, which is most of them.
-			//
-			// GLSL used to gate on wk.z (the slick BETWEEN the arms). The
-			// arms themselves have almost no churn, so the ridge never got
-			// a normal and read as foam stuck on flat water. Gate on the
-			// height or the foam — that is the wave. A nested .and(.or())
-			// here failed to compile and left a blank blue frame.
-			// Only the lifted crest. Lighting every foam/slick texel
-			// showed the wake buffer as a grid of lines.
-			If( uWakeRelief.greaterThan( 0.0 ).and( wk.y.abs().greaterThan( 0.22 ) ), () => {
+				wake.assign( wk.x.mul( k ) );
 
-				// GLSL: `const float e = 0.5`. Left as a JS number here, unlike the
-				// 0.09 in section 7: 0.5 and 2.0*0.5 are exactly representable, so
-				// folding them on the CPU is bit-identical to folding them in the
-				// shader.
-				// World-axis differences on a knife peak light a cross
-				// through the hump (the horizontal line on the mound,
-				// the vertical line down the V). Step with the wave
-				// so the slope is the face, not a 50 cm cliff.
-				const e = uWakeDepth.mul( 0.45 ).max( 1.2 ).toVar();
-				const hx = wakeAt( vFlat.xz.add( vec2( e, 0.0 ) ) ).y
-					.sub( wakeAt( vFlat.xz.sub( vec2( e, 0.0 ) ) ).y ).toVar();
-				const hz = wakeAt( vFlat.xz.add( vec2( 0.0, e ) ) ).y
-					.sub( wakeAt( vFlat.xz.sub( vec2( 0.0, e ) ) ).y ).toVar();
+				// A wake leaves a slick. Churned water has lost the short ripples and
+				// the wind foam that were riding on it, and that smooth lane is most of
+				// why a boat's path stays legible on a broken sea long after the white
+				// water behind it has gone. Without it the wake is just more foam
+				// among foam.
+				const slick = clamp( wk.z.mul( k ).mul( uWakeSlick ), 0.0, 1.0 ).toVar();
+				foamF.mulAssign( float( 1.0 ).sub( slick ) );
+				foamR.mulAssign( float( 1.0 ).sub( slick ) );
+				msq.mulAssign( float( 1.0 ).sub( slick.mul( 0.6 ) ) );
 
-				slope.addAssign( vec2( hx, hz ).div( e.mul( 2.0 ) ).mul( uWakeRelief ).mul( k ) );
+				// The ridge is real geometry - the vertex shader displaced by wk.y - so
+				// it needs a normal that knows it is a ridge, or it reads as a decal
+				// lying on flat water. Central differences at half a metre, which is
+				// inside the arm width and wide enough not to be lost in the record's
+				// own quantisation. Four extra fetches for the gradient, so only where
+				// there is actually a wake to shade. Gating on the DISTURBANCE rather
+				// than on the buffer bounds skips this for every water pixel that
+				// merely happens to be inside the leftover tile, which is most of them.
+				//
+				// GLSL used to gate on wk.z (the slick BETWEEN the arms). The
+				// arms themselves have almost no churn, so the ridge never got
+				// a normal and read as foam stuck on flat water. Gate on the
+				// height or the foam — that is the wave. A nested .and(.or())
+				// here failed to compile and left a blank blue frame.
+				// Only the lifted crest. Lighting every foam/slick texel
+				// showed the wake buffer as a grid of lines.
+				If( uWakeRelief.greaterThan( 0.0 ).and( wk.y.abs().greaterThan( 0.07 ) ), () => {
+
+					// Step with the arm width, not a 1.2 m cliff. A ski-scale
+					// mound is ~1 m across; the old max(depth*0.45, 1.2) sampled
+					// past both faces and the ridge never got a normal.
+					const e = uWakeArmW.mul( 0.40 ).max( 0.28 ).min( 0.9 ).toVar();
+					const hx = wakeAt( vFlat.xz.add( vec2( e, 0.0 ) ) ).y
+						.sub( wakeAt( vFlat.xz.sub( vec2( e, 0.0 ) ) ).y ).toVar();
+					const hz = wakeAt( vFlat.xz.add( vec2( 0.0, e ) ) ).y
+						.sub( wakeAt( vFlat.xz.sub( vec2( 0.0, e ) ) ).y ).toVar();
+
+					slope.addAssign( vec2( hx, hz ).div( e.mul( 2.0 ) ).mul( uWakeRelief ).mul( k ) );
+
+				} );
 
 			} );
 
@@ -1753,10 +1983,122 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 
 	} );
 
-	// Analytic Kelvin V. Same `wake` accumulator the stamp foam composites
-	// through, so breaking crests on the arms get the coherent-band look
-	// rather than wind-foam clumps. Slope is finite-differenced on the
-	// same function the vertex displaced by — swellLift's pattern.
+	// Leftover is the energy field. Mixing 22% of the stamp back in
+	// printed the record window — a rectangle of lace around the hull,
+	// obvious on a glassy look-down. Unbound energy still uses the stamp.
+	// Twin of wakeFoamRibbonVary() / wakeFoamRibbonWarp() — fill, holes,
+	// and a world-XZ wobble of the leftover *foam* sample. Amount 0 is
+	// the old solid stencil. Leftover height stays on vFlat.xz.
+	const ribbonK = clamp( uWakeFoamRibbonVary, 0.0, WAKE_FOAM_RIBBON_VARY_MAX ).toVar();
+	const nFill = vnoise2( vFlat.xz.mul( 0.038 ) ).toVar();
+	const nOpac = vnoise2( vFlat.xz.mul( 0.027 ).add( vec2( 13.7, - 8.2 ) ) ).toVar();
+	const nFeat = vnoise2( vFlat.xz.mul( 0.021 ).add( vec2( 5.4, 19.1 ) ) ).toVar();
+	const nHole = vnoise2( vFlat.xz.mul( 0.064 ).add( vec2( - 11.6, 4.8 ) ) ).toVar();
+	const nStr = vnoise2( vFlat.xz.mul( 0.019 ).add( vec2( 2.3, - 15.6 ) ) ).toVar();
+	const nAni = vnoise2( vFlat.xz.mul( 0.033 ).add( vec2( - 7.1, 9.4 ) ) ).toVar();
+	const nPatch = vnoise2( vFlat.xz.mul( 0.028 ).add( vec2( 21.4, - 9.6 ) ) ).toVar();
+	const nChew = vnoise2( vFlat.xz.mul( 0.09 ).add( vec2( - 4.2, 15.8 ) ) ).toVar();
+	const nFine = vnoise2( vFlat.xz.mul( 0.21 ).add( vec2( 6.6, - 2.4 ) ) ).toVar();
+	const nBreak = vnoise2( vFlat.xz.mul( 0.016 ).add( vec2( 3.3, 7.7 ) ) ).toVar();
+	const nIsland = vnoise2( vFlat.xz.mul( 0.042 ).add( vec2( 17.2, - 6.4 ) ) ).toVar();
+	const foamWarp = vec2(
+		vnoise2( vFlat.xz.mul( 0.042 ) ).sub( 0.5 ).mul( WAKE_FOAM_RIBBON_WARP0 )
+			.add( vnoise2( vFlat.xz.mul( 0.11 ) ).sub( 0.5 ).mul( WAKE_FOAM_RIBBON_WARP1 ) ),
+		vnoise2( vFlat.xz.mul( 0.039 ).add( vec2( 8.7, - 3.1 ) ) ).sub( 0.5 ).mul( WAKE_FOAM_RIBBON_WARP0 )
+			.add( vnoise2( vFlat.xz.mul( 0.10 ).add( vec2( - 6.4, 12.2 ) ) ).sub( 0.5 ).mul( WAKE_FOAM_RIBBON_WARP1 ) ),
+	).mul( ribbonK ).toVar();
+	const ribbonFill = mix( float( 1.0 ), mix( float( 0.18 ), float( 1.04 ), nFill ), ribbonK ).toVar();
+	const ribbonOpac = mix( float( 1.0 ), mix( float( 0.28 ), float( 1.0 ), nOpac ), ribbonK ).toVar();
+	const ribbonHole = mix(
+		float( 1.0 ),
+		mix( float( 0.04 ), float( 1.0 ), nHole.smoothstep( 0.10, 0.66 ) ),
+		ribbonK,
+	).toVar();
+	{
+		const energyK = float( 1.0 ).sub( smoothstep( 8.0, 28.0, foot ) ).toVar();
+		If( energyK.greaterThan( 0.004 ), () => {
+
+			If( uFoamEnergyOn.greaterThan( 0.5 ), () => {
+
+				const energy = foamEnergyAt( vFlat.xz ).mul( energyK ).toVar();
+				// Twin of foamEnergyCrestGate(). MULTIPLICATIVE — it only takes
+				// white off water that is not cresting, so it can never draw a
+				// V or punch a ring. That is why it has its own uniform now
+				// instead of riding on the additive uRippleFoam paint.
+				const crestGate = float( 1.0 ).toVar();
+				If( uRippleOn.greaterThan( 0.001 ).and( uRippleCrestGate.greaterThan( 0.001 ) ), () => {
+
+					const rh = rippleAt( vFlat.xz ).toVar();
+					const vel = rippleVelAt( vFlat.xz ).abs().toVar();
+					const ripples = vel.smoothstep( 0.03, 0.22 ).toVar();
+					const live = max( rh.abs(), ripples.mul( 0.22 ) )
+						.smoothstep( 0.012, 0.10 ).toVar();
+					const crest = rh.smoothstep( - 0.08, 0.20 ).toVar();
+					const peak = crest.mul( crest ).toVar();
+					const wave = peak.add( ripples.mul( float( 1.0 ).sub( peak ) ).mul( 0.55 ) )
+						.min( 1.0 ).toVar();
+					const dense = energy.smoothstep( 0.22, 0.85 ).toVar();
+					const troughFloor = float( 0.10 ).add( dense.mul( 0.16 ) ).toVar();
+					const thinFade = energy.smoothstep( 0.025, 0.18 ).max( dense.mul( 0.80 ) ).toVar();
+					const gated = troughFloor.add( wave.mul( float( 1.0 ).sub( troughFloor ) ) )
+						.mul( thinFade ).toVar();
+					// Scale by the knob so it fades in rather than snapping to
+					// the full trough wipe the instant it is switched on.
+					crestGate.assign( mix(
+						float( 1.0 ), gated, live.mul( uRippleCrestGate.min( 1.0 ) ),
+					) );
+
+				} );
+				// Tear the Kelvin / Mach silhouette — a clean iso-energy
+				// contour (or a craft-spray cone rim) reads as a drawn V.
+				const edgeN = hash22( vFlat.xz.mul( 0.078 ) ).x
+					.mul( 0.42 )
+					.add( hash22( vFlat.xz.mul( 0.17 ).add( vec2( 4.2, - 1.7 ) ) ).y.mul( 0.33 ) )
+					.add( hash22( vFlat.xz.mul( 0.41 ).add( vec2( - 2.4, 5.1 ) ) ).x.mul( 0.25 ) )
+					.mul( 2.0 ).sub( 1.0 )
+					.mul( mix( float( 1.0 ), float( 1.55 ), ribbonK ) )
+					.toVar();
+				const edgeLo = float( WAKE_FOAM_ENERGY_LO ).add( edgeN.mul( mix( 0.11, 0.20, ribbonK ) ) ).toVar();
+				const edgeHi = float( WAKE_FOAM_ENERGY_HI ).add( edgeN.mul( mix( 0.16, 0.24, ribbonK ) ) ).toVar();
+				const ragged = energy.smoothstep( edgeLo, edgeHi ).toVar();
+				const core = energy.smoothstep( 0.62, 1.15 ).toVar();
+				// Twin of wakeFoamEnergyLook() — thin sailing-line film is
+				// sea; only dense rails read as whitewater.
+				const look = energy.smoothstep(
+					float( WAKE_FOAM_ENERGY_LO ), float( WAKE_FOAM_ENERGY_HI ),
+				).toVar();
+				// `wake` may already hold the record's reconstructed wedge —
+				// the part that opens with distance astern. Energy is the
+				// hull's own near film. Take the brighter of the two; an
+				// assign here erased the arms wherever the film reached.
+				const film = look.mul( crestGate ).mul( mix( ragged, float( 1.0 ), core ) ).toVar();
+				// The energy film is the foam you actually see. The 3-stripe
+				// corridor lived only on the stamp-record shading path, so a
+				// solid beam-wide ribbon hid every rail and every hole.
+				If( uWakeOn.greaterThan( 0.5 ), () => {
+
+					const rec = wakeAgeAt( vFlat.xz ).toVar();
+					If( rec.x.greaterThanEqual( 0.0 ), () => {
+
+						film.mulAssign( rec.y );
+
+					} );
+
+				} );
+				wake.assign( max( wake, film ) );
+
+			}, () => {
+
+				wake.mulAssign( energyK );
+
+			} );
+
+		} );
+
+	}
+
+	// Analytic Kelvin V. Same `wake` accumulator the stamp field
+	// composites through. Vehicles keep uKelvinOn off.
 	If( uKelvinOn.greaterThan( 0.5 ), () => {
 
 		const k = float( 1.0 ).sub( smoothstep( 1.2, 6.0, foot ) ).toVar();
@@ -1789,9 +2131,10 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 
 			const vw = vWakeAt( vFlat.x, vFlat.z ).toVar();
 			// Height stays on the arms. .y is the churned lane between
-			// them — the motorboat white water. Persistent leftover foam
-			// is still a separate field and does not ride the ridges.
+			// them. Breaking foam also sits on the steep ridges so a
+			// top-down look still reads as a wake, not a glitter field.
 			wake.addAssign( vw.y.mul( k ) );
+			wake.addAssign( vw.x.abs().mul( k ).mul( 0.55 ).min( 1.0 ) );
 			const vSlick = clamp( vw.y.mul( k ).mul( uWakeSlick ).mul( 0.7 ), 0.0, 1.0 ).toVar();
 			foamF.mulAssign( float( 1.0 ).sub( vSlick ) );
 			foamR.mulAssign( float( 1.0 ).sub( vSlick ) );
@@ -1805,6 +2148,170 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 				slope.addAssign( vec2( hx, hz ).mul( uWakeRelief ).mul( k ) );
 
 			} );
+
+		} );
+
+	} );
+
+	// Lace UVs must not see ring slope — shear/strain on expanding crests
+	// turned leftover film into topographic swirls (clearer with texture
+	// lace off, when fd is the procedural field at those warped coords).
+	const foamUvSlope = vec2( slope.x, slope.y ).toVar();
+
+	// Rings stay as water: slope for lighting, never leftover foam.
+	// Painting h+ onto `wake` printed expanding white circles that popped
+	// a metre aft of the transom.
+	If( uWakeWaveCount.greaterThan( 0.5 ).and( uWakeRelief.greaterThan( 0.0 ) ), () => {
+
+		const k = float( 1.0 ).sub( smoothstep( 1.2, 6.0, foot ) ).toVar();
+		If( k.greaterThan( 0.004 ), () => {
+
+			const h0 = wakeWaveAt( vFlat.xz ).toVar();
+			If( h0.abs().greaterThan( 0.002 ), () => {
+
+				const e = float( 0.40 );
+				const hx = wakeWaveAt( vFlat.xz.add( vec2( e, 0.0 ) ) ).sub( h0 ).div( e );
+				const hz = wakeWaveAt( vFlat.xz.add( vec2( 0.0, e ) ) ).sub( h0 ).div( e );
+				slope.addAssign( vec2( hx, hz ).mul( uWakeRelief ).mul( k ) );
+
+			} );
+
+		} );
+
+	} );
+
+	If( uWakePhysOn.greaterThan( 0.5 ), () => {
+
+		const k = float( 1.0 ).sub( smoothstep( 2.4, 14.0, foot ) ).toVar();
+		If( k.greaterThan( 0.004 ), () => {
+
+			const wp = wakePhysicsAt( vFlat.xz ).toVar();
+			wake.addAssign( wp.y.mul( k ) );
+			If( uWakeRelief.greaterThan( 0.0 ).and( wp.x.abs().greaterThan( 0.01 ) ), () => {
+
+				const e = float( 0.55 );
+				const h0 = wp.x;
+				const hx = wakePhysicsAt( vFlat.xz.add( vec2( e, 0.0 ) ) ).x.sub( h0 ).div( e );
+				const hz = wakePhysicsAt( vFlat.xz.add( vec2( 0.0, e ) ) ).x.sub( h0 ).div( e );
+				slope.addAssign( vec2( hx, hz ).mul( uWakeRelief ).mul( k ) );
+
+			} );
+
+		} );
+
+	} );
+
+	If( uRippleOn.greaterThan( 0.001 ), () => {
+
+		const hRaw = rippleAt( vFlat.xz ).toVar();
+		const contact = wakePhysicsContactAt( vFlat.xz ).toVar();
+		If( hRaw.abs().greaterThan( 0.002 ).or( contact.greaterThan( 0.002 ) ), () => {
+
+			const e = float( 0.55 );
+			const sampleX = vFlat.xz.add( vec2( e, 0.0 ) ).toVar();
+			const sampleZ = vFlat.xz.add( vec2( 0.0, e ) ).toVar();
+			const hx = rippleAt( sampleX ).sub( hRaw ).div( e ).toVar();
+			const hz = rippleAt( sampleZ ).sub( hRaw ).div( e ).toVar();
+			const steep = vec2( hx, hz ).length();
+			// Twin of leftoverChurn() — crest break + steep face.
+			// Troughs stay water so leftover does not fill as a white disk.
+			const churn = max( hRaw, 0.0 ).smoothstep( 0.008, 0.10 ).mul( 0.72 )
+				.add( steep.smoothstep( 0.045, 0.26 ).mul( 0.40 ) )
+				.min( 0.90 ).toVar();
+			// Mean leftoverChurn() stays above. Ribbon vary then samples
+			// leftover at a wobble (foam only) and chews the crest into
+			// patches. Twin: wakeFoamRibbonWarp() / wakeFoamRibbonBreak().
+			If( ribbonK.greaterThan( 0.001 ), () => {
+
+				const hFoam = rippleAt( vFlat.xz.add( foamWarp ) ).toVar();
+				// Peak-only: leftover crests are wide plateaus, so a 10 cm
+				// threshold fills the whole Mach arm as a rectangle.
+				const crestLo = mix( float( 0.05 ), float( 0.18 ), nFill ).toVar();
+				const crestHi = mix( float( 0.18 ), float( 0.68 ), nFeat ).toVar();
+				const weak = float( 1.0 ).sub( max( hFoam, 0.0 ).smoothstep( 0.03, 0.18 ) ).toVar();
+				const dying = float( 1.0 ).sub( max( hFoam, 0.0 ).smoothstep( 0.012, 0.08 ) ).toVar();
+				const chew = nChew.mul( 0.65 ).add( nFine.mul( 0.35 ) ).toVar();
+				const islandK = mix(
+					float( 1.0 ),
+					nIsland.smoothstep( mix( 0.36, 0.18, weak ), 0.64 ),
+					ribbonK,
+				).toVar();
+				const breakK = mix( float( 1.0 ), nBreak.smoothstep( 0.34, 0.62 ), ribbonK ).toVar();
+				const chewK = mix( float( 1.0 ), chew.smoothstep( 0.08, 0.58 ), ribbonK ).toVar();
+				const patchK = mix( float( 1.0 ), nPatch.smoothstep( 0.08, 0.62 ), ribbonK ).toVar();
+				const frayK = mix( float( 1.0 ), chew.smoothstep( 0.22, 0.78 ), ribbonK.mul( dying ) ).toVar();
+				// Height at the wobble only. Adding unwarped leftover
+				// slope here redrew the Mach crest as a ruled rail.
+				const churnVar = max( hFoam, 0.0 ).smoothstep( crestLo, crestHi ).mul( 0.90 )
+					.mul( ribbonFill ).mul( ribbonHole )
+					.mul( islandK ).mul( breakK ).mul( chewK ).mul( patchK ).mul( frayK )
+					.min( 0.90 ).toVar();
+				churn.assign( mix( churn, churnVar, ribbonK ) );
+
+			} );
+			If( uRippleFoam.greaterThan( 0.001 ), () => {
+
+				// Leftover crest foam starts off the hull. On the mesh the
+				// energy ribbon hugs the transom; leftover height from the
+				// last heading would otherwise paint a detached white mass
+				// beside the stern in a turn.
+				const offHull = float( 1.0 ).sub(
+					wakePhysicsGeometryMaskAt( vFlat.xz ).mul( 0.85 ),
+				).toVar();
+				// Ribbon vary keeps leftover foam under the clamp so
+				// islands stay holes instead of saturating back to a ray.
+				const foamGain = mix(
+					uRippleFoam.min( 2.4 ),
+					uRippleFoam.min( 0.78 ),
+					ribbonK,
+				).toVar();
+				wake.addAssign( churn.mul( foamGain ).mul( offHull ) );
+
+			} );
+			If( uWakeRelief.greaterThan( 0.0 ), () => {
+
+				const geometryKeep = float( 1.0 ).sub(
+					wakePhysicsGeometryMaskAt( vFlat.xz ),
+				).toVar();
+				const waveNormalKeep = mix( 0.08, 1.0, geometryKeep ).toVar();
+				slope.addAssign(
+					vec2( hx, hz ).mul( uWakeRelief ).mul( uRippleVis )
+						.mul( 1.55 ).mul( waveNormalKeep ),
+				);
+				// The source no longer opens the vertex mesh. Its footprint
+				// survives here as bounded normal/refraction disturbance, so
+				// water still bends and roughens around the hull without a
+				// faceted geometric moat.
+				const contactK = smoothstep( 0.015, 0.42, contact ).toVar();
+				const q = vFlat.xz.mul( 4.6 ).add(
+					vec2( uTime.mul( 2.1 ), uTime.mul( - 1.7 ) ),
+				).toVar();
+				const ruffle = vec2(
+					q.x.add( q.y.mul( 0.47 ) ).sin(),
+					q.y.sub( q.x.mul( 0.39 ) ).sin(),
+				).mul( contactK ).mul( 0.018 ).toVar();
+				slope.addAssign( ruffle );
+				msq.addAssign( contactK.mul( 0.010 ) );
+
+			} );
+
+		} );
+
+	} );
+
+	// Same channels, same lace, same foamCoord stretch as whitecaps.
+	foamF.addAssign( wake.mul( WAKE_FOAM_FRESH ) );
+	foamR.addAssign( wake.mul( WAKE_FOAM_RESIDUE ) );
+
+	If( uHullPush.greaterThan( 0.0005 ), () => {
+
+		const h0 = hullLift( vFlat.xz ).toVar();
+		If( h0.abs().greaterThan( 0.008 ), () => {
+
+			const e = uHullRadius.mul( 0.18 ).max( 0.22 ).toVar();
+			const hx = hullLift( vFlat.xz.add( vec2( e, 0.0 ) ) ).sub( h0 ).div( e );
+			const hz = hullLift( vFlat.xz.add( vec2( 0.0, e ) ) ).sub( h0 ).div( e );
+			slope.addAssign( vec2( hx, hz ) );
 
 		} );
 
@@ -1830,6 +2337,20 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 
 			const hx = swellLift( vFlat.xz.add( vec2( e, 0.0 ) ) ).sub( h0 ).div( e ).toVar();
 			const hz = swellLift( vFlat.xz.add( vec2( 0.0, e ) ) ).sub( h0 ).div( e ).toVar();
+			slope.addAssign( vec2( hx, hz ) );
+
+		} );
+
+	} );
+
+	If( uPierceOn.greaterThan( 0.5 ), () => {
+
+		const e = float( 0.18 );
+		const h0 = pierceFieldAt( vFlat.xz ).toVar();
+		If( h0.abs().greaterThan( 0.002 ), () => {
+
+			const hx = pierceFieldAt( vFlat.xz.add( vec2( e, 0.0 ) ) ).sub( h0 ).div( e );
+			const hz = pierceFieldAt( vFlat.xz.add( vec2( 0.0, e ) ) ).sub( h0 ).div( e );
 			slope.addAssign( vec2( hx, hz ) );
 
 		} );
@@ -1864,10 +2385,17 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 
 	} );
 
+	slope.mulAssign( float( 1.0 ).sub( cut.mul( 0.85 ) ) );
 	const N = vec3( slope.x.negate(), 1.0, slope.y.negate() ).normalize().toVar();
 
+	// Looking down, a roughness-only gust is a milky sheet — a cloud on
+	// the water. Chase-cam mottling still uses gust. The nadir read is
+	// the short-cascade slope (slicks flatten, paws chop).
+	const lookDown = smoothstep( float( 0.50 ), float( 0.80 ), V.y ).toVar();
+	const roughGust = mix( gust, float( 1.0 ), lookDown ).toVar();
+
 	// GLSL: `float var = ...`. `var` is a JavaScript reserved word - note 2.
-	const slopeVar = msq.sub( slope.dot( slope ) ).max( 0.0 ).add( lost ).mul( gust ).toVar();
+	const slopeVar = msq.sub( slope.dot( slope ) ).max( 0.0 ).add( lost ).mul( roughGust ).toVar();
 
 	// The cascade mip chain filters each band over its own texels. It cannot know
 	// about the pixel that straddles a crest, about the projection stretching that
@@ -1892,7 +2420,7 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 	// Gust scales the unresolved micro-surface variance too - see the note in
 	// src/shaders/water.js; on calm water this is the term that carries the
 	// mottling at all.
-	const b2 = uBaseRoughness.mul( uBaseRoughness ).mul( gust ).toVar();
+	const b2 = uBaseRoughness.mul( uBaseRoughness ).mul( roughGust ).toVar();
 	// alpha^2 = 2*sigma^2 is the Beckmann->GGX slope-variance identity. Capping it
 	// matters: a real sea tops out near mss 0.09 even in a hurricane, so alpha can
 	// never legitimately reach 1 and turn the distant water Lambertian-white.
@@ -1909,9 +2437,90 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 	// translation ./sky-background.js's cirrusLayer used for its `out float dist`.
 	// .x is the streak field; .y is optical thickness. Do not
 	// overwrite .y with the old 25 cm / 6 cm vnoise — that is the sand look.
-	const fdv = foamField( vFlat.xz, uTime, foot, uFoamDetail ).toVar();
-	const fd = fdv.x;
-	const bubbles = fdv.y.toVar();
+	// vFlat keeps the coverage on its water parcel. A partial horizontal
+	// displacement makes neighbouring details separate/compress with the FFT
+	// orbit. Wake-ring slope stays out of these UVs — it printed concentric
+	// swirls in the leftover film. CPU twin: foamTextureCoord().
+	const foamStrain = foamUvSlope.length().toVar();
+	const foamCoord = vFlat.xz
+		.add( vWorld.xz.sub( vFlat.xz ).mul( uFoamTextureCarry ) )
+		.add( foamUvSlope.mul( foamStrain.mul( uFoamTextureStrain ).add( uFoamTextureShear ) ) ).toVar();
+	const foamStretched = foamCoord.toVar();
+	If( foamStrain.greaterThan( 0.02 ).and( uFoamLaceStretch.greaterThan( 0.0 ) ), () => {
+
+		const B = uFoamLaceStretchBlock.max( 1.0 );
+		const pivot = vFlat.xz.div( B ).floor().mul( B ).add( B.mul( 0.5 ) ).toVar();
+		const r = foamCoord.sub( pivot ).toVar();
+		const t = foamUvSlope.div( foamStrain.max( 1e-4 ) ).toVar();
+		const k = foamStrain.mul( uFoamLaceStretch ).add( 1.0 ).toVar();
+		const along = r.dot( t ).div( k ).toVar();
+		const across = r.x.mul( t.y.negate() ).add( r.y.mul( t.x ) )
+			.mul( float( 1.0 ).div( k ).sqrt() ).toVar();
+		foamStretched.assign(
+			pivot.add( t.mul( along ) ).add( vec2( t.y.negate(), t.x ).mul( across ) ),
+		);
+
+	} );
+	const texK = clamp( uFoamTextureAmount, 0.0, 1.0 ).toVar();
+	const fdv = vec2( 0.5, 0.5 ).toVar();
+	// Texture lace 1 is the foam image. The procedural web is a look-down
+	// fill-rate hog and is unused there — skip it.
+	If( texK.lessThan( 0.995 ), () => {
+
+		fdv.assign( foamField( foamStretched, uTime, foot, uFoamDetail ) );
+
+	} );
+	// The generated mask is histogram-balanced: thresholding it at 1-coverage
+	// keeps the simulated areal fraction while replacing synthetic cell edges
+	// with real bubble holes. Face stretch elongates cells; the breathe
+	// rearranges holes. Twin: foamLaceStretchPoint() / foamLaceMorph().
+	const laceScale = uFoamTextureScale.max( 1.0 ).toVar();
+	const laceWarp = vec2(
+		vnoise2( foamStretched.mul( 0.019 ) ),
+		vnoise2( foamStretched.mul( 0.014 ).add( vec2( 23.7, 41.3 ) ) ),
+	).sub( 0.5 ).mul( 0.22 ).toVar();
+	If( uFoamLaceMorph.greaterThan( 0.0 ), () => {
+
+		const morphT = uTime.mul( uFoamLaceMorphRate ).toVar();
+		laceWarp.addAssign( vec2(
+			vnoise( vec3( foamStretched.mul( 0.031 ), morphT ) ).sub( 0.5 ),
+			vnoise( vec3( foamStretched.mul( 0.027 ).add( vec2( 19.1, 7.4 ) ), morphT.add( 1.7 ) ) ).sub( 0.5 ),
+		).mul( uFoamLaceMorph.div( laceScale ) ) );
+		laceWarp.addAssign( vec2(
+			vnoise( vec3( foamStretched.mul( 0.013 ), morphT.mul( 0.45 ).add( 4.2 ) ) ).sub( 0.5 ),
+			vnoise( vec3( foamStretched.mul( 0.011 ).add( vec2( 31.0, 13.0 ) ), morphT.mul( 0.45 ).add( 6.8 ) ) ).sub( 0.5 ),
+		).mul( uFoamLaceMorph.mul( 0.65 ).div( laceScale ) ) );
+
+	} );
+	const laceUv = foamStretched
+		.sub( uWindDir.mul( uTime ).mul( uFoamDrift.max( 0.0 ) ) )
+		.div( laceScale ).add( laceWarp ).toVar();
+	// Same two-tap detile as the wake pack below. This is the sample that
+	// actually covers the wake sheet, so its repeat was the visible one.
+	// The blend weight is a smoothstep, not raw noise, so most of the area
+	// is wholly one tap or the other and the mask keeps its contrast.
+	const laceUvB = vec2(
+		laceUv.x.mul( 0.383 ).add( laceUv.y.mul( 0.924 ) ),
+		laceUv.y.mul( 0.383 ).sub( laceUv.x.mul( 0.924 ) ),
+	).mul( 1.531 ).add( vec2( 0.291, 0.733 ) ).toVar();
+	const laceBlend = smoothstep(
+		0.28, 0.72,
+		vnoise2( vFlat.xz.mul( 0.0093 ).add( vec2( 17.4, - 31.8 ) ) ),
+	).toVar();
+	const lace = mix(
+		foamLaceTexture.sample( laceUv ).r,
+		foamLaceTexture.sample( laceUvB ).r,
+		laceBlend,
+	).toVar();
+	// Once a pixel is wider than a clump there is nothing left to resolve and
+	// both procedural and image detail must collapse onto the simulated mean.
+	const clumpRes = float( 1.0 ).sub( smoothstep( 0.12, 2.2, foot ) ).toVar();
+	// Texture lace is the foam image. Do not mix the procedural web back
+	// in at distance — that was swirly lines under the image. Far field
+	// collapses to the mean.
+	const fdNear = mix( fdv.x, lace, texK ).toVar();
+	const fd = mix( float( 0.5 ), fdNear, clumpRes ).toVar();
+	const bubbles = mix( fdv.y, lace, texK ).toVar();
 
 	// Two optically different materials share this footprint and they must not be
 	// shaded as one. Fresh crest foam is an optically thick bubble raft that hides
@@ -1924,16 +2533,16 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 	// These are areal fractions, so the noise only decides WHERE inside the
 	// footprint each one lands; its shaping factor is centred on one and can never
 	// inflate the coverage the sim computed.
-	const covF = clamp( foamF.mul( uFoamAmount ), 0.0, 1.0 ).toVar();
-	const covR = clamp( foamR.mul( uFoamAmount ), 0.0, 1.0 ).toVar();
+	// Wind fold only. Leftover wake is composited as a film after the lace
+	// resolve — putting a thin trail through this gate made it pulsate.
+	const covF = clamp( foamF.sub( wake.mul( WAKE_FOAM_FRESH ) ).mul( uFoamAmount ), 0.0, 1.0 ).toVar();
+	const covR = clamp( foamR.sub( wake.mul( WAKE_FOAM_RESIDUE ) ).mul( uFoamAmount ), 0.0, 1.0 ).toVar();
 	// Harder Jacobian gate (src/foam-lace.js jacobianGate). A leak of fold
 	// used to sprinkle the lace across calm water. Fold 0 is empty.
 	const gateF = smoothstep( 0.02, 0.12, covF ).toVar();
 	const gateR = smoothstep( 0.02, 0.12, covR ).toVar();
-	// Once the pixel is wider than a clump there is nothing left to resolve and
-	// the contrast has to collapse onto the mean, or the far field turns into
-	// per-pixel confetti.
-	const clumpRes = float( 1.0 ).sub( smoothstep( 0.12, 2.2, foot ) ).toVar();
+	// Past the resolvable range `clumpRes` above collapses contrast onto the
+	// mean, or the far field turns into per-pixel confetti.
 	// A film with brighter clumps, not a threshold that zeros cell interiors
 	// (that was close-up grain / wireframe). foamSharp still widens the
 	// range; the floor keeps covered water looking like foam.
@@ -1985,6 +2594,174 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 	// distance term, which scales both channels equally - that order is the point.
 	const fresh = clamp( maskF.div( foamMask.max( 1e-4 ) ), 0.0, 1.0 ).toVar();
 
+	// Wake-only anti-tile. One RGB fetch carries coarse cells, fine lace,
+	// and sparse breakup. A rotated irrational-scale frame keeps it from
+	// sharing the wind-lace repeat. Energy doubles as age: dense at the
+	// transom, cellular mid-trail, sparse as it fades.
+	// Raw energy, before any grading. Only used to decide whether there is
+	// anything here at all and to fetch the record.
+	const wakeRaw = clamp( wake, 0.0, 1.0 ).toVar();
+	// Real record age, not the coverage proxy. Foam that is thin because it
+	// is OLD and foam that is thin because it has only just started used to
+	// shade identically — that is why the trail read as one flat material.
+	const wakeAgeN = float( 0.0 ).toVar();
+	const wakeAgeOn = float( 0.0 ).toVar();
+	// Across-track zone: prop wash, open water, thin arm crests. 1 = unshaped.
+	const wakeZone = float( 1.0 ).toVar();
+	const wakeLat = float( 0.0 ).toVar();
+	const wakeVDist = float( 0.0 ).toVar();
+	If( uWakeOn.greaterThan( 0.5 ), () => {
+
+		const rec = wakeAgeAt( vFlat.xz ).toVar();
+		// x < 0 is "no record". Treating a miss as a hit pinned path UVs
+		// at (0,0) across the whole energy film.
+		If( rec.x.greaterThanEqual( 0.0 ), () => {
+
+			wakeAgeN.assign( rec.x );
+			wakeZone.assign( rec.y );
+			wakeLat.assign( rec.z );
+			wakeVDist.assign( rec.w );
+			wakeAgeOn.assign( 1.0 );
+
+		} );
+
+	} );
+	// Twin of wakeFoamFreshness(). No record (energy-only film) falls back
+	// to coverage, which is exactly the old behaviour.
+	const wakeFresh = mix(
+		wakeRaw, float( 1.0 ).sub( wakeAgeN ), wakeAgeOn,
+	).toVar();
+	// Twin of wakeFoamGrade(). The field saturates a second after the hull
+	// passes, so compositing the clamp directly painted the whole trail at
+	// one flat coverage — an even white sheet whose only visible variation
+	// was the foam image repeating. Grade it: aerated wash at the transom,
+	// a broken band with water showing through, then filaments.
+	const wakeWash = wakeFresh.smoothstep( WAKE_FOAM_WASH, 0.97 ).toVar();
+	const wakeBroken = wakeFresh.smoothstep( 0.04, WAKE_FOAM_WASH ).toVar();
+	const wakeGrade = clamp(
+		float( WAKE_FOAM_TAIL )
+			.add( wakeBroken.mul( WAKE_FOAM_BROKEN ) )
+			.add( wakeWash.mul( 1 - WAKE_FOAM_TAIL - WAKE_FOAM_BROKEN ) )
+			.mul( wakeRaw.smoothstep( 0.0, 0.35 ) )
+			.mul( wakeZone ),
+		0.0, 1.0,
+	).toVar();
+	const wakeFilm = wakeGrade.mul( uFoamRibbon.max( 0.0 ) ).toVar();
+	// The corridor is the record zone itself (center wash + two rails),
+	// not a multiplier on the energy film. Ribbon 0, jet 0, spray 0
+	// must still show those three lines.
+	const wakeCorridor = wakeAgeOn
+		.mul( wakeZone )
+		.mul( float( 1.0 ).sub( wakeAgeN.smoothstep( 0.62, 1.0 ) ) )
+		.mul( 0.92 ).toVar();
+	const wakeSheet = clamp(
+		max( wakeCorridor, wakeFilm ),
+		0.0, 1.0,
+	).toVar();
+	const wakePattern = float( 1.0 ).toVar();
+	If( wakeSheet.greaterThan( 0.003 ).and( texK.greaterThan( 0.001 ) ), () => {
+
+		// Fallback world-space UV:
+		const stretchU = mix( float( 1.0 ), mix( float( 0.48 ), float( 1.72 ), nStr ), ribbonK ).toVar();
+		const stretchV = stretchU.mul(
+			mix( float( 1.0 ), mix( float( 0.52 ), float( 1.62 ), nAni ), ribbonK ),
+		).toVar();
+		const detileWarp = vec2(
+			vnoise2( vFlat.xz.mul( 0.0071 ) ).sub( 0.5 ),
+			vnoise2( vFlat.xz.mul( 0.0071 ).add( vec2( 9.3, - 4.1 ) ) ).sub( 0.5 ),
+		).mul( 0.90 ).toVar();
+		const laceUvVar = vec2(
+			laceUv.x.mul( stretchU ).add( nStr.sub( 0.5 ).mul( 0.55 ).mul( ribbonK ) ),
+			laceUv.y.mul( stretchV ).add( nAni.sub( 0.5 ).mul( 0.42 ).mul( ribbonK ) ),
+		).add( detileWarp ).toVar();
+		const wakePackWorldUv = vec2(
+			laceUvVar.x.mul( 0.754 ).sub( laceUvVar.y.mul( 0.657 ) ),
+			laceUvVar.x.mul( 0.657 ).add( laceUvVar.y.mul( 0.754 ) ),
+		).mul( 0.73 ).add( vec2( 0.173, 0.419 ) ).toVar();
+		const wakePackWorldUvB = vec2(
+			wakePackWorldUv.x.mul( 0.431 ).add( wakePackWorldUv.y.mul( 0.902 ) ),
+			wakePackWorldUv.y.mul( 0.431 ).sub( wakePackWorldUv.x.mul( 0.902 ) ),
+		).mul( 1.673 ).add( vec2( 0.617, 0.244 ) ).toVar();
+
+		// Path-aligned curvilinear coordinates:
+		// U across the track (lat), V along the sailing track (vDist).
+		// Textures naturally flow, bend and stretch with every turn the boat made.
+		const pathU = wakeLat.mul( 0.28 ).toVar();
+		const pathV = wakeVDist.mul( 0.12 ).toVar();
+
+		const pathUv1 = vec2(
+			pathU.add( pathV.mul( 2.2 ).sin().mul( 0.06 ) ),
+			pathV.add( nStr.sub( 0.5 ).mul( 0.35 ).mul( ribbonK ) ),
+		).toVar();
+		const pathUv2 = vec2(
+			pathU.mul( 1.37 ).add( pathV.mul( 0.31 ) ).add( 0.43 ),
+			pathV.mul( 1.63 ).sub( pathU.mul( 0.29 ) ).add( 0.19 ),
+		).toVar();
+
+		const packUvA = select( wakeAgeOn.greaterThan( 0.5 ), pathUv1, wakePackWorldUv );
+		const packUvB = select( wakeAgeOn.greaterThan( 0.5 ), pathUv2, wakePackWorldUvB );
+
+		const tileMix = smoothstep(
+			0.26, 0.74,
+			vnoise2( vFlat.xz.mul( 0.0135 ).add( vec2( - 23.7, 41.2 ) ) ),
+		).toVar();
+		const wakePack = mix(
+			wakeFoamTexture.sample( packUvA ).rgb,
+			wakeFoamTexture.sample( packUvB ).rgb,
+			tileMix,
+		).toVar();
+		const wakeCells = clamp(
+			max( wakePack.r.mul( 0.90 ), wakePack.g.mul( 0.72 ) ), 0.0, 1.0,
+		).toVar();
+		const wakeOld = clamp(
+			wakePack.g.mul( wakePack.b.smoothstep( 0.15, 0.75 ) ).mul( 1.25 ).add( 0.04 ), 0.0, 1.0,
+		).toVar();
+		const wakeDense = clamp(
+			max( wakePack.r, wakePack.g ).mul( 0.45 ).add( 0.65 ), 0.0, 1.0,
+		).toVar();
+		wakePattern.assign( mix(
+			wakeOld, wakeCells, wakeFresh.smoothstep( 0.08, 0.34 ),
+		) );
+		wakePattern.assign( mix(
+			wakePattern, wakeDense, wakeFresh.smoothstep( 0.52, 0.95 ),
+		) );
+
+	} );
+	const sheetSoft = mix(
+		wakeSheet,
+		wakeSheet.smoothstep(
+			mix( float( 0.004 ), float( 0.20 ), nFeat ),
+			mix( float( 0.12 ), float( 0.70 ), nFeat ),
+		),
+		ribbonK,
+	).toVar();
+	const lookChew = nChew.mul( 0.65 ).add( nFine.mul( 0.35 ) ).toVar();
+	const lookDying = float( 1.0 ).sub( wakeSheet.smoothstep( 0.012, 0.08 ) ).toVar();
+	const lookBreak = mix( float( 1.0 ), nIsland.smoothstep( 0.36, 0.64 ), ribbonK )
+		.mul( mix( float( 1.0 ), nBreak.smoothstep( 0.34, 0.62 ), ribbonK ) )
+		.mul( mix( float( 1.0 ), lookChew.smoothstep( 0.08, 0.58 ), ribbonK ) )
+		.mul( mix( float( 1.0 ), nPatch.smoothstep( 0.08, 0.62 ), ribbonK ) )
+		.mul( mix( float( 1.0 ), lookChew.smoothstep( 0.22, 0.78 ), ribbonK.mul( lookDying ) ) )
+		.toVar();
+	// Opacity removers MULTIPLY. Stacking an age fade and a trough wipe on
+	// top of fill/hole/opac/break drove the product to near zero except
+	// where every term happened to align, which read as foam blinking
+	// between solid white and nothing. Age changes the PATTERN, not the
+	// opacity; the trough wipe is applied once, in crestGate.
+	const ribbonVary = ribbonFill.mul( ribbonHole ).mul( ribbonOpac ).mul( lookBreak ).toVar();
+	const wakeWrinkle = sheetSoft.mul(
+		mix( float( 1.0 ), wakePattern, texK ),
+	).mul( ribbonVary ).toVar();
+	const wakeLook = wakeWrinkle;
+	foamMask.assign( clamp( foamMask.add( wakeLook.mul( float( 1.0 ).sub( foamMask ) ) ), 0.0, 1.0 ) );
+	// Bubble albedo tracks freshness too: new suds are bright and opaque,
+	// an aged streak is a thin grey film that lets the water through.
+	fresh.assign( mix(
+		fresh,
+		mix( float( 0.16 ), float( 0.86 ), wakeFresh.smoothstep( 0.06, 0.78 ) ),
+		wakeLook,
+	) );
+
 	// At a kilometre you are looking at the side of a raft that lies in and just
 	// behind the crests, and the crest in front hides most of it. That is a real
 	// geometric loss on top of the areal averaging, and it is what stops the
@@ -1992,6 +2769,63 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 	foamMask.mulAssign(
 		float( 1.0 ).sub( clamp( uFoamFar, 0.0, 1.0 ).mul( smoothstep( 0.5, 9.0, foot ) ) ),
 	);
+
+	// Terrain-aware shore break. The bed height decides WHERE a wave can shoal;
+	// the FFT crest decides WHEN it is actively washing that contour. The image
+	// mask only resolves the resulting areal fraction into lace. It cannot paint
+	// foam in deep water and Foam amount remains the global off switch.
+	If( uShoreFoamAmount.greaterThan( 0.001 )
+		.and( uFloorDepth.max( uFloorDepthMax ).greaterThan( 0.1 ) ), () => {
+
+		const rawLo = select(
+			uFloorDepthMin.greaterThan( 0.1 ),
+			uFloorDepthMin,
+			uFloorDepth.max( uFloorDepthMax ),
+		).toVar();
+		const rawHi = select(
+			uFloorDepthMax.greaterThan( 0.1 ),
+			uFloorDepthMax,
+			uFloorDepth.max( uFloorDepthMin ),
+		).toVar();
+		const lo = rawLo.min( rawHi ).toVar();
+		const hi = rawLo.max( rawHi ).toVar();
+		const bedDepth = floorTerrainCore(
+			vFlat.x, vFlat.z, lo, hi, uFloorTerrainScale,
+		).toVar();
+		const column = bedDepth.add( vWorld.y.sub( uSeaLevel ) ).max( 0.02 ).toVar();
+		const breakDepth = uShoreFoamRange.max( 0.25 ).toVar();
+		const breakWidth = breakDepth.mul( 0.16 ).max( 0.35 ).toVar();
+		const breakOffset = column.sub( breakDepth ).div( breakWidth ).toVar();
+		// A contour, not a shallow-water fill. Filling every depth below a
+		// threshold covered the whole lagoon with a static lace blanket from
+		// above; a breaker occupies a narrow depth band and then runs onward.
+		const shallow = breakOffset.mul( breakOffset ).negate().exp().toVar();
+		const crest = smoothstep( - 0.12, 0.38, vRelief ).toVar();
+		// Foam amount is the global off/ramp, not a second tiny multiplier.
+		// Lagoon whitecap gain is intentionally low (0.12); multiplying by it
+		// directly made a full-strength shore control visually disappear.
+		const foamMaster = smoothstep( 0.0, 0.12, uFoamAmount ).toVar();
+		const shoreCov = clamp(
+			shallow
+				.mul( mix( float( 0.12 ), float( 1.0 ), crest ) )
+				.mul( uShoreFoamAmount )
+				.mul( foamMaster ),
+			0.0, 0.72,
+		).toVar();
+		const shoreLace = smoothstep(
+			float( 1.0 ).sub( shoreCov ).sub( 0.13 ),
+			float( 1.0 ).sub( shoreCov ).add( 0.13 ),
+			lace,
+		).mul( smoothstep( 0.0, 0.13, shoreCov ) ).toVar();
+		const shoreMask = mix( shoreCov, shoreLace, clumpRes ).toVar();
+
+		bubbles.assign( bubbles.max( shoreMask.mul( 0.58 ) ) );
+		fresh.assign( mix( fresh, float( 0.62 ), shoreMask ) );
+		foamMask.assign( foamMask.add(
+			shoreMask.mul( float( 1.0 ).sub( foamMask ) ),
+		) );
+
+	} );
 
 	// Wake foam is not wind foam, and running it through the machinery above is
 	// what made forty metres of churned water indistinguishable from the sea it
@@ -2014,38 +2848,6 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 			foamMask.assign( foamMask.add( rf.mul( float( 1.0 ).sub( foamMask ) ) ) );
 
 		} );
-
-	} );
-
-	If( wake.greaterThan( 0.002 ), () => {
-
-		// Aerated film. fd mottles brightness; it does not punch Voronoi
-		// holes. Numbers twin wakeFoamMask / wakeFoamThickness in foam-lace.js.
-		const wakeMask = clamp(
-			wake.mul( mix(
-				float( 0.78 ), float( 1.0 ), smoothstep( 0.00, 1.00, fd ),
-			) ),
-			0.0, 1.0,
-		).toVar();
-		const wakeThick = clamp(
-			wake.mul( mix(
-				float( 0.55 ), float( 0.92 ), smoothstep( 0.00, 1.00, fd ),
-			) ),
-			0.0, 1.0,
-		).toVar();
-		// Fibrous film along the heading — Water Pro's streaky stern trail.
-		// Floor stays high so this never punches navy holes (foam-lace.js).
-		const relW = vFlat.xz.sub( uWakeHead ).toVar();
-		const alongW = relW.dot( uWakeFwd ).toVar();
-		const acrossW = relW.x.mul( uWakeFwd.y.negate() ).add( relW.y.mul( uWakeFwd.x ) ).toVar();
-		const fibre = vnoise2( vec2( alongW.mul( 0.22 ), acrossW.mul( 1.15 ) ) ).toVar();
-		const thread = vnoise2( vec2( alongW.mul( 0.07 ), acrossW.mul( 2.6 ) ) ).toVar();
-		wakeMask.mulAssign( mix( float( 0.86 ), float( 1.0 ), fibre ) );
-		wakeThick.mulAssign( mix( float( 0.78 ), float( 1.12 ), smoothstep( 0.48, 0.82, thread ) ) );
-		bubbles.assign( bubbles.max( wakeThick ) );
-		const wakeFresh = mix( float( 0.42 ), float( 0.92 ), smoothstep( 0.10, 0.62, wake ) ).toVar();
-		fresh.assign( mix( fresh, wakeFresh, wakeMask ) );
-		foamMask.assign( foamMask.add( wakeMask.mul( float( 1.0 ).sub( foamMask ) ) ) );
 
 	} );
 
@@ -2121,15 +2923,15 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 		// EARLY is the point: a quarter of a unit of coverage is already
 		// thoroughly aerated water. So in churn the thickness goes uniform
 		// and the normal stays the wave's, not a lace-edge slope.
-		const churn = smoothstep( 0.02, 0.12, splashCov )
-			.max( smoothstep( 0.12, 0.48, wake ) ).toVar();
+		const churn = smoothstep( 0.02, 0.12, splashCov ).toVar();
 		bubbles.assign( mix( bubbles, float( 0.90 ), churn ) );
 
-		// Keep the wave's slope — that is what makes foam ride the ripples
-		// instead of sitting as a sticker. Fresh crests flatten a hair.
+		// Wind foam still rides FFT ripples. Leftover is a film — wearing
+		// wake-ring normals lit the expanding crests as white swirls.
 		Nfoam.assign( mix(
 			N, vec3( 0.0, 1.0, 0.0 ),
-			foamMask.mul( mix( float( 0.03 ), float( 0.10 ), fresh ) ),
+			foamMask.mul( mix( float( 0.03 ), float( 0.10 ), fresh ) )
+				.add( wakeLook.mul( 0.78 ) ),
 		).normalize() );
 
 	} );
@@ -2409,6 +3211,23 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 	const body = uScatterColor.mul( Edown ).mul( uScatterAmount.div( PI_W ) )
 		.mul( uAbsorption.mul( pathLen ).negate().exp() ).mul( ao ).toVar();
 
+	// Aerated water. Note this uses wakeRaw — the flat, saturated footprint of
+	// the whole disturbed area. That field was never useless; it was being
+	// asked to be foam coverage, which is why the trail came out as an even
+	// white sheet. It is the right shape for the BUBBLE PLUME, which really
+	// does cover the whole track at roughly full strength. The white on top
+	// is the graded, zoned part.
+	If( uWakePlume.greaterThan( 0.002 ).and( wakeRaw.greaterThan( 0.002 ) ), () => {
+
+		const plume = clamp( wakeRaw.mul( uWakePlume ), 0.0, 1.0 ).toVar();
+		const milky = uScatterColor.mul( Edown )
+			.mul( uScatterAmount.mul( WAKE_PLUME_GAIN ).div( PI_W ) )
+			.mul( uAbsorption.mul( pathLen.mul( WAKE_PLUME_PATH ) ).negate().exp() )
+			.mul( ao ).toVar();
+		body.assign( mix( body, milky, plume ) );
+
+	} );
+
 	// Light that entered the far side of a wave, scattered forward inside it and
 	// left toward the eye. Only a thin, steep, backlit crest survives the trip,
 	// which is exactly where a real sea glows green at golden hour.
@@ -2446,6 +3265,121 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 		.mul( smoothstep( 0.02, 0.30, steep ) ).mul( 0.30 ).toVar();
 
 	const diffuse = body.add( sss ).toVar();
+
+	// Virtual seafloor. FFT `depth` is dispersion; this is a bed the
+	// look-down ray can hit — sand, reef, FFT-slope caustics. Twin: src/seafloor.js.
+	// Runs BEFORE mesh refraction so a hull still sits on the bed.
+	If( uFloorDepth.max( uFloorDepthMax ).greaterThan( 0.1 ), () => {
+
+		// Air → water. A straight -V is a dry photo of the bed; the
+		// surface is the refraction. Twin: src/seafloor.js floorRefractHit
+		// / floorRayHit. Lighting N + capillaries is LOD-0 grit —
+		// the same mip as the caustic Jacobian.
+		const sMip = sampleCascadeSlope( vFlat.xz, dist ).toVar();
+		const Nfloor = vec3( sMip.x.negate(), 1.0, sMip.y.negate() ).normalize().toVar();
+		const eta = float( 1.0 ).div( uWaterIOR.max( 1.01 ) ).toVar();
+		const I = V.negate().toVar();
+		const dI = Nfloor.dot( I ).toVar();
+		const kI = float( 1.0 ).sub( eta.mul( eta ).mul( float( 1.0 ).sub( dI.mul( dI ) ) ) ).toVar();
+		const RD = I.mul( eta ).sub( Nfloor.mul( eta.mul( dI ).add( kI.max( 0.0 ).sqrt() ) ) ).toVar();
+		If( kI.lessThan( 0.0 ), () => {
+
+			RD.assign( I );
+
+		} );
+		If( RD.y.greaterThan( - 0.02 ), () => {
+
+			RD.assign( I );
+
+		} );
+		If( RD.y.lessThan( - 0.02 ), () => {
+
+			const rawLo = select( uFloorDepthMin.greaterThan( 0.1 ), uFloorDepthMin, uFloorDepth.max( uFloorDepthMax ) );
+			const rawHi = select( uFloorDepthMax.greaterThan( 0.1 ), uFloorDepthMax, uFloorDepth.max( uFloorDepthMin ) );
+			const lo = rawLo.min( rawHi );
+			const hi = rawLo.max( rawHi );
+			const tHit = lo.add( hi ).mul( 0.5 ).div( RD.y.negate().max( 0.02 ) ).toVar();
+			const hx = vWorld.x.toVar();
+			const hz = vWorld.z.toVar();
+			const localD = hi.toVar();
+			for ( let i = 0; i < 3; i ++ ) {
+
+				hx.assign( vWorld.x.add( RD.x.mul( tHit ) ) );
+				hz.assign( vWorld.z.add( RD.z.mul( tHit ) ) );
+				localD.assign( floorTerrainCore( hx, hz, lo, hi, uFloorTerrainScale ) );
+				tHit.assign( vWorld.y.sub( uSeaLevel.sub( localD ) ).div( RD.y.negate().max( 0.02 ) ) );
+
+			}
+			If( tHit.greaterThan( 0.05 ).and( tHit.lessThan( 90.0 ) ), () => {
+
+				hx.assign( vWorld.x.add( RD.x.mul( tHit ) ) );
+				hz.assign( vWorld.z.add( RD.z.mul( tHit ) ) );
+				localD.assign( floorTerrainCore( hx, hz, lo, hi, uFloorTerrainScale ) );
+				// Same warp as the rocks: lighting slope × sdRefract,
+				// not the mipped look-down N. Twin: floorLookSlide().
+				const lookGate = clamp( localD.mul( 0.7 ), 0.0, 1.0 )
+					.div( float( 1.0 ).add( dist.mul( 0.045 ) ) );
+				const lookW = uRefractDistort.mul( lookGate ).mul( localD );
+				hx.addAssign( slope.x.mul( lookW ) );
+				hz.addAssign( slope.y.mul( lookW ) );
+				localD.assign( floorTerrainCore( hx, hz, lo, hi, uFloorTerrainScale ) );
+				const ru = hx.mul( 0.021 );
+				const rv = hz.mul( 0.017 );
+				const n = float( 0.5 ).add( float( 0.5 ).mul(
+					ru.mul( 1.4 ).add( rv.mul( 0.8 ).sin().mul( 0.7 ) ).sin(),
+				) );
+				const n2 = float( 0.5 ).add( float( 0.5 ).mul(
+					rv.mul( 1.1 ).sub( ru.mul( 0.6 ).sin().mul( 0.55 ) ).sin(),
+				) );
+				const reef = smoothstep( float( 0.48 ), float( 0.72 ), n )
+					.mul( n2.mul( 0.6 ).add( 0.4 ) ).toVar();
+				const bed = mix( vec3( 0.78, 0.68, 0.48 ), vec3( 0.16, 0.22, 0.18 ), reef ).toVar();
+				// Focused sunlight on the sand: small broken
+				// sheets at the sun-entry. Twin: seafloor.js floorLace.
+				const sySun = uSunDir.y.max( 0.18 );
+				const pSun = vec2(
+					hx.add( uSunDir.x.div( sySun ).mul( localD ) ),
+					hz.add( uSunDir.z.div( sySun ).mul( localD ) ),
+				).toVar();
+				const laceScale = uFloorCausticSize.max( 0.15 );
+				const web = floorLaceCore( pSun.x.div( laceScale ), pSun.y.div( laceScale ), uTime ).toVar();
+				const sunK = floorSunGainCore( slope.x, slope.y, uSunDir, localD ).toVar();
+				const lace = web.mul( sunK )
+					.mul( float( 1.0 ).sub( reef.mul( 0.45 ) ) )
+					.mul( uFloorCaustic )
+					.mul( localD.mul( FLOOR_LACE_DEPTH_K ).negate().exp() )
+					.mul( smoothstep( float( FLOOR_LACE_FAR ), float( FLOOR_LACE_NEAR ), dist ) )
+					.toVar();
+				const mul = lace.mul( FLOOR_LACE_MUL ).add( 1.0 );
+				const peak = lace.pow( 2.2 );
+				const floorLit = bed.mul( 0.46 ).mul( mul )
+					.add( bed.mul( peak ).mul( 0.20 ).mul( vec3( 1.06, 1.00, 0.88 ) ) )
+					.mul( Edown ).div( PI_W )
+					.toVar();
+				If( uHullPush.greaterThan( 0.0005 ), () => {
+
+					const sy = uSunDir.y.max( 0.08 );
+					const shx = uHullPos.x.add( uSunDir.x.div( sy ).mul( localD ) );
+					const shz = uHullPos.z.add( uSunDir.z.div( sy ).mul( localD ) );
+					const q = vec2( hx.sub( shx ), hz.sub( shz ) ).length()
+						.div( uHullRadius.max( 0.8 ) );
+					floorLit.mulAssign( float( 1.0 ).sub( q.mul( q ).negate().exp().mul( 0.55 ) ) );
+
+				} );
+				const floorTrans = exp( uAbsorption.mul( tHit ).negate() ).toVar();
+				// UNDER the interface — do not replace the water. Specular
+				// and Fenv stay the surface; the bed is what you see through it.
+				diffuse.addAssign( floorLit.mul( floorTrans ) );
+				const film = clamp( sMip.length().mul( 3.5 ), 0.0, 1.0 )
+					.mul( smoothstep( float( 0.35 ), float( 0.95 ), NoV ) )
+					.mul( 0.16 ).toVar();
+				Fenv.assign( Fenv.add( vec3( 1.0 ).sub( Fenv ).mul( film ) ) );
+
+			} );
+
+		} );
+
+	} );
 
 	// ---- what is UNDER the water at this pixel ------------------------------
 	//
@@ -2589,6 +3523,10 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 
 	} );
 
+	// Open the film where the rod cuts: no raft, almost no sky mirror.
+	foamMask.mulAssign( float( 1.0 ).sub( cut.mul( 0.72 ) ) );
+	Fenv.mulAssign( float( 1.0 ).sub( cut.mul( 0.78 ) ) );
+
 	// ---- 13. composite water (732-737) --------------------------------------
 	// A foam-covered facet is not a mirror, so it cannot carry the water's
 	// glitter. Leaving the specular under the raft is what made whitecaps read as
@@ -2616,6 +3554,24 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 		col.assign( mix( col, refrCol, refrCov.mul( uRefractThrough ).min( 1.0 ) ) );
 
 	} );
+
+	// The cut is a shark-fin slit: look into the ocean (the refraction
+	// pass when a body is there, a darker column when it is not). Not
+	// an opaque overlay — that painted a gray ribbon on the sea.
+	If( cut.greaterThan( 0.002 ), () => {
+
+		const opened = mix(
+			col.mul( vec3( 0.70, 0.88, 0.92 ) ),
+			refrCol,
+			refrCov,
+		);
+		col.assign( mix( col, opened, cut.mul( 0.72 ) ) );
+
+	} );
+
+	// Hull film only feeds the foam mask / foamLit path above. Do not paint
+	// a second "tea" colour under sparse coverage — that read as green
+	// emissive ribbons that ignored the ocean preset and scene lighting.
 
 	// ---- 14. foam shading (739-777) -----------------------------------------
 	If( foamMask.greaterThan( 0.003 ), () => {
@@ -2649,8 +3605,7 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 		//   - it has no wet-film sheen: that is a property of a bubble surface,
 		//     and there is no coherent surface left here
 		// Everything outside a water entry is untouched - thickK is zero there.
-		const thickK = smoothstep( 0.05, 0.45, splashCov )
-			.max( smoothstep( 0.18, 0.55, wake ).mul( 0.62 ) ).toVar();
+		const thickK = smoothstep( 0.05, 0.45, splashCov ).toVar();
 		// Mild wrap on all foam (a bubble cloud is a volume); strong wrap on
 		// splash. Do not feed splash coverage through the wind lace.
 		const wrap = mix( float( 0.48 ), float( 0.85 ), thickK ).toVar();
@@ -2785,6 +3740,25 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 
 	} );
 
+	// Leftover-wave debug: paint honest height so a thin fast cone
+	// is readable on glassy water. Does not write the field.
+	If( uRippleDebug.greaterThan( 0.5 ).and( uRippleOn.greaterThan( 0.001 ) ), () => {
+
+		const h = rippleAt( vFlat.xz ).toVar();
+		const k = smoothstep( 0.001, 0.05, h.abs() ).toVar();
+		If( k.greaterThan( 0.01 ), () => {
+
+			const tint = mix(
+				vec3( 0.08, 0.42, 0.62 ),
+				vec3( 1.0, 0.42, 0.10 ),
+				smoothstep( - 0.12, 0.12, h ),
+			);
+			col.assign( mix( col, tint, k.mul( 0.78 ) ) );
+
+		} );
+
+	} );
+
 	// ---- 17. out ------------------------------------------------------------
 	// The GLSL's ABYSSAL_OUT() wrapper is the HDR output guard, which is the
 	// driver's business and a no-op in value terms - the same call
@@ -2877,9 +3851,20 @@ export function setWaterSurfaceUniforms( p, ctx, hull ) {
 	uFoamOpacity.value = p.foamOpacity;
 	uFoamFar.value = p.foamFar;
 	uFoamColor.value.set( p.foamColor[ 0 ], p.foamColor[ 1 ], p.foamColor[ 2 ] );
+	uFoamTextureAmount.value = p.foamTextureAmount ?? 0;
+	uFoamTextureScale.value = p.foamTextureScale ?? 9;
+	uFoamTextureCarry.value = p.foamTextureCarry ?? FOAM_TEXTURE_CARRY;
+	uFoamTextureShear.value = p.foamTextureShear ?? FOAM_TEXTURE_SHEAR;
+	uFoamTextureStrain.value = p.foamTextureStrain ?? FOAM_TEXTURE_STRAIN;
+	uFoamLaceStretch.value = p.foamLaceStretch ?? 0;
+	uFoamLaceStretchBlock.value = p.foamLaceStretchBlock ?? FOAM_LACE_STRETCH_BLOCK;
+	uFoamLaceMorph.value = p.foamLaceMorph ?? 0;
+	uFoamLaceMorphRate.value = p.foamLaceMorphRate ?? 0;
+	uWakeFoamRibbonVary.value = p.wakeFoamRibbonVary ?? WAKE_FOAM_RIBBON_VARY;
 
 	uWakeRelief.value = p.wakeRelief;
 	uWakeSlick.value = p.wakeSlick;
+	uWakePlume.value = p.wakePlume ?? 1.0;
 
 	uSpecIntensity.value = p.specIntensity;
 	uSpecClamp.value = p.specClamp;
@@ -2892,5 +3877,72 @@ export function setWaterSurfaceUniforms( p, ctx, hull ) {
 	uWaveAO.value = p.waveAO;
 	uWaterIOR.value = p.waterIOR;
 	uAerial.value = p.aerial;
+	uFloorDepth.value = p.floorDepth ?? 0;
+	uFloorDepthMin.value = p.floorDepthMin ?? 0;
+	uFloorDepthMax.value = p.floorDepthMax ?? 0;
+	uFloorTerrainScale.value = p.floorTerrainScale ?? 36;
+	uFloorCaustic.value = p.floorCaustic ?? 1;
+	uFloorCausticSize.value = p.floorCausticSize ?? 1;
+	uRefractDistort.value = p.sdRefract ?? 0.43;
+	uShoreFoamAmount.value = p.shoreFoamAmount ?? 0;
+	uShoreFoamRange.value = p.shoreFoamRange ?? 3;
+
+}
+
+/**
+ * One occupant of the just-under slot (OceanBody.swellState, or the
+ * sea-dragon path in the ride demo). Null / empty clears so a toggle
+ * off does not leave last frame's loaf on the sea. Packets stay empty
+ * — bow and dome carry their own metres.
+ */
+export function applySwellUniforms( s ) {
+
+	const bow = s?.bow;
+	const dome = s?.dome;
+	const live = s && (
+		Math.abs( s.amp ) > 0.0005
+		|| Math.abs( bow?.amp ) > 0.02
+		|| Math.abs( dome?.amp ) > 0.02
+	);
+	uSwellSiteCount.value = 0;
+	uSwellWaves.value = 0;
+	uSwellSweep.value = 0;
+	uSwellLift.value = 0;
+	uSwellLiftPhase.value = 0;
+	uSwellPhase.value = 0;
+	if ( ! live ) {
+
+		uSwellAmp.value = 0;
+		uSwellBow.value.set( 0, 0, 0, 8 );
+		uSwellDome.value.set( 0, 0, 0, 8 );
+
+	} else {
+
+		uSwellPos.value.set( s.pos[ 0 ], s.pos[ 1 ], s.pos[ 2 ] );
+		uSwellDir.value.set( s.dir[ 0 ], s.dir[ 1 ] );
+		uSwellLen.value = s.len;
+		uSwellRad.value = s.rad;
+		uSwellAmp.value = s.amp;
+		uSwellPitch.value = s.pitch ?? 0;
+		uSwellBow.value.set( bow?.x ?? 0, bow?.z ?? 0, bow?.amp ?? 0, bow?.rh ?? 8 );
+		uSwellBowDir.value.set( s.dir[ 0 ], s.dir[ 1 ] );
+		uSwellBowSoft.value = bow?.soft ?? 1;
+		uSwellDome.value.set( dome?.x ?? 0, dome?.z ?? 0, dome?.amp ?? 0, dome?.along ?? 8 );
+		uSwellDomeDir.value.set( s.dir[ 0 ], s.dir[ 1 ] );
+		uSwellDomeW.value = dome?.across ?? 4;
+
+	}
+
+	// Tail prints live on their own clock. A released loaf must not
+	// snap the glassy discs off the sea.
+	const prints = s?.flukes ?? [];
+	uFlukeCount.value = prints.length;
+	for ( let i = 0; i < FLUKE_PRINTS; i ++ ) {
+
+		const p = prints[ i ];
+		if ( p ) uFlukePrints.array[ i ].set( p.x, p.z, p.radius, p.amp );
+		else uFlukePrints.array[ i ].set( 0, 0, 0, 0 );
+
+	}
 
 }

@@ -30,6 +30,7 @@ export const uKelvinDecay = /*@__PURE__*/ uniform( 140.0 );
 export const uKelvinFoam = /*@__PURE__*/ uniform( 0.4 );
 export const uKelvinLen = /*@__PURE__*/ uniform( 60.0 );
 export const uKelvinWidth = /*@__PURE__*/ uniform( 0.0 );
+export const uKelvinCut = /*@__PURE__*/ uniform( 0.0 );
 
 /**
  * @param {object | null | undefined} wake  the object wake.uniforms() returns
@@ -49,6 +50,7 @@ export function setKelvinUniforms( wake ) {
 	uKelvinFoam.value = wake.uKelvinFoam ?? 0.4;
 	uKelvinLen.value = wake.uKelvinLen ?? 60;
 	uKelvinWidth.value = wake.uKelvinWidth ?? 0;
+	uKelvinCut.value = wake.uKelvinCut ?? 0;
 
 }
 
@@ -57,9 +59,15 @@ const kelvinTanNode = /*@__PURE__*/ Fn( () => {
 
 	const U = uWakeSpeed.abs().max( 0.5 );
 	const L = uKelvinLen.max( 1.0 );
-	const Fr = U.div( float( KELVIN_G ).mul( L ).sqrt() );
-	const tanNarrow = float( 1.0 ).div( float( 2.0 ).mul( SQRT2 ).mul( Fr ) );
-	return float( KELVIN_TAN ).min( tanNarrow );
+	const out = float( KELVIN_TAN ).toVar();
+	If( L.greaterThanEqual( 12.0 ), () => {
+
+		const Fr = U.div( float( KELVIN_G ).mul( L ).sqrt() );
+		const tanNarrow = float( 1.0 ).div( float( 2.0 ).mul( SQRT2 ).mul( Fr ) );
+		out.assign( float( KELVIN_TAN ).min( tanNarrow ) );
+
+	} );
+	return out;
 
 } );
 
@@ -79,7 +87,9 @@ export const kelvinWakeAt = /*@__PURE__*/ Fn( ( [ p ] ) => {
 
 			const lat = rel.x.mul( uWakeFwd.y.negate() ).add( rel.y.mul( uWakeFwd.x ) ).toVar();
 			const U = uWakeSpeed.abs().max( 2.0 ).toVar();
-			const k0 = float( KELVIN_G ).div( U.mul( U ) ).toVar();
+			const lambdaPhys = float( 6.28318530718 ).mul( U ).mul( U ).div( KELVIN_G );
+			const lambda = lambdaPhys.min( uKelvinLen.max( 4.0 ).mul( 4.0 ) ).toVar();
+			const k0 = float( 6.28318530718 ).div( lambda ).toVar();
 			const tanW = kelvinTanNode().toVar();
 			const beam = uKelvinWidth.max( 0.0 ).mul( 0.5 );
 			const arm = beam.add( alo.mul( tanW ) ).toVar();
@@ -92,10 +102,9 @@ export const kelvinWakeAt = /*@__PURE__*/ Fn( ( [ p ] ) => {
 				.mul( r.div( decay ).negate().exp() )
 				.toVar();
 
-			const lambda = float( 6.28318530718 ).div( k0 ).toVar();
-			// Geometric fade at the vertex, not a wavelength. Twin of
-			// src/kelvin-wake.js — a λ-scaled born hid the V at speed.
-			const born = smoothstep( float( 4.0 ), float( 12.0 ), alo ).toVar();
+			const bornLo = uKelvinLen.mul( 0.12 ).max( 0.35 );
+			const bornHi = uKelvinLen.mul( 0.40 ).max( 1.5 );
+			const born = smoothstep( bornLo, bornHi, alo ).toVar();
 
 			const dArm = absLat.sub( arm ).toVar();
 			const face = float( 0.22 ).mul( lambda.mul( r ).sqrt() ).max( 1.2 ).toVar();
@@ -117,7 +126,10 @@ export const kelvinWakeAt = /*@__PURE__*/ Fn( ( [ p ] ) => {
 			).toVar();
 			const transverse = inside.mul( 0.35 ).mul( k0.mul( alo ).cos() );
 
-			const wave = diverging.add( transverse ).mul( amp ).mul( born );
+			const cutW = uKelvinWidth.mul( 0.28 ).max( 0.45 );
+			const cut = lat.mul( lat ).div( cutW.mul( cutW ) ).negate().exp()
+				.mul( born ).mul( amp ).mul( uKelvinCut );
+			const wave = diverging.add( transverse ).mul( amp ).mul( born ).sub( cut );
 			const steep = diverging.max( 0.0 ).mul( envArm );
 			const foam = clamp( steep.mul( amp ).mul( born ).mul( uKelvinFoam ).mul( 1.4 ), 0.0, 1.0 );
 			const slick = clamp( inside.mul( born ).mul( 0.45 ), 0.0, 1.0 );

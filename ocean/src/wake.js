@@ -26,6 +26,9 @@
 //   .a  rate the cusp arms leave that track, m/s
 
 import { program, setUniforms, texture2D, framebuffer, FS_VERT } from './gl.js';
+import { planWakeFrame, sourceStir } from './wake-interact.js';
+import { FoamEnergy } from './foam-energy.js';
+import { WAKE_ZONE_FLOOR, WAKE_ZONE_CREST } from './foam-lace.js';
 
 function nearestStamp(pnt, prevs, max = 4) {
   let best = pnt, bestD = max;
@@ -46,9 +49,49 @@ uniform vec2  uWakeHead, uWakeFwd;
 uniform float uWakeSpeed;
 uniform float uWakeExtent, uWakeOn, uWakeLife, uWakeArmW, uWakeArm, uWakeChurn;
 uniform float uWakeSpread, uWakeBeam, uWakeDepth, uWakeStrength, uWakeEdge;
+uniform float uWakeWidth0, uWakeWidth1, uWakeArms, uWakeTrail, uWakeTurb;
+uniform float uWakeCut;
+uniform vec4  uWakeBow;
+// Hand-mirrored from src/foam-lace.js. check-foam-lace.mjs asserts they match.
+const float WAKE_ZONE_FLOOR = ${ WAKE_ZONE_FLOOR };
+const float WAKE_ZONE_CREST = ${ WAKE_ZONE_CREST };
 
 // x: foam coverage 0..1   y: surface height, metres (signed)   z: how disturbed
 // this water is at all, which is what kills the sea's own ripples inside a track
+// Record shading info at p as vec4(ageN, zone, lat, vDist). x is normalised age: 0 the
+// instant the hull passed, 1 at the end of uWakeLife. y is the across-track
+// zone (twin of wakeFoamZone): aerated prop wash on the sailing line, a thin
+// breaking crest on each cusp arm, mostly open water between. z is lat (m),
+// w is vDist (m along track). Where there is no record this is (-1, 1, 0, 0)
+// — x < 0 is the flag. Twin: wakeAgeAt() in gpu/tsl/water-common.js.
+vec4 wakeAgeAt(vec2 p){
+  vec2 uv = (p - uWakeOrigin) / uWakeExtent + 0.5;
+  if (length(uv - 0.5) * 2.0 >= 0.999) return vec4(-1.0, 1.0, 0.0, 0.0);
+  vec4 r = texture(uWakeTex, uv);
+  if (r.r < 0.002) return vec4(-1.0, 1.0, 0.0, 0.0);
+  float age = r.g, lat = r.b;
+  // Same arm locus wakeAt() reconstructs the ridge from.
+  float arm = uWakeWidth0 + r.a * age;
+  // Prop wash is narrow down the center line.
+  float px = max(fwidth(lat), 0.12);
+  float coreW = max(max(uWakeWidth0 * 0.75, 0.45) * (1.0 + 0.18 * age), px * 1.05);
+  float cn = lat / coreW;
+  float core = exp(-cn * cn);
+  float vDist = age * max(uWakeSpeed, 6.0);
+  float scallop = sin(vDist * 1.6 + lat * 0.4) * 0.14;
+  float crestW = max(max(uWakeArmW * (1.0 + uWakeSpread * age), 0.55), px * 1.15);
+  float rn = (abs(lat) - arm + scallop * crestW) / (crestW * 0.65);
+  float crest = exp(-rn * rn);
+  float outerCut = 1.0 - smoothstep(arm + crestW * 0.2, arm + crestW * 1.2, abs(lat));
+  float interior = smoothstep(coreW * 1.2, arm * 0.85, abs(lat));
+  return vec4(
+    clamp(age / max(uWakeLife, 0.001), 0.0, 1.0),
+    clamp((core * 0.95 + crest * 0.85 + interior * WAKE_ZONE_FLOOR) * outerCut, 0.0, 1.0),
+    lat,
+    vDist
+  );
+}
+
 vec3 wakeAt(vec2 p){
   vec2 uv = (p - uWakeOrigin) / uWakeExtent + 0.5;
   // Inscribed circle, not the square. The square's far edge is a
@@ -62,24 +105,65 @@ vec3 wakeAt(vec2 p){
   float edge = 1.0 - smoothstep(edgeLo, 1.0, radial);
   float fade = max(1.0 - age / uWakeLife, 0.0) * edge;
 
-  float arm = rate * age;
+  // width0 is the half-width the V starts at (hull beam). 0 keeps the
+  // historical point-origin: arm = rate * age.
+  float arm = uWakeWidth0 + rate * age;
   float w   = max(uWakeArmW * (1.0 + uWakeSpread * age), 0.05);
   float q   = (abs(lat) - arm) / w;
-  float ridge = exp(-q * q);
-  float cq = lat / max(uWakeBeam * (1.0 + 0.55 * age), 0.15);
+  float ridge = uWakeArms > 0.5 ? exp(-q * q) : 0.0;
+  float tAge = clamp(age / max(uWakeLife, 0.001), 0.0, 1.0);
+  float beamW = uWakeWidth1 > 0.01
+    ? mix(max(uWakeWidth0, 0.15), uWakeWidth1, tAge)
+    : max(uWakeBeam * (1.0 + 0.55 * age), 0.15);
+  float cq = lat / beamW;
   float churnRaw = exp(-cq * cq);
-  float churn = churnRaw * max(1.0 - age / (uWakeLife * 0.5), 0.0);
 
   float born = smoothstep(0.06, 0.22, age);
-  // Foam is left on the water the hull touched. Height still rides the
-  // travelling Kelvin ridge — that is a surface wave. Painting foam on
-  // the ridge made the white scan outward with the arms (a drawn line
-  // that the wake carried) instead of staying put and fading.
-  float foamW = max(uWakeArmW * (1.0 + 0.28 * age), 0.05);
+  // Historical (width0 = 0): foam stays on the track, height on the
+  // travelling ridge — a drawn line on the arms was the failure mode.
+  // Photo recipe (width0 set): the V IS the white water (both Kelvin
+  // arms + a short prop boil). Foam born is earlier so the transom is not a gap.
+  float photo = step(0.05, uWakeWidth0);
+  float foamBorn = mix(born, smoothstep(0.0, 0.10, age), photo);
+  float foamW = max(uWakeArmW * mix(1.0 + 0.28 * age, 0.42, photo), 0.08);
   float trail = exp(-(lat / foamW) * (lat / foamW));
-  float foam = (trail * uWakeArm + churn * uWakeChurn) * stir * fade * born;
+  float parked = 0.0;
+  if (uWakeWidth0 > 0.05 && uWakeArms > 0.5) {
+    float pq = (abs(lat) - uWakeWidth0) / max(uWakeArmW, 0.05);
+    parked = exp(-pq * pq);
+  }
+  float boilLife = uWakeLife * mix(0.5, 0.26, photo);
+  float boil = churnRaw * max(1.0 - age / max(boilLife, 0.12), 0.0);
+  float armFoam = photo * ridge * uWakeArm;
+  // Historical: foam on the track + a parked V + the travelling ridge.
+  // Photo: white on both Kelvin arms and a short prop boil — no stacked
+  // trail/parked blob, and no age-hashed fleck. Age in the hash made the
+  // V flicker left/right every frame; punching the arms to 0.16 read as
+  // dither, not foam.
+  float histFoam = trail * uWakeArm * uWakeTrail + boil * uWakeChurn * uWakeTrail
+    + parked * uWakeArm + armFoam;
+  float photoFoam = ridge * uWakeArm + boil * uWakeChurn * uWakeTrail;
+  float foam = mix(histFoam, photoFoam, photo) * stir * fade * foamBorn;
+  float n = fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+  foam *= 1.0 + (n - 0.5) * uWakeTurb * mix(1.4, 0.45, photo);
   float live = smoothstep(0.0, 0.18, stir);
-  float h    = ridge * fade * live * born * uWakeDepth;
+  // Historical: a positive tube on the travelling ridge. Photo recipe
+  // (width0 set): Kelvin mounds on the arms and a carved trough between
+  // them — the boat's actual displacement, not a foam decal.
+  float osc = mix(1.0, 0.72 + 0.28 * cos(age * 4.4), photo);
+  float trough = -churnRaw * (1.0 - ridge) * photo * uWakeCut;
+  float h = (ridge * osc + trough) * fade * live * born * uWakeDepth;
+  if (uWakeBow.z > 0.001) {
+    vec2 br = p - uWakeBow.xy;
+    float blo = dot(br, uWakeFwd);
+    float bla = br.x * (-uWakeFwd.y) + br.y * uWakeFwd.x;
+    float brh = max(uWakeBow.w, 0.08);
+    float bq = bla / (brh * 0.45);
+    float bAlong = blo / brh;
+    float bowMask = exp(-bq * bq) * exp(-bAlong * bAlong);
+    foam += uWakeBow.z * bowMask;
+    h += uWakeBow.z * bowMask * uWakeDepth * 0.85;
+  }
   return vec3(clamp(foam * uWakeStrength, 0.0, 1.0), h,
               clamp(churnRaw * stir * fade * born, 0.0, 1.0));
 }
@@ -188,6 +272,9 @@ export class Wake {
     this.head = [0, 0];
     this.fwd = [0, 1];
     this.speed = 0;
+    this._hadWet = false;
+    this.lastPlan = { stamps: [], stepDt: 1 / 60 };
+    this.energy = new FoamEnergy(gl, blit, { size });
     this.clear();
   }
 
@@ -204,11 +291,14 @@ export class Wake {
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     this.prevPos = null;
     this.prevStamps = [];
+    this.lastPlan = { stamps: [], stepDt: 1 / 60 };
+    this.energy?.clear();
   }
 
-  update(dt, p, wr) {
+  update(dt, p, wr, opts = {}) {
     const gl = this.gl;
     if (dt <= 0) return;
+    if (Array.isArray(wr)) return this._updateMany(dt, p, wr, opts);
 
     this.extent = Math.max(p.wakeExtent, 40);
     // Snapping the centre to the texel grid is what keeps the reprojection above
@@ -239,19 +329,11 @@ export class Wake {
       this.prevStamps = [];
     }
 
-    const speedT = Math.min(Math.abs(wr.speed) / Math.max(p.wrTopSpeed * 0.45, 1), 1);
     // Same reading the spray emitter uses: a hard carve is a large load that
     // *sheds* speed, so anything driven off speed alone gets a turn backwards.
     // A hull in the air is not touching the water, so it leaves nothing behind
     // it - which is what makes the gap in the wake read as a jump.
-    const stir = wr.airborne ? 0 : Math.min(
-      speedT * p.wrWakeSpeed +
-      Math.abs(wr.yawRate) * p.wrWakeTurn +
-      wr.slip * p.wrWakeSlip +
-      (wr.hullLoad ?? 0) * 0.035 +
-      wr.impact * 1.2,
-      1.4,
-    );
+    const stir = sourceStir( wr, p );
     // A Kelvin wedge holds a fixed half-angle, so the arms leave the track at a
     // rate proportional to how fast the hull is laying it down. tan(19.47
     // degrees) is 0.3536; a fixed lateral speed only gets that angle right at
@@ -262,31 +344,119 @@ export class Wake {
     const reach = Math.min(this.rate * p.wakeLife * 1.15 + 4, this.extent * 0.45);
     const stepDt = Math.min(dt, 1 / 15);
 
+    const beam = Math.max(p.wrBeam ?? 0.6, 0.3) * 1.6;
+    const gain = 1;
     if (points) {
       // Age once, then stamp every spray site. Extra passes use dt=0 and an
       // identity reproject so the field is not aged N times or thrown by a
       // moving origin.
       const first = points[0];
-      this._flush({ a: nearestStamp(first, this.prevStamps), b: first, fwd, stir, reach, dt: stepDt, life: p.wakeLife, active: true });
+      const energyStamps = points.map((pnt) => ({
+        a: nearestStamp(pnt, this.prevStamps), b: pnt, fwd, stir, reach, beam, gain, active: true,
+      }));
+      this._flush({ a: energyStamps[0].a, b: first, fwd, stir, reach, dt: stepDt, life: p.wakeLife, active: true });
       for (let i = 1; i < points.length; i++) {
         this.prevOrigin[0] = this.origin[0];
         this.prevOrigin[1] = this.origin[1];
         const pnt = points[i];
-        this._flush({ a: nearestStamp(pnt, this.prevStamps), b: pnt, fwd, stir, reach, dt: 0, life: p.wakeLife, active: true });
+        this._flush({ a: energyStamps[i].a, b: pnt, fwd, stir, reach, dt: 0, life: p.wakeLife, active: true });
       }
       this.prevStamps = points.map((pnt) => [pnt[0], pnt[1]]);
       this.prevPos = first;
+      this.lastPlan = { stepDt, stamps: energyStamps };
     } else {
       this._flush({ a, b, fwd, stir, reach, dt: stepDt, life: p.wakeLife, active: !!wr.active });
+      this.lastPlan = {
+        stepDt,
+        stamps: wr.active ? [{ a, b, fwd, stir, reach, beam, gain, active: !!wr.active }] : [],
+      };
     }
 
     this.prevExtent = this.extent;
     this.fwd = fwd;
     this.head = points && points[0] ? [points[0][0], points[0][1]] : [b[0], b[1]];
     this.speed = wr.active && !wr.airborne ? Math.abs(wr.speed) : 0;
+    this._hadWet = !!wr.active && !wr.airborne;
   }
 
-  _flush({ a, b, fwd, stir, reach, dt, life, active }) {
+  _updateMany(dt, p, sources, opts) {
+    this.extent = Math.max(p.wakeExtent, 40);
+    const planned = planWakeFrame(dt, p, sources, {
+      origin: [this.origin[0], this.origin[1]],
+      prevOrigin: [this.prevOrigin[0], this.prevOrigin[1]],
+      prevPos: this.prevPos,
+      prevStamps: this.prevStamps,
+      hadWet: this._hadWet,
+      extent: this.extent,
+      size: this.size,
+      fwd: this.fwd,
+    }, { camera: opts.camera });
+
+    this.prevOrigin[0] = this.origin[0];
+    this.prevOrigin[1] = this.origin[1];
+    this.origin[0] = planned.origin[0];
+    this.origin[1] = planned.origin[1];
+    this.rate = planned.rate;
+
+    if (!planned.stamps.length) {
+      const hold = this.prevPos || [this.origin[0], this.origin[1]];
+      this._flush({
+        a: hold, b: hold, fwd: this.fwd, stir: 0,
+        reach: 4, dt: planned.stepDt, life: planned.life, active: false,
+      });
+      this.prevStamps = [];
+      this.speed = 0;
+      this._hadWet = false;
+    } else {
+      for (let i = 0; i < planned.stamps.length; i++) {
+        if (i > 0) {
+          this.prevOrigin[0] = this.origin[0];
+          this.prevOrigin[1] = this.origin[1];
+        }
+        this._flush(planned.stamps[i]);
+      }
+      this.prevStamps = planned.nextStamps;
+      this.prevPos = planned.nextPos;
+      this.fwd = planned.fwd;
+      this.head = planned.head;
+      this.speed = planned.speed;
+      this._hadWet = true;
+    }
+
+    this.prevExtent = this.extent;
+    this.lastPlan = { stepDt: planned.stepDt, stamps: planned.stamps };
+  }
+
+  trackWindow(dt, p, sources, opts = {}) {
+    this.extent = Math.max(p.wakeExtent, 40);
+    const planned = planWakeFrame(dt, p, sources, {
+      origin: [this.origin[0], this.origin[1]],
+      prevOrigin: [this.prevOrigin[0], this.prevOrigin[1]],
+      prevPos: this.prevPos,
+      prevStamps: this.prevStamps,
+      hadWet: this._hadWet,
+      extent: this.extent,
+      size: this.size,
+      fwd: this.fwd,
+    }, { camera: opts.camera });
+    this.prevOrigin[0] = this.origin[0];
+    this.prevOrigin[1] = this.origin[1];
+    this.origin[0] = planned.origin[0];
+    this.origin[1] = planned.origin[1];
+    this.rate = planned.rate;
+    if (planned.stamps.length) {
+      this.prevStamps = planned.nextStamps;
+      this.prevPos = planned.nextPos;
+      this.fwd = planned.fwd;
+      this.head = planned.head;
+      this.speed = planned.speed;
+      this._hadWet = true;
+    }
+    this.prevExtent = this.extent;
+    this.lastPlan = { stepDt: planned.stepDt, stamps: planned.stamps };
+  }
+
+  _flush({ a, b, fwd, stir, reach, dt, life, active, rate }) {
     const gl = this.gl;
     const dst = 1 - this.src;
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo[dst]);
@@ -303,7 +473,7 @@ export class Wake {
       uA: new Float32Array(a), uB: new Float32Array(b),
       uFwd: new Float32Array(fwd),
       uRight: new Float32Array([-fwd[1], fwd[0]]),
-      uStir: stir, uRate: this.rate,
+      uStir: stir, uRate: rate ?? this.rate,
       uReach: reach,
       uActive: active ? 1 : 0,
     });
@@ -331,6 +501,15 @@ export class Wake {
       uWakeBeam: Math.max(p.wrBeam, 0.3) * 1.6,
       uWakeDepth: p.wakeDepth,
       uWakeStrength: p.wakeStrength,
+      uWakeWidth0: 0,
+      uWakeWidth1: 0,
+      uWakeArms: 2,
+      uWakeTrail: 1,
+      uWakeTurb: 0,
+      uWakeCut: 0.55,
+      uWakeBow: new Float32Array([0, 0, 0, 8]),
+      uFoamEnergy: this.energy.field,
+      uFoamEnergyOn: 1,
     };
   }
 }

@@ -428,7 +428,7 @@ export const uFxaaTexel = /*@__PURE__*/ uniform( 'vec2' );
 // Driver-owned, and deliberately NOT written by setPostUniforms: in photo mode
 // it is a ramp over the accumulated sample count, not p.fxaa (src/post.js:249-251).
 export const uAmount      = /*@__PURE__*/ uniform( 1.0 );
-export const uGrain       = /*@__PURE__*/ uniform( 0.016 );
+export const uGrain       = /*@__PURE__*/ uniform( 0.0 );
 export const uGrainSize   = /*@__PURE__*/ uniform( 1.7 );
 export const uGrainChroma = /*@__PURE__*/ uniform( 0.22 );
 export const uGrainShadow = /*@__PURE__*/ uniform( 0.35 );

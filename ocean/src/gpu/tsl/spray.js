@@ -404,11 +404,15 @@ import {
 } from 'three';
 
 import { MAX_BREACH_EMITTERS } from '../../breach-emitters.js';
+import {
+	SPRAY_SCREEN_EXTENT, SPRAY_SIDE_PAIR_STRIDE, SPRAY_WATERLINE_SMEAR,
+} from '../../body-spray.js';
 // One definition, shared with the WebGL2 path: uEntry decides how a water entry's
 // particles DRAW, and the same number is what the sim gates the burst on. Two
 // copies of it would drift. It lives with the rest of the entry model rather than
 // in either renderer.
-import { entryAmount, SPLASH_PARCELS } from '../../splash-field.js';
+import { SPLASH_PARCELS } from '../../splash-field.js';
+import { splashAtlasTexture } from './water-assets.js';
 
 import { hash11, hash12, hash22, vnoise, fbm2 } from './noise.js';
 
@@ -651,6 +655,9 @@ export const uFarSoft = /*@__PURE__*/ uniform( 1.6 );        // p.sprayFarSoft
 // of aerated water metres across, not the wind-torn droplet this radius is tuned
 // for, and drawn at droplet size the burst came out as dust with sky between it.
 export const uEntry = /*@__PURE__*/ uniform( 0.0 );
+// Original 4x2 luminance atlas. Physics still emits every parcel; this only
+// gives the large water-entry ones an irregular sheet / crown silhouette.
+export const uSplashPlateAmount = /*@__PURE__*/ uniform( 0.82 );
 // The water entry's own radius in METRES - splashBaseRadius(hit, length), the same
 // number the height field opens its cavity with (ctx.craftEntryRadius). Without it
 // the wings spawn inside a five-metre emitter in the middle of a forty-metre
@@ -1122,7 +1129,11 @@ const spraySimBody = /*@__PURE__*/ Fn( ( [ posTex, velTex ] ) => {
 		// The pump runs off throttle, not off speed - which is why a ski standing
 		// still on full lock still throws a tail, and why a carve that has
 		// scrubbed all its speed does not go quiet.
-		const wJet = uCraftJet.mul( uCraftThrottle )
+		// Throttle still owns a parked pump. Cruise-hold at plane speed
+		// parks throttle near 0 — keep a floor so the tail stays on the
+		// transom instead of dying while leftover waves keep writing.
+		const pump = uCraftThrottle.max( plane.mul( 0.50 ) ).toVar();
+		const wJet = uCraftJet.mul( pump )
 			.mul( float( 0.30 ).add( plane.mul( 0.70 ) ) ).mul( pJet ).mul( wet ).toVar();
 		const wSheet = uCraftSheet.mul( plane ).mul( pSheet ).mul( wet ).toVar();
 		// Sideslip and hull load are what a carve actually is, and both survive
@@ -1131,18 +1142,17 @@ const spraySimBody = /*@__PURE__*/ Fn( ( [ posTex, velTex ] ) => {
 			.mul( clamp( slipA.mul( 0.40 ).add( load.mul( 0.95 ) ), 0.0, 2.0 ) )
 			.mul( pCurt ).mul( wet ).toVar();
 		const wBurst = uCraftBurst.mul( uCraftImpact ).mul( 3.2 ).toVar();
-		// A piercing mesh is not a planing hull: mute the jet / chine / curtain
-		// (those are the ski's geometry) and add a waterline sheet that still
-		// obeys the same craftPlaneSpeed..Full gate, so a slow breach only
-		// gets the one-shot impact burst. uCraftPierce is 0 for every vehicle.
+		// A piercing mesh is not a planing hull: mute the chine / curtain
+		// (those are the ski's geometry). Keep the transom jet — a yacht
+		// can cut the sea and still throw a rooster. Waterline payloads
+		// pin uCraftJet to 0 unless wake.jet.spray is on.
+		// uCraftPierce is 0 for the ski hull-jet path.
 		const hullMute = float( 1.0 ).sub( uCraftPierce ).toVar();
-		wJet.mulAssign( hullMute );
 		wSheet.mulAssign( hullMute );
 		wCurt.mulAssign( hullMute );
-		// 2.2 pushes a surface swim to the craftDrive cap (clamp 2.2).
-		// The animal has no Kelvin V; this sheet is the white water.
-		// Vehicles keep pierce = 0, so the multiplier never reaches them.
-		const wPierce = uCraftPierce.mul( plane ).mul( wet ).mul( 2.2 ).toVar();
+		// Waterline cuts share the emitter with a transom jet. Do not
+		// overweight pierce — that drowned the rooster on a yacht.
+		const wPierce = uCraftPierce.mul( plane ).mul( wet ).toVar();
 		const wTot = wJet.add( wSheet ).add( wCurt ).add( wPierce ).add( wBurst ).toVar();
 
 		// Hull water is droplets, never mist. A breach's airborne water IS a mass
@@ -1155,6 +1165,15 @@ const spraySimBody = /*@__PURE__*/ Fn( ( [ posTex, velTex ] ) => {
 		// sprayVertex.
 		const craftDrive = uCraftAmount.mul( float( 1.0 ).sub( mist ) ).mul( uCraftPulse )
 			.mul( clamp( wTot, 0.0, 2.2 ) ).toVar();
+		// Index bit 2 is the exact port/starboard coin below. During a straight
+		// hull run, IDs four apart therefore form a mirrored pair. Give that
+		// pair one admission/source roll so a short sheet cannot randomly emit
+		// only on one chine for a frame. Piercing multi-site bodies keep their
+		// independent IDs; a real turn still biases both particles to the loaded
+		// side in the chine branch.
+		const sideBand = fid.div( float( SPRAY_SIDE_PAIR_STRIDE ) ).floor().mod( 2.0 ).toVar();
+		const balancedFid = fid.sub( sideBand.mul( SPRAY_SIDE_PAIR_STRIDE ) ).toVar();
+		const sourceFid = mix( balancedFid, fid, uCraftPierce ).toVar();
 
 		// GLSL: `if (craftDrive > 0.001 && hash12(...) < craftDrive){ ...; return; }`
 		//
@@ -1164,13 +1183,13 @@ const spraySimBody = /*@__PURE__*/ Fn( ( [ posTex, velTex ] ) => {
 		const spawned = int( 0 ).toVar();
 
 		If( craftDrive.greaterThan( 0.001 ).and(
-			hash12( vec2( fid.mul( 0.0173 ).add( 5.7 ), ep.mul( 0.531 ) ) ).lessThan( craftDrive ),
+			hash12( vec2( sourceFid.mul( 0.0173 ).add( 5.7 ), ep.mul( 0.531 ) ) ).lessThan( craftDrive ),
 		), () => {
 
-			const hA = hash22( vec2( fid.mul( 0.311 ).add( 1.3 ), ep.mul( 0.617 ) ) ).toVar();   // where on the hull
+			const hA = hash22( vec2( sourceFid.mul( 0.311 ).add( 1.3 ), ep.mul( 0.617 ) ) ).toVar();   // paired place on the hull
 			const hB = hash22( vec2( fid.mul( 0.719 ).add( 9.1 ), ep.mul( 0.233 ) ) ).toVar();   // where in the cone
-			const hC = hash22( vec2( fid.mul( 1.093 ).add( 3.7 ), ep.mul( 0.409 ) ) ).toVar();   // how fast, how long
-			const pick = hash12( vec2( fid.mul( 1.31 ).add( 4.4 ), ep.mul( 0.751 ) ) )
+			const hC = hash22( vec2( sourceFid.mul( 1.093 ).add( 3.7 ), ep.mul( 0.409 ) ) ).toVar();   // paired speed and life
+			const pick = hash12( vec2( sourceFid.mul( 1.31 ).add( 4.4 ), ep.mul( 0.751 ) ) )
 				.mul( wTot.max( 1e-5 ) ).toVar();
 			const u = sprayShred( fid ).toVar();     // 0 leading edge, 1 shredded tail
 
@@ -1229,6 +1248,9 @@ const spraySimBody = /*@__PURE__*/ Fn( ( [ posTex, velTex ] ) => {
 				// always trailing the hull's own heading. It is also aimed slightly
 				// up, which is what stands the tail up behind the craft rather than
 				// firing it flat.
+				// Birth is the live transom (hull origin + half-LOA), never a
+				// waterline cut. Stacked pierce sites stay on the mesh.
+				site.assign( uCraftPos );
 				const na = uCraftJetAngle.mul( clamp( uCraftSteer, - 1.0, 1.0 ) ).toVar();
 				axis.assign(
 					F.negate().mul( na.cos() ).add( Rt.mul( na.sin() ) )
@@ -1275,7 +1297,7 @@ const spraySimBody = /*@__PURE__*/ Fn( ( [ posTex, velTex ] ) => {
 				const sideGain = mix( float( 1.0 ).sub( turnAmt.mul( 0.80 ) ), float( 1.0 ).add( turnAmt ), isB ).toVar();
 				org.assign(
 					F.mul( hA.x.sub( 0.45 ) ).mul( uCraftLen ).mul( 1.1 )
-						.add( Rt.mul( sd ).mul( uCraftBeam ).mul( 0.95 ) )
+						.add( Rt.mul( sd ).mul( uCraftBeam ).mul( 0.92 ) )
 						.add( UP.mul( 0.05 ) ),
 				);
 				axis.assign(
@@ -1321,14 +1343,12 @@ const spraySimBody = /*@__PURE__*/ Fn( ( [ posTex, velTex ] ) => {
 
 				// 5. Waterline pierce. The site IS the point on the body that
 				// cuts the sea, so the local offset stays small - a hull-sized
-				// org here would throw particles back inside the mesh. A
-				// cetacean cut throws a SHEET: out on the flank, up, and only
-				// a little forward — inherit less of the body so the water
-				// hangs instead of racing with the animal.
+				// org here would throw particles a metre ahead of a yacht.
+				// Twin of SPRAY_WATERLINE_SMEAR in the GLSL.
 				org.assign(
-					F.mul( hA.x.sub( 0.5 ) ).mul( uCraftLen )
-						.add( Rt.mul( siteSide ).mul( hA.y ).mul( uCraftBeam ).mul( 0.12 ) )
-						.add( UP.mul( 0.06 ) ),
+					F.mul( hA.x.sub( 0.5 ) ).mul( float( SPRAY_WATERLINE_SMEAR ) )
+						.add( Rt.mul( siteSide ).mul( hA.y.sub( 0.5 ) ).mul( 0.10 ) )
+						.add( UP.mul( 0.04 ) ),
 				);
 				axis.assign(
 					Rt.mul( siteSide ).mul( 0.82 )
@@ -1453,9 +1473,14 @@ const spraySimBody = /*@__PURE__*/ Fn( ( [ posTex, velTex ] ) => {
 			const wl = wide.length().toVar();
 			wide.assign( select( wl.greaterThan( 1e-3 ), wide.div( wl ), vec3( 1.0, 0.0, 0.0 ) ) );
 			const nar = axis.cross( wide ).toVar();
+			// Bias launch toward the cone axis and fade energy at the rim —
+			// a uniform fill to ±aWide draws a hard Mach / curtain edge
+			// from look-down.
+			const rimW = hB.x.pow( 1.7 ).toVar();
+			const rimN = hB.y.pow( 1.45 ).toVar();
 			const dir = axis
-				.add( wide.mul( aWide.min( 1.25 ).tan() ).mul( sgnW ).mul( hB.x ) )
-				.add( nar.mul( aNar.min( 1.25 ).tan() ).mul( sgnN ).mul( hB.y ) )
+				.add( wide.mul( aWide.min( 1.25 ).tan() ).mul( sgnW ).mul( rimW ) )
+				.add( nar.mul( aNar.min( 1.25 ).tan() ).mul( sgnN ).mul( rimN ) )
 				.normalize().toVar();
 
 			const v = hullVel.mul( inherit ).add( dir.mul( relV ) ).toVar();
@@ -1463,6 +1488,9 @@ const spraySimBody = /*@__PURE__*/ Fn( ( [ posTex, velTex ] ) => {
 			// wind.
 			v.addAssign( uWindDirV.sub( hullVel ).mul( 0.08 ) );
 
+			const rimFade = float( 1.0 ).sub( rimW.mul( rimW ) )
+				.mul( float( 0.55 ).add( float( 1.0 ).sub( rimN ).mul( 0.45 ) ) )
+				.toVar();
 			oPos.assign( vec4(
 				site.add( org ),
 				uCraftLife.mul( float( 0.35 ).add( hC.y.mul( 0.80 ) ) ).mul( lifeK ),
@@ -1472,7 +1500,7 @@ const spraySimBody = /*@__PURE__*/ Fn( ( [ posTex, velTex ] ) => {
 			// separately - and it is what lets a dense sheet thrown by a hull be
 			// lit as the thick multiple-scattering whitewater it is, rather than as
 			// a few wind-torn droplets that happen to be in the same place.
-			oVel.assign( vec4( v, clamp( energy, 0.05, 1.35 ).negate() ) );
+			oVel.assign( vec4( v, clamp( energy.mul( rimFade ), 0.05, 1.35 ).negate() ) );
 
 			spawned.assign( int( 1 ) );   // the GLSL's `return`
 
@@ -1911,11 +1939,21 @@ export const sprayPosition = /*@__PURE__*/ Fn( ( [ posTex, velTex ] ) => {
 		// Stretching at constant area keeps a streak from also getting brighter.
 		const q = ax.mul( aCorner.x.mul( size ).mul( elong ) )
 			.add( ay.mul( aCorner.y.mul( size ).div( elong.sqrt() ) ) ).toVar();
-		// Now that the quad's real extent is known: nothing may subtend more than
-		// a modest fraction of the frame, or one near particle smears over
-		// everything.
-		// Relaxed for an entry: the clamp exists so one near droplet cannot smear
-		// the frame, and at 12x size it was fading the cloud we just grew.
+		// A fade is not a geometry guard: thousands of low-alpha parcels still add
+		// into an opaque wall, and a quad crossing the near plane can rasterise over
+		// most of the viewport before the fragment fade helps. Clamp the actual
+		// camera-facing extent as well. SPRAY_SCREEN_EXTENT is shared with the CPU
+		// regression helper, so a chase camera crossing a turning plume cannot turn
+		// one parcel into a screen-height vertical strip.
+		const extentScale = clamp(
+			dist.mul( SPRAY_SCREEN_EXTENT ).div( size.mul( elong ).max( 0.02 ) ),
+			0.0, 1.0,
+		).toVar();
+		q.mulAssign( extentScale );
+		fade.mulAssign( smoothstep( float( 0.12 ), float( 0.55 ), extentScale ) );
+		// Keep the older energy fade too: it dissolves an approaching puff before
+		// the geometric clamp becomes visible. Water-entry parcels remain relaxed
+		// here, but never bypass the hard extent cap above.
 		fade.mulAssign( mix(
 			smoothstep( float( 1.2 ), float( 3.2 ), dist.div( size.mul( elong ).max( 0.02 ) ) ),
 			float( 1.0 ),
@@ -1982,19 +2020,33 @@ export const sprayFragment = /*@__PURE__*/ Fn( () => {
 			.add( th.mul( 7.0 ).add( vSeed.mul( 11.3 ) ).sin().mul( 0.13 ) ),
 	) ) ).toVar();
 
-	// GLSL: `if (d > 1.0) discard;`
-	//
-	// WGSL's discard does not terminate the invocation, so pow(1.0 - d, vSoft)
-	// below still runs for a discarded fragment and is a NaN when d > 1. That is
-	// correct - the fragment is discarded - and must NOT be "fixed" with a clamp,
-	// which would change the value of live fragments at d exactly 1.
-	Discard( d.greaterThan( 1.0 ) );
+	const plateMix = clamp(
+		vHull.mul( uEntry ).mul( uSplashPlateAmount )
+			.mul( float( 1.0 ).sub( vMist.mul( 0.8 ) ) ),
+		0.0, 1.0,
+	).toVar();
+	const localUv = vCorner.mul( 0.5 ).add( 0.5 ).toVar();
+	const frame = vSeed.mul( 7.999 ).floor().toVar();
+	const atlasUv = vec2(
+		localUv.x.add( frame.mod( 4.0 ) ).div( 4.0 ),
+		localUv.y.add( frame.div( 4.0 ).floor() ).div( 2.0 ),
+	).toVar();
+	const plate = smoothstep(
+		0.015, 0.72, splashAtlasTexture.sample( atlasUv ).r,
+	).toVar();
+
+	// Ordinary droplets retain the authored radial scrap. Impact plates may use
+	// the square's corners, so their own black atlas gutter becomes the discard
+	// shape. Clamp only the radial base; for d <= 1 it is bit-identical.
+	Discard( d.greaterThan( mix( float( 1.0 ), float( 1.42 ), plateMix ) ) );
+	const radial = float( 1.0 ).sub( d.min( 1.0 ) ).pow( vSoft ).toVar();
+	const parcelShape = mix( radial, plate, plateMix ).toVar();
 
 	// Weakly-breaking crests emit too, but faintly: the emission ramp is soft so
 	// that spray production is continuous in how hard the crest is breaking
 	// rather than a switch, and the birth energy has to carry that gradation
 	// through to the opacity.
-	const a = float( 1.0 ).sub( d ).pow( vSoft ).mul( vFade )
+	const a = parcelShape.mul( vFade )
 		.mul( mix(
 			mix( uOpacity, uHullOpacity, vHull.mul( uDragonLook ) ),
 			uMistOpacity,
@@ -2241,8 +2293,8 @@ function sprayLookOf( ctx ) {
 
 	const body = ctx?.sprayBody;
 	return {
-		splash: body === 'dragonSplash',
-		dragon: body === 'dragon' || body === 'dragonSplash',
+		splash: false,
+		dragon: body === 'dragon',
 	};
 
 }
@@ -2309,15 +2361,9 @@ export function setSpraySimUniforms( p, ctx, dt, frame ) {
 	uCraftSpout.value = ctx?.craftSpout ?? 0;
 	// Shared with the WebGL2 path so the two cannot drift: it decides both which
 	// particles spawn (sim) and how big they draw (vertex).
-	// ctx.entrySizeScale is a draw-pass size boost. Jump-splash parcel
-	// size is sdSplashSize on uHullSize, not this. The sim still gates
-	// on entryAmount; only the written uEntry is scaled, so vehicles
-	// stay at 1 unless a caller opts in.
-	// ctx.entryDraw is a held size: in-flight hull water must not
-	// collapse when the source leaves the water (pierce/impact → 0).
-	uEntry.value = ctx?.entryDraw != null
-		? ctx.entryDraw
-		: entryAmount( ctx ) * ( ctx?.entrySizeScale ?? 1 );
+	// Jump-splash plates are out. uEntry used to 12× hull parcels and
+	// mix the atlas; leave it off until that look is rebuilt.
+	uEntry.value = 0;
 	uEntryRadius.value = ctx?.craftEntryRadius ?? 2.0;
 	for ( let i = 0; i < MAX_BREACH_EMITTERS; i ++ ) {
 
@@ -2355,17 +2401,17 @@ export function setSpraySimUniforms( p, ctx, dt, frame ) {
 	uCraftSpread.value = dragon ? ( p.sdSpraySpread ?? 1 ) : p.craftSpraySpread;
 	uCraftUp.value = dragon ? ( p.sdSprayUp ?? 1 ) : p.craftSprayUp;
 	uCraftLaunch.value = splash ? ( p.sdSplashLaunch ?? 1.59 )
-		: dragon ? ( p.sdSprayLaunch ?? 0.55 ) : 1;
+		: dragon ? ( p.sdSprayLaunch ?? 0.88 ) : 1;
 	// A Wave Runner slider must not change when the animal starts shedding.
-	uCraftPlane.value = dragon ? 6 : p.craftPlaneSpeed;
-	uCraftPlaneFull.value = dragon ? 14 : p.craftPlaneFull;
+	uCraftPlane.value = ctx?.craftPlane ?? ( dragon ? 6 : p.craftPlaneSpeed );
+	uCraftPlaneFull.value = ctx?.craftPlaneFull ?? ( dragon ? 14 : p.craftPlaneFull );
 	// Jump splash life is sdSplashLife itself. Do not also multiply by
 	// entryLifeScale (that used to be sdSplashLife on top of sdSprayLife).
 	uCraftLife.value = ( splash ? ( p.sdSplashLife ?? 0.65 )
 		: dragon ? ( p.sdSprayLife ?? 1.17 ) : p.craftSprayLife )
 		* ( splash ? 1 : ( ctx?.entryLifeScale ?? 1 ) );
 	uCraftPulse.value = splash ? ( p.sdSplashPulse ?? 0.53 )
-		: dragon ? ( p.sdSprayPulse ?? 0.31 ) : p.craftSprayPulse;
+		: dragon ? ( p.sdSprayPulse ?? 0.62 ) : p.craftSprayPulse;
 	uCraftLoadFull.value = p.craftLoadFull;
 	// p.wrBeam and p.wrLength - the hull's own dimensions, NOT the wake's.
 	// ctx may override them: every spawn site below places particles within
@@ -2376,15 +2422,15 @@ export function setSpraySimUniforms( p, ctx, dt, frame ) {
 	// with every uniform reading correct, before this fallback existed.
 	uCraftBeam.value = ctx?.craftBeam ?? p.wrBeam;
 	uCraftLen.value = ctx?.craftLen ?? p.wrLength;
-	uCraftJet.value = p.craftJet;
-	uCraftJetSpeed.value = p.craftJetSpeed;
-	uCraftJetAngle.value = p.craftJetAngle;
-	uCraftJetRise.value = p.craftJetRise;
-	uCraftSheet.value = p.craftSheet;
+	uCraftJet.value = ctx?.craftJet ?? p.craftJet;
+	uCraftJetSpeed.value = ctx?.craftJetSpeed ?? p.craftJetSpeed;
+	uCraftJetAngle.value = ctx?.craftJetAngle ?? p.craftJetAngle;
+	uCraftJetRise.value = ctx?.craftJetRise ?? p.craftJetRise;
+	uCraftSheet.value = ctx?.craftSheet ?? p.craftSheet;
 	uCraftSheetSpeed.value = p.craftSheetSpeed;
-	uCraftCurtain.value = p.craftCurtain;
+	uCraftCurtain.value = ctx?.craftCurtain ?? p.craftCurtain;
 	uCraftCurtainSpeed.value = p.craftCurtainSpeed;
-	uCraftBurst.value = p.craftBurst;
+	uCraftBurst.value = ctx?.craftBurst ?? p.craftBurst;
 
 }
 
@@ -2404,7 +2450,7 @@ export function setSprayDrawUniforms( p, ctx, viewportH ) {
 	const { splash, dragon } = sprayLookOf( ctx );
 	uDragonLook.value = dragon ? 1 : 0;
 	uSizeScale.value = p.spraySize;
-	uHullSize.value = splash ? ( p.sdSplashSize ?? 0.35 )
+	uHullSize.value = splash ? ( p.sdSplashSize ?? 0.52 )
 		: dragon ? ( p.sdSpraySize ?? p.spraySize ) : p.spraySize;
 	uStretch.value = p.sprayStretch;
 	uMistStretch.value = p.sprayMistStretch;
@@ -2432,6 +2478,7 @@ export function setSprayDrawUniforms( p, ctx, viewportH ) {
 	uHullOpacity.value = splash ? ( p.sdSplashOpacity ?? 1.4 )
 		: dragon ? ( p.sdSprayOpacity ?? p.sprayOpacity ) : p.craftSprayOpacity;
 	uHullMulti.value = dragon ? ( p.sdSprayMulti ?? 0.15 ) : p.craftSprayMulti;
+	uSplashPlateAmount.value = 0;
 
 }
 

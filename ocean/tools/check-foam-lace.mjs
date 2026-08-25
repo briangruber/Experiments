@@ -8,12 +8,28 @@
 //   (d) a regular hex tray          — unstretched F2−F1, low area-CV
 //   (e) a picket fence of sine lines
 //   (f) wake × a wall field         — honeycomb around the hull
-// Wake leftover is a milky aerated film (high floor). fd mottles it.
+// Wake leftover is extra wind-foam coverage. Same lace resolve, same stretch.
 // Asserts Jacobian gating, clump area, cores brighter than mid-edge.
 
 import {
-	foamField, foamLaceParts, jacobianGate, wakeFoamMask, cellular3,
+	foamField, foamLaceParts, foamTextureCoord, foamLaceMorph, foamLaceStretchPoint,
+	foamLaceWarpOf,
+	FOAM_TEXTURE_CARRY,
+	jacobianGate,
+	wakeFoamMask, wakeLaceBlend, cellular3,
+	wakeFoamFreshness, wakeFoamAgePattern,
+	wakeFoamGrade, WAKE_FOAM_WASH, WAKE_FOAM_TAIL, WAKE_FOAM_BROKEN,
+	wakeFoamZone, WAKE_ZONE_FLOOR, WAKE_ZONE_CREST,
 } from '../src/foam-lace.js';
+import { defaults } from '../src/presets.js';
+import { WATER_FS } from '../src/shaders/water.js';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = join( dirname( fileURLToPath( import.meta.url ) ), '..' );
+const TSL_WATER = readFileSync( join( ROOT, 'src/gpu/tsl/water-surface.js' ), 'utf8' );
+const CLASSIC_WATER = readFileSync( join( ROOT, 'src/water.js' ), 'utf8' );
 
 let failed = 0;
 const check = ( name, cond, detail = '' ) => {
@@ -31,6 +47,97 @@ const wind = [ 1, 0 ];
 const streak = 0.16;
 const detail = 1.85;
 const t = 12;
+
+{
+	const flat = [ 4, 7 ];
+	const still = foamTextureCoord( flat, flat, [ 0, 0 ] );
+	const lifted = foamTextureCoord( flat, [ 4.8, 7.2 ], [ 0.5, - 0.25 ] );
+	check( 'flat water leaves authored foam coordinates unchanged',
+		Math.abs( still[ 0 ] - flat[ 0 ] ) < 1e-9 && Math.abs( still[ 1 ] - flat[ 1 ] ) < 1e-9,
+		`coord ${ still }` );
+	check( 'orbital displacement and crest slope move the foam detail',
+		Math.hypot( lifted[ 0 ] - flat[ 0 ], lifted[ 1 ] - flat[ 1 ] ) > 0.35,
+		`coord ${ lifted.map( ( v ) => v.toFixed( 3 ) ) }` );
+
+	const a = foamTextureCoord( [ 0, 0 ], [ 0.1, 0 ], [ 0.1, 0 ] );
+	const b = foamTextureCoord( [ 1, 0 ], [ 1.9, 0 ], [ - 0.2, 0 ] );
+	check( 'spatially varying wave motion stretches rather than rigidly translating the lace',
+		Math.abs( ( b[ 0 ] - a[ 0 ] ) - 1 ) > 0.20,
+		`separation ${ ( b[ 0 ] - a[ 0 ] ).toFixed( 3 ) }` );
+
+	const flatFace = foamTextureCoord( [ 2, 3 ], [ 2.1, 3.05 ], [ 0.05, 0.02 ] );
+	const steepFace = foamTextureCoord( [ 2, 3 ], [ 2.1, 3.05 ], [ 0.85, 0.35 ] );
+	check( 'a steep face stretches the lace more than a gentle one',
+		Math.hypot( steepFace[ 0 ] - 2, steepFace[ 1 ] - 3 )
+			> Math.hypot( flatFace[ 0 ] - 2, flatFace[ 1 ] - 3 ) + 0.15,
+		`flat ${ flatFace.map( ( v ) => v.toFixed( 3 ) ) } steep ${ steepFace.map( ( v ) => v.toFixed( 3 ) ) }` );
+
+	const t0 = foamLaceMorph( [ 8, - 3 ], 0 );
+	const t1 = foamLaceMorph( [ 8, - 3 ], 12 );
+	const morph = Math.hypot( t1[ 0 ] - t0[ 0 ], t1[ 1 ] - t0[ 1 ] );
+	check( 'the lace morphs over a few seconds instead of remaining a rigid stamp',
+		morph > 0.15 && morph < 2.4,
+		`morph ${ morph.toFixed( 3 ) } over 12s` );
+
+	const origin = [ 4, 6 ];
+	const along = [ 18, 6 ];
+	const flatS = foamLaceStretchPoint( along, [ 0, 0 ], origin );
+	const steepS = foamLaceStretchPoint( along, [ 0.9, 0 ], origin );
+	const pivotX = Math.floor( origin[ 0 ] / 28 ) * 28 + 14;
+	check( 'flat water leaves stretch identity',
+		Math.abs( flatS[ 0 ] - along[ 0 ] ) < 1e-9 && Math.abs( flatS[ 1 ] - along[ 1 ] ) < 1e-9,
+		`flat ${ flatS }` );
+	check( 'a steep face pulls lace toward the parcel pivot — cells elongate along the slope',
+		Math.abs( steepS[ 0 ] - pivotX ) < Math.abs( along[ 0 ] - pivotX ) - 1.5,
+		`flat x ${ along[ 0 ] } steep x ${ steepS[ 0 ].toFixed( 3 ) } pivot ${ pivotX }` );
+
+	const frozen = foamLaceMorph( [ 8, - 3 ], 0, { morph: 0 } );
+	const frozenLater = foamLaceMorph( [ 8, - 3 ], 12, { morph: 0 } );
+	check( 'morph amount 0 freezes the lace',
+		frozen[ 0 ] === 0 && frozen[ 1 ] === 0
+			&& frozenLater[ 0 ] === 0 && frozenLater[ 1 ] === 0,
+		`frozen ${ frozen } later ${ frozenLater }` );
+	const smallM = foamLaceMorph( [ 8, - 3 ], 12, { morph: 0.2 } );
+	const largeM = foamLaceMorph( [ 8, - 3 ], 12, { morph: 2.4 } );
+	check( 'a larger morph amount breathes farther',
+		Math.hypot( largeM[ 0 ], largeM[ 1 ] ) > Math.hypot( smallM[ 0 ], smallM[ 1 ] ) * 2,
+		`small ${ Math.hypot( smallM[ 0 ], smallM[ 1 ] ).toFixed( 3 ) } large ${ Math.hypot( largeM[ 0 ], largeM[ 1 ] ).toFixed( 3 ) }` );
+
+	const noStretch = foamLaceStretchPoint( along, [ 0.9, 0 ], origin, { stretch: 0 } );
+	const hardStretch = foamLaceStretchPoint( along, [ 0.9, 0 ], origin, { stretch: 4 } );
+	check( 'stretch 0 leaves a steep face unstretched',
+		Math.abs( noStretch[ 0 ] - along[ 0 ] ) < 1e-9 && Math.abs( noStretch[ 1 ] - along[ 1 ] ) < 1e-9,
+		`noStretch ${ noStretch }` );
+	check( 'a larger stretch pulls farther toward the parcel pivot',
+		Math.abs( hardStretch[ 0 ] - pivotX ) < Math.abs( steepS[ 0 ] - pivotX ) - 0.4,
+		`default ${ steepS[ 0 ].toFixed( 3 ) } hard ${ hardStretch[ 0 ].toFixed( 3 ) }` );
+
+	const warp = foamLaceWarpOf( defaults );
+	check( 'defaults carry the authored warp knobs',
+		warp.carry === FOAM_TEXTURE_CARRY
+			&& warp.stretch === defaults.foamLaceStretch
+			&& defaults.foamLaceStretch === 0
+			&& warp.morph === defaults.foamLaceMorph
+			&& defaults.foamLaceMorph === 0
+			&& warp.rate === defaults.foamLaceMorphRate
+			&& defaults.foamLaceMorphRate === 0,
+		JSON.stringify( warp ) );
+	check( 'classic and TSL water read the warp as live uniforms',
+		WATER_FS.includes( 'uFoamLaceMorph' )
+			&& WATER_FS.includes( 'uFoamLaceStretch' )
+			&& WATER_FS.includes( 'uFoamLaceMorphRate' )
+			&& ! WATER_FS.includes( 'const float FOAM_LACE_MORPH' )
+			&& TSL_WATER.includes( 'uFoamLaceMorph.value' )
+			&& TSL_WATER.includes( 'uFoamLaceStretch.value' )
+			&& CLASSIC_WATER.includes( 'uFoamLaceMorph:' )
+			&& CLASSIC_WATER.includes( 'uFoamLaceStretch:' ) );
+
+	const portHot = wakeLaceBlend( 0.3, 0.9, 0.1 );
+	const starboardHot = wakeLaceBlend( 0.3, 0.1, 0.9 );
+	check( 'stern lace blending is invariant to which side contains the bright clump',
+		Math.abs( portHot - starboardHot ) < 1e-9 && portHot < 0.5,
+		`port ${ portHot.toFixed( 3 ) } starboard ${ starboardHot.toFixed( 3 ) }` );
+}
 
 const compactCells = ( sample, darkT = 0.28 ) => {
 
@@ -365,7 +472,7 @@ const ridgeEntropy = ( sample, brightT = 0.45 ) => {
 	const coreMean = coreN ? coreThick / coreN : 0;
 	const edgeMean = edgeN ? edgeThick / edgeN : 0;
 
-	const wake = field.map( ( row ) => row.map( ( f ) => wakeFoamMask( 1, f ) ) );
+	const wake = field.map( ( row ) => row.map( ( f ) => wakeFoamMask( 0.45, f ) ) );
 	const wakePockets = darkPocketStats( wake, 0.28 );
 	let wakeSum = 0, wakeHoles = 0;
 	for ( let i = 0; i < N; i ++ ) {
@@ -373,7 +480,7 @@ const ridgeEntropy = ( sample, brightT = 0.45 ) => {
 		for ( let j = 0; j < N; j ++ ) {
 
 			wakeSum += wake[ i ][ j ];
-			if ( wake[ i ][ j ] < 0.18 ) wakeHoles ++;
+			if ( wake[ i ][ j ] < 0.28 ) wakeHoles ++;
 
 		}
 
@@ -403,11 +510,11 @@ const ridgeEntropy = ( sample, brightT = 0.45 ) => {
 		`cross-wind peak-spacing CV ${ picketCV.toFixed( 3 )}` );
 	check( 'streak cores brighter than mid-edge', coreN >= 8 && edgeN >= 8 && coreMean > edgeMean + 0.04,
 		`core ${ coreMean.toFixed( 3 )} edge ${ edgeMean.toFixed( 3 )} (n ${ coreN }/${ edgeN })` );
-	check( 'wake leftover is a milky aerated film, not a honeycomb',
-		wakeHoles < n * 0.08 && wakeMean > 0.70 && wakeMean < 0.98,
+	check( 'wake leftover uses the same lace resolve as wind foam, not a milky sheet',
+		wakeHoles > n * 0.02 && wakeMean > 0.12 && wakeMean < 0.70,
 		`holes ${ wakeHoles } / ${ n } mean ${ wakeMean.toFixed( 3 ) }` );
-	check( 'wake leftover has no navy honeycomb pockets',
-		wakePockets.count < 4,
+	check( 'wake leftover is not a regular honeycomb',
+		wakePockets.count < 1 || wakePockets.areaCV > 0.22,
 		`wake pockets ${ wakePockets.count } area CV ${ wakePockets.areaCV.toFixed( 3 ) }` );
 
 }
@@ -525,6 +632,130 @@ const ridgeEntropy = ( sample, brightT = 0.45 ) => {
 	check( 'foamCell enlarges the rafts', coarse < fine,
 		`crossings @0.4 ${ fine } @2.2 ${ coarse }` );
 
+}
+
+// Wake foam ages. Before this, the look was driven by coverage alone, so
+// foam thin because it was OLD and foam thin because it had only just
+// started shaded identically — the trail read as one flat material.
+{
+	const pack = { coarse: 0.7, fine: 0.5, breakup: 0.8 };
+	const pat = ( ageN ) => wakeFoamAgePattern(
+		0.9, pack.coarse, pack.fine, pack.breakup, ageN,
+	);
+
+	check( 'freshness inverts age — new foam is fresh, old foam is not',
+		wakeFoamFreshness( 0.5, 0 ) === 1 && wakeFoamFreshness( 0.5, 1 ) === 0,
+		`${ wakeFoamFreshness( 0.5, 0 ) } ${ wakeFoamFreshness( 0.5, 1 ) }` );
+	check( 'with no record, freshness falls back to coverage — the old behaviour',
+		wakeFoamFreshness( 0.42, null ) === 0.42
+			&& wakeFoamAgePattern( 0.9, 0.7, 0.5, 0.8 ) === wakeFoamAgePattern( 0.9, 0.7, 0.5, 0.8, null ),
+		`${ wakeFoamFreshness( 0.42, null ) }` );
+
+	const young = pat( 0.02 );
+	const mid = pat( 0.35 );
+	const old = pat( 0.95 );
+	check( 'the pattern walks dense suds -> cellular lace -> torn breakup with AGE',
+		young > mid && mid > old,
+		`young ${ young.toFixed( 3 ) } mid ${ mid.toFixed( 3 ) } old ${ old.toFixed( 3 ) }` );
+	check( 'two patches of equal coverage shade differently once their ages differ',
+		Math.abs( pat( 0.05 ) - pat( 0.9 ) ) > 0.2,
+		`${ pat( 0.05 ).toFixed( 3 ) } vs ${ pat( 0.9 ).toFixed( 3 ) }` );
+
+	// Age drives the PATTERN only. It must not also scale opacity: the
+	// ribbon already multiplies fill x hole x opac x break, and adding an
+	// age fade on top collapsed the product to nothing except where every
+	// term aligned, which read as foam blinking between white and gone.
+	const glsl = readFileSync( new URL( '../src/shaders/water.js', import.meta.url ), 'utf8' );
+	const tsl = readFileSync( new URL( '../src/gpu/tsl/water-surface.js', import.meta.url ), 'utf8' );
+	check( 'age does not stack another multiplier onto ribbon opacity',
+		! glsl.includes( 'wakeAgeFade' ) && ! tsl.includes( 'wakeAgeFade' ) );
+	check( 'age does not add a second chew term either',
+		! /lookDying\s*=\s*max\(/.test( glsl )
+			&& ! tsl.includes( 'wakeAgeN.smoothstep( 0.34, 0.92 )' ) );
+	check( 'both shaders read the record age instead of the coverage proxy',
+		glsl.includes( 'wakeAgeAt(vFlat.xz)' )
+			&& glsl.includes( 'smoothstep(0.08, 0.34, wakeFresh)' )
+			&& tsl.includes( 'wakeAgeAt( vFlat.xz )' )
+			&& tsl.includes( 'wakeFresh.smoothstep( 0.08, 0.34 )' ) );
+	// Fetch whenever the field is live. Gating on energy coverage hid the
+	// reconstructed 3-stripe when the ribbon slider was 0.
+	check( 'the age fetch runs whenever the wake field is on',
+		glsl.includes( 'if (uWakeOn > 0.5)' )
+			&& tsl.includes( 'If( uWakeOn.greaterThan( 0.5 ), () => {' ) );
+	check( 'coverage is graded, not the saturating clamp that flattened the trail',
+		! glsl.includes( 'clamp(clamp(wake, 0.0, 1.0) * max(uFoamRibbon' )
+			&& glsl.includes( 'wakeGrade' ) && tsl.includes( 'wakeGrade' ) );
+	check( 'the grade constants are hand-mirrored into the GLSL',
+		glsl.includes( `const float WAKE_FOAM_WASH = ${ WAKE_FOAM_WASH };` )
+			&& glsl.includes( `const float WAKE_FOAM_TAIL = ${ WAKE_FOAM_TAIL };` )
+			&& glsl.includes( `const float WAKE_FOAM_BROKEN = ${ WAKE_FOAM_BROKEN };` ) );
+	// One fetch of a repeating image shows its own period. On a flat white
+	// sheet that repeat is the ONLY thing varying, so it became the picture.
+	check( 'the lace sample is detiled too — it is what covers the wake sheet',
+		glsl.includes( 'laceUvB' ) && glsl.includes( 'laceBlend' )
+			&& tsl.includes( 'laceUvB' ) && tsl.includes( 'laceBlend' ) );
+}
+
+// The wake is a gradient, not an even sheet: aerated prop wash at the
+// transom, a band breaking up with water showing through, then filaments.
+{
+	const stern = wakeFoamGrade( 1, 0.0 );
+	const mid = wakeFoamGrade( 1, 0.45 );
+	const far = wakeFoamGrade( 1, 0.92 );
+	check( 'prop wash right behind the transom is all but opaque',
+		stern > 0.8, `stern ${ stern.toFixed( 3 ) }` );
+	check( 'the middle band breaks up — 20-50% white over open water',
+		mid > 0.2 && mid < 0.5, `mid ${ mid.toFixed( 3 ) }` );
+	check( 'the far trail is filaments, not a sheet',
+		far < 0.25 && far > 0, `far ${ far.toFixed( 3 ) }` );
+	check( 'coverage falls monotonically with age — no band brighter than the wash',
+		stern > mid && mid > far );
+	check( 'the grade never invents foam the sim did not deposit',
+		wakeFoamGrade( 0, 0 ) === 0 && wakeFoamGrade( 0.04, 0 ) < 0.12,
+		`thin ${ wakeFoamGrade( 0.04, 0 ).toFixed( 3 ) }` );
+	// Without a record the freshness proxy is coverage, which is what the
+	// classic energy-only film did before any of this existed.
+	check( 'a saturated energy-only film still reads as wash',
+		wakeFoamGrade( 1, null ) > 0.8 );
+}
+
+// Across the wedge: prop wash, open water, thin crests. Filling the gap is
+// what makes a simulated wake read as a painted white V.
+{
+	const arm = 20, coreW = 1.7, crestW = 1.4;
+	const z = ( lat ) => wakeFoamZone( lat, arm, coreW, crestW );
+	check( 'the sailing line is aerated prop wash',
+		z( 0 ) > 0.95, `centre ${ z( 0 ).toFixed( 3 ) }` );
+	check( 'between the wash and the arms the water is mostly open',
+		z( 10 ) < 0.25, `mid ${ z( 10 ).toFixed( 3 ) }` );
+	check( 'each cusp arm carries a crest, and it is thinner than the gap',
+		z( arm ) > 0.6 && z( arm ) < 0.9 && z( arm ) > z( 10 ) * 2,
+		`crest ${ z( arm ).toFixed( 3 ) }` );
+	check( 'the crest is a band, not a wall — it falls off outboard',
+		z( arm + 4 ) < 0.25, `outboard ${ z( arm + 4 ).toFixed( 3 ) }` );
+	check( 'both arms carry it — the wedge is not one-sided',
+		Math.abs( z( arm ) - z( - arm ) ) < 1e-9 );
+	check( 'the zone never fully clears — disturbed water is not glass',
+		z( 10 ) >= WAKE_ZONE_FLOOR - 1e-9 );
+}
+
+// The accessor had to widen to carry the zone. Both twins must agree.
+{
+	const glsl = readFileSync( new URL( '../src/wake.js', import.meta.url ), 'utf8' );
+	const tsl = readFileSync(
+		new URL( '../src/gpu/tsl/water-common.js', import.meta.url ), 'utf8' );
+	check( 'both record accessors return vec2(ageN, zone)',
+		glsl.includes( 'vec2 wakeAgeAt(vec2 p)' )
+			&& glsl.includes( 'return vec2(0.0, 1.0)' )
+			&& tsl.includes( 'const outv = vec2( 0.0, 1.0 ).toVar()' ) );
+	check( 'no record means no shaping — zone defaults to 1, not 0',
+		glsl.includes( 'if (r.r < 0.002) return vec2(0.0, 1.0);' ) );
+	check( 'the zone constants are hand-mirrored into the GLSL chunk',
+		glsl.includes( 'const float WAKE_ZONE_FLOOR = ${ WAKE_ZONE_FLOOR }' )
+			&& glsl.includes( 'const float WAKE_ZONE_CREST = ${ WAKE_ZONE_CREST }' ) );
+	check( 'the prop wash is not a fraction of the arm — it must not open with it',
+		glsl.includes( 'max(uWakeWidth0 * 1.6, 0.5)' )
+			&& tsl.includes( 'uWakeWidth0.mul( 1.6 ).max( 0.5 )' ) );
 }
 
 if ( failed ) {

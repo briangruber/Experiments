@@ -36,6 +36,8 @@ const W = +argOf('w', 640), H = +argOf('h', 400);
 const PAGES = [
   'water-and-sky.html', 'water-only.html', 'sky-only.html',
   'webgpu-ocean.html?backend=webgl', 'webgpu-sky.html?backend=webgl',
+  'webgpu-bodies.html?backend=webgl', 'webgpu-box-ski.html?backend=webgl',
+  'webgpu-wake-physics.html?backend=webgl',
 ];
 
 // three's package.json is not in its exports map, so require.resolve cannot find
@@ -57,6 +59,7 @@ const THREE_DIR = resolveThree();
 const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
   '.css': 'text/css', '.json': 'application/json', '.png': 'image/png',
+  '.jpg': 'image/jpeg', '.glb': 'model/gltf-binary', '.gltf': 'model/gltf+json',
 };
 
 const server = createServer(async (req, res) => {
@@ -97,12 +100,19 @@ for (const name of PAGES) {
   });
 
   await page.goto(`http://127.0.0.1:${port}/examples/${name}`, { waitUntil: 'load' });
+  let readyTimedOut = false;
   try {
     await page.waitForFunction(() => !!window.abyssalExample, null, { timeout: 30000 });
   } catch {
-    errors.push('window.abyssalExample never appeared - the module failed to start');
+    // SwiftShader can block the page thread while compiling the body/wake
+    // shaders. Recheck after the normal settle period: a timeout is not a
+    // startup failure when the example has completed by capture time.
+    readyTimedOut = true;
   }
   await page.waitForTimeout(WAIT);
+  if (readyTimedOut && !(await page.evaluate(() => !!window.abyssalExample))) {
+    errors.push('window.abyssalExample never appeared - the module failed to start');
+  }
 
   // preserveDrawingBuffer is off on a stock THREE.WebGLRenderer, so a screenshot
   // taken between frames reads a cleared buffer. Sample inside the frame instead.

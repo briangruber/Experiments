@@ -57,7 +57,7 @@ try {
   const sim = new OceanCompute(device, { size: N, cascades: DEFAULT_CASCADES });
   sim.setSeed(SEED);
   const buildErr = await device.popErrorScope();
-  log('pipelines and buffers built', !buildErr, buildErr ? buildErr.message.slice(0, 400) : `${sim.stages} FFT stages, ${sim.cascadeCount} cascades`);
+  log('pipelines and buffers built', !buildErr, buildErr ? buildErr.message.slice(0, 400) : `${sim.stages} FFT stages, ${sim.cascadeCount} cascades, ${sim.fftShared ? 'workgroup FFT' : 'stage FFT'}`);
 
   device.pushErrorScope('validation');
   sim.buildSpectrum(params);

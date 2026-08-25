@@ -7,17 +7,19 @@
 
 export const PERF_STAGES = [
 	{ id: 'sim', label: 'Waves (FFT)',
-		hint: 'Spectrum, cascades, foam fields. Off freezes the sea on the last fields.' },
+		hint: 'Spectrum, cascades, foam fields — many fullscreen renders, billed under GPU Render, not Compute. Off freezes the sea on the last fields.' },
 	{ id: 'sea', label: 'Sea surface',
-		hint: 'Water mesh and shading. Off keeps a flat depth plane so clouds stay occluded — Heat should drop if the sea was the hog.' },
+		hint: 'Water mesh and shading. Off skips that draw; the sky then fills those pixels, so the frame can get slower.' },
 	{ id: 'sky', label: 'Sky + clouds',
-		hint: 'Dome plus the volumetric cloud march. Usually the fill-rate hog.' },
+		hint: 'Dome plus the volumetric cloud march. Only cheap when the sea already covered the pixel.' },
 	{ id: 'spray', label: 'Particles',
 		hint: 'Spray and splash GPU particles — update and draw.' },
-	{ id: 'dragon', label: 'Sea dragon',
-		hint: 'The animal and the underwater refraction pass.' },
-	{ id: 'craft', label: 'Craft + wake',
-		hint: 'Hull draw, wake field, buoyancy probe.' },
+	{ id: 'dragon', label: 'Refraction',
+		hint: 'Every mesh under the waterline photographed for the sea to look through — dragon, ski, rocks. Not just the animal.' },
+	{ id: 'craft', label: 'Scene + wake',
+		hint: 'Beauty pass of the Three scene (meshes above water), wake field, buoyancy probe.' },
+	{ id: 'floor', label: 'Seafloor props',
+		hint: 'Instanced rocks / coral. Drawn twice: refraction and beauty. Off hides the group.' },
 	{ id: 'post', label: 'Post',
 		hint: 'Bloom, grain, chromatic, halation. Tonemap still runs so the canvas is not black.' },
 ];
@@ -86,7 +88,11 @@ export function installPerfDebug( app, host = document.body ) {
 			<div class="row"><span class="k">Cap</span><span class="v" data-m="cap">—</span></div>
 		</div>
 		<div class="perf-hot-wrap">
-			<div class="k">Hottest GPU</div>
+			<div class="k">Live GPU</div>
+			<div class="perf-live" data-m="live">—</div>
+		</div>
+		<div class="perf-hot-wrap">
+			<div class="k">Last measure <span data-m="measage"></span></div>
 			<ol class="perf-hot" data-m="hot"></ol>
 		</div>
 		<p class="perf-warn" data-m="warn" hidden></p>
@@ -98,7 +104,7 @@ export function installPerfDebug( app, host = document.body ) {
 			</label>
 			${ stagesHtml }
 		</div>
-		<p class="perf-note">GPU ms is one frame of GPU work, not a pile of frames. Heat is GPU ms ÷ frame ms — 100% means the GPU is busy the whole refresh. JS ms is only submit time. <b>Measure</b> ranks the stages.</p>
+		<p class="perf-note">JS ms is submit only. Live GPU is timestamp queries for one framed submit — FFT lives in Render, not Compute. Last measure is a snapshot from <b>Measure</b> (it does not update when you toggle). Heat is GPU ms ÷ frame ms.</p>
 		<p class="perf-report" data-m="report" hidden></p>
 	`;
 
@@ -114,6 +120,8 @@ export function installPerfDebug( app, host = document.body ) {
 	let batt = null;
 	let battAt = 0;
 	let battLvl = null;
+	let gpuAtToggle = null;
+	let toggleAt = 0;
 
 	navigator.getBattery?.().then( ( b ) => {
 
@@ -129,6 +137,8 @@ export function installPerfDebug( app, host = document.body ) {
 		const box = el.querySelector( `input[data-id="${ id }"]` );
 		if ( box ) box.checked = on;
 		el.querySelector( `.perf-row[data-id="${ id }"]` )?.classList.toggle( 'off', ! on );
+		gpuAtToggle = app.perfTimes?.gpu;
+		toggleAt = performance.now();
 
 	};
 
@@ -158,12 +168,19 @@ export function installPerfDebug( app, host = document.body ) {
 			// more than two frames deep, which is exactly the laptop-on-
 			// battery case this meter exists for.
 			const busy = gpu / Math.max( frameMs, 0.1 );
-			$( '[data-m="energy"]' ).textContent = `${ Math.round( busy * 100 ) }% busy`;
-			$( '[data-m="energy"]' ).classList.toggle( 'hot', busy > 1.05 );
+			// A 60 fps present with an 80 ms timestamp is a piled query, not
+			// a 12 fps picture. Don't treat that as Heat.
+			const piled = fps >= 50 && busy > 2;
+			$( '[data-m="energy"]' ).textContent = piled
+				? `timestamps high vs ${ fmtFps( fps ) } fps`
+				: `${ Math.round( busy * 100 ) }% busy`;
+			$( '[data-m="energy"]' ).classList.toggle( 'hot', busy > 1.05 && ! piled );
 
 		} else {
 
-			$( '[data-m="gpu"]' ).textContent = '—  (Measure to rank)';
+			$( '[data-m="gpu"]' ).textContent = app.perfTimes?.gpuTried
+				? 'unavailable'
+				: '…';
 			$( '[data-m="energy"]' ).textContent = '—';
 
 		}
@@ -229,31 +246,74 @@ export function installPerfDebug( app, host = document.body ) {
 
 		}
 
+		const live = $( '[data-m="live"]' );
+		if ( live ) {
+
+			if ( gpuOk ) {
+
+				const draws = app.perfTimes.draws;
+				const passes = app.perfTimes.passes;
+				const tris = app.perfTimes.tris;
+				const un = app.perfTimes.unaccounted;
+				const bits = [
+					`render ${ fmtMs( app.perfTimes.gpuRender ) } ms`,
+					`compute ${ fmtMs( app.perfTimes.gpuCompute ) } ms`,
+				];
+				if ( draws != null ) bits.push( `${ draws } draws` );
+				if ( passes != null ) bits.push( `${ passes } passes` );
+				if ( tris != null ) bits.push( `${ tris > 9999 ? `${ ( tris / 1e6 ).toFixed( 2 ) }M` : tris } tris` );
+				if ( un > 0.15 ) bits.push( `CPU leftover ${ fmtMs( un ) } ms` );
+				if ( toggleAt && now - toggleAt > 400 && gpuAtToggle != null && gpuAtToggle > 0.01 ) {
+
+					const d = gpu - gpuAtToggle;
+					bits.push( `Δ ${ d >= 0 ? '+' : '' }${ fmtMs( d ) } ms since toggle` );
+
+				}
+				live.textContent = bits.join( ' · ' );
+
+			} else {
+
+				live.textContent = app.perfTimes?.gpuTried
+					? 'timestamps unavailable — use Measure (frame-time rank)'
+					: 'waiting for timestamps…';
+
+			}
+
+		}
+
 		const hot = $( '[data-m="hot"]' );
+		const measage = $( '[data-m="measage"]' );
 		const labels = Object.fromEntries( PERF_STAGES.map( ( s ) => [ s.id, s.label ] ) );
-		const ranked = ( app.lastProfile?.stages ?? [] )
+		const prof = app.lastProfile;
+		const ranked = ( prof?.stages ?? [] )
 			.filter( ( s ) => s.ms > 0.08 )
-			.slice( 0, 5 );
+			.slice( 0, 6 );
+		if ( measage ) {
+
+			if ( ! ranked.length ) measage.textContent = '';
+			else {
+
+				const how = prof.byGpu ? 'GPU ablation' : 'FPS ablation';
+				const age = prof.at ? `${ Math.max( 0, Math.round( ( now - prof.at ) / 1000 ) ) }s ago` : '';
+				measage.textContent = [ how, age ].filter( Boolean ).join( ' · ' );
+
+			}
+
+		}
 		if ( ranked.length ) {
 
-			hot.innerHTML = ranked.map( ( s ) =>
-				`<li><b>${ labels[ s.stage ] ?? s.stage }</b><span>${ s.ms.toFixed( 1 ) }ms ${ s.share }%</span></li>` ).join( '' );
+			hot.innerHTML = ranked.map( ( s ) => {
 
-		} else if ( gpuOk ) {
+				const off = app.perf[ s.stage ] === false;
+				return `<li class="${ off ? 'off' : '' }"><b>${ labels[ s.stage ] ?? s.stage }</b>`
+					+ `<span>${ off ? 'off · was ' : '' }${ s.ms.toFixed( 1 ) }ms ${ s.share }%</span></li>`;
 
-			const draw = app.perfTimes.gpuRender ?? 0;
-			const compute = app.perfTimes.gpuCompute ?? 0;
-			const items = [
-				{ label: 'Render — sea, sky, spray, post', ms: draw },
-				{ label: 'Compute — waves (FFT)', ms: compute },
-			].sort( ( a, b ) => b.ms - a.ms );
-			hot.innerHTML = items.map( ( s ) =>
-				`<li><b>${ s.label }</b><span>${ fmtMs( s.ms ) } ms</span></li>` ).join( '' )
-				+ '<li class="hint">Measure for a per-stage split</li>';
+			} ).join( '' )
+				+ '<li class="hint">Snapshot — toggle a stage and watch Live GPU / FPS, then Measure again</li>';
 
 		} else {
 
-			hot.innerHTML = '<li class="hint">Measure ranks what is heating the GPU. Sky + clouds is usually first.</li>';
+			hot.innerHTML = '<li class="hint">Measure turns each stage off and ranks the GPU saving. This list is not live.</li>';
 
 		}
 
@@ -281,6 +341,7 @@ export function installPerfDebug( app, host = document.body ) {
 		document.body.classList.add( 'perf-open' );
 		frames = 0;
 		t0 = performance.now();
+		app.enableGpuTimers?.();
 		paint();
 
 	};
@@ -330,6 +391,7 @@ export function installPerfDebug( app, host = document.body ) {
 					$( '[data-m="report"]' ).textContent = msg;
 
 				} );
+				if ( r && r.at == null ) r.at = performance.now();
 				const by = Object.fromEntries( r.stages.map( ( s ) => [ s.stage, s ] ) );
 				for ( const s of PERF_STAGES ) {
 

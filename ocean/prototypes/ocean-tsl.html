@@ -90,6 +90,8 @@ try {
   sim.setSeed(SEED);
   sim.buildSpectrum(params);
   for (let i = 0; i < STEPS; i++) sim.update(DT, params);
+  log('workgroup FFT', BACKEND !== 'webgpu' || sim.fftShared === true,
+      sim.fftShared ? 'shared memory' : 'fragment butterflies');
 
   const cascades = [];
   for (let c = 0; c < sim.cascadeCount; c++) {

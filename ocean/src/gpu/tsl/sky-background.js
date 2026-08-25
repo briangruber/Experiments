@@ -535,17 +535,35 @@ export const skyBackground = /*@__PURE__*/ Fn( () => {
 		const m = float( 1.0 ).sub( mq.mul( mq ) ).max( 0.0 ).sqrt().toVar();
 		// GLSL: float solid = TAU_A * (1.0 - cos(moonR));
 		const solid = float( TAU_A ).mul( float( 1.0 ).sub( moonR.cos() ) ).toVar();
+		// 0.22 is the visible disc. moonIntensity feeds the LUT / glitter path;
+		// raising that instead lifts the whole night. Daytime moonColor is 0.
 		const disc = uMoonColor.div( solid.max( 1e-7 ) )
 			.mul( float( 0.62 ).add( float( 0.38 ).mul( m ) ) )
-			.mul( mDisc ).mul( moonTr ).mul( uAtmoExposure ).mul( 0.04 ).toVar();
+			.mul( mDisc ).mul( moonTr ).mul( uAtmoExposure ).mul( 0.22 ).toVar();
 		col.addAssign( capRadiance( disc, uDiscCap ) );
 
 	}
 
-	// Moon aureole from forward Mie scattering in the haze around it.
-	col.addAssign(
-		uMoonColor.mul( moonTr ).mul( rd.dot( uMoonDir ).max( 0.0 ).pow( 340.0 ) ).mul( 0.7 ).mul( uAtmoExposure ),
-	);
+	If( uMoonColor.dot( uMoonColor ).greaterThan( 1e-8 ), () => {
+
+		const mMu = rd.dot( uMoonDir ).max( 0.0 ).toVar();
+		col.addAssign(
+			uMoonColor.mul( moonTr ).mul( uAtmoExposure )
+				.mul( mMu.pow( 80.0 ).mul( 1.15 ).add( mMu.pow( 12.0 ).mul( 0.09 ) ) ),
+		);
+		const nightW = uSunDir.y.smoothstep( 0.06, - 0.10 ).toVar();
+		const hzGlow = rd.y.max( 0.0 ).mul( - 10.0 ).exp()
+			.mul( rd.y.smoothstep( - 0.02, 0.04 ) ).toVar();
+		const rdH = vec3( rd.x, 0.0, rd.z ).toVar();
+		const moH = vec3( uMoonDir.x, 0.0, uMoonDir.z ).toVar();
+		const towardMoon = rdH.dot( moH )
+			.div( rdH.length().mul( moH.length() ).max( 1e-4 ) ).max( 0.0 ).toVar();
+		col.addAssign(
+			uMoonColor.mul( moonTr ).mul( uAtmoExposure ).mul( nightW ).mul( hzGlow )
+				.mul( float( 0.10 ).add( towardMoon.mul( towardMoon ).mul( 0.28 ) ) ),
+		);
+
+	} );
 
 	// ---- sun disc with limb darkening.
 	const sAng = discAngle( rd, uSunDir, refractFlatten( uSunDir.y ) ).toVar();
@@ -593,7 +611,8 @@ export const skyBackground = /*@__PURE__*/ Fn( () => {
 		const fwdM = miePhase( rd.dot( uMoonDir ), float( 0.62 ) ).mul( 2.6 ).add( 0.09 ).toVar();
 
 		const lit = uSunIrradiance.mul( sunTransmittance( hiPos, uSunDir ) ).mul( fwd )
-			.add( uMoonColor.mul( sunTransmittance( hiPos, uMoonDir ) ).mul( fwdM ) ).toVar();
+			.add( uMoonColor.mul( sunTransmittance( hiPos, uMoonDir ) ).mul( fwdM )
+				.mul( select( uMoonColor.dot( uMoonColor ).greaterThan( 1e-8 ), 2.2, 1.0 ) ) ).toVar();
 
 		// Ambient is the sky behind *this* direction, never the zenith: pasting
 		// zenith blue over a warm horizon drags every streak colder and darker than
@@ -612,7 +631,8 @@ export const skyBackground = /*@__PURE__*/ Fn( () => {
 	} );
 
 	// ---- the cumulus deck, over everything above.
-	const moonCol = uMoonColor.mul( moonTr ).mul( uAtmoExposure ).toVar();
+	const moonCol = uMoonColor.mul( moonTr ).mul( uAtmoExposure )
+		.mul( select( uMoonColor.dot( uMoonColor ).greaterThan( 1e-8 ), 2.6, 1.0 ) ).toVar();
 	const cl = marchClouds(
 		uCamPos, rd, uSunDir, sunCol, uMoonDir, moonCol, skyTop, skyLow,
 		sampleSky( rd ), fc,
@@ -644,7 +664,7 @@ export function setSkyBackgroundUniforms( p, ctx ) {
 	uStarSize.value = p.starSize;
 	// The knob reads as "how much of the field shows"; the shader wants the hash
 	// cutoff, which runs the other way.
-	uStarCutoff.value = 1.0 - 0.05 * p.starDensity;
+	uStarCutoff.value = 1.0 - 0.14 * p.starDensity;
 	uStarColorTemp.value = p.starColorTemp;
 
 	uCirrus.value = p.cirrus;

@@ -13,6 +13,9 @@
 
 import { NOISE_GLSL, ATMOSPHERE_GLSL, SKY_LUT_MAP_GLSL } from './sky.js';
 import { MAX_BREACH_EMITTERS } from '../breach-emitters.js';
+import {
+	SPRAY_SCREEN_EXTENT, SPRAY_SIDE_PAIR_STRIDE, SPRAY_WATERLINE_SMEAR,
+} from '../body-spray.js';
 
 const SAMPLE_OCEAN = /* glsl */`
 uniform sampler2DArray uDisp, uFoam;
@@ -230,14 +233,17 @@ void main(){
     // The pump runs off throttle, not off speed - which is why a ski standing
     // still on full lock still throws a tail, and why a carve that has scrubbed
     // all its speed does not go quiet.
-    float wJet   = uCraftJet * uCraftThrottle * (0.30 + 0.70*plane) * pJet * wet;
+    // Throttle still owns a parked pump. Cruise-hold at plane speed
+    // parks throttle near 0 — keep a floor so the tail stays on the
+    // transom instead of dying while leftover waves keep writing.
+    float pump   = max(uCraftThrottle, plane * 0.50);
+    float wJet   = uCraftJet * pump * (0.30 + 0.70*plane) * pJet * wet;
     float wSheet = uCraftSheet * plane * pSheet * wet;
     // Sideslip and hull load are what a carve actually is, and both survive the
     // speed a carve destroys.
     float wCurt  = uCraftCurtain * clamp(slipA*0.40 + load*0.95, 0.0, 2.0) * pCurt * wet;
     float wBurst = uCraftBurst * uCraftImpact * 3.2;
     float hullMute = 1.0 - uCraftPierce;
-    wJet   *= hullMute;
     wSheet *= hullMute;
     wCurt  *= hullMute;
     float wPierce = uCraftPierce * plane * wet;
@@ -251,11 +257,19 @@ void main(){
     // built on mist is invisible in every preset that matters. The mass is made in
     // the draw pass instead, off uEntry - see the size boost in SPRAY_VS.
     float craftDrive = uCraftAmount * (1.0 - mist) * uCraftPulse * clamp(wTot, 0.0, 2.2);
-    if (craftDrive > 0.001 && hash12(vec2(fid*0.0173 + 5.7, ep*0.531)) < craftDrive){
-      vec2 hA = hash22(vec2(fid*0.311 + 1.3, ep*0.617));   // where on the hull
-      vec2 hB = hash22(vec2(fid*0.719 + 9.1, ep*0.233));   // where in the cone
-      vec2 hC = hash22(vec2(fid*1.093 + 3.7, ep*0.409));   // how fast, how long
-      float pick = hash12(vec2(fid*1.31 + 4.4, ep*0.751)) * max(wTot, 1e-5);
+    // Index bit 2 is the exact side coin below. IDs four apart are mirrored
+    // port/starboard partners, so share admission and source rolls between
+    // them. This removes one-frame unilateral sheets on a straight run without
+    // suppressing the physically loaded side in a real turn. Multi-site
+    // piercing bodies retain independent rolls.
+    float sideBand = mod(floor(fid / ${ SPRAY_SIDE_PAIR_STRIDE }.0), 2.0);
+    float balancedFid = fid - sideBand * ${ SPRAY_SIDE_PAIR_STRIDE }.0;
+    float sourceFid = mix(balancedFid, fid, uCraftPierce);
+    if (craftDrive > 0.001 && hash12(vec2(sourceFid*0.0173 + 5.7, ep*0.531)) < craftDrive){
+      vec2 hA = hash22(vec2(sourceFid*0.311 + 1.3, ep*0.617));   // paired place on the hull
+      vec2 hB = hash22(vec2(fid*0.719 + 9.1, ep*0.233));         // independent breakup
+      vec2 hC = hash22(vec2(sourceFid*1.093 + 3.7, ep*0.409));   // paired speed and life
+      float pick = hash12(vec2(sourceFid*1.31 + 4.4, ep*0.751)) * max(wTot, 1e-5);
       float u = sprayShred(fid);         // 0 leading edge, 1 shredded tail
       // A cheap hash does not have a mean of exactly 0.5, and a cone built as
       // (h*2 - 1) turns that small offset into a systematic sideways lean of the
@@ -292,6 +306,9 @@ void main(){
         // what makes a rooster tail sweep across a turn instead of always
         // trailing the hull's own heading. It is also aimed slightly up, which is
         // what stands the tail up behind the craft rather than firing it flat.
+        // Birth is the live transom (hull origin + half-LOA), never a
+        // waterline cut. Stacked pierce sites stay on the mesh.
+        site = uCraftPos;
         float na = uCraftJetAngle * clamp(uCraftSteer, -1.0, 1.0);
         axis = normalize(-F*cos(na) + Rt*sin(na) + UP*uCraftJetRise*liftK);
         org  = -F*uCraftLen*0.95 + Rt*coin*hA.x*uCraftBeam*0.25
@@ -320,7 +337,7 @@ void main(){
         float sd = mix(coin, buried, step(hA.y, turnAmt));
         float isB = step(0.5, sd*buried*0.5 + 0.5);
         float sideGain = mix(1.0 - 0.80*turnAmt, 1.0 + turnAmt, isB);
-        org  = F*(hA.x - 0.45)*uCraftLen*1.1 + Rt*sd*uCraftBeam*0.95 + UP*0.05;
+        org  = F*(hA.x - 0.45)*uCraftLen*1.1 + Rt*sd*uCraftBeam*0.92 + UP*0.05;
         axis = normalize(Rt*sd*0.86 + F*0.42 + UP*0.16*liftK);
         aWide = (0.22 + 0.26*u) * spreadK;
         aNar  = (0.045 + 0.075*u) * spreadK;
@@ -348,10 +365,10 @@ void main(){
         lifeK   = 1.3;
       } else if (pick < wJet + wSheet + wCurt + wPierce){
         // 5. Waterline pierce. The site IS the point on the body that cuts
-        // the sea, so the local offset stays small. Outward on the site's
-        // own flank, up, and a little forward with the body's motion.
-        org  = F*(hA.x - 0.5)*uCraftLen
-             + Rt*siteSide*hA.y*uCraftBeam*0.12 + UP*0.04;
+        // the sea, so the local offset stays small. Twin of TSL
+        // SPRAY_WATERLINE_SMEAR — uCraftLen is half-LOA for the jet.
+        org  = F*(hA.x - 0.5)*${ SPRAY_WATERLINE_SMEAR.toFixed( 2 ) }
+             + Rt*siteSide*(hA.y - 0.5)*0.10 + UP*0.04;
         axis = normalize(Rt*siteSide*0.68 + UP*0.55*liftK + F*0.28);
         aWide = (0.35 + 0.25*u) * spreadK;
         aNar  = (0.12 + 0.10*u) * spreadK;
@@ -427,9 +444,14 @@ void main(){
       float wl = length(wide);
       wide = wl > 1e-3 ? wide/wl : vec3(1.0, 0.0, 0.0);
       vec3 nar = cross(axis, wide);
+      // Bias toward the axis and fade energy at the rim — a uniform fill
+      // to ±aWide draws a hard curtain / Mach edge from look-down.
+      float rimW = pow(hB.x, 1.7);
+      float rimN = pow(hB.y, 1.45);
       vec3 dir = normalize(axis
-               + wide * tan(min(aWide, 1.25)) * sgnW * hB.x
-               + nar  * tan(min(aNar,  1.25)) * sgnN * hB.y);
+               + wide * tan(min(aWide, 1.25)) * sgnW * rimW
+               + nar  * tan(min(aNar,  1.25)) * sgnN * rimN);
+      float rimFade = (1.0 - rimW * rimW) * (0.55 + 0.45 * (1.0 - rimN));
 
       vec3 v = hullVel * inherit + dir * relV;
       // Whatever leaves the hull immediately meets the craft's own apparent wind.
@@ -441,7 +463,7 @@ void main(){
       // and it is what lets a dense sheet thrown by a hull be lit as the thick
       // multiple-scattering whitewater it is, rather than as a few wind-torn
       // droplets that happen to be in the same place.
-      oVel = vec4(v, -clamp(energy, 0.05, 1.35));
+      oVel = vec4(v, -clamp(energy * rimFade, 0.05, 1.35));
       return;
     }
 
@@ -694,10 +716,16 @@ void main(){
   float elong = clamp(1.0 + smear / max(2.0*size, 0.02), 1.0, 8.0);
   // Stretching at constant area keeps a streak from also getting brighter.
   vec2 q = ax*(aCorner.x*size*elong) + ay*(aCorner.y*size/sqrt(elong));
-  // Now that the quad's real extent is known: nothing may subtend more than a
-  // modest fraction of the frame, or one near particle smears over everything.
-  // Relaxed for an entry: the clamp exists so one near droplet cannot smear the
-  // frame, and at 12x size it was fading the cloud we just grew.
+  // A fade alone cannot contain thousands of overlapping low-alpha parcels, or
+  // a billboard that crosses the near plane. Bound the geometry itself to a
+  // modest angular extent before it can rasterise into a screen-height wall.
+  float extentScale = clamp(
+    dist * ${ SPRAY_SCREEN_EXTENT } / max(size*elong, 0.02), 0.0, 1.0
+  );
+  q *= extentScale;
+  fade *= smoothstep(0.12, 0.55, extentScale);
+  // Retain the older energy fade so an approaching puff dissolves before the
+  // hard extent cap becomes visible. Entry parcels do not bypass the cap above.
   fade *= mix(smoothstep(1.2, 3.2, dist/max(size*elong, 0.02)), 1.0, entry*0.85);
 
   vec3 world = P.xyz + uCamRight*q.x + uCamUp*q.y;
@@ -738,12 +766,13 @@ ${SKY_LUT_MAP_GLSL}
 in vec2 vCorner;
 in float vFade, vMist, vEnergy, vSoft, vSeed, vSize, vShape, vTex, vSurfDelta, vHull;
 in vec3 vWorld, vSun, vAmb;
-uniform sampler2D uSkyLUT;
+uniform sampler2D uSkyLUT, uSplashAtlas;
 uniform vec3 uSunDir, uCamPos;
 uniform float uOpacity, uMistOpacity, uScatter, uAmbient, uMulti;
 uniform float uForwardG, uBackG, uSurfFade, uAerial;
 uniform float uGrain, uMistGrain, uGrainScale, uGrainAniso;
 uniform float uHullOpacity, uHullMulti;
+uniform float uEntry, uSplashPlateAmount;
 out vec4 fragColor;
 
 void main(){
@@ -752,13 +781,21 @@ void main(){
   float th = atan(vCorner.y, vCorner.x);
   float d = length(vCorner)
           * (1.0 + vShape*(0.24*sin(th*3.0 + vSeed*6.28318) + 0.13*sin(th*7.0 + vSeed*11.3)));
-  if (d > 1.0) discard;
+  float plateMix = clamp(vHull * uEntry * uSplashPlateAmount * (1.0 - 0.8*vMist), 0.0, 1.0);
+  vec2 localUv = vCorner * 0.5 + 0.5;
+  float frame = floor(vSeed * 7.999);
+  vec2 atlasUv = vec2((localUv.x + mod(frame, 4.0)) / 4.0,
+                      (localUv.y + floor(frame / 4.0)) / 2.0);
+  float plate = smoothstep(0.015, 0.72, texture(uSplashAtlas, atlasUv).r);
+  if (d > mix(1.0, 1.42, plateMix)) discard;
+  float radial = pow(1.0 - min(d, 1.0), vSoft);
+  float parcelShape = mix(radial, plate, plateMix);
 
   // Weakly-breaking crests emit too, but faintly: the emission ramp is soft so
   // that spray production is continuous in how hard the crest is breaking rather
   // than a switch, and the birth energy has to carry that gradation through to
   // the opacity.
-  float a = pow(1.0 - d, vSoft) * vFade * mix(uOpacity, uMistOpacity, vMist) * mix(1.0, uHullOpacity, vHull)
+  float a = parcelShape * vFade * mix(uOpacity, uMistOpacity, vMist) * mix(1.0, uHullOpacity, vHull)
           * mix(0.08 + 0.92*pow(max(vEnergy,0.0), 0.6), 0.25 + 0.75*vEnergy, vMist);
 
   // The one thing that separates spray from cotton wool. A parcel of spray is a

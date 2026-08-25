@@ -82,6 +82,16 @@ const need = ( name, ok, detail = '' ) => results.push( { name, ok, detail } );
 
 {
 	const f = new FlukeSlickField();
+	const opts = { x: 0, z: 12, phase: 0, speed: 10, beam: 6, clearance: - 2.4, fade: 9 };
+	f.step( 0.05, opts );
+	f.step( 0.05, { ...opts, phase: 1.6 } );
+	need( 'a raised fluke still prints on the sea under it',
+		f.prints.length === 1 && Math.hypot( f.prints[ 0 ].x, f.prints[ 0 ].z - 12 ) < 0.05,
+		`n ${ f.prints.length }` );
+}
+
+{
+	const f = new FlukeSlickField();
 	f.step( 0.05, { x: 4, z: 2, phase: 0.4, speed: 8, beam: 3, clearance: 2.2, fade: 9 } );
 	f.step( 0.05, { x: 4, z: 2, phase: 0.4, speed: 8, beam: 3, clearance: - 0.05, fade: 9 } );
 	need( 'a tail that slaps the sea prints even mid-stroke',

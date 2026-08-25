@@ -7,7 +7,7 @@
 //   node tools/check-kelvin-wake.mjs
 
 import {
-	kelvinWakeAt, kelvinTan, KELVIN_TAN, KELVIN_G, KELVIN_REF_M,
+	kelvinWakeAt, kelvinTan, kelvinLambda, KELVIN_TAN, KELVIN_G, KELVIN_REF_M,
 } from '../src/kelvin-wake.js';
 
 const results = [];
@@ -117,6 +117,9 @@ const behind = ( along, lat ) => kelvinWakeAt( { x: lat, z: along }, u );
 {
 	const fast = { ...u, speed: 40 };
 	const tanFast = kelvinTan( fast.speed, fast.length );
+	need( 'a ski keeps the textbook 19.47° V at planing speed',
+		Math.abs( kelvinTan( 44, 2.4 ) - KELVIN_TAN ) < 1e-9,
+		`tan ${ kelvinTan( 44, 2.4 ).toFixed( 4 ) }` );
 	need( 'high Fr pinches the V inside the classical Kelvin angle',
 		tanFast < KELVIN_TAN * 0.85,
 		`tan ${ tanFast.toFixed( 4 )}  Kelvin ${ KELVIN_TAN.toFixed( 4 )}` );
@@ -178,6 +181,48 @@ const behind = ( along, lat ) => kelvinWakeAt( { x: lat, z: along }, u );
 	need( 'a starting width opens the V from a beam, not a pin',
 		beamOnBeam > beamOnPin * 1.25 && pinOnPin > pinOnBeam,
 		`width 0: pin ${ pinOnPin.toFixed( 3 )} beam-ray ${ pinOnBeam.toFixed( 3 )}  width 16: pin-ray ${ beamOnPin.toFixed( 3 )} beam ${ beamOnBeam.toFixed( 3 )}` );
+}
+
+{
+	const phys = 2 * Math.PI * u.speed * u.speed / KELVIN_G;
+	need( 'a ship keeps the physical gravity-wave length',
+		Math.abs( kelvinLambda( u.speed, 60 ) - phys ) < 1e-9,
+		`λ ${ kelvinLambda( u.speed, 60 ).toFixed( 2 ) }` );
+	need( 'a ski-scale body does not draw a 64 m swell',
+		kelvinLambda( 10, 3 ) < 20 && kelvinLambda( 10, 3 ) > 8,
+		`λ ${ kelvinLambda( 10, 3 ).toFixed( 2 ) }` );
+}
+
+{
+	const small = { ...u, length: 3, cut: 0, width: 1.2 };
+	const lam = kelvinLambda( small.speed, small.length );
+	const tanW = kelvinTan( small.speed, small.length );
+	const beam = 0.6;
+	const a = kelvinWakeAt( { x: beam + 14 * tanW, z: 14 }, small );
+	const b = kelvinWakeAt( { x: beam + ( 14 + lam * 0.45 ) * tanW, z: 14 + lam * 0.45 }, small );
+	need( 'ski-scale arms still change sign — wavelets, not a tube',
+		a.h * b.h < 0 && Math.abs( a.h ) > 0.02 && Math.abs( b.h ) > 0.02,
+		`h(14) ${ a.h.toFixed( 3 )}  h(+0.45λ) ${ b.h.toFixed( 3 )}` );
+}
+
+{
+	const cutU = { ...u, cut: 0.8, width: 2 };
+	const mid = kelvinWakeAt( { x: 0, z: 40 }, cutU );
+	const arm = kelvinWakeAt( { x: 40 * KELVIN_TAN, z: 40 }, cutU );
+	need( 'a cut on the centerline is a trough',
+		mid.h < - 0.05,
+		`centre ${ mid.h.toFixed( 3 ) }` );
+	need( 'the arms still carry a wave when the middle is cut',
+		Math.abs( arm.h ) > 0.05,
+		`arm ${ arm.h.toFixed( 3 ) }` );
+}
+
+{
+	const deepTan = kelvinTan( 10, 60 );
+	const shallowTan = kelvinTan( 10, 60, 12 ); // Fr_h = 10 / sqrt(9.81 * 12) = 0.922
+	need( 'shallow water near critical depth opens the wake angle',
+		shallowTan > deepTan * 1.5,
+		`deep ${ deepTan.toFixed( 4 ) } shallow ${ shallowTan.toFixed( 4 ) }` );
 }
 
 for ( const r of results ) {

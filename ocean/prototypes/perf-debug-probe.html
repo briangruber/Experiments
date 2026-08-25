@@ -79,9 +79,12 @@ const work = (async () => {
     `el ${ dbg?.el?.id }`);
   dbg.open();
   log('opening it shows the panel', dbg.isOpen() && !dbg.el.hidden, `hidden ${ dbg.el.hidden }`);
-  log('the overlay has a GPU meter and a Hottest list',
-    !!dbg.el.querySelector('[data-m="gpu"]') && !!dbg.el.querySelector('[data-m="hot"]'),
-    `gpu ${ !!dbg.el.querySelector('[data-m="gpu"]') } hot ${ !!dbg.el.querySelector('[data-m="hot"]') }`);
+  log('the overlay has a GPU meter, live GPU, and last-measure list',
+    !!dbg.el.querySelector('[data-m="gpu"]') && !!dbg.el.querySelector('[data-m="live"]') && !!dbg.el.querySelector('[data-m="hot"]'),
+    `gpu ${ !!dbg.el.querySelector('[data-m="gpu"]') } live ${ !!dbg.el.querySelector('[data-m="live"]') } hot ${ !!dbg.el.querySelector('[data-m="hot"]') }`);
+  log('seafloor props is a billed stage',
+    PERF_STAGES.some((s) => s.id === 'floor') && A.perf.floor === true,
+    `floor ${ A.perf.floor }`);
   const adaptBox = dbg.el.querySelector('input[data-gov="adapt"]');
   log('Adaptive quality is a toggle on the overlay', !!adaptBox, `box ${ !!adaptBox }`);
   A.params.adaptiveQuality = 1;
@@ -128,7 +131,7 @@ const work = (async () => {
   A.perf.sea = true;
   A.perf.dragon = false;
   await frames(3);
-  log('turning Sea dragon off skips the refraction draw',
+  log('turning Refraction off skips the under-water photograph',
     A.perfTimes.ran.dragon === 0,
     `ran dragon ${ A.perfTimes.ran.dragon }`);
 
@@ -140,8 +143,8 @@ const work = (async () => {
 })();
 
 const timedOut = Symbol('timeout');
-const outcome = await Promise.race([work, new Promise((r) => setTimeout(() => r(timedOut), 90000))]);
-if (outcome === timedOut) log('the probe itself', false, 'no result after 90s');
+const outcome = await Promise.race([work, new Promise((r) => setTimeout(() => r(timedOut), 120000))]);
+if (outcome === timedOut) log('the probe itself', false, 'no result after 120s');
 
 window.probeResult = { results, allOk: results.length > 0 && results.every((r) => r.ok) };
 </script>

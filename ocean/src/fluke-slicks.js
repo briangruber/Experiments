@@ -169,7 +169,11 @@ export class FlukeSlickField {
 		const fade = Math.max( opts.fade ?? 9, 0.5 );
 		const clear = opts.clearance ?? 0;
 		const beam = Math.max( opts.beam ?? 2, 0.6 );
-		const near = clear < fade && clear > - beam * 0.5;
+		// A raised fluke still prints on the sea under it. Waiting for
+		// the blade to sit inside half a beam is why a visible tail
+		// slap often left the surface untouched.
+		const lift = Math.max( beam * 0.85, 3.2 );
+		const near = clear < fade && clear > - lift;
 		// Stroke peak while already near the sea, OR the fluke actually
 		// crossing the waterline. Waiting only on cos(phase) is why a
 		// visible tail slap often left no print — the peak and the hit

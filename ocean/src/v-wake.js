@@ -1,10 +1,15 @@
 // A simple V behind a body on the free surface.
 //
-// Two soft ridges leaving the snout at ±angle, fading with fetch.
-// Optional third ridge on the centreline (`mid`).
-// No oscillating gravity waves, no stamp field. Twin of
+// Two soft ridges leaving the FIRST waterline cut at ±angle, fading
+// with fetch. Optional third ridge on the centreline (`mid`).
+// The vertex is the snout if it is cutting, else the front of the
+// first spine / back run. Strength and arm width follow how much of
+// the mesh is through the sea, times heading speed.
+// No oscillating gravity waves, no leftover-foam stamp. Twin of
 // src/gpu/tsl/v-wake.js — a change here is not done until
 // tools/check-v-wake.mjs passes.
+
+import { wakeLeadContact, wakeSpraySites, wakeBehindPoint } from './body-spray.js';
 
 export const V_WAKE_ANGLE = 15 * Math.PI / 180;
 export const V_WAKE_TAN = Math.tan( V_WAKE_ANGLE );
@@ -28,6 +33,81 @@ export function vWakeDepthT( topClear, piercing, fadeM = 9, _emergeM = 7 ) {
 
 	}
 	return 1;
+
+}
+
+/**
+ * What VWakeField.step writes this frame. Null contact ages leftover
+ * stamps. A parked body, a leap, or a mesh that is not cutting does
+ * not start a new chevron.
+ *
+ * @returns {{ contact: {x:number,z:number,fx:number,fz:number,amp:number}|null,
+ *   width: number, len: number, tan: number, mid: number, life: number,
+ *   churn: number }|null}
+ */
+export function vWakeWrite( body, params = {}, opts = {} ) {
+
+	if ( ! body ) return null;
+	if ( body.controller?.jumpAirborne || body.jumpAirborne ) return null;
+	// The mesh recipe wins over the scene parameter, so a body carries its
+	// own V the way it carries its own rings.
+	const cfg = body.wakeConfig?.() ?? null;
+	const gain = cfg?.v ?? params.sdVWake ?? 0;
+	if ( ! ( gain > 0.001 ) ) return null;
+	const sea = opts.seaLevel ?? params.seaLevel ?? 0;
+	const heading = body.heading ?? 0;
+	const hx = Math.sin( heading );
+	const hz = - Math.cos( heading );
+	const info = wakeLeadContact( body, {
+		seaLevel: sea,
+		band: params.sdSprayDepth ?? 0.12,
+	} );
+	const sites = wakeSpraySites( body, { seaLevel: sea } );
+	let site = info ? { x: info.x, z: info.z } : sites[ 0 ];
+	if ( ! site ) return null;
+	let best = site.x * hx + site.z * hz;
+	for ( let i = 0; i < sites.length; i ++ ) {
+
+		const s = sites[ i ];
+		const d = s.x * hx + s.z * hz;
+		if ( d > best ) {
+
+			best = d;
+			site = s;
+
+		}
+
+	}
+	const speed = Math.abs( body.speed ?? 0 );
+	const speedT = speed <= 0.12 ? 0 : Math.min( ( speed - 0.12 ) / 6, 1 );
+	const topClear = sea - ( info?.top ?? sea );
+	const depthT = vWakeDepthT( topClear, true, params.sdDomeNear ?? 9, 7 );
+	const L = Math.max( body.length ?? body.size?.z ?? 24, 4 );
+	const emergeRef = Math.max( L * 0.04, 1.4 );
+	const emergeT = Math.min( Math.max( info?.emerge ?? 0, 0 ) / emergeRef, 1 );
+	const width0 = cfg?.vWidth ?? params.sdVWakeWidth ?? 1.3;
+	const len0 = cfg?.vLen ?? params.sdVWakeLen ?? 70;
+	const write = {
+		width: width0 * ( 0.55 + 1.65 * emergeT ),
+		len: len0 * ( 0.45 + 0.55 * emergeT ),
+		tan: vWakeTan( cfg?.vAngle ?? params.sdVWakeAngle ),
+		mid: cfg?.vMid ?? params.sdVWakeMid ?? 0.83,
+		life: cfg?.vLife ?? params.sdVWakeLife ?? 8.2,
+		churn: cfg?.vChurn ?? 1,
+	};
+	if ( ! ( speedT > 0.001 ) || ! ( depthT > 0.02 ) ) {
+
+		return { ...write, contact: null };
+
+	}
+	const amp = gain * ( cfg?.vAmp ?? params.sdVWakeAmp ?? 1.39 )
+		* depthT * speedT * ( 0.28 + 0.72 * emergeT );
+	if ( ! ( amp > 0.02 ) ) return { ...write, contact: null };
+	const aft = wakeBehindPoint( site.x, site.z, heading, 0.9 );
+	return {
+		...write,
+		contact: { x: aft[ 0 ], z: aft[ 1 ], fx: hx, fz: hz, amp },
+	};
 
 }
 
@@ -106,7 +186,10 @@ export function vWakeChurnAt( px, pz, u ) {
 	const fade = Math.max( 1 - fetch / len, 0 );
 	const t = ( fetch - 2 ) / 8;
 	const born = t <= 0 ? 0 : t >= 1 ? 1 : t * t * ( 3 - 2 * t );
-	const gain = Math.min( ( u.amp ?? 0 ) / 1.39, 1.2 ) * 0.88;
+	// `churn` 0 is a wake made of displaced water only — the arms still
+	// have height, nothing turns white.
+	const gain = Math.min( ( u.amp ?? 0 ) / 1.39, 1.2 ) * 0.88
+		* Math.max( u.churn ?? 1, 0 );
 	return Math.min( 1, Math.max( 0, track * fade * fade * born * gain ) );
 
 }
