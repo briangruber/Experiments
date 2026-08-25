@@ -54,6 +54,25 @@ Read from the reference footage, and each piece is a separate slider group:
 Foam noise is sampled in **world space**, so bubbles stay locked to the water
 instead of swimming along with the boat.
 
+### Foam is where waves break
+
+The foam V used to be a *drawn shape* — a half-angle slider, set to whatever
+looked right, with no connection to the waves at all. Two independent systems
+sitting on top of each other, and only the waves had any physics in them.
+
+Foam is now derived from the wave field: steepness is amplitude × wavenumber,
+and past a critical value a crest spills. That one change makes the foam inherit
+the wave field's own geometry — it lands on the cusp line where the divergent
+and transverse systems merge and the amplitude piles up, and it follows speed,
+Froude number, hull length and turn rate without being told to, because all of
+those are already in the local amplitude. It also sits on the crest faces rather
+than in the troughs.
+
+`Foam from breaking` crossfades between the derived foam and the old prescribed
+arms, so the two can be compared directly. The prescribed arms are kept because
+spray thrown by a planing hull is genuinely not the same phenomenon as a
+gravity wave breaking — but the V should come from the waves, and now does.
+
 ### Wave size comes from the hull, not from a slider
 
 Kelvin amplitude is computed from the boat rather than dialled in:
@@ -228,6 +247,14 @@ starts with a full-length wake. The sim is stepped independently of rendering �
 without that, a slow headless frame rate silently shortens the wake.
 
 Exits non-zero on any WebGL/JS error, so it doubles as a smoke test.
+
+## Making it die faster
+
+`Field & decay → Wake decay ×` scales every lifetime and decay length at once,
+in seconds and in metres. The individual controls stay where they are (foam
+life, bubble life, wave life, the arm fade, the wash and plume decay lengths) —
+this multiplies all of them, because "make it die faster" should not mean
+hunting through four groups.
 
 ## Performance
 

@@ -11,6 +11,7 @@
 import * as THREE from 'three';
 import { get } from './params.js';
 import { NOISE_GLSL } from './noise.js';
+import { SKY_GLSL } from './sky.js';
 
 const HEIGHT_GLSL = /* glsl */`
   uniform sampler2D uWake;
@@ -19,6 +20,8 @@ const HEIGHT_GLSL = /* glsl */`
   uniform float uSwellAmp, uSwellLen, uChopAmp, uTime, uFlatten;
   uniform vec3  uEyePos;
   uniform float uVertexStep;
+  uniform vec2  uPlaneC;
+  uniform float uPlaneR;
 
   vec2 wakeUV(vec2 p){ return (p - uWakeCenter) / uWakeExtent * vec2(1.0, -1.0) + 0.5; }
 
@@ -36,15 +39,26 @@ const HEIGHT_GLSL = /* glsl */`
   // Returns height in .x and the surface gradient in .yz. The gradient is
   // analytic -- these are sums of sines, so differentiating them costs one cos
   // per term instead of four extra evaluations of the whole function.
+  // Beyond this plane lies the flat far water. Fading the waves out towards the
+  // rim makes the two meet without a square edge in the middle of the sea.
+  float planeFade(vec2 p){
+    return 1.0 - smoothstep(uPlaneR * 0.60, uPlaneR * 0.97, distance(p, uPlaneC));
+  }
+
   vec3 swellHG(vec2 p, float px){
-    float lod  = 1.0 - smoothstep(0.10, 0.42, px / max(uSwellLen * 0.17, 0.5));
-    float lodS = 1.0 - smoothstep(0.10, 0.42, px / max(uSwellLen, 1.0));
+    // A wave carried by a mesh needs roughly eight vertices across it before it
+    // stops looking like faceting, so the cutoff is tight: at 0.93 m spacing the
+    // 4 m chop was scalloping into a visible corduroy across the whole plane.
+    float lod  = 1.0 - smoothstep(0.055, 0.19, px / max(uSwellLen * 0.17, 0.5));
+    float lodS = 1.0 - smoothstep(0.055, 0.19, px / max(uSwellLen, 1.0));
     float k  = 6.28318 / max(uSwellLen, 1.0);
     float kc = 6.28318 / (max(uSwellLen, 1.0) * 0.17);
 
     // Each wave: (kx, kz, amplitude, phase).
-    vec2 k1 = vec2( 0.86,  0.51) * k;   float a1 = uSwellAmp * lodS;
-    vec2 k2 = vec2(-0.42,  1.13) * k;   float a2 = uSwellAmp * 0.55 * lodS;
+    vec2 k1 = vec2( 0.86,  0.51) * k;          float a1 = uSwellAmp * lodS;
+    vec2 k2 = vec2(-0.42,  1.13) * k * 1.27;   float a2 = uSwellAmp * 0.55 * lodS;
+    vec2 k7 = vec2( 1.19, -0.63) * k * 0.71;   float a7 = uSwellAmp * 0.42 * lodS;
+    vec2 k8 = vec2(-0.94, -0.88) * k * 1.61;   float a8 = uSwellAmp * 0.30 * lodS;
     // Four chop components, not two, on deliberately unrelated headings and
     // incommensurate frequencies. Two crossed sines beat into a visible grid --
     // which stayed hidden only while the sun was switched off.
@@ -57,14 +71,18 @@ const HEIGHT_GLSL = /* glsl */`
     float p2 = dot(p, k2) - uTime * 0.79;
     float p3 = dot(p, k3) - uTime * 2.40;
     float p4 = dot(p, k4) - uTime * 3.10;
+    float p7 = dot(p, k7) - uTime * 0.63;
+    float p8 = dot(p, k8) - uTime * 0.91;
     float p5 = dot(p, k5) - uTime * 2.07;
     float p6 = dot(p, k6) - uTime * 3.83;
 
-    float h = a1 * sin(p1) + a2 * sin(p2) + a3 * sin(p3)
-            + a4 * sin(p4) + a5 * sin(p5) + a6 * sin(p6);
+    float h = a1 * sin(p1) + a2 * sin(p2) + a3 * sin(p3) + a4 * sin(p4)
+            + a5 * sin(p5) + a6 * sin(p6) + a7 * sin(p7) + a8 * sin(p8);
     vec2 g = a1 * cos(p1) * k1 + a2 * cos(p2) * k2 + a3 * cos(p3) * k3
-           + a4 * cos(p4) * k4 + a5 * cos(p5) * k5 + a6 * cos(p6) * k6;
-    return vec3(h, g);
+           + a4 * cos(p4) * k4 + a5 * cos(p5) * k5 + a6 * cos(p6) * k6
+           + a7 * cos(p7) * k7 + a8 * cos(p8) * k8;
+    float ef = planeFade(p);
+    return vec3(h, g) * ef;
   }
 
   float swellAt(vec2 p, float px){ return swellHG(p, px).x; }
@@ -101,12 +119,14 @@ const FRAG = /* glsl */`
   ${HEIGHT_GLSL}
   ${NOISE_GLSL}
   uniform vec3  uSunDir, uDeep, uSky, uHorizon;
-  uniform float uSpecular, uExposure, uFar, uSheen;
+  uniform float uSpecular, uExposure, uFar, uSheen, uHazeStart, uSunGlow;
+  uniform vec3  uZenith;
+  ${SKY_GLSL}
   uniform float uFoamDensity, uTranslucency, uAeration, uRelief, uTroughBias, uWarmth;
   uniform float uLaceScale, uLaceAmt, uSoftness;
   uniform float uBubBright, uMilk, uDeepTint;
   uniform float uDrift, uRingAmt, uRingScale, uRingSpeed, uRingWidth, uRingRelief, uBoil;
-  uniform float uCellGrow, uCoarsen;
+  uniform float uCellGrow, uCoarsen, uRideWaves;
   uniform vec3  uBubCol;
   #define uEye uEyePos
 
@@ -162,8 +182,6 @@ const FRAG = /* glsl */`
     float fres = pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 5.0);
     fres = mix(0.02, 1.0, fres);
 
-    vec3 sky = mix(uSky, uHorizon, pow(1.0 - clamp(N.y, 0.0, 1.0), 1.5));
-
     // ------------------------------------------------- subsurface bubbles --
     // These are IN the water, not on it, so they belong to the body colour --
     // resolved before the surface is applied. A bubble plume works like a
@@ -171,6 +189,19 @@ const FRAG = /* glsl */`
     // the water reads shallow and turquoise, the same reason water over sand
     // does. Crucially the surface above is still water, so it goes on
     // reflecting the sky and catching the sun exactly as it did.
+    // Foam floats. It is carried by the orbital motion of whatever is under it
+    // -- and by far the biggest waves under it are the wake's OWN, not the
+    // ambient swell. So the whole foam field is sampled at a position pushed by
+    // the full surface slope, which is why it now surges with the Kelvin crests
+    // instead of sitting frozen while they roll out from under it.
+    // Scaled well past the literal orbital radius. A water particle really
+    // only swings back and forth by about one wave amplitude -- well under a
+    // metre here, which is invisible -- but foam sitting dead still while
+    // crests roll out from under it reads as painted-on. This exaggerates the
+    // surge until the foam is legibly attached to the surface.
+    vec2 ride = grad * uRideWaves * 14.0;
+    vec4 wF = uRideWaves > 0.001 ? wakeAt(vWorld.xz + ride) : w;
+
     float bub = clamp(w.a, 0.0, 3.0);
     float scat = 1.0 - exp(-bub * uBubBright * 1.5);
 
@@ -187,9 +218,7 @@ const FRAG = /* glsl */`
     // Reflection direction, so the sky's own gradient varies with slope rather
     // than being a constant overhead colour.
     vec3 R = reflect(-V, N);
-    vec3 skyR = mix(uHorizon, uSky, pow(clamp(R.y, 0.0, 1.0), 0.55));
-
-    vec3 col = mix(body, skyR, fres);
+    vec3 col = mix(body, skyColour(R), fres);
 
     // Seen from overhead the surface is near normal incidence, where Fresnel is
     // about 2% and hardly varies -- so waves would be invisible on reflection
@@ -218,7 +247,7 @@ const FRAG = /* glsl */`
     // 1. Bubbles pool in the troughs and thin over the crests, so the lace
     //    drapes over the swell rather than ignoring it.
     float trough = clamp(-sw.x / max(uSwellAmp, 0.02), -1.0, 1.0);
-    float foam = clamp(w.r, 0.0, 2.0) * (1.0 + trough * uTroughBias);
+    float foam = clamp(wF.r, 0.0, 2.0) * (1.0 + trough * uTroughBias);
 
     // 2. Thin aeration scatters light back as pale teal long before there is
     //    enough of it to read as white. This halo is the wake's soft edge.
@@ -241,7 +270,9 @@ const FRAG = /* glsl */`
       // Surge with the passing swell. Water in a wave moves in orbits, and the
       // horizontal part of that orbit goes with the surface slope -- which is
       // already in hand from the normal, so this costs nothing.
-      vec2 orbit = sw.yz * uDrift * 5.0;
+      // The full surface slope, not just the ambient swell: the wake's own
+      // waves are the ones actually passing under this foam.
+      vec2 orbit = grad * uDrift * 5.0;
 
       // The lace is shoved outward as each wavefront sweeps past. Every push
       // returns to zero once its ring has passed, so this distorts the foam
@@ -295,13 +326,14 @@ const FRAG = /* glsl */`
 
     col = mix(col, foamCol, alpha);
 
-    // Distance haze towards the horizon colour.
-    col = mix(col, uHorizon, smoothstep(uFar * 0.62, uFar * 1.02, dist) * 0.9);
+    // Haze on the SAME schedule as the far water behind it -- keyed over
+    // kilometres, not hundreds of metres. Tied to the plane's own size it
+    // saturated a few hundred metres out, turning the whole sea flat grey the
+    // moment the camera gained any altitude, and leaving the detail plane a
+    // visibly different colour from the water beyond its edge.
+    col = mix(col, uHorizon, smoothstep(uHazeStart, uHazeStart * 9.0, dist));
 
-    col *= uExposure;
-    col = col / (col + 0.72);                    // tonemap
-    col = pow(clamp(col, 0.0, 1.0), vec3(1.0 / 2.2));
-    gl_FragColor = vec4(col, 1.0);
+    gl_FragColor = vec4(tonemap(col), 1.0);
   }
 `;
 
@@ -316,10 +348,12 @@ export class Ocean {
       uTime: { value: 0 },
       uEyePos: { value: new THREE.Vector3() },
       uVertexStep: { value: size / seg },  // reset by setDetail()
+      uPlaneC: { value: new THREE.Vector2() }, uPlaneR: { value: size * 0.5 },
       uSunDir: { value: new THREE.Vector3(0, 1, 0) },
       uDeep: { value: new THREE.Color() },
       uSky: { value: new THREE.Color() },
-      uHorizon: { value: new THREE.Color() },
+      uHorizon: { value: new THREE.Color() }, uZenith: { value: new THREE.Color() },
+      uSunGlow: { value: 0.5 },
       uSpecular: { value: 1 }, uExposure: { value: 1 }, uSheen: { value: 0 },
       uFoamDensity: { value: 2 }, uTranslucency: { value: 0 }, uAeration: { value: 1 },
       uRelief: { value: 0 }, uTroughBias: { value: 0 }, uWarmth: { value: 0 },
@@ -329,8 +363,8 @@ export class Ocean {
       uDrift: { value: 0 }, uBoil: { value: 0 },
       uRingAmt: { value: 0 }, uRingScale: { value: 5 }, uRingSpeed: { value: 0.4 },
       uRingWidth: { value: 1 }, uRingRelief: { value: 0 },
-      uCellGrow: { value: 0 }, uCoarsen: { value: 0 },
-      uFar: { value: size * 0.55 },
+      uCellGrow: { value: 0 }, uCoarsen: { value: 0 }, uRideWaves: { value: 0 },
+      uFar: { value: size * 0.55 }, uHazeStart: { value: 1400 },
     };
 
     this.material = new THREE.ShaderMaterial({
@@ -373,9 +407,12 @@ export class Ocean {
     const tint = get('ocean.tint');
     u.uDeep.value.setRGB(lum * 0.55, lum * (0.9 + tint * 0.5), lum * (1.6 - tint * 0.35));
     u.uSky.value.setRGB(0.42, 0.55, 0.72);
-    u.uHorizon.value.setRGB(0.30, 0.40, 0.53);
+    u.uHorizon.value.setRGB(0.34, 0.44, 0.56);
+    u.uZenith.value.setRGB(0.09, 0.20, 0.42);
+    u.uSunGlow.value = get('ocean.sunGlow');
     u.uSpecular.value = get('ocean.specular');
     u.uSheen.value = get('ocean.sheen');
+    u.uHazeStart.value = get('ocean.hazeStart');
     u.uExposure.value = get('ocean.exposure');
     u.uFoamDensity.value = get('foamMix.density');
     u.uTranslucency.value = get('foamMix.translucency');
@@ -394,6 +431,7 @@ export class Ocean {
     u.uRingRelief.value = get('foamMotion.ringRelief');
     u.uCellGrow.value = get('foamMotion.cellGrowth');
     u.uCoarsen.value = get('foamLook.coarsen');
+    u.uRideWaves.value = get('foamMotion.rideWaves');
     u.uBoil.value = get('foamMotion.boil');
     u.uBubBright.value = get('bubbles.brightness');
     u.uDeepTint.value = get('bubbles.deepTint');
@@ -407,5 +445,7 @@ export class Ocean {
     // Follow the boat, snapped to the vertex grid so the mesh doesn't crawl.
     const step = this.size / this.seg * 8;
     this.mesh.position.set(Math.round(focusX / step) * step, 0, Math.round(focusZ / step) * step);
+    u.uPlaneC.value.set(this.mesh.position.x, this.mesh.position.z);
+    u.uPlaneR.value = this.size * 0.5;
   }
 }

@@ -59,6 +59,7 @@ const RIBBON_FRAG = /* glsl */`
   uniform float uFeatSpace, uFeatGrow, uFeatLean, uFeatDepth, uFeatJitter, uFeatSharp;
   uniform float uWashW, uWashWGrow, uWashFoam, uWashLen, uWashTail, uWashDepth;
   uniform float uFrPeak, uHumpFloor, uBeamGain, uInterf, uTurnBias;
+  uniform float uBreakSteep, uWaveFoam, uFromWaves;
   uniform float uKelvinScale, uKelvinProp, uKelvinAmp, uKelvinDiv, uKelvinTrans, uKelvinCusp, uKelvinDecay, uKelvinLife, uKelvinMin;
   uniform float uFoamScale, uFoamContrast, uBreakup, uFoamLife, uDissolve;
   uniform float uLace, uLaceAmt, uSoftness;
@@ -162,6 +163,7 @@ const RIBBON_FRAG = /* glsl */`
     // is WIDER than the spray arms, and being displacement rather than foam
     // these waves keep rolling long after the white has gone.
     float kelvinH = 0.0;
+    float waveBreak = 0.0;
     // k0 = g / V^2 for the speed THIS water was disturbed at. Slow water makes
     // short, small waves; the pattern behind an accelerating boat is genuinely
     // not self-similar, and using one speed for the whole wake hides that.
@@ -235,9 +237,30 @@ const RIBBON_FRAG = /* glsl */`
       float side = clamp(vTurn * sign(d) * -6.0, -1.0, 1.0);
       float turnGain = 1.0 + side * uTurnBias * 0.5;
 
-      kelvinH = (cos(pd) * uKelvinDiv * fd + cos(pt) * uKelvinTrans * ft)
-              * fall * cusp * kAge * uKelvinAmp * moving
-              * hump * interf * beam * turnGain;
+      float ampLoc = fall * cusp * kAge * uKelvinAmp * moving
+                   * hump * interf * beam * turnGain;
+
+      kelvinH = (cos(pd) * uKelvinDiv * fd + cos(pt) * uKelvinTrans * ft) * ampLoc;
+
+      // ---- where the water actually breaks -------------------------------
+      // Foam is not a shape to be drawn at a chosen angle. It is what happens
+      // where a wave gets too steep to hold together, and steepness is
+      // amplitude times wavenumber. Past a critical value the crest spills.
+      //
+      // Deriving it here means the foam inherits the wave field's own geometry:
+      // it lands on the cusp line, where the divergent and transverse systems
+      // merge and the amplitude piles up, and it follows speed, Froude number,
+      // hull length and turn without being told to -- because all of those are
+      // already in ampLoc and k0.
+      float steepD = ampLoc * uKelvinDiv * fd * k0 * sd;
+      float steepT = ampLoc * uKelvinTrans * ft * k0 * st;
+
+      // ...and only on the crest faces, not in the troughs.
+      float crestD = smoothstep(-0.15, 0.80, cos(pd));
+      float crestT = smoothstep(-0.15, 0.80, cos(pt));
+
+      waveBreak = smoothstep(uBreakSteep, uBreakSteep * 2.4, steepD) * crestD
+                + smoothstep(uBreakSteep, uBreakSteep * 2.4, steepT) * crestT * 0.55;
     }
 
     // ------------------------------------------------------------ foam look --
@@ -267,7 +290,12 @@ const RIBBON_FRAG = /* glsl */`
     // Coverage: how much of the water here is aerated. Smooth and continuous --
     // no threshold, so nothing here can produce a hard edge. Break-up with age
     // eats into coverage, which the ocean's threshold then turns into holes.
-    float cover = (armFoam + washFoam) * alive;
+    // Foam coverage, from either the prescribed arms or from where the waves
+    // are actually breaking -- uFromWaves crossfades between them so the two
+    // can be compared directly.
+    float coverArms  = armFoam + washFoam;
+    float coverWaves = waveBreak * uWaveFoam * planing + washFoam;
+    float cover = mix(coverArms, coverWaves, uFromWaves) * alive;
     cover *= mix(1.0, 0.35 + 0.95 * field, mix(0.45, 1.0, ageN * uBreakup + 0.35));
 
     float foam = cover;
@@ -417,7 +445,8 @@ export class WakeField {
       uWashLen: { value: 1 }, uWashTail: { value: 0 }, uWashDepth: { value: 0 },
       uBubDepth: { value: 1 }, uBubRise: { value: 0.2 }, uBubExt: { value: 0.4 },
       uKelvinScale: { value: 0.5 }, uKelvinProp: { value: 1 }, uPlaning: { value: 6.5 },
-      uFrPeak: { value: 0.5 }, uHumpFloor: { value: 0.5 }, uBeamGain: { value: 1 }, uInterf: { value: 0.5 }, uTurnBias: { value: 0.5 }, uKelvinAmp: { value: 0 }, uKelvinDiv: { value: 1 },
+      uFrPeak: { value: 0.5 }, uHumpFloor: { value: 0.5 },
+      uBreakSteep: { value: 0.08 }, uWaveFoam: { value: 1 }, uFromWaves: { value: 0 }, uBeamGain: { value: 1 }, uInterf: { value: 0.5 }, uTurnBias: { value: 0.5 }, uKelvinAmp: { value: 0 }, uKelvinDiv: { value: 1 },
       uKelvinTrans: { value: 0.5 }, uKelvinCusp: { value: 1 }, uKelvinDecay: { value: 100 },
       uKelvinLife: { value: 100 }, uKelvinMin: { value: 3 },
       uFoamScale: { value: 1 }, uFoamContrast: { value: 1 }, uBreakup: { value: 0 },
@@ -538,6 +567,9 @@ export class WakeField {
 
   _syncUniforms() {
     const u = this.uniforms;
+    // Everything that decides how long the wake lasts -- in seconds and in
+    // metres -- passes through one multiplier.
+    const decay = Math.max(get('field.decay'), 0.05);
     u.uMaxArc.value = Math.max(this.maxArc || 1, 1);
     u.uBeam.value = get('boat.beam');
     u.uHullLen.value = get('boat.length');
@@ -549,8 +581,8 @@ export class WakeField {
     u.uArmFoam.value = get('arms.foam');
     u.uArmHeight.value = get('arms.height');
     u.uInnerBias.value = get('arms.innerBias');
-    u.uFadeStart.value = get('arms.fadeStart');
-    u.uFadeLen.value = get('arms.fadeLength');
+    u.uFadeStart.value = get('arms.fadeStart') / decay;
+    u.uFadeLen.value = get('arms.fadeLength') / decay;
     u.uRim.value = get('arms.rim');
     u.uRimW.value = get('arms.rimWidth');
     u.uNearBoost.value = get('arms.nearBoost');
@@ -565,7 +597,7 @@ export class WakeField {
     u.uWashW.value = get('wash.width');
     u.uWashWGrow.value = get('wash.widthGrow');
     u.uWashFoam.value = get('wash.foam');
-    u.uWashLen.value = get('wash.length');
+    u.uWashLen.value = get('wash.length') / decay;
     u.uWashTail.value = get('wash.tailFoam');
     u.uWashDepth.value = get('wash.depth');
     u.uBubDepth.value = get('bubbles.depth');
@@ -577,6 +609,9 @@ export class WakeField {
     u.uKelvinProp.value = get('kelvin.propagate');
     u.uFrPeak.value = get('kelvin.froudePeak');
     u.uHumpFloor.value = get('kelvin.humpFloor');
+    u.uBreakSteep.value = get('kelvin.breakSteep');
+    u.uWaveFoam.value = get('arms.waveFoam');
+    u.uFromWaves.value = get('arms.fromWaves');
     u.uBeamGain.value = get('kelvin.beamGain');
     u.uInterf.value = get('kelvin.interference');
     u.uTurnBias.value = get('kelvin.turnBias');
@@ -585,13 +620,13 @@ export class WakeField {
     u.uKelvinDiv.value = get('kelvin.divergent');
     u.uKelvinTrans.value = get('kelvin.transverse');
     u.uKelvinCusp.value = get('kelvin.cusp');
-    u.uKelvinDecay.value = get('kelvin.decay');
-    u.uKelvinLife.value = get('kelvin.life');
+    u.uKelvinDecay.value = get('kelvin.decay') / decay;
+    u.uKelvinLife.value = get('kelvin.life') / decay;
     u.uKelvinMin.value = get('kelvin.minWave');
     u.uFoamScale.value = get('foamLook.scale') * 0.35;
     u.uFoamContrast.value = get('foamLook.contrast');
     u.uBreakup.value = get('foamLook.breakup');
-    u.uFoamLife.value = get('foamLook.life');
+    u.uFoamLife.value = get('foamLook.life') / decay;
     u.uDissolve.value = get('foamLook.dissolve');
     u.uLace.value = get('foamLook.lace');
     u.uLaceAmt.value = get('foamLook.laceAmount');
@@ -599,12 +634,12 @@ export class WakeField {
     u.uBubPlume.value = get('bubbles.plume');
     u.uBubW.value = get('bubbles.width');
     u.uBubSpread.value = get('bubbles.spread');
-    u.uBubLen.value = get('bubbles.length');
+    u.uBubLen.value = get('bubbles.length') / decay;
     u.uBubArms.value = get('bubbles.fromArms');
-    u.uBubLife.value = get('bubbles.life');
+    u.uBubLife.value = get('bubbles.life') / decay;
     u.uBubMottle.value = get('bubbles.mottle');
     u.uSwirl.value = get('foamMotion.plumeSwirl');
-    u.uBubArmsLen.value = get('bubbles.armsLength');
+    u.uBubArmsLen.value = get('bubbles.armsLength') / decay;
   }
 
   /** Point the field at a world position (snapped, so the texture doesn't crawl). */

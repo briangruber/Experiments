@@ -27,12 +27,15 @@ const MODULES = [
   ['three',  'vendor/three/three.module.min.js', { './three.core.min.js': 'core' }],
   ['params', 'src/params.js',    {}],
   ['noise',  'src/noise.js',     {}],
+  ['sky',    'src/sky.js',       {}],
+  ['backdrop','src/backdrop.js', { three: 'three', './params.js': 'params', './sky.js': 'sky' }],
   ['boat',   'src/boat.js',      { three: 'three', './params.js': 'params' }],
-  ['ocean',  'src/ocean.js',     { three: 'three', './params.js': 'params', './noise.js': 'noise' }],
+  ['ocean',  'src/ocean.js',     { three: 'three', './params.js': 'params', './noise.js': 'noise', './sky.js': 'sky' }],
   ['wake',   'src/wakeField.js', { three: 'three', './params.js': 'params', './noise.js': 'noise' }],
   ['ui',     'src/ui.js',        { './params.js': 'params' }],
   ['main',   'src/main.js',      { three: 'three', './params.js': 'params', './wakeField.js': 'wake',
-                                   './ocean.js': 'ocean', './boat.js': 'boat', './ui.js': 'ui' }],
+                                   './ocean.js': 'ocean', './boat.js': 'boat', './ui.js': 'ui',
+                                   './backdrop.js': 'backdrop' }],
 ];
 
 // A JS string literal safe to sit inside an inline <script>: JSON handles the

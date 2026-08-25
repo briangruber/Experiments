@@ -20,7 +20,7 @@ const GROUP_TITLES = {
   foamMix: 'Foam on water',
   ocean: 'Water & light',
   quality: 'Performance',
-  field: 'Field',
+  field: 'Field & decay',
 };
 
 export function buildUI(root, hooks = {}) {
@@ -28,7 +28,7 @@ export function buildUI(root, hooks = {}) {
 
   for (const [gname, entries] of Object.entries(PARAMS)) {
     const sec = document.createElement('details');
-    sec.open = !['ocean', 'field', 'quality'].includes(gname);
+    sec.open = !['ocean', 'quality'].includes(gname);
     const sum = document.createElement('summary');
     sum.textContent = GROUP_TITLES[gname] || gname;
     sec.appendChild(sum);

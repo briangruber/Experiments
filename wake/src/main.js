@@ -3,6 +3,7 @@ import { PARAMS, get, set } from './params.js';
 import { WakeField } from './wakeField.js';
 import { Ocean } from './ocean.js';
 import { makeBoat } from './boat.js';
+import { Backdrop } from './backdrop.js';
 import { buildUI } from './ui.js';
 
 const canvas = document.getElementById('gl');
@@ -23,7 +24,8 @@ const camera = new THREE.PerspectiveCamera(38, 1, 0.5, 3000);
 const narrow = matchMedia('(max-width: 720px)').matches;
 const wake = new WakeField(renderer, narrow ? 1024 : 2048);
 const ocean = new Ocean(wake, 520, 560);
-scene.add(ocean.mesh);
+const backdrop = new Backdrop();
+scene.add(backdrop.sky, backdrop.sea, ocean.mesh);
 
 const boat = makeBoat();
 scene.add(boat);
@@ -290,6 +292,7 @@ function frame(now) {
   ocean.setDetail(get('quality.oceanDetail'));
 
   ocean.update(state.t, camera.position, state.x, state.z, wake);
+  backdrop.update(camera, sd);
 
   renderer.setViewport(0, 0, viewport.w, viewport.h);
   renderer.setScissorTest(false);

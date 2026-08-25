@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const LOCKED = process.argv.includes('--locked');
+const FOAM = process.argv.includes('--foam');
 const MIME = { '.html':'text/html', '.js':'text/javascript', '.css':'text/css' };
 const server = createServer(async (q, r) => {
   try { const u = decodeURIComponent(q.url.split('?')[0]);
@@ -25,13 +26,24 @@ await new Promise((r) => server.listen(0, r));
 
 const qs = new URLSearchParams({ prewarm: '40', cam: '-1.5708,0,150' });
 // Isolate the waves: no foam, no bubbles, no lace animation, flat sea.
-for (const [k, v] of Object.entries({
-  'arms.foam': 0, 'wash.foam': 0, 'wash.tailFoam': 0,
-  'bubbles.plume': 0, 'bubbles.fromArms': 0,
-  'ocean.swellAmp': 0, 'ocean.chopAmp': 0,
-  'foamMotion.ringAmount': 0, 'foamMotion.boil': 0, 'foamMotion.drift': 0,
-  'kelvin.propagate': LOCKED ? 0 : 1,
-})) qs.set(k, String(v));
+const iso = FOAM
+  // Foam only: the lace's own animation is off, the ambient swell is flat, and
+  // foam life is pinned long -- so anything that moves is the wake's own waves
+  // carrying it.
+  ? { 'ocean.swellAmp': 0, 'ocean.chopAmp': 0,
+      'foamMotion.ringAmount': 0, 'foamMotion.boil': 0, 'foamMotion.drift': 0,
+      'foamMotion.plumeSwirl': 0, 'bubbles.plume': 0, 'bubbles.fromArms': 0,
+      'foamMotion.rideWaves': LOCKED ? 0 : 0.9,
+      // Pin foam life: over these seconds ordinary decay changes the picture
+      // more than the riding does, and reads as a false positive.
+      'foamLook.life': 120, 'foamLook.dissolve': 0.2 }
+  // Waves only: no foam at all, so what moves is the surface itself.
+  : { 'arms.foam': 0, 'wash.foam': 0, 'wash.tailFoam': 0,
+      'bubbles.plume': 0, 'bubbles.fromArms': 0,
+      'ocean.swellAmp': 0, 'ocean.chopAmp': 0,
+      'foamMotion.ringAmount': 0, 'foamMotion.boil': 0, 'foamMotion.drift': 0,
+      'kelvin.propagate': LOCKED ? 0 : 1 };
+for (const [k, v] of Object.entries(iso)) qs.set(k, String(v));
 
 const { chromium } = await import('/opt/node22/lib/node_modules/playwright/index.mjs');
 const browser = await chromium.launch({ args: ['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader'] });
@@ -70,16 +82,33 @@ const diff = await probe.evaluate(async ([A, B]) => {
     const g = c.getContext('2d'); g.drawImage(i, 0, 0, 200, 200);
     return g.getImageData(0, 0, 200, 200).data; };
   const [da, db] = [await load(A), await load(B)];
-  let changed = 0, sum = 0;
+  let changed = 0, sum = 0, flipped = 0, foamPx = 0;
+  const T = 118;                       // foam is far brighter than any water here
   for (let i = 0; i < da.length; i += 4) {
-    const d = Math.abs((da[i]+da[i+1]+da[i+2])/3 - (db[i]+db[i+1]+db[i+2])/3);
-    sum += d; if (d > 6) changed++;
+    const la = (da[i]+da[i+1]+da[i+2])/3, lb = (db[i]+db[i+1]+db[i+2])/3;
+    sum += Math.abs(la - lb);
+    if (Math.abs(la - lb) > 6) changed++;
+    const fa = la > T, fb = lb > T;
+    if (fa) foamPx++;
+    if (fa !== fb) flipped++;          // the mask MOVED; smooth shading cannot do this
   }
-  return { changedFraction: +(changed / (da.length/4)).toFixed(4), meanAbsDiff: +(sum/(da.length/4)).toFixed(2) };
+  const n = da.length / 4;
+  return { changedFraction: +(changed / n).toFixed(4), meanAbsDiff: +(sum / n).toFixed(2),
+           foamFraction: +(foamPx / n).toFixed(4), maskFlipFraction: +(flipped / n).toFixed(4) };
 }, [a, b]);
 await probe.close();
 
-console.log(JSON.stringify({ mode: LOCKED ? 'locked to boat (control)' : 'waves run free', boat: moved, diff, errs }, null, 2));
+const mode = (FOAM ? 'foam' : 'waves') + (LOCKED ? ' (control: not riding)' : ' run free');
+console.log(JSON.stringify({ mode, boat: moved, diff, errs }, null, 2));
 await browser.close(); server.close();
 if (errs.length) process.exit(1);
-if (!LOCKED && diff.changedFraction < 0.02) { console.error('FAIL: waves freeze when the boat stops'); process.exit(1); }
+// Thresholds are calibrated against each mode's own control run, not shared.
+// Waves that stop moving go to ~0; foam riding them is a much subtler effect --
+// its control sits near 0.013 and riding lifts it to ~0.018, so the bar is set
+// just above the control rather than at some round number.
+const metric = FOAM ? diff.maskFlipFraction : diff.changedFraction;
+const floor = FOAM ? 0.016 : 0.02;
+if (!LOCKED && metric < floor) {
+  console.error(`FAIL: ${FOAM ? 'foam does not ride the waves' : 'waves freeze'} when the boat stops`);
+  process.exit(1);
+}

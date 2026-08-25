@@ -22,6 +22,8 @@ export const PARAMS = {
   // The V of spray sheets. In the reference these originate at the BOW, not the
   // transom, and stay bright for a long way astern.
   arms: {
+    fromWaves:    { v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Foam from breaking' },
+    waveFoam:     { v: 1.60, min: 0,   max: 5,   step: 0.01, label: 'Breaking foam gain' },
     angle:        { v: 15.5, min: 4,   max: 40,  step: 0.1,  label: 'Half-angle (°)' },
     width0:       { v: 2.10, min: 0.1, max: 4,   step: 0.05, label: 'Width at bow (m)' },
     widthGrow:    { v: 0.022,min: 0,   max: 0.6, step: 0.005,label: 'Width growth (m/m)' },
@@ -84,6 +86,7 @@ export const PARAMS = {
     decay:        { v: 150.0,min: 10,  max: 800, step: 5,    label: 'Amplitude decay (m)' },
     life:         { v: 120.0,min: 5,   max: 300, step: 1,    label: 'Wave life (s)' },
     propagate:    { v: 1.00, min: 0,   max: 1,   step: 0.01, label: 'Waves run free' },
+    breakSteep:   { v: 0.075,min: 0.005,max: 0.4, step: 0.005,label: 'Breaking steepness' },
     minWave:      { v: 3.60, min: 0.5, max: 20,  step: 0.1,  label: 'Shortest wave (m)' },
   },
 
@@ -127,6 +130,7 @@ export const PARAMS = {
   // cells burst and re-form. All of it is LOCAL motion — nothing here may drift,
   // or the foam would slide across water it is supposed to be floating on.
   foamMotion: {
+    rideWaves:    { v: 0.80, min: 0,   max: 3,   step: 0.01, label: 'Foam rides the waves' },
     drift:        { v: 0.55, min: 0,   max: 3,   step: 0.01, label: 'Rides the swell' },
     ringAmount:   { v: 0.75, min: 0,   max: 3,   step: 0.01, label: 'Ring push (m)' },
     ringScale:    { v: 3.40, min: 0.8, max: 30,  step: 0.1,  label: 'Ring spacing (m)' },
@@ -156,6 +160,8 @@ export const PARAMS = {
     tint:         { v: 0.42, min: 0,   max: 1,   step: 0.01, label: 'Blue / teal' },
     sunElev:      { v: 52.0, min: 5,   max: 88,  step: 1,    label: 'Sun elevation (°)' },
     sunAzim:      { v: 140.0,min: 0,   max: 360, step: 1,    label: 'Sun azimuth (°)' },
+    hazeStart:    { v: 1400, min: 100, max: 8000,step: 50,   label: 'Haze onset (m)' },
+    sunGlow:      { v: 0.55, min: 0,   max: 2,   step: 0.01, label: 'Sun glow' },
     sheen:        { v: 0.10, min: 0,   max: 1.5, step: 0.01, label: 'Wave sheen' },
     specular:     { v: 0.55, min: 0,   max: 2,   step: 0.01, label: 'Specular' },
     exposure:     { v: 1.0,  min: 0.2, max: 3,   step: 0.01, label: 'Exposure' },
@@ -168,6 +174,10 @@ export const PARAMS = {
   },
 
   field: {
+    // One knob over every lifetime and decay length in the wake. The individual
+    // ones stay where they are; this scales all of them at once, because
+    // "make it die faster" should not mean hunting through four groups.
+    decay:        { v: 1.00, min: 0.2, max: 8,   step: 0.05, label: 'Wake decay ×' },
     extent:       { v: 340,  min: 80,  max: 700, step: 10,   label: 'Wake field size (m)' },
     trailLength:  { v: 620,  min: 50,  max: 1200,step: 10,   label: 'Trail length (m)' },
   },
