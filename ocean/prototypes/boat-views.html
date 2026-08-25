@@ -1,0 +1,71 @@
+<!doctype html><meta charset="utf-8"><body style="margin:0;background:#111">
+<canvas id="view" width="1200" height="400"></canvas>
+<script type="importmap">{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js" } }</script>
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { buildCraftGeometry, loadCraftTexture } from '../src/gpu/tsl/craft.js';
+import { BOAT_MESH } from '../demo/boatModel.js';
+const canvas = document.getElementById('view');
+const r = new THREE.WebGPURenderer({ canvas, forceWebGL: true, antialias: true });
+await r.init(); r.setClearColor(0x111111, 1);
+
+const LEN = 9;
+const geo = buildCraftGeometry(LEN, BOAT_MESH).geometry;
+const tex = await loadCraftTexture(r, BOAT_MESH);
+const mat = new THREE.MeshBasicNodeMaterial({ map: tex, side: THREE.DoubleSide });
+const mesh = new THREE.Mesh(geo, mat);
+const scene = new THREE.Scene(); scene.add(mesh);
+const light = new THREE.AmbientLight(0xffffff, 1); scene.add(light);
+
+// A RED marker at world Z=+3 and a GREEN one at Z=-3. Colour, not camera
+// math, is what settles which end is which - three's default up-vector for a
+// near-vertical look direction is an implementation detail not worth
+// hand-deriving when a sphere answers it.
+//
+// THIS PROBE'S OWN FIRST READING OF THESE VIEWS WAS WRONG. It called -Z the
+// bow from a vertex-density taper that turned out not to be the tell it
+// looked like - reported live, the boat drove stern-first. The correct read,
+// unambiguous once checked with an orthographic top-down render and markers
+// at the literal hull tips instead of floating over the deck (see
+// prototypes/boat-bow-recheck.html), is the bow at +Z (RED here) and the
+// flat, winch-equipped stern at -Z (GREEN here) - the reverse of what this
+// file's markers were originally labelled. boatYawOffset is now pi
+// (presets.js) to correct it. Left as a second, cross-checking view rather
+// than deleted - two different camera setups agreeing is worth more than one.
+const mk = (z, color) => {
+  const s = new THREE.Mesh(new THREE.SphereGeometry(0.35, 12, 12), new THREE.MeshBasicMaterial({ color }));
+  s.position.set(0, 3, z);
+  scene.add(s);
+};
+mk(3, 0xff2222);   // RED = +Z = the actual bow
+mk(-3, 0x22ff44);  // GREEN = -Z = the actual stern
+
+// Real proportions at LEN=9 (measured from the source bbox): beam ~3.3 m,
+// freeboard+cabin a few metres, a mast reaching well above that - the previous
+// version borrowed plane-views.html's camera rig verbatim and cropped
+// everything but the cabin roof. Framed wider and further back here, aimed at
+// the WATERLINE-ish height rather than the mast.
+const cam = new THREE.PerspectiveCamera(45, 300 / 400, 0.05, 200);
+const views = [
+  { pos: [0, 2.5, -14], look: [0, 1.5, 0], label: 'stern-on (-Z)' },
+  { pos: [14, 2.5, 0], look: [0, 1.5, 0], label: 'side (+X)' },
+  { pos: [0.01, 16, 0], look: [0, 0, 0], label: 'top' },
+  { pos: [9, 6, -9], look: [0, 1.5, 0], label: '3/4' },
+];
+for (let i = 0; i < 4; i++) {
+  r.setViewport(i * 300, 0, 300, 400); r.setScissor(i * 300, 0, 300, 400); r.setScissorTest(true);
+  cam.position.set(...views[i].pos);
+  // The top view looks almost exactly along -Y, where (0,1,0) as an up hint is
+  // degenerate; give it a real up (screen-up = world -Z) so the marker spheres
+  // land somewhere legible instead of at an implementation-defined orientation.
+  // Every other view is a normal eye-level shot and wants the ordinary up.
+  const isTop = views[i].label === 'top';
+  cam.up.set(0, isTop ? 0 : 1, isTop ? -1 : 0);
+  cam.lookAt(...views[i].look);
+  await r.renderAsync(scene, cam);
+}
+window.probeResult = { allOk: true, results: [{ name: 'rendered', ok: true, detail: views.map(v => v.label).join(', ') }] };
+</script></body>

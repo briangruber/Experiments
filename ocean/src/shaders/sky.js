@@ -1,3 +1,5 @@
+import { HDR_OUTPUT_GUARD } from './output.js';
+
 // Atmosphere, clouds and celestial bodies.
 //
 // The expensive scattering integral is evaluated into a small lat-long LUT with
@@ -284,6 +286,7 @@ void main(){
 
 // Full-quality background: LUT gradient + sun/moon discs + volumetric clouds.
 export const SKY_BG_FS = /* glsl */`
+${HDR_OUTPUT_GUARD}
 ${ATMOSPHERE_GLSL}
 ${SKY_LUT_MAP_GLSL}
 ${NOISE_GLSL}
@@ -804,11 +807,23 @@ void main(){
     // nearly uniform across the disc with a slight brightening at the edge.
     float m = sqrt(max(0.0, 1.0 - (mAng/moonR)*(mAng/moonR)));
     float solid = TAU_A * (1.0 - cos(moonR));
-    vec3 disc = uMoonColor / max(solid, 1e-7) * (0.62 + 0.38*m) * mDisc * moonTr * uAtmoExposure * 0.04;
+    // 0.22 is the visible disc. moonIntensity feeds the LUT / glitter path;
+    // raising that instead lifts the whole night. Daytime moonColor is 0.
+    vec3 disc = uMoonColor / max(solid, 1e-7) * (0.62 + 0.38*m) * mDisc * moonTr * uAtmoExposure * 0.22;
     col += capRadiance(disc, uDiscCap);
   }
-  // Moon aureole from forward Mie scattering in the haze around it.
-  col += uMoonColor * moonTr * pow(max(dot(rd, uMoonDir),0.0), 340.0) * 0.7 * uAtmoExposure;
+  if (dot(uMoonColor, uMoonColor) > 1e-8) {
+    // Tight aureole (Mie) plus a wide moonward wash so a chase look that keeps
+    // the disc just out of frame still has a bright place in the sky.
+    float mMu = max(dot(rd, uMoonDir), 0.0);
+    col += uMoonColor * moonTr * uAtmoExposure * (pow(mMu, 80.0) * 1.15 + pow(mMu, 12.0) * 0.09);
+    float nightW = smoothstep(0.06, -0.10, uSunDir.y);
+    float hzGlow = exp(-max(rd.y, 0.0) * 10.0) * smoothstep(-0.02, 0.04, rd.y);
+    vec3 rdH = vec3(rd.x, 0.0, rd.z);
+    vec3 moH = vec3(uMoonDir.x, 0.0, uMoonDir.z);
+    float towardMoon = max(dot(rdH, moH) / max(length(rdH) * length(moH), 1e-4), 0.0);
+    col += uMoonColor * moonTr * uAtmoExposure * nightW * hzGlow * (0.10 + 0.28 * towardMoon * towardMoon);
+  }
 
   // Sun disc with limb darkening, only when actually above the horizon line.
   float sAng = discAngle(rd, uSunDir, refractFlatten(uSunDir.y));
@@ -843,7 +858,8 @@ void main(){
     float fwd  = miePhase(dot(rd, uSunDir), 0.62) * 2.6 + 0.09;
     float fwdM = miePhase(dot(rd, uMoonDir), 0.62) * 2.6 + 0.09;
     vec3 lit = uSunIrradiance * sunTransmittance(hiPos, uSunDir) * fwd
-             + uMoonColor    * sunTransmittance(hiPos, uMoonDir) * fwdM;
+             + uMoonColor    * sunTransmittance(hiPos, uMoonDir) * fwdM
+               * (dot(uMoonColor, uMoonColor) > 1e-8 ? 2.2 : 1.0);
     // Ambient is the sky behind *this* direction, never the zenith: pasting
     // zenith blue over a warm horizon drags every streak colder and darker than
     // the sky it lies on, which is the opposite of what ice cloud does.
@@ -854,10 +870,11 @@ void main(){
     col = mix(col, cc*hz + back*(1.0-hz), a);
   }
 
-  vec3 moonCol = uMoonColor * moonTr * uAtmoExposure;
+  vec3 moonCol = uMoonColor * moonTr * uAtmoExposure
+    * (dot(uMoonColor, uMoonColor) > 1e-8 ? 2.6 : 1.0);
   vec4 cl = marchClouds(uCamPos, rd, uSunDir, sunCol, uMoonDir, moonCol, skyTop, skyLow);
   col = col*(1.0 - cl.a) + cl.rgb;
 
-  fragColor = vec4(col, 1.0);
+  fragColor = ABYSSAL_OUT(col);
 }
 `;

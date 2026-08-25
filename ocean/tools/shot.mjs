@@ -11,21 +11,9 @@ import { createServer } from 'node:http';
 import { readFile, mkdir, stat } from 'node:fs/promises';
 import { dirname, join, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { launchChromium } from './browser.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-
-async function loadPlaywright() {
-  const candidates = [
-    'playwright',
-    '/opt/node22/lib/node_modules/playwright/index.mjs',
-    '/usr/lib/node_modules/playwright/index.mjs',
-    process.env.PLAYWRIGHT_PATH,
-  ].filter(Boolean);
-  for (const c of candidates) {
-    try { return await import(c); } catch { /* try next */ }
-  }
-  throw new Error('playwright not found; set PLAYWRIGHT_PATH');
-}
 
 const args = process.argv.slice(2);
 const opt = (name, dflt) => {
@@ -42,6 +30,13 @@ const HEIGHT = +opt('h', 720);
 const OVERRIDES = multi('set');
 const CAMERA = opt('camera', '');
 const PHOTO = args.includes('--photo');
+// The bundle is what ships; index.html is only what development runs. Being able
+// to point the smoke test at either is the difference between testing the
+// artifact and testing something that resembles it.
+const PAGE = opt('page', '');
+// A whole parameter set from the UI's Copy settings button. Reproducing a report
+// with 200 --set flags is not a thing anyone will do correctly.
+const SETTINGS = opt('settings', '');
 
 const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
@@ -63,14 +58,7 @@ const server = createServer(async (req, res) => {
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const port = server.address().port;
 
-const { chromium } = await loadPlaywright();
-const browser = await chromium.launch({
-  args: [
-    '--enable-unsafe-swiftshader', '--use-angle=swiftshader',
-    '--ignore-gpu-blocklist', '--enable-webgl', '--disable-gpu-sandbox',
-    '--disable-dev-shm-usage',
-  ],
-});
+const browser = await launchChromium();
 const page = await browser.newPage({ viewport: { width: WIDTH, height: HEIGHT }, deviceScaleFactor: 1 });
 
 const errors = [];
@@ -82,7 +70,7 @@ page.on('console', (m) => {
 });
 page.on('pageerror', (e) => errors.push('pageerror: ' + (e.stack || e.message)));
 
-await page.goto(`http://127.0.0.1:${port}/?preset=${encodeURIComponent(PRESET)}`, { waitUntil: 'load' });
+await page.goto(`http://127.0.0.1:${port}/${PAGE}?keepbuffer=1&preset=${encodeURIComponent(PRESET)}`, { waitUntil: 'load' });
 
 // Wait for the module to publish its handle (or fail loudly).
 try {
@@ -91,9 +79,13 @@ try {
   errors.push('window.abyssal never appeared - startup failed');
 }
 
+const SETTINGS_JSON = SETTINGS
+  ? JSON.parse(await readFile(join(ROOT, SETTINGS), 'utf8')) : null;
+
 if (!errors.length) {
-  await page.evaluate(([overrides, camera]) => {
+  await page.evaluate(([overrides, camera, settings]) => {
     const A = window.abyssal;
+    if (settings) Object.assign(A.params, settings);
     for (const kv of overrides) {
       const [k, v] = kv.split('=');
       A.params[k] = v.startsWith('[') ? JSON.parse(v) : (isNaN(+v) ? v : +v);
@@ -105,7 +97,7 @@ if (!errors.length) {
     }
     A.ocean.dirty = true;
     A.ui.syncAll();
-  }, [OVERRIDES, CAMERA]);
+  }, [OVERRIDES, CAMERA, SETTINGS_JSON]);
 }
 
 await page.waitForTimeout(WAIT);

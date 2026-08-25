@@ -1,0 +1,108 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — WebGPU wave simulation vs the WebGL2 reference</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}</style>
+<pre id="out">running…</pre>
+
+<!--
+  Runs the WGSL compute simulation and emits a fingerprint in exactly the format
+  prototypes/ocean-golden.html produces from the WebGL2 one, so the two can be
+  diffed by tools/compare-fingerprint.mjs.
+
+  Same seed, same parameters, same step count, same dt. The noise field, the
+  butterfly table and the per-cascade band maths are imported from src/ocean.js
+  rather than reimplemented, so a difference here is a difference in the physics
+  and not in the setup.
+
+    node tools/run-probe.mjs "prototypes/ocean-compute-probe.html?n=64&steps=8" \
+      --save test/out/wgsl-64.json
+    node tools/compare-fingerprint.mjs test/golden/ocean-64.json test/out/wgsl-64.json
+-->
+
+<script type="module">
+import { OceanCompute } from '../src/gpu/ocean-compute.js';
+import { DEFAULT_CASCADES } from '../src/ocean.js';
+import { newParams } from '../src/presets.js';
+import { createDerived, derive } from '../src/derive.js';
+
+const q = new URLSearchParams(location.search);
+const N = +(q.get('n') || 64);
+const STEPS = +(q.get('steps') || 8);
+const PRESET = q.get('preset') || 'Golden Hour Swell';
+const SEED = +(q.get('seed') || 1337);
+const DT = 1 / 60;
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+let fingerprint = null;
+try {
+  if (!('gpu' in navigator)) throw new Error('navigator.gpu is undefined');
+  const adapter = await navigator.gpu.requestAdapter();
+  if (!adapter) throw new Error('requestAdapter() returned null');
+  const device = await adapter.requestDevice();
+  device.addEventListener?.('uncapturederror', (e) => log('GPU error', false, String(e.error?.message || e)));
+  log('WebGPU device', true, `${adapter.info?.vendor || '?'} / ${adapter.info?.architecture || '?'}`);
+
+  const params = newParams(PRESET);
+  params.seed = SEED;
+  params.fftSize = N;
+  derive(params, createDerived());
+
+  device.pushErrorScope('validation');
+  const sim = new OceanCompute(device, { size: N, cascades: DEFAULT_CASCADES });
+  sim.setSeed(SEED);
+  const buildErr = await device.popErrorScope();
+  log('pipelines and buffers built', !buildErr, buildErr ? buildErr.message.slice(0, 400) : `${sim.stages} FFT stages, ${sim.cascadeCount} cascades, ${sim.fftShared ? 'workgroup FFT' : 'stage FFT'}`);
+
+  device.pushErrorScope('validation');
+  sim.buildSpectrum(params);
+  for (let i = 0; i < STEPS; i++) sim.update(DT, params);
+  await device.queue.onSubmittedWorkDone();
+  const runErr = await device.popErrorScope();
+  log('simulation ran', !runErr, runErr ? runErr.message.slice(0, 600) : `${STEPS} steps at dt=${DT.toFixed(5)}`);
+
+  const cascades = [];
+  for (let c = 0; c < sim.cascadeCount; c++) {
+    const buf = await sim.readDisplacement(c);
+    const ch = [0, 1, 2, 3].map(() => ({ sum: 0, sum2: 0, min: Infinity, max: -Infinity }));
+    for (let i = 0; i < N * N; i++) {
+      for (let k = 0; k < 4; k++) {
+        const v = buf[i * 4 + k], s = ch[k];
+        s.sum += v; s.sum2 += v * v;
+        if (v < s.min) s.min = v;
+        if (v > s.max) s.max = v;
+      }
+    }
+    const n = N * N;
+    const stats = ch.map((s) => ({
+      mean: +(s.sum / n).toFixed(6), rms: +Math.sqrt(s.sum2 / n).toFixed(6),
+      min: +s.min.toFixed(6), max: +s.max.toFixed(6),
+    }));
+    // Identical stride to the golden page, or the samples are not comparable.
+    const stride = 7919 % (N * N);
+    const samples = [];
+    for (let i = 0; i < 256; i++) {
+      const idx = (i * stride) % (N * N);
+      samples.push(+buf[idx * 4].toFixed(6), +buf[idx * 4 + 1].toFixed(6),
+                   +buf[idx * 4 + 2].toFixed(6), +buf[idx * 4 + 3].toFixed(6));
+    }
+    cascades.push({ cascade: c, patch: sim.L[c], stats, samples });
+  }
+
+  fingerprint = { config: { N, steps: STEPS, dt: DT, preset: PRESET, seed: SEED, cascades: sim.cascadeCount }, cascades };
+
+  const alive = cascades.every((c) => c.stats[1].rms > 1e-5);
+  log('field is non-trivial', alive,
+      cascades.map((c) => `L=${c.patch}m rmsY=${c.stats[1].rms}`).join('  '));
+  log('all values finite', cascades.every((c) => c.stats.every((s) => Number.isFinite(s.mean) && Number.isFinite(s.rms))));
+} catch (e) {
+  log('run WGSL simulation', false, String(e.stack || e.message || e).slice(0, 700));
+}
+
+window.probeResult = { results, allOk: results.every((r) => r.ok), fingerprint };
+</script>

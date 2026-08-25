@@ -1,0 +1,115 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — collapsing the HUD on a phone actually gets it out of the way</title>
+
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}iframe{width:390px;height:780px;border:0}</style>
+<pre id="out">running…</pre>
+<iframe id="frame" src="../dist/abyssal-three.html"></iframe>
+
+<!--
+  Reported live, twice, with screenshots: on a phone the instrument panel
+  still covers most of the sea after being minimised - a big empty dark box
+  with only "ABYSSAL" and the "+" in it.
+
+  The iframe is a REAL phone viewport (390 CSS px, under the 520px
+  breakpoint) and the run needs --touch so `pointer:coarse` resolves the way
+  it does on a phone. Everything is measured off the BUILT bundle's own live
+  DOM rather than re-derived from the stylesheets, because the bundler
+  SANITISES ui.css on the way in (tools/bundle-three.mjs's sanitizeUiCss
+  drops every rule reaching #hud), so reading demo/ui.css alone tells you
+  about rules that are not in the artifact at all.
+
+  node tools/run-probe.mjs prototypes/hud-collapse-phone-probe.html --touch
+-->
+
+<script type="module">
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+const work = (async () => {
+  const frame = document.getElementById('frame');
+  await new Promise((resolve, reject) => {
+    frame.addEventListener('load', resolve, { once: true });
+    frame.addEventListener('error', () => reject(new Error('iframe failed to load')), { once: true });
+  });
+  const win = frame.contentWindow, doc = frame.contentDocument;
+  await new Promise((resolve, reject) => {
+    const t0 = performance.now();
+    const poll = () => {
+      if (win.abyssal) return resolve();
+      if (performance.now() - t0 > 120000) return reject(new Error('boot() never resolved'));
+      setTimeout(poll, 100);
+    };
+    poll();
+  });
+
+  const vh = win.innerHeight, vw = win.innerWidth;
+  log('the app booted at a real phone viewport', !! win.abyssal && vw <= 520,
+      `${ vw }x${ vh } CSS px, pointer:coarse = ${ win.matchMedia('(pointer:coarse)').matches }`);
+
+  const hud = doc.getElementById('hud');
+  const toggle = doc.getElementById('toggle');
+  const ui = doc.getElementById('ui');
+
+  const rect = (el) => { const r = el.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, h: r.height, w: r.width }; };
+  const desc = (el) => {
+    const cs = win.getComputedStyle(el), r = rect(el);
+    return `${ r.w.toFixed(0) }x${ r.h.toFixed(0) } at y ${ r.top.toFixed(0) }..${ r.bottom.toFixed(0) }`
+      + ` (position ${ cs.position }, top ${ cs.top }, bottom ${ cs.bottom }, height ${ cs.height })`;
+  };
+
+  // The shipped page starts collapsed. Open it first so we can measure
+  // the expanded panel, then collapse the way a thumb does.
+  if (hud.getAttribute('data-collapsed') === 'true') {
+    toggle.click();
+    await new Promise((r) => setTimeout(r, 120));
+  }
+
+  const expanded = rect(hud).h;
+  log('expanded, the panel is a panel and not the whole screen', expanded < vh * 0.98,
+      `#hud ${ desc(hud) }, viewport ${ vh }px tall`);
+
+  toggle.click();
+  await new Promise((r) => setTimeout(r, 120));
+
+  log('the collapse actually took', hud.getAttribute('data-collapsed') === 'true' && toggle.textContent === '+',
+      `data-collapsed = ${ hud.getAttribute('data-collapsed') }, toggle reads "${ toggle.textContent }"`);
+
+  const visibleKids = [...hud.children].filter((c) => win.getComputedStyle(c).display !== 'none');
+  log('everything but the header row is hidden', visibleKids.length === 1 && visibleKids[0].id === 'hud-head',
+      `still displayed: ${ visibleKids.map((c) => c.id || c.tagName).join(', ') || 'nothing' }`);
+
+  // THE CLAIM. A collapsed panel showing one short header row has no business
+  // being taller than a couple of lines - and none at all being most of the
+  // screen. Generous ceiling (a quarter of the viewport) so this fails only on
+  // the reported bug, not on a font metric.
+  const collapsed = rect(hud).h;
+  log('collapsed, it is out of the way', collapsed < vh * 0.25,
+      `#hud ${ desc(hud) } - was ${ expanded.toFixed(0) }px expanded, viewport ${ vh }px`);
+
+  // And it must actually give the sea back: how much of the frame does the
+  // panel's own box still cover?
+  const covered = (rect(hud).h * rect(hud).w) / (vh * vw);
+  log('it covers only a sliver of the sea once collapsed', covered < 0.15,
+      `${ (covered * 100).toFixed(1) }% of the viewport still under the panel`);
+
+  // Settings live inside #hud (#settings-slot). Collapsing the instrument
+  // must take that slot with it — they are not a second surface.
+  const slot = doc.getElementById('settings-slot');
+  log('the settings sheet is not in the way either',
+      !! slot && win.getComputedStyle(slot).display === 'none' && ui.offsetParent === null,
+      `#settings-slot display ${ slot ? win.getComputedStyle(slot).display : 'missing' }, #ui ${ desc(ui) }`);
+
+  return 'done';
+})();
+
+const timedOut = Symbol('timeout');
+const outcome = await Promise.race([work, new Promise((r) => setTimeout(() => r(timedOut), 90000))]);
+if (outcome === timedOut) log('the probe itself', false, 'no result after 90s');
+
+window.probeResult = { results, allOk: results.length > 0 && results.every((r) => r.ok) };
+</script>

@@ -1,0 +1,154 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — does a wgslFn storage kernel survive the WebGL fallback?</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}</style>
+<pre id="out">running…</pre>
+
+<!--
+  Four of the five translated kernels declare their own @group/@binding, which
+  makes them raw WebGPU modules. Those can only be driven by
+  device.createComputePipeline - and the WebGL2 backend has no GPUDevice at all,
+  so the fallback would be left with no simulation. That would throw away the one
+  property this architecture is built on.
+
+  The fix is to make them wgslFn snippets taking ptr<storage> parameters, the way
+  the spectrum kernel already is, and let TSL own the bindings. Whether that
+  actually survives the WebGL fallback is the question this answers, on the real
+  shape: a vec4 storage buffer, read-only and read-write pointers, driven from a
+  TSL compute kernel.
+
+  If this passes, the conversion is worth doing. If it fails, the port needs two
+  simulation implementations and that should be decided deliberately, not
+  discovered later.
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { Fn, wgslFn, instancedArray, instanceIndex, float, vec4 } from 'three/tsl';
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+const COUNT = 64;
+
+// The same shape as the real kernels: read one storage buffer, write another,
+// with the invocation index and a scalar uniform, all through pointers.
+const KERNEL = /* wgsl */`
+fn probeKernel(
+  dst    : ptr<storage, array<vec4<f32>>, read_write>,
+  src    : ptr<storage, array<vec4<f32>>, read>,
+  index  : u32,
+  scale  : f32
+) -> void {
+  let s = (*src)[index];
+  // Something with a loop and a transcendental, so this is not a memcpy the
+  // compiler could elide.
+  var acc = 0.0;
+  for (var i = 0u; i < 4u; i = i + 1u) { acc = acc + sin(s.x + f32(i)) * 0.25; }
+  (*dst)[index] = vec4<f32>(acc * scale, s.y * 2.0, f32(index), 1.0);
+}
+`;
+
+async function run(forceWebGL) {
+  // Stepwise, because "Cannot read properties of undefined" from inside three
+  // says nothing about WHICH of these is unsupported, and the difference decides
+  // the architecture.
+  const steps = {};
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 32;
+  const renderer = new THREE.WebGPURenderer({ canvas, forceWebGL });
+  await renderer.init();
+  const backend = renderer.backend?.isWebGPUBackend ? 'WebGPU'
+                : renderer.backend?.isWebGLBackend ? 'WebGL2' : 'unknown';
+
+  const src = instancedArray(COUNT, 'vec4');
+  const dst = instancedArray(COUNT, 'vec4');
+
+  const fill = Fn(() => {
+    const i = float(instanceIndex);
+    src.element(instanceIndex).assign(vec4(i.mul(0.1), i.mul(0.2), 0.0, 1.0));
+  })().compute(COUNT);
+
+  try { await renderer.computeAsync(fill); steps.fillRan = true; }
+  catch (e) { steps.fillRan = String(e.message || e); }
+
+  // Can a vec4 storage buffer be read back at all on this backend?
+  try {
+    const a = new Float32Array(await renderer.getArrayBufferAsync(src.value));
+    steps.readbackVec4 = Array.from(a.slice(0, 4)).map((v) => +v.toFixed(4));
+  } catch (e) { steps.readbackVec4 = String(e.message || e); }
+
+  // Now the actual question: a wgslFn taking ptr<storage> parameters.
+  const fn = wgslFn(KERNEL);
+  try {
+    const main = Fn(() => {
+      fn({ dst, src: src.toReadOnly(), index: instanceIndex, scale: float(3.0) });
+    })().compute(COUNT);
+    await renderer.computeAsync(main);
+    steps.wgslFnRan = true;
+  } catch (e) { steps.wgslFnRan = String(e.message || e); }
+
+  // dst is only ever written through the wgslFn pointer, so TSL never
+  // materialises its attribute and reading it directly throws. Copy it out with
+  // a plain TSL kernel first - which also proves the wgslFn's writes are visible
+  // to an ordinary TSL kernel, i.e. that they landed in a real shared buffer.
+  let out = [];
+  try {
+    const mirror = instancedArray(COUNT, 'vec4');
+    const copy = Fn(() => {
+      mirror.element(instanceIndex).assign(dst.element(instanceIndex));
+    })().compute(COUNT);
+    await renderer.computeAsync(copy);
+    out = Array.from(new Float32Array(await renderer.getArrayBufferAsync(mirror.value))).slice(0, 12);
+  } catch (e) { steps.readbackDst = String(e.message || e); }
+
+  renderer.dispose();
+  return { backend, out, steps };
+}
+
+function reference() {
+  const o = [];
+  for (let i = 0; i < 3; i++) {
+    const sx = i * 0.1, sy = i * 0.2;
+    let acc = 0;
+    for (let k = 0; k < 4; k++) acc += Math.sin(sx + k) * 0.25;
+    o.push(acc * 3, sy * 2, i, 1);
+  }
+  return o;
+}
+
+let gpu = null, gl = null;
+for (const [label, force] of [['WebGPU', false], ['WebGL2', true]]) {
+  let r = null;
+  try { r = await run(force); } catch (e) { log(`${label}: renderer`, false, String(e.message || e)); continue; }
+  if (force) gl = r; else gpu = r;
+  log(`${r.backend}: vec4 storage fill`, r.steps.fillRan === true, String(r.steps.fillRan).slice(0, 200));
+  log(`${r.backend}: vec4 storage readback`, Array.isArray(r.steps.readbackVec4),
+      JSON.stringify(r.steps.readbackVec4).slice(0, 200));
+  log(`${r.backend}: wgslFn with ptr<storage> params`, r.steps.wgslFnRan === true,
+      String(r.steps.wgslFnRan).slice(0, 300));
+  const ref = reference();
+  const ok = r.out.length >= 4 && r.out.every((v, i) => Math.abs(v - ref[i]) < 1e-3);
+  log(`${r.backend}: result matches CPU reference`, ok,
+      r.out.length ? `${r.out.slice(0, 4).map((v) => v.toFixed(4))} vs ${ref.slice(0, 4).map((v) => v.toFixed(4))}` : String(r.steps.readbackDst || 'no data'));
+}
+
+if (gpu && gl) {
+  const same = gpu.out.every((v, i) => Math.abs(v - gl.out[i]) < 1e-4);
+  log('backends agree', same, `${gpu.out.slice(0, 3).map((v) => v.toFixed(5))} vs ${gl.out.slice(0, 3).map((v) => v.toFixed(5))}`);
+}
+
+window.probeResult = { results, allOk: results.every((r) => r.ok), gpu, gl };
+</script>

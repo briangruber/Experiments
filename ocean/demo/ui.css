@@ -1,0 +1,237 @@
+:root{
+  --bg: rgba(11,14,18,.82);
+  --bg2: rgba(18,23,29,.9);
+  --fg: #d7e2ea;
+  --dim: #7d8f9c;
+  --accent: #58c6d8;
+  --line: rgba(255,255,255,.075);
+}
+*{box-sizing:border-box}
+/* iOS turns a long press into a text selection and a callout menu, which is
+   exactly the gesture used to hold the throttle. Suppress it everywhere except
+   the controls a person actually needs to type into or drag. */
+html,body,#hud,#ui,#panel-toggle,canvas{
+  -webkit-touch-callout:none;
+  -webkit-user-select:none;user-select:none;
+  -webkit-tap-highlight-color:transparent;
+}
+input,select,textarea{-webkit-user-select:auto;user-select:auto}
+html,body{margin:0;height:100%;overflow:hidden;background:#05070a;
+  font:12px/1.45 ui-sans-serif,-apple-system,"SF Pro Text",Inter,Segoe UI,Roboto,sans-serif;
+  color:var(--fg);-webkit-font-smoothing:antialiased}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+
+/* ONE LEFT COLUMN with the HUD, not a second panel somewhere else. --hud-h is
+   written by demo/three-app.js from the HUD's measured height, so the sliders
+   start exactly where it ends however tall it happens to be, and the two read
+   as one thing. Everything to the right of this stays sea - which is the point:
+   these are tuning sliders, and you cannot tune what the panel is covering. */
+#ui{
+  position:fixed;top:var(--hud-h,0px);left:0;right:auto;
+  height:calc(100% - var(--hud-h,0px));
+  /* Capped by viewport, not just 340px flat - an artifact preview pane can be
+     genuinely narrow with a mouse rather than a phone (see the media query
+     below), and a fixed 340px there leaves no sea to look at, which is the
+     one thing this panel exists not to do. 62vw keeps the usual 340px on
+     anything wider than ~550px and still leaves a real strip of ocean at
+     narrower widths instead of eating the whole frame. */
+  width:min(340px,62vw);
+  background:linear-gradient(180deg,var(--bg),var(--bg2));
+  backdrop-filter:blur(18px) saturate(1.3);
+  -webkit-backdrop-filter:blur(18px) saturate(1.3);
+  border-right:1px solid var(--line);
+  overflow-y:auto;overscroll-behavior:contain;
+  padding:0 0 40px;z-index:10;
+  transition:transform .28s cubic-bezier(.4,0,.2,1);
+}
+/* Two selectors so the keyboard shortcut, the button and the capture harness
+   all drive the same visual state. */
+#ui.hidden,body.panel-hidden #ui{transform:translateX(-100%)}
+#ui::-webkit-scrollbar{width:8px}
+#ui::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:4px}
+
+.brand{padding:16px 16px 12px;border-bottom:1px solid var(--line);position:sticky;top:0;
+  background:linear-gradient(180deg,rgba(11,14,18,.97),rgba(11,14,18,.86));backdrop-filter:blur(12px);z-index:2}
+.brand h1{margin:0 34px 0 0;font-size:14px;letter-spacing:.28em;font-weight:600}
+/* This panel's own escape hatch - see the comment in ui.js on why it lives
+   here rather than on the HUD's settings button. Sticky still establishes a
+   containing block, so it stays pinned to the panel's top edge while the body
+   scrolls underneath it. */
+.brand .close{
+  position:absolute;top:10px;right:10px;width:auto;height:26px;padding:0;
+  display:flex;align-items:center;justify-content:center;
+  font-size:17px;line-height:1;color:var(--dim);
+}
+.brand .close:hover{color:var(--fg);background:rgba(255,255,255,.1)}
+.brand p{margin:3px 0 0;color:var(--dim);font-size:10.5px;letter-spacing:.06em}
+
+.row{padding:10px 14px;border-bottom:1px solid var(--line)}
+.row label{display:block;color:var(--dim);font-size:10px;letter-spacing:.09em;text-transform:uppercase;margin-bottom:6px}
+select,button{
+  width:100%;background:rgba(255,255,255,.05);color:var(--fg);
+  border:1px solid var(--line);border-radius:7px;padding:7px 9px;font:inherit;cursor:pointer;
+}
+select:hover,button:hover{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.18)}
+.btns{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.btns.three{grid-template-columns:1fr 1fr 1fr}
+
+details{border-bottom:1px solid var(--line)}
+details.chrome-fold > summary{color:var(--dim);font-size:10px;letter-spacing:.12em;padding:9px 14px}
+summary{padding:11px 14px;cursor:pointer;list-style:none;font-size:11px;letter-spacing:.13em;
+  text-transform:uppercase;color:var(--fg);user-select:none;display:flex;align-items:center;gap:8px}
+summary::-webkit-details-marker{display:none}
+summary::before{content:'';width:5px;height:5px;border-right:1.4px solid var(--accent);
+  border-bottom:1.4px solid var(--accent);transform:rotate(-45deg);transition:transform .18s;opacity:.85}
+details[open] summary::before{transform:rotate(45deg)}
+summary:hover{background:rgba(255,255,255,.035)}
+.summary-title{flex:1}
+/* Sits at the far end of the summary row, same trick as .brand .close - auto
+   margin absorbs the row's slack instead of the button stretching to fill it
+   (the global select,button rule below is width:100%). */
+.copy-group{
+  width:auto;flex:none;margin-left:auto;padding:4px 9px;font-size:9px;letter-spacing:.05em;
+  text-transform:none;border-radius:6px;color:var(--dim);
+}
+.copy-group:hover{color:var(--fg);background:rgba(255,255,255,.1)}
+.body{padding:2px 14px 12px}
+/* Essentials filter - see schema.js's KEY_PARAMS. Groups whose every control
+   is hidden collapse too, so the list does not become a run of empty headers. */
+#ui.essentials .ctrl:not(.is-key){display:none}
+#ui.essentials details:not(.chrome-fold):not(:has(.is-key)){display:none}
+
+.ctrl{margin:9px 0}
+.ctrl .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:3px}
+.ctrl .name{color:var(--dim);font-size:10.5px}
+.ctrl .val{color:var(--fg);font-variant-numeric:tabular-nums;font-size:10.5px;opacity:.85}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:16px;background:transparent;cursor:ew-resize;margin:0}
+input[type=range]::-webkit-slider-runnable-track{height:2px;background:rgba(255,255,255,.16);border-radius:2px}
+input[type=range]::-moz-range-track{height:2px;background:rgba(255,255,255,.16);border-radius:2px}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;border-radius:50%;
+  background:var(--accent);margin-top:-4.5px;box-shadow:0 0 0 3px rgba(88,198,216,.16)}
+input[type=range]::-moz-range-thumb{width:11px;height:11px;border:0;border-radius:50%;background:var(--accent)}
+input[type=color]{width:100%;height:24px;padding:0;border:1px solid var(--line);border-radius:6px;background:transparent;cursor:pointer}
+
+#hud{position:fixed;left:14px;bottom:12px;z-index:9;pointer-events:none;
+  text-shadow:0 1px 3px rgba(0,0,0,.85);font-variant-numeric:tabular-nums}
+#hud-fps{font-size:11px;color:var(--fg);opacity:.75}
+/* One hint line at a time: flying, touch, or riding. */
+#hud-hint-ride{display:none}
+body.riding #hud-hint,body.riding #hud-hint-touch{display:none}
+body.riding #hud-hint-ride{display:block}
+#hud-hint,#hud-hint-touch,#hud-hint-ride{font-size:10px;color:var(--dim);margin-top:3px;letter-spacing:.04em}
+/* Never advertise a keyboard shortcut to a device with no keyboard. */
+.pointer-coarse{display:none}
+@media (pointer:coarse){
+  .pointer-fine{display:none}
+  .pointer-coarse{display:block}
+}
+
+#boot{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  background:#05070a;z-index:50;transition:opacity .6s;gap:10px}
+#boot.gone{opacity:0;pointer-events:none}
+.boot-title{font-size:15px;letter-spacing:.55em;color:var(--fg);opacity:.9}
+.boot-sub{font-size:10.5px;letter-spacing:.16em;color:var(--dim);text-transform:uppercase}
+.boot-bar{width:148px;height:2px;margin-top:8px;background:rgba(255,255,255,.08);overflow:hidden;border-radius:1px}
+.boot-bar i{display:block;width:40%;height:100%;background:var(--accent);
+  animation:boot-slide 1.15s ease-in-out infinite}
+@keyframes boot-slide{0%{transform:translateX(-140%)}100%{transform:translateX(350%)}}
+
+.toast{position:fixed;left:50%;bottom:34px;transform:translateX(-50%);
+  background:rgba(12,16,20,.92);border:1px solid var(--line);border-radius:8px;
+  padding:8px 14px;font-size:11px;letter-spacing:.05em;z-index:40;
+  opacity:0;transition:opacity .25s;pointer-events:none}
+.toast.show{opacity:1}
+
+/* The guaranteed fallback when neither copy mechanism can be trusted to have
+   actually reached the OS clipboard - see UI.copyText()'s own note on why
+   navigator.clipboard.writeText() resolving is not treated as proof here.
+   Above everything else in the panel (z-index 10-20) and the toast (40). */
+.copy-dialog-overlay{
+  position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;
+  background:rgba(3,5,7,.72);backdrop-filter:blur(4px);padding:20px;
+}
+.copy-dialog{
+  width:min(420px,100%);background:var(--bg2);border:1px solid var(--line);border-radius:12px;
+  padding:16px;box-shadow:0 12px 40px rgba(0,0,0,.5);
+}
+.copy-dialog-title{font-size:12px;letter-spacing:.05em;color:var(--fg);margin-bottom:6px}
+.copy-dialog-hint{margin:0 0 10px;font-size:10.5px;color:var(--dim);line-height:1.5}
+.copy-dialog-text{
+  width:100%;height:180px;resize:vertical;background:rgba(0,0,0,.35);color:var(--fg);
+  border:1px solid var(--line);border-radius:7px;padding:8px;font:11px/1.5 var(--mono,monospace);
+  margin-bottom:10px;
+}
+.copy-dialog button{width:auto;padding:7px 14px}
+
+/* The panel has to be escapable without a keyboard, so the toggle is a real
+   on-screen control. It rides just outside the panel edge and slides with it. */
+#panel-toggle{
+  position:fixed;top:12px;right:calc(296px + 12px);z-index:20;
+  display:flex;align-items:center;gap:7px;width:auto;
+  padding:8px 12px;border-radius:9px;
+  background:rgba(11,14,18,.78);border:1px solid var(--line);color:var(--fg);
+  backdrop-filter:blur(14px) saturate(1.3);-webkit-backdrop-filter:blur(14px) saturate(1.3);
+  font:inherit;letter-spacing:.06em;cursor:pointer;
+  box-shadow:0 2px 14px rgba(0,0,0,.35);
+  transition:right .28s cubic-bezier(.4,0,.2,1),background .18s,border-color .18s;
+}
+#panel-toggle:hover{background:rgba(22,28,35,.9);border-color:rgba(255,255,255,.2)}
+#panel-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#panel-toggle svg{width:15px;height:15px;stroke:var(--accent);stroke-width:1.7;
+  fill:none;stroke-linecap:round;flex:none}
+#ui.hidden ~ #panel-toggle,body.panel-hidden #panel-toggle{right:12px}
+#panel-toggle{right:12px}
+/* The label names what the click will do, so it reads "Hide" while the panel is
+   open and "Controls" once it is away. */
+#panel-toggle .open-label{display:none}
+#panel-toggle .close-label{display:inline}
+body.panel-hidden #panel-toggle .open-label{display:inline}
+body.panel-hidden #panel-toggle .close-label{display:none}
+
+/* PHONE ONLY, not just narrow. This used to key off width alone, and an
+   artifact preview pane is exactly the case that broke: it has a mouse, so it
+   is not a phone, but it is routinely narrower than 520px - so the panel came
+   up as a full-width bottom sheet burying the sea, on a surface with plenty of
+   room for the real side column right below it. Requiring pointer:coarse too
+   is the same distinction demo/three-app.js already draws for handheld quality
+   (isHandheld() in src/presets.js) and #hint-touch in three-shell.html - a
+   narrow window with a mouse is a small desktop, not a phone. */
+@media (max-width:520px) and (pointer:coarse){
+  /* A full-height side drawer eats three quarters of a phone screen. As a bottom
+     sheet the sea stays visible above it, and it starts closed so the first
+     thing a visitor sees is the ocean, not a wall of sliders. */
+  #ui{
+    top:auto;bottom:0;left:0;right:0;width:100%;
+    height:min(58vh,520px);
+    height:min(58vh,520px);
+    border-left:none;border-top:1px solid var(--line);
+    border-radius:16px 16px 0 0;
+    padding-bottom:calc(28px + env(safe-area-inset-bottom,0px));
+  }
+  #ui.hidden,body.panel-hidden #ui{transform:translateY(100%)}
+  #panel-toggle,#ui.hidden ~ #panel-toggle,body.panel-hidden #panel-toggle{
+    top:calc(12px + env(safe-area-inset-top,0px));right:12px;
+    padding:10px 14px;
+  }
+  /* Grab handle so the sheet reads as a sheet. */
+  .brand{border-radius:16px 16px 0 0}
+  .brand::before{content:'';position:absolute;top:7px;left:50%;transform:translateX(-50%);
+    width:34px;height:4px;border-radius:2px;background:rgba(255,255,255,.22)}
+  .brand{padding-top:20px}
+  #hud{left:12px;bottom:calc(10px + env(safe-area-inset-bottom,0px))}
+}
+
+/* Touch targets. A 11px slider thumb is not operable with a thumb. */
+@media (pointer:coarse){
+  input[type=range]{height:36px}
+  input[type=range]::-webkit-slider-thumb{width:20px;height:20px;margin-top:-9px}
+  input[type=range]::-moz-range-thumb{width:20px;height:20px}
+  input[type=color]{height:34px}
+  select,button{padding:11px 12px}
+  summary{padding:15px 14px}
+  .ctrl{margin:14px 0}
+}
+
+@media (prefers-reduced-motion:reduce){
+  #ui,#panel-toggle{transition:none}
+}

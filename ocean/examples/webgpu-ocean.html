@@ -1,0 +1,122 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Abyssal on WebGPU — the whole ocean in one call</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0a0e14; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #hud { position: fixed; top: 12px; left: 12px; color: #dfe9f2; font: 12px/1.6 ui-monospace, monospace; text-shadow: 0 1px 3px #000a; }
+  #bar { position: fixed; bottom: 12px; left: 12px; right: 12px; display: flex; flex-wrap: wrap; gap: 6px; }
+  #bar button { font: 11px ui-monospace, monospace; color: #dfe9f2; background: #10202eaa; border: 1px solid #2c4a60; border-radius: 4px; padding: 4px 8px; cursor: pointer; }
+  #bar button:hover { background: #1a344a; }
+  #bar .sep { flex-basis: 100%; height: 0; }
+</style>
+
+<canvas id="c"></canvas>
+<div id="hud">drag to look — wheel to zoom — <span id="backend">starting…</span></div>
+<div id="bar"></div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { createAbyssal } from '../src/gpu/abyssal.js';
+
+// The whole Abyssal stack - FFT ocean, volumetric sky, spray, filmic post -
+// through the one-call facade, on WebGPU with WebGL2 as the automatic
+// fallback. Your own meshes go in a normal THREE.Scene and share the frame's
+// depth: watch the waterline on the buoy as swells pass through it.
+
+const canvas = document.getElementById('c');
+
+// ------------------------------------------------------------ your scene -----
+const scene = new THREE.Scene();
+scene.add(new THREE.DirectionalLight(0xffffff, 3.0));
+scene.add(new THREE.HemisphereLight(0x9fc4e8, 0x223344, 1.2));
+
+const buoy = new THREE.Mesh(
+  new THREE.SphereGeometry(1.6, 32, 20),
+  new THREE.MeshStandardMaterial({ color: 0xd8451f, roughness: 0.45, metalness: 0.1 }),
+);
+buoy.position.set(9, 0.4, -14);
+scene.add(buoy);
+
+const mast = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.12, 0.12, 4, 10),
+  new THREE.MeshStandardMaterial({ color: 0xe8e2d4, roughness: 0.6 }),
+);
+mast.position.set(9, 2.4, -14);
+scene.add(mast);
+
+// ---------------------------------------------------------------- Abyssal ----
+// ?backend=webgl forces the fallback (the headless check uses it; a reader can
+// too, to compare). Default 'auto': WebGPU when the machine has it.
+const backend = new URLSearchParams(location.search).get('backend') || 'auto';
+
+const abyssal = await createAbyssal({
+  canvas,
+  backend,
+  preset: 'Golden Hour Swell',
+  scene,
+});
+document.getElementById('backend').textContent =
+  `running on ${abyssal.backend === 'webgpu' ? 'WebGPU' : 'WebGL2'}${abyssal.fellBack ? ' (no WebGPU here)' : ''}`;
+
+// ------------------------------------------------------------ camera rig -----
+const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.5, 40000);
+let yaw = 0.35, pitch = -0.08, dist = 46, dragging = false, px = 0, py = 0;
+canvas.addEventListener('pointerdown', (e) => { dragging = true; px = e.clientX; py = e.clientY; canvas.setPointerCapture(e.pointerId); });
+canvas.addEventListener('pointerup', (e) => { dragging = false; canvas.releasePointerCapture(e.pointerId); });
+canvas.addEventListener('pointermove', (e) => {
+  if (!dragging) return;
+  yaw -= (e.clientX - px) * 0.004;
+  pitch = Math.max(-0.9, Math.min(0.55, pitch - (e.clientY - py) * 0.003));
+  px = e.clientX; py = e.clientY;
+});
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  dist = Math.max(8, Math.min(300, dist * (1 + Math.sign(e.deltaY) * 0.12)));
+}, { passive: false });
+
+function placeCamera() {
+  const h = Math.cos(pitch) * dist;
+  camera.position.set(Math.sin(yaw) * h, 9 + Math.sin(-pitch) * dist, Math.cos(yaw) * h);
+  camera.lookAt(0, 4, 0);
+}
+
+// ------------------------------------------------------------- controls ------
+const bar = document.getElementById('bar');
+const button = (label, fn) => {
+  const b = document.createElement('button');
+  b.textContent = label; b.onclick = fn;
+  bar.appendChild(b);
+};
+for (const name of abyssal.presets) button(name, () => abyssal.setPreset(name));
+bar.appendChild(Object.assign(document.createElement('div'), { className: 'sep' }));
+// Real cloud genera over whatever preset is active - see src/cloud-types.js.
+for (const name of abyssal.cloudTypes) button(`☁ ${name}`, () => abyssal.setClouds(name));
+
+// ---------------------------------------------------------------- resize -----
+const resize = () => {
+  abyssal.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  abyssal.renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+};
+resize();
+addEventListener('resize', resize);
+
+// ------------------------------------------------------------------ loop -----
+abyssal.renderer.setAnimationLoop(() => {
+  placeCamera();
+  abyssal.frame(camera);
+});
+
+window.abyssalExample = { renderer: abyssal.renderer, abyssal, scene, camera };
+</script>

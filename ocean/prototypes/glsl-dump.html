@@ -1,0 +1,59 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — capture the GLSL three actually compiles</title>
+<pre id="out">running…</pre>
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { vec4 } from 'three/tsl';
+import { skyBackground } from '../src/gpu/tsl/sky-background.js';
+
+const captured = [];
+const orig = WebGL2RenderingContext.prototype.shaderSource;
+WebGL2RenderingContext.prototype.shaderSource = function (sh, src) {
+  captured.push(src);
+  return orig.call(this, sh, src);
+};
+
+const results = [];
+const log = (n, ok, d='') => {
+  results.push({ name:n, ok, detail:d });
+  document.getElementById('out').textContent = results.map(r=>`${r.ok?'PASS':'FAIL'} ${r.name}`).join('\n');
+};
+
+try {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 16;
+  const renderer = new THREE.WebGPURenderer({ canvas, forceWebGL: true, antialias: false });
+  await renderer.init();
+  const mat = new THREE.NodeMaterial();
+  mat.fragmentNode = vec4(skyBackground(), 1.0);
+  mat.depthTest = false; mat.depthWrite = false;
+  const quad = new THREE.QuadMesh(mat);
+  const rt = new THREE.RenderTarget(16, 16, { type: THREE.HalfFloatType });
+  renderer.autoClear = false;
+  renderer.setRenderTarget(rt);
+  try { quad.render(renderer); } catch (e) { /* compile error is the point */ }
+  renderer.setRenderTarget(null);
+  log('captured', captured.length > 0, `${captured.length} shaders`);
+
+  // Compile the captured fragment in a RAW context so the error lines refer to
+  // exactly the source this page saves.
+  const frag = captured.reduce((a, b) => (b.length > a.length ? b : a), '');
+  const raw = document.createElement('canvas').getContext('webgl2');
+  const sh = raw.createShader(raw.FRAGMENT_SHADER);
+  raw.shaderSource(sh, frag);
+  raw.compileShader(sh);
+  const okc = raw.getShaderParameter(sh, raw.COMPILE_STATUS);
+  window.compileLog = okc ? '' : raw.getShaderInfoLog(sh);
+  log('raw compile', okc, (window.compileLog || '').slice(0, 300));
+} catch (e) { log('run', false, String(e.message).slice(0,200)); }
+
+window.probeResult = { results, allOk: true, fingerprint: { shaders: captured, log: window.compileLog || '' } };
+</script>

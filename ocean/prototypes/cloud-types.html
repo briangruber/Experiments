@@ -1,0 +1,211 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — do the named cloud types look like their names?</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}canvas{margin-top:12px;border:1px solid #23384c;image-rendering:pixelated}</style>
+<pre id="out">running…</pre>
+<canvas id="view" width="486" height="204"></canvas>
+
+<!--
+  Verifies src/cloud-types.js by measurement, not by eyeball. Each of the five
+  genera is rendered through the TSL sky at the same midday rig (Tropical Noon,
+  sun at 68 degrees, camera pitched up so the whole frame is sky), alongside a
+  clear-sky baseline with the deck and the veil both zeroed. A pixel counts as
+  CLOUD when its luminance moved more than 8% away from the baseline's.
+
+  The assertions are comparative - each type must differ from its neighbours in
+  the way its field-guide description says it does:
+
+    cirrus        veil present, but the sky stays bright (thin ice, not a deck)
+    cumulus       broken - real cloud, real blue between clouds
+    stratus       a blanket: most of the sky is cloud
+    nimbus        a fuller blanket, and DARKER than stratus
+    cumulonimbus  present, and its heaviest base darker than any cumulus base
+
+  So a recipe cannot silently drift into looking like its neighbour: a stratus
+  that thins out fails the blanket test, a nimbus that brightens fails against
+  stratus, a cumulonimbus that loses its density fails against cumulus.
+
+    node tools/run-probe.mjs prototypes/cloud-types.html
+
+  ?backend=webgpu for the WebGPU backend (default webgl), ?steps=N to change
+  the march quality (default 32 - enough for statistics on the software
+  rasterizer without minutes of marching).
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { installWebGPUSwizzleShim } from './webgpu-shim.js';
+import { readPixelsBottomUp } from './readback.js';
+import { TslSky } from '../src/gpu/tsl/sky-driver.js';
+import { newParams } from '../src/presets.js';
+import { CLOUD_TYPE_NAMES, applyCloudType } from '../src/cloud-types.js';
+import { createDerived, derive } from '../src/derive.js';
+import { perspective, lookAt, mul, invert, mat4, v3, DEG } from '../src/math.js';
+
+const q = new URLSearchParams(location.search);
+const W = +(q.get('w') || 160), H = +(q.get('h') || 100);
+const STEPS = +(q.get('steps') || 32);
+const FORCE_WEBGL = (q.get('backend') || 'webgl') === 'webgl';
+
+installWebGPUSwizzleShim();
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+// Not the golden rig: pitched up 0.45 rad (~26 degrees) so that with a 44
+// degree fov the BOTTOM of the frame still sits ~4 degrees above the horizon.
+// Every pixel is sky; no sea/horizon masking needed before taking statistics.
+const RIG = {
+  pos: [0, 12, 0],
+  yaw: -0.6, pitch: 0.45,
+  fov: 44, near: 0.1, far: 60000,
+  time: 12.0,
+};
+const PRESET = 'Tropical Noon';
+
+const stats = {};
+let backend = '?';
+
+try {
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const renderer = new THREE.WebGPURenderer({ canvas, forceWebGL: FORCE_WEBGL, antialias: false });
+  await renderer.init();
+  backend = renderer.backend?.isWebGPUBackend ? 'WebGPU' : 'WebGL2';
+
+  const sky = new TslSky(renderer);
+  const target = new THREE.RenderTarget(W, H, {
+    type: THREE.FloatType, format: THREE.RGBAFormat,
+    minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
+    depthBuffer: false,
+  });
+
+  const targetPt = v3(
+    RIG.pos[0] + Math.cos(RIG.pitch) * Math.sin(RIG.yaw),
+    RIG.pos[1] + Math.sin(RIG.pitch),
+    RIG.pos[2] - Math.cos(RIG.pitch) * Math.cos(RIG.yaw),
+  );
+  const view = lookAt(new Float32Array(RIG.pos), targetPt, v3(0, 1, 0), mat4());
+  const proj = perspective(RIG.fov * DEG, W / H, RIG.near, RIG.far, mat4());
+  const viewProj = mul(proj, view, mat4());
+  const invViewProj = invert(viewProj, mat4());
+
+  const renderSky = async (mutate) => {
+    const params = newParams(PRESET);
+    params.cloudSteps = STEPS;
+    mutate(params);
+    const d = createDerived();
+    derive(params, d);
+    sky.updateLUT(params, d.sunDir, Math.max(RIG.pos[1], 1));
+    renderer.setRenderTarget(target);
+    sky.drawBackground(params, {
+      camPos: new Float32Array(RIG.pos),
+      invViewProj, viewProj,
+      sunDir: d.sunDir, moonDir: d.moonDir, windVec3: d.windVec3,
+      time: RIG.time,
+    });
+    renderer.setRenderTarget(null);
+    return readPixelsBottomUp(renderer, target, W, H);
+  };
+
+  const lum = (px, i) => 0.2126 * px[i * 4] + 0.7152 * px[i * 4 + 1] + 0.0722 * px[i * 4 + 2];
+
+  const base = await renderSky((p) => { p.cloudCoverage = 0; p.cirrus = 0; });
+  const baseLum = new Float64Array(W * H);
+  for (let i = 0; i < W * H; i++) baseLum[i] = lum(base, i);
+  const baseMean = baseLum.reduce((a, b) => a + b, 0) / (W * H);
+  log('baseline: clear sky renders', baseMean > 1e-4 && base.every(Number.isFinite),
+      `${backend}, mean radiance ${baseMean.toFixed(4)}`);
+
+  // Preview grid: baseline + five types, 3 wide x 2 tall.
+  const view2d = document.getElementById('view').getContext('2d');
+  view2d.fillStyle = '#0a0e14';
+  view2d.fillRect(0, 0, 486, 204);
+  const drawTile = (px, slot, label) => {
+    const img = view2d.createImageData(W, H);
+    for (let i = 0; i < W * H; i++) {
+      const y = H - 1 - Math.floor(i / W), x = i % W;   // readback is bottom-up
+      const o = ((y * W) + x) * 4;
+      for (let k = 0; k < 3; k++) {
+        const v = Math.max(px[i * 4 + k], 0);
+        img.data[o + k] = Math.min(255, 255 * Math.pow(v / (1 + v), 1 / 2.2));
+      }
+      img.data[o + 3] = 255;
+    }
+    const gx = (slot % 3) * (W + 3), gy = Math.floor(slot / 3) * (H + 4);
+    view2d.putImageData(img, gx, gy);
+    view2d.fillStyle = '#dff1ff';
+    view2d.font = '10px ui-monospace,monospace';
+    view2d.fillText(label, gx + 4, gy + 12);
+  };
+  drawTile(base, 0, 'clear');
+
+  const measure = async (name, slot) => {
+    const px = await renderSky((p) => applyCloudType(p, name));
+    drawTile(px, slot, name);
+    let cloudN = 0, cloudSum = 0, sum = 0;
+    const cloudLums = [];
+    for (let i = 0; i < W * H; i++) {
+      const l = lum(px, i);
+      sum += l;
+      if (Math.abs(l - baseLum[i]) / Math.max(baseLum[i], 1e-4) > 0.08) {
+        cloudN++; cloudSum += l; cloudLums.push(l);
+      }
+    }
+    cloudLums.sort((a, b) => a - b);
+    const decileEnd = Math.max(1, Math.floor(cloudLums.length / 10));
+    let darkSum = 0;
+    for (let i = 0; i < decileEnd; i++) darkSum += cloudLums[i];
+    const s = {
+      finite: px.every(Number.isFinite),
+      maskFrac: cloudN / (W * H),
+      mean: sum / (W * H),
+      cloudMean: cloudN ? cloudSum / cloudN : 0,
+      darkDecile: cloudLums.length ? darkSum / decileEnd : Infinity,
+    };
+    stats[name] = s;
+    log(`${name}: renders finite`, s.finite,
+        `cloud ${(s.maskFrac * 100).toFixed(1)}% of sky, mean ${s.mean.toFixed(4)}, ` +
+        `cloud-pixel mean ${s.cloudMean.toFixed(4)}, darkest decile ${s.darkDecile.toFixed(4)}`);
+    return s;
+  };
+
+  const order = ['cirrus', 'cumulus', 'stratus', 'nimbus', 'cumulonimbus'];
+  if (order.join() !== CLOUD_TYPE_NAMES.join()) throw new Error('CLOUD_TYPE_NAMES drifted from this probe');
+  for (let i = 0; i < order.length; i++) await measure(order[i], i + 1);
+
+  const S = stats;
+  log('cirrus: a veil is present', S.cirrus.maskFrac > 0.04,
+      `${(S.cirrus.maskFrac * 100).toFixed(1)}% of sky touched (need > 4%)`);
+  log('cirrus: the sky stays bright through it', S.cirrus.mean > 0.5 * baseMean && S.cirrus.mean < 2.0 * baseMean,
+      `mean ${S.cirrus.mean.toFixed(4)} vs clear ${baseMean.toFixed(4)} (need 0.5x..2x)`);
+  log('cumulus: broken, blue between clouds', S.cumulus.maskFrac > 0.08 && S.cumulus.maskFrac < 0.85,
+      `${(S.cumulus.maskFrac * 100).toFixed(1)}% cloud (need 8%..85%)`);
+  log('stratus: blankets the sky', S.stratus.maskFrac > 0.8,
+      `${(S.stratus.maskFrac * 100).toFixed(1)}% cloud (need > 80%)`);
+  log('nimbus: fuller blanket than stratus', S.nimbus.maskFrac > 0.9,
+      `${(S.nimbus.maskFrac * 100).toFixed(1)}% cloud (need > 90%)`);
+  log('nimbus: darker than stratus', S.nimbus.mean < S.stratus.mean,
+      `nimbus mean ${S.nimbus.mean.toFixed(4)} < stratus mean ${S.stratus.mean.toFixed(4)}`);
+  log('cumulonimbus: present in force', S.cumulonimbus.maskFrac > 0.15,
+      `${(S.cumulonimbus.maskFrac * 100).toFixed(1)}% cloud (need > 15%)`);
+  log('cumulonimbus: heavier base than cumulus', S.cumulonimbus.darkDecile < S.cumulus.darkDecile,
+      `darkest decile ${S.cumulonimbus.darkDecile.toFixed(4)} < cumulus ${S.cumulus.darkDecile.toFixed(4)}`);
+} catch (e) {
+  log(`${backend}: cloud types probe`, false, String(e.stack || e.message || e).slice(0, 900));
+}
+
+window.probeResult = { results, allOk: results.every((r) => r.ok), stats };
+</script>

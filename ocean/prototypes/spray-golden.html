@@ -1,0 +1,208 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — spray reference image</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}canvas{margin-top:12px;border:1px solid #23384c;image-rendering:pixelated}</style>
+<pre id="out">running…</pre>
+<canvas id="view" width="160" height="100"></canvas>
+
+<!--
+  Sea, sky and SPRAY as the shipping WebGL2 renderer draws them, in linear HDR.
+
+  A STORM PRESET ON PURPOSE, AND A GUARD THAT PROVES IT.
+
+  Spray is emitted by breaking waves, so at a calm preset there are no particles
+  and the reference would be a picture of the sea with an invisible system
+  layered over it - which any broken port would reproduce perfectly. The default
+  here is North Atlantic Storm, and the probe renders the frame TWICE, once with
+  the spray system drawn and once without, and asserts the two actually differ.
+  A reference that cannot fail is not a reference; prototypes/ocean-golden.html
+  makes the same argument in its own words.
+
+  The particle state is a ping-ponged simulation, so it needs a fixed number of
+  update steps at a fixed dt from a fixed seed to be reproducible - the probe
+  asserts that too by re-rendering the final frame.
+
+    node tools/run-probe.mjs prototypes/spray-golden.html --save test/golden/spray.json
+-->
+
+<script type="module">
+import { getContext, texture2D, framebuffer, Blitter } from '../src/gl.js';
+import { Ocean, DEFAULT_CASCADES } from '../src/ocean.js';
+import { WaterSurface } from '../src/water.js';
+import { Sky } from '../src/sky.js';
+import { Spray } from '../src/spray.js';
+import { newParams } from '../src/presets.js';
+import { createDerived, derive } from '../src/derive.js';
+import { perspective, lookAt, mul, invert, mat4, v3, DEG } from '../src/math.js';
+
+const q = new URLSearchParams(location.search);
+const W = +(q.get('w') || 160), H = +(q.get('h') || 100);
+const PRESET = q.get('preset') || 'North Atlantic Storm';
+const SEED = +(q.get('seed') || 1337);
+const N = +(q.get('n') || 128);
+const STEPS = +(q.get('steps') || 8);
+const SPRAY_STEPS = +(q.get('spraySteps') || 24);
+const SPRAY_SIZE = +(q.get('spraySize') || 128);
+const DT = 1 / 60;
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+const RIG = {
+  pos: [0, 12, 0], yaw: -0.6, pitch: -0.02,
+  fov: 44, near: 0.1, far: 60000, time: 12.0,
+};
+
+let fingerprint = null;
+try {
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const gl = getContext(canvas, {});
+  const blit = new Blitter(gl);
+
+  const params = newParams(PRESET);
+  params.seed = SEED;
+  params.fftSize = N;
+  params.gridScale = 1;
+  for (const kv of (q.get('set') || '').split(',').filter(Boolean)) {
+    const [k, v] = kv.split(':');
+    params[k] = +v;
+  }
+  const d = createDerived();
+  derive(params, d);
+
+  const ocean = new Ocean(gl, { size: N, cascades: DEFAULT_CASCADES });
+  ocean.setSeed(SEED);
+  ocean.buildSpectrum(params);
+  for (let i = 0; i < STEPS; i++) ocean.update(DT, params);
+
+  const sky = new Sky(gl, blit);
+  sky.updateLUT(params, d.sunDir, Math.max(RIG.pos[1], 1));
+  const water = new WaterSurface(gl, params, { output: 'hdr' });
+  const spray = new Spray(gl, blit, { size: SPRAY_SIZE });
+
+  const targetPt = v3(
+    RIG.pos[0] + Math.cos(RIG.pitch) * Math.sin(RIG.yaw),
+    RIG.pos[1] + Math.sin(RIG.pitch),
+    RIG.pos[2] - Math.cos(RIG.pitch) * Math.cos(RIG.yaw),
+  );
+  const view = lookAt(new Float32Array(RIG.pos), targetPt, v3(0, 1, 0), mat4());
+  const proj = perspective(RIG.fov * DEG, W / H, RIG.near, RIG.far, mat4());
+  const viewProj = mul(proj, view, mat4());
+  const invViewProj = invert(viewProj, mat4());
+  // The spray draw billboards each particle against the camera basis, so ctx has
+  // to carry it (demo/main.js builds the same two vectors). forward, then right,
+  // then up = right x forward - the standard right-handed lookAt basis.
+  const fwd = (() => {
+    const f = [targetPt[0] - RIG.pos[0], targetPt[1] - RIG.pos[1], targetPt[2] - RIG.pos[2]];
+    const L = Math.hypot(f[0], f[1], f[2]);
+    return [f[0] / L, f[1] / L, f[2] / L];
+  })();
+  const camRight = (() => {
+    const r = [fwd[2] * 1 - fwd[1] * 0, fwd[0] * 0 - fwd[2] * 0, fwd[1] * 0 - fwd[0] * 1];
+    const L = Math.hypot(r[0], r[1], r[2]);
+    return new Float32Array([r[0] / L, r[1] / L, r[2] / L]);
+  })();
+  const camUp = new Float32Array([
+    camRight[1] * fwd[2] - camRight[2] * fwd[1],
+    camRight[2] * fwd[0] - camRight[0] * fwd[2],
+    camRight[0] * fwd[1] - camRight[1] * fwd[0],
+  ]);
+
+  const ctx = {
+    camPos: new Float32Array(RIG.pos), viewProj, invViewProj,
+    camRight, camUp,
+    sunDir: d.sunDir, moonDir: d.moonDir, windVec3: d.windVec3, time: RIG.time,
+  };
+
+  // Spin the particle system up to a populated, reproducible state.
+  for (let i = 0; i < SPRAY_STEPS; i++) spray.update(DT, params, ctx, ocean);
+
+  const hdr = texture2D(gl, {
+    width: W, height: H, internalFormat: gl.RGBA32F, format: gl.RGBA, type: gl.FLOAT,
+    filter: gl.NEAREST, wrap: gl.CLAMP_TO_EDGE,
+  });
+  const depth = gl.createRenderbuffer();
+  gl.bindRenderbuffer(gl.RENDERBUFFER, depth);
+  gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, W, H);
+  const fbo = framebuffer(gl, [hdr]);
+
+  const renderFrame = (withSpray) => {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depth);
+    gl.viewport(0, 0, W, H);
+    gl.clearColor(0, 0, 0, 1);
+    gl.clearDepth(1.0);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    water.render(params, ctx, ocean, sky);
+    sky.drawBackground(params, ctx);
+    if (withSpray) spray.draw(params, ctx, sky.lut, sky.atmosphereUniforms(params), ocean);
+    const px = new Float32Array(W * H * 4);
+    gl.readPixels(0, 0, W, H, gl.RGBA, gl.FLOAT, px);
+    return px;
+  };
+
+  const px = renderFrame(true);
+  const noSpray = renderFrame(false);
+  const again = renderFrame(true);
+
+  const lum = (p, i) => 0.2126 * p[i * 4] + 0.7152 * p[i * 4 + 1] + 0.0722 * p[i * 4 + 2];
+  let sprayDelta = 0, sprayPixels = 0, repeatDrift = 0;
+  for (let i = 0; i < W * H; i++) {
+    const dlt = Math.abs(lum(px, i) - lum(noSpray, i));
+    sprayDelta += dlt;
+    if (dlt > 1e-3) sprayPixels++;
+    repeatDrift = Math.max(repeatDrift, Math.abs(lum(px, i) - lum(again, i)));
+  }
+
+  const view2d = document.getElementById('view').getContext('2d');
+  const img = view2d.createImageData(W, H);
+  for (let i = 0; i < W * H; i++) {
+    for (let k = 0; k < 3; k++) {
+      const v = Math.max(px[i * 4 + k], 0);
+      img.data[i * 4 + k] = Math.min(255, 255 * Math.pow(v / (1 + v), 1 / 2.2));
+    }
+    img.data[i * 4 + 3] = 255;
+  }
+  const flipped = view2d.createImageData(W, H);
+  for (let y = 0; y < H; y++) {
+    const s = (H - 1 - y) * W * 4;
+    flipped.data.set(img.data.subarray(s, s + W * 4), y * W * 4);
+  }
+  view2d.putImageData(flipped, 0, 0);
+
+  let sum = 0, sum2 = 0, min = Infinity, max = -Infinity;
+  for (let i = 0; i < W * H; i++) {
+    const l = lum(px, i);
+    sum += l; sum2 += l * l;
+    if (l < min) min = l; if (l > max) max = l;
+  }
+  const n = W * H, mean = sum / n;
+
+  fingerprint = {
+    config: { W, H, preset: PRESET, rig: RIG, seed: SEED, n: N, steps: STEPS,
+              spraySteps: SPRAY_STEPS, spraySize: SPRAY_SIZE },
+    stats: {
+      mean: +mean.toFixed(6), rms: +Math.sqrt(sum2 / n).toFixed(6),
+      min: +min.toFixed(6), max: +max.toFixed(6),
+    },
+    pixels: Array.from(px).map((v) => +v.toFixed(4)),
+  };
+
+  log('frame rendered', mean > 1e-4 && px.every(Number.isFinite),
+      `mean radiance ${mean.toFixed(4)}, peak ${max.toFixed(3)}`);
+  // The guard: a reference of an invisible system is one any broken port passes.
+  log('spray actually contributes to the frame', sprayPixels > 50,
+      `${sprayPixels} pixels changed by drawing it, total |delta| ${sprayDelta.toFixed(3)}`);
+  log('reproducible across repeat draws', repeatDrift < 1e-5,
+      `worst luminance drift ${repeatDrift.toExponential(2)}`);
+} catch (e) {
+  log('render spray reference', false, String(e.stack || e.message || e).slice(0, 900));
+}
+
+window.probeResult = { results, allOk: results.every((r) => r.ok), fingerprint };
+</script>

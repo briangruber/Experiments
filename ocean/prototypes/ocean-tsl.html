@@ -1,0 +1,160 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — TSL ocean simulation fingerprint</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}</style>
+<pre id="out">running…</pre>
+
+<!--
+  The same fingerprint prototypes/ocean-golden.html captures from the shipping
+  WebGL2 simulation, captured from src/gpu/tsl/sim-driver.js instead. Same JSON
+  shape, same config block, same 256-texel walk, same toFixed(6) - anything less
+  and the comparator is diffing two different runs and saying so quietly.
+
+    node tools/run-probe.mjs "prototypes/ocean-tsl.html?n=64&steps=8&backend=webgl"  --save test/out/tsl-64-gl.json
+    node tools/run-probe.mjs "prototypes/ocean-tsl.html?n=64&steps=8&backend=webgpu" --save test/out/tsl-64-gpu.json
+    node tools/compare-fingerprint.mjs test/golden/ocean-64.json test/out/tsl-64-gl.json
+
+  ROW ORDER. The golden reads with gl.readPixels straight off fbo.assemble[c],
+  where framebuffer row j is texture row j is index row j. TslOceanSim.readLayer
+  returns SIM INDEX ORDER for the same reason - see its docblock, and note 2 in
+  src/gpu/tsl/ocean-sim.js for why the flips cancel. The two buffers are
+  therefore directly comparable texel for texel, which is the whole point: the
+  256-sample walk is what catches a permuted field, and a permutation does not
+  move the statistics at all.
+
+  Two knobs exist so the harness can be shown to bite, because a comparator that
+  cannot fail proves nothing:
+
+    ?amplitude=1.005   perturbs uAmplitude by 0.5%   -> statistics must fail
+    ?shift=4           shifts the sample walk by 4   -> ~1023/1024 texels must fail
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { TslOceanSim } from '../src/gpu/tsl/sim-driver.js';
+import { DEFAULT_CASCADES } from '../src/ocean.js';
+import { newParams } from '../src/presets.js';
+import { createDerived, derive } from '../src/derive.js';
+import { installWebGPUSwizzleShim } from './webgpu-shim.js';
+
+installWebGPUSwizzleShim();
+
+const q = new URLSearchParams(location.search);
+const N = +(q.get('n') || 64);
+const STEPS = +(q.get('steps') || 8);
+const PRESET = q.get('preset') || 'Golden Hour Swell';
+const SEED = +(q.get('seed') || 1337);
+const BACKEND = (q.get('backend') || 'webgl').toLowerCase();
+const AMPLITUDE = +(q.get('amplitude') || 1);      // negative control
+const SHIFT = +(q.get('shift') || 0);              // negative control
+const DT = 1 / 60;
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+let fingerprint = null;
+try {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 16;
+  const renderer = new THREE.WebGPURenderer({
+    canvas, forceWebGL: BACKEND !== 'webgpu', antialias: false,
+  });
+  await renderer.init();
+  const backend = renderer.backend?.isWebGPUBackend ? 'WebGPU' : 'WebGL2';
+  log('backend', BACKEND === 'webgpu' ? backend === 'WebGPU' : backend === 'WebGL2', backend);
+
+  const params = newParams(PRESET);
+  params.seed = SEED;
+  params.fftSize = N;
+  derive(params, createDerived());
+  // Negative control: a 0.5% energy error is invisible per texel and moves every
+  // statistic. Default 1 leaves the parameter untouched.
+  params.amplitude *= AMPLITUDE;
+
+  const sim = new TslOceanSim(renderer, { size: N, cascades: DEFAULT_CASCADES });
+  log('float32 filtering available', sim.float32Filterable === true, String(sim.float32Filterable));
+
+  // Exactly ocean-golden.html's sequence, so the two runs are the same run.
+  sim.setSeed(SEED);
+  sim.buildSpectrum(params);
+  for (let i = 0; i < STEPS; i++) sim.update(DT, params);
+  log('workgroup FFT', BACKEND !== 'webgpu' || sim.fftShared === true,
+      sim.fftShared ? 'shared memory' : 'fragment butterflies');
+
+  const cascades = [];
+  for (let c = 0; c < sim.cascadeCount; c++) {
+    // Attachment 0 of the assemble pass - the displacement field, xyz + Jacobian.
+    const buf = await sim.readLayer('disp', c);
+
+    const ch = [0, 1, 2, 3].map(() => ({ sum: 0, sum2: 0, min: Infinity, max: -Infinity }));
+    for (let i = 0; i < N * N; i++) {
+      for (let k = 0; k < 4; k++) {
+        const v = buf[i * 4 + k];
+        const s = ch[k];
+        s.sum += v; s.sum2 += v * v;
+        if (v < s.min) s.min = v;
+        if (v > s.max) s.max = v;
+      }
+    }
+    const n = N * N;
+    const stats = ch.map((s) => ({
+      mean: +(s.sum / n).toFixed(6),
+      rms: +Math.sqrt(s.sum2 / n).toFixed(6),
+      min: +s.min.toFixed(6),
+      max: +s.max.toFixed(6),
+    }));
+
+    // 256 texels on a fixed stride, deliberately coprime with N so the walk
+    // covers rows and columns rather than marching down one line.
+    const stride = 7919 % (N * N);
+    const samples = [];
+    for (let i = 0; i < 256; i++) {
+      const idx = ((i + SHIFT) * stride) % (N * N);
+      samples.push(+buf[idx * 4].toFixed(6), +buf[idx * 4 + 1].toFixed(6),
+                   +buf[idx * 4 + 2].toFixed(6), +buf[idx * 4 + 3].toFixed(6));
+    }
+    cascades.push({ cascade: c, patch: sim.L[c], stats, samples });
+  }
+
+  fingerprint = {
+    config: { N, steps: STEPS, dt: DT, preset: PRESET, seed: SEED, cascades: sim.cascadeCount },
+    cascades,
+  };
+
+  // A field of zeros would "match" a broken port perfectly, so this has to prove
+  // it is a sea before it can be compared to one.
+  const alive = cascades.every((c) => c.stats[1].rms > 1e-5);
+  log('field is non-trivial', alive,
+      cascades.map((c) => `L=${c.patch}m rmsY=${c.stats[1].rms}`).join('  '));
+
+  const finite = cascades.every((c) => c.stats.every((s) => Number.isFinite(s.mean) && Number.isFinite(s.rms)));
+  log('all values finite', finite);
+
+  // NOTE ON WHAT THIS PAGE DOES NOT COVER. The disp field is attachment 0 of the
+  // assemble pass, so this fingerprint covers the spectrum, the evolve, the FFT
+  // and the assemble - stages A through D of docs/ocean-sim-port-notes.md §3's
+  // staging - end to end. It does NOT touch the foam pass at all, and a foam pass
+  // that produced garbage would sail through every check above. Stage E is
+  // prototypes/tsl-sim-foam-probe.html, which diffs the foam field against the
+  // shipping GLSL pass directly.
+
+  sim.dispose();
+  renderer.dispose();
+} catch (e) {
+  log('build TSL fingerprint', false, String(e.stack || e.message || e));
+}
+
+window.probeResult = { results, allOk: results.every((r) => r.ok), fingerprint };
+</script>

@@ -1,0 +1,28 @@
+<!doctype html><meta charset="utf-8"><body style="margin:0;background:#111">
+<canvas id="view" width="1200" height="320"></canvas>
+<script type="importmap">{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js" } }</script>
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { buildCraftGeometry, loadCraftTexture } from '../src/gpu/tsl/craft.js';
+import { PLANE_MESH } from '../demo/planeModel.js';
+const canvas = document.getElementById('view');
+const r = new THREE.WebGPURenderer({ canvas, forceWebGL: true, antialias: true });
+await r.init(); r.setClearColor(0x111111, 1);
+const geo = buildCraftGeometry(10, PLANE_MESH).geometry;
+const tex = await loadCraftTexture(r, PLANE_MESH);
+const mat = new THREE.MeshBasicNodeMaterial({ map: tex, side: THREE.DoubleSide });
+const mesh = new THREE.Mesh(geo, mat);
+const scene = new THREE.Scene(); scene.add(mesh);
+const cam = new THREE.PerspectiveCamera(32, 300/320, 0.05, 200);
+// four views: from -Z (nose on), +X (side), +Y (top), 3/4
+const views = [[0,1.4,-4.2],[4.2,1.4,-1.2],[0,4.2,-2.6],[2.6,2.2,-3.2]];
+for (let i=0;i<4;i++){
+  r.setViewport(i*300,0,300,320); r.setScissor(i*300,0,300,320); r.setScissorTest(true);
+  cam.position.set(...views[i]); cam.lookAt(0,1.2,-3.0);
+  await r.renderAsync(scene, cam);
+}
+window.probeResult = { allOk: true, results: [{name:'rendered', ok:true, detail:'4 views'}] };
+</script></body>

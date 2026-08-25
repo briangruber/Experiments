@@ -1,0 +1,133 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — does the three.js app actually run?</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}canvas{margin-top:12px;border:1px solid #23384c;width:320px;height:200px}</style>
+<pre id="out">running…</pre>
+<canvas id="view" width="320" height="200"></canvas>
+
+<!--
+  Every stage of this port is verified pass-by-pass against a rendered reference.
+  This asks the remaining question, which none of those can: does the WHOLE THING
+  boot and produce frames, on both backends, with all five subsystems wired
+  together and driving each other?
+
+  The pass-level probes each build their own minimal rig. This one runs
+  demo/three-main.js's real boot() - the same code three.html loads - lets it
+  render several animation frames, and reads the canvas back.
+
+  What it checks, and why each one can fail:
+
+    1. boot() resolves and reports a backend.
+    2. Frames actually advance (the rAF loop is running, not thrown once).
+    3. The canvas is not black - the whole chain produced light.
+    4. The canvas is not FLAT - a uniform grey is what a broken bind or a missing
+       clear produces, and it would pass a mean-brightness check.
+    5. Nothing wrote a NaN. One NaN in the HDR buffer propagates through the
+       bloom pyramid and takes the frame with it.
+    6. No console error was raised during those frames.
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { installWebGPUSwizzleShim } from './webgpu-shim.js';
+import { readPixelsBottomUp } from './readback.js';
+import { boot } from '../demo/three-main.js';
+
+installWebGPUSwizzleShim();
+
+const q = new URLSearchParams(location.search);
+const WANT = (q.get('backend') || 'webgl').toLowerCase();
+const FRAMES = +(q.get('frames') || 8);
+// The software rasteriser in this sandbox cannot carry the shipping workload -
+// a 256-point FFT across four cascades plus 16k particles plus a 48-step cloud
+// march, ~90 passes a frame, drops the WebGPU device outright ("A valid external
+// Instance reference no longer exists"). These shrink the work without changing
+// any code path: every stage still runs, just smaller.
+const OVERRIDES = {
+  fftSize: +(q.get('fft') || 64),
+  sprayTexSize: +(q.get('sprayTex') || 32),
+  cloudSteps: +(q.get('cloudSteps') || 12),
+  gridScale: +(q.get('gridScale') || 0.35),
+};
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+const errors = [];
+const realError = console.error;
+console.error = (...a) => { errors.push(a.join(' ').slice(0, 300)); realError(...a); };
+
+let backend = '?';
+try {
+  const canvas = document.getElementById('view');
+  // WebGPU here cannot present to a canvas (see prototypes/webgpu-canvas-probe.html:
+  // a one-quad draw fails with "A valid external Instance reference no longer
+  // exists", with no app involved). Drawing into a render target exercises every
+  // pass of the pipeline and skips only the swapchain blit the sandbox lacks.
+  // The app sizes the drawing buffer from the canvas's CSS box, so the capture
+  // has to be built to the same numbers - and 320 wide is 5120 bytes a row, which
+  // clears WebGPU's 256-byte pitch rule (a small canvas does not: at 8 wide the
+  // readback returns interleaved padding).
+  const CW = Math.max(8, Math.round(canvas.clientWidth));
+  const CH = Math.max(8, Math.round(canvas.clientHeight));
+  const capture = new THREE.RenderTarget(CW, CH, {
+    type: THREE.FloatType, format: THREE.RGBAFormat,
+    minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false,
+  });
+  const app = await boot({ canvas, backend: WANT, overrides: OVERRIDES, output: capture });
+  backend = app.backend;
+  log(`${backend}: boot() resolved`, true, app.fellBack ? 'fell back from WebGPU' : `asked for ${WANT}`);
+
+  // Let the rAF loop run real frames. Counting them proves the loop survived,
+  // which a single successful first frame would not.
+  let frames = 0;
+  await new Promise((resolve) => {
+    const tick = () => {
+      if (++frames >= FRAMES) return resolve();
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+  log(`${backend}: ${FRAMES} animation frames ran`, frames >= FRAMES, `${frames} frames`);
+
+  const px = await readPixelsBottomUp(app.renderer, capture, CW, CH);
+
+  let sum = 0, sum2 = 0, n = 0, nan = 0;
+  const hist = new Array(16).fill(0);
+  for (let i = 0; i < px.length; i += 4) {
+    const l = 0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2];
+    if (!Number.isFinite(l)) nan++;
+    sum += l; sum2 += l * l; n++;
+    hist[Math.min(15, Math.floor(l * 16))]++;
+  }
+  const mean = sum / n;
+  const std = Math.sqrt(Math.max(sum2 / n - mean * mean, 0));
+  const occupied = hist.filter((c) => c > n * 0.001).length;
+
+  log(`${backend}: frame is not black`, mean > 0.02, `mean luminance ${mean.toFixed(4)}`);
+  log(`${backend}: frame is not flat`, std > 0.02 && occupied >= 4,
+      `std ${std.toFixed(4)}, ${occupied}/16 histogram buckets occupied`);
+  log(`${backend}: no NaN reached the canvas`, nan === 0, `${nan} non-finite pixels`);
+
+  const shaderErrs = errors.filter((e) => /shader|compil|link|GLSL|WGSL|ERROR:/i.test(e));
+  log(`${backend}: no shader or console errors`, errors.length === 0,
+      errors.length ? `${errors.length} error(s), first: ${(shaderErrs[0] ?? errors[0])}` : 'clean');
+} catch (e) {
+  log(`${backend}: run the three.js app`, false, String(e.stack || e.message || e).slice(0, 1000));
+}
+
+console.error = realError;
+window.probeResult = { results, allOk: results.every((r) => r.ok) };
+</script>

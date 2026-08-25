@@ -1,0 +1,155 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WebGPU Canvas Doctor</title>
+<style>
+  body { background: #060d14; color: #dceaf2; font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; padding: 20px; margin: 0; }
+  h1 { font-size: 15px; letter-spacing: .08em; color: #52d6c4; }
+  p  { max-width: 62ch; color: #7b9cb2; }
+  #adapter { color: #dceaf2; background: #0d1a25; border: 1px solid #1d3243; border-radius: 6px; padding: 10px 12px; white-space: pre-wrap; }
+  #grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-top: 16px; max-width: 700px; }
+  .cell { background: #0d1a25; border: 1px solid #1d3243; border-radius: 6px; padding: 10px; }
+  .cell canvas { width: 100%; height: 110px; display: block; background: #000; border-radius: 4px; }
+  .cell .label { margin-top: 6px; font-size: 11px; color: #7b9cb2; }
+  .cell .verdict { font-size: 11px; }
+  .ok  { color: #52d6c4; }
+  .bad { color: #e8735a; }
+</style>
+
+<h1>WEBGPU CANVAS DOCTOR</h1>
+<p>Every square below should <b>slowly cycle through colors</b> (the WebGL2
+baseline also shows a small white corner). A square that stays black is a
+canvas configuration this browser renders but cannot present. The verdict line under each is a
+programmatic readback — it can disagree with your eyes, and your eyes are the
+authority. The last square is WebGL2, as a baseline.</p>
+<div id="adapter">querying adapter…</div>
+<div id="grid"></div>
+
+<script type="module">
+const grid = document.getElementById('grid');
+const adapterEl = document.getElementById('adapter');
+
+const cell = (label) => {
+  const d = document.createElement('div');
+  d.className = 'cell';
+  const c = document.createElement('canvas');
+  c.width = 200; c.height = 110;
+  const l = document.createElement('div');
+  l.className = 'label'; l.textContent = label;
+  const v = document.createElement('div');
+  v.className = 'verdict'; v.textContent = 'readback: …';
+  d.append(c, l, v);
+  grid.appendChild(d);
+  return { c, v };
+};
+
+// Periodic drawImage readback, reported but not trusted.
+const watchReadback = (canvas, v) => {
+  setInterval(() => {
+    try {
+      const s = document.createElement('canvas');
+      s.width = 40; s.height = 22;
+      const g = s.getContext('2d', { willReadFrequently: true });
+      g.drawImage(canvas, 0, 0, 40, 22);
+      const d = g.getImageData(0, 0, 40, 22).data;
+      let sum = 0;
+      for (let i = 0; i < d.length; i += 4) sum += d[i] + d[i + 1] + d[i + 2];
+      const mean = sum / (d.length / 4);
+      v.textContent = `readback: mean ${mean.toFixed(1)} ${mean < 3 ? '(reads black)' : '(reads content)'}`;
+      v.className = 'verdict ' + (mean < 3 ? 'bad' : 'ok');
+    } catch (e) {
+      v.textContent = 'readback: threw ' + String(e.message || e).slice(0, 40);
+      v.className = 'verdict bad';
+    }
+  }, 1500);
+};
+
+// A clear-only present loop: no pipeline, no shaders - the minimal thing that
+// can put color on a WebGPU canvas. If THIS stays black, presentation itself
+// is broken for that configuration.
+const runGpuCanvas = (device, format, { c, v }, { alphaMode, usage, layer }) => {
+  if (layer) c.style.transform = 'translateZ(0)';
+  const ctx = c.getContext('webgpu');
+  ctx.configure({ device, format, alphaMode, ...(usage ? { usage } : {}) });
+  let t = 0;
+  const frame = () => {
+    t += 1 / 60;
+    const enc = device.createCommandEncoder();
+    const view = ctx.getCurrentTexture().createView();
+    // gradient-ish: two passes, big clear + small white scissor square
+    const pass = enc.beginRenderPass({
+      colorAttachments: [{
+        view, loadOp: 'clear', storeOp: 'store',
+        clearValue: {
+          r: 0.5 + 0.5 * Math.sin(t),
+          g: 0.5 + 0.5 * Math.sin(t + 2.1),
+          b: 0.5 + 0.5 * Math.sin(t + 4.2),
+          a: 1,
+        },
+      }],
+    });
+    pass.end();
+    const pass2 = enc.beginRenderPass({
+      colorAttachments: [{ view, loadOp: 'load', storeOp: 'store' }],
+    });
+    pass2.end();
+    device.queue.submit([enc.finish()]);
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+  watchReadback(c, v);
+};
+
+try {
+  if (!navigator.gpu) throw new Error('navigator.gpu is undefined - WebGPU not available at all');
+  const adapter = await navigator.gpu.requestAdapter();
+  if (!adapter) throw new Error('requestAdapter() returned null - no WebGPU adapter');
+  const info = adapter.info ?? {};
+  const fmt = navigator.gpu.getPreferredCanvasFormat();
+  adapterEl.textContent =
+    `adapter: vendor=${info.vendor || '?'}  architecture=${info.architecture || '?'}\n` +
+    `device=${info.device || '?'}  description=${info.description || '?'}\n` +
+    `preferred canvas format: ${fmt}\n` +
+    `isFallbackAdapter: ${adapter.isFallbackAdapter ?? info.isFallbackAdapter ?? '?'}   ` +
+    `(a fallback/software adapter renders but often cannot present)`;
+  const device = await adapter.requestDevice();
+  device.addEventListener?.('uncapturederror', (e) => {
+    adapterEl.textContent += '\nGPU ERROR: ' + (e.error?.message || 'uncaptured');
+  });
+
+  runGpuCanvas(device, fmt, cell('A · alphaMode opaque (what Abyssal uses)'), { alphaMode: 'opaque' });
+  runGpuCanvas(device, fmt, cell('B · alphaMode premultiplied'), { alphaMode: 'premultiplied' });
+  runGpuCanvas(device, fmt, cell('C · opaque + translateZ(0) layer (Abyssal exactly)'), { alphaMode: 'opaque', layer: true });
+  runGpuCanvas(device, fmt, cell('D · premultiplied + translateZ(0)'), { alphaMode: 'premultiplied', layer: true });
+  runGpuCanvas(device, fmt, cell('E · opaque + COPY_SRC usage (three adds this)'), {
+    alphaMode: 'opaque',
+    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+  });
+} catch (e) {
+  adapterEl.textContent = 'WebGPU: ' + String(e.message || e);
+}
+
+// WebGL2 baseline on the same page.
+{
+  const { c, v } = cell('F · WebGL2 baseline');
+  const gl = c.getContext('webgl2');
+  if (gl) {
+    let t = 0;
+    const frame = () => {
+      t += 1 / 60;
+      gl.clearColor(0.5 + 0.5 * Math.sin(t), 0.5 + 0.5 * Math.sin(t + 2.1), 0.5 + 0.5 * Math.sin(t + 4.2), 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.enable(gl.SCISSOR_TEST);
+      gl.scissor(4, 4, 26, 26);
+      gl.clearColor(1, 1, 1, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.disable(gl.SCISSOR_TEST);
+      requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+    watchReadback(c, v);
+  } else {
+    v.textContent = 'webgl2 context unavailable';
+  }
+}
+</script>

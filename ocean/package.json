@@ -1,0 +1,92 @@
+{
+  "name": "abyssal-ocean",
+  "version": "0.1.0",
+  "description": "Photoreal FFT ocean and volumetric sky for Three.js — WebGPU with WebGL2 fallback, or classic WebGL2.",
+  "type": "module",
+  "license": "MIT",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.js",
+    "./three": "./src/three/index.js",
+    "./webgpu": "./src/gpu/abyssal.js",
+    "./cloud-types": "./src/cloud-types.js",
+    "./presets": "./src/presets.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "docs",
+    "examples",
+    "README.md",
+    "AGENTS.md",
+    "llms.txt",
+    "LICENSE"
+  ],
+  "keywords": [
+    "ocean",
+    "water",
+    "sea",
+    "waves",
+    "fft",
+    "tessendorf",
+    "sky",
+    "atmosphere",
+    "clouds",
+    "volumetric",
+    "webgpu",
+    "tsl",
+    "webgl",
+    "webgl2",
+    "threejs",
+    "three",
+    "shader",
+    "glsl"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/briangruber/Experiments.git",
+    "directory": "ocean"
+  },
+  "homepage": "https://github.com/briangruber/Experiments/tree/main/ocean#readme",
+  "bugs": "https://github.com/briangruber/Experiments/issues",
+  "scripts": {
+    "start": "node tools/serve.mjs",
+    "build": "node tools/bundle.mjs --root . --out dist/abyssal.html",
+    "build:three": "node tools/bundle-three.mjs",
+    "check:bundle:three": "node tools/bundle-three.mjs && node tools/check-bundle-three.mjs",
+    "check": "node tools/shot.mjs --out shots/check.png --w 640 --h 400 --wait 9000",
+    "check:bundle": "node tools/bundle.mjs && node tools/shot.mjs --page dist/abyssal.html --out shots/bundle.png --w 640 --h 400 --wait 9000",
+    "check:examples": "node tools/check-examples.mjs",
+    "check:ride": "node tools/bundle-three.mjs && node tools/check-ride.mjs",
+    "check:fly": "node tools/bundle-three.mjs && node tools/check-fly.mjs",
+    "check:reflect": "node tools/bundle-three.mjs && node tools/check-reflection.mjs",
+    "check:shadow": "node tools/bundle-three.mjs && node tools/check-shadow.mjs",
+    "check:dragon": "node tools/bundle-three.mjs && node tools/check-dragon.mjs",
+    "check:dragon-pilot": "node tools/check-dragon-pilot.mjs",
+    "check:dragon-models": "node tools/check-dragon-models.mjs",
+    "check:dragon-jaw": "node tools/check-dragon-jaw.mjs",
+    "check:boat": "node tools/bundle-three.mjs && node tools/check-boat.mjs",
+    "check:adapt": "node tools/bundle-three.mjs && node tools/check-adapt.mjs",
+    "check:contact": "node tools/bundle-three.mjs && node tools/check-contact.mjs",
+    "check:sim": "node tools/run-probe.mjs \"prototypes/ocean-golden.html?n=64&steps=8\" --save test/out/gl-64.json && node tools/run-probe.mjs \"prototypes/ocean-compute-probe.html?n=64&steps=8\" --save test/out/wgsl-64.json && node tools/compare-fingerprint.mjs test/out/gl-64.json test/out/wgsl-64.json",
+    "docs:params": "node tools/gen-params.mjs > docs/parameters.md"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "peerDependencies": {
+    "three": ">=0.185.0"
+  },
+  "peerDependenciesMeta": {
+    "three": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "playwright": "^1.40.0",
+    "three": "^0.185.1"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

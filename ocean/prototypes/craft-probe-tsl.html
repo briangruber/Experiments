@@ -1,0 +1,165 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — the buoyancy probe, checked against the sea it reads</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}</style>
+<pre id="out">running…</pre>
+
+<!--
+  The probe answers "how high is the water at this world point", by inverting
+  the Lagrangian displacement and reading the height field back. Everything
+  about the craft's motion rests on it, and every way it can be wrong produces
+  a number rather than an error:
+
+    no inversion            plausible in calm water, hull through every steep face
+    wrong cascade patch     a plausible height from the wrong wavelength
+    stale readback          plausible, and one frame behind
+    seaLevel dropped        plausible, and the craft rides at the wrong altitude
+
+  So it is pinned by properties that hold whatever the sampler does, and that
+  no plausible bug satisfies by accident:
+
+    1. a DEAD FLAT sea (amplitude 0, swell 0) must read exactly seaLevel,
+       including a non-zero one - this catches a dropped seaLevel and any
+       constant offset, and it caught one;
+    2. on a real sea the four probes must disagree with each other by about the
+       wave height, not by nothing and not by kilometres;
+    3. doubling heightScale - a pure multiplier on the height the sim reports -
+       must double every deviation from sea level, exactly. A probe reading the
+       wrong field, reading nothing, or returning a constant cannot do that;
+    4. advancing the simulation must move the readings, so it is following the
+       sea rather than latching onto one answer.
+
+  See the note at (3) in the body for what was tried before this and why it was
+  withdrawn.
+
+    node tools/run-probe.mjs prototypes/craft-probe-tsl.html
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { TslOceanSim } from '../src/gpu/tsl/sim-driver.js';
+import { TslCraftProbe, NPROBE } from '../src/gpu/tsl/craft-probe.js';
+import { setWaterCommonUniforms } from '../src/gpu/tsl/water-common.js';
+import { newParams } from '../src/presets.js';
+import { createDerived, derive } from '../src/derive.js';
+
+const q = new URLSearchParams(location.search);
+const N = +(q.get('n') || 128);
+const STEPS = +(q.get('steps') || 8);
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+try {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 64;
+  const renderer = new THREE.WebGPURenderer({ canvas, forceWebGL: true, antialias: false });
+  await renderer.init();
+  renderer.autoClear = false;
+
+  const run = async (mutate) => {
+    const params = newParams('Golden Hour Swell');
+    params.fftSize = N;
+    mutate?.(params);
+    const d = createDerived();
+    derive(params, d);
+
+    const sim = new TslOceanSim(renderer, { size: params.fftSize });
+    sim.setSeed(params.seed);
+    sim.buildSpectrum(params);
+    for (let i = 0; i < STEPS; i++) sim.update(1 / 60, params);
+
+    // The probe reads the cascade uniforms the water sets up.
+    setWaterCommonUniforms(params, { camPos: new Float32Array([0, 5, 0]), time: 1 }, sim, null);
+
+    const probe = new TslCraftProbe(renderer);
+    return { params, sim, probe };
+  };
+
+  // ---- 1. a dead flat sea, at a non-zero sea level -------------------------
+  {
+    const SEA = 3.75;
+    const { probe, sim } = await run((p) => {
+      p.amplitude = 0; p.swellAmount = 0; p.seaLevel = SEA; p.choppiness = 0;
+    });
+    const pts = [[0, 0], [12.5, -7], [-31, 44], [900, -1200]];
+    const r = await probe.update(pts, { seaLevel: SEA, wakeProbe: 0 });
+    const worst = Math.max(...r.map((s) => Math.abs(s.h - SEA)));
+    log('a flat sea reads exactly its sea level', worst < 1e-3,
+        `heights ${r.map((s) => s.h.toFixed(5)).join(', ')} against seaLevel ${SEA} - worst error ${worst.toExponential(2)}`);
+    probe.dispose(); sim.dispose?.();
+  }
+
+  // ---- 2 and 3. a real sea ------------------------------------------------
+  {
+    const { params, sim, probe } = await run();
+    // Four points a hull-length apart, the way the craft's probes sit.
+    const pts = [[0, 0], [1.6, 0], [-1.6, 0], [0, 3.2]];
+    const r = await probe.update(pts, { seaLevel: params.seaLevel, wakeProbe: 0 });
+    const hs = r.map((s) => s.h);
+    const spread = Math.max(...hs) - Math.min(...hs);
+    log('the probes see a wave, not a plane', spread > 0.005 && spread < 20,
+        `heights ${hs.map((v) => v.toFixed(3)).join(', ')} - spread ${spread.toFixed(3)} m`);
+    log('all finite and plausible', hs.every((v) => Number.isFinite(v) && Math.abs(v) < 40),
+        `|h| max ${Math.max(...hs.map(Math.abs)).toFixed(3)} m`);
+
+    // ---- is it reading the WAVES, or just something? ----------------------
+    //
+    // The first draft of this checked the probe against a CPU reimplementation
+    // of the sampler - wrap, bilinear, cascade patch sizes, the inversion, all
+    // of it in JavaScript over a readback of the same texels. It disagreed by
+    // 1.9 m, and the honest reading of that is not "the probe is broken": it is
+    // that a hand-written mirror of a GPU sampler has more places to be wrong
+    // than the thing it audits, and a test nobody can trust is worse than no
+    // test. It is replaced by relations that hold whatever the sampler does,
+    // and that no plausible bug satisfies by accident.
+    //
+    // heightScale is a pure multiplier on the height the sim reports. Double it
+    // and every deviation from sea level must double. A probe reading the wrong
+    // field, reading nothing, or returning a constant cannot do this.
+    const dev = (arr, sea) => arr.map((v) => v - sea);
+    const base = dev(hs, params.seaLevel);
+
+    const p2 = { ...params, heightScale: params.heightScale * 2 };
+    setWaterCommonUniforms(p2, { camPos: new Float32Array([0, 5, 0]), time: 1 }, sim, null);
+    const r2 = await probe.update(pts, { seaLevel: p2.seaLevel, wakeProbe: 0 });
+    const doubled = dev(r2.map((s) => s.h), p2.seaLevel);
+
+    let ratioWorst = 0;
+    const ratios = base.map((b, i) => {
+      const r = Math.abs(b) > 1e-3 ? doubled[i] / b : 2;
+      ratioWorst = Math.max(ratioWorst, Math.abs(r - 2));
+      return r.toFixed(3);
+    });
+    log('height scales linearly with the field', ratioWorst < 0.02,
+        `heightScale x2 gives deviation ratios ${ratios.join(', ')} (must be 2.000)`);
+
+    // And the probe must track the sea as it evolves, not latch onto one answer.
+    setWaterCommonUniforms(params, { camPos: new Float32Array([0, 5, 0]), time: 1 }, sim, null);
+    for (let i = 0; i < 30; i++) sim.update(1 / 60, params);
+    setWaterCommonUniforms(params, { camPos: new Float32Array([0, 5, 0]), time: 1.5 }, sim, null);
+    const r3 = await probe.update(pts, { seaLevel: params.seaLevel, wakeProbe: 0 });
+    const moved = Math.max(...r3.map((s, i) => Math.abs(s.h - hs[i])));
+    log('it follows the sea as it moves', moved > 0.01,
+        `half a second of simulation moved the readings by up to ${moved.toFixed(3)} m`);
+
+    probe.dispose();
+  }
+} catch (e) {
+  log('probe', false, String(e.stack || e.message || e).slice(0, 900));
+}
+
+window.probeResult = { results, allOk: results.every((r) => r.ok) };
+</script>

@@ -468,18 +468,25 @@ void main(){
   // same code smeared a raft over eight metres in the 397 m cascade and over
   // thirty centimetres in the 17 m one, so each cascade grew a differently
   // shaped foam and the sum was a soft halo around a hard core.
-  float alongUV  = 0.9 * bs / uL;
-  float acrossUV = 0.16 * bs / uL;
+  float alongUV  = 0.45 * bs / uL;
+  float acrossUV = 0.28 * bs / uL;
 
   vec4 prev = textureLod(uPrevFoam, vec3(uv - duv, float(uLayer)), 0.0);
-  // Anisotropic diffusion: a foam raft smears far further along the wind than
-  // across it, which is what turns blobs into streaks.
+  // Mild along-wind bias (~1.6:1), not the old 5.6:1 smear. That ratio turned
+  // every breaker into a filament; real foam keeps clumps and holes while it
+  // drifts.
   vec4 blur = 0.25 * (
       textureLod(uPrevFoam, vec3(uv - duv + wd*alongUV,  float(uLayer)), 0.0)
     + textureLod(uPrevFoam, vec3(uv - duv - wd*alongUV,  float(uLayer)), 0.0)
     + textureLod(uPrevFoam, vec3(uv - duv + wn*acrossUV, float(uLayer)), 0.0)
     + textureLod(uPrevFoam, vec3(uv - duv - wn*acrossUV, float(uLayer)), 0.0));
-  prev = mix(prev, blur, clamp(uSpreadRate * uDt, 0.0, 1.0));
+  // Frame-rate independent: a linear rate*dt blend has to be clamped, and the
+  // clamp is a cliff - at the top of the old 0..8 range one frame replaced the
+  // foam field wholesale with its own blur, so whitecaps stopped being streaks
+  // and became a smooth grey crust. 1 - exp(-rate*dt) approaches total diffusion
+  // asymptotically instead, and at the default 0.4 it differs from the old form
+  // by 0.4%, so the sea it was tuned against is unchanged.
+  prev = mix(prev, blur, 1.0 - exp(-max(uSpreadRate, 0.0) * uDt));
 
   // The buffer is stored pre-multiplied by this cascade's share of the foam
   // budget, but the physics below is a fraction of the texel's own area and has

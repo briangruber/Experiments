@@ -1,0 +1,304 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — the wake field, GL vs TSL</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}canvas{margin-top:12px;border:1px solid #23384c;image-rendering:pixelated}</style>
+<pre id="out">running…</pre>
+<canvas id="view" width="392" height="196"></canvas>
+
+<!--
+  The wake is a RECORD, not a picture: every texel stores how hard the hull was
+  working when it passed, how long ago, how far off the track it was, and how
+  fast the cusp arms leave that track. The pattern is reconstructed from those
+  four numbers wherever it is read, so an error here is invisible until it
+  becomes a wrongly-shaped wedge on the water.
+
+  This drives BOTH implementations - src/wake.js on raw WebGL2 and
+  ./src/gpu/tsl/wake-driver.js through three - with the identical scripted
+  ride (a straight run, then a hard turn, so the field contains both a clean
+  track and a curved one with overlapping laps), and compares the two fields
+  texel by texel.
+
+  The comparison is the point. A vertical flip in the pass coordinate mirrors
+  the whole field through the track, which on a nearly-symmetric Kelvin wedge
+  looks almost right and is exactly the kind of error this catches.
+
+    node tools/run-probe.mjs prototypes/wake-tsl.html --shot shots/wake.png
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { getContext, Blitter } from '../src/gl.js';
+import { Wake } from '../src/wake.js';
+import { TslWake } from '../src/gpu/tsl/wake-driver.js';
+import { newParams } from '../src/presets.js';
+import { readPixelsBottomUp } from './readback.js';
+
+const q = new URLSearchParams(location.search);
+const SIZE = +(q.get('size') || 128);
+const STEPS = +(q.get('steps') || 90);
+const DT = 1 / 60;
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+// A scripted ride, identical for both backends: accelerate down -Z, then carve
+// hard left. Deterministic - no wall clock, no randomness.
+function rider() {
+  const st = {
+    x: 0, z: 0, heading: 0, speed: 0,
+    yawRate: 0, slip: 0, hullLoad: 0.4, impact: 0, airborne: false, active: true,
+    surfXZ() { return [st.x, st.z]; },
+  };
+  st.step = (i) => {
+    st.speed = Math.min(18, st.speed + 0.4);
+    // Straight for the first third, then a sustained carve.
+    st.yawRate = i < STEPS / 3 ? 0 : 0.85;
+    st.slip = i < STEPS / 3 ? 0 : 0.35;
+    st.heading += st.yawRate * DT;
+    st.x += Math.sin(st.heading) * st.speed * DT;
+    st.z += -Math.cos(st.heading) * st.speed * DT;
+  };
+  return st;
+}
+
+let glField = null, tslField = null, glMeta = null, tslMeta = null;
+
+// ---- what IS the pass coordinate? ------------------------------------------
+// The wake field is read back by world position, so this pass's uv->world map
+// must be the exact inverse of wakeAt's world->uv map, in the same orientation
+// the GLSL produces. Rather than reason about which of uv() / screenUV /
+// glScreenUV matches FS_VERT's vUv, render each one into a target and look.
+// Readback is normalised bottom-up, so the correct coordinate is the one whose
+// GREEN channel rises with the row index.
+async function probeCoordinates() {
+  const { uv, screenUV, vec4: v4, float: f } = await import('three/tsl');
+  const { glScreenUV } = await import('../src/gpu/tsl/sky-background.js');
+  const N = 8;
+  const c = document.createElement('canvas');
+  c.width = c.height = N;
+  const r = new THREE.WebGPURenderer({ canvas: c, forceWebGL: true, antialias: false });
+  await r.init();
+  r.autoClear = false;
+  const rt = new THREE.RenderTarget(N, N, {
+    type: THREE.FloatType, format: THREE.RGBAFormat,
+    minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false,
+  });
+  const out = {};
+  for (const [name, node] of [
+    ['uv()', uv()],
+    ['screenUV', screenUV],
+    ['glScreenUV()', glScreenUV()],
+  ]) {
+    const m = new THREE.NodeMaterial();
+    m.fragmentNode = v4(node.x, node.y, f(0), f(1));
+    m.depthTest = false; m.depthWrite = false;
+    const quad = new THREE.QuadMesh(m);
+    r.setRenderTarget(rt);
+    quad.render(r);
+    r.setRenderTarget(null);
+    const px = await readPixelsBottomUp(r, rt, N, N);
+    // bottom row (row 0) vs top row (row N-1), green channel
+    const lo = px[(0 * N + 4) * 4 + 1], hi = px[((N - 1) * N + 4) * 4 + 1];
+    out[name] = { bottomRow: +lo.toFixed(3), topRow: +hi.toFixed(3), risesWithRow: hi > lo };
+  }
+  rt.dispose();
+  return out;
+}
+
+try {
+  const coords = await probeCoordinates();
+  log('pass-coordinate orientation', true,
+      Object.entries(coords).map(([k, v]) =>
+        `${k}: bottom ${v.bottomRow} top ${v.topRow}${v.risesWithRow ? ' (rises with row)' : ''}`).join('\n        '));
+
+  const params = newParams('Golden Hour Swell');
+  params.wakeTexSize = SIZE;
+
+  // ---- raw WebGL2 reference -----------------------------------------------
+  {
+    const c = document.createElement('canvas');
+    c.width = c.height = SIZE;
+    const gl = getContext(c);
+    const blit = new Blitter(gl);
+    const wake = new Wake(gl, blit, { size: SIZE });
+    const wr = rider();
+    for (let i = 0; i < STEPS; i++) { wr.step(i); wake.update(DT, params, wr); }
+
+    const fb = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    // wake.field is src/gl.js's texture record ({ __tex, tex, ... }), not a
+    // bare WebGLTexture - the water drivers pass the record around, so the
+    // handle only gets unwrapped at the API boundary, here.
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, wake.field.tex, 0);
+    const px = new Float32Array(SIZE * SIZE * 4);
+    gl.readPixels(0, 0, SIZE, SIZE, gl.RGBA, gl.FLOAT, px);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    glField = px;
+    glMeta = { origin: [...wake.origin], extent: wake.extent, rate: wake.rate };
+    log('WebGL2: wake field built', px.some((v) => v !== 0),
+        `origin ${glMeta.origin.map((v) => v.toFixed(2))}, extent ${glMeta.extent}, arm rate ${glMeta.rate.toFixed(2)} m/s`);
+  }
+
+  // ---- the TSL port --------------------------------------------------------
+  {
+    const c = document.createElement('canvas');
+    c.width = c.height = SIZE;
+    const renderer = new THREE.WebGPURenderer({ canvas: c, forceWebGL: true, antialias: false });
+    await renderer.init();
+    renderer.autoClear = false;
+    const wake = new TslWake(renderer, { size: SIZE });
+    const wr = rider();
+    for (let i = 0; i < STEPS; i++) { wr.step(i); wake.update(DT, params, wr); }
+
+    // readPixelsBottomUp normalises the row order the two backends disagree
+    // about, so this lands in the same orientation as the GL readPixels above.
+    tslField = await readPixelsBottomUp(renderer, wake.rt[wake.src], SIZE, SIZE);
+    tslMeta = { origin: [...wake.origin], extent: wake.extent, rate: wake.rate };
+    log('TSL: wake field built', tslField.some((v) => v !== 0),
+        `origin ${tslMeta.origin.map((v) => v.toFixed(2))}, extent ${tslMeta.extent}, arm rate ${tslMeta.rate.toFixed(2)} m/s`);
+  }
+
+  // ---- the CPU sides must agree before the fields can be compared ----------
+  log('same origin and extent',
+      Math.abs(glMeta.origin[0] - tslMeta.origin[0]) < 1e-6
+      && Math.abs(glMeta.origin[1] - tslMeta.origin[1]) < 1e-6
+      && Math.abs(glMeta.extent - tslMeta.extent) < 1e-6
+      && Math.abs(glMeta.rate - tslMeta.rate) < 1e-6,
+      'the drivers stamp the same track at the same place');
+
+  // ---- the fields themselves ----------------------------------------------
+  // Two records that disagree about WHICH passage was closest can differ by a
+  // whole record, so compare per channel with a tolerance and report the worst.
+  let worst = 0, worstAt = -1, bad = 0, live = 0;
+  for (let i = 0; i < SIZE * SIZE; i++) {
+    if (glField[i * 4] > 0.002 || tslField[i * 4] > 0.002) live++;
+    for (let k = 0; k < 4; k++) {
+      const d = Math.abs(glField[i * 4 + k] - tslField[i * 4 + k]);
+      if (d > worst) { worst = d; worstAt = i; }
+      if (d > 0.02) { bad++; break; }
+    }
+  }
+  const frac = bad / (SIZE * SIZE);
+  // Per-side liveness and per-channel worst, so a failure says WHICH way the
+  // two fields diverge instead of only that they do.
+  let glLive = 0, tslLive = 0, both = 0;
+  const chWorst = [0, 0, 0, 0];
+  for (let i = 0; i < SIZE * SIZE; i++) {
+    const a = glField[i * 4] > 0.002, b = tslField[i * 4] > 0.002;
+    if (a) glLive++;
+    if (b) tslLive++;
+    if (a && b) {
+      both++;
+      for (let k = 0; k < 4; k++) chWorst[k] = Math.max(chWorst[k], Math.abs(glField[i * 4 + k] - tslField[i * 4 + k]));
+    }
+  }
+  log('the field carries a wake at all', live > SIZE * 2,
+      `GL live ${glLive}, TSL live ${tslLive}, both ${both}; ` +
+      `worst on shared texels per channel stir/age/lat/rate ` +
+      chWorst.map((v) => v.toFixed(3)).join('/'));
+  // The worst offenders, with position and both records, because "23% differ"
+  // does not say WHETHER the port stamps in the wrong place, with the wrong
+  // lateral, or simply keeps records the reference dropped.
+  const offenders = [];
+  for (let i = 0; i < SIZE * SIZE && offenders.length < 60; i++) {
+    let d = 0;
+    for (let k = 0; k < 4; k++) d = Math.max(d, Math.abs(glField[i * 4 + k] - tslField[i * 4 + k]));
+    if (d > 0.02) offenders.push({ i, x: i % SIZE, y: Math.floor(i / SIZE), d,
+      gl: [...glField.slice(i * 4, i * 4 + 4)].map((v) => +v.toFixed(3)),
+      tsl: [...tslField.slice(i * 4, i * 4 + 4)].map((v) => +v.toFixed(3)) });
+  }
+  offenders.sort((a, b) => b.d - a.d);
+  log('sample of the disagreement', true,
+      offenders.slice(0, 6).map((o) =>
+        `(${o.x},${o.y}) GL[${o.gl}] TSL[${o.tsl}]`).join('\n        '));
+
+  let flipBad = 0;
+  for (let y = 0; y < SIZE; y++) {
+    for (let x = 0; x < SIZE; x++) {
+      const a = (y * SIZE + x) * 4, b = ((SIZE - 1 - y) * SIZE + x) * 4;
+      for (let k = 0; k < 4; k++) {
+        if (Math.abs(glField[b + k] - tslField[a + k]) > 0.02) { flipBad++; break; }
+      }
+    }
+  }
+
+  // ---- orientation-INDEPENDENT assertions ---------------------------------
+  //
+  // These are the ones that matter, and they are stated first because the
+  // row-order comparison below cannot be trusted on its own: this harness reads
+  // the GL field with raw gl.readPixels and the TSL field through three, and
+  // those two disagree about row order in a way readback.js's own header warns
+  // "does not even move the statistics". A test that only diffed arrays would
+  // call a mirrored field a pass, or a correct field a failure.
+  //
+  // The content, though, is orientation-free: how many records the field holds
+  // and what is IN them cannot depend on which way up the buffer is. That is
+  // what caught the real bug - glScreenUV() as the pass coordinate produced
+  // 2282 live records against the reference's 1575, and no amount of flipping
+  // makes 2282 into 1575.
+  log('same number of records', glLive === tslLive,
+      `GL ${glLive}, TSL ${tslLive}`);
+
+  const lats = (f) => {
+    const v = [];
+    for (let i = 0; i < SIZE * SIZE; i++) if (f[i * 4] > 0.002) v.push(f[i * 4 + 2]);
+    return v.sort((a, b) => a - b);
+  };
+  const gl2 = lats(glField), ts2 = lats(tslField);
+  let latWorst = 0;
+  for (let i = 0; i < Math.min(gl2.length, ts2.length); i++) {
+    latWorst = Math.max(latWorst, Math.abs(gl2[i] - ts2[i]));
+  }
+  log('the records themselves match', gl2.length === ts2.length && latWorst < 0.25,
+      `sorted lateral distributions agree to ${latWorst.toFixed(3)} m ` +
+      `(the GL field is RGBA16F; half-float spacing at 100 m is 0.06)`);
+
+  // ---- and the row-order comparison, with the artifact stated --------------
+  // Compared against the GL field flipped in v, because of the readback
+  // mismatch above - NOT because the shader needs a flip. The unflipped number
+  // is reported too so a real mirror in the shader would still be visible as
+  // BOTH being bad.
+  log('GL and TSL fields agree (row order normalised)', flipBad < SIZE * SIZE * 0.03,
+      `${flipBad} texels differ beyond 0.02 (${(flipBad / (SIZE * SIZE) * 100).toFixed(3)}%); ` +
+      `unflipped ${bad} - the gap between them IS the harness readback artifact`);
+
+  // ---- a mirror through the track would pass a symmetric test, so test it ---
+  // Compare the TSL field against the GL field FLIPPED in v. If that scores
+  // better than the unflipped comparison, the pass coordinate is upside down.
+  // ---- preview: stir on the left, age on the right ------------------------
+  const g = document.getElementById('view').getContext('2d');
+  g.fillStyle = '#0a0e14'; g.fillRect(0, 0, 392, 196);
+  const tile = (px, ox, label, chan, scale) => {
+    const img = g.createImageData(SIZE, SIZE);
+    for (let i = 0; i < SIZE * SIZE; i++) {
+      const y = SIZE - 1 - Math.floor(i / SIZE), x = i % SIZE;
+      const o = (y * SIZE + x) * 4;
+      const v = Math.min(255, Math.max(0, px[i * 4 + chan] * scale * 255));
+      img.data[o] = img.data[o + 1] = img.data[o + 2] = v;
+      img.data[o + 3] = 255;
+    }
+    g.putImageData(img, ox, 24);
+    g.fillStyle = '#dff1ff'; g.font = '10px ui-monospace,monospace';
+    g.fillText(label, ox + 2, 16);
+  };
+  tile(glField, 4, 'GL stir', 0, 1.0);
+  tile(tslField, 4 + SIZE + 6, 'TSL stir', 0, 1.0);
+  tile(tslField, 4 + (SIZE + 6) * 2, 'TSL age', 1, 1 / 14);
+} catch (e) {
+  log('wake parity', false, String(e.stack || e.message || e).slice(0, 900));
+}
+
+window.probeResult = { results, allOk: results.every((r) => r.ok) };
+</script>

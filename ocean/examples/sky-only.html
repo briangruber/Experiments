@@ -1,0 +1,100 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Abyssal in Three.js — sky only</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0a0e14; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #hud { position: fixed; top: 12px; left: 12px; color: #dfe9f2; font: 12px/1.5 ui-monospace, monospace; text-shadow: 0 1px 3px #000a; }
+  #hud input { vertical-align: middle; }
+</style>
+
+<canvas id="c"></canvas>
+<div id="hud">
+  sky only — no water in this scene<br>
+  sun elevation <input id="elev" type="range" min="-6" max="70" step="0.5" value="14">
+  <span id="elevVal">14°</span><br>
+  cloud cover <input id="cover" type="range" min="0" max="1" step="0.01" value="0.5">
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.185.1/build/three.module.js" } }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { AbyssalSky } from '../src/three/index.js';
+
+// The sky on its own: a physical atmosphere plus a volumetric cloud raymarch,
+// over a plain Three.js scene with no sea anywhere.
+//
+// It draws LAST, as a single far-plane triangle under a LEQUAL depth test that
+// writes no depth. That is what makes it affordable: the cloud march is the most
+// expensive shading in the frame and it only runs on pixels your scene left empty.
+
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.autoClear = false;
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.5, 40000);
+camera.position.set(0, 6, 26);
+
+const sky = new AbyssalSky(renderer, { preset: 'Golden Hour Swell' });
+sky.params.sunElevation = 14;
+sky.params.cloudCoverage = 0.5;
+
+const sun = new THREE.DirectionalLight(0xffffff, 3);
+scene.add(sun, new THREE.HemisphereLight(0xa8c8e8, 0x2a2620, 1.4));
+
+// Something for the sky to sit behind.
+const ground = new THREE.Mesh(
+  new THREE.CylinderGeometry(30, 30, 1.5, 64),
+  new THREE.MeshStandardMaterial({ color: 0x4a5a3a, roughness: 0.95 }),
+);
+ground.position.y = -1;
+scene.add(ground);
+
+const stoneMat = new THREE.MeshStandardMaterial({ color: 0x8a8578, roughness: 0.9 });
+for (let i = 0; i < 9; i++) {
+  const a = (i / 9) * Math.PI * 2;
+  const h = 4 + (i % 3) * 3;
+  const stone = new THREE.Mesh(new THREE.BoxGeometry(2.2, h, 2.2), stoneMat);
+  stone.position.set(Math.sin(a) * 14, h / 2 - 0.3, Math.cos(a) * 14);
+  stone.rotation.y = a;
+  scene.add(stone);
+}
+
+document.getElementById('elev').oninput = (e) => {
+  sky.params.sunElevation = +e.target.value;
+  document.getElementById('elevVal').textContent = e.target.value + '°';
+};
+document.getElementById('cover').oninput = (e) => { sky.params.cloudCoverage = +e.target.value; };
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+const clock = new THREE.Clock();
+let t = 0;
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 1 / 20);
+  t += dt * 0.08;
+  camera.position.set(Math.sin(t) * 30, 7, Math.cos(t) * 30);
+  camera.lookAt(0, 5, 0);
+
+  sky.update(dt, camera);
+  sun.position.set(...sky.sunDirection).multiplyScalar(500);
+  sun.color.setRGB(...sky.sunColor);
+
+  renderer.clear();
+  renderer.render(scene, camera);
+  sky.render(camera);          // last: only shades what the scene left empty
+});
+
+window.abyssalExample = { renderer, scene, camera, sky };
+</script>

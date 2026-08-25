@@ -15,7 +15,12 @@ const args = process.argv.slice(2);
 const opt = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i + 1] : d; };
 const ROOT = resolve(opt('root', '.'));
 const OUT = resolve(opt('out', 'dist/abyssal.html'));
-const ENTRY = opt('entry', 'src/main.js');
+const ENTRY = opt('entry', 'demo/main.js');
+const HTML = opt('html', 'index.html');
+const CSS = opt('css', 'demo/ui.css');
+// The demo's boot-failure panel assumes the demo's markup. Another page has its
+// own error handling and does not want a stray ABYSSAL splash on top of it.
+const BOOT_PANEL = !args.includes('--no-boot-panel');
 
 const IMPORT_RE = /^\s*import\s*\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]\s*;?\s*$/gm;
 
@@ -35,7 +40,29 @@ function exportedNames(src) {
       cur += ch;
     }
   }
+  // `export { a, b };` - a re-export list. Missing this was not a cosmetic gap:
+  // stripping the leading `export` left `{ a, b };`, a perfectly valid block
+  // statement, so the build succeeded and the names simply never reached the
+  // module object. The failure surfaced at runtime as "a is not a function".
+  for (const m of src.matchAll(/^export\s*\{([^}]*)\}\s*;/gm)) {
+    for (const part of m[1].split(',')) {
+      const name = part.trim().split(/\s+as\s+/).pop().trim();
+      if (name) names.add(name);
+    }
+  }
   return [...names].filter((n) => /^[A-Za-z0-9_$]+$/.test(n));
+}
+
+// `export { x } from './y.js'` re-exports across a module boundary, which this
+// bundler has no representation for. Fail the build rather than emit something
+// that looks fine and is missing a binding.
+function assertNoReExportFrom(id, src) {
+  const m = src.match(/^export\s*(?:\*|\{[^}]*\})\s*(?:as\s+\w+\s*)?from\s*['"][^'"]+['"]/m);
+  if (m) {
+    throw new Error(
+      `${id}: \`${m[0].trim()}\` is not supported by this bundler.\n` +
+      '  Import the binding and re-export it in a separate statement instead.');
+  }
 }
 
 const modules = new Map();
@@ -44,6 +71,7 @@ async function load(id) {
   if (modules.has(id)) return;
   modules.set(id, null);                       // reserve, breaks any cycle
   const src = await readFile(join(ROOT, id), 'utf8');
+  assertNoReExportFrom(id, src);
   const deps = [];
   let body = src.replace(IMPORT_RE, (_all, names, spec) => {
     const dep = relative(ROOT, resolve(dirname(join(ROOT, id)), spec)).split('\\').join('/');
@@ -54,6 +82,7 @@ async function load(id) {
     return `const { ${bind} } = __req(${JSON.stringify(dep)});`;
   });
   const names = exportedNames(body);
+  body = body.replace(/^export\s*\{[^}]*\}\s*;\s*$/gm, '');
   body = body.replace(/^export\s+/gm, '');
   body += `\nObject.assign(__x, { ${names.join(', ')} });\n`;
   modules.set(id, { body, deps, names });
@@ -62,9 +91,14 @@ async function load(id) {
 
 await load(ENTRY);
 
+const BUILD_ID = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';
+
 const runtime = `
 (function(){
 "use strict";
+// Set before any module runs, so it survives a startup failure. If this is
+// undefined in the console, the page being served is older than this build.
+window.abyssalBuild = ${JSON.stringify(BUILD_ID)};
 var __defs = {}, __cache = {};
 function __req(id){
   if (__cache[id]) return __cache[id];
@@ -94,13 +128,21 @@ if (!document.querySelector('meta[name="viewport"]')) {
 try {
   __req(${JSON.stringify(ENTRY)});
 } catch (err) {
-  var boot = document.getElementById('boot');
+  // Kept reachable from the console: a failure that leaves no window.abyssal
+  // otherwise gives the reader nothing to report back.
+  window.abyssalError = err;
+  console.error('Abyssal build ' + window.abyssalBuild + ' failed to start:', err);
+  var boot = ${BOOT_PANEL ? "document.getElementById('boot')" : 'null'};
   if (boot) {
     boot.classList.remove('gone');
     boot.innerHTML = '<div class="boot-title">ABYSSAL</div>' +
       '<div class="boot-sub" style="max-width:30rem;text-align:center;line-height:1.7;text-transform:none;letter-spacing:0">' +
-      'This simulator needs WebGL2 with floating-point render targets, which this browser did not provide.' +
-      '<br><br>It runs in current Chrome, Edge, Firefox and Safari 16+ on a machine with hardware graphics enabled.' +
+      (/WebGL2|EXT_color_buffer_float/i.test(String(err && err.message))
+        ? 'This simulator needs WebGL2 with floating-point render targets, which this browser did not provide.' +
+          '<br><br>It runs in current Chrome, Edge, Firefox and Safari 16+ on a machine with hardware graphics enabled.'
+        : 'Abyssal failed to start.<br><br><span style="font-family:ui-monospace,monospace;font-size:.85em;opacity:.8">' +
+          String((err && (err.message || err)) || 'unknown error').replace(/[<>&]/g, '') + '</span>') +
+      '<br><br><span style="font-size:.72em;opacity:.45;letter-spacing:.05em">build ' + window.abyssalBuild + '</span>' +
       '</div>';
   }
   throw err;
@@ -116,8 +158,8 @@ const escJs   = (s) => s.replace(NON_ASCII, (c) => '\\u' + c.charCodeAt(0).toStr
 const escHtml = (s) => s.replace(NON_ASCII, (c) => '&#' + c.charCodeAt(0) + ';');
 const escCss  = (s) => s.replace(NON_ASCII, (c) => '\\' + c.charCodeAt(0).toString(16) + ' ');
 
-const css = await readFile(join(ROOT, 'src/ui.css'), 'utf8');
-const html = await readFile(join(ROOT, 'index.html'), 'utf8');
+const css = CSS === 'none' ? '' : await readFile(join(ROOT, CSS), 'utf8');
+const html = await readFile(join(ROOT, HTML), 'utf8');
 
 // Keep the app's own markup; drop the tags the Artifact wrapper supplies and the
 // module <script>, which the bundle replaces.

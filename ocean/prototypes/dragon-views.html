@@ -1,0 +1,43 @@
+<!doctype html><meta charset="utf-8"><body style="margin:0;background:#0a0e14">
+<canvas id="view" width="1600" height="400"></canvas>
+<script type="importmap">{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js" } }</script>
+<!--
+  The sea dragon from four sides, so the conversion can be read rather than
+  guessed at: the head must be on -Z (the renderer's "forward" for every craft),
+  the body centred on its own origin, and the texture the right way up.
+-->
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { buildCraftGeometry, loadCraftTexture } from '../src/gpu/tsl/craft.js';
+import { DRAGON_MESH } from '../demo/dragonModel.js';
+import { installThreeCompat } from '../src/gpu/three-compat.js';
+installThreeCompat();
+const canvas = document.getElementById('view');
+const r = new THREE.WebGPURenderer({ canvas, forceWebGL: true, antialias: true });
+await r.init(); r.setClearColor(0x0a0e14, 1);
+const L = 20;
+const b = buildCraftGeometry(L, DRAGON_MESH);
+const tex = await loadCraftTexture(r, DRAGON_MESH);
+const mat = new THREE.MeshBasicNodeMaterial({ map: tex, side: THREE.DoubleSide });
+const scene = new THREE.Scene(); scene.add(new THREE.Mesh(b.geometry, mat));
+const cam = new THREE.PerspectiveCamera(32, 1, 0.05, 500);
+// nose-on, port side, above, and a three-quarter
+const eyes = [[0, 0, -34], [-34, 0, 0], [0.01, 34, 0], [-22, 12, -22]];
+for (let i = 0; i < 4; i++) {
+  cam.position.set(eyes[i][0], eyes[i][1], eyes[i][2]);
+  cam.up.set(0, i === 2 ? 0 : 1, i === 2 ? -1 : 0);
+  cam.lookAt(0, 0, 0);
+  r.setViewport(i * 400, 0, 400, 400); r.setScissor(i * 400, 0, 400, 400); r.setScissorTest(true);
+  await r.renderAsync(scene, cam);
+}
+const pos = b.geometry.getAttribute('position');
+let zMin = 1e9, zMax = -1e9;
+for (let i = 0; i < pos.count; i++) { const z = pos.getZ(i); if (z < zMin) zMin = z; if (z > zMax) zMax = z; }
+window.probeResult = { allOk: true, results: [
+  { name: 'four views', ok: true, detail: 'nose / port / above / three-quarter' },
+  { name: 'length', ok: true, detail: `${(zMax - zMin).toFixed(1)} m, ${b.vertexCount} verts, ${b.triangleCount} tris` },
+] };
+</script></body>

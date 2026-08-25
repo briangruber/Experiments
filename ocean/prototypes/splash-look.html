@@ -1,0 +1,216 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — what a water entry actually looks like</title>
+
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}</style>
+<pre id="out">running…</pre>
+<!--
+  CSS SIZE IS LOAD-BEARING HERE, unlike the probes that own their renderer.
+  three-main.js sizes the drawing buffer from canvas.clientWidth every frame and
+  floors it at 8 px, with updateStyle off - so one frame measured before layout
+  latches the canvas at 8x8 for good, and the screenshot came back an 8x8 dot.
+  An explicit CSS size is the fix; the buffer is clientWidth * dpr * renderScale.
+-->
+<canvas id="view" style="display:block;width:960px;height:540px"></canvas>
+
+<!--
+  THE ONE QUESTION: does the leap splash look like a water entry, or like a
+  torus? The numbers are unit-tested on the CPU (tools/check-splash-field.mjs)
+  and the wiring by prototypes/dragon-spray-probe.html; neither of those can
+  tell you the picture is any good, and this splash exists for the picture.
+
+  So: park the camera on a fixed rig looking at a fixed patch of sea, stamp a
+  landing there, and FREEZE the splash clock at one age so a still frame is
+  reproducible. Then walk the sequence with --age:
+
+    node tools/run-probe.mjs prototypes/splash-look.html --shot shots/splash-crown.png   (0.10 - crown out, hole open)
+    node tools/run-probe.mjs 'prototypes/splash-look.html?age=0.60' --shot shots/splash-jet.png
+    node tools/run-probe.mjs 'prototypes/splash-look.html?age=2.20' --shot shots/splash-after.png
+
+  Needs eyes on the screenshot. The pass/fail here only claims the frame is not
+  blank and the field is live - every failure mode this repo has hit rendered a
+  uniform frame rather than throwing (AGENTS.md, "How to verify").
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { installWebGPUSwizzleShim } from './webgpu-shim.js';
+import { boot } from '../demo/three-main.js';
+import { uSplashAge, uSplashEnergy } from '../src/gpu/tsl/water-surface.js';
+import { uCraftSpout, uCraftImpact } from '../src/gpu/tsl/spray.js';
+
+installWebGPUSwizzleShim();
+
+const q = new URLSearchParams(location.search);
+const WANT = (q.get('backend') || 'webgl').toLowerCase();
+const AGE = +(q.get('age') || 0.10);
+const OVERRIDES = {
+  fftSize: +(q.get('fft') || 128),
+  sprayTexSize: +(q.get('sprayTex') || 96),
+  cloudSteps: +(q.get('cloudSteps') || 16),
+};
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+const frames = (k) => new Promise((resolve) => {
+  let i = 0;
+  const tick = () => (++i >= k ? resolve() : requestAnimationFrame(tick));
+  requestAnimationFrame(tick);
+});
+
+// Luma over the canvas: mean per band and a global std. Two near-equal bands or
+// a std near zero is the blank/uniform frame that every silent failure here has
+// produced.
+const bands = (canvas) => {
+  const c = document.createElement('canvas');
+  c.width = canvas.width; c.height = canvas.height;
+  c.getContext('2d').drawImage(canvas, 0, 0);
+  const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+  let n = 0, s = 0, s2 = 0, top = 0, nTop = 0, bot = 0, nBot = 0;
+  for (let y = 0; y < c.height; y++) {
+    for (let x = 0; x < c.width; x++) {
+      const i = (y * c.width + x) * 4;
+      const l = 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+      n++; s += l; s2 += l * l;
+      if (y < c.height * 0.35) { top += l; nTop++; }
+      if (y > c.height * 0.65) { bot += l; nBot++; }
+    }
+  }
+  const mean = s / n;
+  return { mean, std: Math.sqrt(Math.max(0, s2 / n - mean * mean)), top: top / nTop, bot: bot / nBot };
+};
+
+const work = (async () => {
+  let backend = '?';
+  try {
+    const canvas = document.getElementById('view');
+    const app = await boot({ canvas, backend: WANT, overrides: OVERRIDES });
+    backend = app.backend;
+    const A = app;
+    A.params.adaptiveQuality = 0; A.params.fpsCap = 0;
+    A.params.sdEnabled = 1;
+    A.params.sdSpray = 1;
+    // ?foam=0 renders the water-entry GEOMETRY alone. Worth having as a switch:
+    // the splash foam composites into the same foamMask the whitecaps use, so
+    // "is that shape wrong or is that just foam texture" is otherwise a guess.
+    // ?preset=Tropical Noon judges the WHITE. The default boot is a low warm sun,
+    // and under it correct foam is legitimately golden - which made a tan mound
+    // impossible to tell apart from a shading bug. The breach reference footage
+    // is midday, so compare against midday.
+    if (q.has('preset')) A.applyPreset(q.get('preset'));
+    if (q.has('foam')) A.params.foamAmount = +q.get('foam');
+    if (q.has('spray')) A.params.craftSprayAmount = +q.get('spray');
+    if (q.has('grain')) A.params.grain = +q.get('grain');
+    if (q.has('detail')) A.params.foamDetail = +q.get('detail');
+    if (q.has('rs')) A.params.renderScale = +q.get('rs');
+    // ?set=sprayMistSize:2,sprayMistOpacity:1 - any params, so a question like
+    // "is the entry throwing mist at all, or only droplets?" can be answered by
+    // moving the mist knobs and seeing whether the picture responds, instead of
+    // reasoning about a spawn gate three files away.
+    if (q.has('set')) for (const kv of q.get('set').split(',')) {
+      const [k, v] = kv.split(':');
+      if (k in A.params) A.params[k] = +v; else log(`param ${k} exists`, false);
+    }
+    if (A.dragon.active) A.toggleDragon();
+    await frames(10);
+
+    // A fixed rig: eye 14 m up, 62 m short of the hit, looking slightly down at
+    // it. Close enough that the crown fills frame, high enough to see INTO the
+    // hole - a splash shot from sea level is a white smudge on the horizon.
+    // ?eye=4&pitch=0 is the BOAT-DECK view the reference footage is shot from,
+    // and it is the only one that judges the curtain's silhouette: from 14 m up
+    // a wall of water and a smooth dome look the same.
+    const EYE = +(q.get('eye') || 14);
+    const PITCH = q.has('pitch') ? +q.get('pitch') : -0.14;
+    const DIST = +(q.get('dist') || 62);
+    const YAW = +(q.get('yaw') || 0);
+    const hit = [ A.camera.pos[0], A.camera.pos[2] - DIST ];
+    A.camera.pos[1] = EYE;
+    A.camera.yaw = YAW;
+    A.camera.pitch = PITCH;
+
+    // Freeze the clock at one age. The dragon is held deep and quiet so the
+    // picture is the WATER, not the animal - by the time the cavity collapses
+    // the body really is metres under.
+    A.dragon.jumpVy = -15;
+    A.dragon.speed = 16;
+    // ACROSS THE FRAME, not down it. heading 0 puts the body along the camera's
+    // look, so both wings sit left and right of a hole and the splash reads as
+    // the ring we spent this pass killing. The reference stills are shot from
+    // the beam: one long curtain thrown at the camera. π/2 is that view.
+    A.dragon.heading = Math.PI * 0.5;
+    A.dragon.pos[0] = hit[0];
+    A.dragon.pos[2] = hit[1];
+    A.dragon.throwSplash(A.params, true);
+    // FREEZING THE AGE IS NOT ENOUGH, and this cost several screenshots that
+    // were read as "the particle wings are too weak". SeaDragon.update() decays
+    // this.splash at 1.8/s, three-main.js spikes the emitter off it, and the
+    // probe then holds the frame for 2.5 s to let the particle field fill - so by
+    // the time anything was captured the burst had been dead for a second and
+    // every still showed the water surface alone. Pin the punch as well as the
+    // clock: at a frozen age, the emitter has to keep emitting.
+    const HIT = A.dragon.splashHit;
+    A.onFrame = () => {
+      A.dragon.depth = 26;
+      A.dragon.splashAge = AGE;
+      A.dragon.splash = HIT;
+      A.dragon.splashHit = HIT;
+      A.dragon.splashPush = HIT;
+      A.dragon.splashKind = 'land';
+      A.dragon.splashX = hit[0];
+      A.dragon.splashZ = hit[1];
+      A.camera.pos[1] = EYE;
+      A.camera.yaw = YAW;
+      A.camera.pitch = PITCH;
+    };
+    // Long enough for the particle field to fill at the frozen phase.
+    await new Promise((r) => setTimeout(r, 2500));
+    await frames(30);
+
+    // Within a frame of the pin, not exact: onFrame runs at the END of the
+    // frame, so update() adds one dt before the next frame writes the uniform.
+    log(`${backend}: leap splash is particles only — no crater on the sea`,
+        uSplashEnergy.value === 0,
+        `uSplashEnergy ${ uSplashEnergy.value.toFixed(2) }, uCraftSpout ${ uCraftSpout.value.toFixed(2) }`);
+
+    // ...and the emitter with it, or the frame is the water surface alone. See
+    // the pin in onFrame above.
+    log('the spray emitter is still firing at the frozen age', uCraftImpact.value > 0.05,
+        `uCraftImpact ${ uCraftImpact.value.toFixed(2) }, craftSprayAmount ${ A.params.craftSprayAmount }`);
+
+    const b = bands(canvas);
+    log('something drew, and it is not a uniform frame', b.std > 3,
+        `luma mean ${ b.mean.toFixed(1) }, std ${ b.std.toFixed(1) }`);
+    // A splash that fills the frame makes the two bands the same picture, which
+    // is the opposite of "nothing drew". Either they differ, or both have real
+    // luma - two near-zero bands is the blank-frame failure this exists to catch.
+    log('the frame is not two blank bands',
+        Math.abs(b.top - b.bot) > 2 || (b.top > 20 && b.bot > 20),
+        `top band ${ b.top.toFixed(1) }, bottom band ${ b.bot.toFixed(1) }`);
+
+    return 'done';
+  } catch (e) {
+    log(`${backend}: run the splash look probe`, false, String(e.stack || e.message || e).slice(0, 1000));
+    return 'error';
+  }
+})();
+
+const timedOut = Symbol('timeout');
+const outcome = await Promise.race([work, new Promise((r) => setTimeout(() => r(timedOut), 150000))]);
+if (outcome === timedOut) log('the probe itself', false, 'no result after 150s');
+
+window.probeResult = { results, allOk: results.length > 0 && results.every((r) => r.ok) };
+</script>

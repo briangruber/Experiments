@@ -1,0 +1,44 @@
+# Abyssal (abyssal-ocean)
+
+> Photoreal real-time ocean and sky for Three.js: multi-cascade FFT waves,
+> physical atmosphere, volumetric clouds with five real cloud genera, GPU
+> spray, HDR post. One TSL source compiles to WGSL and GLSL — WebGPU with
+> automatic WebGL2 fallback via `createAbyssal()` (one call), or a classic
+> zero-dependency WebGL2 adapter. Every subsystem is verified headlessly
+> against golden images.
+
+Recommended integration: `import { createAbyssal } from 'abyssal-ocean/webgpu'`
+with `three` ≥ r185 (`three/webgpu` build). See AGENTS.md for pitfalls and
+verification patterns.
+
+## Docs
+
+- [AGENTS.md](AGENTS.md): the guide for coding agents — entry points, copy-paste integration, measured pitfalls, per-subsystem verification commands, repo map
+- [README.md](README.md): human-facing overview and quick start
+- [docs/parameters.md](docs/parameters.md): every parameter, default and range (generated from source)
+- [docs/threejs.md](docs/threejs.md): the classic WebGL2 adapter's integration guide
+- [docs/physics.md](docs/physics.md): the wave, atmosphere and cloud models and their sources
+- [docs/tsl-porting-rules.md](docs/tsl-porting-rules.md): 18 rules for writing TSL that compiles identically to WGSL and GLSL
+
+## Examples
+
+- [examples/webgpu-ocean.html](examples/webgpu-ocean.html): the whole stack in one call, with user meshes sharing depth
+- [examples/webgpu-bodies.html](examples/webgpu-bodies.html): OceanBody — drop crates, float hulls, overlapping wakes
+- [examples/webgpu-box-ski.html](examples/webgpu-box-ski.html): OceanBody + SKI coefficients — jet-ski GLB that planes; sea dragon as a second OceanBody (`SeaDragon` + `creatureVertex` swim, M to pilot); gravity-wave wake (`wake.physics`) / spray / swell / debug are body properties (Ski / Dragon panels); spray size / life / hull jet / sea state / Sea Dragon live on `abyssal.params` (Sea panel)
+- [examples/webgpu-wake-physics.html](examples/webgpu-wake-physics.html): leftover gravity-wave experiment — hull displaces water, crests travel in world XZ and add; plow / hull-speed / hump / plane presets
+- [examples/webgpu-sky.html](examples/webgpu-sky.html): sky-only mode with live cloud-genus switching
+- [examples/water-and-sky.html](examples/water-and-sky.html): classic WebGL2 adapter, both components
+- [examples/index.html](examples/index.html): index of all examples
+
+## Source entry points
+
+- [src/gpu/abyssal.js](src/gpu/abyssal.js): createAbyssal() facade — also the reference for pass order and driver wiring
+- [src/cloud-types.js](src/cloud-types.js): cirrus, cumulus, stratus, nimbus, cumulonimbus as measured recipes
+- [src/presets.js](src/presets.js): named scene presets and the full parameter set
+- [src/three/index.js](src/three/index.js): classic WebGL2 adapter (AbyssalWater, AbyssalSky)
+
+## Optional
+
+- [docs/webgpu-port.md](docs/webgpu-port.md): how the WebGPU port was done and verified
+- [docs/backend-decision.md](docs/backend-decision.md): why TSL/three over raw WebGPU
+- [test/golden/](test/golden/): the image fingerprints that define correct output

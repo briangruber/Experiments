@@ -1,0 +1,150 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — perf overlay toggles actually skip stages</title>
+
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}</style>
+<pre id="out">running…</pre>
+<canvas id="view" width="480" height="300"></canvas>
+
+<!--
+  The Perf overlay's checkboxes must skip the work, not just hide a readout.
+  This boots the three demo, attaches the overlay, and asserts that flipping
+  spray / sim / sky zeros perfTimes.ran for that stage while the others still
+  run.
+
+  node tools/run-probe.mjs prototypes/perf-debug-probe.html
+-->
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+  "three/webgpu": "https://unpkg.com/three@0.185.1/build/three.webgpu.js",
+  "three/tsl": "https://unpkg.com/three@0.185.1/build/three.tsl.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three/webgpu';
+import { installWebGPUSwizzleShim } from './webgpu-shim.js';
+import { boot } from '../demo/three-main.js';
+import { PERF_STAGES } from '../demo/perf-debug.js';
+
+installWebGPUSwizzleShim();
+
+const q = new URLSearchParams(location.search);
+const WANT = (q.get('backend') || 'webgl').toLowerCase();
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+const frames = (n) => new Promise((resolve) => {
+  let left = n;
+  const prev = window.abyssal.onFrame;
+  window.abyssal.onFrame = () => {
+    prev?.();
+    if ( --left <= 0 ) {
+      window.abyssal.onFrame = prev;
+      resolve();
+    }
+  };
+});
+
+const work = (async () => {
+  const canvas = document.getElementById('view');
+  const A = await boot({
+    canvas,
+    backend: WANT,
+    preset: 'Golden Hour Swell',
+    overrides: {
+      fftSize: 64,
+      sprayTexSize: 32,
+      cloudSteps: 8,
+      gridScale: 0.35,
+      sdEnabled: 1,
+      sprayOpacity: 1,
+    },
+  });
+  window.abyssal = A;
+
+  log('boot() resolved', true, WANT);
+  log('every billed stage has a flag',
+    PERF_STAGES.every((s) => A.perf[s.id] === true),
+    PERF_STAGES.map((s) => s.id).join(' '));
+
+  const dbg = A.attachPerfDebug(document.body);
+  log('the overlay mounts', !!dbg?.el && document.getElementById('perf-debug'),
+    `el ${ dbg?.el?.id }`);
+  dbg.open();
+  log('opening it shows the panel', dbg.isOpen() && !dbg.el.hidden, `hidden ${ dbg.el.hidden }`);
+  log('the overlay has a GPU meter, live GPU, and last-measure list',
+    !!dbg.el.querySelector('[data-m="gpu"]') && !!dbg.el.querySelector('[data-m="live"]') && !!dbg.el.querySelector('[data-m="hot"]'),
+    `gpu ${ !!dbg.el.querySelector('[data-m="gpu"]') } live ${ !!dbg.el.querySelector('[data-m="live"]') } hot ${ !!dbg.el.querySelector('[data-m="hot"]') }`);
+  log('seafloor props is a billed stage',
+    PERF_STAGES.some((s) => s.id === 'floor') && A.perf.floor === true,
+    `floor ${ A.perf.floor }`);
+  const adaptBox = dbg.el.querySelector('input[data-gov="adapt"]');
+  log('Adaptive quality is a toggle on the overlay', !!adaptBox, `box ${ !!adaptBox }`);
+  A.params.adaptiveQuality = 1;
+  adaptBox.checked = true;
+  adaptBox.dispatchEvent(new Event('change', { bubbles: true }));
+  A.params.adaptiveQuality = 0;
+  adaptBox.checked = false;
+  adaptBox.dispatchEvent(new Event('change', { bubbles: true }));
+  log('the toggle writes params.adaptiveQuality', A.params.adaptiveQuality === 0,
+    `adaptiveQuality ${ A.params.adaptiveQuality }`);
+
+  await frames(4);
+  log('a full frame marks spray as having run',
+    A.perfTimes.ran.spray === 1 && A.perfTimes.ran.sim === 1,
+    `ran spray ${ A.perfTimes.ran.spray } sim ${ A.perfTimes.ran.sim }`);
+
+  A.perf.spray = false;
+  await frames(3);
+  log('turning Particles off skips spray update and draw',
+    A.perfTimes.ran.spray === 0 && A.perfTimes.ran.sim === 1,
+    `ran spray ${ A.perfTimes.ran.spray } sim ${ A.perfTimes.ran.sim }`);
+
+  A.perf.spray = true;
+  A.perf.sim = false;
+  await frames(3);
+  log('turning Waves off skips the FFT and leaves particles on',
+    A.perfTimes.ran.sim === 0 && A.perfTimes.ran.spray === 1,
+    `ran sim ${ A.perfTimes.ran.sim } spray ${ A.perfTimes.ran.spray }`);
+
+  A.perf.sim = true;
+  A.perf.sky = false;
+  await frames(3);
+  log('turning Sky off skips the cloud march',
+    A.perfTimes.ran.sky === 0 && A.perfTimes.ran.sea === 1,
+    `ran sky ${ A.perfTimes.ran.sky } sea ${ A.perfTimes.ran.sea }`);
+
+  A.perf.sky = true;
+  A.perf.sea = false;
+  await frames(3);
+  log('turning Sea surface off skips the water shader and leaves the sky on',
+    A.perfTimes.ran.sea === 0 && A.perfTimes.ran.sky === 1,
+    `ran sea ${ A.perfTimes.ran.sea } sky ${ A.perfTimes.ran.sky }`);
+
+  A.perf.sea = true;
+  A.perf.dragon = false;
+  await frames(3);
+  log('turning Refraction off skips the under-water photograph',
+    A.perfTimes.ran.dragon === 0,
+    `ran dragon ${ A.perfTimes.ran.dragon }`);
+
+  for ( const s of PERF_STAGES ) A.perf[s.id] = true;
+  dbg.close();
+  log('close hides the panel', !dbg.isOpen() && dbg.el.hidden, `open ${ dbg.isOpen() }`);
+
+  return 'done';
+})();
+
+const timedOut = Symbol('timeout');
+const outcome = await Promise.race([work, new Promise((r) => setTimeout(() => r(timedOut), 120000))]);
+if (outcome === timedOut) log('the probe itself', false, 'no result after 120s');
+
+window.probeResult = { results, allOk: results.length > 0 && results.every((r) => r.ok) };
+</script>

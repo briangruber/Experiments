@@ -1,0 +1,87 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Abyssal — do the WGSL kernels actually compile?</title>
+<style>body{background:#0a0e14;color:#cfe4f5;font:12px/1.5 ui-monospace,monospace;padding:20px}pre{white-space:pre-wrap}</style>
+<pre id="out">running…</pre>
+
+<!--
+  Five reviewers read these kernels and pronounced them faithful. Nobody compiled
+  them. Review catches wrong physics; only a compiler catches WGSL that is not
+  WGSL - a missing cast the language requires, a storage class that cannot be
+  written, a workgroup array with a non-constant size.
+
+  This hands every kernel to the real WGSL compiler and reports what it says.
+  A translation that has never been through a compiler is a draft.
+
+    node tools/run-probe.mjs prototypes/wgsl-compile-probe.html
+-->
+
+<script type="module">
+import { INIT_SPECTRUM_WGSL } from '../src/gpu/kernels/spectrum.js';
+import { TIME_EVOLVE_WGSL } from '../src/gpu/kernels/evolve.js';
+import { FFT_STAGE_WGSL, FFT_SHARED_WGSL } from '../src/gpu/kernels/fft.js';
+import { ASSEMBLE_WGSL } from '../src/gpu/kernels/assemble.js';
+import { FOAM_WGSL } from '../src/gpu/kernels/foam.js';
+
+const results = [];
+const log = (name, ok, detail = '') => {
+  results.push({ name, ok, detail });
+  document.getElementById('out').textContent = results
+    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '\n        ' + r.detail : ''}`).join('\n');
+};
+
+const KERNELS = [
+  ['spectrum  INIT_SPECTRUM_WGSL', INIT_SPECTRUM_WGSL],
+  ['evolve    TIME_EVOLVE_WGSL', TIME_EVOLVE_WGSL],
+  ['fft       FFT_STAGE_WGSL', FFT_STAGE_WGSL],
+  ['fft       FFT_SHARED_WGSL', FFT_SHARED_WGSL],
+  ['assemble  ASSEMBLE_WGSL', ASSEMBLE_WGSL],
+  ['foam      FOAM_WGSL', FOAM_WGSL],
+];
+
+let device = null;
+try {
+  const adapter = await navigator.gpu.requestAdapter();
+  device = await adapter.requestDevice();
+  // Uncaught validation errors would otherwise surface as an unrelated later
+  // failure; scoped capture keeps each kernel's verdict its own.
+  log('WebGPU device', true, `${adapter.info?.vendor || '?'} / ${adapter.info?.architecture || '?'}`);
+} catch (e) {
+  log('WebGPU device', false, String(e.message || e));
+}
+
+const detail = {};
+if (device) {
+  for (let [name, code] of KERNELS) {
+    if (typeof code !== 'string' || !code.trim()) { log(name, false, 'export is empty or not a string'); continue; }
+    // A wgslFn snippet is not a standalone WGSL module. Three's parser reads the
+    // signature with declarationRegexp and takes `-> void` to mean "returns
+    // nothing" (three.tsl.js: `declaration[3] || 'void'`), then emits real WGSL
+    // where a bare `fn f()` has no return type at all. Feeding the snippet
+    // straight to createShaderModule therefore fails on `unresolved type 'void'`
+    // - which is the harness being wrong, not the kernel. Normalise it the way
+    // Three would, so this probe checks the body rather than the wrapper.
+    const isSnippet = /->\s*void\s*\{/.test(code);
+    code = code.replace(/\)\s*->\s*void\s*\{/, ') {');
+    device.pushErrorScope('validation');
+    let info = null, thrown = '';
+    try {
+      const mod = device.createShaderModule({ code });
+      info = await mod.getCompilationInfo();
+    } catch (e) {
+      thrown = String(e.message || e);
+    }
+    const scoped = await device.popErrorScope();
+    const msgs = info ? [...info.messages] : [];
+    const errors = msgs.filter((m) => m.type === 'error');
+    const warnings = msgs.filter((m) => m.type === 'warning');
+    const ok = !thrown && !scoped && errors.length === 0;
+    detail[name] = { errors: errors.map((m) => `line ${m.lineNum}: ${m.message}`), warnings: warnings.length };
+    log(name, ok,
+      ok ? `${(code.length / 1024).toFixed(1)} kB, ${warnings.length} warning(s)${isSnippet ? ' [wgslFn snippet, void normalised]' : ''}`
+         : (thrown || (scoped && scoped.message) || errors.slice(0, 3).map((m) => `line ${m.lineNum}:${m.linePos} ${m.message}`).join(' | ')).slice(0, 700));
+  }
+}
+
+window.probeResult = { results, allOk: results.every((r) => r.ok), detail };
+</script>
