@@ -26,7 +26,9 @@ const { chromium } = await import('/opt/node22/lib/node_modules/playwright/index
 const browser = await chromium.launch({
   args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
 });
-const p = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+// deviceScaleFactor 2 on purpose: pixel-ratio bugs are invisible at 1.
+const DPR = +(opt('dpr', '2'));
+const p = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: DPR });
 const errors = [];
 p.on('pageerror', (e) => errors.push(String(e)));
 p.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
@@ -37,6 +39,9 @@ const ready = await p.waitForFunction('window.__ready === true', { timeout: 6000
 await p.waitForTimeout(2500);
 
 const diag = await p.evaluate(() => ({
+  dpr: window.devicePixelRatio,
+  canvas: (() => { const c = document.getElementById('gl');
+    return { buf: [c.width, c.height], css: [c.clientWidth, c.clientHeight] }; })(),
   ready: !!window.__ready,
   travelled: Math.round(Math.hypot(window.__wake?.state.x ?? 0, window.__wake?.state.z ?? 0)),
   maxArc: Math.round(window.__wake?.wake.maxArc ?? 0),
@@ -46,8 +51,38 @@ const diag = await p.evaluate(() => ({
 
 await mkdir(dirname(OUT), { recursive: true });
 await p.screenshot({ path: OUT });
+
+// Measure the screenshot, not the live canvas: reading back from a WebGL
+// canvas needs preserveDrawingBuffer and silently returns zeros without it.
+// A black rectangle is the failure mode here, and every other check above
+// still passes when it happens.
+const shot = await p.screenshot({ clip: { x: 0, y: 0, width: 940, height: 800 } });
+const probe = await browser.newPage();
+const ink = await probe.evaluate(async (b64) => {
+  const img = new Image();
+  img.src = 'data:image/png;base64,' + b64;
+  await img.decode();
+  const c = document.createElement('canvas');
+  c.width = 160; c.height = 136;
+  const g = c.getContext('2d');
+  g.drawImage(img, 0, 0, c.width, c.height);
+  const d = g.getImageData(0, 0, c.width, c.height).data;
+  let lit = 0, sum = 0;
+  const n = d.length / 4;
+  for (let i = 0; i < d.length; i += 4) {
+    const v = (d[i] + d[i + 1] + d[i + 2]) / 3;
+    sum += v;
+    if (v > 120) lit++;                 // foam-bright pixels
+  }
+  return { meanLuma: +(sum / n).toFixed(1), foamFraction: +(lit / n).toFixed(4) };
+}, shot.toString('base64'));
+await probe.close();
 await browser.close();
 server.close();
 
-console.log(JSON.stringify({ ready, diag, errors }, null, 2));
-if (!ready || errors.length) process.exit(1);
+console.log(JSON.stringify({ ready, diag, ink, errors }, null, 2));
+
+const fatal = errors.filter((e) => !/fonts\.googleapis|fonts\.gstatic|ERR_CONNECTION_RESET/.test(e));
+if (!ready || fatal.length) process.exit(1);
+if (ink.meanLuma < 12) { console.error('FAIL: canvas is essentially black'); process.exit(1); }
+if (ink.foamFraction < 0.01) { console.error('FAIL: no wake visible'); process.exit(1); }

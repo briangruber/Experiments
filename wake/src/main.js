@@ -116,8 +116,11 @@ for (const [k, v] of new URLSearchParams(location.search)) {
   else if (k === 'cam') { const [p, y, d] = v.split(',').map(Number); view.pitch = p; view.yaw = y; view.dist = d; view.topDown = false; }
 }
 
+const viewport = { w: 1, h: 1 };   // CSS pixels
+
 function resize() {
-  const w = innerWidth, h = innerHeight;
+  const w = Math.max(innerWidth, 1), h = Math.max(innerHeight, 1);
+  viewport.w = w; viewport.h = h;
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
@@ -185,12 +188,12 @@ function frame(now) {
 
   ocean.update(state.t, camera.position, state.x, state.z, wake);
 
-  renderer.setViewport(0, 0, renderer.domElement.width, renderer.domElement.height);
+  renderer.setViewport(0, 0, viewport.w, viewport.h);
   renderer.setScissorTest(false);
   renderer.render(scene, camera);
 
   if (hud.dataset.field === '1') {
-    const s = Math.round(Math.min(renderer.domElement.width, renderer.domElement.height) * 0.3);
+    const s = Math.round(Math.min(viewport.w, viewport.h) * 0.3);
     const m = 12;
     renderer.setScissorTest(true);
     renderer.setViewport(m, m, s, s);
