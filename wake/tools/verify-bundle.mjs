@@ -67,14 +67,24 @@ const ink = await probe.evaluate(async (b64) => {
   const g = c.getContext('2d');
   g.drawImage(img, 0, 0, c.width, c.height);
   const d = g.getImageData(0, 0, c.width, c.height).data;
-  let lit = 0, sum = 0;
-  const n = d.length / 4;
-  for (let i = 0; i < d.length; i += 4) {
+  // Foam is measured against the water it sits on, not against an absolute
+  // brightness: the scene is a sunset lake now, and real foam there peaks
+  // around luma 120 where the old daylight grey put it past 180. What makes
+  // a wake visible is contrast with the surrounding water, so take the
+  // median as "water" and count what stands clear of it.
+  const lum = new Float64Array(d.length / 4);
+  let sum = 0;
+  for (let i = 0, j = 0; i < d.length; i += 4, j++) {
     const v = (d[i] + d[i + 1] + d[i + 2]) / 3;
+    lum[j] = v;
     sum += v;
-    if (v > 120) lit++;                 // foam-bright pixels
   }
-  return { meanLuma: +(sum / n).toFixed(1), foamFraction: +(lit / n).toFixed(4) };
+  const n = lum.length;
+  const water = Float64Array.from(lum).sort()[n >> 1];
+  let lit = 0;
+  for (let j = 0; j < n; j++) if (lum[j] > water + 22) lit++;
+  return { meanLuma: +(sum / n).toFixed(1), water: +water.toFixed(1),
+           foamFraction: +(lit / n).toFixed(4) };
 }, shot.toString('base64'));
 await probe.close();
 await browser.close();
@@ -85,4 +95,4 @@ console.log(JSON.stringify({ ready, diag, ink, errors }, null, 2));
 const fatal = errors.filter((e) => !/fonts\.googleapis|fonts\.gstatic|ERR_CONNECTION_RESET/.test(e));
 if (!ready || fatal.length) process.exit(1);
 if (ink.meanLuma < 12) { console.error('FAIL: canvas is essentially black'); process.exit(1); }
-if (ink.foamFraction < 0.01) { console.error('FAIL: no wake visible'); process.exit(1); }
+if (ink.foamFraction < 0.01) { console.error('FAIL: no wake visible above the water'); process.exit(1); }
