@@ -6,36 +6,36 @@
 
 export const PARAMS = {
   boat: {
-    speed:        { v: 13.0, min: 0,   max: 26,  step: 0.1,  label: 'Speed (m/s)' },
-    turnRate:     { v: 0.0,  min: -25, max: 25,  step: 0.5,  label: 'Turn (°/s)' },
-    accel:        { v: 1.60, min: 0.1, max: 12,  step: 0.05, label: 'Acceleration (m/s²)' },
-    steerRate:    { v: 26.0, min: 2,   max: 90,  step: 1,    label: 'Steer rate (°/s)' },
-    hardTurn:     { v: 2.40, min: 1,   max: 5,   step: 0.05, label: 'Shift turn ×' },
-    throttleRate: { v: 7.00, min: 0.5, max: 30,  step: 0.5,  label: 'Throttle rate (m/s²)' },
-    planing:      { v: 6.50, min: 0.5, max: 20,  step: 0.1,  label: 'Planing speed (m/s)' },
+    speed:        { v: 13, min: 0,   max: 26,  step: 0.1,  label: 'Speed (m/s)' },
+    turnRate:     { v: 0,  min: -25, max: 25,  step: 0.5,  label: 'Turn (°/s)' },
+    accel:        { v: 1.6, min: 0.1, max: 12,  step: 0.05, label: 'Acceleration (m/s²)' },
+    steerRate:    { v: 26, min: 2,   max: 90,  step: 1,    label: 'Steer rate (°/s)' },
+    hardTurn:     { v: 2.4, min: 1,   max: 5,   step: 0.05, label: 'Shift turn ×' },
+    throttleRate: { v: 7, min: 0.5, max: 30,  step: 0.5,  label: 'Throttle rate (m/s²)' },
+    planing:      { v: 6.5, min: 0.5, max: 20,  step: 0.1,  label: 'Planing speed (m/s)' },
     length:       { v: 8.5,  min: 3,   max: 20,  step: 0.1,  label: 'Hull length (m)' },
     beam:         { v: 2.6,  min: 1,   max: 8,   step: 0.05, label: 'Hull beam (m)' },
     engines:      { v: 2,    min: 1,   max: 4,   step: 1,    label: 'Engines' },
-    engineSpacing:{ v: 2.40, min: 0.2, max: 4,   step: 0.05, label: 'Engine spacing (m)' },
+    engineSpacing:{ v: 2.4, min: 0.2, max: 4,   step: 0.05, label: 'Engine spacing (m)' },
   },
 
   // The V of spray sheets. In the reference these originate at the BOW, not the
   // transom, and stay bright for a long way astern.
   arms: {
     fromWaves:    { v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Foam from breaking' },
-    waveFoam:     { v: 1.60, min: 0,   max: 5,   step: 0.01, label: 'Breaking foam gain' },
-    angle:        { v: 15.5, min: 4,   max: 40,  step: 0.1,  label: 'Half-angle (°)' },
-    width0:       { v: 2.10, min: 0.1, max: 4,   step: 0.05, label: 'Width at bow (m)' },
-    widthGrow:    { v: 0.022,min: 0,   max: 0.6, step: 0.005,label: 'Width growth (m/m)' },
+    waveFoam:     { v: 1.6, min: 0,   max: 5,   step: 0.01, label: 'Breaking foam gain' },
+    angle:        { v: 13, min: 4,   max: 40,  step: 0.1,  label: 'Half-angle (°)' },
+    width0:       { v: 2.1, min: 0.1, max: 4,   step: 0.05, label: 'Width at bow (m)' },
+    widthGrow:    { v: 0.022,min: 0,   max: 0.6, step: 0.001,label: 'Width growth (m/m)' },
     foam:         { v: 0.95, min: 0,   max: 3,   step: 0.01, label: 'Foam density' },
     height:       { v: 0.42, min: 0,   max: 2,   step: 0.01, label: 'Crest height (m)' },
     innerBias:    { v: 0.38, min: 0,   max: 1,   step: 0.01, label: 'Outer-edge bias' },
-    rim:          { v: 0.70, min: 0,   max: 2,   step: 0.01, label: 'Outer rim line' },
+    rim:          { v: 0.7, min: 0,   max: 2,   step: 0.01, label: 'Outer rim line' },
     rimWidth:     { v: 0.45, min: 0.05,max: 3,   step: 0.01, label: 'Rim thickness (m)' },
     nearBoost:    { v: 0.58, min: 0,   max: 3,   step: 0.01, label: 'Near-field boost' },
-    nearLength:   { v: 34.0, min: 3,   max: 150, step: 1,    label: 'Near-field length (m)' },
-    fadeStart:    { v: 46.0, min: 2,   max: 200, step: 1,    label: 'Fade start (m)' },
-    fadeLength:   { v: 240.0, min: 5,   max: 400, step: 1,    label: 'Fade length (m)' },
+    nearLength:   { v: 34, min: 3,   max: 150, step: 1,    label: 'Near-field length (m)' },
+    fadeStart:    { v: 2, min: 2,   max: 200, step: 1,    label: 'Fade start (m)' },
+    fadeLength:   { v: 203, min: 5,   max: 400, step: 1,    label: 'Fade length (m)' },
   },
 
   // The comb / scallop texture riding along each arm: periodic crests that lean
@@ -53,11 +53,11 @@ export const PARAMS = {
   // Turbulent water dragged behind the transom: the brightest, shortest-lived
   // foam in the whole wake.
   wash: {
-    width:        { v: 0.45, min: 0.2, max: 8,   step: 0.05, label: 'Width (m)' },
-    widthGrow:    { v: 0.022,min: 0,   max: 0.5, step: 0.005,label: 'Width growth (m/m)' },
-    foam:         { v: 1.5,  min: 0,   max: 3,   step: 0.01, label: 'Foam density' },
-    length:       { v: 20.0, min: 2,   max: 200, step: 1,    label: 'Decay length (m)' },
-    tailFoam:     { v: 0.035, min: 0,   max: 1,   step: 0.01, label: 'Long tail streak' },
+    width:        { v: 0.6, min: 0.2, max: 8,   step: 0.05, label: 'Width (m)' },
+    widthGrow:    { v: 0.025,min: 0,   max: 0.5, step: 0.005,label: 'Width growth (m/m)' },
+    foam:         { v: 0.77,  min: 0,   max: 3,   step: 0.01, label: 'Foam density' },
+    length:       { v: 27, min: 2,   max: 200, step: 1,    label: 'Decay length (m)' },
+    tailFoam:     { v: 0, min: 0,   max: 1,   step: 0.01, label: 'Long tail streak' },
     depth:        { v: 0.22, min: 0,   max: 1.5, step: 0.01, label: 'Trough depth (m)' },
   },
 
@@ -73,21 +73,21 @@ export const PARAMS = {
   // on rolling outward long after the white churn has died, and they reach the
   // full 19.47 degree wedge, which is wider than the spray arms.
   kelvin: {
-    amp:          { v: 0.38, min: 0,   max: 1.5, step: 0.005,label: 'Wave height (m)' },
+    amp:          { v: 0.225, min: 0,   max: 1.5, step: 0.005,label: 'Wave height (m)' },
     froudePeak:   { v: 0.52, min: 0.15,max: 1.5, step: 0.01, label: 'Peak Froude no.' },
     humpFloor:    { v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Planing floor' },
     beamGain:     { v: 0.85, min: 0,   max: 2,   step: 0.01, label: 'Beam → amplitude' },
     interference: { v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Bow/stern interference' },
-    turnBias:     { v: 0.60, min: 0,   max: 2,   step: 0.01, label: 'Outside-of-turn gain' },
+    turnBias:     { v: 0.6, min: 0,   max: 2,   step: 0.01, label: 'Outside-of-turn gain' },
     waveScale:    { v: 0.26, min: 0.1, max: 3,   step: 0.01, label: 'Wavelength scale' },
-    divergent:    { v: 1.00, min: 0,   max: 2,   step: 0.01, label: 'Divergent train' },
+    divergent:    { v: 1, min: 0,   max: 2,   step: 0.01, label: 'Divergent train' },
     transverse:   { v: 0.45, min: 0,   max: 2,   step: 0.01, label: 'Transverse train' },
-    cusp:         { v: 1.40, min: 0,   max: 4,   step: 0.01, label: 'Cusp emphasis' },
-    decay:        { v: 150.0,min: 10,  max: 800, step: 5,    label: 'Amplitude decay (m)' },
-    life:         { v: 120.0,min: 5,   max: 300, step: 1,    label: 'Wave life (s)' },
-    propagate:    { v: 1.00, min: 0,   max: 1,   step: 0.01, label: 'Waves run free' },
+    cusp:         { v: 1.4, min: 0,   max: 4,   step: 0.01, label: 'Cusp emphasis' },
+    decay:        { v: 150,min: 10,  max: 800, step: 5,    label: 'Amplitude decay (m)' },
+    life:         { v: 120,min: 5,   max: 300, step: 1,    label: 'Wave life (s)' },
+    propagate:    { v: 1, min: 0,   max: 1,   step: 0.01, label: 'Waves run free' },
     breakSteep:   { v: 0.075,min: 0.005,max: 0.4, step: 0.005,label: 'Breaking steepness' },
-    minWave:      { v: 3.60, min: 0.5, max: 20,  step: 0.1,  label: 'Shortest wave (m)' },
+    minWave:      { v: 3.6, min: 0.5, max: 20,  step: 0.1,  label: 'Shortest wave (m)' },
   },
 
 
@@ -96,12 +96,12 @@ export const PARAMS = {
     scale:        { v: 1.05, min: 0.1, max: 6,   step: 0.01, label: 'Bubble scale' },
     contrast:     { v: 1.5,  min: 0.2, max: 4,   step: 0.01, label: 'Bubble contrast' },
     breakup:      { v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Break-up with age' },
-    life:         { v: 34.0, min: 1,   max: 120, step: 0.5,  label: 'Foam life (s)' },
-    dissolve:     { v: 2.10,  min: 0.2, max: 5,   step: 0.05, label: 'Dissolve curve' },
-    lace:         { v: 1.05, min: 0.5, max: 8,   step: 0.05, label: 'Lace fineness' },
+    life:         { v: 34, min: 1,   max: 120, step: 0.5,  label: 'Foam life (s)' },
+    dissolve:     { v: 3.35,  min: 0.2, max: 5,   step: 0.05, label: 'Dissolve curve' },
+    lace:         { v: 1.6, min: 0.5, max: 8,   step: 0.05, label: 'Lace fineness' },
     laceAmount:   { v: 0.62, min: 0,   max: 1.5, step: 0.01, label: 'Lace reach' },
     coarsen:      { v: 0.45, min: 0,   max: 1,   step: 0.01, label: 'Cells coarsen with age' },
-    softness:     { v: 0.42, min: 0.02,max: 1,   step: 0.01, label: 'Edge softness' },
+    softness:     { v: 0.39, min: 0.02,max: 1,   step: 0.01, label: 'Edge softness' },
   },
 
 
@@ -110,19 +110,19 @@ export const PARAMS = {
   // and the surface above them still reflects the sky.
   bubbles: {
     plume:        { v: 0.86, min: 0,   max: 4,   step: 0.01, label: 'Plume density' },
-    width:        { v: 0.50, min: 0.2, max: 10,  step: 0.05, label: 'Plume width (m)' },
-    spread:       { v: 0.028,min: 0,   max: 0.5, step: 0.005,label: 'Spread (m/m)' },
-    length:       { v: 46.0,min: 5,   max: 400, step: 1,    label: 'Decay length (m)' },
+    width:        { v: 0.5, min: 0.2, max: 10,  step: 0.05, label: 'Plume width (m)' },
+    spread:       { v: 0.028,min: 0,   max: 0.5, step: 0.001,label: 'Spread (m/m)' },
+    length:       { v: 46,min: 5,   max: 400, step: 1,    label: 'Decay length (m)' },
     fromArms:     { v: 0.42, min: 0,   max: 2,   step: 0.01, label: 'Entrained by arms' },
-    armsLength:   { v: 70.0, min: 5,   max: 400, step: 1,    label: 'Entrained decay (m)' },
-    life:         { v: 44.0, min: 2,   max: 200, step: 1,    label: 'Bubble life (s)' },
-    depth:        { v: 1.70, min: 0.1, max: 6,   step: 0.05, label: 'Injection depth (m)' },
+    armsLength:   { v: 70, min: 5,   max: 400, step: 1,    label: 'Entrained decay (m)' },
+    life:         { v: 44, min: 2,   max: 200, step: 1,    label: 'Bubble life (s)' },
+    depth:        { v: 1.7, min: 0.1, max: 6,   step: 0.05, label: 'Injection depth (m)' },
     rise:         { v: 0.26, min: 0.02,max: 2,   step: 0.01, label: 'Rise speed (m/s)' },
     extinction:   { v: 0.42, min: 0,   max: 2,   step: 0.01, label: 'Water extinction /m' },
-    deepTint:     { v: 0.70, min: 0,   max: 1,   step: 0.01, label: 'Deep-water tint' },
+    deepTint:     { v: 0.7, min: 0,   max: 1,   step: 0.01, label: 'Deep-water tint' },
     mottle:       { v: 0.72, min: 0,   max: 1,   step: 0.01, label: 'Cloudiness' },
-    brightness:   { v: 0.66, min: 0,   max: 3,   step: 0.01, label: 'Backscatter' },
-    tint:         { v: 0.50, min: 0,   max: 1,   step: 0.01, label: 'Green / blue' },
+    brightness:   { v: 0.87, min: 0,   max: 3,   step: 0.01, label: 'Backscatter' },
+    tint:         { v: 0.5, min: 0,   max: 1,   step: 0.01, label: 'Green / blue' },
     milkiness:    { v: 0.35, min: 0,   max: 1,   step: 0.01, label: 'Milkiness' },
   },
 
@@ -130,13 +130,13 @@ export const PARAMS = {
   // cells burst and re-form. All of it is LOCAL motion — nothing here may drift,
   // or the foam would slide across water it is supposed to be floating on.
   foamMotion: {
-    rideWaves:    { v: 0.80, min: 0,   max: 3,   step: 0.01, label: 'Foam rides the waves' },
+    rideWaves:    { v: 0.8, min: 0,   max: 3,   step: 0.01, label: 'Foam rides the waves' },
     drift:        { v: 0.55, min: 0,   max: 3,   step: 0.01, label: 'Rides the swell' },
     ringAmount:   { v: 0.75, min: 0,   max: 3,   step: 0.01, label: 'Ring push (m)' },
-    ringScale:    { v: 3.40, min: 0.8, max: 30,  step: 0.1,  label: 'Ring spacing (m)' },
-    ringSpeed:    { v: 0.40, min: 0.02,max: 2,   step: 0.01, label: 'Ring speed' },
-    ringWidth:    { v: 0.70, min: 0.1, max: 5,   step: 0.05, label: 'Wavefront width (m)' },
-    cellGrowth:   { v: 0.30, min: 0,   max: 0.8, step: 0.005,label: 'Cells expand' },
+    ringScale:    { v: 3.4, min: 0.8, max: 30,  step: 0.1,  label: 'Ring spacing (m)' },
+    ringSpeed:    { v: 0.4, min: 0.02,max: 2,   step: 0.01, label: 'Ring speed' },
+    ringWidth:    { v: 0.7, min: 0.1, max: 5,   step: 0.05, label: 'Wavefront width (m)' },
+    cellGrowth:   { v: 0, min: 0,   max: 0.8, step: 0.005,label: 'Cells expand' },
     ringRelief:   { v: 0.85, min: 0,   max: 3,   step: 0.01, label: 'Rings show in water' },
     boil:         { v: 0.45, min: 0,   max: 2,   step: 0.01, label: 'Cells burst / re-form' },
     plumeSwirl:   { v: 0.45, min: 0,   max: 2,   step: 0.01, label: 'Plume swirl' },
@@ -145,32 +145,32 @@ export const PARAMS = {
   // How the foam sits on the water rather than on top of it.
   foamMix: {
     density:      { v: 1.75, min: 0.3, max: 8,   step: 0.05, label: 'Opacity build' },
-    translucency: { v: 0.42, min: 0,   max: 1,   step: 0.01, label: 'Water shows through' },
-    aeration:     { v: 0.45, min: 0,   max: 1.5, step: 0.01, label: 'Aerated teal halo' },
-    relief:       { v: 0.75, min: 0,   max: 3,   step: 0.01, label: 'Bubble relief' },
-    troughBias:   { v: 0.40, min: 0,   max: 1.5, step: 0.01, label: 'Pools in troughs' },
+    translucency: { v: 0.58, min: 0,   max: 1,   step: 0.01, label: 'Water shows through' },
+    aeration:     { v: 0.44, min: 0,   max: 1.5, step: 0.01, label: 'Aerated teal halo' },
+    relief:       { v: 0.94, min: 0,   max: 3,   step: 0.01, label: 'Bubble relief' },
+    troughBias:   { v: 0.4, min: 0,   max: 1.5, step: 0.01, label: 'Pools in troughs' },
     warmth:       { v: 0.18, min: 0,   max: 1,   step: 0.01, label: 'Sunlit warmth' },
   },
 
   ocean: {
     swellAmp:     { v: 0.15, min: 0,   max: 2,   step: 0.01, label: 'Swell amp (m)' },
-    swellLen:     { v: 26.0, min: 3,   max: 120, step: 0.5,  label: 'Swell λ (m)' },
-    chopAmp:      { v: 0.016, min: 0,   max: 0.6, step: 0.005,label: 'Chop amp (m)' },
-    deepColor:    { v: 0.021,min: 0,   max: 0.4, step: 0.005,label: 'Water lightness' },
+    swellLen:     { v: 26, min: 3,   max: 120, step: 0.5,  label: 'Swell λ (m)' },
+    chopAmp:      { v: 0.016, min: 0,   max: 0.6, step: 0.001,label: 'Chop amp (m)' },
+    deepColor:    { v: 0.021,min: 0,   max: 0.4, step: 0.001,label: 'Water lightness' },
     tint:         { v: 0.42, min: 0,   max: 1,   step: 0.01, label: 'Blue / teal' },
-    sunElev:      { v: 52.0, min: 5,   max: 88,  step: 1,    label: 'Sun elevation (°)' },
-    sunAzim:      { v: 140.0,min: 0,   max: 360, step: 1,    label: 'Sun azimuth (°)' },
+    sunElev:      { v: 52, min: 5,   max: 88,  step: 1,    label: 'Sun elevation (°)' },
+    sunAzim:      { v: 140,min: 0,   max: 360, step: 1,    label: 'Sun azimuth (°)' },
     reflectivity: { v: 0.55, min: 0,   max: 1.5, step: 0.01, label: 'Mirror / reflectivity' },
     hazeStart:    { v: 1400, min: 100, max: 8000,step: 50,   label: 'Haze onset (m)' },
     sunGlow:      { v: 0.55, min: 0,   max: 2,   step: 0.01, label: 'Sun glow' },
     sheen:        { v: 0.04, min: 0,   max: 1.5, step: 0.01, label: 'Wave sheen' },
     specular:     { v: 0.55, min: 0,   max: 2,   step: 0.01, label: 'Specular' },
-    exposure:     { v: 1.0,  min: 0.2, max: 3,   step: 0.01, label: 'Exposure' },
+    exposure:     { v: 1,  min: 0.2, max: 3,   step: 0.01, label: 'Exposure' },
   },
 
   // Cost, not looks. Auto-set on load from the device, then yours to override.
   quality: {
-    renderScale:  { v: 2.0,  min: 0.5, max: 2,   step: 0.25, label: 'Render scale' },
+    renderScale:  { v: 2,  min: 0.5, max: 2,   step: 0.25, label: 'Render scale' },
     oceanDetail:  { v: 560,  min: 140, max: 760, step: 20,   label: 'Ocean detail' },
   },
 
@@ -178,9 +178,9 @@ export const PARAMS = {
     // One knob over every lifetime and decay length in the wake. The individual
     // ones stay where they are; this scales all of them at once, because
     // "make it die faster" should not mean hunting through four groups.
-    decay:        { v: 1.00, min: 0.2, max: 8,   step: 0.05, label: 'Wake decay ×' },
-    extent:       { v: 340,  min: 80,  max: 700, step: 10,   label: 'Wake field size (m)' },
-    trailLength:  { v: 620,  min: 50,  max: 1200,step: 10,   label: 'Trail length (m)' },
+    decay:        { v: 1.85, min: 0.2, max: 8,   step: 0.05, label: 'Wake decay ×' },
+    extent:       { v: 270,  min: 80,  max: 700, step: 10,   label: 'Wake field size (m)' },
+    trailLength:  { v: 280,  min: 50,  max: 1200,step: 10,   label: 'Trail length (m)' },
   },
 };
 
