@@ -1,0 +1,119 @@
+[
+  {
+    "key": "esteban",
+    "kind": "model",
+    "task": "9aad1d83-1d64-47d0-8e7b-19ebfc13d41c",
+    "version": "v3.0-20250812",
+    "faces": 20000,
+    "concept": "concept/esteban.png",
+    "bytes": 3192876,
+    "at": "2026-08-15T01:45:30.136Z"
+  },
+  {
+    "key": "esteban",
+    "kind": "rig",
+    "task": "2536e233-1b64-420d-bfde-9992e97da46d",
+    "from": "9aad1d83-1d64-47d0-8e7b-19ebfc13d41c",
+    "bytes": 3343644,
+    "at": "2026-08-15T01:47:15.086Z"
+  },
+  {
+    "key": "esteban",
+    "kind": "anim",
+    "clip": "walk",
+    "task": "ad919533-1d28-40d4-811d-81129b1440fd",
+    "from": "2536e233-1b64-420d-bfde-9992e97da46d",
+    "bytes": 3466600,
+    "at": "2026-08-15T01:47:49.258Z"
+  },
+  {
+    "key": "esteban",
+    "kind": "anim",
+    "clip": "idle",
+    "task": "4d902539-69df-4de9-bea0-9287bc71fad7",
+    "from": "2536e233-1b64-420d-bfde-9992e97da46d",
+    "bytes": 3988520,
+    "at": "2026-08-15T01:48:05.477Z"
+  },
+  {
+    "key": "esteban",
+    "kind": "anim",
+    "clip": "run",
+    "task": "39c3cd74-fcce-4eb9-a5f6-56c0664f0604",
+    "from": "2536e233-1b64-420d-bfde-9992e97da46d",
+    "bytes": 3423140,
+    "at": "2026-08-15T01:48:11.921Z"
+  },
+  {
+    "key": "rosalinda",
+    "kind": "model",
+    "task": "378f9927-d686-473c-89d1-c32a256f7064",
+    "version": "v3.0-20250812",
+    "faces": 20000,
+    "concept": "concept/rosalinda.png",
+    "bytes": 2761368,
+    "at": "2026-08-15T01:51:47.105Z"
+  },
+  {
+    "key": "rosalinda",
+    "kind": "rig",
+    "task": "ad229542-ac7f-4d56-9c9f-d4dd90a4966b",
+    "from": "378f9927-d686-473c-89d1-c32a256f7064",
+    "bytes": 2940868,
+    "at": "2026-08-15T01:52:20.429Z"
+  },
+  {
+    "key": "valentina",
+    "kind": "model",
+    "task": "cc1e1baa-07f7-4f2c-9a3d-b153b3cba629",
+    "version": "v3.0-20250812",
+    "faces": 20000,
+    "concept": "concept/valentina.png",
+    "bytes": 3295332,
+    "at": "2026-08-15T01:54:20.264Z"
+  },
+  {
+    "key": "valentina",
+    "kind": "rig",
+    "task": "53dc356b-cfbb-478e-b65c-4e3932daf902",
+    "from": "cc1e1baa-07f7-4f2c-9a3d-b153b3cba629",
+    "bytes": 3452528,
+    "at": "2026-08-15T01:54:54.781Z"
+  },
+  {
+    "key": "donGallo",
+    "kind": "model",
+    "task": "48a8717c-f349-4aee-b62f-78b68bdec112",
+    "version": "v3.0-20250812",
+    "faces": 20000,
+    "concept": "concept/donGallo.png",
+    "bytes": 3537292,
+    "at": "2026-08-15T01:57:50.743Z"
+  },
+  {
+    "key": "donGallo",
+    "kind": "rig",
+    "task": "6ea83f00-f6dd-4d4e-b39b-da5a53e1f072",
+    "from": "48a8717c-f349-4aee-b62f-78b68bdec112",
+    "bytes": 3678348,
+    "at": "2026-08-15T01:58:55.295Z"
+  },
+  {
+    "key": "ricardo",
+    "kind": "model",
+    "task": "71a2572e-ba36-4f67-927b-d18769de30ce",
+    "version": "v3.0-20250812",
+    "faces": 20000,
+    "concept": "concept/ricardo.png",
+    "bytes": 3118352,
+    "at": "2026-08-15T02:06:59.997Z"
+  },
+  {
+    "key": "ricardo",
+    "kind": "rig",
+    "task": "4dd4f943-8bc2-4fc3-b163-7592df37a3a8",
+    "from": "71a2572e-ba36-4f67-927b-d18769de30ce",
+    "bytes": 3281956,
+    "at": "2026-08-15T02:07:28.757Z"
+  }
+]

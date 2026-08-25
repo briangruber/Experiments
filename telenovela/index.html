@@ -1,0 +1,70 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Corazón de Gallina</title>
+<link rel="stylesheet" href="./engine/ui.css">
+<canvas id="gl"></canvas>
+
+<div id="overlay"></div>
+
+<div id="hud">
+  <div id="hud-left">
+    <div id="hud-scene">—</div>
+    <div id="hud-shot">—</div>
+  </div>
+  <div id="hud-right">
+    <div id="hud-fps">—</div>
+  </div>
+</div>
+
+<div id="progress"><div id="progress-bar"></div></div>
+
+<div id="controls">
+  <div id="chapters"></div>
+  <div id="transport">
+    <button id="btn-prev" type="button" title="Previous scene (←)">◀</button>
+    <button id="btn-pause" type="button" title="Pause (space)">❚❚</button>
+    <button id="btn-next" type="button" title="Next scene (→)">▶</button>
+    <button id="btn-sound" type="button" title="Sound (M)">♪</button>
+    <button id="btn-export" type="button" title="Export video">⏺ VIDEO</button>
+  </div>
+</div>
+
+<div id="export-panel" hidden>
+  <div class="export-inner">
+    <div class="export-title">EXPORTAR VIDEO</div>
+    <div class="export-cuts">
+      <button type="button" data-cut="trailer">
+        <span class="cut-name">TRÁILER</span>
+        <span class="cut-note">55 s · 720p · para redes</span>
+      </button>
+      <button type="button" data-cut="episode">
+        <span class="cut-name">EPISODIO COMPLETO</span>
+        <span class="cut-note">4:25 · 540p</span>
+      </button>
+    </div>
+    <div class="export-note">Se graba en tiempo real. No cambies de pestaña.</div>
+    <button type="button" id="export-close">cancelar</button>
+  </div>
+</div>
+
+<div id="rec" hidden>
+  <span class="rec-dot"></span>
+  <span id="rec-label">GRABANDO</span>
+  <span id="rec-time">0:00</span>
+  <button type="button" id="rec-stop">detener</button>
+</div>
+
+<div id="start">
+  <div class="start-inner">
+    <div class="start-kicker">presenta</div>
+    <h1>CORAZÓN DE GALLINA</h1>
+    <div class="start-rule"></div>
+    <div class="start-sub">una telenovela de corral · sin una sola palabra</div>
+    <button id="play" type="button">▶ &nbsp;REPRODUCIR</button>
+    <div class="start-note">
+      con sonido · 6 minutos · ← → cambia de escena · H oculta la interfaz
+    </div>
+  </div>
+</div>
+
+<script type="module" src="./engine/main.js"></script>
