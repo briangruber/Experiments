@@ -12,7 +12,7 @@ import {
 	sudsOpacity, sudsTroughBias, sudsWashLanes, sudsWash,
 } from '../src/wake-suds.js';
 import {
-	uSudsBreak, uSudsSteep, setWakeSudsUniforms,
+	uSuds, uSudsSteep, setWakeSudsUniforms,
 } from '../src/gpu/tsl/wake-suds.js';
 import { defaults } from '../src/presets.js';
 import { readFileSync } from 'node:fs';
@@ -307,7 +307,7 @@ const near = ( a, b, eps = 1e-6 ) => Math.abs( a - b ) <= eps;
 	need( 'the water shader imports the film rather than restating it',
 		/import \{[^}]*sudsBreak[^}]*\} from '\.\/wake-suds\.js'/.test( TSL_WATER ) );
 	need( 'the water shader crossfades the painted churn to breaking coverage',
-		TSL_WATER.includes( 'mix( churn, broke, uSudsBreak )' ) );
+		TSL_WATER.includes( 'mix( churn, broke, uSuds )' ) );
 	// Existing is not surviving. Sitting before the ribbon block, the
 	// crossfade was overwritten by the chew stack on every frame with
 	// wakeFoamRibbonVary above zero -- the shipped default -- so it compiled,
@@ -317,7 +317,7 @@ const near = ( a, b, eps = 1e-6 ) => Math.abs( a - b ) <= eps;
 			const region = TSL_WATER.slice( 0, TSL_WATER.indexOf( 'uRippleFoam.greaterThan' ) );
 			const writes = [ ...region.matchAll( /churn\.assign\(([^;]*)\)/g ) ];
 			return writes.length >= 2
-				&& writes[ writes.length - 1 ][ 1 ].includes( 'uSudsBreak' );
+				&& writes[ writes.length - 1 ][ 1 ].includes( 'uSuds' );
 		} )() );
 	need( 'breaking reads the leftover slope, which IS ak',
 		/sudsBreak\( steep, float\( 1\.0 \), phase, uSudsSteep \)/.test( TSL_WATER ) );
@@ -328,23 +328,37 @@ const near = ( a, b, eps = 1e-6 ) => Math.abs( a - b ) <= eps;
 			&& /import \{ setWakeSudsUniforms \} from '\.\/wake-suds\.js'/.test( TSL_DRIVER ) );
 	need( 'this module owns its uniforms and nobody else declares them',
 		( () => {
-			for ( const u of [ 'uSudsBreak', 'uSudsSteep', 'uSudsCrest' ] ) {
+			for ( const u of [ 'uSuds', 'uSudsSteep', 'uSudsCrest' ] ) {
 				if ( ! new RegExp( `export const ${ u } = ` ).test( TSL_SUDS ) ) return false;
 				if ( new RegExp( `const ${ u } = .*uniform\\(` ).test( TSL_WATER ) ) return false;
 			}
 			return true;
 		} )() );
-	need( 'the parameters exist and default to leaving the old film alone',
-		defaults.wakeSudsBreak === 0
+	need( 'foam comes from the waves by default, not from a stamped path',
+		defaults.wakeSuds === 1
 			&& defaults.wakeSudsSteep === SUDS_BREAK_STEEP
 			&& Number.isFinite( defaults.wakeSudsCrest ),
-		`break ${ defaults.wakeSudsBreak }, steep ${ defaults.wakeSudsSteep }` );
-	need( 'the setter clamps the crossfade and falls back to the authored numbers',
+		`wakeSuds ${ defaults.wakeSuds }, steep ${ defaults.wakeSudsSteep }` );
+
+	// The master has to reach BOTH stamped-path films. Gating only the churn
+	// left the energy ribbon and the physics whitewater ribbon summing into
+	// the same accumulator underneath, so the wave answer was an addition to
+	// the old look rather than a replacement for it.
+	need( 'the master suppresses the foam-energy ribbon',
+		TSL_WATER.includes( 'film.mul( float( 1.0 ).sub( uSuds ) )' ) );
+	need( 'the master suppresses the physics whitewater ribbon',
+		TSL_WATER.includes( 'wp.y.mul( k ).mul( float( 1.0 ).sub( uSuds ) )' ) );
+	need( 'wave HEIGHT is never suppressed — it is what does the breaking',
+		TSL_WATER.includes( 'const h0 = wp.x;' )
+			&& ! /wp\.x[^;\n]*sub\( uSuds \)/.test( TSL_WATER ) );
+	need( 'the setter clamps the master and falls back to the authored numbers',
 		( () => {
-			setWakeSudsUniforms( { wakeSudsBreak: 5 } );
-			if ( uSudsBreak.value !== 1 || uSudsSteep.value !== SUDS_BREAK_STEEP ) return false;
-			setWakeSudsUniforms( {} );
-			return uSudsBreak.value === 0 && uSudsSteep.value === SUDS_BREAK_STEEP;
+			setWakeSudsUniforms( { wakeSuds: 5 } );
+			if ( uSuds.value !== 1 || uSudsSteep.value !== SUDS_BREAK_STEEP ) return false;
+			setWakeSudsUniforms( { wakeSuds: 0 } );
+			if ( uSuds.value !== 0 ) return false;
+			setWakeSudsUniforms( {} );          // absent means the default, which is ON
+			return uSuds.value === 1 && uSudsSteep.value === SUDS_BREAK_STEEP;
 		} )() );
 }
 

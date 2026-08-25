@@ -493,13 +493,17 @@ export const defaults = {
                             // water — the quarter-wave shoulders are glassy and only breaking
                             // crests go white.
   wakeFoamRibbonVary: 1.0,  // leftover foam: contour wobble, chew, opacity. 0 is a solid stencil.
-  wakeSudsBreak: 0,         // crossfade leftover-crest churn to coverage derived from BREAKING.
-                            // Slope magnitude is ak, so the leftover field's own steepness is the
-                            // criterion: past critical a crest spills, below it there is no foam
-                            // at all. That zero is what lets waves drive coverage without painting
-                            // white over every disturbed square metre, and why the arms need no
-                            // locus — they are simply where the field is steepest. 0 keeps the
-                            // painted film exactly as it was. See src/wake-suds.js.
+  wakeSuds: 1,              // master: where does foam come from. 0 is the stamped-path answer
+                            // (energy ribbon + physics whitewater ribbon + painted leftover-crest
+                            // churn). 1 is the wave answer: coverage from where the water actually
+                            // BREAKS, both ribbons suppressed. Slope magnitude is ak, so the
+                            // leftover field's own steepness is the criterion — past critical a
+                            // crest spills, below it there is no foam at all. That zero is what
+                            // lets waves drive coverage without painting white over every
+                            // disturbed square metre, and why the arms need no locus: they are
+                            // simply where the field is steepest. Drives BOTH halves because the
+                            // ribbons are additive into the same accumulator — swapping only the
+                            // churn leaves the stamp underneath. See src/wake-suds.js.
   wakeSudsSteep: 0.08,      // critical steepness ak. The Stokes limit is 0.443, but that is where
                             // an ideal wave ceases to exist; real wake crests shed white well
                             // before it. Lower froths the transverse system too.

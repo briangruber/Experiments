@@ -229,7 +229,7 @@ import {
 	FLUKE_FFT_KILL, FLUKE_SLOPE_KILL,
 } from '../../fluke-slicks.js';
 import { WAKE_FOAM_STAMPS } from '../../wake-foam.js';
-import { sudsBreak, uSudsBreak, uSudsSteep, uSudsCrest } from './wake-suds.js';
+import { sudsBreak, uSuds, uSudsSteep, uSudsCrest } from './wake-suds.js';
 
 // Focused sunlight on the bed. Twin: floorLace() in seafloor.js / WATER_FS.
 // Layouted so the floor If does not inline cellular3 six times.
@@ -2086,7 +2086,12 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 					} );
 
 				} );
-				wake.assign( max( wake, film ) );
+				// The energy ribbon is the stamped-path answer. uSuds fades it
+				// out so breaking coverage is not simply laid on top of it:
+				// they are competing answers to the same question, and leaving
+				// the stamp underneath is why swapping the churn term alone
+				// changed so little of what reaches the eye.
+				wake.assign( max( wake, film.mul( float( 1.0 ).sub( uSuds ) ) ) );
 
 			}, () => {
 
@@ -2187,7 +2192,12 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 		If( k.greaterThan( 0.004 ), () => {
 
 			const wp = wakePhysicsAt( vFlat.xz ).toVar();
-			wake.addAssign( wp.y.mul( k ) );
+			// .y is the physics whitewater ribbon — the other stamped-path
+			// film. Same reasoning as the energy ribbon above; .x is HEIGHT
+			// and is untouched, because the waves are what breaking coverage
+			// is derived from and suppressing them would leave nothing to
+			// break.
+			wake.addAssign( wp.y.mul( k ).mul( float( 1.0 ).sub( uSuds ) ) );
 			If( uWakeRelief.greaterThan( 0.0 ).and( wp.x.abs().greaterThan( 0.01 ) ), () => {
 
 				const e = float( 0.55 );
@@ -2271,12 +2281,12 @@ export const waterFragment = /*@__PURE__*/ Fn( () => {
 			// steepest, which is where they were always going to be. Height
 			// stands in for phase (the leftover tile carries none), so the
 			// crest-face gate still keeps troughs as water.
-			If( uSudsBreak.greaterThan( 0.001 ), () => {
+			If( uSuds.greaterThan( 0.001 ), () => {
 
 				const phase = hRaw.div( uSudsCrest ).clamp( - 1.0, 1.0 ).toVar();
 				const broke = sudsBreak( steep, float( 1.0 ), phase, uSudsSteep )
 					.mul( 0.90 ).toVar();
-				churn.assign( mix( churn, broke, uSudsBreak ) );
+				churn.assign( mix( churn, broke, uSuds ) );
 
 			} );
 			If( uRippleFoam.greaterThan( 0.001 ), () => {

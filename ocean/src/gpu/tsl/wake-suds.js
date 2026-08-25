@@ -37,11 +37,20 @@ export const SUDS_ENGINE_CAP = 8;
 // the first program's binding into three's per-Fn code cache (rule 18).
 
 /**
- * Crossfade from the painted leftover-crest churn to coverage derived from
- * breaking. 0 leaves the existing film exactly as it was, which is what keeps
- * the six checks that describe the ribbon honest while the two are compared.
+ * Master crossfade between the two answers to "where is the foam".
+ *
+ * 0 is entirely the old one: the energy ribbon stamped along the hull's swept
+ * path, the physics whitewater ribbon, and a painted leftover-crest churn.
+ * 1 is entirely this one: coverage derived from where the water is actually
+ * breaking, with both ribbons suppressed. Intermediate values dissolve
+ * between them, which is what makes the comparison a live A/B rather than a
+ * reload.
+ *
+ * It has to drive BOTH — the ribbons are additive contributions to the same
+ * accumulator, so swapping only the churn term leaves the stamped path fully
+ * present underneath and changes very little of what you actually see.
  */
-export const uSudsBreak = /*@__PURE__*/ uniform( 0.0 );
+export const uSuds = /*@__PURE__*/ uniform( 1.0 );
 /** Critical steepness ak. Live knob over SUDS_BREAK_STEEP. */
 export const uSudsSteep = /*@__PURE__*/ uniform( SUDS_BREAK_STEEP );
 /**
@@ -55,7 +64,8 @@ export const uSudsCrest = /*@__PURE__*/ uniform( 0.06 );
 /** Live knobs. Missing keys keep the authored defaults. */
 export function setWakeSudsUniforms( p = {} ) {
 
-	uSudsBreak.value = Math.min( Math.max( Number( p.wakeSudsBreak ) || 0, 0 ), 1 );
+	const m = Number( p.wakeSuds );
+	uSuds.value = Math.min( Math.max( Number.isFinite( m ) ? m : 1, 0 ), 1 );
 	const steep = Number( p.wakeSudsSteep );
 	uSudsSteep.value = Number.isFinite( steep ) && steep > 0 ? steep : SUDS_BREAK_STEEP;
 	const crest = Number( p.wakeSudsCrest );
