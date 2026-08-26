@@ -254,6 +254,11 @@ export function createNet({ mode = 'local', screenName, relayUrl = '' } = {}) {
 
     roster: rosterFor,
     knownBots: () => sim.allBots(),
+
+    /* Give a room a population before anybody walks into it, so a map of
+       rooms is not a map of empty rooms. Host-only, like the rest of the
+       simulation; other tabs learn about it from the roster broadcast. */
+    prime: (room, min) => sim.prime(room, min),
   };
 
   function openRelay() {
@@ -466,6 +471,23 @@ function createSimulation(out) {
   return {
     setActive(on) { active = on; },
     reset() { rooms.clear(); },
+
+    /* Seed a room that nobody is standing in yet. Unlike humanEnter this
+       starts no conversation: there is nobody there to hear it, and the
+       chatter begins the moment somebody arrives. */
+    prime(room, min = randInt(2, 5)) {
+      if (!active) return;
+      const s = state(room);
+      if (s.primed || s.bots.size >= min) { s.primed = true; return; }
+      s.primed = true;
+      const avail = PERSONAS.map(p => p.name).filter(n => !s.bots.has(n));
+      for (let i = s.bots.size; i < min && avail.length; i++) {
+        const n = avail.splice(randInt(0, avail.length - 1), 1)[0];
+        s.bots.add(n);
+        out.join(room, n);
+      }
+      out.roster(room, [...s.bots]);
+    },
 
     humanEnter(room) {
       const s = state(room);

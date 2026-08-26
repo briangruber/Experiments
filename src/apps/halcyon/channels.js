@@ -139,6 +139,8 @@ const KEYWORDS = {
   games: s => openChannel(s, 'games'), game: s => openChannel(s, 'games'),
   horoscope: s => openChannel(s, 'stars'), stars: s => openChannel(s, 'stars'),
   channels: s => openChannels(s),
+  reverie: s => s.go('reverie'),
+  faces: s => s.go('reverie'),
   find: s => findCentral(s),
   search: s => findCentral(s),
   sports: s => openChannel(s, 'sports'),
@@ -366,6 +368,7 @@ const INDEX = [
   ['Channels', 'channels', 'channels departments menu everything'],
   ['Mine Hunt', 'games', 'games mines minesweeper play'],
   ['Terms of Service', 'tos', 'rules terms service guides safety password'],
+  ['The Reverie Network', 'reverie', 'reverie world faces island games checkers avatar graphical'],
 ];
 
 export function findCentral(session) {
