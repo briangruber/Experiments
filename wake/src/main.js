@@ -101,6 +101,7 @@ try {
 const useAbyssal = () => sea !== null && get('scene.abyssal') > 0.5;
 // Our field, their water. This is the seam the whole swap hangs on.
 const wakeBridge = sea ? new WakeBridge(renderer, wake) : null;
+let sceneTuned = false;   // the default scene's tune is applied on frame one
 if (sea) sea.setWake(wakeBridge);
 
 // Only the analytic path owns a sky dome, a far sea and a water plane; Abyssal
@@ -646,7 +647,11 @@ function frame(now) {
   labSky.visible = !abyssal;
   if (abyssal) {
     const want = PRESET_NAMES[Math.round(get('scene.preset')) % PRESET_NAMES.length];
-    if (sea.setPreset(want)) {
+    // `|| !sceneTuned`: setPreset is a no-op for the scene the sea was BUILT
+    // with, so without this the default scene never received its tune and
+    // whatever the sliders last saved beat the look the preset was given.
+    if (sea.setPreset(want) || !sceneTuned) {
+      sceneTuned = true;
       // A scene is a look, not just a spectrum: its curated water values land
       // in the same live params the sliders drive, so the panel agrees and
       // everything stays adjustable from where the scene put it.

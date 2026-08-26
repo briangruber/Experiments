@@ -78,16 +78,27 @@ export const PRESET_NAMES = [
  *    Near zero for the lagoon, because its authored turquoise IS the look.
  */
 export const SCENE_TUNE = {
-	'Calm Lake':           { floor: 7,   caustics: 0.6, weed: 0.20, tint: 0.50, glow: 1.8 },
-	'Sheltered Water':     { floor: 9,   caustics: 0.5, weed: 0.25, tint: 0.45, glow: 1.7 },
-	'Glassy Dawn':         { floor: 14,  caustics: 0.3, weed: 0.15, tint: 0.60, glow: 2.8 },
-	'Tropical Lagoon':     { floor: 3.5, caustics: 1.2, weed: 0.05, tint: 0.05, glow: 1.6 },
-	'Deep Blue Afternoon': { floor: 0,   caustics: 0,   weed: 0,    tint: 0.85, glow: 3.0 },
-	'Tropical Noon':       { floor: 6,   caustics: 0.9, weed: 0.08, tint: 0.15, glow: 1.5 },
-	'Golden Hour Swell':   { floor: 0,   caustics: 0,   weed: 0,    tint: 0.80, glow: 3.6 },
-	'Trade Winds':         { floor: 0,   caustics: 0,   weed: 0,    tint: 0.75, glow: 3.0 },
-	'Moonlit Passage':     { floor: 0,   caustics: 0,   weed: 0,    tint: 0.90, glow: 2.0 },
-	'North Atlantic Storm': { floor: 0,  caustics: 0,   weed: 0,    tint: 0.85, glow: 3.2 },
+	// A clear mountain lake: sand seen through slightly tea-stained water,
+	// honest weed, and enough glow that looking down reads green-gold, not black.
+	'Calm Lake':           { floor: 6,   caustics: 0.7,  weed: 0.30, tint: 0.55, glow: 1.5, sand: [ 0.72, 0.66, 0.50 ] },
+	// A harbour: deeper, weedier, its own grey-green sand.
+	'Sheltered Water':     { floor: 8,   caustics: 0.55, weed: 0.35, tint: 0.50, glow: 2.2, sand: [ 0.68, 0.63, 0.47 ] },
+	// Dawn mirror. The light is the show; the bottom stays a suggestion.
+	'Glassy Dawn':         { floor: 12,  caustics: 0.35, weed: 0.15, tint: 0.60, glow: 2.2 },
+	// THE lagoon. Sand a metre or three down, bright as coral rubble, caustics
+	// at full song, zero tint -- the preset's authored turquoise IS the look --
+	// and the glow well up, because tropical shallows are lit from below.
+	'Tropical Lagoon':     { floor: 4.5, caustics: 1.35, weed: 0.45, tint: 0,    glow: 1.0, sand: [ 0.74, 0.66, 0.46 ],
+	                         scatter: [ 0.030, 0.26, 0.36 ], scatterAmt: 0.13, absorb: [ 0.34, 0.055, 0.030 ] },
+	'Deep Blue Afternoon': { floor: 0,   caustics: 0,    weed: 0,    tint: 0.85, glow: 3.0 },
+	// The lagoon's big sibling: a little deeper, a little more weed on the
+	// flats, the same overhead blaze.
+	'Tropical Noon':       { floor: 5.5, caustics: 1.1,  weed: 0.40, tint: 0.10, glow: 1.1, sand: [ 0.76, 0.68, 0.48 ],
+	                         scatter: [ 0.050, 0.30, 0.34 ], scatterAmt: 0.15, absorb: [ 0.30, 0.050, 0.032 ] },
+	'Golden Hour Swell':   { floor: 0,   caustics: 0,    weed: 0,    tint: 0.80, glow: 3.6 },
+	'Trade Winds':         { floor: 0,   caustics: 0,    weed: 0,    tint: 0.75, glow: 3.0 },
+	'Moonlit Passage':     { floor: 0,   caustics: 0,    weed: 0,    tint: 0.90, glow: 2.0 },
+	'North Atlantic Storm': { floor: 0,  caustics: 0,    weed: 0,    tint: 0.85, glow: 3.2 },
 };
 
 /**
@@ -149,7 +160,7 @@ const mix = ( a, b, t ) => a + ( b - a ) * t;
  * steered toward deep water, both under live control. scene.floor at 1 and
  * scene.waterTint at 0 restore precisely what the preset asked for.
  */
-function fitToLake( p, preset = {} ) {
+function fitToLake( p, preset = {}, tune = {} ) {
 
 	// A real lake bottom, in metres, rather than a 0..1 fade of the preset's.
 	//
@@ -170,8 +181,8 @@ function fitToLake( p, preset = {} ) {
 
 	// Sand, and how much weed is laid over it. Upstream's reef pattern assumes
 	// a tropical bed; a lake wants far less of it.
-	p.bedSand = [ 0.80, 0.71, 0.52 ];
-	p.bedWeed = [ 0.18, 0.24, 0.19 ];
+	p.bedSand = tune.sand ?? [ 0.80, 0.71, 0.52 ];
+	p.bedWeed = [ 0.10, 0.20, 0.17 ];
 	p.bedWeedAmount = get( 'lake.weed' );
 
 	// The lace, for the sea as well as the wake. Written every frame from the
@@ -185,7 +196,12 @@ function fitToLake( p, preset = {} ) {
 	p.labSeaBreak = get( 'foamMix.seaBreak' );
 
 	const tint = get( 'scene.waterTint' );
-	const c = preset.scatterColor ?? [ 0.055, 0.145, 0.095 ];
+	// A scene may commit to its own water colour outright. The preset library
+	// authors for open ocean at its own exposure; a pond-sized lagoon needs
+	// harder red absorption and a more saturated scatter to read tropical
+	// instead of washing out to mint against the bright sand.
+	if ( tune.absorb ) p.absorption = tune.absorb;
+	const c = tune.scatter ?? preset.scatterColor ?? [ 0.055, 0.145, 0.095 ];
 	// Deep water, and NOT darker water. The first version of this used
 	// [0.014, 0.072, 0.135], which is a fine deep-ocean hue and dimmer than the
 	// preset's green in every channel -- so it fixed the green by turning the
@@ -204,7 +220,7 @@ function fitToLake( p, preset = {} ) {
 	// that value an overhead camera gets a black mirror however the colour is
 	// tuned. This is the knob that actually answers "why is it black from
 	// above", so it is exposed rather than folded into the tint.
-	p.scatterAmount = ( preset.scatterAmount ?? 0.07 ) * get( 'scene.waterGlow' );
+	p.scatterAmount = ( tune.scatterAmt ?? preset.scatterAmount ?? 0.07 ) * get( 'scene.waterGlow' );
 
 }
 
@@ -231,7 +247,7 @@ export class AbyssalSea {
 		this.probe = null;          // built lazily: needs the adopted gl context
 		this.preset = preset;
 		this.wake = null;
-		fitToLake( this.params, PRESETS[ preset ] );
+		fitToLake( this.params, PRESETS[ preset ], SCENE_TUNE[ preset ] );
 		this.sky = new AbyssalSky( renderer, { params: this.params } );
 		this.water = new AbyssalWater( renderer, { params: this.params, sky: this.sky } );
 
@@ -251,7 +267,7 @@ export class AbyssalSea {
 		if ( ! ( name in PRESETS ) || name === this.preset ) return false;
 		applyPreset( this.params, name );
 		Object.assign( this.params, QUIET );
-		fitToLake( this.params, PRESETS[ name ] );
+		fitToLake( this.params, PRESETS[ name ], SCENE_TUNE[ name ] );
 		this.water.ocean.buildSpectrum( this.params );
 		this.preset = name;
 		return true;
@@ -263,7 +279,7 @@ export class AbyssalSea {
 
 		// Live, so the lake-fit sliders take effect next frame like every other
 		// knob here.
-		fitToLake( this.params, PRESETS[ this.preset ] );
+		fitToLake( this.params, PRESETS[ this.preset ], SCENE_TUNE[ this.preset ] );
 		this.water.update( dt, camera );
 		this.sky.update( dt, camera );
 
