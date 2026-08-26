@@ -60,6 +60,31 @@ The machine does have a browser. It is NetScrape, it is on the desktop and
 in the Start menu, and it is a separate program — which is exactly where it
 belonged before the two got merged.
 
+## The Reverie Network
+
+Keyword `REVERIE`, or the icon on the desktop. The other kind of service
+the era had: not a wall of text but a painted world you walked around as a
+face you built yourself, with board games in it.
+
+- **Build a face.** Skin, hair and its colour, eyes, brows, nose, mouth and
+  an extra — spectacles, a cap, headphones, a crown. Drawn as vectors, so
+  a face is six small numbers and every combination is instant. Yours is
+  remembered; everybody else's is derived from their screen name, so the
+  same person always looks the same.
+- **The island.** A painted map with four places on it, each showing how
+  many people are standing there. They are populated before you arrive —
+  a map of empty rooms is worse than no map.
+- **Stand somewhere.** The four lands are backdrops with the crowd along
+  the bottom, faces at full size, speech bubbles over whoever just spoke.
+  A green dot marks anybody who is really another person.
+- **Jouster's Keep** has **checkers** — a real game, with compulsory
+  captures, multi-jumps, kings, and an opponent that searches two plies
+  and will beat you if you are careless.
+- **The Boardwalk** has a **slot machine**. Tokens, which are not money,
+  cannot be bought, and top themselves up when you run out.
+
+The same phrase book governs the lands as governs the chat rooms.
+
 ## The artwork and the voice
 
 Generated with fal.ai and baked into `src/assets/` as data URIs, so the
@@ -72,6 +97,12 @@ folder still works with no network and no key:
   which makes sixteen separate generations look like one set.
 - **the marbled panel** on the sign-on window, and the **welcome banner**
   behind the greeting.
+- **Reverie's island map and four land backdrops**, painted in the style
+  of a 1990s point-and-click adventure.
+- **one animation** — a slow flight over the island, used as the curtain
+  at Reverie's gate. Generated as video, cut to sixteen frames at 8 fps
+  and packed as a looping animated WebP, which is what an animated GIF on
+  a page in 1997 was.
 - **the announcer** — "Welcome", "You have mail", "Goodbye" — at 11 kHz
   8-bit mono, which is both what a `.wav` on this machine would have been
   and about a tenth of the bytes. It replaces the browser's speech
@@ -163,39 +194,64 @@ the wire sees everything. Do not put it on the public internet.
 
 ## How it stays safe
 
-This is the part that could spiral, so it is built as one pipeline that
-everything you type goes through before anyone else sees it
-(`src/core/safety.js`, tested in `tools/test.mjs`):
+**Nobody can type a sentence at anybody.** You type whatever you like into
+the box; what actually travels is the closest phrase from a fixed,
+hand-written vocabulary of about two hundred (`src/apps/halcyon/phrasebook.js`,
+readable end to end in a minute, and browsable in the app). The box shows
+you which phrase it will send before you commit. Your keystrokes are read
+by the matcher and thrown away — they never reach another tab, the relay,
+or anywhere else.
 
-1. **Shape** — length, line count, and a token bucket. Normal conversation
-   is never throttled; a burst is.
-2. **Privacy** — telephone numbers, street addresses, e-mail addresses,
-   card numbers and government numbers are removed before the message
-   leaves your machine. This is the one that matters most, and it is also
-   perfectly in period: it was the advice everybody got.
-3. **Conduct** — a small mild-language pass that masks rather than blocks.
-   Whole-word matching only, so it does not mask "hello", "bass" or
-   "Scunthorpe"; it does see through `h3ll` and `heeellll`. Operators
-   running the relay supply their own list with `--blocklist`.
+That is a stronger property than screening free text, because it is
+structural rather than a judgement call: the set of sayable things is
+finite and is right there in the repository. There is no filter to outwit,
+no spelling to work around, no new slur to add to a list next year. It is
+also more in period than free text — chat in 1997 ran on stock phrases,
+and a menu of them is funnier than most of what people would type.
 
-Then the in-fiction layer, which is both the safety valve and one of the
-most nostalgic things about the era: three warnings and a Guide removes you
-from the rooms for a minute. Every instant message window has a Report
-button, and it does something. Every chat room has Ignore.
+The rest of `src/core/safety.js` still runs behind it, and still matters:
 
-Two beats are deliberately educational rather than decorative. A member
-called **HaIcyon Billing** — capital i, not an l — will eventually ask for
-your password by instant message; reply and a Guide arrives to explain the
-trick. The same message is sitting in your mailbox. Type your telephone
-number into a room and watch what the service does with it, and what the
-room says to you about it.
+1. **Shape** — a token bucket, because a finite vocabulary can still be
+   used to flood a room. Normal conversation is never throttled.
+2. **Privacy** — telephone numbers, addresses, e-mail and card numbers are
+   stripped. Unreachable from the phrase book by construction, but the
+   relay is defended against a client that is not this one.
+3. **Conduct** — whole-word masking, for screen names and for anything
+   arriving over the relay.
 
-The strongest control is not code at all: the default transport is
-local-only, so out of the box there is nobody to be unsafe towards.
+Then the in-fiction layer: three warnings and a Guide removes you from the
+rooms for a minute. Every instant message window has a Notify button, and
+it does something. Every chat room has Ignore. The phrase book has a
+**Speak Up** category, because a vocabulary that cannot say "please stop"
+is not a safe one.
 
-Nothing is stored except in this browser's `localStorage`: which screen
-names you have used, which mail you have read, guestbook entries, and hit
-counters.
+Two beats are deliberately educational. A member called **HaIcyon
+Billing** — capital i, not an l — asks for your password by instant
+message; a Guide arrives to explain the trick. The same message is in your
+mailbox.
+
+## On making it feel busy
+
+The goal was for solo browsing to feel like a place with people in it.
+Four layers do that, and it is worth being exact about which are real:
+
+| layer | real? |
+| --- | --- |
+| The regulars in every room and land | Programs. Eight personas with distinct voices, who arrive, talk, forward chain letters and get told off by Guides. |
+| Other tabs on your machine | **Real people.** Found over `BroadcastChannel`; they show a green dot next to their name in Reverie. |
+| Other machines on your network | **Real people**, if somebody runs `tools/relay.mjs`. |
+| Member numbers and the "1,2xx,xxx members" line | Fiction, and part of the set dressing, like the modem speed. |
+
+There is deliberately **no global live user count**, because there is no
+honest way to build one here: a published artifact gets no shared-state
+capability, so any number claiming to be "people online right now" would
+be a number this page made up. The counts you see — on the island map, in
+a room's member list — are the real contents of that room's roster.
+
+The thing that actually sells presence is not a number, it is **faces**.
+Eight names in a list is a list; eight faces standing in front of a castle
+with speech bubbles over them is a party.
+
 
 ## Layout
 

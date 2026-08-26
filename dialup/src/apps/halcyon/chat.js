@@ -11,6 +11,8 @@ import { h, clear, $$, pick } from '../../core/dom.js';
 import { dialog, getWindow } from '../../core/wm.js';
 import * as A from '../../core/audio.js';
 import { screen, LIMITS } from '../../core/safety.js';
+import { createSayBox } from './say-box.js';
+import { isPhrase } from './phrasebook.js';
 import { nameColor } from './people.js';
 import { openIM } from './im.js';
 
@@ -53,13 +55,8 @@ export function openChatRoom(session, roomId) {
   const log = h('div.chat-log.scroll');
   const list = h('div.chat-list.scroll');
   const typingLine = h('div.chat-typing', {}, ' ');
-  const counter = h('span.chat-count', {}, '0/240');
 
-  const input = h('input.field.chat-input', {
-    type: 'text', maxLength: LIMITS.maxChars, spellcheck: false,
-    placeholder: 'Say something to the room',
-  });
-  const sendBtn = h('button.btn.chat-send', { type: 'button' }, 'Send');
+  const say = createSayBox({ onSend: text => send(text) });
 
   const win = session.child({
     id, title: roomName(roomId), icon: 'chat',
@@ -81,7 +78,7 @@ export function openChatRoom(session, roomId) {
         state.myColor = c;
         $$('.chat-swatch', win.el).forEach(s => s.classList.remove('on'));
         ev.currentTarget.classList.add('on');
-        input.focus();
+        say.focus();
       },
     })));
   swatches.firstChild.classList.add('on');
@@ -99,11 +96,11 @@ export function openChatRoom(session, roomId) {
     h('div.chat-bar', {},
       h('button.chat-style', {
         type: 'button', title: 'Bold',
-        onclick: ev => { state.bold = !state.bold; ev.currentTarget.classList.toggle('on', state.bold); input.focus(); },
+        onclick: ev => { state.bold = !state.bold; ev.currentTarget.classList.toggle('on', state.bold); say.focus(); },
       }, h('b', {}, 'B')),
       swatches,
-      counter),
-    h('div.chat-entry', {}, input, sendBtn)));
+      h('span.chat-count', {}, 'Phrase Book only')),
+    say.el));
 
   /* ── rendering ─────────────────────────────────────────────────────── */
 
@@ -197,44 +194,33 @@ export function openChatRoom(session, roomId) {
 
   /* ── sending ───────────────────────────────────────────────────────── */
 
-  let typingSent = 0;
-  input.addEventListener('input', () => {
-    counter.textContent = input.value.length + '/' + LIMITS.maxChars;
-    const now = Date.now();
-    if (input.value && now - typingSent > 2500) { typingSent = now; net.typing(roomId, true); }
-  });
-
-  function send() {
-    const raw = input.value;
-    if (!raw.trim()) return;
-    const res = screen(raw, session.bucket, { max: LIMITS.maxChars });
+  /*
+   * `text` here is always a phrase out of the book — the box cannot
+   * produce anything else. The safety pipeline still runs, but only the
+   * rate limiter can now have anything to say: a finite vocabulary can
+   * still be used to flood a room.
+   */
+  function send(text) {
+    if (!isPhrase(text)) return;                    // belt and braces
+    const res = screen(text, session.bucket, { max: LIMITS.maxChars });
 
     if (!res.ok) {
       if (res.reason === 'flood') {
-        sysLine('You are sending messages too quickly. Slow down a moment.', 'sys warn');
+        sysLine('You are saying things too quickly. Slow down a moment.', 'sys warn');
         session.strikes.add('Flooding a chat room.');
       } else if (res.reason === 'slow') {
         sysLine('One at a time, please.', 'sys warn');
-      } else if (res.reason === 'conduct') {
-        input.value = '';
-        counter.textContent = '0/' + LIMITS.maxChars;
-        session.strikes.add('Language that violates the Terms of Service.');
       }
       A.ding();
       return;
     }
 
-    input.value = '';
-    counter.textContent = '0/' + LIMITS.maxChars;
     net.typing(roomId, false);
     net.say(roomId, res.text);
-    for (const n of res.notices) sysLine('Halcyon Guide: ' + n, 'sys warn');
     A.click();
   }
 
-  sendBtn.addEventListener('click', send);
-  input.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); send(); } });
-  setTimeout(() => input.focus(), 60);
+  setTimeout(() => say.focus(), 60);
 
   return win;
 

@@ -353,6 +353,83 @@ select.hal-so-field { text-align: left; }
 .chat-send { min-width: 62px; }
 
 /* ─────────────────────────────────────────────────────────────────────
+   The say box — type freely, send a phrase
+   ───────────────────────────────────────────────────────────────────── */
+
+.say { flex: none; display: flex; flex-direction: column; gap: 3px;
+       padding: 0 2px 3px; position: relative; }
+
+.say-list { display: flex; flex-wrap: wrap; gap: 3px; max-height: 46px; overflow: hidden; }
+.say-hit {
+  display: flex; align-items: baseline; gap: 5px; padding: 2px 7px; cursor: pointer;
+  background: var(--aol-face); font-size: 11px; text-align: left;
+  border: 1px solid; border-color: var(--hilite) var(--shadow) var(--shadow) var(--hilite);
+}
+.say-hit em { font-style: normal; font-size: 9px; color: #7a7a6c; }
+.say-hit:hover { background: #eef3fb; }
+.say-hit.on { background: var(--sel); color: #fff; border-color: #05194a; }
+.say-hit.on em { color: #a8c4ea; }
+
+.say-preview {
+  font-size: 11px; min-height: 15px; padding: 0 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.say-label { color: #6a6a5c; margin-right: 5px; }
+.say-preview b { color: #12307e; }
+.say-none { color: #8a8a7c; font-style: italic; }
+
+.say-row { display: flex; gap: 4px; }
+.say-input {
+  flex: 1; min-width: 0; padding: 3px 5px; background: #fff; color: #000; outline: none;
+  border: 1px solid; border-color: #7a7a70 #fff #fff #7a7a70;
+  box-shadow: inset 1px 1px 0 #4a4a44;
+  font: 11px var(--ui); user-select: text; -webkit-user-select: text;
+}
+.say-send { flex: none; }
+.say-browse {
+  flex: none; padding: 2px 9px; cursor: pointer; font-size: 11px;
+  background: var(--aol-face);
+  border: 1px solid; border-color: var(--hilite) var(--dark) var(--dark) var(--hilite);
+  box-shadow: inset -1px -1px 0 var(--shadow), inset 1px 1px 0 var(--light);
+}
+.say-browse:active { box-shadow: inset 1px 1px 0 var(--shadow); }
+
+.say-browser {
+  position: absolute; left: 2px; right: 2px; bottom: 100%; z-index: 40;
+  height: 210px; display: flex; flex-direction: column;
+  background: var(--aol-dialog);
+  border: 1px solid; border-color: var(--hilite) var(--dark) var(--dark) var(--hilite);
+  box-shadow: 2px -2px 7px rgba(0,0,0,.32);
+}
+.say-browser[hidden] { display: none; }
+.say-browser-head {
+  flex: none; display: flex; align-items: center; gap: 8px; padding: 4px 6px;
+  background: linear-gradient(90deg, var(--aol-title-1), var(--aol-title-2));
+  color: #fff;
+}
+.say-browser-head span { flex: 1; font-size: 10px; opacity: .85; }
+.say-close {
+  padding: 1px 8px; cursor: pointer; font-size: 10px; background: var(--aol-face);
+  border: 1px solid; border-color: var(--hilite) var(--dark) var(--dark) var(--hilite);
+}
+.say-tabs { flex: none; display: flex; flex-wrap: wrap; gap: 2px; padding: 3px;
+            border-bottom: 1px solid var(--shadow); }
+.say-tab {
+  padding: 2px 7px; cursor: pointer; font-size: 10px; background: var(--aol-face);
+  border: 1px solid; border-color: var(--hilite) var(--shadow) var(--shadow) var(--hilite);
+}
+.say-tab.on { background: var(--sel); color: #fff; font-weight: 700; }
+.say-cat { flex: 1; padding: 5px; background: #fff; }
+.say-cat-hint { font-size: 10px; color: #7a7a6c; margin-bottom: 5px; font-style: italic; }
+.say-pick {
+  display: block; width: 100%; text-align: left; padding: 3px 6px; cursor: pointer;
+  background: none; border: 0; border-bottom: 1px solid #f0f0f0; font-size: 11px;
+}
+.say-pick:hover { background: #eef3fb; }
+
+.im-tools { flex: none; display: flex; gap: 4px; justify-content: flex-end; padding: 0 2px; }
+
+/* ─────────────────────────────────────────────────────────────────────
    Instant messages and the buddy list
    ───────────────────────────────────────────────────────────────────── */
 

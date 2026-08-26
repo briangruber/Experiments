@@ -12,6 +12,11 @@ export const APPS = {
     title: 'NetScrape Navigator', icon: 'browser', desktop: 2, start: 2, quick: 2,
     load: () => import('./browser.js'),
   },
+  reverie: {
+    title: 'The Reverie Network', short: 'Reverie',
+    icon: 'globe', desktop: 3, start: 4, quick: 3,
+    load: () => import('./reverie/launch.js'),
+  },
   mycomputer: {
     title: 'My Computer', icon: 'computer', desktop: 0, start: 3,
     load: () => import('./mycomputer.js'),
@@ -25,7 +30,7 @@ export const APPS = {
     load: () => import('./sketchpad.js'),
   },
   jukebox: {
-    title: 'Jukebox 95', icon: 'media', desktop: 6, start: 7, quick: 3,
+    title: 'Jukebox 95', icon: 'media', desktop: 6, start: 7, quick: 4,
     load: () => import('./jukebox.js'),
   },
   defrag: {

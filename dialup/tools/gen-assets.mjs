@@ -23,6 +23,18 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { run, download } from './fal.mjs';
 
+/* Playwright ships an encode-only ffmpeg that cannot decode H.264, which
+   is what the video model returns. imageio-ffmpeg carries a full build. */
+const FFMPEG = (() => {
+  try {
+    return execFileSync('python3',
+      ['-c', 'import imageio_ffmpeg;print(imageio_ffmpeg.get_ffmpeg_exe())'],
+      { encoding: 'utf8' }).trim();
+  } catch {
+    return 'ffmpeg';       // fall back to whatever is on PATH
+  }
+})();
+
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const raw = join(root, 'tools/.assets-raw');
 const out = join(root, 'src/assets');
@@ -31,6 +43,7 @@ mkdirSync(out, { recursive: true });
 
 const IMG_MODEL = 'fal-ai/flux/schnell';
 const TTS_MODEL = 'fal-ai/kokoro/american-english';
+const VID_MODEL = 'fal-ai/ltx-video';
 
 /* A house style, so sixteen separate generations still look like one set.
    Pushed hard away from photography: these were airbrush and gradient-mesh
@@ -73,8 +86,38 @@ const SCENES = [
    'gold, soft lens flare, no text, no letters, no words'],
 ];
 
+/* The Reverie Network — the graphical world inside the service. */
+const REVERIE = [
+  ['rev-map', 384, 240,
+   'mid-1990s point-and-click adventure game world map, hand-painted, ' +
+   'an island seen from above with four distinct regions: a castle on a ' +
+   'crag, a seaside pier, a floating cloud terrace, an airfield; warm ' +
+   'painted colour, soft shadows, no text, no labels, no words'],
+  ['rev-keep', 256, 128,
+   'a stone castle keep with pennants on a green crag, 1990s hand-painted ' +
+   'adventure game backdrop, warm afternoon light, no text, no words'],
+  ['rev-boardwalk', 256, 128,
+   'a seaside pier at dusk with strings of coloured bulbs and a ferris ' +
+   'wheel, 1990s hand-painted adventure game backdrop, no text, no words'],
+  ['rev-cloud', 256, 128,
+   'a terrace of pale stone floating in a sunset sky above soft clouds, ' +
+   '1990s hand-painted adventure game backdrop, no text, no words'],
+  ['rev-airfield', 256, 128,
+   'a grass airfield with a red biplane and a windsock at golden hour, ' +
+   '1990s hand-painted adventure game backdrop, no text, no words'],
+];
+
+/* One short loop, used as the curtain when you enter the world. */
+const ANIMS = [
+  ['rev-fly', 176, 112,
+   'slow flight over a painted fantasy island toward a castle on a crag, ' +
+   'drifting clouds, 1990s hand-painted adventure game art, gentle ' +
+   'forward camera move, no text'],
+];
+
 const VOICE = [
   ['welcome',  'Welcome!'],
+  ['reverie',  'Welcome to the Reverie Network.'],
   ['mail',     'Welcome!  You have mail!'],
   ['goodbye',  'Goodbye.'],
   ['gotmail',  'You have mail!'],
@@ -131,6 +174,31 @@ base = Image.composite(base, Image.new('RGB', (W, H), (0, 0, 0)), shade)
 out = base.quantize(colors=64, method=Image.MEDIANCUT, dither=Image.FLOYDSTEINBERG).convert('RGB')
 buf = io.BytesIO()
 out.save(buf, 'WEBP', quality=80, method=6)
+print('data:image/webp;base64,' + base64.b64encode(buf.getvalue()).decode())
+`);
+}
+
+/**
+ * Turns a generated clip into a small looping animated WebP: sixteen
+ * frames, palette-quantised like everything else. An animated picture on
+ * a page in 1997 was a GIF of about this size, and it should feel like
+ * one.
+ */
+function packAnim(file, w, h) {
+  const dir = file.replace(/\.mp4$/, '-frames');
+  mkdirSync(dir, { recursive: true });
+  execFileSync(FFMPEG, ['-y', '-i', file, '-vf',
+    'fps=8,scale=' + w + ':' + h + ':flags=lanczos', '-frames:v', '16',
+    join(dir, 'f%02d.png')], { stdio: 'pipe' });
+  return py(`
+import base64, io, glob
+from PIL import Image
+frames = [Image.open(f).convert('RGB') for f in sorted(glob.glob(${JSON.stringify(join(dir, '*.png'))}))]
+frames = [f.quantize(colors=64, method=Image.MEDIANCUT, dither=Image.FLOYDSTEINBERG).convert('RGB')
+          for f in frames]
+buf = io.BytesIO()
+frames[0].save(buf, 'WEBP', save_all=True, append_images=frames[1:],
+               duration=125, loop=0, quality=62, method=4)
 print('data:image/webp;base64,' + base64.b64encode(buf.getvalue()).decode())
 `);
 }
@@ -196,7 +264,7 @@ async function makeArt() {
     entries.push([name, packBanner(file, left, right)]);
   }
 
-  for (const [name, w, h, prompt] of SCENES) {
+  for (const [name, w, h, prompt] of SCENES.concat(REVERIE)) {
     const file = join(raw, 'scene-' + name + '.jpg');
     if (!existsSync(file)) {
       const r = await run(IMG_MODEL, {
@@ -209,7 +277,19 @@ async function makeArt() {
     entries.push([name, packImage(file, w, h)]);
   }
 
-  const body = entries.map(([k, v]) => '  ' + k + ": '" + v + "',").join('\n');
+  for (const [name, w, h, prompt] of ANIMS) {
+    const mp4 = join(raw, 'anim-' + name + '.mp4');
+    if (!existsSync(mp4)) {
+      const r = await run(VID_MODEL, { prompt, num_inference_steps: 24 });
+      const url = (r.video && r.video.url) || (r.videos && r.videos[0] && r.videos[0].url);
+      if (!url) throw new Error('no video in response: ' + JSON.stringify(r).slice(0, 300));
+      await download(url, mp4);
+      process.stdout.write('.');
+    }
+    entries.push([name.replace(/-/g, '_'), packAnim(mp4, w, h)]);
+  }
+
+  const body = entries.map(([k, v]) => '  ' + k.replace(/-/g, '_') + ": '" + v + "',").join('\n');
   writeFileSync(join(out, 'art.js'),
     '/* Generated by tools/gen-assets.mjs — do not edit by hand.\n' +
     '   Channel artwork and scene panels, baked in as data URIs so the\n' +

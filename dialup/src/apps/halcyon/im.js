@@ -10,6 +10,8 @@ import { dialog, getWindow } from '../../core/wm.js';
 import { icon } from '../../core/icons.js';
 import * as A from '../../core/audio.js';
 import { screen, LIMITS } from '../../core/safety.js';
+import { createSayBox } from './say-box.js';
+import { isPhrase } from './phrasebook.js';
 import { nameColor, PERSONAS } from './people.js';
 
 const convos = new Map();     // screen name -> { win, log }
@@ -26,10 +28,6 @@ export function openIM(session, who, firstLine = null) {
   }
 
   const log = h('div.im-log.scroll');
-  const box = h('textarea.field.im-box', {
-    rows: 3, maxLength: LIMITS.imMaxChars, spellcheck: false,
-    placeholder: 'Type a message',
-  });
 
   const win = session.child({
     id, title: 'Instant Message From: ' + who, icon: 'chat',
@@ -37,48 +35,39 @@ export function openIM(session, who, firstLine = null) {
     onClose: () => { convos.delete(who); return true; },
   });
 
-  const send = () => {
-    const raw = box.value;
-    if (!raw.trim()) return;
-    const res = screen(raw, session.bucket, { max: LIMITS.imMaxChars });
+  const send = text => {
+    if (!isPhrase(text)) return;
+    const res = screen(text, session.bucket, { max: LIMITS.imMaxChars });
     if (!res.ok) {
-      if (res.reason === 'conduct') {
-        session.strikes.add('Language in an instant message.');
-        box.value = '';
-      } else appendSys(who, res.reason === 'flood'
+      appendSys(who, res.reason === 'flood'
         ? 'You are sending messages too quickly.'
         : 'One at a time, please.');
       A.ding();
       return;
     }
-    box.value = '';
     append(who, session.name, res.text, true);
-    for (const n of res.notices) appendSys(who, 'Halcyon: ' + n);
     session.net.im(who, res.text);
     A.click();
   };
 
+  const say = createSayBox({ onSend: send, hint: 'Type what you mean' });
+
   clear(win.body).append(h('div.im', {},
     log,
-    h('div.im-entry', {}, box,
-      h('div.im-btns', {},
-        h('button.btn.small', { type: 'button', onclick: send }, 'Send'),
-        h('button.btn.small', {
-          type: 'button', title: 'Notify a Halcyon Guide about this person',
-          onclick: () => report(session, who),
-        }, 'Report'),
-        h('button.btn.small', {
-          type: 'button', onclick: () => { win.close(); },
-        }, 'Close')))));
-
-  box.addEventListener('keydown', ev => {
-    if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); send(); }
-  });
+    h('div.im-tools', {},
+      h('button.aol-btn.small', {
+        type: 'button', title: 'Notify a Halcyon Guide about this person',
+        onclick: () => report(session, who),
+      }, 'Notify Halcyon'),
+      h('button.aol-btn.small', {
+        type: 'button', onclick: () => { win.close(); },
+      }, 'Close')),
+    say.el));
 
   convos.set(who, { win, log });
   win.setTitle('Instant Message: ' + who);
   if (firstLine) append(who, who, firstLine);
-  setTimeout(() => box.focus(), 60);
+  setTimeout(() => say.focus(), 60);
   return win;
 }
 

@@ -33,6 +33,51 @@ const id = file => relative(srcDir, file).split('\\').join('/');
 
 /* ── collect ─────────────────────────────────────────────────────────── */
 
+/* `export const A = 1, B = 2` declares two exports, not one. Split the
+   declarator list at depth zero so both are seen — the naive regex takes
+   only the first, which is the sort of thing that produces a bundle that
+   parses and then throws. */
+const RESERVED = new Set(('break case catch class const continue debugger default ' +
+  'delete do else export extends finally for function if import in instanceof new ' +
+  'return super switch this throw try typeof var void while with yield let static ' +
+  'await null true false not and or of as from').split(' '));
+
+function exportedNames(rawSrc) {
+  // Comments first: a declarator list is split on commas, and a trailing
+  // line comment containing one ("0 is a position, not a falsehood") will
+  // otherwise be read as another exported name.
+  const src = rawSrc
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+  const names = new Set();
+  for (const m of src.matchAll(
+    /^export\s+(?:async\s+)?(?:function\s*\*?|class)\s+([A-Za-z_$][\w$]*)/gm))
+    names.add(m[1]);
+
+  for (const m of src.matchAll(/^export\s+(?:const|let|var)\s+([\s\S]*?);\s*$/gm)) {
+    let depth = 0, part = '';
+    const flush = () => {
+      const n = /^\s*([A-Za-z_$][\w$]*)/.exec(part);
+      if (n && !RESERVED.has(n[1])) names.add(n[1]);
+      part = '';
+    };
+    for (const ch of m[1]) {
+      if ('([{'.includes(ch)) depth++;
+      else if (')]}'.includes(ch)) depth--;
+      if (ch === ',' && depth === 0) { flush(); continue; }
+      part += ch;
+    }
+    flush();
+  }
+
+  for (const m of src.matchAll(/^export\s*\{([^}]*)\}/gm))
+    for (const p of m[1].split(','))
+      if (p.trim()) names.add(p.trim().split(/\s+as\s+/).pop().trim());
+
+  if (/^export\s+default/m.test(src)) names.add('default');
+  return names;
+}
+
 function walk(dir, out = []) {
   for (const e of readdirSync(dir)) {
     const p = join(dir, e);
@@ -81,14 +126,8 @@ function transform(file) {
     '__dyn(' + JSON.stringify(resolveSpec(spec)) + ')');
 
   // Names first, from the untouched source; then drop the keyword.
-  for (const m of original.matchAll(
-    /^export\s+(?:async\s+)?(?:function\s*\*?|class|const|let|var)\s+([A-Za-z_$][\w$]*)/gm))
-    exported.add(m[1]);
+  for (const n of exportedNames(original)) exported.add(n);
   src = src.replace(EXPORT_DECL, '');
-  for (const m of original.matchAll(EXPORT_LIST))
-    for (const part of m[1].split(','))
-      if (part.trim()) exported.add(part.trim().split(/\s+as\s+/).pop().trim());
-
   src = src.replace(EXPORT_LIST, '');
 
   if (/^export\s+default/m.test(original)) problems.push('default exports are not supported');

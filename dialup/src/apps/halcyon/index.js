@@ -25,6 +25,7 @@ import { openMailbox, unreadCount, composeMail } from './mail.js';
 import { openChannels, gotoKeyword, openRoomList, openChannel, keywordDialog, findCentral }
   from './channels.js';
 import { ART } from '../../assets/art.js';
+import { openReverie } from '../reverie/index.js';
 import { openFrame } from './frame.js';
 import { wordmark } from './brand.js';
 
@@ -237,7 +238,7 @@ function welcome() {
         promo('People Connection', 'Chat rooms', 'chat', 'rooms'),
         promo('Channels', 'The whole service', 'globe', 'channels'),
         promo('Buddy List', 'Who is online', 'people', 'buddies'),
-        promo('Find Central', 'Search the service', 'find', 'search'))),
+        promo('Reverie', 'A world with faces in it', 'globe', 'reverie'))),
 
     h('div.hal-promo-strip', {},
       h('div.hal-strip-head', {}, 'Today on Halcyon'),
@@ -284,6 +285,7 @@ function route(what, arg) {
     case 'weather':   return openChannel(s, 'weather');
     case 'stars':     return openChannel(s, 'stars');
     case 'games':     return s.ctx.launch('minehunt');
+    case 'reverie':   return openReverie(s);
     case 'back': case 'forward': A.beep(); return;
     case 'rooms':     return openRoomList(s);
     case 'channels':  return openChannels(s);

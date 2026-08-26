@@ -39,32 +39,36 @@ THE OTHER PEOPLE ARE SOMETIMES REAL
 
 HOW THIS STAYS SAFE
 
-  Everything you type is screened before anyone else sees it:
+  Nobody can type a sentence at anybody. You type whatever you like into
+  the box, and what actually travels is the closest phrase from a fixed,
+  hand-written list of about two hundred — you can read the whole list
+  with the Phrase Book button, or in src/apps/halcyon/phrasebook.js.
 
-    - length and rate limits, so a room cannot be flooded
-    - a privacy pass that removes telephone numbers, street addresses,
-      e-mail addresses and card numbers before they leave your machine
-    - a mild-language filter that masks rather than blocks
-    - three warnings and a Guide removes you from the room for a minute
+  Your keystrokes are read by the matcher and then thrown away. They never
+  reach another tab, the relay, or anywhere else.
 
-  The last one is not just a safety valve. Being told off by a Guide was
-  part of the experience, and rooms were better for it.
+  That is a stronger promise than screening free text, because it is
+  structural rather than a judgement call. There is no filter to outwit,
+  no spelling to work around, and no new slur to add to a list next year.
+  It is also more in period: chat in 1997 ran on stock phrases anyway.
 
-  Every instant message window has a Report button, and it does something.
+  The rest still applies. A rate limiter, because a finite vocabulary can
+  still be used to flood a room. Three warnings and a Guide removes you
+  for a minute. Every instant message window has a Notify button, and it
+  does something. Every chat room has Ignore.
 
 
 THINGS TO TRY
 
+  Type something rude and watch what the box offers to say instead.
+  Open the Phrase Book and read it end to end. It is the whole vocabulary.
   Type SCORE in the Trivia Tavern.
-  Ask the room a/s/l.
-  Type your telephone number in a chat room and watch what happens.
-  Read the mail from CoffeeAchiever and download the attachment.
+  Keyword REVERIE, build a face, and go and stand on the island.
+  Play the checkers in Jouster's Keep. It plays properly and it will win.
   Read the mail from "HaIcyon Billing" and look closely at the sender.
-  Open the Location box in NetScrape and go somewhere that does not exist.
-  Sign somebody's guestbook.
   Leave the computer alone for ninety seconds.
   Open Disk Defragmenter and do nothing else for a while.
-  Turn the CRT effect off in the tray if it bothers your eyes.
+  Open a second tab and meet yourself in a chat room.
 
 
 WHY
