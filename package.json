@@ -1,0 +1,11 @@
+{
+  "name": "dialup",
+  "private": true,
+  "type": "module",
+  "description": "Halcyon Online - a 1997 machine you can log in to",
+  "scripts": {
+    "check": "node tools/check.mjs",
+    "test": "node tools/check.mjs && node tools/test.mjs",
+    "relay": "node tools/relay.mjs"
+  }
+}

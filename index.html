@@ -1,0 +1,53 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Halcyon Online — a 1997 machine</title>
+<link rel="stylesheet" href="./src/style/chrome.css">
+<link rel="stylesheet" href="./src/style/halcyon.css">
+<link rel="stylesheet" href="./src/style/web.css">
+
+<!-- The dark room you start in. One power button, one gesture, and the
+     AudioContext is allowed to make noise for the rest of the session. -->
+<div id="room">
+  <div class="tower">
+    <div class="tower-face">
+      <div class="bay"><div class="bay-slot"></div><div class="bay-led"></div></div>
+      <div class="bay"><div class="bay-slot floppy"></div><div class="bay-eject"></div></div>
+      <div class="vents"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="badge">PACKARD&nbsp;HILL<span>Legend 4200</span></div>
+      <button id="power" type="button" aria-label="Power on">
+        <span class="power-glyph"></span>
+      </button>
+      <div class="hdd-led" id="hdd-led"></div>
+    </div>
+  </div>
+  <p class="room-hint">click the power button</p>
+</div>
+
+<!-- Everything below lives inside the monitor. -->
+<div id="crt" hidden>
+  <div id="screen">
+    <div id="boot" class="layer"></div>
+    <div id="desktop" class="layer" hidden>
+      <div id="icons"></div>
+      <div id="windows"></div>
+      <div id="taskbar">
+        <button id="start-btn" type="button"><span class="start-flag"></span>Start</button>
+        <div id="quicklaunch"></div>
+        <div id="tasks"></div>
+        <div id="tray">
+          <button id="tray-crt" type="button" title="Toggle CRT effect">▧</button>
+          <button id="tray-sound" type="button" title="Toggle sound">♪</button>
+          <span id="clock">—</span>
+        </div>
+      </div>
+      <div id="startmenu" hidden></div>
+    </div>
+    <div id="screensaver" class="layer" hidden></div>
+    <div id="modal-layer"></div>
+  </div>
+  <div id="scanlines"></div>
+  <div id="vignette"></div>
+</div>
+
+<script type="module" src="./src/main.js"></script>
