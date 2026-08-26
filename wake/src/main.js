@@ -29,7 +29,19 @@ renderer.setClearColor(0x0a1017);
 // shader programs that tonemap and encode themselves, and three does not
 // inject its tonemapping into those -- so the sea is untouched and the meshes
 // land in the same range as it.
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
+// NEUTRAL, not ACES.
+//
+// ACES rolls highlights toward white -- that is its filmic look, and it is
+// what was quietly draining the colour out of the boats: measured on the
+// inflatable, whose texture is navy and yellow on white, mean saturation came
+// out 0.374 under ACES against 0.432 under Neutral at the same brightness,
+// with NOTHING clipped in either. So the hulls were never blown out; the
+// curve was desaturating them by design.
+//
+// Khronos PBR Neutral exists for exactly this case -- showing an asset's own
+// albedo rather than grading a photograph of it. The sea is unaffected either
+// way: it is a raw shader program that tonemaps itself.
+renderer.toneMapping = THREE.NeutralToneMapping;
 
 const scene = new THREE.Scene();
 // Halved against the pre-tonemapping values: ACES maps a much wider range in,
@@ -588,7 +600,10 @@ function frame(now) {
     if (sl) {
       const gain = get('scene.meshSun');
       sun.color.setRGB(sl.colour[0], sl.colour[1], sl.colour[2]);
-      sun.intensity = sl.strength * gain * 3.2;
+      // 2.2, down from 3.2: brighter is less saturated even without clipping,
+      // because the tone curve compresses as it rises. 0.455 mean saturation
+      // here against 0.432 at 3.2, and the hull still reads as sunlit.
+      sun.intensity = sl.strength * gain * 2.2;
       // The sky fills in as the sun goes: at dusk it is most of the light
       // there is, which is why the ambient is floored rather than tracking
       // the sun to zero.
