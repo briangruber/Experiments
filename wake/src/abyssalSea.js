@@ -78,12 +78,12 @@ export const PRESET_NAMES = [
  *    Near zero for the lagoon, because its authored turquoise IS the look.
  */
 export const SCENE_TUNE = {
-	'Calm Lake':           { floor: 7,   caustics: 0.6, weed: 0.20, tint: 0.50, glow: 2.6 },
-	'Sheltered Water':     { floor: 9,   caustics: 0.5, weed: 0.25, tint: 0.45, glow: 2.4 },
+	'Calm Lake':           { floor: 7,   caustics: 0.6, weed: 0.20, tint: 0.50, glow: 1.8 },
+	'Sheltered Water':     { floor: 9,   caustics: 0.5, weed: 0.25, tint: 0.45, glow: 1.7 },
 	'Glassy Dawn':         { floor: 14,  caustics: 0.3, weed: 0.15, tint: 0.60, glow: 2.8 },
-	'Tropical Lagoon':     { floor: 3.5, caustics: 1.2, weed: 0.05, tint: 0.05, glow: 3.2 },
+	'Tropical Lagoon':     { floor: 3.5, caustics: 1.2, weed: 0.05, tint: 0.05, glow: 1.6 },
 	'Deep Blue Afternoon': { floor: 0,   caustics: 0,   weed: 0,    tint: 0.85, glow: 3.0 },
-	'Tropical Noon':       { floor: 6,   caustics: 0.9, weed: 0.08, tint: 0.15, glow: 2.2 },
+	'Tropical Noon':       { floor: 6,   caustics: 0.9, weed: 0.08, tint: 0.15, glow: 1.5 },
 	'Golden Hour Swell':   { floor: 0,   caustics: 0,   weed: 0,    tint: 0.80, glow: 3.6 },
 	'Trade Winds':         { floor: 0,   caustics: 0,   weed: 0,    tint: 0.75, glow: 3.0 },
 	'Moonlit Passage':     { floor: 0,   caustics: 0,   weed: 0,    tint: 0.90, glow: 2.0 },

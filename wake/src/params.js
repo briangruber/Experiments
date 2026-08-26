@@ -275,7 +275,7 @@ export const PARAMS = {
     // the sun's elevation, so this scales both together rather than letting
     // them drift apart.
     meshSun:      { v: 1.0,  min: 0,   max: 3,   step: 0.01, label: 'Mesh sun & sky' },
-    waterGlow:    { v: 3.2,  min: 0.2, max: 10,  step: 0.05, label: 'Water glow (look-down)' },
+    waterGlow:    { v: 1.6,  min: 0.2, max: 10,  step: 0.05, label: 'Water glow (look-down)' },
     warmth:       { v: 1.15, min: 0,   max: 1.5, step: 0.01, label: 'Sunset warmth' },
     cloud:        { v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Cloud cover' },
     cloudScale:   { v: 0.55, min: 0.05,max: 3,   step: 0.01, label: 'Cloud scale' },
