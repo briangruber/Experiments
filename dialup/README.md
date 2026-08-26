@@ -13,28 +13,41 @@ Halcyon is invented. It is not any service that existed.
 
 ## What it is copying, and from what
 
-The layout follows screenshots of America Online 2.5 and 3.0 for Windows
-(from [WinWorld](https://winworldpc.com/product/aol/30)), which is the
-shape people actually remember:
+Built against screenshots of the real thing rather than from memory, and
+the palette is sampled off them rather than guessed. Two eras are mixed
+deliberately, because the machine is a 1997 one running a 3.0-numbered
+client with the 4.x look people actually picture:
 
-- one application frame, with everything else an MDI child inside it
-  rather than a window on the desktop
-- a menu bar of **File / Edit / Go To / Mail / Members / Window / Help**
-- one row of small icon buttons beneath it, in raised frames, grouped by
-  separators, with **no text labels at all**
-- a sign-on window titled "Welcome" with a marbled panel down the left
-  edge, the wordmark centred on the right, `Select Screen Name`, `Enter
-  Password`, `Location: Home`, and `SETUP | HELP | SIGN ON` across the
-  bottom over the line "Press Alt + F4 to Exit"
+- **one application frame**, and everything else — Welcome, chat rooms,
+  mail, channels, buddy list, instant messages — is an MDI child inside
+  it, never a window on the desktop
+- **title bars that run blue → purple → red** across their width
+  (`#1b3ca3 → #6f176e → #cc2b23`, sampled), with a **heart** at the
+  right-hand end for filing the window in Favorite Places
+- a short menu bar: **File / Edit / Window / Sign Off / Help**
+- a **deep blue toolbar** of large colour icons with light labels beneath,
+  in three groups, several carrying a drop-down caret; the badge sits on
+  its own blue panel at the right-hand end
+- beneath it a **cream navigation bar**: back, forward, stop, reload,
+  home, a `Find` drop-down, a wide address box reading "Type Keyword or
+  Web Address here and click Go", then blue `Go` and `Keyword` buttons
+- **window faces in warm cream** (`#dcdccf`), not system grey, and blue
+  bevelled buttons instead of the Win95 ones
+- **Channels** as a rail — badge, heading, "Return to Welcome", a blue
+  oval `Find` — beside a grid of colour banner buttons, each with its own
+  palette and type treatment, because that variety was the whole look
+- the **Keyword window**: badge, a big heading, one field, and two blue
+  buttons, `Go` and `Keyword List`
 
-The Go To menu is reproduced item for item from a screenshot of the 2.x
-client, accelerators included: Keyword was Ctrl+K, the Lobby was Ctrl+L,
-Favorite Places was Ctrl+B, the Main Menu was Ctrl+D.
+An earlier pass followed 2.x/3.0 screenshots, which is where the Go To
+menu's accelerators came from: Keyword was Ctrl+K, the Lobby Ctrl+L,
+Favorite Places Ctrl+B, the Main Menu Ctrl+D. Those still work.
 
 What is *not* copied is the branding. The name, the wordmark, the diamond
 badge and every icon here are ours. The typographic idiom — a geometric
 badge over letterspaced caps with "Online" in a script face — was common
 to the whole era.
+
 
 ## Running it
 

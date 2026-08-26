@@ -22,7 +22,8 @@ import { runDialer } from './dialer.js';
 import { ROOMS, openChatRoom } from './chat.js';
 import { openBuddyList, imFrom, openIM } from './im.js';
 import { openMailbox, unreadCount, composeMail } from './mail.js';
-import { openChannels, gotoKeyword, openRoomList, openChannel } from './channels.js';
+import { openChannels, gotoKeyword, openRoomList, openChannel, keywordDialog }
+  from './channels.js';
 import { openFrame } from './frame.js';
 import { wordmark } from './brand.js';
 
@@ -163,7 +164,7 @@ async function connect(ctx, { name, mode, relayUrl }) {
     frame: null,
     signOff: () => signOff(ctx),
     strikes: null,
-    child: opts => openWindow({ ...opts, parent: session.frame.client }),
+    child: opts => openWindow({ aol: true, ...opts, parent: session.frame.client }),
     go: (what, arg) => route(what, arg),
     arrange,
   };
@@ -251,9 +252,18 @@ function route(what, arg) {
   if (!s) return;
   switch (what) {
     case 'welcome':   return getWindow('halcyon-welcome') ? getWindow('halcyon-welcome').focus() : welcome();
-    case 'keyword':   return arg ? gotoKeyword(s, arg) : s.frame.focusKeyword();
+    case 'keyword':   return arg ? gotoKeyword(s, arg) : keywordDialog(s);
     case 'lobby':     return openChatRoom(s, 'lobby');
     case 'trivia':    return openChatRoom(s, 'trivia');
+    case 'tech':      return openChatRoom(s, 'tech');
+    case 'music':     return openChatRoom(s, 'music');
+    case 'coffee':    return openChatRoom(s, 'coffee');
+    case 'penpals':   return openChatRoom(s, 'penpals');
+    case 'sports':    return openChannel(s, 'sports');
+    case 'weather':   return openChannel(s, 'weather');
+    case 'stars':     return openChannel(s, 'stars');
+    case 'games':     return s.ctx.launch('minehunt');
+    case 'back': case 'forward': A.beep(); return;
     case 'rooms':     return openRoomList(s);
     case 'channels':  return openChannels(s);
     case 'mail':      return openMailbox(s);
@@ -264,6 +274,59 @@ function route(what, arg) {
     case 'web':       return s.ctx.launch('browser', { url: 'halcyon://start' });
     case 'notepad':   return s.ctx.launch('notepad');
     case 'signoff':   return signOff(s.ctx);
+    case 'addfav':    return dialog({
+      title: 'Favorite Places', icon: 'star', aol: true,
+      message: 'The front window has been added to your Favorite Places.\n\n' +
+        'Press Ctrl+B to see the list.' });
+
+    case 'myfiles': return dialog({
+      title: 'Download Manager', icon: 'folder', aol: true, message:
+        'Files waiting to download:  0\n' +
+        'Files downloaded:           1\n\n' +
+        '  SUNSET.JPG   47,318 bytes   complete\n\n' +
+        'Downloads finish while you are online. If you sign off in the\n' +
+        'middle of one, it starts again from the beginning. Everybody\n' +
+        'learned this the same way.' });
+
+    case 'preferences': return dialog({
+      title: 'Preferences', icon: 'halcyon', aol: true, message:
+        'Chat        Double-space incoming messages    off\n' +
+        '            Alphabetise the member list        on\n' +
+        '            Notify me when members arrive      on\n\n' +
+        'Graphics    Download art automatically         on\n' +
+        'Passwords   Store password for this name       off\n\n' +
+        'These are decorative, except the last one, which is off for the\n' +
+        'reason it should always be off.' });
+
+    case 'profile': return dialog({
+      title: 'My Member Profile', icon: 'people', aol: true, message:
+        'Screen name:   ' + s.name + '\n' +
+        'Member since:  Friday\n' +
+        'Location:      Home\n\n' +
+        'A profile is public to everybody on the service. Leave the boxes\n' +
+        'you are not sure about empty — that was good advice then and it\n' +
+        'has not changed.' });
+
+    case 'screennames': return dialog({
+      title: 'Screen Names', icon: 'people', aol: true, message:
+        'This account may hold up to five screen names.\n\n' +
+        '  ' + s.name + '   (signed on)\n\n' +
+        'Sign off and back on to use a different one.' });
+
+    case 'passwords': return dialog({
+      title: 'Passwords', icon: 'warn', aol: true, message:
+        'Storing your password means anybody at this computer can sign on\n' +
+        'as you. It is off, and this reconstruction will not turn it on.\n\n' +
+        'Halcyon staff will never ask you for your password. Nobody\n' +
+        'legitimate ever will, on any service, then or now.' });
+
+    case 'parental': return dialog({
+      title: 'Parental Controls', icon: 'people', aol: true, message:
+        'Parental Controls set what a screen name is allowed to reach:\n' +
+        'chat rooms, instant messages, the web, and file downloads.\n\n' +
+        'There is nothing to control here — every room on this machine is\n' +
+        'a program, and nothing you type leaves the browser. The control\n' +
+        'that actually does the work is in src/core/safety.js.' });
 
     case 'im': return dialog({
       title: 'Send Instant Message', icon: 'chat',

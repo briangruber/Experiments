@@ -24,6 +24,14 @@ function smallIcon(name) {
   return el;
 }
 
+function heartGlyph() {
+  return svg('svg', { viewBox: '0 0 11 10', width: 11, height: 10 },
+    svg('path', {
+      d: 'M5.5 9.5 1.2 5.2A2.6 2.6 0 0 1 5.5 2a2.6 2.6 0 0 1 4.3 3.2z',
+      fill: '#d63a3a', stroke: '#6a0f0f', 'stroke-width': .8,
+    }));
+}
+
 function tbtnGlyph(kind) {
   const s = svg('svg', { viewBox: '0 0 9 8', width: 9, height: 8, 'shape-rendering': 'crispEdges' });
   const r = (x, y, w, hh) => s.append(svg('rect', { x, y, width: w, height: hh, fill: '#000' }));
@@ -53,7 +61,7 @@ export function openWindow(opts) {
     width = 480, height = 340, minWidth = 220, minHeight = 120,
     x, y, resizable = true, maximised = false, menu = null, status = null,
     taskbar = true, onClose, onResize, onFocus, chromeless = false,
-    parent = null,
+    parent = null, aol = false, onFavorite = null,
   } = opts;
 
   const existing = open.get(id);
@@ -75,9 +83,15 @@ export function openWindow(opts) {
   const btnMax = h('button.tbtn', { type: 'button', title: 'Maximize' }, tbtnGlyph('max'));
   const btnCls = h('button.tbtn', { type: 'button', title: 'Close' }, tbtnGlyph('close'));
 
+  // Windows in the online service carried a heart at the right-hand end of
+  // the title bar: that was how you filed a place in Favorite Places.
+  const btnFav = aol ? h('button.tbtn.tbtn-fav', {
+    type: 'button', title: 'Add to Favorite Places',
+  }, heartGlyph()) : null;
+
   const titlebar = h('div.win-title', {},
     smallIcon(iconName), ttext,
-    h('div.tbtns', {}, resizable ? [btnMin, btnMax] : [btnMin], btnCls));
+    h('div.tbtns', {}, btnFav, resizable ? [btnMin, btnMax] : [btnMin], btnCls));
 
   const body = h('div.win-body');
   const statusbar = status ? h('div.win-status') : null;
@@ -88,6 +102,7 @@ export function openWindow(opts) {
   }, chromeless ? [] : [titlebar], menu ? buildMenu(menu) : null, body, statusbar, grip);
 
   if (mdi) el.classList.add('mdi');
+  if (aol) el.classList.add('aol');
   host.append(el);
   setTimeout(() => el.classList.remove('opening'), 200);
 
@@ -161,6 +176,14 @@ export function openWindow(opts) {
       }, () => onResize && onResize(win));
   }
 
+  if (btnFav) btnFav.addEventListener('click', () => {
+    A.beep();
+    (onFavorite || (() => dialog({
+      title: 'Favorite Places', icon: 'star',
+      message: '"' + win.title + '" has been added to your Favorite Places.\n\n' +
+        'Press Ctrl+B to see the list.',
+    })))();
+  });
   btnMin.addEventListener('click', () => { A.click(); setMin(true); });
   btnCls.addEventListener('click', () => { A.click(); closeWindow(win); });
 
@@ -269,9 +292,16 @@ function buildMenu(items) {
 
 export function focus(win) {
   if (active === win && win.el.style.zIndex) return;
-  if (active) { active.el.classList.remove('active'); active.taskEl?.classList.remove('on'); }
+  if (active) active.taskEl?.classList.remove('on');
+
+  // An MDI child taking focus must not grey out the frame it lives in, so
+  // the whole ancestry lights up, not just the window itself.
+  for (const w of open.values()) w.el.classList.remove('active');
   active = win;
   win.el.classList.add('active');
+  for (let p = win.el.parentElement; p; p = p.parentElement) {
+    if (p.classList && p.classList.contains('win')) p.classList.add('active');
+  }
   win.el.style.zIndex = ++zTop;
   win.taskEl?.classList.add('on');
   win.taskEl?.classList.remove('flash');
@@ -303,7 +333,7 @@ export function closeAll() { [...open.values()].forEach(closeWindow); }
  */
 export function dialog({
   title = 'Panes 95', message = '', icon: kind = 'info',
-  buttons = ['OK'], input = null, sound = true, extra = null,
+  buttons = ['OK'], input = null, sound = true, extra = null, aol = false,
 } = {}) {
   return new Promise(resolve => {
     if (sound) kind === 'error' ? A.ding() : A.beep();
@@ -317,7 +347,7 @@ export function dialog({
       });
     }
 
-    const dlg = h('div.win.dialog.active', {},
+    const dlg = h('div.win.dialog.active', { class: aol ? 'aol' : '' },
       h('div.win-title', {},
         h('div.ttext', {}, title),
         h('div.tbtns', {}, h('button.tbtn', {
@@ -331,12 +361,13 @@ export function dialog({
               .flatMap((l, i) => i ? [h('br'), l] : [l])),
             field, extra))),
       h('div.dlg-btns', {},
-        buttons.map((b, i) => h('button.btn', {
+        buttons.map(b => h('button', {
+          class: aol ? 'aol-btn' : 'btn',
           type: 'button', onclick: () => done(b),
         }, b))));
 
     modals().append(back, dlg);
-    setTimeout(() => (field || dlg.querySelector('.btn'))?.focus(), 20);
+    setTimeout(() => (field || dlg.querySelector('.btn, .aol-btn'))?.focus(), 20);
 
     const key = ev => {
       if (ev.key === 'Escape') done(null);
