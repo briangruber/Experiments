@@ -1,361 +1,374 @@
 /* The Reverie Network.
  *
- * Deliberately not Halcyon: no grey chrome, no cream panels. A painted
- * world in a dark wooden frame, because the graphical services looked
- * like games and the text services looked like software. */
+ * Deliberately not Halcyon. The text services looked like software: grey
+ * chrome, cream panels, a lot of small type. The graphical services looked
+ * like a boxed game — flat saturated grounds, three-pixel bevels on
+ * everything, portraits hung in frames with a yellow plate under the chin,
+ * and a row of chunky buttons along the bottom of the screen.
+ *
+ * That grammar is the whole file. Four colours of ground, two bevels, one
+ * plate, one frame; every screen is those pieces arranged differently.
+ */
 
 .rev {
   position: absolute; inset: 0; overflow: hidden;
-  background: #14161f;
-  font: 12px/1.45 var(--ui); color: #e8e4d8;
+  font: 12px/1.4 var(--ui); color: #fff;
+
+  --ink: #1a1208;
+  --red: #a81818;  --red-lt: #d84040;  --red-dk: #600808;
+  --blu: #1c3d9c;  --blu-lt: #4a70d8;  --blu-dk: #0c1c58;
+  --pur: #52267e;  --pur-lt: #8050b0;  --pur-dk: #2c0f48;
+  --grn: #1a6e38;  --grn-lt: #40a860;  --grn-dk: #0c3c1c;
+  --cream: #f2e4c2; --cream-dk: #b8a478;
+  --plate: #f8e058; --plate-dk: #a88c10;
+  --btn: #c8b490;  --btn-lt: #f0e2c8;  --btn-dk: #786040;
 }
 .rev * { box-sizing: border-box; }
-.rev h1, .rev h2 { margin: 0 0 6px; font-weight: 700; letter-spacing: -.01em; }
-.rev h1 { font-size: 22px; color: #ffd88a; text-shadow: 0 2px 4px rgba(0,0,0,.7); }
-.rev h2 { font-size: 16px; color: #ffd88a; }
-.rev p { margin: 0 0 10px; color: #c3c0b4; }
+.rev img, .rev .rev-pic { image-rendering: pixelated; }
 
-.rev-back {
-  display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px;
-  cursor: pointer; font: 11px var(--ui); color: #f0e6cf;
-  background: rgba(0,0,0,.34); border: 1px solid rgba(255,255,255,.22); border-radius: 3px;
+/* Everything sits on one of four painted grounds. */
+.rev-ground { position: absolute; inset: 0; display: flex; flex-direction: column; }
+.rev-ground.red  { background: var(--red); }
+.rev-ground.blue { background: var(--blu); }
+.rev-ground.pur  { background: var(--pur); }
+
+/* ── the two bevels ──────────────────────────────────────────────────────
+   Raised and sunken, three pixels, no radius, no shadow. The whole look
+   hangs off these. */
+
+.bev    { border: 3px solid; border-color: #fff8 #0008 #0008 #fff8; }
+.bev-in { border: 3px solid; border-color: #0008 #fff6 #fff6 #0008; }
+
+/* A picture in a frame: sunken wood-brown mount, hard edge, no smoothing. */
+.rev-frame {
+  padding: 3px; background: #3c2a14;
+  border: 3px solid; border-color: #0008 #8a6c3c #8a6c3c #0008;
 }
-.rev-back:hover { background: rgba(0,0,0,.5); }
+.rev-pic { display: block; background: #000 center / cover no-repeat; }
+
+/* The yellow name plate, which went under every portrait in the service. */
+.rev-plate {
+  display: block; padding: 1px 5px; text-align: center;
+  font: 700 10px/1.3 var(--ui); color: var(--ink); background: var(--plate);
+  border: 2px solid; border-color: #fff9 var(--plate-dk) var(--plate-dk) #fff9;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* Headings were set in a red serif, and they were not small. */
+.rev-h {
+  margin: 0 0 6px; font: 700 21px/1.1 Georgia, "Times New Roman", serif;
+  color: var(--red); letter-spacing: -.01em;
+}
+.rev-h.on-dark { color: var(--plate); text-shadow: 2px 2px 0 #0008; }
+
+/* ── the button bar along the bottom ─────────────────────────────────── */
+
+.rev-bar {
+  flex: none; display: flex; align-items: center; gap: 6px;
+  padding: 6px 8px; background: var(--btn);
+  border-top: 3px solid #fff8;
+}
+.rev-btn {
+  padding: 4px 12px; cursor: pointer; font: 700 11px var(--ui); color: var(--ink);
+  background: var(--btn); border: 3px solid; border-color: var(--btn-lt) var(--btn-dk) var(--btn-dk) var(--btn-lt);
+}
+.rev-btn:active { border-color: var(--btn-dk) var(--btn-lt) var(--btn-lt) var(--btn-dk); padding: 5px 11px 3px 13px; }
+.rev-btn.big { padding: 7px 20px; font-size: 13px; }
+.rev-btn.big:active { padding: 8px 19px 6px 21px; }
+.rev-btn.go { background: #d8b840; border-color: #f8e890 #8a6c10 #8a6c10 #f8e890; }
+.rev-btn[disabled] { color: #8a7a60; cursor: default; }
+.rev-bar .spacer { flex: 1; }
+.rev-bar .rev-note { font: 11px var(--ui); color: #4a3a20; }
+
+/* The back arrow is the same button, narrower. */
+.rev-back {
+  padding: 3px 9px; cursor: pointer; font: 700 11px var(--ui); color: var(--ink);
+  background: var(--btn); border: 3px solid; border-color: var(--btn-lt) var(--btn-dk) var(--btn-dk) var(--btn-lt);
+}
+.rev-back:active { border-color: var(--btn-dk) var(--btn-lt) var(--btn-lt) var(--btn-dk); }
+
+/* A title strip across the top of a screen. */
+.rev-top {
+  flex: none; display: flex; align-items: center; gap: 8px; padding: 5px 8px;
+  background: var(--red-dk); border-bottom: 3px solid #0008;
+}
+.rev-ground.blue .rev-top { background: var(--blu-dk); }
+.rev-ground.pur  .rev-top { background: var(--pur-dk); }
+.rev-top b {
+  flex: 1; font: 700 14px Georgia, "Times New Roman", serif; color: var(--plate);
+  text-shadow: 1px 1px 0 #0008;
+}
 
 /* ── the gate ────────────────────────────────────────────────────────── */
 
-.rev-gate { position: absolute; inset: 0; display: grid; place-items: center; }
-.rev-fly {
-  position: absolute; inset: 0;
-  background: #0b0d14 center / cover no-repeat;
-  filter: saturate(1.05);
+.rev-gate { flex: 1; display: flex; flex-direction: column; align-items: center;
+            justify-content: center; gap: 10px; padding: 14px; min-height: 0; }
+.rev-gate .rev-frame { flex: 0 1 auto; min-height: 0; }
+.rev-fly { width: min(340px, 100%); aspect-ratio: 176 / 112; }
+.rev-gate-word {
+  font: 700 30px/1 Georgia, "Times New Roman", serif; color: var(--plate);
+  text-shadow: 3px 3px 0 #0008; letter-spacing: -.02em; text-align: center;
 }
-.rev-fly::after {
-  content: ""; position: absolute; inset: 0;
-  background: radial-gradient(70% 70% at 50% 45%, rgba(6,8,14,.28), rgba(6,8,14,.9));
-}
-.rev-gate-panel {
-  position: relative; z-index: 2; width: min(430px, 82%); text-align: center;
-  padding: 20px 22px; border-radius: 6px;
-  background: rgba(12,14,22,.82);
-  border: 1px solid rgba(255,216,138,.32);
-  box-shadow: 0 10px 34px rgba(0,0,0,.6);
-}
-.rev-gate-you {
-  display: flex; align-items: center; justify-content: center; gap: 12px;
-  margin: 10px 0 14px; text-align: left;
-}
-.rev-gate-you b { display: block; color: #ffd88a; font-size: 14px; }
-.rev-gate-you span { font-size: 11px; color: #a7a397; }
-.rev-gate-nudge { font-style: italic; }
-.rev-gate-btns { display: flex; gap: 10px; justify-content: center; }
+.rev-gate-sub { font: 12px var(--ui); color: #ffe8c0; text-align: center; max-width: 400px; }
+.rev-gate-you { display: flex; align-items: center; gap: 10px; }
+.rev-gate-you .rev-plate { width: 96px; }
 
-.rev-face-big {
-  width: 112px; height: 112px; display: grid; place-items: center; flex: none;
-  background: radial-gradient(circle at 42% 32%, #33384a, #1b1e2a);
-  border: 2px solid rgba(255,216,138,.4); border-radius: 50%;
-}
-.rev-gate-you .rev-face-big { width: 88px; height: 88px; }
+/* A portrait: framed picture, plate under it. Used everywhere. */
+.rev-port { position: relative; display: flex; flex-direction: column; align-items: stretch; width: 76px; }
+.rev-port .rev-frame { padding: 2px; }
+.rev-port .face { display: block; width: 100%; height: auto; }
+.rev-port.big { width: 132px; }
+.rev-port.small { width: 54px; }
+.rev-port.me .rev-frame { background: #6c5410; outline: 2px solid var(--plate); outline-offset: -1px; }
 
 /* ── the face maker ──────────────────────────────────────────────────── */
 
-.rev-maker { position: absolute; inset: 0; display: flex; gap: 14px; padding: 14px; }
-.rev-maker-left {
-  flex: 0 0 150px; display: flex; flex-direction: column; align-items: center; gap: 8px;
-  padding-top: 14px;
+.rev-maker { flex: 1; display: flex; align-items: stretch; gap: 8px; padding: 10px; min-height: 0; }
+.rev-maker-col {
+  flex: 1 1 0; display: flex; flex-direction: column; justify-content: space-evenly;
+  gap: 4px; min-width: 0; overflow: auto;
 }
-.rev-maker-name { font-weight: 700; color: #ffd88a; }
-.rev-maker-right { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-.rev-parts {
-  flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px;
-  align-content: start; overflow: auto;
+.rev-maker-mid {
+  flex: 0 0 176px; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 8px;
 }
-.rev-part { display: flex; flex-direction: column; gap: 3px; }
-.rev-stepper, .rev-stepper-label {
-  display: flex; align-items: center; justify-content: space-between; gap: 6px;
-  font-size: 11px; color: #cfcabb;
-}
-.rev-stepper button {
-  width: 20px; height: 18px; cursor: pointer; padding: 0; line-height: 1;
-  color: #1a1a1a; background: #cbc6b6; border: 1px solid #6a6558; border-radius: 2px;
-}
-.rev-stepper button:active { background: #a8a396; }
-.rev-stepper span { flex: 1; text-align: center; }
-.rev-swatches { display: flex; flex-wrap: wrap; gap: 3px; }
-.rev-swatch {
-  width: 17px; height: 15px; cursor: pointer; padding: 0;
-  border: 1px solid rgba(0,0,0,.6); border-radius: 2px;
-}
-.rev-swatch.on { outline: 2px solid #ffd88a; outline-offset: 1px; }
-.rev-maker-btns { display: flex; gap: 8px; justify-content: flex-end; padding-top: 10px; }
+.rev-maker-mid .rev-port { width: 100%; }
+.rev-maker-mid .rev-plate { width: 100%; font-size: 11px; padding: 3px 5px; }
 
-/* ── the island ──────────────────────────────────────────────────────── */
+/* One adjustable part: label plate with a cyan arrow at each end. */
+.rev-part { display: flex; align-items: stretch; gap: 3px; }
+.rev-arrow {
+  flex: none; width: 22px; cursor: pointer; padding: 0;
+  font: 700 11px/1 var(--ui); color: #04303a; background: #38c0d8;
+  border: 3px solid; border-color: #a0f0ff #0a6070 #0a6070 #a0f0ff;
+}
+.rev-arrow:active { border-color: #0a6070 #a0f0ff #a0f0ff #0a6070; }
+.rev-part-name {
+  flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center;
+  padding: 2px 4px; font: 700 10px var(--ui); color: var(--ink); background: var(--cream);
+  border: 3px solid; border-color: #0008 #fff6 #fff6 #0008;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.rev-part-name i { font-style: normal; color: #6a5a3a; margin-left: 4px; }
 
-.rev-map {
-  position: absolute; inset: 0;
-  background: #0f2438 center / cover no-repeat;
-}
-.rev-marks { position: absolute; inset: 0 0 40px 0; }
-.rev-mark {
-  position: absolute; translate: -50% -50%;
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
-  padding: 5px 9px; cursor: pointer; text-align: center;
-  background: rgba(10,14,22,.72); color: #f2ecdb;
-  border: 1px solid rgba(255,216,138,.45); border-radius: 4px;
-  box-shadow: 0 3px 10px rgba(0,0,0,.5);
-  transition: transform .1s, background .1s;
-}
-.rev-mark:hover { background: rgba(20,28,44,.92); transform: translate(-50%, -50%) scale(1.05); }
-.rev-mark-dot {
-  width: 7px; height: 7px; border-radius: 50%; background: #ffd23a;
-  box-shadow: 0 0 8px #ffb700;
-  animation: rev-pulse 2.2s ease-in-out infinite;
-}
-@keyframes rev-pulse { 0%,100% { opacity: .55 } 50% { opacity: 1 } }
-.rev-mark-name { font: 700 11px var(--ui); white-space: nowrap; }
-.rev-mark-count { font-size: 9px; color: #a9c4e0; }
+/* Colour parts carry the range where the counter would be, so every row in
+   both columns is exactly the same shape. */
+.rev-strip { flex: 1; min-width: 0; display: flex; height: 13px; margin-left: 6px; }
+.rev-swatch { flex: 1; min-width: 0; cursor: pointer; padding: 0; border: 1px solid #0006; }
+.rev-swatch.on { border: 2px solid var(--ink); outline: 1px solid var(--plate); }
 
-.rev-map-bar {
-  position: absolute; left: 0; right: 0; bottom: 0; height: 40px;
-  display: flex; align-items: center; gap: 12px; padding: 0 12px;
-  background: linear-gradient(rgba(8,10,16,.55), rgba(8,10,16,.92));
-  border-top: 1px solid rgba(255,255,255,.14);
+/* ── the island map ──────────────────────────────────────────────────── */
+
+.rev-map { flex: 1; display: flex; gap: 8px; padding: 8px; min-height: 0; }
+.rev-map-art { flex: 1 1 auto; min-width: 0; display: flex; }
+.rev-map-art .rev-frame { flex: 1; display: flex; min-width: 0; }
+.rev-map-pic { flex: 1; position: relative; min-width: 0; }
+
+/* A numbered blue badge sat on each place you could go. */
+.rev-spot {
+  position: absolute; translate: -50% -50%; width: 26px; height: 26px; padding: 0;
+  cursor: pointer; border-radius: 50%;
+  font: 700 13px/1 var(--ui); color: #fff; background: var(--blu);
+  border: 3px solid; border-color: var(--blu-lt) var(--blu-dk) var(--blu-dk) var(--blu-lt);
+  box-shadow: 0 2px 4px #0008;
 }
-.rev-map-you { display: flex; align-items: center; gap: 7px; }
-.rev-map-you b { color: #ffd88a; }
-.rev-tally { flex: 1; font-size: 11px; color: #b9c8dc; }
+.rev-spot:hover, .rev-spot.on { background: var(--red); border-color: var(--red-lt) var(--red-dk) var(--red-dk) var(--red-lt); }
+.rev-spot-here {
+  position: absolute; left: 50%; top: 100%; translate: -50% 3px;
+  padding: 0 3px; font: 700 9px/1.4 var(--ui); color: var(--ink);
+  background: var(--plate); border: 1px solid var(--plate-dk); white-space: nowrap;
+}
+
+/* The legend, on cream, to the right of the picture. */
+.rev-legend {
+  flex: 0 0 200px; display: flex; flex-direction: column; padding: 8px;
+  background: var(--cream); color: var(--ink); overflow: auto;
+  border: 3px solid; border-color: #fff #8a7850 #8a7850 #fff;
+}
+.rev-legend p { margin: 0 0 6px; font: 11px/1.35 var(--ui); }
+.rev-legend ol { margin: 0; padding: 0; list-style: none; }
+.rev-legend li { display: flex; gap: 6px; padding: 3px 0; border-top: 1px solid #0002; cursor: pointer; }
+.rev-legend li:hover { background: #0001; }
+.rev-legend li b {
+  flex: none; width: 17px; height: 17px; display: grid; place-items: center;
+  font: 700 10px var(--ui); color: #fff; background: var(--blu); border-radius: 50%;
+}
+.rev-legend li span { flex: 1; min-width: 0; font: 11px/1.3 var(--ui); }
+.rev-legend li em { display: block; font-style: normal; font-size: 10px; color: #6a5a3a; }
+.rev-legend-foot { margin-top: auto; padding-top: 8px; font: italic 10px var(--ui); color: #6a5a3a; }
 
 /* ── standing in a land ──────────────────────────────────────────────── */
 
-.rev-land { position: absolute; inset: 0; display: flex; flex-direction: column; }
-.rev-land-bar {
-  flex: none; display: flex; align-items: center; gap: 10px; padding: 6px 10px;
-  background: #10131c; border-bottom: 1px solid rgba(255,255,255,.12);
-}
-.rev-land-bar b { flex: 1; color: #ffd88a; }
+.rev-land { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.rev-scene-wrap { flex: 1; min-height: 120px; display: flex; padding: 6px 6px 0; }
+.rev-scene-wrap .rev-frame { flex: 1; display: flex; min-width: 0; }
+.rev-scene { flex: 1; position: relative; min-width: 0; }
 
-.rev-scene {
-  flex: 1; min-height: 96px; position: relative;
-  background: #1b2030 center / cover no-repeat;
-}
+/* The signature: everybody in the room stands in a row of framed portraits
+   along the bottom edge, plate under each chin. */
 .rev-crowd {
-  position: absolute; left: 0; right: 0; bottom: 0;
-  display: flex; align-items: flex-end; justify-content: center;
-  gap: 10px; padding: 8px 10px; flex-wrap: wrap;
-  background: linear-gradient(rgba(0,0,0,0), rgba(6,8,14,.6));
+  flex: none; display: flex; align-items: flex-end; gap: 4px;
+  padding: 6px; overflow-x: auto; background: var(--pur-dk);
+  border-top: 3px solid #fff4;
 }
-.rev-person { position: relative; width: 68px; text-align: center; }
-.rev-person .face { filter: drop-shadow(0 2px 3px rgba(0,0,0,.6)); }
-.rev-person.me .face { filter: drop-shadow(0 0 5px rgba(255,216,138,.8)); }
-.rev-name {
-  font-size: 8.5px; line-height: 1.2; color: #f0ecdf; margin-top: 1px;
-  text-shadow: 0 1px 2px rgba(0,0,0,.9);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  display: flex; align-items: center; justify-content: center; gap: 3px;
-}
+.rev-person { position: relative; flex: none; }
 .rev-real {
-  width: 6px; height: 6px; border-radius: 50%; background: #4ade4a; flex: none;
-  box-shadow: 0 0 5px #2ea82e;
+  position: absolute; right: -2px; top: -2px; z-index: 3;
+  width: 8px; height: 8px; background: #40e060; border: 1px solid #0a4a18;
 }
 .rev-bubble {
-  position: absolute; bottom: 100%; left: 50%; translate: -50% -6px;
-  max-width: 168px; padding: 4px 8px; z-index: 5;
-  background: #fffbe8; color: #1a1a1a; font-size: 10px; line-height: 1.35;
-  border: 1px solid #8a8462; border-radius: 8px;
-  box-shadow: 0 3px 8px rgba(0,0,0,.5);
+  position: absolute; bottom: 100%; left: 50%; translate: -50% -4px; z-index: 5;
+  min-width: 90px; max-width: 170px; padding: 3px 6px;
+  font: 10px/1.3 var(--ui); color: var(--ink); background: #fffbe8;
+  border: 3px solid; border-color: #fff #8a8462 #8a8462 #fff;
 }
 .rev-bubble::after {
-  content: ""; position: absolute; left: 50%; bottom: -6px; translate: -50% 0;
-  border: 6px solid transparent; border-top-color: #fffbe8; border-bottom: 0;
+  content: ""; position: absolute; left: 50%; bottom: -9px; translate: -50% 0;
+  border: 5px solid transparent; border-top-color: #8a8462; border-bottom: 0;
 }
 .rev-bubble[hidden] { display: none; }
-.rev-alone { color: #97a2b4; font-size: 11px; font-style: italic; padding: 12px; }
+.rev-alone { font: italic 11px var(--ui); color: #d0c0e8; padding: 14px 8px; }
 
 .rev-log {
-  flex: 0 0 74px; padding: 4px 8px; background: #0c0f16;
-  border-top: 1px solid rgba(255,255,255,.1);
+  flex: 0 0 48px; padding: 3px 6px; color: var(--ink); background: var(--cream);
+  border-top: 3px solid #0008;
   user-select: text; -webkit-user-select: text;
 }
-.rev-line { font-size: 11px; line-height: 1.4; color: #d5d1c4; }
-.rev-line b { color: #8fb6e8; }
-.rev-line b.me { color: #ffd88a; }
+.rev-line { font: 11px/1.35 var(--ui); }
+.rev-line b { color: var(--blu); }
+.rev-line b.me { color: var(--red); }
 
-.rev-land .say { background: #10131c; padding: 5px 8px 7px; }
-.rev-land .say-preview { color: #b9b5a8; }
-.rev-land .say-preview b { color: #ffd88a; }
-.rev-land .say-hit { background: #232838; color: #e6e2d6; border-color: #3a4054 #10131c #10131c #3a4054; }
-.rev-land .say-hit em { color: #8c93a6; }
-.rev-land .say-hit.on { background: #ffd88a; color: #1a1a1a; }
+/* The say box wears the cream panel rather than Halcyon's grey. */
+.rev-land .say { background: var(--btn); padding: 5px 6px 6px; border-top: 3px solid #fff8; }
+.rev-land .say-preview { color: #3a2c14; }
+.rev-land .say-preview b { color: var(--red-dk); }
+.rev-land .say-hit {
+  background: var(--cream); color: var(--ink);
+  border: 2px solid; border-color: #fff var(--cream-dk) var(--cream-dk) #fff;
+}
+.rev-land .say-hit em { color: #6a5a3a; }
+.rev-land .say-hit.on { background: var(--plate); }
 .rev-land .say-hit.on em { color: #6a5a20; }
-.rev-land .say-browser { background: #171b26; color: #e6e2d6; border-color: #3a4054; }
-.rev-land .say-cat { background: #0f1219; }
-.rev-land .say-pick { color: #ddd8ca; border-bottom-color: #222736; }
-.rev-land .say-pick:hover { background: #232838; }
-.rev-land .say-tab { background: #232838; color: #ddd8ca; border-color: #3a4054; }
-.rev-land .say-cat-hint { color: #8c93a6; }
+.rev-land .say-browser { background: var(--cream); color: var(--ink); border-color: var(--cream-dk); }
+.rev-land .say-cat { background: #e2d0a8; }
+.rev-land .say-pick { color: var(--ink); border-bottom-color: #0002; }
+.rev-land .say-pick:hover { background: var(--plate); }
+.rev-land .say-tab { background: var(--btn); color: var(--ink); border-color: var(--btn-dk); }
+.rev-land .say-cat-hint { color: #6a5a3a; }
 .rev-land .say-browse, .rev-land .say-close {
-  background: #2b3145; color: #e6e2d6;
-  border-color: #454c62 #10131c #10131c #454c62; box-shadow: none;
+  background: var(--btn); color: var(--ink);
+  border: 3px solid; border-color: var(--btn-lt) var(--btn-dk) var(--btn-dk) var(--btn-lt);
+  box-shadow: none;
 }
-.rev-land .say-browse:hover { background: #363d55; }
 .rev-land .say-input {
-  background: #0b0e15; color: #e8e4d8;
-  border-color: #05070c #3a4054 #3a4054 #05070c; box-shadow: inset 1px 1px 0 #000;
+  background: #fff; color: var(--ink);
+  border: 3px solid; border-color: #0008 #fff #fff #0008; box-shadow: none;
 }
-.rev-land .say-none { color: #7f869a; }
+.rev-land .say-none { color: #6a5a3a; }
 
-/* ── checkers ────────────────────────────────────────────────────────── */
+/* ── the games ───────────────────────────────────────────────────────────
+   All four wear the same suit: title strip, a framed playing area in the
+   middle, portraits with plates down one side or along the bottom, and a
+   button bar. Only the ground colour changes. */
 
-.ck { position: absolute; inset: 0; display: flex; flex-direction: column;
-      background: #171310; }
-.ck-bar {
-  flex: none; display: flex; align-items: center; gap: 10px; padding: 6px 10px;
-  background: #221b16; border-bottom: 1px solid rgba(255,255,255,.1);
+.gm { position: absolute; inset: 0; display: flex; flex-direction: column;
+      font: 12px/1.4 var(--ui); color: #fff; }
+/* The painted banner over a game. Held to its own aspect so a wide window
+   stretches the frame rather than cropping the picture out of it. */
+.gm-art { flex: none; width: min(100%, 480px); margin: 6px auto 0; padding: 0 8px; }
+.gm-art .rev-frame { padding: 2px; }
+.gm-art .rev-pic { width: 100%; aspect-ratio: 320 / 72; }
+.gm-main { flex: 1; display: flex; gap: 8px; padding: 8px; min-height: 0; }
+.gm-side {
+  flex: 0 0 118px; display: flex; flex-direction: column; align-items: center;
+  gap: 6px; min-height: 0; overflow: auto;
 }
-.ck-bar b { flex: 1; color: #ffd88a; }
-.ck-main { flex: 1; display: flex; gap: 12px; padding: 10px; min-height: 0; }
-.ck-side {
-  flex: 0 0 132px; display: flex; flex-direction: column; align-items: center; gap: 8px;
-}
-.ck-seat {
-  display: flex; flex-direction: column; align-items: center; gap: 3px;
-  font-size: 11px; color: #e8e0cc;
-}
-.ck-seat-face {
-  width: 50px; height: 50px; display: grid; place-items: center; border-radius: 50%;
-  background: #2a2119; border: 2px solid #6b553a;
-}
-.ck-seat.me .ck-seat-face { border-color: #ffd88a; }
-.ck-said {
-  min-height: 30px; font-size: 10px; font-style: italic; color: #cbbfa5;
-  text-align: center; padding: 0 4px;
-}
-.ck-count { margin-top: auto; font-size: 11px; color: #b8a888; }
+/* The playing area sizes itself to whatever room the window has, so the
+   games are not postage stamps on a large screen. Sized against this box
+   rather than the page, because it is the box that changes. */
+.gm-stage { flex: 1; display: grid; place-items: center; min-width: 0; container-type: size; }
+.gm-stage .rev-frame { max-width: 100%; max-height: 100%; }
+.gm-canvas { display: block; width: min(720px, 96cqw); max-height: 94cqh; height: auto;
+             image-rendering: pixelated; }
 
-.ck-boardwrap { flex: 1; display: grid; place-items: center; min-width: 0; }
+/* A scoreboard panel on cream — every one of these games had one. */
+.gm-card {
+  width: 100%; padding: 4px 5px; color: var(--ink); background: var(--cream);
+  font: 10px/1.5 var(--ui); text-align: left;
+  border: 3px solid; border-color: #fff #8a7850 #8a7850 #fff;
+}
+.gm-card h4 {
+  margin: 0 0 3px; font: 700 11px Georgia, "Times New Roman", serif; color: var(--red);
+}
+.gm-card .row { display: flex; justify-content: space-between; gap: 6px; }
+.gm-card .row.now { font-weight: 700; background: var(--plate); margin: 0 -5px; padding: 0 5px; }
+.gm-card .row.tot { border-top: 1px solid #0003; margin-top: 2px; padding-top: 2px; font-weight: 700; }
+
+/* What the other one is saying, in a small bubble under their plate. */
+.gm-said {
+  min-height: 30px; width: 100%; padding: 3px 5px; text-align: center;
+  font: italic 10px/1.3 var(--ui); color: var(--ink); background: #fffbe8;
+  border: 2px solid; border-color: #fff #8a8462 #8a8462 #fff;
+}
+.gm-said:empty { visibility: hidden; }
+
+.gm-hearts { font: 12px/1 var(--ui); color: #ff5040; letter-spacing: 1px; }
+.gm-hearts.gone { color: #6a4a4a; }
+
+/* ── the board games ─────────────────────────────────────────────────── */
+
 .ck-board {
   display: grid; grid-template-columns: repeat(8, 1fr);
-  width: min(100%, 280px); aspect-ratio: 1;
-  border: 6px solid #4a3320; border-radius: 3px;
-  box-shadow: 0 6px 18px rgba(0,0,0,.6);
+  width: min(430px, 90cqmin); aspect-ratio: 1;
 }
 .ck-sq { padding: 0; border: 0; display: grid; place-items: center; position: relative; }
-.ck-sq.light { background: #e3cfa8; }
-.ck-sq.dark { background: #7a4f2c; cursor: pointer; }
-.ck-sq.sel { box-shadow: inset 0 0 0 3px #ffd23a; }
+.ck-sq.light { background: #e8d4a8; }
+.ck-sq.dark { background: #8a4020; cursor: pointer; }
+.ck-sq.sel { box-shadow: inset 0 0 0 3px var(--plate); }
 .ck-sq.target::after {
-  content: ""; width: 34%; height: 34%; border-radius: 50%;
-  background: rgba(255,210,58,.75);
+  content: ""; width: 32%; height: 32%; border-radius: 50%; background: #f8e058c0;
+  border: 1px solid #0006;
 }
 .ck-piece {
-  width: 76%; height: 76%; border-radius: 50%; display: grid; place-items: center;
-  font-size: 11px;
-  box-shadow: inset 0 2px 0 rgba(255,255,255,.4), inset 0 -3px 4px rgba(0,0,0,.4),
-              0 2px 3px rgba(0,0,0,.45);
+  width: 78%; height: 78%; border-radius: 50%; display: grid; place-items: center;
+  font: 700 11px var(--ui);
+  border: 2px solid; box-shadow: 0 1px 2px #0006;
 }
-.ck-piece.you { background: radial-gradient(circle at 36% 30%, #fdf6e6, #c9b48c); color: #6b553a; }
-.ck-piece.them { background: radial-gradient(circle at 36% 30%, #5a4030, #241812); color: #ffd23a; }
-.ck-piece.ready { outline: 2px solid rgba(255,210,58,.6); outline-offset: -2px; }
-.ck-status {
-  flex: none; padding: 6px 10px; font-size: 11px; color: #cbbfa5;
-  background: #221b16; border-top: 1px solid rgba(255,255,255,.1);
-}
+.ck-piece.you { background: #f0e0c0; border-color: #fff #907a50 #907a50 #fff; color: #8a4020; }
+.ck-piece.them { background: #2a1a10; border-color: #6a5040 #000 #000 #6a5040; color: var(--plate); }
+.ck-piece.ready { outline: 2px solid var(--plate); outline-offset: -1px; }
 
-/* ── the machine ─────────────────────────────────────────────────────── */
+/* ── the machine ─────────────────────────────────────────────────────────
+   A cabinet rather than three symbols floating in the middle of a room:
+   marquee on top, window in a mount, and the takings printed underneath. */
 
-.sl { position: absolute; inset: 0; display: flex; flex-direction: column;
-      background: #120f1c; }
-.sl-bar {
-  flex: none; display: flex; align-items: center; gap: 10px; padding: 6px 10px;
-  background: #1c1730; border-bottom: 1px solid rgba(255,255,255,.12);
+.sl-cab {
+  width: min(340px, 92cqw); display: flex; flex-direction: column;
+  align-items: stretch; gap: 8px; padding: 10px;
+  background: var(--red); border: 3px solid;
+  border-color: var(--red-lt) var(--red-dk) var(--red-dk) var(--red-lt);
 }
-.sl-bar b { flex: 1; color: #ffd88a; }
-.sl-purse { font-size: 11px; color: #7fe0a0; font-family: var(--mono); }
-.sl-cabinet {
-  flex: 1; display: flex; flex-direction: column; align-items: center;
-  justify-content: center; gap: 14px; padding: 16px;
+.sl-marquee {
+  padding: 4px; text-align: center;
+  font: 700 19px Georgia, "Times New Roman", serif; color: var(--red-dk);
+  background: var(--plate);
+  border: 3px solid; border-color: #fff9 var(--plate-dk) var(--plate-dk) #fff9;
 }
 .sl-window {
-  display: flex; gap: 6px; padding: 12px 16px;
-  background: #07050c; border: 4px solid #d8b45a; border-radius: 6px;
-  box-shadow: inset 0 0 22px rgba(0,0,0,.9), 0 0 26px rgba(216,180,90,.28);
+  display: flex; gap: 5px; padding: 8px; justify-content: center;
+  background: #100818;
 }
 .sl-window i {
-  width: 52px; height: 62px; display: grid; place-items: center; font-style: normal;
-  font-size: 30px; color: #ffd23a;
-  background: linear-gradient(#1c1730, #0d0a16); border-radius: 3px;
-  text-shadow: 0 0 10px rgba(255,210,58,.65);
+  width: 68px; height: 84px; display: grid; place-items: center; font-style: normal;
+  font-size: 40px; color: var(--plate); background: #241838;
+  border: 3px solid; border-color: #0008 #6a5090 #6a5090 #0008;
 }
-.sl-msg { font-size: 12px; color: #cfc8e0; min-height: 18px; text-align: center; }
-.sl-pull { min-width: 140px; font-size: 14px; letter-spacing: .12em; }
-.sl-foot {
-  flex: none; padding: 7px 12px; font-size: 10px; line-height: 1.45; color: #8f89a4;
-  background: #1c1730; border-top: 1px solid rgba(255,255,255,.1);
+.sl-msg {
+  min-height: 20px; padding: 3px; text-align: center;
+  font: 700 12px var(--ui); color: var(--ink); background: var(--cream);
+  border: 3px solid; border-color: #0008 #fff6 #fff6 #0008;
 }
-
-/* ── Dawn Patrol and Crazy Golf ──────────────────────────────────────────
-   The two share a shape: a painted banner, a column of faces and a score,
-   and a canvas that is the actual game. */
-
-.dp, .gf { position: absolute; inset: 0; display: flex; flex-direction: column; }
-.dp { background: #131826; }
-.gf { background: #16211a; }
-
-.dp-bar, .gf-bar {
-  flex: none; display: flex; align-items: center; gap: 10px; padding: 6px 10px;
-  border-bottom: 1px solid rgba(255,255,255,.12);
+.sl-plate {
+  text-align: center; font: 700 9px var(--ui); letter-spacing: .1em; color: #ffd0c0;
 }
-.dp-bar { background: #1b2338; }
-.gf-bar { background: #1d2c22; }
-.dp-bar b, .gf-bar b { flex: 1; color: #ffd88a; }
-
-.dp-banner, .gf-banner {
-  flex: none; height: 42px; background: #0d1220 center / cover no-repeat;
-  border-bottom: 1px solid rgba(255,255,255,.14);
-}
-
-.dp-main, .gf-main { flex: 1; display: flex; gap: 10px; padding: 8px; min-height: 0; }
-.dp-side, .gf-side {
-  flex: 0 0 116px; display: flex; flex-direction: column; align-items: center; gap: 6px;
-  font-size: 11px; text-align: center;
-}
-.dp-stage, .gf-stage { flex: 1; display: grid; place-items: center; min-width: 0; }
-.dp-canvas, .gf-canvas {
-  display: block; max-width: 100%; height: auto;
-  border: 2px solid #3a4460; border-radius: 3px;
-  box-shadow: 0 6px 18px rgba(0,0,0,.55);
-  image-rendering: auto;
-}
-.gf-canvas { border-color: #3f5a44; touch-action: none; cursor: crosshair; }
-
-.dp-pilot, .gf-pilot { display: flex; flex-direction: column; align-items: center; gap: 2px; }
-.dp-pilot span, .gf-pilot span { color: #e8e0cc; }
-.dp-pilot b { color: #e8563a; letter-spacing: 1px; font-size: 13px; }
-.dp-face, .gf-face {
-  width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%;
-  background: #232a40; border: 2px solid #5b6688;
-}
-.gf-face { background: #22301f; border-color: #4b6a4e; }
-.gf-pilot.small { opacity: .75; font-size: 10px; }
-.gf-pilot.small .gf-face { width: 32px; height: 32px; }
-
-.dp-said, .gf-said {
-  min-height: 28px; font-size: 10px; font-style: italic; color: #b9c2d8; padding: 0 2px;
-}
-.gf-said { color: #a9c2ac; }
-
-.dp-status, .gf-status {
-  flex: none; padding: 6px 10px; font-size: 11px; color: #c3cadd;
-  border-top: 1px solid rgba(255,255,255,.1);
-}
-.dp-status { background: #1b2338; }
-.gf-status { background: #1d2c22; color: #b8ceba; }
-
-.gf-card {
-  width: 100%; padding: 6px; font-size: 10px; line-height: 1.5; text-align: left;
-  background: rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.14); border-radius: 3px;
-}
-.gf-hole { font-weight: 700; color: #ffd88a; }
-.gf-par, .gf-total { color: #cfe0d0; }
-.gf-total { border-top: 1px solid rgba(255,255,255,.14); margin-top: 3px; padding-top: 3px; }
-.gf-score { color: #9fb8a2; }
+.sl-purse { font: 700 11px var(--mono); color: #40e060; }

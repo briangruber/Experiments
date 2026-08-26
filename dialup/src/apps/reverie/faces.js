@@ -18,6 +18,14 @@ export const SKINS = ['#f6d5b8', '#eec39c', '#d9a273', '#b87a4e', '#8d5a34', '#5
 export const HAIRS = ['#2b2118', '#5b3a1a', '#a86b2e', '#d9b45a', '#c04a2a', '#9a9a9a',
                       '#3a5fb8', '#8a3fa8', '#2f8f5a'];
 
+/* Clothes, because these were portraits — head and shoulders in a frame —
+   not floating heads. */
+export const SHIRTS = ['#c0392b', '#2f6bd0', '#2f8f5a', '#d9a02b', '#8a3fa8',
+                       '#e0e0d8', '#3a3f4a', '#d96a8a'];
+
+/* The wash behind the sitter, which the services all had. */
+export const BACKDROPS = ['#8fbfe0', '#c8d8a8', '#e0c090', '#d8a8c0', '#a8b8d8', '#c0c0b0'];
+
 /** Each part is a small builder so a face is just six indices. */
 const HAIR_STYLES = [
   (c) => [svg('path', { d: 'M12 26c0-9 5-15 20-15s20 6 20 15c0 0-3-7-20-7s-20 7-20 7z', fill: c })],
@@ -100,32 +108,52 @@ export const PARTS = {
 
 export const DEFAULT_FACE = {
   skin: 0, hair: 1, hairColor: 0, eyes: 1, brows: 1, nose: 0, mouth: 0, extra: 0,
+  shirt: 1, backdrop: 0,
 };
 
 const pick = (arr, i) => arr[((i % arr.length) + arr.length) % arr.length];
 
-/** One face, as an <svg>. */
-export function faceSvg(face = DEFAULT_FACE, size = 64) {
+/**
+ * One sitter, as an <svg>: a wash, shoulders in a shirt, then the head.
+ * Square, because these hung in a frame with a name plate under them.
+ */
+export function faceSvg(face = DEFAULT_FACE, size = 64, { plain = false } = {}) {
   const f = { ...DEFAULT_FACE, ...face };
   const skin = pick(SKINS, f.skin);
   const hairCol = pick(HAIRS, f.hairColor);
+  const shirt = pick(SHIRTS, f.shirt);
+  const wash = pick(BACKDROPS, f.backdrop);
+  const dark = c => c;                       // shirts read flat, as they did
 
   return svg('svg', {
     viewBox: '0 0 64 64', width: size, height: size, class: 'face',
+    'shape-rendering': 'geometricPrecision',
   },
+    plain ? null : svg('rect', { x: 0, y: 0, width: 64, height: 64, fill: wash }),
+    plain ? null : svg('rect', { x: 0, y: 44, width: 64, height: 20, fill: wash,
+                                 opacity: .0 }),
+
+    // shoulders
+    svg('path', { d: 'M8 64c0-11 10-16 24-16s24 5 24 16z', fill: shirt }),
+    svg('path', { d: 'M8 64c0-11 10-16 24-16s24 5 24 16z', fill: 'none',
+                  stroke: 'rgba(0,0,0,.35)', 'stroke-width': 1 }),
+    svg('path', { d: 'M26 49h12l-6 9z', fill: dark(shirt), opacity: .55 }),
+
     // neck and head
-    svg('rect', { x: 27, y: 50, width: 10, height: 10, fill: skin }),
-    svg('ellipse', { cx: 32, cy: 36, rx: 20, ry: 22, fill: skin }),
-    svg('ellipse', { cx: 32, cy: 36, rx: 20, ry: 22, fill: 'none',
-                     stroke: 'rgba(0,0,0,.28)', 'stroke-width': 1 }),
-    svg('ellipse', { cx: 12.5, cy: 37, rx: 3, ry: 4, fill: skin }),
-    svg('ellipse', { cx: 51.5, cy: 37, rx: 3, ry: 4, fill: skin }),
-    pick(PARTS.brows, f.brows)(),
-    pick(PARTS.eyes, f.eyes)(),
-    pick(PARTS.nose, f.nose)(),
-    pick(PARTS.mouth, f.mouth)(),
-    pick(PARTS.hair, f.hair)(hairCol),
-    pick(PARTS.extra, f.extra)());
+    svg('rect', { x: 27, y: 46, width: 10, height: 8, fill: skin }),
+    svg('ellipse', { cx: 32, cy: 32, rx: 19, ry: 21, fill: skin }),
+    svg('ellipse', { cx: 32, cy: 32, rx: 19, ry: 21, fill: 'none',
+                     stroke: 'rgba(0,0,0,.32)', 'stroke-width': 1 }),
+    svg('ellipse', { cx: 13.5, cy: 33, rx: 3, ry: 4, fill: skin }),
+    svg('ellipse', { cx: 50.5, cy: 33, rx: 3, ry: 4, fill: skin }),
+
+    svg('g', { transform: 'translate(0,-4)' },
+      pick(PARTS.brows, f.brows)(),
+      pick(PARTS.eyes, f.eyes)(),
+      pick(PARTS.nose, f.nose)(),
+      pick(PARTS.mouth, f.mouth)(),
+      pick(PARTS.hair, f.hair)(hairCol),
+      pick(PARTS.extra, f.extra)()));
 }
 
 /** A stable face for anybody who has not built one — bots, mostly. */
@@ -140,6 +168,8 @@ export function faceFor(name) {
     nose: (x >> 16) % PARTS.nose.length,
     mouth: (x >> 19) % PARTS.mouth.length,
     extra: (x >> 22) % PARTS.extra.length,
+    shirt: (x >> 25) % SHIRTS.length,
+    backdrop: (x >> 28) % BACKDROPS.length,
   };
 }
 
@@ -149,6 +179,7 @@ export function randomFace() {
     skin: r(SKINS.length), hair: r(PARTS.hair.length), hairColor: r(HAIRS.length),
     eyes: r(PARTS.eyes.length), brows: r(PARTS.brows.length), nose: r(PARTS.nose.length),
     mouth: r(PARTS.mouth.length), extra: r(PARTS.extra.length),
+    shirt: r(SHIRTS.length), backdrop: r(BACKDROPS.length),
   };
 }
 

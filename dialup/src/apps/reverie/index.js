@@ -18,7 +18,8 @@ import { openWindow } from '../../core/wm.js';
 import * as A from '../../core/audio.js';
 import { ART } from '../../assets/art.js';
 import { faceSvg, faceFor, loadFace, saveFace, randomFace,
-         PARTS, SKINS, HAIRS } from './faces.js';
+         PARTS, SKINS, HAIRS, SHIRTS, BACKDROPS } from './faces.js';
+import { frame, portrait, btn } from './ui.js';
 import { createSayBox } from '../halcyon/say-box.js';
 import { isPhrase } from '../halcyon/phrasebook.js';
 import { screen, LIMITS } from '../../core/safety.js';
@@ -38,16 +39,16 @@ const GAMES = {
 export const LANDS = [
   { id: 'keep', name: "Jouster's Keep", art: 'rev_keep',
     blurb: 'Board games under the pennants',
-    at: [42, 26], games: ['checkers'] },
+    at: [16, 24], games: ['checkers'] },
   { id: 'boardwalk', name: 'The Boardwalk', art: 'rev_boardwalk',
     blurb: 'Crazy golf, lights on the water, and a machine that eats tokens',
-    at: [66, 66], games: ['golf', 'slots'] },
+    at: [71, 58], games: ['golf', 'slots'] },
   { id: 'cloud', name: 'Cloud Nine', art: 'rev_cloud',
     blurb: 'No games at all. Where everybody stands about and talks',
-    at: [24, 62], games: [] },
+    at: [46, 10], games: [] },
   { id: 'airfield', name: 'Sky Squadron', art: 'rev_airfield',
     blurb: 'Two biplanes and a field at golden hour',
-    at: [78, 34], games: ['dawn'] },
+    at: [42, 84], games: ['dawn'] },
 ];
 
 const roomOf = landId => 'rev-' + landId;
@@ -55,7 +56,7 @@ const roomOf = landId => 'rev-' + landId;
 export function openReverie(session) {
   const win = openWindow({
     id: 'reverie', title: 'The Reverie Network', icon: 'globe',
-    width: 660, height: 480, minWidth: 520, minHeight: 380,
+    width: 700, height: 540, minWidth: 560, minHeight: 420,
     onClose: () => { leaveLand(); offs.forEach(fn => fn()); return true; },
   });
 
@@ -90,128 +91,174 @@ export function openReverie(session) {
 
   function showGate() {
     leaveLand();
-    clear(stage).append(h('div.rev-gate', {},
-      h('div.rev-fly', { style: { backgroundImage: 'url(' + ART.rev_fly + ')' } }),
-      h('div.rev-gate-panel', {},
-        h('h1', {}, 'The Reverie Network'),
-        h('p', {}, 'A painted island, four places to stand in it, and a face ' +
-                   'you make yourself.'),
+    clear(stage).append(h('div.rev-ground.pur', {},
+      h('div.rev-gate', {},
+        h('div.rev-gate-word', {}, 'The Reverie Network'),
+        frame(ART.rev_fly, 'rev-fly'),
+        h('div.rev-gate-sub', {},
+          'A painted island, four places to stand in it, and a face you make yourself.'),
         face
           ? h('div.rev-gate-you', {},
-              h('div.rev-face-big', {}, faceSvg(face, 84)),
-              h('div', {},
-                h('b', {}, session.name),
-                h('span', {}, 'This is you.')))
-          : h('p.rev-gate-nudge', {}, 'You will need a face before you can go in.'),
-        h('div.rev-gate-btns', {},
-          h('button.aol-btn', {
-            type: 'button',
-            onclick: () => { A.click(); face ? showMap() : showFaceMaker(); },
-          }, face ? 'Enter Reverie' : 'Build a Face'),
-          face ? h('button.aol-btn', {
-            type: 'button', onclick: () => { A.click(); showFaceMaker(); },
-          }, 'Change Face') : null))));
+              portrait(face, session.name, { size: 72 }),
+              h('div.rev-gate-sub', {}, 'This is you. Everybody on the island ' +
+                                        'will see this face and this name.'))
+          : h('div.rev-gate-sub', {}, 'You will need a face before you can go in.')),
+      h('div.rev-bar', {},
+        btn(face ? 'Enter Reverie' : 'Build a Face', () => {
+          A.click(); face ? showMap() : showFaceMaker();
+        }, { cls: 'big go' }),
+        face ? btn('Change Face', () => { A.click(); showFaceMaker(); }, { cls: 'big' }) : null,
+        h('span.spacer'),
+        h('span.rev-note', {}, 'Nobody types at anybody here.'))));
     A.announce('reverie');
   }
 
   /* ── the face maker ────────────────────────────────────────────────── */
 
+  /* Two flanking columns of arrow buttons with the sitter between them,
+     which is how every one of these looked. */
   function showFaceMaker() {
     let draft = face ? { ...face } : randomFace();
-    const preview = h('div.rev-face-big');
+    const preview = h('div.rev-port.big.me', {});
+    const plate = h('span.rev-plate', {}, session.name);
 
-    const paint = () => { clear(preview).append(faceSvg(draft, 108)); };
+    const paint = () => {
+      clear(preview).append(h('div.rev-frame', {}, faceSvg(draft, 150)), plate);
+    };
 
-    const row = (label, key, count, colours) => {
-      const swatches = colours
-        ? h('div.rev-swatches', {}, colours.map((c, i) =>
-            h('button.rev-swatch', {
-              type: 'button', style: { background: c },
-              onclick: () => { draft[key] = i; paint(); markSwatches(); A.click(); },
-              dataset: { i },
-            })))
-        : null;
-      const stepper = !colours
-        ? h('div.rev-stepper', {},
-            h('button', { type: 'button', onclick: () => { draft[key] = (draft[key] + count - 1) % count; paint(); A.click(); } }, '◀'),
-            h('span', {}, label),
-            h('button', { type: 'button', onclick: () => { draft[key] = (draft[key] + 1) % count; paint(); A.click(); } }, '▶'))
-        : h('div.rev-stepper-label', {}, label);
-      return h('div.rev-part', {}, stepper, swatches);
+    /* One row: ◀ [name and which one you are on] ▶ */
+    const step = (label, key, count) => {
+      const name = h('span.rev-part-name', {}, label,
+        h('i', {}, (draft[key] % count) + 1 + '/' + count));
+      const move = d => {
+        draft[key] = (draft[key] + count + d) % count;
+        clear(name).append(label, h('i', {}, draft[key] + 1 + '/' + count));
+        paint(); A.click();
+      };
+      return h('div.rev-part', {},
+        h('button.rev-arrow', { type: 'button', onclick: () => move(-1) }, '◀'),
+        name,
+        h('button.rev-arrow', { type: 'button', onclick: () => move(1) }, '▶'));
+    };
+
+    /* Colour rows are the same row with the range in place of the counter,
+       so both columns line up whatever is in them. */
+    const swatch = (label, key, colours) => {
+      const strip = h('span.rev-strip', { dataset: { key } }, colours.map((c, i) =>
+        h('button.rev-swatch', {
+          type: 'button', style: { background: c }, dataset: { i },
+          onclick: ev => {
+            ev.stopPropagation();
+            draft[key] = i; paint(); markSwatches(); A.click();
+          },
+        })));
+      const move = d => {
+        draft[key] = (draft[key] + colours.length + d) % colours.length;
+        paint(); markSwatches(); A.click();
+      };
+      return h('div.rev-part', {},
+        h('button.rev-arrow', { type: 'button', onclick: () => move(-1) }, '\u25c0'),
+        h('span.rev-part-name', {}, label, strip),
+        h('button.rev-arrow', { type: 'button', onclick: () => move(1) }, '\u25b6'));
     };
 
     function markSwatches() {
-      $$('.rev-swatches', stage).forEach((g, gi) => {
-        const key = gi === 0 ? 'skin' : 'hairColor';
+      $$('.rev-strip', stage).forEach(g => {
+        const key = g.dataset.key;
         $$('.rev-swatch', g).forEach(b =>
           b.classList.toggle('on', Number(b.dataset.i) === draft[key]));
       });
     }
 
-    clear(stage).append(h('div.rev-maker', {},
-      h('div.rev-maker-left', {}, preview,
-        h('div.rev-maker-name', {}, session.name)),
-      h('div.rev-maker-right', {},
-        h('h2', {}, 'Build a Face'),
-        h('div.rev-parts', {},
-          row('Skin', 'skin', SKINS.length, SKINS),
-          row('Hair', 'hair', PARTS.hair.length),
-          row('Hair colour', 'hairColor', HAIRS.length, HAIRS),
-          row('Eyes', 'eyes', PARTS.eyes.length),
-          row('Brows', 'brows', PARTS.brows.length),
-          row('Nose', 'nose', PARTS.nose.length),
-          row('Mouth', 'mouth', PARTS.mouth.length),
-          row('Extras', 'extra', PARTS.extra.length)),
-        h('div.rev-maker-btns', {},
-          h('button.aol-btn.small', {
-            type: 'button', onclick: () => { draft = randomFace(); paint(); markSwatches(); A.beep(); },
-          }, 'Surprise Me'),
-          h('button.aol-btn.small', {
-            type: 'button',
-            onclick: () => { face = draft; saveFace(face); A.startupChime(); showMap(); },
-          }, 'This Is Me')))));
-    paint();
-    markSwatches();
+    /* A fresh draft means fresh labels on every row, so the whole screen
+       is rebuilt rather than patched. */
+    const shuffle = () => { draft = randomFace(); render(); };
+
+    function render() {
+      clear(stage).append(h('div.rev-ground.red', {},
+        h('div.rev-top', {}, h('b', {}, 'Make a Face')),
+        h('div.rev-maker', {},
+          h('div.rev-maker-col', {},
+            swatch('Skin', 'skin', SKINS),
+            step('Hair Style', 'hair', PARTS.hair.length),
+            swatch('Hair Colour', 'hairColor', HAIRS),
+            step('Eyes', 'eyes', PARTS.eyes.length),
+            step('Eyebrows', 'brows', PARTS.brows.length)),
+          h('div.rev-maker-mid', {}, preview),
+          h('div.rev-maker-col', {},
+            step('Nose', 'nose', PARTS.nose.length),
+            step('Mouth', 'mouth', PARTS.mouth.length),
+            step('Hats & Glasses', 'extra', PARTS.extra.length),
+            swatch('Clothes', 'shirt', SHIRTS),
+            swatch('Backdrop', 'backdrop', BACKDROPS))),
+        h('div.rev-bar', {},
+          btn('Surprise Me', () => { A.beep(); shuffle(); }),
+          btn('This Is Me', () => {
+            face = draft; saveFace(face); A.startupChime(); showMap();
+          }, { cls: 'go' }),
+          face ? btn('Cancel', () => { A.click(); showMap(); }) : null,
+          h('span.spacer'),
+          h('span.rev-note', {}, 'Your face is kept on this computer only.'))));
+      paint();
+      markSwatches();
+    }
+
+    render();
   }
 
-  /* ── the map ───────────────────────────────────────────────────────── */
+  /* ── the island map ────────────────────────────────────────────────── */
 
+  /* Painted town in a mount, numbered badges on it, and the numbers again
+     in a cream legend down the right-hand side. */
   function showMap() {
     leaveLand();
     primeIsland();
-    const marks = h('div.rev-marks');
-    const tally = h('div.rev-tally');
 
-    clear(stage).append(h('div.rev-map', {
-      style: { backgroundImage: 'url(' + ART.rev_map + ')' },
-    },
-      marks,
-      h('div.rev-map-bar', {},
-        h('div.rev-map-you', {}, faceSvg(face, 30), h('b', {}, session.name)),
-        tally,
-        h('button.aol-btn.small', {
-          type: 'button', onclick: () => { A.click(); showFaceMaker(); },
-        }, 'Change Face'))));
+    const pic = h('div.rev-pic.rev-map-pic', {
+      style: { backgroundImage: 'url(' + ART.rev_town + ')' },
+    });
+    const list = h('ol');
 
-    for (const l of LANDS) {
+    LANDS.forEach((l, i) => {
       const here = peopleIn(l.id).length;
-      marks.append(h('button.rev-mark', {
-        type: 'button', title: l.blurb,
+      const go = () => { A.doorOpen(); showLand(l); };
+
+      const spot = h('button.rev-spot', {
+        type: 'button', title: l.name + ' — ' + l.blurb,
         style: { left: l.at[0] + '%', top: l.at[1] + '%' },
-        onclick: () => { A.doorOpen(); showLand(l); },
-      },
-        h('span.rev-mark-dot'),
-        h('span.rev-mark-name', {}, l.name),
-        h('span.rev-mark-count', {},
-          (here ? here + ' here' : 'quiet') +
-          ((l.games || []).length ? '  ·  ' + l.games.map(id => GAMES[id].label).join(', ') : ''))));
-    }
+        onclick: go,
+      }, String(i + 1),
+        here ? h('span.rev-spot-here', {}, here + ' here') : null);
+      pic.append(spot);
+
+      list.append(h('li', { onclick: go },
+        h('b', {}, String(i + 1)),
+        h('span', {}, l.name,
+          h('em', {}, l.blurb),
+          h('em', {}, (l.games.length
+            ? l.games.map(id => GAMES[id].label).join(' · ')
+            : 'Nothing to play. Somewhere to stand.')))));
+    });
 
     const total = LANDS.reduce((n, l) => n + peopleIn(l.id).length, 0);
-    clear(tally).append(
-      total
-        ? h('span', {}, total + ' ' + (total === 1 ? 'person' : 'people') + ' on the island')
-        : h('span', {}, 'Pick a place. Somebody will turn up.'));
+
+    clear(stage).append(h('div.rev-ground.blue', {},
+      h('div.rev-top', {}, h('b', {}, 'The Island of Reverie')),
+      h('div.rev-map', {},
+        h('div.rev-map-art', {}, h('div.rev-frame', {}, pic)),
+        h('div.rev-legend', {},
+          h('h2.rev-h', {}, 'Welcome to Reverie'),
+          h('p', {}, 'Pick a number and go and stand there.'),
+          list,
+          h('div.rev-legend-foot', {},
+            total
+              ? total + ' ' + (total === 1 ? 'person is' : 'people are') + ' on the island.'
+              : 'The island is quiet. Somebody will turn up.'))),
+      h('div.rev-bar', {},
+        portrait(face, session.name, { size: 34, cls: 'small me' }),
+        btn('Change Face', () => { A.click(); showFaceMaker(); }),
+        h('span.spacer'),
+        h('span.rev-note', {}, 'Reverie is a made-up service. Everything in it is drawn.'))));
   }
 
   /* ── a land ────────────────────────────────────────────────────────── */
@@ -226,38 +273,39 @@ export function openReverie(session) {
     const log = h('div.rev-log.scroll');
     const say = createSayBox({ onSend: text => speak(text), hint: 'Type what you mean' });
 
-    const scene = h('div.rev-scene', {
-      style: { backgroundImage: 'url(' + ART[l.art] + ')' },
-    }, crowd);
-
-    clear(stage).append(h('div.rev-land', {},
-      h('div.rev-land-bar', {},
+    clear(stage).append(h('div.rev-ground.pur', {},
+      h('div.rev-top', {}, h('b', {}, l.name)),
+      h('div.rev-land', {},
+        h('div.rev-scene-wrap', {},
+          h('div.rev-frame', {},
+            h('div.rev-pic.rev-scene', {
+              style: { backgroundImage: 'url(' + ART[l.art] + ')' },
+            }))),
+        crowd,
+        log,
+        say.el),
+      h('div.rev-bar', {},
         h('button.rev-back', { type: 'button', onclick: () => { A.doorClose(); showMap(); } },
           '◀ The Island'),
-        h('b', {}, l.name),
-        (l.games || []).map(id => h('button.aol-btn.small', {
-          type: 'button',
-          onclick: () => {
-            A.click();
-            leaveLand();
-            GAMES[id].open(stage, session, face, () => showLand(l));
-          },
-        }, GAMES[id].label))),
-      scene,
-      log,
-      say.el));
+        ...l.games.map(id => btn(GAMES[id].label, () => {
+          A.click();
+          leaveLand();
+          GAMES[id].open(stage, session, face, () => showLand(l));
+        }, { cls: 'go' })),
+        h('span.spacer'),
+        h('span.rev-note', {}, l.blurb))));
 
     function drawCrowd() {
       const people = peopleIn(l.id);
       clear(crowd);
       for (const m of people) {
         const f = m.self ? face : faceFor(m.name);
-        crowd.append(h('div.rev-person', { dataset: { name: m.name }, class: m.self ? 'me' : '' },
+        crowd.append(h('div.rev-person', { dataset: { name: m.name } },
           h('div.rev-bubble', { hidden: true }),
-          faceSvg(f, 46),
-          h('div.rev-name', {},
-            m.human && !m.self ? h('i.rev-real', { title: 'Another person, really here' }) : null,
-            m.name)));
+          portrait(f, m.name, {
+            size: 58, cls: m.self ? 'me' : '',
+            real: !!(m.human && !m.self),
+          })));
       }
       if (!people.length) crowd.append(h('div.rev-alone', {}, 'Nobody here yet.'));
     }
