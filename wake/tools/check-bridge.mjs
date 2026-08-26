@@ -85,6 +85,18 @@ need( 'the fork no longer reconstructs arms from a record it does not have',
 	! /float arm = uWakeWidth0 \+ rate \* age/.test( FORK ),
 	'the field arrives already shaped' );
 
+// A field with no trail yet must be BLANKED, not left at whatever the driver
+// handed us. Skipping the bake on an unmoved boat left the texture
+// uninitialised, and the sea reads uninitialised as coverage -- a flat pale
+// disc the size of the whole field around every freshly loaded page, which
+// cleared the instant the boat moved far enough to lay a second sample.
+need( 'the field can blank itself',
+	/_blank\s*\(\s*\)\s*\{[\s\S]{0,400}?clear\(/.test( FIELD ) );
+const noTrail = FIELD.match( /if\s*\(\s*P\.length\s*<\s*2\s*\)\s*\{[\s\S]{0,700}?\n\s{4}\}/ );
+need( 'the no-trail path is a block, not a bare early return', !! noTrail );
+need( 'the no-trail path blanks the field before returning',
+	/_blank\(\)/.test( noTrail ? noTrail[ 0 ] : '' ) );
+
 for ( const r of results ) {
 
 	console.log( `${ r.ok ? 'ok  ' : 'FAIL' } ${ r.name }${ r.detail ? ` — ${ r.detail }` : '' }` );

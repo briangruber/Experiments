@@ -576,7 +576,17 @@ export class WakeField {
   /** Rebuild the ribbon from the path and re-bake the field texture. */
   update(now) {
     const P = this.path;
-    if (P.length < 2) return;
+    if (P.length < 2) {
+      // A boat that has not moved yet has no ribbon to draw -- but bailing
+      // out here left the field texture at whatever the driver handed us,
+      // and the sea reads that as coverage. On a fresh page that painted a
+      // flat pale DISC the size of the whole field around a stationary
+      // boat, which cleared the moment it moved far enough to lay a second
+      // sample and the bake started running. Clear it once and stay clear.
+      if (!this._cleared) { this._blank(); this._cleared = true; }
+      return;
+    }
+    this._cleared = false;
 
     // Head sample keeps the ribbon's tip glued to the bow between decimated
     // samples, so the wake doesn't visibly stutter at the boat.
@@ -736,6 +746,16 @@ export class WakeField {
     c.position.set(this.center.x, 120, this.center.y);
     c.lookAt(this.center.x, 0, this.center.y);
     c.updateProjectionMatrix();
+  }
+
+  /** Wipe the field to nothing: no foam, no height, no bubbles anywhere. */
+  _blank() {
+    const r = this.renderer;
+    const prevTarget = r.getRenderTarget();
+    r.setRenderTarget(this.rt);
+    r.setClearColor(0x000000, 0);
+    r.clear(true, false, false);
+    r.setRenderTarget(prevTarget);
   }
 
   _bake() {
