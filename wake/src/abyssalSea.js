@@ -28,7 +28,7 @@
 //                                     march only runs where nothing covered it
 
 import { AbyssalWater, AbyssalSky } from '../vendor/abyssal/src/three/index.js';
-import { newParams } from '../vendor/abyssal/src/presets.js';
+import { newParams, applyPreset, PRESETS } from '../vendor/abyssal/src/presets.js';
 
 
 /**
@@ -41,6 +41,27 @@ import { newParams } from '../vendor/abyssal/src/presets.js';
  * foam, and it happens to be what this scene actually is.
  */
 export const DEFAULT_PRESET = 'Calm Lake';
+
+/**
+ * The presets worth having on a slider, calmest first.
+ *
+ * All twelve of Abyssal's are available, but most of them are open-ocean
+ * weather that buries a wake in its own chop. These are ordered so that
+ * turning the knob up means "more sea", which is the only ordering a single
+ * slider can honestly express.
+ */
+export const PRESET_NAMES = [
+	'Calm Lake',
+	'Sheltered Water',
+	'Glassy Dawn',
+	'Tropical Lagoon',
+	'Deep Blue Afternoon',
+	'Tropical Noon',
+	'Golden Hour Swell',
+	'Trade Winds',
+	'Moonlit Passage',
+	'North Atlantic Storm',
+].filter( ( n ) => n in PRESETS );
 
 /**
  * Everything in Abyssal that draws its own wake, foam ribbon or whitewater,
@@ -106,8 +127,29 @@ export class AbyssalSea {
 
 		renderer.autoClear = false;
 		this.renderer = renderer;
+		this.preset = preset;
 		this.sky = new AbyssalSky( renderer, { params: this.params } );
 		this.water = new AbyssalWater( renderer, { params: this.params, sky: this.sky } );
+
+	}
+
+	/**
+	 * Switch weather. The spectrum has to be rebuilt — a preset is mostly wind
+	 * and fetch, and those are baked into the FFT's initial spectrum rather than
+	 * read per frame, so without this the sliders move and the sea does not.
+	 *
+	 * QUIET is re-applied afterwards: a preset carries its own wake and foam
+	 * numbers, and loading one would otherwise switch Abyssal's ribbon back on
+	 * underneath ours.
+	 */
+	setPreset( name ) {
+
+		if ( ! ( name in PRESETS ) || name === this.preset ) return false;
+		applyPreset( this.params, name );
+		Object.assign( this.params, QUIET );
+		this.water.ocean.buildSpectrum( this.params );
+		this.preset = name;
+		return true;
 
 	}
 

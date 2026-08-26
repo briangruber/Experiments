@@ -19,6 +19,7 @@ const GROUP_TITLES = {
   foamMotion: 'Foam motion',
   foamMix: 'Foam on water',
   ocean: 'Water & light',
+  spray: 'Spray (airborne)',
   scene: 'Sky & weather',
   lake: 'The lake',
   quality: 'Performance',

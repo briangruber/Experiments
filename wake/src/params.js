@@ -176,11 +176,32 @@ export const PARAMS = {
 
   // Cost, not looks. Auto-set on load from the device, then yours to override.
   // Sky, weather and shore.
+  // Water that has left the water. Everything else the prototype draws is a
+  // field on the surface; this is the one part that is airborne, so it is
+  // particles and it lands.
+  spray: {
+    amount:    { v: 1,    min: 0,   max: 2,   step: 0.01, label: 'Spray amount' },
+    rate:      { v: 26,   min: 0,   max: 160, step: 1,    label: 'Droplets /s per m/s' },
+    sites:     { v: 4,    min: 1,   max: 8,   step: 1,    label: 'Emission sites' },
+    minSpeed:  { v: 2.2,  min: 0,   max: 12,  step: 0.1,  label: 'Throws above (m/s)' },
+    throw:     { v: 0.34, min: 0,   max: 1.2, step: 0.01, label: 'Throw x speed' },
+    rise:      { v: 0.55, min: 0,   max: 2,   step: 0.01, label: 'Upward share' },
+    spread:    { v: 0.45, min: 0,   max: 2,   step: 0.01, label: 'Scatter' },
+    drag:      { v: 1.35, min: 0,   max: 6,   step: 0.05, label: 'Air drag' },
+    life:      { v: 1.1,  min: 0.1, max: 4,   step: 0.05, label: 'Droplet life (s)' },
+    size:      { v: 0.10, min: 0.01,max: 0.6, step: 0.01, label: 'Droplet size (m)' },
+    opacity:   { v: 0.85, min: 0,   max: 1,   step: 0.01, label: 'Droplet opacity' },
+  },
+
   scene: {
     // 1 draws the vendored Abyssal FFT sea and volumetric sky; 0 the lab's own
     // analytic ocean. Both carry the same wake -- that is the point of keeping
     // the switch rather than deleting the loser.
     abyssal:      { v: 1,    min: 0,   max: 1,   step: 1,    label: 'Abyssal sea' },
+    // Index into PRESET_NAMES in abyssalSea.js, calmest first: turning it up
+    // means more sea. Drives the wave spectrum AND the light, because in
+    // Abyssal they are one parameter set, not two.
+    preset:       { v: 0,    min: 0,   max: 9,   step: 1,    label: 'Weather preset' },
     warmth:       { v: 1.15, min: 0,   max: 1.5, step: 0.01, label: 'Sunset warmth' },
     cloud:        { v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Cloud cover' },
     cloudScale:   { v: 0.55, min: 0.05,max: 3,   step: 0.01, label: 'Cloud scale' },

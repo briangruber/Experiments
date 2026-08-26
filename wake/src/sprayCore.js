@@ -1,0 +1,129 @@
+// Spray ballistics, with no renderer in sight.
+//
+// Split from spray.js for the same reason attitude.js and lakeHeight.js are
+// three-free: this is the part with physics in it, and a check that needs a
+// GPU is a check that does not get run. spray.js owns the geometry and the
+// material; everything that decides where a droplet goes lives here.
+//
+// The pool is fixed and recycled oldest-first. A particle system that grows
+// under load stalls the frame exactly when the boat is most worth looking at.
+
+import { get } from './params.js';
+
+const GRAVITY = 9.81;
+
+/** Ballistic step. Drag is linear — at droplet scale that is close enough. */
+function integrate( p, i, dt, drag ) {
+
+	const k = Math.max( 1 - drag * dt, 0 );
+	p.vx[ i ] *= k;
+	p.vz[ i ] *= k;
+	p.vy[ i ] = p.vy[ i ] * k - GRAVITY * dt;
+	p.x[ i ] += p.vx[ i ] * dt;
+	p.y[ i ] += p.vy[ i ] * dt;
+	p.z[ i ] += p.vz[ i ] * dt;
+
+}
+
+export class SprayCore {
+
+	constructor( max = 3000 ) {
+
+		this.max = max;
+		this.n = 0;                       // live count, packed at the front
+		this.cursor = 0;
+
+		const f = () => new Float32Array( max );
+		this.p = { x: f(), y: f(), z: f(), vx: f(), vy: f(), vz: f(),
+			age: f(), life: f(), size: f() };
+
+		// Landing events for this frame: where a droplet met the surface, so the
+		// wake field can turn it into foam instead of letting it wink out.
+		this.landings = [];
+
+	}
+
+	/** Oldest-first recycling: the pool never grows and never stalls. */
+	_slot() {
+
+		if ( this.n < this.max ) return this.n ++;
+		this.cursor = ( this.cursor + 1 ) % this.max;
+		return this.cursor;
+
+	}
+
+	/**
+	 * Throw one droplet.
+	 *
+	 * `out` is the outward normal of the cut (the direction the hull is pushing
+	 * water), `fwd` the direction of travel. Water leaves a chine mostly
+	 * sideways and a little forward, which is why the two are separate.
+	 */
+	emit( x, y, z, out, fwd, speed, rand ) {
+
+		const i = this._slot();
+		const p = this.p;
+		const spread = get( 'spray.spread' );
+		const up = get( 'spray.rise' );
+
+		p.x[ i ] = x; p.y[ i ] = y; p.z[ i ] = z;
+
+		// Sheet velocity scales with hull speed: that is why a wake at 4 m/s
+		// weeps and at 20 m/s throws a curtain, with no separate "amount" knob
+		// doing the work.
+		const v = speed * get( 'spray.throw' );
+		const j = () => ( rand() - 0.5 ) * spread;
+		p.vx[ i ] = out.x * v * ( 0.6 + rand() * 0.7 ) + fwd.x * v * 0.25 + j() * v;
+		p.vz[ i ] = out.z * v * ( 0.6 + rand() * 0.7 ) + fwd.z * v * 0.25 + j() * v;
+		p.vy[ i ] = v * up * ( 0.5 + rand() * 0.9 );
+
+		p.age[ i ] = 0;
+		p.life[ i ] = get( 'spray.life' ) * ( 0.6 + rand() * 0.8 );
+		p.size[ i ] = get( 'spray.size' ) * ( 0.5 + rand() * 1.1 );
+
+	}
+
+	/**
+	 * Advance every droplet and pack the survivors to the front.
+	 *
+	 * `seaHeight(x, z)` is optional: with it, droplets land on the real surface
+	 * rather than on y = 0, which matters as soon as the sea has any swell —
+	 * otherwise spray sinks into crests and hovers over troughs.
+	 */
+	step( dt, seaHeight = null ) {
+
+		const p = this.p;
+		const drag = get( 'spray.drag' );
+		this.landings.length = 0;
+
+		let w = 0;
+		for ( let i = 0; i < this.n; i ++ ) {
+
+			p.age[ i ] += dt;
+			integrate( p, i, dt, drag );
+
+			const surface = seaHeight ? seaHeight( p.x[ i ], p.z[ i ] ) : 0;
+			const landed = p.y[ i ] <= surface && p.vy[ i ] < 0;
+			if ( landed ) {
+				// Not deleted: reported. A droplet that hits the water becomes
+				// aerated surface, and the caller owns that field.
+				this.landings.push( p.x[ i ], p.z[ i ],
+					Math.min( - p.vy[ i ] / 6, 1 ) );
+			}
+			if ( landed || p.age[ i ] >= p.life[ i ] ) continue;
+
+			if ( w !== i ) {
+				for ( const k of [ 'x', 'y', 'z', 'vx', 'vy', 'vz', 'age', 'life', 'size' ] ) {
+					p[ k ][ w ] = p[ k ][ i ];
+				}
+			}
+			w ++;
+
+		}
+		this.n = w;
+		this.cursor = Math.min( this.cursor, Math.max( w - 1, 0 ) );
+		return w;
+
+	}
+
+}

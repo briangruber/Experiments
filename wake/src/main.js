@@ -4,10 +4,11 @@ import { WakeField } from './wakeField.js';
 import { Ocean } from './ocean.js';
 import { makeBoat } from './boat.js';
 import { Backdrop } from './backdrop.js';
-import { attitude } from './attitude.js';
 import { Terrain } from './terrain.js';
 import { heightAt } from './lakeHeight.js';
-import { AbyssalSea } from './abyssalSea.js';
+import { AbyssalSea, PRESET_NAMES } from './abyssalSea.js';
+import { OceanBody } from './oceanBody.js';
+import { Spray } from './spray.js';
 import { buildUI } from './ui.js';
 
 const canvas = document.getElementById('gl');
@@ -56,6 +57,12 @@ scene.add(labSky);
 
 const boat = makeBoat();
 scene.add(boat);
+
+// The hull as an object that owns its own chain: how it sits, where it cuts,
+// what it throws. main.js drives the helm and nothing else about it.
+const spray = new Spray(3000);
+scene.add(spray.points);
+const body = new OceanBody(boat, { spray, seed: 7 });
 
 // --------------------------------------------------------------- boat state --
 // Position is the BOW: the arms are born there, so that is the anchor.
@@ -292,6 +299,10 @@ function resize() {
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+  // Droplets are sized in METRES, so their pixel size depends on the viewport
+  // and the field of view. Recomputing here keeps a droplet the same physical
+  // size whatever the window does, instead of drifting with it.
+  spray.setPixelScale(h * renderer.getPixelRatio(), camera.fov);
 }
 addEventListener('resize', resize);
 resize();
@@ -381,12 +392,15 @@ function frame(now) {
   // stem, so trimming about it would swing the bow instead of lifting it: the
   // rotation is compensated to hold a pivot near the aft quarter at the
   // waterline, which is roughly where a planing hull actually pivots.
-  const att = attitude(state.speed);
-  const trim = att.trim * Math.PI / 180;
-  const PIVOT = 0.72;                       // fraction of hull length aft of the stem
-  const L = get('boat.length');
-  boat.rotation.set(-trim, state.heading, 0, 'YXZ');
-  boat.position.set(state.x, att.rise + Math.sin(trim) * L * PIVOT, state.z);
+  // The body carries the prototype's own state object, so the helm above and
+  // everything below still read the same `state`.
+  body.state = state;
+  // Spray lands on the real surface, not on y = 0: with any swell at all a
+  // flat waterline sinks droplets into crests and floats them over troughs.
+  const seaH = useAbyssal() && sea ? (x, z) => sea.heightAt(x, z) : null;
+  body.step(dt, seaH);
+  spray.step(dt, seaH);
+  const att = body.att;
   // Centre the field a little astern: that is where the wake actually is.
   // Zoomed in you cannot see the far wake anyway, and a smaller window puts far
   // more texels where you ARE looking -- at close range this is worth several
@@ -455,6 +469,10 @@ function frame(now) {
 
   const abyssal = useAbyssal();
   labSky.visible = !abyssal;
+  if (abyssal) {
+    const want = PRESET_NAMES[Math.round(get('scene.preset')) % PRESET_NAMES.length];
+    sea.setPreset(want);
+  }
   if (abyssal) {
     // One sun for the whole frame. Abyssal's atmosphere owns it, so the boat
     // and the terrain take their light from there rather than from the lab's
