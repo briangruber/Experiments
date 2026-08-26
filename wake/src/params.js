@@ -73,7 +73,7 @@ export const PARAMS = {
     waveFoam:     { v: 1.6, min: 0,   max: 5,   step: 0.01, label: 'Breaking foam gain' },
     angle:        { v: 13, min: 4,   max: 40,  step: 0.1,  label: 'Half-angle (°)' },
     width0:       { v: 0.9, min: 0.1, max: 4,   step: 0.05, label: 'Width at bow (m)' },
-    widthGrow:    { v: 0,min: 0,   max: 0.6, step: 0.001,label: 'Width growth (m/m)' },
+    widthGrow:    { v: 0.03,min: 0,   max: 0.6, step: 0.001,label: 'Width growth (m/m)' },
     foam:         { v: 0.95, min: 0,   max: 3,   step: 0.01, label: 'Foam density' },
     height:       { v: 0.42, min: 0,   max: 2,   step: 0.01, label: 'Crest height (m)' },
     innerBias:    { v: 0.38, min: 0,   max: 1,   step: 0.01, label: 'Outer-edge bias' },
@@ -100,10 +100,10 @@ export const PARAMS = {
   // Turbulent water dragged behind the transom: the brightest, shortest-lived
   // foam in the whole wake.
   wash: {
-    width:        { v: 0.6, min: 0.2, max: 8,   step: 0.05, label: 'Width (m)' },
-    widthGrow:    { v: 0.025,min: 0,   max: 0.5, step: 0.005,label: 'Width growth (m/m)' },
+    width:        { v: 1.5, min: 0.2, max: 8,   step: 0.05, label: 'Width (m)' },
+    widthGrow:    { v: 0.06,min: 0,   max: 0.5, step: 0.005,label: 'Width growth (m/m)' },
     foam:         { v: 0.77,  min: 0,   max: 3,   step: 0.01, label: 'Foam density' },
-    length:       { v: 27, min: 2,   max: 200, step: 1,    label: 'Decay length (m)' },
+    length:       { v: 45, min: 2,   max: 200, step: 1,    label: 'Decay length (m)' },
     tailFoam:     { v: 0, min: 0,   max: 1,   step: 0.01, label: 'Long tail streak' },
     depth:        { v: 0.22, min: 0,   max: 1.5, step: 0.01, label: 'Trough depth (m)' },
   },
