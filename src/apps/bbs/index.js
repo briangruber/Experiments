@@ -153,7 +153,17 @@ export function open() {
 
     try {
       await runBoard(term, localName());
-    } catch { /* the caller hung up mid-call, which is allowed */ }
+    } catch (err) {
+      /* Hanging up mid-call unwinds this and is allowed. Anything else is
+         the board falling over, which happened on real ones too — but it
+         said so rather than quietly dropping the line, and a silent catch
+         here hid a door bug for a whole afternoon. */
+      if (online) {
+        console.error('the board threw', err);
+        term.now('\n|12*** The board has crashed. ***\n' +
+                 '|08' + ((err && err.message) || err) + '\n');
+      }
+    }
     if (online) {
       await wait(1200);
       dropped();
