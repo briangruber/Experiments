@@ -8,9 +8,14 @@
  *   - a short menu bar: File / Edit / Window / Sign Off / Help
  *   - a deep blue toolbar of large colour icons with light labels beneath,
  *     in groups, several carrying a drop-down caret
- *   - beneath it a cream navigation bar: back, forward, stop, reload,
- *     home, a Find drop-down, a wide address box, then Go and Keyword
+ *   - beneath it a cream keyword bar: Main Menu, then the keyword box
+ *     and its two buttons
  *   - the service's badge on a blue panel at the right-hand end
+ *
+ * This is the keyword era on purpose. There is no address box and no way
+ * to type a URL: the service is a place you move around with keywords,
+ * not a browser. The machine has a browser — NetScrape, on the desktop —
+ * and it is a separate program, which is where it belonged.
  *
  * Everything else in the service is an MDI child inside this window.
  */
@@ -62,18 +67,12 @@ const GROUPS = session => {
         { label: 'Favorite Places', accel: 'Ctrl+B', onclick: go('favorites') },
         { label: 'Add Top Window to Favorite Places', onclick: go('addfav') },
         '-',
-        { label: 'Go To Keyword', accel: 'Ctrl+K', onclick: go('keyword') },
+        { label: 'Keyword List', onclick: go('favorites') },
       ] },
     ],
     [
-      { icon: 'browser',   label: 'Internet', on: go('web'), menu: [
-        { label: 'Go to the Web', onclick: go('web') },
-        { label: 'Search the Web', onclick: go('search') },
-        '-',
-        { label: 'Newsgroups', disabled: true },
-        { label: 'FTP', disabled: true },
-      ] },
       { icon: 'globe',     label: 'Channels', on: go('channels') },
+      { icon: 'keyword',   label: 'Keyword',  on: go('keyword') },
       { icon: 'people',    label: 'People',   on: go('rooms'), menu: [
         { label: 'People Connection', accel: 'Ctrl+L', onclick: go('lobby') },
         { label: 'Find a Chat', onclick: go('rooms') },
@@ -82,6 +81,7 @@ const GROUPS = session => {
         { label: 'Buddy List', onclick: go('buddies') },
         { label: 'Member Directory', onclick: go('directory') },
       ] },
+      { icon: 'find',      label: 'Find',     on: go('search') },
     ],
   ];
 };
@@ -89,8 +89,8 @@ const GROUPS = session => {
 export function openFrame(session) {
   const client = h('div.hal-client');
   const addr = h('input.hal-addr', {
-    type: 'text', spellcheck: false,
-    placeholder: 'Type Keyword or Web Address here and click Go',
+    type: 'text', spellcheck: false, maxLength: 40,
+    placeholder: 'Type a Keyword here and click Go',
   });
 
   const win = openWindow({
@@ -165,20 +165,20 @@ export function openFrame(session) {
 
   /* ── row 2: the navigation bar ────────────────────────────────────── */
 
-  const navBtn = (glyph, tip, on, cls = '') =>
-    h('button.hal-nav-btn', { type: 'button', title: tip, class: cls, onclick: on }, glyph);
+  const home = icon('halcyonMark', 16);
+  home.classList.remove('glyph');
 
   const nav = h('div.hal-nav', {},
-    navBtn('◀', 'Back', () => session.go('back'), 'arrow'),
-    navBtn('▶', 'Forward', () => session.go('forward'), 'arrow'),
-    navBtn('✕', 'Stop', () => A.beep()),
-    navBtn('↻', 'Reload', () => session.go('welcome')),
-    navBtn('⌂', 'Home', () => session.go('welcome')),
-    h('button.hal-find', { type: 'button', onclick: () => session.go('search') },
-      'Find ', h('i.hal-caret', {}, '')),
+    h('button.hal-nav-btn', {
+      type: 'button', title: 'Main Menu (Ctrl+D)',
+      onclick: () => session.go('welcome'),
+    }, home),
+    h('label.hal-nav-label', {}, 'Keyword:'),
     addr,
     h('button.aol-btn.small', { type: 'button', onclick: () => submit() }, 'Go'),
-    h('button.aol-btn.small', { type: 'button', onclick: () => session.go('keyword') }, 'Keyword'));
+    h('button.aol-btn.small', {
+      type: 'button', onclick: () => session.go('favorites'),
+    }, 'Keyword List'));
 
   clear(win.body).append(h('div.hal-frame', {},
     menuBar(menus(session)), toolbar, nav, client));
@@ -186,9 +186,7 @@ export function openFrame(session) {
   function submit() {
     const v = addr.value.trim();
     addr.value = '';
-    if (!v) return;
-    if (/^(https?:\/\/|www\.)/i.test(v)) session.ctx.launch('browser', { url: v });
-    else session.go('keyword', v);
+    if (v) session.go('keyword', v);
   }
   addr.addEventListener('keydown', ev => {
     if (ev.key === 'Enter') { ev.preventDefault(); submit(); }
@@ -199,8 +197,8 @@ export function openFrame(session) {
     if (!ev.ctrlKey || ev.altKey || ev.metaKey) return;
     const map = {
       k: 'keyword', l: 'lobby', b: 'favorites', d: 'welcome',
-      m: 'compose', r: 'mail', i: 'im', f: 'locate',
-      4: 'news', 5: 'money', 6: 'trivia', 7: 'web',
+      m: 'compose', r: 'mail', i: 'im', f: 'search',
+      4: 'news', 5: 'money', 6: 'trivia',
     };
     const what = map[ev.key.toLowerCase()];
     if (!what) return;
