@@ -19,7 +19,6 @@ export function open(ctx, args = {}) {
   const win = openWindow({
     id, title: 'NetScrape Navigator', icon: 'browser',
     width: 720, height: 520, minWidth: 420, minHeight: 300,
-    status: ['Document: Done', ''],
     menu: [{ label: 'File' }, { label: 'Edit' }, { label: 'View' },
            { label: 'Go' }, { label: 'Bookmarks' }, { label: 'Help' }],
     onClose: () => { stopTune(); return true; },

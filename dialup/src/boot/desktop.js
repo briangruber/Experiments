@@ -28,7 +28,7 @@ function buildIcons() {
   const grid = clear($('#icons'));
   for (const app of listBy('desktop')) {
     const el = h('div.dicon', { tabIndex: 0, title: app.title },
-      icon(app.icon, 32), h('div.label', {}, app.title));
+      icon(app.icon, 32), h('div.label', {}, app.short || app.title));
     el.addEventListener('pointerdown', () => select(el));
     onDouble(el, () => { A.click(); launch(app.key, ctx); });
     el.addEventListener('keydown', ev => {
@@ -85,7 +85,7 @@ function buildStartMenu() {
     items.append(h('button.sm-item', {
       type: 'button',
       onclick: () => { closeStart(); A.click(); launch(app.key, ctx); },
-    }, g, app.title));
+    }, g, app.short || app.title));
   }
 
   items.append(h('div.sm-sep'));

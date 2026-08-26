@@ -6,6 +6,7 @@
   "scripts": {
     "check": "node tools/check.mjs",
     "test": "node tools/check.mjs && node tools/test.mjs",
+    "bundle": "node tools/bundle.mjs",
     "relay": "node tools/relay.mjs"
   }
 }
