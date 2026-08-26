@@ -124,7 +124,7 @@ function sternIsForward( root ) {
  *    the arm geometry. A model that is visually 12 m while the physics thinks
  *    it is 9.9 m produces a wake that is subtly wrong everywhere.
  */
-function fitToHull( root ) {
+function fitToHull( root, boat = {} ) {
 
 	// Work on a fresh group so repeated calls cannot compound their own
 	// corrections — the classic way this kind of normalisation drifts.
@@ -171,7 +171,17 @@ function fitToHull( root ) {
 	// the open boats, whose interior floor sits only a little above their
 	// lowest point. A masted pirate boat is three times the height of an
 	// inflatable and wants exactly the same draft.
-	holder.position.y -= final.min.y + get( 'boat.draft' );
+	// Per model, because "draft" is not a property of a bounding box.
+	//
+	// One absolute depth for every hull is better than a fraction of model
+	// height (which sank the pirate and flooded the dinghy), but it is still
+	// wrong in the same direction: an inflatable's floor sits centimetres
+	// above its lowest point, while a masted ship's keel is a metre below its
+	// waterline. These are multipliers on the slider, so the slider still
+	// moves every boat together and the ratios between them stay right.
+	const DRAFT = { inflatable: 0.30, burrito: 0.62, racingred: 0.70,
+		yacht: 0.95, pirate: 1.25 };
+	holder.position.y -= final.min.y + get( 'boat.draft' ) * ( DRAFT[ boat.id ] ?? 1 );
 
 	return holder;
 
@@ -195,7 +205,7 @@ export async function loadBoat( id ) {
 	try { await rebuildTextures( buf, gltf.scene ); }
 	catch ( e ) { console.warn( 'texture rebuild failed for', id, e.message ); }
 
-	const fitted = fitToHull( gltf.scene );
+	const fitted = fitToHull( gltf.scene, entry );
 	fitted.traverse( ( o ) => {
 		if ( ! o.isMesh ) return;
 		o.castShadow = true;

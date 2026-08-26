@@ -165,7 +165,7 @@ export const PARAMS = {
   // and the surface above them still reflects the sky.
   bubbles: {
     plume:        { v: 0.86, min: 0,   max: 4,   step: 0.01, label: 'Plume density' },
-    width:        { v: 0.5, min: 0.2, max: 10,  step: 0.05, label: 'Plume width (m)' },
+    width:        { v: 1.4, min: 0.2, max: 10,  step: 0.05, label: 'Plume width (m)' },
     spread:       { v: 0.028,min: 0,   max: 0.5, step: 0.001,label: 'Spread (m/m)' },
     length:       { v: 46,min: 5,   max: 400, step: 1,    label: 'Decay length (m)' },
     fromArms:     { v: 0.42, min: 0,   max: 2,   step: 0.01, label: 'Entrained by arms' },

@@ -60,7 +60,16 @@ export class Spray extends SprayCore {
 				  // Perspective size: a droplet is a fixed size in METRES, so it has
 				  // to shrink with distance like everything else. A constant pixel
 				  // size is the classic tell of a bolted-on particle system.
-				  gl_PointSize = max(aSize * uPixelScale / max(-mv.z, 0.1), 1.0);
+				  // CLAMPED at both ends. 1/z has no upper bound, so a single
+				  // droplet drifting within a metre of the eye becomes a disc
+				  // tens of degrees wide -- which is the little circle that
+				  // seemed to follow the boat in a top-down view, where the
+				  // camera sits right in the spray. 48 px is far larger than a
+				  // droplet ever legitimately needs.
+				  gl_PointSize = clamp(aSize * uPixelScale / max(-mv.z, 0.1), 1.0, 48.0);
+				  // ...and fade the last metre out entirely: a droplet that
+				  // close is between the eye and the scene, not part of it.
+				  vAlpha *= smoothstep(0.35, 1.6, -mv.z);
 				  gl_Position = projectionMatrix * mv;
 				}
 			`,
