@@ -188,6 +188,46 @@ ${CASCADE_COMMON}
 ${WAKE_SAMPLE_GLSL}
 ${FOAM_ENERGY_SAMPLE_GLSL}
 ${NOISE_GLSL}
+
+// ---- the prototype's foam lace ------------------------------------------
+// FORKED IN for the wake lab. Upstream shades hull-wake foam by grading a
+// packed coarse/fine/breakup PNG and stencilling it with the energy field.
+// This is the prototype's method instead: a bubble raft is open cells with
+// bright walls, which is what contours of a noise field give -- far cheaper
+// than real Worley cells and, on this wake, considerably better looking.
+//
+// Two failure modes are designed out, both of which were hit while building it:
+//   · thresholding the ridge function directly yields nested outlines, a
+//     contour map rather than cells -- hence GRAIN-dominant weights;
+//   · scaling the sample position by coverage warps the noise along coverage's
+//     own gradient and snaps the lace onto iso-contours of foam. So coverage
+//     widens the WALL and never moves the point.
+uniform float uLabLace, uLabSoft, uLabCoarsen, uLabDensity, uLabGain;
+
+float labLattice(vec2 p, float w){
+  return 1.0 - smoothstep(0.0, w, abs(fbm2(p, 3) - 0.50));
+}
+
+// cover: how much of this water is aerated. px: the world width of one pixel.
+float labLace(vec2 world, float cover, float px){
+  float scale = max(uLabLace, 0.001);
+  // Thinning foam is old foam, and a bubble raft coarsens as it ages.
+  float wall = 0.125 + uLabCoarsen * 0.085 * (1.0 - clamp(cover, 0.0, 1.0));
+  vec2 lp = world * scale;
+  float cells = labLattice(lp, wall);
+  float grain = fbm2(lp * 2.6 + 7.0, 3);
+  // Grain-dominant on purpose: the lattice is a ridge function and belongs
+  // here as an accent on smooth noise. Cell SIZE comes from the scale.
+  float detail = clamp(grain * 0.68 + cells * 0.46, 0.0, 1.0);
+  // Sub-pixel lace aliases into sparkle, so fade it toward flat coverage.
+  float cell = 1.0 / scale;
+  detail = mix(0.5, detail, 1.0 - smoothstep(0.22, 0.75, px / cell));
+  float b = max(uLabSoft, 0.02);
+  // Coverage slides a threshold down through the field: dense foam takes all
+  // of it, thin foam keeps only the cell walls, and between them is the fringe.
+  return smoothstep(1.0 - cover - b, 1.0 - cover + b, detail);
+}
+
 ${ATMOSPHERE_GLSL}
 ${SKY_LUT_MAP_GLSL}
 
@@ -1007,7 +1047,22 @@ void main(){
   // changes the PATTERN, not the opacity.
   float ribbonVary = ribbonFill * ribbonHole * ribbonOpac * lookBreak;
   float wakeWrinkle = sheetSoft * mix(1.0, wakePattern, texK) * ribbonVary;
-  float wakeLook = wakeWrinkle;
+  // FORKED: the prototype's lace replaces the graded PNG stencil above.
+  //
+  // The grading ladder that produced wakeWrinkle is tuned for Abyssal's own
+  // energy field, which saturates near 1 a second after the hull passes. The
+  // prototype's coverage peaks around 0.12 (measured), and 0.12 through that
+  // ladder lands near 4% opacity -- a wake that is drawn and invisible. So
+  // coverage is taken RAW, gained, and shaped by the lace, with Beer-Lambert
+  // deciding opacity: it approaches white asymptotically and never lands on
+  // the hard cut-out edge a bare threshold gives.
+  float labCover = clamp(wakeRaw * uLabGain, 0.0, 1.6);
+  float labFoam = 0.0;
+  if (labCover > 0.004) {
+    float lace = labLace(vFlat.xz, labCover, foot);
+    labFoam = 1.0 - exp(-lace * labCover * max(uLabDensity, 0.0));
+  }
+  float wakeLook = mix(wakeWrinkle, labFoam, clamp(uLabGain > 0.0 ? 1.0 : 0.0, 0.0, 1.0));
   foamMask = clamp(foamMask + wakeLook * (1.0 - foamMask), 0.0, 1.0);
   // Bubble albedo tracks freshness: new suds are bright and opaque, an aged
   // streak is a thin grey film. The flat 0.55 was the same at every age.

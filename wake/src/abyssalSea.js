@@ -134,12 +134,25 @@ function fitToLake( p, preset = {} ) {
 
 	const tint = get( 'scene.waterTint' );
 	const c = preset.scatterColor ?? [ 0.055, 0.145, 0.095 ];
-	const DEEP = [ 0.014, 0.072, 0.135 ];   // blue-dominant, a little green
+	// Deep water, and NOT darker water. The first version of this used
+	// [0.014, 0.072, 0.135], which is a fine deep-ocean hue and dimmer than the
+	// preset's green in every channel -- so it fixed the green by turning the
+	// light down. Looking straight down that is exactly where it shows: at
+	// normal incidence Fresnel reflects about 2% of the sky, so all you see is
+	// what the water column scatters back, and dimming that paints the sea
+	// black from above while the grazing view stays fine.
+	const DEEP = [ 0.048, 0.170, 0.225 ];
 	p.scatterColor = [
 		mix( c[ 0 ], DEEP[ 0 ], tint ),
 		mix( c[ 1 ], DEEP[ 1 ], tint ),
 		mix( c[ 2 ], DEEP[ 2 ], tint ),
 	];
+	// How much light comes back OUT of the column, which is the whole of what
+	// a look-down view sees. Calm Lake asks 0.07 -- a dark peat lake -- and at
+	// that value an overhead camera gets a black mirror however the colour is
+	// tuned. This is the knob that actually answers "why is it black from
+	// above", so it is exposed rather than folded into the tint.
+	p.scatterAmount = ( preset.scatterAmount ?? 0.07 ) * get( 'scene.waterGlow' );
 
 }
 

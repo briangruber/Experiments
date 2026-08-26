@@ -19,7 +19,7 @@
 // Signed height in G is why the half-float format matters and why this could
 // not have been an 8-bit texture: half the wake is below the waterline.
 
-import * as THREE from 'three';
+import { get } from './params.js';
 
 export class WakeBridge {
 
@@ -98,6 +98,16 @@ export class WakeBridge {
 			// prototype exists to replace.
 			uFoamEnergy: { target: gl.TEXTURE_2D, tex },
 			uFoamEnergyOn: 0,
+			// ...and the lace that replaces its packed-PNG stencil, driven by the
+			// prototype's own foam controls so the two seas shade foam alike.
+			uLabLace: get( 'foamLook.lace' ) * 0.55,
+			uLabSoft: get( 'foamLook.softness' ),
+			uLabCoarsen: get( 'foamLook.coarsen' ),
+			uLabDensity: get( 'foamMix.density' ),
+			// Coverage gain. Abyssal's grading expects a field that saturates;
+			// ours peaks near 0.12, so without this the wake is drawn at a few
+			// percent opacity and reads as clean water.
+			uLabGain: get( 'foamMix.wakeGain' ),
 		};
 
 	}

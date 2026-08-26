@@ -150,6 +150,10 @@ export const PARAMS = {
 
   // How the foam sits on the water rather than on top of it.
   foamMix: {
+    // Abyssal's foam grading expects a coverage field that saturates near 1;
+    // the prototype's peaks around 0.12, so the wake needs gain before it is
+    // shaded or it is drawn at a few percent opacity and reads as clean water.
+    wakeGain:     { v: 5.5,  min: 0,   max: 16,  step: 0.1,  label: 'Wake foam gain' },
     density:      { v: 1.75, min: 0.3, max: 8,   step: 0.05, label: 'Opacity build' },
     translucency: { v: 0.58, min: 0,   max: 1,   step: 0.01, label: 'Water shows through' },
     aeration:     { v: 0.44, min: 0,   max: 1.5, step: 0.01, label: 'Aerated teal halo' },
@@ -208,6 +212,11 @@ export const PARAMS = {
     // exactly what the preset asked for.
     floor:        { v: 0,    min: 0,   max: 1,   step: 0.01, label: 'Show sea floor' },
     waterTint:    { v: 0.8,  min: 0,   max: 1,   step: 0.01, label: 'Deep-water tint' },
+    // Straight down, Fresnel reflects ~2% of the sky, so a look-down view sees
+    // only what the water column scatters back. This scales that, and it is
+    // the reason an overhead camera can look black on a preset authored for a
+    // dark lake. 1 is exactly what the preset asked for.
+    waterGlow:    { v: 3.0,  min: 0.2, max: 10,  step: 0.05, label: 'Water glow (look-down)' },
     warmth:       { v: 1.15, min: 0,   max: 1.5, step: 0.01, label: 'Sunset warmth' },
     cloud:        { v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Cloud cover' },
     cloudScale:   { v: 0.55, min: 0.05,max: 3,   step: 0.01, label: 'Cloud scale' },
