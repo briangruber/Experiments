@@ -71,11 +71,14 @@ const backdrop = new Backdrop();
 // pond is a hole in the lawn — Abyssal's sea still runs to the horizon and
 // the lawn simply covers it from the rim outward, so no water shader knows
 // the pond exists.
-const park = new Park(get('lake.pond'));
-scene.add(park.group);
+// Open water again. The park (lawn, coping, trees) is built only when
+// lake.pond asks for it: a pond rim is a lovely toy but it is also a hard
+// edge in every frame, and the sea reads better running to the horizon.
+const park = get('lake.pond') > 1 ? new Park(get('lake.pond')) : null;
+if (park) scene.add(park.group);
 // Air. The far lawn and treeline haze out; the sea ignores this and hazes
 // itself in its own shader, which is fine — land and water do haze apart.
-scene.fog = new THREE.Fog(0xd4e2ec, 420, 2400);
+if (park) scene.fog = new THREE.Fog(0xd4e2ec, 420, 2400);
 
 // The terrain is gone from the scene. It was an 11 m-per-vertex heightfield
 // shaded flat against the old analytic sky, and against Abyssal's water it
@@ -492,7 +495,7 @@ function stepSim(dt) {
   // and the clamp in confine() is the soft bump when steering was not enough.
   // Heading rate is -turn (see the helm note below), so the assist enters
   // negated.
-  turn -= park.confine(state, dt, get('boat.steerRate') * Math.PI / 180 * 1.3);
+  if (park) turn -= park.confine(state, dt, get('boat.steerRate') * Math.PI / 180 * 1.3);
 
   const hard = keys.has('shift') ? get('boat.hardTurn') : 1;
   const steer = get('boat.steerRate') * Math.PI / 180 * hard;

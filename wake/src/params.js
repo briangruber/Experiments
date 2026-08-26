@@ -195,13 +195,14 @@ export const PARAMS = {
     // The SEA's own whitecaps, not the wake's. 1 gives them the same lace the
     // boat leaves behind -- Abyssal's own is a Worley web, and it thresholds in
     // exactly the same form, so this swaps the field and nothing else.
-    seaLace:      { v: 1,    min: 0,   max: 1,   step: 0.01, label: 'Sea foam uses our lace' },
+    seaLace:      { v: 0,    min: 0,   max: 1,   step: 0.01, label: 'Sea foam uses our lace' },
     // ...and coverage from waves actually BREAKING: steepness is amplitude
     // times wavenumber, which for a surface is the magnitude of its slope, and
     // past a critical value a crest spills. Additive, because the FFT's own
     // Jacobian fold catches where the surface folds OVER, which slope alone
     // cannot -- so this adds the steep-crest case rather than replacing it.
-    seaBreak:     { v: 0.35, min: 0,   max: 1.5, step: 0.01, label: 'Sea foam from breaking' },
+    seaWhitecaps: { v: 0,    min: 0,   max: 2,   step: 0.01, label: 'Sea whitecaps (not the wake)' },
+    seaBreak:     { v: 0, min: 0,   max: 1.5, step: 0.01, label: 'Sea foam from breaking' },
     density:      { v: 1.75, min: 0.3, max: 8,   step: 0.05, label: 'Opacity build' },
     translucency: { v: 0.58, min: 0,   max: 1,   step: 0.01, label: 'Water shows through' },
     aeration:     { v: 0.44, min: 0,   max: 1.5, step: 0.01, label: 'Aerated teal halo' },
@@ -253,7 +254,7 @@ export const PARAMS = {
     // Index into PRESET_NAMES in abyssalSea.js, calmest first: turning it up
     // means more sea. Drives the wave spectrum AND the light, because in
     // Abyssal they are one parameter set, not two.
-    preset:       { v: 3,    min: 0,   max: 9,   step: 1,    label: 'Weather preset' },
+    preset:       { v: 4,    min: 0,   max: 9,   step: 1,    label: 'Weather preset' },
     // The prototype already has a lake bottom (the terrain). Abyssal's presets
     // carry their own procedural seafloor, and a shallow one under green lake
     // water reads as a bright green pool. 0 pushes it out of sight, 1 restores
@@ -297,8 +298,8 @@ export const PARAMS = {
     // pushing the floor away turned the look-down view black. 0 = no floor.
     // The pond the boats keep to. Read at startup (the park is built once);
     // the confinement uses it live.
-    pond:         { v: 480,  min: 60,  max: 900, step: 10,   label: 'Pond radius (m)' },
-    floorDepth:   { v: 4.5,  min: 0,   max: 60,  step: 0.5,  label: 'Bed depth (m)' },
+    pond:         { v: 0,  min: 60,  max: 900, step: 10,   label: 'Pond radius (m)' },
+    floorDepth:   { v: 0,  min: 0,   max: 60,  step: 0.5,  label: 'Bed depth (m)' },
     weed:         { v: 0.45, min: 0,   max: 1,   step: 0.01, label: 'Weed over sand' },
     caustics:     { v: 1.35, min: 0,   max: 1.5, step: 0.01, label: 'Caustics on the bed' },
     radius:       { v: 1850, min: 200, max: 4000,step: 10,   label: 'Lake radius (m)' },

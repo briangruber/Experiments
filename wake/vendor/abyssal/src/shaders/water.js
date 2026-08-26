@@ -1501,10 +1501,21 @@ void main(){
           floorLit *= 1.0 - exp(-qh * qh) * 0.55;
         }
         vec3 floorTrans = exp(-uAbsorption * tHit);
+        // FORKED: dissolve the bed out before the hard tHit < 90 bound rather
+        // than letting it stop dead there.
+        //
+        // tHit is the refracted ray's path to the bed, so it grows with
+        // viewing angle: straight down it is the depth, out toward the edge of
+        // frame it is tens of metres. The bound is a cost guard, but as a
+        // binary it draws a CIRCLE -- lit sand inside, plain water outside --
+        // centred on wherever the camera is looking down. On open ocean the
+        // bed is too deep to see and nobody noticed; on a 4.5 m lagoon it is
+        // a pale disc parked under the boat that slides away when you move.
+        float bedFade = 1.0 - smoothstep(52.0, 86.0, tHit);
         // UNDER the interface — do not replace the water.
-        diffuse += floorLit * floorTrans;
+        diffuse += floorLit * floorTrans * bedFade;
         float film = clamp(length(sMip) * 3.5, 0.0, 1.0)
-                   * smoothstep(0.35, 0.95, NoV) * 0.16;
+                   * smoothstep(0.35, 0.95, NoV) * 0.16 * bedFade;
         Fenv += (1.0 - Fenv) * film;
       }
     }

@@ -75,7 +75,14 @@ export class WaterSurface {
   // Cascade fade distances: a patch stops contributing once its texels are far
   // smaller than a pixel, which is also where its energy becomes pure roughness.
   fadeDistances(ocean) {
-    for (let i = 0; i < 4; i++) this._vFade[i] = clamp((ocean.L[i] ?? 1) * 38, 200, 60000);
+    // FORKED: floor raised 200 -> 750. The pond IS the scene here: with the
+    // fine cascades fading 200 m from the grid centre (the camera), a high
+    // orbit showed a pale disc of ripple detail around the camera's ground
+    // point and smooth blobs beyond -- the fade boundary made visible,
+    // because the energy -> roughness handoff does not conserve brightness
+    // under a lagoon sun. 750 m keeps every cascade live across the whole
+    // pond from any camera the app allows.
+    for (let i = 0; i < 4; i++) this._vFade[i] = clamp((ocean.L[i] ?? 1) * 38, 750, 60000);
     return this._vFade;
   }
 

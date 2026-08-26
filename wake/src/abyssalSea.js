@@ -88,12 +88,12 @@ export const SCENE_TUNE = {
 	// THE lagoon. Sand a metre or three down, bright as coral rubble, caustics
 	// at full song, zero tint -- the preset's authored turquoise IS the look --
 	// and the glow well up, because tropical shallows are lit from below.
-	'Tropical Lagoon':     { floor: 4.5, caustics: 1.35, weed: 0.45, tint: 0,    glow: 1.0, sand: [ 0.74, 0.66, 0.46 ],
+	'Tropical Lagoon':     { floor: 4.5, caustics: 1.35, weed: 0.45, tint: 0,    glow: 1.0, spec: 0.65, sand: [ 0.74, 0.66, 0.46 ],
 	                         scatter: [ 0.030, 0.26, 0.36 ], scatterAmt: 0.13, absorb: [ 0.34, 0.055, 0.030 ] },
 	'Deep Blue Afternoon': { floor: 0,   caustics: 0,    weed: 0,    tint: 0.85, glow: 3.0 },
 	// The lagoon's big sibling: a little deeper, a little more weed on the
 	// flats, the same overhead blaze.
-	'Tropical Noon':       { floor: 5.5, caustics: 1.1,  weed: 0.40, tint: 0.10, glow: 1.1, sand: [ 0.76, 0.68, 0.48 ],
+	'Tropical Noon':       { floor: 5.5, caustics: 1.1,  weed: 0.40, tint: 0.10, glow: 1.1, spec: 0.7, sand: [ 0.76, 0.68, 0.48 ],
 	                         scatter: [ 0.050, 0.30, 0.34 ], scatterAmt: 0.15, absorb: [ 0.30, 0.050, 0.032 ] },
 	'Golden Hour Swell':   { floor: 0,   caustics: 0,    weed: 0,    tint: 0.80, glow: 3.6 },
 	'Trade Winds':         { floor: 0,   caustics: 0,    weed: 0,    tint: 0.75, glow: 3.0 },
@@ -194,6 +194,12 @@ function fitToLake( p, preset = {}, tune = {} ) {
 	p.labGain = get( 'foamMix.wakeGain' );
 	p.labSeaLace = get( 'foamMix.seaLace' );
 	p.labSeaBreak = get( 'foamMix.seaBreak' );
+	// Whitecaps on the open sea, master. Abyssal's presets author their own
+	// coverage, and at a distance the speckle reads as boiling rather than as
+	// breaking water -- so it is a knob, defaulting to off. The BOAT's foam is
+	// a separate system (the wake field) and is untouched by this.
+	p.foamAmount = ( preset.foamAmount ?? 0 ) * get( 'foamMix.seaWhitecaps' );
+	p.shoreFoamAmount = ( preset.shoreFoamAmount ?? 0 ) * get( 'foamMix.seaWhitecaps' );
 
 	const tint = get( 'scene.waterTint' );
 	// A scene may commit to its own water colour outright. The preset library
@@ -201,6 +207,19 @@ function fitToLake( p, preset = {}, tune = {} ) {
 	// harder red absorption and a more saturated scatter to read tropical
 	// instead of washing out to mint against the bright sand.
 	if ( tune.absorb ) p.absorption = tune.absorb;
+	// The sun's glint lobe. Under a 72-degree sun the specular oval on mild
+	// ripple is a third of the pond wide, and once ACES flattens its sparkle
+	// it reads as a flat white DISC parked around the camera's mirror point
+	// -- the user saw it as a pale inner circle that fled when the boat (and
+	// its chase camera) moved. Scenes with a high sun damp it; the glint is
+	// still there, it just no longer bleaches the water it sits on.
+	// Read the PRESET's own values, never the live ones: fitToLake runs every
+	// frame, so `p.spec * 0.65` compounds and decays the glint to zero in
+	// under a second. Defaults match presets.js.
+	if ( tune.spec !== undefined ) {
+		p.specIntensity = ( preset.specIntensity ?? 1.0 ) * tune.spec;
+		p.glitter = ( preset.glitter ?? 0.28 ) * tune.spec;
+	}
 	const c = tune.scatter ?? preset.scatterColor ?? [ 0.055, 0.145, 0.095 ];
 	// Deep water, and NOT darker water. The first version of this used
 	// [0.014, 0.072, 0.135], which is a fine deep-ocean hue and dimmer than the

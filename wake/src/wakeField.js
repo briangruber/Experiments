@@ -416,8 +416,12 @@ const RIBBON_FRAG = /* glsl */`
     float surfaced = 1.0 - depth / max(uBubDepth, 0.01);
     float vis = exp(-depth * uBubExt * 2.0);
 
-    float bubAge = clamp(age / max(uBubLife, 0.01), 0.0, 1.0);
-    float bub = (plume + entrain) * pow(1.0 - bubAge, 1.15) * vis;
+    float bubAge = clamp(age / max(uBubLife * lifeK, 0.01), 0.0, 1.0);
+    // The same speed law the foam obeys, for the same reason -- and one more:
+    // without it an IDLE boat kept injecting plume into the same spot, and
+    // forty-four seconds of accumulated milk drew a pale disc a hundred
+    // metres wide around every parked hull.
+    float bub = (plume + entrain) * pow(1.0 - bubAge, 1.15) * vis * energy;
     // The plume is the most turbulent part of the wake, so its clouds churn
     // rather than sitting still. Circling sample offsets again: the cloud
     // evolves in place instead of drifting off the water it belongs to.
