@@ -26,8 +26,14 @@ working on something further in.
 ```
 npm run check      # static: parses, imports, control characters, CSS classes
 npm test           # the above, plus the safety layer and the relay
+npm run bundle     # flatten to one self-contained file in dist/
 npm run relay      # the optional multi-user relay
 ```
+
+`npm run bundle` inlines the stylesheets and flattens the module graph into
+a single classic script, producing `dist/halcyon.html` with no external
+references at all. That file opens straight off disk, so it is the easiest
+way to hand the whole thing to somebody.
 
 ## What is in here
 
@@ -144,6 +150,7 @@ src/
 tools/
   check.mjs           static checks, no browser
   test.mjs            safety layer and relay behaviour
+  bundle.mjs          flatten to one self-contained HTML file
   relay.mjs           the optional multi-user relay
 ```
 

@@ -23,6 +23,14 @@ const note = (file, msg) => problems.push(relative(root, file) + ': ' + msg);
 // Control characters other than tab and newline.
 const CTRL = new RegExp('[\\u0000-\\u0008\\u000B-\\u001F\\u007F]');
 
+/* Import scanning runs on comment-free source: a doc comment that shows
+   an example import should not be mistaken for a real one. Only block
+   comments and whole-line `//` are removed, so a 'http://...' inside a
+   string survives. */
+const decomment = src => src
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+  .replace(/^[ \t]*\/\/.*$/gm, '');
+
 function walk(dir, out = []) {
   for (const e of readdirSync(dir)) {
     const p = join(dir, e);
@@ -67,7 +75,7 @@ for (const f of files) {
 /* ── 2 & 3: imports resolve, and name something that exists ─────────── */
 
 for (const f of files) {
-  const src = readFileSync(f, 'utf8');
+  const src = decomment(readFileSync(f, 'utf8'));
   const re = /import\s+(?:([\w$*\s{},\n]+?)\s+from\s+)?['"]([^'"]+)['"]/g;
   for (const m of src.matchAll(re)) {
     const spec = m[2];
@@ -89,7 +97,7 @@ for (const f of files) {
 /* ── imports that are never used ────────────────────────────────────── */
 
 for (const f of files) {
-  const src = readFileSync(f, 'utf8');
+  const src = decomment(readFileSync(f, 'utf8'));
   for (const m of src.matchAll(/^import\s+([^'"]+?)\s+from\s+['"][^'"]+['"];?$/gm)) {
     const clause = m[1];
     const names = [];

@@ -35,8 +35,8 @@ button, input, textarea, select { font: inherit; color: inherit; }
 
 #room {
   position: fixed; inset: 0;
-  display: grid; place-items: center; gap: 24px;
-  grid-auto-flow: row;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 26px;
   background:
     radial-gradient(120% 90% at 50% 42%, #23242a 0%, #101115 55%, #050506 100%);
   cursor: default;
@@ -45,7 +45,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 @keyframes room-in { from { opacity: 0 } to { opacity: 1 } }
 
 .tower {
-  width: 232px; height: 330px;
+  width: 268px; height: 384px;
   background: linear-gradient(100deg, #d8d2bf 0%, #c9c2ac 42%, #b3ab94 100%);
   border-radius: 5px;
   box-shadow:
@@ -293,7 +293,8 @@ button, input, textarea, select { font: inherit; color: inherit; }
   padding: 1px 5px; display: flex; align-items: center;
   box-shadow: inset 1px 1px 0 var(--shadow), inset -1px -1px 0 var(--hilite);
 }
-.win-status span:first-child { flex: 1; }
+.win-status span:first-child { flex: 1; min-width: 0; }
+.win-status span:last-child { padding-right: 16px; }
 
 .win-grip {
   position: absolute; right: 0; bottom: 0; width: 15px; height: 15px;

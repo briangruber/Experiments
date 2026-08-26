@@ -4,7 +4,8 @@
 
 export const APPS = {
   halcyon: {
-    title: 'Halcyon Online 3.0', icon: 'halcyon', desktop: 1, start: 1, quick: 1,
+    title: 'Halcyon Online 3.0', short: 'Halcyon Online',
+    icon: 'halcyon', desktop: 1, start: 1, quick: 1,
     load: () => import('./halcyon/index.js'),
   },
   browser: {
@@ -60,6 +61,6 @@ export async function launch(key, ctx, args) {
 }
 
 export const listBy = field => Object.entries(APPS)
-  .filter(([, a]) => a[field])
+  .filter(([, a]) => a[field] != null)      // 0 is a position, not a falsehood
   .sort((a, b) => a[1][field] - b[1][field])
   .map(([key, a]) => ({ key, ...a }));
