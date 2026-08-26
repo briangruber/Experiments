@@ -30,6 +30,7 @@
 import { AbyssalWater, AbyssalSky } from '../vendor/abyssal/src/three/index.js';
 import { newParams, applyPreset, PRESETS } from '../vendor/abyssal/src/presets.js';
 import { get } from './params.js';
+import { WaveProbe } from './waveProbe.js';
 
 
 /**
@@ -202,6 +203,7 @@ export class AbyssalSea {
 
 		renderer.autoClear = false;
 		this.renderer = renderer;
+		this.probe = null;          // built lazily: needs the adopted gl context
 		this.preset = preset;
 		this.wake = null;
 		fitToLake( this.params, PRESETS[ preset ] );
@@ -303,6 +305,24 @@ export class AbyssalSea {
 
 		const d = this.water?.sunDirection;
 		return d && d.length === 3 ? d : null;
+
+	}
+
+	/**
+	 * Sample the sea's real height at four world XZ points — the hull's
+	 * contact corners — via an async GPU readback (see waveProbe.js). Reads
+	 * come back a frame late and smoothed; heights land in this.probe.h as
+	 * [bow, stern, portish, starboardish] in the order the points were given.
+	 *
+	 * This is what buoyancy runs on. The surface only exists on the GPU, so
+	 * without it a hull can only ever sit at y = 0 while the swell it is
+	 * supposedly riding moves underneath it.
+	 */
+	probeWaves( points, dt ) {
+
+		if ( ! this.probe ) this.probe = new WaveProbe( this.water.gl );
+		this.probe.update( this.params, this.water.ocean, points, dt );
+		return this.probe.h;
 
 	}
 

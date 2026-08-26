@@ -128,7 +128,7 @@ const body = new OceanBody(boat, { spray, seed: 7 });
 
 // --------------------------------------------------------------- boat state --
 // Position is the BOW: the arms are born there, so that is the anchor.
-const state = { x: 0, z: 0, heading: 0, t: 0, speed: 0, turn: 0 };
+const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
@@ -468,17 +468,43 @@ function stepSim(dt) {
   // heading swings the bow toward +X, which is screen LEFT. So starboard helm
   // has to decrease heading -- and this makes a positive Turn slider mean
   // "to starboard" as well.
-  state.turn = -turn;
-  state.heading += state.turn * dt;
-  const hx = Math.sin(state.heading), hz = Math.cos(state.heading);
+  //
+  // Three things separate this from the sprite-pivot it used to be:
+  //
+  //  · the rudder BITES, it does not switch. The yaw rate eases toward the
+  //    commanded one over ~0.35 s, so a tapped key nudges the bow instead of
+  //    snapping it, and the bank spring downstream sees a ramp, not a step.
+  //  · yaw authority scales with speed. A rudder is a wing in the propwash;
+  //    with no water moving over it a boat cannot turn on the spot, however
+  //    hard the wheel is over.
+  //  · the COURSE lags the heading. When the bow comes round, the hull keeps
+  //    carrying along its old track while the keel claws the velocity vector
+  //    around -- which is why a real boat carves through a turn crabbed a few
+  //    degrees bow-in, instead of rotating about its own axis like a compass
+  //    needle. Movement runs on the course; only the mesh runs on the heading.
+  const cmd = -turn;
+  state.turn += (cmd - state.turn) * (1 - Math.exp(-dt / 0.35));
+  const authority = THREE.MathUtils.smoothstep(state.speed, 0.4, 4.0);
+  state.heading += state.turn * authority * dt;
+  // Grip: how fast the keel pulls the track onto the heading. Low grip is a
+  // skidding flat-bottom skiff; high grip is a deep-vee on rails.
+  const gripTau = THREE.MathUtils.lerp(1.3, 0.12, get('boat.grip'));
+  let dCourse = state.heading - state.course;
+  dCourse = ((dCourse + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+  state.course += dCourse * (1 - Math.exp(-dt / gripTau));
+  const hx = Math.sin(state.course), hz = Math.cos(state.course);
   state.x += hx * state.speed * dt;
   state.z += hz * state.speed * dt;
   // The BOW, not the simulated pivot. The field treats arc 0 as the stem and
   // carves the hull's footprint from there; anchoring it at the pivot while
   // the hull is drawn ahead of it opens a hull-shaped hole in the foam right
   // behind the transom.
+  // The anchor sits at the BOW -- along the HEADING, because that is where
+  // the hull geometrically is -- while the tangent is the COURSE, because
+  // that is the way the water was actually swept.
   const bowAhead = body.bowOffset();
-  wake.pushSample(state.x + hx * bowAhead, state.z + hz * bowAhead,
+  const bhx = Math.sin(state.heading), bhz = Math.cos(state.heading);
+  wake.pushSample(state.x + bhx * bowAhead, state.z + bhz * bowAhead,
                   hx, hz, state.t, state.speed, state.turn);
   return { hx, hz };
 }
@@ -621,6 +647,11 @@ function frame(now) {
   if (abyssal) {
     // Sea, scene, sky -- in that order, for the reasons in abyssalSea.js.
     sea.update(dt, camera);
+    // Probe the hull's four corners AFTER the sim update, so the cascades the
+    // probe samples are this frame's. The body consumed last frame's smoothed
+    // reading in step() above -- one frame of latency by design; the fence
+    // never stalls the pipeline.
+    body.applyWaves(sea.probeWaves(body.corners(), dt), get('boat.buoy'));
     sea.render(scene, camera);
   } else {
     renderer.autoClear = true;

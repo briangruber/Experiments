@@ -49,6 +49,14 @@ export const PARAMS = {
     // in Hz (a small planing hull is around 1); rollDamp is the damping ratio,
     // a little under 1 so it settles fast with a hint of overshoot as the hull
     // rolls in and catches itself.
+    // Bounding-box buoyancy: the sea's real height, probed at the hull's four
+    // corners (GPU readback, a frame late, smoothed), rocks the hull -- heave
+    // from the average, pitch bow-to-stern, roll beam-to-beam. 0 disables.
+    // How fast the keel pulls the track onto the heading in a turn. Low is a
+    // skidding flat-bottom; high is a deep-vee on rails. The gap between
+    // heading and course during a turn is the crab angle you can see.
+    grip:         { v: 0.7,  min: 0,   max: 1,   step: 0.01, label: 'Keel grip' },
+    buoy:         { v: 1.0,  min: 0,   max: 1.5, step: 0.01, label: 'Ride the waves' },
     rollRate:     { v: 0.85, min: 0.1, max: 3,   step: 0.01, label: 'Roll rate (Hz)' },
     rollDamp:     { v: 0.72, min: 0.1, max: 2,   step: 0.01, label: 'Roll damping' },
     engines:      { v: 2,    min: 1,   max: 4,   step: 1,    label: 'Engines' },

@@ -21,6 +21,55 @@ export { BOATS };
 const loader = new GLTFLoader();
 
 /**
+ * Decode the GLB's embedded textures ourselves, from bytes to ImageBitmap,
+ * with no URL in sight.
+ *
+ * Why: GLTFLoader loads an embedded image by wrapping its bytes in a Blob,
+ * minting a blob: URL, and FETCHING it. Locally that is invisible; inside the
+ * published artifact it runs under a strict CSP, and a policy that does not
+ * allow blob: for images silently kills the fetch -- the model arrives with
+ * materials whose map never resolved, and every hull renders base-colour
+ * grey. That is why the boats were textured in every local test and grey in
+ * the published page: same code, different CSP.
+ *
+ * createImageBitmap(blob) is a direct decode -- no URL, no fetch, nothing for
+ * a network policy to veto -- so the texture is rebuilt from the same bytes
+ * and assigned over whatever the loader managed. Where the loader DID succeed
+ * this is a no-op visually; where it was blocked, this is the texture.
+ */
+async function rebuildTextures( glbBytes, root ) {
+
+	const dv = new DataView( glbBytes );
+	if ( dv.getUint32( 0, true ) !== 0x46546c67 ) return;   // not a GLB
+	const jsonLen = dv.getUint32( 12, true );
+	const json = JSON.parse( new TextDecoder().decode(
+		new Uint8Array( glbBytes, 20, jsonLen ) ) );
+	const binOff = 20 + jsonLen + 8;
+	const img = json.images?.[ 0 ];
+	if ( ! img || img.bufferView === undefined ) return;
+	const bv = json.bufferViews[ img.bufferView ];
+	const bytes = new Uint8Array( glbBytes, binOff + ( bv.byteOffset ?? 0 ), bv.byteLength );
+	const bitmap = await createImageBitmap(
+		new Blob( [ bytes ], { type: img.mimeType || 'image/jpeg' } ),
+		// glTF UVs have the origin at the top: no flip, and say so explicitly
+		// so the browser cannot apply its own default orientation either way.
+		{ imageOrientation: 'none', premultiplyAlpha: 'none', colorSpaceConversion: 'default' },
+	);
+	const tex = new THREE.Texture( bitmap );
+	tex.flipY = false;
+	tex.colorSpace = THREE.SRGBColorSpace;
+	tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+	tex.needsUpdate = true;
+	root.traverse( ( o ) => {
+		if ( o.isMesh && o.material ) {
+			o.material.map = tex;
+			o.material.needsUpdate = true;
+		}
+	} );
+
+}
+
+/**
  * True when the model's fine end points backwards along +Z.
  *
  * Bins every vertex by its position along the length and compares the mean
@@ -139,7 +188,12 @@ export async function loadBoat( id ) {
 	if ( cache.has( id ) ) return cache.get( id );
 
 	const entry = BOATS.find( ( b ) => b.id === id ) || BOATS[ 0 ];
-	const gltf = await loader.parseAsync( glbBuffer( entry.glb ), '' );
+	const buf = glbBuffer( entry.glb );
+	const gltf = await loader.parseAsync( buf, '' );
+	// See rebuildTextures: under the artifact's CSP the loader's own texture
+	// fetch can be silently blocked, and this is the path that cannot be.
+	try { await rebuildTextures( buf, gltf.scene ); }
+	catch ( e ) { console.warn( 'texture rebuild failed for', id, e.message ); }
 
 	const fitted = fitToHull( gltf.scene );
 	fitted.traverse( ( o ) => {

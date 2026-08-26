@@ -55,6 +55,9 @@ export class OceanBody {
 		// the lean lags the wheel instead of tracking it. See rollTo().
 		this.roll = 0;
 		this.rollVel = 0;
+		// What the sea is doing under the four corners, fed by the wave probe:
+		// heave in metres, pitch and roll in radians. Zero until a probe reports.
+		this.wave = { heave: 0, pitch: 0, roll: 0 };
 
 	}
 
@@ -159,6 +162,47 @@ export class OceanBody {
 	}
 
 	/**
+	 * The hull's four water-contact corners, world XZ, for the wave probe:
+	 * [bow, stern, +lateral, -lateral]. Bow and stern set the pitch, the two
+	 * beam points the roll, and all four average into the heave.
+	 */
+	corners() {
+
+		const fwd = this.forward();
+		const b = this.bow();
+		const L = this.length;
+		const half = this.beam * 0.5;
+		const nx = - fwd.y, nz = fwd.x;
+		const midX = b.x - fwd.x * L * 0.5, midZ = b.z - fwd.y * L * 0.5;
+		return [
+			[ b.x, b.z ],
+			[ b.x - fwd.x * L, b.z - fwd.y * L ],
+			[ midX + nx * half, midZ + nz * half ],
+			[ midX - nx * half, midZ - nz * half ],
+		];
+
+	}
+
+	/**
+	 * Digest four probed heights into heave / pitch / roll.
+	 *
+	 * This is the bounding-box buoyancy: the hull is treated as a raft on the
+	 * four corner heights. Pitch is the bow-stern difference over the length,
+	 * roll the beam difference over the beam, heave the average — each an
+	 * atan2, so a huge rogue reading tilts the hull to a sane angle instead of
+	 * standing it on end. `amount` scales all three; the probe has already
+	 * smoothed in time.
+	 */
+	applyWaves( h, amount = 1 ) {
+
+		if ( ! h ) return;
+		this.wave.heave = ( ( h[ 0 ] + h[ 1 ] + h[ 2 ] + h[ 3 ] ) / 4 ) * amount;
+		this.wave.pitch = Math.atan2( h[ 0 ] - h[ 1 ], this.length ) * amount;
+		this.wave.roll = Math.atan2( h[ 2 ] - h[ 3 ], this.beam ) * amount;
+
+	}
+
+	/**
 	 * Where the stem actually is, in world XZ.
 	 *
 	 * Everything that means "the bow" has to agree on this. The wake field
@@ -220,9 +264,13 @@ export class OceanBody {
 		// actually pitches about.
 		const TRIM_PIVOT = 0.72;
 		const b = this.bow();
-		this.mesh.rotation.set( - trim, this.state.heading, this.roll, 'YXZ' );
+		// The sea's contribution rides on top of the speed trim and the turn
+		// bank: a hull climbing a swell while leaning into a turn does both.
+		this.mesh.rotation.set( - trim - this.wave.pitch, this.state.heading,
+			this.roll + this.wave.roll, 'YXZ' );
 		this.mesh.position.set( b.x,
-			att.rise + Math.sin( trim ) * this.length * TRIM_PIVOT, b.z );
+			att.rise + this.wave.heave
+				+ Math.sin( trim ) * this.length * TRIM_PIVOT, b.z );
 
 	}
 
