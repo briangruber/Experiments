@@ -243,6 +243,58 @@ export class AbyssalSea {
 	}
 
 	/**
+	 * The sun as a LIGHT, not just a direction.
+	 *
+	 * Handing back only the direction was not enough, and the boats are what
+	 * showed it: at a 4 degree golden-hour sun, N.L is near zero on every
+	 * upward-facing surface, so a hull was lit almost entirely by the
+	 * prototype's flat blue-grey AmbientLight and came out looking like white
+	 * plastic. The texture was fine the whole time -- rendered unlit it is a
+	 * warm brown at full saturation -- it simply had almost no directional
+	 * light to show it.
+	 *
+	 * So the colour and the strength come from the same atmosphere the sea
+	 * uses: a low sun is dim and red because its light has crossed far more air,
+	 * and the sky's own contribution rises to fill in as it sets. Both fall out
+	 * of the elevation rather than being dialled in per preset.
+	 */
+	sunLight() {
+
+		const d = this.sunDirection();
+		if ( ! d ) return null;
+		const el = Math.max( d[ 1 ], 0 );                 // sin(elevation)
+
+		// Air mass along the sight line to the sun, capped for the horizon
+		// case where the true expression runs away.
+		const air = 1 / Math.max( el, 0.05 );
+		// Rayleigh takes the short wavelengths out first, which is why a low
+		// sun is red. Coefficients in the usual ratio, scaled so a sun
+		// overhead is very nearly white.
+		const ext = ( k ) => Math.exp( - k * ( air - 1 ) * 0.09 );
+		const p = this.params;
+		const base = p.sunColor ?? [ 1, 1, 1 ];
+		const colour = [ base[ 0 ] * ext( 1.0 ), base[ 1 ] * ext( 2.1 ), base[ 2 ] * ext( 4.4 ) ];
+
+		// Extinction ONLY -- deliberately not multiplied by the elevation.
+		//
+		// A DirectionalLight's intensity is the irradiance PERPENDICULAR to the
+		// beam; the cosine of the angle a surface makes with it falls out of
+		// N.L during shading. Multiplying by sin(elevation) here applies that
+		// cosine a second time, which put a 4 degree sun at 0.7% of noon
+		// instead of about 9% and left the hull lit by ambient alone -- the
+		// very fault this method exists to fix.
+		const strength = ext( 2.1 );
+
+		// What the sky puts in. It does not vanish with the sun -- at dusk it
+		// is most of the light there is -- so it is floored, and tinted toward
+		// the blue it actually is rather than toward the sun's own colour.
+		const sky = 0.22 + 0.55 * Math.pow( Math.max( el, 0 ), 0.5 );
+
+		return { colour, strength, sky };
+
+	}
+
+	/**
 	 * Unit vector toward the sun, so everything the prototype draws itself is
 	 * lit by the same one the sea and sky use. Returns null before the first
 	 * update, which is the caller's cue to keep its own.

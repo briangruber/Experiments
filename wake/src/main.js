@@ -34,7 +34,8 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 const scene = new THREE.Scene();
 // Halved against the pre-tonemapping values: ACES maps a much wider range in,
 // so the same numbers would still clip.
-scene.add(new THREE.AmbientLight(0xa8c0d8, 0.55));
+const ambient = new THREE.AmbientLight(0xa8c0d8, 0.55);
+scene.add(ambient);
 const sun = new THREE.DirectionalLight(0xfff2e0, 1.15);
 scene.add(sun);
 
@@ -577,6 +578,21 @@ function frame(now) {
       sun.position.copy(sd).multiplyScalar(200).add(boat.position);
       sun.target.position.copy(boat.position);
       sun.target.updateMatrixWorld();
+    }
+    // ...and the sun's COLOUR and STRENGTH, not just where it is. A fixed
+    // white directional at a fixed intensity is what left the hulls looking
+    // like white plastic at golden hour: with the sun four degrees up, N.L is
+    // near zero on every upward face and a flat blue-grey ambient was doing
+    // nearly all the lighting.
+    const sl = sea.sunLight();
+    if (sl) {
+      const gain = get('scene.meshSun');
+      sun.color.setRGB(sl.colour[0], sl.colour[1], sl.colour[2]);
+      sun.intensity = sl.strength * gain * 3.2;
+      // The sky fills in as the sun goes: at dusk it is most of the light
+      // there is, which is why the ambient is floored rather than tracking
+      // the sun to zero.
+      ambient.intensity = sl.sky * gain * 0.9;
     }
   }
   if (!abyssal) {
