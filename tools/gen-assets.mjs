@@ -135,6 +135,17 @@ const REVERIE = [
    'the inside of a 1990s video game arcade at night: a row of tall ' +
    'cabinets glowing purple and pink, a patterned carpet, a change ' +
    'machine, neon on the walls, ' + PIXEL_STYLE],
+  /* The two door banners. Dropped once already when this list was
+     rewritten, which is what the ART-key check in tools/check.mjs is for. */
+  ['game-dawn', 320, 72,
+   'flat cartoon poster illustration, thick black outlines, cel shaded: a ' +
+   'red biplane and a green biplane chasing each other through fat white ' +
+   'clouds at sunrise, wide banner composition, ' + REVERIE_STYLE],
+  ['game-golf', 320, 72,
+   'flat cartoon poster illustration, thick black outlines, cel shaded: a ' +
+   'crazy golf course on a wooden seaside pier, a red windmill, a striped ' +
+   'flag in the hole, bunting overhead, wide banner composition, ' +
+   REVERIE_STYLE],
   ['rev-castle', 256, 128,
    'a courtyard inside a storybook stone castle with blue pennants, a ' +
    'wooden games table and lit torches, ' + PIXEL_STYLE],
