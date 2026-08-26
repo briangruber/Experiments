@@ -148,6 +148,16 @@ function fitToLake( p, preset = {} ) {
 	p.bedWeed = [ 0.18, 0.24, 0.19 ];
 	p.bedWeedAmount = get( 'lake.weed' );
 
+	// The lace, for the sea as well as the wake. Written every frame from the
+	// prototype's own foam controls, so the two surfaces cannot drift apart.
+	p.labLace = get( 'foamLook.lace' ) * 0.55;
+	p.labSoft = get( 'foamLook.softness' );
+	p.labCoarsen = get( 'foamLook.coarsen' );
+	p.labDensity = get( 'foamMix.density' );
+	p.labGain = get( 'foamMix.wakeGain' );
+	p.labSeaLace = get( 'foamMix.seaLace' );
+	p.labSeaBreak = get( 'foamMix.seaBreak' );
+
 	const tint = get( 'scene.waterTint' );
 	const c = preset.scatterColor ?? [ 0.055, 0.145, 0.095 ];
 	// Deep water, and NOT darker water. The first version of this used

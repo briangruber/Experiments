@@ -181,6 +181,16 @@ export const PARAMS = {
     // the prototype's peaks around 0.12, so the wake needs gain before it is
     // shaded or it is drawn at a few percent opacity and reads as clean water.
     wakeGain:     { v: 5.5,  min: 0,   max: 16,  step: 0.1,  label: 'Wake foam gain' },
+    // The SEA's own whitecaps, not the wake's. 1 gives them the same lace the
+    // boat leaves behind -- Abyssal's own is a Worley web, and it thresholds in
+    // exactly the same form, so this swaps the field and nothing else.
+    seaLace:      { v: 1,    min: 0,   max: 1,   step: 0.01, label: 'Sea foam uses our lace' },
+    // ...and coverage from waves actually BREAKING: steepness is amplitude
+    // times wavenumber, which for a surface is the magnitude of its slope, and
+    // past a critical value a crest spills. Additive, because the FFT's own
+    // Jacobian fold catches where the surface folds OVER, which slope alone
+    // cannot -- so this adds the steep-crest case rather than replacing it.
+    seaBreak:     { v: 0.35, min: 0,   max: 1.5, step: 0.01, label: 'Sea foam from breaking' },
     density:      { v: 1.75, min: 0.3, max: 8,   step: 0.05, label: 'Opacity build' },
     translucency: { v: 0.58, min: 0,   max: 1,   step: 0.01, label: 'Water shows through' },
     aeration:     { v: 0.44, min: 0,   max: 1.5, step: 0.01, label: 'Aerated teal halo' },

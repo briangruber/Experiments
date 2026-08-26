@@ -203,13 +203,18 @@ ${NOISE_GLSL}
 //     own gradient and snaps the lace onto iso-contours of foam. So coverage
 //     widens the WALL and never moves the point.
 uniform float uLabLace, uLabSoft, uLabCoarsen, uLabDensity, uLabGain;
+uniform float uLabSea, uLabSeaBreak;
 
 float labLattice(vec2 p, float w){
   return 1.0 - smoothstep(0.0, w, abs(fbm2(p, 3) - 0.50));
 }
 
-// cover: how much of this water is aerated. px: the world width of one pixel.
-float labLace(vec2 world, float cover, float px){
+// The raw lace FIELD, before any threshold. Split out because the sea's own
+// whitecaps threshold a detail field in exactly the same form the wake does --
+// smoothstep(1-cover-e, 1-cover+e, detail) -- so once this is separate, both
+// can be shaped by the same lace and the sea stops wearing a different foam
+// from the boat.
+float labDetail(vec2 world, float cover, float px){
   float scale = max(uLabLace, 0.001);
   // Thinning foam is old foam, and a bubble raft coarsens as it ages.
   float wall = 0.125 + uLabCoarsen * 0.085 * (1.0 - clamp(cover, 0.0, 1.0));
@@ -221,11 +226,15 @@ float labLace(vec2 world, float cover, float px){
   float detail = clamp(grain * 0.68 + cells * 0.46, 0.0, 1.0);
   // Sub-pixel lace aliases into sparkle, so fade it toward flat coverage.
   float cell = 1.0 / scale;
-  detail = mix(0.5, detail, 1.0 - smoothstep(0.22, 0.75, px / cell));
+  return mix(0.5, detail, 1.0 - smoothstep(0.22, 0.75, px / cell));
+}
+
+// cover: how much of this water is aerated. px: the world width of one pixel.
+float labLace(vec2 world, float cover, float px){
   float b = max(uLabSoft, 0.02);
   // Coverage slides a threshold down through the field: dense foam takes all
   // of it, thin foam keeps only the cell walls, and between them is the fringe.
-  return smoothstep(1.0 - cover - b, 1.0 - cover + b, detail);
+  return smoothstep(1.0 - cover - b, 1.0 - cover + b, labDetail(world, cover, px));
 }
 
 ${ATMOSPHERE_GLSL}
@@ -920,6 +929,26 @@ void main(){
   float eF = 0.22, eR = 0.34;
   // Crisp resolve tails past coverage 0 (smoothstep(1-e, 1+e, fd) still lights
   // the top of the noise field). Gate by coverage so a zeroed Foam amount is empty.
+  // FORKED: the sea's own foam gets the same lace the wake does.
+  //
+  // fd is Abyssal's Worley web. It thresholds in exactly the form our lace
+  // does, so swapping the FIELD swaps the look without touching the coverage
+  // logic around it -- which is why this is a crossfade of one term rather
+  // than a rewrite of the block.
+  if (uLabSea > 0.001) {
+    fd = mix(fd, labDetail(vFlat.xz, max(covF, covR), foot), uLabSea);
+  }
+  // ...and coverage can come from the wave BREAKING, on the same criterion the
+  // wake uses: steepness is amplitude times wavenumber, which for a surface is
+  // just the magnitude of its slope, and past a critical value a crest spills.
+  // Additive, because the FFT's own Jacobian fold is a genuinely good breaking
+  // test too -- it catches where the surface folds over, which slope alone
+  // cannot -- so this adds the steep-crest case rather than replacing it.
+  if (uLabSeaBreak > 0.001) {
+    float seaSteep = length(slope);
+    float broke = smoothstep(0.28, 0.72, seaSteep) * uLabSeaBreak;
+    covF = clamp(covF + broke, 0.0, 1.0);
+  }
   float maskF = mix(clamp(covF * mix(1.0, shape,  clumpRes), 0.0, 1.0),
                     smoothstep(1.0 - covF - eF, 1.0 - covF + eF, fd) * smoothstep(0.0, eF, covF), crisp) * gateF;
   float maskR = mix(clamp(covR * mix(1.0, shapeR, clumpRes), 0.0, 1.0),
