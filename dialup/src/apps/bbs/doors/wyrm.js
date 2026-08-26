@@ -209,12 +209,13 @@ export async function playWyrm(t, handle) {
     t.write(rule(78, { fg: 6, ch: '▀' }));
     t.write(bigText('LOW BRIDGE', { fg: 10, shade: 2, indent: 4 }));
     status();
+    const pair = (a, b) => ' ' + padTo(a, 24) + (b || '');
     t.write(shadowBox([
-      ' |11(F)|15 The forest' + ' '.repeat(9) + '|11(T)|15 The training hall',
-      ' |11(H)|15 The healer' + ' '.repeat(9) + '|11(W)|15 The weaponsmith',
-      ' |11(A)|15 The armourer' + ' '.repeat(7) + '|11(B)|15 The bank',
-      ' |11(I)|15 The inn' + ' '.repeat(11) + '|11(L)|15 The hall of fame',
-      ' |11(Q)|15 Leave the village',
+      pair('|11(F)|15 The forest', '|11(T)|15 The training hall'),
+      pair('|11(H)|15 The healer', '|11(W)|15 The weaponsmith'),
+      pair('|11(A)|15 The armourer', '|11(B)|15 The bank'),
+      pair('|11(I)|15 The inn', '|11(L)|15 The hall of fame'),
+      pair('|11(Q)|15 Leave the village'),
     ], { width: 48, edge: 3, fill: 1, indent: 16 }));
     if (ready()) t.write('|14  ' + master().name + ' has been asking after you.\n');
     t.write('\n|15Your choice: |07');
@@ -231,12 +232,15 @@ export async function playWyrm(t, handle) {
   }
 
   function status() {
-    t.write('\n|08 Level |15' + s.level + '|08   Hit points |07' + bar(s.hp, s.maxHp, 16) +
+    const need = topped() ? Math.max(1, s.xp) : master().xp;
+    t.write('|08  hit points ' + meter(s.hp, s.maxHp, 22) +
             ' |15' + s.hp + '|08/|15' + s.maxHp + '\n' +
-            '|08 Strength |15' + s.str + '|08  Defence |15' + s.def +
-            '|08  Gold |14' + s.gold + '|08  Banked |14' + s.bank + '\n' +
-            '|08 Fights left today |15' + s.fights +
-            '|08   Experience |15' + s.xp + '|08 of |15' + master().xp + '\n');
+            '|08  experience ' + meter(s.xp, need, 22, { on: 14, off: 8 }) +
+            (topped() ? ' |14nothing left to learn'
+                      : ' |15' + s.xp + '|08 of |15' + need) + '\n' +
+            '|08  level |15' + s.level + '|08   strength |15' + s.str +
+            '|08   defence |15' + s.def + '|08   gold |14' + s.gold +
+            '|08   banked |14' + s.bank + '|08   fights |15' + s.fights + '|07\n\n');
   }
 
   /* ── the forest ────────────────────────────────────────────────────── */
