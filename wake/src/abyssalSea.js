@@ -128,6 +128,7 @@ export class AbyssalSea {
 		renderer.autoClear = false;
 		this.renderer = renderer;
 		this.preset = preset;
+		this.wake = null;
 		this.sky = new AbyssalSky( renderer, { params: this.params } );
 		this.water = new AbyssalWater( renderer, { params: this.params, sky: this.sky } );
 
@@ -174,6 +175,16 @@ export class AbyssalSea {
 	}
 
 	/**
+	 * Hand the prototype's wake field to the water. Until this is set the sea
+	 * draws with no wake at all, which is correct but not useful.
+	 */
+	setWake( bridge ) {
+
+		this.wake = bridge;
+
+	}
+
+	/**
 	 * Draw a whole frame: sea, then the caller's scene, then sky. Sequencing it
 	 * here rather than leaving three calls to the caller is the point — the
 	 * order is a correctness requirement, not a preference, and every way of
@@ -183,7 +194,7 @@ export class AbyssalSea {
 	render( scene, camera ) {
 
 		this.renderer.clear();
-		this.water.render( camera );
+		this.water.render( camera, this.wake ? { wake: this.wake } : {} );
 		this.renderer.render( scene, camera );
 		this.sky.render( camera );
 

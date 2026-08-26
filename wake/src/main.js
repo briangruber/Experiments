@@ -8,6 +8,7 @@ import { Terrain } from './terrain.js';
 import { heightAt } from './lakeHeight.js';
 import { AbyssalSea, PRESET_NAMES } from './abyssalSea.js';
 import { OceanBody } from './oceanBody.js';
+import { WakeBridge } from './wakeBridge.js';
 import { Spray } from './spray.js';
 import { buildUI } from './ui.js';
 
@@ -47,6 +48,8 @@ try {
   console.warn('Abyssal sea unavailable, falling back to the lab ocean:', e.message);
 }
 const useAbyssal = () => sea !== null && get('scene.abyssal') > 0.5;
+// Our field, their water. This is the seam the whole swap hangs on.
+if (sea) sea.setWake(new WakeBridge(renderer, wake));
 
 scene.add(terrain.mesh);
 // Only the analytic path owns a sky dome, a far sea and a water plane; Abyssal

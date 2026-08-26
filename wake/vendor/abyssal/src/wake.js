@@ -65,115 +65,41 @@ const float WAKE_ZONE_CREST = ${ WAKE_ZONE_CREST };
 // w is vDist (m along track). Where there is no record this is (-1, 1, 0, 0)
 // — x < 0 is the flag. Twin: wakeAgeAt() in gpu/tsl/water-common.js.
 vec4 wakeAgeAt(vec2 p){
-  vec2 uv = (p - uWakeOrigin) / uWakeExtent + 0.5;
-  if (length(uv - 0.5) * 2.0 >= 0.999) return vec4(-1.0, 1.0, 0.0, 0.0);
-  vec4 r = texture(uWakeTex, uv);
-  if (r.r < 0.002) return vec4(-1.0, 1.0, 0.0, 0.0);
-  float age = r.g, lat = r.b;
-  // Same arm locus wakeAt() reconstructs the ridge from.
-  float arm = uWakeWidth0 + r.a * age;
-  // Prop wash is narrow down the center line.
-  // fwidth() is fragment-only, and WAKE_SAMPLE_GLSL is included in WATER_VS as
-  // well, where wakeAgeAt() is never called but still has to compile. Without
-  // this guard the vertex shader fails on 'fwidth', the water program never
-  // links, and the sea does not draw at all.
-#ifdef ABYSSAL_FRAGMENT
-  float px = max(fwidth(lat), 0.12);
-#else
-  float px = 0.12;
-#endif
-  float coreW = max(max(uWakeWidth0 * 0.75, 0.45) * (1.0 + 0.18 * age), px * 1.05);
-  float cn = lat / coreW;
-  float core = exp(-cn * cn);
-  float vDist = age * max(uWakeSpeed, 6.0);
-  float scallop = sin(vDist * 1.6 + lat * 0.4) * 0.14;
-  float crestW = max(max(uWakeArmW * (1.0 + uWakeSpread * age), 0.55), px * 1.15);
-  float rn = (abs(lat) - arm + scallop * crestW) / (crestW * 0.65);
-  float crest = exp(-rn * rn);
-  float outerCut = 1.0 - smoothstep(arm + crestW * 0.2, arm + crestW * 1.2, abs(lat));
-  float interior = smoothstep(coreW * 1.2, arm * 0.85, abs(lat));
-  return vec4(
-    clamp(age / max(uWakeLife, 0.001), 0.0, 1.0),
-    clamp((core * 0.95 + crest * 0.85 + interior * WAKE_ZONE_FLOOR) * outerCut, 0.0, 1.0),
-    lat,
-    vDist
-  );
+  // FORKED: the prototype's field carries no age/lat record -- its shaping is
+  // already baked into the coverage channel. (-1, 1, 0, 0) is upstream's
+  // documented "no record here" flag, which leaves the across-track zone
+  // shaping neutral rather than reconstructing a wake shape we did not bake.
+  return vec4(-1.0, 1.0, 0.0, 0.0);
 }
 
 vec3 wakeAt(vec2 p){
+  // FORKED for the wake lab. Upstream reconstructs a wake from a compact
+  // record (stir / age / lat / arm-rate) and rebuilds the arms, the churn and
+  // the height here in the shader. The prototype does all of that when it
+  // BAKES its field, every frame, so by the time the texture exists there is
+  // nothing left to reconstruct -- the channels are already the answer:
+  //
+  //   R  foam coverage 0..2      G  surface height, signed metres
+  //   B  surfaced bubbles        A  bubble density
+  //
+  // So this reads them, and the only work left is the rim feather.
   vec2 uv = (p - uWakeOrigin) / uWakeExtent + 0.5;
-  // Inscribed circle, not the square. The square's far edge is a
-  // line of constant Z — a dead-straight horizontal cut.
+  // Inscribed circle, not the square: the square's far edge is a line of
+  // constant Z, which draws a dead-straight horizontal cut across the sea.
   float radial = length(uv - 0.5) * 2.0;
   if (radial >= 1.0) return vec3(0.0);
   vec4 r = texture(uWakeTex, uv);
-  float stir = r.r, age = r.g, lat = r.b, rate = r.a;
-  if (stir < 0.002 || age >= uWakeLife) return vec3(0.0);
+
   float edgeLo = 1.0 - max(uWakeEdge, 0.18) * 1.8;
   float edge = 1.0 - smoothstep(edgeLo, 1.0, radial);
-  float fade = max(1.0 - age / uWakeLife, 0.0) * edge;
 
-  // width0 is the half-width the V starts at (hull beam). 0 keeps the
-  // historical point-origin: arm = rate * age.
-  float arm = uWakeWidth0 + rate * age;
-  float w   = max(uWakeArmW * (1.0 + uWakeSpread * age), 0.05);
-  float q   = (abs(lat) - arm) / w;
-  float ridge = uWakeArms > 0.5 ? exp(-q * q) : 0.0;
-  float tAge = clamp(age / max(uWakeLife, 0.001), 0.0, 1.0);
-  float beamW = uWakeWidth1 > 0.01
-    ? mix(max(uWakeWidth0, 0.15), uWakeWidth1, tAge)
-    : max(uWakeBeam * (1.0 + 0.55 * age), 0.15);
-  float cq = lat / beamW;
-  float churnRaw = exp(-cq * cq);
-
-  float born = smoothstep(0.06, 0.22, age);
-  // Historical (width0 = 0): foam stays on the track, height on the
-  // travelling ridge — a drawn line on the arms was the failure mode.
-  // Photo recipe (width0 set): the V IS the white water (both Kelvin
-  // arms + a short prop boil). Foam born is earlier so the transom is not a gap.
-  float photo = step(0.05, uWakeWidth0);
-  float foamBorn = mix(born, smoothstep(0.0, 0.10, age), photo);
-  float foamW = max(uWakeArmW * mix(1.0 + 0.28 * age, 0.42, photo), 0.08);
-  float trail = exp(-(lat / foamW) * (lat / foamW));
-  float parked = 0.0;
-  if (uWakeWidth0 > 0.05 && uWakeArms > 0.5) {
-    float pq = (abs(lat) - uWakeWidth0) / max(uWakeArmW, 0.05);
-    parked = exp(-pq * pq);
-  }
-  float boilLife = uWakeLife * mix(0.5, 0.26, photo);
-  float boil = churnRaw * max(1.0 - age / max(boilLife, 0.12), 0.0);
-  float armFoam = photo * ridge * uWakeArm;
-  // Historical: foam on the track + a parked V + the travelling ridge.
-  // Photo: white on both Kelvin arms and a short prop boil — no stacked
-  // trail/parked blob, and no age-hashed fleck. Age in the hash made the
-  // V flicker left/right every frame; punching the arms to 0.16 read as
-  // dither, not foam.
-  float histFoam = trail * uWakeArm * uWakeTrail + boil * uWakeChurn * uWakeTrail
-    + parked * uWakeArm + armFoam;
-  float photoFoam = ridge * uWakeArm + boil * uWakeChurn * uWakeTrail;
-  float foam = mix(histFoam, photoFoam, photo) * stir * fade * foamBorn;
-  float n = fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
-  foam *= 1.0 + (n - 0.5) * uWakeTurb * mix(1.4, 0.45, photo);
-  float live = smoothstep(0.0, 0.18, stir);
-  // Historical: a positive tube on the travelling ridge. Photo recipe
-  // (width0 set): Kelvin mounds on the arms and a carved trough between
-  // them — the boat's actual displacement, not a foam decal.
-  float osc = mix(1.0, 0.72 + 0.28 * cos(age * 4.4), photo);
-  float trough = -churnRaw * (1.0 - ridge) * photo * uWakeCut;
-  float h = (ridge * osc + trough) * fade * live * born * uWakeDepth;
-  if (uWakeBow.z > 0.001) {
-    vec2 br = p - uWakeBow.xy;
-    float blo = dot(br, uWakeFwd);
-    float bla = br.x * (-uWakeFwd.y) + br.y * uWakeFwd.x;
-    float brh = max(uWakeBow.w, 0.08);
-    float bq = bla / (brh * 0.45);
-    float bAlong = blo / brh;
-    float bowMask = exp(-bq * bq) * exp(-bAlong * bAlong);
-    foam += uWakeBow.z * bowMask;
-    h += uWakeBow.z * bowMask * uWakeDepth * 0.85;
-  }
-  return vec3(clamp(foam * uWakeStrength, 0.0, 1.0), h,
-              clamp(churnRaw * stir * fade * born, 0.0, 1.0));
+  float foam = clamp(r.r, 0.0, 2.0) * uWakeStrength * edge;
+  float h = r.g * uWakeDepth * edge;
+  // z is "how disturbed is this water at all", which kills the sea's own
+  // ripples inside a track. Bubble density is the honest measure of that:
+  // aerated water is flat water, whether or not it is white on top.
+  float churn = clamp(max(r.r, r.a) * edge, 0.0, 1.0);
+  return vec3(clamp(foam, 0.0, 1.0), h, churn);
 }
 `;
 

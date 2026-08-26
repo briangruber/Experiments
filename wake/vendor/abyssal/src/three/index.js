@@ -207,11 +207,15 @@ export class AbyssalWater extends Component {
   }
 
   // Call BEFORE renderer.render(scene, camera), with renderer.autoClear = false.
-  render(camera) {
+  // FORKED from upstream: opts are forwarded to the surface. WaterSurface
+  // already accepts { wake, wakeActive, hull }, but this adapter dropped them,
+  // so the wake seam was unreachable from the three entry point. The prototype
+  // passes its own wake field through here.
+  render(camera, opts = {}) {
     if (camera) this.view.read(camera);
     resetDrawState(this.gl);
     this.surface.outExposure = this.exposure;
-    this.surface.render(this.params, this._ctx, this.ocean, this.sky);
+    this.surface.render(this.params, this._ctx, this.ocean, this.sky, opts);
     restoreThreeState(this.renderer);
   }
 
