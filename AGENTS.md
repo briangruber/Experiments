@@ -17,6 +17,7 @@ into the root or into `tools/` of another prototype.
 | task mentions | go to |
 | --- | --- |
 | ocean, water, sea, waves, sky, clouds, Abyssal, `abyssal-ocean`, WebGPU/TSL port | [`ocean/`](ocean/) — read [`ocean/AGENTS.md`](ocean/AGENTS.md) first |
+| 90s, nostalgia, dial-up, modem, AOL, Halcyon, Panes 95, chat rooms, the old web | [`dialup/`](dialup/) — read [`dialup/README.md`](dialup/README.md) first |
 
 Other prototypes (`harbor/`, `boats/`, `cozy-fishing/`) live on their own
 branches under the same convention.

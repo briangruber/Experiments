@@ -1,0 +1,203 @@
+/* NetScrape Navigator, and the pages it renders.
+   The browser chrome is grey and sensible; everything inside .web-page is
+   deliberately not. */
+
+/* ── browser chrome ──────────────────────────────────────────────────── */
+
+.web { display: flex; flex-direction: column; height: 100%; }
+
+.web-nav {
+  flex: none; display: flex; align-items: center; gap: 3px; padding: 3px;
+  border-bottom: 1px solid var(--shadow); box-shadow: 0 1px 0 var(--hilite);
+}
+.web-btn { min-width: 56px; }
+.web-throb { margin-left: auto; padding-right: 4px; }
+
+.throb { width: 24px; height: 24px; display: grid; place-items: center; }
+.throb-dot { transform-origin: 12px 12px; }
+.throb.on .throb-dot { animation: throb-spin 1.1s linear infinite; }
+@keyframes throb-spin { to { transform: rotate(360deg) } }
+.throb.on { filter: brightness(1.35); }
+
+.web-loc {
+  flex: none; display: flex; align-items: center; gap: 5px; padding: 3px 4px;
+  border-bottom: 1px solid var(--shadow); box-shadow: 0 1px 0 var(--hilite);
+}
+.web-url { flex: 1; font-family: var(--mono); font-size: 11px; }
+
+.web-page {
+  flex: 1; background: #c0c0c0; padding: 12px 16px; overflow: auto;
+  color: #000; user-select: text; -webkit-user-select: text;
+  font: 13px/1.5 "Times New Roman", Times, serif;
+}
+
+.web-status {
+  flex: none; display: flex; align-items: center; gap: 4px; padding: 2px 4px;
+  border-top: 1px solid var(--shadow); box-shadow: 0 -1px 0 var(--hilite) inset;
+  font-size: 10px;
+}
+.web-msg { flex: 1; padding: 1px 5px;
+           box-shadow: inset 1px 1px 0 var(--shadow), inset -1px -1px 0 var(--hilite); }
+.web-lock { padding: 1px 6px; color: #666;
+            box-shadow: inset 1px 1px 0 var(--shadow), inset -1px -1px 0 var(--hilite); }
+
+/* ── page themes ─────────────────────────────────────────────────────── */
+
+.web-page.theme-halcyon { background: #eef2f8; }
+.web-page.theme-search  { background: #ffffff; }
+.web-page.theme-plain   { background: #ffffff; max-width: none; }
+
+/* the personal-homepage look: dark tiled background, bright text */
+.web-page.theme-geo, .web-page.theme-loud {
+  color: #d8e6ff;
+  background-image:
+    radial-gradient(circle at 6px 6px, rgba(255,255,255,.20) 1px, transparent 1.4px),
+    radial-gradient(circle at 22px 18px, rgba(255,255,255,.12) 1px, transparent 1.4px);
+  background-size: 32px 28px;
+}
+.web-page.theme-loud { color: #b9ffe6; }
+
+/* ── page elements ───────────────────────────────────────────────────── */
+
+.web-h1 { font: 700 26px/1.2 "Times New Roman", serif; margin: 10px 0 6px; }
+.web-h2 { font: 700 19px/1.2 "Times New Roman", serif; margin: 14px 0 5px; }
+.web-p  { margin: 8px 0; }
+.web-pre {
+  font: 12px/1.4 "Courier New", monospace; background: rgba(0,0,0,.28);
+  padding: 8px 10px; overflow-x: auto; border: 1px solid rgba(255,255,255,.18);
+}
+.theme-halcyon .web-pre, .theme-search .web-pre, .theme-plain .web-pre {
+  background: #f2f2f2; border-color: #ccc; color: #222;
+}
+.web-hr { border: 0; border-top: 2px groove #999; margin: 12px 0; }
+.web-center { text-align: center; margin: 8px 0; }
+.web-ul { margin: 8px 0 8px 24px; }
+.web-ul li { margin: 4px 0; }
+.web-quote {
+  margin: 10px 0; padding: 6px 12px; border-left: 4px solid rgba(255,255,255,.4);
+  font-style: italic; opacity: .9;
+}
+.theme-halcyon .web-quote, .theme-plain .web-quote { border-left-color: #99b; }
+.web-table { border-collapse: collapse; margin: 8px 0; }
+.web-table td { border: 1px solid #999; padding: 5px 12px; }
+
+.web-a { color: #0000ee; text-decoration: underline; cursor: pointer; }
+.theme-geo .web-a, .theme-loud .web-a { color: #66ccff; }
+.theme-geo .web-a:visited, .web-a:visited { color: #551a8b; }
+.web-a:hover { color: #ee0000; }
+
+.web-blink { animation: blink-tag 1s steps(1) infinite; font-weight: 700; }
+@keyframes blink-tag { 50% { opacity: 0 } }
+
+.web-marq {
+  overflow: hidden; white-space: nowrap; margin: 10px 0; padding: 4px 0;
+  border-top: 1px solid rgba(255,255,255,.25); border-bottom: 1px solid rgba(255,255,255,.25);
+}
+.web-marq-in {
+  display: inline-block; padding-left: 100%;
+  animation: marq 17s linear infinite; font-weight: 700;
+}
+@keyframes marq { to { transform: translateX(-100%) } }
+
+/* ── "images" ────────────────────────────────────────────────────────── */
+
+.web-img {
+  display: inline-block; margin: 6px 4px; vertical-align: middle;
+  opacity: 0; transition: opacity .45s ease;
+}
+.web-img.loaded { opacity: 1; }
+.web-photo { display: block; image-rendering: pixelated; }
+
+.gif-construction {
+  width: 220px; height: 34px; display: grid; place-items: center;
+  background: repeating-linear-gradient(45deg, #f5c518 0 10px, #1a1a1a 10px 20px);
+  border: 2px solid #000;
+}
+.gif-construction span {
+  background: #f5c518; color: #000; font: 700 11px/1 Tahoma, sans-serif;
+  padding: 4px 8px; letter-spacing: .06em; border: 1px solid #000;
+}
+
+.gif-new {
+  display: inline-block; background: #d00; color: #ff0; padding: 3px 8px;
+  font: 700 12px Tahoma, sans-serif; border: 2px solid #ff0; border-radius: 3px;
+  animation: new-flash .7s steps(1) infinite;
+}
+@keyframes new-flash {
+  50% { background: #ff0; color: #d00; border-color: #d00; }
+}
+
+.gif-flame {
+  display: inline-block; padding: 8px 18px; font: 700 22px Tahoma, sans-serif;
+  color: #fff; letter-spacing: .04em;
+  background: linear-gradient(0deg, #ff0000, #ff8a00 38%, #ffe066 72%, #fff 100%);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 4px rgba(255,140,0,.7));
+  animation: flame 1.1s ease-in-out infinite alternate;
+}
+@keyframes flame { to { filter: drop-shadow(0 0 11px rgba(255,60,0,.9)) } }
+
+.gif-rule {
+  width: 260px; height: 8px;
+  background: linear-gradient(90deg, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff);
+  border-radius: 4px;
+}
+.gif-broken {
+  width: 62px; height: 46px; border: 1px solid #888; background: #fff;
+  display: grid; place-items: center;
+}
+.gif-broken span { font: 9px Tahoma, sans-serif; color: #666; }
+
+/* ── counters, guestbooks, rings ─────────────────────────────────────── */
+
+.web-counter-wrap {
+  display: inline-flex; align-items: center; gap: 8px; margin: 8px 0;
+  font: 11px Tahoma, sans-serif;
+}
+.web-counter { display: inline-flex; gap: 1px; }
+.web-counter i {
+  font: 700 15px/1 "Courier New", monospace; font-style: normal;
+  background: #000; color: #0f0; padding: 3px 4px; border: 1px solid #444;
+}
+
+.web-gb {
+  margin: 14px 0; padding: 10px 12px; background: rgba(255,255,255,.90);
+  color: #111; border: 2px ridge #999;
+}
+.web-gb h3 { margin: 0 0 8px; font: 700 15px "Times New Roman", serif; }
+.web-gb-form { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 9px; }
+.web-gb-form input:first-child { width: 130px; }
+.web-gb-form input:nth-child(2) { flex: 1; min-width: 160px; }
+.web-gb-list { max-height: 190px; overflow: auto; }
+.web-gb-entry {
+  padding: 5px 0; border-bottom: 1px dotted #bbb;
+  font: 12px/1.45 "Times New Roman", serif;
+}
+.web-gb-entry b { color: #006; }
+.web-gb-entry span { color: #777; font-size: 10px; }
+.web-gb-empty { color: #888; font-style: italic; padding: 6px 0; }
+.web-gb-note { margin-top: 8px; font: 10px Tahoma, sans-serif; color: #666; }
+
+.web-ring {
+  margin: 14px 0; padding: 9px 12px; text-align: center;
+  border: 2px ridge #9ab; background: rgba(0,0,0,.24);
+}
+.theme-halcyon .web-ring, .theme-plain .web-ring, .theme-search .web-ring {
+  background: #f4f6fa;
+}
+.web-ring-nav { display: flex; gap: 12px; justify-content: center; margin: 6px 0 4px; }
+.web-ring-note { font: 10px Tahoma, sans-serif; opacity: .8; }
+
+.web-award {
+  display: inline-block; margin: 10px 0; padding: 8px 14px; text-align: center;
+  border: 3px double #ffd700; background: rgba(0,0,0,.3);
+}
+.web-award b { display: block; color: #ffd700; font: 700 13px Tahoma, sans-serif; }
+.web-award span { display: block; font-size: 10px; opacity: .85; margin-top: 3px; }
+
+.web-search { display: flex; gap: 6px; justify-content: center; margin: 12px 0; }
+
+.web-404 { font-family: "Times New Roman", serif; }
+.web-404 h1 { font-size: 24px; margin: 0 0 10px; }
+.web-404 address { font-style: italic; font-size: 11px; color: #555; }

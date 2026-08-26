@@ -15,6 +15,7 @@ collide, and a branch can be merged without reading it first.
 | folder | what it is |
 | --- | --- |
 | `ocean/` | **Abyssal** — a real-time cinematic ocean simulator with a rideable wave runner, and the reusable water and sky components behind it. Multi-cascade FFT sea, volumetric clouds, GPU spray, persistent Kelvin wake. Published as `abyssal-ocean`, droppable into a Three.js scene. See [ocean/README.md](ocean/README.md). |
+| `dialup/` | **Halcyon Online** — a 1997 computer you switch on, dial into and talk to people on. Boots Panes 95, then a fictional online service with chat rooms, instant messages, mail and a hand-made web. Multi-user across browser tabs, with an optional local relay. Every sound is synthesised. See [dialup/README.md](dialup/README.md). |
 | `telenovela/` | Corazón de Gallina — a wordless chicken telenovela. Procedural birds, a hacienda courtyard, a cinematographer that speaks in shot sizes, and a synthesised organ sting. |
 
 Other prototypes currently live on their own branches and follow the same
@@ -48,3 +49,7 @@ node tools/shot.mjs --out shots/frame.png --w 1280 --h 720
 
 `tools/shot.mjs` exits non-zero on any WebGL or JS error, so it doubles as a
 smoke test.
+
+`dialup/` has no browser in its harness at all — `node tools/check.mjs`
+covers parsing, imports and dead references, and `node tools/test.mjs`
+covers the safety layer and the relay.
