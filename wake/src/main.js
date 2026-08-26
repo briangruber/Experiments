@@ -49,7 +49,8 @@ try {
 }
 const useAbyssal = () => sea !== null && get('scene.abyssal') > 0.5;
 // Our field, their water. This is the seam the whole swap hangs on.
-if (sea) sea.setWake(new WakeBridge(renderer, wake));
+const wakeBridge = sea ? new WakeBridge(renderer, wake) : null;
+if (sea) sea.setWake(wakeBridge);
 
 scene.add(terrain.mesh);
 // Only the analytic path owns a sky dome, a far sea and a water plane; Abyssal
@@ -525,4 +526,4 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // Expose for the headless capture harness.
-window.__wake = { PARAMS, set, get, state, view, renderer, wake, ocean, stepSim };
+window.__wake = { PARAMS, set, get, state, view, renderer, wake, ocean, stepSim, sea, wakeBridge, body, spray };

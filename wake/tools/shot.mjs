@@ -71,9 +71,14 @@ if (argv.includes('--field')) await page.keyboard.press('f');
 const diag = await page.evaluate(() => {
   const w = window.__wake;
   if (!w) return { loaded: false };
+  const b = w.wakeBridge;
   return { pathPts: w.wake.path.length, maxArc: +(w.wake.maxArc || 0).toFixed(1),
            travelled: +Math.hypot(w.state.x, w.state.z).toFixed(1),
-           extent: w.wake.extent, drawn: w.wake.geometry.drawRange.count };
+           extent: w.wake.extent, drawn: w.wake.geometry.drawRange.count,
+           abyssal: !!w.sea && w.get('scene.abyssal') > 0.5,
+           bridge: b ? { on: b.lastOn, hasTex: b.lastHasTex, frames: b.frames,
+                         extent: +(b.lastExtent || 0).toFixed(1) } : null,
+           sprayLive: w.spray ? w.spray.n : null };
 });
 await page.evaluate(() => document.body.classList.add('hide-ui'));
 await page.waitForTimeout(300);

@@ -57,6 +57,13 @@ export class WakeBridge {
 		const gl = this.renderer.getContext();
 		const tex = this._glTexture();
 		const on = active && tex ? 1 : 0;
+		// Diagnostics: whether the seam is actually carrying anything. A wake that
+		// silently fails to bind looks identical to a wake that is simply not
+		// there, and only one of those is a bug.
+		this.lastOn = on;
+		this.lastHasTex = !! tex;
+		this.lastExtent = this.field.extent;
+		this.frames = ( this.frames || 0 ) + 1;
 
 		if ( ! tex && ! this._warned ) {
 			// Once, not every frame: this is normal on frame one and a real
