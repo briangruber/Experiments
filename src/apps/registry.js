@@ -21,24 +21,29 @@ export const APPS = {
     title: 'My Computer', icon: 'computer', desktop: 0, start: 3,
     load: () => import('./mycomputer.js'),
   },
+  bbs: {
+    title: 'Telepath 2.6', short: 'Telepath',
+    icon: 'phone', desktop: 7, start: 5, quick: 4,
+    load: () => import('./bbs/index.js'),
+  },
   minehunt: {
-    title: 'Mine Hunt', icon: 'game', desktop: 4, start: 5,
+    title: 'Mine Hunt', icon: 'game', desktop: 4, start: 6,
     load: () => import('./minehunt.js'),
   },
   sketchpad: {
-    title: 'Sketchpad', icon: 'paint', desktop: 5, start: 6,
+    title: 'Sketchpad', icon: 'paint', desktop: 5, start: 7,
     load: () => import('./sketchpad.js'),
   },
   jukebox: {
-    title: 'Jukebox 95', icon: 'media', desktop: 6, start: 7, quick: 4,
+    title: 'Jukebox 95', icon: 'media', desktop: 10, start: 8, quick: 5,
     load: () => import('./jukebox.js'),
   },
   defrag: {
-    title: 'Disk Defragmenter', icon: 'defrag', start: 8,
+    title: 'Disk Defragmenter', icon: 'defrag', start: 9,
     load: () => import('./defrag.js'),
   },
   notepad: {
-    title: 'Notepad', icon: 'doc', start: 9,
+    title: 'Notepad', icon: 'doc', start: 10,
     load: () => import('./notepad.js'),
   },
   recycle: {

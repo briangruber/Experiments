@@ -20,6 +20,7 @@ import { ART } from '../../assets/art.js';
 import { faceSvg, faceFor, loadFace, saveFace, randomFace,
          PARTS, SKINS, HAIRS, SHIRTS, BACKDROPS } from './faces.js';
 import { frame, portrait, btn } from './ui.js';
+import { townAmbience, landAmbience } from './ambience.js';
 import { createSayBox } from '../halcyon/say-box.js';
 import { isPhrase } from '../halcyon/phrasebook.js';
 import { screen, LIMITS } from '../../core/safety.js';
@@ -27,6 +28,8 @@ import { openCheckers } from './checkers-ui.js';
 import { openSlots } from './slots.js';
 import { openDawn } from './dawn.js';
 import { openGolf } from './golf.js';
+import { openShutTheBox } from './box.js';
+import { openWish, openPostcard } from './noticeboard.js';
 
 /* Every game in Reverie, and the thing that opens it. */
 const GAMES = {
@@ -34,21 +37,36 @@ const GAMES = {
   golf:     { label: 'Crazy Golf', open: openGolf },
   slots:    { label: 'The Machine', open: openSlots },
   dawn:     { label: 'Dawn Patrol', open: openDawn },
+  box:      { label: 'Shut the Box', open: openShutTheBox },
+  wish:     { label: 'Make a Wish', open: openWish },
+  postcard: { label: 'Pin a Postcard', open: openPostcard },
 };
 
+/* The seven places, in the order you would walk them: the square first,
+   then out along the lanes. The `at` pairs are percentages measured off
+   the generated town picture. */
 export const LANDS = [
+  { id: 'fountain', name: 'The Fountain', art: 'rev_fountain',
+    blurb: 'The middle of everything, and somewhere to make a wish',
+    at: [43, 70], games: ['wish'] },
+  { id: 'post', name: 'The Post Office', art: 'rev_post',
+    blurb: 'Pigeonholes, parcel string, and a board of postcards',
+    at: [60, 36], games: ['postcard'] },
+  { id: 'inn', name: 'The Bridge Inn', art: 'rev_inn',
+    blurb: 'A fire, long tables, and a box that wants shutting',
+    at: [79, 62], games: ['box'] },
   { id: 'keep', name: "Jouster's Keep", art: 'rev_keep',
     blurb: 'Board games under the pennants',
-    at: [16, 24], games: ['checkers'] },
+    at: [27, 12], games: ['checkers'] },
   { id: 'boardwalk', name: 'The Boardwalk', art: 'rev_boardwalk',
     blurb: 'Crazy golf, lights on the water, and a machine that eats tokens',
-    at: [71, 58], games: ['golf', 'slots'] },
-  { id: 'cloud', name: 'Cloud Nine', art: 'rev_cloud',
-    blurb: 'No games at all. Where everybody stands about and talks',
-    at: [46, 10], games: [] },
+    at: [11, 24], games: ['golf', 'slots'] },
   { id: 'airfield', name: 'Sky Squadron', art: 'rev_airfield',
     blurb: 'Two biplanes and a field at golden hour',
-    at: [42, 84], games: ['dawn'] },
+    at: [10, 82], games: ['dawn'] },
+  { id: 'cloud', name: 'Cloud Nine', art: 'rev_cloud',
+    blurb: 'No games at all. Where everybody stands about and talks',
+    at: [6, 9], games: [] },
 ];
 
 const roomOf = landId => 'rev-' + landId;
@@ -216,7 +234,7 @@ export function openReverie(session) {
 
     const pic = h('div.rev-pic.rev-map-pic', {
       style: { backgroundImage: 'url(' + ART.rev_town + ')' },
-    });
+    }, townAmbience());
     const list = h('ol');
 
     LANDS.forEach((l, i) => {
@@ -225,19 +243,20 @@ export function openReverie(session) {
 
       const spot = h('button.rev-spot', {
         type: 'button', title: l.name + ' — ' + l.blurb,
-        style: { left: l.at[0] + '%', top: l.at[1] + '%' },
+        style: { left: l.at[0] + '%', top: l.at[1] + '%',
+                 animationDelay: (i * 70) + 'ms' },
         onclick: go,
       }, String(i + 1),
         here ? h('span.rev-spot-here', {}, here + ' here') : null);
       pic.append(spot);
 
-      list.append(h('li', { onclick: go },
+      list.append(h('li', { onclick: go, style: { animationDelay: (i * 55) + 'ms' } },
         h('b', {}, String(i + 1)),
         h('span', {}, l.name,
           h('em', {}, l.blurb),
-          h('em', {}, (l.games.length
-            ? l.games.map(id => GAMES[id].label).join(' · ')
-            : 'Nothing to play. Somewhere to stand.')))));
+          l.games.length
+            ? h('em.rev-plays', {}, l.games.map(id => GAMES[id].label).join('  ·  '))
+            : null)));
     });
 
     const total = LANDS.reduce((n, l) => n + peopleIn(l.id).length, 0);
@@ -280,7 +299,7 @@ export function openReverie(session) {
           h('div.rev-frame', {},
             h('div.rev-pic.rev-scene', {
               style: { backgroundImage: 'url(' + ART[l.art] + ')' },
-            }))),
+            }, landAmbience(l.id)))),
         crowd,
         log,
         say.el),

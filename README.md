@@ -80,19 +80,36 @@ looked like a boxed game, and the difference was the whole point.
   every combination is instant. Yours is remembered; everybody else's is
   derived from their screen name, so the same person always looks the same.
 - **The island.** A painted town in a mount with a numbered blue badge on
-  each place you can go, and the same numbers again in a cream legend down
+  each of seven places, and the same numbers again in a cream legend down
   the right-hand side. Each badge says how many people are standing there.
   They are populated before you arrive — a map of empty rooms is worse
   than no map.
+- **The town moves.** Water comes out of both fountains, smoke off a
+  chimney, gulls across the top, a pennant on the castle tower that never
+  quite settles, and a light on the big wheel that catches every few
+  seconds. It is a layer of small CSS sprites laid over the painting at
+  measured positions — no canvas, no timers, nothing on the critical path
+  — and all of it stops dead under `prefers-reduced-motion`. The badges
+  and the legend arrive one after another rather than all at once, which
+  is the difference between a screen that loads and a screen that opens.
 - **Stand somewhere.** The four lands are painted backdrops with the crowd
   in a row of framed portraits along the bottom edge, name plates under
   them, speech bubbles over whoever just spoke. A green tab marks anybody
   who is really another person.
 
-Four places, and four things to do in them. Each wears the same suit: a
-title strip, a painted banner, a framed playing area, the players' faces
+Seven places, and six things to do in them. Each game wears the same suit:
+a title strip, a painted banner, a framed playing area, the players' faces
 with plates down the side, and a button bar along the bottom.
 
+- **The Fountain — a wish.** Throw a coin in and leave one phrase from the
+  book. The wishes already in the water are the town's own; yours is kept
+  on this computer and sent nowhere.
+- **The Post Office — the postcard board.** The same thing pinned up
+  slightly crooked, with pigeonholes and parcel string behind it.
+- **The Bridge Inn — Shut the Box.** Nine flaps, two dice, and the
+  question of how to spend a seven. Once everything left is six or under
+  the house lets you roll one die. Shut all nine and you have shut the
+  box, which most people never do.
 - **Jouster's Keep — Checkers.** Compulsory captures, multi-jumps, kings,
   and an opponent that searches two plies and will beat you if you are
   careless.
@@ -121,6 +138,54 @@ with plates down the side, and a button bar along the bottom.
 
 The same phrase book governs the lands as governs the chat rooms.
 
+## The Midnight Carnival BBS
+
+`Telepath 2.6` on the desktop: a comms program with a dialling directory,
+which is how you got out of the house before there was a service to join.
+
+Four numbers are in the book and the hit rate is period-accurate — one
+answers, one is engaged, one rings out, and one has been disconnected. The
+connect speed is a real setting (2400 / 9600 / 14400 / 33600) because the
+difference between text arriving at 240 characters a second and at 3,360
+is most of the feeling. There is a **Skip the noise** button, because the
+handshake is the best part exactly once, and a **Faster** button that lands
+whatever is still in flight.
+
+Behind it is one computer in somebody's spare room with two lines into it:
+a login, bulletins, three message bases with an argument running through
+them, a file area that works out how long a download would take and then
+declines on ratio grounds, a who's-online list, and a sysop who does not
+answer the page because it is the middle of the night.
+
+Colour is written in **pipe codes** — `|15` white, `|04` red — because that
+is genuinely how the sysop of a Renegade or Telegard board wrote their
+menus, and because it keeps escape characters out of the source.
+
+Two **doors**, which is what a board called its games:
+
+- **Tale of the Scarlet Wyrm.** A turn-limited fantasy game of the shape
+  every board carried one of: a village of single-key destinations, a
+  forest that is the only place experience comes from, fifteen fights a
+  day, eleven masters who will not teach you until you have earned it, a
+  weaponsmith, an armourer, a bank that pays interest overnight, an inn
+  where sleeping ends the day, and a dragon on the high fells at the end
+  of twelve levels. Die and you lose what you were carrying; the bank keeps
+  what it has. It is meant to take a few days. The names, the monsters,
+  the masters and every line of the writing are invented — what is borrowed
+  is the form, which was common to dozens of these.
+- **Sector Run.** Five ports, four cargoes, twenty-five jumps a day. Each
+  port makes one thing cheaply and wants another badly, so the route is the
+  game. Prices are a function of the port and the day, which means the
+  market is the same for every caller on a given day and you can argue
+  about it afterwards.
+
+Nobody can post to the message bases and no caller can send another one
+anything: the bases are an archive of what was already said, and the only
+free text on the whole board is your own handle, which goes through the
+same conduct check as a Halcyon screen name. A board with an open text
+field and no moderator is exactly the thing this prototype is trying not
+to build, so the sysop took node chat out in 1993 and has not missed it.
+
 ## The artwork and the voice
 
 Generated with fal.ai and baked into `src/assets/` as data URIs, so the
@@ -133,7 +198,7 @@ folder still works with no network and no key:
   which makes sixteen separate generations look like one set.
 - **the marbled panel** on the sign-on window, and the **welcome banner**
   behind the greeting.
-- **Reverie's island town, four land backdrops and two game banners**,
+- **Reverie's island town, seven land backdrops and two game banners**,
   painted in the style of a 1990s point-and-click adventure and quantised
   to 32 colours to match. The two game banners had to be prompted with the
   style *before* the subject: asked for "a crazy golf course on a pier"
@@ -196,6 +261,9 @@ with frames it apologises for, a very loud fan page, a webring, a search
 engine with five documents in its index, and a short note about what is
 real here. Hit counters count. Guestbooks remember. Pages load text first
 and then let the pictures crawl in.
+
+**Telepath 2.6** — a comms program, four boards in the dialling directory,
+and one of them worth calling. See above.
 
 **The rest of the desktop** — Mine Hunt (a real one: first click is always
 safe, chording works), Sketchpad, Jukebox 95, Disk Defragmenter that
@@ -281,6 +349,8 @@ Four layers do that, and it is worth being exact about which are real:
 | Other tabs on your machine | **Real people.** Found over `BroadcastChannel`; they show a green dot next to their name in Reverie. |
 | Other machines on your network | **Real people**, if somebody runs `tools/relay.mjs`. |
 | Member numbers and the "1,2xx,xxx members" line | Fiction, and part of the set dressing, like the modem speed. |
+| The caller on node 2 of the BBS, and its message bases | Written. Nothing on the board is another person, and nothing you type there leaves your machine. |
+| Wishes in the fountain and cards on the postcard board | The ones already there are written. Yours is kept in `localStorage` and sent nowhere. |
 
 There is deliberately **no global live user count**, because there is no
 honest way to build one here: a published artifact gets no shared-state
@@ -309,10 +379,13 @@ src/
   boot/               BIOS, splash, desktop shell
   apps/
     halcyon/          the service: dialer, chat, IM, mail, channels, people
+    reverie/          the painted island: faces, town, lands, six games
+    bbs/              Telepath, the Midnight Carnival, and its two doors
     sites/web.js      the World Wide Web, as data
     browser.js  minehunt.js  sketchpad.js  jukebox.js  defrag.js
     notepad.js  mycomputer.js  recycle.js  screensaver.js  assistant.js
-  style/              chrome.css (the OS), halcyon.css (apps), web.css (pages)
+  style/              chrome.css (the OS), halcyon.css, reverie.css,
+                      bbs.css, web.css
 tools/
   check.mjs           static checks, no browser
   test.mjs            safety layer and relay behaviour
@@ -339,3 +412,10 @@ anything anyone types to markup.
 - Leave the machine alone for ninety seconds.
 - Open Disk Defragmenter and do nothing else for a while.
 - Open a second tab and meet yourself.
+- Dial the Antler Lodge in Telepath. It is always engaged.
+- Dial the Midnight Carnival at 2400 bps and watch the login screen paint.
+- In the Wyrm, bank your gold before you go into the forest. You lose what
+  you are carrying when you die and you will die a lot.
+- Ask the Midnight Carnival for a file, and see what it says about ratios.
+- Throw a coin in the fountain, then come back tomorrow.
+- Watch the town map for a few seconds without clicking anything.

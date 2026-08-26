@@ -219,6 +219,20 @@ for (const f of files) {
    `ART.rev_map` is a property access, so renaming a key in the generator
    fails silently at build time and loudly at run time. Check it here. */
 
+/* Boxes drawn by counting spaces come out one character short somewhere,
+   every time. src/apps/bbs/screen.js has a helper that works the padding
+   out from the text; nothing else may draw one by hand.
+   Only corners, junctions and verticals are banned — a plain run of ─ or ═
+   under a heading cannot come out crooked. */
+const CORNERS = new RegExp('[\\u2502\\u250C\\u2510\\u2514\\u2518\\u251C\\u2524' +
+  '\\u252C\\u2534\\u253C\\u2551\\u2554\\u2557\\u255A\\u255D\\u2560\\u2563' +
+  '\\u2566\\u2569\\u256C]');
+for (const f of files) {
+  if (f.endsWith('bbs/screen.js')) continue;
+  if (CORNERS.test(decomment(readFileSync(f, 'utf8'))))
+    note(f, 'draws a box by hand; use the box helper in src/apps/bbs/screen.js');
+}
+
 const artPath = join(root, 'src/assets/art.js');
 if (existsSync(artPath)) {
   const art = readFileSync(artPath, 'utf8');
