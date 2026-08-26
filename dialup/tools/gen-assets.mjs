@@ -103,12 +103,28 @@ const REVERIE_STYLE =
 
 const REVERIE = [
   ['rev-town', 384, 240,
-   'a cartoon island town filling the whole frame, seen from above at a ' +
-   'three-quarter angle, deep blue sea all around the edges: a stone ' +
-   'castle with pennants top left, a red and white circus big top top ' +
-   'right, a wooden pier with a ferris wheel bottom right, a grass ' +
-   'airstrip with a red biplane bottom left, winding sandy paths joining ' +
-   'them, rich green grass, edge to edge composition, ' + REVERIE_STYLE],
+   'a friendly storybook town filling the whole frame, seen from above at ' +
+   'a three-quarter angle, deep blue sea around the edges: in the middle a ' +
+   'cobbled market square with a round stone fountain, a red-roofed post ' +
+   'office with a green postbox outside, a timber inn with a hanging sign ' +
+   'and a smoking chimney, little shops with striped awnings and flower ' +
+   'boxes, a stone castle with pennants at the top left, a wooden pier ' +
+   'with a ferris wheel at the right, a grass airstrip with a red biplane ' +
+   'at the bottom left, winding lanes and flower beds joining them all, ' +
+   'warm and welcoming, edge to edge composition, ' + REVERIE_STYLE],
+  ['rev-fountain', 256, 128,
+   'a sunny cobbled town square with a round stone fountain splashing in ' +
+   'the middle, flower beds, a bench and shop fronts behind, ' + REVERIE_STYLE],
+  ['rev-post', 256, 128,
+   'the inside of a village post office, no books anywhere: a long wooden ' +
+   'counter with a brass grille, behind it a wall of small square ' +
+   'pigeonholes crammed with white envelopes, brown paper parcels tied ' +
+   'with string stacked on the floor, a set of brass weighing scales on ' +
+   'the counter, a green postbox by the door, ' + REVERIE_STYLE],
+  ['rev-inn', 256, 128,
+   'the inside of a warm timber inn: a big stone fireplace with a fire ' +
+   'lit, long wooden tables, tankards, and lanterns hanging from the ' +
+   'beams, ' + REVERIE_STYLE],
   ['rev-keep', 256, 128,
    'a courtyard inside a stone castle with banners, a wooden games table ' +
    'and torches, ' + REVERIE_STYLE],

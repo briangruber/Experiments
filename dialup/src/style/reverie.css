@@ -56,7 +56,7 @@
 
 /* Headings were set in a red serif, and they were not small. */
 .rev-h {
-  margin: 0 0 6px; font: 700 21px/1.1 Georgia, "Times New Roman", serif;
+  margin: 0 0 4px; font: 700 19px/1.1 Georgia, "Times New Roman", serif;
   color: var(--red); letter-spacing: -.01em;
 }
 .rev-h.on-dark { color: var(--plate); text-shadow: 2px 2px 0 #0008; }
@@ -185,16 +185,17 @@
   background: var(--cream); color: var(--ink); overflow: auto;
   border: 3px solid; border-color: #fff #8a7850 #8a7850 #fff;
 }
-.rev-legend p { margin: 0 0 6px; font: 11px/1.35 var(--ui); }
+.rev-legend p { margin: 0 0 4px; font: 11px/1.3 var(--ui); }
 .rev-legend ol { margin: 0; padding: 0; list-style: none; }
-.rev-legend li { display: flex; gap: 6px; padding: 3px 0; border-top: 1px solid #0002; cursor: pointer; }
+.rev-legend li { display: flex; gap: 6px; padding: 2px 0; border-top: 1px solid #0002; cursor: pointer; }
 .rev-legend li:hover { background: #0001; }
 .rev-legend li b {
   flex: none; width: 17px; height: 17px; display: grid; place-items: center;
   font: 700 10px var(--ui); color: #fff; background: var(--blu); border-radius: 50%;
 }
-.rev-legend li span { flex: 1; min-width: 0; font: 11px/1.3 var(--ui); }
-.rev-legend li em { display: block; font-style: normal; font-size: 10px; color: #6a5a3a; }
+.rev-legend li span { flex: 1; min-width: 0; font: 700 11px/1.25 var(--ui); }
+.rev-legend li em { display: block; font-style: normal; font-size: 10px; line-height: 1.25; color: #6a5a3a; }
+.rev-legend li em.rev-plays { color: var(--red); font-weight: 700; }
 .rev-legend-foot { margin-top: auto; padding-top: 8px; font: italic 10px var(--ui); color: #6a5a3a; }
 
 /* ── standing in a land ──────────────────────────────────────────────── */
@@ -372,3 +373,205 @@
   text-align: center; font: 700 9px var(--ui); letter-spacing: .1em; color: #ffd0c0;
 }
 .sl-purse { font: 700 11px var(--mono); color: #40e060; }
+
+/* ── the things that move ────────────────────────────────────────────────
+   A layer of small looping sprites over the painted art: water out of the
+   fountain, smoke off the inn, gulls, a twinkle here and there. All of it
+   is decoration, none of it takes a pointer event, and all of it stops
+   when the viewer has asked for less motion. */
+
+.amb { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 1; }
+.amb i { position: absolute; display: block; }
+
+/* Water. Three arcs, out of step. */
+.amb-splash { width: 30px; height: 26px; translate: -50% -100%; }
+.amb-splash u {
+  position: absolute; left: 50%; bottom: 0; width: 3px; height: 3px;
+  background: #eaf6ff; border-radius: 50%; opacity: 0;
+  animation: amb-arc 1.35s linear infinite;
+}
+.amb-splash u:nth-child(2) { animation-name: amb-arc-l; }
+.amb-splash u:nth-child(3) { animation-name: amb-arc-r; }
+@keyframes amb-arc   { 0% { opacity: 0; translate: 0 0 } 18% { opacity: .95 }
+                       50% { translate: 0 -13px } 100% { opacity: 0; translate: 0 2px } }
+@keyframes amb-arc-l { 0% { opacity: 0; translate: 0 0 } 18% { opacity: .9 }
+                       50% { translate: -7px -10px } 100% { opacity: 0; translate: -11px 3px } }
+@keyframes amb-arc-r { 0% { opacity: 0; translate: 0 0 } 18% { opacity: .9 }
+                       50% { translate: 7px -10px } 100% { opacity: 0; translate: 11px 3px } }
+
+/* Smoke. Fatter and slower as it goes up. */
+.amb-smoke { width: 20px; height: 30px; translate: -50% -100%; }
+.amb-smoke u {
+  position: absolute; left: 50%; bottom: 0; width: 6px; height: 6px;
+  background: #f2f0ea; border-radius: 50%; opacity: 0;
+  animation: amb-puff 4.5s ease-out infinite;
+}
+@keyframes amb-puff {
+  0%   { opacity: 0;   translate: -50% 0;      scale: .5 }
+  20%  { opacity: .55 }
+  100% { opacity: 0;   translate: -20% -28px;  scale: 1.9 }
+}
+
+/* A gull is two strokes that flap. */
+.amb-gull { width: 11px; height: 6px; animation: amb-fly 28s linear infinite; }
+.amb-gull u {
+  position: absolute; inset: 0;
+  border-top: 1.5px solid rgba(255,255,255,.85);
+  border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+  animation: amb-flap 1.1s ease-in-out infinite;
+}
+@keyframes amb-fly  { 0% { left: -6%; translate: 0 0 } 50% { translate: 0 -9px }
+                      100% { left: 106%; translate: 0 4px } }
+@keyframes amb-flap { 0%, 100% { scale: 1 .6 } 50% { scale: 1 1.5 } }
+
+/* A light that catches, every few seconds. */
+.amb-twinkle {
+  width: 5px; height: 5px; translate: -50% -50%; border-radius: 50%;
+  background: #fff6c0; box-shadow: 0 0 6px 2px rgba(255,224,120,.9);
+  opacity: 0; animation: amb-blink 3.4s ease-in-out infinite;
+}
+@keyframes amb-blink { 0%, 72%, 100% { opacity: 0 } 80% { opacity: 1 } 88% { opacity: .3 } }
+
+/* The pennant on the tower, which never quite settles. */
+.amb-pennant {
+  width: 9px; height: 6px; translate: -50% -50%;
+  background: #d63a3a; clip-path: polygon(0 0, 100% 30%, 0 100%, 22% 50%);
+  transform-origin: left center;
+  animation: amb-wave 2.6s ease-in-out infinite;
+}
+@keyframes amb-wave { 0%, 100% { rotate: -4deg; scale: 1 1 } 50% { rotate: 5deg; scale: .86 1 } }
+
+/* The wash off the moored biplane. */
+.amb-wake {
+  width: 22px; height: 3px; translate: -50% -50%; border-radius: 50%;
+  background: rgba(255,255,255,.5);
+  animation: amb-lap 3.8s ease-in-out infinite;
+}
+@keyframes amb-lap { 0%, 100% { opacity: .25; scale: .8 1 } 50% { opacity: .6; scale: 1.25 1 } }
+
+/* Firelight and lamplight inside a land. */
+.amb-glow {
+  width: 90px; height: 90px; translate: -50% -50%; border-radius: 50%;
+  animation: amb-flicker 2.4s ease-in-out infinite;
+}
+.amb-glow.warm { background: radial-gradient(circle, rgba(255,190,90,.35), transparent 70%); }
+.amb-glow.fire {
+  width: 150px; height: 130px;
+  background: radial-gradient(circle, rgba(255,150,50,.42), transparent 68%);
+  animation-duration: 1.6s;
+}
+@keyframes amb-flicker { 0%, 100% { opacity: .55 } 35% { opacity: 1 } 60% { opacity: .7 } }
+
+/* Dust in a shaft of light, and cloud going past a terrace. */
+.amb-motes {
+  inset: 0; width: 100%; height: 100%;
+  background:
+    radial-gradient(1.5px 1.5px at 22% 30%, rgba(255,246,220,.9), transparent),
+    radial-gradient(1.5px 1.5px at 61% 18%, rgba(255,246,220,.8), transparent),
+    radial-gradient(1.5px 1.5px at 78% 52%, rgba(255,246,220,.7), transparent),
+    radial-gradient(1.5px 1.5px at 40% 66%, rgba(255,246,220,.8), transparent);
+  animation: amb-float 9s ease-in-out infinite alternate;
+}
+@keyframes amb-float { from { translate: 0 0 } to { translate: 6px -10px } }
+
+.amb-drift {
+  top: 14%; left: -30%; width: 42%; height: 26%; border-radius: 50%;
+  background: radial-gradient(circle, rgba(255,255,255,.5), transparent 68%);
+  animation: amb-cross 40s linear infinite;
+}
+@keyframes amb-cross { from { translate: 0 0 } to { translate: 320% 8px } }
+
+/* Things arriving. A staggered entrance is the difference between a screen
+   that loads and a screen that opens. */
+.rev-spot, .rev-legend li, .rev-person { animation: amb-rise .34s ease-out both; }
+@keyframes amb-rise { from { opacity: 0; translate: 0 7px } to { opacity: 1; translate: 0 0 } }
+.rev-spot { animation-name: amb-pop; }
+@keyframes amb-pop {
+  from { opacity: 0; scale: .4 }
+  70%  { opacity: 1; scale: 1.12 }
+  to   { opacity: 1; scale: 1 }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .amb { display: none; }
+  .rev-spot, .rev-legend li, .rev-person { animation: none; }
+}
+
+/* ── shut the box ────────────────────────────────────────────────────── */
+
+.box { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.box-tray {
+  display: flex; gap: 5px; padding: 10px;
+  background: #6a4a2c; border: 3px solid; border-color: #a8825a #3a2614 #3a2614 #a8825a;
+}
+.box-flap {
+  width: 52px; height: 70px; padding: 0; cursor: pointer;
+  font: 700 27px Georgia, "Times New Roman", serif; color: var(--ink);
+  background: var(--cream);
+  border: 3px solid; border-color: #fff #8a7850 #8a7850 #fff;
+}
+.box-flap.on { background: var(--plate); }
+.box-flap.down {
+  color: #6a5a3a; background: #4a3620; cursor: default;
+  border-color: #2a1c0e #6a5238 #6a5238 #2a1c0e;
+}
+.box-flap[disabled]:not(.down) { cursor: default; opacity: .75; }
+.box-dice { display: flex; gap: 12px; min-height: 56px; }
+.box-die {
+  width: 56px; height: 56px; display: grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr);
+  gap: 3px; padding: 5px; background: #f4f0e4;
+  border: 3px solid; border-color: #fff #8a8270 #8a8270 #fff;
+}
+.box-die u { border-radius: 50%; background: transparent; }
+.box-die u.on { background: #1a1208; }
+.box-hint { font: 11px var(--ui); color: #e0d0f0; }
+
+/* ── the wishing fountain and the postcard board ─────────────────────── */
+
+.nb { display: flex; flex-direction: column; gap: 6px; width: min(600px, 96cqw); height: 96cqh; }
+.nb-head {
+  margin: 0; font: 700 15px Georgia, "Times New Roman", serif; color: var(--plate);
+  text-shadow: 1px 1px 0 #0008;
+}
+.nb-wall {
+  flex: 1; min-height: 80px; display: flex; flex-wrap: wrap; align-content: flex-start;
+  gap: 8px; padding: 8px; overflow: auto;
+  background: #0003; border: 3px solid; border-color: #0008 #fff4 #fff4 #0008;
+}
+.nb-item {
+  display: flex; gap: 7px; align-items: flex-start; width: 246px; padding: 6px;
+  background: var(--cream); color: var(--ink);
+  border: 3px solid; border-color: #fff #8a7850 #8a7850 #fff;
+}
+.nb-item.postcard { rotate: -.6deg; }
+.nb-item.postcard:nth-child(2n) { rotate: .8deg; }
+.nb-item p {
+  flex: 1; min-width: 0; margin: 2px 0 0;
+  font: 12px/1.35 Georgia, "Times New Roman", serif;
+}
+.nb-item.wish p { font-style: italic; }
+.nb-say { flex: none; }
+.nb-say .say { background: var(--btn); padding: 5px 6px 6px; }
+.nb-say .say-preview { color: #3a2c14; }
+.nb-say .say-preview b { color: var(--red-dk); }
+.nb-say .say-hit {
+  background: var(--cream); color: var(--ink);
+  border: 2px solid; border-color: #fff var(--cream-dk) var(--cream-dk) #fff;
+}
+.nb-say .say-hit em { color: #6a5a3a; }
+.nb-say .say-hit.on { background: var(--plate); }
+.nb-say .say-browser { background: var(--cream); color: var(--ink); border-color: var(--cream-dk); }
+.nb-say .say-cat { background: #e2d0a8; }
+.nb-say .say-pick { color: var(--ink); border-bottom-color: #0002; }
+.nb-say .say-pick:hover { background: var(--plate); }
+.nb-say .say-tab { background: var(--btn); color: var(--ink); border-color: var(--btn-dk); }
+.nb-say .say-cat-hint, .nb-say .say-none { color: #6a5a3a; }
+.nb-say .say-browse, .nb-say .say-close {
+  background: var(--btn); color: var(--ink);
+  border: 3px solid; border-color: var(--btn-lt) var(--btn-dk) var(--btn-dk) var(--btn-lt);
+  box-shadow: none;
+}
+.nb-say .say-input {
+  background: #fff; color: var(--ink);
+  border: 3px solid; border-color: #0008 #fff #fff #0008; box-shadow: none;
+}
