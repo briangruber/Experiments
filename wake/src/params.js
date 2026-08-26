@@ -60,6 +60,10 @@ export const PARAMS = {
     // How much of the foam the hull's own footprint removes. 0 lets the wake
     // run right under the boat, which is what it looks like from a chase
     // camera: the water it is cutting is the water that is foaming.
+    // Purely how BIG the model is drawn. The wake still follows Hull length
+    // and Beam below -- those are the numbers the field does its physics
+    // with -- so a model scaled far past them will out-grow its own wake.
+    modelScale:   { v: 1,    min: 0.2, max: 4,   step: 0.05, label: 'Model scale' },
     hullCut:      { v: 0,    min: 0,   max: 1,   step: 0.01, label: 'Cut foam under hull' },
     crabMax:      { v: 12,   min: 0,   max: 45,  step: 1,    label: 'Max slip angle (°)' },
     grip:         { v: 0.7,  min: 0,   max: 1,   step: 0.01, label: 'Keel grip' },
@@ -198,7 +202,7 @@ export const PARAMS = {
     // Abyssal's foam grading expects a coverage field that saturates near 1;
     // the prototype's peaks around 0.12, so the wake needs gain before it is
     // shaded or it is drawn at a few percent opacity and reads as clean water.
-    wakeGain:     { v: 5.5,  min: 0,   max: 16,  step: 0.1,  label: 'Wake foam gain' },
+    wakeGain:     { v: 3.0,  min: 0,   max: 16,  step: 0.1,  label: 'Wake foam gain' },
     // The SEA's own whitecaps, not the wake's. 1 gives them the same lace the
     // boat leaves behind -- Abyssal's own is a Worley web, and it thresholds in
     // exactly the same form, so this swaps the field and nothing else.
