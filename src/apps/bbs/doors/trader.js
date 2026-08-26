@@ -8,7 +8,9 @@
  */
 
 import { randInt, pick, chance } from '../../../core/dom.js';
-import { box } from '../screen.js';
+import { padTo } from '../screen.js';
+import { bigText, picture, rule, shadowBox } from '../ansi.js';
+import { PIC } from '../art.js';
 
 const JUMPS = 25;
 
@@ -22,7 +24,7 @@ const GOODS = [
 /* Each port is biased: it makes one thing cheaply and wants another badly.
    The route is the game. */
 const PORTS = [
-  { name: 'Kettle Station', makes: 0, wants: 2, blurb: 'A rock with a smelter bolted to it.' },
+  { name: 'Kettle', makes: 0, wants: 2, blurb: 'A rock with a smelter bolted to it.' },
   { name: 'Ambergris',      makes: 1, wants: 3, blurb: 'Farm domes as far as the curve.' },
   { name: 'Wick',           makes: 2, wants: 0, blurb: 'A hospital that grew a town around it.' },
   { name: 'The Yards',      makes: 3, wants: 1, blurb: 'Half-built hulls and a very good bar.' },
@@ -85,10 +87,12 @@ export async function playTrader(t, handle) {
   let running = true;
 
   t.clear();
-  t.write(box([
-    '  |11S E C T O R   R U N',
-    '  |08four ports, four cargoes, and never enough fuel',
-  ], { width: 64, edge: '|03' }) + '\n' +
+  t.write(picture(PIC.ship) + '\n');
+  t.write(bigText('SECTOR', { fg: 11, shade: 3, indent: 13 }));
+  t.write(bigText('RUN', { fg: 15, shade: 7, indent: 31 }));
+  t.write(rule(78, { fg: 3, fade: true }));
+  t.write('|08' + ' '.repeat(14) +
+    'four ports, four cargoes, and never enough fuel\n\n' +
     '|07Ship registered to |15' + handle + '|07.  Jumps left today: |15' + s.jumps + '|07\n\n');
   await t.pause();
 
@@ -99,19 +103,29 @@ export async function playTrader(t, handle) {
 
   function manifest() {
     const p = PORTS[s.at];
-    t.write('\n|11' + p.name + '|08 — ' + p.blurb + '\n' +
-            '|08 Credits |14' + s.credits + '|08   Banked |14' + s.bank +
-            '|08   Hold |15' + s.hold + '|08/|15' + s.holdMax +
-            '|08   Jumps |15' + s.jumps + '|08\n\n' +
-            '|08  cargo            price    you hold\n');
+    t.clear();
+    t.write(picture(PIC.port));
+    t.write(rule(78, { fg: 8, ch: '▀' }));
+    // Block capitals are six columns each, so a long name would run off
+    // the right of an eighty-column screen.
+    t.write(p.name.length <= 11
+      ? bigText(p.name, { fg: 11, shade: 3, indent: 3 })
+      : '|11  ' + p.name.toUpperCase().split('').join(' ') + '\n\n');
+    t.write('|08  ' + p.blurb + '\n' +
+            '|08  credits |14' + s.credits + '|08   banked |14' + s.bank +
+            '|08   hold |15' + s.hold + '|08/|15' + s.holdMax +
+            '|08   jumps |15' + s.jumps + '|08\n\n');
+
+    const rows = ['|08 ' + padTo('cargo', 16) + padTo('price', 9) + padTo('you hold', 11) + 'here'];
     GOODS.forEach((g, i) => {
       const pr = priceAt(s.at, i, tick);
       const hot = PORTS[s.at].wants === i, cheap = PORTS[s.at].makes === i;
-      t.write('|07  (' + (i + 1) + ') ' + g.name.padEnd(12) +
-        (cheap ? '|10' : hot ? '|12' : '|07') + String(pr).padStart(6) +
-        '|08' + String(s.cargo[i]).padStart(11) +
-        (cheap ? '   |10cheap here' : hot ? '   |12wanted here' : '') + '|07\n');
+      rows.push('|11(' + (i + 1) + ')|15 ' + padTo(g.name, 13) +
+        (cheap ? '|10' : hot ? '|12' : '|15') + padTo(String(pr), 9) +
+        '|07' + padTo(String(s.cargo[i]), 11) +
+        (cheap ? '|10cheap' : hot ? '|12wanted' : '|08—'));
     });
+    t.write(shadowBox(rows, { width: 54, edge: 3, fill: 1, indent: 12 }));
   }
 
   async function dock() {

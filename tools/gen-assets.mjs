@@ -102,16 +102,24 @@ const REVERIE_STYLE =
   'no text, no letters, no words, no watermark';
 
 const REVERIE = [
-  ['rev-town', 384, 240,
-   'a friendly storybook town filling the whole frame, seen from above at ' +
-   'a three-quarter angle, deep blue sea around the edges: in the middle a ' +
-   'cobbled market square with a round stone fountain, a red-roofed post ' +
-   'office with a green postbox outside, a timber inn with a hanging sign ' +
-   'and a smoking chimney, little shops with striped awnings and flower ' +
-   'boxes, a stone castle with pennants at the top left, a wooden pier ' +
-   'with a ferris wheel at the right, a grass airstrip with a red biplane ' +
-   'at the bottom left, winding lanes and flower beds joining them all, ' +
-   'warm and welcoming, edge to edge composition, ' + REVERIE_STYLE],
+  /* The map screen, in the shape the graphical services actually used:
+     a painted landscape you look across rather than a plan you look down
+     on, with the buildings far enough apart to hang a sign on each. The
+     signs are drawn by us — asking the model for lettering produces
+     confident gibberish every time, hence 'no text' twice. */
+  ['rev-town', 400, 240,
+   'a busy bright cartoon landscape packed corner to corner with things to ' +
+   'look at, seen from a low hill, buildings large and close to the viewer ' +
+   'with winding dirt paths between them and no empty grass: a stone castle ' +
+   'with pennants top left, a round open-air amphitheatre top centre, a big ' +
+   'red-roofed clubhouse with a porch in the middle, a timber inn with a ' +
+   'chimney, a little post office, a shop with a striped awning, a ' +
+   'fairground with a red and white big top and a ferris wheel on the ' +
+   'right, a grass airstrip with a red biplane bottom right, a blue lake ' +
+   'with a fountain bottom left, leafy trees, hedges and flower beds ' +
+   'filling every gap, blue sky with fat white clouds and a small airship, ' +
+   'edge to edge composition, no text, no letters, no signs, no writing, ' +
+   REVERIE_STYLE],
   ['rev-fountain', 256, 128,
    'a sunny cobbled town square with a round stone fountain splashing in ' +
    'the middle, flower beds, a bench and shop fronts behind, ' + REVERIE_STYLE],
