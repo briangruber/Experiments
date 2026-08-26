@@ -40,7 +40,13 @@ const errors = [];
 p.on('pageerror', (e) => errors.push(String(e)));
 p.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 
-await p.goto(`http://127.0.0.1:${server.address().port}/`, { waitUntil: 'load' });
+// Drive the boat and look along the water rather than trusting the default
+// idle view: the wake check below needs an actual wake in frame, and it needs
+// water dark enough for white foam to stand clear of it -- a top-down lagoon
+// has a median luma of ~230, which put "median + 22" past what even pure foam
+// reaches and failed a perfectly good bundle.
+await p.goto(`http://127.0.0.1:${server.address().port}/?boat.speed=12&prewarm=10&cam=0.5,0.9,44`,
+  { waitUntil: 'load' });
 const ready = await p.waitForFunction('window.__ready === true', { timeout: 150000 })
   .then(() => true).catch(() => false);
 await p.waitForTimeout(2500);
