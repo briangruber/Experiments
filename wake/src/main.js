@@ -50,6 +50,13 @@ const ambient = new THREE.AmbientLight(0xa8c0d8, 0.55);
 scene.add(ambient);
 const sun = new THREE.DirectionalLight(0xfff2e0, 1.15);
 scene.add(sun);
+// The lagoon's answer light: bright water throws a cyan glow UP at anything
+// floating on it. Sky half black -- the AmbientLight already covers the sky's
+// share -- so this only lifts down-facing surfaces: the wet band at the
+// waterline, and above all the submerged half of the hull, which without it
+// photographs near-black and turns the refraction view into a shadow.
+const bounce = new THREE.HemisphereLight(0x000000, 0xaee6e0, 0.9);
+scene.add(bounce);
 
 const camera = new THREE.PerspectiveCamera(38, 1, 0.5, 3000);
 
@@ -416,6 +423,9 @@ for (const [k, v] of new URLSearchParams(location.search)) {
   if (k.includes('.')) set(k, v);
   else if (k === 'cam') { const [p, y, d] = v.split(',').map(Number); view.pitch = p; view.yaw = y; view.dist = d; view.topDown = false; }
 }
+// The boat holder was filled before the overrides ran, so a ?boat.model= in
+// the URL changed the number and left the old hull showing.
+showBoat(get('boat.model'));
 
 const viewport = { w: 1, h: 1 };   // CSS pixels
 
@@ -679,6 +689,8 @@ function frame(now) {
       // there is, which is why the ambient is floored rather than tracking
       // the sun to zero.
       ambient.intensity = sl.sky * gain * 0.9;
+      // Water-bounce tracks the sky term: an overcast pond glows less.
+      bounce.intensity = sl.sky * gain * 1.5;
     }
   }
   if (!abyssal) {
@@ -719,7 +731,10 @@ function frame(now) {
         depth: { target: glc.TEXTURE_2D, tex: dtx },
         res: new Float32Array([bw, bh]),
         amount: get('scene.refraction') * 0.06,
-        near: camera.near, far: camera.far, murk: 1.1,
+        // Murk well under 1: the hull is METRES away through water that the
+        // sea shader already colours -- full absorption on top of that erased
+        // the keel a hand's width below the waterline.
+        near: camera.near, far: camera.far, murk: 0.35,
       };
     }
     sea.render(scene, camera, refr ? { refr } : {});

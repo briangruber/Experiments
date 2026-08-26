@@ -1397,31 +1397,6 @@ void main(){
     body = mix(body, milky, plume);
   }
 
-  // ---- what is UNDER this pixel of water -----------------------------------
-  // Screen-space refraction of the pre-rendered scene. The wobble is the
-  // surface normal's horizontal part -- the same tilt that bends a real ray --
-  // scaled down with distance so far water does not shimmer, and the sampled
-  // depth decides everything: a scene fragment NEARER than the water is the
-  // hull's topsides (drawn again after the water, ignore it here); one BEHIND
-  // the water is submerged, and gets water put in front of it. Beer-Lambert on
-  // the linearised depth gap does the murk, so a keel a metre down is a green
-  // shadow of itself and a swimmer at ten metres is gone.
-  if (uRefrOn > 0.5) {
-    vec2 suv = gl_FragCoord.xy / uRefrRes;
-    vec2 roff = N.xz * uRefrAmt / (1.0 + dist * 0.06);
-    vec2 ruv = clamp(suv + roff, vec2(0.001), vec2(0.999));
-    float dsceneW = texture(uRefrDepth, ruv).r;
-    float dwater = gl_FragCoord.z;
-    if (dsceneW > dwater && dsceneW < 1.0) {
-      float zs = (2.0*uRefrNear*uRefrFar)/(uRefrFar+uRefrNear-(2.0*dsceneW-1.0)*(uRefrFar-uRefrNear));
-      float zw = (2.0*uRefrNear*uRefrFar)/(uRefrFar+uRefrNear-(2.0*dwater-1.0)*(uRefrFar-uRefrNear));
-      float thick = max(zs - zw, 0.0);
-      vec3 seen = texture(uRefrColor, ruv).rgb;
-      vec3 tinted = seen * exp(-uAbsorption * thick * uRefrMurk);
-      float keep = exp(-thick * 0.30);
-      body = mix(body, tinted, clamp(keep, 0.0, 1.0));
-    }
-  }
 
   // Light that entered the far side of a wave, scattered forward inside it and
   // left toward the eye. Only a thin, steep, backlit crest survives the trip,
@@ -1532,6 +1507,38 @@ void main(){
                    * smoothstep(0.35, 0.95, NoV) * 0.16;
         Fenv += (1.0 - Fenv) * film;
       }
+    }
+  }
+
+  // ---- what is UNDER this pixel of water -----------------------------------
+  // Screen-space refraction of the pre-rendered scene. AFTER the seafloor on
+  // purpose: the hull sits between the bed and the surface, so it must
+  // occlude the bed's light -- composited before it, the bed painted straight
+  // over the hull, which is exactly how the first version disappeared.
+  //
+  // The wobble is the surface normal's horizontal part -- the tilt that bends
+  // a real ray -- damped with distance so far water does not shimmer. The
+  // sampled depth decides everything: a scene fragment NEARER than the water
+  // is topsides (drawn again after the water; skip), one BEHIND it is
+  // submerged. Beer-Lambert on the linearised gap does the murk, so a keel a
+  // metre down is a green shadow of itself and ten metres down is gone.
+  if (uRefrOn > 0.5) {
+    vec2 suv = gl_FragCoord.xy / uRefrRes;
+    vec2 roff = N.xz * uRefrAmt / (1.0 + dist * 0.06);
+    vec2 ruv = clamp(suv + roff, vec2(0.001), vec2(0.999));
+    float dsceneW = texture(uRefrDepth, ruv).r;
+    float dwater = gl_FragCoord.z;
+    if (dsceneW > dwater && dsceneW < 1.0) {
+      float zs = (2.0*uRefrNear*uRefrFar)/(uRefrFar+uRefrNear-(2.0*dsceneW-1.0)*(uRefrFar-uRefrNear));
+      float zw = (2.0*uRefrNear*uRefrFar)/(uRefrFar+uRefrNear-(2.0*dwater-1.0)*(uRefrFar-uRefrNear));
+      float thick = max(zs - zw, 0.0);
+      vec3 seen = texture(uRefrColor, ruv).rgb;
+      vec3 tinted = seen * exp(-uAbsorption * thick * uRefrMurk);
+      // Visibility falls much slower than colour: you can SEE a pale keel
+      // three metres down long after its reds are gone. 0.09 keeps the hull
+      // legible to ~8 m of path; the tint above does the colour dying.
+      float keep = exp(-thick * 0.09);
+      diffuse = mix(diffuse, tinted, clamp(keep, 0.0, 1.0));
     }
   }
 

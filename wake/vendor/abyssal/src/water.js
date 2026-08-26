@@ -8,6 +8,7 @@
 // material, a different renderer) uses Ocean alone and never touches this file.
 
 const ZERO3 = new Float32Array(3);
+const ONE2 = new Float32Array([1, 1]);
 // A hull's mean albedo: most of them are pale. Only ever multiplies the sky the
 // craft is under, so it is a tint and not a colour.
 const CRAFT_TINT = new Float32Array([0.72, 0.76, 0.78]);
@@ -76,6 +77,21 @@ export class WaterSurface {
   fadeDistances(ocean) {
     for (let i = 0; i < 4; i++) this._vFade[i] = clamp((ocean.L[i] ?? 1) * 38, 200, 60000);
     return this._vFade;
+  }
+
+  // Same story as the wake: the refraction samplers exist in the compiled
+  // program whether or not a scene photo was taken this frame, and unbound
+  // samplers land on unit 0 where they clash with whatever type lives there.
+  _inertRefr() {
+    const gl = this.gl;
+    if (!this._dummyRefr) {
+      this._dummyRefr = texture2D(gl, {
+        width: 1, height: 1,
+        internalFormat: gl.RGBA8, format: gl.RGBA, type: gl.UNSIGNED_BYTE,
+        filter: gl.NEAREST, wrap: gl.CLAMP_TO_EDGE,
+      });
+    }
+    return this._dummyRefr;
   }
 
   // A wake texture has to be bound even when there is no wake, because the
@@ -250,7 +266,15 @@ export class WaterSurface {
         uRefrColor: opts.refr.color, uRefrDepth: opts.refr.depth,
         uRefrRes: opts.refr.res, uRefrOn: 1, uRefrAmt: opts.refr.amount,
         uRefrNear: opts.refr.near, uRefrFar: opts.refr.far, uRefrMurk: opts.refr.murk,
-      } : { uRefrOn: 0 }),
+      } : {
+        // Bind SOMETHING even when refraction is off. An unbound sampler
+        // defaults to unit 0, where a sampler of another type already sits,
+        // and two mismatched samplers on one unit invalidate the entire draw
+        // -- the sea vanished to flat grey the moment refraction was disabled.
+        uRefrColor: this._inertRefr(), uRefrDepth: this._inertRefr(),
+        uRefrRes: ONE2, uRefrOn: 0, uRefrAmt: 0,
+        uRefrNear: 0.5, uRefrFar: 10, uRefrMurk: 0,
+      }),
       uWakeRelief: p.wakeRelief, uWakeSlick: p.wakeSlick,
       uWakePlume: p.wakePlume ?? 1.0,
       uHullPos: hull.pos, uHullFwd: hull.fwd,
