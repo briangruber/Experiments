@@ -23,15 +23,15 @@ const splash = (x, y) => h('i.amb-splash', { style: { left: x + '%', top: y + '%
 /* What each land does while you stand in it. Lands not named here are
    still and meant to be. */
 const LAND = {
-  keep: () => [at('amb-glow warm', 12, 62), at('amb-glow warm', 88, 58, { animationDelay: '.8s' })],
-  inn: () => [at('amb-glow fire', 50, 58), at('amb-glow warm', 12, 18, { animationDelay: '.5s' }),
-              at('amb-glow warm', 87, 17, { animationDelay: '1.1s' })],
+  castle: () => [at('amb-glow warm', 12, 62), at('amb-glow warm', 88, 58, { animationDelay: '.8s' })],
+  clubhouse: () => [at('amb-glow warm', 16, 24, { animationDelay: '.5s' }),
+                    at('amb-glow warm', 84, 26, { animationDelay: '1.1s' })],
   fountain: () => [splash(50, 52)],
-  boardwalk: () => [at('amb-twinkle', 22, 30), at('amb-twinkle', 44, 24, { animationDelay: '.6s' }),
-                    at('amb-twinkle', 68, 28, { animationDelay: '1.2s' }),
-                    at('amb-twinkle', 86, 22, { animationDelay: '1.8s' })],
+  cafe: () => [splash(50, 62), at('amb-twinkle', 22, 22, { animationDelay: '.6s' })],
+  arcade: () => [at('amb-glow neon', 20, 45), at('amb-glow neon', 52, 40, { animationDelay: '.7s' }),
+                 at('amb-glow neon', 80, 46, { animationDelay: '1.4s' })],
+  workshop: () => [h('i.amb-motes')],
   post: () => [h('i.amb-motes')],
-  cloud: () => [h('i.amb-drift'), h('i.amb-drift', { style: { animationDelay: '-18s', top: '38%' } })],
 };
 
 export function landAmbience(id) {

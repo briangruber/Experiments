@@ -2,12 +2,14 @@
  * The Reverie Network.
  *
  * The other kind of online service the era had: not a wall of text but a
- * painted world you walked around as a face you built yourself, with card
+ * painted town you walked around as a face you built yourself, with card
  * tables and board games in it. Halcyon carries it the way the text
- * services eventually carried these — as a place inside the service.
+ * services eventually carried these — as a place inside the service, and
+ * it runs on its own as well.
  *
  * Reverie is invented, like Halcyon. The backdrops and the flight over the
- * island are generated (tools/gen-assets.mjs); the faces are vectors.
+ * town is a supplied clip and the interiors are generated
+ * (tools/gen-assets.mjs); the faces are vectors.
  *
  * Nobody types at anybody here either: the same phrase book governs the
  * lands as governs the chat rooms.
@@ -53,22 +55,22 @@ export const LANDS = [
   { id: 'fountain', name: 'The Fountain', art: 'rev_fountain',
     blurb: 'The middle of everything, and somewhere to make a wish',
     at: [45, 76], size: [15, 15], games: ['wish'] },
-  { id: 'cafe', name: 'The Chat Cafe', art: 'rev_cloud',
+  { id: 'cafe', name: 'The Chat Cafe', art: 'rev_cafe',
     blurb: 'Umbrellas, a fountain, and nothing to do but talk',
     at: [50, 53], size: [22, 21], games: [] },
-  { id: 'workshop', name: 'The Workshop', art: 'rev_post',
+  { id: 'workshop', name: 'The Workshop', art: 'rev_workshop',
     blurb: 'Where faces get made',
     at: [23, 78], size: [23, 21], games: [], makes: 'face' },
   { id: 'post', name: 'The Post Office', art: 'rev_post',
     blurb: 'Pigeonholes, parcel string, and a board of postcards',
     at: [71, 78], size: [24, 21], games: ['postcard'] },
-  { id: 'clubhouse', name: 'The Clubhouse', art: 'rev_inn',
+  { id: 'clubhouse', name: 'The Clubhouse', art: 'rev_clubhouse',
     blurb: 'Up the ladder, down the slide, and a box that wants shutting',
     at: [83, 46], size: [19, 24], games: ['box'] },
-  { id: 'arcade', name: 'The Arcade', art: 'rev_boardwalk',
+  { id: 'arcade', name: 'The Arcade', art: 'rev_arcade',
     blurb: 'Crazy golf, a machine that eats tokens, and two biplanes',
     at: [20, 43], size: [21, 20], games: ['golf', 'slots', 'dawn'] },
-  { id: 'castle', name: 'Story Castle', art: 'rev_keep',
+  { id: 'castle', name: 'Story Castle', art: 'rev_castle',
     blurb: 'Board games under the pennants',
     at: [49, 17], size: [23, 27], games: ['checkers'] },
 ];
@@ -103,9 +105,9 @@ export function openReverie(session) {
     return session.net.roster(roomOf(landId));
   }
 
-  /* The island should not read as deserted before you have been anywhere,
-     so every land gets a population the first time you look at the map. */
-  function primeIsland() {
+  /* The town should not read as deserted before you have been anywhere,
+     so every place gets a population the first time you look at the map. */
+  function primeTown() {
     for (const l of LANDS) session.net.prime(roomOf(l.id));
   }
 
@@ -228,7 +230,7 @@ export function openReverie(session) {
     render();
   }
 
-  /* ── the island map ────────────────────────────────────────────────── */
+  /* ── the town map ──────────────────────────────────────────────────── */
 
   /* The map is the painted town itself, edge to edge and moving. The
      buildings carry their own signs, so there is nothing to label: what
@@ -236,7 +238,7 @@ export function openReverie(session) {
      are inside, and a way out. */
   function showMap() {
     leaveLand();
-    primeIsland();
+    primeTown();
 
     const town = h('div.rev-town', {
       style: { backgroundImage: 'url(' + ART.rev_town + ')' },
@@ -315,7 +317,7 @@ export function openReverie(session) {
         say.el),
       h('div.rev-bar', {},
         h('button.rev-back', { type: 'button', onclick: () => { A.doorClose(); showMap(); } },
-          '◀ The Island'),
+          '◀ The Town'),
         ...l.games.map(id => btn(GAMES[id].label, () => {
           A.click();
           leaveLand();

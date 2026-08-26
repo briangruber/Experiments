@@ -95,6 +95,13 @@ const SCENES = [
  * what a 256-colour screen shared between a backdrop and everything else
  * actually looked like.
  */
+/* The map is pixel art, so the places behind it are too. */
+const PIXEL_STYLE =
+  'detailed 16-bit pixel art, crisp hard pixels, bright saturated palette, ' +
+  'clean black outlines, cheerful storybook video game background, ' +
+  'flat even lighting, NOT photographic, NOT 3D, NOT blurry, ' +
+  'no text, no letters, no words, no watermark';
+
 const REVERIE_STYLE =
   'early 1990s VGA adventure game background art, hand-painted cartoon, ' +
   'flat saturated colour, bold dark outlines, bright storybook palette, ' +
@@ -102,43 +109,35 @@ const REVERIE_STYLE =
   'no text, no letters, no words, no watermark';
 
 const REVERIE = [
+  /* The interiors, in the map's own technique. The town is pixel art, so
+     painted cartoon backdrops behind it read as a different game. */
   ['rev-fountain', 256, 128,
    'a sunny cobbled town square with a round stone fountain splashing in ' +
-   'the middle, flower beds, a bench and shop fronts behind, ' + REVERIE_STYLE],
+   'the middle, flower beds, a bench and shop fronts behind, ' + PIXEL_STYLE],
   ['rev-post', 256, 128,
    'the inside of a village post office, no books anywhere: a long wooden ' +
    'counter with a brass grille, behind it a wall of small square ' +
    'pigeonholes crammed with white envelopes, brown paper parcels tied ' +
-   'with string stacked on the floor, a set of brass weighing scales on ' +
-   'the counter, a green postbox by the door, ' + REVERIE_STYLE],
-  ['rev-inn', 256, 128,
-   'the inside of a warm timber inn: a big stone fireplace with a fire ' +
-   'lit, long wooden tables, tankards, and lanterns hanging from the ' +
-   'beams, ' + REVERIE_STYLE],
-  ['rev-keep', 256, 128,
-   'a courtyard inside a stone castle with banners, a wooden games table ' +
-   'and torches, ' + REVERIE_STYLE],
-  ['rev-boardwalk', 256, 128,
-   'a wooden seaside pier with striped awnings, coloured bulbs and a ' +
-   'ferris wheel behind, ' + REVERIE_STYLE],
-  ['rev-cloud', 256, 128,
-   'a terrace of pale stone on a cloud in a pink and gold sunset sky, ' +
-   'with potted plants and a railing, ' + REVERIE_STYLE],
-  ['rev-airfield', 256, 128,
-   'a grass airstrip with a red biplane, a windsock and a wooden hangar ' +
-   'under a wide blue sky, ' + REVERIE_STYLE],
-  /* The two game banners lead with the style rather than the subject:
-     asked for "a crazy golf course on a pier" first, the model returns a
-     photograph and ignores everything after the comma. */
-  ['game-dawn', 320, 72,
-   'flat cartoon poster illustration, thick black outlines, cel shaded: a ' +
-   'red biplane and a green biplane chasing each other through fat white ' +
-   'clouds at sunrise, wide banner composition, ' + REVERIE_STYLE],
-  ['game-golf', 320, 72,
-   'flat cartoon poster illustration, thick black outlines, cel shaded: a ' +
-   'crazy golf course on a wooden seaside pier, a red windmill, a striped ' +
-   'flag in the hole, bunting overhead, wide banner composition, ' +
-   REVERIE_STYLE],
+   'with string, a green postbox by the door, ' + PIXEL_STYLE],
+  ['rev-cafe', 256, 128,
+   'a sunny cafe terrace with a red and white striped awning, small round ' +
+   'tables with parasols, potted plants, and a counter at the back, ' +
+   PIXEL_STYLE],
+  ['rev-workshop', 256, 128,
+   'the inside of a busy craft workshop: a long bench with tools hung on ' +
+   'a board above it, jars of paint, a half-finished wooden puppet, wood ' +
+   'shavings on the floor, warm light from a window, ' + PIXEL_STYLE],
+  ['rev-clubhouse', 256, 128,
+   'the inside of a wooden treehouse clubhouse: plank walls, a rope ' +
+   'ladder coming up through the floor, cushions, board games stacked on ' +
+   'a low table, bunting, a round window with leaves outside, ' + PIXEL_STYLE],
+  ['rev-arcade', 256, 128,
+   'the inside of a 1990s video game arcade at night: a row of tall ' +
+   'cabinets glowing purple and pink, a patterned carpet, a change ' +
+   'machine, neon on the walls, ' + PIXEL_STYLE],
+  ['rev-castle', 256, 128,
+   'a courtyard inside a storybook stone castle with blue pennants, a ' +
+   'wooden games table and lit torches, ' + PIXEL_STYLE],
 ];
 
 /* Animations supplied rather than generated: these come from files kept in
