@@ -28,22 +28,15 @@
    Sign-on ("Welcome")
    ───────────────────────────────────────────────────────────────────── */
 
-.hal-signon { display: flex; height: 100%; background: #fff; }
+.hal-signon { display: flex; height: 100%; background: #f6f5ef; }
 
-/* The marbled panel down the left edge of the real sign-on window: a
-   dithered blue that never quite resolves into a pattern. */
+/* The marbled panel down the left edge of the sign-on window. The art is
+   generated and baked in; see tools/gen-assets.mjs. */
 .hal-signon-marble {
-  flex: 0 0 84px;
+  flex: 0 0 88px;
   border-right: 1px solid var(--shadow);
-  background:
-    radial-gradient(circle at 20% 12%, rgba(255,255,255,.34) 0 1px, transparent 1.6px),
-    radial-gradient(circle at 68% 34%, rgba(0,0,0,.34) 0 1px, transparent 1.6px),
-    radial-gradient(circle at 41% 71%, rgba(255,255,255,.22) 0 1px, transparent 1.6px),
-    radial-gradient(circle at 86% 88%, rgba(0,0,0,.26) 0 1px, transparent 1.6px),
-    repeating-linear-gradient(116deg,
-      #12307e 0 3px, #2f6fd8 3px 5px, #1b3fa8 5px 9px, #4a86e8 9px 10px),
-    #1b3fa8;
-  background-size: 7px 7px, 11px 9px, 9px 13px, 13px 11px, auto, auto;
+  background: #1b3fa8 center / cover no-repeat;
+  image-rendering: auto;
 }
 
 .hal-signon-main {
@@ -65,9 +58,9 @@ select.hal-so-field { text-align: left; }
 .hal-relay-note { color: #555; margin-top: 4px; line-height: 1.45; }
 
 .hal-signon-btns { display: flex; gap: 10px; margin: 10px 0 4px; }
-.hal-signon-btns .btn { min-width: 88px; font-weight: 700; letter-spacing: .04em; }
-.hal-go { box-shadow: inset -1px -1px 0 var(--shadow), inset 1px 1px 0 var(--light),
-                      0 0 0 1px #000; }
+.hal-signon-btns .aol-btn { min-width: 90px; letter-spacing: .06em; }
+.hal-go { box-shadow: inset 0 1px 0 rgba(255,255,255,.85),
+                      inset 0 -1px 0 rgba(0,0,0,.2), 0 0 0 1px #10395f; }
 .hal-signon-foot { font-size: 10px; color: #777; }
 
 /* ─────────────────────────────────────────────────────────────────────
@@ -174,13 +167,24 @@ select.hal-so-field { text-align: left; }
 .hal-welcome { display: flex; flex-direction: column; height: 100%; background: #fff; }
 
 .hal-welcome-top {
-  flex: none; display: flex; align-items: center; gap: 16px;
-  padding: 10px 14px; border-bottom: 1px solid #c8cdd8;
-  background: linear-gradient(#eef2f8, #dde5f2);
+  flex: none; position: relative; display: flex; align-items: center; gap: 16px;
+  padding: 12px 14px; border-bottom: 1px solid #9aa4bb;
+  background: #16306e right center / cover no-repeat;
+  overflow: hidden;
 }
+/* A scrim so the greeting reads over whatever the artwork is doing. */
+.hal-welcome-top::before {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(90deg,
+    rgba(10,24,64,.92) 0%, rgba(10,24,64,.86) 46%, rgba(10,24,64,.12) 100%);
+}
+.hal-welcome-top > * { position: relative; }
+.hal-welcome-top .hal-mark-name,
+.hal-welcome-top .hal-mark-online { color: #cfe2ff; }
 .hal-welcome-hi { line-height: 1.5; }
-.hal-welcome-hi b { display: block; font-size: 14px; color: #12307e; }
-.hal-welcome-hi span { font-size: 10px; color: #556; }
+.hal-welcome-hi b { display: block; font-size: 15px; color: #fff;
+                    text-shadow: 0 1px 2px rgba(0,0,0,.6); }
+.hal-welcome-hi span { font-size: 10px; color: #b9cdea; }
 
 .hal-welcome-mid {
   flex: 1; display: flex; gap: 12px; padding: 12px 14px;
@@ -215,6 +219,30 @@ select.hal-so-field { text-align: left; }
 .hal-promo-text { min-width: 0; }
 .hal-promo b { display: block; font-size: 11px; }
 .hal-promo span { display: block; font-size: 10px; color: #556; margin-top: 1px; }
+
+.hal-promo-strip { flex: none; padding: 0 14px 10px; }
+.hal-strip-head {
+  font: 700 10px var(--ui); letter-spacing: .14em; text-transform: uppercase;
+  color: #6a6a5c; margin-bottom: 5px;
+}
+.hal-strip-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+.hal-feature {
+  height: 62px; padding: 7px 9px; cursor: pointer; text-align: left; overflow: hidden;
+  display: flex; flex-direction: column; justify-content: flex-end; gap: 1px;
+  background: #445 right center / cover no-repeat;
+  border: 1px solid rgba(0,0,0,.5);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.3), 1px 1px 2px rgba(0,0,0,.25);
+}
+.hal-feature * { pointer-events: none; }
+.hal-feature b {
+  font-size: 11px; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.75);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.hal-feature span {
+  font-size: 9px; line-height: 1.25; color: #e2e8f4;
+  text-shadow: 0 1px 2px rgba(0,0,0,.8);
+}
+.hal-feature:active { box-shadow: inset 0 2px 4px rgba(0,0,0,.35); }
 
 .hal-welcome-foot {
   flex: none; display: flex; justify-content: space-between; gap: 10px;
@@ -493,17 +521,47 @@ select.hal-so-field { text-align: left; }
   gap: 7px; padding: 12px; align-content: start; overflow: auto;
 }
 .chan-banner {
-  height: 38px; padding: 0 10px; cursor: pointer; overflow: hidden;
+  height: 40px; padding: 0 10px; cursor: pointer; overflow: hidden;
   display: flex; align-items: center;
-  border: 1px solid rgba(0,0,0,.45); border-radius: 3px;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.55), 1px 1px 2px rgba(0,0,0,.25);
+  background: #444 right center / cover no-repeat;
+  border: 1px solid rgba(0,0,0,.5); border-radius: 3px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.35), 1px 1px 2px rgba(0,0,0,.3);
 }
 .chan-banner span {
-  font-size: 15px; line-height: 1; white-space: nowrap;
+  font-size: 15px; line-height: 1; white-space: nowrap; color: #fff;
+  text-shadow: 0 1px 2px rgba(0,0,0,.55), 0 0 1px rgba(0,0,0,.9);
   overflow: hidden; text-overflow: ellipsis; pointer-events: none;
 }
 .chan-banner:hover { filter: brightness(1.06); }
 .chan-banner:active { box-shadow: inset 0 2px 4px rgba(0,0,0,.3); }
+
+/* ── Find Central ────────────────────────────────────────────────────── */
+
+.find { display: flex; flex-direction: column; height: 100%; gap: 8px;
+        padding: 10px 12px; background: var(--aol-face); }
+.find-head { flex: none; }
+.find-row { flex: none; display: flex; gap: 6px; }
+.find-row .field { flex: 1; }
+.find-out {
+  flex: 1; background: #fff; padding: 3px;
+  border: 1px solid; border-color: var(--shadow) var(--hilite) var(--hilite) var(--shadow);
+  box-shadow: inset 1px 1px 0 var(--dark);
+}
+.find-hit {
+  display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left;
+  padding: 4px 6px; background: none; border: 0; cursor: pointer;
+  border-bottom: 1px solid #eee;
+}
+.find-hit:hover { background: #eef3fb; }
+.find-hit b { flex: 1; color: #12307e; }
+.find-hit span { font-size: 10px; color: #778; font-family: var(--mono); }
+.find-hint { padding: 10px; color: #667; line-height: 1.5; font-size: 11px; }
+.find-foot { flex: none; font-size: 10px; color: #555; line-height: 1.45; }
+
+/* ── the keyword bar ─────────────────────────────────────────────────── */
+
+.hal-nav-label { font-weight: 700; font-size: 11px; flex: none; margin-left: 2px; }
+.hal-nav-btn svg { display: block; }
 
 /* ── the Keyword window ──────────────────────────────────────────────── */
 

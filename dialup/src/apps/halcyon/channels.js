@@ -9,6 +9,7 @@ import { icon } from '../../core/icons.js';
 import * as A from '../../core/audio.js';
 import { ROOMS, openChatRoom } from './chat.js';
 import { wordmark } from './brand.js';
+import { ART } from '../../assets/art.js';
 import { openMailbox } from './mail.js';
 import { openBuddyList } from './im.js';
 
@@ -20,52 +21,36 @@ import { openBuddyList } from './im.js';
  */
 const CHANNELS = [
   { id: 'today',   name: 'Halcyon Today', go: 'welcome',
-    style: { background: 'linear-gradient(105deg,#b57fd0,#e8b6d8)', color: '#4a1550' },
     type: { fontWeight: 700, fontStyle: 'italic' } },
   { id: 'news',    name: 'NEWS', go: 'news',
-    style: { background: 'linear-gradient(105deg,#dfe6f2,#b9c7e2)', color: '#0b1d5c' },
     type: { fontWeight: 700, letterSpacing: '.06em' } },
   { id: 'sports',  name: 'SPORTS', go: 'sports',
-    style: { background: 'linear-gradient(105deg,#1a1a1a,#5b5b5b)', color: '#fff' },
     type: { fontWeight: 700, fontStyle: 'italic', letterSpacing: '.04em' } },
   { id: 'computing', name: 'Computing', go: 'tech',
-    style: { background: 'linear-gradient(105deg,#f0e2c8,#cfae7a)', color: '#4a3110' },
     type: { fontWeight: 700 } },
   { id: 'research', name: 'Research & Learn', go: 'search',
-    style: { background: 'linear-gradient(105deg,#e8ecf6,#aab4d4)', color: '#2a2f52' },
     type: { fontWeight: 400 } },
   { id: 'ent',     name: 'entertainment', go: 'music',
-    style: { background: 'linear-gradient(105deg,#6a3f9e,#c9a7e8)', color: '#fff' },
     type: { fontWeight: 700, fontStyle: 'italic' } },
   { id: 'games',   name: 'GAMES', go: 'games',
-    style: { background: 'linear-gradient(105deg,#f6d79a,#ef9a72)', color: '#7a2600' },
     type: { fontWeight: 700, letterSpacing: '.12em' } },
   { id: 'interests', name: 'Interests', go: 'penpals',
-    style: { background: 'linear-gradient(105deg,#dff0fb,#a8d4ef)', color: '#0d4a72' },
     type: { fontWeight: 700, fontStyle: 'italic' } },
   { id: 'lifestyles', name: 'Lifestyles', go: 'coffee',
-    style: { background: 'linear-gradient(105deg,#fafaf6,#d8d8cc)', color: '#1a1a1a' },
     type: { fontWeight: 700 } },
   { id: 'shopping', name: 'Shopping', go: 'shopping',
-    style: { background: 'linear-gradient(105deg,#c9342a,#f0a892)', color: '#fff' },
     type: { fontWeight: 700, fontStyle: 'italic' } },
   { id: 'health',  name: 'Health', go: 'health',
-    style: { background: 'linear-gradient(105deg,#d7e8a8,#9cc46a)', color: '#25400d' },
     type: { fontWeight: 700 } },
   { id: 'families', name: 'families', go: 'penpals',
-    style: { background: 'linear-gradient(105deg,#e8dfc4,#b7c2a4)', color: '#3a3f22' },
     type: { fontWeight: 400, fontStyle: 'italic' } },
   { id: 'kids',    name: 'KIDS ONLY', go: 'kids',
-    style: { background: 'linear-gradient(105deg,#1f3d8a,#3f6bd0)', color: '#ffd23a' },
     type: { fontWeight: 700, letterSpacing: '.05em' } },
   { id: 'local',   name: 'Local', go: 'weather',
-    style: { background: 'linear-gradient(105deg,#8a8a80,#c8c8bc)', color: '#22221c' },
     type: { fontWeight: 700 } },
   { id: 'travel',  name: 'TRAVEL', go: 'weather',
-    style: { background: 'linear-gradient(105deg,#f3d94a,#f6ecae)', color: '#7a4a00' },
     type: { fontWeight: 700, letterSpacing: '.1em' } },
   { id: 'money',   name: 'Influence', go: 'money',
-    style: { background: 'linear-gradient(105deg,#aac6e8,#dbe8f6)', color: '#123a78' },
     type: { fontWeight: 700, fontStyle: 'italic' } },
 ];
 
@@ -82,7 +67,8 @@ export function openChannels(session) {
   const grid = h('div.chan-grid');
   for (const c of CHANNELS) {
     grid.append(h('button.chan-banner', {
-      type: 'button', style: c.style, title: c.name,
+      type: 'button', title: c.name,
+      style: { ...c.style, backgroundImage: 'url(' + ART[c.id] + ')' },
       onclick: () => { A.click(); session.go(c.go); },
     }, h('span', { style: c.type }, c.name)));
   }
@@ -153,8 +139,10 @@ const KEYWORDS = {
   games: s => openChannel(s, 'games'), game: s => openChannel(s, 'games'),
   horoscope: s => openChannel(s, 'stars'), stars: s => openChannel(s, 'stars'),
   channels: s => openChannels(s),
-  web: s => s.ctx.launch('browser', { url: 'halcyon://start' }),
-  internet: s => s.ctx.launch('browser', { url: 'halcyon://start' }),
+  find: s => findCentral(s),
+  search: s => findCentral(s),
+  sports: s => openChannel(s, 'sports'),
+  stars: s => openChannel(s, 'stars'),
   help: s => helpWindow(s),
   guide: s => helpWindow(s),
   tos: s => tosWindow(s),
@@ -168,8 +156,9 @@ export function gotoKeyword(session, keyword) {
   dialog({
     title: 'Keyword', icon: 'error',
     message: 'Halcyon does not have a keyword called "' + keyword + '".\n\n' +
-      'Try: CHAT, TRIVIA, MAIL, WEB, NEWS, WEATHER, MONEY, GAMES,\n' +
-      'HOROSCOPE, BUDDY, HELP or TOS.',
+      'Try: CHAT, TRIVIA, MAIL, NEWS, WEATHER, MONEY, SPORTS, GAMES,\n' +
+      'HOROSCOPE, BUDDY, FIND, HELP or TOS.\n\n' +
+      'Or press the Keyword List button for all of them.',
   });
 }
 
@@ -357,6 +346,76 @@ function sports(root) {
       'open this window, which is roughly how reliable they felt.'));
 }
 
+/* ── Find Central ────────────────────────────────────────────────────── */
+
+/* Every place on the service, and the words that should reach it. */
+const INDEX = [
+  ['Lobby 42', 'lobby', 'chat room people talk lobby'],
+  ['The Coffee House', 'coffee', 'chat room quiet night coffee talk'],
+  ['Trivia Tavern', 'trivia', 'chat game quiz trivia questions score'],
+  ['Computers & Tech', 'tech', 'chat computers modem ram hardware tech'],
+  ['Music & Bands', 'music', 'chat music bands songs concert tapes'],
+  ['Friends & Pen Pals', 'penpals', 'chat friends pen pals asl write'],
+  ["Today's News", 'news', 'news headlines wire stories today'],
+  ['Weather', 'weather', 'weather forecast rain temperature'],
+  ['Quotes', 'money', 'stocks quotes shares money market finance'],
+  ['Sports', 'sports', 'sports scores games teams final'],
+  ['Your Stars Today', 'stars', 'horoscope stars sign fortune zodiac'],
+  ['Mail Center', 'mail', 'mail email letters inbox messages'],
+  ['Buddy List', 'buddies', 'buddy list friends online who'],
+  ['Channels', 'channels', 'channels departments menu everything'],
+  ['Mine Hunt', 'games', 'games mines minesweeper play'],
+  ['Terms of Service', 'tos', 'rules terms service guides safety password'],
+];
+
+export function findCentral(session) {
+  const input = h('input.field', { type: 'text', spellcheck: false,
+                                   placeholder: 'What are you looking for?' });
+  const out = h('div.find-out.scroll');
+
+  const search = () => {
+    const q = input.value.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+    clear(out);
+    const hits = INDEX.map(([name, go, words]) => {
+      const hay = (name + ' ' + words).toLowerCase();
+      return { name, go, score: q.reduce((n, w) => n + (hay.includes(w) ? 1 : 0), 0) };
+    }).filter(r => r.score > 0).sort((a, b) => b.score - a.score);
+
+    if (!q.length) { out.append(h('div.find-hint', {}, 'Type a word and press Find.')); return; }
+    if (!hits.length) {
+      out.append(h('div.find-hint', {},
+        'Nothing on the service matches that. Halcyon is a walled garden, ' +
+        'and a small one — try CHAT, NEWS, WEATHER, SPORTS or GAMES.'));
+      return;
+    }
+    for (const r of hits)
+      out.append(h('button.find-hit', {
+        type: 'button', onclick: () => { A.click(); session.go(r.go); },
+      }, h('b', {}, r.name), h('span', {}, 'Keyword: ' + r.go.toUpperCase())));
+  };
+
+  input.addEventListener('keydown', ev => { if (ev.key === 'Enter') search(); });
+
+  const win = session.child({
+    id: 'halcyon-find', title: 'Find Central', icon: 'find',
+    width: 420, height: 340, minWidth: 320, aol: true,
+  });
+
+  clear(win.body).append(h('div.find', {},
+    h('div.find-head', {}, wordmark(0.34, { row: true })),
+    h('div.find-row', {}, input,
+      h('button.aol-btn.small', { type: 'button', onclick: search }, 'Find')),
+    out,
+    h('div.find-foot', {},
+      'Find Central searches Halcyon, not the world. There is a whole ' +
+      'internet out there and this is not how you reach it — that is what ' +
+      'the other program on the desktop is for.')));
+
+  search();
+  setTimeout(() => input.focus(), 40);
+  return win;
+}
+
 /* ── help and terms ──────────────────────────────────────────────────── */
 
 function helpWindow() {
@@ -364,8 +423,8 @@ function helpWindow() {
     title: 'Halcyon Help', icon: 'help',
     message:
       'KEYWORDS\n' +
-      '  CHAT TRIVIA MAIL WEB NEWS WEATHER MONEY GAMES HOROSCOPE\n' +
-      '  BUDDY HELP TOS\n\n' +
+      '  CHAT TRIVIA MAIL NEWS WEATHER MONEY SPORTS GAMES\n' +
+      '  HOROSCOPE BUDDY FIND HELP TOS\n\n' +
       'IN A ROOM\n' +
       '  Double-click any name for member options, including Ignore.\n' +
       '  Type SCORE in the Trivia Tavern to see the board.\n\n' +

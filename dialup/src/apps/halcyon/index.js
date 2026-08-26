@@ -22,8 +22,9 @@ import { runDialer } from './dialer.js';
 import { ROOMS, openChatRoom } from './chat.js';
 import { openBuddyList, imFrom, openIM } from './im.js';
 import { openMailbox, unreadCount, composeMail } from './mail.js';
-import { openChannels, gotoKeyword, openRoomList, openChannel, keywordDialog }
+import { openChannels, gotoKeyword, openRoomList, openChannel, keywordDialog, findCentral }
   from './channels.js';
+import { ART } from '../../assets/art.js';
 import { openFrame } from './frame.js';
 import { wordmark } from './brand.js';
 
@@ -69,7 +70,7 @@ function signOnWindow(ctx) {
 
   const win = openWindow({
     id: 'halcyon-signon', title: 'Welcome', icon: 'halcyon',
-    width: 462, height: 396, resizable: false,
+    width: 470, height: 404, resizable: false, aol: true,
   });
 
   const doSignOn = async () => {
@@ -97,7 +98,7 @@ function signOnWindow(ctx) {
   };
 
   clear(win.body).append(h('div.hal-signon', {},
-    h('div.hal-signon-marble'),
+    h('div.hal-signon-marble', { style: { backgroundImage: 'url(' + ART.marble + ')' } }),
     h('div.hal-signon-main', {},
       wordmark(1),
       h('div.hal-signon-ver', {}, 'Halcyon Online v3.0'),
@@ -118,9 +119,9 @@ function signOnWindow(ctx) {
           'browser, and other tabs on this computer appear as other people.')),
 
       h('div.hal-signon-btns', {},
-        h('button.btn', { type: 'button', onclick: setupBox }, 'SETUP'),
-        h('button.btn', { type: 'button', onclick: helpBox }, 'HELP'),
-        h('button.btn.hal-go', { type: 'button', onclick: doSignOn }, 'SIGN ON')),
+        h('button.aol-btn', { type: 'button', onclick: setupBox }, 'SETUP'),
+        h('button.aol-btn', { type: 'button', onclick: helpBox }, 'HELP'),
+        h('button.aol-btn.hal-go', { type: 'button', onclick: doSignOn }, 'SIGN ON')),
 
       h('div.hal-signon-foot', {}, 'Press Alt + F4 to Exit'))));
 
@@ -194,6 +195,17 @@ function updateStatus() {
   ]);
 }
 
+/* What the service is pushing tonight. On the real thing this was the
+   only part of the screen that ever changed. */
+const FEATURED = [
+  { title: 'Trivia Tavern', blurb: 'A quiz at the top of every hour',
+    art: 'games', go: 'trivia' },
+  { title: 'Tonight in the Lobby', blurb: 'Forty people and nobody leaving',
+    art: 'today', go: 'lobby' },
+  { title: 'Comet Watch', blurb: 'Northwest, after sunset, all month',
+    art: 'news', go: 'news' },
+];
+
 /* ── the Welcome child window ────────────────────────────────────────── */
 
 function welcome() {
@@ -210,7 +222,7 @@ function welcome() {
       h('div.hal-promo-text', {}, h('b', {}, label), h('span', {}, sub)));
 
   clear(win.body).append(h('div.hal-welcome', {},
-    h('div.hal-welcome-top', {},
+    h('div.hal-welcome-top', { style: { backgroundImage: 'url(' + ART.hero + ')' } },
       wordmark(0.5, { row: true }),
       h('div.hal-welcome-hi', {},
         h('b', {}, 'Welcome, ' + session.name + '!'),
@@ -225,7 +237,16 @@ function welcome() {
         promo('People Connection', 'Chat rooms', 'chat', 'rooms'),
         promo('Channels', 'The whole service', 'globe', 'channels'),
         promo('Buddy List', 'Who is online', 'people', 'buddies'),
-        promo('Internet', 'The World Wide Web', 'browser', 'web'))),
+        promo('Find Central', 'Search the service', 'find', 'search'))),
+
+    h('div.hal-promo-strip', {},
+      h('div.hal-strip-head', {}, 'Today on Halcyon'),
+      h('div.hal-strip-row', {}, FEATURED.map(f =>
+        h('button.hal-feature', {
+          type: 'button', title: f.blurb,
+          style: { backgroundImage: 'url(' + ART[f.art] + ')' },
+          onclick: () => session.go(f.go),
+        }, h('b', {}, f.title), h('span', {}, f.blurb))))),
 
     h('div.hal-welcome-foot', {},
       h('span', {}, mail
@@ -234,7 +255,7 @@ function welcome() {
       h('span', {}, 'Keyword: press Ctrl+K'))));
 
   A.mailFanfare();
-  setTimeout(() => A.say(mail ? 'Welcome! You have mail.' : 'Welcome!'), 260);
+  setTimeout(() => A.announce(mail ? 'mail' : 'welcome'), 300);
   return win;
 }
 
@@ -271,7 +292,6 @@ function route(what, arg) {
     case 'buddies':   return openBuddyList(s);
     case 'news':      return openChannel(s, 'news');
     case 'money':     return openChannel(s, 'money');
-    case 'web':       return s.ctx.launch('browser', { url: 'halcyon://start' });
     case 'notepad':   return s.ctx.launch('notepad');
     case 'signoff':   return signOff(s.ctx);
     case 'addfav':    return dialog({
@@ -379,7 +399,7 @@ function route(what, arg) {
         'paper is not jammed. It is jammed.',
     });
 
-    case 'search': return s.ctx.launch('browser', { url: 'http://www.hotspider.com/' });
+    case 'search': case 'find': return findCentral(s);
 
     case 'help': return dialog({
       title: 'Halcyon Help', icon: 'help', message:
@@ -497,7 +517,7 @@ export async function signOff(ctx) {
   s.frame.close();
 
   A.goodbyeChime();
-  setTimeout(() => A.say('Goodbye.'), 200);
+  setTimeout(() => A.announce('goodbye'), 200);
   await sleep(120);
   await dialog({
     title: 'Halcyon Online', icon: 'halcyon',

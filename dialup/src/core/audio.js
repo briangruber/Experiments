@@ -4,9 +4,12 @@
    That keeps the folder small and means the dial-up sequence can be as
    long or short as the dialer needs it to be. */
 
+import { VOICE } from '../assets/voice.js';
+
 let ctx = null;
 let master = null;
 let enabled = true;
+const decoded = new Map();
 
 export function unlock() {
   if (ctx) { if (ctx.state === 'suspended') ctx.resume(); return ctx; }
@@ -262,21 +265,38 @@ export function busySignal(t, cycles = 4) {
 /* ── voice-ish service sounds ────────────────────────────────────────── */
 
 /**
- * A short synthesised utterance. We are not doing speech synthesis by
- * hand — this is a formant-ish blurt per syllable, which reads as "the
- * computer said something friendly" without pretending to be a voice.
- * Falls back to nothing if the browser has no speech synthesis.
+ * The service announcer.
+ *
+ * These are real recordings baked into src/assets/voice.js at 11 kHz
+ * 8-bit mono — what a .wav on this machine would have been — rather than
+ * the browser's speech synthesiser, which reads them like a railway
+ * station. Decoded once and played through the master gain, so the tray
+ * mute governs them like everything else.
  */
-export function say(text, { rate = 0.92, pitch = 0.85 } = {}) {
-  if (!enabled) return false;
-  const S = window.speechSynthesis;
-  if (!S || typeof SpeechSynthesisUtterance === 'undefined') return false;
-  try {
-    const u = new SpeechSynthesisUtterance(text);
-    u.rate = rate; u.pitch = pitch; u.volume = 0.85;
-    S.cancel(); S.speak(u);
-    return true;
-  } catch { return false; }
+export function announce(key) {
+  if (!enabled || !ctx) return false;
+  const uri = VOICE[key];
+  if (!uri) return false;
+
+  const play = buf => {
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const g = ctx.createGain();
+    g.gain.value = 0.9;
+    src.connect(g); g.connect(master);
+    src.start();
+  };
+
+  const cached = decoded.get(key);
+  if (cached) { play(cached); return true; }
+
+  const bin = atob(uri.slice(uri.indexOf(',') + 1));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  ctx.decodeAudioData(bytes.buffer,
+    buf => { decoded.set(key, buf); play(buf); },
+    () => {});
+  return true;
 }
 
 /** Fallback jingle used when speech is unavailable (or as its bed). */

@@ -28,9 +28,8 @@ client with the 4.x look people actually picture:
 - a **deep blue toolbar** of large colour icons with light labels beneath,
   in three groups, several carrying a drop-down caret; the badge sits on
   its own blue panel at the right-hand end
-- beneath it a **cream navigation bar**: back, forward, stop, reload,
-  home, a `Find` drop-down, a wide address box reading "Type Keyword or
-  Web Address here and click Go", then blue `Go` and `Keyword` buttons
+- beneath it a **cream keyword bar**: Main Menu, then the keyword box and
+  its `Go` and `Keyword List` buttons
 - **window faces in warm cream** (`#dcdccf`), not system grey, and blue
   bevelled buttons instead of the Win95 ones
 - **Channels** as a rail — badge, heading, "Return to Welcome", a blue
@@ -48,6 +47,39 @@ badge and every icon here are ours. The typographic idiom — a geometric
 badge over letterspaced caps with "Online" in a script face — was common
 to the whole era.
 
+
+
+## The keyword era, on purpose
+
+There is no address box and no way to type a URL anywhere in Halcyon. The
+service is a walled garden you move around with keywords — press Ctrl+K,
+type `TRIVIA`, and you are in the room. `Find Central` searches the
+service, not the world, and says so.
+
+The machine does have a browser. It is NetScrape, it is on the desktop and
+in the Start menu, and it is a separate program — which is exactly where it
+belonged before the two got merged.
+
+## The artwork and the voice
+
+Generated with fal.ai and baked into `src/assets/` as data URIs, so the
+folder still works with no network and no key:
+
+- **sixteen channel banners.** The subject is generated; the flat colour
+  field the label sits on is composed here, so the type always reads. Then
+  the whole banner is quantised to 64 colours with Floyd–Steinberg
+  dithering, which is what a banner on this service actually was, and
+  which makes sixteen separate generations look like one set.
+- **the marbled panel** on the sign-on window, and the **welcome banner**
+  behind the greeting.
+- **the announcer** — "Welcome", "You have mail", "Goodbye" — at 11 kHz
+  8-bit mono, which is both what a `.wav` on this machine would have been
+  and about a tenth of the bytes. It replaces the browser's speech
+  synthesiser, which read them like a railway station.
+
+`node tools/gen-assets.mjs` regenerates them; it needs `FAL_KEY`. The
+generated modules are committed, so nobody else needs one. Total cost to
+the bundle: about 60 KB of pictures and 105 KB of sound.
 
 ## Running it
 
