@@ -6,7 +6,7 @@
  */
 
 import { h, clear, $$ } from '../../core/dom.js';
-import { openWindow, dialog, getWindow } from '../../core/wm.js';
+import { dialog, getWindow } from '../../core/wm.js';
 import { icon } from '../../core/icons.js';
 import * as A from '../../core/audio.js';
 import { screen, LIMITS } from '../../core/safety.js';
@@ -31,8 +31,8 @@ export function openIM(session, who, firstLine = null) {
     placeholder: 'Type a message',
   });
 
-  const win = openWindow({
-    id, title: 'Instant Message from ' + who, icon: 'chat',
+  const win = session.child({
+    id, title: 'Instant Message From: ' + who, icon: 'chat',
     width: 400, height: 300, minWidth: 280, minHeight: 200,
     onClose: () => { convos.delete(who); return true; },
   });
@@ -155,10 +155,10 @@ async function report(session, who) {
 /* ── buddy list ──────────────────────────────────────────────────────── */
 
 export function openBuddyList(session) {
-  const win = openWindow({
-    id: 'halcyon-buddies', title: 'Buddy List - ' + session.name, icon: 'people',
-    width: 236, height: 380, minWidth: 200, minHeight: 220,
-    x: 8, y: 120,
+  const win = session.child({
+    id: 'halcyon-buddies', title: 'Buddy List Window', icon: 'people',
+    width: 232, height: 360, minWidth: 200, minHeight: 220,
+    x: 300, y: 40,
   });
 
   const tree = h('div.buddy-tree.scroll');

@@ -198,6 +198,99 @@ export const ICONS = {
     R(10, 4, 12, 9, '#c9ccd4'), R(11, 5, 10, 6, screenBlue),
     L('M16 13v6M8 19v-3h16v3', '#4a4d55', 1.4),
   ]),
+
+  /* ── toolbar additions, drawn to read at 20px ─────────────────────── */
+
+  mailRead: () => V([
+    P('M3 9h26v16H3z', '#f4f1e4'), P('M3 9h26v16H3z', 'none', { stroke: '#5c5646' }),
+    P('M3 25l10-8 3 2 3-2 10 8z', '#e7e3d2'),
+    P('M3 9l13 9L29 9', 'none', { stroke: '#5c5646', 'stroke-width': 1.3 }),
+    P('M9 2h14v9H9z', '#fff'), P('M9 2h14v9H9z', 'none', { stroke: '#8a8578' }),
+    R(11, 4, 10, 1.3, '#9a958a'), R(11, 7, 7, 1.3, '#9a958a'),
+  ]),
+
+  mailWrite: () => V([
+    P('M3 11h20v14H3z', '#f4f1e4'), P('M3 11h20v14H3z', 'none', { stroke: '#5c5646' }),
+    P('M3 11l10 7 10-7', 'none', { stroke: '#5c5646', 'stroke-width': 1.3 }),
+    P('M18 20l9-16 5 3-9 16-6 2z', '#ffd84d'),
+    P('M18 20l9-16 5 3-9 16-6 2z', 'none', { stroke: '#7a5f00' }),
+    P('M17 25l1-5 5 3z', '#3a2d00'),
+  ]),
+
+  keyword: () => V([
+    P('M4 8h24v16H4z', '#fff'), P('M4 8h24v16H4z', 'none', { stroke: '#4a4d55' }),
+    R(7, 12, 3.2, 3.2, '#1a3f8f'), R(12, 12, 3.2, 3.2, '#1a3f8f'),
+    R(17, 12, 3.2, 3.2, '#1a3f8f'), R(22, 12, 3.2, 3.2, '#1a3f8f'),
+    R(7, 17, 14, 3.2, '#6f88bd'), R(23, 17, 2.2, 3.2, '#1a3f8f'),
+  ]),
+
+  find: () => V([
+    svg('circle', { cx: 14, cy: 13, r: 8.5, fill: '#cfe4ff', stroke: '#123a78', 'stroke-width': 2 }),
+    P('M11 10a5 5 0 0 1 5-3', 'none', { stroke: '#fff', 'stroke-width': 1.6 }),
+    P('M20 19l8 8', 'none', { stroke: '#4a4d55', 'stroke-width': 4, 'stroke-linecap': 'round' }),
+  ]),
+
+  star: () => V([
+    P('M16 3l4 8.6 9.4 1.2-6.9 6.4 1.8 9.3L16 24l-8.3 4.5 1.8-9.3L2.6 12.8 12 11.6z', '#ffd84d'),
+    P('M16 3l4 8.6 9.4 1.2-6.9 6.4 1.8 9.3L16 24l-8.3 4.5 1.8-9.3L2.6 12.8 12 11.6z',
+      'none', { stroke: '#9a7a00' }),
+  ]),
+
+  directory: () => V([
+    P('M5 3h20a2 2 0 0 1 2 2v22a2 2 0 0 1-2 2H5z', '#e8ecf4'),
+    P('M5 3h20a2 2 0 0 1 2 2v22a2 2 0 0 1-2 2H5z', 'none', { stroke: '#4a4d55' }),
+    R(3, 3, 3, 26, '#1a3f8f'),
+    svg('circle', { cx: 15, cy: 12, r: 4, fill: '#f0c49a' }),
+    P('M9 24c0-4 3-6 6-6s6 2 6 6z', '#3a6ea5'),
+  ]),
+
+  clock: () => V([
+    svg('circle', { cx: 16, cy: 16, r: 13, fill: '#f4f1e4', stroke: '#4a4d55', 'stroke-width': 2 }),
+    L('M16 8v8l6 4', '#1a1a1a', 2),
+    svg('circle', { cx: 16, cy: 16, r: 1.6, fill: '#1a1a1a' }),
+  ]),
+
+  print: () => V([
+    R(8, 4, 16, 8, '#e6e9ee'), R(8, 4, 16, 8, 'none', { stroke: '#4a4d55' }),
+    P('M4 12h24v10H4z', '#9ca0a8'), P('M4 12h24v10H4z', 'none', { stroke: '#4a4d55' }),
+    svg('circle', { cx: 24, cy: 16, r: 1.4, fill: '#3ad14a' }),
+    R(8, 19, 16, 10, '#fff'), R(8, 19, 16, 10, 'none', { stroke: '#4a4d55' }),
+    R(10, 22, 12, 1.3, '#9a958a'), R(10, 25, 9, 1.3, '#9a958a'),
+  ]),
+
+  /* ── Halcyon's own marks ──────────────────────────────────────────── */
+
+  /* A rounded diamond with a wave through it. Deliberately not a triangle
+     with a circle in it, which belonged to somebody. */
+  halcyonMark: () => V([
+    P('M16 1.5l13 13a2.2 2.2 0 0 1 0 3L16 30.5l-13-13a2.2 2.2 0 0 1 0-3z', '#1b4fb0'),
+    P('M16 4.6l10.4 10.4a1.4 1.4 0 0 1 0 2L16 27.4 5.6 17a1.4 1.4 0 0 1 0-2z', '#3a7de0'),
+    P('M7 17.5c2.6-3.4 5.2-3.4 7.8 0s5.2 3.4 7.8 0', 'none',
+      { stroke: '#ffd23a', 'stroke-width': 2.6, 'stroke-linecap': 'round' }),
+    P('M7 12.6c2.6-3.4 5.2-3.4 7.8 0s5.2 3.4 7.8 0', 'none',
+      { stroke: '#cfe2ff', 'stroke-width': 1.6, 'stroke-linecap': 'round', opacity: .8 }),
+  ]),
+
+  mailboxEmpty: () => V([
+    P('M4 14a8 6 0 0 1 16 0v12H4z', '#c9ccd4'),
+    P('M4 14a8 6 0 0 1 16 0v12H4z', 'none', { stroke: '#4a4d55', 'stroke-width': 1.2 }),
+    R(6, 18, 12, 1.6, '#8b909a'),
+    R(21, 12, 2.4, 14, '#8a6a3a'),
+    R(9, 26, 8, 3, '#8a6a3a'),
+    P('M23.4 20h5v4h-5z', '#9a9a9a'),
+  ]),
+
+  mailboxFull: () => V([
+    P('M4 14a8 6 0 0 1 16 0v12H4z', '#e2c14a'),
+    P('M4 14a8 6 0 0 1 16 0v12H4z', 'none', { stroke: '#7a5f00', 'stroke-width': 1.2 }),
+    R(21, 12, 2.4, 14, '#8a6a3a'),
+    R(9, 26, 8, 3, '#8a6a3a'),
+    P('M23.4 5h6v6h-6z', '#d63a3a'),
+    P('M23.4 5h6v6h-6z', 'none', { stroke: '#7a1414' }),
+    R(22.6, 5, 1.6, 16, '#8a6a3a'),
+    P('M7 10h10v9H7z', '#fff'), P('M7 10h10v9H7z', 'none', { stroke: '#5c5646' }),
+    P('M7 10l5 4 5-4', 'none', { stroke: '#5c5646', 'stroke-width': 1.2 }),
+  ]),
 };
 
 /** 32×32 desktop-size icon element. */

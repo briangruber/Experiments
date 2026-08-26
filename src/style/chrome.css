@@ -462,6 +462,40 @@ textarea.field { resize: none; }
 .sm-sep { height: 0; border-top: 1px solid var(--shadow);
           border-bottom: 1px solid var(--hilite); margin: 3px 2px; }
 
+/* ── Drop-down menus ─────────────────────────────────────────────────── */
+
+.win-menu { position: relative; }
+.win-menu button.on { background: var(--sel); color: #fff; }
+
+.menu-pop {
+  position: absolute; top: 100%; left: 0; z-index: 3000; min-width: 176px;
+  background: var(--face); padding: 2px;
+  border: 1px solid; border-color: var(--hilite) var(--dark) var(--dark) var(--hilite);
+  box-shadow: inset -1px -1px 0 var(--shadow), inset 1px 1px 0 var(--light),
+              2px 2px 5px rgba(0,0,0,.35);
+}
+.menu-item {
+  display: flex; align-items: center; gap: 22px; width: 100%;
+  padding: 3px 8px 3px 18px; background: none; border: 0; cursor: default;
+  text-align: left; white-space: nowrap;
+}
+.menu-item span { flex: 1; }
+.menu-item em { font-style: normal; color: #555; font-size: 11px; }
+.menu-item:hover:not(:disabled) { background: var(--sel); color: #fff; }
+.menu-item:hover:not(:disabled) em { color: #cfe; }
+.menu-item:disabled { color: var(--shadow); text-shadow: 1px 1px 0 var(--hilite); }
+.menu-sep { height: 0; margin: 3px 2px;
+            border-top: 1px solid var(--shadow); border-bottom: 1px solid var(--hilite); }
+
+/* ── MDI children ────────────────────────────────────────────────────── */
+
+/* Windows living inside an application frame rather than on the desktop.
+   Same chrome, but they never leave their parent and cast a lighter
+   shadow, because they are not floating above the whole screen. */
+.win.mdi { box-shadow: inset 1px 1px 0 var(--hilite), inset -1px -1px 0 var(--shadow),
+                       1px 1px 4px rgba(0,0,0,.3); }
+.win.mdi.maxed { border-width: 0 1px 1px 0; }
+
 /* ── Dialogs ─────────────────────────────────────────────────────────── */
 
 #modal-layer { position: absolute; inset: 0; z-index: 4000; pointer-events: none; }
