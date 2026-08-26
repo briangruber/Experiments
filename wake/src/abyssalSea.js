@@ -29,6 +29,7 @@
 
 import { AbyssalWater, AbyssalSky } from '../vendor/abyssal/src/three/index.js';
 import { newParams, applyPreset, PRESETS } from '../vendor/abyssal/src/presets.js';
+import { get } from './params.js';
 
 
 /**
@@ -107,6 +108,41 @@ export const QUIET = {
 // it back so the prototype's own directional light, terrain and boat are lit
 // by the same sun the sea and sky are.
 
+const mix = ( a, b, t ) => a + ( b - a ) * t;
+
+/**
+ * Reconcile a preset with the fact that this scene already HAS a lake.
+ *
+ * Abyssal's presets carry their own procedural seafloor. Calm Lake's is a
+ * shallow one -- 9 m, ranging 3.5 to 16 -- under green-dominant scattering
+ * water, which is authored exactly right for what it is and reads as a bright
+ * green pool the moment our own terrain is also in frame. Two bottoms, one
+ * lake, and the green wins.
+ *
+ * So by default the floor is pushed out of sight and the scattering colour is
+ * steered toward deep water, both under live control. scene.floor at 1 and
+ * scene.waterTint at 0 restore precisely what the preset asked for.
+ */
+function fitToLake( p, preset = {} ) {
+
+	const floor = get( 'scene.floor' );
+	// Not zero: the floor terms are gated on depth, and 0 reads as "no floor
+	// configured" rather than "floor far below".
+	p.floorDepth = mix( 400, preset.floorDepth ?? 9, floor );
+	p.floorDepthMin = mix( 400, preset.floorDepthMin ?? 3.5, floor );
+	p.floorDepthMax = mix( 900, preset.floorDepthMax ?? 16, floor );
+
+	const tint = get( 'scene.waterTint' );
+	const c = preset.scatterColor ?? [ 0.055, 0.145, 0.095 ];
+	const DEEP = [ 0.014, 0.072, 0.135 ];   // blue-dominant, a little green
+	p.scatterColor = [
+		mix( c[ 0 ], DEEP[ 0 ], tint ),
+		mix( c[ 1 ], DEEP[ 1 ], tint ),
+		mix( c[ 2 ], DEEP[ 2 ], tint ),
+	];
+
+}
+
 export class AbyssalSea {
 
 	constructor( renderer, { preset = DEFAULT_PRESET } = {} ) {
@@ -129,6 +165,7 @@ export class AbyssalSea {
 		this.renderer = renderer;
 		this.preset = preset;
 		this.wake = null;
+		fitToLake( this.params, PRESETS[ preset ] );
 		this.sky = new AbyssalSky( renderer, { params: this.params } );
 		this.water = new AbyssalWater( renderer, { params: this.params, sky: this.sky } );
 
@@ -148,6 +185,7 @@ export class AbyssalSea {
 		if ( ! ( name in PRESETS ) || name === this.preset ) return false;
 		applyPreset( this.params, name );
 		Object.assign( this.params, QUIET );
+		fitToLake( this.params, PRESETS[ name ] );
 		this.water.ocean.buildSpectrum( this.params );
 		this.preset = name;
 		return true;
@@ -157,6 +195,9 @@ export class AbyssalSea {
 	/** Step the wave simulation and the atmosphere. `dt` in seconds. */
 	update( dt, camera ) {
 
+		// Live, so the lake-fit sliders take effect next frame like every other
+		// knob here.
+		fitToLake( this.params, PRESETS[ this.preset ] );
 		this.water.update( dt, camera );
 		this.sky.update( dt, camera );
 

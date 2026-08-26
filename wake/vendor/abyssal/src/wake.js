@@ -83,7 +83,12 @@ vec3 wakeAt(vec2 p){
   //   B  surfaced bubbles        A  bubble density
   //
   // So this reads them, and the only work left is the rim feather.
-  vec2 uv = (p - uWakeOrigin) / uWakeExtent + 0.5;
+  // V IS FLIPPED. The prototype bakes its field through an orthographic camera
+  // with up = (0, 0, -1), so +Z in the world runs DOWN the texture. Its own
+  // sampler carries the same vec2(1, -1) (see wakeUV() in src/ocean.js), and
+  // without it the wake is mirrored in Z about the field centre -- which reads
+  // as a perfectly good wake sitting somewhere the boat has never been.
+  vec2 uv = (p - uWakeOrigin) / uWakeExtent * vec2(1.0, -1.0) + 0.5;
   // Inscribed circle, not the square: the square's far edge is a line of
   // constant Z, which draws a dead-straight horizontal cut across the sea.
   float radial = length(uv - 0.5) * 2.0;

@@ -202,6 +202,12 @@ export const PARAMS = {
     // means more sea. Drives the wave spectrum AND the light, because in
     // Abyssal they are one parameter set, not two.
     preset:       { v: 0,    min: 0,   max: 9,   step: 1,    label: 'Weather preset' },
+    // The prototype already has a lake bottom (the terrain). Abyssal's presets
+    // carry their own procedural seafloor, and a shallow one under green lake
+    // water reads as a bright green pool. 0 pushes it out of sight, 1 restores
+    // exactly what the preset asked for.
+    floor:        { v: 0,    min: 0,   max: 1,   step: 0.01, label: 'Show sea floor' },
+    waterTint:    { v: 0.8,  min: 0,   max: 1,   step: 0.01, label: 'Deep-water tint' },
     warmth:       { v: 1.15, min: 0,   max: 1.5, step: 0.01, label: 'Sunset warmth' },
     cloud:        { v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Cloud cover' },
     cloudScale:   { v: 0.55, min: 0.05,max: 3,   step: 0.01, label: 'Cloud scale' },
