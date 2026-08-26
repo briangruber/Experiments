@@ -254,6 +254,9 @@ const ui = buildUI(uiRoot, {
     if (path === '*' || path === 'scene.preset') {
       scenePicker.select(Math.round(get('scene.preset')));
     }
+    // Re-fit the drawn hull: both 'Hull length' and 'Model scale' feed the
+    // target size, and the fit is where scale actually lives (an outer scale
+    // on the holder is divided straight back out by this same call).
     for (const c of boat.children) c.userData?.scaleTo?.();
   },
 });
@@ -566,10 +569,7 @@ function stepSim(dt) {
   // ...and where the hull ITSELF is, which is not the same thing the moment
   // the boat crabs: the sample is the track, this is the boat.
   wake.setHull(state.x + bhx * bowAhead, state.z + bhz * bowAhead, state.heading);
-  // How big the model is DRAWN. Live, so the slider works without a reload;
-  // on the holder rather than inside the fit so it stacks cleanly on whatever
-  // normalisation the loaded GLB needed.
-  boat.scale.setScalar(Math.max(get('boat.modelScale'), 0.05));
+
   return { hx, hz };
 }
 

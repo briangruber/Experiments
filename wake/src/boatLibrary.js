@@ -124,6 +124,21 @@ function sternIsForward( root ) {
  *    the arm geometry. A model that is visually 12 m while the physics thinks
  *    it is 9.9 m produces a wake that is subtly wrong everywhere.
  */
+// Per model, because "draft" is not a property of a bounding box.
+//
+// One absolute depth for every hull is better than a fraction of model height
+// (which sank the pirate and flooded the dinghy), but it is still wrong in the
+// same direction: an inflatable's floor sits centimetres above its lowest
+// point, while a masted ship's keel is a metre below its waterline. These are
+// multipliers on the slider, so the slider still moves every boat together and
+// the ratios between them stay right.
+const DRAFT = { inflatable: 0.30, burrito: 0.62, racingred: 0.70,
+	yacht: 0.95, pirate: 1.25 };
+const draftFor = ( id ) => get( 'boat.draft' ) * ( DRAFT[ id ] ?? 1 );
+
+/** How long the drawn hull should be: the physics length times the look knob. */
+const drawnLength = () => get( 'boat.length' ) * Math.max( get( 'boat.modelScale' ), 0.05 );
+
 function fitToHull( root, boat = {} ) {
 
 	// Work on a fresh group so repeated calls cannot compound their own
@@ -153,7 +168,7 @@ function fitToHull( root, boat = {} ) {
 	const fitted = new THREE.Box3().setFromObject( holder );
 	const fSize = new THREE.Vector3();
 	fitted.getSize( fSize );
-	const L = get( 'boat.length' );
+	const L = drawnLength();
 	const scale = L / Math.max( fSize.z, 1e-3 );
 	holder.scale.setScalar( scale );
 
@@ -171,17 +186,7 @@ function fitToHull( root, boat = {} ) {
 	// the open boats, whose interior floor sits only a little above their
 	// lowest point. A masted pirate boat is three times the height of an
 	// inflatable and wants exactly the same draft.
-	// Per model, because "draft" is not a property of a bounding box.
-	//
-	// One absolute depth for every hull is better than a fraction of model
-	// height (which sank the pirate and flooded the dinghy), but it is still
-	// wrong in the same direction: an inflatable's floor sits centimetres
-	// above its lowest point, while a masted ship's keel is a metre below its
-	// waterline. These are multipliers on the slider, so the slider still
-	// moves every boat together and the ratios between them stay right.
-	const DRAFT = { inflatable: 0.30, burrito: 0.62, racingred: 0.70,
-		yacht: 0.95, pirate: 1.25 };
-	holder.position.y -= final.min.y + get( 'boat.draft' ) * ( DRAFT[ boat.id ] ?? 1 );
+	holder.position.y -= final.min.y + draftFor( boat.id );
 
 	return holder;
 
@@ -218,15 +223,26 @@ export async function loadBoat( id ) {
 		if ( o.material ) { o.material.side = THREE.DoubleSide; o.material.needsUpdate = true; }
 	} );
 
-	// Rebuilding the fit when boat.length changes keeps the drawn hull and the
-	// physics on the same number, which is the whole point of fitToHull.
+	// Re-fit when boat.length or the look knob changes.
+	//
+	// This is also why an outer scale on the holder did nothing: this runs on
+	// every UI change and divides any such scale straight back out, measuring
+	// the world box and normalising it to the target. The holder's internal
+	// offsets kept the scale, so the boat MOVED without growing. The look knob
+	// belongs in the target itself.
 	fitted.userData.scaleTo = () => {
-		const L = get( 'boat.length' );
+		const L = drawnLength();
 		const box = new THREE.Box3().setFromObject( fitted );
 		const size = new THREE.Vector3();
 		box.getSize( size );
-		if ( Math.abs( size.z - L ) < 0.01 ) return;
-		fitted.scale.multiplyScalar( L / Math.max( size.z, 1e-3 ) );
+		if ( Math.abs( size.z - L ) > 0.01 ) {
+			fitted.scale.multiplyScalar( L / Math.max( size.z, 1e-3 ) );
+		}
+		// Scaling moves the keel: the fit put the hull's lowest point one
+		// draft under the water, and multiplying the scale moves that point
+		// without moving the offset that placed it. Re-seat it.
+		const after = new THREE.Box3().setFromObject( fitted );
+		fitted.position.y -= after.min.y + draftFor( entry.id );
 	};
 
 	cache.set( id, fitted );
