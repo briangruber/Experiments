@@ -34,7 +34,10 @@ export const PARAMS = {
     // METRES the lowest point sits below the waterline -- not a fraction of the
     // model's height, which sank a masted boat three times as deep as a dinghy
     // and put the sea inside the open ones.
-    draft:        { v: 0.30, min: 0,   max: 2,   step: 0.01, label: 'Draft (m)' },
+    // Deep enough that a hull still has its keel wetted ON PLANE: boat.riseMax
+    // lifts the whole body 0.42 m at speed, so a 0.30 m draft left the boat
+    // hovering with daylight under it.
+    draft:        { v: 0.85, min: 0,   max: 3,   step: 0.01, label: 'Draft (m)' },
     pivot:        { v: 0.32, min: 0,   max: 0.8, step: 0.01, label: 'Turn pivot (aft of bow)' },
     // Planing hulls bank INTO a turn. atan(v*omega/g) -- the coordinated-turn
     // relation -- so lean follows speed and rate together rather than needing
@@ -256,7 +259,10 @@ export const PARAMS = {
     // Exposure for the MESHES only -- boat, terrain, spray. The sea does its own
     // tonemapping inside its own shader, so this cannot touch it. Without it a
     // textured hull clips to white and looks untextured.
-    meshExposure: { v: 0.85, min: 0.1, max: 3,   step: 0.01, label: 'Mesh exposure' },
+    // 0.85 was too dark once ACES was added on top of halved lights: these
+    // models carry baked ambient occlusion and fairly dark albedo, so they
+    // read as untextured grey long before they read as underlit.
+    meshExposure: { v: 1.45, min: 0.1, max: 4,   step: 0.01, label: 'Mesh exposure' },
     waterGlow:    { v: 3.0,  min: 0.2, max: 10,  step: 0.05, label: 'Water glow (look-down)' },
     warmth:       { v: 1.15, min: 0,   max: 1.5, step: 0.01, label: 'Sunset warmth' },
     cloud:        { v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Cloud cover' },
