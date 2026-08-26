@@ -88,12 +88,12 @@ export const SCENE_TUNE = {
 	// THE lagoon. Sand a metre or three down, bright as coral rubble, caustics
 	// at full song, zero tint -- the preset's authored turquoise IS the look --
 	// and the glow well up, because tropical shallows are lit from below.
-	'Tropical Lagoon':     { floor: 4.5, caustics: 1.35, weed: 0.45, tint: 0,    glow: 1.0, spec: 0.65, sand: [ 0.74, 0.66, 0.46 ],
+	'Tropical Lagoon':     { floor: 3.0, caustics: 1.35, weed: 0.45, tint: 0,    glow: 1.0, spec: 0.65, sand: [ 0.74, 0.66, 0.46 ],
 	                         scatter: [ 0.030, 0.26, 0.36 ], scatterAmt: 0.13, absorb: [ 0.34, 0.055, 0.030 ] },
 	'Deep Blue Afternoon': { floor: 0,   caustics: 0,    weed: 0,    tint: 0.85, glow: 3.0 },
 	// The lagoon's big sibling: a little deeper, a little more weed on the
 	// flats, the same overhead blaze.
-	'Tropical Noon':       { floor: 5.5, caustics: 1.1,  weed: 0.40, tint: 0.10, glow: 1.1, spec: 0.7, sand: [ 0.76, 0.68, 0.48 ],
+	'Tropical Noon':       { floor: 3.8, caustics: 1.1,  weed: 0.40, tint: 0.10, glow: 1.1, spec: 0.7, sand: [ 0.76, 0.68, 0.48 ],
 	                         scatter: [ 0.050, 0.30, 0.34 ], scatterAmt: 0.15, absorb: [ 0.30, 0.050, 0.032 ] },
 	'Golden Hour Swell':   { floor: 0,   caustics: 0,    weed: 0,    tint: 0.80, glow: 3.6 },
 	'Trade Winds':         { floor: 0,   caustics: 0,    weed: 0,    tint: 0.75, glow: 3.0 },
@@ -206,7 +206,19 @@ function fitToLake( p, preset = {}, tune = {} ) {
 	// authors for open ocean at its own exposure; a pond-sized lagoon needs
 	// harder red absorption and a more saturated scatter to read tropical
 	// instead of washing out to mint against the bright sand.
-	if ( tune.absorb ) p.absorption = tune.absorb;
+	//
+	// CLARITY is the one knob for "how far down can I see". Absorption is the
+	// extinction coefficient per metre per channel, so sight distance goes as
+	// 1/absorption -- doubling clarity doubles how deep the bottom, a keel or
+	// a bubble plume stays legible. It divides rather than scales so the
+	// slider reads the way the eye does: bigger number, clearer water.
+	//
+	// Kept per channel rather than as one scalar because water is not grey:
+	// red dies about ten times faster than blue, which is WHY deep water is
+	// blue, and flattening that would trade the colour for the range.
+	const base = tune.absorb ?? preset.absorption ?? [ 0.35, 0.06, 0.04 ];
+	const clarity = Math.max( get( 'scene.clarity' ), 0.05 );
+	p.absorption = [ base[ 0 ] / clarity, base[ 1 ] / clarity, base[ 2 ] / clarity ];
 	// The sun's glint lobe. Under a 72-degree sun the specular oval on mild
 	// ripple is a third of the pond wide, and once ACES flattens its sparkle
 	// it reads as a flat white DISC parked around the camera's mirror point
@@ -239,7 +251,13 @@ function fitToLake( p, preset = {}, tune = {} ) {
 	// that value an overhead camera gets a black mirror however the colour is
 	// tuned. This is the knob that actually answers "why is it black from
 	// above", so it is exposed rather than folded into the tint.
-	p.scatterAmount = ( tune.scatterAmt ?? preset.scatterAmount ?? 0.07 ) * get( 'scene.waterGlow' );
+	// Clearer water scatters LESS as well as absorbing less -- clarity is
+	// fewer particles, and it is particles that both dim the view and throw
+	// light back. Without this the clarity slider turned the sea to milk at
+	// its top end: nothing absorbed, everything returned. Square root because
+	// scattering falls off more gently than the sight distance grows.
+	p.scatterAmount = ( tune.scatterAmt ?? preset.scatterAmount ?? 0.07 )
+		* get( 'scene.waterGlow' ) / Math.sqrt( clarity );
 
 }
 

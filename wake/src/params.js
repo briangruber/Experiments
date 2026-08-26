@@ -280,6 +280,11 @@ export const PARAMS = {
     // the surface, wobbled by the surface normal and murked by depth. 0 turns
     // the extra scene pass off entirely.
     refraction:   { v: 0.9,  min: 0,   max: 2.5, step: 0.01, label: 'See-through water' },
+    // How far down you can see. Divides the water's absorption, so 2 means
+    // roughly twice the sight depth -- the bed, a submerged keel and the
+    // bubble plume all reach the same distance, because they are all looking
+    // through the same water.
+    clarity:      { v: 1,    min: 0.2, max: 3,   step: 0.05, label: 'Water clarity (see-through depth)' },
     waterGlow:    { v: 1.0,  min: 0.2, max: 10,  step: 0.05, label: 'Water glow (look-down)' },
     warmth:       { v: 1.15, min: 0,   max: 1.5, step: 0.01, label: 'Sunset warmth' },
     cloud:        { v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Cloud cover' },

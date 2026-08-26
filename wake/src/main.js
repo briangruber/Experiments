@@ -742,7 +742,10 @@ function frame(now) {
         // Murk well under 1: the hull is METRES away through water that the
         // sea shader already colours -- full absorption on top of that erased
         // the keel a hand's width below the waterline.
-        near: camera.near, far: camera.far, murk: 0.35,
+        // Divided by clarity for the same reason the sea's absorption is:
+        // the submerged half of a hull is seen through the same water as the
+        // bottom, so one slider has to move both or they disagree.
+        near: camera.near, far: camera.far, murk: 0.35 / Math.max(get('scene.clarity'), 0.05),
       };
     }
     sea.render(scene, camera, refr ? { refr } : {});

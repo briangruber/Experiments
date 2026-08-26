@@ -353,7 +353,20 @@ const RIBBON_FRAG = /* glsl */`
     // density does. Scaling both by v^2 gives a fast boat a trail that never
     // ends.
     float sN = max(spd, 0.0) / max(uSpeedRef, 0.5);
-    float energy = mix(1.0, sN * sN, uSpeedDrive);
+    // SATURATING v^2, not raw v^2.
+    //
+    // Coverage is the fraction of water that is aerated, so it cannot exceed
+    // one -- but the raw law kept multiplying: at twice the reference speed it
+    // asked for 4x, at three times 9x, and the lace's opacity build turned
+    // anything past about 2 into a solid white sheet with no texture in it at
+    // all. A fast boat had a paper wake.
+    //
+    // s^2(1+k)/(1+k s^2) is the same curve near zero, still exactly 1 at the
+    // reference speed (any k), and asymptotes to (1+k)/k instead of running
+    // away -- k = 1 caps a flat-out boat at twice reference density, which is
+    // dense enough to read as violent and sparse enough to stay lace.
+    float e2 = sN * sN;
+    float energy = mix(1.0, e2 * 2.0 / (1.0 + e2), uSpeedDrive);
     float lifeK = mix(1.0, sqrt(max(sN, 0.04)), uSpeedDrive);
 
     float ageN = clamp(age / max(uFoamLife * lifeK, 0.01), 0.0, 1.0);
