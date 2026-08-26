@@ -487,6 +487,11 @@
   animation: amb-flicker 2.4s ease-in-out infinite;
 }
 .amb-glow.warm { background: radial-gradient(circle, rgba(255,190,90,.35), transparent 70%); }
+.amb-glow.neon {
+  width: 70px; height: 110px;
+  background: radial-gradient(circle, rgba(200,110,255,.4), transparent 66%);
+  animation-duration: 1.9s;
+}
 .amb-glow.fire {
   width: 150px; height: 130px;
   background: radial-gradient(circle, rgba(255,150,50,.42), transparent 68%);
