@@ -60,6 +60,7 @@ const RIBBON_FRAG = /* glsl */`
   // two disagree, and a footprint carved in ribbon space slides out from under
   // the boat as a bare rectangle beside it.
   uniform vec2 uHullXZ, uHullDir;
+  uniform float uHullCut;
   uniform float uArmTan, uArmW0, uArmWGrow, uArmFoam, uArmHeight, uInnerBias, uFadeStart, uFadeLen;
   uniform float uRim, uRimW, uNearBoost, uNearLen, uCarve;
   uniform float uFeatSpace, uFeatGrow, uFeatLean, uFeatDepth, uFeatJitter, uFeatSharp;
@@ -396,10 +397,15 @@ const RIBBON_FRAG = /* glsl */`
     float sheet = 1.0 - smoothstep(0.5, 7.0, arc);
     foam = mix(foam, max(foam, (armFoam + washFoam) * alive * 1.1), sheet * 0.34);
 
-    // Carve out the hull's own footprint: the boat displaces the water it is
-    // sitting in, it does not float on top of its own spray.
-    // Cut to the hull's actual waterline rather than to an ellipse, so the foam
-    // runs along the topsides instead of standing off them in a lozenge.
+    // The hull's own footprint, optionally cut out of the foam.
+    //
+    // OFF by default now. The argument for cutting it was that a hull
+    // displaces the water it sits in rather than floating on its own spray --
+    // true, but the foam it is displacing is the foam it is MAKING, born at
+    // the waterline it is cutting through right now. Removing it just leaves
+    // a boat-shaped hole that reads as the wake failing to reach the boat,
+    // which is worse than the thing the cut was avoiding. Kept as a knob
+    // because the shape is right even when the strength should be zero.
     // WORLD space, against the real hull -- see uHullXZ above.
     vec2 relH = vWorld - uHullXZ;
     float sternward = -dot(relH, uHullDir);             // metres aft of the bow
@@ -408,7 +414,7 @@ const RIBBON_FRAG = /* glsl */`
     float hull = (1.0 - smoothstep(hb * 0.82, hb * 1.10, latH))
                * (1.0 - smoothstep(uHullLen * 0.96, uHullLen * 1.04, sternward))
                * smoothstep(-0.7, 0.2, sternward);      // nothing ahead of the stem
-    foam *= 1.0 - hull * 0.94;
+    foam *= 1.0 - hull * uHullCut;
 
     // ------------------------------------------------- subsurface bubbles --
     // The prop is underwater, so most of the air it drags in never reaches the
@@ -554,6 +560,7 @@ export class WakeField {
       uFoamScale: { value: 1 }, uFoamContrast: { value: 1 }, uBreakup: { value: 0 },
       uFoamLife: { value: 1 }, uDissolve: { value: 1 },
       uSpeedDrive: { value: 1 }, uSpeedRef: { value: 13 },
+      uHullCut: { value: 0 },
       uHullXZ: { value: new THREE.Vector2() },
       uHullDir: { value: new THREE.Vector2(0, 1) },
       uLace: { value: 1 }, uLaceAmt: { value: 0 }, uSoftness: { value: 0.2 },
@@ -699,6 +706,7 @@ export class WakeField {
     const decay = Math.max(get('field.decay'), 0.05);
     u.uMaxArc.value = Math.max(this.maxArc || 1, 1);
     u.uBeam.value = get('boat.beam');
+    u.uHullCut.value = get('boat.hullCut');
     u.uHullLen.value = get('boat.length');
     u.uEngines.value = Math.round(get('boat.engines'));
     u.uEngineGap.value = get('boat.engineSpacing');

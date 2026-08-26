@@ -57,6 +57,10 @@ export const PARAMS = {
     // heading and course during a turn is the crab angle you can see.
     // The most the track may lag the heading. Beyond this the keel bites: it
     // is what stops a hard turn sliding the hull off its own wake.
+    // How much of the foam the hull's own footprint removes. 0 lets the wake
+    // run right under the boat, which is what it looks like from a chase
+    // camera: the water it is cutting is the water that is foaming.
+    hullCut:      { v: 0,    min: 0,   max: 1,   step: 0.01, label: 'Cut foam under hull' },
     crabMax:      { v: 12,   min: 0,   max: 45,  step: 1,    label: 'Max slip angle (°)' },
     grip:         { v: 0.7,  min: 0,   max: 1,   step: 0.01, label: 'Keel grip' },
     buoy:         { v: 1,  min: 0,   max: 1.5, step: 0.01, label: 'Ride the waves' },
