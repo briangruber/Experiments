@@ -151,17 +151,47 @@ boot.type = 'module';
 boot.src = urls.main;
 document.body.appendChild(boot);
 
-// WebGL is required, and a silent black canvas is the worst possible failure.
+// If the page does not come up, SAY WHY.
+//
+// This used to assume any failure was a missing WebGL context and print exactly
+// that, which sent someone off checking hardware acceleration on a machine
+// whose WebGL was fine -- the real fault was a module throwing during init.
+// A wrong diagnosis is worse than none: it costs the reader the time to
+// disprove it. So record what actually went wrong and show that instead.
+const failures = [];
+addEventListener('error', (e) => {
+  failures.push(e.message ? e.message + (e.filename ? '' : '') : String(e.error || e));
+}, true);
+addEventListener('unhandledrejection', (e) => failures.push('unhandled: ' + (e.reason?.message || e.reason)));
+
 addEventListener('load', () => setTimeout(() => {
   if (window.__ready) return;
   const c = document.getElementById('gl');
   if (c) c.style.display = 'none';
-  const p = document.createElement('p');
-  p.style.cssText = 'position:fixed;inset:0;display:grid;place-content:center;'
-    + 'text-align:center;padding:2rem;color:#7d93a3;font-family:var(--font-num)';
-  p.textContent = 'This prototype needs WebGL. Try opening it in a desktop browser '
-    + 'with hardware acceleration enabled.';
-  document.body.appendChild(p);
+  const gl = (() => {
+    try { return !!document.createElement('canvas').getContext('webgl2'); }
+    catch { return false; }
+  })();
+  const box = document.createElement('div');
+  box.style.cssText = 'position:fixed;inset:0;display:grid;place-content:center;'
+    + 'text-align:left;padding:2rem;color:#7d93a3;font-family:var(--font-num);'
+    + 'font-size:0.8rem;line-height:1.6;gap:0.6rem;overflow:auto';
+  const say = (t, strong) => {
+    const el = document.createElement('p');
+    el.textContent = t;
+    if (strong) el.style.color = '#cfe2ef';
+    box.appendChild(el);
+  };
+  if (!gl) {
+    say('This prototype needs WebGL2.', true);
+    say('Try a desktop browser with hardware acceleration enabled.');
+  } else {
+    say('WebGL2 is available, so this is not a graphics problem —', true);
+    say('the prototype failed to start. What went wrong:');
+    if (failures.length) for (const f of failures.slice(0, 6)) say('  • ' + f);
+    else say('  • no error was reported, which usually means a module never loaded');
+  }
+  document.body.appendChild(box);
 }, 4000));
 </script>
 `;
