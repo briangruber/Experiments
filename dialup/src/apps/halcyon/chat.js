@@ -8,7 +8,7 @@
  */
 
 import { h, clear, $$, pick } from '../../core/dom.js';
-import { openWindow, dialog, getWindow } from '../../core/wm.js';
+import { dialog, getWindow } from '../../core/wm.js';
 import * as A from '../../core/audio.js';
 import { screen, LIMITS } from '../../core/safety.js';
 import { nameColor } from './people.js';
@@ -61,10 +61,10 @@ export function openChatRoom(session, roomId) {
   });
   const sendBtn = h('button.btn.chat-send', { type: 'button' }, 'Send');
 
-  const win = openWindow({
-    id, title: roomName(roomId) + ' - Halcyon Chat', icon: 'chat',
-    width: 620, height: 430, minWidth: 420, minHeight: 260,
-    status: [roomName(roomId), 'Halcyon Online'],
+  const win = session.child({
+    id, title: roomName(roomId), icon: 'chat',
+    width: 600, height: 400, minWidth: 420, minHeight: 260,
+    status: [roomName(roomId), ''],
     onClose: () => {
       session.net.leave(roomId);
       session.rooms.delete(roomId);

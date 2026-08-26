@@ -53,12 +53,17 @@ export function openWindow(opts) {
     width = 480, height = 340, minWidth = 220, minHeight = 120,
     x, y, resizable = true, maximised = false, menu = null, status = null,
     taskbar = true, onClose, onResize, onFocus, chromeless = false,
+    parent = null,
   } = opts;
 
   const existing = open.get(id);
   if (existing) { existing.focus(); return existing; }
 
-  const area = layer().getBoundingClientRect();
+  // An MDI child is confined to its parent's client area and keeps no
+  // taskbar button of its own: the frame window already has one.
+  const host = parent || layer();
+  const mdi = !!parent;
+  const area = host.getBoundingClientRect();
   const w = Math.min(width, area.width - 12);
   const hh = Math.min(height, area.height - 12);
   const step = (cascade++ % 8) * 22;
@@ -82,7 +87,8 @@ export function openWindow(opts) {
     style: { left: left + 'px', top: top + 'px', width: w + 'px', height: hh + 'px' },
   }, chromeless ? [] : [titlebar], menu ? buildMenu(menu) : null, body, statusbar, grip);
 
-  layer().append(el);
+  if (mdi) el.classList.add('mdi');
+  host.append(el);
   setTimeout(() => el.classList.remove('opening'), 200);
 
   const win = {
@@ -107,7 +113,7 @@ export function openWindow(opts) {
 
   /* Taskbar button ---------------------------------------------------- */
   let taskEl = null;
-  if (taskbar) {
+  if (taskbar && !mdi) {
     taskEl = h('button.task', {
       type: 'button',
       onclick: () => {
@@ -140,8 +146,8 @@ export function openWindow(opts) {
     dx0 = el.offsetLeft; dy0 = el.offsetTop; focus(win);
     el.style.willChange = 'left, top';
   }, (mx, my) => {
-    const a = layer().getBoundingClientRect();
-    el.style.left = clamp(dx0 + mx, 8 - el.offsetWidth, a.width - 40) + 'px';
+    const a = host.getBoundingClientRect();
+    el.style.left = clamp(dx0 + mx, mdi ? 0 : 8 - el.offsetWidth, a.width - 40) + 'px';
     el.style.top  = clamp(dy0 + my, 0, a.height - 24) + 'px';
   }, () => { el.style.willChange = ''; });
 
@@ -189,18 +195,76 @@ export function openWindow(opts) {
   return win;
 }
 
-function buildMenu(items) {
+/**
+ * A real menu bar with drop-downs.
+ *
+ * `defs` is [{ label, items: [{ label, accel, onclick, disabled } | '-'] }].
+ * Modelled on the Go To menu in America Online 2.x, which is where the
+ * accelerators in the Halcyon menus come from: Keyword was Ctrl+K, the
+ * Lobby was Ctrl+L, Favorite Places was Ctrl+B.
+ */
+export function menuBar(defs) {
   const bar = h('div.win-menu');
-  for (const it of items) {
-    const label = typeof it === 'string' ? it : it.label;
-    const b = h('button', { type: 'button' });
-    // First letter gets the accelerator underline, as everything did.
-    b.append(h('u', {}, label[0]), label.slice(1));
-    if (typeof it === 'object' && it.onclick) b.addEventListener('click', it.onclick);
-    else b.addEventListener('click', () => A.beep());
-    bar.append(b);
+  let openMenu = null;
+
+  const closeAll = () => {
+    if (!openMenu) return;
+    openMenu.pop.remove();
+    openMenu.btn.classList.remove('on');
+    openMenu = null;
+    document.removeEventListener('pointerdown', onAway, true);
+  };
+  const onAway = ev => { if (!ev.target.closest('.win-menu')) closeAll(); };
+
+  for (const def of defs) {
+    const label = typeof def === 'string' ? def : def.label;
+    const btn = h('button', { type: 'button' });
+    btn.append(h('u', {}, label[0]), label.slice(1));
+
+    const show = () => {
+      const wasOpen = openMenu && openMenu.btn === btn;
+      closeAll();
+      if (wasOpen || !def.items || !def.items.length) return;
+
+      const pop = h('div.menu-pop');
+      for (const it of def.items) {
+        if (it === '-') { pop.append(h('div.menu-sep')); continue; }
+        const row = h('button.menu-item', {
+          type: 'button',
+          disabled: !!it.disabled,
+          onclick: () => { closeAll(); if (it.onclick) it.onclick(); else A.beep(); },
+        }, h('span', {}, it.label), h('em', {}, it.accel || ''));
+        pop.append(row);
+      }
+      bar.append(pop);
+      pop.style.left = (btn.offsetLeft) + 'px';
+      btn.classList.add('on');
+      openMenu = { btn, pop };
+      document.addEventListener('pointerdown', onAway, true);
+    };
+
+    btn.addEventListener('pointerdown', ev => {
+      ev.stopPropagation();
+      if (!def.items || !def.items.length) {
+        closeAll();
+        if (def.onclick) def.onclick(); else A.beep();
+        return;
+      }
+      show();
+    });
+    btn.addEventListener('pointerenter', () => { if (openMenu && openMenu.btn !== btn) show(); });
+    bar.append(btn);
   }
+
+  bar.addEventListener('keydown', ev => { if (ev.key === 'Escape') closeAll(); });
+  bar.close = closeAll;
   return bar;
+}
+
+function buildMenu(items) {
+  return menuBar(items.map(it => typeof it === 'string'
+    ? { label: it, items: [] }
+    : (it.items ? it : { label: it.label, items: [], onclick: it.onclick })));
 }
 
 export function focus(win) {

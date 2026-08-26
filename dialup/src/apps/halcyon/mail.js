@@ -157,9 +157,9 @@ export function openMailbox(session) {
   const existing = getWindow('halcyon-mail');
   if (existing) { existing.focus(); return existing; }
 
-  const win = openWindow({
-    id: 'halcyon-mail', title: 'Halcyon Mail Center', icon: 'mail',
-    width: 640, height: 440, minWidth: 460, minHeight: 280,
+  const win = session.child({
+    id: 'halcyon-mail', title: 'New Mail', icon: 'mail',
+    width: 620, height: 420, minWidth: 460, minHeight: 280,
     status: ['', 'Halcyon Online'],
   });
 
@@ -184,7 +184,7 @@ export function openMailbox(session) {
       view),
     h('div.mail-btns', {},
       h('button.btn.small', { type: 'button', onclick: () => selected && reply(session, selected) }, 'Reply'),
-      h('button.btn.small', { type: 'button', onclick: () => compose(session) }, 'Write'),
+      h('button.btn.small', { type: 'button', onclick: () => composeMail(session) }, 'Write'),
       h('button.btn.small', { type: 'button', onclick: () => selected && del(selected) }, 'Delete'),
       h('button.btn.small', { type: 'button', onclick: () => keepAsNew() }, 'Keep As New'))));
 
@@ -257,14 +257,14 @@ export function openMailbox(session) {
 
 /* ── compose ─────────────────────────────────────────────────────────── */
 
-function compose(session, to = '', subject = '', quoted = '') {
+export function composeMail(session, to = '', subject = '', quoted = '') {
   const toF = h('input.field', { type: 'text', value: to, spellcheck: false });
   const subF = h('input.field', { type: 'text', value: subject, spellcheck: false });
   const bodyF = h('textarea.field', { rows: 10, spellcheck: false, value: quoted });
 
-  const win = openWindow({
-    id: 'halcyon-compose-' + Date.now(), title: 'Write Mail', icon: 'mail',
-    width: 480, height: 380,
+  const win = session.child({
+    id: 'halcyon-compose-' + Date.now(), title: 'Compose Mail', icon: 'mailWrite',
+    width: 470, height: 370,
   });
 
   clear(win.body).append(h('div.compose', {},
@@ -294,7 +294,7 @@ function compose(session, to = '', subject = '', quoted = '') {
 
 function reply(session, m) {
   const quoted = '\n\n' + m.body.split('\n').map(l => '> ' + l).join('\n');
-  compose(session, m.from, m.subject.startsWith('Re:') ? m.subject : 'Re: ' + m.subject, quoted);
+  composeMail(session, m.from, m.subject.startsWith('Re:') ? m.subject : 'Re: ' + m.subject, quoted);
 }
 
 /* ── the picture, arriving slowly ────────────────────────────────────── */
@@ -307,7 +307,7 @@ export function downloadPicture(att) {
   const eta = h('span', {}, 'estimating...');
 
   const win = openWindow({
-    id: 'halcyon-download', title: 'Downloading ' + att.name, icon: 'doc',
+    id: 'halcyon-download', title: 'File Transfer - ' + att.name, icon: 'doc',
     width: 380, height: 396, resizable: false,
   });
 

@@ -2,47 +2,172 @@
    The system chrome lives in chrome.css; this is what fills the windows. */
 
 /* ─────────────────────────────────────────────────────────────────────
-   Halcyon: sign-on
+   Halcyon — the wordmark
+
+   The period idiom: a geometric badge, the name letterspaced in caps
+   beneath it, and "Online" set in a script face. The mark itself is a
+   rounded diamond, which is ours.
    ───────────────────────────────────────────────────────────────────── */
 
-.hal-wordmark {
-  font: 700 30px/1 Tahoma, sans-serif; letter-spacing: -.6px; color: #fff;
-  text-shadow: 1px 2px 0 rgba(0,0,0,.4);
+.hal-mark { text-align: center; line-height: 1; }
+.hal-mark.row { display: flex; align-items: center; gap: 10px; text-align: left; }
+.hal-mark.row .hal-mark-badge { margin: 0; flex: none; }
+.hal-mark.row .hal-mark-online { line-height: 1; margin-top: 1px; }
+.hal-mark-badge { margin: 0 auto 6px; display: block; }
+.hal-mark-badge svg { display: block; width: 100%; height: 100%; }
+.hal-mark-name {
+  font-weight: 700; letter-spacing: .46em; text-indent: .46em;
+  color: #1b4fb0; margin-bottom: 1px;
 }
-.hal-wordmark span {
-  display: block; font-size: 10px; font-weight: 400; letter-spacing: .42em;
-  margin-top: 4px; opacity: .9;
-}
-.hal-wordmark.small { font-size: 19px; }
-.hal-wordmark.small span { font-size: 8px; letter-spacing: .34em; margin-top: 2px; }
-
-.hal-signon { display: flex; flex-direction: column; height: 100%; }
-.hal-signon-art {
-  flex: none; height: 92px; padding: 14px 16px;
-  background: linear-gradient(120deg, #0d3a8f 0%, #1b62d6 55%, #3f8ae8 100%);
-  position: relative; overflow: hidden;
-}
-.hal-signon-art::after {
-  content: ""; position: absolute; right: -26px; top: -34px;
-  width: 130px; height: 130px; border-radius: 50%;
-  background: radial-gradient(circle at 34% 30%, rgba(255,255,255,.35), transparent 62%);
-}
-.hal-signon-ver {
-  position: absolute; right: 12px; bottom: 8px;
-  color: rgba(255,255,255,.75); font-size: 10px; letter-spacing: .1em;
+.hal-mark-online {
+  font-family: "Brush Script MT", "Segoe Script", "Bradley Hand", cursive;
+  font-style: italic; color: #1b4fb0; line-height: .95;
 }
 
-.hal-signon-form { flex: 1; padding: 12px 16px 0; display: flex; flex-direction: column; gap: 3px; }
-.hal-signon-form > label { font-size: 11px; margin-top: 4px; }
-.hal-signon-btns { display: flex; gap: 8px; justify-content: flex-end; margin-top: auto; padding: 12px 0; }
-.hal-go { font-weight: 700; min-width: 96px; }
+/* ─────────────────────────────────────────────────────────────────────
+   Sign-on ("Welcome")
+   ───────────────────────────────────────────────────────────────────── */
 
-.hal-relay { margin-top: 10px; border-top: 1px solid var(--shadow);
-             box-shadow: 0 1px 0 var(--hilite); padding-top: 9px; }
-.hal-check { display: flex; align-items: center; gap: 5px; margin-bottom: 5px; }
-.hal-relay-note { font-size: 10px; color: #444; margin-top: 4px; line-height: 1.45; }
+.hal-signon { display: flex; height: 100%; background: #fff; }
 
-/* ── dialer ──────────────────────────────────────────────────────────── */
+/* The marbled panel down the left edge of the real sign-on window: a
+   dithered blue that never quite resolves into a pattern. */
+.hal-signon-marble {
+  flex: 0 0 84px;
+  border-right: 1px solid var(--shadow);
+  background:
+    radial-gradient(circle at 20% 12%, rgba(255,255,255,.34) 0 1px, transparent 1.6px),
+    radial-gradient(circle at 68% 34%, rgba(0,0,0,.34) 0 1px, transparent 1.6px),
+    radial-gradient(circle at 41% 71%, rgba(255,255,255,.22) 0 1px, transparent 1.6px),
+    radial-gradient(circle at 86% 88%, rgba(0,0,0,.26) 0 1px, transparent 1.6px),
+    repeating-linear-gradient(116deg,
+      #12307e 0 3px, #2f6fd8 3px 5px, #1b3fa8 5px 9px, #4a86e8 9px 10px),
+    #1b3fa8;
+  background-size: 7px 7px, 11px 9px, 9px 13px, 13px 11px, auto, auto;
+}
+
+.hal-signon-main {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  padding: 12px 20px 8px; text-align: center; min-width: 0;
+}
+.hal-signon-ver { font-size: 10px; color: #555; margin: 4px 0 10px; }
+
+.hal-so-label { font-weight: 700; margin-bottom: 3px; }
+.hal-so-field { width: 190px; margin-bottom: 9px; text-align: left; }
+select.hal-so-field { text-align: left; }
+
+.hal-so-loc { display: flex; gap: 8px; font-size: 11px; margin-bottom: 8px; }
+
+.hal-relay { width: 100%; text-align: left; margin-top: auto; font-size: 10px; }
+.hal-relay > summary { cursor: pointer; color: #1b4fb0; margin-bottom: 5px; }
+.hal-relay input[type="text"] { width: 100%; margin-top: 3px; }
+.hal-check { display: flex; align-items: center; gap: 5px; }
+.hal-relay-note { color: #555; margin-top: 4px; line-height: 1.45; }
+
+.hal-signon-btns { display: flex; gap: 10px; margin: 10px 0 4px; }
+.hal-signon-btns .btn { min-width: 88px; font-weight: 700; letter-spacing: .04em; }
+.hal-go { box-shadow: inset -1px -1px 0 var(--shadow), inset 1px 1px 0 var(--light),
+                      0 0 0 1px #000; }
+.hal-signon-foot { font-size: 10px; color: #777; }
+
+/* ─────────────────────────────────────────────────────────────────────
+   The application frame: menu bar, icon toolbar, MDI client
+   ───────────────────────────────────────────────────────────────────── */
+
+.hal-frame { display: flex; flex-direction: column; height: 100%; }
+
+.hal-bar {
+  flex: none; display: flex; align-items: center; gap: 2px;
+  padding: 3px 4px;
+  border-bottom: 1px solid var(--shadow); box-shadow: 0 1px 0 var(--hilite);
+}
+.hal-bar-btn {
+  width: 26px; height: 24px; padding: 0; display: grid; place-items: center;
+  background: var(--face); cursor: pointer;
+  border: 1px solid; border-color: var(--hilite) var(--dark) var(--dark) var(--hilite);
+  box-shadow: inset -1px -1px 0 var(--shadow), inset 1px 1px 0 var(--light);
+}
+.hal-bar-btn:active {
+  border-color: var(--dark) var(--hilite) var(--hilite) var(--dark);
+  box-shadow: inset 1px 1px 0 var(--shadow);
+}
+.hal-bar-btn svg { display: block; pointer-events: none; }
+.hal-bar-sep {
+  width: 0; height: 20px; margin: 0 4px; flex: none;
+  border-left: 1px solid var(--shadow); border-right: 1px solid var(--hilite);
+}
+.hal-bar-gap { flex: 1; min-width: 6px; }
+
+.hal-kw { display: flex; align-items: center; gap: 4px; flex: none; }
+.hal-kw label { font-weight: 700; font-size: 11px; }
+.hal-kw-input { width: 132px; }
+
+/* The client area every other window lives inside. */
+.hal-client {
+  flex: 1; position: relative; overflow: hidden;
+  background: #6f7f96;
+  box-shadow: inset 1px 1px 0 var(--shadow), inset -1px -1px 0 var(--hilite);
+  margin: 2px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   Welcome (an MDI child)
+   ───────────────────────────────────────────────────────────────────── */
+
+.hal-welcome { display: flex; flex-direction: column; height: 100%; background: #fff; }
+
+.hal-welcome-top {
+  flex: none; display: flex; align-items: center; gap: 16px;
+  padding: 10px 14px; border-bottom: 1px solid #c8cdd8;
+  background: linear-gradient(#eef2f8, #dde5f2);
+}
+.hal-welcome-hi { line-height: 1.5; }
+.hal-welcome-hi b { display: block; font-size: 14px; color: #12307e; }
+.hal-welcome-hi span { font-size: 10px; color: #556; }
+
+.hal-welcome-mid {
+  flex: 1; display: flex; gap: 12px; padding: 12px 14px;
+  min-height: 0; align-items: flex-start;
+}
+
+.hal-mailbox {
+  flex: 0 0 132px; height: 128px;
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 8px; cursor: pointer; padding: 10px;
+  background: var(--face);
+  border: 1px solid; border-color: var(--hilite) var(--dark) var(--dark) var(--hilite);
+  box-shadow: inset -1px -1px 0 var(--shadow), inset 1px 1px 0 var(--light);
+}
+.hal-mailbox:active { box-shadow: inset 1px 1px 0 var(--shadow); }
+.hal-mailbox * { pointer-events: none; }
+.hal-mailbox b { font-size: 12px; color: #12307e; }
+
+.hal-promos {
+  flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  align-content: start; min-width: 0;
+}
+.hal-promo {
+  display: flex; align-items: center; gap: 8px; padding: 8px 9px; text-align: left;
+  background: var(--face); cursor: pointer; min-width: 0;
+  border: 1px solid; border-color: var(--hilite) var(--dark) var(--dark) var(--hilite);
+  box-shadow: inset -1px -1px 0 var(--shadow), inset 1px 1px 0 var(--light);
+}
+.hal-promo:active { box-shadow: inset 1px 1px 0 var(--shadow); }
+.hal-promo * { pointer-events: none; }
+.hal-promo svg { flex: none; }
+.hal-promo-text { min-width: 0; }
+.hal-promo b { display: block; font-size: 11px; }
+.hal-promo span { display: block; font-size: 10px; color: #556; margin-top: 1px; }
+
+.hal-welcome-foot {
+  flex: none; display: flex; justify-content: space-between; gap: 10px;
+  padding: 6px 14px; font-size: 10px; color: #445;
+  border-top: 1px solid #c8cdd8; background: #f2f5fa;
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   The dialer
+   ───────────────────────────────────────────────────────────────────── */
 
 .dial { padding: 12px 14px; display: flex; flex-direction: column; height: 100%; gap: 8px; }
 
@@ -59,10 +184,8 @@
 .dial-node span { display: block; font-size: 10px; color: #555; margin-top: 2px; }
 
 .dial-wire { flex: 0 0 74px; display: flex; gap: 4px; justify-content: center; }
-.dial-wire u {
-  width: 6px; height: 6px; border-radius: 50%; background: #9a9a9a;
-  text-decoration: none;
-}
+.dial-wire u { width: 6px; height: 6px; border-radius: 50%; background: #9a9a9a;
+               text-decoration: none; }
 .dial-stage.live .dial-wire u { animation: wire 1.1s linear infinite; }
 .dial-wire u:nth-child(2) { animation-delay: .12s }
 .dial-wire u:nth-child(3) { animation-delay: .24s }
@@ -74,10 +197,9 @@
 .dial-status { font-weight: 700; margin-top: 4px; }
 .dial-detail { font-size: 11px; color: #444; min-height: 15px; }
 .dial-bar {
-  height: 15px; margin-top: auto;
+  height: 15px; margin-top: auto; background: #fff; padding: 1px; overflow: hidden;
   border: 1px solid; border-color: var(--shadow) var(--hilite) var(--hilite) var(--shadow);
   box-shadow: inset 1px 1px 0 var(--dark);
-  background: #fff; padding: 1px; overflow: hidden;
 }
 .dial-bar i {
   display: block; height: 100%; width: 0; transition: width .35s linear;
@@ -85,66 +207,6 @@
 }
 .dial-btns { display: flex; gap: 8px; justify-content: flex-end; padding-bottom: 2px; }
 .dial-skip { min-width: 0; margin-right: auto; opacity: .8; }
-
-/* ── welcome ─────────────────────────────────────────────────────────── */
-
-.hal-welcome { display: flex; flex-direction: column; height: 100%; }
-.hal-welcome-head {
-  flex: none; padding: 12px 16px;
-  background: linear-gradient(120deg, #0d3a8f, #2f7fd8);
-  display: flex; align-items: center; justify-content: space-between;
-}
-.hal-welcome-hi { color: #fff; font-size: 14px; }
-
-.hal-mailbox {
-  flex: none; display: flex; align-items: center; gap: 12px;
-  padding: 10px 16px; background: #e8eef8;
-  border-bottom: 1px solid var(--shadow);
-}
-.hal-mail-btn {
-  display: flex; align-items: center; gap: 8px; padding: 7px 12px;
-  background: var(--face); cursor: pointer; font-weight: 700;
-  border: 1px solid; border-color: var(--hilite) var(--dark) var(--dark) var(--hilite);
-  box-shadow: inset -1px -1px 0 var(--shadow), inset 1px 1px 0 var(--light);
-}
-.hal-mail-btn:active { box-shadow: inset 1px 1px 0 var(--shadow); }
-.hal-mail-count { font-size: 11px; color: #345; }
-
-.hal-tiles {
-  flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
-  padding: 12px 16px; align-content: start;
-}
-.hal-tile {
-  display: flex; align-items: center; gap: 9px; padding: 9px 10px; text-align: left;
-  background: var(--face); cursor: pointer;
-  border: 1px solid; border-color: var(--hilite) var(--dark) var(--dark) var(--hilite);
-  box-shadow: inset -1px -1px 0 var(--shadow), inset 1px 1px 0 var(--light);
-}
-.hal-tile:active { box-shadow: inset 1px 1px 0 var(--shadow); }
-.hal-tile svg { flex: none; }
-.hal-tile b { display: block; }
-.hal-tile span { display: block; font-size: 10px; color: #555; }
-.hal-tile b, .hal-tile span { pointer-events: none; }
-
-.hal-welcome-foot {
-  flex: none; padding: 8px 16px; font-size: 11px;
-  display: flex; align-items: center; gap: 6px;
-  border-top: 1px solid var(--shadow); box-shadow: 0 -1px 0 var(--hilite) inset;
-}
-
-/* ── toolbar ─────────────────────────────────────────────────────────── */
-
-.hal-toolbar { display: flex; align-items: stretch; gap: 2px; padding: 4px; height: 100%; }
-.hal-tool {
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
-  padding: 4px 9px; background: none; border: 1px solid transparent; cursor: pointer;
-  font-size: 10px;
-}
-.hal-tool:hover { border-color: var(--hilite) var(--shadow) var(--shadow) var(--hilite); }
-.hal-tool:active { border-color: var(--shadow) var(--hilite) var(--hilite) var(--shadow); }
-.hal-tool svg { pointer-events: none; }
-.hal-tool span { pointer-events: none; }
-.hal-tool-gap { flex: 1; }
 
 /* ─────────────────────────────────────────────────────────────────────
    Chat
@@ -360,8 +422,9 @@
 }
 .chan-tile:active { box-shadow: inset 1px 1px 0 var(--shadow); }
 .chan-tile * { pointer-events: none; }
+.chan-tile-text { min-width: 0; }
 .chan-tile b { display: block; }
-.chan-tile span { display: block; font-size: 10px; color: #555; }
+.chan-tile span { display: block; font-size: 10px; color: #555; margin-top: 1px; }
 .chan-foot {
   flex: none; padding: 6px 12px; font-size: 10px;
   border-top: 1px solid var(--shadow); box-shadow: 0 1px 0 var(--hilite) inset;

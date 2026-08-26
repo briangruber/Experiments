@@ -11,6 +11,31 @@ warble, four bongs, the descending hiss — before the room opens.
 
 Halcyon is invented. It is not any service that existed.
 
+## What it is copying, and from what
+
+The layout follows screenshots of America Online 2.5 and 3.0 for Windows
+(from [WinWorld](https://winworldpc.com/product/aol/30)), which is the
+shape people actually remember:
+
+- one application frame, with everything else an MDI child inside it
+  rather than a window on the desktop
+- a menu bar of **File / Edit / Go To / Mail / Members / Window / Help**
+- one row of small icon buttons beneath it, in raised frames, grouped by
+  separators, with **no text labels at all**
+- a sign-on window titled "Welcome" with a marbled panel down the left
+  edge, the wordmark centred on the right, `Select Screen Name`, `Enter
+  Password`, `Location: Home`, and `SETUP | HELP | SIGN ON` across the
+  bottom over the line "Press Alt + F4 to Exit"
+
+The Go To menu is reproduced item for item from a screenshot of the 2.x
+client, accelerators included: Keyword was Ctrl+K, the Lobby was Ctrl+L,
+Favorite Places was Ctrl+B, the Main Menu was Ctrl+D.
+
+What is *not* copied is the branding. The name, the wordmark, the diamond
+badge and every icon here are ours. The typographic idiom — a geometric
+badge over letterspaced caps with "Online" in a script face — was common
+to the whole era.
+
 ## Running it
 
 Serve the folder and open `index.html`. There is no build step.

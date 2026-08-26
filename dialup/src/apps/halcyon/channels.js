@@ -4,7 +4,7 @@
    move, the horoscope is as specific as horoscopes are. */
 
 import { h, clear, pick, randInt, hash } from '../../core/dom.js';
-import { openWindow, dialog, getWindow } from '../../core/wm.js';
+import { dialog, getWindow } from '../../core/wm.js';
 import { icon } from '../../core/icons.js';
 import * as A from '../../core/audio.js';
 import { ROOMS, openChatRoom } from './chat.js';
@@ -26,9 +26,9 @@ export function openChannels(session) {
   const existing = getWindow('halcyon-channels');
   if (existing) { existing.focus(); return existing; }
 
-  const win = openWindow({
-    id: 'halcyon-channels', title: 'Halcyon Channels', icon: 'globe',
-    width: 560, height: 400, minWidth: 420, minHeight: 300,
+  const win = session.child({
+    id: 'halcyon-channels', title: 'Channels', icon: 'globe',
+    width: 540, height: 390, minWidth: 420, minHeight: 300,
   });
 
   const kw = h('input.field', { type: 'text', placeholder: 'Keyword', spellcheck: false });
@@ -40,7 +40,7 @@ export function openChannels(session) {
 
   clear(win.body).append(h('div.chan', {},
     h('div.chan-head', {},
-      h('div.hal-wordmark.small', {}, 'Halcyon', h('span', {}, 'CHANNELS')),
+      wordmark(0.42),
       h('div.chan-kw', {}, h('b', {}, 'Keyword:'), kw,
         h('button.btn.small', {
           type: 'button', onclick: () => { const v = kw.value.trim(); kw.value = ''; if (v) gotoKeyword(session, v); },
@@ -48,7 +48,8 @@ export function openChannels(session) {
     h('div.chan-grid', {}, CHANNELS.map(c =>
       h('button.chan-tile', {
         type: 'button', onclick: () => { A.click(); openChannel(session, c.id); },
-      }, icon(c.icon, 32), h('b', {}, c.name), h('span', {}, c.blurb)))),
+      }, icon(c.icon, 32),
+        h('div.chan-tile-text', {}, h('b', {}, c.name), h('span', {}, c.blurb))))),
     h('div.chan-foot', {},
       'Try a keyword: ',
       h('code', {}, 'CHAT'), ' ', h('code', {}, 'TRIVIA'), ' ', h('code', {}, 'WEB'),
@@ -102,9 +103,9 @@ export function openChannel(session, id) {
   if (id === 'games') return session.ctx.launch('minehunt');
 
   const c = CHANNELS.find(x => x.id === id) || CHANNELS[1];
-  const win = openWindow({
-    id: 'halcyon-chan-' + id, title: 'Halcyon - ' + c.name, icon: c.icon,
-    width: 460, height: 360, minWidth: 340,
+  const win = session.child({
+    id: 'halcyon-chan-' + id, title: c.name, icon: c.icon,
+    width: 450, height: 350, minWidth: 340,
   });
   const body = h('div.dept.scroll');
   clear(win.body).append(body);
@@ -117,8 +118,8 @@ export function openChannel(session, id) {
 }
 
 export function openRoomList(session) {
-  const win = openWindow({
-    id: 'halcyon-rooms', title: 'Find a Chat Room', icon: 'chat',
+  const win = session.child({
+    id: 'halcyon-rooms', title: 'People Connection', icon: 'chat',
     width: 420, height: 330, minWidth: 320,
   });
   clear(win.body).append(h('div.roomlist', {},
