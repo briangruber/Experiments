@@ -26,6 +26,52 @@ const GROUP_TITLES = {
   field: 'Field & decay',
 };
 
+/**
+ * A row of named boats, rather than a numbered slider.
+ *
+ * "Boat model: 3" tells you nothing about which boat you are about to get.
+ * This is one of the few controls here whose value is a NAME and not a
+ * quantity -- every other row is a number with a meaningful in-between, which
+ * is what a slider is for. This one has no in-between at all.
+ */
+export function buildBoatPicker(root, boats, { onPick, initial = 0 } = {}) {
+  const wrap = document.createElement('div');
+  wrap.className = 'boats';
+  const title = document.createElement('div');
+  title.className = 'boats-title';
+  title.textContent = 'Boat';
+  wrap.appendChild(title);
+
+  const row = document.createElement('div');
+  row.className = 'boats-row';
+  const buttons = [];
+
+  const select = (i, fire = true) => {
+    for (const [j, b] of buttons.entries()) {
+      const on = j === i;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', String(on));
+    }
+    if (fire) onPick?.(i);
+  };
+
+  boats.forEach((b, i) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'boat';
+    btn.textContent = b.label;
+    btn.title = b.label;
+    btn.onclick = () => select(i);
+    row.appendChild(btn);
+    buttons.push(btn);
+  });
+
+  wrap.appendChild(row);
+  root.appendChild(wrap);
+  select(initial, false);
+  return { select: (i) => select(i, false) };
+}
+
 export function buildUI(root, hooks = {}) {
   const rows = [];
 

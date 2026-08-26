@@ -370,3 +370,37 @@ input[type=range]::-moz-range-thumb {
 }
 #cam-name.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 body.hide-ui #cam-name { display: none; }
+
+/* The boat picker. A name, not a number: every other control here is a
+   quantity with a meaningful in-between, and this one has none at all. */
+.boats { margin: 0 0 0.75rem; }
+.boats-title {
+  font-family: var(--font-lbl), system-ui, sans-serif;
+  font-size: 0.78rem;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: #7fb0cc;
+  margin: 0 0 0.4rem;
+}
+.boats-row { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.boat {
+  flex: 1 1 auto;
+  min-width: 4.6rem;
+  padding: 0.34rem 0.5rem;
+  border: 1px solid rgb(120 170 200 / 22%);
+  border-radius: 0.35rem;
+  background: rgb(14 26 38 / 70%);
+  color: #a9c6d8;
+  font-family: var(--font-num), ui-monospace, monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+.boat:hover { background: rgb(24 44 62 / 85%); color: #d6e8f2; }
+.boat.on {
+  background: rgb(46 104 140 / 60%);
+  border-color: rgb(140 205 235 / 55%);
+  color: #eaf6fc;
+}
+.boat:focus-visible { outline: 2px solid #7fd3f2; outline-offset: 1px; }

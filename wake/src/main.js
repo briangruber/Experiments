@@ -11,16 +11,31 @@ import { OceanBody } from './oceanBody.js';
 import { WakeBridge } from './wakeBridge.js';
 import { Spray } from './spray.js';
 import { loadBoat, BOATS } from './boatLibrary.js';
-import { buildUI } from './ui.js';
+import { buildUI, buildBoatPicker } from './ui.js';
 
 const canvas = document.getElementById('gl');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setClearColor(0x0a1017);
+// Tone-map the MESHES.
+//
+// The boat models arrived textured and rendered white, and the cause was
+// exposure rather than loading: ambient 1.1 plus a 2.2 directional is a great
+// deal of light in three's modern units, and a MeshStandardMaterial under it
+// clips to white with the texture still perfectly bound. The old placeholder
+// was flat grey, so nothing ever showed it.
+//
+// This only touches three's own materials. Abyssal and the lab ocean are raw
+// shader programs that tonemap and encode themselves, and three does not
+// inject its tonemapping into those -- so the sea is untouched and the meshes
+// land in the same range as it.
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
 
 const scene = new THREE.Scene();
-scene.add(new THREE.AmbientLight(0xa8c0d8, 1.1));
-const sun = new THREE.DirectionalLight(0xfff2e0, 2.2);
+// Halved against the pre-tonemapping values: ACES maps a much wider range in,
+// so the same numbers would still clip.
+scene.add(new THREE.AmbientLight(0xa8c0d8, 0.55));
+const sun = new THREE.DirectionalLight(0xfff2e0, 1.15);
 scene.add(sun);
 
 const camera = new THREE.PerspectiveCamera(38, 1, 0.5, 3000);
@@ -151,9 +166,23 @@ if (narrow || devicePixelRatio > 2.5) {
 } else {
   set('quality.renderScale', Math.min(devicePixelRatio, 2));
 }
-const ui = buildUI(document.getElementById('ui'), {
+// The picker sits above the sliders: it is the one control whose value is a
+// name rather than a quantity, and the first thing anyone wants to change.
+const uiRoot = document.getElementById('ui');
+const picker = buildBoatPicker(uiRoot,
+  [...BOATS.map((b) => ({ label: b.label })), { label: 'Blocky' }],
+  {
+    initial: Math.round(get('boat.model')),
+    onPick: (i) => { set('boat.model', i); showBoat(i); },
+  });
+
+const ui = buildUI(uiRoot, {
   onChange: (path) => {
-    if (path === '*' || path === 'boat.model') showBoat(get('boat.model'));
+    if (path === '*' || path === 'boat.model') {
+      const i = Math.round(get('boat.model'));
+      showBoat(i);
+      picker.select(i);          // keep the picker honest after a paste or reset
+    }
     for (const c of boat.children) c.userData?.scaleTo?.();
   },
 });
@@ -501,6 +530,7 @@ function frame(now) {
   sun.target.position.copy(boat.position);
   sun.target.updateMatrixWorld();
 
+  renderer.toneMappingExposure = get('scene.meshExposure');
   const scale = Math.min(devicePixelRatio, get('quality.renderScale'));
   if (scale !== lastScale) { lastScale = scale; renderer.setPixelRatio(scale); resize(); }
   // Same trick as the wake field: close in, a smaller plane puts the vertices

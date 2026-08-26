@@ -21,6 +21,44 @@ export { BOATS };
 const loader = new GLTFLoader();
 
 /**
+ * True when the model's fine end points backwards along +Z.
+ *
+ * Bins every vertex by its position along the length and compares the mean
+ * half-beam of the forward fifth against the after fifth. The narrower end is
+ * the bow. Deliberately uses the extreme fifths rather than halves: amidships
+ * is where a hull is fullest either way, so including it drowns the very
+ * difference being measured.
+ */
+function sternIsForward( root ) {
+
+	const v = new THREE.Vector3();
+	let fwdW = 0, fwdN = 0, aftW = 0, aftN = 0;
+	const box = new THREE.Box3().setFromObject( root );
+	const zMin = box.min.z, zMax = box.max.z;
+	const span = Math.max( zMax - zMin, 1e-6 );
+
+	root.updateMatrixWorld( true );
+	root.traverse( ( o ) => {
+		const pos = o.isMesh && o.geometry?.attributes?.position;
+		if ( ! pos ) return;
+		// Stride: a few thousand samples is plenty to compare two averages, and
+		// these meshes run to ~12k vertices each across five models.
+		const step = Math.max( 1, Math.floor( pos.count / 2000 ) );
+		for ( let i = 0; i < pos.count; i += step ) {
+			v.fromBufferAttribute( pos, i ).applyMatrix4( o.matrixWorld );
+			const t = ( v.z - zMin ) / span;
+			if ( t > 0.8 ) { fwdW += Math.abs( v.x ); fwdN ++; }
+			else if ( t < 0.2 ) { aftW += Math.abs( v.x ); aftN ++; }
+		}
+	} );
+
+	if ( ! fwdN || ! aftN ) return false;
+	// Forward end wider than the after end means the model is facing astern.
+	return ( fwdW / fwdN ) > ( aftW / aftN ) * 1.05;
+
+}
+
+/**
  * Normalise a loaded model into the simulation's frame.
  *
  * Three things have to be true afterwards, and none of them is true of an
@@ -50,6 +88,16 @@ function fitToHull( root ) {
 	const alongZ = size.z >= size.x;
 	if ( ! alongZ ) root.rotation.y = Math.PI / 2;
 
+	// ...and now WHICH WAY along it. Picking the axis is not enough: half the
+	// models face the other way down it, which is how one of them ended up
+	// sailing backwards with its wake streaming off the bow.
+	//
+	// A hull is narrow at the stem and full at the transom, so the answer is in
+	// the geometry rather than in any convention: measure the beam at each end
+	// and put the fine end forward. That works on a boat that has no metadata
+	// saying which way it points, which is all of them.
+	if ( sternIsForward( root ) ) root.rotation.y += Math.PI;
+
 	const holder = new THREE.Group();
 	holder.add( root );
 
@@ -66,9 +114,15 @@ function fitToHull( root ) {
 	// Origin at the stem, on the waterline. maxZ is the bow once +Z is forward.
 	holder.position.x -= ( final.min.x + final.max.x ) * 0.5;
 	holder.position.z -= final.max.z;
-	// Sit the hull ON the water, not floating above or sunk in it: the model's
-	// own lowest point goes a little under, the rest stands proud.
-	holder.position.y -= final.min.y + ( final.max.y - final.min.y ) * get( 'boat.draft' );
+	// Sit the hull ON the water: its lowest point goes a fixed depth under,
+	// and the rest stands proud.
+	//
+	// This used to be a fraction of the model's own HEIGHT, which sinks a tall
+	// model further than a short one for no reason -- and put the sea inside
+	// the open boats, whose interior floor sits only a little above their
+	// lowest point. A masted pirate boat is three times the height of an
+	// inflatable and wants exactly the same draft.
+	holder.position.y -= final.min.y + get( 'boat.draft' );
 
 	return holder;
 
@@ -91,9 +145,11 @@ export async function loadBoat( id ) {
 	fitted.traverse( ( o ) => {
 		if ( ! o.isMesh ) return;
 		o.castShadow = true;
-		// The models ship doubleSided, which on a closed hull costs fill for
-		// nothing and lets the inside of the far side show through the near.
-		if ( o.material ) o.material.side = THREE.FrontSide;
+		// The model's own `side` is left alone. Forcing FrontSide here to save
+		// fill on a closed hull tore the pirate boat apart: its sails, flags
+		// and rigging are single-sided planes, and half of each vanished
+		// depending on which way you looked at it. The models know how they
+		// were built; this does not.
 	} );
 
 	// Rebuilding the fit when boat.length changes keeps the drawn hull and the
