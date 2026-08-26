@@ -72,6 +72,23 @@ vec4 wakeAgeAt(vec2 p){
   return vec4(-1.0, 1.0, 0.0, 0.0);
 }
 
+// FORKED IN: the prototype's field carries two bubble channels that upstream
+// has no equivalent for. B is how much of the cloud has SURFACED, A is how
+// dense it is. Their ratio is what makes a prop plume read as a plume rather
+// than as a tint: light returning from churn still down in the column has
+// crossed metres of water twice, and water takes the red out first and then
+// the green -- so deep churn is dark blue-green and only turns pale turquoise
+// once it reaches the top.
+//
+// Returns (density, surfaced fraction). Zero outside the field.
+vec2 wakeBubblesAt(vec2 p){
+  vec2 uv = (p - uWakeOrigin) / uWakeExtent * vec2(1.0, -1.0) + 0.5;
+  if (length(uv - 0.5) * 2.0 >= 1.0) return vec2(0.0);
+  vec4 r = texture(uWakeTex, uv);
+  float density = clamp(r.a, 0.0, 3.0);
+  return vec2(density, clamp(r.b / max(r.a, 1e-4), 0.0, 1.0));
+}
+
 vec3 wakeAt(vec2 p){
   // FORKED for the wake lab. Upstream reconstructs a wake from a compact
   // record (stir / age / lat / arm-rate) and rebuilds the arms, the churn and

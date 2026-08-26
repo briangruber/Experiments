@@ -284,6 +284,10 @@ uniform float uWaterIOR;
 uniform float uAerial;
 uniform float uFloorDepth, uFloorDepthMin, uFloorDepthMax, uFloorTerrainScale, uFloorCaustic;
 uniform float uFloorCausticSize;
+uniform vec3  uBedSand, uBedWeed;
+uniform vec3  uBubCol;
+uniform float uBubOn, uBubBright, uBubMilk, uBubDeepTint;
+uniform float uBedWeedAmt;
 uniform float uRefractDistort;
 uniform float uFloorCausticLod[4];
 uniform float uFloorCausticSpan;
@@ -1326,6 +1330,29 @@ void main(){
   // saturated footprint of the whole disturbed area — the wrong shape for
   // foam coverage (that is what made the trail an even white sheet) but the
   // right one for the bubble plume, which really does cover the whole track.
+  // FORKED: the prototype's subsurface plume replaces the flat milky tint.
+  //
+  // Upstream aerates the water by lerping the body colour toward one milky
+  // constant, keyed off foam coverage. That is a tint, not a plume. The
+  // prototype tracks the cloud itself: how DENSE it is and how much of it has
+  // SURFACED, which is the difference between churn glowing turquoise at the
+  // transom and staying dark blue-green where it is still metres down.
+  vec2 bubs = uBubOn > 0.002 ? wakeBubblesAt(vFlat.xz) : vec2(0.0);
+  if (bubs.x > 0.002) {
+    // Beer-Lambert again: scattering saturates with how much cloud is in the
+    // column, so a thick plume approaches its own colour instead of running
+    // away to white.
+    float scat = (1.0 - exp(-bubs.x * uBubBright * 1.5)) * uBubOn;
+    float surfaced = bubs.y;
+    vec3 deepCol = mix(uBubCol, uScatterColor * 1.8 + vec3(0.01, 0.10, 0.13), uBubDeepTint);
+    vec3 bubCol = mix(deepCol, uBubCol, surfaced);
+    bubCol = mix(bubCol, vec3(0.66, 0.80, 0.82), uBubMilk * scat * surfaced);
+    // Lit by the same downwelling the body colour uses, so the plume sits in
+    // the water rather than glowing on top of it.
+    vec3 lit = bubCol * Edown * (uScatterAmount * WAKE_PLUME_GAIN / PI)
+      * exp(-uAbsorption * pathLen * WAKE_PLUME_PATH) * ao;
+    body = mix(body, lit, clamp(scat, 0.0, 1.0));
+  }
   if (uWakePlume > 0.002 && wakeRaw > 0.002) {
     float plume = clamp(wakeRaw * uWakePlume, 0.0, 1.0);
     vec3 milky = uScatterColor * Edown * (uScatterAmount * WAKE_PLUME_GAIN / PI)
@@ -1410,7 +1437,12 @@ void main(){
         float n  = 0.5 + 0.5 * sin(ru * 1.4 + sin(rv * 0.8) * 0.7);
         float n2 = 0.5 + 0.5 * sin(rv * 1.1 - sin(ru * 0.6) * 0.55);
         float reef = smoothstep(0.48, 0.72, n) * (0.4 + 0.6 * n2);
-        vec3 bed = mix(vec3(0.78, 0.68, 0.48), vec3(0.16, 0.22, 0.18), reef);
+        // FORKED: the bed was a fixed sand/reef mix. Sand is already the base
+        // colour here -- the dark green is `reef`, a procedural weed pattern
+        // laid over it, and on a lake at 9 m it is most of what you see.
+        // Both ends are uniforms now so a sandy lake bottom is reachable
+        // without editing the shader.
+        vec3 bed = mix(uBedSand, uBedWeed, reef * uBedWeedAmt);
         // Focused sunlight on the sand. Twin: seafloor.js floorLace.
         vec2 pSun = vec2(hx, hz) + uSunDir.xz / max(uSunDir.y, 0.18) * localD;
         float laceScale = max(uFloorCausticSize, 0.15);

@@ -210,7 +210,7 @@ export const PARAMS = {
     // carry their own procedural seafloor, and a shallow one under green lake
     // water reads as a bright green pool. 0 pushes it out of sight, 1 restores
     // exactly what the preset asked for.
-    floor:        { v: 0,    min: 0,   max: 1,   step: 0.01, label: 'Show sea floor' },
+
     waterTint:    { v: 0.8,  min: 0,   max: 1,   step: 0.01, label: 'Deep-water tint' },
     // Straight down, Fresnel reflects ~2% of the sky, so a look-down view sees
     // only what the water column scatters back. This scales that, and it is
@@ -228,6 +228,13 @@ export const PARAMS = {
 
   // The lake itself -- real geometry, not a painted horizon.
   lake: {
+    // A shallow SAND bed, which is what a lake actually has. It also lights
+    // the water from below: with no visible bottom, an overhead camera at a
+    // 38 degree sun sees only what the column scatters back, which is why
+    // pushing the floor away turned the look-down view black. 0 = no floor.
+    floorDepth:   { v: 7,    min: 0,   max: 60,  step: 0.5,  label: 'Bed depth (m)' },
+    weed:         { v: 0.18, min: 0,   max: 1,   step: 0.01, label: 'Weed over sand' },
+    caustics:     { v: 0.55, min: 0,   max: 1.5, step: 0.01, label: 'Caustics on the bed' },
     radius:       { v: 1850, min: 200, max: 4000,step: 10,   label: 'Lake radius (m)' },
     depth:        { v: 14,   min: 2,   max: 60,  step: 1,    label: 'Basin depth (m)' },
     rim:          { v: 70,   min: 10,  max: 400, step: 5,    label: 'Hill height (m)' },

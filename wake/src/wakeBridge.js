@@ -108,6 +108,19 @@ export class WakeBridge {
 			// ours peaks near 0.12, so without this the wake is drawn at a few
 			// percent opacity and reads as clean water.
 			uLabGain: get( 'foamMix.wakeGain' ),
+			// The submerged half of the wake. B is how much of the cloud has
+			// surfaced, A how dense it is -- both already in the field, and
+			// unused until now because the fork only returned three channels.
+			uBubOn: get( 'bubbles.plume' ),
+			uBubBright: get( 'bubbles.brightness' ),
+			uBubMilk: get( 'bubbles.milkiness' ),
+			uBubDeepTint: get( 'bubbles.deepTint' ),
+			uBubCol: ( () => {
+				// Green through blue-green: what a bubble cloud scatters back
+				// depends on how much water is still above it.
+				const bt = get( 'bubbles.tint' );
+				return new Float32Array( [ 0.06 + bt * 0.06, 0.40 + bt * 0.07, 0.34 + bt * 0.30 ] );
+			} )(),
 		};
 
 	}

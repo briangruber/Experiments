@@ -125,12 +125,28 @@ const mix = ( a, b, t ) => a + ( b - a ) * t;
  */
 function fitToLake( p, preset = {} ) {
 
-	const floor = get( 'scene.floor' );
-	// Not zero: the floor terms are gated on depth, and 0 reads as "no floor
-	// configured" rather than "floor far below".
-	p.floorDepth = mix( 400, preset.floorDepth ?? 9, floor );
-	p.floorDepthMin = mix( 400, preset.floorDepthMin ?? 3.5, floor );
-	p.floorDepthMax = mix( 900, preset.floorDepthMax ?? 16, floor );
+	// A real lake bottom, in metres, rather than a 0..1 fade of the preset's.
+	//
+	// Pushing the floor away killed the green, but it also removed the main
+	// source of returned light -- a basin with no visible bottom genuinely is
+	// dark from overhead at a 38 degree sun, which is why the look-down view
+	// went black. A shallow SAND bed is the honest fix: it is what a lake
+	// actually has, it lights the water from below, and it is not green.
+	const depth = get( 'lake.floorDepth' );
+	const on = depth > 0.05;
+	p.floorDepth = on ? depth : 400;
+	// A bed is not a flat plane: the shallow end catches the light and the
+	// deeper end falls away. Kept as a ratio of the nominal depth so one
+	// slider moves the whole bottom coherently.
+	p.floorDepthMin = on ? depth * 0.45 : 400;
+	p.floorDepthMax = on ? depth * 2.30 : 900;
+	p.floorCaustic = get( 'lake.caustics' );
+
+	// Sand, and how much weed is laid over it. Upstream's reef pattern assumes
+	// a tropical bed; a lake wants far less of it.
+	p.bedSand = [ 0.80, 0.71, 0.52 ];
+	p.bedWeed = [ 0.18, 0.24, 0.19 ];
+	p.bedWeedAmount = get( 'lake.weed' );
 
 	const tint = get( 'scene.waterTint' );
 	const c = preset.scatterColor ?? [ 0.055, 0.145, 0.095 ];

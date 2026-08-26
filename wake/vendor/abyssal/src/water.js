@@ -210,6 +210,11 @@ export class WaterSurface {
       uFoamLaceMorphRate: p.foamLaceMorphRate ?? 0,
       uWakeFoamRibbonVary: p.wakeFoamRibbonVary ?? WAKE_FOAM_RIBBON_VARY,
       uFoamRibbon: Number.isFinite( opts.foamRibbon ) ? Math.max( opts.foamRibbon, 0 ) : 1,
+      // Sea-bed colour. Upstream hard-coded these in the shader; a lake wants
+      // a sandy bottom with far less weed than the reef pattern assumes.
+      uBedSand: p.bedSand ?? [ 0.78, 0.68, 0.48 ],
+      uBedWeed: p.bedWeed ?? [ 0.16, 0.22, 0.18 ],
+      uBedWeedAmt: p.bedWeedAmount ?? 1,
       uFoamOpacity: p.foamOpacity,
       uFoamColor: p.foamColor,
       uSunAngularRadius: p.sunAngularRadius, uSpecIntensity: p.specIntensity,
