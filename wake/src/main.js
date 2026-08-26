@@ -587,7 +587,18 @@ function frame(now) {
   const baseExtent = get('field.extent');
   const wantExtent = THREE.MathUtils.clamp(smooth.dist * 2.2, 45, baseExtent);
   const fieldExtent = THREE.MathUtils.lerp(baseExtent, wantExtent, get('field.adaptive'));
-  wake.focus(state.x - hx * fieldExtent * 0.28, state.z - hz * fieldExtent * 0.28, fieldExtent);
+  // Astern along the PATH, not along the current course.
+  //
+  // The window is a circle of radius extent/2 (wakeAt gates on it), and
+  // offsetting it down the course line is only "astern" while the boat is
+  // going straight. Hard over, the wake curves away from that line and the
+  // freshest foam -- the part right behind the hull -- fell outside the
+  // circle and was cut off, which reads exactly as the wake coming unstuck
+  // from the boat. The path knows where the wake went; ask it.
+  const back = wake.backAlongPath(fieldExtent * 0.56);
+  const fx = back ? (state.x + back.x) * 0.5 : state.x - hx * fieldExtent * 0.28;
+  const fz = back ? (state.z + back.z) * 0.5 : state.z - hz * fieldExtent * 0.28;
+  wake.focus(fx, fz, fieldExtent);
   wake.update(state.t);
 
   // Camera. Nothing here is assigned straight from state: every term is

@@ -88,12 +88,12 @@ export const SCENE_TUNE = {
 	// THE lagoon. Sand a metre or three down, bright as coral rubble, caustics
 	// at full song, zero tint -- the preset's authored turquoise IS the look --
 	// and the glow well up, because tropical shallows are lit from below.
-	'Tropical Lagoon':     { floor: 3.0, caustics: 1.35, weed: 0.45, tint: 0,    glow: 1.0, spec: 0.65, sand: [ 0.74, 0.66, 0.46 ],
+	'Tropical Lagoon':     { floor: 8.0, caustics: 1.35, weed: 0.45, tint: 0,    glow: 1.0, spec: 0.65, sand: [ 0.74, 0.66, 0.46 ],
 	                         scatter: [ 0.030, 0.26, 0.36 ], scatterAmt: 0.13, absorb: [ 0.34, 0.055, 0.030 ] },
 	'Deep Blue Afternoon': { floor: 0,   caustics: 0,    weed: 0,    tint: 0.85, glow: 3.0 },
 	// The lagoon's big sibling: a little deeper, a little more weed on the
 	// flats, the same overhead blaze.
-	'Tropical Noon':       { floor: 3.8, caustics: 1.1,  weed: 0.40, tint: 0.10, glow: 1.1, spec: 0.7, sand: [ 0.76, 0.68, 0.48 ],
+	'Tropical Noon':       { floor: 10.0, caustics: 1.1,  weed: 0.40, tint: 0.10, glow: 1.1, spec: 0.7, sand: [ 0.76, 0.68, 0.48 ],
 	                         scatter: [ 0.050, 0.30, 0.34 ], scatterAmt: 0.15, absorb: [ 0.30, 0.050, 0.032 ] },
 	'Golden Hour Swell':   { floor: 0,   caustics: 0,    weed: 0,    tint: 0.80, glow: 3.6 },
 	'Trade Winds':         { floor: 0,   caustics: 0,    weed: 0,    tint: 0.75, glow: 3.0 },

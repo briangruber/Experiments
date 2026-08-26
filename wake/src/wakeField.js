@@ -748,6 +748,30 @@ export class WakeField {
     u.uBubArmsLen.value = get('bubbles.armsLength') / decay;
   }
 
+  /**
+   * A point `d` metres back along the path the boat actually took.
+   *
+   * Not the same as "d metres astern along the current course": in a hard
+   * turn the two are far apart, and it is the PATH that says where the wake
+   * is. Returns null before there is any path to walk.
+   */
+  backAlongPath( d ) {
+    const P = this.path;
+    if ( ! P.length ) return null;
+    let arc = 0;
+    for ( let i = 1; i < P.length; i ++ ) {
+      const a = P[ i - 1 ], b = P[ i ];
+      const seg = Math.hypot( b.x - a.x, b.z - a.z );
+      if ( arc + seg >= d ) {
+        const t = seg > 1e-5 ? ( d - arc ) / seg : 0;
+        return { x: a.x + ( b.x - a.x ) * t, z: a.z + ( b.z - a.z ) * t };
+      }
+      arc += seg;
+    }
+    const last = P[ P.length - 1 ];
+    return { x: last.x, z: last.z };
+  }
+
   /** Point the field at a world position (snapped, so the texture doesn't crawl). */
   focus(x, z, extent) {
     this.extent = extent || get('field.extent');
