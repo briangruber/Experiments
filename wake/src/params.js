@@ -41,6 +41,13 @@ export const PARAMS = {
     // a curve of its own.
     bank:         { v: 1.0,  min: 0,   max: 2.5, step: 0.01, label: 'Bank into turns' },
     bankMax:      { v: 22,   min: 0,   max: 45,  step: 1,    label: 'Max bank (deg)' },
+    // Roll is a damped spring, not a value: a hull has inertia and the water
+    // damps it, so the lean LAGS the wheel. rollRate is the natural frequency
+    // in Hz (a small planing hull is around 1); rollDamp is the damping ratio,
+    // a little under 1 so it settles fast with a hint of overshoot as the hull
+    // rolls in and catches itself.
+    rollRate:     { v: 0.85, min: 0.1, max: 3,   step: 0.01, label: 'Roll rate (Hz)' },
+    rollDamp:     { v: 0.72, min: 0.1, max: 2,   step: 0.01, label: 'Roll damping' },
     engines:      { v: 2,    min: 1,   max: 4,   step: 1,    label: 'Engines' },
     engineSpacing:{ v: 2.4, min: 0.2, max: 4,   step: 0.05, label: 'Engine spacing (m)' },
   },

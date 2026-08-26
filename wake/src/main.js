@@ -166,14 +166,32 @@ if (narrow || devicePixelRatio > 2.5) {
 } else {
   set('quality.renderScale', Math.min(devicePixelRatio, 2));
 }
-// The picker sits above the sliders: it is the one control whose value is a
-// name rather than a quantity, and the first thing anyone wants to change.
+// The two pickers sit above every slider, in their own box.
+//
+// Which boat and which weather are the first things anyone changes, and
+// neither is a quantity -- there is no meaningful value between "Pirate" and
+// "Yacht", or between "Calm Lake" and "Storm". A slider is the wrong control
+// for both, and burying them among sixteen groups of real sliders is the
+// wrong place.
 const uiRoot = document.getElementById('ui');
-const picker = buildBoatPicker(uiRoot,
+const quick = document.createElement('div');
+quick.className = 'quick';
+uiRoot.appendChild(quick);
+
+const picker = buildBoatPicker(quick,
   [...BOATS.map((b) => ({ label: b.label })), { label: 'Blocky' }],
   {
+    title: 'Boat',
     initial: Math.round(get('boat.model')),
     onPick: (i) => { set('boat.model', i); showBoat(i); },
+  });
+
+const scenePicker = buildBoatPicker(quick,
+  PRESET_NAMES.map((n) => ({ label: n })),
+  {
+    title: 'Scene',
+    initial: Math.round(get('scene.preset')),
+    onPick: (i) => { set('scene.preset', i); },
   });
 
 const ui = buildUI(uiRoot, {
@@ -182,6 +200,9 @@ const ui = buildUI(uiRoot, {
       const i = Math.round(get('boat.model'));
       showBoat(i);
       picker.select(i);          // keep the picker honest after a paste or reset
+    }
+    if (path === '*' || path === 'scene.preset') {
+      scenePicker.select(Math.round(get('scene.preset')));
     }
     for (const c of boat.children) c.userData?.scaleTo?.();
   },

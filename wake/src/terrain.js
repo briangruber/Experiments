@@ -45,7 +45,22 @@ const FRAG = /* glsl */`
   void main(){
     // Below the waterline is lake bed, not land: drop it and let the shoreline
     // fall exactly on y = 0 without needing the water to occlude anything.
-    if (vWorld.y < 0.0) discard;
+    // ANALYTIC COVERAGE, not a binary test.
+    //
+    // A binary y < 0 discard gives the coastline no anti-aliasing whatsoever:
+    // every pixel is wholly land or wholly sea, so the edge is a staircase
+    // that crawls as the camera moves. From high up, where a pixel spans
+    // several metres of a 11 m-per-vertex heightfield, that reads as a
+    // shoreline boiling.
+    //
+    // fwidth(y) is how much the height changes across ONE PIXEL, so
+    // smoothstep(-w, w, y) is the fraction of this pixel that is above the
+    // waterline -- coverage, computed at whatever scale the pixel happens to
+    // be. It costs one derivative and is correct at every zoom, where
+    // supersampling the mesh would only move the problem.
+    float shoreW = max(fwidth(vWorld.y), 1e-4);
+    float land = smoothstep(-shoreW, shoreW, vWorld.y);
+    if (land <= 0.002) discard;
 
     // Trees hold the gentle ground; steep faces show through as bare shore.
     float treed = smoothstep(0.55, 0.86, vSlope);
@@ -68,7 +83,7 @@ const FRAG = /* glsl */`
     vec3 airCol = skyColour(normalize(vec3(-V.x, 0.05, -V.z)));
     col = mix(col, airCol, smoothstep(uHazeStart, uHazeEnd, d));
 
-    gl_FragColor = vec4(tonemap(col), 1.0);
+    gl_FragColor = vec4(tonemap(col), land);
   }
 `;
 
@@ -90,6 +105,13 @@ export class Terrain {
     this.mesh = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.ShaderMaterial({
       uniforms: this.uniforms, vertexShader: VERT, fragmentShader: FRAG,
       side: THREE.DoubleSide,
+      // The shoreline is a coverage fraction now, so the edge pixels are
+      // genuinely partial and have to blend. Depth is still written: land is
+      // opaque everywhere except that one-pixel fringe, and letting the boat
+      // and spray depth-test against it matters far more than the fringe's
+      // own sort order.
+      transparent: true,
+      depthWrite: true,
     }));
     this.mesh.frustumCulled = false;
     this.build();

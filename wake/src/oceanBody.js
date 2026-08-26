@@ -51,6 +51,10 @@ export class OceanBody {
 		this.state = { x: 0, z: 0, heading: 0, speed: 0, turn: 0, t: 0 };
 		this.att = attitude( 0 );
 		this._emitDebt = 0;
+		// Roll has its own state: a hull has mass and the water damps it, so
+		// the lean lags the wheel instead of tracking it. See rollTo().
+		this.roll = 0;
+		this.rollVel = 0;
 
 	}
 
@@ -114,6 +118,12 @@ export class OceanBody {
 	 * asked for: a hard turn at a crawl barely leans, and the same wheel at
 	 * planing speed lays it over.
 	 */
+	/**
+	 * The lean the turn is ASKING for, before the hull's own inertia.
+	 *
+	 * This is a target, not the answer — see rollTo(), which is what the mesh
+	 * actually uses.
+	 */
 	bank() {
 
 		const s = this.state;
@@ -167,6 +177,38 @@ export class OceanBody {
 
 	}
 
+	/**
+	 * Step the roll toward what the turn is asking for.
+	 *
+	 * The bank angle was being assigned straight from the instantaneous turn
+	 * rate, so the hull snapped to full lean the frame the wheel moved and
+	 * snapped flat again when it centred. A boat cannot do that: it has roll
+	 * inertia and the water damps it, which together make a second-order
+	 * system, not a value.
+	 *
+	 * So: a damped spring toward the target. omega is the natural frequency
+	 * (a small planing hull rolls at somewhere around 1 Hz), zeta the damping
+	 * ratio -- a little under 1, so it settles quickly with just a hint of
+	 * overshoot as the hull rolls into the turn and catches itself. Critically
+	 * damped exactly (zeta = 1) reads as smooth but lifeless; over 1 is mushy.
+	 *
+	 * Integrated semi-implicitly and with dt clamped, because a spring is the
+	 * classic thing to explode on the first frame after a stall or a tab
+	 * switch, and the boat rolling inside out is a memorable way to find out.
+	 */
+	rollTo( dt ) {
+
+		const target = this.bank();
+		const w = Math.max( get( 'boat.rollRate' ), 0.05 ) * Math.PI * 2;
+		const zeta = Math.max( get( 'boat.rollDamp' ), 0.05 );
+		const h = Math.min( dt, 1 / 30 );
+		this.rollVel += ( - 2 * zeta * w * this.rollVel
+			- w * w * ( this.roll - target ) ) * h;
+		this.roll += this.rollVel * h;
+		return this.roll;
+
+	}
+
 	/** Pose the mesh for this speed, heading and rate of turn. */
 	pose() {
 
@@ -178,7 +220,7 @@ export class OceanBody {
 		// actually pitches about.
 		const TRIM_PIVOT = 0.72;
 		const b = this.bow();
-		this.mesh.rotation.set( - trim, this.state.heading, this.bank(), 'YXZ' );
+		this.mesh.rotation.set( - trim, this.state.heading, this.roll, 'YXZ' );
 		this.mesh.position.set( b.x,
 			att.rise + Math.sin( trim ) * this.length * TRIM_PIVOT, b.z );
 
@@ -193,6 +235,7 @@ export class OceanBody {
 		const s = this.state;
 		s.t += dt;
 		this.att = attitude( s.speed );
+		this.rollTo( dt );
 		this.pose();
 
 		if ( this.spray ) this._throw( dt, seaHeight );

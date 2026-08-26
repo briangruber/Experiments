@@ -404,3 +404,13 @@ body.hide-ui #cam-name { display: none; }
   color: #eaf6fc;
 }
 .boat:focus-visible { outline: 2px solid #7fd3f2; outline-offset: 1px; }
+
+/* The quick box: the two choices anyone makes first, above every slider. */
+.quick {
+  padding: 0.55rem 0.6rem 0.2rem;
+  margin: 0 0 0.6rem;
+  border: 1px solid rgb(120 170 200 / 18%);
+  border-radius: 0.45rem;
+  background: rgb(10 20 30 / 55%);
+}
+.quick .boats:last-child { margin-bottom: 0.35rem; }

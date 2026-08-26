@@ -34,12 +34,12 @@ const GROUP_TITLES = {
  * quantity -- every other row is a number with a meaningful in-between, which
  * is what a slider is for. This one has no in-between at all.
  */
-export function buildBoatPicker(root, boats, { onPick, initial = 0 } = {}) {
+export function buildBoatPicker(root, boats, { onPick, initial = 0, title: heading = 'Boat' } = {}) {
   const wrap = document.createElement('div');
   wrap.className = 'boats';
   const title = document.createElement('div');
   title.className = 'boats-title';
-  title.textContent = 'Boat';
+  title.textContent = heading;
   wrap.appendChild(title);
 
   const row = document.createElement('div');
@@ -77,7 +77,10 @@ export function buildUI(root, hooks = {}) {
 
   for (const [gname, entries] of Object.entries(PARAMS)) {
     const sec = document.createElement('details');
-    sec.open = !['ocean', 'quality'].includes(gname);
+    // Shut by default. Sixteen open groups is a wall of sliders between you
+    // and the water, and the two controls anyone actually reaches for first --
+    // which boat, which weather -- are pickers above this, not sliders in it.
+    sec.open = false;
     const sum = document.createElement('summary');
     sum.textContent = GROUP_TITLES[gname] || gname;
     sec.appendChild(sum);
