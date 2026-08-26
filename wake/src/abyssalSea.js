@@ -368,10 +368,11 @@ export class AbyssalSea {
 	 * getting it wrong fails silently (a wiped sea, a piling cut off in a
 	 * straight line, or the cloud march running full-screen behind geometry).
 	 */
-	render( scene, camera ) {
+	render( scene, camera, extra = {} ) {
 
 		this.renderer.clear();
-		this.water.render( camera, this.wake ? { wake: this.wake } : {} );
+		this.water.render( camera,
+			{ ...( this.wake ? { wake: this.wake } : {} ), ...extra } );
 		this.renderer.render( scene, camera );
 		this.sky.render( camera );
 

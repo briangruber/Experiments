@@ -199,11 +199,13 @@ export async function loadBoat( id ) {
 	fitted.traverse( ( o ) => {
 		if ( ! o.isMesh ) return;
 		o.castShadow = true;
-		// The model's own `side` is left alone. Forcing FrontSide here to save
-		// fill on a closed hull tore the pirate boat apart: its sails, flags
-		// and rigging are single-sided planes, and half of each vanished
-		// depending on which way you looked at it. The models know how they
-		// were built; this does not.
+		// DoubleSide, forced. This has now been wrong in both directions:
+		// forcing FrontSide tore the pirate's sails off entirely (single-sided
+		// planes, culled), and leaving the model's own setting alone kept
+		// whatever the exporter chose -- and the pirate's sail material ships
+		// single-sided, so the sails showed from the bow and vanished from the
+		// stern. Cloth has two sides; a closed hull merely pays a little fill.
+		if ( o.material ) { o.material.side = THREE.DoubleSide; o.material.needsUpdate = true; }
 	} );
 
 	// Rebuilding the fit when boat.length changes keeps the drawn hull and the

@@ -294,6 +294,14 @@ uniform float uAerial;
 uniform float uFloorDepth, uFloorDepthMin, uFloorDepthMax, uFloorTerrainScale, uFloorCaustic;
 uniform float uFloorCausticSize;
 uniform vec3  uBedSand, uBedWeed;
+// FORKED IN: screen-space refraction. The scene (hull, spray) is rendered to
+// a colour+depth target BEFORE the water; the water then looks through itself
+// into that image with wobbled UVs. Without it the submerged half of a hull
+// simply loses the depth test at the waterline and is razored off.
+uniform sampler2D uRefrColor;
+uniform highp sampler2D uRefrDepth;
+uniform vec2  uRefrRes;
+uniform float uRefrOn, uRefrAmt, uRefrNear, uRefrFar, uRefrMurk;
 uniform vec3  uBubCol;
 uniform float uBubOn, uBubBright, uBubMilk, uBubDeepTint;
 uniform float uBedWeedAmt;
@@ -1387,6 +1395,32 @@ void main(){
     vec3 milky = uScatterColor * Edown * (uScatterAmount * WAKE_PLUME_GAIN / PI)
       * exp(-uAbsorption * pathLen * WAKE_PLUME_PATH) * ao;
     body = mix(body, milky, plume);
+  }
+
+  // ---- what is UNDER this pixel of water -----------------------------------
+  // Screen-space refraction of the pre-rendered scene. The wobble is the
+  // surface normal's horizontal part -- the same tilt that bends a real ray --
+  // scaled down with distance so far water does not shimmer, and the sampled
+  // depth decides everything: a scene fragment NEARER than the water is the
+  // hull's topsides (drawn again after the water, ignore it here); one BEHIND
+  // the water is submerged, and gets water put in front of it. Beer-Lambert on
+  // the linearised depth gap does the murk, so a keel a metre down is a green
+  // shadow of itself and a swimmer at ten metres is gone.
+  if (uRefrOn > 0.5) {
+    vec2 suv = gl_FragCoord.xy / uRefrRes;
+    vec2 roff = N.xz * uRefrAmt / (1.0 + dist * 0.06);
+    vec2 ruv = clamp(suv + roff, vec2(0.001), vec2(0.999));
+    float dsceneW = texture(uRefrDepth, ruv).r;
+    float dwater = gl_FragCoord.z;
+    if (dsceneW > dwater && dsceneW < 1.0) {
+      float zs = (2.0*uRefrNear*uRefrFar)/(uRefrFar+uRefrNear-(2.0*dsceneW-1.0)*(uRefrFar-uRefrNear));
+      float zw = (2.0*uRefrNear*uRefrFar)/(uRefrFar+uRefrNear-(2.0*dwater-1.0)*(uRefrFar-uRefrNear));
+      float thick = max(zs - zw, 0.0);
+      vec3 seen = texture(uRefrColor, ruv).rgb;
+      vec3 tinted = seen * exp(-uAbsorption * thick * uRefrMurk);
+      float keep = exp(-thick * 0.30);
+      body = mix(body, tinted, clamp(keep, 0.0, 1.0));
+    }
   }
 
   // Light that entered the far side of a wave, scattered forward inside it and

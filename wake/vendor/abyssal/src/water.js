@@ -245,6 +245,12 @@ export class WaterSurface {
       uWindDirV: set2(this._vWind, Math.cos(p.windDir), Math.sin(p.windDir)),
       uSpecClamp: p.specClamp, uHorizonBend: p.horizonBend,
       ...wake,
+      // FORKED: screen-space refraction of the caller's scene (see WATER_FS).
+      ...(opts.refr ? {
+        uRefrColor: opts.refr.color, uRefrDepth: opts.refr.depth,
+        uRefrRes: opts.refr.res, uRefrOn: 1, uRefrAmt: opts.refr.amount,
+        uRefrNear: opts.refr.near, uRefrFar: opts.refr.far, uRefrMurk: opts.refr.murk,
+      } : { uRefrOn: 0 }),
       uWakeRelief: p.wakeRelief, uWakeSlick: p.wakeSlick,
       uWakePlume: p.wakePlume ?? 1.0,
       uHullPos: hull.pos, uHullFwd: hull.fwd,

@@ -200,6 +200,18 @@ if (narrow || devicePixelRatio > 2.5) {
 // "Yacht", or between "Calm Lake" and "Storm". A slider is the wrong control
 // for both, and burying them among sixteen groups of real sliders is the
 // wrong place.
+// The refraction target: the scene photographed before the water draws, so
+// the water can look through itself at the submerged half of the hull. Depth
+// rides along -- it is what separates "topsides in front of the water" (skip;
+// drawn again after) from "keel behind it" (composite, murked by depth).
+let refrRT = null;
+function ensureRefrRT(w, h) {
+  if (refrRT && refrRT.width === w && refrRT.height === h) return;
+  refrRT?.dispose();
+  const depthTexture = new THREE.DepthTexture(w, h);
+  refrRT = new THREE.WebGLRenderTarget(w, h, { depthTexture });
+}
+
 const uiRoot = document.getElementById('ui');
 const quick = document.createElement('div');
 quick.className = 'quick';
@@ -684,7 +696,33 @@ function frame(now) {
     // reading in step() above -- one frame of latency by design; the fence
     // never stalls the pipeline.
     body.applyWaves(sea.probeWaves(body.corners(), dt), get('boat.buoy'));
-    sea.render(scene, camera);
+
+    // Photograph the scene for the water to refract. Tone mapping off for the
+    // photo: the water composites it into its own HDR and tonemaps once at
+    // output -- through the mesh curve too it would be graded twice.
+    let refr = null;
+    if (get('scene.refraction') > 0.001) {
+      const bw = renderer.domElement.width, bh = renderer.domElement.height;
+      ensureRefrRT(bw, bh);
+      const tm = renderer.toneMapping;
+      renderer.toneMapping = THREE.NoToneMapping;
+      renderer.setRenderTarget(refrRT);
+      renderer.clear(true, true, true);
+      renderer.render(scene, camera);
+      renderer.setRenderTarget(null);
+      renderer.toneMapping = tm;
+      const glc = renderer.getContext();
+      const ct = renderer.properties.get(refrRT.texture)?.__webglTexture;
+      const dtx = renderer.properties.get(refrRT.depthTexture)?.__webglTexture;
+      if (ct && dtx) refr = {
+        color: { target: glc.TEXTURE_2D, tex: ct },
+        depth: { target: glc.TEXTURE_2D, tex: dtx },
+        res: new Float32Array([bw, bh]),
+        amount: get('scene.refraction') * 0.06,
+        near: camera.near, far: camera.far, murk: 1.1,
+      };
+    }
+    sea.render(scene, camera, refr ? { refr } : {});
   } else {
     renderer.autoClear = true;
     renderer.render(scene, camera);

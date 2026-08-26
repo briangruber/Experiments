@@ -6,7 +6,7 @@
 
 export const PARAMS = {
   boat: {
-    speed:        { v: 13, min: 0,   max: 100,  step: 0.1,  label: 'Speed (m/s)' },
+    speed:        { v: 0, min: 0,   max: 100,  step: 0.1,  label: 'Speed (m/s)' },
     turnRate:     { v: 0,  min: -25, max: 25,  step: 0.5,  label: 'Turn (°/s)' },
     accel:        { v: 5.3, min: 0.1, max: 12,  step: 0.05, label: 'Acceleration (m/s²)' },
     steerRate:    { v: 26, min: 2,   max: 90,  step: 1,    label: 'Steer rate (°/s)' },
@@ -42,7 +42,7 @@ export const PARAMS = {
     // Planing hulls bank INTO a turn. atan(v*omega/g) -- the coordinated-turn
     // relation -- so lean follows speed and rate together rather than needing
     // a curve of its own.
-    bank:         { v: 1.0,  min: 0,   max: 2.5, step: 0.01, label: 'Bank into turns' },
+    bank:         { v: 1,  min: 0,   max: 2.5, step: 0.01, label: 'Bank into turns' },
     bankMax:      { v: 22,   min: 0,   max: 45,  step: 1,    label: 'Max bank (deg)' },
     // Roll is a damped spring, not a value: a hull has inertia and the water
     // damps it, so the lean LAGS the wheel. rollRate is the natural frequency
@@ -56,7 +56,7 @@ export const PARAMS = {
     // skidding flat-bottom; high is a deep-vee on rails. The gap between
     // heading and course during a turn is the crab angle you can see.
     grip:         { v: 0.7,  min: 0,   max: 1,   step: 0.01, label: 'Keel grip' },
-    buoy:         { v: 1.0,  min: 0,   max: 1.5, step: 0.01, label: 'Ride the waves' },
+    buoy:         { v: 1,  min: 0,   max: 1.5, step: 0.01, label: 'Ride the waves' },
     rollRate:     { v: 0.85, min: 0.1, max: 3,   step: 0.01, label: 'Roll rate (Hz)' },
     rollDamp:     { v: 0.72, min: 0.1, max: 2,   step: 0.01, label: 'Roll damping' },
     engines:      { v: 2,    min: 1,   max: 4,   step: 1,    label: 'Engines' },
@@ -241,7 +241,7 @@ export const PARAMS = {
     spread:    { v: 0.45, min: 0,   max: 2,   step: 0.01, label: 'Scatter' },
     drag:      { v: 1.35, min: 0,   max: 6,   step: 0.05, label: 'Air drag' },
     life:      { v: 1.1,  min: 0.1, max: 4,   step: 0.05, label: 'Droplet life (s)' },
-    size:      { v: 0.10, min: 0.01,max: 0.6, step: 0.01, label: 'Droplet size (m)' },
+    size:      { v: 0.1, min: 0.01,max: 0.6, step: 0.01, label: 'Droplet size (m)' },
     opacity:   { v: 0.85, min: 0,   max: 1,   step: 0.01, label: 'Droplet opacity' },
   },
 
@@ -270,16 +270,20 @@ export const PARAMS = {
     // 0.85 was too dark once ACES was added on top of halved lights: these
     // models carry baked ambient occlusion and fairly dark albedo, so they
     // read as untextured grey long before they read as underlit.
-    meshExposure: { v: 1.0,  min: 0.1, max: 4,   step: 0.01, label: 'Mesh exposure' },
+    meshExposure: { v: 1,  min: 0.1, max: 4,   step: 0.01, label: 'Mesh exposure' },
     // Master on the sun and sky reaching the MESHES. Their ratio comes from
     // the sun's elevation, so this scales both together rather than letting
     // them drift apart.
-    meshSun:      { v: 1.0,  min: 0,   max: 3,   step: 0.01, label: 'Mesh sun & sky' },
+    meshSun:      { v: 1,  min: 0,   max: 3,   step: 0.01, label: 'Mesh sun & sky' },
+    // Screen-space refraction: the submerged half of the hull, seen THROUGH
+    // the surface, wobbled by the surface normal and murked by depth. 0 turns
+    // the extra scene pass off entirely.
+    refraction:   { v: 0.9,  min: 0,   max: 2.5, step: 0.01, label: 'See-through water' },
     waterGlow:    { v: 1.6,  min: 0.2, max: 10,  step: 0.05, label: 'Water glow (look-down)' },
     warmth:       { v: 1.15, min: 0,   max: 1.5, step: 0.01, label: 'Sunset warmth' },
     cloud:        { v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Cloud cover' },
     cloudScale:   { v: 0.55, min: 0.05,max: 3,   step: 0.01, label: 'Cloud scale' },
-    cloudSoft:    { v: 0.30, min: 0.02,max: 1,   step: 0.01, label: 'Cloud softness' },
+    cloudSoft:    { v: 0.3, min: 0.02,max: 1,   step: 0.01, label: 'Cloud softness' },
     treeline:     { v: 0.008, min: 0,   max: 0.08,step: 0.001,label: 'Shore height' },
     treeRough:    { v: 0.45, min: 0,   max: 1.5, step: 0.01, label: 'Shore roughness' },
     treeDark:     { v: 0.02, min: 0,   max: 0.6, step: 0.005,label: 'Shore lightness' },
@@ -294,17 +298,17 @@ export const PARAMS = {
     // The pond the boats keep to. Read at startup (the park is built once);
     // the confinement uses it live.
     pond:         { v: 300,  min: 60,  max: 900, step: 10,   label: 'Pond radius (m)' },
-    floorDepth:   { v: 3.5,    min: 0,   max: 60,  step: 0.5,  label: 'Bed depth (m)' },
+    floorDepth:   { v: 37.5,    min: 0,   max: 60,  step: 0.5,  label: 'Bed depth (m)' },
     weed:         { v: 0.05, min: 0,   max: 1,   step: 0.01, label: 'Weed over sand' },
     caustics:     { v: 1.2, min: 0,   max: 1.5, step: 0.01, label: 'Caustics on the bed' },
     radius:       { v: 1850, min: 200, max: 4000,step: 10,   label: 'Lake radius (m)' },
     depth:        { v: 14,   min: 2,   max: 60,  step: 1,    label: 'Basin depth (m)' },
     rim:          { v: 70,   min: 10,  max: 400, step: 5,    label: 'Hill height (m)' },
     relief:       { v: 34,   min: 0,   max: 120, step: 1,    label: 'Relief (m)' },
-    wobble:       { v: 0.30, min: 0,   max: 0.8, step: 0.01, label: 'Shoreline wobble' },
+    wobble:       { v: 0.3, min: 0,   max: 0.8, step: 0.01, label: 'Shoreline wobble' },
     islands:      { v: 55,   min: 0,   max: 200, step: 1,    label: 'Islands' },
     avoid:        { v: 0, min: 0,   max: 3,   step: 0.01, label: 'Shore avoidance' },
-    canopy:       { v: 0.10, min: 0.01,max: 0.6, step: 0.005,label: 'Canopy lightness' },
+    canopy:       { v: 0.1, min: 0.01,max: 0.6, step: 0.005,label: 'Canopy lightness' },
   },
 
   quality: {
