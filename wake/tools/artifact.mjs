@@ -106,6 +106,10 @@ for (const [key, path, deps] of MODULES) {
   }
   seen.add(key);
 }
+if (!MODULES.some(([key]) => key === keyOf(ENTRY))) {
+  console.error(`entry ${ENTRY} is not in the emitted module map`);
+  process.exit(1);
+}
 console.log(`  ${MODULES.length} modules discovered from ${ENTRY}`);
 
 const css = await readFile(resolve(ROOT, 'src/ui.css'), 'utf8');
@@ -148,7 +152,7 @@ for (const m of SOURCES) {
 
 const boot = document.createElement('script');
 boot.type = 'module';
-boot.src = urls.main;
+boot.src = urls[${literal(keyOf(ENTRY))}];
 document.body.appendChild(boot);
 
 // If the page does not come up, SAY WHY.

@@ -28,7 +28,14 @@ const browser = await chromium.launch({
 });
 // deviceScaleFactor 2 on purpose: pixel-ratio bugs are invisible at 1.
 const DPR = +(opt('dpr', '2'));
-const p = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: DPR });
+// Small viewport, but deviceScaleFactor still 2: the point of the DPR is to
+// catch pixel-ratio bugs (a whole session was lost to one), and that needs the
+// ratio, not the resolution. 1280x800 at DPR 2 is a 2560x1600 buffer, and
+// SwiftShader now has an FFT ocean, a sky LUT, a cloud march and 147k terrain
+// vertices to fill -- which timed out the screenshot at 180 s and reported it
+// as a failure of the bundle rather than of the rig. 640x400 is the same test
+// at a quarter of the fill.
+const p = await browser.newPage({ viewport: { width: 640, height: 400 }, deviceScaleFactor: DPR });
 const errors = [];
 p.on('pageerror', (e) => errors.push(String(e)));
 p.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
@@ -50,13 +57,13 @@ const diag = await p.evaluate(() => ({
 }));
 
 await mkdir(dirname(OUT), { recursive: true });
-await p.screenshot({ path: OUT, timeout: 180000 });
+await p.screenshot({ path: OUT, timeout: 300000 });
 
 // Measure the screenshot, not the live canvas: reading back from a WebGL
 // canvas needs preserveDrawingBuffer and silently returns zeros without it.
 // A black rectangle is the failure mode here, and every other check above
 // still passes when it happens.
-const shot = await p.screenshot({ clip: { x: 0, y: 0, width: 940, height: 800 }, timeout: 180000 });
+const shot = await p.screenshot({ clip: { x: 0, y: 0, width: 560, height: 400 }, timeout: 300000 });
 const probe = await browser.newPage();
 const ink = await probe.evaluate(async (b64) => {
   const img = new Image();
