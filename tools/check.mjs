@@ -118,6 +118,63 @@ for (const f of files) {
   }
 }
 
+/* ── used, but never imported ───────────────────────────────────────────
+   Full scope analysis is out of scope here, but the common mistake has a
+   cheap signature: a file uses a name that some *other* module in the tree
+   exports, and does not import it. That is almost always a forgotten
+   import rather than a coincidence. */
+
+const allExports = new Map();          // name -> [files that export it]
+for (const [file, names] of exportsOf)
+  for (const n of names) {
+    if (n === 'default' || n === 'open') continue;   // too common to be a signal
+    if (!allExports.has(n)) allExports.set(n, []);
+    allExports.get(n).push(file);
+  }
+
+for (const f of files) {
+  const src = decomment(readFileSync(f, 'utf8'));
+  const mine = exportsOf.get(f) || new Set();
+
+  const imported = new Set();
+  for (const m of src.matchAll(/import\s+([^'"]+?)\s+from\s+['"][^'"]+['"]/g)) {
+    const braces = /\{([^}]*)\}/.exec(m[1]);
+    if (braces)
+      for (const part of braces[1].split(','))
+        if (part.trim()) imported.add(part.trim().split(/\s+as\s+/).pop().trim());
+    const star = /\*\s+as\s+([\w$]+)/.exec(m[1]);
+    if (star) imported.add(star[1]);
+  }
+
+  // Names this file binds for itself: declarations, arrow and function
+  // parameters, object keys, and method shorthands. Miss one of these and
+  // every Promise callback named `resolve` looks like a missing import.
+  const declared = new Set();
+  const bind = (re, g = 1) => {
+    for (const m of src.matchAll(re)) {
+      if (!m[g]) continue;
+      for (const part of m[g].split(',')) {
+        const n = part.trim().replace(/^\.\.\./, '').split(/[\s=:]/)[0];
+        if (/^[A-Za-z_$][\w$]*$/.test(n)) declared.add(n);
+      }
+    }
+  };
+  bind(/(?:function\s*\*?|class|const|let|var)\s+([A-Za-z_$][\w$]*)/g);
+  bind(/(?:^|[\s(,[])([A-Za-z_$][\w$]*)\s*=>/g);          // arrow with one param
+  bind(/\(([^)]*)\)\s*=>/g);                             // arrow parameter list
+  bind(/\bfunction\s*\*?\s*[\w$]*\s*\(([^)]*)\)/g);    // function parameters
+  bind(/^\s*([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{/gm);    // method shorthand
+  bind(/([A-Za-z_$][\w$]*)\s*:/g);                        // object keys and labels
+
+  for (const [name, from] of allExports) {
+    if (from.includes(f) || imported.has(name) || declared.has(name) || mine.has(name)) continue;
+    const used = new RegExp('(?<![\\w$.])' + name + '\\s*\\(');
+    if (used.test(src))
+      note(f, 'calls ' + name + '() but never imports it (exported by ' +
+        relative(root, from[0]) + ')');
+  }
+}
+
 /* ── 5: index.html references ───────────────────────────────────────── */
 
 const htmlPath = join(root, 'index.html');

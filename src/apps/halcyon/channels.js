@@ -8,18 +8,65 @@ import { dialog, getWindow } from '../../core/wm.js';
 import { icon } from '../../core/icons.js';
 import * as A from '../../core/audio.js';
 import { ROOMS, openChatRoom } from './chat.js';
+import { wordmark } from './brand.js';
 import { openMailbox } from './mail.js';
 import { openBuddyList } from './im.js';
 
+/*
+ * Channel banners. Each was a small piece of artwork with its own
+ * typography — that variety is the whole look, so every entry here
+ * carries its own colours and type treatment rather than sharing one
+ * button style.
+ */
 const CHANNELS = [
-  { id: 'chat',    name: 'Chat & People',   icon: 'chat',     blurb: 'Rooms, buddies, instant messages' },
-  { id: 'news',    name: "Today's News",    icon: 'doc',      blurb: 'Updated four times a day' },
-  { id: 'weather', name: 'Weather',         icon: 'globe',    blurb: 'Your five day forecast' },
-  { id: 'money',   name: 'Personal Finance',icon: 'defrag',   blurb: 'Quotes, delayed 20 minutes' },
-  { id: 'games',   name: 'Games',           icon: 'game',     blurb: 'Play right now' },
-  { id: 'stars',   name: 'Horoscopes',      icon: 'help',     blurb: 'Daily, and uncanny' },
-  { id: 'web',     name: 'Internet',        icon: 'browser',  blurb: 'The World Wide Web' },
-  { id: 'mail',    name: 'Mail Center',     icon: 'mail',     blurb: 'Read and write' },
+  { id: 'today',   name: 'Halcyon Today', go: 'welcome',
+    style: { background: 'linear-gradient(105deg,#b57fd0,#e8b6d8)', color: '#4a1550' },
+    type: { fontWeight: 700, fontStyle: 'italic' } },
+  { id: 'news',    name: 'NEWS', go: 'news',
+    style: { background: 'linear-gradient(105deg,#dfe6f2,#b9c7e2)', color: '#0b1d5c' },
+    type: { fontWeight: 700, letterSpacing: '.06em' } },
+  { id: 'sports',  name: 'SPORTS', go: 'sports',
+    style: { background: 'linear-gradient(105deg,#1a1a1a,#5b5b5b)', color: '#fff' },
+    type: { fontWeight: 700, fontStyle: 'italic', letterSpacing: '.04em' } },
+  { id: 'computing', name: 'Computing', go: 'tech',
+    style: { background: 'linear-gradient(105deg,#f0e2c8,#cfae7a)', color: '#4a3110' },
+    type: { fontWeight: 700 } },
+  { id: 'research', name: 'Research & Learn', go: 'search',
+    style: { background: 'linear-gradient(105deg,#e8ecf6,#aab4d4)', color: '#2a2f52' },
+    type: { fontWeight: 400 } },
+  { id: 'ent',     name: 'entertainment', go: 'music',
+    style: { background: 'linear-gradient(105deg,#6a3f9e,#c9a7e8)', color: '#fff' },
+    type: { fontWeight: 700, fontStyle: 'italic' } },
+  { id: 'games',   name: 'GAMES', go: 'games',
+    style: { background: 'linear-gradient(105deg,#f6d79a,#ef9a72)', color: '#7a2600' },
+    type: { fontWeight: 700, letterSpacing: '.12em' } },
+  { id: 'interests', name: 'Interests', go: 'penpals',
+    style: { background: 'linear-gradient(105deg,#dff0fb,#a8d4ef)', color: '#0d4a72' },
+    type: { fontWeight: 700, fontStyle: 'italic' } },
+  { id: 'lifestyles', name: 'Lifestyles', go: 'coffee',
+    style: { background: 'linear-gradient(105deg,#fafaf6,#d8d8cc)', color: '#1a1a1a' },
+    type: { fontWeight: 700 } },
+  { id: 'shopping', name: 'Shopping', go: 'shopping',
+    style: { background: 'linear-gradient(105deg,#c9342a,#f0a892)', color: '#fff' },
+    type: { fontWeight: 700, fontStyle: 'italic' } },
+  { id: 'health',  name: 'Health', go: 'health',
+    style: { background: 'linear-gradient(105deg,#d7e8a8,#9cc46a)', color: '#25400d' },
+    type: { fontWeight: 700 } },
+  { id: 'families', name: 'families', go: 'penpals',
+    style: { background: 'linear-gradient(105deg,#e8dfc4,#b7c2a4)', color: '#3a3f22' },
+    type: { fontWeight: 400, fontStyle: 'italic' } },
+  { id: 'kids',    name: 'KIDS ONLY', go: 'kids',
+    style: { background: 'linear-gradient(105deg,#1f3d8a,#3f6bd0)', color: '#ffd23a' },
+    type: { fontWeight: 700, letterSpacing: '.05em' } },
+  { id: 'local',   name: 'Local', go: 'weather',
+    style: { background: 'linear-gradient(105deg,#8a8a80,#c8c8bc)', color: '#22221c' },
+    type: { fontWeight: 700 } },
+  { id: 'travel',  name: 'TRAVEL', go: 'weather',
+    style: { background: 'linear-gradient(105deg,#f3d94a,#f6ecae)', color: '#7a4a00' },
+    type: { fontWeight: 700, letterSpacing: '.1em' } },
+  { id: 'money',   name: 'Influence', go: 'money',
+    style: { background: 'linear-gradient(105deg,#aac6e8,#dbe8f6)', color: '#123a78' },
+    type: { fontWeight: 700, fontStyle: 'italic' } },
 ];
 
 export function openChannels(session) {
@@ -28,33 +75,65 @@ export function openChannels(session) {
 
   const win = session.child({
     id: 'halcyon-channels', title: 'Channels', icon: 'globe',
-    width: 540, height: 390, minWidth: 420, minHeight: 300,
+    width: 660, height: 450, minWidth: 460, minHeight: 320,
+    aol: true,
   });
 
-  const kw = h('input.field', { type: 'text', placeholder: 'Keyword', spellcheck: false });
-  kw.addEventListener('keydown', ev => {
-    if (ev.key !== 'Enter') return;
-    const v = kw.value.trim(); kw.value = '';
-    if (v) gotoKeyword(session, v);
-  });
+  const grid = h('div.chan-grid');
+  for (const c of CHANNELS) {
+    grid.append(h('button.chan-banner', {
+      type: 'button', style: c.style, title: c.name,
+      onclick: () => { A.click(); session.go(c.go); },
+    }, h('span', { style: c.type }, c.name)));
+  }
 
   clear(win.body).append(h('div.chan', {},
-    h('div.chan-head', {},
-      wordmark(0.42),
-      h('div.chan-kw', {}, h('b', {}, 'Keyword:'), kw,
-        h('button.btn.small', {
-          type: 'button', onclick: () => { const v = kw.value.trim(); kw.value = ''; if (v) gotoKeyword(session, v); },
-        }, 'Go'))),
-    h('div.chan-grid', {}, CHANNELS.map(c =>
-      h('button.chan-tile', {
-        type: 'button', onclick: () => { A.click(); openChannel(session, c.id); },
-      }, icon(c.icon, 32),
-        h('div.chan-tile-text', {}, h('b', {}, c.name), h('span', {}, c.blurb))))),
-    h('div.chan-foot', {},
-      'Try a keyword: ',
-      h('code', {}, 'CHAT'), ' ', h('code', {}, 'TRIVIA'), ' ', h('code', {}, 'WEB'),
-      ' ', h('code', {}, 'WEATHER'), ' ', h('code', {}, 'HELP'))));
+    h('div.chan-rail', {},
+      wordmark(0.52),
+      h('div.chan-rail-title', {}, 'Channels'),
+      h('button.chan-return', {
+        type: 'button', onclick: () => session.go('welcome'),
+      }, h('i', {}, '◀'), 'Return to Welcome'),
+      h('button.chan-find', {
+        type: 'button', onclick: () => session.go('search'),
+      }, h('i', {}, '\u26B2'), 'Find')),
+    grid));
 
+  return win;
+}
+
+/* ── the Keyword dialog ──────────────────────────────────────────────── */
+
+/**
+ * The keyword box as its own window: badge, a heading, one field, and two
+ * blue buttons. Straight off the screenshot.
+ */
+export function keywordDialog(session, prefill = '') {
+  const field = h('input.kw-field', { type: 'text', spellcheck: false, value: prefill });
+
+  const win = session.child({
+    id: 'halcyon-keyword', title: 'Keyword', icon: 'keyword',
+    width: 452, height: 226, resizable: false, aol: true,
+  });
+
+  const go = () => {
+    const v = field.value.trim();
+    if (!v) return;
+    win.close();
+    gotoKeyword(session, v);
+  };
+  field.addEventListener('keydown', ev => { if (ev.key === 'Enter') go(); });
+
+  clear(win.body).append(h('div.kw', {},
+    h('div.kw-head', {}, wordmark(0.34), h('h2', {}, 'Halcyon Keyword')),
+    h('div.kw-row', {}, h('label', {}, 'Enter Words:'), field),
+    h('div.kw-btns', {},
+      h('button.aol-btn', { type: 'button', onclick: go }, 'Go'),
+      h('button.aol-btn', {
+        type: 'button', onclick: () => { win.close(); session.go('favorites'); },
+      }, 'Keyword List'))));
+
+  setTimeout(() => { field.focus(); field.select(); }, 40);
   return win;
 }
 
@@ -96,16 +175,16 @@ export function gotoKeyword(session, keyword) {
 
 /* ── departments ─────────────────────────────────────────────────────── */
 
-export function openChannel(session, id) {
-  if (id === 'chat') return openRoomList(session);
-  if (id === 'mail') return openMailbox(session);
-  if (id === 'web') return session.ctx.launch('browser', { url: 'halcyon://start' });
-  if (id === 'games') return session.ctx.launch('minehunt');
+const DEPTS = { news: "Today's News", weather: 'Weather', money: 'Quotes',
+                stars: 'Your Stars Today', sports: 'Sports' };
+const DEPT_ICONS = { news: 'doc', weather: 'globe', money: 'defrag',
+                     stars: 'help', sports: 'game' };
 
-  const c = CHANNELS.find(x => x.id === id) || CHANNELS[1];
+export function openChannel(session, id) {
+  const c = { name: DEPTS[id] || 'Halcyon', icon: DEPT_ICONS[id] || 'doc' };
   const win = session.child({
     id: 'halcyon-chan-' + id, title: c.name, icon: c.icon,
-    width: 450, height: 350, minWidth: 340,
+    width: 450, height: 350, minWidth: 340, aol: true,
   });
   const body = h('div.dept.scroll');
   clear(win.body).append(body);
@@ -114,6 +193,7 @@ export function openChannel(session, id) {
   if (id === 'weather') weather(body);
   if (id === 'money') money(body, win);
   if (id === 'stars') stars(body);
+  if (id === 'sports') sports(body);
   return win;
 }
 
@@ -253,6 +333,28 @@ function stars(root) {
   const out = h('div.stars-out', {}, h('p', {}, 'Pick a sign.'));
   root.append(grid, out,
     h('div.dept-foot', {}, 'For entertainment purposes only, which was true then too.'));
+}
+
+const TEAMS = ['Cleveland', 'Detroit', 'Chicago', 'Boston', 'Seattle',
+  'Denver', 'Phoenix', 'Atlanta', 'Toronto', 'Houston'];
+
+function sports(root) {
+  root.append(h('div.dept-head', {}, 'Scores'),
+    h('div.dept-sub', {}, 'Final and in progress'));
+  const table = h('div.tick');
+  const pool = [...TEAMS].sort(() => Math.random() - 0.5);
+  for (let i = 0; i < 8; i += 2) {
+    const a = pool[i], b = pool[i + 1];
+    const sa = randInt(58, 118), sb = randInt(58, 118);
+    table.append(h('div.tick-row', {},
+      h('b', {}, 'FINAL'),
+      h('span.tick-name', {}, a + ' at ' + b),
+      h('span.tick-px', {}, sa + ' - ' + sb),
+      h('span.tick-ch', { class: sb > sa ? 'up' : 'down' }, (sb > sa ? b : a) + ' win')));
+  }
+  root.append(table,
+    h('div.dept-foot', {}, 'Scores are invented and reshuffle every time you ' +
+      'open this window, which is roughly how reliable they felt.'));
 }
 
 /* ── help and terms ──────────────────────────────────────────────────── */

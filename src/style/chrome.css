@@ -15,6 +15,23 @@
   --title-i1: #808080;
   --title-i2: #b5b5b5;
   --sel:     #000080;
+  /* The online service's own palette, sampled from screenshots of the
+     4.x client: title bars run blue to purple to red, the toolbar is deep
+     blue with light labels, and window faces are a warm cream rather than
+     the system grey. */
+  --aol-title-1: #1b3ca3;
+  --aol-title-2: #6f176e;
+  --aol-title-3: #cc2b23;
+  --aol-bar-1:   #3f6ab8;
+  --aol-bar-2:   #23417c;
+  --aol-bar-ink: #eaf1fb;
+  --aol-nav:     #e6e6dc;
+  --aol-face:    #dcdccf;
+  --aol-dialog:  #ece9de;
+  --aol-btn-1:   #bfe0fb;
+  --aol-btn-2:   #5d9dcc;
+  --aol-btn-3:   #2f6f9e;
+  --aol-btn-ink: #10395f;
   --ui: Tahoma, "MS Sans Serif", Geneva, Verdana, sans-serif;
   --mono: "Lucida Console", "Courier New", monospace;
 }
@@ -462,6 +479,43 @@ textarea.field { resize: none; }
 .sm-sep { height: 0; border-top: 1px solid var(--shadow);
           border-bottom: 1px solid var(--hilite); margin: 3px 2px; }
 
+/* ── The online service's own window skin ────────────────────────────── */
+
+.win.aol { background: var(--aol-face); }
+
+.win.aol.active .win-title {
+  background: linear-gradient(90deg,
+    var(--aol-title-1) 0%, var(--aol-title-1) 18%,
+    var(--aol-title-2) 58%, var(--aol-title-3) 100%);
+}
+.win.aol .win-title {
+  background: linear-gradient(90deg, #6e6e78 0%, #9a9aa4 60%, #b0a8a8 100%);
+}
+.win.aol .win-status span { background: var(--aol-face); }
+
+.tbtn-fav {
+  background: var(--aol-face);
+  margin-right: 5px;
+}
+.tbtn-fav svg { display: block; }
+
+/* The blue bevelled buttons the service used instead of system ones. */
+.aol-btn {
+  min-width: 78px; padding: 4px 14px; cursor: pointer; font-weight: 700;
+  color: var(--aol-btn-ink);
+  background: linear-gradient(var(--aol-btn-1) 0%, var(--aol-btn-2) 55%, var(--aol-btn-3) 100%);
+  border: 1px solid #2c5f83;
+  border-radius: 2px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.85), inset 0 -1px 0 rgba(0,0,0,.2);
+}
+.aol-btn:hover { filter: brightness(1.07); }
+.aol-btn:active {
+  background: linear-gradient(var(--aol-btn-3) 0%, var(--aol-btn-2) 45%, var(--aol-btn-1) 100%);
+  box-shadow: inset 0 1px 3px rgba(0,0,0,.35);
+}
+.aol-btn:focus-visible { outline: 1px dotted var(--aol-btn-ink); outline-offset: -4px; }
+.aol-btn.small { min-width: 0; padding: 2px 10px; }
+
 /* ── Drop-down menus ─────────────────────────────────────────────────── */
 
 .win-menu { position: relative; }
@@ -505,6 +559,8 @@ textarea.field { resize: none; }
   min-width: 300px; max-width: 440px; pointer-events: auto;
 }
 .dialog .win-body { padding: 14px 14px 0; overflow: visible; }
+.win.aol.dialog { background: var(--aol-dialog); }
+.win.aol.dialog .win-body { background: var(--aol-dialog); }
 .dlg-row { display: flex; gap: 14px; align-items: flex-start; }
 .dlg-icon { width: 32px; height: 32px; flex: none; }
 .dlg-msg { padding-top: 3px; line-height: 1.5; user-select: text; }
