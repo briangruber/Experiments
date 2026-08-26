@@ -101,19 +101,67 @@ export class OceanBody {
 
 	}
 
-	/** Pose the mesh for this speed. Trim pivots near the aft quarter. */
+	/**
+	 * How far the hull leans in a turn, in radians. Positive is into the turn.
+	 *
+	 * A planing hull banks INWARD, unlike a car and unlike a displacement boat
+	 * heeling to wind. In a steady turn the water has to supply the centripetal
+	 * force v*omega, and the hull leans until the normal from the deadrise
+	 * points where that force is needed -- so the angle is atan(v*omega/g), the
+	 * same coordinated-turn relation an aircraft flies.
+	 *
+	 * That makes it fall out of speed and rate together, which is what was
+	 * asked for: a hard turn at a crawl barely leans, and the same wheel at
+	 * planing speed lays it over.
+	 */
+	bank() {
+
+		const s = this.state;
+		const a = Math.abs( s.speed ) * s.turn;       // centripetal, signed by the turn
+		const raw = Math.atan2( a, 9.81 );
+		// A real hull runs out of lean: past a point the chine trips and it
+		// slides instead. Capped, then scaled by the live knob.
+		const cap = get( 'boat.bankMax' ) * Math.PI / 180;
+		return Math.max( - cap, Math.min( cap, raw ) ) * get( 'boat.bank' );
+
+	}
+
+	/**
+	 * Where the hull actually turns about.
+	 *
+	 * The mesh's origin is at the STEM, so rotating it turns the whole boat
+	 * about its bow and sweeps the stern through an arc -- which is why a
+	 * stationary turn looked like the hull walking away from its own wake. A
+	 * real hull making way turns about a point roughly a third of its length
+	 * aft of the stem, and that point is what stays put.
+	 *
+	 * So the simulated position IS the pivot, and the bow is derived from it.
+	 * boat.pivot at 0 restores the old stem-centred behaviour exactly.
+	 */
+	bowOffset() {
+
+		return this.length * get( 'boat.pivot' );
+
+	}
+
+	/** Pose the mesh for this speed, heading and rate of turn. */
 	pose() {
 
 		const att = this.att;
 		const trim = att.trim * Math.PI / 180;
-		// The model's origin is at the stem, so trimming about it would swing
-		// the bow instead of lifting it. Compensating holds a pivot near the
-		// aft quarter at the waterline, which is roughly where a planing hull
-		// actually pivots.
-		const PIVOT = 0.72;
-		this.mesh.rotation.set( - trim, this.state.heading, 0, 'YXZ' );
-		this.mesh.position.set( this.state.x,
-			att.rise + Math.sin( trim ) * this.length * PIVOT, this.state.z );
+		// The origin is at the stem, so trimming about it would swing the bow
+		// instead of lifting it. Compensating holds a point near the aft
+		// quarter at the waterline, which is roughly where a planing hull
+		// actually pitches about.
+		const TRIM_PIVOT = 0.72;
+		const fwd = this.forward();
+		const ahead = this.bowOffset();
+		this.mesh.rotation.set( - trim, this.state.heading, this.bank(), 'YXZ' );
+		this.mesh.position.set(
+			this.state.x + fwd.x * ahead,
+			att.rise + Math.sin( trim ) * this.length * TRIM_PIVOT,
+			this.state.z + fwd.y * ahead,
+		);
 
 	}
 

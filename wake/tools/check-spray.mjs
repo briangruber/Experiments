@@ -169,6 +169,87 @@ function run( { speed = 12, secs = 2, dt = 1 / 60, spray = new Spray( 4000 ) } =
 	} )(), `${ one.spray.n } droplets` );
 }
 
+// ------------------------------------------------------- turning and lean --
+//
+// A planing hull banks INTO a turn, and the lean has to come from speed and
+// rate together -- a hard turn at a crawl barely leans, the same wheel at
+// planing speed lays it over.
+{
+	const mesh = { rotation: { set( x, y, z ) { this.x = x; this.y = y; this.z = z; } },
+		position: { set( x, y, z ) { this.x = x; this.y = y; this.z = z; } } };
+	const body = new OceanBody( mesh, { seed: 5 } );
+	const at = ( speed, turn ) => {
+		body.state.speed = speed; body.state.turn = turn;
+		return body.bank();
+	};
+
+	need( 'straight running has no lean', at( 20, 0 ) === 0 );
+	need( 'a stopped hull does not lean however hard the wheel is over',
+		at( 0, 0.6 ) === 0 );
+	need( 'lean grows with speed at the same rate of turn',
+		Math.abs( at( 20, 0.3 ) ) > Math.abs( at( 5, 0.3 ) ),
+		`${ ( at( 5, 0.3 ) * 180 / Math.PI ).toFixed( 2 ) } deg vs `
+			+ `${ ( at( 20, 0.3 ) * 180 / Math.PI ).toFixed( 2 ) } deg` );
+	need( 'lean grows with rate of turn at the same speed',
+		Math.abs( at( 15, 0.5 ) ) > Math.abs( at( 15, 0.1 ) ) );
+	need( 'it banks INTO the turn — lean follows the sign of the wheel',
+		Math.sign( at( 15, 0.4 ) ) === Math.sign( 0.4 )
+			&& Math.sign( at( 15, -0.4 ) ) === Math.sign( -0.4 ) );
+	need( 'lean is capped — past a point a hull trips rather than leans further',
+		Math.abs( at( 90, 3 ) ) <= get( 'boat.bankMax' ) * Math.PI / 180 + 1e-9,
+		`${ ( at( 90, 3 ) * 180 / Math.PI ).toFixed( 1 ) } deg cap `
+			+ `${ get( 'boat.bankMax' ) }` );
+	need( 'it matches the coordinated-turn relation atan(v.omega/g)', ( () => {
+		set( 'boat.bank', 1 ); set( 'boat.bankMax', 89 );
+		const v = 12, w = 0.25;
+		const ok = Math.abs( at( v, w ) - Math.atan2( v * w, 9.81 ) ) < 1e-9;
+		set( 'boat.bankMax', 22 );
+		return ok;
+	} )() );
+}
+
+// The hull turns about a point aft of the stem, not about the stem, or a
+// stationary turn sweeps the stern through an arc and walks away from the wake.
+{
+	const mesh = { rotation: { set() {} },
+		position: { set( x, y, z ) { this.x = x; this.y = y; this.z = z; } } };
+	const body = new OceanBody( mesh, { seed: 5 } );
+	body.state.speed = 0;
+
+	need( 'the bow sits ahead of the simulated pivot',
+		Math.abs( body.bowOffset() - get( 'boat.length' ) * get( 'boat.pivot' ) ) < 1e-9,
+		`${ body.bowOffset().toFixed( 2 ) } m` );
+
+	// Rotate on the spot and watch the pivot, which must not move.
+	const track = [];
+	for ( let h = 0; h < Math.PI * 2; h += 0.4 ) {
+		body.state.heading = h;
+		body.pose();
+		// Back out the pivot from the posed bow: it is the fixed point.
+		const fwd = body.forward();
+		track.push( [ mesh.position.x - fwd.x * body.bowOffset(),
+			mesh.position.z - fwd.y * body.bowOffset() ] );
+	}
+	need( 'a turn on the spot holds the pivot still', ( () => {
+		return track.every( ( [ x, z ] ) => Math.abs( x ) < 1e-9 && Math.abs( z ) < 1e-9 );
+	} )() );
+	need( 'and the bow itself sweeps, which is what a hull does', ( () => {
+		let far = 0;
+		for ( let h = 0; h < Math.PI * 2; h += 0.4 ) {
+			body.state.heading = h; body.pose();
+			far = Math.max( far, Math.hypot( mesh.position.x, mesh.position.z ) );
+		}
+		return far > body.bowOffset() * 0.9;
+	} )() );
+	need( 'pivot 0 restores the old stem-centred behaviour', ( () => {
+		set( 'boat.pivot', 0 );
+		body.state.heading = 1.1; body.pose();
+		const ok = Math.abs( mesh.position.x ) < 1e-9 && Math.abs( mesh.position.z ) < 1e-9;
+		set( 'boat.pivot', 0.32 );
+		return ok;
+	} )() );
+}
+
 for ( const r of results ) {
 
 	console.log( `${ r.ok ? 'ok  ' : 'FAIL' } ${ r.name }${ r.detail ? ` — ${ r.detail }` : '' }` );

@@ -1438,7 +1438,7 @@ void main(){
         float n2 = 0.5 + 0.5 * sin(rv * 1.1 - sin(ru * 0.6) * 0.55);
         float reef = smoothstep(0.48, 0.72, n) * (0.4 + 0.6 * n2);
         // FORKED: the bed was a fixed sand/reef mix. Sand is already the base
-        // colour here -- the dark green is `reef`, a procedural weed pattern
+        // colour here -- the dark green is the reef term, a procedural weed
         // laid over it, and on a lake at 9 m it is most of what you see.
         // Both ends are uniforms now so a sandy lake bottom is reachable
         // without editing the shader.

@@ -21,6 +21,16 @@ export const PARAMS = {
     planing:      { v: 6.5, min: 0.5, max: 20,  step: 0.1,  label: 'Planing speed (m/s)' },
     length:       { v: 9.9,  min: 3,   max: 20,  step: 0.1,  label: 'Hull length (m)' },
     beam:         { v: 2.65,  min: 1,   max: 8,   step: 0.05, label: 'Hull beam (m)' },
+    // A hull making way turns about a point roughly a third of its length aft
+    // of the stem, not about the stem itself. The mesh origin IS the stem, so
+    // without this a turn sweeps the stern through an arc and the boat walks
+    // away from its own wake. 0 restores that older behaviour.
+    pivot:        { v: 0.32, min: 0,   max: 0.8, step: 0.01, label: 'Turn pivot (aft of bow)' },
+    // Planing hulls bank INTO a turn. atan(v*omega/g) -- the coordinated-turn
+    // relation -- so lean follows speed and rate together rather than needing
+    // a curve of its own.
+    bank:         { v: 1.0,  min: 0,   max: 2.5, step: 0.01, label: 'Bank into turns' },
+    bankMax:      { v: 22,   min: 0,   max: 45,  step: 1,    label: 'Max bank (deg)' },
     engines:      { v: 2,    min: 1,   max: 4,   step: 1,    label: 'Engines' },
     engineSpacing:{ v: 2.4, min: 0.2, max: 4,   step: 0.05, label: 'Engine spacing (m)' },
   },
