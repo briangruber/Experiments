@@ -55,6 +55,9 @@ export const PARAMS = {
     // How fast the keel pulls the track onto the heading in a turn. Low is a
     // skidding flat-bottom; high is a deep-vee on rails. The gap between
     // heading and course during a turn is the crab angle you can see.
+    // The most the track may lag the heading. Beyond this the keel bites: it
+    // is what stops a hard turn sliding the hull off its own wake.
+    crabMax:      { v: 12,   min: 0,   max: 45,  step: 1,    label: 'Max slip angle (°)' },
     grip:         { v: 0.7,  min: 0,   max: 1,   step: 0.01, label: 'Keel grip' },
     buoy:         { v: 1,  min: 0,   max: 1.5, step: 0.01, label: 'Ride the waves' },
     rollRate:     { v: 0.85, min: 0.1, max: 3,   step: 0.01, label: 'Roll rate (Hz)' },

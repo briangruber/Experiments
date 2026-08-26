@@ -85,6 +85,16 @@ need( 'the fork no longer reconstructs arms from a record it does not have',
 	! /float arm = uWakeWidth0 \+ rate \* age/.test( FORK ),
 	'the field arrives already shaped' );
 
+// The hull's footprint is carved in WORLD space against the real hull, not in
+// the ribbon's (arc, lat) frame. The ribbon follows the COURSE and the hull is
+// drawn along the HEADING, so in a turn a ribbon-space carve slides out from
+// under the boat and shows as a bare rectangle beside it.
+need( 'the field takes the hull position and heading',
+	/setHull\s*\(\s*x\s*,\s*z\s*,\s*heading\s*\)/.test( FIELD )
+	&& /uHullXZ/.test( FIELD ) && /uHullDir/.test( FIELD ) );
+need( 'the hull carve is world space, not ribbon space',
+	/vWorld\s*-\s*uHullXZ/.test( FIELD ) && ! /hullHalf\(arc\)/.test( FIELD ) );
+
 // A field with no trail yet must be BLANKED, not left at whatever the driver
 // handed us. Skipping the bake on an unmoved boat left the texture
 // uninitialised, and the sea reads uninitialised as coverage -- a flat pale

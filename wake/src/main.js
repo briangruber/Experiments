@@ -538,6 +538,17 @@ function stepSim(dt) {
   let dCourse = state.heading - state.course;
   dCourse = ((dCourse + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
   state.course += dCourse * (1 - Math.exp(-dt / gripTau));
+  // Cap the crab.
+  //
+  // The exponential chase alone has no bound: hard over at 20 m/s with a
+  // slack keel the track lagged the heading by nearly half a second, which is
+  // ten metres of clear water between the hull and the foam it is supposedly
+  // throwing -- the boat visibly sliding off its own wake. A real hull skids
+  // in a hard turn, but the slip angle stays modest; past that the keel bites.
+  const crabMax = get('boat.crabMax') * Math.PI / 180;
+  let crab = state.heading - state.course;
+  crab = ((crab + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+  if (Math.abs(crab) > crabMax) state.course = state.heading - Math.sign(crab) * crabMax;
   const hx = Math.sin(state.course), hz = Math.cos(state.course);
   state.x += hx * state.speed * dt;
   state.z += hz * state.speed * dt;
@@ -552,6 +563,9 @@ function stepSim(dt) {
   const bhx = Math.sin(state.heading), bhz = Math.cos(state.heading);
   wake.pushSample(state.x + bhx * bowAhead, state.z + bhz * bowAhead,
                   hx, hz, state.t, state.speed, state.turn);
+  // ...and where the hull ITSELF is, which is not the same thing the moment
+  // the boat crabs: the sample is the track, this is the boat.
+  wake.setHull(state.x + bhx * bowAhead, state.z + bhz * bowAhead, state.heading);
   return { hx, hz };
 }
 

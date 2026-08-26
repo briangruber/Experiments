@@ -54,6 +54,12 @@ const RIBBON_FRAG = /* glsl */`
 
   uniform float uMaxArc, uPlaning, uHumpFr, uWetShift;
   uniform float uBeam, uHullLen, uEngines, uEngineGap;
+  // The hull WHERE IT ACTUALLY IS, in world metres: the bow's position and the
+  // way it points. The ribbon's own (arc, lat) frame follows the COURSE, and
+  // the hull is drawn along the HEADING -- so with any crab angle at all the
+  // two disagree, and a footprint carved in ribbon space slides out from under
+  // the boat as a bare rectangle beside it.
+  uniform vec2 uHullXZ, uHullDir;
   uniform float uArmTan, uArmW0, uArmWGrow, uArmFoam, uArmHeight, uInnerBias, uFadeStart, uFadeLen;
   uniform float uRim, uRimW, uNearBoost, uNearLen, uCarve;
   uniform float uFeatSpace, uFeatGrow, uFeatLean, uFeatDepth, uFeatJitter, uFeatSharp;
@@ -394,9 +400,14 @@ const RIBBON_FRAG = /* glsl */`
     // sitting in, it does not float on top of its own spray.
     // Cut to the hull's actual waterline rather than to an ellipse, so the foam
     // runs along the topsides instead of standing off them in a lozenge.
-    float hb = max(hullHalf(arc), 0.02);
-    float hull = (1.0 - smoothstep(hb * 0.82, hb * 1.10, ad))
-               * (1.0 - smoothstep(uHullLen * 0.96, uHullLen * 1.04, arc));
+    // WORLD space, against the real hull -- see uHullXZ above.
+    vec2 relH = vWorld - uHullXZ;
+    float sternward = -dot(relH, uHullDir);             // metres aft of the bow
+    float latH = abs(dot(relH, vec2(uHullDir.y, -uHullDir.x)));
+    float hb = max(hullHalf(sternward), 0.02);
+    float hull = (1.0 - smoothstep(hb * 0.82, hb * 1.10, latH))
+               * (1.0 - smoothstep(uHullLen * 0.96, uHullLen * 1.04, sternward))
+               * smoothstep(-0.7, 0.2, sternward);      // nothing ahead of the stem
     foam *= 1.0 - hull * 0.94;
 
     // ------------------------------------------------- subsurface bubbles --
@@ -543,6 +554,8 @@ export class WakeField {
       uFoamScale: { value: 1 }, uFoamContrast: { value: 1 }, uBreakup: { value: 0 },
       uFoamLife: { value: 1 }, uDissolve: { value: 1 },
       uSpeedDrive: { value: 1 }, uSpeedRef: { value: 13 },
+      uHullXZ: { value: new THREE.Vector2() },
+      uHullDir: { value: new THREE.Vector2(0, 1) },
       uLace: { value: 1 }, uLaceAmt: { value: 0 }, uSoftness: { value: 0.2 },
       uBubPlume: { value: 0 }, uBubW: { value: 1 }, uBubSpread: { value: 0 },
       uBubLen: { value: 1 }, uBubArms: { value: 0 }, uBubLife: { value: 1 }, uBubMottle: { value: 0 },
@@ -565,6 +578,18 @@ export class WakeField {
     this.mesh = new THREE.Mesh(g, this.material);
     this.mesh.frustumCulled = false;
     this.scene.add(this.mesh);
+  }
+
+  /**
+   * Where the hull really is: the bow in world XZ and the way it POINTS.
+   *
+   * Separate from pushSample because the two are genuinely different things --
+   * the sample records the track the water was swept along, this records the
+   * boat. They coincide only when the hull is not crabbing.
+   */
+  setHull( x, z, heading ) {
+    this.uniforms.uHullXZ.value.set( x, z );
+    this.uniforms.uHullDir.value.set( Math.sin( heading ), Math.cos( heading ) );
   }
 
   /** Record where the bow is now. Called every frame; samples are decimated. */
