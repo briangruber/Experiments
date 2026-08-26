@@ -77,11 +77,23 @@ face you built yourself, with board games in it.
 - **Stand somewhere.** The four lands are backdrops with the crowd along
   the bottom, faces at full size, speech bubbles over whoever just spoke.
   A green dot marks anybody who is really another person.
-- **Jouster's Keep** has **checkers** — a real game, with compulsory
-  captures, multi-jumps, kings, and an opponent that searches two plies
-  and will beat you if you are careless.
-- **The Boardwalk** has a **slot machine**. Tokens, which are not money,
+Four places, and four things to do in them:
+
+- **Jouster's Keep — Checkers.** Compulsory captures, multi-jumps, kings,
+  and an opponent that searches two plies and will beat you if you are
+  careless.
+- **The Boardwalk — Crazy Golf.** Three holes, drag back from the ball to
+  putt, and a windmill on the third because there is always a windmill on
+  the third. Par, strokes, and a scorecard.
+- **The Boardwalk — The Machine.** A slot machine. Tokens are not money,
   cannot be bought, and top themselves up when you run out.
+- **Sky Squadron — Dawn Patrol.** A biplane dogfight. Arrow keys fly,
+  space fires. Thrust along the nose, gravity, drag, lift proportional to
+  airspeed, and a stall if you let the speed go — so climbing costs you
+  something and the ground is genuinely dangerous. The other aeroplane
+  flies the same physics and is trying to get behind you.
+- **Cloud Nine** has no game at all, on purpose: one place that is only
+  for standing about and talking.
 
 The same phrase book governs the lands as governs the chat rooms.
 

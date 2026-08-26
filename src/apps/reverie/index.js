@@ -24,20 +24,30 @@ import { isPhrase } from '../halcyon/phrasebook.js';
 import { screen, LIMITS } from '../../core/safety.js';
 import { openCheckers } from './checkers-ui.js';
 import { openSlots } from './slots.js';
+import { openDawn } from './dawn.js';
+import { openGolf } from './golf.js';
+
+/* Every game in Reverie, and the thing that opens it. */
+const GAMES = {
+  checkers: { label: 'Checkers', open: openCheckers },
+  golf:     { label: 'Crazy Golf', open: openGolf },
+  slots:    { label: 'The Machine', open: openSlots },
+  dawn:     { label: 'Dawn Patrol', open: openDawn },
+};
 
 export const LANDS = [
   { id: 'keep', name: "Jouster's Keep", art: 'rev_keep',
     blurb: 'Board games under the pennants',
-    at: [42, 26], game: 'checkers' },
+    at: [42, 26], games: ['checkers'] },
   { id: 'boardwalk', name: 'The Boardwalk', art: 'rev_boardwalk',
-    blurb: 'Lights on the water, and a machine that eats tokens',
-    at: [66, 66], game: 'slots' },
+    blurb: 'Crazy golf, lights on the water, and a machine that eats tokens',
+    at: [66, 66], games: ['golf', 'slots'] },
   { id: 'cloud', name: 'Cloud Nine', art: 'rev_cloud',
-    blurb: 'Where everybody stands about and talks',
-    at: [24, 62] },
+    blurb: 'No games at all. Where everybody stands about and talks',
+    at: [24, 62], games: [] },
   { id: 'airfield', name: 'Sky Squadron', art: 'rev_airfield',
-    blurb: 'The field at golden hour, and nobody flying',
-    at: [78, 34] },
+    blurb: 'Two biplanes and a field at golden hour',
+    at: [78, 34], games: ['dawn'] },
 ];
 
 const roomOf = landId => 'rev-' + landId;
@@ -192,7 +202,9 @@ export function openReverie(session) {
       },
         h('span.rev-mark-dot'),
         h('span.rev-mark-name', {}, l.name),
-        h('span.rev-mark-count', {}, here ? here + ' here' : 'empty')));
+        h('span.rev-mark-count', {},
+          (here ? here + ' here' : 'quiet') +
+          ((l.games || []).length ? '  ·  ' + l.games.map(id => GAMES[id].label).join(', ') : ''))));
     }
 
     const total = LANDS.reduce((n, l) => n + peopleIn(l.id).length, 0);
@@ -223,15 +235,14 @@ export function openReverie(session) {
         h('button.rev-back', { type: 'button', onclick: () => { A.doorClose(); showMap(); } },
           '◀ The Island'),
         h('b', {}, l.name),
-        l.game ? h('button.aol-btn.small', {
+        (l.games || []).map(id => h('button.aol-btn.small', {
           type: 'button',
           onclick: () => {
             A.click();
-            const back = () => showLand(l);
-            if (l.game === 'checkers') openCheckers(stage, session, face, back);
-            else openSlots(stage, session, face, back);
+            leaveLand();
+            GAMES[id].open(stage, session, face, () => showLand(l));
           },
-        }, l.game === 'checkers' ? 'Play Checkers' : 'Play the Machine') : null),
+        }, GAMES[id].label))),
       scene,
       log,
       say.el));
