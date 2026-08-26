@@ -4,8 +4,9 @@
  * and exists because every one of these services had a room where the
  * whole activity was watching three drums come to a stop. */
 
-import { h, clear, pick, randInt } from '../../core/dom.js';
+import { h, pick, randInt } from '../../core/dom.js';
 import * as A from '../../core/audio.js';
+import { portrait, btn, shell } from './ui.js';
 
 const REELS = ['★', '7', '♣', '♦', '●', '▲'];
 const PAYS = { '★★★': 250, '777': 100, '♣♣♣': 40, '♦♦♦': 25, '●●●': 15, '▲▲▲': 10 };
@@ -23,15 +24,20 @@ export function openSlots(stage, session, myFace, onBack) {
 
   const drums = [h('i'), h('i'), h('i')];
   const purse = h('span.sl-purse');
-  const message = h('div.sl-msg', {}, 'Three of a kind pays. Tokens have no value.');
+  const message = h('div.sl-msg', {}, 'Three of a kind pays.');
+  const card = h('div.gm-card', {},
+    h('h4', {}, 'What it pays'),
+    ...Object.entries(PAYS).map(([line, n]) =>
+      h('div.row', {}, h('span', {}, line), h('span', {}, String(n)))),
+    h('div', { class: 'row tot' }, h('span', {}, 'In hand'), purse));
 
-  const setPurse = () => { purse.textContent = tokens + ' tokens'; saveTokens(tokens); };
+  const setPurse = () => { purse.textContent = tokens + ''; saveTokens(tokens); };
   const face = () => drums.forEach(d => { d.textContent = pick(REELS); });
 
   const pull = () => {
     if (spinning) return;
     if (tokens < 1) {
-      message.textContent = 'Out of tokens. The attendant tops you up, because none of this is real.';
+      message.textContent = 'The attendant tops you up. None of this is real.';
       tokens = 50; setPurse();
       return;
     }
@@ -66,18 +72,18 @@ export function openSlots(stage, session, myFace, onBack) {
     }, 70);
   };
 
-  clear(stage).append(h('div.sl', {},
-    h('div.sl-bar', {},
-      h('button.rev-back', { type: 'button', onclick: onBack }, '◀ The Boardwalk'),
-      h('b', {}, 'The Machine'),
-      purse),
-    h('div.sl-cabinet', {},
-      h('div.sl-window', {}, drums),
+  shell(stage, {
+    ground: 'pur', title: 'The Machine  ·  The Boardwalk',
+    backLabel: 'The Boardwalk', onBack,
+    side: [portrait(myFace, session.name, { size: 62, cls: 'me' }), card],
+    middle: h('div.sl-cab', {},
+      h('div.sl-marquee', {}, 'The Machine'),
+      h('div.rev-frame', {}, h('div.sl-window', {}, ...drums)),
       message,
-      h('button.aol-btn.sl-pull', { type: 'button', onclick: pull }, 'PULL')),
-    h('div.sl-foot', {},
-      'Tokens are not money, cannot be bought, and reset when you run out. ' +
-      'The odds are printed nowhere, which is also period-accurate.')));
+      h('div.sl-plate', {}, 'BOARDWALK AMUSEMENTS  ·  TOKENS ONLY')),
+    buttons: [btn('PULL', pull, { cls: 'big go' })],
+    note: 'Tokens are not money, cannot be bought, and reset when you run out.',
+  });
 
   face();
   setPurse();

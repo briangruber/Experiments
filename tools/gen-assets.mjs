@@ -86,41 +86,61 @@ const SCENES = [
    'gold, soft lens flare, no text, no letters, no words'],
 ];
 
-/* The Reverie Network — the graphical world inside the service. */
+/* The Reverie Network — the graphical world inside the service.
+ *
+ * The reference here is the cartoon-VGA look of the graphical services:
+ * hand-painted, flat saturated colour, heavy outlines, an overhead
+ * three-quarter view of a town rather than anything photographic. The
+ * packer then knocks these down to 32 colours with dithering, which is
+ * what a 256-colour screen shared between a backdrop and everything else
+ * actually looked like.
+ */
+const REVERIE_STYLE =
+  'early 1990s VGA adventure game background art, hand-painted cartoon, ' +
+  'flat saturated colour, bold dark outlines, bright storybook palette, ' +
+  'cheerful, simple shapes, NOT photographic, NOT realistic, ' +
+  'no text, no letters, no words, no watermark';
+
 const REVERIE = [
-  ['rev-map', 384, 240,
-   'mid-1990s point-and-click adventure game world map, hand-painted, ' +
-   'an island seen from above with four distinct regions: a castle on a ' +
-   'crag, a seaside pier, a floating cloud terrace, an airfield; warm ' +
-   'painted colour, soft shadows, no text, no labels, no words'],
+  ['rev-town', 384, 240,
+   'a cartoon island town filling the whole frame, seen from above at a ' +
+   'three-quarter angle, deep blue sea all around the edges: a stone ' +
+   'castle with pennants top left, a red and white circus big top top ' +
+   'right, a wooden pier with a ferris wheel bottom right, a grass ' +
+   'airstrip with a red biplane bottom left, winding sandy paths joining ' +
+   'them, rich green grass, edge to edge composition, ' + REVERIE_STYLE],
   ['rev-keep', 256, 128,
-   'a stone castle keep with pennants on a green crag, 1990s hand-painted ' +
-   'adventure game backdrop, warm afternoon light, no text, no words'],
+   'a courtyard inside a stone castle with banners, a wooden games table ' +
+   'and torches, ' + REVERIE_STYLE],
   ['rev-boardwalk', 256, 128,
-   'a seaside pier at dusk with strings of coloured bulbs and a ferris ' +
-   'wheel, 1990s hand-painted adventure game backdrop, no text, no words'],
+   'a wooden seaside pier with striped awnings, coloured bulbs and a ' +
+   'ferris wheel behind, ' + REVERIE_STYLE],
   ['rev-cloud', 256, 128,
-   'a terrace of pale stone floating in a sunset sky above soft clouds, ' +
-   '1990s hand-painted adventure game backdrop, no text, no words'],
-  ['game-dawn', 256, 96,
-   'a red and a green biplane turning against each other above a cloud ' +
-   'bank at dawn, 1990s hand-painted flight game box art, dramatic ' +
-   'backlight, no text, no words'],
-  ['game-golf', 256, 96,
-   'a crazy golf hole on a seaside pier at dusk, green felt, a red ' +
-   'windmill obstacle and a flag in the cup, 1990s hand-painted game ' +
-   'backdrop, no text, no words'],
+   'a terrace of pale stone on a cloud in a pink and gold sunset sky, ' +
+   'with potted plants and a railing, ' + REVERIE_STYLE],
   ['rev-airfield', 256, 128,
-   'a grass airfield with a red biplane and a windsock at golden hour, ' +
-   '1990s hand-painted adventure game backdrop, no text, no words'],
+   'a grass airstrip with a red biplane, a windsock and a wooden hangar ' +
+   'under a wide blue sky, ' + REVERIE_STYLE],
+  /* The two game banners lead with the style rather than the subject:
+     asked for "a crazy golf course on a pier" first, the model returns a
+     photograph and ignores everything after the comma. */
+  ['game-dawn', 320, 72,
+   'flat cartoon poster illustration, thick black outlines, cel shaded: a ' +
+   'red biplane and a green biplane chasing each other through fat white ' +
+   'clouds at sunrise, wide banner composition, ' + REVERIE_STYLE],
+  ['game-golf', 320, 72,
+   'flat cartoon poster illustration, thick black outlines, cel shaded: a ' +
+   'crazy golf course on a wooden seaside pier, a red windmill, a striped ' +
+   'flag in the hole, bunting overhead, wide banner composition, ' +
+   REVERIE_STYLE],
 ];
 
 /* One short loop, used as the curtain when you enter the world. */
 const ANIMS = [
   ['rev-fly', 176, 112,
-   'slow flight over a painted fantasy island toward a castle on a crag, ' +
-   'drifting clouds, 1990s hand-painted adventure game art, gentle ' +
-   'forward camera move, no text'],
+   'gentle flight over a cartoon storybook town with a castle and a big ' +
+   'top, drifting white clouds, flat saturated hand-painted colour, ' +
+   'early 1990s adventure game art, no text'],
 ];
 
 const VOICE = [
@@ -217,7 +237,7 @@ function packImage(file, w, h) {
 import base64, io
 from PIL import Image
 im = Image.open(${JSON.stringify(file)}).convert('RGB').resize((${w}, ${h}), Image.LANCZOS)
-im = im.quantize(colors=64, method=Image.MEDIANCUT, dither=Image.FLOYDSTEINBERG).convert('RGB')
+im = im.quantize(colors=32, method=Image.MEDIANCUT, dither=Image.FLOYDSTEINBERG).convert('RGB')
 buf = io.BytesIO()
 im.save(buf, 'WEBP', quality=80, method=6)
 print('data:image/webp;base64,' + base64.b64encode(buf.getvalue()).decode())

@@ -215,6 +215,21 @@ for (const f of files) {
   }
 }
 
+/* ── generated art keys actually exist ──────────────────────────────────
+   `ART.rev_map` is a property access, so renaming a key in the generator
+   fails silently at build time and loudly at run time. Check it here. */
+
+const artPath = join(root, 'src/assets/art.js');
+if (existsSync(artPath)) {
+  const art = readFileSync(artPath, 'utf8');
+  const have = new Set([...art.matchAll(/^  ([a-z_0-9]+):/gm)].map(m => m[1]));
+  for (const f of files) {
+    for (const m of decomment(readFileSync(f, 'utf8')).matchAll(/\bART\.([a-z_0-9]+)/g))
+      if (!have.has(m[1]))
+        note(f, 'uses ART.' + m[1] + ', which tools/gen-assets.mjs does not produce');
+  }
+}
+
 /* ── 5: index.html references ───────────────────────────────────────── */
 
 const htmlPath = join(root, 'index.html');

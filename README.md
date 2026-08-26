@@ -66,32 +66,56 @@ Keyword `REVERIE`, or the icon on the desktop. The other kind of service
 the era had: not a wall of text but a painted world you walked around as a
 face you built yourself, with board games in it.
 
-- **Build a face.** Skin, hair and its colour, eyes, brows, nose, mouth and
-  an extra — spectacles, a cap, headphones, a crown. Drawn as vectors, so
-  a face is six small numbers and every combination is instant. Yours is
-  remembered; everybody else's is derived from their screen name, so the
-  same person always looks the same.
-- **The island.** A painted map with four places on it, each showing how
-  many people are standing there. They are populated before you arrive —
-  a map of empty rooms is worse than no map.
-- **Stand somewhere.** The four lands are backdrops with the crowd along
-  the bottom, faces at full size, speech bubbles over whoever just spoke.
-  A green dot marks anybody who is really another person.
-Four places, and four things to do in them:
+It is drawn in that kind of service's grammar rather than Halcyon's:
+saturated flat grounds, three-pixel bevels on everything, red serif
+headings, and portraits hung in mounted frames with a yellow name plate
+under the chin. The text services looked like software; the graphical ones
+looked like a boxed game, and the difference was the whole point.
+
+- **Make a face.** Two flanking columns of arrow buttons — skin, hair
+  style, hair colour, eyes, eyebrows down one side; nose, mouth, hats and
+  glasses, clothes and backdrop down the other — with the sitter between
+  them. Head *and shoulders*, on a wash, because these were portraits and
+  not floating heads. Drawn as vectors, so a face is ten small numbers and
+  every combination is instant. Yours is remembered; everybody else's is
+  derived from their screen name, so the same person always looks the same.
+- **The island.** A painted town in a mount with a numbered blue badge on
+  each place you can go, and the same numbers again in a cream legend down
+  the right-hand side. Each badge says how many people are standing there.
+  They are populated before you arrive — a map of empty rooms is worse
+  than no map.
+- **Stand somewhere.** The four lands are painted backdrops with the crowd
+  in a row of framed portraits along the bottom edge, name plates under
+  them, speech bubbles over whoever just spoke. A green tab marks anybody
+  who is really another person.
+
+Four places, and four things to do in them. Each wears the same suit: a
+title strip, a painted banner, a framed playing area, the players' faces
+with plates down the side, and a button bar along the bottom.
 
 - **Jouster's Keep — Checkers.** Compulsory captures, multi-jumps, kings,
   and an opponent that searches two plies and will beat you if you are
   careless.
-- **The Boardwalk — Crazy Golf.** Three holes, drag back from the ball to
-  putt, and a windmill on the third because there is always a windmill on
-  the third. Par, strokes, and a scorecard.
-- **The Boardwalk — The Machine.** A slot machine. Tokens are not money,
-  cannot be bought, and top themselves up when you run out.
-- **Sky Squadron — Dawn Patrol.** A biplane dogfight. Arrow keys fly,
-  space fires. Thrust along the nose, gravity, drag, lift proportional to
-  airspeed, and a stall if you let the speed go — so climbing costs you
-  something and the ground is genuinely dangerous. The other aeroplane
-  flies the same physics and is trying to get behind you.
+- **The Boardwalk — Crazy Golf.** Six holes and the four hazards a
+  seaside course actually had: painted rails, a pond that costs you a
+  penalty stroke and puts you back where you were, a bunker that eats
+  your pace, bumpers robbed off a pinball table, and a windmill on the
+  last because there is always a windmill on the last. Drag back from the
+  ball to putt: the line you will leave on is drawn with an arrowhead, and
+  a power meter says how hard, which is the one thing these games never
+  told you and always should have. Full card, par, and a running total.
+- **The Boardwalk — The Machine.** A slot machine in a red cabinet with a
+  marquee and a pay table. Tokens are not money, cannot be bought, and top
+  themselves up when you run out.
+- **Sky Squadron — Dawn Patrol.** A biplane dogfight over a parallax
+  ridge, a hangar and a windsock. Up and Down fly, Left and Right work the
+  throttle, space fires. Thrust along the nose, gravity, drag, lift
+  proportional to airspeed, and a stall if you let the speed go — so
+  climbing costs you something and the ground is genuinely dangerous.
+  Instruments for airspeed, altitude and throttle, with the stalling speed
+  marked on the dial where it belongs. A holed engine will not make full
+  power and trails smoke, then fire. The other aeroplane flies the same
+  physics, works its own throttle, and is trying to get behind you.
 - **Cloud Nine** has no game at all, on purpose: one place that is only
   for standing about and talking.
 
@@ -109,8 +133,12 @@ folder still works with no network and no key:
   which makes sixteen separate generations look like one set.
 - **the marbled panel** on the sign-on window, and the **welcome banner**
   behind the greeting.
-- **Reverie's island map and four land backdrops**, painted in the style
-  of a 1990s point-and-click adventure.
+- **Reverie's island town, four land backdrops and two game banners**,
+  painted in the style of a 1990s point-and-click adventure and quantised
+  to 32 colours to match. The two game banners had to be prompted with the
+  style *before* the subject: asked for "a crazy golf course on a pier"
+  first, the model returns a photograph and ignores everything after the
+  comma.
 - **one animation** — a slow flight over the island, used as the curtain
   at Reverie's gate. Generated as video, cut to sixteen frames at 8 fps
   and packed as a looping animated WebP, which is what an animated GIF on

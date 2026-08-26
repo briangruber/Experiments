@@ -3,7 +3,8 @@
 
 import { h, clear, pick } from '../../core/dom.js';
 import * as A from '../../core/audio.js';
-import { faceFor, faceSvg } from './faces.js';
+import { faceFor } from './faces.js';
+import { portrait, btn, shell } from './ui.js';
 import { PERSONAS } from '../halcyon/people.js';
 import {
   newBoard, legalMoves, chooseMove, outcome, countPieces,
@@ -27,25 +28,23 @@ export function openCheckers(stage, session, myFace, onBack) {
   let busy = false;
 
   const grid = h('div.ck-board');
-  const status = h('div.ck-status', {}, 'Your move. Captures are compulsory.');
-  const said = h('div.ck-said', {}, '');
+  const said = h('div.gm-said');
+  const card = h('div.gm-card');
 
-  clear(stage).append(h('div.ck', {},
-    h('div.ck-bar', {},
-      h('button.rev-back', { type: 'button', onclick: onBack }, '◀ The Keep'),
-      h('b', {}, 'Checkers')),
-    h('div.ck-main', {},
-      h('div.ck-side', {},
-        h('div.ck-seat', {},
-          h('div.ck-seat-face', {}, faceSvg(faceFor(rival.name), 44)),
-          h('b', {}, rival.name)),
-        said,
-        h('div.ck-seat.me', {},
-          h('div.ck-seat-face', {}, faceSvg(myFace, 44)),
-          h('b', {}, session.name)),
-        h('div.ck-count')),
-      h('div.ck-boardwrap', {}, grid)),
-    status));
+  const { bar, note } = shell(stage, {
+    ground: 'pur', title: 'Checkers  ·  Jouster’s Keep',
+    backLabel: 'The Keep', onBack,
+    side: [
+      portrait(faceFor(rival.name), rival.name, { size: 62 }),
+      said,
+      portrait(myFace, session.name, { size: 62, cls: 'me' }),
+      card,
+    ],
+    middle: h('div.rev-frame', {}, grid),
+    note: 'Your move. Captures are compulsory.',
+  });
+
+  const status = text => { note.textContent = text; };
 
   function say(bank) {
     said.textContent = pick(CHATTER[bank]);
@@ -77,8 +76,14 @@ export function openCheckers(stage, session, myFace, onBack) {
       sq.addEventListener('click', () => onSquare(r, c));
       grid.append(sq);
     }
+
     const n = countPieces(board);
-    stage.querySelector('.ck-count').textContent = 'You ' + n.you + '   ' + rival.name + ' ' + n.them;
+    clear(card).append(
+      h('h4', {}, 'On the board'),
+      h('div', { class: 'row now' }, h('span', {}, session.name), h('span', {}, String(n.you))),
+      h('div.row', {}, h('span', {}, rival.name), h('span', {}, String(n.them))),
+      h('div', { class: 'row tot' },
+        h('span', {}, 'Turn'), h('span', {}, turn === YOU ? 'yours' : 'theirs')));
   }
 
   function onSquare(r, c) {
@@ -100,6 +105,7 @@ export function openCheckers(stage, session, myFace, onBack) {
     if (m.captures.length) { A.beep(); say('bad'); } else A.click();
     turn = THEM;
     moves = [];
+    status(rival.name + ' is thinking about it.');
     draw();
     check();
     if (turn === THEM) setTimeout(theirMove, 700 + Math.random() * 1100);
@@ -115,9 +121,9 @@ export function openCheckers(stage, session, myFace, onBack) {
     if (m.captures.length) { A.doorClose(); say('good'); }
     turn = YOU;
     moves = legalMoves(board, YOU);
-    status.textContent = moves.some(x => x.captures.length)
+    status(moves.some(x => x.captures.length)
       ? 'Your move. You have a capture, and captures are compulsory.'
-      : 'Your move.';
+      : 'Your move.');
     draw();
     check();
   }
@@ -126,15 +132,14 @@ export function openCheckers(stage, session, myFace, onBack) {
     const o = outcome(board, turn);
     if (!o) return;
     busy = true;
-    status.textContent = o === 'you'
+    status(o === 'you'
       ? 'You win. ' + rival.name + ' is being very gracious about it.'
-      : 'You lose. ' + rival.name + ' has been practising.';
+      : 'You lose. ' + rival.name + ' has been practising.');
     say(o === 'you' ? 'lose' : 'win');
     if (o === 'you') A.startupChime(); else A.ding();
-    stage.querySelector('.ck-bar').append(h('button.aol-btn.small', {
-      type: 'button',
-      onclick: () => openCheckers(stage, session, myFace, onBack),
-    }, 'Play Again'));
+    bar.insertBefore(
+      btn('Play Again', () => openCheckers(stage, session, myFace, onBack), { cls: 'go' }),
+      bar.querySelector('.spacer'));
   }
 
   say('start');
