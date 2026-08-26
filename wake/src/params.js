@@ -253,13 +253,13 @@ export const PARAMS = {
     // Index into PRESET_NAMES in abyssalSea.js, calmest first: turning it up
     // means more sea. Drives the wave spectrum AND the light, because in
     // Abyssal they are one parameter set, not two.
-    preset:       { v: 0,    min: 0,   max: 9,   step: 1,    label: 'Weather preset' },
+    preset:       { v: 3,    min: 0,   max: 9,   step: 1,    label: 'Weather preset' },
     // The prototype already has a lake bottom (the terrain). Abyssal's presets
     // carry their own procedural seafloor, and a shallow one under green lake
     // water reads as a bright green pool. 0 pushes it out of sight, 1 restores
     // exactly what the preset asked for.
 
-    waterTint:    { v: 0.8,  min: 0,   max: 1,   step: 0.01, label: 'Deep-water tint' },
+    waterTint:    { v: 0.05,  min: 0,   max: 1,   step: 0.01, label: 'Deep-water tint' },
     // Straight down, Fresnel reflects ~2% of the sky, so a look-down view sees
     // only what the water column scatters back. This scales that, and it is
     // the reason an overhead camera can look black on a preset authored for a
@@ -275,7 +275,7 @@ export const PARAMS = {
     // the sun's elevation, so this scales both together rather than letting
     // them drift apart.
     meshSun:      { v: 1.0,  min: 0,   max: 3,   step: 0.01, label: 'Mesh sun & sky' },
-    waterGlow:    { v: 3.0,  min: 0.2, max: 10,  step: 0.05, label: 'Water glow (look-down)' },
+    waterGlow:    { v: 3.2,  min: 0.2, max: 10,  step: 0.05, label: 'Water glow (look-down)' },
     warmth:       { v: 1.15, min: 0,   max: 1.5, step: 0.01, label: 'Sunset warmth' },
     cloud:        { v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Cloud cover' },
     cloudScale:   { v: 0.55, min: 0.05,max: 3,   step: 0.01, label: 'Cloud scale' },
@@ -291,16 +291,19 @@ export const PARAMS = {
     // the water from below: with no visible bottom, an overhead camera at a
     // 38 degree sun sees only what the column scatters back, which is why
     // pushing the floor away turned the look-down view black. 0 = no floor.
-    floorDepth:   { v: 7,    min: 0,   max: 60,  step: 0.5,  label: 'Bed depth (m)' },
-    weed:         { v: 0.18, min: 0,   max: 1,   step: 0.01, label: 'Weed over sand' },
-    caustics:     { v: 0.55, min: 0,   max: 1.5, step: 0.01, label: 'Caustics on the bed' },
+    // The pond the boats keep to. Read at startup (the park is built once);
+    // the confinement uses it live.
+    pond:         { v: 300,  min: 60,  max: 900, step: 10,   label: 'Pond radius (m)' },
+    floorDepth:   { v: 3.5,    min: 0,   max: 60,  step: 0.5,  label: 'Bed depth (m)' },
+    weed:         { v: 0.05, min: 0,   max: 1,   step: 0.01, label: 'Weed over sand' },
+    caustics:     { v: 1.2, min: 0,   max: 1.5, step: 0.01, label: 'Caustics on the bed' },
     radius:       { v: 1850, min: 200, max: 4000,step: 10,   label: 'Lake radius (m)' },
     depth:        { v: 14,   min: 2,   max: 60,  step: 1,    label: 'Basin depth (m)' },
     rim:          { v: 70,   min: 10,  max: 400, step: 5,    label: 'Hill height (m)' },
     relief:       { v: 34,   min: 0,   max: 120, step: 1,    label: 'Relief (m)' },
     wobble:       { v: 0.30, min: 0,   max: 0.8, step: 0.01, label: 'Shoreline wobble' },
     islands:      { v: 55,   min: 0,   max: 200, step: 1,    label: 'Islands' },
-    avoid:        { v: 1.00, min: 0,   max: 3,   step: 0.01, label: 'Shore avoidance' },
+    avoid:        { v: 0, min: 0,   max: 3,   step: 0.01, label: 'Shore avoidance' },
     canopy:       { v: 0.10, min: 0.01,max: 0.6, step: 0.005,label: 'Canopy lightness' },
   },
 

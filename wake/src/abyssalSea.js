@@ -42,7 +42,7 @@ import { WaveProbe } from './waveProbe.js';
  * wind and 0.48 choppiness, so there is almost no whitecap competing with the
  * foam, and it happens to be what this scene actually is.
  */
-export const DEFAULT_PRESET = 'Calm Lake';
+export const DEFAULT_PRESET = 'Tropical Lagoon';
 
 /**
  * The presets worth having on a slider, calmest first.
@@ -64,6 +64,31 @@ export const PRESET_NAMES = [
 	'Moonlit Passage',
 	'North Atlantic Storm',
 ].filter( ( n ) => n in PRESETS );
+
+/**
+ * The water look that suits each weather, as values for the prototype's own
+ * sliders. Applied when a scene is picked, through set(), so the panel and
+ * the water never disagree -- and everything here remains a starting point
+ * the sliders can still move.
+ *
+ * The two that matter most:
+ *  · floor -- metres of sand under the boat. A lagoon is a lagoon because you
+ *    can SEE the bottom; deep-water scenes push it away entirely.
+ *  · tint -- how far to pull the preset's own scattering toward deep blue.
+ *    Near zero for the lagoon, because its authored turquoise IS the look.
+ */
+export const SCENE_TUNE = {
+	'Calm Lake':           { floor: 7,   caustics: 0.6, weed: 0.20, tint: 0.50, glow: 2.6 },
+	'Sheltered Water':     { floor: 9,   caustics: 0.5, weed: 0.25, tint: 0.45, glow: 2.4 },
+	'Glassy Dawn':         { floor: 14,  caustics: 0.3, weed: 0.15, tint: 0.60, glow: 2.8 },
+	'Tropical Lagoon':     { floor: 3.5, caustics: 1.2, weed: 0.05, tint: 0.05, glow: 3.2 },
+	'Deep Blue Afternoon': { floor: 0,   caustics: 0,   weed: 0,    tint: 0.85, glow: 3.0 },
+	'Tropical Noon':       { floor: 6,   caustics: 0.9, weed: 0.08, tint: 0.15, glow: 2.2 },
+	'Golden Hour Swell':   { floor: 0,   caustics: 0,   weed: 0,    tint: 0.80, glow: 3.6 },
+	'Trade Winds':         { floor: 0,   caustics: 0,   weed: 0,    tint: 0.75, glow: 3.0 },
+	'Moonlit Passage':     { floor: 0,   caustics: 0,   weed: 0,    tint: 0.90, glow: 2.0 },
+	'North Atlantic Storm': { floor: 0,  caustics: 0,   weed: 0,    tint: 0.85, glow: 3.2 },
+};
 
 /**
  * Everything in Abyssal that draws its own wake, foam ribbon or whitewater,

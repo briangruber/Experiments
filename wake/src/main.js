@@ -4,9 +4,9 @@ import { WakeField } from './wakeField.js';
 import { Ocean } from './ocean.js';
 import { makeBoat } from './boat.js';
 import { Backdrop } from './backdrop.js';
-import { Terrain } from './terrain.js';
 import { heightAt } from './lakeHeight.js';
-import { AbyssalSea, PRESET_NAMES } from './abyssalSea.js';
+import { Park } from './park.js';
+import { AbyssalSea, PRESET_NAMES, SCENE_TUNE } from './abyssalSea.js';
 import { OceanBody } from './oceanBody.js';
 import { WakeBridge } from './wakeBridge.js';
 import { Spray } from './spray.js';
@@ -60,7 +60,22 @@ const narrow = matchMedia('(max-width: 720px)').matches;
 const wake = new WakeField(renderer, narrow ? 1024 : 2048);
 const ocean = new Ocean(wake, 520, 560);
 const backdrop = new Backdrop();
-const terrain = new Terrain();
+// The park: lawn, stone coping, trees, and the pond the boats keep to. The
+// pond is a hole in the lawn — Abyssal's sea still runs to the horizon and
+// the lawn simply covers it from the rim outward, so no water shader knows
+// the pond exists.
+const park = new Park(get('lake.pond'));
+scene.add(park.group);
+// Air. The far lawn and treeline haze out; the sea ignores this and hazes
+// itself in its own shader, which is fine — land and water do haze apart.
+scene.fog = new THREE.Fog(0xd4e2ec, 420, 2400);
+
+// The terrain is gone from the scene. It was an 11 m-per-vertex heightfield
+// shaded flat against the old analytic sky, and against Abyssal's water it
+// read as an olive wall on the horizon -- worse than no land at all. The
+// module stays (the lake maths still shapes the sea bed), but nothing draws
+// it; open water to the horizon is Abyssal's own far sea, which knows how to
+// meet the sky.
 
 // Two seas, one at a time. The lab's own is a single analytic shader built to
 // iterate on the wake; Abyssal is an FFT sea with a volumetric sky, vendored
@@ -81,7 +96,6 @@ const useAbyssal = () => sea !== null && get('scene.abyssal') > 0.5;
 const wakeBridge = sea ? new WakeBridge(renderer, wake) : null;
 if (sea) sea.setWake(wakeBridge);
 
-scene.add(terrain.mesh);
 // Only the analytic path owns a sky dome, a far sea and a water plane; Abyssal
 // draws all three itself, around the scene rather than inside it.
 const labSky = new THREE.Group();
@@ -451,6 +465,12 @@ function stepSim(dt) {
     }
   }
 
+  // The pond wall: assist steers along the rim like a thumb on the stick,
+  // and the clamp in confine() is the soft bump when steering was not enough.
+  // Heading rate is -turn (see the helm note below), so the assist enters
+  // negated.
+  turn -= park.confine(state, dt, get('boat.steerRate') * Math.PI / 180 * 1.3);
+
   const hard = keys.has('shift') ? get('boat.hardTurn') : 1;
   const steer = get('boat.steerRate') * Math.PI / 180 * hard;
   if (keys.has('arrowleft') || keys.has('a')) turn -= steer;
@@ -604,7 +624,20 @@ function frame(now) {
   labSky.visible = !abyssal;
   if (abyssal) {
     const want = PRESET_NAMES[Math.round(get('scene.preset')) % PRESET_NAMES.length];
-    sea.setPreset(want);
+    if (sea.setPreset(want)) {
+      // A scene is a look, not just a spectrum: its curated water values land
+      // in the same live params the sliders drive, so the panel agrees and
+      // everything stays adjustable from where the scene put it.
+      const t = SCENE_TUNE[want];
+      if (t) {
+        set('lake.floorDepth', t.floor);
+        set('lake.caustics', t.caustics);
+        set('lake.weed', t.weed);
+        set('scene.waterTint', t.tint);
+        set('scene.waterGlow', t.glow);
+        ui.refresh();
+      }
+    }
   }
   if (abyssal) {
     // One sun for the whole frame. Abyssal's atmosphere owns it, so the boat
@@ -640,7 +673,6 @@ function frame(now) {
     ocean.update(state.t, camera.position, state.x, state.z, wake);
     backdrop.update(camera, sd, state.t);
   }
-  terrain.update(camera, sd, state.t);
 
   renderer.setViewport(0, 0, viewport.w, viewport.h);
   renderer.setScissorTest(false);
