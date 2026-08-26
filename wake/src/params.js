@@ -275,6 +275,18 @@ export const PARAMS = {
   },
 
   field: {
+    // How much the speed AT THE MOMENT OF EMISSION shapes the foam left behind.
+    //
+    // Density goes as v^2 -- a planing hull's drag goes as v^2, so the power
+    // into the water goes as v^3, spread along a track laid at v m/s, which is
+    // v^2 of energy per metre. Persistence goes as sqrt(v), deliberately much
+    // weaker: a thicker raft lasts longer because there is more of it, not
+    // because its bubbles rise slower. Scaling both by v^2 would give a fast
+    // boat a trail with no end.
+    //
+    // 0 restores one flat setting for every speed.
+    speedDrive:   { v: 1,    min: 0,   max: 1,   step: 0.01, label: 'Speed shapes the wake' },
+    speedRef:     { v: 13,   min: 2,   max: 40,  step: 0.5,  label: 'Reference speed (m/s)' },
     // One knob over every lifetime and decay length in the wake. The individual
     // ones stay where they are; this scales all of them at once, because
     // "make it die faster" should not mean hunting through four groups.

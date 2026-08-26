@@ -62,6 +62,7 @@ const RIBBON_FRAG = /* glsl */`
   uniform float uBreakSteep, uWaveFoam, uFromWaves;
   uniform float uKelvinScale, uKelvinProp, uKelvinAmp, uKelvinDiv, uKelvinTrans, uKelvinCusp, uKelvinDecay, uKelvinLife, uKelvinMin;
   uniform float uFoamScale, uFoamContrast, uBreakup, uFoamLife, uDissolve;
+  uniform float uSpeedDrive, uSpeedRef;
   uniform float uLace, uLaceAmt, uSoftness;
   uniform float uBubPlume, uBubW, uBubSpread, uBubLen, uBubArms, uBubLife, uBubMottle;
   uniform float uTime, uSwirl, uBubArmsLen, uBubDepth, uBubRise, uBubExt;
@@ -332,7 +333,30 @@ const RIBBON_FRAG = /* glsl */`
     field = clamp((field - 0.5) * uFoamContrast + 0.5, 0.0, 1.0);
     field = clamp(field - (1.0 - comb) * uCarve * inner, 0.0, 1.0);
 
-    float ageN = clamp(age / max(uFoamLife, 0.01), 0.0, 1.0);
+    // ---- what the speed at the time of emission buys ---------------------
+    //
+    // vSpd is the hull's speed WHEN THIS WATER WAS DISTURBED, not now. That
+    // distinction is the whole point: foam laid down at twenty knots stays
+    // dense and long-lived after the boat throttles back, and a wake that
+    // thins along its whole length the moment you slow down is the tell that
+    // it is being drawn rather than remembered.
+    //
+    // Density goes as v^2. A planing hull's drag goes as v^2, so the power it
+    // pours into the water goes as v^3 -- but the foam is spread along a track
+    // being laid at v metres per second, so the energy delivered PER METRE is
+    // v^3/v. That is the air entrained per metre of wake, which is what
+    // coverage is.
+    //
+    // Persistence goes as sqrt(v), deliberately weaker. A thicker raft takes
+    // longer to clear because there is more of it, not because its bubbles
+    // rise any slower -- so the life grows, but nothing like as fast as the
+    // density does. Scaling both by v^2 gives a fast boat a trail that never
+    // ends.
+    float sN = max(spd, 0.0) / max(uSpeedRef, 0.5);
+    float energy = mix(1.0, sN * sN, uSpeedDrive);
+    float lifeK = mix(1.0, sqrt(max(sN, 0.04)), uSpeedDrive);
+
+    float ageN = clamp(age / max(uFoamLife * lifeK, 0.01), 0.0, 1.0);
     float alive = pow(1.0 - ageN, uDissolve);
 
     // Coverage: how much of the water here is aerated. Smooth and continuous --
@@ -343,7 +367,7 @@ const RIBBON_FRAG = /* glsl */`
     // can be compared directly.
     float coverArms  = armFoam + washFoam;
     float coverWaves = waveBreak * uWaveFoam * planing + washFoam;
-    float cover = mix(coverArms, coverWaves, uFromWaves) * alive;
+    float cover = mix(coverArms, coverWaves, uFromWaves) * alive * energy;
     cover *= mix(1.0, 0.35 + 0.95 * field, mix(0.45, 1.0, ageN * uBreakup + 0.35));
 
     float foam = cover;
@@ -501,6 +525,7 @@ export class WakeField {
       uKelvinLife: { value: 100 }, uKelvinMin: { value: 3 },
       uFoamScale: { value: 1 }, uFoamContrast: { value: 1 }, uBreakup: { value: 0 },
       uFoamLife: { value: 1 }, uDissolve: { value: 1 },
+      uSpeedDrive: { value: 1 }, uSpeedRef: { value: 13 },
       uLace: { value: 1 }, uLaceAmt: { value: 0 }, uSoftness: { value: 0.2 },
       uBubPlume: { value: 0 }, uBubW: { value: 1 }, uBubSpread: { value: 0 },
       uBubLen: { value: 1 }, uBubArms: { value: 0 }, uBubLife: { value: 1 }, uBubMottle: { value: 0 },
@@ -679,6 +704,8 @@ export class WakeField {
     u.uFoamContrast.value = get('foamLook.contrast');
     u.uBreakup.value = get('foamLook.breakup');
     u.uFoamLife.value = get('foamLook.life') / decay;
+    u.uSpeedDrive.value = get('field.speedDrive');
+    u.uSpeedRef.value = get('field.speedRef');
     u.uDissolve.value = get('foamLook.dissolve');
     u.uLace.value = get('foamLook.lace');
     u.uLaceAmt.value = get('foamLook.laceAmount');
