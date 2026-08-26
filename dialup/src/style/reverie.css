@@ -292,3 +292,70 @@
   flex: none; padding: 7px 12px; font-size: 10px; line-height: 1.45; color: #8f89a4;
   background: #1c1730; border-top: 1px solid rgba(255,255,255,.1);
 }
+
+/* ── Dawn Patrol and Crazy Golf ──────────────────────────────────────────
+   The two share a shape: a painted banner, a column of faces and a score,
+   and a canvas that is the actual game. */
+
+.dp, .gf { position: absolute; inset: 0; display: flex; flex-direction: column; }
+.dp { background: #131826; }
+.gf { background: #16211a; }
+
+.dp-bar, .gf-bar {
+  flex: none; display: flex; align-items: center; gap: 10px; padding: 6px 10px;
+  border-bottom: 1px solid rgba(255,255,255,.12);
+}
+.dp-bar { background: #1b2338; }
+.gf-bar { background: #1d2c22; }
+.dp-bar b, .gf-bar b { flex: 1; color: #ffd88a; }
+
+.dp-banner, .gf-banner {
+  flex: none; height: 42px; background: #0d1220 center / cover no-repeat;
+  border-bottom: 1px solid rgba(255,255,255,.14);
+}
+
+.dp-main, .gf-main { flex: 1; display: flex; gap: 10px; padding: 8px; min-height: 0; }
+.dp-side, .gf-side {
+  flex: 0 0 116px; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  font-size: 11px; text-align: center;
+}
+.dp-stage, .gf-stage { flex: 1; display: grid; place-items: center; min-width: 0; }
+.dp-canvas, .gf-canvas {
+  display: block; max-width: 100%; height: auto;
+  border: 2px solid #3a4460; border-radius: 3px;
+  box-shadow: 0 6px 18px rgba(0,0,0,.55);
+  image-rendering: auto;
+}
+.gf-canvas { border-color: #3f5a44; touch-action: none; cursor: crosshair; }
+
+.dp-pilot, .gf-pilot { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.dp-pilot span, .gf-pilot span { color: #e8e0cc; }
+.dp-pilot b { color: #e8563a; letter-spacing: 1px; font-size: 13px; }
+.dp-face, .gf-face {
+  width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%;
+  background: #232a40; border: 2px solid #5b6688;
+}
+.gf-face { background: #22301f; border-color: #4b6a4e; }
+.gf-pilot.small { opacity: .75; font-size: 10px; }
+.gf-pilot.small .gf-face { width: 32px; height: 32px; }
+
+.dp-said, .gf-said {
+  min-height: 28px; font-size: 10px; font-style: italic; color: #b9c2d8; padding: 0 2px;
+}
+.gf-said { color: #a9c2ac; }
+
+.dp-status, .gf-status {
+  flex: none; padding: 6px 10px; font-size: 11px; color: #c3cadd;
+  border-top: 1px solid rgba(255,255,255,.1);
+}
+.dp-status { background: #1b2338; }
+.gf-status { background: #1d2c22; color: #b8ceba; }
+
+.gf-card {
+  width: 100%; padding: 6px; font-size: 10px; line-height: 1.5; text-align: left;
+  background: rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.14); border-radius: 3px;
+}
+.gf-hole { font-weight: 700; color: #ffd88a; }
+.gf-par, .gf-total { color: #cfe0d0; }
+.gf-total { border-top: 1px solid rgba(255,255,255,.14); margin-top: 3px; padding-top: 3px; }
+.gf-score { color: #9fb8a2; }

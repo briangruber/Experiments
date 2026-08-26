@@ -102,6 +102,14 @@ const REVERIE = [
   ['rev-cloud', 256, 128,
    'a terrace of pale stone floating in a sunset sky above soft clouds, ' +
    '1990s hand-painted adventure game backdrop, no text, no words'],
+  ['game-dawn', 256, 96,
+   'a red and a green biplane turning against each other above a cloud ' +
+   'bank at dawn, 1990s hand-painted flight game box art, dramatic ' +
+   'backlight, no text, no words'],
+  ['game-golf', 256, 96,
+   'a crazy golf hole on a seaside pier at dusk, green felt, a red ' +
+   'windmill obstacle and a flag in the cup, 1990s hand-painted game ' +
+   'backdrop, no text, no words'],
   ['rev-airfield', 256, 128,
    'a grass airfield with a red biplane and a windsock at golden hour, ' +
    '1990s hand-painted adventure game backdrop, no text, no words'],
