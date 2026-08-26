@@ -12,8 +12,8 @@ import { dialog, getWindow } from '../../core/wm.js';
 import * as A from '../../core/audio.js';
 import { screen, LIMITS } from '../../core/safety.js';
 import { createSayBox } from './say-box.js';
-import { isPhrase } from './phrasebook.js';
-import { nameColor } from './people.js';
+import { isPhrase, suggestions } from './phrasebook.js';
+import { nameColor, inflect, PERSONAS } from './people.js';
 import { openIM } from './im.js';
 
 export const ROOMS = [
@@ -181,15 +181,54 @@ export function openChatRoom(session, roomId) {
       ev.on ? state.typing.set(ev.name, Date.now()) : state.typing.delete(ev.name);
       drawTyping();
     }),
-    net.on('roster', ev => { if (ev.room === roomId) drawRoster(ev.names); }),
+    net.on('roster', ev => {
+      if (ev.room !== roomId) return;
+      drawRoster(ev.names);
+      backlog(ev.names);           // the room fills a beat after you join
+    }),
     () => clearInterval(typingTimer),
   ];
+
+  /* What was being said before you got here. A room whose scrollback starts
+     the instant you walk in reads as a room nobody was in — and walking
+     into the middle of something is most of what these felt like. The lines
+     are local scrollback: they are not sent anywhere, and another tab in
+     the same room will have walked in on something else. */
+  let backlogged = false;
+  function backlog(names) {
+    if (backlogged) return;
+    const here = (names || []).filter(m => !m.self && !m.staff);
+    if (here.length < 2) return;
+    backlogged = true;
+    // suggestions() hands back phrase records, not strings.
+    const said = suggestions(6).filter(Boolean).map(p => p.text).filter(t => t.length < 34);
+    if (!said.length) return;
+    const n = 3 + ((Math.random() * 3) | 0);
+    const lines = [];
+    let last = null;
+    for (let i = 0; i < n; i++) {
+      const who = pick(here.filter(m => m.name !== last)) || here[0];
+      last = who.name;
+      const persona = PERSONAS.find(x => x.name === who.name);
+      lines.push({ from: who.name,
+                   text: persona ? inflect(pick(said), persona) : pick(said) });
+    }
+    push(h('div.chat-line', { class: 'sys back' }, 'Earlier in this room'));
+    for (const l of lines) {
+      const line = h('div.chat-line.back');
+      line.append(h('b.chat-who', { style: { color: nameColor(l.from) } }, l.from, ':'));
+      line.append(' ');
+      line.append(h('span.chat-text', {}, l.text));
+      push(line);
+    }
+  }
 
   sysLine('*** You have entered ' + roomName(roomId) + '. ***', 'sys head');
   const r = ROOMS.find(x => x.id === roomId);
   if (r) sysLine(r.blurb, 'sys');
   net.join(roomId);
   drawRoster(net.roster(roomId));
+  backlog(net.roster(roomId));
   A.doorOpen();
 
   /* ── sending ───────────────────────────────────────────────────────── */

@@ -82,16 +82,24 @@ looked like a boxed game, and the difference was the whole point.
   not floating heads. Drawn as vectors, so a face is ten small numbers and
   every combination is instant. Yours is remembered; everybody else's is
   derived from their screen name, so the same person always looks the same.
-- **The map.** The painted country itself, edge to edge, with a wooden
-  sign planted at each of seven places and a tag on the corner saying how
-  many people are standing there. No legend down the side: the signs are
-  the legend, which is how these looked and is two fewer things to read.
-  The places are populated before you arrive — a map of empty rooms is
-  worse than no map.
-- **The town moves.** Water out of the fountain, smoke off a chimney,
-  gulls across the top, a pennant on the castle tower that never quite
-  settles, a light on the big wheel that catches every few seconds, and
-  the signs planting themselves one after another as the map opens. It is a layer of small CSS sprites laid over the painting at
+- **The map.** A painted pixel-art town, edge to edge and moving: the sun
+  glares, the clouds drift, the fountain runs and two people sit outside
+  the cafe. It is a supplied animation (`tools/source/town.mp4`) packed to
+  a looping WebP by `tools/gen-assets.mjs` — kept at full frame rate and
+  unquantised, because knocking pixel art down to sixty-four colours turns
+  the lettering on the shop signs to mush.
+
+  The buildings carry their own painted signs, so the places are named
+  after what the signs say rather than the other way round, and nothing is
+  written on top of them. What goes over the picture is a target on each
+  building, which lights up as you approach and shows its name; a green tag
+  saying how many people are inside; and the blank signpost in the corner,
+  which is the way out. The places are populated before you arrive — a map
+  of empty rooms is worse than no map.
+- **The places move too.** Firelight in the clubhouse, water at the
+  fountain, dust in a sunbeam at the post office, cloud going past the
+  cafe terrace. Small looping CSS sprites at measured positions, costing
+  nothing, and stopping dead under `prefers-reduced-motion`. It is a layer of small CSS sprites laid over the painting at
   measured positions — no canvas, no timers, nothing on the critical path
   — and all of it stops dead under `prefers-reduced-motion`. The badges
   and the legend arrive one after another rather than all at once, which
@@ -101,7 +109,9 @@ looked like a boxed game, and the difference was the whole point.
   them, speech bubbles over whoever just spoke. A green tab marks anybody
   who is really another person.
 
-Seven places, and six things to do in them. Each game wears the same suit:
+Seven places, and six things to do in them — the Workshop is where faces
+get made, and the Chat Cafe has nothing to do at all on purpose. Each game
+wears the same suit:
 a title strip, a painted banner, a framed playing area, the players' faces
 with plates down the side, and a button bar along the bottom.
 
@@ -110,14 +120,14 @@ with plates down the side, and a button bar along the bottom.
   on this computer and sent nowhere.
 - **The Post Office — the postcard board.** The same thing pinned up
   slightly crooked, with pigeonholes and parcel string behind it.
-- **The Bridge Inn — Shut the Box.** Nine flaps, two dice, and the
+- **The Clubhouse — Shut the Box.** Nine flaps, two dice, and the
   question of how to spend a seven. Once everything left is six or under
   the house lets you roll one die. Shut all nine and you have shut the
   box, which most people never do.
-- **Jouster's Keep — Checkers.** Compulsory captures, multi-jumps, kings,
+- **Story Castle — Checkers.** Compulsory captures, multi-jumps, kings,
   and an opponent that searches two plies and will beat you if you are
   careless.
-- **The Boardwalk — Crazy Golf.** Six holes and the four hazards a
+- **The Arcade — Crazy Golf.** Six holes and the four hazards a
   seaside course actually had: painted rails, a pond that costs you a
   penalty stroke and puts you back where you were, a bunker that eats
   your pace, bumpers robbed off a pinball table, and a windmill on the
@@ -125,10 +135,10 @@ with plates down the side, and a button bar along the bottom.
   ball to putt: the line you will leave on is drawn with an arrowhead, and
   a power meter says how hard, which is the one thing these games never
   told you and always should have. Full card, par, and a running total.
-- **The Boardwalk — The Machine.** A slot machine in a red cabinet with a
+- **The Arcade — The Machine.** A slot machine in a red cabinet with a
   marquee and a pay table. Tokens are not money, cannot be bought, and top
   themselves up when you run out.
-- **Sky Squadron — Dawn Patrol.** A biplane dogfight over a parallax
+- **The Arcade — Dawn Patrol.** A biplane dogfight over a parallax
   ridge, a hangar and a windsock. Up and Down fly, Left and Right work the
   throttle, space fires. Thrust along the nose, gravity, drag, lift
   proportional to airspeed, and a stall if you let the speed go — so
@@ -137,8 +147,8 @@ with plates down the side, and a button bar along the bottom.
   marked on the dial where it belongs. A holed engine will not make full
   power and trails smoke, then fire. The other aeroplane flies the same
   physics, works its own throttle, and is trying to get behind you.
-- **Cloud Nine** has no game at all, on purpose: one place that is only
-  for standing about and talking.
+- **The Chat Cafe** has no game at all, on purpose: one place that is
+  only for standing about and talking.
 
 The same phrase book governs the lands as governs the chat rooms.
 
@@ -427,6 +437,7 @@ tools/
   check.mjs           static checks, no browser
   test.mjs            safety layer and relay behaviour
   gen-ansi.mjs        trace the door pictures down to sixteen colours
+  source/             clips that are supplied rather than generated
   bundle.mjs          flatten to one self-contained HTML file
   relay.mjs           the optional multi-user relay
 ```

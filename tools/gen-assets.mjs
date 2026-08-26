@@ -102,24 +102,6 @@ const REVERIE_STYLE =
   'no text, no letters, no words, no watermark';
 
 const REVERIE = [
-  /* The map screen, in the shape the graphical services actually used:
-     a painted landscape you look across rather than a plan you look down
-     on, with the buildings far enough apart to hang a sign on each. The
-     signs are drawn by us — asking the model for lettering produces
-     confident gibberish every time, hence 'no text' twice. */
-  ['rev-town', 400, 240,
-   'a busy bright cartoon landscape packed corner to corner with things to ' +
-   'look at, seen from a low hill, buildings large and close to the viewer ' +
-   'with winding dirt paths between them and no empty grass: a stone castle ' +
-   'with pennants top left, a round open-air amphitheatre top centre, a big ' +
-   'red-roofed clubhouse with a porch in the middle, a timber inn with a ' +
-   'chimney, a little post office, a shop with a striped awning, a ' +
-   'fairground with a red and white big top and a ferris wheel on the ' +
-   'right, a grass airstrip with a red biplane bottom right, a blue lake ' +
-   'with a fountain bottom left, leafy trees, hedges and flower beds ' +
-   'filling every gap, blue sky with fat white clouds and a small airship, ' +
-   'edge to edge composition, no text, no letters, no signs, no writing, ' +
-   REVERIE_STYLE],
   ['rev-fountain', 256, 128,
    'a sunny cobbled town square with a round stone fountain splashing in ' +
    'the middle, flower beds, a bench and shop fronts behind, ' + REVERIE_STYLE],
@@ -159,6 +141,17 @@ const REVERIE = [
    REVERIE_STYLE],
 ];
 
+/* Animations supplied rather than generated: these come from files kept in
+   tools/source/, so they are reproducible without a key and without the
+   model rolling something different next time.
+   [key, width, height, fps, quality, colours|0 for no quantising] */
+const LOCAL_ANIMS = [
+  /* The town map. Pixel art, so it is neither resized down hard nor
+     quantised: knocking this to 64 colours turns the lettering on the
+     shop signs to mush. */
+  ['rev-town', 'town.mp4', 512, 384, 10, 60, 0],
+];
+
 /* One short loop, used as the curtain when you enter the world. */
 const ANIMS = [
   ['rev-fly', 176, 112,
@@ -177,7 +170,11 @@ const VOICE = [
 
 /* ── helpers ─────────────────────────────────────────────────────────── */
 
-const py = script => execFileSync('python3', ['-c', script], { encoding: 'utf8' }).trim();
+/* 1 MB of stdout is the default and a data URI for a second of animation
+   is comfortably past it; the child gets killed and the error is a wall
+   of base64 rather than a message. */
+const py = script => execFileSync('python3', ['-c', script],
+  { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 }).trim();
 
 /**
  * Builds one banner: a flat gradient field for the label, the generated
@@ -236,6 +233,26 @@ print('data:image/webp;base64,' + base64.b64encode(buf.getvalue()).decode())
  * a page in 1997 was a GIF of about this size, and it should feel like
  * one.
  */
+/** A supplied clip: every frame, at its own rate, optionally unquantised. */
+function packLocalAnim(file, w, h, fps, quality, colours) {
+  const dir = file.replace(/\.mp4$/, '-frames');
+  mkdirSync(dir, { recursive: true });
+  execFileSync(FFMPEG, ['-y', '-i', file, '-vf',
+    'fps=' + fps + ',scale=' + w + ':' + h + ':flags=lanczos',
+    join(dir, 'f%03d.png')], { stdio: 'pipe' });
+  return py(`
+import base64, io, glob
+from PIL import Image
+frames = [Image.open(f).convert('RGB') for f in sorted(glob.glob(${JSON.stringify('PLACEHOLDER')}))]
+${colours ? `frames = [f.quantize(colors=${colours}, method=Image.MEDIANCUT,
+                     dither=Image.FLOYDSTEINBERG).convert('RGB') for f in frames]` : ''}
+buf = io.BytesIO()
+frames[0].save(buf, 'WEBP', save_all=True, append_images=frames[1:],
+               duration=${Math.round(1000 / fps)}, loop=0, quality=${quality}, method=4)
+print('data:image/webp;base64,' + base64.b64encode(buf.getvalue()).decode())
+`.replace('PLACEHOLDER', join(dir, '*.png')));
+}
+
 function packAnim(file, w, h) {
   const dir = file.replace(/\.mp4$/, '-frames');
   mkdirSync(dir, { recursive: true });
@@ -327,6 +344,13 @@ async function makeArt() {
       process.stdout.write('.');
     }
     entries.push([name, packImage(file, w, h)]);
+  }
+
+  for (const [name, src, w, h, fps, quality, colours] of LOCAL_ANIMS) {
+    const file = join(root, 'tools/source', src);
+    if (!existsSync(file)) throw new Error('missing source clip: ' + file);
+    entries.push([name.replace(/-/g, '_'), packLocalAnim(file, w, h, fps, quality, colours)]);
+    process.stdout.write('.');
   }
 
   for (const [name, w, h, prompt] of ANIMS) {

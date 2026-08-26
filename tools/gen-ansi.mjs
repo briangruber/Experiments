@@ -73,7 +73,11 @@ const ART = [
 
 const round16 = n => Math.max(256, Math.round(n / 16) * 16);
 
-const py = script => execFileSync('python3', ['-c', script], { encoding: 'utf8' }).trim();
+/* 1 MB of stdout is the default and a data URI for a second of animation
+   is comfortably past it; the child gets killed and the error is a wall
+   of base64 rather than a message. */
+const py = script => execFileSync('python3', ['-c', script],
+  { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 }).trim();
 
 /** Downsample, quantise to the CGA sixteen, and return rows of hex digits. */
 function trace(file, cols, rows) {

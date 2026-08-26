@@ -1,14 +1,11 @@
 /*
- * The things that move when nothing is happening.
+ * The things that move while you are standing still.
  *
- * A painted map is a picture; a painted map with water coming out of the
- * fountain and smoke off the inn chimney is a place. None of this is
- * interactive and none of it is on the critical path — it is a layer of
- * small looping sprites laid over the art at tuned positions, drawn in CSS
- * so it costs nothing and stops dead under prefers-reduced-motion.
- *
- * Positions are percentages of the picture, measured off the generated
- * artwork. Regenerate the art and they will need measuring again.
+ * The town map animates by itself now — it is a painted clip with its own
+ * clouds and its own fountain — so what is left here is what happens
+ * inside a place: firelight, water, dust in a sunbeam, cloud going past a
+ * terrace. Small looping CSS sprites at measured positions, costing
+ * nothing, and stopping dead under prefers-reduced-motion.
  */
 
 import { h } from '../../core/dom.js';
@@ -22,37 +19,6 @@ const splash = (x, y) => h('i.amb-splash', { style: { left: x + '%', top: y + '%
   h('u', { style: { animationDelay: '0s' } }),
   h('u', { style: { animationDelay: '.45s' } }),
   h('u', { style: { animationDelay: '.9s' } }));
-
-/** Three puffs off a chimney, each slower and fatter than the last. */
-const smoke = (x, y) => h('i.amb-smoke', { style: { left: x + '%', top: y + '%' } },
-  h('u', { style: { animationDelay: '0s' } }),
-  h('u', { style: { animationDelay: '1.5s' } }),
-  h('u', { style: { animationDelay: '3s' } }));
-
-/** A gull is two strokes that flap. It is enough. */
-const gull = (y, delay, dur) => h('i.amb-gull', {
-  style: { top: y + '%', animationDelay: delay, animationDuration: dur },
-}, h('u'));
-
-/**
- * The layer over the island map. Everything here sits above the picture and
- * below the numbered badges, and nothing in it takes a pointer event.
- */
-export function townAmbience() {
-  return h('div.amb', {},
-    splash(50, 67),                                  // the tiered fountain in the square
-    splash(50.3, 50),                                // the little one up the lane
-    smoke(71.5, 43),                                 // a chimney on the lane
-    gull(6, '0s', '26s'),
-    gull(11, '9s', '34s'),
-    gull(3.5, '17s', '30s'),
-    at('amb-twinkle', 10, 22),                       // lights on the big wheel
-    at('amb-twinkle', 12.5, 27, { animationDelay: '.7s' }),
-    at('amb-twinkle', 67, 27, { animationDelay: '1.3s' }),   // shop awnings
-    at('amb-twinkle', 78, 59, { animationDelay: '2.1s' }),   // the inn's sign
-    at('amb-pennant', 27, 5),                        // over the castle tower
-    at('amb-wake', 10, 85));                         // the biplane on the water
-}
 
 /* What each land does while you stand in it. Lands not named here are
    still and meant to be. */

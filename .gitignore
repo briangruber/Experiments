@@ -1,1 +1,4 @@
 .assets-raw/
+
+# Frames extracted from a clip on the way to a packed animation.
+*-frames/

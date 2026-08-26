@@ -21,7 +21,7 @@ import { createBucket, createStrikes, screenName as validateName, LIMITS } from 
 import { runDialer } from './dialer.js';
 import { ROOMS, openChatRoom } from './chat.js';
 import { openBuddyList, imFrom, openIM } from './im.js';
-import { openMailbox, unreadCount, composeMail } from './mail.js';
+import { openMailbox, unreadCount, composeMail, MESSAGES } from './mail.js';
 import { openChannels, gotoKeyword, openRoomList, openChannel, keywordDialog, findCentral }
   from './channels.js';
 import { ART } from '../../assets/art.js';
@@ -205,16 +205,34 @@ const FEATURED = [
     art: 'today', go: 'lobby' },
   { title: 'Comet Watch', blurb: 'Northwest, after sunset, all month',
     art: 'news', go: 'news' },
+  { title: 'The Reverie Network', blurb: 'A painted town with faces in it',
+    art: 'kids', go: 'reverie' },
+];
+
+/* The right-hand rail. These services all had one, and it was always the
+   same shape: a heading, a stack of blue underlined words, and one line of
+   copy at the bottom nobody read. */
+const WHATS_HOT = [
+  ['Chat rooms tonight', 'rooms'],
+  ['Your buddy list', 'buddies'],
+  ['All the channels', 'channels'],
+  ['The Reverie Network', 'reverie'],
+  ['Weather for your area', 'weather'],
+  ['Quotes and portfolios', 'money'],
+  ['Member services', 'help'],
 ];
 
 /* ── the Welcome child window ────────────────────────────────────────── */
 
 function welcome() {
   const mail = unreadCount();
+  const waiting = MESSAGES.slice(0, 4);
 
+  /* Sized to the frame rather than to a number: openWindow clamps to the
+     client area, so this fills a big window and still fits a small one. */
   const win = session.child({
     id: 'halcyon-welcome', title: 'Welcome, ' + session.name + '!',
-    icon: 'halcyon', width: 560, height: 400, x: 18, y: 14,
+    icon: 'halcyon', width: 780, height: 540, x: 14, y: 12,
   });
 
   const promo = (label, sub, iconName, what) =>
@@ -230,15 +248,35 @@ function welcome() {
         h('span', {}, 'You are member number ' + (1200000 + (Date.now() % 90000) | 0).toLocaleString()))),
 
     h('div.hal-welcome-mid', {},
-      h('button.hal-mailbox', {
-        type: 'button', onclick: () => session.go('mail'),
-      }, mailboxArt(mail), h('b', {}, mail ? 'You Have Mail' : 'No New Mail')),
+      /* Left: the mailbox, and what is actually in it. A yellow box with
+         nothing under it was the emptiest thing on the screen. */
+      h('div.hal-welcome-left', {},
+        h('button.hal-mailbox', {
+          type: 'button', onclick: () => session.go('mail'),
+        }, mailboxArt(mail), h('b', {}, mail ? 'You Have Mail' : 'No New Mail')),
+        h('div.hal-inbox', {},
+          h('div.hal-inbox-head', {}, 'Waiting for you'),
+          ...waiting.map(m => h('button.hal-inbox-row', {
+            type: 'button', title: m.subject,
+            onclick: () => session.go('mail'),
+          }, h('b', {}, m.from), h('span', {}, m.subject))))),
 
+      /* Middle: where you actually go. */
       h('div.hal-promos', {},
         promo('People Connection', 'Chat rooms', 'chat', 'rooms'),
         promo('Channels', 'The whole service', 'globe', 'channels'),
         promo('Buddy List', 'Who is online', 'people', 'buddies'),
-        promo('Reverie', 'A world with faces in it', 'globe', 'reverie'))),
+        promo('Reverie', 'A town with faces', 'globe', 'reverie'),
+        promo('Mail Center', 'Read and write', 'mail', 'mail'),
+        promo('Find Central', 'Search the service', 'find', 'find')),
+
+      /* Right: the rail. */
+      h('div.hal-rail', {},
+        h('div.hal-rail-head', {}, "What's Hot"),
+        ...WHATS_HOT.map(([label, what]) =>
+          h('button.hal-rail-link', { type: 'button', onclick: () => session.go(what) }, label)),
+        h('div.hal-rail-note', {},
+          'None of this leaves your computer.'))),
 
     h('div.hal-promo-strip', {},
       h('div.hal-strip-head', {}, 'Today on Halcyon'),

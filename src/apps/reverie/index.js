@@ -20,7 +20,7 @@ import { ART } from '../../assets/art.js';
 import { faceSvg, faceFor, loadFace, saveFace, randomFace,
          PARTS, SKINS, HAIRS, SHIRTS, BACKDROPS } from './faces.js';
 import { frame, portrait, btn } from './ui.js';
-import { townAmbience, landAmbience } from './ambience.js';
+import { landAmbience } from './ambience.js';
 import { createSayBox } from '../halcyon/say-box.js';
 import { isPhrase } from '../halcyon/phrasebook.js';
 import { screen, LIMITS } from '../../core/safety.js';
@@ -46,27 +46,31 @@ const GAMES = {
    then out along the lanes. The `at` pairs are percentages measured off
    the generated town picture. */
 export const LANDS = [
+  /* The map is a painted town with its own signs on the buildings, so the
+     places are named after what the signs say rather than the other way
+     round. `at` is the centre of each building as a percentage of the
+     picture; `size` is how big a target it is. */
   { id: 'fountain', name: 'The Fountain', art: 'rev_fountain',
     blurb: 'The middle of everything, and somewhere to make a wish',
-    at: [30, 40], games: ['wish'] },
+    at: [45, 76], size: [15, 15], games: ['wish'] },
+  { id: 'cafe', name: 'The Chat Cafe', art: 'rev_cloud',
+    blurb: 'Umbrellas, a fountain, and nothing to do but talk',
+    at: [50, 53], size: [22, 21], games: [] },
+  { id: 'workshop', name: 'The Workshop', art: 'rev_post',
+    blurb: 'Where faces get made',
+    at: [23, 78], size: [23, 21], games: [], makes: 'face' },
   { id: 'post', name: 'The Post Office', art: 'rev_post',
     blurb: 'Pigeonholes, parcel string, and a board of postcards',
-    at: [34, 70], games: ['postcard'] },
-  { id: 'inn', name: 'The Bridge Inn', art: 'rev_inn',
-    blurb: 'A fire, long tables, and a box that wants shutting',
-    at: [50, 33], games: ['box'] },
-  { id: 'keep', name: "Jouster's Keep", art: 'rev_keep',
+    at: [71, 78], size: [24, 21], games: ['postcard'] },
+  { id: 'clubhouse', name: 'The Clubhouse', art: 'rev_inn',
+    blurb: 'Up the ladder, down the slide, and a box that wants shutting',
+    at: [83, 46], size: [19, 24], games: ['box'] },
+  { id: 'arcade', name: 'The Arcade', art: 'rev_boardwalk',
+    blurb: 'Crazy golf, a machine that eats tokens, and two biplanes',
+    at: [20, 43], size: [21, 20], games: ['golf', 'slots', 'dawn'] },
+  { id: 'castle', name: 'Story Castle', art: 'rev_keep',
     blurb: 'Board games under the pennants',
-    at: [16, 34], games: ['checkers'] },
-  { id: 'boardwalk', name: 'The Boardwalk', art: 'rev_boardwalk',
-    blurb: 'Crazy golf, lights on the water, and a machine that eats tokens',
-    at: [77, 46], games: ['golf', 'slots'] },
-  { id: 'airfield', name: 'Sky Squadron', art: 'rev_airfield',
-    blurb: 'Two biplanes and a field at golden hour',
-    at: [84, 24], games: ['dawn'] },
-  { id: 'cloud', name: 'Cloud Nine', art: 'rev_cloud',
-    blurb: 'No games at all. Where everybody stands about and talks',
-    at: [21, 13], games: [] },
+    at: [49, 17], size: [23, 27], games: ['checkers'] },
 ];
 
 const roomOf = landId => 'rev-' + landId;
@@ -226,40 +230,46 @@ export function openReverie(session) {
 
   /* ── the island map ────────────────────────────────────────────────── */
 
-  /* The map is the painted country itself, edge to edge, with a wooden
-     sign planted at every place you can go — which is how the graphical
-     services did it. No legend down the side: the signs are the legend. */
+  /* The map is the painted town itself, edge to edge and moving. The
+     buildings carry their own signs, so there is nothing to label: what
+     goes on top is a target over each one, a tag saying how many people
+     are inside, and a way out. */
   function showMap() {
     leaveLand();
     primeIsland();
 
     const town = h('div.rev-town', {
       style: { backgroundImage: 'url(' + ART.rev_town + ')' },
-    }, townAmbience());
-
-    town.append(h('button.rev-sign.title', { type: 'button', disabled: true,
-      style: { left: '50%', top: '5%' } }, h('b', {}, 'Reverie')));
+    });
 
     LANDS.forEach((l, i) => {
       const here = peopleIn(l.id).length;
-      town.append(h('button.rev-sign', {
+      town.append(h('button.rev-door', {
         type: 'button',
         title: l.name + ' — ' + l.blurb +
                (l.games.length ? '  ·  ' + l.games.map(id => GAMES[id].label).join(', ') : ''),
-        style: { left: l.at[0] + '%', top: l.at[1] + '%',
-                 animationDelay: (120 + i * 60) + 'ms' },
-        onclick: () => { A.doorOpen(); showLand(l); },
+        style: {
+          left: l.at[0] + '%', top: l.at[1] + '%',
+          width: l.size[0] + '%', height: l.size[1] + '%',
+          animationDelay: (120 + i * 70) + 'ms',
+        },
+        onclick: () => {
+          A.doorOpen();
+          l.makes === 'face' ? showFaceMaker() : showLand(l);
+        },
       },
-        h('b', {}, l.name),
-        here ? h('em', {}, here) : null,
-        h('i')));
+        h('span.rev-door-name', {}, l.name),
+        here ? h('em.rev-door-count', {}, here) : null));
     });
 
-    town.append(h('button.rev-sign.exit', {
+    /* The signpost by the bottom-left corner of the painting is blank, so
+       that is where the way out goes. */
+    town.append(h('button.rev-door.exit', {
       type: 'button', title: 'Close Reverie',
-      style: { left: '9%', top: '95%', animationDelay: '560ms' },
+      style: { left: '5%', top: '92%', width: '9%', height: '12%',
+               animationDelay: '640ms' },
       onclick: () => { A.doorClose(); win.close(); },
-    }, h('b', {}, 'Exit'), h('i')));
+    }, h('span.rev-door-name', {}, 'Leave')));
 
     const total = LANDS.reduce((n, l) => n + peopleIn(l.id).length, 0);
 
