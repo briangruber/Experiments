@@ -25,6 +25,13 @@ export const PARAMS = {
     // of the stem, not about the stem itself. The mesh origin IS the stem, so
     // without this a turn sweeps the stern through an arc and the boat walks
     // away from its own wake. 0 restores that older behaviour.
+    // Which hull is drawn. Indexes BOATS in src/boatModels.js; the last entry
+    // is the original blocky placeholder, kept because it is the only one whose
+    // proportions were built to match the wake's own hull maths.
+    model:        { v: 0,    min: 0,   max: 5,   step: 1,    label: 'Boat model' },
+    // How deep the model sits: a fraction of its own height pushed under the
+    // waterline. The GLBs know nothing about where their waterline is.
+    draft:        { v: 0.22, min: 0,   max: 0.6, step: 0.01, label: 'Draft (of hull height)' },
     pivot:        { v: 0.32, min: 0,   max: 0.8, step: 0.01, label: 'Turn pivot (aft of bow)' },
     // Planing hulls bank INTO a turn. atan(v*omega/g) -- the coordinated-turn
     // relation -- so lean follows speed and rate together rather than needing

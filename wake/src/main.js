@@ -10,6 +10,7 @@ import { AbyssalSea, PRESET_NAMES } from './abyssalSea.js';
 import { OceanBody } from './oceanBody.js';
 import { WakeBridge } from './wakeBridge.js';
 import { Spray } from './spray.js';
+import { loadBoat, BOATS } from './boatLibrary.js';
 import { buildUI } from './ui.js';
 
 const canvas = document.getElementById('gl');
@@ -59,8 +60,37 @@ const labSky = new THREE.Group();
 labSky.add(backdrop.sky, backdrop.sea, ocean.mesh);
 scene.add(labSky);
 
-const boat = makeBoat();
+// The hull is a holder the chosen model is swapped into, so OceanBody keeps
+// one object to pose and nothing downstream cares which boat is showing.
+const boat = new THREE.Group();
+const placeholder = makeBoat();
+boat.add(placeholder);
 scene.add(boat);
+
+let shownModel = -1;
+async function showBoat(i) {
+  const idx = Math.round(i);
+  if (idx === shownModel) return;
+  shownModel = idx;
+  // The last slot is the original placeholder: blocky, but the only hull whose
+  // proportions were built to match the wake's own maths, so it stays the
+  // reference to compare a loaded model against.
+  if (idx >= BOATS.length) {
+    boat.clear(); boat.add(placeholder);
+    return;
+  }
+  try {
+    const model = await loadBoat(BOATS[idx].id);
+    if (shownModel !== idx) return;          // superseded while loading
+    boat.clear(); boat.add(model);
+  } catch (e) {
+    // A model that fails to parse must not take the prototype with it: the
+    // wake is the point, and the placeholder can carry it.
+    console.warn(`boat "${BOATS[idx]?.id}" failed to load:`, e.message);
+    boat.clear(); boat.add(placeholder);
+  }
+}
+showBoat(get('boat.model'));
 
 // The hull as an object that owns its own chain: how it sits, where it cuts,
 // what it throws. main.js drives the helm and nothing else about it.
@@ -122,7 +152,10 @@ if (narrow || devicePixelRatio > 2.5) {
   set('quality.renderScale', Math.min(devicePixelRatio, 2));
 }
 const ui = buildUI(document.getElementById('ui'), {
-  onChange: () => boat.userData.scaleTo(),
+  onChange: (path) => {
+    if (path === '*' || path === 'boat.model') showBoat(get('boat.model'));
+    for (const c of boat.children) c.userData?.scaleTo?.();
+  },
 });
 
 // ------------------------------------------------------------------- camera --
@@ -377,7 +410,13 @@ function stepSim(dt) {
   const hx = Math.sin(state.heading), hz = Math.cos(state.heading);
   state.x += hx * state.speed * dt;
   state.z += hz * state.speed * dt;
-  wake.pushSample(state.x, state.z, hx, hz, state.t, state.speed, state.turn);
+  // The BOW, not the simulated pivot. The field treats arc 0 as the stem and
+  // carves the hull's footprint from there; anchoring it at the pivot while
+  // the hull is drawn ahead of it opens a hull-shaped hole in the foam right
+  // behind the transom.
+  const bowAhead = body.bowOffset();
+  wake.pushSample(state.x + hx * bowAhead, state.z + hz * bowAhead,
+                  hx, hz, state.t, state.speed, state.turn);
   return { hx, hz };
 }
 

@@ -122,7 +122,11 @@ export class OceanBody {
 		// A real hull runs out of lean: past a point the chine trips and it
 		// slides instead. Capped, then scaled by the live knob.
 		const cap = get( 'boat.bankMax' ) * Math.PI / 180;
-		return Math.max( - cap, Math.min( cap, raw ) ) * get( 'boat.bank' );
+		// Negated: the hull's forward axis is +Z, so a positive roll about it
+		// lifts the side the turn is pulling TOWARD. A boat banks into the
+		// turn, which is the other one -- the first version leaned outward,
+		// like a car body rolling on its springs rather than a hull digging in.
+		return - Math.max( - cap, Math.min( cap, raw ) ) * get( 'boat.bank' );
 
 	}
 
@@ -144,6 +148,25 @@ export class OceanBody {
 
 	}
 
+	/**
+	 * Where the stem actually is, in world XZ.
+	 *
+	 * Everything that means "the bow" has to agree on this. The wake field
+	 * treats arc 0 as the stem and carves the hull's own footprint out of the
+	 * foam from there, so anchoring the field at the pivot while DRAWING the
+	 * hull ahead of it puts that carve astern of the real transom -- which
+	 * shows as a hull-shaped hole in the foam just behind the boat.
+	 */
+	bow( out = { x: 0, z: 0 } ) {
+
+		const fwd = this.forward();
+		const ahead = this.bowOffset();
+		out.x = this.state.x + fwd.x * ahead;
+		out.z = this.state.z + fwd.y * ahead;
+		return out;
+
+	}
+
 	/** Pose the mesh for this speed, heading and rate of turn. */
 	pose() {
 
@@ -154,14 +177,10 @@ export class OceanBody {
 		// quarter at the waterline, which is roughly where a planing hull
 		// actually pitches about.
 		const TRIM_PIVOT = 0.72;
-		const fwd = this.forward();
-		const ahead = this.bowOffset();
+		const b = this.bow();
 		this.mesh.rotation.set( - trim, this.state.heading, this.bank(), 'YXZ' );
-		this.mesh.position.set(
-			this.state.x + fwd.x * ahead,
-			att.rise + Math.sin( trim ) * this.length * TRIM_PIVOT,
-			this.state.z + fwd.y * ahead,
-		);
+		this.mesh.position.set( b.x,
+			att.rise + Math.sin( trim ) * this.length * TRIM_PIVOT, b.z );
 
 	}
 

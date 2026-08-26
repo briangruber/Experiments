@@ -192,9 +192,13 @@ function run( { speed = 12, secs = 2, dt = 1 / 60, spray = new Spray( 4000 ) } =
 			+ `${ ( at( 20, 0.3 ) * 180 / Math.PI ).toFixed( 2 ) } deg` );
 	need( 'lean grows with rate of turn at the same speed',
 		Math.abs( at( 15, 0.5 ) ) > Math.abs( at( 15, 0.1 ) ) );
-	need( 'it banks INTO the turn — lean follows the sign of the wheel',
-		Math.sign( at( 15, 0.4 ) ) === Math.sign( 0.4 )
-			&& Math.sign( at( 15, -0.4 ) ) === Math.sign( -0.4 ) );
+	// Into, not out of. The hull's forward axis is +Z, so a positive roll about
+	// it lifts the side the turn pulls toward -- the outward lean of a car body
+	// on its springs, which is the opposite of what a hull does.
+	need( 'it banks INTO the turn, not out of it',
+		Math.sign( at( 15, 0.4 ) ) === - Math.sign( 0.4 )
+			&& Math.sign( at( 15, -0.4 ) ) === - Math.sign( -0.4 ),
+		`${ ( at( 15, 0.4 ) * 180 / Math.PI ).toFixed( 1 ) } deg on a left turn` );
 	need( 'lean is capped — past a point a hull trips rather than leans further',
 		Math.abs( at( 90, 3 ) ) <= get( 'boat.bankMax' ) * Math.PI / 180 + 1e-9,
 		`${ ( at( 90, 3 ) * 180 / Math.PI ).toFixed( 1 ) } deg cap `
@@ -202,7 +206,10 @@ function run( { speed = 12, secs = 2, dt = 1 / 60, spray = new Spray( 4000 ) } =
 	need( 'it matches the coordinated-turn relation atan(v.omega/g)', ( () => {
 		set( 'boat.bank', 1 ); set( 'boat.bankMax', 89 );
 		const v = 12, w = 0.25;
-		const ok = Math.abs( at( v, w ) - Math.atan2( v * w, 9.81 ) ) < 1e-9;
+		// Magnitude only: the SIGN is the separate claim above (into the turn),
+		// and asserting both here would just restate it in a form that hides
+		// which one broke.
+		const ok = Math.abs( Math.abs( at( v, w ) ) - Math.atan2( v * w, 9.81 ) ) < 1e-9;
 		set( 'boat.bankMax', 22 );
 		return ok;
 	} )() );
@@ -241,6 +248,24 @@ function run( { speed = 12, secs = 2, dt = 1 / 60, spray = new Spray( 4000 ) } =
 		}
 		return far > body.bowOffset() * 0.9;
 	} )() );
+	// The gap-in-the-foam bug: the field anchors arc 0 at the stem and carves
+	// the hull's footprint from there, so the drawn hull and the field have to
+	// agree about where the stem is. They disagreed by exactly bowOffset(),
+	// which showed as a hull-shaped hole in the foam behind the transom.
+	need( 'the drawn hull and the wake anchor share one stem', ( () => {
+		body.state.heading = 0.7; body.state.x = 12; body.state.z = -4;
+		body.pose();
+		const b = body.bow();
+		return Math.abs( b.x - mesh.position.x ) < 1e-9
+			&& Math.abs( b.z - mesh.position.z ) < 1e-9;
+	} )() );
+	need( 'the stem leads the pivot along the heading', ( () => {
+		body.state.x = 0; body.state.z = 0; body.state.heading = 0;
+		const b = body.bow();
+		// heading 0 is +Z in this rig, so the bow is ahead in z.
+		return Math.abs( b.x ) < 1e-9 && Math.abs( b.z - body.bowOffset() ) < 1e-9;
+	} )() );
+
 	need( 'pivot 0 restores the old stem-centred behaviour', ( () => {
 		set( 'boat.pivot', 0 );
 		body.state.heading = 1.1; body.pose();
