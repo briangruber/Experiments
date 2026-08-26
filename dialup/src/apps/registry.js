@@ -15,7 +15,7 @@ export const APPS = {
   reverie: {
     title: 'The Reverie Network', short: 'Reverie',
     icon: 'globe', desktop: 3, start: 4, quick: 3,
-    load: () => import('./reverie/launch.js'),
+    load: () => import('./reverie/launch.js'),   // runs with or without Halcyon
   },
   mycomputer: {
     title: 'My Computer', icon: 'computer', desktop: 0, start: 3,

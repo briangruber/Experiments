@@ -17,6 +17,8 @@ import { pick } from '../../core/dom.js';
 import * as A from '../../core/audio.js';
 import { screenConduct } from '../../core/safety.js';
 import { centre, box, panel } from './screen.js';
+import { bigText, picture, rule, shadowBox } from './ansi.js';
+import { PIC } from './art.js';
 import { playWyrm } from './doors/wyrm.js';
 import { playTrader } from './doors/trader.js';
 
@@ -133,16 +135,13 @@ const FILES = [
 ];
 
 const banner = t => {
-  t.write(
-    '|00|b4                                                                            \n' +
-    '|b4|14   ███ █  █ ███   ███ ███ ███ ███ █ █ ███ █   |15 T H E                       \n' +
-    '|b4|14    █  █  █ █     █   █ █ █ █ █ █ █ █  █  █   |15 M I D N I G H T             \n' +
-    '|b4|14    █  ████ ██    █   ███ ██  █ █ █ █  █  █   |15 C A R N I V A L             \n' +
-    '|b4|14    █  █  █ █     █   █ █ █ █ █ █ █ █  █  █   |15 B B S                       \n' +
-    '|b4|14    █  █  █ ███   ███ █ █ █ █ █ █  █  ███ ███ |07                             \n' +
-    '|b4                                                                            \n' +
-    '|b0|08 ' + centre('two nodes  ·  14400 bps  ·  up since March 1992', 76) + '\n' +
-    '|08 ' + centre('sysop: ' + SYSOP + '  ·  ' + '"we are all still here"', 76) + '\n\n|07');
+  t.write(picture(PIC.carnival));
+  t.write(rule(78, { fg: 5, ch: '▀' }));
+  t.write(bigText('MIDNIGHT', { fg: 13, shade: 5, indent: 15 }));
+  t.write(bigText('CARNIVAL', { fg: 14, shade: 6, indent: 15 }));
+  t.write(rule(78, { fg: 5, fade: true }));
+  t.write('|08' + centre('two nodes  ·  14400 bps  ·  up since March 1992', 78) + '\n' +
+          '|08' + centre('sysop: ' + SYSOP + '  ·  "we are all still here"', 78) + '\n\n|07');
 };
 
 /**
@@ -181,15 +180,15 @@ export async function runBoard(t, who) {
   /* ── the menus ─────────────────────────────────────────────────────── */
 
   async function menu() {
-    t.write('\n' + box([
-      ' |15M A I N   M E N U|09' + ' '.repeat(26) + '|08' + ('caller ' + handle).padEnd(22),
+    t.write('\n' + shadowBox([
+      ' |14M A I N   M E N U|15' + ' '.repeat(21) + '|11caller ' + handle,
       '-',
-      '  |11[M]|07 Message bases        |11[D]|07 Doors and online games',
-      '  |11[F]|07 File areas           |11[W]|07 Who else is on',
-      '  |11[B]|07 Bulletins            |11[P]|07 Page the sysop',
-      '  |11[G]|07 Goodbye (log off)',
-    ]) +
-      '|15Command: |07');
+      ' |11[M]|15 Message bases        |11[D]|15 Doors and online games',
+      ' |11[F]|15 File areas           |11[W]|15 Who else is on',
+      ' |11[B]|15 Bulletins            |11[P]|15 Page the sysop',
+      ' |11[G]|15 Goodbye (log off)',
+    ], { width: 58, edge: 9, fill: 1, indent: 10 }) +
+      '\n|15Command: |07');
     const k = await t.key('MDFWBPG');
     if (k === 'D') return doors();
     if (k === 'M') await bases();
@@ -281,10 +280,13 @@ export async function runBoard(t, who) {
   }
 
   async function doors() {
-    t.write('\n|11 Doors and online games\n\n' +
-            '|07  (1) |14Tale of the Scarlet Wyrm|07   |08fantasy, 15 fights a day\n' +
-            '|07  (2) |11Sector Run|07                 |08trading, 25 jumps a day\n' +
-            '|11  (X)|07 Back to the main menu\n\n|15> |07');
+    t.write('\n' + shadowBox([
+      ' |14D O O R S   A N D   O N L I N E   G A M E S',
+      '-',
+      ' |11(1)|12 Tale of the Scarlet Wyrm|15   fantasy, 15 fights a day',
+      ' |11(2)|11 Sector Run|15                 trading, 25 jumps a day',
+      ' |11(X)|15 Back to the main menu',
+    ], { width: 58, edge: 4, fill: 1, indent: 10 }) + '\n|15> |07');
     const k = await t.key('12X');
     if (k === 'X') return true;
     t.write('\n|08Dropping to door... |08loading ' +

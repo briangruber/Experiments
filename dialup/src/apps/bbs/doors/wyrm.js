@@ -18,7 +18,9 @@
  */
 
 import { randInt, pick, chance } from '../../../core/dom.js';
-import { box, padTo } from '../screen.js';
+import { padTo } from '../screen.js';
+import { bigText, picture, rule, shadowBox, meter } from '../ansi.js';
+import { PIC } from '../art.js';
 
 const DAY_FIGHTS = 15;
 
@@ -52,7 +54,7 @@ const MASTERS = [
 /* The thing the game is named after. It is not a master and it does not
    teach: it is the last screen, and it is meant to take you a few days. */
 const WYRM = {
-  name: 'the Scarlet Wyrm', hp: 2600, max: 2600, str: 340,
+  name: 'the Scarlet Wyrm', pic: 'wyrm', hp: 2600, max: 2600, str: 340,
   die: 'It goes out like a furnace door closing, and the fells are cold again.',
 };
 
@@ -72,51 +74,51 @@ const ARMOURS = [
 /* Monsters by level band. Every one of them dies in its own way, because
    that is the part everybody actually remembers. */
 const BEASTS = [
-  { lv: 1, name: 'a bad-tempered goose',   hp: 9,   str: 4,   xp: 12,   gold: 14,
+  { lv: 1, name: 'a bad-tempered goose', pic: 'beast',   hp: 9,   str: 4,   xp: 12,   gold: 14,
     die: 'It goes very still, which is the most peaceful you have ever seen it.' },
-  { lv: 1, name: 'a mud-caked boar',       hp: 13,  str: 5,   xp: 18,   gold: 20,
+  { lv: 1, name: 'a mud-caked boar', pic: 'beast',       hp: 13,  str: 5,   xp: 18,   gold: 20,
     die: 'It sits down in the mud it came from.' },
-  { lv: 2, name: 'a hedge-thief',          hp: 20,  str: 8,   xp: 40,   gold: 55,
+  { lv: 2, name: 'a hedge-thief', pic: 'knight',          hp: 20,  str: 8,   xp: 40,   gold: 55,
     die: 'He drops a purse that was never his and runs into the dark.' },
-  { lv: 2, name: 'a starving wolf',        hp: 24,  str: 9,   xp: 48,   gold: 40,
+  { lv: 2, name: 'a starving wolf', pic: 'beast',        hp: 24,  str: 9,   xp: 48,   gold: 40,
     die: 'It looks almost grateful.' },
-  { lv: 3, name: 'a bog-lurker',           hp: 36,  str: 13,  xp: 110,  gold: 120,
+  { lv: 3, name: 'a bog-lurker', pic: 'brute',           hp: 36,  str: 13,  xp: 110,  gold: 120,
     die: 'It comes apart like wet bread.' },
-  { lv: 3, name: 'the miller’s dog, loose', hp: 32, str: 15,  xp: 120,  gold: 90,
+  { lv: 3, name: 'the miller’s dog, loose', pic: 'beast', hp: 32, str: 15,  xp: 120,  gold: 90,
     die: 'You feel terrible. The miller will not.' },
-  { lv: 4, name: 'a road-troll',           hp: 58,  str: 20,  xp: 300,  gold: 340,
+  { lv: 4, name: 'a road-troll', pic: 'brute',           hp: 58,  str: 20,  xp: 300,  gold: 340,
     die: 'It falls across its own bridge and blocks the road for a week.' },
-  { lv: 4, name: 'a rusted sentinel',      hp: 52,  str: 23,  xp: 320,  gold: 300,
+  { lv: 4, name: 'a rusted sentinel', pic: 'knight',      hp: 52,  str: 23,  xp: 320,  gold: 300,
     die: 'It stops mid-swing and stays there, which is somehow worse.' },
-  { lv: 5, name: 'a fen-hag',              hp: 84,  str: 30,  xp: 700,  gold: 760,
+  { lv: 5, name: 'a fen-hag', pic: 'brute',              hp: 84,  str: 30,  xp: 700,  gold: 760,
     die: 'She curses you thoroughly and at length before she goes.' },
-  { lv: 5, name: 'a boar the size of a cart', hp: 96, str: 28, xp: 720, gold: 700,
+  { lv: 5, name: 'a boar the size of a cart', pic: 'beast', hp: 96, str: 28, xp: 720, gold: 700,
     die: 'The ground takes a moment to stop shaking.' },
-  { lv: 6, name: 'a knight who will not say why', hp: 130, str: 40, xp: 1500, gold: 1600,
+  { lv: 6, name: 'a knight who will not say why', pic: 'knight', hp: 130, str: 40, xp: 1500, gold: 1600,
     die: 'The visor is empty. It has been empty the whole time.' },
-  { lv: 6, name: 'a colony of grave-beetles', hp: 118, str: 44, xp: 1600, gold: 1400,
+  { lv: 6, name: 'a colony of grave-beetles', pic: 'beast', hp: 118, str: 44, xp: 1600, gold: 1400,
     die: 'They go back down one by one, unhurried.' },
-  { lv: 7, name: 'the Ash Widow',          hp: 190,  str: 58,  xp: 3200, gold: 3400,
+  { lv: 7, name: 'the Ash Widow', pic: 'knight',          hp: 190,  str: 58,  xp: 3200, gold: 3400,
     die: 'She thanks you, which you will think about for years.' },
-  { lv: 7, name: 'a stone lion, walking',  hp: 210,  str: 54,  xp: 3300, gold: 3000,
+  { lv: 7, name: 'a stone lion, walking', pic: 'beast',  hp: 210,  str: 54,  xp: 3300, gold: 3000,
     die: 'It settles onto its plinth and is a statue again.' },
-  { lv: 8, name: 'a drowned bell-ringer',  hp: 280,  str: 76,  xp: 6500, gold: 6800,
+  { lv: 8, name: 'a drowned bell-ringer', pic: 'knight',  hp: 280,  str: 76,  xp: 6500, gold: 6800,
     die: 'The bell rings once, a long way off.' },
-  { lv: 8, name: 'a wyrmling, half-grown', hp: 300,  str: 80,  xp: 7000, gold: 7400,
+  { lv: 8, name: 'a wyrmling, half-grown', pic: 'wyrm', hp: 300,  str: 80,  xp: 7000, gold: 7400,
     die: 'It is smaller than you expected, and that is the frightening part.' },
-  { lv: 9, name: 'the Sheriff of Nine Winters', hp: 420, str: 104, xp: 14000, gold: 15000,
+  { lv: 9, name: 'the Sheriff of Nine Winters', pic: 'knight', hp: 420, str: 104, xp: 14000, gold: 15000,
     die: 'His men do not avenge him. They had been waiting.' },
-  { lv: 9, name: 'a thing wearing a miner', hp: 400, str: 110, xp: 14500, gold: 13000,
+  { lv: 9, name: 'a thing wearing a miner', pic: 'brute', hp: 400, str: 110, xp: 14500, gold: 13000,
     die: 'What is left is only a miner, and you bury him properly.' },
-  { lv: 10, name: 'the Bellfounder’s failure', hp: 600, str: 140, xp: 28000, gold: 30000,
+  { lv: 10, name: 'the Bellfounder’s failure', pic: 'brute', hp: 600, str: 140, xp: 28000, gold: 30000,
     die: 'It rings flat all the way down.' },
-  { lv: 10, name: 'a wyrm of the low fields', hp: 640, str: 134, xp: 29000, gold: 28000,
+  { lv: 10, name: 'a wyrm of the low fields', pic: 'wyrm', hp: 640, str: 134, xp: 29000, gold: 28000,
     die: 'The field is scorched in a perfect circle and nothing grows there.' },
-  { lv: 11, name: 'Ardith’s old master',  hp: 900,  str: 180, xp: 56000, gold: 58000,
+  { lv: 11, name: 'Ardith’s old master', pic: 'knight',  hp: 900,  str: 180, xp: 56000, gold: 58000,
     die: 'He is pleased. That is the last thing he is.' },
-  { lv: 11, name: 'the Scarlet Wyrm’s herald', hp: 860, str: 190, xp: 58000, gold: 55000,
+  { lv: 11, name: 'the Scarlet Wyrm’s herald', pic: 'wyrm', hp: 860, str: 190, xp: 58000, gold: 55000,
     die: 'It delivers its message anyway, out of habit, and then stops.' },
-  { lv: 12, name: 'a wyrm of the high fells', hp: 1300, str: 250, xp: 110000, gold: 115000,
+  { lv: 12, name: 'a wyrm of the high fells', pic: 'wyrm', hp: 1300, str: 250, xp: 110000, gold: 115000,
     die: 'It falls a long way and takes the weather with it.' },
 ];
 
@@ -171,10 +173,8 @@ const save = (handle, s) => {
   try { localStorage.setItem(store(handle), JSON.stringify(s)); } catch {}
 };
 
-const bar = (n, max, width = 20) => {
-  const on = Math.max(0, Math.min(width, Math.round((n / max) * width)));
-  return '|10' + '█'.repeat(on) + '|08' + '░'.repeat(width - on) + '|07';
-};
+const centred = (text, cols = 80) =>
+  ' '.repeat(Math.max(0, Math.floor((cols - text.length) / 2))) + text;
 
 export async function playWyrm(t, handle) {
   const s = load(handle);
@@ -185,12 +185,11 @@ export async function playWyrm(t, handle) {
   const ready = () => !topped() && s.xp >= master().xp;
 
   t.clear();
-  t.write(
-    '|04 █   █ █   █ ███  █   █    |14T A L E   O F   T H E\n' +
-    '|04 █   █  █ █  █  █ ██ ██\n' +
-    '|04 █ █ █   █   ███  █ █ █    |12S C A R L E T   W Y R M\n' +
-    '|04 ██ ██   █   █ █  █   █\n' +
-    '|04 █   █   █   █  █ █   █    |08a door by Nell Farrow, 1994\n\n');
+  t.write(picture(PIC.wyrm) + '\n');
+  t.write(bigText('SCARLET', { fg: 12, shade: 4, indent: 8 }));
+  t.write(bigText('WYRM', { fg: 14, shade: 6, indent: 26 }));
+  t.write(rule(78, { fg: 4, fade: true }));
+  t.write('|08' + ' '.repeat(23) + 'a door by Nell Farrow  ·  version 2.1\n\n');
   t.write('|07Welcome back, |15' + handle + '|07. This is day |15' + s.days +
           '|07 of your service.\n');
   if (s.slain) t.write('|14They still talk about the Wyrm. Nobody says your name without it.\n');
@@ -206,19 +205,19 @@ export async function playWyrm(t, handle) {
 
   async function town() {
     t.clear();
-    t.write(box([
-      '  |14T H E   V I L L A G E   O F   L O W   B R I D G E',
-    ], { width: 58, edge: '|02' }));
+    t.write(picture(PIC.village));
+    t.write(rule(78, { fg: 6, ch: '▀' }));
+    t.write(bigText('LOW BRIDGE', { fg: 10, shade: 2, indent: 4 }));
     status();
-    const row = (a, b) => '  ' + padTo(a, 24) + (b || '') + '\n';
-    t.write('\n' +
-      row('|11(F)|07 The forest', '|11(T)|07 The training hall') +
-      row('|11(H)|07 The healer', '|11(W)|07 The weaponsmith') +
-      row('|11(A)|07 The armourer', '|11(B)|07 The bank') +
-      row('|11(I)|07 The inn', '|11(L)|07 The hall of fame') +
-      row('|11(Q)|07 Leave the village') + '\n' +
-      (ready() ? '|14  ' + master().name + ' has been asking after you.\n\n' : '') +
-      '|15Your choice: |07');
+    t.write(shadowBox([
+      ' |11(F)|15 The forest' + ' '.repeat(9) + '|11(T)|15 The training hall',
+      ' |11(H)|15 The healer' + ' '.repeat(9) + '|11(W)|15 The weaponsmith',
+      ' |11(A)|15 The armourer' + ' '.repeat(7) + '|11(B)|15 The bank',
+      ' |11(I)|15 The inn' + ' '.repeat(11) + '|11(L)|15 The hall of fame',
+      ' |11(Q)|15 Leave the village',
+    ], { width: 48, edge: 3, fill: 1, indent: 16 }));
+    if (ready()) t.write('|14  ' + master().name + ' has been asking after you.\n');
+    t.write('\n|15Your choice: |07');
     const k = await t.key('FTHWABILQ');
     if (k === 'F') return forest();
     if (k === 'T') return training();
@@ -245,7 +244,8 @@ export async function playWyrm(t, handle) {
   async function forest() {
     while (true) {
       const fells = topped() && !s.slain;
-      t.write('\n|02The forest is quiet in the way that means nothing good.\n' +
+      t.write('\n' + picture(PIC.forest) +
+              '|02The forest is quiet in the way that means nothing good.\n' +
               '|11  (L)|07 Look for something   |11(H)|07 Bind your wounds   ' +
               '|11(R)|07 Back to the village\n' +
               (fells ? '|12  (F)|07 Climb to the high fells\n' : '') +
@@ -302,10 +302,11 @@ export async function playWyrm(t, handle) {
 
   /** @returns {boolean} true if you are still standing. */
   async function fight(beast, isMaster = false) {
-    t.write('\n|12You have met |15' + beast.name + '|12.\n');
+    if (beast.pic && PIC[beast.pic]) t.write('\n' + picture(PIC[beast.pic]));
+    t.write('|12' + centred('You have met ' + beast.name) + '\n');
     while (true) {
-      t.write('|08 ' + beast.name + ' |07' + bar(beast.hp, beast.max, 14) +
-              '   |08you |07' + bar(s.hp, s.maxHp, 14) + '\n' +
+      t.write('|08 ' + padTo(beast.name, 22) + meter(beast.hp, beast.max, 16, { on: 12 }) +
+              '\n|08 ' + padTo('you', 22) + meter(s.hp, s.maxHp, 16) + '\n' +
               '|11 (A)|07ttack  |11(S)|07tats  ' + (isMaster ? '' : '|11(R)|07un') + '  |15> |07');
       const k = await t.key(isMaster ? 'AS' : 'ASR');
 
@@ -343,7 +344,7 @@ export async function playWyrm(t, handle) {
     s.hp = 0; s.dead = true; s.fights = 0;
     const lost = s.gold;
     s.gold = 0;
-    t.write('\n|04██ |12You are killed by |15' + beast.name + '|12. |04██\n' +
+    t.write('\n|04' + centred('▄▄▄  You are killed by ' + beast.name + '  ▄▄▄') + '\n' +
             '|08They carry you back over the bridge. You lose the |14' + lost +
             '|08 gold you were carrying;\n|08the bank keeps what it has. Sleep at the inn ' +
             'and try again tomorrow.\n');

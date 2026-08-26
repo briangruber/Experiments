@@ -43,14 +43,48 @@ export function createTerminal({ cols = 80, cps = 1440 } = {}) {
 
   /* ── painting ──────────────────────────────────────────────────────── */
 
+  /* The three solid blocks are painted rather than drawn.
+     A font's █ is not quite as wide as the cell it advances, and its height
+     has nothing to do with the line height, so art made of them arrives
+     with a fine grid of gaps through it. Painting the span's background
+     instead — a flat fill for █, a half-and-half gradient for ▀ and ▄ —
+     tiles exactly, in both directions, whatever font the machine has. */
+  const BLOCKS = { '█': 1, '▀': 2, '▄': 3 };
+
+  function paint(mode, f, b) {
+    if (mode === 1) return { background: PALETTE[f] };
+    const [top, bot] = mode === 2 ? [f, b] : [b, f];
+    return {
+      background: 'linear-gradient(to bottom, ' +
+        PALETTE[top] + ' 0 50%, ' + PALETTE[bot] + ' 50% 100%)',
+    };
+  }
+
   function emit(text, f, b) {
+    // One span per run of the same colour *and* the same kind of cell.
+    let run = '', mode = BLOCKS[text[0]] || 0;
+    const flush = () => { if (run) { part(run, f, b, mode); run = ''; } };
+    for (const ch of text) {
+      const m = BLOCKS[ch] || 0;
+      if (m !== mode) { flush(); mode = m; }
+      run += ch;
+    }
+    flush();
+    screen.scrollTop = screen.scrollHeight;
+  }
+
+  function part(text, f, b, mode) {
     const last = out.lastElementChild;
-    if (last && Number(last.dataset.f) === f && Number(last.dataset.b) === b) {
+    if (last && Number(last.dataset.f) === f && Number(last.dataset.b) === b &&
+        Number(last.dataset.m) === mode) {
       last.appendChild(document.createTextNode(text));
     } else {
       out.append(h('span', {
-        dataset: { f, b },
-        style: { color: PALETTE[f], background: b ? PALETTE[b] : 'transparent' },
+        class: mode ? 'blk' : '',
+        dataset: { f, b, m: mode },
+        style: mode
+          ? paint(mode, f, b)
+          : { color: PALETTE[f], background: b ? PALETTE[b] : 'transparent' },
       }, text));
     }
     chars += text.length;
@@ -60,7 +94,6 @@ export function createTerminal({ cols = 80, cps = 1440 } = {}) {
         out.firstElementChild.remove();
       }
     }
-    screen.scrollTop = screen.scrollHeight;
   }
 
   /** Splits pipe-coded text into coloured runs, carrying colour across calls. */

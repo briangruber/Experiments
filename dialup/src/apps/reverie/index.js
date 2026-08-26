@@ -48,25 +48,25 @@ const GAMES = {
 export const LANDS = [
   { id: 'fountain', name: 'The Fountain', art: 'rev_fountain',
     blurb: 'The middle of everything, and somewhere to make a wish',
-    at: [43, 70], games: ['wish'] },
+    at: [30, 40], games: ['wish'] },
   { id: 'post', name: 'The Post Office', art: 'rev_post',
     blurb: 'Pigeonholes, parcel string, and a board of postcards',
-    at: [60, 36], games: ['postcard'] },
+    at: [34, 70], games: ['postcard'] },
   { id: 'inn', name: 'The Bridge Inn', art: 'rev_inn',
     blurb: 'A fire, long tables, and a box that wants shutting',
-    at: [79, 62], games: ['box'] },
+    at: [50, 33], games: ['box'] },
   { id: 'keep', name: "Jouster's Keep", art: 'rev_keep',
     blurb: 'Board games under the pennants',
-    at: [27, 12], games: ['checkers'] },
+    at: [16, 34], games: ['checkers'] },
   { id: 'boardwalk', name: 'The Boardwalk', art: 'rev_boardwalk',
     blurb: 'Crazy golf, lights on the water, and a machine that eats tokens',
-    at: [11, 24], games: ['golf', 'slots'] },
+    at: [77, 46], games: ['golf', 'slots'] },
   { id: 'airfield', name: 'Sky Squadron', art: 'rev_airfield',
     blurb: 'Two biplanes and a field at golden hour',
-    at: [10, 82], games: ['dawn'] },
+    at: [84, 24], games: ['dawn'] },
   { id: 'cloud', name: 'Cloud Nine', art: 'rev_cloud',
     blurb: 'No games at all. Where everybody stands about and talks',
-    at: [6, 9], games: [] },
+    at: [21, 13], games: [] },
 ];
 
 const roomOf = landId => 'rev-' + landId;
@@ -114,11 +114,11 @@ export function openReverie(session) {
         h('div.rev-gate-word', {}, 'The Reverie Network'),
         frame(ART.rev_fly, 'rev-fly'),
         h('div.rev-gate-sub', {},
-          'A painted island, four places to stand in it, and a face you make yourself.'),
+          'A painted town, seven places to stand in it, and a face you make yourself.'),
         face
           ? h('div.rev-gate-you', {},
               portrait(face, session.name, { size: 72 }),
-              h('div.rev-gate-sub', {}, 'This is you. Everybody on the island ' +
+              h('div.rev-gate-sub', {}, 'This is you. Everybody in the town ' +
                                         'will see this face and this name.'))
           : h('div.rev-gate-sub', {}, 'You will need a face before you can go in.')),
       h('div.rev-bar', {},
@@ -226,58 +226,58 @@ export function openReverie(session) {
 
   /* ── the island map ────────────────────────────────────────────────── */
 
-  /* Painted town in a mount, numbered badges on it, and the numbers again
-     in a cream legend down the right-hand side. */
+  /* The map is the painted country itself, edge to edge, with a wooden
+     sign planted at every place you can go — which is how the graphical
+     services did it. No legend down the side: the signs are the legend. */
   function showMap() {
     leaveLand();
     primeIsland();
 
-    const pic = h('div.rev-pic.rev-map-pic', {
+    const town = h('div.rev-town', {
       style: { backgroundImage: 'url(' + ART.rev_town + ')' },
     }, townAmbience());
-    const list = h('ol');
+
+    town.append(h('button.rev-sign.title', { type: 'button', disabled: true,
+      style: { left: '50%', top: '5%' } }, h('b', {}, 'Reverie')));
 
     LANDS.forEach((l, i) => {
       const here = peopleIn(l.id).length;
-      const go = () => { A.doorOpen(); showLand(l); };
-
-      const spot = h('button.rev-spot', {
-        type: 'button', title: l.name + ' — ' + l.blurb,
+      town.append(h('button.rev-sign', {
+        type: 'button',
+        title: l.name + ' — ' + l.blurb +
+               (l.games.length ? '  ·  ' + l.games.map(id => GAMES[id].label).join(', ') : ''),
         style: { left: l.at[0] + '%', top: l.at[1] + '%',
-                 animationDelay: (i * 70) + 'ms' },
-        onclick: go,
-      }, String(i + 1),
-        here ? h('span.rev-spot-here', {}, here + ' here') : null);
-      pic.append(spot);
-
-      list.append(h('li', { onclick: go, style: { animationDelay: (i * 55) + 'ms' } },
-        h('b', {}, String(i + 1)),
-        h('span', {}, l.name,
-          h('em', {}, l.blurb),
-          l.games.length
-            ? h('em.rev-plays', {}, l.games.map(id => GAMES[id].label).join('  ·  '))
-            : null)));
+                 animationDelay: (120 + i * 60) + 'ms' },
+        onclick: () => { A.doorOpen(); showLand(l); },
+      },
+        h('b', {}, l.name),
+        here ? h('em', {}, here) : null,
+        h('i')));
     });
+
+    town.append(h('button.rev-sign.exit', {
+      type: 'button', title: 'Close Reverie',
+      style: { left: '9%', top: '95%', animationDelay: '560ms' },
+      onclick: () => { A.doorClose(); win.close(); },
+    }, h('b', {}, 'Exit'), h('i')));
 
     const total = LANDS.reduce((n, l) => n + peopleIn(l.id).length, 0);
 
-    clear(stage).append(h('div.rev-ground.blue', {},
-      h('div.rev-top', {}, h('b', {}, 'The Island of Reverie')),
-      h('div.rev-map', {},
-        h('div.rev-map-art', {}, h('div.rev-frame', {}, pic)),
-        h('div.rev-legend', {},
-          h('h2.rev-h', {}, 'Welcome to Reverie'),
-          h('p', {}, 'Pick a number and go and stand there.'),
-          list,
-          h('div.rev-legend-foot', {},
-            total
-              ? total + ' ' + (total === 1 ? 'person is' : 'people are') + ' on the island.'
-              : 'The island is quiet. Somebody will turn up.'))),
+    clear(stage).append(h('div.rev-ground.town', {},
+      town,
       h('div.rev-bar', {},
         portrait(face, session.name, { size: 34, cls: 'small me' }),
         btn('Change Face', () => { A.click(); showFaceMaker(); }),
+        session.rename ? btn('Change Name', async () => {
+          A.click();
+          await session.rename();
+          showMap();
+        }) : null,
         h('span.spacer'),
-        h('span.rev-note', {}, 'Reverie is a made-up service. Everything in it is drawn.'))));
+        h('span.rev-note', {},
+          total
+            ? total + ' ' + (total === 1 ? 'person is' : 'people are') + ' out there.'
+            : 'Quiet out. Somebody will turn up.'))));
   }
 
   /* ── a land ────────────────────────────────────────────────────────── */

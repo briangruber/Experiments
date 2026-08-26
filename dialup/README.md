@@ -62,8 +62,11 @@ belonged before the two got merged.
 
 ## The Reverie Network
 
-Keyword `REVERIE`, or the icon on the desktop. The other kind of service
-the era had: not a wall of text but a painted world you walked around as a
+Keyword `REVERIE`, or the icon on the desktop — and the icon does not need
+Halcyon. Sign on and Reverie borrows that session, so you are one person on
+the network under one name; open it cold and it asks for a name of its own,
+makes its own connection, and never mentions the service at all. The other
+kind of service the era had: not a wall of text but a painted world you walked around as a
 face you built yourself, with board games in it.
 
 It is drawn in that kind of service's grammar rather than Halcyon's:
@@ -79,15 +82,16 @@ looked like a boxed game, and the difference was the whole point.
   not floating heads. Drawn as vectors, so a face is ten small numbers and
   every combination is instant. Yours is remembered; everybody else's is
   derived from their screen name, so the same person always looks the same.
-- **The island.** A painted town in a mount with a numbered blue badge on
-  each of seven places, and the same numbers again in a cream legend down
-  the right-hand side. Each badge says how many people are standing there.
-  They are populated before you arrive — a map of empty rooms is worse
-  than no map.
-- **The town moves.** Water comes out of both fountains, smoke off a
-  chimney, gulls across the top, a pennant on the castle tower that never
-  quite settles, and a light on the big wheel that catches every few
-  seconds. It is a layer of small CSS sprites laid over the painting at
+- **The map.** The painted country itself, edge to edge, with a wooden
+  sign planted at each of seven places and a tag on the corner saying how
+  many people are standing there. No legend down the side: the signs are
+  the legend, which is how these looked and is two fewer things to read.
+  The places are populated before you arrive — a map of empty rooms is
+  worse than no map.
+- **The town moves.** Water out of the fountain, smoke off a chimney,
+  gulls across the top, a pennant on the castle tower that never quite
+  settles, a light on the big wheel that catches every few seconds, and
+  the signs planting themselves one after another as the map opens. It is a layer of small CSS sprites laid over the painting at
   measured positions — no canvas, no timers, nothing on the critical path
   — and all of it stops dead under `prefers-reduced-motion`. The badges
   and the legend arrive one after another rather than all at once, which
@@ -160,6 +164,38 @@ answer the page because it is the middle of the night.
 Colour is written in **pipe codes** — `|15` white, `|04` red — because that
 is genuinely how the sysop of a Renegade or Telegard board wrote their
 menus, and because it keeps escape characters out of the source.
+
+### The ANSI
+
+The doors are drawn, not printed. Three tools in `src/apps/bbs/ansi.js` do
+most of it:
+
+- **block capitals**, five rows tall, with the bottom row a shade darker so
+  flat blocks read as lit from above;
+- **half-block pictures** — `▀` with a foreground and a background shows
+  two stacked pixels, so the screen is effectively 80×50 rather than 80×25.
+  That trick is the whole art form. Its catch is that backgrounds only go
+  up to seven (bright backgrounds were the blink attribute), so a bright
+  colour under a different bright colour falls back to its dark twin, which
+  is what artists worked around too;
+- **shaded rules and shadowed boxes** out of `░▒▓█`, which is what a menu
+  looked like once the sysop found TheDraw.
+
+The pictures come from `tools/gen-ansi.mjs`: generate the subject, resize
+it to the cell grid, and quantise to the CGA sixteen — close to how a lot
+of artists worked once scanners were cheap. Two things it got wrong first
+and now handles: asking for a wide picture of a wolf's head returns a wolf
+centred in a letterbox using a third of the columns, so the requested frame
+now matches the grid; and per-channel autocontrast turns a green forest
+grey, so the tone is preserved. A despeckle pass at the end cleans the
+confetti that nearest-colour matching makes of JPEG noise.
+
+One thing the terminal does that a real one did not have to: the three
+solid blocks are **painted rather than drawn**. A font's `█` is not quite
+as wide as the cell it advances and its height has nothing to do with the
+line height, so art built from them arrives with a fine grid of gaps
+through it. Those spans get a background instead — a flat fill for `█`, a
+half-and-half gradient for `▀` and `▄` — and tile exactly on any machine.
 
 Two **doors**, which is what a board called its games:
 
@@ -379,8 +415,9 @@ src/
   boot/               BIOS, splash, desktop shell
   apps/
     halcyon/          the service: dialer, chat, IM, mail, channels, people
-    reverie/          the painted island: faces, town, lands, six games
-    bbs/              Telepath, the Midnight Carnival, and its two doors
+    reverie/          the painted town: faces, map, lands, six games
+    bbs/              Telepath, the Midnight Carnival, its two doors,
+                      and the ANSI toolkit the doors are drawn with
     sites/web.js      the World Wide Web, as data
     browser.js  minehunt.js  sketchpad.js  jukebox.js  defrag.js
     notepad.js  mycomputer.js  recycle.js  screensaver.js  assistant.js
@@ -389,6 +426,7 @@ src/
 tools/
   check.mjs           static checks, no browser
   test.mjs            safety layer and relay behaviour
+  gen-ansi.mjs        trace the door pictures down to sixteen colours
   bundle.mjs          flatten to one self-contained HTML file
   relay.mjs           the optional multi-user relay
 ```
@@ -419,3 +457,41 @@ anything anyone types to markup.
 - Ask the Midnight Carnival for a file, and see what it says about ratios.
 - Throw a coin in the fountain, then come back tomorrow.
 - Watch the town map for a few seconds without clicking anything.
+- Open Reverie from the desktop without signing on to Halcyon first.
+- Dial the Carnival at 2400 and watch the dragon paint down the screen.
+
+## Making it actually multi-user
+
+Right now "multi-user" means two real things and one honest fiction, and
+the [presence table](#on-making-it-feel-busy) says which is which. Both
+real ones are transports behind `session.net`: `BroadcastChannel` between
+tabs on one machine, and an optional WebSocket relay across a LAN. Neither
+reaches strangers, and the published artifact cannot: a page on claude.ai
+gets no shared-state capability, so anything claiming otherwise would be a
+number this page invented.
+
+If it were hosted somewhere with a backend, the interface it plugs into is
+already the right shape. `src/core/net.js` exposes `join`, `leave`, `say`,
+`roster` and an event bus; everything above it — chat rooms, Reverie's
+lands, the presence counts — only ever talks to that. A real backend is a
+third transport, not a rewrite.
+
+Two things such a backend has to do, and they are not the same job:
+
+- **Ephemeral, constant, per-room:** who is standing where, what was just
+  said, whose turn it is. High rate, no history worth keeping, and the
+  natural shard is the room.
+- **Durable, occasional, per-person:** your face, your name, a character
+  sheet, a hall of fame. Low rate, and it must survive a disconnection.
+
+The pairing that fits best is **one authoritative actor per room plus a
+small relational store** — Cloudflare Durable Objects with D1 or Postgres
+behind them, or Supabase, whose Realtime Broadcast and Presence cover the
+first job and whose Postgres covers the second. What matters more than the
+choice is that the room logic runs on the server: a client that can name
+its own level is a client that will.
+
+Whatever goes in, the phrase book stays. The screening in `core/safety.js`
+currently runs in the browser, which is a courtesy rather than a control —
+against a real server it moves to the other side of the wire and becomes
+one.

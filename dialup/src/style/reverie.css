@@ -104,7 +104,11 @@
 .rev-gate { flex: 1; display: flex; flex-direction: column; align-items: center;
             justify-content: center; gap: 10px; padding: 14px; min-height: 0; }
 .rev-gate .rev-frame { flex: 0 1 auto; min-height: 0; }
-.rev-fly { width: min(340px, 100%); aspect-ratio: 176 / 112; }
+/* A definite width, not a percentage: the mount shrink-wraps its picture,
+   so a picture asking for a percentage of the mount asks the mount how
+   wide it is, and both settle on nothing. */
+.rev-fly { width: 340px; aspect-ratio: 176 / 112; }
+.rev-gate .rev-frame { max-width: 100%; }
 .rev-gate-word {
   font: 700 30px/1 Georgia, "Times New Roman", serif; color: var(--plate);
   text-shadow: 3px 3px 0 #0008; letter-spacing: -.02em; text-align: center;
@@ -157,46 +161,78 @@
 .rev-swatch { flex: 1; min-width: 0; cursor: pointer; padding: 0; border: 1px solid #0006; }
 .rev-swatch.on { border: 2px solid var(--ink); outline: 1px solid var(--plate); }
 
-/* ── the island map ──────────────────────────────────────────────────── */
+/* ── the island map ────────────────────────────────────────────────────
+   The painted country, edge to edge, with a wooden sign planted at every
+   place you can go. No legend down the side — the signs are the legend,
+   which is how these looked and is also two fewer things to read. */
 
-.rev-map { flex: 1; display: flex; gap: 8px; padding: 8px; min-height: 0; }
-.rev-map-art { flex: 1 1 auto; min-width: 0; display: flex; }
-.rev-map-art .rev-frame { flex: 1; display: flex; min-width: 0; }
-.rev-map-pic { flex: 1; position: relative; min-width: 0; }
-
-/* A numbered blue badge sat on each place you could go. */
-.rev-spot {
-  position: absolute; translate: -50% -50%; width: 26px; height: 26px; padding: 0;
-  cursor: pointer; border-radius: 50%;
-  font: 700 13px/1 var(--ui); color: #fff; background: var(--blu);
-  border: 3px solid; border-color: var(--blu-lt) var(--blu-dk) var(--blu-dk) var(--blu-lt);
-  box-shadow: 0 2px 4px #0008;
-}
-.rev-spot:hover, .rev-spot.on { background: var(--red); border-color: var(--red-lt) var(--red-dk) var(--red-dk) var(--red-lt); }
-.rev-spot-here {
-  position: absolute; left: 50%; top: 100%; translate: -50% 3px;
-  padding: 0 3px; font: 700 9px/1.4 var(--ui); color: var(--ink);
-  background: var(--plate); border: 1px solid var(--plate-dk); white-space: nowrap;
+.rev-ground.town { background: #7fb8d8; }
+.rev-town {
+  flex: 1; position: relative; min-height: 0;
+  background: #7fb8d8 center / cover no-repeat;
 }
 
-/* The legend, on cream, to the right of the picture. */
-.rev-legend {
-  flex: 0 0 200px; display: flex; flex-direction: column; padding: 8px;
-  background: var(--cream); color: var(--ink); overflow: auto;
-  border: 3px solid; border-color: #fff #8a7850 #8a7850 #fff;
+.rev-sign {
+  position: absolute; translate: -50% -100%;
+  display: flex; flex-direction: column; align-items: center;
+  padding: 0; cursor: pointer; background: none; border: 0;
+  animation: rev-plant .4s cubic-bezier(.2, 1.5, .4, 1) both;
+  transition: scale .12s;
 }
-.rev-legend p { margin: 0 0 4px; font: 11px/1.3 var(--ui); }
-.rev-legend ol { margin: 0; padding: 0; list-style: none; }
-.rev-legend li { display: flex; gap: 6px; padding: 2px 0; border-top: 1px solid #0002; cursor: pointer; }
-.rev-legend li:hover { background: #0001; }
-.rev-legend li b {
-  flex: none; width: 17px; height: 17px; display: grid; place-items: center;
-  font: 700 10px var(--ui); color: #fff; background: var(--blu); border-radius: 50%;
+.rev-sign:hover { scale: 1.07; z-index: 4; }
+.rev-sign:hover b { background: linear-gradient(#fff0a8, #f2c85a); }
+.rev-sign:active { scale: .98; }
+
+/* The plank. Painted board, chunky bevel, and a shadow on the grass. */
+.rev-sign b {
+  display: block; padding: 3px 10px 4px; white-space: nowrap;
+  font: 700 12px/1.15 var(--ui); letter-spacing: .05em; text-transform: uppercase;
+  color: #4a2a08; background: linear-gradient(#f7d97a, #e5b038);
+  border: 2px solid; border-color: #fff4c4 #9a6c12 #9a6c12 #fff4c4;
+  box-shadow: 0 2px 0 rgba(0,0,0,.35), 0 4px 8px rgba(0,0,0,.35);
 }
-.rev-legend li span { flex: 1; min-width: 0; font: 700 11px/1.25 var(--ui); }
-.rev-legend li em { display: block; font-style: normal; font-size: 10px; line-height: 1.25; color: #6a5a3a; }
-.rev-legend li em.rev-plays { color: var(--red); font-weight: 700; }
-.rev-legend-foot { margin-top: auto; padding-top: 8px; font: italic 10px var(--ui); color: #6a5a3a; }
+/* The post it is nailed to. */
+.rev-sign i {
+  display: block; width: 5px; height: 13px;
+  background: linear-gradient(#8a6030, #55391a);
+  box-shadow: 1px 0 0 rgba(0,0,0,.3), 0 3px 5px rgba(0,0,0,.35);
+}
+/* How many people are standing there, on a tag nailed to the corner. */
+.rev-sign em {
+  position: absolute; right: -9px; top: -8px; z-index: 2;
+  min-width: 17px; padding: 0 3px; text-align: center;
+  font: 700 10px/1.5 var(--ui); font-style: normal; color: #08300f;
+  background: #6fe06f; border: 2px solid; border-color: #c8ffc8 #1c7a1c #1c7a1c #c8ffc8;
+}
+
+.rev-sign.title { translate: -50% 0; cursor: default; }
+.rev-sign.title b {
+  padding: 5px 20px 6px;
+  font: 700 21px/1.1 Georgia, "Times New Roman", serif;
+  letter-spacing: .02em; text-transform: none; color: #5a2408;
+  background: linear-gradient(#fbe9a4, #e8b23c);
+  border-width: 3px;
+}
+.rev-sign.title:hover { scale: 1; }
+
+.rev-sign.exit b {
+  color: #fff2ea; background: linear-gradient(#e04a3a, #a81818);
+  border-color: #ff9a86 #600c0c #600c0c #ff9a86;
+}
+.rev-sign.exit:hover b { background: linear-gradient(#ff6a56, #c02020); }
+
+@keyframes rev-plant {
+  from { opacity: 0; translate: -50% -180%; }
+  to   { opacity: 1; translate: -50% -100%; }
+}
+.rev-sign.title { animation-name: rev-plant-title; }
+@keyframes rev-plant-title {
+  from { opacity: 0; translate: -50% -80%; }
+  to   { opacity: 1; translate: -50% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rev-sign { animation: none; }
+}
 
 /* ── standing in a land ──────────────────────────────────────────────── */
 
@@ -483,18 +519,11 @@
 
 /* Things arriving. A staggered entrance is the difference between a screen
    that loads and a screen that opens. */
-.rev-spot, .rev-legend li, .rev-person { animation: amb-rise .34s ease-out both; }
+.rev-person { animation: amb-rise .34s ease-out both; }
 @keyframes amb-rise { from { opacity: 0; translate: 0 7px } to { opacity: 1; translate: 0 0 } }
-.rev-spot { animation-name: amb-pop; }
-@keyframes amb-pop {
-  from { opacity: 0; scale: .4 }
-  70%  { opacity: 1; scale: 1.12 }
-  to   { opacity: 1; scale: 1 }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .amb { display: none; }
-  .rev-spot, .rev-legend li, .rev-person { animation: none; }
+  .rev-person { animation: none; }
 }
 
 /* ── shut the box ────────────────────────────────────────────────────── */
