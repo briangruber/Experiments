@@ -1,0 +1,416 @@
+/* Boat Wake Lab — instrument surface.
+ *
+ * Deliberately single-theme. The canvas is dark water; a light control rail
+ * beside it would be glare, not a choice. So every colour is painted
+ * explicitly and nothing is left to inherit from a host page's theme.
+ *
+ * Neutrals are biased toward the accent's cyan rather than being pure grey —
+ * the panel should read as part of the same instrument as the water. */
+
+:root {
+  --abyss:   #070d12;   /* ground: the water beyond the wake */
+  --panel:   #0e161ee6; /* control rail */
+  --raised:  #16222d;
+  --hair:    #1c2b37;
+  --foam:    #e9f2f7;   /* brightest text — the colour of the wake itself */
+  --dim:     #7d93a3;
+  --dimmer:  #4d616f;
+  --accent:  #5ad0e8;
+  --accent-q:#5ad0e82e;
+
+  --rail: 300px;
+  --font-ui: 'Barlow Condensed', 'Avenir Next Condensed', 'Roboto Condensed', system-ui, sans-serif;
+  --font-num: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--abyss);
+  color: var(--foam);
+  font-family: var(--font-num);
+  font-size: 12px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+#gl {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+
+/* ------------------------------------------------------------ status strip -- */
+
+#hud {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: var(--rail);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 9px 16px;
+  background: linear-gradient(var(--abyss) 15%, #070d1200);
+}
+
+#hud .brand {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--foam);
+}
+
+#fps {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  min-width: 4.5em;
+}
+
+#hud .hint {
+  color: var(--dimmer);
+  font-size: 11px;
+  margin-left: auto;
+}
+
+.views, .zoom { display: flex; gap: 5px; }
+.zoom button { min-width: 30px; font-size: 15px; line-height: 1; padding: 5px 8px; }
+
+.views button,
+.zoom button,
+#rail-toggle,
+.bar button {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--dim);
+  background: var(--raised);
+  border: 1px solid var(--hair);
+  border-radius: 3px;
+  padding: 4px 11px 3px;
+  cursor: pointer;
+  transition: color 0.14s, border-color 0.14s, background 0.14s;
+}
+
+.views button:hover,
+.zoom button:hover,
+#rail-toggle:hover,
+.bar button:hover { color: var(--foam); border-color: var(--dimmer); }
+
+.views button.on {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-q);
+}
+
+:where(button, input, summary):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* -------------------------------------------------------------- control rail -- */
+
+#rail-toggle { display: none; }
+
+#ui {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 4;
+  width: var(--rail);
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 12px 28px;
+  background: var(--panel);
+  backdrop-filter: blur(16px);
+  border-left: 1px solid var(--hair);
+}
+
+#ui::-webkit-scrollbar { width: 7px; }
+#ui::-webkit-scrollbar-thumb { background: var(--hair); border-radius: 4px; }
+#ui::-webkit-scrollbar-track { background: transparent; }
+
+body.hide-ui #ui,
+body.hide-ui #hud { display: none; }
+
+/* Lives outside both panels so it survives hiding them, and fades to a ghost
+ * once they are gone -- present enough to find, quiet enough to shoot past. */
+#chrome-toggle {
+  position: fixed;
+  top: 10px;
+  right: calc(var(--rail) + 12px);
+  z-index: 8;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--dim);
+  background: var(--raised);
+  border: 1px solid var(--hair);
+  border-radius: 3px;
+  padding: 4px 11px 3px;
+  cursor: pointer;
+  transition: opacity 0.2s, color 0.14s, border-color 0.14s;
+}
+#chrome-toggle:hover { color: var(--foam); border-color: var(--dimmer); }
+
+body.hide-ui #chrome-toggle {
+  right: 12px;
+  opacity: 0.22;
+  background: transparent;
+  border-color: transparent;
+}
+body.hide-ui #chrome-toggle:hover { opacity: 1; }
+
+details {
+  border: 1px solid var(--hair);
+  border-radius: 4px;
+  background: #0b131b8c;
+}
+
+summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 7px 10px 5px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+summary::-webkit-details-marker { display: none; }
+summary::before { content: '+'; margin-right: 7px; color: var(--dimmer); }
+details[open] > summary { border-bottom: 1px solid var(--hair); }
+details[open] > summary::before { content: '−'; }
+details > .row:last-of-type { margin-bottom: 9px; }
+
+/* A slider row is a readout first and a control second: label and value on one
+ * line so the numbers stack into a scannable column down the rail. */
+.row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: 2px 8px;
+  margin: 7px 10px 0;
+}
+
+.lbl { color: var(--dim); font-size: 11px; }
+
+.val {
+  color: var(--foam);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.row input { grid-column: 1 / -1; width: 100%; margin: 2px 0 0; }
+
+input[type=range] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 2px;
+  background: var(--hair);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: none;
+  cursor: pointer;
+}
+
+input[type=range]::-moz-range-thumb {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: none;
+  cursor: pointer;
+}
+
+.bar { display: flex; gap: 6px; margin-top: 4px; }
+.bar button { flex: 1; padding: 7px 4px 6px; }
+
+/* Copy/paste sheet: the fallback when an embedded frame blocks the clipboard
+ * API and there is no console to fall back to. */
+.sheet-back {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #04080cbf;
+  backdrop-filter: blur(4px);
+}
+
+.sheet {
+  width: min(560px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  background: var(--panel);
+  border: 1px solid var(--hair);
+  border-radius: 6px;
+}
+
+.sheet p { margin: 0; color: var(--dim); font-size: 12px; }
+.sheet b { color: var(--foam); }
+
+.sheet textarea {
+  height: 42vh;
+  resize: vertical;
+  padding: 10px;
+  color: var(--foam);
+  background: #060c11;
+  border: 1px solid var(--hair);
+  border-radius: 4px;
+  font: 11px/1.5 var(--font-num);
+  white-space: pre;
+}
+
+.sheet button {
+  align-self: flex-end;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--accent-q);
+  border: 1px solid rgba(90, 208, 232, 0.32);
+  border-radius: 4px;
+  padding: 7px 18px 6px;
+  cursor: pointer;
+}
+.sheet button:hover { color: var(--foam); }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+
+/* ------------------------------------------------------------------ narrow -- */
+/* The rail becomes a bottom sheet: the canvas is the point, so it keeps the
+ * top two-thirds of the screen. */
+
+@media (max-width: 720px) {
+  :root { --rail: 0px; }
+
+  /* Let the strip wrap rather than letting the Controls button land on top of
+     the view buttons. */
+  #hud {
+    right: 0;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    padding: 8px 10px;
+  }
+
+  #hud .hint { display: none; }
+  #hud .brand { font-size: 13px; letter-spacing: 0.1em; }
+  #chrome-toggle { top: auto; bottom: 12px; right: 12px; font-size: 12px; }
+  #fps { min-width: 0; margin-right: auto; }
+  #rail-toggle { display: block; }
+
+  .views button, .zoom button, #rail-toggle { font-size: 12px; padding: 4px 8px 3px; }
+
+  /* A sheet, not a wall: the canvas keeps most of the screen, and the sheet is
+     closed on load. */
+  #ui {
+    top: auto;
+    bottom: 0;
+    width: 100%;
+    height: 62svh;
+    border-left: none;
+    border-top: 1px solid var(--hair);
+    box-shadow: 0 -18px 40px #0007;
+  }
+
+  body.rail-closed #ui { display: none; }
+}
+
+/* Which shot C just selected. Announced briefly and then out of the way: a
+   permanent label is one more thing between you and the water. */
+#cam-name {
+  position: fixed;
+  left: 50%;
+  bottom: 4.5rem;
+  transform: translateX(-50%) translateY(0.4rem);
+  padding: 0.3rem 0.9rem;
+  border-radius: 999px;
+  background: rgb(8 16 24 / 62%);
+  color: #cfe2ef;
+  font-family: var(--font-num), ui-monospace, monospace;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 220ms ease, transform 220ms ease;
+}
+#cam-name.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+body.hide-ui #cam-name { display: none; }
+
+/* The boat picker. A name, not a number: every other control here is a
+   quantity with a meaningful in-between, and this one has none at all. */
+.boats { margin: 0 0 0.75rem; }
+.boats-title {
+  font-family: var(--font-lbl), system-ui, sans-serif;
+  font-size: 0.78rem;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: #7fb0cc;
+  margin: 0 0 0.4rem;
+}
+.boats-row { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.boat {
+  flex: 1 1 auto;
+  min-width: 4.6rem;
+  padding: 0.34rem 0.5rem;
+  border: 1px solid rgb(120 170 200 / 22%);
+  border-radius: 0.35rem;
+  background: rgb(14 26 38 / 70%);
+  color: #a9c6d8;
+  font-family: var(--font-num), ui-monospace, monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+.boat:hover { background: rgb(24 44 62 / 85%); color: #d6e8f2; }
+.boat.on {
+  background: rgb(46 104 140 / 60%);
+  border-color: rgb(140 205 235 / 55%);
+  color: #eaf6fc;
+}
+.boat:focus-visible { outline: 2px solid #7fd3f2; outline-offset: 1px; }
+
+/* The quick box: the two choices anyone makes first, above every slider. */
+.quick {
+  padding: 0.55rem 0.6rem 0.2rem;
+  margin: 0 0 0.6rem;
+  border: 1px solid rgb(120 170 200 / 18%);
+  border-radius: 0.45rem;
+  background: rgb(10 20 30 / 55%);
+}
+.quick .boats:last-child { margin-bottom: 0.35rem; }

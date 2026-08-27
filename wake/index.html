@@ -1,0 +1,39 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Boat wake — prototype</title>
+<link rel="stylesheet" href="./src/ui.css">
+
+<canvas id="gl" oncontextmenu="return false"></canvas>
+<div id="cam-name" aria-live="polite"></div>
+
+<header id="hud">
+  <span class="brand">Boat&nbsp;Wake&nbsp;Lab</span>
+  <span id="fps">—</span>
+  <nav class="views">
+    <button type="button" data-view="top" class="on">Top-down</button>
+    <button type="button" data-view="chase">Chase</button>
+    <button type="button" data-view="field">Field buffer</button>
+  </nav>
+  <nav class="zoom">
+    <button type="button" data-zoom="out" aria-label="Zoom out">&minus;</button>
+    <button type="button" data-zoom="in" aria-label="Zoom in">+</button>
+  </nav>
+  <span class="hint">drag&nbsp;orbit · wheel&nbsp;zoom · ←→&nbsp;steer · ↑↓&nbsp;throttle · Shift&nbsp;hard&nbsp;turn</span>
+  <button id="rail-toggle" type="button" aria-controls="ui" aria-expanded="true">Controls</button>
+</header>
+
+<button id="chrome-toggle" type="button" aria-pressed="false">Hide UI</button>
+
+<div id="ui"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/three.module.min.js",
+    "three/webgpu": "./vendor/three/three.module.min.js",
+    "three/tsl": "./vendor/three/three.module.min.js"
+  }
+}
+</script>
+<script type="module" src="./src/main.js"></script>

@@ -50,6 +50,7 @@ import { setKelvinUniforms } from './kelvin-wake.js';
 import { setWakeWaveUniforms } from './wake-wave.js';
 import { setWakePhysicsUniforms } from './wake-physics.js';
 import { setRippleUniforms, setRippleLook } from './ripple-field.js';
+import { setWakeSudsUniforms } from './wake-suds.js';
 import { waterPosition, waterFragment, setWaterSurfaceUniforms, uFoamRibbon } from './water-surface.js';
 import { setWaterDetailUniforms } from './water-detail.js';
 import { setWaterBrdfUniforms } from './water-brdf.js';
@@ -281,6 +282,7 @@ export class TslWater {
 			opts.rippleDebug, opts.rippleVis ?? 1, opts.rippleFoam ?? 0,
 			opts.rippleCrestGate ?? 0,
 		);
+		setWakeSudsUniforms( p );
 		setWaterSurfaceUniforms( p, ctx, opts.hull || NO_HULL );
 		uFoamRibbon.value = Number.isFinite( opts.foamRibbon )
 			? Math.max( opts.foamRibbon, 0 )

@@ -5,3 +5,5 @@ tmp/
 dist/
 test/out/
 .claude/
+wake/dist/
+wake/shots/
