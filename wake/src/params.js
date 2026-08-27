@@ -324,6 +324,11 @@ export const PARAMS = {
     pond:         { v: 0,  min: 60,  max: 900, step: 10,   label: 'Pond radius (m)' },
     floorDepth:   { v: 0,  min: 0,   max: 60,  step: 0.5,  label: 'Bed depth (m)' },
     weed:         { v: 0.45, min: 0,   max: 1,   step: 0.01, label: 'Weed over sand' },
+    // How bright the bed comes back. The scene's exposure is set for the
+    // water surface, and an unscaled bottom clips to white -- which costs
+    // the caustics, since a clipped surface cannot carry contrast.
+    bedBright:    { v: 0.30, min: 0.02, max: 2, step: 0.01, label: 'Bed brightness' },
+    causticSize:  { v: 3.0,  min: 0.3, max: 10, step: 0.1,  label: 'Caustic cell size' },
     caustics:     { v: 1.35, min: 0,   max: 1.5, step: 0.01, label: 'Caustics on the bed' },
     radius:       { v: 1850, min: 200, max: 4000,step: 10,   label: 'Lake radius (m)' },
     depth:        { v: 14,   min: 2,   max: 60,  step: 1,    label: 'Basin depth (m)' },

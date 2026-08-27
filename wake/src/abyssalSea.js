@@ -205,6 +205,11 @@ function fitToLake( p, preset = {}, tune = {} ) {
 	p.bedSand = tune.sand ?? [ 0.80, 0.71, 0.52 ];
 	p.bedWeed = [ 0.10, 0.20, 0.17 ];
 	p.bedWeedAmount = get( 'lake.weed' );
+	p.bedGain = get( 'lake.bedBright' );
+	// Caustic cell size. Upstream ships ~0.3 m cells, which at any normal
+	// viewing distance is speckle rather than the metre-wide net a photograph
+	// of a sandy shallow shows.
+	p.floorCausticSize = get( 'lake.causticSize' );
 
 	// The lace, for the sea as well as the wake. Written every frame from the
 	// prototype's own foam controls, so the two surfaces cannot drift apart.

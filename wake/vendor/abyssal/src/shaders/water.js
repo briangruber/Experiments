@@ -294,6 +294,7 @@ uniform float uAerial;
 uniform float uFloorDepth, uFloorDepthMin, uFloorDepthMax, uFloorTerrainScale, uFloorCaustic;
 uniform float uFloorCausticSize;
 uniform vec3  uBedSand, uBedWeed;
+uniform float uBedGain;
 // FORKED IN: screen-space refraction. The scene (hull, spray) is rendered to
 // a colour+depth target BEFORE the water; the water then looks through itself
 // into that image with wobbled UVs. Without it the submerged half of a hull
@@ -1499,13 +1500,40 @@ void main(){
         float laceScale = max(uFloorCausticSize, 0.15);
         float web = floorLace(pSun.x / laceScale, pSun.y / laceScale, uTime);
         float sunK = floorSunGain(slope, uSunDir, localD);
+        // FORKED, three ways. Caustics were being killed before they could be
+        // seen, and each limiter alone was enough to do it:
+        //
+        // RANGE. The old fade ran 55 m to 16 m from the CAMERA -- full only
+        // within 16 m, gone past 55. From any normal chase view the bed was
+        // lit but plain. It still needs an LOD fade (a caustic web finer than
+        // a pixel is pure aliasing), just six times further out.
+        //
+        // DEPTH. exp(-d*0.15) costs 70% of the effect at 8 m and 82% at 11 m
+        // -- and the tropical beds were just deepened to exactly there, which
+        // is why raising Bed depth made them worse rather than better. Clear
+        // water carries a caustic web to the bottom of a lagoon; 0.045 keeps
+        // 70% at 8 m.
+        //
+        // CONTRAST. 1 + lace*0.45 is a 45% brightening at most. Look at any
+        // photograph of sand under a metre of water: the web is two to four
+        // times the brightness of the sand between its lines. That ratio IS
+        // the effect; without it the bed reads as textured, not as lit
+        // through moving water.
         float lace = web * sunK * (1.0 - reef * 0.45) * uFloorCaustic
-                   * exp(-localD * 0.15)
-                   * smoothstep(55.0, 16.0, dist);
-        float mul = 1.0 + lace * 0.45;
+                   * exp(-localD * 0.045)
+                   * smoothstep(340.0, 90.0, dist);
+        float mul = 1.0 + lace * 1.55;
         float peak = pow(lace, 2.2);
-        vec3 floorLit = (bed * 0.46 * mul + bed * peak * 0.20 * vec3(1.06, 1.00, 0.88))
-                      * Edown / PI;
+        // uBedGain, FORKED IN. Measured rather than guessed: splitting the
+        // composite into its three parts showed the bed channel PINNED at
+        // full scale across the whole frame -- the bottom was arriving so
+        // overexposed that it clipped to white before tonemapping, and a
+        // clipped surface has no contrast left to carry a caustic web. The
+        // caustics were being computed correctly the whole time and then
+        // flattened. Exposure here is set for the water; the bed needs its
+        // own gain to land in range.
+        vec3 floorLit = (bed * 0.46 * mul + bed * peak * 0.60 * vec3(1.06, 1.00, 0.88))
+                      * Edown / PI * uBedGain;
         if (uHullPush > 0.0005) {
           float sy = max(uSunDir.y, 0.08);
           float shx = uHullPos.x + uSunDir.x / sy * localD;
