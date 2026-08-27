@@ -43,6 +43,12 @@ renderer.setClearColor(0x0a1017);
 // albedo rather than grading a photograph of it. The sea is unaffected either
 // way: it is a raw shader program that tonemaps itself.
 renderer.toneMapping = THREE.NeutralToneMapping;
+// SHADOWS. Nothing in the scene cast one until now, and that is the loudest
+// single tell against realism -- a headland with no shadow on its own rock
+// reads as a painted backdrop no matter how good its surface is. One
+// directional shadow map, sized to the bay, costs one extra pass.
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 const scene = new THREE.Scene();
 // Halved against the pre-tonemapping values: ACES maps a much wider range in,
@@ -50,7 +56,20 @@ const scene = new THREE.Scene();
 const ambient = new THREE.AmbientLight(0xa8c0d8, 0.55);
 scene.add(ambient);
 const sun = new THREE.DirectionalLight(0xfff2e0, 1.15);
+sun.castShadow = true;
+// The frustum has to cover the whole bay, not the default 10 m box, or the
+// shadows simply are not there. 2048 over ~900 m is about half a metre per
+// texel, which is the scale rock detail lives at.
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.near = 1;
+sun.shadow.camera.far = 2600;
+sun.shadow.camera.left = -520; sun.shadow.camera.right = 520;
+sun.shadow.camera.top = 520; sun.shadow.camera.bottom = -520;
+// Sloped rock self-shadows badly at grazing sun without a bias.
+sun.shadow.bias = -0.0006;
+sun.shadow.normalBias = 0.6;
 scene.add(sun);
+scene.add(sun.target);
 // The lagoon's answer light: bright water throws a cyan glow UP at anything
 // floating on it. Sky half black -- the AmbientLight already covers the sky's
 // share -- so this only lifts down-facing surfaces: the wet band at the
@@ -169,7 +188,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b19';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b20';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -675,7 +694,11 @@ function frame(now) {
     Math.sin(get('ocean.sunElev') * Math.PI / 180),
     Math.cos(get('ocean.sunElev') * Math.PI / 180) * Math.cos(get('ocean.sunAzim') * Math.PI / 180),
   );
-  sun.position.copy(sd).multiplyScalar(200).add(boat.position);
+  sun.position.copy(sd).multiplyScalar(700).add(boat.position);
+  // The shadow camera looks from the light AT the boat, so its frustum
+  // follows what you are actually looking at rather than the world origin.
+  sun.target.position.copy(boat.position);
+  sun.target.updateMatrixWorld();
   sun.target.position.copy(boat.position);
   sun.target.updateMatrixWorld();
 
@@ -732,7 +755,11 @@ function frame(now) {
     const asd = sea.sunDirection();
     if (asd) {
       sd.set(asd[0], asd[1], asd[2]);
-      sun.position.copy(sd).multiplyScalar(200).add(boat.position);
+      sun.position.copy(sd).multiplyScalar(700).add(boat.position);
+  // The shadow camera looks from the light AT the boat, so its frustum
+  // follows what you are actually looking at rather than the world origin.
+  sun.target.position.copy(boat.position);
+  sun.target.updateMatrixWorld();
       sun.target.position.copy(boat.position);
       sun.target.updateMatrixWorld();
     }

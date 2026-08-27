@@ -294,6 +294,7 @@ export class Shore {
 		} );
 		const mesh = new THREE.Mesh( geo, mat );
 		mesh.receiveShadow = true;
+		mesh.castShadow = true;
 		this.group.add( mesh );
 		this.land = mesh;
 
@@ -367,6 +368,7 @@ export class Shore {
 		trunks.instanceMatrix.needsUpdate = true;
 		pines.instanceMatrix.needsUpdate = true;
 		if ( pines.instanceColor ) pines.instanceColor.needsUpdate = true;
+		for ( const o of [ trunks, pines ] ) { o.castShadow = true; o.receiveShadow = true; }
 		this.group.add( trunks, pines );
 		this.treeCount = placed;
 
