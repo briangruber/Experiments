@@ -299,6 +299,9 @@ export const PARAMS = {
     // roughly twice the sight depth -- the bed, a submerged keel and the
     // bubble plume all reach the same distance, because they are all looking
     // through the same water.
+    // The hull's shadow on the sea bed. Only visible where there IS a bed --
+    // raise 'Bed depth' under The Lake to bring one into view.
+    hullShadow:   { v: 1,    min: 0,   max: 1,   step: 0.01, label: 'Boat shadow on the bed' },
     clarity:      { v: 1,    min: 0.2, max: 3,   step: 0.05, label: 'Water clarity (see-through depth)' },
     waterGlow:    { v: 1.0,  min: 0.2, max: 10,  step: 0.05, label: 'Water glow (look-down)' },
     warmth:       { v: 1.15, min: 0,   max: 1.5, step: 0.01, label: 'Sunset warmth' },

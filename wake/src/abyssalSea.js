@@ -94,15 +94,15 @@ export const SCENE_TUNE = {
 	// and the glow well up, because tropical shallows are lit from below.
 	'Tropical Lagoon':     { floor: 8.0, caustics: 1.35, weed: 0.45, tint: 0,    glow: 1.0, spec: 0.65, sand: [ 0.74, 0.66, 0.46 ],
 	                         scatter: [ 0.030, 0.26, 0.36 ], scatterAmt: 0.13, absorb: [ 0.34, 0.055, 0.030 ] },
-	'Deep Blue Afternoon': { floor: 0,   caustics: 0,    weed: 0,    tint: 0.85, glow: 3.0 },
+	'Deep Blue Afternoon': { floor: 0,   caustics: 0.85,    weed: 0.30, tint: 0.85, glow: 3.0 },
 	// The lagoon's big sibling: a little deeper, a little more weed on the
 	// flats, the same overhead blaze.
 	'Tropical Noon':       { floor: 10.0, caustics: 1.1,  weed: 0.40, tint: 0.10, glow: 1.1, spec: 0.7, sand: [ 0.76, 0.68, 0.48 ],
 	                         scatter: [ 0.050, 0.30, 0.34 ], scatterAmt: 0.15, absorb: [ 0.30, 0.050, 0.032 ] },
-	'Golden Hour Swell':   { floor: 0,   caustics: 0,    weed: 0,    tint: 0.80, glow: 3.6 },
-	'Trade Winds':         { floor: 0,   caustics: 0,    weed: 0,    tint: 0.75, glow: 3.0 },
-	'Moonlit Passage':     { floor: 0,   caustics: 0,    weed: 0,    tint: 0.90, glow: 2.0 },
-	'North Atlantic Storm': { floor: 0,  caustics: 0,    weed: 0,    tint: 0.85, glow: 3.2 },
+	'Golden Hour Swell':   { floor: 0,   caustics: 0.85,    weed: 0.30, tint: 0.80, glow: 3.6 },
+	'Trade Winds':         { floor: 0,   caustics: 0.85,    weed: 0.30, tint: 0.75, glow: 3.0 },
+	'Moonlit Passage':     { floor: 0,   caustics: 0.85,    weed: 0.30, tint: 0.90, glow: 2.0 },
+	'North Atlantic Storm': { floor: 0,  caustics: 0.85,    weed: 0.30, tint: 0.85, glow: 3.2 },
 };
 
 /**
@@ -182,6 +182,12 @@ function fitToLake( p, preset = {}, tune = {} ) {
 	p.floorDepthMin = on ? depth * 0.45 : 400;
 	p.floorDepthMax = on ? depth * 2.30 : 900;
 	p.floorCaustic = get( 'lake.caustics' );
+
+	// The shadow the hull throws on the bed is sized by hullRadius, and the
+	// preset's 2.6 m was authored for its own craft -- against a ten-metre
+	// boat it drew a dot. Follow the hull the wake physics is using.
+	p.hullRadius = Math.max( get( 'boat.length' ) * 0.45, 0.8 );
+	p.hullBow = 0.0;   // no bow heap: our own wake field owns the surface
 
 	// The sun and the exposure, live from the panel.
 	//

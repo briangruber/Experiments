@@ -477,10 +477,23 @@ float floorTerrainDepth(float px, float pz, float lo, float hi, float scale){
   float s = max(scale, 4.0);
   float u = px / s;
   float v = pz / s;
+  // FORKED: the bed was three sine waves, which is fine at boat height and
+  // unmistakable from altitude -- it tiles on a ~155 m grid, and a zoomed-out
+  // lagoon turned into wallpaper. Sines still carry the SHAPE a sandy bottom
+  // has (bars running one way, channels cutting across them), so they stay;
+  // what they lacked was anything aperiodic to break the repeat.
+  //
+  // Two octaves of value-noise do that, at scales either side of the sines:
+  // a slow one that wanders the whole pattern so no two stretches match, and
+  // a finer one that roughens the crests. The sines carry about half the
+  // weight now instead of all of it.
   float bars = sin(u * 1.7 + sin(v * 0.9) * 0.65);
   float channels = sin(v * 1.15 - sin(u * 0.55) * 0.8);
   float dunes = sin(u * 2.4 - v * 1.3 + sin(u * 0.7) * 0.45);
-  float w = clamp(0.5 + 0.5 * (bars * 0.48 + channels * 0.34 + dunes * 0.18), 0.0, 1.0);
+  float drift = fbm2(vec2(u, v) * 0.23, 3) * 2.0 - 1.0;   // wanders, kills the tile
+  float grain = fbm2(vec2(u, v) * 1.9, 2) * 2.0 - 1.0;    // roughens the crests
+  float w = clamp(0.5 + 0.5 * (bars * 0.26 + channels * 0.19 + dunes * 0.10
+                             + drift * 0.62 + grain * 0.16), 0.0, 1.0);
   return mix(hi, lo, w);
 }
 
@@ -1498,7 +1511,10 @@ void main(){
           float shx = uHullPos.x + uSunDir.x / sy * localD;
           float shz = uHullPos.z + uSunDir.z / sy * localD;
           float qh = length(vec2(hx - shx, hz - shz)) / max(uHullRadius, 0.8);
-          floorLit *= 1.0 - exp(-qh * qh) * 0.55;
+          // FORKED 0.55 -> 0.78. A hull is opaque: the patch of bed under it
+          // gets sky only, no sun, and against a caustic-lit bottom a 45%
+          // darkening is barely a smudge.
+          floorLit *= 1.0 - exp(-qh * qh) * 0.78;
         }
         vec3 floorTrans = exp(-uAbsorption * tHit);
         // FORKED: dissolve the bed out before the hard tHit < 90 bound rather

@@ -158,7 +158,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b14';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b15';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -792,7 +792,25 @@ function frame(now) {
         near: camera.near, far: camera.far, murk: 0.35 / Math.max(get('scene.clarity'), 0.05),
       };
     }
-    sea.render(scene, camera, refr ? { refr } : {});
+    // Tell the sea where the hull is, so the bed gets its shadow.
+    //
+    // The seafloor block already casts one -- it projects the hull's footprint
+    // down the sun vector onto the bed -- but it is gated on uHullPush, and
+    // nothing here had ever passed a hull, so the sea did not know a boat
+    // existed and the bottom stayed evenly lit under it.
+    //
+    // push is deliberately tiny. It gates the shadow (a threshold) but SCALES
+    // the surface displacement (hullLift multiplies by it), so a small value
+    // buys the full shadow without Abyssal's own hull hollow fighting our
+    // wake for the same water.
+    const shadow = get('scene.hullShadow');
+    const hull = shadow > 0.001 ? {
+      pos: new Float32Array([boat.position.x, boat.position.y, boat.position.z]),
+      fwd: new Float32Array([Math.sin(state.heading), Math.cos(state.heading)]),
+      push: 0.02 * shadow,
+      plane: 1,
+    } : undefined;
+    sea.render(scene, camera, { ...(refr ? { refr } : {}), ...(hull ? { hull } : {}) });
   } else {
     renderer.autoClear = true;
     renderer.render(scene, camera);
