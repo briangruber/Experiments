@@ -21,6 +21,7 @@
 // as a lagoon rather than as a coastline.
 
 import * as THREE from 'three';
+import { TEX } from './textures.js';
 
 /** Deterministic everything: a coast that rearranges itself on reload is a tell. */
 function rng( seed ) {
@@ -213,7 +214,12 @@ export class Shore {
 		// Vegetation takes the high ground, and only where it could hold on.
 		const high = Math.min( 1, Math.max( 0, ( h - 7 ) / 10 ) );
 		const green = high * ( 1 - Math.min( 1, slope / 1.15 ) ) * ( 0.6 + mottle * 0.6 );
-		r += ( 0.16 - r ) * green; g += ( 0.34 - g ) * green; b += ( 0.11 - b ) * green;
+		// Scrub, not a void. The first values here were a real plant's albedo,
+		// which is very dark -- and stacking cavity shading on top of it turned
+		// the headland into a silhouette. Foliage in sun reads far lighter than
+		// its albedo suggests because most of what you see is light scattered
+		// between leaves, not reflected off one.
+		r += ( 0.26 - r ) * green; g += ( 0.44 - g ) * green; b += ( 0.17 - b ) * green;
 
 		// Cavity shading. A hollow sees less sky than a crest does, and without
 		// it every facet takes the same ambient and the rock flattens out under
@@ -223,7 +229,10 @@ export class Shore {
 		const wide = ( this.heightAt( x + 7, z ) + this.heightAt( x - 7, z )
 			+ this.heightAt( x, z + 7 ) + this.heightAt( x, z - 7 ) ) * 0.25;
 		const cavity = Math.min( 1, Math.max( 0, ( h - wide ) * 0.22 + 0.5 ) );
-		const ao = 0.55 + cavity * 0.65;
+		// Floor raised: this is ambient occlusion, not a shadow, and 0.55 was
+		// removing nearly half the light from every hollow before the real
+		// shadow map had its say.
+		const ao = 0.76 + cavity * 0.34;
 		r *= ao; g *= ao; b *= ao;
 
 		out.setRGB( r, g, b );
@@ -287,11 +296,95 @@ export class Shore {
 		geo.setAttribute( 'color', new THREE.BufferAttribute( colours, 3 ) );
 		geo.computeVertexNormals();
 
-		// FLAT shading. Rock is faceted; smoothing the normals across a 3 m quad
-		// turns broken lava into a beanbag.
+		// Photographic rock and sand, projected TRIPLANAR.
+		//
+		// Flat shading and vertex colours got the silhouette right and stopped
+		// there: a facet with one colour cannot look like stone at any polygon
+		// count, because what the eye reads as rock is surface relief far below
+		// the geometry. A normal map supplies exactly that, for free.
+		//
+		// Triplanar rather than UV, because this mesh has no sensible UVs -- it
+		// is a radial grid of a heightfield, so a planar projection stretches
+		// into streaks down every cliff, which is the classic terrain-texturing
+		// tell. Projecting from all three axes and blending by the normal costs
+		// three samples and never stretches.
+		//
+		// The vertex colour survives as a TINT over the photograph, so the
+		// wet-rock band, the sand on the flats and the green on the tops all
+		// still come from the height-and-slope logic above.
+		const load = ( uri, srgb ) => {
+			const t = new THREE.TextureLoader().load( uri );
+			t.wrapS = t.wrapT = THREE.RepeatWrapping;
+			t.anisotropy = 8;
+			if ( srgb ) t.colorSpace = THREE.SRGBColorSpace;
+			return t;
+		};
+		const uni = {
+			uRockMap: { value: load( TEX.rock.albedo, true ) },
+			uRockNrm: { value: load( TEX.rock.normal, false ) },
+			uSandMap: { value: load( TEX.sand.albedo, true ) },
+			uSandNrm: { value: load( TEX.sand.normal, false ) },
+			uTexScale: { value: 0.34 },       // repeats per metre
+			uNormalAmt: { value: 1.15 },
+			// Each photograph divided by its own mean luminance, so it
+			// modulates around 1 instead of dragging everything toward its own
+			// brightness. Basalt averages 0.23 -- multiplying by that directly
+			// turned the whole headland into a silhouette.
+			uRockMean: { value: TEX.rock.mean },
+			uSandMean: { value: TEX.sand.mean },
+		};
 		const mat = new THREE.MeshStandardMaterial( {
-			vertexColors: true, roughness: 0.94, metalness: 0, flatShading: true,
+			vertexColors: true, roughness: 0.93, metalness: 0, flatShading: false,
 		} );
+		mat.onBeforeCompile = ( sh ) => {
+			Object.assign( sh.uniforms, uni );
+			sh.vertexShader = sh.vertexShader
+				.replace( '#include <common>',
+					'#include <common>\nvarying vec3 vWPos;\nvarying vec3 vWNrm;' )
+				.replace( '#include <worldpos_vertex>',
+					'#include <worldpos_vertex>\n\tvWPos = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;\n\tvWNrm = normalize( mat3( modelMatrix ) * objectNormal );' );
+			sh.fragmentShader = sh.fragmentShader
+				.replace( '#include <common>', `#include <common>
+					varying vec3 vWPos;
+					varying vec3 vWNrm;
+					uniform sampler2D uRockMap, uRockNrm, uSandMap, uSandNrm;
+					uniform float uTexScale, uNormalAmt, uRockMean, uSandMean;
+					// Blend the three axis projections by how much the surface
+					// faces each one. The power sharpens the transition so the
+					// seams between projections stay narrow.
+					vec3 triW( vec3 n ){
+					  vec3 w = pow( abs( n ), vec3( 4.0 ) );
+					  return w / max( w.x + w.y + w.z, 1e-4 );
+					}
+					vec4 triSample( sampler2D t, vec3 p, vec3 w ){
+					  return texture2D( t, p.zy ) * w.x
+					       + texture2D( t, p.xz ) * w.y
+					       + texture2D( t, p.xy ) * w.z;
+					}` )
+				.replace( '#include <map_fragment>', `
+					vec3 tw = triW( normalize( vWNrm ) );
+					vec3 tp = vWPos * uTexScale;
+					// Flat and low takes sand; anything steeper or higher is
+					// rock. The same rule the vertex colours use, so the
+					// photograph and the tint agree about where the sand is.
+					float sandK = smoothstep( 0.55, 0.9, normalize( vWNrm ).y )
+					            * ( 1.0 - smoothstep( 1.5, 7.0, vWPos.y ) );
+					vec3 rockC = triSample( uRockMap, tp, tw ).rgb / max( uRockMean, 0.02 );
+					vec3 sandC = triSample( uSandMap, tp * 0.7, tw ).rgb / max( uSandMean, 0.02 );
+					vec3 texC = mix( rockC, sandC, sandK );
+					// The photograph MODULATES the computed colour rather than
+					// replacing it, and it is normalised to average 1, so it
+					// darkens creases and lifts crests without shifting the
+					// overall tone the height-and-slope logic chose.
+					diffuseColor.rgb *= mix( vec3( 1.0 ), texC, 0.82 );` )
+				.replace( '#include <normal_fragment_maps>', `
+					vec3 nrT = mix( triSample( uRockNrm, tp, tw ).rgb,
+					                triSample( uSandNrm, tp * 0.7, tw ).rgb, sandK ) * 2.0 - 1.0;
+					// Whiteout blend: perturb the geometric normal by the map's
+					// horizontal part. Cheaper than a full TBN and, on a
+					// heightfield with no UVs, better behaved.
+					normal = normalize( normal + vec3( nrT.x, 0.0, nrT.y ) * uNormalAmt );` );
+		};
 		const mesh = new THREE.Mesh( geo, mat );
 		mesh.receiveShadow = true;
 		mesh.castShadow = true;
