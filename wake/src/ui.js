@@ -85,8 +85,15 @@ export function buildUI(root, hooks = {}) {
     sum.textContent = GROUP_TITLES[gname] || gname;
     sec.appendChild(sum);
 
+    let shown = 0;
     for (const [key, p] of Object.entries(entries)) {
       const path = `${gname}.${key}`;
+      // Controls for the analytic fallback ocean, which is hidden whenever the
+      // Abyssal sea is on. Showing a slider that cannot move anything visible
+      // is worse than not showing it: it costs a round of "is this broken?"
+      // every time. The parameter stays -- the fallback still reads it.
+      if (p.lab && hooks.hideLab !== false) continue;
+      shown ++;
       const row = document.createElement('label');
       row.className = 'row';
       row.innerHTML = `<span class="lbl">${p.label}</span><span class="val"></span>`;
@@ -101,7 +108,7 @@ export function buildUI(root, hooks = {}) {
       show();
       rows.push({ path, input, show, p, defaults: p.v });
     }
-    root.appendChild(sec);
+    if (shown) root.appendChild(sec);
   }
 
   const bar = document.createElement('div');

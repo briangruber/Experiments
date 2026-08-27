@@ -488,10 +488,22 @@ float floorTerrainDepth(float px, float pz, float lo, float hi, float scale){
   // a slow one that wanders the whole pattern so no two stretches match, and
   // a finer one that roughens the crests. The sines carry about half the
   // weight now instead of all of it.
-  float bars = sin(u * 1.7 + sin(v * 0.9) * 0.65);
-  float channels = sin(v * 1.15 - sin(u * 0.55) * 0.8);
-  float dunes = sin(u * 2.4 - v * 1.3 + sin(u * 0.7) * 0.45);
-  float drift = fbm2(vec2(u, v) * 0.23, 3) * 2.0 - 1.0;   // wanders, kills the tile
+  // DOMAIN WARP, not just an added octave.
+  //
+  // Mixing noise INTO the result hides a repeat at close range and does
+  // nothing to it at altitude: the sines still line up on their own grid, so
+  // from height the bed reads as evenly spaced ribbons marching across the
+  // frame. Warping their INPUT instead means the bars never reach the same
+  // phase twice -- the pattern keeps its bar-and-channel character, which is
+  // what a sandy bottom actually looks like, and loses its period.
+  float wx = fbm2(vec2(u, v) * 0.17, 3) * 2.0 - 1.0;
+  float wz = fbm2(vec2(u + 31.4, v - 17.2) * 0.17, 3) * 2.0 - 1.0;
+  float uw = u + wx * 3.4;
+  float vw = v + wz * 3.4;
+  float bars = sin(uw * 1.7 + sin(vw * 0.9) * 0.65);
+  float channels = sin(vw * 1.15 - sin(uw * 0.55) * 0.8);
+  float dunes = sin(uw * 2.4 - vw * 1.3 + sin(uw * 0.7) * 0.45);
+  float drift = fbm2(vec2(u, v) * 0.23, 3) * 2.0 - 1.0;   // broad basin shape
   float grain = fbm2(vec2(u, v) * 1.9, 2) * 2.0 - 1.0;    // roughens the crests
   float w = clamp(0.5 + 0.5 * (bars * 0.26 + channels * 0.19 + dunes * 0.10
                              + drift * 0.62 + grain * 0.16), 0.0, 1.0);

@@ -125,7 +125,7 @@ export const PARAMS = {
   // Water between the arms: flattened, and no longer carrying its own ad-hoc
   // ripple -- the Kelvin system below does that properly.
   inner: {
-    flatten:      { v: 0.7,  min: 0,   max: 1,   step: 0.01, label: 'Swell flattening' },
+    flatten:      { v: 0.7,  min: 0,   max: 1,   step: 0.01, label: 'Swell flattening' , lab: 1 },
   },
 
   // The gravity waves. These are displacement only -- no foam -- so they carry
@@ -189,16 +189,16 @@ export const PARAMS = {
   // cells burst and re-form. All of it is LOCAL motion — nothing here may drift,
   // or the foam would slide across water it is supposed to be floating on.
   foamMotion: {
-    rideWaves:    { v: 0.8, min: 0,   max: 3,   step: 0.01, label: 'Foam rides the waves' },
-    drift:        { v: 0.55, min: 0,   max: 3,   step: 0.01, label: 'Rides the swell' },
-    ringAmount:   { v: 0.75, min: 0,   max: 3,   step: 0.01, label: 'Ring push (m)' },
-    ringScale:    { v: 3.4, min: 0.8, max: 30,  step: 0.1,  label: 'Ring spacing (m)' },
-    ringSpeed:    { v: 0.4, min: 0.02,max: 2,   step: 0.01, label: 'Ring speed' },
-    ringWidth:    { v: 0.7, min: 0.1, max: 5,   step: 0.05, label: 'Wavefront width (m)' },
-    cellGrowth:   { v: 0, min: 0,   max: 0.8, step: 0.005,label: 'Cells expand' },
-    ringRelief:   { v: 0, min: 0,   max: 3,   step: 0.01, label: 'Rings show in water' },
-    boil:         { v: 0.45, min: 0,   max: 2,   step: 0.01, label: 'Cells burst / re-form' },
-    plumeSwirl:   { v: 0.45, min: 0,   max: 2,   step: 0.01, label: 'Plume swirl' },
+    rideWaves:    { v: 0.8, min: 0,   max: 3,   step: 0.01, label: 'Foam rides the waves' , lab: 1 },
+    drift:        { v: 0.55, min: 0,   max: 3,   step: 0.01, label: 'Rides the swell' , lab: 1 },
+    ringAmount:   { v: 0.75, min: 0,   max: 3,   step: 0.01, label: 'Ring push (m)' , lab: 1 },
+    ringScale:    { v: 3.4, min: 0.8, max: 30,  step: 0.1,  label: 'Ring spacing (m)' , lab: 1 },
+    ringSpeed:    { v: 0.4, min: 0.02,max: 2,   step: 0.01, label: 'Ring speed' , lab: 1 },
+    ringWidth:    { v: 0.7, min: 0.1, max: 5,   step: 0.05, label: 'Wavefront width (m)' , lab: 1 },
+    cellGrowth:   { v: 0, min: 0,   max: 0.8, step: 0.005,label: 'Cells expand' , lab: 1 },
+    ringRelief:   { v: 0, min: 0,   max: 3,   step: 0.01, label: 'Rings show in water' , lab: 1 },
+    boil:         { v: 0.45, min: 0,   max: 2,   step: 0.01, label: 'Cells burst / re-form' , lab: 1 },
+    plumeSwirl:   { v: 0.45, min: 0,   max: 2,   step: 0.01, label: 'Plume swirl' , lab: 1 },
   },
 
   // How the foam sits on the water rather than on top of it.
@@ -219,27 +219,40 @@ export const PARAMS = {
     seaWhitecaps: { v: 0,    min: 0,   max: 2,   step: 0.01, label: 'Sea whitecaps (not the wake)' },
     seaBreak:     { v: 0, min: 0,   max: 1.5, step: 0.01, label: 'Sea foam from breaking' },
     density:      { v: 1.75, min: 0.3, max: 8,   step: 0.05, label: 'Opacity build' },
-    translucency: { v: 0.58, min: 0,   max: 1,   step: 0.01, label: 'Water shows through' },
-    aeration:     { v: 0.44, min: 0,   max: 1.5, step: 0.01, label: 'Aerated teal halo' },
-    relief:       { v: 0.94, min: 0,   max: 3,   step: 0.01, label: 'Bubble relief' },
-    troughBias:   { v: 0.4, min: 0,   max: 1.5, step: 0.01, label: 'Pools in troughs' },
-    warmth:       { v: 0.18, min: 0,   max: 1,   step: 0.01, label: 'Sunlit warmth' },
+    translucency: { v: 0.58, min: 0,   max: 1,   step: 0.01, label: 'Water shows through' , lab: 1 },
+    aeration:     { v: 0.44, min: 0,   max: 1.5, step: 0.01, label: 'Aerated teal halo' , lab: 1 },
+    relief:       { v: 0.94, min: 0,   max: 3,   step: 0.01, label: 'Bubble relief' , lab: 1 },
+    troughBias:   { v: 0.4, min: 0,   max: 1.5, step: 0.01, label: 'Pools in troughs' , lab: 1 },
+    warmth:       { v: 0.18, min: 0,   max: 1,   step: 0.01, label: 'Sunlit warmth' , lab: 1 },
   },
 
+  // WATER & LIGHT -- all of it drives the Abyssal sea now.
+  //
+  // This group used to drive the lab's own analytic ocean, which is hidden
+  // whenever Abyssal is on: every slider in it moved something nobody could
+  // see. The ones with a real counterpart were repointed (and re-ranged, since
+  // Abyssal's units are its own); the ones without were retired.
   ocean: {
-    swellAmp:     { v: 0.05, min: 0,   max: 2,   step: 0.01, label: 'Swell amp (m)' },
-    swellLen:     { v: 26, min: 3,   max: 120, step: 0.5,  label: 'Swell λ (m)' },
-    chopAmp:      { v: 0.006, min: 0,   max: 0.6, step: 0.001,label: 'Chop amp (m)' },
-    deepColor:    { v: 0.021,min: 0,   max: 0.4, step: 0.001,label: 'Water lightness' },
-    tint:         { v: 0.42, min: 0,   max: 1,   step: 0.01, label: 'Blue / teal' },
-    sunElev:      { v: 3, min: 0,   max: 88,  step: 1,    label: 'Sun elevation (°)' },
-    sunAzim:      { v: 0,min: 0,   max: 360, step: 1,    label: 'Sun azimuth (°)' },
-    reflectivity: { v: 1.15, min: 0,   max: 1.5, step: 0.01, label: 'Mirror / reflectivity' },
-    hazeStart:    { v: 1400, min: 100, max: 8000,step: 50,   label: 'Haze onset (m)' },
-    sunGlow:      { v: 0.55, min: 0,   max: 2,   step: 0.01, label: 'Sun glow' },
-    sheen:        { v: 0.04, min: 0,   max: 1.5, step: 0.01, label: 'Wave sheen' },
+    // Sea state. These three are baked into the FFT's initial spectrum, so
+    // moving them rebuilds it -- once, on change, not per frame.
+    waveHeight:   { v: 1,    min: 0,   max: 3,   step: 0.01, label: 'Wave height ×' },
+    swellAmp:     { v: 0.14, min: 0,   max: 1,   step: 0.01, label: 'Swell amount' },
+    swellLen:     { v: 5.5,  min: 3,   max: 18,  step: 0.1,  label: 'Swell period (s)' },
+    chopAmp:      { v: 0.78, min: 0,   max: 1.5, step: 0.01, label: 'Choppiness' },
+    // Light.
+    sunElev:      { v: 72,   min: 0,   max: 88,  step: 1,    label: 'Sun elevation (°)' },
+    sunAzim:      { v: 142,  min: 0,   max: 360, step: 1,    label: 'Sun azimuth (°)' },
+    reflectivity: { v: 1.15, min: 0,   max: 3,   step: 0.01, label: 'Sky ambient' },
+    sunGlow:      { v: 1,    min: 0.2, max: 8,   step: 0.05, label: 'Sun disc size ×' },
+    hazeStart:    { v: 1,    min: 0,   max: 3,   step: 0.01, label: 'Aerial haze' },
+    sheen:        { v: 1,    min: 0,   max: 4,   step: 0.01, label: 'Glitter' },
     specular:     { v: 0.55, min: 0,   max: 2,   step: 0.01, label: 'Specular' },
     exposure:     { v: 1.2,  min: 0.2, max: 3,   step: 0.01, label: 'Exposure' },
+    // Retired with the analytic ocean: 'Water lightness' and 'Blue / teal'
+    // duplicated Sky & weather's clarity / tint / glow, and 'Wave sheen' is
+    // now Glitter above.
+    deepColor:    { v: 0.021,min: 0,   max: 0.4, step: 0.001,label: 'Water lightness', lab: 1 },
+    tint:         { v: 0.42, min: 0,   max: 1,   step: 0.01, label: 'Blue / teal', lab: 1 },
   },
 
   // Cost, not looks. Auto-set on load from the device, then yours to override.
@@ -308,9 +321,9 @@ export const PARAMS = {
     cloud:        { v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Cloud cover' },
     cloudScale:   { v: 0.55, min: 0.05,max: 3,   step: 0.01, label: 'Cloud scale' },
     cloudSoft:    { v: 0.3, min: 0.02,max: 1,   step: 0.01, label: 'Cloud softness' },
-    treeline:     { v: 0.008, min: 0,   max: 0.08,step: 0.001,label: 'Shore height' },
-    treeRough:    { v: 0.45, min: 0,   max: 1.5, step: 0.01, label: 'Shore roughness' },
-    treeDark:     { v: 0.02, min: 0,   max: 0.6, step: 0.005,label: 'Shore lightness' },
+    treeline:     { v: 0.008, min: 0,   max: 0.08,step: 0.001,label: 'Shore height' , lab: 1 },
+    treeRough:    { v: 0.45, min: 0,   max: 1.5, step: 0.01, label: 'Shore roughness' , lab: 1 },
+    treeDark:     { v: 0.02, min: 0,   max: 0.6, step: 0.005,label: 'Shore lightness' , lab: 1 },
   },
 
   // The lake itself -- real geometry, not a painted horizon.
@@ -328,16 +341,19 @@ export const PARAMS = {
     // water surface, and an unscaled bottom clips to white -- which costs
     // the caustics, since a clipped surface cannot carry contrast.
     bedBright:    { v: 0.30, min: 0.02, max: 2, step: 0.01, label: 'Bed brightness' },
+    // The surface's own slope, bending the view of the bottom: this is what
+    // makes the sand shift under a passing wave.
+    bedDistort:   { v: 0.9,  min: 0,   max: 3,   step: 0.01, label: 'Bed distortion (waves)' },
     causticSize:  { v: 3.0,  min: 0.3, max: 10, step: 0.1,  label: 'Caustic cell size' },
     caustics:     { v: 1.35, min: 0,   max: 1.5, step: 0.01, label: 'Caustics on the bed' },
-    radius:       { v: 1850, min: 200, max: 4000,step: 10,   label: 'Lake radius (m)' },
-    depth:        { v: 14,   min: 2,   max: 60,  step: 1,    label: 'Basin depth (m)' },
-    rim:          { v: 70,   min: 10,  max: 400, step: 5,    label: 'Hill height (m)' },
-    relief:       { v: 34,   min: 0,   max: 120, step: 1,    label: 'Relief (m)' },
-    wobble:       { v: 0.3, min: 0,   max: 0.8, step: 0.01, label: 'Shoreline wobble' },
-    islands:      { v: 55,   min: 0,   max: 200, step: 1,    label: 'Islands' },
+    radius:       { v: 1850, min: 200, max: 4000,step: 10,   label: 'Lake radius (m)' , lab: 1 },
+    depth:        { v: 14,   min: 2,   max: 60,  step: 1,    label: 'Basin depth (m)' , lab: 1 },
+    rim:          { v: 70,   min: 10,  max: 400, step: 5,    label: 'Hill height (m)' , lab: 1 },
+    relief:       { v: 34,   min: 0,   max: 120, step: 1,    label: 'Relief (m)' , lab: 1 },
+    wobble:       { v: 0.3, min: 0,   max: 0.8, step: 0.01, label: 'Shoreline wobble' , lab: 1 },
+    islands:      { v: 55,   min: 0,   max: 200, step: 1,    label: 'Islands' , lab: 1 },
     avoid:        { v: 0, min: 0,   max: 3,   step: 0.01, label: 'Shore avoidance' },
-    canopy:       { v: 0.1, min: 0.01,max: 0.6, step: 0.005,label: 'Canopy lightness' },
+    canopy:       { v: 0.1, min: 0.01,max: 0.6, step: 0.005,label: 'Canopy lightness' , lab: 1 },
   },
 
   quality: {

@@ -199,6 +199,13 @@ function fitToLake( p, preset = {}, tune = {} ) {
 	p.sunElevation = get( 'ocean.sunElev' );
 	p.sunAzimuth = get( 'ocean.sunAzim' );
 	p.skyAmbient = get( 'ocean.reflectivity' );
+	p.aerial = get( 'ocean.hazeStart' );
+	p.sunAngularRadius = 0.00465 * get( 'ocean.sunGlow' );
+	p.glitter = ( preset.glitter ?? 0.28 ) * get( 'ocean.sheen' );
+	// Weather, from the panel rather than frozen in the preset.
+	p.cloudCoverage = get( 'scene.cloud' );
+	p.cirrus = get( 'scene.cloudSoft' );
+	p.turbidity = Math.max( get( 'scene.warmth' ), 0.4 );
 
 	// Sand, and how much weed is laid over it. Upstream's reef pattern assumes
 	// a tropical bed; a lake wants far less of it.
@@ -210,6 +217,13 @@ function fitToLake( p, preset = {}, tune = {} ) {
 	// viewing distance is speckle rather than the metre-wide net a photograph
 	// of a sandy shallow shows.
 	p.floorCausticSize = get( 'lake.causticSize' );
+	// How much the SURFACE bends the view of the bed. This is the real
+	// wave-driven distortion: it warps the look-through by the water's own
+	// slope, so a passing crest drags the sand sideways. The caustic web
+	// itself is a procedural sheet that drifts on its own clock -- it is not
+	// projected from the FFT surface -- so this is the knob that ties what
+	// you see on the bottom to the waves overhead.
+	p.sdRefract = get( 'lake.bedDistort' );
 
 	// The lace, for the sea as well as the wake. Written every frame from the
 	// prototype's own foam controls, so the two surfaces cannot drift apart.
@@ -256,7 +270,6 @@ function fitToLake( p, preset = {}, tune = {} ) {
 	// under a second. Defaults match presets.js.
 	const specK = ( tune.spec ?? 1 ) * get( 'ocean.specular' ) / 0.55;
 	p.specIntensity = ( preset.specIntensity ?? 1.0 ) * specK;
-	p.glitter = ( preset.glitter ?? 0.28 ) * specK;
 	const c = tune.scatter ?? preset.scatterColor ?? [ 0.055, 0.145, 0.095 ];
 	// Deep water, and NOT darker water. The first version of this used
 	// [0.014, 0.072, 0.135], which is a fine deep-ocean hue and dimmer than the
@@ -342,6 +355,22 @@ export class AbyssalSea {
 		// Live, so the lake-fit sliders take effect next frame like every other
 		// knob here.
 		fitToLake( this.params, PRESETS[ this.preset ], SCENE_TUNE[ this.preset ] );
+
+		// Sea state is BAKED, not read per frame: amplitude, swell and
+		// choppiness go into the FFT's initial spectrum, so moving those
+		// sliders does nothing until the spectrum is rebuilt. Rebuild on
+		// change only -- it is far too expensive to do every frame, and doing
+		// it never is why these sliders appeared dead.
+		const p = this.params;
+		p.amplitude = ( PRESETS[ this.preset ]?.amplitude ?? 0.58 ) * get( 'ocean.waveHeight' );
+		p.swellAmount = get( 'ocean.swellAmp' );
+		p.swellPeriod = get( 'ocean.swellLen' );
+		p.choppiness = get( 'ocean.chopAmp' );
+		const stamp = `${ p.amplitude }|${ p.swellAmount }|${ p.swellPeriod }|${ p.choppiness }`;
+		if ( stamp !== this._seaStamp ) {
+			this._seaStamp = stamp;
+			this.water.ocean.buildSpectrum( p );
+		}
 		this.water.update( dt, camera );
 		this.sky.update( dt, camera );
 
