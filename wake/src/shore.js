@@ -141,13 +141,20 @@ export class Shore {
 		// read as broken volcanic rock rather than as a smooth ramp.
 		const rough = ( fbm( x * 0.018 + 40, z * 0.018 - 20, 4, s + 13 ) - 0.5 ) * 2;
 		const fine = ( fbm( x * 0.085 - 9, z * 0.085 + 31, 3, s + 91 ) - 0.5 ) * 2;
+		// A third octave at half-metre scale, RIDGED (folded about zero and
+		// inverted) rather than smooth. Smooth noise of any amplitude reads as
+		// dough; the sharp creases between folds are what make rock look broken
+		// instead of moulded, and they are the whole difference between this
+		// and a beanbag.
+		const grain = 1 - Math.abs( fbm( x * 0.42 + 5, z * 0.42 - 13, 3, s + 303 ) * 2 - 1 );
 
 		if ( t <= 0 ) {
 			// SEAWARD. A shelf just under the surface, then away. Boulders on
 			// the shelf are the submerged rocks the photo is full of.
 			const shelf = Math.max( - 1.2 - Math.pow( - t / 26, 1.7 ) * 9, - 26 );
 			const boulders = Math.max( 0, fine ) * 2.6 * Math.exp( t / 42 );
-			return shelf + rough * 1.1 * Math.exp( t / 60 ) + boulders;
+			return shelf + rough * 1.1 * Math.exp( t / 60 ) + boulders
+				+ grain * 0.55 * Math.exp( t / 30 );
 		}
 
 		// LANDWARD. Climbs, with terraced shelves in the first few metres.
@@ -162,7 +169,8 @@ export class Shore {
 		const massif = 0.35 + 1.5 * fbm( Math.cos( ang2 ) * 1.4 + 60,
 			Math.sin( ang2 ) * 1.4 - 30, 3, s + 211 );
 		const climb = Math.pow( Math.min( t / 46, 1 ), 0.78 ) * 26 * this.relief * massif;
-		const raw = climb + rough * 5.2 * this.relief + fine * 1.5;
+		const raw = climb + rough * 5.2 * this.relief + fine * 1.5
+			+ grain * 1.35 * Math.min( 1, t / 6 );
 		// Terracing, strongest right at the water and gone by the time the rock
 		// is properly up: flat shelves dipping in, jagged crags above them.
 		const nearShore = Math.exp( - t / 30 );
@@ -184,7 +192,8 @@ export class Shore {
 			Math.abs( this.heightAt( x + e, z ) - h ),
 			Math.abs( this.heightAt( x, z + e ) - h ) ) / e;
 
-		const mottle = fbm( x * 0.13, z * 0.13, 3, s + 7 );
+		const mottle = fbm( x * 0.13, z * 0.13, 3, s + 7 )
+			* 0.62 + fbm( x * 0.9 + 17, z * 0.9 - 4, 2, s + 71 ) * 0.38;
 		// Dark basalt through paler weathered limestone.
 		const rockMix = Math.min( 1, Math.max( 0, mottle * 1.35 - 0.12 ) );
 		let r = 0.115 + rockMix * 0.40, g = 0.112 + rockMix * 0.38, b = 0.105 + rockMix * 0.34;
@@ -206,6 +215,17 @@ export class Shore {
 		const green = high * ( 1 - Math.min( 1, slope / 1.15 ) ) * ( 0.6 + mottle * 0.6 );
 		r += ( 0.16 - r ) * green; g += ( 0.34 - g ) * green; b += ( 0.11 - b ) * green;
 
+		// Cavity shading. A hollow sees less sky than a crest does, and without
+		// it every facet takes the same ambient and the rock flattens out under
+		// a high sun -- which is most of why low-poly terrain reads as plastic.
+		// Comparing the point against a blur of itself is a cheap standin for
+		// how open the sky is above it.
+		const wide = ( this.heightAt( x + 7, z ) + this.heightAt( x - 7, z )
+			+ this.heightAt( x, z + 7 ) + this.heightAt( x, z - 7 ) ) * 0.25;
+		const cavity = Math.min( 1, Math.max( 0, ( h - wide ) * 0.22 + 0.5 ) );
+		const ao = 0.55 + cavity * 0.65;
+		r *= ao; g *= ao; b *= ao;
+
 		out.setRGB( r, g, b );
 		return out;
 
@@ -219,10 +239,38 @@ export class Shore {
 	// coast does not move, so neither should its mesh.
 	_buildLand() {
 
-		const EXTENT = this.bay * 3.4;    // out past the headlands
-		const N = 320;                    // ~3 m quads at a 300 m bay
-		const geo = new THREE.PlaneGeometry( EXTENT, EXTENT, N, N );
-		geo.rotateX( - Math.PI / 2 );
+		// A RADIAL grid, not a square one.
+		//
+		// The interesting metre of this whole place is the waterline, and a
+		// uniform grid spends its vertices evenly over a square kilometre --
+		// most of them on flat water-facing nothing, and about three metres of
+		// resolution where the rock actually breaks. Rings spaced by a power
+		// law put quads a few tens of centimetres apart at the coast and tens
+		// of metres out at the horizon, for the same vertex count. That is the
+		// difference between broken lava and a smooth ramp.
+		const RINGS = 260, SPOKES = 420;
+		const INNER = this.bay * 0.55, OUTER = this.bay * 3.4;
+		const verts = [], idx = [];
+		for ( let i = 0; i <= RINGS; i ++ ) {
+			// u^2.6 crowds the rings toward the coast, which sits near u = 0.2.
+			const u = i / RINGS;
+			const r = INNER + ( OUTER - INNER ) * Math.pow( u, 2.6 );
+			for ( let j = 0; j < SPOKES; j ++ ) {
+				const a = j / SPOKES * Math.PI * 2;
+				verts.push( Math.sin( a ) * r, 0, Math.cos( a ) * r );
+			}
+		}
+		for ( let i = 0; i < RINGS; i ++ ) {
+			for ( let j = 0; j < SPOKES; j ++ ) {
+				const j1 = ( j + 1 ) % SPOKES;
+				const a = i * SPOKES + j, b = i * SPOKES + j1;
+				const c = ( i + 1 ) * SPOKES + j, d = ( i + 1 ) * SPOKES + j1;
+				idx.push( a, c, b, b, c, d );
+			}
+		}
+		const geo = new THREE.BufferGeometry();
+		geo.setAttribute( 'position', new THREE.Float32BufferAttribute( verts, 3 ) );
+		geo.setIndex( idx );
 
 		const pos = geo.attributes.position;
 		const colours = new Float32Array( pos.count * 3 );

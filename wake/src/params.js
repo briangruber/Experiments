@@ -154,13 +154,13 @@ export const PARAMS = {
   foamLook: {
     scale:        { v: 1.65, min: 0.1, max: 6,   step: 0.01, label: 'Bubble scale' },
     contrast:     { v: 1.45,  min: 0.2, max: 4,   step: 0.01, label: 'Bubble contrast' },
-    breakup:      { v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Break-up with age' },
+    breakup:      { v: 0.78, min: 0,   max: 1,   step: 0.01, label: 'Break-up with age' },
     life:         { v: 72.5, min: 1,   max: 120, step: 0.5,  label: 'Foam life (s)' },
     dissolve:     { v: 3.35,  min: 0.2, max: 5,   step: 0.05, label: 'Dissolve curve' },
     lace:         { v: 4.05, min: 0.5, max: 8,   step: 0.05, label: 'Lace fineness' },
     laceAmount:   { v: 0.62, min: 0,   max: 1.5, step: 0.01, label: 'Lace reach' },
-    coarsen:      { v: 0.24, min: 0,   max: 1,   step: 0.01, label: 'Cells coarsen with age' },
-    softness:     { v: 0.58, min: 0.02,max: 1,   step: 0.01, label: 'Edge softness' },
+    coarsen:      { v: 0.42, min: 0,   max: 1,   step: 0.01, label: 'Cells coarsen with age' },
+    softness:     { v: 0.72, min: 0.02,max: 1,   step: 0.01, label: 'Edge softness' },
   },
 
 
@@ -206,7 +206,7 @@ export const PARAMS = {
     // Abyssal's foam grading expects a coverage field that saturates near 1;
     // the prototype's peaks around 0.12, so the wake needs gain before it is
     // shaded or it is drawn at a few percent opacity and reads as clean water.
-    wakeGain:     { v: 3.0,  min: 0,   max: 16,  step: 0.1,  label: 'Wake foam gain' },
+    wakeGain:     { v: 1.9,  min: 0,   max: 16,  step: 0.1,  label: 'Wake foam gain' },
     // The SEA's own whitecaps, not the wake's. 1 gives them the same lace the
     // boat leaves behind -- Abyssal's own is a Worley web, and it thresholds in
     // exactly the same form, so this swaps the field and nothing else.
@@ -218,7 +218,7 @@ export const PARAMS = {
     // cannot -- so this adds the steep-crest case rather than replacing it.
     seaWhitecaps: { v: 0,    min: 0,   max: 2,   step: 0.01, label: 'Sea whitecaps (not the wake)' },
     seaBreak:     { v: 0, min: 0,   max: 1.5, step: 0.01, label: 'Sea foam from breaking' },
-    density:      { v: 1.75, min: 0.3, max: 8,   step: 0.05, label: 'Opacity build' },
+    density:      { v: 1.05, min: 0.3, max: 8,   step: 0.05, label: 'Opacity build' },
     translucency: { v: 0.58, min: 0,   max: 1,   step: 0.01, label: 'Water shows through' , lab: 1 },
     aeration:     { v: 0.44, min: 0,   max: 1.5, step: 0.01, label: 'Aerated teal halo' , lab: 1 },
     relief:       { v: 0.94, min: 0,   max: 3,   step: 0.01, label: 'Bubble relief' , lab: 1 },
