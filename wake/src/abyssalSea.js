@@ -29,6 +29,10 @@
 
 import { AbyssalWater, AbyssalSky } from '../vendor/abyssal/src/three/index.js';
 import { newParams, applyPreset, PRESETS } from '../vendor/abyssal/src/presets.js';
+
+// Re-exported so main.js can read a scene's authored sun without reaching
+// into vendor/ itself.
+export { PRESETS };
 import { get } from './params.js';
 import { WaveProbe } from './waveProbe.js';
 
@@ -179,6 +183,17 @@ function fitToLake( p, preset = {}, tune = {} ) {
 	p.floorDepthMax = on ? depth * 2.30 : 900;
 	p.floorCaustic = get( 'lake.caustics' );
 
+	// The sun and the exposure, live from the panel.
+	//
+	// These sliders used to drive the lab's own analytic ocean, which is
+	// hidden whenever the Abyssal sea is on -- so the whole 'Water & light'
+	// group moved nothing you could see. They point at Abyssal now. Picking a
+	// scene writes ITS sun back into them (see main.js), so a preset still
+	// sets the light and the sliders adjust from wherever it put them.
+	p.sunElevation = get( 'ocean.sunElev' );
+	p.sunAzimuth = get( 'ocean.sunAzim' );
+	p.skyAmbient = get( 'ocean.reflectivity' );
+
 	// Sand, and how much weed is laid over it. Upstream's reef pattern assumes
 	// a tropical bed; a lake wants far less of it.
 	p.bedSand = tune.sand ?? [ 0.80, 0.71, 0.52 ];
@@ -228,10 +243,9 @@ function fitToLake( p, preset = {}, tune = {} ) {
 	// Read the PRESET's own values, never the live ones: fitToLake runs every
 	// frame, so `p.spec * 0.65` compounds and decays the glint to zero in
 	// under a second. Defaults match presets.js.
-	if ( tune.spec !== undefined ) {
-		p.specIntensity = ( preset.specIntensity ?? 1.0 ) * tune.spec;
-		p.glitter = ( preset.glitter ?? 0.28 ) * tune.spec;
-	}
+	const specK = ( tune.spec ?? 1 ) * get( 'ocean.specular' ) / 0.55;
+	p.specIntensity = ( preset.specIntensity ?? 1.0 ) * specK;
+	p.glitter = ( preset.glitter ?? 0.28 ) * specK;
 	const c = tune.scatter ?? preset.scatterColor ?? [ 0.055, 0.145, 0.095 ];
 	// Deep water, and NOT darker water. The first version of this used
 	// [0.014, 0.072, 0.135], which is a fine deep-ocean hue and dimmer than the

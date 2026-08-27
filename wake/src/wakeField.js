@@ -62,6 +62,7 @@ const RIBBON_FRAG = /* glsl */`
   uniform vec2 uHullXZ, uHullDir;
   uniform float uHullCut;
   uniform float uArmTan, uArmW0, uArmWGrow, uArmFoam, uArmHeight, uInnerBias, uFadeStart, uFadeLen;
+  uniform float uAutoAngle;
   uniform float uRim, uRimW, uNearBoost, uNearLen, uCarve;
   uniform float uFeatSpace, uFeatGrow, uFeatLean, uFeatDepth, uFeatJitter, uFeatSharp;
   uniform float uWashW, uWashWGrow, uWashFoam, uWashLen, uWashTail, uWashDepth;
@@ -136,7 +137,25 @@ const RIBBON_FRAG = /* glsl */`
     // The arms leave the hull along its side, so they start at the waterline
     // and open from there. At the stem that is zero, which closes the V to a
     // point at the bow instead of a band across it.
-    float armC = hullHalf(max(arc, wet)) + wa * uArmTan + wander;
+    // The half-angle, from the water rather than from a slider.
+    //
+    // A displacement hull's wake is the Kelvin envelope: 19.47 degrees, and
+    // famously independent of speed -- it falls out of deep-water gravity-wave
+    // dispersion, not out of the boat. But that holds only while the hull is
+    // slow compared with the waves it makes. Past a beam-Froude number of
+    // about 0.5 the hull outruns the transverse system, only the divergent
+    // waves survive, and the visible wake NARROWS as atan(1/(2*Fr_B))
+    // (Rabaud & Moisy, PRL 2013) -- which is why a fast boat leaves a long
+    // thin V and a tug leaves a wide one.
+    //
+    // Fr_B uses the BEAM, because the beam is the width of the disturbance the
+    // hull is dragging. Per sample, from the speed at emission, so a wake laid
+    // while accelerating opens out along its own length exactly as it should.
+    float FrB = spd / sqrt(9.81 * max(uBeam, 0.2));
+    float kelvin = 0.33984;                          // atan(1/(2*sqrt(2)))
+    float physAng = min(kelvin, atan(1.0 / max(2.0 * FrB, 1e-3)));
+    float armTan = mix(uArmTan, tan(physAng), uAutoAngle);
+    float armC = hullHalf(max(arc, wet)) + wa * armTan + wander;
     // Thin where the hull is fine and the sheet has barely formed, thickening
     // as the water is thrown clear.
     float armW = max(uArmW0 + wa * uArmWGrow, 0.05)
@@ -422,7 +441,10 @@ const RIBBON_FRAG = /* glsl */`
     // longer-lived than the foam above it, still there long after the white has
     // gone. Seen through water it is cloudy rather than granular, so this is
     // deliberately low frequency -- and cheap to bake, unlike the lace.
-    float bw = max(uBubW + arc * uBubSpread, 0.1);
+    // Wide enough that adjacent screws overlap into ONE column. Two lanes
+    // narrower than their own spacing never merge, and read as a pair of hard
+    // pale strips under the hull rather than as churn.
+    float bw = max(max(uBubW + arc * uBubSpread, 0.1), uEngineGap * 0.75);
     float bg = 0.0;
     for (int i = 0; i < 4; i++) {
       if (float(i) >= uEngines) break;
@@ -560,6 +582,7 @@ export class WakeField {
       uFoamScale: { value: 1 }, uFoamContrast: { value: 1 }, uBreakup: { value: 0 },
       uFoamLife: { value: 1 }, uDissolve: { value: 1 },
       uSpeedDrive: { value: 1 }, uSpeedRef: { value: 13 },
+      uAutoAngle: { value: 1 },
       uHullCut: { value: 0 },
       uHullXZ: { value: new THREE.Vector2() },
       uHullDir: { value: new THREE.Vector2(0, 1) },
@@ -711,6 +734,7 @@ export class WakeField {
     u.uEngines.value = Math.round(get('boat.engines'));
     u.uEngineGap.value = get('boat.engineSpacing');
     u.uArmTan.value = Math.tan(get('arms.angle') * Math.PI / 180);
+    u.uAutoAngle.value = get('arms.autoAngle');
     u.uArmW0.value = get('arms.width0');
     u.uArmWGrow.value = get('arms.widthGrow');
     u.uArmFoam.value = get('arms.foam');

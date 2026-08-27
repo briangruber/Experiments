@@ -6,7 +6,7 @@ import { makeBoat } from './boat.js';
 import { Backdrop } from './backdrop.js';
 import { heightAt } from './lakeHeight.js';
 import { Park } from './park.js';
-import { AbyssalSea, PRESET_NAMES, SCENE_TUNE } from './abyssalSea.js';
+import { AbyssalSea, PRESET_NAMES, SCENE_TUNE, PRESETS } from './abyssalSea.js';
 import { OceanBody } from './oceanBody.js';
 import { WakeBridge } from './wakeBridge.js';
 import { Spray } from './spray.js';
@@ -694,6 +694,14 @@ function frame(now) {
         set('lake.weed', t.weed);
         set('scene.waterTint', t.tint);
         set('scene.waterGlow', t.glow);
+        // The scene owns the light: write its sun into the panel so the
+        // Water & light sliders start from what the preset asked for and
+        // adjust from there, rather than silently overriding it.
+        const ap = PRESETS[want];
+        if (ap) {
+          if (ap.sunElevation !== undefined) set('ocean.sunElev', ap.sunElevation);
+          if (ap.sunAzimuth !== undefined) set('ocean.sunAzim', ap.sunAzimuth);
+        }
         ui.refresh();
       }
     }
@@ -702,6 +710,11 @@ function frame(now) {
     // One sun for the whole frame. Abyssal's atmosphere owns it, so the boat
     // and the terrain take their light from there rather than from the lab's
     // own sun slider, which is on a different scale entirely (see abyssalSea.js).
+    // Exposure, live: the sea and sky tonemap themselves, so this is the one
+    // knob that moves the whole water image at once.
+    const ex = get('ocean.exposure');
+    sea.water.exposure = ex;
+    if (sea.sky) sea.sky.exposure = ex;
     const asd = sea.sunDirection();
     if (asd) {
       sd.set(asd[0], asd[1], asd[2]);

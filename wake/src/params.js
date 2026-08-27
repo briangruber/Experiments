@@ -79,7 +79,11 @@ export const PARAMS = {
   arms: {
     fromWaves:    { v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Foam from breaking' },
     waveFoam:     { v: 1.6, min: 0,   max: 5,   step: 0.01, label: 'Breaking foam gain' },
-    angle:        { v: 13, min: 4,   max: 40,  step: 0.1,  label: 'Half-angle (°)' },
+    // 1 = the physical angle (Kelvin 19.47 degrees while the hull is slow,
+    // narrowing as atan(1/2Fr_B) once it outruns its own transverse waves).
+    // 0 = whatever the slider below says, for when you want a look instead.
+    autoAngle:    { v: 1,    min: 0,   max: 1,   step: 0.01, label: 'Half-angle from physics' },
+    angle:        { v: 19.3, min: 4,   max: 40,  step: 0.1,  label: 'Half-angle, manual (°)' },
     width0:       { v: 1.7, min: 0.1, max: 4,   step: 0.05, label: 'Width at bow (m)' },
     widthGrow:    { v: 0.03,min: 0,   max: 0.6, step: 0.001,label: 'Width growth (m/m)' },
     foam:         { v: 0.95, min: 0,   max: 3,   step: 0.01, label: 'Foam density' },
