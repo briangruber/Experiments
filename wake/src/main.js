@@ -157,6 +157,8 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
+const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
+const BUILD = 'b12';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -808,7 +810,16 @@ function frame(now) {
 
   fpsAcc += 1 / Math.max(dt, 1e-4); fpsN++;
   if (fpsN >= 30) {
-    hud.querySelector('#fps').textContent = `${Math.round(fpsAcc / fpsN)} fps`;
+    // Backend and build, next to the frame rate.
+    //
+    // "Is this a WebGPU thing?" is a fair question to ask of a water sim, and
+    // it should be answerable without reading source: this app is WebGL2 only
+    // -- three's WebGLRenderer plus a hand-written WebGL2 ocean sharing the
+    // same context -- and there is no WebGPU path to switch to. The build
+    // stamp is here for the other half of that question: whether the page you
+    // are looking at is the one that was just published, or a cached one.
+    hud.querySelector('#fps').textContent =
+      `${Math.round(fpsAcc / fpsN)} fps · ${BACKEND} · ${BUILD}`;
     fpsAcc = 0; fpsN = 0;
   }
   window.__ready = true;
