@@ -6,6 +6,7 @@ import { makeBoat } from './boat.js';
 import { Backdrop } from './backdrop.js';
 import { heightAt } from './lakeHeight.js';
 import { Park } from './park.js';
+import { Shore } from './shore.js';
 import { AbyssalSea, PRESET_NAMES, SCENE_TUNE, PRESETS } from './abyssalSea.js';
 import { OceanBody } from './oceanBody.js';
 import { WakeBridge } from './wakeBridge.js';
@@ -76,9 +77,19 @@ const backdrop = new Backdrop();
 // edge in every frame, and the sea reads better running to the horizon.
 const park = get('lake.pond') > 1 ? new Park(get('lake.pond')) : null;
 if (park) scene.add(park.group);
+// The lagoon shore: rock, shelves, headland and pines, built once at startup
+// (it is a place, not an effect -- rebuilding it per frame would be absurd).
+const shore = get('shore.on') > 0.5
+  ? new Shore({ bay: get('shore.bay'), rugged: get('shore.rugged'),
+      relief: get('shore.relief'), trees: Math.round(get('shore.trees')) })
+  : null;
+if (shore) scene.add(shore.group);
 // Air. The far lawn and treeline haze out; the sea ignores this and hazes
 // itself in its own shader, which is fine — land and water do haze apart.
 if (park) scene.fog = new THREE.Fog(0xd4e2ec, 420, 2400);
+// Air over the bay. The far headland has to haze or it reads as a cardboard
+// cut-out against the sky; the sea ignores this and hazes itself.
+if (get('shore.on') > 0.5) scene.fog = new THREE.Fog(0xcfe3ef, 900, 5200);
 
 // The terrain is gone from the scene. It was an 11 m-per-vertex heightfield
 // shaded flat against the old analytic sky, and against Abyssal's water it
@@ -158,7 +169,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b17';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b18';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -501,6 +512,7 @@ function stepSim(dt) {
   // Heading rate is -turn (see the helm note below), so the assist enters
   // negated.
   if (park) turn -= park.confine(state, dt, get('boat.steerRate') * Math.PI / 180 * 1.3);
+  if (shore) turn -= shore.confine(state, dt, get('boat.steerRate') * Math.PI / 180 * 1.3);
 
   const hard = keys.has('shift') ? get('boat.hardTurn') : 1;
   const steer = get('boat.steerRate') * Math.PI / 180 * hard;

@@ -255,6 +255,16 @@ export const PARAMS = {
     tint:         { v: 0.42, min: 0,   max: 1,   step: 0.01, label: 'Blue / teal', lab: 1 },
   },
 
+  // A volcanic lagoon shore at real scale: jagged rock at the waterline,
+  // sandy shelves dipping under it, a pine-topped headland behind.
+  shore: {
+    on:           { v: 1,    min: 0,   max: 1,   step: 1,    label: 'Lagoon shore' },
+    bay:          { v: 300,  min: 90,  max: 900, step: 10,   label: 'Bay radius (m)' },
+    rugged:       { v: 1,    min: 0,   max: 2,   step: 0.01, label: 'Coast ruggedness' },
+    relief:       { v: 1.5,  min: 0.2, max: 2.5, step: 0.01, label: 'Rock height ×' },
+    trees:        { v: 1400, min: 0,   max: 3000,step: 50,   label: 'Pines' },
+  },
+
   // Cost, not looks. Auto-set on load from the device, then yours to override.
   // Sky, weather and shore.
   // Water that has left the water. Everything else the prototype draws is a
