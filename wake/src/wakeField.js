@@ -456,7 +456,23 @@ const RIBBON_FRAG = /* glsl */`
     float plume = astern * bg * uBubPlume * exp(-arc / max(uBubLen, 1.0)) * churn * regime;
 
     // Spray plunging back in entrains its own air along each arm.
-    float entrain = armG * uBubArms * armFade * exp(-arc / max(uBubArmsLen, 1.0)) * planing;
+    //
+    // Two corrections, both of which this term needed to stop drawing a pair
+    // of hard bright wedges either side of the hull:
+    //
+    // Air comes down where the sheet FALLS BACK, not where it leaves. At the
+    // bow the spray is still climbing; the bubbles it carries under appear a
+    // hull-length or more astern, so the entrainment ramps in over that
+    // distance instead of starting at the stem.
+    //
+    // And it is a veil, not a column. armG is a razor-thin gaussian near the
+    // bow -- it has to be, it is drawing the sheet's bright edge -- and using
+    // it neat gave the bubble cloud the arm's own hard profile. The square
+    // root keeps the same centre and shoulders it out, the way a cloud of
+    // rising bubbles spreads on its way up.
+    float plunge = smoothstep(uHullLen * 0.5, uHullLen * 2.2, arc);
+    float entrain = sqrt(max(armG, 0.0)) * uBubArms * armFade
+                  * exp(-arc / max(uBubArmsLen, 1.0)) * planing * plunge;
 
     // Bubbles are injected at the prop, BELOW the surface, and take time to
     // rise. A cloud injected age seconds ago has climbed rise*age, so it

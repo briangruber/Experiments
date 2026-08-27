@@ -172,7 +172,7 @@ export const PARAMS = {
     width:        { v: 1.4, min: 0.2, max: 10,  step: 0.05, label: 'Plume width (m)' },
     spread:       { v: 0.028,min: 0,   max: 0.5, step: 0.001,label: 'Spread (m/m)' },
     length:       { v: 46,min: 5,   max: 400, step: 1,    label: 'Decay length (m)' },
-    fromArms:     { v: 0.42, min: 0,   max: 2,   step: 0.01, label: 'Entrained by arms' },
+    fromArms:     { v: 0.16, min: 0,   max: 2,   step: 0.01, label: 'Entrained by arms' },
     armsLength:   { v: 70, min: 5,   max: 400, step: 1,    label: 'Entrained decay (m)' },
     life:         { v: 44, min: 2,   max: 200, step: 1,    label: 'Bubble life (s)' },
     depth:        { v: 1.7, min: 0.1, max: 6,   step: 0.05, label: 'Injection depth (m)' },
