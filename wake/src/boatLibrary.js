@@ -132,8 +132,15 @@ function sternIsForward( root ) {
 // point, while a masted ship's keel is a metre below its waterline. These are
 // multipliers on the slider, so the slider still moves every boat together and
 // the ratios between them stay right.
-const DRAFT = { inflatable: 0.30, burrito: 0.62, racingred: 0.70,
-	yacht: 0.95, pirate: 1.25 };
+// Measured against the water, one boat at a time, rather than guessed from the
+// bounding box: the first pass at these sat every hull too high -- a burrito
+// with 0.53 m of draft showed its whole keel and read as floating ON the sea
+// rather than in it, while the inflatable at 0.26 m was already right. A
+// canoe's rocker means most of its depth is nowhere near its lowest point, so
+// the ratio between "lowest point" and "looks afloat" is a property of the
+// model's shape and cannot come from its extents.
+const DRAFT = { inflatable: 0.30, burrito: 1.50, racingred: 1.00,
+	yacht: 1.05, pirate: 1.15 };
 const draftFor = ( id ) => get( 'boat.draft' ) * ( DRAFT[ id ] ?? 1 );
 
 /** How long the drawn hull should be: the physics length times the look knob. */
