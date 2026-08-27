@@ -401,68 +401,133 @@ export class Shore {
 	_buildTrees( count ) {
 
 		const rand = rng( this.seed * 7 + 3 );
-		const trunkGeo = new THREE.CylinderGeometry( 0.16, 0.34, 4.2, 5 );
-		const trunkMat = new THREE.MeshStandardMaterial( { color: 0x4a3b2a, roughness: 1 } );
-		// Narrow cone: these are the slender pines on the headland, not the
-		// round park trees.
-		const pineGeo = new THREE.ConeGeometry( 1.55, 9.5, 7 );
-		const pineMat = new THREE.MeshStandardMaterial( {
-			color: 0xffffff, roughness: 1, flatShading: true,
-		} );
 
-		const trunks = new THREE.InstancedMesh( trunkGeo, trunkMat, count );
-		const pines = new THREE.InstancedMesh( pineGeo, pineMat, count );
-		const m = new THREE.Matrix4();
-		const q = new THREE.Quaternion();
-		const v = new THREE.Vector3();
-		const col = new THREE.Color();
+		// BILLBOARD IMPOSTERS, not cones.
+		//
+		// A cone is the single loudest thing in the frame that says "not real":
+		// no silhouette, no gaps, no needles. A photographed pine on a quad has
+		// all three for two triangles, which is why every game has drawn distant
+		// vegetation this way for thirty years.
+		//
+		// CYLINDRICAL billboarding -- the quad spins about its own trunk to face
+		// the camera, and never tips. Spherical billboarding (facing the camera
+		// outright) makes a forest lie down when you look at it from above, and
+		// a tree that leans toward the viewer as you climb is worse than a cone.
+		//
+		// alphaTest rather than blending: alpha-blended foliage needs sorting,
+		// and hundreds of unsorted transparent quads draw each other's holes.
+		// A cutout writes depth like any solid, sorts for free, and takes part
+		// in the shadow map -- which is where half the realism actually comes
+		// from.
+		const plates = [ TEX.pine1, TEX.pine2 ].filter( Boolean );
+		if ( ! plates.length || count < 1 ) { this.treeCount = 0; return; }
 
-		let placed = 0, tries = 0;
-		const reach = this.bay * 1.7;
-		while ( placed < count && tries < count * 40 ) {
-			tries ++;
-			// Rejection sampling against the ground: trees go where there IS
-			// ground high and level enough to hold them, which puts them on the
-			// headland and the ridge without anyone placing them there.
-			const a = rand() * Math.PI * 2;
-			const r = this.bay * 0.9 + rand() * reach;
-			const x = Math.sin( a ) * r, z = Math.cos( a ) * r;
-			const h = this.heightAt( x, z );
-			if ( h < 5.5 ) continue;
-			// Cover thins toward the waterline instead of ending on a contour,
-			// which is what made the treeline read as a drawn edge.
-			if ( rand() > Math.min( 1, ( h - 5.5 ) / 9 ) ) continue;
-			const e = 2.5;
-			const slope = Math.max(
-				Math.abs( this.heightAt( x + e, z ) - h ),
-				Math.abs( this.heightAt( x, z + e ) - h ) ) / e;
-			if ( slope > 0.85 ) continue;
+		const perPlate = Math.ceil( count / plates.length );
+		let placed = 0;
+		this.trees = [];
 
-			// Pines vary a lot in a real stand, and clump: a uniform scatter of
-			// identical cones is the tell that reads as a hedge. Squaring the
-			// random makes small trees common and tall ones occasional.
-			const u = rand();
-			const s = 0.55 + u * u * 1.5;
-			m.compose( v.set( x, h + 2.1 * s, z ), q, v.clone().set( s, s, s ) );
-			trunks.setMatrixAt( placed, m );
-			m.compose( v.set( x, h + ( 4.2 + 4.2 ) * s, z ), q,
-				v.clone().set( s * ( 0.8 + rand() * 0.4 ), s * ( 0.85 + rand() * 0.5 ), s * ( 0.8 + rand() * 0.4 ) ) );
-			pines.setMatrixAt( placed, m );
-			// Each its own green, darker with height: the ridge line reads as
-			// depth rather than as a stencil.
-			col.setHSL( 0.28 + rand() * 0.05, 0.45 + rand() * 0.18,
-				0.16 + rand() * 0.10 - Math.min( h, 40 ) * 0.0012 );
-			pines.setColorAt( placed, col );
-			placed ++;
+		for ( const [ pi, plate ] of plates.entries() ) {
+
+			const tex = new THREE.TextureLoader().load( plate.png );
+			tex.colorSpace = THREE.SRGBColorSpace;
+			tex.anisotropy = 8;
+			// A pine is ~14 m tall and the plate keeps its own proportions, so
+			// the quad is as wide as the photograph says it should be.
+			const H = 1, W = plate.w / plate.h;
+			const geo = new THREE.PlaneGeometry( W, H );
+			// Origin at the FOOT of the quad, so an instance sits on the ground
+			// rather than half-buried in it.
+			geo.translate( 0, H * 0.5, 0 );
+
+			const mat = new THREE.MeshStandardMaterial( {
+				map: tex, transparent: false, alphaTest: 0.45,
+				roughness: 0.92, metalness: 0, side: THREE.DoubleSide,
+			} );
+			mat.onBeforeCompile = ( sh ) => {
+				sh.vertexShader = sh.vertexShader
+					.replace( '#include <begin_vertex>', `
+					#include <begin_vertex>
+					// Rebuild the vertex IN WORLD SPACE so the quad faces the
+					// camera about the Y axis. The instance matrix carries the
+					// trunk's position and its scale; take those apart rather
+					// than letting the matrix rotate the plate.
+					vec3 bbCentre = vec3( instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2] );
+					float bbSX = length( instanceMatrix[0].xyz );
+					float bbSY = length( instanceMatrix[1].xyz );
+					vec3 bbToCam = cameraPosition - bbCentre;
+					// Y flattened: the quad turns, it never tips. Facing the
+					// camera outright would lay the whole forest down when seen
+					// from above, which is worse than a cone.
+					vec3 bbRight = normalize( vec3( bbToCam.z, 0.0, - bbToCam.x ) );
+					transformed = bbCentre + bbRight * ( position.x * bbSX )
+					            + vec3( 0.0, position.y * bbSY, 0.0 );
+					` )
+					// The vertex above is ALREADY in world space. three's own
+					// projection would then apply the instance matrix a second
+					// time -- which is exactly what put the first attempt's
+					// trees in the sky, each one translated by its own position
+					// twice over. Project it directly instead.
+					.replace( '#include <project_vertex>', `
+					vec4 mvPosition = modelViewMatrix * vec4( transformed, 1.0 );
+					gl_Position = projectionMatrix * mvPosition;
+					` )
+					.replace( '#include <worldpos_vertex>', `
+					#if defined( USE_ENVMAP ) || defined( DISTANCE ) || defined( USE_SHADOWMAP ) || defined( USE_TRANSMISSION ) || NUM_SPOT_LIGHT_COORDS > 0
+						vec4 worldPosition = vec4( transformed, 1.0 );
+					#endif
+					` );
+			};
+
+			const mesh = new THREE.InstancedMesh( geo, mat, perPlate );
+			mesh.castShadow = true;
+			mesh.receiveShadow = true;
+			mesh.frustumCulled = false;    // the vertex shader moves them
+			const m = new THREE.Matrix4();
+			const q = new THREE.Quaternion();
+			const v = new THREE.Vector3();
+			const col = new THREE.Color();
+
+			let n = 0, tries = 0;
+			const reach = this.bay * 1.7;
+			while ( n < perPlate && tries < perPlate * 40 ) {
+				tries ++;
+				// Rejection sampling against the ground itself: trees go where
+				// there IS ground high and level enough to hold them, which puts
+				// them on the headland without anyone placing them there.
+				const a = rand() * Math.PI * 2;
+				const r = this.bay * 0.9 + rand() * reach;
+				const x = Math.sin( a ) * r, z = Math.cos( a ) * r;
+				const h = this.heightAt( x, z );
+				if ( h < 5.5 ) continue;
+				if ( rand() > Math.min( 1, ( h - 5.5 ) / 9 ) ) continue;
+				const e = 2.5;
+				const slope = Math.max(
+					Math.abs( this.heightAt( x + e, z ) - h ),
+					Math.abs( this.heightAt( x, z + e ) - h ) ) / e;
+				if ( slope > 0.85 ) continue;
+
+				// Squared random: small trees common, tall ones occasional.
+				const u = rand();
+				const tall = 7 + u * u * 16;
+				// Sunk slightly so the trunk foot never floats over a facet.
+				m.compose( v.set( x, h - 0.4, z ), q, v.clone().set( tall, tall, tall ) );
+				mesh.setMatrixAt( n, m );
+				// Per-tree tint: a stand is never one green, and without this
+				// the repeat of two plates is obvious.
+				col.setHSL( 0.25 + rand() * 0.06, 0.30 + rand() * 0.25,
+					0.42 + rand() * 0.22 );
+				mesh.setColorAt( n, col );
+				n ++;
+			}
+			mesh.count = n;
+			mesh.instanceMatrix.needsUpdate = true;
+			if ( mesh.instanceColor ) mesh.instanceColor.needsUpdate = true;
+			this.group.add( mesh );
+			this.trees.push( mesh );
+			placed += n;
+
 		}
 
-		trunks.count = placed;
-		pines.count = placed;
-		trunks.instanceMatrix.needsUpdate = true;
-		pines.instanceMatrix.needsUpdate = true;
-		if ( pines.instanceColor ) pines.instanceColor.needsUpdate = true;
-		for ( const o of [ trunks, pines ] ) { o.castShadow = true; o.receiveShadow = true; }
-		this.group.add( trunks, pines );
 		this.treeCount = placed;
 
 	}
