@@ -56,7 +56,7 @@ const out = await page.evaluate(async () => {
   // texture are only brought up to date inside wake.update().
   w.set('boat.speed', 0);
   for (let i = 0; i < 200; i++) w.stepSim(1 / 30);
-  w.wake.update(performance.now());
+  w.wake.update(w.state.t);   // the SIM clock in seconds, not wall ms
   const stopped = snap('after a 6.7 s run-down');
   // A/B the field instead of guessing at the texel mapping: the honest question
   // is whether the overtake term contributes anything, and the control is the
@@ -78,7 +78,7 @@ const out = await page.evaluate(async () => {
   };
   const withOvertake = fieldMax();
   w.set('kelvin.overtake', 0);
-  w.wake.update(performance.now());
+  w.wake.update(w.state.t);   // the SIM clock in seconds, not wall ms
   const withoutOvertake = fieldMax();
   w.set('kelvin.overtake', 1);
   let ahead = null;
