@@ -638,6 +638,12 @@ const INTERFERE_FRAG = /* glsl */`
 
       eta += amp * cos(ph) * res * lo * ageF;
     }
+    // Divided by sqrt(count): a sum of many phases grows that way, so without
+    // it the budget doubles as a volume knob. With it, more impulses buy
+    // CLEANER cancellation off-axis -- which is the thing that carves the wedge
+    // out of what would otherwise be ripple everywhere -- at the same height.
+    eta /= sqrt(max(float(uSrcCount), 1.0));
+
     // Height only. Foam, bubbles and spray are made where the hull churned the
     // water and stay there; this is the travelling part and nothing else.
     gl_FragColor = vec4(0.0, eta * uAmp, 0.0, 0.0);
@@ -801,9 +807,11 @@ export class WakeField {
     const step = total / want;
     const arr = this.iUniforms.uSrc.value;
     let acc = 0, next = 0, n = 0;
-    // Each impulse stands for the stretch of track it was picked from, so a
-    // sparser sampling does not quietly make a smaller wake.
-    const share = Math.sqrt(step);
+    // NORMALISED, so the source count is a quality control and not a volume
+    // control. Weighting each impulse by sqrt(step) made the total grow as the
+    // square root of N -- turning the budget up made the sea bigger rather than
+    // the wake cleaner. The strength is now per-impulse and the shader divides
+    // by sqrt(count), which is how a sum of many phases actually grows.
     for (let i = 1; i < P.length && n < want; i++) {
       const seg = Math.hypot(P[i].x - P[i-1].x, P[i].z - P[i-1].z);
       acc += seg;
@@ -814,7 +822,7 @@ export class WakeField {
         // Wave-making goes as speed squared, saturating: the same law the rest
         // of the wake obeys, so the two agree about which speed is expensive.
         const e2 = (spd / 7) * (spd / 7);
-        arr[n].set(p.x, p.z, p.t, e2 * 2 / (1 + e2) * share);
+        arr[n].set(p.x, p.z, p.t, e2 * 2 / (1 + e2));
         n++;
       }
     }
