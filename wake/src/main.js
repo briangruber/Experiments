@@ -1073,4 +1073,4 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // Expose for the headless capture harness.
-window.__wake = { PARAMS, set, get, state, view, renderer, wake, ocean, stepSim, sea, wakeBridge, body, spray };
+window.__wake = { PARAMS, set, get, state, view, renderer, wake, ocean, stepSim, sea, wakeBridge, body, spray, shore, camera };
