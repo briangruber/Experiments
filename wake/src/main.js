@@ -1045,7 +1045,9 @@ function frame(now) {
         color: { target: glc.TEXTURE_2D, tex: ct },
         depth: { target: glc.TEXTURE_2D, tex: dtx },
         res: new Float32Array([bw, bh]),
-        amount: get('scene.refraction') * 0.06,
+        // Distorted by the SAME control as the bed: a wavy surface displaces
+        // everything under it by one physical mechanism, so it gets one knob.
+        amount: get('scene.refraction') * 0.06 * get('lake.bedDistort'),
         // Murk well under 1: the hull is METRES away through water that the
         // sea shader already colours -- full absorption on top of that erased
         // the keel a hand's width below the waterline.

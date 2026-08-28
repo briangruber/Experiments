@@ -565,6 +565,85 @@ const RIBBON_FRAG = /* glsl */`
   }
 `;
 
+
+// ---------------------------------------------------------- interference --
+//
+// THE V, BUILT RATHER THAN DRAWN.
+//
+// Everything else in this file paints the Kelvin pattern: the wedge comes out
+// of solving the stationary-phase condition analytically and the result is
+// stamped into a ribbon that follows the boat. It is fast and it is right for a
+// hull holding its speed, and it can never do anything else -- the pattern is a
+// function of where you are in the ribbon, so it cannot pass the boat, cannot
+// meet another wake, and cannot outlive the shape it was drawn on.
+//
+// This is the honest version. Each point the hull passed through is an impulse
+// on the water, and an impulse radiates RINGS. Deep-water waves are dispersive,
+// so at distance r and elapsed time tau you see the wavenumber whose GROUP
+// velocity is r/tau:
+//
+//     cg = 0.5*sqrt(g/k) = r/tau        ->  k = g tau^2 / (4 r^2)
+//     omega = sqrt(g k)                 ->  omega = g tau / (2 r)
+//     phase = k r - omega tau           ->  phase = -g tau^2 / (4 r)
+//
+// which is Cauchy-Poisson. Sum that over the track and the 19.47 degree wedge
+// APPEARS, as the interference of every ring the hull ever made -- nobody
+// writes the angle down anywhere. Stop, and the rings carry on expanding
+// through where the boat used to be. Turn, and the pattern turns with the
+// history rather than with the hull. Both come free, because both are what
+// rings actually do.
+const INTERFERE_VERT = /* glsl */`
+  varying vec2 vW;
+  void main(){
+    vW = (modelMatrix * vec4(position, 1.0)).xz;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const MAX_SRC = 96;
+
+const INTERFERE_FRAG = /* glsl */`
+  precision highp float;
+  varying vec2 vW;
+  uniform vec4  uSrc[${MAX_SRC}];      // xz = where, z = when, w = how hard
+  uniform int   uSrcCount;
+  uniform float uTime, uAmp, uLife, uMinLam, uMaxLam;
+
+  void main(){
+    float eta = 0.0;
+    for (int i = 0; i < ${MAX_SRC}; i++) {
+      if (i >= uSrcCount) break;
+      vec4 s = uSrc[i];
+      float tau = uTime - s.z;
+      if (tau <= 0.02) continue;
+      float r = length(vW - s.xy);
+      // Inside a metre the stationary-phase picture stops meaning anything --
+      // every wavelength arrives at once and the phase runs away to infinity.
+      if (r < 0.8) continue;
+
+      // Cauchy-Poisson: the wave at (r, tau) is the one whose group velocity
+      // got it here, and this is its phase.
+      float ph = 9.81 * tau * tau / (4.0 * r);
+      // ...and its wavelength, which is what decides whether it can be drawn.
+      float lam = 8.0 * 3.14159265 * r * r / (9.81 * tau * tau);
+
+      // Short waves alias into moire in a field texture; long ones are the
+      // leading edge of the disturbance and carry almost no amplitude. Fade
+      // both rather than letting either print rubbish.
+      float res = smoothstep(uMinLam * 0.7, uMinLam * 1.9, lam);
+      float lo  = 1.0 - smoothstep(uMaxLam * 0.7, uMaxLam * 1.8, lam);
+      // Cylindrical spreading: one ring's energy over an ever longer crest.
+      float amp = s.w / sqrt(max(r, 1.0));
+      float ageF = pow(max(1.0 - tau / max(uLife, 0.1), 0.0), 1.1);
+
+      eta += amp * cos(ph) * res * lo * ageF;
+    }
+    // Height only. Foam, bubbles and spray are made where the hull churned the
+    // water and stay there; this is the travelling part and nothing else.
+    gl_FragColor = vec4(0.0, eta * uAmp, 0.0, 0.0);
+  }
+`;
+
 export class WakeField {
   constructor(renderer, size = 1024) {
     this.renderer = renderer;
@@ -676,6 +755,77 @@ export class WakeField {
     this.mesh = new THREE.Mesh(g, this.material);
     this.mesh.frustumCulled = false;
     this.scene.add(this.mesh);
+
+    // The interference pass: one quad over the whole field, additive, height
+    // only. It shares the bake and the blend the ribbon already uses.
+    this.iUniforms = {
+      uSrc: { value: Array.from({ length: MAX_SRC }, () => new THREE.Vector4()) },
+      uSrcCount: { value: 0 },
+      uTime: { value: 0 }, uAmp: { value: 0 }, uLife: { value: 26 },
+      uMinLam: { value: 1.6 }, uMaxLam: { value: 140 },
+    };
+    const iGeo = new THREE.PlaneGeometry(1, 1);
+    iGeo.rotateX(-Math.PI / 2);
+    this.iMesh = new THREE.Mesh(iGeo, new THREE.ShaderMaterial({
+      uniforms: this.iUniforms,
+      vertexShader: INTERFERE_VERT,
+      fragmentShader: INTERFERE_FRAG,
+      transparent: true, depthTest: false, depthWrite: false,
+      blending: THREE.CustomBlending, blendEquation: THREE.AddEquation,
+      blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor,
+    }));
+    this.iMesh.frustumCulled = false;
+    this.iMesh.visible = false;
+    this.scene.add(this.iMesh);
+  }
+
+  /**
+   * Hand the interference pass the track as a list of impulses.
+   *
+   * Decimated to a fixed budget and spread by ARC rather than by index, so the
+   * sources stay evenly spaced along the water however the samples happen to
+   * have been laid down -- and so the cost is flat whatever the boat did.
+   */
+  _fillSources(now) {
+    const P = this.path;
+    const gain = get('kelvin.interfere');
+    this.iMesh.visible = gain > 0.001 && P.length >= 2;
+    if (!this.iMesh.visible) return;
+
+    const want = Math.min(MAX_SRC, Math.max(4, Math.round(get('kelvin.sources'))));
+    // Total arc first, so the picks can be spaced along it.
+    let total = 0;
+    for (let i = 1; i < P.length; i++) total += Math.hypot(P[i].x - P[i-1].x, P[i].z - P[i-1].z);
+    if (total < 1) { this.iMesh.visible = false; return; }
+
+    const step = total / want;
+    const arr = this.iUniforms.uSrc.value;
+    let acc = 0, next = 0, n = 0;
+    // Each impulse stands for the stretch of track it was picked from, so a
+    // sparser sampling does not quietly make a smaller wake.
+    const share = Math.sqrt(step);
+    for (let i = 1; i < P.length && n < want; i++) {
+      const seg = Math.hypot(P[i].x - P[i-1].x, P[i].z - P[i-1].z);
+      acc += seg;
+      if (acc >= next) {
+        next += step;
+        const p = P[i];
+        const spd = Math.max(p.speed ?? 0, 0);
+        // Wave-making goes as speed squared, saturating: the same law the rest
+        // of the wake obeys, so the two agree about which speed is expensive.
+        const e2 = (spd / 7) * (spd / 7);
+        arr[n].set(p.x, p.z, p.t, e2 * 2 / (1 + e2) * share);
+        n++;
+      }
+    }
+    this.iUniforms.uSrcCount.value = n;
+    this.iUniforms.uTime.value = now;
+    this.iUniforms.uAmp.value = gain * get('kelvin.amp');
+    this.iUniforms.uLife.value = get('kelvin.life');
+    this.iUniforms.uMinLam.value = Math.max(this.extent / this.rt.width * 3.2, 0.6);
+    const c = this.center;
+    this.iMesh.position.set(c.x, 0, c.y);
+    this.iMesh.scale.set(this.extent, 1, this.extent);
   }
 
   /**
@@ -843,6 +993,7 @@ export class WakeField {
 
     this._syncUniforms();
     this.uniforms.uTime.value = now;
+    this._fillSources(now);
     this._bake();
   }
 

@@ -227,7 +227,17 @@ function fitToLake( p, preset = {}, tune = {} ) {
 	// itself is a procedural sheet that drifts on its own clock -- it is not
 	// projected from the FFT surface -- so this is the knob that ties what
 	// you see on the bottom to the waves overhead.
-	p.sdRefract = get( 'lake.bedDistort' );
+	// ONE distortion, for everything seen through the surface.
+	//
+	// There were two, and they did not know about each other: this one warped the
+	// procedural seafloor inside the water shader, while the screen-space
+	// refraction of whatever the SCENE put under the water -- the shore's own
+	// sand, the rocks, the submerged half of the hull -- was displaced by
+	// scene.refraction on its own. So near a coast, where the sandy floor IS the
+	// shore mesh seen through refraction, this control could be swung from 0 to 3
+	// with nothing whatever happening. The 1.4 keeps the bed looking as it did
+	// when this was its own control at that value.
+	p.sdRefract = get( 'lake.bedDistort' ) * 1.4;
 
 	// The lace, for the sea as well as the wake. Written every frame from the
 	// prototype's own foam controls, so the two surfaces cannot drift apart.

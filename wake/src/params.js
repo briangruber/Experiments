@@ -137,6 +137,17 @@ export const PARAMS = {
   // on rolling outward long after the white churn has died, and they reach the
   // full 19.47 degree wedge, which is wider than the spray arms.
   kelvin: {
+    // THE V FROM REAL INTERFERENCE, rather than from the analytic pattern.
+    //
+    // Every point the hull passed is an impulse; deep-water waves disperse, so
+    // at (r, tau) you see the wavenumber whose group velocity got it there, and
+    // its phase is g*tau^2/(4r). Sum that along the track and the 19.47 degree
+    // wedge APPEARS out of the interference -- nobody writes the angle down.
+    // Stopping, turning and dispersion all come free, because they are what
+    // rings do. Costs one loop over the sources per field texel, which is why
+    // the count is a control and not a constant.
+    interfere:    { v: 0,    min: 0,   max: 3,   step: 0.01, label: 'V from interference' },
+    sources:      { v: 48,   min: 4,   max: 96,  step: 1,    label: 'Impulses summed' },
     // A stopping hull does not stop its waves. The transverse train keeps the
     // speed that made it, overtakes the boat and streams out ahead before it
     // disperses -- which a ribbon indexed by distance astern cannot show, so
@@ -384,7 +395,7 @@ export const PARAMS = {
     bedBright:    { v: 0.30, min: 0.02, max: 2, step: 0.01, label: 'Bed brightness' },
     // The surface's own slope, bending the view of the bottom: this is what
     // makes the sand shift under a passing wave.
-    bedDistort:   { v: 1.4,  min: 0,   max: 3,   step: 0.01, label: 'Bed distortion (waves)' },
+    bedDistort:   { v: 1.0,  min: 0,   max: 3,   step: 0.01, label: 'Distortion through surface' },
     causticSize:  { v: 3.0,  min: 0.3, max: 10, step: 0.1,  label: 'Caustic cell size' },
     caustics:     { v: 1.35, min: 0,   max: 1.5, step: 0.01, label: 'Caustics on the bed' },
     radius:       { v: 1850, min: 200, max: 4000,step: 10,   label: 'Lake radius (m)' , lab: 1 },
