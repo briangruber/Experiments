@@ -92,6 +92,42 @@ function fbm( x, y, oct, seed ) {
 
 }
 
+/**
+ * Triplanar sampling, shared by the land and the boulders.
+ *
+ * Extracted because the boulders were sampling with the IcosahedronGeometry's
+ * OWN uvs -- which are badly distorted on a sphere before you start, and worse
+ * once every vertex has been carved inward by a dozen random planes. That is
+ * what read as blurry and stretched: on a stretched uv the same texels are
+ * smeared over more surface, so the rock loses its grain exactly where it is
+ * largest and closest. World-space triplanar has no uvs to distort, and it has
+ * the side benefit that a boulder and the ledge it sits on line up, because
+ * they are being sampled from the same field.
+ */
+const TRIPLANAR_GLSL = /* glsl */`
+vec3 triW( vec3 n ){
+  vec3 w = pow( abs( n ), vec3( 4.0 ) );
+  return w / max( w.x + w.y + w.z, 1e-4 );
+}
+vec4 noTile( sampler2D samp, vec2 uv ){
+  float k = fract( sin( dot( floor( uv * 0.25 ), vec2( 127.1, 311.7 ) ) ) * 43758.5453 );
+  float l = k * 8.0;
+  float f = fract( l );
+  float ia = floor( l ), ib = ia + 1.0;
+  vec2 offa = sin( vec2( 3.0, 7.0 ) * ia );
+  vec2 offb = sin( vec2( 3.0, 7.0 ) * ib );
+  vec2 dx = dFdx( uv ), dy = dFdy( uv );
+  vec4 ca = textureGrad( samp, uv + 0.4 * offa, dx, dy );
+  vec4 cb = textureGrad( samp, uv + 0.4 * offb, dx, dy );
+  return mix( ca, cb, smoothstep( 0.2, 0.8, f - 0.1 * dot( ca.rgb - cb.rgb, vec3( 1.0 ) ) ) );
+}
+vec4 triSample( sampler2D t, vec3 p, vec3 w ){
+  return noTile( t, p.zy ) * w.x
+       + noTile( t, p.xz ) * w.y
+       + noTile( t, p.xy ) * w.z;
+}
+`;
+
 export class Shore {
 
 	/**
@@ -801,11 +837,52 @@ export class Shore {
 			return t;
 		};
 		const mat = new THREE.MeshStandardMaterial( {
-			map: load( TEX.rock.albedo, true ),
 			normalMap: load( TEX.rock.normal, false ),
 			roughness: 0.95, metalness: 0, vertexColors: true, flatShading: true,
 		} );
 		mat.normalScale.set( 0.9, 0.9 );
+		// TRIPLANAR, like the ledge they sit on. The albedo is sampled from
+		// world space rather than through the icosphere's own uvs, which are
+		// distorted before the SDF carving and mangled after it -- and a
+		// stretched uv smears the same texels over more rock, which is exactly
+		// the blur that showed up on the biggest, nearest boulders.
+		const bRock = load( TEX.rock.albedo, true );
+		mat.userData.tex = bRock;
+		mat.onBeforeCompile = ( sh ) => {
+			sh.uniforms.uRockMap = { value: bRock };
+			sh.uniforms.uRockMean = { value: TEX.rock.mean };
+			sh.uniforms.uTexScale = { value: 0.34 };
+			sh.vertexShader = sh.vertexShader
+				.replace( '#include <common>',
+					'#include <common>\nvarying vec3 vBPos;\nvarying vec3 vBNrm;' )
+				.replace( '#include <worldpos_vertex>', `
+					#include <worldpos_vertex>
+					// The instance matrix carries each boulder's own placement, and
+					// three applies it in project_vertex -- so world space here has
+					// to include it explicitly or every rock samples as though it
+					// were sitting at the origin.
+					mat4 bM = modelMatrix * instanceMatrix;
+					vBPos = ( bM * vec4( transformed, 1.0 ) ).xyz;
+					vBNrm = normalize( mat3( bM ) * objectNormal );
+				` );
+			sh.fragmentShader = sh.fragmentShader
+				.replace( '#include <common>', `
+					#include <common>
+					varying vec3 vBPos;
+					varying vec3 vBNrm;
+					uniform sampler2D uRockMap;
+					uniform float uRockMean, uTexScale;
+					${ TRIPLANAR_GLSL }
+				` )
+				.replace( '#include <map_fragment>', `
+					vec3 bw = triW( normalize( vBNrm ) );
+					vec3 bc = triSample( uRockMap, vBPos * uTexScale, bw ).rgb
+					        / max( uRockMean, 0.02 );
+					// Modulates the per-instance tint rather than replacing it, so
+					// the wetness variation set at placement survives.
+					diffuseColor.rgb *= mix( vec3( 1.0 ), bc, 0.85 );
+				` );
+		};
 
 		// Per shape, an instanced mesh. Placement is a band about the
 		// waterline: boulders belong where the sea has been breaking rock, not
