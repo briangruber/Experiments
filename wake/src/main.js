@@ -14,6 +14,17 @@ import { Spray } from './spray.js';
 import { loadBoat, BOATS } from './boatLibrary.js';
 import { buildUI, buildBoatPicker } from './ui.js';
 
+
+// URL overrides: ?arms.angle=18&boat.speed=15 — handy for headless captures.
+//
+// FIRST, before anything is built. These used to run after construction, which
+// silently broke every override that a constructor reads once -- the shore's
+// bay radius, its tree and boulder counts, the boat model. The value changed
+// and the object had already been made from the old one.
+for (const [k, v] of new URLSearchParams(location.search)) {
+  if (k.includes('.')) set(k, v);
+}
+
 const canvas = document.getElementById('gl');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -100,7 +111,8 @@ if (park) scene.add(park.group);
 // (it is a place, not an effect -- rebuilding it per frame would be absurd).
 const shore = get('shore.on') > 0.5
   ? new Shore({ bay: get('shore.bay'), rugged: get('shore.rugged'),
-      relief: get('shore.relief'), trees: Math.round(get('shore.trees')) })
+      relief: get('shore.relief'), trees: Math.round(get('shore.trees')),
+      boulders: Math.round(get('shore.boulders')) })
   : null;
 if (shore) scene.add(shore.group);
 // Air. The far lawn and treeline haze out; the sea ignores this and hazes
@@ -188,7 +200,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b23';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b24';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -457,10 +469,10 @@ const fieldQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.Shader
 }));
 fieldScene.add(fieldQuad);
 
-// URL overrides: ?arms.angle=18&boat.speed=15 — handy for headless captures.
+// The camera part of the URL overrides stays here, because `view` does not
+// exist until further down.
 for (const [k, v] of new URLSearchParams(location.search)) {
-  if (k.includes('.')) set(k, v);
-  else if (k === 'cam') { const [p, y, d] = v.split(',').map(Number); view.pitch = p; view.yaw = y; view.dist = d; view.topDown = false; }
+  if (k === 'cam') { const [p, y, d] = v.split(',').map(Number); view.pitch = p; view.yaw = y; view.dist = d; view.topDown = false; }
 }
 // The boat holder was filled before the overrides ran, so a ?boat.model= in
 // the URL changed the number and left the old hull showing.

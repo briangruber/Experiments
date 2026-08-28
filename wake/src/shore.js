@@ -87,7 +87,7 @@ export class Shore {
 	 * @param {number} o.trees    pines on the headland
 	 * @param {number} o.seed
 	 */
-	constructor( { bay = 300, rugged = 1, relief = 1, trees = 900, seed = 12 } = {} ) {
+	constructor( { bay = 300, rugged = 1, relief = 1, trees = 900, boulders = 1200, seed = 12 } = {} ) {
 
 		this.bay = bay;
 		this.rugged = rugged;
@@ -97,6 +97,7 @@ export class Shore {
 
 		this._buildLand();
 		this._buildTrees( trees );
+		this._buildBoulders( boulders );
 
 	}
 
@@ -546,6 +547,140 @@ export class Shore {
 		}
 
 		this.treeCount = placed;
+
+	}
+
+	// ------------------------------------------------------------- boulders --
+	//
+	// The heightfield cannot make a rock. It has one height per point, so no
+	// overhang, no undercut, no boulder sitting ON another -- and at the
+	// waterline, where the camera actually gets close, that is the whole
+	// character of the reference photograph.
+	//
+	// The shape method is the one from red-reddington's "100k procedural rocks"
+	// (threejs discourse 89578): a SPHERE CARVED BY RANDOM PLANES. That thread
+	// polygonises the SDF with marching cubes; carving an icosphere radially
+	// gets the same silhouette for a fraction of the code, because a sphere
+	// minus a set of half-spaces is star-shaped about its centre -- every ray
+	// from the middle crosses the surface exactly once, so the radius along a
+	// vertex's own direction IS the SDF. What matters is that the cuts are
+	// FLAT: real broken basalt is a set of cleavage planes meeting at sharp
+	// arrises, and no amount of smooth noise ever produces that.
+	//
+	// A soft minimum rounds the arrises slightly, the way weather does.
+	_buildBoulders( count ) {
+
+		const rand = rng( this.seed * 31 + 5 );
+		const SHAPES = 8;                 // 8 draw calls, as in the thread
+		const shapes = [];
+
+		for ( let i = 0; i < SHAPES; i ++ ) {
+			const geo = new THREE.IcosahedronGeometry( 1, 3 );
+			const cuts = [];
+			const nCuts = 14 + Math.floor( rand() * 9 );
+			for ( let c = 0; c < nCuts; c ++ ) {
+				// Directions from a normalised gaussian-ish triple, so the cuts
+				// are evenly spread over the sphere rather than clustered at the
+				// poles the way naive spherical angles are.
+				let nx = rand() * 2 - 1, ny = rand() * 2 - 1, nz = rand() * 2 - 1;
+				const l = Math.hypot( nx, ny, nz ) || 1;
+				nx /= l; ny /= l; nz /= l;
+				cuts.push( { nx, ny, nz, off: 0.52 + rand() * 0.42 } );
+			}
+			const pos = geo.attributes.position;
+			const v = new THREE.Vector3();
+			// Soft min: k is the arris radius, in units of the unit sphere.
+			const smin = ( a, b, k ) => {
+				const h = Math.max( 0, Math.min( 1, 0.5 + 0.5 * ( b - a ) / k ) );
+				return b * ( 1 - h ) + a * h - k * h * ( 1 - h );
+			};
+			for ( let j = 0; j < pos.count; j ++ ) {
+				v.fromBufferAttribute( pos, j ).normalize();
+				let r = 1;
+				for ( const c of cuts ) {
+					const dp = v.x * c.nx + v.y * c.ny + v.z * c.nz;
+					if ( dp > 0.02 ) r = smin( r, c.off / dp, 0.07 );
+				}
+				// A little noise on top so two instances of the same shape do
+				// not read as the same rock seen twice.
+				r *= 0.94 + 0.12 * fbm( v.x * 3.1 + i * 7, v.z * 3.1 - i * 5, 3, this.seed + i );
+				pos.setXYZ( j, v.x * r, v.y * r, v.z * r );
+			}
+			pos.needsUpdate = true;
+			geo.computeVertexNormals();
+			shapes.push( geo );
+		}
+
+		// One material for all of them, sharing the shore's own rock plates so
+		// a boulder and the ledge it sits on are made of the same stone.
+		const load = ( uri, srgb ) => {
+			const t = new THREE.TextureLoader().load( uri );
+			t.wrapS = t.wrapT = THREE.RepeatWrapping;
+			t.anisotropy = 8;
+			if ( srgb ) t.colorSpace = THREE.SRGBColorSpace;
+			return t;
+		};
+		const mat = new THREE.MeshStandardMaterial( {
+			map: load( TEX.rock.albedo, true ),
+			normalMap: load( TEX.rock.normal, false ),
+			roughness: 0.95, metalness: 0, vertexColors: true, flatShading: true,
+		} );
+		mat.normalScale.set( 0.9, 0.9 );
+
+		// Per shape, an instanced mesh. Placement is a band about the
+		// waterline: boulders belong where the sea has been breaking rock, not
+		// scattered evenly over a headland.
+		const per = Math.ceil( count / SHAPES );
+		const m = new THREE.Matrix4();
+		const q = new THREE.Quaternion();
+		const e = new THREE.Euler();
+		const v3 = new THREE.Vector3();
+		const col = new THREE.Color();
+		let placed = 0;
+
+		for ( const geo of shapes ) {
+			const mesh = new THREE.InstancedMesh( geo, mat, per );
+			mesh.castShadow = true;
+			mesh.receiveShadow = true;
+			let n = 0, tries = 0;
+			while ( n < per && tries < per * 30 ) {
+				tries ++;
+				const a = rand() * Math.PI * 2;
+				const coast = this.coastAt( a );
+				// From a little offshore to a little inland: the splash zone.
+				const t = - 14 + rand() * 26;
+				const x = Math.sin( a ) * ( coast + t ), z = Math.cos( a ) * ( coast + t );
+				const h = this.heightAt( x, z );
+				if ( h < - 6 || h > 12 ) continue;
+				// Squared random again: mostly cobbles, occasionally something
+				// you would have to climb over.
+				const u = rand();
+				const size = 0.35 + u * u * 3.4;
+				e.set( rand() * 6.28, rand() * 6.28, rand() * 6.28 );
+				q.setFromEuler( e );
+				// Squashed: a boulder that has settled is wider than it is tall.
+				v3.set( size * ( 0.9 + rand() * 0.5 ), size * ( 0.6 + rand() * 0.4 ),
+					size * ( 0.9 + rand() * 0.5 ) );
+				// Sunk by a third, so they sit IN the ground rather than on it.
+				m.compose( new THREE.Vector3( x, h - size * 0.30, z ), q, v3 );
+				mesh.setMatrixAt( n, m );
+				// Wet rock is dark rock. Anything near or below the waterline
+				// takes the tone the sea gives it -- the thread varies wetness
+				// per instance for the same reason, and it is most of what
+				// makes a shoreline read as a shoreline.
+				const wet = 1 - Math.min( 1, Math.max( 0, ( h + 0.4 ) / 2.2 ) );
+				const g = ( 0.62 + rand() * 0.5 ) * ( 1 - wet * 0.45 );
+				col.setRGB( g * ( 0.95 + rand() * 0.1 ), g, g * ( 0.94 + rand() * 0.12 ) );
+				mesh.setColorAt( n, col );
+				n ++;
+			}
+			mesh.count = n;
+			mesh.instanceMatrix.needsUpdate = true;
+			if ( mesh.instanceColor ) mesh.instanceColor.needsUpdate = true;
+			this.group.add( mesh );
+			placed += n;
+		}
+		this.boulderCount = placed;
 
 	}
 

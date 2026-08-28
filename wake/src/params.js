@@ -263,6 +263,7 @@ export const PARAMS = {
     rugged:       { v: 1,    min: 0,   max: 2,   step: 0.01, label: 'Coast ruggedness' },
     relief:       { v: 1.5,  min: 0.2, max: 2.5, step: 0.01, label: 'Rock height ×' },
     trees:        { v: 1400, min: 0,   max: 3000,step: 50,   label: 'Pines' },
+    boulders:     { v: 1400, min: 0,   max: 4000,step: 50,   label: 'Boulders' },
   },
 
   // Cost, not looks. Auto-set on load from the device, then yours to override.
