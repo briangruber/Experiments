@@ -311,6 +311,10 @@ uniform float uRefractDistort;
 uniform float uFloorCausticLod[4];
 uniform float uFloorCausticSpan;
 uniform float uShoreFoamAmount, uShoreFoamRange;
+// FORKED IN: the real coastline's height field, so the sea can break on the
+// rock that is actually there instead of on its own procedural bed.
+uniform sampler2D uShoreMap;
+uniform float uShoreOn, uShoreExtent, uSurge;
 uniform vec2  uWindDirV;
 uniform float uSpecClamp;
 uniform float uHorizonBend, uInterReflect;
@@ -1166,15 +1170,34 @@ void main(){
     float lo = min(rawLo, rawHi);
     float hi = max(rawLo, rawHi);
     float bedDepth = floorTerrainDepth(vFlat.x, vFlat.z, lo, hi, uFloorTerrainScale);
+    // The COAST, if one has been handed over. Its height field is metres
+    // relative to the waterline (negative under), so the water column above it
+    // is simply its negation -- and where the map says land, the column goes
+    // to zero and the break term dies on its own.
+    if (uShoreOn > 0.5) {
+      vec2 suv = vFlat.xz / uShoreExtent + 0.5;
+      if (suv.x > 0.0 && suv.x < 1.0 && suv.y > 0.0 && suv.y < 1.0) {
+        bedDepth = -texture(uShoreMap, suv).r;
+      }
+    }
     float column = max(bedDepth + vWorld.y - uSeaLevel, 0.02);
-    float breakDepth = max(uShoreFoamRange, 0.25);
+    // SETS. A break line pinned to one depth is a static ring of foam around
+    // the island, which is the tell that gives away every lake-with-a-beach in
+    // a game. Real surf arrives in groups: the depth at which water breaks
+    // rises and falls as each set runs in, so the whole band advances and
+    // retreats over the rock. Two periods well apart, so the pattern does not
+    // read as a pulse.
+    float surge = uSurge * (sin(uTime * 0.21) * 0.6 + sin(uTime * 0.083 + 1.7) * 0.4);
+    float breakDepth = max(uShoreFoamRange * (1.0 + surge * 0.55), 0.25);
     float breakWidth = max(breakDepth * 0.16, 0.35);
     float breakOffset = (column - breakDepth) / breakWidth;
     float shallow = exp(-breakOffset * breakOffset);
     float crest = smoothstep(-0.12, 0.38, vRelief);
-    float foamMaster = smoothstep(0.0, 0.12, uFoamAmount);
-    float shoreCov = clamp(shallow * mix(0.12, 1.0, crest)
-                         * uShoreFoamAmount * foamMaster, 0.0, 0.72);
+    // FORKED: no longer gated on uFoamAmount. Surf on a shore has nothing to
+    // do with whitecaps in open water -- that gate is why turning the sea's
+    // whitecaps off silently took the shore break with them.
+    float shoreCov = clamp(shallow * mix(0.35, 1.0, crest)
+                         * uShoreFoamAmount, 0.0, 0.82);
     float shoreLace = smoothstep(1.0 - shoreCov - 0.13, 1.0 - shoreCov + 0.13, lace)
                     * smoothstep(0.0, 0.13, shoreCov);
     float shoreMask = mix(shoreCov, shoreLace, clumpRes);

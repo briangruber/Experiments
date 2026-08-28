@@ -243,7 +243,10 @@ function fitToLake( p, preset = {}, tune = {} ) {
 	// breaking water -- so it is a knob, defaulting to off. The BOAT's foam is
 	// a separate system (the wake field) and is untouched by this.
 	p.foamAmount = ( preset.foamAmount ?? 0 ) * get( 'foamMix.seaWhitecaps' );
-	p.shoreFoamAmount = ( preset.shoreFoamAmount ?? 0 ) * get( 'foamMix.seaWhitecaps' );
+	// Surf has its own master, separate from open-water whitecaps: they are
+	// different phenomena and wanting one is no reason to get the other.
+	p.shoreFoamAmount = get( 'foamMix.surf' );
+	p.shoreFoamRange = get( 'foamMix.surfDepth' );
 
 	const tint = get( 'scene.waterTint' );
 	// A scene may commit to its own water colour outright. The preset library

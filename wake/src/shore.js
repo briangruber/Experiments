@@ -733,6 +733,58 @@ export class Shore {
 	}
 
 	/**
+	 * The bay's floor, baked into a texture for the WATER to read.
+	 *
+	 * The sea and the shore have been strangers this whole time: the sea draws
+	 * its own procedural bed and the land is a mesh laid over it, and nothing
+	 * connects them. That is why there is no surf -- the water shader has a
+	 * perfectly good shore-break term, and it has been asking the wrong bed how
+	 * deep the water is.
+	 *
+	 * Sampling this height field is the introduction. One 512 map over the bay
+	 * is about a metre per texel, which is finer than the break line needs, and
+	 * it is computed once: the coast does not move.
+	 *
+	 * R16F rather than R32F because half floats are linear-filterable in core
+	 * WebGL2 -- a NEAREST depth map would step the break line into a staircase
+	 * of squares along the whole coast.
+	 */
+	depthTexture( size = 512 ) {
+
+		const extent = this.bay * 3.4;
+		const data = new Uint16Array( size * size );
+		// Minimal float32 -> float16, enough for the range this holds.
+		const half = ( v ) => {
+			const f = new Float32Array( 1 ); const i = new Uint32Array( f.buffer );
+			f[ 0 ] = v;
+			const x = i[ 0 ];
+			const sign = ( x >>> 16 ) & 0x8000;
+			let exp = ( ( x >>> 23 ) & 0xff ) - 127 + 15;
+			const man = ( x >>> 13 ) & 0x3ff;
+			if ( exp <= 0 ) return sign;
+			if ( exp >= 31 ) return sign | 0x7c00;
+			return sign | ( exp << 10 ) | man;
+		};
+		for ( let j = 0; j < size; j ++ ) {
+			const z = ( j / ( size - 1 ) - 0.5 ) * extent;
+			for ( let i = 0; i < size; i ++ ) {
+				const x = ( i / ( size - 1 ) - 0.5 ) * extent;
+				data[ j * size + i ] = half( this.heightAt( x, z ) );
+			}
+		}
+		const tex = new THREE.DataTexture( data, size, size,
+			THREE.RedFormat, THREE.HalfFloatType );
+		tex.magFilter = THREE.LinearFilter;
+		tex.minFilter = THREE.LinearFilter;
+		tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+		tex.needsUpdate = true;
+		this.depthTex = tex;
+		this.depthExtent = extent;
+		return tex;
+
+	}
+
+	/**
 	 * Keep a hull in the bay.
 	 *
 	 * Same two layers the pond used, for the same reason: the assist steers

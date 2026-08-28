@@ -267,6 +267,11 @@ export class WaterSurface {
       uFloorCausticLod: floorCausticLods( ocean.patchSizes, ocean.N ?? p.fftSize ?? 128 ),
       uFloorCausticSpan: FLOOR_CAUSTIC_SPAN,
       uShoreFoamAmount: p.shoreFoamAmount ?? 0,
+      // FORKED: the caller's coastline, if it has one.
+      ...(opts.shore ? {
+        uShoreMap: opts.shore.tex, uShoreOn: 1,
+        uShoreExtent: opts.shore.extent, uSurge: opts.shore.surge ?? 1,
+      } : { uShoreMap: this._inertRefr(), uShoreOn: 0, uShoreExtent: 1, uSurge: 0 }),
       uShoreFoamRange: p.shoreFoamRange ?? 3,
       uWindDirV: set2(this._vWind, Math.cos(p.windDir), Math.sin(p.windDir)),
       uSpecClamp: p.specClamp, uHorizonBend: p.horizonBend,

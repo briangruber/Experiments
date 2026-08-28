@@ -221,6 +221,7 @@ const useAbyssal = () => sea !== null && get('scene.abyssal') > 0.5;
 // Our field, their water. This is the seam the whole swap hangs on.
 const wakeBridge = sea ? new WakeBridge(renderer, wake) : null;
 let sceneTuned = false;   // the default scene's tune is applied on frame one
+let shoreOpt = null;      // the coast's height field, handed to the water once
 if (sea) sea.setWake(wakeBridge);
 
 // Only the analytic path owns a sky dome, a far sea and a water plane; Abyssal
@@ -274,7 +275,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b25';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b26';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -951,7 +952,22 @@ function frame(now) {
       push: 0.02 * shadow,
       plane: 1,
     } : undefined;
-    sea.render(scene, camera, { ...(refr ? { refr } : {}), ...(hull ? { hull } : {}) });
+    // Introduce the sea to the coast, once: the water reads this height field
+    // to work out how deep it is over the real rock, which is what lets it
+    // break there instead of on its own procedural bed. Done here rather than
+    // at construction because the sea is built after the shore is.
+    if (shore && !shoreOpt) {
+      const st = shore.depthTexture(512);
+      renderer.initTexture(st);
+      const raw = renderer.properties.get(st)?.__webglTexture;
+      if (raw) shoreOpt = {
+        tex: { target: renderer.getContext().TEXTURE_2D, tex: raw },
+        extent: shore.depthExtent,
+      };
+    }
+    const shoreArg = shoreOpt
+      ? { shore: { ...shoreOpt, surge: get('foamMix.surfSets') } } : {};
+    sea.render(scene, camera, { ...(refr ? { refr } : {}), ...(hull ? { hull } : {}), ...shoreArg });
   } else {
     renderer.autoClear = true;
     renderer.render(scene, camera);
