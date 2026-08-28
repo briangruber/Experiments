@@ -307,7 +307,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b38';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b39';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -684,12 +684,26 @@ function stepSim(dt) {
   if (keys.has('arrowleft') || keys.has('a')) turn -= steer;
   if (keys.has('arrowright') || keys.has('d')) turn += steer;
   if (keys.has('w')) target *= 1.6;
-  if (keys.has('s')) target *= 0.35;
+  // ASTERN, not "a bit less throttle".
+  //
+  // This was target *= 0.35, which is 35% of the SLIDER rather than of the
+  // speed -- so holding it did not stop her at all, it settled her at a third
+  // of whatever the slider said and left her there. On a boat, back means the
+  // screw reversed: it stops her far harder than closing the throttle, and
+  // then drives her astern, slowly, because a propeller is shaped to push one
+  // way and a transom is not a bow.
+  if (keys.has('s')) target = -get('boat.astern');
 
   // The slider is a target, not the speed. A hull cannot step from rest to
   // planing in one frame, and if it does the wake it emits steps with it --
   // which is what puts a straight cut across the water behind.
-  const a = get('boat.accel') * dt;
+  //
+  // And she comes off the throttle faster than she goes on it. A hull decays
+  // its own way through the water, and a reversed screw is a brake with the
+  // whole engine behind it -- one rate for both directions was why stopping
+  // felt like waiting.
+  const closing = target < state.speed;
+  const a = get('boat.accel') * (closing ? get('boat.brake') : 1) * dt;
   state.speed += Math.sign(target - state.speed) * Math.min(a, Math.abs(target - state.speed));
 
   // Negated: the chase camera sits behind the hull, and in that view a rising
@@ -712,7 +726,15 @@ function stepSim(dt) {
   //    needle. Movement runs on the course; only the mesh runs on the heading.
   const cmd = -turn;
   state.turn += (cmd - state.turn) * (1 - Math.exp(-dt / 0.35));
-  const authority = THREE.MathUtils.smoothstep(state.speed, 0.4, 4.0);
+  // Authority on the SPEED THROUGH THE WATER, either way -- a rudder does not
+  // care which direction the water is going past it, only that it is. And
+  // going astern it works in reverse: the flow hits the other face, so the
+  // stern walks the way the blade points and the bow swings opposite. Anyone
+  // who has backed a boat into a berth knows the helm feels inverted; this is
+  // why.
+  const thruWater = Math.abs(state.speed);
+  const authority = THREE.MathUtils.smoothstep(thruWater, 0.4, 4.0)
+    * (state.speed < 0 ? -1 : 1);
   state.heading += state.turn * authority * dt;
   // Grip: how fast the keel pulls the track onto the heading. Low grip is a
   // skidding flat-bottom skiff; high grip is a deep-vee on rails.
