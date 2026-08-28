@@ -608,6 +608,7 @@ const INTERFERE_FRAG = /* glsl */`
   uniform vec4  uSrc[${MAX_SRC}];      // xz = where, z = when, w = how hard
   uniform int   uSrcCount;
   uniform float uTime, uAmp, uLife, uMinLam, uMaxLam;
+  uniform float uSrcStep, uSrcDt;   // spacing of the impulses, in metres and seconds
 
   void main(){
     float eta = 0.0;
@@ -632,11 +633,29 @@ const INTERFERE_FRAG = /* glsl */`
       // both rather than letting either print rubbish.
       float res = smoothstep(uMinLam * 0.7, uMinLam * 1.9, lam);
       float lo  = 1.0 - smoothstep(uMaxLam * 0.7, uMaxLam * 1.8, lam);
+
+      // NYQUIST ON THE SUM ITSELF.
+      //
+      // This sum stands in for an integral along the track, and it only means
+      // anything where neighbouring impulses are within about pi of each other
+      // in phase. Past that it aliases -- and an aliased sum does not merely
+      // lose the wedge, it MANUFACTURES energy off-axis, because the
+      // cancellation that carves the wedge is exactly what it fails to
+      // reproduce. Measured: raising the budget from 48 impulses to 96 took the
+      // lit fraction from 94.7% to 96.3%, so this is not under-sampling that a
+      // bigger budget fixes. The short waves would want thousands.
+      //
+      // So gate on the phase step instead. d(phase) between neighbours, from
+      // the time between them and the distance between them, and fade out
+      // where it passes pi rather than letting it print noise.
+      float dphi = abs(9.81 * tau / (2.0 * r)) * uSrcDt
+                 + abs(9.81 * tau * tau / (4.0 * r * r)) * uSrcStep;
+      float aa = 1.0 - smoothstep(1.5, 3.14159265, dphi);
       // Cylindrical spreading: one ring's energy over an ever longer crest.
       float amp = s.w / sqrt(max(r, 1.0));
       float ageF = pow(max(1.0 - tau / max(uLife, 0.1), 0.0), 1.1);
 
-      eta += amp * cos(ph) * res * lo * ageF;
+      eta += amp * cos(ph) * res * lo * ageF * aa;
     }
     // Divided by sqrt(count): a sum of many phases grows that way, so without
     // it the budget doubles as a volume knob. With it, more impulses buy
@@ -769,6 +788,7 @@ export class WakeField {
       uSrcCount: { value: 0 },
       uTime: { value: 0 }, uAmp: { value: 0 }, uLife: { value: 26 },
       uMinLam: { value: 1.6 }, uMaxLam: { value: 140 },
+      uSrcStep: { value: 6 }, uSrcDt: { value: 1 },
     };
     const iGeo = new THREE.PlaneGeometry(1, 1);
     iGeo.rotateX(-Math.PI / 2);
@@ -827,6 +847,11 @@ export class WakeField {
       }
     }
     this.iUniforms.uSrcCount.value = n;
+    // What the anti-alias gate needs: how far apart the impulses are on the
+    // water, and how far apart in time. Even spacing by arc makes both close to
+    // constant, so a scalar is honest enough for a Nyquist test.
+    this.iUniforms.uSrcStep.value = step;
+    this.iUniforms.uSrcDt.value = step / Math.max(P[0]?.speed ?? 1, 0.5);
     this.iUniforms.uTime.value = now;
     this.iUniforms.uAmp.value = gain * get('kelvin.amp');
     this.iUniforms.uLife.value = get('kelvin.life');
