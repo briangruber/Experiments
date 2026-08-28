@@ -16,7 +16,14 @@
 
 import { program, setUniforms, texture2D, framebuffer, FS_VERT, Blitter } from '../vendor/abyssal/src/gl.js';
 
-export const NPROBE = 4;
+// FOUR was the hull's four contact corners, and for a long time the hull was
+// the only thing that needed to know where the water actually was. The rocks
+// in the surf need it too -- a boulder cannot throw spray at a wave it cannot
+// feel -- so the probe is widened and the extra slots are let out to whatever
+// else wants them. A 64x1 fragment pass and a 1 KB readback is nothing next to
+// the ocean sim it rides behind.
+export const NPROBE = 64;
+export const NHULL = 4;
 
 const PROBE_FS = /* glsl */`
 uniform sampler2DArray uDisp;
@@ -70,8 +77,8 @@ export class WaveProbe {
 		gl.bindBuffer( gl.PIXEL_PACK_BUFFER, null );
 		this.readBuf = new Float32Array( NPROBE * 4 );
 		this.fence = null;
-		this.h = [ 0, 0, 0, 0 ];          // smoothed, what callers read
-		this.target = [ 0, 0, 0, 0 ];     // last value the GPU reported
+		this.h = new Array( NPROBE ).fill( 0 );      // smoothed, what callers read
+		this.target = new Array( NPROBE ).fill( 0 ); // last value the GPU reported
 		this._primed = false;
 
 	}
@@ -111,9 +118,16 @@ export class WaveProbe {
 		// Issue this frame's sample.
 		if ( ! this.fence ) {
 			const flat = new Float32Array( NPROBE * 2 );
+			// Callers need not fill every slot. The hull asks for four and always
+			// has; padding the rest with a repeat of the last point keeps the
+			// pass a fixed size without making every caller pad by hand -- and
+			// without indexing off the end of a short array, which is a crash
+			// in the buoyancy path rather than a wrong number.
+			const last = points[ points.length - 1 ] ?? [ 0, 0 ];
 			for ( let i = 0; i < NPROBE; i ++ ) {
-				flat[ i * 2 ] = points[ i ][ 0 ];
-				flat[ i * 2 + 1 ] = points[ i ][ 1 ];
+				const q = points[ i ] ?? last;
+				flat[ i * 2 ] = q[ 0 ];
+				flat[ i * 2 + 1 ] = q[ 1 ];
 			}
 			gl.bindFramebuffer( gl.FRAMEBUFFER, this.fbo );
 			gl.viewport( 0, 0, NPROBE, 1 );

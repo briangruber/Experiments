@@ -183,12 +183,37 @@ const park = get('lake.pond') > 1 ? new Park(get('lake.pond')) : null;
 if (park) scene.add(park.group);
 // The lagoon shore: rock, shelves, headland and pines, built once at startup
 // (it is a place, not an effect -- rebuilding it per frame would be absurd).
-const shore = get('shore.on') > 0.5
-  ? new Shore({ bay: get('shore.bay'), rugged: get('shore.rugged'),
-      relief: get('shore.relief'), trees: Math.round(get('shore.trees')),
-      boulders: Math.round(get('shore.boulders')) })
-  : null;
-if (shore) scene.add(shore.group);
+let shoreOpt = null;      // the coast's height field, handed to the water once
+
+// REBUILDABLE, because the sliders were doing nothing.
+//
+// "Built once at startup" was right about the cost and wrong about the
+// consequence: bay radius, ruggedness, relief, pines and boulders all feed
+// geometry that is baked in the constructor, so moving any of them changed a
+// number nobody ever read again. A coast is not an effect and should not be
+// rebuilt per frame -- but it does have to be rebuilt when the thing that
+// defines it changes, which is what this does, and only for those paths.
+let shore = null;
+function buildShore() {
+  if (shore) {
+    scene.remove(shore.group);
+    shore.group.traverse((o) => {
+      o.geometry?.dispose?.();
+      const m = o.material;
+      if (Array.isArray(m)) m.forEach((x) => x.dispose?.()); else m?.dispose?.();
+    });
+    shore = null;
+  }
+  if (get('shore.on') <= 0.5) return;
+  shore = new Shore({ bay: get('shore.bay'), rugged: get('shore.rugged'),
+    relief: get('shore.relief'), trees: Math.round(get('shore.trees')),
+    boulders: Math.round(get('shore.boulders')) });
+  scene.add(shore.group);
+  // The water reads the coast through a baked height map, so that has to be
+  // re-baked with it or the sea keeps the shape of the coast that used to be.
+  shoreOpt = null;
+}
+buildShore();
 // Air. The far lawn and treeline haze out; the sea ignores this and hazes
 // itself in its own shader, which is fine — land and water do haze apart.
 if (park) scene.fog = new THREE.Fog(0xd4e2ec, 420, 2400);
@@ -221,7 +246,8 @@ const useAbyssal = () => sea !== null && get('scene.abyssal') > 0.5;
 // Our field, their water. This is the seam the whole swap hangs on.
 const wakeBridge = sea ? new WakeBridge(renderer, wake) : null;
 let sceneTuned = false;   // the default scene's tune is applied on frame one
-let shoreOpt = null;      // the coast's height field, handed to the water once
+// Declared with the shore itself, above: buildShore() clears it, and that
+// call happens long before this point in the file.
 if (sea) sea.setWake(wakeBridge);
 
 // Only the analytic path owns a sky dome, a far sea and a water plane; Abyssal
@@ -387,6 +413,13 @@ const ui = buildUI(uiRoot, {
     if (path === '*' || path === 'boat.model'
       || path === 'boat.length' || path === 'boat.modelScale') {
       for (const c of boat.children) c.userData?.scaleTo?.();
+    }
+    // The coast is geometry, baked in its constructor. These are the paths that
+    // change that geometry, so these are the paths that have to rebuild it.
+    if (path === '*' || path === 'shore.on' || path === 'shore.bay'
+      || path === 'shore.rugged' || path === 'shore.relief'
+      || path === 'shore.trees' || path === 'shore.boulders') {
+      buildShore();
     }
   },
 });

@@ -275,6 +275,12 @@ export class WaterSurface {
       uShoreFoamRange: p.shoreFoamRange ?? 3,
       uSurfSpan: p.surfSpan ?? 3.2, uSurfPeriod: p.surfPeriod ?? 7.0,
       uSurfDecay: p.surfDecay ?? 3.0,
+      // Shoaling swell. Inert at uSwellOn 0, which is what a scene with no
+      // coast handed over gets.
+      uSwellOn: opts.shore && (p.swellOn ?? 1) ? 1 : 0,
+      uSwellH0: p.swellH0 ?? 1.1, uSwellD0: p.swellD0 ?? 8.0,
+      uSwellSlope: p.swellSlope ?? 0.02, uSwellPeriod2: p.swellPeriod2 ?? 9.0,
+      uSwellGamma: p.swellGamma ?? 0.78, uSwellPeak: p.swellPeak ?? 2.0,
       uFoamSoft: p.foamSoft ?? 0,
       uWindDirV: set2(this._vWind, Math.cos(p.windDir), Math.sin(p.windDir)),
       uSpecClamp: p.specClamp, uHorizonBend: p.horizonBend,
