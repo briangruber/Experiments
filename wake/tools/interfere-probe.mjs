@@ -92,9 +92,25 @@ const out = await page.evaluate(async () => {
     return { maxAbsHeight: +mx.toFixed(4), sumAbs: +sum.toFixed(1),
              litTexels: lit, nanTexels: nan, size: N };
   };
+  // Does raising the budget actually clean up the off-axis residue, or is the
+  // coverage structural? If it is discretisation noise the lit fraction has to
+  // fall as the sum is better resolved. If it does not move, the explanation is
+  // wrong and something else is spreading energy off the wedge.
+  const sweep = {};
+  for (const n of [12, 24, 48, 96]) {
+    w.set('kelvin.sources', n);
+    w.set('kelvin.interfere', 1.6);
+    w.wake.update(w.state.t);
+    const f = fieldMax();
+    sweep['src' + n] = { litPct: +(100 * f.litTexels / (f.size * f.size)).toFixed(1),
+                         peak: f.maxAbsHeight, sum: f.sumAbs };
+  }
+  w.set('kelvin.sources', 48);
+  w.set('kelvin.interfere', 1.6);
+  w.wake.update(w.state.t);
   const withInterference = fieldMax();
   w.set('kelvin.interfere', 0);
-  w.wake.update(w.state.t);   // the SIM clock in seconds, not wall ms
+  w.wake.update(w.state.t);
   const withoutInterference = fieldMax();
   w.set('kelvin.interfere', 1.6);
   let ahead = null;
@@ -114,7 +130,7 @@ const out = await page.evaluate(async () => {
     }
     ahead = { maxAbsHeight: +maxAbsH.toFixed(4), litTexels: nz, of: N*N };
   } catch (e) { ahead = { error: String(e).slice(0, 90) }; }
-  return { cruising, stopped, bakeOffMs: bakeOff, bakeOnMs: bakeOn, withInterference, withoutInterference };
+  return { sweep, withInterference, withoutInterference };
 });
 console.log(JSON.stringify(out, null, 2)); if (errs.length) console.log('ERRORS', errs.slice(0,2));
 await browser.close(); server.close();
