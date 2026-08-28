@@ -357,10 +357,44 @@ export class Shore {
 					  vec3 w = pow( abs( n ), vec3( 4.0 ) );
 					  return w / max( w.x + w.y + w.z, 1e-4 );
 					}
+					// Inigo Quilez's tile breaking, via Nathan Pointer's landscape
+					// write-up. Multiplying two scales of the same plate together
+					// (what this did before) hides a repeat at a glance and not at
+					// all once you look for it, because the period is still there
+					// in both factors.
+					//
+					// This instead samples the plate TWICE at hash-derived offsets
+					// and crossfades between them, so the pattern never lands on
+					// the same grid twice. The derivatives have to be taken from
+					// the ORIGINAL uv and passed explicitly -- sampling at an
+					// offset would otherwise pick its own mip per virtual tile and
+					// print the seams it was meant to remove.
+					vec4 noTile( sampler2D samp, vec2 uv ){
+					  float k = fract( sin( dot( floor( uv * 0.25 ), vec2( 127.1, 311.7 ) ) ) * 43758.5453 );
+					  float l = k * 8.0;
+					  float f = fract( l );
+					  float ia = floor( l ), ib = ia + 1.0;
+					  vec2 offa = sin( vec2( 3.0, 7.0 ) * ia );
+					  vec2 offb = sin( vec2( 3.0, 7.0 ) * ib );
+					  vec2 dx = dFdx( uv ), dy = dFdy( uv );
+					  vec4 ca = textureGrad( samp, uv + 0.4 * offa, dx, dy );
+					  vec4 cb = textureGrad( samp, uv + 0.4 * offb, dx, dy );
+					  return mix( ca, cb, smoothstep( 0.2, 0.8, f - 0.1 * dot( ca.rgb - cb.rgb, vec3( 1.0 ) ) ) );
+					}
+					// Stephen Hill's normal blend (the "blending in detail" note the
+					// same article points at). Adding two normal maps together
+					// muddies them and blows out bright or dark patches; this
+					// reorients one by the other, which is what keeps a fine crack
+					// legible on top of a macro crag.
+					vec3 blendNormals( vec3 n1, vec3 n2 ){
+					  vec3 t = n1 * vec3( 2.0, 2.0, 2.0 ) + vec3( -1.0, -1.0, 0.0 );
+					  vec3 u = n2 * vec3( -2.0, -2.0, 2.0 ) + vec3( 1.0, 1.0, -1.0 );
+					  return normalize( t * dot( t, u ) / max( t.z, 1e-4 ) - u );
+					}
 					vec4 triSample( sampler2D t, vec3 p, vec3 w ){
-					  return texture2D( t, p.zy ) * w.x
-					       + texture2D( t, p.xz ) * w.y
-					       + texture2D( t, p.xy ) * w.z;
+					  return noTile( t, p.zy ) * w.x
+					       + noTile( t, p.xz ) * w.y
+					       + noTile( t, p.xy ) * w.z;
 					}` )
 				.replace( '#include <map_fragment>', `
 					vec3 tw = triW( normalize( vWNrm ) );
@@ -378,9 +412,10 @@ export class Shore {
 					// again eight times larger and multiplying gives macro
 					// blotching that never lines up with the fine detail, so the
 					// repeat has nothing to lock onto. Costs one extra fetch.
-					vec3 rockFine = triSample( uRockMap, tp, tw ).rgb / max( uRockMean, 0.02 );
-					vec3 rockMacro = triSample( uRockMap, tp * 0.125, tw ).rgb / max( uRockMean, 0.02 );
-					vec3 rockC = rockFine * mix( vec3( 1.0 ), rockMacro, 0.55 );
+					// One scale for colour now that noTile breaks the repeat --
+					// the second was only ever there to disguise it, and it cost
+					// a fetch and washed out the contrast.
+					vec3 rockC = triSample( uRockMap, tp, tw ).rgb / max( uRockMean, 0.02 );
 					vec3 sandC = triSample( uSandMap, tp * 0.7, tw ).rgb / max( uSandMean, 0.02 );
 					vec3 texC = mix( rockC, sandC, sandK );
 					// The photograph MODULATES the computed colour rather than
@@ -396,10 +431,23 @@ export class Shore {
 				.replace( '#include <roughnessmap_fragment>',
 					'float roughnessFactor = roughness * mix( 1.0, 0.32, wetZone );' )
 				.replace( '#include <normal_fragment_maps>', `
-					vec3 nrT = mix( triSample( uRockNrm, tp, tw ).rgb,
-					                triSample( uSandNrm, tp * 0.7, tw ).rgb, sandK ) * 2.0 - 1.0;
-					// Whiteout blend: perturb the geometric normal by the map's
-					// horizontal part. Cheaper than a full TBN and, on a
+					// THREE SCALES of normal, blended properly.
+					//
+					// The article this comes from is blunt that a normal map
+					// matters more than diffuse resolution, and that the detail
+					// wants to arrive at several scales: a macro one for the
+					// crag, a mid one for the cracks, a fine one for grain. They
+					// have to be blended rather than summed -- summing muddies
+					// them and blows out patches -- so each is reoriented by the
+					// one below it.
+					vec3 nMacro = triSample( uRockNrm, tp * 0.19, tw ).rgb;
+					vec3 nMid = triSample( uRockNrm, tp, tw ).rgb;
+					vec3 nFine = triSample( uRockNrm, tp * 4.3, tw ).rgb;
+					vec3 nRock = blendNormals( blendNormals( nMacro, nMid ), nFine );
+					vec3 nSand = triSample( uSandNrm, tp * 0.7, tw ).rgb * 2.0 - 1.0;
+					vec3 nrT = mix( nRock, nSand, sandK );
+					// Whiteout-style application: perturb the geometric normal by
+					// the map's horizontal part. Cheaper than a full TBN and, on a
 					// heightfield with no UVs, better behaved.
 					normal = normalize( normal + vec3( nrT.x, 0.0, nrT.y ) * uNormalAmt );` );
 		};

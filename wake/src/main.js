@@ -89,6 +89,80 @@ scene.add(sun.target);
 const bounce = new THREE.HemisphereLight(0x000000, 0xaee6e0, 0.9);
 scene.add(bounce);
 
+// ENVIRONMENT LIGHTING.
+//
+// The scene had a sun, a flat ambient and a bounce, and that is enough to
+// light a shape but not to make a MATERIAL look real: a PBR surface wants to
+// see a whole sky, because what sells wet rock or a painted hull is the
+// gradient it reflects, not the single highlight. This is the HDRI step from
+// Nathan Pointer's landscape write-up, done without an HDRI: the environment
+// is drawn here, as an equirectangular strip -- sky above, sun-warmed haze at
+// the horizon, lagoon cyan below -- and run through PMREM so three can use it
+// for image-based lighting.
+//
+// Painting it rather than downloading one has a real advantage beyond the
+// bytes: it is built from the SAME sun the sea and the boats use, so when the
+// scene changes weather the reflections change with it, which a fixed HDRI
+// could never do.
+function buildEnvironment(sunDir, sunCol, skyLift) {
+  const W = 256, H = 128;
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const g = cv.getContext('2d');
+  const img = g.createImageData(W, H);
+  const el = Math.max(sunDir?.y ?? 0.6, 0.02);
+  for (let y = 0; y < H; y++) {
+    // v = 0 at the zenith, 1 at nadir.
+    const v = y / (H - 1);
+    const up = Math.cos(v * Math.PI);
+    for (let x = 0; x < W; x++) {
+      const i = (y * W + x) * 4;
+      let r, gg, b;
+      if (up > 0) {
+        // Sky: deeper overhead, paler toward the horizon, which is the
+        // gradient that makes a curved surface read as curved.
+        const t = Math.pow(up, 0.6);
+        r = 0.36 + (0.10 - 0.36) * t;
+        gg = 0.56 + (0.28 - 0.56) * t;
+        b = 0.82 + (0.62 - 0.82) * t;
+      } else {
+        // Below the horizon is water, and it is bright: a hull floating on a
+        // lagoon is lit from underneath nearly as much as from above.
+        const t = Math.pow(-up, 0.7);
+        r = 0.30 + (0.16 - 0.30) * t;
+        gg = 0.58 + (0.46 - 0.58) * t;
+        b = 0.62 + (0.52 - 0.62) * t;
+      }
+      // The sun's own glow, wide and soft: a hard disc in an env map produces
+      // a hard reflection, and at this resolution it would alias badly.
+      const azi = (x / W) * Math.PI * 2;
+      const sunAzi = Math.atan2(sunDir?.x ?? 0, sunDir?.z ?? 1) + Math.PI;
+      let dAzi = Math.abs(((azi - sunAzi + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+      const dEl = Math.abs(Math.acos(Math.max(-1, Math.min(1, up))) - Math.acos(Math.min(1, el)));
+      const glow = Math.exp(-(dAzi * dAzi + dEl * dEl) * 3.2) * 1.6 * skyLift;
+      r += (sunCol?.[0] ?? 1) * glow;
+      gg += (sunCol?.[1] ?? 1) * glow;
+      b += (sunCol?.[2] ?? 0.9) * glow;
+      img.data[i] = Math.min(255, r * 255);
+      img.data[i + 1] = Math.min(255, gg * 255);
+      img.data[i + 2] = Math.min(255, b * 255);
+      img.data[i + 3] = 255;
+    }
+  }
+  g.putImageData(img, 0, 0);
+  const tex = new THREE.Texture(cv);
+  tex.mapping = THREE.EquirectangularReflectionMapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const env = pmrem.fromEquirectangular(tex).texture;
+  pmrem.dispose();
+  tex.dispose();
+  return env;
+}
+let envTex = null;
+let envStamp = '';
+
 const camera = new THREE.PerspectiveCamera(38, 1, 0.5, 3000);
 
 // The Kelvin waves are the finest thing the field has to carry, and at 1024
@@ -200,7 +274,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b24';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b25';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -797,9 +871,19 @@ function frame(now) {
       // The sky fills in as the sun goes: at dusk it is most of the light
       // there is, which is why the ambient is floored rather than tracking
       // the sun to zero.
-      ambient.intensity = sl.sky * gain * 0.9;
+      ambient.intensity = sl.sky * gain * 0.55;
       // Water-bounce tracks the sky term: an overcast pond glows less.
-      bounce.intensity = sl.sky * gain * 1.5;
+      bounce.intensity = sl.sky * gain * 0.95;
+      // Rebuild the environment only when the light actually moves. It is a
+      // PMREM convolution, far too expensive per frame and pointless to redo
+      // while nothing about the sky has changed.
+      const stamp = `${sd.x.toFixed(2)}|${sd.y.toFixed(2)}|${sl.sky.toFixed(2)}`;
+      if (stamp !== envStamp) {
+        envStamp = stamp;
+        envTex?.dispose();
+        envTex = buildEnvironment(sd, sl.colour, sl.sky);
+        scene.environment = envTex;
+      }
     }
   }
   if (!abyssal) {
