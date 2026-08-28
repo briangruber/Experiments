@@ -1,0 +1,11 @@
+{
+  "name": "saltyfin",
+  "private": true,
+  "type": "module",
+  "description": "Salty Fin — a cosy tropical monster-fishing prototype. No dependencies; three.js is vendored.",
+  "scripts": {
+    "serve": "node tools/serve.mjs",
+    "shot": "node tools/shot.mjs",
+    "check": "node tools/check.mjs"
+  }
+}

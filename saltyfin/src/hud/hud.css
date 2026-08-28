@@ -1,0 +1,290 @@
+/* Salty Fin — the HUD.
+ *
+ * DOM over the canvas, inside #hud. Everything is thin-stroked, semi-transparent
+ * and shadowed, so it survives a bright midday sky behind it as well as a dark
+ * night one. Three colours do all the work: pale blue-white for structure,
+ * orange for range and alerts, red for the monster and nothing else.
+ *
+ * The capture harness hides the whole thing with `#hud.hidden`, so that rule
+ * must stay ahead of anything that could set `display` on the root.
+ */
+
+#hud { position: fixed; inset: 0; pointer-events: none; }
+#hud.hidden { display: none; }
+
+#hud {
+  --sf-ink:      rgb(228, 241, 253);
+  --sf-ink-2:    rgba(206, 229, 250, .66);
+  --sf-ink-3:    rgba(198, 222, 246, .34);
+  --sf-orange:   #FF9C3E;
+  --sf-red:      #EE4A2E;
+  --sf-green:    #5FD16A;
+  --sf-yellow:   #F2C14A;
+  --sf-blue:     #59B8E8;
+  --sf-slab:     rgba(9, 17, 29, .56);
+  --sf-edge:     rgba(196, 224, 250, .24);
+  --sf-ts:       0 1px 2px rgba(2, 8, 18, .88), 0 0 14px rgba(2, 8, 18, .5);
+  --sf-drop:     0 8px 26px rgba(2, 8, 18, .38);
+
+  font: 400 13px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+        "Helvetica Neue", Arial, sans-serif;
+  color: var(--sf-ink);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+#hud .sf { position: absolute; inset: 0; }
+#hud .sf * { box-sizing: border-box; }
+#hud .sf svg { display: block; overflow: visible; }
+
+/* ---------------------------------------------------------------- compass -- */
+
+.sf-compass {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  width: min(62vw, 900px);
+  transform: translateX(-50%);
+  text-shadow: var(--sf-ts);
+}
+
+/* The pip that rides the strip. Its X is written by the module every frame. */
+.sf-marker {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 52px;
+  height: 30px;
+  margin-left: -26px;
+  will-change: transform;
+}
+.sf-marker svg { width: 100%; height: 100%; }
+.sf-marker .sf-arch {
+  fill: none;
+  stroke: rgba(238, 74, 46, .62);
+  stroke-width: 1.2;
+  stroke-linecap: round;
+}
+.sf-marker .sf-arch-fill { fill: rgba(238, 74, 46, .09); stroke: none; }
+.sf-marker .sf-glyph { fill: var(--sf-red); animation: sf-pip 3.4s ease-in-out infinite; transform-origin: 50% 60%; }
+@keyframes sf-pip {
+  0%, 100% { opacity: .92; }
+  50%      { opacity: 1; }
+}
+
+.sf-rule { position: relative; height: 30px; margin-top: 27px; }
+
+.sf-rule-line {
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 1px;
+  background: linear-gradient(90deg,
+    rgba(198, 222, 246, 0) 0%,
+    rgba(198, 222, 246, .46) 14%,
+    rgba(216, 236, 255, .62) 50%,
+    rgba(198, 222, 246, .46) 86%,
+    rgba(198, 222, 246, 0) 100%);
+}
+.sf-cap {
+  position: absolute;
+  top: -4px;
+  width: 1px;
+  height: 9px;
+  background: rgba(206, 230, 250, .40);
+}
+.sf-cap.sf-l { left: 0; }
+.sf-cap.sf-r { right: 0; }
+
+/* Both ends of the scrolling strip fade out under the rule's own fade. */
+.sf-window {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 13%, #000 87%, transparent 100%);
+          mask-image: linear-gradient(90deg, transparent 0%, #000 13%, #000 87%, transparent 100%);
+}
+.sf-strip {
+  position: absolute;
+  left: 50%; top: 0;
+  width: 0; height: 100%;
+  will-change: transform;
+}
+.sf-t { position: absolute; top: 0; width: 0; height: 100%; }
+.sf-t i {
+  position: absolute;
+  left: 0; top: 1px;
+  width: 1px; height: 5px;
+  margin-left: -.5px;
+  background: rgba(198, 222, 246, .34);
+}
+.sf-t b {
+  position: absolute;
+  left: 0; top: 11px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: .13em;
+  color: var(--sf-ink-2);
+}
+.sf-t.sf-card i { height: 8px; background: rgba(224, 242, 255, .68); }
+.sf-t.sf-card b {
+  top: 13px;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: .16em;
+  color: var(--sf-ink);
+}
+.sf-t.sf-major b { font-size: 13px; }
+
+.sf-range {
+  position: absolute;
+  top: 57px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 12.5px;
+  font-weight: 650;
+  letter-spacing: .1em;
+  color: var(--sf-orange);
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------- quest card -- */
+
+.sf-quest {
+  position: absolute;
+  top: 22px;
+  right: 22px;
+  width: 268px;
+  padding: 12px 15px 13px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--sf-edge);
+  background: var(--sf-slab);
+  -webkit-backdrop-filter: blur(14px) saturate(1.1);
+          backdrop-filter: blur(14px) saturate(1.1);
+  box-shadow: var(--sf-drop);
+  transition: opacity 1.4s ease;
+  overflow: hidden;
+}
+.sf-quest::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 12px; bottom: 12px;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: linear-gradient(180deg, rgba(255, 156, 62, .95), rgba(255, 156, 62, .16));
+}
+.sf-quest-head { display: flex; align-items: center; gap: 8px; }
+.sf-quest-head svg { width: 14px; height: 14px; flex: 0 0 14px; color: var(--sf-orange); }
+.sf-quest-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  color: #9FD4F5;
+  text-shadow: 0 1px 2px rgba(2, 8, 18, .6);
+}
+.sf-quest-body {
+  margin-top: 5px;
+  padding-left: 22px;
+  font-size: 12.5px;
+  line-height: 1.42;
+  color: rgba(240, 248, 255, .92);
+  text-shadow: 0 1px 2px rgba(2, 8, 18, .55);
+}
+
+@keyframes sf-quest-in {
+  from { opacity: 0; transform: translateX(22px) scale(.985); }
+  55%  { opacity: 1; }
+  to   { opacity: 1; transform: none; }
+}
+.sf-quest.sf-in { animation: sf-quest-in .68s cubic-bezier(.2, .8, .25, 1) both; }
+.sf-quest.sf-settled { animation: none; opacity: .74; transform: none; }
+
+/* --------------------------------------------------------------- keybinds -- */
+
+
+/* ------------------------------------------------------------------- bars -- */
+
+
+/* ---------------------------------------------------------------- minimap -- */
+
+.sf-mm {
+  position: absolute;
+  right: 34px;
+  bottom: 34px;
+  width: 138px; height: 138px;
+  border-radius: 50%;
+  border: 1px solid rgba(210, 234, 252, .44);
+  background: rgba(6, 14, 26, .42);
+  -webkit-backdrop-filter: blur(5px);
+          backdrop-filter: blur(5px);
+  box-shadow: var(--sf-drop), inset 0 0 22px rgba(2, 8, 18, .5);
+  overflow: hidden;
+}
+.sf-mm-rot { position: absolute; inset: 0; will-change: transform; }
+.sf-mm-pan { position: absolute; left: 50%; top: 50%; width: 0; height: 0; will-change: transform; }
+.sf-mm-pan canvas { position: absolute; left: 0; top: 0; opacity: .95; }
+.sf-mm-vig {
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, transparent 52%, rgba(3, 9, 18, .55) 100%);
+}
+.sf-mm-cone {
+  position: absolute; left: 50%; top: 50%;
+  width: 0; height: 0;
+}
+.sf-mm-cone svg { position: absolute; left: -46px; top: -60px; width: 92px; height: 64px; }
+.sf-mm-cone polygon { fill: rgba(190, 226, 252, .17); }
+.sf-mm-me {
+  position: absolute; left: 50%; top: 50%;
+  width: 0; height: 0;
+}
+.sf-mm-me svg { position: absolute; left: -7px; top: -8px; width: 14px; height: 16px; }
+.sf-mm-me polygon {
+  fill: rgba(248, 252, 255, .97);
+  stroke: rgba(10, 22, 38, .7);
+  stroke-width: 1;
+  stroke-linejoin: round;
+}
+.sf-mm-mon {
+  position: absolute; left: 50%; top: 50%;
+  width: 0; height: 0;
+  will-change: transform;
+}
+.sf-mm-mon svg {
+  position: absolute; left: -9px; top: -9px;
+  width: 18px; height: 18px;
+  fill: var(--sf-red);
+  filter: drop-shadow(0 1px 3px rgba(2, 8, 18, .8));
+}
+
+/* ---------------------------------------------------------- time-of-day -- */
+
+.sf-tod {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: .17em;
+  text-transform: uppercase;
+  color: var(--sf-ink-3);
+  text-shadow: var(--sf-ts);
+  white-space: nowrap;
+}
+.sf-tod .sf-tk { transition: color .5s ease; }
+.sf-tod .sf-tk em { font-style: normal; font-weight: 700; color: var(--sf-ink-2); }
+.sf-tod .sf-tk.sf-on { color: var(--sf-ink); }
+.sf-tod .sf-tk.sf-on em { color: var(--sf-orange); }
+.sf-tod .sf-dot { color: rgba(198, 222, 246, .22); }
+
+/* The quest card is read once and then folds away; on a phone a permanent card
+   in the corner is a third of the usable screen. */
+.sf-quest { transition: opacity .45s ease, transform .45s ease; }
+.sf-quest.sf-away { opacity: 0; transform: translateX(14px); pointer-events: none; }

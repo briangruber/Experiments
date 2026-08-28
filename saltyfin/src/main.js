@@ -1,0 +1,451 @@
+// Salty Fin — wiring, the render passes, the frame loop.
+//
+// Four passes a frame:
+//   1. refraction   what the water sees looking down (seabed, coral, monster)
+//   2. reflection   what the water sees looking up   (sky, islands, village)
+//   3. beauty       everything, into an HDR target
+//   4. post         bloom, tonemap, grade
+//
+// The reflection pass renders with a mirrored camera. Mirroring flips triangle
+// winding, so the projection's X row is negated to flip it back and the water
+// shader samples that target with a flipped U. See REFLECT_FLIP_U.
+
+import * as THREE from 'three';
+import { createRenderer } from './core/renderer.js';
+import { createPost } from './core/post.js';
+import { createInput } from './core/input.js';
+import { createTouchControls } from './core/touch.js';
+import { LAYER } from './core/layers.js';
+import { createTimeOfDay, PRESET_HOURS } from './world/timeOfDay.js';
+
+import { createSky } from './sky/sky.js';
+import { createClouds } from './sky/clouds.js';
+import { createCelestial } from './sky/celestial.js';
+import { createWater } from './water/surface.js';
+import { createSeabed } from './terrain/seabed.js';
+import { createCoral } from './terrain/coral.js';
+import { createIslands } from './terrain/island.js';
+import { createVegetation } from './terrain/vegetation.js';
+import { createBoat } from './models/boat.js';
+import { createFisher } from './models/fisher.js';
+import { createVillage } from './models/village.js';
+import { createDock } from './models/dock.js';
+import { createLighthouse } from './models/lighthouse.js';
+import { createProps } from './models/props.js';
+import { createMonster } from './creatures/monster.js';
+import { createWildlife } from './creatures/wildlife.js';
+import { createBoatController } from './gameplay/boatController.js';
+import { createChaseCamera } from './gameplay/chaseCamera.js';
+import { createQuest } from './gameplay/quest.js';
+import { createHud } from './hud/hud.js';
+import { createIntro } from './hud/intro.js';
+
+const params = new URLSearchParams(location.search);
+const num = (k, d) => (params.has(k) ? parseFloat(params.get(k)) : d);
+const str = (k, d) => (params.get(k) ?? d);
+const flag = (k, d = false) => (params.has(k) ? params.get(k) !== '0' : d);
+
+const SEED = num('seed', 20260807) | 0;
+// A phone gets the mobile tier unless the URL says otherwise. Coarse pointer is
+// the reliable signal; screen size alone catches a small laptop window too.
+const COARSE = typeof matchMedia === 'function'
+  && (matchMedia('(pointer: coarse)').matches || (navigator.maxTouchPoints || 0) > 0);
+const TIER = str('quality', COARSE ? 'mobile' : 'high');
+const START_HOUR = params.has('t') ? num('t', 12)
+  : (PRESET_HOURS[str('preset', 'day')] ?? 12);
+const FIXED_STEP = params.has('step') ? num('step', 1 / 60) : 0;   // deterministic capture
+const DAY_RATE = num('rate', 0);        // hours per second; 0 freezes the sky
+
+const canvas = document.getElementById('gl');
+const { renderer, quality, targets, setSize, makeTarget } = createRenderer({
+  canvas, tier: TIER, pixelRatio: params.has('pr') ? num('pr', 1) : undefined,
+});
+const gl = renderer.getContext();
+renderer.localClippingEnabled = true;
+
+const scene = new THREE.Scene();
+scene.background = null;
+
+const camera = new THREE.PerspectiveCamera(num('fov', 46), 1, 0.35, 6000);
+camera.position.set(0, 8, 16);
+
+const reflectCamera = new THREE.PerspectiveCamera();
+reflectCamera.matrixAutoUpdate = false;
+reflectCamera.matrixWorldAutoUpdate = false;
+
+const time = createTimeOfDay({ hour: START_HOUR, seed: SEED });
+const env = time.env;
+time.setRate(DAY_RATE);
+
+const input = createInput(window);
+const touch = createTouchControls({
+  input,
+  onTimePreset: (code) => window.dispatchEvent(new KeyboardEvent('keydown', { code })),
+});
+const post = createPost({ renderer, targets, makeTarget });
+
+// --- lights -----------------------------------------------------------------
+
+// How far in front of the camera the shadow box sits, and how wide it is. A
+// tighter box means sharper shadows; too tight and the far side of the village
+// falls out of it. 110 m at 2048 is about 10 cm a texel.
+const SHADOW_LEAD = 62;
+const SHADOW_EXTENT = 110;
+const shadowFocus = new THREE.Vector3();
+const shadowFwd = new THREE.Vector3();
+
+const keyLight = new THREE.DirectionalLight(0xffffff, 1);
+keyLight.castShadow = quality.shadows;
+if (quality.shadows) {
+  const s = keyLight.shadow;
+  s.mapSize.set(quality.shadowSize, quality.shadowSize);
+  s.camera.near = 1; s.camera.far = 620;
+  s.camera.left = -SHADOW_EXTENT; s.camera.right = SHADOW_EXTENT;
+  s.camera.top = SHADOW_EXTENT; s.camera.bottom = -SHADOW_EXTENT;
+  // normalBias is in world metres along the surface normal, so it has to be
+  // read against the shadow map's footprint: at 155 m across a 2048 map that is
+  // 0.15 m per texel. Half a metre walks the sample clean off a house wall and
+  // the village fills with black blobs; 0.05 m is under one texel and the
+  // terrain fills with smeared acne instead. One texel is the right answer.
+  s.bias = -0.0006; s.normalBias = 0.09; s.radius = 3.0;
+  // The shadow camera's projection is built once at construction and three
+  // never rebuilds it, so without this the box above is ignored and the light
+  // keeps three's default ten-metre frustum — which lands the whole village on
+  // the edge of a map that covers a puddle around the boat.
+  s.camera.updateProjectionMatrix();
+}
+const keyTarget = new THREE.Object3D();
+scene.add(keyLight, keyTarget);
+keyLight.target = keyTarget;
+
+const hemi = new THREE.HemisphereLight(0xffffff, 0x224455, 1);
+scene.add(hemi);
+
+// `?shadows=0` turns the shadow map off without dropping to the low tier, so a
+// capture can tell a shadow artefact apart from everything else `low` changes.
+if (params.get('shadows') === '0') {
+  keyLight.castShadow = false;
+  renderer.shadowMap.enabled = false;
+  quality.shadows = false;
+}
+
+const fillLight = new THREE.DirectionalLight(0xffffff, 0.22);
+scene.add(fillLight);
+
+// Lights are layer-tested against the camera exactly like meshes are, so a
+// light on layer 0 alone drops out of the refraction and reflection passes and
+// everything in them renders black. Every light lives on every layer.
+for (const l of [keyLight, hemi, fillLight]) l.layers.enableAll();
+
+// --- world ------------------------------------------------------------------
+
+const ctx = {
+  time: 0, dt: 0, frame: 0,
+  scene, camera, renderer, env, quality, input, seed: SEED,
+  boat: {
+    position: new THREE.Vector3(0, 0, 0),
+    forward: new THREE.Vector3(0, 0, -1),
+    right: new THREE.Vector3(1, 0, 0),
+    heading: 0, speed: 0, throttle: 0, turnRate: 0, heel: 0, trim: 0,
+    wakeStrength: 0,
+  },
+  water: null, terrain: null, monster: null, quest: null,
+  cameraUnderwater: 0,
+};
+
+const build = (fn, opts) => {
+  const m = fn({ ...opts, ctx, env, scene, renderer, quality, seed: SEED, THREE });
+  if (m && m.group) scene.add(m.group);
+  return m || { group: null, update() {}, applyEnv() {}, dispose() {} };
+};
+
+const seabed = build(createSeabed);
+const islands = build(createIslands, { seabed });
+const terrain = {
+  group: null,
+  seabedHeight: (x, z) => seabed.seabedHeight(x, z),
+  landHeight: (x, z) => islands.landHeight(x, z),
+  isLand: (x, z) => islands.isLand(x, z),
+  depthAt: (x, z) => Math.max(0, -seabed.seabedHeight(x, z)),
+  islands, seabed,
+};
+ctx.terrain = terrain;
+
+const sky = build(createSky);
+const clouds = build(createClouds);
+const celestial = build(createCelestial);
+const coral = build(createCoral, { terrain });
+const vegetation = build(createVegetation, { terrain });
+const village = build(createVillage, { terrain });
+const dock = build(createDock, { terrain });
+const lighthouse = build(createLighthouse, { terrain });
+const props = build(createProps, { terrain });
+const water = build(createWater, { terrain });
+ctx.water = water;
+const boat = build(createBoat);
+const fisher = build(createFisher, { boat });
+const monster = build(createMonster, { terrain });
+ctx.monster = monster;
+const wildlife = build(createWildlife, { terrain });
+
+const boatController = createBoatController({ ctx, input, water: () => ctx.water, terrain });
+if (params.has('boat')) {
+  const p = params.get('boat').split(',').map(Number);
+  if (p.length >= 2 && p.every(Number.isFinite)) {
+    boatController.teleport(p[0], p[1], THREE.MathUtils.degToRad(p[2] || 0));
+  }
+}
+const chaseCamera = createChaseCamera({ ctx, camera, input });
+const quest = createQuest({ ctx, monster });
+ctx.quest = quest;
+const hud = createHud({ ctx, time });
+const intro = createIntro({ touch: !!touch.root });
+
+const modules = [
+  sky, clouds, celestial, seabed, coral, islands, vegetation,
+  village, dock, lighthouse, props, water, boat, fisher, monster, wildlife,
+];
+
+// Modules add their own practicals — the lantern, the dock lamps, the lighthouse
+// — and setLayers() on their group will have narrowed those lights to whatever
+// layers the geometry wanted. Put every light back on every layer.
+function normalizeLights() {
+  scene.traverse((o) => { if (o.isLight) o.layers.enableAll(); });
+}
+normalizeLights();
+
+// A transparent mesh still casts a fully opaque shadow unless it is given an
+// alpha-tested depth material, so every glow quad, lamp halo and additive beam
+// in the scene was stamping a solid black slab onto the terrain. Nothing that
+// does not write depth should cast.
+function normalizeShadowCasters() {
+  scene.traverse((o) => {
+    if (!o.isMesh || !o.castShadow) return;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    const ghost = mats.some((m) => m && (m.transparent === true || m.depthWrite === false));
+    if (ghost) o.castShadow = false;
+  });
+}
+normalizeShadowCasters();
+
+// --- passes -----------------------------------------------------------------
+
+const REFLECT_PLANE = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0.06);
+const REFRACT_PLANE = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0.12);
+const reflectMatrix = new THREE.Matrix4().makeScale(1, -1, 1);
+const tmpMat = new THREE.Matrix4();
+const clearColorLinear = new THREE.Color();
+
+function renderRefraction() {
+  camera.layers.set(LAYER.UNDERWATER);
+  renderer.clippingPlanes = [REFRACT_PLANE];
+  renderer.setRenderTarget(targets.refraction);
+  clearColorLinear.copy(env.waterDeep);
+  renderer.setClearColor(clearColorLinear, 1);
+  renderer.clear(true, true, false);
+  renderer.render(scene, camera);
+  renderer.clippingPlanes = [];
+}
+
+function renderReflection() {
+  // Deliberately NOT camera.copy(). copy() brings across the real camera's
+  // local `matrix` and leaves matrixWorldNeedsUpdate set, and three's render
+  // then rebuilds matrixWorld from that local matrix — throwing the mirror away
+  // on every frame the camera actually moved. The reflection would look right
+  // while standing still and swim as soon as you turned. Both auto-update flags
+  // are off (set once at construction) and every matrix is written by hand.
+  reflectCamera.fov = camera.fov;
+  reflectCamera.aspect = camera.aspect;
+  reflectCamera.near = camera.near;
+  reflectCamera.far = camera.far;
+  tmpMat.copy(reflectMatrix).multiply(camera.matrixWorld);
+  reflectCamera.matrixWorld.copy(tmpMat);
+  reflectCamera.matrixWorldInverse.copy(tmpMat).invert();
+  reflectCamera.matrixWorldNeedsUpdate = false;
+  reflectCamera.projectionMatrix.copy(camera.projectionMatrix);
+  // Negate the clip-space X row so the mirrored view keeps its winding.
+  const e = reflectCamera.projectionMatrix.elements;
+  e[0] = -e[0]; e[4] = -e[4]; e[8] = -e[8]; e[12] = -e[12];
+  reflectCamera.projectionMatrixInverse.copy(reflectCamera.projectionMatrix).invert();
+  reflectCamera.layers.set(LAYER.REFLECTED);
+
+  renderer.clippingPlanes = [REFLECT_PLANE];
+  renderer.setRenderTarget(targets.reflection);
+  clearColorLinear.copy(env.skyHorizon);
+  renderer.setClearColor(clearColorLinear, 1);
+  renderer.clear(true, true, false);
+  renderer.render(scene, reflectCamera);
+  renderer.clippingPlanes = [];
+}
+
+function renderBeauty() {
+  camera.layers.set(LAYER.MAIN);
+  renderer.setRenderTarget(targets.scene);
+  clearColorLinear.copy(env.fogColor);
+  renderer.setClearColor(clearColorLinear, 1);
+  renderer.clear(true, true, false);
+  renderer.render(scene, camera);
+}
+
+// --- loop -------------------------------------------------------------------
+
+let lastEnvVersion = -1;
+let width = 1, height = 1;
+
+function resize() {
+  const w = Math.max(2, window.innerWidth);
+  const h = Math.max(2, window.innerHeight);
+  const b = setSize(w, h);
+  width = b.width; height = b.height;
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  post.resize(width, height);
+  if (water.setTargets) {
+    water.setTargets({
+      refraction: targets.refraction,
+      refractionDepth: targets.refraction.depthTexture,
+      reflection: targets.reflection,
+      sceneDepth: targets.scene.depthTexture,
+      resolution: new THREE.Vector2(width, height),
+    });
+  }
+  hud.resize?.(w, h);
+}
+window.addEventListener('resize', resize);
+resize();
+
+function applyEnvToLights() {
+  keyLight.position.copy(env.keyDir).multiplyScalar(220);
+  keyLight.color.copy(env.keyColor);
+  keyLight.intensity = env.keyIntensity;
+  keyTarget.position.set(0, 0, 0);
+  fillLight.position.set(-env.keyDir.x * 160, 90, -env.keyDir.z * 160);
+  fillLight.color.copy(env.ambientSky);
+  fillLight.intensity = 0.18 + 0.22 * env.dayFactor;
+  hemi.color.copy(env.ambientSky);
+  hemi.groundColor.copy(env.ambientGround);
+  hemi.intensity = env.ambientIntensity;
+  scene.fog = scene.fog || new THREE.Fog(0x000000, 1, 2);
+  scene.fog.color.copy(env.fogColor);
+  scene.fog.near = env.fogNear;
+  scene.fog.far = env.fogFar;
+}
+
+let clockSeconds = 0;
+let lastNow = performance.now() / 1000;
+let running = true;
+let frames = 0;
+
+function frame() {
+  if (!running) return;
+  requestAnimationFrame(frame);
+
+  const now = performance.now() / 1000;
+  let dt = FIXED_STEP > 0 ? FIXED_STEP : Math.min(0.05, Math.max(0, now - lastNow));
+  lastNow = now;
+  clockSeconds += dt;
+
+  ctx.dt = dt;
+  ctx.time = clockSeconds;
+  ctx.frame = frames;
+
+  time.update(dt);
+  if (time.version !== lastEnvVersion) {
+    lastEnvVersion = time.version;
+    applyEnvToLights();
+    for (const m of modules) m.applyEnv?.(env);
+    chaseCamera.applyEnv?.(env);
+    hud.applyEnv?.(env);
+  }
+
+  boatController.update(ctx);
+  chaseCamera.update(ctx);
+  camera.updateMatrixWorld(true);
+
+  for (const m of modules) m.update?.(ctx);
+  quest.update(ctx);
+  hud.update(ctx);
+
+  // Aim the shadow box at what the camera is looking at, not at the boat. On
+  // the chase camera those are the same place, but an establishing shot of the
+  // village puts the town 150 m off the boat — half outside the frustum, where
+  // its casters get culled and the ones that survive smear across the terrain.
+  camera.getWorldDirection(shadowFwd);
+  shadowFocus.copy(camera.position).addScaledVector(shadowFwd, SHADOW_LEAD);
+  shadowFocus.y = THREE.MathUtils.clamp(shadowFocus.y, 0, 45);
+  // Snap to whole shadow texels so the map does not crawl as the camera moves.
+  const texel = (SHADOW_EXTENT * 2) / quality.shadowSize;
+  shadowFocus.x = Math.round(shadowFocus.x / texel) * texel;
+  shadowFocus.z = Math.round(shadowFocus.z / texel) * texel;
+  keyLight.position.copy(env.keyDir).multiplyScalar(260).add(shadowFocus);
+  keyTarget.position.copy(shadowFocus);
+  keyTarget.updateMatrixWorld(true);
+
+  const surfaceY = ctx.water?.sampleHeight ? ctx.water.sampleHeight(camera.position.x, camera.position.z, ctx.time) : 0;
+  ctx.cameraUnderwater = THREE.MathUtils.clamp((surfaceY - camera.position.y) * 1.5, 0, 1);
+
+  if (quality.reflections) renderReflection();
+  renderRefraction();
+  renderBeauty();
+  post.render(env, {
+    time: ctx.time,
+    underwater: ctx.cameraUnderwater,
+    underwaterTint: env.waterMid,
+  });
+  renderer.setRenderTarget(null);
+
+  input.endFrame();
+  frames++;
+  api.frames = frames;
+  if (frames % 120 === 1) normalizeLights();   // catches lights added late
+}
+
+// --- keys -------------------------------------------------------------------
+
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'BracketLeft') time.glideTo(time.hour - 2, 1.2);
+  if (e.code === 'BracketRight') time.glideTo(time.hour + 2, 1.2);
+  if (e.code === 'Digit1') time.glideTo('day', 1.5);
+  if (e.code === 'Digit2') time.glideTo('golden', 1.5);
+  if (e.code === 'Digit3') time.glideTo('sunset', 1.5);
+  if (e.code === 'Digit4') time.glideTo('night', 1.5);
+  if (e.code === 'KeyT') time.setRate(time.rate === 0 ? 0.35 : 0);
+});
+
+// --- public handle for the capture harness ----------------------------------
+
+const api = {
+  THREE, scene, camera, reflectCamera, renderer, ctx, env, time, quality, post,
+  lights: { keyLight, hemi, fillLight },
+  modules: {
+    sky, clouds, celestial, seabed, coral, islands, vegetation, village, dock,
+    lighthouse, props, water, boat, fisher, monster, wildlife, hud, quest,
+    boatController, chaseCamera,
+  },
+  frames: 0,
+  ready: false,
+  setHour(h) { time.set(h); },
+  setBoat(x, z, heading) { boatController.teleport(x, z, heading); },
+  setCamera(spec) { chaseCamera.setSpec(spec); },
+  hideHud() {
+    document.getElementById('hud')?.classList.add('hidden');
+    document.getElementById('touch')?.classList.add('hidden');
+    intro.dismiss?.();
+    document.getElementById('intro')?.remove();
+  },
+  showHud() {
+    document.getElementById('hud')?.classList.remove('hidden');
+    document.getElementById('touch')?.classList.remove('hidden');
+  },
+  stop() { running = false; },
+};
+window.saltyfin = api;
+
+const boot = document.getElementById('boot');
+if (boot) boot.remove();
+
+applyEnvToLights();
+for (const m of modules) m.applyEnv?.(env);
+hud.applyEnv?.(env);
+api.ready = true;
+requestAnimationFrame(frame);
