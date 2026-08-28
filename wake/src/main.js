@@ -723,6 +723,7 @@ for (let i = 0; i < PREWARM * 30; i++) stepSim(1 / 30);
 // fallen well back, so a rock throws once per wave instead of chattering.
 const _sprayRand = () => Math.random();
 const _sOut = { x: 0, z: 0 };
+let _splashCursor = 0;
 function breakOnRocks(dt) {
   const sites = shore?.splashSites;
   const amt = get('shore.spray');
@@ -741,7 +742,21 @@ function breakOnRocks(dt) {
   };
   const cx = camera.position.x, cz = camera.position.z;
 
-  for (const s of sites) {
+  // BUDGET, and it has to be reckoned in droplets per SECOND, not per frame.
+  // Measured, 763 rocks were in range with 195 of them hot at once, and letting
+  // them all fire pinned the pool at its 3000 ceiling -- which is not merely
+  // wasteful, it starves the boat's own spray, since the two share it. Steady
+  // state is emission rate times droplet life, so the per-frame allowance is
+  // the population we want divided by the life, divided by the frame rate.
+  const want = 900 * amt;                                  // droplets alive
+  let budget = Math.max(2, Math.round(want / Math.max(opt.life, 0.2) * dt));
+  // And the scan is bounded too: at 30 fps a slice of 220 revisits every rock
+  // about eight times a second, which is far finer than a seven-second set
+  // needs, so nothing is missed and the cost stops scaling with the coastline.
+  const SCAN = Math.min(sites.length, 220);
+
+  for (let k = 0; k < SCAN && budget > 0; k++) {
+    const s = sites[(_splashCursor + k) % sites.length];
     const dx = s.x - cx, dz = s.z - cz;
     const d2 = dx * dx + dz * dz;
     if (d2 > r2) { s.armed = false; continue; }
@@ -755,6 +770,7 @@ function breakOnRocks(dt) {
     const n = Math.round(get('shore.sprayRate') * amt * s.r * 0.5
                        * (0.45 + 0.55 * near) * (0.6 + Math.random() * 0.8));
     if (n < 1) continue;
+    budget -= n;
     // Outward from the bay's centre: that is the way the set is running, so
     // that is the way the water comes off the rock.
     const inv = 1 / (Math.hypot(s.x, s.z) || 1);
@@ -766,6 +782,7 @@ function breakOnRocks(dt) {
                  _sprayRand, opt);
     }
   }
+  _splashCursor = (_splashCursor + SCAN) % sites.length;
 }
 
 function frame(now) {
