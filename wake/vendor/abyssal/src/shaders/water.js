@@ -1216,11 +1216,17 @@ void main(){
     float shallow = exp(-breakOffset * breakOffset);
     float crest = smoothstep(-0.12, 0.38, vRelief);
     // The set RUNS IN. Travel is measured in water column, not in metres of
-    // ground: a phase that grows with time is met at ever shallower depth, so
-    // each line walks up the shelf and follows the contour round the bay for
-    // free, however the rock is shaped. Sign is negative on time for shoreward.
+    // ground, so each line follows the depth contour round the bay for free
+    // however the rock is shaped.
+    //
+    // THE SIGN IS ADDITIVE, and the first version had it backwards. A line of
+    // foam sits at constant phase, so with (column/S - t/T) constant phase
+    // means column = S*(k + t/T): the crest moves into DEEPER water as time
+    // runs, which is a set retreating out to sea. Adding the time term instead
+    // gives column = S*(k - t/T), and depth falling with time is a crest
+    // climbing the shelf -- surf coming in.
     float phase = (column / max(uSurfSpan, 0.25)
-                 - uTime / max(uSurfPeriod, 0.5)) * 6.2831853;
+                 + uTime / max(uSurfPeriod, 0.5)) * 6.2831853;
     float setEnv = pow(0.5 + 0.5 * sin(phase), 1.6);
     // Broken water does not stop where it broke. It runs on up the shallows as
     // swash and drains back, which is the second, thinner sheet of white you

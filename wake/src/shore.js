@@ -361,12 +361,29 @@ export class Shore {
 		const colours = new Float32Array( pos.count * 3 );
 		const c = new THREE.Color();
 
+		// DEEP VERTICES GO FLAT.
+		//
+		// A radial grid has sliver quads near its origin -- unavoidable, 420
+		// spokes converging -- and sampling per-vertex noise on slivers paints
+		// the variation as RADIAL STREAKS. Filling the centre hole is what put
+		// them on screen: a starburst around the origin, which is not a thing
+		// any seabed does.
+		//
+		// The honest fix is that the detail should not be there at all. You
+		// cannot resolve bottom texture through ten metres of water -- it is
+		// gone to absorption and scatter long before the eye gets it -- so the
+		// colour converges to one flat deep-bed tone as the water gets deep.
+		// The streaks have nothing left to draw, and nothing visible is lost.
+		const DEEP = [ 0.62, 0.62, 0.55 ];
 		for ( let i = 0; i < pos.count; i ++ ) {
 			const x = pos.getX( i ), z = pos.getZ( i );
 			const h = this.heightAt( x, z );
 			pos.setY( i, h );
 			this._colourAt( x, z, h, c );
-			colours[ i * 3 ] = c.r; colours[ i * 3 + 1 ] = c.g; colours[ i * 3 + 2 ] = c.b;
+			const flat = smoothstep01( - 6, - 13, h );
+			colours[ i * 3 ] = c.r + ( DEEP[ 0 ] - c.r ) * flat;
+			colours[ i * 3 + 1 ] = c.g + ( DEEP[ 1 ] - c.g ) * flat;
+			colours[ i * 3 + 2 ] = c.b + ( DEEP[ 2 ] - c.b ) * flat;
 		}
 		pos.needsUpdate = true;
 		geo.setAttribute( 'color', new THREE.BufferAttribute( colours, 3 ) );
