@@ -54,7 +54,7 @@ const RIBBON_FRAG = /* glsl */`
 
   uniform float uMaxArc, uPlaning, uHumpFr, uWetShift;
   uniform float uKelvinFade;
-  uniform float uIdleChurn;
+  uniform float uIdleChurn, uBubGrain, uBubGrainScale;
   uniform float uBeam, uHullLen, uEngines, uEngineGap;
   // The hull WHERE IT ACTUALLY IS, in world metres: the bow's position and the
   // way it points. The ribbon's own (arc, lat) frame follows the COURSE, and
@@ -524,7 +524,14 @@ const RIBBON_FRAG = /* glsl */`
     float surfaced = 1.0 - depth / max(uBubDepth, 0.01);
     float vis = exp(-depth * uBubExt * 2.0);
 
-    float bubAge = clamp(age / max(uBubLife * lifeK, 0.01), 0.0, 1.0);
+    // Bubbles do not die sooner because the HULL is slow. lifeK is
+    // sqrt(speed), and at a metre a second it was cutting bubble life to a
+    // third -- which is why the same gain drew four times as much at cruise as
+    // at idle, and why the floor had to be set so high that it swamped the
+    // hull's own plume at speed. A gentler law here; the foam above keeps the
+    // full one, since foam really is made by the hull moving.
+    float bubLifeK = mix(1.0, sqrt(max(sN, 0.04)), uSpeedDrive * 0.35);
+    float bubAge = clamp(age / max(uBubLife * bubLifeK, 0.01), 0.0, 1.0);
     // The same speed law the foam obeys, for the same reason -- and one more:
     // without it an IDLE boat kept injecting plume into the same spot, and
     // forty-four seconds of accumulated milk drew a pale disc a hundred
@@ -546,6 +553,26 @@ const RIBBON_FRAG = /* glsl */`
     float cloud = fbm(vWorld * uFoamScale * 0.55 + sw1) * 0.65
                 + fbm(vWorld * uFoamScale * 1.45 + sw2) * 0.45;
     bub *= mix(1.0, 0.18 + 1.55 * cloud, uBubMottle);
+
+    // LITTLE BUBBLES, not a smooth cloud.
+    //
+    // The line above is deliberately low frequency -- the comment on it says
+    // churn "is cloudy rather than granular" -- and that is true of a big wake
+    // seen from a distance and wrong for what you actually watch behind a
+    // tender ticking over, which is a crowd of separate blobs rising and
+    // bursting. So the density is broken into clumps by thresholding a fine
+    // noise, and the noise scrolls and evolves because bubbles rise.
+    //
+    // It fades with age: young churn is discrete, older churn has diffused into
+    // the cloud the term above was written for. So the boil at the transom is
+    // granular and the trail behind it is not, which is the right way round.
+    vec2 gp = vWorld * uBubGrainScale;
+    float g1 = fbm(gp + vec2(uTime * 0.13, -uTime * 0.34));
+    float g2 = fbm(gp * 2.4 + vec2(-uTime * 0.22, uTime * 0.19));
+    float clump = smoothstep(0.44, 0.68, g1 * 0.62 + g2 * 0.38);
+    float young = 1.0 - smoothstep(0.10, 0.70, bubAge);
+    // 1.9 so breaking it into clumps does not quietly halve the total.
+    bub *= mix(1.0, clump * 1.9, clamp(uBubGrain * young, 0.0, 1.0));
 
     // The oldest end of the trail is a mesh boundary, not a physical edge.
     float tailFade = 1.0 - smoothstep(uMaxArc - min(70.0, uMaxArc * 0.3), uMaxArc, arc);
@@ -739,6 +766,7 @@ export class WakeField {
     this.uniforms = {
       uMaxArc: { value: 1 }, uKelvinFade: { value: 1 },
       uIdleChurn: { value: 0.55 },
+      uBubGrain: { value: 0.8 }, uBubGrainScale: { value: 1.1 },
       uBeam: { value: 1 }, uHullLen: { value: 1 }, uEngines: { value: 1 }, uEngineGap: { value: 1 },
       uArmTan: { value: 0 }, uArmW0: { value: 1 }, uArmWGrow: { value: 0 },
       uArmFoam: { value: 1 }, uArmHeight: { value: 0 }, uInnerBias: { value: 0 },
@@ -1009,6 +1037,8 @@ export class WakeField {
     const decay = Math.max(get('field.decay'), 0.05);
     u.uMaxArc.value = Math.max(this.maxArc || 1, 1);
     u.uIdleChurn.value = get('wash.idle');
+    u.uBubGrain.value = get('bubbles.grain');
+    u.uBubGrainScale.value = 1 / Math.max(get('bubbles.grainSize'), 0.05);
     u.uBeam.value = get('boat.beam');
     u.uHullCut.value = get('boat.hullCut');
     u.uHullLen.value = get('boat.length');

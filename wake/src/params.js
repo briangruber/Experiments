@@ -185,6 +185,11 @@ export const PARAMS = {
   // and the surface above them still reflects the sky.
   bubbles: {
     plume:        { v: 0.86, min: 0,   max: 4,   step: 0.01, label: 'Plume density' },
+    // Churn behind a screw is a crowd of separate blobs rising and bursting,
+    // not a fog. This breaks the density into clumps; it fades with age, so the
+    // boil at the transom is granular and the trail behind it has diffused.
+    grain:        { v: 0.8,  min: 0,   max: 1,   step: 0.01, label: 'Bubbles, not fog' },
+    grainSize:    { v: 0.9,  min: 0.15, max: 6,  step: 0.05, label: 'Bubble clump size (m)' },
     width:        { v: 1.4, min: 0.2, max: 10,  step: 0.05, label: 'Plume width (m)' },
     spread:       { v: 0.028,min: 0,   max: 0.5, step: 0.001,label: 'Spread (m/m)' },
     length:       { v: 46,min: 5,   max: 400, step: 1,    label: 'Decay length (m)' },
