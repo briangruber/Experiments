@@ -773,6 +773,7 @@ export class WakeField {
     const n = Math.min(pts.length, MAX_SAMPLES);
 
     const armTan = Math.tan(get('arms.angle') * Math.PI / 180);
+    const kProp = get('kelvin.propagate');
     const beam = get('boat.beam');
     const w0 = get('arms.width0'), wg = get('arms.widthGrow');
 
@@ -794,11 +795,23 @@ export class WakeField {
       // the ribbon narrower than the wedge would cut the divergent waves off
       // along a straight line.
       const KELVIN_TAN = 0.35355;   // tan(19.47 degrees) = 1 / (2 * sqrt 2)
+      const age = now - p.t;
+      // THE CANVAS HAS TO GROW WITH THE WEDGE IT CARRIES.
+      //
+      // The pattern's anchor is mix(arc, spd*age, propagate) -- emission speed
+      // times age, so waves already on the water carry on after the boat slows.
+      // The mesh width was still being taken from arc alone, which stops the
+      // moment she does. At constant speed the two are the same number and
+      // nothing changes; after a stop they part, and the wedge goes on widening
+      // inside a ribbon that does not. Measured against an 8 m/s wake, four
+      // seconds after stopping the pattern wants 28 m of half-width and the
+      // ribbon offers 17 -- so two fifths of the wave was being cut off along a
+      // straight line, which is the comment above describing its own bug.
+      const uK = Math.max(arc, (p.speed ?? 0) * age * kProp);
       const halfW = Math.max(
         beam * 0.5 + arc * armTan + (w0 + arc * wg) * 3.2 + 1.5,
-        beam * 0.5 + arc * KELVIN_TAN * 1.06 + 2.0,
+        beam * 0.5 + uK * KELVIN_TAN * 1.06 + 2.0,
       );
-      const age = now - p.t;
 
       for (let l = 0; l <= LAT_SEG; l++) {
         const u = (l / LAT_SEG) * 2 - 1;
