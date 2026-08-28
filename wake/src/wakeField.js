@@ -529,7 +529,15 @@ const RIBBON_FRAG = /* glsl */`
     // without it an IDLE boat kept injecting plume into the same spot, and
     // forty-four seconds of accumulated milk drew a pale disc a hundred
     // metres wide around every parked hull.
-    float bub = ((plume + entrain) * energy + plumeIdle) * pow(1.0 - bubAge, 1.15) * vis;
+    // A FLOOR, not an addition. The shaft's churn saturates by about a metre a
+    // second, so added on top it was still adding its full share at cruise --
+    // which took the density there from 0.21 to 0.63, a 61% blend where 27%
+    // was right, and milkied a wake nobody had complained about. Taking the
+    // larger of the two says the true thing instead: the propeller sets a floor
+    // the hull cannot fall below, and above that speed the hull's own work is
+    // what you are seeing.
+    float bub = (max(plume * energy, plumeIdle) + entrain * energy)
+              * pow(1.0 - bubAge, 1.15) * vis;
     // The plume is the most turbulent part of the wake, so its clouds churn
     // rather than sitting still. Circling sample offsets again: the cloud
     // evolves in place instead of drifting off the water it belongs to.
