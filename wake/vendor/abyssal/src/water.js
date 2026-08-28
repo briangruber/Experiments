@@ -274,6 +274,7 @@ export class WaterSurface {
       } : { uShoreMap: this._inertRefr(), uShoreOn: 0, uShoreExtent: 1, uSurge: 0 }),
       uShoreFoamRange: p.shoreFoamRange ?? 3,
       uSurfSpan: p.surfSpan ?? 3.2, uSurfPeriod: p.surfPeriod ?? 7.0,
+      uSurfDecay: p.surfDecay ?? 3.0,
       uFoamSoft: p.foamSoft ?? 0,
       uWindDirV: set2(this._vWind, Math.cos(p.windDir), Math.sin(p.windDir)),
       uSpecClamp: p.specClamp, uHorizonBend: p.horizonBend,

@@ -315,7 +315,7 @@ uniform float uShoreFoamAmount, uShoreFoamRange;
 // rock that is actually there instead of on its own procedural bed.
 uniform sampler2D uShoreMap;
 uniform float uShoreOn, uShoreExtent, uSurge;
-uniform float uSurfSpan, uSurfPeriod;
+uniform float uSurfSpan, uSurfPeriod, uSurfDecay;
 // FORKED: how hard the white reads. 0 keeps the vendor's paint-white raft;
 // 1 is a grey-white aerated veil that still lets the water under it through.
 uniform float uFoamSoft;
@@ -1225,9 +1225,23 @@ void main(){
     // runs, which is a set retreating out to sea. Adding the time term instead
     // gives column = S*(k - t/T), and depth falling with time is a crest
     // climbing the shelf -- surf coming in.
-    float phase = (column / max(uSurfSpan, 0.25)
-                 + uTime / max(uSurfPeriod, 0.5)) * 6.2831853;
-    float setEnv = pow(0.5 + 0.5 * sin(phase), 1.6);
+    // FOAM IS BORN AT THE CREST AND THEN ONLY AGES.
+    //
+    // This was a sine, and a sine fades out exactly as symmetrically as it
+    // fades in -- which is oscillation, not surf. It read as the whole band
+    // breathing back and forth in place, because that is precisely what it
+    // was doing. Nothing in the water works that way: a crest arrives, it
+    // breaks, and the white it leaves behind decays from that moment.
+    //
+    // So the envelope is a SAWTOOTH in the travel phase. fract() gives the
+    // time since the crest passed this depth, in sets; the foam is created at
+    // full strength at zero age and decays exponentially from there. The wrap
+    // from a dying tail straight back to 1.0 is not a discontinuity to hide --
+    // it is the next crest breaking, which is genuinely that sudden.
+    float travel = column / max(uSurfSpan, 0.25)
+                 + uTime / max(uSurfPeriod, 0.5);
+    float age = fract(travel);
+    float setEnv = exp(-age * max(uSurfDecay, 0.05));
     // Broken water does not stop where it broke. It runs on up the shallows as
     // swash and drains back, which is the second, thinner sheet of white you
     // see inshore of the break line -- and it inherits the same phase, so it
@@ -1236,7 +1250,11 @@ void main(){
     // shelf on the new bathymetry, which is what turned the shallows into a
     // solid white field rather than a tongue running up behind each crest.
     float swash = smoothstep(breakDepth * 0.85, breakDepth * 0.30, column);
-    float rolled = max(shallow * mix(0.30, 1.0, setEnv), swash * setEnv * 0.45);
+    // Floor dropped 0.30 -> 0.10. A third of full coverage sitting on the
+    // break line at ALL times is a permanent ring of white that the sets
+    // merely brighten, and it was half of what made the band read as
+    // pulsing in place rather than arriving.
+    float rolled = max(shallow * mix(0.10, 1.0, setEnv), swash * setEnv * 0.45);
     // FORKED: no longer gated on uFoamAmount. Surf on a shore has nothing to
     // do with whitecaps in open water -- that gate is why turning the sea's
     // whitecaps off silently took the shore break with them.

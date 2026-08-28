@@ -249,6 +249,7 @@ function fitToLake( p, preset = {}, tune = {} ) {
 	p.shoreFoamRange = get( 'foamMix.surfDepth' );
 	p.surfPeriod = get( 'foamMix.surfPeriod' );
 	p.surfSpan = get( 'foamMix.surfSpan' );
+	p.surfDecay = get( 'foamMix.surfDecay' );
 	p.foamSoft = get( 'foamMix.softness' );
 
 	const tint = get( 'scene.waterTint' );

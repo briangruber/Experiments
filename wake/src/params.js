@@ -223,6 +223,7 @@ export const PARAMS = {
     surfSets:     { v: 1,    min: 0,   max: 2,   step: 0.01, label: 'Surf sets (surge)' },
     surfPeriod:   { v: 7.0,  min: 2,   max: 16,  step: 0.1,  label: 'Seconds between sets' },
     surfSpan:     { v: 0.55, min: 0.1, max: 10,  step: 0.05, label: 'Set spacing (m of depth)' },
+    surfDecay:    { v: 3.0,  min: 0.2, max: 9,   step: 0.05, label: 'Foam dies off (per set)' },
     softness:     { v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Foam softness (less white)' },
     seaWhitecaps: { v: 0,    min: 0,   max: 2,   step: 0.01, label: 'Sea whitecaps (not the wake)' },
     seaBreak:     { v: 0, min: 0,   max: 1.5, step: 0.01, label: 'Sea foam from breaking' },
