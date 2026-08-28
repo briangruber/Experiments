@@ -54,6 +54,7 @@ const RIBBON_FRAG = /* glsl */`
 
   uniform float uMaxArc, uPlaning, uHumpFr, uWetShift;
   uniform float uOverAmp, uOverV, uOverLen, uOverWide;
+  uniform float uKelvinFade;
   uniform float uIdleChurn;
   uniform float uBeam, uHullLen, uEngines, uEngineGap;
   // The hull WHERE IT ACTUALLY IS, in world metres: the bow's position and the
@@ -554,8 +555,9 @@ const RIBBON_FRAG = /* glsl */`
             * uOverAmp * exp(-ahead / max(uOverLen, 1.0)) * lat * lat;
     }
 
-    float height  = ((armH + washH) * mix(0.35, 1.0, alive) + kelvinH * nose) * tailFade
-                  + overH;
+    float height  = ((armH + washH) * mix(0.35, 1.0, alive)
+                   + kelvinH * nose * uKelvinFade) * tailFade
+                  + overH * uKelvinFade;
     float bubOut = max(bub, 0.0) * tailFade;
 
     gl_FragColor = vec4(foam * edge,
@@ -730,7 +732,7 @@ export class WakeField {
     this.geometry = g;
 
     this.uniforms = {
-      uMaxArc: { value: 1 },
+      uMaxArc: { value: 1 }, uKelvinFade: { value: 1 },
       uOverAmp: { value: 0 }, uOverV: { value: 4 },
       uOverLen: { value: 26 }, uOverWide: { value: 10 },
       uIdleChurn: { value: 0.55 },
@@ -1089,6 +1091,11 @@ export class WakeField {
     // scale slider stretches it because the hull size here is a stand-in.
     u.uKelvinScale.value = Math.max(get('kelvin.waveScale'), 0.05);
     u.uKelvinProp.value = get('kelvin.propagate');
+    // CROSSFADE, not both at once. The analytic pattern and the interference
+    // sum draw the same wedge by different means, so running them together
+    // prints it twice and the two beat against each other. Turning the
+    // interference up hands the wave-making over to it.
+    u.uKelvinFade.value = 1 - Math.min(1, get('kelvin.interfere'));
     u.uFrPeak.value = get('kelvin.froudePeak');
     u.uHumpFloor.value = get('kelvin.humpFloor');
     u.uBreakSteep.value = get('kelvin.breakSteep');
