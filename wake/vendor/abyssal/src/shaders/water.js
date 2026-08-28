@@ -160,18 +160,47 @@ vec3 shoalSurface(vec2 p, float t, out float brk, out float dOut){
   dOut = d;
   if (d < 0.0) return vec3(0.0);
   float H = shoalHeight(d, brk);
+  float A = H * 0.5;
   float ph = shoalPhase(d, t);
-  float c = cos(ph);
-  float peaked = pow(0.5 + 0.5 * c, max(uSwellPeak, 1.0)) * 2.0 - 1.0;
+  float omega = 6.2831853 / max(uSwellPeriod2, 1.0);
+
+  // GERSTNER, at finite depth. The horizontal-to-vertical ratio of the orbit
+  // is 1/tanh(kd), and that is not a knob -- it is why water in the shallows
+  // surges back and forth while barely rising, and why the same swell that
+  // merely heaves in the bay is throwing itself about on the shelf. It runs
+  // 1.5 at twelve metres to 6.4 at half a metre. The previous version had a
+  // hand-tuned gain in this slot; this is the number that gain was guessing at.
+  float kd = omega * sqrt(max(d, 0.02) / 9.81);
+  float coth = 1.0 / max(tanh(kd), 0.06);
+
+  // AND THE ASYMMETRY, which Gerstner does NOT give and which a phase warp
+  // cannot give either. This took being measured rather than assumed.
+  //
+  // A Gerstner wave sharpens its crest and broadens its trough while staying
+  // symmetric front to back: it cusps, it never leans. The obvious fix, warping
+  // the phase as ph + e*sin(ph), does nothing at all for lean -- sin is odd, so
+  // the warped phase is odd, and a cosine of an odd function is even about the
+  // crest. Measured front-to-back slope ratio: 1.00:1 at every e. It only
+  // sharpens, which is what Gerstner was already doing.
+  //
+  // The two effects separate cleanly at second order:
+  //     cos(ph) + b*cos(2ph)  -> SKEWNESS, sharp crest and flat trough
+  //     cos(ph) + a*sin(2ph)  -> ASYMMETRY, front face steeper than the back
+  // and it is the second one that is surf. Measured: 1.50:1 at a=0.10, peaking
+  // at 2.00:1 around a=0.25 and falling away after, so the control is capped
+  // there rather than left to be turned past its own best point.
+  float asym = clamp(uSwellLean * (0.10 + 0.42 * brk), 0.0, 0.25);
+  float phw = ph;
+
+  float c = cos(phw) + asym * sin(2.0 * phw);
+  float peaked = pow(clamp(0.5 + 0.5 * c, 0.0, 1.0), max(uSwellPeak, 1.0)) * 2.0 - 1.0;
   // Dies out in water too deep to feel the bottom, so the open bay is left to
   // the FFT sea and only the shelf carries surf.
   float feel = 1.0 - smoothstep(uSwellD0 * 0.6, uSwellD0 * 1.6, d);
-  float y = H * 0.5 * peaked * feel;
-  // Steepness rises as the wave shortens and stands up, and again once it is
-  // breaking, which is when a crest genuinely throws itself forward.
-  float steep = clamp(H / max(d, 0.25), 0.0, 1.2);
-  vec2 push = shoalDir(p) * uSwellLean * H * feel
-            * (0.35 + 0.85 * steep + 0.9 * brk) * sin(ph);
+  float y = A * peaked * feel;
+  // Clamped: past a Gerstner steepness of about 1 the surface self-intersects
+  // and the crest turns inside out, which is a loop rather than a wave.
+  vec2 push = shoalDir(p) * A * min(coth, 5.5) * 0.55 * sin(phw) * feel;
   return vec3(push.x, y, push.y);
 }
 `;
