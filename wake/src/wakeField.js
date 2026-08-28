@@ -899,7 +899,22 @@ export class WakeField {
     this.iUniforms.uTime.value = now;
     this.iUniforms.uAmp.value = gain * get('kelvin.amp');
     this.iUniforms.uLife.value = get('kelvin.life');
-    this.iUniforms.uMinLam.value = Math.max(this.extent / this.rt.width * 3.2, 0.6);
+    // THE SHORT END IS A LOOK, not just a resolution limit.
+    //
+    // This was derived from the field texture's own resolution -- about 0.84 m
+    // -- on the assumption that anything the texture could hold was worth
+    // drawing. The mesh can carry those: at ten metres from the eye the grid
+    // spacing is 0.29 m, so a 2.6 m wave gets nearly nine vertices and
+    // genuinely displaces. The trouble is there are so MANY of them. Near the
+    // boat the sum is dominated by half-metre to three-metre waves, and a dense
+    // comb of tiny crests reads as a fan of drawn white lines rather than as
+    // water moving, with the big rolling waves buried underneath.
+    //
+    // So the floor is a control. Raise it and the fine comb goes, leaving the
+    // long waves that actually distort the surface; drop it for the full
+    // spectrum with all its detail.
+    this.iUniforms.uMinLam.value = Math.max(get('kelvin.minWave'),
+      this.extent / this.rt.width * 3.2, 0.6);
     // The transverse wavelength of the fastest water in the trail: the longest
     // wave this hull can actually have made.
     let vMax = 0;

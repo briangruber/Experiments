@@ -148,6 +148,11 @@ export const PARAMS = {
     // the count is a control and not a constant.
     interfere:    { v: 0,    min: 0,   max: 3,   step: 0.01, label: 'V from interference' },
     sources:      { v: 48,   min: 4,   max: 96,  step: 1,    label: 'Impulses summed' },
+    // The shortest wave the sum is allowed to draw. Near the boat the
+    // interference is dominated by half-metre to three-metre waves, and a comb
+    // of those reads as drawn lines rather than as water moving. Raise it for
+    // fewer, longer waves that visibly distort the surface.
+    minWave:      { v: 6,    min: 0.6, max: 40,  step: 0.5,  label: 'Shortest wave drawn (m)' },
     amp:          { v: 0.225, min: 0,   max: 1.5, step: 0.005,label: 'Wave height (m)' },
     froudePeak:   { v: 0.52, min: 0.15,max: 1.5, step: 0.01, label: 'Peak Froude no.' },
     humpFloor:    { v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Planing floor' },
