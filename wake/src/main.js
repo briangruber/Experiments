@@ -376,7 +376,18 @@ const ui = buildUI(uiRoot, {
     // Re-fit the drawn hull: both 'Hull length' and 'Model scale' feed the
     // target size, and the fit is where scale actually lives (an outer scale
     // on the holder is divided straight back out by this same call).
-    for (const c of boat.children) c.userData?.scaleTo?.();
+    //
+    // GATED ON THE PATHS THAT ACTUALLY FEED IT. This used to run on EVERY
+    // parameter change, so moving any slider in the panel -- bed distortion,
+    // cloud cover, anything -- re-seated and re-scaled the hull. The fit
+    // re-normalises to the target length and re-seats the model on its
+    // waterline, so the boat visibly jumped and changed size for a frame, which
+    // reads exactly like the buoyancy being disturbed by an unrelated control.
+    // Nothing outside these paths changes the drawn size of a hull.
+    if (path === '*' || path === 'boat.model'
+      || path === 'boat.length' || path === 'boat.modelScale') {
+      for (const c of boat.children) c.userData?.scaleTo?.();
+    }
   },
 });
 

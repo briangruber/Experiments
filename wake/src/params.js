@@ -363,7 +363,7 @@ export const PARAMS = {
     bedBright:    { v: 0.30, min: 0.02, max: 2, step: 0.01, label: 'Bed brightness' },
     // The surface's own slope, bending the view of the bottom: this is what
     // makes the sand shift under a passing wave.
-    bedDistort:   { v: 0.9,  min: 0,   max: 3,   step: 0.01, label: 'Bed distortion (waves)' },
+    bedDistort:   { v: 1.4,  min: 0,   max: 3,   step: 0.01, label: 'Bed distortion (waves)' },
     causticSize:  { v: 3.0,  min: 0.3, max: 10, step: 0.1,  label: 'Caustic cell size' },
     caustics:     { v: 1.35, min: 0,   max: 1.5, step: 0.01, label: 'Caustics on the bed' },
     radius:       { v: 1850, min: 200, max: 4000,step: 10,   label: 'Lake radius (m)' , lab: 1 },

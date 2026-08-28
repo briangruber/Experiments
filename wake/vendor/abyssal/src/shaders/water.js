@@ -1585,7 +1585,13 @@ void main(){
         localD = bedDepthAt(vec2(hx, hz), lo, hi);
         // Same warp as the rocks: lighting slope × sdRefract.
         // Twin: floorLookSlide() in seafloor.js.
-        float lookGate = clamp(localD * 0.7, 0.0, 1.0) / (1.0 + dist * 0.045);
+        // FORKED 0.045 -> 0.028. The gate is an anti-alias guard, and it was
+        // set for open ocean where the bed is thirty metres down and any warp
+        // is invisible anyway. Over a 3 m lagoon it crushed the control to
+        // about 14 cm of lookup shift at forty metres -- a wobble well under
+        // the scale of the bed's own features, which is why the slider read as
+        // doing nothing. Loosened, not removed: the far field still needs it.
+        float lookGate = clamp(localD * 0.7, 0.0, 1.0) / (1.0 + dist * 0.028);
         float lookW = uRefractDistort * lookGate * localD;
         hx += slope.x * lookW;
         hz += slope.y * lookW;
