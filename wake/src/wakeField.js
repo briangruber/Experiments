@@ -55,6 +55,7 @@ const RIBBON_FRAG = /* glsl */`
   uniform float uMaxArc, uPlaning, uHumpFr, uWetShift;
   uniform float uKelvinFade;
   uniform float uIdleChurn, uBubGrain, uBubGrainScale;
+  uniform float uFeatErode, uFeatErodeLen;
   uniform float uBeam, uHullLen, uEngines, uEngineGap;
   // The hull WHERE IT ACTUALLY IS, in world metres: the bow's position and the
   // way it points. The ribbon's own (arc, lat) frame follows the COURSE, and
@@ -177,11 +178,29 @@ const RIBBON_FRAG = /* glsl */`
     // Feathering: periodic crests leaning back off the arm axis, stretching out
     // as the wake ages.
     float sp = max(uFeatSpace + arc * uFeatGrow, 0.1);
-    float jit = (fbm(vWorld * 0.09) - 0.5) * uFeatJitter;
+    // Jitter at TWO scales. One octave at 11 m wanders the whole train slowly
+    // and leaves every crest inside it geometrically perfect; the finer one
+    // makes each crest wander on its own, which is what stops the fan reading
+    // as though it were drawn with a compass.
+    float jit = ((fbm(vWorld * 0.09) - 0.5) * 0.72
+               + (fbm(vWorld * 0.38 + 21.0) - 0.5) * 0.55) * uFeatJitter;
     float phase = (arc + (ad - armC) * uFeatLean) / sp + jit;
     float f = pow(0.5 + 0.5 * sin(6.28318 * phase), uFeatSharp);
     float inner = smoothstep(0.25, -1.30, x);          // 0 outboard, 1 inboard
     float comb = mix(1.0, f, uFeatDepth * inner);
+
+    // AND IT BREAKS UP AS IT AGES.
+    //
+    // A feather is not a line, it is a row of breaking crests -- so it comes in
+    // segments with gaps between them, and the further astern the more of it
+    // has collapsed. A single clean sine, however well jittered, still draws an
+    // unbroken curve from the bow to the end of the field, which is the fan of
+    // drafting-pen lines this used to make. Two scales of noise thresholded
+    // against each other give segments and gaps; erosion ramps with distance,
+    // so the crests are whole where they are made and ragged where they are old.
+    float bk = fbm(vWorld * 0.21 + 13.0) * 0.62 + fbm(vWorld * 0.83 - 7.0) * 0.38;
+    float erode = uFeatErode * smoothstep(2.0, max(uFeatErodeLen, 3.0), arc);
+    comb *= mix(1.0, smoothstep(0.30, 0.66, bk), erode);
 
     // The leading edge of the spray sheet is a hard bright line; without it the
     // arm reads as a soft smudge rather than as breaking water.
@@ -773,6 +792,7 @@ export class WakeField {
       uMaxArc: { value: 1 }, uKelvinFade: { value: 1 },
       uIdleChurn: { value: 0.55 },
       uBubGrain: { value: 0.8 }, uBubGrainScale: { value: 1.1 },
+      uFeatErode: { value: 0.7 }, uFeatErodeLen: { value: 55 },
       uBeam: { value: 1 }, uHullLen: { value: 1 }, uEngines: { value: 1 }, uEngineGap: { value: 1 },
       uArmTan: { value: 0 }, uArmW0: { value: 1 }, uArmWGrow: { value: 0 },
       uArmFoam: { value: 1 }, uArmHeight: { value: 0 }, uInnerBias: { value: 0 },
@@ -1058,6 +1078,8 @@ export class WakeField {
     const decay = Math.max(get('field.decay'), 0.05);
     u.uMaxArc.value = Math.max(this.maxArc || 1, 1);
     u.uIdleChurn.value = get('wash.idle');
+    u.uFeatErode.value = get('feather.breakup');
+    u.uFeatErodeLen.value = get('feather.breakupLen');
     u.uBubGrain.value = get('bubbles.grain');
     u.uBubGrainScale.value = 1 / Math.max(get('bubbles.grainSize'), 0.05);
     u.uBeam.value = get('boat.beam');

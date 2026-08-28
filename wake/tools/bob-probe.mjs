@@ -43,12 +43,24 @@ const out = await page.evaluate(async () => {
   for (let i = 0; i < 240; i++) w.stepSim(1/30);
   w.set('boat.speed', 0);
   const track = [];
+  // stepSim advances the physics; it does NOT run the probe, which lives in the
+  // render path. Drive it by hand here, or heave simply keeps the value the
+  // last real frame left it at -- which is what the first run of this reported,
+  // forty identical samples that looked like a dead feature.
   for (let k = 0; k < 40; k++) {
     for (let i = 0; i < 8; i++) w.stepSim(1/30);
     w.wake.update(w.state.t);
+    w.body.state = w.state;
+    const h = w.sea.probeWaves(w.body.corners(), 8/30);
+    w.body.applyWaves(h, w.get('boat.buoy'));
     track.push(+(w.body.wave.heave ?? 0).toFixed(4));
   }
-  return { note: 'hull heave (m) over 10.7 s after the throttle came off', track,
+  // The end-to-end response needs real frames -- the probe collects through a
+  // fence -- so report what CAN be established here: that the wake is actually
+  // reaching the probe's binding.
+  const b = w.sea.wake?.probeBinding?.();
+  return { bindingOk: !!b, bindingExtent: b?.extent ?? null, bindingOn: b?.on ?? 0,
+           note: 'heave needs real frames; fence-based readback', track,
            speed: +w.state.speed.toFixed(2) };
 });
 console.log(JSON.stringify(out, null, 2)); if (errs.length) console.log('ERRORS', errs.slice(0,2));

@@ -110,6 +110,10 @@ export const PARAMS = {
     jitter:       { v: 0.45, min: 0,   max: 2,   step: 0.01, label: 'Phase jitter' },
     sharpness:    { v: 1.25,  min: 0.3, max: 6,   step: 0.05, label: 'Crest sharpness' },
     carve:        { v: 0.42, min: 0,   max: 1,   step: 0.01, label: 'Comb carves foam' },
+    // A feather is a row of breaking crests, not a drawn line: it comes in
+    // segments with gaps, and the further astern the more of it has collapsed.
+    breakup:      { v: 0.7,  min: 0,   max: 1,   step: 0.01, label: 'Crests break up' },
+    breakupLen:   { v: 55,   min: 5,   max: 200, step: 1,    label: 'Whole for (m)' },
   },
 
   // Turbulent water dragged behind the transom: the brightest, shortest-lived
