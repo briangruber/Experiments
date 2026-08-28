@@ -61,20 +61,26 @@ const out = await page.evaluate(async () => {
   // A/B the field instead of guessing at the texel mapping: the honest question
   // is whether the overtake term contributes anything, and the control is the
   // same instant with it switched off.
+  // The WHOLE field, not a window in the middle of it. The field is centred a
+  // little ASTERN by design, so a centre crop can miss geometry laid ahead of
+  // the bow entirely -- and reading with and without as identical then says
+  // nothing except that the crop was in the wrong place.
   const fieldMax = () => {
-    const rt = wake.rt, r = w.renderer, N = 64;
+    const rt = wake.rt, r = w.renderer, N = Math.min(rt.width, rt.height);
     const raw = new Uint16Array(N*N*4);
     const half = (h) => { const s=(h&0x8000)?-1:1, e=(h&0x7C00)>>10, f=h&0x3FF;
       if(e===0) return s*Math.pow(2,-14)*(f/1024); if(e===31) return f?NaN:s*Infinity;
       return s*Math.pow(2,e-15)*(1+f/1024); };
-    r.readRenderTargetPixels(rt, (rt.width-N)>>1, (rt.height-N)>>1, N, N, raw);
-    let mx = 0, nan = 0;
+    r.readRenderTargetPixels(rt, 0, 0, N, N, raw);
+    let mx = 0, nan = 0, sum = 0, lit = 0;
     for (let i = 0; i < raw.length; i += 4) {
       const g = half(raw[i+1]);
       if (Number.isNaN(g)) { nan++; continue; }
-      mx = Math.max(mx, Math.abs(g));
+      const a = Math.abs(g);
+      mx = Math.max(mx, a); sum += a; if (a > 0.002) lit++;
     }
-    return { maxAbsHeight: +mx.toFixed(4), nanTexels: nan };
+    return { maxAbsHeight: +mx.toFixed(4), sumAbs: +sum.toFixed(1),
+             litTexels: lit, nanTexels: nan, size: N };
   };
   const withOvertake = fieldMax();
   w.set('kelvin.overtake', 0);
