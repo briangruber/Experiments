@@ -52,6 +52,30 @@ export class WakeBridge {
 	 * be present — a missing sampler is not "unused", it is an unbound texture
 	 * unit reading whatever was there last.
 	 */
+	/**
+	 * The same binding the sea gets, for a caller that only wants to READ the
+	 * field -- the wave probe, so a hull can feel its own wake.
+	 *
+	 * Separate from uniforms() because that one has side effects: it counts
+	 * frames and records the diagnostics that tell a wake which failed to bind
+	 * from a wake which is simply not there. Calling it twice a frame would
+	 * quietly corrupt exactly the numbers that exist to be trusted.
+	 */
+	probeBinding() {
+
+		const gl = this.renderer.getContext();
+		const tex = this._glTexture();
+		if ( ! tex ) return null;
+		const c = this.field.center;
+		return {
+			tex: { target: gl.TEXTURE_2D, tex },
+			origin: new Float32Array( [ c.x, c.y ] ),
+			extent: Math.max( this.field.extent, 1 ),
+			on: 1,
+		};
+
+	}
+
 	uniforms( p, active ) {
 
 		const gl = this.renderer.getContext();

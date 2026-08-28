@@ -476,7 +476,10 @@ export class AbyssalSea {
 	probeWaves( points, dt ) {
 
 		if ( ! this.probe ) this.probe = new WaveProbe( this.water.gl );
-		this.probe.update( this.params, this.water.ocean, points, dt );
+		// Hand the probe the wake as well, so buoyancy runs on the water the
+		// hull actually floats in -- its own waves included.
+		const wk = this.wake?.probeBinding?.() ?? null;
+		this.probe.update( this.params, this.water.ocean, points, dt, wk );
 		return this.probe.h;
 
 	}

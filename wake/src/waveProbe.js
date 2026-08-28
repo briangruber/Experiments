@@ -31,7 +31,23 @@ uniform float uPatch[4];
 uniform int   uCascadeCount;
 uniform vec2  uProbe[${NPROBE}];
 uniform float uHeightScale, uHorizScale, uSeaLevel;
+// The craft's OWN wake, which until now the hull could not feel.
+uniform sampler2D uWakeTex;
+uniform vec2  uWakeOrigin;
+uniform float uWakeExtent, uWakeOn;
 out vec4 fragColor;
+
+// The wake field is a top-down texture centred on the boat; G is signed height
+// in metres. Sampled here so a hull rides the water it displaced itself --
+// stop, and the train you built catches up and lifts you as it goes under.
+float wakeHeightAt(vec2 p){
+  if (uWakeOn < 0.5) return 0.0;
+  vec2 uv = (p - uWakeOrigin) / max(uWakeExtent, 1.0) + 0.5;
+  if (uv.x <= 0.0 || uv.x >= 1.0 || uv.y <= 0.0 || uv.y >= 1.0) return 0.0;
+  // V-flipped, the same way every other reader of this field flips it: the
+  // bake camera looks down with up = -Z. check-bridge asserts the two match.
+  return texture(uWakeTex, vec2(uv.x, 1.0 - uv.y)).g;
+}
 
 float surfaceAt(vec2 p){
   vec2 x = p;
@@ -49,7 +65,7 @@ float surfaceAt(vec2 p){
     if (c >= uCascadeCount) break;
     h += texture(uDisp, vec3(x / uPatch[c], float(c))).y;
   }
-  return uSeaLevel + h * uHeightScale;
+  return uSeaLevel + h * uHeightScale + wakeHeightAt(p);
 }
 
 void main(){
@@ -91,7 +107,7 @@ export class WaveProbe {
 	 * preset, and reading them per call keeps the probe honest across a scene
 	 * switch. `dt` drives the smoothing toward the (late) GPU reading.
 	 */
-	update( p, ocean, points, dt ) {
+	update( p, ocean, points, dt, wake = null ) {
 
 		const gl = this.gl;
 
@@ -141,6 +157,12 @@ export class WaveProbe {
 				uProbe: flat,
 				uHeightScale: p.heightScale, uHorizScale: p.horizScale,
 				uSeaLevel: p.seaLevel ?? 0,
+				// The wake, if the caller has one bound. Without it a hull rides
+				// the swell and sits straight through its own waves.
+				uWakeTex: wake?.tex ?? { target: gl.TEXTURE_2D, tex: null },
+				uWakeOrigin: wake?.origin ?? new Float32Array([ 0, 0 ]),
+				uWakeExtent: wake?.extent ?? 1,
+				uWakeOn: wake?.on ?? 0,
 			} );
 			this.blit.draw();
 			gl.bindBuffer( gl.PIXEL_PACK_BUFFER, this.pbo );
