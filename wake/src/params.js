@@ -218,7 +218,7 @@ export const PARAMS = {
     // cannot -- so this adds the steep-crest case rather than replacing it.
     // Surf breaking on the shore: driven by how deep the water is over the
     // real coastline, not by the open sea's whitecaps.
-    surf:         { v: 1.7,  min: 0,   max: 2,   step: 0.01, label: 'Surf on the shore' },
+    surf:         { v: 0.95, min: 0,   max: 2,   step: 0.01, label: 'Surf on the shore' },
     surfDepth:    { v: 1.4,  min: 0.3, max: 8,   step: 0.1,  label: 'Breaks at depth (m)' },
     surfSets:     { v: 1,    min: 0,   max: 2,   step: 0.01, label: 'Surf sets (surge)' },
     surfPeriod:   { v: 7.0,  min: 2,   max: 16,  step: 0.1,  label: 'Seconds between sets' },

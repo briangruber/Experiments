@@ -214,7 +214,15 @@ export class Shore {
 			// radius instead. A smooth circular ramp with no noise in it is
 			// invisible, where the same ramp built from coast(ang) is a wheel.
 			const basin = 21;
-			const rel = d / this._coastMean();
+			// Warped by POSITION, never by angle. A ramp on distance alone is
+			// still a circle -- softer than the mesh seam was, but a circle --
+			// and the eye finds one in open water instantly. Two-dimensional
+			// noise wanders the reef edge by a couple of dozen metres so it
+			// reads as a drop-off rather than a rim, and because it is sampled
+			// at (x, z) rather than at an angle it cannot come to a point at
+			// the origin the way coast(ang) does.
+			const warp = ( fbm( x * 0.0042 + 210, z * 0.0042 - 90, 3, s + 401 ) - 0.5 ) * 2;
+			const rel = d / this._coastMean() * ( 1 + warp * 0.17 );
 			const toBasin = smoothstep01( 0.50, 0.15, rel );
 			const shelf = - ( prof + ( basin - prof ) * toBasin );
 			// Coral heads and rubble stand proud of the shelf. These reach much
