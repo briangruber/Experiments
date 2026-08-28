@@ -94,6 +94,8 @@ uniform sampler2D uShoreMap;
 uniform float uShoreOn, uShoreExtent;
 uniform float uSwellOn, uSwellH0, uSwellD0, uSwellSlope, uSwellPeriod2;
 uniform float uSwellGamma, uSwellPeak, uSwellLean;
+uniform float uGridRings, uRMinS, uRMaxS;
+uniform vec2 uGridCenterS;
 
 float shoreDepth(vec2 p){
   if (uShoreOn < 0.5) return -1.0;
@@ -197,6 +199,25 @@ vec3 shoalSurface(vec2 p, float t, out float brk, out float dOut){
   // Dies out in water too deep to feel the bottom, so the open bay is left to
   // the FFT sea and only the shelf carries surf.
   float feel = 1.0 - smoothstep(uSwellD0 * 0.6, uSwellD0 * 1.6, d);
+  // DO NOT DISPLACE WHAT THE MESH CANNOT RESOLVE.
+  //
+  // The grid is exponential in radius and centred on the CAMERA, so its
+  // resolution follows the eye while the surf stays where the coast is. Ring
+  // spacing here is analytic -- r * ln(rMax/rMin) / rings -- and measured
+  // against a 43 m shoaling wavelength it gives about 15 vertices per wave at
+  // a hundred metres, 5 at three hundred, and 3 at five hundred. Below roughly
+  // four a swell is no longer a wave: it is a row of facets that crawl, and
+  // crawling facets read worse than no swell at all.
+  //
+  // So it fades out where it cannot be drawn, and the shore is carried by the
+  // foam instead -- which is a coverage rather than a shape, and therefore
+  // costs the same at any distance. Same bargain clumpRes strikes for the lace.
+  float lambda = 6.2831853 * sqrt(9.81 * max(d, 0.05)) / omega;
+  float ringDr = length(p - uGridCenterS)
+               * log(max(uRMaxS / max(uRMinS, 1e-3), 1.001)) / max(uGridRings, 8.0);
+  float res = clamp(lambda / max(ringDr, 1e-3) / 4.0 - 1.0, 0.0, 1.0);
+  feel *= res;
+
   float y = A * peaked * feel;
   // Clamped: past a Gerstner steepness of about 1 the surface self-intersects
   // and the crest turns inside out, which is a loop rather than a wave.

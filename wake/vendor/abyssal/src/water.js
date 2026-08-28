@@ -48,6 +48,7 @@ export class WaterSurface {
     // per frame is a dozen short-lived objects every frame, which shows up as
     // jitter on a phone rather than as a lower average frame rate.
     this._vGrid = new Float32Array(2);
+    this._vGridC2 = new Float32Array(2);
     this._vWind = new Float32Array(2);
     this._vFade = new Float32Array(4);
     this._dummyWake = null;
@@ -282,6 +283,10 @@ export class WaterSurface {
       uSwellSlope: p.swellSlope ?? 0.02, uSwellPeriod2: p.swellPeriod2 ?? 9.0,
       uSwellGamma: p.swellGamma ?? 0.78, uSwellPeak: p.swellPeak ?? 2.0,
       uSwellLean: p.swellLean ?? 0.9,
+      // The shoal term fades itself out where the mesh is too coarse to carry
+      // it, so it needs to know how coarse the mesh is here.
+      uGridRings: this.grid?.radial ?? 400,
+      uRMinS: p.rMin, uRMaxS: p.rMax, uGridCenterS: set2(this._vGridC2, ctx.camPos[0], ctx.camPos[2]),
       uFoamSoft: p.foamSoft ?? 0,
       uWindDirV: set2(this._vWind, Math.cos(p.windDir), Math.sin(p.windDir)),
       uSpecClamp: p.specClamp, uHorizonBend: p.horizonBend,
