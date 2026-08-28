@@ -124,6 +124,22 @@ export class Shore {
 	// ANGLE rather than by position is what keeps the bay a bay -- a coastline
 	// from raw 2D noise closes into islands and lakes, which is a different
 	// place entirely.
+	/**
+	 * Mean coast radius. Cached: it is a fixed property of the coastline, and
+	 * the bathymetry asks for it at every vertex and every texel.
+	 */
+	_coastMean() {
+
+		if ( this._cmean === undefined ) {
+			let sum = 0;
+			const N = 256;
+			for ( let i = 0; i < N; i ++ ) sum += this.coastAt( i / N * Math.PI * 2 );
+			this._cmean = Math.max( sum / N, 1 );
+		}
+		return this._cmean;
+
+	}
+
 	coastAt( ang ) {
 
 		const s = this.seed;
@@ -180,11 +196,27 @@ export class Shore {
 			// falling away into blue.
 			const u = - t;                       // metres in from the waterline
 			const f = u / Math.max( coast, 1 );  // 0 at the rocks, 1 at the centre
-			const shelf = - (
-				1.0 * ( 1 - Math.exp( - u / 12 ) )
-				+ 3.6 * smoothstep01( 0, 0.55, f )
-				+ 20 * smoothstep01( 0.62, 1.15, f )
-			);
+			// The shelf itself is COAST-RELATIVE, which is right: it should
+			// follow every headland and cove, and near the rocks it does.
+			const prof = 1.0 * ( 1 - Math.exp( - u / 12 ) )
+				+ 3.6 * smoothstep01( 0, 0.55, f );
+
+			// THE BASIN IS NOT, and this is what put a starburst in the middle
+			// of the bay. coastAt() is a function of ANGLE ALONE -- that is what
+			// keeps a bay a bay rather than letting it close into islands -- but
+			// world-space angular gradient blows up as you approach the origin,
+			// so any depth carrying coast(ang) paints its noise across the
+			// centre as radial spokes. The old profile hid this by clamping at
+			// -26 m, which saturated the middle flat; taking the clamp off is
+			// what let the angle through.
+			//
+			// So the deep end drops on ABSOLUTE distance against the bay's mean
+			// radius instead. A smooth circular ramp with no noise in it is
+			// invisible, where the same ramp built from coast(ang) is a wheel.
+			const basin = 21;
+			const rel = d / this._coastMean();
+			const toBasin = smoothstep01( 0.50, 0.15, rel );
+			const shelf = - ( prof + ( basin - prof ) * toBasin );
 			// Coral heads and rubble stand proud of the shelf. These reach much
 			// further out than they did (42 m -> 110 m): the dark patches scattered
 			// across a bright bottom are half of what sells clear water, and they
