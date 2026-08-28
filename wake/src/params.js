@@ -282,6 +282,17 @@ export const PARAMS = {
     sprayRise:    { v: 1.15, min: 0,   max: 2.5, step: 0.01, label: 'Upward share' },
     sprayLife:    { v: 1.5,  min: 0.2, max: 4,   step: 0.05, label: 'Droplet life (s)' },
     sprayRange:   { v: 240,  min: 40,  max: 600, step: 10,   label: 'Only within (m)' },
+    // The shoaling swell: real displacement on the shelf, not a foam pattern.
+    // Height offshore and period are the sea state; the rest is the beach.
+    // Where it BREAKS is not set here -- that falls out of height meeting
+    // depth at the 0.78 criterion, so a bigger swell breaks further out.
+    swell:        { v: 1,    min: 0,   max: 1,   step: 1,    label: 'Shoaling swell' },
+    swellH:       { v: 1.1,  min: 0,   max: 4,   step: 0.05, label: 'Swell height offshore (m)' },
+    swellPeriod:  { v: 9,    min: 3,   max: 20,  step: 0.1,  label: 'Swell period (s)' },
+    swellDeep:    { v: 8,    min: 2,   max: 30,  step: 0.5,  label: 'Feels bottom below (m)' },
+    swellSlope:   { v: 0.02, min: 0.004, max: 0.12, step: 0.001, label: 'Beach slope (crest spacing)' },
+    swellGamma:   { v: 0.78, min: 0.4, max: 1.2, step: 0.01, label: 'Breaks at H/depth' },
+    swellPeak:    { v: 2.0,  min: 1,   max: 5,   step: 0.05, label: 'Crest peakiness' },
   },
 
   // Cost, not looks. Auto-set on load from the device, then yours to override.

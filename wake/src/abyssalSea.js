@@ -251,6 +251,14 @@ function fitToLake( p, preset = {}, tune = {} ) {
 	p.surfSpan = get( 'foamMix.surfSpan' );
 	p.surfDecay = get( 'foamMix.surfDecay' );
 	p.foamSoft = get( 'foamMix.softness' );
+	// The shoaling swell on the shelf.
+	p.swellOn = get( 'shore.swell' );
+	p.swellH0 = get( 'shore.swellH' );
+	p.swellPeriod2 = get( 'shore.swellPeriod' );
+	p.swellD0 = get( 'shore.swellDeep' );
+	p.swellSlope = get( 'shore.swellSlope' );
+	p.swellGamma = get( 'shore.swellGamma' );
+	p.swellPeak = get( 'shore.swellPeak' );
 
 	const tint = get( 'scene.waterTint' );
 	// A scene may commit to its own water colour outright. The preset library
