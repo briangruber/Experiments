@@ -42,6 +42,13 @@ function rng( seed ) {
 // by sampling this on the CPU while the rock is displaced by it, and the two
 // have to agree about where the ground is.
 
+/** Clamp to the unit range; this file leans on it constantly. */
+function clamp01( x ) {
+
+	return x < 0 ? 0 : x > 1 ? 1 : x;
+
+}
+
 /** GLSL's smoothstep, which JS does not have and this file now needs twice. */
 function smoothstep01( a, b, x ) {
 
@@ -227,10 +234,17 @@ export class Shore {
 		// Dark basalt through paler weathered limestone.
 		const rockMix = Math.min( 1, Math.max( 0, mottle * 1.35 - 0.12 ) );
 		let r = 0.115 + rockMix * 0.40, g = 0.112 + rockMix * 0.38, b = 0.105 + rockMix * 0.34;
-		// Wet rock is dark rock: everything within a metre of the water reads
-		// several stops down, which is what draws the waterline.
-		const wet = 1 - Math.min( 1, Math.max( 0, ( h + 0.2 ) / 1.4 ) );
-		const k = 1 - wet * 0.55;
+		// Wet rock is dark rock -- but only in the SPLASH ZONE.
+		//
+		// This used to be `1 - clamp((h + 0.2)/1.4)`, which is 1 for every
+		// height below the waterline, so the entire submerged shelf was carried
+		// at 45% brightness. That is what put a broad dark collar right where
+		// the reference photo is at its palest, and it is the wrong physics
+		// twice over: the darkening of wet rock is a thin-film effect at the
+		// waterline, and what is actually down there is not rock anyway.
+		// A band that peaks AT the line and falls away both ways.
+		const wet = clamp01( 1 - Math.abs( h + 0.1 ) / 0.9 );
+		const k = 1 - wet * 0.45;
 		r *= k; g *= k; b *= k;
 
 		// Sand on the flats, above the wet band and below the crags.
@@ -239,6 +253,18 @@ export class Shore {
 			* ( 1 - Math.min( 1, Math.max( 0, ( h - 3.5 ) / 5 ) ) );
 		const sand = flat * sandBand * ( 0.55 + mottle * 0.45 );
 		r += ( 0.80 - r ) * sand; g += ( 0.73 - g ) * sand; b += ( 0.58 - b ) * sand;
+
+		// THE SUBMERGED SHELF is carbonate sand and coral rubble, and it is
+		// BRIGHTER than the dry rock above it, not darker. This is the other
+		// half of the lagoon's colour: the water only looks that luminous
+		// because there is a near-white bottom throwing light back up through
+		// it. Steep faces keep their rock -- an outcrop standing off the shelf
+		// is dark in the photograph too, and those dark shapes on pale sand are
+		// what give the shallows their scale.
+		const sub = clamp01( - h / 2.5 );
+		const subFlat = 1 - Math.min( 1, slope / 0.75 );
+		const bedMix = sub * ( 0.32 + 0.68 * subFlat );
+		r += ( 0.78 - r ) * bedMix; g += ( 0.74 - g ) * bedMix; b += ( 0.62 - b ) * bedMix;
 
 		// Vegetation takes the high ground, and only where it could hold on.
 		const high = Math.min( 1, Math.max( 0, ( h - 7 ) / 10 ) );
