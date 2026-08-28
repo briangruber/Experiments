@@ -293,7 +293,8 @@ uniform float uWaterIOR;
 uniform float uAerial;
 uniform float uFloorDepth, uFloorDepthMin, uFloorDepthMax, uFloorTerrainScale, uFloorCaustic;
 uniform float uFloorCausticSize;
-uniform vec3  uBedSand, uBedWeed;
+uniform vec3  uBedSand, uBedWeed, uBedCoral;
+uniform float uBedCoralAmt;
 uniform float uBedGain;
 // FORKED IN: screen-space refraction. The scene (hull, spray) is rendered to
 // a colour+depth target BEFORE the water; the water then looks through itself
@@ -473,6 +474,29 @@ vec2 cascadeSlopeAt(vec2 p, float dist){
 }
 
 // Twin of floorDepthAt() in src/seafloor.js. 1 on the heightfield is a sandbar.
+// Moved ABOVE floorTerrainDepth: GLSL requires a function to be declared
+// before it is called, and the coral-head bump in the bed's height calls
+// this from there. Defined after it, the whole water program failed to
+// compile and the sea simply did not draw.
+vec3 cellular3(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  float F1 = 8.0, F2 = 8.0, occ = 0.0;
+  for (int y = -1; y <= 1; y++){
+    for (int x = -1; x <= 1; x++){
+      vec2 g = vec2(float(x), float(y));
+      vec2 cell = i + g;
+      vec2 o = hash22(cell);
+      vec2 r = g + o - f;
+      float d = dot(r, r);
+      float h = hash12(cell + vec2(19.7, 7.3));
+      if (d < F1) occ = h;
+      F2 = min(F2, max(F1, d));
+      F1 = min(F1, d);
+    }
+  }
+  return vec3(sqrt(F1), sqrt(F2), occ);
+}
+
 float floorTerrainDepth(float px, float pz, float lo, float hi, float scale){
   if (hi - lo < 0.05) return hi;
   float s = max(scale, 4.0);
@@ -505,9 +529,21 @@ float floorTerrainDepth(float px, float pz, float lo, float hi, float scale){
   float dunes = sin(uw * 2.4 - vw * 1.3 + sin(uw * 0.7) * 0.45);
   float drift = fbm2(vec2(u, v) * 0.23, 3) * 2.0 - 1.0;   // broad basin shape
   float grain = fbm2(vec2(u, v) * 1.9, 2) * 2.0 - 1.0;    // roughens the crests
+  // Coral heads stand PROUD. Painting them on a flat floor gives dark discs
+  // with no shallowing over them -- and it is the shallowing that catches the
+  // light and turns a head pale green in an otherwise blue bay. Twin of the
+  // colour term in main(); same cell field, same scale, so the mound and its
+  // colour are the same object.
+  vec3 hcw = cellular3(vec2(px, pz) * 0.055);
+  float hseed = fbm2(vec2(px, pz) * 0.03 + 71.0, 2);
+  float heads = (1.0 - smoothstep(0.10, 0.34, hcw.x))
+              * smoothstep(0.42, 0.58, hseed);
   float w = clamp(0.5 + 0.5 * (bars * 0.26 + channels * 0.19 + dunes * 0.10
                              + drift * 0.62 + grain * 0.16), 0.0, 1.0);
-  return mix(hi, lo, w);
+  // The heads lift the bed by up to a couple of metres, capped so they can
+  // never break the surface and become invisible geometry the boat drives
+  // through.
+  return max(mix(hi, lo, w) - heads * 2.2, 0.8);
 }
 
 // Parasitic capillary ripples ride the windward face of the short gravity waves
@@ -531,24 +567,6 @@ vec2 capillarySlope(vec2 p, float t, float amp){
 // 2D Worley F1/F2 plus nearest-site hash. Matches src/foam-lace.js and
 // src/gpu/tsl/noise.js cellular3. Occupancy is NOT used as coverage
 // (that was the disc look).
-vec3 cellular3(vec2 p){
-  vec2 i = floor(p), f = fract(p);
-  float F1 = 8.0, F2 = 8.0, occ = 0.0;
-  for (int y = -1; y <= 1; y++){
-    for (int x = -1; x <= 1; x++){
-      vec2 g = vec2(float(x), float(y));
-      vec2 cell = i + g;
-      vec2 o = hash22(cell);
-      vec2 r = g + o - f;
-      float d = dot(r, r);
-      float h = hash12(cell + vec2(19.7, 7.3));
-      if (d < F1) occ = h;
-      F2 = min(F2, max(F1, d));
-      F1 = min(F1, d);
-    }
-  }
-  return vec3(sqrt(F1), sqrt(F2), occ);
-}
 
 // One moving caustic sheet. Twin: floorLaceLayer() in seafloor.js.
 float floorLaceLayer(float x, float z, float t, float scale, float driftX, float driftZ, float phase){
@@ -1497,16 +1515,33 @@ void main(){
         hx += slope.x * lookW;
         hz += slope.y * lookW;
         localD = floorTerrainDepth(hx, hz, lo, hi, uFloorTerrainScale);
-        float ru = hx * 0.021, rv = hz * 0.017;
-        float n  = 0.5 + 0.5 * sin(ru * 1.4 + sin(rv * 0.8) * 0.7);
-        float n2 = 0.5 + 0.5 * sin(rv * 1.1 - sin(ru * 0.6) * 0.55);
-        float reef = smoothstep(0.48, 0.72, n) * (0.4 + 0.6 * n2);
-        // FORKED: the bed was a fixed sand/reef mix. Sand is already the base
-        // colour here -- the dark green is the reef term, a procedural weed
-        // laid over it, and on a lake at 9 m it is most of what you see.
-        // Both ends are uniforms now so a sandy lake bottom is reachable
-        // without editing the shader.
-        vec3 bed = mix(uBedSand, uBedWeed, reef * uBedWeedAmt);
+        // FORKED: a lagoon FLOOR, not a two-tone gradient.
+        //
+        // The bed was two sine waves blended between sand and weed, and that is
+        // most of why shallow water read as a swimming pool: a pool has one
+        // featureless floor at one depth, and so did this. A real lagoon bottom
+        // is PATCHY at several scales -- open sand, seagrass beds with crisp
+        // edges, and isolated coral heads standing proud of both -- and it is
+        // that patchiness, seen through changing depth, that makes the water
+        // above it read as a lagoon.
+        vec2 bp = vec2(hx, hz);
+        // Seagrass. Beds have hard boundaries, not gradients: a narrow
+        // smoothstep on aperiodic noise gives an edge you could walk to.
+        float bedN = fbm2(bp * 0.011, 4) * 0.72 + fbm2(bp * 0.047 + 19.0, 3) * 0.28;
+        float weedM = smoothstep(0.50, 0.60, bedN);
+        // Coral heads: distance to the nearest cell point, so they come out as
+        // discrete round mounds scattered over the floor rather than as another
+        // layer of noise. A second noise decides WHICH cells grow one, so they
+        // clump into gardens and leave clear sand between.
+        vec3 cw = cellular3(bp * 0.055);
+        float headSeed = fbm2(bp * 0.03 + 71.0, 2);
+        float headM = (1.0 - smoothstep(0.10, 0.34, cw.x))
+                    * smoothstep(0.42, 0.58, headSeed) * uBedCoralAmt;
+        // Sand is never one colour either: slow blotches of shell and rubble.
+        float sandVar = 0.86 + 0.28 * fbm2(bp * 0.09 + 5.0, 3);
+        float reef = weedM * uBedWeedAmt;
+        vec3 bed = mix(uBedSand * sandVar, uBedWeed, reef);
+        bed = mix(bed, uBedCoral, clamp(headM, 0.0, 1.0));
         // Focused sunlight on the sand. Twin: seafloor.js floorLace.
         vec2 pSun = vec2(hx, hz) + uSunDir.xz / max(uSunDir.y, 0.18) * localD;
         float laceScale = max(uFloorCausticSize, 0.15);

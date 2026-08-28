@@ -369,14 +369,31 @@ export class Shore {
 					// photograph and the tint agree about where the sand is.
 					float sandK = smoothstep( 0.55, 0.9, normalize( vWNrm ).y )
 					            * ( 1.0 - smoothstep( 1.5, 7.0, vWPos.y ) );
-					vec3 rockC = triSample( uRockMap, tp, tw ).rgb / max( uRockMean, 0.02 );
+					// TWO SCALES, not one.
+					//
+					// A single 512 plate at one repeat is the classic texture
+					// tell: the eye finds the period within a second or two and
+					// the cliff turns into wallpaper. Sampling the same plate
+					// again eight times larger and multiplying gives macro
+					// blotching that never lines up with the fine detail, so the
+					// repeat has nothing to lock onto. Costs one extra fetch.
+					vec3 rockFine = triSample( uRockMap, tp, tw ).rgb / max( uRockMean, 0.02 );
+					vec3 rockMacro = triSample( uRockMap, tp * 0.125, tw ).rgb / max( uRockMean, 0.02 );
+					vec3 rockC = rockFine * mix( vec3( 1.0 ), rockMacro, 0.55 );
 					vec3 sandC = triSample( uSandMap, tp * 0.7, tw ).rgb / max( uSandMean, 0.02 );
 					vec3 texC = mix( rockC, sandC, sandK );
 					// The photograph MODULATES the computed colour rather than
 					// replacing it, and it is normalised to average 1, so it
 					// darkens creases and lifts crests without shifting the
 					// overall tone the height-and-slope logic chose.
-					diffuseColor.rgb *= mix( vec3( 1.0 ), texC, 0.82 );` )
+					diffuseColor.rgb *= mix( vec3( 1.0 ), texC, 0.82 );
+					// Wet rock is GLOSSY. Everything within the splash zone
+					// takes a specular sheen the dry crags above it do not,
+					// and that difference is most of what reads as "the sea
+					// reaches this far" in a photograph.
+					float wetZone = 1.0 - smoothstep( -0.3, 1.6, vWPos.y );` )
+				.replace( '#include <roughnessmap_fragment>',
+					'float roughnessFactor = roughness * mix( 1.0, 0.32, wetZone );' )
 				.replace( '#include <normal_fragment_maps>', `
 					vec3 nrT = mix( triSample( uRockNrm, tp, tw ).rgb,
 					                triSample( uSandNrm, tp * 0.7, tw ).rgb, sandK ) * 2.0 - 1.0;

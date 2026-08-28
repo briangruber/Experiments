@@ -239,6 +239,8 @@ export class WaterSurface {
       uBedWeed: p.bedWeed ?? [ 0.16, 0.22, 0.18 ],
       uBedWeedAmt: p.bedWeedAmount ?? 1,
       uBedGain: p.bedGain ?? 1,
+      uBedCoral: p.bedCoral ?? [ 0.42, 0.34, 0.30 ],
+      uBedCoralAmt: p.bedCoralAmount ?? 0,
       // The prototype's foam lace. Owned here rather than by the wake bridge
       // because the sea's own whitecaps use the same field now -- one lace for
       // the whole surface, so the boat and the water cannot wear different foam.

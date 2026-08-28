@@ -213,6 +213,10 @@ function fitToLake( p, preset = {}, tune = {} ) {
 	p.bedWeed = [ 0.10, 0.20, 0.17 ];
 	p.bedWeedAmount = get( 'lake.weed' );
 	p.bedGain = get( 'lake.bedBright' );
+	// Coral heads: a warm brown-purple against sand and seagrass, which is what
+	// the eye reads as a reef rather than as more weed.
+	p.bedCoral = [ 0.40, 0.30, 0.27 ];
+	p.bedCoralAmount = get( 'lake.coral' );
 	// Caustic cell size. Upstream ships ~0.3 m cells, which at any normal
 	// viewing distance is speckle rather than the metre-wide net a photograph
 	// of a sandy shallow shows.

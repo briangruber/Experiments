@@ -193,7 +193,11 @@ function fitToHull( root, boat = {} ) {
 	// the open boats, whose interior floor sits only a little above their
 	// lowest point. A masted pirate boat is three times the height of an
 	// inflatable and wants exactly the same draft.
-	holder.position.y -= final.min.y + draftFor( boat.id );
+	const draft = draftFor( boat.id );
+	holder.position.y -= final.min.y + draft;
+	// Remember it: the hull's own draft is the budget the planing lift has to
+	// stay inside, and nothing downstream can work that out from a bounding box.
+	holder.userData.draft = draft;
 
 	return holder;
 
@@ -250,6 +254,7 @@ export async function loadBoat( id ) {
 		// without moving the offset that placed it. Re-seat it.
 		const after = new THREE.Box3().setFromObject( fitted );
 		fitted.position.y -= after.min.y + draftFor( entry.id );
+		fitted.userData.draft = draftFor( entry.id );
 	};
 
 	cache.set( id, fitted );

@@ -350,6 +350,7 @@ export const PARAMS = {
     // How bright the bed comes back. The scene's exposure is set for the
     // water surface, and an unscaled bottom clips to white -- which costs
     // the caustics, since a clipped surface cannot carry contrast.
+    coral:        { v: 0.85, min: 0,   max: 1.5, step: 0.01, label: 'Coral heads' },
     bedBright:    { v: 0.30, min: 0.02, max: 2, step: 0.01, label: 'Bed brightness' },
     // The surface's own slope, bending the view of the bottom: this is what
     // makes the sand shift under a passing wave.

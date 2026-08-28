@@ -188,7 +188,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b22';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b23';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -736,7 +736,13 @@ function frame(now) {
         // adjust from there, rather than silently overriding it.
         const ap = PRESETS[want];
         if (ap) {
-          if (ap.sunElevation !== undefined) set('ocean.sunElev', ap.sunElevation);
+          // The scene tune may override the preset's sun: a preset authored
+          // for open ocean at noon puts the light straight overhead, which
+          // flattens rock and makes shallow water read as a lit pool. An
+          // afternoon sun models the same geometry for free.
+          const want2 = SCENE_TUNE[want];
+          if (want2?.sun !== undefined) set('ocean.sunElev', want2.sun);
+          else if (ap.sunElevation !== undefined) set('ocean.sunElev', ap.sunElevation);
           if (ap.sunAzimuth !== undefined) set('ocean.sunAzim', ap.sunAzimuth);
         }
         ui.refresh();

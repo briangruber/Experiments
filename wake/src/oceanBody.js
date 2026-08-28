@@ -254,6 +254,32 @@ export class OceanBody {
 	}
 
 	/** Pose the mesh for this speed, heading and rate of turn. */
+	/**
+	 * How far the hull may climb out of the water on the plane.
+	 *
+	 * A planing hull DOES rise -- that is what planing is -- but it never
+	 * leaves the water: the transom and the after third of the bottom stay
+	 * wetted at any speed, which is where the thrust comes from. The raw
+	 * riseMax took no account of how deep the boat sits, so on a shallow-draft
+	 * model (an inflatable draws about a quarter of a metre) a 0.42 m lift
+	 * carried the whole hull clear and it flew.
+	 *
+	 * So the lift is a fraction of the hull's OWN draft. Deep boats rise more
+	 * in absolute terms, shallow ones less, and none of them take off.
+	 */
+	_lift( att ) {
+
+		// Defensive about the mesh: OceanBody is driven by a bare stub in the
+		// headless checks, which has no children -- and a physics class that
+		// only works when a GLB happens to be loaded is a class that will fail
+		// the first time a model is still in flight.
+		const model = this.mesh?.children?.[ 0 ];
+		const draft = model?.userData?.draft ?? 0.5;
+		return Math.min( att.rise, draft * 0.55 );
+
+	}
+
+
 	pose() {
 
 		const att = this.att;
@@ -269,7 +295,7 @@ export class OceanBody {
 		this.mesh.rotation.set( - trim - this.wave.pitch, this.state.heading,
 			this.roll + this.wave.roll, 'YXZ' );
 		this.mesh.position.set( b.x,
-			att.rise + this.wave.heave
+			this._lift( att )+ this.wave.heave
 				+ Math.sin( trim ) * this.length * TRIM_PIVOT, b.z );
 
 	}
