@@ -301,12 +301,16 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b36';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b37';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
   if (mode === 'chase') { view.topDown = false; view.pitch = -0.42; view.yaw = 0; view.dist = 46; }
   if (mode === 'field') hud.dataset.field = hud.dataset.field === '1' ? '' : '1';
+  // A view you flick on and off while watching something move wants a button,
+  // not a slider buried in a panel -- the whole point of it is to be compared
+  // against the lit sea a second later.
+  if (mode === 'waves') set('scene.waveDebug', get('scene.waveDebug') > 0.5 ? 0 : 1);
   syncViewButtons();
 }
 
@@ -314,6 +318,7 @@ function syncViewButtons() {
   for (const b of hud.querySelectorAll('[data-view]')) {
     const m = b.dataset.view;
     b.classList.toggle('on', m === 'field' ? hud.dataset.field === '1'
+                           : m === 'waves' ? get('scene.waveDebug') > 0.5
                            : m === 'top' ? view.topDown : !view.topDown);
   }
 }
@@ -399,6 +404,9 @@ const ui = buildUI(uiRoot, {
     if (path === '*' || path === 'scene.preset') {
       scenePicker.select(Math.round(get('scene.preset')));
     }
+    // The wave-motion button and the slider are two handles on one value, so
+    // moving either has to light the other -- including a wholesale paste.
+    if (path === '*' || path === 'scene.waveDebug') syncViewButtons();
     // Re-fit the drawn hull: both 'Hull length' and 'Model scale' feed the
     // target size, and the fit is where scale actually lives (an outer scale
     // on the holder is divided straight back out by this same call).
@@ -561,6 +569,7 @@ addEventListener('keydown', (e) => {
   if (k === 't') setView('top');
   if (k === 'h') setChrome(!document.body.classList.contains('hide-ui'));
   if (k === 'f') setView('field');
+  if (k === 'v') setView('waves');
   // Shift+C steps back through the shots, so overshooting the one you wanted
   // does not mean going round the whole cycle again.
   if (k === 'c') useCamera(camIndex + (e.shiftKey ? -1 : 1));
