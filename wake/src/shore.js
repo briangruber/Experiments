@@ -126,6 +126,44 @@ vec4 triSample( sampler2D t, vec3 p, vec3 w ){
        + noTile( t, p.xz ) * w.y
        + noTile( t, p.xy ) * w.z;
 }
+
+float lhash( vec2 p ){
+  return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453 );
+}
+float lnoise( vec2 p ){
+  vec2 i = floor( p ), f = fract( p );
+  f = f * f * ( 3.0 - 2.0 * f );
+  return mix( mix( lhash( i ), lhash( i + vec2( 1, 0 ) ), f.x ),
+              mix( lhash( i + vec2( 0, 1 ) ), lhash( i + vec2( 1, 1 ) ), f.x ), f.y );
+}
+float lfbm( vec2 p ){
+  return lnoise( p ) * 0.6 + lnoise( p * 2.7 ) * 0.3 + lnoise( p * 6.1 ) * 0.1;
+}
+
+// HEIGHT BLEND, from Nathan Pointer's terrain material -- the single biggest
+// difference between two textures fading into each other and two MATERIALS
+// meeting. A linear mix makes sand a translucent wash lying over rock; a height
+// blend lets whichever surface stands PROUD win the pixel, so sand settles into
+// the rock's crevices and the rock's high points stay bare, with an interlocking
+// edge instead of a soft gradient. Each texture's own luminance stands in for
+// its height, which is what the reference does with a per-surface displacement
+// map -- this has none to hand, and luminance is a decent proxy in stone.
+vec3 heightBlend( vec3 a, vec3 b, float w, float sharp ){
+  float ha = dot( a, vec3( 0.299, 0.587, 0.114 ) ) + ( 1.0 - w );
+  float hb = dot( b, vec3( 0.299, 0.587, 0.114 ) ) + w;
+  float m = max( ha, hb ) - max( sharp, 0.01 );
+  float wa = max( ha - m, 0.0 ), wb = max( hb - m, 0.0 );
+  return ( a * wa + b * wb ) / max( wa + wb, 1e-4 );
+}
+
+// MACRO VARIATION, also from that write-up. Tiling does not only show as a
+// repeat -- it shows as a FLATNESS, every square metre carrying the same mean
+// brightness. Two scales an order apart, one lifting broadly and one darkening
+// finely, put slow patches of light and shade across the whole landscape, which
+// is what a real hillside has and what the eye reads as size.
+float macroVar( vec2 world, float scale ){
+  return lfbm( world * scale * 0.25 ) / 3.0 + 1.4 - lfbm( world * scale * 4.0 );
+}
 `;
 
 export class Shore {
@@ -495,6 +533,8 @@ export class Shore {
 			uSandNrm: { value: load( TEX.sand.normal, false ) },
 			uTexScale: { value: 0.34 },       // repeats per metre
 			uNormalAmt: { value: 1.15 },
+			uBlendSharp: { value: 0.28 },
+			uMacro: { value: 0.45 }, uMacroScale: { value: 0.010 },
 			// Each photograph divided by its own mean luminance, so it
 			// modulates around 1 instead of dragging everything toward its own
 			// brightness. Basalt averages 0.23 -- multiplying by that directly
@@ -518,6 +558,7 @@ export class Shore {
 					varying vec3 vWNrm;
 					uniform sampler2D uRockMap, uRockNrm, uSandMap, uSandNrm;
 					uniform float uTexScale, uNormalAmt, uRockMean, uSandMean;
+					uniform float uBlendSharp, uMacro, uMacroScale;
 					// Blend the three axis projections by how much the surface
 					// faces each one. The power sharpens the transition so the
 					// seams between projections stay narrow.
@@ -585,7 +626,13 @@ export class Shore {
 					// a fetch and washed out the contrast.
 					vec3 rockC = triSample( uRockMap, tp, tw ).rgb / max( uRockMean, 0.02 );
 					vec3 sandC = triSample( uSandMap, tp * 0.7, tw ).rgb / max( uSandMean, 0.02 );
-					vec3 texC = mix( rockC, sandC, sandK );
+					// Height blend, not a linear wash: sand fills the hollows and the
+					// rock keeps its high points, so the two meet along an interlocking
+					// edge the way they do on a real shore.
+					vec3 texC = heightBlend( rockC, sandC, sandK, uBlendSharp );
+					// And a slow variation over the whole landscape, so it stops
+					// reading as one flat mean brightness tiled to the horizon.
+					texC *= clamp( macroVar( vWPos.xz, uMacroScale ), 1.0 - uMacro, 1.0 + uMacro * 0.9 );
 					// The photograph MODULATES the computed colour rather than
 					// replacing it, and it is normalised to average 1, so it
 					// darkens creases and lifts crests without shifting the
