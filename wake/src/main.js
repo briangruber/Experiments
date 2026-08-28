@@ -204,14 +204,20 @@ function buildShore() {
     });
     shore = null;
   }
+  // CLEARED BEFORE THE EARLY RETURN, not after it.
+  //
+  // The water reads the coast through a baked height map. Sitting below the
+  // return, this line ran only when a shore was BUILT -- so switching the shore
+  // off tore down the mesh and left the sea still reading the map of a coast
+  // that no longer existed. Its extent is a square, 3.4 bay radii on a side, so
+  // from above it showed as a pale diamond of wrongly shallow water with the
+  // real sea around it: the map's own edge, drawn.
+  shoreOpt = null;
   if (get('shore.on') <= 0.5) return;
   shore = new Shore({ bay: get('shore.bay'), rugged: get('shore.rugged'),
     relief: get('shore.relief'), trees: Math.round(get('shore.trees')),
     boulders: Math.round(get('shore.boulders')) });
   scene.add(shore.group);
-  // The water reads the coast through a baked height map, so that has to be
-  // re-baked with it or the sea keeps the shape of the coast that used to be.
-  shoreOpt = null;
 }
 buildShore();
 // Air. The far lawn and treeline haze out; the sea ignores this and hazes
