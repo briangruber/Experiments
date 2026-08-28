@@ -57,178 +57,8 @@ float cascadeGustWeight(int c, float gust){
 }
 `;
 
-const SHOAL_GLSL = /* glsl */`
-// ---- shoaling swell ------------------------------------------------------
-//
-// FORKED IN, and it replaces guesswork with the actual shallow-water theory.
-//
-// The old shore model had no waves in it at all: it was a foam COVERAGE driven
-// by a phase that advanced linearly with depth. Linear is exactly what a
-// shoaling wave does not do, so nothing ever bunched up, nothing steepened, and
-// nothing broke -- there was only white paint sliding about on a flat surface.
-//
-// In shallow water a wave's phase speed is set by the depth alone:
-//
-//     c = sqrt(g d)          so it SLOWS as the bottom comes up
-//     k = omega / c          so the crests BUNCH as it slows
-//
-// Phase is omega t minus the integral of k along the path. Over a beach of
-// roughly constant slope S the path element is dx = dd / S, and
-//
-//     integral k dx = (omega / (S sqrt(g))) * integral dd / sqrt(d)
-//                   = (2 omega / (S sqrt(g))) * sqrt(d)
-//
-// -- the phase goes as the SQUARE ROOT of the depth. That single term is the
-// whole of shoaling: crest spacing collapses toward the beach, and because the
-// depth field follows the coastline, the crests wrap round every headland and
-// into every cove without anything being told where the coast is.
-//
-// Height follows Green's law, H ~ d^(-1/4): the wave grows as it slows, because
-// the energy it carries has to go somewhere. And it breaks by the classic
-// criterion H/d > gamma (0.78 for a solitary wave), past which the surf zone is
-// SATURATED -- height is pinned at gamma*d and the excess has become foam. That
-// is the break line, and it is not a number anyone tuned: it falls out of the
-// wave height meeting the bathymetry, so a bigger swell breaks further out on
-// its own.
-uniform sampler2D uShoreMap;
-uniform float uShoreOn, uShoreExtent;
-uniform float uSwellOn, uSwellH0, uSwellD0, uSwellSlope, uSwellPeriod2;
-uniform float uSwellGamma, uSwellPeak, uSwellLean;
-uniform float uGridRings, uRMinS, uRMaxS;
-uniform vec2 uGridCenterS;
-
-float shoreDepth(vec2 p){
-  if (uShoreOn < 0.5) return -1.0;
-  vec2 suv = p / uShoreExtent + 0.5;
-  if (suv.x <= 0.0 || suv.x >= 1.0 || suv.y <= 0.0 || suv.y >= 1.0) return -1.0;
-  return max(-texture(uShoreMap, suv).r, 0.02);
-}
-
-// Green's law growth, capped by the breaking criterion. brk comes back as how
-// far into breaking this wave is: 0 still shoaling, 1 fully saturated surf.
-float shoalHeight(float d, out float brk){
-  float green = uSwellH0 * pow(max(d, 0.25) / max(uSwellD0, 0.5), -0.25);
-  float cap = uSwellGamma * d;
-  brk = clamp((green - cap) / max(cap, 0.05), 0.0, 1.0);
-  return min(green, cap);
-}
-
-// Phase at depth d. See the derivation above: sqrt(d), not d.
-//
-// THE TIME TERM ADDS. Measuring shoreward distance s with depth falling at
-// slope S, the phase is A*(sqrt(d0) - sqrt(d)) - omega t, which is
-// -(omega t + A sqrt(d)) up to a constant. A crest sits at constant phase, so
-// omega t + A sqrt(d) is fixed and sqrt(d) has to FALL as time runs -- the
-// crest climbing into shallower water, which is what rolling in means. Written
-// with a minus, the same algebra sends every crest out to sea instead, and
-// that is exactly what it was doing. This is the second time this sign has
-// bitten in this file; the foam sawtooth had it too.
-float shoalPhase(float d, float t){
-  float omega = 6.2831853 / max(uSwellPeriod2, 1.0);
-  float kInt = 2.0 * omega / (max(uSwellSlope, 0.002) * 3.132) * sqrt(max(d, 0.02));
-  return omega * t + kInt;
-}
-
-// The surface itself. A shoaling wave is not a sine: it peaks and its troughs
-// go flat, which is why surf looks like a row of ridges on a table rather than
-// a ripple. Raising the cosine does that with one parameter.
-// Which way is the beach? Downhill in DEPTH, which the coast's own height map
-// already knows -- so the wave finds the shore by feel rather than by being
-// told where the coast is, and it does the right thing in a cove and off a
-// point without either being a special case.
-vec2 shoalDir(vec2 p){
-  float e = 5.0;
-  float dxp = shoreDepth(p + vec2(e, 0.0)), dxm = shoreDepth(p - vec2(e, 0.0));
-  float dzp = shoreDepth(p + vec2(0.0, e)), dzm = shoreDepth(p - vec2(0.0, e));
-  if (dxp < 0.0 || dxm < 0.0 || dzp < 0.0 || dzm < 0.0) return vec2(0.0);
-  vec2 g = vec2(dxp - dxm, dzp - dzm);
-  float L = length(g);
-  return L > 1e-4 ? -g / L : vec2(0.0);
-}
-
-// The surface, as a full 3D displacement.
-//
-// THE HORIZONTAL TERM IS WHAT MAKES IT ROLL. A wave that only moves up and
-// down is a hump that bobs; the reason real surf reads as rolling is that the
-// water is also moving, and as the orbit flattens against the bottom the crest
-// PITCHES FORWARD -- the shoreward face steepens toward vertical while the
-// back stays long and gentle. That asymmetry is the whole read, and no amount
-// of shaping a symmetric profile will fake it. This is the Gerstner horizontal
-// term, aimed down the depth gradient and grown as the wave nears breaking.
-vec3 shoalSurface(vec2 p, float t, out float brk, out float dOut){
-  brk = 0.0; dOut = -1.0;
-  if (uSwellOn < 0.5) return vec3(0.0);
-  float d = shoreDepth(p);
-  dOut = d;
-  if (d < 0.0) return vec3(0.0);
-  float H = shoalHeight(d, brk);
-  float A = H * 0.5;
-  float ph = shoalPhase(d, t);
-  float omega = 6.2831853 / max(uSwellPeriod2, 1.0);
-
-  // GERSTNER, at finite depth. The horizontal-to-vertical ratio of the orbit
-  // is 1/tanh(kd), and that is not a knob -- it is why water in the shallows
-  // surges back and forth while barely rising, and why the same swell that
-  // merely heaves in the bay is throwing itself about on the shelf. It runs
-  // 1.5 at twelve metres to 6.4 at half a metre. The previous version had a
-  // hand-tuned gain in this slot; this is the number that gain was guessing at.
-  float kd = omega * sqrt(max(d, 0.02) / 9.81);
-  float coth = 1.0 / max(tanh(kd), 0.06);
-
-  // AND THE ASYMMETRY, which Gerstner does NOT give and which a phase warp
-  // cannot give either. This took being measured rather than assumed.
-  //
-  // A Gerstner wave sharpens its crest and broadens its trough while staying
-  // symmetric front to back: it cusps, it never leans. The obvious fix, warping
-  // the phase as ph + e*sin(ph), does nothing at all for lean -- sin is odd, so
-  // the warped phase is odd, and a cosine of an odd function is even about the
-  // crest. Measured front-to-back slope ratio: 1.00:1 at every e. It only
-  // sharpens, which is what Gerstner was already doing.
-  //
-  // The two effects separate cleanly at second order:
-  //     cos(ph) + b*cos(2ph)  -> SKEWNESS, sharp crest and flat trough
-  //     cos(ph) + a*sin(2ph)  -> ASYMMETRY, front face steeper than the back
-  // and it is the second one that is surf. Measured: 1.50:1 at a=0.10, peaking
-  // at 2.00:1 around a=0.25 and falling away after, so the control is capped
-  // there rather than left to be turned past its own best point.
-  float asym = clamp(uSwellLean * (0.10 + 0.42 * brk), 0.0, 0.25);
-  float phw = ph;
-
-  float c = cos(phw) + asym * sin(2.0 * phw);
-  float peaked = pow(clamp(0.5 + 0.5 * c, 0.0, 1.0), max(uSwellPeak, 1.0)) * 2.0 - 1.0;
-  // Dies out in water too deep to feel the bottom, so the open bay is left to
-  // the FFT sea and only the shelf carries surf.
-  float feel = 1.0 - smoothstep(uSwellD0 * 0.6, uSwellD0 * 1.6, d);
-  // DO NOT DISPLACE WHAT THE MESH CANNOT RESOLVE.
-  //
-  // The grid is exponential in radius and centred on the CAMERA, so its
-  // resolution follows the eye while the surf stays where the coast is. Ring
-  // spacing here is analytic -- r * ln(rMax/rMin) / rings -- and measured
-  // against a 43 m shoaling wavelength it gives about 15 vertices per wave at
-  // a hundred metres, 5 at three hundred, and 3 at five hundred. Below roughly
-  // four a swell is no longer a wave: it is a row of facets that crawl, and
-  // crawling facets read worse than no swell at all.
-  //
-  // So it fades out where it cannot be drawn, and the shore is carried by the
-  // foam instead -- which is a coverage rather than a shape, and therefore
-  // costs the same at any distance. Same bargain clumpRes strikes for the lace.
-  float lambda = 6.2831853 * sqrt(9.81 * max(d, 0.05)) / omega;
-  float ringDr = length(p - uGridCenterS)
-               * log(max(uRMaxS / max(uRMinS, 1e-3), 1.001)) / max(uGridRings, 8.0);
-  float res = clamp(lambda / max(ringDr, 1e-3) / 4.0 - 1.0, 0.0, 1.0);
-  feel *= res;
-
-  float y = A * peaked * feel;
-  // Clamped: past a Gerstner steepness of about 1 the surface self-intersects
-  // and the crest turns inside out, which is a loop rather than a wave.
-  vec2 push = shoalDir(p) * A * min(coth, 5.5) * 0.55 * sin(phw) * feel;
-  return vec3(push.x, y, push.y);
-}
-`;
-
 export const WATER_VS = /* glsl */`
 ${CASCADE_COMMON}
-${SHOAL_GLSL}
 ${WAKE_SAMPLE_GLSL}
 ${HULL_LIFT_GLSL}
 layout(location=0) in vec2 aRT;      // x: radial parameter 0..1, y: angle 0..1
@@ -241,7 +71,6 @@ uniform float uHeightScale, uHorizScale;
 uniform float uEarthCurve;
 uniform float uSeaLevel;
 uniform float uHorizonPin; // 1 = pin last ring to the sightline; 0 when looking down
-uniform float uTime;       // the VS needs it now: the shoaling swell moves
 // Hull uniforms live in HULL_LIFT_GLSL. The craft displaces real water,
 // not just foam: hollow under the hull, bow heap, shoulder mounds.
 // ...and everything the hull has *already* done to the sea, which outlives it by
@@ -249,8 +78,6 @@ uniform float uTime;       // the VS needs it now: the shoaling swell moves
 // exactly the pattern the fragment shader lights.
 
 out vec3  vWorld;
-out float vShoalBreak;   // 0 shoaling, 1 saturated surf
-out float vShoalDepth;
 out vec3  vFlat;
 out float vDist;
 out float vHeight;
@@ -289,18 +116,6 @@ void main(){
   pos += disp;
 
   pos.y += hullLift(xz);
-
-  // THE SHOALING SWELL, as real displacement. This is the difference between
-  // surf and a picture of surf: the FFT sea knows nothing about the bottom, so
-  // without this the shelf stayed as flat as the open bay and every wave that
-  // "broke" was a coverage pattern painted on level water.
-  {
-    float brk, dHere;
-    vec3 sw = shoalSurface(xz, uTime, brk, dHere);
-    pos += sw;
-    vShoalBreak = brk;
-    vShoalDepth = dHere;
-  }
 
   if (uWakeOn > 0.5) {
     // Far rings are coarse, so a wire ridge pops. A diverging wave
@@ -370,7 +185,6 @@ ${HULL_LIFT_GLSL}
 
 ${HDR_OUTPUT_GUARD}
 ${CASCADE_COMMON}
-${SHOAL_GLSL}
 ${WAKE_SAMPLE_GLSL}
 ${FOAM_ENERGY_SAMPLE_GLSL}
 ${NOISE_GLSL}
@@ -427,8 +241,6 @@ ${ATMOSPHERE_GLSL}
 ${SKY_LUT_MAP_GLSL}
 
 in vec3  vWorld;
-in float vShoalBreak;
-in float vShoalDepth;
 in vec3  vFlat;
 in float vDist;
 in float vHeight;
@@ -501,7 +313,8 @@ uniform float uFloorCausticSpan;
 uniform float uShoreFoamAmount, uShoreFoamRange;
 // FORKED IN: the real coastline's height field, so the sea can break on the
 // rock that is actually there instead of on its own procedural bed.
-uniform float uSurge;
+uniform sampler2D uShoreMap;
+uniform float uShoreOn, uShoreExtent, uSurge;
 uniform float uSurfSpan, uSurfPeriod, uSurfDecay;
 // FORKED: how hard the white reads. 0 keeps the vendor's paint-white raft;
 // 1 is a grey-white aerated veil that still lets the water under it through.
