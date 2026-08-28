@@ -715,20 +715,6 @@ export class Shore {
 				col.setHSL( 0.25 + rand() * 0.06, 0.30 + rand() * 0.25,
 					0.42 + rand() * 0.22 );
 				mesh.setColorAt( n, col );
-				if ( h > - 3.0 && h < 1.2 && size > 0.55 ) {
-					this.splashSites.push( {
-						x, z,
-						// Where the water surface meets it, near enough.
-						y: Math.max( h + size * 0.55, 0.05 ),
-						r: size,
-						// The water column over its base is what the surf's own
-						// travelling-set phase is measured in, so a rock can be
-						// asked "has the set reached me yet" in the same terms
-						// the shader draws the foam line in.
-						column: Math.max( - h, 0.05 ),
-						armed: false,
-					} );
-				}
 				n ++;
 			}
 			mesh.count = n;
@@ -872,6 +858,22 @@ export class Shore {
 				const g = ( 0.62 + rand() * 0.5 ) * ( 1 - wet * 0.45 );
 				col.setRGB( g * ( 0.95 + rand() * 0.1 ), g, g * ( 0.94 + rand() * 0.12 ) );
 				mesh.setColorAt( n, col );
+				// A splash site, if the sea can actually reach this one. Drowned
+				// in three metres it never sees a crest; a metre and a bit clear
+				// of the water it is wetted by spray rather than making it.
+				if ( h > - 3.0 && h < 1.2 && size > 0.55 ) {
+					this.splashSites.push( {
+						x, z,
+						y: Math.max( h + size * 0.55, 0.05 ),
+						r: size,
+						// The water column over its base, which is the unit the
+						// surf's travelling-set phase is measured in -- so a rock
+						// can be asked "has the set reached me" in exactly the
+						// terms the shader draws the foam line with.
+						column: Math.max( - h, 0.05 ),
+						armed: false,
+					} );
+				}
 				n ++;
 			}
 			mesh.count = n;
