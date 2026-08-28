@@ -1666,6 +1666,31 @@ void main(){
           float sy = max(uSunDir.y, 0.08);
           float shx = uHullPos.x + uSunDir.x / sy * localD;
           float shz = uHullPos.z + uSunDir.z / sy * localD;
+          // THE SHADOW EDGE RIPPLES TOO, and this is where it comes from.
+          //
+          // The centre above is a straight geometric projection of the hull
+          // along the sun -- no surface in it anywhere. So the bed rippled, the
+          // caustics rippled, and the hull printed a clean airbrushed oval in
+          // the middle of it, which is exactly the place the eye checks whether
+          // it is looking at something underwater.
+          //
+          // The light that draws this edge crossed the same wavy surface the
+          // view did, and refracted there, so it lands displaced by the local
+          // slope over the depth it fell through. Same slope, same slider as
+          // the bed warp -- one control for one physical cause -- but carried
+          // over the full light path rather than the short view offset, which
+          // is why it gets its own gain.
+          //
+          // Bounded to half the hull's own radius. In real chop the slope term
+          // runs to two thirds of the blob and the shadow tears loose from the
+          // boat above it, which is a worse artefact than a stiff edge: a
+          // shadow that is not under its hull stops reading as a shadow.
+          vec2 shWarp = slope * localD * uRefractDistort * 1.6;
+          float shCap = max(uHullRadius, 0.8) * 0.5;
+          float shLen = length(shWarp);
+          if (shLen > shCap) shWarp *= shCap / shLen;
+          shx += shWarp.x;
+          shz += shWarp.y;
           float qh = length(vec2(hx - shx, hz - shz)) / max(uHullRadius, 0.8);
           // FORKED 0.55 -> 0.78. A hull is opaque: the patch of bed under it
           // gets sky only, no sun, and against a caustic-lit bottom a 45%
