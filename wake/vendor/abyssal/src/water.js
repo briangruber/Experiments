@@ -32,6 +32,9 @@ const NO_HULL = {
   fwd: new Float32Array([0, 1]),
   push: 0,
   plane: 0,
+  // A vec2, because that is what the cut uniform is. Falling back to `pos`
+  // would hand a three-component array to a two-component uniform.
+  cutPos: new Float32Array([0, -1e4]),
 };
 
 export class WaterSurface {
@@ -296,7 +299,7 @@ export class WaterSurface {
       uWakeRelief: p.wakeRelief, uWakeSlick: p.wakeSlick,
       uWakePlume: p.wakePlume ?? 1.0,
       uHullPos: hull.pos, uHullFwd: hull.fwd,
-      uHullCut: hull.cut ?? 0,
+      uHullCut: hull.cut ?? 0, uHullCutPos: hull.cutPos ?? NO_HULL.cutPos,
       uHullCutLen: hull.cutLen ?? 1, uHullCutBeam: hull.cutBeam ?? 1,
       uHullPush: hull.push,
       uHullRadius: p.hullRadius, uHullBow: p.hullBow,

@@ -1072,16 +1072,25 @@ function frame(now) {
     // take the cut with it, which is two unrelated things on one switch.
     const cut = get('boat.waterCut');
     const drawn = get('boat.length') * get('boat.modelScale');
+    // CENTRED ON THE HULL, NOT ON ITS ORIGIN. The model's origin is at the STEM
+    // (see the trim note above), so an ellipse centred on boat.position reaches
+    // nearly half a boat-length AHEAD of the bow -- which is the oval of missing
+    // water that appeared in front of her -- while leaving the after half of the
+    // interior uncut and still full of sea. One mistake, both symptoms.
+    const fx = Math.sin(state.heading), fz = Math.cos(state.heading);
+    const cxm = boat.position.x - fx * drawn * 0.5;
+    const czm = boat.position.z - fz * drawn * 0.5;
     const hull = (shadow > 0.001 || cut > 0.5) ? {
       pos: new Float32Array([boat.position.x, boat.position.y, boat.position.z]),
-      fwd: new Float32Array([Math.sin(state.heading), Math.cos(state.heading)]),
+      fwd: new Float32Array([fx, fz]),
       push: 0.02 * shadow,
       plane: 1,
       cut: cut > 0.5 ? 1 : 0,
+      cutPos: new Float32Array([cxm, czm]),
       // Inset, so the hull always overhangs its own hole and no gap opens at
       // the waterline however she is rolling.
-      cutLen: drawn * 0.42,
-      cutBeam: Math.max(get('boat.beam') * get('boat.modelScale') * 0.40, 0.3),
+      cutLen: drawn * 0.44,
+      cutBeam: Math.max(get('boat.beam') * get('boat.modelScale') * 0.42, 0.3),
     } : undefined;
     // Introduce the sea to the coast, once: the water reads this height field
     // to work out how deep it is over the real rock, which is what lets it

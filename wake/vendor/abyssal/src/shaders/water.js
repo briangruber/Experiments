@@ -10,6 +10,7 @@ uniform vec3  uHullPos;
 uniform vec2  uHullFwd;
 uniform float uHullPush, uHullRadius, uHullBow, uHullPlane;
 uniform float uHullCut, uHullCutLen, uHullCutBeam;
+uniform vec2  uHullCutPos;   // the hull's MIDDLE; uHullPos is its stem
 
 // THE HULL EXCLUDES WATER FROM THE SPACE IT OCCUPIES.
 //
@@ -23,7 +24,7 @@ uniform float uHullCut, uHullCutLen, uHullCutBeam;
 // overhang the hole and no gap opens at the waterline.
 float hullInside(vec2 xz){
   if (uHullCut < 0.5) return 0.0;
-  vec2 rel = xz - uHullPos.xz;
+  vec2 rel = xz - uHullCutPos;
   float along = dot(rel, uHullFwd) / max(uHullCutLen, 0.3);
   float lat   = dot(rel, vec2(-uHullFwd.y, uHullFwd.x)) / max(uHullCutBeam, 0.2);
   return along * along + lat * lat < 1.0 ? 1.0 : 0.0;
