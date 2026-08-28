@@ -339,6 +339,7 @@ uniform float uSurfSpan, uSurfPeriod, uSurfDecay;
 // FORKED: how hard the white reads. 0 keeps the vendor's paint-white raft;
 // 1 is a grey-white aerated veil that still lets the water under it through.
 uniform float uFoamSoft;
+uniform float uWaveDebug, uWaveDebugScale;
 uniform vec2  uWindDirV;
 uniform float uSpecClamp;
 uniform float uHorizonBend, uInterReflect;
@@ -1893,6 +1894,27 @@ void main(){
     vec3 foamCol = mix(vec3(0.70, 0.84, 0.93), vec3(0.94, 0.97, 1.0), max(fresh, cling))
       * (sky * 0.32 + 0.55);
     col = mix(col, foamCol, foamUw);
+  }
+
+  // ---- wave-motion debug ---------------------------------------------------
+  //
+  // Waves are hard to READ on a lit sea: the shading that makes water look like
+  // water -- Fresnel, sky reflection, foam, the bed showing through -- is also
+  // what hides the thing you are trying to watch, which is a few centimetres of
+  // height moving across the surface. So this throws all of it away and paints
+  // the wake's own height as a diverging ramp: crests warm, troughs cold, still
+  // water black. A travelling crest is then unmistakable, and so is one that
+  // is NOT travelling.
+  if (uWaveDebug > 0.5) {
+    float h = wakeAt(vFlat.xz).y;
+    float a = clamp(h / max(uWaveDebugScale, 0.005), -1.0, 1.0);
+    vec3 c = a >= 0.0 ? mix(vec3(0.02, 0.02, 0.03), vec3(1.0, 0.42, 0.12), a)
+                      : mix(vec3(0.02, 0.02, 0.03), vec3(0.12, 0.52, 1.0), -a);
+    // A faint zero contour, so the crest LINES are legible and not just a wash
+    // of colour -- it is the lines whose motion you are trying to follow.
+    c += vec3(0.25) * (1.0 - smoothstep(0.0, 0.06, abs(a)));
+    fragColor = ABYSSAL_OUT(c);
+    return;
   }
 
   fragColor = ABYSSAL_OUT(col);

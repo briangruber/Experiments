@@ -261,6 +261,8 @@ function fitToLake( p, preset = {}, tune = {} ) {
 	p.surfSpan = get( 'foamMix.surfSpan' );
 	p.surfDecay = get( 'foamMix.surfDecay' );
 	p.foamSoft = get( 'foamMix.softness' );
+	p.waveDebug = get( 'scene.waveDebug' );
+	p.waveDebugScale = get( 'scene.waveDebugScale' );
 
 	const tint = get( 'scene.waterTint' );
 	// A scene may commit to its own water colour outright. The preset library

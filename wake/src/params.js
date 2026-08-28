@@ -148,12 +148,6 @@ export const PARAMS = {
     // the count is a control and not a constant.
     interfere:    { v: 0,    min: 0,   max: 3,   step: 0.01, label: 'V from interference' },
     sources:      { v: 48,   min: 4,   max: 96,  step: 1,    label: 'Impulses summed' },
-    // A stopping hull does not stop its waves. The transverse train keeps the
-    // speed that made it, overtakes the boat and streams out ahead before it
-    // disperses -- which a ribbon indexed by distance astern cannot show, so
-    // the wake used to pile up at the bow and stop dead there.
-    overtake:     { v: 1,    min: 0,   max: 2,   step: 0.01, label: 'Waves overtake a stopping boat' },
-    overtakeLen:  { v: 26,   min: 4,   max: 80,  step: 1,    label: 'Runs ahead (m)' },
     amp:          { v: 0.225, min: 0,   max: 1.5, step: 0.005,label: 'Wave height (m)' },
     froudePeak:   { v: 0.52, min: 0.15,max: 1.5, step: 0.01, label: 'Peak Froude no.' },
     humpFloor:    { v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Planing floor' },
@@ -330,6 +324,12 @@ export const PARAMS = {
     // analytic ocean. Both carry the same wake -- that is the point of keeping
     // the switch rather than deleting the loser.
     abyssal:      { v: 1,    min: 0,   max: 1,   step: 1,    label: 'Abyssal sea' },
+    // Strips the sea's shading and paints the wake's HEIGHT instead: crests
+    // warm, troughs cold, still water black, with the zero contour picked out
+    // so the crest lines are legible. Everything that makes water look like
+    // water is also what hides a few centimetres of height moving across it.
+    waveDebug:    { v: 0,    min: 0,   max: 1,   step: 1,    label: 'Debug: wave motion' },
+    waveDebugScale:{ v: 0.15, min: 0.01, max: 1.5, step: 0.01, label: 'Debug: height scale (m)' },
     // Index into PRESET_NAMES in abyssalSea.js, calmest first: turning it up
     // means more sea. Drives the wave spectrum AND the light, because in
     // Abyssal they are one parameter set, not two.
