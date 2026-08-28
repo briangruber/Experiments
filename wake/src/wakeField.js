@@ -481,8 +481,19 @@ const RIBBON_FRAG = /* glsl */`
     // of being drawn at all. But the boil behind a transom is the propeller's
     // doing: a boat in gear at tickover churns plainly while making almost no
     // way. So it is added AFTER the speed law rather than passed through it.
+    // CALIBRATED AGAINST WHAT IS SEEN, not against what is in the field.
+    //
+    // The water shader turns density into colour by Beer-Lambert:
+    // scat = 1 - exp(-density * bright * 1.5). At 0.9 the idle plume reached a
+    // density of 0.03, which is a 4% blend -- present in the buffer and
+    // invisible on the water. Cruise sits at 0.21, a 27% blend, and that is
+    // what "you can see it" looks like. I had called this verified by counting
+    // texels above 0.002 in the field, which is nowhere near the threshold of
+    // being visible; the bar was wrong, not the plumbing. 4.0 puts a metre a
+    // second near 0.13, about a 17% blend: plainly there, still well under way
+    // on.
     float plumeIdle = astern * bg * uBubPlume * exp(-arc / bubReach)
-                    * uIdleChurn * propOn * 0.9;
+                    * uIdleChurn * propOn * 4.0;
 
     // Spray plunging back in entrains its own air along each arm.
     //
