@@ -562,48 +562,11 @@ export class Shore {
 					// Blend the three axis projections by how much the surface
 					// faces each one. The power sharpens the transition so the
 					// seams between projections stay narrow.
-					vec3 triW( vec3 n ){
-					  vec3 w = pow( abs( n ), vec3( 4.0 ) );
-					  return w / max( w.x + w.y + w.z, 1e-4 );
-					}
-					// Inigo Quilez's tile breaking, via Nathan Pointer's landscape
-					// write-up. Multiplying two scales of the same plate together
-					// (what this did before) hides a repeat at a glance and not at
-					// all once you look for it, because the period is still there
-					// in both factors.
-					//
-					// This instead samples the plate TWICE at hash-derived offsets
-					// and crossfades between them, so the pattern never lands on
-					// the same grid twice. The derivatives have to be taken from
-					// the ORIGINAL uv and passed explicitly -- sampling at an
-					// offset would otherwise pick its own mip per virtual tile and
-					// print the seams it was meant to remove.
-					vec4 noTile( sampler2D samp, vec2 uv ){
-					  float k = fract( sin( dot( floor( uv * 0.25 ), vec2( 127.1, 311.7 ) ) ) * 43758.5453 );
-					  float l = k * 8.0;
-					  float f = fract( l );
-					  float ia = floor( l ), ib = ia + 1.0;
-					  vec2 offa = sin( vec2( 3.0, 7.0 ) * ia );
-					  vec2 offb = sin( vec2( 3.0, 7.0 ) * ib );
-					  vec2 dx = dFdx( uv ), dy = dFdy( uv );
-					  vec4 ca = textureGrad( samp, uv + 0.4 * offa, dx, dy );
-					  vec4 cb = textureGrad( samp, uv + 0.4 * offb, dx, dy );
-					  return mix( ca, cb, smoothstep( 0.2, 0.8, f - 0.1 * dot( ca.rgb - cb.rgb, vec3( 1.0 ) ) ) );
-					}
-					// Stephen Hill's normal blend (the "blending in detail" note the
-					// same article points at). Adding two normal maps together
-					// muddies them and blows out bright or dark patches; this
-					// reorients one by the other, which is what keeps a fine crack
-					// legible on top of a macro crag.
+					${ TRIPLANAR_GLSL }
 					vec3 blendNormals( vec3 n1, vec3 n2 ){
 					  vec3 t = n1 * vec3( 2.0, 2.0, 2.0 ) + vec3( -1.0, -1.0, 0.0 );
 					  vec3 u = n2 * vec3( -2.0, -2.0, 2.0 ) + vec3( 1.0, 1.0, -1.0 );
 					  return normalize( t * dot( t, u ) / max( t.z, 1e-4 ) - u );
-					}
-					vec4 triSample( sampler2D t, vec3 p, vec3 w ){
-					  return noTile( t, p.zy ) * w.x
-					       + noTile( t, p.xz ) * w.y
-					       + noTile( t, p.xy ) * w.z;
 					}` )
 				.replace( '#include <map_fragment>', `
 					vec3 tw = triW( normalize( vWNrm ) );
