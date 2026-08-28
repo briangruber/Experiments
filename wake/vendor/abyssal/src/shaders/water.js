@@ -554,6 +554,33 @@ float floorTerrainDepth(float px, float pz, float lo, float hi, float scale){
   return max(mix(hi, lo, w) - heads * 2.2, 0.8);
 }
 
+// FORKED. The bed FOLLOWS THE COAST where a coast has been handed over.
+//
+// This is the single biggest reason a lagoon reads as a swimming pool. The bed
+// above is a procedural field between two depths and knows nothing about the
+// land: right up against the rocks the water stayed as deep as it is in the
+// middle of the bay, so there was no shallow rim, and with no depth ramp there
+// is no colour ramp -- one flat cyan everywhere instead of pale mint at your
+// feet going turquoise and then sapphire as it drops away. All the physics for
+// that gradient was already here (absorption is per channel, and red dies about
+// ten times faster than blue), it just never had a depth to work on.
+//
+// The coast's own height field is metres relative to the waterline, so the
+// column above it is its negation. Feather to the procedural bed at the map's
+// rim so the join is not a visible square.
+float bedDepthAt(vec2 p, float lo, float hi){
+  float proc = floorTerrainDepth(p.x, p.y, lo, hi, uFloorTerrainScale);
+  if (uShoreOn < 0.5) return proc;
+  vec2 suv = p / uShoreExtent + 0.5;
+  vec2 e = min(suv, vec2(1.0) - suv);
+  float edge = smoothstep(0.0, 0.05, min(e.x, e.y));
+  if (edge <= 0.0) return proc;
+  // Never zero: a bed exactly at the waterline makes the transmission term
+  // degenerate. 0.05 m of water still reads as wet sand, which is right.
+  float shore = max(-texture(uShoreMap, suv).r, 0.05);
+  return mix(proc, shore, edge);
+}
+
 // Parasitic capillary ripples ride the windward face of the short gravity waves
 // and die out within tens of metres of the eye, where the pixel footprint starts
 // averaging them away. They are what stops the first few metres reading as mush.
@@ -1173,17 +1200,8 @@ void main(){
     float rawHi = uFloorDepthMax > 0.1 ? uFloorDepthMax : max(uFloorDepth, uFloorDepthMin);
     float lo = min(rawLo, rawHi);
     float hi = max(rawLo, rawHi);
-    float bedDepth = floorTerrainDepth(vFlat.x, vFlat.z, lo, hi, uFloorTerrainScale);
-    // The COAST, if one has been handed over. Its height field is metres
-    // relative to the waterline (negative under), so the water column above it
-    // is simply its negation -- and where the map says land, the column goes
-    // to zero and the break term dies on its own.
-    if (uShoreOn > 0.5) {
-      vec2 suv = vFlat.xz / uShoreExtent + 0.5;
-      if (suv.x > 0.0 && suv.x < 1.0 && suv.y > 0.0 && suv.y < 1.0) {
-        bedDepth = -texture(uShoreMap, suv).r;
-      }
-    }
+    // One bed for the whole shader: bedDepthAt already consults the coast.
+    float bedDepth = bedDepthAt(vFlat.xz, lo, hi);
     float column = max(bedDepth + vWorld.y - uSeaLevel, 0.02);
     // SETS. A break line pinned to one depth is a static ring of foam around
     // the island, which is the tell that gives away every lake-with-a-beach in
@@ -1541,20 +1559,20 @@ void main(){
       for (int i = 0; i < 3; i++) {
         hx = vWorld.x + RD.x * tHit;
         hz = vWorld.z + RD.z * tHit;
-        localD = floorTerrainDepth(hx, hz, lo, hi, uFloorTerrainScale);
+        localD = bedDepthAt(vec2(hx, hz), lo, hi);
         tHit = (vWorld.y - (uSeaLevel - localD)) / max(-RD.y, 0.02);
       }
-      if (tHit > 0.05 && tHit < 90.0) {
+      if (tHit > 0.05 && tHit < 260.0) {
         hx = vWorld.x + RD.x * tHit;
         hz = vWorld.z + RD.z * tHit;
-        localD = floorTerrainDepth(hx, hz, lo, hi, uFloorTerrainScale);
+        localD = bedDepthAt(vec2(hx, hz), lo, hi);
         // Same warp as the rocks: lighting slope × sdRefract.
         // Twin: floorLookSlide() in seafloor.js.
         float lookGate = clamp(localD * 0.7, 0.0, 1.0) / (1.0 + dist * 0.045);
         float lookW = uRefractDistort * lookGate * localD;
         hx += slope.x * lookW;
         hz += slope.y * lookW;
-        localD = floorTerrainDepth(hx, hz, lo, hi, uFloorTerrainScale);
+        localD = bedDepthAt(vec2(hx, hz), lo, hi);
         // FORKED: a lagoon FLOOR, not a two-tone gradient.
         //
         // The bed was two sine waves blended between sand and weed, and that is
@@ -1642,7 +1660,13 @@ void main(){
         // centred on wherever the camera is looking down. On open ocean the
         // bed is too deep to see and nobody noticed; on a 4.5 m lagoon it is
         // a pale disc parked under the boat that slides away when you move.
-        float bedFade = 1.0 - smoothstep(52.0, 86.0, tHit);
+        // FORKED 52/86 -> 150/250. Those numbers were set when the bed was a
+        // deep-ocean afterthought. Looking ACROSS a lagoon the slant path runs
+        // to tens of metres within a boat length or two, so the bottom used to
+        // dissolve just past the bow -- and it is seeing the bottom recede into
+        // blue, rather than stop, that reads as clear tropical water.
+        // Absorption already fades it honestly; this is only the cost guard.
+        float bedFade = 1.0 - smoothstep(150.0, 250.0, tHit);
         // UNDER the interface — do not replace the water.
         diffuse += floorLit * floorTrans * bedFade;
         float film = clamp(length(sMip) * 3.5, 0.0, 1.0)

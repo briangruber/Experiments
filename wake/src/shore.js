@@ -42,6 +42,14 @@ function rng( seed ) {
 // by sampling this on the CPU while the rock is displaced by it, and the two
 // have to agree about where the ground is.
 
+/** GLSL's smoothstep, which JS does not have and this file now needs twice. */
+function smoothstep01( a, b, x ) {
+
+	const t = Math.min( 1, Math.max( 0, ( x - a ) / ( b - a ) ) );
+	return t * t * ( 3 - 2 * t );
+
+}
+
 function hash2( x, y, seed ) {
 
 	let h = x * 374761393 + y * 668265263 + seed * 2246822519;
@@ -151,12 +159,32 @@ export class Shore {
 		const grain = 1 - Math.abs( fbm( x * 0.42 + 5, z * 0.42 - 13, 3, s + 303 ) * 2 - 1 );
 
 		if ( t <= 0 ) {
-			// SEAWARD. A shelf just under the surface, then away. Boulders on
-			// the shelf are the submerged rocks the photo is full of.
-			const shelf = Math.max( - 1.2 - Math.pow( - t / 26, 1.7 ) * 9, - 26 );
-			const boulders = Math.max( 0, fine ) * 2.6 * Math.exp( t / 42 );
-			return shelf + rough * 1.1 * Math.exp( t / 60 ) + boulders
-				+ grain * 0.55 * Math.exp( t / 30 );
+			// SEAWARD -- a FRINGING LAGOON, not a quarry edge.
+			//
+			// The old profile hit -10 m twenty-six metres off the rocks and
+			// bottomed out at -26 m by fifty. That is a cliff, and it is why the
+			// water read as a swimming pool with a deep end: the shallow zone was
+			// a fifteen-metre fringe, so the eye never got the long pale-to-deep
+			// ramp that IS the look of a tropical lagoon. Depth is the colour.
+			//
+			// Three terms, in fractions of the bay's own radius so the shape holds
+			// whatever size the bay is set to: a quick drop off the rocks to knee
+			// depth, a long almost-flat lagoon floor, and then the reef edge
+			// falling away into blue.
+			const u = - t;                       // metres in from the waterline
+			const f = u / Math.max( coast, 1 );  // 0 at the rocks, 1 at the centre
+			const shelf = - (
+				1.0 * ( 1 - Math.exp( - u / 12 ) )
+				+ 3.6 * smoothstep01( 0, 0.55, f )
+				+ 20 * smoothstep01( 0.62, 1.15, f )
+			);
+			// Coral heads and rubble stand proud of the shelf. These reach much
+			// further out than they did (42 m -> 110 m): the dark patches scattered
+			// across a bright bottom are half of what sells clear water, and they
+			// were dying out before the shelf even levelled off.
+			const boulders = Math.max( 0, fine ) * 2.6 * Math.exp( t / 110 );
+			return shelf + rough * 1.1 * Math.exp( t / 150 ) + boulders
+				+ grain * 0.55 * Math.exp( t / 70 );
 		}
 
 		// LANDWARD. Climbs, with terraced shelves in the first few metres.
