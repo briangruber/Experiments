@@ -493,7 +493,13 @@ const RIBBON_FRAG = /* glsl */`
     // second near 0.13, about a 17% blend: plainly there, still well under way
     // on.
     float plumeIdle = astern * bg * uBubPlume * exp(-arc / bubReach)
-                    * uIdleChurn * propOn * 4.0;
+                    * uIdleChurn * propOn * 0.6;
+    // 4.0 was calibrated when bubble life was being cut to a third at this
+    // speed. Giving them their proper life multiplied the accumulation by about
+    // the same factor, and the two compounded to a 73% blend -- milk. Two
+    // corrections in one commit, each right on its own, is exactly how that
+    // happens; the gain belongs downstream of the life, so it is re-measured
+    // after it.
 
     // Spray plunging back in entrains its own air along each arm.
     //
