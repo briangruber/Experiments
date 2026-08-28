@@ -132,6 +132,12 @@ export const PARAMS = {
   // on rolling outward long after the white churn has died, and they reach the
   // full 19.47 degree wedge, which is wider than the spray arms.
   kelvin: {
+    // A stopping hull does not stop its waves. The transverse train keeps the
+    // speed that made it, overtakes the boat and streams out ahead before it
+    // disperses -- which a ribbon indexed by distance astern cannot show, so
+    // the wake used to pile up at the bow and stop dead there.
+    overtake:     { v: 1,    min: 0,   max: 2,   step: 0.01, label: 'Waves overtake a stopping boat' },
+    overtakeLen:  { v: 26,   min: 4,   max: 80,  step: 1,    label: 'Runs ahead (m)' },
     amp:          { v: 0.225, min: 0,   max: 1.5, step: 0.005,label: 'Wave height (m)' },
     froudePeak:   { v: 0.52, min: 0.15,max: 1.5, step: 0.01, label: 'Peak Froude no.' },
     humpFloor:    { v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Planing floor' },

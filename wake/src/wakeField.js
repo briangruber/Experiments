@@ -53,6 +53,7 @@ const RIBBON_FRAG = /* glsl */`
   varying vec2 vWorld; varying vec2 vTan; varying float vSpd; varying float vTurn;
 
   uniform float uMaxArc, uPlaning, uHumpFr, uWetShift;
+  uniform float uOverAmp, uOverV, uOverLen, uOverWide;
   uniform float uBeam, uHullLen, uEngines, uEngineGap;
   // The hull WHERE IT ACTUALLY IS, in world metres: the bow's position and the
   // way it points. The ribbon's own (arc, lat) frame follows the COURSE, and
@@ -506,7 +507,27 @@ const RIBBON_FRAG = /* glsl */`
     // Foam decay applies to the foam-borne crests only. The gravity waves carry
     // their own, much longer, life -- outliving the white is the whole point of
     // them.
-    float height  = ((armH + washH) * mix(0.35, 1.0, alive) + kelvinH * nose) * tailFade;
+    // AHEAD OF THE BOW: the train that has overtaken a slowing hull.
+    //
+    // Only the gravity waves do this. Foam and spray are made of water that was
+    // churned at a place and stays there; the waves are a travelling
+    // disturbance and keep travelling. Crests run forward at the celerity that
+    // built them, which for deep water is omega = g/c, so they visibly outpace
+    // a stopping boat and stream away in front of it.
+    float overH = 0.0;
+    float ahead = max(-vArc, 0.0);
+    if (ahead > 0.0 && uOverAmp > 0.0001) {
+      float c = max(uOverV, 0.6);
+      float lam = max(6.2831853 * c * c / 9.81, 1.5);
+      float w = 9.81 / c;
+      // Widest on the centreline, gone by the edge of the wedge it came from.
+      float lat = 1.0 - smoothstep(0.0, max(uOverWide, 1.0), ad);
+      overH = cos(6.2831853 * ahead / lam - w * uTime)
+            * uOverAmp * exp(-ahead / max(uOverLen, 1.0)) * lat * lat;
+    }
+
+    float height  = ((armH + washH) * mix(0.35, 1.0, alive) + kelvinH * nose) * tailFade
+                  + overH;
     float bubOut = max(bub, 0.0) * tailFade;
 
     gl_FragColor = vec4(foam * edge,
@@ -578,6 +599,8 @@ export class WakeField {
 
     this.uniforms = {
       uMaxArc: { value: 1 },
+      uOverAmp: { value: 0 }, uOverV: { value: 4 },
+      uOverLen: { value: 26 }, uOverWide: { value: 10 },
       uBeam: { value: 1 }, uHullLen: { value: 1 }, uEngines: { value: 1 }, uEngineGap: { value: 1 },
       uArmTan: { value: 0 }, uArmW0: { value: 1 }, uArmWGrow: { value: 0 },
       uArmFoam: { value: 1 }, uArmHeight: { value: 0 }, uInnerBias: { value: 0 },
@@ -638,8 +661,37 @@ export class WakeField {
     this.uniforms.uHullDir.value.set( Math.sin( heading ), Math.cos( heading ) );
   }
 
+  /**
+   * How far the wave train has run out AHEAD of the bow.
+   *
+   * The transverse waves in a Kelvin wake travel at the speed that built them
+   * -- that is exactly why they sit still relative to a boat holding its speed,
+   * and why the pattern looks pinned to the hull. Take the way off her and they
+   * do not stop with her: they carry on at their own celerity, overtake the
+   * hull and run out in front of it before they disperse. Nothing in a ribbon
+   * indexed by distance ASTERN can express that, which is why the waves used to
+   * pile up at the bow and stop dead there.
+   *
+   * So: integrate how much faster the waves are than the boat. The speed that
+   * made them rises with the throttle at once and falls slowly, because the
+   * water already carries what it was given.
+   */
+  _advanceRunout(t, speed) {
+    const dt = Math.max(0, Math.min(0.1, t - (this._lastT ?? t)));
+    this._lastT = t;
+    if (!dt) return;
+    this._madeV = Math.max(speed, (this._madeV ?? 0) - dt * 1.1);
+    const gain = Math.max(0, this._madeV - speed);
+    // And they disperse: a train left behind spreads and dies rather than
+    // running on for ever, so the runout bleeds away on its own clock.
+    const life = 3.2;
+    const r = (this._runout ?? 0) + gain * dt;
+    this._runout = Math.max(0, Math.min(r - r * dt / life, 70));
+  }
+
   /** Record where the bow is now. Called every frame; samples are decimated. */
   pushSample(x, z, hx, hz, t, speed = 0, turn = 0) {
+    this._advanceRunout(t, speed);
     const last = this.path[0];
     if (last) {
       const dx = x - last.x, dz = z - last.z;
@@ -674,14 +726,28 @@ export class WakeField {
 
     // Head sample keeps the ribbon's tip glued to the bow between decimated
     // samples, so the wake doesn't visibly stutter at the boat.
-    const pts = this.head ? [this.head, ...P] : P;
+    // Mesh AHEAD of the bow for the overtaking train. Laid along the current
+    // heading, and carrying negative arc so the bow stays at arc = 0 and every
+    // astern term downstream is untouched.
+    const bow = this.head ?? P[0];
+    const over = get('kelvin.overtake') > 0.001 ? (this._runout ?? 0) : 0;
+    const fwd = [];
+    if (over > 0.5 && bow) {
+      const nF = Math.min(20, Math.max(2, Math.ceil(over / 4)));
+      for (let k = nF; k >= 1; k--) {
+        const dd = over * (k / nF);
+        fwd.push({ x: bow.x + bow.hx * dd, z: bow.z + bow.hz * dd,
+          hx: bow.hx, hz: bow.hz, t: bow.t, speed: bow.speed, turn: 0 });
+      }
+    }
+    const pts = fwd.concat(this.head ? [this.head, ...P] : P);
     const n = Math.min(pts.length, MAX_SAMPLES);
 
     const armTan = Math.tan(get('arms.angle') * Math.PI / 180);
     const beam = get('boat.beam');
     const w0 = get('arms.width0'), wg = get('arms.widthGrow');
 
-    let arc = 0;
+    let arc = -over * (fwd.length ? 1 : 0);
     let o = 0;
     for (let i = 0; i < n; i++) {
       const p = pts[i];
@@ -744,6 +810,20 @@ export class WakeField {
     // metres -- passes through one multiplier.
     const decay = Math.max(get('field.decay'), 0.05);
     u.uMaxArc.value = Math.max(this.maxArc || 1, 1);
+    // The overtaking train. Amplitude ramps in with the runout rather than
+    // appearing whole: the waves only separate from the boat as it slows, and
+    // the runout IS how far they have got.
+    const run = this._runout ?? 0;
+    u.uOverV.value = Math.max(this._madeV ?? 0, 0.6);
+    // Tied to the TRANSVERSE train, because that is literally what overtakes:
+    // the divergent waves fan away astern and never catch the boat up. (An
+    // earlier version read kelvin.height, which does not exist -- undefined
+    // through this arithmetic is NaN, and a NaN in the height channel poisons
+    // every pixel it touches rather than merely looking wrong.)
+    const amp = get('kelvin.amp') * get('kelvin.transverse') * get('kelvin.overtake');
+    u.uOverAmp.value = Number.isFinite(amp) ? amp * Math.min(1, run / 9) * 1.3 : 0;
+    u.uOverLen.value = get('kelvin.overtakeLen');
+    u.uOverWide.value = Math.max(get('boat.beam') * 2.4, 6);
     u.uBeam.value = get('boat.beam');
     u.uHullCut.value = get('boat.hullCut');
     u.uHullLen.value = get('boat.length');
