@@ -613,7 +613,14 @@ const INTERFERE_FRAG = /* glsl */`
       // leading edge of the disturbance and carry almost no amplitude. Fade
       // both rather than letting either print rubbish.
       float res = smoothstep(uMinLam * 0.7, uMinLam * 1.9, lam);
-      float lo  = 1.0 - smoothstep(uMaxLam * 0.7, uMaxLam * 1.8, lam);
+      // The long end matters more than it looks. A source at speed V makes its
+      // transverse waves at lam = 2 pi V^2 / g -- 41 m at eight metres a second
+      // -- and anything much longer than that travels faster than the boat,
+      // outruns her and carries almost no energy. Cut at a fixed 140 m it was
+      // nearly DC across a 270 m field, and the debug view showed exactly that:
+      // the wedge sitting on huge smooth lobes that filled the frame. Tied to
+      // the wake's own wavelength they go, and the V is what is left.
+      float lo  = 1.0 - smoothstep(uMaxLam, uMaxLam * 1.9, lam);
 
       // NYQUIST ON THE SUM ITSELF.
       //
@@ -840,6 +847,11 @@ export class WakeField {
     this.iUniforms.uAmp.value = gain * get('kelvin.amp');
     this.iUniforms.uLife.value = get('kelvin.life');
     this.iUniforms.uMinLam.value = Math.max(this.extent / this.rt.width * 3.2, 0.6);
+    // The transverse wavelength of the fastest water in the trail: the longest
+    // wave this hull can actually have made.
+    let vMax = 0;
+    for (let i = 1; i < P.length; i++) vMax = Math.max(vMax, P[i].speed ?? 0);
+    this.iUniforms.uMaxLam.value = Math.max(6.2831853 * vMax * vMax / 9.81, 4);
     const c = this.center;
     this.iMesh.position.set(c.x, 0, c.y);
     this.iMesh.scale.set(this.extent, 1, this.extent);
