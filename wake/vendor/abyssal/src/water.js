@@ -281,6 +281,7 @@ export class WaterSurface {
       uSwellH0: p.swellH0 ?? 1.1, uSwellD0: p.swellD0 ?? 8.0,
       uSwellSlope: p.swellSlope ?? 0.02, uSwellPeriod2: p.swellPeriod2 ?? 9.0,
       uSwellGamma: p.swellGamma ?? 0.78, uSwellPeak: p.swellPeak ?? 2.0,
+      uSwellLean: p.swellLean ?? 0.9,
       uFoamSoft: p.foamSoft ?? 0,
       uWindDirV: set2(this._vWind, Math.cos(p.windDir), Math.sin(p.windDir)),
       uSpecClamp: p.specClamp, uHorizonBend: p.horizonBend,

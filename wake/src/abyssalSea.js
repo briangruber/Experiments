@@ -259,6 +259,7 @@ function fitToLake( p, preset = {}, tune = {} ) {
 	p.swellSlope = get( 'shore.swellSlope' );
 	p.swellGamma = get( 'shore.swellGamma' );
 	p.swellPeak = get( 'shore.swellPeak' );
+	p.swellLean = get( 'shore.swellLean' );
 
 	const tint = get( 'scene.waterTint' );
 	// A scene may commit to its own water colour outright. The preset library

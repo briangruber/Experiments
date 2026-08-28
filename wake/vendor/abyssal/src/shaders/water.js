@@ -93,7 +93,7 @@ const SHOAL_GLSL = /* glsl */`
 uniform sampler2D uShoreMap;
 uniform float uShoreOn, uShoreExtent;
 uniform float uSwellOn, uSwellH0, uSwellD0, uSwellSlope, uSwellPeriod2;
-uniform float uSwellGamma, uSwellPeak;
+uniform float uSwellGamma, uSwellPeak, uSwellLean;
 
 float shoreDepth(vec2 p){
   if (uShoreOn < 0.5) return -1.0;
@@ -112,28 +112,67 @@ float shoalHeight(float d, out float brk){
 }
 
 // Phase at depth d. See the derivation above: sqrt(d), not d.
+//
+// THE TIME TERM ADDS. Measuring shoreward distance s with depth falling at
+// slope S, the phase is A*(sqrt(d0) - sqrt(d)) - omega t, which is
+// -(omega t + A sqrt(d)) up to a constant. A crest sits at constant phase, so
+// omega t + A sqrt(d) is fixed and sqrt(d) has to FALL as time runs -- the
+// crest climbing into shallower water, which is what rolling in means. Written
+// with a minus, the same algebra sends every crest out to sea instead, and
+// that is exactly what it was doing. This is the second time this sign has
+// bitten in this file; the foam sawtooth had it too.
 float shoalPhase(float d, float t){
   float omega = 6.2831853 / max(uSwellPeriod2, 1.0);
   float kInt = 2.0 * omega / (max(uSwellSlope, 0.002) * 3.132) * sqrt(max(d, 0.02));
-  return omega * t - kInt;
+  return omega * t + kInt;
 }
 
 // The surface itself. A shoaling wave is not a sine: it peaks and its troughs
 // go flat, which is why surf looks like a row of ridges on a table rather than
 // a ripple. Raising the cosine does that with one parameter.
-float shoalSurface(vec2 p, float t, out float brk, out float dOut){
+// Which way is the beach? Downhill in DEPTH, which the coast's own height map
+// already knows -- so the wave finds the shore by feel rather than by being
+// told where the coast is, and it does the right thing in a cove and off a
+// point without either being a special case.
+vec2 shoalDir(vec2 p){
+  float e = 5.0;
+  float dxp = shoreDepth(p + vec2(e, 0.0)), dxm = shoreDepth(p - vec2(e, 0.0));
+  float dzp = shoreDepth(p + vec2(0.0, e)), dzm = shoreDepth(p - vec2(0.0, e));
+  if (dxp < 0.0 || dxm < 0.0 || dzp < 0.0 || dzm < 0.0) return vec2(0.0);
+  vec2 g = vec2(dxp - dxm, dzp - dzm);
+  float L = length(g);
+  return L > 1e-4 ? -g / L : vec2(0.0);
+}
+
+// The surface, as a full 3D displacement.
+//
+// THE HORIZONTAL TERM IS WHAT MAKES IT ROLL. A wave that only moves up and
+// down is a hump that bobs; the reason real surf reads as rolling is that the
+// water is also moving, and as the orbit flattens against the bottom the crest
+// PITCHES FORWARD -- the shoreward face steepens toward vertical while the
+// back stays long and gentle. That asymmetry is the whole read, and no amount
+// of shaping a symmetric profile will fake it. This is the Gerstner horizontal
+// term, aimed down the depth gradient and grown as the wave nears breaking.
+vec3 shoalSurface(vec2 p, float t, out float brk, out float dOut){
   brk = 0.0; dOut = -1.0;
-  if (uSwellOn < 0.5) return 0.0;
+  if (uSwellOn < 0.5) return vec3(0.0);
   float d = shoreDepth(p);
   dOut = d;
-  if (d < 0.0) return 0.0;
+  if (d < 0.0) return vec3(0.0);
   float H = shoalHeight(d, brk);
-  float c = cos(shoalPhase(d, t));
+  float ph = shoalPhase(d, t);
+  float c = cos(ph);
   float peaked = pow(0.5 + 0.5 * c, max(uSwellPeak, 1.0)) * 2.0 - 1.0;
   // Dies out in water too deep to feel the bottom, so the open bay is left to
   // the FFT sea and only the shelf carries surf.
   float feel = 1.0 - smoothstep(uSwellD0 * 0.6, uSwellD0 * 1.6, d);
-  return H * 0.5 * peaked * feel;
+  float y = H * 0.5 * peaked * feel;
+  // Steepness rises as the wave shortens and stands up, and again once it is
+  // breaking, which is when a crest genuinely throws itself forward.
+  float steep = clamp(H / max(d, 0.25), 0.0, 1.2);
+  vec2 push = shoalDir(p) * uSwellLean * H * feel
+            * (0.35 + 0.85 * steep + 0.9 * brk) * sin(ph);
+  return vec3(push.x, y, push.y);
 }
 `;
 
@@ -207,8 +246,8 @@ void main(){
   // "broke" was a coverage pattern painted on level water.
   {
     float brk, dHere;
-    float sw = shoalSurface(xz, uTime, brk, dHere);
-    pos.y += sw;
+    vec3 sw = shoalSurface(xz, uTime, brk, dHere);
+    pos += sw;
     vShoalBreak = brk;
     vShoalDepth = dHere;
   }

@@ -293,6 +293,7 @@ export const PARAMS = {
     swellSlope:   { v: 0.02, min: 0.004, max: 0.12, step: 0.001, label: 'Beach slope (crest spacing)' },
     swellGamma:   { v: 0.78, min: 0.4, max: 1.2, step: 0.01, label: 'Breaks at H/depth' },
     swellPeak:    { v: 2.0,  min: 1,   max: 5,   step: 0.05, label: 'Crest peakiness' },
+    swellLean:    { v: 0.9,  min: 0,   max: 2.5, step: 0.05, label: 'Crest pitches forward' },
   },
 
   // Cost, not looks. Auto-set on load from the device, then yours to override.
