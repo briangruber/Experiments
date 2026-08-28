@@ -296,6 +296,8 @@ export class WaterSurface {
       uWakeRelief: p.wakeRelief, uWakeSlick: p.wakeSlick,
       uWakePlume: p.wakePlume ?? 1.0,
       uHullPos: hull.pos, uHullFwd: hull.fwd,
+      uHullCut: hull.cut ?? 0,
+      uHullCutLen: hull.cutLen ?? 1, uHullCutBeam: hull.cutBeam ?? 1,
       uHullPush: hull.push,
       uHullRadius: p.hullRadius, uHullBow: p.hullBow,
       uHullPlane: hull.plane,

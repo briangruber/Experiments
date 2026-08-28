@@ -54,6 +54,7 @@ const RIBBON_FRAG = /* glsl */`
 
   uniform float uMaxArc, uPlaning, uHumpFr, uWetShift;
   uniform float uOverAmp, uOverV, uOverLen, uOverWide;
+  uniform float uIdleChurn;
   uniform float uBeam, uHullLen, uEngines, uEngineGap;
   // The hull WHERE IT ACTUALLY IS, in world metres: the bow's position and the
   // way it points. The ribbon's own (arc, lat) frame follows the COURSE, and
@@ -454,7 +455,26 @@ const RIBBON_FRAG = /* glsl */`
       bg += exp(-dd * dd);
     }
     bg = min(bg, 1.4);
-    float plume = astern * bg * uBubPlume * exp(-arc / max(uBubLen, 1.0)) * churn * regime;
+    // A TURNING SHAFT MAKES BUBBLES, whatever the boat is doing.
+    //
+    // churn is smoothstep(0.4, planing*0.8, spd) -- right for how HARD the prop
+    // is working, wrong for whether it is working at all. Gated on it alone the
+    // plume did not exist until the hull was most of the way to planing, so
+    // easing away from a mooring left the water behind the transom completely
+    // undisturbed. A screw turning over entrains air from the moment it bites.
+    //
+    // So the idle term is separate: it comes in almost at once, and it is only
+    // added to the PLUME, not to the wash foam. This is underwater churn seen
+    // through the surface, not lace lying on top of it, and the two are
+    // different things -- which is the distinction the foam channels already
+    // draw between bubble density and the surfaced fraction of it.
+    float propOn = smoothstep(0.06, 0.9, spd);
+    float propChurn = max(churn, propOn * uIdleChurn);
+    // It does not stream far when she is barely moving: the column is left
+    // behind at the speed she is making, so at idle it is a patch under the
+    // counter rather than a trail.
+    float bubReach = max(uBubLen, 1.0) * mix(0.22, 1.0, propOn * (0.35 + 0.65 * regime));
+    float plume = astern * bg * uBubPlume * exp(-arc / bubReach) * propChurn * max(regime, uIdleChurn * propOn * 0.8);
 
     // Spray plunging back in entrains its own air along each arm.
     //
@@ -601,6 +621,7 @@ export class WakeField {
       uMaxArc: { value: 1 },
       uOverAmp: { value: 0 }, uOverV: { value: 4 },
       uOverLen: { value: 26 }, uOverWide: { value: 10 },
+      uIdleChurn: { value: 0.55 },
       uBeam: { value: 1 }, uHullLen: { value: 1 }, uEngines: { value: 1 }, uEngineGap: { value: 1 },
       uArmTan: { value: 0 }, uArmW0: { value: 1 }, uArmWGrow: { value: 0 },
       uArmFoam: { value: 1 }, uArmHeight: { value: 0 }, uInnerBias: { value: 0 },
@@ -823,6 +844,7 @@ export class WakeField {
     const amp = get('kelvin.amp') * get('kelvin.transverse') * get('kelvin.overtake');
     u.uOverAmp.value = Number.isFinite(amp) ? amp * Math.min(1, run / 9) * 1.3 : 0;
     u.uOverLen.value = get('kelvin.overtakeLen');
+    u.uIdleChurn.value = get('wash.idle');
     u.uOverWide.value = Math.max(get('boat.beam') * 2.4, 6);
     u.uBeam.value = get('boat.beam');
     u.uHullCut.value = get('boat.hullCut');

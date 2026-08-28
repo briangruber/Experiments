@@ -1067,11 +1067,21 @@ function frame(now) {
     // buys the full shadow without Abyssal's own hull hollow fighting our
     // wake for the same water.
     const shadow = get('scene.hullShadow');
-    const hull = shadow > 0.001 ? {
+    // The hull is handed over for the bed shadow AND for the water cut, so it
+    // goes across whenever either wants it -- turning the shadow off used to
+    // take the cut with it, which is two unrelated things on one switch.
+    const cut = get('boat.waterCut');
+    const drawn = get('boat.length') * get('boat.modelScale');
+    const hull = (shadow > 0.001 || cut > 0.5) ? {
       pos: new Float32Array([boat.position.x, boat.position.y, boat.position.z]),
       fwd: new Float32Array([Math.sin(state.heading), Math.cos(state.heading)]),
       push: 0.02 * shadow,
       plane: 1,
+      cut: cut > 0.5 ? 1 : 0,
+      // Inset, so the hull always overhangs its own hole and no gap opens at
+      // the waterline however she is rolling.
+      cutLen: drawn * 0.42,
+      cutBeam: Math.max(get('boat.beam') * get('boat.modelScale') * 0.40, 0.3),
     } : undefined;
     // Introduce the sea to the coast, once: the water reads this height field
     // to work out how deep it is over the real rock, which is what lets it

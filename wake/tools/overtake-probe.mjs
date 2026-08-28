@@ -41,11 +41,46 @@ const out = await page.evaluate(async () => {
     madeV: +(wake._madeV ?? 0).toFixed(2), speed: +w.state.speed.toFixed(2),
     overAmp: +(wake.uniforms.uOverAmp.value ?? 0).toFixed(4) });
   const cruising = snap('cruising');
-  // Pull the throttle and let her run down.
+  // Pull the throttle and let the PAGE run her down in real time.
+  //
+  // Stepping the sim by hand advances the path and the runout but never calls
+  // wake.update(), which is where the uniforms are synced and the field is
+  // baked -- so the first version of this read a stale amplitude and a stale
+  // texture and reported the feature dead when it had simply never been drawn.
+  //
+  // Step the PHYSICS by hand, then bake the field explicitly. Waiting on wall
+  // clock does not work here: under a software renderer the page manages a few
+  // frames a second and each advances about 0.05 s of sim, so 4.5 s of waiting
+  // bought under a second of run-down and the boat was still doing 8.7 knots.
+  // And stepping alone is not enough either, because the uniforms and the field
+  // texture are only brought up to date inside wake.update().
   w.set('boat.speed', 0);
-  for (let i = 0; i < 150; i++) w.stepSim(1/30);
-  const stopped = snap('after a 5 s run-down');
-  // And read the field itself: is there height AHEAD of the bow?
+  for (let i = 0; i < 200; i++) w.stepSim(1 / 30);
+  w.wake.update(performance.now());
+  const stopped = snap('after a 6.7 s run-down');
+  // A/B the field instead of guessing at the texel mapping: the honest question
+  // is whether the overtake term contributes anything, and the control is the
+  // same instant with it switched off.
+  const fieldMax = () => {
+    const rt = wake.rt, r = w.renderer, N = 64;
+    const raw = new Uint16Array(N*N*4);
+    const half = (h) => { const s=(h&0x8000)?-1:1, e=(h&0x7C00)>>10, f=h&0x3FF;
+      if(e===0) return s*Math.pow(2,-14)*(f/1024); if(e===31) return f?NaN:s*Infinity;
+      return s*Math.pow(2,e-15)*(1+f/1024); };
+    r.readRenderTargetPixels(rt, (rt.width-N)>>1, (rt.height-N)>>1, N, N, raw);
+    let mx = 0, nan = 0;
+    for (let i = 0; i < raw.length; i += 4) {
+      const g = half(raw[i+1]);
+      if (Number.isNaN(g)) { nan++; continue; }
+      mx = Math.max(mx, Math.abs(g));
+    }
+    return { maxAbsHeight: +mx.toFixed(4), nanTexels: nan };
+  };
+  const withOvertake = fieldMax();
+  w.set('kelvin.overtake', 0);
+  w.wake.update(performance.now());
+  const withoutOvertake = fieldMax();
+  w.set('kelvin.overtake', 1);
   let ahead = null;
   try {
     const rt = wake.rt, r = w.renderer, N = 24;
@@ -63,7 +98,7 @@ const out = await page.evaluate(async () => {
     }
     ahead = { maxAbsHeight: +maxAbsH.toFixed(4), litTexels: nz, of: N*N };
   } catch (e) { ahead = { error: String(e).slice(0, 90) }; }
-  return { cruising, stopped, ahead };
+  return { cruising, stopped, withOvertake, withoutOvertake, ahead };
 });
 console.log(JSON.stringify(out, null, 2)); if (errs.length) console.log('ERRORS', errs.slice(0,2));
 await browser.close(); server.close();

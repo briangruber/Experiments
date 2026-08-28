@@ -65,6 +65,7 @@ export const PARAMS = {
     // with -- so a model scaled far past them will out-grow its own wake.
     modelScale:   { v: 1,    min: 0.2, max: 4,   step: 0.05, label: 'Model scale' },
     hullCut:      { v: 0,    min: 0,   max: 1,   step: 0.01, label: 'Cut foam under hull' },
+    waterCut:     { v: 1,    min: 0,   max: 1,   step: 1,    label: 'No sea inside the hull' },
     crabMax:      { v: 12,   min: 0,   max: 45,  step: 1,    label: 'Max slip angle (°)' },
     grip:         { v: 0.7,  min: 0,   max: 1,   step: 0.01, label: 'Keel grip' },
     buoy:         { v: 1,  min: 0,   max: 1.5, step: 0.01, label: 'Ride the waves' },
@@ -112,6 +113,10 @@ export const PARAMS = {
   // Turbulent water dragged behind the transom: the brightest, shortest-lived
   // foam in the whole wake.
   wash: {
+    // A screw turning over entrains air from the moment it bites, so the
+    // plume exists at idle -- long before the hull is anywhere near planing.
+    // Bubbles only: the white lace above stays gated on working the prop hard.
+    idle:         { v: 0.55, min: 0,   max: 1.5, step: 0.01, label: 'Churn at idle' },
     width:        { v: 1.5, min: 0.2, max: 8,   step: 0.05, label: 'Width (m)' },
     widthGrow:    { v: 0.06,min: 0,   max: 0.5, step: 0.005,label: 'Width growth (m/m)' },
     foam:         { v: 0.77,  min: 0,   max: 3,   step: 0.01, label: 'Foam density' },

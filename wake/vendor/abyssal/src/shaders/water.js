@@ -9,6 +9,25 @@ const HULL_LIFT_GLSL = /* glsl */`
 uniform vec3  uHullPos;
 uniform vec2  uHullFwd;
 uniform float uHullPush, uHullRadius, uHullBow, uHullPlane;
+uniform float uHullCut, uHullCutLen, uHullCutBeam;
+
+// THE HULL EXCLUDES WATER FROM THE SPACE IT OCCUPIES.
+//
+// The sea is one continuous sheet, so looking down into an open boat the water
+// surface sits between the eye and the boat's floor and simply wins the depth
+// test -- which is why an inflatable read as swamped while its tubes were
+// plainly dry. No amount of render ordering fixes that: the water really IS in
+// front of the floor. The only honest answer is not to draw sea inside a hull.
+//
+// An oriented ellipse in hull-local metres, inset a little so the tubes always
+// overhang the hole and no gap opens at the waterline.
+float hullInside(vec2 xz){
+  if (uHullCut < 0.5) return 0.0;
+  vec2 rel = xz - uHullPos.xz;
+  float along = dot(rel, uHullFwd) / max(uHullCutLen, 0.3);
+  float lat   = dot(rel, vec2(-uHullFwd.y, uHullFwd.x)) / max(uHullCutBeam, 0.2);
+  return along * along + lat * lat < 1.0 ? 1.0 : 0.0;
+}
 
 // Twin of hullLift() in gpu/tsl/water-surface.js. The hollow, bow heap
 // and shoulder mounds — signed metres — so both stages displace and
@@ -701,6 +720,11 @@ float foamField(vec2 p, float t, float foot, float detail, out float thick){
 }
 
 void main(){
+  // Before anything else is computed: there is no sea inside a hull. Discarding
+  // leaves no depth behind either, so the boat's own interior draws through the
+  // hole instead of losing the depth test to a sheet of water above it.
+  if (hullInside(vFlat.xz) > 0.5) discard;
+
   vec3 toEye = uCamPos - vWorld;
   float eyeDist = max(length(toEye), 1e-4);
   vec3 V = toEye / eyeDist;
