@@ -469,12 +469,20 @@ const RIBBON_FRAG = /* glsl */`
     // different things -- which is the distinction the foam channels already
     // draw between bubble density and the surfaced fraction of it.
     float propOn = smoothstep(0.06, 0.9, spd);
-    float propChurn = max(churn, propOn * uIdleChurn);
     // It does not stream far when she is barely moving: the column is left
     // behind at the speed she is making, so at idle it is a patch under the
     // counter rather than a trail.
     float bubReach = max(uBubLen, 1.0) * mix(0.22, 1.0, propOn * (0.35 + 0.65 * regime));
-    float plume = astern * bg * uBubPlume * exp(-arc / bubReach) * propChurn * max(regime, uIdleChurn * propOn * 0.8);
+    float plume = astern * bg * uBubPlume * exp(-arc / bubReach) * churn * regime;
+    // THE SHAFT'S OWN CHURN, kept separate because it does not obey the hull's
+    // speed law. energy below is e2*2/(1+e2) -- how hard the HULL is working the
+    // water -- and at a metre a second that is 0.077, which is what took this
+    // from a visible boil down to three ten-thousandths and under the threshold
+    // of being drawn at all. But the boil behind a transom is the propeller's
+    // doing: a boat in gear at tickover churns plainly while making almost no
+    // way. So it is added AFTER the speed law rather than passed through it.
+    float plumeIdle = astern * bg * uBubPlume * exp(-arc / bubReach)
+                    * uIdleChurn * propOn * 0.9;
 
     // Spray plunging back in entrains its own air along each arm.
     //
@@ -510,7 +518,7 @@ const RIBBON_FRAG = /* glsl */`
     // without it an IDLE boat kept injecting plume into the same spot, and
     // forty-four seconds of accumulated milk drew a pale disc a hundred
     // metres wide around every parked hull.
-    float bub = (plume + entrain) * pow(1.0 - bubAge, 1.15) * vis * energy;
+    float bub = ((plume + entrain) * energy + plumeIdle) * pow(1.0 - bubAge, 1.15) * vis;
     // The plume is the most turbulent part of the wake, so its clouds churn
     // rather than sitting still. Circling sample offsets again: the cloud
     // evolves in place instead of drifting off the water it belongs to.
