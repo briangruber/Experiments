@@ -59,27 +59,31 @@ export class SprayCore {
 	 * water), `fwd` the direction of travel. Water leaves a chine mostly
 	 * sideways and a little forward, which is why the two are separate.
 	 */
-	emit( x, y, z, out, fwd, speed, rand ) {
+	emit( x, y, z, out, fwd, speed, rand, opt = null ) {
 
 		const i = this._slot();
 		const p = this.p;
-		const spread = get( 'spray.spread' );
-		const up = get( 'spray.rise' );
+		// A caller with its own physics can override the hull-derived settings.
+		// Water bursting off a rock is not water peeling off a chine: it goes up
+		// far harder and scatters wider, and yoking it to the boat's controls
+		// would mean tuning one wrecks the other.
+		const spread = opt?.spread ?? get( 'spray.spread' );
+		const up = opt?.rise ?? get( 'spray.rise' );
 
 		p.x[ i ] = x; p.y[ i ] = y; p.z[ i ] = z;
 
 		// Sheet velocity scales with hull speed: that is why a wake at 4 m/s
 		// weeps and at 20 m/s throws a curtain, with no separate "amount" knob
 		// doing the work.
-		const v = speed * get( 'spray.throw' );
+		const v = speed * ( opt?.throw ?? get( 'spray.throw' ) );
 		const j = () => ( rand() - 0.5 ) * spread;
 		p.vx[ i ] = out.x * v * ( 0.6 + rand() * 0.7 ) + fwd.x * v * 0.25 + j() * v;
 		p.vz[ i ] = out.z * v * ( 0.6 + rand() * 0.7 ) + fwd.z * v * 0.25 + j() * v;
 		p.vy[ i ] = v * up * ( 0.5 + rand() * 0.9 );
 
 		p.age[ i ] = 0;
-		p.life[ i ] = get( 'spray.life' ) * ( 0.6 + rand() * 0.8 );
-		p.size[ i ] = get( 'spray.size' ) * ( 0.5 + rand() * 1.1 );
+		p.life[ i ] = ( opt?.life ?? get( 'spray.life' ) ) * ( 0.6 + rand() * 0.8 );
+		p.size[ i ] = ( opt?.size ?? get( 'spray.size' ) ) * ( 0.5 + rand() * 1.1 );
 
 	}
 

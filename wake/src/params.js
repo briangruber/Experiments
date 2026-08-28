@@ -272,6 +272,15 @@ export const PARAMS = {
     relief:       { v: 1.5,  min: 0.2, max: 2.5, step: 0.01, label: 'Rock height ×' },
     trees:        { v: 1400, min: 0,   max: 3000,step: 50,   label: 'Pines' },
     boulders:     { v: 1400, min: 0,   max: 4000,step: 50,   label: 'Boulders' },
+    // Water bursting off the rocks the surf breaks on. Driven by the SAME
+    // travelling-set phase the shore foam is, so a rock throws its spray as the
+    // visible foam line reaches it rather than on a timer of its own.
+    spray:        { v: 1,    min: 0,   max: 3,   step: 0.01, label: 'Spray off the rocks' },
+    sprayRate:    { v: 14,   min: 1,   max: 60,  step: 1,    label: 'Droplets per burst' },
+    spraySpeed:   { v: 5.2,  min: 0.5, max: 16,  step: 0.1,  label: 'Burst speed (m/s)' },
+    sprayRise:    { v: 1.15, min: 0,   max: 2.5, step: 0.01, label: 'Upward share' },
+    sprayLife:    { v: 1.5,  min: 0.2, max: 4,   step: 0.05, label: 'Droplet life (s)' },
+    sprayRange:   { v: 240,  min: 40,  max: 600, step: 10,   label: 'Only within (m)' },
   },
 
   // Cost, not looks. Auto-set on load from the device, then yours to override.

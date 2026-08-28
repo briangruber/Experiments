@@ -709,6 +709,65 @@ function stepSim(dt) {
 const PREWARM = +(new URLSearchParams(location.search).get('prewarm') ?? NaN) || window.__PREWARM || 0;
 for (let i = 0; i < PREWARM * 30; i++) stepSim(1 / 30);
 
+// Waves bursting on the rocks that stand in the surf.
+//
+// The trigger is not a timer and not a random sprinkle: it is the SAME
+// travelling-set phase the water shader draws the shore foam with. Each rock
+// knows the water column over its base, the set's phase at that column is
+// plain arithmetic, and a rock fires as the crest reaches it. So the spray
+// arrives with the white line you can see running in, rather than beside it --
+// which is the whole difference between spray that belongs to the sea and
+// spray that is decoration parked on top of it.
+//
+// One-shot per set: armed on the way up, re-armed only once the phase has
+// fallen well back, so a rock throws once per wave instead of chattering.
+const _sprayRand = () => Math.random();
+const _sOut = { x: 0, z: 0 };
+function breakOnRocks(dt) {
+  const sites = shore?.splashSites;
+  const amt = get('shore.spray');
+  if (!sites || !sites.length || amt <= 0.001 || !useAbyssal() || !sea) return;
+  const t = sea.water?.ocean?.time;
+  if (!(t >= 0)) return;
+
+  const S = Math.max(get('foamMix.surfSpan'), 0.25);
+  const T = Math.max(get('foamMix.surfPeriod'), 0.5);
+  const range = get('shore.sprayRange');
+  const r2 = range * range;
+  const speed = get('shore.spraySpeed');
+  const opt = {
+    throw: 1, rise: get('shore.sprayRise'),
+    life: get('shore.sprayLife'), spread: 0.9,
+  };
+  const cx = camera.position.x, cz = camera.position.z;
+
+  for (const s of sites) {
+    const dx = s.x - cx, dz = s.z - cz;
+    const d2 = dx * dx + dz * dz;
+    if (d2 > r2) { s.armed = false; continue; }
+    const env = 0.5 + 0.5 * Math.sin((s.column / S + t / T) * Math.PI * 2);
+    if (env < 0.62) { s.armed = false; continue; }
+    if (s.armed || env < 0.88) continue;
+    s.armed = true;
+    // Bigger rocks throw more, and the far ones throw less because their
+    // droplets are sub-pixel anyway -- this is the cost guard, not a look.
+    const near = 1 - Math.sqrt(d2) / range;
+    const n = Math.round(get('shore.sprayRate') * amt * s.r * 0.5
+                       * (0.45 + 0.55 * near) * (0.6 + Math.random() * 0.8));
+    if (n < 1) continue;
+    // Outward from the bay's centre: that is the way the set is running, so
+    // that is the way the water comes off the rock.
+    const inv = 1 / (Math.hypot(s.x, s.z) || 1);
+    _sOut.x = s.x * inv; _sOut.z = s.z * inv;
+    for (let i = 0; i < n; i++) {
+      spray.emit(s.x + (Math.random() - 0.5) * s.r * 1.6, s.y,
+                 s.z + (Math.random() - 0.5) * s.r * 1.6,
+                 _sOut, _sOut, speed * (0.55 + Math.random() * 0.9),
+                 _sprayRand, opt);
+    }
+  }
+}
+
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min((now - last) / 1000, 0.05);
@@ -727,6 +786,7 @@ function frame(now) {
   const seaH = useAbyssal() && sea ? (x, z) => sea.heightAt(x, z) : null;
   body.step(dt, seaH);
   spray.step(dt, seaH);
+  breakOnRocks(dt);
   const att = body.att;
   // Centre the field a little astern: that is where the wake actually is.
   // Zoomed in you cannot see the far wake anyway, and a smaller window puts far

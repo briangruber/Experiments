@@ -715,6 +715,20 @@ export class Shore {
 				col.setHSL( 0.25 + rand() * 0.06, 0.30 + rand() * 0.25,
 					0.42 + rand() * 0.22 );
 				mesh.setColorAt( n, col );
+				if ( h > - 3.0 && h < 1.2 && size > 0.55 ) {
+					this.splashSites.push( {
+						x, z,
+						// Where the water surface meets it, near enough.
+						y: Math.max( h + size * 0.55, 0.05 ),
+						r: size,
+						// The water column over its base is what the surf's own
+						// travelling-set phase is measured in, so a rock can be
+						// asked "has the set reached me yet" in the same terms
+						// the shader draws the foam line in.
+						column: Math.max( - h, 0.05 ),
+						armed: false,
+					} );
+				}
 				n ++;
 			}
 			mesh.count = n;
@@ -817,6 +831,12 @@ export class Shore {
 		const v3 = new THREE.Vector3();
 		const col = new THREE.Color();
 		let placed = 0;
+		// The rocks the sea actually breaks on. A boulder drowned in four metres
+		// of water never sees a crest, and one sitting well up the beach is only
+		// wetted by spray rather than making it, so the sites are the band in
+		// between -- and they are collected here, at placement, because this is
+		// the only place their world positions and sizes exist together.
+		this.splashSites = [];
 
 		for ( const geo of shapes ) {
 			const mesh = new THREE.InstancedMesh( geo, mat, per );
