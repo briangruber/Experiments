@@ -1226,16 +1226,27 @@ void main(){
     // swash and drains back, which is the second, thinner sheet of white you
     // see inshore of the break line -- and it inherits the same phase, so it
     // arrives after the crest that made it rather than sitting there.
-    float swash = smoothstep(breakDepth * 1.15, breakDepth * 0.12, column);
-    float rolled = max(shallow * mix(0.30, 1.0, setEnv), swash * setEnv * 0.72);
+    // Narrower than it was: 1.15 -> 0.12 of the break depth spans the WHOLE
+    // shelf on the new bathymetry, which is what turned the shallows into a
+    // solid white field rather than a tongue running up behind each crest.
+    float swash = smoothstep(breakDepth * 0.85, breakDepth * 0.30, column);
+    float rolled = max(shallow * mix(0.30, 1.0, setEnv), swash * setEnv * 0.45);
     // FORKED: no longer gated on uFoamAmount. Surf on a shore has nothing to
     // do with whitecaps in open water -- that gate is why turning the sea's
     // whitecaps off silently took the shore break with them.
     float shoreCov = clamp(rolled * mix(0.35, 1.0, crest)
                          * uShoreFoamAmount, 0.0, 0.82);
-    float shoreLace = smoothstep(1.0 - shoreCov - 0.13, 1.0 - shoreCov + 0.13, lace)
-                    * smoothstep(0.0, 0.13, shoreCov);
-    float shoreMask = mix(shoreCov, shoreLace, clumpRes);
+    // ONE FOAM. The shore used to be thresholded out of Abyssal's own
+    // whitecap web, while the wake was built from labLace with
+    // Beer-Lambert opacity. Two different generators meeting at the same
+    // waterline is exactly why the surf never looked like it belonged to the
+    // same sea as the boat's wake. Same call, same density, same law as the
+    // wake block above.
+    float shoreMask = 0.0;
+    if (shoreCov > 0.004) {
+      float sLace = labLace(vFlat.xz, shoreCov, foot);
+      shoreMask = 1.0 - exp(-sLace * shoreCov * max(uLabDensity, 0.0));
+    }
     bubbles = max(bubbles, shoreMask * 0.58);
     fresh = mix(fresh, 0.62, shoreMask);
     foamMask += shoreMask * (1.0 - foamMask);

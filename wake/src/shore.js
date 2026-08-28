@@ -314,17 +314,38 @@ export class Shore {
 		// difference between broken lava and a smooth ramp.
 		const RINGS = 260, SPOKES = 420;
 		const INNER = this.bay * 0.55, OUTER = this.bay * 3.4;
-		const verts = [], idx = [];
+
+		// THE HOLE IN THE MIDDLE.
+		//
+		// The mesh used to start at INNER -- a perfect circle of radius
+		// 0.55 x bay with no seabed inside it at all. From above that is
+		// exactly what you saw: a hard-edged disc centred on the origin, dark
+		// water within, bright shelf without. It went unnoticed while the
+		// submerged rock was as dark as the deep water; brightening the shelf
+		// to sand is what turned a seam into a spotlight.
+		//
+		// So fill it. A modest fan of rings covers the deep centre, where there
+		// is nothing to resolve and a few hundred quads is plenty, and the
+		// power law still spends the detail at the waterline. Starting at 1.5 m
+		// rather than 0 keeps the innermost ring from collapsing to a point.
+		const FILL = 44;
+		const radii = [];
+		for ( let i = 0; i < FILL; i ++ ) radii.push( 1.5 + ( INNER - 1.5 ) * ( i / FILL ) );
 		for ( let i = 0; i <= RINGS; i ++ ) {
 			// u^2.6 crowds the rings toward the coast, which sits near u = 0.2.
 			const u = i / RINGS;
-			const r = INNER + ( OUTER - INNER ) * Math.pow( u, 2.6 );
+			radii.push( INNER + ( OUTER - INNER ) * Math.pow( u, 2.6 ) );
+		}
+		const TOTAL = radii.length - 1;
+		const verts = [], idx = [];
+		for ( let i = 0; i <= TOTAL; i ++ ) {
+			const r = radii[ i ];
 			for ( let j = 0; j < SPOKES; j ++ ) {
 				const a = j / SPOKES * Math.PI * 2;
 				verts.push( Math.sin( a ) * r, 0, Math.cos( a ) * r );
 			}
 		}
-		for ( let i = 0; i < RINGS; i ++ ) {
+		for ( let i = 0; i < TOTAL; i ++ ) {
 			for ( let j = 0; j < SPOKES; j ++ ) {
 				const j1 = ( j + 1 ) % SPOKES;
 				const a = i * SPOKES + j, b = i * SPOKES + j1;
