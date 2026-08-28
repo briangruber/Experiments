@@ -247,6 +247,9 @@ function fitToLake( p, preset = {}, tune = {} ) {
 	// different phenomena and wanting one is no reason to get the other.
 	p.shoreFoamAmount = get( 'foamMix.surf' );
 	p.shoreFoamRange = get( 'foamMix.surfDepth' );
+	p.surfPeriod = get( 'foamMix.surfPeriod' );
+	p.surfSpan = get( 'foamMix.surfSpan' );
+	p.foamSoft = get( 'foamMix.softness' );
 
 	const tint = get( 'scene.waterTint' );
 	// A scene may commit to its own water colour outright. The preset library

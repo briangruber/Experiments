@@ -800,21 +800,47 @@ export class Shore {
 		const limit = this.coastAt( ang ) - 22;
 		let assist = 0;
 
-		if ( d > limit - 40 && state.speed > 0.2 ) {
+		// STEER, do not shove.
+		//
+		// The old version turned the helm a little from 40 m out and then hard
+		// CLAMPED the position at the limit, which is not confinement at all --
+		// it is a wall that slides the hull sideways with its heading unchanged,
+		// and it reads exactly as being pushed because that is what it is.
+		//
+		// So the assist starts further out, ramps as the square of how close you
+		// are, and is allowed to be much stronger than the helm: near the rock
+		// you are being turned, not nudged. A boat rounding a headland does the
+		// same thing -- the turn begins well before the point.
+		const band = 90;
+		if ( d > limit - band && state.speed > 0.15 ) {
 			let rel = state.heading - ang;
 			rel = ( ( rel + Math.PI ) % ( Math.PI * 2 ) + Math.PI * 2 ) % ( Math.PI * 2 ) - Math.PI;
-			const closeness = Math.min( 1, Math.max( 0, ( d - ( limit - 40 ) ) / 40 ) );
-			if ( Math.abs( rel ) < Math.PI / 2 ) assist = ( rel >= 0 ? 1 : - 1 ) * steerRate * closeness;
+			const closeness = Math.min( 1, Math.max( 0, ( d - ( limit - band ) ) / band ) );
+			// Only when actually pointing out to sea-ward of the coast: a boat
+			// running parallel to a beach should not be fought.
+			const outward = Math.cos( rel );
+			if ( outward > - 0.15 ) {
+				// Toward whichever tangent is nearer, so the hull rounds the
+				// headland rather than reversing into it.
+				const side = rel >= 0 ? 1 : - 1;
+				assist = side * steerRate * ( 0.6 + 3.4 * closeness * closeness )
+					* Math.max( 0, outward );
+			}
 		}
 
+		// The backstop, and it is SOFT. A hard clamp teleports; this eases the
+		// hull back over about a third of a second, so at worst it feels like
+		// the boat is being set down by a swell rather than hitting glass.
 		if ( d > limit ) {
 			const k = limit / d;
-			state.x *= k;
-			state.z *= k;
+			const ease = 1 - Math.exp( - dt / 0.30 );
+			state.x += ( state.x * k - state.x ) * ease;
+			state.z += ( state.z * k - state.z ) * ease;
+			// And take the way off her, the way running aground actually does.
+			state.speed *= 1 - Math.min( 0.85, dt / 0.55 );
 		}
 
 		return assist;
 
 	}
-
 }

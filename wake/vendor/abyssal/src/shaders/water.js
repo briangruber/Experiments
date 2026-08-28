@@ -315,6 +315,10 @@ uniform float uShoreFoamAmount, uShoreFoamRange;
 // rock that is actually there instead of on its own procedural bed.
 uniform sampler2D uShoreMap;
 uniform float uShoreOn, uShoreExtent, uSurge;
+uniform float uSurfSpan, uSurfPeriod;
+// FORKED: how hard the white reads. 0 keeps the vendor's paint-white raft;
+// 1 is a grey-white aerated veil that still lets the water under it through.
+uniform float uFoamSoft;
 uniform vec2  uWindDirV;
 uniform float uSpecClamp;
 uniform float uHorizonBend, uInterReflect;
@@ -1193,10 +1197,23 @@ void main(){
     float breakOffset = (column - breakDepth) / breakWidth;
     float shallow = exp(-breakOffset * breakOffset);
     float crest = smoothstep(-0.12, 0.38, vRelief);
+    // The set RUNS IN. Travel is measured in water column, not in metres of
+    // ground: a phase that grows with time is met at ever shallower depth, so
+    // each line walks up the shelf and follows the contour round the bay for
+    // free, however the rock is shaped. Sign is negative on time for shoreward.
+    float phase = (column / max(uSurfSpan, 0.25)
+                 - uTime / max(uSurfPeriod, 0.5)) * 6.2831853;
+    float setEnv = pow(0.5 + 0.5 * sin(phase), 1.6);
+    // Broken water does not stop where it broke. It runs on up the shallows as
+    // swash and drains back, which is the second, thinner sheet of white you
+    // see inshore of the break line -- and it inherits the same phase, so it
+    // arrives after the crest that made it rather than sitting there.
+    float swash = smoothstep(breakDepth * 1.15, breakDepth * 0.12, column);
+    float rolled = max(shallow * mix(0.30, 1.0, setEnv), swash * setEnv * 0.72);
     // FORKED: no longer gated on uFoamAmount. Surf on a shore has nothing to
     // do with whitecaps in open water -- that gate is why turning the sea's
     // whitecaps off silently took the shore break with them.
-    float shoreCov = clamp(shallow * mix(0.35, 1.0, crest)
+    float shoreCov = clamp(rolled * mix(0.35, 1.0, crest)
                          * uShoreFoamAmount, 0.0, 0.82);
     float shoreLace = smoothstep(1.0 - shoreCov - 0.13, 1.0 - shoreCov + 0.13, lace)
                     * smoothstep(0.0, 0.13, shoreCov);
@@ -1684,12 +1701,22 @@ void main(){
     // A bubble cloud is a volume. Lambertian 0.22-wrap went charcoal at
     // golden hour while the water's GGX path stayed gold — dark grit on
     // the crests. Unoriented sun is light that entered the raft.
-    float albedo = clamp(0.70 + 0.26*bubbles + 0.08*uFoamLift*fresh*bubbles, 0.62, 0.97);
+    // FORKED for softness. Foam clipped to near-white at every thickness is
+    // what reads as a sticker rather than a raft of bubbles: with the base and
+    // the ceiling pulled down, only genuinely thick lace gets to be white and
+    // the filaments stay grey, which is the whole tonal range a real wake has.
+    float albedo = clamp(mix(0.70, 0.50, uFoamSoft) + 0.26*bubbles
+                       + 0.08*uFoamLift*fresh*bubbles,
+                         mix(0.62, 0.40, uFoamSoft), mix(0.97, 0.76, uFoamSoft));
     float thickK = 0.0;
     float wrap = mix(0.48, 0.85, thickK);
     albedo = mix(albedo, 0.90, thickK);
     float fNoLw = max((dot(Nfoam, L) + wrap) / (1.0 + wrap), 0.0);
-    vec3 Efoam = skyIrr * ao + sunRad * fNoLw + sunRad * 0.28 * (0.55 + 0.45*bubbles);
+    // The unoriented term is light that entered the raft and came back out
+    // with no direction left. At 0.28 it is what pushes the sunlit side past
+    // 1.0 and clips, and a clipped highlight has no shape.
+    vec3 Efoam = skyIrr * ao + sunRad * fNoLw
+               + sunRad * mix(0.28, 0.11, uFoamSoft) * (0.55 + 0.45*bubbles);
     vec3 foamLit = uFoamColor * albedo * Efoam * (1.0/PI);
     float fwd = pow(clamp(dot(V, -L), 0.0, 1.0), 2.5);
     foamLit += uFoamColor * sunRad * fwd * (1.0 - albedo) * (0.5/PI) * (1.0 - 0.55*fresh);
@@ -1715,7 +1742,10 @@ void main(){
     float opacity = clamp(uFoamOpacity * (1.0 - exp(-tau)) * (opFloor + (1.0 - opFloor)*bubbles), 0.0, 1.0);
     foamLit = max(foamLit, col * mix(0.88, 1.12, fresh));
     vec3 under = col + cyan;
-    float cover = foamMask * mix(0.38, 0.88, fresh);
+    // Thin lace should not hide the water. Coverage now falls away with
+    // optical thickness, so the veil tints instead of painting over.
+    float cover = foamMask * mix(0.38, 0.88, fresh)
+                * mix(1.0, 0.58 + 0.42*bubbles, uFoamSoft);
     col = mix(col, mix(under, foamLit, opacity), cover);
   }
 
