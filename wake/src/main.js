@@ -1283,4 +1283,8 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // Expose for the headless capture harness.
-window.__wake = { PARAMS, set, get, state, view, renderer, wake, ocean, stepSim, sea, wakeBridge, body, spray, shore, camera };
+// `boat` and `scene` are here for the same reason everything else is: so a
+// probe can ask the running page a question instead of me guessing at it. The
+// boat's materials in particular are loaded from GLBs and can carry whatever
+// the exporter chose, which is not knowable from this source.
+window.__wake = { PARAMS, set, get, state, view, renderer, wake, ocean, stepSim, sea, wakeBridge, body, spray, shore, camera, boat, scene };
