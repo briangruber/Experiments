@@ -725,7 +725,36 @@ void main(){
   // Before anything else is computed: there is no sea inside a hull. Discarding
   // leaves no depth behind either, so the boat's own interior draws through the
   // hole instead of losing the depth test to a sheet of water above it.
-  if (hullInside(vFlat.xz) > 0.5) discard;
+  //
+  // But hullInside() is an ellipse on the FLAT WATER PLANE, and a hull is not
+  // flat. Seen from anywhere but straight down the boat leans off part of its
+  // own waterline footprint, and the sea was being cut there too -- so the hole
+  // ran out from under the hull and the terrain behind showed through it raw,
+  // as a grey-tan oval astern of the boat with no water colour on it at all.
+  // It slid around as the camera moved because that is what parallax between a
+  // hole in one plane and a solid above it does.
+  //
+  // The footprint says WHERE THE CRAFT MIGHT BE; the depth photograph taken for
+  // the refraction says where it actually IS, per pixel. Cut only where both
+  // agree. Inside the hull the scene fragment is the boat -- in front of the
+  // water, or a metre or so behind it looking down into an open one. Where the
+  // hull has leaned away the scene fragment is the SEABED, metres further down
+  // the ray, and that is water we should be drawing.
+  if (hullInside(vFlat.xz) > 0.5) {
+    bool cut = true;
+    if (uRefrOn > 0.5) {
+      float dscene = texture(uRefrDepth, gl_FragCoord.xy / uRefrRes).r;
+      float zs = (2.0*uRefrNear*uRefrFar)
+               / (uRefrFar+uRefrNear-(2.0*dscene-1.0)*(uRefrFar-uRefrNear));
+      float zw = (2.0*uRefrNear*uRefrFar)
+               / (uRefrFar+uRefrNear-(2.0*gl_FragCoord.z-1.0)*(uRefrFar-uRefrNear));
+      // Scaled off the hull the cut was built from, so it follows the boat:
+      // a launch gets a couple of metres of slack, a ship gets more. The bed
+      // under a lagoon is far outside it either way.
+      cut = zs < zw + max(uHullCutLen * 0.35, 1.5);
+    }
+    if (cut) discard;
+  }
 
   vec3 toEye = uCamPos - vWorld;
   float eyeDist = max(length(toEye), 1e-4);
