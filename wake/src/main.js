@@ -765,8 +765,14 @@ function stepSim(dt) {
   // that is the way the water was actually swept.
   const bowAhead = body.bowOffset();
   const bhx = Math.sin(state.heading), bhz = Math.cos(state.heading);
+  // Going ASTERN the track runs the other way down the same course line, so
+  // the tangent handed to the field has to be the direction of TRAVEL, not the
+  // direction the bow points. Without the flip the ribbon is laid backwards
+  // over water the hull has not reached and the Kelvin terms see a negative
+  // speed, which is a square root of a negative number two functions down.
+  const way = state.speed < 0 ? -1 : 1;
   wake.pushSample(state.x + bhx * bowAhead, state.z + bhz * bowAhead,
-                  hx, hz, state.t, state.speed, state.turn);
+                  hx * way, hz * way, state.t, Math.abs(state.speed), state.turn);
   // ...and where the hull ITSELF is, which is not the same thing the moment
   // the boat crabs: the sample is the track, this is the boat.
   wake.setHull(state.x + bhx * bowAhead, state.z + bhz * bowAhead, state.heading);

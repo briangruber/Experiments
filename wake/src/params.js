@@ -6,7 +6,10 @@
 
 export const PARAMS = {
   boat: {
-    speed:        { v: 0, min: 0,   max: 100,  step: 0.1,  label: 'Speed (m/s)' },
+    // Negative is ASTERN, and the slider goes there because the throttle keys
+    // ride the slider: with a floor of 0 holding Down parked her at a stop and
+    // there was no way back past it short of the separate S key.
+    speed:        { v: 0, min: -8,  max: 100,  step: 0.1,  label: 'Speed (m/s)' },
     turnRate:     { v: 0,  min: -25, max: 25,  step: 0.5,  label: 'Turn (°/s)' },
     accel:        { v: 5.3, min: 0.1, max: 12,  step: 0.05, label: 'Acceleration (m/s²)' },
     brake:        { v: 1.9, min: 1,   max: 8,   step: 0.1,  label: 'Braking x accel' },

@@ -1026,62 +1026,36 @@ export class Shore {
 	}
 
 	/**
-	 * Keep a hull in the bay.
+	 * Run her aground if she deserves it, and otherwise leave the helm alone.
 	 *
-	 * Same two layers the pond used, for the same reason: the assist steers
-	 * along the shore before you reach it, and the clamp is the honest backstop
-	 * when you drive at a rock anyway. The margin is generous because the coast
-	 * is jagged -- the waterline at one bearing is not the waterline at the
-	 * next, and clipping a headland at speed is worse than being turned early.
+	 * Returns 0 always -- the signature is kept so the caller reads the same as
+	 * the pond's, which really does have a wall around it.
 	 */
-	confine( state, dt, steerRate ) {
+	confine( state, dt ) {
 
-		const d = Math.hypot( state.x, state.z );
-		const ang = Math.atan2( state.x, state.z );
-		const limit = this.coastAt( ang ) - 22;
-		let assist = 0;
-
-		// STEER, do not shove.
+		// NOTHING is off limits that the boat can actually float on.
 		//
-		// The old version turned the helm a little from 40 m out and then hard
-		// CLAMPED the position at the limit, which is not confinement at all --
-		// it is a wall that slides the hull sideways with its heading unchanged,
-		// and it reads exactly as being pushed because that is what it is.
+		// This used to steer -- an assist that leaned on the helm from 90 m out
+		// and a soft radial clamp behind it. Both are gone. A helm you did not
+		// ask for is a helm fighting you, and the radial limit was a circle
+		// drawn around a coast that is not a circle: it kept the hull out of
+		// bays that are metres deep and let her at headlands that are not.
 		//
-		// So the assist starts further out, ramps as the square of how close you
-		// are, and is allowed to be much stronger than the helm: near the rock
-		// you are being turned, not nudged. A boat rounding a headland does the
-		// same thing -- the turn begins well before the point.
-		const band = 90;
-		if ( d > limit - band && state.speed > 0.15 ) {
-			let rel = state.heading - ang;
-			rel = ( ( rel + Math.PI ) % ( Math.PI * 2 ) + Math.PI * 2 ) % ( Math.PI * 2 ) - Math.PI;
-			const closeness = Math.min( 1, Math.max( 0, ( d - ( limit - band ) ) / band ) );
-			// Only when actually pointing out to sea-ward of the coast: a boat
-			// running parallel to a beach should not be fought.
-			const outward = Math.cos( rel );
-			if ( outward > - 0.15 ) {
-				// Toward whichever tangent is nearer, so the hull rounds the
-				// headland rather than reversing into it.
-				const side = rel >= 0 ? 1 : - 1;
-				assist = side * steerRate * ( 0.6 + 3.4 * closeness * closeness )
-					* Math.max( 0, outward );
-			}
+		// What is left is the one thing that is not a rule but a fact: a hull
+		// with water under her goes anywhere, and a hull without stops. Read
+		// the bed she is actually over and take the way off her only when the
+		// keel is in it. Astern still works from there, so grounding is a thing
+		// you back off, not a thing you are trapped by.
+		const bed = this.heightAt( state.x, state.z );
+		const draft = 0.55;
+		if ( bed > - draft ) {
+			// Proportional, not a switch: touching bottom drags, burying the
+			// keel stops her. Scaled by dt so the rate is frame-independent.
+			const dig = Math.min( 1, ( bed + draft ) / 0.9 );
+			state.speed *= 1 - Math.min( 0.9, dig * dt / 0.35 );
 		}
 
-		// The backstop, and it is SOFT. A hard clamp teleports; this eases the
-		// hull back over about a third of a second, so at worst it feels like
-		// the boat is being set down by a swell rather than hitting glass.
-		if ( d > limit ) {
-			const k = limit / d;
-			const ease = 1 - Math.exp( - dt / 0.30 );
-			state.x += ( state.x * k - state.x ) * ease;
-			state.z += ( state.z * k - state.z ) * ease;
-			// And take the way off her, the way running aground actually does.
-			state.speed *= 1 - Math.min( 0.85, dt / 0.55 );
-		}
-
-		return assist;
+		return 0;
 
 	}
 }
