@@ -59,6 +59,7 @@ const out = await page.evaluate(async () => {
   const rows = [];
   // Each entry: a label and the params to null out. Restored after every run.
   const CASES = [
+    ['refraction pass at half scale', { 'scene.refrScale': 0.5 }],
     ['bed caustics',        { 'lake.caustics': 0 }],
     ['coral heads',         { 'lake.coral': 0 }],
     ['screen refraction',   { 'scene.refraction': 0 }],

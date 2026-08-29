@@ -378,6 +378,16 @@ export const PARAMS = {
     // the surface, wobbled by the surface normal and murked by depth. 0 turns
     // the extra scene pass off entirely.
     refraction:   { v: 0.9,  min: 0,   max: 2.5, step: 0.01, label: 'See-through water' },
+    // Resolution of that extra pass, as a fraction of the canvas. It is the
+    // single most expensive thing in the frame -- measured at ~18% of it --
+    // because it draws the whole scene a second time at full size. What comes
+    // back is then warped by the surface normal and murked by depth, so most
+    // of that resolution is destroyed before it is ever seen.
+    //
+    // Not free below ~0.5, and the reason is the hull cut rather than the
+    // refracted image: the cut asks this pass's DEPTH, per pixel, where the
+    // boat actually is, so a coarser buffer coarsens the waterline edge.
+    refrScale:    { v: 0.6,  min: 0.25, max: 1, step: 0.05, label: 'Refraction pass scale' },
     // How far down you can see. Divides the water's absorption, so 2 means
     // roughly twice the sight depth -- the bed, a submerged keel and the
     // bubble plume all reach the same distance, because they are all looking

@@ -1073,7 +1073,15 @@ function frame(now) {
     let refr = null;
     if (get('scene.refraction') > 0.001) {
       const bw = renderer.domElement.width, bh = renderer.domElement.height;
-      ensureRefrRT(bw, bh);
+      // The pass is rendered SMALLER than the canvas but still sampled by a
+      // normalised uv, so nothing downstream has to know: uRefrRes stays the
+      // canvas size because gl_FragCoord is in canvas pixels, and the smaller
+      // buffer is filtered up. The whole scene drawn twice at full size was
+      // measured at ~18% of the frame, and the refracted image is warped and
+      // murk-tinted before anyone sees it -- resolution spent there is
+      // resolution thrown away.
+      const rk = Math.max(0.25, Math.min(1, get('scene.refrScale')));
+      ensureRefrRT(Math.max(2, Math.round(bw * rk)), Math.max(2, Math.round(bh * rk)));
       const tm = renderer.toneMapping;
       renderer.toneMapping = THREE.NoToneMapping;
       renderer.setRenderTarget(refrRT);
