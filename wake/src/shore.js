@@ -173,19 +173,25 @@ export class Shore {
 	 * @param {number} o.bay      mean radius of open water, metres
 	 * @param {number} o.rugged   how far the coastline wanders from that mean
 	 * @param {number} o.relief   height of the rock above the waterline
-	 * @param {number} o.trees    pines on the headland
 	 * @param {number} o.seed
+	 *
+	 * `trees` and `relief` are accepted and ignored: they belonged to the land,
+	 * and the panel and the rebuild check still pass them. Dropping them from
+	 * the signature would only move the dead parameter somewhere less obvious.
 	 */
-	constructor( { bay = 300, rugged = 1, relief = 1, trees = 900, boulders = 1200, seed = 12 } = {} ) {
+	constructor( { bay = 300, rugged = 1, boulders = 1200, seed = 12 } = {} ) {
 
 		this.bay = bay;
 		this.rugged = rugged;
-		this.relief = relief;
 		this.seed = seed;
 		this.group = new THREE.Group();
 
-		this._buildLand();
-		this._buildTrees( trees );
+		// NO LAND, and no pines on it. What was here was a full terrain system --
+		// a triplanar-textured land mesh climbing out of the water with instanced
+		// trees on it -- and it was the worst-looking thing in the scene: blurred,
+		// stretched and blotchy at every range. The bathymetry it was built on is
+		// the good part and it stays, because depth IS the colour of a lagoon.
+		// So: a seafloor, and the rocks standing in it. Nothing above the water.
 		this._buildBoulders( boulders );
 
 	}
@@ -237,6 +243,18 @@ export class Shore {
 	 * waterline, and what the reference photo shows dipping under the water.
 	 */
 	heightAt( x, z ) {
+
+		// Nothing emerges. The shape below can still throw a reef head or a
+		// rough patch above zero, and with no land mesh to stand on those would
+		// read as bare bright specks where the bed shader clamps them to five
+		// centimetres of water. Deeper than the hull's draft, too, so the
+		// grounding check in confine() is dead rather than dragging everywhere.
+		return Math.min( this._bedAt( x, z ), - 0.9 );
+
+	}
+
+	/** The raw bathymetry, unclamped. */
+	_bedAt( x, z ) {
 
 		const s = this.seed;
 		const d = Math.hypot( x, z ) || 1e-4;
@@ -308,26 +326,23 @@ export class Shore {
 				+ grain * 0.55 * Math.exp( t / 70 );
 		}
 
-		// LANDWARD. Climbs, with terraced shelves in the first few metres.
+		// BEYOND THE OLD WATERLINE. There is no land here any more, so the bed
+		// does the only sensible thing: it keeps going.
 		//
-		// The climb is modulated by a MASSIF term that varies slowly around the
-		// bay: without it every bearing rises to the same height and the land
-		// reads as a plateau with a hedge on top rather than as headlands with
-		// saddles between them. This is the difference between a wall and a
-		// place -- one number, sampled by angle so a headland stays a headland
-		// all the way round its point.
-		const ang2 = Math.atan2( x, z );
-		const massif = 0.35 + 1.5 * fbm( Math.cos( ang2 ) * 1.4 + 60,
-			Math.sin( ang2 ) * 1.4 - 30, 3, s + 211 );
-		const climb = Math.pow( Math.min( t / 46, 1 ), 0.78 ) * 26 * this.relief * massif;
-		const raw = climb + rough * 5.2 * this.relief + fine * 1.5
-			+ grain * 1.35 * Math.min( 1, t / 6 );
-		// Terracing, strongest right at the water and gone by the time the rock
-		// is properly up: flat shelves dipping in, jagged crags above them.
-		const nearShore = Math.exp( - t / 30 );
-		const step = 1.9;
-		const terraced = Math.round( raw / step ) * step;
-		return raw + ( terraced - raw ) * 0.62 * nearShore;
+		// Every coefficient below is the seaward branch's own, mirrored in t, so
+		// the two halves meet exactly at t = 0 -- at the waterline the outer
+		// slope is zero and the three noise terms are at full strength, which is
+		// precisely what the shelf returns there. Getting this wrong puts a
+		// circular step right where the eye is already looking for a coastline.
+		//
+		// Outward it settles onto a bank about nine metres down rather than
+		// climbing, so what used to be beach and headland is now the pale
+		// shallow ring around the lagoon, with the reef heads thinning out
+		// across it.
+		const outer = 9.0 * ( 1 - Math.exp( - t / 140 ) );
+		const heads = Math.max( 0, fine ) * 2.6 * Math.exp( - t / 110 );
+		return - outer + rough * 1.1 * Math.exp( - t / 150 ) + heads
+			+ grain * 0.55 * Math.exp( - t / 70 );
 
 	}
 
@@ -406,373 +421,6 @@ export class Shore {
 
 		out.setRGB( r, g, b );
 		return out;
-
-	}
-
-	// -------------------------------------------------------------- geometry --
-	//
-	// One grid over the whole bay, displaced. Resolution is set by what the eye
-	// resolves at the waterline (a couple of metres per quad) rather than by
-	// the extent, and the grid is CENTRED ON THE BAY, not on the camera -- the
-	// coast does not move, so neither should its mesh.
-	_buildLand() {
-
-		// A RADIAL grid, not a square one.
-		//
-		// The interesting metre of this whole place is the waterline, and a
-		// uniform grid spends its vertices evenly over a square kilometre --
-		// most of them on flat water-facing nothing, and about three metres of
-		// resolution where the rock actually breaks. Rings spaced by a power
-		// law put quads a few tens of centimetres apart at the coast and tens
-		// of metres out at the horizon, for the same vertex count. That is the
-		// difference between broken lava and a smooth ramp.
-		const RINGS = 260, SPOKES = 420;
-		const INNER = this.bay * 0.55, OUTER = this.bay * 3.4;
-
-		// THE HOLE IN THE MIDDLE.
-		//
-		// The mesh used to start at INNER -- a perfect circle of radius
-		// 0.55 x bay with no seabed inside it at all. From above that is
-		// exactly what you saw: a hard-edged disc centred on the origin, dark
-		// water within, bright shelf without. It went unnoticed while the
-		// submerged rock was as dark as the deep water; brightening the shelf
-		// to sand is what turned a seam into a spotlight.
-		//
-		// So fill it. A modest fan of rings covers the deep centre, where there
-		// is nothing to resolve and a few hundred quads is plenty, and the
-		// power law still spends the detail at the waterline. Starting at 1.5 m
-		// rather than 0 keeps the innermost ring from collapsing to a point.
-		const FILL = 44;
-		const radii = [];
-		for ( let i = 0; i < FILL; i ++ ) radii.push( 1.5 + ( INNER - 1.5 ) * ( i / FILL ) );
-		for ( let i = 0; i <= RINGS; i ++ ) {
-			// u^2.6 crowds the rings toward the coast, which sits near u = 0.2.
-			const u = i / RINGS;
-			radii.push( INNER + ( OUTER - INNER ) * Math.pow( u, 2.6 ) );
-		}
-		const TOTAL = radii.length - 1;
-		const verts = [], idx = [];
-		for ( let i = 0; i <= TOTAL; i ++ ) {
-			const r = radii[ i ];
-			for ( let j = 0; j < SPOKES; j ++ ) {
-				const a = j / SPOKES * Math.PI * 2;
-				verts.push( Math.sin( a ) * r, 0, Math.cos( a ) * r );
-			}
-		}
-		for ( let i = 0; i < TOTAL; i ++ ) {
-			for ( let j = 0; j < SPOKES; j ++ ) {
-				const j1 = ( j + 1 ) % SPOKES;
-				const a = i * SPOKES + j, b = i * SPOKES + j1;
-				const c = ( i + 1 ) * SPOKES + j, d = ( i + 1 ) * SPOKES + j1;
-				idx.push( a, c, b, b, c, d );
-			}
-		}
-		const geo = new THREE.BufferGeometry();
-		geo.setAttribute( 'position', new THREE.Float32BufferAttribute( verts, 3 ) );
-		geo.setIndex( idx );
-
-		const pos = geo.attributes.position;
-		const colours = new Float32Array( pos.count * 3 );
-		const c = new THREE.Color();
-
-		// DEEP VERTICES GO FLAT.
-		//
-		// A radial grid has sliver quads near its origin -- unavoidable, 420
-		// spokes converging -- and sampling per-vertex noise on slivers paints
-		// the variation as RADIAL STREAKS. Filling the centre hole is what put
-		// them on screen: a starburst around the origin, which is not a thing
-		// any seabed does.
-		//
-		// The honest fix is that the detail should not be there at all. You
-		// cannot resolve bottom texture through ten metres of water -- it is
-		// gone to absorption and scatter long before the eye gets it -- so the
-		// colour converges to one flat deep-bed tone as the water gets deep.
-		// The streaks have nothing left to draw, and nothing visible is lost.
-		const DEEP = [ 0.62, 0.62, 0.55 ];
-		for ( let i = 0; i < pos.count; i ++ ) {
-			const x = pos.getX( i ), z = pos.getZ( i );
-			const h = this.heightAt( x, z );
-			pos.setY( i, h );
-			this._colourAt( x, z, h, c );
-			const flat = smoothstep01( - 6, - 13, h );
-			colours[ i * 3 ] = c.r + ( DEEP[ 0 ] - c.r ) * flat;
-			colours[ i * 3 + 1 ] = c.g + ( DEEP[ 1 ] - c.g ) * flat;
-			colours[ i * 3 + 2 ] = c.b + ( DEEP[ 2 ] - c.b ) * flat;
-		}
-		pos.needsUpdate = true;
-		geo.setAttribute( 'color', new THREE.BufferAttribute( colours, 3 ) );
-		geo.computeVertexNormals();
-
-		// Photographic rock and sand, projected TRIPLANAR.
-		//
-		// Flat shading and vertex colours got the silhouette right and stopped
-		// there: a facet with one colour cannot look like stone at any polygon
-		// count, because what the eye reads as rock is surface relief far below
-		// the geometry. A normal map supplies exactly that, for free.
-		//
-		// Triplanar rather than UV, because this mesh has no sensible UVs -- it
-		// is a radial grid of a heightfield, so a planar projection stretches
-		// into streaks down every cliff, which is the classic terrain-texturing
-		// tell. Projecting from all three axes and blending by the normal costs
-		// three samples and never stretches.
-		//
-		// The vertex colour survives as a TINT over the photograph, so the
-		// wet-rock band, the sand on the flats and the green on the tops all
-		// still come from the height-and-slope logic above.
-		const load = ( uri, srgb ) => {
-			const t = new THREE.TextureLoader().load( uri );
-			t.wrapS = t.wrapT = THREE.RepeatWrapping;
-			t.anisotropy = 8;
-			if ( srgb ) t.colorSpace = THREE.SRGBColorSpace;
-			return t;
-		};
-		const uni = {
-			uRockMap: { value: load( TEX.rock.albedo, true ) },
-			uRockNrm: { value: load( TEX.rock.normal, false ) },
-			uSandMap: { value: load( TEX.sand.albedo, true ) },
-			uSandNrm: { value: load( TEX.sand.normal, false ) },
-			uTexScale: { value: 0.34 },       // repeats per metre
-			uNormalAmt: { value: 1.15 },
-			uBlendSharp: { value: 0.28 },
-			uMacro: { value: 0.45 }, uMacroScale: { value: 0.010 },
-			// Each photograph divided by its own mean luminance, so it
-			// modulates around 1 instead of dragging everything toward its own
-			// brightness. Basalt averages 0.23 -- multiplying by that directly
-			// turned the whole headland into a silhouette.
-			uRockMean: { value: TEX.rock.mean },
-			uSandMean: { value: TEX.sand.mean },
-		};
-		const mat = new THREE.MeshStandardMaterial( {
-			vertexColors: true, roughness: 0.93, metalness: 0, flatShading: false,
-		} );
-		mat.onBeforeCompile = ( sh ) => {
-			Object.assign( sh.uniforms, uni );
-			sh.vertexShader = sh.vertexShader
-				.replace( '#include <common>',
-					'#include <common>\nvarying vec3 vWPos;\nvarying vec3 vWNrm;' )
-				.replace( '#include <worldpos_vertex>',
-					'#include <worldpos_vertex>\n\tvWPos = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;\n\tvWNrm = normalize( mat3( modelMatrix ) * objectNormal );' );
-			sh.fragmentShader = sh.fragmentShader
-				.replace( '#include <common>', `#include <common>
-					varying vec3 vWPos;
-					varying vec3 vWNrm;
-					uniform sampler2D uRockMap, uRockNrm, uSandMap, uSandNrm;
-					uniform float uTexScale, uNormalAmt, uRockMean, uSandMean;
-					uniform float uBlendSharp, uMacro, uMacroScale;
-					// Blend the three axis projections by how much the surface
-					// faces each one. The power sharpens the transition so the
-					// seams between projections stay narrow.
-					${ TRIPLANAR_GLSL }
-					vec3 blendNormals( vec3 n1, vec3 n2 ){
-					  vec3 t = n1 * vec3( 2.0, 2.0, 2.0 ) + vec3( -1.0, -1.0, 0.0 );
-					  vec3 u = n2 * vec3( -2.0, -2.0, 2.0 ) + vec3( 1.0, 1.0, -1.0 );
-					  return normalize( t * dot( t, u ) / max( t.z, 1e-4 ) - u );
-					}` )
-				.replace( '#include <map_fragment>', `
-					vec3 tw = triW( normalize( vWNrm ) );
-					vec3 tp = vWPos * uTexScale;
-					// Flat and low takes sand; anything steeper or higher is
-					// rock. The same rule the vertex colours use, so the
-					// photograph and the tint agree about where the sand is.
-					float sandK = smoothstep( 0.55, 0.9, normalize( vWNrm ).y )
-					            * ( 1.0 - smoothstep( 1.5, 7.0, vWPos.y ) );
-					// TWO SCALES, not one.
-					//
-					// A single 512 plate at one repeat is the classic texture
-					// tell: the eye finds the period within a second or two and
-					// the cliff turns into wallpaper. Sampling the same plate
-					// again eight times larger and multiplying gives macro
-					// blotching that never lines up with the fine detail, so the
-					// repeat has nothing to lock onto. Costs one extra fetch.
-					// One scale for colour now that noTile breaks the repeat --
-					// the second was only ever there to disguise it, and it cost
-					// a fetch and washed out the contrast.
-					vec3 rockC = triSample( uRockMap, tp, tw ).rgb / max( uRockMean, 0.02 );
-					vec3 sandC = triSample( uSandMap, tp * 0.7, tw ).rgb / max( uSandMean, 0.02 );
-					// Height blend, not a linear wash: sand fills the hollows and the
-					// rock keeps its high points, so the two meet along an interlocking
-					// edge the way they do on a real shore.
-					vec3 texC = heightBlend( rockC, sandC, sandK, uBlendSharp );
-					// And a slow variation over the whole landscape, so it stops
-					// reading as one flat mean brightness tiled to the horizon.
-					texC *= clamp( macroVar( vWPos.xz, uMacroScale ), 1.0 - uMacro, 1.0 + uMacro * 0.9 );
-					// The photograph MODULATES the computed colour rather than
-					// replacing it, and it is normalised to average 1, so it
-					// darkens creases and lifts crests without shifting the
-					// overall tone the height-and-slope logic chose.
-					diffuseColor.rgb *= mix( vec3( 1.0 ), texC, 0.82 );
-					// Wet rock is GLOSSY. Everything within the splash zone
-					// takes a specular sheen the dry crags above it do not,
-					// and that difference is most of what reads as "the sea
-					// reaches this far" in a photograph.
-					float wetZone = 1.0 - smoothstep( -0.3, 1.6, vWPos.y );` )
-				.replace( '#include <roughnessmap_fragment>',
-					'float roughnessFactor = roughness * mix( 1.0, 0.32, wetZone );' )
-				.replace( '#include <normal_fragment_maps>', `
-					// THREE SCALES of normal, blended properly.
-					//
-					// The article this comes from is blunt that a normal map
-					// matters more than diffuse resolution, and that the detail
-					// wants to arrive at several scales: a macro one for the
-					// crag, a mid one for the cracks, a fine one for grain. They
-					// have to be blended rather than summed -- summing muddies
-					// them and blows out patches -- so each is reoriented by the
-					// one below it.
-					vec3 nMacro = triSample( uRockNrm, tp * 0.19, tw ).rgb;
-					vec3 nMid = triSample( uRockNrm, tp, tw ).rgb;
-					vec3 nFine = triSample( uRockNrm, tp * 4.3, tw ).rgb;
-					vec3 nRock = blendNormals( blendNormals( nMacro, nMid ), nFine );
-					vec3 nSand = triSample( uSandNrm, tp * 0.7, tw ).rgb * 2.0 - 1.0;
-					vec3 nrT = mix( nRock, nSand, sandK );
-					// Whiteout-style application: perturb the geometric normal by
-					// the map's horizontal part. Cheaper than a full TBN and, on a
-					// heightfield with no UVs, better behaved.
-					normal = normalize( normal + vec3( nrT.x, 0.0, nrT.y ) * uNormalAmt );` );
-		};
-		const mesh = new THREE.Mesh( geo, mat );
-		mesh.receiveShadow = true;
-		mesh.castShadow = true;
-		this.group.add( mesh );
-		this.land = mesh;
-
-	}
-
-	// ---------------------------------------------------------------- pines --
-	//
-	// The headland's cover: tall, narrow, and massed. Two instanced meshes --
-	// trunks and canopies -- because at this scale there are hundreds of them
-	// and they are the difference between a rock and a place.
-	_buildTrees( count ) {
-
-		const rand = rng( this.seed * 7 + 3 );
-
-		// BILLBOARD IMPOSTERS, not cones.
-		//
-		// A cone is the single loudest thing in the frame that says "not real":
-		// no silhouette, no gaps, no needles. A photographed pine on a quad has
-		// all three for two triangles, which is why every game has drawn distant
-		// vegetation this way for thirty years.
-		//
-		// CYLINDRICAL billboarding -- the quad spins about its own trunk to face
-		// the camera, and never tips. Spherical billboarding (facing the camera
-		// outright) makes a forest lie down when you look at it from above, and
-		// a tree that leans toward the viewer as you climb is worse than a cone.
-		//
-		// alphaTest rather than blending: alpha-blended foliage needs sorting,
-		// and hundreds of unsorted transparent quads draw each other's holes.
-		// A cutout writes depth like any solid, sorts for free, and takes part
-		// in the shadow map -- which is where half the realism actually comes
-		// from.
-		const plates = [ TEX.pine1, TEX.pine2 ].filter( Boolean );
-		if ( ! plates.length || count < 1 ) { this.treeCount = 0; return; }
-
-		const perPlate = Math.ceil( count / plates.length );
-		let placed = 0;
-		this.trees = [];
-
-		for ( const [ pi, plate ] of plates.entries() ) {
-
-			const tex = new THREE.TextureLoader().load( plate.png );
-			tex.colorSpace = THREE.SRGBColorSpace;
-			tex.anisotropy = 8;
-			// A pine is ~14 m tall and the plate keeps its own proportions, so
-			// the quad is as wide as the photograph says it should be.
-			const H = 1, W = plate.w / plate.h;
-			const geo = new THREE.PlaneGeometry( W, H );
-			// Origin at the FOOT of the quad, so an instance sits on the ground
-			// rather than half-buried in it.
-			geo.translate( 0, H * 0.5, 0 );
-
-			const mat = new THREE.MeshStandardMaterial( {
-				map: tex, transparent: false, alphaTest: 0.45,
-				roughness: 0.92, metalness: 0, side: THREE.DoubleSide,
-			} );
-			mat.onBeforeCompile = ( sh ) => {
-				sh.vertexShader = sh.vertexShader
-					.replace( '#include <begin_vertex>', `
-					#include <begin_vertex>
-					// Rebuild the vertex IN WORLD SPACE so the quad faces the
-					// camera about the Y axis. The instance matrix carries the
-					// trunk's position and its scale; take those apart rather
-					// than letting the matrix rotate the plate.
-					vec3 bbCentre = vec3( instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2] );
-					float bbSX = length( instanceMatrix[0].xyz );
-					float bbSY = length( instanceMatrix[1].xyz );
-					vec3 bbToCam = cameraPosition - bbCentre;
-					// Y flattened: the quad turns, it never tips. Facing the
-					// camera outright would lay the whole forest down when seen
-					// from above, which is worse than a cone.
-					vec3 bbRight = normalize( vec3( bbToCam.z, 0.0, - bbToCam.x ) );
-					transformed = bbCentre + bbRight * ( position.x * bbSX )
-					            + vec3( 0.0, position.y * bbSY, 0.0 );
-					` )
-					// The vertex above is ALREADY in world space. three's own
-					// projection would then apply the instance matrix a second
-					// time -- which is exactly what put the first attempt's
-					// trees in the sky, each one translated by its own position
-					// twice over. Project it directly instead.
-					.replace( '#include <project_vertex>', `
-					vec4 mvPosition = modelViewMatrix * vec4( transformed, 1.0 );
-					gl_Position = projectionMatrix * mvPosition;
-					` )
-					.replace( '#include <worldpos_vertex>', `
-					#if defined( USE_ENVMAP ) || defined( DISTANCE ) || defined( USE_SHADOWMAP ) || defined( USE_TRANSMISSION ) || NUM_SPOT_LIGHT_COORDS > 0
-						vec4 worldPosition = vec4( transformed, 1.0 );
-					#endif
-					` );
-			};
-
-			const mesh = new THREE.InstancedMesh( geo, mat, perPlate );
-			mesh.castShadow = true;
-			mesh.receiveShadow = true;
-			mesh.frustumCulled = false;    // the vertex shader moves them
-			const m = new THREE.Matrix4();
-			const q = new THREE.Quaternion();
-			const v = new THREE.Vector3();
-			const col = new THREE.Color();
-
-			let n = 0, tries = 0;
-			const reach = this.bay * 1.7;
-			while ( n < perPlate && tries < perPlate * 40 ) {
-				tries ++;
-				// Rejection sampling against the ground itself: trees go where
-				// there IS ground high and level enough to hold them, which puts
-				// them on the headland without anyone placing them there.
-				const a = rand() * Math.PI * 2;
-				const r = this.bay * 0.9 + rand() * reach;
-				const x = Math.sin( a ) * r, z = Math.cos( a ) * r;
-				const h = this.heightAt( x, z );
-				if ( h < 5.5 ) continue;
-				if ( rand() > Math.min( 1, ( h - 5.5 ) / 9 ) ) continue;
-				const e = 2.5;
-				const slope = Math.max(
-					Math.abs( this.heightAt( x + e, z ) - h ),
-					Math.abs( this.heightAt( x, z + e ) - h ) ) / e;
-				if ( slope > 0.85 ) continue;
-
-				// Squared random: small trees common, tall ones occasional.
-				const u = rand();
-				const tall = 7 + u * u * 16;
-				// Sunk slightly so the trunk foot never floats over a facet.
-				m.compose( v.set( x, h - 0.4, z ), q, v.clone().set( tall, tall, tall ) );
-				mesh.setMatrixAt( n, m );
-				// Per-tree tint: a stand is never one green, and without this
-				// the repeat of two plates is obvious.
-				col.setHSL( 0.25 + rand() * 0.06, 0.30 + rand() * 0.25,
-					0.42 + rand() * 0.22 );
-				mesh.setColorAt( n, col );
-				n ++;
-			}
-			mesh.count = n;
-			mesh.instanceMatrix.needsUpdate = true;
-			if ( mesh.instanceColor ) mesh.instanceColor.needsUpdate = true;
-			this.group.add( mesh );
-			this.trees.push( mesh );
-			placed += n;
-
-		}
-
-		this.treeCount = placed;
 
 	}
 
