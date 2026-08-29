@@ -19,28 +19,44 @@ import { PARAMS, set } from './params.js';
 // A group's position here is its position on the panel. buildPanel walks this
 // map first and then anything in PARAMS it does not name, so a new group shows
 // up looking unfinished rather than not showing up at all.
+// Titles, and the ORDER the panel lists them in.
+//
+// These are SECTIONS, not storage groups, and the difference is the whole point.
+// A param lives in params.js under whatever key the code reads it by -- moving
+// it between groups would mean touching every get() that names it -- but where
+// it APPEARS is a separate question, answered by a `ui:` tag on the param. So
+// 'Sea & light' could be split into the sea and the light without renaming a
+// single key: wave height stays ocean.waveHeight and simply shows up under Sea
+// state, while sun elevation shows up under Sun & sky.
+//
+// The sections read outward from what you are most likely to be looking at, and
+// each one answers a single question rather than a family of them.
 const GROUP_TITLES = {
-  // --- what you drive, and what it is in
-  boat: 'Boat',
-  ocean: 'Sea & light',
-  scene: 'Sky, render & reflections',
-  lake: 'Sea bed',
-  // --- what is in the water with you
-  shore: 'Rocks & their spray',
-  spray: 'Spray (airborne)',
-  // --- the wake, from its shape to its foam
-  arms: 'Wake: the V',
-  kelvin: 'Wake: Kelvin waves',
-  feather: 'Wake: feathering / comb',
-  inner: 'Wake: inside the V',
-  wash: 'Wake: prop wash',
-  bubbles: 'Wake: subsurface bubbles',
-  foamLook: 'Foam: texture',
+  boat:       'Boat',
+  seaState:   'Sea state',                 // how the water moves
+  sunSky:     'Sun & sky',                 // where the light comes from
+  waterLook:  'Water look & colour',       // what the water does with it
+  mirror:     'Reflections & shadows',
+  bed:        'Sea bed',
+  shore:      'Rocks & their spray',
+  spray:      'Spray (airborne)',
+  arms:       'Wake: the V',
+  kelvin:     'Wake: Kelvin waves',
+  feather:    'Wake: feathering / comb',
+  inner:      'Wake: inside the V',
+  wash:       'Wake: prop wash',
+  bubbles:    'Wake: subsurface bubbles',
+  foamLook:   'Foam: texture',
   foamMotion: 'Foam: motion',
-  foamMix: 'Foam: on the water',
-  // --- cost
-  field: 'Field & decay',
-  quality: 'Performance',
+  foamMix:    'Foam: on the water',
+  field:      'Field & decay',
+  render:     'Renderer & debug',
+  quality:    'Performance',
+  // The pre-abyssal lake scene, kept together and kept last. Its terrain is not
+  // what you are looking at unless you have switched the abyssal sea off, and
+  // scattering its controls through the sections above put a dozen sliders that
+  // do nothing in the middle of ones that do.
+  oldLake:    'Legacy lake scene',
 };
 
 /**
@@ -97,10 +113,24 @@ export function buildUI(root, hooks = {}) {
   // one. Anything in PARAMS without a title still gets listed, at the end,
   // under its raw name: a new group should show up looking unfinished rather
   // than not show up at all.
-  const titled = Object.keys(GROUP_TITLES).filter((g) => PARAMS[g]);
-  const untitled = Object.keys(PARAMS).filter((g) => !GROUP_TITLES[g]);
+  // Bucket every param into its SECTION -- its `ui:` tag if it has one, else
+  // the group it is stored under. This is what lets the panel be organised by
+  // subject while the keys stay where the code expects them.
+  const sections = new Map();
+  for (const [gname, entries] of Object.entries(PARAMS)) {
+    for (const [key, p] of Object.entries(entries)) {
+      const sec = p.ui || gname;
+      if (!sections.has(sec)) sections.set(sec, []);
+      sections.get(sec).push([key, p, gname]);
+    }
+  }
+  const titled = Object.keys(GROUP_TITLES).filter((g) => sections.has(g));
+  const untitled = [...sections.keys()].filter((g) => !GROUP_TITLES[g]);
   for (const gname of [...titled, ...untitled]) {
-    const entries = PARAMS[gname];
+    // The array, not an object keyed by name: two storage groups can hold the
+    // same key (ocean.tint and scene.waterTint both end up under Water look),
+    // and collapsing them into an object would silently drop one of them.
+    const entries = sections.get(gname);
     const sec = document.createElement('details');
     // Shut by default. Sixteen open groups is a wall of sliders between you
     // and the water, and the two controls anyone actually reaches for first --
@@ -111,8 +141,11 @@ export function buildUI(root, hooks = {}) {
     sec.appendChild(sum);
 
     let shown = 0;
-    for (const [key, p] of Object.entries(entries)) {
-      const path = `${gname}.${key}`;
+    for (const [key, p, storedIn] of entries) {
+      // The STORAGE path, not the section's. gname is now where the row is
+      // shown; storedIn is the group the value actually lives under, and it is
+      // what get()/set() and every hook key on.
+      const path = `${storedIn}.${key}`;
       // Controls for the analytic fallback ocean, which is hidden whenever the
       // Abyssal sea is on. Showing a slider that cannot move anything visible
       // is worse than not showing it: it costs a round of "is this broken?"

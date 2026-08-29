@@ -279,16 +279,16 @@ export const PARAMS = {
   ocean: {
     // Sea state. These three are baked into the FFT's initial spectrum, so
     // moving them rebuilds it -- once, on change, not per frame.
-    waveHeight:   { v: 1,    min: 0,   max: 3,   step: 0.01, label: 'Wave height ×' },
-    swellAmp:     { v: 0.14, min: 0,   max: 1,   step: 0.01, label: 'Swell amount' },
-    swellLen:     { v: 5.5,  min: 3,   max: 18,  step: 0.1,  label: 'Swell period (s)' },
-    chopAmp:      { v: 0.78, min: 0,   max: 1.5, step: 0.01, label: 'Choppiness' },
+    waveHeight:   { ui: 'seaState', v: 1,    min: 0,   max: 3,   step: 0.01, label: 'Wave height ×' },
+    swellAmp:     { ui: 'seaState', v: 0.14, min: 0,   max: 1,   step: 0.01, label: 'Swell amount' },
+    swellLen:     { ui: 'seaState', v: 5.5,  min: 3,   max: 18,  step: 0.1,  label: 'Swell period (s)' },
+    chopAmp:      { ui: 'seaState', v: 0.78, min: 0,   max: 1.5, step: 0.01, label: 'Choppiness' },
     // Light.
-    sunElev:      { v: 72,   min: 0,   max: 88,  step: 1,    label: 'Sun elevation (°)' },
-    sunAzim:      { v: 142,  min: 0,   max: 360, step: 1,    label: 'Sun azimuth (°)' },
-    reflectivity: { v: 1.15, min: 0,   max: 3,   step: 0.01, label: 'Sky ambient' },
-    sunGlow:      { v: 7,    min: 0.2, max: 8,   step: 0.05, label: 'Sun disc size ×' },
-    hazeStart:    { v: 1,    min: 0,   max: 3,   step: 0.01, label: 'Aerial haze' },
+    sunElev:      { ui: 'sunSky', v: 72,   min: 0,   max: 88,  step: 1,    label: 'Sun elevation (°)' },
+    sunAzim:      { ui: 'sunSky', v: 142,  min: 0,   max: 360, step: 1,    label: 'Sun azimuth (°)' },
+    reflectivity: { ui: 'sunSky', v: 1.15, min: 0,   max: 3,   step: 0.01, label: 'Sky ambient' },
+    sunGlow:      { ui: 'sunSky', v: 7,    min: 0.2, max: 8,   step: 0.05, label: 'Sun disc size ×' },
+    hazeStart:    { ui: 'sunSky', v: 1,    min: 0,   max: 3,   step: 0.01, label: 'Aerial haze' },
     // GLITTER ONLY BREAKS THE SUN PATH UP -- it cannot make one.
     //
     // Worth knowing before reaching for it: the scintillation it drives has an
@@ -297,7 +297,7 @@ export const PARAMS = {
     // water between them, not a brighter or wider path. It is also gated on
     // sub-pixel slope variance, so on glassy water it does nothing at all.
     // For a bigger, brighter path, reach for Specular below.
-    sheen:        { v: 1,    min: 0,   max: 4,   step: 0.01, label: 'Glitter strength' },
+    sheen:        { ui: 'waterLook', v: 1,    min: 0,   max: 4,   step: 0.01, label: 'Glitter strength' },
     // AND THIS IS THE ONE THAT MAKES IT VISIBLE AT ALL.
     //
     // Each scintillation octave dies once a pixel covers more sea than the
@@ -309,26 +309,26 @@ export const PARAMS = {
     //
     // This is the flash size in metres. Bigger flashes survive a coarser pixel
     // and reach further down the path.
-    glitterSize:  { v: 3.2,  min: 0.3, max: 12,  step: 0.1,  label: 'Glitter grain (m)' },
+    glitterSize:  { ui: 'waterLook', v: 3.2,  min: 0.3, max: 12,  step: 0.1,  label: 'Glitter grain (m)' },
     // WAVE SETS. An FFT sea is Gaussian and so is statistically identical
     // everywhere at once; real water arrives in groups, because components of
     // slightly different wavelength beat against each other as they travel.
     // That beating is why a sea has moods and why one wave in a set stands
     // clear of its neighbours. 0 is the plain Gaussian sea.
-    groups:       { v: 0.45, min: 0,   max: 1.2, step: 0.01, label: 'Wave sets / outliers' },
-    groupLen:     { v: 260,  min: 40,  max: 900, step: 10,   label: 'Set length (m)' },
+    groups:       { ui: 'seaState', v: 0.45, min: 0,   max: 1.2, step: 0.01, label: 'Wave sets / outliers' },
+    groupLen:     { ui: 'seaState', v: 260,  min: 40,  max: 900, step: 10,   label: 'Set length (m)' },
     // The halo around the sun, from aerosol forward scattering. Built out of
     // the atmosphere's own transmittance, so it reddens with the disc at sunset
     // instead of staying a white sprite.
-    sunAura:      { v: 1.0,  min: 0,   max: 4,   step: 0.01, label: 'Sun aura' },
-    sunAuraFall:  { v: 2.4,  min: 0.8, max: 5,   step: 0.05, label: 'Aura falloff' },
-    specular:     { v: 0.55, min: 0,   max: 2,   step: 0.01, label: 'Specular' },
-    exposure:     { v: 1.2,  min: 0.2, max: 3,   step: 0.01, label: 'Exposure' },
+    sunAura:      { ui: 'sunSky', v: 1.0,  min: 0,   max: 4,   step: 0.01, label: 'Sun aura' },
+    sunAuraFall:  { ui: 'sunSky', v: 2.4,  min: 0.8, max: 5,   step: 0.05, label: 'Aura falloff' },
+    specular:     { ui: 'waterLook', v: 0.55, min: 0,   max: 2,   step: 0.01, label: 'Specular' },
+    exposure:     { ui: 'waterLook', v: 1.2,  min: 0.2, max: 3,   step: 0.01, label: 'Exposure' },
     // Retired with the analytic ocean: 'Water lightness' and 'Blue / teal'
     // duplicated Sky & weather's clarity / tint / glow, and 'Wave sheen' is
     // now Glitter above.
-    deepColor:    { v: 0.021,min: 0,   max: 0.4, step: 0.001,label: 'Water lightness', lab: 1 },
-    tint:         { v: 0.42, min: 0,   max: 1,   step: 0.01, label: 'Blue / teal', lab: 1 },
+    deepColor:    { ui: 'waterLook', v: 0.021,min: 0,   max: 0.4, step: 0.001,label: 'Water lightness', lab: 1 },
+    tint:         { ui: 'waterLook', v: 0.42, min: 0,   max: 1,   step: 0.01, label: 'Blue / teal', lab: 1 },
   },
 
   // A volcanic lagoon shore at real scale: jagged rock at the waterline,
@@ -375,23 +375,23 @@ export const PARAMS = {
     // 1 draws the vendored Abyssal FFT sea and volumetric sky; 0 the lab's own
     // analytic ocean. Both carry the same wake -- that is the point of keeping
     // the switch rather than deleting the loser.
-    abyssal:      { v: 1,    min: 0,   max: 1,   step: 1,    label: 'Abyssal sea' },
+    abyssal:      { ui: 'render', v: 1,    min: 0,   max: 1,   step: 1,    label: 'Abyssal sea' },
     // Strips the sea's shading and paints the wake's HEIGHT instead: crests
     // warm, troughs cold, still water black, with the zero contour picked out
     // so the crest lines are legible. Everything that makes water look like
     // water is also what hides a few centimetres of height moving across it.
-    waveDebug:    { v: 0,    min: 0,   max: 1,   step: 1,    label: 'Debug: wave motion' },
-    waveDebugScale:{ v: 0.15, min: 0.01, max: 1.5, step: 0.01, label: 'Debug: height scale (m)' },
+    waveDebug:    { ui: 'render', v: 0,    min: 0,   max: 1,   step: 1,    label: 'Debug: wave motion' },
+    waveDebugScale:{ ui: 'render', v: 0.15, min: 0.01, max: 1.5, step: 0.01, label: 'Debug: height scale (m)' },
     // Index into PRESET_NAMES in abyssalSea.js, calmest first: turning it up
     // means more sea. Drives the wave spectrum AND the light, because in
     // Abyssal they are one parameter set, not two.
-    preset:       { v: 4,    min: 0,   max: 9,   step: 1,    label: 'Weather preset' },
+    preset:       { ui: 'seaState', v: 4,    min: 0,   max: 9,   step: 1,    label: 'Weather preset' },
     // The prototype already has a lake bottom (the terrain). Abyssal's presets
     // carry their own procedural seafloor, and a shallow one under green lake
     // water reads as a bright green pool. 0 pushes it out of sight, 1 restores
     // exactly what the preset asked for.
 
-    waterTint:    { v: 0,  min: 0,   max: 1,   step: 0.01, label: 'Deep-water tint' },
+    waterTint:    { ui: 'waterLook', v: 0,  min: 0,   max: 1,   step: 0.01, label: 'Deep-water tint' },
     // Straight down, Fresnel reflects ~2% of the sky, so a look-down view sees
     // only what the water column scatters back. This scales that, and it is
     // the reason an overhead camera can look black on a preset authored for a
@@ -402,15 +402,15 @@ export const PARAMS = {
     // 0.85 was too dark once ACES was added on top of halved lights: these
     // models carry baked ambient occlusion and fairly dark albedo, so they
     // read as untextured grey long before they read as underlit.
-    meshExposure: { v: 1,  min: 0.1, max: 4,   step: 0.01, label: 'Mesh exposure' },
+    meshExposure: { ui: 'render', v: 1,  min: 0.1, max: 4,   step: 0.01, label: 'Mesh exposure' },
     // Master on the sun and sky reaching the MESHES. Their ratio comes from
     // the sun's elevation, so this scales both together rather than letting
     // them drift apart.
-    meshSun:      { v: 1,  min: 0,   max: 3,   step: 0.01, label: 'Mesh sun & sky' },
+    meshSun:      { ui: 'render', v: 1,  min: 0,   max: 3,   step: 0.01, label: 'Mesh sun & sky' },
     // Screen-space refraction: the submerged half of the hull, seen THROUGH
     // the surface, wobbled by the surface normal and murked by depth. 0 turns
     // the extra scene pass off entirely.
-    refraction:   { v: 0.9,  min: 0,   max: 2.5, step: 0.01, label: 'See-through water' },
+    refraction:   { ui: 'waterLook', v: 0.9,  min: 0,   max: 2.5, step: 0.01, label: 'See-through water' },
     // Resolution of that extra pass, as a fraction of the canvas. It is the
     // single most expensive thing in the frame -- measured at ~18% of it --
     // because it draws the whole scene a second time at full size. What comes
@@ -420,7 +420,7 @@ export const PARAMS = {
     // Not free below ~0.5, and the reason is the hull cut rather than the
     // refracted image: the cut asks this pass's DEPTH, per pixel, where the
     // boat actually is, so a coarser buffer coarsens the waterline edge.
-    refrScale:    { v: 0.6,  min: 0.25, max: 1, step: 0.05, label: 'Refraction pass scale' },
+    refrScale:    { ui: 'waterLook', v: 0.6,  min: 0.25, max: 1, step: 0.05, label: 'Refraction pass scale' },
     // The boat's image in the water, and the shadow it throws on it.
     //
     // A ray-sphere proxy at the craft rather than a reflection pass: R is
@@ -429,24 +429,24 @@ export const PARAMS = {
     // second render of the scene, and because R comes from the wavy normal the
     // image wobbles with the real waves rather than with a planar pass's fake.
     // It is a soft blob at the boat's scale -- it will not give you rigging.
-    boatReflect:  { v: 1,    min: 0,   max: 2.5, step: 0.01, label: 'Boat reflection' },
-    boatShadow:   { v: 0.5,  min: 0,   max: 1.5, step: 0.01, label: 'Boat shadow on water' },
+    boatReflect:  { ui: 'mirror', v: 1,    min: 0,   max: 2.5, step: 0.01, label: 'Boat reflection' },
+    boatShadow:   { ui: 'mirror', v: 0.5,  min: 0,   max: 1.5, step: 0.01, label: 'Boat shadow on water' },
     // How far down you can see. Divides the water's absorption, so 2 means
     // roughly twice the sight depth -- the bed, a submerged keel and the
     // bubble plume all reach the same distance, because they are all looking
     // through the same water.
     // The hull's shadow on the sea bed. Only visible where there IS a bed --
     // raise 'Bed depth' under The Lake to bring one into view.
-    hullShadow:   { v: 1,    min: 0,   max: 1,   step: 0.01, label: 'Boat shadow on the bed' },
-    clarity:      { v: 1,    min: 0.2, max: 3,   step: 0.05, label: 'Water clarity (see-through depth)' },
-    waterGlow:    { v: 1.0,  min: 0.2, max: 10,  step: 0.05, label: 'Water glow (look-down)' },
-    warmth:       { v: 1.15, min: 0,   max: 1.5, step: 0.01, label: 'Sunset warmth' },
-    cloud:        { v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Cloud cover' },
-    cloudScale:   { v: 0.55, min: 0.05,max: 3,   step: 0.01, label: 'Cloud scale' },
-    cloudSoft:    { v: 0.3, min: 0.02,max: 1,   step: 0.01, label: 'Cloud softness' },
-    treeline:     { v: 0.008, min: 0,   max: 0.08,step: 0.001,label: 'Shore height' , lab: 1 },
-    treeRough:    { v: 0.45, min: 0,   max: 1.5, step: 0.01, label: 'Shore roughness' , lab: 1 },
-    treeDark:     { v: 0.02, min: 0,   max: 0.6, step: 0.005,label: 'Shore lightness' , lab: 1 },
+    hullShadow:   { ui: 'bed', v: 1,    min: 0,   max: 1,   step: 0.01, label: 'Boat shadow on the bed' },
+    clarity:      { ui: 'waterLook', v: 1,    min: 0.2, max: 3,   step: 0.05, label: 'Water clarity (see-through depth)' },
+    waterGlow:    { ui: 'waterLook', v: 1.0,  min: 0.2, max: 10,  step: 0.05, label: 'Water glow (look-down)' },
+    warmth:       { ui: 'sunSky', v: 1.15, min: 0,   max: 1.5, step: 0.01, label: 'Sunset warmth' },
+    cloud:        { ui: 'sunSky', v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Cloud cover' },
+    cloudScale:   { ui: 'sunSky', v: 0.55, min: 0.05,max: 3,   step: 0.01, label: 'Cloud scale' },
+    cloudSoft:    { ui: 'sunSky', v: 0.3, min: 0.02,max: 1,   step: 0.01, label: 'Cloud softness' },
+    treeline:     { ui: 'oldLake', v: 0.008, min: 0,   max: 0.08,step: 0.001,label: 'Shore height' , lab: 1 },
+    treeRough:    { ui: 'oldLake', v: 0.45, min: 0,   max: 1.5, step: 0.01, label: 'Shore roughness' , lab: 1 },
+    treeDark:     { ui: 'oldLake', v: 0.02, min: 0,   max: 0.6, step: 0.005,label: 'Shore lightness' , lab: 1 },
   },
 
   // The lake itself -- real geometry, not a painted horizon.
@@ -457,32 +457,32 @@ export const PARAMS = {
     // pushing the floor away turned the look-down view black. 0 = no floor.
     // The pond the boats keep to. Read at startup (the park is built once);
     // the confinement uses it live.
-    pond:         { v: 0,  min: 60,  max: 900, step: 10,   label: 'Pond radius (m)' },
+    pond:         { ui: 'oldLake', v: 0,  min: 60,  max: 900, step: 10,   label: 'Pond radius (m)' },
     // Nominal bed depth, and the whole procedural bottom hangs off it: the
     // shallowest banks come to 0.45x this and the basins fall to 2.3x. It used
     // to default to 0 -- which pushes the floor to 400 m, out of sight -- back
     // when a baked coast map painted the only bottom anyone saw. With that map
     // gone this is the sea bed, everywhere, so it has to be a real number.
-    floorDepth:   { v: 9,  min: 0,   max: 60,  step: 0.5,  label: 'Bed depth (m)' },
-    weed:         { v: 0.45, min: 0,   max: 1,   step: 0.01, label: 'Weed over sand' },
+    floorDepth:   { ui: 'bed', v: 9,  min: 0,   max: 60,  step: 0.5,  label: 'Bed depth (m)' },
+    weed:         { ui: 'bed', v: 0.45, min: 0,   max: 1,   step: 0.01, label: 'Weed over sand' },
     // How bright the bed comes back. The scene's exposure is set for the
     // water surface, and an unscaled bottom clips to white -- which costs
     // the caustics, since a clipped surface cannot carry contrast.
-    coral:        { v: 0.85, min: 0,   max: 1.5, step: 0.01, label: 'Coral heads' },
-    bedBright:    { v: 0.30, min: 0.02, max: 2, step: 0.01, label: 'Bed brightness' },
+    coral:        { ui: 'bed', v: 0.85, min: 0,   max: 1.5, step: 0.01, label: 'Coral heads' },
+    bedBright:    { ui: 'bed', v: 0.30, min: 0.02, max: 2, step: 0.01, label: 'Bed brightness' },
     // The surface's own slope, bending the view of the bottom: this is what
     // makes the sand shift under a passing wave.
-    bedDistort:   { v: 1.0,  min: 0,   max: 3,   step: 0.01, label: 'Distortion through surface' },
-    causticSize:  { v: 3.0,  min: 0.3, max: 10, step: 0.1,  label: 'Caustic cell size' },
-    caustics:     { v: 1.35, min: 0,   max: 1.5, step: 0.01, label: 'Caustics on the bed' },
-    radius:       { v: 1850, min: 200, max: 4000,step: 10,   label: 'Lake radius (m)' , lab: 1 },
-    depth:        { v: 14,   min: 2,   max: 60,  step: 1,    label: 'Basin depth (m)' , lab: 1 },
-    rim:          { v: 70,   min: 10,  max: 400, step: 5,    label: 'Hill height (m)' , lab: 1 },
-    relief:       { v: 34,   min: 0,   max: 120, step: 1,    label: 'Relief (m)' , lab: 1 },
-    wobble:       { v: 0.3, min: 0,   max: 0.8, step: 0.01, label: 'Shoreline wobble' , lab: 1 },
-    islands:      { v: 55,   min: 0,   max: 200, step: 1,    label: 'Islands' , lab: 1 },
-    avoid:        { v: 0, min: 0,   max: 3,   step: 0.01, label: 'Shore avoidance' },
-    canopy:       { v: 0.1, min: 0.01,max: 0.6, step: 0.005,label: 'Canopy lightness' , lab: 1 },
+    bedDistort:   { ui: 'bed', v: 1.0,  min: 0,   max: 3,   step: 0.01, label: 'Distortion through surface' },
+    causticSize:  { ui: 'bed', v: 3.0,  min: 0.3, max: 10, step: 0.1,  label: 'Caustic cell size' },
+    caustics:     { ui: 'bed', v: 1.35, min: 0,   max: 1.5, step: 0.01, label: 'Caustics on the bed' },
+    radius:       { ui: 'oldLake', v: 1850, min: 200, max: 4000,step: 10,   label: 'Lake radius (m)' , lab: 1 },
+    depth:        { ui: 'oldLake', v: 14,   min: 2,   max: 60,  step: 1,    label: 'Basin depth (m)' , lab: 1 },
+    rim:          { ui: 'oldLake', v: 70,   min: 10,  max: 400, step: 5,    label: 'Hill height (m)' , lab: 1 },
+    relief:       { ui: 'oldLake', v: 34,   min: 0,   max: 120, step: 1,    label: 'Relief (m)' , lab: 1 },
+    wobble:       { ui: 'oldLake', v: 0.3, min: 0,   max: 0.8, step: 0.01, label: 'Shoreline wobble' , lab: 1 },
+    islands:      { ui: 'oldLake', v: 55,   min: 0,   max: 200, step: 1,    label: 'Islands' , lab: 1 },
+    avoid:        { ui: 'oldLake', v: 0, min: 0,   max: 3,   step: 0.01, label: 'Shore avoidance' },
+    canopy:       { ui: 'oldLake', v: 0.1, min: 0.01,max: 0.6, step: 0.005,label: 'Canopy lightness' , lab: 1 },
   },
 
   quality: {
