@@ -205,6 +205,7 @@ export class WaterSurface {
       uViewProj: ctx.viewProj, uCamPos: ctx.camPos,
       uGridCenter: set2(this._vGrid, ctx.camPos[0], ctx.camPos[2]),
       uRMin: p.rMin, uRMax: p.rMax,
+      uGroupAmt: p.groupAmount ?? 0, uGroupScale: p.groupScale ?? 0.0022,
       uHeightScale: p.heightScale, uHorizScale: p.horizScale,
       uEarthCurve: p.earthCurve, uSeaLevel: p.seaLevel,
       uHorizonPin: horizonPinAmount(ctx, p),

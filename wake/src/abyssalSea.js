@@ -213,6 +213,15 @@ function fitToLake( p, preset = {}, tune = {} ) {
 	p.aerial = get( 'ocean.hazeStart' );
 	p.sunAngularRadius = 0.00465 * get( 'ocean.sunGlow' );
 	p.glitter = ( preset.glitter ?? 0.28 ) * get( 'ocean.sheen' );
+	// Flash size. Upstream ships 1.0, which puts both scintillation octaves under
+	// the pixel footprint everywhere a sun path actually falls.
+	p.glitterScale = get( 'ocean.glitterSize' );
+	// Wave GROUPS. Live, not baked: this scales the displacement in the vertex
+	// stage rather than entering the spectrum, so it costs no rebuild.
+	p.groupAmount = get( 'ocean.groups' );
+	// Set length, as a spatial frequency. The slider is in metres because that is
+	// what you can see; a 260 m set is a familiar-looking ocean.
+	p.groupScale = 1 / Math.max( get( 'ocean.groupLen' ), 20 );
 	// The sun's halo, as a fraction of the DISC's radiance at the limb. The disc
 	// scaling is handled inside the shader, where the falloff is already measured
 	// in units of the sun's own radius.

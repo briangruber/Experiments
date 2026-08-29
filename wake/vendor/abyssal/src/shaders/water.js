@@ -87,6 +87,36 @@ uniform mat4  uViewProj;
 uniform vec3  uCamPos;      // also read by the FS; one uniform, two stages
 uniform vec2  uGridCenter;
 uniform float uRMin, uRMax;
+uniform float uGroupAmt, uGroupScale;
+// The group field needs a clock and a direction to drift along. Both are
+// already uniforms of this program for the fragment stage; declaring them here
+// as well is one uniform seen by two stages, not two uniforms.
+uniform float uTime;
+uniform vec2  uWindDirV;
+
+// Value noise, SELF-CONTAINED, because the vertex stage includes none of the
+// fragment shader's noise chunk -- the first cut of the group field called
+// fbm2() here and would not have linked. Two octaves is all a group envelope
+// needs; it is a slow swelling, not a texture.
+float gHash(vec2 p){
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+float gNoise(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(gHash(i), gHash(i + vec2(1,0)), f.x),
+             mix(gHash(i + vec2(0,1)), gHash(i + vec2(1,1)), f.x), f.y);
+}
+float gFbm(vec2 p, int oct){
+  float a = 0.5, s = 0.0, n = 0.0;
+  for (int i = 0; i < 4; i++){
+    if (i >= oct) break;
+    s += a * gNoise(p); n += a; a *= 0.5; p = p * 2.03 + vec2(5.1, -3.7);
+  }
+  return s / max(n, 1e-4);
+}
 uniform float uHeightScale, uHorizScale;
 uniform float uEarthCurve;
 uniform float uSeaLevel;
@@ -133,6 +163,30 @@ void main(){
     if (c < 2) swellH += d.y * uHeightScale;
   }
   vSwellH = swellH;
+  // WAVE GROUPS -- sets, and the outliers inside them.
+  //
+  // An FFT sea is a sum of independent components, so its surface is Gaussian
+  // and statistically the same everywhere at once. Real water is not: waves
+  // arrive in GROUPS, a few big ones together and then a lull, because
+  // components of slightly different wavelength beat against each other as they
+  // travel. That beating is what makes a sea feel like it has moods, and it is
+  // why every so often one wave stands well clear of its neighbours.
+  //
+  // A slow field, drifting downwind, scaling the whole displacement. Two
+  // octaves an order apart: the slow one is the set, the faster one lets an odd
+  // wave inside a set stand up on its own. Multiplying the displacement rather
+  // than adding a wave keeps the sea's own shapes -- crests stay crests, they
+  // just grow and subside as the group passes through them.
+  if (uGroupAmt > 0.0005) {
+    vec2 drift = uWindDirV * uTime * 1.4;
+    float g1 = gFbm(xz * uGroupScale + drift * uGroupScale, 3) * 2.0 - 1.0;
+    float g2 = gFbm(xz * uGroupScale * 4.3 - drift * uGroupScale * 2.0 + 37.0, 2) * 2.0 - 1.0;
+    // Biased so a set is a swelling rather than a shrinking: an ocean with the
+    // groups switched on should not read as quieter than one without.
+    float g = 1.0 + uGroupAmt * (g1 * 0.72 + g2 * 0.38 * max(g1, 0.0));
+    disp *= max(g, 0.05);
+  }
+
   pos += disp;
 
   pos.y += hullLift(xz);

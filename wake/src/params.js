@@ -287,7 +287,7 @@ export const PARAMS = {
     sunElev:      { v: 72,   min: 0,   max: 88,  step: 1,    label: 'Sun elevation (°)' },
     sunAzim:      { v: 142,  min: 0,   max: 360, step: 1,    label: 'Sun azimuth (°)' },
     reflectivity: { v: 1.15, min: 0,   max: 3,   step: 0.01, label: 'Sky ambient' },
-    sunGlow:      { v: 1,    min: 0.2, max: 8,   step: 0.05, label: 'Sun disc size ×' },
+    sunGlow:      { v: 7,    min: 0.2, max: 8,   step: 0.05, label: 'Sun disc size ×' },
     hazeStart:    { v: 1,    min: 0,   max: 3,   step: 0.01, label: 'Aerial haze' },
     // GLITTER ONLY BREAKS THE SUN PATH UP -- it cannot make one.
     //
@@ -297,7 +297,26 @@ export const PARAMS = {
     // water between them, not a brighter or wider path. It is also gated on
     // sub-pixel slope variance, so on glassy water it does nothing at all.
     // For a bigger, brighter path, reach for Specular below.
-    sheen:        { v: 1,    min: 0,   max: 4,   step: 0.01, label: 'Glitter (sparkle only)' },
+    sheen:        { v: 1,    min: 0,   max: 4,   step: 0.01, label: 'Glitter strength' },
+    // AND THIS IS THE ONE THAT MAKES IT VISIBLE AT ALL.
+    //
+    // Each scintillation octave dies once a pixel covers more sea than the
+    // flashes are wide -- the right call, since sub-pixel flashes are just
+    // aliasing. But the flashes were about 0.6 m and 0.16 m across, and a
+    // grazing pixel anywhere down a sun path covers metres. So the whole path,
+    // which is the only place glitter belongs, was past the cutoff and the
+    // strength slider drove a term that had already returned 1.0.
+    //
+    // This is the flash size in metres. Bigger flashes survive a coarser pixel
+    // and reach further down the path.
+    glitterSize:  { v: 3.2,  min: 0.3, max: 12,  step: 0.1,  label: 'Glitter grain (m)' },
+    // WAVE SETS. An FFT sea is Gaussian and so is statistically identical
+    // everywhere at once; real water arrives in groups, because components of
+    // slightly different wavelength beat against each other as they travel.
+    // That beating is why a sea has moods and why one wave in a set stands
+    // clear of its neighbours. 0 is the plain Gaussian sea.
+    groups:       { v: 0.45, min: 0,   max: 1.2, step: 0.01, label: 'Wave sets / outliers' },
+    groupLen:     { v: 260,  min: 40,  max: 900, step: 10,   label: 'Set length (m)' },
     // The halo around the sun, from aerosol forward scattering. Built out of
     // the atmosphere's own transmittance, so it reddens with the disc at sunset
     // instead of staying a white sprite.
