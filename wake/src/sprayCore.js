@@ -61,6 +61,26 @@ export class SprayCore {
 	 */
 	emit( x, y, z, out, fwd, speed, rand, opt = null ) {
 
+		// NO DROPLET INSIDE THE HULL.
+		//
+		// Droplets are billboards drawn AFTER the boat with depthWrite off, and
+		// the hull's own spray is emitted at the chines -- on the hull's edge,
+		// at the waterline. A droplet sized in metres, spawned on that line and
+		// spreading inboard, paints over the deck it came off, which reads as
+		// foam showing through the boat.
+		//
+		// It is the same rule the water itself obeys: the sea is cut out inside
+		// the hull because there is no sea inside a boat. There is no spray in
+		// there either, whatever emitted it. Slightly inside the water's own cut
+		// so the chines themselves still throw.
+		const h = this.hullCut;
+		if ( h ) {
+			const rx = x - h.x, rz = z - h.z;
+			const along = ( rx * h.fx + rz * h.fz ) / h.len;
+			const lat = ( - rx * h.fz + rz * h.fx ) / h.beam;
+			if ( along * along + lat * lat < 1 ) return;
+		}
+
 		const i = this._slot();
 		const p = this.p;
 		// A caller with its own physics can override the hull-derived settings.

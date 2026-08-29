@@ -320,7 +320,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b52';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b53';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -1226,6 +1226,14 @@ function frame(now) {
     //
     // Centred at the hull's middle and lifted, so the blob sits over the boat's
     // visual mass rather than at the stem where the model's origin is.
+    // The footprint the spray must keep out of, in the same terms the water's
+    // own cut uses. Set every frame from the same numbers, so the two can never
+    // drift apart into a boat whose sea is cut but whose spray is not.
+    spray.hullCut = cut > 0.5 ? {
+      x: cxm, z: czm, fx, fz,
+      len: Math.max(drawn * 0.40, 0.3),
+      beam: Math.max(get('boat.beam') * get('boat.modelScale') * 0.38, 0.25),
+    } : null;
     const reflAmt = get('scene.boatReflect');
     const craft = reflAmt > 0.001 ? {
       pos: new Float32Array([cxm, boat.position.y + drawn * 0.10, czm]),
