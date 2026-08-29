@@ -39,8 +39,20 @@ page.on('console', m => { if (m.type() === 'error') errs.push(m.text()); });
 await page.goto(`http://127.0.0.1:${server.address().port}/?prewarm=20&boat.speed=6&boat.turnRate=4&cam=${CAM}`,
   { waitUntil: 'load' });
 await page.waitForFunction('window.__ready === true', { timeout: 240000 }).catch(()=>{});
-const out = await page.evaluate(async () => {
+const out = await page.evaluate(async (camDist) => {
   const w = window.__wake;
+  // Drive the camera through `view`, NOT the ?cam= query.
+  //
+  // useCamera() applies a shot preset at startup and assigns view.dist from
+  // it, which lands AFTER the URL override and silently clobbers it. Three
+  // runs of this probe reported a camera 130 m out while asking for 420, and
+  // every bed-range number they produced was therefore taken at the wrong
+  // distance -- which matters exactly here, because the seafloor's fine detail
+  // fades out between 90 m and 340 m and the whole question is what it costs
+  // beyond that.
+  w.view.topDown = false;
+  w.view.pitch = 1.40;
+  w.view.dist = camDist;
   // Time the DRAW, and force the pipe to drain before stopping the clock --
   // GL commands are queued, so timing render() alone times the queueing.
   const frame = () => new Promise(r => requestAnimationFrame(() => r()));
@@ -84,7 +96,16 @@ const out = await page.evaluate(async () => {
   await measure(4);
   const after = await measure(10);
   rows.sort((a, b) => (b.savedMs ?? -1) - (a.savedMs ?? -1));
-  return { baseMs: base, recheckMs: after, camDist: w.camera.position.length().toFixed(0), rows };
-});
+  // Distance from the BOAT, which is what the shader's `dist` is measured
+  // from -- not from the world origin, which is what an earlier version of
+  // this line reported while the boat was circling 86 m out.
+  const toBoat = Math.hypot(w.camera.position.x - w.state.x,
+                            w.camera.position.y,
+                            w.camera.position.z - w.state.z);
+  return { baseMs: base, recheckMs: after, camToBoat: +toBoat.toFixed(0),
+           // A run whose recheck has drifted from its base is a run where the
+           // machine changed under us, and its later rows are worthless.
+           driftPct: +(100 * (after - base) / base).toFixed(1), rows };
+}, +opt('dist', 500));
 console.log(JSON.stringify(out, null, 2)); if (errs.length) console.log('ERRORS', errs.slice(0,3));
 await browser.close(); server.close();
