@@ -163,7 +163,23 @@ function buildEnvironment(sunDir, sunCol, skyLift) {
 let envTex = null;
 let envStamp = '';
 
-const camera = new THREE.PerspectiveCamera(38, 1, 0.5, 3000);
+// FAR PLANE 3000 -> 60000, and this is what put a grey band at the horizon.
+//
+// The water grid runs out to rMax (42 km) and its outermost ring is PINNED to
+// the sightline tangent, which is what makes the sea meet the horizon exactly.
+// Both of those sit far outside a 3 km far plane, so they were clipped away and
+// never drawn: the sea simply stopped at 3 km, and above that the sky pass drew
+// its own below-horizon limb into the gap. Measured from a 155 m eye, water at
+// 3 km lands at -2.96 deg while the geometric horizon is at -0.40 deg, which is
+// two and a half degrees of grey -- and it grows as the camera climbs, which is
+// exactly when it was reported.
+//
+// It is also why raising rMax did nothing: the far plane clipped first.
+//
+// Depth precision is fine. Almost all of it lives near the NEAR plane, which is
+// untouched at 0.5 m: a 24-bit buffer still resolves about 12 microns at ten
+// metres and about a metre at three kilometres, which is open sea.
+const camera = new THREE.PerspectiveCamera(38, 1, 0.5, 60000);
 
 // The Kelvin waves are the finest thing the field has to carry, and at 1024
 // over a 340 m window (~0.33 m/texel) their cusp lines visibly stair-step.
@@ -307,7 +323,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b45';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b46';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
