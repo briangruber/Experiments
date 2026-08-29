@@ -35,16 +35,21 @@ const menu = new DialogueMenu(VIEW);
 const player = new Actor(dock.CAST.player);
 const grout = new Actor(dock.CAST.grout);
 
-// A generated plate replaces the procedural layers when tools/plate.mjs has
+// A generated plate replaces the static layers when tools/plate.mjs has
 // written one. Failure to load is not an error — it is the normal case before
 // anyone has spent a credit.
+//
+// window.__ASSETS is how the single-file bundle (tools/bundle.mjs) hands over
+// the same art inlined. A bundle has no folder to fetch from, and this is
+// cheaper than teaching the bundler to rewrite paths inside the source.
 let plate = null;
 async function loadPlate() {
+  const src = window.__ASSETS?.plate ?? './assets/dock-plate.png';
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => resolve(img);
     img.onerror = () => resolve(null);
-    img.src = './assets/dock-plate.png';
+    img.src = src;
   });
 }
 
@@ -365,5 +370,5 @@ else console.log('[art] procedural placeholder in use — run tools/plate.mjs fo
 // clicking real pixels. A prototype that cannot be driven by a script cannot
 // be regression-tested, and an adventure game with no completion test breaks
 // silently the first time a flag is renamed.
-window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => room, actors: { player, grout } };
+window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => room, actors: { player, grout }, usingPlate: () => !!plate, voiced };
 requestAnimationFrame(frame);

@@ -37,7 +37,11 @@ export async function serve() {
     const path = join(ROOT, url === '/' ? 'index.html' : url);
     try {
       const body = await readFile(path);
-      res.writeHead(200, { 'content-type': MIME[extname(path)] || 'application/octet-stream' });
+      const type = MIME[extname(path)] || 'application/octet-stream';
+      // Without the charset the em dashes in the source come back as mojibake,
+      // which looks like a bundler bug and is not one.
+      const charset = /^(text|application\/(javascript|json))/.test(type) ? '; charset=utf-8' : '';
+      res.writeHead(200, { 'content-type': type + charset });
       res.end(body);
     } catch { res.writeHead(404).end('not found'); }
   });

@@ -1,0 +1,168 @@
+<meta charset="utf-8">
+<title>The Errant Kipper</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Alegreya+Sans:wght@400;500;700&display=swap">
+<style>
+/* A single committed theme, not a light/dark pair. The game is a fixed
+   moonlit night scene: a light chrome around it would fight the only image on
+   the page. Every colour is painted explicitly so the page holds on either
+   host ground. Palette is lifted from the game's own verb coin and the warm
+   spill from the tavern window. */
+:root {
+  --pitch: #0a0907;
+  --plank: #16120e;
+  --brass: #c9a86a;
+  --lamp:  #f6d78a;
+  --fog:   #6b6152;
+  --rule:  #251d15;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--pitch);
+  color: var(--fog);
+  font: 400 15px/1.65 "Alegreya Sans", "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 40px 24px 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+header { display: flex; flex-direction: column; gap: 7px; }
+h1 {
+  margin: 0;
+  font-family: "IM Fell English SC", Georgia, serif;
+  font-weight: 400;
+  font-size: clamp(30px, 5.2vw, 46px);
+  line-height: 1.05;
+  letter-spacing: .015em;
+  color: var(--lamp);
+  text-wrap: balance;
+}
+.standfirst { margin: 0; max-width: 62ch; color: #8a7d68; }
+.standfirst em { color: var(--brass); font-style: normal; }
+
+/* The lamp behind the frame echoes the moon halo inside it — the one place
+   the chrome is allowed to reach into the picture. */
+.stage-frame {
+  position: relative;
+  /* Bound by the height the chrome leaves over, not only by column width, so
+     the board stays whole on a short viewport instead of running under the
+     fold — a point-and-click game with its bottom edge cut off is unplayable,
+     not merely cropped. */
+  width: 100%;
+  max-width: calc((100vh - 320px) * 16 / 9);
+  margin: 0 auto;
+  border: 1px solid var(--rule);
+  background: #000;
+  box-shadow: 0 0 90px -30px rgba(246, 215, 138, .30), 0 18px 60px -30px #000;
+}
+.stage-frame::after {
+  content: "";
+  position: absolute; inset: 0;
+  pointer-events: none;
+  border: 1px solid rgba(201, 168, 106, .16);
+}
+#stage {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  height: auto;
+  cursor: crosshair;
+  touch-action: none;
+}
+#fatal {
+  position: absolute; inset: 18px; z-index: 5; margin: 0; padding: 20px;
+  overflow: auto; background: rgba(40, 8, 8, .95); border: 1px solid #a33;
+  color: #ffb3b3; font: 13px/1.6 ui-monospace, monospace; white-space: pre-wrap;
+}
+#fatal[hidden] { display: none; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; }
+.legend .k {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 5px 11px;
+  border: 1px solid var(--rule);
+  background: var(--plank);
+  font-size: 12.5px;
+  letter-spacing: .055em;
+  text-transform: uppercase;
+  color: #7d7160;
+}
+.legend .k b {
+  font-weight: 700;
+  color: var(--brass);
+  letter-spacing: .09em;
+}
+footer {
+  border-top: 1px solid var(--rule);
+  padding-top: 16px;
+  font-size: 13.5px;
+  color: #5c5346;
+  max-width: 70ch;
+}
+footer b { color: #8a7d68; font-weight: 500; }
+@media (prefers-reduced-motion: no-preference) {
+  .wrap { animation: rise .5s ease-out both; }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>The Errant Kipper</h1>
+    <p class="standfirst">
+      A one-room point-and-click adventure, built to find out whether a generated-asset
+      pipeline can carry the genre. The backdrop was repainted from the game's own blockout;
+      the barrel, crates, nets and cup are drawn by code on top of it, because
+      <em>a repaint holds a dock and loses a teacup</em>. Every line is voiced.
+    </p>
+  </header>
+
+  <div class="stage-frame">
+    <canvas id="stage" width="1280" height="720"></canvas>
+    <pre id="fatal" hidden></pre>
+  </div>
+
+  <div class="legend">
+    <span class="k"><b>Click</b> walk</span>
+    <span class="k"><b>Click a thing</b> verb coin</span>
+    <span class="k"><b>Item, then thing</b> use it on</span>
+    <span class="k"><b>`</b> floor editor</span>
+    <span class="k"><b>M</b> mute</span>
+  </div>
+
+  <footer>
+    <b>Get aboard the ship.</b> Harbourmaster Grout is in the way, and he has been on that
+    plank for eleven hours without a drink. Sound starts after your first click.
+  </footer>
+</div>
+
+<script>
+/*ASSETS*/
+// Chromium refuses a data: URL of this size for an <img> (the plate is 1.5 MB
+// once base64'd) and answers with a connection reset, which reads exactly like
+// a missing file. Blob URLs have no such ceiling, so the inlined assets are
+// rehydrated once here — the game itself keeps seeing plain URLs and needs to
+// know nothing about how it was packaged.
+(function () {
+  const A = window.__ASSETS;
+  if (!A) return;
+  const toBlobUrl = (uri) => {
+    const comma = uri.indexOf(',');
+    const mime = uri.slice(5, uri.indexOf(';'));
+    const bin = atob(uri.slice(comma + 1));
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return URL.createObjectURL(new Blob([bytes], { type: mime }));
+  };
+  if (A.plate) A.plate = toBlobUrl(A.plate);
+  if (A.voice) for (const id in A.voice.clips) A.voice.clips[id] = toBlobUrl(A.voice.clips[id]);
+}());
+</script>
+<script>
+/*GAME_JS*/
+</script>

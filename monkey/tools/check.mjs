@@ -18,17 +18,25 @@ import { ROOT, launch, serve } from './harness.mjs';
 const args = process.argv.slice(2);
 const opt = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i + 1] : d; };
 const SHOT = opt('shot', null);
+// The same playthrough, against the single-file bundle instead of the served
+// folder. A bundle that loads but cannot be finished is worse than no bundle.
+const PAGE = args.includes('--bundle') ? 'dist/monkey.html' : 'index.html';
 
 const { port: PORT, close: closeServer } = await serve();
 
 const browser = await launch();
-const page = await browser.newPage({ viewport: { width: 1280, height: 780 } });
+// The bundle puts the canvas in a column under a header, so it needs a taller
+// window than the bare index.html to keep the whole board clickable.
+const page = await browser.newPage({ viewport: { width: 1280, height: PAGE === 'index.html' ? 780 : 1040 } });
 
 const errors = [];
 page.on('pageerror', (e) => errors.push(String(e)));
 // The plate probe 404s until tools/plate.mjs has been run, which is the
 // normal state of the repo. Everything else on the error channel is real.
-const EXPECTED_404 = /dock-plate\.png|voice\/manifest\.json/;
+// Both 404 until the generating tools have been run, which is the normal state
+// of a fresh clone. The font request fails only in sandboxes without egress;
+// the published page loads it fine.
+const EXPECTED_404 = /dock-plate\.png|voice\/manifest\.json|favicon\.ico|fonts\.googleapis\.com/;
 page.on('response', (r) => {
   if (r.status() === 404 && !EXPECTED_404.test(r.url())) errors.push('404: ' + r.url());
 });
@@ -37,7 +45,7 @@ page.on('console', (m) => {
   else if (m.text().startsWith('[')) console.log('  ' + m.text());
 });
 
-await page.goto(`http://127.0.0.1:${PORT}/index.html`, { waitUntil: 'load' });
+await page.goto(`http://127.0.0.1:${PORT}/${PAGE}`, { waitUntil: 'load' });
 await page.waitForFunction(() => window.__monkey);
 
 // --- driving the game -------------------------------------------------------
@@ -197,6 +205,14 @@ const step = async (name, fn, assert) => {
 try {
   await idle();
 
+  // A bundle that quietly falls back to placeholder art looks fine and is
+  // wrong. This caught exactly that: the bundled loadPlate was still fetching
+  // a path that does not exist inside a single file.
+  await step('the generated art and voice are actually in use', async () => {}, () => {
+    const M = window.__monkey;
+    return M.usingPlate() && M.voiced;
+  });
+
   await step('walk to a clicked point on the floor', async () => {
     await click({ x: 700, y: 690 });
     await idle();
@@ -231,7 +247,7 @@ try {
   if (SHOT) {
     await ensureVisible({ x: 700, y: 690 });
     await page.mouse.move(600, 300);
-    await page.screenshot({ path: resolve(ROOT, SHOT), clip: { x: 0, y: 13, width: 1280, height: 720 } });
+    await page.locator('#stage').screenshot({ path: resolve(ROOT, SHOT) });
     console.log(`  shot -> ${SHOT}`);
   }
 

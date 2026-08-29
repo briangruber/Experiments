@@ -15,12 +15,17 @@ export class Voice {
   constructor(base = './assets/voice/') {
     this.base = base;
     this.manifest = null;
+    this.clips = null;
     this.cache = new Map();
     this.current = null;
     this.muted = false;
   }
 
   async load() {
+    // The single-file bundle carries the clips as data URIs; a served folder
+    // fetches them. Same manifest either way.
+    const inline = globalThis.window?.__ASSETS?.voice;
+    if (inline) { this.manifest = inline.manifest; this.clips = inline.clips; return true; }
     try {
       const res = await fetch(this.base + 'manifest.json');
       if (!res.ok) return false;
@@ -28,6 +33,8 @@ export class Voice {
       return true;
     } catch { return false; }
   }
+
+  src(id) { return this.clips ? this.clips[id] : this.base + id + '.mp3'; }
 
   has(id) { return !!this.manifest?.lines?.[id]; }
 
@@ -40,7 +47,7 @@ export class Voice {
     this.stop();
     let a = this.cache.get(id);
     if (!a) {
-      a = new Audio(this.base + id + '.mp3');
+      a = new Audio(this.src(id));
       a.preload = 'auto';
       this.cache.set(id, a);
     }
