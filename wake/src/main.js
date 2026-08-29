@@ -199,7 +199,6 @@ const park = get('lake.pond') > 1 ? new Park(get('lake.pond')) : null;
 if (park) scene.add(park.group);
 // The lagoon shore: rock, shelves, headland and pines, built once at startup
 // (it is a place, not an effect -- rebuilding it per frame would be absurd).
-let shoreOpt = null;      // the coast's height field, handed to the water once
 
 // REBUILDABLE, because the sliders were doing nothing.
 //
@@ -228,7 +227,6 @@ function buildShore() {
   // that no longer existed. Its extent is a square, 3.4 bay radii on a side, so
   // from above it showed as a pale diamond of wrongly shallow water with the
   // real sea around it: the map's own edge, drawn.
-  shoreOpt = null;
   if (get('shore.on') <= 0.5) return;
   shore = new Shore({ bay: get('shore.bay'), rugged: get('shore.rugged'),
     relief: get('shore.relief'), trees: Math.round(get('shore.trees')),
@@ -323,7 +321,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b46';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b47';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -1179,18 +1177,14 @@ function frame(now) {
     // to work out how deep it is over the real rock, which is what lets it
     // break there instead of on its own procedural bed. Done here rather than
     // at construction because the sea is built after the shore is.
-    if (shore && !shoreOpt) {
-      const st = shore.depthTexture(512);
-      renderer.initTexture(st);
-      const raw = renderer.properties.get(st)?.__webglTexture;
-      if (raw) shoreOpt = {
-        tex: { target: renderer.getContext().TEXTURE_2D, tex: raw },
-        extent: shore.depthExtent,
-      };
-    }
-    const shoreArg = shoreOpt
-      ? { shore: { ...shoreOpt, surge: get('foamMix.surfSets') } } : {};
-    sea.render(scene, camera, { ...(refr ? { refr } : {}), ...(hull ? { hull } : {}), ...shoreArg });
+    // NO COAST MAP. It was a baked texture over a finite extent, and
+    // bedDepthAt() feathered back to the procedural bed at its rim -- so the
+    // lagoon was a bright square of shaped bottom dropped into an ocean whose
+    // floor sat 400 m down and read as flat dark blue. That square edge is
+    // what you could see. The bed is procedural and unbounded now, with banks
+    // and basins everywhere, so the map has nothing left to add and its rim
+    // has nothing left to hide.
+    sea.render(scene, camera, { ...(refr ? { refr } : {}), ...(hull ? { hull } : {}) });
   } else {
     renderer.autoClear = true;
     renderer.render(scene, camera);

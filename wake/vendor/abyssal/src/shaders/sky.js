@@ -296,6 +296,7 @@ uniform mat4 uInvViewProj;
 uniform vec3 uCamPos, uSunDir, uMoonDir, uMoonColor;
 uniform float uTime;
 uniform float uSunAngularRadius, uSunDiscIntensity;
+uniform float uAureole, uAureolePow;
 uniform float uCloudCoverage, uCloudDensity, uCloudAltitude, uCloudThickness;
 uniform float uCloudSpeed, uCloudDetail, uCirrus, uStars, uCloudSteps;
 uniform float uCloudScale, uCloudShape, uCloudExtinction, uCloudAnvil;
@@ -839,6 +840,34 @@ void main(){
     // what makes the sun read as blindingly bright next to the sky around it.
     vec3 disc = uSunIrradiance / max(solidAngle, 1e-7) * uSunDiscIntensity * limb * sDisc * sunTr * uAtmoExposure;
     col += capRadiance(disc, uDiscCap);
+  }
+
+  // THE AUREOLE -- the glow around the sun, which the disc alone cannot give.
+  //
+  // A photographed sun is never a hard-edged coin on clean sky. Aerosol forward
+  // scattering throws a bright halo around it that falls off as a power law over
+  // a few degrees, and it is that halo, not the disc, that reads as glare: it is
+  // why you squint, why a low sun bleeds into the horizon, and why the disc's
+  // own edge looks soft even though the photosphere's is razor sharp.
+  //
+  // Two terms because real glare has two scales: a tight, intense one just off
+  // the limb, and a broad wash tens of degrees wide. Both ride sunTr, so at
+  // sunset the halo reddens exactly as the disc does rather than staying white
+  // -- which is the whole reason to build it out of the atmosphere's own
+  // transmittance instead of pasting on a sprite.
+  if (uAureole > 0.0005) {
+    float R = max(uSunAngularRadius, 1e-4);
+    // Measured from the limb, not the centre, with a soft floor so the term is
+    // finite where it meets the disc instead of dividing by zero there.
+    float t = max(sAng, R * 1.02) / R;
+    float tight = pow(t, -max(uAureolePow, 0.5));
+    float broad = pow(t, -0.62) * 0.10;
+    // Killed below the horizon along with the disc: a glow with no sun in it is
+    // a lens artefact, not atmosphere.
+    float above = smoothstep(-0.02, 0.03, uSunDir.y);
+    vec3 glow = uSunIrradiance * sunTr * uAtmoExposure
+              * (tight + broad) * uAureole * above;
+    col += capRadiance(glow, uDiscCap);
   }
 
   vec3 skyTop = sampleSky(vec3(0.0,1.0,0.0));

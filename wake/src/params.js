@@ -289,7 +289,20 @@ export const PARAMS = {
     reflectivity: { v: 1.15, min: 0,   max: 3,   step: 0.01, label: 'Sky ambient' },
     sunGlow:      { v: 1,    min: 0.2, max: 8,   step: 0.05, label: 'Sun disc size ×' },
     hazeStart:    { v: 1,    min: 0,   max: 3,   step: 0.01, label: 'Aerial haze' },
-    sheen:        { v: 1,    min: 0,   max: 4,   step: 0.01, label: 'Glitter' },
+    // GLITTER ONLY BREAKS THE SUN PATH UP -- it cannot make one.
+    //
+    // Worth knowing before reaching for it: the scintillation it drives has an
+    // analytically unit mean, so it redistributes the specular lobe's radiance
+    // and never creates any. Raising it gives brighter flashes with darker
+    // water between them, not a brighter or wider path. It is also gated on
+    // sub-pixel slope variance, so on glassy water it does nothing at all.
+    // For a bigger, brighter path, reach for Specular below.
+    sheen:        { v: 1,    min: 0,   max: 4,   step: 0.01, label: 'Glitter (sparkle only)' },
+    // The halo around the sun, from aerosol forward scattering. Built out of
+    // the atmosphere's own transmittance, so it reddens with the disc at sunset
+    // instead of staying a white sprite.
+    sunAura:      { v: 0.55, min: 0,   max: 3,   step: 0.01, label: 'Sun aura' },
+    sunAuraFall:  { v: 2.4,  min: 0.8, max: 5,   step: 0.05, label: 'Aura falloff' },
     specular:     { v: 0.55, min: 0,   max: 2,   step: 0.01, label: 'Specular' },
     exposure:     { v: 1.2,  min: 0.2, max: 3,   step: 0.01, label: 'Exposure' },
     // Retired with the analytic ocean: 'Water lightness' and 'Blue / teal'
@@ -415,7 +428,12 @@ export const PARAMS = {
     // The pond the boats keep to. Read at startup (the park is built once);
     // the confinement uses it live.
     pond:         { v: 0,  min: 60,  max: 900, step: 10,   label: 'Pond radius (m)' },
-    floorDepth:   { v: 0,  min: 0,   max: 60,  step: 0.5,  label: 'Bed depth (m)' },
+    // Nominal bed depth, and the whole procedural bottom hangs off it: the
+    // shallowest banks come to 0.45x this and the basins fall to 2.3x. It used
+    // to default to 0 -- which pushes the floor to 400 m, out of sight -- back
+    // when a baked coast map painted the only bottom anyone saw. With that map
+    // gone this is the sea bed, everywhere, so it has to be a real number.
+    floorDepth:   { v: 9,  min: 0,   max: 60,  step: 0.5,  label: 'Bed depth (m)' },
     weed:         { v: 0.45, min: 0,   max: 1,   step: 0.01, label: 'Weed over sand' },
     // How bright the bed comes back. The scene's exposure is set for the
     // water surface, and an unscaled bottom clips to white -- which costs

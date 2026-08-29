@@ -567,8 +567,23 @@ float floorTerrainDepth(float px, float pz, float lo, float hi, float scale){
   float hseed = fbm2(vec2(px, pz) * 0.03 + 71.0, 2);
   float heads = (1.0 - smoothstep(0.10, 0.34, hcw.x))
               * smoothstep(0.42, 0.58, hseed);
-  float w = clamp(0.5 + 0.5 * (bars * 0.26 + channels * 0.19 + dunes * 0.10
-                             + drift * 0.62 + grain * 0.16), 0.0, 1.0);
+  // THE LAGOON-SCALE TERM, and the reason the open sea used to be a flat
+  // plain with one bright square cut out of it. Everything above works in
+  // units of the terrain scale -- tens of metres, so bars and channels and
+  // ripples. None of it builds anything the size of a BAY, so away from the
+  // baked coast map the bottom had texture and no shape.
+  //
+  // This one is in WORLD metres and slow enough to raise banks and drop basins
+  // hundreds of metres across, everywhere, for ever. It carries more weight
+  // than all the rest together on purpose: the fine work should ride on the
+  // big shape rather than compete with it.
+  //
+  // TWIN: bedDepth() in src/bathymetry.js, which is what puts rocks on the
+  // bottom. Change one and change the other.
+  float basin = fbm2(vec2(px, pz) * 0.00085, 4) * 2.0 - 1.0;
+  float w = clamp(0.5 + 0.5 * (bars * 0.20 + channels * 0.15 + dunes * 0.08
+                             + drift * 0.42 + grain * 0.12
+                             + basin * 1.25), 0.0, 1.0);
   // The heads lift the bed by up to a couple of metres, capped so they can
   // never break the surface and become invisible geometry the boat drives
   // through.

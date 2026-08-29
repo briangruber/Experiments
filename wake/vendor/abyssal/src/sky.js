@@ -102,6 +102,8 @@ export class Sky {
       uTime: ctx.time,
       uSunAngularRadius: p.sunAngularRadius,
       uSunDiscIntensity: p.sunDiscIntensity,
+      uAureole: p.sunAureole ?? 0,
+      uAureolePow: p.sunAureolePow ?? 2.4,
       uCloudCoverage: p.cloudCoverage,
       uCloudDensity: p.cloudDensity,
       uCloudAltitude: p.cloudAltitude,

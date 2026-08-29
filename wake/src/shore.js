@@ -552,6 +552,10 @@ export class Shore {
 		const v3 = new THREE.Vector3();
 		const col = new THREE.Color();
 		let placed = 0;
+		// How far out to sow them, in metres. Wide enough that the field runs
+		// past anything you can see from a chase camera, so it never reads as a
+		// patch with an edge.
+		const FIELD = 2600;
 		// The rocks the sea actually breaks on. A boulder drowned in four metres
 		// of water never sees a crest, and one sitting well up the beach is only
 		// wetted by spray rather than making it, so the sites are the band in
@@ -566,13 +570,24 @@ export class Shore {
 			let n = 0, tries = 0;
 			while ( n < per && tries < per * 30 ) {
 				tries ++;
+				// SCATTERED OVER THE WHOLE BED, not strung along a coastline.
+				//
+				// They used to be placed on a ring at coastAt(angle) -- correct
+				// when there was a shore for them to lie against, and absurd
+				// once it was deleted: a perfect circle of cobbles a couple of
+				// kilometres across, standing in open water for no reason.
+				//
+				// Now they are thrown at the sea floor and KEPT WHERE IT IS
+				// SHALLOW, which puts them on the banks and leaves the basins
+				// clear -- exactly where rock actually outcrops. sqrt on the
+				// radius spreads them by area rather than crowding the middle.
 				const a = rand() * Math.PI * 2;
-				const coast = this.coastAt( a );
-				// From a little offshore to a little inland: the splash zone.
-				const t = - 14 + rand() * 26;
-				const x = Math.sin( a ) * ( coast + t ), z = Math.cos( a ) * ( coast + t );
+				const r = FIELD * Math.sqrt( rand() );
+				const x = Math.sin( a ) * r, z = Math.cos( a ) * r;
 				const h = this.heightAt( x, z );
-				if ( h < - 6 || h > 12 ) continue;
+				// Only the banks. Anything deeper than this is invisible under
+				// the water's own absorption and is pure cost.
+				if ( h < - 7.5 ) continue;
 				// Squared random again: mostly cobbles, occasionally something
 				// you would have to climb over.
 				const u = rand();
