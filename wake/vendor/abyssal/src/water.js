@@ -274,8 +274,14 @@ export class WaterSurface {
       // FORKED: the caller's coastline, if it has one.
       ...(opts.shore ? {
         uShoreMap: opts.shore.tex, uShoreOn: 1,
-        uShoreExtent: opts.shore.extent, uSurge: opts.shore.surge ?? 1,
-      } : { uShoreMap: this._inertRefr(), uShoreOn: 0, uShoreExtent: 1, uSurge: 0 }),
+        uShoreExtent: opts.shore.extent, uSurge: opts.shore.surge ?? p.surge ?? 1,
+      // SURGE COMES OFF THE PARAMS with no coast map handed over. It was only
+      // ever read from the shore option, so a driver that drops the map -- and
+      // the shore break does NOT need one, it runs off whatever bed
+      // bedDepthAt() returns -- silently lost its sets and got a break pinned
+      // to one depth, which is a static ring of foam.
+      } : { uShoreMap: this._inertRefr(), uShoreOn: 0, uShoreExtent: 1,
+            uSurge: p.surge ?? 0 }),
       uShoreFoamRange: p.shoreFoamRange ?? 3,
       uSurfSpan: p.surfSpan ?? 3.2, uSurfPeriod: p.surfPeriod ?? 7.0,
       uSurfDecay: p.surfDecay ?? 3.0,

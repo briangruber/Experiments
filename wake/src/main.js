@@ -229,7 +229,6 @@ function buildShore() {
   // real sea around it: the map's own edge, drawn.
   if (get('shore.on') <= 0.5) return;
   shore = new Shore({ bay: get('shore.bay'), rugged: get('shore.rugged'),
-    relief: get('shore.relief'), trees: Math.round(get('shore.trees')),
     boulders: Math.round(get('shore.boulders')) });
   scene.add(shore.group);
 }
@@ -321,7 +320,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b50';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b51';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -449,8 +448,7 @@ const ui = buildUI(uiRoot, {
     // The coast is geometry, baked in its constructor. These are the paths that
     // change that geometry, so these are the paths that have to rebuild it.
     if (path === '*' || path === 'shore.on' || path === 'shore.bay'
-      || path === 'shore.rugged' || path === 'shore.relief'
-      || path === 'shore.trees' || path === 'shore.boulders') {
+      || path === 'shore.rugged' || path === 'shore.boulders') {
       buildShore();
     }
   },

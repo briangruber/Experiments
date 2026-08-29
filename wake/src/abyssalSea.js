@@ -282,6 +282,9 @@ function fitToLake( p, preset = {}, tune = {} ) {
 	// different phenomena and wanting one is no reason to get the other.
 	p.shoreFoamAmount = get( 'foamMix.surf' );
 	p.shoreFoamRange = get( 'foamMix.surfDepth' );
+	// The sets' surge. Read from the params now rather than from the coast map's
+	// options, which is where it used to live and where it died when the map went.
+	p.surge = get( 'foamMix.surfSets' );
 	p.surfPeriod = get( 'foamMix.surfPeriod' );
 	p.surfSpan = get( 'foamMix.surfSpan' );
 	p.surfDecay = get( 'foamMix.surfDecay' );

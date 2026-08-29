@@ -175,9 +175,7 @@ export class Shore {
 	 * @param {number} o.relief   height of the rock above the waterline
 	 * @param {number} o.seed
 	 *
-	 * `trees` and `relief` are accepted and ignored: they belonged to the land,
-	 * and the panel and the rebuild check still pass them. Dropping them from
-	 * the signature would only move the dead parameter somewhere less obvious.
+	 * `trees` and `relief` are gone with the land they belonged to.
 	 */
 	constructor( { bay = 300, rugged = 1, boulders = 1200, seed = 12 } = {} ) {
 

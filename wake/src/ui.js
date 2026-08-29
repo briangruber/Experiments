@@ -7,23 +7,40 @@
 
 import { PARAMS, set } from './params.js';
 
+// Titles, and the ORDER the panel lists them in.
+//
+// The old order was the order things happened to be built in, which put the
+// nine wake-internals groups between the boat and the sea -- so getting from
+// "how fast is she going" to "what does the water look like" meant scrolling
+// past every knob on the foam. The panel now reads outward from what you are
+// most likely to be looking at: the boat, then the sea it is in, then the sky
+// and the bottom, then the wake's own machinery, then cost.
+//
+// A group's position here is its position on the panel. buildPanel walks this
+// map first and then anything in PARAMS it does not name, so a new group shows
+// up looking unfinished rather than not showing up at all.
 const GROUP_TITLES = {
+  // --- what you drive, and what it is in
   boat: 'Boat',
-  arms: 'Spray arms (the V)',
-  feather: 'Feathering / comb',
-  wash: 'Prop wash',
-  inner: 'Inside the V',
-  kelvin: 'Kelvin waves',
-  foamLook: 'Foam texture',
-  bubbles: 'Subsurface bubbles',
-  foamMotion: 'Foam motion',
-  foamMix: 'Foam on water',
-  ocean: 'Water & light',
+  ocean: 'Sea & light',
+  scene: 'Sky, render & reflections',
+  lake: 'Sea bed',
+  // --- what is in the water with you
+  shore: 'Rocks & their spray',
   spray: 'Spray (airborne)',
-  scene: 'Sky & weather',
-  lake: 'The lake',
-  quality: 'Performance',
+  // --- the wake, from its shape to its foam
+  arms: 'Wake: the V',
+  kelvin: 'Wake: Kelvin waves',
+  feather: 'Wake: feathering / comb',
+  inner: 'Wake: inside the V',
+  wash: 'Wake: prop wash',
+  bubbles: 'Wake: subsurface bubbles',
+  foamLook: 'Foam: texture',
+  foamMotion: 'Foam: motion',
+  foamMix: 'Foam: on the water',
+  // --- cost
   field: 'Field & decay',
+  quality: 'Performance',
 };
 
 /**
@@ -75,7 +92,15 @@ export function buildBoatPicker(root, boats, { onPick, initial = 0, title: headi
 export function buildUI(root, hooks = {}) {
   const rows = [];
 
-  for (const [gname, entries] of Object.entries(PARAMS)) {
+  // Panel order comes from GROUP_TITLES, not from the order the groups happen
+  // to be declared in params.js -- that order is a build order and reads like
+  // one. Anything in PARAMS without a title still gets listed, at the end,
+  // under its raw name: a new group should show up looking unfinished rather
+  // than not show up at all.
+  const titled = Object.keys(GROUP_TITLES).filter((g) => PARAMS[g]);
+  const untitled = Object.keys(PARAMS).filter((g) => !GROUP_TITLES[g]);
+  for (const gname of [...titled, ...untitled]) {
+    const entries = PARAMS[gname];
     const sec = document.createElement('details');
     // Shut by default. Sixteen open groups is a wall of sliders between you
     // and the water, and the two controls anyone actually reaches for first --

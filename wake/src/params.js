@@ -337,8 +337,6 @@ export const PARAMS = {
     on:           { v: 1,    min: 0,   max: 1,   step: 1,    label: 'Lagoon shore' },
     bay:          { v: 300,  min: 90,  max: 900, step: 10,   label: 'Bay radius (m)' },
     rugged:       { v: 1,    min: 0,   max: 2,   step: 0.01, label: 'Coast ruggedness' },
-    relief:       { v: 1.5,  min: 0.2, max: 2.5, step: 0.01, label: 'Rock height ×' },
-    trees:        { v: 1400, min: 0,   max: 3000,step: 50,   label: 'Pines' },
     boulders:     { v: 1400, min: 0,   max: 4000,step: 50,   label: 'Boulders' },
     // Water bursting off the rocks the surf breaks on. Driven by the SAME
     // travelling-set phase the shore foam is, so a rock throws its spray as the
