@@ -213,6 +213,17 @@ export class AbyssalWater extends Component {
   // passes its own wake field through here.
   render(camera, opts = {}) {
     if (camera) this.view.read(camera);
+    // THE CRAFT'S IMAGE IN THE SEA. The surface reads these five off ctx, not
+    // off opts, so a caller's per-frame craft has to be written there. Without
+    // this the amount defaults to 0 and the whole ray-sphere branch in the
+    // fragment shader is dead code -- which is exactly what it was: a sea that
+    // reflected the sky and nothing standing on it.
+    const c = opts.craft;
+    this._ctx.craftReflPos = c?.pos ?? null;
+    this._ctx.craftReflTint = c?.tint ?? null;
+    this._ctx.craftReflSize = c?.size ?? 0;
+    this._ctx.craftReflAmount = c?.amount ?? 0;
+    this._ctx.craftShadow = c?.shadow ?? 0;
     resetDrawState(this.gl);
     this.surface.outExposure = this.exposure;
     this.surface.render(this.params, this._ctx, this.ocean, this.sky, opts);

@@ -321,7 +321,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b49';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b50';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -827,6 +827,11 @@ for (let i = 0; i < PREWARM * 30; i++) stepSim(1 / 30);
 // fallen well back, so a rock throws once per wave instead of chattering.
 const _sprayRand = () => Math.random();
 const _sOut = { x: 0, z: 0 };
+// The craft's albedo for its reflection, as radiance is built from it in the
+// shader. One neutral hull colour rather than a per-model palette: the image is
+// a smeared blob a few metres across, and no one has ever identified a boat by
+// the colour of its reflection.
+const _craftTint = new Float32Array([0.42, 0.44, 0.47]);
 // The upwind unit vector, reused every frame rather than allocated per droplet.
 const _wUp = { x: 0, z: 0 };
 let _splashCursor = 0;
@@ -1207,6 +1212,32 @@ function frame(now) {
       cutLen: drawn * 0.44,
       cutBeam: Math.max(get('boat.beam') * get('boat.modelScale') * 0.42, 0.3),
     } : undefined;
+    // THE BOAT'S IMAGE IN THE WATER.
+    //
+    // A ray-sphere test against a proxy at the craft, already written into the
+    // water shader and never switched on -- the lab handed it no craft, the
+    // amount defaulted to 0, and the branch was dead. So the sea reflected the
+    // sky and nothing standing on it.
+    //
+    // It is a PROXY, not a mirror, and that is the trade being made: no second
+    // camera, no reflection pass, no doubling of the frame. R is already the
+    // direction this fragment looks in the mirror, so if R points at the craft,
+    // the craft is what it reflects -- and because R comes from the WAVY
+    // normal, the wobble in the image is the real wave field's rather than a
+    // planar pass's fake. What it cannot do is give you rigging.
+    //
+    // Centred at the hull's middle and lifted, so the blob sits over the boat's
+    // visual mass rather than at the stem where the model's origin is.
+    const reflAmt = get('scene.boatReflect');
+    const craft = reflAmt > 0.001 ? {
+      pos: new Float32Array([cxm, boat.position.y + drawn * 0.10, czm]),
+      // Radius in metres. Scaled off the drawn hull so it follows the boat
+      // picker and Model scale without a second knob to forget.
+      size: Math.max(drawn * 0.30, 0.5),
+      tint: _craftTint,
+      amount: reflAmt,
+      shadow: get('scene.boatShadow'),
+    } : undefined;
     // Introduce the sea to the coast, once: the water reads this height field
     // to work out how deep it is over the real rock, which is what lets it
     // break there instead of on its own procedural bed. Done here rather than
@@ -1218,7 +1249,8 @@ function frame(now) {
     // what you could see. The bed is procedural and unbounded now, with banks
     // and basins everywhere, so the map has nothing left to add and its rim
     // has nothing left to hide.
-    sea.render(scene, camera, { ...(refr ? { refr } : {}), ...(hull ? { hull } : {}) });
+    sea.render(scene, camera, { ...(refr ? { refr } : {}), ...(hull ? { hull } : {}),
+      ...(craft ? { craft } : {}) });
   } else {
     renderer.autoClear = true;
     renderer.render(scene, camera);

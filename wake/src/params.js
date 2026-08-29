@@ -423,6 +423,16 @@ export const PARAMS = {
     // refracted image: the cut asks this pass's DEPTH, per pixel, where the
     // boat actually is, so a coarser buffer coarsens the waterline edge.
     refrScale:    { v: 0.6,  min: 0.25, max: 1, step: 0.05, label: 'Refraction pass scale' },
+    // The boat's image in the water, and the shadow it throws on it.
+    //
+    // A ray-sphere proxy at the craft rather than a reflection pass: R is
+    // already the direction a fragment looks in the mirror, so if R points at
+    // the boat, the boat is what it reflects. It costs one branch instead of a
+    // second render of the scene, and because R comes from the wavy normal the
+    // image wobbles with the real waves rather than with a planar pass's fake.
+    // It is a soft blob at the boat's scale -- it will not give you rigging.
+    boatReflect:  { v: 1,    min: 0,   max: 2.5, step: 0.01, label: 'Boat reflection' },
+    boatShadow:   { v: 0.5,  min: 0,   max: 1.5, step: 0.01, label: 'Boat shadow on water' },
     // How far down you can see. Divides the water's absorption, so 2 means
     // roughly twice the sight depth -- the bed, a submerged keel and the
     // bubble plume all reach the same distance, because they are all looking
