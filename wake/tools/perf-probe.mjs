@@ -60,7 +60,7 @@ const out = await page.evaluate(async () => {
   // Each entry: a label and the params to null out. Restored after every run.
   const CASES = [
     ['bed caustics',        { 'lake.caustics': 0 }],
-    ['seafloor entirely',   { 'lake.floor': 0 }],
+    ['coral heads',         { 'lake.coral': 0 }],
     ['screen refraction',   { 'scene.refraction': 0 }],
     ['wake field bake',     { 'field.trailLength': 1 }],
     ['kelvin interference', { 'kelvin.interfere': 0 }],

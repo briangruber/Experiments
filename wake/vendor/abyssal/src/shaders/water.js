@@ -1679,6 +1679,10 @@ void main(){
         // that patchiness, seen through changing depth, that makes the water
         // above it read as a lagoon.
         vec2 bp = vec2(hx, hz);
+        // One range fade for everything fine-grained on the bed. It was inline
+        // in the caustic line; hoisted so the work above it can be skipped
+        // rather than merely scaled.
+        float bedLod = smoothstep(340.0, 90.0, dist);
         // Seagrass. Beds have hard boundaries, not gradients: a narrow
         // smoothstep on aperiodic noise gives an edge you could walk to.
         float bedN = fbm2(bp * 0.011, 4) * 0.72 + fbm2(bp * 0.047 + 19.0, 3) * 0.28;
@@ -1687,20 +1691,44 @@ void main(){
         // discrete round mounds scattered over the floor rather than as another
         // layer of noise. A second noise decides WHICH cells grow one, so they
         // clump into gardens and leave clear sand between.
-        vec3 cw = cellular3(bp * 0.055);
-        float headSeed = fbm2(bp * 0.03 + 71.0, 2);
-        float headM = (1.0 - smoothstep(0.10, 0.34, cw.x))
-                    * smoothstep(0.42, 0.58, headSeed) * uBedCoralAmt;
+        // GATED. cellular3 walks a 3x3 cell neighbourhood with two hashes a
+        // cell -- eighteen hashes -- and the heads are the highest-frequency
+        // thing on the bed, so they are also the first to fall under a pixel
+        // and turn into aliasing. Skip them when they are switched off, and
+        // fade them out with the same range the caustics use rather than
+        // paying for detail nobody can resolve.
+        float headM = 0.0;
+        if (uBedCoralAmt > 0.001 && bedLod > 0.002) {
+          vec3 cw = cellular3(bp * 0.055);
+          float headSeed = fbm2(bp * 0.03 + 71.0, 2);
+          headM = (1.0 - smoothstep(0.10, 0.34, cw.x))
+                * smoothstep(0.42, 0.58, headSeed) * uBedCoralAmt * bedLod;
+        }
         // Sand is never one colour either: slow blotches of shell and rubble.
         float sandVar = 0.86 + 0.28 * fbm2(bp * 0.09 + 5.0, 3);
         float reef = weedM * uBedWeedAmt;
         vec3 bed = mix(uBedSand * sandVar, uBedWeed, reef);
         bed = mix(bed, uBedCoral, clamp(headM, 0.0, 1.0));
         // Focused sunlight on the sand. Twin: seafloor.js floorLace.
-        vec2 pSun = vec2(hx, hz) + uSunDir.xz / max(uSunDir.y, 0.18) * localD;
-        float laceScale = max(uFloorCausticSize, 0.15);
-        float web = floorLace(pSun.x / laceScale, pSun.y / laceScale, uTime);
-        float sunK = floorSunGain(slope, uSunDir, localD);
+        //
+        // GATED, and this is the single most expensive thing in the shader.
+        // floorLace is three floorLaceLayer calls and each one runs a
+        // cellular3 -- twenty-seven cells, fifty-four hashes, plus a dozen
+        // trig calls -- for every water pixel. It was computed unconditionally
+        // and only THEN multiplied by the range fade below, which is exactly
+        // zero past 340 m from the eye. Zoom out over the lagoon and every one
+        // of those hashes was evaluated and thrown away.
+        //
+        // Note the ablation trap here: turning lake.caustics down to zero used
+        // to change nothing measurable, because the parameter only scales the
+        // result and never skipped the work. Reading that as "the caustics are
+        // cheap" is the wrong conclusion from the right number.
+        float lace = 0.0;
+        if (bedLod > 0.002 && uFloorCaustic > 0.001) {
+          vec2 pSun = vec2(hx, hz) + uSunDir.xz / max(uSunDir.y, 0.18) * localD;
+          float laceScale = max(uFloorCausticSize, 0.15);
+          float web = floorLace(pSun.x / laceScale, pSun.y / laceScale, uTime);
+          float sunK = floorSunGain(slope, uSunDir, localD);
         // FORKED, three ways. Caustics were being killed before they could be
         // seen, and each limiter alone was enough to do it:
         //
@@ -1720,9 +1748,9 @@ void main(){
         // times the brightness of the sand between its lines. That ratio IS
         // the effect; without it the bed reads as textured, not as lit
         // through moving water.
-        float lace = web * sunK * (1.0 - reef * 0.45) * uFloorCaustic
-                   * exp(-localD * 0.045)
-                   * smoothstep(340.0, 90.0, dist);
+          lace = web * sunK * (1.0 - reef * 0.45) * uFloorCaustic
+               * exp(-localD * 0.045) * bedLod;
+        }
         float mul = 1.0 + lace * 1.55;
         float peak = pow(lace, 2.2);
         // uBedGain, FORKED IN. Measured rather than guessed: splitting the
