@@ -1,0 +1,37 @@
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; height: 100%;
+  background: #0a0806;
+  color: #9d8a6a;
+  font: 14px Georgia, "Times New Roman", serif;
+  overflow: hidden;
+}
+#frame {
+  position: absolute; inset: 0 0 34px 0;
+  display: grid; place-items: center;
+}
+/* The stage keeps its 16:9 and letterboxes. Input maps back through the
+   canvas rect, so any scale works without a second coordinate system. */
+#stage {
+  width: 100%; height: 100%;
+  max-width: calc(100vh * 16 / 9);
+  max-height: calc(100vw * 9 / 16);
+  display: block;
+  cursor: crosshair;
+  touch-action: none;
+  image-rendering: auto;
+}
+#help {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 34px;
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  font-size: 12.5px; letter-spacing: .02em; color: #5f5341;
+  border-top: 1px solid #1c1712;
+}
+#help span { color: #443c30; }
+#fatal {
+  position: absolute; inset: 40px; z-index: 5;
+  margin: 0; padding: 24px; overflow: auto;
+  background: rgba(40,8,8,.94); border: 1px solid #a33;
+  color: #ffb3b3; font: 13px/1.6 ui-monospace, monospace; white-space: pre-wrap;
+}

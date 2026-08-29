@@ -1,0 +1,24 @@
+[
+  {
+    "kind": "plate",
+    "file": "assets/dock-plate.png",
+    "provider": "fal",
+    "model": "fal-ai/flux/dev/image-to-image",
+    "strength": 0.62,
+    "size": "1920x720",
+    "from": "assets/dock-blockout.png",
+    "prompt": "Repaint this scene as a hand-painted background for a 2D cartoon point-and-click adventure game, in the style of a late-1990s LucasArts adventure: lush painted gouache and airbrush, warm saturated colour, soft painterly brushwork, strong silhouettes, slightly exaggerated cartoon proportions, cinematic moonlit night.  CRITICAL — keep the exact composition of the input image. Do not move, add or remove anything. The tavern stays on the left with its lit window and hanging sign, the grog barrel stays where it is, the crate stack stays where it is, the net pile stays where it is, the pier and the moored ship stay on the right, and the moon and its reflection stay exactly where they are. Above all, the wooden dock floor must occupy exactly the same band of the frame, with its far edge on the same line — a character walks on that edge and it cannot move.  No characters, no people, no text, no watermark, no UI, no border, no letterboxing.",
+    "at": "2026-08-29T03:51:55.119Z"
+  },
+  {
+    "kind": "plate",
+    "file": "assets/dock-plate.png",
+    "provider": "fal",
+    "model": "fal-ai/flux/dev/image-to-image",
+    "strength": 0.72,
+    "size": "1920x720",
+    "from": "assets/dock-blockout.png",
+    "prompt": "Repaint this scene as a hand-painted background for a 2D cartoon point-and-click adventure game, in the style of a late-1990s LucasArts adventure: lush painted gouache and airbrush, warm saturated colour, soft painterly brushwork, strong silhouettes, slightly exaggerated cartoon proportions, cinematic moonlit night.  CRITICAL — keep the exact composition of the input image. Do not move, add or remove anything. The tavern stays on the left with its lit window and hanging sign, the grog barrel stays where it is, the crate stack stays where it is, the net pile stays where it is, the pier and the moored ship stay on the right, and the moon and its reflection stay exactly where they are. Above all, the wooden dock floor must occupy exactly the same band of the frame, with its far edge on the same line — a character walks on that edge and it cannot move.  No characters, no people, no text, no watermark, no UI, no border, no letterboxing.",
+    "at": "2026-08-29T03:52:47.353Z"
+  }
+]

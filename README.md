@@ -16,6 +16,7 @@ collide, and a branch can be merged without reading it first.
 | --- | --- |
 | `ocean/` | **Abyssal** — a real-time cinematic ocean simulator with a rideable wave runner, and the reusable water and sky components behind it. Multi-cascade FFT sea, volumetric clouds, GPU spray, persistent Kelvin wake. Published as `abyssal-ocean`, droppable into a Three.js scene. See [ocean/README.md](ocean/README.md). |
 | `telenovela/` | Corazón de Gallina — a wordless chicken telenovela. Procedural birds, a hacienda courtyard, a cinematographer that speaks in shot sizes, and a synthesised organ sting. |
+| `monkey/` | **The Errant Kipper** — a one-room point-and-click adventure in the shape of *The Curse of Monkey Island*, built to test whether a generated-asset pipeline can carry the genre. Walk areas and A\*, a verb coin, a lintable puzzle dependency graph, an in-game annotation editor, a fal-repainted backdrop and a recorded-and-measured ElevenLabs script. `tools/check.mjs` plays it to the end headlessly. See [monkey/README.md](monkey/README.md). |
 
 Other prototypes currently live on their own branches and follow the same
 convention (`harbor/`, `boats/`, `cozy-fishing/`). They can be merged here as

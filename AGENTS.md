@@ -17,6 +17,7 @@ into the root or into `tools/` of another prototype.
 | task mentions | go to |
 | --- | --- |
 | ocean, water, sea, waves, sky, clouds, Abyssal, `abyssal-ocean`, WebGPU/TSL port | [`ocean/`](ocean/) — read [`ocean/AGENTS.md`](ocean/AGENTS.md) first |
+| adventure game, point-and-click, Monkey Island, verb coin, walk boxes, puzzle graph, dialogue tree, backdrop plate, Grout, the Errant Kipper | [`monkey/`](monkey/) — read [`monkey/README.md`](monkey/README.md) first |
 
 Other prototypes (`harbor/`, `boats/`, `cozy-fishing/`) live on their own
 branches under the same convention.

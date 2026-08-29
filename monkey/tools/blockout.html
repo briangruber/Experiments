@@ -1,0 +1,35 @@
+<meta charset="utf-8">
+<title>blockout</title>
+<style>html,body{margin:0;background:#000}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script type="module">
+// The room's STATIC layers, painted at full room size with no actors, no UI
+// and no interactive props. This is the image the plate generator conditions
+// on: it already has the composition, the horizon, the light direction and —
+// crucially — the floor exactly where the walk polygons say it is.
+//
+// The interactive props (the barrel, the crates, the nets, the cup) are
+// deliberately absent, and that exclusion is the main thing this prototype
+// learned. A repaint holds large geometry — a dock edge, a building mass, a
+// horizon — and does not hold small objects: the first pass moved the tin cup
+// off its own hotspot, turned the crates into a woodpile and rewrote the
+// tavern sign. Anything the player can click therefore stays a sprite the
+// engine draws over the plate, where its position is a number in a file rather
+// than a hope about a diffusion model. The plate is scenery; scenery is what
+// generation is good at.
+import * as art from '../src/art/paint.js';
+
+const W = 1920, H = 720;
+const c = document.getElementById('c');
+c.width = W; c.height = H;
+const ctx = c.getContext('2d');
+const room = { width: W, height: H, camX: 0, time: 0 };
+
+art.paintSky(ctx, room);
+art.paintSea(ctx, room);
+art.paintPilings(ctx, room);
+art.paintDock(ctx, room);
+art.paintTavern(ctx, room);
+
+window.__ready = true;
+</script>
