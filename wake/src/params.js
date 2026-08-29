@@ -301,7 +301,7 @@ export const PARAMS = {
     // The halo around the sun, from aerosol forward scattering. Built out of
     // the atmosphere's own transmittance, so it reddens with the disc at sunset
     // instead of staying a white sprite.
-    sunAura:      { v: 0.55, min: 0,   max: 3,   step: 0.01, label: 'Sun aura' },
+    sunAura:      { v: 1.0,  min: 0,   max: 4,   step: 0.01, label: 'Sun aura' },
     sunAuraFall:  { v: 2.4,  min: 0.8, max: 5,   step: 0.05, label: 'Aura falloff' },
     specular:     { v: 0.55, min: 0,   max: 2,   step: 0.01, label: 'Specular' },
     exposure:     { v: 1.2,  min: 0.2, max: 3,   step: 0.01, label: 'Exposure' },

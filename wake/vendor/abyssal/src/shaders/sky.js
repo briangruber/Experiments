@@ -829,17 +829,25 @@ void main(){
   // Sun disc with limb darkening, only when actually above the horizon line.
   float sAng = discAngle(rd, uSunDir, refractFlatten(uSunDir.y));
   float sDisc = 1.0 - smoothstep(uSunAngularRadius - pxAng*0.8, uSunAngularRadius + pxAng*0.8, sAng);
+  // The disc's own radiance, hoisted out because the aureole below has to be
+  // measured against IT and not against irradiance. Irradiance is the sun's
+  // flux; radiance is how bright it looks, and the two differ by the disc's
+  // solid angle -- a factor of a couple of hundred here. Scaling a glow by the
+  // former is how you build one that is arithmetically present and five
+  // thousand times too dim to see.
+  float sunR = max(uSunAngularRadius, 1e-4);
+  float sunSolid = TAU_A * (1.0 - cos(sunR));
+  vec3 discRad = uSunIrradiance / max(sunSolid, 1e-7)
+               * uSunDiscIntensity * sunTr * uAtmoExposure;
   if (sDisc > 0.0){
     float m = sqrt(max(0.0, 1.0 - pow(min(sAng/max(uSunAngularRadius,1e-5), 1.0), 2.0)));
     // Eddington limb darkening, plus a redder limb because the cooler edge of
     // the photosphere darkens more in blue than in red.
     vec3 u = vec3(0.64, 0.58, 0.53) * uSunLimb;
     vec3 limb = (1.0 - u) + u*pow(m, 0.42);
-    float solidAngle = TAU_A * (1.0 - cos(uSunAngularRadius));
     // Irradiance -> radiance across the solar disc's actual solid angle. This is
     // what makes the sun read as blindingly bright next to the sky around it.
-    vec3 disc = uSunIrradiance / max(solidAngle, 1e-7) * uSunDiscIntensity * limb * sDisc * sunTr * uAtmoExposure;
-    col += capRadiance(disc, uDiscCap);
+    col += capRadiance(discRad * limb * sDisc, uDiscCap);
   }
 
   // THE AUREOLE -- the glow around the sun, which the disc alone cannot give.
@@ -856,17 +864,22 @@ void main(){
   // -- which is the whole reason to build it out of the atmosphere's own
   // transmittance instead of pasting on a sprite.
   if (uAureole > 0.0005) {
-    float R = max(uSunAngularRadius, 1e-4);
     // Measured from the limb, not the centre, with a soft floor so the term is
-    // finite where it meets the disc instead of dividing by zero there.
-    float t = max(sAng, R * 1.02) / R;
+    // finite where it meets the disc instead of dividing by zero there. Because
+    // t is in units of the sun's own radius, the halo grows with the disc for
+    // free -- a sun drawn eight times life size gets an eight-times halo.
+    float t = max(sAng, sunR * 1.02) / sunR;
     float tight = pow(t, -max(uAureolePow, 0.5));
-    float broad = pow(t, -0.62) * 0.10;
+    float broad = pow(t, -0.62) * 0.06;
     // Killed below the horizon along with the disc: a glow with no sun in it is
     // a lens artefact, not atmosphere.
     float above = smoothstep(-0.02, 0.03, uSunDir.y);
-    vec3 glow = uSunIrradiance * sunTr * uAtmoExposure
-              * (tight + broad) * uAureole * above;
+    // A FRACTION OF THE DISC, which is the only reference that means anything.
+    // At the limb this is a few percent of a thing that is hundreds of times
+    // over white, so it clips bright right against the sun and falls back
+    // through the sky's own brightness over the next few degrees -- which is
+    // what glare looks like.
+    vec3 glow = discRad * (tight + broad) * uAureole * above;
     col += capRadiance(glow, uDiscCap);
   }
 

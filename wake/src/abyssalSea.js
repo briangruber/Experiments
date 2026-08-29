@@ -213,9 +213,10 @@ function fitToLake( p, preset = {}, tune = {} ) {
 	p.aerial = get( 'ocean.hazeStart' );
 	p.sunAngularRadius = 0.00465 * get( 'ocean.sunGlow' );
 	p.glitter = ( preset.glitter ?? 0.28 ) * get( 'ocean.sheen' );
-	// The sun's halo. Scaled by the disc size the panel is already asking for --
-	// a sun drawn six times life size with a life-size aureole reads as a sticker.
-	p.sunAureole = get( 'ocean.sunAura' ) * 0.045;
+	// The sun's halo, as a fraction of the DISC's radiance at the limb. The disc
+	// scaling is handled inside the shader, where the falloff is already measured
+	// in units of the sun's own radius.
+	p.sunAureole = get( 'ocean.sunAura' ) * 0.02;
 	p.sunAureolePow = get( 'ocean.sunAuraFall' );
 	// Weather, from the panel rather than frozen in the preset.
 	p.cloudCoverage = get( 'scene.cloud' );
