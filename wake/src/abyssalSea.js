@@ -166,6 +166,20 @@ const mix = ( a, b, t ) => a + ( b - a ) * t;
  */
 function fitToLake( p, preset = {}, tune = {} ) {
 
+	// REACH THE HORIZON. On a flat sea the horizon is at infinity, so any
+	// finite disc of water stops short of it and leaves a band of whatever the
+	// sky pass draws below its own horizon -- which is a dim grey Lambertian
+	// sheet that exists only for downward reflection lookups and was never
+	// meant to be looked at. The upstream 42 km subtends about half a degree of
+	// that band from a few hundred metres up, which is exactly the grey strip
+	// that appears as you climb and tilt.
+	//
+	// The grid is radial and EXPONENTIAL -- r = rMin*(rMax/rMin)^t -- so the
+	// rings keep a constant screen-space size and pushing the outer radius out
+	// costs no vertices at all. At 1000 km the gap is under a tenth of a degree
+	// from anywhere the camera can get to, which is well under a pixel.
+	p.rMax = 1.0e6;
+
 	// A real lake bottom, in metres, rather than a 0..1 fade of the preset's.
 	//
 	// Pushing the floor away killed the green, but it also removed the main

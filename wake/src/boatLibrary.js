@@ -198,6 +198,19 @@ function fitToHull( root, boat = {} ) {
 	// Remember it: the hull's own draft is the budget the planing lift has to
 	// stay inside, and nothing downstream can work that out from a bounding box.
 	holder.userData.draft = draft;
+	// The content's bounds in the holder's OWN frame, at unit scale, recorded
+	// once while the holder is still unparented. Re-fitting later cannot use a
+	// world-space box: by then the holder hangs off the boat group, which sits
+	// at the wave height and is rotated for trim, roll and bank -- so a world
+	// box carries all of that, and seating the keel against it moves the hull
+	// by the parent's position instead of by its own. That is why raising Model
+	// scale lifted the boat off the sea.
+	holder.userData.base = {
+		minY: final.min.y / scale,
+		sizeZ: fSize.z,
+		cx: ( final.min.x + final.max.x ) * 0.5 / scale,
+		maxZ: final.max.z / scale,
+	};
 
 	return holder;
 
@@ -242,19 +255,27 @@ export async function loadBoat( id ) {
 	// offsets kept the scale, so the boat MOVED without growing. The look knob
 	// belongs in the target itself.
 	fitted.userData.scaleTo = () => {
-		const L = drawnLength();
-		const box = new THREE.Box3().setFromObject( fitted );
-		const size = new THREE.Vector3();
-		box.getSize( size );
-		if ( Math.abs( size.z - L ) > 0.01 ) {
-			fitted.scale.multiplyScalar( L / Math.max( size.z, 1e-3 ) );
-		}
-		// Scaling moves the keel: the fit put the hull's lowest point one
-		// draft under the water, and multiplying the scale moves that point
-		// without moving the offset that placed it. Re-seat it.
-		const after = new THREE.Box3().setFromObject( fitted );
-		fitted.position.y -= after.min.y + draftFor( entry.id );
-		fitted.userData.draft = draftFor( entry.id );
+		// Arithmetic on the recorded unit-scale bounds, NOT a fresh world box.
+		//
+		// The old version measured setFromObject(fitted) and then did
+		// `position.y -= box.min.y + draft`. Box3.setFromObject is always in
+		// WORLD space, and by the time this runs the holder is parented to the
+		// boat group -- which rides the swell and is rotated for trim, roll and
+		// bank. So the box carried the parent's height and attitude, and
+		// subtracting it moved the hull by the parent's position on top of its
+		// own. Raising Model scale therefore lifted the ship clear of the sea.
+		//
+		// Every offset here is a fixed property of the model times the scale,
+		// which is parent-independent and cannot compound however many times
+		// the panel changes.
+		const b = fitted.userData.base;
+		const draft = draftFor( entry.id );
+		const s = drawnLength() / Math.max( b.sizeZ, 1e-3 );
+		fitted.scale.setScalar( s );
+		fitted.position.x = - b.cx * s;
+		fitted.position.z = - b.maxZ * s;
+		fitted.position.y = - b.minY * s - draft;
+		fitted.userData.draft = draft;
 	};
 
 	cache.set( id, fitted );

@@ -307,7 +307,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b44';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b45';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -427,6 +427,10 @@ const ui = buildUI(uiRoot, {
     if (path === '*' || path === 'boat.model'
       || path === 'boat.length' || path === 'boat.modelScale') {
       for (const c of boat.children) c.userData?.scaleTo?.();
+      // Re-frame with it. Changing the size of the boat is exactly the moment
+      // the shot distance should follow, and the smoothing means it eases out
+      // rather than cutting. A wheel-zoom afterwards still overrides it.
+      view.dist = CAMERAS[camIndex].dist * hullScale();
     }
     // The coast is geometry, baked in its constructor. These are the paths that
     // change that geometry, so these are the paths that have to rebuild it.
@@ -491,11 +495,21 @@ const approachAngle = (cur, target, tau, dt) => {
   return cur + d * (1 - Math.exp(-dt / Math.max(tau, 1e-3)));
 };
 
+// Shot distances are quoted for a 9.9 m launch, which is what every one of
+// them was framed against. A hull three and a half times that long -- the
+// pirate at Model scale 3.5 -- sits three and a half times closer in frame, so
+// the Waterline shot ends up against the transom instead of off the beam and
+// reads as "the side view is looking at the back of the boat". Distance in
+// HULL LENGTHS, and every shot frames the same picture whatever is drawn.
+const REFERENCE_HULL = 9.9;
+const hullScale = () => Math.max(0.35,
+  get('boat.length') * Math.max(get('boat.modelScale'), 0.05) / REFERENCE_HULL);
+
 function useCamera(i, { snap = false } = {}) {
   camIndex = ((i % CAMERAS.length) + CAMERAS.length) % CAMERAS.length;
   const c = CAMERAS[camIndex];
   view.pitch = c.pitch;
-  view.dist = c.dist;
+  view.dist = c.dist * hullScale();
   view.yaw = c.yaw;
   view.topDown = c.id === 'top';
   if (snap) { smooth.ready = false; }
