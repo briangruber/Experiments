@@ -210,7 +210,7 @@ try {
   // a path that does not exist inside a single file.
   await step('the generated art and voice are actually in use', async () => {}, () => {
     const M = window.__monkey;
-    return M.usingPlate() && M.voiced;
+    return M.usingPlate() && M.voiced && M.props() === 5;
   });
 
   await step('walk to a clicked point on the floor', async () => {

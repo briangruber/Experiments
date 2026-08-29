@@ -20,5 +20,383 @@
     "from": "assets/dock-blockout.png",
     "prompt": "Repaint this scene as a hand-painted background for a 2D cartoon point-and-click adventure game, in the style of a late-1990s LucasArts adventure: lush painted gouache and airbrush, warm saturated colour, soft painterly brushwork, strong silhouettes, slightly exaggerated cartoon proportions, cinematic moonlit night.  CRITICAL — keep the exact composition of the input image. Do not move, add or remove anything. The tavern stays on the left with its lit window and hanging sign, the grog barrel stays where it is, the crate stack stays where it is, the net pile stays where it is, the pier and the moored ship stay on the right, and the moon and its reflection stay exactly where they are. Above all, the wooden dock floor must occupy exactly the same band of the frame, with its far edge on the same line — a character walks on that edge and it cannot move.  No characters, no people, no text, no watermark, no UI, no border, no letterboxing.",
     "at": "2026-08-29T03:52:47.353Z"
+  },
+  {
+    "kind": "plate",
+    "file": "assets/dock-plate.png",
+    "provider": "fal",
+    "model": "fal-ai/flux/dev/image-to-image",
+    "strength": 0.82,
+    "size": "1920x720",
+    "from": "assets/dock-blockout.png",
+    "prompt": "Repaint this scene as a hand-painted matte background for a late-1990s LucasArts point-and-click adventure game. Traditional gouache and oil on board: visible directional brushwork, loaded impasto strokes in the lights, thin scumbled darks, broken colour, soft lost-and-found edges where forms turn away from the light and crisp edges only where they catch it. Rich colour temperature contrast — cool blue-violet moonlight against warm amber lamplight — with deep transparent shadows that still hold colour rather than going flat black. Painterly texture in every surface: grain and knots in the planks, weathering and salt bloom on the boards, mottled patina on the timber. Atmospheric depth, with the far water and horizon hazier and lower in contrast than the foreground.  A clear night sky: the moon and stars, atmospheric haze, and almost no cloud — leave the sky open.  CRITICAL — keep the exact composition of the input image. Do not move, add or remove anything. The tavern stays on the left with its lit window and hanging sign, the pilings stay where they are, the pier and the moored ship stay on the right, and the moon and its reflection stay exactly where they are. Above all, the wooden dock floor must occupy exactly the same band of the frame, with its far edge on the same line — a character walks on that edge and it cannot move.  Not flat vector art, not cel shading, not a clean digital illustration, not a children's book. No characters, no people, no text, no signage lettering, no watermark, no UI, no border, no letterboxing.",
+    "at": "2026-08-29T15:35:19.372Z"
+  },
+  {
+    "kind": "plate",
+    "file": "assets/dock-plate.png",
+    "provider": "fal",
+    "model": "fal-ai/flux/dev/image-to-image",
+    "strength": 0.82,
+    "size": "1920x720",
+    "from": "assets/dock-blockout.png",
+    "prompt": "Repaint this scene as a hand-painted matte background for a late-1990s LucasArts point-and-click adventure game. Traditional gouache and oil on board: visible directional brushwork, loaded impasto strokes in the lights, thin scumbled darks, broken colour, soft lost-and-found edges where forms turn away from the light and crisp edges only where they catch it. Rich colour temperature contrast — cool blue-violet moonlight against warm amber lamplight — with deep transparent shadows that still hold colour rather than going flat black. Painterly texture in every surface: grain and knots in the planks, weathering and salt bloom on the boards, mottled patina on the timber. Atmospheric depth, with the far water and horizon hazier and lower in contrast than the foreground.  A clear night sky: the moon and stars, atmospheric haze, and almost no cloud — leave the sky open.  CRITICAL — keep the exact composition of the input image. Do not move, add or remove anything. The tavern stays on the left with its lit window and hanging sign, the pilings stay where they are, the pier and the moored ship stay on the right, and the moon and its reflection stay exactly where they are. Above all, the wooden dock floor must occupy exactly the same band of the frame, with its far edge on the same line — a character walks on that edge and it cannot move.  Not flat vector art, not cel shading, not a clean digital illustration, not a children's book. No characters, no people, no text, no signage lettering, no watermark, no UI, no border, no letterboxing.",
+    "at": "2026-08-29T15:38:11.543Z"
+  },
+  {
+    "kind": "prop",
+    "name": "tavern",
+    "file": "assets/props/tavern.png",
+    "rect": [
+      0,
+      96,
+      470,
+      540
+    ],
+    "provider": "fal",
+    "model": "fal-ai/flux/dev/image-to-image",
+    "rembg": "fal-ai/imageutils/rembg",
+    "strength": 0.72,
+    "prompt": "The weathered clapboard front of a small dockside tavern at night: silvered grey-brown timber boards, a shingled roof, a heavy plank door with black iron hinges, and one small many-paned window glowing warm amber from the fire inside. A carved wooden sign hangs from a wrought-iron bracket. Salt-stained, sun-bleached, a century old.",
+    "at": "2026-08-29T15:39:06.739Z"
+  },
+  {
+    "kind": "prop",
+    "name": "barrel",
+    "file": "assets/props/barrel.png",
+    "rect": [
+      498,
+      526,
+      132,
+      152
+    ],
+    "provider": "fal",
+    "model": "fal-ai/flux/dev/image-to-image",
+    "rembg": "fal-ai/imageutils/rembg",
+    "strength": 0.72,
+    "prompt": "A squat oak grog barrel with iron hoops, standing upright on a dock. Weathered staves, rust bleeding from the hoops, a brass spigot low on the right-hand side.",
+    "at": "2026-08-29T15:39:11.232Z"
+  },
+  {
+    "kind": "prop",
+    "name": "crates",
+    "file": "assets/props/crates.png",
+    "rect": [
+      792,
+      542,
+      172,
+      178
+    ],
+    "provider": "fal",
+    "model": "fal-ai/flux/dev/image-to-image",
+    "rembg": "fal-ai/imageutils/rembg",
+    "strength": 0.72,
+    "prompt": "A stack of three battered wooden cargo crates, rough sawn planks with cross-braces, chipped corners, damp stains, old stencilling worn to nothing.",
+    "at": "2026-08-29T15:39:17.983Z"
+  },
+  {
+    "kind": "prop",
+    "name": "nets",
+    "file": "assets/props/nets.png",
+    "rect": [
+      1002,
+      550,
+      236,
+      164
+    ],
+    "provider": "fal",
+    "model": "fal-ai/flux/dev/image-to-image",
+    "rembg": "fal-ai/imageutils/rembg",
+    "strength": 0.72,
+    "prompt": "A heap of coiled tarred fishing net on a dock, dark and damp, with a long wooden boat hook lying across it, its iron hook catching the moonlight.",
+    "at": "2026-08-29T15:39:22.701Z"
+  },
+  {
+    "kind": "prop",
+    "name": "cup",
+    "file": "assets/props/cup.png",
+    "rect": [
+      384,
+      426,
+      62,
+      72
+    ],
+    "provider": "fal",
+    "model": "fal-ai/flux/dev/image-to-image",
+    "rembg": "fal-ai/imageutils/rembg",
+    "strength": 0.72,
+    "prompt": "A dented tin drinking cup with a curved handle, hanging from a single nail, its metal scratched and tarnished with a bright highlight along one edge.",
+    "at": "2026-08-29T15:39:29.575Z"
+  },
+  {
+    "kind": "plate",
+    "file": "assets/dock-plate.png",
+    "provider": "fal",
+    "model": "fal-ai/flux/dev/image-to-image",
+    "strength": 0.72,
+    "size": "1920x720",
+    "from": "assets/dock-blockout.png",
+    "prompt": "Repaint this scene as a hand-painted matte background for a late-1990s LucasArts point-and-click adventure game. Traditional gouache and oil on board: visible directional brushwork, loaded impasto strokes in the lights, thin scumbled darks, broken colour, soft lost-and-found edges where forms turn away from the light and crisp edges only where they catch it. Rich colour temperature contrast — cool blue-violet moonlight against warm amber lamplight — with deep transparent shadows that still hold colour rather than going flat black. Painterly texture in every surface: grain and knots in the planks, weathering and salt bloom on the boards, mottled patina on the timber. Atmospheric depth, with the far water and horizon hazier and lower in contrast than the foreground.  A clear night sky: the moon and stars, atmospheric haze, and almost no cloud — leave the sky open.  CRITICAL — keep the exact composition of the input image. Do not move, add or remove anything. The tavern stays on the left with its lit window and hanging sign, the pilings stay where they are, the pier and the moored ship stay on the right, and the moon and its reflection stay exactly where they are. Above all, the wooden dock floor must occupy exactly the same band of the frame, with its far edge on the same line — a character walks on that edge and it cannot move.  Not flat vector art, not cel shading, not a clean digital illustration, not a children's book. No characters, no people, no text, no signage lettering, no watermark, no UI, no border, no letterboxing.",
+    "at": "2026-08-29T15:42:58.314Z"
+  },
+  {
+    "kind": "prop",
+    "name": "tavern",
+    "file": "assets/props/tavern.png",
+    "rect": [
+      0,
+      96,
+      470,
+      540
+    ],
+    "provider": "fal",
+    "model": "fal-ai/flux/dev/image-to-image",
+    "matte": "blockout alpha",
+    "strength": 0.7,
+    "prompt": "The weathered clapboard front of a small dockside tavern at night: silvered grey-brown timber boards, a shingled roof, a heavy plank door with black iron hinges, and one small many-paned window glowing warm amber from the fire inside. A carved wooden sign hangs from a wrought-iron bracket. Salt-stained, sun-bleached, a century old.",
+    "at": "2026-08-29T15:43:03.950Z"
+  },
+  {
+    "kind": "prop",
+    "name": "barrel",
+    "file": "assets/props/barrel.png",
+    "rect": [
+      498,
+      526,
+      132,
+      152
+    ],
+    "provider": "fal",
+    "model": "fal-ai/flux/dev/image-to-image",
+    "matte": "blockout alpha",
+    "strength": 0.7,
+    "prompt": "A squat oak grog barrel with iron hoops, standing upright on a dock. Weathered staves, rust bleeding from the hoops, a brass spigot low on the right-hand side.",
+    "at": "2026-08-29T15:43:06.422Z"
+  },
+  {
+    "kind": "prop",
+    "name": "crates",
+    "file": "assets/props/crates.png",
+    "rect": [
+      792,
+      542,
+      172,
+      178
+    ],
+    "provider": "fal",
+    "model": "fal-ai/flux/dev/image-to-image",
+    "matte": "blockout alpha",
+    "strength": 0.7,
+    "prompt": "A stack of three battered wooden cargo crates, rough sawn planks with cross-braces, chipped corners, damp stains, old stencilling worn to nothing.",
+    "at": "2026-08-29T15:43:12.749Z"
+  },
+  {
+    "kind": "prop",
+    "name": "nets",
+    "file": "assets/props/nets.png",
+    "rect": [
+      1002,
+      550,
+      236,
+      164
+    ],
+    "provider": "fal",
+    "model": "fal-ai/flux/dev/image-to-image",
+    "matte": "blockout alpha",
+    "strength": 0.7,
+    "prompt": "A heap of coiled tarred fishing net on a dock, dark and damp, with a long wooden boat hook lying across it, its iron hook catching the moonlight.",
+    "at": "2026-08-29T15:43:15.571Z"
+  },
+  {
+    "kind": "prop",
+    "name": "cup",
+    "file": "assets/props/cup.png",
+    "rect": [
+      384,
+      426,
+      62,
+      72
+    ],
+    "provider": "fal",
+    "model": "fal-ai/flux/dev/image-to-image",
+    "matte": "blockout alpha",
+    "strength": 0.7,
+    "prompt": "A dented tin drinking cup with a curved handle, hanging from a single nail, its metal scratched and tarnished with a bright highlight along one edge.",
+    "at": "2026-08-29T15:43:17.922Z"
+  },
+  {
+    "kind": "prop",
+    "name": "tavern",
+    "file": "assets/props/tavern.png",
+    "rect": [
+      0,
+      96,
+      470,
+      540
+    ],
+    "provider": "fal",
+    "model": "fal-ai/flux/dev/image-to-image",
+    "matte": "blockout alpha",
+    "strength": 0.7,
+    "prompt": "The weathered clapboard front of a small dockside tavern at night: silvered grey-brown timber boards, a shingled roof, a heavy plank door with black iron hinges, and one small many-paned window glowing warm amber from the fire inside. A carved wooden sign hangs from a wrought-iron bracket. Salt-stained, sun-bleached, a century old.",
+    "at": "2026-08-29T15:45:17.814Z"
+  },
+  {
+    "kind": "prop",
+    "name": "barrel",
+    "file": "assets/props/barrel.png",
+    "rect": [
+      498,
+      526,
+      132,
+      152
+    ],
+    "provider": "fal",
+    "model": "fal-ai/flux/dev/image-to-image",
+    "matte": "blockout alpha",
+    "strength": 0.7,
+    "prompt": "A squat oak grog barrel with iron hoops, standing upright on a dock. Weathered staves, rust bleeding from the hoops, a brass spigot low on the right-hand side.",
+    "at": "2026-08-29T15:45:17.961Z"
+  },
+  {
+    "kind": "prop",
+    "name": "crates",
+    "file": "assets/props/crates.png",
+    "rect": [
+      792,
+      542,
+      172,
+      178
+    ],
+    "provider": "fal",
+    "model": "fal-ai/flux/dev/image-to-image",
+    "matte": "blockout alpha",
+    "strength": 0.7,
+    "prompt": "A stack of three battered wooden cargo crates, rough sawn planks with cross-braces, chipped corners, damp stains, old stencilling worn to nothing.",
+    "at": "2026-08-29T15:45:18.077Z"
+  },
+  {
+    "kind": "prop",
+    "name": "nets",
+    "file": "assets/props/nets.png",
+    "rect": [
+      1002,
+      550,
+      236,
+      164
+    ],
+    "provider": "fal",
+    "model": "fal-ai/flux/dev/image-to-image",
+    "matte": "blockout alpha",
+    "strength": 0.7,
+    "prompt": "A heap of coiled tarred fishing net on a dock, dark and damp, with a long wooden boat hook lying across it, its iron hook catching the moonlight.",
+    "at": "2026-08-29T15:45:18.204Z"
+  },
+  {
+    "kind": "prop",
+    "name": "cup",
+    "file": "assets/props/cup.png",
+    "rect": [
+      384,
+      426,
+      62,
+      72
+    ],
+    "provider": "fal",
+    "model": "fal-ai/flux/dev/image-to-image",
+    "matte": "blockout alpha",
+    "strength": 0.7,
+    "prompt": "A dented tin drinking cup with a curved handle, hanging from a single nail, its metal scratched and tarnished with a bright highlight along one edge.",
+    "at": "2026-08-29T15:45:18.317Z"
+  },
+  {
+    "kind": "prop",
+    "name": "tavern",
+    "file": "assets/props/tavern.png",
+    "rect": [
+      0,
+      96,
+      470,
+      540
+    ],
+    "provider": "fal",
+    "model": "fal-ai/flux/dev/image-to-image",
+    "matte": "blockout alpha",
+    "dilate": 2,
+    "strength": 0.7,
+    "prompt": "The weathered clapboard front of a small dockside tavern at night: silvered grey-brown timber boards, a shingled roof, a heavy plank door with black iron hinges, and one small many-paned window glowing warm amber from the fire inside. A carved wooden sign hangs from a wrought-iron bracket. Salt-stained, sun-bleached, a century old.",
+    "at": "2026-08-29T15:47:28.590Z"
+  },
+  {
+    "kind": "prop",
+    "name": "barrel",
+    "file": "assets/props/barrel.png",
+    "rect": [
+      498,
+      526,
+      132,
+      152
+    ],
+    "provider": "fal",
+    "model": "fal-ai/flux/dev/image-to-image",
+    "matte": "blockout alpha",
+    "dilate": 2,
+    "strength": 0.7,
+    "prompt": "A squat oak grog barrel with iron hoops, standing upright on a dock. Weathered staves, rust bleeding from the hoops, a brass spigot low on the right-hand side.",
+    "at": "2026-08-29T15:47:28.740Z"
+  },
+  {
+    "kind": "prop",
+    "name": "crates",
+    "file": "assets/props/crates.png",
+    "rect": [
+      792,
+      542,
+      172,
+      178
+    ],
+    "provider": "fal",
+    "model": "fal-ai/flux/dev/image-to-image",
+    "matte": "blockout alpha",
+    "dilate": 2,
+    "strength": 0.7,
+    "prompt": "A stack of three battered wooden cargo crates, rough sawn planks with cross-braces, chipped corners, damp stains, old stencilling worn to nothing.",
+    "at": "2026-08-29T15:47:28.864Z"
+  },
+  {
+    "kind": "prop",
+    "name": "nets",
+    "file": "assets/props/nets.png",
+    "rect": [
+      1002,
+      550,
+      236,
+      164
+    ],
+    "provider": "fal",
+    "model": "fal-ai/flux/dev/image-to-image",
+    "matte": "blockout alpha",
+    "dilate": 8,
+    "strength": 0.7,
+    "prompt": "A heap of coiled tarred fishing net on a dock, dark and damp, with a long wooden boat hook lying across it, its iron hook catching the moonlight.",
+    "at": "2026-08-29T15:47:29.025Z"
+  },
+  {
+    "kind": "prop",
+    "name": "cup",
+    "file": "assets/props/cup.png",
+    "rect": [
+      384,
+      426,
+      62,
+      72
+    ],
+    "provider": "fal",
+    "model": "fal-ai/flux/dev/image-to-image",
+    "matte": "blockout alpha",
+    "dilate": 4,
+    "strength": 0.7,
+    "prompt": "A dented tin drinking cup with a curved handle, hanging from a single nail, its metal scratched and tarnished with a bright highlight along one edge.",
+    "at": "2026-08-29T15:47:29.181Z"
   }
 ]

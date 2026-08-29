@@ -32,6 +32,9 @@ export class Actor {
     this.path = null;
     this.phase = 0;      // walk-cycle phase, in strides
     this.blink = Math.random() * 4;
+    // Trailing cloth. Chased rather than set, so it overshoots on stopping
+    // instead of snapping — the difference between a rig and a puppet.
+    this.lag = 0;
     this.visible = opts.visible !== false;
     this.line = null;    // { text, until, voice }
     this.onArrive = null;
@@ -64,6 +67,9 @@ export class Actor {
   face(dir) { this.facing = dir; }
 
   update(dt, room) {
+    const want = this.state === 'walk' ? (this.facing === 'left' ? 1 : -1) : 0;
+    this.lag += (want - this.lag) * Math.min(1, dt * 6);
+
     this.blink -= dt;
     if (this.blink < -0.14) this.blink = 2.5 + Math.random() * 3.5;
 

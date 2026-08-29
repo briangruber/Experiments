@@ -1,10 +1,13 @@
 <meta charset="utf-8">
 <title>blockout</title>
-<style>html,body{margin:0;background:#000}canvas{display:block}</style>
+<!-- No page background: the prop mode is screenshotted with omitBackground so
+     the canvas's own alpha survives, and an opaque body defeats that. -->
+<style>html,body{margin:0;background:transparent}canvas{display:block}</style>
 <canvas id="c"></canvas>
 <script type="module">
-// The room's STATIC layers, painted at full room size with no actors, no UI
-// and no interactive props. This is the image the plate generator conditions
+// Two modes. Without ?only, the room's STATIC layers at full room size — no
+// actors, no UI, no interactive props, and since the second pass, no tavern
+// either. With ?only=<prop>, a single clickable object alone on a flat ground. This is the image the plate generator conditions
 // on: it already has the composition, the horizon, the light direction and —
 // crucially — the floor exactly where the walk polygons say it is.
 //
@@ -17,19 +20,38 @@
 // engine draws over the plate, where its position is a number in a file rather
 // than a hope about a diffusion model. The plate is scenery; scenery is what
 // generation is good at.
+//
+// The tavern joined them after the second pass. At a strength high enough to
+// look painted rather than vector, its door vanished and its sign moved — and
+// the door, the window and the sign are three hotspots. See src/art/props.js.
 import * as art from '../src/art/paint.js';
+import { PROP_RECTS, paintProp } from '../src/art/props.js';
 
 const W = 1920, H = 720;
 const c = document.getElementById('c');
-c.width = W; c.height = H;
 const ctx = c.getContext('2d');
-const room = { width: W, height: H, camX: 0, time: 0 };
+const only = new URLSearchParams(location.search).get('only');
 
-art.paintSky(ctx, room);
-art.paintSea(ctx, room);
-art.paintPilings(ctx, room);
-art.paintDock(ctx, room);
-art.paintTavern(ctx, room);
+if (only) {
+  // One prop, alone, on a flat ground. The flat ground is doing two jobs: it
+  // gives the repaint no scenery to invent around the object, and it gives the
+  // background remover an unambiguous edge to cut on.
+  // Drawn on transparent, not on a ground. The alpha of this canvas IS the
+  // matte: it is the exact silhouette the hotspots were authored against, and
+  // re-applying it after the repaint is both free and pixel-perfect. A
+  // segmentation model asked the same question guesses, and guessed the
+  // tavern was its own window.
+  const [, , w, h] = PROP_RECTS[only];
+  c.width = w; c.height = h;
+  paintProp(art, ctx, only, { width: W, height: H, camX: 0, time: 0 });
+} else {
+  c.width = W; c.height = H;
+  const room = { width: W, height: H, camX: 0, time: 0 };
+  art.paintSky(ctx, room);
+  art.paintSea(ctx, room);
+  art.paintPilings(ctx, room);
+  art.paintDock(ctx, room);
+}
 
 window.__ready = true;
 </script>

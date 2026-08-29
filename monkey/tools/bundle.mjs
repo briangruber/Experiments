@@ -36,7 +36,7 @@ const exists = async (p) => { try { await stat(p); return true; } catch { return
 
 const IMPORT_NAMED = /^import\s+\{([^}]*)\}\s+from\s+'([^']+)';?\s*$/;
 const IMPORT_STAR = /^import\s+\*\s+as\s+(\w+)\s+from\s+'([^']+)';?\s*$/;
-const EXPORT_DECL = /^export\s+(?:(const|let|var)\s+(\w+)|(function\*?|class)\s+(\w+))/;
+const EXPORT_DECL = /^export\s+(?:(const|let|var)\s+(\w+)|(?:async\s+)?(function\*?|class)\s+(\w+))/;
 
 const modules = new Map();
 
@@ -99,6 +99,16 @@ if (!NO_PLATE && (await exists(platePath))) {
   assets.plate = await dataUri(platePath, 'image/png');
   assetBytes += (await stat(platePath)).size;
 }
+const propDir = join(ROOT, 'assets/props');
+if (!NO_PLATE && (await exists(propDir))) {
+  const props = {};
+  for (const f of (await readdir(propDir)).filter((f) => f.endsWith('.png'))) {
+    props[f.slice(0, -4)] = await dataUri(join(propDir, f), 'image/png');
+    assetBytes += (await stat(join(propDir, f))).size;
+  }
+  if (Object.keys(props).length) assets.props = props;
+}
+
 const voiceDir = join(ROOT, 'assets/voice');
 if (!NO_VOICE && (await exists(join(voiceDir, 'manifest.json')))) {
   const manifest = JSON.parse(await readFile(join(voiceDir, 'manifest.json'), 'utf8'));

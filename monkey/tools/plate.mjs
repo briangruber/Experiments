@@ -54,21 +54,35 @@ const exists = async (p) => { try { await stat(p); return true; } catch { return
 
 // What the painting must preserve, said explicitly, because "keep the layout"
 // is the one instruction an image model will quietly ignore.
+// Vague style words ("painterly", "beautiful") come back as the flat vector
+// look the input already had. What actually moves a repaint toward paint is
+// naming the mechanics of painting — the medium, the mark, the edge quality,
+// the value structure — and naming what to avoid in the same terms.
 const PROMPT = [
-  'Repaint this scene as a hand-painted background for a 2D cartoon point-and-click',
-  'adventure game, in the style of a late-1990s LucasArts adventure: lush painted',
-  'gouache and airbrush, warm saturated colour, soft painterly brushwork, strong',
-  'silhouettes, slightly exaggerated cartoon proportions, cinematic moonlit night.',
+  'Repaint this scene as a hand-painted matte background for a late-1990s LucasArts',
+  'point-and-click adventure game. Traditional gouache and oil on board: visible',
+  'directional brushwork, loaded impasto strokes in the lights, thin scumbled darks,',
+  'broken colour, soft lost-and-found edges where forms turn away from the light and',
+  'crisp edges only where they catch it. Rich colour temperature contrast — cool',
+  'blue-violet moonlight against warm amber lamplight — with deep transparent shadows',
+  'that still hold colour rather than going flat black. Painterly texture in every',
+  'surface: grain and knots in the planks, weathering and salt bloom on the boards,',
+  'mottled patina on the timber. Atmospheric depth, with the far water and horizon',
+  'hazier and lower in contrast than the foreground.',
+  '',
+  'A clear night sky: the moon and stars, atmospheric haze, and almost no cloud —',
+  'leave the sky open.',
   '',
   'CRITICAL — keep the exact composition of the input image. Do not move, add or',
   'remove anything. The tavern stays on the left with its lit window and hanging',
-  'sign, the grog barrel stays where it is, the crate stack stays where it is, the',
-  'net pile stays where it is, the pier and the moored ship stay on the right, and',
-  'the moon and its reflection stay exactly where they are. Above all, the wooden',
-  'dock floor must occupy exactly the same band of the frame, with its far edge on',
-  'the same line — a character walks on that edge and it cannot move.',
+  'sign, the pilings stay where they are, the pier and the moored ship stay on the',
+  'right, and the moon and its reflection stay exactly where they are. Above all,',
+  'the wooden dock floor must occupy exactly the same band of the frame, with its far',
+  'edge on the same line — a character walks on that edge and it cannot move.',
   '',
-  'No characters, no people, no text, no watermark, no UI, no border, no letterboxing.',
+  'Not flat vector art, not cel shading, not a clean digital illustration, not a',
+  'children\'s book. No characters, no people, no text, no signage lettering, no',
+  'watermark, no UI, no border, no letterboxing.',
 ].join(' ');
 
 async function renderBlockout() {

@@ -15,6 +15,7 @@ import { lint } from './engine/puzzle.js';
 import { VerbCoin, Inventory, DialogueMenu, drawSpeech } from './engine/ui.js';
 import { Editor } from './engine/editor.js';
 import * as art from './art/paint.js';
+import { loadProps } from './art/props.js';
 import * as dock from './game/dock.js';
 
 const VIEW = { w: 1280, h: 720 };
@@ -54,6 +55,7 @@ async function loadPlate() {
 }
 
 let room, editor;
+let props = {};
 const voice = new Voice();
 const g = {
   player, grout, state, seq, VIEW, voice,
@@ -63,7 +65,7 @@ const g = {
 };
 
 function buildRoom() {
-  room = new Room(dock.makeRoomDef(state, plate), VIEW);
+  room = new Room(dock.makeRoomDef(state, plate, props), VIEW);
   dock.applyPierState(room, state);
   editor = new Editor(room, VIEW);
 }
@@ -358,11 +360,13 @@ function drawWin() {
 // --- go ---------------------------------------------------------------------
 
 plate = await loadPlate();
+props = await loadProps();
 const voiced = await voice.load();
 if (voiced) attachVoice([player, grout], voice);
 console.log(voiced
   ? `[voice] ${Object.keys(voice.manifest.lines).length} recorded lines, measured timings`
   : '[voice] no recordings — line lengths estimated from text (run tools/voices.mjs)');
+console.log(`[props] ${Object.keys(props).length}/5 painted sprites`);
 buildRoom();
 if (plate) console.log('[art] generated plate in use');
 else console.log('[art] procedural placeholder in use — run tools/plate.mjs for a painted plate');
@@ -370,5 +374,5 @@ else console.log('[art] procedural placeholder in use — run tools/plate.mjs fo
 // clicking real pixels. A prototype that cannot be driven by a script cannot
 // be regression-tested, and an adventure game with no completion test breaks
 // silently the first time a flag is renamed.
-window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => room, actors: { player, grout }, usingPlate: () => !!plate, voiced };
+window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => room, actors: { player, grout }, usingPlate: () => !!plate, voiced, props: () => Object.keys(props).length };
 requestAnimationFrame(frame);

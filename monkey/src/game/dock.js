@@ -14,6 +14,8 @@
 import { walk, face, say, wait, run } from '../engine/script.js';
 import { LINES, EXCHANGES } from './lines.js';
 import * as art from '../art/paint.js';
+import { makeClouds, makeWater, makeLamps } from '../art/animate.js';
+import { PROP_RECTS } from '../art/props.js';
 
 export const ROOM_W = 1920, ROOM_H = 720;
 
@@ -54,7 +56,7 @@ export const CAST = {
 
 // --- the room ---------------------------------------------------------------
 
-export function makeRoomDef(state, plate) {
+export function makeRoomDef(state, plate, props = {}) {
   // A generated backdrop, when tools/plate.mjs has produced one, replaces the
   // static layers with a single blit. What it does NOT replace is anything the
   // player can touch: the cup below and the occluder props further down keep
@@ -62,15 +64,50 @@ export function makeRoomDef(state, plate) {
   // and a hotspot that has drifted off its own art is worse than placeholder
   // art that has not. The floor, scale and occluders are untouched either way —
   // the annotations are the durable asset, the painting is the replaceable one.
-  const cupLayer = { paint: (ctx, room) => art.paintCup(ctx, room, state.has('cup') || state.has('cup-of-grog')) };
+  // Every clickable object draws from its generated sprite when one exists and
+  // from the procedural painter when it does not, at the same coordinates
+  // either way. That is the whole of the swap: the box is the asset, the
+  // painting inside it is replaceable.
+  const prop = (name, fallback) => (ctx, room) => {
+    const img = props[name];
+    if (!img) { fallback(ctx, room); return; }
+    const [x, y, w, h] = PROP_RECTS[name];
+    ctx.drawImage(img, x, y, w, h);
+  };
+
+  const cupTaken = () => state.has('cup') || state.has('cup-of-grog');
+  const cupLayer = {
+    paint: (ctx, room) => {
+      if (cupTaken()) return;
+      prop('cup', (c, r) => art.paintCup(c, r, false))(ctx, room);
+    },
+  };
+  const tavernLayer = { paint: prop('tavern', art.paintTavern) };
+
+  // The moving layers work over either backdrop: the water resamples the plate
+  // when there is one and falls back to glitter alone when there is not.
+  const clouds = { paint: makeClouds() };
+  const water = { paint: makeWater(plate) };
+  const lamps = { paint: makeLamps() };
+
   const layers = plate
-    ? [{ paint: (ctx) => ctx.drawImage(plate, 0, 0, ROOM_W, ROOM_H) }, cupLayer]
+    ? [
+        { paint: (ctx) => ctx.drawImage(plate, 0, 0, ROOM_W, ROOM_H) },
+        water,
+        clouds,        // drawn before the tavern, so a cloud passes behind it
+        tavernLayer,
+        lamps,
+        cupLayer,
+      ]
     : [
         { paint: art.paintSky, parallax: 0.55 },
+        clouds,
         { paint: art.paintSea, parallax: 0.25 },
+        water,
         { paint: art.paintPilings },
         { paint: art.paintDock },
-        { paint: art.paintTavern },
+        tavernLayer,
+        lamps,
         cupLayer,
       ];
 
@@ -87,9 +124,9 @@ export function makeRoomDef(state, plate) {
     ],
     layers,
     occluders: [
-      { baseline: 660, paint: art.paintBarrel },
-      { baseline: 700, paint: art.paintCrates },
-      { baseline: 690, paint: art.paintNets, hidden: () => state.has('boathook') && false },
+      { baseline: 660, paint: prop('barrel', art.paintBarrel) },
+      { baseline: 700, paint: prop('crates', art.paintCrates) },
+      { baseline: 690, paint: prop('nets', art.paintNets) },
     ],
     hotspots: HOTSPOTS(state),
   };

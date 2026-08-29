@@ -21,7 +21,22 @@ export function rng(seed) {
   };
 }
 
-const MOON = { x: 980, y: 120, r: 46 };
+// The scene's fixed geometry. These numbers are the contract between the
+// blockout, the generated plate and the animated layers: the horizon and the
+// dock line are where they are because the walk polygons and scale anchors say
+// so, and the repaint was instructed to keep them. Anything that needs to cut
+// the plate back apart — the water shimmer, the cloud field — reads them here
+// rather than guessing at the painting.
+export const SCENE = {
+  moon: { x: 980, y: 120, r: 46 },
+  horizon: 470,
+  dockTop: 596,
+  // The tavern mass, generously bounded. Clouds are kept out of it; a little
+  // slack absorbs the small drift between blockout and repaint.
+  tavern: { right: 452, top: 108 },
+};
+
+const MOON = SCENE.moon;
 
 export function paintSky(ctx, room) {
   const g = ctx.createLinearGradient(0, 0, 0, 460);
@@ -304,6 +319,16 @@ export function paintCup(ctx, room, taken) {
 
 // One cartoon-proportioned body, parameterised. Big head, small hips, wide
 // shoulders — the CMI silhouette. Origin is between the feet at (0,0).
+//
+// Two things do most of the work of sitting a drawn character inside a painted
+// scene, and neither is more detail. The first is light: the scene has a cold
+// moon up to the right and a warm window down to the left, so the figure gets
+// a cool rim on one side and a warm bounce on the other, and stops looking
+// like a sticker. The second is lag — hair, coat-tail and sash trailing a
+// frame behind the body — which is what separates a puppet from a rig.
+const MOONLIGHT = 'rgba(186,206,255,';
+const LAMPLIGHT = 'rgba(255,168,92,';
+
 export function makePerson(spec) {
   return function drawPerson(ctx, actor) {
     const walking = actor.state === 'walk';
@@ -313,22 +338,51 @@ export function makePerson(spec) {
     const flip = actor.facing === 'left' ? -1 : 1;
     const away = actor.facing === 'back';
     const H = spec.height;
+    // After the mirror, local +x is world x*flip. Multiplying by lx keeps the
+    // moon on the moon's side of the sky when the character turns around.
+    const lx = flip;
+    // Trailing cloth. `lag` is smoothed in Actor.update, so it overshoots when
+    // the character stops rather than snapping upright.
+    const lag = actor.lag || 0;
 
     ctx.save();
     ctx.scale(flip, 1);
     ctx.translate(0, -bob);
 
-    // shadow (unscaled by bob, so it stays on the ground)
+    // Contact shadow, thrown away from the moon and softened at the edge.
     ctx.save();
     ctx.translate(0, bob);
-    ctx.fillStyle = 'rgba(0,0,0,0.32)';
-    ctx.beginPath(); ctx.ellipse(0, 0, H * 0.20, H * 0.045, 0, 0, Math.PI * 2); ctx.fill();
+    const sh = ctx.createRadialGradient(-lx * H * 0.03, 0, H * 0.02, -lx * H * 0.03, 0, H * 0.23);
+    sh.addColorStop(0, 'rgba(0,0,0,0.40)');
+    sh.addColorStop(0.6, 'rgba(0,0,0,0.16)');
+    sh.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = sh;
+    ctx.save();
+    ctx.scale(1, 0.22);
+    ctx.beginPath();
+    ctx.arc(-lx * H * 0.03, 0, H * 0.23, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
     ctx.restore();
 
     const hipY = -H * 0.42, shoY = -H * 0.72, headY = -H * 0.86;
 
+    // A vertical gradient per part: the scene's key is high, so every form is
+    // lighter at the top and sinks into its own shadow at the bottom.
+    const lit = (c0, c1, y0, y1) => {
+      const g = ctx.createLinearGradient(lx * H * 0.08, y0, -lx * H * 0.10, y1);
+      g.addColorStop(0, c0);
+      g.addColorStop(1, c1);
+      return g;
+    };
+    const shade = (hex, k) => {
+      const n = parseInt(hex.slice(1), 16);
+      const f = (v) => Math.max(0, Math.min(255, Math.round(v * k)));
+      return `rgb(${f((n >> 16) & 255)},${f((n >> 8) & 255)},${f(n & 255)})`;
+    };
+
     const leg = (dir) => {
-      ctx.strokeStyle = spec.legs;
+      ctx.strokeStyle = lit(shade(spec.legs, 1.18), shade(spec.legs, 0.62), hipY, 0);
       ctx.lineWidth = H * 0.075;
       ctx.lineCap = 'round';
       const kx = dir * swing * H * 0.13;
@@ -336,24 +390,27 @@ export function makePerson(spec) {
       ctx.moveTo(dir * H * 0.045, hipY);
       ctx.quadraticCurveTo(kx * 0.6, hipY * 0.5, kx, -H * 0.035);
       ctx.stroke();
-      ctx.fillStyle = spec.boots;
+      ctx.fillStyle = lit(shade(spec.boots, 1.5), spec.boots, -H * 0.05, 0);
       ctx.beginPath();
       ctx.ellipse(kx + H * 0.022, -H * 0.022, H * 0.055, H * 0.030, 0, 0, Math.PI * 2);
       ctx.fill();
     };
     leg(-1); leg(1);
 
-    // torso
-    ctx.fillStyle = spec.coat;
-    ctx.beginPath();
-    ctx.moveTo(-H * 0.115, hipY + H * 0.03);
-    ctx.quadraticCurveTo(-H * 0.165, shoY + H * 0.06, -H * 0.135, shoY);
-    ctx.lineTo(H * 0.135, shoY);
-    ctx.quadraticCurveTo(H * 0.165, shoY + H * 0.06, H * 0.115, hipY + H * 0.03);
-    ctx.closePath();
+    // torso, with the coat hem swung by the lag
+    const torsoPath = () => {
+      ctx.beginPath();
+      ctx.moveTo(-H * 0.115 + lag * H * 0.03, hipY + H * 0.04);
+      ctx.quadraticCurveTo(-H * 0.165, shoY + H * 0.06, -H * 0.135, shoY);
+      ctx.lineTo(H * 0.135, shoY);
+      ctx.quadraticCurveTo(H * 0.165, shoY + H * 0.06, H * 0.115 + lag * H * 0.05, hipY + H * 0.04);
+      ctx.closePath();
+    };
+    ctx.fillStyle = lit(shade(spec.coat, 1.22), shade(spec.coat, 0.58), shoY, hipY);
+    torsoPath();
     ctx.fill();
     if (spec.shirt) {
-      ctx.fillStyle = spec.shirt;
+      ctx.fillStyle = lit(shade(spec.shirt, 1.10), shade(spec.shirt, 0.66), shoY, hipY);
       ctx.beginPath();
       ctx.moveTo(-H * 0.045, shoY + H * 0.005);
       ctx.lineTo(H * 0.045, shoY + H * 0.005);
@@ -363,13 +420,20 @@ export function makePerson(spec) {
       ctx.fill();
     }
     if (spec.sash) {
-      ctx.fillStyle = spec.sash;
+      ctx.fillStyle = lit(shade(spec.sash, 1.20), shade(spec.sash, 0.70), hipY - H * 0.02, hipY + H * 0.03);
       ctx.fillRect(-H * 0.125, hipY - H * 0.02, H * 0.25, H * 0.045);
+      // the loose end, trailing
+      ctx.beginPath();
+      ctx.moveTo(-H * 0.115, hipY - H * 0.01);
+      ctx.quadraticCurveTo(-H * 0.16 + lag * H * 0.05, hipY + H * 0.07, -H * 0.12 + lag * H * 0.09, hipY + H * 0.13);
+      ctx.lineTo(-H * 0.085 + lag * H * 0.07, hipY + H * 0.11);
+      ctx.quadraticCurveTo(-H * 0.115, hipY + H * 0.05, -H * 0.075, hipY - H * 0.005);
+      ctx.closePath();
+      ctx.fill();
     }
 
-    // arms
     const arm = (dir) => {
-      ctx.strokeStyle = spec.coat;
+      ctx.strokeStyle = lit(shade(spec.coat, 1.14), shade(spec.coat, 0.60), shoY, hipY);
       ctx.lineWidth = H * 0.058;
       ctx.lineCap = 'round';
       const hx = dir * (H * 0.075 - dir * swing * H * 0.10);
@@ -378,7 +442,7 @@ export function makePerson(spec) {
       ctx.moveTo(dir * H * 0.125, shoY + H * 0.025);
       ctx.quadraticCurveTo(dir * H * 0.155, (shoY + hy) / 2, hx, hy);
       ctx.stroke();
-      ctx.fillStyle = spec.skin;
+      ctx.fillStyle = lit(shade(spec.skin, 1.10), shade(spec.skin, 0.74), hy - H * 0.03, hy + H * 0.03);
       ctx.beginPath(); ctx.arc(hx, hy, H * 0.035, 0, Math.PI * 2); ctx.fill();
     };
     arm(-1); arm(1);
@@ -388,17 +452,23 @@ export function makePerson(spec) {
     ctx.translate(0, headY);
     const talking = actor.line !== null;
     const jaw = talking ? Math.abs(Math.sin(actor.phase * 26)) : 0;
-    ctx.fillStyle = spec.skin;
+    const headR = { rx: H * 0.105, ry: H * 0.115 + jaw * H * 0.012 };
+    const hg = ctx.createLinearGradient(lx * headR.rx, -headR.ry, -lx * headR.rx, headR.ry);
+    hg.addColorStop(0, shade(spec.skin, 1.12));
+    hg.addColorStop(1, shade(spec.skin, 0.72));
+    ctx.fillStyle = hg;
     ctx.beginPath();
-    ctx.ellipse(0, 0, H * 0.105, H * 0.115 + jaw * H * 0.012, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 0, headR.rx, headR.ry, 0, 0, Math.PI * 2);
     ctx.fill();
     if (spec.hair) {
-      ctx.fillStyle = spec.hair;
+      ctx.fillStyle = lit(shade(spec.hair, 1.25), shade(spec.hair, 0.65), -H * 0.10, H * 0.02);
       ctx.beginPath();
       ctx.ellipse(0, -H * 0.045, H * 0.112, H * 0.072, 0, Math.PI, Math.PI * 2);
       ctx.fill();
+      // the side lock, which lags and gives the head some weight
       ctx.beginPath();
-      ctx.ellipse(-H * 0.085, H * 0.005, H * 0.045, H * 0.075, 0.3, 0, Math.PI * 2);
+      ctx.ellipse(-H * 0.085 + lag * H * 0.03, H * 0.005 + Math.abs(lag) * H * 0.01,
+        H * 0.045, H * 0.075, 0.3 + lag * 0.35, 0, Math.PI * 2);
       ctx.fill();
     }
     if (!away) {
@@ -422,8 +492,7 @@ export function makePerson(spec) {
       ctx.moveTo(H * 0.000, -H * 0.045); ctx.lineTo(H * 0.032, -H * 0.050);
       ctx.moveTo(H * 0.050, -H * 0.050); ctx.lineTo(H * 0.080, -H * 0.043);
       ctx.stroke();
-      // nose and mouth
-      ctx.fillStyle = spec.skin2 || spec.skin;
+      ctx.fillStyle = shade(spec.skin2 || spec.skin, 0.94);
       ctx.beginPath();
       ctx.ellipse(H * 0.078, H * 0.014, H * 0.026, H * 0.020, 0.4, 0, Math.PI * 2);
       ctx.fill();
@@ -432,14 +501,43 @@ export function makePerson(spec) {
       ctx.ellipse(H * 0.045, H * 0.058, H * 0.028, H * 0.008 + jaw * H * 0.020, 0, 0, Math.PI * 2);
       ctx.fill();
     }
-    if (spec.hat) spec.hat(ctx, H);
+    if (spec.hat) spec.hat(ctx, H, lag);
     if (spec.beard) {
-      ctx.fillStyle = spec.beard;
+      ctx.fillStyle = lit(shade(spec.beard, 1.2), shade(spec.beard, 0.7), 0, H * 0.12);
       ctx.beginPath();
       ctx.ellipse(H * 0.030, H * 0.075, H * 0.080, H * 0.055, 0, 0, Math.PI * 2);
       ctx.fill();
     }
+    // The moon rim, last, over everything: a thin cold edge down the lit side
+    // of the head. One stroke, and the head stops being a flat oval.
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = MOONLIGHT + '0.5)';
+    ctx.lineWidth = H * 0.013;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, headR.rx * 0.97, headR.ry * 0.97, 0, lx > 0 ? -1.5 : 1.5, lx > 0 ? 0.5 : Math.PI + 1.1, lx < 0);
+    ctx.stroke();
     ctx.restore();
+
+    // Body rim and the warm bounce off the planks, filled into the torso's own
+    // outline rather than a rectangle over it. A linear gradient clamps to its
+    // end colour outside its range, so a rect under `lighter` lights the whole
+    // rect and the character wears a glowing box.
+    ctx.globalCompositeOperation = 'lighter';
+    const rim = ctx.createLinearGradient(lx * H * 0.15, shoY, -lx * H * 0.04, hipY + H * 0.04);
+    rim.addColorStop(0, MOONLIGHT + '0.26)');
+    rim.addColorStop(0.55, MOONLIGHT + '0.05)');
+    rim.addColorStop(1, MOONLIGHT + '0)');
+    ctx.fillStyle = rim;
+    torsoPath();
+    ctx.fill();
+
+    const bounce = ctx.createLinearGradient(0, hipY - H * 0.02, 0, hipY + H * 0.06);
+    bounce.addColorStop(0, LAMPLIGHT + '0)');
+    bounce.addColorStop(1, LAMPLIGHT + '0.16)');
+    ctx.fillStyle = bounce;
+    torsoPath();
+    ctx.fill();
+
     ctx.restore();
   };
 }
@@ -457,7 +555,7 @@ export const TRICORN = (ctx, H) => {
   ctx.fill();
 };
 
-export const BANDANA = (ctx, H) => {
+export const BANDANA = (ctx, H, lag = 0) => {
   ctx.fillStyle = '#a8332e';
   ctx.beginPath();
   ctx.ellipse(0, -H * 0.058, H * 0.112, H * 0.055, 0, Math.PI, Math.PI * 2);
@@ -465,7 +563,8 @@ export const BANDANA = (ctx, H) => {
   ctx.fillRect(-H * 0.112, -H * 0.062, H * 0.224, H * 0.022);
   ctx.beginPath();
   ctx.moveTo(-H * 0.105, -H * 0.050);
-  ctx.lineTo(-H * 0.165, -H * 0.005);
+  ctx.quadraticCurveTo(-H * 0.150 + lag * H * 0.05, -H * 0.030 + lag * H * 0.02,
+    -H * 0.165 + lag * H * 0.10, -H * 0.005 + Math.abs(lag) * H * 0.02);
   ctx.lineTo(-H * 0.100, -H * 0.020);
   ctx.fill();
 };

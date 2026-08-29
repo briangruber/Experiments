@@ -8,8 +8,13 @@ It is playable now. Serve this folder and open `index.html`.
 
 ```
 node tools/check.mjs            # plays the room to the end, headless
+node tools/check.mjs --bundle   # the same, against the single-file build
+node tools/bundle.mjs           # -> dist/monkey.html, self-contained
+
 node tools/plate.mjs blockout   # render the composition (free)
-node tools/plate.mjs paint      # repaint it through fal (one credit)
+node tools/plate.mjs paint      # repaint the scenery through fal
+node tools/props.mjs            # repaint each clickable prop, cut to its matte
+node tools/props.mjs --rematte  # re-cut from the saved repaints, no spend
 node tools/voices.mjs --dry     # what recording would cost
 node tools/voices.mjs           # record and measure the script
 ```
@@ -37,6 +42,9 @@ floor — the five things every later room is made of.
 | verb coin, inventory, dialogue | `src/engine/ui.js` | CMI's three-verb coin, on the same canvas as the game |
 | in-game annotation editor | `src/engine/editor.js` | press `` ` `` — drag the floor, export the polygons |
 | placeholder art | `src/art/paint.js` | procedural, and also the conditioning signal for generation |
+| moving layers | `src/art/animate.js` | drifting clouds, sea shimmer and moon glitter, candle flicker |
+| prop table and mattes | `src/art/props.js` | the box each clickable object lives in |
+| single-file bundler | `tools/bundle.mjs` | module registry + inlined assets, publishes as an artifact |
 | the room itself | `src/game/dock.js` | data plus generator functions; touches no engine internals |
 | the voiced script | `src/game/lines.js` | words only, with stable ids |
 
@@ -69,7 +77,8 @@ text-length estimate guessed. Comic timing is the entire genre and it is
 unjudgeable against an estimated clock. This is worth doing months before any
 human actor is booked.
 
-**Meshy and Tripo — not used here, and that is the finding.** The 3D-proxy
+**Meshy and Tripo — still not used, and that is the finding.** Nothing in this
+prototype is 3D, including the characters. The 3D-proxy
 route exists to give a generated backdrop correct perspective and occlusion.
 But for a single 2D room, the blockout that provides those things is fifty
 lines of canvas code that the game already runs. Mesh generation earns its
@@ -78,33 +87,82 @@ for character turnarounds to keep a cast on-model — not for making a flat
 backdrop stand still. `telenovela/` already uses Tripo well for exactly the
 case where it does pay.
 
-## The thing that actually broke
+## The rule this prototype exists to have found
 
-The first plate was generated with the interactive props included. Large
-geometry survived the repaint: the dock floor line, the tavern mass, the
-pilings, the moon. Small objects did not. The tin cup drifted off its own
-hotspot, the crates became a woodpile, and the tavern sign — "THE BILGE" —
-came back reading "Jeavern".
+**A repaint holds large geometry and loses small objects.** It was established
+three times, each time more expensively than the last, and it is now the shape
+of the whole pipeline.
 
-So the rule the prototype settled on: **the plate carries static scenery only.
-Anything the player can click stays a sprite the engine draws over it**, where
-its position is a number in a file rather than a hope about a diffusion model.
-`tools/blockout.html` excludes the props for this reason, and the props are
-still drawn by `src/art/paint.js` on top of the generated painting. It is
-visible in the screenshot: painted backdrop, code-drawn barrel and crates and
-nets, each sitting exactly on its hotspot.
+The first plate included the props. The dock line, the tavern mass, the pilings
+and the moon all survived; the tin cup drifted off its own hotspot, the crates
+became a woodpile, and the sign — "THE BILGE" — came back reading "Jeavern".
+So the props came out of the plate.
 
-The cost is a style seam — flat vector props against a painted background —
-and that is the next real piece of work: props generated individually through
-the same style LoRA, cut out, and composited. That is a fal job, not a new
-engine.
+The second plate ran at a strength high enough to actually look painted rather
+than vector, and at that strength the tavern's door vanished and its sign
+moved. The door, the window and the sign are three hotspots. So the tavern came
+out of the plate too.
+
+What is left in the plate is now exactly the set of things nobody clicks: sky,
+sea, horizon, pilings, planks. Everything else is generated one object at a
+time and placed in a box we chose (`src/art/props.js`), so **a prop can be
+regenerated fifty times and never cost a single re-annotation.** That is the
+property that makes the pipeline scale to forty rooms rather than one.
+
+### Cutting the props out
+
+The obvious way to get alpha on a generated prop is a background remover. It
+was tried, and it cut the tavern down to its lit window — a segmentation model
+finds the salient object, and a building's salient object is the bright bit.
+
+There is no need for a model. The blockout draws each prop on transparent, so
+its own alpha *is* the silhouette the hotspots were authored against; the
+repaint is composited onto flat grey only so the model has something neutral to
+paint against, and the same matte is re-applied afterwards. Exact, free, and
+the same insight as the plate one level down: the geometry was never lost, only
+painted over.
+
+One caveat, learned from a pile of rope: an exact matte is right for a solid
+object and wrong for a wispy one. The blockout draws a net as a few thin
+strokes, and cutting to that exactly returned a handful of scribbled strands.
+Wispy props get their matte dilated first (`DILATE` in `tools/props.mjs`).
+
+## Making the still image move
+
+A flat image is what most gives away a 2D scene as a picture rather than a
+place, and cutting the plate back into moving layers is free for the same
+reason the repaint held its composition — `SCENE` in `src/art/paint.js` still
+knows where the horizon and the dock line are.
+
+- **Clouds** drift at two depths and pass *behind* the tavern, because the
+  tavern is a sprite drawn above them rather than part of the backdrop.
+- **Water** redraws the sea band from the plate in strips with a swell whose
+  amplitude ramps to zero at the horizon — distant water barely moves, near
+  water moves most, which keeps the horizon line crisp — plus moon glitter
+  flickering out of phase, which is the single cue that reads as water.
+- **Lamplight** flickers on two detuned sines with a rare dip, and spills onto
+  the planks.
+
+Three bugs in this pass were all the same bug: **a gradient clipped by a
+rectangle is a rectangle.** The lamp spill, and then the character's rim light,
+both drew a gradient into a `fillRect` under `lighter` compositing — and since
+a linear gradient clamps to its end colour outside its own range, the rect edge
+became a hard band of light. The fix each time was to make the fill contain the
+whole falloff, or to fill the object's own path instead.
 
 ## What is still missing
 
-- **Character animation.** The actors are procedural cartoon vectors with a
-  walk cycle. Nothing on the tool list produces charming cel animation; the
-  realistic routes are skeletal 2D (Spine) or 3D actors under a toon shader.
-- **Props in the plate's style.** See above.
+- **Character animation is still the honest gap.** The actors are procedural
+  vector puppets — `makePerson()` in `src/art/paint.js` draws a body from
+  canvas paths each frame. This pass gave them directional light (cool moon rim,
+  warm bounce off the lamplit planks), gradient shading and trailing cloth, and
+  that closes a lot of the distance to the painted backdrop. It does not close
+  all of it, and nothing on the tool list will: mesh generators do not make
+  charming cel animation. The realistic routes are skeletal 2D (Spine) or 3D
+  actors under a toon shader, and both are a different project.
+- **Text.** Diffusion cannot hold lettering. "THE BILGE" has come back as
+  "Jeavern" and "TÉRA"; the sign currently says TAVERN by luck. Any text a
+  player must read should be drawn by the engine over the art.
 - **A second room, and room transitions.** The engine has no room graph yet.
 - **Music.** Nothing on the list covers it, and iMUSE-style adaptive scoring
   was a signature of the series.
