@@ -329,6 +329,9 @@ export const PARAMS = {
     spraySpeed:   { v: 5.2,  min: 0.5, max: 16,  step: 0.1,  label: 'Burst speed (m/s)' },
     sprayRise:    { v: 1.15, min: 0,   max: 2.5, step: 0.01, label: 'Upward share' },
     sprayLife:    { v: 1.5,  min: 0.2, max: 4,   step: 0.05, label: 'Droplet life (s)' },
+    // Droplet size for rock spray, as a fraction of the boat's. Water
+    // shattering on stone atomises far finer than a sheet peeling off a chine.
+    sprayDrop:    { v: 0.42, min: 0.1, max: 1.5, step: 0.01, label: 'Rock droplet size x' },
     sprayRange:   { v: 240,  min: 40,  max: 600, step: 10,   label: 'Only within (m)' },
   },
 

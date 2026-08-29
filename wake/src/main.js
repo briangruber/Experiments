@@ -321,7 +321,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b47';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b48';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -827,6 +827,8 @@ for (let i = 0; i < PREWARM * 30; i++) stepSim(1 / 30);
 // fallen well back, so a rock throws once per wave instead of chattering.
 const _sprayRand = () => Math.random();
 const _sOut = { x: 0, z: 0 };
+// The upwind unit vector, reused every frame rather than allocated per droplet.
+const _wUp = { x: 0, z: 0 };
 let _splashCursor = 0;
 function breakOnRocks(dt) {
   const sites = shore?.splashSites;
@@ -843,7 +845,18 @@ function breakOnRocks(dt) {
   const opt = {
     throw: 1, rise: get('shore.sprayRise'),
     life: get('shore.sprayLife'), spread: 0.9,
+    // SMALLER than the boat's spray, not the same. Water shattering on stone
+    // atomises; it is not the sheet a chine peels off, and at the hull's droplet
+    // size these read as thrown polystyrene balls rather than as spray.
+    size: get('spray.size') * get('shore.sprayDrop'),
   };
+  // Which way the sea is running. The swell follows the wind, so the face of a
+  // rock that takes the water is the one looking upwind -- and the burst comes
+  // back off that face. Without this the direction was "away from the world
+  // origin", which meant something only while there was a bay centred there.
+  const windRad = (sea.params?.windDirDeg ?? 42) * Math.PI / 180;
+  _wUp.x = -Math.sin(windRad); _wUp.z = -Math.cos(windRad);
+  const seaHeight = sea.heightAt ? (x, z) => sea.heightAt(x, z) : null;
   const cx = camera.position.x, cz = camera.position.z;
 
   // BUDGET, and it has to be reckoned in droplets per SECOND, not per frame.
@@ -875,15 +888,36 @@ function breakOnRocks(dt) {
                        * (0.45 + 0.55 * near) * (0.6 + Math.random() * 0.8));
     if (n < 1) continue;
     budget -= n;
-    // Outward from the bay's centre: that is the way the set is running, so
-    // that is the way the water comes off the rock.
-    const inv = 1 / (Math.hypot(s.x, s.z) || 1);
-    _sOut.x = s.x * inv; _sOut.z = s.z * inv;
+    // FIRE FROM THE FACE THE WATER IS ACTUALLY HITTING.
+    //
+    // This used to scatter droplets over a square of side 1.6r centred on the
+    // rock, at one fixed height, and throw them away from the world origin --
+    // which was the bay's centre back when there was a bay. Both are wrong now
+    // and one always was: the origin is not a direction, and a box around a
+    // rock puts as much water on its lee and its top as on the face taking the
+    // sea. What you get is a rock with popcorn round it.
+    //
+    // The sea runs with the wind, so the struck face is the UPWIND arc. Pick a
+    // point on that arc, at the waterline, and throw from there.
     for (let i = 0; i < n; i++) {
-      spray.emit(s.x + (Math.random() - 0.5) * s.r * 1.6, s.y,
-                 s.z + (Math.random() - 0.5) * s.r * 1.6,
-                 _sOut, _sOut, speed * (0.55 + Math.random() * 0.9),
-                 _sprayRand, opt);
+      // Anywhere on the windward half, weighted to the middle of it: the
+      // corners of a rock take a glancing blow, the face takes it square.
+      const th = (Math.random() + Math.random() - 1) * 1.15;   // +/- 66 deg
+      const c = Math.cos(th), sn = Math.sin(th);
+      // Rotate the upwind direction by th. This is the outward normal of the
+      // rock at the point being struck, which is also the way the water comes
+      // back off it.
+      const nx = _wUp.x * c - _wUp.z * sn;
+      const nz = _wUp.x * sn + _wUp.z * c;
+      const px = s.x + nx * s.r * (0.82 + Math.random() * 0.3);
+      const pz = s.z + nz * s.r * (0.82 + Math.random() * 0.3);
+      // ON THE WATERLINE, not at a stored height. The sea here is moving, and
+      // the whole point of a burst is that it happens where the crest meets the
+      // stone -- a fixed y floats it over the troughs and drowns it in crests.
+      const py = (seaHeight ? seaHeight(px, pz) : 0) + s.r * 0.12;
+      _sOut.x = nx; _sOut.z = nz;
+      spray.emit(px, py, pz, _sOut, _sOut,
+                 speed * (0.55 + Math.random() * 0.9), _sprayRand, opt);
     }
   }
   _splashCursor = (_splashCursor + SCAN) % sites.length;
