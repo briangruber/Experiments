@@ -258,10 +258,18 @@ const RIBBON_FRAG = /* glsl */`
     // fills from the gap between the throttle and the speed actually made, and
     // it is quenched as she comes up to that speed.
     float cavLoad = clamp(vLoad, 0.0, 1.0);
-    // Right AT the screw. The reach is a couple of hull-beams, and the falloff
-    // is sharp on purpose -- a soft exponential here is a wash, not a boil.
+    // MEASURED FROM THE TRANSOM, which is where the screw is.
+    //
+    // arc is distance along the path from the STEM -- the ribbon is anchored at
+    // the bow. So decaying straight off arc put the boil at the bow and killed
+    // it before the transom: with a 1.2 m reach and a 9.9 m hull the term was
+    // e^-16 by the time it reached the propeller, and what little survived was
+    // under the hull, where the sea is cut away and nothing is drawn anyway.
+    // Turning every slider to maximum could not rescue that, because the fault
+    // was WHERE it was, not how strong.
+    float cavArc = max(arc - uHullLen, 0.0);
     float cavReach = max(uCavLen, 0.3);
-    float cavNear = exp(-arc / cavReach) * exp(-arc / cavReach);
+    float cavNear = exp(-cavArc / cavReach) * exp(-cavArc / cavReach);
     // Tight to the blade circle, tighter than the wash it sits inside.
     float cw = max(uCavW, 0.05);
     float cg = 0.0;
@@ -280,7 +288,9 @@ const RIBBON_FRAG = /* glsl */`
     float c1 = fbm(cp + vec2(uTime * 1.7, -uTime * 2.3));
     float c2 = fbm(cp * 2.7 + vec2(-uTime * 3.1, uTime * 1.3));
     float boil = smoothstep(0.38, 0.72, c1 * 0.6 + c2 * 0.4);
-    float cav = cavLoad * cg * cavNear * uCav * boil;
+    // Gated aft of the hull for the same reason the wash is: the water under a
+    // boat is cut out of the sea, so anything painted there is paint wasted.
+    float cav = cavLoad * cg * cavNear * uCav * boil * astern;
 
     // ------------------------------------------------------- inside the V ----
     // -------------------------------------------------------- Kelvin waves --
@@ -1117,7 +1127,13 @@ export class WakeField {
     }
 
     const g = this.geometry;
-    for (const name of ['position', 'aArc', 'aLat', 'aAge', 'aU', 'aTan', 'aSpd', 'aTurn']) {
+    // EVERY attribute, and a new one has to be added here as well as declared
+    // and filled. aLoad was declared, allocated, written per vertex and bound to
+    // the geometry -- and left out of this list, so it never uploaded and the
+    // GPU read zeros for it forever. Cavitation multiplies by that load, so the
+    // term evaluated to nothing at every slider setting, and the field measured
+    // bit-identical with it on and off.
+    for (const name of ['position', 'aArc', 'aLat', 'aAge', 'aU', 'aTan', 'aSpd', 'aTurn', 'aLoad']) {
       const n = name === 'position' ? o * 3 : name === 'aTan' ? o * 2 : o;
       g.getAttribute(name).addUpdateRange(0, n);
       g.getAttribute(name).needsUpdate = true;
