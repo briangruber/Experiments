@@ -69,6 +69,12 @@ const RIBBON_FRAG = /* glsl */`
   // interference keep using that, because scaling those with a look knob would
   // change the wake pattern rather than where it is drawn.
   uniform float uHullLenPhys;
+  // How far aft of arc 0 the TRANSOM is, measured off the drawn model. arc 0 is
+  // the stem, so for a hull whose origin sits at the stem this equals the drawn
+  // length -- but it is measured rather than assumed, because the thing that
+  // has to line up is the back of the boat on screen, not a number derived from
+  // two sliders.
+  uniform float uSternArc;
   // The hull WHERE IT ACTUALLY IS, in world metres: the bow's position and the
   // way it points. The ribbon's own (arc, lat) frame follows the COURSE, and
   // the hull is drawn along the HEADING -- so with any crab angle at all the
@@ -234,7 +240,16 @@ const RIBBON_FRAG = /* glsl */`
     // ------------------------------------------------------------ prop wash --
     // Turbulent water dragged off the transom: brightest foam in the wake and
     // the shortest-lived, trailing off into a thin centreline streak.
-    float astern = smoothstep(uHullLen * 0.55, uHullLen * 1.05, arc);
+    // PINNED TO THE TRANSOM.
+    //
+    // This used to ramp from 0.55 to 1.05 hull-lengths, which on a 38 m boat is
+    // a twenty-metre fade beginning amidships -- so the wash bled out of the
+    // side of the hull and only reached full strength a boat-length astern.
+    // The water a screw churns starts at the screw. A short ramp, a couple of
+    // metres either side of the transom, so it begins where the boat ends
+    // without printing a hard line across the wake.
+    float astern = smoothstep(uSternArc - uHullLen * 0.10,
+                              uSternArc + uHullLen * 0.06, arc);
     float ww = max(uWashW + arc * uWashWGrow, 0.05);
 
     // One plume per engine, spread about the centreline. They start as separate
@@ -270,7 +285,7 @@ const RIBBON_FRAG = /* glsl */`
     // astern the screws are AT the ribbon's anchor, because the anchor is the
     // transom -- so the boil starts at arc 0 rather than a hull-length back.
     float cavLoad = clamp(abs(vLoad), 0.0, 1.0);
-    float propArc = vLoad < 0.0 ? 0.0 : uHullLen;
+    float propArc = vLoad < 0.0 ? 0.0 : uSternArc;
     // MEASURED FROM THE TRANSOM, which is where the screw is.
     //
     // arc is distance along the path from the STEM -- the ribbon is anchored at
@@ -892,7 +907,7 @@ export class WakeField {
       uIdleChurn: { value: 0.55 },
       uBubGrain: { value: 0.8 }, uBubGrainScale: { value: 1.1 },
       uFeatErode: { value: 0.7 }, uFeatErodeLen: { value: 55 },
-      uBeam: { value: 1 }, uHullLen: { value: 1 }, uHullLenPhys: { value: 1 }, uEngines: { value: 1 }, uEngineGap: { value: 1 },
+      uBeam: { value: 1 }, uHullLen: { value: 1 }, uHullLenPhys: { value: 1 }, uSternArc: { value: 1 }, uEngines: { value: 1 }, uEngineGap: { value: 1 },
       uArmTan: { value: 0 }, uArmW0: { value: 1 }, uArmWGrow: { value: 0 },
       uArmFoam: { value: 1 }, uArmHeight: { value: 0 }, uInnerBias: { value: 0 },
       uFadeStart: { value: 1 }, uFadeLen: { value: 1 },
@@ -1195,9 +1210,13 @@ export class WakeField {
     u.uBubGrainScale.value = 1 / Math.max(get('bubbles.grainSize'), 0.05);
     u.uBeam.value = get('boat.beam') * Math.max(get('boat.modelScale'), 0.05);
     u.uHullCut.value = get('boat.hullCut');
-    // Drawn for the geometry, tuned for the physics.
-    u.uHullLen.value = get('boat.length') * Math.max(get('boat.modelScale'), 0.05);
+    // Drawn for the geometry, tuned for the physics -- and the transom taken
+    // from whatever the caller measured off the model, falling back to the
+    // drawn length for callers that do not measure.
+    const drawnL = get('boat.length') * Math.max(get('boat.modelScale'), 0.05);
+    u.uHullLen.value = drawnL;
     u.uHullLenPhys.value = get('boat.length');
+    u.uSternArc.value = this.sternArc > 0 ? this.sternArc : drawnL;
     u.uEngines.value = Math.round(get('boat.engines'));
     u.uEngineGap.value = get('boat.engineSpacing');
     u.uArmTan.value = Math.tan(get('arms.angle') * Math.PI / 180);

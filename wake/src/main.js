@@ -284,6 +284,38 @@ boat.add(placeholder);
 scene.add(boat);
 
 let shownModel = -1;
+// The hull's ACTUAL drawn extent, measured off the model rather than inferred.
+//
+// Everything downstream needs to know where the transom is, and the arithmetic
+// answer -- boat.length x Model scale -- is only as good as the assumption that
+// the fit landed exactly on it. That assumption is fine for the GLBs, whose
+// scaleTo() normalises them to precisely that length, and it is NOT fine for
+// the blocky placeholder, which is built to its own proportions and never went
+// through the fit. Measuring is one Box3 per model change and cannot be wrong.
+//
+// Cached because it only moves when the model or its scale does; recomputed
+// from the same onChange that re-runs scaleTo.
+const hullSpan = { len: 9.9, stern: 9.9 };
+const _hullBox = new THREE.Box3();
+function measureHull() {
+  if (!boat.children.length) return;
+  // In the boat group's own frame: the model sits under it with its origin at
+  // the stem and +Z forward, so minZ is the transom.
+  boat.updateWorldMatrix(false, true);
+  const q = boat.quaternion.clone(), pos = boat.position.clone();
+  boat.quaternion.identity(); boat.position.set(0, 0, 0);
+  boat.updateWorldMatrix(false, true);
+  _hullBox.setFromObject(boat);
+  boat.quaternion.copy(q); boat.position.copy(pos);
+  boat.updateWorldMatrix(false, true);
+  if (!isFinite(_hullBox.min.z) || _hullBox.isEmpty()) return;
+  hullSpan.len = Math.max(_hullBox.max.z - _hullBox.min.z, 0.5);
+  // How far aft of the origin the transom actually is. For a fitted GLB this
+  // is the hull length; for anything whose origin is not at the stem it is not,
+  // and that difference is exactly what puts a wake off the back of a boat.
+  hullSpan.stern = Math.max(-_hullBox.min.z, 0.5);
+}
+
 async function showBoat(i) {
   const idx = Math.round(i);
   if (idx === shownModel) return;
@@ -293,12 +325,14 @@ async function showBoat(i) {
   // reference to compare a loaded model against.
   if (idx >= BOATS.length) {
     boat.clear(); boat.add(placeholder);
+    measureHull();
     return;
   }
   try {
     const model = await loadBoat(BOATS[idx].id);
     if (shownModel !== idx) return;          // superseded while loading
     boat.clear(); boat.add(model);
+    measureHull();
   } catch (e) {
     // A model that fails to parse must not take the prototype with it: the
     // wake is the point, and the placeholder can carry it.
@@ -338,7 +372,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b60';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b61';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -458,6 +492,7 @@ const ui = buildUI(uiRoot, {
     if (path === '*' || path === 'boat.model'
       || path === 'boat.length' || path === 'boat.modelScale') {
       for (const c of boat.children) c.userData?.scaleTo?.();
+      measureHull();
       // Re-frame with it. Changing the size of the boat is exactly the moment
       // the shot distance should follow, and the smoothing means it eases out
       // rather than cutting. A wheel-zoom afterwards still overrides it.
@@ -828,6 +863,9 @@ function stepSim(dt) {
   // direction the bow points. Without the flip the ribbon is laid backwards
   // over water the hull has not reached and the Kelvin terms see a negative
   // speed, which is a square root of a negative number two functions down.
+  // Tell the field where the back of the boat actually is, measured off the
+  // drawn model rather than derived from the sliders.
+  wake.sternArc = hullSpan.stern;
   const way = state.speed < 0 ? -1 : 1;
   // HOW HARD THE SCREW IS WORKING, which is not how fast the boat is going.
   //
