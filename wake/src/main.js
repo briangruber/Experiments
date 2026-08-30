@@ -376,7 +376,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b62';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b63';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -441,6 +441,98 @@ if (narrow || devicePixelRatio > 2.5) {
 // rides along -- it is what separates "topsides in front of the water" (skip;
 // drawn again after) from "keel behind it" (composite, murked by depth).
 let refrRT = null;
+// ---------------------------------------------------------------- reflection --
+//
+// The scene rendered a second time from a camera mirrored through the water
+// plane. This is what puts the actual boat -- masts, superstructure, the dark
+// hull against white topsides -- into the water, where the ray-ellipsoid proxy
+// can only ever manage a boat-shaped smear.
+//
+// Half resolution by default and worth every pixel saved: this is a full extra
+// draw of the scene, the same cost the refraction pass was measured at. A
+// reflection is a mirror image seen through a moving surface; it is the least
+// resolution-critical thing in the frame.
+let reflRT = null;
+const reflCam = new THREE.PerspectiveCamera();
+const _reflMat = new THREE.Matrix4();
+// Projects a world point into the reflection target's 0..1 texture space.
+// The half-scale-and-bias turns clip space into UV.
+const _reflBias = new THREE.Matrix4().set(
+  0.5, 0, 0, 0.5,
+  0, 0.5, 0, 0.5,
+  0, 0, 0.5, 0.5,
+  0, 0, 0, 1);
+const _clipPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+function ensureReflRT(w, h) {
+  if (reflRT && reflRT.width === w && reflRT.height === h) return;
+  reflRT?.dispose();
+  reflRT = new THREE.WebGLRenderTarget(w, h);
+  reflRT.texture.minFilter = THREE.LinearFilter;
+  reflRT.texture.magFilter = THREE.LinearFilter;
+}
+
+/**
+ * Render the mirrored view and hand back what the water needs to sample it.
+ *
+ * `seaY` is the water plane. Everything below it is clipped away: the mirrored
+ * camera sits under the sea looking up, so without a clip the submerged half of
+ * the hull is reflected too and the boat gets a second keel growing out of its
+ * waterline.
+ */
+function renderReflection(seaY) {
+  const amt = get('scene.planarRefl');
+  if (amt <= 0.001) return null;
+  const bw = renderer.domElement.width, bh = renderer.domElement.height;
+  const k = Math.max(0.2, Math.min(1, get('scene.planarScale')));
+  ensureReflRT(Math.max(2, Math.round(bw * k)), Math.max(2, Math.round(bh * k)));
+
+  // Mirror the camera through y = seaY. Reflecting the position is one
+  // subtraction; reflecting the ORIENTATION is the part that is easy to get
+  // wrong -- negate the Y of the forward and up vectors and look from there,
+  // which flips pitch while leaving yaw and roll alone.
+  camera.updateMatrixWorld();
+  const p = camera.position;
+  reflCam.copy(camera);
+  reflCam.position.set(p.x, 2 * seaY - p.y, p.z);
+  const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+  const up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+  fwd.y *= -1; up.y *= -1;
+  reflCam.up.copy(up);
+  reflCam.lookAt(reflCam.position.clone().add(fwd));
+  reflCam.updateMatrixWorld();
+  reflCam.updateProjectionMatrix();
+
+  _reflMat.copy(_reflBias)
+    .multiply(reflCam.projectionMatrix)
+    .multiply(reflCam.matrixWorldInverse);
+
+  _clipPlane.constant = -seaY + 0.02;
+  const oldPlanes = renderer.clippingPlanes;
+  const oldAlpha = renderer.getClearAlpha();
+  renderer.clippingPlanes = [_clipPlane];
+  renderer.setRenderTarget(reflRT);
+  // Transparent clear: alpha is the coverage mask the shader blends on, so
+  // "no geometry here" has to be distinguishable from "geometry that happens
+  // to be black". Without it the pass paints a dim rectangle over the sea.
+  renderer.setClearAlpha(0);
+  renderer.clear(true, true, true);
+  renderer.render(scene, reflCam);
+  renderer.setRenderTarget(null);
+  renderer.setClearAlpha(oldAlpha);
+  renderer.clippingPlanes = oldPlanes;
+
+  const glc = renderer.getContext();
+  const ct = renderer.properties.get(reflRT.texture)?.__webglTexture;
+  if (!ct) return null;
+  return {
+    color: { target: glc.TEXTURE_2D, tex: ct },
+    matrix: new Float32Array(_reflMat.elements),
+    amount: amt,
+    distort: get('scene.planarDistort') * 0.02,
+  };
+}
+
 function ensureRefrRT(w, h) {
   if (refrRT && refrRT.width === w && refrRT.height === h) return;
   refrRT?.dispose();
@@ -1388,8 +1480,10 @@ function frame(now) {
     // what you could see. The bed is procedural and unbounded now, with banks
     // and basins everywhere, so the map has nothing left to add and its rim
     // has nothing left to hide.
+    // The mirrored view, before the water draws -- it is an input to it.
+    const refl = renderReflection(0);
     sea.render(scene, camera, { ...(refr ? { refr } : {}), ...(hull ? { hull } : {}),
-      ...(craft ? { craft } : {}) });
+      ...(craft ? { craft } : {}), ...(refl ? { refl } : {}) });
   } else {
     renderer.autoClear = true;
     renderer.render(scene, camera);

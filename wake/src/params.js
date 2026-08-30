@@ -497,7 +497,24 @@ export const PARAMS = {
     // second render of the scene, and because R comes from the wavy normal the
     // image wobbles with the real waves rather than with a planar pass's fake.
     // It is a soft blob at the boat's scale -- it will not give you rigging.
-    boatReflect:  { ui: 'mirror', v: 1,    min: 0,   max: 2.5, step: 0.01, label: 'Boat reflection' },
+    // THE REAL REFLECTION: the scene drawn a second time from a camera mirrored
+    // through the water plane, so what appears in the water is the actual mesh
+    // -- masts, superstructure, the dark hull against white topsides -- rather
+    // than the proxy's boat-shaped smear.
+    //
+    // It costs a full extra draw of the scene, which is what the refraction pass
+    // measured at (~18% of the frame at chase range). Half resolution by
+    // default: a mirror image seen through a moving surface is the least
+    // resolution-critical thing in the frame.
+    //
+    // Its lie is the flat mirror -- rendered for y = seaLevel, not for the wave
+    // under each fragment -- so the wobble is put back by hand from the surface
+    // normal. The proxy gets that free and has no geometry; the two are worth
+    // having together.
+    planarRefl:   { ui: 'mirror', v: 1,   min: 0,   max: 1.5, step: 0.01, label: 'Mirror reflection (real mesh)' },
+    planarScale:  { ui: 'mirror', v: 0.5, min: 0.2, max: 1,   step: 0.05, label: 'Mirror pass scale' },
+    planarDistort:{ ui: 'mirror', v: 1,   min: 0,   max: 4,   step: 0.01, label: 'Mirror wobble' },
+    boatReflect:  { ui: 'mirror', v: 0.35, min: 0,  max: 2.5, step: 0.01, label: 'Boat reflection (proxy blob)' },
     boatShadow:   { ui: 'mirror', v: 0.5,  min: 0,   max: 1.5, step: 0.01, label: 'Boat shadow on water' },
     // How far down you can see. Divides the water's absorption, so 2 means
     // roughly twice the sight depth -- the bed, a submerged keel and the

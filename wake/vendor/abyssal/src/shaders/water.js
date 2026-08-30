@@ -374,6 +374,11 @@ uniform float uBedGain;
 // a colour+depth target BEFORE the water; the water then looks through itself
 // into that image with wobbled UVs. Without it the submerged half of a hull
 // simply loses the depth test at the waterline and is razored off.
+// The scene as seen from a camera mirrored through the water plane, and the
+// matrix that projects a world point into it.
+uniform sampler2D uReflTex;
+uniform mat4  uReflMat;
+uniform float uReflOn, uReflAmt, uReflDistort;
 uniform sampler2D uRefrColor;
 uniform highp sampler2D uRefrDepth;
 uniform vec2  uRefrRes;
@@ -1511,6 +1516,43 @@ void main(){
   // reflection is nearly the whole image, so without this the sea flattens into
   // a uniform sheet no matter how much crest-to-trough relief there really is.
   skyRefl *= mix(1.0, ao, 0.8);
+
+  // ---- THE SCENE ITSELF, REFLECTED ------------------------------------------
+  //
+  // The proxy above gives a boat-shaped smear and can never give a mast, because
+  // there is no geometry in a ray-quadric test. This is the real thing: the
+  // scene rendered a second time from a camera mirrored through the water
+  // plane, projected back onto the surface.
+  //
+  // Its known lie is that it assumes a FLAT mirror -- the reflection was
+  // rendered for y = seaLevel, not for the wave actually under this fragment.
+  // So the wobble has to be put back by hand: shift the lookup by the surface
+  // normal's horizontal part, which is the same tilt that bends a real ray, and
+  // damp it with distance so the far sea does not smear. That is the trade
+  // against the proxy, which gets its wobble free from the true normal and has
+  // no geometry at all.
+  if (uReflOn > 0.5 && uReflAmt > 0.001) {
+    vec4 rp = uReflMat * vec4(vWorld, 1.0);
+    if (rp.w > 0.0) {
+      vec2 ruv = rp.xy / rp.w;
+      // The normal's horizontal part, damped with distance and scaled by how
+      // far off-vertical the surface is here.
+      ruv += N.xz * uReflDistort / (1.0 + dist * 0.05);
+      if (ruv.x > 0.002 && ruv.x < 0.998 && ruv.y > 0.002 && ruv.y < 0.998) {
+        vec4 rc = texture(uReflTex, ruv);
+        // Alpha is coverage: the reflection target is cleared transparent, so
+        // anything with alpha is scene and everything else is sky the LUT has
+        // already done better. Blending on coverage is what stops this pass
+        // painting a dim rectangle of cleared buffer over the whole sea.
+        float cov = clamp(rc.a, 0.0, 1.0) * uReflAmt;
+        // A rough sea scatters its reflections: at high roughness the mirror
+        // image should give way to the sky it is sitting in, or a chop full of
+        // crisp upside-down boats reads as glass.
+        cov *= 1.0 - smoothstep(0.06, 0.40, alpha);
+        skyRefl = mix(skyRefl, rc.rgb, cov);
+      }
+    }
+  }
 
   // ---- THE CRAFT IN THE WATER ----------------------------------------------
   //

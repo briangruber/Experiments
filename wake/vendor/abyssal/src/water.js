@@ -7,6 +7,7 @@
 // wants the sea's geometry without our shading (a physics probe, a custom
 // material, a different renderer) uses Ocean alone and never touches this file.
 
+const IDENT4 = new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
 const CRAFT_HALF = new Float32Array([1, 1, 1]);
 const CRAFT_FWD = new Float32Array([0, 1]);
 const ZERO3 = new Float32Array(3);
@@ -305,6 +306,18 @@ export class WaterSurface {
         uRefrColor: this._inertRefr(), uRefrDepth: this._inertRefr(),
         uRefrRes: ONE2, uRefrOn: 0, uRefrAmt: 0,
         uRefrNear: 0.5, uRefrFar: 10, uRefrMurk: 0,
+      }),
+      // FORKED: PLANAR REFLECTION of the caller's scene (see WATER_FS).
+      //
+      // Same unbound-sampler trap as the refraction above: bind something even
+      // when it is off, or the sampler falls to unit 0 where a sampler of
+      // another type already sits and the whole draw is invalidated.
+      ...(opts.refl ? {
+        uReflTex: opts.refl.color, uReflMat: opts.refl.matrix, uReflOn: 1,
+        uReflAmt: opts.refl.amount, uReflDistort: opts.refl.distort,
+      } : {
+        uReflTex: this._inertRefr(), uReflMat: IDENT4, uReflOn: 0,
+        uReflAmt: 0, uReflDistort: 0,
       }),
       uWakeRelief: p.wakeRelief, uWakeSlick: p.wakeSlick,
       uWakePlume: p.wakePlume ?? 1.0,
