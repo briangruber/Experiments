@@ -315,6 +315,19 @@ const spray = new Spray(3000);
 // how these get under the water instead of on top of it.
 const bubbles = new Bubbles(4000);
 scene.add(bubbles.points);
+let _bubDebt = 0;
+// Where the surface is, for releasing and popping bubbles.
+//
+// MEAN SEA LEVEL, deliberately, and not sea.heightAt(): that is a stub which
+// forwards to a water.heightAt that does not exist and returns 0 for every
+// point -- it is what made an earlier choppiness measurement read as a dead
+// flat ocean at every setting. Passing it here would look like it tracked the
+// swell while doing nothing of the sort. The real reader is the GPU probe, and
+// its 64 slots are already spoken for by the hull and the rocks. Bubbles live a
+// metre or two down and pop within a wave height of the top, so mean level is
+// honest at the scale that matters; a fixed value that is right on average
+// beats a function that is wrong everywhere.
+const BUB_SURFACE = () => 0;
 scene.add(spray.points);
 const body = new OceanBody(boat, { spray, seed: 7 });
 
@@ -877,19 +890,6 @@ for (let i = 0; i < PREWARM * 30; i++) stepSim(1 / 30);
 // fallen well back, so a rock throws once per wave instead of chattering.
 const _sprayRand = () => Math.random();
 const _sOut = { x: 0, z: 0 };
-let _bubDebt = 0;
-// Where the surface is, for releasing and popping bubbles.
-//
-// MEAN SEA LEVEL, deliberately, and not sea.heightAt(): that is a stub which
-// forwards to a water.heightAt that does not exist and returns 0 for every
-// point -- it is what made an earlier choppiness measurement read as a dead
-// flat ocean at every setting. Passing it here would look like it tracked the
-// swell while doing nothing of the sort. The real reader is the GPU probe, and
-// its 64 slots are already spoken for by the hull and the rocks. Bubbles live a
-// metre or two down and pop within a wave height of the top, so mean level is
-// honest at the scale that matters; a fixed value that is right on average
-// beats a function that is wrong everywhere.
-const BUB_SURFACE = () => 0;
 // The craft's albedo for its reflection, as radiance is built from it in the
 // shader. One neutral hull colour rather than a per-model palette: the image is
 // a smeared blob a few metres across, and no one has ever identified a boat by
