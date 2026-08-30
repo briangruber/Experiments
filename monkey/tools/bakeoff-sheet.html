@@ -1,0 +1,359 @@
+<title>Harbour Style Bake-Off</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* A judging surface for night-time artwork commits to a dark ground on
+   purpose: surrounding luminance biases colour perception, and every tile
+   here is a moonlit harbour. Single theme, but every colour is painted
+   explicitly so the page holds on either host ground. */
+:root {
+  --ink-0:#0a0e1a; --ink-1:#121828; --ink-2:#1a2138; --ink-3:#232c48;
+  --line:#2c3757;
+  --text:#e7eaf6; --dim:#98a2c6; --faint:#68739a;
+  --amber:#f2a93b; --teal:#46bda9; --rose:#e2685f;
+  --shadow:0 18px 40px -18px rgba(0,0,0,.9);
+  color-scheme: dark;
+}
+* { box-sizing:border-box; }
+body {
+  margin:0; background:var(--ink-0); color:var(--text);
+  font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:15px; line-height:1.55;
+  background-image:radial-gradient(120% 70% at 50% -10%, #17203a 0%, var(--ink-0) 60%);
+  background-attachment:fixed;
+}
+h1,h2,h3 { font-family:Fraunces,Georgia,"Times New Roman",serif; font-weight:700; text-wrap:balance; margin:0; }
+a { color:var(--amber); }
+.mono { font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace; font-variant-numeric:tabular-nums; }
+
+/* ---- header ---- */
+header { padding:44px 28px 26px; max-width:1500px; margin:0 auto; }
+.eyebrow {
+  font-family:"IBM Plex Mono",monospace; font-size:11.5px; letter-spacing:.18em;
+  text-transform:uppercase; color:var(--amber); margin-bottom:14px;
+}
+h1 { font-size:clamp(30px,4.4vw,52px); line-height:1.06; letter-spacing:-.015em; }
+.sub { color:var(--dim); max-width:64ch; margin-top:14px; font-size:16px; }
+
+.foot { margin:18px 0 0; max-width:78ch; font-size:13px; line-height:1.6; color:var(--faint);
+  border-left:2px solid var(--line); padding-left:14px; }
+.totals { display:flex; flex-wrap:wrap; gap:10px; margin-top:26px; }
+.stat {
+  background:var(--ink-1); border:1px solid var(--line); border-radius:9px;
+  padding:10px 15px; min-width:104px;
+}
+.stat b { display:block; font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums;
+  font-size:20px; font-weight:500; letter-spacing:-.01em; }
+.stat span { display:block; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--faint); margin-top:3px; }
+
+/* ---- controls ---- */
+.bar {
+  position:sticky; top:0; z-index:30; backdrop-filter:blur(14px);
+  background:rgba(10,14,26,.86); border-bottom:1px solid var(--line);
+}
+.bar-in {
+  max-width:1500px; margin:0 auto; padding:11px 28px;
+  display:flex; flex-wrap:wrap; gap:22px; align-items:center;
+}
+.ctl { display:flex; align-items:center; gap:9px; }
+.ctl > label:first-child {
+  font-size:10.5px; letter-spacing:.12em; text-transform:uppercase; color:var(--faint);
+}
+.seg { display:flex; background:var(--ink-1); border:1px solid var(--line); border-radius:8px; padding:2px; gap:2px; }
+.seg button {
+  appearance:none; border:0; background:transparent; color:var(--dim); cursor:pointer;
+  font:inherit; font-size:13px; padding:5px 12px; border-radius:6px; transition:background .14s,color .14s;
+}
+.seg button:hover { color:var(--text); }
+.seg button[aria-pressed="true"] { background:var(--ink-3); color:var(--text); }
+.seg button:focus-visible, .toggle:focus-visible, .tile:focus-visible { outline:2px solid var(--amber); outline-offset:2px; }
+.toggle {
+  appearance:none; border:1px solid var(--line); background:var(--ink-1); color:var(--dim);
+  font:inherit; font-size:13px; padding:6px 13px; border-radius:8px; cursor:pointer;
+  display:flex; align-items:center; gap:8px;
+}
+.toggle[aria-pressed="true"] { border-color:var(--amber); color:var(--text); background:var(--ink-3); }
+.dot { width:8px; height:8px; border-radius:50%; background:var(--faint); }
+.toggle[aria-pressed="true"] .dot { background:var(--amber); }
+
+/* ---- sections ---- */
+main { max-width:1500px; margin:0 auto; padding:34px 28px 90px; }
+section { margin-bottom:56px; }
+.sec-head { display:flex; align-items:baseline; gap:16px; flex-wrap:wrap; margin-bottom:6px;
+  padding-bottom:12px; border-bottom:1px solid var(--line); }
+.sec-head h2 { font-size:26px; letter-spacing:-.01em; }
+.sec-head .meta { font-family:"IBM Plex Mono",monospace; font-size:12.5px; color:var(--faint);
+  font-variant-numeric:tabular-nums; margin-left:auto; }
+.sec-note { color:var(--dim); font-size:14px; max-width:70ch; margin:12px 0 22px; }
+
+.grid { display:grid; gap:22px; }
+body[data-cols="3"] .grid { grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); }
+body[data-cols="2"] .grid { grid-template-columns:repeat(auto-fill,minmax(520px,1fr)); }
+body[data-cols="1"] .grid { grid-template-columns:1fr; }
+
+/* ---- tile ---- */
+.tile {
+  appearance:none; text-align:left; padding:0; cursor:zoom-in; color:inherit;
+  background:var(--ink-1); border:1px solid var(--line); border-radius:12px;
+  overflow:hidden; display:flex; flex-direction:column; transition:border-color .15s, transform .15s;
+}
+.tile:hover { border-color:var(--ink-3); transform:translateY(-2px); }
+.shot { position:relative; aspect-ratio:16/9; background:var(--ink-2); }
+.shot img { width:100%; height:100%; object-fit:cover; display:block; }
+.badge {
+  position:absolute; top:10px; left:10px; font-family:"IBM Plex Mono",monospace;
+  font-size:10.5px; letter-spacing:.08em; text-transform:uppercase;
+  background:rgba(10,14,26,.82); border:1px solid var(--line); color:var(--dim);
+  padding:3px 8px; border-radius:5px;
+}
+.badge.knob { color:var(--amber); border-color:rgba(242,169,59,.4); }
+.badge.now { left:auto; right:10px; color:var(--teal); border-color:rgba(70,189,169,.45); }
+
+/* The walk band is the actual game requirement: the lower third has to be
+   unobstructed floor running the full width, or the character has nowhere to
+   go. Overlaying it turns "does this look nice" into "does this work". */
+.band { position:absolute; inset:auto 0 0 0; height:33.33%; display:none; pointer-events:none; }
+body.band .band { display:block; }
+.band::before {
+  content:""; position:absolute; inset:0;
+  border-top:2px dashed rgba(242,169,59,.9);
+  background:repeating-linear-gradient(-45deg,rgba(242,169,59,.11) 0 9px,transparent 9px 18px);
+}
+.band::after {
+  content:"walkable band — must run edge to edge, unobstructed";
+  position:absolute; left:8px; bottom:6px; font-family:"IBM Plex Mono",monospace;
+  font-size:9.5px; letter-spacing:.07em; text-transform:uppercase; color:var(--amber);
+  background:rgba(10,14,26,.8); padding:2px 6px; border-radius:4px;
+}
+
+.cap { padding:12px 14px 13px; display:flex; flex-direction:column; gap:9px; }
+.cap-top { display:flex; align-items:baseline; gap:10px; }
+.cap-top strong { font-size:15px; font-weight:600; letter-spacing:-.005em; }
+.cap-top em { font-style:normal; font-size:12px; color:var(--faint); margin-left:auto;
+  font-family:"IBM Plex Mono",monospace; }
+.facts { display:flex; gap:16px; font-family:"IBM Plex Mono",monospace; font-size:12.5px;
+  color:var(--dim); font-variant-numeric:tabular-nums; }
+.facts span { display:flex; gap:5px; align-items:baseline; }
+.facts i { font-style:normal; color:var(--faint); font-size:10.5px; text-transform:uppercase; letter-spacing:.07em; }
+.fail { color:var(--rose); font-size:12.5px; font-family:"IBM Plex Mono",monospace; }
+.shot.err { display:flex; align-items:center; justify-content:center; color:var(--rose);
+  font-family:"IBM Plex Mono",monospace; font-size:12px; text-align:center; padding:20px; }
+
+/* ---- lightbox ---- */
+dialog {
+  border:0; padding:0; background:transparent; max-width:min(1500px,94vw); width:100%;
+}
+dialog::backdrop { background:rgba(5,7,14,.9); backdrop-filter:blur(3px); }
+.lb { background:var(--ink-1); border:1px solid var(--line); border-radius:14px; overflow:hidden;
+  box-shadow:var(--shadow); }
+.lb img { width:100%; display:block; }
+.lb-body { padding:20px 22px 24px; display:flex; flex-direction:column; gap:14px; }
+.lb-head { display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; }
+.lb-head h3 { font-size:22px; }
+.lb-head .who { font-family:"IBM Plex Mono",monospace; font-size:12.5px; color:var(--faint); }
+.lb-head button {
+  margin-left:auto; appearance:none; border:1px solid var(--line); background:var(--ink-2);
+  color:var(--dim); font:inherit; font-size:13px; padding:5px 13px; border-radius:7px; cursor:pointer;
+}
+.lb-head button:hover { color:var(--text); }
+pre.prompt {
+  margin:0; padding:14px 16px; background:var(--ink-0); border:1px solid var(--line);
+  border-radius:9px; font-family:"IBM Plex Mono",monospace; font-size:12.5px; line-height:1.65;
+  color:var(--dim); white-space:pre-wrap; max-height:34vh; overflow:auto;
+}
+
+/* ---- prompt appendix ---- */
+.appendix { border-top:1px solid var(--line); padding-top:30px; }
+details { border:1px solid var(--line); border-radius:10px; background:var(--ink-1); margin-bottom:10px; }
+summary { cursor:pointer; padding:13px 16px; font-weight:600; font-size:14.5px; list-style:none;
+  display:flex; align-items:center; gap:12px; }
+summary::-webkit-details-marker { display:none; }
+summary::before { content:"+"; font-family:"IBM Plex Mono",monospace; color:var(--amber); font-size:16px; }
+details[open] summary::before { content:"−"; }
+summary .n { margin-left:auto; font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--faint); }
+details .in { padding:0 16px 16px; }
+
+@media (prefers-reduced-motion:reduce) { * { transition:none !important; } .tile:hover { transform:none; } }
+@media (max-width:640px) {
+  header { padding:30px 18px 20px; } main { padding:26px 18px 70px; } .bar-in { padding:10px 18px; gap:14px; }
+  body[data-cols="3"] .grid, body[data-cols="2"] .grid { grid-template-columns:1fr; }
+}
+</style>
+
+<header>
+  <div class="eyebrow">Backdrop research · <span id="date"></span></div>
+  <h1>Which model draws 1997?</h1>
+  <p class="sub">The same pirate harbour, described once, rendered by six image models in three
+  period hands. Subject text is identical across every tile — only the style block and the model
+  change — so the difference you see is the difference that was tested. Cost is the measured fal
+  balance delta per generation, not a list price.</p>
+  <div class="totals" id="totals"></div>
+  <p class="foot">Total spend is exact — the fal account balance read before the first tile and after
+  the last. The per-tile figures beside each image are balance deltas, which carry roughly one tile of
+  billing lag even with a settle-and-quiesce around each call; treat them as indicative and the total
+  as the real number. Native size differs by model because each was asked for its own
+  <span class="mono">landscape_16_9</span>, and that recorded size is what it actually returned.</p>
+</header>
+
+<div class="bar"><div class="bar-in">
+  <div class="ctl">
+    <label>Group by</label>
+    <div class="seg" id="group">
+      <button data-v="style" aria-pressed="true">Style</button>
+      <button data-v="model" aria-pressed="false">Model</button>
+    </div>
+  </div>
+  <div class="ctl">
+    <label>Size</label>
+    <div class="seg" id="cols">
+      <button data-v="3" aria-pressed="false">Compare</button>
+      <button data-v="2" aria-pressed="true">Review</button>
+      <button data-v="1" aria-pressed="false">Full</button>
+    </div>
+  </div>
+  <button class="toggle" id="bandBtn" aria-pressed="false"><span class="dot"></span>Walk band</button>
+</div></div>
+
+<main id="main"></main>
+
+<dialog id="lb"><div class="lb">
+  <img id="lbImg" alt="">
+  <div class="lb-body">
+    <div class="lb-head">
+      <h3 id="lbTitle"></h3><span class="who mono" id="lbWho"></span>
+      <button id="lbClose">Close</button>
+    </div>
+    <div class="facts" id="lbFacts"></div>
+    <pre class="prompt" id="lbPrompt"></pre>
+  </div>
+</div></dialog>
+
+<script>
+const DATA = /*__DATA__*/ null;
+const { tiles, styles, models, images, generatedAt, spend } = DATA;
+
+document.getElementById('date').textContent = generatedAt;
+
+const money = c => c == null ? '—' : '$' + c.toFixed(4);
+const secs  = s => s == null ? '—' : s.toFixed(1) + 's';
+
+// ---- totals -----------------------------------------------------------------
+const ok = tiles.filter(t => t.file && t.style !== 'incumbent');
+const measured = ok.filter(t => t.cost != null);
+const totals = [
+  [ok.length + '/' + tiles.filter(t => t.style !== 'incumbent').length, 'tiles drawn'],
+  [money(spend), 'total spend'],
+  [money(spend / (ok.length || 1)), 'per image'],
+  [secs(ok.reduce((a, t) => a + t.seconds, 0) / (ok.length || 1)), 'mean time'],
+  [secs(Math.min(...ok.map(t => t.seconds))), 'fastest'],
+  [secs(Math.max(...ok.map(t => t.seconds))), 'slowest'],
+];
+document.getElementById('totals').innerHTML = totals
+  .map(([b, s]) => '<div class="stat"><b>' + b + '</b><span>' + s + '</span></div>').join('');
+
+// ---- tiles ------------------------------------------------------------------
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function tileHTML(t, showWhat) {
+  const shot = t.file
+    ? '<div class="shot"><img loading="lazy" src="' + images[t.file] + '" alt="' + esc(t.label + ' — ' + t.style) + '">'
+      + '<span class="badge">' + esc(showWhat) + '</span>'
+      + (t.knob ? '<span class="badge knob" style="top:auto;bottom:10px">' + esc(t.knobName + ' = ' + t.knob) + '</span>' : '')
+      + (t.style === 'incumbent' ? '<span class="badge now">in the game now</span>' : '')
+      + '<div class="band"></div></div>'
+    : '<div class="shot err">' + esc(t.error || 'no image') + '</div>';
+  const facts = t.file
+    ? '<div class="facts">'
+      + '<span><i>time</i>' + secs(t.seconds) + '</span>'
+      + '<span><i>cost</i>' + money(t.cost) + '</span>'
+      + '<span><i>native</i>' + esc(t.native || '—') + '</span>'
+      + (t.level && t.level !== 'full' ? '<span><i>prompt</i>' + esc(t.level) + '</span>' : '') + '</div>'
+    : '<div class="fail">failed after ' + secs(t.seconds) + '</div>';
+  return '<button class="tile" data-key="' + esc(t.style + '/' + t.model) + '">' + shot
+    + '<div class="cap"><div class="cap-top"><strong>' + esc(showWhat) + '</strong>'
+    + '<em>' + esc(t.id || '') + '</em></div>' + facts + '</div></button>';
+}
+
+function render(groupBy) {
+  const keys = groupBy === 'style' ? ['incumbent', ...Object.keys(styles)] : Object.keys(models);
+  const html = keys.map(k => {
+    const list = tiles.filter(t => (groupBy === 'style' ? t.style : t.model) === k);
+    if (!list.length) return '';
+    const drawn = list.filter(t => t.file);
+    const spent = drawn.reduce((a, t) => a + (t.cost || 0), 0);
+    const meta = k === 'incumbent' ? 'generated earlier · already shipped'
+      : drawn.length + ' drawn · ' + money(spent) + ' · '
+        + secs(drawn.reduce((a, t) => a + t.seconds, 0) / (drawn.length || 1)) + ' avg';
+    const head = groupBy === 'style'
+      ? (styles[k]?.label || 'The incumbent')
+      : (models[k]?.label || k);
+    const note = groupBy === 'style'
+      ? (styles[k]?.note || 'The oil-painting prompt that is in the build today, for reference. Beautiful, and about sixty years too old: loaded impasto is a fine-art tell no 1997 background has.')
+      : (models[k]?.note || '');
+    return '<section><div class="sec-head"><h2>' + esc(head) + '</h2>'
+      + '<span class="meta">' + esc(meta) + '</span></div>'
+      + (note ? '<p class="sec-note">' + esc(note) + '</p>' : '')
+      + '<div class="grid">'
+      + list.map(t => tileHTML(t, groupBy === 'style' ? t.label : (styles[t.style]?.label || t.style))).join('')
+      + '</div></section>';
+  }).join('');
+
+  const appendix = '<div class="appendix"><h2 style="font-size:22px;margin-bottom:16px">The exact words</h2>'
+    + '<p class="sec-note">Shared subject first, then the style block appended to it. Recraft caps prompt '
+    + 'length, so its tiles were given a compressed subject and style — marked <b>prompt: short</b> on the '
+    + 'tile, because a sheet that quietly compares a paragraph against a sentence is not a comparison.</p>'
+    + '<details><summary>Shared subject<span class="n">' + DATA.subject.length + ' chars</span></summary>'
+    + '<div class="in"><pre class="prompt">' + esc(DATA.subject) + '</pre></div></details>'
+    + Object.entries(styles).map(([k, s]) =>
+        '<details><summary>Style block — ' + esc(s.label) + '<span class="n">' + s.text.length + ' chars</span></summary>'
+        + '<div class="in"><pre class="prompt">' + esc(s.text) + '</pre></div></details>').join('')
+    + '</div>';
+
+  document.getElementById('main').innerHTML = html + appendix;
+}
+
+// ---- controls ---------------------------------------------------------------
+function seg(id, apply) {
+  const el = document.getElementById(id);
+  el.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    [...el.querySelectorAll('button')].forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+    apply(b.dataset.v);
+  });
+}
+seg('group', v => render(v));
+seg('cols', v => document.body.dataset.cols = v);
+document.body.dataset.cols = '2';
+
+const bandBtn = document.getElementById('bandBtn');
+bandBtn.addEventListener('click', () => {
+  const on = bandBtn.getAttribute('aria-pressed') !== 'true';
+  bandBtn.setAttribute('aria-pressed', String(on));
+  document.body.classList.toggle('band', on);
+});
+
+// ---- lightbox ---------------------------------------------------------------
+const lb = document.getElementById('lb');
+document.getElementById('main').addEventListener('click', e => {
+  const b = e.target.closest('.tile'); if (!b) return;
+  const [style, model] = b.dataset.key.split('/');
+  const t = tiles.find(x => x.style === style && x.model === model);
+  if (!t || !t.file) return;
+  document.getElementById('lbImg').src = images[t.file];
+  document.getElementById('lbImg').alt = t.label + ' — ' + style;
+  document.getElementById('lbTitle').textContent = (styles[t.style]?.label || 'The incumbent') + ' · ' + t.label;
+  document.getElementById('lbWho').textContent = t.id || '';
+  document.getElementById('lbFacts').innerHTML =
+      '<span><i>time</i>' + secs(t.seconds) + '</span>'
+    + '<span><i>cost</i>' + money(t.cost) + '</span>'
+    + '<span><i>native</i>' + (t.native || '—') + '</span>'
+    + (t.knob ? '<span><i>' + t.knobName + '</i>' + t.knob + '</span>' : '');
+  document.getElementById('lbPrompt').textContent = t.prompt || '(prompt not recorded)';
+  lb.showModal();
+});
+document.getElementById('lbClose').addEventListener('click', () => lb.close());
+lb.addEventListener('click', e => { if (e.target === lb) lb.close(); });
+
+render('style');
+</script>

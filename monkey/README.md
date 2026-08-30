@@ -447,3 +447,42 @@ inventory strip swallowing clicks on the lowest third of the screen.
 every generated asset, and `assets/voice/manifest.json` carries a hash of the
 text and voice settings each clip was recorded from — so re-running a tool
 only re-spends on what actually changed.
+
+## Choosing the hand the art is drawn in
+
+`tools/bakeoff.mjs` runs a matrix: one subject description, several style blocks,
+several image models. `tools/bakeoff-sheet.mjs` turns the result into a single
+self-contained page with every tile, its exact prompt, its measured cost and its
+measured generation time.
+
+    node tools/bakeoff.mjs --dry            # print the matrix and every prompt
+    node tools/bakeoff.mjs                  # run it
+    node tools/bakeoff.mjs --styles cel --models flux2,seedream
+    node tools/bakeoff-sheet.mjs            # -> dist/bakeoff.html
+
+Three things it is built around.
+
+**The subject text is shared verbatim across every tile.** Only the style block
+and the model change, so the difference you see is the difference that was
+tested. A comparison where two things moved at once is not a comparison.
+
+**Cost is measured, not quoted.** fal exposes the account balance, so each tile
+reads it before and after. That is why the matrix runs strictly sequentially:
+two generations in flight cannot be told apart in a balance delta. Even so, per
+tile figures carry about one tile of billing lag, so the run's own
+start-to-end delta is recorded separately in `runs.json` — that number is exact,
+and the sheet says which is which.
+
+**Prompt caps fail before the money.** Recraft stops at 1000 characters and
+answers a longer prompt with a 422. Models are declared with a `maxPrompt` and a
+prompt `level` (`full` / `short` / `micro`), and an over-length prompt throws at
+assembly time rather than burning a slot in the matrix. The level used is
+recorded per tile and printed on the sheet, because a sheet that quietly
+compares a paragraph against a sentence is not a comparison either.
+
+What the first run found: the incumbent backdrop prompt asked for "lush painted
+gouache and oil on board, visible directional brushwork, loaded impasto", and
+got exactly that — a fine-art oil painting, which is the one thing a 1997
+background never is. Naming the technique instead (hand-inked cel animation
+background, flat stepped shading, bold shapes that read at 640x480) and
+prohibiting the impasto explicitly is what moved it into the right decade.
