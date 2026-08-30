@@ -299,7 +299,7 @@ function frame(now) {
   drawSpeech(ctx, grout, room, VIEW);
   drawHud();
   inv.render(ctx, state.inventory, art.ICONS);
-  coin.render(ctx);
+  coin.render(ctx, VIEW);
   menu.render(ctx);
   if (state.get('aboard')) drawWin();
 

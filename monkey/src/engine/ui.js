@@ -41,7 +41,7 @@ export class VerbCoin {
 
   update(dt) { if (this.open) this.t = Math.min(1, this.t + dt * 9); }
 
-  render(ctx) {
+  render(ctx, view) {
     if (!this.open) return;
     const e = 1 - Math.pow(1 - this.t, 3);
     ctx.save();
@@ -65,30 +65,94 @@ export class VerbCoin {
       drawVerbIcon(ctx, v.id, vx, vy);
     }
     ctx.restore();
+
+    // The caption at the top of the screen is suppressed while the coin is
+    // open — the hotspot under the cursor is the coin's target, not a hover —
+    // so without this the interface goes quiet at exactly the moment it is
+    // being asked a question. The label sits under the coin, where the cursor
+    // already is, rather than a screen away.
+    const verb = VERBS.find((v) => v.id === this.hover);
+    const name = this.target?.name;
+    if (!name || e < 0.6) return;
+    const text = verb ? `${verb.label} ${name}` : name;
+    ctx.save();
+    ctx.globalAlpha = e;
+    ctx.font = '600 19px Georgia, "Times New Roman", serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const w = ctx.measureText(text).width + 22;
+    // Keep the plate on screen when the coin is opened near an edge.
+    const cx = view ? Math.max(w / 2 + 6, Math.min(view.w - w / 2 - 6, this.x)) : this.x;
+    let cy = this.y + COIN_R + 30;
+    if (view && cy > view.h - 22) cy = this.y - COIN_R - 30;
+    ctx.beginPath();
+    ctx.roundRect(cx - w / 2, cy - 15, w, 30, 8);
+    ctx.fillStyle = 'rgba(18,13,10,0.9)';
+    ctx.fill();
+    ctx.strokeStyle = verb ? '#e8cf9a' : 'rgba(201,168,106,0.5)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = verb ? '#ffeec4' : '#c9b48a';
+    ctx.fillText(text, cx, cy + 1);
+    ctx.restore();
   }
 }
 
+// The three icons have to be distinguishable at nineteen pixels, and the first
+// version was not: "look" was an almond with a pupil and "talk" was an almond
+// with a line through it, which is the same shape twice. "Use" was a stroked
+// mitten outline that read as a blob. Now they share no silhouette at all —
+// a lens, a hand, and a bubble — which is the only property that matters when
+// the icon is smaller than a fingertip and appears for half a second.
 function drawVerbIcon(ctx, id, x, y) {
   ctx.save();
   ctx.translate(x, y);
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
+
   if (id === 'look') {
+    // An eye: outline plus a solid pupil. The one shape that survives being
+    // small, as long as nothing else in the set is also a lens.
     ctx.beginPath();
     ctx.moveTo(-10, 0); ctx.quadraticCurveTo(0, -8, 10, 0); ctx.quadraticCurveTo(0, 8, -10, 0);
     ctx.stroke();
-    ctx.beginPath(); ctx.arc(0, 0, 3.2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(0, 0, 3.4, 0, Math.PI * 2); ctx.fill();
+
   } else if (id === 'use') {
-    ctx.beginPath();                      // a mitten, read as "hand" at 19px
-    ctx.moveTo(-5, 8); ctx.lineTo(-5, -3); ctx.quadraticCurveTo(-5, -9, -1, -9);
-    ctx.quadraticCurveTo(3, -9, 3, -3); ctx.lineTo(3, -1);
-    ctx.quadraticCurveTo(9, -3, 9, 2); ctx.quadraticCurveTo(9, 8, 3, 9);
-    ctx.lineTo(-2, 9); ctx.closePath(); ctx.stroke();
-  } else {
+    // A hand, filled rather than outlined, with the fingers actually separated
+    // — at this size an outline of a hand is a rounded rectangle and reads as
+    // nothing. Filled mass plus a thumb sticking out is what says "hand".
+    const finger = (fx, fy, h) => {
+      ctx.beginPath();
+      ctx.roundRect(fx, fy, 3.4, h, 1.7);
+      ctx.fill();
+    };
+    finger(-6.6, -11, 9);
+    finger(-2.2, -13, 11);
+    finger(2.2, -11.5, 9.5);
+    ctx.beginPath();                      // palm
+    ctx.roundRect(-7, -3.5, 13.6, 12, 3.5);
+    ctx.fill();
+    ctx.save();                           // thumb, angled off the palm
+    ctx.translate(-6.5, 1);
+    ctx.rotate(-0.85);
     ctx.beginPath();
-    ctx.moveTo(-9, -1); ctx.quadraticCurveTo(0, -7, 9, -1);
-    ctx.quadraticCurveTo(0, 7, -9, -1); ctx.closePath(); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(-6, -1); ctx.lineTo(6, -1); ctx.stroke();
+    ctx.roundRect(-2, -3.2, 8, 3.6, 1.8);
+    ctx.fill();
+    ctx.restore();
+
+  } else {
+    // A speech bubble. Not a mouth: a mouth is a lens, and the eye already is.
+    ctx.beginPath();
+    ctx.roundRect(-10, -9, 20, 14, 4.5);
+    ctx.stroke();
+    ctx.beginPath();                      // tail, bottom-left
+    ctx.moveTo(-4, 5); ctx.lineTo(-6.5, 10.5); ctx.lineTo(-0.5, 5);
+    ctx.closePath();
+    ctx.fill();
+    for (const dx of [-4.2, 0, 4.2]) {    // three dots: someone is talking
+      ctx.beginPath(); ctx.arc(dx, -2, 1.5, 0, Math.PI * 2); ctx.fill();
+    }
   }
   ctx.restore();
 }

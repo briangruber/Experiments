@@ -65,7 +65,8 @@ export const CAST = {
     pixelDraw: makePixelPerson({
       skin: '#e8b48c', skinDark: '#c98f68', hair: '#7b3a1c',
       coat: '#7c2f2a', coatDark: '#5a1f1c', shirt: '#e9dcc2',
-      sash: '#d9a441', legsCol: '#3d4d63', boots: '#241811', hat: '#b8383a',
+      sash: '#d9a441', legsCol: '#3d4d63', boots: '#241811',
+      hat: '#b8383a', hatStyle: 'bandana',
     }),
     draw: art.makePerson({
       height: 165, skin: '#e8b48c', skin2: '#dda078', hair: '#7b3a1c',
@@ -80,7 +81,10 @@ export const CAST = {
     pixelDraw: makePixelPerson({
       skin: '#c99a76', skinDark: '#a97a56', hair: '#4a4642',
       coat: '#2f4a52', coatDark: '#1f333a', shirt: '#8f9aa0',
-      sash: '#6b5334', legsCol: '#2b2a31', boots: '#1a1512', hat: '#243a41',
+      sash: '#6b5334', legsCol: '#2b2a31', boots: '#1a1512',
+      // A tricorn and a beard: Grout has to read as a different person from
+      // across the dock, and at this size that is outline work, not colour.
+      hat: '#243a41', hatStyle: 'tricorn', beard: '#6d6660',
     }),
     draw: art.makePerson({
       height: 178, skin: '#c99a76', skin2: '#b8875f', hair: '#4a4642', beard: '#5d574f',

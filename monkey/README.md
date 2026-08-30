@@ -847,3 +847,39 @@ crisper than the painted backgrounds behind them. Fixing the plate would mean
 keeping the model's native output and downscaling by an integer factor with
 nearest-neighbour, which is a change to the still pipeline rather than to the
 characters.
+
+## The verb coin, and why one icon was unreadable
+
+Three verbs, three icons, nineteen pixels across, on screen for about half a
+second. The first set failed on a property that has nothing to do with how well
+each was drawn: **look was an almond with a pupil and talk was an almond with a
+line through it.** Two thirds of the coin was the same shape. The third, use,
+was a stroked mitten outline, and an outline of a hand at that size is a
+rounded rectangle.
+
+The replacements share no silhouette at all — a lens, a filled hand with the
+fingers actually separated, and a speech bubble. Not a mouth for talk, because
+a mouth is a lens and the eye already is one. Filled mass rather than outline
+for the hand, because the thumb sticking off the palm is the only part that
+says "hand" at this size.
+
+The coin also names itself now. `VERBS` always carried labels; nothing drew
+them. Worse, `hoverSpot` is deliberately null while the coin is open — the
+thing under the cursor is the coin's target, not a hover — so the caption at
+the top of the screen went blank at exactly the moment the interface was asking
+a question. The label sits under the coin, where the cursor already is, and
+shows the target's name even before a verb is picked.
+
+    node tools/ui-sheet.mjs     # the coin per verb, and both characters
+
+## Telling two sprites apart
+
+Bonny and Grout were one build in two palettes and read as the same person
+twice. At thirty-five pixels, colour is not identity — **outline is**. Grout
+gets a tricorn, whose whole job is to be wider than the head on both sides, and
+a beard that changes the jaw. Bonny's bandana grew a knot and a trailing tail
+so it reads as cloth rather than as a stripe.
+
+The same pass gave both of them hair as a mass with a side rather than a single
+fringe row, and a short coat skirt below the sash — which breaks the straight
+line from shoulder to boot that made the first version read as a plank.

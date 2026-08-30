@@ -1,0 +1,64 @@
+<meta charset="utf-8">
+<title>ui sheet</title>
+<style>html,body{margin:0;background:#0a0e1a}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script type="module">
+// The verb coin with each verb hovered, and the two characters side by side.
+// Both questions are "does this read at a glance", and neither can be answered
+// from the source.
+import { VerbCoin, VERBS } from '../src/engine/ui.js';
+import { Actor } from '../src/engine/actor.js';
+import { CAST } from '../src/game/dock.js';
+import { drawPixelSprite } from '../src/art/pixelate.js';
+
+const CW = 420, CH = 300;
+const CROP = { x: 470, y: 430 };
+const plate = await new Promise((r) => { const i = new Image(); i.onload = () => r(i); i.src = '../assets/scene.jpg'; });
+
+const c = document.getElementById('c');
+c.width = CW * 4; c.height = CH * 2;
+const ctx = c.getContext('2d');
+const VIEW = { w: c.width, h: c.height };
+
+function bg(ox, oy, w = CW, h = CH) {
+  ctx.save(); ctx.beginPath(); ctx.rect(ox, oy, w, h); ctx.clip();
+  ctx.drawImage(plate, CROP.x, CROP.y, w, h, ox, oy, w, h);
+  ctx.restore();
+}
+function tag(ox, oy, text, col = '#f2a93b') {
+  ctx.fillStyle = 'rgba(10,14,26,.82)'; ctx.fillRect(ox + 6, oy + 6, 190, 20);
+  ctx.fillStyle = col; ctx.font = '12px ui-monospace, monospace'; ctx.textAlign = 'left';
+  ctx.fillText(text, ox + 12, oy + 20);
+  ctx.strokeStyle = 'rgba(255,255,255,.10)'; ctx.strokeRect(ox + .5, oy + .5, CW - 1, CH - 1);
+}
+
+// --- the coin, once per verb plus one with nothing hovered
+const target = { name: 'a grog barrel' };
+[null, ...VERBS.map((v) => v.id)].forEach((hover, i) => {
+  const ox = i * CW, oy = 0;
+  bg(ox, oy);
+  const coin = new VerbCoin();
+  coin.show(ox + CW / 2, oy + CH / 2 - 20, target);
+  coin.t = 1;
+  coin.hover = hover;
+  coin.render(ctx, VIEW);
+  tag(ox, oy, hover ? `hover: ${hover}` : 'no verb hovered');
+});
+
+// --- the two characters, so they can be told apart
+const cast = [['player', 'Bonny — bandana'], ['grout', 'Grout — tricorn, beard']];
+cast.forEach(([who, label], i) => {
+  for (const [j, walking] of [[0, false], [1, true]].entries()) {
+    const ox = (i * 2 + j) * CW, oy = CH;
+    bg(ox, oy);
+    const a = new Actor(CAST[who]);
+    a.x = ox + CW / 2; a.y = oy + 210;
+    a.facing = i === 0 ? 'right' : 'left';
+    a.state = walking[1] ? 'walk' : 'idle';
+    a.phase = walking[1] ? 0.02 : 0;
+    drawPixelSprite(ctx, a.x, a.y, (CAST[who].height ?? 165) * 0.86, CAST[who].pixelDraw, a, 4);
+    tag(ox, oy, `${label}${walking[1] ? ' · walking' : ''}`, '#46bda9');
+  }
+});
+window.__ready = true;
+</script>

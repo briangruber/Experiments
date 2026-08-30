@@ -63,7 +63,11 @@ export function makePixelPerson(opt) {
     skin: '#e8b48c', skinDark: '#c98f68', hair: '#7b3a1c',
     coat: '#7c2f2a', coatDark: '#5a1f1c', shirt: '#e9dcc2',
     sash: '#d9a441', legsCol: '#3d4d63', boots: '#241811',
-    hat: null, ...opt,
+    // Silhouette, not colour, is what tells two sprites apart at this size.
+    // Both characters were one build in different palettes and read as the
+    // same person twice; hat shape and a beard are the cheapest fix, because
+    // they change the outline rather than the fill.
+    hat: null, hatStyle: 'bandana', beard: null, ...opt,
   };
 
   // The height arrives per frame, because it shrinks with depth: the figure is
@@ -111,6 +115,13 @@ export function makePixelPerson(opt) {
       px.rect(tx + 1, shY, tw - 2, 1, shade(c.coat));      // collar
     }
     px.rect(tx, hipY - 2, tw, 2, c.sash);
+    // A short coat skirt, one pixel proud of the torso either side. It breaks
+    // the straight line from shoulder to boot, which is the difference between
+    // a person and a plank.
+    const skirt = Math.max(2, Math.round(H * 0.08));
+    px.rect(tx - 1, hipY, tw + 2, skirt, c.coat);
+    px.rect(tx - 1, hipY, 1, skirt, shade(c.coat));
+    px.rect(tx - 1, hipY + skirt - 1, tw + 2, 1, shade(c.coat));
 
     // --- arms, hung OUTSIDE the torso silhouette. Drawn inside it they are
     // invisible, which is how the first version lost them.
@@ -129,17 +140,40 @@ export function makePixelPerson(opt) {
     px.rect(hx, hy + B.head - 2, hw, 1, c.skinDark);
 
     if (back) {
-      px.rect(hx, hy + 1, hw, B.head - 3, c.hair);
+      px.rect(hx, hy + 1, hw, B.head - 2, c.hair);
     } else {
-      px.rect(hx, hy + 1, hw, 1, c.hair);                     // fringe, one row
+      // Hair as a mass with a side, not a single row: it covers the crown and
+      // runs down the back of the head, which is what gives the skull a shape
+      // instead of a corner.
+      px.rect(hx, hy + 1, hw, 2, c.hair);
+      px.rect(dir > 0 ? hx : hx + hw - 1, hy + 1, 1, B.head - 3, c.hair);
       const ex = dir > 0 ? hx + hw - 4 : hx + 1;              // eyes lead the face
       px.rect(ex, hy + 3, 1, 1, '#20140c');
       px.rect(ex + 2, hy + 3, 1, 1, '#20140c');
       px.rect(ex + (dir > 0 ? 1 : 0), hy + 5, 2, 1, c.skinDark);
+      if (c.beard) {
+        px.rect(hx, hy + B.head - 3, hw, 2, c.beard);
+        px.rect(hx + (dir > 0 ? 1 : 0), hy + B.head - 1, hw - 1, 2, c.beard);
+      }
     }
     if (c.hat) {
-      px.rect(hx - 1, hy, hw + 2, 2, c.hat);
-      px.rect(hx - 1, hy + 2, 1, 1, c.hat);
+      if (c.hatStyle === 'tricorn') {
+        // A brim wider than the head on both sides, with the crown above it.
+        // This is the whole silhouette: at thirty-five pixels a tricorn is
+        // "wide flat thing on a head" and nothing else survives.
+        px.rect(hx - 3, hy - 1, hw + 6, 2, c.hat);
+        px.rect(hx - 4, hy, 2, 1, c.hat);
+        px.rect(hx + hw + 2, hy, 2, 1, c.hat);
+        px.rect(hx + 1, hy - 3, hw - 2, 2, c.hat);
+      } else {
+        // A bandana: a band round the crown with a knot and a tail trailing
+        // behind, which reads as cloth rather than as a stripe.
+        px.rect(hx, hy, hw, 2, c.hat);
+        px.rect(hx - 1, hy + 1, hw + 2, 1, c.hat);
+        const bx = dir > 0 ? hx - 2 : hx + hw + 1;
+        px.rect(bx, hy + 1, 2, 2, c.hat);                     // knot
+        px.rect(bx + (dir > 0 ? -1 : 1), hy + 3, 1, 2, shade(c.hat));  // tail
+      }
     }
   };
 }
