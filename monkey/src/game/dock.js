@@ -14,6 +14,7 @@
 import { walk, face, say, wait, run } from '../engine/script.js';
 import { LINES, EXCHANGES } from './lines.js';
 import * as art from '../art/paint.js';
+import { makeClouds, makeWater, makeLamps } from '../art/animate.js';
 
 // One screen, 16:9, no camera. The backdrop is a video and the video models
 // generate 16:9 natively, so the room is the view and there is nothing to
@@ -78,8 +79,21 @@ export function makeRoomDef(state, backdrop, props = {}) {
     },
   };
 
+  // When the video plays it carries all the motion. When it does not — an
+  // unplayable codec, a policy that refuses the URL scheme — the still would
+  // otherwise sit there dead, so the procedural layers animate it instead.
+  // Gated rather than removed: a backdrop that stops moving is a worse failure
+  // than one that moves a bit less well.
+  const clouds = makeClouds();
+  const water = makeWater(null);
+  const lamps = makeLamps();
+  const whenStill = (fn) => (ctx, room) => { if (backdrop?.kind !== 'video') fn(ctx, room); };
+
   const layers = [
     { paint: (ctx) => backdrop?.draw?.(ctx, ROOM_W, ROOM_H) },
+    { paint: whenStill(water) },
+    { paint: whenStill(clouds) },
+    { paint: whenStill(lamps) },
     cupLayer,
   ];
 

@@ -16,6 +16,7 @@ const WHO = P.get('who') || 'player';
 // The cell has to hold the whole figure at the inspection scale, or the sheet
 // is a close-up of a torso.
 const N = 8, CW = 140, CH = 300, SCALE = 1.5, ROWS = 2;
+const SKELETON = P.get('skeleton') === '1';
 
 const c = document.getElementById('c');
 c.width = N * CW; c.height = ROWS * CH;
@@ -39,6 +40,38 @@ function cell(col, row, label, prep) {
   ctx.scale(SCALE, SCALE);
   prep();
   a.draw(ctx, a, 1);
+  if (SKELETON && a.rig) drawRig(ctx, a.rig);
+  ctx.restore();
+}
+
+// The joints as the renderer computed them, plus an arrow for the facing
+// direction. A knee is forward when it sits on the arrow's side of the
+// hip-to-ankle line — which is a thing you can see, rather than infer.
+function drawRig(ctx, rig) {
+  ctx.save();
+  ctx.scale(rig.flip, 1);          // same mirror the body was drawn under
+  const dot = (p, c, r = 3.2) => {
+    ctx.fillStyle = c;
+    ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
+  };
+  const chain = (a, b, c, col) => {
+    ctx.strokeStyle = col; ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(c.x, c.y); ctx.stroke();
+    // the straight root-to-tip line the joint is measured against
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(c.x, c.y); ctx.stroke();
+    ctx.setLineDash([]);
+    dot(a, col, 2.6); dot(b, '#fff', 3.6); dot(c, col, 2.6);
+  };
+  for (const l of rig.legs) chain(l.hip, l.knee, l.ankle, '#4ade80');
+  for (const m of rig.arms) chain(m.shoulder, m.elbow, m.hand, '#f472b6');
+  // forward arrow, in local space where +x is the facing direction
+  ctx.strokeStyle = '#ffd166'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, 14); ctx.lineTo(34, 14);
+  ctx.moveTo(28, 9); ctx.lineTo(34, 14); ctx.lineTo(28, 19);
+  ctx.stroke();
   ctx.restore();
 }
 

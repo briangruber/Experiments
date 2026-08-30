@@ -17,14 +17,15 @@ import { ROOT, launch, serve } from './harness.mjs';
 const args = process.argv.slice(2);
 const opt = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i + 1] : d; };
 const WHO = opt('who', 'player');
-const OUT = resolve(ROOT, opt('out', `shots/pose-${WHO}.png`));
+const SKELETON = args.includes('--skeleton');
+const OUT = resolve(ROOT, opt('out', `shots/pose-${WHO}${SKELETON ? '-rig' : ''}.png`));
 
 const { port, close } = await serve();
 const browser = await launch();
 const page = await browser.newPage({ viewport: { width: 1200, height: 640 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(String(e)));
-await page.goto(`http://127.0.0.1:${port}/tools/pose.html?who=${WHO}`, { waitUntil: 'load' });
+await page.goto(`http://127.0.0.1:${port}/tools/pose.html?who=${WHO}${SKELETON ? '&skeleton=1' : ''}`, { waitUntil: 'load' });
 await page.waitForFunction(() => window.__ready, null, { timeout: 10000 });
 await mkdir(dirname(OUT), { recursive: true });
 await page.locator('#c').screenshot({ path: OUT });

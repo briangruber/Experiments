@@ -76,7 +76,10 @@ function loadVideo(sources, onNote) {
       v.addEventListener('error', () => lose('error ' + (v.error?.code ?? '?')), { once: true });
       // A generous ceiling, and only to move on to the next candidate — the
       // game is already running by now either way.
-      setTimeout(() => (v.readyState >= 2 ? win() : lose('timeout rs=' + v.readyState)), 12000);
+      // Short: a candidate that has not produced a frame in four seconds is
+      // almost certainly refused, and the next candidate deserves the time
+      // more than this one does.
+      setTimeout(() => (v.readyState >= 2 ? win() : lose('timeout rs=' + v.readyState)), 4000);
       v.src = url;
       v.load();
     };
@@ -104,9 +107,12 @@ export async function loadBackdrop() {
 
   // Not awaited: the room opens on the still and upgrades itself.
   loadVideo(
+    // data: first — it is the documented scheme for embedded artifact media,
+    // and blob: is the one this project invented. A scheme a published page
+    // refuses fails silently, so the order matters and both are offered.
     [
-      { url: A?.sceneVideo, label: A?.sceneVideoScheme || 'inline' },
       { url: A?.sceneVideoData, label: 'data:' },
+      { url: A?.sceneVideo, label: A?.sceneVideoScheme || 'inline' },
       { url: A ? null : './assets/scene.mp4', label: 'file' },
     ],
     (n) => {

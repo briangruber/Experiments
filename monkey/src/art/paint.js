@@ -28,17 +28,16 @@ export function rng(seed) {
 // the plate back apart — the water shimmer, the cloud field — reads them here
 // rather than guessing at the painting.
 export const SCENE = {
-  // The room's own size, so anything sampling the plate can convert into the
-  // plate's pixel space instead of assuming the two are the same. They are not:
-  // the LoRA endpoint returns 1536x576 for the same 8:3 frame.
-  roomW: 1920,
+  // Measured off the generated backdrop, not off a blockout — the art comes
+  // first now. Anything sampling the backdrop converts into ITS pixel space
+  // rather than assuming the two are the same size.
+  roomW: 1280,
   roomH: 720,
-  moon: { x: 980, y: 120, r: 46 },
-  horizon: 470,
-  dockTop: 596,
-  // The tavern mass, generously bounded. Clouds are kept out of it; a little
-  // slack absorbs the small drift between blockout and repaint.
-  tavern: { right: 452, top: 108 },
+  moon: { x: 430, y: 118, r: 30 },
+  horizon: 352,       // sky meets sea
+  dockTop: 524,       // sea meets planks
+  // The tavern mass on the right, generously bounded.
+  tavern: { right: 880, top: 40 },
 };
 
 const MOON = SCENE.moon;
@@ -400,15 +399,25 @@ export function makePerson(spec) {
     const lag = actor.lag || 0;            // cloth, arriving late
     const breath = Math.sin(actor.phase * 1.7);
 
-    // Two falls per stride, not one: the body drops as each foot lands.
-    const bob = walking ? -Math.abs(Math.cos(p)) * H * 0.020 : breath * H * 0.007;
+    // The body drops onto each landing foot and rises through the passing
+    // stride — twice per cycle. It was inverted before (highest at contact),
+    // and it was applied with ctx.translate, which moved the FEET with it, so
+    // they lifted off the ground on every step instead of staying planted.
+    // The drop now moves the pelvis and everything hanging off it; the feet
+    // are in ground space and stay there.
+    const drop = walking ? Math.abs(Math.cos(p)) * H * 0.022 : -breath * H * 0.006;
     const sway = walking ? Math.sin(p) * H * 0.010 : 0;
     const hipTilt = walking ? Math.sin(p) * 0.13 : breath * 0.012;
     const chestTwist = walking ? -Math.sin(p) * 0.075 : -breath * 0.010;
 
-    const hipY = -H * 0.42, shoY = -H * 0.72, headY = -H * 0.86;
-    const THIGH = H * 0.208, SHIN = H * 0.208;   // 0.416H of reach against a
-    const UPPER = H * 0.150, FORE = H * 0.150;   // 0.40H drop: plants, still bends
+    const hipY = -H * 0.42 + drop, shoY = -H * 0.72 + drop, headY = -H * 0.86 + drop;
+    // Leg length is set from the standing pose, not guessed. Standing, the hip
+    // is 0.40H above the ankle; at 0.416H of reach that is 96% extension, which
+    // leaves a permanent ~10px kink in both legs — and a leg that never
+    // straightens reads as a knee bent the wrong way rather than as a knee.
+    // At 0.402H it stands at 99.7% and the kink disappears.
+    const THIGH = H * 0.201, SHIN = H * 0.201;
+    const UPPER = H * 0.150, FORE = H * 0.150;
 
     const shade = (hex, k) => {
       const n = parseInt(hex.slice(1), 16);
@@ -438,11 +447,21 @@ export function makePerson(spec) {
     ctx.save();
     ctx.scale(flip, 1);
 
+    // Debug record of the pose, in local (pre-mirror) space. tools/pose.mjs
+    // draws it; nothing else reads it.
+    const rig = { flip, legs: [], arms: [] };
+    actor.rig = rig;
+
     // --- feet, in world-ish space before the body offset -------------------
     // The foot is planted for half the cycle and swings for the other half,
     // and it stays on the ground while planted. A foot that slides is the
     // single most obvious tell of a bad walk cycle.
-    const stride = H * 0.155, lift = H * 0.075;
+    //
+    // Stride follows from leg length rather than taste: at the contact pose the
+    // hip has dropped, so the hip-to-ankle distance is sqrt(stride^2 + (0.40H -
+    // drop)^2), and that has to stay inside the leg's reach or the IK clamps
+    // and the foot slides out from under the body.
+    const stride = H * 0.128, lift = H * 0.072;
     const footOf = (ph) => {
       const c = Math.cos(ph);
       const swing = Math.sin(ph) > 0;
@@ -467,8 +486,6 @@ export function makePerson(spec) {
     ctx.beginPath(); ctx.arc(sway * 0.5, 0, H * 0.24, 0, TAU); ctx.fill();
     ctx.restore();
 
-    ctx.translate(0, bob);
-
     // --- pelvis and chest ---------------------------------------------------
     const hipAt = (side) => ({
       x: sway + side * H * 0.048 * Math.cos(hipTilt),
@@ -489,6 +506,7 @@ export function makePerson(spec) {
       const foot = feet[i];
       const ankle = { x: foot.x, y: -H * 0.020 + foot.y };
       const knee = joint(hip.x, hip.y, ankle.x, ankle.y, THIGH, SHIN, KNEE_FORWARD);
+      rig.legs.push({ hip: { ...hip }, knee: { ...knee }, ankle: { ...ankle } });
       const tone = back ? 0.72 : 1;
       bone(hip.x, hip.y, knee.x, knee.y, H * 0.078,
         lit(spec.legs, hipY, 0, 1.18 * tone, 0.62 * tone));
@@ -515,6 +533,7 @@ export function makePerson(spec) {
         y: hipY + H * 0.075 - Math.abs(reach) * H * 0.012 + (walking ? 0 : breath * H * 0.006),
       };
       const el = joint(sh0.x, sh0.y, hand.x, hand.y, UPPER, FORE, ELBOW_BACK);
+      rig.arms.push({ shoulder: { ...sh0 }, elbow: { ...el }, hand: { ...hand } });
       // An arm the same colour as the coat in front of it is invisible. The far
       // arm goes into shadow, the near one comes up a stop — the only two
       // things separating them are value and the outline.
@@ -612,7 +631,7 @@ export function makePerson(spec) {
     ctx.save();
     // The head leads the body slightly and settles late, which is most of what
     // makes a walk look like a person rather than a mechanism.
-    ctx.translate(sway * 0.7 + lag * H * 0.012, headY + bob * 0.25);
+    ctx.translate(sway * 0.7 + lag * H * 0.012, headY);
     ctx.rotate(chestTwist * 0.5 + lag * 0.06);
     const talking = actor.line !== null;
     const jaw = talking ? Math.abs(Math.sin(actor.phase * 26)) : 0;

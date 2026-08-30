@@ -101,8 +101,8 @@ export function makeClouds(seed = 91) {
   // already too strong: it should be something you notice has moved, not
   // something you look at.
   const bands = [
-    { count: 3, y: [40, 140], w: [460, 760], h: [52, 82], speed: 2.0, alpha: 0.22 },
-    { count: 3, y: [110, 250], w: [620, 980], h: [70, 108], speed: 4.6, alpha: 0.30 },
+    { count: 3, y: [30, 110], w: [320, 520], h: [40, 64], speed: 2.0, alpha: 0.20 },
+    { count: 3, y: [90, 200], w: [420, 660], h: [54, 84], speed: 4.6, alpha: 0.26 },
   ];
   const clouds = [];
   let s = seed;
@@ -128,11 +128,11 @@ export function makeClouds(seed = 91) {
     ctx.save();
     // Keep the sky out of the building. The plate's tavern is opaque and drawn
     // underneath, so a cloud crossing it would be a cloud inside a wall.
-    // The whole sky. The tavern is drawn after this layer, so a cloud crossing
-    // it is simply covered — no mask needed, and a cloud genuinely passes
-    // behind the building instead of stopping at its edge.
+    // Sky only, and left of the tavern — the building is painted into the
+    // backdrop here, so unlike the old sprite version there is nothing drawn
+    // after this layer to cover a cloud that strays onto it.
     ctx.beginPath();
-    ctx.rect(0, 0, room.width, HORIZON);
+    ctx.rect(0, 0, TAVERN.right, HORIZON);
     ctx.clip();
 
     for (const s of stars) {
@@ -194,7 +194,7 @@ export function makeWater(plate) {
     // Right of the tavern only: the building covers the sea on the left, and
     // redrawing the band across the whole width would paint water over it.
     ctx.beginPath();
-    ctx.rect(TAVERN.right, HORIZON, room.width - TAVERN.right, H);
+    ctx.rect(0, HORIZON, TAVERN.right, H);
     ctx.clip();
 
     if (band) {
@@ -241,7 +241,7 @@ export function makeWater(plate) {
 // Candlelight is not a steady glow. Two detuned sine waves plus a rare dip
 // read as a flame far better than random noise, which reads as a fault.
 export function makeLamps() {
-  const WIN = { x: 275, y: 355, r: 300 };
+  const WIN = { x: 1120, y: 372, r: 240 };
   return function paintLamps(ctx, room) {
     const t = room.time;
     const flicker = 0.80 + 0.13 * Math.sin(t * 5.1) + 0.07 * Math.sin(t * 11.7 + 1.3)
@@ -261,8 +261,8 @@ export function makeLamps() {
     // gradient reaches zero inside its own fill rect. Any rect that cuts a
     // gradient before it has faded turns that cut into a visible hard band —
     // a radial gradient clipped by a rectangle is a rectangle.
-    const R = 400 * flicker;
-    ctx.translate(300, DOCK_TOP + 74);
+    const R = 330 * flicker;
+    ctx.translate(1060, DOCK_TOP + 96);
     ctx.scale(1, 0.34);
     const s = ctx.createRadialGradient(0, 0, 18, 0, 0, R);
     s.addColorStop(0, 'rgba(255,186,96,0.16)');
