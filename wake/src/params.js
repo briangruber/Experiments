@@ -152,11 +152,11 @@ export const PARAMS = {
     // SMALL. Cavitation bubbles are millimetres to a centimetre or so; the
     // first default drew them at 5 cm and up, which at close range is a dinner
     // plate and is most of why they read as blobs rather than as bubbles.
-    size:    { v: 0.018, min: 0.003, max: 0.12, step: 0.001, label: 'Bubble size (m)', ui: 'wash' },
-    rise:    { v: 0.55,  min: 0.05,  max: 3,   step: 0.01,  label: 'Rise speed (m/s)', ui: 'wash' },
-    life:    { v: 3.4,   min: 0.3,   max: 12,  step: 0.1,   label: 'Bubble life (s)', ui: 'wash' },
-    jet:     { v: 1.6,   min: 0,     max: 8,   step: 0.05,  label: 'Thrown from the screw (m/s)', ui: 'wash' },
-    wobble:  { v: 0.16,  min: 0,     max: 1,   step: 0.01,  label: 'Spiral wobble', ui: 'wash' },
+    size:    { v: 0.018, min: 0.003, max: 0.12, step: 0.001, label: 'Particle size (m)', ui: 'propBubbles' },
+    rise:    { v: 0.55,  min: 0.05,  max: 3,   step: 0.01,  label: 'Particle rise (m/s)', ui: 'propBubbles' },
+    life:    { v: 3.4,   min: 0.3,   max: 12,  step: 0.1,   label: 'Particle life (s)', ui: 'propBubbles' },
+    jet:     { v: 1.6,   min: 0,     max: 8,   step: 0.05,  label: 'Thrown from the screw (m/s)', ui: 'propBubbles' },
+    wobble:  { v: 0.16,  min: 0,     max: 1,   step: 0.01,  label: 'Spiral wobble', ui: 'propBubbles' },
   },
 
   wash: {
@@ -169,14 +169,14 @@ export const PARAMS = {
     // refraction pass, and composited through the surface by the water shader
     // -- so they arrive already warped by the waves and murked by depth, and
     // they can only be seen THROUGH water, which is right.
-    bubRate:      { v: 620,  min: 0,   max: 2400, step: 10,  label: 'Bubbles / sec' },
+    bubRate:      { ui: 'propBubbles', v: 620, min: 0, max: 2400, step: 10, label: 'Particles / sec' },
     // SHALLOWER by default. A bubble released a metre and a half down is seen
     // through a metre and a half of water, so it is dim where it is made and
     // only brightens as it climbs -- which puts the visible part of the plume
     // well astern of the boat that made it and reads as "released far away".
     // Nearer the surface it shows from the moment it leaves the screw.
-    bubDepth:     { v: 0.7,  min: 0.1, max: 6,   step: 0.05, label: 'Released this far down (m)' },
-    bubSpread:    { v: 0.55, min: 0.05, max: 3,  step: 0.05, label: 'Plume spread (m)' },
+    bubDepth:     { ui: 'propBubbles', v: 0.7, min: 0.1, max: 6, step: 0.05, label: 'Released this far down (m)' },
+    bubSpread:    { ui: 'propBubbles', v: 0.55, min: 0.05, max: 3, step: 0.05, label: 'Released across (m)' },
     // CAVITATION -- the water boiling at the blade, not more prop wash.
     //
     // Pressure on the suction face drops below vapour pressure, the water
@@ -271,20 +271,20 @@ export const PARAMS = {
   // back up through water, so they tint it turquoise rather than whitening it,
   // and the surface above them still reflects the sky.
   bubbles: {
-    plume:        { v: 0.86, min: 0,   max: 4,   step: 0.01, label: 'Plume density' },
+    plume:        { v: 0.86, min: 0,   max: 4,   step: 0.01, label: 'Haze density' },
     // Churn behind a screw is a crowd of separate blobs rising and bursting,
     // not a fog. This breaks the density into clumps; it fades with age, so the
     // boil at the transom is granular and the trail behind it has diffused.
     grain:        { v: 0.8,  min: 0,   max: 1,   step: 0.01, label: 'Bubbles, not fog' },
     grainSize:    { v: 0.9,  min: 0.15, max: 6,  step: 0.05, label: 'Bubble clump size (m)' },
-    width:        { v: 1.4, min: 0.2, max: 10,  step: 0.05, label: 'Plume width (m)' },
+    width:        { v: 1.4, min: 0.2, max: 10,  step: 0.05, label: 'Haze width (m)' },
     spread:       { v: 0.028,min: 0,   max: 0.5, step: 0.001,label: 'Spread (m/m)' },
     length:       { v: 46,min: 5,   max: 400, step: 1,    label: 'Decay length (m)' },
     fromArms:     { v: 0.16, min: 0,   max: 2,   step: 0.01, label: 'Entrained by arms' },
     armsLength:   { v: 70, min: 5,   max: 400, step: 1,    label: 'Entrained decay (m)' },
-    life:         { v: 44, min: 2,   max: 200, step: 1,    label: 'Bubble life (s)' },
-    depth:        { v: 1.7, min: 0.1, max: 6,   step: 0.05, label: 'Injection depth (m)' },
-    rise:         { v: 0.26, min: 0.02,max: 2,   step: 0.01, label: 'Rise speed (m/s)' },
+    life:         { v: 44, min: 2,   max: 200, step: 1,    label: 'Haze life (s)' },
+    depth:        { v: 1.7, min: 0.1, max: 6,   step: 0.05, label: 'Haze depth (m)' },
+    rise:         { v: 0.26, min: 0.02,max: 2,   step: 0.01, label: 'Haze rise (m/s)' },
     extinction:   { v: 0.42, min: 0,   max: 2,   step: 0.01, label: 'Water extinction /m' },
     deepTint:     { v: 0.7, min: 0,   max: 1,   step: 0.01, label: 'Deep-water tint' },
     mottle:       { v: 0.72, min: 0,   max: 1,   step: 0.01, label: 'Cloudiness' },

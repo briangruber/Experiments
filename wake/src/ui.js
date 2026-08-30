@@ -45,7 +45,15 @@ const GROUP_TITLES = {
   feather:    'Wake: feathering / comb',
   inner:      'Wake: inside the V',
   wash:       'Wake: prop wash',
-  bubbles:    'Wake: subsurface bubbles',
+  // TWO BUBBLE SYSTEMS, and until now they sat in adjacent sections with
+  // near-identical control names -- 'Bubble life', 'Rise speed' and a depth
+  // control in each. Anyone tuning one was as likely to be turning the other.
+  //
+  // They are genuinely different things, so the titles now say which is which:
+  // one is PAINTED into the wake's top-down field (no vertical extent, cannot
+  // show a bubble rising), the other is real particles in the water column.
+  bubbles:    'Wake: bubble haze (painted)',
+  propBubbles: 'Prop bubbles (real particles)',
   foamLook:   'Foam: texture',
   foamMotion: 'Foam: motion',
   foamMix:    'Foam: on the water',
