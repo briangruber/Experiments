@@ -227,6 +227,15 @@ function fitToLake( p, preset = {}, tune = {} ) {
 	// field, which looks like the sea breathing backwards.
 	p.groupLo = Math.min( get( 'ocean.groupLo' ), get( 'ocean.groupHi' ) );
 	p.groupHi = Math.max( get( 'ocean.groupLo' ), get( 'ocean.groupHi' ) );
+	// The rogue set: one long-crested packet that rolls through and passes on.
+	p.rogueHeight = get( 'ocean.rogueH' );
+	p.rogueLength = get( 'ocean.rogueLen' );
+	p.roguePeriod = get( 'ocean.rogueEvery' );
+	// The packet is a few wavelengths wide and enters far enough upwind to be
+	// genuinely absent between events rather than parked at the edge of view.
+	p.rogueWidth = get( 'ocean.rogueLen' ) * 0.75;
+	p.rogueRun = Math.max( get( 'ocean.rogueLen' ) * 6, 500 );
+	p.rogueSteep = get( 'ocean.rogueSteep' );
 	// The sun's halo, as a fraction of the DISC's radiance at the limb. The disc
 	// scaling is handled inside the shader, where the falloff is already measured
 	// in units of the sun's own radius.

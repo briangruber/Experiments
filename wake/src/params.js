@@ -394,7 +394,26 @@ export const PARAMS = {
     // neighbours. 'Wave sets / outliers' above is the master; at 0 the sea is
     // uniform again whatever these say.
     groupLo:      { ui: 'seaState', v: 0.55, min: 0.05, max: 1,  step: 0.01, label: 'Smallest wave ×' },
-    groupHi:      { ui: 'seaState', v: 1.9,  min: 1,    max: 4,  step: 0.01, label: 'Biggest wave ×' },
+    // Raised to 100 as asked -- but be warned what it does. It scales the WHOLE
+    // field in a patch, so a large value is not one big wave, it is every wave
+    // in that patch made enormous, and past about 6 the horizontal displacement
+    // folds through itself and the surface self-intersects. For a single big
+    // wave rolling in, use the rogue set below: that is a different mechanism
+    // and the one that does what it sounds like.
+    groupHi:      { ui: 'seaState', v: 1.9,  min: 1,    max: 100, step: 0.05, label: 'Biggest wave ×' },
+
+    // THE ROGUE SET -- one long-crested wave that rolls through and passes on.
+    //
+    // Not the sea scaled up: a PACKET, a few crests long, travelling in one
+    // direction with ordinary water either side of it. That is what arrives out
+    // of a calm sea, and it is why scaling the field could never produce it.
+    // Height is in METRES, straight -- set it to 12 and a twelve-metre wave
+    // comes through. Its speed is the deep-water relation sqrt(g*lambda/2pi),
+    // so a long swell outruns a short one exactly as it should.
+    rogueH:       { ui: 'seaState', v: 0,   min: 0,  max: 40,  step: 0.1, label: 'Rogue wave height (m)' },
+    rogueLen:     { ui: 'seaState', v: 110, min: 15, max: 500, step: 5,   label: 'Rogue wavelength (m)' },
+    rogueEvery:   { ui: 'seaState', v: 45,  min: 8,  max: 240, step: 1,   label: 'One every (s)' },
+    rogueSteep:   { ui: 'seaState', v: 0.6, min: 0,  max: 1.4, step: 0.01, label: 'Rogue steepness' },
     // The halo around the sun, from aerosol forward scattering. Built out of
     // the atmosphere's own transmittance, so it reddens with the disc at sunset
     // instead of staying a white sprite.

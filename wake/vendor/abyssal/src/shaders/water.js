@@ -88,6 +88,7 @@ uniform vec3  uCamPos;      // also read by the FS; one uniform, two stages
 uniform vec2  uGridCenter;
 uniform float uRMin, uRMax;
 uniform float uGroupAmt, uGroupScale, uGroupLo, uGroupHi;
+uniform float uRogueH, uRogueLen, uRoguePeriod, uRogueWidth, uRogueRun, uRogueSteep;
 // The group field needs a clock and a direction to drift along. Both are
 // already uniforms of this program for the fragment stage; declaring them here
 // as well is one uniform seen by two stages, not two uniforms.
@@ -199,6 +200,47 @@ void main(){
   }
 
   pos += disp;
+
+  // ---- THE BIG ONE ----------------------------------------------------------
+  //
+  // A rogue set: one long-crested wave that rolls through and passes on.
+  //
+  // This cannot be done by scaling the sea, and that is worth being clear about
+  // -- multiplying the whole field by a large number does not give you one big
+  // wave, it gives you the same chaotic sea with everything in it enormous, and
+  // the horizontal displacement folds through itself as it goes. What arrives
+  // at a beach out of a calm sea is something else entirely: a PACKET, a few
+  // crests long, travelling in one direction, with ordinary water either side.
+  //
+  // So: a band perpendicular to the wind, Gaussian-enveloped along the
+  // direction of travel, sweeping across the scene once every uRoguePeriod
+  // seconds. Its phase speed is the deep-water relation sqrt(g*lambda/2pi) --
+  // the same physics the cascades run on -- so a long swell outruns a short one
+  // exactly as it should.
+  if (uRogueH > 0.001) {
+    vec2 rd = normalize(uWindDirV + vec2(1e-5, 0.0));
+    float T = max(uRoguePeriod, 4.0);
+    float lam = max(uRogueLen, 3.0);
+    float cph = sqrt(9.81 * lam / 6.28318530718);
+    // One pass per period, entering well upwind and leaving well downwind, so
+    // it is genuinely absent between events rather than lurking at the edge.
+    float run = max(uRogueRun, lam * 4.0);
+    float travel = (fract(uTime / T) * 2.0 - 1.0) * run;
+    float sAx = dot(xz, rd) - travel;
+    float wdt = max(uRogueWidth, lam * 0.6);
+    float env = exp(-(sAx * sAx) / (2.0 * wdt * wdt));
+    if (env > 0.0015) {
+      float k = 6.28318530718 / lam;
+      float ph = k * sAx;
+      pos.y += cos(ph) * env * uRogueH;
+      // Gerstner shift: water piles toward the crest and thins in the trough,
+      // which is what makes a big wave look like it is ABOUT to break rather
+      // than like a sine curve someone made tall.
+      vec2 sh = - rd * sin(ph) * env * uRogueH * uRogueSteep;
+      pos.x += sh.x;
+      pos.z += sh.y;
+    }
+  }
 
   pos.y += hullLift(xz);
 
