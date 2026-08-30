@@ -58,27 +58,33 @@ const SOURCE_NOTES = {
   nano: 'Gemini 2.5 Flash Image drew this one. A cleaner, cooler read of the same brief, with a flatter palette and less of the amber lamplight — worth testing separately because a video model has less contrast and less texture to work with here.',
 };
 const MODEL_NOTES = {
-  minimax: 'The model in the build today. The most expensive of the four per clip and by some way the slowest, and it moved the picture least.',
+  minimax: 'The model in the build today, and an image-to-video endpoint rather than a first-last-frame one — the end frame is optional, so it keeps animating rather than interpolating toward its own start. Roughly fifteen times the activity of the first-last-frame group.',
   seedance: 'The cheapest and among the fastest, and it moved the picture more than the incumbent did. Its endpoint also carries a camera_fixed flag that was deliberately left off here so every clip shares one set of instructions — worth trying on whichever model wins.',
-  flux3draft: 'A dedicated first-last-frame endpoint, given the same image as both frames. Frozen — and the draft tier froze exactly as hard as the full one, so this is not a question of quality tier.',
-  flux3: 'The full FLUX.3 first-last-frame endpoint, at nearly three times the draft price and a nearly identical result: a held still.',
-  veo31lite: 'Veo 3.1 Lite. Its schema declares duration as a bare string with no enum and the endpoint accepts exactly one value, 8s. Frozen like the rest of its category.',
-  veo31fast: 'Veo 3.1 Fast. Frozen. Submitting it without a last frame is rejected outright as a missing required field, so these endpoints cannot be run open-loop either.',
-  veo31: 'Veo 3.1 at full price — $0.80 for four seconds — and it froze exactly as hard as the $0.30 draft tier. The failure does not track price or vendor.',
+  flux3draft: 'The draft tier of the FLUX.3 first-last-frame endpoint, given the same image as both frames. Very low activity with a wide burst spread: quiet most of the time, moving some of the time. The draft and full tiers measure almost identically, so the tier is not buying much here.',
+  flux3: 'The full FLUX.3 first-last-frame endpoint. The highest burst spread of anything measured — 44x on one still, 62x on the other — which is the signature of a picture that is still until something moves. Output is 1280x704, a slight crop off 16:9.',
+  veo31lite: 'Veo 3.1 Lite. Its schema declares duration as a bare string with no enum and the endpoint accepts exactly one value, 8s — so its clip is twice the length of the fast and full ones.',
+  veo31fast: 'Veo 3.1 Fast, and the cheapest way into this group. Exactly 1280x720, which is the room size, and the smallest file of the five. Submitting it without a last frame is rejected as a missing required field, so these endpoints only run closed.',
+  veo31: 'Veo 3.1 at full price, $0.80 for four seconds, measuring within a few percent of the Fast tier at $0.40 on both activity and burst. Hard to justify the difference for a background plate.',
   kling: 'The strongest motion of the four, and unusable as-is for this: its endpoint takes no resolution parameter, so it returns 1080p whatever you ask, and a five-second clip lands near 15 MB — over the whole budget for a published page on its own.',
   wan: 'The smallest file and the fastest turnaround. Its first attempt scored 1.4% and looked like a held still; that was frame interpolation, which is on by default and halves the change between frames. With it off the same settings score around 20%.',
 };
 
 const bySource = {};
 for (const c of all) (bySource[c.source] ??= []).push(c);
-const wanted = opt('source', null) ? [opt('source', null)] : Object.keys(bySource);
+// --combine puts several stills on one page instead of one page each, for a
+// short-list where the comparison runs across stills rather than within one.
+const COMBINE = args.includes('--combine');
+const picked = opt('source', null) ? opt('source', null).split(',') : Object.keys(bySource);
+const wanted = COMBINE ? [picked] : picked.map((k) => [k]);
 
 await mkdir(DIST, { recursive: true });
-for (const key of wanted) {
-  const clips = bySource[key];
-  if (!clips?.length) { console.error(`no clips for ${key}`); continue; }
+for (const group of wanted) {
+  const key = group[0];
+  const clips = group.flatMap((k) => bySource[k] || []);
+  if (!clips.length) { console.error(`no clips for ${group.join(',')}`); continue; }
 
-  const sources = { [key]: { label: clips[0].sourceLabel, note: SOURCE_NOTES[key] || '' } };
+  const sources = {};
+  for (const k of group) if (bySource[k]?.length) sources[k] = { label: bySource[k][0].sourceLabel, note: SOURCE_NOTES[k] || '' };
   const multi = new Set(clips.map((c) => c.variant || 'v1')).size > 1;
   const models = {};
   for (const c of clips) {
@@ -97,8 +103,11 @@ for (const key of wanted) {
     videos[c.file] = 'data:video/mp4;base64,' + (await readFile(path)).toString('base64');
   }
 
-  const stillPath = join(ROOT, 'assets/bakeoff', `pixel.${key}.jpg`);
-  const stills = { [key]: 'data:image/jpeg;base64,' + (await readFile(stillPath)).toString('base64') };
+  const stills = {};
+  for (const k of group) {
+    stills[k] = 'data:image/jpeg;base64,'
+      + (await readFile(join(ROOT, 'assets/bakeoff', `pixel.${k}.jpg`))).toString('base64');
+  }
 
   const spend = +clips.reduce((a, c) => a + (c.cost || 0), 0).toFixed(4);
   const data = {
@@ -113,7 +122,7 @@ for (const key of wanted) {
 
   // A sibling link is written in on a second pass, once both pages have URLs.
   const siblings = JSON.parse(await readFile(join(OUT, 'siblings.json'), 'utf8').catch(() => '{}'));
-  data.sibling = siblings[Object.keys(bySource).find((k) => k !== key)] || null;
+  data.sibling = group.length > 1 ? null : siblings[Object.keys(bySource).find((k) => k !== key)] || null;
 
   const html = (await readFile(join(ROOT, 'tools/loopoff-sheet.html'), 'utf8'))
     // Two pages sharing a title are indistinguishable in a gallery, so a

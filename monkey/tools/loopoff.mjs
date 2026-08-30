@@ -28,7 +28,7 @@ import { writeFile, readFile, mkdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ROOT } from './harness.mjs';
 import { falRun, fetchBuf } from './fal.mjs';
-import { probe, MOVES } from './mp4.mjs';
+import { probe, isDead } from './mp4.mjs';
 
 const OUT = join(ROOT, 'assets/loopoff');
 const INDEX = join(OUT, 'index.json');
@@ -298,11 +298,12 @@ for (const sk of sourceKeys) {
       const p = probe(buf);
       clip.file = file;
       clip.probe = p;
-      clip.moves = !!p.motion && p.motion.ratio > MOVES;
+      clip.moves = !isDead(p.motion);
       clip.cost = await settle(before);
       console.log(`\r  ${id.padEnd(26)} ${String(clip.seconds).padStart(5)}s  $${clip.cost?.toFixed(4) ?? '  ?   '}  `
         + `${(buf.length / 1024 / 1024).toFixed(2)} MB  ${p.width}x${p.height}  ${p.seconds.toFixed(1)}s @${p.fps}fps  `
-        + `motion ${(p.motion ? p.motion.ratio * 100 : 0).toFixed(1)}%${clip.moves ? '' : '  <-- STILL'}`
+        + `activity ${String(p.motion ? p.motion.activity : 0).padStart(6)}  burst ${String(p.motion ? p.motion.burst : 0).padStart(5)}x`
+        + `${clip.moves ? '' : '  <-- DEAD'}`
         + `${clip.endFrame ? '  [' + clip.endFrame + ' sent]' : ''}`);
     } catch (e) {
       clip.seconds = +((Date.now() - t0) / 1000).toFixed(1);

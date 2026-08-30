@@ -247,15 +247,19 @@ function tileHTML(c, title) {
   return '<div class="tile" data-key="' + esc(key) + '">'
     + '<div class="shot">' + body
     +   '<span class="badge">' + esc(title) + '</span>'
-    +   (c.moves ? '<span class="badge good">moves ' + pct(m) + '</span>'
-                 : '<span class="badge warn">held still ' + pct(m) + '</span>')
+    +   (c.moves ? '<span class="badge good">' + (p.motion && p.motion.activity < 8000 ? 'subtle' : 'busy')
+                    + ' · ' + (p.motion ? p.motion.activity.toLocaleString() : '?') + '</span>'
+                 : '<span class="badge warn">held still</span>')
     + '</div>'
     + '<div class="cap">'
     +   '<div class="cap-top"><strong>' + esc(title) + '</strong><em>' + esc(c.id) + '</em></div>'
     +   '<div class="bar-motion"><i class="' + (c.moves ? '' : 'low') + '" style="width:'
-    +     Math.min(100, m * 300).toFixed(0) + '%"></i></div>'
+    +     Math.min(100, Math.max(3, Math.log10(Math.max(1, p.motion ? p.motion.activity : 1)) / 5 * 100)).toFixed(0)
+    +     '%"></i></div>'
     +   '<div class="facts">'
-    +     '<span><i>motion</i><b class="' + (c.moves ? 'ok' : 'hot') + '">' + pct(m) + '</b></span>'
+    +     '<span><i>activity</i><b class="' + (c.moves ? 'ok' : 'hot') + '">'
+    +       (p.motion ? p.motion.activity.toLocaleString() : '?') + '</b></span>'
+    +     '<span><i>burst</i>' + (p.motion ? p.motion.burst : '?') + '×</span>'
     +     '<span><i>cost</i>' + money(c.cost) + '</span>'
     +     '<span><i>wait</i>' + secs(c.seconds) + '</span>'
     +     '<span><i>weight</i>' + mb(p.bytes) + '</span>'

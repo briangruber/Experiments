@@ -655,6 +655,41 @@ result is 864x480 against a 1280x720 room, so the backdrop is already being
 generated below the size it is displayed at. Kling is the exception: its
 endpoint has no resolution parameter and returns 1080p regardless.
 
+### The motion measure was wrong, and a person's eye caught it
+
+The single number — median inter-frame size as a fraction of the keyframe —
+reported five clips as held stills. Asked to look, the director picked two of
+those five as the best of the whole set. When an eye and a metric disagree, the
+metric is what to check.
+
+It divides by the keyframe, and a keyframe grows with resolution and picture
+sharpness. The first-last-frame models return crisp 1280x720; the image-to-video
+ones return 864x480. So the denominator was two to three times larger for
+exactly the clips being called dead. Worse, one number cannot tell "nothing
+ever happens" from "usually nothing happens".
+
+Two numbers can. `activity` is the median inter-frame size per megapixel, which
+is resolution-independent. `burst` is the spread of those sizes, p90 over p10.
+
+| clip | activity | burst | old verdict |
+|---|---|---|---|
+| Seedance rock | 43,326 | 1.7x | 16.7% — moves |
+| MiniMax rock | 34,741 | 2.6x | 9.9% — moves |
+| Veo 3.1 Fast rock | 2,254 | 13.2x | 1.3% — "held still" |
+| FLUX.3 rock | 2,057 | 43.6x | 1.0% — "held still" |
+
+The busy clips change a lot every frame and evenly: burst near 1.7 means every
+frame is much like the last, which for a backdrop means the whole picture
+shimmering continuously. The clips that were called frozen change little on
+average but very unevenly — a burst of 44 is a picture that is still until
+something moves. That is not a failed loop, it is what a quiet background
+should look like, and it is the thing the ratio was structurally unable to see.
+
+A clip is dead only when activity is low AND burst is near 1: nothing happening,
+uniformly. `isDead()` in tools/mp4.mjs encodes that pair. Under it, none of the
+clips in this directory is dead — including the five previously reported as
+such.
+
 ### First-last-frame endpoints cannot make a loop from one still
 
 This was worth testing properly because it looks like exactly the right tool.
@@ -662,22 +697,30 @@ An endpoint that takes a first frame and a last frame, handed the same image
 twice, should by construction return a clip that ends where it began. Six of
 them were tried on the same still with the same prompt:
 
-| model | endpoint kind | end frame | motion | cost | verdict |
+| model | endpoint kind | end frame | activity | burst | cost |
 |---|---|---|---|---|---|
-| Seedance 1 Lite | image-to-video | optional | **16.7%** | $0.049 | moves |
-| MiniMax H3 | image-to-video | optional | **9.9%** | $0.250 | moves |
-| FLUX.3 draft | first-last-frame | required | 1.0% | $0.300 | frozen |
-| FLUX.3 | first-last-frame | required | 1.0% | $0.850 | frozen |
-| Veo 3.1 Lite | first-last-frame | required | 1.4% | $0.240 | frozen |
-| Veo 3.1 Fast | first-last-frame | required | 1.3% | $0.400 | frozen |
-| Veo 3.1 | first-last-frame | required | 1.3% | $0.800 | frozen |
+| Seedance 1 Lite | image-to-video | optional | 43,326 | 1.7x | $0.049 |
+| MiniMax H3 | image-to-video | optional | 34,741 | 2.6x | $0.250 |
+| FLUX.3 draft | first-last-frame | required | 2,029 | 40.7x | $0.300 |
+| FLUX.3 | first-last-frame | required | 2,057 | 43.6x | $0.850 |
+| Veo 3.1 Lite | first-last-frame | required | 2,510 | 15.8x | $0.240 |
+| Veo 3.1 Fast | first-last-frame | required | 2,254 | 13.2x | $0.400 |
+| Veo 3.1 | first-last-frame | required | 2,235 | 14.4x | $0.800 |
 
-Every dedicated first-last-frame model returned a held still, and they are not
-cheap ones. The split is not by vendor or by price, it is by endpoint kind, and
-the reason is in the name: a first-last-frame model interpolates from A to B,
-and when B is A the shortest path is to do nothing. An image-to-video model
-that merely *accepts* an optional end frame treats it as a constraint on an
+Every dedicated first-last-frame model returns far less motion than the
+image-to-video ones — about 2,000 bytes per megapixel against 35,000-68,000 —
+and the split is by endpoint kind rather than by vendor or price. The reason is
+in the name: a first-last-frame model interpolates from A to B, and when B is A
+the shortest path is close to doing nothing. An image-to-video model that
+merely *accepts* an optional end frame treats it as a constraint on an
 animation it is generating anyway, which is a different computation.
+
+That reads as a defect and is not necessarily one. These clips are quiet but
+sharply uneven — burst spreads of 13x to 62x against 1.7x for the busy ones —
+which is a picture that holds still and then moves, rather than one that
+shimmers throughout. Asked to judge, the director picked two of them over
+everything else. See the section above on why the first version of this
+measurement could not see that.
 
 They cannot be run the other way either. Submitting one without a last frame is
 rejected outright — `last_frame_url: Field required` — which at least costs

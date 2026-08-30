@@ -23,7 +23,10 @@
         "frames": 124,
         "keyBytes": 134561,
         "medianBytes": 15881,
-        "ratio": 0.11802082326974384
+        "ratio": 0.11802082326974384,
+        "activity": 39766,
+        "burst": 2.2,
+        "cv": 0.76
       },
       "fps": 23.9
     },
@@ -57,7 +60,10 @@
         "frames": 121,
         "keyBytes": 109132,
         "medianBytes": 19807,
-        "ratio": 0.18149580324744347
+        "ratio": 0.18149580324744347,
+        "activity": 47760,
+        "burst": 1.7,
+        "cv": 0.29
       },
       "fps": 24
     },
@@ -91,7 +97,10 @@
         "frames": 121,
         "keyBytes": 535206,
         "medianBytes": 126741,
-        "ratio": 0.2368078833196937
+        "ratio": 0.2368078833196937,
+        "activity": 61121,
+        "burst": 1.6,
+        "cv": 0.19
       },
       "fps": 24
     },
@@ -125,7 +134,10 @@
         "frames": 81,
         "keyBytes": 67747,
         "medianBytes": 13309,
-        "ratio": 0.1964515033876039
+        "ratio": 0.1964515033876039,
+        "activity": 33326,
+        "burst": 4.7,
+        "cv": 0.61
       },
       "fps": 16
     },
@@ -159,7 +171,10 @@
         "frames": 124,
         "keyBytes": 153491,
         "medianBytes": 23713,
-        "ratio": 0.1544911428031611
+        "ratio": 0.1544911428031611,
+        "activity": 59378,
+        "burst": 2.2,
+        "cv": 0.6
       },
       "fps": 23.9
     },
@@ -193,7 +208,10 @@
         "frames": 121,
         "keyBytes": 126897,
         "medianBytes": 28498,
-        "ratio": 0.22457583709622764
+        "ratio": 0.22457583709622764,
+        "activity": 68716,
+        "burst": 1.5,
+        "cv": 0.22
       },
       "fps": 24
     },
@@ -227,7 +245,10 @@
         "frames": 121,
         "keyBytes": 630994,
         "medianBytes": 121493,
-        "ratio": 0.19254224287394175
+        "ratio": 0.19254224287394175,
+        "activity": 58648,
+        "burst": 1.9,
+        "cv": 0.24
       },
       "fps": 24
     },
@@ -261,7 +282,10 @@
         "frames": 81,
         "keyBytes": 75107,
         "medianBytes": 17323,
-        "ratio": 0.23064428082602154
+        "ratio": 0.23064428082602154,
+        "activity": 43377,
+        "burst": 5,
+        "cv": 0.65
       },
       "fps": 16
     },
@@ -298,7 +322,10 @@
         "frames": 121,
         "keyBytes": 108224,
         "medianBytes": 20596,
-        "ratio": 0.19030898876404495
+        "ratio": 0.19030898876404495,
+        "activity": 49662,
+        "burst": 1.6,
+        "cv": 0.31
       },
       "fps": 24
     },
@@ -332,7 +359,10 @@
         "frames": 81,
         "keyBytes": 68470,
         "medianBytes": 14396,
-        "ratio": 0.2102526654009055
+        "ratio": 0.2102526654009055,
+        "activity": 36048,
+        "burst": 6.3,
+        "cv": 0.7
       },
       "fps": 16
     },
@@ -366,7 +396,10 @@
         "frames": 121,
         "keyBytes": 110858,
         "medianBytes": 17120,
-        "ratio": 0.15443179563044615
+        "ratio": 0.15443179563044615,
+        "activity": 41281,
+        "burst": 2,
+        "cv": 0.37
       },
       "fps": 24
     },
@@ -400,7 +433,10 @@
         "frames": 81,
         "keyBytes": 79315,
         "medianBytes": 3499,
-        "ratio": 0.04411523671436676
+        "ratio": 0.04411523671436676,
+        "activity": 8762,
+        "burst": 32.4,
+        "cv": 1.39
       },
       "fps": 16
     },
@@ -443,7 +479,10 @@
         "frames": 121,
         "keyBytes": 107667,
         "medianBytes": 16897,
-        "ratio": 0.1569375946204501
+        "ratio": 0.1569375946204501,
+        "activity": 40743,
+        "burst": 1.9,
+        "cv": 0.38
       },
       "fps": 24
     },
@@ -484,7 +523,10 @@
         "frames": 122,
         "keyBytes": 536189,
         "medianBytes": 91310,
-        "ratio": 0.17029442976263967
+        "ratio": 0.17029442976263967,
+        "activity": 44035,
+        "burst": 2.4,
+        "cv": 0.32
       },
       "fps": 24
     },
@@ -531,7 +573,10 @@
         "frames": 81,
         "keyBytes": 80269,
         "medianBytes": 3771,
-        "ratio": 0.046979531325916604
+        "ratio": 0.046979531325916604,
+        "activity": 9443,
+        "burst": 48.3,
+        "cv": 1.43
       },
       "fps": 16
     },
@@ -573,7 +618,10 @@
         "frames": 121,
         "keyBytes": 109640,
         "medianBytes": 21652,
-        "ratio": 0.19748267055819044
+        "ratio": 0.19748267055819044,
+        "activity": 52209,
+        "burst": 1.6,
+        "cv": 0.27
       },
       "fps": 24
     },
@@ -616,7 +664,10 @@
         "frames": 121,
         "keyBytes": 107861,
         "medianBytes": 17968,
-        "ratio": 0.16658477114063472
+        "ratio": 0.16658477114063472,
+        "activity": 43326,
+        "burst": 1.7,
+        "cv": 0.33
       },
       "fps": 24
     },
@@ -657,7 +708,10 @@
         "frames": 122,
         "keyBytes": 364042,
         "medianBytes": 17282,
-        "ratio": 0.047472544376747736
+        "ratio": 0.047472544376747736,
+        "activity": 8334,
+        "burst": 1.8,
+        "cv": 0.28
       },
       "fps": 24
     },
@@ -699,7 +753,10 @@
         "frames": 121,
         "keyBytes": 108277,
         "medianBytes": 16864,
-        "ratio": 0.15574868162213582
+        "ratio": 0.15574868162213582,
+        "activity": 40664,
+        "burst": 1.8,
+        "cv": 0.36
       },
       "fps": 24
     },
@@ -745,7 +802,10 @@
         "frames": 81,
         "keyBytes": 77467,
         "medianBytes": 5686,
-        "ratio": 0.07339899570139544
+        "ratio": 0.07339899570139544,
+        "activity": 14238,
+        "burst": 12.3,
+        "cv": 1.17
       },
       "fps": 16
     },
@@ -788,11 +848,14 @@
         "frames": 121,
         "keyBytes": 190106,
         "medianBytes": 1828,
-        "ratio": 0.00961568808980253
+        "ratio": 0.00961568808980253,
+        "activity": 2029,
+        "burst": 40.7,
+        "cv": 1.59
       },
       "fps": 24
     },
-    "moves": false,
+    "moves": true,
     "cost": 0.3
   },
   {
@@ -832,7 +895,10 @@
         "frames": 124,
         "keyBytes": 139561,
         "medianBytes": 13874,
-        "ratio": 0.09941172677180588
+        "ratio": 0.09941172677180588,
+        "activity": 34741,
+        "burst": 2.6,
+        "cv": 0.9
       },
       "fps": 23.9
     },
@@ -876,11 +942,14 @@
         "frames": 121,
         "keyBytes": 188198,
         "medianBytes": 1854,
-        "ratio": 0.009851326794121085
+        "ratio": 0.009851326794121085,
+        "activity": 2057,
+        "burst": 43.6,
+        "cv": 1.57
       },
       "fps": 24
     },
-    "moves": false,
+    "moves": true,
     "cost": 0.85
   },
   {
@@ -920,11 +989,14 @@
         "frames": 192,
         "keyBytes": 162961,
         "medianBytes": 2313,
-        "ratio": 0.01419358005903253
+        "ratio": 0.01419358005903253,
+        "activity": 2510,
+        "burst": 15.8,
+        "cv": 1.23
       },
       "fps": 24
     },
-    "moves": false,
+    "moves": true,
     "cost": 0.24
   },
   {
@@ -964,11 +1036,14 @@
         "frames": 96,
         "keyBytes": 158772,
         "medianBytes": 2077,
-        "ratio": 0.013081651676618044
+        "ratio": 0.013081651676618044,
+        "activity": 2254,
+        "burst": 13.2,
+        "cv": 1.17
       },
       "fps": 24
     },
-    "moves": false,
+    "moves": true,
     "cost": 0.39996
   },
   {
@@ -1008,11 +1083,14 @@
         "frames": 96,
         "keyBytes": 161514,
         "medianBytes": 2060,
-        "ratio": 0.012754312319675075
+        "ratio": 0.012754312319675075,
+        "activity": 2235,
+        "burst": 14.4,
+        "cv": 1.17
       },
       "fps": 24
     },
-    "moves": false,
+    "moves": true,
     "cost": 0.8
   },
   {
@@ -1038,5 +1116,99 @@
     "seconds": 2.1,
     "error": "no video: {\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"last_frame_url\"],\"msg\":\"Field required\",\"input\":{\"prompt\":\"The moored ship rocks gently from side to side, tilting and settling back in place. The water rip",
     "cost": null
+  },
+  {
+    "source": "nano",
+    "sourceLabel": "Gemini 2.5 Flash · pixel",
+    "model": "flux3",
+    "label": "FLUX.3 first-last",
+    "id": "blackforestlabs/flux-3/first-last-frame-to-video",
+    "variant": "rock",
+    "variantLabel": "Rocking ship, closed loop",
+    "prompt": "The moored ship rocks gently from side to side, tilting and settling back in place. The water ripples. The lantern flame and the window light flicker. The camera is still.",
+    "closedLoop": true,
+    "duration": 5,
+    "sent": [
+      "aspect_ratio",
+      "duration",
+      "end_image_url",
+      "generate_audio",
+      "prompt",
+      "resolution",
+      "start_image_url"
+    ],
+    "endFrame": "end_image_url",
+    "seconds": 73.2,
+    "file": "nano.flux3.rock.mp4",
+    "probe": {
+      "bytes": 2083481,
+      "isMp4": true,
+      "avc": true,
+      "seconds": 5.042,
+      "width": 1280,
+      "height": 704,
+      "ratio": 1.8181818181818181,
+      "mdatBytes": 2081147,
+      "complete": true,
+      "motion": {
+        "frames": 121,
+        "keyBytes": 210159,
+        "medianBytes": 2021,
+        "ratio": 0.009616528437992187,
+        "activity": 2243,
+        "burst": 61.8,
+        "cv": 1.43
+      },
+      "fps": 24
+    },
+    "moves": true,
+    "cost": 0.85
+  },
+  {
+    "source": "nano",
+    "sourceLabel": "Gemini 2.5 Flash · pixel",
+    "model": "veo31fast",
+    "label": "Veo 3.1 Fast first-last",
+    "id": "fal-ai/veo3.1/fast/first-last-frame-to-video",
+    "variant": "rock",
+    "variantLabel": "Rocking ship, closed loop",
+    "prompt": "The moored ship rocks gently from side to side, tilting and settling back in place. The water ripples. The lantern flame and the window light flicker. The camera is still.",
+    "closedLoop": true,
+    "duration": 5,
+    "sent": [
+      "aspect_ratio",
+      "duration",
+      "first_frame_url",
+      "generate_audio",
+      "last_frame_url",
+      "prompt",
+      "resolution"
+    ],
+    "endFrame": "last_frame_url",
+    "seconds": 38.8,
+    "file": "nano.veo31fast.rock.mp4",
+    "probe": {
+      "bytes": 842634,
+      "isMp4": true,
+      "avc": true,
+      "seconds": 4,
+      "width": 1280,
+      "height": 720,
+      "ratio": 1.7777777777777777,
+      "mdatBytes": 832301,
+      "complete": true,
+      "motion": {
+        "frames": 96,
+        "keyBytes": 196807,
+        "medianBytes": 2236,
+        "ratio": 0.011361384503599973,
+        "activity": 2426,
+        "burst": 16.8,
+        "cv": 1.25
+      },
+      "fps": 24
+    },
+    "moves": true,
+    "cost": 0.39996
   }
 ]
