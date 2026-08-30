@@ -87,7 +87,7 @@ uniform mat4  uViewProj;
 uniform vec3  uCamPos;      // also read by the FS; one uniform, two stages
 uniform vec2  uGridCenter;
 uniform float uRMin, uRMax;
-uniform float uGroupAmt, uGroupScale;
+uniform float uGroupAmt, uGroupScale, uGroupLo, uGroupHi;
 // The group field needs a clock and a direction to drift along. Both are
 // already uniforms of this program for the fragment stage; declaring them here
 // as well is one uniform seen by two stages, not two uniforms.
@@ -181,10 +181,21 @@ void main(){
     vec2 drift = uWindDirV * uTime * 1.4;
     float g1 = gFbm(xz * uGroupScale + drift * uGroupScale, 3) * 2.0 - 1.0;
     float g2 = gFbm(xz * uGroupScale * 4.3 - drift * uGroupScale * 2.0 + 37.0, 2) * 2.0 - 1.0;
-    // Biased so a set is a swelling rather than a shrinking: an ocean with the
-    // groups switched on should not read as quieter than one without.
-    float g = 1.0 + uGroupAmt * (g1 * 0.72 + g2 * 0.38 * max(g1, 0.0));
-    disp *= max(g, 0.05);
+    // EXPLICIT BOUNDS, so the range is something you state rather than infer.
+    //
+    // The field itself is a sum of two fbms, which is bell-shaped: most water
+    // sits near the middle and the extremes are rare. That is the right shape
+    // for a sea -- a genuine outlier should be uncommon -- so it is mapped
+    // straight onto a 0..1 position between the smallest and largest a wave is
+    // allowed to be, rather than being scaled by an amount whose reach you have
+    // to work out from the coefficients.
+    //
+    // uGroupAmt stays the master: at 0 the sea is uniform and Gaussian again,
+    // at 1 the full range is in play.
+    float gn = g1 * 0.72 + g2 * 0.38 * max(g1, 0.0);
+    float gt = clamp(gn * 0.5 + 0.5, 0.0, 1.0);
+    float g = mix(1.0, mix(uGroupLo, uGroupHi, gt), uGroupAmt);
+    disp *= max(g, 0.02);
   }
 
   pos += disp;

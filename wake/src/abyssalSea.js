@@ -222,6 +222,11 @@ function fitToLake( p, preset = {}, tune = {} ) {
 	// Set length, as a spatial frequency. The slider is in metres because that is
 	// what you can see; a 260 m set is a familiar-looking ocean.
 	p.groupScale = 1 / Math.max( get( 'ocean.groupLen' ), 20 );
+	// The range a wave may swing over, as multiples of the base height. Clamped
+	// so the smallest can never exceed the largest -- crossing them inverts the
+	// field, which looks like the sea breathing backwards.
+	p.groupLo = Math.min( get( 'ocean.groupLo' ), get( 'ocean.groupHi' ) );
+	p.groupHi = Math.max( get( 'ocean.groupLo' ), get( 'ocean.groupHi' ) );
 	// The sun's halo, as a fraction of the DISC's radiance at the limb. The disc
 	// scaling is handled inside the shader, where the falloff is already measured
 	// in units of the sun's own radius.

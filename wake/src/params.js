@@ -385,6 +385,16 @@ export const PARAMS = {
     // clear of its neighbours. 0 is the plain Gaussian sea.
     groups:       { ui: 'seaState', v: 0.45, min: 0,   max: 1.2, step: 0.01, label: 'Wave sets / outliers' },
     groupLen:     { ui: 'seaState', v: 260,  min: 40,  max: 900, step: 10,   label: 'Set length (m)' },
+    // HOW BIG A STRAY WAVE MAY GET, as multiples of the base wave height.
+    //
+    // The sets field is bell-shaped -- a sum of two noise octaves -- so most
+    // water sits near the middle and the extremes are genuinely rare, which is
+    // the right shape for a sea. These two say where those extremes are: the
+    // lull between sets and the one wave that stands well clear of its
+    // neighbours. 'Wave sets / outliers' above is the master; at 0 the sea is
+    // uniform again whatever these say.
+    groupLo:      { ui: 'seaState', v: 0.55, min: 0.05, max: 1,  step: 0.01, label: 'Smallest wave ×' },
+    groupHi:      { ui: 'seaState', v: 1.9,  min: 1,    max: 4,  step: 0.01, label: 'Biggest wave ×' },
     // The halo around the sun, from aerosol forward scattering. Built out of
     // the atmosphere's own transmittance, so it reddens with the disc at sunset
     // instead of staying a white sprite.
