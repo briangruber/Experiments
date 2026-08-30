@@ -70,8 +70,14 @@ for (const key of wanted) {
   if (!clips?.length) { console.error(`no clips for ${key}`); continue; }
 
   const sources = { [key]: { label: clips[0].sourceLabel, note: SOURCE_NOTES[key] || '' } };
+  const multi = new Set(clips.map((c) => c.variant || 'v1')).size > 1;
   const models = {};
-  for (const c of clips) models[c.model] ??= { label: c.label, note: MODEL_NOTES[c.model] || '' };
+  for (const c of clips) {
+    // Two tiles from the same model differing only by loop strategy have to be
+    // told apart, or the sheet is unreadable.
+    c.tileLabel = multi ? `${c.label} — ${c.variantLabel}` : c.label;
+    models[c.model] ??= { label: c.label, note: MODEL_NOTES[c.model] || '' };
+  }
 
   const videos = {};
   for (const c of clips) {
@@ -101,13 +107,15 @@ for (const key of wanted) {
   data.sibling = siblings[Object.keys(bySource).find((k) => k !== key)] || null;
 
   const html = (await readFile(join(ROOT, 'tools/loopoff-sheet.html'), 'utf8'))
-    .replace('__TITLE__', SOURCE_TITLES[key] || `${key} Harbour Loops`)
+    // Two pages sharing a title are indistinguishable in a gallery, so a
+    // sheet built off the default source/variant pairing must be named.
+    .replace('__TITLE__', opt('title', SOURCE_TITLES[key] || `${key} Harbour Loops`))
     .replace('/*__DATA__*/ null', JSON.stringify(data));
-  const out = join(DIST, `loopoff-${key}.html`);
+  const out = join(DIST, `loopoff-${opt('out', key)}.html`);
   await writeFile(out, html);
   const bytes = Buffer.byteLength(html);
   const heavy = clips.filter((c) => c.tooHeavy).map((c) => c.model);
-  console.log(`sheet -> dist/loopoff-${key}.html  ${(bytes / 1024 / 1024).toFixed(2)} MB  `
+  console.log(`sheet -> dist/loopoff-${opt('out', key)}.html  ${(bytes / 1024 / 1024).toFixed(2)} MB  `
     + `${Object.keys(videos).length} playable, ${heavy.length ? heavy.join(',') + ' listed only' : 'all embedded'}`);
   if (bytes > MAX_PAGE) console.error(`  WARNING: over the ${MAX_PAGE / 1024 / 1024} MB budget`);
 }

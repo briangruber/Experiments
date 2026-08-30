@@ -275,7 +275,7 @@ function render(groupBy) {
       + '<span class="meta">' + esc(meta) + '</span></div>'
       + (g.note ? '<p class="sec-note">' + esc(g.note) + '</p>' : '')
       + '<div class="grid">'
-      + list.map(c => tileHTML(c, groupBy === 'source' ? c.label : sources[c.source].label)).join('')
+      + list.map(c => tileHTML(c, groupBy === 'source' ? (c.tileLabel || c.label) : sources[c.source].label)).join('')
       + '</div></section>';
   }).join('');
 

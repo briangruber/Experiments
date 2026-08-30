@@ -608,3 +608,49 @@ model has no end-frame field, refuses if the value is not identical to the
 source image, and records the field name in `index.json` and on the console
 line — paying for a clip that quietly did not get its last frame is precisely
 the kind of silent almost-right failure this directory keeps rediscovering.
+
+### Only ask for motions that can loop
+
+A drifting cloud cannot loop. To return to its starting position it has to
+either leave the frame or reverse, and neither is subtle. Chimney smoke has the
+same problem going upward. Asking for them is asking for the seam, so the brief
+is cut to motion that is oscillatory — a rocking hull, a fluttering pennant, a
+guttering flame — or cyclic in place, like water. `--variant rock` is that
+list, with the ship named first:
+
+    The moored ship rocks gently from side to side, tilting and settling back
+    in place. The water ripples. The lantern flame and the window light
+    flicker. The camera is still.
+
+**This breaks the motion measure as a cross-prompt comparison, and that is
+worth being explicit about.** The number is total pixel change per frame, so
+removing clouds and smoke removes real movement from the picture and the score
+drops for exactly the reason we wanted. Seedance going from 18.1% on the
+original brief to 16.7% here is not a regression; it is two fewer things
+moving. Within one prompt the measure still ranks models, and against the 2%
+floor it still catches a dead clip — it just cannot be read across briefs that
+ask for different amounts of motion.
+
+Two results that are not explained away by that:
+
+| model | loop | motion | weight | wait |
+|---|---|---|---|---|
+| Seedance | closed | 16.7% | 2.37 MB | 33s |
+| Seedance | open | 15.6% | 2.24 MB | 26s |
+| Kling | closed | 4.7% | 2.50 MB | 221s |
+| Wan | open | 7.3% | 1.08 MB | 12s |
+
+Kling collapsed. On the long brief it scored 23.7% and weighed 14.8 MB; on this
+one it scores 4.7% and weighs 2.5 MB, and took nearly four minutes to make. It
+appears to need a busy prompt to do anything, which makes it the wrong tool for
+a deliberately quiet loop. Wan is low here too and cannot take a closed loop at
+all. Seedance is the only one of the three that holds its motion when the brief
+narrows, and it is also the cheapest and among the fastest.
+
+### Resolution
+
+480p is the floor these endpoints expose — Seedance offers 480p/720p/1080p, Wan
+480p/580p/720p, MiniMax 480P — and every clip here is generated at it. The
+result is 864x480 against a 1280x720 room, so the backdrop is already being
+generated below the size it is displayed at. Kling is the exception: its
+endpoint has no resolution parameter and returns 1080p regardless.

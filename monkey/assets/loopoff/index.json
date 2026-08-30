@@ -579,5 +579,177 @@
     },
     "moves": true,
     "cost": 0.049005
+  },
+  {
+    "source": "seedream",
+    "sourceLabel": "Seedream 4 · pixel",
+    "model": "seedance",
+    "label": "Seedance 1 Lite",
+    "id": "fal-ai/bytedance/seedance/v1/lite/image-to-video",
+    "variant": "rock",
+    "variantLabel": "Rocking ship, closed loop",
+    "prompt": "The moored ship rocks gently from side to side, tilting and settling back in place. The water ripples. The lantern flame and the window light flicker. The camera is still.",
+    "closedLoop": true,
+    "duration": 5,
+    "sent": [
+      "duration",
+      "enable_safety_checker",
+      "end_image_url",
+      "image_url",
+      "prompt",
+      "resolution"
+    ],
+    "endFrame": "end_image_url",
+    "seconds": 32.8,
+    "file": "seedream.seedance.rock.mp4",
+    "probe": {
+      "bytes": 2480393,
+      "isMp4": true,
+      "avc": true,
+      "seconds": 5.042,
+      "width": 864,
+      "height": 480,
+      "ratio": 1.8,
+      "mdatBytes": 2479069,
+      "complete": true,
+      "motion": {
+        "frames": 121,
+        "keyBytes": 107861,
+        "medianBytes": 17968,
+        "ratio": 0.16658477114063472
+      },
+      "fps": 24
+    },
+    "moves": true,
+    "cost": null
+  },
+  {
+    "source": "seedream",
+    "sourceLabel": "Seedream 4 · pixel",
+    "model": "kling",
+    "label": "Kling 2.5 Turbo Pro",
+    "id": "fal-ai/kling-video/v2.5-turbo/pro/image-to-video",
+    "variant": "rock",
+    "variantLabel": "Rocking ship, closed loop",
+    "prompt": "The moored ship rocks gently from side to side, tilting and settling back in place. The water ripples. The lantern flame and the window light flicker. The camera is still.",
+    "closedLoop": true,
+    "duration": 5,
+    "sent": [
+      "duration",
+      "image_url",
+      "prompt",
+      "tail_image_url"
+    ],
+    "endFrame": "tail_image_url",
+    "seconds": 220.9,
+    "file": "seedream.kling.rock.mp4",
+    "probe": {
+      "bytes": 2625381,
+      "isMp4": true,
+      "avc": true,
+      "seconds": 5.084,
+      "width": 1920,
+      "height": 1080,
+      "ratio": 1.7777777777777777,
+      "mdatBytes": 2623816,
+      "complete": true,
+      "motion": {
+        "frames": 122,
+        "keyBytes": 364042,
+        "medianBytes": 17282,
+        "ratio": 0.047472544376747736
+      },
+      "fps": 24
+    },
+    "moves": true,
+    "cost": 0.049005
+  },
+  {
+    "source": "seedream",
+    "sourceLabel": "Seedream 4 · pixel",
+    "model": "seedance",
+    "label": "Seedance 1 Lite",
+    "id": "fal-ai/bytedance/seedance/v1/lite/image-to-video",
+    "variant": "rock-open",
+    "variantLabel": "Rocking ship, open loop",
+    "prompt": "The moored ship rocks gently from side to side, tilting and settling back in place. The water ripples. The lantern flame and the window light flicker. The camera is still.",
+    "closedLoop": false,
+    "duration": 5,
+    "sent": [
+      "duration",
+      "enable_safety_checker",
+      "image_url",
+      "prompt",
+      "resolution"
+    ],
+    "endFrame": null,
+    "seconds": 26.3,
+    "file": "seedream.seedance.rock-open.mp4",
+    "probe": {
+      "bytes": 2347781,
+      "isMp4": true,
+      "avc": true,
+      "seconds": 5.042,
+      "width": 864,
+      "height": 480,
+      "ratio": 1.8,
+      "mdatBytes": 2346457,
+      "complete": true,
+      "motion": {
+        "frames": 121,
+        "keyBytes": 108277,
+        "medianBytes": 16864,
+        "ratio": 0.15574868162213582
+      },
+      "fps": 24
+    },
+    "moves": true,
+    "cost": 0.049005
+  },
+  {
+    "source": "seedream",
+    "sourceLabel": "Seedream 4 · pixel",
+    "model": "wan",
+    "label": "Wan 2.2 A14B",
+    "id": "fal-ai/wan/v2.2-a14b/image-to-video",
+    "variant": "rock-open",
+    "variantLabel": "Rocking ship, open loop",
+    "prompt": "The moored ship rocks gently from side to side, tilting and settling back in place. The water ripples. The lantern flame and the window light flicker. The camera is still.",
+    "closedLoop": false,
+    "duration": 5,
+    "sent": [
+      "adjust_fps_for_interpolation",
+      "enable_safety_checker",
+      "frames_per_second",
+      "image_url",
+      "interpolator_model",
+      "num_frames",
+      "prompt",
+      "resolution",
+      "video_quality"
+    ],
+    "endFrame": null,
+    "seconds": 12.2,
+    "file": "seedream.wan.rock-open.mp4",
+    "probe": {
+      "bytes": 1131899,
+      "isMp4": true,
+      "avc": true,
+      "seconds": 5.067,
+      "width": 832,
+      "height": 480,
+      "ratio": 1.7333333333333334,
+      "mdatBytes": 1116575,
+      "complete": true,
+      "motion": {
+        "frames": 81,
+        "keyBytes": 77467,
+        "medianBytes": 5686,
+        "ratio": 0.07339899570139544
+      },
+      "fps": 16
+    },
+    "moves": true,
+    "cost": 0.35
   }
 ]

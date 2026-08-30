@@ -91,6 +91,16 @@ const DRIFT = [
 const SIMPLE = 'Gentle looping animation: water ripples, clouds drift, the lantern flickers, '
   + 'smoke rises from the chimney. The camera is still.';
 
+// Not every motion can loop, and asking for one that cannot is asking for the
+// seam. A drifting cloud has to either leave the frame or reverse, and neither
+// is subtle; chimney smoke has the same problem going up. What is left is
+// motion that is either oscillatory — a rocking hull, a fluttering pennant, a
+// guttering flame — or cyclic in place, like water. So the list is cut to
+// those, and the ship is named first because a gentle rock is the thing the
+// scene most needs and the thing the models were least willing to give.
+const ROCK = 'The moored ship rocks gently from side to side, tilting and settling back in place. '
+  + 'The water ripples. The lantern flame and the window light flicker. The camera is still.';
+
 // Two ways to stop it, tested against each other rather than assumed. The
 // closed variant hands the model its own first frame as the last frame, which
 // forces the clip to return to its starting state. That is the thing that
@@ -106,11 +116,14 @@ const VARIANTS = {
   // two did the work.
   simple: { label: 'Short prompt + closed loop', text: 'simple', end: true },
   'simple-open': { label: 'Short prompt, open loop', text: 'simple', end: false },
+  // Loopable motions only, ship first.
+  rock: { label: 'Rocking ship, closed loop', text: 'rock', end: true },
+  'rock-open': { label: 'Rocking ship, open loop', text: 'rock', end: false },
 };
 const VARIANT = opt('variant', 'v1');
 if (!VARIANTS[VARIANT]) { console.error(`unknown variant ${VARIANT} — one of ${Object.keys(VARIANTS)}`); process.exit(1); }
 const V = VARIANTS[VARIANT];
-const TEXT = { long: PROMPT, drift: `${PROMPT} ${DRIFT}`, simple: SIMPLE }[V.text];
+const TEXT = { long: PROMPT, drift: `${PROMPT} ${DRIFT}`, simple: SIMPLE, rock: ROCK }[V.text];
 
 // --- the models -------------------------------------------------------------
 const MODELS = [
