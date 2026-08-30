@@ -170,7 +170,12 @@ export const PARAMS = {
     // -- so they arrive already warped by the waves and murked by depth, and
     // they can only be seen THROUGH water, which is right.
     bubRate:      { v: 620,  min: 0,   max: 2400, step: 10,  label: 'Bubbles / sec' },
-    bubDepth:     { v: 1.5,  min: 0.1, max: 6,   step: 0.05, label: 'Released this far down (m)' },
+    // SHALLOWER by default. A bubble released a metre and a half down is seen
+    // through a metre and a half of water, so it is dim where it is made and
+    // only brightens as it climbs -- which puts the visible part of the plume
+    // well astern of the boat that made it and reads as "released far away".
+    // Nearer the surface it shows from the moment it leaves the screw.
+    bubDepth:     { v: 0.7,  min: 0.1, max: 6,   step: 0.05, label: 'Released this far down (m)' },
     bubSpread:    { v: 0.55, min: 0.05, max: 3,  step: 0.05, label: 'Plume spread (m)' },
     // CAVITATION -- the water boiling at the blade, not more prop wash.
     //

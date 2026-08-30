@@ -2060,7 +2060,23 @@ void main(){
       float zs = (2.0*uRefrNear*uRefrFar)/(uRefrFar+uRefrNear-(2.0*dsceneW-1.0)*(uRefrFar-uRefrNear));
       float zw = (2.0*uRefrNear*uRefrFar)/(uRefrFar+uRefrNear-(2.0*dwater-1.0)*(uRefrFar-uRefrNear));
       float thick = max(zs - zw, 0.0);
-      vec3 seen = texture(uRefrColor, ruv).rgb;
+      // DISPLACEMENT GROWS WITH DEPTH, and this is what makes something under
+      // the water look like it is under the water.
+      //
+      // The offset above is a single per-fragment translation, so it moves what
+      // it samples without warping it -- fine for a hull, which is large enough
+      // that the normal changes noticeably across it, and useless for a
+      // two-centimetre bubble, which lands inside one nearly-constant patch of
+      // normal and comes back a crisp circle in the wrong place. That is why
+      // the bubbles read as stickers on the water rather than objects in it.
+      //
+      // A ray bent at the surface keeps travelling, so how far it lands from
+      // where it started depends on how much water it crossed after bending.
+      // Scaling the offset by the thickness now measured does that: two bubbles
+      // side by side at different depths shift by different amounts, and a
+      // cloud of them shears the way a real one does through a moving surface.
+      vec2 ruvD = clamp(suv + roff * (1.0 + thick * 0.55), vec2(0.001), vec2(0.999));
+      vec3 seen = texture(uRefrColor, ruvD).rgb;
       vec3 tinted = seen * exp(-uAbsorption * thick * uRefrMurk);
       // Visibility falls much slower than colour: you can SEE a pale keel
       // three metres down long after its reds are gone. 0.09 keeps the hull
