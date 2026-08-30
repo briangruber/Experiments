@@ -482,6 +482,9 @@ export const PARAMS = {
     // warm, troughs cold, still water black, with the zero contour picked out
     // so the crest lines are legible. Everything that makes water look like
     // water is also what hides a few centimetres of height moving across it.
+    // Markers at every emitter, drawn through the hull and the water. Toggled
+    // by the Emitters button beside the view controls.
+    debugEmit:    { ui: 'render', v: 0, min: 0, max: 1, step: 1, label: 'Debug: emitter markers' },
     waveDebug:    { ui: 'render', v: 0,    min: 0,   max: 1,   step: 1,    label: 'Debug: wave motion' },
     waveDebugScale:{ ui: 'render', v: 0.15, min: 0.01, max: 1.5, step: 0.01, label: 'Debug: height scale (m)' },
     // Index into PRESET_NAMES in abyssalSea.js, calmest first: turning it up

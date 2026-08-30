@@ -354,6 +354,58 @@ const spray = new Spray(3000);
 // Sized for the worst case the sliders allow: 2400 a second against a climb of
 // a couple of seconds. Under-size the pool and emission starts cannibalising
 // live bubbles, which shows as holes in the densest part of the plume.
+// EMITTER MARKERS -- where the sim thinks each source of water is.
+//
+// Every one of these is a world position the code computes and then trusts. A
+// marker turns that trust into something falsifiable: if the bubble source is
+// drawn ten metres astern of the transom, the arithmetic is answering a
+// different question from the one being asked, and no amount of re-deriving it
+// on paper will show that.
+//
+// depthTest off, so they read THROUGH the hull and the water -- the whole point
+// is to see a source that is hidden inside or beneath something.
+const DEBUG_MARKS = 80;
+const debugMarks = (() => {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(DEBUG_MARKS * 3), 3));
+  g.setAttribute('aCol', new THREE.BufferAttribute(new Float32Array(DEBUG_MARKS * 3), 3));
+  g.setDrawRange(0, 0);
+  const m = new THREE.ShaderMaterial({
+    transparent: true, depthTest: false, depthWrite: false,
+    uniforms: { uScale: { value: 600 } },
+    vertexShader: [
+      'attribute vec3 aCol; varying vec3 vCol; uniform float uScale;',
+      'void main(){ vCol = aCol;',
+      '  vec4 mv = modelViewMatrix * vec4(position, 1.0);',
+      '  gl_Position = projectionMatrix * mv;',
+      '  gl_PointSize = clamp(uScale * 0.55 / max(-mv.z, 0.1), 6.0, 44.0); }',
+    ].join('\n'),
+    fragmentShader: [
+      'precision highp float; varying vec3 vCol;',
+      'void main(){',
+      '  vec2 q = gl_PointCoord * 2.0 - 1.0;',
+      '  float d = dot(q, q);',
+      '  if (d > 1.0) discard;',
+      '  float ring = smoothstep(0.30, 0.72, d) * (1.0 - smoothstep(0.86, 1.0, d));',
+      '  gl_FragColor = vec4(vCol, ring * 0.95 + 0.12); }',
+    ].join('\n'),
+  });
+  const pts = new THREE.Points(g, m);
+  pts.frustumCulled = false;
+  pts.renderOrder = 999;
+  return pts;
+})();
+scene.add(debugMarks);
+let _markN = 0;
+function mark(x, y, z, r, gg, b) {
+  if (_markN >= DEBUG_MARKS) return;
+  const p = debugMarks.geometry.attributes.position.array;
+  const c = debugMarks.geometry.attributes.aCol.array;
+  p[_markN * 3] = x; p[_markN * 3 + 1] = y; p[_markN * 3 + 2] = z;
+  c[_markN * 3] = r; c[_markN * 3 + 1] = gg; c[_markN * 3 + 2] = b;
+  _markN++;
+}
+
 const bubbles = new Bubbles(9000);
 scene.add(bubbles.points);
 let _bubDebt = 0;
@@ -379,7 +431,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b72';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b73';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -389,6 +441,13 @@ function setView(mode) {
   // not a slider buried in a panel -- the whole point of it is to be compared
   // against the lit sea a second later.
   if (mode === 'waves') set('scene.waveDebug', get('scene.waveDebug') > 0.5 ? 0 : 1);
+  // WHERE EVERY EMITTER ACTUALLY IS, drawn as markers on top of the scene.
+  //
+  // Arithmetic said the bubble emitter was at the transom to the centimetre and
+  // it has now looked wrong twice, which means the arithmetic is answering a
+  // different question from the one being asked. A marker cannot be argued
+  // with: it is either on the back of the boat or it is not.
+  if (mode === 'emit') set('scene.debugEmit', get('scene.debugEmit') > 0.5 ? 0 : 1);
   syncViewButtons();
 }
 
@@ -397,6 +456,7 @@ function syncViewButtons() {
     const m = b.dataset.view;
     b.classList.toggle('on', m === 'field' ? hud.dataset.field === '1'
                            : m === 'waves' ? get('scene.waveDebug') > 0.5
+                           : m === 'emit' ? get('scene.debugEmit') > 0.5
                            : m === 'top' ? view.topDown : !view.topDown);
   }
 }
@@ -610,7 +670,8 @@ const ui = buildUI(uiRoot, {
     }
     // The wave-motion button and the slider are two handles on one value, so
     // moving either has to light the other -- including a wholesale paste.
-    if (path === '*' || path === 'scene.waveDebug') syncViewButtons();
+    if (path === '*' || path === 'scene.waveDebug'
+      || path === 'scene.debugEmit') syncViewButtons();
     // Re-fit the drawn hull: both 'Hull length' and 'Model scale' feed the
     // target size, and the fit is where scale actually lives (an outer scale
     // on the holder is divided straight back out by this same call).
@@ -1052,6 +1113,38 @@ function stepSim(dt) {
     }
   }
   bubbles.update(dt, BUB_SURFACE, state.t);
+
+  // The markers, from the SAME values the emitters just used -- not recomputed.
+  // A marker derived a second time could agree with my arithmetic and still
+  // disagree with the code that actually emits, which would make it a second
+  // opinion rather than evidence.
+  if (get('scene.debugEmit') > 0.5) {
+    _markN = 0;
+    // RED: where the bubbles are released. This is the one in question.
+    mark(sternX, 0.05, sternZ, 1.0, 0.15, 0.15);
+    // ORANGE: the measured transom, straight off the hull's bounding box.
+    mark(state.x - bhx * (hullSpan.stern - body.bowOffset()), 0.05,
+         state.z - bhz * (hullSpan.stern - body.bowOffset()), 1.0, 0.55, 0.0);
+    // GREEN: the stem, where the wake ribbon is anchored.
+    mark(state.x + bhx * bowAhead, 0.05, state.z + bhz * bowAhead, 0.1, 1.0, 0.2);
+    // BLUE: the sim point -- the pivot everything else is measured from.
+    mark(state.x, 0.05, state.z, 0.2, 0.5, 1.0);
+    // WHITE: the boat mesh's own origin, so a disagreement between where the
+    // hull is DRAWN and where the sim thinks it is shows up immediately.
+    mark(boat.position.x, 0.05, boat.position.z, 1, 1, 1);
+    // CYAN: the spray cuts along the waterline.
+    for (const c of body.cuts(4)) {
+      const nx = -bhz, nz = bhx;
+      mark(state.x + bhx * bowAhead - bhx * c.along + nx * c.lat, 0.05,
+           state.z + bhz * bowAhead - bhz * c.along + nz * c.lat, 0.1, 0.9, 1.0);
+    }
+    debugMarks.geometry.setDrawRange(0, _markN);
+    debugMarks.geometry.attributes.position.needsUpdate = true;
+    debugMarks.geometry.attributes.aCol.needsUpdate = true;
+    debugMarks.visible = true;
+  } else if (debugMarks.visible) {
+    debugMarks.visible = false;
+  }
   bubbles.setSun(sea?.sunDirection?.(), camera);
   // ...and where the hull ITSELF is, which is not the same thing the moment
   // the boat crabs: the sample is the track, this is the boat.
