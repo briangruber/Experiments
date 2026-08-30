@@ -1210,5 +1210,52 @@
     },
     "moves": true,
     "cost": 0.39996
+  },
+  {
+    "source": "seedream",
+    "sourceLabel": "Seedream 4 · pixel",
+    "model": "flux3",
+    "label": "FLUX.3 first-last",
+    "id": "blackforestlabs/flux-3/first-last-frame-to-video",
+    "variant": "rock@10s",
+    "variantLabel": "Rocking ship, closed loop (10s)",
+    "prompt": "The moored ship rocks gently from side to side, tilting and settling back in place. The water ripples. The lantern flame and the window light flicker. The camera is still.",
+    "closedLoop": true,
+    "duration": 10,
+    "sent": [
+      "aspect_ratio",
+      "duration",
+      "end_image_url",
+      "generate_audio",
+      "prompt",
+      "resolution",
+      "start_image_url"
+    ],
+    "endFrame": "end_image_url",
+    "seconds": 101.5,
+    "file": "seedream.flux3.rock.10s.mp4",
+    "probe": {
+      "bytes": 2763752,
+      "isMp4": true,
+      "avc": true,
+      "seconds": 10.042,
+      "width": 1280,
+      "height": 704,
+      "ratio": 1.8181818181818181,
+      "mdatBytes": 2759978,
+      "complete": true,
+      "motion": {
+        "frames": 241,
+        "keyBytes": 190757,
+        "medianBytes": 1800,
+        "ratio": 0.009436088846018757,
+        "activity": 1998,
+        "burst": 40.4,
+        "cv": 1.54
+      },
+      "fps": 24
+    },
+    "moves": true,
+    "cost": 1.7
   }
 ]

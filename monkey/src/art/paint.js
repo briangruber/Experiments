@@ -33,11 +33,11 @@ export const SCENE = {
   // rather than assuming the two are the same size.
   roomW: 1280,
   roomH: 720,
-  moon: { x: 430, y: 118, r: 30 },
-  horizon: 352,       // sky meets sea
-  dockTop: 524,       // sea meets planks
+  moon: { x: 340, y: 112, r: 40 },
+  horizon: 392,       // sky meets sea
+  dockTop: 512,       // sea meets planks, measured by tools/measure-room.mjs
   // The tavern mass on the right, generously bounded.
-  tavern: { right: 880, top: 40 },
+  tavern: { right: 780, top: 56 },
 };
 
 const MOON = SCENE.moon;

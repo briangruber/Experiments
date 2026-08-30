@@ -732,5 +732,29 @@
     "endFrame": false,
     "prompt": "Ambient living-painting shot of this moonlit harbour. Continuous gentle motion: the sea swells and ripples with the moonlight glittering and breaking across its surface, clouds drift slowly across the night sky, the lantern flame flickers and its glow pulses on the timber, firelight wavers in the windows, smoke curls and rises from the chimney, the hanging sign sways slightly on its bracket, and the moored ship rocks gently with its pennants fluttering. The camera is completely locked off: no pan, no zoom, no dolly, no parallax, no camera movement of any kind, no shot change. Nothing enters or leaves the frame. No people, no characters, no boats arriving, no text. The painting itself does not change — only water, air, light and cloth move.",
     "at": "2026-08-30T02:54:22.351Z"
+  },
+  {
+    "kind": "scene-still",
+    "file": "assets/scene.jpg",
+    "model": "fal-ai/bytedance/seedream/v4/text-to-image",
+    "from": "assets/bakeoff/pixel.seedream.jpg",
+    "size": "1280x720",
+    "note": "winner of the still bake-off: 256-colour VGA pixel-art hand, boardwalk edge to edge, barrel with a visible spigot for the cup puzzle",
+    "at": "2026-08-30T06:17:46.592Z"
+  },
+  {
+    "kind": "scene-loop",
+    "file": "assets/scene.mp4",
+    "model": "blackforestlabs/flux-3/first-last-frame-to-video",
+    "from": "assets/scene.jpg",
+    "endFrame": "end_image_url = source",
+    "closedLoop": true,
+    "duration": 10,
+    "size": "1280x704",
+    "activity": 1998,
+    "burst": 40.4,
+    "cost": 1.7,
+    "note": "first frame passed as last frame, so the clip returns to its own start and needs no playback crossfade",
+    "at": "2026-08-30T06:17:46.593Z"
   }
 ]

@@ -739,3 +739,44 @@ None of them offers 480p; 720p is their floor. And Veo 3.1 Lite declares
 
 `--floor` refuses to submit below a balance, because Veo bills by the second
 and a matrix that empties the account halfway through cannot be finished.
+
+## The backdrop the game ships with
+
+`assets/scene.jpg` is the Seedream pixel-art plate from the still bake-off;
+`assets/scene.mp4` is a ten-second FLUX.3 first-last-frame clip generated from
+it with `end_image_url` set to the same image, so it returns to its own first
+frame. 1280x704, 2.64 MB, activity 1998 B/MPx at a burst of 40.4x — quiet and
+intermittent rather than continuously shimmering.
+
+The Seedream still was chosen over the Gemini one on a gameplay ground rather
+than an aesthetic one: its barrel has a visible iron spigot, and the first
+puzzle is filling a cup at that barrel. An affordance the player cannot see is
+a puzzle they cannot start.
+
+**The playback crossfade is now off.** It existed to hide the cut in a clip
+that did not end where it began, by blending the clip against a half-length
+offset copy of itself. Against a loop that already closes, that is strictly
+worse: it means permanently showing a mix of two different moments, which mutes
+exactly the quiet intermittent motion this clip was chosen for. It stays in
+`src/art/backdrop.js` behind `sceneClosedLoop`, for a future room whose clip
+does not close.
+
+Re-authoring the room for a new plate is: measure, then place.
+
+    node tools/measure-room.mjs assets/scene.jpg    # where the floor starts
+    node tools/check.mjs                            # the room still plays
+    node tools/bundle.mjs && node tools/check.mjs --bundle
+
+`measure-room.mjs` finds the water-to-plank transition column by column, which
+is the line the walk polygons, the scale anchors and every prop baseline are
+placed against. Hand-reading it off a picture is wrong in the last twenty
+pixels, and twenty pixels is the difference between standing on the dock and
+standing in the harbour.
+
+Twelve hotspots, the walk area, the scale anchors and the cup's wall position
+were all moved. Three of them — the crates, the rope coil and the jetty — were
+missed on the first pass and still pointed at the old painting, where the
+crates rect had landed on the tavern wall. The playthrough passed anyway, which
+is worth noting: `check.mjs` proves the puzzle chain is reachable, not that
+every rect is over the thing it names. Nothing automatic catches a hotspot in
+the wrong place; only reading the plate does.

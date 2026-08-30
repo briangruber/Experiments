@@ -1,11 +1,19 @@
 // The backdrop, which is a looping video when one can play and a still when it
 // cannot.
 //
-// Everything the procedural layers used to fake — drifting cloud, water
-// shimmer, a flickering lantern, smoke — arrives painted in a video instead,
-// and the trick that makes it loop is feeding the same still as both the first
-// and last frame of a first-last-frame model: the end has to arrive back at
-// the beginning, so it cuts to itself without a seam.
+// Everything the procedural layers used to fake — water shimmer, a flickering
+// lantern, firelight in a window — arrives painted in a video instead. Cloud
+// and smoke are deliberately NOT asked for: a drifting cloud can only return
+// to its starting position by leaving the frame or reversing, so asking for
+// one is asking for the seam.
+//
+// The clip is closed at generation, by a first-last-frame model handed the
+// same image as both frames. That is not the only way to get a loop, and the
+// alternative is still here: crossfading the clip against itself, offset by
+// half its length, hides the cut in an open-ended clip. But it is strictly
+// worse when the loop already closes, because it means permanently showing a
+// blend of two different moments — which mutes precisely the quiet,
+// intermittent motion a good background loop is made of. So it is opt-in.
 //
 // The loading is deliberately not a race the game can lose. An earlier version
 // awaited `canplay` with a six-second timeout before the game would start, and
@@ -91,7 +99,12 @@ export async function loadBackdrop() {
   const A = globalThis.window?.__ASSETS;
   const still = await loadImage(A?.sceneStill ?? './assets/scene.jpg');
 
+  // A closed clip returns to its own first frame, so it needs no help. Only a
+  // clip that does not is worth blending against itself.
+  const closedLoop = A?.sceneClosedLoop !== false;
+
   const backdrop = {
+    closedLoop,
     kind: still ? KIND.STILL : KIND.NONE,
     note: still ? 'still' : 'no backdrop assets',
     video: null,
@@ -142,13 +155,18 @@ export async function loadBackdrop() {
     if (!v) return;
     backdrop.video = v;
     backdrop.kind = KIND.VIDEO;
-    // A generated clip does not end where it began, so playing it on loop jumps
-    // once a cycle. Rather than ask the model to close the loop — which was
-    // tried, and returned 81 frames of a held still with no motion at all — the
-    // seam is removed at playback: the clip is crossfaded against ITSELF,
-    // offset by half its length, weighted so whichever copy is furthest from
-    // its own cut is the one you are mostly seeing. The cut always lands under
-    // a copy that is at zero opacity.
+    // The shipped clip closes on itself, so it plays straight. Everything
+    // below is the fallback for a clip that does not: crossfade it against
+    // ITSELF, offset by half its length, weighted so whichever copy is
+    // furthest from its own cut is the one you are mostly seeing, and the cut
+    // always lands under a copy at zero opacity.
+    if (closedLoop) {
+      const play = () => v.play().catch(() => {});
+      play();
+      for (const ev of ['pointerdown', 'keydown']) window.addEventListener(ev, play, { once: true });
+      document.dispatchEvent(new CustomEvent('backdropchange', { detail: backdrop }));
+      return;
+    }
     const b = v.cloneNode();
     b.muted = true; b.loop = true; b.playsInline = true;
     b.style.cssText = v.style.cssText;

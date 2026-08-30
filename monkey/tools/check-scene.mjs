@@ -14,7 +14,7 @@
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ROOT } from './harness.mjs';
-import { probe, MOVES } from './mp4.mjs';
+import { probe, isDead, DEAD_ACTIVITY, DEAD_BURST } from './mp4.mjs';
 
 const fails = [];
 const check = (name, ok, detail) => {
@@ -52,10 +52,14 @@ const MB = buf.length / 1024 / 1024;
 check('small enough to inline in a published page', MB < 6.5, `${MB.toFixed(2)} MB (~${(MB * 4 / 3).toFixed(1)} MB base64)`);
 
 // Does the video actually MOVE? This is the check whose absence let a
-// technically perfect video ship that was visually identical to the still.
-check('video contains motion', !!p.motion && p.motion.ratio > MOVES,
-  p.motion ? `${p.motion.frames} frames, median inter-frame ${p.motion.medianBytes}B vs keyframe ${p.motion.keyBytes}B `
-    + `(${(p.motion.ratio * 100).toFixed(1)}% — under ${MOVES * 100}% means nothing is moving)` : 'no sample table');
+// technically perfect video ship that was visually identical to the still —
+// and whose first version then called a perfectly good subtle loop dead,
+// because dividing by the keyframe punishes exactly the crisp high-resolution
+// clips this room wants. Two numbers: how much changes between frames, and how
+// unevenly. Dead means quiet AND even.
+check('video contains motion', !isDead(p.motion),
+  p.motion ? `${p.motion.frames} frames, activity ${p.motion.activity} B/MPx, burst ${p.motion.burst}x `
+    + `(dead is under ${DEAD_ACTIVITY} AND under ${DEAD_BURST}x — quiet but uneven is a subtle loop)` : 'no sample table');
 
 const STILL = join(ROOT, 'assets/scene.jpg');
 check('web-sized still exists as a fallback', await exists(STILL),

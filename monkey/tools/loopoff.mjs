@@ -140,12 +140,12 @@ const MODELS = [
   {
     key: 'flux3draft', label: 'FLUX.3 first-last (draft)', id: 'blackforestlabs/flux-3/first-last-frame-to-video/draft',
     startField: 'start_image_url', endField: 'end_image_url',
-    build: (uri) => ({ prompt: TEXT, start_image_url: uri, duration: 5, aspect_ratio: 'auto', generate_audio: false }),
+    build: (uri) => ({ prompt: TEXT, start_image_url: uri, duration: DURATION, aspect_ratio: 'auto', generate_audio: false }),
   },
   {
     key: 'flux3', label: 'FLUX.3 first-last', id: 'blackforestlabs/flux-3/first-last-frame-to-video',
     startField: 'start_image_url', endField: 'end_image_url',
-    build: (uri) => ({ prompt: TEXT, start_image_url: uri, duration: 5, resolution: '720p', aspect_ratio: 'auto', generate_audio: false }),
+    build: (uri) => ({ prompt: TEXT, start_image_url: uri, duration: DURATION, resolution: '720p', aspect_ratio: 'auto', generate_audio: false }),
   },
   {
     key: 'veo31lite', label: 'Veo 3.1 Lite first-last', id: 'fal-ai/veo3.1/lite/first-last-frame-to-video',
@@ -264,7 +264,7 @@ for (const sk of sourceKeys) {
   const src = SOURCES[sk];
   const uri = 'data:image/jpeg;base64,' + (await readFile(join(ROOT, src.file))).toString('base64');
   for (const model of models) {
-    const id = `${sk}/${model.key}/${VARIANT}`;
+    const id = `${sk}/${model.key}/${VARIANT}${DURATION === 5 ? '' : '@' + DURATION + 's'}`;
     if (done.has(id)) { console.log(`  ${id.padEnd(26)} already generated`); continue; }
     process.stdout.write(`  ${id.padEnd(26)} ...`);
     const before = await quiesce();
@@ -274,7 +274,7 @@ for (const sk of sourceKeys) {
     }
     const t0 = Date.now();
     const clip = { source: sk, sourceLabel: src.label, model: model.key, label: model.label, id: model.id,
-      variant: VARIANT, variantLabel: V.label, prompt: TEXT, closedLoop: !!V.end, duration: DURATION };
+      variant: VARIANT + (DURATION === 5 ? '' : '@' + DURATION + 's'), variantLabel: V.label + (DURATION === 5 ? '' : ` (${DURATION}s)`), prompt: TEXT, closedLoop: !!V.end, duration: DURATION };
     try {
       const input = model.build(uri);
       if (V.end) {
@@ -293,7 +293,8 @@ for (const sk of sourceKeys) {
       const url = out.video?.url || out.videos?.[0]?.url;
       if (!url) throw new Error('no video: ' + JSON.stringify(out).slice(0, 200));
       const buf = await fetchBuf(url);
-      const file = VARIANT === 'v1' ? `${sk}.${model.key}.mp4` : `${sk}.${model.key}.${VARIANT}.mp4`;
+      const suffix = DURATION === 5 ? '' : `.${DURATION}s`;
+      const file = VARIANT === 'v1' ? `${sk}.${model.key}${suffix}.mp4` : `${sk}.${model.key}.${VARIANT}${suffix}.mp4`;
       await writeFile(join(OUT, file), buf);
       const p = probe(buf);
       clip.file = file;

@@ -116,10 +116,11 @@ export function makeRoomDef(state, backdrop, props = {}) {
     id: 'dock',
     width: ROOM_W,
     height: ROOM_H,
-    // The dock recedes steeply in this painting, so the character halves in
-    // size across it. Anything less and the depth the picture has does not
-    // reach the person standing in it.
-    scale: { y0: 528, s0: 0.50, y1: 714, s1: 1.0 },
+    // The pixel-art plate stages the boardwalk much flatter than the painted
+    // one did — it reads as a floor seen slightly from above rather than one
+    // rushing away — so the character shrinks less across it. Halving would
+    // now look like a mistake rather than like depth.
+    scale: { y0: 514, s0: 0.62, y1: 716, s1: 1.0 },
     walk: [WALK_DOCK, WALK_JETTY],
     layers,
     // Nothing to depth-sort any more. The props are inside the backdrop, which
@@ -133,19 +134,31 @@ export function makeRoomDef(state, backdrop, props = {}) {
 // The cup hangs on the tavern wall, above head height, between the door and
 // the window. It is placed rather than found: a drawn sprite goes where the
 // annotation says, which is the whole advantage of it being drawn.
-const CUP_RECT = [1066, 344, 52, 60];
+// On the strip of wall between the left window and the door, above head
+// height. Placed rather than found: a drawn sprite goes where the annotation
+// says, which is the whole advantage of it being drawn.
+const CUP_RECT = [900, 396, 46, 54];
 
 // Traced over the painting. The back edge runs in FRONT of the barrel, the
 // crates and the rope coil, because those are painted into the backdrop and
 // therefore always behind the actor — walking "behind" them would put the
 // character on top of them. On the left the dock is clear, so the area opens
 // upstage and the scale has somewhere to work.
+// Traced over the plate, and measured rather than guessed: tools/measure-room.mjs
+// reads the water-to-plank transition column by column, which is the line
+// everything else is placed against.
+//
+// The back edge runs in FRONT of the barrel, the rope coil, the crates and the
+// tavern's stone footing, because those are painted into the backdrop and so
+// always sit behind the actor — walking "behind" them would put the character
+// on top of them. Left of the barrel the boardwalk is clear right up to the
+// railing, so the area opens upstage there and the scale has somewhere to work.
 const WALK_DOCK = [
-  120, 566, 330, 550, 645, 532, 664, 644, 1010, 654, 1275, 676, 1275, 714, 120, 714,
+  120, 514, 618, 512, 646, 552, 1272, 556, 1272, 716, 120, 716,
 ];
 // The last stretch of dock before it turns off toward the boats, blocked by
 // Grout until he is asleep.
-const WALK_JETTY = [0, 574, 120, 566, 120, 714, 0, 714];
+const WALK_JETTY = [0, 518, 120, 514, 120, 716, 0, 716];
 
 // The way off the dock is closed until Grout is asleep. Rather than a second
 // walk area with its own bookkeeping, the jetty polygon is simply dropped from
@@ -163,20 +176,20 @@ const H = (id, name, rect, at, verbs, extra = {}) => ({ id, name, rect, at, verb
 
 function HOTSPOTS(state) {
   return [
-    H('sea', 'the harbour', [0, 300, 620, 224], null, {
+    H('sea', 'the harbour', [0, 386, 612, 122], null, {
       look: function* (g) {
         yield say(g.player, "Black as a magistrate's heart, and twice as deep.");
       },
       use: function* (g) { yield say(g.player, "I've had enough swimming this week."); },
     }),
 
-    H('moon', 'the moon', [378, 74, 98, 96], null, {
+    H('moon', 'the moon', [298, 70, 86, 86], null, {
       look: function* (g) {
         yield say(g.player, "A full moon. Somewhere, a plot is thickening.");
       },
     }),
 
-    H('ship', 'the Errant Kipper', [238, 108, 254, 336], { x: 420, y: 596, facing: 'left' }, {
+    H('ship', 'the Errant Kipper', [394, 188, 224, 214], { x: 430, y: 606, facing: 'left' }, {
       look: function* (g) {
         yield say(g.player, "The Errant Kipper. Sailing at dawn, with or without a crew.", 4.0);
         yield say(g.player, "Preferably with. That's where I come in.");
@@ -187,21 +200,21 @@ function HOTSPOTS(state) {
       },
     }),
 
-    H('sign', 'the tavern sign', [672, 208, 200, 116], { x: 700, y: 620, facing: 'back' }, {
+    H('sign', 'the tavern sign', [684, 306, 112, 80], { x: 742, y: 622, facing: 'back' }, {
       look: function* (g) {
         yield say(g.player, "The sign is blank. Weathered right back to the bare board.", 3.8);
         yield say(g.player, "Either the paint gave up or the landlord did.");
       },
     }),
 
-    H('lantern', 'a hanging lantern', [858, 324, 64, 74], { x: 830, y: 640, facing: 'right' }, {
+    H('lantern', 'a hanging lantern', [1030, 344, 40, 66], { x: 1046, y: 636, facing: 'back' }, {
       look: function* (g) {
         yield say(g.player, "A lantern, lit. Someone in there still cares about being findable.", 4.2);
       },
       use: function* (g) { yield say(g.player, "It's hot, it's hung, and it isn't mine. Three good reasons."); },
     }),
 
-    H('door', 'the tavern door', [918, 308, 134, 262], { x: 900, y: 656, facing: 'right' }, {
+    H('door', 'the tavern door', [944, 334, 94, 190], { x: 986, y: 626, facing: 'back' }, {
       look: function* (g) { yield say(g.player, "Shut. And bolted. And, I suspect, personal."); },
       use: function* (g) {
         yield say(g.player, "Barred from the inside.");
@@ -210,7 +223,7 @@ function HOTSPOTS(state) {
       talk: function* (g) { yield say(g.player, "I've talked to doors before. It never ends well."); },
     }),
 
-    H('window', 'a lit window', [1116, 308, 136, 114], { x: 1120, y: 690, facing: 'back' }, {
+    H('window', 'a lit window', [1068, 338, 78, 82], { x: 1104, y: 646, facing: 'back' }, {
       look: function* (g) {
         yield say(g.player, "Warm light. Laughter. People who are not standing on a cold pier.", 3.4);
         yield say(g.player, "I'm told that's called 'having options'.");
@@ -218,7 +231,7 @@ function HOTSPOTS(state) {
       use: function* (g) { yield say(g.player, "The shutters are latched from inside. Rude."); },
     }),
 
-    H('cup', 'a tin cup', CUP_RECT, { x: 1060, y: 690, facing: 'back' }, {
+    H('cup', 'a tin cup', CUP_RECT, { x: 918, y: 616, facing: 'back' }, {
       look: function* (g) {
         yield say(g.player, "A tin cup, hung on a nail. Well out of reach of anyone honest.", 3.6);
       },
@@ -240,7 +253,7 @@ function HOTSPOTS(state) {
       },
     }),
 
-    H('barrel', 'a grog barrel', [652, 444, 176, 200], { x: 700, y: 680, facing: 'back' }, {
+    H('barrel', 'a grog barrel', [624, 418, 96, 130], { x: 668, y: 614, facing: 'back' }, {
       look: function* (g) {
         yield say(g.player, "A barrel of grog with a working spigot, left unattended on a public pier.", 4.2);
         yield say(g.player, "Grout is either very trusting or very thirsty.");
@@ -266,7 +279,7 @@ function HOTSPOTS(state) {
       },
     }),
 
-    H('crates', 'a stack of crates', [756, 398, 142, 152], { x: 800, y: 676, facing: 'back' }, {
+    H('crates', 'a stack of crates', [1146, 398, 126, 150], { x: 1178, y: 662, facing: 'back' }, {
       look: function* (g) {
         yield say(g.player, "Crates stencilled 'LIVE — DO NOT INVERT'.");
         yield say(g.player, "Something inside is breathing. I choose not to investigate.", 3.4);
@@ -274,7 +287,7 @@ function HOTSPOTS(state) {
       use: function* (g) { yield say(g.player, "Nailed shut, and I like my fingers where they are."); },
     }),
 
-    H('nets', 'a coil of rope', [986, 556, 252, 158], { x: 1080, y: 700, facing: 'back' }, {
+    H('nets', 'a coil of rope', [1026, 482, 124, 70], { x: 1074, y: 640, facing: 'back' }, {
       look: function* (g) {
         if (g.state.has('boathook')) {
           yield say(g.player, "Just rope now. Wet rope.");
@@ -290,7 +303,7 @@ function HOTSPOTS(state) {
       },
     }),
 
-    H('jetty', 'the end of the dock', [0, 520, 118, 200], { x: 150, y: 660, facing: 'left' }, {
+    H('jetty', 'the end of the dock', [0, 502, 118, 212], { x: 150, y: 664, facing: 'left' }, {
       look: function* (g) {
         yield say(g.player, "The dock runs on past the lamplight, and the Kipper's boat is tied up at the end of it.", 4.6);
       },

@@ -213,7 +213,7 @@ ${entry.body}
 // column is a different presentation problem from a full-window app, and the
 // game only needs #stage and #fatal to exist.
 const page = (await readFile(join(ROOT, 'tools/page.html'), 'utf8'))
-  .replace('/*ASSETS*/', `window.__ASSETS = ${JSON.stringify(assets)};`)
+  .replace('/*ASSETS*/', `window.__ASSETS = ${JSON.stringify({ ...assets, sceneClosedLoop: true })};`)
   .replace('/*GAME_JS*/', script);
 
 await mkdir(dirname(OUT), { recursive: true });
