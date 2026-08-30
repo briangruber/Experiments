@@ -53,12 +53,35 @@ export class Bubbles {
 
 		this.material = new THREE.ShaderMaterial( {
 			transparent: true,
-			depthWrite: true,
+			// ADDITIVE, and no depth write. Both were wrong the first time and
+			// wrong together, which is why the result looked like stacked coins.
+			//
+			// A bubble is not paint. It is a gas-water interface that TOTALLY
+			// internally reflects at any glancing angle -- which is why a bubble
+			// under water looks like a bead of mercury, all silvery highlight,
+			// and why a cloud of them is brighter than the water rather than a
+			// different colour from it. Alpha-blending a light grey over blue
+			// can only ever produce grey; adding light produces silver.
+			//
+			// And depthWrite on a transparent billboard makes each disc CUT
+			// into the ones behind it: hard rims, visible stacking order, flat
+			// overlapping plates. It was on so the refraction pass would get
+			// their depth for the murk calculation -- but the murk of a bubble
+			// a metre and a half down is barely different from the water just
+			// behind it, so that was a real artefact bought for a difference
+			// nobody can see.
+			depthWrite: false,
 			depthTest: true,
-			blending: THREE.NormalBlending,
+			blending: THREE.AdditiveBlending,
 			uniforms: {
 				uPixelScale: { value: 600 },
-				uTint: { value: new THREE.Color( 0.86, 0.94, 0.98 ) },
+				uTint: { value: new THREE.Color( 0.72, 0.86, 0.95 ) },
+				// The scene's real sun, in VIEW space. A glint pinned to a
+				// fixed corner of the sprite is the thing that gives a
+				// billboard away: every bubble catches the light from the same
+				// screen direction no matter where the sun is, and they read as
+				// a decal sheet. Fed from the sun the water is lit by.
+				uSunView: { value: new THREE.Vector3( -0.4, 0.7, 0.5 ) },
 			},
 			vertexShader: /* glsl */`
 				attribute float aSize;
@@ -79,17 +102,51 @@ export class Bubbles {
 				uniform vec3 uTint;
 				varying float vAlpha;
 				void main(){
-					// A bubble is a tiny lens, not a ball of paint: bright rim
-					// where the sphere turns away and the light refracts round
-					// it, thin in the middle where you look straight through.
-					// That is what stops a cloud of them reading as chalk.
+					// A SPHERE, shaded per pixel -- not a picture of one.
+					//
+					// The sprite is a circle, and for a bubble that is not an
+					// approximation: a sphere's silhouette is a circle from
+					// every direction, so the outline is exact and always will
+					// be. What a flat sprite normally fakes is the SHADING, and
+					// that is what is reconstructed here: the z of the surface
+					// normal comes straight out of the sprite coordinate, so
+					// every pixel knows which way the bubble's skin faces, and
+					// the light lands where the sun actually is.
+					//
+					// Light entering a gas bubble from water hits the far wall
+					// past the critical angle almost everywhere, so it comes
+					// back out at the RIM: a bubble reads as an annulus with a
+					// dim middle, not as a filled ball. The glint is the direct
+					// reflection off the top of the sphere, offset up-left, and
+					// it is the single detail that makes the shape read as
+					// round rather than as a printed ring.
 					vec2 q = gl_PointCoord * 2.0 - 1.0;
-					float d = dot( q, q );
-					if ( d > 1.0 ) discard;
-					float edge = smoothstep( 0.35, 1.0, d );
-					float core = 1.0 - smoothstep( 0.0, 0.75, d );
-					float a = vAlpha * ( 0.22 * core + 0.85 * edge ) * ( 1.0 - smoothstep( 0.86, 1.0, d ) );
-					gl_FragColor = vec4( uTint, a );
+					float d2 = dot( q, q );
+					if ( d2 > 1.0 ) discard;
+					float d = sqrt( d2 );
+					// Annulus: peaks just inside the silhouette, falls away in
+					// both directions, and dies before the edge so there is no
+					// hard cut against the water.
+					float ring = smoothstep( 0.42, 0.93, d ) * ( 1.0 - smoothstep( 0.93, 1.0, d ) );
+					// A little light through the middle -- a bubble is not a
+					// hole, and a pure ring reads as a smoke puff.
+					float core = ( 1.0 - smoothstep( 0.0, 0.85, d ) ) * 0.16;
+					// The normal of the sphere at this pixel, in view space.
+					vec3 n = vec3( q, sqrt( max( 0.0, 1.0 - d2 ) ) );
+					vec3 L = normalize( uSunView );
+					// Specular off the near face: a real bead of gas throws one
+					// small hard highlight, and it moves round the bubble as the
+					// sun moves, which a fixed offset never could.
+					vec3 H = normalize( L + vec3( 0.0, 0.0, 1.0 ) );
+					float glint = pow( max( dot( n, H ), 0.0 ), 48.0 );
+					// The rim brightens where the sphere turns edge-on to the
+					// eye -- the same Fresnel that makes the annulus, now
+					// coming out of the geometry rather than being drawn on.
+					float fres = pow( 1.0 - max( n.z, 0.0 ), 3.0 );
+					float e = vAlpha * ( ring * 0.55 + fres * 0.5 + core + glint * 1.1 );
+					// Additive: the colour IS the light it sends back, so there
+					// is no alpha channel doing the work and nothing to sort.
+					gl_FragColor = vec4( uTint * e, e );
 				}
 			`,
 		} );
@@ -103,6 +160,27 @@ export class Bubbles {
 
 		this.material.uniforms.uPixelScale.value =
 			heightPx / ( 2 * Math.tan( fovDeg * Math.PI / 360 ) );
+
+	}
+
+	/**
+	 * Point the glint at the real sun.
+	 *
+	 * Takes the world-space sun direction and the camera, and stores it in VIEW
+	 * space, which is the frame a point sprite's coordinates live in.
+	 */
+	setSun( sunWorld, camera ) {
+
+		// A plain [x, y, z], which is what abyssalSea.sunDirection() hands back
+		// -- it forwards the raw array the water is lit by, and it returns null
+		// before the first frame. Reading .x off that would give undefined and
+		// put a NaN into the uniform, which in GLSL is a black sprite rather
+		// than an error anyone would see.
+		if ( ! sunWorld || sunWorld.length !== 3 ) return;
+		this.material.uniforms.uSunView.value
+			.set( sunWorld[ 0 ], sunWorld[ 1 ], sunWorld[ 2 ] )
+			.transformDirection( camera.matrixWorldInverse )
+			.normalize();
 
 	}
 

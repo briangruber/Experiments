@@ -338,7 +338,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b56';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b57';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -881,6 +881,7 @@ function stepSim(dt) {
     }
   }
   bubbles.update(dt, BUB_SURFACE, state.t);
+  bubbles.setSun(sea?.sunDirection?.(), camera);
   // ...and where the hull ITSELF is, which is not the same thing the moment
   // the boat crabs: the sample is the track, this is the boat.
   wake.setHull(state.x + bhx * bowAhead, state.z + bhz * bowAhead, state.heading);

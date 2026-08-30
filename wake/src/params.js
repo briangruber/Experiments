@@ -125,7 +125,10 @@ export const PARAMS = {
   // different medium. Its own group rather than five more sliders under a
   // heading that says prop wash.
   bub: {
-    size:    { v: 0.055, min: 0.005, max: 0.3, step: 0.005, label: 'Bubble size (m)', ui: 'wash' },
+    // SMALL. Cavitation bubbles are millimetres to a centimetre or so; the
+    // first default drew them at 5 cm and up, which at close range is a dinner
+    // plate and is most of why they read as blobs rather than as bubbles.
+    size:    { v: 0.018, min: 0.003, max: 0.12, step: 0.001, label: 'Bubble size (m)', ui: 'wash' },
     rise:    { v: 0.55,  min: 0.05,  max: 3,   step: 0.01,  label: 'Rise speed (m/s)', ui: 'wash' },
     life:    { v: 3.4,   min: 0.3,   max: 12,  step: 0.1,   label: 'Bubble life (s)', ui: 'wash' },
     jet:     { v: 1.6,   min: 0,     max: 8,   step: 0.05,  label: 'Thrown from the screw (m/s)', ui: 'wash' },
@@ -142,7 +145,7 @@ export const PARAMS = {
     // refraction pass, and composited through the surface by the water shader
     // -- so they arrive already warped by the waves and murked by depth, and
     // they can only be seen THROUGH water, which is right.
-    bubRate:      { v: 260,  min: 0,   max: 1200, step: 10,  label: 'Bubbles / sec' },
+    bubRate:      { v: 620,  min: 0,   max: 2400, step: 10,  label: 'Bubbles / sec' },
     bubDepth:     { v: 1.5,  min: 0.1, max: 6,   step: 0.05, label: 'Released this far down (m)' },
     bubSpread:    { v: 0.55, min: 0.05, max: 3,  step: 0.05, label: 'Plume spread (m)' },
     // CAVITATION -- the water boiling at the blade, not more prop wash.
