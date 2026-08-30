@@ -1,0 +1,250 @@
+[
+  {
+    "source": "seedream",
+    "sourceLabel": "Seedream 4 · pixel",
+    "model": "minimax",
+    "label": "MiniMax Hailuo H3",
+    "id": "minimax/h3/image-to-video",
+    "prompt": "Ambient living-painting shot of this moonlit pirate harbour, as a seamless background loop for a 1990s point-and-click adventure game. Continuous gentle motion: the sea ripples and the moon's reflection glitters and breaks across it, clouds drift slowly across the night sky, the lantern flame flickers and its glow pulses on the timber, firelight wavers in the windows, smoke curls up from the chimney, the hanging sign sways slightly on its bracket, and the moored ship rocks gently with its pennants fluttering. Preserve the source artwork exactly: keep the pixel-art style, the hard aliased pixel edges and the limited palette. Do not smooth, blur, denoise, upscale, repaint or add detail. Do not change the composition, the colours, or any object in the scene. The camera is completely locked off: no pan, no zoom, no dolly, no parallax, no camera movement of any kind, no shot change. Nothing enters or leaves the frame. No people, no characters, no boats arriving, no text. Only water, air, light and cloth move.",
+    "duration": 5,
+    "seconds": 58.6,
+    "file": "seedream.minimax.mp4",
+    "probe": {
+      "bytes": 2642261,
+      "isMp4": true,
+      "avc": true,
+      "seconds": 5.184,
+      "width": 832,
+      "height": 480,
+      "ratio": 1.7333333333333334,
+      "mdatBytes": 2624453,
+      "complete": true,
+      "motion": {
+        "frames": 124,
+        "keyBytes": 134561,
+        "medianBytes": 15881,
+        "ratio": 0.11802082326974384
+      },
+      "fps": 23.9
+    },
+    "moves": true,
+    "cost": 0.25
+  },
+  {
+    "source": "seedream",
+    "sourceLabel": "Seedream 4 · pixel",
+    "model": "seedance",
+    "label": "Seedance 1 Lite",
+    "id": "fal-ai/bytedance/seedance/v1/lite/image-to-video",
+    "prompt": "Ambient living-painting shot of this moonlit pirate harbour, as a seamless background loop for a 1990s point-and-click adventure game. Continuous gentle motion: the sea ripples and the moon's reflection glitters and breaks across it, clouds drift slowly across the night sky, the lantern flame flickers and its glow pulses on the timber, firelight wavers in the windows, smoke curls up from the chimney, the hanging sign sways slightly on its bracket, and the moored ship rocks gently with its pennants fluttering. Preserve the source artwork exactly: keep the pixel-art style, the hard aliased pixel edges and the limited palette. Do not smooth, blur, denoise, upscale, repaint or add detail. Do not change the composition, the colours, or any object in the scene. The camera is completely locked off: no pan, no zoom, no dolly, no parallax, no camera movement of any kind, no shot change. Nothing enters or leaves the frame. No people, no characters, no boats arriving, no text. Only water, air, light and cloth move.",
+    "duration": 5,
+    "seconds": 28.3,
+    "file": "seedream.seedance.mp4",
+    "probe": {
+      "bytes": 2639102,
+      "isMp4": true,
+      "avc": true,
+      "seconds": 5.042,
+      "width": 864,
+      "height": 480,
+      "ratio": 1.8,
+      "mdatBytes": 2637778,
+      "complete": true,
+      "motion": {
+        "frames": 121,
+        "keyBytes": 109132,
+        "medianBytes": 19807,
+        "ratio": 0.18149580324744347
+      },
+      "fps": 24
+    },
+    "moves": true,
+    "cost": 0.049005
+  },
+  {
+    "source": "seedream",
+    "sourceLabel": "Seedream 4 · pixel",
+    "model": "kling",
+    "label": "Kling 2.5 Turbo Pro",
+    "id": "fal-ai/kling-video/v2.5-turbo/pro/image-to-video",
+    "prompt": "Ambient living-painting shot of this moonlit pirate harbour, as a seamless background loop for a 1990s point-and-click adventure game. Continuous gentle motion: the sea ripples and the moon's reflection glitters and breaks across it, clouds drift slowly across the night sky, the lantern flame flickers and its glow pulses on the timber, firelight wavers in the windows, smoke curls up from the chimney, the hanging sign sways slightly on its bracket, and the moored ship rocks gently with its pennants fluttering. Preserve the source artwork exactly: keep the pixel-art style, the hard aliased pixel edges and the limited palette. Do not smooth, blur, denoise, upscale, repaint or add detail. Do not change the composition, the colours, or any object in the scene. The camera is completely locked off: no pan, no zoom, no dolly, no parallax, no camera movement of any kind, no shot change. Nothing enters or leaves the frame. No people, no characters, no boats arriving, no text. Only water, air, light and cloth move.",
+    "duration": 5,
+    "seconds": 80.7,
+    "file": "seedream.kling.mp4",
+    "probe": {
+      "bytes": 15547913,
+      "isMp4": true,
+      "avc": true,
+      "seconds": 5.042,
+      "width": 1920,
+      "height": 1080,
+      "ratio": 1.7777777777777777,
+      "mdatBytes": 15546481,
+      "complete": true,
+      "motion": {
+        "frames": 121,
+        "keyBytes": 535206,
+        "medianBytes": 126741,
+        "ratio": 0.2368078833196937
+      },
+      "fps": 24
+    },
+    "moves": true,
+    "cost": 0.35
+  },
+  {
+    "source": "seedream",
+    "sourceLabel": "Seedream 4 · pixel",
+    "model": "wan",
+    "label": "Wan 2.2 A14B",
+    "id": "fal-ai/wan/v2.2-a14b/image-to-video",
+    "prompt": "Ambient living-painting shot of this moonlit pirate harbour, as a seamless background loop for a 1990s point-and-click adventure game. Continuous gentle motion: the sea ripples and the moon's reflection glitters and breaks across it, clouds drift slowly across the night sky, the lantern flame flickers and its glow pulses on the timber, firelight wavers in the windows, smoke curls up from the chimney, the hanging sign sways slightly on its bracket, and the moored ship rocks gently with its pennants fluttering. Preserve the source artwork exactly: keep the pixel-art style, the hard aliased pixel edges and the limited palette. Do not smooth, blur, denoise, upscale, repaint or add detail. Do not change the composition, the colours, or any object in the scene. The camera is completely locked off: no pan, no zoom, no dolly, no parallax, no camera movement of any kind, no shot change. Nothing enters or leaves the frame. No people, no characters, no boats arriving, no text. Only water, air, light and cloth move.",
+    "duration": 5,
+    "seconds": 16.2,
+    "file": "seedream.wan.mp4",
+    "probe": {
+      "bytes": 1576525,
+      "isMp4": true,
+      "avc": true,
+      "seconds": 5.067,
+      "width": 832,
+      "height": 480,
+      "ratio": 1.7333333333333334,
+      "mdatBytes": 1561201,
+      "complete": true,
+      "motion": {
+        "frames": 81,
+        "keyBytes": 67747,
+        "medianBytes": 13309,
+        "ratio": 0.1964515033876039
+      },
+      "fps": 16
+    },
+    "moves": true,
+    "cost": null
+  },
+  {
+    "source": "nano",
+    "sourceLabel": "Gemini 2.5 Flash · pixel",
+    "model": "minimax",
+    "label": "MiniMax Hailuo H3",
+    "id": "minimax/h3/image-to-video",
+    "prompt": "Ambient living-painting shot of this moonlit pirate harbour, as a seamless background loop for a 1990s point-and-click adventure game. Continuous gentle motion: the sea ripples and the moon's reflection glitters and breaks across it, clouds drift slowly across the night sky, the lantern flame flickers and its glow pulses on the timber, firelight wavers in the windows, smoke curls up from the chimney, the hanging sign sways slightly on its bracket, and the moored ship rocks gently with its pennants fluttering. Preserve the source artwork exactly: keep the pixel-art style, the hard aliased pixel edges and the limited palette. Do not smooth, blur, denoise, upscale, repaint or add detail. Do not change the composition, the colours, or any object in the scene. The camera is completely locked off: no pan, no zoom, no dolly, no parallax, no camera movement of any kind, no shot change. Nothing enters or leaves the frame. No people, no characters, no boats arriving, no text. Only water, air, light and cloth move.",
+    "duration": 5,
+    "seconds": 90.7,
+    "file": "nano.minimax.mp4",
+    "probe": {
+      "bytes": 3714861,
+      "isMp4": true,
+      "avc": true,
+      "seconds": 5.184,
+      "width": 832,
+      "height": 480,
+      "ratio": 1.7333333333333334,
+      "mdatBytes": 3697053,
+      "complete": true,
+      "motion": {
+        "frames": 124,
+        "keyBytes": 153491,
+        "medianBytes": 23713,
+        "ratio": 0.1544911428031611
+      },
+      "fps": 23.9
+    },
+    "moves": true,
+    "cost": 0.2025
+  },
+  {
+    "source": "nano",
+    "sourceLabel": "Gemini 2.5 Flash · pixel",
+    "model": "seedance",
+    "label": "Seedance 1 Lite",
+    "id": "fal-ai/bytedance/seedance/v1/lite/image-to-video",
+    "prompt": "Ambient living-painting shot of this moonlit pirate harbour, as a seamless background loop for a 1990s point-and-click adventure game. Continuous gentle motion: the sea ripples and the moon's reflection glitters and breaks across it, clouds drift slowly across the night sky, the lantern flame flickers and its glow pulses on the timber, firelight wavers in the windows, smoke curls up from the chimney, the hanging sign sways slightly on its bracket, and the moored ship rocks gently with its pennants fluttering. Preserve the source artwork exactly: keep the pixel-art style, the hard aliased pixel edges and the limited palette. Do not smooth, blur, denoise, upscale, repaint or add detail. Do not change the composition, the colours, or any object in the scene. The camera is completely locked off: no pan, no zoom, no dolly, no parallax, no camera movement of any kind, no shot change. Nothing enters or leaves the frame. No people, no characters, no boats arriving, no text. Only water, air, light and cloth move.",
+    "duration": 5,
+    "seconds": 34.4,
+    "file": "nano.seedance.mp4",
+    "probe": {
+      "bytes": 3647373,
+      "isMp4": true,
+      "avc": true,
+      "seconds": 5.042,
+      "width": 864,
+      "height": 480,
+      "ratio": 1.8,
+      "mdatBytes": 3646033,
+      "complete": true,
+      "motion": {
+        "frames": 121,
+        "keyBytes": 126897,
+        "medianBytes": 28498,
+        "ratio": 0.22457583709622764
+      },
+      "fps": 24
+    },
+    "moves": true,
+    "cost": 0.049005
+  },
+  {
+    "source": "nano",
+    "sourceLabel": "Gemini 2.5 Flash · pixel",
+    "model": "kling",
+    "label": "Kling 2.5 Turbo Pro",
+    "id": "fal-ai/kling-video/v2.5-turbo/pro/image-to-video",
+    "prompt": "Ambient living-painting shot of this moonlit pirate harbour, as a seamless background loop for a 1990s point-and-click adventure game. Continuous gentle motion: the sea ripples and the moon's reflection glitters and breaks across it, clouds drift slowly across the night sky, the lantern flame flickers and its glow pulses on the timber, firelight wavers in the windows, smoke curls up from the chimney, the hanging sign sways slightly on its bracket, and the moored ship rocks gently with its pennants fluttering. Preserve the source artwork exactly: keep the pixel-art style, the hard aliased pixel edges and the limited palette. Do not smooth, blur, denoise, upscale, repaint or add detail. Do not change the composition, the colours, or any object in the scene. The camera is completely locked off: no pan, no zoom, no dolly, no parallax, no camera movement of any kind, no shot change. Nothing enters or leaves the frame. No people, no characters, no boats arriving, no text. Only water, air, light and cloth move.",
+    "duration": 5,
+    "seconds": 78.7,
+    "file": "nano.kling.mp4",
+    "probe": {
+      "bytes": 14753698,
+      "isMp4": true,
+      "avc": true,
+      "seconds": 5.042,
+      "width": 1904,
+      "height": 1088,
+      "ratio": 1.75,
+      "mdatBytes": 14752271,
+      "complete": true,
+      "motion": {
+        "frames": 121,
+        "keyBytes": 630994,
+        "medianBytes": 121493,
+        "ratio": 0.19254224287394175
+      },
+      "fps": 24
+    },
+    "moves": true,
+    "cost": 0.25
+  },
+  {
+    "source": "nano",
+    "sourceLabel": "Gemini 2.5 Flash · pixel",
+    "model": "wan",
+    "label": "Wan 2.2 A14B",
+    "id": "fal-ai/wan/v2.2-a14b/image-to-video",
+    "prompt": "Ambient living-painting shot of this moonlit pirate harbour, as a seamless background loop for a 1990s point-and-click adventure game. Continuous gentle motion: the sea ripples and the moon's reflection glitters and breaks across it, clouds drift slowly across the night sky, the lantern flame flickers and its glow pulses on the timber, firelight wavers in the windows, smoke curls up from the chimney, the hanging sign sways slightly on its bracket, and the moored ship rocks gently with its pennants fluttering. Preserve the source artwork exactly: keep the pixel-art style, the hard aliased pixel edges and the limited palette. Do not smooth, blur, denoise, upscale, repaint or add detail. Do not change the composition, the colours, or any object in the scene. The camera is completely locked off: no pan, no zoom, no dolly, no parallax, no camera movement of any kind, no shot change. Nothing enters or leaves the frame. No people, no characters, no boats arriving, no text. Only water, air, light and cloth move.",
+    "duration": 5,
+    "seconds": 12.1,
+    "file": "nano.wan.mp4",
+    "probe": {
+      "bytes": 1969851,
+      "isMp4": true,
+      "avc": true,
+      "seconds": 5.067,
+      "width": 832,
+      "height": 480,
+      "ratio": 1.7333333333333334,
+      "mdatBytes": 1954527,
+      "complete": true,
+      "motion": {
+        "frames": 81,
+        "keyBytes": 75107,
+        "medianBytes": 17323,
+        "ratio": 0.23064428082602154
+      },
+      "fps": 16
+    },
+    "moves": true,
+    "cost": 0.35
+  }
+]

@@ -1,0 +1,8 @@
+# Kling returns 1080p whatever you ask — its endpoint has no resolution
+# parameter — so each of these clips is around 15 MB, and the two of them are
+# most of this directory. They cannot be inlined in a sheet at that size, so
+# nothing in the repo can use them; index.json carries every measurement taken
+# from them, and `node tools/loopoff.mjs --models kling --force` makes them
+# again. Committing 29 MB of video that only ever gets looked at once is not
+# worth doing permanently.
+*.kling.mp4

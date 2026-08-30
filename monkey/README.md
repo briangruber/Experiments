@@ -486,3 +486,47 @@ got exactly that — a fine-art oil painting, which is the one thing a 1997
 background never is. Naming the technique instead (hand-inked cel animation
 background, flat stepped shading, bold shapes that read at 640x480) and
 prohibiting the impasto explicitly is what moved it into the right decade.
+
+## Choosing the model that animates it
+
+`tools/loopoff.mjs` is the same bake-off one step further on: one loop prompt,
+shared verbatim, several image-to-video models, and the stills that won the
+image round as sources. `tools/loopoff-sheet.mjs` renders one page per source
+still.
+
+    node tools/loopoff.mjs --dry
+    node tools/loopoff.mjs
+    node tools/loopoff.mjs --sources seedream --models wan --force
+    node tools/loopoff-sheet.mjs
+
+**Every clip is measured for motion before anyone looks at it.** `tools/mp4.mjs`
+reads the per-frame byte sizes out of the mp4 `stsz` box: inter-coded frames
+cost bytes in direct proportion to how much changed between them, so the median
+inter-frame size as a fraction of the keyframe measures movement without
+decoding a pixel — which matters because nothing here *can* decode one. Under
+2% is a held still. This is the check whose absence let a completely static
+backdrop ship once already, and it caught a second one on its first run.
+
+The measure has one weakness, and it cost a wrong conclusion before it was
+found: **synthesised in-between frames halve the change from one frame to the
+next**. Wan interpolates by default (`interpolator_model: 'film'`, plus
+`adjust_fps_for_interpolation` raising the result to 32 fps) and scored 1.4%,
+which reads as a held still. With interpolation off, the same settings score
+19.6%. Every model is now asked for real frames only, so the numbers compare
+like with like.
+
+**Size is a first-class column, not an afterthought.** Nothing in this image can
+transcode — the only ffmpeg present is Playwright's VP8-only build, and
+Chromium refuses H.264 outright — so a clip has to be embedded at exactly the
+size the model returned it, against a 16 MB page ceiling that base64 inflates a
+third past. Kling's endpoint takes no resolution parameter at all and returns
+1080p regardless, which is a near-15 MB clip: it keeps its full row of
+measurements on the sheet and is marked as too heavy to inline, because
+dropping it would quietly bias the comparison toward whichever models happen to
+encode small.
+
+A note on probing fal for model schemas: fetch into a per-call temp file and
+assert the returned document actually names the endpoint you asked for. A retry
+loop reusing one path will hand you the previous model's schema on a failed
+fetch, which is how Kling acquired an imaginary `resolution` parameter for an
+afternoon.

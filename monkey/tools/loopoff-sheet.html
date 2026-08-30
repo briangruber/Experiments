@@ -1,0 +1,386 @@
+<title>__TITLE__</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Sibling of the still bake-off, deliberately: same ground, same type, because
+   it is the same investigation one step further on. A judging surface for
+   night-time artwork commits to a dark ground — surrounding luminance biases
+   colour perception, and every tile here is a moonlit harbour. */
+:root {
+  --ink-0:#0a0e1a; --ink-1:#121828; --ink-2:#1a2138; --ink-3:#232c48;
+  --line:#2c3757;
+  --text:#e7eaf6; --dim:#98a2c6; --faint:#68739a;
+  --amber:#f2a93b; --teal:#46bda9; --rose:#e2685f;
+  --shadow:0 18px 40px -18px rgba(0,0,0,.9);
+  color-scheme: dark;
+}
+* { box-sizing:border-box; }
+body {
+  margin:0; background:var(--ink-0); color:var(--text);
+  font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:15px; line-height:1.55;
+  background-image:radial-gradient(120% 70% at 50% -10%, #17203a 0%, var(--ink-0) 60%);
+  background-attachment:fixed;
+}
+h1,h2,h3 { font-family:Fraunces,Georgia,"Times New Roman",serif; font-weight:700; text-wrap:balance; margin:0; }
+.mono { font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace; font-variant-numeric:tabular-nums; }
+
+header { padding:44px 28px 26px; max-width:1500px; margin:0 auto; }
+.eyebrow { font-family:"IBM Plex Mono",monospace; font-size:11.5px; letter-spacing:.18em;
+  text-transform:uppercase; color:var(--amber); margin-bottom:14px; }
+h1 { font-size:clamp(30px,4.4vw,52px); line-height:1.06; letter-spacing:-.015em; }
+.sub { color:var(--dim); max-width:66ch; margin-top:14px; font-size:16px; }
+.foot { margin:18px 0 0; max-width:78ch; font-size:13px; line-height:1.6; color:var(--faint);
+  border-left:2px solid var(--line); padding-left:14px; }
+.totals { display:flex; flex-wrap:wrap; gap:10px; margin-top:26px; }
+.stat { background:var(--ink-1); border:1px solid var(--line); border-radius:9px; padding:10px 15px; min-width:104px; }
+.stat b { display:block; font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums;
+  font-size:20px; font-weight:500; letter-spacing:-.01em; }
+.stat span { display:block; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--faint); margin-top:3px; }
+
+.bar { position:sticky; top:0; z-index:30; backdrop-filter:blur(14px);
+  background:rgba(10,14,26,.86); border-bottom:1px solid var(--line); }
+.bar-in { max-width:1500px; margin:0 auto; padding:11px 28px; display:flex; flex-wrap:wrap; gap:22px; align-items:center; }
+.ctl { display:flex; align-items:center; gap:9px; }
+.ctl > label:first-child { font-size:10.5px; letter-spacing:.12em; text-transform:uppercase; color:var(--faint); }
+.seg { display:flex; background:var(--ink-1); border:1px solid var(--line); border-radius:8px; padding:2px; gap:2px; }
+.seg button { appearance:none; border:0; background:transparent; color:var(--dim); cursor:pointer;
+  font:inherit; font-size:13px; padding:5px 12px; border-radius:6px; transition:background .14s,color .14s; }
+.seg button:hover { color:var(--text); }
+.seg button[aria-pressed="true"] { background:var(--ink-3); color:var(--text); }
+.seg button:focus-visible, .toggle:focus-visible, .tile:focus-visible { outline:2px solid var(--amber); outline-offset:2px; }
+.toggle { appearance:none; border:1px solid var(--line); background:var(--ink-1); color:var(--dim);
+  font:inherit; font-size:13px; padding:6px 13px; border-radius:8px; cursor:pointer; display:flex; align-items:center; gap:8px; }
+.toggle[aria-pressed="true"] { border-color:var(--amber); color:var(--text); background:var(--ink-3); }
+.dot { width:8px; height:8px; border-radius:50%; background:var(--faint); }
+.toggle[aria-pressed="true"] .dot { background:var(--amber); }
+
+main { max-width:1500px; margin:0 auto; padding:34px 28px 90px; }
+section { margin-bottom:56px; }
+.sec-head { display:flex; align-items:baseline; gap:16px; flex-wrap:wrap; margin-bottom:6px;
+  padding-bottom:12px; border-bottom:1px solid var(--line); }
+.sec-head h2 { font-size:26px; letter-spacing:-.01em; }
+.sec-head .meta { font-family:"IBM Plex Mono",monospace; font-size:12.5px; color:var(--faint);
+  font-variant-numeric:tabular-nums; margin-left:auto; }
+.sec-note { color:var(--dim); font-size:14px; max-width:72ch; margin:12px 0 22px; }
+
+.grid { display:grid; gap:22px; }
+body[data-cols="2"] .grid { grid-template-columns:repeat(auto-fill,minmax(480px,1fr)); }
+body[data-cols="1"] .grid { grid-template-columns:1fr; }
+
+.tile { background:var(--ink-1); border:1px solid var(--line); border-radius:12px; overflow:hidden;
+  display:flex; flex-direction:column; transition:border-color .15s; }
+.tile:hover { border-color:var(--ink-3); }
+.shot { position:relative; aspect-ratio:16/9; background:var(--ink-2); }
+/* Pixel art must not be resampled by the browser on its way to the screen, or
+   the page introduces exactly the softening the sheet exists to detect. */
+.shot video, .shot img { width:100%; height:100%; object-fit:cover; display:block;
+  image-rendering:pixelated; }
+.shot video.b { position:absolute; inset:0; }
+.shot img.src { position:absolute; inset:0; display:none; }
+body.showsrc .shot img.src { display:block; }
+
+.badge { position:absolute; top:10px; left:10px; font-family:"IBM Plex Mono",monospace;
+  font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; z-index:2;
+  background:rgba(10,14,26,.82); border:1px solid var(--line); color:var(--dim);
+  padding:3px 8px; border-radius:5px; }
+.badge.warn { color:var(--rose); border-color:rgba(226,104,95,.5); left:auto; right:10px; }
+.badge.good { color:var(--teal); border-color:rgba(70,189,169,.45); left:auto; right:10px; }
+.zoom { position:absolute; right:10px; bottom:10px; z-index:3; appearance:none; cursor:pointer;
+  font:inherit; font-size:12px; padding:4px 10px; border-radius:6px; color:var(--dim);
+  background:rgba(10,14,26,.82); border:1px solid var(--line); }
+.zoom:hover { color:var(--text); }
+
+.cap { padding:12px 14px 13px; display:flex; flex-direction:column; gap:9px; }
+.cap-top { display:flex; align-items:baseline; gap:10px; }
+.cap-top strong { font-size:15px; font-weight:600; }
+.cap-top em { font-style:normal; font-size:12px; color:var(--faint); margin-left:auto; font-family:"IBM Plex Mono",monospace; }
+.facts { display:flex; flex-wrap:wrap; gap:14px; font-family:"IBM Plex Mono",monospace; font-size:12.5px;
+  color:var(--dim); font-variant-numeric:tabular-nums; }
+.facts span { display:flex; gap:5px; align-items:baseline; }
+.facts i { font-style:normal; color:var(--faint); font-size:10.5px; text-transform:uppercase; letter-spacing:.07em; }
+.facts .hot { color:var(--rose); }
+.facts .ok { color:var(--teal); }
+.fail { color:var(--rose); font-size:12.5px; font-family:"IBM Plex Mono",monospace; }
+.shot.err { display:flex; align-items:center; justify-content:center; color:var(--rose);
+  font-family:"IBM Plex Mono",monospace; font-size:12px; text-align:center; padding:20px; }
+
+/* motion bar — the measurement this whole sheet turns on */
+.bar-motion { height:4px; background:var(--ink-3); border-radius:2px; overflow:hidden; }
+.bar-motion i { display:block; height:100%; background:var(--teal); }
+.bar-motion i.low { background:var(--rose); }
+
+dialog { border:0; padding:0; background:transparent; max-width:min(1500px,94vw); width:100%; }
+dialog::backdrop { background:rgba(5,7,14,.9); backdrop-filter:blur(3px); }
+.lb { background:var(--ink-1); border:1px solid var(--line); border-radius:14px; overflow:hidden; box-shadow:var(--shadow); }
+.lb video { width:100%; display:block; image-rendering:pixelated; }
+.lb-body { padding:20px 22px 24px; display:flex; flex-direction:column; gap:14px; }
+.lb-head { display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; }
+.lb-head h3 { font-size:22px; }
+.lb-head button { margin-left:auto; appearance:none; border:1px solid var(--line); background:var(--ink-2);
+  color:var(--dim); font:inherit; font-size:13px; padding:5px 13px; border-radius:7px; cursor:pointer; }
+pre.prompt { margin:0; padding:14px 16px; background:var(--ink-0); border:1px solid var(--line);
+  border-radius:9px; font-family:"IBM Plex Mono",monospace; font-size:12.5px; line-height:1.65;
+  color:var(--dim); white-space:pre-wrap; max-height:32vh; overflow:auto; }
+
+.appendix { border-top:1px solid var(--line); padding-top:30px; }
+details { border:1px solid var(--line); border-radius:10px; background:var(--ink-1); margin-bottom:10px; }
+summary { cursor:pointer; padding:13px 16px; font-weight:600; font-size:14.5px; list-style:none;
+  display:flex; align-items:center; gap:12px; }
+summary::-webkit-details-marker { display:none; }
+summary::before { content:"+"; font-family:"IBM Plex Mono",monospace; color:var(--amber); font-size:16px; }
+details[open] summary::before { content:"−"; }
+details .in { padding:0 16px 16px; }
+
+@media (prefers-reduced-motion:reduce) { * { transition:none !important; } }
+@media (max-width:640px) {
+  header { padding:30px 18px 20px; } main { padding:26px 18px 70px; } .bar-in { padding:10px 18px; gap:14px; }
+  body[data-cols="2"] .grid { grid-template-columns:1fr; }
+}
+</style>
+
+<header>
+  <div class="eyebrow">Backdrop research · part two · <span id="still"></span> · <span id="date"></span></div>
+  <h1>Which model makes it breathe?</h1>
+  <p class="sub" id="sub"></p>
+  <div class="totals" id="totals"></div>
+  <p class="foot">The whole run — eight clips across both stills — cost <b id="spendAll"></b>
+  exactly, read off the fal balance before the first clip and after the last. The per-clip figures
+  are balance deltas and carry about a clip of billing lag, which is why they do not sum to it. <b>Motion</b>
+  is the median inter-frame byte size as a fraction of the keyframe, read straight out of the mp4
+  sample table: inter-coded frames cost bytes in direct proportion to how much changed, so it
+  measures movement without decoding anything. Under 2% is a held still. It has one real weakness,
+  found the hard way: synthesised in-between frames halve the change from one frame to the next, so
+  a model interpolating to 32 fps scores about half what the same motion scores at 16. Every clip
+  here is therefore generated with frame interpolation off.</p>
+</header>
+
+<div class="bar"><div class="bar-in">
+  <div class="ctl">
+    <label>Group by</label>
+    <div class="seg" id="group">
+      <button data-v="source" aria-pressed="true">Still</button>
+      <button data-v="model" aria-pressed="false">Model</button>
+    </div>
+  </div>
+  <div class="ctl">
+    <label>Size</label>
+    <div class="seg" id="cols">
+      <button data-v="2" aria-pressed="true">Compare</button>
+      <button data-v="1" aria-pressed="false">Full</button>
+    </div>
+  </div>
+  <button class="toggle" id="srcBtn" aria-pressed="false"><span class="dot"></span>Hold on source still</button>
+  <button class="toggle" id="xfBtn" aria-pressed="false"><span class="dot"></span>Crossfade loop</button>
+  <button class="toggle" id="playBtn" aria-pressed="true"><span class="dot"></span>Playing</button>
+</div></div>
+
+<main id="main"></main>
+
+<dialog id="lb"><div class="lb">
+  <video id="lbVid" loop muted playsinline controls></video>
+  <div class="lb-body">
+    <div class="lb-head"><h3 id="lbTitle"></h3><button id="lbClose">Close</button></div>
+    <div class="facts" id="lbFacts"></div>
+    <pre class="prompt" id="lbPrompt"></pre>
+  </div>
+</div></dialog>
+
+<script>
+const DATA = /*__DATA__*/ null;
+const { clips, sources, models, videos, stills, spend, spendAll, clipsAll, generatedAt, prompt } = DATA;
+document.getElementById('date').textContent = generatedAt;
+document.getElementById('spendAll').textContent = '$' + spendAll.toFixed(4);
+const srcKey = Object.keys(sources)[0];
+document.getElementById('still').textContent = sources[srcKey].label;
+document.getElementById('sub').innerHTML = 'The <b>' + esc(sources[srcKey].label) + '</b> still from the '
+  + 'first bake-off, handed to four image-to-video models with one identical prompt. Every clip is '
+  + 'measured for motion before it is shown, because this project has already shipped a backdrop '
+  + 'video that was valid, correctly sized, the right length, and completely static.'
+  + (DATA.sibling ? ' The other still is on <a href="' + DATA.sibling + '" style="color:var(--amber)">its own sheet</a>.' : '');
+
+const money = c => c == null ? '—' : '$' + c.toFixed(3);
+const secs  = s => s == null ? '—' : s.toFixed(1) + 's';
+const mb    = b => (b / 1024 / 1024).toFixed(2) + ' MB';
+const pct   = r => (r * 100).toFixed(1) + '%';
+const esc   = s => String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+
+const ok = clips.filter(c => c.file);
+document.getElementById('totals').innerHTML = [
+  [ok.length + '/' + clips.length, 'clips made'],
+  [money(spend), 'spend, this still'],
+  [money(spendAll / clipsAll), 'per clip, run mean'],
+  [secs(ok.reduce((a, c) => a + c.seconds, 0) / (ok.length || 1)), 'mean wait'],
+  [ok.filter(c => c.moves).length + '/' + ok.length, 'actually move'],
+  [mb(ok.reduce((a, c) => a + c.probe.bytes, 0)), 'total weight'],
+].map(([b, s]) => '<div class="stat"><b>' + b + '</b><span>' + s + '</span></div>').join('');
+
+function tileHTML(c, title) {
+  if (!c.file) {
+    return '<div class="tile"><div class="shot err">' + esc(c.error || 'no clip') + '</div>'
+      + '<div class="cap"><div class="cap-top"><strong>' + esc(title) + '</strong></div>'
+      + '<div class="fail">failed after ' + secs(c.seconds) + '</div></div></div>';
+  }
+  const p = c.probe, m = p.motion ? p.motion.ratio : 0;
+  const key = c.source + '/' + c.model;
+  // A clip too big to inline keeps its whole row of measurements and shows the
+  // still it was made from. Dropping it would quietly bias the comparison
+  // toward the models that happen to encode small.
+  const body = c.tooHeavy
+    ? '<img class="heavy" src="' + stills[c.source] + '" alt="source still" '
+      + 'style="width:100%;height:100%;object-fit:cover;display:block;image-rendering:pixelated;opacity:.4">'
+      + '<span class="badge warn" style="left:10px;right:auto;top:auto;bottom:10px">'
+      + mb(p.bytes) + ' — too heavy to inline</span>'
+    : '<video class="b" data-key="' + esc(key) + '" loop muted playsinline preload="auto" src="' + videos[c.file] + '"></video>'
+      + '<video class="a" data-key="' + esc(key) + '" loop muted playsinline preload="auto" src="' + videos[c.file] + '"></video>'
+      + '<img class="src" src="' + stills[c.source] + '" alt="source still">'
+      + '<button class="zoom">Open</button>';
+  return '<div class="tile" data-key="' + esc(key) + '">'
+    + '<div class="shot">' + body
+    +   '<span class="badge">' + esc(title) + '</span>'
+    +   (c.moves ? '<span class="badge good">moves ' + pct(m) + '</span>'
+                 : '<span class="badge warn">held still ' + pct(m) + '</span>')
+    + '</div>'
+    + '<div class="cap">'
+    +   '<div class="cap-top"><strong>' + esc(title) + '</strong><em>' + esc(c.id) + '</em></div>'
+    +   '<div class="bar-motion"><i class="' + (c.moves ? '' : 'low') + '" style="width:'
+    +     Math.min(100, m * 300).toFixed(0) + '%"></i></div>'
+    +   '<div class="facts">'
+    +     '<span><i>motion</i><b class="' + (c.moves ? 'ok' : 'hot') + '">' + pct(m) + '</b></span>'
+    +     '<span><i>cost</i>' + money(c.cost) + '</span>'
+    +     '<span><i>wait</i>' + secs(c.seconds) + '</span>'
+    +     '<span><i>weight</i>' + mb(p.bytes) + '</span>'
+    +     '<span><i>native</i>' + p.width + '×' + p.height + '</span>'
+    +     '<span><i>length</i>' + p.seconds.toFixed(1) + 's @' + p.fps + 'fps</span>'
+    +   '</div>'
+    + '</div></div>';
+}
+
+function render(groupBy) {
+  const keys = groupBy === 'source' ? Object.keys(sources) : Object.keys(models);
+  const html = keys.map(k => {
+    const list = clips.filter(c => (groupBy === 'source' ? c.source : c.model) === k);
+    if (!list.length) return '';
+    const drawn = list.filter(c => c.file);
+    const meta = drawn.length + ' clips · ' + money(drawn.reduce((a, c) => a + (c.cost || 0), 0))
+      + ' · ' + mb(drawn.reduce((a, c) => a + c.probe.bytes, 0));
+    const g = groupBy === 'source' ? sources[k] : models[k];
+    return '<section><div class="sec-head"><h2>' + esc(g.label) + '</h2>'
+      + '<span class="meta">' + esc(meta) + '</span></div>'
+      + (g.note ? '<p class="sec-note">' + esc(g.note) + '</p>' : '')
+      + '<div class="grid">'
+      + list.map(c => tileHTML(c, groupBy === 'source' ? c.label : sources[c.source].label)).join('')
+      + '</div></section>';
+  }).join('');
+
+  document.getElementById('main').innerHTML = html
+    + '<div class="appendix"><h2 style="font-size:22px;margin-bottom:16px">The exact words</h2>'
+    + '<p class="sec-note">One prompt, shared verbatim by every clip. Two of its paragraphs are '
+    + 'doing the real work: a camera move cannot loop and neither can anything that enters or '
+    + 'leaves frame, so every motion asked for is one that returns to where it started — and the '
+    + 'preservation paragraph exists because a video model otherwise treats aliased pixel art as a '
+    + 'low-quality input to be cleaned up.</p>'
+    + '<details><summary>Loop prompt<span style="margin-left:auto;font-family:monospace;font-size:12px;color:var(--faint)">'
+    + prompt.length + ' chars</span></summary><div class="in"><pre class="prompt">' + esc(prompt) + '</pre></div></details></div>';
+  wire();
+}
+
+// Only the clips on screen play. Eight videos at once is a lot of decoding for
+// no benefit when six of them are below the fold.
+let io = null, playing = true, crossfade = false;
+function wire() {
+  if (io) io.disconnect();
+  io = new IntersectionObserver(es => {
+    for (const e of es) {
+      const vids = e.target.querySelectorAll('video');
+      for (const v of vids) {
+        if (e.isIntersecting && playing) v.play().catch(() => {});
+        else v.pause();
+      }
+    }
+  }, { rootMargin: '200px' });
+  document.querySelectorAll('.tile').forEach(t => io.observe(t));
+  document.querySelectorAll('.zoom').forEach(b => b.addEventListener('click', () => open(b.closest('.tile').dataset.key)));
+  applyCrossfade();
+}
+
+// The engine closes the seam at playback rather than asking the model to hit
+// its own first frame: a second copy runs half a clip-length ahead and the two
+// are mixed with sin^2/cos^2 weights, so the loop point never lands on a cut.
+// This reproduces that here so a candidate can be judged the way it will ship.
+function applyCrossfade() {
+  document.querySelectorAll('.tile').forEach(t => {
+    const a = t.querySelector('video.a'), b = t.querySelector('video.b');
+    if (!a || !b) return;                      // a row with no clip to play
+    a.style.opacity = '1';
+    b.style.display = crossfade ? 'block' : 'none';
+  });
+}
+function tick() {
+  if (crossfade) {
+    document.querySelectorAll('.tile').forEach(t => {
+      const a = t.querySelector('video.a'), b = t.querySelector('video.b');
+      if (!a || !b || !a.duration) return;
+      const d = a.duration;
+      const want = (a.currentTime + d / 2) % d;
+      if (Math.abs(b.currentTime - want) > 0.18) b.currentTime = want;
+      a.style.opacity = String(Math.sin(Math.PI * (a.currentTime % d) / d) ** 2);
+    });
+  }
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+function seg(id, apply) {
+  const el = document.getElementById(id);
+  el.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    [...el.querySelectorAll('button')].forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+    apply(b.dataset.v);
+  });
+}
+seg('group', v => render(v));
+seg('cols', v => document.body.dataset.cols = v);
+document.body.dataset.cols = '2';
+
+function toggle(id, fn) {
+  const b = document.getElementById(id);
+  b.addEventListener('click', () => {
+    const on = b.getAttribute('aria-pressed') !== 'true';
+    b.setAttribute('aria-pressed', String(on));
+    fn(on, b);
+  });
+}
+toggle('srcBtn', on => document.body.classList.toggle('showsrc', on));
+toggle('xfBtn', on => { crossfade = on; applyCrossfade(); });
+toggle('playBtn', (on, b) => {
+  playing = on;
+  b.lastChild.textContent = on ? 'Playing' : 'Paused';
+  document.querySelectorAll('video').forEach(v => on ? v.play().catch(() => {}) : v.pause());
+});
+
+const lb = document.getElementById('lb');
+function open(key) {
+  const c = clips.find(x => x.source + '/' + x.model === key);
+  if (!c || !c.file) return;
+  document.getElementById('lbVid').src = videos[c.file];
+  document.getElementById('lbTitle').textContent = sources[c.source].label + ' → ' + c.label;
+  const p = c.probe, m = p.motion ? p.motion.ratio : 0;
+  document.getElementById('lbFacts').innerHTML =
+      '<span><i>motion</i><b class="' + (c.moves ? 'ok' : 'hot') + '">' + pct(m) + '</b></span>'
+    + '<span><i>cost</i>' + money(c.cost) + '</span>'
+    + '<span><i>wait</i>' + secs(c.seconds) + '</span>'
+    + '<span><i>weight</i>' + mb(p.bytes) + '</span>'
+    + '<span><i>native</i>' + p.width + '×' + p.height + '</span>'
+    + '<span><i>model</i>' + esc(c.id) + '</span>';
+  document.getElementById('lbPrompt').textContent = c.prompt || prompt;
+  lb.showModal();
+  document.getElementById('lbVid').play().catch(() => {});
+}
+document.getElementById('lbClose').addEventListener('click', () => lb.close());
+lb.addEventListener('click', e => { if (e.target === lb) lb.close(); });
+lb.addEventListener('close', () => { document.getElementById('lbVid').pause(); });
+
+render('source');
+</script>
