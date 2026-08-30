@@ -16,9 +16,10 @@ import { VerbCoin, Inventory, DialogueMenu, drawSpeech } from './engine/ui.js';
 import { Editor } from './engine/editor.js';
 import * as art from './art/paint.js';
 import { loadProps } from './art/props.js';
+import { loadBackdrop, KIND } from './art/backdrop.js';
 import * as dock from './game/dock.js';
 
-const VIEW = { w: 1280, h: 720 };
+const VIEW = { w: dock.ROOM_W, h: dock.ROOM_H };
 
 const canvas = document.getElementById('stage');
 canvas.width = VIEW.w;
@@ -36,26 +37,12 @@ const menu = new DialogueMenu(VIEW);
 const player = new Actor(dock.CAST.player);
 const grout = new Actor(dock.CAST.grout);
 
-// A generated plate replaces the static layers when tools/plate.mjs has
-// written one. Failure to load is not an error — it is the normal case before
-// anyone has spent a credit.
-//
-// window.__ASSETS is how the single-file bundle (tools/bundle.mjs) hands over
-// the same art inlined. A bundle has no folder to fetch from, and this is
-// cheaper than teaching the bundler to rewrite paths inside the source.
-let plate = null;
-async function loadPlate() {
-  const src = window.__ASSETS?.plate ?? './assets/dock-plate.png';
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => resolve(null);
-    img.src = src;
-  });
-}
-
+// ?editor=1 opens the annotation overlay at load, which is how a walk area
+// gets traced over a freshly generated backdrop.
+const EDITOR_AT_LOAD = new URLSearchParams(location.search).get('editor') === '1';
 let room, editor;
 let props = {};
+let backdrop = null;
 const voice = new Voice();
 const g = {
   player, grout, state, seq, VIEW, voice,
@@ -65,9 +52,10 @@ const g = {
 };
 
 function buildRoom() {
-  room = new Room(dock.makeRoomDef(state, plate, props), VIEW);
+  room = new Room(dock.makeRoomDef(state, backdrop, props), VIEW);
   dock.applyPierState(room, state);
   editor = new Editor(room, VIEW);
+  if (EDITOR_AT_LOAD) editor.active = true;
 }
 
 // The linter runs before the game does. A room whose puzzle graph is
@@ -180,7 +168,7 @@ function hotspotUnder() {
   if (grout.visible) {
     const b = actorBox(grout);
     if (mouse.rx >= b.x && mouse.rx <= b.x + b.w && mouse.ry >= b.y && mouse.ry <= b.y + b.h) {
-      return { id: 'grout', name: grout.name, actor: grout, at: { x: grout.x - 130, y: grout.y, facing: 'right' } };
+      return { id: 'grout', name: grout.name, actor: grout, at: { x: grout.x + 130, y: grout.y, facing: 'left' } };
     }
   }
   return room.hotspotAt(mouse.rx, mouse.ry);
@@ -209,7 +197,7 @@ function doVerb(verb, spot) {
 
 function groutVerb(verb) {
   seq.start((function* () {
-    yield* approach({ at: { x: grout.x - 140, y: 690, facing: 'right' } });
+    yield* approach({ at: { x: grout.x + 140, y: 690, facing: 'left' } });
     if (verb === 'look') {
       if (state.get('grout-asleep')) { yield say(player, "Asleep, and smiling. A rare combination on this island."); return; }
       yield say(player, "Harbourmaster Grout. Built like a bollard and about as movable.", 4.2);
@@ -359,20 +347,22 @@ function drawWin() {
 
 // --- go ---------------------------------------------------------------------
 
-plate = await loadPlate();
+backdrop = await loadBackdrop();
 props = await loadProps();
 const voiced = await voice.load();
 if (voiced) attachVoice([player, grout], voice);
 console.log(voiced
   ? `[voice] ${Object.keys(voice.manifest.lines).length} recorded lines, measured timings`
   : '[voice] no recordings — line lengths estimated from text (run tools/voices.mjs)');
-console.log(`[props] ${Object.keys(props).length}/5 painted sprites`);
+console.log(`[art] backdrop: ${backdrop.kind}`);
 buildRoom();
-if (plate) console.log('[art] generated plate in use');
-else console.log('[art] procedural placeholder in use — run tools/plate.mjs for a painted plate');
+if (backdrop.kind === KIND.NONE) console.log('[art] no backdrop — run tools/scene.mjs still && tools/scene.mjs loop');
 // Exposed for tools/check.mjs, which plays the room through to the end by
 // clicking real pixels. A prototype that cannot be driven by a script cannot
 // be regression-tested, and an adventure game with no completion test breaks
 // silently the first time a flag is renamed.
-window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => room, actors: { player, grout }, usingPlate: () => !!plate, voiced, props: () => Object.keys(props).length };
+window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => room, actors: { player, grout }, backdrop: () => backdrop.kind, voiced, props: () => Object.keys(props).length,
+  // Diagnostics: what the pointer last resolved to, which is the only way to
+  // tell a bad hit test from a bad coordinate mapping.
+  mouse: () => ({ ...mouse }), hover: () => hoverSpot?.id ?? null };
 requestAnimationFrame(frame);

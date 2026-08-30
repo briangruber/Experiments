@@ -36,7 +36,34 @@ const exists = async (p) => { try { await stat(p); return true; } catch { return
 
 const IMPORT_NAMED = /^import\s+\{([^}]*)\}\s+from\s+'([^']+)';?\s*$/;
 const IMPORT_STAR = /^import\s+\*\s+as\s+(\w+)\s+from\s+'([^']+)';?\s*$/;
-const EXPORT_DECL = /^export\s+(?:(const|let|var)\s+(\w+)|(?:async\s+)?(function\*?|class)\s+(\w+))/;
+const EXPORT_DECL = /^export\s+(?:(const|let|var)\s+|(?:async\s+)?(function\*?|class)\s+(\w+))/;
+
+// `export const A = 1, B = 2;` declares two names, and a regex that captures
+// only the first silently drops the second — the module still loads, the
+// missing binding reads as undefined, and the failure surfaces somewhere else
+// entirely as NaN. (It did: ROOM_H went missing, every y coordinate became NaN
+// and hit testing stopped working while the game still rendered.) So the
+// declarator list is scanned properly, tracking depth so commas inside an
+// array or call are not mistaken for separators.
+function declaredNames(rest) {
+  const names = [];
+  let depth = 0, quote = null, start = 0;
+  const take = (chunk) => {
+    const m = chunk.match(/^\s*([A-Za-z_$][\w$]*)/);
+    if (m) names.push(m[1]);
+  };
+  for (let i = 0; i < rest.length; i++) {
+    const c = rest[i];
+    if (quote) { if (c === quote && rest[i - 1] !== '\\') quote = null; continue; }
+    if (c === '"' || c === "'" || c === '`') { quote = c; continue; }
+    if ('([{'.includes(c)) depth++;
+    else if (')]}'.includes(c)) depth--;
+    else if (c === ',' && depth === 0) { take(rest.slice(start, i)); start = i + 1; }
+    else if (c === ';' && depth === 0) { take(rest.slice(start, i)); start = rest.length; break; }
+  }
+  if (start < rest.length) take(rest.slice(start));
+  return names;
+}
 
 const modules = new Map();
 
@@ -69,7 +96,8 @@ async function collect(id) {
 
     m = line.match(EXPORT_DECL);
     if (m) {
-      names.push(m[2] || m[4]);
+      if (m[1]) names.push(...declaredNames(line.slice(m[0].length)));
+      else names.push(m[3]);
       out.push(line.replace(/^export\s+/, ''));
       continue;
     }
@@ -81,6 +109,9 @@ async function collect(id) {
   // Assigned in one go at the end of the body, so function and class
   // declarations hoist normally and consts are past their dead zone.
   if (names.length) out.push(`Object.assign(__x, { ${names.join(', ')} });`);
+
+  const declared = (source.match(/^export\s/gm) || []).length;
+  if (declared && !names.length) throw new Error(`${id}: ${declared} export statements but no names captured`);
 
   modules.set(id, { id, body: out.join('\n'), deps });
   for (const d of deps) await collect(d);
@@ -99,10 +130,25 @@ if (!NO_PLATE && (await exists(platePath))) {
   assets.plate = await dataUri(platePath, 'image/png');
   assetBytes += (await stat(platePath)).size;
 }
+// The backdrop is a video now, and it is the biggest thing in the bundle by
+// far. Inline it anyway: a published page has no folder to stream from.
+for (const [key, file, mime] of [
+  ['sceneVideo', 'assets/scene.mp4', 'video/mp4'],
+  ['sceneStill', 'assets/scene.jpg', 'image/jpeg'],
+]) {
+  const p = join(ROOT, file);
+  if (NO_PLATE || !(await exists(p))) continue;
+  assets[key] = await dataUri(p, mime);
+  assetBytes += (await stat(p)).size;
+}
+
 const propDir = join(ROOT, 'assets/props');
 if (!NO_PLATE && (await exists(propDir))) {
+  // Only the props the room still draws. The rest are painted into the
+  // backdrop now and would be dead weight in the page.
+  const KEEP = new Set(['cup']);
   const props = {};
-  for (const f of (await readdir(propDir)).filter((f) => f.endsWith('.png'))) {
+  for (const f of (await readdir(propDir)).filter((f) => f.endsWith('.png') && KEEP.has(f.slice(0, -4)))) {
     props[f.slice(0, -4)] = await dataUri(join(propDir, f), 'image/png');
     assetBytes += (await stat(join(propDir, f))).size;
   }

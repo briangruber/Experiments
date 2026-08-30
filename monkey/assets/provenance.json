@@ -695,5 +695,24 @@
     "strength": 0.45,
     "prompt": "A heap of coiled tarred fishing rope on a dock. VERY DARK — near-black tarred hemp, soaked and heavy, deep in shadow, the darkest object in the frame, only a few dull olive-brown highlights along the top of the coils. A long weathered wooden boat hook lies across the pile, its iron hook catching a thin cold highlight. Not white, not pale, not bleached, not fluffy, not snow, not cotton.",
     "at": "2026-08-30T00:23:20.311Z"
+  },
+  {
+    "kind": "scene-still",
+    "file": "assets/scene.png",
+    "model": "fal-ai/flux-2-pro",
+    "seed": 1213078258,
+    "size": "1920x1072",
+    "prompt": "A hand-painted background for a 1990s LucasArts point-and-click adventure game. A moonlit wooden pier on a Caribbean pirate island at night.  COMPOSITION, strictly: the lower third of the frame is a wide wooden dock running unbroken from the left edge to the right edge, flat, empty and clear — a walkable boardwalk with nothing blocking it. Everything else sits above or behind that band. On the right stands a crooked timber-framed tavern with a shingled roof, a stone chimney with smoke curling from it, and two windows glowing warm amber; an iron lantern with a lit flame hangs from a bracket beside its door, and a blank wooden sign board hangs from a wrought-iron arm. Ranged along the dock with clear space between them: an oak grog barrel with an iron spigot, a stack of cargo crates, and a coil of dark tarred rope with a boat hook. Beyond the dock, calm open water with the moon low and its reflection breaking across the surface, and a two-masted sailing ship moored in the middle distance with a pennant at its masthead.  STYLE: lush painted gouache and oil on board, visible directional brushwork, loaded impasto in the lights, thin scumbled darks, broken colour, soft lost-and-found edges. Cool blue-violet moonlight against warm amber lamplight. Deep transparent shadows that still hold colour. Atmospheric depth, the far water hazier than the foreground. Cinematic, inviting, slightly exaggerated storybook proportions.  NEGATIVE: no people, no characters, no animals, no text, no lettering, no writing on the sign, no watermark, no UI, no border, no letterboxing, no split panels.",
+    "at": "2026-08-30T00:46:38.239Z"
+  },
+  {
+    "kind": "scene-loop",
+    "file": "assets/scene.mp4",
+    "model": "fal-ai/wan-flf2v",
+    "from": "assets/scene.png",
+    "frames": 81,
+    "fps": 16,
+    "prompt": "A seamlessly looping ambient shot of this painted harbour at night. Subtle, slow, continuous motion only: water rippling and the moon reflection shimmering across it, clouds drifting slowly across the sky, the lantern flame flickering, warm light wavering in the windows, smoke curling from the chimney, the hanging sign swaying very slightly, the moored ship rocking gently and its pennant fluttering. The camera is completely locked off — no pan, no zoom, no dolly, no parallax, no camera movement of any kind. Nothing enters or leaves the frame. No people, no characters, no text appearing. The painting itself does not change: only the water, air, light and cloth move.",
+    "at": "2026-08-30T00:55:04.840Z"
   }
 ]

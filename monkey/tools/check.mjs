@@ -36,7 +36,7 @@ page.on('pageerror', (e) => errors.push(String(e)));
 // Both 404 until the generating tools have been run, which is the normal state
 // of a fresh clone. The font request fails only in sandboxes without egress;
 // the published page loads it fine.
-const EXPECTED_404 = /dock-plate\.png|voice\/manifest\.json|favicon\.ico|fonts\.googleapis\.com/;
+const EXPECTED_404 = /scene\.(mp4|png)|voice\/manifest\.json|favicon\.ico|fonts\.googleapis\.com/;
 page.on('response', (r) => {
   if (r.status() === 404 && !EXPECTED_404.test(r.url())) errors.push('404: ' + r.url());
 });
@@ -82,6 +82,7 @@ await page.evaluate(() => {
     coinOpen: () => M.coin.open,
     coinAt: () => ({ x: M.coin.x, y: M.coin.y }),
     camX: () => M.room().camX,
+    scrolls: () => M.room().width > M.room().view.w,
     menuOpen: () => M.menu.active,
     menuOptions: () => (M.menu.options || []).map((o) => o.text),
     inv: () => [...M.state.inventory],
@@ -140,6 +141,9 @@ async function settle() {
 // a player does, and making the check do it keeps the check honest about what
 // the interface actually allows.
 async function ensureVisible(pt) {
+  // A room no wider than the view has no camera, so nothing can be off screen
+  // and the margins below would reject perfectly clickable edges.
+  if (await T(() => window.__t.scrolls() === false)) { await settle(); return; }
   for (let i = 0; i < 8; i++) {
     await settle();
     const sx = await T((p) => p.x - window.__t.camX(), pt);
@@ -208,9 +212,11 @@ try {
   // A bundle that quietly falls back to placeholder art looks fine and is
   // wrong. This caught exactly that: the bundled loadPlate was still fetching
   // a path that does not exist inside a single file.
-  await step('the generated art and voice are actually in use', async () => {}, () => {
+  // A backdrop that has quietly fallen back to the still — or to nothing —
+  // looks almost right and is not what shipped. Name which one is live.
+  await step('the generated backdrop and voice are in use', async () => {}, () => {
     const M = window.__monkey;
-    return M.usingPlate() && M.voiced && M.props() === 5;
+    return (M.backdrop() === 'video' || M.backdrop() === 'still') && M.voiced;
   });
 
   await step('walk to a clicked point on the floor', async () => {
@@ -251,8 +257,8 @@ try {
     console.log(`  shot -> ${SHOT}`);
   }
 
-  await step('board the ship past the opened pier  [pathfinding into new floor]', async () => {
-    await verb(await T(() => window.__t.spot('ship')), 'use');
+  await step('leave down the jetty Grout was blocking  [pathfinding into new floor]', async () => {
+    await verb(await T(() => window.__t.spot('jetty')), 'use');
   }, () => window.__t.flag('aboard'));
 } catch (e) {
   errors.push(e.message);

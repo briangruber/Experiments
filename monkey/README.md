@@ -11,10 +11,10 @@ node tools/check.mjs            # plays the room to the end, headless
 node tools/check.mjs --bundle   # the same, against the single-file build
 node tools/bundle.mjs           # -> dist/monkey.html, self-contained
 
-node tools/plate.mjs blockout   # render the composition (free)
-node tools/plate.mjs paint      # repaint the scenery through fal
-node tools/props.mjs            # repaint each clickable prop, cut to its matte
-node tools/props.mjs --rematte  # re-cut from the saved repaints, no spend
+node tools/scene.mjs still      # FLUX 2 PRO -> assets/scene.png + .jpg
+node tools/scene.mjs loop       # that still -> a seamless looping video
+node tools/annot.mjs            # screenshot the room with the walk area on it
+node tools/check-scene.mjs      # verify the video asset as a file
 node tools/voices.mjs --dry     # what recording would cost
 node tools/voices.mjs           # record and measure the script
 ```
@@ -46,7 +46,8 @@ floor — the five things every later room is made of.
 | walk-cycle contact sheet | `tools/pose.mjs` | the only way to judge animation — see below |
 | rig geometry assertions | `tools/check-rig.mjs` | which way the joints bend, as a check |
 | prop table and mattes | `src/art/props.js` | the box each clickable object lives in |
-| the hand it generates in | `style.json` | the style LoRA both generators share |
+| the backdrop | `src/art/backdrop.js` | the looping video, with two fallbacks |
+| the hand it generates in | `style.json` | the style LoRA the older generators share |
 | single-file bundler | `tools/bundle.mjs` | module registry + inlined assets, publishes as an artifact |
 | the room itself | `src/game/dock.js` | data plus generator functions; touches no engine internals |
 | the voiced script | `src/game/lines.js` | words only, with stable ids |
@@ -56,8 +57,11 @@ floor — the five things every later room is made of.
 The question was whether Meshy, Tripo, ElevenLabs, fal and the Vercel AI
 Gateway help. Having built it:
 
-**fal — decisive, and for a specific reason.** Not "generate a backdrop":
-*repaint a blockout*. `tools/plate.mjs` renders the room's own procedural art
+**fal — decisive, and now for two reasons.** The first is the one below, which
+has since been superseded by simply using a better model and annotating
+afterwards. The second is the video loop, which nothing else on the list can
+do. The original argument, kept because the reasoning still holds wherever
+alignment genuinely cannot move: `tools/plate.mjs` renders the room's own procedural art
 at full size and sends that image to `fal-ai/flux/dev/image-to-image`, so the
 composition, horizon, light direction and — critically — the floor line come
 back where they started. A text-to-image backdrop is a beautiful picture whose
@@ -138,6 +142,52 @@ it — because the blockout really was pale, drawn in light grey strokes. **The
 placeholder is the conditioning signal**, so its values are not a cosmetic
 choice: prompt words lose to what the source image actually shows. Darkening
 the procedural net fixed in one line what three prompt rewrites could not.
+
+## How the backdrop is made now
+
+**Generate freely, then annotate what came back.** `tools/scene.mjs still` asks
+FLUX 2 PRO for the room, and `tools/scene.mjs loop` feeds that still to a
+first-last-frame video model as *both* the first and last frame — so the video
+has to arrive back where it started and loops without a seam. Water, cloud,
+lantern flame, chimney smoke and the moored ship all move, and none of it is
+procedural code that had to be written and tuned per element.
+
+This replaced an earlier route that rendered a flat blockout and asked an
+image-to-image model to repaint it. That route bought a real guarantee — the
+floor line could not move, so the walk polygons never needed re-authoring — and
+it paid for the guarantee by handing the model a vector image to constrain
+itself to. A constrained good model loses to an unconstrained better one, and
+it was not close. The dependency simply runs the other way now: the art comes
+first, and the boxes are traced onto what is actually there with the in-game
+editor. `tools/annot.mjs` screenshots the overlay so the trace is checkable.
+That is one pass of a few minutes per room, not the hours the old note assumed.
+
+Two consequences worth knowing:
+
+- **Only things that change state need to be sprites.** The barrel, crates,
+  rope, lantern and sign are painted into the backdrop and are simply
+  rectangles you can click. The tin cup is the one exception, because it has to
+  disappear when taken. The old rule — nothing clickable in the plate — existed
+  because *regenerating* the plate moved things underneath annotations already
+  written; annotating after generating removes the reason for it.
+- **The walk area does the occluding.** A prop painted into the backdrop is
+  always behind the actor, so the walkable region is traced to stop in front of
+  the barrel and the crates. Walking "behind" a painted prop would put the
+  character on top of it.
+
+The room is a single 16:9 screen with no camera, because that is what the video
+models generate natively — which also retires the camera, the parallax and the
+scrolling seams as things that can be wrong.
+
+### Verifying something you cannot play
+
+Headless Chromium has no H.264 decoder, so the browser check cannot tell a good
+`scene.mp4` from a truncated one: it falls back to the still and reports success
+either way — the exact silent fallback this project keeps rediscovering. So
+`tools/check-scene.mjs` checks the video as a *file*, walking the ISO-BMFF boxes
+for dimensions, duration and whether the media data is complete. It does not
+prove the picture is good. It proves the asset is real, the right shape and the
+right length; the picture still needs a person to look at it.
 
 ## The style LoRA
 
