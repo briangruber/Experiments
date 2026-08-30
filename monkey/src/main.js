@@ -354,7 +354,17 @@ if (voiced) attachVoice([player, grout], voice);
 console.log(voiced
   ? `[voice] ${Object.keys(voice.manifest.lines).length} recorded lines, measured timings`
   : '[voice] no recordings — line lengths estimated from text (run tools/voices.mjs)');
-console.log(`[art] backdrop: ${backdrop.kind}`);
+console.log(`[art] backdrop: ${backdrop.kind} (${backdrop.note})`);
+// Reported on the page as well as the console. A backdrop that quietly fell
+// back to the still looks almost right, and "almost right" is the one failure
+// nobody reports accurately.
+const backdropBadge = document.getElementById('backdrop-state');
+const showBackdrop = () => {
+  if (!backdropBadge) return;
+  backdropBadge.innerHTML = `<b>Backdrop</b> ${backdrop.kind === 'video' ? 'animated loop' : backdrop.note}`;
+};
+showBackdrop();
+document.addEventListener('backdropchange', showBackdrop);
 buildRoom();
 if (backdrop.kind === KIND.NONE) console.log('[art] no backdrop — run tools/scene.mjs still && tools/scene.mjs loop');
 // Exposed for tools/check.mjs, which plays the room through to the end by

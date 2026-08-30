@@ -1,55 +1,132 @@
-// The backdrop, which is now a video.
+// The backdrop, which is a looping video when one can play and a still when it
+// cannot.
 //
-// Everything the procedural layers in animate.js were hand-written to fake —
-// drifting cloud, water shimmer, a flickering lantern, smoke — arrives for free
-// in a looping video, and arrives better, because it was painted rather than
-// approximated with gradients. The trick that makes it usable in a game is
-// feeding the same still as both the first and last frame of a
-// first-last-frame video model: the end has to arrive back at the beginning,
-// so it cuts to itself without a seam and can play forever.
+// Everything the procedural layers used to fake — drifting cloud, water
+// shimmer, a flickering lantern, smoke — arrives painted in a video instead,
+// and the trick that makes it loop is feeding the same still as both the first
+// and last frame of a first-last-frame model: the end has to arrive back at
+// the beginning, so it cuts to itself without a seam.
 //
-// Three fallbacks, in order, and each is a normal state rather than an error:
-// the loop, the still it was made from, and the procedural art that needs no
-// assets at all.
+// The loading is deliberately not a race the game can lose. An earlier version
+// awaited `canplay` with a six-second timeout before the game would start, and
+// that is wrong twice over: it delays the room on a slow decode, and it
+// silently downgrades to the still on anything slower than the timeout with no
+// way to tell that from a missing file. Now the still shows immediately, the
+// video loads alongside, and `draw` switches to it the moment it has a frame —
+// so a slow video costs nothing and a broken one degrades visibly rather than
+// secretly.
+//
+// Two candidate URLs are tried in order because the delivery scheme is not
+// ours to choose: a published page may allow one of `data:` and `blob:` and
+// not the other, and a blocked scheme fails silently by design.
 
 export const KIND = { VIDEO: 'video', STILL: 'still', NONE: 'none' };
 
-export async function loadBackdrop() {
-  const A = globalThis.window?.__ASSETS;
-
-  const videoSrc = A?.sceneVideo ?? './assets/scene.mp4';
-  const video = await new Promise((resolve) => {
-    const v = document.createElement('video');
-    v.muted = true;          // required, or autoplay is refused
-    v.loop = true;
-    v.playsInline = true;
-    v.preload = 'auto';
-    v.crossOrigin = 'anonymous';
-    const ok = () => resolve(v);
-    v.addEventListener('canplay', ok, { once: true });
-    v.addEventListener('error', () => resolve(null), { once: true });
-    v.src = videoSrc;
-    // A video that never fires either event — a missing file served as HTML,
-    // say — must not hang the game behind a promise that never settles.
-    setTimeout(() => resolve(v.readyState >= 2 ? v : null), 6000);
-  });
-  if (video) {
-    // Autoplay may still be refused until the page has been interacted with.
-    // Retrying on the first pointer event costs nothing and covers it.
-    const kick = () => video.play().catch(() => {});
-    kick();
-    window.addEventListener('pointerdown', kick, { once: true });
-    return { kind: KIND.VIDEO, video, draw: (ctx, w, h) => ctx.drawImage(video, 0, 0, w, h) };
-  }
-
-  const stillSrc = A?.sceneStill ?? './assets/scene.jpg';
-  const still = await new Promise((resolve) => {
+function loadImage(src) {
+  return new Promise((resolve) => {
+    if (!src) { resolve(null); return; }
     const img = new Image();
     img.onload = () => resolve(img);
     img.onerror = () => resolve(null);
-    img.src = stillSrc;
+    img.src = src;
   });
-  if (still) return { kind: KIND.STILL, image: still, draw: (ctx, w, h) => ctx.drawImage(still, 0, 0, w, h) };
+}
 
-  return { kind: KIND.NONE, draw: null };
+// Resolves with a playing <video>, or null. Never rejects, never hangs the
+// caller — nobody awaits this on the critical path.
+function loadVideo(sources, onNote) {
+  return new Promise((resolve) => {
+    const failures = [];
+    let i = 0;
+    const next = () => {
+      if (i >= sources.length) {
+        onNote?.(failures.length ? `no video (${failures.join('; ')})` : 'no video source');
+        resolve(null);
+        return;
+      }
+      const { url, label } = sources[i++];
+      if (!url) { next(); return; }
+      const v = document.createElement('video');
+      v.muted = true;            // required, or autoplay is refused outright
+      v.loop = true;
+      v.playsInline = true;
+      v.preload = 'auto';
+      // Kept in the document. A detached media element is loaded at the
+      // browser's discretion, and some will not decode one that is not in a
+      // document at all — which reads exactly like a broken file.
+      v.style.cssText = 'position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;left:-9999px';
+      document.body.appendChild(v);
+
+      let settled = false;
+      const win = () => {
+        if (settled) return;
+        settled = true;
+        onNote?.(`video via ${label}`);
+        resolve(v);
+      };
+      const lose = (why) => {
+        if (settled) return;
+        settled = true;
+        failures.push(`${label} ${why}`);
+        v.remove();
+        next();
+      };
+      v.addEventListener('loadeddata', win, { once: true });
+      v.addEventListener('canplay', win, { once: true });
+      v.addEventListener('error', () => lose('error ' + (v.error?.code ?? '?')), { once: true });
+      // A generous ceiling, and only to move on to the next candidate — the
+      // game is already running by now either way.
+      setTimeout(() => (v.readyState >= 2 ? win() : lose('timeout rs=' + v.readyState)), 12000);
+      v.src = url;
+      v.load();
+    };
+    next();
+  });
+}
+
+export async function loadBackdrop() {
+  const A = globalThis.window?.__ASSETS;
+  const still = await loadImage(A?.sceneStill ?? './assets/scene.jpg');
+
+  const backdrop = {
+    kind: still ? KIND.STILL : KIND.NONE,
+    note: still ? 'still' : 'no backdrop assets',
+    video: null,
+    image: still,
+    draw(ctx, w, h) {
+      // readyState >= 2 means there is a current frame to paint. Drawing a
+      // video with no frame yet throws in some browsers and paints nothing in
+      // others, so the still covers the gap.
+      if (this.video && this.video.readyState >= 2) { ctx.drawImage(this.video, 0, 0, w, h); return; }
+      if (this.image) ctx.drawImage(this.image, 0, 0, w, h);
+    },
+  };
+
+  // Not awaited: the room opens on the still and upgrades itself.
+  loadVideo(
+    [
+      { url: A?.sceneVideo, label: A?.sceneVideoScheme || 'inline' },
+      { url: A?.sceneVideoData, label: 'data:' },
+      { url: A ? null : './assets/scene.mp4', label: 'file' },
+    ],
+    (n) => {
+      backdrop.note = n;
+      // Every note, not only success. Reporting a failure is the entire point
+      // of having a note, and dispatching only on the happy path reproduces
+      // the silent fallback this badge exists to expose.
+      document.dispatchEvent(new CustomEvent('backdropchange', { detail: backdrop }));
+    },
+  ).then((v) => {
+    if (!v) return;
+    backdrop.video = v;
+    backdrop.kind = KIND.VIDEO;
+    const kick = () => v.play().catch(() => {});
+    kick();
+    // Autoplay can still be refused until the page has been interacted with,
+    // and a click is the first thing that happens in this game anyway.
+    for (const ev of ['pointerdown', 'keydown']) window.addEventListener(ev, kick, { once: true });
+    document.dispatchEvent(new CustomEvent('backdropchange', { detail: backdrop }));
+  });
+
+  return backdrop;
 }

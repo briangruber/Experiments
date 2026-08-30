@@ -179,6 +179,29 @@ The room is a single 16:9 screen with no camera, because that is what the video
 models generate natively — which also retires the camera, the parallax and the
 scrolling seams as things that can be wrong.
 
+### Loading it without a race
+
+The video does not gate the room. The still shows immediately, the video loads
+alongside it, and `draw` switches over the moment it has a frame. An earlier
+version awaited `canplay` with a six-second timeout before the game would
+start, which is wrong twice: it delays the room on a slow decode, and it
+downgrades to the still on anything slower than the timeout with no way to tell
+that from a missing file.
+
+Three other things the loader does, each because of a way this failed:
+
+- **The video element lives in the document.** A detached media element is
+  loaded at the browser's discretion, and one that is never in a document at
+  all can simply not decode — which reads exactly like a broken file.
+- **Two URL schemes are tried in order**, `blob:` then `data:`. Which one a
+  published page admits is policy, not something the code can know, and a
+  blocked scheme fails silently by design.
+- **The page says which backdrop is live**, in the legend under the canvas. A
+  backdrop that quietly fell back to the still looks almost right, and "almost
+  right" is the one failure nobody reports accurately. On a failure it names
+  the reason — `no video (blob: error 4; data: error 4)` is a codec the browser
+  cannot decode, which is what headless Chromium reports for H.264.
+
 ### Verifying something you cannot play
 
 Headless Chromium has no H.264 decoder, so the browser check cannot tell a good

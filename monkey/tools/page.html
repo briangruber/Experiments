@@ -133,6 +133,7 @@ footer b { color: #8a7d68; font-weight: 500; }
     <span class="k"><b>Item, then thing</b> use it on</span>
     <span class="k"><b>`</b> floor editor</span>
     <span class="k"><b>M</b> mute</span>
+    <span class="k" id="backdrop-state"><b>Backdrop</b> loading…</span>
   </div>
 
   <footer>
@@ -159,7 +160,11 @@ footer b { color: #8a7d68; font-weight: 500; }
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     return URL.createObjectURL(new Blob([bytes], { type: mime }));
   };
-  for (const k of ['plate', 'sceneVideo', 'sceneStill']) if (A[k]) A[k] = toBlobUrl(A[k]);
+  // The video keeps its data: URI as a second candidate. Which scheme a
+  // published page admits is policy, not something this file can know, and a
+  // blocked scheme fails silently — so ship both and let the loader try them.
+  if (A.sceneVideo) { A.sceneVideoData = A.sceneVideo; A.sceneVideo = toBlobUrl(A.sceneVideo); A.sceneVideoScheme = 'blob:'; }
+  for (const k of ['plate', 'sceneStill']) if (A[k]) A[k] = toBlobUrl(A[k]);
   if (A.props) for (const k in A.props) A.props[k] = toBlobUrl(A.props[k]);
   if (A.voice) for (const id in A.voice.clips) A.voice.clips[id] = toBlobUrl(A.voice.clips[id]);
 }());
