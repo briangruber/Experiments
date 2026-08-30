@@ -13,7 +13,7 @@
 // a new medium is still reproducing it. Nothing is scaled down here now; the
 // figure is authored on the grid, and this file only provides the grid.
 
-export const BLOCK = 4;                 // screen pixels per art pixel
+export const BLOCK = 3;                 // screen pixels per art pixel
 const OUTLINE = '#160d0b';
 
 let buf = null, bctx = null;

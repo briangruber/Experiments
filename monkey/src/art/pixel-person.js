@@ -31,21 +31,39 @@ const CYCLE = [F.contact, F.down, F.pass, F.up];
 // Proportions in art pixels for a figure H tall, as fractions of H rounded
 // once. Rounding at the point of use instead would let a limb change width
 // mid-stride, which reads as a glitch rather than as animation.
+// Proportions taken off the era rather than off a cartoon. The Dig and
+// Thimbleweed Park both build a character on a SMALL head and LONG legs — the
+// head is about a seventh of the figure and the legs are half of it — which is
+// what reads as an adult person rather than a mascot. The first version here
+// used a fifth for the head and gave the legs a third, and that single ratio
+// is most of why it looked modern-cartoon instead of 1994.
 function build(H) {
   const r = (v) => Math.round(v);
-  const head = Math.max(5, r(H * 0.20));
+  const head = Math.max(5, r(H * 0.15));
   const torso = r(H * 0.34);
   return {
     H, head, torso,
-    headW: Math.max(5, r(H * 0.19)) | 1,      // odd, so it centres on a pixel
-    torsoW: Math.max(5, r(H * 0.26)) | 1,
-    leg: Math.max(2, r(H * 0.085)),
-    arm: Math.max(2, r(H * 0.07)),
+    headW: Math.max(5, r(H * 0.15)) | 1,      // odd, so it centres on a pixel
+    shoulderW: Math.max(7, r(H * 0.24)) | 1,
+    waistW: Math.max(5, r(H * 0.19)) | 1,
+    leg: Math.max(2, r(H * 0.075)),
+    arm: Math.max(2, r(H * 0.06)),
     shoulderY: head + 1,
     hipY: head + torso,
-    armLen: r(H * 0.30),
+    armLen: r(H * 0.32),
   };
 }
+
+// One light side. Every sprite in these games is lit from somewhere and shaded
+// on the other side in a single flat step — not a ramp, one step — and it is
+// what stops a figure reading as a paper cut-out. This room's light is the
+// tavern lantern, off to the right.
+function tint(hex, f) {
+  const n = parseInt(hex.slice(1), 16);
+  const ch = (v) => Math.max(0, Math.min(255, Math.round(v * f)));
+  return `rgb(${ch((n >> 16) & 255)},${ch((n >> 8) & 255)},${ch(n & 255)})`;
+}
+const LIT = 1.22, DIM = 0.72;
 
 // A limb at an angle is a staircase of solid runs. Anti-aliasing it would put
 // grey between the character and the background, which is the one thing a
@@ -91,88 +109,93 @@ export function makePixelPerson(opt) {
     const top = -H;
     const hipY = top + B.hipY + drop;
     const shY = top + B.shoulderY + drop;
-    const tw = B.torsoW, tx = -(tw >> 1);
+    const light = 1;                      // the lantern is stage right
 
-    // --- legs. Two hips, set apart, so there is a gap to see daylight
-    // through; a single block of trouser is the difference between a person
-    // walking and a person sliding.
-    const hipL = -Math.max(1, (B.leg >> 1) + 1), hipR = -hipL;
+    // --- legs. Long, narrow, and set apart far enough to see daylight
+    // between them; this is half the figure's height and most of its read.
+    const hip = Math.max(1, (B.leg >> 1) + 1);
     const foot = (dx) => Math.round(dx * dir);
-    for (const [hip, off, tone] of [[hipL, bFoot, c.coatDark], [hipR, fFoot, c.legsCol]]) {
-      limb(px, hip, hipY, hip + foot(off), -2, B.leg, tone === c.coatDark ? shade(c.legsCol) : c.legsCol);
-      px.rect(hip + foot(off) - (B.leg >> 1), -2, B.leg + 1, 2, c.boots);
+    const legPairs = [[-hip, bFoot, DIM], [hip, fFoot, 1]];
+    for (const [hx0, off, f] of legPairs) {
+      limb(px, hx0, hipY, hx0 + foot(off), -3, B.leg, tint(c.legsCol, f));
+      px.rect(hx0 + foot(off) - (B.leg >> 1), -3, B.leg + 1, 3, tint(c.boots, f));
+      px.rect(hx0 + foot(off) - (B.leg >> 1), -1, B.leg + 2, 1, tint(c.boots, f * 0.8));
     }
 
-    // --- torso: three flat tones, which is all a nine-pixel chest can carry
-    // and more than most sprites use.
+    // --- torso, tapered from shoulder to waist. A rectangle reads as a box;
+    // two pixels of taper reads as a body.
     const th = B.hipY - B.shoulderY;
-    px.rect(tx, shY, tw, th, c.coat);
-    px.rect(tx, shY, 1, th, shade(c.coat));
-    // A narrow placket rather than a filled chest: at nine pixels across, a
-    // block of shirt reads as an apron and swallows the coat entirely.
-    if (!back) {
-      px.rect(-1, shY + 1, 3, th - 3, c.shirt);
-      px.rect(tx + 1, shY, tw - 2, 1, shade(c.coat));      // collar
+    for (let i = 0; i < th; i++) {
+      const t = i / Math.max(1, th - 1);
+      const w = Math.round(B.shoulderW + (B.waistW - B.shoulderW) * t) | 1;
+      const x0 = -(w >> 1);
+      px.rect(x0, shY + i, w, 1, c.coat);
+      px.rect(light > 0 ? x0 + w - 1 : x0, shY + i, 1, 1, tint(c.coat, LIT));
+      px.rect(light > 0 ? x0 : x0 + w - 1, shY + i, 1, 1, tint(c.coat, DIM));
     }
-    px.rect(tx, hipY - 2, tw, 2, c.sash);
-    // A short coat skirt, one pixel proud of the torso either side. It breaks
-    // the straight line from shoulder to boot, which is the difference between
-    // a person and a plank.
-    const skirt = Math.max(2, Math.round(H * 0.08));
-    px.rect(tx - 1, hipY, tw + 2, skirt, c.coat);
-    px.rect(tx - 1, hipY, 1, skirt, shade(c.coat));
-    px.rect(tx - 1, hipY + skirt - 1, tw + 2, 1, shade(c.coat));
+    if (!back) {
+      // A placket and a collar, which is the whole of the clothing detail a
+      // figure this size can hold — and enough, because it is the shapes at
+      // the neck and waist that say "coat" rather than "shirt".
+      px.rect(-1, shY + 2, 2, th - 5, c.shirt);
+      px.rect(-(B.shoulderW >> 1) + 1, shY, B.shoulderW - 2, 1, tint(c.coat, DIM));
+      px.rect(-2, shY + 1, 4, 1, c.shirt);
+    }
+    px.rect(-(B.waistW >> 1) - 1, hipY - 2, B.waistW + 2, 2, c.sash);
+    px.rect(-(B.waistW >> 1) - 1, hipY - 1, B.waistW + 2, 1, tint(c.sash, DIM));
 
-    // --- arms, hung OUTSIDE the torso silhouette. Drawn inside it they are
-    // invisible, which is how the first version lost them.
-    const shL = tx - 1, shR = tx + tw;
-    limb(px, shL, shY + 1, shL + foot(bArm), shY + B.armLen, B.arm, shade(c.coat));
-    limb(px, shR, shY + 1, shR + foot(fArm), shY + B.armLen, B.arm, c.coat);
-    px.rect(shR + foot(fArm) - 1, shY + B.armLen, 2, 2, c.skin);
-    px.rect(shL + foot(bArm) - 1, shY + B.armLen, 2, 2, shade(c.skin));
+    // A short coat skirt, proud of the waist, breaking the straight line from
+    // shoulder to boot that made the first version read as a plank.
+    const skirt = Math.max(2, Math.round(H * 0.07));
+    px.rect(-(B.waistW >> 1) - 1, hipY, B.waistW + 2, skirt, c.coat);
+    px.rect(-(B.waistW >> 1) - 1, hipY, 1, skirt, tint(c.coat, DIM));
+    px.rect((B.waistW >> 1), hipY, 1, skirt, tint(c.coat, LIT));
+    px.rect(-(B.waistW >> 1) - 1, hipY + skirt - 1, B.waistW + 2, 1, tint(c.coat, DIM));
 
-    // --- head: a square with the corners knocked off, which is how a round
-    // head is drawn at seven pixels.
+    // --- arms, hung outside the torso so they exist at all, with a cuff and a
+    // hand. Drawn after the torso, or the torso covers them.
+    const shL = -(B.shoulderW >> 1) - 1, shR = (B.shoulderW >> 1) + 1;
+    const armEnd = shY + B.armLen;
+    limb(px, shL, shY + 2, shL + foot(bArm), armEnd, B.arm, tint(c.coat, DIM));
+    limb(px, shR, shY + 2, shR + foot(fArm), armEnd, B.arm, tint(c.coat, LIT));
+    px.rect(shL + foot(bArm) - 1, armEnd, B.arm, 1, tint(c.shirt, DIM));
+    px.rect(shR + foot(fArm) - 1, armEnd, B.arm, 1, c.shirt);
+    px.rect(shL + foot(bArm) - 1, armEnd + 1, B.arm, 2, tint(c.skin, DIM));
+    px.rect(shR + foot(fArm) - 1, armEnd + 1, B.arm, 2, c.skin);
+
+    // --- head. Small, which is the single most era-defining choice here.
     const hw = B.headW, hx = -(hw >> 1), hy = top;
     px.rect(hx + 1, hy, hw - 2, 1, c.skin);
     px.rect(hx, hy + 1, hw, B.head - 2, c.skin);
     px.rect(hx + 1, hy + B.head - 1, hw - 2, 1, c.skin);
-    px.rect(hx, hy + B.head - 2, hw, 1, c.skinDark);
+    px.rect(hx, hy + 1, 1, B.head - 2, tint(c.skin, DIM));
+    px.rect(hx + hw - 1, hy + 1, 1, B.head - 2, tint(c.skin, LIT));
+    px.rect(-1, hy + B.head, 2, 1, tint(c.skin, DIM));          // neck
 
     if (back) {
       px.rect(hx, hy + 1, hw, B.head - 2, c.hair);
     } else {
-      // Hair as a mass with a side, not a single row: it covers the crown and
-      // runs down the back of the head, which is what gives the skull a shape
-      // instead of a corner.
       px.rect(hx, hy + 1, hw, 2, c.hair);
       px.rect(dir > 0 ? hx : hx + hw - 1, hy + 1, 1, B.head - 3, c.hair);
-      const ex = dir > 0 ? hx + hw - 4 : hx + 1;              // eyes lead the face
+      const ex = dir > 0 ? hx + hw - 3 : hx + 1;
       px.rect(ex, hy + 3, 1, 1, '#20140c');
-      px.rect(ex + 2, hy + 3, 1, 1, '#20140c');
-      px.rect(ex + (dir > 0 ? 1 : 0), hy + 5, 2, 1, c.skinDark);
-      if (c.beard) {
-        px.rect(hx, hy + B.head - 3, hw, 2, c.beard);
-        px.rect(hx + (dir > 0 ? 1 : 0), hy + B.head - 1, hw - 1, 2, c.beard);
-      }
+      px.rect(ex + (dir > 0 ? -2 : 2), hy + 3, 1, 1, '#20140c');
+      if (c.beard) px.rect(hx, hy + B.head - 3, hw, 3, c.beard);
     }
     if (c.hat) {
       if (c.hatStyle === 'tricorn') {
-        // A brim wider than the head on both sides, with the crown above it.
-        // This is the whole silhouette: at thirty-five pixels a tricorn is
-        // "wide flat thing on a head" and nothing else survives.
         px.rect(hx - 3, hy - 1, hw + 6, 2, c.hat);
         px.rect(hx - 4, hy, 2, 1, c.hat);
         px.rect(hx + hw + 2, hy, 2, 1, c.hat);
         px.rect(hx + 1, hy - 3, hw - 2, 2, c.hat);
+        px.rect(hx + hw + 2, hy - 1, 1, 2, tint(c.hat, LIT));
       } else {
-        // A bandana: a band round the crown with a knot and a tail trailing
-        // behind, which reads as cloth rather than as a stripe.
         px.rect(hx, hy, hw, 2, c.hat);
         px.rect(hx - 1, hy + 1, hw + 2, 1, c.hat);
+        px.rect(hx + hw, hy, 1, 2, tint(c.hat, LIT));
         const bx = dir > 0 ? hx - 2 : hx + hw + 1;
-        px.rect(bx, hy + 1, 2, 2, c.hat);                     // knot
-        px.rect(bx + (dir > 0 ? -1 : 1), hy + 3, 1, 2, shade(c.hat));  // tail
+        px.rect(bx, hy + 1, 2, 2, c.hat);
+        px.rect(bx + (dir > 0 ? -1 : 1), hy + 3, 1, 3, tint(c.hat, DIM));
       }
     }
   };
