@@ -165,6 +165,7 @@ footer b { color: #8a7d68; font-weight: 500; }
   // blocked scheme fails silently — so ship both and let the loader try them.
   if (A.sceneVideo) { A.sceneVideoData = A.sceneVideo; A.sceneVideo = toBlobUrl(A.sceneVideo); A.sceneVideoScheme = 'blob:'; }
   for (const k of ['plate', 'sceneStill']) if (A[k]) A[k] = toBlobUrl(A[k]);
+  if (A.cast) for (const k in A.cast) A.cast[k].sheet = toBlobUrl(A.cast[k].sheet);
   if (A.props) for (const k in A.props) A.props[k] = toBlobUrl(A.props[k]);
   if (A.voice) for (const id in A.voice.clips) A.voice.clips[id] = toBlobUrl(A.voice.clips[id]);
 }());

@@ -36,6 +36,21 @@ export const PUZZLE = {
   },
 };
 
+// A cast member with a `sprite` entry gets the baked 3D body; everything else
+// stays the drawn puppet. Both are wanted on screen at once here, which is the
+// most honest way to judge the trade: Bonny has the mesh, Grout does not.
+export const SPRITE_CAST = {
+  player: {
+    // The atlas is named for the character, the cast slot for the role, and
+    // the bundle keys its inlined assets by the former.
+    asset: 'bonny',
+    sheet: './assets/cast/bonny-sheet.png',
+    manifest: './assets/cast/bonny-sheet.json',
+    height: 165,
+    face: { pupil: '#20140c', brow: '#5a3418', mouth: '#5c2a1e' },
+  },
+};
+
 export const CAST = {
   player: {
     id: 'player', name: 'Bonny Quill',

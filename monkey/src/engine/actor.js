@@ -38,6 +38,7 @@ export class Actor {
     this.lag = 0;
     this.lagV = 0;
     this.visible = opts.visible !== false;
+    this.body = null;              // set once a sprite atlas has loaded
     this.line = null;    // { text, until, voice }
     this.onArrive = null;
   }
@@ -122,7 +123,10 @@ export class Actor {
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.scale(scale, scale);
-    this.draw?.(ctx, this, scale);
+    // A baked sprite body when one loaded, the drawn puppet otherwise. Both
+    // draw in the same space — origin between the feet, one unit per game
+    // pixel — so nothing else in the engine has to know which is which.
+    (this.body ? this.body.draw : this.draw)?.call(this, ctx, this, scale);
     ctx.restore();
   }
 }

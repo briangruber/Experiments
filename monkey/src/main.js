@@ -17,6 +17,7 @@ import { Editor } from './engine/editor.js';
 import * as art from './art/paint.js';
 import { loadProps } from './art/props.js';
 import { loadBackdrop, KIND } from './art/backdrop.js';
+import { loadSpriteBody } from './art/sprite-actor.js';
 import * as dock from './game/dock.js';
 
 const VIEW = { w: dock.ROOM_W, h: dock.ROOM_H };
@@ -349,12 +350,28 @@ function drawWin() {
 
 backdrop = await loadBackdrop();
 props = await loadProps();
+// Baked 3D bodies, where a cast member has one. Failure is silent and total:
+// the actor keeps the drawn puppet, which is a working character rather than a
+// missing one.
+for (const [key, cfg] of Object.entries(dock.SPRITE_CAST)) {
+  const actor = key === 'player' ? player : grout;
+  try {
+    const A = window.__ASSETS?.cast?.[cfg.asset];
+    const manifest = A?.manifest ?? await (await fetch(cfg.manifest)).json();
+    const body = await loadSpriteBody({
+      sheetUrl: A?.sheet ?? cfg.sheet, manifest, height: cfg.height, face: cfg.face,
+    });
+    if (body) actor.body = body;
+  } catch { /* the puppet stands in */ }
+}
 const voiced = await voice.load();
 if (voiced) attachVoice([player, grout], voice);
 console.log(voiced
   ? `[voice] ${Object.keys(voice.manifest.lines).length} recorded lines, measured timings`
   : '[voice] no recordings — line lengths estimated from text (run tools/voices.mjs)');
 console.log(`[art] backdrop: ${backdrop.kind} (${backdrop.note})`);
+console.log(`[cast] ${[player, grout].filter((a) => a.body).length} baked bodies, `
+  + `${[player, grout].filter((a) => !a.body).length} drawn puppets`);
 // Reported on the page as well as the console. A backdrop that quietly fell
 // back to the still looks almost right, and "almost right" is the one failure
 // nobody reports accurately.
@@ -372,6 +389,7 @@ if (backdrop.kind === KIND.NONE) console.log('[art] no backdrop — run tools/sc
 // be regression-tested, and an adventure game with no completion test breaks
 // silently the first time a flag is renamed.
 window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => room, actors: { player, grout }, backdrop: () => backdrop.kind, voiced, props: () => Object.keys(props).length,
+  bodies: () => [player, grout].filter((a) => a.body).length,
   // Diagnostics: what the pointer last resolved to, which is the only way to
   // tell a bad hit test from a bad coordinate mapping.
   mouse: () => ({ ...mouse }), hover: () => hoverSpot?.id ?? null };

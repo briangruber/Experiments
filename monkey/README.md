@@ -43,6 +43,8 @@ floor — the five things every later room is made of.
 | in-game annotation editor | `src/engine/editor.js` | press `` ` `` — drag the floor, export the polygons |
 | placeholder art | `src/art/paint.js` | procedural, and also the conditioning signal for generation |
 | moving layers | `src/art/animate.js` | drifting clouds, sea shimmer and moon glitter, candle flicker |
+| baked 3D body + drawn face | `src/art/sprite-actor.js` | Tripo mesh, Mixamo clip, atlas — see below |
+| sprite bake | `tools/cast-sprites.mjs` | renders the rig to an atlas with a frame table |
 | walk-cycle contact sheet | `tools/pose.mjs` | the only way to judge animation — see below |
 | rig geometry assertions | `tools/check-rig.mjs` | which way the joints bend, as a check |
 | prop table and mattes | `src/art/props.js` | the box each clickable object lives in |
@@ -358,6 +360,28 @@ artistic:
 Framing a skinned mesh needs the same care: `Box3.setFromObject` measures the
 BIND pose, which for a T-posed source is a wide short box unrelated to where the
 animated figure is. The camera is derived from bone world positions instead.
+
+### Baked, not live
+
+Three.js does not ship in the game. Its ESM build is 365 KB on a single line
+using `export{...}` forms this project's bundler cannot parse, and loading it
+from a CDN means trusting a page policy that has already refused two other
+things silently. So the rig is rendered to a sprite atlas at build time
+(`tools/cast-sprites.mjs`) and the runtime stays a pure 2D canvas engine: the
+frames render identically in every browser, the bundle grows by 600 KB rather
+than a megabyte of library, and the cost — a fixed frame count — is not a cost
+for a side-on game. It is also what the era actually did.
+
+The atlas ships with a frame table recording, per frame, where the feet are and
+**where the head is**, because the face is still drawn by the engine on top.
+That is the whole design: Tripo's skeleton has no jaw bone and no morph targets,
+so a baked head can neither blink nor speak, and at a 35px head those are two of
+the very few things that read — in a game whose characters mostly stand still
+and talk. The mesh supplies the body; the engine keeps the face.
+
+Bonny has the baked body and Grout keeps the drawn puppet, deliberately: both on
+screen at once is the most honest way to see the difference, and the fallback
+path stays exercised rather than theoretical.
 
 ## What is still missing
 

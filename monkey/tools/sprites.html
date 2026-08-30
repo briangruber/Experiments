@@ -1,0 +1,143 @@
+<meta charset="utf-8">
+<title>sprite bake</title>
+<style>html,body{margin:0;background:#0000}canvas{display:block}</style>
+<canvas id="sheet"></canvas>
+<script type="module">
+// Bake the rigged 3D character into a sprite atlas.
+//
+// Three.js at runtime would mean shipping a 600 KB minified ES module through
+// a bundler that cannot parse it, or loading it from a CDN inside a page whose
+// policy has already refused two other things silently. Baking sidesteps all
+// of that: the game stays a pure 2D canvas engine, the frames render
+// identically in every browser, and the cost is a fixed frame count — which
+// for a side-on adventure game is not a cost at all. It is also what the era
+// actually did.
+//
+// The atlas is accompanied by a manifest recording, per frame, where the feet
+// are and where the head is, because the face is drawn over the sprite at
+// runtime: Tripo's skeleton has no jaw bone and no morph targets, so a baked
+// 3D head cannot blink or speak, and blinking and speaking are two of the few
+// things that read at 35px.
+
+import * as THREE from '../vendor/three/three.module.min.js';
+import { GLTFLoader } from '../vendor/three/GLTFLoader.js';
+import { FBXLoader } from '../vendor/three/FBXLoader.js';
+
+const P = new URLSearchParams(location.search);
+const MODEL = P.get('model');
+const CLIPS = JSON.parse(P.get('clips'));      // [{name, url, frames}]
+const FRAME_H = +(P.get('frameH') ?? 230);     // rendered figure height, px
+const PAD = 1.55;                              // cell is this much taller/wider
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1);
+const scene = new THREE.Scene();
+// The room's own two lights: cold moon from the upper right, warm lamplight
+// bouncing off the planks from the left. Baked in, because the sprite cannot
+// be relit later — which is fine for a game with one fixed lighting setup.
+const key = new THREE.DirectionalLight(0xdce8ff, 3.0); key.position.set(2, 3, 2.5); scene.add(key);
+const fill = new THREE.DirectionalLight(0xffb877, 1.5); fill.position.set(-2.5, 0.2, 1.5); scene.add(fill);
+scene.add(new THREE.AmbientLight(0x92a4cc, 1.9));
+
+const gltf = await new GLTFLoader().loadAsync(MODEL);
+const model = gltf.scene;
+const pivot = new THREE.Group(), align = new THREE.Group();
+align.add(model); pivot.add(align); scene.add(pivot);
+
+const bones = [];
+model.traverse((o) => { if (o.isBone) bones.push(o); });
+const byName = (frag) => bones.find((b) => b.name.toLowerCase().includes(frag));
+const hips = byName('hips'), headBone = byName('head') || byName('neck');
+
+const loaded = [];
+for (const c of CLIPS) {
+  const fbx = await new FBXLoader().loadAsync(c.url);
+  const clip = fbx.animations[0];
+  // Rotations only: Mixamo's FBX are in centimetres, and bone positions must
+  // come from this rig's bind pose regardless.
+  clip.tracks = clip.tracks.filter((t) => t.name.endsWith('.quaternion'));
+  loaded.push({ ...c, clip });
+}
+const mixer = new THREE.AnimationMixer(model);
+let action = null;
+function use(clip) {
+  if (action) action.stop();
+  action = mixer.clipAction(clip); action.play();
+}
+
+// Name matching does not reconcile the two rigs' rest orientations; measure the
+// correction rather than hard-coding an axis.
+use(loaded[0].clip);
+mixer.setTime(0); align.rotation.set(0, 0, 0); pivot.updateMatrixWorld(true);
+{
+  const up = headBone.getWorldPosition(new THREE.Vector3())
+    .sub(hips.getWorldPosition(new THREE.Vector3())).normalize();
+  align.quaternion.copy(new THREE.Quaternion().setFromUnitVectors(up, new THREE.Vector3(0, 1, 0)));
+}
+
+const YAW = +(P.get('yaw') ?? 0);
+pivot.rotation.y = THREE.MathUtils.degToRad(YAW);
+
+// One box across every frame of every clip, so the figure does not scale or
+// drift between frames of the atlas.
+const box = new THREE.Box3();
+for (const c of loaded) {
+  use(c.clip);
+  for (let i = 0; i < c.frames; i++) {
+    mixer.setTime((i / c.frames) * c.clip.duration);
+    pivot.updateMatrixWorld(true);
+    const v = new THREE.Vector3();
+    for (const b of bones) box.expandByPoint(b.getWorldPosition(v.clone()));
+  }
+}
+const size = box.getSize(new THREE.Vector3());
+box.expandByVector(new THREE.Vector3(size.x * 0.28, size.y * 0.11, size.x * 0.28));
+const worldH = box.getSize(new THREE.Vector3()).y;
+const centre = box.getCenter(new THREE.Vector3());
+
+const CELL_W = Math.round(FRAME_H * PAD * 0.78);
+const CELL_H = Math.round(FRAME_H * PAD);
+const frustumH = worldH * (CELL_H / FRAME_H);
+const cam = new THREE.OrthographicCamera(
+  -frustumH * (CELL_W / CELL_H) / 2, frustumH * (CELL_W / CELL_H) / 2,
+  frustumH / 2, -frustumH / 2, -1000, 1000,
+);
+cam.position.set(centre.x, centre.y, centre.z + 100);
+cam.lookAt(centre.x, centre.y, centre.z);
+renderer.setSize(CELL_W, CELL_H, false);
+
+const total = loaded.reduce((n, c) => n + c.frames, 0);
+const COLS = Math.min(8, total);
+const ROWS = Math.ceil(total / COLS);
+const sheet = document.getElementById('sheet');
+sheet.width = COLS * CELL_W; sheet.height = ROWS * CELL_H;
+const ctx = sheet.getContext('2d');
+
+// Where things land inside a cell, in cell pixels. The camera is centred on the
+// box, so the box's floor is exactly FRAME_H/2 below the cell's middle.
+const feetY = Math.round(CELL_H / 2 + FRAME_H / 2);
+const manifest = { cellW: CELL_W, cellH: CELL_H, cols: COLS, feetY, figureH: FRAME_H, clips: {}, heads: [] };
+
+const ndc = new THREE.Vector3();
+let index = 0;
+for (const c of loaded) {
+  use(c.clip);
+  manifest.clips[c.name] = { start: index, count: c.frames };
+  for (let i = 0; i < c.frames; i++) {
+    mixer.setTime((i / c.frames) * c.clip.duration);
+    pivot.updateMatrixWorld(true);
+    renderer.render(scene, cam);
+    const col = index % COLS, row = (index / COLS) | 0;
+    ctx.drawImage(renderer.domElement, col * CELL_W, row * CELL_H);
+    // The head, projected, so the drawn face knows where to sit each frame.
+    headBone.getWorldPosition(ndc).project(cam);
+    manifest.heads.push({
+      x: Math.round((ndc.x * 0.5 + 0.5) * CELL_W),
+      y: Math.round((-ndc.y * 0.5 + 0.5) * CELL_H),
+    });
+    index++;
+  }
+}
+window.__manifest = manifest;
+window.__ready = true;
+</script>

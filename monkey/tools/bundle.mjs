@@ -142,6 +142,25 @@ for (const [key, file, mime] of [
   assetBytes += (await stat(p)).size;
 }
 
+// Baked character atlases and their manifests. The manifest is inlined as an
+// object rather than a URL: a published page cannot fetch a sibling file, and
+// the atlas is useless without the frame table.
+const castDir = join(ROOT, 'assets/cast');
+if (!NO_PLATE && (await exists(castDir))) {
+  const cast = {};
+  for (const f of (await readdir(castDir)).filter((f) => f.endsWith('-sheet.png'))) {
+    const key = f.replace('-sheet.png', '');
+    const manifestPath = join(castDir, `${key}-sheet.json`);
+    if (!(await exists(manifestPath))) continue;
+    cast[key] = {
+      sheet: await dataUri(join(castDir, f), 'image/png'),
+      manifest: JSON.parse(await readFile(manifestPath, 'utf8')),
+    };
+    assetBytes += (await stat(join(castDir, f))).size;
+  }
+  if (Object.keys(cast).length) assets.cast = cast;
+}
+
 const propDir = join(ROOT, 'assets/props');
 if (!NO_PLATE && (await exists(propDir))) {
   // Only the props the room still draws. The rest are painted into the
