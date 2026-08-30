@@ -28,7 +28,10 @@
       "fps": 23.9
     },
     "moves": true,
-    "cost": 0.25
+    "cost": 0.25,
+    "variant": "v1",
+    "variantLabel": "Original prompt",
+    "closedLoop": false
   },
   {
     "source": "seedream",
@@ -59,7 +62,10 @@
       "fps": 24
     },
     "moves": true,
-    "cost": 0.049005
+    "cost": 0.049005,
+    "variant": "v1",
+    "variantLabel": "Original prompt",
+    "closedLoop": false
   },
   {
     "source": "seedream",
@@ -90,7 +96,10 @@
       "fps": 24
     },
     "moves": true,
-    "cost": 0.35
+    "cost": 0.35,
+    "variant": "v1",
+    "variantLabel": "Original prompt",
+    "closedLoop": false
   },
   {
     "source": "seedream",
@@ -121,7 +130,10 @@
       "fps": 16
     },
     "moves": true,
-    "cost": null
+    "cost": null,
+    "variant": "v1",
+    "variantLabel": "Original prompt",
+    "closedLoop": false
   },
   {
     "source": "nano",
@@ -152,7 +164,10 @@
       "fps": 23.9
     },
     "moves": true,
-    "cost": 0.2025
+    "cost": 0.2025,
+    "variant": "v1",
+    "variantLabel": "Original prompt",
+    "closedLoop": false
   },
   {
     "source": "nano",
@@ -183,7 +198,10 @@
       "fps": 24
     },
     "moves": true,
-    "cost": 0.049005
+    "cost": 0.049005,
+    "variant": "v1",
+    "variantLabel": "Original prompt",
+    "closedLoop": false
   },
   {
     "source": "nano",
@@ -214,7 +232,10 @@
       "fps": 24
     },
     "moves": true,
-    "cost": 0.25
+    "cost": 0.25,
+    "variant": "v1",
+    "variantLabel": "Original prompt",
+    "closedLoop": false
   },
   {
     "source": "nano",
@@ -245,6 +266,145 @@
       "fps": 16
     },
     "moves": true,
-    "cost": 0.35
+    "cost": 0.35,
+    "variant": "v1",
+    "variantLabel": "Original prompt",
+    "closedLoop": false
+  },
+  {
+    "source": "seedream",
+    "sourceLabel": "Seedream 4 · pixel",
+    "model": "seedance",
+    "label": "Seedance 1 Lite",
+    "id": "fal-ai/bytedance/seedance/v1/lite/image-to-video",
+    "variant": "anchored",
+    "variantLabel": "Anti-drift prompt",
+    "prompt": "Ambient living-painting shot of this moonlit pirate harbour, as a seamless background loop for a 1990s point-and-click adventure game. Continuous gentle motion: the sea ripples and the moon's reflection glitters and breaks across it, clouds drift slowly across the night sky, the lantern flame flickers and its glow pulses on the timber, firelight wavers in the windows, smoke curls up from the chimney, the hanging sign sways slightly on its bracket, and the moored ship rocks gently with its pennants fluttering. Preserve the source artwork exactly: keep the pixel-art style, the hard aliased pixel edges and the limited palette. Do not smooth, blur, denoise, upscale, repaint or add detail. Do not change the composition, the colours, or any object in the scene. The camera is completely locked off: no pan, no zoom, no dolly, no parallax, no camera movement of any kind, no shot change. Nothing enters or leaves the frame. No people, no characters, no boats arriving, no text. Only water, air, light and cloth move. Every moving thing returns to where it started. The ship is at anchor: it does not travel, sail, advance or move forward through the water, and its position in the frame never changes — it only rocks gently in place, tilting a little and settling back. Nothing slides, pans or drifts across the frame. The sea surface ripples in place without the water sliding sideways. At the end of the clip everything is exactly where it was at the start.",
+    "closedLoop": false,
+    "duration": 5,
+    "seconds": 24.3,
+    "file": "seedream.seedance.anchored.mp4",
+    "probe": {
+      "bytes": 2763727,
+      "isMp4": true,
+      "avc": true,
+      "seconds": 5.042,
+      "width": 864,
+      "height": 480,
+      "ratio": 1.8,
+      "mdatBytes": 2762415,
+      "complete": true,
+      "motion": {
+        "frames": 121,
+        "keyBytes": 108224,
+        "medianBytes": 20596,
+        "ratio": 0.19030898876404495
+      },
+      "fps": 24
+    },
+    "moves": true,
+    "cost": 0.049005
+  },
+  {
+    "source": "seedream",
+    "sourceLabel": "Seedream 4 · pixel",
+    "model": "wan",
+    "label": "Wan 2.2 A14B",
+    "id": "fal-ai/wan/v2.2-a14b/image-to-video",
+    "variant": "anchored",
+    "variantLabel": "Anti-drift prompt",
+    "prompt": "Ambient living-painting shot of this moonlit pirate harbour, as a seamless background loop for a 1990s point-and-click adventure game. Continuous gentle motion: the sea ripples and the moon's reflection glitters and breaks across it, clouds drift slowly across the night sky, the lantern flame flickers and its glow pulses on the timber, firelight wavers in the windows, smoke curls up from the chimney, the hanging sign sways slightly on its bracket, and the moored ship rocks gently with its pennants fluttering. Preserve the source artwork exactly: keep the pixel-art style, the hard aliased pixel edges and the limited palette. Do not smooth, blur, denoise, upscale, repaint or add detail. Do not change the composition, the colours, or any object in the scene. The camera is completely locked off: no pan, no zoom, no dolly, no parallax, no camera movement of any kind, no shot change. Nothing enters or leaves the frame. No people, no characters, no boats arriving, no text. Only water, air, light and cloth move. Every moving thing returns to where it started. The ship is at anchor: it does not travel, sail, advance or move forward through the water, and its position in the frame never changes — it only rocks gently in place, tilting a little and settling back. Nothing slides, pans or drifts across the frame. The sea surface ripples in place without the water sliding sideways. At the end of the clip everything is exactly where it was at the start.",
+    "closedLoop": false,
+    "duration": 5,
+    "seconds": 82.9,
+    "file": "seedream.wan.anchored.mp4",
+    "probe": {
+      "bytes": 1534995,
+      "isMp4": true,
+      "avc": true,
+      "seconds": 5.067,
+      "width": 832,
+      "height": 480,
+      "ratio": 1.7333333333333334,
+      "mdatBytes": 1519687,
+      "complete": true,
+      "motion": {
+        "frames": 81,
+        "keyBytes": 68470,
+        "medianBytes": 14396,
+        "ratio": 0.2102526654009055
+      },
+      "fps": 16
+    },
+    "moves": true,
+    "cost": 0.2025
+  },
+  {
+    "source": "seedream",
+    "sourceLabel": "Seedream 4 · pixel",
+    "model": "seedance",
+    "label": "Seedance 1 Lite",
+    "id": "fal-ai/bytedance/seedance/v1/lite/image-to-video",
+    "variant": "closed",
+    "variantLabel": "Anti-drift + closed loop",
+    "prompt": "Ambient living-painting shot of this moonlit pirate harbour, as a seamless background loop for a 1990s point-and-click adventure game. Continuous gentle motion: the sea ripples and the moon's reflection glitters and breaks across it, clouds drift slowly across the night sky, the lantern flame flickers and its glow pulses on the timber, firelight wavers in the windows, smoke curls up from the chimney, the hanging sign sways slightly on its bracket, and the moored ship rocks gently with its pennants fluttering. Preserve the source artwork exactly: keep the pixel-art style, the hard aliased pixel edges and the limited palette. Do not smooth, blur, denoise, upscale, repaint or add detail. Do not change the composition, the colours, or any object in the scene. The camera is completely locked off: no pan, no zoom, no dolly, no parallax, no camera movement of any kind, no shot change. Nothing enters or leaves the frame. No people, no characters, no boats arriving, no text. Only water, air, light and cloth move. Every moving thing returns to where it started. The ship is at anchor: it does not travel, sail, advance or move forward through the water, and its position in the frame never changes — it only rocks gently in place, tilting a little and settling back. Nothing slides, pans or drifts across the frame. The sea surface ripples in place without the water sliding sideways. At the end of the clip everything is exactly where it was at the start.",
+    "closedLoop": true,
+    "duration": 5,
+    "seconds": 28.3,
+    "file": "seedream.seedance.closed.mp4",
+    "probe": {
+      "bytes": 2344768,
+      "isMp4": true,
+      "avc": true,
+      "seconds": 5.042,
+      "width": 864,
+      "height": 480,
+      "ratio": 1.8,
+      "mdatBytes": 2343444,
+      "complete": true,
+      "motion": {
+        "frames": 121,
+        "keyBytes": 110858,
+        "medianBytes": 17120,
+        "ratio": 0.15443179563044615
+      },
+      "fps": 24
+    },
+    "moves": true,
+    "cost": 0.049005
+  },
+  {
+    "source": "seedream",
+    "sourceLabel": "Seedream 4 · pixel",
+    "model": "wan",
+    "label": "Wan 2.2 A14B",
+    "id": "fal-ai/wan/v2.2-a14b/image-to-video",
+    "variant": "closed",
+    "variantLabel": "Anti-drift + closed loop",
+    "prompt": "Ambient living-painting shot of this moonlit pirate harbour, as a seamless background loop for a 1990s point-and-click adventure game. Continuous gentle motion: the sea ripples and the moon's reflection glitters and breaks across it, clouds drift slowly across the night sky, the lantern flame flickers and its glow pulses on the timber, firelight wavers in the windows, smoke curls up from the chimney, the hanging sign sways slightly on its bracket, and the moored ship rocks gently with its pennants fluttering. Preserve the source artwork exactly: keep the pixel-art style, the hard aliased pixel edges and the limited palette. Do not smooth, blur, denoise, upscale, repaint or add detail. Do not change the composition, the colours, or any object in the scene. The camera is completely locked off: no pan, no zoom, no dolly, no parallax, no camera movement of any kind, no shot change. Nothing enters or leaves the frame. No people, no characters, no boats arriving, no text. Only water, air, light and cloth move. Every moving thing returns to where it started. The ship is at anchor: it does not travel, sail, advance or move forward through the water, and its position in the frame never changes — it only rocks gently in place, tilting a little and settling back. Nothing slides, pans or drifts across the frame. The sea surface ripples in place without the water sliding sideways. At the end of the clip everything is exactly where it was at the start.",
+    "closedLoop": true,
+    "duration": 5,
+    "seconds": 14.4,
+    "file": "seedream.wan.closed.mp4",
+    "probe": {
+      "bytes": 1037575,
+      "isMp4": true,
+      "avc": true,
+      "seconds": 5.067,
+      "width": 832,
+      "height": 480,
+      "ratio": 1.7333333333333334,
+      "mdatBytes": 1022307,
+      "complete": true,
+      "motion": {
+        "frames": 81,
+        "keyBytes": 79315,
+        "medianBytes": 3499,
+        "ratio": 0.04411523671436676
+      },
+      "fps": 16
+    },
+    "moves": true,
+    "cost": 0.2025
   }
 ]

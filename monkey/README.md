@@ -530,3 +530,51 @@ assert the returned document actually names the endpoint you asked for. A retry
 loop reusing one path will hand you the previous model's schema on a failed
 fetch, which is how Kling acquired an imaginary `resolution` parameter for an
 afternoon.
+
+### Drift, and closing the loop
+
+A clip can pass the motion check and still be unusable. The first round's ships
+*travelled* across the frame instead of rocking in place, which cannot loop and
+also defeats the playback crossfade — two offset copies show the same ship in
+two places at once. The prompt asked for a locked camera and said nothing
+entered or left the frame, but never forbade an object from translating inside
+it, and "the moored ship rocks gently" was read as forward motion.
+
+`--variant` tests the two fixes against each other rather than assuming one:
+
+    node tools/loopoff.mjs --variant anchored --sources seedream --models seedance,wan
+    node tools/loopoff.mjs --variant closed   --sources seedream --models seedance,wan
+
+`anchored` adds a paragraph forbidding translation outright. `closed` adds that
+*and* hands the model its own first frame as the last frame, forcing the clip
+back to its starting state.
+
+Closing the loop is the move that produced a completely static clip early in
+this project, and it is only safe to try now because the motion check catches
+that in seconds. It turns out to be model-specific rather than universal:
+
+| variant | Seedance | Wan |
+|---|---|---|
+| original | 18.1% | 19.6% |
+| anchored | 19.0% | 21.0% |
+| closed | 15.4% | **4.4%** |
+
+Seedance keeps most of its motion with a fixed end frame. Wan collapses, the
+same way the first wan first-last-frame attempt did — so a closed loop is a
+per-model decision, and the number to check before shipping one.
+
+Sheets are pinned to a named variant (`--variants v1` by default) so rebuilding
+a published page cannot quietly turn a four-tile comparison into a twelve-tile
+one.
+
+### Verifying a built sheet
+
+    node tools/check-sheets.mjs
+
+Loads each built page, asserts the tiles actually rendered, exercises both
+grouping paths and every toggle, and fails on any console error. This exists
+because a helper was once moved below its first use — a temporal-dead-zone
+ReferenceError in a `const` arrow function — and the published page rendered
+its header over a completely empty body. It built without complaint and
+published without complaint. Only loading it would have caught it, so loading
+it is a step now rather than something to remember.

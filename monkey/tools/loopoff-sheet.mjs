@@ -30,7 +30,12 @@ const opt = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i
 const MAX_CLIP = 6 * 1024 * 1024;
 const MAX_PAGE = 15 * 1024 * 1024;
 
-const all = JSON.parse(await readFile(join(OUT, 'index.json'), 'utf8'));
+// index.json now holds several prompt/loop variants per source and model. A
+// sheet shows one variant, named explicitly, so rebuilding a published page
+// cannot quietly turn a four-tile comparison into a twelve-tile one.
+const VARIANTS = (opt('variants', 'v1')).split(',');
+const all = JSON.parse(await readFile(join(OUT, 'index.json'), 'utf8'))
+  .filter((c) => VARIANTS.includes(c.variant || 'v1'));
 const runs = await readFile(join(OUT, 'runs.json'), 'utf8').then(JSON.parse).catch(() => []);
 const spendAll = +runs.reduce((a, r) => a + (r.spend || 0), 0).toFixed(4);
 

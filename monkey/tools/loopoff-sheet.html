@@ -190,6 +190,15 @@ details .in { padding:0 16px 16px; }
 <script>
 const DATA = /*__DATA__*/ null;
 const { clips, sources, models, videos, stills, spend, spendAll, clipsAll, generatedAt, prompt } = DATA;
+
+// Declared before first use, not after it: these are const arrow functions, so a
+// call above this point is a temporal-dead-zone ReferenceError that takes the
+// whole page down with it and leaves a header sitting over an empty <main>.
+const money = c => c == null ? '—' : '$' + c.toFixed(3);
+const secs  = s => s == null ? '—' : s.toFixed(1) + 's';
+const mb    = b => (b / 1024 / 1024).toFixed(2) + ' MB';
+const pct   = r => (r * 100).toFixed(1) + '%';
+const esc   = s => String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
 document.getElementById('date').textContent = generatedAt;
 document.getElementById('spendAll').textContent = '$' + spendAll.toFixed(4);
 const srcKey = Object.keys(sources)[0];
@@ -200,11 +209,6 @@ document.getElementById('sub').innerHTML = 'The <b>' + esc(sources[srcKey].label
   + 'video that was valid, correctly sized, the right length, and completely static.'
   + (DATA.sibling ? ' The other still is on <a href="' + DATA.sibling + '" style="color:var(--amber)">its own sheet</a>.' : '');
 
-const money = c => c == null ? '—' : '$' + c.toFixed(3);
-const secs  = s => s == null ? '—' : s.toFixed(1) + 's';
-const mb    = b => (b / 1024 / 1024).toFixed(2) + ' MB';
-const pct   = r => (r * 100).toFixed(1) + '%';
-const esc   = s => String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
 
 const ok = clips.filter(c => c.file);
 document.getElementById('totals').innerHTML = [
@@ -233,7 +237,8 @@ function tileHTML(c, title) {
       + '<span class="badge warn" style="left:10px;right:auto;top:auto;bottom:10px">'
       + mb(p.bytes) + ' — too heavy to inline</span>'
     : '<video class="b" data-key="' + esc(key) + '" loop muted playsinline preload="auto" src="' + videos[c.file] + '"></video>'
-      + '<video class="a" data-key="' + esc(key) + '" loop muted playsinline preload="auto" src="' + videos[c.file] + '"></video>'
+      + '<video class="a" data-key="' + esc(key) + '" loop muted playsinline preload="auto" poster="' + stills[c.source] + '" src="' + videos[c.file] + '"></video>'
+      + '<span class="badge warn dead" hidden style="left:10px;right:auto;top:auto;bottom:10px">clip would not load — showing the source still</span>'
       + '<img class="src" src="' + stills[c.source] + '" alt="source still">'
       + '<button class="zoom">Open</button>';
   return '<div class="tile" data-key="' + esc(key) + '">'
@@ -302,6 +307,14 @@ function wire() {
   }, { rootMargin: '200px' });
   document.querySelectorAll('.tile').forEach(t => io.observe(t));
   document.querySelectorAll('.zoom').forEach(b => b.addEventListener('click', () => open(b.closest('.tile').dataset.key)));
+  // If a clip cannot be decoded in this context the poster still shows, which
+  // looks exactly like a video that is simply not moving. Say which it is.
+  document.querySelectorAll('video.a').forEach(v => {
+    v.addEventListener('error', () => {
+      const d = v.closest('.tile')?.querySelector('.dead');
+      if (d) d.hidden = false;
+    });
+  });
   applyCrossfade();
 }
 

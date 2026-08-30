@@ -70,16 +70,48 @@ const PROMPT = [
   'boats arriving, no text. Only water, air, light and cloth move.',
 ].join(' ');
 
+// Drift is its own failure, separate from "does it move". A ship that travels
+// across the frame cannot loop and, worse, defeats the playback crossfade: the
+// two offset copies show the same ship in two places at once. The original
+// prompt asked for a locked camera and said nothing entered or left the frame,
+// but never forbade an object from translating inside it, which is exactly what
+// the models did with "the moored ship rocks gently".
+const DRIFT = [
+  'Every moving thing returns to where it started. The ship is at anchor: it does not travel,',
+  'sail, advance or move forward through the water, and its position in the frame never changes —',
+  'it only rocks gently in place, tilting a little and settling back. Nothing slides, pans or',
+  'drifts across the frame. The sea surface ripples in place without the water sliding sideways.',
+  'At the end of the clip everything is exactly where it was at the start.',
+].join(' ');
+
+// Two ways to stop it, tested against each other rather than assumed. The
+// closed variant hands the model its own first frame as the last frame, which
+// forces the clip to return to its starting state. That is the thing that
+// produced a completely static clip once before — but that was a first-last-
+// frame model given identical frames and nothing else to go on, and there is
+// now a motion check that catches it in seconds if it happens again.
+const VARIANTS = {
+  v1: { label: 'Original prompt', drift: false, end: false },
+  anchored: { label: 'Anti-drift prompt', drift: true, end: false },
+  closed: { label: 'Anti-drift + closed loop', drift: true, end: true },
+};
+const VARIANT = opt('variant', 'v1');
+if (!VARIANTS[VARIANT]) { console.error(`unknown variant ${VARIANT} — one of ${Object.keys(VARIANTS)}`); process.exit(1); }
+const V = VARIANTS[VARIANT];
+const TEXT = V.drift ? `${PROMPT} ${DRIFT}` : PROMPT;
+
 // --- the models -------------------------------------------------------------
 const MODELS = [
   {
     key: 'minimax', label: 'MiniMax Hailuo H3', id: 'minimax/h3/image-to-video',
     note: 'The model in the build today.',
-    build: (uri) => ({ prompt: PROMPT, image_url: uri, duration: DURATION, resolution: '480P', prompt_expansion_mode: 'quality', enable_safety_checker: false }),
+    endField: 'end_image_url',
+    build: (uri) => ({ prompt: TEXT, image_url: uri, duration: DURATION, resolution: '480P', prompt_expansion_mode: 'quality', enable_safety_checker: false }),
   },
   {
     key: 'seedance', label: 'Seedance 1 Lite', id: 'fal-ai/bytedance/seedance/v1/lite/image-to-video',
-    build: (uri) => ({ prompt: PROMPT, image_url: uri, duration: String(DURATION), resolution: '480p', enable_safety_checker: false }),
+    endField: 'end_image_url',
+    build: (uri) => ({ prompt: TEXT, image_url: uri, duration: String(DURATION), resolution: '480p', enable_safety_checker: false }),
   },
   {
     key: 'kling', label: 'Kling 2.5 Turbo Pro', id: 'fal-ai/kling-video/v2.5-turbo/pro/image-to-video',
@@ -87,7 +119,8 @@ const MODELS = [
     // negative prompt and cfg_scale are the whole surface — so it returns
     // 1080p whatever you ask for, and a five second clip lands near 15 MB.
     // That is a real constraint on using it, not a setting to fix.
-    build: (uri) => ({ prompt: PROMPT, image_url: uri, duration: String(DURATION) }),
+    endField: 'tail_image_url',
+    build: (uri) => ({ prompt: TEXT, image_url: uri, duration: String(DURATION) }),
   },
   {
     key: 'wan', label: 'Wan 2.2 A14B', id: 'fal-ai/wan/v2.2-a14b/image-to-video',
@@ -97,8 +130,9 @@ const MODELS = [
     // depresses the stsz motion measure for reasons that have nothing to do
     // with how much the picture actually moves. Turned off, so the number
     // compares like for like with the 24 fps clips.
+    endField: 'end_image_url',
     build: (uri) => ({
-      prompt: PROMPT, image_url: uri, resolution: '480p',
+      prompt: TEXT, image_url: uri, resolution: '480p',
       num_frames: 81, frames_per_second: 16,
       interpolator_model: 'none', adjust_fps_for_interpolation: false,
       video_quality: 'high', enable_safety_checker: false,
@@ -144,9 +178,12 @@ const sourceKeys = pick(Object.keys(SOURCES), opt('sources', null));
 const models = pick(MODELS, opt('models', null));
 
 if (DRY) {
-  console.log(`${sourceKeys.length} sources x ${models.length} models = ${sourceKeys.length * models.length} clips, ${DURATION}s each\n`);
-  for (const s of sourceKeys) for (const m of models) console.log(`  ${s.padEnd(10)} ${m.label.padEnd(22)} ${m.id}`);
-  console.log(`\n--- prompt (${PROMPT.length} chars)\n${PROMPT}`);
+  console.log(`variant ${VARIANT} (${V.label}) — ${sourceKeys.length} sources x ${models.length} models = ${sourceKeys.length * models.length} clips, ${DURATION}s each\n`);
+  for (const s of sourceKeys) for (const m of models) {
+    const end = V.end ? (m.endField ? `${m.endField}=source` : 'NO END-FRAME FIELD — open loop') : '';
+    console.log(`  ${s.padEnd(10)} ${m.label.padEnd(22)} ${end}`);
+  }
+  console.log(`\n--- prompt (${TEXT.length} chars)\n${TEXT}`);
   process.exit(0);
 }
 
@@ -155,28 +192,32 @@ await mkdir(OUT, { recursive: true });
 
 let clips = [];
 try { clips = JSON.parse(await readFile(INDEX, 'utf8')); } catch {}
-const done = FORCE ? new Set() : new Set(clips.filter((c) => c.file).map((c) => `${c.source}/${c.model}`));
+const key = (c) => `${c.source}/${c.model}/${c.variant || 'v1'}`;
+const done = FORCE ? new Set() : new Set(clips.filter((c) => c.file).map(key));
 
 const start = await balance();
-console.log(`balance $${start?.toFixed(4) ?? '?'}  —  ${sourceKeys.length * models.length} clips\n`);
+console.log(`balance $${start?.toFixed(4) ?? '?'}  —  ${sourceKeys.length * models.length} clips, variant ${VARIANT} (${V.label})\n`);
 
 for (const sk of sourceKeys) {
   const src = SOURCES[sk];
   const uri = 'data:image/jpeg;base64,' + (await readFile(join(ROOT, src.file))).toString('base64');
   for (const model of models) {
-    const id = `${sk}/${model.key}`;
+    const id = `${sk}/${model.key}/${VARIANT}`;
     if (done.has(id)) { console.log(`  ${id.padEnd(22)} already generated`); continue; }
     process.stdout.write(`  ${id.padEnd(22)} ...`);
     const before = await quiesce();
     const t0 = Date.now();
-    const clip = { source: sk, sourceLabel: src.label, model: model.key, label: model.label, id: model.id, prompt: PROMPT, duration: DURATION };
+    const clip = { source: sk, sourceLabel: src.label, model: model.key, label: model.label, id: model.id,
+      variant: VARIANT, variantLabel: V.label, prompt: TEXT, closedLoop: !!(V.end && model.endField), duration: DURATION };
     try {
-      const out = await falRun(model.id, model.build(uri), id);
+      const input = model.build(uri);
+      if (V.end && model.endField) input[model.endField] = uri;
+      const out = await falRun(model.id, input, id);
       clip.seconds = +((Date.now() - t0) / 1000).toFixed(1);
       const url = out.video?.url || out.videos?.[0]?.url;
       if (!url) throw new Error('no video: ' + JSON.stringify(out).slice(0, 200));
       const buf = await fetchBuf(url);
-      const file = `${sk}.${model.key}.mp4`;
+      const file = VARIANT === 'v1' ? `${sk}.${model.key}.mp4` : `${sk}.${model.key}.${VARIANT}.mp4`;
       await writeFile(join(OUT, file), buf);
       const p = probe(buf);
       clip.file = file;
@@ -192,7 +233,7 @@ for (const sk of sourceKeys) {
       clip.cost = await settle(before, 8000);
       console.log(`\r  ${id.padEnd(22)} FAILED  ${clip.error}`);
     }
-    clips = clips.filter((c) => !(c.source === sk && c.model === model.key)).concat(clip);
+    clips = clips.filter((c) => key(c) !== id).concat(clip);
     await writeFile(INDEX, JSON.stringify(clips, null, 2) + '\n');
   }
 }
