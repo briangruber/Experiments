@@ -810,6 +810,19 @@ function stepSim(dt) {
   // that is the way the water was actually swept.
   const bowAhead = body.bowOffset();
   const bhx = Math.sin(state.heading), bhz = Math.cos(state.heading);
+  // WHERE THE WAKE STARTS, which is the end of the boat that is going first.
+  //
+  // Ahead, that is the stem, and the ribbon has always been anchored there.
+  // Astern it is the transom -- she is travelling stern-first, so the transom
+  // is what parts the water and the screws are right there making the mess.
+  // Anchoring at the stem either way is why reversing streamed a V off the bow
+  // with the plume ahead of the boat: the wake was being laid from the wrong
+  // end of the hull.
+  //
+  // Either way the hull then occupies arc 0 to one hull-length back from the
+  // anchor, which is what the wash and cavitation gates already assume.
+  const hullDrawn = get('boat.length') * get('boat.modelScale');
+  const anchorOff = state.speed < 0 ? bowAhead - hullDrawn : bowAhead;
   // Going ASTERN the track runs the other way down the same course line, so
   // the tangent handed to the field has to be the direction of TRAVEL, not the
   // direction the bow points. Without the flip the ribbon is laid backwards
@@ -830,13 +843,17 @@ function stepSim(dt) {
   const gap0 = target - state.speed;
   const load = Math.min(1, Math.abs(gap0) / 5) * (state.speed < 0 ? 1 : 0.85)
              + (state.speed < 0 ? 0.25 : 0);
-  wake.pushSample(state.x + bhx * bowAhead, state.z + bhz * bowAhead,
+  // The load's SIGN carries the direction, which saves a second attribute for
+  // one bit: the shader needs to know where along the ribbon the screws are,
+  // and going astern they sit at the anchor rather than a hull-length aft of
+  // it. Magnitude is the load exactly as before.
+  wake.pushSample(state.x + bhx * anchorOff, state.z + bhz * anchorOff,
                   hx * way, hz * way, state.t, Math.abs(state.speed), state.turn,
-                  Math.min(1, load));
+                  Math.min(1, load) * way);
 
   // The screws are at the transom, which is a hull-length aft of the stem the
   // model's origin sits on.
-  const drawnLen = get('boat.length') * get('boat.modelScale');
+  const drawnLen = hullDrawn;
   const sternX = state.x - bhx * drawnLen * 0.92;
   const sternZ = state.z - bhz * drawnLen * 0.92;
   // Rate rides the load the same way the cavitation does -- a screw under load
@@ -849,8 +866,8 @@ function stepSim(dt) {
   let nb = Math.min(Math.floor(_bubDebt), 120);
   _bubDebt -= nb;
   if (nb > 0) {
-    const nEng = Math.max(1, Math.round(get('wash.engines')));
-    const gapE = get('wash.engineGap');
+    const nEng = Math.max(1, Math.round(get('boat.engines')));
+    const gapE = get('boat.engineSpacing');
     const spread = get('wash.bubSpread');
     const depth = get('wash.bubDepth');
     const px = -bhz, pz = bhx;                 // port-positive normal

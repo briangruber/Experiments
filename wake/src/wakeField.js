@@ -257,7 +257,11 @@ const RIBBON_FRAG = /* glsl */`
     // blades are working in clean water. So this rides vLoad, which the sim
     // fills from the gap between the throttle and the speed actually made, and
     // it is quenched as she comes up to that speed.
-    float cavLoad = clamp(vLoad, 0.0, 1.0);
+    // The sign of vLoad is which way she is going: negative astern. Going
+    // astern the screws are AT the ribbon's anchor, because the anchor is the
+    // transom -- so the boil starts at arc 0 rather than a hull-length back.
+    float cavLoad = clamp(abs(vLoad), 0.0, 1.0);
+    float propArc = vLoad < 0.0 ? 0.0 : uHullLen;
     // MEASURED FROM THE TRANSOM, which is where the screw is.
     //
     // arc is distance along the path from the STEM -- the ribbon is anchored at
@@ -267,7 +271,7 @@ const RIBBON_FRAG = /* glsl */`
     // under the hull, where the sea is cut away and nothing is drawn anyway.
     // Turning every slider to maximum could not rescue that, because the fault
     // was WHERE it was, not how strong.
-    float cavArc = max(arc - uHullLen, 0.0);
+    float cavArc = max(arc - propArc, 0.0);
     float cavReach = max(uCavLen, 0.3);
     float cavNear = exp(-cavArc / cavReach) * exp(-cavArc / cavReach);
     // Tight to the blade circle, tighter than the wash it sits inside.
