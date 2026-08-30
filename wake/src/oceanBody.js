@@ -74,7 +74,11 @@ export class OceanBody {
 	// the drawn length. The hydrodynamics (planing speed, Froude number) stay on
 	// boat.length, which is what they were tuned against.
 	get length() { return get( 'boat.length' ) * Math.max( get( 'boat.modelScale' ), 0.05 ); }
-	get beam() { return get( 'boat.beam' ); }
+	// The DRAWN beam, for the same reason as the drawn length above. Missing
+	// this put the spray cuts at the unscaled half-beam while the hull was drawn
+	// four times wider -- so on a big model the water left the boat from a line
+	// down its centre instead of from its chines.
+	get beam() { return get( 'boat.beam' ) * Math.max( get( 'boat.modelScale' ), 0.05 ); }
 
 	/** Unit vector along the heading, in world XZ. */
 	forward( out = { x: 0, y: 0 } ) {

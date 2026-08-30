@@ -39,6 +39,7 @@ export class Bubbles {
 		this.r = f();          // radius, metres
 		this.age = f(); this.life = f();
 		this.seed = f();
+		this._ring = 0;
 
 		const geo = new THREE.BufferGeometry();
 		this.aPos = new THREE.BufferAttribute( new Float32Array( max * 3 ), 3 );
@@ -196,7 +197,22 @@ export class Bubbles {
 	 */
 	emit( x, y, z, rand = Math.random ) {
 
-		const i = this.n < this.max ? this.n ++ : ( Math.random() * this.max ) | 0;
+		// Recycle the OLDEST, never a random one.
+		//
+		// When the pool is full this used to overwrite a bubble picked at
+		// random, which means bubbles vanish mid-rise -- and the pool fills
+		// easily: 2000 a second with a two-and-a-half second climb wants five
+		// thousand slots. What you get is a plume with holes punched through it
+		// at random, thinning worst exactly where it is densest. A ring buffer
+		// takes the one nearest the end of its life instead, which is the one
+		// that was about to go anyway.
+		let i;
+		if ( this.n < this.max ) {
+			i = this.n ++;
+		} else {
+			i = this._ring;
+			this._ring = ( this._ring + 1 ) % this.max;
+		}
 		this.px[ i ] = x; this.py[ i ] = y; this.pz[ i ] = z;
 		// Born with the wash's own motion, mostly downward and aft -- a screw
 		// drives water DOWN and back, which is why the plume sinks before it
@@ -268,8 +284,10 @@ export class Bubbles {
 		this.geometry.setDrawRange( 0, w );
 		this.aPos.needsUpdate = this.aSize.needsUpdate = this.aAlpha.needsUpdate = true;
 		this.drawn = w;
-		// Compact the pool occasionally so dead slots do not stall emission.
-		if ( this.n >= this.max ) this.n = 0;
+		// NO COMPACTION. This used to reset n to 0 once the pool filled, which
+		// silently orphaned every live bubble in it -- the whole plume dropped
+		// at once and started again. The ring buffer above is what keeps
+		// emission going when the pool is full; nothing else needs to.
 
 	}
 

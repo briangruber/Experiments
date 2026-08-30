@@ -351,7 +351,10 @@ showBoat(get('boat.model'));
 const spray = new Spray(3000);
 // In the SCENE, because the refraction pass photographs the scene -- that is
 // how these get under the water instead of on top of it.
-const bubbles = new Bubbles(4000);
+// Sized for the worst case the sliders allow: 2400 a second against a climb of
+// a couple of seconds. Under-size the pool and emission starts cannibalising
+// live bubbles, which shows as holes in the densest part of the plume.
+const bubbles = new Bubbles(9000);
 scene.add(bubbles.points);
 let _bubDebt = 0;
 // Where the surface is, for releasing and popping bubbles.
@@ -376,7 +379,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b63';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b64';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
