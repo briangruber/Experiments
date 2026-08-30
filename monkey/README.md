@@ -322,6 +322,43 @@ backwards like a bird's hock, the legs were too short to ever straighten so the
 character floated in a permanent half-squat, and the arms dissolved into the
 coat.
 
+## The 3D character experiment
+
+`tools/cast.mjs` runs the whole character pipeline against Tripo: a T-pose
+concept image (fal), `image_to_model` textured from it, `animate_prerigcheck`,
+`animate_rig`, and `animate_retarget`. `tools/cast-sheet.mjs` renders the result
+beside the vector puppet **at game size**, because that is the only comparison
+that decides anything — at 429px a skinned mesh obviously wins; at 165px it has
+to beat a drawn face.
+
+Four things this cost a wrong turn to learn, all of them API-shaped rather than
+artistic:
+
+- **`spec: 'mixamo'` and Tripo's preset animations are mutually exclusive.**
+  Retargeting `preset:biped:walk` onto a Mixamo-spec rig is rejected with
+  `error_code 1004` and zero credits consumed; the same call onto a Tripo-spec
+  rig succeeds. The Mixamo spec exists to take the rig *out* to other tools, and
+  choosing it means bringing your own clips.
+- **The v1.0 humanoid rig namespaces its presets by rig type.** `preset:walk` is
+  accepted by the queue and then fails during processing with an empty error.
+  It is `preset:biped:walk`. `animate_in_place: true` strips root motion at the
+  source, which is better than filtering position tracks afterwards.
+- **A Mixamo clip binds to a Mixamo-spec rig by name with no retargeting step** —
+  23 of the walk's 53 tracks bound, which is every bone Tripo's 23-bone rig has.
+  The unbound remainder are finger joints, which do not exist at this size.
+- **Rotations only.** Mixamo's FBX are authored in centimetres, so applying
+  their position tracks to a metre-scale rig blew the skeleton from 1.7 units
+  tall to 186. Bone positions must come from the target rig's own bind pose
+  regardless — the source's translations describe the source's proportions.
+  And name matching does not reconcile the two rigs' *rest orientations*: the
+  clip laid the character flat on her side. `cast-sheet.html` measures the
+  hips-to-head vector and rotates until it points up, which self-corrects for
+  any source rig rather than hard-coding an axis.
+
+Framing a skinned mesh needs the same care: `Box3.setFromObject` measures the
+BIND pose, which for a T-posed source is a wide short box unrelated to where the
+animated figure is. The camera is derived from bone world positions instead.
+
 ## What is still missing
 
 - **Character animation.** The actors are procedural vector puppets, and after

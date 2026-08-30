@@ -1,0 +1,48 @@
+[
+  {
+    "key": "bonny",
+    "kind": "concept",
+    "file": "assets/cast/bonny-concept.png",
+    "model": "fal-ai/flux-2-pro",
+    "prompt": "A young woman pirate adventurer, the hero of a 1990s point-and-click adventure game. Deep red knee-length coat over a cream shirt, a gold sash at the waist, dark blue trousers and worn brown boots. A red bandana tied over auburn hair. Friendly, wry, capable face. Slightly stylised heroic proportions, clean readable silhouette. Full body in a strict T-pose: standing upright, facing the camera dead-on, both arms held straight out horizontally to the sides at shoulder height, palms down, legs straight and slightly apart, feet flat and fully visible. The entire figure inside the frame with a margin of empty space on all sides. Character reference sheet for 3D modelling: flat even studio lighting from the front, no harsh shadows, no cast shadow on the floor, no rim light, plain seamless light grey background. Crisp, clearly separated forms. No text, no watermark, no border, no grid.",
+    "at": "2026-08-30T02:08:23.232Z"
+  },
+  {
+    "key": "bonny",
+    "kind": "model",
+    "task": "f11b974d-b54c-428b-b15b-0061ba79cc8e",
+    "version": "v3.0-20250812",
+    "faces": 20000,
+    "bytes": 2488596,
+    "at": "2026-08-30T02:10:38.005Z"
+  },
+  {
+    "key": "bonny",
+    "kind": "rig",
+    "task": "8cb2b5a5-3f8e-42f6-8f46-0403a959d888",
+    "from": "f11b974d-b54c-428b-b15b-0061ba79cc8e",
+    "spec": "mixamo",
+    "rigVersion": "v1.0-20240301",
+    "bytes": 2632604,
+    "at": "2026-08-30T02:10:58.021Z"
+  },
+  {
+    "key": "bonny",
+    "kind": "rig",
+    "task": "0e72236b-a533-494c-8009-a55b59d2e2ee",
+    "from": "f11b974d-b54c-428b-b15b-0061ba79cc8e",
+    "spec": "tripo",
+    "rigVersion": "v1.0-20240301",
+    "bytes": 2637980,
+    "at": "2026-08-30T02:16:03.515Z"
+  },
+  {
+    "key": "bonny",
+    "kind": "anim",
+    "clip": "walk",
+    "task": "38268ec6-d7aa-4fdd-9108-5e97731d3b5f",
+    "from": "0e72236b-a533-494c-8009-a55b59d2e2ee",
+    "bytes": 2760640,
+    "at": "2026-08-30T02:16:10.128Z"
+  }
+]

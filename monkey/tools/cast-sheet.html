@@ -1,0 +1,227 @@
+<meta charset="utf-8">
+<title>cast sheet</title>
+<style>html,body{margin:0;background:#141a26}canvas{display:block}</style>
+<canvas id="sheet"></canvas>
+<script type="module">
+// The decisive comparison: a rigged 3D character and the procedural vector
+// puppet, walking, at exactly the size the game draws them.
+//
+// The whole question is whether 3D wins at 35px of head. Rendered large, a
+// skinned mesh obviously beats a few canvas paths; rendered at the size the
+// player actually sees, the puppet keeps a brow, an eye and a jaw that flaps,
+// and the mesh may just be a coloured smudge with better knees. So the top two
+// rows are at game size and the magnified row is only there to see what the
+// small one is made of.
+
+import * as THREE from '../vendor/three/three.module.min.js';
+import { GLTFLoader } from '../vendor/three/GLTFLoader.js';
+import { FBXLoader } from '../vendor/three/FBXLoader.js';
+import { makePerson, BANDANA } from '../src/art/paint.js';
+import { CAST } from '../src/game/dock.js';
+import { Actor } from '../src/engine/actor.js';
+
+const P = new URLSearchParams(location.search);
+const SRC = P.get('src') || '../assets/cast/bonny-rigged-mixamo.glb';
+const CLIP = P.get('clip') || '../assets/cast/mixamo-walk.fbx';
+const N = 8;
+const GAME_H = 165;                    // the figure's height in game pixels
+const CELL_W = 150, CELL_H = 230;
+const BIG = 2.6;
+const YAW = +(P.get('yaw') ?? 0);
+
+const sheet = document.getElementById('sheet');
+const ctx = sheet.getContext('2d');
+sheet.width = N * CELL_W;
+sheet.height = CELL_H * 2 + Math.round(CELL_H * BIG * 0.62);
+
+const rc = document.createElement('canvas');
+// preserveDrawingBuffer so the canvas can still be read after render() —
+// without it drawImage of the GL canvas can come back blank.
+const renderer = new THREE.WebGLRenderer({ canvas: rc, alpha: true, antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1);
+const scene = new THREE.Scene();
+const key = new THREE.DirectionalLight(0xdce8ff, 3.2); key.position.set(2, 3, 2.5); scene.add(key);
+const fill = new THREE.DirectionalLight(0xffb877, 1.4); fill.position.set(-2.5, 0.2, 1.5); scene.add(fill);
+scene.add(new THREE.AmbientLight(0x8fa0c8, 1.7));
+
+const gltf = await new GLTFLoader().loadAsync(SRC);
+const model = gltf.scene;
+// The figure is turned by a wrapper rather than by rotating the model itself,
+// so a clip that animates the root's rotation cannot fight the framing.
+const pivot = new THREE.Group();
+pivot.add(model);
+scene.add(pivot);
+
+// The clip. A Mixamo FBX binds to a Mixamo-named skeleton by track name with
+// no retargeting at all — which is the entire reason the rig was requested
+// with `spec: mixamo` rather than Tripo's native naming.
+let clip = gltf.animations[0] || null;
+if (CLIP && CLIP !== 'none') {
+  const fbx = await new FBXLoader().loadAsync(CLIP);
+  if (fbx.animations[0]) clip = fbx.animations[0];
+}
+const boneNames = new Set();
+model.traverse((o) => { if (o.isBone) boneNames.add(o.name); });
+
+let mixer = null, bound = 0, unbound = [];
+if (clip) {
+  // Rotations only. This is the whole of retargeting onto a same-named
+  // skeleton, and skipping it is spectacular: Mixamo's FBX are authored in
+  // centimetres, so applying their position tracks to a metre-scale rig blew
+  // the skeleton from 1.7 units tall to 186. Bone positions must come from the
+  // TARGET rig's own bind pose anyway — the source's translations describe the
+  // source's proportions, not this character's — so dropping every position
+  // and scale track is both the fix and the correct thing to do.
+  clip.tracks = clip.tracks.filter((t) => t.name.endsWith('.quaternion'));
+  for (const t of clip.tracks) {
+    const n = t.name.split('.')[0];
+    if (boneNames.has(n)) bound++; else if (!unbound.includes(n)) unbound.push(n);
+  }
+  mixer = new THREE.AnimationMixer(model);
+  mixer.clipAction(clip).play();
+  mixer.update(0);
+}
+window.__rig = {
+  bones: boneNames.size, sample: [...boneNames].slice(0, 6),
+  clip: clip?.name ?? null, tracks: clip?.tracks.length ?? 0,
+  boundTracks: bound, unboundSample: unbound.slice(0, 6),
+};
+
+// Framing is measured, not derived. A skinned mesh's bind-pose bounding box is
+// not where the animated figure actually is, and deriving the camera from it
+// put the character half out of frame with its back to the lens.
+// Framing from the skeleton, not from the geometry. Box3.setFromObject on a
+// skinned mesh measures the BIND pose, which for a T-posed source is a wide,
+// short box that bears no relation to where the animated figure actually is —
+// deriving a camera from it put the character half out of frame. Bone world
+// positions are exact once the mixer has run, so the box comes from those with
+// a margin for the skin around them.
+const RW = 420, RH = 620;
+const bones = [];
+model.traverse((o) => { if (o.isBone) bones.push(o); });
+
+// Name matching binds the tracks; it does not reconcile the two rigs' REST
+// orientations. Mixamo's hip rotation is absolute, and Tripo's bind pose does
+// not share its axes, so applying the clip laid the character flat on her side.
+// Rather than guess which axis is off, measure it: with the clip applied, the
+// hips-to-head vector should point straight up, so rotate the whole figure by
+// whatever turns it there. Self-correcting, and it works for any source rig.
+const align = new THREE.Group();
+pivot.remove(model);
+align.add(model);
+pivot.add(align);
+
+function uprightCorrection() {
+  const byName = (frag) => bones.find((b) => b.name.toLowerCase().includes(frag));
+  const hips = byName('hips'), head = byName('head') || byName('neck');
+  if (!hips || !head || !mixer) return null;
+  mixer.setTime(0);
+  align.rotation.set(0, 0, 0);
+  pivot.updateMatrixWorld(true);
+  const up = head.getWorldPosition(new THREE.Vector3())
+    .sub(hips.getWorldPosition(new THREE.Vector3())).normalize();
+  const q = new THREE.Quaternion().setFromUnitVectors(up, new THREE.Vector3(0, 1, 0));
+  align.quaternion.copy(q);
+  pivot.updateMatrixWorld(true);
+  return { was: [+up.x.toFixed(2), +up.y.toFixed(2), +up.z.toFixed(2)] };
+}
+const correction = uprightCorrection();
+
+function skeletonBox(phase) {
+  if (mixer) mixer.setTime(phase * clip.duration);
+  pivot.updateMatrixWorld(true);
+  const b = new THREE.Box3();
+  const v = new THREE.Vector3();
+  for (const bone of bones) b.expandByPoint(bone.getWorldPosition(v.clone()));
+  const size = b.getSize(new THREE.Vector3());
+  // The head sits above the topmost bone and the boots below the ankle, so the
+  // box is grown vertically more than it is horizontally.
+  b.expandByVector(new THREE.Vector3(size.x * 0.25, size.y * 0.10, size.x * 0.25));
+  return b;
+}
+
+// One box for the whole cycle, so the figure does not breathe in and out
+// between cells.
+const cycle = new THREE.Box3();
+for (let i = 0; i < N; i++) cycle.union(skeletonBox(i / N));
+const cycleSize = cycle.getSize(new THREE.Vector3());
+const cycleCentre = cycle.getCenter(new THREE.Vector3());
+
+// Draw one figure into the sheet at `px` tall, standing on `groundY`.
+// Orthographic, so pixels-per-world-unit is exactly RH / frustumHeight and the
+// placement is arithmetic rather than a measurement.
+function place(phase, yawDeg, px, dx, groundY) {
+  const frustumH = cycleSize.y * (RH / px);
+  renderer.setSize(RW, RH, false);
+  if (mixer) mixer.setTime(phase * clip.duration);
+  pivot.rotation.y = THREE.MathUtils.degToRad(yawDeg);
+  pivot.updateMatrixWorld(true);
+  const cam = new THREE.OrthographicCamera(
+    -frustumH * (RW / RH) / 2, frustumH * (RW / RH) / 2, frustumH / 2, -frustumH / 2, -1000, 1000,
+  );
+  cam.position.set(cycleCentre.x, cycleCentre.y, cycleCentre.z + 100);
+  cam.lookAt(cycleCentre.x, cycleCentre.y, cycleCentre.z);
+  renderer.render(scene, cam);
+  // The camera is centred on the box, so the box's bottom lands px/2 below the
+  // render's middle.
+  ctx.drawImage(rc, dx - RW / 2, groundY - (RH / 2 + px / 2));
+}
+
+window.__rig.frame = { boxH: +cycleSize.y.toFixed(3), boxW: +cycleSize.x.toFixed(3), bones: bones.length, correction };
+
+// --- the puppet, for comparison ---------------------------------------------
+
+const puppet = new Actor(CAST.player);
+puppet.state = 'walk';
+puppet.facing = 'right';
+puppet.lag = -0.8;
+puppet.blink = 1;
+
+// --- draw the sheet ----------------------------------------------------------
+
+function label(text, x, y) {
+  ctx.fillStyle = 'rgba(220,230,255,0.5)';
+  ctx.font = '11px ui-monospace, monospace';
+  ctx.fillText(text, x + 6, y + 15);
+}
+function cellFrame(x, y, w, h) {
+  ctx.strokeStyle = 'rgba(255,255,255,0.09)';
+  ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+  ctx.beginPath(); ctx.moveTo(x + 8, y + h - 22); ctx.lineTo(x + w - 8, y + h - 22); ctx.stroke();
+}
+
+// row 0 — the 3D character at game size
+for (let i = 0; i < N; i++) {
+  const x = i * CELL_W, y = 0;
+  cellFrame(x, y, CELL_W, CELL_H);
+  place(i / N, YAW, GAME_H, x + CELL_W / 2, y + CELL_H - 22);
+  if (i === 0) label(`3D · ${GAME_H}px — game size`, x, y);
+}
+
+// row 1 — the puppet at the same size
+for (let i = 0; i < N; i++) {
+  const x = i * CELL_W, y = CELL_H;
+  cellFrame(x, y, CELL_W, CELL_H);
+  ctx.save();
+  ctx.translate(x + CELL_W / 2, y + CELL_H - 22);
+  puppet.phase = i / N;
+  puppet.draw(ctx, puppet, 1);
+  ctx.restore();
+  if (i === 0) label('vector puppet · same size', x, y);
+}
+
+// row 2 — magnified, to see what the small one is made of
+const bigH = Math.round(GAME_H * BIG);
+const perRow = 3;
+for (let i = 0; i < perRow; i++) {
+  const cw = Math.floor(sheet.width / perRow);
+  const x = i * cw, y = CELL_H * 2;
+  const ch = sheet.height - y;
+  cellFrame(x, y, cw, ch);
+  place(i / perRow, YAW, Math.min(bigH, ch - 40), x + cw / 2, y + ch - 22);
+  if (i === 0) label(`3D · ${BIG}x, for inspection`, x, y);
+}
+
+window.__ready = true;
+</script>
