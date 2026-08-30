@@ -90,7 +90,24 @@ export const PARAMS = {
     // every crest -- the white ribbons. The height those waves carry is worth
     // having and the paint on them is not, so these two default well down and
     // the breaking is broken into patches (see Kelvin waves).
-    fromWaves:    { v: 0.18, min: 0,   max: 1,   step: 0.01, label: 'Foam from breaking' },
+    // DEFAULTED OFF, because you have now said twice that the result looks
+    // fake and you are right about why.
+    //
+    // These two are the entire mechanism behind the white ribbons. fromWaves
+    // crossfades the wake's foam coverage between the prescribed V arms and
+    // foam derived from where the Kelvin train is steep enough to break;
+    // waveFoam is the gain on that second one. At 0.90 and 4.05 nearly all the
+    // foam in the wake was the wave train's crests, multiplied four-fold.
+    //
+    // The trouble is that the steepness driving it is an analytic function of
+    // position -- perfectly smooth, perfectly continuous -- so however it is
+    // dressed it wants to paint an unbroken stripe down the middle of every
+    // crest. Patchiness (under Kelvin waves) breaks that stripe up and is worth
+    // having, but it cannot make a painted line into water.
+    //
+    // At 0 the wave train still displaces the surface exactly as before; it
+    // simply stops being painted. Raise it if you want the effect back.
+    fromWaves:    { v: 0,    min: 0,   max: 1,   step: 0.01, label: 'Foam from breaking' },
     waveFoam:     { v: 0.9, min: 0,   max: 5,   step: 0.01, label: 'Breaking foam gain' },
     // 1 = the physical angle (Kelvin 19.47 degrees while the hull is slow,
     // narrowing as atan(1/2Fr_B) once it outruns its own transverse waves).
