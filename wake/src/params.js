@@ -122,6 +122,20 @@ export const PARAMS = {
   // Turbulent water dragged behind the transom: the brightest, shortest-lived
   // foam in the whole wake.
   wash: {
+    // CAVITATION -- the water boiling at the blade, not more prop wash.
+    //
+    // Pressure on the suction face drops below vapour pressure, the water
+    // flashes to steam, and the bubbles collapse a blade-width downstream. It
+    // shows as a dense white column right at the screw, a metre or two long,
+    // and it is a LOAD phenomenon: a propeller cavitates when it is asked for
+    // thrust it cannot get -- opening up from rest, or going hard astern -- and
+    // stops once the boat is up and the blades have clean water. Which is why
+    // it rides the throttle-versus-speed gap rather than speed.
+    cav:          { v: 1.1,  min: 0,   max: 3,   step: 0.01, label: 'Cavitation' },
+    cavLen:       { v: 1.2,  min: 0.2, max: 8,   step: 0.1,  label: 'Cavitation reach (m)' },
+    cavWidth:     { v: 0.22, min: 0.05, max: 1.5, step: 0.01, label: 'Cavitation width (m)' },
+    cavGrain:     { v: 3.4,  min: 0.5, max: 14,  step: 0.1,  label: 'Bubble grain' },
+    cavFoam:      { v: 0.22, min: 0,   max: 1,   step: 0.01, label: 'How much reaches the surface' },
     // A screw turning over entrains air from the moment it bites, so the
     // plume exists at idle -- long before the hull is anywhere near planing.
     // Bubbles only: the white lace above stays gated on working the prop hard.

@@ -320,7 +320,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b53';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b54';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -797,8 +797,20 @@ function stepSim(dt) {
   // over water the hull has not reached and the Kelvin terms see a negative
   // speed, which is a square root of a negative number two functions down.
   const way = state.speed < 0 ? -1 : 1;
+  // HOW HARD THE SCREW IS WORKING, which is not how fast the boat is going.
+  //
+  // A propeller cavitates when it is asked for thrust it cannot convert: the
+  // throttle is open and the water is not yet moving past the blades. That is
+  // the gap between the speed commanded and the speed actually made -- large
+  // when you open up from rest or throw her astern, and closing to nothing once
+  // she is up and running. Astern counts double: a screw shaped to push one way
+  // is a poor thing dragged backwards, and it cavitates readily.
+  const gap = target - state.speed;
+  const load = Math.min(1, Math.abs(gap) / 5) * (state.speed < 0 ? 1 : 0.85)
+             + (state.speed < 0 ? 0.25 : 0);
   wake.pushSample(state.x + bhx * bowAhead, state.z + bhz * bowAhead,
-                  hx * way, hz * way, state.t, Math.abs(state.speed), state.turn);
+                  hx * way, hz * way, state.t, Math.abs(state.speed), state.turn,
+                  Math.min(1, load));
   // ...and where the hull ITSELF is, which is not the same thing the moment
   // the boat crabs: the sample is the track, this is the boat.
   wake.setHull(state.x + bhx * bowAhead, state.z + bhz * bowAhead, state.heading);

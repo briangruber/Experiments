@@ -38,10 +38,13 @@ const RIBBON_VERT = /* glsl */`
   attribute vec2 aTan;
   attribute float aSpd;
   attribute float aTurn;
+  attribute float aLoad;   // how hard the screw was working when this water was left
   varying float vArc; varying float vLat; varying float vAge; varying float vU;
   varying vec2 vWorld; varying vec2 vTan; varying float vSpd; varying float vTurn;
+  varying float vLoad;
   void main(){
     vArc = aArc; vLat = aLat; vAge = aAge; vU = aU; vTan = aTan; vSpd = aSpd; vTurn = aTurn;
+    vLoad = aLoad;
     vWorld = position.xz;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
@@ -51,6 +54,7 @@ const RIBBON_FRAG = /* glsl */`
   precision highp float;
   varying float vArc; varying float vLat; varying float vAge; varying float vU;
   varying vec2 vWorld; varying vec2 vTan; varying float vSpd; varying float vTurn;
+  varying float vLoad;
 
   uniform float uMaxArc, uPlaning, uHumpFr, uWetShift;
   uniform float uKelvinFade;
@@ -69,6 +73,7 @@ const RIBBON_FRAG = /* glsl */`
   uniform float uRim, uRimW, uNearBoost, uNearLen, uCarve;
   uniform float uFeatSpace, uFeatGrow, uFeatLean, uFeatDepth, uFeatJitter, uFeatSharp;
   uniform float uWashW, uWashWGrow, uWashFoam, uWashLen, uWashTail, uWashDepth;
+  uniform float uCav, uCavLen, uCavW, uCavGrain, uCavFoam;
   uniform float uFrPeak, uHumpFloor, uBeamGain, uInterf, uTurnBias;
   uniform float uBreakSteep, uWaveFoam, uFromWaves;
   uniform float uKelvinScale, uKelvinProp, uKelvinAmp, uKelvinDiv, uKelvinTrans, uKelvinCusp, uKelvinDecay, uKelvinLife, uKelvinMin;
@@ -236,6 +241,46 @@ const RIBBON_FRAG = /* glsl */`
     wg = min(wg, 1.4);
     float washFoam = astern * wg * (uWashFoam * exp(-arc / uWashLen) + uWashTail) * near * churn * regime;
     float washH   = -astern * wg * uWashDepth * exp(-arc / (uWashLen * 1.6));
+
+    // ------------------------------------------------------------ cavitation --
+    //
+    // Not a longer, brighter wash: a different thing entirely, and the prop
+    // wash controls could never have produced it. Cavitation is the water
+    // BOILING at the blade -- pressure on the suction face drops below vapour
+    // pressure, the water flashes to steam, and the bubbles collapse again a
+    // blade-width downstream. What you see is a dense white column right at the
+    // screw, a metre or two long, not a streak running forty-five metres aft.
+    //
+    // It is driven by LOAD, not by speed, and that is the whole character of
+    // it: a screw cavitates when it is asked for thrust it cannot get -- gun it
+    // from rest, or throw it astern -- and stops once the boat is up and the
+    // blades are working in clean water. So this rides vLoad, which the sim
+    // fills from the gap between the throttle and the speed actually made, and
+    // it is quenched as she comes up to that speed.
+    float cavLoad = clamp(vLoad, 0.0, 1.0);
+    // Right AT the screw. The reach is a couple of hull-beams, and the falloff
+    // is sharp on purpose -- a soft exponential here is a wash, not a boil.
+    float cavReach = max(uCavLen, 0.3);
+    float cavNear = exp(-arc / cavReach) * exp(-arc / cavReach);
+    // Tight to the blade circle, tighter than the wash it sits inside.
+    float cw = max(uCavW, 0.05);
+    float cg = 0.0;
+    for (int i = 0; i < 4; i++) {
+      if (float(i) >= uEngines) break;
+      float off = (float(i) - (uEngines - 1.0) * 0.5) * uEngineGap;
+      float dd = (d - off) / cw;
+      cg += exp(-dd * dd);
+    }
+    cg = min(cg, 1.5);
+    // Boiling, not flowing: a fast, fine, high-contrast field. The two octaves
+    // run at different speeds so the pattern never reads as a scrolling
+    // texture, and the threshold is what makes it discrete bubbles rather than
+    // a smooth cloud.
+    vec2 cp = vWorld * uCavGrain;
+    float c1 = fbm(cp + vec2(uTime * 1.7, -uTime * 2.3));
+    float c2 = fbm(cp * 2.7 + vec2(-uTime * 3.1, uTime * 1.3));
+    float boil = smoothstep(0.38, 0.72, c1 * 0.6 + c2 * 0.4);
+    float cav = cavLoad * cg * cavNear * uCav * boil;
 
     // ------------------------------------------------------- inside the V ----
     // -------------------------------------------------------- Kelvin waves --
@@ -608,12 +653,22 @@ const RIBBON_FRAG = /* glsl */`
     // them.
     float height  = ((armH + washH) * mix(0.35, 1.0, alive)
                    + kelvinH * nose * uKelvinFade) * tailFade;
+    // CAVITATION GOES IN AS BUBBLES, and mostly as SUBSURFACE ones.
+    //
+    // It is not surface foam -- the vapour collapses under water, which is why
+    // the reference footage shows a white column inside a green sea rather than
+    // a white patch on top of it. So it is added to the bubble channels with
+    // only a fraction reaching the foam channel, and it bypasses the plume's
+    // surfaced ramp (no backticks in here -- this GLSL lives inside a JS
+    // template literal): cavitation is bright from the instant it is made,
+    // whereas an entrained bubble has to rise before it shows.
     float bubOut = max(bub, 0.0) * tailFade;
+    float cavOut = max(cav, 0.0) * tailFade;
 
-    gl_FragColor = vec4(foam * edge,
+    gl_FragColor = vec4((foam + cavOut * uCavFoam) * edge,
                         height * edge,
-                        bubOut * surfaced * edge,
-                        bubOut * edge);
+                        (bubOut * surfaced + cavOut) * edge,
+                        (bubOut + cavOut * 1.35) * edge);
   }
 `;
 
@@ -765,6 +820,7 @@ export class WakeField {
     this.tan = new Float32Array(nv * 2);
     this.spd = new Float32Array(nv);
     this.trn = new Float32Array(nv);
+    this.load = new Float32Array(nv);
     g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('aArc', new THREE.BufferAttribute(this.arc, 1).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('aLat', new THREE.BufferAttribute(this.lat, 1).setUsage(THREE.DynamicDrawUsage));
@@ -773,6 +829,7 @@ export class WakeField {
     g.setAttribute('aTan', new THREE.BufferAttribute(this.tan, 2).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('aSpd', new THREE.BufferAttribute(this.spd, 1).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('aTurn', new THREE.BufferAttribute(this.trn, 1).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute('aLoad', new THREE.BufferAttribute(this.load, 1).setUsage(THREE.DynamicDrawUsage));
 
     const idx = new Uint32Array((MAX_SAMPLES - 1) * LAT_SEG * 6);
     let o = 0;
@@ -803,6 +860,8 @@ export class WakeField {
       uFeatDepth: { value: 0 }, uFeatJitter: { value: 0 }, uFeatSharp: { value: 1 },
       uWashW: { value: 1 }, uWashWGrow: { value: 0 }, uWashFoam: { value: 1 },
       uWashLen: { value: 1 }, uWashTail: { value: 0 }, uWashDepth: { value: 0 },
+      uCav: { value: 0 }, uCavLen: { value: 1 }, uCavW: { value: 0.2 },
+      uCavGrain: { value: 3 }, uCavFoam: { value: 0.2 },
       uBubDepth: { value: 1 }, uBubRise: { value: 0.2 }, uBubExt: { value: 0.4 },
       uKelvinScale: { value: 0.5 }, uKelvinProp: { value: 1 }, uPlaning: { value: 6.5 },
       uHumpFr: { value: 0.95 }, uWetShift: { value: 0.5 },
@@ -958,13 +1017,13 @@ export class WakeField {
   }
 
   /** Record where the bow is now. Called every frame; samples are decimated. */
-  pushSample(x, z, hx, hz, t, speed = 0, turn = 0) {
+  pushSample(x, z, hx, hz, t, speed = 0, turn = 0, load = 0) {
     const last = this.path[0];
     if (last) {
       const dx = x - last.x, dz = z - last.z;
-      if (dx * dx + dz * dz < STEP * STEP) { this.head = { x, z, hx, hz, t, speed, turn }; return; }
+      if (dx * dx + dz * dz < STEP * STEP) { this.head = { x, z, hx, hz, t, speed, turn, load }; return; }
     }
-    this.path.unshift({ x, z, hx, hz, t, speed, turn });
+    this.path.unshift({ x, z, hx, hz, t, speed, turn, load });
     this.head = null;
     const maxArc = get('field.trailLength');
     // Trim to the requested trail length.
@@ -1052,6 +1111,7 @@ export class WakeField {
         this.tan[vi * 2 + 1] = tz;
         this.spd[vi] = p.speed || 0;
         this.trn[vi] = p.turn || 0;
+        this.load[vi] = p.load || 0;
       }
       o += LAT_SEG + 1;
     }
@@ -1112,6 +1172,14 @@ export class WakeField {
     u.uWashFoam.value = get('wash.foam');
     u.uWashLen.value = get('wash.length') / decay;
     u.uWashTail.value = get('wash.tailFoam');
+    u.uCav.value = get('wash.cav');
+    // Metres, and short. The falloff is squared in the shader, so this is the
+    // e-folding of an already sharp curve -- at 1.2 m there is essentially
+    // nothing left three metres astern, which is what the footage shows.
+    u.uCavLen.value = get('wash.cavLen');
+    u.uCavW.value = get('wash.cavWidth');
+    u.uCavGrain.value = get('wash.cavGrain');
+    u.uCavFoam.value = get('wash.cavFoam');
     u.uWashDepth.value = get('wash.depth');
     u.uBubDepth.value = get('bubbles.depth');
     u.uBubRise.value = get('bubbles.rise');
