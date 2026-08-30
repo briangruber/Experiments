@@ -553,13 +553,16 @@ export const PARAMS = {
     // would be dozens of taps per pixel across the whole sea. Surface roughness
     // already climbs the chain on its own; this is a floor under that.
     planarBlur:   { ui: 'mirror', v: 0.22, min: 0, max: 1,   step: 0.01, label: 'Mirror blur' },
-    // HOW FAR IT REACHES, in metres from the eye. A reflection does not run to
-    // the horizon: the further the water, the more of the reflected ray's path
-    // has been scattered by the air between, and the more the surface's own
-    // slope variance has smeared the image into the sky it sits in. Without a
-    // fade a hull leaves a hard dark streak to the edge of the world. 0 turns
-    // the fade off entirely rather than meaning "fades over zero metres".
-    planarFade:   { ui: 'mirror', v: 140, min: 0, max: 900, step: 5, label: 'Mirror fade (m)' },
+    // HOW FAST IT DIES BACK, measured along the reflection's own length from
+    // the boat outward -- not from the camera, which is a different quantity
+    // and dims the far sea whether or not there is a reflection in it.
+    //
+    // A RATE, per metre, applied exponentially: 0 gives exp(0) = 1 and nothing
+    // fades, and raising it pulls the image back toward the hull. Expressing it
+    // this way means zero needs no special case, which a length-based fade
+    // always ends up getting wrong somewhere. 0.04 halves the reflection every
+    // 17 m or so.
+    planarFade:   { ui: 'mirror', v: 0.02, min: 0, max: 0.4, step: 0.002, label: 'Mirror fade rate (per m)' },
     // HOW MUCH OF THE WATER IT MAY CLAIM. Separate from strength on purpose:
     // strength is how bright the reflected image is, this is the ceiling on how
     // much of the surface it is allowed to become. At 1 the mirror can replace

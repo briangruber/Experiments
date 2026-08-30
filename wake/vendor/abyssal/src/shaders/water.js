@@ -433,6 +433,7 @@ uniform sampler2D uReflTex;
 uniform mat4  uReflMat;
 uniform float uReflOn, uReflAmt, uReflDistort, uReflBlur, uReflMaxLod;
 uniform float uReflFade, uReflOpacity;
+uniform vec2  uReflOrigin;
 uniform sampler2D uRefrColor;
 uniform highp sampler2D uRefrDepth;
 uniform vec2  uRefrRes;
@@ -1609,18 +1610,20 @@ void main(){
         // image should give way to the sky it is sitting in, or a chop full of
         // crisp upside-down boats reads as glass.
         cov *= 1.0 - smoothstep(0.06, 0.40, alpha);
-        // FADE WITH DISTANCE. A reflection does not reach the horizon: the
-        // further the water, the more of the reflected ray's path has been
-        // scattered by the air between, and the more the surface's own slope
-        // variance has smeared the image into the sky it sits in. Without this
-        // the mirror runs at full strength to the edge of the world and a hull
-        // leaves a hard dark streak all the way out.
+        // FADE ALONG THE REFLECTION'S OWN LENGTH, from the boat outward.
         //
-        // 0 disables it -- a fade of zero metres would otherwise erase the
-        // reflection everywhere, which is the wrong reading of "no fade".
-        if (uReflFade > 0.5) {
-          cov *= 1.0 - smoothstep(uReflFade * 0.35, uReflFade, dist);
-        }
+        // The first cut of this faded on distance from the CAMERA, which is a
+        // different quantity and the wrong one: it dims the whole far sea
+        // whether or not there is a reflection in it, and it does nothing to
+        // the long streak trailing away from a hull that happens to be close.
+        // What matters is how far the image has travelled from the thing
+        // casting it.
+        //
+        // Exponential, so the control is a RATE rather than a range: at 0 the
+        // factor is exp(0) = 1 and nothing fades at all, and raising it makes
+        // the image die back toward the boat. No special-casing of zero, which
+        // is what a length-based fade needs and always gets wrong somewhere.
+        cov *= exp(-length(vWorld.xz - uReflOrigin) * uReflFade);
         // And a straight ceiling on how much of the surface the mirror may
         // claim. Separate from strength on purpose: strength is how bright the
         // image is, this is how much of the water it is allowed to become. At
