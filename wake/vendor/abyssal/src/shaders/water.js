@@ -221,17 +221,32 @@ void main(){
     vec2 rd = normalize(uWindDirV + vec2(1e-5, 0.0));
     float T = max(uRoguePeriod, 4.0);
     float lam = max(uRogueLen, 3.0);
+    // IT TRAVELS AT ITS OWN SPEED, which is the whole point and was the bug.
+    //
+    // cph was computed here and then never used: the packet's position came
+    // from run/T instead, so a 485 m swell on an 8 s cycle crossed nearly six
+    // kilometres in eight seconds -- 727 m/s, about Mach 2. It read as a
+    // sweeping bar rather than as water because that is what it was.
+    //
+    // Two speeds, and they are different, which is what makes a real swell look
+    // alive: the ENVELOPE moves at the group velocity, half the phase speed in
+    // deep water, while the CRESTS inside it march through at the full phase
+    // speed -- rising at the back of the group, running forward, dying out at
+    // the front. One wave is never the same wave for long.
     float cph = sqrt(9.81 * lam / 6.28318530718);
-    // One pass per period, entering well upwind and leaving well downwind, so
-    // it is genuinely absent between events rather than lurking at the edge.
-    float run = max(uRogueRun, lam * 4.0);
-    float travel = (fract(uTime / T) * 2.0 - 1.0) * run;
-    float sAx = dot(xz, rd) - travel;
+    float cg = cph * 0.5;
+    // The period sets how often one comes, and the group covers cg * T metres
+    // in that time, which is what makes the speed right by construction rather
+    // than by a number that has to be kept in step with it.
+    float run = cg * T;
+    float travel = fract(uTime / T) * run - run * 0.5;
+    float sEnv = dot(xz, rd) - travel;
     float wdt = max(uRogueWidth, lam * 0.6);
-    float env = exp(-(sAx * sAx) / (2.0 * wdt * wdt));
+    float env = exp(-(sEnv * sEnv) / (2.0 * wdt * wdt));
     if (env > 0.0015) {
       float k = 6.28318530718 / lam;
-      float ph = k * sAx;
+      // Crest phase on the FULL speed, so the crests move through the envelope.
+      float ph = k * (dot(xz, rd) - cph * uTime);
       pos.y += cos(ph) * env * uRogueH;
       // Gerstner shift: water piles toward the crest and thins in the trough,
       // which is what makes a big wave look like it is ABOUT to break rather

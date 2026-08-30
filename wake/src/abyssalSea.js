@@ -515,6 +515,44 @@ export class AbyssalSea {
 	 * without it a hull can only ever sit at y = 0 while the swell it is
 	 * supposedly riding moves underneath it.
 	 */
+	/**
+	 * The rogue packet's elevation at a world point. TWIN of the block in
+	 * WATER_VS (vendor/abyssal/src/shaders/water.js); change one, change both.
+	 *
+	 * It has to exist twice because the two are asked different questions. The
+	 * shader displaces the surface for DRAWING; this answers "how high is the
+	 * water here" for the hull that floats on it, and that question is asked on
+	 * the CPU, four times a frame, at the hull's contact points.
+	 *
+	 * Without it the boat sails straight through a thirty-metre wave without
+	 * lifting -- the wave is real to the eye and absent to the physics.
+	 */
+	rogueAt( x, z, t ) {
+
+		const H = get( 'ocean.rogueH' );
+		if ( H <= 0.001 ) return 0;
+		// EXACTLY what the shader is handed: uWindDirV is built in water.js as
+		// (cos(windDir), sin(windDir)) from the derived radian angle. Reading a
+		// windDirV off the params would have found undefined -- there is no such
+		// field -- and quietly fallen back to a fixed direction, so the probe
+		// would have tracked a wave travelling the wrong way.
+		const wd = this.params.windDir ?? 0;
+		const dx = Math.cos( wd ), dz = Math.sin( wd );
+		const lam = Math.max( get( 'ocean.rogueLen' ), 3 );
+		const T = Math.max( get( 'ocean.rogueEvery' ), 4 );
+		const cph = Math.sqrt( 9.81 * lam / ( Math.PI * 2 ) );
+		const cg = cph * 0.5;
+		const run = cg * T;
+		const travel = ( t / T - Math.floor( t / T ) ) * run - run * 0.5;
+		const sEnv = x * dx + z * dz - travel;
+		const wdt = Math.max( lam * 0.75, lam * 0.6 );
+		const env = Math.exp( - ( sEnv * sEnv ) / ( 2 * wdt * wdt ) );
+		if ( env < 0.0015 ) return 0;
+		const k = ( Math.PI * 2 ) / lam;
+		return Math.cos( k * ( x * dx + z * dz - cph * t ) ) * env * H;
+
+	}
+
 	probeWaves( points, dt ) {
 
 		if ( ! this.probe ) this.probe = new WaveProbe( this.water.gl );
@@ -522,7 +560,22 @@ export class AbyssalSea {
 		// hull actually floats in -- its own waves included.
 		const wk = this.wake?.probeBinding?.() ?? null;
 		this.probe.update( this.params, this.water.ocean, points, dt, wk );
-		return this.probe.h;
+		// The rogue packet is added in the vertex shader, so the GPU probe --
+		// which samples the FFT cascades and the wake field -- knows nothing
+		// about it. Add it here, on the same points, so the hull rides the wave
+		// the eye can see. Into a separate array: this.probe.h is the probe's
+		// own smoothed state and adding to it in place would compound every
+		// frame until the boat left the atmosphere.
+		const H = get( 'ocean.rogueH' );
+		if ( H <= 0.001 ) return this.probe.h;
+		if ( ! this._probeOut || this._probeOut.length !== this.probe.h.length )
+			this._probeOut = new Array( this.probe.h.length ).fill( 0 );
+		const t = this.water.time ?? 0;
+		for ( let i = 0; i < this.probe.h.length; i ++ ) {
+			const p = points[ i ] ?? points[ points.length - 1 ] ?? [ 0, 0 ];
+			this._probeOut[ i ] = this.probe.h[ i ] + this.rogueAt( p[ 0 ], p[ 1 ], t );
+		}
+		return this._probeOut;
 
 	}
 
