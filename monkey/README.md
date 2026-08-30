@@ -654,3 +654,45 @@ narrows, and it is also the cheapest and among the fastest.
 result is 864x480 against a 1280x720 room, so the backdrop is already being
 generated below the size it is displayed at. Kling is the exception: its
 endpoint has no resolution parameter and returns 1080p regardless.
+
+### First-last-frame endpoints cannot make a loop from one still
+
+This was worth testing properly because it looks like exactly the right tool.
+An endpoint that takes a first frame and a last frame, handed the same image
+twice, should by construction return a clip that ends where it began. Six of
+them were tried on the same still with the same prompt:
+
+| model | endpoint kind | end frame | motion | cost | verdict |
+|---|---|---|---|---|---|
+| Seedance 1 Lite | image-to-video | optional | **16.7%** | $0.049 | moves |
+| MiniMax H3 | image-to-video | optional | **9.9%** | $0.250 | moves |
+| FLUX.3 draft | first-last-frame | required | 1.0% | $0.300 | frozen |
+| FLUX.3 | first-last-frame | required | 1.0% | $0.850 | frozen |
+| Veo 3.1 Lite | first-last-frame | required | 1.4% | $0.240 | frozen |
+| Veo 3.1 Fast | first-last-frame | required | 1.3% | $0.400 | frozen |
+| Veo 3.1 | first-last-frame | required | 1.3% | $0.800 | frozen |
+
+Every dedicated first-last-frame model returned a held still, and they are not
+cheap ones. The split is not by vendor or by price, it is by endpoint kind, and
+the reason is in the name: a first-last-frame model interpolates from A to B,
+and when B is A the shortest path is to do nothing. An image-to-video model
+that merely *accepts* an optional end frame treats it as a constraint on an
+animation it is generating anyway, which is a different computation.
+
+They cannot be run the other way either. Submitting one without a last frame is
+rejected outright — `last_frame_url: Field required` — which at least costs
+nothing to discover.
+
+So the original wan first-last-frame failure early in this project was not a
+mis-set parameter and not a bad model. It was the whole category. Closing a
+loop has to come either from an image-to-video model with an optional end
+frame, or from the playback crossfade the engine already does.
+
+Three practical notes from the run. These endpoints all default
+`generate_audio: true`, which is useless for a background loop and costs bytes.
+None of them offers 480p; 720p is their floor. And Veo 3.1 Lite declares
+`duration` as a bare string with no enum while accepting exactly one value,
+`8s` — the fast and full variants take 4s/6s/8s.
+
+`--floor` refuses to submit below a balance, because Veo bills by the second
+and a matrix that empties the account halfway through cannot be finished.

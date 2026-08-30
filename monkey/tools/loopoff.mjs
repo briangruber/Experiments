@@ -38,6 +38,9 @@ const opt = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i
 const DRY = args.includes('--dry');
 const FORCE = args.includes('--force');
 const DURATION = +opt('duration', 5);
+// Veo bills by the second and a run that empties the account mid-matrix leaves
+// no way to finish it. Refuse to submit below this.
+const FLOOR = +opt('floor', 3);
 
 // --- the sources ------------------------------------------------------------
 // The two stills that won the image bake-off. Both are pixel art, which makes
@@ -126,7 +129,41 @@ const V = VARIANTS[VARIANT];
 const TEXT = { long: PROMPT, drift: `${PROMPT} ${DRIFT}`, simple: SIMPLE, rock: ROCK }[V.text];
 
 // --- the models -------------------------------------------------------------
+// Dedicated first-last-frame endpoints. These are the models built for exactly
+// the thing being attempted — handed the same frame twice, the clip has to
+// return to where it started — so they are the interesting case rather than a
+// workaround. Three things they share and the earlier four did not: they name
+// their two frames themselves rather than reusing image_url, they generate
+// audio unless told not to (useless for a background loop and it costs bytes),
+// and none of them offers 480p. 720p is their floor.
 const MODELS = [
+  {
+    key: 'flux3draft', label: 'FLUX.3 first-last (draft)', id: 'blackforestlabs/flux-3/first-last-frame-to-video/draft',
+    startField: 'start_image_url', endField: 'end_image_url',
+    build: (uri) => ({ prompt: TEXT, start_image_url: uri, duration: 5, aspect_ratio: 'auto', generate_audio: false }),
+  },
+  {
+    key: 'flux3', label: 'FLUX.3 first-last', id: 'blackforestlabs/flux-3/first-last-frame-to-video',
+    startField: 'start_image_url', endField: 'end_image_url',
+    build: (uri) => ({ prompt: TEXT, start_image_url: uri, duration: 5, resolution: '720p', aspect_ratio: 'auto', generate_audio: false }),
+  },
+  {
+    key: 'veo31lite', label: 'Veo 3.1 Lite first-last', id: 'fal-ai/veo3.1/lite/first-last-frame-to-video',
+    startField: 'first_frame_url', endField: 'last_frame_url',
+    // Its schema declares duration as a bare string with no enum; the endpoint
+    // accepts exactly one value. The fast and full variants take 4s/6s/8s.
+    build: (uri) => ({ prompt: TEXT, first_frame_url: uri, duration: '8s', resolution: '720p', aspect_ratio: 'auto', generate_audio: false }),
+  },
+  {
+    key: 'veo31fast', label: 'Veo 3.1 Fast first-last', id: 'fal-ai/veo3.1/fast/first-last-frame-to-video',
+    startField: 'first_frame_url', endField: 'last_frame_url',
+    build: (uri) => ({ prompt: TEXT, first_frame_url: uri, duration: '4s', resolution: '720p', aspect_ratio: 'auto', generate_audio: false }),
+  },
+  {
+    key: 'veo31', label: 'Veo 3.1 first-last', id: 'fal-ai/veo3.1/first-last-frame-to-video',
+    startField: 'first_frame_url', endField: 'last_frame_url',
+    build: (uri) => ({ prompt: TEXT, first_frame_url: uri, duration: '4s', resolution: '720p', aspect_ratio: 'auto', generate_audio: false }),
+  },
   {
     key: 'minimax', label: 'MiniMax Hailuo H3', id: 'minimax/h3/image-to-video',
     note: 'The model in the build today.',
@@ -228,9 +265,13 @@ for (const sk of sourceKeys) {
   const uri = 'data:image/jpeg;base64,' + (await readFile(join(ROOT, src.file))).toString('base64');
   for (const model of models) {
     const id = `${sk}/${model.key}/${VARIANT}`;
-    if (done.has(id)) { console.log(`  ${id.padEnd(22)} already generated`); continue; }
-    process.stdout.write(`  ${id.padEnd(22)} ...`);
+    if (done.has(id)) { console.log(`  ${id.padEnd(26)} already generated`); continue; }
+    process.stdout.write(`  ${id.padEnd(26)} ...`);
     const before = await quiesce();
+    if (before != null && before < FLOOR) {
+      console.log(`\r  ${id.padEnd(26)} SKIPPED — balance $${before.toFixed(2)} is below the $${FLOOR} floor`);
+      continue;
+    }
     const t0 = Date.now();
     const clip = { source: sk, sourceLabel: src.label, model: model.key, label: model.label, id: model.id,
       variant: VARIANT, variantLabel: V.label, prompt: TEXT, closedLoop: !!V.end, duration: DURATION };
@@ -241,7 +282,9 @@ for (const sk of sourceKeys) {
         input[model.endField] = uri;
         // The whole point of this variant is the last frame. Paying for a clip
         // that quietly did not get one is the failure this tool exists to stop.
-        if (input[model.endField] !== input.image_url) throw new Error('end frame is not the source image');
+        const startField = model.startField || 'image_url';
+        if (!input[startField]) throw new Error(`${model.key}: no start frame in ${startField}`);
+        if (input[model.endField] !== input[startField]) throw new Error('end frame is not the same image as the start frame');
       }
       clip.sent = Object.keys(input).sort();
       clip.endFrame = V.end ? model.endField : null;
@@ -257,7 +300,7 @@ for (const sk of sourceKeys) {
       clip.probe = p;
       clip.moves = !!p.motion && p.motion.ratio > MOVES;
       clip.cost = await settle(before);
-      console.log(`\r  ${id.padEnd(22)} ${String(clip.seconds).padStart(5)}s  $${clip.cost?.toFixed(4) ?? '  ?   '}  `
+      console.log(`\r  ${id.padEnd(26)} ${String(clip.seconds).padStart(5)}s  $${clip.cost?.toFixed(4) ?? '  ?   '}  `
         + `${(buf.length / 1024 / 1024).toFixed(2)} MB  ${p.width}x${p.height}  ${p.seconds.toFixed(1)}s @${p.fps}fps  `
         + `motion ${(p.motion ? p.motion.ratio * 100 : 0).toFixed(1)}%${clip.moves ? '' : '  <-- STILL'}`
         + `${clip.endFrame ? '  [' + clip.endFrame + ' sent]' : ''}`);
@@ -265,7 +308,7 @@ for (const sk of sourceKeys) {
       clip.seconds = +((Date.now() - t0) / 1000).toFixed(1);
       clip.error = e.message.slice(0, 300);
       clip.cost = await settle(before, 8000);
-      console.log(`\r  ${id.padEnd(22)} FAILED  ${clip.error}`);
+      console.log(`\r  ${id.padEnd(26)} FAILED  ${clip.error}`);
     }
     clips = clips.filter((c) => key(c) !== id).concat(clip);
     await writeFile(INDEX, JSON.stringify(clips, null, 2) + '\n');
