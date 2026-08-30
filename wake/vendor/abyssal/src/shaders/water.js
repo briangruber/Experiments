@@ -412,6 +412,10 @@ uniform float uWaveShadow, uShadowScale;
 // a backtick ends the shader and the file. Third time in this session.)
 uniform vec3  uCraftReflPos, uCraftReflTint;
 uniform float uCraftReflSize, uCraftReflAmount, uCraftShadow;
+// The craft's half-extents (athwartships, up, along) and which way it points,
+// so its image in the water is the shape of a boat rather than of a ball.
+uniform vec3  uCraftReflHalf;
+uniform vec2  uCraftReflFwd;
 uniform float uHeightScale;      // the shadow march reads the same height field the VS displaced by
 
 out vec4 fragColor;
@@ -1527,11 +1531,31 @@ void main(){
   // a rough one smears it, and faded by uCraftReflAmount, which the app sets to
   // zero whenever there is no craft.
   if (uCraftReflAmount > 0.001) {
+    // AN ELLIPSOID, not a sphere -- because a sphere can only ever reflect as a
+    // circle, and a boat is not round.
+    //
+    // The test is still one ray against one quadric, which is the whole reason
+    // this exists instead of a second render of the scene. The trick is to do
+    // it in a space where the ellipsoid IS a sphere: scale the world down by
+    // the craft's half-extents along its own axes, and the problem becomes the
+    // sphere test that was here before. Long down the hull, narrow across it,
+    // low in height -- so the image in the water is a boat-shaped smear lying
+    // along the heading, and it swings round as she turns.
     vec3 toC = uCraftReflPos - vWorld;
-    float dC = max(length(toC), 1e-3);
-    float cosA = dot(normalize(R), toC / dC);
-    // Angular radius of the proxy, widened by the GGX lobe.
-    float angR = atan(uCraftReflSize / dC);
+    // The craft's frame: forward, athwartships, up.
+    vec3 cf = normalize(vec3(uCraftReflFwd.x, 0.0, uCraftReflFwd.y));
+    vec3 cr = vec3(-cf.z, 0.0, cf.x);
+    vec3 half3 = max(uCraftReflHalf, vec3(0.05));
+    // Both the offset and the ray, into that frame and divided by the extents.
+    vec3 Rn = normalize(R);
+    vec3 toE = vec3(dot(toC, cr), toC.y, dot(toC, cf)) / half3;
+    vec3 Re  = vec3(dot(Rn, cr), Rn.y, dot(Rn, cf)) / half3;
+    float dE = max(length(toE), 1e-3);
+    float lenRe = max(length(Re), 1e-4);
+    float cosA = dot(Re / lenRe, toE / dE);
+    // In that space the proxy is the unit sphere, so its angular radius is
+    // asin(1/distance) -- exact, where atan(r/d) was the small-angle stand-in.
+    float angR = asin(clamp(1.0 / max(dE, 1.0001), 0.0, 1.0));
     float blur = angR * 0.35 + alpha * 0.9;
     float hit = 1.0 - smoothstep(angR * 0.55, angR + blur, acos(clamp(cosA, -1.0, 1.0)));
     // THE CRAFT'S OWN RADIANCE, not a tint on the sky behind it.

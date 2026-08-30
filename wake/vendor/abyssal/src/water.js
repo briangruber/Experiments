@@ -7,6 +7,8 @@
 // wants the sea's geometry without our shading (a physics probe, a custom
 // material, a different renderer) uses Ocean alone and never touches this file.
 
+const CRAFT_HALF = new Float32Array([1, 1, 1]);
+const CRAFT_FWD = new Float32Array([0, 1]);
 const ZERO3 = new Float32Array(3);
 const ONE2 = new Float32Array([1, 1]);
 // A hull's mean albedo: most of them are pale. Only ever multiplies the sky the
@@ -318,6 +320,8 @@ export class WaterSurface {
       uCraftReflPos: ctx.craftReflPos ?? ZERO3,
       uCraftReflTint: ctx.craftReflTint ?? CRAFT_TINT,
       uCraftReflSize: ctx.craftReflSize ?? 0,
+      uCraftReflHalf: ctx.craftReflHalf ?? CRAFT_HALF,
+      uCraftReflFwd: ctx.craftReflFwd ?? CRAFT_FWD,
       uCraftReflAmount: ctx.craftReflAmount ?? 0,
       uCraftShadow: ctx.craftShadow ?? 0,
       uInterReflect: p.interReflect, uWaveAO: p.waveAO,

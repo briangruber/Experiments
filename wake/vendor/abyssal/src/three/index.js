@@ -222,6 +222,8 @@ export class AbyssalWater extends Component {
     this._ctx.craftReflPos = c?.pos ?? null;
     this._ctx.craftReflTint = c?.tint ?? null;
     this._ctx.craftReflSize = c?.size ?? 0;
+    this._ctx.craftReflHalf = c?.half ?? null;
+    this._ctx.craftReflFwd = c?.fwd ?? null;
     this._ctx.craftReflAmount = c?.amount ?? 0;
     this._ctx.craftShadow = c?.shadow ?? 0;
     resetDrawState(this.gl);

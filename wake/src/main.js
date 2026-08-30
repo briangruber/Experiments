@@ -295,7 +295,7 @@ let shownModel = -1;
 //
 // Cached because it only moves when the model or its scale does; recomputed
 // from the same onChange that re-runs scaleTo.
-const hullSpan = { len: 9.9, stern: 9.9 };
+const hullSpan = { len: 9.9, stern: 9.9, beam: 2.6, height: 2.0 };
 const _hullBox = new THREE.Box3();
 function measureHull() {
   if (!boat.children.length) return;
@@ -314,6 +314,10 @@ function measureHull() {
   // is the hull length; for anything whose origin is not at the stem it is not,
   // and that difference is exactly what puts a wake off the back of a boat.
   hullSpan.stern = Math.max(-_hullBox.min.z, 0.5);
+  // Across and up as well, for anything that needs the hull's real shape
+  // rather than just how long it is -- the reflection proxy above all.
+  hullSpan.beam = Math.max(_hullBox.max.x - _hullBox.min.x, 0.3);
+  hullSpan.height = Math.max(_hullBox.max.y - _hullBox.min.y, 0.3);
 }
 
 async function showBoat(i) {
@@ -372,7 +376,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b61';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b62';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -1357,10 +1361,18 @@ function frame(now) {
     } : null;
     const reflAmt = get('scene.boatReflect');
     const craft = reflAmt > 0.001 ? {
-      pos: new Float32Array([cxm, boat.position.y + drawn * 0.10, czm]),
-      // Radius in metres. Scaled off the drawn hull so it follows the boat
-      // picker and Model scale without a second knob to forget.
-      size: Math.max(drawn * 0.30, 0.5),
+      pos: new Float32Array([cxm, boat.position.y + hullSpan.height * 0.30, czm]),
+      // Half-extents from the MEASURED model: across, up, along. A boat is
+      // roughly five times longer than it is wide, and a sphere sized to its
+      // length is a disc five times too big in every other direction -- which
+      // is precisely the pale circle this was drawing.
+      half: new Float32Array([
+        Math.max(hullSpan.beam * 0.5, 0.3),
+        Math.max(hullSpan.height * 0.45, 0.3),
+        Math.max(hullSpan.len * 0.5, 0.5),
+      ]),
+      fwd: new Float32Array([fx, fz]),
+      size: Math.max(hullSpan.len * 0.5, 0.5),
       tint: _craftTint,
       amount: reflAmt,
       shadow: get('scene.boatShadow'),
