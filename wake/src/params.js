@@ -76,7 +76,7 @@ export const PARAMS = {
     buoy:         { v: 1,  min: 0,   max: 1.5, step: 0.01, label: 'Ride the waves' },
     rollRate:     { v: 0.85, min: 0.1, max: 3,   step: 0.01, label: 'Roll rate (Hz)' },
     rollDamp:     { v: 0.72, min: 0.1, max: 2,   step: 0.01, label: 'Roll damping' },
-    engines:      { v: 2,    min: 1,   max: 4,   step: 1,    label: 'Engines' },
+    engines:      { v: 1,    min: 1,   max: 4,   step: 1,    label: 'Engines' },
     engineSpacing:{ v: 2.4, min: 0.2, max: 4,   step: 0.05, label: 'Engine spacing (m)' },
   },
 
