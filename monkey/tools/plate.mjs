@@ -32,6 +32,7 @@
 import { writeFile, readFile, mkdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ROOT, launch, serve } from './harness.mjs';
+import { loadStyle, repaint, fetchBuf, toDataUri } from './fal.mjs';
 
 const args = process.argv.slice(2);
 const cmd = args[0];
@@ -121,48 +122,31 @@ async function paint() {
   const buf = PROVIDER === 'fal' ? await paintFal() : await paintGateway();
   await writeFile(PLATE, buf);
   await ledger({
-    kind: 'plate', file: 'assets/dock-plate.png', provider: PROVIDER, model: MODEL,
+    kind: 'plate', file: 'assets/dock-plate.png', provider: PROVIDER,
+    model: usedStyle?.model || MODEL, lora: usedStyle?.lora || null,
     strength: PROVIDER === 'fal' ? STRENGTH : undefined, size: PROVIDER === 'fal' ? '1920x720' : SIZE,
     from: 'assets/dock-blockout.png', prompt: PROMPT,
   });
-  console.log(`plate -> assets/dock-plate.png  ${(buf.length / 1024).toFixed(0)} KB  (${PROVIDER} ${MODEL})`);
+  console.log(`plate -> assets/dock-plate.png  ${(buf.length / 1024).toFixed(0)} KB  (${PROVIDER} ${usedStyle?.model || MODEL}${usedStyle?.lora ? ' + lora' : ''})`);
   console.log('reload the game; src/game/dock.js picks it up automatically.');
 }
 
 // fal keeps the input image's dimensions, which is the only reason the walk
 // polygons still line up with the painting afterwards.
 async function paintFal() {
-  const key = process.env.FAL_KEY;
-  if (!key) { console.error('FAL_KEY not set'); process.exit(1); }
-  const dataUri = 'data:image/png;base64,' + (await readFile(BLOCKOUT)).toString('base64');
-  const headers = { Authorization: `Key ${key}`, 'content-type': 'application/json' };
-
-  const submit = await fetch(`https://queue.fal.run/${MODEL}`, {
-    method: 'POST', headers,
-    body: JSON.stringify({
-      image_url: dataUri, prompt: PROMPT, strength: STRENGTH,
-      num_inference_steps: 40, guidance_scale: 3.5, num_images: 1,
-      enable_safety_checker: false, output_format: 'png',
-    }),
+  const style = await loadStyle();
+  if (style.lora) console.log(`  style: ${style.trigger || '(no trigger)'} @ ${style.scale}  ${style.lora.split('/').pop()}`);
+  const dataUri = toDataUri(await readFile(BLOCKOUT));
+  const out = await repaint({
+    style, imageUrl: dataUri, prompt: PROMPT, strength: STRENGTH,
+    width: 1920, height: 720, label: 'plate',
   });
-  const queued = await submit.json();
-  if (!submit.ok) { console.error(`fal submit ${submit.status}: ${JSON.stringify(queued).slice(0, 500)}`); process.exit(1); }
-  console.log(`  queued ${queued.request_id}`);
-
-  let out = null;
-  for (let i = 0; i < 120; i++) {
-    await new Promise((r) => setTimeout(r, 2000));
-    const st = await (await fetch(queued.status_url, { headers })).json();
-    if (st.status === 'COMPLETED') { out = await (await fetch(queued.response_url, { headers })).json(); break; }
-    if (st.status === 'FAILED') { console.error('fal failed: ' + JSON.stringify(st).slice(0, 500)); process.exit(1); }
-    if (i % 5 === 0) console.log(`  ${st.status}...`);
-  }
-  if (!out) { console.error('fal timed out'); process.exit(1); }
-  const img = out.images?.[0];
-  if (!img?.url) { console.error('no image: ' + JSON.stringify(out).slice(0, 400)); process.exit(1); }
-  console.log(`  painted ${img.width}x${img.height}`);
-  return Buffer.from(await (await fetch(img.url)).arrayBuffer());
+  console.log(`  painted ${out.width}x${out.height}`);
+  usedStyle = out;
+  return fetchBuf(out.url);
 }
+
+let usedStyle = null;
 
 async function paintGateway() {
   const key = process.env.AI_GATEWAY_API_KEY;

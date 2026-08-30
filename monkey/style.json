@@ -1,0 +1,14 @@
+{
+  "_comment": "The hand this project generates in. Both tools/plate.mjs and tools/props.mjs read it, so the backdrop and the props come out matching. Set lora to null to generate with the base model.",
+  "lora": "https://huggingface.co/strangerzonehf/Flux-Super-Paint-LoRA/resolve/main/Super-Paint.safetensors",
+  "trigger": "Super Paint",
+  "scale": 0.9,
+  "credit": "Flux-Super-Paint-LoRA by strangerzonehf, CreativeML OpenRAIL-M, base FLUX.1-dev",
+  "_alternatives": {
+    "civitai-painted-world": {
+      "lora": "https://civitai.com/api/download/models/796163?fileId=709744",
+      "trigger": "painted world",
+      "note": "Needs a free CIVITAI_TOKEN in the environment; Civitai 401s anonymous downloads. Creator permissions are Image+RentCivit+Rent, so third-party generation is allowed and credit is required."
+    }
+  }
+}

@@ -45,6 +45,7 @@ floor — the five things every later room is made of.
 | moving layers | `src/art/animate.js` | drifting clouds, sea shimmer and moon glitter, candle flicker |
 | walk-cycle contact sheet | `tools/pose.mjs` | the only way to judge animation — see below |
 | prop table and mattes | `src/art/props.js` | the box each clickable object lives in |
+| the hand it generates in | `style.json` | the style LoRA both generators share |
 | single-file bundler | `tools/bundle.mjs` | module registry + inlined assets, publishes as an artifact |
 | the room itself | `src/game/dock.js` | data plus generator functions; touches no engine internals |
 | the voiced script | `src/game/lines.js` | words only, with stable ids |
@@ -123,10 +124,58 @@ paint against, and the same matte is re-applied afterwards. Exact, free, and
 the same insight as the plate one level down: the geometry was never lost, only
 painted over.
 
-One caveat, learned from a pile of rope: an exact matte is right for a solid
-object and wrong for a wispy one. The blockout draws a net as a few thin
-strokes, and cutting to that exactly returned a handful of scribbled strands.
-Wispy props get their matte dilated first (`DILATE` in `tools/props.mjs`).
+Two caveats, both learned from the same pile of rope. An exact matte is right
+for a solid object and wrong for a wispy one — the blockout drew the net as a
+few thin strokes, and cutting to that exactly returned scribbled strands, so
+wispy props get their matte dilated first (`DILATE` in `tools/props.mjs`). But
+dilation drags in a halo of the grey backing, and the better fix was to give
+the object a real silhouette in the blockout so no dilation is needed.
+
+The same pile taught the sharper lesson. Under a style LoRA it kept coming back
+as white fluff, and no amount of "dark tarred rope, not white, not pale" moved
+it — because the blockout really was pale, drawn in light grey strokes. **The
+placeholder is the conditioning signal**, so its values are not a cosmetic
+choice: prompt words lose to what the source image actually shows. Darkening
+the procedural net fixed in one line what three prompt rewrites could not.
+
+## The style LoRA
+
+`style.json` names a LoRA and its trigger word, and both generators read it, so
+the backdrop and the props come out of one hand. It is the piece that makes
+room two through room forty cheap: with it, "painterly" stops being a word in a
+prompt the model reinterprets every run and becomes a fixed set of weights.
+Without it every generation is an independent roll — this room's tavern sign
+has come back reading "Jeavern", "TÉRA", "TAVERN" and "TVL9RN" across four runs
+of the same prompt.
+
+The one shipped here is
+[Flux-Super-Paint-LoRA](https://huggingface.co/strangerzonehf/Flux-Super-Paint-LoRA)
+(CreativeML OpenRAIL-M, base FLUX.1-dev), hosted on Hugging Face and therefore
+fetchable by fal with no credentials.
+
+**Licence is the constraint, not quality.** The obvious candidate for this
+project is Civitai's *"LucasArts Style" (1990s PC Adventure Games)* LoRA, and it
+cannot be used here for two independent reasons. It is trained on SDXL, and
+this pipeline runs Flux — the architectures do not share LoRAs, so it would
+mean moving the repaint to `fal-ai/fast-sdxl/image-to-image`. And its creator
+set `allowCommercialUse: ["RentCivit"]`, which permits generation on Civitai's
+own service and does not grant `Rent` (third-party services such as fal) or
+`Image` (selling the output). Underneath that, it was trained on ~80 screenshots
+of copyrighted LucasArts art, and a permission flag set by an uploader is not a
+licence from the rights holder.
+
+Two Flux-native alternatives do grant `Rent`, and `style.json` carries the
+first as a commented alternative:
+
+| model | permissions | note |
+| --- | --- | --- |
+| [Painted World](https://civitai.com/models/242763) | Image + Rent + RentCivit | credit required; needs `CIVITAI_TOKEN` |
+| [Painted Comic](https://civitai.com/models/959766) | Image + Rent + RentCivit + Sell | no credit required |
+
+Civitai answers `401` to anonymous downloads, so fal cannot fetch one of its
+URLs directly. `tools/fal.mjs` appends a free `CIVITAI_TOKEN` from the
+environment when the LoRA URL is a Civitai one, which keeps the token out of
+`style.json` — that file is committed.
 
 ## Making the still image move
 
@@ -144,7 +193,14 @@ knows where the horizon and the dock line are.
 - **Lamplight** flickers on two detuned sines with a rare dip, and spills onto
   the planks.
 
-Three bugs in this pass were all the same bug: **a gradient clipped by a
+One bug here outlived its cause. The water layer sliced the sea band out of the
+plate at *room* coordinates, which worked only because the plate happened to be
+exactly 1920x720. The LoRA endpoint returns 1536x576 for the same 8:3 frame, and
+rows 470–596 of a 576-tall image are planks — so the shimmer painted the dock
+over the sea. Anything sampling the plate now converts into the plate's own
+pixel space first.
+
+Three other bugs in this pass were all the same bug: **a gradient clipped by a
 rectangle is a rectangle.** The lamp spill, and then the character's rim light,
 both drew a gradient into a `fillRect` under `lighter` compositing — and since
 a linear gradient clamps to its end colour outside its own range, the rect edge

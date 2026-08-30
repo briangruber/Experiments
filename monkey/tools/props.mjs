@@ -32,6 +32,7 @@
 import { writeFile, readFile, mkdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ROOT, launch, serve } from './harness.mjs';
+import { loadStyle, repaint, fetchBuf, toDataUri } from './fal.mjs';
 
 const { PROP_RECTS } = await import(new URL('../src/art/props.js', import.meta.url));
 
@@ -88,7 +89,13 @@ const ON_GREY = (dataUri) => new Promise((resolve) => {
 // strands instead of a pile of rope, and the tin cup came back almost empty.
 // Everything gets a pixel or two anyway, which closes the hairline gap an
 // antialiased edge leaves behind.
-const DILATE = { nets: 8, cup: 4, tavern: 2, barrel: 2, crates: 2 };
+const DILATE = { nets: 2, cup: 4, tavern: 0, barrel: 1, crates: 1 };
+
+// Per-prop repaint strength. A style LoRA has opinions, and on the net pile it
+// insisted on pale fluff no matter how the prompt described tarred rope —
+// saying "not white" three ways does not move a trained bias. Turning the
+// strength down lets the dark blockout underneath survive instead.
+const PROP_STRENGTH = { nets: 0.45 };
 
 const APPLY_MATTE = ([paintedUri, matteUri, w, h, grow]) => Promise.all(
   [paintedUri, matteUri].map((src) => new Promise((res) => { const i = new Image(); i.onload = () => res(i); i.src = src; })),
@@ -128,8 +135,11 @@ const SUBJECT = {
     + 'rust bleeding from the hoops, a brass spigot low on the right-hand side.',
   crates: 'A stack of three battered wooden cargo crates, rough sawn planks with cross-braces, '
     + 'chipped corners, damp stains, old stencilling worn to nothing.',
-  nets:   'A heap of coiled tarred fishing net on a dock, dark and damp, with a long wooden boat '
-    + 'hook lying across it, its iron hook catching the moonlight.',
+  nets:   'A heap of coiled tarred fishing rope on a dock. VERY DARK — near-black tarred hemp, '
+    + 'soaked and heavy, deep in shadow, the darkest object in the frame, only a few dull '
+    + 'olive-brown highlights along the top of the coils. A long weathered wooden boat hook '
+    + 'lies across the pile, its iron hook catching a thin cold highlight. '
+    + 'Not white, not pale, not bleached, not fluffy, not snow, not cotton.',
   cup:    'A dented tin drinking cup with a curved handle, hanging from a single nail, its metal '
     + 'scratched and tarnished with a bright highlight along one edge.',
 };
@@ -140,29 +150,6 @@ async function ledger(entry) {
   log.push({ ...entry, at: new Date().toISOString() });
   await writeFile(LEDGER, JSON.stringify(log, null, 2) + '\n');
 }
-
-// --- fal --------------------------------------------------------------------
-
-const KEY = process.env.FAL_KEY;
-const headers = () => ({ Authorization: `Key ${KEY}`, 'content-type': 'application/json' });
-
-async function falRun(model, input, label) {
-  const submit = await fetch(`https://queue.fal.run/${model}`, {
-    method: 'POST', headers: headers(), body: JSON.stringify(input),
-  });
-  const queued = await submit.json();
-  if (!submit.ok) throw new Error(`${label} submit ${submit.status}: ${JSON.stringify(queued).slice(0, 400)}`);
-  for (let i = 0; i < 120; i++) {
-    await new Promise((r) => setTimeout(r, 2000));
-    const st = await (await fetch(queued.status_url, { headers: headers() })).json();
-    if (st.status === 'COMPLETED') return (await fetch(queued.response_url, { headers: headers() })).json();
-    if (st.status === 'FAILED') throw new Error(`${label} failed: ${JSON.stringify(st).slice(0, 400)}`);
-  }
-  throw new Error(`${label} timed out`);
-}
-
-const toDataUri = (buf, mime = 'image/png') => `data:${mime};base64,${buf.toString('base64')}`;
-const fetchBuf = async (url) => Buffer.from(await (await fetch(url)).arrayBuffer());
 
 // --- render the blockouts ---------------------------------------------------
 
@@ -177,7 +164,11 @@ if (DRY) {
   console.log(`\n${todo.length} props, ${todo.length} repaints (matte comes from the blockout, not a model)`);
   process.exit(0);
 }
-if (!KEY) { console.error('FAL_KEY not set'); process.exit(1); }
+if (!process.env.FAL_KEY) { console.error('FAL_KEY not set'); process.exit(1); }
+
+const style = await loadStyle();
+if (style.lora) console.log(`style: ${style.trigger || '(no trigger)'} @ ${style.scale}  ${style.lora.split('/').pop()}\n`);
+let usedModel = null, usedLora = null;
 
 await mkdir(RAW, { recursive: true });
 const { port, close } = await serve();
@@ -202,15 +193,12 @@ for (const name of todo) {
   if (REMATTE || (haveRaw && !FORCE)) {
     rawBuf = await readFile(rawFile);
   } else {
-    const painted = await falRun(MODEL, {
-      image_url: onGrey,
-      prompt: `${SUBJECT[name]} ${STYLE} ${KEEP}`,
-      strength: STRENGTH, num_inference_steps: 40, guidance_scale: 3.5,
-      num_images: 1, enable_safety_checker: false, output_format: 'png',
-    }, name);
-    const paintedUrl = painted.images?.[0]?.url;
-    if (!paintedUrl) throw new Error(`${name}: no repaint returned`);
-    rawBuf = await fetchBuf(paintedUrl);
+    const out = await repaint({
+      style, imageUrl: onGrey, prompt: `${SUBJECT[name]} ${STYLE} ${KEEP}`,
+      strength: PROP_STRENGTH[name] ?? STRENGTH, width: w, height: h, label: name,
+    });
+    usedModel = out.model; usedLora = out.lora;
+    rawBuf = await fetchBuf(out.url);
     await writeFile(rawFile, rawBuf);
   }
 
@@ -219,8 +207,8 @@ for (const name of todo) {
   await writeFile(dest, buf);
   await ledger({
     kind: 'prop', name, file: `assets/props/${name}.png`, rect: PROP_RECTS[name],
-    provider: 'fal', model: MODEL, matte: 'blockout alpha', dilate: DILATE[name] ?? 2,
-    strength: STRENGTH, prompt: SUBJECT[name],
+    provider: 'fal', model: usedModel || MODEL, lora: usedLora, matte: 'blockout alpha',
+    dilate: DILATE[name] ?? 2, strength: PROP_STRENGTH[name] ?? STRENGTH, prompt: SUBJECT[name],
   });
   console.log(`  ${name.padEnd(8)} ${(buf.length / 1024).toFixed(0).padStart(4)} KB  ${w}x${h}`);
 }

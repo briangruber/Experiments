@@ -161,10 +161,16 @@ export function makeWater(plate) {
   // resample and the glitter carries the effect alone.
   let band = null;
   if (plate) {
+    // The plate is not necessarily 1920x720 — a LoRA endpoint hands back
+    // 1536x576 for the same 8:3 frame — so the sea band has to be cut in the
+    // plate's own pixel space and scaled into the room's. Slicing at room
+    // coordinates sampled the planks and painted them over the water.
+    const sy = (HORIZON / SCENE.roomH) * plate.height;
+    const sh = (H / SCENE.roomH) * plate.height;
     band = document.createElement('canvas');
-    band.width = plate.width;
+    band.width = SCENE.roomW;
     band.height = H;
-    band.getContext('2d').drawImage(plate, 0, HORIZON, plate.width, H, 0, 0, plate.width, H);
+    band.getContext('2d').drawImage(plate, 0, sy, plate.width, sh, 0, 0, SCENE.roomW, H);
   }
 
   const STRIP = 4;

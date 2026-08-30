@@ -28,6 +28,11 @@ export function rng(seed) {
 // the plate back apart — the water shimmer, the cloud field — reads them here
 // rather than guessing at the painting.
 export const SCENE = {
+  // The room's own size, so anything sampling the plate can convert into the
+  // plate's pixel space instead of assuming the two are the same. They are not:
+  // the LoRA endpoint returns 1536x576 for the same 8:3 frame.
+  roomW: 1920,
+  roomH: 720,
   moon: { x: 980, y: 120, r: 46 },
   horizon: 470,
   dockTop: 596,
@@ -257,8 +262,23 @@ export function paintCrates(ctx) {
 export function paintNets(ctx) {
   ctx.save();
   ctx.translate(1120, 690);
-  ctx.strokeStyle = 'rgba(140,124,96,0.62)';
-  ctx.lineWidth = 2;
+  // A solid mound under the strands. Without it the pile's silhouette is a few
+  // thin lines, which forces the matte to be dilated to find it — and a dilated
+  // matte drags in a halo of the grey backing. Give the object a real shape and
+  // the cut is clean.
+  const mound = ctx.createLinearGradient(0, -78, 0, 8);
+  mound.addColorStop(0, '#2a2820');
+  mound.addColorStop(1, '#14120d');
+  ctx.fillStyle = mound;
+  ctx.beginPath();
+  ctx.moveTo(-104, 6);
+  ctx.bezierCurveTo(-96, -54, -48, -78, -8, -70);
+  ctx.bezierCurveTo(34, -80, 88, -52, 100, 6);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(52,48,36,0.9)';
+  ctx.lineWidth = 3;
   const r = rng(11);
   for (let i = 0; i < 34; i++) {
     ctx.beginPath();
