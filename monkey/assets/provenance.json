@@ -714,5 +714,23 @@
     "fps": 16,
     "prompt": "A seamlessly looping ambient shot of this painted harbour at night. Subtle, slow, continuous motion only: water rippling and the moon reflection shimmering across it, clouds drifting slowly across the sky, the lantern flame flickering, warm light wavering in the windows, smoke curling from the chimney, the hanging sign swaying very slightly, the moored ship rocking gently and its pennant fluttering. The camera is completely locked off — no pan, no zoom, no dolly, no parallax, no camera movement of any kind. Nothing enters or leaves the frame. No people, no characters, no text appearing. The painting itself does not change: only the water, air, light and cloth move.",
     "at": "2026-08-30T00:55:04.840Z"
+  },
+  {
+    "kind": "scene-loop",
+    "file": "assets/scene.mp4",
+    "model": "minimax/h3/image-to-video",
+    "from": "assets/scene.jpg",
+    "endFrame": false,
+    "prompt": "Ambient living-painting shot of this moonlit harbour. Continuous gentle motion: the sea swells and ripples with the moonlight glittering and breaking across its surface, clouds drift slowly across the night sky, the lantern flame flickers and its glow pulses on the timber, firelight wavers in the windows, smoke curls and rises from the chimney, the hanging sign sways slightly on its bracket, and the moored ship rocks gently with its pennants fluttering. The camera is completely locked off: no pan, no zoom, no dolly, no parallax, no camera movement of any kind, no shot change. Nothing enters or leaves the frame. No people, no characters, no boats arriving, no text. The painting itself does not change — only water, air, light and cloth move.",
+    "at": "2026-08-30T02:50:24.463Z"
+  },
+  {
+    "kind": "scene-loop",
+    "file": "assets/scene.mp4",
+    "model": "minimax/h3/image-to-video",
+    "from": "assets/scene.jpg",
+    "endFrame": false,
+    "prompt": "Ambient living-painting shot of this moonlit harbour. Continuous gentle motion: the sea swells and ripples with the moonlight glittering and breaking across its surface, clouds drift slowly across the night sky, the lantern flame flickers and its glow pulses on the timber, firelight wavers in the windows, smoke curls and rises from the chimney, the hanging sign sways slightly on its bracket, and the moored ship rocks gently with its pennants fluttering. The camera is completely locked off: no pan, no zoom, no dolly, no parallax, no camera movement of any kind, no shot change. Nothing enters or leaves the frame. No people, no characters, no boats arriving, no text. The painting itself does not change — only water, air, light and cloth move.",
+    "at": "2026-08-30T02:54:22.351Z"
   }
 ]

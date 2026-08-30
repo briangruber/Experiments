@@ -100,7 +100,23 @@ export async function loadBackdrop() {
       // readyState >= 2 means there is a current frame to paint. Drawing a
       // video with no frame yet throws in some browsers and paints nothing in
       // others, so the still covers the gap.
-      if (this.video && this.video.readyState >= 2) { ctx.drawImage(this.video, 0, 0, w, h); return; }
+      const a = this.video, b = this.videoB;
+      if (a && a.readyState >= 2) {
+        const d = a.duration;
+        if (b && b.readyState >= 2 && d && isFinite(d)) {
+          // sin² and its complement, so the two weights always sum to one —
+          // a linear pair would darken through the middle of the blend.
+          const u = (a.currentTime % d) / d;
+          ctx.drawImage(b, 0, 0, w, h);
+          ctx.save();
+          ctx.globalAlpha = Math.sin(Math.PI * u) ** 2;
+          ctx.drawImage(a, 0, 0, w, h);
+          ctx.restore();
+        } else {
+          ctx.drawImage(a, 0, 0, w, h);
+        }
+        return;
+      }
       if (this.image) ctx.drawImage(this.image, 0, 0, w, h);
     },
   };
@@ -126,8 +142,33 @@ export async function loadBackdrop() {
     if (!v) return;
     backdrop.video = v;
     backdrop.kind = KIND.VIDEO;
-    const kick = () => v.play().catch(() => {});
+    // A generated clip does not end where it began, so playing it on loop jumps
+    // once a cycle. Rather than ask the model to close the loop — which was
+    // tried, and returned 81 frames of a held still with no motion at all — the
+    // seam is removed at playback: the clip is crossfaded against ITSELF,
+    // offset by half its length, weighted so whichever copy is furthest from
+    // its own cut is the one you are mostly seeing. The cut always lands under
+    // a copy that is at zero opacity.
+    const b = v.cloneNode();
+    b.muted = true; b.loop = true; b.playsInline = true;
+    b.style.cssText = v.style.cssText;
+    document.body.appendChild(b);
+    backdrop.videoB = b;
+
+    const kick = () => { v.play().catch(() => {}); b.play().catch(() => {}); };
+    const sync = () => {
+      const d = v.duration;
+      if (!d || !isFinite(d)) return;
+      const want = (v.currentTime + d / 2) % d;
+      if (Math.abs(b.currentTime - want) > 0.08) b.currentTime = want;
+    };
+    v.addEventListener('loadedmetadata', sync);
+    b.addEventListener('canplay', sync, { once: true });
+    sync();
     kick();
+    // Two elements keep two clocks. Nudge them together occasionally rather
+    // than every frame, which would stutter on the seek.
+    setInterval(sync, 1000);
     // Autoplay can still be refused until the page has been interacted with,
     // and a click is the first thing that happens in this game anyway.
     for (const ev of ['pointerdown', 'keydown']) window.addEventListener(ev, kick, { once: true });

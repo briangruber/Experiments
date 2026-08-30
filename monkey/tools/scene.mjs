@@ -50,8 +50,18 @@ const opt = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i
 const DRY = args.includes('--dry');
 const FORCE = args.includes('--force');
 const STILL_MODEL = opt('model', 'fal-ai/flux-2-pro');
-const LOOP_MODEL = opt('video-model', 'fal-ai/wan-flf2v');
+const LOOP_MODEL = opt('video-model', 'minimax/h3/image-to-video');
+// Feeding the same still as both first and last frame seemed clever and was
+// not: it gave the model nothing to interpolate and returned 81 frames of a
+// held image — valid H.264, right length, 0.8% inter-frame size, no motion.
+// The seam is now handled at playback with a crossfade instead, so the video
+// only has to move.
+const END_FRAME = args.includes('--end-frame');
 const SEED = opt('seed', null);
+// 768P native comes back around 12 MB for six seconds, which base64s past the
+// artifact's ceiling. The backdrop is a soft painting stretched to fill the
+// frame, so it survives a lower native resolution better than the page
+// survives being unloadable.
 
 const ASSETS = join(ROOT, 'assets');
 const STILL = join(ASSETS, 'scene.png');
@@ -102,18 +112,20 @@ const STILL_PROMPT = [
 ].join(' ');
 
 // What the video pass is allowed to do. The two prohibitions matter more than
-// the list of motions: a camera move cannot loop, and anything that enters or
-// leaves frame cannot loop either.
+// the list of motions: a camera move cannot loop, and anything that entered or
+// left frame could not either. Everything asked for is a thing that returns to
+// where it started on its own.
 const LOOP_PROMPT = [
-  'A seamlessly looping ambient shot of this painted harbour at night. Subtle, slow,',
-  'continuous motion only: water rippling and the moon reflection shimmering across it,',
-  'clouds drifting slowly across the sky, the lantern flame flickering, warm light',
-  'wavering in the windows, smoke curling from the chimney, the hanging sign swaying',
-  'very slightly, the moored ship rocking gently and its pennant fluttering.',
-  'The camera is completely locked off — no pan, no zoom, no dolly, no parallax,',
-  'no camera movement of any kind. Nothing enters or leaves the frame.',
-  'No people, no characters, no text appearing. The painting itself does not change:',
-  'only the water, air, light and cloth move.',
+  'Ambient living-painting shot of this moonlit harbour. Continuous gentle motion:',
+  'the sea swells and ripples with the moonlight glittering and breaking across its',
+  'surface, clouds drift slowly across the night sky, the lantern flame flickers and',
+  'its glow pulses on the timber, firelight wavers in the windows, smoke curls and',
+  'rises from the chimney, the hanging sign sways slightly on its bracket, and the',
+  'moored ship rocks gently with its pennants fluttering.',
+  'The camera is completely locked off: no pan, no zoom, no dolly, no parallax, no',
+  'camera movement of any kind, no shot change.',
+  'Nothing enters or leaves the frame. No people, no characters, no boats arriving,',
+  'no text. The painting itself does not change — only water, air, light and cloth move.',
 ].join(' ');
 
 async function ledger(entry) {
@@ -151,25 +163,25 @@ async function loop() {
   if (!(await exists(STILL))) { console.error('no still yet — run: node tools/scene.mjs still'); process.exit(1); }
   if ((await exists(LOOP)) && !FORCE) { console.error('assets/scene.mp4 exists — pass --force to redraw'); process.exit(1); }
   if (DRY) { console.log(`would POST ${LOOP_MODEL} with the still as BOTH first and last frame\n\n${LOOP_PROMPT}`); return; }
-  const uri = 'data:image/png;base64,' + (await readFile(STILL)).toString('base64');
-  const out = await falRun(LOOP_MODEL, {
+  const uri = 'data:image/jpeg;base64,' + (await readFile(STILL_WEB)).toString('base64');
+  const input = {
     prompt: LOOP_PROMPT,
-    // The same frame at both ends. That is the whole trick: the model has to
-    // arrive back where it started, so the last frame cuts to the first
-    // without a seam.
-    start_image_url: uri,
-    end_image_url: uri,
-    resolution: '720p',
-    num_frames: 81,
-    frames_per_second: 16,
-    aspect_ratio: '16:9',
-  }, 'loop');
+    image_url: uri,
+    duration: 6,
+    resolution: opt('resolution', '480P'),
+    prompt_expansion_mode: 'quality',
+    enable_safety_checker: false,
+  };
+  // Optional, and off by default for the reason above.
+  if (END_FRAME) input.end_image_url = uri;
+  const out = await falRun(LOOP_MODEL, input, 'loop');
   const url = out.video?.url || out.videos?.[0]?.url;
   if (!url) throw new Error('no video: ' + JSON.stringify(out).slice(0, 400));
   const buf = await fetchBuf(url);
   await writeFile(LOOP, buf);
-  await ledger({ kind: 'scene-loop', file: 'assets/scene.mp4', model: LOOP_MODEL, from: 'assets/scene.png', frames: 81, fps: 16, prompt: LOOP_PROMPT });
-  console.log(`loop -> assets/scene.mp4  ${(buf.length / 1024 / 1024).toFixed(2)} MB  (81f @ 16fps ≈ 5.1s)`);
+  await ledger({ kind: 'scene-loop', file: 'assets/scene.mp4', model: LOOP_MODEL, from: 'assets/scene.jpg', endFrame: END_FRAME, prompt: LOOP_PROMPT });
+  console.log(`loop -> assets/scene.mp4  ${(buf.length / 1024 / 1024).toFixed(2)} MB`);
+  console.log('verify it actually moves: node tools/check-scene.mjs');
 }
 
 if (cmd === 'still') await still();

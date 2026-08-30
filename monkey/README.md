@@ -148,11 +148,26 @@ the procedural net fixed in one line what three prompt rewrites could not.
 ## How the backdrop is made now
 
 **Generate freely, then annotate what came back.** `tools/scene.mjs still` asks
-FLUX 2 PRO for the room, and `tools/scene.mjs loop` feeds that still to a
-first-last-frame video model as *both* the first and last frame — so the video
-has to arrive back where it started and loops without a seam. Water, cloud,
+FLUX 2 PRO for the room and `tools/scene.mjs loop` animates it. Water, cloud,
 lantern flame, chimney smoke and the moored ship all move, and none of it is
 procedural code that had to be written and tuned per element.
+
+The seam is closed at playback, not at generation, and that correction was
+expensive. The first attempt fed the still to a first-last-frame model as *both*
+the first and last frame, reasoning that a clip forced to arrive back where it
+started cannot have a seam. It cannot have motion either: the model was given
+nothing to interpolate and returned 158 frames of a held image. The file was
+valid H.264, the right length, the right size — and identical to the still, so
+a day went into investigating why the video "was not loading" when it had been
+playing perfectly all along.
+
+So the clip is now generated from a single frame, with a model asked only for
+ambient motion, and `src/art/backdrop.js` removes the seam by crossfading the
+clip against **itself, offset by half its length**, weighted `sin²`/`cos²` so
+the two always sum to one. Whichever copy is furthest from its own cut is the
+one you are mostly seeing, and the cut always lands under a copy at zero
+opacity. This works on any clip, which is the point — it does not require the
+generator to cooperate.
 
 This replaced an earlier route that rendered a flat blockout and asked an
 image-to-image model to repaint it. That route bought a real guarantee — the
@@ -203,6 +218,21 @@ Three other things the loader does, each because of a way this failed:
   right" is the one failure nobody reports accurately. On a failure it names
   the reason — `no video (blob: error 4; data: error 4)` is a codec the browser
   cannot decode, which is what headless Chromium reports for H.264.
+
+### Verifying that it moves
+
+`tools/check-scene.mjs` reads the per-frame sample sizes out of the mp4's `stsz`
+box. Inter-coded frames are cheap exactly in proportion to how little changed
+between them, so their median size against the keyframe is a direct measure of
+motion that needs no decoder. The held-still clip scored **0.8%**; the one that
+actually moves scores **17%**. Had this check existed first it would have caught
+the failure in one second instead of a day.
+
+It also enforces a size ceiling. A published page has 16 MB and base64 costs a
+third on top, so the video's real budget is about 6 MB — MiniMax's native 768P
+came back at 11.7 MB for six seconds, which is unloadable. 480P at 5.1 MB is
+softer and is the right trade: the backdrop is a soft painting stretched to fill
+the frame, and the crisp still is what shows while it loads.
 
 ### Verifying something you cannot play
 
