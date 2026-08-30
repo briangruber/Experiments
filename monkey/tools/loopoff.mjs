@@ -84,6 +84,13 @@ const DRIFT = [
   'At the end of the clip everything is exactly where it was at the start.',
 ].join(' ');
 
+// The long prompt may itself be the problem. Every clause is another thing for
+// the model to weigh, and a list of nine simultaneous motions plus three
+// paragraphs of prohibitions is a lot of instruction for five seconds of
+// picture. This is the same brief in one sentence.
+const SIMPLE = 'Gentle looping animation: water ripples, clouds drift, the lantern flickers, '
+  + 'smoke rises from the chimney. The camera is still.';
+
 // Two ways to stop it, tested against each other rather than assumed. The
 // closed variant hands the model its own first frame as the last frame, which
 // forces the clip to return to its starting state. That is the thing that
@@ -91,14 +98,19 @@ const DRIFT = [
 // frame model given identical frames and nothing else to go on, and there is
 // now a motion check that catches it in seconds if it happens again.
 const VARIANTS = {
-  v1: { label: 'Original prompt', drift: false, end: false },
-  anchored: { label: 'Anti-drift prompt', drift: true, end: false },
-  closed: { label: 'Anti-drift + closed loop', drift: true, end: true },
+  v1: { label: 'Original prompt', text: 'long', end: false },
+  anchored: { label: 'Anti-drift prompt', text: 'drift', end: false },
+  closed: { label: 'Anti-drift + closed loop', text: 'drift', end: true },
+  // Prompt length and loop closure are separate levers, so they get separate
+  // variants: without the open control there is no way to tell which of the
+  // two did the work.
+  simple: { label: 'Short prompt + closed loop', text: 'simple', end: true },
+  'simple-open': { label: 'Short prompt, open loop', text: 'simple', end: false },
 };
 const VARIANT = opt('variant', 'v1');
 if (!VARIANTS[VARIANT]) { console.error(`unknown variant ${VARIANT} — one of ${Object.keys(VARIANTS)}`); process.exit(1); }
 const V = VARIANTS[VARIANT];
-const TEXT = V.drift ? `${PROMPT} ${DRIFT}` : PROMPT;
+const TEXT = { long: PROMPT, drift: `${PROMPT} ${DRIFT}`, simple: SIMPLE }[V.text];
 
 // --- the models -------------------------------------------------------------
 const MODELS = [
@@ -208,10 +220,18 @@ for (const sk of sourceKeys) {
     const before = await quiesce();
     const t0 = Date.now();
     const clip = { source: sk, sourceLabel: src.label, model: model.key, label: model.label, id: model.id,
-      variant: VARIANT, variantLabel: V.label, prompt: TEXT, closedLoop: !!(V.end && model.endField), duration: DURATION };
+      variant: VARIANT, variantLabel: V.label, prompt: TEXT, closedLoop: !!V.end, duration: DURATION };
     try {
       const input = model.build(uri);
-      if (V.end && model.endField) input[model.endField] = uri;
+      if (V.end) {
+        if (!model.endField) throw new Error(`${model.key} has no end-frame field; a closed loop is not possible here`);
+        input[model.endField] = uri;
+        // The whole point of this variant is the last frame. Paying for a clip
+        // that quietly did not get one is the failure this tool exists to stop.
+        if (input[model.endField] !== input.image_url) throw new Error('end frame is not the source image');
+      }
+      clip.sent = Object.keys(input).sort();
+      clip.endFrame = V.end ? model.endField : null;
       const out = await falRun(model.id, input, id);
       clip.seconds = +((Date.now() - t0) / 1000).toFixed(1);
       const url = out.video?.url || out.videos?.[0]?.url;
@@ -226,7 +246,8 @@ for (const sk of sourceKeys) {
       clip.cost = await settle(before);
       console.log(`\r  ${id.padEnd(22)} ${String(clip.seconds).padStart(5)}s  $${clip.cost?.toFixed(4) ?? '  ?   '}  `
         + `${(buf.length / 1024 / 1024).toFixed(2)} MB  ${p.width}x${p.height}  ${p.seconds.toFixed(1)}s @${p.fps}fps  `
-        + `motion ${(p.motion ? p.motion.ratio * 100 : 0).toFixed(1)}%${clip.moves ? '' : '  <-- STILL'}`);
+        + `motion ${(p.motion ? p.motion.ratio * 100 : 0).toFixed(1)}%${clip.moves ? '' : '  <-- STILL'}`
+        + `${clip.endFrame ? '  [' + clip.endFrame + ' sent]' : ''}`);
     } catch (e) {
       clip.seconds = +((Date.now() - t0) / 1000).toFixed(1);
       clip.error = e.message.slice(0, 300);

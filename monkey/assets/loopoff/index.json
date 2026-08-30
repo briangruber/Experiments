@@ -406,5 +406,178 @@
     },
     "moves": true,
     "cost": 0.2025
+  },
+  {
+    "source": "seedream",
+    "sourceLabel": "Seedream 4 · pixel",
+    "model": "seedance",
+    "label": "Seedance 1 Lite",
+    "id": "fal-ai/bytedance/seedance/v1/lite/image-to-video",
+    "variant": "simple",
+    "variantLabel": "Short prompt + closed loop",
+    "prompt": "Gentle looping animation: water ripples, clouds drift, the lantern flickers, smoke rises from the chimney. The camera is still.",
+    "closedLoop": true,
+    "duration": 5,
+    "sent": [
+      "duration",
+      "enable_safety_checker",
+      "end_image_url",
+      "image_url",
+      "prompt",
+      "resolution"
+    ],
+    "endFrame": "end_image_url",
+    "seconds": 30.4,
+    "file": "seedream.seedance.simple.mp4",
+    "probe": {
+      "bytes": 2357851,
+      "isMp4": true,
+      "avc": true,
+      "seconds": 5.042,
+      "width": 864,
+      "height": 480,
+      "ratio": 1.8,
+      "mdatBytes": 2356527,
+      "complete": true,
+      "motion": {
+        "frames": 121,
+        "keyBytes": 107667,
+        "medianBytes": 16897,
+        "ratio": 0.1569375946204501
+      },
+      "fps": 24
+    },
+    "moves": true,
+    "cost": 0.049005
+  },
+  {
+    "source": "seedream",
+    "sourceLabel": "Seedream 4 · pixel",
+    "model": "kling",
+    "label": "Kling 2.5 Turbo Pro",
+    "id": "fal-ai/kling-video/v2.5-turbo/pro/image-to-video",
+    "variant": "simple",
+    "variantLabel": "Short prompt + closed loop",
+    "prompt": "Gentle looping animation: water ripples, clouds drift, the lantern flickers, smoke rises from the chimney. The camera is still.",
+    "closedLoop": true,
+    "duration": 5,
+    "sent": [
+      "duration",
+      "image_url",
+      "prompt",
+      "tail_image_url"
+    ],
+    "endFrame": "tail_image_url",
+    "seconds": 93.3,
+    "file": "seedream.kling.simple.mp4",
+    "probe": {
+      "bytes": 11052301,
+      "isMp4": true,
+      "avc": true,
+      "seconds": 5.084,
+      "width": 1920,
+      "height": 1080,
+      "ratio": 1.7777777777777777,
+      "mdatBytes": 11050873,
+      "complete": true,
+      "motion": {
+        "frames": 122,
+        "keyBytes": 536189,
+        "medianBytes": 91310,
+        "ratio": 0.17029442976263967
+      },
+      "fps": 24
+    },
+    "moves": true,
+    "cost": 0.35
+  },
+  {
+    "source": "seedream",
+    "sourceLabel": "Seedream 4 · pixel",
+    "model": "wan",
+    "label": "Wan 2.2 A14B",
+    "id": "fal-ai/wan/v2.2-a14b/image-to-video",
+    "variant": "simple",
+    "variantLabel": "Short prompt + closed loop",
+    "prompt": "Gentle looping animation: water ripples, clouds drift, the lantern flickers, smoke rises from the chimney. The camera is still.",
+    "closedLoop": true,
+    "duration": 5,
+    "sent": [
+      "adjust_fps_for_interpolation",
+      "enable_safety_checker",
+      "end_image_url",
+      "frames_per_second",
+      "image_url",
+      "interpolator_model",
+      "num_frames",
+      "prompt",
+      "resolution",
+      "video_quality"
+    ],
+    "endFrame": "end_image_url",
+    "seconds": 12.1,
+    "file": "seedream.wan.simple.mp4",
+    "probe": {
+      "bytes": 937586,
+      "isMp4": true,
+      "avc": true,
+      "seconds": 5.067,
+      "width": 832,
+      "height": 480,
+      "ratio": 1.7333333333333334,
+      "mdatBytes": 922414,
+      "complete": true,
+      "motion": {
+        "frames": 81,
+        "keyBytes": 80269,
+        "medianBytes": 3771,
+        "ratio": 0.046979531325916604
+      },
+      "fps": 16
+    },
+    "moves": true,
+    "cost": 0.2025
+  },
+  {
+    "source": "seedream",
+    "sourceLabel": "Seedream 4 · pixel",
+    "model": "seedance",
+    "label": "Seedance 1 Lite",
+    "id": "fal-ai/bytedance/seedance/v1/lite/image-to-video",
+    "variant": "simple-open",
+    "variantLabel": "Short prompt, open loop",
+    "prompt": "Gentle looping animation: water ripples, clouds drift, the lantern flickers, smoke rises from the chimney. The camera is still.",
+    "closedLoop": false,
+    "duration": 5,
+    "sent": [
+      "duration",
+      "enable_safety_checker",
+      "image_url",
+      "prompt",
+      "resolution"
+    ],
+    "endFrame": null,
+    "seconds": 32.3,
+    "file": "seedream.seedance.simple-open.mp4",
+    "probe": {
+      "bytes": 2812978,
+      "isMp4": true,
+      "avc": true,
+      "seconds": 5.042,
+      "width": 864,
+      "height": 480,
+      "ratio": 1.8,
+      "mdatBytes": 2811654,
+      "complete": true,
+      "motion": {
+        "frames": 121,
+        "keyBytes": 109640,
+        "medianBytes": 21652,
+        "ratio": 0.19748267055819044
+      },
+      "fps": 24
+    },
+    "moves": true,
+    "cost": 0.049005
   }
 ]

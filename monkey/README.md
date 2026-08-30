@@ -578,3 +578,33 @@ ReferenceError in a `const` arrow function — and the published page rendered
 its header over a completely empty body. It built without complaint and
 published without complaint. Only loading it would have caught it, so loading
 it is a step now rather than something to remember.
+
+### Does prompt length matter?
+
+The long prompt asks for nine simultaneous motions and three paragraphs of
+prohibitions in five seconds of picture. `--variant simple` is the same brief
+in one sentence — 127 characters against 1,462 — and `simple-open` is that same
+sentence with no end frame, so prompt length and loop closure can be told
+apart:
+
+| variant | prompt | end frame | Seedance | Wan | Kling |
+|---|---|---|---|---|---|
+| v1 | 1,019 | no | 18.1% | 19.6% | 23.7% |
+| anchored | 1,462 | no | 19.0% | 21.0% | — |
+| closed | 1,462 | yes | 15.4% | 4.4% | — |
+| simple-open | 127 | no | 19.7% | — | — |
+| simple | 127 | yes | 15.7% | 4.7% | 17.0% |
+
+Two things fall out. Prompt length barely moves the measure at all — Seedance
+scores 18.1 / 19.0 / 19.7 across a 12x range of prompt length, so the long
+prompt was not buying anything the short one does not. And the end frame costs
+a consistent four points on Seedance (19.7 to 15.7, 19.0 to 15.4) while
+flattening Wan both times (4.4%, 4.7%). Wan and a fixed last frame do not work
+together, which is the same failure as the original first-last-frame attempt
+and is now measured twice rather than inferred once.
+
+A closed loop is asserted rather than assumed. The run refuses to submit if the
+model has no end-frame field, refuses if the value is not identical to the
+source image, and records the field name in `index.json` and on the console
+line — paying for a clip that quietly did not get its last frame is precisely
+the kind of silent almost-right failure this directory keeps rediscovering.
