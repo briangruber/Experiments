@@ -11,6 +11,7 @@ import { AbyssalSea, PRESET_NAMES, SCENE_TUNE, PRESETS } from './abyssalSea.js';
 import { OceanBody } from './oceanBody.js';
 import { WakeBridge } from './wakeBridge.js';
 import { Spray } from './spray.js';
+import { Bubbles } from './bubbles.js';
 import { loadBoat, BOATS } from './boatLibrary.js';
 import { buildUI, buildBoatPicker } from './ui.js';
 
@@ -310,6 +311,10 @@ showBoat(get('boat.model'));
 // The hull as an object that owns its own chain: how it sits, where it cuts,
 // what it throws. main.js drives the helm and nothing else about it.
 const spray = new Spray(3000);
+// In the SCENE, because the refraction pass photographs the scene -- that is
+// how these get under the water instead of on top of it.
+const bubbles = new Bubbles(4000);
+scene.add(bubbles.points);
 scene.add(spray.points);
 const body = new OceanBody(boat, { spray, seed: 7 });
 
@@ -320,7 +325,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b55';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b56';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -650,6 +655,7 @@ function resize() {
   // and the field of view. Recomputing here keeps a droplet the same physical
   // size whatever the window does, instead of drifting with it.
   spray.setPixelScale(h * renderer.getPixelRatio(), camera.fov);
+  bubbles.setPixelScale(h * renderer.getPixelRatio(), camera.fov);
 }
 addEventListener('resize', resize);
 resize();
@@ -805,12 +811,46 @@ function stepSim(dt) {
   // when you open up from rest or throw her astern, and closing to nothing once
   // she is up and running. Astern counts double: a screw shaped to push one way
   // is a poor thing dragged backwards, and it cavitates readily.
-  const gap = target - state.speed;
-  const load = Math.min(1, Math.abs(gap) / 5) * (state.speed < 0 ? 1 : 0.85)
+  // Release bubbles at the screws. This is a SIM step, not a draw step: they
+  // have to keep rising while the camera is elsewhere, or every time you look
+  // back at the boat the column starts over.
+  const gap0 = target - state.speed;
+  const load = Math.min(1, Math.abs(gap0) / 5) * (state.speed < 0 ? 1 : 0.85)
              + (state.speed < 0 ? 0.25 : 0);
   wake.pushSample(state.x + bhx * bowAhead, state.z + bhz * bowAhead,
                   hx * way, hz * way, state.t, Math.abs(state.speed), state.turn,
                   Math.min(1, load));
+
+  // The screws are at the transom, which is a hull-length aft of the stem the
+  // model's origin sits on.
+  const drawnLen = get('boat.length') * get('boat.modelScale');
+  const sternX = state.x - bhx * drawnLen * 0.92;
+  const sternZ = state.z - bhz * drawnLen * 0.92;
+  // Rate rides the load the same way the cavitation does -- a screw under load
+  // is exactly when a boat boils -- plus a floor from simply turning over, so
+  // an idling engine still trickles.
+  const bubLoad = Math.min(1, load);
+  const turning = THREE.MathUtils.smoothstep(Math.abs(state.speed), 0.05, 1.2);
+  const bubRate = get('wash.bubRate') * (0.12 * turning + 0.88 * bubLoad * turning);
+  _bubDebt += bubRate * dt;
+  let nb = Math.min(Math.floor(_bubDebt), 120);
+  _bubDebt -= nb;
+  if (nb > 0) {
+    const nEng = Math.max(1, Math.round(get('wash.engines')));
+    const gapE = get('wash.engineGap');
+    const spread = get('wash.bubSpread');
+    const depth = get('wash.bubDepth');
+    const px = -bhz, pz = bhx;                 // port-positive normal
+    while (nb-- > 0) {
+      const e = (Math.floor(Math.random() * nEng) - (nEng - 1) * 0.5) * gapE;
+      const lat = e + (Math.random() - 0.5) * spread;
+      const along = Math.random() * spread * 0.8;
+      const bx = sternX + px * lat - bhx * along;
+      const bz = sternZ + pz * lat - bhz * along;
+      bubbles.emit(bx, BUB_SURFACE(bx, bz) - depth * (0.35 + Math.random() * 0.9), bz);
+    }
+  }
+  bubbles.update(dt, BUB_SURFACE, state.t);
   // ...and where the hull ITSELF is, which is not the same thing the moment
   // the boat crabs: the sample is the track, this is the boat.
   wake.setHull(state.x + bhx * bowAhead, state.z + bhz * bowAhead, state.heading);
@@ -837,6 +877,19 @@ for (let i = 0; i < PREWARM * 30; i++) stepSim(1 / 30);
 // fallen well back, so a rock throws once per wave instead of chattering.
 const _sprayRand = () => Math.random();
 const _sOut = { x: 0, z: 0 };
+let _bubDebt = 0;
+// Where the surface is, for releasing and popping bubbles.
+//
+// MEAN SEA LEVEL, deliberately, and not sea.heightAt(): that is a stub which
+// forwards to a water.heightAt that does not exist and returns 0 for every
+// point -- it is what made an earlier choppiness measurement read as a dead
+// flat ocean at every setting. Passing it here would look like it tracked the
+// swell while doing nothing of the sort. The real reader is the GPU probe, and
+// its 64 slots are already spoken for by the hull and the rocks. Bubbles live a
+// metre or two down and pop within a wave height of the top, so mean level is
+// honest at the scale that matters; a fixed value that is right on average
+// beats a function that is wrong everywhere.
+const BUB_SURFACE = () => 0;
 // The craft's albedo for its reflection, as radiance is built from it in the
 // shader. One neutral hull colour rather than a per-model palette: the image is
 // a smeared blob a few metres across, and no one has ever identified a boat by

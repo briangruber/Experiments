@@ -121,7 +121,30 @@ export const PARAMS = {
 
   // Turbulent water dragged behind the transom: the brightest, shortest-lived
   // foam in the whole wake.
+  // A bubble is not a droplet: it goes UP, it is bigger, and it lives in a
+  // different medium. Its own group rather than five more sliders under a
+  // heading that says prop wash.
+  bub: {
+    size:    { v: 0.055, min: 0.005, max: 0.3, step: 0.005, label: 'Bubble size (m)', ui: 'wash' },
+    rise:    { v: 0.55,  min: 0.05,  max: 3,   step: 0.01,  label: 'Rise speed (m/s)', ui: 'wash' },
+    life:    { v: 3.4,   min: 0.3,   max: 12,  step: 0.1,   label: 'Bubble life (s)', ui: 'wash' },
+    jet:     { v: 1.6,   min: 0,     max: 8,   step: 0.05,  label: 'Thrown from the screw (m/s)', ui: 'wash' },
+    wobble:  { v: 0.16,  min: 0,     max: 1,   step: 0.01,  label: 'Spiral wobble', ui: 'wash' },
+  },
+
   wash: {
+    // UNDERWATER BUBBLES -- particles, not field.
+    //
+    // These live in src/bubbles.js and are the answer to why cavitation was
+    // invisible: the wake field is a top-down texture with no vertical extent,
+    // so it can say the water is white and cannot say there is gas three metres
+    // down rising through it. They are added to the scene, photographed by the
+    // refraction pass, and composited through the surface by the water shader
+    // -- so they arrive already warped by the waves and murked by depth, and
+    // they can only be seen THROUGH water, which is right.
+    bubRate:      { v: 260,  min: 0,   max: 1200, step: 10,  label: 'Bubbles / sec' },
+    bubDepth:     { v: 1.5,  min: 0.1, max: 6,   step: 0.05, label: 'Released this far down (m)' },
+    bubSpread:    { v: 0.55, min: 0.05, max: 3,  step: 0.05, label: 'Plume spread (m)' },
     // CAVITATION -- the water boiling at the blade, not more prop wash.
     //
     // Pressure on the suction face drops below vapour pressure, the water
