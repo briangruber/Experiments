@@ -548,6 +548,19 @@ export const PARAMS = {
     // would be dozens of taps per pixel across the whole sea. Surface roughness
     // already climbs the chain on its own; this is a floor under that.
     planarBlur:   { ui: 'mirror', v: 0.22, min: 0, max: 1,   step: 0.01, label: 'Mirror blur' },
+    // HOW FAR IT REACHES, in metres from the eye. A reflection does not run to
+    // the horizon: the further the water, the more of the reflected ray's path
+    // has been scattered by the air between, and the more the surface's own
+    // slope variance has smeared the image into the sky it sits in. Without a
+    // fade a hull leaves a hard dark streak to the edge of the world. 0 turns
+    // the fade off entirely rather than meaning "fades over zero metres".
+    planarFade:   { ui: 'mirror', v: 140, min: 0, max: 900, step: 5, label: 'Mirror fade (m)' },
+    // HOW MUCH OF THE WATER IT MAY CLAIM. Separate from strength on purpose:
+    // strength is how bright the reflected image is, this is the ceiling on how
+    // much of the surface it is allowed to become. At 1 the mirror can replace
+    // the sky outright, which is right for glass and wrong for almost anything
+    // else -- real water keeps some of its own colour even at grazing angles.
+    planarOpacity:{ ui: 'mirror', v: 0.8, min: 0, max: 1, step: 0.01, label: 'Mirror opacity' },
     boatReflect:  { ui: 'mirror', v: 0.35, min: 0,  max: 2.5, step: 0.01, label: 'Boat reflection (proxy blob)' },
     boatShadow:   { ui: 'mirror', v: 0.5,  min: 0,   max: 1.5, step: 0.01, label: 'Boat shadow on water' },
     // How far down you can see. Divides the water's absorption, so 2 means

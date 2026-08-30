@@ -432,6 +432,7 @@ uniform float uBedGain;
 uniform sampler2D uReflTex;
 uniform mat4  uReflMat;
 uniform float uReflOn, uReflAmt, uReflDistort, uReflBlur, uReflMaxLod;
+uniform float uReflFade, uReflOpacity;
 uniform sampler2D uRefrColor;
 uniform highp sampler2D uRefrDepth;
 uniform vec2  uRefrRes;
@@ -1608,6 +1609,24 @@ void main(){
         // image should give way to the sky it is sitting in, or a chop full of
         // crisp upside-down boats reads as glass.
         cov *= 1.0 - smoothstep(0.06, 0.40, alpha);
+        // FADE WITH DISTANCE. A reflection does not reach the horizon: the
+        // further the water, the more of the reflected ray's path has been
+        // scattered by the air between, and the more the surface's own slope
+        // variance has smeared the image into the sky it sits in. Without this
+        // the mirror runs at full strength to the edge of the world and a hull
+        // leaves a hard dark streak all the way out.
+        //
+        // 0 disables it -- a fade of zero metres would otherwise erase the
+        // reflection everywhere, which is the wrong reading of "no fade".
+        if (uReflFade > 0.5) {
+          cov *= 1.0 - smoothstep(uReflFade * 0.35, uReflFade, dist);
+        }
+        // And a straight ceiling on how much of the surface the mirror may
+        // claim. Separate from strength on purpose: strength is how bright the
+        // image is, this is how much of the water it is allowed to become. At
+        // 1 the mirror can replace the sky entirely, which is right for glass
+        // and wrong for almost anything else.
+        cov = min(cov, uReflOpacity);
         skyRefl = mix(skyRefl, rc.rgb, cov);
       }
     }

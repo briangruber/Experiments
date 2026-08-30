@@ -320,9 +320,11 @@ export class WaterSurface {
         uReflTex: opts.refl.color, uReflMat: opts.refl.matrix, uReflOn: 1,
         uReflAmt: opts.refl.amount, uReflDistort: opts.refl.distort,
         uReflBlur: opts.refl.blur ?? 0, uReflMaxLod: opts.refl.maxLod ?? 1,
+        uReflFade: opts.refl.fade ?? 0, uReflOpacity: opts.refl.opacity ?? 1,
       } : {
         uReflTex: this._inertRefr(), uReflMat: IDENT4, uReflOn: 0,
         uReflAmt: 0, uReflDistort: 0, uReflBlur: 0, uReflMaxLod: 1,
+        uReflFade: 0, uReflOpacity: 1,
       }),
       uWakeRelief: p.wakeRelief, uWakeSlick: p.wakeSlick,
       uWakePlume: p.wakePlume ?? 1.0,
