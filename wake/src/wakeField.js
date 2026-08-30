@@ -61,6 +61,14 @@ const RIBBON_FRAG = /* glsl */`
   uniform float uIdleChurn, uBubGrain, uBubGrainScale;
   uniform float uFeatErode, uFeatErodeLen;
   uniform float uBeam, uHullLen, uEngines, uEngineGap;
+  // The hull's length TWICE, and the difference matters whenever Model scale is
+  // not 1. uHullLen is what the hull is DRAWN at, and everything that has to
+  // line up with the boat on screen uses it -- where the wash starts, where the
+  // bow wave sits, the hull's own footprint. uHullLenPhys is the length the
+  // hydrodynamics were tuned in, and the Froude numbers and the bow/stern
+  // interference keep using that, because scaling those with a look knob would
+  // change the wake pattern rather than where it is drawn.
+  uniform float uHullLenPhys;
   // The hull WHERE IT ACTUALLY IS, in world metres: the bow's position and the
   // way it points. The ribbon's own (arc, lat) frame follows the COURSE, and
   // the hull is drawn along the HEADING -- so with any crab angle at all the
@@ -117,7 +125,7 @@ const RIBBON_FRAG = /* glsl */`
     // on plane the bow is clear of the water, so spray leaves from a contact
     // point well aft of the stem -- and this is per-sample, from the speed at
     // emission, so a wake laid while slow still starts at the stem.
-    float frS = spd / sqrt(9.81 * max(uHullLen, 0.5));
+    float frS = spd / sqrt(9.81 * max(uHullLenPhys, 0.5));
     float planedS = smoothstep(uHumpFr * 1.05, uHumpFr * 2.3, frS);
     float wet = uHullLen * uWetShift * planedS;
     float wa = max(arc - wet, 0.0);          // arc measured from the contact point
@@ -369,7 +377,7 @@ const RIBBON_FRAG = /* glsl */`
       // Length Froude number. Wave-making is not linear in speed: it climbs,
       // peaks near hull speed where the hull is trapped between its own bow
       // and stern crests, and falls away again once it lifts and planes.
-      float Fr = kv / sqrt(9.81 * max(uHullLen, 0.5));
+      float Fr = kv / sqrt(9.81 * max(uHullLenPhys, 0.5));
       float fr = Fr / max(uFrPeak, 0.05);
       // Peaks at 1.0 at Fr = uFrPeak, but floored rather than allowed to decay
       // to nothing: past the hump a hull lifts and its wave-making resistance
@@ -383,7 +391,7 @@ const RIBBON_FRAG = /* glsl */`
       // between them -- the classic humps and hollows in a hull's resistance
       // curve, and the reason a given hull has speeds that feel cheap and
       // speeds that feel expensive.
-      float interf = mix(1.0, abs(cos(k0 * uHullLen * 0.5)) * 1.6, uInterf);
+      float interf = mix(1.0, abs(cos(k0 * uHullLenPhys * 0.5)) * 1.6, uInterf);
 
       // A beamier hull pushes more water aside.
       float beam = mix(1.0, uBeam / 2.6, uBeamGain);
@@ -884,7 +892,7 @@ export class WakeField {
       uIdleChurn: { value: 0.55 },
       uBubGrain: { value: 0.8 }, uBubGrainScale: { value: 1.1 },
       uFeatErode: { value: 0.7 }, uFeatErodeLen: { value: 55 },
-      uBeam: { value: 1 }, uHullLen: { value: 1 }, uEngines: { value: 1 }, uEngineGap: { value: 1 },
+      uBeam: { value: 1 }, uHullLen: { value: 1 }, uHullLenPhys: { value: 1 }, uEngines: { value: 1 }, uEngineGap: { value: 1 },
       uArmTan: { value: 0 }, uArmW0: { value: 1 }, uArmWGrow: { value: 0 },
       uArmFoam: { value: 1 }, uArmHeight: { value: 0 }, uInnerBias: { value: 0 },
       uFadeStart: { value: 1 }, uFadeLen: { value: 1 },
@@ -1091,7 +1099,10 @@ export class WakeField {
 
     const armTan = Math.tan(get('arms.angle') * Math.PI / 180);
     const kProp = get('kelvin.propagate');
-    const beam = get('boat.beam');
+    // The DRAWN beam, for the same reason as the drawn length: the ribbon is
+    // laid out either side of the track in metres, and at Model scale 3.85 an
+    // unscaled beam builds a V a quarter as wide as the boat it comes off.
+    const beam = get('boat.beam') * Math.max(get('boat.modelScale'), 0.05);
     const w0 = get('arms.width0'), wg = get('arms.widthGrow');
 
     let arc = 0;
@@ -1182,9 +1193,11 @@ export class WakeField {
     u.uFeatErodeLen.value = get('feather.breakupLen');
     u.uBubGrain.value = get('bubbles.grain');
     u.uBubGrainScale.value = 1 / Math.max(get('bubbles.grainSize'), 0.05);
-    u.uBeam.value = get('boat.beam');
+    u.uBeam.value = get('boat.beam') * Math.max(get('boat.modelScale'), 0.05);
     u.uHullCut.value = get('boat.hullCut');
-    u.uHullLen.value = get('boat.length');
+    // Drawn for the geometry, tuned for the physics.
+    u.uHullLen.value = get('boat.length') * Math.max(get('boat.modelScale'), 0.05);
+    u.uHullLenPhys.value = get('boat.length');
     u.uEngines.value = Math.round(get('boat.engines'));
     u.uEngineGap.value = get('boat.engineSpacing');
     u.uArmTan.value = Math.tan(get('arms.angle') * Math.PI / 180);

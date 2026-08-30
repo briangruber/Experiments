@@ -61,7 +61,19 @@ export class OceanBody {
 
 	}
 
-	get length() { return get( 'boat.length' ); }
+	// THE LENGTH THE HULL IS DRAWN AT, not the one the physics is tuned in.
+	//
+	// 'Model scale' multiplies the drawn hull and nothing else, so at 3.85 a
+	// 9.9 m boat is drawn 38 m long while every geometric quantity here still
+	// worked in 9.9. The pivot landed 3.2 m aft of the stem on a 38 m hull --
+	// which is rotating about the bow, with thirty-five metres of stern swinging
+	// round it -- and the spray cuts, the trim pivot and the wave pitch were all
+	// scaled to a boat a quarter of the size of the one on screen.
+	//
+	// Everything on this class is geometry of the DRAWN hull, so it all follows
+	// the drawn length. The hydrodynamics (planing speed, Froude number) stay on
+	// boat.length, which is what they were tuned against.
+	get length() { return get( 'boat.length' ) * Math.max( get( 'boat.modelScale' ), 0.05 ); }
 	get beam() { return get( 'boat.beam' ); }
 
 	/** Unit vector along the heading, in world XZ. */
