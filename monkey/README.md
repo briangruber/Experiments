@@ -780,3 +780,70 @@ crates rect had landed on the tavern wall. The playthrough passed anyway, which
 is worth noting: `check.mjs` proves the puzzle chain is reachable, not that
 every rect is over the thing it names. Nothing automatic catches a hotspot in
 the wrong place; only reading the plate does.
+
+## Characters, from first principles
+
+Two attempts at this character failed identically, and the second was mine
+reproducing the first in a new medium.
+
+**Attempt one** baked a Tripo mesh — image to model, auto-rig, Mixamo
+retarget — down to a sprite atlas with a drawn face on top. **Attempt two**
+rendered the vector puppet into a small buffer and blew it back up with
+smoothing off. Both produced mush. A contact sheet of the second against the
+plate settled it: the un-pixelated vector puppet was the best cell on the
+sheet, which is a result that only means one thing.
+
+The reason is the same both times and has nothing to do with meshes. A
+character in this room is about **thirty-five art pixels tall**, and at
+thirty-five pixels there is nothing to spare: the silhouette carries the whole
+figure and every pixel inside it has to be a decision. Any smooth source
+downsampled to that size spends its pixels on gradients instead — a baked mesh
+under soft lighting and an anti-aliased vector drawing degrade in exactly the
+same way. **Downsampling is the error, not the source.**
+
+So the figure is authored on the grid instead, in `src/art/pixel-person.js`:
+
+- every dimension is an integer count of art pixels, derived once from the
+  figure's height so a limb cannot change width mid-stride;
+- limbs are staircases of solid runs, never anti-aliased — grey between the
+  character and the floor is the one thing a sprite over busy planks cannot
+  afford;
+- a one-pixel dark outline is grown *outward*, because inward eats a
+  thirty-five-pixel character, and the room is warm brown planks behind a warm
+  brown coat;
+- three flat tones per surface, and a shirt that is a placket rather than a
+  filled chest — at nine pixels across, a block of shirt reads as an apron.
+
+The walk is **eight discrete frames**: four poses — contact, down, pass, up —
+mirrored for the other half stride. Not a smooth curve sampled per frame. The
+snap between poses is the medium, not a defect, and the existing IK, hip drop
+and cloth spring are simply not what a sprite this size can express.
+
+One art pixel is four screen pixels, fixed in screen space. A character further
+up the dock is *fewer* art pixels tall, never made of smaller ones — pixel size
+belongs to the medium, not to the distance.
+
+    node tools/grid-sheet.mjs      # the sprite at 2/3/4/6px on the real plate,
+                                   # standing, walking, and the eight-frame cycle
+
+`SPRITE_CAST` in `src/game/dock.js` is now empty rather than deleted, and the
+atlas loader still honours it: a baked body remains one entry away for a room
+where the character is large in frame, which is the case where all of the above
+stops applying.
+
+### A measurement that came back negative, and mattered
+
+`tools/pixel-grid.mjs` asks what pixel grid a plate is drawn on, by block
+variance and by the histogram of constant-colour run lengths. Run on the
+shipped plate it finds **no grid at all** — 51.7% of runs are one pixel long
+and no candidate grid shows any lift. The plate is pixel art that has been
+resampled from 2048 wide to 1280 and then JPEG'd, and both steps destroy the
+blocks.
+
+That is worth knowing rather than working around: the characters cannot be
+matched to a grid the background no longer has. They are drawn on their own
+clean grid instead, which is also what real adventure games did — sprites were
+crisper than the painted backgrounds behind them. Fixing the plate would mean
+keeping the model's native output and downscaling by an integer factor with
+nearest-neighbour, which is a change to the still pipeline rather than to the
+characters.

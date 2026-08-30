@@ -15,6 +15,8 @@
 const ARRIVE = 3;      // px; closer than this to a waypoint counts as reached
 const TURN_RATE = 12;  // rad/s, so a change of direction reads as a turn
 
+import { drawPixelSprite } from '../art/pixelate.js';
+
 export class Actor {
   constructor(opts) {
     this.id = opts.id;
@@ -24,6 +26,10 @@ export class Actor {
     this.speed = opts.speed || 180;      // px/s at scale 1
     this.colors = opts.colors || {};
     this.draw = opts.draw;               // (ctx, actor, scale) => void
+    // A pixel sprite draws on a different surface — integer art pixels rather
+    // than room units — so it is a separate slot, not a variant of `draw`.
+    this.pixelDraw = opts.pixelDraw || null;
+    this.height = opts.height || 165;    // room units, before depth scaling
     this.talkColor = opts.talkColor || '#ffe9b0';
     this.talkOffset = opts.talkOffset ?? -150;
 
@@ -120,13 +126,22 @@ export class Actor {
   render(ctx, room) {
     if (!this.visible) return;
     const scale = room ? room.scaleAt(this.y) : 1;
-    ctx.save();
-    ctx.translate(this.x, this.y);
-    ctx.scale(scale, scale);
     // A baked sprite body when one loaded, the drawn puppet otherwise. Both
     // draw in the same space — origin between the feet, one unit per game
     // pixel — so nothing else in the engine has to know which is which.
-    (this.body ? this.body.draw : this.draw)?.call(this, ctx, this, scale);
+    const paint = (this.body ? this.body.draw : this.draw);
+    if (!paint) return;
+
+    // A pixel sprite is authored on the grid rather than scaled onto it, so it
+    // takes a different surface: integer art pixels, origin between the feet.
+    if (this.pixelDraw) {
+      drawPixelSprite(ctx, this.x, this.y, (this.height ?? 165) * scale, this.pixelDraw, this);
+      return;
+    }
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.scale(scale, scale);
+    paint.call(this, ctx, this, scale);
     ctx.restore();
   }
 }

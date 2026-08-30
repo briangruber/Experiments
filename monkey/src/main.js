@@ -17,6 +17,7 @@ import { Editor } from './engine/editor.js';
 import * as art from './art/paint.js';
 import { loadProps } from './art/props.js';
 import { loadBackdrop, KIND } from './art/backdrop.js';
+import { BLOCK as PIXEL_BLOCK } from './art/pixelate.js';
 import { loadSpriteBody } from './art/sprite-actor.js';
 import * as dock from './game/dock.js';
 
@@ -371,7 +372,8 @@ console.log(voiced
   : '[voice] no recordings — line lengths estimated from text (run tools/voices.mjs)');
 console.log(`[art] backdrop: ${backdrop.kind} (${backdrop.note})`);
 console.log(`[cast] ${[player, grout].filter((a) => a.body).length} baked bodies, `
-  + `${[player, grout].filter((a) => !a.body).length} drawn puppets`);
+  + `${[player, grout].filter((a) => !a.body).length} drawn puppets, `
+  + `rendered at ${PIXEL_BLOCK}px art pixels`);
 // Reported on the page as well as the console. A backdrop that quietly fell
 // back to the still looks almost right, and "almost right" is the one failure
 // nobody reports accurately.
@@ -390,6 +392,8 @@ if (backdrop.kind === KIND.NONE) console.log('[art] no backdrop — run tools/sc
 // silently the first time a flag is renamed.
 window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => room, actors: { player, grout }, backdrop: () => backdrop.kind, voiced, props: () => Object.keys(props).length,
   bodies: () => [player, grout].filter((a) => a.body).length,
+  puppets: () => [player, grout].filter((a) => !a.body).length,
+  pixelBlock: () => PIXEL_BLOCK,
   // Diagnostics: what the pointer last resolved to, which is the only way to
   // tell a bad hit test from a bad coordinate mapping.
   mouse: () => ({ ...mouse }), hover: () => hoverSpot?.id ?? null };

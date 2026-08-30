@@ -216,7 +216,11 @@ try {
   // looks almost right and is not what shipped. Name which one is live.
   await step('the generated backdrop and voice are in use', async () => {}, () => {
     const M = window.__monkey;
-    return (M.backdrop() === 'video' || M.backdrop() === 'still') && M.voiced && M.bodies() === 1;
+    // Bodies are deliberately zero now: the baked 3D atlas lost to the drawn
+    // puppet and was retired. Asserting zero rather than dropping the check
+    // keeps it honest — it would still catch an atlas that bound by accident.
+    return (M.backdrop() === 'video' || M.backdrop() === 'still') && M.voiced
+      && M.bodies() === 0 && M.puppets() === 2 && M.pixelBlock() > 1;
   });
 
   await step('walk to a clicked point on the floor', async () => {

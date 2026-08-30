@@ -14,6 +14,7 @@
 import { walk, face, say, wait, run } from '../engine/script.js';
 import { LINES, EXCHANGES } from './lines.js';
 import * as art from '../art/paint.js';
+import { makePixelPerson } from '../art/pixel-person.js';
 import { makeClouds, makeWater, makeLamps } from '../art/animate.js';
 
 // One screen, 16:9, no camera. The backdrop is a video and the video models
@@ -39,22 +40,33 @@ export const PUZZLE = {
 // A cast member with a `sprite` entry gets the baked 3D body; everything else
 // stays the drawn puppet. Both are wanted on screen at once here, which is the
 // most honest way to judge the trade: Bonny has the mesh, Grout does not.
-export const SPRITE_CAST = {
-  player: {
-    // The atlas is named for the character, the cast slot for the role, and
-    // the bundle keys its inlined assets by the former.
-    asset: 'bonny',
-    sheet: './assets/cast/bonny-sheet.png',
-    manifest: './assets/cast/bonny-sheet.json',
-    height: 165,
-    face: { pupil: '#20140c', brow: '#5a3418', mouth: '#5c2a1e' },
-  },
-};
+// Empty on purpose. There was a baked 3D body here — a Tripo mesh, rigged,
+// retargeted to a Mixamo clip and baked to a sprite atlas — and it lost to the
+// puppet drawn in code beside it.
+//
+// The reason is worth keeping, because the pipeline was not at fault. A
+// character in this room stands about forty art pixels tall, and at forty
+// pixels nothing inside the silhouette reads: the outline carries the whole
+// figure. A textured mesh under soft lighting bakes to gradients and mid-tones,
+// which is exactly the wrong material at that size — it goes muddy, and the
+// face has to be drawn back on top at a fidelity the body cannot match. The
+// puppet is flat colour with a hard edge, which is what small sprites are made
+// of, and it is also re-lightable, re-colourable and free.
+//
+// The loader below still honours this table, so a baked body remains one entry
+// away for a room where the character is large in frame.
+export const SPRITE_CAST = {};
 
 export const CAST = {
   player: {
     id: 'player', name: 'Bonny Quill',
     x: 620, y: 690, talkColor: '#ffe9b0', talkOffset: -170,
+    height: 165,
+    pixelDraw: makePixelPerson({
+      skin: '#e8b48c', skinDark: '#c98f68', hair: '#7b3a1c',
+      coat: '#7c2f2a', coatDark: '#5a1f1c', shirt: '#e9dcc2',
+      sash: '#d9a441', legsCol: '#3d4d63', boots: '#241811', hat: '#b8383a',
+    }),
     draw: art.makePerson({
       height: 165, skin: '#e8b48c', skin2: '#dda078', hair: '#7b3a1c',
       coat: '#7c2f2a', shirt: '#e9dcc2', sash: '#d9a441', legs: '#3d4d63', boots: '#241811',
@@ -64,6 +76,12 @@ export const CAST = {
   grout: {
     id: 'grout', name: 'Harbourmaster Grout',
     x: 186, y: 700, facing: 'right', talkColor: '#bfe3ff', talkOffset: -175,
+    height: 178,
+    pixelDraw: makePixelPerson({
+      skin: '#c99a76', skinDark: '#a97a56', hair: '#4a4642',
+      coat: '#2f4a52', coatDark: '#1f333a', shirt: '#8f9aa0',
+      sash: '#6b5334', legsCol: '#2b2a31', boots: '#1a1512', hat: '#243a41',
+    }),
     draw: art.makePerson({
       height: 178, skin: '#c99a76', skin2: '#b8875f', hair: '#4a4642', beard: '#5d574f',
       coat: '#2f4a52', shirt: '#8f9aa0', sash: '#6b5334', legs: '#2b2a31', boots: '#1a1512',

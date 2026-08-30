@@ -1,0 +1,97 @@
+<meta charset="utf-8">
+<title>grid sheet</title>
+<style>html,body{margin:0;background:#0a0e1a}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script type="module">
+// The character at several pixel grids, standing on the actual plate at the
+// actual size, because that is the only place the question can be answered.
+// A sprite judged on a flat background at 3x will always look fine; the room
+// is a busy plank floor in the same warm browns as the coat, and whether the
+// figure reads against THAT is the whole of it.
+import * as art from '../src/art/paint.js';
+import { Actor } from '../src/engine/actor.js';
+import { CAST } from '../src/game/dock.js';
+import { drawPixelSprite } from '../src/art/pixelate.js';
+
+const GRIDS = [0, 2, 3, 4, 6];       // 0 = no grid, the smooth original
+const CW = 420, CH = 300;            // a crop of the room per cell
+const WN = 8, WW = 262, WH = 300;    // the walk strip: one cell per frame
+const CROP = { x: 470, y: 430 };     // in front of the barrel, mid-dock
+const STAND_Y = 640;                 // where the character's feet land
+
+const plate = await new Promise((res) => {
+  const i = new Image(); i.onload = () => res(i); i.src = '../assets/scene.jpg';
+});
+
+const c = document.getElementById('c');
+c.width = CW * GRIDS.length;
+c.height = CH * 2 + WH;
+const ctx = c.getContext('2d');
+
+const room = { scaleAt: () => 1, camX: 0, time: 0, width: 1280, height: 720 };
+const player = new Actor(CAST.player);
+const scale = 0.86;                  // the scale the dock gives at that depth
+
+function cell(col, row, grid, phase, walking) {
+  const ox = col * CW, oy = row * CH;
+  ctx.save();
+  ctx.beginPath(); ctx.rect(ox, oy, CW, CH); ctx.clip();
+  ctx.drawImage(plate, CROP.x, CROP.y, CW, CH, ox, oy, CW, CH);
+
+  player.x = ox + CW / 2;
+  player.y = oy + (STAND_Y - CROP.y);
+  player.phase = phase;
+  player.state = walking ? 'walk' : 'idle';
+  player.facing = 'right';
+  player.lag = walking ? 0.5 : 0;
+
+  if (grid === 0) {
+    ctx.save();
+    ctx.translate(player.x, player.y);
+    ctx.scale(scale, scale);
+    CAST.player.draw.call(player, ctx, player, scale);
+    ctx.restore();
+  } else {
+    drawPixelSprite(ctx, player.x, player.y, 165 * scale, CAST.player.pixelDraw, player, grid);
+  }
+  ctx.restore();
+
+  ctx.fillStyle = 'rgba(10,14,26,.8)';
+  ctx.fillRect(ox + 6, oy + 6, 168, 20);
+  ctx.fillStyle = '#f2a93b';
+  ctx.font = '12px ui-monospace, monospace';
+  ctx.fillText(grid === 0 ? 'vector puppet' : `${grid}px blocks · ${Math.round(165 * scale / grid)} tall`, ox + 12, oy + 20);
+  ctx.strokeStyle = 'rgba(255,255,255,.10)';
+  ctx.strokeRect(ox + .5, oy + .5, CW - 1, CH - 1);
+}
+
+GRIDS.forEach((g, i) => {
+  cell(i, 0, g, 0, false);
+  cell(i, 1, g, 0.32, true);
+});
+
+// The stride, frame by frame. A walk cannot be judged from one pose and cannot
+// be judged from a description at all — the whole question is whether the feet
+// plant or slide, and that only shows across the cycle.
+for (let f = 0; f < WN; f++) {
+  const ox = f * WW, oy = CH * 2;
+  ctx.save();
+  ctx.beginPath(); ctx.rect(ox, oy, WW, WH); ctx.clip();
+  ctx.drawImage(plate, CROP.x + 80, CROP.y, WW, WH, ox, oy, WW, WH);
+  player.x = ox + WW / 2;
+  player.y = oy + (STAND_Y - CROP.y);
+  player.phase = f / WN + 0.001;
+  player.state = 'walk';
+  player.facing = 'right';
+  drawPixelSprite(ctx, player.x, player.y, 165 * scale, CAST.player.pixelDraw, player, 4);
+  ctx.restore();
+  ctx.fillStyle = 'rgba(10,14,26,.8)';
+  ctx.fillRect(ox + 6, oy + 6, 96, 20);
+  ctx.fillStyle = '#46bda9';
+  ctx.font = '12px ui-monospace, monospace';
+  ctx.fillText(`walk ${f + 1}/${WN}`, ox + 12, oy + 20);
+  ctx.strokeStyle = 'rgba(255,255,255,.10)';
+  ctx.strokeRect(ox + .5, oy + .5, WW - 1, WH - 1);
+}
+window.__ready = true;
+</script>
