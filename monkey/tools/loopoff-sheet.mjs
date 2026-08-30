@@ -34,8 +34,12 @@ const MAX_PAGE = 15 * 1024 * 1024;
 // sheet shows one variant, named explicitly, so rebuilding a published page
 // cannot quietly turn a four-tile comparison into a twelve-tile one.
 const VARIANTS = (opt('variants', 'v1')).split(',');
+// Ten rock clips is 16 MB of video, well past what one page can carry, so a
+// sheet can select its models as well as its variant.
+const ONLY = opt('models', null)?.split(',') || null;
 const all = JSON.parse(await readFile(join(OUT, 'index.json'), 'utf8'))
-  .filter((c) => VARIANTS.includes(c.variant || 'v1'));
+  .filter((c) => VARIANTS.includes(c.variant || 'v1'))
+  .filter((c) => !ONLY || ONLY.includes(c.model));
 const runs = await readFile(join(OUT, 'runs.json'), 'utf8').then(JSON.parse).catch(() => []);
 const spendAll = +runs.reduce((a, r) => a + (r.spend || 0), 0).toFixed(4);
 
@@ -56,6 +60,11 @@ const SOURCE_NOTES = {
 const MODEL_NOTES = {
   minimax: 'The model in the build today. The most expensive of the four per clip and by some way the slowest, and it moved the picture least.',
   seedance: 'The cheapest and among the fastest, and it moved the picture more than the incumbent did. Its endpoint also carries a camera_fixed flag that was deliberately left off here so every clip shares one set of instructions — worth trying on whichever model wins.',
+  flux3draft: 'A dedicated first-last-frame endpoint, given the same image as both frames. Frozen — and the draft tier froze exactly as hard as the full one, so this is not a question of quality tier.',
+  flux3: 'The full FLUX.3 first-last-frame endpoint, at nearly three times the draft price and a nearly identical result: a held still.',
+  veo31lite: 'Veo 3.1 Lite. Its schema declares duration as a bare string with no enum and the endpoint accepts exactly one value, 8s. Frozen like the rest of its category.',
+  veo31fast: 'Veo 3.1 Fast. Frozen. Submitting it without a last frame is rejected outright as a missing required field, so these endpoints cannot be run open-loop either.',
+  veo31: 'Veo 3.1 at full price — $0.80 for four seconds — and it froze exactly as hard as the $0.30 draft tier. The failure does not track price or vendor.',
   kling: 'The strongest motion of the four, and unusable as-is for this: its endpoint takes no resolution parameter, so it returns 1080p whatever you ask, and a five-second clip lands near 15 MB — over the whole budget for a published page on its own.',
   wan: 'The smallest file and the fastest turnaround. Its first attempt scored 1.4% and looked like a held still; that was frame interpolation, which is on by default and halves the change between frames. With it off the same settings score around 20%.',
 };

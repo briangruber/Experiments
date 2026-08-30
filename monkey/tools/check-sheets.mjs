@@ -25,6 +25,10 @@ for (const f of (SHEETS.length ? SHEETS : ['loopoff-seedream', 'loopoff-nano']))
   p.on('pageerror', e => errs.push('pageerror: ' + e.message));
   await p.goto(`file://${ROOT}/dist/${f}.html`, { waitUntil: 'load' });
   const r = await p.evaluate(() => ({
+    // Compare against the page's own data rather than a number written here:
+    // a hard-coded expectation fails every sheet that is not the size it was
+    // written for, which is a check that cries wolf until it is ignored.
+    expected: (window.DATA?.clips || []).length,
     tiles: document.querySelectorAll('.tile').length,
     videos: document.querySelectorAll('.tile video').length,
     heavy: document.querySelectorAll('.tile img.heavy').length,
@@ -40,6 +44,8 @@ for (const f of (SHEETS.length ? SHEETS : ['loopoff-seedream', 'loopoff-nano']))
   // filter the font fetch this sandbox blocks; it is allowed by the artifact CSP
   const real = errs.filter(e => !/ERR_CONNECTION_RESET|fonts\.googleapis/.test(e));
   console.log(f, JSON.stringify({ ...r, tilesAfterRegroup: after, errors: real }));
-  if (real.length || r.tiles !== 4) process.exitCode = 1;
+  const wrong = r.expected && r.tiles !== r.expected;
+  if (wrong) console.error(`  ${f}: rendered ${r.tiles} tiles, data holds ${r.expected}`);
+  if (real.length || !r.tiles || wrong) process.exitCode = 1;
 }
 await b.close();

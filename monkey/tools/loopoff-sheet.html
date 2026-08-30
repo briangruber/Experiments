@@ -189,6 +189,9 @@ details .in { padding:0 16px 16px; }
 
 <script>
 const DATA = /*__DATA__*/ null;
+// Exposed so tools/check-sheets.mjs can assert the rendered tiles against the
+// data the page was built from. A top-level const is not a window property.
+window.DATA = DATA;
 const { clips, sources, models, videos, stills, spend, spendAll, clipsAll, generatedAt, prompt } = DATA;
 
 // Declared before first use, not after it: these are const arrow functions, so a
