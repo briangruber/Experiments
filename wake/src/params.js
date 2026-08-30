@@ -83,8 +83,15 @@ export const PARAMS = {
   // The V of spray sheets. In the reference these originate at the BOW, not the
   // transom, and stay bright for a long way astern.
   arms: {
-    fromWaves:    { v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Foam from breaking' },
-    waveFoam:     { v: 1.6, min: 0,   max: 5,   step: 0.01, label: 'Breaking foam gain' },
+    // FOAM ON THE WAVE CRESTS, and it wants to be low.
+    //
+    // The wave train's steepness is an analytic function of position, so foam
+    // driven straight off it is a smooth unbroken stripe running the length of
+    // every crest -- the white ribbons. The height those waves carry is worth
+    // having and the paint on them is not, so these two default well down and
+    // the breaking is broken into patches (see Kelvin waves).
+    fromWaves:    { v: 0.18, min: 0,   max: 1,   step: 0.01, label: 'Foam from breaking' },
+    waveFoam:     { v: 0.9, min: 0,   max: 5,   step: 0.01, label: 'Breaking foam gain' },
     // 1 = the physical angle (Kelvin 19.47 degrees while the hull is slow,
     // narrowing as atan(1/2Fr_B) once it outruns its own transverse waves).
     // 0 = whatever the slider below says, for when you want a look instead.
@@ -215,6 +222,10 @@ export const PARAMS = {
     decay:        { v: 150,min: 10,  max: 800, step: 5,    label: 'Amplitude decay (m)' },
     life:         { v: 120,min: 5,   max: 300, step: 1,    label: 'Wave life (s)' },
     propagate:    { v: 1, min: 0,   max: 1,   step: 0.01, label: 'Waves run free' },
+    // How patchy the breaking is along a crest. 0 paints the whole line, which
+    // is the ribbon look; 1 is intermittent breaks with clear water between.
+    breakPatch:   { v: 0.85, min: 0,   max: 1,   step: 0.01, label: 'Breaking is patchy' },
+    breakPatchLen:{ v: 9,    min: 1,   max: 60,  step: 0.5,  label: 'Patch length (m)' },
     breakSteep:   { v: 0.075,min: 0.005,max: 0.4, step: 0.005,label: 'Breaking steepness' },
     minWave:      { v: 3.6, min: 0.5, max: 20,  step: 0.1,  label: 'Shortest wave (m)' },
   },

@@ -100,6 +100,11 @@ export class Bubbles {
 			fragmentShader: /* glsl */`
 				precision highp float;
 				uniform vec3 uTint;
+				// Declared HERE as well as in the uniforms object. Adding a
+				// uniform to the JS map does not declare it to GLSL: the
+				// fragment shader referenced it and failed to compile, which
+				// three reports and then carries on drawing nothing.
+				uniform vec3 uSunView;
 				varying float vAlpha;
 				void main(){
 					// A SPHERE, shaded per pixel -- not a picture of one.

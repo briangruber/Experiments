@@ -76,6 +76,7 @@ const RIBBON_FRAG = /* glsl */`
   uniform float uCav, uCavLen, uCavW, uCavGrain, uCavFoam;
   uniform float uFrPeak, uHumpFloor, uBeamGain, uInterf, uTurnBias;
   uniform float uBreakSteep, uWaveFoam, uFromWaves;
+  uniform float uBreakPatch, uBreakPatchScale;
   uniform float uKelvinScale, uKelvinProp, uKelvinAmp, uKelvinDiv, uKelvinTrans, uKelvinCusp, uKelvinDecay, uKelvinLife, uKelvinMin;
   uniform float uFoamScale, uFoamContrast, uBreakup, uFoamLife, uDissolve;
   uniform float uSpeedDrive, uSpeedRef;
@@ -416,6 +417,25 @@ const RIBBON_FRAG = /* glsl */`
 
       waveBreak = (smoothstep(uBreakSteep, uBreakSteep * 2.4, steepD) * crestD
                  + smoothstep(uBreakSteep, uBreakSteep * 2.4, steepT) * crestT * 0.55) * wedge;
+
+      // A CREST DOES NOT BREAK ALONG ITS WHOLE LENGTH, and painting it as if it
+      // did is what made these read as ribbons rather than as water.
+      //
+      // The steepness above is an analytic function of position, so it is
+      // smooth and continuous everywhere -- run a threshold across it and you
+      // get an unbroken painted stripe with two clean edges, following the wave
+      // exactly. Real breaking is intermittent: a crest goes over in patches a
+      // few metres long with clear water between them, because the steepness
+      // that trips it is never uniform along the line.
+      //
+      // Sampled in WORLD space so the patches belong to the water and stay put
+      // as the boat runs on, and at two scales so the gaps themselves are not
+      // evenly spaced. The threshold is what makes it patches rather than a
+      // modulation: below it there is no foam at all, which is the clear water
+      // between breaks.
+      float bp = fbm(vWorld * uBreakPatchScale) * 0.62
+               + fbm(vWorld * uBreakPatchScale * 2.7 + 41.0) * 0.38;
+      waveBreak *= mix(1.0, smoothstep(0.34, 0.66, bp), uBreakPatch);
     }
 
     // ------------------------------------------------------------ foam look --
@@ -880,7 +900,7 @@ export class WakeField {
       uKelvinScale: { value: 0.5 }, uKelvinProp: { value: 1 }, uPlaning: { value: 6.5 },
       uHumpFr: { value: 0.95 }, uWetShift: { value: 0.5 },
       uFrPeak: { value: 0.5 }, uHumpFloor: { value: 0.5 },
-      uBreakSteep: { value: 0.08 }, uWaveFoam: { value: 1 }, uFromWaves: { value: 0 }, uBeamGain: { value: 1 }, uInterf: { value: 0.5 }, uTurnBias: { value: 0.5 }, uKelvinAmp: { value: 0 }, uKelvinDiv: { value: 1 },
+      uBreakSteep: { value: 0.08 }, uBreakPatch: { value: 0.8 }, uBreakPatchScale: { value: 0.12 }, uWaveFoam: { value: 1 }, uFromWaves: { value: 0 }, uBeamGain: { value: 1 }, uInterf: { value: 0.5 }, uTurnBias: { value: 0.5 }, uKelvinAmp: { value: 0 }, uKelvinDiv: { value: 1 },
       uKelvinTrans: { value: 0.5 }, uKelvinCusp: { value: 1 }, uKelvinDecay: { value: 100 },
       uKelvinLife: { value: 100 }, uKelvinMin: { value: 3 },
       uFoamScale: { value: 1 }, uFoamContrast: { value: 1 }, uBreakup: { value: 0 },
@@ -1216,6 +1236,8 @@ export class WakeField {
     u.uFrPeak.value = get('kelvin.froudePeak');
     u.uHumpFloor.value = get('kelvin.humpFloor');
     u.uBreakSteep.value = get('kelvin.breakSteep');
+    u.uBreakPatch.value = get('kelvin.breakPatch');
+    u.uBreakPatchScale.value = 1 / Math.max(get('kelvin.breakPatchLen'), 0.5);
     u.uWaveFoam.value = get('arms.waveFoam');
     u.uFromWaves.value = get('arms.fromWaves');
     u.uBeamGain.value = get('kelvin.beamGain');
