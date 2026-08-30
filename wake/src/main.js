@@ -379,7 +379,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b65';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b66';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -471,8 +471,17 @@ function ensureReflRT(w, h) {
   if (reflRT && reflRT.width === w && reflRT.height === h) return;
   reflRT?.dispose();
   reflRT = new THREE.WebGLRenderTarget(w, h);
-  reflRT.texture.minFilter = THREE.LinearFilter;
+  // MIPMAPPED, so the reflection can be blurred by sampling a coarser level
+  // rather than by taking many taps. One trilinear fetch at a chosen level
+  // costs the same as a sharp one; a blur kernel wide enough to look like wet
+  // glass would be dozens of taps per pixel across the whole sea.
+  //
+  // It also fixes a second thing for free: a sharp reflection minified into the
+  // distance aliases badly, crawling as the boat moves. Mip levels are exactly
+  // the fix for that, and this pass had none.
+  reflRT.texture.minFilter = THREE.LinearMipmapLinearFilter;
   reflRT.texture.magFilter = THREE.LinearFilter;
+  reflRT.texture.generateMipmaps = true;
 }
 
 /**
@@ -528,11 +537,25 @@ function renderReflection(seaY) {
   const glc = renderer.getContext();
   const ct = renderer.properties.get(reflRT.texture)?.__webglTexture;
   if (!ct) return null;
+  // Build the chain EXPLICITLY rather than trusting the renderer to have done
+  // it on unbind. Whether that happens depends on three's internal bookkeeping
+  // for this target, and a missing chain does not error -- it silently samples
+  // level 0 at every LOD, so the blur slider would do nothing at all and look
+  // like the shader was ignoring it.
+  glc.bindTexture(glc.TEXTURE_2D, ct);
+  glc.generateMipmap(glc.TEXTURE_2D);
+  glc.bindTexture(glc.TEXTURE_2D, null);
+  // How many levels there actually are, so the shader's blur can run to the top
+  // of the chain and no further -- past it, the LOD clamps and the control
+  // stops responding partway along its travel.
+  const levels = Math.floor(Math.log2(Math.max(reflRT.width, reflRT.height)));
   return {
     color: { target: glc.TEXTURE_2D, tex: ct },
     matrix: new Float32Array(_reflMat.elements),
     amount: amt,
     distort: get('scene.planarDistort') * 0.02,
+    blur: get('scene.planarBlur'),
+    maxLod: Math.max(levels, 1),
   };
 }
 

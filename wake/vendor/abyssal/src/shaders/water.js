@@ -389,7 +389,7 @@ uniform float uBedGain;
 // matrix that projects a world point into it.
 uniform sampler2D uReflTex;
 uniform mat4  uReflMat;
-uniform float uReflOn, uReflAmt, uReflDistort;
+uniform float uReflOn, uReflAmt, uReflDistort, uReflBlur, uReflMaxLod;
 uniform sampler2D uRefrColor;
 uniform highp sampler2D uRefrDepth;
 uniform vec2  uRefrRes;
@@ -1550,7 +1550,13 @@ void main(){
       // far off-vertical the surface is here.
       ruv += N.xz * uReflDistort / (1.0 + dist * 0.05);
       if (ruv.x > 0.002 && ruv.x < 0.998 && ruv.y > 0.002 && ruv.y < 0.998) {
-        vec4 rc = texture(uReflTex, ruv);
+        // BLUR BY MIP LEVEL. Water is not a mirror: even a glassy sea
+        // scatters a reflection slightly, and any chop turns a crisp image
+        // into a soft column of colour. The roughness term is what makes that
+        // automatic -- a rougher facet reaches further up the chain -- and the
+        // slider is a floor under it for when you simply want it softer.
+        float rlod = (uReflBlur + smoothstep(0.02, 0.34, alpha) * 0.55) * uReflMaxLod;
+        vec4 rc = textureLod(uReflTex, ruv, clamp(rlod, 0.0, uReflMaxLod));
         // Alpha is coverage: the reflection target is cleared transparent, so
         // anything with alpha is scene and everything else is sky the LUT has
         // already done better. Blending on coverage is what stops this pass

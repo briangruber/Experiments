@@ -524,6 +524,11 @@ export const PARAMS = {
     planarRefl:   { ui: 'mirror', v: 1,   min: 0,   max: 1.5, step: 0.01, label: 'Mirror reflection (real mesh)' },
     planarScale:  { ui: 'mirror', v: 0.5, min: 0.2, max: 1,   step: 0.05, label: 'Mirror pass scale' },
     planarDistort:{ ui: 'mirror', v: 1,   min: 0,   max: 4,   step: 0.01, label: 'Mirror wobble' },
+    // Softness, as a fraction of the reflection's mip chain. Sampling a coarser
+    // level is ONE fetch, where a blur kernel wide enough to read as wet glass
+    // would be dozens of taps per pixel across the whole sea. Surface roughness
+    // already climbs the chain on its own; this is a floor under that.
+    planarBlur:   { ui: 'mirror', v: 0.22, min: 0, max: 1,   step: 0.01, label: 'Mirror blur' },
     boatReflect:  { ui: 'mirror', v: 0.35, min: 0,  max: 2.5, step: 0.01, label: 'Boat reflection (proxy blob)' },
     boatShadow:   { ui: 'mirror', v: 0.5,  min: 0,   max: 1.5, step: 0.01, label: 'Boat shadow on water' },
     // How far down you can see. Divides the water's absorption, so 2 means
