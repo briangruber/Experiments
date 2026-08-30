@@ -379,7 +379,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b66';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b67';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -460,6 +460,11 @@ const reflCam = new THREE.PerspectiveCamera();
 const _reflMat = new THREE.Matrix4();
 // Projects a world point into the reflection target's 0..1 texture space.
 // The half-scale-and-bias turns clip space into UV.
+// Scratch for the refraction buffer's clear colour, and the renderer's own,
+// saved so the main pass is handed back exactly what it had.
+const _refrClear = new THREE.Color();
+const _clearWas = new THREE.Color();
+let _clearWasA = 1;
 const _reflBias = new THREE.Matrix4().set(
   0.5, 0, 0, 0.5,
   0, 0.5, 0, 0.5,
@@ -1391,11 +1396,28 @@ function frame(now) {
       const rk = Math.max(0.25, Math.min(1, get('scene.refrScale')));
       ensureRefrRT(Math.max(2, Math.round(bw * rk)), Math.max(2, Math.round(bh * rk)));
       const tm = renderer.toneMapping;
+      renderer.getClearColor(_clearWas);
+      _clearWasA = renderer.getClearAlpha();
       renderer.toneMapping = THREE.NoToneMapping;
       renderer.setRenderTarget(refrRT);
+      // CLEAR TO THE WATER'S OWN COLOUR, not to black.
+      //
+      // The water does not ADD what it finds in this buffer, it MIXES TOWARD
+      // it -- correct for a submerged hull, which really does replace the water
+      // you would otherwise see through. But an additive particle drawn over a
+      // black clear is black-plus-a-little-light, so mixing toward it turned
+      // every bubble into a DARK smudge on bright turquoise. They were being
+      // composited the whole time, just subtracting instead of adding.
+      //
+      // Clearing to the sea's own scattering colour makes an additive particle
+      // read as water-plus-light, which is what a bubble is. Opaque geometry is
+      // unaffected: it overwrites the clear before anything samples it.
+      const sc = sea?.params?.scatterColor;
+      if (sc) renderer.setClearColor(_refrClear.setRGB(sc[0], sc[1], sc[2]), 1);
       renderer.clear(true, true, true);
       renderer.render(scene, camera);
       renderer.setRenderTarget(null);
+      if (sc) renderer.setClearColor(_clearWas, _clearWasA);
       renderer.toneMapping = tm;
       const glc = renderer.getContext();
       const ct = renderer.properties.get(refrRT.texture)?.__webglTexture;
