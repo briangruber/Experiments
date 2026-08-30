@@ -54,8 +54,24 @@ export class Bubbles {
 
 		this.material = new THREE.ShaderMaterial( {
 			transparent: true,
-			// ADDITIVE, and no depth write. Both were wrong the first time and
-			// wrong together, which is why the result looked like stacked coins.
+			// ADDITIVE, AND depth-writing. Both matter, and turning the second
+			// off to fix the first is what made these invisible.
+			//
+			// The water composites what is behind it by reading the refraction
+			// pass's DEPTH texture, and the branch is gated on there being
+			// something there at all (dsceneW < 1.0). Over open water the sea
+			// bed is procedural -- computed inside the water shader, not scene
+			// geometry -- so a bubble that writes no depth leaves that texel at
+			// the far plane, the branch is skipped, and the bubble is never
+			// composited. It is drawn into the colour buffer and then never
+			// looked at. No emission rate can fix that.
+			//
+			// The stacked-coins look really was caused by depth write, but not
+			// by depth write alone: it was depth write plus ALPHA blending plus
+			// five-centimetre discs. Each disc composited over the last and cut
+			// a hard rim into it. Additive blending is order-independent, so
+			// with it the only thing depth write does is let a near bubble
+			// occlude one directly behind it -- which is what a bubble does.
 			//
 			// A bubble is not paint. It is a gas-water interface that TOTALLY
 			// internally reflects at any glancing angle -- which is why a bubble
@@ -64,14 +80,7 @@ export class Bubbles {
 			// different colour from it. Alpha-blending a light grey over blue
 			// can only ever produce grey; adding light produces silver.
 			//
-			// And depthWrite on a transparent billboard makes each disc CUT
-			// into the ones behind it: hard rims, visible stacking order, flat
-			// overlapping plates. It was on so the refraction pass would get
-			// their depth for the murk calculation -- but the murk of a bubble
-			// a metre and a half down is barely different from the water just
-			// behind it, so that was a real artefact bought for a difference
-			// nobody can see.
-			depthWrite: false,
+			depthWrite: true,
 			depthTest: true,
 			blending: THREE.AdditiveBlending,
 			uniforms: {
