@@ -44,6 +44,7 @@ floor — the five things every later room is made of.
 | placeholder art | `src/art/paint.js` | procedural, and also the conditioning signal for generation |
 | moving layers | `src/art/animate.js` | drifting clouds, sea shimmer and moon glitter, candle flicker |
 | walk-cycle contact sheet | `tools/pose.mjs` | the only way to judge animation — see below |
+| rig geometry assertions | `tools/check-rig.mjs` | which way the joints bend, as a check |
 | prop table and mattes | `src/art/props.js` | the box each clickable object lives in |
 | the hand it generates in | `style.json` | the style LoRA both generators share |
 | single-file bundler | `tools/bundle.mjs` | module registry + inlined assets, publishes as an artifact |
@@ -231,6 +232,14 @@ So everything spent on the character goes into readability and motion:
 - **Colour blocks over detail** — a belt with a buckle, cuffs at the wrists, a
   collar instead of a bib. At 35px an arm the same colour as the coat behind it
   is invisible, and a pale shirt down the middle is the only thing you see.
+
+The knee direction has now been flipped in error **twice**, once in each
+direction, and neither flip was caught by anything: the game ran, the
+playthrough passed, and the only symptom was a 35px figure walking like an
+ostrich. Which side of the hip-to-ankle line the knee falls on is a geometric
+fact, so `tools/check-rig.mjs` now asserts it — knee forward, elbow back, bones
+keeping their length, and overreach clamping rather than returning NaN. It fails
+on the wrong sign, which is the only property of a check that matters.
 
 `tools/pose.mjs` renders the whole stride as a contact sheet at 1.5x with a
 ground line. Animation is the one thing here that cannot be checked by

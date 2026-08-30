@@ -359,7 +359,24 @@ const TAU = Math.PI * 2;
 // Two-bone IK. Given a hip and a foot it finds the knee, which is the whole
 // difference between a leg that bends and a leg that swings from the hip like
 // a pendulum.
-function joint(ax, ay, bx, by, l1, l2, bend) {
+//
+// `bend` picks which side of the hip-to-ankle line the joint falls on, and
+// getting it backwards is not subtle — it is an ostrich. The sign is stated
+// here once because it has been flipped in error twice:
+//
+//   canvas +y is DOWN, and the limb runs downward, so the base angle is near
+//   +PI/2. bend = -1 then puts the joint at +x, which after ctx.scale(flip,1)
+//   is the direction the character faces.
+//
+//   KNEE_FORWARD = -1   a knee points the way you are walking
+//   ELBOW_BACK   = +1   an elbow points the other way
+//
+// tools/check-rig.mjs asserts both, so a third flip fails a check instead of
+// shipping.
+export const KNEE_FORWARD = -1;
+export const ELBOW_BACK = 1;
+
+export function joint(ax, ay, bx, by, l1, l2, bend) {
   const dx = bx - ax, dy = by - ay;
   const d = Math.min(Math.hypot(dx, dy), l1 + l2 - 0.0001) || 0.0001;
   const base = Math.atan2(dy, dx);
@@ -471,7 +488,7 @@ export function makePerson(spec) {
       const hip = hipAt(i === 0 ? -1 : 1);
       const foot = feet[i];
       const ankle = { x: foot.x, y: -H * 0.020 + foot.y };
-      const knee = joint(hip.x, hip.y, ankle.x, ankle.y, THIGH, SHIN, 1);
+      const knee = joint(hip.x, hip.y, ankle.x, ankle.y, THIGH, SHIN, KNEE_FORWARD);
       const tone = back ? 0.72 : 1;
       bone(hip.x, hip.y, knee.x, knee.y, H * 0.078,
         lit(spec.legs, hipY, 0, 1.18 * tone, 0.62 * tone));
@@ -497,7 +514,7 @@ export function makePerson(spec) {
         x: sway * 0.5 + reach * H * 0.105 + side * H * 0.055,
         y: hipY + H * 0.075 - Math.abs(reach) * H * 0.012 + (walking ? 0 : breath * H * 0.006),
       };
-      const el = joint(sh0.x, sh0.y, hand.x, hand.y, UPPER, FORE, -1);
+      const el = joint(sh0.x, sh0.y, hand.x, hand.y, UPPER, FORE, ELBOW_BACK);
       // An arm the same colour as the coat in front of it is invisible. The far
       // arm goes into shadow, the near one comes up a stop — the only two
       // things separating them are value and the outline.
