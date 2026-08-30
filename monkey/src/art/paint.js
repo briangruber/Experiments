@@ -320,223 +320,336 @@ export function paintCup(ctx, room, taken) {
 // One cartoon-proportioned body, parameterised. Big head, small hips, wide
 // shoulders — the CMI silhouette. Origin is between the feet at (0,0).
 //
-// Two things do most of the work of sitting a drawn character inside a painted
-// scene, and neither is more detail. The first is light: the scene has a cold
-// moon up to the right and a warm window down to the left, so the figure gets
-// a cool rim on one side and a warm bounce on the other, and stops looking
-// like a sticker. The second is lag — hair, coat-tail and sash trailing a
-// frame behind the body — which is what separates a puppet from a rig.
+// The figure is ~165px tall in a 720px frame, which makes the head about 35px
+// across. That number decides the whole approach. At 35px a painted head is a
+// coloured blob and a drawn one still has eyes, a brow and a jaw — so this
+// stays vector on purpose, and everything spent on it goes into readability
+// and motion rather than texture. Cel characters over painted backgrounds is
+// what the era actually did, and for this reason.
+//
+// What sells the walk is not the leg positions, it is the weight: the pelvis
+// drops onto the supporting leg, the chest counter-rotates against the hips,
+// the body falls and catches twice per stride, and the cloth arrives late.
+// Take those four out and you have a pair of scissors walking.
+
 const MOONLIGHT = 'rgba(186,206,255,';
 const LAMPLIGHT = 'rgba(255,168,92,';
+const TAU = Math.PI * 2;
+
+// Two-bone IK. Given a hip and a foot it finds the knee, which is the whole
+// difference between a leg that bends and a leg that swings from the hip like
+// a pendulum.
+function joint(ax, ay, bx, by, l1, l2, bend) {
+  const dx = bx - ax, dy = by - ay;
+  const d = Math.min(Math.hypot(dx, dy), l1 + l2 - 0.0001) || 0.0001;
+  const base = Math.atan2(dy, dx);
+  const cos = Math.max(-1, Math.min(1, (l1 * l1 + d * d - l2 * l2) / (2 * l1 * d)));
+  const a = base + Math.acos(cos) * bend;
+  return { x: ax + Math.cos(a) * l1, y: ay + Math.sin(a) * l1 };
+}
 
 export function makePerson(spec) {
+  // A line the colour of the scene's shadows rather than black. Ink reads as a
+  // cartoon sticker on a painted plate; a deep blue-brown reads as drawn.
+  const INK = spec.ink || 'rgba(28,20,26,0.62)';
+
   return function drawPerson(ctx, actor) {
+    const H = spec.height;
     const walking = actor.state === 'walk';
-    const p = actor.phase * Math.PI * 2;
-    const swing = walking ? Math.sin(p) : 0;
-    const bob = walking ? Math.abs(Math.cos(p)) * 4 : Math.sin(actor.phase * 1.7) * 1.4;
+    const p = actor.phase * TAU;
     const flip = actor.facing === 'left' ? -1 : 1;
     const away = actor.facing === 'back';
-    const H = spec.height;
-    // After the mirror, local +x is world x*flip. Multiplying by lx keeps the
-    // moon on the moon's side of the sky when the character turns around.
-    const lx = flip;
-    // Trailing cloth. `lag` is smoothed in Actor.update, so it overshoots when
-    // the character stops rather than snapping upright.
-    const lag = actor.lag || 0;
+    const lx = flip;                       // keeps the moon on the moon's side
+    const lag = actor.lag || 0;            // cloth, arriving late
+    const breath = Math.sin(actor.phase * 1.7);
 
-    ctx.save();
-    ctx.scale(flip, 1);
-    ctx.translate(0, -bob);
-
-    // Contact shadow, thrown away from the moon and softened at the edge.
-    ctx.save();
-    ctx.translate(0, bob);
-    const sh = ctx.createRadialGradient(-lx * H * 0.03, 0, H * 0.02, -lx * H * 0.03, 0, H * 0.23);
-    sh.addColorStop(0, 'rgba(0,0,0,0.40)');
-    sh.addColorStop(0.6, 'rgba(0,0,0,0.16)');
-    sh.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = sh;
-    ctx.save();
-    ctx.scale(1, 0.22);
-    ctx.beginPath();
-    ctx.arc(-lx * H * 0.03, 0, H * 0.23, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-    ctx.restore();
+    // Two falls per stride, not one: the body drops as each foot lands.
+    const bob = walking ? -Math.abs(Math.cos(p)) * H * 0.020 : breath * H * 0.007;
+    const sway = walking ? Math.sin(p) * H * 0.010 : 0;
+    const hipTilt = walking ? Math.sin(p) * 0.13 : breath * 0.012;
+    const chestTwist = walking ? -Math.sin(p) * 0.075 : -breath * 0.010;
 
     const hipY = -H * 0.42, shoY = -H * 0.72, headY = -H * 0.86;
+    const THIGH = H * 0.208, SHIN = H * 0.208;   // 0.416H of reach against a
+    const UPPER = H * 0.150, FORE = H * 0.150;   // 0.40H drop: plants, still bends
 
-    // A vertical gradient per part: the scene's key is high, so every form is
-    // lighter at the top and sinks into its own shadow at the bottom.
-    const lit = (c0, c1, y0, y1) => {
-      const g = ctx.createLinearGradient(lx * H * 0.08, y0, -lx * H * 0.10, y1);
-      g.addColorStop(0, c0);
-      g.addColorStop(1, c1);
-      return g;
-    };
     const shade = (hex, k) => {
       const n = parseInt(hex.slice(1), 16);
       const f = (v) => Math.max(0, Math.min(255, Math.round(v * k)));
       return `rgb(${f((n >> 16) & 255)},${f((n >> 8) & 255)},${f(n & 255)})`;
     };
-
-    const leg = (dir) => {
-      ctx.strokeStyle = lit(shade(spec.legs, 1.18), shade(spec.legs, 0.62), hipY, 0);
-      ctx.lineWidth = H * 0.075;
-      ctx.lineCap = 'round';
-      const kx = dir * swing * H * 0.13;
-      ctx.beginPath();
-      ctx.moveTo(dir * H * 0.045, hipY);
-      ctx.quadraticCurveTo(kx * 0.6, hipY * 0.5, kx, -H * 0.035);
-      ctx.stroke();
-      ctx.fillStyle = lit(shade(spec.boots, 1.5), spec.boots, -H * 0.05, 0);
-      ctx.beginPath();
-      ctx.ellipse(kx + H * 0.022, -H * 0.022, H * 0.055, H * 0.030, 0, 0, Math.PI * 2);
-      ctx.fill();
+    const lit = (base, y0, y1, hi = 1.20, lo = 0.60) => {
+      const g = ctx.createLinearGradient(lx * H * 0.09, y0, -lx * H * 0.10, y1);
+      g.addColorStop(0, shade(base, hi));
+      g.addColorStop(1, shade(base, lo));
+      return g;
     };
-    leg(-1); leg(1);
 
-    // torso, with the coat hem swung by the lag
+    // A limb segment: outline first at a wider stroke, colour over it. Two
+    // strokes rather than a path with a border, which keeps the joins clean
+    // where segments meet.
+    const bone = (x0, y0, x1, y1, w, paint) => {
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = INK;
+      ctx.lineWidth = w + H * 0.016;
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+      ctx.strokeStyle = paint;
+      ctx.lineWidth = w;
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+    };
+
+    ctx.save();
+    ctx.scale(flip, 1);
+
+    // --- feet, in world-ish space before the body offset -------------------
+    // The foot is planted for half the cycle and swings for the other half,
+    // and it stays on the ground while planted. A foot that slides is the
+    // single most obvious tell of a bad walk cycle.
+    const stride = H * 0.155, lift = H * 0.075;
+    const footOf = (ph) => {
+      const c = Math.cos(ph);
+      const swing = Math.sin(ph) > 0;
+      return {
+        x: sway + c * stride,
+        y: swing ? -Math.sin(ph) * lift : 0,
+        planted: !swing,
+      };
+    };
+    const feet = walking
+      ? [footOf(p), footOf(p + Math.PI)]
+      : [{ x: -H * 0.045, y: 0 }, { x: H * 0.050, y: 0 }];
+
+    // Contact shadow, pooled under whichever foot is down.
+    ctx.save();
+    const sh = ctx.createRadialGradient(sway * 0.5, 0, H * 0.015, sway * 0.5, 0, H * 0.24);
+    sh.addColorStop(0, 'rgba(0,0,0,0.42)');
+    sh.addColorStop(0.55, 'rgba(0,0,0,0.15)');
+    sh.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = sh;
+    ctx.scale(1, 0.20);
+    ctx.beginPath(); ctx.arc(sway * 0.5, 0, H * 0.24, 0, TAU); ctx.fill();
+    ctx.restore();
+
+    ctx.translate(0, bob);
+
+    // --- pelvis and chest ---------------------------------------------------
+    const hipAt = (side) => ({
+      x: sway + side * H * 0.048 * Math.cos(hipTilt),
+      y: hipY + side * H * 0.048 * Math.sin(hipTilt),
+    });
+    const shoAt = (side) => ({
+      x: sway * 0.4 + side * H * 0.115 * Math.cos(chestTwist),
+      y: shoY + side * H * 0.115 * Math.sin(chestTwist),
+    });
+
+    // --- legs ---------------------------------------------------------------
+    // Back leg first so the near leg overlaps it: with both legs the same
+    // colour, that overlap is the only depth cue there is.
+    const legOrder = walking && Math.sin(p) > 0 ? [1, 0] : [0, 1];
+    for (const i of legOrder) {
+      const back = i === legOrder[0];
+      const hip = hipAt(i === 0 ? -1 : 1);
+      const foot = feet[i];
+      const ankle = { x: foot.x, y: -H * 0.020 + foot.y };
+      const knee = joint(hip.x, hip.y, ankle.x, ankle.y, THIGH, SHIN, 1);
+      const tone = back ? 0.72 : 1;
+      bone(hip.x, hip.y, knee.x, knee.y, H * 0.078,
+        lit(spec.legs, hipY, 0, 1.18 * tone, 0.62 * tone));
+      bone(knee.x, knee.y, ankle.x, ankle.y, H * 0.066,
+        lit(spec.legs, hipY * 0.5, 0, 1.05 * tone, 0.55 * tone));
+      // boot, tipped as the foot swings through
+      ctx.save();
+      ctx.translate(ankle.x, ankle.y);
+      ctx.rotate(foot.planted === false ? -0.35 * Math.cos(p + (i ? Math.PI : 0)) : 0.05);
+      ctx.fillStyle = INK;
+      ctx.beginPath(); ctx.ellipse(H * 0.016, H * 0.014, H * 0.062, H * 0.037, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = lit(spec.boots, -H * 0.05, H * 0.02, 1.5 * tone, 0.9 * tone);
+      ctx.beginPath(); ctx.ellipse(H * 0.016, H * 0.012, H * 0.054, H * 0.029, 0, 0, TAU); ctx.fill();
+      ctx.restore();
+    }
+
+    // --- far arm ------------------------------------------------------------
+    const armAt = (side, dim) => {
+      const sh0 = shoAt(side);
+      const phase = p + (side > 0 ? Math.PI : 0);
+      const reach = walking ? Math.cos(phase) : 0;
+      const hand = {
+        x: sway * 0.5 + reach * H * 0.105 + side * H * 0.055,
+        y: hipY + H * 0.075 - Math.abs(reach) * H * 0.012 + (walking ? 0 : breath * H * 0.006),
+      };
+      const el = joint(sh0.x, sh0.y, hand.x, hand.y, UPPER, FORE, -1);
+      // An arm the same colour as the coat in front of it is invisible. The far
+      // arm goes into shadow, the near one comes up a stop — the only two
+      // things separating them are value and the outline.
+      const k = dim ? 0.55 : 1.12;
+      bone(sh0.x, sh0.y, el.x, el.y, H * 0.058, lit(spec.coat, shoY, hipY, 1.14 * k, 0.58 * k));
+      bone(el.x, el.y, hand.x, hand.y, H * 0.050, lit(spec.coat, shoY, hipY, 1.06 * k, 0.54 * k));
+      const cuffA = Math.atan2(hand.y - el.y, hand.x - el.x);
+      ctx.save();
+      ctx.translate(hand.x - Math.cos(cuffA) * H * 0.028, hand.y - Math.sin(cuffA) * H * 0.028);
+      ctx.rotate(cuffA);
+      ctx.fillStyle = INK;
+      ctx.fillRect(-H * 0.016, -H * 0.034, H * 0.032, H * 0.068);
+      ctx.fillStyle = lit(spec.shirt || spec.skin, 0, H * 0.05, 1.0 * k, 0.66 * k);
+      ctx.fillRect(-H * 0.011, -H * 0.029, H * 0.022, H * 0.058);
+      ctx.restore();
+      ctx.fillStyle = INK;
+      ctx.beginPath(); ctx.arc(hand.x, hand.y, H * 0.038, 0, TAU); ctx.fill();
+      ctx.fillStyle = lit(spec.skin, hipY, hipY + H * 0.1, 1.10 * k, 0.74 * k);
+      ctx.beginPath(); ctx.arc(hand.x, hand.y, H * 0.031, 0, TAU); ctx.fill();
+    };
+    armAt(-1, true);
+
+    // --- torso --------------------------------------------------------------
+    const shL = shoAt(-1), shR = shoAt(1), hpL = hipAt(-1), hpR = hipAt(1);
     const torsoPath = () => {
       ctx.beginPath();
-      ctx.moveTo(-H * 0.115 + lag * H * 0.03, hipY + H * 0.04);
-      ctx.quadraticCurveTo(-H * 0.165, shoY + H * 0.06, -H * 0.135, shoY);
-      ctx.lineTo(H * 0.135, shoY);
-      ctx.quadraticCurveTo(H * 0.165, shoY + H * 0.06, H * 0.115 + lag * H * 0.05, hipY + H * 0.04);
+      // Pinched at the waist and flared at the hem: the coat silhouette is
+      // doing all the character work at this size.
+      ctx.moveTo(hpL.x - H * 0.070 + lag * H * 0.03, hpL.y + H * 0.055);
+      ctx.quadraticCurveTo(shL.x - H * 0.014, hipY - H * 0.075, shL.x, shL.y);
+      ctx.quadraticCurveTo(0, shL.y - H * 0.026, shR.x, shR.y);
+      ctx.quadraticCurveTo(shR.x + H * 0.014, hipY - H * 0.075, hpR.x + H * 0.070 + lag * H * 0.05, hpR.y + H * 0.055);
+      ctx.quadraticCurveTo(0, hipY + H * 0.095, hpL.x - H * 0.070 + lag * H * 0.03, hpL.y + H * 0.055);
       ctx.closePath();
     };
-    ctx.fillStyle = lit(shade(spec.coat, 1.22), shade(spec.coat, 0.58), shoY, hipY);
-    torsoPath();
-    ctx.fill();
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = H * 0.016;
+    ctx.lineJoin = 'round';
+    torsoPath(); ctx.stroke();
+    ctx.fillStyle = lit(spec.coat, shoY, hipY, 1.22, 0.58);
+    torsoPath(); ctx.fill();
+
     if (spec.shirt) {
-      ctx.fillStyle = lit(shade(spec.shirt, 1.10), shade(spec.shirt, 0.66), shoY, hipY);
+      // A collar and a strip of shirt where the coat is open, not a bib. At
+      // 35px a big pale rectangle on the chest is the only thing you see.
+      const shirtBot = shoY + H * 0.125;
+      ctx.fillStyle = lit(spec.shirt, shoY, shirtBot, 0.94, 0.62);
       ctx.beginPath();
-      ctx.moveTo(-H * 0.045, shoY + H * 0.005);
-      ctx.lineTo(H * 0.045, shoY + H * 0.005);
-      ctx.lineTo(H * 0.030, hipY + H * 0.02);
-      ctx.lineTo(-H * 0.030, hipY + H * 0.02);
-      ctx.closePath();
-      ctx.fill();
+      ctx.moveTo(-H * 0.032, shL.y + H * 0.012);
+      ctx.lineTo(H * 0.032, shR.y + H * 0.012);
+      ctx.lineTo(0, shirtBot);
+      ctx.closePath(); ctx.fill();
+      // the coat's open edges, closing under the collar
+      ctx.strokeStyle = 'rgba(24,16,20,0.45)';
+      ctx.lineWidth = H * 0.010;
+      ctx.beginPath();
+      ctx.moveTo(-H * 0.032, shL.y + H * 0.012); ctx.lineTo(0, shirtBot);
+      ctx.moveTo(H * 0.032, shR.y + H * 0.012); ctx.lineTo(0, shirtBot);
+      ctx.stroke();
     }
     if (spec.sash) {
-      ctx.fillStyle = lit(shade(spec.sash, 1.20), shade(spec.sash, 0.70), hipY - H * 0.02, hipY + H * 0.03);
-      ctx.fillRect(-H * 0.125, hipY - H * 0.02, H * 0.25, H * 0.045);
-      // the loose end, trailing
+      ctx.save();
+      ctx.translate(sway, hipY);
+      ctx.rotate(hipTilt * 0.6);
+      ctx.fillStyle = INK;
+      ctx.fillRect(-H * 0.092, -H * 0.017, H * 0.184, H * 0.038);
+      ctx.fillStyle = lit(spec.sash, hipY - H * 0.02, hipY + H * 0.02, 0.98, 0.54);
+      ctx.fillRect(-H * 0.088, -H * 0.013, H * 0.176, H * 0.030);
+      ctx.fillStyle = lit(spec.sash, hipY - H * 0.02, hipY + H * 0.02, 1.35, 0.85);
+      ctx.fillRect(-H * 0.014, -H * 0.017, H * 0.028, H * 0.038);
       ctx.beginPath();
-      ctx.moveTo(-H * 0.115, hipY - H * 0.01);
-      ctx.quadraticCurveTo(-H * 0.16 + lag * H * 0.05, hipY + H * 0.07, -H * 0.12 + lag * H * 0.09, hipY + H * 0.13);
-      ctx.lineTo(-H * 0.085 + lag * H * 0.07, hipY + H * 0.11);
-      ctx.quadraticCurveTo(-H * 0.115, hipY + H * 0.05, -H * 0.075, hipY - H * 0.005);
-      ctx.closePath();
-      ctx.fill();
+      ctx.moveTo(-H * 0.112, -H * 0.010);
+      ctx.quadraticCurveTo(-H * 0.158 + lag * H * 0.05, H * 0.062, -H * 0.118 + lag * H * 0.09, H * 0.125);
+      ctx.lineTo(-H * 0.082 + lag * H * 0.07, H * 0.108);
+      ctx.quadraticCurveTo(-H * 0.112, H * 0.046, -H * 0.072, -H * 0.006);
+      ctx.closePath(); ctx.fill();
+      ctx.restore();
     }
 
-    const arm = (dir) => {
-      ctx.strokeStyle = lit(shade(spec.coat, 1.14), shade(spec.coat, 0.60), shoY, hipY);
-      ctx.lineWidth = H * 0.058;
-      ctx.lineCap = 'round';
-      const hx = dir * (H * 0.075 - dir * swing * H * 0.10);
-      const hy = hipY + H * 0.05;
-      ctx.beginPath();
-      ctx.moveTo(dir * H * 0.125, shoY + H * 0.025);
-      ctx.quadraticCurveTo(dir * H * 0.155, (shoY + hy) / 2, hx, hy);
-      ctx.stroke();
-      ctx.fillStyle = lit(shade(spec.skin, 1.10), shade(spec.skin, 0.74), hy - H * 0.03, hy + H * 0.03);
-      ctx.beginPath(); ctx.arc(hx, hy, H * 0.035, 0, Math.PI * 2); ctx.fill();
-    };
-    arm(-1); arm(1);
-
-    // head
+    // The shadow the chest throws onto the belly. One ellipse, and the torso
+    // stops being a flat shield.
     ctx.save();
-    ctx.translate(0, headY);
+    torsoPath(); ctx.clip();
+    const ao = ctx.createLinearGradient(0, shoY, 0, hipY);
+    ao.addColorStop(0, 'rgba(20,14,22,0.30)');
+    ao.addColorStop(0.45, 'rgba(20,14,22,0)');
+    ctx.fillStyle = ao;
+    ctx.fillRect(-H * 0.2, shoY - H * 0.05, H * 0.4, H * 0.4);
+    ctx.restore();
+
+    // --- near arm -----------------------------------------------------------
+    armAt(1, false);
+
+    // --- head ---------------------------------------------------------------
+    ctx.save();
+    // The head leads the body slightly and settles late, which is most of what
+    // makes a walk look like a person rather than a mechanism.
+    ctx.translate(sway * 0.7 + lag * H * 0.012, headY + bob * 0.25);
+    ctx.rotate(chestTwist * 0.5 + lag * 0.06);
     const talking = actor.line !== null;
     const jaw = talking ? Math.abs(Math.sin(actor.phase * 26)) : 0;
-    const headR = { rx: H * 0.105, ry: H * 0.115 + jaw * H * 0.012 };
-    const hg = ctx.createLinearGradient(lx * headR.rx, -headR.ry, -lx * headR.rx, headR.ry);
+    const rx = H * 0.105, ry = H * 0.115 + jaw * H * 0.012;
+
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = H * 0.016;
+    ctx.beginPath(); ctx.ellipse(0, 0, rx, ry, 0, 0, TAU); ctx.stroke();
+    const hg = ctx.createLinearGradient(lx * rx, -ry, -lx * rx, ry);
     hg.addColorStop(0, shade(spec.skin, 1.12));
     hg.addColorStop(1, shade(spec.skin, 0.72));
     ctx.fillStyle = hg;
-    ctx.beginPath();
-    ctx.ellipse(0, 0, headR.rx, headR.ry, 0, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.beginPath(); ctx.ellipse(0, 0, rx, ry, 0, 0, TAU); ctx.fill();
+
     if (spec.hair) {
-      ctx.fillStyle = lit(shade(spec.hair, 1.25), shade(spec.hair, 0.65), -H * 0.10, H * 0.02);
+      ctx.fillStyle = lit(spec.hair, -H * 0.10, H * 0.02, 1.25, 0.65);
       ctx.beginPath();
-      ctx.ellipse(0, -H * 0.045, H * 0.112, H * 0.072, 0, Math.PI, Math.PI * 2);
+      ctx.ellipse(0, -H * 0.045, H * 0.112, H * 0.072, 0, Math.PI, TAU);
       ctx.fill();
-      // the side lock, which lags and gives the head some weight
       ctx.beginPath();
       ctx.ellipse(-H * 0.085 + lag * H * 0.03, H * 0.005 + Math.abs(lag) * H * 0.01,
-        H * 0.045, H * 0.075, 0.3 + lag * 0.35, 0, Math.PI * 2);
+        H * 0.045, H * 0.075, 0.3 + lag * 0.35, 0, TAU);
       ctx.fill();
     }
     if (!away) {
       const blink = actor.blink < 0 ? 0.15 : 1;
       ctx.fillStyle = '#fff';
       for (const ex of [H * 0.012, H * 0.058]) {
-        ctx.beginPath();
-        ctx.ellipse(ex, -H * 0.012, H * 0.021, H * 0.024 * blink, 0, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.beginPath(); ctx.ellipse(ex, -H * 0.012, H * 0.021, H * 0.024 * blink, 0, 0, TAU); ctx.fill();
       }
       ctx.fillStyle = '#181008';
       for (const ex of [H * 0.018, H * 0.062]) {
-        ctx.beginPath();
-        ctx.ellipse(ex, -H * 0.012, H * 0.010, H * 0.014 * blink, 0, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.beginPath(); ctx.ellipse(ex, -H * 0.012, H * 0.010, H * 0.014 * blink, 0, 0, TAU); ctx.fill();
       }
       ctx.strokeStyle = '#241608';
       ctx.lineWidth = H * 0.010;
       ctx.lineCap = 'round';
       ctx.beginPath();
-      ctx.moveTo(H * 0.000, -H * 0.045); ctx.lineTo(H * 0.032, -H * 0.050);
+      ctx.moveTo(0, -H * 0.045); ctx.lineTo(H * 0.032, -H * 0.050);
       ctx.moveTo(H * 0.050, -H * 0.050); ctx.lineTo(H * 0.080, -H * 0.043);
       ctx.stroke();
       ctx.fillStyle = shade(spec.skin2 || spec.skin, 0.94);
-      ctx.beginPath();
-      ctx.ellipse(H * 0.078, H * 0.014, H * 0.026, H * 0.020, 0.4, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.beginPath(); ctx.ellipse(H * 0.078, H * 0.014, H * 0.026, H * 0.020, 0.4, 0, TAU); ctx.fill();
       ctx.fillStyle = '#3a1a12';
-      ctx.beginPath();
-      ctx.ellipse(H * 0.045, H * 0.058, H * 0.028, H * 0.008 + jaw * H * 0.020, 0, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.beginPath(); ctx.ellipse(H * 0.045, H * 0.058, H * 0.028, H * 0.008 + jaw * H * 0.020, 0, 0, TAU); ctx.fill();
     }
     if (spec.hat) spec.hat(ctx, H, lag);
     if (spec.beard) {
-      ctx.fillStyle = lit(shade(spec.beard, 1.2), shade(spec.beard, 0.7), 0, H * 0.12);
-      ctx.beginPath();
-      ctx.ellipse(H * 0.030, H * 0.075, H * 0.080, H * 0.055, 0, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.fillStyle = lit(spec.beard, 0, H * 0.12, 1.2, 0.7);
+      ctx.beginPath(); ctx.ellipse(H * 0.030, H * 0.075, H * 0.080, H * 0.055, 0, 0, TAU); ctx.fill();
     }
-    // The moon rim, last, over everything: a thin cold edge down the lit side
-    // of the head. One stroke, and the head stops being a flat oval.
+    // The moon rim: one cold stroke down the lit side, over everything.
     ctx.globalCompositeOperation = 'lighter';
-    ctx.strokeStyle = MOONLIGHT + '0.5)';
+    ctx.strokeStyle = MOONLIGHT + '0.45)';
     ctx.lineWidth = H * 0.013;
     ctx.beginPath();
-    ctx.ellipse(0, 0, headR.rx * 0.97, headR.ry * 0.97, 0, lx > 0 ? -1.5 : 1.5, lx > 0 ? 0.5 : Math.PI + 1.1, lx < 0);
+    ctx.ellipse(0, 0, rx * 0.95, ry * 0.95, 0, lx > 0 ? -1.5 : 1.5, lx > 0 ? 0.5 : Math.PI + 1.1, lx < 0);
     ctx.stroke();
     ctx.restore();
 
-    // Body rim and the warm bounce off the planks, filled into the torso's own
-    // outline rather than a rectangle over it. A linear gradient clamps to its
-    // end colour outside its range, so a rect under `lighter` lights the whole
-    // rect and the character wears a glowing box.
+    // --- light, filled into the torso's own outline -------------------------
+    // A linear gradient clamps to its end colour outside its range, so a
+    // fillRect under `lighter` lights the whole rect and the figure wears a
+    // glowing box. Fill the shape, not a rectangle around it.
     ctx.globalCompositeOperation = 'lighter';
     const rim = ctx.createLinearGradient(lx * H * 0.15, shoY, -lx * H * 0.04, hipY + H * 0.04);
-    rim.addColorStop(0, MOONLIGHT + '0.26)');
-    rim.addColorStop(0.55, MOONLIGHT + '0.05)');
+    rim.addColorStop(0, MOONLIGHT + '0.24)');
+    rim.addColorStop(0.55, MOONLIGHT + '0.04)');
     rim.addColorStop(1, MOONLIGHT + '0)');
-    ctx.fillStyle = rim;
-    torsoPath();
-    ctx.fill();
-
-    const bounce = ctx.createLinearGradient(0, hipY - H * 0.02, 0, hipY + H * 0.06);
+    ctx.fillStyle = rim; torsoPath(); ctx.fill();
+    const bounce = ctx.createLinearGradient(0, hipY - H * 0.02, 0, hipY + H * 0.07);
     bounce.addColorStop(0, LAMPLIGHT + '0)');
-    bounce.addColorStop(1, LAMPLIGHT + '0.16)');
-    ctx.fillStyle = bounce;
-    torsoPath();
-    ctx.fill();
+    bounce.addColorStop(1, LAMPLIGHT + '0.15)');
+    ctx.fillStyle = bounce; torsoPath(); ctx.fill();
 
     ctx.restore();
   };

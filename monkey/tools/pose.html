@@ -1,0 +1,68 @@
+<meta charset="utf-8">
+<title>pose sheet</title>
+<style>html,body{margin:0;background:#1b2233}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script type="module">
+// A contact sheet of the walk cycle, because a walk cannot be judged from one
+// frame and cannot be judged from a description at all. Eight phases across
+// one stride, then the idle and talk poses, at 3x so the 35px head is actually
+// inspectable.
+import * as art from '../src/art/paint.js';
+import { Actor } from '../src/engine/actor.js';
+import { CAST } from '../src/game/dock.js';
+
+const P = new URLSearchParams(location.search);
+const WHO = P.get('who') || 'player';
+// The cell has to hold the whole figure at the inspection scale, or the sheet
+// is a close-up of a torso.
+const N = 8, CW = 140, CH = 300, SCALE = 1.5, ROWS = 2;
+
+const c = document.getElementById('c');
+c.width = N * CW; c.height = ROWS * CH;
+const ctx = c.getContext('2d');
+
+const room = { scaleAt: () => 1, camX: 0, time: 0, width: 1920, height: 720 };
+const a = new Actor(CAST[WHO]);
+
+function cell(col, row, label, prep) {
+  const x = col * CW, y = row * CH;
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,255,255,0.09)';
+  ctx.strokeRect(x + 0.5, y + 0.5, CW - 1, CH - 1);
+  // A ground line, so a sliding or floating foot is obvious.
+  ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+  ctx.beginPath(); ctx.moveTo(x + 8, y + CH - 34); ctx.lineTo(x + CW - 8, y + CH - 34); ctx.stroke();
+  ctx.fillStyle = 'rgba(220,230,255,0.5)';
+  ctx.font = '11px ui-monospace, monospace';
+  ctx.fillText(label, x + 6, y + 15);
+  ctx.translate(x + CW / 2, y + CH - 34);
+  ctx.scale(SCALE, SCALE);
+  prep();
+  a.draw(ctx, a, 1);
+  ctx.restore();
+}
+
+// One full stride, sampled evenly.
+a.state = 'walk';
+a.facing = 'right';
+a.line = null;
+for (let i = 0; i < N; i++) {
+  const ph = i / N;
+  cell(i, 0, `walk ${(ph * 360) | 0}°`, () => { a.phase = ph; a.lag = -0.85; a.blink = 1; });
+}
+
+// Idle, mid-blink, talking, and the settle after a stop.
+const second = [
+  ['idle', () => { a.state = 'idle'; a.phase = 0.2; a.lag = 0; a.line = null; a.blink = 1; }],
+  ['idle breathe', () => { a.state = 'idle'; a.phase = 2.0; a.lag = 0; a.line = null; a.blink = 1; }],
+  ['blink', () => { a.state = 'idle'; a.phase = 0.2; a.lag = 0; a.line = null; a.blink = -0.05; }],
+  ['talk open', () => { a.state = 'talk'; a.phase = 0.06; a.lag = 0; a.line = { text: 'x' }; a.blink = 1; }],
+  ['talk shut', () => { a.state = 'talk'; a.phase = 0.12; a.lag = 0; a.line = { text: 'x' }; a.blink = 1; }],
+  ['settle +', () => { a.state = 'idle'; a.phase = 0.2; a.lag = 0.35; a.line = null; a.blink = 1; }],
+  ['settle -', () => { a.state = 'idle'; a.phase = 0.2; a.lag = -0.25; a.line = null; a.blink = 1; }],
+  ['face left', () => { a.state = 'idle'; a.facing = 'left'; a.phase = 0.2; a.lag = 0; a.line = null; a.blink = 1; }],
+];
+second.forEach(([label, prep], i) => cell(i, 1, label, prep));
+
+window.__ready = true;
+</script>

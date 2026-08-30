@@ -43,6 +43,7 @@ floor — the five things every later room is made of.
 | in-game annotation editor | `src/engine/editor.js` | press `` ` `` — drag the floor, export the polygons |
 | placeholder art | `src/art/paint.js` | procedural, and also the conditioning signal for generation |
 | moving layers | `src/art/animate.js` | drifting clouds, sea shimmer and moon glitter, candle flicker |
+| walk-cycle contact sheet | `tools/pose.mjs` | the only way to judge animation — see below |
 | prop table and mattes | `src/art/props.js` | the box each clickable object lives in |
 | single-file bundler | `tools/bundle.mjs` | module registry + inlined assets, publishes as an artifact |
 | the room itself | `src/game/dock.js` | data plus generator functions; touches no engine internals |
@@ -150,16 +151,48 @@ a linear gradient clamps to its end colour outside its own range, the rect edge
 became a hard band of light. The fix each time was to make the fill contain the
 whole falloff, or to fill the object's own path instead.
 
+## Why the character is vector on purpose
+
+The figure is 165px tall in a 720px frame, which makes the head about **35px
+across**. That number settles the approach. The prop pipeline was about to be
+pointed at generated painted body parts, and the arithmetic says don't: at 35px
+a painted head is a coloured blob, while a drawn one still has a brow, eyes and
+a jaw that flaps on a syllable. Cel characters over painted backgrounds is what
+the era actually did, and this is the reason.
+
+So everything spent on the character goes into readability and motion:
+
+- **Two-bone IK legs.** A knee, and a foot that stays planted while it is on the
+  ground. A sliding foot is the loudest tell of a bad walk cycle.
+- **Weight.** The pelvis drops onto the supporting leg, the chest counter-rotates
+  against the hips, and the body falls and catches twice per stride. Take those
+  out and you have a pair of scissors walking.
+- **Cloth on a damped spring**, so the coat hem and bandana tail overshoot when
+  the character stops and settle after, rather than easing to rest like a UI
+  transition.
+- **A line the colour of the scene's shadows** rather than black. Ink reads as a
+  sticker on a painted plate; a deep blue-brown reads as drawn.
+- **Colour blocks over detail** — a belt with a buckle, cuffs at the wrists, a
+  collar instead of a bib. At 35px an arm the same colour as the coat behind it
+  is invisible, and a pale shirt down the middle is the only thing you see.
+
+`tools/pose.mjs` renders the whole stride as a contact sheet at 1.5x with a
+ground line. Animation is the one thing here that cannot be checked by
+asserting on a value and cannot be judged from a single screenshot of a room
+either. Every fault above was found by looking at that sheet: the knees bent
+backwards like a bird's hock, the legs were too short to ever straighten so the
+character floated in a permanent half-squat, and the arms dissolved into the
+coat.
+
 ## What is still missing
 
-- **Character animation is still the honest gap.** The actors are procedural
-  vector puppets — `makePerson()` in `src/art/paint.js` draws a body from
-  canvas paths each frame. This pass gave them directional light (cool moon rim,
-  warm bounce off the lamplit planks), gradient shading and trailing cloth, and
-  that closes a lot of the distance to the painted backdrop. It does not close
-  all of it, and nothing on the tool list will: mesh generators do not make
-  charming cel animation. The realistic routes are skeletal 2D (Spine) or 3D
-  actors under a toon shader, and both are a different project.
+- **Character animation.** The actors are procedural vector puppets, and after
+  a rig pass they are deliberately staying that way — see below.
+- **A real rig.** The puppet is good enough at 35px, but its limbs are rigid
+  segments. Mesh deformation — limbs that bend rather than hinge, cloth that
+  stretches — needs Spine Pro, and its canvas runtime does not support meshes,
+  so the actors would have to render through an offscreen WebGL canvas blitted
+  into the 2D scene during the depth sort. Deliberately not done.
 - **Text.** Diffusion cannot hold lettering. "THE BILGE" has come back as
   "Jeavern" and "TÉRA"; the sign currently says TAVERN by luck. Any text a
   player must read should be drawn by the engine over the art.

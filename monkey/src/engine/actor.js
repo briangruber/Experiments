@@ -32,9 +32,11 @@ export class Actor {
     this.path = null;
     this.phase = 0;      // walk-cycle phase, in strides
     this.blink = Math.random() * 4;
-    // Trailing cloth. Chased rather than set, so it overshoots on stopping
-    // instead of snapping — the difference between a rig and a puppet.
+    // Trailing cloth, on a damped spring rather than a chase: it overshoots
+    // when the character stops and settles after, which is the difference
+    // between cloth and a UI transition.
     this.lag = 0;
+    this.lagV = 0;
     this.visible = opts.visible !== false;
     this.line = null;    // { text, until, voice }
     this.onArrive = null;
@@ -68,7 +70,9 @@ export class Actor {
 
   update(dt, room) {
     const want = this.state === 'walk' ? (this.facing === 'left' ? 1 : -1) : 0;
-    this.lag += (want - this.lag) * Math.min(1, dt * 6);
+    const step = Math.min(dt, 1 / 45);      // keep the spring stable on a long frame
+    this.lagV += ((want - this.lag) * 85 - this.lagV * 11) * step;
+    this.lag += this.lagV * step;
 
     this.blink -= dt;
     if (this.blink < -0.14) this.blink = 2.5 + Math.random() * 3.5;
