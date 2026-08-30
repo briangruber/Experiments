@@ -431,7 +431,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b74';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b75';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -1083,11 +1083,26 @@ function stepSim(dt) {
                   hx * way, hz * way, state.t, Math.abs(state.speed), state.turn,
                   Math.min(1, load) * way);
 
-  // The screws are at the transom, which is a hull-length aft of the stem the
-  // model's origin sits on.
-  const drawnLen = hullDrawn;
-  const sternX = state.x - bhx * drawnLen * 0.92;
-  const sternZ = state.z - bhz * drawnLen * 0.92;
+  // THE TRANSOM, from the measured hull -- one expression, used by both the
+  // emitter and its debug marker so they cannot drift apart again.
+  //
+  // This was `drawnLen * 0.92` from before the hull was measured: 9.11 m aft of
+  // the pivot where the real transom is 6.73 m, so the bubbles came out about
+  // two and a half metres astern of the boat. I wrote the fix for this earlier
+  // and it silently did nothing -- a string replace with no assertion, against
+  // text that had already changed. Everything after that was reasoning about
+  // code which was not running, including a probe whose numbers I checked
+  // against the arithmetic I INTENDED rather than against the emitter.
+  //
+  // Hence one shared constant. The marker below reads this variable rather than
+  // recomputing the same idea, so if it is ever wrong again it is at least
+  // visibly wrong in the same place.
+  // Plus an explicit offset, because "exactly on the transom" is not always
+  // what you want: a screw hangs under the counter, an outboard stands off the
+  // transom, and a long-shaft leg is further back still. Positive is astern.
+  const sternBack = hullSpan.stern - body.bowOffset() + get('wash.bubAft');
+  const sternX = state.x - bhx * sternBack;
+  const sternZ = state.z - bhz * sternBack;
   // Rate rides the load the same way the cavitation does -- a screw under load
   // is exactly when a boat boils -- plus a floor from simply turning over, so
   // an idling engine still trickles.
@@ -1122,9 +1137,9 @@ function stepSim(dt) {
     _markN = 0;
     // RED: where the bubbles are released. This is the one in question.
     mark(sternX, 0.05, sternZ, 1.0, 0.15, 0.15);
-    // ORANGE: the measured transom, straight off the hull's bounding box.
-    mark(state.x - bhx * (hullSpan.stern - body.bowOffset()), 0.05,
-         state.z - bhz * (hullSpan.stern - body.bowOffset()), 1.0, 0.55, 0.0);
+    // ORANGE: the measured transom. The SAME variable the emitter used, not the
+    // same idea expressed twice -- that is what let these disagree.
+    mark(sternX, 0.05, sternZ, 1.0, 0.55, 0.0);
     // GREEN: the stem, where the wake ribbon is anchored.
     mark(state.x + bhx * bowAhead, 0.05, state.z + bhz * bowAhead, 0.1, 1.0, 0.2);
     // BLUE: the sim point -- the pivot everything else is measured from.

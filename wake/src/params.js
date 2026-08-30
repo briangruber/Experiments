@@ -176,6 +176,10 @@ export const PARAMS = {
     // well astern of the boat that made it and reads as "released far away".
     // Nearer the surface it shows from the moment it leaves the screw.
     bubDepth:     { ui: 'propBubbles', v: 0.7, min: 0.1, max: 6, step: 0.05, label: 'Released this far down (m)' },
+    // Where along the boat, relative to the measured transom. 0 is exactly on
+    // it -- the orange marker in the Emitters view -- and positive is astern,
+    // for a leg that stands off the counter. Negative tucks it under the hull.
+    bubAft:       { ui: 'propBubbles', v: 0, min: -6, max: 8, step: 0.1, label: 'Astern of transom (m)' },
     bubSpread:    { ui: 'propBubbles', v: 0.55, min: 0.05, max: 3, step: 0.05, label: 'Released across (m)' },
     // CAVITATION -- the water boiling at the blade, not more prop wash.
     //
