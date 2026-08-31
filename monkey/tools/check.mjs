@@ -214,15 +214,20 @@ try {
   // a path that does not exist inside a single file.
   // A backdrop that has quietly fallen back to the still — or to nothing —
   // looks almost right and is not what shipped. Name which one is live.
-  await step('the generated backdrop and voice are in use', async () => {}, () => {
+  await step('the generated backdrop and voice are in use, and both actors draw', async () => {}, () => {
     const M = window.__monkey;
     // One atlas body — the generated pixel sheet bound through SPRITE_CAST —
     // and one procedural puppet beside it. Naming both counts rather than
     // checking "something drew" is what catches an atlas that silently failed
     // to bind and left the puppet standing in, which looks fine and is not
     // what shipped.
+    // Bound is not drawn. An atlas body that renders nothing satisfies every
+    // count here and shipped exactly that way — the player was simply absent
+    // from the room while bodies() said 1. drawn() hides the actor, repaints
+    // and diffs the box it claims to occupy, which no null renderer passes.
     return (M.backdrop() === 'video' || M.backdrop() === 'still') && M.voiced
-      && M.bodies() === 1 && M.puppets() === 1 && M.pixelBlock() > 1;
+      && M.bodies() === 1 && M.puppets() === 1 && M.pixelBlock() > 1
+      && M.drawn('player') > 40 && M.drawn('grout') > 40;
   });
 
   await step('walk to a clicked point on the floor', async () => {

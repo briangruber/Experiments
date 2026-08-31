@@ -126,15 +126,13 @@ export class Actor {
   render(ctx, room) {
     if (!this.visible) return;
     const scale = room ? room.scaleAt(this.y) : 1;
-    // A baked sprite body when one loaded, the drawn puppet otherwise. Both
-    // draw in the same space — origin between the feet, one unit per game
-    // pixel — so nothing else in the engine has to know which is which.
-    const paint = (this.body ? this.body.draw : this.draw);
-    if (!paint) return;
-
     // An atlas sprite controls its own transform, because it has to snap to a
     // whole-pixel zoom that the room's continuous depth scale would otherwise
-    // destroy.
+    // destroy. This is checked FIRST: an atlas body exposes drawAt and no
+    // draw, so computing `paint` before this point and bailing when it is
+    // missing skips the sprite entirely — which is how the player rendered as
+    // nothing at all while every check still passed, because a bound body is
+    // not a drawn one.
     if (this.body?.drawAt) {
       this.body.drawAt(ctx, this, this.x, this.y, scale);
       return;
@@ -145,6 +143,11 @@ export class Actor {
       drawPixelSprite(ctx, this.x, this.y, (this.height ?? 165) * scale, this.pixelDraw, this);
       return;
     }
+    // A baked sprite body when one loaded, the drawn puppet otherwise. Both
+    // draw in the same space — origin between the feet, one unit per game
+    // pixel — so nothing else in the engine has to know which is which.
+    const paint = (this.body ? this.body.draw : this.draw);
+    if (!paint) return;
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.scale(scale, scale);

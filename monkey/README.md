@@ -883,3 +883,37 @@ so it reads as cloth rather than as a stripe.
 The same pass gave both of them hair as a mass with a side rather than a single
 fringe row, and a short coat skirt below the sash — which breaks the straight
 line from shoulder to boot that made the first version read as a plank.
+
+## Bound is not drawn
+
+The player shipped invisible. The atlas loaded, the body bound, `bodies()`
+reported 1, all eight playthrough steps passed, and the character was simply
+not in the room.
+
+`Actor.render` began with:
+
+    const paint = (this.body ? this.body.draw : this.draw);
+    if (!paint) return;
+
+and the branch handling atlas sprites came *after* it. An atlas body exposes
+`drawAt` and no `draw`, so that early return fired every frame and the branch
+below was unreachable. The fix is one reorder — check `drawAt` first — and the
+bug is not the interesting part.
+
+**The interesting part is that every check passed.** They asked whether a body
+was BOUND, which a sprite that draws nothing satisfies exactly as well as one
+that draws. Counting what loaded is not the same question as looking at the
+screen, and this project has now been caught by that distinction more than
+once: a backdrop that fell back to the still, an atlas that failed to bind, a
+video that played perfectly with nothing moving in it.
+
+`window.__monkey.drawn(who)` answers the other question. It hides the actor,
+repaints the room, and diffs the box the actor claims to occupy. A null
+renderer cannot pass it, because the two paints are identical when nothing was
+drawn.
+
+    ok    the generated backdrop and voice are in use, and both actors draw
+
+That assertion was verified by putting the bug back: it fails with the early
+return restored and passes without it. An assertion that has never failed is
+a guess about what it tests.

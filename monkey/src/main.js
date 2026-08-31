@@ -394,6 +394,39 @@ window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => ro
   bodies: () => [player, grout].filter((a) => a.body).length,
   puppets: () => [player, grout].filter((a) => !a.body).length,
   pixelBlock: () => PIXEL_BLOCK,
+  // Does an actor actually put pixels on the canvas? Every previous check
+  // asked whether a body was BOUND, which a sprite that draws nothing passes
+  // just as well — and did, for a whole release. Sampling the box the actor
+  // claims to occupy and comparing it against the same box with the actor
+  // hidden is the only question that cannot be answered by a null renderer.
+  drawn: (who) => {
+    const a = { player, grout }[who];
+    if (!a) return 0;
+    const c = document.querySelector('canvas');
+    const g = c.getContext('2d');
+    const w = 130, h = 210;
+    const sx = Math.max(0, Math.round(a.x - w / 2));
+    const sy = Math.max(0, Math.round(a.y - h));
+    const grab = () => g.getImageData(sx, sy, w, h).data;
+    const paintRoom = () => {
+      ctx.clearRect(0, 0, VIEW.w, VIEW.h);
+      room.render(ctx, [player, grout]);
+    };
+    paintRoom();
+    const before = grab();
+    const was = a.visible;
+    a.visible = false;
+    paintRoom();
+    const after = grab();
+    a.visible = was;
+    paintRoom();
+    let diff = 0;
+    for (let i = 0; i < before.length; i += 4 * 7) {
+      if (Math.abs(before[i] - after[i]) + Math.abs(before[i + 1] - after[i + 1])
+        + Math.abs(before[i + 2] - after[i + 2]) > 24) diff++;
+    }
+    return diff;
+  },
   // Diagnostics: what the pointer last resolved to, which is the only way to
   // tell a bad hit test from a bad coordinate mapping.
   mouse: () => ({ ...mouse }), hover: () => hoverSpot?.id ?? null };
