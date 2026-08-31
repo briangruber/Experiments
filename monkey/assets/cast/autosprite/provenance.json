@@ -6498,5 +6498,354 @@
     "frame": 4,
     "file": "assets/props/cup.png",
     "at": "2026-08-31T15:20:27.713Z"
+  },
+  {
+    "kind": "animations",
+    "key": "cat",
+    "characterId": "cmth761sv0023xyz64y74z1ub",
+    "body": {
+      "animations": [
+        {
+          "kind": "custom",
+          "name": "Crouch",
+          "loop": true,
+          "prompt": "A ginger cat crouched low, holding still and smug, only its tail flicking slowly and its ears twitching. It does not move from the spot. Just the cat, nothing else: no floor, no shadow, no props. Side view, facing right."
+        }
+      ],
+      "videoTier": "pro",
+      "frameCount": 32,
+      "frameSize": 56,
+      "removeBg": "ultra"
+    },
+    "response": {
+      "characterId": "cmth761sv0023xyz64y74z1ub",
+      "workflows": [
+        {
+          "jobId": "wf_53f1adaf-6b0c-4b6f-aa69-d324a50035ef",
+          "kind": "custom",
+          "videoId": "cmthe8qdl000282wexli3f3x3"
+        }
+      ],
+      "creditsUsed": 10
+    },
+    "at": "2026-08-31T15:30:54.856Z"
+  },
+  {
+    "kind": "sheet",
+    "who": "cat",
+    "characterId": "cmth761sv0023xyz64y74z1ub",
+    "spritesheetId": "cmtheb31j000b60cnzq3481m9",
+    "meta": {
+      "id": "cmtheb31j000b60cnzq3481m9",
+      "kind": "custom",
+      "name": "Crouch",
+      "sourceVideoId": "cmthe8qdl000282wexli3f3x3",
+      "createdAt": "2026-08-31T15:30:54.632Z",
+      "frameWidth": 56,
+      "frameHeight": 56,
+      "frameCount": 32,
+      "columns": 6,
+      "metadata": {
+        "frames": 32,
+        "columns": 6,
+        "model": "Dynamic RGB (Fast)",
+        "resolution": "56x56",
+        "bgremover": "ultra"
+      },
+      "isPublic": false,
+      "publicSlug": null,
+      "publicFilename": null,
+      "publicUrl": null,
+      "publicAtlasUrl": null,
+      "loopStart": null,
+      "loopEnd": null,
+      "speedMultiplier": 1,
+      "sizeMultiplier": 1,
+      "isUnlocked": true,
+      "audioUrl": null,
+      "isFrom3dModel": false
+    },
+    "file": "assets/cast/autosprite/cat/crouch.png",
+    "at": "2026-08-31T15:31:08.651Z"
+  },
+  {
+    "kind": "sheet",
+    "who": "cat",
+    "characterId": "cmth761sv0023xyz64y74z1ub",
+    "spritesheetId": "cmthdvij3001912k2vp55t7bi",
+    "meta": {
+      "id": "cmthdvij3001912k2vp55t7bi",
+      "kind": "idle",
+      "name": "Idle",
+      "sourceVideoId": "cmthdr6w2000xi0aj4b5l73jm",
+      "createdAt": "2026-08-31T15:18:48.207Z",
+      "frameWidth": 56,
+      "frameHeight": 56,
+      "frameCount": 20,
+      "columns": 5,
+      "metadata": {
+        "frames": 20,
+        "columns": 5,
+        "model": "Dynamic RGB (Fast)",
+        "resolution": "56x56",
+        "bgremover": "ultra"
+      },
+      "isPublic": false,
+      "publicSlug": null,
+      "publicFilename": null,
+      "publicUrl": null,
+      "publicAtlasUrl": null,
+      "loopStart": null,
+      "loopEnd": null,
+      "speedMultiplier": 1,
+      "sizeMultiplier": 1,
+      "isUnlocked": true,
+      "audioUrl": null,
+      "isFrom3dModel": false
+    },
+    "file": "assets/cast/autosprite/cat/idle.png",
+    "at": "2026-08-31T15:31:09.219Z"
+  },
+  {
+    "kind": "sheet",
+    "who": "cat",
+    "characterId": "cmth761sv0023xyz64y74z1ub",
+    "spritesheetId": "cmth8t4au000zmw4u29f3hlvv",
+    "meta": {
+      "id": "cmth8t4au000zmw4u29f3hlvv",
+      "kind": "custom",
+      "name": "Sneeze",
+      "sourceVideoId": "cmth7a1tr0008qcmenvlflcys",
+      "createdAt": "2026-08-31T12:56:58.375Z",
+      "frameWidth": 56,
+      "frameHeight": 56,
+      "frameCount": 20,
+      "columns": 5,
+      "metadata": {
+        "frames": 20,
+        "columns": 5,
+        "model": "Dynamic RGB (Fast)",
+        "resolution": "56x56",
+        "bgremover": "ultra"
+      },
+      "isPublic": false,
+      "publicSlug": null,
+      "publicFilename": null,
+      "publicUrl": null,
+      "publicAtlasUrl": null,
+      "loopStart": null,
+      "loopEnd": null,
+      "speedMultiplier": 1,
+      "sizeMultiplier": 1,
+      "isUnlocked": true,
+      "audioUrl": null,
+      "isFrom3dModel": false
+    },
+    "file": "assets/cast/autosprite/cat/sneeze.png",
+    "at": "2026-08-31T15:31:09.435Z"
+  },
+  {
+    "kind": "sheet",
+    "who": "cat",
+    "characterId": "cmth761sv0023xyz64y74z1ub",
+    "spritesheetId": "cmth8t488000xmw4uubm8qpg3",
+    "meta": {
+      "id": "cmth8t488000xmw4uubm8qpg3",
+      "kind": "custom",
+      "name": "Scarper",
+      "sourceVideoId": "cmth7a1wx000gqcmewkmkaomb",
+      "createdAt": "2026-08-31T12:56:58.280Z",
+      "frameWidth": 56,
+      "frameHeight": 56,
+      "frameCount": 20,
+      "columns": 5,
+      "metadata": {
+        "frames": 20,
+        "columns": 5,
+        "model": "Dynamic RGB (Fast)",
+        "resolution": "56x56",
+        "bgremover": "ultra"
+      },
+      "isPublic": false,
+      "publicSlug": null,
+      "publicFilename": null,
+      "publicUrl": null,
+      "publicAtlasUrl": null,
+      "loopStart": null,
+      "loopEnd": null,
+      "speedMultiplier": 1,
+      "sizeMultiplier": 1,
+      "isUnlocked": true,
+      "audioUrl": null,
+      "isFrom3dModel": false
+    },
+    "file": "assets/cast/autosprite/cat/scarper.png",
+    "at": "2026-08-31T15:31:09.736Z"
+  },
+  {
+    "kind": "regenerate",
+    "characterId": "cmth761sv0023xyz64y74z1ub",
+    "body": {
+      "frameCount": 20,
+      "frameSize": 56,
+      "removeBg": "ultra",
+      "sharpen": "light"
+    },
+    "response": {
+      "jobId": "premium-bg-batch-1788190311739-d9bsmcm"
+    },
+    "at": "2026-08-31T15:33:04.697Z"
+  },
+  {
+    "kind": "sheet",
+    "who": "cat",
+    "characterId": "cmth761sv0023xyz64y74z1ub",
+    "spritesheetId": "cmthedu53000auccjlypvmo0z",
+    "meta": {
+      "id": "cmthedu53000auccjlypvmo0z",
+      "kind": "custom",
+      "name": "Sneeze",
+      "sourceVideoId": "cmth7a1tr0008qcmenvlflcys",
+      "createdAt": "2026-08-31T15:33:03.063Z",
+      "frameWidth": 56,
+      "frameHeight": 56,
+      "frameCount": 20,
+      "columns": 5,
+      "metadata": {
+        "frames": 20,
+        "columns": 5,
+        "model": "Dynamic RGB (Fast)",
+        "resolution": "56x56",
+        "bgremover": "ultra"
+      },
+      "isPublic": false,
+      "publicSlug": null,
+      "publicFilename": null,
+      "publicUrl": null,
+      "publicAtlasUrl": null,
+      "loopStart": null,
+      "loopEnd": null,
+      "speedMultiplier": 1,
+      "sizeMultiplier": 1,
+      "isUnlocked": true,
+      "audioUrl": null,
+      "isFrom3dModel": false
+    },
+    "file": "assets/cast/autosprite/cat/sneeze.png",
+    "at": "2026-08-31T15:33:06.151Z"
+  },
+  {
+    "kind": "sheet",
+    "who": "cat",
+    "characterId": "cmth761sv0023xyz64y74z1ub",
+    "spritesheetId": "cmthedu3h0008uccjmxd8zaf8",
+    "meta": {
+      "id": "cmthedu3h0008uccjmxd8zaf8",
+      "kind": "custom",
+      "name": "Scarper",
+      "sourceVideoId": "cmth7a1wx000gqcmewkmkaomb",
+      "createdAt": "2026-08-31T15:33:03.005Z",
+      "frameWidth": 56,
+      "frameHeight": 56,
+      "frameCount": 20,
+      "columns": 5,
+      "metadata": {
+        "frames": 20,
+        "columns": 5,
+        "model": "Dynamic RGB (Fast)",
+        "resolution": "56x56",
+        "bgremover": "ultra"
+      },
+      "isPublic": false,
+      "publicSlug": null,
+      "publicFilename": null,
+      "publicUrl": null,
+      "publicAtlasUrl": null,
+      "loopStart": null,
+      "loopEnd": null,
+      "speedMultiplier": 1,
+      "sizeMultiplier": 1,
+      "isUnlocked": true,
+      "audioUrl": null,
+      "isFrom3dModel": false
+    },
+    "file": "assets/cast/autosprite/cat/scarper.png",
+    "at": "2026-08-31T15:33:06.646Z"
+  },
+  {
+    "kind": "sheet",
+    "who": "cat",
+    "characterId": "cmth761sv0023xyz64y74z1ub",
+    "spritesheetId": "cmthedu030006uccjc8akpjkm",
+    "meta": {
+      "id": "cmthedu030006uccjc8akpjkm",
+      "kind": "custom",
+      "name": "Crouch",
+      "sourceVideoId": "cmthe8qdl000282wexli3f3x3",
+      "createdAt": "2026-08-31T15:33:02.884Z",
+      "frameWidth": 56,
+      "frameHeight": 56,
+      "frameCount": 20,
+      "columns": 5,
+      "metadata": {
+        "frames": 20,
+        "columns": 5,
+        "model": "Dynamic RGB (Fast)",
+        "resolution": "56x56",
+        "bgremover": "ultra"
+      },
+      "isPublic": false,
+      "publicSlug": null,
+      "publicFilename": null,
+      "publicUrl": null,
+      "publicAtlasUrl": null,
+      "loopStart": null,
+      "loopEnd": null,
+      "speedMultiplier": 1,
+      "sizeMultiplier": 1,
+      "isUnlocked": true,
+      "audioUrl": null,
+      "isFrom3dModel": false
+    },
+    "file": "assets/cast/autosprite/cat/crouch.png",
+    "at": "2026-08-31T15:33:07.184Z"
+  },
+  {
+    "kind": "sheet",
+    "who": "cat",
+    "characterId": "cmth761sv0023xyz64y74z1ub",
+    "spritesheetId": "cmthedtxt0004uccjtopkhhn4",
+    "meta": {
+      "id": "cmthedtxt0004uccjtopkhhn4",
+      "kind": "idle",
+      "name": "Idle",
+      "sourceVideoId": "cmthdr7oc0003bpi286kuh3t1",
+      "createdAt": "2026-08-31T15:33:02.801Z",
+      "frameWidth": 56,
+      "frameHeight": 56,
+      "frameCount": 20,
+      "columns": 5,
+      "metadata": {
+        "frames": 20,
+        "columns": 5,
+        "model": "Dynamic RGB (Fast)",
+        "resolution": "56x56",
+        "bgremover": "ultra"
+      },
+      "isPublic": false,
+      "publicSlug": null,
+      "publicFilename": null,
+      "publicUrl": null,
+      "publicAtlasUrl": null,
+      "loopStart": null,
+      "loopEnd": null,
+      "speedMultiplier": 1,
+      "sizeMultiplier": 1,
+      "isUnlocked": true,
+      "audioUrl": null,
+      "isFrom3dModel": false
+    },
+    "file": "assets/cast/autosprite/cat/idle.png",
+    "at": "2026-08-31T15:33:07.652Z"
   }
 ]
