@@ -93,7 +93,7 @@ const RIBBON_FRAG = /* glsl */`
   uniform float uBreakPatch, uBreakPatchScale;
   uniform float uKelvinScale, uKelvinProp, uKelvinAmp, uKelvinDiv, uKelvinTrans, uKelvinCusp, uKelvinDecay, uKelvinLife, uKelvinMin;
   uniform float uFoamScale, uFoamContrast, uBreakup, uFoamLife, uDissolve;
-  uniform float uMelt, uMeltScale, uArmPersist;
+  uniform float uMelt, uMeltScale, uArmPersist, uArmDeposit;
   uniform float uSpeedDrive, uSpeedRef;
   uniform float uLace, uLaceAmt, uSoftness;
   uniform float uBubPlume, uBubW, uBubSpread, uBubLen, uBubArms, uBubLife, uBubMottle;
@@ -257,6 +257,37 @@ const RIBBON_FRAG = /* glsl */`
     // that stops being an arm and becomes foam lying on the water.
     float armFoam = (armG * comb + rim) * uArmFoam
                   * max(armFade, uArmPersist) * near * planing * nose;
+
+    // THE ARM MOVES ON. THE FOAM DOES NOT.
+    //
+    // This is the one that matters, and the arc fade above was the wrong
+    // suspect. The V is defined in the track's frame -- the cusp sits at
+    // armC = hullHalf + wa * armTan -- so it OPENS with distance astern, which
+    // is right: the cusp line really does propagate outward. But the foam was
+    // part of that same expression, so it propagated with it. Measured at a
+    // fixed point 6 m off the track: foam spikes to 0.055 as the arm sweeps
+    // through and collapses tenfold in the next 1.5 seconds, while the age
+    // decay over that span is only 0.97. Nothing was dissipating. The white was
+    // simply somewhere else, because the recipe only ever paints where the arm
+    // IS, never where it has BEEN. That is exactly "it doesn't leave foam on
+    // the water".
+    //
+    // So: the crest above stays the fresh breaking line, and this is the
+    // deposit it leaves behind. The cusp crosses this point when its lateral
+    // position reaches ad, and it travels outward at spd * armTan, so the water
+    // here was broken (ad / (spd * armTan)) seconds after the hull passed --
+    // and has been sitting there ever since. That interval is the deposit's own
+    // age, and it dies of it, on the same curve as everything else that ages.
+    float armRate = max(spd * max(armTan, 1e-3), 0.05);
+    float tSince = age - ad / armRate;
+    float depAge = clamp(tSince / max(uFoamLife, 0.01), 0.0, 1.0);
+    // Born at the crest's own strength, so a hull that was barely working
+    // leaves barely anything, and gone by the end of its life like the rest.
+    float armDeposit = uArmDeposit * uArmFoam * near * planing * nose
+                     * step(0.0, tSince) * pow(1.0 - depAge, uDissolve)
+                     // ...and only inside the V. Outside it the cusp has not
+                     // reached this water yet and there is nothing to leave.
+                     * (1.0 - smoothstep(0.0, armW * 1.6, ad - armC));
     float armH    = (armG * mix(0.65, 1.0, comb) + rim * 0.5) * uArmHeight * armFade * planing * nose;
 
     // ------------------------------------------------------------ prop wash --
@@ -571,7 +602,7 @@ const RIBBON_FRAG = /* glsl */`
     // Foam coverage, from either the prescribed arms or from where the waves
     // are actually breaking -- uFromWaves crossfades between them so the two
     // can be compared directly.
-    float coverArms  = armFoam + washFoam;
+    float coverArms  = armFoam + washFoam + armDeposit;
     float coverWaves = waveBreak * uWaveFoam * planing + washFoam;
     float cover = mix(coverArms, coverWaves, uFromWaves) * alive * energy;
     cover *= mix(1.0, 0.35 + 0.95 * field, mix(0.45, 1.0, ageN * uBreakup + 0.35));
@@ -994,7 +1025,7 @@ export class WakeField {
       uKelvinTrans: { value: 0.5 }, uKelvinCusp: { value: 1 }, uKelvinDecay: { value: 100 },
       uKelvinLife: { value: 100 }, uKelvinMin: { value: 3 },
       uFoamScale: { value: 1 }, uFoamContrast: { value: 1 }, uBreakup: { value: 0 },
-      uMelt: { value: 0 }, uMeltScale: { value: 0.12 }, uArmPersist: { value: 0 },
+      uMelt: { value: 0 }, uMeltScale: { value: 0.12 }, uArmPersist: { value: 0 }, uArmDeposit: { value: 0 },
       uFoamLife: { value: 1 }, uDissolve: { value: 1 },
       uSpeedDrive: { value: 1 }, uSpeedRef: { value: 13 },
       uAutoAngle: { value: 1 },
@@ -1363,6 +1394,7 @@ export class WakeField {
     u.uFoamScale.value = get('foamLook.scale') * 0.35;
     u.uFoamContrast.value = get('foamLook.contrast');
     u.uArmPersist.value = get('arms.persist');
+    u.uArmDeposit.value = get('arms.deposit');
     u.uMelt.value = get('foamLook.melt');
     u.uMeltScale.value = get('foamLook.meltScale');
     u.uBreakup.value = get('foamLook.breakup');

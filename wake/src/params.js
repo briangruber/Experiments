@@ -135,6 +135,20 @@ export const PARAMS = {
     // thrown sheet and becomes foam lying on the water, left to die of age like
     // foam does. 0 restores the old distance-only behaviour.
     persist:      { v: 0.45, min: 0,   max: 1,   step: 0.01, label: 'Foam left on the water' },
+    // WHAT THE CUSP LEAVES BEHIND IT, which is the whole reason a real wake
+    // stays legible after the boat has gone.
+    //
+    // The arm is defined in the track's frame and OPENS with distance astern --
+    // correct, the cusp line really does propagate outward -- but the foam was
+    // part of that same expression and travelled with it, so the recipe only
+    // ever painted where the arm IS and never where it has BEEN. Measured at a
+    // fixed point 6 m off the track: 0.055 as the arm swept through, a tenth of
+    // that 1.5 s later, while the age decay over the same span was 0.97.
+    // Nothing was dissipating; the white had simply moved on.
+    //
+    // This is the deposit. The cusp crosses a patch of water at a time its own
+    // outward speed decides, and what it lays there stays and dies of age.
+    deposit:      { v: 0.55, min: 0,   max: 2,   step: 0.01, label: 'Foam the cusp deposits' },
   },
 
   // The comb / scallop texture riding along each arm: periodic crests that lean
