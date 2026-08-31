@@ -601,6 +601,69 @@ try {
   // So this asks the picture. He must still put pixels on the canvas, and his
   // silhouette must have become a sleeping one — shorter than he stood and
   // wider than he was.
+  // A change of pose is dissolved, not cut.
+  //
+  // Measured in PIXELS, off the real canvas, because the obvious version of
+  // this test does not work: asserting that the body recorded a frame to fade
+  // from passes with the fade length set to zero, since the record is written
+  // either way. What separates a dissolve from a cut is that midway through
+  // one, the character on screen is neither the pose it left nor the pose it
+  // is going to — so the test renders all three and requires the middle to
+  // differ from both ends.
+  await step('a change of pose dissolves  [in pixels, not in a variable]', async () => {
+    const shot = () => page.evaluate(() => {
+      const M = window.__monkey;
+      M.render();
+      const a = M.actors.grout;
+      const g = document.querySelector('canvas').getContext('2d');
+      const box = { x: Math.round(a.x - M.room().camX) - 70, y: Math.round(a.y) - 190, w: 140, h: 190 };
+      return { box, px: Array.from(g.getImageData(box.x, box.y, box.w, box.h).data) };
+    });
+    await page.evaluate(() => {
+      const a = window.__monkey.actors.grout;
+      window.__t.wasClip = a.clip;
+    });
+    const before = await shot();
+    await page.evaluate(() => {
+      const a = window.__monkey.actors.grout;
+      a.playClip(a.clip === 'asleep' ? 'idle' : 'asleep');
+    });
+    // Midway through the dissolve, not at its very start, where it is still
+    // almost entirely the outgoing pose by design.
+    await page.waitForTimeout(55);
+    const during = await shot();
+    await page.waitForTimeout(500);
+    const after = await shot();
+    await page.evaluate(() => {
+      const M = window.__monkey;
+      const a = M.actors.grout;
+      if (window.__t.wasClip) a.playClip(window.__t.wasClip); else a.stopClip();
+      M.render();
+    });
+    const differ = (u, v) => {
+      let n = 0;
+      for (let i = 0; i < u.px.length; i += 4) {
+        if (Math.abs(u.px[i] - v.px[i]) + Math.abs(u.px[i + 1] - v.px[i + 1])
+          + Math.abs(u.px[i + 2] - v.px[i + 2]) > 30) n++;
+      }
+      return n;
+    };
+    await page.evaluate((d) => { window.__t.fade = d; }, {
+      fromStart: differ(during, before), toEnd: differ(during, after), cut: differ(before, after),
+    });
+  }, () => {
+    const f = window.__t.fade;
+    // Sampled at half the fade, a blended character differs from BOTH ends by
+    // a large share of the whole change. A hard cut is already the new pose,
+    // so it differs from the old by nearly the whole change and from the new
+    // by almost nothing. Measured on this transition: dissolved reads 69% and
+    // 88%, cut reads 99.8% and 20% — the thresholds sit in those gaps.
+    //
+    // "Almost nothing" rather than nothing because both clips keep animating
+    // during the wait, so even a cut moves a few thousand pixels.
+    return f.cut > 400 && f.toEnd > f.cut * 0.5 && f.fromStart < f.cut * 0.9;
+  });
+
   await step('Grout is drawn asleep, not deleted  [pose]', async () => {}, () => {
     const M = window.__monkey;
     const b = M.poseBox('grout');
@@ -796,6 +859,7 @@ const m = errors.length ? {} : await page.evaluate(() => ({
   seam: window.__t.seam, stride: window.__t.stride, strip: window.__t.strip, pot: window.__t.pot,
   items: window.__t.items,
   patch: window.__t.patch,
+  fade: window.__t.fade,
 }));
 
 await browser.close();
@@ -824,6 +888,8 @@ console.log(`          pepper pot: local contrast ${m.pot?.before} with it, ${m.
   + ` (clean wall reads ${m.pot?.wall})`);
 console.log(`          patch follows the backdrop: ${m.patch?.red} -> ${m.patch?.blue};`
   + ` still cached at ${m.patch?.cachedA}`);
+console.log(`          pose dissolve: midpoint differs from the old pose by ${m.fade?.fromStart}px`
+  + ` and from the new by ${m.fade?.toEnd}px (the two poses differ by ${m.fade?.cut}px)`);
 console.log('          item sprites: '
   + Object.entries(m.items || {})
     .map(([k, v]) => `${k} ${v.size?.w}x${v.size?.h}, ${v.drawn}px drawn, ${v.icon} icon`)

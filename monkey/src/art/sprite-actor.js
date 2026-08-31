@@ -31,6 +31,29 @@ export async function loadSpriteBody({ sheetUrl, manifest, height, face }) {
   // Which frame of which clip. Walking reads off the same stride phase the
   // engine already advances from distance travelled, so the feet stay in step
   // with the ground however fast the character moves.
+  // How long a change of clip takes to cross-dissolve.
+  //
+  // A generated clip starts wherever its video started, so idle -> drink ->
+  // asleep are three unrelated poses cut together, and the cut is visible: a
+  // standing man becomes a differently-standing man between one frame and the
+  // next. Two frames of dissolve is long enough to read as a change and short
+  // enough not to read as a fade — at 19fps it is about a tenth of a second,
+  // which is roughly the interval the eye stops resolving as separate images.
+  //
+  // Longer was tried first and is wrong: at a quarter-second the standing and
+  // sitting Grouts are both legible at once, which looks like a mistake rather
+  // than a transition.
+  const FADE = 0.11;
+
+  // Which clip a frame came from, not just which frame. The dissolve needs to
+  // know that the clip CHANGED, and two clips can legitimately be showing the
+  // same frame index at the moment they swap.
+  const clipOf = (actor) => {
+    if (actor.clip) return actor.clip;
+    if (actor.state !== 'walk') return 'idle';
+    return actor.running && clips.run ? 'run' : 'walk';
+  };
+
   const frameFor = (actor) => {
     // A named clip wins over both. `drink` and `asleep` are not reachable from
     // the walk/idle pair, and the room needs them at scripted moments; a clip
@@ -141,8 +164,22 @@ export async function loadSpriteBody({ sheetUrl, manifest, height, face }) {
     drawAt(ctx, actor, x, y, roomScale) {
       const k = (height / figureH) * roomScale;
       const f = frameFor(actor);
-      const sx = (f % cols) * cellW, sy = ((f / cols) | 0) * cellH;
       const flip = actor.facing === 'left' ? -1 : 1;
+
+      // Notice a change of clip here rather than being told about one, so the
+      // walk/idle pair — which nothing calls playClip for, because it follows
+      // the actor's state — dissolves like every other pair.
+      const now = performance.now() / 1000;
+      const clip = clipOf(actor);
+      if (actor.lastClip !== undefined && actor.lastClip !== clip) {
+        actor.fadeFrom = actor.lastFrame;
+        actor.fadeAt = now;
+      }
+      actor.lastClip = clip;
+      actor.lastFrame = f;
+      const fade = actor.fadeFrom == null ? 1
+        : Math.min(1, Math.max(0, (now - (actor.fadeAt ?? now)) / FADE));
+      if (fade >= 1) actor.fadeFrom = null;
 
       ctx.save();
       ctx.translate(Math.round(x), Math.round(y));
@@ -168,10 +205,22 @@ export async function loadSpriteBody({ sheetUrl, manifest, height, face }) {
       // coarser than the sheet it came from. So the filter follows the
       // direction of the resample rather than being a property of the asset.
       ctx.imageSmoothingEnabled = smooth || k < 1.05;
-      ctx.drawImage(
-        img, sx, sy, cellW, cellH,
-        Math.round(-dw / 2), Math.round(-(feetY / cellH) * dh), dw, dh,
-      );
+      const blit = (frame, alpha) => {
+        if (alpha <= 0) return;
+        const fx = (frame % cols) * cellW, fy = ((frame / cols) | 0) * cellH;
+        const a0 = ctx.globalAlpha;
+        if (alpha < 1) ctx.globalAlpha = a0 * alpha;
+        ctx.drawImage(
+          img, fx, fy, cellW, cellH,
+          Math.round(-dw / 2), Math.round(-(feetY / cellH) * dh), dw, dh,
+        );
+        ctx.globalAlpha = a0;
+      };
+      // The outgoing pose underneath at full strength, the incoming one over
+      // it rising to full: a cross-dissolve rather than a fade through the
+      // background, which would show the floor through the character.
+      if (fade < 1 && actor.fadeFrom != null) blit(actor.fadeFrom, 1);
+      blit(f, fade);
       ctx.imageSmoothingEnabled = was;
 
       // The face is only drawn when the atlas has head positions to put it on

@@ -776,6 +776,17 @@ window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => ro
   // automated run can tell them apart from the video, because headless
   // Chromium cannot decode h.264 — so the test drives the seam by hand.
   backdropObj: () => backdrop,
+  // Is a change of pose cut or dissolved? A generated clip starts wherever its
+  // video started, so idle -> drink -> asleep are three unrelated poses spliced
+  // together and the splice shows. This reports the blend the body is applying
+  // right now, so a test can watch one actually happen and, just as important,
+  // watch it finish — a dissolve that never completes is a permanently
+  // half-transparent character.
+  fadeOf: (who) => {
+    const a = actors[who];
+    if (!a) return null;
+    return { from: a.fadeFrom ?? null, frame: a.lastFrame ?? null, clip: a.lastClip ?? null };
+  },
   iconSource: (item) => (art.ICONS[item]?.fromSprite ? 'sprite' : art.ICONS[item] ? 'painted' : null),
   propDrawn: (name) => {
     const probe = R.SPRITE_PROBES?.[name];
