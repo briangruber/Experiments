@@ -23,9 +23,12 @@ const check = (name, ok, detail) => {
 };
 const exists = async (p) => { try { await stat(p); return true; } catch { return false; } };
 
-const MP4 = join(ROOT, 'assets/scene.mp4');
+// Per room, like everything else. The first room keeps its bare paths.
+const ROOM = (process.argv.slice(2).find((a) => !a.startsWith('--')) || 'dock');
+const DIR = ROOM === 'dock' ? 'assets' : `assets/${ROOM}`;
+const MP4 = join(ROOT, `${DIR}/scene.mp4`);
 if (!(await exists(MP4))) {
-  console.error('no assets/scene.mp4 — run: node tools/scene.mjs still && node tools/scene.mjs loop');
+  console.error('no assets/scene.mp4 — run: node tools/scene.mjs still --room ${ROOM} && node tools/scene.mjs loop --room ${ROOM}');
   process.exit(1);
 }
 const buf = await readFile(MP4);
@@ -61,7 +64,7 @@ check('video contains motion', !isDead(p.motion),
   p.motion ? `${p.motion.frames} frames, activity ${p.motion.activity} B/MPx, burst ${p.motion.burst}x `
     + `(dead is under ${DEAD_ACTIVITY} AND under ${DEAD_BURST}x — quiet but uneven is a subtle loop)` : 'no sample table');
 
-const STILL = join(ROOT, 'assets/scene.jpg');
+const STILL = join(ROOT, `${DIR}/scene.jpg`);
 check('web-sized still exists as a fallback', await exists(STILL),
   (await exists(STILL)) ? `${((await stat(STILL)).size / 1024).toFixed(0)} KB` : 'missing');
 

@@ -20,6 +20,7 @@ import { loadBackdrop, KIND, seamWeight } from './art/backdrop.js';
 import { BLOCK as PIXEL_BLOCK } from './art/pixelate.js';
 import { loadSpriteBody } from './art/sprite-actor.js';
 import * as dock from './game/dock.js';
+import * as galley from './game/galley.js';
 
 const VIEW = { w: dock.ROOM_W, h: dock.ROOM_H };
 
@@ -36,8 +37,19 @@ const coin = new VerbCoin();
 const inv = new Inventory(VIEW);
 const menu = new DialogueMenu(VIEW);
 
-const player = new Actor(dock.CAST.player);
-const grout = new Actor(dock.CAST.grout);
+// Every room the game has, and the one it is currently in. A room supplies its
+// own cast, its own sprite atlases, its own puzzle graph and its own people;
+// the wiring below knows none of their names.
+const ROOMS = { dock, galley };
+let here = 'dock';
+let R = ROOMS[here];
+
+// Actors are rebuilt per room, keyed by id. The player is rebuilt with them —
+// everything about her that persists (inventory, flags) lives in `state`, and
+// everything that does not is her position, which the room decides.
+let actors = {};
+const cast = () => Object.values(actors);
+const npcIds = () => Object.keys(actors).filter((k) => k !== 'player');
 
 // ?editor=1 opens the annotation overlay at load, which is how a walk area
 // gets traced over a freshly generated backdrop.
@@ -46,31 +58,85 @@ let room, editor;
 let props = {};
 let backdrop = null;
 const voice = new Voice();
+// What a room's script is handed. Actors are reachable by id — `g.player`,
+// `g.grout`, `g.pike`, `g.cat` — so a room's code reads the same as it did
+// when there was only one room and they were module-level constants.
 const g = {
-  player, grout, state, seq, VIEW, voice,
+  state, seq, VIEW, voice,
+  get actors() { return actors; },
   get room() { return room; },
-  onWorldChange: () => dock.applyPierState(room, state),
-  win: () => { state.set('aboard', true); },
+  get here() { return here; },
+  onWorldChange: () => R.applyState?.(room, state, g),
+  goTo: (id, from) => { pendingMove = { id, from }; },
+  win: () => { state.set('sailed', true); },
 };
+for (const id of ['player', 'grout', 'pike', 'cat']) {
+  Object.defineProperty(g, id, { get: () => actors[id] });
+}
 
 function buildRoom() {
-  room = new Room(dock.makeRoomDef(state, backdrop, props), VIEW);
-  dock.applyPierState(room, state);
+  room = new Room(R.makeRoomDef(state, backdrop, props), VIEW);
+  R.applyState?.(room, state, g);
   editor = new Editor(room, VIEW);
   if (EDITOR_AT_LOAD) editor.active = true;
+}
+
+// A door is taken between frames, not inside the handler that opened it: the
+// sequencer is mid-step when it fires, and tearing the room out from under a
+// running generator is how you get a walk that finishes in a room that no
+// longer exists.
+let pendingMove = null;
+async function goTo(id, from) {
+  if (!ROOMS[id]) throw new Error('no room ' + id);
+  seq.cancel(); coin.hide(); menu.hide(); inv.selected = null;
+  here = id; R = ROOMS[id];
+  backdrop = await loadBackdrop(id);
+  showBackdrop?.();
+  await buildCast();
+  const spawn = R.SPAWN?.[from] ?? R.SPAWN?.start ?? { x: 640, y: 690 };
+  Object.assign(actors.player, { x: spawn.x, y: spawn.y, facing: spawn.facing || 'right' });
+  actors.player.stop();
+  buildRoom();
+  room.follow(actors.player, 0, true);
+}
+
+// Build this room's actors and bind their atlases. Failure is silent and
+// total, as it was: the actor keeps whatever `draw` its cast entry gave it.
+async function buildCast() {
+  actors = {};
+  for (const [id, spec] of Object.entries(R.CAST)) actors[id] = new Actor(spec);
+  for (const [id, cfg] of Object.entries(R.SPRITE_CAST || {})) {
+    if (!actors[id]) continue;
+    try {
+      const A = window.__ASSETS?.cast?.[cfg.asset];
+      const manifest = A?.manifest ?? await (await fetch(cfg.manifest)).json();
+      const body = await loadSpriteBody({
+        sheetUrl: A?.sheet ?? cfg.sheet, manifest, height: cfg.height, face: cfg.face,
+      });
+      if (body) actors[id].body = body;
+    } catch { /* the puppet stands in */ }
+  }
+  if (voice?.manifest) attachVoice(cast(), voice);
 }
 
 // The linter runs before the game does. A room whose puzzle graph is
 // incoherent should never reach a player, and finding out at load is the
 // difference between a five-second fix and a playtest report.
-const report = lint(dock.PUZZLE);
+// Every room's graph, not just the one that happens to load first. A second
+// room whose puzzle is unwinnable is exactly as unshippable as the first.
+const report = Object.entries(ROOMS).map(([id, r]) => [id, lint(r.PUZZLE)])
+  .reduce((acc, [id, rep]) => ({
+    problems: acc.problems.concat(rep.problems.map((p) => ({ ...p, msg: `[${id}] ${p.msg}` }))),
+    longest: Math.max(acc.longest, rep.longest),
+    nodes: acc.nodes + Object.keys(ROOMS[id].PUZZLE.nodes).length,
+  }), { problems: [], longest: 0, nodes: 0 });
 for (const p of report.problems) console[p.level === 'error' ? 'error' : 'warn']('[puzzle] ' + p.msg);
 if (report.problems.some((p) => p.level === 'error')) {
   document.getElementById('fatal').textContent =
     'Puzzle graph is unwinnable:\n' + report.problems.map((p) => '  ' + p.msg).join('\n');
   document.getElementById('fatal').hidden = false;
 }
-console.log(`[puzzle] ${Object.keys(dock.PUZZLE.nodes).length} nodes, longest chain ${report.longest}, ${report.problems.length} problems`);
+console.log(`[puzzle] ${Object.keys(ROOMS).length} rooms, ${report.nodes} nodes, longest chain ${report.longest}, ${report.problems.length} problems`);
 
 // --- input ------------------------------------------------------------------
 
@@ -112,9 +178,8 @@ canvas.addEventListener('pointerdown', (e) => {
   // queueing and never ignoring is what stops dialogue feeling like a cutscene
   // you are locked out of.
   if (seq.busy) {
-    if (player.line || grout.line) voice.stop();
-    if (player.line) player.line.until = 0;
-    if (grout.line) grout.line.until = 0;
+    if (cast().some((a) => a.line)) voice.stop();
+    for (const a of cast()) if (a.line) a.line.until = 0;
     return;
   }
 
@@ -153,7 +218,7 @@ canvas.addEventListener('pointerdown', (e) => {
   const again = now - lastFloorClick.t < DOUBLE_CLICK_MS
     && Math.hypot(rp.x - lastFloorClick.x, rp.y - lastFloorClick.y) < 70;
   lastFloorClick = { t: now, x: rp.x, y: rp.y };
-  player.walkTo(room.walk, rp.x, rp.y, null, again);
+  actors.player.walkTo(room.walk, rp.x, rp.y, null, again);
 });
 
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -179,16 +244,21 @@ function actorBox(a) {
   // guess and became a wrong one twice over: the figures are drawn taller now,
   // and Grout spends the back half of the game asleep on the ground, where a
   // standing-man box floats above him and the click lands on the dock.
-  const b = a.body?.boxAt?.(a) ?? { w: 92, h: a.height ?? 178 };
+  const b = a.body?.boxAt?.(a) ?? R.NPCS?.[a.id]?.box ?? { w: 92, h: a.height ?? 178 };
   const w = b.w * s, h = b.h * s;
   return { x: a.x - w / 2, y: a.y - h, w, h };
 }
 
 function hotspotUnder() {
-  if (grout.visible) {
-    const b = actorBox(grout);
+  // People before scenery, and every person the room declared rather than one
+  // named in the wiring. Last declared wins, as with hotspots, so a cat sitting
+  // on a barrel is reachable over the barrel.
+  for (const id of npcIds().reverse()) {
+    const a = actors[id];
+    if (!a?.visible) continue;
+    const b = actorBox(a);
     if (mouse.rx >= b.x && mouse.rx <= b.x + b.w && mouse.ry >= b.y && mouse.ry <= b.y + b.h) {
-      return { id: 'grout', name: grout.name, actor: grout, at: { x: grout.x + 130, y: grout.y, facing: 'left' } };
+      return { id, name: a.name, actor: a, npc: true, at: R.NPCS[id].approach(a) };
     }
   }
   return room.hotspotAt(mouse.rx, mouse.ry);
@@ -199,37 +269,39 @@ function hotspotUnder() {
 // what makes the world feel inhabited.
 function* approach(spot) {
   if (!spot.at) return;
-  if (Math.hypot(player.x - spot.at.x, player.y - spot.at.y) > 24) {
-    yield walk(player, room.walk, spot.at.x, spot.at.y);
+  const P = actors.player;
+  if (Math.hypot(P.x - spot.at.x, P.y - spot.at.y) > 24) {
+    yield walk(P, room.walk, spot.at.x, spot.at.y);
   }
   // The hotspot's own centre is what "face it" means when the cast has no back
   // view: the rear-wall hotspots all ask for 'back', and a profile aimed at
   // the thing is the honest reading of that.
   const towardX = spot.rect ? spot.rect[0] + spot.rect[2] / 2 : null;
-  if (spot.at.facing) yield face(player, spot.at.facing, towardX);
+  if (spot.at.facing) yield face(P, spot.at.facing, towardX);
 }
 
 function doVerb(verb, spot) {
-  if (spot.id === 'grout') return groutVerb(verb);
+  if (spot.npc) return npcVerb(spot.id, verb);
   const handler = spot.verbs?.[verb];
   seq.start((function* () {
     yield* approach(spot);
     if (handler) { yield* handler(g); return; }
-    yield say(player, DEFAULTS[verb](spot.name));
+    yield say(actors.player, DEFAULTS[verb](spot.name));
   })());
 }
 
-function groutVerb(verb) {
+// One path for every person in every room. A room's NPC entry says where to
+// stand, what look and use do, and what talking to them is; anything it does
+// not answer falls through to the conversation.
+function npcVerb(id, verb) {
+  const npc = R.NPCS[id];
+  const a = actors[id];
   seq.start((function* () {
-    yield* approach({ at: { x: grout.x + 140, y: 690, facing: 'left' } });
-    if (verb === 'look') {
-      if (state.get('grout-asleep')) { yield say(player, "Asleep, and smiling. A rare combination on this island."); return; }
-      yield say(player, "Harbourmaster Grout. Built like a bollard and about as movable.", 4.2);
-      yield say(player, "He has the look of a man eleven hours into a twelve-hour shift.", 4.0);
-      return;
-    }
-    if (verb === 'use') { yield say(player, "I'm not laying hands on a man that size."); return; }
-    yield* startDialogue();
+    yield* approach({ at: npc.approach(a) });
+    const h = npc.verbs?.[verb];
+    if (h) { yield* h(g); return; }
+    if (npc.tree) { yield* startDialogue(id); return; }
+    yield say(actors.player, DEFAULTS[verb](a.name));
   })());
 }
 
@@ -241,11 +313,14 @@ const DEFAULTS = {
 
 function useItemOn(item, spot) {
   inv.selected = null;
-  const handler = spot.useWith?.[item];
+  // A room's people take items too — giving a fish to a cook and puffing
+  // pepper at a cat are both "use this on that", and only hotspots could do it
+  // while the only NPC in the game was one you talked to.
+  const handler = spot.useWith?.[item] ?? (spot.npc ? R.NPCS[spot.id]?.useWith?.[item] : null);
   seq.start((function* () {
     yield* approach(spot);
     if (handler) { yield* handler(g); return; }
-    yield say(player, PICK_REFUSAL(item, spot.name));
+    yield say(actors.player, PICK_REFUSAL(item, spot.name));
   })());
 }
 
@@ -259,19 +334,24 @@ const PICK_REFUSAL = (i, n) => REFUSALS[refusalIdx++ % REFUSALS.length](i, n);
 
 // --- dialogue ---------------------------------------------------------------
 
-function* startDialogue() {
-  yield* dock.groutGreeting(g);
-  if (state.get('grout-asleep')) return;
-  yield run(() => showMenu());
+function* startDialogue(id) {
+  const npc = R.NPCS[id];
+  if (npc.greeting) yield* npc.greeting(g);
+  // A tree that comes back empty is a person with nothing left to say, which
+  // is how a conversation ends without the room having to special-case it.
+  if (!npc.tree || !npc.tree(g).length) return;
+  yield run(() => showMenu(id));
 }
 
-function showMenu() {
-  const opts = dock.groutTree(g);
+function showMenu(id) {
+  const npc = R.NPCS[id];
+  const opts = npc.tree(g);
+  if (!opts.length) return;
   menu.show(opts, (opt) => {
     if (opt.id === 'bye') { seq.cancel(); return; }
     seq.start((function* () {
-      yield* dock.groutLine(g, opt);
-      if (!state.get('grout-asleep')) yield run(() => showMenu());
+      yield* npc.line(g, opt);
+      if (npc.tree(g).length) yield run(() => showMenu(id));
     })());
   });
 }
@@ -280,7 +360,7 @@ function showMenu() {
 
 const SLOT = 'monkey.dock.save';
 function save() {
-  localStorage.setItem(SLOT, state.serialize({ player: { x: player.x, y: player.y } }));
+  localStorage.setItem(SLOT, state.serialize({ room: here, player: { x: actors.player.x, y: actors.player.y } }));
   toast('saved');
 }
 function load() {
@@ -288,15 +368,19 @@ function load() {
   if (!raw) { toast('no save'); return; }
   const d = state.restore(raw);
   if (!d) { toast('bad save'); return; }
-  player.x = d.player.x; player.y = d.player.y;
-  player.stop();
   seq.cancel(); menu.hide(); coin.hide(); inv.selected = null;
-  // A saved game has to come back to the pose it was saved in. The flag says
-  // he is asleep; the clip is what makes him look it, and it is not in the save
-  // because it is not state — it is the art the state implies.
-  applyGroutPose();
-  buildRoom();
-  toast('loaded');
+  // The room is part of the save now — a game saved in the galley that came
+  // back on the dock would be a worse bug than not saving at all. Everything
+  // else the room implies (which people are in it, what pose the flags put
+  // them in) is rebuilt by the door code rather than stored.
+  (async () => {
+    if (d.room && d.room !== here) await goTo(d.room, 'start');
+    Object.assign(actors.player, { x: d.player.x, y: d.player.y });
+    actors.player.stop();
+    R.applyState?.(room, state, g);
+    buildRoom();
+    toast('loaded');
+  })();
 }
 
 let toastText = null, toastT = 0;
@@ -310,23 +394,38 @@ function frame(now) {
   last = now;
 
   seq.update(dt);
-  player.update(dt, room);
-  grout.update(dt, room);
+  for (const a of cast()) a.update(dt, room);
+
+  // Doors are taken here, between frames, rather than inside the script step
+  // that opened one — the sequencer is mid-step when it fires, and tearing the
+  // room out from under a running generator ends a walk in a room that no
+  // longer exists.
+  //
+  // The loop stops for the duration and is restarted by the move, rather than
+  // running on over a half-built room. Returning without doing that was a
+  // freeze: the next frame is only ever scheduled at the bottom of this
+  // function, so an early return is the end of the game.
+  if (pendingMove) {
+    const m = pendingMove;
+    pendingMove = null;
+    goTo(m.id, m.from).then(() => { last = performance.now(); requestAnimationFrame(frame); });
+    return;
+  }
+
   room.update(dt);
-  room.follow(player, dt);
+  room.follow(actors.player, dt);
   coin.update(dt);
   if (toastT > 0) toastT -= dt;
 
   ctx.clearRect(0, 0, VIEW.w, VIEW.h);
-  room.render(ctx, [player, grout]);
+  room.render(ctx, cast());
   editor.render(ctx);
-  drawSpeech(ctx, player, room, VIEW);
-  drawSpeech(ctx, grout, room, VIEW);
+  for (const a of cast()) drawSpeech(ctx, a, room, VIEW);
   drawHud();
   inv.render(ctx, state.inventory, art.ICONS);
   coin.render(ctx, VIEW);
   menu.render(ctx);
-  if (state.get('aboard')) drawWin();
+  if (state.get('sailed')) drawWin();
 
   requestAnimationFrame(frame);
 }
@@ -368,38 +467,20 @@ function drawWin() {
   ctx.fillText('Aboard the Errant Kipper', VIEW.w / 2, VIEW.h / 2 - 20);
   ctx.font = '24px Georgia, serif';
   ctx.fillStyle = '#c9a86a';
-  ctx.fillText('end of the slice — four puzzle steps, one conversation, one room', VIEW.w / 2, VIEW.h / 2 + 40);
+  ctx.fillText('two rooms, twelve puzzle steps, one very smug cat', VIEW.w / 2, VIEW.h / 2 + 40);
   ctx.restore();
 }
 
 // --- go ---------------------------------------------------------------------
 
-backdrop = await loadBackdrop();
+// Boot. The backdrop, the props and the cast all come from whichever room the
+// game starts in, and the same three lines run again on every door.
+backdrop = await loadBackdrop(here);
 props = await loadProps();
-// Baked 3D bodies, where a cast member has one. Failure is silent and total:
-// the actor keeps the drawn puppet, which is a working character rather than a
-// missing one.
-for (const [key, cfg] of Object.entries(dock.SPRITE_CAST)) {
-  const actor = key === 'player' ? player : grout;
-  try {
-    const A = window.__ASSETS?.cast?.[cfg.asset];
-    const manifest = A?.manifest ?? await (await fetch(cfg.manifest)).json();
-    const body = await loadSpriteBody({
-      sheetUrl: A?.sheet ?? cfg.sheet, manifest, height: cfg.height, face: cfg.face,
-    });
-    if (body) actor.body = body;
-  } catch { /* the puppet stands in */ }
-}
-// Grout's pose follows the world flag rather than the other way round, so it
-// is right after a load, after a restart, and after the scene that sets it.
-function applyGroutPose() {
-  if (state.get('grout-asleep')) grout.playClip('asleep');
-  else grout.stopClip();
-}
-applyGroutPose();
+await buildCast();
 
 const voiced = await voice.load();
-if (voiced) attachVoice([player, grout], voice);
+if (voiced) attachVoice(cast(), voice);
 console.log(voiced
   ? `[voice] ${Object.keys(voice.manifest.lines).length} recorded lines, measured timings`
   : '[voice] no recordings — line lengths estimated from text (run tools/voices.mjs)');
@@ -408,9 +489,9 @@ console.log(`[art] backdrop: ${backdrop.kind} (${backdrop.note})`);
 // came from — PIXEL_BLOCK belongs to the procedural puppet and reporting it
 // here described a code path the cast no longer takes. The backdrop's grid is
 // 2px, so these two numbers should read 2.
-console.log(`[cast] ${[player, grout].filter((a) => a.body).length} baked bodies, `
-  + `${[player, grout].filter((a) => !a.body).length} drawn puppets, `
-  + [player, grout].map((a) => a.body
+console.log(`[cast] ${here}: ${cast().filter((a) => a.body).length} baked bodies, `
+  + `${cast().filter((a) => !a.body).length} drawn puppets, `
+  + cast().map((a) => a.body
       ? ` ${a.id} at ${((a.body.drawHeight ?? 0) / a.body.figureH).toFixed(2)}px art pixels`
       : '').join(','));
 // Reported on the page as well as the console. A backdrop that quietly fell
@@ -429,9 +510,10 @@ if (backdrop.kind === KIND.NONE) console.log('[art] no backdrop — run tools/sc
 // clicking real pixels. A prototype that cannot be driven by a script cannot
 // be regression-tested, and an adventure game with no completion test breaks
 // silently the first time a flag is renamed.
-window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => room, actors: { player, grout }, backdrop: () => backdrop.kind, voiced, props: () => Object.keys(props).length,
-  bodies: () => [player, grout].filter((a) => a.body).length,
-  puppets: () => [player, grout].filter((a) => !a.body).length,
+window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => room, get actors() { return actors; }, room_id: () => here, rooms: () => Object.keys(ROOMS), backdrop: () => backdrop.kind, voiced, props: () => Object.keys(props).length,
+  bodies: () => cast().filter((a) => a.body).length,
+  puppets: () => cast().filter((a) => !a.body).length,
+  goTo: (id, from) => goTo(id, from),
   pixelBlock: () => PIXEL_BLOCK,
   // Does an actor actually put pixels on the canvas? Every previous check
   // asked whether a body was BOUND, which a sprite that draws nothing passes
@@ -443,7 +525,7 @@ window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => ro
   // character, and a wrong one is the difference between walking and sprinting
   // on the spot.
   cadence: (who, gait = 'walk') => {
-    const a = { player, grout }[who];
+    const a = actors[who];
     if (!a) return 0;
     const speed = a.speed * (gait === 'run' ? a.runSpeed : 1);
     const stride = a.body?.strideFor?.(gait)
@@ -454,7 +536,7 @@ window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => ro
   // a whole-number zoom made this jump by a third at one point on the dock —
   // a pop the player sees and no count catches.
   spriteHeightAt: (who, y) => {
-    const a = { player, grout }[who];
+    const a = actors[who];
     if (!a) return 0;
     const c = document.querySelector('canvas');
     const g = c.getContext('2d');
@@ -473,7 +555,7 @@ window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => ro
     return bot < 0 ? 0 : bot - top + 1;
   },
   drawn: (who) => {
-    const a = { player, grout }[who];
+    const a = actors[who];
     if (!a) return 0;
     const c = document.querySelector('canvas');
     const g = c.getContext('2d');
@@ -490,7 +572,7 @@ window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => ro
     const grab = () => g.getImageData(sx, sy, w, h).data;
     const paintRoom = () => {
       ctx.clearRect(0, 0, VIEW.w, VIEW.h);
-      room.render(ctx, [player, grout]);
+      room.render(ctx, cast());
     };
     paintRoom();
     const before = grab();
@@ -515,9 +597,9 @@ window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => ro
   // number rather than a judgement precisely because judging it by eye is what
   // produced an 80px sheet.
   artPixel: (who) => {
-    const a = { player, grout }[who];
+    const a = actors[who];
     if (!a?.body) return 0;
-    return +((a.body.figureH ? (dock.SPRITE_CAST[who === 'player' ? 'player' : 'grout'].height
+    return +((a.body.figureH ? (R.SPRITE_CAST[who].height
       / a.body.figureH) * room.scaleAt(a.y) : 0)).toFixed(2);
   },
   // How far the feet wander sideways across a clip, in screen pixels.
@@ -544,7 +626,7 @@ window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => ro
   // coat hem, a dropped hand or a shadow that dips below the boots in some
   // frames and not others pins the wrong thing, and the boots then bob.
   footTrack: (who, clip = 'idle') => {
-    const a = { player, grout }[who];
+    const a = actors[who];
     if (!a?.body?.hasClip?.(clip)) return { x: -1, y: -1 };
     const c = document.querySelector('canvas');
     const g = c.getContext('2d');
@@ -618,7 +700,7 @@ window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => ro
   // measures is worse than no check, so what is asserted here is the thing
   // that can be established exactly.
   strideOf: (who, gait = 'walk') => {
-    const a = { player, grout }[who];
+    const a = actors[who];
     if (!a) return null;
     const speed = a.speed * (gait === 'run' ? a.runSpeed : 1);
     const sheet = a.body?.strideFor?.(gait) ?? null;
@@ -632,9 +714,8 @@ window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => ro
   // without waiting for the loop to come round to it.
   render: () => {
     ctx.clearRect(0, 0, VIEW.w, VIEW.h);
-    room.render(ctx, [player, grout]);
-    drawSpeech(ctx, player, room, VIEW);
-    drawSpeech(ctx, grout, room, VIEW);
+    room.render(ctx, cast());
+    for (const a of cast()) drawSpeech(ctx, a, room, VIEW);
   },
   // The shape the actor is drawn as right now, in room units.  // Does a generated prop actually put pixels on the canvas?
   //
@@ -654,10 +735,10 @@ window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => ro
   propDrawn: (name) => {
     const c = document.querySelector('canvas');
     const gg = c.getContext('2d');
-    const rect = { cup: dock.CUP_RECT }[name];
+    const rect = { cup: dock.CUP_RECT }[name];   // dock-only, and named as such
     if (!rect) return 0;
     const [x, y, w, h] = rect;
-    const paintRoom = () => { ctx.clearRect(0, 0, VIEW.w, VIEW.h); room.render(ctx, [player, grout]); };
+    const paintRoom = () => { ctx.clearRect(0, 0, VIEW.w, VIEW.h); room.render(ctx, cast()); };
     const had = state.has('cup'), hadGrog = state.has('cup-of-grog');
     paintRoom();
     const before = gg.getImageData(x, y, w, h).data;
@@ -677,13 +758,13 @@ window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => ro
   // Where the last line of dialogue was printed, against where the character
   // it belonged to was drawn. Text over the body is the kind of fault that is
   // obvious on screen and invisible to every other assertion here.
-  speechBox: (who) => ({ player, grout }[who]?.lastSpeechBox ?? null),
+  speechBox: (who) => actors[who]?.lastSpeechBox ?? null,
   // The shape the actor is drawn as right now, in room units. A pose change is
   // the one animation event that alters the silhouette rather than the frame,
   // so it is the only one a frame counter cannot see: a Grout who is "asleep"
   // but still standing passes every clip assertion and is plainly wrong.
   poseBox: (who) => {
-    const a = { player, grout }[who];
+    const a = actors[who];
     const b = a?.body?.boxAt?.(a);
     return b ? { w: Math.round(b.w), h: Math.round(b.h), clip: a.clip } : null;
   },

@@ -206,6 +206,28 @@ const CHARACTERS = {
   // into the backdrop and has to hold up as a sprite in its own right. The
   // others are repainted vector blockouts (tools/props.mjs), which is a
   // different lineage and looks like one.
+  // The galley cast. Same STYLE line as the dock's, which is the only thing
+  // keeping two rooms generated hours apart looking like one game.
+  pike: {
+    name: 'Mervyn Pike, Cook',
+    prompt: [
+      'An enormous mournful ship\'s cook, shoulders like a door, standing with his hands hanging.',
+      'Filthy canvas apron over a striped shirt with the sleeves rolled up, bald head under a knotted',
+      'red kerchief, vast drooping walrus moustache, wooden spoon through his belt. Miserable.',
+      STYLE,
+    ].join(' '),
+  },
+
+  cat: {
+    humanoid: false,
+    name: 'Ship Cat, Ginger',
+    prompt: [
+      'A scrawny ginger ship\'s cat with a torn ear and a long crooked tail, crouched low and',
+      'extremely pleased with itself. Side view facing right, whole animal.',
+      LOOK,
+    ].join(' '),
+  },
+
   cup: {
     humanoid: false,
     name: 'Tin Cup on a Nail',
@@ -296,6 +318,55 @@ const ANIMATIONS = {
   // paint. Asked for at 32 pixels a frame, not 512: its own art quantises at a
   // 128px grid, and the room draws it about 24 art pixels wide, so anything
   // larger is detail that would have to be thrown away again.
+  pike: [
+    { kind: 'idle', loop: true },
+    { kind: 'walk', loop: true },
+    {
+      kind: 'custom', name: 'Despair', loop: true,
+      prompt: 'The huge cook stares down into an empty cooking pot he is holding, shoulders sagging, '
+        + 'and dabs at one eye with the corner of his apron. He stays standing in one place, '
+        + 'miserable, the whole time. One character alone: no stove, no table, no furniture, no '
+        + 'props beyond the pot. Side view, facing right.',
+    },
+    {
+      kind: 'custom', name: 'Ring the bell', loop: false,
+      prompt: 'The huge cook swings a small hand bell over his head with one arm, back and forth, '
+        + 'beaming, delighted. He stays standing in one place. One character alone: no stove, no '
+        + 'wall, no furniture, no props beyond the bell. Side view, facing right.',
+    },
+  ],
+
+  cat: [
+    {
+      kind: 'custom', name: 'Crouch', loop: true,
+      prompt: 'A ginger cat crouched low, holding still and smug, only its tail flicking slowly and '
+        + 'its ears twitching. It does not move from the spot. Just the cat, nothing else: no floor, '
+        + 'no shadow, no props. Side view, facing right.',
+    },
+    {
+      kind: 'custom', name: 'Sneeze', loop: false,
+      prompt: 'A ginger cat scrunches its face, rears its head back, and sneezes explosively, whole '
+        + 'body jolting, then shakes its head. It stays in the same spot. Just the cat, nothing '
+        + 'else: no floor, no shadow, no props. Side view, facing right.',
+    },
+    {
+      kind: 'custom', name: 'Scarper', loop: true,
+      prompt: 'A ginger cat running flat out, legs stretched front and back, tail streaming behind '
+        + 'it, ears flat. Running in place. Just the cat, nothing else: no floor, no shadow, no '
+        + 'props. Side view, facing right.',
+    },
+  ],
+
+  bonny: [
+    {
+      kind: 'custom', name: 'Bellows', loop: false,
+      prompt: 'A young pirate woman holds a pair of blacksmith bellows in both hands and pumps them '
+        + 'sharply twice, leaning into it, then lowers them. She stays standing in one place. One '
+        + 'character alone: no forge, no wall, no furniture, no props beyond the bellows. '
+        + 'Side view, facing right.',
+    },
+  ],
+
   cup: [
     {
       kind: 'custom', name: 'Sway', loop: true,

@@ -132,14 +132,34 @@ if (!NO_PLATE && (await exists(platePath))) {
 }
 // The backdrop is a video now, and it is the biggest thing in the bundle by
 // far. Inline it anyway: a published page has no folder to stream from.
-for (const [key, file, mime] of [
-  ['sceneVideo', 'assets/scene.mp4', 'video/mp4'],
-  ['sceneStill', 'assets/scene.jpg', 'image/jpeg'],
-]) {
+//
+// Every room's, now. The first room keeps the bare keys it was written with;
+// the rest sit under `rooms` by id, which is where loadBackdrop looks for
+// them. A second room whose backdrop is only on disk is a second room that is
+// a black rectangle in the published page.
+const SCENE_FILES = (dir) => [
+  ['sceneVideo', `${dir}/scene.mp4`, 'video/mp4'],
+  ['sceneStill', `${dir}/scene.jpg`, 'image/jpeg'],
+];
+for (const [key, file, mime] of SCENE_FILES('assets')) {
   const p = join(ROOT, file);
   if (NO_PLATE || !(await exists(p))) continue;
   assets[key] = await dataUri(p, mime);
   assetBytes += (await stat(p)).size;
+}
+if (!NO_PLATE) {
+  const rooms = {};
+  for (const room of ['galley']) {
+    const bag = {};
+    for (const [key, file, mime] of SCENE_FILES(`assets/${room}`)) {
+      const p = join(ROOT, file);
+      if (!(await exists(p))) continue;
+      bag[key] = await dataUri(p, mime);
+      assetBytes += (await stat(p)).size;
+    }
+    if (Object.keys(bag).length) rooms[room] = bag;
+  }
+  if (Object.keys(rooms).length) assets.rooms = rooms;
 }
 
 // Baked character atlases and their manifests. The manifest is inlined as an

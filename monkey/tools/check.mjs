@@ -68,13 +68,23 @@ await page.evaluate(() => {
       if (!h) throw new Error('no hotspot ' + id);
       return { x: h.rect[0] + h.rect[2] / 2, y: h.rect[1] + h.rect[3] / 2 };
     },
-    grout() { const a = M.actors.grout; return { x: a.x, y: a.y - 90 }; },
+    grout() { return window.__t.npc('grout'); },
+    // Any room's people, by id. `grout()` was written when there was one NPC
+    // in one room and it is now one line of this.
+    npc(id) {
+      const a = M.actors[id];
+      if (!a) throw new Error('no actor ' + id);
+      const b = a.body?.boxAt?.(a) ?? { h: 178 };
+      const s = M.room().scaleAt(a.y);
+      return { x: a.x, y: a.y - b.h * s * 0.5 };
+    },
+    room() { return M.room_id(); },
     // A bare click-to-walk does not go through the sequencer, so "the
     // sequencer is empty" is not "the game has finished moving". Leaving the
     // walk out of this made the camera-scrolling loop below fire eight clicks
     // in a row without ever waiting for the first one.
-    settled: () => !M.seq.busy && M.actors.player.state !== 'walk'
-      && !M.actors.player.line && !M.actors.grout.line,
+    settled: () => !M.seq.busy
+      && Object.values(M.actors).every((a) => a.state !== 'walk' && !a.line),
     idle: () => window.__t.settled() && !M.menu.active,
     // "Nothing is playing" is not the same as "nothing is waiting for me":
     // a conversation ends with the menu open and the sequencer empty.
@@ -546,9 +556,69 @@ try {
     console.log(`  shot -> ${SHOT}`);
   }
 
-  await step('leave down the jetty Grout was blocking  [pathfinding into new floor]', async () => {
+  await step('go aboard  [a door into another room]', async () => {
     await verb(await T(() => window.__t.spot('jetty')), 'use');
-  }, () => window.__t.flag('aboard'));
+    await page.waitForFunction(() => window.__t.room() === 'galley', null, { timeout: 20000 });
+    // The room arrives before its art does: the atlases are fetched inside the
+    // move, so "we are in the galley" and "the galley is drawable" are two
+    // different moments.
+    await page.waitForFunction(() => window.__monkey.bodies() === 3, null, { timeout: 20000 });
+    await idle();
+    console.log(`    [room] ${await T(() => window.__t.room())} `
+      + `bodies=${await T(() => window.__monkey.bodies())} `
+      + `actors=${JSON.stringify(await T(() => Object.keys(window.__monkey.actors)))} `
+      + `backdrop=${await T(() => window.__monkey.backdrop())}`);
+  }, () => window.__t.room() === 'galley' && window.__monkey.bodies() === 3);
+
+  // --- the galley ----------------------------------------------------------
+  //
+  // The point of all of it. A second room, generated the same way and wired
+  // through the same engine, played to the end by the same harness.
+
+  await step('the galley is generated art too  [backdrop, three atlases]', async () => {}, () => {
+    const M = window.__monkey;
+    window.__t.galleyCast = Object.keys(M.actors);
+    return (M.backdrop() === 'video' || M.backdrop() === 'still')
+      && M.bodies() === 3 && M.puppets() === 0
+      && M.drawn('player') > 40 && M.drawn('pike') > 40 && M.drawn('cat') > 40;
+  });
+
+  await step('Mervyn explains himself  [a second dialogue tree]', async () => {
+    await verb(await T(() => window.__t.npc('pike')), 'talk');
+    await pickDialogue('why is dinner off');
+    await quiet();
+    await pickDialogue('where is this cat');
+    await quiet();
+    await page.evaluate(() => window.__monkey.seq.cancel());
+    await page.evaluate(() => window.__monkey.menu.hide());
+    await idle();
+  }, () => window.__t.flag('galley-said-why') && window.__t.flag('galley-said-cat'));
+
+  await step('take the pepper pot  [use]', async () => {
+    await verb(await T(() => window.__t.spot('pepper')), 'use');
+  }, () => window.__t.inv().includes('pepper'));
+
+  await step('load the bellows with pepper  [pepper -> bellows]', async () => {
+    await useItemOn('pepper', await T(() => window.__t.spot('bellows')));
+  }, () => window.__t.inv().includes('loaded-bellows') && !window.__t.inv().includes('pepper'));
+
+  await step('make the cat sneeze  [loaded-bellows -> the cat]', async () => {
+    await useItemOn('loaded-bellows', await T(() => window.__t.npc('cat')));
+  }, () => window.__t.flag('kipper-dropped') && !window.__t.inv().includes('loaded-bellows'));
+
+  await step('take the dropped kipper  [a hotspot that did not exist a moment ago]', async () => {
+    await verb(await T(() => window.__t.spot('kipper')), 'use');
+  }, () => window.__t.inv().includes('kipper'));
+
+  await step('give the kipper to Mervyn  [kipper -> Mervyn]', async () => {
+    await useItemOn('kipper', await T(() => window.__t.npc('pike')));
+  }, () => window.__t.flag('dinner-on') && !window.__t.inv().includes('kipper'));
+
+  await step('Mervyn rings for dinner  [he walks, and the ship sails]', async () => {
+    await verb(await T(() => window.__t.spot('bell')), 'use');
+    await page.waitForFunction(() => window.__t.flag('sailed'), null, { timeout: 30000 });
+    await idle();
+  }, () => window.__t.flag('sailed'));
 } catch (e) {
   errors.push(e.message);
 }

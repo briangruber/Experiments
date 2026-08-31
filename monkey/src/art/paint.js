@@ -766,3 +766,87 @@ export const ICONS = {
     ctx.beginPath(); ctx.ellipse(-4, -13, 4, 2, 0, 0, Math.PI * 2); ctx.fill();
   },
 };
+
+// --- the galley -------------------------------------------------------------
+
+// A smoked herring on a floor. Generated art would be the house style, but
+// this exists for about ninety seconds of one puzzle and is a fish seen from
+// above, which a canvas path can manage without spending a credit.
+export function paintKipper(ctx) {
+  ctx.save();
+  ctx.rotate(-0.12);
+  ctx.fillStyle = '#8a6a3f';
+  ctx.beginPath();
+  ctx.moveTo(-44, 0);
+  ctx.quadraticCurveTo(-14, -16, 26, -11);
+  ctx.lineTo(44, -18); ctx.lineTo(40, 0); ctx.lineTo(44, 18);
+  ctx.lineTo(26, 11);
+  ctx.quadraticCurveTo(-14, 16, -44, 0);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#a8834f';
+  ctx.beginPath(); ctx.ellipse(-8, -3, 26, 5, -0.06, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#5c452a'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(-44, 0); ctx.quadraticCurveTo(-14, -16, 26, -11); ctx.stroke();
+  ctx.fillStyle = '#241811';
+  ctx.beginPath(); ctx.arc(-34, -3, 2.6, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+// The stand-in for the ship's cat, for the case where its atlas does not load.
+// Drawn at the actor's own scale, origin between its feet.
+export function paintCatPuppet(ctx, actor, scale) {
+  const h = (actor.height || 60);
+  ctx.save();
+  ctx.scale(h / 60, h / 60);
+  ctx.fillStyle = '#c8792f';
+  ctx.beginPath(); ctx.ellipse(0, -22, 26, 15, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(24, -34, 12, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(17, -44); ctx.lineTo(20, -56); ctx.lineTo(27, -46); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(29, -46); ctx.lineTo(34, -56); ctx.lineTo(36, -44); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = '#c8792f'; ctx.lineWidth = 6; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-24, -24); ctx.quadraticCurveTo(-44, -30, -38, -50); ctx.stroke();
+  ctx.fillStyle = '#c8792f';
+  for (const x of [-10, 12]) { ctx.fillRect(x, -10, 7, 10); }
+  ctx.fillStyle = '#241811';
+  ctx.beginPath(); ctx.arc(28, -36, 2, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+// The galley's three. Written here rather than in the room because an icon is
+// art, and because the strip draws from one table however many rooms there are.
+ICONS.pepper = (ctx) => {
+  ctx.fillStyle = '#b9b2a4';
+  ctx.beginPath();
+  ctx.moveTo(-10, -8); ctx.lineTo(10, -8); ctx.lineTo(8, 18); ctx.lineTo(-8, 18);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#8f887a';
+  ctx.beginPath(); ctx.ellipse(0, -9, 10, 4, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#3a352d';
+  for (const [x, y] of [[-4, -11], [0, -12], [4, -11], [-2, -9], [2, -9]]) {
+    ctx.beginPath(); ctx.arc(x, y, 1.2, 0, Math.PI * 2); ctx.fill();
+  }
+};
+
+ICONS['loaded-bellows'] = (ctx) => {
+  ctx.fillStyle = '#7a4a2c';
+  ctx.beginPath();
+  ctx.moveTo(-14, 0); ctx.quadraticCurveTo(-4, -15, 12, -9);
+  ctx.lineTo(12, 9); ctx.quadraticCurveTo(-4, 15, -14, 0);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = '#4e3a24'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(12, -5); ctx.lineTo(21, -3); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-12, -7); ctx.lineTo(-19, -16); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-12, 7); ctx.lineTo(-19, 16); ctx.stroke();
+  // The pepper, which is the whole point of them.
+  ctx.fillStyle = 'rgba(58,53,45,0.85)';
+  for (const [x, y] of [[19, -9], [23, -1], [18, 4]]) {
+    ctx.beginPath(); ctx.arc(x, y, 1.6, 0, Math.PI * 2); ctx.fill();
+  }
+};
+
+ICONS.kipper = (ctx) => {
+  ctx.save();
+  ctx.scale(0.42, 0.42);
+  paintKipper(ctx);
+  ctx.restore();
+};

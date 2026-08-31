@@ -63,12 +63,17 @@ const SEED = opt('seed', null);
 // frame, so it survives a lower native resolution better than the page
 // survives being unloadable.
 
+// A room's assets live under its own name, except the first one, which was
+// written before there was a second and keeps its bare paths so nothing that
+// already points at them has to move.
+const ROOM = opt('room', 'dock');
 const ASSETS = join(ROOT, 'assets');
-const STILL = join(ASSETS, 'scene.png');
+const DIR = ROOM === 'dock' ? ASSETS : join(ASSETS, ROOM);
+const STILL = join(DIR, 'scene.png');
 // The still is the master the loop is generated from; the jpg is the copy that
 // ships. A 3.7 MB PNG fallback has no business in a published page.
-const STILL_WEB = join(ASSETS, 'scene.jpg');
-const LOOP = join(ASSETS, 'scene.mp4');
+const STILL_WEB = join(DIR, 'scene.jpg');
+const LOOP = join(DIR, 'scene.mp4');
 const LEDGER = join(ASSETS, 'provenance.json');
 const exists = async (p) => { try { await stat(p); return true; } catch { return false; } };
 
@@ -85,7 +90,53 @@ const exists = async (p) => { try { await stat(p); return true; } catch { return
 // And one prohibition: no lettering. Every model so far has returned "Jeavern",
 // "TÉRA" and "TVL9RN" for the same sign, so any text a player must read is
 // drawn by the engine over the art.
-const STILL_PROMPT = [
+// One entry per room. The composition rules above are not decoration — they
+// are what makes a picture into a place a character can be in — so each room's
+// prompt states its own walking band, its own separated props and its own
+// animatable elements, and repeats the same style and the same prohibition on
+// lettering so two rooms generated hours apart belong to one game.
+const ROOMS = {
+  galley: {
+    still: [
+      'A hand-painted background for a 1990s LucasArts point-and-click adventure game.',
+      'The cramped galley below decks of a wooden pirate ship, lit by lamplight at night.',
+      '',
+      'COMPOSITION, strictly: the lower third of the frame is a wide planked deck floor',
+      'running unbroken from the left edge to the right edge, flat, empty and clear — a',
+      'walkable strip with nothing blocking it. Everything else sits above or behind it.',
+      'On the left a black cast-iron cooking range with a fat belly and a stovepipe, a',
+      'big pot on top with steam rising, its firebox door glowing orange, and a pair of',
+      'leather bellows leaning against it. In the middle of the back wall a heavy',
+      'scrubbed wooden mess table with a tin pepper pot standing on it, and above it a',
+      'small brass ship\'s bell hanging from a bracket. On the right, curving ship\'s ribs',
+      'and planking, a hanging oil lamp on a hook swinging slightly, a stack of barrels,',
+      'and a low doorway with a companion ladder going up into darkness. High on the',
+      'right, a heavy timber roof beam runs across under the deckhead with clear space',
+      'above the barrels. Ranged with clear space between them so nothing overlaps.',
+      '',
+      'STYLE: lush painted gouache and oil on board, visible directional brushwork, loaded',
+      'impasto in the lights, thin scumbled darks, broken colour, soft lost-and-found edges.',
+      'Warm amber lamplight and firelight against deep blue-green shadow in the corners.',
+      'Deep transparent shadows that still hold colour. Cramped, snug, smoky, cinematic,',
+      'slightly exaggerated storybook proportions.',
+      '',
+      'NEGATIVE: no people, no characters, no animals, no cat, no text, no lettering, no',
+      'writing, no watermark, no UI, no border, no letterboxing, no split panels.',
+    ].join(' '),
+    loop: [
+      'Ambient living-painting shot of this ship\'s galley below decks. Continuous gentle',
+      'motion: steam curls and rises from the pot, the firelight in the stove flickers and',
+      'its orange glow pulses on the planking, the hanging oil lamp sways very slightly on',
+      'its hook and its light shifts with it, and shadows breathe in the corners.',
+      'The camera is completely locked off: no pan, no zoom, no dolly, no parallax, no',
+      'camera movement of any kind, no shot change.',
+      'Nothing enters or leaves the frame. No people, no characters, no animals, no text.',
+      'The painting itself does not change — only steam, fire, light and shadow move.',
+    ].join(' '),
+  },
+};
+
+const STILL_PROMPT_DOCK = [
   'A hand-painted background for a 1990s LucasArts point-and-click adventure game.',
   'A moonlit wooden pier on a Caribbean pirate island at night.',
   '',
@@ -115,7 +166,7 @@ const STILL_PROMPT = [
 // the list of motions: a camera move cannot loop, and anything that entered or
 // left frame could not either. Everything asked for is a thing that returns to
 // where it started on its own.
-const LOOP_PROMPT = [
+const LOOP_PROMPT_DOCK = [
   'Ambient living-painting shot of this moonlit harbour. Continuous gentle motion:',
   'the sea swells and ripples with the moonlight glittering and breaking across its',
   'surface, clouds drift slowly across the night sky, the lantern flame flickers and',
@@ -127,6 +178,9 @@ const LOOP_PROMPT = [
   'Nothing enters or leaves the frame. No people, no characters, no boats arriving,',
   'no text. The painting itself does not change — only water, air, light and cloth move.',
 ].join(' ');
+
+const STILL_PROMPT = ROOMS[ROOM]?.still ?? STILL_PROMPT_DOCK;
+const LOOP_PROMPT = ROOMS[ROOM]?.loop ?? LOOP_PROMPT_DOCK;
 
 async function ledger(entry) {
   let log = [];
@@ -150,7 +204,7 @@ async function still() {
   const img = out.images?.[0];
   if (!img?.url) throw new Error('no image: ' + JSON.stringify(out).slice(0, 400));
   const buf = await fetchBuf(img.url);
-  await mkdir(ASSETS, { recursive: true });
+  await mkdir(DIR, { recursive: true });
   await writeFile(STILL, buf);
   await ledger({ kind: 'scene-still', file: 'assets/scene.png', model: STILL_MODEL, seed: out.seed ?? null, size: `${img.width}x${img.height}`, prompt: STILL_PROMPT });
   console.log(`still -> assets/scene.png  ${img.width}x${img.height}  ${(buf.length / 1024).toFixed(0)} KB`);
@@ -164,16 +218,28 @@ async function loop() {
   if ((await exists(LOOP)) && !FORCE) { console.error('assets/scene.mp4 exists — pass --force to redraw'); process.exit(1); }
   if (DRY) { console.log(`would POST ${LOOP_MODEL} with the still as BOTH first and last frame\n\n${LOOP_PROMPT}`); return; }
   const uri = 'data:image/jpeg;base64,' + (await readFile(STILL_WEB)).toString('base64');
-  const input = {
-    prompt: LOOP_PROMPT,
-    image_url: uri,
-    duration: 6,
-    resolution: opt('resolution', '480P'),
-    prompt_expansion_mode: 'quality',
-    enable_safety_checker: false,
-  };
-  // Optional, and off by default for the reason above.
-  if (END_FRAME) input.end_image_url = uri;
+  // Video models do not agree on what to call the picture you hand them, and a
+  // wrong field name comes back as a validation error AFTER the queue has
+  // taken the job. The first-last-frame family wants a start and an end and
+  // speaks in lowercase resolutions; the image-to-video family wants one image
+  // and shouts its resolutions.
+  const firstLast = /first-last-frame/.test(LOOP_MODEL);
+  const input = firstLast
+    ? {
+      prompt: LOOP_PROMPT,
+      start_image_url: uri,
+      end_image_url: uri,
+      resolution: opt('resolution', '720p'),
+    }
+    : {
+      prompt: LOOP_PROMPT,
+      image_url: uri,
+      duration: 6,
+      resolution: opt('resolution', '480P'),
+      prompt_expansion_mode: 'quality',
+      enable_safety_checker: false,
+      ...(END_FRAME ? { end_image_url: uri } : {}),
+    };
   const out = await falRun(LOOP_MODEL, input, 'loop');
   const url = out.video?.url || out.videos?.[0]?.url;
   if (!url) throw new Error('no video: ' + JSON.stringify(out).slice(0, 400));

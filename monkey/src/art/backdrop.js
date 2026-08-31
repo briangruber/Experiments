@@ -116,9 +116,14 @@ export function seamWeight(u) {
   return t * t * (3 - 2 * t);   // smoothstep, so the handover has no corner
 }
 
-export async function loadBackdrop() {
+// A room's backdrop, by room id. The first room's assets sit at the bare paths
+// they were written to before there was a second, so it keeps them.
+const SCENE = (room, ext) => (room === 'dock' ? `./assets/scene.${ext}` : `./assets/${room}/scene.${ext}`);
+
+export async function loadBackdrop(room = 'dock') {
   const A = globalThis.window?.__ASSETS;
-  const still = await loadImage(A?.sceneStill ?? './assets/scene.jpg');
+  const inline = room === 'dock' ? A : A?.rooms?.[room];
+  const still = await loadImage(inline?.sceneStill ?? SCENE(room, 'jpg'));
 
   // The clip was generated with the same image as its first and last frame, so
   // in principle it closes on itself and needs no help. In practice it does
@@ -133,7 +138,7 @@ export async function loadBackdrop() {
   // Neither is fixable without re-encoding, and both are fixable by not
   // showing the wrap. Set `sceneClosedLoop: true` to trust the clip and play
   // it straight.
-  const closedLoop = A?.sceneClosedLoop === true;
+  const closedLoop = inline?.sceneClosedLoop === true;
 
   const backdrop = {
     closedLoop,
@@ -175,9 +180,9 @@ export async function loadBackdrop() {
     // and blob: is the one this project invented. A scheme a published page
     // refuses fails silently, so the order matters and both are offered.
     [
-      { url: A?.sceneVideoData, label: 'data:' },
-      { url: A?.sceneVideo, label: A?.sceneVideoScheme || 'inline' },
-      { url: A ? null : './assets/scene.mp4', label: 'file' },
+      { url: inline?.sceneVideoData, label: 'data:' },
+      { url: inline?.sceneVideo, label: inline?.sceneVideoScheme || 'inline' },
+      { url: A ? null : SCENE(room, 'mp4'), label: 'file' },
     ],
     (n) => {
       backdrop.note = n;

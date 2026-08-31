@@ -273,3 +273,33 @@ export function makeLamps() {
     ctx.restore();
   };
 }
+
+// The galley's fallback motion, for when the loop video cannot play: firelight
+// pulsing out of the stove door and steam lifting off the pot. Same contract
+// as the dock's layers — it draws over the still and is skipped entirely when
+// the video is doing the work.
+export function makeGalleyHeat() {
+  const puffs = Array.from({ length: 7 }, (_, i) => ({ t: i / 7, w: 12 + (i % 3) * 5 }));
+  return (ctx, room) => {
+    const t = room.time;
+    // Firebox glow, breathing.
+    const a = 0.20 + Math.sin(t * 2.3) * 0.06 + Math.sin(t * 5.7) * 0.03;
+    const g = ctx.createRadialGradient(240, 480, 6, 240, 480, 190);
+    g.addColorStop(0, `rgba(255,168,64,${a})`);
+    g.addColorStop(1, 'rgba(255,140,40,0)');
+    ctx.save();
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(240, 480, 190, 0, Math.PI * 2); ctx.fill();
+    // Steam off the pot, rising and fading.
+    for (const p of puffs) {
+      const u = (t * 0.14 + p.t) % 1;
+      ctx.globalAlpha = 0.16 * Math.sin(Math.PI * u);
+      ctx.fillStyle = '#e8e2d4';
+      ctx.beginPath();
+      ctx.ellipse(206 + Math.sin(u * 6 + p.t * 9) * 13, 288 - u * 150,
+        p.w * (0.5 + u), p.w * (0.4 + u * 0.7), 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  };
+}

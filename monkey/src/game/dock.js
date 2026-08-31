@@ -395,7 +395,8 @@ function HOTSPOTS(state) {
           return;
         }
         yield walk(g.player, g.room.walk, 30, 690);
-        yield run(() => g.win());
+        yield say(g.player, "Right. Let's see what a ship named after a fish smells like.", 3.8);
+        yield run(() => g.goTo('galley', 'dock'));
       },
     }),
   ];
@@ -408,6 +409,11 @@ function HOTSPOTS(state) {
 // knowing he is thirsty and Grout being bribable are the same fact.
 
 export function groutTree(g) {
+  // An empty tree is how a conversation ends. main.js used to know that a
+  // sleeping Grout had nothing to say — a fact about this room living in the
+  // wiring — and now the room says it, which is the only way a second room's
+  // people could ever stop talking.
+  if (g.state.get('grout-asleep')) return [];
   const said = (k) => g.state.get('said-' + k);
   const mark = (k) => g.state.set('said-' + k, true);
 
@@ -481,3 +487,40 @@ export function* groutGreeting(g) {
   }
   yield say(g.grout, "Pier's closed.", 1.4);
 }
+
+// --- the room's people, in the shape every room presents them ---------------
+//
+// main.js used to know Grout by name: his hit box, his approach spot, his verb
+// handling and his dialogue were all written into the wiring. That was fine
+// while there was one room and one NPC, and it is the first thing that has to
+// go when there are two. A room now hands over its people and the engine asks
+// each of them the same four questions.
+export const NPCS = {
+  grout: {
+    approach: (a) => ({ x: a.x + 140, y: 690, facing: 'left' }),
+    box: { w: 92, h: 178 },
+    verbs: {
+      look: function* (g) {
+        if (g.state.get('grout-asleep')) {
+          yield say(g.player, "Asleep, and smiling. A rare combination on this island.");
+          return;
+        }
+        yield say(g.player, "Harbourmaster Grout. Built like a bollard and about as movable.", 4.2);
+        yield say(g.player, "He has the look of a man eleven hours into a twelve-hour shift.", 4.0);
+      },
+      use: function* (g) { yield say(g.player, "I'm not laying hands on a man that size."); },
+    },
+    greeting: (g) => groutGreeting(g),
+    tree: (g) => groutTree(g),
+    line: (g, opt) => groutLine(g, opt),
+  },
+};
+
+// Where the player stands when she arrives, per door she came through.
+export const SPAWN = {
+  start: { x: 620, y: 690, facing: 'left' },
+  galley: { x: 150, y: 668, facing: 'right' },
+};
+
+// The common name for "put the world back the way these flags say it is".
+export const applyState = (room, state) => applyPierState(room, state);
