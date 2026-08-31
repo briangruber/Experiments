@@ -606,19 +606,57 @@ async function cmdProp(key) {
     c.width = cw; c.height = ch2;
     const x = c.getContext('2d', { willReadFrequently: true });
     x.imageSmoothingEnabled = false;
+    // Same threshold as the packer, and for the same reason: the removal
+    // returns a feathered edge, and a pixel that is more background than
+    // figure is background. See ALPHA_CUT in sheet-cut.html.
+    const ALPHA_CUT = 128;
     const centres = [];
     for (let i = 0; i < count; i++) {
       x.clearRect(0, 0, cw, ch2);
       x.drawImage(img, -(i % cols) * cw, -Math.floor(i / cols) * ch2);
       const d = x.getImageData(0, 0, cw, ch2).data;
-      let lo = 1e9, hi = -1, top = 1e9, bot = -1;
+      let lo = 1e9, hi = -1, top = 1e9, bot = -1, on = 0;
+      const mask = new Uint8Array(cw * ch2);
       for (let y = 0; y < ch2; y++) for (let px = 0; px < cw; px++) {
-        if (d[(y * cw + px) * 4 + 3] > 40) {
+        if (d[(y * cw + px) * 4 + 3] >= ALPHA_CUT) {
+          mask[y * cw + px] = 1; on++;
           if (px < lo) lo = px; if (px > hi) hi = px;
           if (y < top) top = y; if (y > bot) bot = y;
         }
       }
-      centres.push(hi < 0 ? null : { i, cx: (lo + hi) / 2, box: [lo, top, hi, bot] });
+      // How much of the frame is the object, as opposed to something else in
+      // it. A prop is one object; the video model sometimes leaves a second
+      // thing behind — the pepper pot shipped standing on a little grey peg
+      // that is in two of its sixteen frames and not the other fourteen. A
+      // flood fill from the largest component answers "is this frame one
+      // object?", which is a property the good frames have and the spoiled
+      // ones do not, without anyone having to name the peg.
+      let best = 0;
+      const seen = new Uint8Array(cw * ch2);
+      for (let p0 = 0; p0 < mask.length; p0++) {
+        if (!mask[p0] || seen[p0]) continue;
+        let n = 0;
+        const stack = [p0];
+        seen[p0] = 1;
+        while (stack.length) {
+          const q = stack.pop(); n++;
+          const qx = q % cw, qy = (q - qx) / cw;
+          for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const nx = qx + dx, ny = qy + dy;
+            if (nx < 0 || ny < 0 || nx >= cw || ny >= ch2) continue;
+            const np = ny * cw + nx;
+            if (mask[np] && !seen[np]) { seen[np] = 1; stack.push(np); }
+          }
+        }
+        if (n > best) best = n;
+      }
+      // Touching the cell border means the frame does not contain the whole
+      // object. The pepper pot's first two frames run off the bottom of their
+      // cells, and what is left at the cut looks like a little grey peg the
+      // pot is standing on — which is what shipped, in the scene and in the
+      // inventory both.
+      const clipped = lo <= 0 || top <= 0 || hi >= cw - 1 || bot >= ch2 - 1;
+      centres.push(hi < 0 ? null : { i, cx: (lo + hi) / 2, box: [lo, top, hi, bot], whole: best / on, clipped });
     }
     const live = centres.filter(Boolean);
     const mid = [...live.map((v) => v.cx)].sort((a, b) => a - b)[live.length >> 1];
@@ -629,13 +667,27 @@ async function cmdProp(key) {
     // swing. A pepper pot standing on a table at a jaunty angle reads as a
     // mistake. Anything that rocks is narrowest when it is vertical, so width
     // is the tie-break that finds standing-up.
-    const band = live.filter((v) => Math.abs(v.cx - mid) <= 2);
-    const pool = band.length ? band : live;
+    // Frames that show the whole object come first, and they are a hard
+    // filter rather than a tie-break: a cropped frame or one with something
+    // extra in it is never the right frame, however well centred and however
+    // upright. Only then the two rules about which pose to take.
+    const sound = live.filter((v) => !v.clipped && v.whole > 0.995);
+    const good = sound.length ? sound : live;
+    const band = good.filter((v) => Math.abs(v.cx - mid) <= 2);
+    const pool = band.length ? band : good;
     const width = (v) => v.box[2] - v.box[0];
     const pick = pool.reduce((a, b) => (width(b) < width(a) ? b : a));
     x.clearRect(0, 0, cw, ch2);
     x.drawImage(img, -(pick.i % cols) * cw, -Math.floor(pick.i / cols) * ch2);
-    return { url: c.toDataURL('image/png'), frame: pick.i, w: cw, h: ch2, box: pick.box, of: count };
+    // The cast's sheets go through the packer, which applies ALPHA_CUT; a prop
+    // is a straight copy of one cell and would otherwise keep the feathered
+    // rim the packer exists to remove. Same cut, so a prop and a character
+    // standing next to each other have the same kind of edge.
+    const fd = x.getImageData(0, 0, cw, ch2);
+    for (let i = 3; i < fd.data.length; i += 4) fd.data[i] = fd.data[i] >= ALPHA_CUT ? 255 : 0;
+    x.putImageData(fd, 0, 0);
+    return { url: c.toDataURL('image/png'), frame: pick.i, w: cw, h: ch2, box: pick.box,
+      of: count, whole: +pick.whole.toFixed(3), sound: sound.length, live: live.length };
   }, [uri, meta.columns, meta.frameCount]);
   await browser.close();
   await close();
@@ -644,7 +696,7 @@ async function cmdProp(key) {
   await writeFile(dest, Buffer.from(out.url.split(',')[1], 'base64'));
   const [bx, by, bx1, by1] = out.box;
   console.log(`  assets/props/${key}.png  ${out.w}x${out.h}  from frame ${out.frame + 1}/${out.of}`
-    + ` (the one nearest the middle of the motion)`);
+    + ` (${out.sound} of ${out.live} frames show the whole object; took the uprightest)`);
   console.log(`  the art occupies ${bx1 - bx + 1}x${by1 - by + 1} inside it, at ${bx},${by}`);
   console.log(`  draw it 1:1 — reducing it is the mistake this project keeps making`);
   await ledger({ kind: 'prop', key, characterId: ch.characterId, frame: out.frame, file: `assets/props/${key}.png` });

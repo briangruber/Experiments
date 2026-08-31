@@ -22,6 +22,21 @@
 // How much of a character has to be passed, walking up from the bottom of a
 // frame, before the row counts as the ground it stands on. Ten pixels is far
 // more than background-removal noise and far less than a boot.
+// How opaque a pixel has to be to count as the character.
+//
+// This was 40, and 40 is why the cast wore a dark outline it was never drawn
+// with. AutoSprite's background removal returns a feathered edge: measured
+// across this cast, 6% to 33% of every silhouette is partial alpha, and its
+// mean luminance is well below the figure's own (Pike's rim reads 27 against
+// his 82) because those pixels are half background. The packer kept every one
+// of them and then wrote it at alpha 255, so a soft rim of dark background
+// became a hard opaque line all the way round.
+//
+// 128 is the midpoint, and the midpoint is the principled place for it: a
+// pixel that is more figure than background is figure. The art's own dark
+// outline is fully opaque and survives; the half-dissolved rim outside it does
+// not. Raising it further starts eating whiskers and rope.
+const ALPHA_CUT = 128;
 const GROUND_QUOTA = 10;
 
 window.__cut = async (src, opts) => {
@@ -51,8 +66,8 @@ window.__cut = async (src, opts) => {
   g.putImageData(id, 0, 0);
   const A = (x, y) => d[(y * W + x) * 4 + 3];
 
-  const lo = (() => { for (let x = 0; x < W; x++) for (let y = 0; y < H; y++) if (A(x, y) > 40) return x; return 0; })();
-  const hi = (() => { for (let x = W - 1; x >= 0; x--) for (let y = 0; y < H; y++) if (A(x, y) > 40) return x; return W - 1; })();
+  const lo = (() => { for (let x = 0; x < W; x++) for (let y = 0; y < H; y++) if (A(x, y) >= ALPHA_CUT) return x; return 0; })();
+  const hi = (() => { for (let x = W - 1; x >= 0; x--) for (let y = 0; y < H; y++) if (A(x, y) >= ALPHA_CUT) return x; return W - 1; })();
   const n = opts.frames;
   const step = (hi - lo + 1) / n;
 
@@ -66,7 +81,7 @@ window.__cut = async (src, opts) => {
     const stack = [];
     for (let y = 0; y < H; y++) {
       for (let sx = seedX - 1; sx <= seedX + 1; sx++) {
-        if (sx >= 0 && sx < W && A(sx, y) > 40 && !seen[y * W + sx]) { seen[y * W + sx] = 1; stack.push(sx, y); }
+        if (sx >= 0 && sx < W && A(sx, y) >= ALPHA_CUT && !seen[y * W + sx]) { seen[y * W + sx] = 1; stack.push(sx, y); }
       }
     }
     let x0 = 1e9, x1 = -1, y0 = 1e9, y1 = -1;
@@ -78,7 +93,7 @@ window.__cut = async (src, opts) => {
         const nx = x + dx, ny = y + dy;
         if (nx < sx0 || nx > sx1 || ny < 0 || ny >= H) continue;
         const p = ny * W + nx;
-        if (seen[p] || A(nx, ny) <= 40) continue;
+        if (seen[p] || A(nx, ny) < ALPHA_CUT) continue;
         seen[p] = 1; stack.push(nx, ny);
       }
     }
@@ -164,7 +179,7 @@ window.__grid = async (src, opts) => {
       let x0 = 1e9, x1 = -1, y0 = 1e9, y1 = -1;
       const mask = new Uint8Array(W * H);
       for (let y = by; y <= by1; y++) for (let x = bx; x <= bx1; x++) {
-        if (A(x, y) <= 40) continue;
+        if (A(x, y) < ALPHA_CUT) continue;
         mask[y * W + x] = 1;
         if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
       }
@@ -294,7 +309,7 @@ window.__verify = async (src, cell, cols, count) => {
     const bx = (i % cols) * cell.w, by = ((i / cols) | 0) * cell.h;
     let bot = -1, top = 1e9, x0 = 1e9, x1 = -1;
     for (let y = by; y < by + cell.h; y++) for (let x = bx; x < bx + cell.w; x++) {
-      if (A(x, y) <= 40) continue;
+      if (A(x, y) < ALPHA_CUT) continue;
       if (y > bot) bot = y; if (y < top) top = y;
       if (x < x0) x0 = x; if (x > x1) x1 = x;
     }
@@ -305,14 +320,14 @@ window.__verify = async (src, cell, cols, count) => {
     // rows, because the lowest pixel was sometimes a single speck.
     let seenPx = 0, ground = bot;
     for (let y = bot; y >= top; y--) {
-      for (let x = bx; x < bx + cell.w; x++) if (A(x, y) > 40) seenPx++;
+      for (let x = bx; x < bx + cell.w; x++) if (A(x, y) >= ALPHA_CUT) seenPx++;
       if (seenPx >= 10) { ground = y; break; }
     }
     feet.push(ground - by);
     const cxIn = (t0, t1) => {
       let a = 1e9, b = -1;
       const ya = top + Math.round((bot - top) * t0), yb = top + Math.round((bot - top) * t1);
-      for (let y = ya; y <= yb; y++) for (let x = bx; x < bx + cell.w; x++) if (A(x, y) > 40) { if (x < a) a = x; if (x > b) b = x; }
+      for (let y = ya; y <= yb; y++) for (let x = bx; x < bx + cell.w; x++) if (A(x, y) >= ALPHA_CUT) { if (x < a) a = x; if (x > b) b = x; }
       return b >= a ? Math.round((a + b) / 2) - bx : Math.round(cell.w / 2);
     };
     heads.push(cxIn(0, 0.12));
@@ -361,7 +376,7 @@ window.__period = async (src, cell, cols, clip, feetY, figureH) => {
     const d = g.getImageData(bx, by + feetY - band, cell.w, band).data;
     let lo = 1e9, hi = -1;
     for (let y = 0; y < band; y++) for (let x = 0; x < cell.w; x++) {
-      if (d[(y * cell.w + x) * 4 + 3] > 40) { if (x < lo) lo = x; if (x > hi) hi = x; }
+      if (d[(y * cell.w + x) * 4 + 3] >= ALPHA_CUT) { if (x < lo) lo = x; if (x > hi) hi = x; }
     }
     sep.push(hi < 0 ? 0 : hi - lo + 1);
   }
@@ -398,7 +413,7 @@ window.__period = async (src, cell, cols, clip, feetY, figureH) => {
     const dd = g.getImageData(bx, by + feetY - contact, cell.w, contact).data;
     let lo = -1;
     for (let x = 0; x < cell.w && lo < 0; x++) {
-      for (let y = 0; y < contact; y++) if (dd[(y * cell.w + x) * 4 + 3] > 40) { lo = x; break; }
+      for (let y = 0; y < contact; y++) if (dd[(y * cell.w + x) * 4 + 3] >= ALPHA_CUT) { lo = x; break; }
     }
     rear.push(lo < 0 ? null : lo);
   }

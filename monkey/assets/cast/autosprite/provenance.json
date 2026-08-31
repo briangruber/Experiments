@@ -6450,5 +6450,53 @@
     "frame": 0,
     "file": "assets/props/pepperpot.png",
     "at": "2026-08-31T14:19:30.372Z"
+  },
+  {
+    "kind": "prop",
+    "key": "pepperpot",
+    "characterId": "cmthb9449000jn91lm6l8yiug",
+    "frame": 0,
+    "file": "assets/props/pepperpot.png",
+    "at": "2026-08-31T15:19:32.897Z"
+  },
+  {
+    "kind": "prop",
+    "key": "kipper",
+    "characterId": "cmthb9k94000eklm48tup26wp",
+    "frame": 8,
+    "file": "assets/props/kipper.png",
+    "at": "2026-08-31T15:19:33.951Z"
+  },
+  {
+    "kind": "prop",
+    "key": "cup",
+    "characterId": "cmtgt1uox000813w0cmi4xaqj",
+    "frame": 4,
+    "file": "assets/props/cup.png",
+    "at": "2026-08-31T15:19:35.015Z"
+  },
+  {
+    "kind": "prop",
+    "key": "pepperpot",
+    "characterId": "cmthb9449000jn91lm6l8yiug",
+    "frame": 2,
+    "file": "assets/props/pepperpot.png",
+    "at": "2026-08-31T15:20:25.547Z"
+  },
+  {
+    "kind": "prop",
+    "key": "kipper",
+    "characterId": "cmthb9k94000eklm48tup26wp",
+    "frame": 8,
+    "file": "assets/props/kipper.png",
+    "at": "2026-08-31T15:20:26.631Z"
+  },
+  {
+    "kind": "prop",
+    "key": "cup",
+    "characterId": "cmtgt1uox000813w0cmi4xaqj",
+    "frame": 4,
+    "file": "assets/props/cup.png",
+    "at": "2026-08-31T15:20:27.713Z"
   }
 ]
