@@ -247,7 +247,14 @@ export const PARAMS = {
     // Stopping, turning and dispersion all come free, because they are what
     // rings do. Costs one loop over the sources per field texel, which is why
     // the count is a control and not a constant.
-    interfere:    { v: 0,    min: 0,   max: 3,   step: 0.01, label: 'V from interference' },
+    interfere:    { v: 3,    min: 0,   max: 3,   step: 0.01, label: 'V from interference' },
+    // How much of each impulse's ring is allowed to go AHEAD of the hull that
+    // laid it. 0 is the physical answer -- water in front of a steadily moving
+    // boat is undisturbed until she gets there -- and anything above it is the
+    // ring sum's truncation artifact, which reads as concentric drops marching
+    // out in front of the bow. Kept as a knob because seeing it is the only way
+    // to be sure it is gone.
+    ahead:        { v: 0,    min: 0,   max: 1,   step: 0.01, label: 'Waves ahead of the bow' },
     sources:      { v: 48,   min: 4,   max: 96,  step: 1,    label: 'Impulses summed' },
     // The shortest wave the sum is allowed to draw. Near the boat the
     // interference is dominated by half-metre to three-metre waves, and a comb
@@ -283,6 +290,16 @@ export const PARAMS = {
     breakup:      { v: 0.78, min: 0,   max: 1,   step: 0.01, label: 'Break-up with age' },
     life:         { v: 72.5, min: 1,   max: 120, step: 0.5,  label: 'Foam life (s)' },
     dissolve:     { v: 3.35,  min: 0.2, max: 5,   step: 0.05, label: 'Dissolve curve' },
+    // HOW FAR OLD FOAM WANDERS BEFORE IT GOES, in metres. A raft is not a decal
+    // that dims: the water under it is still turning over, the bubbles drain
+    // and merge, and its edges come apart. This is how far a patch is read from
+    // by the end of its life -- 0 restores the old behaviour, where the pattern
+    // was a fixed function of position and could only ever fade in place.
+    melt:         { v: 2.6,  min: 0,   max: 8,   step: 0.05, label: 'Foam melt (m)' },
+    // How big the melting eddies are: low is a few slow lobes moving whole
+    // clumps together, high is every bubble going its own way, which reads as
+    // boiling rather than as foam coming apart.
+    meltScale:    { v: 0.12, min: 0.01, max: 0.8, step: 0.01, label: 'Melt eddy scale' },
     lace:         { v: 4.05, min: 0.5, max: 8,   step: 0.05, label: 'Lace fineness' },
     laceAmount:   { v: 0.62, min: 0,   max: 1.5, step: 0.01, label: 'Lace reach' },
     coarsen:      { v: 0.42, min: 0,   max: 1,   step: 0.01, label: 'Cells coarsen with age' },

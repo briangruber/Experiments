@@ -421,7 +421,24 @@ let _bubDebt = 0;
 // honest at the scale that matters; a fixed value that is right on average
 // beats a function that is wrong everywhere.
 const BUB_SURFACE = () => 0;
-scene.add(spray.points);
+// SPRAY IS NOT IN THE MAIN SCENE, and that is a render-order fix, not a
+// preference.
+//
+// The order is water -> scene -> sky, and the sky is one triangle at the far
+// plane drawn under LEQUAL writing no depth, so the expensive cloud march only
+// runs where nothing has covered it. Droplets are drawn with depthWrite off --
+// deliberately, so they do not occlude each other and cut hard rims into one
+// another -- which means a droplet thrown above the horizon leaves the depth
+// buffer at the far plane exactly where it is. The sky then passes LEQUAL there
+// and paints straight over it. Spray simply vanished the moment it crossed the
+// skyline, which is where a curtain of it is most visible.
+//
+// Drawn in its own pass after the sea, against the depth buffer everything else
+// just wrote, so the hull and the water still occlude it and the sky no longer
+// can. It is also out of the refraction photograph now, which is right: water
+// in the air is not something the surface should be refracting.
+const sprayScene = new THREE.Scene();
+sprayScene.add(spray.points);
 const body = new OceanBody(boat, { spray, seed: 7 });
 
 // --------------------------------------------------------------- boat state --
@@ -431,7 +448,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b82';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b83';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -1672,9 +1689,14 @@ function frame(now) {
     const refl = renderReflection(0);
     sea.render(scene, camera, { ...(refr ? { refr } : {}), ...(hull ? { hull } : {}),
       ...(craft ? { craft } : {}), ...(refl ? { refl } : {}) });
+    // After the sky, for the reason given where sprayScene is built.
+    renderer.autoClear = false;
+    renderer.render(sprayScene, camera);
   } else {
     renderer.autoClear = true;
     renderer.render(scene, camera);
+    renderer.autoClear = false;
+    renderer.render(sprayScene, camera);
   }
 
   if (hud.dataset.field === '1') {

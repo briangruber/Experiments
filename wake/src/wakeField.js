@@ -93,6 +93,7 @@ const RIBBON_FRAG = /* glsl */`
   uniform float uBreakPatch, uBreakPatchScale;
   uniform float uKelvinScale, uKelvinProp, uKelvinAmp, uKelvinDiv, uKelvinTrans, uKelvinCusp, uKelvinDecay, uKelvinLife, uKelvinMin;
   uniform float uFoamScale, uFoamContrast, uBreakup, uFoamLife, uDissolve;
+  uniform float uMelt, uMeltScale;
   uniform float uSpeedDrive, uSpeedRef;
   uniform float uLace, uLaceAmt, uSoftness;
   uniform float uBubPlume, uBubW, uBubSpread, uBubLen, uBubArms, uBubLife, uBubMottle;
@@ -466,11 +467,33 @@ const RIBBON_FRAG = /* glsl */`
     //  · a reticulated bubble raft (open cells with bright walls), and
     //  · streaks stretched along the direction the water was thrown, which is
     //    the local path tangent frozen in at birth.
+    //
+    // ...and they MELT. A raft of foam is not a decal that dims: it is a
+    // material sitting on water that is still moving under it. The turbulence
+    // it was born in goes on stirring it, the bubbles drain and merge, and the
+    // clean edges it had when it was laid wander, stretch and come apart. That
+    // slow deformation is most of what makes old foam read as foam rather than
+    // as a fading stain -- and none of it can happen while the pattern is a
+    // fixed function of world position, which is what this was.
+    //
+    // So the macro field is read through a domain warp that GROWS WITH AGE:
+    // fresh foam is sampled where it was laid and is crisp, and by the end of
+    // its life the same water is being read from up to uMelt metres away, so
+    // its clumps have drifted and its edges have gone soft and irregular. The
+    // warp is world-locked and slow, so neighbouring foam melts in the same
+    // direction as its neighbours rather than each texel wandering off alone.
+    float meltT = clamp(age / max(uFoamLife, 0.01), 0.0, 1.0);
+    vec2 wq = vWorld * uMeltScale;
+    vec2 warp = vec2(fbm(wq + 11.7), fbm(wq + 71.3)) - 0.5;
+    // Squared, so almost nothing happens while the foam is young and the
+    // deformation runs away at the end -- which is the shape of the real thing.
+    vec2 fW = vWorld + warp * (uMelt * meltT * meltT);
+
     vec2 nrm = vec2(-vTan.y, vTan.x);
-    vec2 flow = vec2(dot(vWorld, vTan), dot(vWorld, nrm));
-    float raft   = lattice(vWorld * uFoamScale, 0.13);
+    vec2 flow = vec2(dot(fW, vTan), dot(fW, nrm));
+    float raft   = lattice(fW * uFoamScale, 0.13);
     float streak = fbm(flow * uFoamScale * vec2(0.40, 2.4));
-    float blob   = fbm(vWorld * uFoamScale * 0.55);
+    float blob   = fbm(fW * uFoamScale * 0.55);
 
     // One combined field, normalised to roughly [0,1] with a mean near 0.5.
     // This is MACRO variation only -- clumps and streaks a metre or two across.
@@ -770,9 +793,11 @@ const INTERFERE_FRAG = /* glsl */`
   precision highp float;
   varying vec2 vW;
   uniform vec4  uSrc[${MAX_SRC}];      // xz = where, z = when, w = how hard
+  uniform vec2  uSrcDir[${MAX_SRC}];   // ...and which way she was pointing
   uniform int   uSrcCount;
   uniform float uTime, uAmp, uLife, uMinLam, uMaxLam;
   uniform float uSrcStep, uSrcDt;   // spacing of the impulses, in metres and seconds
+  uniform float uAhead;             // how much wave is allowed ahead of a source
 
   void main(){
     float eta = 0.0;
@@ -826,7 +851,28 @@ const INTERFERE_FRAG = /* glsl */`
       float amp = s.w / sqrt(max(r, 1.0));
       float ageF = pow(max(1.0 - tau / max(uLife, 0.1), 0.0), 1.1);
 
-      eta += amp * cos(ph) * res * lo * ageF * aa;
+      // NOTHING AHEAD OF THE SOURCE.
+      //
+      // Each impulse radiates a ring, and rings go forward as well as aft. For
+      // a source in STEADY motion that forward half cancels: the ring one
+      // impulse throws ahead is met by the ring the next impulse throws, and
+      // what survives is the wedge astern. That cancellation needs the track to
+      // be long, and ours is a few seconds of history with a hard start -- so
+      // the sum ahead of the bow does not cancel, it prints the start-up
+      // transient of a source that sprang into existence, as concentric rings
+      // marching out in front of the boat.
+      //
+      // That is a truncation artifact, not a wave. Water ahead of a steadily
+      // moving hull is undisturbed until the hull gets there, which is exactly
+      // what makes a bow wave read as a bow wave. So each impulse is faded out
+      // over the forward quarter of its own ring, using the heading the hull
+      // actually had when it laid that impulse. The wedge is untouched: it
+      // lives from the beam aft, and this only reaches the bow sector.
+      vec2 toP = vW - s.xy;
+      float fwd = dot(toP / max(r, 1e-4), uSrcDir[i]);
+      float aft = mix(1.0 - smoothstep(0.0, 0.35, fwd), 1.0, uAhead);
+
+      eta += amp * cos(ph) * res * lo * ageF * aa * aft;
     }
     // Divided by sqrt(count): a sum of many phases grows that way, so without
     // it the budget doubles as a volume knob. With it, more impulses buy
@@ -927,6 +973,7 @@ export class WakeField {
       uKelvinTrans: { value: 0.5 }, uKelvinCusp: { value: 1 }, uKelvinDecay: { value: 100 },
       uKelvinLife: { value: 100 }, uKelvinMin: { value: 3 },
       uFoamScale: { value: 1 }, uFoamContrast: { value: 1 }, uBreakup: { value: 0 },
+      uMelt: { value: 0 }, uMeltScale: { value: 0.12 },
       uFoamLife: { value: 1 }, uDissolve: { value: 1 },
       uSpeedDrive: { value: 1 }, uSpeedRef: { value: 13 },
       uAutoAngle: { value: 1 },
@@ -960,7 +1007,9 @@ export class WakeField {
     // only. It shares the bake and the blend the ribbon already uses.
     this.iUniforms = {
       uSrc: { value: Array.from({ length: MAX_SRC }, () => new THREE.Vector4()) },
+      uSrcDir: { value: Array.from({ length: MAX_SRC }, () => new THREE.Vector2(0, 1)) },
       uSrcCount: { value: 0 },
+      uAhead: { value: 0 },
       uTime: { value: 0 }, uAmp: { value: 0 }, uLife: { value: 26 },
       uMinLam: { value: 1.6 }, uMaxLam: { value: 140 },
       uSrcStep: { value: 6 }, uSrcDt: { value: 1 },
@@ -1023,6 +1072,10 @@ export class WakeField {
         // of the wake obeys, so the two agree about which speed is expensive.
         const e2 = (spd / 7) * (spd / 7);
         arr[n].set(p.x, p.z, p.t, e2 * 2 / (1 + e2));
+        // The heading she had when this impulse was laid -- what the forward
+        // fade in the shader needs. Taken from the sample rather than from the
+        // current hull, so a turn does not swing every past ring with it.
+        this.iUniforms.uSrcDir.value[n].set(p.hx ?? 0, p.hz ?? 1);
         n++;
       }
     }
@@ -1033,6 +1086,7 @@ export class WakeField {
     this.iUniforms.uSrcStep.value = step;
     this.iUniforms.uSrcDt.value = step / Math.max(P[0]?.speed ?? 1, 0.5);
     this.iUniforms.uTime.value = now;
+    this.iUniforms.uAhead.value = get('kelvin.ahead');
     this.iUniforms.uAmp.value = gain * get('kelvin.amp');
     this.iUniforms.uLife.value = get('kelvin.life');
     // THE SHORT END IS A LOOK, not just a resolution limit.
@@ -1287,6 +1341,8 @@ export class WakeField {
     u.uKelvinMin.value = get('kelvin.minWave');
     u.uFoamScale.value = get('foamLook.scale') * 0.35;
     u.uFoamContrast.value = get('foamLook.contrast');
+    u.uMelt.value = get('foamLook.melt');
+    u.uMeltScale.value = get('foamLook.meltScale');
     u.uBreakup.value = get('foamLook.breakup');
     u.uFoamLife.value = get('foamLook.life') / decay;
     u.uSpeedDrive.value = get('field.speedDrive');
