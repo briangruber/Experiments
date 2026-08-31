@@ -46,7 +46,22 @@ const rows = await page.evaluate(({ lat, secs }) => {
   // two points in it -- an instrument that answers confidently and measures
   // nothing, which is the failure mode this probe exists to avoid. stepSim is
   // what the prewarm uses, so drive it directly and read between steps.
-  const { wake, renderer, state, stepSim } = window.__wake;
+  const { wake, renderer, state, stepSim, get } = window.__wake;
+
+  // ...AND BAKE THE FIELD. stepSim advances the boat; it does not re-centre or
+  // re-bake the wake texture -- the frame loop does that, right after it. So
+  // the first sim-driven run read a stale texture whose centre never moved,
+  // which is why it reported a flat 0.0063 for 720 m and called it 100% of
+  // peak. A frozen number is not a measurement. Same two calls the frame makes.
+  const bake = () => {
+    const ext = get('field.extent');
+    const back = wake.backAlongPath(ext * 0.56);
+    const hx = Math.sin(state.heading), hz = Math.cos(state.heading);
+    const fx = back ? (state.x + back.x) * 0.5 : state.x - hx * ext * 0.28;
+    const fz = back ? (state.z + back.z) * 0.5 : state.z - hz * ext * 0.28;
+    wake.focus(fx, fz, ext);
+    wake.update(state.t);
+  };
   const h2f = (h) => { const s = (h & 0x8000) ? -1 : 1, e = (h >> 10) & 0x1f, m = h & 0x3ff;
     if (e === 0) return s * Math.pow(2, -14) * (m / 1024);
     if (e === 31) return m ? NaN : s * Infinity;
@@ -81,6 +96,7 @@ const rows = await page.evaluate(({ lat, secs }) => {
       else out.push([+(state.t - t0).toFixed(1), +astern.toFixed(1), null, null]);
     }
     stepSim(dt);
+    bake();
   }
   return out;
 }, { lat: LAT, secs: SECS });
