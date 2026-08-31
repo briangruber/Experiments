@@ -62,7 +62,11 @@ export class Actor {
     this.runSpeed = opts.runSpeed || 3;
     this.running = false;
     this.talkColor = opts.talkColor || '#ffe9b0';
-    this.talkOffset = opts.talkOffset ?? -150;
+    // A NUDGE, not the placement. It used to be the whole thing — "put the
+    // line 150 units above my feet" — and defaulted to -150 for that reason.
+    // drawSpeech now measures off the top of the frame being drawn, so a
+    // leftover -150 lands the words a third of the way up the sky.
+    this.talkOffset = opts.talkOffset ?? 0;
 
     this.facing = opts.facing || 'right';
     this.state = 'idle';

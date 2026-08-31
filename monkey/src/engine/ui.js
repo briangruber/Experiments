@@ -213,11 +213,31 @@ export class Inventory {
 
 // --- speech and dialogue ----------------------------------------------------
 
+// Where a line of dialogue goes.
+//
+// This used to be `actor.y + talkOffset * scale` with talkOffset hand-set per
+// character — -170 for the player, -175 for Grout, and -100 written in by hand
+// at the moment he sits down. Those numbers were tuned when the cast was 165
+// pixels tall. The cast is 270 and 310 now, so a 170-pixel offset lands on the
+// chest, and the line was printed across the character it belonged to.
+//
+// So it is measured off the art instead: the top of the figure being drawn
+// THIS FRAME, plus a gap. That is one rule instead of three constants, it
+// cannot drift when a character is resized again, and it follows Grout down
+// when he slumps because his drawn box is half as tall sitting — which is what
+// the hand-written -100 was for.
 export function drawSpeech(ctx, actor, room, view) {
   if (!actor.line) return;
   const scale = room.scaleAt(actor.y);
   const x = actor.x - room.camX;
-  const y = actor.y + actor.talkOffset * scale;
+  const figureH = actor.body?.boxAt?.(actor)?.h ?? actor.height ?? 165;
+  // talkOffset survives as a nudge — a character who should speak from a
+  // little higher or lower than their own crown — rather than as the placement.
+  // 44 room units of air above the crown. The bottom text row is a little
+  // under half a line-height below this anchor, so this lands about twenty
+  // screen pixels clear of the hat — close enough to read as theirs, far
+  // enough not to sit on it.
+  const y = actor.y - (figureH + 44) * scale + (actor.talkOffset || 0) * scale;
   const words = actor.line.text.split(' ');
   const maxW = 460;
   ctx.save();
@@ -234,6 +254,13 @@ export function drawSpeech(ctx, actor, room, view) {
   const lh = 30;
   const top = Math.max(24, y - (lines.length - 1) * lh);
   const cx = Math.max(maxW / 2 + 12, Math.min(view.w - maxW / 2 - 12, x));
+  // Handed back so a check can assert the words are clear of the body, which
+  // is the whole point of the rule above.
+  actor.lastSpeechBox = {
+    top: top - lh * 0.6, bottom: top + (lines.length - 1) * lh + lh * 0.6,
+    figureTop: actor.y - figureH * scale, lines: lines.length,
+    figureH, scale, anchorY: y,
+  };
   lines.forEach((ln, i) => {
     const ly = top + i * lh;
     ctx.lineWidth = 5;

@@ -372,6 +372,67 @@ try {
       && f.facing === (f.cx > f.x ? 'right' : 'left'));
   });
 
+  // Dialogue must not be printed across the character saying it.
+  //
+  // The bubble was anchored by a per-character constant tuned when the cast was
+  // 165px tall; at 270 and 310 those constants land on the chest, and the line
+  // was drawn straight over the body. Placement now comes off the top of the
+  // frame being drawn, and this is what says so — measured for a tall standing
+  // character, for a long line that wraps to several rows, and for Grout after
+  // he has slumped, since a seated speaker is the case the old hand-written
+  // offset existed to patch.
+  await step('dialogue clears the speaker  [tall, wrapped, and seated]', async () => {
+    // The lines are spoken directly rather than clicked for. What is under
+    // test is where the words are PRINTED relative to the body, so walking
+    // across the dock to trigger them adds nothing but flakiness — and the
+    // seated case cannot be reached by clicking at all this early in the game.
+    await page.evaluate(() => {
+      const M = window.__monkey;
+      const out = [];
+      const grab = (a, text, label) => {
+        a.say(text, 5);
+        M.render();
+        out.push({ label, ...a.lastSpeechBox });
+        a.line = null;
+      };
+      grab(M.actors.player, 'Short.', 'one line');
+      grab(M.actors.player,
+        'A coil of tarred rope with a boat hook lying across it like a flag, and a great '
+        + 'deal more rope than anybody on this dock has any honest use for.', 'wrapped');
+      // Grout, slumped: the case the hand-written -100 offset existed for.
+      M.actors.grout.playClip('asleep');
+      grab(M.actors.grout, 'zzzzzz', 'seated');
+      M.actors.grout.stopClip();
+      window.__t.speech = out;
+    });
+  }, () => {
+    const boxes = window.__t.speech;
+    // The lowest row of text has to sit above the top of the figure, in all
+    // three cases — and a wrapped line grows upward, so it must clear it too.
+    // Real clearance, not merely "does not overlap": text resting on the hat
+    // reads as badly as text across the chest, and would pass a strict
+    // inequality.
+    return boxes.length === 3 && boxes.every((b) => b && b.figureTop - b.bottom >= 10);
+  });
+
+  // The video wrap must never be the thing on screen.
+  //
+  // The clip comes back a shade dim for a moment after it loops — that is in
+  // the file, and it is why the backdrop plays two copies half a period apart
+  // and hands over near the cut. This cannot be checked by watching, because
+  // headless Chromium has no H.264 decoder and the video never plays here at
+  // all; what CAN be checked is the weighting that decides which copy is
+  // visible, and that is where the fault would live.
+  await step('the backdrop never shows its own loop seam', async () => {}, () => {
+    const w = window.__monkey.seamWeight;
+    const at = (u) => +w(u).toFixed(4);
+    window.__t.seam = { cut: at(0), justAfter: at(0.005), justBefore: at(0.995), mid: at(0.5), quarter: at(0.25) };
+    return at(0) === 0 && at(1) === 0            // the cut itself is invisible
+      && at(0.005) < 0.05 && at(0.995) < 0.05    // and so is its immediate neighbourhood
+      && at(0.5) === 1 && at(0.25) === 1         // the other copy's cut is hidden too...
+      && at(0.2) === 1;                          // ...and nothing is blended outside the window
+  });
+
   // A character that changes size in a jump as it walks upstage is a fault the
   // playthrough cannot see and the player cannot miss. Sample the depth range
   // and require the change to be gradual.
@@ -474,7 +535,8 @@ const m = errors.length ? {} : await page.evaluate(() => ({
   cadence: window.__t.cadence, runCadence: window.__monkey.cadence('player', 'run'),
   walked: window.__t.walked, ran: window.__t.ran, artPixel: window.__t.artPixel,
   footTrack: window.__t.footTrack, scaleStep: window.__t.scaleStep, pose: window.__t.pose,
-  cupDrawn: window.__t.cupDrawn, cupSize: window.__t.cupSize,
+  cupDrawn: window.__t.cupDrawn, cupSize: window.__t.cupSize, speech: window.__t.speech,
+  seam: window.__t.seam,
 }));
 
 await browser.close();
@@ -492,5 +554,9 @@ console.log(`          foot drift x/y: grout idle ${m.footTrack?.groutIdle?.x}/$
   + ` player idle ${m.footTrack?.playerIdle?.x}/${m.footTrack?.playerIdle?.y}px,`
   + ` grout walk ${m.footTrack?.groutWalk?.x}/${m.footTrack?.groutWalk?.y}px`);
 console.log(`          depth step ${m.scaleStep}px; asleep box ${m.pose?.w}x${m.pose?.h};`
-  + ` cup ${m.cupDrawn}px of a ${m.cupSize?.w}x${m.cupSize?.h} sprite\n`);
+  + ` cup ${m.cupDrawn}px of a ${m.cupSize?.w}x${m.cupSize?.h} sprite`);
+console.log(`          seam weight: cut ${m.seam?.cut}, just after ${m.seam?.justAfter},`
+  + ` quarter ${m.seam?.quarter}, mid ${m.seam?.mid}`);
+console.log(`          speech clears the body by `
+  + (m.speech || []).map((b) => `${Math.round(b.figureTop - b.bottom)}px (${b.lines} line${b.lines > 1 ? 's' : ''})`).join(', ') + '\n');
 console.log(`completed the room: ${steps.length}/${steps.length} steps, no page errors`);

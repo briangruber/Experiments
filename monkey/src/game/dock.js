@@ -108,7 +108,7 @@ export const SPRITE_CAST = {
 export const CAST = {
   player: {
     id: 'player', name: 'Bonny Quill',
-    x: 620, y: 690, talkColor: '#ffe9b0', talkOffset: -170,
+    x: 620, y: 690, talkColor: '#ffe9b0',
     height: 165,
     pixelDraw: makePixelPerson({
       skin: '#e8b48c', skinDark: '#c98f68', hair: '#7b3a1c',
@@ -124,7 +124,7 @@ export const CAST = {
   },
   grout: {
     id: 'grout', name: 'Harbourmaster Grout',
-    x: 186, y: 700, facing: 'right', talkColor: '#bfe3ff', talkOffset: -175,
+    x: 186, y: 700, facing: 'right', talkColor: '#bfe3ff',
     height: 178,
     pixelDraw: makePixelPerson({
       skin: '#c99a76', skinDark: '#a97a56', hair: '#4a4642',
@@ -449,8 +449,9 @@ export function* groutLine(g, opt) {
     yield say(g.grout, '*glug*', 1.0);
     yield wait(0.4);
     yield speak(g, 'offer-4');
-    // The bubble comes down with him: he is about a third as tall sitting.
-    yield run(() => { g.grout.talkOffset = -100; });
+    // The bubble comes down with him on its own now — it is placed off the top
+    // of the frame being drawn, and his sleeping frame is half the height of
+    // his standing one.
     yield wait(0.8);
     yield say(g.grout, 'zzzzzz', 2.2);
     yield run(() => {

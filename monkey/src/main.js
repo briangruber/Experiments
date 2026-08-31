@@ -16,7 +16,7 @@ import { VerbCoin, Inventory, DialogueMenu, drawSpeech } from './engine/ui.js';
 import { Editor } from './engine/editor.js';
 import * as art from './art/paint.js';
 import { loadProps } from './art/props.js';
-import { loadBackdrop, KIND } from './art/backdrop.js';
+import { loadBackdrop, KIND, seamWeight } from './art/backdrop.js';
 import { BLOCK as PIXEL_BLOCK } from './art/pixelate.js';
 import { loadSpriteBody } from './art/sprite-actor.js';
 import * as dock from './game/dock.js';
@@ -395,7 +395,6 @@ for (const [key, cfg] of Object.entries(dock.SPRITE_CAST)) {
 function applyGroutPose() {
   if (state.get('grout-asleep')) grout.playClip('asleep');
   else grout.stopClip();
-  grout.talkOffset = state.get('grout-asleep') ? -100 : -175;
 }
 applyGroutPose();
 
@@ -689,6 +688,19 @@ window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => ro
     }
     return diff;
   },
+  // Where the last line of dialogue was printed, against where the character
+  // it belonged to was drawn. Text over the body is the kind of fault that is
+  // obvious on screen and invisible to every other assertion here.
+  speechBox: (who) => ({ player, grout }[who]?.lastSpeechBox ?? null),
+  seamWeight,
+  // Paint one frame on demand, so a check can look at what a given state draws
+  // without waiting for the loop to come round to it.
+  render: () => {
+    ctx.clearRect(0, 0, VIEW.w, VIEW.h);
+    room.render(ctx, [player, grout]);
+    drawSpeech(ctx, player, room, VIEW);
+    drawSpeech(ctx, grout, room, VIEW);
+  },
   // The shape the actor is drawn as right now, in room units.  // Does a generated prop actually put pixels on the canvas?
   //
   // Same question as drawn() asks of an actor, and for the same reason: the
@@ -727,6 +739,10 @@ window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => ro
     }
     return diff;
   },
+  // Where the last line of dialogue was printed, against where the character
+  // it belonged to was drawn. Text over the body is the kind of fault that is
+  // obvious on screen and invisible to every other assertion here.
+  speechBox: (who) => ({ player, grout }[who]?.lastSpeechBox ?? null),
   // The shape the actor is drawn as right now, in room units. A pose change is
   // the one animation event that alters the silhouette rather than the frame,
   // so it is the only one a frame counter cannot see: a Grout who is "asleep"

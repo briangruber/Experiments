@@ -95,13 +95,45 @@ function loadVideo(sources, onNote) {
   });
 }
 
+// How much of copy A to show, given how far through it we are.
+//
+// The first version of this was sin², which sums to one with its complement
+// and so never darkens — but it also means the two copies are blended
+// EVERYWHERE except at two instants, and blending a clip with itself half a
+// period away ghosts every moving thing in it. That is a permanent cost paid
+// to fix a fault that lasts half a second, which is why it was opt-in and off.
+//
+// This shows copy A on its own for almost the whole clip and hands over to B
+// only near A's cut. B is then mid-clip, nowhere near its own cut, so the wrap
+// is simply never on screen; and B's own cut falls where A is at full opacity,
+// so it is not on screen either. Nothing ghosts outside the window.
+const SEAM = 0.08;   // of the clip's length, either side of the cut
+
+export function seamWeight(u) {
+  const dist = Math.min(u, 1 - u);
+  if (dist >= SEAM) return 1;
+  const t = dist / SEAM;
+  return t * t * (3 - 2 * t);   // smoothstep, so the handover has no corner
+}
+
 export async function loadBackdrop() {
   const A = globalThis.window?.__ASSETS;
   const still = await loadImage(A?.sceneStill ?? './assets/scene.jpg');
 
-  // A closed clip returns to its own first frame, so it needs no help. Only a
-  // clip that does not is worth blending against itself.
-  const closedLoop = A?.sceneClosedLoop !== false;
+  // The clip was generated with the same image as its first and last frame, so
+  // in principle it closes on itself and needs no help. In practice it does
+  // not quite: it comes back a shade dim for a moment after the wrap, which
+  // reads as a flicker once every ten seconds. That is in the file, not in the
+  // playback — the same wrap looks the same in any player.
+  //
+  // It also carries 241 frames at 24fps where a whole ten seconds is 240, which
+  // is what asking for first-and-last-the-same gets you: the shared frame is
+  // in there twice, and the wrap holds it for two frames instead of one.
+  //
+  // Neither is fixable without re-encoding, and both are fixable by not
+  // showing the wrap. Set `sceneClosedLoop: true` to trust the clip and play
+  // it straight.
+  const closedLoop = A?.sceneClosedLoop === true;
 
   const backdrop = {
     closedLoop,
@@ -114,19 +146,22 @@ export async function loadBackdrop() {
       // video with no frame yet throws in some browsers and paints nothing in
       // others, so the still covers the gap.
       const a = this.video, b = this.videoB;
-      if (a && a.readyState >= 2) {
-        const d = a.duration;
-        if (b && b.readyState >= 2 && d && isFinite(d)) {
-          // sin² and its complement, so the two weights always sum to one —
-          // a linear pair would darken through the middle of the blend.
+      const aOK = a && a.readyState >= 2;
+      const bOK = b && b.readyState >= 2;
+      // Either copy alone is better than the still. readyState dips for a
+      // frame at the wrap in some browsers, and falling back to a JPEG for one
+      // frame is itself a flash — two decoders almost never dip together.
+      if (aOK || bOK) {
+        const d = (aOK ? a : b).duration;
+        if (aOK && bOK && d && isFinite(d)) {
           const u = (a.currentTime % d) / d;
           ctx.drawImage(b, 0, 0, w, h);
           ctx.save();
-          ctx.globalAlpha = Math.sin(Math.PI * u) ** 2;
+          ctx.globalAlpha = seamWeight(u);
           ctx.drawImage(a, 0, 0, w, h);
           ctx.restore();
         } else {
-          ctx.drawImage(a, 0, 0, w, h);
+          ctx.drawImage(aOK ? a : b, 0, 0, w, h);
         }
         return;
       }
@@ -155,11 +190,10 @@ export async function loadBackdrop() {
     if (!v) return;
     backdrop.video = v;
     backdrop.kind = KIND.VIDEO;
-    // The shipped clip closes on itself, so it plays straight. Everything
-    // below is the fallback for a clip that does not: crossfade it against
-    // ITSELF, offset by half its length, weighted so whichever copy is
-    // furthest from its own cut is the one you are mostly seeing, and the cut
-    // always lands under a copy at zero opacity.
+    // Crossfade the clip against ITSELF, offset by half its length, so that
+    // whichever copy is nearest its own cut is the one at zero opacity and the
+    // wrap is never the thing you are looking at. See seamWeight above for why
+    // this costs nothing outside the window around the cut.
     if (closedLoop) {
       const play = () => v.play().catch(() => {});
       play();
