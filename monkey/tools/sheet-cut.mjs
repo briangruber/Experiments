@@ -29,7 +29,14 @@ const TARGET_H = +opt('height', 48);
 // back into native pixels, which is the only form the engine can draw without
 // resampling the art it was given.
 const DOWN = +opt('down', 1);
-const rel = isAbsolute(src) ? src.replace(ROOT + '/', '') : src;
+// The sheet is handed to the page as a data URI rather than served, so it can
+// live anywhere — an uploads directory, /tmp, another checkout — instead of
+// having to be inside the repo before it can be cut.
+const rel = isAbsolute(src) ? src : join(ROOT, src);
+const bytes = await readFile(rel);
+const mime = bytes.subarray(0, 4).toString('hex') === '89504e47' ? 'image/png' : 'image/jpeg';
+const url = `data:${mime};base64,` + bytes.toString('base64');
+const shown = rel.replace(ROOT + '/', '');
 
 const { port, close } = await serve();
 const browser = await launch();
@@ -37,12 +44,22 @@ const page = await browser.newPage();
 await page.goto(`http://localhost:${port}/tools/sheet-cut.html`, { waitUntil: 'networkidle' });
 await page.waitForFunction(() => window.__ready === true);
 
-const url = `http://localhost:${port}/${rel}`;
-const meas = await page.evaluate(([u, o]) => window.__cut(u, o), [url, {
-  down: DOWN,
-  keyMargin: +opt('keymargin', 28),
-  frames: +opt('frames', 8),
-}]);
+// --grid CxR is the path for a sheet that is already a uniform grid with the
+// background removed — which is what a purpose-built sprite service returns,
+// and what docs/asset-pack.md asks for. Everything else is for rescuing a
+// sheet a general image model drew.
+const GRID = opt('grid', null);
+const meas = GRID
+  ? await page.evaluate(([u, o]) => window.__grid(u, o), [url, {
+      down: DOWN,
+      cols: +GRID.split('x')[0], rows: +GRID.split('x')[1],
+      keyWhite: !args.includes('--no-key-white'),
+    }])
+  : await page.evaluate(([u, o]) => window.__cut(u, o), [url, {
+      down: DOWN,
+      keyMargin: +opt('keymargin', 28),
+      frames: +opt('frames', 8),
+    }]);
 
 // Slices at the ends of a sheet catch stray artefacts — a few pixels of a
 // light bloom, half a figure the model added past the eighth — and a cell
@@ -60,7 +77,7 @@ await page.evaluate((keep) => {
   window.__state.frames = window.__state.frames.filter((_, i) => keep.includes(i));
 }, kept.map((f) => f.i));
 meas.frames = kept;
-console.log(`${rel}  ${meas.w}x${meas.h}  ->  ${meas.frames.length} frames  [connectivity]`);
+console.log(`${shown}  ${meas.w}x${meas.h}  ->  ${meas.frames.length} frames  [${GRID ? 'uniform grid ' + GRID : 'connectivity'}]`);
 const hs = meas.frames.map((f) => f.h);
 const bots = meas.frames.map((f) => f.y1);
 const spread = (a) => Math.max(...a) - Math.min(...a);
@@ -86,12 +103,27 @@ await writeFile(outPng, Buffer.from(dataUrl.split(',')[1], 'base64'));
 const manifest = {
   cellW: cell.w, cellH: cell.h, cols: meas.frames.length,
   figureH: maxH, feetY,
-  clips: { idle: { start: 0, count: 1, fps: 4 }, walk: { start: 0, count: meas.frames.length, fps: 12 } },
-  source: rel, targetHeight: TARGET_H,
+  clips: {
+    idle: { start: 0, count: 1, fps: 4 },
+    walk: { start: 0, count: meas.frames.length, fps: +opt('fps', 12) },
+  },
+  source: shown, targetHeight: TARGET_H,
 };
 await writeFile(join(ROOT, `assets/cast/${NAME}-sheet.json`), JSON.stringify(manifest, null, 2) + '\n');
 
+// Check the file that was actually written. Enforcing a rule and verifying it
+// are different things, and only the second one survives a refactor.
+const v = await page.evaluate(([u, c, cols, n]) => window.__verify(u, c, cols, n),
+  ['data:image/png;base64,' + Buffer.from(dataUrl.split(',')[1], 'base64').toString('base64'),
+   cell, meas.frames.length, meas.frames.length]);
 await browser.close();
 await close();
+
 console.log(`\natlas -> assets/cast/${NAME}-sheet.png  ${cell.w}x${cell.h} cells x ${meas.frames.length}`);
 console.log(`manifest -> assets/cast/${NAME}-sheet.json  figureH ${maxH}, feetY ${feetY}`);
+console.log(`verified: ${v.cells} cells, feet spread ${v.feetSpread}px, head spread ${v.headSpread}px`);
+if (v.feetSpread > 0 || v.headSpread > 1) {
+  console.error('FAILED: the atlas does not satisfy its own alignment rules'
+    + ' (feet must be one row, figure within a pixel of one column)');
+  process.exit(1);
+}

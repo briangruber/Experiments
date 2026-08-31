@@ -131,3 +131,32 @@ needs lands well under a dollar.
 The output goes through the same cutter as everything else
 (`tools/sheet-cut.mjs`), which still enforces the two alignment rules — the API
 should make them true already, and the check is cheap.
+
+## AutoSprite
+
+[AutoSprite](https://autosprite.io) returns exactly the shape this document
+asks for: a uniform grid — 5×5 cells of 256px in the sheets tested — with the
+background already removed, per-animation (idle, walk, run, jump), plus an
+atlas export.
+
+That means the cutter needs none of its rescue machinery. `--grid` says the
+sheet already is a grid, so the work reduces to measuring where the figure sits
+inside each cell and re-packing at native resolution with the feet on one row:
+
+    node tools/sheet-cut.mjs <sheet.png> --name bonny --grid 5x5 --down 4
+    node tools/check-cut.mjs        # the alignment rules, on a fixture built to break them
+
+`--down N` reduces by the block size to get back to native pixels, since a 256px
+cell is pixel art drawn large. `tools/pixel-grid.mjs` measures what N should be.
+
+The cutter now verifies the file it just wrote — feet spread and head spread
+across every cell, printed, and a non-zero result fails the run. Enforcing a
+rule and checking it are different things, and only the second survives a
+refactor. `tools/check-cut.mjs` builds a sheet designed to break both rules
+(heights varying 12px, placement varying 18px) and asserts the output has zero
+spread; a real sheet that happens to be well aligned would prove nothing about
+the code.
+
+Sheets can live anywhere now — an uploads directory, /tmp, another checkout —
+because the image is handed to the page as a data URI rather than served from
+inside the repo.

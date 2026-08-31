@@ -90,6 +90,58 @@ window.__cut = async (src, opts) => {
   return { w: W, h: H, frames: frames.map(({ mask, ...f }) => f) };
 };
 
+// A sheet that already IS a uniform grid needs none of the guessing above.
+// AutoSprite returns 5x5 cells of 256px with the background already removed,
+// which is the format docs/asset-pack.md asks for — so the cutter's job
+// shrinks to measuring where the figure sits inside each cell and re-packing
+// it at native resolution with the feet on one row.
+window.__grid = async (src, opts) => {
+  const img = await new Promise((res, rej) => {
+    const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src;
+  });
+  const down = opts.down || 1;
+  const W = Math.round(img.width / down), H = Math.round(img.height / down);
+  const c = document.getElementById('c');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.imageSmoothingEnabled = false;
+  g.clearRect(0, 0, W, H);
+  g.drawImage(img, 0, 0, W, H);
+  const id = g.getImageData(0, 0, W, H), d = id.data;
+  // The background is already transparent; a white one is keyed as a courtesy
+  // so a sheet exported without background removal still works.
+  if (opts.keyWhite) {
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i] > 244 && d[i + 1] > 244 && d[i + 2] > 244) d[i + 3] = 0;
+    }
+    g.putImageData(id, 0, 0);
+  }
+  const A = (x, y) => d[(y * W + x) * 4 + 3];
+
+  const cw = W / opts.cols, ch = H / opts.rows;
+  const frames = [];
+  for (let r = 0; r < opts.rows; r++) {
+    for (let col = 0; col < opts.cols; col++) {
+      const bx = Math.round(col * cw), by = Math.round(r * ch);
+      const bx1 = Math.round((col + 1) * cw) - 1, by1 = Math.round((r + 1) * ch) - 1;
+      let x0 = 1e9, x1 = -1, y0 = 1e9, y1 = -1;
+      const mask = new Uint8Array(W * H);
+      for (let y = by; y <= by1; y++) for (let x = bx; x <= bx1; x++) {
+        if (A(x, y) <= 40) continue;
+        mask[y * W + x] = 1;
+        if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      }
+      if (x1 < 0) { continue; }
+      const band = Math.max(1, Math.round((y1 - y0) * 0.12));
+      let hx0 = 1e9, hx1 = -1;
+      for (let y = y0; y < y0 + band; y++) for (let x = x0; x <= x1; x++) if (mask[y * W + x]) { if (x < hx0) hx0 = x; if (x > hx1) hx1 = x; }
+      frames.push({ x0, x1, y0, y1, h: y1 - y0 + 1, headCx: hx1 >= hx0 ? (hx0 + hx1) / 2 : (x0 + x1) / 2, mask: Array.from(mask) });
+    }
+  }
+  window.__state = { W, H, d: Array.from(d), frames };
+  return { w: W, h: H, frames: frames.map(({ mask, ...f }) => f) };
+};
+
 window.__pack = (cell, out) => {
   const { W, d, frames } = window.__state;
   const c = document.getElementById('c');
@@ -115,6 +167,41 @@ window.__pack = (cell, out) => {
   });
   g.putImageData(dest, 0, 0);
   return c.toDataURL('image/png');
+};
+// Measure the atlas that was just written, rather than trusting the packer.
+// The two rules this tool exists to enforce are checkable in one pass, and a
+// tool that enforces a rule without checking it is a tool that will one day
+// stop enforcing it quietly.
+window.__verify = async (src, cell, cols, count) => {
+  const img = await new Promise((res, rej) => {
+    const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src;
+  });
+  const c = document.getElementById('c');
+  c.width = img.width; c.height = img.height;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.imageSmoothingEnabled = false;
+  g.clearRect(0, 0, c.width, c.height);
+  g.drawImage(img, 0, 0);
+  const d = g.getImageData(0, 0, c.width, c.height).data;
+  const A = (x, y) => d[(y * c.width + x) * 4 + 3];
+  const feet = [], heads = [];
+  for (let i = 0; i < count; i++) {
+    const bx = (i % cols) * cell.w, by = ((i / cols) | 0) * cell.h;
+    let bot = -1, top = 1e9, x0 = 1e9, x1 = -1;
+    for (let y = by; y < by + cell.h; y++) for (let x = bx; x < bx + cell.w; x++) {
+      if (A(x, y) <= 40) continue;
+      if (y > bot) bot = y; if (y < top) top = y;
+      if (x < x0) x0 = x; if (x > x1) x1 = x;
+    }
+    if (bot < 0) continue;
+    feet.push(bot - by);
+    const band = Math.max(1, Math.round((bot - top) * 0.12));
+    let hx0 = 1e9, hx1 = -1;
+    for (let y = top; y < top + band; y++) for (let x = bx; x < bx + cell.w; x++) if (A(x, y) > 40) { if (x < hx0) hx0 = x; if (x > hx1) hx1 = x; }
+    heads.push(hx1 >= hx0 ? Math.round((hx0 + hx1) / 2) - bx : Math.round(cell.w / 2));
+  }
+  const sp = (a) => a.length ? Math.max(...a) - Math.min(...a) : 0;
+  return { cells: feet.length, feetSpread: sp(feet), headSpread: sp(heads) };
 };
 window.__ready = true;
 </script>
