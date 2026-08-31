@@ -740,6 +740,25 @@ export const BANDANA = (ctx, H, lag = 0) => {
 
 // --- inventory icons --------------------------------------------------------
 
+// An inventory icon drawn from a generated sprite, scaled to the slot.
+//
+// This is the whole reason items are generated rather than drawn twice: the
+// thing in the bag and the thing that was in the room are one image, so they
+// cannot drift apart. Registered by loadProps, so any prop that exists as a
+// PNG gets one without being named here.
+export function imageIcon(img, box = 52) {
+  const k = Math.min(box / img.width, box / img.height, 1.6);
+  const w = Math.round(img.width * k), h = Math.round(img.height * k);
+  const draw = (ctx) => {
+    const was = ctx.imageSmoothingEnabled;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(img, -w / 2, -h / 2, w, h);
+    ctx.imageSmoothingEnabled = was;
+  };
+  draw.fromSprite = true;
+  return draw;
+}
+
 export const ICONS = {
   boathook: (ctx) => {
     ctx.rotate(-0.5);

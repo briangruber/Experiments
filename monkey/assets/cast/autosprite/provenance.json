@@ -6111,5 +6111,344 @@
     },
     "file": "assets/cast/autosprite/cat/scarper.png",
     "at": "2026-08-31T12:57:23.029Z"
+  },
+  {
+    "kind": "character",
+    "key": "pepperpot",
+    "characterId": "cmthb9449000jn91lm6l8yiug",
+    "body": {
+      "name": "Tin Pepper Pot",
+      "prompt": "A single dented tin pepper pot, pewter grey with a domed perforated top and a dark rim, standing upright. Seen from the side. Just the pepper pot, nothing else: no table, no surface, no shadow. HD pixel art game sprite. Chunky readable pixels, visible pixel grid, hard aliased edges, no blur, no gradients. Limited palette, clean dark outline, flat two-step shading lit warmly from the right. Flat background, no text.",
+      "isHumanoid": false,
+      "usePromptTemplate": false,
+      "quality": "pro",
+      "characterDescription": "A single dented tin pepper pot, pewter grey with a domed perforated top and a dark rim, standing upright. Seen from the side. Just the pepper pot, nothing else: no table, no surface, no shadow. HD pixel art game sprite. Chunky readable pixels, visible pixel grid, hard aliased edges, no blur, no gradients. Limited palette, clean dark outline, flat two-step shading lit warmly from the right. Flat background, no text."
+    },
+    "response": {
+      "id": "cmthb9449000jn91lm6l8yiug",
+      "name": "Tin Pepper Pot",
+      "isHumanoid": false,
+      "characterDescription": "A single dented tin pepper pot, pewter grey with a domed perforated top and a dark rim, standing upright. Seen from the side. Just the pepper pot, nothing else: no table, no surface, no shadow. HD pixel art game sprite. Chunky readable pixels, visible pixel grid, hard aliased edges, no blur, no gradients. Limited palette, clean dark outline, flat two-step shading lit warmly from the right. Flat background, no text.",
+      "baseImageUrl": "https://a91037593e6b852513235b7d3b6851f0.r2.cloudflarestorage.com/spritesheet/users/cmtgic715000gy0kgwqpj9ipy/characters/temp-1788185123306/1788185123306_bb8ea803-4f83-45b6-ad44-00b559baba25_tin-pepper-pot-1788185123254.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=b6a72bbe69e373154c354b282bb21b5a%2F20260831%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20260831T140524Z&X-Amz-Expires=86400&X-Amz-Signature=8c6cbc9cbd3295c5e6fa079a8ff7955a786140c3f10e716afd31f4864dfc14e8&X-Amz-SignedHeaders=host&x-amz-checksum-mode=ENABLED&x-id=GetObject",
+      "thumbnailUrl": "https://a91037593e6b852513235b7d3b6851f0.r2.cloudflarestorage.com/spritesheet/users/cmtgic715000gy0kgwqpj9ipy/characters/temp-1788185123306/thumbnails/1788185123306_b7224218-01f7-4bfc-92da-ab17aecb1242.webp?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=b6a72bbe69e373154c354b282bb21b5a%2F20260831%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20260831T140524Z&X-Amz-Expires=86400&X-Amz-Signature=d24b19f8f7cb6217f8efa8cb4b74160015c66c2ef7144108e827278f0c690457&X-Amz-SignedHeaders=host&x-amz-checksum-mode=ENABLED&x-id=GetObject",
+      "createdAt": "2026-08-31T14:05:23.865Z"
+    },
+    "at": "2026-08-31T14:05:24.140Z"
+  },
+  {
+    "kind": "character",
+    "key": "kipper",
+    "characterId": "cmthb9k94000eklm48tup26wp",
+    "body": {
+      "name": "A Smoked Kipper",
+      "prompt": "A single smoked herring, a kipper: split flat, brown and bronze, skin still on, one dark eye, lying on its side seen from above. Just the fish, nothing else: no plate, no floor, no shadow, no garnish. HD pixel art game sprite. Chunky readable pixels, visible pixel grid, hard aliased edges, no blur, no gradients. Limited palette, clean dark outline, flat two-step shading lit warmly from the right. Flat background, no text.",
+      "isHumanoid": false,
+      "usePromptTemplate": false,
+      "quality": "pro",
+      "characterDescription": "A single smoked herring, a kipper: split flat, brown and bronze, skin still on, one dark eye, lying on its side seen from above. Just the fish, nothing else: no plate, no floor, no shadow, no garnish. HD pixel art game sprite. Chunky readable pixels, visible pixel grid, hard aliased edges, no blur, no gradients. Limited palette, clean dark outline, flat two-step shading lit warmly from the right. Flat background, no text."
+    },
+    "response": {
+      "id": "cmthb9k94000eklm48tup26wp",
+      "name": "A Smoked Kipper",
+      "isHumanoid": false,
+      "characterDescription": "A single smoked herring, a kipper: split flat, brown and bronze, skin still on, one dark eye, lying on its side seen from above. Just the fish, nothing else: no plate, no floor, no shadow, no garnish. HD pixel art game sprite. Chunky readable pixels, visible pixel grid, hard aliased edges, no blur, no gradients. Limited palette, clean dark outline, flat two-step shading lit warmly from the right. Flat background, no text.",
+      "baseImageUrl": "https://a91037593e6b852513235b7d3b6851f0.r2.cloudflarestorage.com/spritesheet/users/cmtgic715000gy0kgwqpj9ipy/characters/temp-1788185144290/1788185144290_e28947e8-5752-40a4-8f18-5ae2b877c7af_a-smoked-kipper-1788185144217.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=b6a72bbe69e373154c354b282bb21b5a%2F20260831%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20260831T140544Z&X-Amz-Expires=86400&X-Amz-Signature=4fac4d2702f2f38f76ba01c8df92bc242490c4368aca42114dc69e478724502f&X-Amz-SignedHeaders=host&x-amz-checksum-mode=ENABLED&x-id=GetObject",
+      "thumbnailUrl": "https://a91037593e6b852513235b7d3b6851f0.r2.cloudflarestorage.com/spritesheet/users/cmtgic715000gy0kgwqpj9ipy/characters/temp-1788185144290/thumbnails/1788185144290_dbc81583-0a07-4074-aa65-f008e9763561.webp?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=b6a72bbe69e373154c354b282bb21b5a%2F20260831%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20260831T140544Z&X-Amz-Expires=86400&X-Amz-Signature=fbbb07837431872a7b467aa6fce4006a5da4c05d0da622861c94c1aadd13a396&X-Amz-SignedHeaders=host&x-amz-checksum-mode=ENABLED&x-id=GetObject",
+      "createdAt": "2026-08-31T14:05:44.776Z"
+    },
+    "at": "2026-08-31T14:05:44.911Z"
+  },
+  {
+    "kind": "animations",
+    "key": "pepperpot",
+    "characterId": "cmthb9449000jn91lm6l8yiug",
+    "body": {
+      "animations": [
+        {
+          "kind": "custom",
+          "name": "Roll",
+          "loop": true,
+          "prompt": "A tin pepper pot standing upright, rocking very slightly from side to side as a ship rolls under it, never falling over and never leaving its spot. Just the pepper pot, nothing else: no table, no surface, no shadow."
+        }
+      ],
+      "videoTier": "turbo",
+      "frameCount": 16,
+      "frameSize": 64,
+      "removeBg": "ultra"
+    },
+    "response": {
+      "characterId": "cmthb9449000jn91lm6l8yiug",
+      "workflows": [
+        {
+          "jobId": "wf_3224e793-7174-4d3b-9c0d-8ed541b8dc8f",
+          "kind": "custom",
+          "videoId": "cmthb9tmx0008q3z7j7slx84t"
+        }
+      ],
+      "creditsUsed": 5
+    },
+    "at": "2026-08-31T14:08:03.396Z"
+  },
+  {
+    "kind": "animations",
+    "key": "kipper",
+    "characterId": "cmthb9k94000eklm48tup26wp",
+    "body": {
+      "animations": [
+        {
+          "kind": "custom",
+          "name": "Settle",
+          "loop": true,
+          "prompt": "A smoked kipper lying flat on its side, shifting very slightly as a ship rolls under it, staying in the same spot. Just the fish, nothing else: no plate, no floor, no shadow."
+        }
+      ],
+      "videoTier": "turbo",
+      "frameCount": 16,
+      "frameSize": 96,
+      "removeBg": "ultra"
+    },
+    "response": {
+      "characterId": "cmthb9k94000eklm48tup26wp",
+      "workflows": [
+        {
+          "jobId": "wf_07c2a630-963f-4324-8608-67b3fd1e225f",
+          "kind": "custom",
+          "videoId": "cmthbcju90004u26varkmmaio"
+        }
+      ],
+      "creditsUsed": 5
+    },
+    "at": "2026-08-31T14:10:32.884Z"
+  },
+  {
+    "kind": "sheet",
+    "who": "pepperpot",
+    "characterId": "cmthb9449000jn91lm6l8yiug",
+    "spritesheetId": "cmthbchnr000lkydz8bcj67ig",
+    "meta": {
+      "id": "cmthbchnr000lkydz8bcj67ig",
+      "kind": "custom",
+      "name": "Roll",
+      "sourceVideoId": "cmthb9tmx0008q3z7j7slx84t",
+      "createdAt": "2026-08-31T14:08:01.383Z",
+      "frameWidth": 64,
+      "frameHeight": 64,
+      "frameCount": 16,
+      "columns": 4,
+      "metadata": {
+        "frames": 16,
+        "columns": 4,
+        "model": "Dynamic RGB (Fast)",
+        "resolution": "64x64",
+        "bgremover": "ultra"
+      },
+      "isPublic": false,
+      "publicSlug": null,
+      "publicFilename": null,
+      "publicUrl": null,
+      "publicAtlasUrl": null,
+      "loopStart": null,
+      "loopEnd": null,
+      "speedMultiplier": 1,
+      "sizeMultiplier": 1,
+      "isUnlocked": true,
+      "audioUrl": null,
+      "isFrom3dModel": false
+    },
+    "file": "assets/cast/autosprite/pepperpot/roll.png",
+    "at": "2026-08-31T14:10:38.301Z"
+  },
+  {
+    "kind": "sheet",
+    "who": "kipper",
+    "characterId": "cmthb9k94000eklm48tup26wp",
+    "spritesheetId": "cmthbfp7x0001b5hp62qgf0ps",
+    "meta": {
+      "id": "cmthbfp7x0001b5hp62qgf0ps",
+      "kind": "custom",
+      "name": "Settle",
+      "sourceVideoId": "cmthbcju90004u26varkmmaio",
+      "createdAt": "2026-08-31T14:10:31.149Z",
+      "frameWidth": 96,
+      "frameHeight": 96,
+      "frameCount": 16,
+      "columns": 4,
+      "metadata": {
+        "frames": 16,
+        "columns": 4,
+        "model": "Dynamic RGB (Fast)",
+        "resolution": "96x96",
+        "bgremover": "ultra"
+      },
+      "isPublic": false,
+      "publicSlug": null,
+      "publicFilename": null,
+      "publicUrl": null,
+      "publicAtlasUrl": null,
+      "loopStart": null,
+      "loopEnd": null,
+      "speedMultiplier": 1,
+      "sizeMultiplier": 1,
+      "isUnlocked": true,
+      "audioUrl": null,
+      "isFrom3dModel": false
+    },
+    "file": "assets/cast/autosprite/kipper/settle.png",
+    "at": "2026-08-31T14:10:39.270Z"
+  },
+  {
+    "kind": "prop",
+    "key": "pepperpot",
+    "characterId": "cmthb9449000jn91lm6l8yiug",
+    "frame": 1,
+    "file": "assets/props/pepperpot.png",
+    "at": "2026-08-31T14:10:40.302Z"
+  },
+  {
+    "kind": "prop",
+    "key": "kipper",
+    "characterId": "cmthb9k94000eklm48tup26wp",
+    "frame": 2,
+    "file": "assets/props/kipper.png",
+    "at": "2026-08-31T14:10:41.380Z"
+  },
+  {
+    "kind": "prop",
+    "key": "pepperpot",
+    "characterId": "cmthb9449000jn91lm6l8yiug",
+    "frame": 0,
+    "file": "assets/props/pepperpot.png",
+    "at": "2026-08-31T14:15:38.132Z"
+  },
+  {
+    "kind": "prop",
+    "key": "kipper",
+    "characterId": "cmthb9k94000eklm48tup26wp",
+    "frame": 8,
+    "file": "assets/props/kipper.png",
+    "at": "2026-08-31T14:15:39.200Z"
+  },
+  {
+    "kind": "animations",
+    "key": "pepperpot",
+    "characterId": "cmthb9449000jn91lm6l8yiug",
+    "body": {
+      "animations": [
+        {
+          "kind": "custom",
+          "name": "Stand",
+          "loop": true,
+          "prompt": "A tin pepper pot standing perfectly upright and vertical on nothing, straight up and down, absolutely still. It does not lean, tilt, rock, wobble or move at all. Only the light changes, drifting across its dented surface as a lamp swings somewhere off to one side. Just the pepper pot, nothing else: no table, no surface, no shadow."
+        }
+      ],
+      "videoTier": "turbo",
+      "frameCount": 16,
+      "frameSize": 64,
+      "removeBg": "ultra"
+    },
+    "response": {
+      "characterId": "cmthb9449000jn91lm6l8yiug",
+      "workflows": [
+        {
+          "jobId": "wf_8be2194b-36d6-417e-b63a-cb2e4a10472f",
+          "kind": "custom",
+          "videoId": "cmthbo2310004tvp52grwwnh7"
+        }
+      ],
+      "creditsUsed": 5
+    },
+    "at": "2026-08-31T14:19:02.307Z"
+  },
+  {
+    "kind": "sheet",
+    "who": "pepperpot",
+    "characterId": "cmthb9449000jn91lm6l8yiug",
+    "spritesheetId": "cmthbqm4z000nwe79ko5v5qzy",
+    "meta": {
+      "id": "cmthbqm4z000nwe79ko5v5qzy",
+      "kind": "custom",
+      "name": "Stand",
+      "sourceVideoId": "cmthbo2310004tvp52grwwnh7",
+      "createdAt": "2026-08-31T14:19:00.371Z",
+      "frameWidth": 64,
+      "frameHeight": 64,
+      "frameCount": 16,
+      "columns": 4,
+      "metadata": {
+        "frames": 16,
+        "columns": 4,
+        "model": "Dynamic RGB (Fast)",
+        "resolution": "64x64",
+        "bgremover": "ultra"
+      },
+      "isPublic": false,
+      "publicSlug": null,
+      "publicFilename": null,
+      "publicUrl": null,
+      "publicAtlasUrl": null,
+      "loopStart": null,
+      "loopEnd": null,
+      "speedMultiplier": 1,
+      "sizeMultiplier": 1,
+      "isUnlocked": true,
+      "audioUrl": null,
+      "isFrom3dModel": false
+    },
+    "file": "assets/cast/autosprite/pepperpot/stand.png",
+    "at": "2026-08-31T14:19:04.562Z"
+  },
+  {
+    "kind": "sheet",
+    "who": "pepperpot",
+    "characterId": "cmthb9449000jn91lm6l8yiug",
+    "spritesheetId": "cmthbchnr000lkydz8bcj67ig",
+    "meta": {
+      "id": "cmthbchnr000lkydz8bcj67ig",
+      "kind": "custom",
+      "name": "Roll",
+      "sourceVideoId": "cmthb9tmx0008q3z7j7slx84t",
+      "createdAt": "2026-08-31T14:08:01.383Z",
+      "frameWidth": 64,
+      "frameHeight": 64,
+      "frameCount": 16,
+      "columns": 4,
+      "metadata": {
+        "frames": 16,
+        "columns": 4,
+        "model": "Dynamic RGB (Fast)",
+        "resolution": "64x64",
+        "bgremover": "ultra"
+      },
+      "isPublic": false,
+      "publicSlug": null,
+      "publicFilename": null,
+      "publicUrl": null,
+      "publicAtlasUrl": null,
+      "loopStart": null,
+      "loopEnd": null,
+      "speedMultiplier": 1,
+      "sizeMultiplier": 1,
+      "isUnlocked": true,
+      "audioUrl": null,
+      "isFrom3dModel": false
+    },
+    "file": "assets/cast/autosprite/pepperpot/roll.png",
+    "at": "2026-08-31T14:19:05.161Z"
+  },
+  {
+    "kind": "prop",
+    "key": "pepperpot",
+    "characterId": "cmthb9449000jn91lm6l8yiug",
+    "frame": 0,
+    "file": "assets/props/pepperpot.png",
+    "at": "2026-08-31T14:19:06.215Z"
+  },
+  {
+    "kind": "prop",
+    "key": "pepperpot",
+    "characterId": "cmthb9449000jn91lm6l8yiug",
+    "frame": 0,
+    "file": "assets/props/pepperpot.png",
+    "at": "2026-08-31T14:19:30.372Z"
   }
 ]

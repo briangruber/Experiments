@@ -576,32 +576,82 @@ Two separate faults come out of one mistake:
   painted object is two pictures of one thing, and the player can see both at
   once.
 
-Regenerating the backdrop without it would move every hotspot in the room, so
-the fix here is that the painting patches itself, and the icon is cut out of
-the painting:
+The fix is the rule, applied late: **every takeable object is a generated
+sprite.** `pepperpot` and `kipper` are AutoSprite characters like the cup —
+`isHumanoid: false`, background already transparent — written to
+`assets/props/`, drawn 1:1 into a rectangle the room picks, and registered as
+their own inventory icons by `registerPropIcons`. One image on the table and in
+the bag, so the two cannot drift apart, because there is only one of them.
 
-- A narrow strip immediately beside the object, stretched across where it
-  stood. Copying a whole rectangle from further along the wall was the first
-  attempt and it showed as a darker panel: the lamp throws a pool of light onto
-  that wall, so pixels fetched eighty-six across come from a different
-  brightness. A strip from the object's own elbow is the right brightness by
-  construction, and stretching it sideways preserves what runs sideways — the
-  edge of the table.
-- The patch is copied from whatever the backdrop is showing at that instant —
-  the live video frame when one is playing — so it keeps step with the
-  firelight rather than sitting there as a still rectangle in a moving picture.
-- The inventory icon is the same crop, taken once and cached in the shared icon
-  table, because she can carry it up the ladder into a room whose backdrop has
-  never loaded.
+Sizes are chosen the same way as the cup, by the rule that the sprite is drawn
+into its own cell and never resampled: the pot at 64 (25x58 of art), the kipper
+at 96 (92x37, because it lies down). Frame choice matters as much as size. The
+pot's animation is a roll, and every Roll frame leans about eight degrees — a
+pot permanently falling over. It was regenerated with a `Stand` clip, and
+`autosprite.mjs prop <key> --clip Stand` takes the frame from that sheet. `prop`
+also sorts the ledger by `createdAt` rather than taking the last row, which is
+what made a regenerated character keep serving its old sheet.
+
+### Removing something the painting already drew
+
+The generated pot does not line up with the painted one — it is taller and
+narrower, and no sprite can be made to cover an arbitrary painted object — so
+the painted pot has to go, permanently, whether or not the sprite is standing
+in front of it.
+
+The obvious move is to have the pot edited out of the backdrop, and it does not
+work. A full-image edit model removed it beautifully and re-composed everything
+else while it was in there: the doorway, the barrels and the ladder all moved
+and grew, and every hotspot rectangle in the room missed. Geometric stability is
+the property the whole annotation pipeline stands on, and an image editor will
+trade it away without being asked.
+
+So the painting patches itself, and four attempts failed the same way: a
+hard-edged rectangle of wall reads as a rectangle however well its contents are
+chosen.
+
+- A narrow strip beside the object, stretched across it: smooth panel.
+  Stretching removes texture, and the eye finds the smooth patch immediately.
+- Both neighbours folded inward: a seam down the middle.
+- A contiguous block slid across from further along: correct texture, visibly
+  brighter. The lamp's pool falls off fast across this wall and forty-four
+  pixels is far enough to matter.
+
+What works is not choosing better pixels but removing the edge. The block is
+baked once into an offscreen canvas with its border faded out by four linear
+`destination-in` gradients — four, not one radial, so the corners do not go
+transparent faster than the sides. The middle fully replaces the pot; the
+outside becomes wall by degrees. A brightness difference with no edge to sit on
+is a gradient, and the wall is full of those already.
 
 The check measures LOCAL CONTRAST inside the object's box rather than
 difference against another patch of wall. That wall is lit by a gradient, so
 two clean pieces of it differ by half their pixels and a difference metric
 answers "these are different places" however well the patch worked. A pepper
 pot is a hard-edged object with an outline and wall is smooth: contrast reads
-20.6 with the pot there and 1.7 without, against 7.0 for clean wall.
+28.6 with the sprite there and 6.2 without, against 6.9 for clean wall.
 
-This is a rescue, not a licence. The rule still stands: keep takeable objects
-out of the backdrop prompt. The galley's bellows are the version that obeys it
-— they are painted in, so they are never carried, and the puzzle loads and
-works them where they stand.
+One more trap, and the one that nearly shipped: the patch was baked once at
+load. That is correct for a still and wrong for this room, whose backdrop is a
+video — a piece copied once is a frozen rectangle sitting in firelight that
+moves. Nothing caught it, because headless Chromium cannot decode h.264, so
+every automated run had been exercising the still. The fade is now baked once
+as a mask and stamped onto a fresh copy of the wall each frame, and the
+backdrop answers `live()` so the still path can still cache. The check hands
+the backdrop a source it can change by hand and asserts the patch changed with
+it — the only way to test a video path in a browser that will not play the
+video.
+
+A second step asserts what the patch cannot: that each item is a loaded sprite
+of the expected cell size, that toggling the room's own condition changes
+pixels inside its rectangle, and that its inventory icon is that same image
+rather than a hand-painted stand-in. Each claim passes on its own while the
+thing is still wrong — a procedural fallback puts pixels in the box just as
+well — which is why all three are in one assertion. Rooms declare
+`SPRITE_PROBES` for this, because "the cup is on the wall" is a different
+sentence in every room that has one.
+
+None of this is a licence. The rule still stands: keep takeable objects out of
+the backdrop prompt. The galley's bellows are the version that obeys it — they
+are painted in, so they are never carried, and the puzzle loads and works them
+where they stand.

@@ -20,6 +20,7 @@
 // is present, so nothing here has to rewrite paths inside the source.
 
 import { readFile, writeFile, mkdir, readdir, stat } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
 import { join, dirname, posix } from 'node:path';
 import { ROOT } from './harness.mjs';
 
@@ -183,9 +184,13 @@ if (!NO_PLATE && (await exists(castDir))) {
 
 const propDir = join(ROOT, 'assets/props');
 if (!NO_PLATE && (await exists(propDir))) {
-  // Only the props the room still draws. The rest are painted into the
-  // backdrop now and would be dead weight in the page.
-  const KEEP = new Set(['cup']);
+  // Only the props the game still draws. The rest are painted into the
+  // backdrop now and would be dead weight in the page. The list comes from
+  // props.js rather than living here: a hard-coded one silently dropped the
+  // galley's pepper pot and kipper out of the bundle, so the page loaded, the
+  // sprites fell back to nothing, and only the bundled playthrough noticed.
+  const { DRAWN_PROPS } = await import(pathToFileURL(join(ROOT, 'src/art/props.js')).href);
+  const KEEP = new Set(DRAWN_PROPS);
   const props = {};
   for (const f of (await readdir(propDir)).filter((f) => f.endsWith('.png') && KEEP.has(f.slice(0, -4)))) {
     props[f.slice(0, -4)] = await dataUri(join(propDir, f), 'image/png');

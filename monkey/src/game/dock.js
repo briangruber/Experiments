@@ -221,6 +221,18 @@ export function makeRoomDef(state, backdrop, props = {}) {
 // covers the same nail.
 export const CUP_RECT = [891, 391, 64, 64];
 
+// Where a generated sprite is drawn, and how to make it come and go, so a test
+// can prove the image is on the canvas rather than merely on disk. The room
+// owns this because the room owns the conditions: "the cup is on the wall"
+// is a different sentence in every room that has one.
+export const SPRITE_PROBES = {
+  cup: {
+    rect: CUP_RECT,
+    show: (s) => { s.take('cup'); s.take('cup-of-grog'); },
+    hide: (s) => s.give('cup'),
+  },
+};
+
 // Traced over the painting. The back edge runs in FRONT of the barrel, the
 // crates and the rope coil, because those are painted into the backdrop and
 // therefore always behind the actor — walking "behind" them would put the

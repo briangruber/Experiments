@@ -150,6 +150,14 @@ export async function loadBackdrop(room = 'dock') {
     // piece of the painting over another piece of it. The live video when one
     // is playing, so a patch keeps step with the firelight instead of sitting
     // there as a still rectangle in a moving picture.
+    // Is what source() returns going to be different next frame? Anything
+    // copying the painting has to know, because a piece copied once is a
+    // frozen rectangle in a moving picture. Asked of the backdrop rather than
+    // sniffed off the element it hands back, so a test can answer it.
+    live() {
+      const a = this.video, b = this.videoB;
+      return !!((a && a.readyState >= 2 && a.videoWidth) || (b && b.readyState >= 2 && b.videoWidth));
+    },
     source() {
       const a = this.video, b = this.videoB;
       if (a && a.readyState >= 2 && a.videoWidth) return { el: a, w: a.videoWidth, h: a.videoHeight };

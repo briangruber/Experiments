@@ -697,6 +697,65 @@ try {
     return p.after < p.before * 0.5 && p.after <= p.wall * 1.6;
   });
 
+  // The items are generated art, not paintings: an AutoSprite character with
+  // no background, drawn 1:1 in the room and shrunk for the bag. Three claims,
+  // because two of them pass on their own while the thing is still wrong — a
+  // procedural stand-in puts pixels in the box just as well, and an icon
+  // painted by hand looks fine until you compare it with the table.
+  await step('the items are generated sprites  [same image on the table and in the bag]', async () => {}, () => {
+    const M = window.__monkey;
+    const r = {};
+    for (const [name, item] of [['pepperpot', 'pepper'], ['kipper', 'kipper']]) {
+      r[name] = { drawn: M.propDrawn(name), size: M.propSize(name), icon: M.iconSource(item) };
+    }
+    window.__t.items = r;
+    return Object.values(r).every((v) => v.drawn > 150 && v.size && v.icon === 'sprite')
+      && r.pepperpot.size.w === 64 && r.kipper.size.w === 96;
+  });
+
+  // The patch over the painted pot has to keep step with the backdrop. This
+  // room's backdrop is a video and headless Chromium cannot decode h.264, so
+  // every run above exercised the still — and a patch copied once looks
+  // perfect on a still and freezes on a moving picture. The only way to see
+  // that from here is to hand the backdrop a source that changes and check
+  // the patch changed with it.
+  await step('the patch lives in the firelight  [it follows a moving backdrop]', async () => {}, () => {
+    const M = window.__monkey;
+    const b = M.backdropObj();
+    const gg = document.querySelector('canvas').getContext('2d');
+    const fake = document.createElement('canvas');
+    fake.width = 1280; fake.height = 720;
+    const fg = fake.getContext('2d');
+    const paintFake = (c) => { fg.fillStyle = c; fg.fillRect(0, 0, 1280, 720); };
+    const mid = () => { M.render(); const d = gg.getImageData(570, 330, 8, 8).data; return d[0] + ',' + d[1] + ',' + d[2]; };
+    const [live, source] = [b.live, b.source];
+    const saved = M.state.serialize();
+    try {
+      // The sprite stands exactly where the patch is, so it has to be taken
+      // first or every sample reads the pepper pot instead of the wall.
+      M.state.set('pepper-taken', true);
+      b.live = () => true;
+      b.source = () => ({ el: fake, w: 1280, h: 720 });
+      paintFake('#ff0000');
+      const red = mid();
+      paintFake('#0000ff');
+      const blue = mid();
+      // And the still path still caches: with live() false the second colour
+      // must NOT come through, or every frame is repainting for nothing.
+      b.live = () => false;
+      paintFake('#00ff00');
+      const first = mid();
+      paintFake('#ffff00');
+      const second = mid();
+      window.__t.patch = { red, blue, cachedA: first, cachedB: second };
+      return red !== blue && first === second;
+    } finally {
+      b.live = live; b.source = source;
+      M.state.restore(saved);
+      M.render();
+    }
+  });
+
   await step('take the pepper pot  [and it goes from the table]', async () => {
     await verb(await T(() => window.__t.spot('pepper')), 'use');
   }, () => window.__t.inv().includes('pepper') && window.__t.flag('pepper-taken'));
@@ -735,6 +794,8 @@ const m = errors.length ? {} : await page.evaluate(() => ({
   footTrack: window.__t.footTrack, scaleStep: window.__t.scaleStep, pose: window.__t.pose,
   cupDrawn: window.__t.cupDrawn, cupSize: window.__t.cupSize, speech: window.__t.speech,
   seam: window.__t.seam, stride: window.__t.stride, strip: window.__t.strip, pot: window.__t.pot,
+  items: window.__t.items,
+  patch: window.__t.patch,
 }));
 
 await browser.close();
@@ -761,6 +822,12 @@ console.log(`          seam weight: cut ${m.seam?.cut}, just after ${m.seam?.jus
   + ` quarter ${m.seam?.quarter}, mid ${m.seam?.mid}`);
 console.log(`          pepper pot: local contrast ${m.pot?.before} with it, ${m.pot?.after} after`
   + ` (clean wall reads ${m.pot?.wall})`);
+console.log(`          patch follows the backdrop: ${m.patch?.red} -> ${m.patch?.blue};`
+  + ` still cached at ${m.patch?.cachedA}`);
+console.log('          item sprites: '
+  + Object.entries(m.items || {})
+    .map(([k, v]) => `${k} ${v.size?.w}x${v.size?.h}, ${v.drawn}px drawn, ${v.icon} icon`)
+    .join('; '));
 console.log(`          inventory strip: ${m.strip?.dead} dead px of ${m.strip?.total};`
   + ` a gutter click selected ${m.strip?.gutter?.got}`);
 console.log(`          speech clears the body by `

@@ -15,7 +15,7 @@ import { lint } from './engine/puzzle.js';
 import { VerbCoin, Inventory, DialogueMenu, drawSpeech } from './engine/ui.js';
 import { Editor } from './engine/editor.js';
 import * as art from './art/paint.js';
-import { loadProps } from './art/props.js';
+import { loadProps, registerPropIcons } from './art/props.js';
 import { loadBackdrop, KIND, seamWeight } from './art/backdrop.js';
 import { BLOCK as PIXEL_BLOCK } from './art/pixelate.js';
 import { loadSpriteBody } from './art/sprite-actor.js';
@@ -91,10 +91,6 @@ async function goTo(id, from) {
   seq.cancel(); coin.hide(); menu.hide(); inv.selected = null;
   here = id; R = ROOMS[id];
   backdrop = await loadBackdrop(id);
-  // A room may want to keep a piece of its own painting — an inventory icon
-  // cut from the picture the object is in, so the thing in the bag is the
-  // thing you picked up.
-  R.snapshotIcons?.(backdrop);
   showBackdrop?.();
   await buildCast();
   const spawn = R.SPAWN?.[from] ?? R.SPAWN?.start ?? { x: 640, y: 690 };
@@ -506,8 +502,11 @@ function drawWin() {
 // Boot. The backdrop, the props and the cast all come from whichever room the
 // game starts in, and the same three lines run again on every door.
 backdrop = await loadBackdrop(here);
-R.snapshotIcons?.(backdrop);
 props = await loadProps();
+// Generated items are their own inventory icons. The thing on the table and
+// the thing in the bag are one image, which is the point of generating it once
+// instead of drawing it twice and hoping they resemble each other.
+registerPropIcons(props, art.ICONS, art.imageIcon, { pepper: 'pepperpot', kipper: 'kipper' });
 await buildCast();
 
 const voiced = await voice.load();
@@ -748,13 +747,16 @@ window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => ro
     room.render(ctx, cast());
     for (const a of cast()) drawSpeech(ctx, a, room, VIEW);
   },
-  // The shape the actor is drawn as right now, in room units.  // Does a generated prop actually put pixels on the canvas?
+  // Does a generated prop actually put pixels on the canvas?
   //
-  // Same question as drawn() asks of an actor, and for the same reason: the
-  // cup is loaded from assets/props/cup.png and falls back to procedural art
-  // if that image fails, so "the prop file is there" and "the prop is on
-  // screen" are different claims. Toggling the state that hides it and diffing
-  // its box is the only one of the two that a missing file cannot pass.
+  // Same question as drawn() asks of an actor, and for the same reason: every
+  // prop is loaded from assets/props/<name>.png and some fall back to
+  // procedural art if that image fails, so "the prop file is there" and "the
+  // prop is on screen" are different claims. The room says where the sprite
+  // sits and how to make it come and go; this diffs the box across that
+  // toggle, which is the one form of the question a missing file cannot pass.
+  // The state is saved and restored around it so a probe leaves no trace.
+  //
   // The loaded sprite's own dimensions. propDrawn alone cannot tell a
   // generated cup from the procedural one standing in for a missing file —
   // both put pixels in the box — so the size of the image that actually loaded
@@ -763,21 +765,33 @@ window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => ro
     const img = props[name];
     return img ? { w: img.width, h: img.height } : null;
   },
+  // Whether the inventory icon for an item is the generated sprite or a
+  // hand-painted stand-in. The bug this caught was a pepper pot drawn one way
+  // on the table and another way in the bag; one image for both is the fix,
+  // and this is the assertion that the fix is still in force.
+  // The backdrop object itself, so a test can lie to it. The galley copies a
+  // piece of the painting over the pepper pot the painting drew, and whether
+  // that copy is taken once or every frame is the difference between a patch
+  // that lives in the firelight and a frozen rectangle sitting in it. No
+  // automated run can tell them apart from the video, because headless
+  // Chromium cannot decode h.264 — so the test drives the seam by hand.
+  backdropObj: () => backdrop,
+  iconSource: (item) => (art.ICONS[item]?.fromSprite ? 'sprite' : art.ICONS[item] ? 'painted' : null),
   propDrawn: (name) => {
+    const probe = R.SPRITE_PROBES?.[name];
+    if (!probe) return 0;
+    const [x, y, w, h] = probe.rect;
     const c = document.querySelector('canvas');
     const gg = c.getContext('2d');
-    const rect = { cup: dock.CUP_RECT }[name];   // dock-only, and named as such
-    if (!rect) return 0;
-    const [x, y, w, h] = rect;
     const paintRoom = () => { ctx.clearRect(0, 0, VIEW.w, VIEW.h); room.render(ctx, cast()); };
-    const had = state.has('cup'), hadGrog = state.has('cup-of-grog');
+    const saved = state.serialize();
+    probe.hide(state);
     paintRoom();
     const before = gg.getImageData(x, y, w, h).data;
-    if (!had) state.give('cup');
+    probe.show(state);
     paintRoom();
     const after = gg.getImageData(x, y, w, h).data;
-    if (!had) state.take('cup');
-    if (hadGrog) state.give('cup-of-grog');
+    state.restore(saved);
     paintRoom();
     let diff = 0;
     for (let i = 0; i < before.length; i += 4) {
@@ -786,6 +800,7 @@ window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => ro
     }
     return diff;
   },
+
   // Where the last line of dialogue was printed, against where the character
   // it belonged to was drawn. Text over the body is the kind of fault that is
   // obvious on screen and invisible to every other assertion here.

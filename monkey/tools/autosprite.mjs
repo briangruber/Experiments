@@ -228,6 +228,35 @@ const CHARACTERS = {
     ].join(' '),
   },
 
+  // The galley's two takeable objects. Both were wrong before this: the pepper
+  // pot was painted into the backdrop, which props.js forbids precisely
+  // because a painted object cannot be picked up, and the kipper was a canvas
+  // path. Generated here they get a transparent background for free, they are
+  // placed at a coordinate the room chooses, and the same image is the
+  // inventory icon — so the thing in the bag is the thing that was on the
+  // table.
+  pepperpot: {
+    humanoid: false,
+    name: 'Tin Pepper Pot',
+    prompt: [
+      'A single dented tin pepper pot, pewter grey with a domed perforated top and a dark',
+      'rim, standing upright. Seen from the side.',
+      'Just the pepper pot, nothing else: no table, no surface, no shadow.',
+      LOOK,
+    ].join(' '),
+  },
+
+  kipper: {
+    humanoid: false,
+    name: 'A Smoked Kipper',
+    prompt: [
+      'A single smoked herring, a kipper: split flat, brown and bronze, skin still on, one',
+      'dark eye, lying on its side seen from above.',
+      'Just the fish, nothing else: no plate, no floor, no shadow, no garnish.',
+      LOOK,
+    ].join(' '),
+  },
+
   cup: {
     humanoid: false,
     name: 'Tin Cup on a Nail',
@@ -364,6 +393,34 @@ const ANIMATIONS = {
         + 'sharply twice, leaning into it, then lowers them. She stays standing in one place. One '
         + 'character alone: no forge, no wall, no furniture, no props beyond the bellows. '
         + 'Side view, facing right.',
+    },
+  ],
+
+  pepperpot: [
+    {
+      kind: 'custom', name: 'Stand', loop: true,
+      // "Rocking very slightly as a ship rolls under it" produced sixteen
+      // frames of a pot leaning eight degrees to the left and never once
+      // standing up. A rocking object spends most of a rock tilted, so asking
+      // for the rock and then hunting for the upright frame is hunting for a
+      // frame that was never generated.
+      //
+      // An animation is only needed here to get the background removed. So the
+      // motion asked for is the light, not the object: the pot holds still and
+      // the lamp moves over it.
+      prompt: 'A tin pepper pot standing perfectly upright and vertical on nothing, straight up '
+        + 'and down, absolutely still. It does not lean, tilt, rock, wobble or move at all. '
+        + 'Only the light changes, drifting across its dented surface as a lamp swings somewhere '
+        + 'off to one side. Just the pepper pot, nothing else: no table, no surface, no shadow.',
+    },
+  ],
+
+  kipper: [
+    {
+      kind: 'custom', name: 'Settle', loop: true,
+      prompt: 'A smoked kipper lying flat on its side, shifting very slightly as a ship rolls '
+        + 'under it, staying in the same spot. '
+        + 'Just the fish, nothing else: no plate, no floor, no shadow.',
     },
   ],
 
@@ -524,7 +581,15 @@ async function cmdProp(key) {
   if (!ch) throw new Error(`${key}: no character yet — run 'character ${key}' first`);
   const dir = join(OUT, key);
   const sheets = (await ledgerRows()).filter((e) => e.kind === 'sheet' && e.characterId === ch.characterId);
-  const meta = sheets[sheets.length - 1]?.meta;
+  // The NEWEST sheet, by when it was made, and by name when one is asked for.
+  // Taking the last row of the ledger takes whatever happened to be pulled
+  // last, which after a regeneration is an older animation.
+  const want = opt('clip', null);
+  const meta = sheets
+    .map((e) => e.meta)
+    .filter((m) => m && (!want || slug(m.name || m.kind) === slug(want)))
+    .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''))
+    .pop();
   if (!meta) throw new Error(`${key}: no sheet pulled yet — run 'pull ${ch.characterId}'`);
   const file = join(dir, `${slug(meta.name || meta.kind)}.png`);
   const { launch, serve } = await import('./harness.mjs');
@@ -557,7 +622,17 @@ async function cmdProp(key) {
     }
     const live = centres.filter(Boolean);
     const mid = [...live.map((v) => v.cx)].sort((a, b) => a - b)[live.length >> 1];
-    const pick = live.reduce((a, b) => (Math.abs(b.cx - mid) < Math.abs(a.cx - mid) ? b : a));
+    // Nearest the middle of the motion, and then the NARROWEST of those.
+    //
+    // Middle-of-the-motion alone picks a frame from the middle of a rock, and
+    // the middle of a rock is not upright — it is the fastest part of the
+    // swing. A pepper pot standing on a table at a jaunty angle reads as a
+    // mistake. Anything that rocks is narrowest when it is vertical, so width
+    // is the tie-break that finds standing-up.
+    const band = live.filter((v) => Math.abs(v.cx - mid) <= 2);
+    const pool = band.length ? band : live;
+    const width = (v) => v.box[2] - v.box[0];
+    const pick = pool.reduce((a, b) => (width(b) < width(a) ? b : a));
     x.clearRect(0, 0, cw, ch2);
     x.drawImage(img, -(pick.i % cols) * cw, -Math.floor(pick.i / cols) * ch2);
     return { url: c.toDataURL('image/png'), frame: pick.i, w: cw, h: ch2, box: pick.box, of: count };
