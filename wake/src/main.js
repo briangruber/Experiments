@@ -431,7 +431,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b77';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b78';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -1079,8 +1079,23 @@ function stepSim(dt) {
   // one bit: the shader needs to know where along the ribbon the screws are,
   // and going astern they sit at the anchor rather than a hull-length aft of
   // it. Magnitude is the load exactly as before.
+  // THE TANGENT IS THE HULL'S AXIS, not the track's.
+  //
+  // This was the course direction, and that is what let the wake come adrift
+  // from the transom in a turn. The two differ by the crab angle -- up to
+  // boat.crabMax, twelve degrees by default -- because a hull carves through a
+  // turn pointing slightly inside its own track. The ribbon is laid PERPENDICULAR
+  // to whatever tangent it is given, so on the course the near end of the wake
+  // was square to the track while the boat was square to its heading, and the
+  // stern swung clear of the foam it was supposedly making.
+  //
+  // Water leaves a hull perpendicular to the HULL. A crabbing boat lays a wake
+  // slightly wider than its track and offset across it, which is exactly what
+  // you see from a helicopter; laying it along the track instead is what opens
+  // the gap. Older samples keep the tangent they were recorded with, so the
+  // trail behind still follows the path actually travelled.
   wake.pushSample(state.x + bhx * anchorOff, state.z + bhz * anchorOff,
-                  hx * way, hz * way, state.t, Math.abs(state.speed), state.turn,
+                  bhx * way, bhz * way, state.t, Math.abs(state.speed), state.turn,
                   Math.min(1, load) * way);
 
   // THE TRANSOM, from the measured hull -- one expression, used by both the

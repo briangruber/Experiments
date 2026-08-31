@@ -9,7 +9,7 @@ export const PARAMS = {
     // Negative is ASTERN, and the slider goes there because the throttle keys
     // ride the slider: with a floor of 0 holding Down parked her at a stop and
     // there was no way back past it short of the separate S key.
-    speed:        { v: 0, min: -8,  max: 100,  step: 0.1,  label: 'Speed (m/s)' },
+    speed:        { v: 59.7618, min: -8,  max: 100,  step: 0.1,  label: 'Speed (m/s)' },
     turnRate:     { v: 0,  min: -25, max: 25,  step: 0.5,  label: 'Turn (°/s)' },
     accel:        { v: 5.3, min: 0.1, max: 12,  step: 0.05, label: 'Acceleration (m/s²)' },
     brake:        { v: 1.9, min: 1,   max: 8,   step: 0.1,  label: 'Braking x accel' },
@@ -19,9 +19,9 @@ export const PARAMS = {
     throttleRate: { v: 7, min: 0.5, max: 30,  step: 0.5,  label: 'Throttle rate (m/s²)' },
     humpFroude:   { v: 0.95, min: 0.3, max: 2,   step: 0.01, label: 'Hump Froude no.' },
     trimRest:     { v: 1.2,  min: 0,   max: 6,   step: 0.1,  label: 'Bow-down at rest (°)' },
-    trimHump:     { v: 5.5,  min: 0,   max: 15,  step: 0.1,  label: 'Trim at hump (°)' },
-    trimPlane:    { v: 2.6,  min: 0,   max: 12,  step: 0.1,  label: 'Trim on plane (°)' },
-    riseMax:      { v: 0.42, min: 0,   max: 2,   step: 0.01, label: 'Hull rise (m)' },
+    trimHump:     { v: 8,  min: 0,   max: 15,  step: 0.1,  label: 'Trim at hump (°)' },
+    trimPlane:    { v: 4,  min: 0,   max: 12,  step: 0.1,  label: 'Trim on plane (°)' },
+    riseMax:      { v: 0.88, min: 0,   max: 2,   step: 0.01, label: 'Hull rise (m)' },
     wetShift:     { v: 0.52, min: 0,   max: 0.9, step: 0.01, label: 'Contact point aft' },
     planing:      { v: 6.5, min: 0.5, max: 20,  step: 0.1,  label: 'Planing speed (m/s)' },
     length:       { v: 9.9,  min: 3,   max: 20,  step: 0.1,  label: 'Hull length (m)' },
@@ -33,7 +33,7 @@ export const PARAMS = {
     // Which hull is drawn. Indexes BOATS in src/boatModels.js; the last entry
     // is the original blocky placeholder, kept because it is the only one whose
     // proportions were built to match the wake's own hull maths.
-    model:        { v: 0,    min: 0,   max: 5,   step: 1,    label: 'Boat model' },
+    model:        { v: 4,    min: 0,   max: 5,   step: 1,    label: 'Boat model' },
     // How deep the model sits: a fraction of its own height pushed under the
     // waterline. The GLBs know nothing about where their waterline is.
     // METRES the lowest point sits below the waterline -- not a fraction of the
@@ -68,7 +68,7 @@ export const PARAMS = {
     // Purely how BIG the model is drawn. The wake still follows Hull length
     // and Beam below -- those are the numbers the field does its physics
     // with -- so a model scaled far past them will out-grow its own wake.
-    modelScale:   { v: 1,    min: 0.2, max: 4,   step: 0.05, label: 'Model scale' },
+    modelScale:   { v: 2.4,    min: 0.2, max: 4,   step: 0.05, label: 'Model scale' },
     hullCut:      { v: 0,    min: 0,   max: 1,   step: 0.01, label: 'Cut foam under hull' },
     waterCut:     { v: 1,    min: 0,   max: 1,   step: 1,    label: 'No sea inside the hull' },
     crabMax:      { v: 12,   min: 0,   max: 45,  step: 1,    label: 'Max slip angle (°)' },
@@ -152,11 +152,11 @@ export const PARAMS = {
     // SMALL. Cavitation bubbles are millimetres to a centimetre or so; the
     // first default drew them at 5 cm and up, which at close range is a dinner
     // plate and is most of why they read as blobs rather than as bubbles.
-    size:    { v: 0.018, min: 0.003, max: 0.12, step: 0.001, label: 'Particle size (m)', ui: 'propBubbles' },
-    rise:    { v: 0.55,  min: 0.05,  max: 3,   step: 0.01,  label: 'Particle rise (m/s)', ui: 'propBubbles' },
-    life:    { v: 3.4,   min: 0.3,   max: 12,  step: 0.1,   label: 'Particle life (s)', ui: 'propBubbles' },
-    jet:     { v: 1.6,   min: 0,     max: 8,   step: 0.05,  label: 'Thrown from the screw (m/s)', ui: 'propBubbles' },
-    wobble:  { v: 0.16,  min: 0,     max: 1,   step: 0.01,  label: 'Spiral wobble', ui: 'propBubbles' },
+    size:    { v: 0.019, min: 0.003, max: 0.12, step: 0.001, label: 'Particle size (m)', ui: 'propBubbles' },
+    rise:    { v: 0.53,  min: 0.05,  max: 3,   step: 0.01,  label: 'Particle rise (m/s)', ui: 'propBubbles' },
+    life:    { v: 0.7,   min: 0.3,   max: 12,  step: 0.1,   label: 'Particle life (s)', ui: 'propBubbles' },
+    jet:     { v: 2.35,   min: 0,     max: 8,   step: 0.05,  label: 'Thrown from the screw (m/s)', ui: 'propBubbles' },
+    wobble:  { v: 0.8,  min: 0,     max: 1,   step: 0.01,  label: 'Spiral wobble', ui: 'propBubbles' },
   },
 
   wash: {
@@ -169,18 +169,18 @@ export const PARAMS = {
     // refraction pass, and composited through the surface by the water shader
     // -- so they arrive already warped by the waves and murked by depth, and
     // they can only be seen THROUGH water, which is right.
-    bubRate:      { ui: 'propBubbles', v: 620, min: 0, max: 2400, step: 10, label: 'Particles / sec' },
+    bubRate:      { ui: 'propBubbles', v: 1440, min: 0, max: 2400, step: 10, label: 'Particles / sec' },
     // SHALLOWER by default. A bubble released a metre and a half down is seen
     // through a metre and a half of water, so it is dim where it is made and
     // only brightens as it climbs -- which puts the visible part of the plume
     // well astern of the boat that made it and reads as "released far away".
     // Nearer the surface it shows from the moment it leaves the screw.
-    bubDepth:     { ui: 'propBubbles', v: 0.7, min: 0.1, max: 6, step: 0.05, label: 'Released this far down (m)' },
+    bubDepth:     { ui: 'propBubbles', v: 1.25, min: 0.1, max: 6, step: 0.05, label: 'Released this far down (m)' },
     // Where along the boat, relative to the measured transom. 0 is exactly on
     // it -- the orange marker in the Emitters view -- and positive is astern,
     // for a leg that stands off the counter. Negative tucks it under the hull.
     bubAft:       { ui: 'propBubbles', v: 0, min: -6, max: 8, step: 0.1, label: 'Astern of transom (m)' },
-    bubSpread:    { ui: 'propBubbles', v: 0.55, min: 0.05, max: 3, step: 0.05, label: 'Released across (m)' },
+    bubSpread:    { ui: 'propBubbles', v: 0.05, min: 0.05, max: 3, step: 0.05, label: 'Released across (m)' },
     // CAVITATION -- the water boiling at the blade, not more prop wash.
     //
     // Pressure on the suction face drops below vapour pressure, the water
@@ -333,9 +333,9 @@ export const PARAMS = {
     surf:         { v: 0.95, min: 0,   max: 2,   step: 0.01, label: 'Surf on the shore' },
     surfDepth:    { v: 1.4,  min: 0.3, max: 8,   step: 0.1,  label: 'Breaks at depth (m)' },
     surfSets:     { v: 1,    min: 0,   max: 2,   step: 0.01, label: 'Surf sets (surge)' },
-    surfPeriod:   { v: 7.0,  min: 2,   max: 16,  step: 0.1,  label: 'Seconds between sets' },
+    surfPeriod:   { v: 7,  min: 2,   max: 16,  step: 0.1,  label: 'Seconds between sets' },
     surfSpan:     { v: 0.55, min: 0.1, max: 10,  step: 0.05, label: 'Set spacing (m of depth)' },
-    surfDecay:    { v: 3.0,  min: 0.2, max: 9,   step: 0.05, label: 'Foam dies off (per set)' },
+    surfDecay:    { v: 3,  min: 0.2, max: 9,   step: 0.05, label: 'Foam dies off (per set)' },
     softness:     { v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Foam softness (less white)' },
     seaWhitecaps: { v: 0,    min: 0,   max: 2,   step: 0.01, label: 'Sea whitecaps (not the wake)' },
     seaBreak:     { v: 0, min: 0,   max: 1.5, step: 0.01, label: 'Sea foam from breaking' },
@@ -356,14 +356,14 @@ export const PARAMS = {
   ocean: {
     // Sea state. These three are baked into the FFT's initial spectrum, so
     // moving them rebuilds it -- once, on change, not per frame.
-    waveHeight:   { ui: 'seaState', v: 1,    min: 0,   max: 3,   step: 0.01, label: 'Wave height ×' },
+    waveHeight:   { ui: 'seaState', v: 0.43,    min: 0,   max: 3,   step: 0.01, label: 'Wave height ×' },
     swellAmp:     { ui: 'seaState', v: 0.14, min: 0,   max: 1,   step: 0.01, label: 'Swell amount' },
     swellLen:     { ui: 'seaState', v: 5.5,  min: 3,   max: 18,  step: 0.1,  label: 'Swell period (s)' },
     chopAmp:      { ui: 'seaState', v: 0.78, min: 0,   max: 1.5, step: 0.01, label: 'Choppiness' },
     // Light.
-    sunElev:      { ui: 'sunSky', v: 72,   min: 0,   max: 88,  step: 1,    label: 'Sun elevation (°)' },
-    sunAzim:      { ui: 'sunSky', v: 142,  min: 0,   max: 360, step: 1,    label: 'Sun azimuth (°)' },
-    reflectivity: { ui: 'sunSky', v: 1.15, min: 0,   max: 3,   step: 0.01, label: 'Sky ambient' },
+    sunElev:      { ui: 'sunSky', v: 3,   min: 0,   max: 88,  step: 1,    label: 'Sun elevation (°)' },
+    sunAzim:      { ui: 'sunSky', v: 109,  min: 0,   max: 360, step: 1,    label: 'Sun azimuth (°)' },
+    reflectivity: { ui: 'sunSky', v: 2.63, min: 0,   max: 3,   step: 0.01, label: 'Sky ambient' },
     sunGlow:      { ui: 'sunSky', v: 7,    min: 0.2, max: 8,   step: 0.05, label: 'Sun disc size ×' },
     hazeStart:    { ui: 'sunSky', v: 1,    min: 0,   max: 3,   step: 0.01, label: 'Aerial haze' },
     // GLITTER ONLY BREAKS THE SUN PATH UP -- it cannot make one.
@@ -494,13 +494,13 @@ export const PARAMS = {
     // Index into PRESET_NAMES in abyssalSea.js, calmest first: turning it up
     // means more sea. Drives the wave spectrum AND the light, because in
     // Abyssal they are one parameter set, not two.
-    preset:       { ui: 'seaState', v: 4,    min: 0,   max: 9,   step: 1,    label: 'Weather preset' },
+    preset:       { ui: 'seaState', v: 2,    min: 0,   max: 9,   step: 1,    label: 'Weather preset' },
     // The prototype already has a lake bottom (the terrain). Abyssal's presets
     // carry their own procedural seafloor, and a shallow one under green lake
     // water reads as a bright green pool. 0 pushes it out of sight, 1 restores
     // exactly what the preset asked for.
 
-    waterTint:    { ui: 'waterLook', v: 0,  min: 0,   max: 1,   step: 0.01, label: 'Deep-water tint' },
+    waterTint:    { ui: 'waterLook', v: 0.6,  min: 0,   max: 1,   step: 0.01, label: 'Deep-water tint' },
     // Straight down, Fresnel reflects ~2% of the sky, so a look-down view sees
     // only what the water column scatters back. This scales that, and it is
     // the reason an overhead camera can look black on a preset authored for a
@@ -552,14 +552,14 @@ export const PARAMS = {
     // under each fragment -- so the wobble is put back by hand from the surface
     // normal. The proxy gets that free and has no geometry; the two are worth
     // having together.
-    planarRefl:   { ui: 'mirror', v: 1,   min: 0,   max: 1.5, step: 0.01, label: 'Mirror reflection (real mesh)' },
-    planarScale:  { ui: 'mirror', v: 0.5, min: 0.2, max: 1,   step: 0.05, label: 'Mirror pass scale' },
+    planarRefl:   { ui: 'mirror', v: 1.5,   min: 0,   max: 1.5, step: 0.01, label: 'Mirror reflection (real mesh)' },
+    planarScale:  { ui: 'mirror', v: 0.65, min: 0.2, max: 1,   step: 0.05, label: 'Mirror pass scale' },
     planarDistort:{ ui: 'mirror', v: 1,   min: 0,   max: 4,   step: 0.01, label: 'Mirror wobble' },
     // Softness, as a fraction of the reflection's mip chain. Sampling a coarser
     // level is ONE fetch, where a blur kernel wide enough to read as wet glass
     // would be dozens of taps per pixel across the whole sea. Surface roughness
     // already climbs the chain on its own; this is a floor under that.
-    planarBlur:   { ui: 'mirror', v: 0.22, min: 0, max: 1,   step: 0.01, label: 'Mirror blur' },
+    planarBlur:   { ui: 'mirror', v: 0.16, min: 0, max: 1,   step: 0.01, label: 'Mirror blur' },
     // HOW FAST IT DIES BACK, measured along the reflection's own length from
     // the boat outward -- not from the camera, which is a different quantity
     // and dims the far sea whether or not there is a reflection in it.
@@ -575,9 +575,9 @@ export const PARAMS = {
     // much of the surface it is allowed to become. At 1 the mirror can replace
     // the sky outright, which is right for glass and wrong for almost anything
     // else -- real water keeps some of its own colour even at grazing angles.
-    planarOpacity:{ ui: 'mirror', v: 0.8, min: 0, max: 1, step: 0.01, label: 'Mirror opacity' },
-    boatReflect:  { ui: 'mirror', v: 0.35, min: 0,  max: 2.5, step: 0.01, label: 'Boat reflection (proxy blob)' },
-    boatShadow:   { ui: 'mirror', v: 0.5,  min: 0,   max: 1.5, step: 0.01, label: 'Boat shadow on water' },
+    planarOpacity:{ ui: 'mirror', v: 0.7, min: 0, max: 1, step: 0.01, label: 'Mirror opacity' },
+    boatReflect:  { ui: 'mirror', v: 0, min: 0,  max: 2.5, step: 0.01, label: 'Boat reflection (proxy blob)' },
+    boatShadow:   { ui: 'mirror', v: 0,  min: 0,   max: 1.5, step: 0.01, label: 'Boat shadow on water' },
     // How far down you can see. Divides the water's absorption, so 2 means
     // roughly twice the sight depth -- the bed, a submerged keel and the
     // bubble plume all reach the same distance, because they are all looking
@@ -586,7 +586,7 @@ export const PARAMS = {
     // raise 'Bed depth' under The Lake to bring one into view.
     hullShadow:   { ui: 'bed', v: 1,    min: 0,   max: 1,   step: 0.01, label: 'Boat shadow on the bed' },
     clarity:      { ui: 'waterLook', v: 1,    min: 0.2, max: 3,   step: 0.05, label: 'Water clarity (see-through depth)' },
-    waterGlow:    { ui: 'waterLook', v: 1.0,  min: 0.2, max: 10,  step: 0.05, label: 'Water glow (look-down)' },
+    waterGlow:    { ui: 'waterLook', v: 2.2,  min: 0.2, max: 10,  step: 0.05, label: 'Water glow (look-down)' },
     warmth:       { ui: 'sunSky', v: 1.15, min: 0,   max: 1.5, step: 0.01, label: 'Sunset warmth' },
     cloud:        { ui: 'sunSky', v: 0.55, min: 0,   max: 1,   step: 0.01, label: 'Cloud cover' },
     cloudScale:   { ui: 'sunSky', v: 0.55, min: 0.05,max: 3,   step: 0.01, label: 'Cloud scale' },
@@ -610,18 +610,18 @@ export const PARAMS = {
     // to default to 0 -- which pushes the floor to 400 m, out of sight -- back
     // when a baked coast map painted the only bottom anyone saw. With that map
     // gone this is the sea bed, everywhere, so it has to be a real number.
-    floorDepth:   { ui: 'bed', v: 9,  min: 0,   max: 60,  step: 0.5,  label: 'Bed depth (m)' },
-    weed:         { ui: 'bed', v: 0.45, min: 0,   max: 1,   step: 0.01, label: 'Weed over sand' },
+    floorDepth:   { ui: 'bed', v: 12,  min: 0,   max: 60,  step: 0.5,  label: 'Bed depth (m)' },
+    weed:         { ui: 'bed', v: 0.15, min: 0,   max: 1,   step: 0.01, label: 'Weed over sand' },
     // How bright the bed comes back. The scene's exposure is set for the
     // water surface, and an unscaled bottom clips to white -- which costs
     // the caustics, since a clipped surface cannot carry contrast.
     coral:        { ui: 'bed', v: 0.85, min: 0,   max: 1.5, step: 0.01, label: 'Coral heads' },
-    bedBright:    { ui: 'bed', v: 0.30, min: 0.02, max: 2, step: 0.01, label: 'Bed brightness' },
+    bedBright:    { ui: 'bed', v: 0.3, min: 0.02, max: 2, step: 0.01, label: 'Bed brightness' },
     // The surface's own slope, bending the view of the bottom: this is what
     // makes the sand shift under a passing wave.
     bedDistort:   { ui: 'bed', v: 1.0,  min: 0,   max: 3,   step: 0.01, label: 'Distortion through surface' },
     causticSize:  { ui: 'bed', v: 3.0,  min: 0.3, max: 10, step: 0.1,  label: 'Caustic cell size' },
-    caustics:     { ui: 'bed', v: 1.35, min: 0,   max: 1.5, step: 0.01, label: 'Caustics on the bed' },
+    caustics:     { ui: 'bed', v: 0.35, min: 0,   max: 1.5, step: 0.01, label: 'Caustics on the bed' },
     radius:       { ui: 'oldLake', v: 1850, min: 200, max: 4000,step: 10,   label: 'Lake radius (m)' , lab: 1 },
     depth:        { ui: 'oldLake', v: 14,   min: 2,   max: 60,  step: 1,    label: 'Basin depth (m)' , lab: 1 },
     rim:          { ui: 'oldLake', v: 70,   min: 10,  max: 400, step: 5,    label: 'Hill height (m)' , lab: 1 },
