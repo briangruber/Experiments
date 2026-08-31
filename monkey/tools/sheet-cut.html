@@ -1,0 +1,120 @@
+<meta charset="utf-8"><title>cut</title>
+<canvas id="c"></canvas>
+<script type="module">
+// Cut a generated sprite sheet into aligned frames.
+//
+// The hard part is not finding the frames, it is that adjacent figures touch.
+// A model asked for gaps leaves gaps of less than a pixel once the sheet is
+// reduced to native resolution, so column-gap detection finds one wide blob,
+// and slicing into equal columns instead cuts through the neighbour's coat and
+// leaves a sliver of it in every cell.
+//
+// Neither slicing nor connectivity works alone. Slicing alone leaves a sliver
+// of the neighbour's coat in every cell. Connectivity alone is worse: the
+// figures touch each other, so a flood from any one of them spans the whole
+// sheet and returns a single frame 114 pixels wide.
+//
+// Together they work. The slice decides WHERE a frame is; a flood-fill from
+// the middle of the slice, BOUNDED BY IT, decides what belongs to it. The
+// neighbour's sliver is inside the slice but is not connected to the centre
+// within it, so it is dropped — and the figure's own raised arm is kept even
+// though it reaches the slice edge.
+window.__cut = async (src, opts) => {
+  const img = await new Promise((res, rej) => {
+    const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src;
+  });
+  const down = opts.down || 1;
+  const W = Math.round(img.width / down), H = Math.round(img.height / down);
+  const c = document.getElementById('c');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.imageSmoothingEnabled = false;
+  g.clearRect(0, 0, W, H);
+  g.drawImage(img, 0, 0, W, H);
+
+  // Key the background here rather than trusting the generator to have made it
+  // flat. Seedream returns a magenta GRADIENT, so a corner-sampled key removes
+  // the top half and leaves the bottom, joining every figure along its feet.
+  // Magenta is identifiable by relation rather than by value — red and blue
+  // both well above green — which holds across a gradient.
+  const id = g.getImageData(0, 0, W, H);
+  const d = id.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const r = d[i], gg = d[i + 1], b = d[i + 2];
+    if ((r - gg > opts.keyMargin && b - gg > opts.keyMargin) || (r < 40 && gg < 40 && b < 60)) d[i + 3] = 0;
+  }
+  g.putImageData(id, 0, 0);
+  const A = (x, y) => d[(y * W + x) * 4 + 3];
+
+  const lo = (() => { for (let x = 0; x < W; x++) for (let y = 0; y < H; y++) if (A(x, y) > 40) return x; return 0; })();
+  const hi = (() => { for (let x = W - 1; x >= 0; x--) for (let y = 0; y < H; y++) if (A(x, y) > 40) return x; return W - 1; })();
+  const n = opts.frames;
+  const step = (hi - lo + 1) / n;
+
+  const frames = [];
+  for (let i = 0; i < n; i++) {
+    const sx0 = Math.round(lo + i * step), sx1 = Math.round(lo + (i + 1) * step) - 1;
+    const seedX = Math.round((sx0 + sx1) / 2);
+    // Flood from the whole centre column, so a figure split by a raised arm
+    // still comes back in one piece.
+    const seen = new Uint8Array(W * H);
+    const stack = [];
+    for (let y = 0; y < H; y++) {
+      for (let sx = seedX - 1; sx <= seedX + 1; sx++) {
+        if (sx >= 0 && sx < W && A(sx, y) > 40 && !seen[y * W + sx]) { seen[y * W + sx] = 1; stack.push(sx, y); }
+      }
+    }
+    let x0 = 1e9, x1 = -1, y0 = 1e9, y1 = -1;
+    while (stack.length) {
+      const y = stack.pop(), x = stack.pop();
+      if (x < x0) x0 = x; if (x > x1) x1 = x;
+      if (y < y0) y0 = y; if (y > y1) y1 = y;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = x + dx, ny = y + dy;
+        if (nx < sx0 || nx > sx1 || ny < 0 || ny >= H) continue;
+        const p = ny * W + nx;
+        if (seen[p] || A(nx, ny) <= 40) continue;
+        seen[p] = 1; stack.push(nx, ny);
+      }
+    }
+    if (x1 < 0) continue;
+    // The head centre, not the bounding-box centre: in a walk cycle a swinging
+    // arm moves the box without moving the character, so aligning on the box
+    // makes the figure slide a few pixels a stride.
+    const band = Math.max(1, Math.round((y1 - y0) * 0.12));
+    let hx0 = 1e9, hx1 = -1;
+    for (let y = y0; y < y0 + band; y++) for (let x = x0; x <= x1; x++) if (seen[y * W + x]) { if (x < hx0) hx0 = x; if (x > hx1) hx1 = x; }
+    frames.push({ x0, x1, y0, y1, h: y1 - y0 + 1, headCx: hx1 >= hx0 ? (hx0 + hx1) / 2 : (x0 + x1) / 2, mask: Array.from(seen) });
+  }
+  window.__state = { W, H, d: Array.from(d), frames };
+  return { w: W, h: H, frames: frames.map(({ mask, ...f }) => f) };
+};
+
+window.__pack = (cell, out) => {
+  const { W, d, frames } = window.__state;
+  const c = document.getElementById('c');
+  c.width = cell.w * out.cols;
+  c.height = cell.h * Math.ceil(frames.length / out.cols);
+  const g = c.getContext('2d', { willReadFrequently: true });
+  const dest = g.createImageData(c.width, c.height);
+  frames.forEach((f, i) => {
+    const cx = (i % out.cols) * cell.w, cy = ((i / out.cols) | 0) * cell.h;
+    // Both alignment rules, enforced rather than hoped for: feet to one row,
+    // head centre to one column, in every cell.
+    const ox = Math.round(cx + cell.w / 2 - (f.headCx - f.x0)) - f.x0;
+    const oy = Math.round(cy + out.feetY - (f.y1 - f.y0) - 1) - f.y0;
+    for (let y = f.y0; y <= f.y1; y++) {
+      for (let x = f.x0; x <= f.x1; x++) {
+        if (!f.mask[y * W + x]) continue;
+        const dx = x + ox, dy = y + oy;
+        if (dx < 0 || dy < 0 || dx >= c.width || dy >= c.height) continue;
+        const s = (y * W + x) * 4, t = (dy * c.width + dx) * 4;
+        dest.data[t] = d[s]; dest.data[t + 1] = d[s + 1]; dest.data[t + 2] = d[s + 2]; dest.data[t + 3] = 255;
+      }
+    }
+  });
+  g.putImageData(dest, 0, 0);
+  return c.toDataURL('image/png');
+};
+window.__ready = true;
+</script>

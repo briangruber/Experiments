@@ -10,6 +10,8 @@ import { VerbCoin, VERBS } from '../src/engine/ui.js';
 import { Actor } from '../src/engine/actor.js';
 import { CAST } from '../src/game/dock.js';
 import { drawPixelSprite } from '../src/art/pixelate.js';
+import { loadSpriteBody } from '../src/art/sprite-actor.js';
+import { SPRITE_CAST } from '../src/game/dock.js';
 
 const CW = 420, CH = 300;
 const CROP = { x: 470, y: 430 };
@@ -45,9 +47,31 @@ const target = { name: 'a grog barrel' };
   tag(ox, oy, hover ? `hover: ${hover}` : 'no verb hovered');
 });
 
+// --- the generated atlas, beside the procedural sprite it would replace
+const cfg = SPRITE_CAST.player;
+const body = cfg ? await loadSpriteBody({
+  sheetUrl: '../' + cfg.sheet.replace('./', ''),
+  manifest: await (await fetch('../' + cfg.manifest.replace('./', ''))).json(),
+  height: cfg.height,
+}) : null;
+
 // --- the two characters, so they can be told apart
 const cast = [['player', 'Bonny — bandana'], ['grout', 'Grout — tricorn, beard']];
-cast.forEach(([who, label], i) => {
+// Row two is now the comparison that matters: the same walk, one drawn in
+// code and one generated, at the same size on the same floor.
+if (body) {
+  for (let f = 0; f < 4; f++) {
+    const ox = f * CW, oy = CH;
+    bg(ox, oy);
+    const a = new Actor(CAST.player);
+    a.x = ox + CW / 2; a.y = oy + 210;
+    a.facing = 'right'; a.state = 'walk'; a.phase = f / 4 + 0.02;
+    body.drawAt(ctx, a, a.x, a.y, 0.86);
+    tag(ox, oy, `generated atlas · walk ${f + 1}/4`, '#46bda9');
+  }
+}
+const skip = () => {};
+skip(); [].forEach(([who, label], i) => {
   for (const [j, walking] of [[0, false], [1, true]].entries()) {
     const ox = (i * 2 + j) * CW, oy = CH;
     bg(ox, oy);

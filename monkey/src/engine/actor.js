@@ -132,6 +132,13 @@ export class Actor {
     const paint = (this.body ? this.body.draw : this.draw);
     if (!paint) return;
 
+    // An atlas sprite controls its own transform, because it has to snap to a
+    // whole-pixel zoom that the room's continuous depth scale would otherwise
+    // destroy.
+    if (this.body?.drawAt) {
+      this.body.drawAt(ctx, this, this.x, this.y, scale);
+      return;
+    }
     // A pixel sprite is authored on the grid rather than scaled onto it, so it
     // takes a different surface: integer art pixels, origin between the feet.
     if (this.pixelDraw) {

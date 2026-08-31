@@ -55,6 +55,16 @@ export const PUZZLE = {
 //
 // The loader below still honours this table, so a baked body remains one entry
 // away for a room where the character is large in frame.
+// Empty, and not for want of a pipeline. tools/spriteoff.mjs generates a sheet,
+// tools/pixelize.mjs makes it real pixel art, and tools/sheet-cut.mjs cuts it
+// into an aligned atlas that loads here in one line — the whole route works.
+// The output is simply not yet better than the sprite drawn in code beside it:
+// the generated frames vary in height, the background key leaves a dark line
+// under the feet, and one cell in six carries debris from its neighbour.
+//
+// Uncomment to run the generated character instead; the atlas is committed.
+//   player: { asset: 'bonny', sheet: './assets/cast/bonny-sheet.png',
+//             manifest: './assets/cast/bonny-sheet.json', height: 156 },
 export const SPRITE_CAST = {};
 
 export const CAST = {

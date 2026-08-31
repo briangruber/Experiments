@@ -1,0 +1,86 @@
+[
+  {
+    "model": "seedream",
+    "label": "Seedream 4",
+    "id": "fal-ai/bytedance/seedream/v4/text-to-image",
+    "prompt": "A character sprite sheet for a 1990s pixel-art point-and-click adventure game. ONE horizontal row of exactly 8 frames, showing a single complete walk cycle, side view, facing right. Leave a WIDE EMPTY GAP of flat background between every pair of frames — the figures must be clearly separated and must never touch or overlap. The character: a young woman pirate. Red bandana tied over dark auburn hair, a dark red long coat open over a cream shirt, a gold sash at the waist, blue trousers, black boots. Small head, long legs, adult proportions — about one seventh of her height is head. The SAME character in all 8 frames: identical proportions, identical colours, identical clothing. Her feet rest on the same baseline in every frame and she is centred at the same height in every frame — only the legs, arms and body swing. STYLE: 256-colour pixel art, chunky visible square pixels, a tightly limited palette, hard aliased pixel edges with no anti-aliasing, a one-pixel dark outline around the whole figure, flat colour with one lighter step and one darker step per surface. Lit from the right. The background is one flat uniform magenta, absolutely plain, behind all 8 frames. NO text, no numbers, no labels, no frame borders, no grid lines, no boxes around the frames, no drop shadows, no ground line, no extra characters.",
+    "knob": null,
+    "seconds": 24.3,
+    "file": "seedream.png",
+    "bytes": 629212,
+    "url": "https://v3b.fal.media/files/b/0aa87a27/Qjc1vuk4toNBFPg3jHADV_108368cd163f4c8589a2ed032bda7fa0.jpg",
+    "cost": 0.03
+  },
+  {
+    "model": "nano",
+    "label": "Gemini 2.5 Flash Image",
+    "id": "fal-ai/gemini-25-flash-image",
+    "prompt": "A character sprite sheet for a 1990s pixel-art point-and-click adventure game. ONE horizontal row of exactly 8 frames, showing a single complete walk cycle, side view, facing right. Leave a WIDE EMPTY GAP of flat background between every pair of frames — the figures must be clearly separated and must never touch or overlap. The character: a young woman pirate. Red bandana tied over dark auburn hair, a dark red long coat open over a cream shirt, a gold sash at the waist, blue trousers, black boots. Small head, long legs, adult proportions — about one seventh of her height is head. The SAME character in all 8 frames: identical proportions, identical colours, identical clothing. Her feet rest on the same baseline in every frame and she is centred at the same height in every frame — only the legs, arms and body swing. STYLE: 256-colour pixel art, chunky visible square pixels, a tightly limited palette, hard aliased pixel edges with no anti-aliasing, a one-pixel dark outline around the whole figure, flat colour with one lighter step and one darker step per surface. Lit from the right. The background is one flat uniform magenta, absolutely plain, behind all 8 frames. NO text, no numbers, no labels, no frame borders, no grid lines, no boxes around the frames, no drop shadows, no ground line, no extra characters.",
+    "knob": null,
+    "seconds": 8.1,
+    "file": "nano.png",
+    "bytes": 839697,
+    "url": "https://v3b.fal.media/files/b/0aa87a2b/39JGhFxpAX53T19ZfRtYo_PDeB8er3.png",
+    "cost": 0.0398
+  },
+  {
+    "model": "nano2",
+    "label": "Nano Banana 2 Lite",
+    "id": "google/nano-banana-2-lite",
+    "prompt": "A character sprite sheet for a 1990s pixel-art point-and-click adventure game. ONE horizontal row of exactly 8 frames, showing a single complete walk cycle, side view, facing right. Leave a WIDE EMPTY GAP of flat background between every pair of frames — the figures must be clearly separated and must never touch or overlap. The character: a young woman pirate. Red bandana tied over dark auburn hair, a dark red long coat open over a cream shirt, a gold sash at the waist, blue trousers, black boots. Small head, long legs, adult proportions — about one seventh of her height is head. The SAME character in all 8 frames: identical proportions, identical colours, identical clothing. Her feet rest on the same baseline in every frame and she is centred at the same height in every frame — only the legs, arms and body swing. STYLE: 256-colour pixel art, chunky visible square pixels, a tightly limited palette, hard aliased pixel edges with no anti-aliasing, a one-pixel dark outline around the whole figure, flat colour with one lighter step and one darker step per surface. Lit from the right. The background is one flat uniform magenta, absolutely plain, behind all 8 frames. NO text, no numbers, no labels, no frame borders, no grid lines, no boxes around the frames, no drop shadows, no ground line, no extra characters.",
+    "knob": null,
+    "seconds": 6.1,
+    "file": "nano2.png",
+    "bytes": 410015,
+    "url": "https://v3b.fal.media/files/b/0aa87a19/tbCe1sWy6fb4gbcCDgKIT_uvHn5EYH.png",
+    "cost": 0.042092
+  },
+  {
+    "model": "mai",
+    "label": "MAI Image 2.5",
+    "id": "microsoft/mai-image-2.5",
+    "prompt": "A character sprite sheet for a 1990s pixel-art point-and-click adventure game. ONE horizontal row of exactly 8 frames, showing a single complete walk cycle, side view, facing right. Leave a WIDE EMPTY GAP of flat background between every pair of frames — the figures must be clearly separated and must never touch or overlap. The character: a young woman pirate. Red bandana tied over dark auburn hair, a dark red long coat open over a cream shirt, a gold sash at the waist, blue trousers, black boots. Small head, long legs, adult proportions — about one seventh of her height is head. The SAME character in all 8 frames: identical proportions, identical colours, identical clothing. Her feet rest on the same baseline in every frame and she is centred at the same height in every frame — only the legs, arms and body swing. STYLE: 256-colour pixel art, chunky visible square pixels, a tightly limited palette, hard aliased pixel edges with no anti-aliasing, a one-pixel dark outline around the whole figure, flat colour with one lighter step and one darker step per surface. Lit from the right. The background is one flat uniform magenta, absolutely plain, behind all 8 frames. NO text, no numbers, no labels, no frame borders, no grid lines, no boxes around the frames, no drop shadows, no ground line, no extra characters.",
+    "knob": null,
+    "seconds": 36.4,
+    "file": "mai.png",
+    "bytes": 980794,
+    "url": "https://v3b.fal.media/files/b/0aa87a1c/55bEkKVus80Vri7POVWES_dPLd9nSe.png",
+    "cost": 0.0494
+  },
+  {
+    "model": "flux2",
+    "label": "FLUX 2 Pro",
+    "id": "fal-ai/flux-2-pro",
+    "prompt": "A character sprite sheet for a 1990s pixel-art point-and-click adventure game. ONE horizontal row of exactly 8 frames, showing a single complete walk cycle, side view, facing right. Leave a WIDE EMPTY GAP of flat background between every pair of frames — the figures must be clearly separated and must never touch or overlap. The character: a young woman pirate. Red bandana tied over dark auburn hair, a dark red long coat open over a cream shirt, a gold sash at the waist, blue trousers, black boots. Small head, long legs, adult proportions — about one seventh of her height is head. The SAME character in all 8 frames: identical proportions, identical colours, identical clothing. Her feet rest on the same baseline in every frame and she is centred at the same height in every frame — only the legs, arms and body swing. STYLE: 256-colour pixel art, chunky visible square pixels, a tightly limited palette, hard aliased pixel edges with no anti-aliasing, a one-pixel dark outline around the whole figure, flat colour with one lighter step and one darker step per surface. Lit from the right. The background is one flat uniform magenta, absolutely plain, behind all 8 frames. NO text, no numbers, no labels, no frame borders, no grid lines, no boxes around the frames, no drop shadows, no ground line, no extra characters.",
+    "knob": null,
+    "seconds": 12.5,
+    "file": "flux2.png",
+    "bytes": 454218,
+    "url": "https://v3b.fal.media/files/b/0aa87a23/Ij97fuCPLfYzza1_422df_EjtdECda.png",
+    "cost": 0.03
+  },
+  {
+    "model": "recraft",
+    "label": "Recraft V3 (pixel_art)",
+    "id": "fal-ai/recraft/v3/text-to-image",
+    "prompt": "Pixel-art character sprite sheet for a 1990s point-and-click adventure game: one row of 8 frames, a single walk cycle, side view facing right, the same character in every frame with her feet on one baseline. A young woman pirate: red bandana, dark red coat over a cream shirt, gold sash, blue trousers, black boots. Small head, long legs. Chunky visible pixels, limited palette, hard aliased edges, one-pixel dark outline, flat colour. Flat uniform magenta background. No text, no borders, no grid lines, no shadows.",
+    "knob": "digital_illustration/pixel_art",
+    "seconds": 6.2,
+    "file": "recraft.png",
+    "bytes": 30620,
+    "url": "https://v3b.fal.media/files/b/0aa87a26/20ngbs81fH9UDGikkUvRP_gyfP5qMW.webp",
+    "cost": 0.04
+  },
+  {
+    "model": "qwen",
+    "label": "Qwen Image",
+    "id": "fal-ai/qwen-image",
+    "prompt": "A character sprite sheet for a 1990s pixel-art point-and-click adventure game. ONE horizontal row of exactly 8 frames, showing a single complete walk cycle, side view, facing right. Leave a WIDE EMPTY GAP of flat background between every pair of frames — the figures must be clearly separated and must never touch or overlap. The character: a young woman pirate. Red bandana tied over dark auburn hair, a dark red long coat open over a cream shirt, a gold sash at the waist, blue trousers, black boots. Small head, long legs, adult proportions — about one seventh of her height is head. The SAME character in all 8 frames: identical proportions, identical colours, identical clothing. Her feet rest on the same baseline in every frame and she is centred at the same height in every frame — only the legs, arms and body swing. STYLE: 256-colour pixel art, chunky visible square pixels, a tightly limited palette, hard aliased pixel edges with no anti-aliasing, a one-pixel dark outline around the whole figure, flat colour with one lighter step and one darker step per surface. Lit from the right. The background is one flat uniform magenta, absolutely plain, behind all 8 frames. NO text, no numbers, no labels, no frame borders, no grid lines, no boxes around the frames, no drop shadows, no ground line, no extra characters.",
+    "knob": null,
+    "seconds": 6.1,
+    "file": "qwen.png",
+    "bytes": 579612,
+    "url": "https://v3b.fal.media/files/b/0aa87a3f/CHGk_-LzZJZmAr7-XI_W7.png",
+    "cost": 0.02
+  }
+]

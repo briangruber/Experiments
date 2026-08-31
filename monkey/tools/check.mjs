@@ -216,9 +216,10 @@ try {
   // looks almost right and is not what shipped. Name which one is live.
   await step('the generated backdrop and voice are in use', async () => {}, () => {
     const M = window.__monkey;
-    // Bodies are deliberately zero now: the baked 3D atlas lost to the drawn
-    // puppet and was retired. Asserting zero rather than dropping the check
-    // keeps it honest — it would still catch an atlas that bound by accident.
+    // Two procedural sprites and no atlas body: the generated sheet is
+    // committed and loadable but is not what ships. Naming both counts rather
+    // than checking "something drew" is what catches an atlas binding by
+    // accident, or failing to bind when it is meant to.
     return (M.backdrop() === 'video' || M.backdrop() === 'still') && M.voiced
       && M.bodies() === 0 && M.puppets() === 2 && M.pixelBlock() > 1;
   });

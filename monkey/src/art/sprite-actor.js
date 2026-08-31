@@ -23,8 +23,10 @@ export async function loadSpriteBody({ sheetUrl, manifest, height, face }) {
   });
   if (!img || !manifest) return null;
 
-  const { cellW, cellH, cols, feetY, figureH, clips, heads } = manifest;
-  const scale = height / figureH;
+  // `heads` and `face` belong to the retired 3D path, where the body was baked
+  // and the face had to be drawn back on. A hand-made or generated pixel pack
+  // has its own face and no head track, so both are optional.
+  const { cellW, cellH, cols, feetY, figureH, clips, heads = [], smooth = false, shadow = false } = manifest;
 
   // Which frame of which clip. Walking reads off the same stride phase the
   // engine already advances from distance travelled, so the feet stay in step
@@ -39,36 +41,50 @@ export async function loadSpriteBody({ sheetUrl, manifest, height, face }) {
 
   return {
     kind: 'sprite',
-    draw(ctx, actor) {
+    figureH,
+
+    // Pixel art has to land on whole pixels. The room's depth scale is a
+    // continuous number, so it is rounded to an integer zoom: a sprite walking
+    // upstage steps 3x, 2x, 1x rather than sliding through 2.58x and
+    // resampling itself every frame. Discrete size steps with depth is what
+    // these games actually did, and it is the difference between a sprite and
+    // a photograph of one.
+    drawAt(ctx, actor, x, y, roomScale) {
+      const zoom = Math.max(1, Math.round((height / figureH) * roomScale));
       const f = frameFor(actor);
       const sx = (f % cols) * cellW, sy = ((f / cols) | 0) * cellH;
       const flip = actor.facing === 'left' ? -1 : 1;
 
       ctx.save();
-      ctx.scale(flip, 1);
-      // Contact shadow first, under the sprite and unmirrored in effect.
-      const sh = ctx.createRadialGradient(0, 0, height * 0.02, 0, 0, height * 0.22);
-      sh.addColorStop(0, 'rgba(0,0,0,0.40)');
-      sh.addColorStop(0.6, 'rgba(0,0,0,0.13)');
-      sh.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.save();
-      ctx.scale(1, 0.2);
-      ctx.fillStyle = sh;
-      ctx.beginPath(); ctx.arc(0, 0, height * 0.22, 0, TAU); ctx.fill();
-      ctx.restore();
+      ctx.translate(Math.round(x), Math.round(y));
 
+      if (shadow) {
+        const r = figureH * zoom * 0.22;
+        const g = ctx.createRadialGradient(0, 0, r * 0.1, 0, 0, r);
+        g.addColorStop(0, 'rgba(0,0,0,0.40)');
+        g.addColorStop(0.6, 'rgba(0,0,0,0.13)');
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.save(); ctx.scale(1, 0.2); ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill(); ctx.restore();
+      }
+
+      ctx.scale(flip, 1);
+      const was = ctx.imageSmoothingEnabled;
+      ctx.imageSmoothingEnabled = smooth;
       ctx.drawImage(
         img, sx, sy, cellW, cellH,
-        -cellW * scale / 2, -feetY * scale, cellW * scale, cellH * scale,
+        Math.round(-cellW * zoom / 2), Math.round(-feetY * zoom),
+        cellW * zoom, cellH * zoom,
       );
+      ctx.imageSmoothingEnabled = was;
 
-      // The face, at the head position this frame was rendered with.
+      // The face is only drawn when the atlas has head positions to put it on
+      // — that is the retired baked-3D path, whose heads could not blink. A
+      // generated or hand-made pack draws its own face.
       const h = heads[f];
       if (h && face) {
-        // The manifest records the head BONE, which sits at the base of the
-        // skull; the face belongs above and slightly forward of it.
         const r = height * 0.055;
-        ctx.translate((h.x - cellW / 2) * scale + r * 0.30, (h.y - feetY) * scale - r * 1.05);
+        ctx.translate((h.x - cellW / 2) * zoom + r * 0.30, (h.y - feetY) * zoom - r * 1.05);
         drawFace(ctx, face, actor, r);
       }
       ctx.restore();

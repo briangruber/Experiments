@@ -1,0 +1,33 @@
+<meta charset="utf-8">
+<title>spriteoff</title>
+<style>html,body{margin:0;background:#0a0e1a}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script type="module">
+const rows = await (await fetch('../assets/spriteoff/index.json')).json();
+const got = rows.filter(r => r.file);
+const CW = 1000, CH = 562, COLS = 2;
+const c = document.getElementById('c');
+c.width = CW * COLS;
+c.height = CH * Math.ceil(got.length / COLS);
+const ctx = c.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+
+for (const [i, r] of got.entries()) {
+  const img = await new Promise((res) => {
+    const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null);
+    im.src = '../assets/spriteoff/' + r.file;
+  });
+  const ox = (i % COLS) * CW, oy = Math.floor(i / COLS) * CH;
+  ctx.fillStyle = '#12182a'; ctx.fillRect(ox, oy, CW, CH);
+  if (img) {
+    const s = Math.min(CW / img.width, (CH - 26) / img.height);
+    ctx.drawImage(img, ox + (CW - img.width * s) / 2, oy + 26 + (CH - 26 - img.height * s) / 2,
+      img.width * s, img.height * s);
+  }
+  ctx.fillStyle = 'rgba(10,14,26,.9)'; ctx.fillRect(ox, oy, CW, 26);
+  ctx.fillStyle = '#f2a93b'; ctx.font = '15px ui-monospace, monospace'; ctx.textAlign = 'left';
+  ctx.fillText(`${r.label}  ·  ${img ? img.width + 'x' + img.height : 'no image'}  ·  ${r.seconds}s  ·  $${(r.cost ?? 0).toFixed(3)}`, ox + 10, oy + 18);
+  ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.strokeRect(ox + .5, oy + .5, CW - 1, CH - 1);
+}
+window.__ready = true;
+</script>
