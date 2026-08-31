@@ -11,11 +11,13 @@
 // were invisible from the app's UI.
 //
 // `frameSize` takes 32-512, so frames can be asked for at the size the game
-// actually draws them. Every previous route in this project produced art at
-// some large size and reduced it, and reducing a smooth source to forty pixels
-// is the single mistake this directory has now made twice — once baking a 3D
-// mesh, once downsampling the vector puppet. Asking for 64 instead of 256
-// removes the step entirely.
+// actually draws them — which removes a resampling step, but only down to the
+// resolution the art was drawn at. Below that it is not asking for game-sized
+// art, it is throwing away art that already exists, which is the mistake this
+// directory has now made three times: baking a 3D mesh, downsampling the
+// vector puppet, and re-extracting this cast at 80px because the room's pixel
+// grid was read off a retired constant instead of measured off the plate.
+// Measure both grids (tools/pixel-grid.mjs) and divide.
 //
 // `regenerate-spritesheets` re-extracts from the videos that were already
 // generated, at a different frame count, frame size and background-removal
@@ -44,8 +46,8 @@ const exists = async (p) => { try { await stat(p); return true; } catch { return
 // made 25 frames at 256px; a 720p room draws the character about 150px tall,
 // and a walk cycle is eight poses.
 const GAME = {
-  frameCount: +opt('frames', 8),
-  frameSize: +opt('size', 64),
+  frameCount: +opt('frames', 32),
+  frameSize: +opt('size', 0),
   // "ultra" is AI-powered removal. The generated sheets from other services
   // needed the background keyed by hand and still left a dark line under the
   // feet; paying nothing to have it done properly is an easy trade.
@@ -290,6 +292,17 @@ async function cmdAnimate(key) {
 
 async function cmdRegen(characterId) {
   if (!characterId) throw new Error('need a character id — run `characters` first');
+  // There is no default frame size worth having. The right one is derived from
+  // two measured grids — the backdrop's and the character art's own — and came
+  // out 176 for one of this cast and 224 for the other. A default would only
+  // ever be right by accident, and the accident it invited was 64, four times
+  // below what the art is drawn on, which shipped a grainy cast.
+  if (!GAME.frameSize) {
+    throw new Error('regen needs --size, and it is derived rather than picked:\n'
+      + '    figure wanted on the sheet = drawn height / backdrop pixel block\n'
+      + '    frameSize = that / how much of its frame the figure fills\n'
+      + '  measure both grids with tools/pixel-grid.mjs; see docs/asset-pack.md.');
+  }
   const body = { ...GAME };
   if (DRY) {
     console.log(`  would POST /characters/${characterId}/regenerate-spritesheets`);

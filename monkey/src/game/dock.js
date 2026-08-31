@@ -66,32 +66,37 @@ export const PUZZLE = {
 // tools/sheet-cut.mjs verifies the packed atlas has its feet on one row and
 // its head on one column before it is allowed to ship.
 export const SPRITE_CAST = {
-  // Both figures are about 78 pixels tall on their sheets and are drawn about
-  // 2.7 times that, which is the number that matters here. The room paints at
-  // three screen pixels per art pixel, so a character whose sheet is 244px per
-  // figure gets REDUCED into the scene and comes out smoother than the
-  // backdrop it stands in — which is what "she looks less pixelated than the
-  // scene" was. Re-extracting the same generated videos at 80 and 108 pixels
-  // (free, and the point of AutoSprite's regenerate endpoint) puts the art at
-  // the resolution the room draws, so it is magnified with nearest-neighbour
-  // instead, and the character's pixels are the size of the backdrop's.
+  // These two numbers are the same number twice: each figure is drawn at
+  // exactly TWICE its height on the sheet, because the backdrop is painted on
+  // a 2px grid and a character has to stand on the same grid or it reads as a
+  // different medium pasted over the art.
   //
-  // The heights are up from 185: standing a head shorter than the crates and
-  // the barrel read as a small character rather than a distant one.
+  // Both halves of that were got wrong once. The grid was taken from
+  // `BLOCK = 3` in pixelate.js — a constant belonging to the retired
+  // procedural puppet, not to the painting — when `tools/pixel-grid.mjs
+  // assets/scene.jpg` measures the plate itself and says 2px, a logical room
+  // of 640x360. And the sheets were then re-extracted at 80px, which is 3.2
+  // times below the character art's own grid: Grout's 1024px base image
+  // quantises cleanly at 4px blocks and nowhere else, so 256 is native and
+  // anything under it is thrown-away information, not style. It came back
+  // grainy, which is what downsampling generated art has done every time this
+  // project has tried it.
+  //
+  // So the frame size is derived rather than picked. Drawn height / 2 is the
+  // figure height wanted on the sheet; divided by how much of its frame the
+  // figure fills, that is the frameSize to ask AutoSprite for — 176 for Grout,
+  // 224 for Bonny, both a mild reduction from native rather than a gutting.
   player: {
     asset: 'bonny',
     sheet: './assets/cast/bonny-sheet.png',
     manifest: './assets/cast/bonny-sheet.json',
-    height: 210,
+    height: 318,          // 159 on the sheet, x2
   },
   grout: {
     asset: 'grout',
     sheet: './assets/cast/grout-sheet.png',
     manifest: './assets/cast/grout-sheet.json',
-    // A little taller than Bonny, and his figure height includes the tricorn,
-    // so the man himself is about her size — which is what a harbourmaster who
-    // can block a pier should look like next to her.
-    height: 225,
+    height: 336,          // 168 on the sheet, x2
   },
 };
 

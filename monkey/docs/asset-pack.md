@@ -152,10 +152,11 @@ Two things in the API matter more than the generation quality, and neither is
 visible from the app.
 
 **`frameSize` accepts 32–512.** Frames can be asked for at the size the game
-draws them. Every previous route here made art large and reduced it, and
-reducing a smooth source to forty pixels is the mistake this project has made
-twice — baking a 3D mesh, then downsampling the vector puppet. Asking for 64
-instead of 256 deletes the step rather than doing it better.
+draws them, which removes a resampling step rather than doing it better — but
+only down to the resolution the art was actually drawn at. Below that it is
+not asking for game-sized art, it is destroying art you already have. See
+*Resolution: derive it, do not pick it* for how to find the floor; it is 256
+for this cast, and 64 would be four times past it.
 
 **`regenerate-spritesheets` is free.** It re-extracts from videos that were
 already generated, at a different frame count, frame size, background removal
@@ -163,11 +164,12 @@ and sharpening. So sheets made in the app at its defaults — 25 frames, 256px �
 do not need regenerating at cost. They need re-reading at game settings, which
 is the same videos and no credits.
 
-The defaults this tool sends are therefore 8 frames at 64px with `removeBg:
-"ultra"`, against the app's 25 at 256 with `"default"`. Eight is a walk cycle;
-25 frames is a two-second clip, because behind the API each animation is a
-generated video that gets sampled — which also explains why the app's idle
-sheet holds 25 near-identical poses.
+Frame COUNT is the free half of this. Behind the API each animation is a
+generated video that gets sampled, which is why the app's idle sheet holds 25
+near-identical poses; 32 covers about two gait cycles, and the cutter measures
+the real one (`framesPerCycle`) so playback maps one stride of travel onto one
+stride of animation whatever was sampled. `removeBg: "ultra"` is the AI
+removal and costs nothing over the app's `"default"`.
 
 That means the cutter needs none of its rescue machinery. `--grid` says the
 sheet already is a grid, so the work reduces to measuring where the figure sits
@@ -281,32 +283,60 @@ a settle-and-sleep clip is already a slumped man breathing, so the atlas cuts
 that stretch out as its own looping clip. Generation costs credits; slicing does
 not.
 
-### Resolution is the lever
+### Resolution: derive it, do not pick it
 
-The room paints at **three screen pixels per art pixel**. A character sheet
-whose figure is 244px tall is therefore *reduced* into the scene, and a reduced
-sprite comes out smoother than the backdrop it stands in. That is the whole of
-"she looks less pixelated than the scene" — it is not a style problem and no
-amount of prompting fixes it.
+This got it wrong in both directions before it got it right, and the wrong
+answers were both confident.
 
-`regenerate-spritesheets` fixes it for nothing. Re-extract the same generated
-videos at a `frameSize` that puts the figure at about a third of its drawn
-height, and the art is *magnified* with nearest-neighbour instead:
+**First: too fine.** The characters were drawn at roughly their sheet height,
+so one character art-pixel covered about one screen pixel while the backdrop's
+covered two. They looked smoother than the scene they stood in.
 
-    node tools/autosprite.mjs regen <characterId> --frames 32 --size 80
+**Then: far too coarse.** Correcting it, the room's grid was taken from
+`BLOCK = 3` in `pixelate.js` — a constant belonging to the retired procedural
+puppet, not to the painting — and the sheets were re-extracted at 80px to suit
+it. That is 3.2× below the character art's own grid, and the result was
+visibly grainy: a beautiful 1024px base image thrown away and the remains
+magnified. The same downsample-smooth-art mistake, for the third time in this
+directory, reached by arithmetic rather than by carelessness.
 
-Match the characters to each other, not to a number: the two here needed 80 and
-108, because Bonny sits smaller inside her frame than Grout does inside his.
-`tools/pixelness.mjs` measures whether a sheet is really at its stated
-resolution — edge density and soft-alpha share — and `figureH` in the cut
-manifest is the number to compare across a cast.
+Measure both grids. Neither is a matter of opinion:
 
-Two hazards come with it. Regeneration **adds** sheets rather than replacing
-them, so a character that has been re-extracted lists every kind twice and the
-newer one wins by timestamp, not by listing order. And the re-extraction leaves
-a soft-alpha halo — 30% of figure pixels at 80px — which the cutter's binary
-mask hard-thresholds away, so the packed atlas measures 0% soft and the edges
-stay hard.
+    node tools/pixel-grid.mjs assets/scene.jpg                       # the room
+    node tools/pixel-grid.mjs assets/cast/autosprite/grout/base.png  # the art
+
+The plate quantises at **2px** — a logical room of 640×360. Grout's base image
+quantises at **4px in 1024**, and at nothing else (grid 4 is the only candidate
+with lift above 1), so **256 is the character art's native frame size** and
+anything below it is discarded information rather than style.
+
+Those two numbers give the frame size by division, with nothing left to judge:
+
+    figure wanted on the sheet = drawn height / backdrop block   (÷ 2)
+    frameSize                  = that / how much of its frame the figure fills
+
+Grout is drawn 336 tall and fills ~95% of his frame: 336/2 = 168, /0.95 = 177,
+so **176**. Bonny is drawn 318 and fills ~71%: 318/2 = 159, /0.71 = 224, so
+**224**. Both are a mild reduction from native rather than a gutting, and both
+land the cast on the backdrop's own grid — `figureH` in the cut manifest comes
+back 168 and 159, exactly half the drawn heights.
+
+`regenerate-spritesheets` performs the re-extraction for nothing:
+
+    node tools/autosprite.mjs regen <characterId> --frames 32 --size 176
+
+The check that stops this recurring is in `tools/check.mjs`: it reads each
+actor's drawn height against its sheet's `figureH` at the depth it stands at
+and requires 2, near the front of the room. The console line reports the same
+ratio per character. Both read 2.00; at the sizes shipped before, they read
+1.25 and 1.33 and the step fails.
+
+Two hazards come with re-extraction. It **adds** sheets rather than replacing
+them, so a character re-extracted twice lists every kind three times and the
+newest wins by timestamp, not by listing order. And it leaves a soft-alpha
+halo, which the cutter's binary mask hard-thresholds away — the packed atlas
+measures 0% soft and the edges stay hard. `tools/pixelness.mjs` reports edge
+density and soft-alpha share for any sheet.
 
 ### Two characters, one filename
 

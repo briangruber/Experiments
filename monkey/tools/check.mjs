@@ -240,6 +240,22 @@ try {
     return c >= 0.7 && c <= 2.0;
   });
 
+  // The characters were shipped once at a third of the resolution their own
+  // art is drawn on, because the grid they were matched to was read off a
+  // retired constant instead of measured off the plate. Both figures now draw
+  // at twice their sheet height, which is the backdrop's own 2px block, and
+  // this is the assertion that says so — near the front of the room, where
+  // they spend the game and where the depth scale is ~1.
+  await step('the cast is drawn on the backdrop\'s pixel grid', async () => {}, () => {
+    const M = window.__monkey;
+    const px = { player: M.artPixel('player'), grout: M.artPixel('grout') };
+    window.__t.artPixel = px;
+    // Depth pulls this down toward the back of the room, which is depth doing
+    // its job; what must not happen is a character whose art pixel is smaller
+    // than the scene's anywhere near the camera.
+    return px.player >= 1.7 && px.player <= 2.3 && px.grout >= 1.7 && px.grout <= 2.3;
+  });
+
   // A character that changes size in a jump as it walks upstage is a fault the
   // playthrough cannot see and the player cannot miss. Sample the depth range
   // and require the change to be gradual.

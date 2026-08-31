@@ -389,9 +389,15 @@ console.log(voiced
   ? `[voice] ${Object.keys(voice.manifest.lines).length} recorded lines, measured timings`
   : '[voice] no recordings — line lengths estimated from text (run tools/voices.mjs)');
 console.log(`[art] backdrop: ${backdrop.kind} (${backdrop.note})`);
+// The art-pixel figure is the character's own, measured against the sheet it
+// came from — PIXEL_BLOCK belongs to the procedural puppet and reporting it
+// here described a code path the cast no longer takes. The backdrop's grid is
+// 2px, so these two numbers should read 2.
 console.log(`[cast] ${[player, grout].filter((a) => a.body).length} baked bodies, `
   + `${[player, grout].filter((a) => !a.body).length} drawn puppets, `
-  + `rendered at ${PIXEL_BLOCK}px art pixels`);
+  + [player, grout].map((a) => a.body
+      ? ` ${a.id} at ${((a.body.drawHeight ?? 0) / a.body.figureH).toFixed(2)}px art pixels`
+      : '').join(','));
 // Reported on the page as well as the console. A backdrop that quietly fell
 // back to the still looks almost right, and "almost right" is the one failure
 // nobody reports accurately.
@@ -481,6 +487,19 @@ window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => ro
         + Math.abs(before[i + 2] - after[i + 2]) > 24) diff++;
     }
     return diff;
+  },
+  // How many screen pixels one of the character's own art pixels covers, at
+  // the depth it is standing at. The backdrop is painted on a 2px grid
+  // (measured — tools/pixel-grid.mjs on the plate), so this wants to be 2:
+  // below it the character is being reduced and comes out grainy, above it the
+  // blocks are bigger than the scene's and it reads as pasted on. It is a
+  // number rather than a judgement precisely because judging it by eye is what
+  // produced an 80px sheet.
+  artPixel: (who) => {
+    const a = { player, grout }[who];
+    if (!a?.body) return 0;
+    return +((a.body.figureH ? (dock.SPRITE_CAST[who === 'player' ? 'player' : 'grout'].height
+      / a.body.figureH) * room.scaleAt(a.y) : 0)).toFixed(2);
   },
   // The shape the actor is drawn as right now, in room units. A pose change is
   // the one animation event that alters the silhouette rather than the frame,

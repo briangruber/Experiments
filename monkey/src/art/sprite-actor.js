@@ -67,6 +67,9 @@ export async function loadSpriteBody({ sheetUrl, manifest, height, face }) {
   return {
     kind: 'sprite',
     figureH,
+    // The height the room asks for, kept so callers can report the ratio
+    // between it and the sheet — which is the character's art-pixel size.
+    drawHeight: height,
 
     // How long a one-shot clip runs, in seconds — null for anything that
     // loops, since a loop has no end to wait for. The sequencer uses the
