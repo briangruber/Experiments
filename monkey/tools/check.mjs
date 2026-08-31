@@ -230,6 +230,15 @@ try {
       && M.drawn('player') > 40 && M.drawn('grout') > 40;
   });
 
+  // Legs that cycle four times a second under a walk is a fault no playthrough
+  // notices and every player does. A human walks a bit over one stride per
+  // second; anything past two is a sprint played at walking pace.
+  await step('the walk cycles at a human cadence', async () => {}, () => {
+    const c = window.__monkey.cadence('player');
+    window.__t.cadence = c;
+    return c >= 0.7 && c <= 2.0;
+  });
+
   // A character that changes size in a jump as it walks upstage is a fault the
   // playthrough cannot see and the player cannot miss. Sample the depth range
   // and require the change to be gradual.

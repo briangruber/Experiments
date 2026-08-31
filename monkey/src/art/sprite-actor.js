@@ -92,6 +92,12 @@ export async function loadSpriteBody({ sheetUrl, manifest, height, face }) {
       ctx.imageSmoothingEnabled = smooth;
       const dw = Math.max(1, Math.round(cellW * k));
       const dh = Math.max(1, Math.round(cellH * k));
+      // Nearest-neighbour is for MAGNIFYING pixel art: it keeps the blocks
+      // square instead of blurring them. It is the wrong filter for reducing,
+      // where it simply drops rows and columns and leaves a figure that looks
+      // coarser than the sheet it came from. So the filter follows the
+      // direction of the resample rather than being a property of the asset.
+      ctx.imageSmoothingEnabled = smooth || k < 1.05;
       ctx.drawImage(
         img, sx, sy, cellW, cellH,
         Math.round(-dw / 2), Math.round(-(feetY / cellH) * dh), dw, dh,

@@ -1,14 +1,14 @@
 {
-  "cellW": 41,
-  "cellH": 68,
+  "cellW": 106,
+  "cellH": 188,
   "cols": 50,
-  "figureH": 60,
-  "feetY": 64,
+  "figureH": 180,
+  "feetY": 184,
   "clips": {
     "idle": {
       "start": 0,
       "count": 25,
-      "framesPerCycle": 12,
+      "framesPerCycle": 25,
       "fps": 12
     },
     "walk": {

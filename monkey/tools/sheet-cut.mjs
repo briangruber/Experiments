@@ -149,11 +149,11 @@ await writeFile(outPng, Buffer.from(dataUrl.split(',')[1], 'base64'));
 // many the generator happened to sample.
 const atlasUri = 'data:image/png;base64,' + Buffer.from(dataUrl.split(',')[1], 'base64').toString('base64');
 for (const [name, c] of Object.entries(clips)) {
-  const r = await page.evaluate(([u, cl, cols, clip]) => window.__period(u, cl, cols, clip),
-    [atlasUri, cell, meas.frames.length, c]);
+  const r = await page.evaluate(([u, cl, cols, clip, fy, fh]) => window.__period(u, cl, cols, clip, fy, fh),
+    [atlasUri, cell, meas.frames.length, c, feetY, maxH]);
   c.framesPerCycle = r.period;
   console.log(`  clip ${name.padEnd(6)} ${c.count} frames, cycle every ${r.period}`
-    + ` (match ${(r.confidence * 100).toFixed(0)}%)`);
+    + `  [${r.signal}, ${r.peaks} peaks]`);
 }
 
 const manifest = {

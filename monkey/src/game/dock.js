@@ -70,10 +70,12 @@ export const SPRITE_CAST = {
     asset: 'bonny',
     sheet: './assets/cast/bonny-sheet.png',
     manifest: './assets/cast/bonny-sheet.json',
-    // The atlas figure is 60px; the loader rounds height/figureH * depth to a
-    // whole number, so this lands on a 3x zoom at mid-dock and steps to 2x
-    // upstage rather than resampling itself continuously.
-    height: 186,
+    // The atlas is cut at the source resolution — a 180px figure — so drawing
+    // her about this tall is very nearly 1:1. Cutting at a third and scaling
+    // back up was throwing away two thirds of the detail and then magnifying
+    // what survived, which is why she looked coarser in the room than on her
+    // own sheet.
+    height: 185,
   },
 };
 

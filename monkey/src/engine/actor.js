@@ -30,6 +30,16 @@ export class Actor {
     // than room units — so it is a separate slot, not a variant of `draw`.
     this.pixelDraw = opts.pixelDraw || null;
     this.height = opts.height || 165;    // room units, before depth scaling
+    // How far one full stride carries the character. A person's gait cycle —
+    // left foot down to left foot down — covers a little under their standing
+    // height, so deriving it from the figure keeps the cadence right whatever
+    // size the character is.
+    //
+    // This was a flat 46px, tuned by eye against nothing in particular, and at
+    // 180px/s it made the legs cycle about four times a second: a sprint
+    // played under a walk. The number has to relate to the body or it is only
+    // ever right for one character at one speed.
+    this.stride = opts.stride || this.height * 0.85;
     this.talkColor = opts.talkColor || '#ffe9b0';
     this.talkOffset = opts.talkOffset ?? -150;
 
@@ -103,7 +113,7 @@ export class Actor {
         const step = Math.min(budget, d);
         this.x += (dx / d) * step;
         this.y += (dy / d) * step;
-        this.phase += step / (46 * scale);   // one stride per ~46 scaled px
+        this.phase += step / (this.stride * scale);
         // Facing is chosen from the direction of travel, biased to the sides:
         // a character seen from behind cannot act, so a diagonal reads as a
         // profile unless it is steeply vertical.

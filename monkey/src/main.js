@@ -399,6 +399,14 @@ window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => ro
   // just as well — and did, for a whole release. Sampling the box the actor
   // claims to occupy and comparing it against the same box with the actor
   // hidden is the only question that cannot be answered by a null renderer.
+  // Strides per second at full speed. Depth cancels — both the distance
+  // travelled and the stride length scale with it — so this is one number per
+  // character, and a wrong one is the difference between walking and sprinting
+  // on the spot.
+  cadence: (who) => {
+    const a = { player, grout }[who];
+    return a ? +(a.speed / a.stride).toFixed(2) : 0;
+  },
   // The drawn height of an actor at a given depth. Rounding the depth scale to
   // a whole-number zoom made this jump by a third at one point on the dock —
   // a pop the player sees and no count catches.

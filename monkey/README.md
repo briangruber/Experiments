@@ -923,7 +923,14 @@ a guess about what it tests.
 Three faults, all from treating a sampled video as if it were an authored
 animation.
 
-**The walk ran at double speed.** AutoSprite's walk is a two-second video
+**The walk ran about four times too fast.** The stride length was a flat 46
+pixels — tuned by eye against nothing in particular — for a figure 175 pixels
+tall. At 180px/s that is 3.9 strides a second: a sprint played under a walk. A
+person's gait cycle covers a little under their standing height, so the stride
+is now `height * 0.85`, giving 1.28 strides a second. A constant that does not
+relate to the body is only ever right for one character at one speed.
+
+**The clip also held two strides.** AutoSprite's walk is a two-second video
 sampled into 25 frames, and 25 frames of walking is about *two* strides. The
 engine advances the walk phase one full clip per stride of travel, so her legs
 cycled twice per stride. `tools/sheet-cut.mjs` now measures each clip's period
@@ -952,3 +959,39 @@ That check samples the depth range and fails if adjacent samples differ by more
 than 14px; it was verified by restoring integer zoom, where it fails. Measured
 across the room the drawn height now runs 119px to 181px with a largest step of
 8px, against a 68px cliff before.
+
+## Measure the thing, not a proxy for it
+
+Cycle detection first differenced every frame against the first and took the
+strongest match. At `--down 3` it answered 12, correctly. At full resolution it
+answered 23 — because hair and coat folds differ between the first stride and
+the second even when the legs repeat exactly, so the best whole-frame match
+becomes the loop point rather than the gait period.
+
+**A measure that changes its answer with resolution is measuring the wrong
+thing.** Foot separation is the right thing: the width of the figure in the
+band just above the ground, which is wide at contact and narrow at pass. It
+peaks once per step, twice per stride, and does not care what the coat is
+doing. It reports 12 at both resolutions.
+
+An idle has no gait, so the signal is flat and every ripple in it reads as a
+peak — the first version duly told a standing pose it strode every six frames.
+The swing has to exceed 30% of the maximum before the peaks are trusted; below
+that the cycle is simply the clip's own length.
+
+## Cut at the resolution you will draw at
+
+She looked coarser in the room than on her own sheet, and the reason was that
+the atlas was cut at a third of source resolution and then magnified back up:
+180px of figure reduced to 60px and enlarged to 175px. Everything lost in the
+reduction was gone and the survivors became blocks.
+
+That came from applying this project's own asset-pack spec — 48px native —
+which is right for a hand-authored pixel sprite and wrong for detailed
+generated art. The atlas is now cut at source resolution and drawn near 1:1.
+
+The filter follows the direction of the resample rather than being a property
+of the asset: nearest-neighbour is for *magnifying* pixel art, where it keeps
+the blocks square; when reducing or drawing near 1:1 it just drops rows and
+columns, so bilinear is correct there. The atlas costs 712 KB and the bundle
+6.73 MB, which is the price of not throwing the detail away.

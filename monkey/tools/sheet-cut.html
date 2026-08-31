@@ -210,15 +210,24 @@ window.__verify = async (src, cell, cols, count) => {
   const sp = (a) => a.length ? Math.max(...a) - Math.min(...a) : 0;
   return { cells: feet.length, feetSpread: sp(feet), headSpread: sp(heads) };
 };
-// How many frames make one cycle? A generated walk is a video sampled at a
-// fixed rate, not a cycle authored to a frame count, so 25 frames may hold two
-// strides or one and a half. Playing all of them across one engine stride runs
-// the legs at whatever multiple that happens to be — which reads as a sprint.
+// How many frames make one cycle?
 //
-// The period is measurable: compare every frame against the first and take the
-// strongest match after the curve has risen. That is where the pose comes back
-// round.
-window.__period = async (src, cell, cols, clip) => {
+// A generated walk is a video sampled at a fixed rate, not a cycle authored to
+// a frame count, so 25 frames may hold two strides. Playing all of them across
+// one stride of travel runs the legs at whatever multiple that happens to be.
+//
+// The obvious measure — difference every frame against the first and find where
+// the picture comes back — does not work, and failed in a way worth recording.
+// At low resolution it answered 12, correctly. At full resolution it answered
+// 23, because hair and coat folds differ between the first stride and the
+// second even when the legs repeat exactly, so the best whole-frame match
+// becomes the loop point rather than the gait period. A measure that changes
+// its answer with resolution is measuring the wrong thing.
+//
+// Foot separation is the right thing: the width of the figure in the band just
+// above the ground. It is wide at contact, narrow at pass, and peaks once per
+// STEP — so twice per stride — regardless of what the coat is doing.
+window.__period = async (src, cell, cols, clip, feetY, figureH) => {
   const img = await new Promise((res, rej) => {
     const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src;
   });
@@ -228,27 +237,45 @@ window.__period = async (src, cell, cols, clip) => {
   g.imageSmoothingEnabled = false;
   g.clearRect(0, 0, c.width, c.height);
   g.drawImage(img, 0, 0);
-  const cellAt = (i) => g.getImageData((i % cols) * cell.w, ((i / cols) | 0) * cell.h, cell.w, cell.h).data;
-  const diff = (a, b) => {
-    let s = 0;
-    for (let i = 0; i < a.length; i += 4) {
-      const aa = a[i + 3] > 40, bb = b[i + 3] > 40;
-      if (aa !== bb) { s += 3; continue; }
-      if (!aa) continue;
-      s += (Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2])) / 255;
+
+  const band = Math.max(2, Math.round(figureH * 0.12));
+  const sep = [];
+  for (let k = 0; k < clip.count; k++) {
+    const f = clip.start + k;
+    const bx = (f % cols) * cell.w, by = ((f / cols) | 0) * cell.h;
+    const d = g.getImageData(bx, by + feetY - band, cell.w, band).data;
+    let lo = 1e9, hi = -1;
+    for (let y = 0; y < band; y++) for (let x = 0; x < cell.w; x++) {
+      if (d[(y * cell.w + x) * 4 + 3] > 40) { if (x < lo) lo = x; if (x > hi) hi = x; }
     }
-    return s;
-  };
-  const base = cellAt(clip.start);
-  const d = [];
-  for (let k = 0; k < clip.count; k++) d.push(diff(base, cellAt(clip.start + k)));
-  const max = Math.max(...d) || 1;
-  // Only look past the first real departure from frame 0, or the answer is 1.
-  let from = 1;
-  while (from < d.length && d[from] < max * 0.45) from++;
-  let best = -1, bestV = Infinity;
-  for (let k = from; k < d.length; k++) if (d[k] < bestV) { bestV = d[k]; best = k; }
-  return { period: best > 0 ? best : clip.count, confidence: +(1 - bestV / max).toFixed(2), curve: d.map((v) => +(v | 0)) };
+    sep.push(hi < 0 ? 0 : hi - lo + 1);
+  }
+
+  const max = Math.max(...sep) || 1;
+  const min = Math.min(...sep);
+  // An idle has no gait: the feet barely move, so the separation signal is
+  // flat and every ripple in it reads as a peak. Requiring a real swing before
+  // trusting the peaks is what stops a standing pose being told it strides
+  // every six frames.
+  const swing = (max - min) / max;
+  if (swing < 0.3) return { period: clip.count, peaks: 0, signal: `flat (swing ${(swing * 100).toFixed(0)}%)` };
+  const peaks = [];
+  for (let i = 0; i < sep.length; i++) {
+    const prev = sep[(i - 1 + sep.length) % sep.length], next = sep[(i + 1) % sep.length];
+    if (sep[i] >= prev && sep[i] >= next && sep[i] > max * 0.7) {
+      if (!peaks.length || i - peaks[peaks.length - 1] >= 3) peaks.push(i);
+    }
+  }
+  if (peaks.length >= 2) {
+    let gap = 0;
+    for (let i = 1; i < peaks.length; i++) gap += peaks[i] - peaks[i - 1];
+    const perStep = gap / (peaks.length - 1);
+    return { period: Math.max(2, Math.round(perStep * 2)), peaks: peaks.length, signal: 'foot separation' };
+  }
+  // A clip with no gait — an idle — has no peaks to count, and its cycle is
+  // simply its own length.
+  return { period: clip.count, peaks: peaks.length, signal: 'none (whole clip)' };
 };
+
 window.__ready = true;
 </script>
