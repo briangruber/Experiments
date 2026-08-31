@@ -448,7 +448,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b87';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b88';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -1639,6 +1639,12 @@ function frame(now) {
       foamW: get('boat.waterlineWidth'),
       wlLen: drawn * 0.5,
       wlBeam: Math.max(get('boat.beam') * get('boat.modelScale') * 0.5, 0.35),
+      // HER OWN SPEED, because the water cannot find it out any other way.
+      // uWakeSpeed is a hard 0 in wakeBridge -- correct, since the field we
+      // hand over is already shaped and every Abyssal shaping uniform is
+      // neutralised -- so the collar's speed gate was multiplied by zero and
+      // drew nothing at all.
+      speed: Math.abs(state.speed),
     } : undefined;
     // THE BOAT'S IMAGE IN THE WATER.
     //

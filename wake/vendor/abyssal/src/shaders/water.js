@@ -12,6 +12,11 @@ uniform float uHullPush, uHullRadius, uHullBow, uHullPlane;
 uniform float uHullCut, uHullCutLen, uHullCutBeam;
 uniform float uHullFoam, uHullFoamW;
 uniform float uHullWlLen, uHullWlBeam;
+// The hull's own speed. NOT uWakeSpeed: the lab hands the vendored water a
+// wake it has already shaped, so every Abyssal wake-shaping uniform including
+// that one is deliberately handed a neutral value -- uWakeSpeed is a hard 0.
+// Anything here that needs to know how fast she is going has to be told.
+uniform float uHullSpeed;
 uniform vec2  uHullCutPos;   // the hull's MIDDLE; uHullPos is its stem
 
 // THE HULL EXCLUDES WATER FROM THE SPACE IT OCCUPIES.
@@ -1187,8 +1192,8 @@ void main(){
       // has a great deal. Speed, not planing: a displacement boat at four
       // metres a second still carries a white bow wave, which is exactly what
       // the reference at slow speed shows.
-      float way = smoothstep(0.25, 2.0, abs(uWakeSpeed))
-                * (0.45 + 0.75 * smoothstep(1.0, 9.0, abs(uWakeSpeed)));
+      float way = smoothstep(0.25, 2.0, abs(uHullSpeed))
+                * (0.45 + 0.75 * smoothstep(1.0, 9.0, abs(uHullSpeed)));
       // Broken up, or it is an ellipse drawn round the boat, which is exactly
       // the tell that the arms had before their own break-up went in. Two
       // scales, so the edge is ragged as well as the body.
