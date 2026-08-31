@@ -210,5 +210,45 @@ window.__verify = async (src, cell, cols, count) => {
   const sp = (a) => a.length ? Math.max(...a) - Math.min(...a) : 0;
   return { cells: feet.length, feetSpread: sp(feet), headSpread: sp(heads) };
 };
+// How many frames make one cycle? A generated walk is a video sampled at a
+// fixed rate, not a cycle authored to a frame count, so 25 frames may hold two
+// strides or one and a half. Playing all of them across one engine stride runs
+// the legs at whatever multiple that happens to be — which reads as a sprint.
+//
+// The period is measurable: compare every frame against the first and take the
+// strongest match after the curve has risen. That is where the pose comes back
+// round.
+window.__period = async (src, cell, cols, clip) => {
+  const img = await new Promise((res, rej) => {
+    const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src;
+  });
+  const c = document.getElementById('c');
+  c.width = img.width; c.height = img.height;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.imageSmoothingEnabled = false;
+  g.clearRect(0, 0, c.width, c.height);
+  g.drawImage(img, 0, 0);
+  const cellAt = (i) => g.getImageData((i % cols) * cell.w, ((i / cols) | 0) * cell.h, cell.w, cell.h).data;
+  const diff = (a, b) => {
+    let s = 0;
+    for (let i = 0; i < a.length; i += 4) {
+      const aa = a[i + 3] > 40, bb = b[i + 3] > 40;
+      if (aa !== bb) { s += 3; continue; }
+      if (!aa) continue;
+      s += (Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2])) / 255;
+    }
+    return s;
+  };
+  const base = cellAt(clip.start);
+  const d = [];
+  for (let k = 0; k < clip.count; k++) d.push(diff(base, cellAt(clip.start + k)));
+  const max = Math.max(...d) || 1;
+  // Only look past the first real departure from frame 0, or the answer is 1.
+  let from = 1;
+  while (from < d.length && d[from] < max * 0.45) from++;
+  let best = -1, bestV = Infinity;
+  for (let k = from; k < d.length; k++) if (d[k] < bestV) { bestV = d[k]; best = k; }
+  return { period: best > 0 ? best : clip.count, confidence: +(1 - bestV / max).toFixed(2), curve: d.map((v) => +(v | 0)) };
+};
 window.__ready = true;
 </script>

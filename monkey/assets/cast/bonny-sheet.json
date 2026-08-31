@@ -8,11 +8,13 @@
     "idle": {
       "start": 0,
       "count": 25,
+      "framesPerCycle": 12,
       "fps": 12
     },
     "walk": {
       "start": 25,
       "count": 25,
+      "framesPerCycle": 12,
       "fps": 12
     }
   },

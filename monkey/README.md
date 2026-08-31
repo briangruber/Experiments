@@ -917,3 +917,38 @@ drawn.
 That assertion was verified by putting the bug back: it fails with the early
 return restored and passes without it. An assertion that has never failed is
 a guess about what it tests.
+
+## A generated clip is not a cycle
+
+Three faults, all from treating a sampled video as if it were an authored
+animation.
+
+**The walk ran at double speed.** AutoSprite's walk is a two-second video
+sampled into 25 frames, and 25 frames of walking is about *two* strides. The
+engine advances the walk phase one full clip per stride of travel, so her legs
+cycled twice per stride. `tools/sheet-cut.mjs` now measures each clip's period
+by differencing every frame against the first and taking the strongest match
+after the curve rises — 12 for both clips here — and writes it as
+`framesPerCycle`. The engine advances one *cycle* per stride, not one clip.
+
+**Idle barely moved.** It was driven from the walk phase, which advances with
+distance travelled; a character standing still travels none, so idle crawled on
+a trickle-charge of `dt * 0.6 * 0.35` — about a fifth of a cycle a second.
+Idle now runs on a clock at the manifest's frame rate. Distance for walking,
+time for standing: they are different quantities and were sharing a variable.
+
+**The character changed size in a jump.** Rounding the depth scale to a whole
+number keeps every art pixel square, which is right in principle. It was wrong
+here: a 60px figure at 3.1x crosses exactly one integer boundary inside the
+room's depth range, so she shrank by a third in a single step halfway up the
+dock. A visible pop is worse than slightly uneven pixels — and the scaling
+adventure games actually shipped was continuous. The scale is now continuous
+with only the destination size rounded to whole pixels, which still prevents
+the shimmer that sub-pixel destinations cause.
+
+    ok    the character scales smoothly with depth
+
+That check samples the depth range and fails if adjacent samples differ by more
+than 14px; it was verified by restoring integer zoom, where it fails. Measured
+across the room the drawn height now runs 119px to 181px with a largest step of
+8px, against a 68px cliff before.

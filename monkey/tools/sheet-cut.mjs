@@ -144,6 +144,18 @@ await mkdir(join(ROOT, 'assets/cast'), { recursive: true });
 const outPng = join(ROOT, `assets/cast/${NAME}-sheet.png`);
 await writeFile(outPng, Buffer.from(dataUrl.split(',')[1], 'base64'));
 
+// Measure each clip's cycle length off the packed atlas, so the engine can map
+// one stride of travel onto one stride of animation rather than onto however
+// many the generator happened to sample.
+const atlasUri = 'data:image/png;base64,' + Buffer.from(dataUrl.split(',')[1], 'base64').toString('base64');
+for (const [name, c] of Object.entries(clips)) {
+  const r = await page.evaluate(([u, cl, cols, clip]) => window.__period(u, cl, cols, clip),
+    [atlasUri, cell, meas.frames.length, c]);
+  c.framesPerCycle = r.period;
+  console.log(`  clip ${name.padEnd(6)} ${c.count} frames, cycle every ${r.period}`
+    + ` (match ${(r.confidence * 100).toFixed(0)}%)`);
+}
+
 const manifest = {
   cellW: cell.w, cellH: cell.h, cols: meas.frames.length,
   figureH: maxH, feetY,

@@ -230,6 +230,21 @@ try {
       && M.drawn('player') > 40 && M.drawn('grout') > 40;
   });
 
+  // A character that changes size in a jump as it walks upstage is a fault the
+  // playthrough cannot see and the player cannot miss. Sample the depth range
+  // and require the change to be gradual.
+  await step('the character scales smoothly with depth', async () => {}, () => {
+    const M = window.__monkey;
+    let worst = 0, prev = null;
+    for (let y = 530; y <= 710; y += 20) {
+      const h = M.spriteHeightAt('player', y);
+      if (prev !== null) worst = Math.max(worst, Math.abs(h - prev));
+      prev = h;
+    }
+    window.__t.scaleStep = worst;
+    return worst > 0 && worst <= 14;
+  });
+
   await step('walk to a clicked point on the floor', async () => {
     await click({ x: 700, y: 690 });
     await idle();

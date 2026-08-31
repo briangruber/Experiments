@@ -34,23 +34,42 @@ export async function loadSpriteBody({ sheetUrl, manifest, height, face }) {
   const frameFor = (actor) => {
     const walking = actor.state === 'walk';
     const c = clips[walking ? 'walk' : 'idle'] || clips.idle;
-    const t = walking ? actor.phase : actor.phase * 0.35;
-    const i = Math.floor(((t % 1) + 1) % 1 * c.count) % c.count;
-    return c.start + i;
+
+    if (walking) {
+      // Walk frames advance with distance travelled, so the feet stay in step
+      // with the ground at any speed. What they must advance by is one CYCLE
+      // per stride, not one clip: a generated walk is a video sampled at a
+      // fixed rate, and this one holds two strides in its twenty-five frames.
+      // Mapping the whole clip onto one stride ran her legs at double speed.
+      const per = c.framesPerCycle || c.count;
+      const i = Math.floor(((actor.phase % 1) + 1) % 1 * per) % c.count;
+      return c.start + i;
+    }
+
+    // Idle runs on a clock rather than on distance, because an idle character
+    // travels none — driving it from the walk phase left it advancing at a
+    // fifth of a cycle a second, which reads as a freeze rather than a breath.
+    const fps = c.fps || 10;
+    const i = Math.floor((performance.now() / 1000) * fps) % (c.framesPerCycle || c.count);
+    return c.start + (i % c.count);
   };
 
   return {
     kind: 'sprite',
     figureH,
 
-    // Pixel art has to land on whole pixels. The room's depth scale is a
-    // continuous number, so it is rounded to an integer zoom: a sprite walking
-    // upstage steps 3x, 2x, 1x rather than sliding through 2.58x and
-    // resampling itself every frame. Discrete size steps with depth is what
-    // these games actually did, and it is the difference between a sprite and
-    // a photograph of one.
+    // Depth scaling, and a correction. Rounding the zoom to a whole number
+    // keeps every art pixel square, which is right in principle and wrong
+    // here: with a 60px figure at 3.1x the room's depth range crosses exactly
+    // one boundary, so the character changed size by a third in a single step
+    // halfway up the dock. A visible pop is worse than slightly uneven pixels,
+    // and the scaling adventure games actually shipped was continuous.
+    //
+    // So the scale is continuous and only the DESTINATION SIZE is rounded to
+    // whole pixels — which is what stops the sprite shimmering as it walks
+    // without quantising it into jumps.
     drawAt(ctx, actor, x, y, roomScale) {
-      const zoom = Math.max(1, Math.round((height / figureH) * roomScale));
+      const k = (height / figureH) * roomScale;
       const f = frameFor(actor);
       const sx = (f % cols) * cellW, sy = ((f / cols) | 0) * cellH;
       const flip = actor.facing === 'left' ? -1 : 1;
@@ -59,7 +78,7 @@ export async function loadSpriteBody({ sheetUrl, manifest, height, face }) {
       ctx.translate(Math.round(x), Math.round(y));
 
       if (shadow) {
-        const r = figureH * zoom * 0.22;
+        const r = figureH * k * 0.22;
         const g = ctx.createRadialGradient(0, 0, r * 0.1, 0, 0, r);
         g.addColorStop(0, 'rgba(0,0,0,0.40)');
         g.addColorStop(0.6, 'rgba(0,0,0,0.13)');
@@ -71,10 +90,11 @@ export async function loadSpriteBody({ sheetUrl, manifest, height, face }) {
       ctx.scale(flip, 1);
       const was = ctx.imageSmoothingEnabled;
       ctx.imageSmoothingEnabled = smooth;
+      const dw = Math.max(1, Math.round(cellW * k));
+      const dh = Math.max(1, Math.round(cellH * k));
       ctx.drawImage(
         img, sx, sy, cellW, cellH,
-        Math.round(-cellW * zoom / 2), Math.round(-feetY * zoom),
-        cellW * zoom, cellH * zoom,
+        Math.round(-dw / 2), Math.round(-(feetY / cellH) * dh), dw, dh,
       );
       ctx.imageSmoothingEnabled = was;
 
@@ -84,7 +104,7 @@ export async function loadSpriteBody({ sheetUrl, manifest, height, face }) {
       const h = heads[f];
       if (h && face) {
         const r = height * 0.055;
-        ctx.translate((h.x - cellW / 2) * zoom + r * 0.30, (h.y - feetY) * zoom - r * 1.05);
+        ctx.translate((h.x - cellW / 2) * k + r * 0.30, (h.y - feetY) * k - r * 1.05);
         drawFace(ctx, face, actor, r);
       }
       ctx.restore();

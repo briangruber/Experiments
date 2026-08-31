@@ -399,6 +399,28 @@ window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => ro
   // just as well — and did, for a whole release. Sampling the box the actor
   // claims to occupy and comparing it against the same box with the actor
   // hidden is the only question that cannot be answered by a null renderer.
+  // The drawn height of an actor at a given depth. Rounding the depth scale to
+  // a whole-number zoom made this jump by a third at one point on the dock —
+  // a pop the player sees and no count catches.
+  spriteHeightAt: (who, y) => {
+    const a = { player, grout }[who];
+    if (!a) return 0;
+    const c = document.querySelector('canvas');
+    const g = c.getContext('2d');
+    const ox = a.x, oy = a.y;
+    a.x = 640; a.y = y;
+    g.clearRect(0, 0, VIEW.w, VIEW.h);
+    a.render(g, room);
+    const d = g.getImageData(500, 200, 280, 520).data;
+    let top = 1e9, bot = -1;
+    for (let yy = 0; yy < 520; yy++) {
+      for (let xx = 0; xx < 280; xx++) {
+        if (d[(yy * 280 + xx) * 4 + 3] > 40) { if (yy < top) top = yy; if (yy > bot) bot = yy; break; }
+      }
+    }
+    a.x = ox; a.y = oy;
+    return bot < 0 ? 0 : bot - top + 1;
+  },
   drawn: (who) => {
     const a = { player, grout }[who];
     if (!a) return 0;
