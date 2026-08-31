@@ -1,6 +1,6 @@
 {
   "cellW": 119,
-  "cellH": 143,
+  "cellH": 145,
   "cols": 96,
   "figureH": 135,
   "feetY": 139,
@@ -402,7 +402,7 @@
       "start": 32,
       "count": 32,
       "framesPerCycle": 15,
-      "stride": 108,
+      "stride": 138,
       "fps": 12
     },
     "run": {

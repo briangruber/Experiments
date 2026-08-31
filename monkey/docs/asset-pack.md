@@ -368,59 +368,91 @@ for all four.
 ### Which end of the character to hold still
 
 The cutter's two rules are "feet on one row" and "the figure on one column".
-The second needs an anchor, and the anchor was the head everywhere, on the
-reasoning that a swinging arm moves the bounding box without moving the
-character.
+Both anchors were wrong, in different ways, and both were found by measuring
+rather than looking.
 
-That is true of a walk and false of an idle. Measured on the raw sheets:
+**The column.** The head was the anchor everywhere, on the reasoning that a
+swinging arm moves the bounding box without moving the character. True of a
+walk; false of anything standing still. Grout's idle sways his head 8px and
+does not move his feet at all, so pinning the head pushed his whole body back
+and forth and gave a man standing still a shuffle.
 
-    grout idle    head sways 8.0px    feet move 0.0px
-    grout walk    head sways 1.5px    feet move 9.0px
+The first rule tried was "anchor on whichever band varies least", which is not
+it either: Bonny's idle has a steadier head than feet, so it chose the head and
+left her feet drifting 4px on screen. The rule that holds is about what the
+clip IS. A clip with a gait moves its feet on purpose and must be pinned by the
+head; a clip without one has feet that are standing on the dock and must be
+pinned by them. Whether a clip has a gait is read off its own frames — the
+figure's width just above the ground swings through a walk and is flat through
+an idle — and the cutter prints which it found:
 
-Grout's idle sways his head and does not move his feet at all. Pinning the
-head therefore pushed his whole body back and forth by up to 8px a frame — a
-man standing still, shuffling. Pinning the feet instead would wreck the walk,
-where the feet are *supposed* to move and the head is the still part.
+    idle    no gait    (feet swing 0%)  -> anchor on the foot
+    walk    has a gait (feet swing 70%) -> anchor on the head
 
-Neither is right in general and both are measurable, so `sheet-cut.mjs`
-measures per clip and anchors on whichever band varies least in the source. It
-prints the choice and the two numbers it chose between:
+**The row.** Each frame's LOWEST pixel was pinned. Background removal leaves
+specks, so that is not the same as where the character stands. Printing the
+opaque pixels per row of Grout's idle showed it exactly:
 
-    anchor idle    on the foot  (head sways 1.64px, feet 0.95px)
-    anchor walk    on the head  (head sways 4.16px, feet 5.18px)
+    row       144 145 146 147 148 149 150 151
+    frame  0   16  15  14  13  11   7   6   1
+    frame  6   42  31  24  15  15  14  13  11
 
-`check.mjs` measures the outcome on the canvas — stepping the clip by hand so
-the answer is the same every run — and requires the idle to hold within 2px
-while the walk moves more than 8. The walk half is not decoration: a drift
-measure that read zero everywhere would pass the idle assertion while proving
-nothing. Idle reads 2px and walk 42.5px; anchoring the idle on the head fails
-the step.
+A single stray pixel in frame 0 was pinned level with an eleven-pixel boot toe
+in frame 6, so his boots sat three rows lower for twenty-six frames of the loop
+and hopped up for the other six — once every two and a half seconds. The ground
+row is now found by walking up from the bottom until ten opaque pixels have
+been passed, which is far more than removal noise and far less than a boot. The
+residual is one row on one frame of thirty-two.
 
-### Stride is measured too, and running comes free
+`check.mjs` measures both axes on the canvas, stepping each clip by hand so the
+answer is the same every run, and measures the WALK with the same call —
+requiring it to move. A drift measure that read zero everywhere would pass the
+still-clip assertions while proving nothing. Reverting either fix fails the
+step.
 
-`__period` already measures foot separation frame by frame to find the gait
-cycle. The same signal gives the stride length: at full contact the figure's
-width in the band above the ground is a step plus a foot, at pass it is about
-a foot, so `(max - min) × 2` is one stride — the same foot down to the same
-foot down — in source pixels. The cutter writes it into each clip and the
-engine scales it by however tall the character is drawn.
+### Stride: measured, and then not used
 
-This replaced `height * 0.85`, where `height` was the vector puppet's and had
-stopped describing anything once the sprites were drawn at nearly twice it.
-The result was foot-skate: the legs stepped further than the ground moved.
-The measured numbers land where a body actually is —
+`__period` measures foot separation frame by frame to find the gait cycle, and
+the same signal appears to give the stride: the figure's width in the band
+above the ground is a step plus a foot at contact and about a foot at pass, so
+`(max - min) × 2` should be one stride. The engine used it to advance the walk
+phase, so that one cycle of animation covered one stride of ground.
 
-    bonny walk   108px on a 135px figure   0.80 x height
-    bonny run    198px on a 135px figure   1.47 x height
-    grout walk   106px on a 148px figure   0.72 x height   (a heavy old man)
+It does not work, and the measurement says why. Sweeping the assumed stride
+across a 3.6× range moves the planted-foot drift only between 3.4 and 4.7
+pixels a frame — a flat curve with no minimum — and re-running the same
+measurement after a re-cut returned a stride 28% different. Tracing the rear
+edge of the foot band through the cycle shows no plateau: the rearmost foot
+never holds still.
 
-— which is the textbook walking stride and the textbook running one, from a
-sprite sheet, without anybody choosing a number.
+The reason is in the source. A video model animates a character that LOOKS like
+it is walking; it does not put a foot down and leave it there while the body
+passes over. There is no stance phase to lock to, so no stride locks it.
 
-Running then needs no tuning at all. A double-click sets `running` on the
-actor; the body picks `clips.run` if the character has one, the stride comes
-from that clip's own feet, and the pace is a single multiplier. At 2.2× walking
-pace the run comes out at almost exactly one stride per second — the same
-cadence as the walk over much more ground, which is what running is. A cast
-member with no run sheet just moves faster on their walk cycle, which reads as
-hurrying rather than as broken.
+So what the eye actually judges is set directly: strides per second, per gait.
+1.25 for the walk, 1.7 for the run. Depth cancels — both the distance travelled
+and the stride scale with it — so the legs cycle at the same rate wherever the
+character is standing. The measured stride is still printed at cut time and
+kept in the manifest as information about the art; it is simply not what paces
+the character.
+
+### Running
+
+A double-click on the floor runs. It is detected on pointerdown rather than
+through the `dblclick` event, because every other click in this game is decided
+on pointerdown and mixing the two would have the second click arrive after the
+walk it is upgrading has already started.
+
+Pace is three times walking. Two and a bit was already twice as fast to arrive
+and still did not read as running, because the run clip's long stride left the
+legs cycling at nearly walking rate — the leg cadence, not the ground speed, is
+what makes a run look like one. At 3× it comes out at 545px/s against 175, and
+1.7 strides a second against 1.25.
+
+The check drives this through the real mouse. The first version called `walkTo`
+directly and so proved only that the plumbing worked; it could not have caught
+a double-click that never reached the actor, which is the failure that was
+actually reported. It also has to pick a destination clear of Grout — he is an
+actor with his own hit box rather than a declared hotspot, so the harness's
+free-floor finder walks right into him, opens the verb coin and measures a pace
+of zero.

@@ -19,6 +19,11 @@
 // neighbour's sliver is inside the slice but is not connected to the centre
 // within it, so it is dropped — and the figure's own raised arm is kept even
 // though it reaches the slice edge.
+// How much of a character has to be passed, walking up from the bottom of a
+// frame, before the row counts as the ground it stands on. Ten pixels is far
+// more than background-removal noise and far less than a boot.
+const GROUND_QUOTA = 10;
+
 window.__cut = async (src, opts) => {
   const img = await new Promise((res, rej) => {
     const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src;
@@ -87,7 +92,35 @@ window.__cut = async (src, opts) => {
       for (let y = ya; y <= yb; y++) for (let x = x0; x <= x1; x++) if (seen[y * W + x]) { if (x < a) a = x; if (x > b) b = x; }
       return b >= a ? (a + b) / 2 : (x0 + x1) / 2;
     };
-    frames.push({ x0, x1, y0, y1, h: y1 - y0 + 1,
+    const MASK = (px, py) => seen[py * W + px];
+      // Where the character stands, as opposed to where its lowest pixel is.
+      //
+      // Background removal leaves specks: a single opaque pixel below the boot
+      // in one frame, eleven in the next. Pinning "the lowest pixel" pins a
+      // speck to the same row as a boot toe, and the boots then sit three rows
+      // lower in most frames and hop up in the rest — which is what Grout's
+      // idle was doing once a loop. So the ground row is the lowest row that
+      // carries a real amount of character, found by walking up from the
+      // bottom until enough opaque pixels have been passed to be a foot.
+      const groundRow = () => {
+        let seen = 0;
+        for (let y = y1; y >= y0; y--) {
+          for (let px = x0; px <= x1; px++) if (MASK(px, y)) seen++;
+          if (seen >= GROUND_QUOTA) return y;
+        }
+        return y1;
+      };
+      // How wide the figure is just above the ground. Flat across an idle,
+      // swinging across a walk — which is how a clip's own frames say whether
+      // it has a gait, before anything has been packed.
+      const footWidth = () => {
+        const band = Math.max(2, Math.round((y1 - y0) * 0.12));
+        let a = 1e9, b = -1;
+        for (let y = Math.max(y0, y1 - band); y <= y1; y++)
+          for (let px = x0; px <= x1; px++) if (MASK(px, y)) { if (px < a) a = px; if (px > b) b = px; }
+        return b >= a ? b - a + 1 : 0;
+      };
+    frames.push({ x0, x1, y0, y1, h: y1 - y0 + 1, groundY: groundRow(), footW: footWidth(),
       headCx: cxIn(0, 0.12), footCx: cxIn(0.92, 1), mask: Array.from(seen) });
   }
   window.__state = { W, H, d: Array.from(d), frames };
@@ -150,7 +183,35 @@ window.__grid = async (src, opts) => {
         for (let y = ya; y <= yb; y++) for (let x = x0; x <= x1; x++) if (mask[y * W + x]) { if (x < a) a = x; if (x > b) b = x; }
         return b >= a ? (a + b) / 2 : (x0 + x1) / 2;
       };
-      frames.push({ x0, x1, y0, y1, h: y1 - y0 + 1,
+      const MASK = (px, py) => mask[py * W + px];
+      // Where the character stands, as opposed to where its lowest pixel is.
+      //
+      // Background removal leaves specks: a single opaque pixel below the boot
+      // in one frame, eleven in the next. Pinning "the lowest pixel" pins a
+      // speck to the same row as a boot toe, and the boots then sit three rows
+      // lower in most frames and hop up in the rest — which is what Grout's
+      // idle was doing once a loop. So the ground row is the lowest row that
+      // carries a real amount of character, found by walking up from the
+      // bottom until enough opaque pixels have been passed to be a foot.
+      const groundRow = () => {
+        let seen = 0;
+        for (let y = y1; y >= y0; y--) {
+          for (let px = x0; px <= x1; px++) if (MASK(px, y)) seen++;
+          if (seen >= GROUND_QUOTA) return y;
+        }
+        return y1;
+      };
+      // How wide the figure is just above the ground. Flat across an idle,
+      // swinging across a walk — which is how a clip's own frames say whether
+      // it has a gait, before anything has been packed.
+      const footWidth = () => {
+        const band = Math.max(2, Math.round((y1 - y0) * 0.12));
+        let a = 1e9, b = -1;
+        for (let y = Math.max(y0, y1 - band); y <= y1; y++)
+          for (let px = x0; px <= x1; px++) if (MASK(px, y)) { if (px < a) a = px; if (px > b) b = px; }
+        return b >= a ? b - a + 1 : 0;
+      };
+      frames.push({ x0, x1, y0, y1, h: y1 - y0 + 1, groundY: groundRow(), footW: footWidth(),
         headCx: cxIn(0, 0.12), footCx: cxIn(0.92, 1), mask: Array.from(mask) });
     }
   }
@@ -179,7 +240,9 @@ window.__pack = (cell, out) => {
     // — see __grid.
     const anchor = f.anchor === 'foot' ? f.footCx : f.headCx;
     const ox = Math.round(cx + cell.w / 2 - (anchor - f.x0)) - f.x0;
-    const oy = Math.round(cy + out.feetY - (f.y1 - f.y0) - 1) - f.y0;
+    // The GROUND row, not the lowest pixel — a speck below the boot is not
+    // where the character is standing.
+    const oy = Math.round(cy + out.feetY - (f.groundY - f.y0) - 1) - f.y0;
     const { W, d } = sources[f.src || 0];
     for (let y = f.y0; y <= f.y1; y++) {
       for (let x = f.x0; x <= f.x1; x++) {
@@ -220,7 +283,16 @@ window.__verify = async (src, cell, cols, count) => {
       if (x < x0) x0 = x; if (x > x1) x1 = x;
     }
     if (bot < 0) continue;
-    feet.push(bot - by);
+    // Measured the same way the packer aligned it: the row where enough of the
+    // character has been passed to be a foot. Checking the lowest pixel
+    // instead reported perfect alignment on an atlas whose boots bobbed three
+    // rows, because the lowest pixel was sometimes a single speck.
+    let seenPx = 0, ground = bot;
+    for (let y = bot; y >= top; y--) {
+      for (let x = bx; x < bx + cell.w; x++) if (A(x, y) > 40) seenPx++;
+      if (seenPx >= 10) { ground = y; break; }
+    }
+    feet.push(ground - by);
     const cxIn = (t0, t1) => {
       let a = 1e9, b = -1;
       const ya = top + Math.round((bot - top) * t0), yb = top + Math.round((bot - top) * t1);

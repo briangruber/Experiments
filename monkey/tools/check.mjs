@@ -256,51 +256,90 @@ try {
     return px.player >= 1.7 && px.player <= 2.3 && px.grout >= 1.7 && px.grout <= 2.3;
   });
 
-  // Grout stood on the spot with shuffling feet, because the atlas pinned every
-  // frame's head to one column and his idle sways its head 8px while his feet
-  // do not move at all in the source. The cutter now anchors on whichever end
-  // is steadier in that clip, and this measures the result on the canvas.
+  // Feet that stay where they were put.
   //
-  // The walk is measured with the same call and must come out LARGE. A drift
-  // measure that reads zero everywhere would pass this step while proving
-  // nothing, and a sprite that renders one frame forever is exactly the kind of
-  // thing that would produce it.
-  await step('the idle keeps its feet still  [and the walk does not]', async () => {}, () => {
+  // Two separate faults lived here. Horizontally, the atlas pinned every
+  // frame's head to one column — right for a walk, wrong for a character
+  // standing still whose head sways, which slid the whole body and gave Grout
+  // a shuffle. Vertically, it pinned each frame's LOWEST pixel, and background
+  // removal leaves specks: a single stray pixel in one frame was pinned level
+  // with an eleven-pixel boot toe in the next, so his boots sat three rows
+  // lower for most of the loop and hopped up for the rest.
+  //
+  // Both are measured on the canvas, stepping each clip by hand so the answer
+  // is the same every run, and the walk is measured by the same call and must
+  // come out LARGE — a drift measure that read zero everywhere would pass the
+  // still-clip assertions while proving nothing.
+  await step('still clips keep their feet still  [and the walk does not]', async () => {}, () => {
     const M = window.__monkey;
-    const d = { groutIdle: M.footDrift('grout', 'idle'), groutWalk: M.footDrift('grout', 'walk') };
-    window.__t.footDrift = d;
-    return d.groutIdle >= 0 && d.groutIdle <= 2 && d.groutWalk > 8;
+    const d = {
+      groutIdle: M.footTrack('grout', 'idle'),
+      groutDrink: M.footTrack('grout', 'drink'),
+      playerIdle: M.footTrack('player', 'idle'),
+      groutWalk: M.footTrack('grout', 'walk'),
+    };
+    window.__t.footTrack = d;
+    const still = (t) => t.x >= 0 && t.x <= 2 && t.y >= 0 && t.y <= 2;
+    return still(d.groutIdle) && still(d.groutDrink) && still(d.playerIdle)
+      && d.groutWalk.x > 8;
   });
 
-  // Double-clicking the floor runs: a different clip, a longer stride and more
-  // ground per second. Asserted as behaviour on the actor rather than as a
-  // pixel count, because what can break here is the plumbing — a run flag that
-  // never reaches the body, or a stride that stays the walk's and leaves her
-  // sprinting on the spot.
-  await step('double-click runs  [run clip, longer stride, more ground]', async () => {
-    await page.evaluate(() => {
-      const M = window.__monkey;
-      const p = M.actors.player;
-      M.g.seq.cancel();
-      p.stop();
-      p.x = 700; p.y = 690;
-      p.walkTo(M.room().walk, 300, 660, null, true);
-      window.__t.runStart = p.x;
-      for (let i = 0; i < 30; i++) p.update(1 / 60, M.room());
-      window.__t.run = {
-        running: p.running,
-        clipIsRun: p.body.strideFor('run') > p.body.strideFor('walk'),
-        cadence: M.cadence('player', 'run'),
-        travelled: +(window.__t.runStart - p.x).toFixed(1),
-      };
-      p.stop();
-    });
+  // Double-clicking the floor runs.
+  //
+  // Driven through the real mouse, because the first version of this step
+  // called walkTo directly and so proved only that the plumbing worked — it
+  // could not have caught a double-click that never reached the actor, which
+  // is exactly what was reported. Pace is sampled over a fixed interval rather
+  // than timed to arrival, which would depend on where the walk had got to.
+  await step('double-click runs  [through the mouse, 2x the pace]', async () => {
+    // A destination that is floor and is not Grout. `freeFloor` only avoids
+    // declared hotspots; the harbourmaster is an actor with his own hit box,
+    // and he stands at the left end of the dock — so the first version of this
+    // clicked him, opened the verb coin and measured a pace of zero.
+    const target = (left) => T((l) => {
+      const M = window.__monkey, room = M.room(), g = M.actors.grout;
+      for (const y of [700, 690, 712]) {
+        for (const sx of (l ? [420, 460, 500, 540] : [1170, 1130, 1080])) {
+          const rx = sx + room.camX;
+          if (!room.walk.walkable(rx, y)) continue;
+          if (room.hotspotAt(rx, y)) continue;
+          // Clear of the harbourmaster's hit box, which is about 60px either side.
+          if (Math.abs(rx - g.x) < 160) continue;
+          return { x: sx, y };
+        }
+      }
+      return null;
+    }, left);
+
+    const [from, to] = [await target(false), await target(true)];
+    if (!from || !to) throw new Error('no clear floor to cross');
+
+    // Both trials run the identical route from the identical start, so the
+    // only difference between them is the second click.
+    const paceOf = async (double) => {
+      await page.evaluate(() => { window.__monkey.seq.cancel(); window.__monkey.actors.player.stop(); });
+      await click(from, false);
+      await idle();
+      await click(to, false);
+      if (double) { await page.waitForTimeout(110); await click(to, false); }
+      await page.waitForFunction(() => window.__monkey.actors.player.state === 'walk', null, { timeout: 4000 });
+      const a = await T(() => window.__monkey.actors.player.x);
+      await page.waitForTimeout(400);
+      const b = await T(() => ({ x: window.__monkey.actors.player.x, running: window.__monkey.actors.player.running }));
+      await page.evaluate(() => window.__monkey.actors.player.stop());
+      return { pace: Math.round(Math.abs(a - b.x) / 0.4), running: b.running };
+    };
+    const walked = await paceOf(false);
+    const ran = await paceOf(true);
+    // These run in node; the assertion below runs in the page, so the results
+    // have to be handed across rather than assigned to a `window` that does
+    // not exist out here.
+    await page.evaluate((v) => { window.__t.walked = v.walked; window.__t.ran = v.ran; }, { walked, ran });
     await idle();
   }, () => {
-    const r = window.__t.run;
-    // Half a second of running has to cover more ground than half a second of
-    // walking would (180px/s * 0.5 = 90), at a cadence a person could hold.
-    return r.running && r.clipIsRun && r.travelled > 120 && r.cadence >= 0.7 && r.cadence <= 2.0;
+    const w = window.__t.walked, r = window.__t.ran;
+    return !w.running && r.running && r.pace > w.pace * 2
+      && window.__monkey.cadence('player', 'run') > window.__monkey.cadence('player', 'walk');
   });
 
   // A character that changes size in a jump as it walks upstage is a fault the
@@ -386,8 +425,9 @@ try {
 // alive and printed at the end. A step that says "ok" and nothing else is a
 // step nobody can sanity-check.
 const m = errors.length ? {} : await page.evaluate(() => ({
-  cadence: window.__t.cadence, run: window.__t.run, artPixel: window.__t.artPixel,
-  footDrift: window.__t.footDrift, scaleStep: window.__t.scaleStep, pose: window.__t.pose,
+  cadence: window.__t.cadence, runCadence: window.__monkey.cadence('player', 'run'),
+  walked: window.__t.walked, ran: window.__t.ran, artPixel: window.__t.artPixel,
+  footTrack: window.__t.footTrack, scaleStep: window.__t.scaleStep, pose: window.__t.pose,
 }));
 
 await browser.close();
@@ -399,8 +439,10 @@ if (errors.length) {
   process.exit(1);
 }
 console.log(`measured: art pixel player ${m.artPixel?.player}, grout ${m.artPixel?.grout}`);
-console.log(`          walk ${m.cadence} strides/s; run ${m.run?.cadence} strides/s`
-  + `, ${m.run?.travelled}px covered in half a second`);
-console.log(`          foot drift: idle ${m.footDrift?.groutIdle}px, walk ${m.footDrift?.groutWalk}px`);
+console.log(`          walk ${m.cadence} strides/s at ${m.walked?.pace}px/s;`
+  + ` run ${m.runCadence} strides/s at ${m.ran?.pace}px/s`);
+console.log(`          foot drift x/y: grout idle ${m.footTrack?.groutIdle?.x}/${m.footTrack?.groutIdle?.y}px,`
+  + ` player idle ${m.footTrack?.playerIdle?.x}/${m.footTrack?.playerIdle?.y}px,`
+  + ` grout walk ${m.footTrack?.groutWalk?.x}/${m.footTrack?.groutWalk?.y}px`);
 console.log(`          depth step ${m.scaleStep}px; asleep box ${m.pose?.w}x${m.pose?.h}\n`);
 console.log(`completed the room: ${steps.length}/${steps.length} steps, no page errors`);

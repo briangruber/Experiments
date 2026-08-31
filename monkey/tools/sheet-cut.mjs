@@ -101,20 +101,23 @@ for (const source of SOURCES) {
     + `${source.clip ? `  [clip ${source.clip}]` : ''}  [${GRID ? 'uniform grid ' + GRID : 'connectivity'}]`);
 }
 
-// Which end of the character to hold still, decided per clip rather than
-// assumed for the whole atlas.
+// Which end of the character to hold still, and which frames to keep.
 //
-// The head was the anchor everywhere, on the reasoning that a swinging arm
-// moves the bounding box without moving the character. That is true of a walk
-// and false of an idle: Grout's idle sways his head 8px while his feet do not
-// move at all in the source, so anchoring on the head pushed his whole body
-// back and forth and gave a man standing still a shuffle. Anchoring on the
-// feet instead would break the walk, where the feet are supposed to move 9px
-// and the head does not.
+// ANCHOR. The head was the anchor everywhere, on the reasoning that a swinging
+// arm moves the bounding box without moving the character. That is true of a
+// walk and false of everything else: Grout's idle sways his head 8px while his
+// feet do not move at all, so anchoring on the head pushed his whole body back
+// and forth and gave a man standing still a shuffle.
 //
-// Neither is right in general and both are measurable, so the tool measures.
-// The band that varies least in the source is the part of the character that
-// is genuinely stationary in that clip, and that is the part to nail down.
+// The first attempt at a rule was "anchor on whichever band varies least",
+// which is not quite it either — Bonny's idle has a steadier head than feet,
+// so it chose the head and left her feet drifting 4px on screen. The rule that
+// holds is about what the clip IS: a clip with a gait moves its feet on
+// purpose and must be pinned by the head; a clip without one has feet that are
+// standing on the dock and must be pinned by them. Whether a clip has a gait
+// is read off its own frames — the figure's width just above the ground swings
+// through a walk and is flat through an idle.
+//
 const sd = (a) => {
   if (a.length < 2) return 0;
   const m = a.reduce((x, v) => x + v, 0) / a.length;
@@ -123,18 +126,23 @@ const sd = (a) => {
 for (const seg of segments) {
   const mine = meas.frames.slice(seg.from, seg.to);
   if (!mine.length) continue;
-  const head = sd(mine.map((f) => f.headCx - f.x0));
-  const foot = sd(mine.map((f) => f.footCx - f.x0));
-  const pick = foot < head ? 'foot' : 'head';
+  const label = seg.clip || 'frames';
+
+  const w = mine.map((f) => f.footW);
+  const hi = Math.max(...w) || 1;
+  const swing = (hi - Math.min(...w)) / hi;
+  const gait = swing >= 0.3;
+  const pick = gait ? 'head' : 'foot';
   for (const f of mine) f.anchor = pick;
-  console.log(`  anchor ${(seg.clip || 'frames').padEnd(7)} on the ${pick}`
-    + `  (head sways ${head.toFixed(2)}px, feet ${foot.toFixed(2)}px)`);
+  console.log(`  ${label.padEnd(7)} ${gait ? 'has a gait' : 'no gait   '} (feet swing ${(swing * 100).toFixed(0)}%)`
+    + ` -> anchor on the ${pick}`);
+
 }
 await page.evaluate((anchors) => {
   window.__state.frames.forEach((f, i) => { f.anchor = anchors[i]; });
 }, meas.frames.map((f) => f.anchor));
 
-// Slices at the ends of a sheet catch stray artefacts — a few pixels of a
+// Slices at the ends of a sheet catch stray artefacts// Slices at the ends of a sheet catch stray artefacts — a few pixels of a
 // light bloom, half a figure the model added past the eighth — and a cell
 // holding four pixels is worse than no cell. Anything far off the median
 // height is not a frame, and saying which were dropped is the difference
@@ -182,8 +190,13 @@ for (const [i, f] of meas.frames.entries()) {
 // the figures are then scaled as a set so the character lands at TARGET_H.
 const maxW = Math.max(...meas.frames.map((f) => f.x1 - f.x0 + 1));
 const maxH = Math.max(...hs);
-const cell = { w: maxW + 8, h: maxH + 8 };
-const feetY = cell.h - 4;
+// Frames are pinned by their GROUND row, and a speck of leftover background
+// removal can hang below it. The bottom margin is taken from the worst case in
+// the sheet rather than assumed, or those few pixels are clipped off — which
+// would put a hard edge under one frame's boot and not the next's.
+const below = Math.max(0, ...meas.frames.map((f) => f.y1 - f.groundY));
+const cell = { w: maxW + 8, h: maxH + 8 + below };
+const feetY = cell.h - 4 - below;
 const dataUrl = await page.evaluate(([c, o]) => window.__pack(c, o),
   [cell, { cols: meas.frames.length, feetY }]);
 
@@ -249,10 +262,10 @@ console.log(`manifest -> assets/cast/${NAME}-sheet.json  figureH ${maxH}, feetY 
 // wanders is a clip that will read as drifting whichever way it is pinned.
 const anchoredOn = meas.frames[0]?.anchor === 'foot' ? 'toe' : 'head';
 const anchoredSpread = anchoredOn === 'toe' ? v.toeSpread : v.headSpread;
-console.log(`verified: ${v.cells} cells, feet spread ${v.feetSpread}px, `
+console.log(`verified: ${v.cells} cells, ground spread ${v.feetSpread}px, `
   + `head spread ${v.headSpread}px, toe spread ${v.toeSpread}px`);
 if (v.feetSpread > 0) {
-  console.error('FAILED: the feet are not on one row');
+  console.error('FAILED: the ground row is not the same in every cell');
   process.exit(1);
 }
 // Mixed anchors across an atlas mean neither column is zero overall, so the

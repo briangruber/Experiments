@@ -56,7 +56,10 @@ await unlink(TMP).catch(() => {});
 await unlink(join(ROOT, 'assets/cast/_cutcheck-sheet.png')).catch(() => {});
 await unlink(join(ROOT, 'assets/cast/_cutcheck-sheet.json')).catch(() => {});
 
-const m = line?.match(/(\d+) cells, feet spread (\d+)px, head spread (\d+)px/);
+// "feet spread" was renamed "ground spread" when the cutter stopped pinning
+// each frame's lowest pixel and started pinning the row it stands on. Both are
+// accepted so this check reads either vintage of the tool.
+const m = line?.match(/(\d+) cells, (?:feet|ground) spread (\d+)px, head spread (\d+)px/);
 if (!m) { console.error('FAILED: the cutter reported no verification line'); process.exit(1); }
 const [, cells, feet, head] = m.map(Number);
 const ok = cells === 25 && feet === 0 && head <= 1;

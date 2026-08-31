@@ -442,11 +442,8 @@ window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => ro
   cadence: (who, gait = 'walk') => {
     const a = { player, grout }[who];
     if (!a) return 0;
-    // The stride the engine will actually use, which is the sheet's measured
-    // one when there is a sheet. Reporting the fallback instead described a
-    // number nobody walks on.
-    const stride = a.body?.strideFor?.(gait) || a.stride;
     const speed = a.speed * (gait === 'run' ? a.runSpeed : 1);
+    const stride = a.cadence?.[gait] ? speed / a.cadence[gait] : a.stride;
     return +(speed / stride).toFixed(2);
   },
   // The drawn height of an actor at a given depth. Rounding the depth scale to
@@ -530,35 +527,127 @@ window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => ro
   //
   // It steps the clip by hand rather than waiting on the wall clock, so the
   // answer is the same every run.
-  footDrift: (who, clip = 'idle') => {
+  footDrift: (who, clip = 'idle') => window.__monkey.footTrack(who, clip).x,
+
+  // Where the feet sit, horizontally AND vertically, across a clip — in screen
+  // pixels, stepping the clip by hand so the answer is the same every run.
+  //
+  // The horizontal number caught the atlas pinning every frame's head to one
+  // column, which slid the whole body for a character whose idle sways its
+  // head and never moves its feet. The vertical number is the same question
+  // asked of the other axis: the cutter puts every figure's LOWEST pixel on
+  // one row, which is the right rule only if the lowest pixel is a boot. A
+  // coat hem, a dropped hand or a shadow that dips below the boots in some
+  // frames and not others pins the wrong thing, and the boots then bob.
+  footTrack: (who, clip = 'idle') => {
     const a = { player, grout }[who];
-    if (!a?.body?.hasClip?.(clip)) return -1;
+    if (!a?.body?.hasClip?.(clip)) return { x: -1, y: -1 };
     const c = document.querySelector('canvas');
     const g = c.getContext('2d');
     const keep = { x: a.x, y: a.y, clip: a.clip, clipT: a.clipT, state: a.state };
     a.x = 640; a.y = 690; a.state = 'idle';
     const scale = room.scaleAt(a.y);
-    const centres = [];
+    const box = a.body.boxAt(a);
+    const w = Math.ceil(box.w * scale) + 40;
+    const h = Math.ceil(box.h * scale) + 40;
+    const sx = Math.max(0, Math.round(640 - w / 2));
+    const sy = Math.max(0, Math.round(690 - h + 20));
+    const band = Math.max(4, Math.round(box.h * scale * 0.12));
+    const cx = [], bot = [];
     for (let i = 0; i < 24; i++) {
       a.clip = clip; a.clipT = i / 12;
-      const box = a.body.boxAt(a);
-      const w = Math.ceil(box.w * scale) + 24;
-      const band = Math.max(4, Math.round(box.h * scale * 0.12));
-      const sx = Math.max(0, Math.round(640 - w / 2));
-      const sy = Math.max(0, Math.round(690 - band));
       g.clearRect(0, 0, VIEW.w, VIEW.h);
       a.render(g, room);
-      const d = g.getImageData(sx, sy, w, band).data;
+      const d = g.getImageData(sx, sy, w, h).data;
+      // The GROUND row, measured the way the packer pins it: walk up from the
+      // bottom until enough of the character has been passed to be a foot.
+      // Reading the lowest opaque pixel instead reports on a speck of leftover
+      // background removal, which moves whether or not the boots do.
+      let low = -1, seen = 0;
+      for (let y = h - 1; y >= 0; y--) {
+        for (let x = 0; x < w; x++) if (d[(y * w + x) * 4 + 3] > 40) seen++;
+        if (seen >= 20) { low = y; break; }
+      }
+      if (low < 0) continue;
+      bot.push(low);
       let lo = 1e9, hi = -1;
-      for (let y = 0; y < band; y++) for (let x = 0; x < w; x++) {
+      for (let y = Math.max(0, low - band); y <= low; y++) for (let x = 0; x < w; x++) {
         if (d[(y * w + x) * 4 + 3] > 40) { if (x < lo) lo = x; if (x > hi) hi = x; }
       }
-      if (hi >= lo) centres.push((lo + hi) / 2);
+      if (hi >= lo) cx.push((lo + hi) / 2);
     }
     Object.assign(a, keep);
-    return centres.length ? +(Math.max(...centres) - Math.min(...centres)).toFixed(1) : -1;
+    const sp = (v) => (v.length ? +(Math.max(...v) - Math.min(...v)).toFixed(1) : -1);
+    return { x: sp(cx), y: sp(bot) };
   },
-  // The shape the actor is drawn as right now, in room units. A pose change is
+
+  // Does a planted foot stay planted?
+  //
+  // A walk cycle is locked to the ground when the animation's stride and the
+  // distance travelled agree. When they do not, the foot that should be
+  // standing still on the dock slides under the character — foot-skate — and
+  // it is the single thing that makes generated walk art look wrong.
+  //
+  // Measured by walking the actor for two cycles and watching the REAR EDGE of
+  // the foot band in world pixels. While a foot is planted that edge does not
+  // move at all, so the quietest quarter of the frames should read near zero;
+  // if the stride is wrong there is no quiet quarter, because every frame is
+  // dragging the foot along the ground.
+  // The same measurement, swept across stride lengths. The stride is currently
+  // modelled as twice the change in foot separation, which is a model and not
+  // a measurement of the thing that matters. What matters is which stride
+  // leaves a planted foot planted, and that can simply be searched for.
+  skateSweep: (who, gait = 'walk') => {
+    const a = { player, grout }[who];
+    const base = a?.body?.strideFor?.(gait);
+    if (!base) return null;
+    const out = [];
+    for (const mul of [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.8]) {
+      out.push({ mul, stride: Math.round(base * mul), skate: window.__monkey.skate(who, gait, base * mul) });
+    }
+    return out.sort((p, q) => p.skate - q.skate);
+  },
+
+  skate: (who, gait = 'walk', strideOverride = null) => {
+    const a = { player, grout }[who];
+    if (!a?.body?.strideFor?.(gait)) return -1;
+    const c = document.querySelector('canvas');
+    const g = c.getContext('2d');
+    const keep = { x: a.x, y: a.y, phase: a.phase, state: a.state, running: a.running, path: a.path };
+    a.x = 900; a.y = 690; a.state = 'walk'; a.running = gait === 'run'; a.facing = 'left';
+    a.path = [{ x: -4000, y: 690 }];
+    const realStride = a.body.strideFor;
+    if (strideOverride) a.body.strideFor = () => strideOverride;
+    const edges = [];
+    for (let i = 0; i < 40; i++) {
+      a.update(1 / 30, room);
+      g.clearRect(0, 0, VIEW.w, VIEW.h);
+      a.render(g, room);
+      const scale = room.scaleAt(a.y);
+      const box = a.body.boxAt(a);
+      const w = Math.ceil(box.w * scale) + 40;
+      const band = Math.max(4, Math.round(box.h * scale * 0.12));
+      const sx = Math.max(0, Math.round(a.x - w / 2));
+      const sy = Math.max(0, Math.round(690 - band));
+      const d = g.getImageData(sx, sy, w, band).data;
+      let lo = -1;
+      for (let x = 0; x < w && lo < 0; x++) {
+        for (let y = 0; y < band; y++) if (d[(y * w + x) * 4 + 3] > 40) { lo = x; break; }
+      }
+      if (lo >= 0) edges.push(sx + lo);
+    }
+    a.body.strideFor = realStride;
+    Object.assign(a, keep);
+    if (edges.length < 8) return -1;
+    const diffs = [];
+    for (let i = 1; i < edges.length; i++) diffs.push(Math.abs(edges[i] - edges[i - 1]));
+    diffs.sort((p, q) => p - q);
+    // The quietest quarter: the frames where a foot is down.
+    const quiet = diffs.slice(0, Math.max(2, Math.floor(diffs.length / 4)));
+    return +(quiet.reduce((s, v) => s + v, 0) / quiet.length).toFixed(2);
+  },
+
+  // The shape the actor is drawn as right now, in room units.  // The shape the actor is drawn as right now, in room units. A pose change is
   // the one animation event that alters the silhouette rather than the frame,
   // so it is the only one a frame counter cannot see: a Grout who is "asleep"
   // but still standing passes every clip assertion and is plainly wrong.
