@@ -585,6 +585,18 @@ export const PARAMS = {
     // behind it. This is what makes a curtain of spray blaze into the light
     // and go flat grey away from it.
     glow:      { v: 2.2,  min: 0,   max: 8,   step: 0.1,  label: 'Backlit glow' },
+    // WHAT A TURN THROWS.
+    //
+    // A hull only turns by throwing water sideways -- to pull herself round she
+    // pushes the sea out, and the reaction is the turn -- so the spray a turn
+    // makes is not decoration on the manoeuvre, it is the manoeuvre. This
+    // scales it by |v.omega| / g, the coordinated-turn ratio bank() already
+    // runs on: zero running straight, about 0.4 at the 22 degree bank cap, and
+    // rising with BOTH speed and helm, which is why a hard turn at walking pace
+    // throws nothing and the same helm at speed throws a wall. It biases the
+    // emission to the OUTSIDE chine, which is the one buried and working, and
+    // throws that side faster and higher.
+    carve:     { v: 2.4,  min: 0,   max: 8,   step: 0.05, label: 'Spray from carving' },
   },
 
   scene: {

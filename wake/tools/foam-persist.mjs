@@ -81,7 +81,13 @@ const rows = await page.evaluate(({ lat, secs }) => {
     const px = Math.round(u * (N - 1)), py = Math.round(v * (N - 1));
     if (px < 0 || py < 0 || px >= N || py >= N) return null;
     const o = (py * N + px) * 4;
-    return { foam: h2f(buf[o]), height: h2f(buf[o + 1]), bub: h2f(buf[o + 3]) };
+    // B is the CHURN -- how disturbed this water is at all -- and it is what
+    // drives the slick: the water shader multiplies it by uWakeSlick to clear
+    // the sea's own wind foam, and by uWakeCalm to flatten the chop. If it is
+    // small the slick is switched on and doing nothing, which is a distinction
+    // no amount of reading the shader will settle.
+    return { foam: h2f(buf[o]), height: h2f(buf[o + 1]),
+             churn: h2f(buf[o + 2]), bub: h2f(buf[o + 3]) };
   };
   const dt = 1 / 30;
   const every = Math.round(1.5 / dt);          // a sample every 1.5 s of boat
@@ -92,7 +98,7 @@ const rows = await page.evaluate(({ lat, secs }) => {
       const s = read();
       const astern = Math.hypot(state.x - wx, state.z - wz);
       if (s) out.push([+(state.t - t0).toFixed(1), +astern.toFixed(1),
-                       +s.foam.toFixed(4), +s.bub.toFixed(4)]);
+                       +s.foam.toFixed(4), +s.churn.toFixed(4)]);
       else out.push([+(state.t - t0).toFixed(1), +astern.toFixed(1), null, null]);
     }
     stepSim(dt);
@@ -115,7 +121,7 @@ const { out: rowsOut, uni, persistParam, maxArc } = rows;
 await browser.close(); server.close();
 
 console.log(`Foam at ONE fixed world point ${LAT} m off the track, as she runs away.\n`);
-console.log('  t(s)  astern(m)     foam   bubbles');
+console.log('  t(s)  astern(m)     foam     churn');
 let peak = 0;
 for (const [t, a, f, b] of rowsOut) {
   if (f === null) { console.log(String(t).padStart(6), String(a).padStart(10), '   (outside the field)'); continue; }

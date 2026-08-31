@@ -386,9 +386,27 @@ export class OceanBody {
 		if ( drive <= 0.001 ) return;
 
 		const cuts = this.cuts( Math.round( get( 'spray.sites' ) ) );
+
+		// HOW HARD SHE IS CARVING.
+		//
+		// A hull only turns by throwing water sideways: to pull herself round
+		// she has to push the sea out, and the reaction is the turn. So the
+		// spray a turn makes is not decoration on top of the manoeuvre, it IS
+		// the manoeuvre -- the harder the lateral acceleration, the more water
+		// is being shifted and the bigger the sheet that comes off the chine.
+		//
+		// The right measure is the one bank() already runs on: |v.omega| / g,
+		// the coordinated-turn ratio, which is the tangent of the bank angle.
+		// It is zero running straight, about 0.4 at the 22 degree bank cap, and
+		// it rises with BOTH speed and helm -- which is why a hard turn at
+		// walking pace throws nothing and the same helm at speed throws a wall.
+		const carve = Math.abs( s.speed * s.turn ) / 9.81;
+		const carveK = get( 'spray.carve' );
+
 		// Rate is per second and dt-accumulated, so it does not become a
 		// per-frame fountain that doubles on a 120 Hz display.
-		this._emitDebt += get( 'spray.rate' ) * on * drive * dt;
+		this._emitDebt += get( 'spray.rate' ) * on * drive
+			* ( 1 + carve * carveK ) * dt;
 		let budget = Math.min( Math.floor( this._emitDebt ), 240 );
 		this._emitDebt -= budget;
 		if ( budget <= 0 ) return;
@@ -398,18 +416,46 @@ export class OceanBody {
 		const outV = { x: 0, z: 0 };
 		const trimY = this.att.rise;
 
+		// WHICH SIDE IS THE OUTSIDE. Same convention the wake field's turn bias
+		// runs on -- side = vTurn * sign(lat) * -1 -- so the two cannot disagree
+		// about which way she is leaning. lat is port-positive here.
+		const outSign = s.turn > 0 ? -1 : 1;
+		const bias = 0.5 + 0.45 * Math.min( carve * 2.2, 1 );
+
 		while ( budget -- > 0 ) {
 
 			const c = cuts[ ( this.rand() * cuts.length ) | 0 ];
-			const x = s.x - fwd.x * c.along + nx * c.lat;
-			const z = s.z - fwd.y * c.along + nz * c.lat;
+			// SPRAY GOES TO THE OUTSIDE OF THE TURN.
+			//
+			// Water is deflected outward -- that is the force that turns her --
+			// so the outboard chine is the one buried and throwing, while the
+			// inboard one is lifting clear and throws less. Running straight the
+			// bias is exactly 0.5 and both sides are even, as they should be.
+			// The cuts are mirrored port and starboard, so the far side is
+			// reached by flipping this one rather than by searching for it.
+			let lat = c.lat, side = c.side;
+			if ( carve > 0.01 && lat !== 0 ) {
+				const want = ( this.rand() < bias ? outSign : - outSign );
+				if ( Math.sign( lat ) !== want ) { lat = - lat; side = - side; }
+			}
+			const x = s.x - fwd.x * c.along + nx * lat;
+			const z = s.z - fwd.y * c.along + nz * lat;
 			const y = seaHeight ? seaHeight( x, z ) : 0;
 			// Outward normal at this cut, tilted forward a little: water leaves
 			// a chine mostly sideways, but it is also still going where the boat
 			// was going.
-			outV.x = nx * c.side; outV.z = nz * c.side;
+			outV.x = nx * side; outV.z = nz * side;
+			// ...and the buried side throws it HARDER. The sheet off a chine
+			// that is being driven down into the water leaves faster than one
+			// merely skimming, which is the difference between a turn that
+			// sprays and a turn that just banks.
+			const outward = Math.sign( lat ) === outSign ? 1 : 0;
+			const opt = carve > 0.01
+				? { throw: get( 'spray.throw' ) * ( 1 + carve * carveK * 0.5 * outward ),
+					rise: get( 'spray.rise' ) * ( 1 + carve * 0.8 * outward ) }
+				: null;
 			this.spray.emit( x, y + trimY * 0.35, z, outV,
-				{ x: fwd.x, z: fwd.y }, s.speed, this.rand );
+				{ x: fwd.x, z: fwd.y }, s.speed, this.rand, opt );
 
 		}
 
