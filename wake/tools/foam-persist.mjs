@@ -98,21 +98,35 @@ const rows = await page.evaluate(({ lat, secs }) => {
     stepSim(dt);
     bake();
   }
-  return out;
+  // THE LIVE UNIFORMS, not the ones the source implies.
+  //
+  // The first attempt at a fix moved this curve by nothing at all, and the
+  // choice then is between guessing which term is still zeroing it and asking.
+  // Every arc-based cut that can reach the foam is printed here so the curve is
+  // read next to the numbers that shaped it.
+  const u = wake.uniforms;
+  const uni = {};
+  for (const k of ['uArmPersist', 'uFadeStart', 'uFadeLen', 'uFoamLife',
+                   'uDissolve', 'uMaxArc', 'uBreakup', 'uArmFoam', 'uMelt'])
+    if (u[k]) uni[k] = u[k].value;
+  return { out, uni, persistParam: get('arms.persist'), maxArc: wake.maxArc };
 }, { lat: LAT, secs: SECS });
+const { out: rowsOut, uni, persistParam, maxArc } = rows;
 await browser.close(); server.close();
 
 console.log(`Foam at ONE fixed world point ${LAT} m off the track, as she runs away.\n`);
 console.log('  t(s)  astern(m)     foam   bubbles');
 let peak = 0;
-for (const [t, a, f, b] of rows) {
+for (const [t, a, f, b] of rowsOut) {
   if (f === null) { console.log(String(t).padStart(6), String(a).padStart(10), '   (outside the field)'); continue; }
   peak = Math.max(peak, f);
   const bar = '#'.repeat(Math.round(Math.min(f, 2) * 30));
   console.log(String(t).padStart(6), String(a).padStart(10), String(f).padStart(8), String(b).padStart(9), ' ' + bar);
 }
-const live = rows.filter((r) => r[2] !== null);
+const live = rowsOut.filter((r) => r[2] !== null);
 const last = live[live.length - 1];
+console.log('\nlive uniforms:', JSON.stringify(uni));
+console.log('arms.persist param:', persistParam, '  ribbon maxArc:', maxArc);
 console.log(`\npeak ${peak.toFixed(3)}`);
 if (last) console.log(`after ${last[0]} s and ${last[1]} m astern: foam ${last[2]} `
   + `(${peak > 0 ? (100 * last[2] / peak).toFixed(0) : 0}% of peak)`);
