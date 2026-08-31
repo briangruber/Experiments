@@ -210,6 +210,38 @@ The atlas JSON is a plain uniform grid — 256×256 cells, five columns, one ent
 per frame with no trim rectangles — so it adds nothing over `--grid 5x5` and is
 kept only for provenance.
 
+**Only `videoTier` is validated.** Probing the animation endpoint with a
+deliberately wrong value for each parameter, one at a time, the tier is the
+only one that answers with an error — and a useful one, since it names the set:
+
+    {"error":{"code":"INVALID_VIDEO_TIER",
+              "message":"Invalid videoTier \"__probe__\". Allowed: turbo, pro, ultra, max."}}
+
+`frameCount: 999` and `frameSize: 9999` are both accepted without complaint,
+and `removeBg` and `sharpen` take any string at all. So a typo in any of those
+is not an error, it is a silently different asset. The probe is also the
+expensive way to learn this: each of those four requests started a real job,
+and they cost about 170 credits between them. Read this paragraph instead.
+
+### The video tier is the quality dial, and turbo is the bottom of it
+
+Four tiers — turbo, pro, ultra, max — and everything in this game was made at
+`turbo`, because that is what the tool defaulted to and the choice was never
+actually made. Turbo costs 5 credits an animation, pro costs 10.
+
+What that buys is not subtle, and it is not a resolution or a frame-rate
+difference. The turbo frames contain things that are not in the character:
+the ship's cat has grey lumps welded to its tail, chest and paws that its own
+`base.png` reference does not have, and the pepper pot's silhouette changes
+shape between frames. Those are the video model inventing geometry, which is
+why no amount of prompt work or background-removal setting touched them — the
+same brief at `pro` comes back with most of it gone and a silhouette that
+holds together across the clip.
+
+The lesson generalises past this API: when a generated asset has artefacts
+that survive every setting you can name, check whether the thing you are
+paying least for is the thing making them.
+
 ### Cutting what came back
 
     node tools/autosprite.mjs pull <characterId>
