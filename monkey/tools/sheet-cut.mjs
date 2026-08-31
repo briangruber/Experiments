@@ -20,8 +20,11 @@ import { ROOT, launch, serve } from './harness.mjs';
 
 const args = process.argv.slice(2);
 const opt = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i + 1] : d; };
-const src = args.find((a) => !a.startsWith('--'));
-if (!src) { console.error('usage: node tools/sheet-cut.mjs <sheet.png> [--name key] [--height 48]'); process.exit(1); }
+const src = args.find((a) => !a.startsWith('--') && (/^https?:/i.test(a) || /\.(png|jpe?g|webp)$/i.test(a) || a.includes('/')));
+if (!src) {
+  console.error('usage: node tools/sheet-cut.mjs <sheet.png|url> [--name key] [--grid CxR] [--down N]');
+  process.exit(1);
+}
 const NAME = opt('name', 'cast');
 const TARGET_H = +opt('height', 48);
 // image2pixel returns blocks at their original scale — a 16px block in a
@@ -32,11 +35,19 @@ const DOWN = +opt('down', 1);
 // The sheet is handed to the page as a data URI rather than served, so it can
 // live anywhere — an uploads directory, /tmp, another checkout — instead of
 // having to be inside the repo before it can be cut.
-const rel = isAbsolute(src) ? src : join(ROOT, src);
-const bytes = await readFile(rel);
+// A sheet can arrive as a path or as a URL. The URL case matters because an
+// image pasted into a chat is rendered, not saved — the bytes never reach this
+// filesystem — so a public link is often the shortest route from "here is the
+// sheet" to a cut atlas.
+const isUrl = /^https?:\/\//i.test(src);
+const rel = isUrl ? src : (isAbsolute(src) ? src : join(ROOT, src));
+const bytes = isUrl
+  ? Buffer.from(await (await fetch(src)).arrayBuffer())
+  : await readFile(rel);
+if (isUrl) console.log(`fetched ${(bytes.length / 1024).toFixed(0)} KB from ${src}`);
 const mime = bytes.subarray(0, 4).toString('hex') === '89504e47' ? 'image/png' : 'image/jpeg';
 const url = `data:${mime};base64,` + bytes.toString('base64');
-const shown = rel.replace(ROOT + '/', '');
+const shown = isUrl ? src : rel.replace(ROOT + '/', '');
 
 const { port, close } = await serve();
 const browser = await launch();
