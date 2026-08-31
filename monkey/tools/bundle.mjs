@@ -210,6 +210,19 @@ if (!NO_VOICE && (await exists(join(voiceDir, 'manifest.json')))) {
   assets.voice = { manifest, clips };
 }
 
+// The room tone, the one-shots and the theme. Same shape as the voice clips —
+// a manifest plus data URIs — because ambience.js reads them the same way.
+const soundDir = join(ROOT, 'assets/sound');
+if (!NO_VOICE && (await exists(join(soundDir, 'manifest.json')))) {
+  const manifest = JSON.parse(await readFile(join(soundDir, 'manifest.json'), 'utf8'));
+  const clips = {};
+  for (const f of (await readdir(soundDir)).filter((f) => f.endsWith('.mp3'))) {
+    clips[f.slice(0, -4)] = await dataUri(join(soundDir, f), 'audio/mpeg');
+    assetBytes += (await stat(join(soundDir, f))).size;
+  }
+  assets.sound = { manifest, clips };
+}
+
 // --- emit -------------------------------------------------------------------
 
 const entry = modules.get('main.js');

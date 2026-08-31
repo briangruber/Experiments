@@ -81,7 +81,13 @@ export const CAST = {
     }),
   },
   pike: {
-    id: 'pike', name: 'Mervyn Pike', x: 300, y: 656, facing: 'right',
+    // Standing clear of the bellows, which he used to be standing on top of.
+    // His click box is 150 wide and centred, so at x 300 it covered x 225-375
+    // and the bellows hotspot is x 167-287 — sixty pixels of overlap, and
+    // hotspotUnder puts people before scenery, so clicking the right-hand half
+    // of the bellows got the cook. At 430 he clears them entirely and is still
+    // at his stove.
+    id: 'pike', name: 'Mervyn Pike', x: 430, y: 656, facing: 'right',
     talkColor: '#ffd9a8', height: 178,
     draw: art.makePerson({
       height: 178, skin: '#dfa877', skin2: '#c48f60', hair: '#6b3b2a', beard: '#7a7068',

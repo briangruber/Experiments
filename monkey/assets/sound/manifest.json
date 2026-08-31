@@ -1,0 +1,101 @@
+{
+  "sounds": {
+    "dock-bed": {
+      "hash": "69458831daa9b86c",
+      "kind": "bed",
+      "room": "dock",
+      "dur": 19.04,
+      "bytes": 133528,
+      "seam": {
+        "wrap": 20,
+        "median": 24,
+        "p99": 303,
+        "gain": 4.03,
+        "rms": 1100
+      }
+    },
+    "galley-bed": {
+      "hash": "95b69b44c9cefa79",
+      "kind": "bed",
+      "room": "galley",
+      "dur": 19.04,
+      "bytes": 133528,
+      "seam": {
+        "wrap": 106,
+        "median": 66,
+        "p99": 1313,
+        "gain": 1.18,
+        "rms": 1100
+      }
+    },
+    "dock-bell": {
+      "hash": "649c21c59367a260",
+      "kind": "shot",
+      "room": "dock",
+      "dur": 1.44,
+      "bytes": 8846,
+      "seam": {
+        "gain": 7.25,
+        "rms": 3500
+      }
+    },
+    "dock-gull": {
+      "hash": "e94f14a13af8938d",
+      "kind": "shot",
+      "room": "dock",
+      "dur": 2.82,
+      "bytes": 17153,
+      "seam": {
+        "gain": 0.72,
+        "rms": 3500
+      }
+    },
+    "dock-rope": {
+      "hash": "ec40ddb8cfaeba03",
+      "kind": "shot",
+      "room": "dock",
+      "dur": 2.9,
+      "bytes": 17623,
+      "seam": {
+        "gain": 1.04,
+        "rms": 2108
+      }
+    },
+    "galley-pot": {
+      "hash": "8b3f20ce3554678e",
+      "kind": "shot",
+      "room": "galley",
+      "dur": 1.33,
+      "bytes": 8219,
+      "seam": {
+        "gain": 0.92,
+        "rms": 1637
+      }
+    },
+    "galley-creak": {
+      "hash": "e6cd709560585fbe",
+      "kind": "shot",
+      "room": "galley",
+      "dur": 4.05,
+      "bytes": 24520,
+      "seam": {
+        "gain": 1.07,
+        "rms": 3500
+      }
+    },
+    "theme": {
+      "hash": "cbed225c232e115e",
+      "kind": "music",
+      "room": null,
+      "dur": 37.12,
+      "bytes": 297212,
+      "seam": {
+        "wrap": 1,
+        "median": 110,
+        "p99": 532,
+        "gain": 0.47,
+        "rms": 2600
+      }
+    }
+  }
+}

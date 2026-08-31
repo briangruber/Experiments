@@ -50,8 +50,20 @@ export async function loadSpriteBody({ sheetUrl, manifest, height, face }) {
   // same frame index at the moment they swap.
   const clipOf = (actor) => {
     if (actor.clip) return actor.clip;
-    if (actor.state !== 'walk') return 'idle';
-    return actor.running && clips.run ? 'run' : 'walk';
+    if (actor.state === 'walk') return actor.running && clips.run ? 'run' : 'walk';
+    // Talking is its own clip, and the reason is a fault you can see from
+    // across the room. The service's stock idle has the character working
+    // their mouth and gesturing — a fine animation, and the wrong one to play
+    // for the 95% of the time nobody is speaking, which had the whole cast
+    // standing on the dock talking to nobody. `idle` is now a deliberately
+    // still brief and `talk` is the gesturing one, chosen by whether there is
+    // actually a line on screen.
+    //
+    // Below the named clip and below walking, both of which mean something
+    // more specific: a man asleep who says something stays asleep, and a
+    // character talking while she walks keeps walking.
+    if (actor.line && clips.talk) return 'talk';
+    return 'idle';
   };
 
   const frameFor = (actor) => {
@@ -83,12 +95,17 @@ export async function loadSpriteBody({ sheetUrl, manifest, height, face }) {
       return c.start + i;
     }
 
+    // Standing still, so: talking if there is a line, idle otherwise. Same
+    // order as clipOf, which has to agree with this or the dissolve fades
+    // between the wrong pair.
+    const t = actor.line && clips.talk ? clips.talk : c;
+
     // Idle runs on a clock rather than on distance, because an idle character
     // travels none — driving it from the walk phase left it advancing at a
     // fifth of a cycle a second, which reads as a freeze rather than a breath.
-    const fps = c.fps || 10;
-    const i = Math.floor((performance.now() / 1000) * fps) % (c.framesPerCycle || c.count);
-    return c.start + (i % c.count);
+    const fps = t.fps || 10;
+    const i = Math.floor((performance.now() / 1000) * fps) % (t.framesPerCycle || t.count);
+    return t.start + (i % t.count);
   };
 
   return {

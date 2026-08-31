@@ -183,6 +183,28 @@ const FIGURE = [
 
 const STYLE = `${FIGURE} ${LOOK}`;
 
+// Idle and talk, as briefs rather than as `kind: 'idle'`.
+//
+// The service's own idle has the character gesturing and working their mouth,
+// which is a perfectly good animation and the wrong one to play for the 95% of
+// the time nobody is speaking: the whole cast stood on the dock talking to
+// nobody. Two clips instead, and both have to be asked for explicitly, because
+// what makes them different is exactly what a generic "idle" leaves open.
+//
+// Both say NOT to do the other one. "Stands still" on its own comes back with
+// a man delivering a speech, because a video model asked for a person and no
+// action will give them something to do.
+const STILL = (who) => `${who} stands still, waiting, doing nothing at all. `
+  + 'Mouth closed and still, not speaking, not talking, no gesturing, no hand movements. '
+  + 'Only the small motion of breathing and an occasional slow blink. Weight stays on both '
+  + 'feet, the feet do not move. One character alone: no furniture, no props, no background. '
+  + 'Side view, facing right.';
+
+const TALKING = (who) => `${who} is talking, mid-conversation: mouth opening and closing `
+  + 'clearly as they speak, head moving a little with the words, one hand gesturing loosely '
+  + 'to make a point. They stay standing in one place and the feet do not move. '
+  + 'One character alone: no furniture, no props, no background. Side view, facing right.';
+
 const CHARACTERS = {
   grout: {
     // The name has to be new: the API rejects a duplicate, and the first Grout
@@ -308,7 +330,8 @@ const ANIMATIONS = {
   // breathing, and the atlas cuts that stretch out as its own looping clip.
   // Generation costs credits; slicing does not.
   grout: [
-    { kind: 'idle', loop: true },
+    { kind: 'custom', name: 'Still', loop: true, prompt: STILL('A stocky weathered old harbourmaster in a tricorn and a long naval coat') },
+    { kind: 'custom', name: 'Talk', loop: true, prompt: TALKING('A stocky weathered old harbourmaster in a tricorn and a long naval coat') },
     { kind: 'walk', loop: true },
     {
       kind: 'custom', name: 'Drink',
@@ -348,7 +371,8 @@ const ANIMATIONS = {
   // 128px grid, and the room draws it about 24 art pixels wide, so anything
   // larger is detail that would have to be thrown away again.
   pike: [
-    { kind: 'idle', loop: true },
+    { kind: 'custom', name: 'Still', loop: true, prompt: STILL('A huge heavy-set ship cook in an apron and a striped shirt') },
+    { kind: 'custom', name: 'Talk', loop: true, prompt: TALKING('A huge heavy-set ship cook in an apron and a striped shirt') },
     { kind: 'walk', loop: true },
     {
       kind: 'custom', name: 'Despair', loop: true,
@@ -392,7 +416,8 @@ const ANIMATIONS = {
   // nobody chose. They are listed here so they can be regenerated with the
   // rest of the cast at a tier that was.
   bonny: [
-    { kind: 'idle', loop: true },
+    { kind: 'custom', name: 'Still', loop: true, prompt: STILL('A young woman pirate in a red coat and bandana') },
+    { kind: 'custom', name: 'Talk', loop: true, prompt: TALKING('A young woman pirate in a red coat and bandana') },
     { kind: 'walk', loop: true },
     { kind: 'run', loop: true },
     {

@@ -160,9 +160,133 @@ window.__grid = async (src, opts) => {
   g.clearRect(0, 0, W, H);
   g.drawImage(img, 0, 0, W, H);
   const id = g.getImageData(0, 0, W, H), d = id.data;
-  // The background is already transparent; a white one is keyed as a courtesy
-  // so a sheet exported without background removal still works.
+  // Cut the holes the matte filled.
+  //
+  // AutoSprite's background removal is an alpha matte, and a matte FILLS
+  // ENCLOSED HOLES. The gap between Grout's boots is surrounded by figure on
+  // every side, so it came back opaque, in the generator's own light grey, and
+  // he stood on the dock with a pale blob between his feet in every frame of
+  // every clip. No removal setting fixes it: `standard` and `basic` are
+  // silently the same as `ultra`, and only `none` differs.
+  //
+  // Keying the background ourselves from a `none` pull was tried and abandoned.
+  // It works on Grout, whose backdrop is flat, and fails on Pike, whose is
+  // mottled — a colour key kept 58% more of his cell than the matte did. The
+  // service's matte is better than anything a flat key can do; it just has this
+  // one hole in it.
+  //
+  // So the matte stands and only the holes are cut. A hole is a patch that is
+  //   ENCLOSED  — no path to the cell border through transparent pixels, which
+  //               is what saves Grout's grey beard: light, neutral, flat, and
+  //               on the silhouette edge where the outside can reach it;
+  //   FLAT      — one colour, standard deviation under 6, because generated
+  //               backdrop has no shading and costume does;
+  //   NEUTRAL   — red, green and blue within 10 of each other;
+  //   LIGHT     — luminance over 120.
+  //
+  // All four are needed. Enclosed-and-flat alone cuts Grout's teal coat (42,
+  // 74, 89), Pike's apron (196, 158, 102) and Bonny's boots — tens of thousands
+  // of pixels of perfectly good character. With all four, the only things left
+  // are the leftovers: Grout's idle 1763px in patches of rgb(176,176,170),
+  // his drink 554, Pike's despair 177, the cat's crouch 183, and zero
+  // everywhere else in the cast.
+  //
+  // The count is printed rather than swallowed. A pass that quietly deletes
+  // parts of a character is the worst thing in this file.
+  let holesCut = 0;
+  if (opts.cutHoles) {
+    const FLAT_SD = 6, NEUTRAL = 10, LIGHT = 120, MIN_PATCH = 25, MAX_MOUTH = 0;
+    const cw0 = W / opts.cols, ch0 = H / opts.rows;
+    let cut = 0;
+    for (let r = 0; r < opts.rows; r++) {
+      for (let c = 0; c < opts.cols; c++) {
+        const bx = Math.round(c * cw0), by = Math.round(r * ch0);
+        const bw = Math.round((c + 1) * cw0) - bx, bh = Math.round((r + 1) * ch0) - by;
+        const idx = (x, y) => (by + y) * W + bx + x;
+        const op = (x, y) => d[idx(x, y) * 4 + 3] >= ALPHA_CUT;
+        // The true outside: transparent, and reachable from this cell's border.
+        const outside = new Uint8Array(bw * bh);
+        const st = [];
+        const push = (x, y) => { const p = y * bw + x; if (!outside[p] && !op(x, y)) { outside[p] = 1; st.push(p); } };
+        for (let x = 0; x < bw; x++) { push(x, 0); push(x, bh - 1); }
+        for (let y = 0; y < bh; y++) { push(0, y); push(bw - 1, y); }
+        while (st.length) {
+          const p = st.pop(), x = p % bw, y = (p - x) / bw;
+          if (x > 0) push(x - 1, y);
+          if (y > 0) push(x, y - 1);
+          if (x < bw - 1) push(x + 1, y);
+          if (y < bh - 1) push(x, y + 1);
+        }
+        const seen = new Uint8Array(bw * bh);
+        for (let y0 = 0; y0 < bh; y0++) {
+          for (let x0 = 0; x0 < bw; x0++) {
+            const p0 = y0 * bw + x0;
+            if (seen[p0] || !op(x0, y0)) continue;
+            const i0 = idx(x0, y0) * 4;
+            const base = [d[i0], d[i0 + 1], d[i0 + 2]];
+            const stack = [p0]; seen[p0] = 1;
+            const px = []; let mouth = 0;
+            while (stack.length) {
+              const p = stack.pop(), x = p % bw, y = (p - x) / bw;
+              px.push(p);
+              for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+                const nx = x + dx, ny = y + dy;
+                if (nx < 0 || ny < 0 || nx >= bw || ny >= bh) { mouth++; continue; }
+                const np = ny * bw + nx;
+                if (outside[np]) { mouth++; continue; }
+                if (seen[np] || !op(nx, ny)) continue;
+                const i = idx(nx, ny) * 4;
+                // Grown by colour, so a patch is one flat thing rather than the
+                // whole figure.
+                if (Math.max(Math.abs(d[i] - base[0]), Math.abs(d[i + 1] - base[1]),
+                  Math.abs(d[i + 2] - base[2])) > 10) continue;
+                seen[np] = 1; stack.push(np);
+              }
+            }
+            // Sealed. MAX_MOUTH is zero, and it stays zero until something
+            // better than colour is available to tell a filled hole from a
+            // character.
+            //
+            // Dropping the enclosure test does catch more: the gap between
+            // Grout's boots is a sealed hole when he stands and an open slot
+            // when one foot is forward, and only the sealed version is cut.
+            // But without it the same rule punched a hole clean through Pike's
+            // trouser leg — 9,628 pixels of him — because the light stripes of
+            // his shirt and the highlight down his leg are flat, neutral and
+            // light, which is every test this has to offer. Allowing a narrow
+            // mouth was tried as a middle way and does not separate them: his
+            // leg patch reaches the outside through a slot no wider than
+            // Grout's boots do.
+            //
+            // So the safe rule stands and the open-slot case is left. It shows
+            // as a pale wedge low between the legs in Grout's talk and drink
+            // clips, and nowhere else in the cast; his idle, which is what
+            // plays almost all of the time, is clean. Deleting part of a
+            // character to fix a wedge is much the worse trade.
+            if (mouth > MAX_MOUTH || px.length < MIN_PATCH) continue;
+            const m = [0, 0, 0];
+            for (const p of px) { const i = idx(p % bw, (p - (p % bw)) / bw) * 4; m[0] += d[i]; m[1] += d[i + 1]; m[2] += d[i + 2]; }
+            for (let k = 0; k < 3; k++) m[k] /= px.length;
+            let sd = 0;
+            for (const p of px) {
+              const i = idx(p % bw, (p - (p % bw)) / bw) * 4;
+              sd += ((d[i] - m[0]) ** 2 + (d[i + 1] - m[1]) ** 2 + (d[i + 2] - m[2]) ** 2) / 3;
+            }
+            sd = Math.sqrt(sd / px.length);
+            const L = 0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2];
+            const spread = Math.max(...m) - Math.min(...m);
+            if (sd > FLAT_SD || spread > NEUTRAL || L < LIGHT) continue;
+            for (const p of px) d[idx(p % bw, (p - (p % bw)) / bw) * 4 + 3] = 0;
+            cut += px.length;
+          }
+        }
+      }
+    }
+    if (cut) g.putImageData(id, 0, 0);
+    holesCut = cut;
+  }
   if (opts.keyWhite) {
+    // The old courtesy key, for sheets that arrive on white.
     for (let i = 0; i < d.length; i += 4) {
       if (d[i] > 244 && d[i + 1] > 244 && d[i + 2] > 244) d[i + 3] = 0;
     }
@@ -242,7 +366,7 @@ window.__grid = async (src, opts) => {
   const src_i = window.__state.sources.length;
   window.__state.sources.push({ W, H, d: Array.from(d) });
   for (const f of frames) window.__state.frames.push({ ...f, src: src_i });
-  return { w: W, h: H, frames: frames.map(({ mask, ...f }) => f) };
+  return { w: W, h: H, holesCut, frames: frames.map(({ mask, ...f }) => f) };
 };
 
 window.__pack = (cell, out) => {

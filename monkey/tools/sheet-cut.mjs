@@ -24,6 +24,10 @@ const opt = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i
 // with named clips — idle and walk are separate exports but one character, and
 // the loader takes a single sheet per body.
 const SOURCES = args
+  // Not the value of a flag. `clip=path` and `--fps-of idle=10` look alike to
+  // a filter that only reads one argument at a time, and the second was read
+  // as a sheet called "10,talk=15,asleep=9".
+  .filter((a, i) => !(i > 0 && args[i - 1].startsWith('--')))
   .filter((a) => !a.startsWith('--') && (/^https?:/i.test(a) || /\.(png|jpe?g|webp)$/i.test(a) || a.includes('=')))
   .map((a) => {
     const eq = a.indexOf('=');
@@ -87,6 +91,9 @@ for (const source of SOURCES) {
         down: DOWN,
         cols: +GRID.split('x')[0], rows: +GRID.split('x')[1],
         keyWhite: !args.includes('--no-key-white'),
+        // Cut the enclosed patches of generator backdrop that the service's
+        // matte fills in — see the long note in sheet-cut.html.
+        cutHoles: !args.includes('--keep-holes'),
       }])
     : await page.evaluate(([u, o]) => window.__cut(u, o), [url, {
         down: DOWN,
@@ -98,7 +105,10 @@ for (const source of SOURCES) {
   segments.push({ from: at, to: at + one.frames.length, clip: source.clip });
   if (source.clip) clips[source.clip] = { start: at, count: one.frames.length };
   console.log(`${shown}  ${one.w}x${one.h}  ->  ${one.frames.length} frames`
-    + `${source.clip ? `  [clip ${source.clip}]` : ''}  [${GRID ? 'uniform grid ' + GRID : 'connectivity'}]`);
+    + `${source.clip ? `  [clip ${source.clip}]` : ''}  [${GRID ? 'uniform grid ' + GRID : 'connectivity'}]`
+    // Said out loud, because a pass that silently deletes parts of a character
+    // is the most dangerous thing in the packer.
+    + `${one.holesCut ? `  [cut ${one.holesCut}px of filled hole]` : ''}`);
 }
 
 // Which end of the character to hold still — for a sheet that needs rescuing.
@@ -322,6 +332,33 @@ const ONCE = (opt('once', '') || '').split(',').filter(Boolean);
 for (const name of ONCE) {
   if (!clips[name]) throw new Error(`--once names ${name}, which is not one of the clips: ${Object.keys(clips)}`);
 }
+// Frame rate, per clip.
+//
+// One rate for the whole atlas is wrong, and the reason is that these clips are
+// not the same kind of thing. An action — drink it, ring it, pump the bellows —
+// happens at the speed a person does it. A LOOP is a character doing nothing,
+// and a character doing nothing on a 1.7-second cycle is a character
+// fidgeting: it reads as restlessness, and next to a still backdrop it is the
+// most conspicuous motion on screen. Adventure-game idles breathe on the order
+// of three or four seconds.
+//
+// The walk is not in here because the walk does not use fps at all — its frames
+// advance with distance travelled, so the feet stay in step with the ground at
+// any speed. Only idle and the named clips read this.
+//
+//   --fps 19                 every clip
+//   --fps 19 --fps-of idle=10,asleep=9
+const FPS = +opt('fps', 12);
+const FPS_OF = Object.fromEntries((opt('fps-of', '') || '').split(',').filter(Boolean).map((pair) => {
+  const [k, v] = pair.split('=');
+  if (!v || !isFinite(+v)) throw new Error(`--fps-of wants name=number, got "${pair}"`);
+  return [k, +v];
+}));
+for (const k of Object.keys(FPS_OF)) {
+  if (!clips[k]) throw new Error(`--fps-of names ${k}, which is not one of the clips: ${Object.keys(clips)}`);
+}
+const fpsFor = (k) => FPS_OF[k] ?? FPS;
+
 const manifest = {
   cellW: cell.w, cellH: cell.h, cols: meas.frames.length,
   figureH: maxH, feetY,
@@ -334,8 +371,8 @@ const manifest = {
   bounds: meas.frames.map((f) => [f.x1 - f.x0 + 1, f.h]),
   clips: Object.keys(clips).length
     ? Object.fromEntries(Object.entries(clips).map(([k, c]) =>
-        [k, { ...c, fps: +opt('fps', 12), ...(ONCE.includes(k) ? { loop: false } : {}) }]))
-    : { idle: { start: 0, count: 1, fps: 4 }, walk: { start: 0, count: meas.frames.length, fps: +opt('fps', 12) } },
+        [k, { ...c, fps: fpsFor(k), ...(ONCE.includes(k) ? { loop: false } : {}) }]))
+    : { idle: { start: 0, count: 1, fps: 4 }, walk: { start: 0, count: meas.frames.length, fps: FPS } },
   sources: SOURCES.map((x) => x.path), targetHeight: TARGET_H,
 };
 await writeFile(join(ROOT, `assets/cast/${NAME}-sheet.json`), JSON.stringify(manifest, null, 2) + '\n');

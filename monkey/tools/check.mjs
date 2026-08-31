@@ -66,7 +66,7 @@ await page.evaluate(() => {
     spot(id) {
       const h = M.room().hotspots.find((s) => s.id === id);
       if (!h) throw new Error('no hotspot ' + id);
-      return { x: h.rect[0] + h.rect[2] / 2, y: h.rect[1] + h.rect[3] / 2 };
+      return { id, x: h.rect[0] + h.rect[2] / 2, y: h.rect[1] + h.rect[3] / 2 };
     },
     grout() { return window.__t.npc('grout'); },
     // Any room's people, by id. `grout()` was written when there was one NPC
@@ -130,7 +130,7 @@ const click = async (pt, worldSpace = true) => {
   await page.mouse.up();
 };
 const idle = () => page.waitForFunction(() => window.__t.idle(), null, { timeout: 20000 });
-const quiet = () => page.waitForFunction(() => window.__t.quiet(), null, { timeout: 20000 });
+const quiet = (timeout = 20000) => page.waitForFunction(() => window.__t.quiet(), null, { timeout });
 
 // The camera eases toward the player rather than snapping, so a click computed
 // from room coordinates in one evaluate and delivered a few milliseconds later
@@ -169,22 +169,62 @@ async function ensureVisible(pt) {
 
 // The verb coin lays its three icons at fixed angles 46px from the click.
 const VERB_OFFSET = { look: [0, -46], use: [39.8, 23], talk: [-39.8, 23] };
-async function verb(spotPt, which) {
+
+// Click a verb on the coin.
+//
+// The icon position comes from where the coin actually opened, not from a
+// second projection of the hotspot — those two can disagree. And the whole
+// aim-and-press is done as one step rather than measure-then-move-then-press,
+// because the gap between those was enough for the bundled build to lose the
+// click entirely: the step ran, nothing happened, and the assertion failed
+// with no error to read. Asking the coin itself whether the point it is about
+// to be clicked at resolves to the verb we want turns that from a silent miss
+// into a loud one.
+async function verb(spotPt, which, { quietMs = 20000 } = {}) {
   await ensureVisible(spotPt);
-  await click(spotPt);
-  await page.waitForFunction(() => window.__t.coinOpen(), null, { timeout: 4000 });
-  // The icon position comes from where the coin actually opened, not from a
-  // second projection of the hotspot — those two can disagree.
   const [dx, dy] = VERB_OFFSET[which];
-  const c = await page.evaluate(([d]) => {
-    const at = window.__t.coinAt();
-    const s = window.__t.toClient(at.x + d[0], at.y + d[1], false);
-    return s;
-  }, [[dx, dy]]);
-  await page.mouse.move(c.x, c.y);
-  await page.mouse.down();
-  await page.mouse.up();
-  await quiet();
+  {
+    await click(spotPt);
+    await page.waitForFunction(() => window.__t.coinOpen(), null, { timeout: 4000 });
+    const aim = await page.evaluate(([d, want]) => {
+      const M = window.__monkey;
+      const at = { x: M.coin.x + d[0], y: M.coin.y + d[1] };
+      // What the coin says is under that point, before anything is pressed.
+      const keep = M.coin.hover;
+      M.coin.move(at.x, at.y);
+      const hit = M.coin.hover;
+      M.coin.hover = keep;
+      return { hit, ok: hit === want, target: M.coin.target?.id ?? null, client: window.__t.toClient(at.x, at.y, false) };
+    }, [[dx, dy], which]);
+    if (!aim.ok) throw new Error(`the coin has no "${which}" where it should be — found ${aim.hit}`);
+    // What the coin opened ON, not just which icon is under the cursor. The
+    // cook stood on top of the bellows for a while, and because people come
+    // before scenery, clicking the bellows opened the coin on him — a correct
+    // 'use', on the wrong thing, which every assertion here read as the step
+    // simply not working.
+    if (spotPt.id && aim.target !== spotPt.id) {
+      throw new Error(`aimed at ${spotPt.id} and the coin opened on ${aim.target}`);
+    }
+    await page.mouse.move(aim.client.x, aim.client.y);
+    await page.mouse.down();
+    await page.mouse.up();
+    const took = await page.evaluate((w) => {
+      const M = window.__monkey;
+      // A miss closes the coin and does nothing, which looks exactly like a
+      // hit from out here. The game says which it was.
+      const lv = M.lastVerb();
+      if (lv && lv.verb === w && !lv.target) throw new Error(`the coin picked ${w} with no target`);
+      return M.coin.open === false && lv?.verb === w;
+    }, which);
+    if (!took) {
+      const lv = await page.evaluate(() => window.__monkey.lastVerb());
+      throw new Error(`clicked "${which}" on ${aim.target} and the game saw ${JSON.stringify(lv)}`);
+    }
+  }
+  // Some interactions are long — the galley's bellows cutscene runs about
+  // fifteen seconds — so the caller can say how long "settled" is allowed to
+  // take rather than every one of them waiting on the same twenty.
+  await quiet(quietMs);
 }
 
 // An exit takes one click and opens no coin. Driving it through `verb` would
@@ -664,6 +704,35 @@ try {
     return f.cut > 400 && f.toEnd > f.cut * 0.5 && f.fromStart < f.cut * 0.9;
   });
 
+  // Talking is a clip, and it plays when there is a line and not otherwise.
+  //
+  // The fault this catches had every frame correct and every frame at the
+  // wrong time: the service's stock idle has the character working their mouth
+  // and gesturing, so the whole cast stood about talking to nobody. Nothing
+  // else here could see it, because nothing else here asks WHICH animation is
+  // playing — only whether the pixels are right.
+  await step('they only talk when they are talking', async () => {
+    await page.evaluate(() => {
+      const M = window.__monkey;
+      const a = M.actors.grout;
+      const was = a.clip;
+      a.stopClip();
+      M.render();
+      const quiet = M.clipOf('grout');
+      a.say('Testing, testing.', 3);
+      M.render();
+      const talking = M.clipOf('grout');
+      a.line = null;
+      M.render();
+      window.__t.talk = { quiet, talking, after: M.clipOf('grout'), was };
+      if (was) a.playClip(was);
+      M.render();
+    });
+  }, () => {
+    const t = window.__t.talk;
+    return t.quiet === 'idle' && t.talking === 'talk' && t.after === 'idle';
+  });
+
   await step('Grout is drawn asleep, not deleted  [pose]', async () => {}, () => {
     const M = window.__monkey;
     const b = M.poseBox('grout');
@@ -696,6 +765,49 @@ try {
   //
   // The point of all of it. A second room, generated the same way and wired
   // through the same engine, played to the end by the same harness.
+
+  // Nobody stands on anything you can click.
+  //
+  // hotspotUnder puts PEOPLE before scenery, deliberately — a cat on a barrel
+  // has to be reachable over the barrel. The cost is that a person standing in
+  // front of an object takes its clicks, and the object simply stops working
+  // with no error anywhere. Mervyn Pike stood on the bellows for a while: his
+  // click box covered sixty pixels of them, so half the bellows opened the
+  // verb coin on the cook. Every assertion in this file read that as the
+  // puzzle step not firing.
+  //
+  // Measured in both rooms, against every hotspot that has a puzzle on it,
+  // because it is a property of the layout rather than of the moment.
+  await step('nobody is standing on anything you can click', async () => {}, () => {
+    const M = window.__monkey;
+    const clashes = [];
+    for (const id of M.rooms()) {
+      const room = M.room();
+      if (M.room_id() !== id) continue;
+      for (const [who, a] of Object.entries(M.actors)) {
+        if (who === 'player' || !a.visible) continue;
+        const b = a.body?.boxAt?.(a);
+        if (!b) continue;
+        const box = { x: a.x - b.w / 2, y: a.y - b.h, w: b.w, h: b.h };
+        for (const h of room.hotspots) {
+          if (!h.rect || h.exit) continue;
+          const [hx, hy, hw, hh] = h.rect;
+          const ox = Math.min(box.x + box.w, hx + hw) - Math.max(box.x, hx);
+          const oy = Math.min(box.y + box.h, hy + hh) - Math.max(box.y, hy);
+          if (ox <= 0 || oy <= 0) continue;
+          // The FRACTION, not the fact. Overlap on its own is normal and often
+          // deliberate — the cat sits on the barrels, Mervyn stands in front of
+          // a mess table four times his width — and neither stops you clicking
+          // the thing. What stops you is a person taking most of it.
+          const share = (ox * oy) / (hw * hh);
+          if (share > 0.4) clashes.push(`${who} covers ${Math.round(share * 100)}% of ${h.id}`);
+        }
+      }
+    }
+    window.__t.clashes = clashes;
+    if (clashes.length) throw new Error(clashes.join('; '));
+    return true;
+  });
 
   await step('the galley is generated art too  [backdrop, three atlases]', async () => {}, () => {
     const M = window.__monkey;
@@ -827,8 +939,15 @@ try {
     await useItemOn('pepper', await T(() => window.__t.spot('bellows')));
   }, () => window.__t.flag('bellows-loaded') && !window.__t.inv().includes('pepper'));
 
+  // The longest cutscene in the game — bellows, whump, a sneeze, a scarper and
+  // four lines — and it runs about fifteen seconds against the twenty-second
+  // idle() timeout. That was close enough to fail intermittently once loading
+  // the sound assets added a little to the front of the frame, which is a
+  // flaky test rather than a real fault. Waited on by its own flag with room
+  // to spare, the way the sailing cutscene already is.
   await step('let the pepper off  [use the loaded bellows]', async () => {
-    await verb(await T(() => window.__t.spot('bellows')), 'use');
+    await verb(await T(() => window.__t.spot('bellows')), 'use', { quietMs: 60000 });
+    await idle();
   }, () => window.__t.flag('kipper-dropped') && !window.__t.flag('bellows-loaded'));
 
   await step('take the dropped kipper  [a hotspot that did not exist a moment ago]', async () => {
@@ -860,6 +979,8 @@ const m = errors.length ? {} : await page.evaluate(() => ({
   items: window.__t.items,
   patch: window.__t.patch,
   fade: window.__t.fade,
+  talk: window.__t.talk,
+  clashes: window.__t.clashes,
 }));
 
 await browser.close();

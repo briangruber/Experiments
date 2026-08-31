@@ -11,6 +11,7 @@ import { Room } from './engine/room.js';
 import { Actor } from './engine/actor.js';
 import { State, Sequencer, attachVoice, walk, face, say, run, wait } from './engine/script.js';
 import { Voice } from './engine/audio.js';
+import { Ambience } from './engine/ambience.js';
 import { lint } from './engine/puzzle.js';
 import { VerbCoin, Inventory, DialogueMenu, drawSpeech } from './engine/ui.js';
 import { Editor } from './engine/editor.js';
@@ -58,6 +59,8 @@ let room, editor;
 let props = {};
 let backdrop = null;
 const voice = new Voice();
+const ambience = new Ambience();
+let musicOn = true;
 // What a room's script is handed. Actors are reachable by id — `g.player`,
 // `g.grout`, `g.pike`, `g.cat` — so a room's code reads the same as it did
 // when there was only one room and they were module-level constants.
@@ -98,6 +101,9 @@ async function goTo(id, from) {
   actors.player.stop();
   buildRoom();
   room.follow(actors.player, 0, true);
+  // The room's own sound, cross-faded rather than cut. A door that changes the
+  // picture and leaves the sound alone is worse than no sound at all.
+  ambience.enter(id);
 }
 
 // Build this room's actors and bind their atlases. Failure is silent and
@@ -146,6 +152,7 @@ let hoverSpot = null;
 // somewhere and then changing your mind is not read as a sprint.
 const DOUBLE_CLICK_MS = 420;
 let lastFloorClick = { t: -1e9, x: 0, y: 0 };
+let lastVerb = null;
 
 function toStage(e) {
   const r = canvas.getBoundingClientRect();
@@ -188,6 +195,11 @@ canvas.addEventListener('pointerdown', (e) => {
     // clears the target.
     const target = coin.target;
     const verb = coin.pick(p.x, p.y);
+    // Recorded because a coin click that MISSES an icon looks, from outside
+    // the game, exactly like one that hits: either way the coin closes. A
+    // check driving the interface has no other way to tell a dismissal from a
+    // choice, and spent a long time failing silently for want of it.
+    lastVerb = verb ? { verb, target: target?.id ?? null } : null;
     if (verb && target) doVerb(verb, target);
     return;
   }
@@ -234,6 +246,11 @@ window.addEventListener('keydown', (e) => {
   if (editor.active && editor.key(e)) return;
   if (e.key === 'Escape') { coin.hide(); inv.selected = null; }
   if (e.key === 'm') { voice.muted = !voice.muted; voice.stop(); toast(voice.muted ? 'voice off' : 'voice on'); }
+  // Music on its own key, because it is the one people turn off first and the
+  // one they most want back later — muting everything to lose the theme is a
+  // bad trade the player should not have to make.
+  if (e.key === 'n') { musicOn = !musicOn; ambience.setMusic(musicOn); toast(musicOn ? 'music on' : 'music off'); }
+  if (e.key === 'b') { ambience.setMuted(!ambience.muted); toast(ambience.muted ? 'ambience off' : 'ambience on'); }
   if (e.key === 's' && e.ctrlKey) { e.preventDefault(); save(); }
   if (e.key === 'l' && e.ctrlKey) { e.preventDefault(); load(); }
 });
@@ -509,6 +526,14 @@ props = await loadProps();
 registerPropIcons(props, art.ICONS, art.imageIcon, { pepper: 'pepperpot', kipper: 'kipper' });
 await buildCast();
 
+// Ambience is loaded but silent until the first click, because autoplay is
+// refused otherwise; see the note in ambience.js.
+const heard = await ambience.load();
+console.log(heard
+  ? `[sound] ${Object.keys(ambience.manifest.sounds).length} clips — bed, one-shots and a theme`
+  : '[sound] no sound assets — run tools/sound.mjs');
+ambience.enter(here);
+
 const voiced = await voice.load();
 if (voiced) attachVoice(cast(), voice);
 console.log(voiced
@@ -540,7 +565,7 @@ if (backdrop.kind === KIND.NONE) console.log('[art] no backdrop — run tools/sc
 // clicking real pixels. A prototype that cannot be driven by a script cannot
 // be regression-tested, and an adventure game with no completion test breaks
 // silently the first time a flag is renamed.
-window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => room, get actors() { return actors; }, room_id: () => here, rooms: () => Object.keys(ROOMS), backdrop: () => backdrop.kind, voiced, props: () => Object.keys(props).length,
+window.__monkey = { g, state, coin, inv, menu, seq, lint: report, ambience, lastVerb: () => lastVerb, room: () => room, get actors() { return actors; }, room_id: () => here, rooms: () => Object.keys(ROOMS), backdrop: () => backdrop.kind, voiced, props: () => Object.keys(props).length,
   bodies: () => cast().filter((a) => a.body).length,
   puppets: () => cast().filter((a) => !a.body).length,
   goTo: (id, from) => goTo(id, from),
@@ -672,6 +697,13 @@ window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => ro
     const cx = [], bot = [];
     for (let i = 0; i < 24; i++) {
       a.clip = clip; a.clipT = i / 12;
+      // Step the clip WITHOUT the cross-dissolve. Setting the clip by hand
+      // looks to the body exactly like a change of pose, so the first frames
+      // sampled came back blended with whatever the actor was doing before —
+      // which made this measurement fail about one run in three, and only ever
+      // on its first sample. What the dissolve does is tested on its own; here
+      // it is noise.
+      a.fadeFrom = null; a.lastClip = clip;
       g.clearRect(0, 0, VIEW.w, VIEW.h);
       a.render(g, room);
       const d = g.getImageData(sx, sy, w, h).data;
@@ -787,6 +819,10 @@ window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => ro
     if (!a) return null;
     return { from: a.fadeFrom ?? null, frame: a.lastFrame ?? null, clip: a.lastClip ?? null };
   },
+  // Which clip an actor is drawing from right now. The talking fault was
+  // invisible to every assertion here because it is not a bug in any one
+  // frame — every frame was correct art, played at the wrong time.
+  clipOf: (who) => actors[who]?.lastClip ?? null,
   iconSource: (item) => (art.ICONS[item]?.fromSprite ? 'sprite' : art.ICONS[item] ? 'painted' : null),
   propDrawn: (name) => {
     const probe = R.SPRITE_PROBES?.[name];
