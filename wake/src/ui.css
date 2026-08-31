@@ -82,6 +82,40 @@ html, body {
   margin-left: auto;
 }
 
+/* THE SPEED, which is the one number you steer by.
+   Right-aligned and set in the same tabular figures as the fps stamp so the
+   digits do not shuffle sideways as she accelerates -- a readout that jitters
+   is a readout you stop trusting at a glance. Knots underneath because that is
+   what a boat is actually read in, and greyed so the eye lands on the metres
+   per second the whole prototype is tuned in. */
+#speed {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+}
+#speed b {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 21px;
+  letter-spacing: 0.02em;
+  color: var(--foam);
+  min-width: 2.6em;
+  text-align: right;
+}
+#speed i { font-style: normal; font-size: 11px; color: var(--dimmer); }
+#speed u {
+  text-decoration: none;
+  font-size: 11px;
+  color: var(--accent);
+  min-width: 4.4em;
+  text-align: right;
+}
+/* Astern reads as astern rather than as a minus sign you have to notice. */
+#speed[data-astern="1"] b { color: var(--accent); }
+
 .views, .zoom { display: flex; gap: 5px; }
 .zoom button { min-width: 30px; font-size: 15px; line-height: 1; padding: 5px 8px; }
 
@@ -327,6 +361,8 @@ input[type=range]::-moz-range-thumb {
   }
 
   #hud .hint { display: none; }
+  #speed b { font-size: 17px; }
+  #speed u { display: none; }
   #hud .brand { font-size: 13px; letter-spacing: 0.1em; }
   #chrome-toggle { top: auto; bottom: 12px; right: 12px; font-size: 12px; }
   #fps { min-width: 0; margin-right: auto; }

@@ -308,34 +308,51 @@ export class OceanBody {
 		const b = this.bow();
 		// The sea's contribution rides on top of the speed trim and the turn
 		// bank: a hull climbing a swell while leaning into a turn does both.
-		this.mesh.rotation.set( - trim - this.wave.pitch, this.state.heading,
-			this.roll + this.wave.roll, 'YXZ' );
-		// A HULL DOES NOT LEAVE THE WATER, AND THE CAP HAS TO COVER BOTH TERMS.
+		// TRIM IS LIMITED BY DRAFT, and that is the whole of it.
 		//
-		// _lift() caps the planing rise against the boat's own draft and does
-		// exactly what its comment promises. It is not the term that flies. The
-		// trim compensation is: rotating bow-up about an origin at the stem
-		// sinks the stern, so the hull is raised to hold the aft quarter at the
-		// waterline -- legitimate geometry, but uncapped, and it scales with the
-		// DRAWN length while the draft does not scale with model scale at all.
+		// An earlier attempt capped the total LIFT instead, on a measurement
+		// that was simply wrong: it read the height of the mesh origin, and the
+		// origin is at the STEM, so a bow-up trim raises it exactly as it should
+		// and the boat was declared airborne when only its bow was up. Capping
+		// the lift truncates the pivot compensation, which pushes the whole hull
+		// down -- so the fix for a boat that was never flying was to bury her
+		// stern. Measured at both ends at eight metres a second: bow +1.44 m
+		// clear, stern -1.73 m under. A one-and-a-half-metre see-saw.
 		//
-		// Measured with the shipped tuning at model scale 2.4, 23.8 m drawn
-		// against a 0.85 m draft: the rise is held to 0.468 m and the trim term
-		// then adds 2.28 m straight past it, putting the keel 1.43 m clear of
-		// the sea at eight metres a second. Airborne at every speed above about
-		// four. That is why foam was being made from water the boat was not
-		// touching -- the foam was right, the boat was in the wrong place.
+		// The compensation itself is right: rotating bow-up about a stem origin
+		// sinks the stern, so the hull is raised to hold a point near the aft
+		// quarter at the waterline. What is wrong is the ANGLE. The trim curve
+		// was authored for a 9.9 m hull and the lever is the DRAWN length --
+		// 23.8 m at model scale 2.4 -- so the same angle throws the ends 2.4x
+		// further, while the draft does not scale with model scale at all.
 		//
-		// So the cap belongs on the SUM. A planing hull keeps its after bottom
-		// wetted at any speed, which is where the thrust comes from, and
-		// boat.wetKeep is the share of her draft that stays in the water.
-		// Heave is added afterwards: the sea genuinely does lift her.
+		// A hull cannot trim further than its draft allows: past the angle where
+		// the forefoot lifts clear, she is not trimming, she is leaving. That
+		// angle is atan(draft / lever), and it is what is capped here. Nothing
+		// then needs clamping afterwards, and the stern stays where the geometry
+		// puts it.
 		const model = this.mesh?.children?.[ 0 ];
 		const keelDraft = model?.userData?.draft ?? 0.5;
-		const lift = this._lift( att ) + Math.sin( trim ) * this.length * TRIM_PIVOT;
-		const maxLift = keelDraft * ( 1 - get( 'boat.wetKeep' ) );
+		const lever = Math.max( this.length * TRIM_PIVOT, 0.5 );
+		const trimCap = Math.atan( keelDraft * get( 'boat.trimRoom' ) / lever );
+		const trimC = Math.max( - trimCap, Math.min( trimCap, trim ) );
+
+		// WHERE SHE ACTUALLY TOUCHES, in metres aft of the stem.
+		//
+		// With the bow up, the keel meets the surface somewhere along its
+		// length, not at the stem -- solve -draft.cos + (lever - s).sin = 0 for
+		// s. At the capped angle this is 0 and the whole keel is wetted; open
+		// trimRoom up and it walks aft, and the wake has to be laid from there
+		// rather than from the bow, or the foam starts in water the hull is
+		// nowhere near.
+		this.contact = trimC > 1e-4
+			? Math.max( 0, lever - keelDraft / Math.tan( trimC ) ) : 0;
+
+		this.mesh.rotation.set( - trimC - this.wave.pitch, this.state.heading,
+			this.roll + this.wave.roll, 'YXZ' );
 		this.mesh.position.set( b.x,
-			Math.min( lift, maxLift ) + this.wave.heave, b.z );
+			this._lift( att ) + this.wave.heave
+				+ Math.sin( trimC ) * this.length * TRIM_PIVOT, b.z );
 
 	}
 

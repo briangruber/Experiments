@@ -448,7 +448,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b89';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b90';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -1068,7 +1068,16 @@ function stepSim(dt) {
   // Either way the hull then occupies arc 0 to one hull-length back from the
   // anchor, which is what the wash and cavitation gates already assume.
   const hullDrawn = get('boat.length') * get('boat.modelScale');
-  const anchorOff = state.speed < 0 ? bowAhead - hullDrawn : bowAhead;
+  // ...AND AFT AGAIN TO WHERE SHE IS ACTUALLY TOUCHING.
+  //
+  // With the bow up the stem is clear of the water and the keel first meets the
+  // surface some way aft -- at the old uncapped trim, 10.8 m aft of the stem on
+  // a 23.8 m hull, nearly half the boat. The ribbon was anchored at the stem
+  // regardless, so the foam began in water the hull was nowhere near, which is
+  // exactly the wake that appeared to start ahead of the boat. body.contact is
+  // that distance, solved from the trim geometry rather than guessed.
+  const contact = body.contact ?? 0;
+  const anchorOff = state.speed < 0 ? bowAhead - hullDrawn : bowAhead - contact;
   // Going ASTERN the track runs the other way down the same course line, so
   // the tangent handed to the field has to be the direction of TRAVEL, not the
   // direction the bow points. Without the flip the ribbon is laid backwards
@@ -1205,6 +1214,8 @@ function stepSim(dt) {
 
 // ?prewarm=90 — run 90 seconds of boat before the first frame, so a capture (or
 // a reload mid-tuning) starts with a full-length wake instead of a stub.
+const speedEl = document.getElementById('speed');
+
 const PREWARM = +(new URLSearchParams(location.search).get('prewarm') ?? NaN) || window.__PREWARM || 0;
 for (let i = 0; i < PREWARM * 30; i++) stepSim(1 / 30);
 
@@ -1711,6 +1722,16 @@ function frame(now) {
     renderer.render(scene, camera);
     renderer.autoClear = false;
     renderer.render(sprayScene, camera);
+  }
+
+  // The speed, every frame -- not on the fps timer. It is the number you steer
+  // by, and a readout that lags the throttle by half a second is worse than
+  // none. Two decimals would shimmer at this update rate; one does not.
+  if (speedEl) {
+    const v = state.speed;
+    speedEl.firstChild.textContent = Math.abs(v).toFixed(1);
+    speedEl.lastChild.textContent = `${(Math.abs(v) * 1.94384).toFixed(1)} kn`;
+    speedEl.dataset.astern = v < -0.05 ? '1' : '';
   }
 
   if (hud.dataset.field === '1') {
