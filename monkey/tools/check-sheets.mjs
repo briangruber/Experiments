@@ -28,8 +28,8 @@ for (const f of (SHEETS.length ? SHEETS : ['loopoff-seedream', 'loopoff-nano']))
     // Compare against the page's own data rather than a number written here:
     // a hard-coded expectation fails every sheet that is not the size it was
     // written for, which is a check that cries wolf until it is ignored.
-    expected: (window.DATA?.clips || []).length,
-    tiles: document.querySelectorAll('.tile').length,
+    expected: (window.DATA?.clips || window.DATA?.models || []).length,
+    tiles: document.querySelectorAll('.tile, .bench').length,
     videos: document.querySelectorAll('.tile video').length,
     heavy: document.querySelectorAll('.tile img.heavy').length,
     stats: document.querySelectorAll('.stat').length,
@@ -37,10 +37,16 @@ for (const f of (SHEETS.length ? SHEETS : ['loopoff-seedream', 'loopoff-nano']))
     title: document.title,
     srcSet: [...document.querySelectorAll('.tile video')].every(v => v.src.startsWith('data:video/mp4')),
   }));
-  // exercise both grouping paths and every toggle
-  await p.click('#group button[data-v="model"]');
-  await p.click('#xfBtn'); await p.click('#srcBtn'); await p.click('#playBtn');
-  const after = await p.evaluate(() => document.querySelectorAll('.tile').length);
+  // Exercise whatever controls the page actually has. Naming them one by one
+  // made this check specific to a single sheet, which is how it came to fail a
+  // perfectly good page for lacking a button it never claimed to have.
+  for (const sel of ['#group button[data-v="model"]', '#xfBtn', '#srcBtn', '#playBtn',
+                     '#px', '#align', '#play', '#bg button[data-v="check"]',
+                     '.bench button[data-act="f+"]', '.bench button[data-act="s+"]']) {
+    const el = await p.$(sel);
+    if (el) { await el.click(); await p.waitForTimeout(120); }
+  }
+  const after = await p.evaluate(() => document.querySelectorAll('.tile, .bench').length);
   // filter the font fetch this sandbox blocks; it is allowed by the artifact CSP
   const real = errs.filter(e => !/ERR_CONNECTION_RESET|fonts\.googleapis/.test(e));
   console.log(f, JSON.stringify({ ...r, tilesAfterRegroup: after, errors: real }));

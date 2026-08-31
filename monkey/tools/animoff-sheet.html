@@ -1,0 +1,334 @@
+<title>Do Any Of Them Actually Walk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Fourth page of one investigation, so it wears the same clothes as the other
+   three. A judging surface for night-time art commits to a dark ground:
+   surrounding luminance biases colour perception, and every tile is a moonlit
+   dock. Single theme, deliberately, with every colour painted explicitly. */
+:root {
+  --ink-0:#0a0e1a; --ink-1:#121828; --ink-2:#1a2138; --ink-3:#232c48;
+  --line:#2c3757; --text:#e7eaf6; --dim:#98a2c6; --faint:#68739a;
+  --amber:#f2a93b; --teal:#46bda9; --rose:#e2685f;
+  color-scheme: dark;
+}
+* { box-sizing:border-box; }
+body {
+  margin:0; background:var(--ink-0); color:var(--text);
+  font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:15px; line-height:1.55;
+  background-image:radial-gradient(120% 70% at 50% -10%, #17203a 0%, var(--ink-0) 60%);
+  background-attachment:fixed;
+}
+h1,h2 { font-family:Fraunces,Georgia,serif; font-weight:700; text-wrap:balance; margin:0; }
+.mono { font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace; font-variant-numeric:tabular-nums; }
+
+header { padding:42px 26px 22px; max-width:1560px; margin:0 auto; }
+.eyebrow { font-family:"IBM Plex Mono",monospace; font-size:11.5px; letter-spacing:.18em;
+  text-transform:uppercase; color:var(--amber); margin-bottom:13px; }
+h1 { font-size:clamp(28px,4vw,48px); line-height:1.06; letter-spacing:-.015em; }
+.sub { color:var(--dim); max-width:66ch; margin-top:13px; }
+.foot { margin:16px 0 0; max-width:78ch; font-size:13px; line-height:1.6; color:var(--faint);
+  border-left:2px solid var(--line); padding-left:14px; }
+
+.bar { position:sticky; top:0; z-index:30; backdrop-filter:blur(14px);
+  background:rgba(10,14,26,.88); border-bottom:1px solid var(--line); }
+.bar-in { max-width:1560px; margin:0 auto; padding:11px 26px; display:flex; flex-wrap:wrap; gap:20px; align-items:center; }
+.ctl { display:flex; align-items:center; gap:9px; }
+.ctl > label:first-child { font-size:10.5px; letter-spacing:.12em; text-transform:uppercase; color:var(--faint); }
+.seg { display:flex; background:var(--ink-1); border:1px solid var(--line); border-radius:8px; padding:2px; gap:2px; }
+.seg button { appearance:none; border:0; background:transparent; color:var(--dim); cursor:pointer;
+  font:inherit; font-size:13px; padding:5px 12px; border-radius:6px; }
+.seg button:hover { color:var(--text); }
+.seg button[aria-pressed="true"] { background:var(--ink-3); color:var(--text); }
+button:focus-visible, input:focus-visible { outline:2px solid var(--amber); outline-offset:2px; }
+.toggle { appearance:none; border:1px solid var(--line); background:var(--ink-1); color:var(--dim);
+  font:inherit; font-size:13px; padding:6px 13px; border-radius:8px; cursor:pointer;
+  display:flex; align-items:center; gap:8px; }
+.toggle[aria-pressed="true"] { border-color:var(--amber); color:var(--text); background:var(--ink-3); }
+.dot { width:8px; height:8px; border-radius:50%; background:var(--faint); }
+.toggle[aria-pressed="true"] .dot { background:var(--amber); }
+
+main { max-width:1560px; margin:0 auto; padding:28px 26px 80px; }
+.grid { display:grid; gap:20px; grid-template-columns:repeat(auto-fill,minmax(430px,1fr)); }
+body[data-cols="1"] .grid { grid-template-columns:1fr; }
+
+.bench { background:var(--ink-1); border:1px solid var(--line); border-radius:12px; overflow:hidden;
+  display:flex; flex-direction:column; }
+.bench.win { border-color:rgba(70,189,169,.55); }
+.stage { position:relative; height:300px; background:var(--ink-2); }
+.stage canvas { width:100%; height:100%; display:block; }
+.badge { position:absolute; top:10px; left:10px; font-family:"IBM Plex Mono",monospace;
+  font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; z-index:2;
+  background:rgba(10,14,26,.85); border:1px solid var(--line); color:var(--dim);
+  padding:3px 8px; border-radius:5px; }
+.badge.ok { color:var(--teal); border-color:rgba(70,189,169,.45); left:auto; right:10px; }
+.badge.bad { color:var(--rose); border-color:rgba(226,104,95,.45); left:auto; right:10px; }
+
+.cap { padding:11px 13px 13px; display:flex; flex-direction:column; gap:10px; }
+.cap-top { display:flex; align-items:baseline; gap:10px; }
+.cap-top strong { font-size:15px; font-weight:600; }
+.cap-top em { font-style:normal; font-size:11.5px; color:var(--faint); margin-left:auto;
+  font-family:"IBM Plex Mono",monospace; }
+.knobs { display:flex; flex-wrap:wrap; gap:14px; align-items:center; }
+.knob { display:flex; align-items:center; gap:6px; font-family:"IBM Plex Mono",monospace; font-size:12.5px; }
+.knob span { color:var(--faint); font-size:10.5px; text-transform:uppercase; letter-spacing:.07em; }
+.knob button { appearance:none; width:22px; height:22px; border-radius:5px; cursor:pointer;
+  border:1px solid var(--line); background:var(--ink-2); color:var(--dim); font:inherit; line-height:1; }
+.knob button:hover { color:var(--text); border-color:var(--ink-3); }
+.knob b { min-width:22px; text-align:center; font-weight:500; font-variant-numeric:tabular-nums; }
+.strip { border-top:1px solid var(--line); background:var(--ink-0); padding:8px; overflow-x:auto; }
+.strip img { display:block; image-rendering:pixelated; height:74px; width:auto; max-width:none; }
+
+@media (prefers-reduced-motion:reduce) { .stage canvas { opacity:.999; } }
+@media (max-width:620px) { .grid { grid-template-columns:1fr; } header { padding:28px 16px 16px; } main { padding:20px 16px 60px; } .bar-in { padding:10px 16px; gap:13px; } }
+</style>
+
+<header>
+  <div class="eyebrow">Backdrop research · part four · <span id="date"></span></div>
+  <h1>Do any of them actually walk?</h1>
+  <p class="sub">Seven models were given one brief for an eight-frame walk cycle. A still sheet
+  cannot answer whether the result animates — a character that changes height by eight percent
+  between frames looks fine laid out in a row and pulses like a heartbeat once it moves. So here
+  they are moving, on the floor they would stand on, at the size they would be.</p>
+  <p class="foot">Each sheet is sliced live in your browser: the magenta key is removed, the strip
+  is cut into <b>frames</b> equal slices, and each figure is isolated from its neighbours by a
+  flood fill bounded to its own slice. <b>Align feet</b> is the correction the real cutter applies —
+  turn it off to see the bob each sheet has without it. The models disagreed about how many frames
+  to draw, so the frame count is per-bench and adjustable; if a walk looks wrong, try the count
+  next door.</p>
+</header>
+
+<div class="bar"><div class="bar-in">
+  <button class="toggle" id="play" aria-pressed="true"><span class="dot"></span>Playing</button>
+  <button class="toggle" id="px" aria-pressed="true"><span class="dot"></span>Pixelised</button>
+  <button class="toggle" id="align" aria-pressed="true"><span class="dot"></span>Align feet</button>
+  <div class="ctl">
+    <label>Ground</label>
+    <div class="seg" id="bg">
+      <button data-v="plate" aria-pressed="true">Dock</button>
+      <button data-v="flat" aria-pressed="false">Flat</button>
+      <button data-v="check" aria-pressed="false">Checker</button>
+    </div>
+  </div>
+  <div class="ctl">
+    <label>Size</label>
+    <div class="seg" id="cols">
+      <button data-v="2" aria-pressed="true">Compare</button>
+      <button data-v="1" aria-pressed="false">Full</button>
+    </div>
+  </div>
+</div></div>
+
+<main><div class="grid" id="grid"></div></main>
+
+<script>
+const DATA = /*__DATA__*/ null;
+window.DATA = DATA;
+const { models, plate, generatedAt } = DATA;
+document.getElementById('date').textContent = generatedAt;
+
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+
+let playing = true, usePx = true, align = true, ground = 'plate';
+const plateImg = new Image(); plateImg.src = plate;
+
+// Slice a sheet the same way tools/sheet-cut.mjs does, so what plays here is
+// what the engine would get. Key the magenta by relation — red and blue both
+// well above green — which survives the gradient backgrounds these models
+// returned and a fixed colour plus tolerance does not.
+function analyse(img, nFrames) {
+  const c = document.createElement('canvas');
+  c.width = img.naturalWidth; c.height = img.naturalHeight;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.imageSmoothingEnabled = false;
+  g.drawImage(img, 0, 0);
+  const id = g.getImageData(0, 0, c.width, c.height), d = id.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const r = d[i], gg = d[i + 1], b = d[i + 2];
+    if ((r - gg > 26 && b - gg > 26) || (r < 40 && gg < 40 && b < 62)) d[i + 3] = 0;
+  }
+  g.putImageData(id, 0, 0);
+  const W = c.width, H = c.height;
+  const A = (x, y) => d[(y * W + x) * 4 + 3];
+
+  let lo = 0, hi = W - 1;
+  outer: for (let x = 0; x < W; x++) { for (let y = 0; y < H; y++) if (A(x, y) > 40) { lo = x; break outer; } }
+  outer2: for (let x = W - 1; x >= 0; x--) { for (let y = 0; y < H; y++) if (A(x, y) > 40) { hi = x; break outer2; } }
+  const step = (hi - lo + 1) / nFrames;
+
+  const frames = [];
+  for (let i = 0; i < nFrames; i++) {
+    const sx0 = Math.round(lo + i * step), sx1 = Math.round(lo + (i + 1) * step) - 1;
+    const seedX = Math.round((sx0 + sx1) / 2);
+    const seen = new Uint8Array(W * H), stack = [];
+    for (let y = 0; y < H; y++) for (let sx = seedX - 1; sx <= seedX + 1; sx++) {
+      if (sx >= sx0 && sx <= sx1 && A(sx, y) > 40 && !seen[y * W + sx]) { seen[y * W + sx] = 1; stack.push(sx, y); }
+    }
+    let x0 = 1e9, x1 = -1, y0 = 1e9, y1 = -1;
+    while (stack.length) {
+      const y = stack.pop(), x = stack.pop();
+      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+        const nx = x + dx, ny = y + dy;
+        if (nx < sx0 || nx > sx1 || ny < 0 || ny >= H) continue;
+        const p = ny * W + nx;
+        if (seen[p] || A(nx, ny) <= 40) continue;
+        seen[p] = 1; stack.push(nx, ny);
+      }
+    }
+    if (x1 < 0) { frames.push(null); continue; }
+    const band = Math.max(1, Math.round((y1 - y0) * 0.12));
+    let hx0 = 1e9, hx1 = -1;
+    for (let y = y0; y < y0 + band; y++) for (let x = x0; x <= x1; x++) if (seen[y * W + x]) { if (x < hx0) hx0 = x; if (x > hx1) hx1 = x; }
+    // Each frame is cut out onto its own canvas, masked to its component, so a
+    // neighbour's coat cannot ride along.
+    const fw = x1 - x0 + 1, fh = y1 - y0 + 1;
+    const fc = document.createElement('canvas'); fc.width = fw; fc.height = fh;
+    const fg = fc.getContext('2d');
+    const fid = fg.createImageData(fw, fh);
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      if (!seen[y * W + x]) continue;
+      const s = (y * W + x) * 4, t = ((y - y0) * fw + (x - x0)) * 4;
+      fid.data[t] = d[s]; fid.data[t+1] = d[s+1]; fid.data[t+2] = d[s+2]; fid.data[t+3] = 255;
+    }
+    fg.putImageData(fid, 0, 0);
+    frames.push({ canvas: fc, w: fw, h: fh, headCx: hx1 >= hx0 ? (hx0 + hx1) / 2 - x0 : fw / 2 });
+  }
+  // The end slices of a sheet catch stray artefacts — a few pixels of a light
+  // bloom, half a figure the model added past the last frame. The real cutter
+  // drops anything far off the median height and so does this, or one four-
+  // pixel fragment reports the character as varying by 97%.
+  const all = frames.filter(Boolean);
+  const med = [...all.map((f) => f.h)].sort((a, b) => a - b)[all.length >> 1] || 1;
+  const good = all.filter((f) => f.h >= med * 0.7);
+  const junk = all.length - good.length;
+  const hs = good.map((f) => f.h);
+  return {
+    frames: good, junk,
+    minH: Math.min(...hs), maxH: Math.max(...hs),
+    spread: hs.length ? +(((Math.max(...hs) - Math.min(...hs)) / Math.max(...hs)) * 100).toFixed(1) : 0,
+  };
+}
+
+const benches = models.map((m) => ({ ...m, frames: m.frames, fps: m.fps, state: null, raw: null, px: null }));
+
+function benchHTML(m, i) {
+  return `<div class="bench" data-i="${i}">
+    <div class="stage"><canvas></canvas>
+      <span class="badge">${esc(m.label)}</span>
+      <span class="badge ok" data-role="verdict">—</span>
+    </div>
+    <div class="cap">
+      <div class="cap-top"><strong>${esc(m.label)}</strong><em>$${m.cost.toFixed(3)} · ${m.seconds}s</em></div>
+      <div class="knobs">
+        <span class="knob"><span>frames</span>
+          <button data-act="f-">−</button><b data-role="frames">${m.frames}</b><button data-act="f+">+</button></span>
+        <span class="knob"><span>fps</span>
+          <button data-act="s-">−</button><b data-role="fps">${m.fps}</b><button data-act="s+">+</button></span>
+        <span class="knob"><span>height spread</span><b data-role="spread">—</b></span>
+      </div>
+    </div>
+    <div class="strip"><img alt="${esc(m.label)} sheet" data-role="strip"></div>
+  </div>`;
+}
+document.getElementById('grid').innerHTML = benches.map(benchHTML).join('');
+
+const load = (src) => new Promise((res) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = src; });
+
+async function prepare(b, el) {
+  const src = usePx && b.pxSheet ? b.pxSheet : b.sheet;
+  const key = src + '|' + b.frames;
+  if (b.cacheKey === key) return;
+  const img = await load(src);
+  if (!img) return;
+  b.img = img;
+  b.state = analyse(img, b.frames);
+  b.cacheKey = key;
+  el.querySelector('[data-role="strip"]').src = src;
+  el.querySelector('[data-role="spread"]').textContent = b.state.spread + '%';
+  const v = el.querySelector('[data-role="verdict"]');
+  const bad = b.state.spread > 6;
+  v.textContent = (bad ? `unstable ${b.state.spread}%` : `steady ${b.state.spread}%`)
+    + (b.state.junk ? ` · ${b.state.junk} junk` : '');
+  v.className = 'badge ' + (bad ? 'bad' : 'ok');
+  el.classList.toggle('win', !bad);
+}
+
+function draw(b, el, t) {
+  const cv = el.querySelector('canvas');
+  const r = cv.getBoundingClientRect();
+  const w = Math.max(1, Math.round(r.width)), h = Math.max(1, Math.round(r.height));
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+  const g = cv.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  g.clearRect(0, 0, w, h);
+
+  if (ground === 'plate' && plateImg.complete) {
+    g.drawImage(plateImg, 470, 430, w, h, 0, 0, w, h);
+  } else if (ground === 'check') {
+    for (let y = 0; y < h; y += 16) for (let x = 0; x < w; x += 16) {
+      g.fillStyle = ((x / 16 + y / 16) | 0) % 2 ? '#1a2138' : '#232c48';
+      g.fillRect(x, y, 16, 16);
+    }
+  } else { g.fillStyle = '#1a2138'; g.fillRect(0, 0, w, h); }
+
+  if (!b.state) return;
+  const fs = b.state.frames;
+  if (!fs.length) return;
+  const i = playing ? Math.floor(t / 1000 * b.fps) % fs.length : 0;
+  const f = fs[i];
+  // The engine snaps to an integer zoom, so the bench does too — a fractional
+  // zoom resamples the art and would flatter every sheet equally.
+  const zoom = Math.max(1, Math.round((h * 0.52) / b.state.maxH));
+  const groundY = Math.round(h * 0.80);
+  const x = Math.round(w / 2 - f.headCx * zoom);
+  // Without alignment each frame sits on its own bottom edge, which is exactly
+  // the bob the cutter exists to remove.
+  const y = align ? groundY - f.h * zoom : groundY - b.state.maxH * zoom + (b.state.maxH - f.h) * zoom;
+  g.drawImage(f.canvas, 0, 0, f.w, f.h, x, y, f.w * zoom, f.h * zoom);
+}
+
+const els = [...document.querySelectorAll('.bench')];
+function frame(t) {
+  benches.forEach((b, i) => draw(b, els[i], t));
+  requestAnimationFrame(frame);
+}
+Promise.all(benches.map((b, i) => prepare(b, els[i]))).then(() => requestAnimationFrame(frame));
+
+document.getElementById('grid').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-act]'); if (!btn) return;
+  const el = btn.closest('.bench'), i = +el.dataset.i, b = benches[i];
+  const a = btn.dataset.act;
+  if (a === 'f+') b.frames = Math.min(16, b.frames + 1);
+  if (a === 'f-') b.frames = Math.max(1, b.frames - 1);
+  if (a === 's+') b.fps = Math.min(24, b.fps + 1);
+  if (a === 's-') b.fps = Math.max(1, b.fps - 1);
+  el.querySelector('[data-role="frames"]').textContent = b.frames;
+  el.querySelector('[data-role="fps"]').textContent = b.fps;
+  await prepare(b, el);
+});
+
+function toggle(id, fn) {
+  const btn = document.getElementById(id);
+  btn.addEventListener('click', () => {
+    const on = btn.getAttribute('aria-pressed') !== 'true';
+    btn.setAttribute('aria-pressed', String(on));
+    fn(on, btn);
+  });
+}
+toggle('play', (on, b) => { playing = on; b.lastChild.textContent = on ? 'Playing' : 'Paused'; });
+toggle('px', async (on) => { usePx = on; await Promise.all(benches.map((b, i) => prepare(b, els[i]))); });
+toggle('align', (on) => { align = on; });
+for (const [id, fn] of [['bg', (v) => ground = v], ['cols', (v) => document.body.dataset.cols = v]]) {
+  const el = document.getElementById(id);
+  el.addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    [...el.querySelectorAll('button')].forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    fn(b.dataset.v);
+  });
+}
+document.body.dataset.cols = '2';
+window.__ready = true;
+</script>
