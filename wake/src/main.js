@@ -448,7 +448,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b85';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b86';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -1631,6 +1631,10 @@ function frame(now) {
       // the waterline however she is rolling.
       cutLen: drawn * 0.44,
       cutBeam: Math.max(get('boat.beam') * get('boat.modelScale') * 0.42, 0.3),
+      // The white collar where the topsides go in. Rides the same ellipse as
+      // the cut, so it follows the shape the water is actually cut to.
+      foam: get('boat.waterlineFoam'),
+      foamW: get('boat.waterlineWidth'),
     } : undefined;
     // THE BOAT'S IMAGE IN THE WATER.
     //

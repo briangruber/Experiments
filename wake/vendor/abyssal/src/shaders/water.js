@@ -10,6 +10,7 @@ uniform vec3  uHullPos;
 uniform vec2  uHullFwd;
 uniform float uHullPush, uHullRadius, uHullBow, uHullPlane;
 uniform float uHullCut, uHullCutLen, uHullCutBeam;
+uniform float uHullFoam, uHullFoamW;
 uniform vec2  uHullCutPos;   // the hull's MIDDLE; uHullPos is its stem
 
 // THE HULL EXCLUDES WATER FROM THE SPACE IT OCCUPIES.
@@ -28,6 +29,21 @@ float hullInside(vec2 xz){
   float along = dot(rel, uHullFwd) / max(uHullCutLen, 0.3);
   float lat   = dot(rel, vec2(-uHullFwd.y, uHullFwd.x)) / max(uHullCutBeam, 0.2);
   return along * along + lat * lat < 1.0 ? 1.0 : 0.0;
+}
+
+// The SAME ellipse, as a distance rather than as a yes or no: exactly 1.0 on
+// the waterline the hull cuts, less inside it, more outside. hullInside()
+// throws that number away at the comparison, and it is the one thing needed to
+// hug the cut rather than merely test it. Negative when there is no cut to hug.
+// along comes back too (no backticks in here -- this GLSL lives inside a JS
+// template literal), because the bow shears water and the quarter does not.
+float hullEdgeQ(vec2 xz, out float along){
+  along = 0.0;
+  if (uHullCut < 0.5) return -1.0;
+  vec2 rel = xz - uHullCutPos;
+  along = dot(rel, uHullFwd) / max(uHullCutLen, 0.3);
+  float lat = dot(rel, vec2(-uHullFwd.y, uHullFwd.x)) / max(uHullCutBeam, 0.2);
+  return sqrt(along * along + lat * lat);
 }
 
 // Twin of hullLift() in gpu/tsl/water-surface.js. The hollow, bow heap
@@ -1130,6 +1146,36 @@ void main(){
   // Same channels, same lace, same foamCoord stretch as whitecaps.
   foamF += wake * WAKE_FOAM_FRESH;
   foamR += wake * WAKE_FOAM_RESIDUE;
+
+  // THE WATERLINE ITSELF.
+  //
+  // Everything above is the wake -- water the hull has already dealt with and
+  // left behind. None of it describes the one place a moving hull is most
+  // obviously in the water: the line where the topsides go in. There the sea is
+  // being sheared and turned over continuously, and it is white for a hand's
+  // width all the way round, brightest at the stem and trailing back along the
+  // quarter. Without it the hull reads as set INTO a hole in the water rather
+  // than as cutting through it, however good the wake behind is.
+  //
+  // Hugging the hull's own cut ellipse, so the collar follows the shape the
+  // water is actually being cut to instead of being a ring drawn near the boat.
+  if (uHullFoam > 0.0005) {
+    float alongN;
+    float q = hullEdgeQ(vFlat.xz, alongN);
+    if (q > 0.0) {
+      // A band just OUTSIDE the cut. Inside it there is no sea to foam.
+      float band = smoothstep(0.86, 1.0, q) * (1.0 - smoothstep(1.0, 1.0 + uHullFoamW, q));
+      // The stem shears; the quarter is merely alongside water going past.
+      float bow = mix(0.30, 1.0, smoothstep(-0.85, 0.75, alongN));
+      // And a hull lying still has no waterline foam at all -- she has to be
+      // pushing water for there to be anything to turn over.
+      float way = smoothstep(0.3, 2.4, abs(uWakeSpeed));
+      // Broken up, or it is an ellipse drawn round the boat, which is exactly
+      // the tell that the arms had before their own break-up went in.
+      float grain = mix(0.40, 1.30, fbm2(vFlat.xz * 1.9, 3));
+      foamF += band * bow * way * grain * uHullFoam;
+    }
+  }
 
   // Same carve the vertex displaced by. Without this the hollow and
   // bow heap wear the flat sea's normals and vanish except in silhouette.
