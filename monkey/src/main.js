@@ -202,7 +202,11 @@ function* approach(spot) {
   if (Math.hypot(player.x - spot.at.x, player.y - spot.at.y) > 24) {
     yield walk(player, room.walk, spot.at.x, spot.at.y);
   }
-  if (spot.at.facing) yield face(player, spot.at.facing);
+  // The hotspot's own centre is what "face it" means when the cast has no back
+  // view: the rear-wall hotspots all ask for 'back', and a profile aimed at
+  // the thing is the honest reading of that.
+  const towardX = spot.rect ? spot.rect[0] + spot.rect[2] / 2 : null;
+  if (spot.at.facing) yield face(player, spot.at.facing, towardX);
 }
 
 function doVerb(verb, spot) {
@@ -647,7 +651,83 @@ window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => ro
     return +(quiet.reduce((s, v) => s + v, 0) / quiet.length).toFixed(2);
   },
 
-  // The shape the actor is drawn as right now, in room units.  // The shape the actor is drawn as right now, in room units. A pose change is
+  // Does a generated prop actually put pixels on the canvas?
+  //
+  // Same question as drawn() asks of an actor, and for the same reason: the
+  // cup is loaded from assets/props/cup.png and falls back to procedural art
+  // if that image fails, so "the prop file is there" and "the prop is on
+  // screen" are different claims. Toggling the state that hides it and diffing
+  // its box is the only one of the two that a missing file cannot pass.
+  // The loaded sprite's own dimensions. propDrawn alone cannot tell a
+  // generated cup from the procedural one standing in for a missing file —
+  // both put pixels in the box — so the size of the image that actually loaded
+  // is what separates them.
+  propSize: (name) => {
+    const img = props[name];
+    return img ? { w: img.width, h: img.height } : null;
+  },
+  propDrawn: (name) => {
+    const c = document.querySelector('canvas');
+    const gg = c.getContext('2d');
+    const rect = { cup: dock.CUP_RECT }[name];
+    if (!rect) return 0;
+    const [x, y, w, h] = rect;
+    const paintRoom = () => { ctx.clearRect(0, 0, VIEW.w, VIEW.h); room.render(ctx, [player, grout]); };
+    const had = state.has('cup'), hadGrog = state.has('cup-of-grog');
+    paintRoom();
+    const before = gg.getImageData(x, y, w, h).data;
+    if (!had) state.give('cup');
+    paintRoom();
+    const after = gg.getImageData(x, y, w, h).data;
+    if (!had) state.take('cup');
+    if (hadGrog) state.give('cup-of-grog');
+    paintRoom();
+    let diff = 0;
+    for (let i = 0; i < before.length; i += 4) {
+      if (Math.abs(before[i] - after[i]) + Math.abs(before[i + 1] - after[i + 1])
+        + Math.abs(before[i + 2] - after[i + 2]) > 24) diff++;
+    }
+    return diff;
+  },
+  // The shape the actor is drawn as right now, in room units.  // Does a generated prop actually put pixels on the canvas?
+  //
+  // Same question as drawn() asks of an actor, and for the same reason: the
+  // cup is loaded from assets/props/cup.png and falls back to procedural art
+  // if that image fails, so "the prop file is there" and "the prop is on
+  // screen" are different claims. Toggling the state that hides it and diffing
+  // its box is the only one of the two that a missing file cannot pass.
+  // The loaded sprite's own dimensions. propDrawn alone cannot tell a
+  // generated cup from the procedural one standing in for a missing file —
+  // both put pixels in the box — so the size of the image that actually loaded
+  // is what separates them.
+  propSize: (name) => {
+    const img = props[name];
+    return img ? { w: img.width, h: img.height } : null;
+  },
+  propDrawn: (name) => {
+    const c = document.querySelector('canvas');
+    const gg = c.getContext('2d');
+    const rect = { cup: dock.CUP_RECT }[name];
+    if (!rect) return 0;
+    const [x, y, w, h] = rect;
+    const paintRoom = () => { ctx.clearRect(0, 0, VIEW.w, VIEW.h); room.render(ctx, [player, grout]); };
+    const had = state.has('cup'), hadGrog = state.has('cup-of-grog');
+    paintRoom();
+    const before = gg.getImageData(x, y, w, h).data;
+    if (!had) state.give('cup');
+    paintRoom();
+    const after = gg.getImageData(x, y, w, h).data;
+    if (!had) state.take('cup');
+    if (hadGrog) state.give('cup-of-grog');
+    paintRoom();
+    let diff = 0;
+    for (let i = 0; i < before.length; i += 4) {
+      if (Math.abs(before[i] - after[i]) + Math.abs(before[i + 1] - after[i + 1])
+        + Math.abs(before[i + 2] - after[i + 2]) > 24) diff++;
+    }
+    return diff;
+  },
+  // The shape the actor is drawn as right now, in room units. A pose change is
   // the one animation event that alters the silhouette rather than the frame,
   // so it is the only one a frame counter cannot see: a Grout who is "asleep"
   // but still standing passes every clip assertion and is plainly wrong.

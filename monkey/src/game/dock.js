@@ -96,7 +96,12 @@ export const SPRITE_CAST = {
     asset: 'grout',
     sheet: './assets/cast/grout-sheet.png',
     manifest: './assets/cast/grout-sheet.json',
-    height: 296,          // 148 on the sheet, x2
+    // The 176px extraction, not the 152px one: at 152 the background remover
+    // left a soft grey smear under his boots, and the cleaner pass puts his
+    // figure at 168 rather than 148. Drawn at 310 that is 1.85 art pixels
+    // rather than a clean 2, which is the price of taking the better art at a
+    // size that does not divide evenly — and the smear was worse.
+    height: 310,
   },
 };
 
@@ -154,7 +159,16 @@ export function makeRoomDef(state, backdrop, props = {}) {
       if (cupTaken()) return;
       const img = props.cup;
       const [x, y, w, h] = CUP_RECT;
-      if (img) ctx.drawImage(img, x, y, w, h);
+      // Drawn 1:1 and unsmoothed. The cup is generated art now, from the same
+      // AutoSprite line as the cast rather than a repainted vector blockout,
+      // and its box is sized to its cell so nothing is resampled — the mistake
+      // this project keeps rediscovering, one prop smaller.
+      if (img) {
+        const was = ctx.imageSmoothingEnabled;
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(img, x, y, w, h);
+        ctx.imageSmoothingEnabled = was;
+      }
       else { ctx.save(); ctx.translate(x + w / 2, y); ctx.scale(1.15, 1.15); art.paintCup(ctx, room, false); ctx.restore(); }
     },
   };
@@ -202,7 +216,10 @@ export function makeRoomDef(state, backdrop, props = {}) {
 // On the strip of wall between the left window and the door, above head
 // height. Placed rather than found: a drawn sprite goes where the annotation
 // says, which is the whole advantage of it being drawn.
-const CUP_RECT = [900, 396, 46, 54];
+// Sized to the generated sprite's own cell (64x64) and centred on where the
+// hand-drawn cup used to hang, so the sprite draws 1:1 and the hotspot still
+// covers the same nail.
+export const CUP_RECT = [891, 391, 64, 64];
 
 // Traced over the painting. The back edge runs in FRONT of the barrel, the
 // crates and the rope coil, because those are painted into the backdrop and

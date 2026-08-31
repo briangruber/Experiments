@@ -121,7 +121,26 @@ export class Actor {
     if (this.state !== 'walk') this.state = 'talk';
   }
 
-  face(dir) { this.facing = dir; }
+  // Can the art draw this? A body says what views it has; a drawn puppet has
+  // no atlas and no such limit.
+  canFace(dir) { return this.body?.facings ? this.body.facings.has(dir) : true; }
+
+  // Turn, but only to somewhere the art can go.
+  //
+  // The room asks for 'back' at every hotspot along the rear wall, which is
+  // right for a cast with a back view and a lie for this one — the actor held
+  // the facing, the renderer ignored it and drew a profile, and the two
+  // disagreed with nobody the wiser. When the view does not exist the turn
+  // resolves to the profile pointing at whatever is being used, so standing at
+  // the barrel at least means standing at the barrel and looking at it.
+  face(dir, towardX = null) {
+    if (this.canFace(dir)) { this.facing = dir; return; }
+    if (towardX !== null && Math.abs(towardX - this.x) > 1) {
+      this.facing = towardX > this.x ? 'right' : 'left';
+    }
+    // Otherwise keep the way it is already pointing, which is the way it
+    // walked in — better than a coin toss.
+  }
 
   update(dt, room) {
     const want = this.state === 'walk' ? (this.facing === 'left' ? 1 : -1) : 0;
@@ -163,9 +182,12 @@ export class Actor {
         this.phase += step / (stride * scale);
         // Facing is chosen from the direction of travel, biased to the sides:
         // a character seen from behind cannot act, so a diagonal reads as a
-        // profile unless it is steeply vertical.
+        // profile unless it is steeply vertical. And a steeply vertical walk
+        // only turns the character away from the camera if there is art to
+        // draw them that way; otherwise they keep the profile they had, rather
+        // than holding a facing that will be drawn as one anyway.
         if (Math.abs(dx) > Math.abs(dy) * 0.6) this.facing = dx > 0 ? 'right' : 'left';
-        else this.facing = dy > 0 ? 'front' : 'back';
+        else if (this.canFace('front')) this.facing = dy > 0 ? 'front' : 'back';
         budget -= step;
       }
       if (!this.path.length) {

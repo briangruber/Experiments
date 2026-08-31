@@ -71,6 +71,23 @@ export async function loadSpriteBody({ sheetUrl, manifest, height, face }) {
   return {
     kind: 'sprite',
     figureH,
+
+    // Which way this body can actually be drawn.
+    //
+    // Every sheet in this cast is a side view: the shared style line sent to
+    // AutoSprite says "side view facing right", every animation prompt repeats
+    // it, and the service files each result under a /right/ path. There is no
+    // direction parameter in the API and the sprites are video-generated 2D
+    // rather than a rotatable model, so front and back do not exist and cannot
+    // be had by mirroring.
+    //
+    // Saying so out loud is the point. The room asks eight hotspots to be used
+    // with the player facing 'back' — the barrel, the cup, the sign, the
+    // lantern, the door, the window, the crates, the nets — and the actor was
+    // happily holding a facing the renderer then ignored, drawing a profile.
+    // An atlas that one day carries directional clips would declare them here
+    // and the engine would use them with no further change.
+    facings: new Set(['left', 'right']),
     // The height the room asks for, kept so callers can report the ratio
     // between it and the sheet — which is the character's art-pixel size.
     drawHeight: height,

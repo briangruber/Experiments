@@ -211,7 +211,12 @@ window.__grid = async (src, opts) => {
           for (let px = x0; px <= x1; px++) if (MASK(px, y)) { if (px < a) a = px; if (px > b) b = px; }
         return b >= a ? b - a + 1 : 0;
       };
-      frames.push({ x0, x1, y0, y1, h: y1 - y0 + 1, groundY: groundRow(), footW: footWidth(),
+      // The cell's own origin travels with the frame. A sheet that is already
+      // a uniform grid came out of ONE video, so every frame is drawn in the
+      // same coordinate frame and its position inside its cell is the truth —
+      // which means the atlas can preserve it rather than re-deriving it.
+      frames.push({ x0, x1, y0, y1, h: y1 - y0 + 1, cellX: bx, cellY: by,
+        groundY: groundRow(), footW: footWidth(),
         headCx: cxIn(0, 0.12), footCx: cxIn(0.92, 1), mask: Array.from(mask) });
     }
   }
@@ -238,16 +243,27 @@ window.__pack = (cell, out) => {
     // and the frame's chosen anchor to one column, in every cell. Which anchor
     // that is was decided per clip by whichever band moves least in the source
     // — see __grid.
+    // Both alignment rules for a sheet that needs them: feet to one row, and
+    // the frame's chosen anchor to one column.
     const anchor = f.anchor === 'foot' ? f.footCx : f.headCx;
     const ox = Math.round(cx + cell.w / 2 - (anchor - f.x0)) - f.x0;
-    // The GROUND row, not the lowest pixel — a speck below the boot is not
-    // where the character is standing.
     const oy = Math.round(cy + out.feetY - (f.groundY - f.y0) - 1) - f.y0;
+    // ...and none of them for a sheet that does not.
+    //
+    // Everything above exists to rescue frames that were never in register
+    // with each other. A sheet extracted from one video already is: each
+    // frame's position inside its cell is exactly where the animator put it,
+    // and re-deriving it from the pixels can only add error. It did — wherever
+    // background removal left a soft smear under the boots the detected ground
+    // row wandered, and frames that were in register came out bobbing. Which
+    // case a sheet is in is measured in sheet-cut.mjs, not assumed.
+    const inX = out.inPlace ? cx - f.cellX + (f.inOX || 0) : ox;
+    const inY = out.inPlace ? cy - f.cellY + (f.inOY || 0) : oy;
     const { W, d } = sources[f.src || 0];
     for (let y = f.y0; y <= f.y1; y++) {
       for (let x = f.x0; x <= f.x1; x++) {
         if (!f.mask[y * W + x]) continue;
-        const dx = x + ox, dy = y + oy;
+        const dx = x + inX, dy = y + inY;
         if (dx < 0 || dy < 0 || dx >= c.width || dy >= c.height) continue;
         const s = (y * W + x) * 4, t = (dy * c.width + dx) * 4;
         dest.data[t] = d[s]; dest.data[t + 1] = d[s + 1]; dest.data[t + 2] = d[s + 2]; dest.data[t + 3] = 255;

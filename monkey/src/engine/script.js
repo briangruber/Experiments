@@ -65,7 +65,12 @@ export const walk = (actor, area, x, y) => {
   };
 };
 
-export const face = (actor, dir) => ({ update() { actor.face(dir); return true; } });
+// `towardX` is what a turn means when the requested view does not exist: face
+// the thing being used, in profile, rather than a direction the art cannot
+// draw. Callers that have a target pass it; the rest do not and the actor
+// keeps its current profile.
+export const face = (actor, dir, towardX = null) =>
+  ({ update() { actor.face(dir, towardX); return true; } });
 
 // Line length drives its own duration when no voice clip has been recorded yet,
 // which keeps the writing loop readable long before anyone books a booth. When

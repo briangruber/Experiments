@@ -161,12 +161,27 @@ async function cmdCharacters() {
 // pixels, visible pixel grid" is a thing a generator can aim at, where "90s
 // adventure game" on its own has produced smooth digital paintings of pirates
 // every time this project has asked for it.
-const STYLE = [
+// The style brief, in two halves.
+//
+// LOOK is how the pixels are made and is shared by everything — cast and props
+// alike — because that is the whole reason to generate a prop here rather than
+// repaint a vector blockout: a tin cup drawn by the same generator, on the same
+// palette, with the same outline weight, sits in the scene instead of on it.
+//
+// FIGURE is anatomy, and only people get it. The first version of this had one
+// blob including "small head, long legs", which is advice a cup cannot use.
+const LOOK = [
   'HD pixel art game sprite. Chunky readable pixels, visible pixel grid, hard aliased',
   'edges, no blur, no gradients. Limited palette, clean dark outline, flat two-step',
-  'shading lit warmly from the right. Side view facing right, full body.',
-  'Small head, long legs, 1990s point-and-click adventure style. Flat background, no text.',
+  'shading lit warmly from the right. Flat background, no text.',
 ].join(' ');
+
+const FIGURE = [
+  'Side view facing right, full body.',
+  'Small head, long legs, 1990s point-and-click adventure style.',
+].join(' ');
+
+const STYLE = `${FIGURE} ${LOOK}`;
 
 const CHARACTERS = {
   grout: {
@@ -179,6 +194,26 @@ const CHARACTERS = {
       'Battered dark blue tricorn, grey hair, thick grey beard. Long teal-blue naval coat with',
       'brass buttons, grey shirt, brown belt, dark trousers, heavy black sea boots.',
       STYLE,
+    ].join(' '),
+  },
+
+  // Props. `isHumanoid: false` is the only structural difference, and the
+  // account already has towers and barracks made this way — the generator does
+  // not insist on people.
+  //
+  // Worth it for exactly one prop so far: the tin cup is the only thing in the
+  // room that changes state, so it is the only thing that cannot be painted
+  // into the backdrop and has to hold up as a sprite in its own right. The
+  // others are repainted vector blockouts (tools/props.mjs), which is a
+  // different lineage and looks like one.
+  cup: {
+    humanoid: false,
+    name: 'Tin Cup on a Nail',
+    prompt: [
+      'A single battered tin drinking cup, dented pewter grey with a dark rim, hanging by its',
+      'curved handle from an iron nail. Seen from the side, hanging still.',
+      'Just the cup and its nail, nothing else, no wall and no shadow.',
+      LOOK,
     ].join(' '),
   },
 };
@@ -197,7 +232,7 @@ async function cmdCharacter(key) {
   const body = {
     name: c.name,
     prompt: c.prompt,
-    isHumanoid: true,
+    isHumanoid: c.humanoid !== false,
     // AutoSprite's own template is generic; the brief above is specific and
     // shared across the cast, so it does the work instead.
     usePromptTemplate: false,
@@ -253,6 +288,20 @@ const ANIMATIONS = {
         + 'at his sides. He stays asleep in exactly this pose the whole time and only breathes '
         + 'slowly. One character alone: no post, no wall, no barrel, no furniture, no props. '
         + 'Side view, facing right.',
+    },
+  ],
+
+  // The cup hangs on a nail on the tavern wall and is the one prop in the room
+  // that changes state, so it is the one that has to be a sprite rather than
+  // paint. Asked for at 32 pixels a frame, not 512: its own art quantises at a
+  // 128px grid, and the room draws it about 24 art pixels wide, so anything
+  // larger is detail that would have to be thrown away again.
+  cup: [
+    {
+      kind: 'custom', name: 'Sway', loop: true,
+      prompt: 'A battered tin cup hanging from an iron nail, swinging very gently side to side, '
+        + 'a slow small sway that returns to where it started. The nail does not move. '
+        + 'Just the cup and the nail, nothing else, no wall and no shadow.',
     },
   ],
 };
@@ -347,6 +396,20 @@ async function cmdPull(characterId) {
   }
   const superseded = sheets.length - newest.size;
   if (superseded) console.log(`    (${superseded} superseded sheet(s) skipped — an older re-extraction)`);
+  // Newest is not always best. Every re-extraction is kept as a version, and
+  // the background remover does not do the same job at every frame size — the
+  // 152px pass left a soft grey smear under Grout's boots that the 176px pass
+  // did not. `--at 176` takes that version of every sheet instead.
+  const AT = +opt('at', 0);
+  if (AT) {
+    for (const [key, row] of newest) {
+      const want = sheets.filter((s) => `${s.kind}:${s.name || ''}` === key && s.frameWidth === AT)
+        .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0];
+      if (want) newest.set(key, want);
+      else console.log(`    (no ${AT}px version of ${key} — keeping the newest)`);
+    }
+    console.log(`    taking the ${AT}px version of each sheet`);
+  }
 
   const seen = new Set();
   for (const row of newest.values()) {
@@ -375,6 +438,72 @@ async function cmdPull(characterId) {
   }
 }
 
+// Turn a generated sheet into a prop the room can draw.
+//
+// src/art/props.js wants one PNG per prop, sitting in a box the game chose, so
+// that regenerating a prop never moves a hotspot. A sprite sheet is not that,
+// so one frame is picked and written on its own.
+//
+// The frame picked is the one nearest the middle of the motion, not the first.
+// This cup's animation is a sway, and its first frame is the cup at one end of
+// its swing — a still cup hanging permanently at a tilt, which reads as a
+// mistake rather than as a cup.
+async function cmdProp(key) {
+  const ch = await lookup(key, 'character');
+  if (!ch) throw new Error(`${key}: no character yet — run 'character ${key}' first`);
+  const dir = join(OUT, key);
+  const sheets = (await ledgerRows()).filter((e) => e.kind === 'sheet' && e.characterId === ch.characterId);
+  const meta = sheets[sheets.length - 1]?.meta;
+  if (!meta) throw new Error(`${key}: no sheet pulled yet — run 'pull ${ch.characterId}'`);
+  const file = join(dir, `${slug(meta.name || meta.kind)}.png`);
+  const { launch, serve } = await import('./harness.mjs');
+  const { port, close } = await serve();
+  const browser = await launch();
+  const page = await browser.newPage();
+  await page.goto(`http://localhost:${port}/tools/sheet-cut.html`, { waitUntil: 'networkidle' });
+  await page.waitForFunction(() => window.__ready === true);
+  const uri = 'data:image/png;base64,' + (await readFile(file)).toString('base64');
+  const out = await page.evaluate(async ([u, cols, count]) => {
+    const img = await new Promise((r, j) => { const i = new Image(); i.onload = () => r(i); i.onerror = j; i.src = u; });
+    const cw = img.width / cols, ch2 = img.height / Math.ceil(count / cols);
+    const c = document.createElement('canvas');
+    c.width = cw; c.height = ch2;
+    const x = c.getContext('2d', { willReadFrequently: true });
+    x.imageSmoothingEnabled = false;
+    const centres = [];
+    for (let i = 0; i < count; i++) {
+      x.clearRect(0, 0, cw, ch2);
+      x.drawImage(img, -(i % cols) * cw, -Math.floor(i / cols) * ch2);
+      const d = x.getImageData(0, 0, cw, ch2).data;
+      let lo = 1e9, hi = -1, top = 1e9, bot = -1;
+      for (let y = 0; y < ch2; y++) for (let px = 0; px < cw; px++) {
+        if (d[(y * cw + px) * 4 + 3] > 40) {
+          if (px < lo) lo = px; if (px > hi) hi = px;
+          if (y < top) top = y; if (y > bot) bot = y;
+        }
+      }
+      centres.push(hi < 0 ? null : { i, cx: (lo + hi) / 2, box: [lo, top, hi, bot] });
+    }
+    const live = centres.filter(Boolean);
+    const mid = [...live.map((v) => v.cx)].sort((a, b) => a - b)[live.length >> 1];
+    const pick = live.reduce((a, b) => (Math.abs(b.cx - mid) < Math.abs(a.cx - mid) ? b : a));
+    x.clearRect(0, 0, cw, ch2);
+    x.drawImage(img, -(pick.i % cols) * cw, -Math.floor(pick.i / cols) * ch2);
+    return { url: c.toDataURL('image/png'), frame: pick.i, w: cw, h: ch2, box: pick.box, of: count };
+  }, [uri, meta.columns, meta.frameCount]);
+  await browser.close();
+  await close();
+  const dest = join(ROOT, `assets/props/${key}.png`);
+  await mkdir(join(ROOT, 'assets/props'), { recursive: true });
+  await writeFile(dest, Buffer.from(out.url.split(',')[1], 'base64'));
+  const [bx, by, bx1, by1] = out.box;
+  console.log(`  assets/props/${key}.png  ${out.w}x${out.h}  from frame ${out.frame + 1}/${out.of}`
+    + ` (the one nearest the middle of the motion)`);
+  console.log(`  the art occupies ${bx1 - bx + 1}x${by1 - by + 1} inside it, at ${bx},${by}`);
+  console.log(`  draw it 1:1 — reducing it is the mistake this project keeps making`);
+  await ledger({ kind: 'prop', key, characterId: ch.characterId, frame: out.frame, file: `assets/props/${key}.png` });
+}
+
 try {
   switch (cmd) {
     case 'account': await cmdAccount(); break;
@@ -383,9 +512,10 @@ try {
     case 'animate': await cmdAnimate(args[1]); break;
     case 'regen': await cmdRegen(args[1]); break;
     case 'pull': await cmdPull(args[1]); break;
+    case 'prop': await cmdProp(args[1]); break;
     default:
       console.error('usage: node tools/autosprite.mjs account|characters|character <key>'
-        + '|animate <key>|regen <id>|pull <id>');
+        + '|animate <key>|regen <id>|pull <id>|prop <key>');
       process.exit(1);
   }
 } catch (e) {

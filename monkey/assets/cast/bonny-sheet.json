@@ -1,9 +1,9 @@
 {
-  "cellW": 119,
-  "cellH": 145,
+  "cellW": 111,
+  "cellH": 137,
   "cols": 96,
   "figureH": 135,
-  "feetY": 139,
+  "feetY": 134,
   "bounds": [
     [
       41,
@@ -402,14 +402,14 @@
       "start": 32,
       "count": 32,
       "framesPerCycle": 15,
-      "stride": 138,
+      "stride": 108,
       "fps": 12
     },
     "run": {
       "start": 64,
       "count": 32,
-      "framesPerCycle": 15,
-      "stride": 198,
+      "framesPerCycle": 17,
+      "stride": 152,
       "fps": 12
     }
   },

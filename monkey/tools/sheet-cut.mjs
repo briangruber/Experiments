@@ -101,23 +101,21 @@ for (const source of SOURCES) {
     + `${source.clip ? `  [clip ${source.clip}]` : ''}  [${GRID ? 'uniform grid ' + GRID : 'connectivity'}]`);
 }
 
-// Which end of the character to hold still, and which frames to keep.
+// Which end of the character to hold still — for a sheet that needs rescuing.
 //
-// ANCHOR. The head was the anchor everywhere, on the reasoning that a swinging
-// arm moves the bounding box without moving the character. That is true of a
-// walk and false of everything else: Grout's idle sways his head 8px while his
-// feet do not move at all, so anchoring on the head pushed his whole body back
-// and forth and gave a man standing still a shuffle.
+// A sheet cut by connectivity (`__cut`) has frames that were never in register
+// with each other, and something has to decide what to line them up on. The
+// head was that anchor everywhere, on the reasoning that a swinging arm moves
+// the bounding box without moving the character. True of a walk, false of a
+// character standing still whose head sways.
 //
-// The first attempt at a rule was "anchor on whichever band varies least",
-// which is not quite it either — Bonny's idle has a steadier head than feet,
-// so it chose the head and left her feet drifting 4px on screen. The rule that
-// holds is about what the clip IS: a clip with a gait moves its feet on
-// purpose and must be pinned by the head; a clip without one has feet that are
-// standing on the dock and must be pinned by them. Whether a clip has a gait
-// is read off its own frames — the figure's width just above the ground swings
-// through a walk and is flat through an idle.
+// A clip with a gait moves its feet on purpose and is pinned by the head; a
+// clip without one has feet standing on the floor and is pinned by them.
+// Whether a clip has a gait is read off its own frames: the figure's width just
+// above the ground swings through a walk and is flat through an idle.
 //
+// None of this applies to a --grid sheet, which is copied rather than aligned
+// — see IN PLACE below.
 const sd = (a) => {
   if (a.length < 2) return 0;
   const m = a.reduce((x, v) => x + v, 0) / a.length;
@@ -126,17 +124,17 @@ const sd = (a) => {
 for (const seg of segments) {
   const mine = meas.frames.slice(seg.from, seg.to);
   if (!mine.length) continue;
-  const label = seg.clip || 'frames';
-
   const w = mine.map((f) => f.footW);
   const hi = Math.max(...w) || 1;
   const swing = (hi - Math.min(...w)) / hi;
   const gait = swing >= 0.3;
   const pick = gait ? 'head' : 'foot';
   for (const f of mine) f.anchor = pick;
-  console.log(`  ${label.padEnd(7)} ${gait ? 'has a gait' : 'no gait   '} (feet swing ${(swing * 100).toFixed(0)}%)`
-    + ` -> anchor on the ${pick}`);
-
+  seg.gait = gait;
+  if (!GRID) {
+    console.log(`  ${(seg.clip || 'frames').padEnd(7)} ${gait ? 'has a gait' : 'no gait   '}`
+      + ` (feet swing ${(swing * 100).toFixed(0)}%) -> anchor on the ${pick}`);
+  }
 }
 await page.evaluate((anchors) => {
   window.__state.frames.forEach((f, i) => { f.anchor = anchors[i]; });
@@ -190,15 +188,109 @@ for (const [i, f] of meas.frames.entries()) {
 // the figures are then scaled as a set so the character lands at TARGET_H.
 const maxW = Math.max(...meas.frames.map((f) => f.x1 - f.x0 + 1));
 const maxH = Math.max(...hs);
-// Frames are pinned by their GROUND row, and a speck of leftover background
-// removal can hang below it. The bottom margin is taken from the worst case in
-// the sheet rather than assumed, or those few pixels are clipped off — which
-// would put a hard edge under one frame's boot and not the next's.
-const below = Math.max(0, ...meas.frames.map((f) => f.y1 - f.groundY));
-const cell = { w: maxW + 8, h: maxH + 8 + below };
-const feetY = cell.h - 4 - below;
+
+// IN PLACE. A --grid sheet is copied cell for cell, not re-aligned.
+//
+// The alignment machinery above exists for sheets whose frames were never in
+// register. A sheet that arrives as a uniform grid already is — it was
+// extracted from a single video — so every frame's position inside its cell is
+// exactly where the animator put it, and re-deriving that position from the
+// pixels can only add error. It did: wherever background removal left a soft
+// smear under the boots the detected ground row wandered up to three pixels,
+// and frames that were in register came out bobbing. It showed as Grout
+// hopping once a loop, and it does not happen on the generator's own preview,
+// because the generator's own preview does not do this.
+//
+// The unit of registration is the CLIP, not the atlas. One video is one
+// coordinate frame; two videos are two. So inside a clip nothing moves at all,
+// and between clips the ground rows and horizontal centres are brought
+// together — which is the only part that does need deciding, since a seated
+// sleeping man and a standing one were never filmed against a common floor.
+// Whether the frames are ALREADY in register is measured, not assumed.
+//
+// The first version of this keyed off --grid, on the reasoning that a uniform
+// grid comes from one video. Some do; some are a general image model's output
+// that merely happens to be on a grid, with the figure landing wherever it
+// landed in each cell — and tools/check-cut.mjs builds exactly that as a
+// fixture, with placement varying 18px, to prove the aligner works. Copying
+// that in place preserves a fault instead of fixing one.
+//
+// So: if each frame's ground row already sits in the same place inside its own
+// cell, the sheet is registered and must not be touched. If it does not, the
+// sheet needs the aligner. The two cases are half an order of magnitude apart
+// — nothing to nought for a generator's own export, eighteen pixels for the
+// fixture — so the threshold is not delicate.
+const registered = (() => {
+  if (!GRID || !meas.frames.every((f) => Number.isFinite(f.cellX))) return false;
+  const medH = [...meas.frames.map((f) => f.h)].sort((a, b) => a - b)[meas.frames.length >> 1];
+  const tol = Math.max(2, medH * 0.04);
+  // Judged on the clips WITHOUT a gait. A running character leaves the ground
+  // — that is the animation, not a fault — so a run's ground row moves 13px
+  // however perfectly registered the sheet is, and reading that as
+  // misalignment sent a clean sheet through the aligner. A character standing
+  // still has no such excuse: if its ground row wanders inside its own cell,
+  // the frames are not in one coordinate frame.
+  const still = segments.filter((seg) => !seg.gait);
+  if (!still.length) return false;
+  const worst = Math.max(...still.map((seg) => {
+    const g = meas.frames.filter((f) => f.i >= seg.from && f.i < seg.to).map((f) => f.groundY - f.cellY);
+    return g.length ? Math.max(...g) - Math.min(...g) : 0;
+  }));
+  console.log(`  ground row varies ${worst}px inside its cell across the still clip(s)`
+    + ` (tolerance ${tol.toFixed(1)}px on a ${medH}px figure)`
+    + ` -> ${worst <= tol ? 'already registered, copy it' : 'not registered, align it'}`);
+  return worst <= tol;
+})();
+const inPlace = args.includes('--align') ? false : registered;
+let cell, feetY;
+if (inPlace) {
+  const perClip = segments.map((seg) => {
+    const mine = meas.frames.filter((f) => f.i >= seg.from && f.i < seg.to);
+    if (!mine.length) return null;
+    const L = mine.map((f) => ({
+      x0: f.x0 - f.cellX, x1: f.x1 - f.cellX,
+      y0: f.y0 - f.cellY, y1: f.y1 - f.cellY, g: f.groundY - f.cellY,
+    }));
+    const grounds = L.map((l) => l.g).sort((a, b) => a - b);
+    return {
+      seg,
+      x0: Math.min(...L.map((l) => l.x0)), x1: Math.max(...L.map((l) => l.x1)),
+      y0: Math.min(...L.map((l) => l.y0)), y1: Math.max(...L.map((l) => l.y1)),
+      // The median, so one frame with a smear under it does not lift the clip.
+      g: grounds[grounds.length >> 1],
+    };
+  }).filter(Boolean);
+
+  feetY = Math.max(...perClip.map((c) => c.g - c.y0)) + 1;
+  cell = {
+    w: Math.max(...perClip.map((c) => c.x1 - c.x0 + 1)),
+    h: feetY + Math.max(...perClip.map((c) => c.y1 - c.g)),
+  };
+  for (const c of perClip) {
+    // One offset for the whole clip, so no frame moves relative to its
+    // neighbours; the clip as a whole is set down on the atlas's floor.
+    c.ox = Math.round(cell.w / 2 - (c.x0 + c.x1) / 2);
+    c.oy = (feetY - 1) - c.g;
+    for (const f of meas.frames) {
+      if (f.i >= c.seg.from && f.i < c.seg.to) { f.inOX = c.ox; f.inOY = c.oy; }
+    }
+    console.log(`  ${(c.seg.clip || 'frames').padEnd(7)} copied in place`
+      + `, set down ${c.ox >= 0 ? '+' : ''}${c.ox},${c.oy >= 0 ? '+' : ''}${c.oy}`);
+  }
+  console.log(`  cell ${cell.w}x${cell.h}, ground at row ${feetY - 1}`);
+  await page.evaluate((o) => {
+    window.__state.frames.forEach((f, i) => { f.inOX = o[i][0]; f.inOY = o[i][1]; });
+  }, meas.frames.map((f) => [f.inOX ?? 0, f.inOY ?? 0]));
+} else {
+  // Frames are pinned by their GROUND row, and a speck of leftover background
+  // removal can hang below it, so the bottom margin comes from the worst case.
+  const below = Math.max(0, ...meas.frames.map((f) => f.y1 - f.groundY));
+  cell = { w: maxW + 8, h: maxH + 8 + below };
+  feetY = cell.h - 4 - below;
+}
+
 const dataUrl = await page.evaluate(([c, o]) => window.__pack(c, o),
-  [cell, { cols: meas.frames.length, feetY }]);
+  [cell, { cols: meas.frames.length, feetY, inPlace }]);
 
 await mkdir(join(ROOT, 'assets/cast'), { recursive: true });
 const outPng = join(ROOT, `assets/cast/${NAME}-sheet.png`);
@@ -264,7 +356,11 @@ const anchoredOn = meas.frames[0]?.anchor === 'foot' ? 'toe' : 'head';
 const anchoredSpread = anchoredOn === 'toe' ? v.toeSpread : v.headSpread;
 console.log(`verified: ${v.cells} cells, ground spread ${v.feetSpread}px, `
   + `head spread ${v.headSpread}px, toe spread ${v.toeSpread}px`);
-if (v.feetSpread > 0) {
+// An in-place atlas makes a different promise, so it is held to a different
+// one. It does not claim every ground row is identical — it claims it did not
+// MOVE anything, and whatever the source's own ground rows do is the source's
+// business. That promise is checked directly, cell by cell, further down.
+if (!inPlace && v.feetSpread > 0) {
   console.error('FAILED: the ground row is not the same in every cell');
   process.exit(1);
 }

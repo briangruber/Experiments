@@ -456,3 +456,73 @@ actually reported. It also has to pick a destination clear of Grout — he is an
 actor with his own hit box rather than a declared hotspot, so the harness's
 free-floor finder walks right into him, opens the verb coin and measures a pace
 of zero.
+
+### Do not re-align a sheet that is already aligned
+
+The cutter's whole purpose is to put frames in register with each other. For a
+sheet extracted from a single video, they already are — and re-deriving each
+frame's position from its pixels can only add error to it.
+
+It did. Wherever background removal left a soft grey smear under Grout's boots,
+the detected ground row wandered up to three pixels, and frames that arrived in
+perfect register came out of the packer bobbing. It showed as his feet hopping
+once a loop, and the tell was that it does not happen on AutoSprite's own
+preview — because AutoSprite's own preview draws each cell where it is and does
+not do any of this.
+
+So a registered sheet is COPIED. Inside a clip nothing moves at all; between
+clips the ground rows and horizontal centres are brought together, because one
+video is one coordinate frame and two videos are two — a seated sleeping man
+and a standing one were never filmed against a common floor.
+
+Which case a sheet is in is measured, not assumed, and two attempts at that test
+were wrong before the third:
+
+- Keying off `--grid` fails, because `tools/check-cut.mjs` builds a uniform grid
+  deliberately misaligned by 18px to prove the aligner works. Copying that in
+  place preserves a fault instead of fixing one.
+- Measuring every clip's ground row fails, because a running character leaves
+  the ground. Bonny's run varies 13px however perfect the sheet is, and reading
+  that as misalignment sent a clean sheet through the aligner.
+
+The test that holds looks only at clips WITHOUT a gait. A character standing
+still has no excuse for its ground row moving inside its own cell; if it does,
+the frames are not in one coordinate frame. Real sheets read 0–1px against a
+tolerance of about 6; the fixture reads 9 against 2. Nothing delicate.
+
+### Versions, and why the newest is not the best
+
+Every `regenerate-spritesheets` call keeps a version. The background remover
+does not do the same job at every frame size: the 152px pass left a soft grey
+smear under Grout's boots that the 176px pass did not, and the difference is
+visible in the numbers — the lowest opaque pixel wanders 3px inside its cell at
+152, 1px at 160, and 0px at 176.
+
+`pull --at 176` takes that version of every sheet instead of the newest. Taking
+the cleaner art at a size that does not divide evenly is a trade: his figure
+comes back 168px rather than 148, so drawn at 310 he sits at 1.85 art pixels
+rather than a clean 2. The smear was worse.
+
+### Props
+
+`isHumanoid: false` generates objects, and the same LOOK line the cast uses
+makes them match it — which is the reason to bother, since the other props here
+are repainted vector blockouts and look like a different lineage.
+
+The style brief is split for this. LOOK is how the pixels are made and is shared
+by everything; FIGURE is anatomy and only people get it. The first version was
+one blob including "small head, long legs", which is advice a cup cannot use.
+
+Resolution is the same problem one size down, and the generator's floor bites.
+The room draws the tin cup about 24 art pixels wide, so frameSize 32 is the
+nearest available — and at 32 the extraction is mush, an unreadable blob with
+no silhouette. 64 and 96 are both clean. So the cup is taken at 64, where it is
+about 50 art pixels, and drawn into a box sized to its own cell so nothing is
+resampled at all. It sits at one art pixel against the scene's two: finer than
+its surroundings rather than mushier, which at this size is the better half of
+a trade that cannot be avoided.
+
+`autosprite.mjs prop <key>` writes one frame as `assets/props/<key>.png`. The
+frame is the one nearest the middle of the motion, not the first — the cup's
+animation is a sway, and its first frame is the cup at one end of its swing, a
+still cup hanging permanently at a tilt.
