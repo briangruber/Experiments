@@ -295,6 +295,20 @@ export const PARAMS = {
     // is why a boat's path stays legible as a calm lane long after the white
     // has gone.
     calm:    { ui: 'kelvin', v: 0.85, min: 0, max: 1,   step: 0.01, label: 'Wake flattens the chop' },
+    // WHAT COUNTS AS FULLY CHURNED WATER, and it is why the two above did
+    // nothing you could see.
+    //
+    // Both are driven by the wake field's B channel, which is a bubble density
+    // borrowed as a measure of how disturbed the water is. Measured at a fixed
+    // point 5 m off the track it peaks at 0.0256 -- two and a half per cent of
+    // full scale -- so multiplying it straight by a 0..1 amount asked for two
+    // per cent of a slick and got exactly that. Both were on, both correct,
+    // both invisible.
+    //
+    // Dividing by this first makes the amounts above mean what they say. Lower
+    // it and less churn counts as fully slick, so the lane widens and
+    // strengthens; raise it and only the boil right behind her qualifies.
+    churnRef:{ ui: 'kelvin', v: 0.026, min: 0.002, max: 0.2, step: 0.001, label: 'Churn = fully slick at' },
   },
 
   kelvin: {

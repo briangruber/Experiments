@@ -448,7 +448,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b92';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b93';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -1490,6 +1490,7 @@ function frame(now) {
     sea.params.wakeRelief = get('surface.relief');
     sea.params.wakeSlick = get('surface.slick');
     sea.params.wakeCalm = get('surface.calm');
+    sea.params.churnRef = get('surface.churnRef');
     const asd = sea.sunDirection();
     if (asd) {
       sd.set(asd[0], asd[1], asd[2]);

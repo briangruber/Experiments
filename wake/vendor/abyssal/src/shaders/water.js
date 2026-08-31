@@ -11,6 +11,7 @@ uniform vec2  uHullFwd;
 uniform float uHullPush, uHullRadius, uHullBow, uHullPlane;
 uniform float uHullCut, uHullCutLen, uHullCutBeam;
 uniform float uHullFoam, uHullFoamW;
+uniform float uChurnRef;   // see the vertex stage
 uniform float uHullWlLen, uHullWlBeam;
 // The hull's own speed. NOT uWakeSpeed: the lab hands the vendored water a
 // wake it has already shaped, so every Abyssal wake-shaping uniform including
@@ -125,6 +126,19 @@ uniform float uGridRadial;
 // How hard a wake flattens the chop riding through it. Used in the VS only:
 // this is geometry, not shading.
 uniform float uWakeCalm;
+// WHAT COUNTS AS FULLY CHURNED WATER.
+//
+// The field's B channel is a bubble density, and it is borrowed here as "how
+// disturbed is this water at all". Borrowed, not designed for it: measured at a
+// fixed point 5 m off the track it peaks at 0.0256 -- two and a half per cent
+// of full scale -- so multiplying it straight by a 0..1 slick amount asked for
+// two per cent of an effect and got it. The slick and the calm were both
+// switched on, both correct, and both invisible.
+//
+// Dividing by the measured peak first makes those amounts mean what they say:
+// 0.8 is eighty per cent of a slick in the water that is most churned, not
+// eighty per cent of two per cent.
+uniform float uChurnRef;
 uniform float uGroupAmt, uGroupScale, uGroupLo, uGroupHi;
 uniform float uRogueH, uRogueLen, uRoguePeriod, uRogueWidth, uRogueRun, uRogueSteep;
 // The group field needs a clock and a direction to drift along. Both are
@@ -263,7 +277,8 @@ void main(){
   // Only the short cascades are touched, which is the physics doing the
   // selecting rather than a look: cascade 0 is the swell and is left alone.
   if (uWakeOn > 0.5 && uWakeCalm > 0.001) {
-    float calm = clamp(wakeAt(xz).z * uWakeCalm, 0.0, 1.0);
+    // NORMALISED FIRST. See the note on uChurnRef.
+    float calm = clamp(wakeAt(xz).z / uChurnRef, 0.0, 1.0) * uWakeCalm;
     float k = 1.0 - calm;
     dispShort *= k;
     relief *= k;
@@ -1116,7 +1131,10 @@ void main(){
       // wind foam that were riding on it, and that smooth lane is most of why a
       // boat's path stays legible on a broken sea long after the white water
       // behind it has gone. Without it the wake is just more foam among foam.
-      float slick = clamp(wk.z * k * uWakeSlick, 0.0, 1.0);
+      // Normalised against what fully churned water actually reads -- see the
+      // uChurnRef note in the vertex stage. Straight multiplication asked for a
+      // fraction of two per cent and got it.
+      float slick = clamp(wk.z / uChurnRef, 0.0, 1.0) * k * uWakeSlick;
       foamF *= 1.0 - slick;
       foamR *= 1.0 - slick;
       msq   *= 1.0 - 0.6 * slick;
