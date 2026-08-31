@@ -76,6 +76,9 @@ await page.waitForFunction(() => window.__ready === true);
 // sheet a general image model drew.
 const GRID = opt('grid', null);
 const clips = {};
+// Which frames came from which sheet. The junk filter below needs it: a
+// slice is plausible relative to the sheet it came from, not to the atlas.
+const segments = [];
 let meas = { frames: [], w: 0, h: 0 };
 for (const source of SOURCES) {
   const { url, shown } = await readSource(source.path);
@@ -92,6 +95,7 @@ for (const source of SOURCES) {
       }]);
   const at = meas.frames.length;
   meas = { w: one.w, h: one.h, frames: meas.frames.concat(one.frames) };
+  segments.push({ from: at, to: at + one.frames.length, clip: source.clip });
   if (source.clip) clips[source.clip] = { start: at, count: one.frames.length };
   console.log(`${shown}  ${one.w}x${one.h}  ->  ${one.frames.length} frames`
     + `${source.clip ? `  [clip ${source.clip}]` : ''}  [${GRID ? 'uniform grid ' + GRID : 'connectivity'}]`);
@@ -102,12 +106,22 @@ for (const source of SOURCES) {
 // holding four pixels is worse than no cell. Anything far off the median
 // height is not a frame, and saying which were dropped is the difference
 // between a filter and a fudge.
-const med = [...meas.frames.map((f) => f.h)].sort((a, b) => a - b)[meas.frames.length >> 1];
+// The median is taken PER SOURCE. Taken across the whole atlas it compares a
+// clip against the other clips, and a character does not stay the same height
+// between them: a seated sleeping man is a little over half as tall as the
+// same man standing, so a global median dropped every frame of the sleep clip
+// as junk and left a body with a clip pointing at nothing. What makes a slice
+// junk is being unlike its own sheet.
 const kept = [], dropped = [];
-meas.frames.forEach((f, i) => (f.h >= med * 0.7 ? kept : dropped).push({ ...f, i }));
+for (const seg of segments) {
+  const mine = meas.frames.slice(seg.from, seg.to);
+  if (!mine.length) continue;
+  const med = [...mine.map((f) => f.h)].sort((a, b) => a - b)[mine.length >> 1];
+  mine.forEach((f, k) => (f.h >= med * 0.7 ? kept : dropped).push({ ...f, i: seg.from + k, med }));
+}
 if (dropped.length) {
   console.log(`  dropped ${dropped.length} slice(s) as junk: `
-    + dropped.map((f) => `#${f.i + 1} (h ${f.h}, median ${med})`).join(', '));
+    + dropped.map((f) => `#${f.i + 1} (h ${f.h}, median ${f.med})`).join(', '));
 }
 await page.evaluate((keep) => {
   window.__state.frames = window.__state.frames.filter((_, i) => keep.includes(i));
@@ -156,11 +170,28 @@ for (const [name, c] of Object.entries(clips)) {
     + `  [${r.signal}, ${r.peaks} peaks]`);
 }
 
+// A clip named in --once plays through and stops; everything else loops. The
+// distinction has to live in the manifest rather than at the call site,
+// because it is a property of the art — a drink ends, a breath does not — and
+// the script should be able to say "play the drink" without also having to
+// know how long it is.
+const ONCE = (opt('once', '') || '').split(',').filter(Boolean);
+for (const name of ONCE) {
+  if (!clips[name]) throw new Error(`--once names ${name}, which is not one of the clips: ${Object.keys(clips)}`);
+}
 const manifest = {
   cellW: cell.w, cellH: cell.h, cols: meas.frames.length,
   figureH: maxH, feetY,
+  // What the figure actually occupies in each cell, in source pixels. The cell
+  // is sized off the largest frame in the atlas, so for anything else it is
+  // mostly air — and a click target sized off the cell is a click target that
+  // is wrong for every frame but one. It matters most where the pose changes
+  // shape: a man asleep on the ground is half as tall and half again as wide
+  // as the same man standing.
+  bounds: meas.frames.map((f) => [f.x1 - f.x0 + 1, f.h]),
   clips: Object.keys(clips).length
-    ? Object.fromEntries(Object.entries(clips).map(([k, c]) => [k, { ...c, fps: +opt('fps', 12) }]))
+    ? Object.fromEntries(Object.entries(clips).map(([k, c]) =>
+        [k, { ...c, fps: +opt('fps', 12), ...(ONCE.includes(k) ? { loop: false } : {}) }]))
     : { idle: { start: 0, count: 1, fps: 4 }, walk: { start: 0, count: meas.frames.length, fps: +opt('fps', 12) } },
   sources: SOURCES.map((x) => x.path), targetHeight: TARGET_H,
 };

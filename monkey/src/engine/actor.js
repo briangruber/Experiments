@@ -57,11 +57,26 @@ export class Actor {
     this.body = null;              // set once a sprite atlas has loaded
     this.line = null;    // { text, until, voice }
     this.onArrive = null;
+    // A named clip from the atlas — "drink", "asleep" — for the moments the
+    // walk/idle pair cannot express. It is a third state rather than a mode of
+    // idle, because the room asks for it by name at a scripted beat and the
+    // sequencer has to be able to wait for it to end.
+    this.clip = null;
+    this.clipT = 0;
   }
 
   get busy() { return this.state === 'walk' || this.line !== null; }
 
+  // Play a named clip from the body's atlas. Whether it loops or ends is a
+  // property of the art and lives in the manifest, so the caller only names it.
+  playClip(name) { this.clip = name; this.clipT = 0; return this; }
+  stopClip() { this.clip = null; this.clipT = 0; }
+
   walkTo(walkArea, x, y, onArrive = null) {
+    // Walking overrides a clip rather than blending with it: a man asleep who
+    // is asked to walk is a man walking, and leaving the clip set would have
+    // him slide across the dock in a sitting pose.
+    this.clip = null;
     const path = walkArea.path({ x: this.x, y: this.y }, { x, y });
     if (!path || !path.length) { onArrive?.(); return false; }
     this.path = path;
@@ -93,6 +108,8 @@ export class Actor {
 
     this.blink -= dt;
     if (this.blink < -0.14) this.blink = 2.5 + Math.random() * 3.5;
+
+    if (this.clip) this.clipT += dt;
 
     if (this.line) {
       this.line.until -= dt;

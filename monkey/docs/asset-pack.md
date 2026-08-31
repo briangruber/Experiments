@@ -195,9 +195,9 @@ inside the repo.
 
 Read endpoints work on a free key; **write endpoints do not**. `GET /account`,
 `GET /characters` and `GET /characters/:id/spritesheets` all answer, but
-`POST …/regenerate-spritesheets` returns `403 PLAN_REQUIRED`. So the free
-re-extract at game settings is not available without a subscription — the
-sheets have to be taken at whatever the app produced and reduced locally.
+`POST …/regenerate-spritesheets` returns `403 PLAN_REQUIRED`. On a paid key
+every write works, and the free re-extract becomes the most useful call in the
+API — see *Resolution is the lever* below.
 
 One endpoint is not in the docs and is worth knowing: `GET
 /characters/:id/spritesheets` lists a character's sheets **with their download
@@ -227,3 +227,110 @@ The numbers are what settle this against the general models. Across fifty
 frames the figure height varies by **one pixel**; the general sheets varied
 12–23%, which is a visible pulse. Feet spread and head spread are both zero,
 verified against the written file rather than assumed.
+
+### Creating a character from here
+
+`POST /characters` takes `name`, `prompt`, `usePromptTemplate`, `isHumanoid`,
+`characterDescription` and `quality` (`turbo` | `pro`). That is the whole of it.
+
+**There is no vibe field.** The app's "Choose Vibe" picker — the one whose "HD
+Pixel Art" setting is the right match for this game — is a prompt template
+applied on the UI side, and `usePromptTemplate` is a separate flag that applies
+AutoSprite's own generic one instead. So the style has to be written into the
+prompt, and written *identically* for every character: a cast reads as one cast
+only if the style sentence is literally the same across it. `STYLE` in
+`tools/autosprite.mjs` is that sentence.
+
+State it in pixels, not in eras. "Chunky readable pixels, visible pixel grid,
+hard aliased edges, no blur, no gradients" is something a generator can aim at.
+"1990s adventure game" on its own has produced a smooth digital painting of a
+pirate every time this project has asked for it.
+
+**The prompt cap is 600 characters and a longer one is cut silently**, mid
+sentence, with no error. `cmdCharacter` throws before spending rather than
+after. Names must be unique too: a duplicate is `409 DUPLICATE_CHARACTER`, and
+there is no delete in the API, so a remade character needs a new name.
+
+### Asking for an animation
+
+`POST /characters/:id/spritesheets` takes a list of `{kind, loop}` for the
+standard moves and `{kind: 'custom', name, prompt, loop}` for anything else.
+The response names its jobs under `workflows` — not `jobIds`, not `jobs` — and
+a wrapper that looks for the obvious key returns while the art is still being
+made.
+
+Two failures shaped how the custom prompts here are written, and both produced
+sheets that were technically fine and unusable.
+
+**A pose implies its furniture.** "Slumped with his back against a post" drew a
+post — welded into all thirty-two frames, in a room that has its own posts
+painted into the backdrop. A character animation must contain the character and
+nothing else, and that has to be refused outright: *no post, no wall, no
+barrel, no furniture, no props, no ground or shadow*.
+
+**A before and an after draws both.** "He stands, then his knees give way and he
+slides down to sit" produced two harbourmasters in the same frame, one standing
+and one seated. A video model asked for a transition will show you the ends of
+it side by side. So do not ask for one: ask for a single continuous state,
+which is what a loop actually is. The falling-over is carried by the dialogue,
+which already pauses on `zzzzzz`; what the room needs from the art is a
+sleeping man who is still there.
+
+The sleeping loop is also the reason not to generate a fourth clip. The tail of
+a settle-and-sleep clip is already a slumped man breathing, so the atlas cuts
+that stretch out as its own looping clip. Generation costs credits; slicing does
+not.
+
+### Resolution is the lever
+
+The room paints at **three screen pixels per art pixel**. A character sheet
+whose figure is 244px tall is therefore *reduced* into the scene, and a reduced
+sprite comes out smoother than the backdrop it stands in. That is the whole of
+"she looks less pixelated than the scene" — it is not a style problem and no
+amount of prompting fixes it.
+
+`regenerate-spritesheets` fixes it for nothing. Re-extract the same generated
+videos at a `frameSize` that puts the figure at about a third of its drawn
+height, and the art is *magnified* with nearest-neighbour instead:
+
+    node tools/autosprite.mjs regen <characterId> --frames 32 --size 80
+
+Match the characters to each other, not to a number: the two here needed 80 and
+108, because Bonny sits smaller inside her frame than Grout does inside his.
+`tools/pixelness.mjs` measures whether a sheet is really at its stated
+resolution — edge density and soft-alpha share — and `figureH` in the cut
+manifest is the number to compare across a cast.
+
+Two hazards come with it. Regeneration **adds** sheets rather than replacing
+them, so a character that has been re-extracted lists every kind twice and the
+newer one wins by timestamp, not by listing order. And the re-extraction leaves
+a soft-alpha halo — 30% of figure pixels at 80px — which the cutter's binary
+mask hard-thresholds away, so the packed atlas measures 0% soft and the edges
+stay hard.
+
+### Two characters, one filename
+
+`pull` writes sheets by `kind`, and every character has a `walk` and an `idle`.
+Pulling a second character on top of a first therefore replaced the first one's
+source art with art of somebody else — silently, and only visible later as the
+wrong person walking. Every pull goes under the character's own folder now, and
+the folder name comes from the character record rather than from the command
+line so it cannot drift. Custom animations collide the same way, since they all
+report `kind: "custom"`; they are named by their animation name instead.
+
+### Which way is it facing?
+
+Sheets come back under a `/right/` path and are not reliably right-facing, and a
+character who turns round when he stops walking is obvious in motion and nearly
+invisible in a contact sheet. `tools/facing.mjs` measures it:
+
+    node tools/facing.mjs assets/cast/autosprite/grout/*.png
+
+Silhouette mirror-matching is too weak on a long coat — a mirrored frame scores
+almost as well as the original. The face is not symmetric: in a side view the
+skin sits on the side the character looks towards, so where the skin falls
+inside the head band is a direct reading. Pick the frame to read with care —
+`--frame 30` for a clip whose first frame has a cup over the face, `--band 0.4`
+for a seated pose whose head is not in the top fifth. Eyeballing these four
+sheets gave the wrong answer for two of them; the measure gave the right one
+for all four.

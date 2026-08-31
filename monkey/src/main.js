@@ -162,8 +162,14 @@ window.addEventListener('keydown', (e) => {
 // otherwise the box is wrong the moment they walk upstage.
 function actorBox(a) {
   const s = room.scaleAt(a.y);
-  const h = 178 * s;
-  return { x: a.x - 46 * s, y: a.y - h, w: 92 * s, h };
+  // The box comes from the frame being drawn, not from a constant. It was
+  // 178 tall and 92 wide whatever the actor was doing, which was already a
+  // guess and became a wrong one twice over: the figures are drawn taller now,
+  // and Grout spends the back half of the game asleep on the ground, where a
+  // standing-man box floats above him and the click lands on the dock.
+  const b = a.body?.boxAt?.(a) ?? { w: 92, h: a.height ?? 178 };
+  const w = b.w * s, h = b.h * s;
+  return { x: a.x - w / 2, y: a.y - h, w, h };
 }
 
 function hotspotUnder() {
@@ -269,7 +275,10 @@ function load() {
   player.x = d.player.x; player.y = d.player.y;
   player.stop();
   seq.cancel(); menu.hide(); coin.hide(); inv.selected = null;
-  grout.visible = !state.get('grout-asleep');
+  // A saved game has to come back to the pose it was saved in. The flag says
+  // he is asleep; the clip is what makes him look it, and it is not in the save
+  // because it is not state — it is the art the state implies.
+  applyGroutPose();
   buildRoom();
   toast('loaded');
 }
@@ -365,6 +374,15 @@ for (const [key, cfg] of Object.entries(dock.SPRITE_CAST)) {
     if (body) actor.body = body;
   } catch { /* the puppet stands in */ }
 }
+// Grout's pose follows the world flag rather than the other way round, so it
+// is right after a load, after a restart, and after the scene that sets it.
+function applyGroutPose() {
+  if (state.get('grout-asleep')) grout.playClip('asleep');
+  else grout.stopClip();
+  grout.talkOffset = state.get('grout-asleep') ? -100 : -175;
+}
+applyGroutPose();
+
 const voiced = await voice.load();
 if (voiced) attachVoice([player, grout], voice);
 console.log(voiced
@@ -434,9 +452,16 @@ window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => ro
     if (!a) return 0;
     const c = document.querySelector('canvas');
     const g = c.getContext('2d');
-    const w = 130, h = 210;
+    // The window follows the pose. It was a fixed 130x210 box around the feet,
+    // which is a standing person — and Grout spends the second half of the
+    // game asleep on the ground, half that tall and wider, where a standing
+    // box samples mostly empty dock and could report a drawn character as
+    // absent or an absent one as drawn.
+    const b = a.body?.boxAt?.(a) ?? { w: 130, h: 210 };
+    const sc = room.scaleAt(a.y);
+    const w = Math.ceil(b.w * sc) + 16, h = Math.ceil(b.h * sc) + 16;
     const sx = Math.max(0, Math.round(a.x - w / 2));
-    const sy = Math.max(0, Math.round(a.y - h));
+    const sy = Math.max(0, Math.round(a.y - h + 8));
     const grab = () => g.getImageData(sx, sy, w, h).data;
     const paintRoom = () => {
       ctx.clearRect(0, 0, VIEW.w, VIEW.h);
@@ -456,6 +481,15 @@ window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => ro
         + Math.abs(before[i + 2] - after[i + 2]) > 24) diff++;
     }
     return diff;
+  },
+  // The shape the actor is drawn as right now, in room units. A pose change is
+  // the one animation event that alters the silhouette rather than the frame,
+  // so it is the only one a frame counter cannot see: a Grout who is "asleep"
+  // but still standing passes every clip assertion and is plainly wrong.
+  poseBox: (who) => {
+    const a = { player, grout }[who];
+    const b = a?.body?.boxAt?.(a);
+    return b ? { w: Math.round(b.w), h: Math.round(b.h), clip: a.clip } : null;
   },
   // Diagnostics: what the pointer last resolved to, which is the only way to
   // tell a bad hit test from a bad coordinate mapping.

@@ -91,6 +91,35 @@ export function attachVoice(actorList, voice) {
   }
 }
 
+// Play a named clip from the actor's atlas.
+//
+// A looping clip is a STATE — start it and the script moves on, and it keeps
+// running until something else changes it. A one-shot is a STEP — the script
+// waits it out, then hands the actor back to idle. Which one a clip is comes
+// from the manifest, so the script says `play(grout, 'drink')` and does not
+// have to know that drinking takes two and a half seconds.
+//
+// An actor with no atlas — a drawn puppet, or a sheet that failed to load —
+// completes instantly rather than hanging the sequencer forever, which is the
+// difference between missing art and a stuck game.
+export const play = (actor, clip) => {
+  let started = false;
+  return {
+    update() {
+      if (!started) {
+        started = true;
+        if (!actor.body?.hasClip?.(clip)) return true;
+        actor.playClip(clip);
+      }
+      const seconds = actor.body?.clipSeconds?.(clip);
+      if (seconds == null) return true;          // a loop: leave it running
+      if (actor.clipT < seconds) return false;
+      actor.stopClip();
+      return true;
+    },
+  };
+};
+
 export const run = (fn) => ({ update() { fn(); return true; } });
 
 export class Sequencer {

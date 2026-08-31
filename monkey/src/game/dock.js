@@ -11,7 +11,7 @@
 // the input handling or the sequencer, which is what makes the claim "a second
 // room is a data file" testable rather than aspirational.
 
-import { walk, face, say, wait, run } from '../engine/script.js';
+import { walk, face, say, wait, run, play } from '../engine/script.js';
 import { LINES, EXCHANGES } from './lines.js';
 import * as art from '../art/paint.js';
 import { makePixelPerson } from '../art/pixel-person.js';
@@ -66,16 +66,32 @@ export const PUZZLE = {
 // tools/sheet-cut.mjs verifies the packed atlas has its feet on one row and
 // its head on one column before it is allowed to ship.
 export const SPRITE_CAST = {
+  // Both figures are about 78 pixels tall on their sheets and are drawn about
+  // 2.7 times that, which is the number that matters here. The room paints at
+  // three screen pixels per art pixel, so a character whose sheet is 244px per
+  // figure gets REDUCED into the scene and comes out smoother than the
+  // backdrop it stands in — which is what "she looks less pixelated than the
+  // scene" was. Re-extracting the same generated videos at 80 and 108 pixels
+  // (free, and the point of AutoSprite's regenerate endpoint) puts the art at
+  // the resolution the room draws, so it is magnified with nearest-neighbour
+  // instead, and the character's pixels are the size of the backdrop's.
+  //
+  // The heights are up from 185: standing a head shorter than the crates and
+  // the barrel read as a small character rather than a distant one.
   player: {
     asset: 'bonny',
     sheet: './assets/cast/bonny-sheet.png',
     manifest: './assets/cast/bonny-sheet.json',
-    // The atlas is cut at the source resolution — a 180px figure — so drawing
-    // her about this tall is very nearly 1:1. Cutting at a third and scaling
-    // back up was throwing away two thirds of the detail and then magnifying
-    // what survived, which is why she looked coarser in the room than on her
-    // own sheet.
-    height: 185,
+    height: 210,
+  },
+  grout: {
+    asset: 'grout',
+    sheet: './assets/cast/grout-sheet.png',
+    manifest: './assets/cast/grout-sheet.json',
+    // A little taller than Bonny, and his figure height includes the tricorn,
+    // so the man himself is about her size — which is what a harbourmaster who
+    // can block a pier should look like next to her.
+    height: 225,
   },
 };
 
@@ -404,18 +420,26 @@ export function* groutLine(g, opt) {
     yield speak(g, 'offer-2');
     yield speak(g, 'offer-3');
     yield run(() => g.state.take('cup-of-grog'));
+    // Started rather than waited for, so the line lands over the drinking
+    // instead of after it. It is a one-shot clip, so it holds on its last
+    // frame — he ends up standing there holding the empty cup.
+    yield run(() => g.grout.playClip('drink'));
     yield say(g.grout, '*glug*', 1.0);
     yield wait(0.4);
     yield speak(g, 'offer-4');
+    // The bubble comes down with him: he is about a third as tall sitting.
     yield run(() => { g.grout.talkOffset = -100; });
     yield wait(0.8);
     yield say(g.grout, 'zzzzzz', 2.2);
     yield run(() => {
       g.state.set('pier-open', true);
       g.state.set('grout-asleep', true);
-      g.grout.visible = false;          // he slumps out of the walkway
       g.onWorldChange();
     });
+    // He used to vanish at this point — the placeholder for an animation that
+    // did not exist. Now he sits down against nothing and snores, which is
+    // both the better joke and the reason the sleeping clip was generated.
+    yield play(g.grout, 'asleep');
     yield speak(g, 'offer-5');
     yield speak(g, 'offer-6');
     return;

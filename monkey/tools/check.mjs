@@ -216,17 +216,18 @@ try {
   // looks almost right and is not what shipped. Name which one is live.
   await step('the generated backdrop and voice are in use, and both actors draw', async () => {}, () => {
     const M = window.__monkey;
-    // One atlas body — the generated pixel sheet bound through SPRITE_CAST —
-    // and one procedural puppet beside it. Naming both counts rather than
-    // checking "something drew" is what catches an atlas that silently failed
-    // to bind and left the puppet standing in, which looks fine and is not
-    // what shipped.
+    // Both of them are atlas bodies now — the whole cast is generated pixel
+    // art bound through SPRITE_CAST, and the procedural puppets are the
+    // fallback rather than the other half of the room. Naming the exact counts
+    // rather than checking "something drew" is what catches an atlas that
+    // silently failed to bind and let the puppet stand in, which looks nearly
+    // right and is not what shipped.
     // Bound is not drawn. An atlas body that renders nothing satisfies every
     // count here and shipped exactly that way — the player was simply absent
     // from the room while bodies() said 1. drawn() hides the actor, repaints
     // and diffs the box it claims to occupy, which no null renderer passes.
     return (M.backdrop() === 'video' || M.backdrop() === 'still') && M.voiced
-      && M.bodies() === 1 && M.puppets() === 1 && M.pixelBlock() > 1
+      && M.bodies() === 2 && M.puppets() === 0 && M.pixelBlock() > 1
       && M.drawn('player') > 40 && M.drawn('grout') > 40;
   });
 
@@ -274,6 +275,7 @@ try {
   await step('the pier is still shut', async () => {}, () => !window.__t.flag('pier-open'));
 
   await step('talk Grout into a drink  [dialogue tree]', async () => {
+    await page.evaluate(() => { window.__t.stoodBox = window.__monkey.poseBox('grout'); });
     await verb(await T(() => window.__t.grout()), 'talk');
     // The tree re-opens itself after each exchange, so the second choice is
     // made from the menu the first one left behind.
@@ -282,6 +284,24 @@ try {
     await pickDialogue('perhaps this would help');
     await idle();
   }, () => window.__t.flag('grout-asleep') && window.__t.flag('pier-open'));
+
+  // He used to be deleted at this moment — `visible = false`, a placeholder for
+  // art that did not exist. Now he sits down and sleeps there, and the flag
+  // being set is not evidence that he does: a clip that failed to load, or a
+  // manifest without an `asleep` entry, leaves a man standing to attention
+  // beside an open pier and passes every assertion above.
+  //
+  // So this asks the picture. He must still put pixels on the canvas, and his
+  // silhouette must have become a sleeping one — shorter than he stood and
+  // wider than he was.
+  await step('Grout is drawn asleep, not deleted  [pose]', async () => {}, () => {
+    const M = window.__monkey;
+    const b = M.poseBox('grout');
+    window.__t.pose = b;
+    if (!b || b.clip !== 'asleep') return false;
+    const stood = window.__t.stoodBox;
+    return M.drawn('grout') > 40 && b.h < stood.h * 0.75 && b.w > stood.w * 1.2;
+  });
 
   // Captured before boarding, because the win overlay covers the room and a
   // screenshot of the room is the point.

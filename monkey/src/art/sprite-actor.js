@@ -26,12 +26,22 @@ export async function loadSpriteBody({ sheetUrl, manifest, height, face }) {
   // `heads` and `face` belong to the retired 3D path, where the body was baked
   // and the face had to be drawn back on. A hand-made or generated pixel pack
   // has its own face and no head track, so both are optional.
-  const { cellW, cellH, cols, feetY, figureH, clips, heads = [], smooth = false, shadow = false } = manifest;
+  const { cellW, cellH, cols, feetY, figureH, clips, bounds = [], heads = [], smooth = false, shadow = false } = manifest;
 
   // Which frame of which clip. Walking reads off the same stride phase the
   // engine already advances from distance travelled, so the feet stay in step
   // with the ground however fast the character moves.
   const frameFor = (actor) => {
+    // A named clip wins over both. `drink` and `asleep` are not reachable from
+    // the walk/idle pair, and the room needs them at scripted moments; a clip
+    // marked `loop: false` in the manifest holds on its last frame rather than
+    // starting over, so a man who has fallen asleep stays asleep.
+    const named = actor.clip ? clips[actor.clip] : null;
+    if (named) {
+      const i = Math.floor(actor.clipT * (named.fps || 10));
+      return named.start + (named.loop === false ? Math.min(named.count - 1, i) : i % named.count);
+    }
+
     const walking = actor.state === 'walk';
     const c = clips[walking ? 'walk' : 'idle'] || clips.idle;
 
@@ -57,6 +67,26 @@ export async function loadSpriteBody({ sheetUrl, manifest, height, face }) {
   return {
     kind: 'sprite',
     figureH,
+
+    // How long a one-shot clip runs, in seconds — null for anything that
+    // loops, since a loop has no end to wait for. The sequencer uses the
+    // difference to decide whether playing a clip is a step or a state.
+    clipSeconds(name) {
+      const c = clips[name];
+      if (!c || c.loop !== false) return null;
+      return c.count / (c.fps || 10);
+    },
+    hasClip(name) { return !!clips[name]; },
+
+    // What the character occupies right now, in room units before depth
+    // scaling — the figure in the current frame, not the cell it sits in. This
+    // is what a click has to hit, and it is the only thing that knows a
+    // sleeping man is a different shape from a standing one.
+    boxAt(actor) {
+      const k = height / figureH;
+      const b = bounds[frameFor(actor)];
+      return b ? { w: b[0] * k, h: b[1] * k } : { w: cellW * k, h: height };
+    },
 
     // Depth scaling, and a correction. Rounding the zoom to a whole number
     // keeps every art pixel square, which is right in principle and wrong
