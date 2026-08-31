@@ -92,3 +92,42 @@ works is generating **one** reference pose and producing the rest as edits of
 that single image, or using a pack with genuinely hand-made frames. A pack whose
 frames disagree about where the belt is will look worse than the procedural
 sprite, however good any single frame is.
+
+## PixelLab
+
+`tools/pixellab.mjs` wraps [PixelLab](https://www.pixellab.ai/pixellab-api), which
+is built for this and solves the failures above at the API level rather than by
+prompting harder.
+
+    export PIXELLAB_API_KEY=...
+    node tools/pixellab.mjs balance
+    node tools/pixellab.mjs character bonny --dry   # print the brief, spend nothing
+    node tools/pixellab.mjs character bonny
+    node tools/pixellab.mjs animate bonny walk
+    node tools/pixellab.mjs sheet bonny
+
+The reason it works is structural rather than a matter of quality. **A character
+is a persistent entity**: you create it once and then ask for animations *of
+it*, so the frames cannot drift into eight slightly different people the way
+eight independent rolls do. Four more of the problems above are parameters
+rather than hopes:
+
+| the failure | the parameter |
+|---|---|
+| magenta backgrounds keyed by hand, gradients, a dark band under the feet | `no_background: true` — real transparency |
+| a 1px outline asked for in prose and inconsistently drawn | `outline: "single color black outline"` |
+| 8, 8, 8, 7, 6, 5 and 4 frames returned for one brief | `frame_count`, 4–16, even |
+| no back-facing sprite, so turning upstage only hides the face | 8 directions, `directions: [...]` |
+
+`view: "side"` matters and is set: this is a side-on room, and a character
+generated top-down cannot be turned into one afterwards. Sizes run 32–256, so
+the 48px figure this document asks for is native rather than something to
+downscale into.
+
+Rough cost: a Pro character is about $0.185 and animation frames $0.013–$0.042
+per direction, so a character with a walk cycle in the directions the game
+needs lands well under a dollar.
+
+The output goes through the same cutter as everything else
+(`tools/sheet-cut.mjs`), which still enforces the two alignment rules — the API
+should make them true already, and the check is cheap.
