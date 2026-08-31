@@ -81,10 +81,14 @@ window.__cut = async (src, opts) => {
     // The head centre, not the bounding-box centre: in a walk cycle a swinging
     // arm moves the box without moving the character, so aligning on the box
     // makes the figure slide a few pixels a stride.
-    const band = Math.max(1, Math.round((y1 - y0) * 0.12));
-    let hx0 = 1e9, hx1 = -1;
-    for (let y = y0; y < y0 + band; y++) for (let x = x0; x <= x1; x++) if (seen[y * W + x]) { if (x < hx0) hx0 = x; if (x > hx1) hx1 = x; }
-    frames.push({ x0, x1, y0, y1, h: y1 - y0 + 1, headCx: hx1 >= hx0 ? (hx0 + hx1) / 2 : (x0 + x1) / 2, mask: Array.from(seen) });
+    const cxIn = (t0, t1) => {
+      let a = 1e9, b = -1;
+      const ya = y0 + Math.round((y1 - y0) * t0), yb = y0 + Math.round((y1 - y0) * t1);
+      for (let y = ya; y <= yb; y++) for (let x = x0; x <= x1; x++) if (seen[y * W + x]) { if (x < a) a = x; if (x > b) b = x; }
+      return b >= a ? (a + b) / 2 : (x0 + x1) / 2;
+    };
+    frames.push({ x0, x1, y0, y1, h: y1 - y0 + 1,
+      headCx: cxIn(0, 0.12), footCx: cxIn(0.92, 1), mask: Array.from(seen) });
   }
   window.__state = { W, H, d: Array.from(d), frames };
   return { w: W, h: H, frames: frames.map(({ mask, ...f }) => f) };
@@ -132,10 +136,22 @@ window.__grid = async (src, opts) => {
         if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
       }
       if (x1 < 0) { continue; }
-      const band = Math.max(1, Math.round((y1 - y0) * 0.12));
-      let hx0 = 1e9, hx1 = -1;
-      for (let y = y0; y < y0 + band; y++) for (let x = x0; x <= x1; x++) if (mask[y * W + x]) { if (x < hx0) hx0 = x; if (x > hx1) hx1 = x; }
-      frames.push({ x0, x1, y0, y1, h: y1 - y0 + 1, headCx: hx1 >= hx0 ? (hx0 + hx1) / 2 : (x0 + x1) / 2, mask: Array.from(mask) });
+      // Two candidate anchors, because neither is right for every clip. The
+      // head is right for a walk, where a swinging arm moves the bounding box
+      // without moving the character. It is WRONG for an idle whose head
+      // sways: holding a swaying head still slides the whole body, and what
+      // that looks like is a man standing on the spot with shuffling feet —
+      // which is exactly what shipped. Measured, Grout's idle has 0.0px of
+      // foot movement in the source and 8px of head sway. The cutter picks
+      // per clip, in sheet-cut.mjs, by which band is steadier.
+      const cxIn = (t0, t1) => {
+        let a = 1e9, b = -1;
+        const ya = y0 + Math.round((y1 - y0) * t0), yb = y0 + Math.round((y1 - y0) * t1);
+        for (let y = ya; y <= yb; y++) for (let x = x0; x <= x1; x++) if (mask[y * W + x]) { if (x < a) a = x; if (x > b) b = x; }
+        return b >= a ? (a + b) / 2 : (x0 + x1) / 2;
+      };
+      frames.push({ x0, x1, y0, y1, h: y1 - y0 + 1,
+        headCx: cxIn(0, 0.12), footCx: cxIn(0.92, 1), mask: Array.from(mask) });
     }
   }
   // Several sheets can be packed into one atlas — idle and walk are separate
@@ -158,8 +174,11 @@ window.__pack = (cell, out) => {
   frames.forEach((f, i) => {
     const cx = (i % out.cols) * cell.w, cy = ((i / out.cols) | 0) * cell.h;
     // Both alignment rules, enforced rather than hoped for: feet to one row,
-    // head centre to one column, in every cell.
-    const ox = Math.round(cx + cell.w / 2 - (f.headCx - f.x0)) - f.x0;
+    // and the frame's chosen anchor to one column, in every cell. Which anchor
+    // that is was decided per clip by whichever band moves least in the source
+    // — see __grid.
+    const anchor = f.anchor === 'foot' ? f.footCx : f.headCx;
+    const ox = Math.round(cx + cell.w / 2 - (anchor - f.x0)) - f.x0;
     const oy = Math.round(cy + out.feetY - (f.y1 - f.y0) - 1) - f.y0;
     const { W, d } = sources[f.src || 0];
     for (let y = f.y0; y <= f.y1; y++) {
@@ -191,7 +210,7 @@ window.__verify = async (src, cell, cols, count) => {
   g.drawImage(img, 0, 0);
   const d = g.getImageData(0, 0, c.width, c.height).data;
   const A = (x, y) => d[(y * c.width + x) * 4 + 3];
-  const feet = [], heads = [];
+  const feet = [], heads = [], toes = [];
   for (let i = 0; i < count; i++) {
     const bx = (i % cols) * cell.w, by = ((i / cols) | 0) * cell.h;
     let bot = -1, top = 1e9, x0 = 1e9, x1 = -1;
@@ -202,13 +221,21 @@ window.__verify = async (src, cell, cols, count) => {
     }
     if (bot < 0) continue;
     feet.push(bot - by);
-    const band = Math.max(1, Math.round((bot - top) * 0.12));
-    let hx0 = 1e9, hx1 = -1;
-    for (let y = top; y < top + band; y++) for (let x = bx; x < bx + cell.w; x++) if (A(x, y) > 40) { if (x < hx0) hx0 = x; if (x > hx1) hx1 = x; }
-    heads.push(hx1 >= hx0 ? Math.round((hx0 + hx1) / 2) - bx : Math.round(cell.w / 2));
+    const cxIn = (t0, t1) => {
+      let a = 1e9, b = -1;
+      const ya = top + Math.round((bot - top) * t0), yb = top + Math.round((bot - top) * t1);
+      for (let y = ya; y <= yb; y++) for (let x = bx; x < bx + cell.w; x++) if (A(x, y) > 40) { if (x < a) a = x; if (x > b) b = x; }
+      return b >= a ? Math.round((a + b) / 2) - bx : Math.round(cell.w / 2);
+    };
+    heads.push(cxIn(0, 0.12));
+    toes.push(cxIn(0.92, 1));
   }
   const sp = (a) => a.length ? Math.max(...a) - Math.min(...a) : 0;
-  return { cells: feet.length, feetSpread: sp(feet), headSpread: sp(heads) };
+  // Both column spreads are reported. Only the anchored one can be zero by
+  // construction, and the other is the interesting number: it is how far the
+  // unanchored end of the character travels, which for an idle should also be
+  // small and for a walk should not.
+  return { cells: feet.length, feetSpread: sp(feet), headSpread: sp(heads), toeSpread: sp(toes) };
 };
 // How many frames make one cycle?
 //
@@ -253,12 +280,25 @@ window.__period = async (src, cell, cols, clip, feetY, figureH) => {
 
   const max = Math.max(...sep) || 1;
   const min = Math.min(...sep);
+  // How far one stride carries the character, in source pixels.
+  //
+  // `sep` is the width of the figure in the band just above the ground. At
+  // full contact that is the step length plus a foot; at pass it is about a
+  // foot. So max - min is the step, and a stride — the same foot down to the
+  // same foot down — is two of them.
+  //
+  // This replaces a guess. The engine derived stride from `height * 0.85`
+  // where `height` was the vector puppet's, which stopped describing anything
+  // once the sprites were drawn at nearly twice that. Measuring it also makes
+  // running fall out for free: a run clip's feet are simply further apart, so
+  // its stride comes back longer without anyone choosing a number.
+  const stride = Math.max(1, (max - min) * 2);
   // An idle has no gait: the feet barely move, so the separation signal is
   // flat and every ripple in it reads as a peak. Requiring a real swing before
   // trusting the peaks is what stops a standing pose being told it strides
   // every six frames.
   const swing = (max - min) / max;
-  if (swing < 0.3) return { period: clip.count, peaks: 0, signal: `flat (swing ${(swing * 100).toFixed(0)}%)` };
+  if (swing < 0.3) return { period: clip.count, peaks: 0, stride, signal: `flat (swing ${(swing * 100).toFixed(0)}%)` };
   const peaks = [];
   for (let i = 0; i < sep.length; i++) {
     const prev = sep[(i - 1 + sep.length) % sep.length], next = sep[(i + 1) % sep.length];
@@ -270,11 +310,11 @@ window.__period = async (src, cell, cols, clip, feetY, figureH) => {
     let gap = 0;
     for (let i = 1; i < peaks.length; i++) gap += peaks[i] - peaks[i - 1];
     const perStep = gap / (peaks.length - 1);
-    return { period: Math.max(2, Math.round(perStep * 2)), peaks: peaks.length, signal: 'foot separation' };
+    return { period: Math.max(2, Math.round(perStep * 2)), peaks: peaks.length, stride, signal: 'foot separation' };
   }
   // A clip with no gait — an idle — has no peaks to count, and its cycle is
   // simply its own length.
-  return { period: clip.count, peaks: peaks.length, signal: 'none (whole clip)' };
+  return { period: clip.count, peaks: peaks.length, stride, signal: 'none (whole clip)' };
 };
 
 window.__ready = true;

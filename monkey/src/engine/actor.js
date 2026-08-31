@@ -40,6 +40,12 @@ export class Actor {
     // played under a walk. The number has to relate to the body or it is only
     // ever right for one character at one speed.
     this.stride = opts.stride || this.height * 0.85;
+    // A double-click runs. Two-and-a-bit times walking pace, which against the
+    // measured run stride works out at almost exactly one stride a second —
+    // the same cadence as the walk, over much more ground, which is what
+    // running is.
+    this.runSpeed = opts.runSpeed || 2.2;
+    this.running = false;
     this.talkColor = opts.talkColor || '#ffe9b0';
     this.talkOffset = opts.talkOffset ?? -150;
 
@@ -72,13 +78,14 @@ export class Actor {
   playClip(name) { this.clip = name; this.clipT = 0; return this; }
   stopClip() { this.clip = null; this.clipT = 0; }
 
-  walkTo(walkArea, x, y, onArrive = null) {
+  walkTo(walkArea, x, y, onArrive = null, run = false) {
     // Walking overrides a clip rather than blending with it: a man asleep who
     // is asked to walk is a man walking, and leaving the clip set would have
     // him slide across the dock in a sitting pose.
     this.clip = null;
     const path = walkArea.path({ x: this.x, y: this.y }, { x, y });
     if (!path || !path.length) { onArrive?.(); return false; }
+    this.running = run;
     this.path = path;
     this.state = 'walk';
     this.onArrive = onArrive;
@@ -87,6 +94,7 @@ export class Actor {
 
   stop() {
     this.path = null;
+    this.running = false;
     this.state = 'idle';
     const cb = this.onArrive;
     this.onArrive = null;
@@ -121,7 +129,13 @@ export class Actor {
 
     if (this.state === 'walk' && this.path) {
       const scale = room ? room.scaleAt(this.y) : 1;
-      let budget = this.speed * scale * dt;
+      // Both the pace and the stride come from the gait being played, so one
+      // cycle of animation covers one stride of ground whichever it is. The
+      // sheet's own measurement wins when there is one; the derived-from-height
+      // number is the fallback for a drawn puppet with no sheet at all.
+      const gait = this.running && this.body?.hasClip?.('run') ? 'run' : 'walk';
+      const stride = this.body?.strideFor?.(gait) || this.stride;
+      let budget = this.speed * (this.running ? this.runSpeed : 1) * scale * dt;
       while (budget > 0 && this.path.length) {
         const t = this.path[0];
         const dx = t.x - this.x, dy = t.y - this.y;
@@ -130,7 +144,7 @@ export class Actor {
         const step = Math.min(budget, d);
         this.x += (dx / d) * step;
         this.y += (dy / d) * step;
-        this.phase += step / (this.stride * scale);
+        this.phase += step / (stride * scale);
         // Facing is chosen from the direction of travel, biased to the sides:
         // a character seen from behind cannot act, so a diagonal reads as a
         // profile unless it is steeply vertical.
@@ -140,6 +154,7 @@ export class Actor {
       }
       if (!this.path.length) {
         this.path = null;
+        this.running = false;
         this.state = this.line ? 'talk' : 'idle';
         const cb = this.onArrive;
         this.onArrive = null;

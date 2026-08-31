@@ -90,13 +90,13 @@ export const SPRITE_CAST = {
     asset: 'bonny',
     sheet: './assets/cast/bonny-sheet.png',
     manifest: './assets/cast/bonny-sheet.json',
-    height: 318,          // 159 on the sheet, x2
+    height: 270,          // 135 on the sheet, x2
   },
   grout: {
     asset: 'grout',
     sheet: './assets/cast/grout-sheet.png',
     manifest: './assets/cast/grout-sheet.json',
-    height: 336,          // 168 on the sheet, x2
+    height: 296,          // 148 on the sheet, x2
   },
 };
 

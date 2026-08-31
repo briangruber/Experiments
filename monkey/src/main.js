@@ -76,6 +76,10 @@ console.log(`[puzzle] ${Object.keys(dock.PUZZLE.nodes).length} nodes, longest ch
 
 let mouse = { x: 0, y: 0, rx: 0, ry: 0 };
 let hoverSpot = null;
+// Long enough that a deliberate second click lands, short enough that walking
+// somewhere and then changing your mind is not read as a sprint.
+const DOUBLE_CLICK_MS = 420;
+let lastFloorClick = { t: -1e9, x: 0, y: 0 };
 
 function toStage(e) {
   const r = canvas.getBoundingClientRect();
@@ -141,7 +145,15 @@ canvas.addEventListener('pointerdown', (e) => {
 
   if (spot) { coin.show(p.x, p.y, spot); return; }
 
-  player.walkTo(room.walk, rp.x, rp.y);
+  // Double-click to run. Detected here rather than through the `dblclick`
+  // event because every other click in this game is decided on pointerdown,
+  // and mixing the two would make the second click of a pair arrive after the
+  // walk it is trying to upgrade has already started.
+  const now = performance.now();
+  const again = now - lastFloorClick.t < DOUBLE_CLICK_MS
+    && Math.hypot(rp.x - lastFloorClick.x, rp.y - lastFloorClick.y) < 70;
+  lastFloorClick = { t: now, x: rp.x, y: rp.y };
+  player.walkTo(room.walk, rp.x, rp.y, null, again);
 });
 
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -427,9 +439,15 @@ window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => ro
   // travelled and the stride length scale with it — so this is one number per
   // character, and a wrong one is the difference between walking and sprinting
   // on the spot.
-  cadence: (who) => {
+  cadence: (who, gait = 'walk') => {
     const a = { player, grout }[who];
-    return a ? +(a.speed / a.stride).toFixed(2) : 0;
+    if (!a) return 0;
+    // The stride the engine will actually use, which is the sheet's measured
+    // one when there is a sheet. Reporting the fallback instead described a
+    // number nobody walks on.
+    const stride = a.body?.strideFor?.(gait) || a.stride;
+    const speed = a.speed * (gait === 'run' ? a.runSpeed : 1);
+    return +(speed / stride).toFixed(2);
   },
   // The drawn height of an actor at a given depth. Rounding the depth scale to
   // a whole-number zoom made this jump by a third at one point on the dock —
@@ -500,6 +518,45 @@ window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => ro
     if (!a?.body) return 0;
     return +((a.body.figureH ? (dock.SPRITE_CAST[who === 'player' ? 'player' : 'grout'].height
       / a.body.figureH) * room.scaleAt(a.y) : 0)).toFixed(2);
+  },
+  // How far the feet wander sideways across a clip, in screen pixels.
+  //
+  // The atlas held every frame's HEAD at one column, on the reasoning that a
+  // swinging arm moves the bounding box without moving the character. True of
+  // a walk; false of an idle whose head sways, where holding the head still
+  // slides the whole body — and what that looks like is a man standing on the
+  // spot with shuffling feet, which is what shipped. The cutter now picks the
+  // steadier end per clip, and this is the number that says whether it worked.
+  //
+  // It steps the clip by hand rather than waiting on the wall clock, so the
+  // answer is the same every run.
+  footDrift: (who, clip = 'idle') => {
+    const a = { player, grout }[who];
+    if (!a?.body?.hasClip?.(clip)) return -1;
+    const c = document.querySelector('canvas');
+    const g = c.getContext('2d');
+    const keep = { x: a.x, y: a.y, clip: a.clip, clipT: a.clipT, state: a.state };
+    a.x = 640; a.y = 690; a.state = 'idle';
+    const scale = room.scaleAt(a.y);
+    const centres = [];
+    for (let i = 0; i < 24; i++) {
+      a.clip = clip; a.clipT = i / 12;
+      const box = a.body.boxAt(a);
+      const w = Math.ceil(box.w * scale) + 24;
+      const band = Math.max(4, Math.round(box.h * scale * 0.12));
+      const sx = Math.max(0, Math.round(640 - w / 2));
+      const sy = Math.max(0, Math.round(690 - band));
+      g.clearRect(0, 0, VIEW.w, VIEW.h);
+      a.render(g, room);
+      const d = g.getImageData(sx, sy, w, band).data;
+      let lo = 1e9, hi = -1;
+      for (let y = 0; y < band; y++) for (let x = 0; x < w; x++) {
+        if (d[(y * w + x) * 4 + 3] > 40) { if (x < lo) lo = x; if (x > hi) hi = x; }
+      }
+      if (hi >= lo) centres.push((lo + hi) / 2);
+    }
+    Object.assign(a, keep);
+    return centres.length ? +(Math.max(...centres) - Math.min(...centres)).toFixed(1) : -1;
   },
   // The shape the actor is drawn as right now, in room units. A pose change is
   // the one animation event that alters the silhouette rather than the frame,

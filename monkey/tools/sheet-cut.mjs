@@ -101,6 +101,39 @@ for (const source of SOURCES) {
     + `${source.clip ? `  [clip ${source.clip}]` : ''}  [${GRID ? 'uniform grid ' + GRID : 'connectivity'}]`);
 }
 
+// Which end of the character to hold still, decided per clip rather than
+// assumed for the whole atlas.
+//
+// The head was the anchor everywhere, on the reasoning that a swinging arm
+// moves the bounding box without moving the character. That is true of a walk
+// and false of an idle: Grout's idle sways his head 8px while his feet do not
+// move at all in the source, so anchoring on the head pushed his whole body
+// back and forth and gave a man standing still a shuffle. Anchoring on the
+// feet instead would break the walk, where the feet are supposed to move 9px
+// and the head does not.
+//
+// Neither is right in general and both are measurable, so the tool measures.
+// The band that varies least in the source is the part of the character that
+// is genuinely stationary in that clip, and that is the part to nail down.
+const sd = (a) => {
+  if (a.length < 2) return 0;
+  const m = a.reduce((x, v) => x + v, 0) / a.length;
+  return Math.sqrt(a.reduce((x, v) => x + (v - m) ** 2, 0) / a.length);
+};
+for (const seg of segments) {
+  const mine = meas.frames.slice(seg.from, seg.to);
+  if (!mine.length) continue;
+  const head = sd(mine.map((f) => f.headCx - f.x0));
+  const foot = sd(mine.map((f) => f.footCx - f.x0));
+  const pick = foot < head ? 'foot' : 'head';
+  for (const f of mine) f.anchor = pick;
+  console.log(`  anchor ${(seg.clip || 'frames').padEnd(7)} on the ${pick}`
+    + `  (head sways ${head.toFixed(2)}px, feet ${foot.toFixed(2)}px)`);
+}
+await page.evaluate((anchors) => {
+  window.__state.frames.forEach((f, i) => { f.anchor = anchors[i]; });
+}, meas.frames.map((f) => f.anchor));
+
 // Slices at the ends of a sheet catch stray artefacts — a few pixels of a
 // light bloom, half a figure the model added past the eighth — and a cell
 // holding four pixels is worse than no cell. Anything far off the median
@@ -166,8 +199,12 @@ for (const [name, c] of Object.entries(clips)) {
   const r = await page.evaluate(([u, cl, cols, clip, fy, fh]) => window.__period(u, cl, cols, clip, fy, fh),
     [atlasUri, cell, meas.frames.length, c, feetY, maxH]);
   c.framesPerCycle = r.period;
+  // In source pixels; the engine scales it by however tall the character is
+  // actually drawn, so one cycle of animation covers one stride of ground at
+  // any size and any depth.
+  c.stride = Math.round(r.stride);
   console.log(`  clip ${name.padEnd(6)} ${c.count} frames, cycle every ${r.period}`
-    + `  [${r.signal}, ${r.peaks} peaks]`);
+    + `, stride ${c.stride}px  [${r.signal}, ${r.peaks} peaks]`);
 }
 
 // A clip named in --once plays through and stops; everything else loops. The
@@ -207,9 +244,22 @@ await close();
 
 console.log(`\natlas -> assets/cast/${NAME}-sheet.png  ${cell.w}x${cell.h} cells x ${meas.frames.length}`);
 console.log(`manifest -> assets/cast/${NAME}-sheet.json  figureH ${maxH}, feetY ${feetY}`);
-console.log(`verified: ${v.cells} cells, feet spread ${v.feetSpread}px, head spread ${v.headSpread}px`);
-if (v.feetSpread > 0 || v.headSpread > 1) {
-  console.error('FAILED: the atlas does not satisfy its own alignment rules'
-    + ' (feet must be one row, figure within a pixel of one column)');
+// The anchored column must be nailed; the other one is reported because it is
+// the honest measure of what the clip does. An idle whose unanchored end still
+// wanders is a clip that will read as drifting whichever way it is pinned.
+const anchoredOn = meas.frames[0]?.anchor === 'foot' ? 'toe' : 'head';
+const anchoredSpread = anchoredOn === 'toe' ? v.toeSpread : v.headSpread;
+console.log(`verified: ${v.cells} cells, feet spread ${v.feetSpread}px, `
+  + `head spread ${v.headSpread}px, toe spread ${v.toeSpread}px`);
+if (v.feetSpread > 0) {
+  console.error('FAILED: the feet are not on one row');
+  process.exit(1);
+}
+// Mixed anchors across an atlas mean neither column is zero overall, so the
+// per-clip case is the one to judge — and it is judged in check-cut.mjs on a
+// single-clip fixture. Here the rule is only that the atlas anchored SOMETHING.
+if (new Set(meas.frames.map((f) => f.anchor)).size === 1 && anchoredSpread > 1) {
+  console.error(`FAILED: the atlas anchored on the ${anchoredOn} but that column`
+    + ` still varies by ${anchoredSpread}px`);
   process.exit(1);
 }

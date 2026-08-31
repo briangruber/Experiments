@@ -256,6 +256,53 @@ try {
     return px.player >= 1.7 && px.player <= 2.3 && px.grout >= 1.7 && px.grout <= 2.3;
   });
 
+  // Grout stood on the spot with shuffling feet, because the atlas pinned every
+  // frame's head to one column and his idle sways its head 8px while his feet
+  // do not move at all in the source. The cutter now anchors on whichever end
+  // is steadier in that clip, and this measures the result on the canvas.
+  //
+  // The walk is measured with the same call and must come out LARGE. A drift
+  // measure that reads zero everywhere would pass this step while proving
+  // nothing, and a sprite that renders one frame forever is exactly the kind of
+  // thing that would produce it.
+  await step('the idle keeps its feet still  [and the walk does not]', async () => {}, () => {
+    const M = window.__monkey;
+    const d = { groutIdle: M.footDrift('grout', 'idle'), groutWalk: M.footDrift('grout', 'walk') };
+    window.__t.footDrift = d;
+    return d.groutIdle >= 0 && d.groutIdle <= 2 && d.groutWalk > 8;
+  });
+
+  // Double-clicking the floor runs: a different clip, a longer stride and more
+  // ground per second. Asserted as behaviour on the actor rather than as a
+  // pixel count, because what can break here is the plumbing — a run flag that
+  // never reaches the body, or a stride that stays the walk's and leaves her
+  // sprinting on the spot.
+  await step('double-click runs  [run clip, longer stride, more ground]', async () => {
+    await page.evaluate(() => {
+      const M = window.__monkey;
+      const p = M.actors.player;
+      M.g.seq.cancel();
+      p.stop();
+      p.x = 700; p.y = 690;
+      p.walkTo(M.room().walk, 300, 660, null, true);
+      window.__t.runStart = p.x;
+      for (let i = 0; i < 30; i++) p.update(1 / 60, M.room());
+      window.__t.run = {
+        running: p.running,
+        clipIsRun: p.body.strideFor('run') > p.body.strideFor('walk'),
+        cadence: M.cadence('player', 'run'),
+        travelled: +(window.__t.runStart - p.x).toFixed(1),
+      };
+      p.stop();
+    });
+    await idle();
+  }, () => {
+    const r = window.__t.run;
+    // Half a second of running has to cover more ground than half a second of
+    // walking would (180px/s * 0.5 = 90), at a cadence a person could hold.
+    return r.running && r.clipIsRun && r.travelled > 120 && r.cadence >= 0.7 && r.cadence <= 2.0;
+  });
+
   // A character that changes size in a jump as it walks upstage is a fault the
   // playthrough cannot see and the player cannot miss. Sample the depth range
   // and require the change to be gradual.
@@ -335,6 +382,14 @@ try {
   errors.push(e.message);
 }
 
+// The measurements the steps were judged on, read out while the page is still
+// alive and printed at the end. A step that says "ok" and nothing else is a
+// step nobody can sanity-check.
+const m = errors.length ? {} : await page.evaluate(() => ({
+  cadence: window.__t.cadence, run: window.__t.run, artPixel: window.__t.artPixel,
+  footDrift: window.__t.footDrift, scaleStep: window.__t.scaleStep, pose: window.__t.pose,
+}));
+
 await browser.close();
 closeServer();
 
@@ -343,4 +398,9 @@ if (errors.length) {
   console.error('FAILED\n  ' + errors.join('\n  '));
   process.exit(1);
 }
+console.log(`measured: art pixel player ${m.artPixel?.player}, grout ${m.artPixel?.grout}`);
+console.log(`          walk ${m.cadence} strides/s; run ${m.run?.cadence} strides/s`
+  + `, ${m.run?.travelled}px covered in half a second`);
+console.log(`          foot drift: idle ${m.footDrift?.groutIdle}px, walk ${m.footDrift?.groutWalk}px`);
+console.log(`          depth step ${m.scaleStep}px; asleep box ${m.pose?.w}x${m.pose?.h}\n`);
 console.log(`completed the room: ${steps.length}/${steps.length} steps, no page errors`);

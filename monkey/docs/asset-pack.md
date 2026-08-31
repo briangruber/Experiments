@@ -364,3 +364,63 @@ inside the head band is a direct reading. Pick the frame to read with care —
 for a seated pose whose head is not in the top fifth. Eyeballing these four
 sheets gave the wrong answer for two of them; the measure gave the right one
 for all four.
+
+### Which end of the character to hold still
+
+The cutter's two rules are "feet on one row" and "the figure on one column".
+The second needs an anchor, and the anchor was the head everywhere, on the
+reasoning that a swinging arm moves the bounding box without moving the
+character.
+
+That is true of a walk and false of an idle. Measured on the raw sheets:
+
+    grout idle    head sways 8.0px    feet move 0.0px
+    grout walk    head sways 1.5px    feet move 9.0px
+
+Grout's idle sways his head and does not move his feet at all. Pinning the
+head therefore pushed his whole body back and forth by up to 8px a frame — a
+man standing still, shuffling. Pinning the feet instead would wreck the walk,
+where the feet are *supposed* to move and the head is the still part.
+
+Neither is right in general and both are measurable, so `sheet-cut.mjs`
+measures per clip and anchors on whichever band varies least in the source. It
+prints the choice and the two numbers it chose between:
+
+    anchor idle    on the foot  (head sways 1.64px, feet 0.95px)
+    anchor walk    on the head  (head sways 4.16px, feet 5.18px)
+
+`check.mjs` measures the outcome on the canvas — stepping the clip by hand so
+the answer is the same every run — and requires the idle to hold within 2px
+while the walk moves more than 8. The walk half is not decoration: a drift
+measure that read zero everywhere would pass the idle assertion while proving
+nothing. Idle reads 2px and walk 42.5px; anchoring the idle on the head fails
+the step.
+
+### Stride is measured too, and running comes free
+
+`__period` already measures foot separation frame by frame to find the gait
+cycle. The same signal gives the stride length: at full contact the figure's
+width in the band above the ground is a step plus a foot, at pass it is about
+a foot, so `(max - min) × 2` is one stride — the same foot down to the same
+foot down — in source pixels. The cutter writes it into each clip and the
+engine scales it by however tall the character is drawn.
+
+This replaced `height * 0.85`, where `height` was the vector puppet's and had
+stopped describing anything once the sprites were drawn at nearly twice it.
+The result was foot-skate: the legs stepped further than the ground moved.
+The measured numbers land where a body actually is —
+
+    bonny walk   108px on a 135px figure   0.80 x height
+    bonny run    198px on a 135px figure   1.47 x height
+    grout walk   106px on a 148px figure   0.72 x height   (a heavy old man)
+
+— which is the textbook walking stride and the textbook running one, from a
+sprite sheet, without anybody choosing a number.
+
+Running then needs no tuning at all. A double-click sets `running` on the
+actor; the body picks `clips.run` if the character has one, the stride comes
+from that clip's own feet, and the pace is a single multiplier. At 2.2× walking
+pace the run comes out at almost exactly one stride per second — the same
+cadence as the walk over much more ground, which is what running is. A cast
+member with no run sheet just moves faster on their walk cycle, which reads as
+hurrying rather than as broken.

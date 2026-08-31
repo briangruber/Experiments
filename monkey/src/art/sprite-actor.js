@@ -43,7 +43,11 @@ export async function loadSpriteBody({ sheetUrl, manifest, height, face }) {
     }
 
     const walking = actor.state === 'walk';
-    const c = clips[walking ? 'walk' : 'idle'] || clips.idle;
+    // Running is a different clip, not a faster walk. It only exists if the
+    // character has one; a cast member without a run sheet just moves quicker
+    // on their walk cycle, which reads as hurrying rather than as broken.
+    const gait = walking && actor.running && clips.run ? 'run' : 'walk';
+    const c = clips[walking ? gait : 'idle'] || clips.idle;
 
     if (walking) {
       // Walk frames advance with distance travelled, so the feet stay in step
@@ -80,6 +84,19 @@ export async function loadSpriteBody({ sheetUrl, manifest, height, face }) {
       return c.count / (c.fps || 10);
     },
     hasClip(name) { return !!clips[name]; },
+
+    // How far one cycle of a clip carries the character, in room units —
+    // measured off the sheet's own foot separation at cut time and scaled by
+    // however tall the character is drawn. The engine used `height * 0.85`
+    // with the vector puppet's height, which stopped describing anything once
+    // the sprites were drawn at nearly twice it: the ground moved less than
+    // the legs did, so the feet skated. Measured, Bonny's walk stride is 0.80
+    // of her figure height and her run 1.47, which are the numbers a person
+    // actually has.
+    strideFor(name) {
+      const c = clips[name] || clips.walk;
+      return c?.stride ? c.stride * (height / figureH) : null;
+    },
 
     // What the character occupies right now, in room units before depth
     // scaling — the figure in the current frame, not the cell it sits in. This
