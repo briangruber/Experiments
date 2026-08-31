@@ -178,13 +178,21 @@ export class Inventory {
     return items.length > 0 && y >= this.top && x <= this.width(items);
   }
 
+  // Which item a click BELONGS to, not which drawn box it landed inside.
+  //
+  // The slots are inset by a pad on every side, so testing the drawn boxes
+  // left the whole gutter dead: the eight pixels down the left, the eight
+  // between every pair of icons, and — the ones that hurt — the eight above
+  // and the eight below, which is exactly where a hand aiming at the bottom of
+  // the screen lands. A third of the strip took the click and did nothing with
+  // it, and a strip that swallows a click is worse than one that never had it,
+  // because main.js treats "the inventory owns this click" as final.
+  //
+  // The strip is now solid: every pixel of it belongs to the nearest item.
   hit(x, y, items) {
     if (!this.contains(x, y, items)) return null;
-    for (let i = 0; i < items.length; i++) {
-      const [rx, ry, rw, rh] = this.slotRect(i);
-      if (x >= rx && x <= rx + rw && y >= ry && y <= ry + rh) return items[i];
-    }
-    return null;
+    const i = Math.floor(x / (SLOT + PAD));
+    return items[Math.max(0, Math.min(items.length - 1, i))] ?? null;
   }
 
   render(ctx, items, icons) {

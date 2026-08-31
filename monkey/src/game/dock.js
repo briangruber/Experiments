@@ -398,7 +398,7 @@ function HOTSPOTS(state) {
         yield say(g.player, "Right. Let's see what a ship named after a fish smells like.", 3.8);
         yield run(() => g.goTo('galley', 'dock'));
       },
-    }),
+    }, { exit: { to: 'galley', dir: 'left' } }),
   ];
 }
 

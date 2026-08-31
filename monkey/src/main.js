@@ -208,6 +208,12 @@ canvas.addEventListener('pointerdown', (e) => {
     return;
   }
 
+  // An exit is a door, not a thing to have opinions about. Offering look, use
+  // and talk on the way out of a room is the verb coin asking which of three
+  // ways you would like to leave, and the answer is always the same one — so
+  // a single click takes it.
+  if (spot?.exit) { doVerb('use', spot); return; }
+
   if (spot) { coin.show(p.x, p.y, spot); return; }
 
   // Double-click to run. Detected here rather than through the `dblclick`
@@ -431,6 +437,26 @@ function frame(now) {
 }
 
 function drawHud() {
+  // An exit gets a mark on the room as well as a word at the top: the label
+  // says what it is, the chevron says it is a way out, and the second one is
+  // the one you read without looking away from where you are pointing.
+  if (hoverSpot?.exit && !seq.busy && !coin.open && !menu.active) {
+    const [rx, ry, rw, rh] = hoverSpot.rect;
+    const cx = rx + rw / 2 - room.camX, cy = ry + rh / 2;
+    const dir = hoverSpot.exit.dir === 'left' ? -1 : hoverSpot.exit.dir === 'right' ? 1 : 0;
+    const bob = Math.sin(performance.now() / 260) * 4;
+    ctx.save();
+    ctx.translate(cx + (dir ? dir * bob : 0), cy + (dir ? 0 : -bob));
+    ctx.strokeStyle = '#f6d78a';
+    ctx.lineWidth = 7; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.shadowColor = 'rgba(0,0,0,0.75)'; ctx.shadowBlur = 8;
+    ctx.beginPath();
+    if (dir) { ctx.moveTo(-12 * dir, -18); ctx.lineTo(12 * dir, 0); ctx.lineTo(-12 * dir, 18); }
+    else { ctx.moveTo(-18, 12); ctx.lineTo(0, -12); ctx.lineTo(18, 12); }
+    ctx.stroke();
+    ctx.restore();
+  }
+
   ctx.save();
   ctx.font = '22px Georgia, serif';
   ctx.textAlign = 'center';
@@ -440,7 +466,7 @@ function drawHud() {
   else if (inv.selected && hoverSpot) label = `Use ${inv.selected.replace(/-/g, ' ')} on ${hoverSpot.name}`;
   else if (inv.selected) label = `Use ${inv.selected.replace(/-/g, ' ')} with...`;
   else if (inv.hover) label = inv.hover.replace(/-/g, ' ');
-  else if (hoverSpot) label = hoverSpot.name;
+  else if (hoverSpot) label = hoverSpot.exit ? `Go to ${hoverSpot.name}` : hoverSpot.name;
   if (label && !seq.busy) {
     ctx.lineWidth = 4; ctx.lineJoin = 'round';
     ctx.strokeStyle = 'rgba(6,4,3,0.9)';

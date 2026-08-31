@@ -187,6 +187,15 @@ async function verb(spotPt, which) {
   await quiet();
 }
 
+// An exit takes one click and opens no coin. Driving it through `verb` would
+// wait four seconds for a coin that is never coming, which is how this check
+// found out the behaviour had changed.
+async function go(spotPt) {
+  await ensureVisible(spotPt);
+  await click(spotPt);
+  await quiet();
+}
+
 async function useItemOn(item, spotPt) {
   await ensureVisible(spotPt);
   await click(await T((i) => window.__t.invSlot(i), item), false);
@@ -496,6 +505,60 @@ try {
   // a vector blockout, and it is loaded from a file with a procedural
   // fallback — so "the sprite is on disk" and "the sprite is on screen" are
   // different claims, and only the second one matters.
+  // Every pixel of the inventory strip selects something.
+  //
+  // The slots are drawn inset by a pad, and the hit test used to test the drawn
+  // boxes — so the gutter down the left, the gutter between every pair of
+  // icons, and the eight-pixel bands above and below them took the click and
+  // did nothing with it. A third of the strip. main.js treats "the inventory
+  // owns this click" as final, so a swallowed click is a click that silently
+  // did nothing, which is what "sometimes it doesn't select it" was.
+  //
+  // Checked twice: the geometry over every pixel of the strip, and then one
+  // real mouse click into a gutter, because the geometry being right does not
+  // prove the click reaches it.
+  await step('the inventory strip never swallows a click', async () => {
+    // A gutter click, through the browser's own mouse: the 4px band along the
+    // very bottom of the screen, under the first icon.
+    await page.evaluate(() => { window.__monkey.inv.selected = null; });
+    const pt = await T(() => {
+      const M = window.__monkey;
+      const first = M.state.inventory[0];
+      if (!first) throw new Error('nothing held');
+      return { x: 2, y: 718, want: first };
+    });
+    await click({ x: pt.x, y: pt.y }, false);
+    await page.evaluate((w) => { window.__t.gutter = { got: window.__monkey.inv.selected, want: w }; }, pt.want);
+    await page.evaluate(() => { window.__monkey.inv.selected = null; });
+  }, () => {
+    const M = window.__monkey;
+    const items = M.state.inventory;
+    let dead = 0, total = 0;
+    for (let y = M.inv.top; y < 720; y++) {
+      for (let x = 0; x <= M.inv.width(items); x++) {
+        if (!M.inv.contains(x, y, items)) continue;
+        total++;
+        if (!M.inv.hit(x, y, items)) dead++;
+      }
+    }
+    window.__t.strip = { dead, total, gutter: window.__t.gutter };
+    return total > 0 && dead === 0 && window.__t.gutter.got === window.__t.gutter.want;
+  });
+
+  // An exit is a door, not a thing with three opinions about it.
+  await step('an exit takes one click and opens no verb coin', async () => {
+    const j = await T(() => window.__t.spot('jetty'));
+    await ensureVisible(j);
+    await click(j);
+    await page.waitForTimeout(300);
+    await page.evaluate(() => { window.__t.exitCoin = window.__monkey.coin.open; });
+    await quiet();
+  }, () => {
+    const M = window.__monkey;
+    const spot = M.room().hotspots.find((h) => h.id === 'jetty');
+    return window.__t.exitCoin === false && !!spot.exit;
+  });
+
   await step('the generated cup is on the wall  [prop sprite draws]', async () => {}, () => {
     const M = window.__monkey;
     const d = M.propDrawn('cup');
@@ -557,7 +620,7 @@ try {
   }
 
   await step('go aboard  [a door into another room]', async () => {
-    await verb(await T(() => window.__t.spot('jetty')), 'use');
+    await go(await T(() => window.__t.spot('jetty')));
     await page.waitForFunction(() => window.__t.room() === 'galley', null, { timeout: 20000 });
     // The room arrives before its art does: the atlases are fetched inside the
     // move, so "we are in the galley" and "the galley is drawable" are two
@@ -631,7 +694,7 @@ const m = errors.length ? {} : await page.evaluate(() => ({
   walked: window.__t.walked, ran: window.__t.ran, artPixel: window.__t.artPixel,
   footTrack: window.__t.footTrack, scaleStep: window.__t.scaleStep, pose: window.__t.pose,
   cupDrawn: window.__t.cupDrawn, cupSize: window.__t.cupSize, speech: window.__t.speech,
-  seam: window.__t.seam, stride: window.__t.stride,
+  seam: window.__t.seam, stride: window.__t.stride, strip: window.__t.strip,
 }));
 
 await browser.close();
@@ -656,6 +719,8 @@ console.log(`          depth step ${m.scaleStep}px; asleep box ${m.pose?.w}x${m.
   + ` cup ${m.cupDrawn}px of a ${m.cupSize?.w}x${m.cupSize?.h} sprite`);
 console.log(`          seam weight: cut ${m.seam?.cut}, just after ${m.seam?.justAfter},`
   + ` quarter ${m.seam?.quarter}, mid ${m.seam?.mid}`);
+console.log(`          inventory strip: ${m.strip?.dead} dead px of ${m.strip?.total};`
+  + ` a gutter click selected ${m.strip?.gutter?.got}`);
 console.log(`          speech clears the body by `
   + (m.speech || []).map((b) => `${Math.round(b.figureTop - b.bottom)}px (${b.lines} line${b.lines > 1 ? 's' : ''})`).join(', ') + '\n');
 console.log(`completed the room: ${steps.length}/${steps.length} steps, no page errors`);

@@ -263,7 +263,7 @@ function HOTSPOTS(state) {
         yield say(g.player, "Up on deck, then. Someone should watch where we're going.", 3.6);
         yield run(() => g.goTo('dock', 'galley'));
       },
-    }),
+    }, { exit: { to: 'dock', dir: 'up' } }),
   ];
 }
 
