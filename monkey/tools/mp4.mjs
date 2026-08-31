@@ -113,17 +113,46 @@ export function probe(buf) {
   return out;
 }
 
-// Under 2% of the keyframe was the old, single-number test, kept because
-// check-scene.mjs states it as a floor for the shipped backdrop.
-export const MOVES = 0.02;
+// Is the clip a held still?
+//
+// Three measures have been tried and the history is worth keeping, because
+// each failed in a way the next could not see.
+//
+//   1. `ratio` (median inter-frame bytes over the keyframe) at a 2% floor.
+//      Too high a floor: a crisp 720p pixel-art keyframe is enormous, so real
+//      movement measured under 1% of it and read as dead.
+//   2. `activity` (median inter-frame bytes per megapixel) at 800. Scale-free
+//      in resolution but NOT in bitrate, which nobody noticed until the
+//      backdrops were re-encoded at CRF 20: identical pictures, 44 dB PSNR,
+//      and activity fell from 1998 to 760 — one step from failing a check
+//      about motion because of a change that altered no motion at all.
+//   3. `cv`, the spread of inter-frame sizes. Stable under re-encoding (1.54
+//      to 1.63) and useless as a gate: a held still's near-zero frames vary
+//      hugely in relative terms, so the dead clips score HIGHER than the live
+//      ones (2.0 and 11.0 against 1.3 and 1.6).
+//
+// So it is back to `ratio`, with the floor set from measurement rather than
+// guessed, and with `burst` alongside it so a clip has to look dead by both
+// before it is called dead. Measured, at the sizes and bitrates this project
+// actually ships:
+//
+//   held still, CRF 20      ratio 0.0002   burst   1.6
+//   held still, 5400 kb/s   ratio 0.0004   burst  13.7   <- the old test passed this
+//   dock loop, original     ratio 0.0094   burst  40.4
+//   dock loop, CRF 20       ratio 0.0052   burst  33.0
+//   galley loop, original   ratio 0.0046   burst 133.1
+//   galley loop, CRF 20     ratio 0.0028   burst 167.1
+//
+// A held still at a high bitrate is the case that matters: the old test called
+// it alive, because spending bandwidth on nothing raises the spread. It is
+// exactly the failure this measure exists to catch — a technically perfect
+// video with nothing in it — and it escaped for as long as the gate was an
+// absolute byte count. assets/fixtures/held-still.mp4 is that clip, kept so
+// the reversal is checkable rather than asserted.
+export const DEAD_RATIO = 0.001;
+export const DEAD_BURST = 20;
+export const isDead = (m) => !m || (m.ratio < DEAD_RATIO && m.burst < DEAD_BURST);
 
-// The better test. A clip is dead only when almost nothing changes between
-// frames AND that is true uniformly across the clip; if the spread is wide,
-// something is happening some of the time, which is exactly what a quiet
-// backdrop loop looks like. Thresholds are set from measured clips: a busy
-// loop runs 35,000-68,000 bytes per megapixel, a subtle one about 2,000, and
-// the held still that shipped once ran at 0.8% of its keyframe with no spread
-// at all.
+// Kept because check-scene.mjs still reports it as context.
+export const MOVES = 0.02;
 export const DEAD_ACTIVITY = 800;
-export const DEAD_BURST = 3;
-export const isDead = (m) => !m || (m.activity < DEAD_ACTIVITY && m.burst < DEAD_BURST);

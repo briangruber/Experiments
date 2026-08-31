@@ -6847,5 +6847,125 @@
     },
     "file": "assets/cast/autosprite/cat/idle.png",
     "at": "2026-08-31T15:33:07.652Z"
+  },
+  {
+    "kind": "animations",
+    "key": "grout",
+    "characterId": "cmtgoaxrq0026ryroovkvro2f",
+    "body": {
+      "animations": [
+        {
+          "kind": "idle",
+          "loop": true
+        },
+        {
+          "kind": "walk",
+          "loop": true
+        },
+        {
+          "kind": "custom",
+          "name": "Drink",
+          "prompt": "The old harbourmaster raises a tin cup to his mouth with both hands and drinks deeply, head tipping back, then lowers the cup and wipes his beard with the back of his hand. He stays standing in one place. Side view, facing right.",
+          "loop": false
+        },
+        {
+          "kind": "custom",
+          "name": "Asleep",
+          "loop": true,
+          "prompt": "The old harbourmaster is fast asleep sitting on the ground with his legs out in front of him, chin down on his chest, tricorn tipped forward over his eyes, arms limp at his sides. He stays asleep in exactly this pose the whole time and only breathes slowly. One character alone: no post, no wall, no barrel, no furniture, no props. Side view, facing right."
+        }
+      ],
+      "videoTier": "pro",
+      "frameCount": 32,
+      "frameSize": 176,
+      "removeBg": "ultra"
+    },
+    "response": {
+      "characterId": "cmtgoaxrq0026ryroovkvro2f",
+      "workflows": [
+        {
+          "jobId": "wf_7eccfad1-0203-43f1-aa5b-3ee16093bef9",
+          "kind": "idle",
+          "videoId": "cmtheybup0004vbe34drxhoj7"
+        },
+        {
+          "jobId": "wf_be8ddc5e-36f4-4e9b-bfa0-76706f12b234",
+          "kind": "walk",
+          "videoId": "cmtheybtn0002vbe3htwh4x0k"
+        },
+        {
+          "jobId": "wf_fa4192d4-92c4-4b80-ae77-b2092bc2a43b",
+          "kind": "custom",
+          "videoId": "cmtheybvn0008vbe3y034jbsn"
+        },
+        {
+          "jobId": "wf_16be7ccc-a120-42d7-bb56-059e277511af",
+          "kind": "custom",
+          "videoId": "cmtheybwf000avbe3l4bpyhb8"
+        }
+      ],
+      "creditsUsed": 40
+    },
+    "at": "2026-08-31T15:51:57.033Z"
+  },
+  {
+    "kind": "animations",
+    "key": "pike",
+    "characterId": "cmth75k2k001yxyz66xse39ia",
+    "body": {
+      "animations": [
+        {
+          "kind": "idle",
+          "loop": true
+        },
+        {
+          "kind": "walk",
+          "loop": true
+        },
+        {
+          "kind": "custom",
+          "name": "Despair",
+          "loop": true,
+          "prompt": "The huge cook stares down into an empty cooking pot he is holding, shoulders sagging, and dabs at one eye with the corner of his apron. He stays standing in one place, miserable, the whole time. One character alone: no stove, no table, no furniture, no props beyond the pot. Side view, facing right."
+        },
+        {
+          "kind": "custom",
+          "name": "Ring the bell",
+          "loop": false,
+          "prompt": "The huge cook swings a small hand bell over his head with one arm, back and forth, beaming, delighted. He stays standing in one place. One character alone: no stove, no wall, no furniture, no props beyond the bell. Side view, facing right."
+        }
+      ],
+      "videoTier": "pro",
+      "frameCount": 32,
+      "frameSize": 176,
+      "removeBg": "ultra"
+    },
+    "response": {
+      "characterId": "cmth75k2k001yxyz66xse39ia",
+      "workflows": [
+        {
+          "jobId": "wf_aba7bd02-5ffc-4c13-b1c6-c5012263b466",
+          "kind": "idle",
+          "videoId": "cmthf25lv000ke8t3illhbec8"
+        },
+        {
+          "jobId": "wf_f64970bd-553c-49a1-b9bb-4e59ef19659a",
+          "kind": "walk",
+          "videoId": "cmthf25mm000me8t3q0wjdc8x"
+        },
+        {
+          "jobId": "wf_ef447389-c5d0-4fce-a309-4d82ffc050d3",
+          "kind": "custom",
+          "videoId": "cmthf25ni000oe8t3u4z2fp8y"
+        },
+        {
+          "jobId": "wf_150b0b22-4f98-41f0-a9d5-7563fff281d3",
+          "kind": "custom",
+          "videoId": "cmthf25p1000we8t32z1l99v0"
+        }
+      ],
+      "creditsUsed": 40
+    },
+    "at": "2026-08-31T15:59:22.052Z"
   }
 ]

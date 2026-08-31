@@ -14,7 +14,7 @@
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ROOT } from './harness.mjs';
-import { probe, isDead, DEAD_ACTIVITY, DEAD_BURST } from './mp4.mjs';
+import { probe, isDead, DEAD_RATIO, DEAD_BURST } from './mp4.mjs';
 
 const fails = [];
 const check = (name, ok, detail) => {
@@ -61,8 +61,20 @@ check('small enough to inline in a published page', MB < 6.5, `${MB.toFixed(2)} 
 // clips this room wants. Two numbers: how much changes between frames, and how
 // unevenly. Dead means quiet AND even.
 check('video contains motion', !isDead(p.motion),
-  p.motion ? `${p.motion.frames} frames, activity ${p.motion.activity} B/MPx, burst ${p.motion.burst}x `
-    + `(dead is under ${DEAD_ACTIVITY} AND under ${DEAD_BURST}x — quiet but uneven is a subtle loop)` : 'no sample table');
+  p.motion ? `${p.motion.frames} frames, ratio ${p.motion.ratio.toFixed(4)}, burst ${p.motion.burst}x, `
+    + `activity ${p.motion.activity} B/MPx `
+    + `(dead is under ${DEAD_RATIO} AND under ${DEAD_BURST}x — quiet but uneven is a subtle loop)` : 'no sample table');
+
+// And the same measure, run on a clip that IS a held still, because a motion
+// test that has never said no is not a test. The fixture is deliberately
+// encoded at a high bitrate: spending bandwidth on nothing is what fooled the
+// previous version of this measure into calling it alive.
+const FIXTURE = join(ROOT, 'assets/fixtures/held-still.mp4');
+if (await exists(FIXTURE)) {
+  const dead = probe(await readFile(FIXTURE)).motion;
+  check('and says no to one that does not  [the fixture]', isDead(dead),
+    `ratio ${dead.ratio.toFixed(4)}, burst ${dead.burst}x`);
+}
 
 const STILL = join(ROOT, `${DIR}/scene.jpg`);
 check('web-sized still exists as a fallback', await exists(STILL),

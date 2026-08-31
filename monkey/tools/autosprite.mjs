@@ -386,7 +386,15 @@ const ANIMATIONS = {
     },
   ],
 
+  // The player, and so the character on screen more than any other. Her idle,
+  // walk and run were made in the app before this tool existed, which means
+  // they were made at whatever the app's default video tier is — a default
+  // nobody chose. They are listed here so they can be regenerated with the
+  // rest of the cast at a tier that was.
   bonny: [
+    { kind: 'idle', loop: true },
+    { kind: 'walk', loop: true },
+    { kind: 'run', loop: true },
     {
       kind: 'custom', name: 'Bellows', loop: false,
       prompt: 'A young pirate woman holds a pair of blacksmith bellows in both hands and pumps them '
