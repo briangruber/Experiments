@@ -1,0 +1,90 @@
+#!/usr/bin/env node
+// Does a boat LEAVE foam on the water?
+//
+// The complaint is that foam rides the wake's waves rather than being deposited
+// on the sea and left there. That is a claim about one thing: what the foam
+// channel holds at a FIXED WORLD POINT as the boat runs away from it. If the
+// foam is deposited, the point goes white as she passes and then decays slowly
+// on its own. If it merely rides the pattern, it goes white and then back to
+// nothing the moment the crest has gone by.
+//
+//   node tools/foam-persist.mjs --lat 6 --secs 40
+import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { join, extname, resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const argv = process.argv.slice(2);
+const opt = (n, d) => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : d; };
+const LAT = +opt('lat', 6);          // metres off the track to watch
+const SECS = +opt('secs', 40);
+const MIME = { '.html':'text/html', '.js':'text/javascript', '.css':'text/css' };
+const server = createServer(async (q, r) => {
+  try {
+    const u = decodeURIComponent(q.url.split('?')[0]);
+    const f = join(ROOT, u === '/' ? 'index.html' : u);
+    r.writeHead(200, { 'content-type': MIME[extname(f)] || 'application/octet-stream' });
+    r.end(await readFile(f));
+  } catch { r.writeHead(404).end(); }
+});
+await new Promise((r) => server.listen(0, r));
+const { chromium } = await import('/opt/node22/lib/node_modules/playwright/index.mjs');
+const browser = await chromium.launch({
+  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const page = await browser.newPage({ viewport: { width: 400, height: 260 } });
+const qs = new URLSearchParams({ prewarm: '30', 'boat.speed': '12', 'boat.turnRate': '0' });
+await page.goto(`http://127.0.0.1:${server.address().port}/index.html?${qs}`);
+await page.waitForFunction(() => window.__wake?.wake, null, { timeout: 120000 });
+
+const rows = await page.evaluate(async ({ lat, secs }) => {
+  const { wake, renderer, state } = window.__wake;
+  const h2f = (h) => { const s = (h & 0x8000) ? -1 : 1, e = (h >> 10) & 0x1f, m = h & 0x3ff;
+    if (e === 0) return s * Math.pow(2, -14) * (m / 1024);
+    if (e === 31) return m ? NaN : s * Infinity;
+    return s * Math.pow(2, e - 15) * (1 + m / 1024); };
+  // A FIXED point in the world, abeam of where she is right now. Everything
+  // after this is read at that same point while she runs away from it.
+  const hx = Math.sin(state.heading), hz = Math.cos(state.heading);
+  const wx = state.x + (-hz) * lat, wz = state.z + hx * lat;
+  const t0 = state.t;
+  const out = [];
+  const read = () => {
+    const rt = wake.rt, N = rt.width;
+    const buf = new Uint16Array(N * N * 4);
+    renderer.readRenderTargetPixels(rt, 0, 0, N, N, buf);
+    const u = (wx - wake.center.x) / wake.extent + 0.5;
+    const v = -(wz - wake.center.y) / wake.extent + 0.5;
+    const px = Math.round(u * (N - 1)), py = Math.round(v * (N - 1));
+    if (px < 0 || py < 0 || px >= N || py >= N) return null;
+    const o = (py * N + px) * 4;
+    return { foam: h2f(buf[o]), height: h2f(buf[o + 1]), bub: h2f(buf[o + 3]) };
+  };
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const deadline = performance.now() + secs * 1000;
+  while (performance.now() < deadline) {
+    const s = read();
+    const astern = Math.hypot(state.x - wx, state.z - wz);
+    if (s) out.push([+(state.t - t0).toFixed(1), +astern.toFixed(1),
+                     +s.foam.toFixed(4), +s.bub.toFixed(4)]);
+    else out.push([+(state.t - t0).toFixed(1), +astern.toFixed(1), null, null]);
+    await wait(900);
+  }
+  return out;
+}, { lat: LAT, secs: SECS });
+await browser.close(); server.close();
+
+console.log(`Foam at ONE fixed world point ${LAT} m off the track, as she runs away.\n`);
+console.log('  t(s)  astern(m)     foam   bubbles');
+let peak = 0;
+for (const [t, a, f, b] of rows) {
+  if (f === null) { console.log(String(t).padStart(6), String(a).padStart(10), '   (outside the field)'); continue; }
+  peak = Math.max(peak, f);
+  const bar = '#'.repeat(Math.round(Math.min(f, 2) * 30));
+  console.log(String(t).padStart(6), String(a).padStart(10), String(f).padStart(8), String(b).padStart(9), ' ' + bar);
+}
+const live = rows.filter((r) => r[2] !== null);
+const last = live[live.length - 1];
+console.log(`\npeak ${peak.toFixed(3)}`);
+if (last) console.log(`after ${last[0]} s and ${last[1]} m astern: foam ${last[2]} `
+  + `(${peak > 0 ? (100 * last[2] / peak).toFixed(0) : 0}% of peak)`);
