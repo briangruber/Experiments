@@ -416,15 +416,46 @@ export class OceanBody {
 		const outV = { x: 0, z: 0 };
 		const trimY = this.att.rise;
 
-		// WHICH SIDE IS THE OUTSIDE. Same convention the wake field's turn bias
-		// runs on -- side = vTurn * sign(lat) * -1 -- so the two cannot disagree
-		// about which way she is leaning. lat is port-positive here.
-		const outSign = s.turn > 0 ? -1 : 1;
+		// WHICH SIDE IS THE OUTSIDE, and it is worth being exact because this was
+		// backwards and threw every carve onto the inboard chine.
+		//
+		// It was taken from the wake field's turn-bias convention, which is
+		// written in the RIBBON's lateral frame, not this one -- two frames that
+		// happen to use the same word for their sign. Worked through instead:
+		// heading 0 points at +z, a positive turn rate swings the bow toward +x,
+		// so the centre of the curve is at +x. The lateral normal here is
+		// (-fwd.z, fwd.x), which at that heading is -x -- pointing away from the
+		// centre. So positive lat IS the outside when the turn rate is positive,
+		// and the outside simply follows the sign of the helm.
+		//
+		// check-spray asserts this against the track's own curvature rather than
+		// against any convention, because deriving it by hand is what got it
+		// wrong twice -- once in the code and once in the first version of the
+		// test, which agreed with the bug and passed.
+		const outSign = s.turn >= 0 ? 1 : - 1;
+
+		// The hull is also SLIPPING sideways through a turn -- that is the crab
+		// angle -- and it is that slip, not the forward speed, that shears water
+		// off the outboard chine. Adding it to the throw is why a hard turn
+		// sprays sideways rather than merely spraying more.
+		const slip = Math.abs( s.speed ) * Math.min( carve, 1.2 );
 		const bias = 0.5 + 0.45 * Math.min( carve * 2.2, 1 );
 
 		while ( budget -- > 0 ) {
 
-			const c = cuts[ ( this.rand() * cuts.length ) | 0 ];
+			// A CARVE THROWS FROM FORWARD, not evenly down the side.
+			//
+			// In a turn the hull is pivoting about a point well aft, so the bow
+			// is sweeping across the water fastest and the forward third of the
+			// outboard chine is the part being driven hardest into it. That is
+			// where the sheet comes from; the quarter is following in water the
+			// bow has already opened. Two candidates, keep the forward one --
+			// cheap, and it biases without ever emptying the after cuts.
+			let c = cuts[ ( this.rand() * cuts.length ) | 0 ];
+			if ( carve > 0.05 ) {
+				const c2 = cuts[ ( this.rand() * cuts.length ) | 0 ];
+				if ( c2.along < c.along && this.rand() < Math.min( carve * 1.6, 0.9 ) ) c = c2;
+			}
 			// SPRAY GOES TO THE OUTSIDE OF THE TURN.
 			//
 			// Water is deflected outward -- that is the force that turns her --
@@ -450,12 +481,25 @@ export class OceanBody {
 			// merely skimming, which is the difference between a turn that
 			// sprays and a turn that just banks.
 			const outward = Math.sign( lat ) === outSign ? 1 : 0;
+			// Thrown by the SLIP as well as by the way she is making. A chine
+			// being driven sideways through water throws it much harder than one
+			// merely slicing along, so the outboard side of a carve gets the
+			// slip added to its speed rather than a multiplier bolted on.
+			const vEmit = Math.abs( s.speed ) + slip * outward;
 			const opt = carve > 0.01
-				? { throw: get( 'spray.throw' ) * ( 1 + carve * carveK * 0.5 * outward ),
-					rise: get( 'spray.rise' ) * ( 1 + carve * 0.8 * outward ) }
+				? { throw: get( 'spray.throw' ) * ( 1 + carve * carveK * 0.35 * outward ),
+					// Up and OUT. Water peeling off a buried chine leaves closer
+					// to the surface than a bow sheet does -- it is being shovelled
+					// sideways, not launched -- so the rise grows less than the
+					// throw, and the sheet lies over rather than towering.
+					rise: get( 'spray.rise' ) * ( 1 + carve * 0.5 * outward ),
+					// Finer on the outside: water sheared off sideways at speed
+					// atomises harder than water parted by a stem.
+					size: get( 'spray.size' ) * ( 1 - 0.35 * outward * Math.min( carve, 1 ) ),
+					spread: get( 'spray.spread' ) * ( 1 + carve * 0.6 * outward ) }
 				: null;
 			this.spray.emit( x, y + trimY * 0.35, z, outV,
-				{ x: fwd.x, z: fwd.y }, s.speed, this.rand, opt );
+				{ x: fwd.x, z: fwd.y }, vEmit, this.rand, opt );
 
 		}
 

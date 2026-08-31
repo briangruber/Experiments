@@ -316,6 +316,75 @@ function run( { speed = 12, secs = 2, dt = 1 / 60, spray = new Spray( 4000 ) } =
 	set( 'spray.fine', 0.7 );
 }
 
+// ------------------------------------------- which side a turn throws to --
+//
+// A hull turns by throwing water OUTWARD -- that reaction is the turn -- so the
+// spray belongs on the outside of the curve, on the buried outboard chine. The
+// sign of that was derived by hand from the ribbon's normal convention and came
+// out backwards, which is exactly the kind of thing hand-derivation gets wrong
+// and a measurement does not. So: measure it, and keep measuring it.
+//
+// The outside is found from the PATH, not from a convention: three positions
+// give the direction the track curves, and the outside is the side away from
+// the centre it curves toward.
+{
+	const spray = new Spray( 4000 );
+	const mesh = { rotation: { set() {} }, position: { set() {} } };
+	const body = new OceanBody( mesh, { spray, seed: 11 } );
+	body.state.speed = 14;
+	body.state.turn = 0.35;               // a firm turn one way
+	// OceanBody.step() does the trim, the roll, the pose and the spray; the helm
+	// and the motion live in main.js. So drive them here exactly as it does, or
+	// the hull sits still, the track has no curvature at all, and the test
+	// measures the outside of a turn that never happened.
+	const track = [];
+	const dt = 1 / 60;
+	for ( let i = 0; i < 40; i ++ ) {
+		body.state.heading += body.state.turn * dt;
+		body.state.x += Math.sin( body.state.heading ) * body.state.speed * dt;
+		body.state.z += Math.cos( body.state.heading ) * body.state.speed * dt;
+		body.step( dt, flat );
+		track.push( [ body.state.x, body.state.z ] );
+	}
+	// Which way the track curves: the z of the cross product of two successive
+	// steps. Positive means it bends one way, negative the other; either way the
+	// CENTRE is on that side and the outside is opposite.
+	const [ a, b, c ] = [ track[ 5 ], track[ 20 ], track[ 35 ] ];
+	const v1 = [ b[ 0 ] - a[ 0 ], b[ 1 ] - a[ 1 ] ];
+	const v2 = [ c[ 0 ] - b[ 0 ], c[ 1 ] - b[ 1 ] ];
+	const curl = v1[ 0 ] * v2[ 1 ] - v1[ 1 ] * v2[ 0 ];
+
+	// Where the droplets actually went, in the hull's own frame.
+	const fwd = body.forward();
+	const nx = - fwd.y, nz = fwd.x;
+	let sum = 0, n = 0;
+	for ( let i = 0; i < spray.n; i ++ ) {
+		const rx = spray.p.x[ i ] - body.state.x, rz = spray.p.z[ i ] - body.state.z;
+		sum += rx * nx + rz * nz; n ++;
+	}
+	const meanLat = n ? sum / n : 0;
+
+	// The outside, in the same n-frame. A positive curl means the track bends
+	// anticlockwise in the (x, z) plane, and the centre of that bend is ninety
+	// degrees ANTICLOCKWISE from the direction of travel: rotate v1 by +90, so
+	// (-v1.z, v1.x). Getting this rotation the wrong way round is precisely the
+	// error the code under test made, and writing it here by hand reproduced it
+	// exactly -- the test passed while the spray came off the inside. Worked
+	// through once, concretely: heading 0 pointing +z with a positive turn rate
+	// swings the bow toward +x, so the track curves toward +x, the curl is
+	// negative, and sign(curl) * (-v1.z, v1.x) = (+1, 0) points at +x. Which is
+	// where the centre is.
+	const toCentre = [ - v1[ 1 ] * Math.sign( curl ), v1[ 0 ] * Math.sign( curl ) ];
+	const centreLat = toCentre[ 0 ] * nx + toCentre[ 1 ] * nz;
+	const outSign = - Math.sign( centreLat );
+
+	need( 'the boat actually turns', Math.abs( curl ) > 1e-6 && n > 50,
+		`${ n } droplets, curl ${ curl.toFixed( 4 ) }` );
+	need( 'a turn throws its spray to the OUTSIDE of the curve',
+		Math.sign( meanLat ) === outSign && Math.abs( meanLat ) > 0.05,
+		`mean lat ${ meanLat.toFixed( 2 ) } m, outside is ${ outSign > 0 ? '+' : '-' }` );
+}
+
 for ( const r of results ) {
 
 	console.log( `${ r.ok ? 'ok  ' : 'FAIL' } ${ r.name }${ r.detail ? ` — ${ r.detail }` : '' }` );
