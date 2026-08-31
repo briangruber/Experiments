@@ -93,7 +93,7 @@ const RIBBON_FRAG = /* glsl */`
   uniform float uBreakPatch, uBreakPatchScale;
   uniform float uKelvinScale, uKelvinProp, uKelvinAmp, uKelvinDiv, uKelvinTrans, uKelvinCusp, uKelvinDecay, uKelvinLife, uKelvinMin;
   uniform float uFoamScale, uFoamContrast, uBreakup, uFoamLife, uDissolve;
-  uniform float uMelt, uMeltScale;
+  uniform float uMelt, uMeltScale, uArmPersist;
   uniform float uSpeedDrive, uSpeedRef;
   uniform float uLace, uLaceAmt, uSoftness;
   uniform float uBubPlume, uBubW, uBubSpread, uBubLen, uBubArms, uBubLife, uBubMottle;
@@ -235,7 +235,28 @@ const RIBBON_FRAG = /* glsl */`
     // structure only emerges once it has spread and started to die.
     float near = 1.0 + uNearBoost * exp(-arc / max(uNearLen, 1.0));
 
-    float armFoam = (armG * comb + rim) * uArmFoam * armFade * near * planing * nose;
+    // FOAM DIES BY TIME. THE SHEET DIES BY DISTANCE. They are not the same
+    // thing, and collapsing them into one arc fade is why a boat did not appear
+    // to leave anything behind it.
+    //
+    // armFade is 1 - smoothstep(fadeStart, fadeStart + fadeLen, arc), which
+    // with the shipped numbers zeroes the arms about 111 m astern -- and it
+    // does that in METRES, so the faster the hull the sooner in SECONDS its
+    // foam is gone. Measured at 12 m/s: peak at 19 m astern, nothing left by
+    // 162 m, about thirteen seconds, against a foam life of 39 s that never
+    // got a chance to run. At 30 m/s the same fade would clear the water in
+    // under four seconds. Real foam is the other way round: it lasts a certain
+    // number of SECONDS, so a fast boat leaves a longer trail, not a
+    // shorter-lived one.
+    //
+    // What genuinely does die with distance is the SHEET -- the arm is thrown
+    // water, and it stops being a sheet once it has spread. So armFade still
+    // governs the arm's structure and its height. The foam it laid down is left
+    // to the age decay that was already there and was being multiplied by zero:
+    // uArmPersist is the floor under the arc fade, the fraction of the coverage
+    // that stops being an arm and becomes foam lying on the water.
+    float armFoam = (armG * comb + rim) * uArmFoam
+                  * max(armFade, uArmPersist) * near * planing * nose;
     float armH    = (armG * mix(0.65, 1.0, comb) + rim * 0.5) * uArmHeight * armFade * planing * nose;
 
     // ------------------------------------------------------------ prop wash --
@@ -973,7 +994,7 @@ export class WakeField {
       uKelvinTrans: { value: 0.5 }, uKelvinCusp: { value: 1 }, uKelvinDecay: { value: 100 },
       uKelvinLife: { value: 100 }, uKelvinMin: { value: 3 },
       uFoamScale: { value: 1 }, uFoamContrast: { value: 1 }, uBreakup: { value: 0 },
-      uMelt: { value: 0 }, uMeltScale: { value: 0.12 },
+      uMelt: { value: 0 }, uMeltScale: { value: 0.12 }, uArmPersist: { value: 0 },
       uFoamLife: { value: 1 }, uDissolve: { value: 1 },
       uSpeedDrive: { value: 1 }, uSpeedRef: { value: 13 },
       uAutoAngle: { value: 1 },
@@ -1341,6 +1362,7 @@ export class WakeField {
     u.uKelvinMin.value = get('kelvin.minWave');
     u.uFoamScale.value = get('foamLook.scale') * 0.35;
     u.uFoamContrast.value = get('foamLook.contrast');
+    u.uArmPersist.value = get('arms.persist');
     u.uMelt.value = get('foamLook.melt');
     u.uMeltScale.value = get('foamLook.meltScale');
     u.uBreakup.value = get('foamLook.breakup');

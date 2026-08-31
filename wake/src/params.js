@@ -125,6 +125,16 @@ export const PARAMS = {
     nearLength:   { v: 34, min: 3,   max: 150, step: 1,    label: 'Near-field length (m)' },
     fadeStart:    { v: 2, min: 2,   max: 200, step: 1,    label: 'Fade start (m)' },
     fadeLength:   { v: 203, min: 5,   max: 400, step: 1,    label: 'Fade length (m)' },
+    // ...and how much of the coverage that fade is NOT allowed to take with it.
+    //
+    // The fade above is in metres, so on its own it clears the water sooner the
+    // faster the hull goes -- measured, foam gone thirteen seconds after the
+    // boat at 12 m/s against a foam life of 39 s, and under four seconds at 30.
+    // Real foam lasts a number of SECONDS whatever laid it. This is the floor
+    // under the arc fade: the share of the arm's white that stops being a
+    // thrown sheet and becomes foam lying on the water, left to die of age like
+    // foam does. 0 restores the old distance-only behaviour.
+    persist:      { v: 0.45, min: 0,   max: 1,   step: 0.01, label: 'Foam left on the water' },
   },
 
   // The comb / scallop texture riding along each arm: periodic crests that lean
