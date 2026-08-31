@@ -101,6 +101,9 @@ export async function loadSpriteBody({ sheetUrl, manifest, height, face }) {
       return c.count / (c.fps || 10);
     },
     hasClip(name) { return !!clips[name]; },
+    // Which cell is on screen right now — so a check can tell a frame that
+    // changed from one that is merely being redrawn.
+    frameOf(actor) { return frameFor(actor); },
 
     // How far one cycle of a clip carries the character, in room units —
     // measured off the sheet's own foot separation at cut time and scaled by

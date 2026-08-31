@@ -368,25 +368,57 @@ window.__period = async (src, cell, cols, clip, feetY, figureH) => {
 
   const max = Math.max(...sep) || 1;
   const min = Math.min(...sep);
-  // How far one stride carries the character, in source pixels.
+  // How far one cycle carries the character, in source pixels.
   //
-  // `sep` is the width of the figure in the band just above the ground. At
-  // full contact that is the step length plus a foot; at pass it is about a
-  // foot. So max - min is the step, and a stride — the same foot down to the
-  // same foot down — is two of them.
+  // The first version of this doubled the swing in foot separation, on the
+  // reasoning that the widest the feet get is a step plus a foot and the
+  // narrowest is a foot. That is a model, and it disagreed with itself by 28%
+  // between two cuts of the same art.
   //
-  // This replaces a guess. The engine derived stride from `height * 0.85`
-  // where `height` was the vector puppet's, which stopped describing anything
-  // once the sprites were drawn at nearly twice that. Measuring it also makes
-  // running fall out for free: a run clip's feet are simply further apart, so
-  // its stride comes back longer without anyone choosing a number.
-  const stride = Math.max(1, (max - min) * 2);
+  // This measures the thing itself. While a foot is on the ground it does not
+  // move on the dock, so in the sprite's own frame it slides BACKWARD at
+  // exactly the rate the ground goes past — and a run of consecutive backward
+  // steps in the rearmost contact pixel IS a stance. The mean of the longest
+  // such run is that rate; times the cycle length it is the stride.
+  //
+  // Two details matter. Only pixels within a few rows of the ground count: a
+  // running figure in mid-air trails a leg behind it that sweeps back far
+  // faster than the dock does, and counting that read Bonny's stride as two
+  // and a quarter body heights. And a STANCE is a consecutive run, not a
+  // pooled set of backward frames, for the same reason.
+  // A tight band, because the rearmost CONTACT pixel is the point that is
+  // actually standing still. Widen it and you start tracking the ankle, which
+  // is swinging over the foot rather than resting on the dock, and the slope
+  // comes out a quarter too steep.
+  const contact = Math.max(2, Math.round(figureH * 0.02));
+  const rear = [];
+  for (let k = 0; k < clip.count; k++) {
+    const f = clip.start + k;
+    const bx = (f % cols) * cell.w, by = ((f / cols) | 0) * cell.h;
+    const dd = g.getImageData(bx, by + feetY - contact, cell.w, contact).data;
+    let lo = -1;
+    for (let x = 0; x < cell.w && lo < 0; x++) {
+      for (let y = 0; y < contact; y++) if (dd[(y * cell.w + x) * 4 + 3] > 40) { lo = x; break; }
+    }
+    rear.push(lo < 0 ? null : lo);
+  }
+  const runs = [];
+  let cur = [];
+  for (let i = 1; i < rear.length; i++) {
+    const a = rear[i - 1], b = rear[i];
+    if (a != null && b != null && b < a) cur.push(a - b);
+    else { if (cur.length) runs.push(cur); cur = []; }
+  }
+  if (cur.length) runs.push(cur);
+  runs.sort((p, q) => q.length - p.length);
+  const best = runs[0] || [];
+  const slope = best.length ? best.reduce((x, v) => x + v, 0) / best.length : 0;
   // An idle has no gait: the feet barely move, so the separation signal is
   // flat and every ripple in it reads as a peak. Requiring a real swing before
   // trusting the peaks is what stops a standing pose being told it strides
   // every six frames.
   const swing = (max - min) / max;
-  if (swing < 0.3) return { period: clip.count, peaks: 0, stride, signal: `flat (swing ${(swing * 100).toFixed(0)}%)` };
+  if (swing < 0.3) return { period: clip.count, peaks: 0, stride: 0, signal: `flat (swing ${(swing * 100).toFixed(0)}%)` };
   const peaks = [];
   for (let i = 0; i < sep.length; i++) {
     const prev = sep[(i - 1 + sep.length) % sep.length], next = sep[(i + 1) % sep.length];
@@ -398,11 +430,13 @@ window.__period = async (src, cell, cols, clip, feetY, figureH) => {
     let gap = 0;
     for (let i = 1; i < peaks.length; i++) gap += peaks[i] - peaks[i - 1];
     const perStep = gap / (peaks.length - 1);
-    return { period: Math.max(2, Math.round(perStep * 2)), peaks: peaks.length, stride, signal: 'foot separation' };
+    const period = Math.max(2, Math.round(perStep * 2));
+    return { period, peaks: peaks.length, stride: Math.round(slope * period),
+      stance: best.length, signal: 'foot separation' };
   }
   // A clip with no gait — an idle — has no peaks to count, and its cycle is
   // simply its own length.
-  return { period: clip.count, peaks: peaks.length, stride, signal: 'none (whole clip)' };
+  return { period: clip.count, peaks: peaks.length, stride: 0, signal: 'none (whole clip)' };
 };
 
 window.__ready = true;

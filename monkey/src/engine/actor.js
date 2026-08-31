@@ -40,26 +40,20 @@ export class Actor {
     // played under a walk. The number has to relate to the body or it is only
     // ever right for one character at one speed.
     this.stride = opts.stride || this.height * 0.85;
-    // Strides per second, per gait — and this is set rather than measured, on
-    // evidence.
-    //
-    // The stride was being measured off the sheet's own foot separation, on
-    // the theory that locking one cycle of animation to one stride of ground
-    // would plant the feet. It does not, because the source art has no stance
-    // to lock to: sweeping the stride across a 3.6x range moves the
-    // planted-foot drift only between 3.4 and 4.7 pixels a frame, a flat
-    // curve with no minimum, and the same measurement re-run after a re-cut
-    // returned a stride 28% different. A video model animates a character that
-    // LOOKS like it is walking; it does not put a foot down and leave it.
-    //
-    // So what the eye actually judges is set directly. 1.25 strides a second
-    // is the walk this room was signed off on; 1.7 is a run, and it is the leg
-    // cadence rather than the ground speed that makes a run read as one.
+    // Strides per second, per gait — the FALLBACK, for a drawn puppet with no
+    // sheet to measure. A sheet says how far one cycle of it carries the
+    // character and that wins; see below.
     this.cadence = opts.cadence || { walk: 1.25, run: 1.7 };
-    // Three times walking pace. Two and a bit was already twice as fast to
-    // arrive and still did not read as running, because at that speed the run
-    // clip's long stride left the legs cycling at almost walking rate.
-    this.runSpeed = opts.runSpeed || 3;
+    // Four and a half times walking pace.
+    //
+    // Her run cycle covers 766 room pixels of ground — 2.8 times her own
+    // height, because the animation has long flight phases with both feet off
+    // the dock. Honouring that is the whole point of measuring it, and it
+    // fixes the fault directly: at three times pace the engine was advancing
+    // the run cycle at more than twice the rate the art depicts, so the legs
+    // whirred and she covered a third of the distance they were describing.
+    // This lands one stride a second at a stride that long.
+    this.runSpeed = opts.runSpeed || 4.5;
     this.running = false;
     this.talkColor = opts.talkColor || '#ffe9b0';
     // A NUDGE, not the placement. It used to be the whole thing — "put the
@@ -169,11 +163,16 @@ export class Actor {
       const scale = room ? room.scaleAt(this.y) : 1;
       const gait = this.running && this.body?.hasClip?.('run') ? 'run' : 'walk';
       const speed = this.speed * (this.running ? this.runSpeed : 1);
-      // Ground covered per cycle of animation, from the cadence wanted rather
-      // than from the sheet. Depth cancels: both the distance travelled and
-      // the stride scale with it, so the legs cycle at the same rate wherever
-      // the character is standing.
-      const stride = this.cadence[gait] ? speed / this.cadence[gait] : this.stride;
+      // Ground covered per cycle of animation, measured off the sheet: while a
+      // foot is on the dock it does not move, so in the sprite's own frame it
+      // slides backward at exactly the rate the ground goes past, and that
+      // rate times the cycle length is the stride. One cycle of animation then
+      // covers one stride of ground and the planted foot stays planted.
+      //
+      // Depth cancels — both the distance travelled and the stride scale with
+      // it — so this is one number per gait however far upstage they are.
+      const stride = this.body?.strideFor?.(gait)
+        || (this.cadence[gait] ? speed / this.cadence[gait] : this.stride);
       let budget = speed * scale * dt;
       while (budget > 0 && this.path.length) {
         const t = this.path[0];

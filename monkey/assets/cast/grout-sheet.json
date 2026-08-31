@@ -523,21 +523,21 @@
       "start": 0,
       "count": 32,
       "framesPerCycle": 32,
-      "stride": 1,
+      "stride": 0,
       "fps": 12
     },
     "walk": {
       "start": 32,
       "count": 32,
       "framesPerCycle": 17,
-      "stride": 122,
+      "stride": 79,
       "fps": 12
     },
     "drink": {
       "start": 64,
       "count": 32,
       "framesPerCycle": 32,
-      "stride": 1,
+      "stride": 0,
       "fps": 12,
       "loop": false
     },
@@ -545,7 +545,7 @@
       "start": 96,
       "count": 32,
       "framesPerCycle": 32,
-      "stride": 6,
+      "stride": 0,
       "fps": 12
     }
   },

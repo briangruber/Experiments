@@ -309,7 +309,8 @@ for (const [name, c] of Object.entries(clips)) {
   // any size and any depth.
   c.stride = Math.round(r.stride);
   console.log(`  clip ${name.padEnd(6)} ${c.count} frames, cycle every ${r.period}`
-    + `, stride ${c.stride}px  [${r.signal}, ${r.peaks} peaks]`);
+    + `, stride ${c.stride}px${r.stance ? ` (from a ${r.stance}-frame stance)` : ''}`
+    + `  [${r.signal}, ${r.peaks} peaks]`);
 }
 
 // A clip named in --once plays through and stops; everything else loops. The

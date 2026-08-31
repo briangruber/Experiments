@@ -324,10 +324,12 @@ try {
       if (double) { await page.waitForTimeout(110); await click(to, false); }
       await page.waitForFunction(() => window.__monkey.actors.player.state === 'walk', null, { timeout: 4000 });
       const a = await T(() => window.__monkey.actors.player.x);
-      await page.waitForTimeout(400);
+      // Short enough that a run does not finish the route inside the window
+      // and drag its own average down.
+      await page.waitForTimeout(220);
       const b = await T(() => ({ x: window.__monkey.actors.player.x, running: window.__monkey.actors.player.running }));
       await page.evaluate(() => window.__monkey.actors.player.stop());
-      return { pace: Math.round(Math.abs(a - b.x) / 0.4), running: b.running };
+      return { pace: Math.round(Math.abs(a - b.x) / 0.22), running: b.running };
     };
     const walked = await paceOf(false);
     const ran = await paceOf(true);
@@ -338,8 +340,13 @@ try {
     await idle();
   }, () => {
     const w = window.__t.walked, r = window.__t.ran;
-    return !w.running && r.running && r.pace > w.pace * 2
-      && window.__monkey.cadence('player', 'run') > window.__monkey.cadence('player', 'walk');
+    // Ground covered, not leg speed. Running used to be asserted as the faster
+    // leg cycle, which was true only while the engine was pacing from a chosen
+    // cadence. Her run cycle covers five times the ground her walk cycle does,
+    // so honouring the art makes the legs cycle SLOWER than walking while she
+    // moves four times as fast — long gliding strides, which is what the
+    // animation actually depicts.
+    return !w.running && r.running && r.pace > w.pace * 2;
   });
 
   // An actor must never hold a facing its art cannot draw.
@@ -431,6 +438,24 @@ try {
       && at(0.005) < 0.05 && at(0.995) < 0.05    // and so is its immediate neighbourhood
       && at(0.5) === 1 && at(0.25) === 1         // the other copy's cut is hidden too...
       && at(0.2) === 1;                          // ...and nothing is blended outside the window
+  });
+
+  // One cycle of animation must cover one stride of ground.
+  //
+  // The engine used to pace from a chosen cadence, which meant the legs and
+  // the dock disagreed by whatever the art happened to be: the run cycle
+  // covers 766 room pixels and the engine was giving it 320, so the animation
+  // ran at more than twice the rate the art depicts and she arrived a third of
+  // the way along it. Both gaits now pace from the sheet's own measurement.
+  await step('one cycle of animation covers one stride of ground', async () => {}, () => {
+    const M = window.__monkey;
+    const g = { walk: M.strideOf('player', 'walk'), run: M.strideOf('player', 'run'),
+      grout: M.strideOf('grout', 'walk') };
+    window.__t.stride = g;
+    return Object.values(g).every((v) => v.sheet && Math.abs(v.engine - v.sheet) < 0.5
+      // and at a rate a person could hold, so honouring the art cannot quietly
+      // turn the walk into a shuffle or the run into a slideshow.
+      && v.cadence >= 0.8 && v.cadence <= 2.0);
   });
 
   // A character that changes size in a jump as it walks upstage is a fault the
@@ -536,7 +561,7 @@ const m = errors.length ? {} : await page.evaluate(() => ({
   walked: window.__t.walked, ran: window.__t.ran, artPixel: window.__t.artPixel,
   footTrack: window.__t.footTrack, scaleStep: window.__t.scaleStep, pose: window.__t.pose,
   cupDrawn: window.__t.cupDrawn, cupSize: window.__t.cupSize, speech: window.__t.speech,
-  seam: window.__t.seam,
+  seam: window.__t.seam, stride: window.__t.stride,
 }));
 
 await browser.close();
@@ -548,8 +573,12 @@ if (errors.length) {
   process.exit(1);
 }
 console.log(`measured: art pixel player ${m.artPixel?.player}, grout ${m.artPixel?.grout}`);
-console.log(`          walk ${m.cadence} strides/s at ${m.walked?.pace}px/s;`
-  + ` run ${m.runCadence} strides/s at ${m.ran?.pace}px/s`);
+console.log(`          walk ${m.stride?.walk?.stride ?? ''}stride ${m.stride?.walk?.sheet}px`
+  + ` at ${m.stride?.walk?.speed}px/s = ${m.stride?.walk?.cadence} strides/s`
+  + ` (measured pace ${m.walked?.pace}px/s)`);
+console.log(`          run  stride ${m.stride?.run?.sheet}px`
+  + ` at ${m.stride?.run?.speed}px/s = ${m.stride?.run?.cadence} strides/s`
+  + ` (measured pace ${m.ran?.pace}px/s)`);
 console.log(`          foot drift x/y: grout idle ${m.footTrack?.groutIdle?.x}/${m.footTrack?.groutIdle?.y}px,`
   + ` player idle ${m.footTrack?.playerIdle?.x}/${m.footTrack?.playerIdle?.y}px,`
   + ` grout walk ${m.footTrack?.groutWalk?.x}/${m.footTrack?.groutWalk?.y}px`);

@@ -410,31 +410,60 @@ requiring it to move. A drift measure that read zero everywhere would pass the
 still-clip assertions while proving nothing. Reverting either fix fails the
 step.
 
-### Stride: measured, and then not used
+### Stride, measured properly
 
-`__period` measures foot separation frame by frame to find the gait cycle, and
-the same signal appears to give the stride: the figure's width in the band
-above the ground is a step plus a foot at contact and about a foot at pass, so
-`(max - min) × 2` should be one stride. The engine used it to advance the walk
-phase, so that one cycle of animation covered one stride of ground.
+One cycle of animation should cover one stride of ground. Getting that number
+took three attempts, and the first two were wrong in instructive ways.
 
-It does not work, and the measurement says why. Sweeping the assumed stride
-across a 3.6× range moves the planted-foot drift only between 3.4 and 4.7
-pixels a frame — a flat curve with no minimum — and re-running the same
-measurement after a re-cut returned a stride 28% different. Tracing the rear
-edge of the foot band through the cycle shows no plateau: the rearmost foot
-never holds still.
+**Foot separation, doubled.** The widest the feet get is a step plus a foot;
+the narrowest is a foot; so `(max - min) × 2` should be a stride. It is a
+model, and it disagreed with itself by 28% between two cuts of the same art.
 
-The reason is in the source. A video model animates a character that LOOKS like
-it is walking; it does not put a foot down and leave it there while the body
-passes over. There is no stance phase to lock to, so no stride locks it.
+**Abandoning it.** Sweeping the assumed stride across a 3.6× range moved the
+planted-foot drift only between 3.4 and 4.7 pixels a frame — a flat curve with
+no minimum — which was read as proof that a video model animates a character
+that merely LOOKS like it is walking, with no stance to lock to. That was
+measured on the old atlas, where the packer was re-deriving each frame's
+horizontal position and so moving frames relative to each other every frame.
+It had scrambled the very thing being looked for.
 
-So what the eye actually judges is set directly: strides per second, per gait.
-1.25 for the walk, 1.7 for the run. Depth cancels — both the distance travelled
-and the stride scale with it — so the legs cycle at the same rate wherever the
-character is standing. The measured stride is still printed at cut time and
-kept in the manifest as information about the art; it is simply not what paces
-the character.
+**The measurement that holds.** While a foot is on the ground it does not move
+on the dock, so in the sprite's own frame it slides BACKWARD at exactly the
+rate the ground goes past. A run of consecutive backward steps in the rearmost
+*contact* pixel is a stance; the mean of the longest such run is that rate; and
+times the cycle length it is the stride.
+
+Two details decide the answer. The band must be tight — two per cent of the
+figure — because a wider one tracks the ankle swinging over the foot rather
+than the sole resting on the dock, and reads a quarter too steep. And a stance
+is a consecutive run, not a pooled set of backward frames: a running figure in
+mid-air trails a leg that sweeps back far faster than the dock does, and
+counting it read Bonny's stride as 2.7 body heights.
+
+It cross-validates. Measured on the packed atlas at draw scale it gives 138px
+for her walk; measured at cut time on the source it gives 144px; and the engine
+had been using a hand-set 140px, which is why nobody ever complained about the
+walk. Three routes to the same number.
+
+    bonny walk   144px = 0.53 x her drawn height
+    bonny run    766px = 2.84 x her drawn height
+    grout walk   146px = 0.47 x his
+
+The run is not a mistake. Her run cycle has long flight phases with both feet
+off the dock, so it genuinely covers five times the ground her walk cycle does.
+The engine had been giving it 320px, so the animation ran at more than twice
+the rate the art depicts: the legs whirred and she arrived a third of the way
+along what they were describing.
+
+**What is asserted, and what is not.** The check compares the engine's stride
+against the sheet's and requires them equal. It does NOT measure foot-lock on
+the canvas, and that is a deliberate retreat: two versions of that metric were
+built and neither could discriminate. The median slide over changed frames read
+a flat 13px across a 4× sweep of stride, because two thirds of a cycle is the
+rear foot handing over to the other leg — a jump, not a slide. A low percentile
+read a flat 1–3px, because it picked up frames where rounding happened to hold
+the foot still. A check that answers the same whatever it measures is worse
+than no check.
 
 ### Running
 
@@ -443,11 +472,15 @@ through the `dblclick` event, because every other click in this game is decided
 on pointerdown and mixing the two would have the second click arrive after the
 walk it is upgrading has already started.
 
-Pace is three times walking. Two and a bit was already twice as fast to arrive
-and still did not read as running, because the run clip's long stride left the
-legs cycling at nearly walking rate — the leg cadence, not the ground speed, is
-what makes a run look like one. At 3× it comes out at 545px/s against 175, and
-1.7 strides a second against 1.25.
+Pace is four and a half times walking: 810px/s against 180. That is set by the
+art rather than chosen. Her run stride is 766 room pixels, so this lands almost
+exactly one stride a second — and because the strides are so long, the legs
+cycle a little SLOWER than her walk while she covers four times the ground.
+Long gliding strides, which is what the animation depicts.
+
+The check for this had to change with it. It used to assert that running was
+the faster leg cycle, which was true only while the engine paced from a chosen
+cadence; it now asserts ground covered per second, which is what running is.
 
 The check drives this through the real mouse. The first version called `walkTo`
 directly and so proved only that the plumbing worked; it could not have caught

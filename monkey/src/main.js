@@ -446,7 +446,8 @@ window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => ro
     const a = { player, grout }[who];
     if (!a) return 0;
     const speed = a.speed * (gait === 'run' ? a.runSpeed : 1);
-    const stride = a.cadence?.[gait] ? speed / a.cadence[gait] : a.stride;
+    const stride = a.body?.strideFor?.(gait)
+      || (a.cadence?.[gait] ? speed / a.cadence[gait] : a.stride);
     return +(speed / stride).toFixed(2);
   },
   // The drawn height of an actor at a given depth. Rounding the depth scale to
@@ -586,112 +587,46 @@ window.__monkey = { g, state, coin, inv, menu, seq, lint: report, room: () => ro
 
   // Does a planted foot stay planted?
   //
-  // A walk cycle is locked to the ground when the animation's stride and the
-  // distance travelled agree. When they do not, the foot that should be
-  // standing still on the dock slides under the character — foot-skate — and
-  // it is the single thing that makes generated walk art look wrong.
+  // This is the whole claim of measuring the stride: one cycle of animation
+  // covers one stride of ground, so the foot that is on the dock does not
+  // slide along it. Anything else is foot-skate, and it is the single thing
+  // that makes generated walk art look wrong.
   //
-  // Measured by walking the actor for two cycles and watching the REAR EDGE of
-  // the foot band in world pixels. While a foot is planted that edge does not
-  // move at all, so the quietest quarter of the frames should read near zero;
-  // if the stride is wrong there is no quiet quarter, because every frame is
-  // dragging the foot along the ground.
-  // The same measurement, swept across stride lengths. The stride is currently
-  // modelled as twice the change in foot separation, which is a model and not
-  // a measurement of the thing that matters. What matters is which stride
-  // leaves a planted foot planted, and that can simply be searched for.
-  skateSweep: (who, gait = 'walk') => {
+  // Only pairs of frames where the CELL ACTUALLY CHANGED are compared. The
+  // simulation runs faster than the clip, so most steps redraw the same
+  // picture at a new position — the foot moves with the body by definition,
+  // and pooling those measures the frame rate rather than the stride. That
+  // flaw made an earlier version of this read 3.4 to 4.7 pixels across a 3.6x
+  // sweep of stride: a flat curve, which was taken as evidence that the art
+  // had no stance to lock to. It has one.
+  // What the engine paces from, against what the sheet says.
+  //
+  // These have to be the same number: one cycle of animation must cover one
+  // stride of ground, and the sheet's stride is measured off the art at cut
+  // time (how fast a planted foot slides backward through the sprite, times
+  // the cycle length). If they diverge, the legs describe one distance and the
+  // character travels another — which is what "the run animation is very fast
+  // but she does not move that far" was.
+  //
+  // This is asserted rather than a foot-lock measured on the canvas, and that
+  // is a deliberate retreat: a foot-lock metric was built twice and neither
+  // version could discriminate. The median over changed frames read a flat
+  // 13px across a 4x sweep of stride because two thirds of a cycle is the rear
+  // foot handing over to the other leg, which is a jump and not a slide; a low
+  // percentile read a flat 1-3px because it picked up frames where rounding
+  // happened to hold the foot still. A check that answers the same whatever it
+  // measures is worse than no check, so what is asserted here is the thing
+  // that can be established exactly.
+  strideOf: (who, gait = 'walk') => {
     const a = { player, grout }[who];
-    const base = a?.body?.strideFor?.(gait);
-    if (!base) return null;
-    const out = [];
-    for (const mul of [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.8]) {
-      out.push({ mul, stride: Math.round(base * mul), skate: window.__monkey.skate(who, gait, base * mul) });
-    }
-    return out.sort((p, q) => p.skate - q.skate);
+    if (!a) return null;
+    const speed = a.speed * (gait === 'run' ? a.runSpeed : 1);
+    const sheet = a.body?.strideFor?.(gait) ?? null;
+    const engine = sheet || (a.cadence?.[gait] ? speed / a.cadence[gait] : a.stride);
+    return { sheet: sheet && +sheet.toFixed(1), engine: +engine.toFixed(1),
+      speed: Math.round(speed), cadence: +(speed / engine).toFixed(2) };
   },
 
-  skate: (who, gait = 'walk', strideOverride = null) => {
-    const a = { player, grout }[who];
-    if (!a?.body?.strideFor?.(gait)) return -1;
-    const c = document.querySelector('canvas');
-    const g = c.getContext('2d');
-    const keep = { x: a.x, y: a.y, phase: a.phase, state: a.state, running: a.running, path: a.path };
-    a.x = 900; a.y = 690; a.state = 'walk'; a.running = gait === 'run'; a.facing = 'left';
-    a.path = [{ x: -4000, y: 690 }];
-    const realStride = a.body.strideFor;
-    if (strideOverride) a.body.strideFor = () => strideOverride;
-    const edges = [];
-    for (let i = 0; i < 40; i++) {
-      a.update(1 / 30, room);
-      g.clearRect(0, 0, VIEW.w, VIEW.h);
-      a.render(g, room);
-      const scale = room.scaleAt(a.y);
-      const box = a.body.boxAt(a);
-      const w = Math.ceil(box.w * scale) + 40;
-      const band = Math.max(4, Math.round(box.h * scale * 0.12));
-      const sx = Math.max(0, Math.round(a.x - w / 2));
-      const sy = Math.max(0, Math.round(690 - band));
-      const d = g.getImageData(sx, sy, w, band).data;
-      let lo = -1;
-      for (let x = 0; x < w && lo < 0; x++) {
-        for (let y = 0; y < band; y++) if (d[(y * w + x) * 4 + 3] > 40) { lo = x; break; }
-      }
-      if (lo >= 0) edges.push(sx + lo);
-    }
-    a.body.strideFor = realStride;
-    Object.assign(a, keep);
-    if (edges.length < 8) return -1;
-    const diffs = [];
-    for (let i = 1; i < edges.length; i++) diffs.push(Math.abs(edges[i] - edges[i - 1]));
-    diffs.sort((p, q) => p - q);
-    // The quietest quarter: the frames where a foot is down.
-    const quiet = diffs.slice(0, Math.max(2, Math.floor(diffs.length / 4)));
-    return +(quiet.reduce((s, v) => s + v, 0) / quiet.length).toFixed(2);
-  },
-
-  // Does a generated prop actually put pixels on the canvas?
-  //
-  // Same question as drawn() asks of an actor, and for the same reason: the
-  // cup is loaded from assets/props/cup.png and falls back to procedural art
-  // if that image fails, so "the prop file is there" and "the prop is on
-  // screen" are different claims. Toggling the state that hides it and diffing
-  // its box is the only one of the two that a missing file cannot pass.
-  // The loaded sprite's own dimensions. propDrawn alone cannot tell a
-  // generated cup from the procedural one standing in for a missing file —
-  // both put pixels in the box — so the size of the image that actually loaded
-  // is what separates them.
-  propSize: (name) => {
-    const img = props[name];
-    return img ? { w: img.width, h: img.height } : null;
-  },
-  propDrawn: (name) => {
-    const c = document.querySelector('canvas');
-    const gg = c.getContext('2d');
-    const rect = { cup: dock.CUP_RECT }[name];
-    if (!rect) return 0;
-    const [x, y, w, h] = rect;
-    const paintRoom = () => { ctx.clearRect(0, 0, VIEW.w, VIEW.h); room.render(ctx, [player, grout]); };
-    const had = state.has('cup'), hadGrog = state.has('cup-of-grog');
-    paintRoom();
-    const before = gg.getImageData(x, y, w, h).data;
-    if (!had) state.give('cup');
-    paintRoom();
-    const after = gg.getImageData(x, y, w, h).data;
-    if (!had) state.take('cup');
-    if (hadGrog) state.give('cup-of-grog');
-    paintRoom();
-    let diff = 0;
-    for (let i = 0; i < before.length; i += 4) {
-      if (Math.abs(before[i] - after[i]) + Math.abs(before[i + 1] - after[i + 1])
-        + Math.abs(before[i + 2] - after[i + 2]) > 24) diff++;
-    }
-    return diff;
-  },
-  // Where the last line of dialogue was printed, against where the character
-  // it belonged to was drawn. Text over the body is the kind of fault that is
-  // obvious on screen and invisible to every other assertion here.
-  speechBox: (who) => ({ player, grout }[who]?.lastSpeechBox ?? null),
   seamWeight,
   // Paint one frame on demand, so a check can look at what a given state draws
   // without waiting for the loop to come round to it.

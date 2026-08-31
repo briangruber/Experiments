@@ -395,21 +395,21 @@
       "start": 0,
       "count": 32,
       "framesPerCycle": 32,
-      "stride": 1,
+      "stride": 0,
       "fps": 12
     },
     "walk": {
       "start": 32,
       "count": 32,
       "framesPerCycle": 15,
-      "stride": 108,
+      "stride": 72,
       "fps": 12
     },
     "run": {
       "start": 64,
       "count": 32,
       "framesPerCycle": 17,
-      "stride": 152,
+      "stride": 383,
       "fps": 12
     }
   },
