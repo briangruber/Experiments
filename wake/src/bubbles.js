@@ -174,7 +174,11 @@ export class Bubbles {
 					float fres = pow( 1.0 - max( n.z, 0.0 ), 3.0 );
 					// Split by WHICH light makes it, so each is tinted by the
 					// right source: the body and rim are sky, the glint is sun.
-					float body = vAlpha * ( ring * 0.55 + fres * 0.5 + core );
+					// CLAMPED. ring + fresnel + core sums past 1.2 where they
+					// overlap, so a bubble could scatter back more light than
+					// fell on it -- which additive blending then adds to the
+					// sea underneath. Nothing may return more than it received.
+					float body = vAlpha * clamp( ring * 0.55 + fres * 0.5 + core, 0.0, 1.0 );
 					float spec = vAlpha * glint * 1.1;
 					// Additive: the colour IS the light it sends back, so there
 					// is no alpha channel doing the work and nothing to sort.
@@ -213,9 +217,22 @@ export class Bubbles {
 		const u = this.material.uniforms;
 		const c = L.colour;
 		u.uSunCol.value.setRGB( c[ 0 ] * L.strength, c[ 1 ] * L.strength, c[ 2 ] * L.strength );
-		// The sky's contribution, tinted toward the blue it actually is. It is
-		// floored inside sunLight(), because at dusk the sky IS the light.
-		u.uSkyCol.value.setRGB( 0.62 * L.sky, 0.78 * L.sky, 0.95 * L.sky );
+		// THE TOTAL LIGHT, not the sky term alone.
+		//
+		// Measured: sunLight() reports strength 0.033 at a 3-degree sun against
+		// 0.988 at noon -- a factor of thirty -- but its sky term only moves
+		// from 0.35 to 0.75, because it carries a deliberate floor so a hull
+		// never goes black at dusk. Driving the bubbles off that alone left them
+		// barely twice as dim at dusk as at noon while the sea around them had
+		// gone nearly black, so they read as glowing specks with the lighting
+		// working exactly as written.
+		//
+		// The floor is right for a lit surface and wrong for these, which
+		// should follow the light that is actually there. Weighted toward the
+		// sun, which is what actually collapses at dusk: about 7x between the
+		// two now instead of 2x.
+		const lit = L.strength * 0.55 + L.sky * 0.45;
+		u.uSkyCol.value.setRGB( 0.62 * lit, 0.78 * lit, 0.95 * lit );
 
 	}
 
