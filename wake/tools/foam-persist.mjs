@@ -37,8 +37,16 @@ const qs = new URLSearchParams({ prewarm: '30', 'boat.speed': '12', 'boat.turnRa
 await page.goto(`http://127.0.0.1:${server.address().port}/index.html?${qs}`);
 await page.waitForFunction(() => window.__wake?.wake, null, { timeout: 120000 });
 
-const rows = await page.evaluate(async ({ lat, secs }) => {
-  const { wake, renderer, state } = window.__wake;
+const rows = await page.evaluate(({ lat, secs }) => {
+  // DRIVEN, NOT WATCHED.
+  //
+  // The first version of this waited on the wall clock while the page rendered.
+  // Under swiftshader the sim advances about a fiftieth of real time, so
+  // thirty-six seconds of waiting bought 0.6 seconds of boat and the curve had
+  // two points in it -- an instrument that answers confidently and measures
+  // nothing, which is the failure mode this probe exists to avoid. stepSim is
+  // what the prewarm uses, so drive it directly and read between steps.
+  const { wake, renderer, state, stepSim } = window.__wake;
   const h2f = (h) => { const s = (h & 0x8000) ? -1 : 1, e = (h >> 10) & 0x1f, m = h & 0x3ff;
     if (e === 0) return s * Math.pow(2, -14) * (m / 1024);
     if (e === 31) return m ? NaN : s * Infinity;
@@ -60,15 +68,19 @@ const rows = await page.evaluate(async ({ lat, secs }) => {
     const o = (py * N + px) * 4;
     return { foam: h2f(buf[o]), height: h2f(buf[o + 1]), bub: h2f(buf[o + 3]) };
   };
-  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-  const deadline = performance.now() + secs * 1000;
-  while (performance.now() < deadline) {
-    const s = read();
-    const astern = Math.hypot(state.x - wx, state.z - wz);
-    if (s) out.push([+(state.t - t0).toFixed(1), +astern.toFixed(1),
-                     +s.foam.toFixed(4), +s.bub.toFixed(4)]);
-    else out.push([+(state.t - t0).toFixed(1), +astern.toFixed(1), null, null]);
-    await wait(900);
+  const dt = 1 / 30;
+  const every = Math.round(1.5 / dt);          // a sample every 1.5 s of boat
+  const steps = Math.round(secs / dt);
+  for (let i = 0; i <= steps; i++) {
+    if (i % every === 0) {
+      // The field is baked by stepSim, so it is current for this instant.
+      const s = read();
+      const astern = Math.hypot(state.x - wx, state.z - wz);
+      if (s) out.push([+(state.t - t0).toFixed(1), +astern.toFixed(1),
+                       +s.foam.toFixed(4), +s.bub.toFixed(4)]);
+      else out.push([+(state.t - t0).toFixed(1), +astern.toFixed(1), null, null]);
+    }
+    stepSim(dt);
   }
   return out;
 }, { lat: LAT, secs: SECS });
