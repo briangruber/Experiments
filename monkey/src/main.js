@@ -91,6 +91,10 @@ async function goTo(id, from) {
   seq.cancel(); coin.hide(); menu.hide(); inv.selected = null;
   here = id; R = ROOMS[id];
   backdrop = await loadBackdrop(id);
+  // A room may want to keep a piece of its own painting — an inventory icon
+  // cut from the picture the object is in, so the thing in the bag is the
+  // thing you picked up.
+  R.snapshotIcons?.(backdrop);
   showBackdrop?.();
   await buildCast();
   const spawn = R.SPAWN?.[from] ?? R.SPAWN?.start ?? { x: 640, y: 690 };
@@ -502,6 +506,7 @@ function drawWin() {
 // Boot. The backdrop, the props and the cast all come from whichever room the
 // game starts in, and the same three lines run again on every door.
 backdrop = await loadBackdrop(here);
+R.snapshotIcons?.(backdrop);
 props = await loadProps();
 await buildCast();
 

@@ -24,19 +24,20 @@ export const PUZZLE = {
   start: ['hands'],
   goal: 'sailed',
   nodes: {
-    'take-pepper':  { needs: ['hands'], gives: 'pepper', where: 'the mess table' },
-    // A combine, which is what makes a puzzle a puzzle rather than a shopping
-    // list — and it happens ON the bellows where they stand, because the verb
-    // coin can put an item onto a thing in the room and has no way to put one
-    // item onto another in the bag.
-    'load-bellows': { needs: ['pepper'], gives: 'loaded-bellows', consumes: ['pepper'],
-                      where: 'the bellows by the stove' },
-    'sneeze-cat':   { needs: ['loaded-bellows'], gives: 'kipper-dropped',
-                      consumes: ['loaded-bellows'], where: "the ship's cat, up on the barrels" },
-    'take-kipper':  { needs: ['kipper-dropped'], gives: 'kipper', where: 'the galley floor' },
-    'feed-cook':    { needs: ['kipper'], gives: 'dinner-on', consumes: ['kipper'],
-                      where: 'Mervyn Pike' },
-    'sail':         { needs: ['dinner-on'], gives: 'sailed', where: 'the mess bell' },
+    'take-pepper':   { needs: ['hands'], gives: 'pepper', where: 'the mess table' },
+    // The bellows are never carried. They are painted into the backdrop, and
+    // src/art/props.js has said from the beginning that anything the player can
+    // take has to be its own sprite — so they are loaded and worked where they
+    // stand, which is both within the rules and what you would actually do
+    // with a pair of bellows bolted to a stove.
+    'load-bellows':  { needs: ['pepper'], gives: 'bellows-loaded', consumes: ['pepper'],
+                       where: 'the bellows by the stove' },
+    'puff-pepper':   { needs: ['bellows-loaded'], gives: 'kipper-dropped',
+                       consumes: ['bellows-loaded'], where: 'the stove, at point-blank range' },
+    'take-kipper':   { needs: ['kipper-dropped'], gives: 'kipper', where: 'the galley floor' },
+    'feed-cook':     { needs: ['kipper'], gives: 'dinner-on', consumes: ['kipper'],
+                       where: 'Mervyn Pike' },
+    'sail':          { needs: ['dinner-on'], gives: 'sailed', where: 'the mess bell' },
   },
 };
 
@@ -107,6 +108,38 @@ const WALK_GALLEY = [
   340, 528, 1268, 528, 1268, 712, 40, 712, 40, 646, 340, 646,
 ];
 
+function paintOverPepper(ctx, state, backdrop) {
+  if (!state.get('pepper-taken')) return;
+  const src = backdrop?.source?.();
+  if (!src) return;
+  const kx = src.w / ROOM_W, ky = src.h / ROOM_H;
+  const [dx, dy, dw, dh] = PEPPER_RECT;
+  const [px, py, pw, ph] = PEPPER_PATCH;
+  ctx.drawImage(src.el, px * kx, py * ky, pw * kx, ph * ky, dx, dy, dw, dh);
+}
+
+// The inventory icon for the pepper pot is the pepper pot: the same pixels of
+// the same painting, cropped out of the backdrop once and kept. Drawing a
+// second, hand-made pot next to the one in the room is how you end up with an
+// item that does not look like the thing you picked up.
+//
+// Cached into the shared icon table rather than the room's, because she can
+// carry it up the ladder into a room that has never loaded this backdrop.
+export function snapshotIcons(backdrop) {
+  if (art.ICONS.pepper?.fromPainting) return;
+  const src = backdrop?.source?.();
+  if (!src) return;
+  const [rx, ry, rw, rh] = PEPPER_RECT;
+  const kx = src.w / ROOM_W, ky = src.h / ROOM_H;
+  const c = document.createElement('canvas');
+  const Z = Math.min(52 / rw, 52 / rh);
+  c.width = Math.round(rw * Z); c.height = Math.round(rh * Z);
+  c.getContext('2d').drawImage(src.el, rx * kx, ry * ky, rw * kx, rh * ky, 0, 0, c.width, c.height);
+  const icon = (ctx) => ctx.drawImage(c, -c.width / 2, -c.height / 2);
+  icon.fromPainting = true;
+  art.ICONS.pepper = icon;
+}
+
 export function makeRoomDef(state, backdrop) {
   const heat = makeGalleyHeat();
   const whenStill = (fn) => (ctx, room) => { if (backdrop?.kind !== 'video') fn(ctx, room); };
@@ -135,6 +168,7 @@ export function makeRoomDef(state, backdrop) {
     walk: [WALK_GALLEY],
     layers: [
       { paint: (ctx) => backdrop?.draw?.(ctx, ROOM_W, ROOM_H) },
+      { paint: (ctx) => paintOverPepper(ctx, state, backdrop) },
       { paint: whenStill(heat) },
       kipperLayer,
     ],
@@ -144,6 +178,28 @@ export function makeRoomDef(state, backdrop) {
 }
 
 const KIPPER_RECT = [812, 556, 96, 40];
+
+// The pepper pot is IN the painting, which was a mistake — see props.js, which
+// has said all along that anything clickable is generated as its own sprite
+// and never painted into the backdrop and hoped for. It got written into the
+// galley's prompt anyway, and the bill came due the first time somebody picked
+// it up and it stayed on the table.
+//
+// Regenerating the backdrop without it would move every hotspot in the room,
+// so instead the painting patches itself: a strip of the same wall and the
+// same table edge, at the same height, copied over where the pot was. It is
+// exact because it is the same picture, and it keeps step with the firelight
+// because it is copied from whatever frame is on screen.
+const PEPPER_RECT = [556, 306, 44, 56];
+// A narrow strip immediately to its left, stretched across. Copying a whole
+// rectangle from further along the wall was the first attempt and it showed as
+// a darker panel: the lamp throws a pool of light onto the wall right about
+// where the pot stands, so pixels fetched eighty-six across come from a
+// different brightness. A strip taken from the pot's own elbow is the right
+// brightness by construction, and stretching it sideways preserves what runs
+// sideways — the edge of the table.
+const PEPPER_PATCH = [534, 306, 18, 56];
+
 
 // --- things you can click ---------------------------------------------------
 
@@ -161,23 +217,44 @@ function HOTSPOTS(state) {
 
     H('bellows', 'a pair of bellows', [167, 507, 120, 133], { x: 380, y: 668, facing: 'left' }, {
       look: function* (g) {
-        if (g.state.has('loaded-bellows')) { yield say(g.player, "Loaded. Aimed. Waiting."); return; }
+        if (g.state.get('bellows-loaded')) {
+          yield say(g.player, "Loaded. Aimed at the fire. I feel this may get away from me.", 4.2);
+          return;
+        }
         yield say(g.player, "Leather bellows, for encouraging the fire.");
       },
       use: function* (g) {
-        // The red herring, and the reason she has a bellows animation: the
-        // obvious thing to do with bellows is work them, and the obvious thing
-        // is not the answer.
+        if (!g.state.get('bellows-loaded')) {
+          // The obvious thing to do with bellows, and the wrong one — which is
+          // what the animation is for.
+          yield play(g.player, 'bellows');
+          yield say(g.player, "The fire is delighted. The cat remains unmoved.", 3.2);
+          return;
+        }
+        yield say(g.player, "Everybody hold your breath.", 2.0);
         yield play(g.player, 'bellows');
-        yield say(g.player, "The fire is delighted. The cat remains unmoved.", 3.2);
+        yield run(() => g.state.set('bellows-loaded', false));
+        yield say(g.player, "*WHUMP*", 1.2);
+        yield wait(0.3);
+        yield say(g.pike, "...that's pepper.", 1.8);
+        yield play(g.cat, 'sneeze');
+        yield say(g.cat, "HRRRSHT!", 1.1);
+        yield run(() => {
+          g.state.set('kipper-dropped', true);
+          g.cat.playClip('scarper');
+          g.onWorldChange();
+        });
+        yield wait(0.7);
+        yield run(() => { g.cat.visible = false; });
+        yield say(g.player, "And there he goes, up the ladder, into legend.", 3.4);
+        yield say(g.pike, "MY FISH!", 1.2);
       },
       talk: function* (g) { yield say(g.player, "I've had better conversations, but not many."); },
     }, {
       useWith: {
         pepper: function* (g) {
-          yield say(g.player, "Now. If I load these with pepper...", 2.6);
-          yield play(g.player, 'bellows');
-          yield run(() => { g.state.take('pepper'); g.state.give('loaded-bellows'); });
+          yield say(g.player, "Now. If I empty this into these...", 2.6);
+          yield run(() => { g.state.take('pepper'); g.state.set('bellows-loaded', true); });
           yield say(g.player, "...I have invented a weapon.", 2.0);
         },
       },
@@ -202,9 +279,9 @@ function HOTSPOTS(state) {
       },
       use: function* (g) {
         yield say(g.player, "I'll look after this.");
-        yield run(() => g.state.give('pepper'));
+        yield run(() => { g.state.give('pepper'); g.state.set('pepper-taken', true); });
       },
-    }, { hidden: () => state.has('pepper') || state.has('loaded-bellows') }),
+    }, { hidden: () => state.get('pepper-taken') }),
 
     H('bell', 'the mess bell', [530, 164, 84, 68], { x: 600, y: 682, facing: 'back' }, {
       look: function* (g) {
@@ -384,24 +461,7 @@ export const NPCS = {
         yield say(g.player, "He blinked at me. Slowly. It was an insult.", 3.0);
       },
     },
-    useWith: {
-      'loaded-bellows': function* (g) {
-        yield say(g.player, "Sorry about this. You're a lovely cat and you've had it coming.", 4.2);
-        yield play(g.player, 'bellows');
-        yield run(() => g.state.take('loaded-bellows'));
-        yield play(g.cat, 'sneeze');
-        yield say(g.cat, "HRRRSHT!", 1.1);
-        yield run(() => {
-          g.state.set('kipper-dropped', true);
-          g.cat.playClip('scarper');
-          g.onWorldChange();
-        });
-        yield wait(0.7);
-        yield run(() => { g.cat.visible = false; });
-        yield say(g.player, "And there he goes, up the ladder, into legend.", 3.4);
-        yield say(g.pike, "MY FISH!", 1.2);
-      },
-    },
+    useWith: {},
   },
 };
 

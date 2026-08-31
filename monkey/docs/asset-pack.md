@@ -559,3 +559,49 @@ a trade that cannot be avoided.
 frame is the one nearest the middle of the motion, not the first — the cup's
 animation is a sway, and its first frame is the cup at one end of its swing, a
 still cup hanging permanently at a tilt.
+
+### Do not paint anything the player can pick up
+
+`src/art/props.js` has said from the first prototype that anything clickable is
+generated as its own sprite and placed at a coordinate we control, never
+painted into the backdrop and hoped for. The galley's prompt asked for a pepper
+pot on the table anyway, because it made the composition better and the puzzle
+obvious — and the bill came due the first time somebody picked it up and it
+stayed on the table.
+
+Two separate faults come out of one mistake:
+
+- **It does not leave.** The hotspot hides; the paint does not.
+- **The icon is a different drawing.** A hand-drawn canvas icon next to a
+  painted object is two pictures of one thing, and the player can see both at
+  once.
+
+Regenerating the backdrop without it would move every hotspot in the room, so
+the fix here is that the painting patches itself, and the icon is cut out of
+the painting:
+
+- A narrow strip immediately beside the object, stretched across where it
+  stood. Copying a whole rectangle from further along the wall was the first
+  attempt and it showed as a darker panel: the lamp throws a pool of light onto
+  that wall, so pixels fetched eighty-six across come from a different
+  brightness. A strip from the object's own elbow is the right brightness by
+  construction, and stretching it sideways preserves what runs sideways — the
+  edge of the table.
+- The patch is copied from whatever the backdrop is showing at that instant —
+  the live video frame when one is playing — so it keeps step with the
+  firelight rather than sitting there as a still rectangle in a moving picture.
+- The inventory icon is the same crop, taken once and cached in the shared icon
+  table, because she can carry it up the ladder into a room whose backdrop has
+  never loaded.
+
+The check measures LOCAL CONTRAST inside the object's box rather than
+difference against another patch of wall. That wall is lit by a gradient, so
+two clean pieces of it differ by half their pixels and a difference metric
+answers "these are different places" however well the patch worked. A pepper
+pot is a hard-edged object with an outline and wall is smooth: contrast reads
+20.6 with the pot there and 1.7 without, against 7.0 for clean wall.
+
+This is a rescue, not a licence. The rule still stands: keep takeable objects
+out of the backdrop prompt. The galley's bellows are the version that obeys it
+— they are painted in, so they are never carried, and the puzzle loads and
+works them where they stand.

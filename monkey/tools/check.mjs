@@ -627,10 +627,6 @@ try {
     // different moments.
     await page.waitForFunction(() => window.__monkey.bodies() === 3, null, { timeout: 20000 });
     await idle();
-    console.log(`    [room] ${await T(() => window.__t.room())} `
-      + `bodies=${await T(() => window.__monkey.bodies())} `
-      + `actors=${JSON.stringify(await T(() => Object.keys(window.__monkey.actors)))} `
-      + `backdrop=${await T(() => window.__monkey.backdrop())}`);
   }, () => window.__t.room() === 'galley' && window.__monkey.bodies() === 3);
 
   // --- the galley ----------------------------------------------------------
@@ -657,17 +653,61 @@ try {
     await idle();
   }, () => window.__t.flag('galley-said-why') && window.__t.flag('galley-said-cat'));
 
-  await step('take the pepper pot  [use]', async () => {
+  // Taking a thing that is painted INTO the backdrop has to remove it from the
+  // painting, and this is the check that says so: the pot's own rectangle must
+  // look different after she picks it up, and must then match the strip of
+  // wall and table the patch is copied from. props.js has always required
+  // clickable things to be sprites; the galley's prompt put this one in the
+  // picture, and nothing caught it until it was played.
+  await step('the pepper pot leaves the table  [the painting patches itself]', async () => {
+    await page.evaluate(() => {
+      const M = window.__monkey;
+      const g = document.querySelector('canvas').getContext('2d');
+      const grab = (r) => { M.render(); return Array.from(g.getImageData(r[0], r[1], r[2], r[3]).data); };
+      const POT = [556, 306, 44, 56];
+      // Clean wall and table at the same height, a little further along.
+      const WALL = [604, 306, 44, 56];
+      // LOCAL CONTRAST, not per-pixel difference against another patch of
+      // wall. The lamp throws a gradient across this wall, so two clean bits
+      // of it differ by half their pixels and a difference metric answers
+      // "these are different places" however well the patch worked. A pepper
+      // pot is a hard-edged object with an outline; wall is smooth. Detail is
+      // the thing that actually leaves when the pot does.
+      const detail = (r) => {
+        const d = grab(r);
+        let sum = 0, n = 0;
+        for (let y = 0; y < r[3]; y++) {
+          for (let x = 0; x < r[2] - 1; x++) {
+            const i = (y * r[2] + x) * 4;
+            sum += Math.abs(d[i] - d[i + 4]) + Math.abs(d[i + 1] - d[i + 5]);
+            n++;
+          }
+        }
+        return +(sum / n).toFixed(2);
+      };
+      const beforeDetail = detail(POT);
+      M.state.give('pepper'); M.state.set('pepper-taken', true);
+      window.__t.pot = { before: beforeDetail, after: detail(POT), wall: detail(WALL) };
+      M.state.take('pepper'); M.state.set('pepper-taken', false);
+    });
+  }, () => {
+    const p = window.__t.pot;
+    // The outline has to go, and what is left has to be no busier than the
+    // wall it is standing in for.
+    return p.after < p.before * 0.5 && p.after <= p.wall * 1.6;
+  });
+
+  await step('take the pepper pot  [and it goes from the table]', async () => {
     await verb(await T(() => window.__t.spot('pepper')), 'use');
-  }, () => window.__t.inv().includes('pepper'));
+  }, () => window.__t.inv().includes('pepper') && window.__t.flag('pepper-taken'));
 
   await step('load the bellows with pepper  [pepper -> bellows]', async () => {
     await useItemOn('pepper', await T(() => window.__t.spot('bellows')));
-  }, () => window.__t.inv().includes('loaded-bellows') && !window.__t.inv().includes('pepper'));
+  }, () => window.__t.flag('bellows-loaded') && !window.__t.inv().includes('pepper'));
 
-  await step('make the cat sneeze  [loaded-bellows -> the cat]', async () => {
-    await useItemOn('loaded-bellows', await T(() => window.__t.npc('cat')));
-  }, () => window.__t.flag('kipper-dropped') && !window.__t.inv().includes('loaded-bellows'));
+  await step('let the pepper off  [use the loaded bellows]', async () => {
+    await verb(await T(() => window.__t.spot('bellows')), 'use');
+  }, () => window.__t.flag('kipper-dropped') && !window.__t.flag('bellows-loaded'));
 
   await step('take the dropped kipper  [a hotspot that did not exist a moment ago]', async () => {
     await verb(await T(() => window.__t.spot('kipper')), 'use');
@@ -694,7 +734,7 @@ const m = errors.length ? {} : await page.evaluate(() => ({
   walked: window.__t.walked, ran: window.__t.ran, artPixel: window.__t.artPixel,
   footTrack: window.__t.footTrack, scaleStep: window.__t.scaleStep, pose: window.__t.pose,
   cupDrawn: window.__t.cupDrawn, cupSize: window.__t.cupSize, speech: window.__t.speech,
-  seam: window.__t.seam, stride: window.__t.stride, strip: window.__t.strip,
+  seam: window.__t.seam, stride: window.__t.stride, strip: window.__t.strip, pot: window.__t.pot,
 }));
 
 await browser.close();
@@ -719,6 +759,8 @@ console.log(`          depth step ${m.scaleStep}px; asleep box ${m.pose?.w}x${m.
   + ` cup ${m.cupDrawn}px of a ${m.cupSize?.w}x${m.cupSize?.h} sprite`);
 console.log(`          seam weight: cut ${m.seam?.cut}, just after ${m.seam?.justAfter},`
   + ` quarter ${m.seam?.quarter}, mid ${m.seam?.mid}`);
+console.log(`          pepper pot: local contrast ${m.pot?.before} with it, ${m.pot?.after} after`
+  + ` (clean wall reads ${m.pot?.wall})`);
 console.log(`          inventory strip: ${m.strip?.dead} dead px of ${m.strip?.total};`
   + ` a gutter click selected ${m.strip?.gutter?.got}`);
 console.log(`          speech clears the body by `

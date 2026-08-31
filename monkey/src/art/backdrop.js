@@ -146,6 +146,18 @@ export async function loadBackdrop(room = 'dock') {
     note: still ? 'still' : 'no backdrop assets',
     video: null,
     image: still,
+    // Whatever the backdrop is showing RIGHT NOW, for code that needs to copy a
+    // piece of the painting over another piece of it. The live video when one
+    // is playing, so a patch keeps step with the firelight instead of sitting
+    // there as a still rectangle in a moving picture.
+    source() {
+      const a = this.video, b = this.videoB;
+      if (a && a.readyState >= 2 && a.videoWidth) return { el: a, w: a.videoWidth, h: a.videoHeight };
+      if (b && b.readyState >= 2 && b.videoWidth) return { el: b, w: b.videoWidth, h: b.videoHeight };
+      if (this.image) return { el: this.image, w: this.image.naturalWidth, h: this.image.naturalHeight };
+      return null;
+    },
+
     draw(ctx, w, h) {
       // readyState >= 2 means there is a current frame to paint. Drawing a
       // video with no frame yet throws in some browsers and paints nothing in
