@@ -131,7 +131,18 @@ export class SprayCore {
 		const u = rand();
 		const fine = get( 'spray.fine' );
 		const shape = ( 0.5 + u * 1.1 ) * ( 1 - fine ) + ( 0.12 + 1.9 * u * u * u ) * fine;
-		p.size[ i ] = ( opt?.size ?? get( 'spray.size' ) ) * shape;
+		// DROPLETS FOLLOW THE DRAWN HULL, like the camera distances do.
+		//
+		// Droplet size is in metres and the model scale was not in it, so at
+		// scale 2.4 the boat became a 24 m yacht and its spray stayed sized for
+		// a 10 m runabout: measured, a mean droplet of 7.4 cm against a 23.8 m
+		// hull, which is about one pixel on screen. No amount of shading or
+		// shaping rescues something drawn a pixel wide -- it was the largest
+		// single reason the spray read as a faint dusting rather than as water,
+		// and it is the same class of fault as the hull that stopped sitting in
+		// the sea when the scale changed.
+		const scale = get( 'boat.modelScale' );
+		p.size[ i ] = ( opt?.size ?? get( 'spray.size' ) ) * shape * scale;
 		// Drag multiplier, 1/r, normalised so shape 1 is the slider's value.
 		// Clamped: the tail of u^3 would otherwise hand a droplet an eight-fold
 		// drag that stops it dead inside a frame, which reads as a glitch.

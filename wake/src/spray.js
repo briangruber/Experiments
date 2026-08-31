@@ -163,6 +163,20 @@ export class Spray extends SprayCore {
 				  // than as a disc with an edge.
 				  float core = 1.0 - smoothstep(0.0, vRad, r);
 				  gl_FragColor = vec4(vLit, vAlpha * core * core);
+				  // THE SAME SPACE THE HULL IS IN.
+				  //
+				  // three injects these into its own materials and not into a
+				  // ShaderMaterial, so the spray was writing linear radiance
+				  // straight into an sRGB buffer that the boat beside it reaches
+				  // through Neutral tone mapping and Mesh exposure. A constant
+				  // near-white survives that by accident -- it is near 1 either
+				  // way -- which is exactly why the fault stayed hidden until
+				  // the droplets started carrying real values. Lit properly and
+				  // left untonemapped they would come out dark and off-hue
+				  // against the hull, and the lighting would look broken when it
+				  // was the colour space that was.
+				  #include <tonemapping_fragment>
+				  #include <colorspace_fragment>
 				}
 			`,
 		} );

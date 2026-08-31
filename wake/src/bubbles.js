@@ -184,6 +184,15 @@ export class Bubbles {
 					// is no alpha channel doing the work and nothing to sort.
 					gl_FragColor = vec4( uSkyCol * body + uSunCol * spec,
 					                     body + spec );
+					// Same space as the hull. three injects these into its own
+					// materials and not into a ShaderMaterial, so these were
+					// writing linear radiance into a buffer everything beside
+					// them reaches through Neutral tone mapping -- which is a
+					// large part of why the lighting here never seemed to land
+					// however it was weighted: it was being applied and then
+					// thrown away by the conversion that never happened.
+					#include <tonemapping_fragment>
+					#include <colorspace_fragment>
 				}
 			`,
 		} );
