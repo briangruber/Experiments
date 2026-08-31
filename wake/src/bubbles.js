@@ -85,7 +85,21 @@ export class Bubbles {
 			blending: THREE.AdditiveBlending,
 			uniforms: {
 				uPixelScale: { value: 600 },
-				uTint: { value: new THREE.Color( 0.72, 0.86, 0.95 ) },
+				// LIT BY THE SCENE, not by a constant.
+				//
+				// These were a fixed silver-blue, so a bubble at dusk was
+				// exactly as bright and exactly as cold as a bubble at noon --
+				// which is why a night sea came out with glowing specks in it.
+				// Nothing else in the frame behaves that way: the hull, the
+				// foam and the water all take their light from the sun's own
+				// colour and strength, which the atmosphere reddens and dims as
+				// it sets.
+				//
+				// Two terms, because a bubble is lit two ways: the SKY fills
+				// its body and rim (most of the light at dusk, and blue), and
+				// the SUN makes the one hard glint (dim and orange when low).
+				uSunCol: { value: new THREE.Color( 1, 1, 1 ) },
+				uSkyCol: { value: new THREE.Color( 0.72, 0.86, 0.95 ) },
 				// The scene's real sun, in VIEW space. A glint pinned to a
 				// fixed corner of the sprite is the thing that gives a
 				// billboard away: every bubble catches the light from the same
@@ -109,7 +123,7 @@ export class Bubbles {
 			`,
 			fragmentShader: /* glsl */`
 				precision highp float;
-				uniform vec3 uTint;
+				uniform vec3 uSunCol, uSkyCol;
 				// Declared HERE as well as in the uniforms object. Adding a
 				// uniform to the JS map does not declare it to GLSL: the
 				// fragment shader referenced it and failed to compile, which
@@ -158,10 +172,14 @@ export class Bubbles {
 					// eye -- the same Fresnel that makes the annulus, now
 					// coming out of the geometry rather than being drawn on.
 					float fres = pow( 1.0 - max( n.z, 0.0 ), 3.0 );
-					float e = vAlpha * ( ring * 0.55 + fres * 0.5 + core + glint * 1.1 );
+					// Split by WHICH light makes it, so each is tinted by the
+					// right source: the body and rim are sky, the glint is sun.
+					float body = vAlpha * ( ring * 0.55 + fres * 0.5 + core );
+					float spec = vAlpha * glint * 1.1;
 					// Additive: the colour IS the light it sends back, so there
 					// is no alpha channel doing the work and nothing to sort.
-					gl_FragColor = vec4( uTint * e, e );
+					gl_FragColor = vec4( uSkyCol * body + uSunCol * spec,
+					                     body + spec );
 				}
 			`,
 		} );
@@ -184,6 +202,23 @@ export class Bubbles {
 	 * Takes the world-space sun direction and the camera, and stores it in VIEW
 	 * space, which is the frame a point sprite's coordinates live in.
 	 */
+	/**
+	 * Take the scene's own light. `L` is abyssalSea.sunLight(): the sun's
+	 * atmosphere-reddened colour, its strength, and how much the sky is putting
+	 * in. Null before the first update, which leaves the previous values.
+	 */
+	setLight( L ) {
+
+		if ( ! L ) return;
+		const u = this.material.uniforms;
+		const c = L.colour;
+		u.uSunCol.value.setRGB( c[ 0 ] * L.strength, c[ 1 ] * L.strength, c[ 2 ] * L.strength );
+		// The sky's contribution, tinted toward the blue it actually is. It is
+		// floored inside sunLight(), because at dusk the sky IS the light.
+		u.uSkyCol.value.setRGB( 0.62 * L.sky, 0.78 * L.sky, 0.95 * L.sky );
+
+	}
+
 	setSun( sunWorld, camera ) {
 
 		// A plain [x, y, z], which is what abyssalSea.sunDirection() hands back
