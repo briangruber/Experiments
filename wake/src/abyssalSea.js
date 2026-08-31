@@ -115,15 +115,27 @@ export const SCENE_TUNE = {
  * vendor/abyssal/src/presets.js; anything added upstream later will simply not
  * appear here, which is why QUIET is asserted against the live parameter set
  * at construction instead of being trusted.
+ *
+ * WHAT IS NOT HERE, AND WHY. wakeRelief, wakeSlick and wakeCalm were on this
+ * list and should never have been. Everything else here drives Abyssal's OWN
+ * analytic wake, which we replace. Those three do not: in the forked shader
+ * they scale terms computed from OUR wake field -- the ridge's normal, the
+ * churn's effect on the sea's foam, and the chop it flattens -- so quieting
+ * them by name association switched off three pieces of our own wake.
+ *
+ * It cost more than it sounds. The vertex shader displaces the surface by the
+ * wake's height and the relief block builds the normal that goes with it; with
+ * wakeRelief at 0 that block never ran, so the ridge was real geometry shaded
+ * as though the water were flat, which is most of why it read as faceted and
+ * sawtoothed rather than as a swell. The comment beside that block describes
+ * the fix as though it were working. It was never reached.
  */
 export const QUIET = {
 	wakeStrength: 0,          // the analytic Kelvin wake, master
 	wakeArm: 0,               // ...its cusp arms
 	wakeCentre: 0,            // ...and the churned lane between them
 	wakeDepth: 0,
-	wakeRelief: 0,            // wake height bending the surface normals
 	wakePlume: 0,             // aerated water tinting the column under a wake
-	wakeSlick: 0,             // the smooth lane a wake leaves in the wind foam
 	wakeFoamDecay: 0,         // the leftover stern-foam ribbon
 	wakeFoamWaveCarry: 0,     // leftover waves carrying existing foam along
 	wakeFoamRibbonVary: 0,    // the ribbon's own contour / chew / opacity noise

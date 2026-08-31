@@ -514,6 +514,7 @@ export const defaults = {
   wakeArm: 1.0,             // strength of the arms themselves
   wakeCentre: 0.5,          // aerated churn between them
   wakeDepth: 0.45,          // how far the wake actually deforms the surface, m
+  wakeCalm: 0.85,           // how far the churn flattens the chop as GEOMETRY
   wakeSlick: 0.8,           // how completely the churn wipes out the sea's own
                             // ripples and wind foam inside the track
   wakePlume: 1.0,           // entrained air in the water COLUMN, not white foam

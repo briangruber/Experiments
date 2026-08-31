@@ -218,6 +218,25 @@ export const PARAMS = {
   // The gravity waves. These are displacement only -- no foam -- so they carry
   // on rolling outward long after the white churn has died, and they reach the
   // full 19.47 degree wedge, which is wider than the spray arms.
+  // How a wake disturbs the WATER, as opposed to how it paints it. All three of
+  // these were switched off by an over-broad quiet list (see QUIET in
+  // abyssalSea.js) and have never actually run.
+  surface: {
+    // The wake's ridge is real displaced geometry. Without a normal built from
+    // it, the surface is bent and then shaded as though it were flat, which is
+    // what makes a swell read as a faceted, sawtoothed decal instead of water.
+    relief:  { ui: 'kelvin', v: 1,    min: 0, max: 2.5, step: 0.01, label: 'Wake ridge shading' },
+    // Churned water has lost the short ripples and the wind foam riding on it.
+    // This is the SHADING half: it clears the sea's own foam out of the lane.
+    slick:   { ui: 'kelvin', v: 0.8,  min: 0, max: 2,   step: 0.01, label: 'Wake clears wind foam' },
+    // ...and this is the GEOMETRY half: bubbles and the surfactant film they
+    // carry up dissipate short gravity-capillary waves, so the chop inside a
+    // track is genuinely flattened while the swell rolls straight through. It
+    // is why a boat's path stays legible as a calm lane long after the white
+    // has gone.
+    calm:    { ui: 'kelvin', v: 0.85, min: 0, max: 1,   step: 0.01, label: 'Wake flattens the chop' },
+  },
+
   kelvin: {
     // THE V FROM REAL INTERFERENCE, rather than from the analytic pattern.
     //
@@ -342,7 +361,7 @@ export const PARAMS = {
     density:      { v: 1.05, min: 0.3, max: 8,   step: 0.05, label: 'Opacity build' },
     translucency: { v: 0.58, min: 0,   max: 1,   step: 0.01, label: 'Water shows through' , lab: 1 },
     aeration:     { v: 0.44, min: 0,   max: 1.5, step: 0.01, label: 'Aerated teal halo' , lab: 1 },
-    relief:       { v: 0.94, min: 0,   max: 3,   step: 0.01, label: 'Bubble relief' , lab: 1 },
+    relief:       { ui: 'kelvin', v: 0.94, min: 0,   max: 3,   step: 0.01, label: 'Bubble relief' , lab: 1 },
     troughBias:   { v: 0.4, min: 0,   max: 1.5, step: 0.01, label: 'Pools in troughs' , lab: 1 },
     warmth:       { v: 0.18, min: 0,   max: 1,   step: 0.01, label: 'Sunlit warmth' , lab: 1 },
   },

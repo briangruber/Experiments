@@ -431,7 +431,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b81';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b82';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -1454,6 +1454,14 @@ function frame(now) {
     const ex = get('ocean.exposure');
     sea.water.exposure = ex;
     if (sea.sky) sea.sky.exposure = ex;
+    // How our wake disturbs the water rather than how it paints it. These read
+    // OUR wake field inside the forked shader, so they are ours to drive --
+    // they spent a long time pinned at zero by the quiet list meant for
+    // Abyssal's own wake, which is why the ridge was displaced but never shaded
+    // and the track never calmed the water it ran through.
+    sea.params.wakeRelief = get('surface.relief');
+    sea.params.wakeSlick = get('surface.slick');
+    sea.params.wakeCalm = get('surface.calm');
     const asd = sea.sunDirection();
     if (asd) {
       sd.set(asd[0], asd[1], asd[2]);

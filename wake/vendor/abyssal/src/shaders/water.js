@@ -87,6 +87,13 @@ uniform mat4  uViewProj;
 uniform vec3  uCamPos;      // also read by the FS; one uniform, two stages
 uniform vec2  uGridCenter;
 uniform float uRMin, uRMax;
+// How many rings the radial grid was actually built with, AFTER the adaptive
+// controller has thinned it. The vertex spacing depends on it, and anything
+// that has to respect Nyquist has to know it rather than assume it.
+uniform float uGridRadial;
+// How hard a wake flattens the chop riding through it. Used in the VS only:
+// this is geometry, not shading.
+uniform float uWakeCalm;
 uniform float uGroupAmt, uGroupScale, uGroupLo, uGroupHi;
 uniform float uRogueH, uRogueLen, uRoguePeriod, uRogueWidth, uRogueRun, uRogueSteep;
 // The group field needs a clock and a direction to drift along. Both are
@@ -146,6 +153,9 @@ void main(){
   vFlat = pos;
 
   vec3 disp = vec3(0.0);
+  // The SHORT cascades kept apart from the swell, because a wake damps them and
+  // does not damp the swell. See the calming block below.
+  vec3 dispShort = vec3(0.0);
   float relief = 0.0;
   float swellH = 0.0;
   for (int c=0;c<4;c++){
@@ -154,7 +164,7 @@ void main(){
     if (w <= 0.001) continue;
     vec4 d = texture(uDisp, vec3(xz / uPatch[c], float(c)));
     vec3 dd = vec3(d.x*uHorizScale, d.y*uHeightScale, d.z*uHorizScale) * w;
-    disp += dd;
+    if (c > 0) dispShort += dd; else disp += dd;
     // Cascade 0 is the swell; everything above it is the local relief riding on
     // top of it. Occlusion and subsurface glow care about that relief, not about
     // how high the whole swell has lifted this patch of sea.
@@ -196,8 +206,38 @@ void main(){
     float gn = g1 * 0.72 + g2 * 0.38 * max(g1, 0.0);
     float gt = clamp(gn * 0.5 + 0.5, 0.0, 1.0);
     float g = mix(1.0, mix(uGroupLo, uGroupHi, gt), uGroupAmt);
-    disp *= max(g, 0.02);
+    float gk = max(g, 0.02);
+    disp *= gk;
+    dispShort *= gk;
+    relief *= gk;
   }
+
+  // A WAKE CALMS THE WATER, AND AS GEOMETRY -- not only as shading.
+  //
+  // Churned water is loaded with bubbles and with the surface-active film they
+  // bring up with them, and both dissipate short gravity-capillary waves fast.
+  // The swell rolls straight through, because a wave tens of metres long
+  // carries far too much momentum to care; the centimetre-to-metre chop riding
+  // on top of it is flattened. That is why a boat's track stays legible as a
+  // smooth lane on broken water long after the white has gone, and it is one of
+  // the most recognisable things about a real wake.
+  //
+  // The shading already knew this -- the fragment shader drops the wind foam
+  // and cuts the mean-square slope inside the churn -- but the SURFACE did not:
+  // the chop was still there in the geometry, at full height, being shaded as
+  // though it were smooth. So the lane read as a paler stripe rather than as
+  // calmer water, and at a glancing angle the unflattened ripples gave it away
+  // completely.
+  //
+  // Only the short cascades are touched, which is the physics doing the
+  // selecting rather than a look: cascade 0 is the swell and is left alone.
+  if (uWakeOn > 0.5 && uWakeCalm > 0.001) {
+    float calm = clamp(wakeAt(xz).z * uWakeCalm, 0.0, 1.0);
+    float k = 1.0 - calm;
+    dispShort *= k;
+    relief *= k;
+  }
+  disp += dispShort;
 
   pos += disp;
 
@@ -260,10 +300,39 @@ void main(){
   pos.y += hullLift(xz);
 
   if (uWakeOn > 0.5) {
-    // Far rings are coarse, so a wire ridge pops. A diverging wave
-    // thickens with age, so those same triangles can carry height
-    // farther aft — fade later than the old 0.16-0.42 cut.
-    float wf = 1.0 - smoothstep(uWakeExtent * 0.18, uWakeExtent * 0.88, r);
+    // NYQUIST, MEASURED -- not a fraction of the field's size.
+    //
+    // This grid is exponential in radius, r = rMin (rMax/rMin)^t, so the
+    // spacing between rings is r ln(rMax/rMin) / rings: it grows in PROPORTION
+    // to the distance. With the shipped 400 rings that is 2.9% of r, so a
+    // vertex every 1.5 m at 50 m out and every 3 m at 100 m -- and on a device
+    // the adaptive controller has thinned to 200 rings, twice that again.
+    //
+    // The narrowest thing the wake draws is a cusp arm, about 2 x uWakeArmW
+    // across -- three metres with the shipped 1.5 m half-width. Displacing a
+    // three-metre ridge with a vertex every three metres does not produce a
+    // faint ridge, it produces a ZIGZAG: each ring catches the crest at a
+    // different phase and the triangle edges themselves become the pattern.
+    // That is the sawtooth in the mid-distance, and it is a sampling failure,
+    // not a shading one.
+    //
+    // The old guard faded between 18% and 88% of the wake FIELD's extent,
+    // which at the default 270 m meant 49 m to 237 m. Two things were wrong
+    // with it: it is tied to a parameter that says how much water the buffer
+    // remembers, which has nothing to do with how finely the surface is
+    // tessellated, and it ignores the ring count entirely -- so thinning the
+    // grid for performance made the aliasing worse and moved nothing. Worse,
+    // that band IS the aliasing zone: it held the wake at partial strength
+    // across exactly the range where the grid cannot represent it.
+    //
+    // So fade on the real quantity: local spacing against the arm width. The
+    // wake stops being DISPLACED once a ring can no longer resolve it, while
+    // the fragment shader goes on shading it (see wakeRecon) -- which is the
+    // right split, because foam is a texture and needs no vertices.
+    float spacing = r * log(uRMax / uRMin) / max(uGridRadial, 1.0);
+    float nyq = 1.0 - smoothstep(0.55, 1.35, spacing / max(uWakeArmW, 0.2));
+    // Still bounded by the buffer: past its extent there is nothing recorded.
+    float wf = nyq * (1.0 - smoothstep(uWakeExtent * 0.55, uWakeExtent * 0.95, r));
     if (wf > 0.002) pos.y += wakeAt(xz).y * wf;
   }
 
