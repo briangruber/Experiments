@@ -242,6 +242,56 @@ The lesson generalises past this API: when a generated asset has artefacts
 that survive every setting you can name, check whether the thing you are
 paying least for is the thing making them.
 
+### Frames and frame rate are one setting with two names
+
+The cast was cut from 32 frames to 20 to fit the artifact size ceiling, and
+went back to 32 once the backdrops were re-encoded. Changing the count alone
+is wrong: the sheet is a fixed-length video sampled at some rate, so the same
+motion over 32 frames instead of 20 has to play at 19fps rather than 12 or a
+walk becomes a scurry. `tools/recut.sh` carries both together for that reason.
+
+That script exists at all because nothing recorded how the atlases were built.
+The atlas JSON says what came out, the ledger says what was pulled, and
+neither said how one became the other — so a change to the packer could not be
+applied to the cast without guessing the four commands back from sheet
+geometry. The first reconstruction lost four `--once` flags, and Grout's
+drink, Bonny's bellows, Pike's bell and the cat's sneeze all silently became
+looping clips.
+
+### Re-extraction is free, so make yours the newest
+
+`pull` takes the newest sheet per clip, which is right until something else
+makes a newer one. Minutes after the pro generation landed, the service
+re-extracted all six of Grout's sheets at 49 frames and 256px on its own, and
+the next pull took those. Nothing was wrong with the pull; the assumption that
+we are the only writer was wrong.
+
+The repair costs nothing, because `regenerate-spritesheets` re-reads the
+videos that already exist: re-extract every character at one uniform frame
+count and its own derived frame size, and ours are the newest again. It also
+fixed a cast that had drifted to three different frame counts across four
+characters — a drift that only shows up as one atlas refusing to cut on the
+same grid as the others.
+
+### Cutting between poses
+
+Clips generated separately do not join. Each starts wherever its video
+started, so `idle -> drink -> asleep` is three unrelated poses spliced
+together and the splice is visible as a jump.
+
+A tenth of a second of cross-dissolve covers it — the outgoing pose drawn
+underneath at full strength, the incoming one over it, so it never fades
+through to the background. A quarter-second is too long: both Grouts are
+legible at once and it reads as a mistake rather than a transition.
+
+The test is worth more than the feature. The obvious one — assert the body
+recorded a frame to fade from — passes with the fade length set to zero,
+because the record is written either way. What actually separates a dissolve
+from a cut is on the canvas: midway through a dissolve the character is
+neither the pose it left nor the pose it is going to. Rendering all three and
+requiring the middle to differ from both ends reads 69% and 88% of the whole
+change when dissolved, against 99.8% and 20% when cut.
+
 ### Cutting what came back
 
     node tools/autosprite.mjs pull <characterId>
