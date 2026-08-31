@@ -275,6 +275,47 @@ function run( { speed = 12, secs = 2, dt = 1 / 60, spray = new Spray( 4000 ) } =
 	} )() );
 }
 
+// ------------------------------------- one throw, two populations of water --
+//
+// Drag goes as 1/r, so the same sheet of water leaving the same chine has to
+// SEPARATE in flight: the fine end stops almost where it was thrown and hangs,
+// the coarse end flies on in a clean arc. If both halves land in the same
+// place the spectrum is doing nothing and the curtain moves as one sheet,
+// which is the tell that gave the old spray away.
+{
+	const dir = { x: 1, y: 0, z: 0 };
+	const throwOne = ( shapeU ) => {
+		const spray = new Spray( 8 );
+		// Fixed draw so the size is chosen, not sampled: u -> the whole emit.
+		spray.emit( 0, 1, 0, dir, dir, 12, () => shapeU );
+		let far = 0;
+		for ( let i = 0; i < 400; i ++ ) {
+			spray.step( 1 / 120, flat );
+			if ( spray.n ) far = spray.p.x[ 0 ];
+		}
+		return { far, size: spray.p.size[ 0 ] };
+	};
+	set( 'spray.fine', 1 );
+	const mist = throwOne( 0.08 );          // deep in the fine tail
+	const drop = throwOne( 0.97 );          // the coarse end
+	need( 'the fine tail really is finer', mist.size < drop.size * 0.35,
+		`${ mist.size.toFixed( 3 ) } m vs ${ drop.size.toFixed( 3 ) } m` );
+	need( 'and drag separates them in flight', drop.far > mist.far * 1.8,
+		`mist carried ${ mist.far.toFixed( 2 ) } m, drop ${ drop.far.toFixed( 2 ) } m` );
+
+	// ...and it is the SPECTRUM doing it, not the jitter that was always there.
+	// fine 0 keeps the old uniform 0.5-1.6x spread, so the two ends still part
+	// company a little -- correctly, the size law applies to them too. What has
+	// to be true is that the spread is far narrower: measured against the same
+	// pair of draws, the tail should separate them several times harder.
+	set( 'spray.fine', 0 );
+	const a = throwOne( 0.08 ), b = throwOne( 0.97 );
+	const narrow = b.far / a.far, wide = drop.far / mist.far;
+	need( 'and it is the spectrum doing it, not the old jitter', wide > narrow * 2.5,
+		`${ wide.toFixed( 1 ) }x spread with the tail, ${ narrow.toFixed( 1 ) }x without` );
+	set( 'spray.fine', 0.7 );
+}
+
 for ( const r of results ) {
 
 	console.log( `${ r.ok ? 'ok  ' : 'FAIL' } ${ r.name }${ r.detail ? ` — ${ r.detail }` : '' }` );

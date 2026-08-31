@@ -12,10 +12,26 @@ import { get } from './params.js';
 
 const GRAVITY = 9.81;
 
-/** Ballistic step. Drag is linear — at droplet scale that is close enough. */
+/**
+ * Ballistic step. Drag is linear — at droplet scale that is close enough — but
+ * it is NOT the same for every droplet, and that is the whole difference
+ * between spray and confetti.
+ *
+ * Drag force goes as the frontal area (r^2) and inertia as the volume (r^3),
+ * so the deceleration a droplet feels goes as 1/r. A half-millimetre droplet
+ * is slowed an order of magnitude harder than a five-millimetre one thrown at
+ * the same speed. That is why real spray separates in flight: the big drops
+ * carry on in clean arcs and land ahead of the boat, while the fine stuff
+ * stops almost where it was thrown and hangs there as a haze that the wind
+ * takes. Give every droplet the same drag and the whole curtain moves as one
+ * sheet, which is the tell.
+ *
+ * `km` is that 1/r factor, carried per droplet from the size it was born with;
+ * `drag` is still the live slider, so dragging it moves the whole population.
+ */
 function integrate( p, i, dt, drag ) {
 
-	const k = Math.max( 1 - drag * dt, 0 );
+	const k = Math.max( 1 - drag * p.km[ i ] * dt, 0 );
 	p.vx[ i ] *= k;
 	p.vz[ i ] *= k;
 	p.vy[ i ] = p.vy[ i ] * k - GRAVITY * dt;
@@ -35,7 +51,7 @@ export class SprayCore {
 
 		const f = () => new Float32Array( max );
 		this.p = { x: f(), y: f(), z: f(), vx: f(), vy: f(), vz: f(),
-			age: f(), life: f(), size: f() };
+			age: f(), life: f(), size: f(), km: f() };
 
 		// Landing events for this frame: where a droplet met the surface, so the
 		// wake field can turn it into foam instead of letting it wink out.
@@ -103,7 +119,23 @@ export class SprayCore {
 
 		p.age[ i ] = 0;
 		p.life[ i ] = ( opt?.life ?? get( 'spray.life' ) ) * ( 0.6 + rand() * 0.8 );
-		p.size[ i ] = ( opt?.size ?? get( 'spray.size' ) ) * ( 0.5 + rand() * 1.1 );
+
+		// SIZE IS NOT UNIFORM. Atomisation does not produce one droplet size
+		// with a bit of jitter round it; it produces a heavy-tailed spectrum --
+		// a great many fine droplets and a few big ones. Drawn uniform, every
+		// droplet is the same droplet and the curtain reads as a texture.
+		//
+		// `fine` mixes from the old uniform spread toward u^3, which puts the
+		// median well down and leaves a long tail. Paired with the 1/r drag
+		// above it is what makes one emitter throw both mist and drops.
+		const u = rand();
+		const fine = get( 'spray.fine' );
+		const shape = ( 0.5 + u * 1.1 ) * ( 1 - fine ) + ( 0.12 + 1.9 * u * u * u ) * fine;
+		p.size[ i ] = ( opt?.size ?? get( 'spray.size' ) ) * shape;
+		// Drag multiplier, 1/r, normalised so shape 1 is the slider's value.
+		// Clamped: the tail of u^3 would otherwise hand a droplet an eight-fold
+		// drag that stops it dead inside a frame, which reads as a glitch.
+		p.km[ i ] = Math.min( Math.max( 1 / Math.max( shape, 0.08 ), 0.45 ), 6 );
 
 	}
 
@@ -137,7 +169,7 @@ export class SprayCore {
 			if ( landed || p.age[ i ] >= p.life[ i ] ) continue;
 
 			if ( w !== i ) {
-				for ( const k of [ 'x', 'y', 'z', 'vx', 'vy', 'vz', 'age', 'life', 'size' ] ) {
+				for ( const k of [ 'x', 'y', 'z', 'vx', 'vy', 'vz', 'age', 'life', 'size', 'km' ] ) {
 					p[ k ][ w ] = p[ k ][ i ];
 				}
 			}

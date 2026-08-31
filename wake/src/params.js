@@ -475,6 +475,20 @@ export const PARAMS = {
     life:      { v: 1.1,  min: 0.1, max: 4,   step: 0.05, label: 'Droplet life (s)' },
     size:      { v: 0.1, min: 0.01,max: 0.6, step: 0.01, label: 'Droplet size (m)' },
     opacity:   { v: 0.85, min: 0,   max: 1,   step: 0.01, label: 'Droplet opacity' },
+    // How heavy-tailed the droplet spectrum is. 0 is the old uniform spread --
+    // every droplet much the same size, moving as one sheet. Turn it up and
+    // most droplets come out small: because drag goes as 1/r those fine ones
+    // stop dead and hang as a haze while the few big ones fly on, which is the
+    // separation real spray has and a single-size population cannot.
+    fine:      { v: 0.7,  min: 0,   max: 1,   step: 0.01, label: 'Fine mist share' },
+    // Shutter, in seconds. A droplet is smeared along its own velocity by how
+    // far it travels in this long -- 0 gives round dots, which is the shape
+    // that makes spray read as snow. Roughly a film camera's 1/50 by default.
+    streak:    { v: 0.02, min: 0,   max: 0.08, step: 0.002, label: 'Motion streak (s)' },
+    // Forward-scatter gain: how much brighter a droplet is when the sun is
+    // behind it. This is what makes a curtain of spray blaze into the light
+    // and go flat grey away from it.
+    glow:      { v: 2.2,  min: 0,   max: 8,   step: 0.1,  label: 'Backlit glow' },
   },
 
   scene: {
