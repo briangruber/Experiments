@@ -335,6 +335,7 @@ export class WaterSurface {
       uHullCut: hull.cut ?? 0, uHullCutPos: hull.cutPos ?? NO_HULL.cutPos,
       uHullCutLen: hull.cutLen ?? 1, uHullCutBeam: hull.cutBeam ?? 1,
       uHullFoam: hull.foam ?? 0, uHullFoamW: hull.foamW ?? 0.25,
+      uHullWlLen: hull.wlLen ?? 1, uHullWlBeam: hull.wlBeam ?? 1,
       uHullPush: hull.push,
       uHullRadius: p.hullRadius, uHullBow: p.hullBow,
       uHullPlane: hull.plane,

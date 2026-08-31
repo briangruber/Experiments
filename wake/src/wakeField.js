@@ -93,7 +93,7 @@ const RIBBON_FRAG = /* glsl */`
   uniform float uBreakPatch, uBreakPatchScale;
   uniform float uKelvinScale, uKelvinProp, uKelvinAmp, uKelvinDiv, uKelvinTrans, uKelvinCusp, uKelvinDecay, uKelvinLife, uKelvinMin;
   uniform float uFoamScale, uFoamContrast, uBreakup, uFoamLife, uDissolve;
-  uniform float uMelt, uMeltScale, uArmPersist, uArmDeposit;
+  uniform float uMelt, uMeltScale, uArmPersist, uArmDeposit, uDisplaceFoam;
   uniform float uSpeedDrive, uSpeedRef;
   uniform float uLace, uLaceAmt, uSoftness;
   uniform float uBubPlume, uBubW, uBubSpread, uBubLen, uBubArms, uBubLife, uBubMottle;
@@ -255,8 +255,22 @@ const RIBBON_FRAG = /* glsl */`
     // to the age decay that was already there and was being multiplied by zero:
     // uArmPersist is the floor under the arc fade, the fraction of the coverage
     // that stops being an arm and becomes foam lying on the water.
+    // WHITE DOES NOT WAIT FOR THE PLANE.
+    //
+    // planing is smoothstep(uPlaning * 0.45, uPlaning, spd), and every foam
+    // term was multiplied by it -- so at four metres a second, well under the
+    // 6.5 threshold, the whole V came out at about a quarter strength and the
+    // hull looked like it was sliding through the water without touching it.
+    //
+    // What needs the plane is the SHEET: a hull only throws water clear once it
+    // is up and skipping, and below that it pushes. But pushing water apart
+    // still breaks it. A ferry at walking pace carries a bright white bow wave
+    // and a wide churned lane -- that is the whole look of the reference -- and
+    // it is made by displacement, not by planing. So the sheet keeps its gate
+    // and the foam gets a floor under it that only needs her to be under way.
+    float works = max(planing, uDisplaceFoam * moving);
     float armFoam = (armG * comb + rim) * uArmFoam
-                  * max(armFade, uArmPersist) * near * planing * nose;
+                  * max(armFade, uArmPersist) * near * works * nose;
 
     // THE ARM MOVES ON. THE FOAM DOES NOT.
     //
@@ -283,7 +297,7 @@ const RIBBON_FRAG = /* glsl */`
     float depAge = clamp(tSince / max(uFoamLife, 0.01), 0.0, 1.0);
     // Born at the crest's own strength, so a hull that was barely working
     // leaves barely anything, and gone by the end of its life like the rest.
-    float armDeposit = uArmDeposit * uArmFoam * near * planing * nose
+    float armDeposit = uArmDeposit * uArmFoam * near * works * nose
                      * step(0.0, tSince) * pow(1.0 - depAge, uDissolve)
                      // ...and only inside the V. Outside it the cusp has not
                      // reached this water yet and there is nothing to leave.
@@ -1025,7 +1039,7 @@ export class WakeField {
       uKelvinTrans: { value: 0.5 }, uKelvinCusp: { value: 1 }, uKelvinDecay: { value: 100 },
       uKelvinLife: { value: 100 }, uKelvinMin: { value: 3 },
       uFoamScale: { value: 1 }, uFoamContrast: { value: 1 }, uBreakup: { value: 0 },
-      uMelt: { value: 0 }, uMeltScale: { value: 0.12 }, uArmPersist: { value: 0 }, uArmDeposit: { value: 0 },
+      uMelt: { value: 0 }, uMeltScale: { value: 0.12 }, uArmPersist: { value: 0 }, uArmDeposit: { value: 0 }, uDisplaceFoam: { value: 0 },
       uFoamLife: { value: 1 }, uDissolve: { value: 1 },
       uSpeedDrive: { value: 1 }, uSpeedRef: { value: 13 },
       uAutoAngle: { value: 1 },
@@ -1395,6 +1409,7 @@ export class WakeField {
     u.uFoamContrast.value = get('foamLook.contrast');
     u.uArmPersist.value = get('arms.persist');
     u.uArmDeposit.value = get('arms.deposit');
+    u.uDisplaceFoam.value = get('arms.displace');
     u.uMelt.value = get('foamLook.melt');
     u.uMeltScale.value = get('foamLook.meltScale');
     u.uBreakup.value = get('foamLook.breakup');

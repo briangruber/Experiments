@@ -11,6 +11,7 @@ uniform vec2  uHullFwd;
 uniform float uHullPush, uHullRadius, uHullBow, uHullPlane;
 uniform float uHullCut, uHullCutLen, uHullCutBeam;
 uniform float uHullFoam, uHullFoamW;
+uniform float uHullWlLen, uHullWlBeam;
 uniform vec2  uHullCutPos;   // the hull's MIDDLE; uHullPos is its stem
 
 // THE HULL EXCLUDES WATER FROM THE SPACE IT OCCUPIES.
@@ -31,18 +32,27 @@ float hullInside(vec2 xz){
   return along * along + lat * lat < 1.0 ? 1.0 : 0.0;
 }
 
-// The SAME ellipse, as a distance rather than as a yes or no: exactly 1.0 on
-// the waterline the hull cuts, less inside it, more outside. hullInside()
-// throws that number away at the comparison, and it is the one thing needed to
-// hug the cut rather than merely test it. Negative when there is no cut to hug.
+// Distance to the hull's REAL waterline, 1.0 exactly on it, more outside.
+//
+// NOT the cut ellipse. The cut is deliberately INSET so the hull always
+// overhangs its own hole and no gap can open at the waterline however she
+// rolls -- 0.44 of the drawn length against 0.42 of the beam, where the hull
+// itself is 0.5 of each. So the cut's own edge sits a good half metre in UNDER
+// the topsides, and a collar hugging it is drawn in water the boat is standing
+// on top of: present, correct, and invisible. That is why the hull looked like
+// it was merely occluding the sea.
+//
+// This is the outer ellipse -- the hull's actual beam and length -- so 1.0 is
+// the line where the topsides meet the water and everything past it is water
+// you can see. Negative when there is no hull to hug.
 // along comes back too (no backticks in here -- this GLSL lives inside a JS
 // template literal), because the bow shears water and the quarter does not.
 float hullEdgeQ(vec2 xz, out float along){
   along = 0.0;
   if (uHullCut < 0.5) return -1.0;
   vec2 rel = xz - uHullCutPos;
-  along = dot(rel, uHullFwd) / max(uHullCutLen, 0.3);
-  float lat = dot(rel, vec2(-uHullFwd.y, uHullFwd.x)) / max(uHullCutBeam, 0.2);
+  along = dot(rel, uHullFwd) / max(uHullWlLen, 0.3);
+  float lat = dot(rel, vec2(-uHullFwd.y, uHullFwd.x)) / max(uHullWlBeam, 0.2);
   return sqrt(along * along + lat * lat);
 }
 
@@ -1163,16 +1173,27 @@ void main(){
     float alongN;
     float q = hullEdgeQ(vFlat.xz, alongN);
     if (q > 0.0) {
-      // A band just OUTSIDE the cut. Inside it there is no sea to foam.
-      float band = smoothstep(0.86, 1.0, q) * (1.0 - smoothstep(1.0, 1.0 + uHullFoamW, q));
-      // The stem shears; the quarter is merely alongside water going past.
-      float bow = mix(0.30, 1.0, smoothstep(-0.85, 0.75, alongN));
-      // And a hull lying still has no waterline foam at all -- she has to be
-      // pushing water for there to be anything to turn over.
-      float way = smoothstep(0.3, 2.4, abs(uWakeSpeed));
+      // A band from the waterline OUTWARD. It starts just inside 1.0 so there
+      // is no hairline of clean water between the topsides and the white, and
+      // the part that lands under the hull is simply hidden by it.
+      float band = smoothstep(0.94, 1.02, q) * (1.0 - smoothstep(1.02, 1.02 + uHullFoamW, q));
+      // THE STEM DOES THE WORK. A bow is a wedge driven through water: it
+      // shears it apart and throws it up the topsides, which is why the white
+      // is a bright wedge at the forefoot thinning back along the quarter,
+      // rather than an even ring. Weighted hard forward.
+      float bow = mix(0.18, 1.0, smoothstep(-0.55, 0.95, alongN));
+      // A hull lying still has no waterline foam -- she has to be pushing
+      // water for there to be anything to turn over -- and a hull driving hard
+      // has a great deal. Speed, not planing: a displacement boat at four
+      // metres a second still carries a white bow wave, which is exactly what
+      // the reference at slow speed shows.
+      float way = smoothstep(0.25, 2.0, abs(uWakeSpeed))
+                * (0.45 + 0.75 * smoothstep(1.0, 9.0, abs(uWakeSpeed)));
       // Broken up, or it is an ellipse drawn round the boat, which is exactly
-      // the tell that the arms had before their own break-up went in.
-      float grain = mix(0.40, 1.30, fbm2(vFlat.xz * 1.9, 3));
+      // the tell that the arms had before their own break-up went in. Two
+      // scales, so the edge is ragged as well as the body.
+      float grain = mix(0.40, 1.30, fbm2(vFlat.xz * 1.9, 3))
+                  * mix(0.65, 1.25, fbm2(vFlat.xz * 6.5 + 19.0, 2));
       foamF += band * bow * way * grain * uHullFoam;
     }
   }

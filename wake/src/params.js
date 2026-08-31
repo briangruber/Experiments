@@ -160,6 +160,17 @@ export const PARAMS = {
     // This is the deposit. The cusp crosses a patch of water at a time its own
     // outward speed decides, and what it lays there stays and dies of age.
     deposit:      { v: 0.55, min: 0,   max: 2,   step: 0.01, label: 'Foam the cusp deposits' },
+    // HOW MUCH WHITE A HULL MAKES BEFORE SHE IS PLANING.
+    //
+    // Every foam term was multiplied by the planing ramp, so below the planing
+    // speed the whole V came out at a fraction of strength -- at four metres a
+    // second against a 6.5 threshold, about a quarter -- and the boat looked
+    // like it was sliding through the water rather than breaking it. What
+    // genuinely needs the plane is the SHEET, since a hull only throws water
+    // clear once it is up and skipping. Pushing water apart still breaks it: a
+    // ferry at walking pace carries a bright bow wave and a wide churned lane.
+    // This is the floor under that gate, needing only that she is under way.
+    displace:     { v: 0.5,  min: 0,   max: 1,   step: 0.01, label: 'Foam below planing speed' },
   },
 
   // The comb / scallop texture riding along each arm: periodic crests that lean
