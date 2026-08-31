@@ -139,6 +139,36 @@ asks for: a uniform grid — 5×5 cells of 256px in the sheets tested — with t
 background already removed, per-animation (idle, walk, run, jump), plus an
 atlas export.
 
+`tools/autosprite.mjs` wraps it. Base URL `https://www.autosprite.io/api/v1`,
+authenticated with `x-api-key: vspk_…`.
+
+    node tools/autosprite.mjs account
+    node tools/autosprite.mjs characters
+    node tools/autosprite.mjs regen <characterId> --dry
+    node tools/autosprite.mjs regen <characterId>
+    node tools/autosprite.mjs pull <characterId>
+
+Two things in the API matter more than the generation quality, and neither is
+visible from the app.
+
+**`frameSize` accepts 32–512.** Frames can be asked for at the size the game
+draws them. Every previous route here made art large and reduced it, and
+reducing a smooth source to forty pixels is the mistake this project has made
+twice — baking a 3D mesh, then downsampling the vector puppet. Asking for 64
+instead of 256 deletes the step rather than doing it better.
+
+**`regenerate-spritesheets` is free.** It re-extracts from videos that were
+already generated, at a different frame count, frame size, background removal
+and sharpening. So sheets made in the app at its defaults — 25 frames, 256px —
+do not need regenerating at cost. They need re-reading at game settings, which
+is the same videos and no credits.
+
+The defaults this tool sends are therefore 8 frames at 64px with `removeBg:
+"ultra"`, against the app's 25 at 256 with `"default"`. Eight is a walk cycle;
+25 frames is a two-second clip, because behind the API each animation is a
+generated video that gets sampled — which also explains why the app's idle
+sheet holds 25 near-identical poses.
+
 That means the cutter needs none of its rescue machinery. `--grid` says the
 sheet already is a grid, so the work reduces to measuring where the figure sits
 inside each cell and re-packing at native resolution with the feet on one row:
