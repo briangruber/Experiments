@@ -319,7 +319,8 @@ for (const [name, c] of Object.entries(clips)) {
   // any size and any depth.
   c.stride = Math.round(r.stride);
   console.log(`  clip ${name.padEnd(6)} ${c.count} frames, cycle every ${r.period}`
-    + `, stride ${c.stride}px${r.stance ? ` (from a ${r.stance}-frame stance)` : ''}`
+    + `, stride ${c.stride}px`
+    + `${r.fromSlope !== undefined ? ` (slope ${r.fromSlope}, floor ${r.floor}${r.stride === r.floor ? ' — floor won' : ''})` : ''}`
     + `  [${r.signal}, ${r.peaks} peaks]`);
 }
 

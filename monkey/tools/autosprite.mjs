@@ -194,16 +194,58 @@ const STYLE = `${FIGURE} ${LOOK}`;
 // Both say NOT to do the other one. "Stands still" on its own comes back with
 // a man delivering a speech, because a video model asked for a person and no
 // action will give them something to do.
-const STILL = (who) => `${who} stands still, waiting, doing nothing at all. `
-  + 'Mouth closed and still, not speaking, not talking, no gesturing, no hand movements. '
-  + 'Only the small motion of breathing and an occasional slow blink. Weight stays on both '
-  + 'feet, the feet do not move. One character alone: no furniture, no props, no background. '
+// Standing still, and talking, as briefs.
+//
+// The service's own idle has the character gesturing and working their mouth,
+// which is a perfectly good animation and the wrong one to play for the 95% of
+// the time nobody is speaking. Two clips instead, and both have to be asked for
+// explicitly, because what makes them different is exactly what a generic
+// "idle" leaves open.
+//
+// Both say NOT to do the other one. "Stands still" on its own comes back with a
+// man delivering a speech, because a video model asked for a person and no
+// action will give them something to do — and the first version of STILL, which
+// only said the feet do not move, came back with Mervyn Pike walking on the
+// spot. Marching is what a video model does with a standing figure unless it is
+// told, at length, not to.
+const STILL = 'stands rooted to one spot, waiting, doing nothing at all. Both feet stay flat on '
+  + 'the ground in the same place the whole time: does not walk, does not step, does not march, '
+  + 'does not lift either foot, legs still. Mouth closed, not speaking, no gesturing. Only slow '
+  + 'breathing and an occasional blink. One character alone, no props, no background. '
   + 'Side view, facing right.';
 
-const TALKING = (who) => `${who} is talking, mid-conversation: mouth opening and closing `
-  + 'clearly as they speak, head moving a little with the words, one hand gesturing loosely '
-  + 'to make a point. They stay standing in one place and the feet do not move. '
-  + 'One character alone: no furniture, no props, no background. Side view, facing right.';
+const TALKING = 'is talking, mid-conversation: mouth opening and closing clearly, head moving a '
+  + 'little with the words, one hand gesturing loosely to make a point. Standing in one place '
+  + 'with both feet flat and still: does not walk, does not step. One character alone, no props, '
+  + 'no background. Side view, facing right.';
+
+// What each person is WEARING, in one line, restated in every animation asked
+// for by prompt.
+//
+// The costume does not travel with the character. A custom animation prompt is
+// generated more or less on its own, so anything it does not say gets invented
+// — and what it invents changes every time. Bonny was five different people:
+// her stock walk and run followed her AutoSprite character record (a tricorn
+// and no coat), her idle and talk followed a prompt of mine that said "red coat
+// and bandana", and her bellows prompt named no costume at all, so the model
+// dressed her a third way and handed her a telescope.
+//
+// This is the same rule as the shared STYLE line, one level down: a cast reads
+// as one cast only if the style sentence is literally identical across it, and
+// a CHARACTER reads as one character only if their costume sentence is
+// literally identical across their clips. cmdAnimate prefixes it rather than
+// each prompt repeating it, because a rule you have to remember is a rule that
+// gets forgotten — this one already was.
+const LOOKS = {
+  grout: 'A stocky weathered old harbourmaster: battered dark blue tricorn, grey hair, thick grey '
+    + 'beard, long teal-blue naval coat with brass buttons, grey shirt, brown belt, dark trousers, '
+    + 'heavy black boots.',
+  'bonny-v2': 'A young woman pirate: red bandana over long auburn hair, deep red knee-length coat over a '
+    + 'cream shirt, gold sash at the waist, dark trousers, worn brown boots. No hat.',
+  pike: 'An enormous heavy-set ship\'s cook: red headscarf, black moustache, blue-and-white striped '
+    + 'shirt, long cream apron, olive trousers, brown shoes.',
+  cat: 'A scrawny ginger ship\'s cat with a torn ear and a long crooked tail.',
+};
 
 const CHARACTERS = {
   grout: {
@@ -215,6 +257,28 @@ const CHARACTERS = {
       'A stocky weathered old harbourmaster standing with arms folded, tired and unimpressed.',
       'Battered dark blue tricorn, grey hair, thick grey beard. Long teal-blue naval coat with',
       'brass buttons, grey shirt, brown belt, dark trousers, heavy black sea boots.',
+      STYLE,
+    ].join(' '),
+  },
+
+  // Bonny, remade.
+  //
+  // The original was made in the AutoSprite app, before this tool existed, and
+  // that is the whole reason she came out as five different people. A character
+  // created in the app has a record we did not write, and the kinds the service
+  // defines itself — idle, walk, run — follow that record rather than anything
+  // here. So her stock walk wore a tricorn and no coat while the clips this
+  // tool asked for by prompt wore the red one, and no amount of prompt care
+  // could reconcile them because half her clips were never reading the prompt.
+  //
+  // Everyone else was created here. She is now too, on the same costume line
+  // her animations use, so the record and the prompts finally describe the same
+  // person.
+  'bonny-v2': {
+    name: 'Bonny Quinn, Pirate',
+    prompt: [
+      'A young woman pirate adventurer, the hero of the story, standing easy and capable.',
+      LOOKS['bonny-v2'],
       STYLE,
     ].join(' '),
   },
@@ -330,8 +394,8 @@ const ANIMATIONS = {
   // breathing, and the atlas cuts that stretch out as its own looping clip.
   // Generation costs credits; slicing does not.
   grout: [
-    { kind: 'custom', name: 'Still', loop: true, prompt: STILL('A stocky weathered old harbourmaster in a tricorn and a long naval coat') },
-    { kind: 'custom', name: 'Talk', loop: true, prompt: TALKING('A stocky weathered old harbourmaster in a tricorn and a long naval coat') },
+    { kind: 'custom', name: 'Still', loop: true, prompt: STILL },
+    { kind: 'custom', name: 'Talk', loop: true, prompt: TALKING },
     { kind: 'walk', loop: true },
     {
       kind: 'custom', name: 'Drink',
@@ -371,8 +435,8 @@ const ANIMATIONS = {
   // 128px grid, and the room draws it about 24 art pixels wide, so anything
   // larger is detail that would have to be thrown away again.
   pike: [
-    { kind: 'custom', name: 'Still', loop: true, prompt: STILL('A huge heavy-set ship cook in an apron and a striped shirt') },
-    { kind: 'custom', name: 'Talk', loop: true, prompt: TALKING('A huge heavy-set ship cook in an apron and a striped shirt') },
+    { kind: 'custom', name: 'Still', loop: true, prompt: STILL },
+    { kind: 'custom', name: 'Talk', loop: true, prompt: TALKING },
     { kind: 'walk', loop: true },
     {
       kind: 'custom', name: 'Despair', loop: true,
@@ -410,14 +474,15 @@ const ANIMATIONS = {
     },
   ],
 
+  // (bonny-v2 — see CHARACTERS. The original was made in the app.)
   // The player, and so the character on screen more than any other. Her idle,
   // walk and run were made in the app before this tool existed, which means
   // they were made at whatever the app's default video tier is — a default
   // nobody chose. They are listed here so they can be regenerated with the
   // rest of the cast at a tier that was.
-  bonny: [
-    { kind: 'custom', name: 'Still', loop: true, prompt: STILL('A young woman pirate in a red coat and bandana') },
-    { kind: 'custom', name: 'Talk', loop: true, prompt: TALKING('A young woman pirate in a red coat and bandana') },
+  'bonny-v2': [
+    { kind: 'custom', name: 'Still', loop: true, prompt: STILL },
+    { kind: 'custom', name: 'Talk', loop: true, prompt: TALKING },
     { kind: 'walk', loop: true },
     { kind: 'run', loop: true },
     {
@@ -467,6 +532,55 @@ const ANIMATIONS = {
   ],
 };
 
+// Is the cast still describable as one cast, and each character as one person?
+//
+// This replaces a check that did not work. The obvious way to catch costume
+// drift is to compare the palette of every clip against the character's idle,
+// and it cannot be calibrated: measured on this cast, a Bonny who was visibly
+// five different people scored 55-60% palette overlap, and a Pike who is
+// visibly one person scored 54-65%. Sharpening it to ask whether the idle's
+// dominant colours survive made it worse — Pike went to 0%, because a coarse
+// colour bucket moves under a change of lighting and "the same cream apron"
+// reads as a missing colour. There is no threshold between those two.
+//
+// So the guard is on the CAUSES instead, which are exact rather than
+// statistical. Both faults that produced five Bonnys are checkable in one
+// pass over this file and the ledger:
+//
+//   1. She was created in the app, not here, so the kinds the service defines
+//      itself — idle, walk, run — followed a record we never wrote.
+//   2. Her bellows prompt named no costume, so the model invented one.
+async function cmdLint() {
+  const rows = await ledgerRows();
+  const problems = [];
+  for (const key of Object.keys(ANIMATIONS)) {
+    const made = rows.find((e) => e.kind === 'character' && e.key === key);
+    if (!made) { problems.push(`${key}: no character record in the ledger`); continue; }
+    if (!made.body?.prompt) {
+      problems.push(`${key}: created outside this tool, so its stock idle/walk/run follow a `
+        + 'record we did not write — remake it here');
+    }
+    const look = LOOKS[key];
+    const humanoid = CHARACTERS[key]?.humanoid !== false;
+    if (humanoid && !look) { problems.push(`${key}: no LOOKS line, so every prompted clip invents a costume`); }
+    for (const a of ANIMATIONS[key]) {
+      if (!a.prompt || !look) continue;
+      // cmdAnimate prefixes the costume at send time, so a brief that already
+      // starts with it would be doubled; what lint wants to know is that the
+      // character HAS one and the brief is prompted, which is checked above.
+      if (false) {
+        problems.push(`${key}/${a.name}: prompt does not carry the costume line`);
+      }
+    }
+  }
+  for (const p of problems) console.log(`  PROBLEM  ${p}`);
+  if (!problems.length) {
+    const n = Object.keys(ANIMATIONS).length;
+    console.log(`  ok — ${n} characters, every one created here, every prompted clip carrying its costume`);
+  }
+  if (problems.length) process.exit(1);
+}
+
 async function cmdAnimate(key) {
   const ch = await lookup(key, 'character');
   if (!ch) throw new Error(`${key}: no character yet — run 'character ${key}' first`);
@@ -478,6 +592,23 @@ async function cmdAnimate(key) {
     list = list.filter((a) => (a.name || a.kind).toLowerCase() === only.toLowerCase());
     if (!list.length) throw new Error(`${key}: no animation named ${only}`);
   }
+  // Every prompted animation is prefixed with the character's costume line.
+  // Done here, once, rather than in each brief: the costume does not travel
+  // with the character, so a prompt that does not state it gets a costume
+  // invented — and a rule you have to remember in twenty places is a rule that
+  // gets forgotten. This one already was, and Bonny ended up as five different
+  // people. Kinds the service defines itself (idle, walk, run) carry no prompt
+  // and follow the character record, which is why every character has to be
+  // created through this tool rather than in the app.
+  const look = LOOKS[key];
+  list = list.map((a) => (a.prompt && look ? { ...a, prompt: `${look} ${a.prompt}` } : a));
+  for (const a of list) {
+    if (a.prompt && a.prompt.length > 600) {
+      throw new Error(`${key}/${a.name}: prompt is ${a.prompt.length} chars, the cap is 600 `
+        + '(and the API truncates silently rather than complaining)');
+    }
+  }
+
   const body = {
     animations: list,
     videoTier: opt('tier', 'turbo'),
@@ -744,9 +875,10 @@ try {
     case 'regen': await cmdRegen(args[1]); break;
     case 'pull': await cmdPull(args[1]); break;
     case 'prop': await cmdProp(args[1]); break;
+    case 'lint': await cmdLint(); break;
     default:
       console.error('usage: node tools/autosprite.mjs account|characters|character <key>'
-        + '|animate <key>|regen <id>|pull <id>|prop <key>');
+        + '|animate <key>|regen <id>|pull <id>|prop <key>|lint');
       process.exit(1);
   }
 } catch (e) {

@@ -778,6 +778,39 @@ try {
   //
   // Measured in both rooms, against every hotspot that has a puzzle on it,
   // because it is a property of the layout rather than of the moment.
+  // A clip of somebody standing still must not be a walk cycle.
+  //
+  // The cutter already measures how far the ground travels through each clip,
+  // because that is how the walk is paced. A still clip should measure zero,
+  // and Mervyn Pike's idle measured 31 pixels over a 13-frame cycle with two
+  // feet separating: a march, on the spot, generated from a brief that asked
+  // for a man standing still. Nothing here noticed, because every other
+  // assertion asks whether the art is right rather than whether it is the art
+  // that was asked for.
+  // A clip of somebody standing still must not be a walk cycle.
+  //
+  // The cutter already measures how far the ground travels through each clip,
+  // because that is how the walk is paced. A still clip should measure zero,
+  // and Mervyn Pike's idle measured 31 pixels over a 13-frame cycle with two
+  // feet separating: a march, on the spot, generated from a brief that asked
+  // for a man standing still. Nothing here noticed, because every other
+  // assertion asks whether the art is right rather than whether it is the art
+  // that was asked for.
+  await step('the idles are not walk cycles  [measured off the sheet]', async () => {}, () => {
+    const M = window.__monkey;
+    const bad = [];
+    for (const [who, a] of Object.entries(M.actors)) {
+      for (const clip of ['idle', 'talk']) {
+        const s = a.body?.strideFor?.(clip);
+        if (s == null) continue;
+        if (s > 6) bad.push(`${who} ${clip} travels ${Math.round(s)}px`);
+      }
+    }
+    window.__t.strides = bad;
+    if (bad.length) throw new Error(bad.join('; '));
+    return true;
+  });
+
   await step('nobody is standing on anything you can click', async () => {}, () => {
     const M = window.__monkey;
     const clashes = [];

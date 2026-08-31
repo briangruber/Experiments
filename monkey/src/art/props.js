@@ -77,6 +77,9 @@ export async function loadProps() {
 // which is the point of generating it once.
 export function registerPropIcons(props, ICONS, imageIcon, map) {
   for (const [item, prop] of Object.entries(map)) {
-    if (props[prop] && !ICONS[item]?.fromSprite) ICONS[item] = imageIcon(props[prop]);
+    // `prop` may name an overlay to draw on top of the sprite — a cup of grog
+    // is the cup sprite with grog in it, not a second drawing of a cup.
+    const [name, over] = Array.isArray(prop) ? prop : [prop, null];
+    if (props[name] && !ICONS[item]?.fromSprite) ICONS[item] = imageIcon(props[name], 52, over);
   }
 }

@@ -12942,5 +12942,780 @@
     },
     "file": "assets/cast/autosprite/cat/idle.png",
     "at": "2026-08-31T17:36:42.408Z"
+  },
+  {
+    "kind": "character",
+    "key": "bonny-v2",
+    "characterId": "cmthqg1op000k6odb36a95fzc",
+    "body": {
+      "name": "Bonny Quinn, Pirate",
+      "prompt": "A young woman pirate adventurer, the hero of the story, standing easy and capable. A young woman pirate: red bandana over long auburn hair, deep red knee-length coat over a cream shirt, gold sash at the waist, dark trousers, worn brown boots. No hat. Side view facing right, full body. Small head, long legs, 1990s point-and-click adventure style. HD pixel art game sprite. Chunky readable pixels, visible pixel grid, hard aliased edges, no blur, no gradients. Limited palette, clean dark outline, flat two-step shading lit warmly from the right. Flat background, no text.",
+      "isHumanoid": true,
+      "usePromptTemplate": false,
+      "quality": "pro",
+      "characterDescription": "A young woman pirate adventurer, the hero of the story, standing easy and capable. A young woman pirate: red bandana over long auburn hair, deep red knee-length coat over a cream shirt, gold sash at the waist, dark trousers, worn brown boots. No hat. Side view facing right, full body. Small head, long legs, 1990s point-and-click adventure style. HD pixel art game sprite. Chunky readable pixels, visible pixel grid, hard aliased edges, no blur, no gradients. Limited palette, clean dark outline, flat two-step shading lit warmly from the right. Flat background, no text."
+    },
+    "response": {
+      "id": "cmthqg1op000k6odb36a95fzc",
+      "name": "Bonny Quinn, Pirate",
+      "isHumanoid": true,
+      "characterDescription": "A young woman pirate adventurer, the hero of the story, standing easy and capable. A young woman pirate: red bandana over long auburn hair, deep red knee-length coat over a cream shirt, gold sash at the waist, dark trousers, worn brown boots. No hat. Side view facing right, full body. Small head, long legs, 1990s point-and-click adventure style. HD pixel art game sprite. Chunky readable pixels, visible pixel grid, hard aliased edges, no blur, no gradients. Limited palette, clean dark outline, flat two-step shading lit warmly from the right. Flat background, no text.",
+      "baseImageUrl": "https://a91037593e6b852513235b7d3b6851f0.r2.cloudflarestorage.com/spritesheet/users/cmtgic715000gy0kgwqpj9ipy/characters/temp-1788210641059/1788210641060_5c6f6a31-00d8-42ea-ae77-221802b53761_bonny-quinn-pirate-1788210641004.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=b6a72bbe69e373154c354b282bb21b5a%2F20260831%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20260831T211041Z&X-Amz-Expires=86400&X-Amz-Signature=b0adcd04fb86b7cba349de04795c92c1ec19f85596aca2f3c32fc82eb5f9de84&X-Amz-SignedHeaders=host&x-amz-checksum-mode=ENABLED&x-id=GetObject",
+      "thumbnailUrl": "https://a91037593e6b852513235b7d3b6851f0.r2.cloudflarestorage.com/spritesheet/users/cmtgic715000gy0kgwqpj9ipy/characters/temp-1788210641059/thumbnails/1788210641060_a13e8721-b211-4a65-9954-aa98e18249e1.webp?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=b6a72bbe69e373154c354b282bb21b5a%2F20260831%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20260831T211041Z&X-Amz-Expires=86400&X-Amz-Signature=fc2cbfb42843db0afaf7f9c13b50f8f0d0c7670b9873c277fccabdf439d8ea6f&X-Amz-SignedHeaders=host&x-amz-checksum-mode=ENABLED&x-id=GetObject",
+      "createdAt": "2026-08-31T21:10:41.546Z"
+    },
+    "at": "2026-08-31T21:10:41.653Z"
+  },
+  {
+    "kind": "animations",
+    "key": "bonny-v2",
+    "characterId": "cmthqg1op000k6odb36a95fzc",
+    "body": {
+      "animations": [
+        {
+          "kind": "custom",
+          "name": "Still",
+          "loop": true,
+          "prompt": "A young woman pirate: red bandana over long auburn hair, deep red knee-length coat over a cream shirt, gold sash at the waist, dark trousers, worn brown boots. No hat. stands rooted to one spot, waiting, doing nothing at all. Both feet stay flat on the ground in the same place the whole time: does not walk, does not step, does not march, does not lift either foot, legs still. Mouth closed, not speaking, no gesturing. Only slow breathing and an occasional blink. One character alone, no props, no background. Side view, facing right."
+        },
+        {
+          "kind": "custom",
+          "name": "Talk",
+          "loop": true,
+          "prompt": "A young woman pirate: red bandana over long auburn hair, deep red knee-length coat over a cream shirt, gold sash at the waist, dark trousers, worn brown boots. No hat. is talking, mid-conversation: mouth opening and closing clearly, head moving a little with the words, one hand gesturing loosely to make a point. Standing in one place with both feet flat and still: does not walk, does not step. One character alone, no props, no background. Side view, facing right."
+        },
+        {
+          "kind": "walk",
+          "loop": true
+        },
+        {
+          "kind": "run",
+          "loop": true
+        },
+        {
+          "kind": "custom",
+          "name": "Bellows",
+          "loop": false,
+          "prompt": "A young woman pirate: red bandana over long auburn hair, deep red knee-length coat over a cream shirt, gold sash at the waist, dark trousers, worn brown boots. No hat. A young pirate woman holds a pair of blacksmith bellows in both hands and pumps them sharply twice, leaning into it, then lowers them. She stays standing in one place. One character alone: no forge, no wall, no furniture, no props beyond the bellows. Side view, facing right."
+        }
+      ],
+      "videoTier": "pro",
+      "frameCount": 32,
+      "frameSize": 192,
+      "removeBg": "ultra"
+    },
+    "response": {
+      "characterId": "cmthqg1op000k6odb36a95fzc",
+      "workflows": [
+        {
+          "jobId": "wf_1691d370-0c41-460e-9833-2ea115f0b968",
+          "kind": "custom",
+          "videoId": "cmthqg2ww000umwbfofljkujf"
+        },
+        {
+          "jobId": "wf_89d309c0-414c-4fbf-b16d-e09b32702567",
+          "kind": "custom",
+          "videoId": "cmthqg2uw000qmwbfiw5o2ujq"
+        },
+        {
+          "jobId": "wf_c01eb6c7-c847-4a86-b69a-23599fe2f1ca",
+          "kind": "walk",
+          "videoId": "cmthqg2ql000cmwbfuupxapik"
+        },
+        {
+          "jobId": "wf_5c04cb93-a10e-42b9-98ea-c04a5f2d2a2d",
+          "kind": "run",
+          "videoId": "cmthqg2s2000emwbfxgnbvrpc"
+        },
+        {
+          "jobId": "wf_62db05fc-f0b0-4656-9ac5-24425c468213",
+          "kind": "custom",
+          "videoId": "cmthqg2w2000smwbfihgjiq2v"
+        }
+      ],
+      "creditsUsed": 50
+    },
+    "at": "2026-08-31T21:13:04.641Z"
+  },
+  {
+    "kind": "animations",
+    "key": "pike",
+    "characterId": "cmth75k2k001yxyz66xse39ia",
+    "body": {
+      "animations": [
+        {
+          "kind": "custom",
+          "name": "Still",
+          "loop": true,
+          "prompt": "An enormous heavy-set ship's cook: red headscarf, black moustache, blue-and-white striped shirt, long cream apron, olive trousers, brown shoes. stands rooted to one spot, waiting, doing nothing at all. Both feet stay flat on the ground in the same place the whole time: does not walk, does not step, does not march, does not lift either foot, legs still. Mouth closed, not speaking, no gesturing. Only slow breathing and an occasional blink. One character alone, no props, no background. Side view, facing right."
+        }
+      ],
+      "videoTier": "pro",
+      "frameCount": 32,
+      "frameSize": 176,
+      "removeBg": "ultra"
+    },
+    "response": {
+      "characterId": "cmth75k2k001yxyz66xse39ia",
+      "workflows": [
+        {
+          "jobId": "wf_fe1e7859-5a4a-4754-b726-39619e0e1adc",
+          "kind": "custom",
+          "videoId": "cmthqj4mu000io43m5zj3zaj8"
+        }
+      ],
+      "creditsUsed": 10
+    },
+    "at": "2026-08-31T21:14:35.611Z"
+  },
+  {
+    "kind": "regenerate",
+    "characterId": "cmthqg1op000k6odb36a95fzc",
+    "body": {
+      "frameCount": 32,
+      "frameSize": 192,
+      "removeBg": "ultra",
+      "sharpen": "light"
+    },
+    "response": {
+      "jobId": "premium-bg-batch-1788210970895-9x41cch"
+    },
+    "at": "2026-08-31T21:18:17.644Z"
+  },
+  {
+    "kind": "regenerate",
+    "characterId": "cmth75k2k001yxyz66xse39ia",
+    "body": {
+      "frameCount": 32,
+      "frameSize": 176,
+      "removeBg": "ultra",
+      "sharpen": "light"
+    },
+    "response": {
+      "jobId": "premium-bg-batch-1788211098140-btqzz1x"
+    },
+    "at": "2026-08-31T21:20:49.375Z"
+  },
+  {
+    "kind": "sheet",
+    "who": "bonny-v2",
+    "characterId": "cmthqg1op000k6odb36a95fzc",
+    "spritesheetId": "cmthqpsfs000bu0gdzln1g6qc",
+    "meta": {
+      "id": "cmthqpsfs000bu0gdzln1g6qc",
+      "kind": "custom",
+      "name": "Talk",
+      "sourceVideoId": "cmthqg2uw000qmwbfiw5o2ujq",
+      "createdAt": "2026-08-31T21:18:16.120Z",
+      "frameWidth": 192,
+      "frameHeight": 192,
+      "frameCount": 32,
+      "columns": 6,
+      "metadata": {
+        "frames": 32,
+        "columns": 6,
+        "model": "Dynamic RGB (Fast)",
+        "resolution": "192x192",
+        "bgremover": "ultra"
+      },
+      "isPublic": false,
+      "publicSlug": null,
+      "publicFilename": null,
+      "publicUrl": null,
+      "publicAtlasUrl": null,
+      "loopStart": null,
+      "loopEnd": null,
+      "speedMultiplier": 1,
+      "sizeMultiplier": 1,
+      "isUnlocked": true,
+      "audioUrl": null,
+      "isFrom3dModel": false
+    },
+    "file": "assets/cast/autosprite/bonny-v2/talk.png",
+    "at": "2026-08-31T21:20:51.128Z"
+  },
+  {
+    "kind": "sheet",
+    "who": "bonny-v2",
+    "characterId": "cmthqg1op000k6odb36a95fzc",
+    "spritesheetId": "cmthqpseb0009u0gd5rcy145c",
+    "meta": {
+      "id": "cmthqpseb0009u0gd5rcy145c",
+      "kind": "custom",
+      "name": "Bellows",
+      "sourceVideoId": "cmthqg2w2000smwbfihgjiq2v",
+      "createdAt": "2026-08-31T21:18:16.067Z",
+      "frameWidth": 192,
+      "frameHeight": 192,
+      "frameCount": 32,
+      "columns": 6,
+      "metadata": {
+        "frames": 32,
+        "columns": 6,
+        "model": "Dynamic RGB (Fast)",
+        "resolution": "192x192",
+        "bgremover": "ultra"
+      },
+      "isPublic": false,
+      "publicSlug": null,
+      "publicFilename": null,
+      "publicUrl": null,
+      "publicAtlasUrl": null,
+      "loopStart": null,
+      "loopEnd": null,
+      "speedMultiplier": 1,
+      "sizeMultiplier": 1,
+      "isUnlocked": true,
+      "audioUrl": null,
+      "isFrom3dModel": false
+    },
+    "file": "assets/cast/autosprite/bonny-v2/bellows.png",
+    "at": "2026-08-31T21:20:51.484Z"
+  },
+  {
+    "kind": "sheet",
+    "who": "bonny-v2",
+    "characterId": "cmthqg1op000k6odb36a95fzc",
+    "spritesheetId": "cmthqpscv0007u0gdlyl4k25t",
+    "meta": {
+      "id": "cmthqpscv0007u0gdlyl4k25t",
+      "kind": "custom",
+      "name": "Still",
+      "sourceVideoId": "cmthqg2ww000umwbfofljkujf",
+      "createdAt": "2026-08-31T21:18:16.015Z",
+      "frameWidth": 192,
+      "frameHeight": 192,
+      "frameCount": 32,
+      "columns": 6,
+      "metadata": {
+        "frames": 32,
+        "columns": 6,
+        "model": "Dynamic RGB (Fast)",
+        "resolution": "192x192",
+        "bgremover": "ultra"
+      },
+      "isPublic": false,
+      "publicSlug": null,
+      "publicFilename": null,
+      "publicUrl": null,
+      "publicAtlasUrl": null,
+      "loopStart": null,
+      "loopEnd": null,
+      "speedMultiplier": 1,
+      "sizeMultiplier": 1,
+      "isUnlocked": true,
+      "audioUrl": null,
+      "isFrom3dModel": false
+    },
+    "file": "assets/cast/autosprite/bonny-v2/still.png",
+    "at": "2026-08-31T21:20:52.101Z"
+  },
+  {
+    "kind": "sheet",
+    "who": "bonny-v2",
+    "characterId": "cmthqg1op000k6odb36a95fzc",
+    "spritesheetId": "cmthqpsas0005u0gdeh7ldobu",
+    "meta": {
+      "id": "cmthqpsas0005u0gdeh7ldobu",
+      "kind": "walk",
+      "name": "Walk",
+      "sourceVideoId": "cmthqg2ql000cmwbfuupxapik",
+      "createdAt": "2026-08-31T21:18:15.940Z",
+      "frameWidth": 192,
+      "frameHeight": 192,
+      "frameCount": 32,
+      "columns": 6,
+      "metadata": {
+        "frames": 32,
+        "columns": 6,
+        "model": "Dynamic RGB (Fast)",
+        "resolution": "192x192",
+        "bgremover": "ultra"
+      },
+      "isPublic": false,
+      "publicSlug": null,
+      "publicFilename": null,
+      "publicUrl": null,
+      "publicAtlasUrl": null,
+      "loopStart": null,
+      "loopEnd": null,
+      "speedMultiplier": 1,
+      "sizeMultiplier": 1,
+      "isUnlocked": true,
+      "audioUrl": null,
+      "isFrom3dModel": false
+    },
+    "file": "assets/cast/autosprite/bonny-v2/walk.png",
+    "at": "2026-08-31T21:20:52.467Z"
+  },
+  {
+    "kind": "sheet",
+    "who": "bonny-v2",
+    "characterId": "cmthqg1op000k6odb36a95fzc",
+    "spritesheetId": "cmthqps8w0003u0gdwiei9l5a",
+    "meta": {
+      "id": "cmthqps8w0003u0gdwiei9l5a",
+      "kind": "run",
+      "name": "Run",
+      "sourceVideoId": "cmthqg2s2000emwbfxgnbvrpc",
+      "createdAt": "2026-08-31T21:18:15.872Z",
+      "frameWidth": 192,
+      "frameHeight": 192,
+      "frameCount": 32,
+      "columns": 6,
+      "metadata": {
+        "frames": 32,
+        "columns": 6,
+        "model": "Dynamic RGB (Fast)",
+        "resolution": "192x192",
+        "bgremover": "ultra"
+      },
+      "isPublic": false,
+      "publicSlug": null,
+      "publicFilename": null,
+      "publicUrl": null,
+      "publicAtlasUrl": null,
+      "loopStart": null,
+      "loopEnd": null,
+      "speedMultiplier": 1,
+      "sizeMultiplier": 1,
+      "isUnlocked": true,
+      "audioUrl": null,
+      "isFrom3dModel": false
+    },
+    "file": "assets/cast/autosprite/bonny-v2/run.png",
+    "at": "2026-08-31T21:20:52.865Z"
+  },
+  {
+    "kind": "sheet",
+    "who": "pike",
+    "characterId": "cmth75k2k001yxyz66xse39ia",
+    "spritesheetId": "cmthqt02l004cfz51avre9t6g",
+    "meta": {
+      "id": "cmthqt02l004cfz51avre9t6g",
+      "kind": "custom",
+      "name": "Despair",
+      "sourceVideoId": "cmthf25ni000oe8t3u4z2fp8y",
+      "createdAt": "2026-08-31T21:20:45.982Z",
+      "frameWidth": 176,
+      "frameHeight": 176,
+      "frameCount": 32,
+      "columns": 6,
+      "metadata": {
+        "frames": 32,
+        "columns": 6,
+        "model": "Dynamic RGB (Fast)",
+        "resolution": "176x176",
+        "bgremover": "ultra"
+      },
+      "isPublic": false,
+      "publicSlug": null,
+      "publicFilename": null,
+      "publicUrl": null,
+      "publicAtlasUrl": null,
+      "loopStart": null,
+      "loopEnd": null,
+      "speedMultiplier": 1,
+      "sizeMultiplier": 1,
+      "isUnlocked": true,
+      "audioUrl": null,
+      "isFrom3dModel": false
+    },
+    "file": "assets/cast/autosprite/pike/despair.png",
+    "at": "2026-08-31T21:20:54.170Z"
+  },
+  {
+    "kind": "sheet",
+    "who": "pike",
+    "characterId": "cmth75k2k001yxyz66xse39ia",
+    "spritesheetId": "cmthqt010004afz51yslk4wt3",
+    "meta": {
+      "id": "cmthqt010004afz51yslk4wt3",
+      "kind": "custom",
+      "name": "Ring the bell",
+      "sourceVideoId": "cmthf25p1000we8t32z1l99v0",
+      "createdAt": "2026-08-31T21:20:45.924Z",
+      "frameWidth": 176,
+      "frameHeight": 176,
+      "frameCount": 32,
+      "columns": 6,
+      "metadata": {
+        "frames": 32,
+        "columns": 6,
+        "model": "Dynamic RGB (Fast)",
+        "resolution": "176x176",
+        "bgremover": "ultra"
+      },
+      "isPublic": false,
+      "publicSlug": null,
+      "publicFilename": null,
+      "publicUrl": null,
+      "publicAtlasUrl": null,
+      "loopStart": null,
+      "loopEnd": null,
+      "speedMultiplier": 1,
+      "sizeMultiplier": 1,
+      "isUnlocked": true,
+      "audioUrl": null,
+      "isFrom3dModel": false
+    },
+    "file": "assets/cast/autosprite/pike/ring-the-bell.png",
+    "at": "2026-08-31T21:20:54.482Z"
+  },
+  {
+    "kind": "sheet",
+    "who": "pike",
+    "characterId": "cmth75k2k001yxyz66xse39ia",
+    "spritesheetId": "cmthqszzg0048fz51uva8l0bu",
+    "meta": {
+      "id": "cmthqszzg0048fz51uva8l0bu",
+      "kind": "custom",
+      "name": "Talk",
+      "sourceVideoId": "cmthi0s2e00044fnnotwi2zpy",
+      "createdAt": "2026-08-31T21:20:45.868Z",
+      "frameWidth": 176,
+      "frameHeight": 176,
+      "frameCount": 32,
+      "columns": 6,
+      "metadata": {
+        "frames": 32,
+        "columns": 6,
+        "model": "Dynamic RGB (Fast)",
+        "resolution": "176x176",
+        "bgremover": "ultra"
+      },
+      "isPublic": false,
+      "publicSlug": null,
+      "publicFilename": null,
+      "publicUrl": null,
+      "publicAtlasUrl": null,
+      "loopStart": null,
+      "loopEnd": null,
+      "speedMultiplier": 1,
+      "sizeMultiplier": 1,
+      "isUnlocked": true,
+      "audioUrl": null,
+      "isFrom3dModel": false
+    },
+    "file": "assets/cast/autosprite/pike/talk.png",
+    "at": "2026-08-31T21:20:55.009Z"
+  },
+  {
+    "kind": "sheet",
+    "who": "pike",
+    "characterId": "cmth75k2k001yxyz66xse39ia",
+    "spritesheetId": "cmthqszxw0046fz51xymjyc6v",
+    "meta": {
+      "id": "cmthqszxw0046fz51xymjyc6v",
+      "kind": "custom",
+      "name": "Still",
+      "sourceVideoId": "cmthqj4mu000io43m5zj3zaj8",
+      "createdAt": "2026-08-31T21:20:45.812Z",
+      "frameWidth": 176,
+      "frameHeight": 176,
+      "frameCount": 32,
+      "columns": 6,
+      "metadata": {
+        "frames": 32,
+        "columns": 6,
+        "model": "Dynamic RGB (Fast)",
+        "resolution": "176x176",
+        "bgremover": "ultra"
+      },
+      "isPublic": false,
+      "publicSlug": null,
+      "publicFilename": null,
+      "publicUrl": null,
+      "publicAtlasUrl": null,
+      "loopStart": null,
+      "loopEnd": null,
+      "speedMultiplier": 1,
+      "sizeMultiplier": 1,
+      "isUnlocked": true,
+      "audioUrl": null,
+      "isFrom3dModel": false
+    },
+    "file": "assets/cast/autosprite/pike/still.png",
+    "at": "2026-08-31T21:20:55.350Z"
+  },
+  {
+    "kind": "sheet",
+    "who": "pike",
+    "characterId": "cmth75k2k001yxyz66xse39ia",
+    "spritesheetId": "cmthqszvo0044fz51ezz4xacb",
+    "meta": {
+      "id": "cmthqszvo0044fz51ezz4xacb",
+      "kind": "walk",
+      "name": "Walk",
+      "sourceVideoId": "cmthf25mm000me8t3q0wjdc8x",
+      "createdAt": "2026-08-31T21:20:45.732Z",
+      "frameWidth": 176,
+      "frameHeight": 176,
+      "frameCount": 32,
+      "columns": 6,
+      "metadata": {
+        "frames": 32,
+        "columns": 6,
+        "model": "Dynamic RGB (Fast)",
+        "resolution": "176x176",
+        "bgremover": "ultra"
+      },
+      "isPublic": false,
+      "publicSlug": null,
+      "publicFilename": null,
+      "publicUrl": null,
+      "publicAtlasUrl": null,
+      "loopStart": null,
+      "loopEnd": null,
+      "speedMultiplier": 1,
+      "sizeMultiplier": 1,
+      "isUnlocked": true,
+      "audioUrl": null,
+      "isFrom3dModel": false
+    },
+    "file": "assets/cast/autosprite/pike/walk.png",
+    "at": "2026-08-31T21:20:55.813Z"
+  },
+  {
+    "kind": "sheet",
+    "who": "pike",
+    "characterId": "cmth75k2k001yxyz66xse39ia",
+    "spritesheetId": "cmthqsztq0042fz51ixqojzqw",
+    "meta": {
+      "id": "cmthqsztq0042fz51ixqojzqw",
+      "kind": "idle",
+      "name": "Idle",
+      "sourceVideoId": "cmthf25lv000ke8t3illhbec8",
+      "createdAt": "2026-08-31T21:20:45.663Z",
+      "frameWidth": 176,
+      "frameHeight": 176,
+      "frameCount": 32,
+      "columns": 6,
+      "metadata": {
+        "frames": 32,
+        "columns": 6,
+        "model": "Dynamic RGB (Fast)",
+        "resolution": "176x176",
+        "bgremover": "ultra"
+      },
+      "isPublic": false,
+      "publicSlug": null,
+      "publicFilename": null,
+      "publicUrl": null,
+      "publicAtlasUrl": null,
+      "loopStart": null,
+      "loopEnd": null,
+      "speedMultiplier": 1,
+      "sizeMultiplier": 1,
+      "isUnlocked": true,
+      "audioUrl": null,
+      "isFrom3dModel": false
+    },
+    "file": "assets/cast/autosprite/pike/idle.png",
+    "at": "2026-08-31T21:20:56.161Z"
+  },
+  {
+    "kind": "regenerate",
+    "characterId": "cmthqg1op000k6odb36a95fzc",
+    "body": {
+      "frameCount": 32,
+      "frameSize": 146,
+      "removeBg": "ultra",
+      "sharpen": "light"
+    },
+    "response": {
+      "jobId": "premium-bg-batch-1788211344757-b2vh6a4"
+    },
+    "at": "2026-08-31T21:24:17.224Z"
+  },
+  {
+    "kind": "sheet",
+    "who": "bonny-v2",
+    "characterId": "cmthqg1op000k6odb36a95fzc",
+    "spritesheetId": "cmthqxifa000bb94lhxtt5f0z",
+    "meta": {
+      "id": "cmthqxifa000bb94lhxtt5f0z",
+      "kind": "custom",
+      "name": "Talk",
+      "sourceVideoId": "cmthqg2uw000qmwbfiw5o2ujq",
+      "createdAt": "2026-08-31T21:24:16.390Z",
+      "frameWidth": 146,
+      "frameHeight": 146,
+      "frameCount": 32,
+      "columns": 6,
+      "metadata": {
+        "frames": 32,
+        "columns": 6,
+        "model": "Dynamic RGB (Fast)",
+        "resolution": "146x146",
+        "bgremover": "ultra"
+      },
+      "isPublic": false,
+      "publicSlug": null,
+      "publicFilename": null,
+      "publicUrl": null,
+      "publicAtlasUrl": null,
+      "loopStart": null,
+      "loopEnd": null,
+      "speedMultiplier": 1,
+      "sizeMultiplier": 1,
+      "isUnlocked": true,
+      "audioUrl": null,
+      "isFrom3dModel": false
+    },
+    "file": "assets/cast/autosprite/bonny-v2/talk.png",
+    "at": "2026-08-31T21:24:18.463Z"
+  },
+  {
+    "kind": "sheet",
+    "who": "bonny-v2",
+    "characterId": "cmthqg1op000k6odb36a95fzc",
+    "spritesheetId": "cmthqxic50007b94l3aabry9o",
+    "meta": {
+      "id": "cmthqxic50007b94l3aabry9o",
+      "kind": "custom",
+      "name": "Bellows",
+      "sourceVideoId": "cmthqg2w2000smwbfihgjiq2v",
+      "createdAt": "2026-08-31T21:24:16.277Z",
+      "frameWidth": 146,
+      "frameHeight": 146,
+      "frameCount": 32,
+      "columns": 6,
+      "metadata": {
+        "frames": 32,
+        "columns": 6,
+        "model": "Dynamic RGB (Fast)",
+        "resolution": "146x146",
+        "bgremover": "ultra"
+      },
+      "isPublic": false,
+      "publicSlug": null,
+      "publicFilename": null,
+      "publicUrl": null,
+      "publicAtlasUrl": null,
+      "loopStart": null,
+      "loopEnd": null,
+      "speedMultiplier": 1,
+      "sizeMultiplier": 1,
+      "isUnlocked": true,
+      "audioUrl": null,
+      "isFrom3dModel": false
+    },
+    "file": "assets/cast/autosprite/bonny-v2/bellows.png",
+    "at": "2026-08-31T21:24:19.151Z"
+  },
+  {
+    "kind": "sheet",
+    "who": "bonny-v2",
+    "characterId": "cmthqg1op000k6odb36a95fzc",
+    "spritesheetId": "cmthqxiag0005b94lvcosoc7w",
+    "meta": {
+      "id": "cmthqxiag0005b94lvcosoc7w",
+      "kind": "custom",
+      "name": "Still",
+      "sourceVideoId": "cmthqg2ww000umwbfofljkujf",
+      "createdAt": "2026-08-31T21:24:16.216Z",
+      "frameWidth": 146,
+      "frameHeight": 146,
+      "frameCount": 32,
+      "columns": 6,
+      "metadata": {
+        "frames": 32,
+        "columns": 6,
+        "model": "Dynamic RGB (Fast)",
+        "resolution": "146x146",
+        "bgremover": "ultra"
+      },
+      "isPublic": false,
+      "publicSlug": null,
+      "publicFilename": null,
+      "publicUrl": null,
+      "publicAtlasUrl": null,
+      "loopStart": null,
+      "loopEnd": null,
+      "speedMultiplier": 1,
+      "sizeMultiplier": 1,
+      "isUnlocked": true,
+      "audioUrl": null,
+      "isFrom3dModel": false
+    },
+    "file": "assets/cast/autosprite/bonny-v2/still.png",
+    "at": "2026-08-31T21:24:19.487Z"
+  },
+  {
+    "kind": "sheet",
+    "who": "bonny-v2",
+    "characterId": "cmthqg1op000k6odb36a95fzc",
+    "spritesheetId": "cmthqxi820003b94ltpqo4uxq",
+    "meta": {
+      "id": "cmthqxi820003b94ltpqo4uxq",
+      "kind": "walk",
+      "name": "Walk",
+      "sourceVideoId": "cmthqg2ql000cmwbfuupxapik",
+      "createdAt": "2026-08-31T21:24:16.130Z",
+      "frameWidth": 146,
+      "frameHeight": 146,
+      "frameCount": 32,
+      "columns": 6,
+      "metadata": {
+        "frames": 32,
+        "columns": 6,
+        "model": "Dynamic RGB (Fast)",
+        "resolution": "146x146",
+        "bgremover": "ultra"
+      },
+      "isPublic": false,
+      "publicSlug": null,
+      "publicFilename": null,
+      "publicUrl": null,
+      "publicAtlasUrl": null,
+      "loopStart": null,
+      "loopEnd": null,
+      "speedMultiplier": 1,
+      "sizeMultiplier": 1,
+      "isUnlocked": true,
+      "audioUrl": null,
+      "isFrom3dModel": false
+    },
+    "file": "assets/cast/autosprite/bonny-v2/walk.png",
+    "at": "2026-08-31T21:24:19.891Z"
+  },
+  {
+    "kind": "sheet",
+    "who": "bonny-v2",
+    "characterId": "cmthqg1op000k6odb36a95fzc",
+    "spritesheetId": "cmthqxi670001b94leth7gzn8",
+    "meta": {
+      "id": "cmthqxi670001b94leth7gzn8",
+      "kind": "run",
+      "name": "Run",
+      "sourceVideoId": "cmthqg2s2000emwbfxgnbvrpc",
+      "createdAt": "2026-08-31T21:24:16.063Z",
+      "frameWidth": 146,
+      "frameHeight": 146,
+      "frameCount": 32,
+      "columns": 6,
+      "metadata": {
+        "frames": 32,
+        "columns": 6,
+        "model": "Dynamic RGB (Fast)",
+        "resolution": "146x146",
+        "bgremover": "ultra"
+      },
+      "isPublic": false,
+      "publicSlug": null,
+      "publicFilename": null,
+      "publicUrl": null,
+      "publicAtlasUrl": null,
+      "loopStart": null,
+      "loopEnd": null,
+      "speedMultiplier": 1,
+      "sizeMultiplier": 1,
+      "isUnlocked": true,
+      "audioUrl": null,
+      "isFrom3dModel": false
+    },
+    "file": "assets/cast/autosprite/bonny-v2/run.png",
+    "at": "2026-08-31T21:24:20.235Z"
   }
 ]

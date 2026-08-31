@@ -665,7 +665,7 @@
       "start": 64,
       "count": 32,
       "framesPerCycle": 9,
-      "stride": 59,
+      "stride": 60,
       "fps": 19
     },
     "drink": {

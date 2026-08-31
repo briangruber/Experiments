@@ -541,6 +541,31 @@ window.__period = async (src, cell, cols, clip, feetY, figureH) => {
     }
     rear.push(lo < 0 ? null : lo);
   }
+  // The widest the two CONTACT points ever get: one foot planted at the back
+  // and one planted at the front is a step, and a cycle here is a step. It is
+  // a floor on the stride, not the estimate itself, because a run has flight
+  // phases that carry the character further than the feet ever separate.
+  //
+  // The floor exists because the slope estimate is not reliable enough to
+  // stand alone. Measured across this cast, the widest contact spread is a
+  // near-constant fraction of the figure — 0.39, 0.44, 0.44 of standing height
+  // for three different people, which is what you would expect of three people
+  // walking. The slope over the same three came out 0.35, 0.51 and 0.24. The
+  // last of those is Bonny, and a stride read a half short is not a cosmetic
+  // error: the engine advances the cycle by distance travelled, so it ran her
+  // legs at twice the rate the ground was moving under them.
+  let contactSpread = 0;
+  for (let k = 0; k < clip.count; k++) {
+    const f = clip.start + k;
+    const bx = (f % cols) * cell.w, by = ((f / cols) | 0) * cell.h;
+    const dd = g.getImageData(bx, by + feetY - contact, cell.w, contact).data;
+    let lo = 1e9, hi = -1;
+    for (let y = 0; y < contact; y++) for (let x = 0; x < cell.w; x++) {
+      if (dd[(y * cell.w + x) * 4 + 3] >= ALPHA_CUT) { if (x < lo) lo = x; if (x > hi) hi = x; }
+    }
+    if (hi > lo) contactSpread = Math.max(contactSpread, hi - lo + 1);
+  }
+
   const runs = [];
   let cur = [];
   for (let i = 1; i < rear.length; i++) {
@@ -570,7 +595,10 @@ window.__period = async (src, cell, cols, clip, feetY, figureH) => {
     for (let i = 1; i < peaks.length; i++) gap += peaks[i] - peaks[i - 1];
     const perStep = gap / (peaks.length - 1);
     const period = Math.max(2, Math.round(perStep * 2));
-    return { period, peaks: peaks.length, stride: Math.round(slope * period),
+    const fromSlope = Math.round(slope * period);
+    return { period, peaks: peaks.length,
+      stride: Math.max(fromSlope, contactSpread),
+      fromSlope, floor: contactSpread,
       stance: best.length, signal: 'foot separation' };
   }
   // A clip with no gait — an idle — has no peaks to count, and its cycle is

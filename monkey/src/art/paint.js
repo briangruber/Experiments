@@ -746,17 +746,54 @@ export const BANDANA = (ctx, H, lag = 0) => {
 // thing in the bag and the thing that was in the room are one image, so they
 // cannot drift apart. Registered by loadProps, so any prop that exists as a
 // PNG gets one without being named here.
-export function imageIcon(img, box = 52) {
-  const k = Math.min(box / img.width, box / img.height, 1.6);
-  const w = Math.round(img.width * k), h = Math.round(img.height * k);
+export function imageIcon(img, box = 52, over = null) {
+  // Centred and sized on the ART, not on the cell it came in.
+  //
+  // A generated prop is a small drawing in a large transparent frame — the tin
+  // cup is 29x48 of art inside a 64x64 cell — so scaling the cell to fit the
+  // icon slot leaves the drawing at two thirds the size it could be, sitting
+  // off to one side. Measuring the opaque bounds once, here, is the difference
+  // between an icon that fills its slot and an icon that rattles around in it.
+  const b = artBounds(img);
+  const k = Math.min(box / b.w, box / b.h, 3);
+  const w = Math.round(b.w * k), h = Math.round(b.h * k);
   const draw = (ctx) => {
     const was = ctx.imageSmoothingEnabled;
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(img, -w / 2, -h / 2, w, h);
+    ctx.drawImage(img, b.x, b.y, b.w, b.h, -w / 2, -h / 2, w, h);
     ctx.imageSmoothingEnabled = was;
+    if (over) over(ctx, w, h);
   };
   draw.fromSprite = true;
   return draw;
+}
+
+// The opaque box inside a sprite's cell, measured once and remembered. Reading
+// pixels is cheap here and impossible later: the icon is drawn every frame.
+const BOUNDS = new WeakMap();
+function artBounds(img) {
+  const had = BOUNDS.get(img);
+  if (had) return had;
+  const full = { x: 0, y: 0, w: img.width, h: img.height };
+  let out = full;
+  try {
+    const c = document.createElement('canvas');
+    c.width = img.width; c.height = img.height;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    g.drawImage(img, 0, 0);
+    const d = g.getImageData(0, 0, c.width, c.height).data;
+    let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
+    for (let y = 0; y < c.height; y++) {
+      for (let x = 0; x < c.width; x++) {
+        if (d[(y * c.width + x) * 4 + 3] < 128) continue;
+        if (x < x0) x0 = x; if (x > x1) x1 = x;
+        if (y < y0) y0 = y; if (y > y1) y1 = y;
+      }
+    }
+    if (x1 >= x0) out = { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+  } catch { /* a sprite that will not read back keeps its whole cell */ }
+  BOUNDS.set(img, out);
+  return out;
 }
 
 export const ICONS = {

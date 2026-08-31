@@ -523,7 +523,22 @@ props = await loadProps();
 // Generated items are their own inventory icons. The thing on the table and
 // the thing in the bag are one image, which is the point of generating it once
 // instead of drawing it twice and hoping they resemble each other.
-registerPropIcons(props, art.ICONS, art.imageIcon, { pepper: 'pepperpot', kipper: 'kipper' });
+registerPropIcons(props, art.ICONS, art.imageIcon, {
+  pepper: 'pepperpot',
+  kipper: 'kipper',
+  // The cup was the first generated prop and the last to get its own icon,
+  // which is how it came to be drawn one way on the tavern wall and another
+  // way in the bag — the exact fault the pepper pot was fixed for. Filling it
+  // does not make it a different cup, so the grog is drawn on top of the same
+  // sprite rather than beside a second drawing of one.
+  cup: 'cup',
+  'cup-of-grog': ['cup', (ctx, w, h) => {
+    ctx.fillStyle = '#c8752a';
+    ctx.beginPath(); ctx.ellipse(0, -h * 0.30, w * 0.30, h * 0.07, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,236,190,0.75)';
+    ctx.beginPath(); ctx.ellipse(-w * 0.10, -h * 0.32, w * 0.10, h * 0.035, 0, 0, Math.PI * 2); ctx.fill();
+  }],
+});
 await buildCast();
 
 // Ambience is loaded but silent until the first click, because autoplay is

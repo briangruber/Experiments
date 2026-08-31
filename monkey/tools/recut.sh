@@ -7,7 +7,7 @@
 # change to the packer could not be applied to the cast without guessing.
 # It is a shell script rather than a note in a document so it stays true.
 #
-# --key-flat because the sheets are pulled with removeBg=none and keyed here;
+# because the sheets are pulled with removeBg=none and keyed here;
 # --fps-of because a loop of someone doing nothing must not run at the speed of
 # someone doing something (see the note in sheet-cut.mjs).
 #
@@ -20,17 +20,17 @@ set -e
 cd "$(dirname "$0")/.."
 A=assets/cast/autosprite
 
-node tools/sheet-cut.mjs --name grout --grid 6x6 --down 1 --key-flat --fps 19 --fps-of idle=10,talk=15,asleep=9 --once drink \
+node tools/sheet-cut.mjs --name grout --grid 6x6 --down 1 --fps 19 --fps-of idle=10,talk=15,asleep=9 --once drink \
   idle=$A/grout/still.png talk=$A/grout/talk.png walk=$A/grout/walk.png \
   drink=$A/grout/drink.png asleep=$A/grout/asleep.png
 
-node tools/sheet-cut.mjs --name bonny --grid 6x6 --down 1 --key-flat --fps 19 --fps-of idle=10,talk=15 --once bellows \
-  idle=$A/bonny/still.png talk=$A/bonny/talk.png walk=$A/bonny/walk.png \
-  run=$A/bonny/run.png bellows=$A/bonny/bellows.png
+node tools/sheet-cut.mjs --name bonny --grid 6x6 --down 1 --fps 19 --fps-of idle=10,talk=15 --once bellows \
+  idle=$A/bonny-v2/still.png talk=$A/bonny-v2/talk.png walk=$A/bonny-v2/walk.png \
+  run=$A/bonny-v2/run.png bellows=$A/bonny-v2/bellows.png
 
-node tools/sheet-cut.mjs --name pike --grid 6x6 --down 1 --key-flat --fps 19 --fps-of idle=10,talk=15,despair=12 --once bell \
+node tools/sheet-cut.mjs --name pike --grid 6x6 --down 1 --fps 19 --fps-of idle=10,talk=15,despair=12 --once bell \
   idle=$A/pike/still.png talk=$A/pike/talk.png walk=$A/pike/walk.png \
   despair=$A/pike/despair.png bell=$A/pike/ring-the-bell.png
 
-node tools/sheet-cut.mjs --name cat --grid 6x6 --down 1 --key-flat --fps 19 --fps-of idle=10 --once sneeze \
+node tools/sheet-cut.mjs --name cat --grid 6x6 --down 1 --fps 19 --fps-of idle=10 --once sneeze \
   idle=$A/cat/crouch.png sneeze=$A/cat/sneeze.png scarper=$A/cat/scarper.png
