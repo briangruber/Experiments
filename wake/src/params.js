@@ -22,6 +22,18 @@ export const PARAMS = {
     trimHump:     { v: 8,  min: 0,   max: 15,  step: 0.1,  label: 'Trim at hump (°)' },
     trimPlane:    { v: 4,  min: 0,   max: 12,  step: 0.1,  label: 'Trim on plane (°)' },
     riseMax:      { v: 0.88, min: 0,   max: 2,   step: 0.01, label: 'Hull rise (m)' },
+    // HOW MUCH OF HER DRAFT STAYS IN THE WATER, whatever she is doing.
+    //
+    // A planing hull rises -- that is what planing is -- but it never leaves
+    // the water: the transom and the after bottom stay wetted at any speed,
+    // which is where the thrust comes from. Two separate terms were lifting
+    // her and only one was capped. Measured at model scale 2.4, 23.8 m drawn
+    // against a 0.85 m draft: the rise was correctly held to 0.468 m and the
+    // trim compensation then added 2.28 m past it, putting the keel 1.43 m
+    // clear of the sea at eight metres a second -- airborne at every speed
+    // above about four, and making foam from water she was nowhere near.
+    // This caps the total, so she can trim and rise but not fly.
+    wetKeep:      { v: 0.45, min: 0,   max: 0.95, step: 0.01, label: 'Draft kept wetted' },
     wetShift:     { v: 0.52, min: 0,   max: 0.9, step: 0.01, label: 'Contact point aft' },
     planing:      { v: 6.5, min: 0.5, max: 20,  step: 0.1,  label: 'Planing speed (m/s)' },
     length:       { v: 9.9,  min: 3,   max: 20,  step: 0.1,  label: 'Hull length (m)' },

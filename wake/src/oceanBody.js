@@ -310,9 +310,32 @@ export class OceanBody {
 		// bank: a hull climbing a swell while leaning into a turn does both.
 		this.mesh.rotation.set( - trim - this.wave.pitch, this.state.heading,
 			this.roll + this.wave.roll, 'YXZ' );
+		// A HULL DOES NOT LEAVE THE WATER, AND THE CAP HAS TO COVER BOTH TERMS.
+		//
+		// _lift() caps the planing rise against the boat's own draft and does
+		// exactly what its comment promises. It is not the term that flies. The
+		// trim compensation is: rotating bow-up about an origin at the stem
+		// sinks the stern, so the hull is raised to hold the aft quarter at the
+		// waterline -- legitimate geometry, but uncapped, and it scales with the
+		// DRAWN length while the draft does not scale with model scale at all.
+		//
+		// Measured with the shipped tuning at model scale 2.4, 23.8 m drawn
+		// against a 0.85 m draft: the rise is held to 0.468 m and the trim term
+		// then adds 2.28 m straight past it, putting the keel 1.43 m clear of
+		// the sea at eight metres a second. Airborne at every speed above about
+		// four. That is why foam was being made from water the boat was not
+		// touching -- the foam was right, the boat was in the wrong place.
+		//
+		// So the cap belongs on the SUM. A planing hull keeps its after bottom
+		// wetted at any speed, which is where the thrust comes from, and
+		// boat.wetKeep is the share of her draft that stays in the water.
+		// Heave is added afterwards: the sea genuinely does lift her.
+		const model = this.mesh?.children?.[ 0 ];
+		const keelDraft = model?.userData?.draft ?? 0.5;
+		const lift = this._lift( att ) + Math.sin( trim ) * this.length * TRIM_PIVOT;
+		const maxLift = keelDraft * ( 1 - get( 'boat.wetKeep' ) );
 		this.mesh.position.set( b.x,
-			this._lift( att )+ this.wave.heave
-				+ Math.sin( trim ) * this.length * TRIM_PIVOT, b.z );
+			Math.min( lift, maxLift ) + this.wave.heave, b.z );
 
 	}
 
