@@ -1,21 +1,24 @@
 {
-  "cellW": 24,
-  "cellH": 47,
-  "cols": 6,
-  "figureH": 39,
-  "feetY": 43,
+  "cellW": 41,
+  "cellH": 68,
+  "cols": 50,
+  "figureH": 60,
+  "feetY": 64,
   "clips": {
     "idle": {
       "start": 0,
-      "count": 1,
-      "fps": 4
+      "count": 25,
+      "fps": 12
     },
     "walk": {
-      "start": 0,
-      "count": 6,
+      "start": 25,
+      "count": 25,
       "fps": 12
     }
   },
-  "source": "assets/spriteoff/seedream.px.png",
+  "sources": [
+    "assets/cast/autosprite/idle.png",
+    "assets/cast/autosprite/walk.png"
+  ],
   "targetHeight": 48
 }

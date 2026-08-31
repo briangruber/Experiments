@@ -190,3 +190,40 @@ the code.
 Sheets can live anywhere now — an uploads directory, /tmp, another checkout —
 because the image is handed to the page as a data URI rather than served from
 inside the repo.
+
+### What the API actually allows
+
+Read endpoints work on a free key; **write endpoints do not**. `GET /account`,
+`GET /characters` and `GET /characters/:id/spritesheets` all answer, but
+`POST …/regenerate-spritesheets` returns `403 PLAN_REQUIRED`. So the free
+re-extract at game settings is not available without a subscription — the
+sheets have to be taken at whatever the app produced and reduced locally.
+
+One endpoint is not in the docs and is worth knowing: `GET
+/characters/:id/spritesheets` lists a character's sheets **with their download
+URLs**, which is what `pull` uses. The character record itself carries no
+spritesheet ids at all.
+
+The atlas JSON is a plain uniform grid — 256×256 cells, five columns, one entry
+per frame with no trim rectangles — so it adds nothing over `--grid 5x5` and is
+kept only for provenance.
+
+### Cutting what came back
+
+    node tools/autosprite.mjs pull <characterId>
+    node tools/sheet-cut.mjs --name bonny --grid 5x5 --down 3 \
+      idle=assets/cast/autosprite/idle.png walk=assets/cast/autosprite/walk.png
+
+`clip=path` packs several sheets into one atlas with named clips, because idle
+and walk are separate exports but one character and the loader takes a single
+sheet per body. Without it `idle` would be frame 0 of the walk — a contact
+pose, so the character freezes mid-stride whenever she stands still.
+
+`--down 3` was chosen by looking: `--down 4` lands the figure at 45px, closer
+to the 48px this document asks for, but the character is dark-clothed against
+dark planks and loses too much. 60px reads.
+
+The numbers are what settle this against the general models. Across fifty
+frames the figure height varies by **one pixel**; the general sheets varied
+12–23%, which is a visible pulse. Feet spread and head spread are both zero,
+verified against the written file rather than assumed.

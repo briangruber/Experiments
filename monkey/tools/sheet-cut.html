@@ -138,12 +138,18 @@ window.__grid = async (src, opts) => {
       frames.push({ x0, x1, y0, y1, h: y1 - y0 + 1, headCx: hx1 >= hx0 ? (hx0 + hx1) / 2 : (x0 + x1) / 2, mask: Array.from(mask) });
     }
   }
-  window.__state = { W, H, d: Array.from(d), frames };
+  // Several sheets can be packed into one atlas — idle and walk are separate
+  // exports but one character — so each source appends to a shared list along
+  // with its own pixels, rather than replacing the last one.
+  window.__state ??= { sources: [], frames: [] };
+  const src_i = window.__state.sources.length;
+  window.__state.sources.push({ W, H, d: Array.from(d) });
+  for (const f of frames) window.__state.frames.push({ ...f, src: src_i });
   return { w: W, h: H, frames: frames.map(({ mask, ...f }) => f) };
 };
 
 window.__pack = (cell, out) => {
-  const { W, d, frames } = window.__state;
+  const { sources, frames } = window.__state;
   const c = document.getElementById('c');
   c.width = cell.w * out.cols;
   c.height = cell.h * Math.ceil(frames.length / out.cols);
@@ -155,6 +161,7 @@ window.__pack = (cell, out) => {
     // head centre to one column, in every cell.
     const ox = Math.round(cx + cell.w / 2 - (f.headCx - f.x0)) - f.x0;
     const oy = Math.round(cy + out.feetY - (f.y1 - f.y0) - 1) - f.y0;
+    const { W, d } = sources[f.src || 0];
     for (let y = f.y0; y <= f.y1; y++) {
       for (let x = f.x0; x <= f.x1; x++) {
         if (!f.mask[y * W + x]) continue;

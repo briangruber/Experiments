@@ -55,17 +55,27 @@ export const PUZZLE = {
 //
 // The loader below still honours this table, so a baked body remains one entry
 // away for a room where the character is large in frame.
-// Empty, and not for want of a pipeline. tools/spriteoff.mjs generates a sheet,
-// tools/pixelize.mjs makes it real pixel art, and tools/sheet-cut.mjs cuts it
-// into an aligned atlas that loads here in one line — the whole route works.
-// The output is simply not yet better than the sprite drawn in code beside it:
-// the generated frames vary in height, the background key leaves a dark line
-// under the feet, and one cell in six carries debris from its neighbour.
+// The player's body is a generated sprite atlas at last, and the reason it
+// works where seven general image models did not is that AutoSprite generates
+// a character once and then animates THAT character, so the frames cannot
+// drift into eight slightly different people.
 //
-// Uncomment to run the generated character instead; the atlas is committed.
-//   player: { asset: 'bonny', sheet: './assets/cast/bonny-sheet.png',
-//             manifest: './assets/cast/bonny-sheet.json', height: 156 },
-export const SPRITE_CAST = {};
+// The numbers say it plainly. The general models returned sheets whose figure
+// height varied 12-23% between frames, which reads as a pulse once it moves;
+// this one varies by a single pixel across twenty-five frames, and
+// tools/sheet-cut.mjs verifies the packed atlas has its feet on one row and
+// its head on one column before it is allowed to ship.
+export const SPRITE_CAST = {
+  player: {
+    asset: 'bonny',
+    sheet: './assets/cast/bonny-sheet.png',
+    manifest: './assets/cast/bonny-sheet.json',
+    // The atlas figure is 60px; the loader rounds height/figureH * depth to a
+    // whole number, so this lands on a 3x zoom at mid-dock and steps to 2x
+    // upstage rather than resampling itself continuously.
+    height: 186,
+  },
+};
 
 export const CAST = {
   player: {

@@ -131,20 +131,18 @@ async function cmdRegen(characterId) {
 
 async function cmdPull(characterId) {
   if (!characterId) throw new Error('need a character id');
-  // The sheet ids come from the character record or from a regenerate/animate
-  // response; both shapes are accepted rather than assumed.
-  const ids = opt('sheets', null)?.split(',')
-    || (await api(`/characters/${characterId}`).catch(() => ({})))?.spritesheetIds
-    || [];
-  if (!ids.length) {
-    console.error('  no spritesheet ids found on the character record.');
-    console.error('  pass them directly:  --sheets ss_001,ss_002');
-    process.exit(1);
-  }
+  // The character record carries no sheet ids; the listing endpoint does, and
+  // returns the download URLs with them. (Documented as POST for generation,
+  // it also answers GET with a list — checked rather than assumed.)
+  const list = opt('sheets', null)
+    ? { spritesheets: opt('sheets').split(',').map((id) => ({ id })) }
+    : await api(`/characters/${characterId}/spritesheets`);
+  const sheets = list.spritesheets || [];
+  if (!sheets.length) { console.error('  no spritesheets on this character'); process.exit(1); }
   await mkdir(OUT, { recursive: true });
-  for (const id of ids) {
-    const s = await api(`/spritesheets/${id}`);
-    const base = `${s.kind || id}`;
+  for (const row of sheets) {
+    const s = row.sheetUrl ? row : await api(`/spritesheets/${row.id}`);
+    const base = `${s.kind || row.id}`;
     const png = await download(s.sheetUrl, join(OUT, `${base}.png`));
     let atlas = null;
     if (s.atlasUrl) {
@@ -153,8 +151,8 @@ async function cmdPull(characterId) {
     }
     console.log(`  ${base.padEnd(10)} ${s.frameCount} frames  ${s.frameWidth}x${s.frameHeight}  `
       + `${s.columns} cols  ${(png.length / 1024).toFixed(0)} KB${atlas ? ' +atlas' : ''}`);
-    await ledger({ kind: 'sheet', characterId, spritesheetId: id, meta: s, file: `assets/cast/autosprite/${base}.png` });
-    const rows = Math.ceil(s.frameCount / s.columns);
+    await ledger({ kind: 'sheet', characterId, spritesheetId: row.id, meta: s, file: `assets/cast/autosprite/${base}.png` });
+    const rows = Math.ceil((s.frameCount || 25) / (s.columns || 5));
     console.log(`    cut: node tools/sheet-cut.mjs assets/cast/autosprite/${base}.png `
       + `--name ${base} --grid ${s.columns}x${rows}`);
   }

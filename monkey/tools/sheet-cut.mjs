@@ -20,7 +20,18 @@ import { ROOT, launch, serve } from './harness.mjs';
 
 const args = process.argv.slice(2);
 const opt = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i + 1] : d; };
-const src = args.find((a) => !a.startsWith('--') && (/^https?:/i.test(a) || /\.(png|jpe?g|webp)$/i.test(a) || a.includes('/')));
+// Sources may be bare paths or `clip=path`, so several sheets become one atlas
+// with named clips — idle and walk are separate exports but one character, and
+// the loader takes a single sheet per body.
+const SOURCES = args
+  .filter((a) => !a.startsWith('--') && (/^https?:/i.test(a) || /\.(png|jpe?g|webp)$/i.test(a) || a.includes('=')))
+  .map((a) => {
+    const eq = a.indexOf('=');
+    return eq > 0 && !/^https?:/i.test(a.slice(0, eq))
+      ? { clip: a.slice(0, eq), path: a.slice(eq + 1) }
+      : { clip: null, path: a };
+  });
+const src = SOURCES[0]?.path;
 if (!src) {
   console.error('usage: node tools/sheet-cut.mjs <sheet.png|url> [--name key] [--grid CxR] [--down N]');
   process.exit(1);
@@ -39,15 +50,19 @@ const DOWN = +opt('down', 1);
 // image pasted into a chat is rendered, not saved — the bytes never reach this
 // filesystem — so a public link is often the shortest route from "here is the
 // sheet" to a cut atlas.
-const isUrl = /^https?:\/\//i.test(src);
-const rel = isUrl ? src : (isAbsolute(src) ? src : join(ROOT, src));
-const bytes = isUrl
-  ? Buffer.from(await (await fetch(src)).arrayBuffer())
-  : await readFile(rel);
-if (isUrl) console.log(`fetched ${(bytes.length / 1024).toFixed(0)} KB from ${src}`);
-const mime = bytes.subarray(0, 4).toString('hex') === '89504e47' ? 'image/png' : 'image/jpeg';
-const url = `data:${mime};base64,` + bytes.toString('base64');
-const shown = isUrl ? src : rel.replace(ROOT + '/', '');
+async function readSource(path) {
+  const isUrl = /^https?:\/\//i.test(path);
+  const abs = isUrl ? path : (isAbsolute(path) ? path : join(ROOT, path));
+  const bytes = isUrl
+    ? Buffer.from(await (await fetch(path)).arrayBuffer())
+    : await readFile(abs);
+  if (isUrl) console.log(`fetched ${(bytes.length / 1024).toFixed(0)} KB from ${path}`);
+  const mime = bytes.subarray(0, 4).toString('hex') === '89504e47' ? 'image/png' : 'image/jpeg';
+  return {
+    url: `data:${mime};base64,` + bytes.toString('base64'),
+    shown: isUrl ? path : abs.replace(ROOT + '/', ''),
+  };
+}
 
 const { port, close } = await serve();
 const browser = await launch();
@@ -60,17 +75,27 @@ await page.waitForFunction(() => window.__ready === true);
 // and what docs/asset-pack.md asks for. Everything else is for rescuing a
 // sheet a general image model drew.
 const GRID = opt('grid', null);
-const meas = GRID
-  ? await page.evaluate(([u, o]) => window.__grid(u, o), [url, {
-      down: DOWN,
-      cols: +GRID.split('x')[0], rows: +GRID.split('x')[1],
-      keyWhite: !args.includes('--no-key-white'),
-    }])
-  : await page.evaluate(([u, o]) => window.__cut(u, o), [url, {
-      down: DOWN,
-      keyMargin: +opt('keymargin', 28),
-      frames: +opt('frames', 8),
-    }]);
+const clips = {};
+let meas = { frames: [], w: 0, h: 0 };
+for (const source of SOURCES) {
+  const { url, shown } = await readSource(source.path);
+  const one = GRID
+    ? await page.evaluate(([u, o]) => window.__grid(u, o), [url, {
+        down: DOWN,
+        cols: +GRID.split('x')[0], rows: +GRID.split('x')[1],
+        keyWhite: !args.includes('--no-key-white'),
+      }])
+    : await page.evaluate(([u, o]) => window.__cut(u, o), [url, {
+        down: DOWN,
+        keyMargin: +opt('keymargin', 28),
+        frames: +opt('frames', 8),
+      }]);
+  const at = meas.frames.length;
+  meas = { w: one.w, h: one.h, frames: meas.frames.concat(one.frames) };
+  if (source.clip) clips[source.clip] = { start: at, count: one.frames.length };
+  console.log(`${shown}  ${one.w}x${one.h}  ->  ${one.frames.length} frames`
+    + `${source.clip ? `  [clip ${source.clip}]` : ''}  [${GRID ? 'uniform grid ' + GRID : 'connectivity'}]`);
+}
 
 // Slices at the ends of a sheet catch stray artefacts — a few pixels of a
 // light bloom, half a figure the model added past the eighth — and a cell
@@ -87,8 +112,16 @@ if (dropped.length) {
 await page.evaluate((keep) => {
   window.__state.frames = window.__state.frames.filter((_, i) => keep.includes(i));
 }, kept.map((f) => f.i));
+// Dropping a junk slice shifts every later clip, so the clip table is rebuilt
+// against the surviving frames rather than left pointing at old indices.
+if (dropped.length) {
+  for (const [name, c] of Object.entries(clips)) {
+    const before = dropped.filter((f) => f.i < c.start).length;
+    const inside = dropped.filter((f) => f.i >= c.start && f.i < c.start + c.count).length;
+    clips[name] = { start: c.start - before, count: c.count - inside };
+  }
+}
 meas.frames = kept;
-console.log(`${shown}  ${meas.w}x${meas.h}  ->  ${meas.frames.length} frames  [${GRID ? 'uniform grid ' + GRID : 'connectivity'}]`);
 const hs = meas.frames.map((f) => f.h);
 const bots = meas.frames.map((f) => f.y1);
 const spread = (a) => Math.max(...a) - Math.min(...a);
@@ -114,11 +147,10 @@ await writeFile(outPng, Buffer.from(dataUrl.split(',')[1], 'base64'));
 const manifest = {
   cellW: cell.w, cellH: cell.h, cols: meas.frames.length,
   figureH: maxH, feetY,
-  clips: {
-    idle: { start: 0, count: 1, fps: 4 },
-    walk: { start: 0, count: meas.frames.length, fps: +opt('fps', 12) },
-  },
-  source: shown, targetHeight: TARGET_H,
+  clips: Object.keys(clips).length
+    ? Object.fromEntries(Object.entries(clips).map(([k, c]) => [k, { ...c, fps: +opt('fps', 12) }]))
+    : { idle: { start: 0, count: 1, fps: 4 }, walk: { start: 0, count: meas.frames.length, fps: +opt('fps', 12) } },
+  sources: SOURCES.map((x) => x.path), targetHeight: TARGET_H,
 };
 await writeFile(join(ROOT, `assets/cast/${NAME}-sheet.json`), JSON.stringify(manifest, null, 2) + '\n');
 

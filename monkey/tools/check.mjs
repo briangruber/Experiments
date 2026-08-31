@@ -216,12 +216,13 @@ try {
   // looks almost right and is not what shipped. Name which one is live.
   await step('the generated backdrop and voice are in use', async () => {}, () => {
     const M = window.__monkey;
-    // Two procedural sprites and no atlas body: the generated sheet is
-    // committed and loadable but is not what ships. Naming both counts rather
-    // than checking "something drew" is what catches an atlas binding by
-    // accident, or failing to bind when it is meant to.
+    // One atlas body — the generated pixel sheet bound through SPRITE_CAST —
+    // and one procedural puppet beside it. Naming both counts rather than
+    // checking "something drew" is what catches an atlas that silently failed
+    // to bind and left the puppet standing in, which looks fine and is not
+    // what shipped.
     return (M.backdrop() === 'video' || M.backdrop() === 'still') && M.voiced
-      && M.bodies() === 0 && M.puppets() === 2 && M.pixelBlock() > 1;
+      && M.bodies() === 1 && M.puppets() === 1 && M.pixelBlock() > 1;
   });
 
   await step('walk to a clicked point on the floor', async () => {
