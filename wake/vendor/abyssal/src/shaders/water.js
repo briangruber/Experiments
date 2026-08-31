@@ -126,6 +126,8 @@ uniform float uGridRadial;
 // How hard a wake flattens the chop riding through it. Used in the VS only:
 // this is geometry, not shading.
 uniform float uWakeCalm;
+// (uChurnRef is declared with the hull uniforms, which are shared by both
+// stages -- declaring it again here is a redefinition and fails the compile.)
 // WHAT COUNTS AS FULLY CHURNED WATER.
 //
 // The field's B channel is a bubble density, and it is borrowed here as "how
@@ -138,7 +140,6 @@ uniform float uWakeCalm;
 // Dividing by the measured peak first makes those amounts mean what they say:
 // 0.8 is eighty per cent of a slick in the water that is most churned, not
 // eighty per cent of two per cent.
-uniform float uChurnRef;
 uniform float uGroupAmt, uGroupScale, uGroupLo, uGroupHi;
 uniform float uRogueH, uRogueLen, uRoguePeriod, uRogueWidth, uRogueRun, uRogueSteep;
 // The group field needs a clock and a direction to drift along. Both are
