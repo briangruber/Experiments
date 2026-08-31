@@ -260,14 +260,20 @@ if (inPlace) {
     const L = mine.map((f) => ({
       x0: f.x0 - f.cellX, x1: f.x1 - f.cellX,
       y0: f.y0 - f.cellY, y1: f.y1 - f.cellY, g: f.groundY - f.cellY,
+      foot: f.footCx - f.cellX,
     }));
     const grounds = L.map((l) => l.g).sort((a, b) => a - b);
+    const feet = L.map((l) => l.foot).sort((a, b) => a - b);
     return {
       seg,
       x0: Math.min(...L.map((l) => l.x0)), x1: Math.max(...L.map((l) => l.x1)),
       y0: Math.min(...L.map((l) => l.y0)), y1: Math.max(...L.map((l) => l.y1)),
       // The median, so one frame with a smear under it does not lift the clip.
       g: grounds[grounds.length >> 1],
+      // Where the FEET sit across the clip, which is what the character's x
+      // position means. Median again, so a clip that steps once does not drag
+      // the whole thing sideways.
+      foot: feet[feet.length >> 1],
     };
   }).filter(Boolean);
 
@@ -279,7 +285,18 @@ if (inPlace) {
   for (const c of perClip) {
     // One offset for the whole clip, so no frame moves relative to its
     // neighbours; the clip as a whole is set down on the atlas's floor.
-    c.ox = Math.round(cell.w / 2 - (c.x0 + c.x1) / 2);
+    //
+    // Aligned on the FEET, not on the bounding box. This file already says, of
+    // the per-frame anchor, that a swinging arm moves the bounding box without
+    // moving the character — and then centred each CLIP on its box anyway. An
+    // outstretched arm in a talk gesture, a held cooking pot, a swung pair of
+    // bellows: each widens the box on one side, so centring it slides the body
+    // the other way. Measured before this was fixed, Pike's talk sat 17px left
+    // of his idle and Bonny's bellows 13px left of hers — at two-times draw
+    // scale, a thirty-pixel jump sideways the instant anybody opened their
+    // mouth. The feet are what stands still, and what the character's x
+    // position refers to.
+    c.ox = Math.round(cell.w / 2 - c.foot);
     c.oy = (feetY - 1) - c.g;
     for (const f of meas.frames) {
       if (f.i >= c.seg.from && f.i < c.seg.to) { f.inOX = c.ox; f.inOY = c.oy; }

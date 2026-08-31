@@ -160,44 +160,47 @@ window.__grid = async (src, opts) => {
   g.clearRect(0, 0, W, H);
   g.drawImage(img, 0, 0, W, H);
   const id = g.getImageData(0, 0, W, H), d = id.data;
-  // Cut the holes the matte filled.
+  // Cut the background the matte left inside the figure.
   //
-  // AutoSprite's background removal is an alpha matte, and a matte FILLS
-  // ENCLOSED HOLES. The gap between Grout's boots is surrounded by figure on
-  // every side, so it came back opaque, in the generator's own light grey, and
-  // he stood on the dock with a pale blob between his feet in every frame of
-  // every clip. No removal setting fixes it: `standard` and `basic` are
-  // silently the same as `ultra`, and only `none` differs.
+  // AutoSprite's removal is an alpha matte, and a matte keeps background that
+  // the silhouette wraps around: the gap between Grout's boots, the curl of the
+  // cat's tail, the notch under its chin. Those came back opaque, in the
+  // generator's own light grey, and the cat in particular was wearing grey
+  // patches on its tail, chest and legs that its character reference does not
+  // have. No removal setting fixes it — `standard` and `basic` are silently the
+  // same as `ultra`, and only `none` differs, which returns the frames with the
+  // background still on.
   //
-  // Keying the background ourselves from a `none` pull was tried and abandoned.
-  // It works on Grout, whose backdrop is flat, and fails on Pike, whose is
-  // mottled — a colour key kept 58% more of his cell than the matte did. The
-  // service's matte is better than anything a flat key can do; it just has this
-  // one hole in it.
+  // WHAT DOES NOT WORK, both tried:
   //
-  // So the matte stands and only the holes are cut. A hole is a patch that is
-  //   ENCLOSED  — no path to the cell border through transparent pixels, which
-  //               is what saves Grout's grey beard: light, neutral, flat, and
-  //               on the silhouette edge where the outside can reach it;
-  //   FLAT      — one colour, standard deviation under 6, because generated
-  //               backdrop has no shading and costume does;
-  //   NEUTRAL   — red, green and blue within 10 of each other;
-  //   LIGHT     — luminance over 120.
+  //   Keying the background ourselves from a `none` pull. Fine on Grout, whose
+  //   backdrop is flat; useless on Pike, whose is mottled, where a colour key
+  //   kept 58% more of his cell than the matte did.
   //
-  // All four are needed. Enclosed-and-flat alone cuts Grout's teal coat (42,
-  // 74, 89), Pike's apron (196, 158, 102) and Bonny's boots — tens of thousands
-  // of pixels of perfectly good character. With all four, the only things left
-  // are the leftovers: Grout's idle 1763px in patches of rgb(176,176,170),
-  // his drink 554, Pike's despair 177, the cat's crouch 183, and zero
-  // everywhere else in the cast.
+  //   Cutting anything flat, neutral and light. That describes the leftover
+  //   and it also describes the light stripes of Pike's shirt and the highlight
+  //   down his trouser leg — it punched a hole clean through his leg, 9,628
+  //   pixels of him. Requiring the patch to be SEALED (no path to the cell
+  //   border) saves him, and loses most of the cat, whose gaps are open at one
+  //   end.
   //
-  // The count is printed rather than swallowed. A pass that quietly deletes
-  // parts of a character is the worst thing in this file.
+  // WHAT WORKS is letting the sheet say what its own background looks like.
+  // A sealed patch is reliably background — nothing else is a flat neutral
+  // light region with no way out. So: find the sealed patches, take their
+  // dominant colour, and then cut the open ones too, but only where they match
+  // it. Measured across this cast, sealed and open agree to within 6 on every
+  // sheet whose open patches really are background — the cat 0 and 4, Grout 0,
+  // Bonny 5 — and disagree by 20 on Pike's despair, where the open patches are
+  // his trousers. A tolerance of 12 sits in that gap.
+  //
+  // A sheet with no sealed patches teaches nothing and loses nothing: it cuts
+  // nothing at all, which is the right way round for a pass that deletes parts
+  // of a character if it is wrong.
   let holesCut = 0;
   if (opts.cutHoles) {
-    const FLAT_SD = 6, NEUTRAL = 10, LIGHT = 120, MIN_PATCH = 25, MAX_MOUTH = 0;
+    const FLAT_SD = 6, NEUTRAL = 10, LIGHT = 120, MIN_PATCH = 8, BG_TOL = 12, LEARN_MIN = 60;
     const cw0 = W / opts.cols, ch0 = H / opts.rows;
-    let cut = 0;
+    const patches = [];
     for (let r = 0; r < opts.rows; r++) {
       for (let c = 0; c < opts.cols; c++) {
         const bx = Math.round(c * cw0), by = Math.round(r * ch0);
@@ -243,27 +246,7 @@ window.__grid = async (src, opts) => {
                 seen[np] = 1; stack.push(np);
               }
             }
-            // Sealed. MAX_MOUTH is zero, and it stays zero until something
-            // better than colour is available to tell a filled hole from a
-            // character.
-            //
-            // Dropping the enclosure test does catch more: the gap between
-            // Grout's boots is a sealed hole when he stands and an open slot
-            // when one foot is forward, and only the sealed version is cut.
-            // But without it the same rule punched a hole clean through Pike's
-            // trouser leg — 9,628 pixels of him — because the light stripes of
-            // his shirt and the highlight down his leg are flat, neutral and
-            // light, which is every test this has to offer. Allowing a narrow
-            // mouth was tried as a middle way and does not separate them: his
-            // leg patch reaches the outside through a slot no wider than
-            // Grout's boots do.
-            //
-            // So the safe rule stands and the open-slot case is left. It shows
-            // as a pale wedge low between the legs in Grout's talk and drink
-            // clips, and nowhere else in the cast; his idle, which is what
-            // plays almost all of the time, is clean. Deleting part of a
-            // character to fix a wedge is much the worse trade.
-            if (mouth > MAX_MOUTH || px.length < MIN_PATCH) continue;
+            if (px.length < MIN_PATCH) continue;
             const m = [0, 0, 0];
             for (const p of px) { const i = idx(p % bw, (p - (p % bw)) / bw) * 4; m[0] += d[i]; m[1] += d[i + 1]; m[2] += d[i + 2]; }
             for (let k = 0; k < 3; k++) m[k] /= px.length;
@@ -276,14 +259,37 @@ window.__grid = async (src, opts) => {
             const L = 0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2];
             const spread = Math.max(...m) - Math.min(...m);
             if (sd > FLAT_SD || spread > NEUTRAL || L < LIGHT) continue;
-            for (const p of px) d[idx(p % bw, (p - (p % bw)) / bw) * 4 + 3] = 0;
-            cut += px.length;
+            patches.push({ px, idx, bw, sealed: mouth === 0, rgb: m });
           }
         }
       }
     }
-    if (cut) g.putImageData(id, 0, 0);
-    holesCut = cut;
+    // What this sheet's background looks like, learned from the sealed patches.
+    const sealed = patches.filter((p) => p.sealed);
+    const sealedPx = sealed.reduce((a, p) => a + p.px.length, 0);
+    let bg = null;
+    if (sealedPx >= LEARN_MIN) {
+      const tally = new Map();
+      for (const p of sealed) {
+        const k = p.rgb.map((v) => Math.round(v) >> 3).join(',');
+        const e = tally.get(k) || { px: 0, r: 0, g: 0, b: 0, n: 0 };
+        e.px += p.px.length; e.r += p.rgb[0]; e.g += p.rgb[1]; e.b += p.rgb[2]; e.n++;
+        tally.set(k, e);
+      }
+      let best = null;
+      for (const e of tally.values()) if (!best || e.px > best.px) best = e;
+      bg = [best.r / best.n, best.g / best.n, best.b / best.n];
+    }
+    if (bg) {
+      for (const p of patches) {
+        const far = Math.max(Math.abs(p.rgb[0] - bg[0]), Math.abs(p.rgb[1] - bg[1]), Math.abs(p.rgb[2] - bg[2]));
+        if (far > BG_TOL) continue;
+        for (const q of p.px) d[p.idx(q % p.bw, (q - (q % p.bw)) / p.bw) * 4 + 3] = 0;
+        holesCut += p.px.length;
+      }
+      window.__bg = bg.map(Math.round);
+    }
+    if (holesCut) g.putImageData(id, 0, 0);
   }
   if (opts.keyWhite) {
     // The old courtesy key, for sheets that arrive on white.

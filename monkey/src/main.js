@@ -838,6 +838,42 @@ window.__monkey = { g, state, coin, inv, menu, seq, lint: report, ambience, last
   // invisible to every assertion here because it is not a bug in any one
   // frame — every frame was correct art, played at the wrong time.
   clipOf: (who) => actors[who]?.lastClip ?? null,
+  // Where the feet sit on screen while a given clip plays, in room pixels.
+  //
+  // Not drift within a clip — footTrack does that — but the ABSOLUTE place two
+  // different clips put the same character. The packer used to centre each clip
+  // on its bounding box, so an outstretched arm in a talk gesture slid the body
+  // the other way and everybody jumped sideways the moment they spoke.
+  feetAt: (who, clip) => {
+    const a = actors[who];
+    if (!a?.body?.hasClip?.(clip)) return null;
+    const c = document.querySelector('canvas');
+    const g = c.getContext('2d');
+    const keep = { x: a.x, y: a.y, clip: a.clip, clipT: a.clipT, state: a.state, line: a.line };
+    a.x = 640; a.y = 690; a.state = 'idle'; a.line = null;
+    const box = a.body.boxAt(a);
+    const scale = room.scaleAt(a.y);
+    const w = Math.ceil(box.w * scale) + 60;
+    const sx = Math.max(0, Math.round(640 - w / 2));
+    const band = Math.max(4, Math.round(box.h * scale * 0.05));
+    const sy = Math.max(0, Math.round(690 - band));
+    let sum = 0, n = 0;
+    for (let i = 0; i < 12; i++) {
+      a.clip = clip; a.clipT = i / 8;
+      a.fadeFrom = null; a.lastClip = clip;
+      g.clearRect(0, 0, VIEW.w, VIEW.h);
+      a.render(g, room);
+      const d = g.getImageData(sx, sy, w, band).data;
+      let lo = 1e9, hi = -1;
+      for (let y = 0; y < band; y++) for (let x = 0; x < w; x++) {
+        if (d[(y * w + x) * 4 + 3] < 40) continue;
+        if (x < lo) lo = x; if (x > hi) hi = x;
+      }
+      if (hi > lo) { sum += sx + (lo + hi) / 2; n++; }
+    }
+    Object.assign(a, keep);
+    return n ? +(sum / n).toFixed(1) : null;
+  },
   iconSource: (item) => (art.ICONS[item]?.fromSprite ? 'sprite' : art.ICONS[item] ? 'painted' : null),
   propDrawn: (name) => {
     const probe = R.SPRITE_PROBES?.[name];

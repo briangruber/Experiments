@@ -796,6 +796,38 @@ try {
   // for a man standing still. Nothing here noticed, because every other
   // assertion asks whether the art is right rather than whether it is the art
   // that was asked for.
+  // Two clips of somebody standing still put them in the same place.
+  //
+  // The packer centred each clip on its bounding box, and a talk gesture is an
+  // outstretched arm — so the box grew on one side and the body slid the other
+  // way. Pike's talk sat 17px left of his idle, Bonny's bellows 13px left of
+  // hers: at two-times draw scale, a thirty-pixel jump sideways the instant
+  // anybody opened their mouth. Every other assertion passed, because each
+  // clip was correctly registered against itself.
+  await step('nobody jumps sideways when they start talking', async () => {}, () => {
+    const M = window.__monkey;
+    const rows = [];
+    for (const who of Object.keys(M.actors)) {
+      const base = M.feetAt(who, 'idle');
+      if (base == null) continue;
+      // Talk only. It is the one clip that swaps with the idle constantly —
+      // every line of dialogue, both ways — so a misregistration there is a
+      // twitch the player sees over and over. An ACTION is allowed to relocate
+      // somebody: Grout's asleep puts him on the ground, and the cat braces
+      // 11px backwards to sneeze, both of which are the animation doing its
+      // job rather than the packer failing at its own.
+      for (const clip of ['talk']) {
+        const at = M.feetAt(who, clip);
+        if (at == null) continue;
+        rows.push({ who, clip, dx: +(at - base).toFixed(1) });
+      }
+    }
+    window.__t.anchors = rows;
+    const bad = rows.filter((r) => Math.abs(r.dx) > 4);
+    if (bad.length) throw new Error(bad.map((b) => `${b.who} ${b.clip} is ${b.dx}px from the idle`).join('; '));
+    return rows.length > 0;
+  });
+
   await step('the idles are not walk cycles  [measured off the sheet]', async () => {}, () => {
     const M = window.__monkey;
     const bad = [];
@@ -1014,6 +1046,7 @@ const m = errors.length ? {} : await page.evaluate(() => ({
   fade: window.__t.fade,
   talk: window.__t.talk,
   clashes: window.__t.clashes,
+  anchors: window.__t.anchors,
 }));
 
 await browser.close();
