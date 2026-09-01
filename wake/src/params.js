@@ -857,6 +857,19 @@ export const PARAMS = {
     // hull, not on its bow. That wants the samples recorded at the hull's
     // centre rather than patched afterwards.
     rigid:        { v: 0,    min: 0,   max: 1,   step: 0.01, label: 'Wake follows the hull' },
+    // HOW FAST THE RIBBON'S ANCHOR MAY MOVE, in metres per second.
+    //
+    // Ahead she is anchored near the entry; astern, a hull-length back, since
+    // going astern it is the transom parting the water. Switching on the SIGN
+    // of the speed moved the anchor 22.16 m in one frame with the shipped hull
+    // -- and every arc in the reconstruction is measured from it, so that is a
+    // 22 m step in the arms, the feathering and every fade, along the whole
+    // length of the wake at once. The foam did not move; the ruler it is drawn
+    // against moved out from under it.
+    //
+    // Slew-limited instead, so the anchor walks. Lower is smoother and takes
+    // longer to settle after a change of direction.
+    anchorSlew:   { v: 6,    min: 0.5, max: 40,  step: 0.5,  label: 'Anchor slew (m/s)' },
   },
 };
 

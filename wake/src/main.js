@@ -574,7 +574,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'c02';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'c03';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -1218,7 +1218,28 @@ function stepSim(dt) {
   // loaded and been measured.
   const wl = updateWaterline(0);
   const contact = wl.wet ? wl.entry : (body.contact ?? 0);
-  const anchorOff = state.speed < 0 ? bowAhead - hullDrawn : bowAhead - contact;
+  // ...AND IT MAY NOT TELEPORT.
+  //
+  // Ahead, the ribbon is anchored near the entry; astern, a hull-length back,
+  // because going astern it is the transom parting the water. Both are right.
+  // Switching between them on the SIGN of the speed is not: measured with the
+  // shipped hull, the anchor jumps 22.16 m the instant speed crosses zero.
+  //
+  // Every arc in the reconstruction is measured from that anchor, and the arms,
+  // the feathering and the fades are all functions of arc -- so a 22 m step in
+  // the anchor is a 22 m step in the whole pattern, all at once, along the
+  // entire length of the wake. That is the jump: not the foam moving, the ruler
+  // it is drawn against moving out from under it.
+  //
+  // So the anchor walks. It is slew-limited to a few metres a second, which is
+  // slower than she can change her mind but fast enough to be in the right
+  // place well before the new wake is long enough to notice. Nothing already
+  // laid is disturbed, because the samples behind it keep the positions they
+  // were recorded at.
+  const anchorWant = state.speed < 0 ? bowAhead - hullDrawn : bowAhead - contact;
+  const slew = get('field.anchorSlew') * dt;
+  _anchorOff += Math.max(-slew, Math.min(slew, anchorWant - _anchorOff));
+  const anchorOff = _anchorOff;
   // Going ASTERN the track runs the other way down the same course line, so
   // the tangent handed to the field has to be the direction of TRAVEL, not the
   // direction the bow points. Without the flip the ribbon is laid backwards
@@ -1369,6 +1390,10 @@ function stepSim(dt) {
 
 // ?prewarm=90 — run 90 seconds of boat before the first frame, so a capture (or
 // a reload mid-tuning) starts with a full-length wake instead of a stub.
+// The ribbon's anchor, carried between frames so it can walk rather than jump.
+// Started at the ahead value, which is where she is at rest.
+let _anchorOff = 0;
+
 const speedEl = document.getElementById('speed');
 
 const PREWARM = +(new URLSearchParams(location.search).get('prewarm') ?? NaN) || window.__PREWARM || 0;
