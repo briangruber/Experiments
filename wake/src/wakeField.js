@@ -1283,8 +1283,24 @@ export class WakeField {
       let px = p.x, pz = p.z;
       const k = rigid * (1 - smoothstep01(hullL, hullL * 1.5, arc));
       if (k > 0.001 && h0) {
-        px += (h0.x - hhx * arc - p.x) * k;
-        pz += (h0.z - hhz * arc - p.z) * k;
+        // SIDEWAYS ONLY.
+        //
+        // Moving the whole sample onto the hull's axis also changes how far
+        // ALONG it sits, and that wrecks the ribbon: arc is measured on the
+        // path, so on a tight curve the projection onto a straight axis
+        // compresses the spacing, consecutive quads bunch, and where the blend
+        // fades they fold back through each other. That is the dense carpet
+        // with hard edges -- the band overlapping itself, not more foam.
+        //
+        // The error that actually matters is lateral: the transom is beside the
+        // bow's track, not ahead of or behind its own place on it. So take only
+        // the component across the hull, and leave the along-track spacing
+        // exactly as the path recorded it.
+        const lx = - hhz, lz = hhx;                    // across the hull
+        const off = (h0.x - hhx * arc - p.x) * lx
+                  + (h0.z - hhz * arc - p.z) * lz;
+        px += lx * off * k;
+        pz += lz * off * k;
         // The tangent goes with it, or the arms under the hull stay square to a
         // track the boat is no longer on.
         tx += (hhx - tx) * k; tz += (hhz - tz) * k;
