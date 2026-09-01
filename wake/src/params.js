@@ -847,7 +847,16 @@ export const PARAMS = {
     // history, so this pulls that length of ribbon onto the hull's own axis and
     // lets it fade back to the recorded path half a length aft of the transom.
     // 0 restores the track-only behaviour.
-    rigid:        { v: 1,    min: 0,   max: 1,   step: 0.01, label: 'Wake follows the hull' },
+    // DEFAULTED OFF, because both attempts at it made the turn look worse than
+    // the fault it was meant to fix. At 1 it drags the near-wake toward the
+    // hull's axis, and in a hard turn that straightens the curve into a strip
+    // even with the offset bounded by the beam. The mismatch it targets is
+    // real -- the transom does swing outside the bow's track -- but correcting
+    // it by moving the ribbon is the wrong lever, because the ribbon's
+    // centreline is the bow's track and the hull's footprint is centred on the
+    // hull, not on its bow. That wants the samples recorded at the hull's
+    // centre rather than patched afterwards.
+    rigid:        { v: 0,    min: 0,   max: 1,   step: 0.01, label: 'Wake follows the hull' },
   },
 };
 

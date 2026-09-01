@@ -1297,8 +1297,23 @@ export class WakeField {
         // the component across the hull, and leave the along-track spacing
         // exactly as the path recorded it.
         const lx = - hhz, lz = hhx;                    // across the hull
-        const off = (h0.x - hhx * arc - p.x) * lx
-                  + (h0.z - hhz * arc - p.z) * lz;
+        let off = (h0.x - hhx * arc - p.x) * lx
+                + (h0.z - hhz * arc - p.z) * lz;
+        // BOUNDED BY THE HULL, and this is the part that was missing.
+        //
+        // That offset is the gap between the path and a STRAIGHT line along the
+        // current heading, and in a turn it grows without limit as arc does. So
+        // applying it in full does not nudge the band onto the hull, it drags
+        // the whole near-wake onto the hull's axis and straightens the curve
+        // into a strip -- the wake pointing off at an angle to a boat that is
+        // clearly turning.
+        //
+        // The real disagreement it is meant to fix is a rigid-body one, and a
+        // rigid body cannot displace anything by more than its own beam. Past
+        // that the correction is not describing the hull any more, it is just
+        // erasing the turn.
+        const cap = beam * 0.75;
+        off = Math.max(-cap, Math.min(cap, off));
         px += lx * off * k;
         pz += lz * off * k;
         // The tangent goes with it, or the arms under the hull stay square to a
