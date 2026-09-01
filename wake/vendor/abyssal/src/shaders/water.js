@@ -12,6 +12,7 @@ uniform float uHullPush, uHullRadius, uHullBow, uHullPlane;
 uniform float uHullCut, uHullCutLen, uHullCutBeam;
 uniform float uHullFoam, uHullFoamW;
 uniform float uChurnRef;   // see the vertex stage
+uniform float uSlickRef, uSlickReach;
 uniform float uHullWlLen, uHullWlBeam;
 // The hull's own speed. NOT uWakeSpeed: the lab hands the vendored water a
 // wake it has already shaped, so every Abyssal wake-shaping uniform including
@@ -278,8 +279,18 @@ void main(){
   // Only the short cascades are touched, which is the physics doing the
   // selecting rather than a look: cascade 0 is the swell and is left alone.
   if (uWakeOn > 0.5 && uWakeCalm > 0.001) {
-    // NORMALISED FIRST. See the note on uChurnRef.
-    float calm = clamp(wakeAt(xz).z / uChurnRef, 0.0, 1.0) * uWakeCalm;
+    // The same broad mask the shading half uses -- see the note there. Read off
+    // the foam coverage rather than the bubble channel, because the chop is
+    // flattened across the whole track and not only over the prop plume.
+    float sr = max(uSlickReach, 0.5);
+    vec3 w0 = wakeAt(xz);
+    float broad = ( w0.x
+                  + wakeAt(xz + vec2(sr, 0.0)).x
+                  + wakeAt(xz - vec2(sr, 0.0)).x
+                  + wakeAt(xz + vec2(0.0, sr)).x
+                  + wakeAt(xz - vec2(0.0, sr)).x ) * 0.2;
+    float disturb = max(broad, w0.z / uChurnRef);
+    float calm = clamp(disturb / max(uSlickRef, 0.01), 0.0, 1.0) * uWakeCalm;
     float k = 1.0 - calm;
     dispShort *= k;
     relief *= k;
@@ -1132,10 +1143,32 @@ void main(){
       // wind foam that were riding on it, and that smooth lane is most of why a
       // boat's path stays legible on a broken sea long after the white water
       // behind it has gone. Without it the wake is just more foam among foam.
-      // Normalised against what fully churned water actually reads -- see the
-      // uChurnRef note in the vertex stage. Straight multiplication asked for a
-      // fraction of two per cent and got it.
-      float slick = clamp(wk.z / uChurnRef, 0.0, 1.0) * k * uWakeSlick;
+      // THE SLICK IS THE WHOLE LANE, NOT THE BUBBLE TRAIL.
+      //
+      // wk.z is the SURFACED BUBBLE channel. It is what the upstream comment
+      // called "how disturbed this water is", but in this fork it holds the
+      // prop plume -- a narrow ribbon a couple of metres wide down the
+      // centreline. Driving the slick off it slicked that ribbon and left every
+      // square metre between the arms exactly as choppy as the open sea, which
+      // is why the calm lane never appeared however the amount was scaled.
+      //
+      // What is wanted is a mask over the whole disturbed area. The foam
+      // channel already covers it -- the cusp deposit fills the V -- but it is
+      // deliberately patchy, and a slick that comes and goes with the lace is
+      // not a slick. So it is read BROADLY: four taps at a few metres, which is
+      // the wake seen from far enough away that its structure disappears, and
+      // that is precisely what a slick is.
+      float sr = max(uSlickReach, 0.5);
+      float broad = wk.x
+                  + wakeAt(vFlat.xz + vec2(sr, 0.0)).x
+                  + wakeAt(vFlat.xz - vec2(sr, 0.0)).x
+                  + wakeAt(vFlat.xz + vec2(0.0, sr)).x
+                  + wakeAt(vFlat.xz - vec2(0.0, sr)).x;
+      broad *= 0.2;
+      // The bubble trail still counts -- it is the most churned water there is,
+      // and it should be the slickest part of the lane.
+      float disturb = max(broad, wk.z / uChurnRef);
+      float slick = clamp(disturb / max(uSlickRef, 0.01), 0.0, 1.0) * k * uWakeSlick;
       foamF *= 1.0 - slick;
       foamR *= 1.0 - slick;
       msq   *= 1.0 - 0.6 * slick;

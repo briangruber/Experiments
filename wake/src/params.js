@@ -309,6 +309,24 @@ export const PARAMS = {
     // it and less churn counts as fully slick, so the lane widens and
     // strengthens; raise it and only the boil right behind her qualifies.
     churnRef:{ ui: 'kelvin', v: 0.026, min: 0.002, max: 0.2, step: 0.001, label: 'Churn = fully slick at' },
+    // HOW WIDE THE SLICK READS THE WAKE, in metres.
+    //
+    // The slick was driven off the surfaced-bubble channel, which in this fork
+    // is the prop plume -- a ribbon a couple of metres wide down the
+    // centreline. So it slicked that ribbon and left every square metre between
+    // the arms exactly as choppy as the open sea, which is why the calm lane
+    // never appeared however the amount was scaled.
+    //
+    // It now reads the foam coverage instead, which the cusp deposit spreads
+    // across the whole V -- but broadly, over four taps this far apart, because
+    // foam is deliberately patchy and a slick that flickers with the lace is
+    // not a slick. This is the wake seen from far enough away that its
+    // structure disappears, which is exactly what a slick is.
+    slickReach:{ ui: 'kelvin', v: 4,  min: 0.5, max: 14, step: 0.5, label: 'Slick reads over (m)' },
+    // ...and how much of that broad coverage counts as fully slick. Lower it
+    // and the calm lane spreads to the thinnest edges of the wake; raise it and
+    // only the heavily worked water close astern goes glassy.
+    slickRef:{ ui: 'kelvin', v: 0.12, min: 0.01, max: 1, step: 0.01, label: 'Coverage = fully slick at' },
   },
 
   kelvin: {
