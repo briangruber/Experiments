@@ -832,6 +832,22 @@ export const PARAMS = {
     adaptive:     { v: 0.85, min: 0,   max: 1,   step: 0.01, label: 'Shrink field on zoom-in' },
     extent:       { v: 270,  min: 80,  max: 700, step: 10,   label: 'Wake field size (m)' },
     trailLength:  { v: 280,  min: 50,  max: 1200,step: 10,   label: 'Trail length (m)' },
+    // HOW MUCH OF THE RIBBON THE HULL OWNS RATHER THAN THE TRACK.
+    //
+    // The ribbon follows the path the anchor travelled, and the hull is taken
+    // to occupy its first hull-length. Running straight those are one line. In
+    // a turn they are not: a hull pivots about a point a third of its length
+    // aft of the stem, so the transom swings OUTSIDE the track the bow drew --
+    // by more than a beam when she is hard over. Placing the wash a
+    // hull-length back along the TRACK therefore puts it where the bow was
+    // rather than where the stern is, which is the wake that hangs behind while
+    // the stern skids out from under it.
+    //
+    // Water she is touching right now lies along the hull, not along its
+    // history, so this pulls that length of ribbon onto the hull's own axis and
+    // lets it fade back to the recorded path half a length aft of the transom.
+    // 0 restores the track-only behaviour.
+    rigid:        { v: 1,    min: 0,   max: 1,   step: 0.01, label: 'Wake follows the hull' },
   },
 };
 

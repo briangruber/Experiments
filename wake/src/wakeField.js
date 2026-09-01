@@ -855,6 +855,12 @@ const INTERFERE_VERT = /* glsl */`
 
 const MAX_SRC = 96;
 
+/** GLSL's smoothstep, for the JS side of the ribbon build. */
+function smoothstep01(a, b, x) {
+  const t = Math.min(Math.max((x - a) / Math.max(b - a, 1e-6), 0), 1);
+  return t * t * (3 - 2 * t);
+}
+
 const INTERFERE_FRAG = /* glsl */`
   precision highp float;
   varying vec2 vW;
@@ -1240,6 +1246,26 @@ export class WakeField {
     const beam = get('boat.beam') * Math.max(get('boat.modelScale'), 0.05);
     const w0 = get('arms.width0'), wg = get('arms.widthGrow');
 
+    // THE HULL IS RIGID. THE TRACK IS NOT.
+    //
+    // The ribbon is laid along the path the ANCHOR travelled, and the hull is
+    // taken to occupy its first hull-length. Running straight those are the
+    // same line. In a turn they are not: a hull pivots about a point a third of
+    // its length aft of the stem, so the transom swings OUTSIDE the track the
+    // bow drew, by more than a beam in a hard turn. Placing the transom "one
+    // hull-length back along the track" therefore puts the wash where the bow
+    // was rather than where the stern is -- which is exactly the wake that
+    // stays behind while the stern skids out from under it.
+    //
+    // Water the boat is touching RIGHT NOW lies along the hull, not along its
+    // history. So for the length still under her, the ribbon is pulled onto the
+    // hull's own axis; a little aft of the transom that is water she has
+    // already left, and the recorded path is right again, so it fades back.
+    const hullL = Math.max(get('boat.length') * Math.max(get('boat.modelScale'), 0.05), 1);
+    const rigid = get('field.rigid');
+    const h0 = pts[0];
+    const hhx = h0?.hx ?? 0, hhz = h0?.hz ?? 1;
+
     let arc = 0;
     let o = 0;
     for (let i = 0; i < n; i++) {
@@ -1251,6 +1277,20 @@ export class WakeField {
       let tx = r.x - q.x, tz = r.z - q.z;
       const tl = Math.hypot(tx, tz) || 1;
       tx /= tl; tz /= tl;
+
+      // ...except where she is still standing on it. Full along the hull, gone
+      // by half a length aft of the transom, so there is no kink at the handover.
+      let px = p.x, pz = p.z;
+      const k = rigid * (1 - smoothstep01(hullL, hullL * 1.5, arc));
+      if (k > 0.001 && h0) {
+        px += (h0.x - hhx * arc - p.x) * k;
+        pz += (h0.z - hhz * arc - p.z) * k;
+        // The tangent goes with it, or the arms under the hull stay square to a
+        // track the boat is no longer on.
+        tx += (hhx - tx) * k; tz += (hhz - tz) * k;
+        const rl = Math.hypot(tx, tz) || 1;
+        tx /= rl; tz /= rl;
+      }
       const nx = -tz, nz = tx;
 
       // Half-width: enough for the arms plus their falloff -- and for the
@@ -1280,9 +1320,9 @@ export class WakeField {
         const u = (l / LAT_SEG) * 2 - 1;
         const d = u * halfW;
         const vi = o + l;
-        this.pos[vi * 3] = p.x + nx * d;
+        this.pos[vi * 3] = px + nx * d;
         this.pos[vi * 3 + 1] = 0;
-        this.pos[vi * 3 + 2] = p.z + nz * d;
+        this.pos[vi * 3 + 2] = pz + nz * d;
         this.arc[vi] = arc;
         this.lat[vi] = d;
         this.age[vi] = age;
