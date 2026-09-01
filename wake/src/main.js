@@ -318,6 +318,129 @@ function measureHull() {
   // rather than just how long it is -- the reflection proxy above all.
   hullSpan.beam = Math.max(_hullBox.max.x - _hullBox.min.x, 0.3);
   hullSpan.height = Math.max(_hullBox.max.y - _hullBox.min.y, 0.3);
+  measureStations();
+}
+
+// ---------------------------------------------------------------------------
+// WHERE THE HULL ACTUALLY IS, station by station.
+//
+// Everything that needed to know where the boat meets the water has so far
+// asked a formula: a half-width curve for the spray cuts, and a keel line
+// solved from the trim angle for the wake's anchor. Both are centreline
+// arithmetic on a hull shape nobody measured, and neither has ever looked at
+// the mesh -- which is why the wake started ahead of a bow that was out of the
+// water, and why nothing about it changed when she heeled into a turn.
+//
+// So: sample the real geometry once per model into stations along her length.
+// For each station, the lowest point (the keel there) and how far outboard the
+// hull reaches down at that depth (the chine). That is enough to ask, every
+// frame and under any attitude, which parts of her are actually wet.
+const HULL_STATIONS = 28;
+const hullStations = [];
+
+function measureStations() {
+
+  hullStations.length = 0;
+  const zMin = _hullBox.min.z, zMax = _hullBox.max.z;
+  const span = Math.max(zMax - zMin, 1e-3);
+  const keel = new Float32Array(HULL_STATIONS).fill(Infinity);
+  const half = new Float32Array(HULL_STATIONS);
+  // Vertices in the BOAT GROUP's frame, with its own transform neutralised --
+  // the same frame the box above was taken in, so the two agree.
+  const q = boat.quaternion.clone(), pos = boat.position.clone();
+  boat.quaternion.identity(); boat.position.set(0, 0, 0);
+  boat.updateWorldMatrix(false, true);
+  const inv = new THREE.Matrix4().copy(boat.matrixWorld).invert();
+  const v = new THREE.Vector3(), m = new THREE.Matrix4();
+  boat.traverse((o) => {
+    const g = o.isMesh && o.geometry?.attributes?.position;
+    if (!g) return;
+    m.multiplyMatrices(inv, o.matrixWorld);
+    for (let i = 0; i < g.count; i++) {
+      v.fromBufferAttribute(g, i).applyMatrix4(m);
+      const t = (v.z - zMin) / span;
+      const k = Math.min(HULL_STATIONS - 1, Math.max(0, Math.floor(t * HULL_STATIONS)));
+      if (v.y < keel[k]) keel[k] = v.y;
+    }
+  });
+  // Second pass for the half-width, now that each station's keel is known:
+  // only vertices in the bottom third of that station count, so a railing or a
+  // flybridge overhang cannot report itself as the chine.
+  boat.traverse((o) => {
+    const g = o.isMesh && o.geometry?.attributes?.position;
+    if (!g) return;
+    m.multiplyMatrices(inv, o.matrixWorld);
+    for (let i = 0; i < g.count; i++) {
+      v.fromBufferAttribute(g, i).applyMatrix4(m);
+      const t = (v.z - zMin) / span;
+      const k = Math.min(HULL_STATIONS - 1, Math.max(0, Math.floor(t * HULL_STATIONS)));
+      if (!isFinite(keel[k])) continue;
+      if (v.y > keel[k] + hullSpan.height * 0.33) continue;
+      const a = Math.abs(v.x);
+      if (a > half[k]) half[k] = a;
+    }
+  });
+  boat.quaternion.copy(q); boat.position.copy(pos);
+  boat.updateWorldMatrix(false, true);
+  for (let k = 0; k < HULL_STATIONS; k++) {
+    if (!isFinite(keel[k])) continue;
+    hullStations.push({
+      z: zMin + (k + 0.5) / HULL_STATIONS * span,
+      keel: keel[k],
+      half: half[k],
+    });
+  }
+  // Bow first, so "the forward-most wet station" is a walk from the front.
+  hullStations.sort((a, b) => b.z - a.z);
+
+}
+
+// The live waterline: which stations are wet, and where the hull first cuts in.
+//
+// Each station's chine points are carried through the boat's ACTUAL world
+// matrix -- so pitch, heel and heave are all in it for free, and none of it has
+// to be re-derived from the trim angle. Heeled into a turn the outboard chine
+// goes under while the inboard one lifts, and the two sides report different
+// entry points, which is exactly the asymmetry a turning hull has and the old
+// centreline solve could not represent at all.
+const _stnV = new THREE.Vector3();
+const waterline = { cuts: [], entry: 0, port: 0, star: 0, wet: 0 };
+
+function updateWaterline(seaY) {
+
+  waterline.cuts.length = 0;
+  waterline.entry = waterline.port = waterline.star = 0;
+  waterline.wet = 0;
+  if (!hullStations.length) return waterline;
+  boat.updateWorldMatrix(false, false);
+  const stem = hullStations[0].z;
+  let firstP = null, firstS = null;
+  for (const st of hullStations) {
+    // Both chines at the keel's depth. A vee hull's widest wetted point at a
+    // station is where the bottom meets the topsides, and that is what cuts.
+    for (let side = -1; side <= 1; side += 2) {
+      _stnV.set(side * st.half, st.keel, st.z).applyMatrix4(boat.matrixWorld);
+      if (_stnV.y > seaY) continue;
+      waterline.wet++;
+      // Metres aft of the stem, along the hull -- the same measure the wake's
+      // anchor and the spray cuts are written in.
+      const aft = stem - st.z;
+      if (side < 0 && firstP === null) firstP = aft;
+      if (side > 0 && firstS === null) firstS = aft;
+      // Reported at the SURFACE, not at the keel: the cut is where the hull
+      // passes through the water, and that is what a marker should stand on.
+      waterline.cuts.push(_stnV.x, seaY, _stnV.z);
+    }
+  }
+  waterline.port = firstP ?? 0;
+  waterline.star = firstS ?? 0;
+  // The wake starts where the hull FIRST touches, whichever side that is: one
+  // chine down in a turn is still a hull cutting water, and waiting for both
+  // would put the wake astern of the side doing the work.
+  waterline.entry = firstP === null ? (firstS ?? 0)
+                  : firstS === null ? firstP : Math.min(firstP, firstS);
+  return waterline;
+
 }
 
 async function showBoat(i) {
@@ -364,7 +487,10 @@ const spray = new Spray(3000);
 //
 // depthTest off, so they read THROUGH the hull and the water -- the whole point
 // is to see a source that is hidden inside or beneath something.
-const DEBUG_MARKS = 80;
+// Enough for every station's two chines (28 x 2) plus the dozen fixed markers.
+// mark() drops anything past the cap silently, and a waterline that quietly
+// stops halfway down the hull is worse than no debug view at all.
+const DEBUG_MARKS = 160;
 const debugMarks = (() => {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(DEBUG_MARKS * 3), 3));
@@ -448,7 +574,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b98';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b99';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -1077,13 +1203,21 @@ function stepSim(dt) {
   const hullDrawn = get('boat.length') * get('boat.modelScale');
   // ...AND AFT AGAIN TO WHERE SHE IS ACTUALLY TOUCHING.
   //
-  // With the bow up the stem is clear of the water and the keel first meets the
-  // surface some way aft -- at the old uncapped trim, 10.8 m aft of the stem on
-  // a 23.8 m hull, nearly half the boat. The ribbon was anchored at the stem
-  // regardless, so the foam began in water the hull was nowhere near, which is
-  // exactly the wake that appeared to start ahead of the boat. body.contact is
-  // that distance, solved from the trim geometry rather than guessed.
-  const contact = body.contact ?? 0;
+  // FROM THE MESH, not from the trim angle. body.contact solves the keel line
+  // against the surface analytically, which is centreline arithmetic on a hull
+  // shape nobody measured: it knows the pitch and nothing about the shape of
+  // the forefoot, and it cannot represent heel at all -- so it gave the same
+  // answer whether she was upright or laid over in a turn.
+  //
+  // updateWaterline() carries the sampled hull stations through the boat's real
+  // world matrix, so pitch, heel and heave are all already in it. The entry is
+  // simply the forward-most station that is under water, and in a turn the two
+  // sides genuinely disagree, which is what a heeled hull does.
+  //
+  // The analytic solve stays as the fallback for the frame before the model has
+  // loaded and been measured.
+  const wl = updateWaterline(0);
+  const contact = wl.wet ? wl.entry : (body.contact ?? 0);
   const anchorOff = state.speed < 0 ? bowAhead - hullDrawn : bowAhead - contact;
   // Going ASTERN the track runs the other way down the same course line, so
   // the tangent handed to the field has to be the direction of TRAVEL, not the
@@ -1195,11 +1329,25 @@ function stepSim(dt) {
     // WHITE: the boat mesh's own origin, so a disagreement between where the
     // hull is DRAWN and where the sim thinks it is shows up immediately.
     mark(boat.position.x, 0.05, boat.position.z, 1, 1, 1);
-    // CYAN: the spray cuts along the waterline.
+    // CYAN: the spray cuts along the waterline -- the PARAMETRIC ones, from the
+    // half-width curve, which is what the spray emitter uses.
     for (const c of body.cuts(4)) {
       const nx = -bhz, nz = bhx;
       mark(state.x + bhx * bowAhead - bhx * c.along + nx * c.lat, 0.05,
            state.z + bhz * bowAhead - bhz * c.along + nz * c.lat, 0.1, 0.9, 1.0);
+    }
+    // MAGENTA: where the MESH actually cuts the water, station by station, from
+    // the sampled hull carried through the boat's real world matrix. These are
+    // the ones to trust -- the cyan ones come from a formula, these come from
+    // the boat. In a turn they go asymmetric, because a heeled hull is.
+    for (let i = 0; i + 2 < waterline.cuts.length; i += 3) {
+      mark(waterline.cuts[i], 0.05, waterline.cuts[i + 2], 1.0, 0.25, 0.85);
+    }
+    // YELLOW: the entry itself -- the forward-most point of the hull that is
+    // under water, and where the wake ribbon is now anchored.
+    if (waterline.wet) {
+      const e = bowAhead - waterline.entry;
+      mark(state.x + bhx * e, 0.06, state.z + bhz * e, 1.0, 0.95, 0.15);
     }
     debugMarks.geometry.setDrawRange(0, _markN);
     debugMarks.geometry.attributes.position.needsUpdate = true;
