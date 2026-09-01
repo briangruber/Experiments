@@ -585,6 +585,87 @@ try {
     return total > 0 && dead === 0 && window.__t.gutter.got === window.__t.gutter.want;
   });
 
+  // Number keys jump between rooms, for testing.
+  //
+  // Through goTo, the same path a door takes, so the room arrives with its own
+  // cast, backdrop and sound rather than through a second route that only the
+  // test exercises and only the test keeps working.
+  await step('number keys jump straight to a room', async () => {
+    await page.keyboard.press('2');
+    await page.waitForFunction(() => window.__t.room() === 'galley', null, { timeout: 15000 });
+    await idle();
+    await page.evaluate(() => { window.__t.jumped = { to: window.__t.room(), cast: Object.keys(window.__monkey.actors) }; });
+    await page.keyboard.press('1');
+    await page.waitForFunction(() => window.__t.room() === 'dock', null, { timeout: 15000 });
+    await idle();
+  }, () => {
+    const j = window.__t.jumped;
+    // The galley's own people came with it — a jump that changed the backdrop
+    // and left the dock's cast standing on it would pass a room-id check.
+    return j.to === 'galley' && j.cast.includes('pike') && window.__t.room() === 'dock';
+  });
+
+  // The pointer says what is under it, in pixels.
+  //
+  // The room already names the thing at the top of the screen and puts a
+  // chevron on an exit, but both of those are somewhere other than where you
+  // are looking. Three shapes, and this asserts they are actually three.
+  //
+  // All three are drawn AT THE SAME POINT, over the same piece of floor, by
+  // putting the pointer into each state rather than moving it to somewhere
+  // that state naturally occurs. Two earlier versions of this check compared
+  // the cursor where it belongs — over floor, over the nets, over the jetty —
+  // and both passed with a single shape drawn everywhere, because three
+  // different backdrops differ from each other whatever is on top of them.
+  await step('the pointer changes shape over something you can use', async () => {
+    const shapes = await page.evaluate(async () => {
+      const M = window.__monkey;
+      const c = document.querySelector('canvas');
+      const g = c.getContext('2d');
+      const P = { x: 300, y: 700 };
+      // Park the game's own mouse at the sample point.
+      const r = c.getBoundingClientRect();
+      c.dispatchEvent(new PointerEvent('pointermove', { bubbles: true,
+        clientX: r.left + (P.x / 1280) * r.width, clientY: r.top + (P.y / 720) * r.height }));
+      const grab = () => Array.from(g.getImageData(P.x - 22, P.y - 22, 44, 44).data);
+      const frame = () => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
+      const out = {};
+      for (const kind of ['none', 'thing', 'exit']) {
+        M.setHover(kind);
+        await frame();
+        out[kind] = grab();
+      }
+      // And once with the pointer off the board, which draws no cursor at all:
+      // the bare backdrop, so the ink of each shape can be isolated.
+      c.dispatchEvent(new PointerEvent('pointerleave', { bubbles: true }));
+      await frame();
+      out.bare = grab();
+      return out;
+    });
+    const inkOf = (s) => {
+      const m = new Uint8Array(44 * 44);
+      for (let i = 0, k = 0; i < s.length; i += 4, k++) {
+        m[k] = (Math.abs(s[i] - shapes.bare[i]) + Math.abs(s[i + 1] - shapes.bare[i + 1])
+          + Math.abs(s[i + 2] - shapes.bare[i + 2])) > 40 ? 1 : 0;
+      }
+      return m;
+    };
+    const ink = { none: inkOf(shapes.none), thing: inkOf(shapes.thing), exit: inkOf(shapes.exit) };
+    const count = (m) => m.reduce((a, b) => a + b, 0);
+    const differ = (u, v) => { let n = 0; for (let i = 0; i < u.length; i++) if (u[i] !== v[i]) n++; return n; };
+    await page.evaluate((d) => { window.__t.cursor = d; }, {
+      ink: { none: count(ink.none), thing: count(ink.thing), exit: count(ink.exit) },
+      noneVsThing: differ(ink.none, ink.thing),
+      thingVsExit: differ(ink.thing, ink.exit),
+      noneVsExit: differ(ink.none, ink.exit),
+    });
+  }, () => {
+    const c = window.__t.cursor;
+    // Every state draws something, and no two draw the same thing.
+    return Object.values(c.ink).every((n) => n > 40)
+      && c.noneVsThing > 40 && c.thingVsExit > 40 && c.noneVsExit > 40;
+  });
+
   // An exit is a door, not a thing with three opinions about it.
   await step('an exit takes one click and opens no verb coin', async () => {
     const j = await T(() => window.__t.spot('jetty'));
@@ -1047,6 +1128,7 @@ const m = errors.length ? {} : await page.evaluate(() => ({
   talk: window.__t.talk,
   clashes: window.__t.clashes,
   anchors: window.__t.anchors,
+  cursor: window.__t.cursor,
 }));
 
 await browser.close();

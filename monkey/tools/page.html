@@ -71,7 +71,9 @@ h1 {
   width: 100%;
   aspect-ratio: 16 / 9;
   height: auto;
-  cursor: crosshair;
+  /* The game draws its own pointer, so that it can change shape over
+     something you can act on. See drawCursor in src/main.js. */
+  cursor: none;
   touch-action: none;
 }
 #fatal {
@@ -131,14 +133,17 @@ footer b { color: #8a7d68; font-weight: 500; }
     <span class="k"><b>Click</b> walk</span>
     <span class="k"><b>Click a thing</b> verb coin</span>
     <span class="k"><b>Item, then thing</b> use it on</span>
+    <span class="k"><b>1 2</b> jump to a room</span>
     <span class="k"><b>`</b> floor editor</span>
-    <span class="k"><b>M</b> mute</span>
+    <span class="k"><b>M / N / B</b> voice, music, ambience</span>
     <span class="k" id="backdrop-state"><b>Backdrop</b> loading…</span>
   </div>
 
   <footer>
     <b>Get aboard the ship.</b> Harbourmaster Grout is in the way, and he has been on that
-    plank for eleven hours without a drink. Sound starts after your first click.
+    plank for eleven hours without a drink. Sound starts after your first click. The pointer
+    tells you what it is over: a diamond walks there, a ring means the verb coin, a chevron is
+    a way out.
   </footer>
 </div>
 

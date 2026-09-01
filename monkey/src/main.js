@@ -148,6 +148,9 @@ console.log(`[puzzle] ${Object.keys(ROOMS).length} rooms, ${report.nodes} nodes,
 
 let mouse = { x: 0, y: 0, rx: 0, ry: 0 };
 let hoverSpot = null;
+// Whether the pointer is over the board. The cursor is drawn by the game
+// rather than by the browser, so it has to know when not to draw one.
+let pointerIn = false;
 // Long enough that a deliberate second click lands, short enough that walking
 // somewhere and then changing your mind is not read as a sprint.
 const DOUBLE_CLICK_MS = 420;
@@ -162,7 +165,11 @@ function toStage(e) {
   };
 }
 
+canvas.addEventListener('pointerenter', () => { pointerIn = true; });
+canvas.addEventListener('pointerleave', () => { pointerIn = false; });
+
 canvas.addEventListener('pointermove', (e) => {
+  pointerIn = true;
   const p = toStage(e);
   mouse = { x: p.x, y: p.y, rx: p.x + room.camX, ry: p.y };
   coin.move(p.x, p.y);
@@ -251,6 +258,19 @@ window.addEventListener('keydown', (e) => {
   // bad trade the player should not have to make.
   if (e.key === 'n') { musicOn = !musicOn; ambience.setMusic(musicOn); toast(musicOn ? 'music on' : 'music off'); }
   if (e.key === 'b') { ambience.setMuted(!ambience.muted); toast(ambience.muted ? 'ambience off' : 'ambience on'); }
+  // Jump straight to a room, for testing. Number keys, in the order the room
+  // registry declares them, because a two-room game does not need a menu and a
+  // ten-room one will still fit on the top row.
+  //
+  // It goes through goTo like a door does, so the room is rebuilt the same way
+  // — its own cast, its own backdrop, its own sound — rather than through some
+  // second path that only the test uses and only the test keeps working.
+  if (/^[1-9]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !editor.active) {
+    const id = Object.keys(ROOMS)[+e.key - 1];
+    if (id && id !== here) { toast(id); pendingMove = { id, from: 'start' }; }
+    else if (id) toast(`already in the ${id}`);
+    return;
+  }
   if (e.key === 's' && e.ctrlKey) { e.preventDefault(); save(); }
   if (e.key === 'l' && e.ctrlKey) { e.preventDefault(); load(); }
 });
@@ -449,8 +469,89 @@ function frame(now) {
   coin.render(ctx, VIEW);
   menu.render(ctx);
   if (state.get('sailed')) drawWin();
+  drawCursor();
 
   requestAnimationFrame(frame);
+}
+
+// The pointer, drawn by the game.
+//
+// The room already says what is under the cursor — a word at the top, and a
+// chevron on an exit — but both of those are somewhere other than where you
+// are looking, which is at the thing. A cursor that changes shape is the one
+// piece of that feedback you cannot miss, and it is what every game in this
+// genre did.
+//
+// Four states, and they are four because they are four different things you
+// can do, not four decorations:
+//
+//   NOTHING     a small hollow diamond. Clicking walks you there.
+//   SOMETHING   a ring, opened up, with a dot in it. There is a verb coin here.
+//   A WAY OUT   a chevron pointing the way the door goes. One click, no coin.
+//   BUSY        everything dimmed, because input is locked and a cursor that
+//               looks live while nothing responds reads as a hung game.
+//
+// Drawn last, over everything including the inventory and the coin, because a
+// cursor that can go behind something is a cursor you lose.
+function drawCursor() {
+  if (!pointerIn) return;
+  const x = Math.round(mouse.x), y = Math.round(mouse.y);
+  const busy = seq.busy;
+  // Over the game's own furniture, the pointer is just a pointer: the coin and
+  // the strip say what they are by being drawn, and a "there is something here"
+  // ring over every inventory slot is noise.
+  const onUI = coin.open || menu.active || inv.contains(mouse.x, mouse.y, state.inventory);
+  const exit = !onUI && !busy && hoverSpot?.exit;
+  const live = !onUI && !busy && hoverSpot && !hoverSpot.exit;
+
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.globalAlpha = busy ? 0.35 : 1;
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  // A dark pass under a light one, so the cursor reads on the pale moonlit
+  // water and on the dark planks without changing colour.
+  const stroke = (path, w, colour) => {
+    ctx.lineWidth = w + 2.5; ctx.strokeStyle = 'rgba(0,0,0,0.72)'; path();
+    ctx.lineWidth = w; ctx.strokeStyle = colour; path();
+  };
+
+  if (exit) {
+    const d = hoverSpot.exit.dir === 'left' ? -1 : 1;
+    const bob = Math.sin(performance.now() / 220) * 1.6;
+    ctx.translate(d * bob, 0);
+    stroke(() => {
+      ctx.beginPath();
+      ctx.moveTo(d * -2.5, -6); ctx.lineTo(d * 5, 0); ctx.lineTo(d * -2.5, 6);
+      ctx.stroke();
+    }, 3, '#f6d78a');
+  } else if (live) {
+    // Opened up rather than a closed ring: the gaps are what stop it reading
+    // as a full stop, and the pulse is small enough to notice only once you
+    // are looking at it.
+    const t = performance.now() / 340;
+    const r = 8.5 + Math.sin(t) * 0.9;
+    stroke(() => {
+      ctx.beginPath();
+      for (let k = 0; k < 4; k++) {
+        const a0 = k * Math.PI / 2 + 0.42, a1 = a0 + Math.PI / 2 - 0.84;
+        // Start each arc where it starts. Falling back to the centre between
+        // them draws four spokes and the ring becomes a wheel.
+        ctx.moveTo(Math.cos(a0) * r, Math.sin(a0) * r);
+        ctx.arc(0, 0, r, a0, a1);
+      }
+      ctx.stroke();
+    }, 2.5, '#f6d78a');
+    ctx.fillStyle = '#f6d78a';
+    ctx.beginPath(); ctx.arc(0, 0, 1.6, 0, Math.PI * 2); ctx.fill();
+  } else {
+    stroke(() => {
+      ctx.beginPath();
+      ctx.moveTo(0, -5.5); ctx.lineTo(5.5, 0); ctx.lineTo(0, 5.5); ctx.lineTo(-5.5, 0);
+      ctx.closePath();
+      ctx.stroke();
+    }, 2, 'rgba(246,215,138,0.85)');
+  }
+  ctx.restore();
 }
 
 function drawHud() {
@@ -914,5 +1015,16 @@ window.__monkey = { g, state, coin, inv, menu, seq, lint: report, ambience, last
   },
   // Diagnostics: what the pointer last resolved to, which is the only way to
   // tell a bad hit test from a bad coordinate mapping.
-  mouse: () => ({ ...mouse }), hover: () => hoverSpot?.id ?? null };
+  mouse: () => ({ ...mouse }), hover: () => hoverSpot?.id ?? null,
+  // Put the pointer in a given state without moving it, so a check can draw
+  // all three shapes over the same piece of floor. Comparing them where they
+  // naturally occur compares three different backdrops as well, and passes
+  // with one shape drawn everywhere — which is what the first version of that
+  // check did.
+  setHover: (kind) => {
+    pointerIn = true;
+    hoverSpot = kind === 'thing' ? { id: '_test', name: 'a thing', rect: [0, 0, 8, 8] }
+      : kind === 'exit' ? { id: '_test', name: 'a way out', rect: [0, 0, 8, 8], exit: { dir: 'left' } }
+      : null;
+  } };
 requestAnimationFrame(frame);
