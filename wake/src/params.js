@@ -16,6 +16,10 @@ export const PARAMS = {
     astern:       { v: 2.4, min: 0,   max: 8,   step: 0.1,  label: 'Astern speed (m/s)' },
     steerRate:    { v: 26, min: 2,   max: 90,  step: 1,    label: 'Steer rate (°/s)' },
     hardTurn:     { v: 2.4, min: 1,   max: 5,   step: 0.05, label: 'Shift turn ×' },
+    // The same key, on the other axis. Shift already meant a harder turn and
+    // meant nothing on the throttle, so it was a modifier one way and dead the
+    // other.
+    hardThrottle: { v: 3,   min: 1,   max: 8,   step: 0.1,  label: 'Shift throttle ×' },
     throttleRate: { v: 7, min: 0.5, max: 30,  step: 0.5,  label: 'Throttle rate (m/s²)' },
     humpFroude:   { v: 0.95, min: 0.3, max: 2,   step: 0.01, label: 'Hump Froude no.' },
     trimRest:     { v: 1.2,  min: 0,   max: 6,   step: 0.1,  label: 'Bow-down at rest (°)' },

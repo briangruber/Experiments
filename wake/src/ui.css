@@ -108,7 +108,12 @@ html, body {
   transition: opacity 0.2s;
 }
 /* Quieter with the chrome gone -- readable at a glance, not competing with the
-   water it is sitting over. */
+   water it is sitting over -- and hard against the edge, because there is no
+   longer a rail to sit clear of. --rail is a fixed 300px and does not change
+   when the panel is hidden (it is display:none, not zero-width), so tracking it
+   left the readout stranded 312px in from the right with nothing beside it. */
+body.hide-ui #speed,
+body.rail-closed #speed { right: 12px; }
 body.hide-ui #speed { opacity: 0.62; }
 #speed b {
   font-family: var(--font-ui);
@@ -215,6 +220,12 @@ body.hide-ui #hud { display: none; }
   transition: opacity 0.2s, color 0.14s, border-color 0.14s;
 }
 #chrome-toggle:hover { color: var(--foam); border-color: var(--dimmer); }
+
+/* Same reason as #speed above: with the panel closed there is no rail to clear,
+   and leaving the button inset while the readout beneath it moves out would put
+   the two out of line. */
+body.rail-closed #chrome-toggle { right: 12px; }
+body.rail-closed #hud { right: 0; }
 
 body.hide-ui #chrome-toggle {
   right: 12px;

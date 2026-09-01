@@ -448,7 +448,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'b97';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'b98';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -932,7 +932,14 @@ function stepSim(dt) {
   // Up/down arrows work the throttle rather than setting a speed: they move the
   // target, the hull's own inertia does the rest, and the slider follows so the
   // panel never disagrees with the boat.
-  const rate = get('boat.throttleRate') * dt;
+  // SHIFT IS "HARDER", WHATEVER YOU ARE DOING WITH IT.
+  //
+  // It already meant a harder turn; on the throttle it meant nothing at all, so
+  // the same key was a modifier on one axis and dead on the other. Now it works
+  // the throttle the way it works the helm -- opening her up or hauling her
+  // back three times as fast -- which is what a hand on a lever actually does.
+  const rate = get('boat.throttleRate') * dt
+             * (keys.has('shift') ? get('boat.hardThrottle') : 1);
   let throttle = 0;
   if (keys.has('arrowup')) throttle += rate;
   if (keys.has('arrowdown')) throttle -= rate;
