@@ -327,6 +327,23 @@ export const PARAMS = {
     // and the calm lane spreads to the thinnest edges of the wake; raise it and
     // only the heavily worked water close astern goes glassy.
     slickRef:{ ui: 'kelvin', v: 0.12, min: 0.01, max: 1, step: 0.01, label: 'Coverage = fully slick at' },
+    // HOW SMOOTH THE LANE ACTUALLY GETS -- and this is the term that makes the
+    // slick visible at all.
+    //
+    // The other three do very little in a calm scene. Clearing wind foam clears
+    // foam that is not there with the sea's whitecaps off, and the slope-square
+    // only widens or narrows the specular lobe. Meanwhile the chop you SEE at
+    // any distance is not geometry: the fine cascades fade out with distance so
+    // they cannot alias, and past a few tens of metres the whole ripple texture
+    // is the shading normal. Flattening displacement while leaving the normals
+    // alone smooths water that was already too far away to be displaced.
+    //
+    // A surfactant slick damps the capillary waves, and those ripples are what
+    // scatter the sky into a matte texture. Take them out and the patch goes
+    // specular and reflects the sky whole -- which is why a slick reads as a
+    // smooth dark lane on a bright sea and a smooth bright one on a dark sea.
+    // One mechanism, both appearances, and it is a normal rather than a height.
+    slickSmooth:{ ui: 'kelvin', v: 0.8, min: 0, max: 1, step: 0.01, label: 'Slick smooths the surface' },
   },
 
   kelvin: {

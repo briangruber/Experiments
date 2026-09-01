@@ -1493,6 +1493,7 @@ function frame(now) {
     sea.params.churnRef = get('surface.churnRef');
     sea.params.slickRef = get('surface.slickRef');
     sea.params.slickReach = get('surface.slickReach');
+    sea.params.slickSmooth = get('surface.slickSmooth');
     const asd = sea.sunDirection();
     if (asd) {
       sd.set(asd[0], asd[1], asd[2]);

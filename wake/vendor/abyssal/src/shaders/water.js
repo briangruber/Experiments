@@ -12,7 +12,7 @@ uniform float uHullPush, uHullRadius, uHullBow, uHullPlane;
 uniform float uHullCut, uHullCutLen, uHullCutBeam;
 uniform float uHullFoam, uHullFoamW;
 uniform float uChurnRef;   // see the vertex stage
-uniform float uSlickRef, uSlickReach;
+uniform float uSlickRef, uSlickReach, uSlickSmooth;
 uniform float uHullWlLen, uHullWlBeam;
 // The hull's own speed. NOT uWakeSpeed: the lab hands the vendored water a
 // wake it has already shaped, so every Abyssal wake-shaping uniform including
@@ -1172,6 +1172,30 @@ void main(){
       foamF *= 1.0 - slick;
       foamR *= 1.0 - slick;
       msq   *= 1.0 - 0.6 * slick;
+
+      // A SLICK IS SMOOTH WATER, AND SMOOTH WATER IS A MIRROR.
+      //
+      // This is the term that was missing, and without it the whole feature was
+      // never going to be visible. The other three do very little in a calm
+      // scene: clearing the wind foam clears foam that is not there when the
+      // sea's whitecaps are off, and msq only widens or narrows the specular
+      // lobe. Meanwhile the chop you actually SEE at any distance is not
+      // geometry at all -- the fine cascades fade out with distance to stop
+      // them aliasing, and past a few tens of metres the entire ripple texture
+      // is this slope: the cascade normals plus the capillary term. Flattening
+      // the displacement while leaving the normals alone smooths water that was
+      // already too far away to be displaced, and changes nothing you can see.
+      //
+      // What a surfactant slick physically does is damp the capillary and short
+      // gravity waves. Those ripples are what scatter the sky into a matte
+      // texture; kill them and the patch goes specular and reflects the sky
+      // whole, which is why a slick reads as a smooth dark lane on a bright sea
+      // and a smooth bright lane on a dark one. It is the same one mechanism
+      // that produces both, and it is a normal, not a height.
+      //
+      // Applied BEFORE the wake's own relief is added below, so the ridge keeps
+      // its shape while the sea's ripple is taken out from under it.
+      slope *= 1.0 - slick * uSlickSmooth;
       // The ridge is real geometry - the vertex shader displaced by wk.y - so it
       // needs a normal that knows it is a ridge, or it reads as a decal lying on
       // flat water. Central differences at half a metre, which is inside the arm

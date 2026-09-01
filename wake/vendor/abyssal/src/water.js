@@ -331,6 +331,7 @@ export class WaterSurface {
       uWakeRelief: p.wakeRelief, uWakeSlick: p.wakeSlick,
       uWakeCalm: p.wakeCalm ?? 0, uChurnRef: Math.max(p.churnRef ?? 0.026, 1e-4),
       uSlickRef: Math.max(p.slickRef ?? 0.12, 0.01), uSlickReach: p.slickReach ?? 4,
+      uSlickSmooth: p.slickSmooth ?? 0.8,
       uWakePlume: p.wakePlume ?? 1.0,
       uHullPos: hull.pos, uHullFwd: hull.fwd,
       uHullCut: hull.cut ?? 0, uHullCutPos: hull.cutPos ?? NO_HULL.cutPos,
