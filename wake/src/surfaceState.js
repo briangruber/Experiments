@@ -41,7 +41,13 @@ const STEP_FRAG = /* glsl */`
   uniform float uScale;
   uniform float uDt;
   uniform float uFoamHalf, uAirHalf, uFreshHalf, uRise;
+  // The surface's shape, for breaking: the wake field's height channel, in
+  // metres, in this same window. uTexel is one of its texels in uv, uMetres
+  // the window's width, so a difference over two texels is a slope.
+  uniform sampler2D uHeight;
+  uniform float uTexel, uMetres, uBreak, uBreakSlope;
   varying vec2 vUv;
+  float hAt(vec2 o){ return texture2D(uHeight, vUv + o).g; }
   void main(){
     // Follow the boat. uShift is a whole number of texels, so this is a copy
     // -- except on the frame the window changes size, when uScale is not one
@@ -50,6 +56,22 @@ const STEP_FRAG = /* glsl */`
     vec4 p = (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0))))
       ? vec4(0.0) : texture2D(uPrev, uv);
     float foam = p.r, air = p.g, fresh = p.b;
+
+    // BREAKING. A crest that gets too steep spills, and a spilling crest is
+    // where white water comes from on open sea -- and on the arms of a wake,
+    // whose steepest crests are the ones the recipe has always painted with
+    // a stripe. Now it is a source like any other: past the slope a crest
+    // can hold, air goes into the water in proportion to how far past.
+    if (uBreak > 0.0) {
+      float d = 2.0 * uTexel * uMetres;
+      vec2 g = vec2(hAt(vec2(uTexel, 0.0)) - hAt(vec2(-uTexel, 0.0)),
+                    hAt(vec2(0.0, uTexel)) - hAt(vec2(0.0, -uTexel))) / d;
+      float br = max(length(g) - uBreakSlope, 0.0) * uBreak * uDt;
+      air   += br;
+      // Some of it is white at once: the spilling face itself.
+      foam  += br * 0.35;
+      fresh += br * 0.35;
+    }
 
     // Air SURFACES. A bubble rises at a rate set by its size, and a cloud of
     // them arrives at the top over a few seconds -- which is why the plume is
@@ -128,6 +150,9 @@ export class SurfaceState {
 			uDt: { value: 1 / 60 },
 			uFoamHalf: { value: 22 }, uAirHalf: { value: 6 },
 			uFreshHalf: { value: 3 }, uRise: { value: 0.35 },
+			uHeight: { value: field.rt.texture },
+			uTexel: { value: 1 / field.rt.width }, uMetres: { value: field.extent },
+			uBreak: { value: 0 }, uBreakSlope: { value: 0.1 },
 		};
 		this.stepScene = new THREE.Scene();
 		this.stepCam = new THREE.OrthographicCamera( - 1, 1, 1, - 1, 0, 1 );
@@ -248,6 +273,11 @@ export class SurfaceState {
 		u.uAirHalf.value = get( 'sim.airHalf' );
 		u.uFreshHalf.value = get( 'sim.freshHalf' );
 		u.uRise.value = get( 'sim.rise' );
+		u.uHeight.value = f.rt.texture;
+		u.uTexel.value = 1 / f.rt.width;
+		u.uMetres.value = eNew;
+		u.uBreak.value = get( 'sim.breaking' );
+		u.uBreakSlope.value = get( 'sim.breakSlope' );
 
 		r.setRenderTarget( next );
 		r.setClearColor( 0x000000, 0 );
