@@ -134,6 +134,52 @@ export function buildUI(root, hooks = {}) {
   }
   const titled = Object.keys(GROUP_TITLES).filter((g) => sections.has(g));
   const untitled = [...sections.keys()].filter((g) => !GROUP_TITLES[g]);
+
+  // FIND. A few hundred sliders in sixteen shut groups is a filing cabinet,
+  // and the way into a filing cabinet is by name. Type a word or two and only
+  // the rows whose label, key or group mention all of them stay, with their
+  // groups opened; clear it and the panel goes back to how you had it.
+  const find = document.createElement('input');
+  find.type = 'search';
+  find.className = 'find';
+  find.placeholder = 'Find a setting…  (/)';
+  find.setAttribute('aria-label', 'Find a setting');
+  find.autocomplete = 'off';
+  root.appendChild(find);
+  const built = [];   // { sec, title, wasOpen, rows: [{ row, text }] }
+  const applyFind = () => {
+    const words = find.value.toLowerCase().split(/\s+/).filter(Boolean);
+    const on = words.length > 0;
+    let any = 0;
+    for (const b of built) {
+      if (on && b.wasOpen === null) b.wasOpen = b.sec.open;
+      let n = 0;
+      for (const r of b.rows) {
+        const hit = !on || words.every((w) => r.text.includes(w));
+        r.row.hidden = !hit;
+        if (hit) n ++;
+      }
+      b.sec.hidden = on && n === 0;
+      if (on) b.sec.open = n > 0;
+      else if (b.wasOpen !== null) { b.sec.open = b.wasOpen; b.wasOpen = null; }
+      any += n;
+    }
+    find.classList.toggle('none', on && any === 0);
+  };
+  find.addEventListener('input', applyFind);
+  find.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { find.value = ''; applyFind(); find.blur(); }
+    // Arrow keys steer the boat; typing in here must not.
+    e.stopPropagation();
+  });
+  find.addEventListener('keyup', (e) => e.stopPropagation());
+  window.addEventListener('keydown', (e) => {
+    if (e.key === '/' && document.activeElement !== find &&
+        !/input|textarea|select/i.test(document.activeElement?.tagName || '')) {
+      e.preventDefault(); find.focus(); find.select();
+    }
+  });
+
   for (const gname of [...titled, ...untitled]) {
     // The array, not an object keyed by name: two storage groups can hold the
     // same key (ocean.tint and scene.waterTint both end up under Water look),
@@ -147,6 +193,7 @@ export function buildUI(root, hooks = {}) {
     const sum = document.createElement('summary');
     sum.textContent = GROUP_TITLES[gname] || gname;
     sec.appendChild(sum);
+    const entry = { sec, title: sum.textContent.toLowerCase(), wasOpen: null, rows: [] };
 
     let shown = 0;
     for (const [key, p, storedIn] of entries) {
@@ -171,10 +218,11 @@ export function buildUI(root, hooks = {}) {
       input.addEventListener('input', () => { set(path, input.value); show(); hooks.onChange?.(path); });
       row.appendChild(input);
       sec.appendChild(row);
+      entry.rows.push({ row, text: `${p.label} ${path} ${entry.title}`.toLowerCase() });
       show();
       rows.push({ path, input, show, p, defaults: p.v });
     }
-    if (shown) root.appendChild(sec);
+    if (shown) { root.appendChild(sec); built.push(entry); }
   }
 
   const bar = document.createElement('div');
