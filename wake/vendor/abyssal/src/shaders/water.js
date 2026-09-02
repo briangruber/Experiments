@@ -1153,8 +1153,14 @@ void main(){
       vec2 swayP = vFlat.xz - (vWorld.xz - vFlat.xz) * (uSimSway - 1.0);
       vec3 sf = surfaceAt(swayP) * k;
       float newness = clamp(sf.z / max(sf.x, 1e-3), 0.0, 1.0);
-      wake += sf.x * newness;
-      wakeDep += sf.x * (1.0 - newness);
+      // ALL of it through the wake path, not just the new white. The
+      // residue path turned out to be gated by the sea's whitecap amount
+      // and its own fold gates, and in a calm preset nothing the hull left
+      // ever reached the screen. The wake path is what drew the recipe's
+      // lace for months; the raft's age already shows in how the sim
+      // thins, melts and opens it, and wakeAgeAt() grades the rest.
+      wake += sf.x;
+      wakeDep += sf.x * (1.0 - newness) * 0.5;
       surfAir = sf.y;
       // WHAT WAS LAID HERE IS OLD FOAM, and it must not be shaded as new.
       //
