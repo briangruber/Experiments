@@ -1271,7 +1271,12 @@ void main(){
   // ...and the deposit only ever as residue. Left in the coverage rather than
   // subtracted back out like the reconstruction is, so it takes the lace: old
   // foam is the lacy, broken-up kind, which is what it should look like.
-  foamR += wakeDep * WAKE_FOAM_RESIDUE;
+  // NOT into foamR. Everything in foamR is scaled by uFoamAmount below, and
+  // that is the SEA's whitecap amount -- zero in the calm presets -- so the
+  // raft the hull left was gated out with the whitecaps and only the few
+  // seconds of fresh white (the film path) ever showed. It joins the
+  // coverage after that scale, as its own term.
+  float simRes = wakeDep * WAKE_FOAM_RESIDUE;
 
   // THE WATERLINE ITSELF.
   //
@@ -1448,7 +1453,7 @@ void main(){
   // Wind fold only. Leftover wake is composited as a film after the lace
   // resolve — putting a thin trail through this gate made it pulsate.
   float covF = clamp((foamF - wake * WAKE_FOAM_FRESH) * uFoamAmount, 0.0, 1.0);
-  float covR = clamp((foamR - wake * WAKE_FOAM_RESIDUE) * uFoamAmount, 0.0, 1.0);
+  float covR = clamp((foamR - wake * WAKE_FOAM_RESIDUE) * uFoamAmount + simRes, 0.0, 1.0);
   // Harder Jacobian gate (src/foam-lace.js jacobianGate). A leak of fold
   // used to sprinkle the lace across calm water. Fold 0 is empty.
   float gateF = smoothstep(0.02, 0.12, covF);
