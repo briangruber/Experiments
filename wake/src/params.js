@@ -822,7 +822,7 @@ export const PARAMS = {
     on:         { ui: 'foam', o: 1, v: 1,    min: 0,   max: 3,   step: 0.01, label: 'Surface sim' },
     // How much of what is on the water is DRAWN. Separate from `on` so the
     // sim can keep running while you compare it against the recipe.
-    show:       { ui: 'foam', o: 1, v: 2,    min: 0,   max: 4,   step: 0.01, label: 'Show surface foam' },
+    show:       { ui: 'foam', o: 1, v: 1,    min: 0,   max: 4,   step: 0.01, label: 'Show surface foam' },
     // How much of the old recipe's painted foam still shows. 1 is everything
     // exactly as before; 0 is the sim alone. Meant to end up near 0.
     recipe:     { ui: 'foam', o: 1, hide: 1, v: 0,    min: 0,   max: 1,   step: 0.01, label: 'Recipe foam still shown' },
