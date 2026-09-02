@@ -47,10 +47,10 @@ export class WakeBridge {
 
 	}
 
-	/** The deposit buffer's live face, or null before it has been written. */
-	_glDeposit() {
+	/** The surface state's live face, or null before it exists. */
+	_glSurface() {
 
-		const t = this.field.depositTexture?.();
+		const t = this.surface?.texture?.();
 		if ( ! t ) return null;
 		const props = this.renderer.properties.get( t );
 		return props?.__webglTexture ?? null;
@@ -90,7 +90,7 @@ export class WakeBridge {
 
 		const gl = this.renderer.getContext();
 		const tex = this._glTexture();
-		const depTex = this._glDeposit();
+		const surfTex = this._glSurface();
 		const on = active && tex ? 1 : 0;
 		// Diagnostics: whether the seam is actually carrying anything. A wake that
 		// silently fails to bind looks identical to a wake that is simply not
@@ -111,11 +111,12 @@ export class WakeBridge {
 		const c = this.field.center;
 		return {
 			uWakeTex: { target: gl.TEXTURE_2D, tex },
-			// The world-locked deposit: foam that was laid where it was made and
-			// is not re-derived from anything. Shares the field's origin and
-			// extent, so it needs no frame of its own.
-			uDepTex: { target: gl.TEXTURE_2D, tex: depTex ?? tex },
-			uDepAmount: depTex ? get( 'field.deposit' ) > 0.0001 ? 1 : 0 : 0,
+			// The surface state: what the water KEEPS. Shares the field's origin
+			// and extent, so it needs no frame of its own.
+			uSurfTex: { target: gl.TEXTURE_2D, tex: surfTex ?? tex },
+			uSurfOn: surfTex && get( 'sim.on' ) > 0.0001 ? 1 : 0,
+			uSimGain: get( 'sim.show' ),
+			uRecipeFoam: get( 'sim.recipe' ),
 			uWakeOrigin: new Float32Array( [ c.x, c.y ] ),
 			uWakeExtent: Math.max( this.field.extent, 1 ),
 			uWakeOn: on,

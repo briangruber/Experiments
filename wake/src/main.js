@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { PARAMS, get, set } from './params.js';
 import { WakeField } from './wakeField.js';
+import { SurfaceState } from './surfaceState.js';
 import { Ocean } from './ocean.js';
 import { makeBoat } from './boat.js';
 import { Backdrop } from './backdrop.js';
@@ -187,6 +188,10 @@ const camera = new THREE.PerspectiveCamera(38, 1, 0.5, 60000);
 // 2048 fixes it, at 4x the memory -- so phones keep the smaller one.
 const narrow = matchMedia('(max-width: 720px)').matches;
 const wake = new WakeField(renderer, narrow ? 1024 : 2048);
+// What the water KEEPS. The field above is re-derived every frame; this is
+// only ever added to and faded, so foam laid on the water stays where it was
+// laid whatever the boat does next. See surfaceState.js.
+const surface = new SurfaceState(renderer, wake, 1024);
 const ocean = new Ocean(wake, 520, 560);
 const backdrop = new Backdrop();
 // The park: lawn, stone coping, trees, and the pond the boats keep to. The
@@ -265,6 +270,8 @@ try {
 const useAbyssal = () => sea !== null && get('scene.abyssal') > 0.5;
 // Our field, their water. This is the seam the whole swap hangs on.
 const wakeBridge = sea ? new WakeBridge(renderer, wake) : null;
+// The bridge hands the water the surface state's texture beside the field's.
+if (wakeBridge) wakeBridge.surface = surface;
 let sceneTuned = false;   // the default scene's tune is applied on frame one
 // Declared with the shore itself, above: buildShore() clears it, and that
 // call happens long before this point in the file.
@@ -429,7 +436,10 @@ function updateWaterline(seaY) {
       if (side > 0 && firstS === null) firstS = aft;
       // Reported at the SURFACE, not at the keel: the cut is where the hull
       // passes through the water, and that is what a marker should stand on.
-      waterline.cuts.push(_stnV.x, seaY, _stnV.z);
+      // With how far aft it is and which side, for the surface sim: the bow
+      // and the quarter make different white, and the two sides differ in a
+      // turn.
+      waterline.cuts.push(_stnV.x, seaY, _stnV.z, aft, side);
     }
   }
   waterline.port = firstP ?? 0;
@@ -574,7 +584,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'c06';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'c07';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -1309,6 +1319,10 @@ function stepSim(dt) {
   const sternBack = hullSpan.stern - body.bowOffset() + get('wash.bubAft');
   const sternX = state.x - bhx * sternBack;
   const sternZ = state.z - bhz * sternBack;
+  // What the surface sim needs to know about the hull this frame: where the
+  // transom is, which way she points, and how hard the screws are working.
+  hullNow.sternX = sternX; hullNow.sternZ = sternZ;
+  hullNow.hx = bhx; hullNow.hz = bhz; hullNow.load = load;
   // Rate rides the load the same way the cavitation does -- a screw under load
   // is exactly when a boat boils -- plus a floor from simply turning over, so
   // an idling engine still trickles.
@@ -1364,7 +1378,7 @@ function stepSim(dt) {
     // the sampled hull carried through the boat's real world matrix. These are
     // the ones to trust -- the cyan ones come from a formula, these come from
     // the boat. In a turn they go asymmetric, because a heeled hull is.
-    for (let i = 0; i + 2 < waterline.cuts.length; i += 3) {
+    for (let i = 0; i + 4 < waterline.cuts.length; i += 5) {
       mark(waterline.cuts[i], 0.05, waterline.cuts[i + 2], 1.0, 0.25, 0.85);
     }
     // YELLOW: the entry itself -- the forward-most point of the hull that is
@@ -1410,6 +1424,8 @@ stopBtn?.addEventListener('click', stopEngines);
 // The ribbon's anchor, carried between frames so it can walk rather than jump.
 // Started at the ahead value, which is where she is at rest.
 let _anchorOff = 0;
+// Per-frame hull facts for the surface sim, filled in by stepSim.
+const hullNow = { sternX: 0, sternZ: 0, hx: 0, hz: 1, load: 0 };
 
 const speedEl = document.getElementById('speed');
 
@@ -1531,6 +1547,76 @@ function breakOnRocks(dt) {
   _splashCursor = (_splashCursor + SCAN) % sites.length;
 }
 
+// WHERE WHITE IS MADE, this frame.
+//
+// Not shapes: sources. Each is a place the hull is doing something to the
+// water right now, scaled by how hard. The pattern that results -- a thin band
+// at walking pace, a wide V at speed, one side heavier in a turn -- is not
+// drawn anywhere; it is what those sources add up to once the surface has kept
+// them.
+function feedSurface(dt) {
+  const gain = get('sim.on');
+  if (gain <= 0.0001) { surface.begin(); return; }
+  surface.begin();
+  const v = Math.abs(state.speed);
+  const v0 = get('sim.threshold');
+  const drive = Math.max(v - v0, 0);
+  const L = get('boat.length') * get('boat.modelScale');
+  const beam = get('boat.beam') * get('boat.modelScale');
+  const hx = hullNow.hx, hz = hullNow.hz;
+  // How hard she is carving: the coordinated-turn ratio, as everywhere else.
+  const carve = Math.abs(state.speed * state.turn) / 9.81;
+  const outSign = state.turn >= 0 ? 1 : -1;
+  const fr = v / Math.sqrt(9.81 * Math.max(get('boat.length'), 0.5));
+  // Regime. Below the hump a hull PUSHES water and the white is the turbulent
+  // bow wave and the waterline shear; on the plane it THROWS it and the white
+  // is the chine sheet and where it lands. One smooth handover.
+  const planed = THREE.MathUtils.smoothstep(fr, get('boat.humpFroude') * 0.8, get('boat.humpFroude') * 2.0);
+
+  // 1. THE WATERLINE. Every wet station, both sides, from the mesh.
+  if (drive > 0 && waterline.wet) {
+    const kW = get('sim.waterline') * gain * dt;
+    const work = Math.pow(drive, 1.5);
+    const stationLen = L / HULL_STATIONS;
+    const c = waterline.cuts;
+    for (let i = 0; i + 4 < c.length; i += 5) {
+      const x = c[i], z = c[i + 2], aft = c[i + 3], side = c[i + 4];
+      const t = Math.min(aft / Math.max(L, 1), 1);          // 0 stem, 1 transom
+      // The bow does the shearing; the quarter follows in water the bow has
+      // opened. Air (the turbulent bow wave, which will surface behind) is
+      // bow-heavy; foam (the sheet already broken) grows aft.
+      const bow = 1 - THREE.MathUtils.smoothstep(t, 0.0, 0.55);
+      const along = THREE.MathUtils.smoothstep(t, 0.05, 0.7);
+      // The outboard chine in a turn is the one buried and working.
+      const outward = Math.sign(side) === outSign ? 1 : 0;
+      const turnK = 1 + carve * 2.2 * outward;
+      const air = kW * work * (0.9 * bow + 0.15) * (1 - planed * 0.5) * turnK;
+      const foam = kW * work * (0.25 * bow + 0.55 * along) * (0.5 + planed * 0.8) * turnK;
+      surface.splat(x, z, hx, hz, stationLen * 0.7, 0.35 + 0.05 * aft + carve * outward * 0.8,
+                    foam, air, foam);
+    }
+  }
+
+  // 2. THE TRANSOM. Air by how hard the screws are working, plus the transom
+  //    wave filling in behind a hull that is moving at all.
+  if (v > 0.15) {
+    const kT = get('sim.transom') * gain * dt;
+    const thrust = Math.min(1, hullNow.load) * v + 0.35 * Math.pow(drive, 1.2);
+    const back = 1.2 + 0.08 * v;
+    surface.splat(hullNow.sternX - hx * back, hullNow.sternZ - hz * back, hx, hz,
+                  back, beam * 0.55, kT * thrust * 0.15, kT * thrust, kT * thrust * 0.15);
+  }
+
+  // 3. WHERE THE SPRAY CAME DOWN. A droplet that hits the water is aerated
+  //    surface, and this is the first thing that has ever done anything with
+  //    the landings the spray has been reporting all along.
+  const kL = get('sim.landing') * gain;
+  const ld = spray.landings;
+  for (let i = 0; i + 2 < ld.length; i += 3) {
+    surface.splat(ld[i], ld[i + 1], hx, hz, 0.55, 0.55, kL * ld[i + 2], 0, kL * ld[i + 2]);
+  }
+}
+
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min((now - last) / 1000, 0.05);
@@ -1572,9 +1658,8 @@ function frame(now) {
   const fz = back ? (state.z + back.z) * 0.5 : state.z - hz * fieldExtent * 0.28;
   wake.focus(fx, fz, fieldExtent);
   wake.update(state.t);
-  // ...and then lay this frame's foam onto the water and let what is already
-  // there fade. Ordered after the bake because it draws the same ribbon.
-  wake.deposit(dt);
+  feedSurface(dt);
+  surface.step(dt);
 
   // Camera. Nothing here is assigned straight from state: every term is
   // smoothed toward its target, which is what stops a turn from snapping the

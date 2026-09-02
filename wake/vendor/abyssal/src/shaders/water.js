@@ -1125,7 +1125,8 @@ void main(){
   // for real (the vertex shader displaces by the same field), and a ridge whose
   // shading normal does not know it is a ridge reads as a decal on flat water.
   float wake = 0.0;
-  float wakeDep = 0.0;          // laid foam, shaded as residue -- see below
+  float wakeDep = 0.0;          // old foam on the water, shaded as residue
+  float surfAir = 0.0;          // air still in the column, from the surface sim
   float wakeRecon = 0.0;
   float wakeK = 1.0 - smoothstep(1.2, 6.0, foot);
   float reconK = 1.0 - smoothstep(8.0, 28.0, foot);
@@ -1139,7 +1140,18 @@ void main(){
       vec3 wk = wakeAt(vFlat.xz);
       wakeRecon = wk.x * reconK;
       if (k > 0.004) {
-      wake = wk.x * k;
+      // The RECIPE's foam, scaled so it can be faded out under the sim.
+      wake = wk.x * k * uRecipeFoam;
+      // WHAT IS ON THE WATER. New white and old white are the same raft at
+      // different ages: fresh / foam is how new it is, and that splits it
+      // between the bright fresh path and the thin residue path -- so a raft
+      // brightens where the hull just made it and thins behind, with no
+      // second copy of the pattern anywhere.
+      vec3 sf = surfaceAt(vFlat.xz) * k;
+      float newness = clamp(sf.z / max(sf.x, 1e-3), 0.0, 1.0);
+      wake += sf.x * newness;
+      wakeDep += sf.x * (1.0 - newness);
+      surfAir = sf.y;
       // WHAT WAS LAID HERE IS OLD FOAM, and it must not be shaded as new.
       //
       // Folding the deposit into the wake term made it fresh foam -- bright,
@@ -1153,7 +1165,7 @@ void main(){
       // is under it shows through. So the deposit goes to the RESIDUE channel
       // and nowhere else, which is the shading for exactly that, and the plume
       // is visible through it again.
-      wakeDep = wakeDepositAt(vFlat.xz) * k;
+
       // A wake leaves a slick. Churned water has lost the short ripples and the
       // wind foam that were riding on it, and that smooth lane is most of why a
       // boat's path stays legible on a broken sea long after the white water
@@ -2034,6 +2046,13 @@ void main(){
   // SURFACED, which is the difference between churn glowing turquoise at the
   // transom and staying dark blue-green where it is still metres down.
   vec2 bubs = uBubOn > 0.002 ? wakeBubblesAt(vFlat.xz) : vec2(0.0);
+  // ...plus the air the surface sim is holding in the column here. It is what
+  // has not surfaced yet, so it counts as deep rather than as surfaced.
+  if (surfAir > 0.0005) {
+    float d = bubs.x + surfAir;
+    bubs.y = (bubs.y * bubs.x) / max(d, 1e-4);
+    bubs.x = d;
+  }
   if (bubs.x > 0.002) {
     // Beer-Lambert again: scattering saturates with how much cloud is in the
     // column, so a thick plume approaches its own colour instead of running

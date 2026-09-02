@@ -124,8 +124,8 @@ export class WaterSurface {
       uWakeTex: this._dummyWake,
       // Bound even when there is nothing to say: a sampler with no texture is
       // not "unused", it reads whatever was on that unit last.
-      uDepTex: this._dummyWake,
-      uDepAmount: 0,
+      uSurfTex: this._dummyWake,
+      uSurfOn: 0, uSimGain: 0, uRecipeFoam: 1,
       uWakeOrigin: new Float32Array([0, 0]),
       uWakeHead: new Float32Array([0, 0]),
       uWakeFwd: new Float32Array([0, 1]),

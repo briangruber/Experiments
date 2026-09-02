@@ -807,6 +807,41 @@ export const PARAMS = {
     canopy:       { ui: 'oldLake', v: 0.1, min: 0.01,max: 0.6, step: 0.005,label: 'Canopy lightness' , lab: 1 },
   },
 
+  // ---------------------------------------------------------------------
+  // THE SURFACE: what the water keeps.
+  //
+  // Everything in the wake groups above is a RECONSTRUCTION, re-derived from
+  // the path every frame. That is right for waves and wrong for foam, which is
+  // a material with a life of its own. This is where foam actually lives: a
+  // world-locked buffer that is only added to and faded, fed by SOURCES --
+  // places the hull is doing something to the water right now -- rather than
+  // by shapes. The V a fast boat leaves is where its chine sheets landed; the
+  // band a slow boat leaves is its waterline shear and its transom wave; and
+  // both are the same code told different speeds.
+  sim: {
+    on:         { v: 1,    min: 0,   max: 3,   step: 0.01, label: 'Surface sim' },
+    // How much of what is on the water is DRAWN. Separate from `on` so the
+    // sim can keep running while you compare it against the recipe.
+    show:       { v: 1,    min: 0,   max: 3,   step: 0.01, label: 'Show surface foam' },
+    // How much of the old recipe's painted foam still shows. 1 is everything
+    // exactly as before; 0 is the sim alone. Meant to end up near 0.
+    recipe:     { v: 0.35, min: 0,   max: 1,   step: 0.01, label: 'Recipe foam still shown' },
+    // Below this she is not making white at all -- a hull ghosting along at a
+    // knot parts the water without breaking it.
+    threshold:  { v: 0.8,  min: 0,   max: 4,   step: 0.05, label: 'White starts above (m/s)' },
+    waterline:  { v: 0.012, min: 0,  max: 0.1, step: 0.001, label: 'Waterline makes' },
+    transom:    { v: 0.05, min: 0,   max: 0.4, step: 0.005, label: 'Transom makes' },
+    landing:    { v: 0.35, min: 0,   max: 2,   step: 0.01, label: 'Spray landing makes' },
+    // Half-lives, in seconds. A patch loses half of itself every this-many.
+    foamHalf:   { v: 22,   min: 1,   max: 180, step: 1,    label: 'Foam half-life (s)' },
+    airHalf:    { v: 6,    min: 0.5, max: 60,  step: 0.5,  label: 'Air half-life (s)' },
+    // How fast entrained air reaches the top and becomes raft. This is the
+    // handover from turquoise plume to white water, in seconds-ish.
+    rise:       { v: 0.35, min: 0.02, max: 3,  step: 0.01, label: 'Air surfaces at (1/s)' },
+    // How long a raft reads as NEW white before it thins into residue.
+    freshHalf:  { v: 3,    min: 0.2, max: 30,  step: 0.1,  label: 'Fresh for (s)' },
+  },
+
   quality: {
     renderScale:  { v: 2,  min: 0.5, max: 2,   step: 0.25, label: 'Render scale' },
     oceanDetail:  { v: 560,  min: 140, max: 760, step: 20,   label: 'Ocean detail' },
@@ -870,26 +905,7 @@ export const PARAMS = {
     // Slew-limited instead, so the anchor walks. Lower is smoother and takes
     // longer to settle after a change of direction.
     anchorSlew:   { v: 6,    min: 0.5, max: 40,  step: 0.5,  label: 'Anchor slew (m/s)' },
-    // ---- FOAM THAT LIVES ON THE WATER ------------------------------------
-    //
-    // Everything else in the wake is RECONSTRUCTED: re-derived from the path
-    // every frame, so it is a function of where the boat has been and what it
-    // is doing now. That is why reversing moved the whole pattern, and it is a
-    // shape of bug that keeps recurring rather than a bug that gets fixed.
-    //
-    // This is the other half -- a world-locked buffer that is only added to and
-    // faded, never re-derived. What is on it stays where it was laid whatever
-    // the boat does next. 0 turns it off and leaves the reconstruction alone.
-    deposit:      { v: 0.5,  min: 0,   max: 3,   step: 0.01, label: 'Foam laid on the water' },
-    // Half-life of what is down, in seconds: a patch loses half of itself every
-    // this-many seconds. Long is a track that stays legible for a minute after
-    // she has gone; short is foam that dies almost as fast as it is made.
-    depositLife:  { v: 26,   min: 2,   max: 180, step: 1,    label: 'Deposit half-life (s)' },
-    // How soon after the hull passes the foam stops being CREATED. This is the
-    // width of the laying-down zone, not the life of the result -- the deposit
-    // owns everything after this. Short keeps the making close to the boat,
-    // where it belongs.
-    depositFresh: { v: 1.6,  min: 0.1, max: 12,  step: 0.1,  label: 'Laid within (s)' },
+
   },
 };
 
