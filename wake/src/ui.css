@@ -160,6 +160,25 @@ body.hide-ui #speed { opacity: 0.62; }
   border-color: var(--accent);
 }
 
+/* THE FOAM BRUSH. A mode, not an action, so it holds its pressed state and the
+   cursor changes: while it is on, dragging paints instead of orbiting. */
+#paint {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--dim);
+  background: var(--raised);
+  border: 1px solid var(--hair);
+  border-radius: 3px;
+  padding: 5px 12px 4px;
+  cursor: pointer;
+  transition: color 0.14s, border-color 0.14s, background 0.14s;
+}
+#paint:hover { color: var(--foam); border-color: var(--dimmer); }
+#paint[aria-pressed="true"] { color: var(--abyss); background: var(--accent); border-color: var(--accent); }
+body.painting canvas { cursor: crosshair; }
+
 .views, .zoom { display: flex; gap: 5px; }
 .zoom button { min-width: 30px; font-size: 15px; line-height: 1; padding: 5px 8px; }
 

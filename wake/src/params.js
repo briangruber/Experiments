@@ -842,6 +842,17 @@ export const PARAMS = {
     freshHalf:  { v: 3,    min: 0.2, max: 30,  step: 0.1,  label: 'Fresh for (s)' },
   },
 
+  // THE BRUSH. Foam by hand, onto the surface sim, so its life can be tuned
+  // with the boat out of the equation. Amounts are per second of holding.
+  paint: {
+    radius:  { v: 2.5,  min: 0.3, max: 12,  step: 0.1,  label: 'Brush radius (m)' },
+    foam:    { v: 6,    min: 0,   max: 40,  step: 0.1,  label: 'Lays foam /s' },
+    // Air laid under it surfaces into foam over the sim's rise time -- paint
+    // air alone to watch a plume turn white from below.
+    air:     { v: 0,    min: 0,   max: 40,  step: 0.1,  label: 'Lays air /s' },
+    fresh:   { v: 6,    min: 0,   max: 40,  step: 0.1,  label: 'Lays fresh /s' },
+  },
+
   quality: {
     renderScale:  { v: 2,  min: 0.5, max: 2,   step: 0.25, label: 'Render scale' },
     oceanDetail:  { v: 560,  min: 140, max: 760, step: 20,   label: 'Ocean detail' },

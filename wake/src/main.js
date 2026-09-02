@@ -943,15 +943,55 @@ let pinch = null;
 
 const zoomBy = (f) => { view.dist = THREE.MathUtils.clamp(view.dist * f, 6, 1400); };
 
+// ---------------------------------------------------------------- painting --
+// Foam straight onto the water, by hand.
+//
+// The surface sim is the thing that decides how foam LIVES -- how it fades,
+// how air surfaces into it, how new white thins into residue -- and until now
+// the only way to put anything on it was to drive the boat, which ties every
+// look decision to the hull's sources. A brush cuts that knot: lay some down,
+// watch what it does, tune the sim, and only then ask whether the boat is
+// feeding it the right amounts.
+//
+// It is a mode. While it is on, a drag paints instead of orbiting, and the
+// strokes are queued here and laid into the sim once per frame, dt-scaled like
+// every other source, so holding the brush still lays foam at a rate rather
+// than a lump per event.
+let painting = false;
+const paintBtn = document.getElementById('paint');
+const strokes = [];                          // world x, z pairs, this frame
+const _paintRay = new THREE.Raycaster();
+const _paintPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const _paintHit = new THREE.Vector3();
+const _paintNdc = new THREE.Vector2();
+function setPainting(on) {
+  painting = on;
+  paintBtn?.setAttribute('aria-pressed', String(on));
+  document.body.classList.toggle('painting', on);
+  if (!on) strokes.length = 0;
+}
+paintBtn?.addEventListener('click', () => setPainting(!painting));
+function paintAt(clientX, clientY) {
+  const r = canvas.getBoundingClientRect();
+  _paintNdc.set(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
+  _paintRay.setFromCamera(_paintNdc, camera);
+  // The sea's mean level. Good enough for a brush: the surface is within a
+  // wave height of it, and the stamp is metres across.
+  if (_paintRay.ray.intersectPlane(_paintPlane, _paintHit)) strokes.push(_paintHit.x, _paintHit.z);
+}
+
 canvas.addEventListener('pointerdown', (e) => {
   canvas.setPointerCapture(e.pointerId);
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   pinch = null;
+  if (painting) paintAt(e.clientX, e.clientY);
 });
 
 canvas.addEventListener('pointermove', (e) => {
   const prev = pointers.get(e.pointerId);
   if (!prev) return;
+  // Painting takes the drag. The orbit below never sees it.
+  if (painting) { pointers.set(e.pointerId, { x: e.clientX, y: e.clientY }); paintAt(e.clientX, e.clientY); return; }
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
   if (pointers.size === 1) {
@@ -1008,6 +1048,7 @@ addEventListener('keydown', (e) => {
   // Space shuts the throttle. Prevented, or it scrolls the page and re-presses
   // whichever button was last focused -- which up here is a camera change.
   if (k === ' ') { e.preventDefault(); stopEngines(); }
+  if (k === 'p') setPainting(!painting);
 });
 addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 
@@ -1555,9 +1596,23 @@ function breakOnRocks(dt) {
 // drawn anywhere; it is what those sources add up to once the surface has kept
 // them.
 function feedSurface(dt) {
-  const gain = get('sim.on');
-  if (gain <= 0.0001) { surface.begin(); return; }
   surface.begin();
+  // THE BRUSH, first, and regardless of whether the hull's sources are on:
+  // the point of it is to test the sim with the boat out of the equation.
+  if (strokes.length) {
+    const r = get('paint.radius');
+    const f = get('paint.foam') * dt, a = get('paint.air') * dt, n = get('paint.fresh') * dt;
+    // A held brush queues one stroke per pointer event, which at a high event
+    // rate would lay many times the intended amount. Split the frame's dose
+    // across the strokes so the rate is per second of holding, not per event.
+    const per = 1 / (strokes.length / 2);
+    for (let i = 0; i + 1 < strokes.length; i += 2) {
+      surface.splat(strokes[i], strokes[i + 1], 1, 0, r, r, f * per, a * per, n * per);
+    }
+    strokes.length = 0;
+  }
+  const gain = get('sim.on');
+  if (gain <= 0.0001) return;
   const v = Math.abs(state.speed);
   const v0 = get('sim.threshold');
   const drive = Math.max(v - v0, 0);
