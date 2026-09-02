@@ -139,7 +139,7 @@ export function buildUI(root, hooks = {}) {
 
   // FIND. A few hundred sliders in sixteen shut groups is a filing cabinet,
   // and the way into a filing cabinet is by name. Type a word or two and only
-  // the rows whose label, key or group mention all of them stay, with their
+  // the rows whose label mentions all of them stay, with their
   // groups opened; clear it and the panel goes back to how you had it.
   const find = document.createElement('input');
   find.type = 'search';
@@ -220,7 +220,10 @@ export function buildUI(root, hooks = {}) {
       input.addEventListener('input', () => { set(path, input.value); show(); hooks.onChange?.(path); });
       row.appendChild(input);
       sec.appendChild(row);
-      entry.rows.push({ row, text: `${p.label} ${path} ${entry.title}`.toLowerCase() });
+      // The LABEL only. Matching the group title too meant 'foam' listed every
+      // row of every foam group, which is the wall of sliders the finder is
+      // there to get past.
+      entry.rows.push({ row, text: p.label.toLowerCase() });
       show();
       rows.push({ path, input, show, p, defaults: p.v });
     }
