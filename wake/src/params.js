@@ -859,7 +859,7 @@ export const PARAMS = {
     // size (m).
     melt:       { ui: 'foam', o: 1, v: 1.6,  min: 0,   max: 6,   step: 0.05, label: 'Foam melt (m)' },
     meltSize:   { ui: 'foam', o: 1, v: 4.0,  min: 0.3, max: 20,  step: 0.1,  label: 'Melt eddy size (m)' },
-    lace:       { ui: 'foam', o: 1, v: 0.7,  min: 0,   max: 1.5, step: 0.01, label: 'Foam opens into lace' },
+    lace:       { ui: 'foam', o: 1, v: 0.45, min: 0,   max: 1.5, step: 0.01, label: 'Foam opens into lace' },
     laceSize:   { ui: 'foam', o: 1, v: 1.2,  min: 0.1, max: 8,   step: 0.05, label: 'Lace hole size (m)' },
     // Half-lives, in seconds. A patch loses half of itself every this-many.
     foamHalf:   { ui: 'foam', o: 1, v: 22,   min: 1,   max: 180, step: 1,    label: 'Foam half-life (s)' },

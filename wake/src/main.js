@@ -584,7 +584,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'c17';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'c18';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -1748,7 +1748,10 @@ function frame(now) {
   // times the resolution. It costs nothing to change: the field is re-baked from
   // the path every frame, so there is no accumulated state to invalidate.
   const baseExtent = get('field.extent');
-  const wantExtent = THREE.MathUtils.clamp(smooth.dist * 2.2, 45, baseExtent);
+  // Wider than the recipe needed: the raft lives in this window too, and at
+  // 2.2x the camera distance a fast boat's wake was cut off four seconds
+  // astern. 3.5x still leaves the field at ~0.1 m per texel close up.
+  const wantExtent = THREE.MathUtils.clamp(smooth.dist * 3.5, 60, baseExtent);
   const fieldExtent = THREE.MathUtils.lerp(baseExtent, wantExtent, get('field.adaptive'));
   // Astern along the PATH, not along the current course.
   //
