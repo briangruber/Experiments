@@ -1694,7 +1694,15 @@ export class WakeField {
     const u = this.uniforms;
     u.uOutMask.value.set(g, 0, g, g);
     u.uDepFresh.value = Math.max(get('field.depositFresh'), 0.02);
+    // THE RIBBON ONLY. The scene also holds the interference quad, and that has
+    // its own material and its own uniforms -- it does not know about the mask,
+    // so rendering the whole scene here dumped unmasked, ungained wave height
+    // into the deposit every frame. Nothing reads that channel back, so it was
+    // invisible rather than wrong, which is the kind of thing that stays in.
+    const iWas = this.iMesh.visible;
+    this.iMesh.visible = false;
     r.render(this.scene, this.camera);
+    this.iMesh.visible = iWas;
     u.uOutMask.value.set(1, 1, 1, 1);
     u.uDepFresh.value = 0;
 
