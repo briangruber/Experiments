@@ -15,7 +15,12 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 const argv = process.argv.slice(2);
 const opt = (n, d) => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : d; };
-const multi = (n) => argv.reduce((a, v, i) => (v === '--' + n ? [...a, argv[i + 1]] : a), []);
+// Every value after --set up to the next --flag, so `--set a=1 b=2` sets both.
+// (It used to take only the first, which silently dropped the rest.)
+const multi = (n) => { const out = []; for (let i = 0; i < argv.length; i++) {
+  if (argv[i] !== '--' + n) continue;
+  for (let j = i + 1; j < argv.length && !argv[j].startsWith('--'); j++) out.push(argv[j]); }
+  return out; };
 
 const OUT = resolve(ROOT, opt('out', 'shots/frame.png'));
 const WAIT = +opt('wait', 3);           // seconds to let the page settle before the shot
