@@ -57,6 +57,8 @@ const GROUP_TITLES = {
   foamLook:   'Foam: texture',
   foamMotion: 'Foam: motion',
   foamMix:    'Foam: on the water',
+  sim:        'Foam: what the water keeps (sim)',
+  paint:      'Foam brush',
   field:      'Field & decay',
   render:     'Renderer & debug',
   quality:    'Performance',
