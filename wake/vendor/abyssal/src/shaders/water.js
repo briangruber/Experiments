@@ -1142,8 +1142,8 @@ void main(){
       wake = wk.x * k;
       // WHAT WAS LAID HERE IS OLD FOAM, and it must not be shaded as new.
       //
-      // Folding the deposit into `wake` made it fresh foam -- bright, opaque,
-      // the shading for water being broken right now -- and laid it over the
+      // Folding the deposit into the wake term made it fresh foam -- bright,
+      // opaque, the shading for water being broken right now -- and laid it over
       // whole track for half a minute. Compared side by side, the turquoise
       // bubble plume behind the transom went from mottled and structured to a
       // pale flat wash: the deposit was painting over the submerged haze as
