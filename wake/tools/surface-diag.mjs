@@ -18,10 +18,11 @@ const { chromium } = await import('/opt/node22/lib/node_modules/playwright/index
 const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 const page = await browser.newPage({ viewport: { width: 400, height: 260 } });
 const errs = []; page.on('pageerror', (e) => errs.push(String(e))); page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
-await page.goto(`http://127.0.0.1:${server.address().port}/index.html?prewarm=20&boat.speed=10`);
+await page.goto(`http://127.0.0.1:${server.address().port}/index.html?prewarm=40&boat.speed=14`);
+await page.waitForFunction('window.__ready === true', null, { timeout: 300000 });
 await page.waitForFunction(() => window.__wake?.surface, null, { timeout: 120000 });
 // Let the model load and a few real frames run.
-await page.waitForTimeout(8000);
+
 const out = await page.evaluate(() => {
   const W = window.__wake;
   const { surface, wake, renderer, state, stepSim, feedSurface, spray, get } = W;
@@ -32,6 +33,26 @@ const out = await page.evaluate(() => {
     renderer.readRenderTargetPixels(rt, 0, 0, N, N, b);
     let mx = [0, 0, 0, 0], nz = 0; for (let i = 0; i < b.length; i += 4) { for (let c = 0; c < 4; c++) mx[c] = Math.max(mx[c], h2f(b[i + c])); if (h2f(b[i]) > 0.001) nz++; }
     return { max: mx.map((v) => +v.toFixed(4)), nonzeroFoamTexels: nz }; };
+  // WHERE IS THE FOAM, after the page's own prewarm? Centroid of the foam
+  // channel relative to the boat, along its heading: negative is astern,
+  // where it belongs; positive is ahead, which would mean the scroll runs the
+  // wrong way as the window recentres.
+  const where = (() => {
+    const rt = surface.rt[surface.i], N = rt.width, b = new Uint16Array(N * N * 4);
+    renderer.readRenderTargetPixels(rt, 0, 0, N, N, b);
+    let sx = 0, sz = 0, sw = 0, mx = 0, n = 0;
+    const e = surface.extent, cx = surface.center.x, cz = surface.center.y;
+    for (let py = 0; py < N; py++) for (let px = 0; px < N; px++) {
+      const f = h2f(b[(py * N + px) * 4]); if (f <= 0.001) continue;
+      const wx = cx + (px / (N - 1) - 0.5) * e, wz = cz - (py / (N - 1) - 0.5) * e;
+      sx += wx * f; sz += wz * f; sw += f; n++; if (f > mx) mx = f;
+    }
+    if (!sw) return { nonzero: 0 };
+    const hx = Math.sin(state.heading), hz = Math.cos(state.heading);
+    const dx = sx / sw - state.x, dz = sz / sw - state.z;
+    return { nonzero: n, maxFoam: +mx.toFixed(3), centroidAlongHeading: +(dx * hx + dz * hz).toFixed(1),
+             centroidAcross: +(-dx * hz + dz * hx).toFixed(1), boat: [+state.x.toFixed(1), +state.z.toFixed(1)] };
+  })();
   // One controlled step.
   stepSim(1 / 30);
   spray.step(1 / 30, () => 0);
@@ -66,6 +87,7 @@ const out = await page.evaluate(() => {
   ];
   // And the step pass alone, seeded: does a plain write via the step shader land?
   return {
+    afterPrewarm: where,
     trials,
     afterSources, manualN, afterManual,
     drawRange: surface.splatGeo.drawRange.count,
