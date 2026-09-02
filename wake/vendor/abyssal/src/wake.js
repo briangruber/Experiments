@@ -127,8 +127,21 @@ vec3 surfaceAt(vec2 p){
                   surfaceRaw(p + vec2(0.0, e)).x - surfaceRaw(p - vec2(0.0, e)).x);
     float gl = length(g);
     if (gl > 1e-4) {
+      // A single read that far inward only MOVES the raft (a thin rail
+      // read from 2 m out lands past it: two thin rails 2 m apart, and
+      // nothing between). Foam that has spread through here is whatever
+      // was densest along the way, so sweep the inward line and keep the
+      // best -- the rails widen into a band and the lane between fills.
       float far = uSimSpread * ageT * min(gl / 0.08, 1.0);
-      s0 = surfaceRaw(p + g / gl * far);
+      vec2 dir = g / gl;
+      vec3 best = s0;
+      for (int i = 1; i <= 4; i++) {
+        vec3 si = surfaceRaw(p + dir * (far * float(i) * 0.25));
+        // Spread thins what it spreads: the same foam over more water.
+        si *= 1.0 - 0.35 * float(i) * 0.25;
+        if (si.x > best.x) best = si;
+      }
+      s0 = best;
       ageT = 1.0 - sqrt(clamp(s0.z / max(s0.x, 1e-4), 0.0, 1.0));
     }
   }
