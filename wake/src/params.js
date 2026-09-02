@@ -829,16 +829,16 @@ export const PARAMS = {
     // Below this she is not making white at all -- a hull ghosting along at a
     // knot parts the water without breaking it.
     threshold:  { v: 0.8,  min: 0,   max: 4,   step: 0.05, label: 'White starts above (m/s)' },
-    waterline:  { v: 0.25, min: 0,   max: 1,   step: 0.005, label: 'Waterline makes' },
-    transom:    { v: 0.12, min: 0,   max: 0.6, step: 0.005, label: 'Transom makes' },
-    landing:    { v: 0.35, min: 0,   max: 2,   step: 0.01, label: 'Spray landing makes' },
+    waterline:  { v: 0.12, min: 0,   max: 1,   step: 0.005, label: 'Waterline makes' },
+    transom:    { v: 0.08, min: 0,   max: 0.6, step: 0.005, label: 'Transom makes' },
+    landing:    { v: 0.15, min: 0,   max: 2,   step: 0.01, label: 'Spray landing makes' },
     // BREAKING. Where the surface (for now the wake's own height field: the
     // arms, the transom wave, the interference) is steeper than a crest can
     // hold, air goes in, in proportion to how far past. breakSlope is that
     // limit as rise over run; breaking is how much air a unit of excess
     // slope entrains per second.
-    breaking:   { v: 4,    min: 0,   max: 20,  step: 0.1,  label: 'Steep crests break' },
-    breakSlope: { v: 0.08, min: 0,   max: 0.6, step: 0.005, label: 'Slope that breaks' },
+    breaking:   { v: 1.5,  min: 0,   max: 20,  step: 0.1,  label: 'Steep crests break' },
+    breakSlope: { v: 0.2,  min: 0,   max: 0.6, step: 0.005, label: 'Slope that breaks' },
     // HOW THE RAFT COMES APART. Real foam is not a decal that dims: the water
     // under it keeps turning over, so the pattern drifts and stretches, and it
     // drains from the thin places first, so it opens into lace. Both grow
