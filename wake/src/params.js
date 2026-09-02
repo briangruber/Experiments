@@ -87,7 +87,7 @@ export const PARAMS = {
     // and Beam below -- those are the numbers the field does its physics
     // with -- so a model scaled far past them will out-grow its own wake.
     modelScale:   { v: 2.4,    min: 0.2, max: 4,   step: 0.05, label: 'Model scale' },
-    hullCut:      { v: 0,    min: 0,   max: 1,   step: 0.01, label: 'Cut foam under hull' },
+    hullCut:      { hide: 1, v: 0,    min: 0,   max: 1,   step: 0.01, label: 'Cut foam under hull' },
     waterCut:     { v: 1,    min: 0,   max: 1,   step: 1,    label: 'No sea inside the hull' },
     // THE LINE WHERE THE TOPSIDES GO IN, which is the one place a moving hull
     // is most obviously in the water and the only part of it the wake cannot
@@ -97,9 +97,9 @@ export const PARAMS = {
     // reads as set INTO a hole in the water rather than as cutting through it,
     // however good the wake behind it is. Needs 'No sea inside the hull' on,
     // since it hugs that cut.
-    waterlineFoam:  { v: 0.55, min: 0, max: 2,   step: 0.01, label: 'Foam at the waterline' },
+    waterlineFoam:  { hide: 1, v: 0, min: 0, max: 2,   step: 0.01, label: 'Foam at the waterline' },
     // How far out it reaches, as a fraction of the hull's own half-beam.
-    waterlineWidth: { v: 0.22, min: 0.02, max: 1, step: 0.01, label: 'Waterline foam width' },
+    waterlineWidth: { hide: 1, v: 0.22, min: 0.02, max: 1, step: 0.01, label: 'Waterline foam width' },
     crabMax:      { v: 12,   min: 0,   max: 45,  step: 1,    label: 'Max slip angle (°)' },
     grip:         { v: 0.7,  min: 0,   max: 1,   step: 0.01, label: 'Keel grip' },
     buoy:         { v: 1,  min: 0,   max: 1.5, step: 0.01, label: 'Ride the waves' },
@@ -136,8 +136,8 @@ export const PARAMS = {
     //
     // At 0 the wave train still displaces the surface exactly as before; it
     // simply stops being painted. Raise it if you want the effect back.
-    fromWaves:    { v: 0,    min: 0,   max: 1,   step: 0.01, label: 'Foam from breaking' },
-    waveFoam:     { v: 0.9, min: 0,   max: 5,   step: 0.01, label: 'Breaking foam gain' },
+    fromWaves:    { hide: 1, v: 0,    min: 0,   max: 1,   step: 0.01, label: 'Foam from breaking' },
+    waveFoam:     { hide: 1, v: 0.9, min: 0,   max: 5,   step: 0.01, label: 'Breaking foam gain' },
     // 1 = the physical angle (Kelvin 19.47 degrees while the hull is slow,
     // narrowing as atan(1/2Fr_B) once it outruns its own transverse waves).
     // 0 = whatever the slider below says, for when you want a look instead.
@@ -145,7 +145,7 @@ export const PARAMS = {
     angle:        { v: 19.3, min: 4,   max: 40,  step: 0.1,  label: 'Half-angle, manual (°)' },
     width0:       { v: 1.7, min: 0.1, max: 4,   step: 0.05, label: 'Width at bow (m)' },
     widthGrow:    { v: 0.03,min: 0,   max: 0.6, step: 0.001,label: 'Width growth (m/m)' },
-    foam:         { v: 0.95, min: 0,   max: 3,   step: 0.01, label: 'Foam density' },
+    foam:         { hide: 1, v: 0.95, min: 0,   max: 3,   step: 0.01, label: 'Foam density' },
     height:       { v: 0.42, min: 0,   max: 2,   step: 0.01, label: 'Crest height (m)' },
     innerBias:    { v: 0.38, min: 0,   max: 1,   step: 0.01, label: 'Outer-edge bias' },
     rim:          { v: 0.4, min: 0,   max: 2,   step: 0.01, label: 'Outer rim line' },
@@ -163,7 +163,7 @@ export const PARAMS = {
     // under the arc fade: the share of the arm's white that stops being a
     // thrown sheet and becomes foam lying on the water, left to die of age like
     // foam does. 0 restores the old distance-only behaviour.
-    persist:      { v: 0.45, min: 0,   max: 1,   step: 0.01, label: 'Foam left on the water' },
+    persist:      { hide: 1, v: 0.45, min: 0,   max: 1,   step: 0.01, label: 'Foam left on the water' },
     // WHAT THE CUSP LEAVES BEHIND IT, which is the whole reason a real wake
     // stays legible after the boat has gone.
     //
@@ -177,7 +177,7 @@ export const PARAMS = {
     //
     // This is the deposit. The cusp crosses a patch of water at a time its own
     // outward speed decides, and what it lays there stays and dies of age.
-    deposit:      { v: 0.55, min: 0,   max: 2,   step: 0.01, label: 'Foam the cusp deposits' },
+    deposit:      { hide: 1, v: 0.55, min: 0,   max: 2,   step: 0.01, label: 'Foam the cusp deposits' },
     // HOW MUCH WHITE A HULL MAKES BEFORE SHE IS PLANING.
     //
     // Every foam term was multiplied by the planing ramp, so below the planing
@@ -188,7 +188,7 @@ export const PARAMS = {
     // clear once it is up and skipping. Pushing water apart still breaks it: a
     // ferry at walking pace carries a bright bow wave and a wide churned lane.
     // This is the floor under that gate, needing only that she is under way.
-    displace:     { v: 0.5,  min: 0,   max: 1,   step: 0.01, label: 'Foam below planing speed' },
+    displace:     { hide: 1, v: 0.5,  min: 0,   max: 1,   step: 0.01, label: 'Foam below planing speed' },
   },
 
   // The comb / scallop texture riding along each arm: periodic crests that lean
@@ -200,7 +200,7 @@ export const PARAMS = {
     depth:        { v: 0.78, min: 0,   max: 1,   step: 0.01, label: 'Comb depth' },
     jitter:       { v: 0.45, min: 0,   max: 2,   step: 0.01, label: 'Phase jitter' },
     sharpness:    { v: 1.25,  min: 0.3, max: 6,   step: 0.05, label: 'Crest sharpness' },
-    carve:        { v: 0.42, min: 0,   max: 1,   step: 0.01, label: 'Comb carves foam' },
+    carve:        { hide: 1, v: 0.42, min: 0,   max: 1,   step: 0.01, label: 'Comb carves foam' },
     // A feather is a row of breaking crests, not a drawn line: it comes in
     // segments with gaps, and the further astern the more of it has collapsed.
     breakup:      { v: 0.7,  min: 0,   max: 1,   step: 0.01, label: 'Crests break up' },
@@ -265,7 +265,7 @@ export const PARAMS = {
     idle:         { v: 0.96, min: 0,   max: 1.5, step: 0.01, label: 'Churn at idle' },
     width:        { v: 1.5, min: 0.2, max: 8,   step: 0.05, label: 'Width (m)' },
     widthGrow:    { v: 0.06,min: 0,   max: 0.5, step: 0.005,label: 'Width growth (m/m)' },
-    foam:         { v: 0.76,  min: 0,   max: 3,   step: 0.01, label: 'Foam density' },
+    foam:         { hide: 1, v: 0.76,  min: 0,   max: 3,   step: 0.01, label: 'Foam density' },
     length:       { v: 45, min: 2,   max: 200, step: 1,    label: 'Decay length (m)' },
     tailFoam:     { v: 0, min: 0,   max: 1,   step: 0.01, label: 'Long tail streak' },
     depth:        { v: 0.22, min: 0,   max: 1.5, step: 0.01, label: 'Trough depth (m)' },
@@ -397,26 +397,26 @@ export const PARAMS = {
 
 
   // Foam appearance: how the bubble field breaks up and dies.
-  foamLook: {
-    scale:        { v: 1.65, min: 0.1, max: 6,   step: 0.01, label: 'Bubble scale' },
-    contrast:     { v: 1.45,  min: 0.2, max: 4,   step: 0.01, label: 'Bubble contrast' },
-    breakup:      { v: 0.78, min: 0,   max: 1,   step: 0.01, label: 'Break-up with age' },
-    life:         { v: 72.5, min: 1,   max: 120, step: 0.5,  label: 'Foam life (s)' },
-    dissolve:     { v: 3.35,  min: 0.2, max: 5,   step: 0.05, label: 'Dissolve curve' },
+  foamLook: { ui: 'foam', o: 3,
+    scale:        { ui: 'foam', o: 3, v: 1.65, min: 0.1, max: 6,   step: 0.01, label: 'Bubble scale' },
+    contrast:     { ui: 'foam', o: 3, v: 1.45,  min: 0.2, max: 4,   step: 0.01, label: 'Bubble contrast' },
+    breakup:      { ui: 'foam', o: 3, hide: 1, v: 0.78, min: 0,   max: 1,   step: 0.01, label: 'Break-up with age' },
+    life:         { ui: 'foam', o: 3, hide: 1, v: 72.5, min: 1,   max: 120, step: 0.5,  label: 'Foam life (s)' },
+    dissolve:     { ui: 'foam', o: 3, hide: 1, v: 3.35,  min: 0.2, max: 5,   step: 0.05, label: 'Dissolve curve' },
     // HOW FAR OLD FOAM WANDERS BEFORE IT GOES, in metres. A raft is not a decal
     // that dims: the water under it is still turning over, the bubbles drain
     // and merge, and its edges come apart. This is how far a patch is read from
     // by the end of its life -- 0 restores the old behaviour, where the pattern
     // was a fixed function of position and could only ever fade in place.
-    melt:         { v: 2.6,  min: 0,   max: 8,   step: 0.05, label: 'Foam melt (m)' },
+    melt:         { ui: 'foam', o: 3, hide: 1, v: 2.6,  min: 0,   max: 8,   step: 0.05, label: 'Foam melt (m)' },
     // How big the melting eddies are: low is a few slow lobes moving whole
     // clumps together, high is every bubble going its own way, which reads as
     // boiling rather than as foam coming apart.
-    meltScale:    { v: 0.12, min: 0.01, max: 0.8, step: 0.01, label: 'Melt eddy scale' },
-    lace:         { v: 4.05, min: 0.5, max: 8,   step: 0.05, label: 'Lace fineness' },
-    laceAmount:   { v: 0.62, min: 0,   max: 1.5, step: 0.01, label: 'Lace reach' },
-    coarsen:      { v: 0.42, min: 0,   max: 1,   step: 0.01, label: 'Cells coarsen with age' },
-    softness:     { v: 0.72, min: 0.02,max: 1,   step: 0.01, label: 'Edge softness' },
+    meltScale:    { ui: 'foam', o: 3, hide: 1, v: 0.12, min: 0.01, max: 0.8, step: 0.01, label: 'Melt eddy scale' },
+    lace:         { ui: 'foam', o: 3, v: 4.05, min: 0.5, max: 8,   step: 0.05, label: 'Lace fineness' },
+    laceAmount:   { ui: 'foam', o: 3, v: 0.62, min: 0,   max: 1.5, step: 0.01, label: 'Lace reach' },
+    coarsen:      { ui: 'foam', o: 3, v: 0.42, min: 0,   max: 1,   step: 0.01, label: 'Cells coarsen with age' },
+    softness:     { ui: 'foam', o: 3, v: 0.72, min: 0.02,max: 1,   step: 0.01, label: 'Edge softness' },
   },
 
 
@@ -467,7 +467,7 @@ export const PARAMS = {
     // Abyssal's foam grading expects a coverage field that saturates near 1;
     // the prototype's peaks around 0.12, so the wake needs gain before it is
     // shaded or it is drawn at a few percent opacity and reads as clean water.
-    wakeGain:     { v: 1.9,  min: 0,   max: 16,  step: 0.1,  label: 'Wake foam gain' },
+    wakeGain:     { v: 1.9,  min: 0,   max: 16,  step: 0.1,  label: 'Wake foam gain' , lab: 1 },
     // The SEA's own whitecaps, not the wake's. 1 gives them the same lace the
     // boat leaves behind -- Abyssal's own is a Worley web, and it thresholds in
     // exactly the same form, so this swaps the field and nothing else.
@@ -818,33 +818,37 @@ export const PARAMS = {
   // by shapes. The V a fast boat leaves is where its chine sheets landed; the
   // band a slow boat leaves is its waterline shear and its transom wave; and
   // both are the same code told different speeds.
-  sim: {
-    on:         { v: 1,    min: 0,   max: 3,   step: 0.01, label: 'Surface sim' },
+  sim: { ui: 'foam', o: 1,
+    on:         { ui: 'foam', o: 1, v: 1,    min: 0,   max: 3,   step: 0.01, label: 'Surface sim' },
     // How much of what is on the water is DRAWN. Separate from `on` so the
     // sim can keep running while you compare it against the recipe.
-    show:       { v: 1,    min: 0,   max: 3,   step: 0.01, label: 'Show surface foam' },
+    show:       { ui: 'foam', o: 1, v: 1,    min: 0,   max: 3,   step: 0.01, label: 'Show surface foam' },
     // How much of the old recipe's painted foam still shows. 1 is everything
     // exactly as before; 0 is the sim alone. Meant to end up near 0.
-    recipe:     { v: 0.35, min: 0,   max: 1,   step: 0.01, label: 'Recipe foam still shown' },
+    recipe:     { ui: 'foam', o: 1, hide: 1, v: 0,    min: 0,   max: 1,   step: 0.01, label: 'Recipe foam still shown' },
     // Below this she is not making white at all -- a hull ghosting along at a
     // knot parts the water without breaking it.
-    threshold:  { v: 0.8,  min: 0,   max: 4,   step: 0.05, label: 'White starts above (m/s)' },
-    waterline:  { v: 0.12, min: 0,   max: 1,   step: 0.005, label: 'Waterline makes' },
-    transom:    { v: 0.08, min: 0,   max: 0.6, step: 0.005, label: 'Transom makes' },
-    landing:    { v: 0.15, min: 0,   max: 2,   step: 0.01, label: 'Spray landing makes' },
+    threshold:  { ui: 'foam', o: 1, v: 0.8,  min: 0,   max: 4,   step: 0.05, label: 'White starts above (m/s)' },
+    waterline:  { ui: 'foam', o: 1, v: 0.12, min: 0,   max: 1,   step: 0.005, label: 'Waterline makes' },
+    transom:    { ui: 'foam', o: 1, v: 0.08, min: 0,   max: 0.6, step: 0.005, label: 'Transom makes' },
+    landing:    { ui: 'foam', o: 1, v: 0.15, min: 0,   max: 2,   step: 0.01, label: 'Spray landing makes' },
     // BREAKING. Where the surface (for now the wake's own height field: the
     // arms, the transom wave, the interference) is steeper than a crest can
     // hold, air goes in, in proportion to how far past. breakSlope is that
     // limit as rise over run; breaking is how much air a unit of excess
     // slope entrains per second.
-    breaking:   { v: 1.5,  min: 0,   max: 20,  step: 0.1,  label: 'Steep crests break' },
-    breakSlope: { v: 0.2,  min: 0,   max: 0.6, step: 0.005, label: 'Slope that breaks' },
+    breaking:   { ui: 'foam', o: 1, v: 1.5,  min: 0,   max: 20,  step: 0.1,  label: 'Steep crests break' },
+    breakSlope: { ui: 'foam', o: 1, v: 0.2,  min: 0,   max: 0.6, step: 0.005, label: 'Slope that breaks' },
     // HOW THE RAFT MOVES. What floats on waves is carried by them: back and
     // forth with each crest (the orbital sway -- 1 is exactly with the
     // water, more exaggerates it) and slowly downwind between crests (the
     // Stokes drift, m/s, a few percent of the wind).
-    sway:       { v: 1.6,  min: 0,   max: 4,   step: 0.05, label: 'Foam sways with waves' },
-    drift:      { v: 0.08, min: 0,   max: 1,   step: 0.005, label: 'Foam drifts downwind (m/s)' },
+    // ...and outward from wherever it is dense: the water the hull pushed
+    // aside keeps going, and the rails it left either side of the track
+    // open into a band. Metres by the time the raft is old.
+    spread:     { ui: 'foam', o: 1, v: 2.0,  min: 0,   max: 8,   step: 0.05, label: 'Foam spreads outward (m)' },
+    sway:       { ui: 'foam', o: 1, v: 1.6,  min: 0,   max: 4,   step: 0.05, label: 'Foam sways with waves' },
+    drift:      { ui: 'foam', o: 1, v: 0.08, min: 0,   max: 1,   step: 0.005, label: 'Foam drifts downwind (m/s)' },
     // HOW THE RAFT COMES APART. Real foam is not a decal that dims: the water
     // under it keeps turning over, so the pattern drifts and stretches, and it
     // drains from the thin places first, so it opens into lace. Both grow
@@ -853,29 +857,29 @@ export const PARAMS = {
     // every bubble for itself, large is whole lobes moving together. lace is
     // how much of an old raft has opened into holes; laceSize is the hole
     // size (m).
-    melt:       { v: 1.6,  min: 0,   max: 6,   step: 0.05, label: 'Foam melt (m)' },
-    meltSize:   { v: 4.0,  min: 0.3, max: 20,  step: 0.1,  label: 'Melt eddy size (m)' },
-    lace:       { v: 0.7,  min: 0,   max: 1.5, step: 0.01, label: 'Foam opens into lace' },
-    laceSize:   { v: 1.2,  min: 0.1, max: 8,   step: 0.05, label: 'Lace hole size (m)' },
+    melt:       { ui: 'foam', o: 1, v: 1.6,  min: 0,   max: 6,   step: 0.05, label: 'Foam melt (m)' },
+    meltSize:   { ui: 'foam', o: 1, v: 4.0,  min: 0.3, max: 20,  step: 0.1,  label: 'Melt eddy size (m)' },
+    lace:       { ui: 'foam', o: 1, v: 0.7,  min: 0,   max: 1.5, step: 0.01, label: 'Foam opens into lace' },
+    laceSize:   { ui: 'foam', o: 1, v: 1.2,  min: 0.1, max: 8,   step: 0.05, label: 'Lace hole size (m)' },
     // Half-lives, in seconds. A patch loses half of itself every this-many.
-    foamHalf:   { v: 22,   min: 1,   max: 180, step: 1,    label: 'Foam half-life (s)' },
-    airHalf:    { v: 6,    min: 0.5, max: 60,  step: 0.5,  label: 'Air half-life (s)' },
+    foamHalf:   { ui: 'foam', o: 1, v: 22,   min: 1,   max: 180, step: 1,    label: 'Foam half-life (s)' },
+    airHalf:    { ui: 'foam', o: 1, v: 6,    min: 0.5, max: 60,  step: 0.5,  label: 'Air half-life (s)' },
     // How fast entrained air reaches the top and becomes raft. This is the
     // handover from turquoise plume to white water, in seconds-ish.
-    rise:       { v: 0.35, min: 0.02, max: 3,  step: 0.01, label: 'Air surfaces at (1/s)' },
+    rise:       { ui: 'foam', o: 1, v: 0.35, min: 0.02, max: 3,  step: 0.01, label: 'Air surfaces at (1/s)' },
     // How long a raft reads as NEW white before it thins into residue.
-    freshHalf:  { v: 3,    min: 0.2, max: 30,  step: 0.1,  label: 'Fresh for (s)' },
+    freshHalf:  { ui: 'foam', o: 1, v: 3,    min: 0.2, max: 30,  step: 0.1,  label: 'Fresh for (s)' },
   },
 
   // THE BRUSH. Foam by hand, onto the surface sim, so its life can be tuned
   // with the boat out of the equation. Amounts are per second of holding.
-  paint: {
-    radius:  { v: 2.5,  min: 0.3, max: 12,  step: 0.1,  label: 'Brush radius (m)' },
-    foam:    { v: 6,    min: 0,   max: 40,  step: 0.1,  label: 'Lays foam /s' },
+  paint: { ui: 'foam', o: 2,
+    radius:  { ui: 'foam', o: 2, v: 2.5,  min: 0.3, max: 12,  step: 0.1,  label: 'Brush radius (m)' },
+    foam:    { ui: 'foam', o: 2, v: 6,    min: 0,   max: 40,  step: 0.1,  label: 'Lays foam /s' },
     // Air laid under it surfaces into foam over the sim's rise time -- paint
     // air alone to watch a plume turn white from below.
-    air:     { v: 0,    min: 0,   max: 40,  step: 0.1,  label: 'Lays air /s' },
-    fresh:   { v: 6,    min: 0,   max: 40,  step: 0.1,  label: 'Lays fresh /s' },
+    air:     { ui: 'foam', o: 2, v: 0,    min: 0,   max: 40,  step: 0.1,  label: 'Lays air /s' },
+    fresh:   { ui: 'foam', o: 2, v: 6,    min: 0,   max: 40,  step: 0.1,  label: 'Lays fresh /s' },
   },
 
   quality: {

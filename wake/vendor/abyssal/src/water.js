@@ -126,7 +126,7 @@ export class WaterSurface {
       // not "unused", it reads whatever was on that unit last.
       uSurfTex: this._dummyWake,
       uSurfOn: 0, uSimGain: 0, uRecipeFoam: 1,
-      uSimMelt: 0, uSimMeltScale: 1, uSimLace: 0, uSimLaceScale: 1, uSimSway: 1,
+      uSimMelt: 0, uSimMeltScale: 1, uSimLace: 0, uSimLaceScale: 1, uSimSway: 1, uSimSpread: 0,
       uWakeOrigin: new Float32Array([0, 0]),
       uWakeHead: new Float32Array([0, 0]),
       uWakeFwd: new Float32Array([0, 1]),

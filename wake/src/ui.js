@@ -56,9 +56,9 @@ const GROUP_TITLES = {
   propBubbles: 'Prop bubbles (real particles)',
   foamLook:   'Foam: texture',
   foamMotion: 'Foam: motion',
-  foamMix:    'Foam: on the water',
-  sim:        'Foam: what the water keeps (sim)',
-  paint:      'Foam brush',
+  foamMix:    'Sea foam & surf (not the wake)',
+  // ONE place for the boat's foam: what makes it, how it lives, how it looks.
+  foam:       'Foam',
   field:      'Field & decay',
   render:     'Renderer & debug',
   quality:    'Performance',
@@ -186,7 +186,7 @@ export function buildUI(root, hooks = {}) {
     // The array, not an object keyed by name: two storage groups can hold the
     // same key (ocean.tint and scene.waterTint both end up under Water look),
     // and collapsing them into an object would silently drop one of them.
-    const entries = sections.get(gname);
+    const entries = sections.get(gname).slice().sort((a, b) => (a[1].o || 0) - (b[1].o || 0));
     const sec = document.createElement('details');
     // Shut by default. Sixteen open groups is a wall of sliders between you
     // and the water, and the two controls anyone actually reaches for first --
@@ -208,6 +208,9 @@ export function buildUI(root, hooks = {}) {
       // is worse than not showing it: it costs a round of "is this broken?"
       // every time. The parameter stays -- the fallback still reads it.
       if (p.lab && hooks.hideLab !== false) continue;
+      // Retired from the rail: the old recipe's foam controls. The values
+      // stay (the shaders still read them) but there is one foam now.
+      if (p.hide) continue;
       shown ++;
       const row = document.createElement('label');
       row.className = 'row';

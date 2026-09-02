@@ -56,6 +56,9 @@ uniform float uSimMelt, uSimMeltScale, uSimLace, uSimLaceScale;
 // How far the raft rides with a passing wave, as a multiple of the water's
 // own horizontal displacement: 1 is exactly with the surface, more sways it.
 uniform float uSimSway;
+// How far the raft has moved away from wherever it was dense, by the time
+// it is old (m): the rails a hull leaves open into a band.
+uniform float uSimSpread;
 uniform vec2  uWakeOrigin;
 uniform vec2  uWakeHead, uWakeFwd;
 uniform float uWakeSpeed;
@@ -116,6 +119,19 @@ vec3 surfaceAt(vec2 p){
   if (uSurfOn < 0.5) return vec3(0.0);
   vec3 s0 = surfaceRaw(p);
   float ageT = 1.0 - sqrt(clamp(s0.z / max(s0.x, 1e-4), 0.0, 1.0));
+  // SPREAD. Foam that has moved outward from the dense part is shown by
+  // reading INWARD, up the coverage gradient, by how far it has gone.
+  if (uSimSpread > 0.0) {
+    const float e = 1.2;
+    vec2 g = vec2(surfaceRaw(p + vec2(e, 0.0)).x - surfaceRaw(p - vec2(e, 0.0)).x,
+                  surfaceRaw(p + vec2(0.0, e)).x - surfaceRaw(p - vec2(0.0, e)).x);
+    float gl = length(g);
+    if (gl > 1e-4) {
+      float far = uSimSpread * ageT * min(gl / 0.08, 1.0);
+      s0 = surfaceRaw(p + g / gl * far);
+      ageT = 1.0 - sqrt(clamp(s0.z / max(s0.x, 1e-4), 0.0, 1.0));
+    }
+  }
   if (s0.x > 1e-4 && uSimMelt > 0.0) {
     vec2 q = p * uSimMeltScale;
     vec2 warp = vec2(surfNoise(q) - 0.5, surfNoise(q + vec2(37.2, 11.9)) - 0.5);

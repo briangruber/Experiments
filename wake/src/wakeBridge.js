@@ -122,6 +122,7 @@ export class WakeBridge {
 			uSimLace: get( 'sim.lace' ),
 			uSimLaceScale: 1 / Math.max( get( 'sim.laceSize' ), 0.05 ),
 			uSimSway: get( 'sim.sway' ),
+			uSimSpread: get( 'sim.spread' ),
 			uWakeOrigin: new Float32Array( [ c.x, c.y ] ),
 			uWakeExtent: Math.max( this.field.extent, 1 ),
 			uWakeOn: on,
