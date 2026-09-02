@@ -397,7 +397,7 @@ export const PARAMS = {
 
 
   // Foam appearance: how the bubble field breaks up and dies.
-  foamLook: { ui: 'foam', o: 3,
+  foamLook: {
     scale:        { ui: 'foam', o: 3, v: 1.65, min: 0.1, max: 6,   step: 0.01, label: 'Bubble scale' },
     contrast:     { ui: 'foam', o: 3, v: 1.45,  min: 0.2, max: 4,   step: 0.01, label: 'Bubble contrast' },
     breakup:      { ui: 'foam', o: 3, hide: 1, v: 0.78, min: 0,   max: 1,   step: 0.01, label: 'Break-up with age' },
@@ -818,7 +818,7 @@ export const PARAMS = {
   // by shapes. The V a fast boat leaves is where its chine sheets landed; the
   // band a slow boat leaves is its waterline shear and its transom wave; and
   // both are the same code told different speeds.
-  sim: { ui: 'foam', o: 1,
+  sim: {
     on:         { ui: 'foam', o: 1, v: 1,    min: 0,   max: 3,   step: 0.01, label: 'Surface sim' },
     // How much of what is on the water is DRAWN. Separate from `on` so the
     // sim can keep running while you compare it against the recipe.
@@ -873,7 +873,7 @@ export const PARAMS = {
 
   // THE BRUSH. Foam by hand, onto the surface sim, so its life can be tuned
   // with the boat out of the equation. Amounts are per second of holding.
-  paint: { ui: 'foam', o: 2,
+  paint: {
     radius:  { ui: 'foam', o: 2, v: 2.5,  min: 0.3, max: 12,  step: 0.1,  label: 'Brush radius (m)' },
     foam:    { ui: 'foam', o: 2, v: 6,    min: 0,   max: 40,  step: 0.1,  label: 'Lays foam /s' },
     // Air laid under it surfaces into foam over the sim's rise time -- paint

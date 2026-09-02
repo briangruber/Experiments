@@ -226,7 +226,7 @@ export function buildUI(root, hooks = {}) {
       // The LABEL only. Matching the group title too meant 'foam' listed every
       // row of every foam group, which is the wall of sliders the finder is
       // there to get past.
-      entry.rows.push({ row, text: p.label.toLowerCase() });
+      entry.rows.push({ row, text: String(p.label ?? key).toLowerCase() });
       show();
       rows.push({ path, input, show, p, defaults: p.v });
     }
