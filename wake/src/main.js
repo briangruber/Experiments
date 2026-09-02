@@ -584,7 +584,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'c09';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'c10';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -1471,29 +1471,46 @@ const hullNow = { sternX: 0, sternZ: 0, hx: 0, hz: 1, load: 0 };
 const speedEl = document.getElementById('speed');
 
 const PREWARM = +(new URLSearchParams(location.search).get('prewarm') ?? NaN) || window.__PREWARM || 0;
-// THE WHOLE SIM, not just the boat.
+// THE WHOLE SIM, not just the boat -- and OFF THE LOAD PATH.
 //
 // The prewarm used to step the hull alone and leave the field to reconstruct
 // itself on the first frame, which it can, because it is a function of the
-// path. The surface state is not: it is history, and a hull that has had no
-// history laid down behind it has no wake on the water. Headless renders were
-// showing a sim with five frames in it and calling it faint. So the prewarm
-// runs the field and the surface too -- at a tenth of a second rather than a
-// thirtieth, since foam does not need the hull's integration rate and a GPU
-// pass per step is the whole cost of a prewarm.
-for (let i = 0; i < PREWARM * 30; i++) {
-  stepSim(1 / 30);
-  if (i % 3 === 2) {
-    const ext = get('field.extent');
-    const hx = Math.sin(state.heading), hz = Math.cos(state.heading);
-    const back = wake.backAlongPath(ext * 0.56);
-    wake.focus(back ? (state.x + back.x) * 0.5 : state.x - hx * ext * 0.28,
-               back ? (state.z + back.z) * 0.5 : state.z - hz * ext * 0.28, ext);
-    wake.update(state.t);
-    feedSurface(0.1);
-    surface.step(0.1);
+// path. The surface state is history, and a hull with no history laid behind
+// it has no wake on the water; headless renders were showing a sim with five
+// frames in it and calling it faint. So the prewarm runs the field and the
+// surface too.
+//
+// But not synchronously. The first version did the GPU work inside the module
+// script, and under a software renderer that held the page's load event past
+// its thirty-second timeout: the verify failed on page.goto and every capture
+// tool with it. So the loop runs in chunks of a few tens of milliseconds
+// between tasks, the frame loop only draws until it is done, and __ready --
+// which every capture tool waits on -- is set afterwards. The surface is
+// stepped at a fifth of a second and only over the last half-minute of the
+// run, which is all a foam half-life of twenty-odd seconds can still see.
+let prewarmLeft = PREWARM * 30;
+window.__prewarming = prewarmLeft > 0;
+function prewarmChunk() {
+  const t0 = performance.now();
+  while (prewarmLeft > 0 && performance.now() - t0 < 40) {
+    const i = PREWARM * 30 - prewarmLeft;
+    stepSim(1 / 30);
+    if (prewarmLeft <= 30 * 30 && i % 6 === 5) {
+      const ext = get('field.extent');
+      const hx = Math.sin(state.heading), hz = Math.cos(state.heading);
+      const back = wake.backAlongPath(ext * 0.56);
+      wake.focus(back ? (state.x + back.x) * 0.5 : state.x - hx * ext * 0.28,
+                 back ? (state.z + back.z) * 0.5 : state.z - hz * ext * 0.28, ext);
+      wake.update(state.t);
+      feedSurface(0.2);
+      surface.step(0.2);
+    }
+    prewarmLeft--;
   }
+  if (prewarmLeft > 0) setTimeout(prewarmChunk, 0);
+  else window.__prewarming = false;
 }
+if (prewarmLeft > 0) prewarmChunk();
 
 // Waves bursting on the rocks that stand in the surf.
 //
@@ -1698,6 +1715,10 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min((now - last) / 1000, 0.05);
   last = now;
+  // While the prewarm is still laying history, the sim belongs to it: stepping
+  // here as well would advance the boat twice. Keep scheduling frames so the
+  // page stays alive, and let __ready wait.
+  if (window.__prewarming) return;
 
   const { hx, hz } = stepSim(dt);
   // Sit the hull the way its speed says it should. The model's origin is at the
