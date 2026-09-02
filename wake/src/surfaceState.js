@@ -157,6 +157,20 @@ export class SurfaceState {
 			transparent: true, depthTest: false, depthWrite: false,
 			blending: THREE.CustomBlending, blendEquation: THREE.AddEquation,
 			blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor,
+			// BOTH SIDES, and this is the line the whole sim was missing.
+			//
+			// The corners are laid out (-1,-1) (1,-1) (1,1) (-1,1) in the hull's
+			// along/across frame, and as seen from a camera looking straight
+			// down that winds CLOCKWISE: the face normal comes out pointing -Y,
+			// away from the camera, and with the default FrontSide every splat
+			// was culled as a back face. Measured: two triangles drawn per
+			// splat, one call, zero pixels landed, under three different blend
+			// states -- the fragments never reached the blend at all.
+			//
+			// A splat is a stamp on the water; it has no front. And the winding
+			// flips with the heading anyway, so fixing the index order would
+			// only have fixed half the compass.
+			side: THREE.DoubleSide,
 		} ) );
 		mesh.frustumCulled = false;
 		this.splatScene = new THREE.Scene();
