@@ -829,8 +829,8 @@ export const PARAMS = {
     // Below this she is not making white at all -- a hull ghosting along at a
     // knot parts the water without breaking it.
     threshold:  { v: 0.8,  min: 0,   max: 4,   step: 0.05, label: 'White starts above (m/s)' },
-    waterline:  { v: 0.012, min: 0,  max: 0.1, step: 0.001, label: 'Waterline makes' },
-    transom:    { v: 0.05, min: 0,   max: 0.4, step: 0.005, label: 'Transom makes' },
+    waterline:  { v: 0.25, min: 0,   max: 1,   step: 0.005, label: 'Waterline makes' },
+    transom:    { v: 0.12, min: 0,   max: 0.6, step: 0.005, label: 'Transom makes' },
     landing:    { v: 0.35, min: 0,   max: 2,   step: 0.01, label: 'Spray landing makes' },
     // Half-lives, in seconds. A patch loses half of itself every this-many.
     foamHalf:   { v: 22,   min: 1,   max: 180, step: 1,    label: 'Foam half-life (s)' },

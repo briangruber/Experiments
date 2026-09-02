@@ -1669,9 +1669,16 @@ function feedSurface(dt) {
 
   // 1. THE WATERLINE. Every wet station, both sides, from the mesh.
   if (drive > 0 && waterline.wet) {
-    const kW = get('sim.waterline') * gain * dt;
-    const work = Math.pow(drive, 1.5);
     const stationLen = L / HULL_STATIONS;
+    const ha = stationLen * 0.7;
+    // PER METRE OF HULL, not per second. A texel is under a station only for
+    // as long as the hull takes to pass it, 2 ha / v, so a rate per second
+    // laid a total that fell with speed: at 14 m/s the whole waterline came
+    // to 0.03 of coverage and the residue gate ate it. Dividing the passage
+    // time back out makes the number in the slider what a station lays where
+    // it passes, and sqrt(drive) is how fast that grows with speed.
+    const kW = get('sim.waterline') * gain * dt * v / (2 * ha);
+    const work = Math.sqrt(drive);
     const c = waterline.cuts;
     for (let i = 0; i + 4 < c.length; i += 5) {
       const x = c[i], z = c[i + 2], aft = c[i + 3], side = c[i + 4];
@@ -1686,7 +1693,7 @@ function feedSurface(dt) {
       const turnK = 1 + carve * 2.2 * outward;
       const air = kW * work * (0.9 * bow + 0.15) * (1 - planed * 0.5) * turnK;
       const foam = kW * work * (0.25 * bow + 0.55 * along) * (0.5 + planed * 0.8) * turnK;
-      surface.splat(x, z, hx, hz, stationLen * 0.7, 0.35 + 0.05 * aft + carve * outward * 0.8,
+      surface.splat(x, z, hx, hz, ha, 0.35 + 0.05 * aft + carve * outward * 0.8,
                     foam, air, foam);
     }
   }
