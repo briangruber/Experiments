@@ -839,6 +839,12 @@ export const PARAMS = {
     // slope entrains per second.
     breaking:   { v: 1.5,  min: 0,   max: 20,  step: 0.1,  label: 'Steep crests break' },
     breakSlope: { v: 0.2,  min: 0,   max: 0.6, step: 0.005, label: 'Slope that breaks' },
+    // HOW THE RAFT MOVES. What floats on waves is carried by them: back and
+    // forth with each crest (the orbital sway -- 1 is exactly with the
+    // water, more exaggerates it) and slowly downwind between crests (the
+    // Stokes drift, m/s, a few percent of the wind).
+    sway:       { v: 1.6,  min: 0,   max: 4,   step: 0.05, label: 'Foam sways with waves' },
+    drift:      { v: 0.08, min: 0,   max: 1,   step: 0.005, label: 'Foam drifts downwind (m/s)' },
     // HOW THE RAFT COMES APART. Real foam is not a decal that dims: the water
     // under it keeps turning over, so the pattern drifts and stretches, and it
     // drains from the thin places first, so it opens into lace. Both grow

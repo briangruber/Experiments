@@ -53,6 +53,9 @@ uniform float uSurfOn, uSimGain, uRecipeFoam;
 // How the raft comes apart as it ages: how far it wanders (m), how big the
 // eddies that carry it are (1/m), and how much of it opens into holes.
 uniform float uSimMelt, uSimMeltScale, uSimLace, uSimLaceScale;
+// How far the raft rides with a passing wave, as a multiple of the water's
+// own horizontal displacement: 1 is exactly with the surface, more sways it.
+uniform float uSimSway;
 uniform vec2  uWakeOrigin;
 uniform vec2  uWakeHead, uWakeFwd;
 uniform float uWakeSpeed;

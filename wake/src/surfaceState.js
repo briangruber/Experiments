@@ -139,6 +139,9 @@ export class SurfaceState {
 		this.rt = [ mk(), mk() ];
 		this.i = 0;
 		this.center = new THREE.Vector2( 0, 0 );
+		// Drift owed but not yet applied, in metres. Applied only in whole
+		// texels, so the raft moves without ever being resampled.
+		this.driftAcc = new THREE.Vector2( 0, 0 );
 		this.extent = field.extent;
 		this.reset = true;
 
@@ -210,6 +213,13 @@ export class SurfaceState {
 	/** The live face, for the water to sample. */
 	texture() { return this.rt[ this.i ].texture; }
 
+	/**
+	 * Carry everything on the surface by (dx, dz) metres: the net drift a
+	 * wave field gives whatever floats on it. Accumulated and paid out in
+	 * whole texels at step().
+	 */
+	drift( dx, dz ) { this.driftAcc.x += dx; this.driftAcc.y += dz; }
+
 	/** Start the frame's source list. */
 	begin() { this.nSplat = 0; }
 
@@ -267,6 +277,16 @@ export class SurfaceState {
 		// v flipped: the bake camera looks down with up = (0, 0, -1), so +Z in
 		// the world runs DOWN the texture. The shift is in OLD texture units.
 		u.uShift.value.set( ( f.center.x - this.center.x ) / eOld, - ( f.center.y - this.center.y ) / eOld );
+		// Drift: the content moves +d in the world, which is the window moving
+		// -d, so it enters the shift with the opposite sign to a centre move.
+		// Whole texels of the OLD window only; the remainder waits.
+		const texel = eOld / this.size;
+		const nx = Math.trunc( this.driftAcc.x / texel ), nz = Math.trunc( this.driftAcc.y / texel );
+		if ( nx !== 0 || nz !== 0 ) {
+			u.uShift.value.x -= nx * texel / eOld;
+			u.uShift.value.y += nz * texel / eOld;
+			this.driftAcc.x -= nx * texel; this.driftAcc.y -= nz * texel;
+		}
 		this.extent = f.extent;
 		u.uDt.value = dt;
 		u.uFoamHalf.value = get( 'sim.foamHalf' );

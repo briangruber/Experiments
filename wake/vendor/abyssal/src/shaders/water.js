@@ -1147,7 +1147,11 @@ void main(){
       // between the bright fresh path and the thin residue path -- so a raft
       // brightens where the hull just made it and thins behind, with no
       // second copy of the pattern anywhere.
-      vec3 sf = surfaceAt(vFlat.xz) * k;
+      // Foam rides the water: the surface here came from vFlat, displaced
+      // to vWorld, so reading at vFlat already carries the raft with the
+      // orbital sway. uSimSway scales that sway about 1.
+      vec2 swayP = vFlat.xz - (vWorld.xz - vFlat.xz) * (uSimSway - 1.0);
+      vec3 sf = surfaceAt(swayP) * k;
       float newness = clamp(sf.z / max(sf.x, 1e-3), 0.0, 1.0);
       wake += sf.x * newness;
       wakeDep += sf.x * (1.0 - newness);
