@@ -574,7 +574,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'c04';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'c05';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -995,6 +995,9 @@ addEventListener('keydown', (e) => {
   // Shift+C steps back through the shots, so overshooting the one you wanted
   // does not mean going round the whole cycle again.
   if (k === 'c') useCamera(camIndex + (e.shiftKey ? -1 : 1));
+  // Space shuts the throttle. Prevented, or it scrolls the page and re-presses
+  // whichever button was last focused -- which up here is a camera change.
+  if (k === ' ') { e.preventDefault(); stopEngines(); }
 });
 addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 
@@ -1390,6 +1393,20 @@ function stepSim(dt) {
 
 // ?prewarm=90 — run 90 seconds of boat before the first frame, so a capture (or
 // a reload mid-tuning) starts with a full-length wake instead of a stub.
+// STOP THE ENGINES.
+//
+// The throttle to zero, not the boat to zero. Shutting down does not stop a
+// hull -- she carries her way and slows on her own drag, which is the whole
+// difference between a boat and a car, and it is already modelled: the speed
+// slider is a TARGET and boat.brake governs how fast she comes off it. So this
+// sets the target and lets the physics do what it does.
+const stopBtn = document.getElementById('stop');
+function stopEngines() {
+  set('boat.speed', 0);
+  ui.refresh();
+}
+stopBtn?.addEventListener('click', stopEngines);
+
 // The ribbon's anchor, carried between frames so it can walk rather than jump.
 // Started at the ahead value, which is where she is at rest.
 let _anchorOff = 0;
@@ -1914,6 +1931,11 @@ function frame(now) {
   // The speed, every frame -- not on the fps timer. It is the number you steer
   // by, and a readout that lags the throttle by half a second is worse than
   // none. Two decimals would shimmer at this update rate; one does not.
+  if (stopBtn) {
+    // Lit while the throttle is shut and she is still moving.
+    const coasting = Math.abs(get('boat.speed')) < 0.05 && Math.abs(state.speed) > 0.25;
+    stopBtn.dataset.coasting = coasting ? '1' : '';
+  }
   if (speedEl) {
     const v = state.speed;
     speedEl.firstChild.textContent = Math.abs(v).toFixed(1);

@@ -135,6 +135,31 @@ body.hide-ui #speed { opacity: 0.62; }
 /* Astern reads as astern rather than as a minus sign you have to notice. */
 #speed[data-astern="1"] b { color: var(--accent); }
 
+/* THE ENGINE STOP. Set apart from the view buttons -- it is the only control up
+   here that changes what the boat is DOING rather than how you are looking at
+   it, and reaching for it in a hurry should not mean reading labels. */
+#stop {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--dim);
+  background: var(--raised);
+  border: 1px solid var(--hair);
+  border-radius: 3px;
+  padding: 5px 12px 4px;
+  cursor: pointer;
+  transition: color 0.14s, border-color 0.14s, background 0.14s;
+}
+#stop:hover { color: var(--foam); border-color: var(--dimmer); }
+/* Lit while she is still carrying way after the throttle has been shut: the
+   engines are off and she has not stopped, which are two different things and
+   the gap between them is most of what a boat does. */
+#stop[data-coasting="1"] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 .views, .zoom { display: flex; gap: 5px; }
 .zoom button { min-width: 30px; font-size: 15px; line-height: 1; padding: 5px 8px; }
 
