@@ -584,7 +584,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'c08';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'c09';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -1471,7 +1471,29 @@ const hullNow = { sternX: 0, sternZ: 0, hx: 0, hz: 1, load: 0 };
 const speedEl = document.getElementById('speed');
 
 const PREWARM = +(new URLSearchParams(location.search).get('prewarm') ?? NaN) || window.__PREWARM || 0;
-for (let i = 0; i < PREWARM * 30; i++) stepSim(1 / 30);
+// THE WHOLE SIM, not just the boat.
+//
+// The prewarm used to step the hull alone and leave the field to reconstruct
+// itself on the first frame, which it can, because it is a function of the
+// path. The surface state is not: it is history, and a hull that has had no
+// history laid down behind it has no wake on the water. Headless renders were
+// showing a sim with five frames in it and calling it faint. So the prewarm
+// runs the field and the surface too -- at a tenth of a second rather than a
+// thirtieth, since foam does not need the hull's integration rate and a GPU
+// pass per step is the whole cost of a prewarm.
+for (let i = 0; i < PREWARM * 30; i++) {
+  stepSim(1 / 30);
+  if (i % 3 === 2) {
+    const ext = get('field.extent');
+    const hx = Math.sin(state.heading), hz = Math.cos(state.heading);
+    const back = wake.backAlongPath(ext * 0.56);
+    wake.focus(back ? (state.x + back.x) * 0.5 : state.x - hx * ext * 0.28,
+               back ? (state.z + back.z) * 0.5 : state.z - hz * ext * 0.28, ext);
+    wake.update(state.t);
+    feedSurface(0.1);
+    surface.step(0.1);
+  }
+}
 
 // Waves bursting on the rocks that stand in the surf.
 //
