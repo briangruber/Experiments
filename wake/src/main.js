@@ -574,7 +574,7 @@ const state = { x: 0, z: 0, heading: 0, course: 0, t: 0, speed: 0, turn: 0 };
 // --------------------------------------------------------------------- boot --
 const hud = document.getElementById('hud');
 const BACKEND = renderer.getContext() instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1';
-const BUILD = 'c03';   // bumped on each publish, so a stale tab is obvious
+const BUILD = 'c04';   // bumped on each publish, so a stale tab is obvious
 
 function setView(mode) {
   if (mode === 'top') { view.topDown = true; view.pitch = -Math.PI / 2; view.yaw = 0; }
@@ -1555,6 +1555,9 @@ function frame(now) {
   const fz = back ? (state.z + back.z) * 0.5 : state.z - hz * fieldExtent * 0.28;
   wake.focus(fx, fz, fieldExtent);
   wake.update(state.t);
+  // ...and then lay this frame's foam onto the water and let what is already
+  // there fade. Ordered after the bake because it draws the same ribbon.
+  wake.deposit(dt);
 
   // Camera. Nothing here is assigned straight from state: every term is
   // smoothed toward its target, which is what stops a turn from snapping the

@@ -870,6 +870,26 @@ export const PARAMS = {
     // Slew-limited instead, so the anchor walks. Lower is smoother and takes
     // longer to settle after a change of direction.
     anchorSlew:   { v: 6,    min: 0.5, max: 40,  step: 0.5,  label: 'Anchor slew (m/s)' },
+    // ---- FOAM THAT LIVES ON THE WATER ------------------------------------
+    //
+    // Everything else in the wake is RECONSTRUCTED: re-derived from the path
+    // every frame, so it is a function of where the boat has been and what it
+    // is doing now. That is why reversing moved the whole pattern, and it is a
+    // shape of bug that keeps recurring rather than a bug that gets fixed.
+    //
+    // This is the other half -- a world-locked buffer that is only added to and
+    // faded, never re-derived. What is on it stays where it was laid whatever
+    // the boat does next. 0 turns it off and leaves the reconstruction alone.
+    deposit:      { v: 0.5,  min: 0,   max: 3,   step: 0.01, label: 'Foam laid on the water' },
+    // Half-life of what is down, in seconds: a patch loses half of itself every
+    // this-many seconds. Long is a track that stays legible for a minute after
+    // she has gone; short is foam that dies almost as fast as it is made.
+    depositLife:  { v: 26,   min: 2,   max: 180, step: 1,    label: 'Deposit half-life (s)' },
+    // How soon after the hull passes the foam stops being CREATED. This is the
+    // width of the laying-down zone, not the life of the result -- the deposit
+    // owns everything after this. Short keeps the making close to the boat,
+    // where it belongs.
+    depositFresh: { v: 1.6,  min: 0.1, max: 12,  step: 0.1,  label: 'Laid within (s)' },
   },
 };
 

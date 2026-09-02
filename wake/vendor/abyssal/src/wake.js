@@ -44,6 +44,11 @@ function nearestStamp(pnt, prevs, max = 4) {
 // lights it.
 export const WAKE_SAMPLE_GLSL = /* glsl */`
 uniform sampler2D uWakeTex;
+// The world-locked deposit. Same origin and extent as the field, so it needs no
+// frame of its own -- and unlike the field it is not re-derived from anything,
+// so what it holds stays where it was laid.
+uniform sampler2D uDepTex;
+uniform float uDepAmount;
 uniform vec2  uWakeOrigin;
 uniform vec2  uWakeHead, uWakeFwd;
 uniform float uWakeSpeed;
@@ -80,6 +85,15 @@ vec4 wakeAgeAt(vec2 p){
 // the green -- so deep churn is dark blue-green and only turns pale turquoise
 // once it reaches the top.
 //
+// Foam that was LAID here, as opposed to foam reconstructed for here. Zero
+// outside the field, and zero when the deposit is switched off.
+float wakeDepositAt(vec2 p){
+  if (uDepAmount < 0.5) return 0.0;
+  vec2 uv = (p - uWakeOrigin) / uWakeExtent * vec2(1.0, -1.0) + 0.5;
+  if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return 0.0;
+  return max(texture(uDepTex, uv).x, 0.0);
+}
+
 // Returns (density, surfaced fraction). Zero outside the field.
 vec2 wakeBubblesAt(vec2 p){
   vec2 uv = (p - uWakeOrigin) / uWakeExtent * vec2(1.0, -1.0) + 0.5;

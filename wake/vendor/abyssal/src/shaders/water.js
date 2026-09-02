@@ -1139,6 +1139,11 @@ void main(){
       wakeRecon = wk.x * reconK;
       if (k > 0.004) {
       wake = wk.x * k;
+      // WHAT WAS LAID HERE, alongside what is reconstructed for here. Taken as
+      // a max rather than a sum: they are two accounts of the same white water,
+      // not two lots of it, and adding them doubles the wake wherever both
+      // have something to say.
+      wake = max(wake, wakeDepositAt(vFlat.xz) * k);
       // A wake leaves a slick. Churned water has lost the short ripples and the
       // wind foam that were riding on it, and that smooth lane is most of why a
       // boat's path stays legible on a broken sea long after the white water
