@@ -1125,6 +1125,7 @@ void main(){
   // for real (the vertex shader displaces by the same field), and a ridge whose
   // shading normal does not know it is a ridge reads as a decal on flat water.
   float wake = 0.0;
+  float wakeDep = 0.0;          // laid foam, shaded as residue -- see below
   float wakeRecon = 0.0;
   float wakeK = 1.0 - smoothstep(1.2, 6.0, foot);
   float reconK = 1.0 - smoothstep(8.0, 28.0, foot);
@@ -1139,11 +1140,20 @@ void main(){
       wakeRecon = wk.x * reconK;
       if (k > 0.004) {
       wake = wk.x * k;
-      // WHAT WAS LAID HERE, alongside what is reconstructed for here. Taken as
-      // a max rather than a sum: they are two accounts of the same white water,
-      // not two lots of it, and adding them doubles the wake wherever both
-      // have something to say.
-      wake = max(wake, wakeDepositAt(vFlat.xz) * k);
+      // WHAT WAS LAID HERE IS OLD FOAM, and it must not be shaded as new.
+      //
+      // Folding the deposit into `wake` made it fresh foam -- bright, opaque,
+      // the shading for water being broken right now -- and laid it over the
+      // whole track for half a minute. Compared side by side, the turquoise
+      // bubble plume behind the transom went from mottled and structured to a
+      // pale flat wash: the deposit was painting over the submerged haze as
+      // though it were new white water on the surface.
+      //
+      // A raft that has been lying there for thirty seconds is thin, and what
+      // is under it shows through. So the deposit goes to the RESIDUE channel
+      // and nowhere else, which is the shading for exactly that, and the plume
+      // is visible through it again.
+      wakeDep = wakeDepositAt(vFlat.xz) * k;
       // A wake leaves a slick. Churned water has lost the short ripples and the
       // wind foam that were riding on it, and that smooth lane is most of why a
       // boat's path stays legible on a broken sea long after the white water
@@ -1242,6 +1252,10 @@ void main(){
   // Same channels, same lace, same foamCoord stretch as whitecaps.
   foamF += wake * WAKE_FOAM_FRESH;
   foamR += wake * WAKE_FOAM_RESIDUE;
+  // ...and the deposit only ever as residue. Left in the coverage rather than
+  // subtracted back out like the reconstruction is, so it takes the lace: old
+  // foam is the lacy, broken-up kind, which is what it should look like.
+  foamR += wakeDep * WAKE_FOAM_RESIDUE;
 
   // THE WATERLINE ITSELF.
   //
