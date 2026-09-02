@@ -832,6 +832,18 @@ export const PARAMS = {
     waterline:  { v: 0.25, min: 0,   max: 1,   step: 0.005, label: 'Waterline makes' },
     transom:    { v: 0.12, min: 0,   max: 0.6, step: 0.005, label: 'Transom makes' },
     landing:    { v: 0.35, min: 0,   max: 2,   step: 0.01, label: 'Spray landing makes' },
+    // HOW THE RAFT COMES APART. Real foam is not a decal that dims: the water
+    // under it keeps turning over, so the pattern drifts and stretches, and it
+    // drains from the thin places first, so it opens into lace. Both grow
+    // with age. melt is how far a patch has wandered by the time it is old
+    // (m); meltSize is the size of the eddies carrying it (m) -- small is
+    // every bubble for itself, large is whole lobes moving together. lace is
+    // how much of an old raft has opened into holes; laceSize is the hole
+    // size (m).
+    melt:       { v: 1.6,  min: 0,   max: 6,   step: 0.05, label: 'Foam melt (m)' },
+    meltSize:   { v: 4.0,  min: 0.3, max: 20,  step: 0.1,  label: 'Melt eddy size (m)' },
+    lace:       { v: 0.7,  min: 0,   max: 1.5, step: 0.01, label: 'Foam opens into lace' },
+    laceSize:   { v: 1.2,  min: 0.1, max: 8,   step: 0.05, label: 'Lace hole size (m)' },
     // Half-lives, in seconds. A patch loses half of itself every this-many.
     foamHalf:   { v: 22,   min: 1,   max: 180, step: 1,    label: 'Foam half-life (s)' },
     airHalf:    { v: 6,    min: 0.5, max: 60,  step: 0.5,  label: 'Air half-life (s)' },

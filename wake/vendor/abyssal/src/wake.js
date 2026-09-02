@@ -50,6 +50,9 @@ uniform sampler2D uWakeTex;
 //   x foam (raft coverage)   y air (still in the column)   z fresh (new white)
 uniform sampler2D uSurfTex;
 uniform float uSurfOn, uSimGain, uRecipeFoam;
+// How the raft comes apart as it ages: how far it wanders (m), how big the
+// eddies that carry it are (1/m), and how much of it opens into holes.
+uniform float uSimMelt, uSimMeltScale, uSimLace, uSimLaceScale;
 uniform vec2  uWakeOrigin;
 uniform vec2  uWakeHead, uWakeFwd;
 uniform float uWakeSpeed;
@@ -87,11 +90,45 @@ vec4 wakeAgeAt(vec2 p){
 // once it reaches the top.
 //
 // What is ON the water here, as opposed to what is reconstructed for here.
-vec3 surfaceAt(vec2 p){
-  if (uSurfOn < 0.5) return vec3(0.0);
+float surfHash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float surfNoise(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(surfHash(i), surfHash(i + vec2(1.0, 0.0)), f.x),
+             mix(surfHash(i + vec2(0.0, 1.0)), surfHash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+vec3 surfaceRaw(vec2 p){
   vec2 uv = (p - uWakeOrigin) / uWakeExtent * vec2(1.0, -1.0) + 0.5;
   if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return vec3(0.0);
-  return max(texture(uSurfTex, uv).xyz, 0.0) * uSimGain;
+  return max(texture(uSurfTex, uv).xyz, 0.0);
+}
+// A raft is not a decal that dims. The water under it keeps turning over, so
+// the pattern drifts and stretches with the eddies; and it drains from the
+// thin places first, so it opens into lace rather than fading evenly. Both
+// grow with AGE, which the buffer knows as fresh / foam: fresh has a
+// half-life of seconds, foam of tens, so the ratio runs from 1 when laid to
+// 0 when old. The warp is world-locked and read at display time, so nothing
+// in the buffer is ever blurred by it.
+vec3 surfaceAt(vec2 p){
+  if (uSurfOn < 0.5) return vec3(0.0);
+  vec3 s0 = surfaceRaw(p);
+  float ageT = 1.0 - sqrt(clamp(s0.z / max(s0.x, 1e-4), 0.0, 1.0));
+  if (s0.x > 1e-4 && uSimMelt > 0.0) {
+    vec2 q = p * uSimMeltScale;
+    vec2 warp = vec2(surfNoise(q) - 0.5, surfNoise(q + vec2(37.2, 11.9)) - 0.5);
+    // Two octaves: whole lobes moving together, plus the edges fraying.
+    warp += 0.5 * vec2(surfNoise(q * 2.7 + 5.3) - 0.5, surfNoise(q * 2.7 + vec2(19.1, -7.7)) - 0.5);
+    s0 = surfaceRaw(p + warp * (uSimMelt * ageT * ageT));
+  }
+  if (uSimLace > 0.0) {
+    float hole = surfNoise(p * uSimLaceScale) * 0.65 + surfNoise(p * uSimLaceScale * 3.1 + 8.8) * 0.35;
+    // As it ages the threshold falls, so more of the pattern counts as hole;
+    // thin foam goes first because the hole only takes what is under it.
+    float open = smoothstep(0.62 - 0.45 * ageT * uSimLace, 0.78, hole);
+    s0.x *= 1.0 - open * min(uSimLace * ageT * 1.4, 1.0);
+    s0.z  = min(s0.z, s0.x);
+  }
+  return s0 * uSimGain;
 }
 
 // Returns (density, surfaced fraction). Zero outside the field.

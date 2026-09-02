@@ -38,12 +38,15 @@ const STEP_FRAG = /* glsl */`
   precision highp float;
   uniform sampler2D uPrev;
   uniform vec2  uShift;
+  uniform float uScale;
   uniform float uDt;
   uniform float uFoamHalf, uAirHalf, uFreshHalf, uRise;
   varying vec2 vUv;
   void main(){
-    // Follow the boat. uShift is a whole number of texels, so this is a copy.
-    vec2 uv = vUv + uShift;
+    // Follow the boat. uShift is a whole number of texels, so this is a copy
+    // -- except on the frame the window changes size, when uScale is not one
+    // and the old contents are read through a resample. Once per zoom.
+    vec2 uv = (vUv - 0.5) * uScale + 0.5 + uShift;
     vec4 p = (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0))))
       ? vec4(0.0) : texture2D(uPrev, uv);
     float foam = p.r, air = p.g, fresh = p.b;
@@ -121,6 +124,7 @@ export class SurfaceState {
 		this.stepU = {
 			uPrev: { value: this.rt[ 1 ].texture },
 			uShift: { value: new THREE.Vector2( 0, 0 ) },
+			uScale: { value: 1 },
 			uDt: { value: 1 / 60 },
 			uFoamHalf: { value: 22 }, uAirHalf: { value: 6 },
 			uFreshHalf: { value: 3 }, uRise: { value: 0.35 },
@@ -217,23 +221,28 @@ export class SurfaceState {
 		const prevTarget = r.getRenderTarget();
 		const prev = this.rt[ this.i ], next = this.rt[ this.i ^ 1 ];
 
-		// A change of window size cannot be followed, only rescaled, and a
-		// buffer whose whole point is that it is never resampled does not get
-		// rescaled. It starts again.
-		if ( Math.abs( this.extent - f.extent ) > 1e-3 ) { this.extent = f.extent; this.reset = true; }
 		if ( this.reset ) {
 			r.setClearColor( 0x000000, 0 );
 			for ( const t of this.rt ) { r.setRenderTarget( t ); r.clear( true, false, false ); }
 			this.center.copy( f.center );
+			this.extent = f.extent;
 			this.reset = false;
 		}
 
-		const e = Math.max( this.extent, 1e-3 );
+		// The window follows the camera: zoomed in it shrinks, to put its
+		// texels where you are looking. That used to start the buffer over,
+		// which is exactly the foam disappearing as you zoom in. Now the old
+		// contents are resampled into the new window -- one interpolated read,
+		// on the frame the size changes, and exact copies again after.
+		const eOld = Math.max( this.extent, 1e-3 );
+		const eNew = Math.max( f.extent, 1e-3 );
 		const u = this.stepU;
 		u.uPrev.value = prev.texture;
+		u.uScale.value = eNew / eOld;
 		// v flipped: the bake camera looks down with up = (0, 0, -1), so +Z in
-		// the world runs DOWN the texture.
-		u.uShift.value.set( ( f.center.x - this.center.x ) / e, - ( f.center.y - this.center.y ) / e );
+		// the world runs DOWN the texture. The shift is in OLD texture units.
+		u.uShift.value.set( ( f.center.x - this.center.x ) / eOld, - ( f.center.y - this.center.y ) / eOld );
+		this.extent = f.extent;
 		u.uDt.value = dt;
 		u.uFoamHalf.value = get( 'sim.foamHalf' );
 		u.uAirHalf.value = get( 'sim.airHalf' );
